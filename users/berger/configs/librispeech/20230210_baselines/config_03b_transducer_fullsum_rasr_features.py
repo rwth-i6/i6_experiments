@@ -22,6 +22,7 @@ from i6_experiments.users.berger.systems.dataclasses import ReturnnConfigs, Feat
 from i6_experiments.users.berger.util import default_tools
 from i6_private.users.vieting.helpers.returnn import serialize_dim_tags
 from i6_experiments.users.berger.systems.dataclasses import AlignmentData
+from i6_experiments.users.berger.network.helpers.label_context import ILMMode
 from .config_01b_ctc_blstm_rasr_features import py as py_ctc
 from .config_02b_transducer_rasr_features import py as py_transducer
 from sisyphus import gs, tk
@@ -106,6 +107,7 @@ def generate_returnn_config(
                     "size": 1024,
                     "activation": "tanh",
                 },
+                "ilm_mode": ILMMode.ZeroEnc,
                 "ilm_scale": kwargs.get("ilm_scale", 0.0),
             },
         )
@@ -166,6 +168,9 @@ def run_exp(alignments: Dict[str, AlignmentData], viterbi_model_checkpoint: Chec
         use_wei_lexicon=False,
         feature_type=FeatureType.GAMMATONE_16K,
     )
+
+    for data_input in data.data_inputs.values():
+        data_input.create_lm_images(tools.rasr_binary_path)
 
     # ********** Step args **********
 
@@ -254,6 +259,7 @@ def run_exp(alignments: Dict[str, AlignmentData], viterbi_model_checkpoint: Chec
     system.run_recog_step_for_corpora(corpora=["test-clean_4gram", "test-other_4gram"], **recog_args)
 
     recog_args["lm_scales"] = [0.8]
+    recog_args["seq2seq_v2"] = True
     recog_args["search_parameters"].update(
         {
             "full-sum-decoding": True,
@@ -280,7 +286,8 @@ def run_exp(alignments: Dict[str, AlignmentData], viterbi_model_checkpoint: Chec
     )
     recog_args["lookahead_options"].update({"lm_lookahead_scale": 0.45})
     recog_args["use_gpu"] = True
-    recog_args["rtf"] = 50
+    recog_args["rtf"] = 100
+    recog_args["mem"] = 24
 
     system.run_recog_step_for_corpora(
         recog_descriptor="fs",

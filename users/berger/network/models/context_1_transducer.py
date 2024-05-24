@@ -155,11 +155,7 @@ def make_context_1_conformer_transducer_fullsum(
     }
     context_labels = "pred_labels_int32"
 
-    (
-        joint_output,
-        decoder_unit,
-        decoder_python,
-    ) = label_context.add_context_1_decoder_fullsum(
+    (joint_output, decoder_unit, decoder_python,) = label_context.add_context_1_decoder_fullsum(
         network,
         context_labels=context_labels,
         encoder="encoder",
@@ -221,6 +217,29 @@ def make_context_1_conformer_transducer_recog(
         num_outputs=num_outputs,
         encoder="encoder",
         **decoder_args,
+    )
+
+    return network, python_code
+
+
+def make_context_1_conformer_transducer_precomputed_recog(
+    num_outputs: int,
+    vgg_args: Dict = {},
+    conformer_args: Dict = {},
+    decoder_args: Dict = {},
+) -> Tuple[Dict, List]:
+    network = {}
+    python_code = []
+
+    from_list = ["data"]
+
+    from_list = add_initial_conv(network, from_list, **vgg_args)
+    from_list, _ = add_conformer_stack(network, from_list, **conformer_args)
+
+    network["encoder"] = {"class": "copy", "from": from_list}
+
+    label_context.add_precomputed_context_1_decoder_recog(
+        network, num_outputs=num_outputs, encoder="encoder", **decoder_args
     )
 
     return network, python_code
@@ -342,11 +361,7 @@ def make_context_1_blstm_transducer_fullsum(
     }
     context_labels = "pred_labels_int32"
 
-    (
-        joint_output,
-        decoder_unit,
-        decoder_python,
-    ) = label_context.add_context_1_decoder_fullsum(
+    (joint_output, decoder_unit, decoder_python,) = label_context.add_context_1_decoder_fullsum(
         network,
         context_labels=context_labels,
         encoder="encoder",

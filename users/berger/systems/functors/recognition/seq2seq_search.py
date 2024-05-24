@@ -42,6 +42,7 @@ class Seq2SeqSearchFunctor(
         recognition_scoring_type=RecognitionScoringType.Lattice,
         rqmt_update: Optional[dict] = None,
         search_stats: bool = False,
+        seq2seq_v2: bool = False,
         **kwargs,
     ) -> List[Dict]:
         assert recog_corpus is not None
@@ -135,14 +136,24 @@ class Seq2SeqSearchFunctor(
             else:
                 raise NotImplementedError
 
-            rec = recognition.GenericSeq2SeqSearchJob(
-                crp=crp,
-                feature_flow=feature_flow,
-                label_scorer=label_scorer,
-                label_tree=label_tree,
-                lookahead_options=lookahead_options,
-                **kwargs,
-            )
+            if seq2seq_v2:
+                rec = recognition.GenericSeq2SeqSearchJobV2(
+                    crp=crp,
+                    feature_flow=feature_flow,
+                    label_scorer=label_scorer,
+                    label_tree=label_tree,
+                    lookahead_options=lookahead_options,
+                    **kwargs,
+                )
+            else:
+                rec = recognition.GenericSeq2SeqSearchJob(
+                    crp=crp,
+                    feature_flow=feature_flow,
+                    label_scorer=label_scorer,
+                    label_tree=label_tree,
+                    lookahead_options=lookahead_options,
+                    **kwargs,
+                )
 
             if rqmt_update is not None:
                 rec.rqmt.update(rqmt_update)

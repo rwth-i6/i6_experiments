@@ -23,9 +23,7 @@ def check_engine_limits(current_rqmt, task):
     i6 support for gpu_mem
     """
     current_rqmt["time"] = min(168, current_rqmt.get("time", 2))
-    if current_rqmt.get("gpu", 0) > 0 and "-p" not in current_rqmt.get(
-        "sbatch_args", []
-    ):
+    if current_rqmt.get("gpu", 0) > 0 and "-p" not in current_rqmt.get("sbatch_args", []):
         if current_rqmt.get("gpu_mem", 0) > 11:
             current_rqmt["sbatch_args"] = ["-p", "gpu_24gb"]
         else:
@@ -54,9 +52,7 @@ def engine():
     return EngineSelector(
         engines={
             "short": LocalEngine(cpus=4, mem=16),
-            "long": SimpleLinuxUtilityForResourceManagementEngine(
-                default_rqmt=default_rqmt
-            ),
+            "long": SimpleLinuxUtilityForResourceManagementEngine(default_rqmt=default_rqmt),
         },
         default_engine="long",
     )
@@ -79,6 +75,7 @@ def worker_wrapper(job, task_name, call):
         "AdvancedTreeSearchJob",
         "AdvancedTreeSearchLmImageAndGlobalCacheJob",
         "GenericSeq2SeqSearchJob",
+        "GenericSeq2SeqSearchJobV2",
         "CreateLmImageJob",
         "BuildGenericSeq2SeqGlobalCacheJob",
         "GenericSeq2SeqLmImageAndGlobalCacheJob",
