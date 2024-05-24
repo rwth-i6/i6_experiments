@@ -65,4 +65,3 @@ class ModelConfig:
     def from_dict(cls, cfg: dict):
         ret = cls(**cfg)
         return ret
-        
