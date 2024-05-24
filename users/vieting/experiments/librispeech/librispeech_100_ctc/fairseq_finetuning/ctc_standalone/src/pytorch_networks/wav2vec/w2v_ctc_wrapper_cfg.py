@@ -64,7 +64,7 @@ class ModelConfig:
 
         def _build_dummy_target_dict() -> Dictionary:
             target_dict = Dictionary()
-            for i in range(self.label_target_size):
+            for i in range(self.label_target_size - 3): # -3 to account for the special tokens in fairseq dictionary
                 target_dict.add_symbol(f'{i}')
             return target_dict
 
