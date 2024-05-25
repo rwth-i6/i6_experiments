@@ -7,6 +7,8 @@ from __future__ import annotations
 import copy
 import functools
 from typing import TYPE_CHECKING, Optional, Union, Tuple, Sequence
+import torch
+from torch import nn
 
 from returnn.tensor import Tensor, Dim
 import returnn.frontend as rf
@@ -40,8 +42,10 @@ def py():
     #    "spm_bpe1k",  # 11.76
     ]:
         train_exp(  # 8.23
-            f"v6-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-speedpertV2-{vocab}",
-            config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
+            #f"v6-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-speedpertV2-{vocab}",
+            'debug_run',
+            #config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
+            debug_config,
             config_updates={
                 **_get_cfg_lrlin_oclr_by_bs_nep(15_000, 500),
                 "optimizer.weight_decay": 1e-2,
@@ -150,7 +154,7 @@ def train_exp(
         distributed_launch_cmd="torchrun" if num_processes else None,
         time_rqmt=time_rqmt,
     )
-    recog_training_exp(prefix, task, model_with_checkpoint, recog_def=model_recog)
+    recog_training_exp(prefix, task, model_with_checkpoint, recog_def=model_recog) # recognition
 
     return model_with_checkpoint
 
@@ -288,6 +292,25 @@ def ctc_training(*, model: Model, data: rf.Tensor, data_spatial_dim: Dim, target
         custom_inv_norm_factor=targets_spatial_dim.get_size_tensor(),
         use_normalized_loss=use_normalized_loss,
     )
+    extra_loss = pytorch_loss(logits, targets, model.blank_idx, input_lengths=enc_spatial_dim, target_lengths=targets_spatial_dim)
+    rf.get_run_ctx().mark_as_loss(name='debug_loss',
+                                  loss=extra_loss,
+                                  custom_inv_norm_factor=targets_spatial_dim.get_size_tensor(),
+                                  use_normalized_loss=use_normalized_loss,)
+
+
+def pytorch_loss(logits, targets, blank_index, input_lengths: Dim, target_lengths: Dim):
+    torch_logits = logits.raw_tensor
+    torch_logits = torch_logits.transpose(0,1)
+    log_probs = nn.functional.log_softmax(torch_logits, dim=-1)
+    torch_input_lengths = input_lengths.dyn_size_ext.raw_tensor
+    torch_target_lengths = target_lengths.dyn_size_ext.raw_tensor
+    torch_targets = targets.raw_tensor.long()
+    print(blank_index)
+    test_loss = nn.functional.ctc_loss(log_probs, torch_targets, input_lengths=torch_input_lengths,
+                                       target_lengths=torch_target_lengths,
+                                       blank=blank_index, reduction='sum')
+    return test_loss
 
 
 ctc_training: TrainDef[Model]

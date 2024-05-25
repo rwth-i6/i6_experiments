@@ -100,6 +100,21 @@ config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4 = dict_update_deep(
         "torch_amp",  # f32
     ],
 )
+debug_config = dict_update_deep(
+    config_24gb_v6,
+    {
+        "__gpu_mem": 11,
+        "accum_grad_multiple_step": 1,  # per single GPU
+        "torch_distributed": {"reduce_type": "param", "param_sync_step": 100},  # multi-GPU
+        "__num_processes": 1,  # single-gpu?
+        "optimizer.weight_decay": 1e-4,
+    },
+    [
+        "torch_amp",  # f32
+    ],
+)
+
+
 
 
 def test():
