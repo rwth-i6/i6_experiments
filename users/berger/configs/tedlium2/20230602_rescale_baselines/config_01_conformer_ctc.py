@@ -1,5 +1,6 @@
 import copy
 import os
+from i6_models.config import ModuleFactoryV1
 from i6_core.returnn.config import ReturnnConfig
 
 from sisyphus import gs, tk
@@ -16,6 +17,7 @@ from i6_experiments.users.berger.systems.returnn_seq2seq_system import (
     ReturnnSeq2SeqSystem,
 )
 from i6_experiments.users.berger.util import default_tools_v2
+from i6_experiments.users.berger.pytorch.custom_parts.identity import IdentityConfig, IdentityModule
 
 # ********** Settings **********
 
@@ -38,18 +40,20 @@ def returnn_config_generator(
     extra_config = {
         "train": train_data_config,
         "dev": dev_data_config,
-        "max_seq_length": {"audio_features": 560000},
-        "torch_amp": {"dtype": "bfloat16"},
     }
+    if variant == ConfigVariant.TRAIN:
+        extra_config["max_seq_length"] = {"audio_features": 560000}
+        extra_config["torch_amp"] = {"dtype": "bfloat16"}
     if variant == ConfigVariant.RECOG:
         extra_config["extern_data"] = {
-            "sources": {"dim": 80, "dtype": "float32"},
+            "data": {"dim": 80, "dtype": "float32"},
         }
         extra_config["model_outputs"] = {
             "log_probs": {
                 "dim": num_outputs,
             }
         }
+        model_config.feature_extraction = ModuleFactoryV1(IdentityModule, IdentityConfig())
 
     return get_returnn_config(
         num_epochs=num_subepochs,
@@ -62,12 +66,13 @@ def returnn_config_generator(
         grad_noise=kwargs.get("grad_noise", 0.0),
         grad_clip=0.0,
         optimizer=Optimizers.AdamW,
-        schedule=LearningRateSchedules.OCLR,
+        schedule=LearningRateSchedules.OCLR_STEP_TORCH,
         max_seqs=60,
         initial_lr=7e-06,
         peak_lr=7e-04,
         decayed_lr=7e-05,
         final_lr=1e-08,
+        n_steps_per_epoch=480,
         batch_size=36000 * 160,
         use_chunking=False,
         extra_config=extra_config,
@@ -129,9 +134,9 @@ def run_exp(num_subepochs: int = 250) -> SummaryReport:
     recog_args = exp_args.get_ctc_recog_step_args(
         num_classes=num_outputs,
         epochs=[ep for ep in [80, 160, 320, 640, 1280, num_subepochs] if ep <= num_subepochs],
-        prior_scales=[0.5],
-        lm_scales=[1.1],
-        feature_type=FeatureType.SAMPLES,
+        prior_scales=[0.3, 0.5, 0.7],
+        lm_scales=[0.7, 0.9, 1.1, 1.3],
+        feature_type=FeatureType.LOGMEL_16K,
         search_stats=True,
         seq2seq_v2=True,
     )

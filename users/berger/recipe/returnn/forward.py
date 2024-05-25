@@ -75,6 +75,9 @@ class ReturnnForwardComputePriorJob(Job):
                 self.out_returnn_config_file.get_path(),
             ]
         )
+        util.shutil.move("prior.txt", self.out_prior_txt_file.get_path())
+        util.shutil.move("prior.xml", self.out_prior_xml_file.get_path())
+        util.shutil.move("prior.png", self.out_prior_png_file.get_path())
 
     @classmethod
     def create_returnn_config(

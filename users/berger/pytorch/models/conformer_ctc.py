@@ -13,6 +13,7 @@ from i6_models.primitives.feature_extraction import (
     RasrCompatibleLogMelFeatureExtractionV1,
     RasrCompatibleLogMelFeatureExtractionV1Config,
 )
+from i6_models.parts.frontend.vgg_act import VGG4LayerActFrontendV1, VGG4LayerActFrontendV1Config
 from i6_models.parts.frontend.generic_frontend import (
     GenericFrontendV1,
     GenericFrontendV1Config,
@@ -330,36 +331,56 @@ def get_default_config_v3(num_outputs: int) -> ConformerCTCConfig:
     specaugment = ModuleFactoryV1(
         module_class=SpecaugmentByLengthModuleV1,
         cfg=SpecaugmentByLengthConfigV1(
-            time_min_num_masks=1,
+            time_min_num_masks=2,
             time_max_mask_per_n_frames=25,
             time_mask_max_size=20,
-            freq_min_num_masks=1,
+            freq_min_num_masks=2,
             freq_max_num_masks=16,
             freq_mask_max_size=5,
         ),
     )
 
+    # frontend = ModuleFactoryV1(
+    #     GenericFrontendV1,
+    #     GenericFrontendV1Config(
+    #         in_features=80,
+    #         layer_ordering=[
+    #             FrontendLayerType.Conv2d,
+    #             FrontendLayerType.Conv2d,
+    #             FrontendLayerType.Pool2d,
+    #             FrontendLayerType.Conv2d,
+    #             FrontendLayerType.Conv2d,
+    #             FrontendLayerType.Pool2d,
+    #             FrontendLayerType.Activation,
+    #         ],
+    #         conv_kernel_sizes=[(3, 3), (3, 3), (3, 3), (3, 3)],
+    #         conv_paddings=None,
+    #         conv_out_dims=[32, 64, 64, 32],
+    #         conv_strides=[(1, 1), (1, 1), (1, 1), (1, 1)],
+    #         pool_kernel_sizes=[(2, 1), (2, 1)],
+    #         pool_strides=None,
+    #         pool_paddings=None,
+    #         activations=[torch.nn.ReLU()],
+    #         out_features=384,
+    #     ),
+    # )
     frontend = ModuleFactoryV1(
-        GenericFrontendV1,
-        GenericFrontendV1Config(
+        VGG4LayerActFrontendV1,
+        VGG4LayerActFrontendV1Config(
             in_features=80,
-            layer_ordering=[
-                FrontendLayerType.Conv2d,
-                FrontendLayerType.Conv2d,
-                FrontendLayerType.Pool2d,
-                FrontendLayerType.Conv2d,
-                FrontendLayerType.Conv2d,
-                FrontendLayerType.Pool2d,
-                FrontendLayerType.Activation,
-            ],
-            conv_kernel_sizes=[(3, 3), (3, 3), (3, 3), (3, 3)],
-            conv_paddings=None,
-            conv_out_dims=[32, 64, 64, 32],
-            conv_strides=[(1, 1), (1, 1), (1, 1), (1, 1)],
-            pool_kernel_sizes=[(2, 1), (2, 1)],
-            pool_strides=None,
-            pool_paddings=None,
-            activations=[torch.nn.ReLU()],
+            conv1_channels=32,
+            conv2_channels=64,
+            conv3_channels=64,
+            conv4_channels=32,
+            conv_kernel_size=(3, 3),
+            conv_padding=None,
+            pool1_kernel_size=(2, 1),
+            pool1_stride=(2, 1),
+            pool1_padding=None,
+            pool2_kernel_size=(2, 1),
+            pool2_stride=(2, 1),
+            pool2_padding=None,
+            activation=torch.nn.ReLU(),
             out_features=384,
         ),
     )

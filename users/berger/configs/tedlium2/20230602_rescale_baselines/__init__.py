@@ -19,6 +19,7 @@ def main() -> SummaryReport:
             "AdvancedTreeSearchLmImageAndGlobalCacheJob",
             "FeatureExtractionJob",
             "GenericSeq2SeqSearchJob",
+            "GenericSeq2SeqSearchJobV2",
             "GenericSeq2SeqLmImageAndGlobalCacheJob",
             "CreateLmImageJob",
             "BuildGenericSeq2SeqGlobalCacheJob",

@@ -102,17 +102,8 @@ class BuildGenericSeq2SeqGlobalCacheJob(rasr.RasrCommand, Job):
         if label_tree.lexicon_config is not None:
             config["flf-lattice-tool.lexicon"]._update(label_tree.lexicon_config)
 
-        # Apply config from label scorer and eliminate unnecessary arguments that don't affect the search space (scale, prior)
-        label_scorer_reduced = LabelScorer(
-            scorer_type=label_scorer.scorer_type,
-            scale=1.0,
-            label_file=label_scorer.label_file,
-            num_classes=label_scorer.num_classes,
-            use_prior=False,
-            extra_args={key: val for key, val in label_scorer.extra_args.items() if key != "first-order"},
-        )
-
-        label_scorer_reduced.apply_config("flf-lattice-tool.network.recognizer.label-scorer", config, post_config)
+        # Apply config from label scorer
+        label_scorer.apply_config("flf-lattice-tool.network.recognizer.label-scorer", config, post_config)
 
         # search settings #
         search_config = rasr.RasrConfig()
@@ -415,8 +406,17 @@ class GenericSeq2SeqSearchJobV2(rasr.RasrCommand, Job):
         post_config["*"].output_channel.unbuffered = True
 
         if global_cache is None:
+            # Eliminate unnecessary arguments that don't affect the search space (scale, prior)
+            label_scorer_reduced = LabelScorer(
+                scorer_type=label_scorer.scorer_type,
+                scale=1.0,
+                label_file=label_scorer.label_file,
+                num_classes=label_scorer.num_classes,
+                use_prior=False,
+                extra_args={key: val for key, val in label_scorer.extra_args.items() if key != "first-order"},
+            )
             global_cache = BuildGenericSeq2SeqGlobalCacheJob(
-                crp=crp, label_tree=label_tree, label_scorer=label_scorer
+                crp=crp, label_tree=label_tree, label_scorer=label_scorer_reduced
             ).out_global_cache
 
         post_config.flf_lattice_tool.global_cache.read_only = True
