@@ -34,7 +34,7 @@ from .feature_extraction import (
     SupervisedConvolutionalFeatureExtractionV1,
     SupervisedConvolutionalFeatureExtractionV2,
 )
-from ...features.feature_extraction_v3 import SupervisedConvolutionalFeatureExtractionV3
+from ...features import *
 
 
 class Model(torch.nn.Module):

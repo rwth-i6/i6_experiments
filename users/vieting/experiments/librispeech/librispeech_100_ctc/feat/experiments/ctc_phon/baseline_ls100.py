@@ -640,6 +640,73 @@ def eow_phon_ls100_1023_base():
             forward_config={"batch_size": 100 * 16000},
         )
 
+    # more control over SpecAugment
+    from ...pytorch_networks.features.feature_extraction_v4 import (
+        SupervisedConvolutionalFeatureExtractionV4Config,
+        SpecaugConfig as FeatureSpecaugConfig,
+    )
+    specaug_config = FeatureSpecaugConfig(
+        start_epoch=1,
+        time_min_num_masks=2,
+        time_max_mask_per_n_frames=25,
+        time_mask_max_size=20,
+        freq_min_num_masks=2,
+        freq_max_num_masks=5,
+        freq_mask_max_size=16,
+        freq_mask_max_size_delta_per_epoch=(128 - 16) / 300,
+    )
+    scf_config_v4 = SupervisedConvolutionalFeatureExtractionV4Config(
+        module_class="SupervisedConvolutionalFeatureExtractionV4",
+        wave_norm=True,
+        num_tf=150,
+        size_tf=256,
+        stride_tf=10,
+        init_tf="gammatone",
+        num_env=5,
+        size_env=40,
+        stride_env=16,
+        init_env="hann",
+        convs=[(1, 50, 50)],
+        init_convs="ones",
+        specaug_config=specaug_config,
+        specaug_before_conv_red=True,
+    )
+    for exp_name, f_dim_start, f_dim_end, specaug_before_conv in [
+        ("v2", 64, 192, True),
+        ("v2", 64, 256, True),
+    ]:
+        scf_config_v4.specaug_config.freq_mask_max_size = f_dim_start
+        scf_config_v4.specaug_config.freq_mask_max_size_delta_per_epoch = (f_dim_end - f_dim_start) / 300
+        model_config.feature_extraction_config = scf_config_v4
+        model_config.frontend_config.in_features = scf_config_v4.convs[-1][1]
+        network_module = "ctc.conformer_1023.i6modelsV1_VGG4LayerActFrontendV1_feat_v1"
+        train_args = {
+            "config": {
+                **copy.deepcopy(train_config_24gbgpu_amp),
+                "batch_size": 180 * 16000,
+                "accum_grad_multiple_step": 2,
+            },
+            "network_module": network_module,
+            "net_args": {"model_config_dict": asdict(model_config)},
+            "debug": False,
+        }
+
+        training_name = (
+            prefix_name + "/" + network_module +
+            f".384dim_sub4_24gbgpu_100eps_bs2x180.convredv11.init."
+            f"sasort{exp_name}dim{f_dim_start}to{f_dim_end}before{specaug_before_conv}"
+        )
+        train_job = training(training_name, train_data, train_args, num_epochs=300, **default_returnn)
+        train_job.rqmt["gpu_mem"] = 24
+        asr_model = prepare_asr_model(
+            training_name, train_job, train_args, with_prior=True, datasets=train_data, get_specific_checkpoint=300,
+            prior_config={"batch_size": 50 * 16000},
+        )
+        tune_and_evaluate_helper(
+            training_name, asr_model, default_decoder_config, lm_scales=[3.5], prior_scales=[0.3, 0.5],
+            forward_config={"batch_size": 100 * 16000},
+        )
+
     # finish report
     report.delete_redundant_columns()
     report.delete_redundant_rows()
