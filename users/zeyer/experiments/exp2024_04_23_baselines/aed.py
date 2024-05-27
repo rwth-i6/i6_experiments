@@ -90,11 +90,11 @@ def py():
     # alpha=0.1 seems too aggressive for AED, bad convergence
     for alpha in [
         0.3,  # 5.26
-        0.5,
-        0.6,
+        0.5,  # 5.13
+        0.6,  # 5.13
         0.7,  # 4.98 (!!)
         0.8,
-        0.9,
+        0.9,  # 5.18
         1.0,  # sanity check
     ]:
         train_exp(

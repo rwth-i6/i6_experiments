@@ -58,7 +58,7 @@ def py():
     )
 
     for vocab in [
-        "spm20k",
+        "spm20k",  # 7.44
         "bpe10k",  # 8.23
         "spm10k",  # 8.12
         "spm_bpe10k",  # 7.97
@@ -81,7 +81,7 @@ def py():
     for alpha in [
         0.3,  # 7.88
         0.5,
-        0.7,
+        0.7,  # 6.99
     ]:
         train_exp(
             "v6-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-speedpertV2-spm10k"
