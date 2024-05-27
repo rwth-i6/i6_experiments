@@ -5,9 +5,12 @@ from i6_experiments.users.berger.systems.dataclasses import ConfigVariant
 import torch
 from torch import nn
 
+from returnn.tensor.tensor_dict import TensorDict
+from i6_experiments.users.berger.pytorch.helper_functions import map_tensor_to_minus1_plus1_interval
 from i6_models.parts.frontend.vgg_act import VGG4LayerActFrontendV1, VGG4LayerActFrontendV1Config
 from i6_models.parts.conformer.convolution import ConformerConvolutionV1Config, ConformerConvolutionV1
 from i6_models.parts.conformer.mhsa import ConformerMHSAV1Config, ConformerMHSAV1
+from i6_models_repo.i6_models.parts.conformer.norm import LayerNormNC
 from i6_models.parts.conformer.feedforward import ConformerPositionwiseFeedForwardV1Config, \
     ConformerPositionwiseFeedForwardV1
 from i6_experiments.users.berger.pytorch.models.util import lengths_to_padding_mask
@@ -62,14 +65,14 @@ class ConformerCTCModel(torch.nn.Module):
         # sequence_mask = None if self.export_mode else lengths_to_padding_mask(audio_features_len)
         sequence_mask = lengths_to_padding_mask(audio_features_len)
         # sequence_mask = lengths_to_padding_mask((audio_features_len + 2) // 3)
-        x, sequence_mask = self.conformer(x, sequence_mask)  # [B, T, F]
-        x = self.final_dropout(x)
+        outputs, sequence_mask = self.conformer(x, sequence_mask)  # [B, T, F]
+        x = self.final_dropout(outputs[0])
         logits = self.final_linear(x)  # [B, T, F]
         log_probs = torch.log_softmax(logits, dim=2)
 
-        if self.training:
-            return log_probs, sequence_mask
-        return log_probs
+        if self.export_mode:
+            return log_probs
+        return log_probs, sequence_mask
 
 
 def get_default_config_v1(num_inputs: int, num_outputs: int, network_args: dict) -> ConformerCTCConfig:
@@ -136,7 +139,7 @@ def get_default_config_v1(num_inputs: int, num_outputs: int, network_args: dict)
         kernel_size=kernel_size,
         dropout=dropout,
         activation=torch.nn.SiLU(),
-        norm=torch.nn.LayerNorm(384),
+        norm=LayerNormNC(384),
     )
 
     block_cfg = ConformerBlockV2Config(
@@ -182,6 +185,49 @@ def export(*, model: torch.nn.Module, model_filename: str):
         },
     )
 
+
+def train_step(*, model: torch.nn.Module, extern_data: TensorDict, **_):
+    audio_features = extern_data["data"].raw_tensor
+    audio_features = audio_features.squeeze(-1)
+    audio_features = map_tensor_to_minus1_plus1_interval(audio_features)
+    assert extern_data["data"].dims[1].dyn_size_ext is not None
+
+    audio_features_len = extern_data["data"].dims[1].dyn_size_ext.raw_tensor
+    assert audio_features_len is not None
+
+    assert extern_data["targets"].raw_tensor is not None
+    targets = extern_data["targets"].raw_tensor.long()
+
+    targets_len_rf = extern_data["targets"].dims[1].dyn_size_ext
+    assert targets_len_rf is not None
+    targets_len = targets_len_rf.raw_tensor
+    assert targets_len is not None
+
+    log_probs, sequence_mask = model(
+        audio_features=audio_features,
+        audio_features_len=audio_features_len.to("cuda"),
+    )
+
+    sequence_lengths = torch.sum(sequence_mask.type(torch.int32), dim=1)
+
+    log_probs = torch.transpose(log_probs, 0, 1)  # [T, B, F]
+
+    loss = torch.nn.functional.ctc_loss(
+        log_probs=log_probs,
+        targets=targets,
+        input_lengths=sequence_lengths,
+        target_lengths=targets_len,
+        blank=0,
+        reduction="sum",
+        zero_infinity=True,
+    )
+
+    from returnn.tensor import batch_dim
+    import returnn.frontend as rf
+
+    rf.get_run_ctx().mark_as_loss(
+        name="CTC", loss=loss, custom_inv_norm_factor=rf.reduce_sum(targets_len_rf, axis=batch_dim)
+    )
 
 def get_recog_serializer(
         model_config: ConformerCTCConfig,

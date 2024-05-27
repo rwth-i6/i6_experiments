@@ -79,7 +79,7 @@ def get_serializer(model_config, variant: ConfigVariant, in_dim: int = 1) -> Col
         return get_recog_serializer(model_config)
     raise NotImplementedError
 
-def returnn_config_generator(train_data_config: dict, dev_data_config: dict, peak_lr: float) -> dict:
+def returnn_config_generator(train_data_config: dict, dev_data_config: dict, peak_lr: float, batch_size: int) -> dict:
     from i6_experiments.users.jxu.experiments.ctc.tedlium2.pytorch_networks.baseline.conformer_size_384_log_mel import get_default_config_v1
 
     extra_config = {
@@ -103,7 +103,7 @@ def returnn_config_generator(train_data_config: dict, dev_data_config: dict, pea
         lr_2 = peak_lr / 10,
         peak_lr=peak_lr,
         final_lr=1e-08,
-        batch_size=18000 * 160,
+        batch_size=batch_size*160,
         extra_config=extra_config,
     )
 
@@ -129,7 +129,7 @@ def returnn_config_generator(train_data_config: dict, dev_data_config: dict, pea
 
     config = get_default_config_v1(num_inputs=80, num_outputs=num_outputs,
                                     network_args=network_args)
-    num_layers_12_experiment_name = f"conformer_logmel_{peak_lr}"
+    num_layers_12_experiment_name = f"conformer_logmel_{peak_lr}_batch_size_{batch_size}"
     experiments[num_layers_12_experiment_name] = get_returnn_configs(config, config)
 
     return experiments
