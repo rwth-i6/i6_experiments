@@ -32,31 +32,38 @@ def recombine_seqs(
   print("seq_log_prob before: ", seq_log_prob.raw_tensor)
 
   seq_hash_cpu = rf.copy_to_device(seq_hash.copy_transpose([batch_dim, beam_dim]), device="cpu")
+  # convert from neg log prob to log prob
   seq_log_prob = rf.copy_to_device(seq_log_prob.copy_transpose([batch_dim, beam_dim]), device="cpu")
 
-  for b in range(batch_dim.get_dim_value()):
+  for b in range(batch_dim.dyn_size_ext.raw_tensor.item()):
+    # for each batch dim, we need to find the seqs that have the same hash value
     seq_sets = {}
     for h in range(beam_dim.dimension):
-      seq_hash_value = seq_hash_cpu.raw_tensor[b, h]
+      # hash value of current hypothesis
+      seq_hash_value = seq_hash_cpu.raw_tensor[b, h].item()
       if seq_hash_value not in seq_sets:
         seq_sets[seq_hash_value] = []
+      # insert hypothesis index into the list of hypotheses with the same hash value
       seq_sets[seq_hash_value].append(h)
-
+    # for each set of hypotheses with the same hash value, we keep the one with the highest log prob
     for seq_set in seq_sets.values():
       if len(seq_set) == 1:
         continue
-      best_score = 0
+      best_score = float("-inf")
       best_idx = -1
       for idx in seq_set:
         if seq_log_prob.raw_tensor[b, idx] > best_score:
           best_score = seq_log_prob.raw_tensor[b, idx]
           best_idx = idx
+      # print("batch: ", b, "seq_set: ", seq_set, "best_idx: ", best_idx, "best_score: ", best_score)
+      # exit()
       for idx in seq_set:
         if idx != best_idx:
-          seq_log_prob.raw_tensor[b, idx] = -float("inf")
+          seq_log_prob.raw_tensor[b, idx] = float("-inf")
         else:
           seq_log_prob.raw_tensor[b, idx] = best_score
 
+  seq_log_prob = seq_log_prob
   print("seq_log_prob after: ", seq_log_prob.raw_tensor)
   exit()
 
@@ -127,6 +134,8 @@ def model_recog(
 
   if model.use_joint_model:
     target = rf.constant(bos_idx, dims=batch_dims_, sparse_dim=model.target_dim)
+    if model.label_decoder_state == "nb-lstm":
+      target_non_blank = target.copy()
   else:
     target = rf.constant(bos_idx, dims=batch_dims_, sparse_dim=model.align_target_dim)
     update_state_mask = rf.convert_to_tensor(target != model.blank_idx)
@@ -157,7 +166,7 @@ def model_recog(
   seq_backrefs = []
   while i < max_seq_len.raw_tensor:
     if i > 0:
-      if model.use_joint_model:
+      if model.label_decoder_state == "joint-lstm":
         input_embed = model.label_decoder.target_embed(target)
       else:
         target_non_blank = rf.where(update_state_mask, target, rf.gather(target_non_blank, indices=backrefs))
@@ -238,7 +247,7 @@ def model_recog(
 
     if use_recombination:
       seq_log_prob = recombine_seqs(seq_targets, seq_log_prob, seq_backrefs, seq_hash, beam_dim, batch_dims[0], i)
-      if i== 3:
+      if i == 3:
         exit()
 
     seq_log_prob = seq_log_prob + output_log_prob  # Batch, InBeam, Vocab
@@ -264,7 +273,7 @@ def model_recog(
 
     # ------------------- update label decoder state -------------------
 
-    if model.use_joint_model:
+    if model.label_decoder_state == "joint-lstm":
       label_decoder_state = tree.map_structure(lambda s: rf.gather(s, indices=backrefs), label_decoder_state_updated)
     else:
       def _get_masked_state(old, new, mask):

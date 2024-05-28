@@ -6,16 +6,17 @@ from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segment
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.pipelines.pipeline_ls_conf.checkpoints import (
   external_checkpoints,
   default_import_model_name,
-  get_center_window_baseline_v1_tf_checkpoint
 )
+from i6_experiments.users.schmitt.custom_load_params import load_missing_params
 
 
 def train_center_window_att_viterbi_from_scratch(
         alias: str,
         config_builder: SegmentalAttConfigBuilderRF,
         n_epochs_list: Tuple[int, ...],
-        time_rqmt: int = 168,
+        time_rqmt: int = 80,
 ):
+  batch_size = 15_000
   for n_epochs in n_epochs_list:
     alias += "/train_from_scratch/%d-epochs_w-ctc-loss" % (n_epochs,)
 
@@ -24,15 +25,41 @@ def train_center_window_att_viterbi_from_scratch(
       alias=alias,
       num_epochs=n_epochs,
       train_rqmt={
-        "time": time_rqmt
+        "time": time_rqmt,
+        "horovod_num_processes": 4,
+        "distributed_launch_cmd": "torchrun"
       },
       train_opts={
         "dataset_opts": {
           "use_speed_pert": False,
           "epoch_wise_filter": {(1, 5): {"max_mean_len": 1000}}
         },
-        "import_model_train_epoch1": None,
-        "lr_opts": {"type": "dyn_lr_lin_warmup_invsqrt_decay"},
+        # "import_model_train_epoch1": None,
+        "accum_grad_multiple_step": 4,
+        "torch_distributed": {},
+        "pos_emb_dropout": 0.1,
+        "rf_att_dropout_broadcast": False,
+        "batch_size": batch_size,
+        "batching": "laplace:.1000",
+        "lr_opts": {
+          "type": "dyn_lr_piecewise_linear",
+          "batch_size": batch_size,
+          "num_epochs": n_epochs,
+          "learning_rate": 1e-3,
+        },
+        "aux_loss_layers": None,
+        "specaugment_steps": (5_000, 15_000, 25_000),
+        "grad_scaler": None,
+        "gradient_clip_global_norm": 5.0,
+        "optimizer": {
+          "class": "adamw",
+          "weight_decay_modules_blacklist": [
+            "rf.Embedding",
+            "rf.LearnedRelativePositionalEncoding",
+          ],
+          "epsilon": 1e-16,
+          "weight_decay": 1e-6,
+        },
         "train_def": viterbi_training,
         "train_step_func": _returnn_v2_train_step,
       }
@@ -54,10 +81,15 @@ def train_center_window_att_viterbi_import_global_tf(
         config_builder: SegmentalAttConfigBuilderRF,
         n_epochs_list: Tuple[int, ...],
         const_lr_list: Tuple[float, ...] = (1e-4,),
-        time_rqmt: int = 30,
-        custom_missing_load_func: Optional[Callable] = None,
+        time_rqmt: int = 80,
         alignment_augmentation_opts: Optional[Dict] = None,
 ):
+  if not config_builder.use_att_ctx_in_state:
+    # only randomly init FF weights, since only the input dim of the lstm layer is different
+    custom_missing_load_func = load_missing_params
+  else:
+    custom_missing_load_func = None
+
   for n_epochs in n_epochs_list:
     for const_lr in const_lr_list:
       train_alias = alias + f"/train_from_global_att_tf_checkpoint/standard-training/{n_epochs}-epochs_{const_lr}-const-lr_wo-ctc-loss"

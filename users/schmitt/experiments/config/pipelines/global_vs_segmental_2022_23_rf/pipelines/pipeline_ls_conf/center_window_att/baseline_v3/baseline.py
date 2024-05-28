@@ -6,15 +6,16 @@ from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segment
 
 def center_window_att_baseline_rf(
         win_size_list: Tuple[int, ...] = (5, 129),
-        decoder_version: int = 1,
+        use_att_ctx_in_state: bool = True,
         use_weight_feedback: bool = True,
 ):
   for win_size in win_size_list:
-    alias = f"{base_alias}/baseline_rf/win-size-{win_size}/{'w' if use_weight_feedback else 'wo'}-weight-feedback/decoder-version-{decoder_version if decoder_version else 1}"
-    yield alias, get_center_window_att_config_builder_rf(
+    alias, config_builder = get_center_window_att_config_builder_rf(
       win_size=win_size,
-      label_decoder_version=decoder_version,
+      use_att_ctx_in_state=use_att_ctx_in_state,
       blank_decoder_version=3,
       use_joint_model=False,
       use_weight_feedback=use_weight_feedback,
     )
+    alias = f"{base_alias}/baseline_rf/{alias}"
+    yield alias, config_builder

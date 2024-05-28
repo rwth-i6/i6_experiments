@@ -8,15 +8,11 @@ from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segment
 
 
 class SegmentalAttLabelDecoder(BaseLabelDecoder):
-  def __init__(self, center_window_size: int, use_weight_feedback: bool, **kwargs):
+  def __init__(self, center_window_size: int, **kwargs):
     super(SegmentalAttLabelDecoder, self).__init__(**kwargs)
 
     self.center_window_size = center_window_size
     self.accum_att_weights_dim = Dim(name="accum_att_weights", dimension=center_window_size)
-
-    self.use_weight_feedback = use_weight_feedback
-    if not use_weight_feedback:
-      delattr(self, "weight_feedback")
 
   def default_initial_state(
           self,
@@ -29,9 +25,6 @@ class SegmentalAttLabelDecoder(BaseLabelDecoder):
     state = rf.State(
       s=self.get_lstm().default_initial_state(batch_dims=batch_dims),
       att=rf.zeros(list(batch_dims) + [self.att_num_heads * self.enc_out_dim]),
-      # accum_att_weights=rf.zeros(
-      #   list(batch_dims) + [self.accum_att_weights_dim, self.att_num_heads], feature_dim=self.att_num_heads
-      # ),
       segment_starts=rf.zeros(batch_dims, sparse_dim=segment_starts_sparse_dim, dtype="int32"),
       segment_lens=rf.zeros(batch_dims, sparse_dim=segment_lens_sparse_dim, dtype="int32"),
     )
@@ -135,17 +128,6 @@ class SegmentalAttLabelDecoder(BaseLabelDecoder):
 
     return self.weight_feedback(prev_accum_att_weights_sliced)
 
-  def _update_state(
-          self,
-          input_embed: rf.Tensor,
-          prev_att: rf.Tensor,
-          prev_s_state: rf.LstmState,
-  ):
-    return self.s(rf.concat_features(input_embed, prev_att), state=prev_s_state, spatial_dim=single_step_dim)
-
-  def get_lstm(self):
-    return self.s
-
   def loop_step(
           self,
           *,
@@ -226,29 +208,58 @@ class SegmentalAttLabelDecoder(BaseLabelDecoder):
     return logits
 
 
-class SegmentalAttLabelDecoderWoCtxInState(SegmentalAttLabelDecoder):
+class SegmentalAttEfficientLabelDecoder(SegmentalAttLabelDecoder):
   def __init__(self, **kwargs):
-    super(SegmentalAttLabelDecoderWoCtxInState, self).__init__(**kwargs)
+    super(SegmentalAttEfficientLabelDecoder, self).__init__(**kwargs)
 
-    # replace old state with new one
-    self.s_wo_att = rf.ZoneoutLSTM(
-      self.target_embed.out_dim,
-      self.s.out_dim,
-      zoneout_factor_cell=0.15,
-      zoneout_factor_output=0.05,
-      use_zoneout_output=False,
-      parts_order="jifo",
-      forget_bias=0.0,
+    assert not self.use_att_ctx_in_state and not self.use_weight_feedback, (
+      "Cannot have alignment dependency for efficient implementation!"
     )
-    delattr(self, "s")
 
-  def _update_state(
+  def __call__(
           self,
-          input_embed: rf.Tensor,
-          prev_att: rf.Tensor,
-          prev_s_state: rf.LstmState,
-  ):
-    return self.s_wo_att(rf.concat_features(input_embed), state=prev_s_state, spatial_dim=single_step_dim)
+          *,
+          enc: rf.Tensor,
+          enc_ctx: rf.Tensor,
+          enc_spatial_dim: Dim,
+          s: rf.Tensor,
+          segment_starts: rf.Tensor,
+          segment_lens: rf.Tensor,
+  ) -> rf.Tensor:
+    s_transformed = self.s_transformed(s)
 
-  def get_lstm(self):
-    return self.s_wo_att
+    slice_dim = Dim(name="slice", dimension=segment_lens)
+    gather_positions = rf.range_over_dim(slice_dim)
+    gather_positions += segment_starts
+
+    # need to move size tensor to GPU since otherwise there is an error in some merge_dims call inside rf.gather
+    # because two tensors have different devices
+    # TODO: fix properly in the gather implementation
+    enc_spatial_dim.dyn_size_ext = rf.copy_to_device(enc_spatial_dim.dyn_size_ext, gather_positions.device)
+
+    enc_ctx_sliced = rf.gather(enc_ctx, axis=enc_spatial_dim, indices=gather_positions, clip_to_valid=True)
+    enc_sliced = rf.gather(enc, axis=enc_spatial_dim, indices=gather_positions, clip_to_valid=True)
+
+    # move size tensor back to CPU
+    enc_spatial_dim.dyn_size_ext = rf.copy_to_device(enc_spatial_dim.dyn_size_ext, "cpu")
+
+    weight_feedback = rf.zeros((self.enc_key_total_dim,))
+
+    energy_in = enc_ctx_sliced + weight_feedback + s_transformed
+
+    energy = self.energy(rf.tanh(energy_in))
+    att_weights = rf.softmax(energy, axis=slice_dim)
+    # we do not need use_mask because the softmax output is already padded with zeros
+    att0 = rf.dot(att_weights, enc_sliced, reduce=slice_dim, use_mask=False)
+    att0.feature_dim = self.enc_out_dim
+    att, _ = rf.merge_dims(att0, dims=(self.att_num_heads, self.enc_out_dim))
+
+    return att
+
+  def decode_logits(self, *, s: Tensor, input_embed: Tensor, att: Tensor) -> Tensor:
+    """logits for the decoder"""
+    readout_in = self.readout_in(rf.concat_features(s, input_embed, att, allow_broadcast=True))
+    readout = rf.reduce_out(readout_in, mode="max", num_pieces=2, out_dim=self.output_prob.in_dim)
+    readout = rf.dropout(readout, drop_prob=0.3, axis=self.dropout_broadcast and readout.feature_dim)
+    logits = self.output_prob(readout)
+    return logits

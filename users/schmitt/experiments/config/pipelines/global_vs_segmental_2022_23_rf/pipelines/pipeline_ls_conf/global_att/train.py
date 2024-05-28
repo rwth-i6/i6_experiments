@@ -5,6 +5,7 @@ from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segment
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.train_new import GlobalTrainExperiment
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.pipelines.pipeline_ls_conf.checkpoints import external_checkpoints, default_import_model_name
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.global_.train import _returnn_v2_train_step, from_scratch_training
+from i6_experiments.users.schmitt.custom_load_params import load_missing_params
 
 
 def train_from_scratch(
@@ -56,10 +57,38 @@ def train_import_global_tf(
         config_builder: GlobalAttConfigBuilderRF,
         n_epochs_list: Tuple[int, ...],
         const_lr_list: Tuple[float, ...],
-        time_rqmt: int = 168,
+        time_rqmt: int = 80,
 ):
+  if not config_builder.use_att_ctx_in_state:
+    # only randomly init FF weights, since only the input dim of the lstm layer is different
+    custom_missing_load_func = load_missing_params
+  else:
+    custom_missing_load_func = None
+
   for n_epochs, const_lr in itertools.product(n_epochs_list, const_lr_list):
     train_alias = alias + f"/train_from_global_att_tf_checkpoint/standard-training/{n_epochs}-epochs_{const_lr}-const-lr_wo-ctc-loss"
+
+    train_opts = {
+      "preload_from_files": {
+        "pretrained_global_att_params": {
+          "filename": external_checkpoints[default_import_model_name],
+          "init_for_train": True,
+        }
+      },
+      "train_def": from_scratch_training,
+      "train_step_func": _returnn_v2_train_step,
+      "batching": "random",
+      "aux_loss_layers": None,
+      "lr_opts": {
+        "type": "const_then_linear",
+        "const_lr": const_lr,
+        "const_frac": 1 / 3,
+        "final_lr": 1e-6,
+        "num_epochs": n_epochs
+      },
+    }
+    if custom_missing_load_func:
+      train_opts["preload_from_files"]["pretrained_global_att_params"]["custom_missing_load_func"] = custom_missing_load_func
 
     train_exp = GlobalTrainExperiment(
       config_builder=config_builder,
@@ -68,25 +97,7 @@ def train_import_global_tf(
       train_rqmt={
         "time": time_rqmt
       },
-      train_opts={
-        "preload_from_files": {
-          "pretrained_global_att_params": {
-            "filename": external_checkpoints[default_import_model_name],
-            "init_for_train": True,
-          }
-        },
-        "train_def": from_scratch_training,
-        "train_step_func": _returnn_v2_train_step,
-        "batching": "random",
-        "aux_loss_layers": None,
-        "lr_opts": {
-          "type": "const_then_linear",
-          "const_lr": const_lr,
-          "const_frac": 1 / 3,
-          "final_lr": 1e-6,
-          "num_epochs": n_epochs
-        },
-      }
+      train_opts=train_opts
     )
     checkpoints, model_dir, learning_rates = train_exp.run_train()
 

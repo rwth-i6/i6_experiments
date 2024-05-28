@@ -11,8 +11,7 @@ from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segment
   BlankDecoderV3,
 )
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.segmental.model_new.label_model.model import (
-  SegmentalAttLabelDecoder,
-  SegmentalAttLabelDecoderWoCtxInState
+  SegmentalAttLabelDecoder, SegmentalAttEfficientLabelDecoder
 )
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.encoder.global_ import GlobalConformerEncoder
 from i6_experiments.users.schmitt.returnn_frontend.model_interfaces.supports_label_scorer_torch import RFModelWithMakeLabelScorer
@@ -41,10 +40,11 @@ class SegmentalAttentionModel(rf.Module):
           encoder_layer_opts: Optional[Dict[str, Any]] = None,
           dec_att_num_heads: Dim = Dim(name="att_num_heads", dimension=1),
           enc_dropout: float = 0.1,
-          label_decoder_version: int = 1,
+          use_att_ctx_in_state: bool = True,
           blank_decoder_version: int = 1,
           use_joint_model: bool = False,
           use_weight_feedback: bool = True,
+          label_decoder_state: str = "nb-lstm",
   ):
     super(SegmentalAttentionModel, self).__init__()
 
@@ -65,15 +65,17 @@ class SegmentalAttentionModel(rf.Module):
       l2=l2,
     )
 
-    assert label_decoder_version in {1, 2}
-    assert blank_decoder_version in {1, 3}
+    assert blank_decoder_version in {1, 3, 4}
+    assert label_decoder_state in {"nb-lstm", "joint-lstm"}
+    if not use_joint_model:
+      assert label_decoder_state == "nb-lstm"
 
-    if label_decoder_version == 1:
-      label_decoder_class = SegmentalAttLabelDecoder
+    if not use_weight_feedback and not use_att_ctx_in_state:
+      label_decoder_cls = SegmentalAttEfficientLabelDecoder
     else:
-      label_decoder_class = SegmentalAttLabelDecoderWoCtxInState
+      label_decoder_cls = SegmentalAttLabelDecoder
 
-    self.label_decoder = label_decoder_class(
+    self.label_decoder = label_decoder_cls(
       enc_out_dim=self.encoder.out_dim,
       target_dim=target_dim,
       att_num_heads=dec_att_num_heads,
@@ -83,6 +85,7 @@ class SegmentalAttentionModel(rf.Module):
       l2=l2,
       center_window_size=center_window_size,
       use_weight_feedback=use_weight_feedback,
+      use_att_ctx_in_state=use_att_ctx_in_state,
     )
 
     if not use_joint_model:
@@ -94,6 +97,7 @@ class SegmentalAttentionModel(rf.Module):
           encoder_out_dim=self.encoder.out_dim,
         )
       else:
+        # the logic for blank_decoder_version == 4 is in the train/recog code
         self.blank_decoder = BlankDecoderV3(
           length_model_state_dim=length_model_state_dim,
           label_state_dim=self.label_decoder.get_lstm().out_dim,
@@ -113,6 +117,8 @@ class SegmentalAttentionModel(rf.Module):
     self.target_dim = self.label_decoder.target_dim
     self.align_target_dim = align_target_dim
     self.use_joint_model = use_joint_model
+    self.blank_decoder_version = blank_decoder_version
+    self.label_decoder_state = label_decoder_state
 
 
 class MakeModel:
@@ -149,10 +155,14 @@ class MakeModel:
           num_enc_layers: int = 12,
           pos_emb_dropout: float = 0.0,
           language_model: Optional[Dict[str, Any]] = None,
-          label_decoder_version: int,
+          use_att_ctx_in_state: bool,
           blank_decoder_version: int,
           use_joint_model: bool,
           use_weight_feedback: bool,
+          label_decoder_state: str,
+          enc_out_dim: int,
+          enc_key_total_dim: int,
+          enc_ff_dim: int,
           **extra,
   ) -> SegmentalAttentionModel:
     """make"""
@@ -172,8 +182,9 @@ class MakeModel:
     return SegmentalAttentionModel(
       enc_in_dim=in_dim,
       enc_num_layers=num_enc_layers,
-      enc_out_dim=Dim(name="enc", dimension=512, kind=Dim.Types.Feature),
-      enc_ff_dim=Dim(name="enc-ff", dimension=2048, kind=Dim.Types.Feature),
+      enc_out_dim=Dim(name="enc", dimension=enc_out_dim, kind=Dim.Types.Feature),
+      enc_ff_dim=Dim(name="enc-ff", dimension=enc_ff_dim, kind=Dim.Types.Feature),
+      enc_key_total_dim=Dim(name="enc_key_total_dim", dimension=enc_key_total_dim),
       enc_num_heads=8,
       encoder_layer_opts=dict(
         conv_norm_opts=dict(use_mask=True),
@@ -195,10 +206,11 @@ class MakeModel:
       length_model_state_dim=Dim(name="length_model_state", dimension=128, kind=Dim.Types.Feature),
       length_model_embed_dim=Dim(name="length_model_embed", dimension=128, kind=Dim.Types.Feature),
       center_window_size=center_window_size,
-      label_decoder_version=label_decoder_version,
+      use_att_ctx_in_state=use_att_ctx_in_state,
       blank_decoder_version=blank_decoder_version,
       use_joint_model=use_joint_model,
       use_weight_feedback=use_weight_feedback,
+      label_decoder_state=label_decoder_state,
       **extra,
     )
 
@@ -219,10 +231,15 @@ def from_scratch_model_def(
   if center_window_size is None:
     raise ValueError("center_window_size is not set!")
 
-  label_decoder_version = config.int("label_decoder_version", 1)
+  use_att_ctx_in_state = config.bool("use_att_ctx_in_state", True)
+  label_decoder_state = config.typed_value("label_decoder_state", "nb-lstm")
   blank_decoder_version = config.int("blank_decoder_version", 1)
   use_joint_model = config.bool("use_joint_model", False)
   use_weight_feedback = config.bool("use_weight_feedback", True)
+
+  enc_out_dim = config.int("enc_out_dim", 512)
+  enc_key_total_dim = config.int("enc_key_total_dim", 1024)
+  enc_ff_dim = config.int("enc_ff_dim", 2048)
 
   return MakeModel.make_model(
     in_dim,
@@ -232,10 +249,14 @@ def from_scratch_model_def(
     enc_aux_logits=enc_aux_logits or (),
     pos_emb_dropout=pos_emb_dropout,
     language_model=lm_opts,
-    label_decoder_version=label_decoder_version,
+    use_att_ctx_in_state=use_att_ctx_in_state,
     blank_decoder_version=blank_decoder_version,
     use_joint_model=use_joint_model,
     use_weight_feedback=use_weight_feedback,
+    label_decoder_state=label_decoder_state,
+    enc_out_dim=enc_out_dim,
+    enc_key_total_dim=enc_key_total_dim,
+    enc_ff_dim=enc_ff_dim,
   )
 
 

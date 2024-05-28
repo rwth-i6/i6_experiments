@@ -31,6 +31,7 @@ class ConfigBuilderRF(ABC):
           variant_params: Dict,
           model_def: ModelDef,
           get_model_func: Callable,
+          use_att_ctx_in_state: bool = True,
   ):
     self.variant_params = variant_params
     self.model_def = model_def
@@ -45,17 +46,18 @@ class ConfigBuilderRF(ABC):
     self.config_dict = dict(
       backend="torch",
       log_batch_size=True,
-      # truncation=-1,
       torch_log_memory_usage=True,
       debug_print_layer_output_template=True,
       max_seqs=200,
-      # gradient_clip=0.0,
-      # gradient_noise=0.0,
       optimizer={"class": "adamw", "epsilon": 1e-8, "weight_decay": 1e-6},
       accum_grad_multiple_step=4,
       default_input="data",
       target="targets",
     )
+
+    self.use_att_ctx_in_state = use_att_ctx_in_state
+    if not use_att_ctx_in_state:
+      self.config_dict["use_att_ctx_in_state"] = use_att_ctx_in_state
 
     self.python_prolog = []
 
@@ -65,27 +67,12 @@ class ConfigBuilderRF(ABC):
     python_prolog = copy.deepcopy(self.python_prolog)
     python_epilog = copy.deepcopy(self.python_epilog)
 
-    dataset_opts = opts.get("dataset_opts", {})
+    dataset_opts = opts.pop("dataset_opts", {})
     config_dict.update(self.get_train_datasets(dataset_opts=dataset_opts))
     extern_data_raw = self.get_extern_data_dict(dataset_opts)
     extern_data_raw = instanciate_delayed(extern_data_raw)
 
-    if opts.get("preload_from_files"):
-      config_dict["preload_from_files"] = opts["preload_from_files"]
-    elif opts.get("import_model_train_epoch1"):
-      config_dict.update({
-        "import_model_train_epoch1": opts["import_model_train_epoch1"],
-        "load_ignore_missing_vars": True,
-      })
-
-    config_dict.update(dict(
-      batching=opts.get("batching", "laplace:.1000"),
-      aux_loss_layers=opts.get("aux_loss_layers", [4, 8]),
-      accum_grad_multiple_step=opts.get("accum_grad_multiple_step", config_dict["accum_grad_multiple_step"]),
-      optimizer=opts.get("optimizer", config_dict["optimizer"]),
-    ))
-
-    if opts.get("dataset_opts", {}).get("use_speed_pert"):
+    if dataset_opts.pop("use_speed_pert", None):
       python_prolog += [
         "import sys",
         'sys.path.append("/work/asr4/zeineldeen/py_envs/py_3.10_tf_2.9/lib/python3.10/site-packages")'
@@ -93,10 +80,22 @@ class ConfigBuilderRF(ABC):
       config_dict["speed_pert"] = speed_pert
 
     if opts.get("cleanup_old_models"):
-      post_config_dict["cleanup_old_models"] = opts["cleanup_old_models"]
+      post_config_dict["cleanup_old_models"] = opts.pop("cleanup_old_models")
 
-    config_dict.update(self.get_lr_settings(lr_opts=opts["lr_opts"], python_epilog=python_epilog))
-    config_dict["batch_size"] = opts.get("batch_size", 15_000) * self.batch_size_factor
+    config_dict.update(self.get_lr_settings(lr_opts=opts.pop("lr_opts"), python_epilog=python_epilog))
+    config_dict["batch_size"] = opts.pop("batch_size", 15_000) * self.batch_size_factor
+
+    train_def = opts.pop("train_def")
+    train_step_func = opts.pop("train_step_func")
+
+    remaining_opt_keys = [
+      "aux_loss_layers", "preload_from_files", "accum_grad_multiple_step", "optimizer", "batching",
+      "torch_distributed", "pos_emb_dropout", "rf_att_dropout_broadcast", "grad_scaler", "gradient_clip_global_norm",
+      "spec_augment_steps", "torch_amp"
+    ]
+    config_dict.update(
+      {k: opts.pop(k) for k in remaining_opt_keys if k in opts}
+    )
 
     python_epilog.append(
       serialization.Collection(
@@ -107,8 +106,8 @@ class ConfigBuilderRF(ABC):
           ),
           *serialize_model_def(self.model_def),
           serialization.Import(self.get_model_func, import_as="get_model"),
-          serialization.Import(opts["train_def"], import_as="_train_def", ignore_import_as_for_hash=True),
-          serialization.Import(opts["train_step_func"], import_as="train_step"),
+          serialization.Import(train_def, import_as="_train_def", ignore_import_as_for_hash=True),
+          serialization.Import(train_step_func, import_as="train_step"),
           serialization.PythonEnlargeStackWorkaroundNonhashedCode,
           serialization.PythonCacheManagerFunctionNonhashedCode,
           serialization.PythonModelineNonhashedCode
@@ -241,9 +240,9 @@ class ConfigBuilderRF(ABC):
     elif lr_opts["type"] == "dyn_lr_lin_warmup_invsqrt_decay":
       return dict(
         dynamic_learning_rate=dynamic_lr.dyn_lr_lin_warmup_invsqrt_decay,
-        learning_rate_warmup_steps=40_000,
-        learning_rate_invsqrt_norm=40_000,
-        learning_rate=2.5e-3,
+        learning_rate_warmup_steps=lr_opts["learning_rate_warmup_steps"],
+        learning_rate_invsqrt_norm=lr_opts["learning_rate_invsqrt_norm"],
+        learning_rate=lr_opts["learning_rate"],
       )
     elif lr_opts["type"] == "const":
       const_lr = lr_opts["const_lr"]
@@ -443,12 +442,19 @@ class LibrispeechConformerConfigBuilderRF(ConfigBuilderRF, ABC):
 
 
 class GlobalAttConfigBuilderRF(LibrispeechConformerConfigBuilderRF):
-  def __init__(self, **kwargs):
+  def __init__(
+          self,
+          use_weight_feedback: bool = True,
+          **kwargs
+  ):
     super(GlobalAttConfigBuilderRF, self).__init__(**kwargs)
 
     self.config_dict.update(dict(
       max_seq_length_default_target=75,
     ))
+
+    if not use_weight_feedback:
+      self.config_dict["use_weight_feedback"] = use_weight_feedback
 
   def get_extern_data_dict(self, dataset_opts: Dict):
     extern_data_dict = super(GlobalAttConfigBuilderRF, self).get_extern_data_dict(dataset_opts)
@@ -467,10 +473,10 @@ class SegmentalAttConfigBuilderRF(LibrispeechConformerConfigBuilderRF):
   def __init__(
           self,
           center_window_size: int,
-          label_decoder_version: int,
           blank_decoder_version: Optional[int] = None,
           use_joint_model: bool = False,
           use_weight_feedback: bool = True,
+          label_decoder_state: str = "nb-lstm",
           **kwargs
   ):
     super(SegmentalAttConfigBuilderRF, self).__init__(**kwargs)
@@ -482,14 +488,14 @@ class SegmentalAttConfigBuilderRF(LibrispeechConformerConfigBuilderRF):
     if use_joint_model:
       assert not blank_decoder_version, "Either use joint model or separate label and blank model"
 
-    if label_decoder_version != 1:
-      self.config_dict["label_decoder_version"] = label_decoder_version
     if blank_decoder_version is not None and blank_decoder_version != 1:
       self.config_dict["blank_decoder_version"] = blank_decoder_version
     if use_joint_model:
       self.config_dict["use_joint_model"] = use_joint_model
     if not use_weight_feedback:
       self.config_dict["use_weight_feedback"] = use_weight_feedback
+    if label_decoder_state != "nb-lstm":
+      self.config_dict["label_decoder_state"] = label_decoder_state
 
   def get_train_config(self, opts: Dict):
     train_config = super(SegmentalAttConfigBuilderRF, self).get_train_config(opts)

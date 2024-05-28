@@ -48,14 +48,20 @@ def get_unmasked(
 ):
   mask_shifted = rf.shift_right(mask, axis=mask_spatial_dim, pad_value=False)
   mask_axis = mask.get_axis_from_description(mask_spatial_dim)
-  cumsum = rf.cast(mask_shifted, "int32").copy_template()
+
+  # changelog
+  # 24.05.24: changed int32->int64 and added 'clip_to_valid=True' since i got an CUDA idx out of bounds error
+  # when testing a new feature. weirdly, i did not see this error in the log.run.1 file of existing trainings
+  # using this function.
+  cumsum = rf.cast(mask_shifted, "int64").copy_template()
   cumsum.raw_tensor = torch.cumsum(
-    mask_shifted.raw_tensor.to(torch.int32), dim=mask_axis, dtype=torch.int32
+    mask_shifted.raw_tensor.to(torch.int64), dim=mask_axis, dtype=torch.int64
   )
   return rf.gather(
     input,
     indices=cumsum,
     axis=input_spatial_dim,
+    clip_to_valid=True
   )
 
 

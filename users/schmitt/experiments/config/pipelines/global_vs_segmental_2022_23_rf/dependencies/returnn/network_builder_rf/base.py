@@ -23,6 +23,8 @@ class BaseLabelDecoder(rf.Module):
           att_num_heads: Dim = Dim(name="att_num_heads", dimension=1),
           att_dropout: float = 0.1,
           l2: float = 0.0001,
+          use_weight_feedback: bool = True,
+          use_att_ctx_in_state: bool = True,
   ):
     super(BaseLabelDecoder, self).__init__()
 
@@ -38,9 +40,8 @@ class BaseLabelDecoder(rf.Module):
 
     self.target_embed = rf.Embedding(target_dim, Dim(name="target_embed", dimension=640))
 
-    self.s = rf.ZoneoutLSTM(
-      self.target_embed.out_dim + att_num_heads * enc_out_dim,
-      Dim(name="lstm", dimension=1024),
+    zoneout_lstm_opts = dict(
+      out_dim=Dim(name="lstm", dimension=1024),
       zoneout_factor_cell=0.15,
       zoneout_factor_output=0.05,
       use_zoneout_output=False,  # like RETURNN/TF ZoneoutLSTM old default
@@ -49,12 +50,26 @@ class BaseLabelDecoder(rf.Module):
       parts_order="jifo",  # NativeLSTM (the code above converts it...)
       forget_bias=0.0,  # the code above already adds it during conversion
     )
+    self.use_att_ctx_in_state = use_att_ctx_in_state
+    if use_att_ctx_in_state:
+      self.s = rf.ZoneoutLSTM(
+        self.target_embed.out_dim + att_num_heads * enc_out_dim,
+        **zoneout_lstm_opts,
+      )
+    else:
+      self.s_wo_att = rf.ZoneoutLSTM(
+        self.target_embed.out_dim,
+        **zoneout_lstm_opts,
+      )
 
-    self.weight_feedback = rf.Linear(att_num_heads, enc_key_total_dim, with_bias=False)
-    self.s_transformed = rf.Linear(self.s.out_dim, enc_key_total_dim, with_bias=False)
+    self.use_weight_feedback = use_weight_feedback
+    if use_weight_feedback:
+      self.weight_feedback = rf.Linear(att_num_heads, enc_key_total_dim, with_bias=False)
+
+    self.s_transformed = rf.Linear(self.get_lstm().out_dim, enc_key_total_dim, with_bias=False)
     self.energy = rf.Linear(enc_key_total_dim, att_num_heads, with_bias=False)
     self.readout_in = rf.Linear(
-      self.s.out_dim + self.target_embed.out_dim + att_num_heads * enc_out_dim,
+      self.get_lstm().out_dim + self.target_embed.out_dim + att_num_heads * enc_out_dim,
       Dim(name="readout", dimension=1024),
     )
     self.output_prob = rf.Linear(self.readout_in.out_dim // 2, target_dim)
@@ -66,3 +81,20 @@ class BaseLabelDecoder(rf.Module):
     # Instead, it is intended to make a separate label scorer for it.
     self.language_model = None
     self.language_model_make_label_scorer = None
+
+  def _update_state(
+          self,
+          input_embed: rf.Tensor,
+          prev_att: rf.Tensor,
+          prev_s_state: rf.LstmState,
+  ):
+    if self.use_att_ctx_in_state:
+      return self.s(rf.concat_features(input_embed, prev_att), state=prev_s_state, spatial_dim=single_step_dim)
+    else:
+      return self.s_wo_att(input_embed, state=prev_s_state, spatial_dim=single_step_dim)
+
+  def get_lstm(self):
+    if self.use_att_ctx_in_state:
+      return self.s
+    else:
+      return self.s_wo_att
