@@ -141,7 +141,6 @@ class Model(rf.Module):
         enc_att_dropout: float = 0.1,
         l2: float = 0.0001,
         language_model: Optional[RFModelWithMakeLabelScorer] = None,
-        mel_normalization: bool = True,
         joiner_dim: int = 640,
     ):
         super(Model, self).__init__()
@@ -150,7 +149,7 @@ class Model(rf.Module):
 
         config = get_global_config(return_empty_if_none=True)
 
-        self.mel_normalization = mel_normalization
+        self.mel_normalization = config.typed_value("mel_normalization_ted2", True)
 
         self.in_dim = in_dim
         self.encoder = ConformerEncoder(

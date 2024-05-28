@@ -18,6 +18,8 @@ from i6_experiments.users.gaudino.experiments.rf_conformer_att_2023.librispeech_
     MakeModel,
 )
 
+from i6_experiments.users.gaudino.models.asr.rf.conformer_ctc.model_conformer_ctc import MakeModel as MakeModelCTC
+
 from i6_experiments.users.gaudino.models.asr.rf.nn_lm.lm_import_2023_11_09 import (
     MakeModel as MakeModelLM,
 )
@@ -88,9 +90,14 @@ def convert_checkpoint(
 
     print()
 
+    ctc_only = model_args.get("ctc_only", False)
+
     print("Creating model...")
     rf.select_backend_torch()
-    model = MakeModel(80, 1_057, model_args=model_args)()
+    if ctc_only:
+        model = MakeModelCTC(80, 1_057)()
+    else:
+        model = MakeModel(80, 1_057, model_args=model_args)()
     print("Created model:", model)
     print("Model parameters:")
     for name, param in model.named_parameters():
@@ -103,7 +110,8 @@ def convert_checkpoint(
     print("Create ParamMapping...")
     param_mapping = {}
     _add_params_conformer(param_mapping, prefix="")
-    _add_params_att_decoder(param_mapping)
+    if not ctc_only:
+        _add_params_att_decoder(param_mapping)
     _add_params_trafo_lm(param_mapping)
     # if model_args.get("encoder_ctc", False):
     #     _add_params_conformer(param_mapping, prefix="sep_enc_ctc_")
@@ -160,7 +168,6 @@ def convert_checkpoint(
             os.symlink(os.path.basename(meta_filename), symlink_filename_1)
             os.symlink(os.path.basename(meta_filename), symlink_filename_2)
         # assert os.path.exists(self.out_checkpoint.get_path())
-
 
 def convert_lm(ckpt_path_lm, out_dir, model_target_dim, model_args):
     from tensorflow.python.training.py_checkpoint_reader import CheckpointReader
@@ -326,8 +333,10 @@ def _add_params_conformer(param_mapping: Dict[str, str], prefix: str):
     param_mapping.update(
         {
             prefix + "encoder.input_projection.weight": "source_linear/W",
-            prefix + "ctc.weight": "ctc/W",
-            prefix + "ctc.bias": "ctc/b",
+            # prefix + "ctc.weight": "ctc/W",
+            # prefix + "ctc.bias": "ctc/b",
+            prefix + "enc_aux_logits_12.weight": "ctc/W",
+            prefix + "enc_aux_logits_12.bias": "ctc/b",
         }
     )
     # conformer
@@ -598,7 +607,7 @@ def map_param_func_mini_att_ilm(
 def import_models():
     # for model_name, sep_enc in product(list(models.keys())[-1:], [True, False]):
 
-    model_list = ["model_baseline"]
+    model_list = ["model_ctc_only"]
     # model_list = ["model_ctc0.9_att0.1", "model_ctc0.8_att0.2", "model_ctc0.7_att0.3", "model_ctc0.6_att0.4", "model_ctc0.5_att0.5", "model_ctc0.4_att0.6"]
     for model_name, sep_enc, add_trafo_lm in product(model_list, [False], [False]):
         model_args = {
@@ -606,6 +615,7 @@ def import_models():
             "add_trafo_lm": add_trafo_lm,
             "encoder_ctc": sep_enc,
             "no_ctc": models[model_name].get("no_ctc", False),
+            "ctc_only": models[model_name].get("ctc_only", False),
         }
 
         print(
@@ -615,7 +625,7 @@ def import_models():
             + " ..."
         )
         out_dir = "/work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/2023-08-10--rf-librispeech/work/i6_experiments/users/gaudino/returnn/convert_ckpt_rf/tedlium2/without_lm/"
-        out_dir_postfix = model_name + ("__ctc_only" if sep_enc else "") + ("__trafo_lm" if add_trafo_lm else "") + "_24_05_22"
+        out_dir_postfix = model_name + ("__ctc_only" if sep_enc else "") + ("__trafo_lm" if add_trafo_lm else "") + "_rf_compatible"
 
         ckpt_path = models[model_name]["ckpt"].ckpt_path
 

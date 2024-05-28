@@ -11,6 +11,7 @@ import torch
 import hashlib
 import contextlib
 import functools
+from sisyphus import tk
 
 from returnn.tensor import Tensor, Dim, single_step_dim
 import returnn.frontend as rf
@@ -30,10 +31,11 @@ from i6_experiments.users.gaudino.experiments.rf_conformer_att_2023.librispeech_
 
 if TYPE_CHECKING:
     from i6_experiments.users.gaudino.model_interfaces import ModelDef, RecogDef, TrainDef
-    from i6_experiments.users.gaudino.model_with_checkpoints import (
-        ModelWithCheckpoints,
-        ModelWithCheckpoint,
-    )
+
+from i6_experiments.users.gaudino.model_with_checkpoints import (
+    ModelWithCheckpoints,
+    ModelWithCheckpoint,
+)
 
 from i6_experiments.users.gaudino.models.asr.rf.conformer_ctc.model_conformer_ctc import from_scratch_model_def, from_scratch_training
 from i6_experiments.users.gaudino.models.asr.rf.conformer_ctc.model_recog_ctc_greedy import model_recog
@@ -45,6 +47,9 @@ _log_mel_feature_dim = 80
 
 def sis_run_with_prefix(prefix_name: Optional[str] = None):
     """run the exp"""
+
+    from i6_core.returnn.training import PtCheckpoint
+
     _sis_setup_global_prefix(prefix_name)
 
     # Moh:      dev-clean  2.27, dev-other  5.39, test-clean  2.41,  test-other  5.51
@@ -167,54 +172,167 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
     #     gpu_mem=11,
     # )
 
-    train_exp(
-        "from-scratch-24gb_lrmaxs85k_lrmin1e-5_lrmax1e-3",
-        ctc_train_24gb_config,
-        config_updates={
-            "learning_rate": 1.0,
-            "dynamic_learning_rate": dyn_lr_piecewise_linear,
-            # total steps after 400 epochs:
-            "learning_rate_piecewise_steps": [85_500, 171_000, 190_000], # 45% 45 % 10%
-            "learning_rate_piecewise_values": [1e-5, 1e-3, 1e-5, 1e-6],
-            "aux_loss_layers": [],
-        },
-        num_epochs=400,
+    # train_exp( # does not converge
+    #     "from-scratch-24gb_lrmaxs85k_lrmin1e-5_lrmax1e-3",
+    #     ctc_train_24gb_config,
+    #     config_updates={
+    #         "learning_rate": 1.0,
+    #         "dynamic_learning_rate": dyn_lr_piecewise_linear,
+    #         # total steps after 400 epochs:
+    #         "learning_rate_piecewise_steps": [85_500, 171_000, 190_000], # 45% 45 % 10%
+    #         "learning_rate_piecewise_values": [1e-5, 1e-3, 1e-5, 1e-6],
+    #         "aux_loss_layers": [],
+    #     },
+    #     num_epochs=400,
+    # )
+    #
+    # train_exp( # does not converge
+    #     "from-scratch-24gb_lrmaxs85k_lrmin8e-5_lrmax8e-4",
+    #     ctc_train_24gb_config,
+    #     config_updates={
+    #         "learning_rate": 1.0,
+    #         "dynamic_learning_rate": dyn_lr_piecewise_linear,
+    #         # total steps after 400 epochs:
+    #         "learning_rate_piecewise_steps": [85_500, 171_000, 190_000], # 45% 45 % 10%
+    #         "learning_rate_piecewise_values": [8e-5, 8e-4, 8e-5, 1e-6],
+    #         "aux_loss_layers": [],
+    #     },
+    #     num_epochs=400,
+    # )
+
+    # init from tf ctc only model
+    _torch_ckpt_dir_path = "/work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/2023-08-10--rf-librispeech/work/i6_experiments/users/gaudino/returnn/convert_ckpt_rf/tedlium2/without_lm/"
+
+    model_args = {
+        "mel_normalization": True,
+    }
+    new_ckpt_path = tk.Path(
+        _torch_ckpt_dir_path + "model_ctc_only_rf_compatible" + "/average.pt",
+        hash_overwrite= "model_ctc_only_rf_compatible" + "_torch_ckpt",
+    )
+    new_ckpt = PtCheckpoint(new_ckpt_path)
+
+
+    # recog ctc only model
+    _recog(
+        "model_recogs/model_ctc_only_rf_compatible/ctc_greedy/recog_results",
+        ModelWithCheckpoint(
+            definition=from_scratch_model_def, checkpoint=new_ckpt
+        ),
+        model_recog,
     )
 
-    train_exp(
-        "from-scratch-24gb_lrmaxs85k_lrmin8e-5_lrmax8e-4",
-        ctc_train_24gb_config,
-        config_updates={
-            "learning_rate": 1.0,
-            "dynamic_learning_rate": dyn_lr_piecewise_linear,
-            # total steps after 400 epochs:
-            "learning_rate_piecewise_steps": [85_500, 171_000, 190_000], # 45% 45 % 10%
-            "learning_rate_piecewise_values": [8e-5, 8e-4, 8e-5, 1e-6],
-            "aux_loss_layers": [],
-        },
-        num_epochs=400,
-    )
+    # train_exp( # does not improve, different wer from the beginning
+    #     "init_from_tf_lin132k_lrmax8e-4_25eps",
+    #     ctc_train_config,
+    #     config_updates={
+    #         "learning_rate": 1.0,
+    #         "dynamic_learning_rate": dyn_lr_piecewise_linear,
+    #         # total steps after 2000 epochs: 982.312
+    #         # total steps after 400 epochs:
+    #         "learning_rate_piecewise_steps": [66_000, 132_000, 145_000], # 45% 45 % 10%
+    #         # "learning_rate_piecewise_steps": [600_000, 900_000, 982_000], # 45% 45 % 10%
+    #         "learning_rate_piecewise_values": [8e-5, 8e-4, 8e-5, 1e-6],
+    #         "aux_loss_layers": [],
+    #         "preload_from_files": {
+    #             "encoder": {
+    #                 "filename": _torch_ckpt_dir_path + "model_ctc_only_rf_compatible" + "/average.pt",
+    #                 "ignore_missing": True,
+    #                 "init_for_train": True,
+    #             },
+    #         },
+    #     },
+    #     num_epochs=100,
+    #     gpu_mem=11,
+    # )
 
-    # init for tf ctc only model
-    train_exp( # does not converge
-        "from-scratch-11gb_lrmaxs522k_lrmin8e-5_lrmax8e-4",
+    train_exp( #
+        "from-scratch-11gb_lrmaxs522k_lrmin8e-5_lrmax8e-4_aux4_8_adjSpec",
         ctc_train_config,
         config_updates={
             "learning_rate": 1.0,
             "dynamic_learning_rate": dyn_lr_piecewise_linear,
             # total steps after 2000 epochs: 982.312
-            # total steps after 400 epochs:
-            "learning_rate_piecewise_steps": [66_000, 132_000, 145_000], # 45% 45 % 10%
-            # "learning_rate_piecewise_steps": [600_000, 900_000, 982_000], # 45% 45 % 10%
+            "learning_rate_piecewise_steps": [261_000, 522_000, 580_000], # 45% 45 % 10%
             "learning_rate_piecewise_values": [8e-5, 8e-4, 8e-5, 1e-6],
-            "aux_loss_layers": [],
-            "preload_from_files": {
-                "filename": "",
-                "ignore_missing": True,
-                "init_for_train": True,
+            "aux_loss_layers": [4, 8],
+            "specaugment_steps": (5_900, 18_000, 36_000),
+    },
+        num_epochs=400,
+        gpu_mem=11,
+    )
+
+    train_exp( #
+        "from-scratch-11gb_lrmaxs522k_lrmin1e-5_lrmax1e-3_aux4_8_adjSpec",
+        ctc_train_config,
+        config_updates={
+            "learning_rate": 1.0,
+            "dynamic_learning_rate": dyn_lr_piecewise_linear,
+            # total steps after 2000 epochs: 982.312
+            "learning_rate_piecewise_steps": [261_000, 522_000, 580_000], # 45% 45 % 10%
+            "learning_rate_piecewise_values": [1e-5, 1e-3, 1e-5, 1e-6],
+            "aux_loss_layers": [4, 8],
+            "specaugment_steps": (5_900, 18_000, 36_000),
+    },
+        num_epochs=400,
+        gpu_mem=11,
+    )
+
+    # TODO: try with pretrain
+
+    train_exp( #
+        "from-scratch-11gb_pre3_lrmaxs522k_lrmin1e-5_lrmax1e-3_aux4_8_adjSpec",
+        ctc_train_config,
+        config_updates={
+            "learning_rate": 1.0,
+            "dynamic_learning_rate": dyn_lr_piecewise_linear,
+            # total steps after 2000 epochs: 982.312
+            "learning_rate_piecewise_steps": [261_000, 522_000, 580_000], # 45% 45 % 10%
+            "learning_rate_piecewise_values": [1e-5, 1e-3, 1e-5, 1e-6],
+            "aux_loss_layers": [4, 8],
+            "specaugment_steps": (5_900, 18_000, 36_000),
+            "pretrain_opts": {  # pretrain
+                "steps": [
+                    (8 * 500, {"num_layers": 2}),
+                    (4 * 500, {"num_layers": 4}),
+                    (4 * 500, {"num_layers": 8}),
+                ]
             },
-        },
-        num_epochs=100,
+    },
+        num_epochs=400,
+        gpu_mem=11,
+    )
+
+    # TODO: try with epoch base lr schedule
+    ep = 400
+    lr = 8e-4
+    cyc_ep = int(0.45 * ep)
+
+    train_exp( #
+        "from-scratch-11gb_ep_based_lr_aux4_8",
+        ctc_train_config,
+        config_updates={
+            "learning_rate": 1.0,
+            # "dynamic_learning_rate": dyn_lr_piecewise_linear,
+            # total steps after 2000 epochs: 982.312
+            # "learning_rate_piecewise_steps": [261_000, 522_000, 580_000], # 45% 45 % 10%
+            # "learning_rate_piecewise_values": [1e-5, 1e-3, 1e-5, 1e-6],
+            "aux_loss_layers": [4, 8],
+            # "specaugment_steps": (5_900, 18_000, 36_000),
+            # "pretrain_opts": {  # pretrain
+            #     "steps": [
+            #         (8 * 500, {"num_layers": 2}),
+            #         (4 * 500, {"num_layers": 4}),
+            #         (4 * 500, {"num_layers": 8}),
+            #     ]
+            # },
+            "learning_rates": (
+            list(numpy.linspace(lr / 10, lr, cyc_ep))
+            + list(numpy.linspace(lr, lr / 10, cyc_ep))
+            + list(numpy.linspace(lr / 10, 1e-6, ep - 2 * cyc_ep))
+    )
+    },
+        num_epochs=400,
         gpu_mem=11,
     )
 
@@ -242,7 +360,7 @@ def _recog(
     dev_sets: Optional[Collection[str]] = None,
 ):
     from sisyphus import tk
-    from i6_experiments.users.zeyer.recog import recog_model
+    from i6_experiments.users.gaudino.recog_2 import recog_model
 
     if recog_def is None:
         recog_def = model_recog

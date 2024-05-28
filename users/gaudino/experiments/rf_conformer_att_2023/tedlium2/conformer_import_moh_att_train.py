@@ -105,20 +105,20 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
 
     # train_exp("base-11gb", config_11gb, gpu_mem=11)
     # train_exp("base-11gb-v1", my_config_11gb, num_epochs=400, gpu_mem=11)
-    train_exp( # dev 8.77 test 8.26
-        "base-11gb-v3-lrlin1e_5_600k_aux4_8",
-        my_config_11gb,
-        config_updates={
-            "learning_rate": 1.0,
-            "dynamic_learning_rate": dyn_lr_piecewise_linear,
-            # total steps after 2000 epochs: 982.312
-            "learning_rate_piecewise_steps": [600_000, 900_000, 982_000],
-            "learning_rate_piecewise_values": [1e-5, 1e-3, 1e-5, 1e-6],
-            "aux_loss_layers": [4,8],
-        },
-        num_epochs=400,
-        gpu_mem=11,
-    )
+    # train_exp( # dev 8.77 test 8.26
+    #     "base-11gb-v3-lrlin1e_5_600k_aux4_8",
+    #     my_config_11gb,
+    #     config_updates={
+    #         "learning_rate": 1.0,
+    #         "dynamic_learning_rate": dyn_lr_piecewise_linear,
+    #         # total steps after 2000 epochs: 982.312
+    #         "learning_rate_piecewise_steps": [600_000, 900_000, 982_000],
+    #         "learning_rate_piecewise_values": [1e-5, 1e-3, 1e-5, 1e-6],
+    #         "aux_loss_layers": [4,8],
+    #     },
+    #     num_epochs=400,
+    #     gpu_mem=11,
+    # )
 
     # train_exp( # aux 12: does not converge
     #     "base-11gb-v3-lrlin1e_5_261k",
@@ -133,8 +133,22 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
     #     gpu_mem=11,
     # )
 
-    train_exp( # dev 7.89 test 7.3
-        "base-11gb-v3-lrlin1e_5_261k_aux4_8",
+    # train_exp( # dev 7.89 test 7.3
+    #     "base-11gb-v3-lrlin1e_5_261k_aux4_8",
+    #     my_config_11gb,
+    #     config_updates={
+    #         "learning_rate": 1.0,
+    #         "dynamic_learning_rate": dyn_lr_piecewise_linear,
+    #         "learning_rate_piecewise_steps": [261_000, 522_000, 580_000], # 45% 45 % 10%
+    #         "learning_rate_piecewise_values": [1e-5, 1e-3, 1e-5, 1e-6],
+    #         "aux_loss_layers": [4, 8],
+    #     },
+    #     num_epochs=400,
+    #     gpu_mem=11,
+    # )
+
+    train_exp( #
+        "base-11gb-v3-lrlin1e_5_261k_aux4_8_zoneout_fix",
         my_config_11gb,
         config_updates={
             "learning_rate": 1.0,
@@ -142,12 +156,13 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
             "learning_rate_piecewise_steps": [261_000, 522_000, 580_000], # 45% 45 % 10%
             "learning_rate_piecewise_values": [1e-5, 1e-3, 1e-5, 1e-6],
             "aux_loss_layers": [4, 8],
+            "s_use_zoneout_output": True,
         },
         num_epochs=400,
         gpu_mem=11,
     )
 
-    train_exp( #
+    train_exp( # dev 7.59 test 7.13
         "base-11gb-v3-lrlin1e_5_261k_aux4_8_12",
         my_config_11gb,
         config_updates={
@@ -175,21 +190,21 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
     #     gpu_mem=11,
     # )
 
-    model = train_exp( # with aux 4 8: dev 9.92 test 8.96 - wrong steps!!!
-        "base-24gb-v6-lrlin1e_5_261k",
-        config_24gb_v6,
-        config_updates={
-            "learning_rate": 1.0,
-            "dynamic_learning_rate": dyn_lr_piecewise_linear,
-            "learning_rate_piecewise_steps": [261_000, 522_000, 580_000],
-            "learning_rate_piecewise_values": [1e-5, 1e-3, 1e-5, 1e-6],
-        },
-        num_epochs=400,
-    )
+    # model = train_exp( # with aux 4 8: dev 9.92 test 8.96 - wrong steps!!!
+    #     "base-24gb-v6-lrlin1e_5_261k",
+    #     config_24gb_v6,
+    #     config_updates={
+    #         "learning_rate": 1.0,
+    #         "dynamic_learning_rate": dyn_lr_piecewise_linear,
+    #         "learning_rate_piecewise_steps": [261_000, 522_000, 580_000],
+    #         "learning_rate_piecewise_values": [1e-5, 1e-3, 1e-5, 1e-6],
+    #     },
+    #     num_epochs=400,
+    # )
 
 
     model = train_exp( #
-        "base-24gb-v6-lrlin1e_5_85k",
+        "base-24gb-v6-lrlin1e_5_85k_zoneout_fix",
         config_24gb_v6,
         config_updates={
             "learning_rate": 1.0,
@@ -197,6 +212,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
             # total steps after 400 epochs: 189.995
             "learning_rate_piecewise_steps": [85_500, 171_000, 190_000],
             "learning_rate_piecewise_values": [1e-5, 1e-3, 1e-5, 1e-6],
+            "s_use_zoneout_output": True,
         },
         num_epochs=400,
     )
@@ -1365,7 +1381,6 @@ class Model(rf.Module):
         enc_att_dropout: float = 0.1,
         l2: float = 0.0001,
         language_model: Optional[RFModelWithMakeLabelScorer] = None,
-        mel_normalization: bool = True,
     ):
         super(Model, self).__init__()
 
@@ -1373,7 +1388,7 @@ class Model(rf.Module):
 
         config = get_global_config(return_empty_if_none=True)
 
-        self.mel_normalization = mel_normalization
+        self.mel_normalization = config.typed_value("mel_normalization", True)
 
         self.in_dim = in_dim
         self.encoder = ConformerEncoder(
@@ -1432,7 +1447,8 @@ class Model(rf.Module):
             Dim(name="lstm", dimension=1024),
             zoneout_factor_cell=0.15,
             zoneout_factor_output=0.05,
-            use_zoneout_output=False,  # like RETURNN/TF ZoneoutLSTM old default
+            use_zoneout_output=config.typed_value("s_use_zoneout_output", False), # TODO: run exps with this fixed
+            # use_zoneout_output=False,  # like RETURNN/TF ZoneoutLSTM old default
             # parts_order="icfo",  # like RETURNN/TF ZoneoutLSTM
             # parts_order="ifco",
             parts_order="jifo",  # NativeLSTM (the code above converts it...)

@@ -1302,9 +1302,7 @@ class Model(rf.Module):
             Dim(name="lstm", dimension=1024),
             zoneout_factor_cell=0.15,
             zoneout_factor_output=0.05,
-            # TODO: was this a bug?
-            use_zoneout_output=True,
-            # use_zoneout_output=False,  # like RETURNN/TF ZoneoutLSTM old default
+            use_zoneout_output=False,  # like RETURNN/TF ZoneoutLSTM old default
             # parts_order="icfo",  # like RETURNN/TF ZoneoutLSTM
             # parts_order="ifco",
             parts_order="jifo",  # NativeLSTM (the code above converts it...)
