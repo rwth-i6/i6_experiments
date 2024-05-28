@@ -549,17 +549,22 @@ def eow_phon_ls100_1023_base():
         size_env=40,
         stride_env=16,
         init_env="hann",
+        interleaved_resolutions=True,
         convs=[(1, 50, 50)],
         init_convs="ones",
         specaug_config=specaug_config,
         specaug_before_conv_red=True,
     )
-    for exp_name, f_dim_start, f_dim_end, specaug_before_conv in [
-        ("v2", 64, 192, True),
-        ("v2", 64, 256, True),
+    for exp_name, f_dim_start, f_dim_end, specaug_before_conv, interleave, convs in [
+        ("v2", 64, 192, True, True, [(1, 50, 50)]),
+        ("v2", 64, 256, True, True, [(1, 50, 50)]),
+        ("v2", 64, 192, True, False, [(1, 50, 50)]),
+        ("v2", 64, 192, True, False, [(1, 50, 5)]),
     ]:
         scf_config_v4.specaug_config.freq_mask_max_size = f_dim_start
         scf_config_v4.specaug_config.freq_mask_max_size_delta_per_epoch = (f_dim_end - f_dim_start) / 300
+        scf_config_v4.interleaved_resolutions = interleave
+        scf_config_v4.convs = convs
         model_config.feature_extraction_config = scf_config_v4
         model_config.frontend_config.in_features = scf_config_v4.convs[-1][1]
         network_module = "ctc.conformer_1023.i6modelsV1_VGG4LayerActFrontendV1_feat_v1"
@@ -578,6 +583,8 @@ def eow_phon_ls100_1023_base():
             prefix_name + "/" + network_module +
             f".384dim_sub4_24gbgpu_100eps_bs2x180.convredv11.init."
             f"sasort{exp_name}dim{f_dim_start}to{f_dim_end}before{specaug_before_conv}"
+            f"{'' if interleave else '.stackres'}" +
+            (f"group{convs[0][-1]}" if convs[0][-1] != 50 else "")
         )
         train_job = training(training_name, train_data, train_args, num_epochs=300, **default_returnn)
         train_job.rqmt["gpu_mem"] = 24

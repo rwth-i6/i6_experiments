@@ -48,6 +48,7 @@ class SupervisedConvolutionalFeatureExtractionV4Config(FeatureExtractionConfig):
         size_env: filter size in second conv layer
         stride_env: stride in second conv layer
         init_env: initialization for second conv layer, e.g. None or "hann"
+        interleaved_resolutions: whether resolutions should be interleaved or stacked (typically interleaved)
         convs: size, channels and groups for subsequent convolutions used to reduce feature dimension
         init_convs: initialization for pooling conv layers, e.g. None or "ones"
         specaug_config: SpecAugment config
@@ -63,6 +64,7 @@ class SupervisedConvolutionalFeatureExtractionV4Config(FeatureExtractionConfig):
     size_env: int
     stride_env: int
     init_env: Optional[str]
+    interleaved_resolutions: bool
     convs: List[Tuple[int, int, int]]  # [(size, channels, groups)]
     init_convs: Optional[str]
     specaug_config: SpecaugConfig
@@ -137,7 +139,10 @@ class SupervisedConvolutionalFeatureExtractionV4(nn.Module):
         feature_data = feature_data.abs()
         feature_data = torch.unsqueeze(feature_data, 1)  # [B,1,F1,T']
         feature_data = self.conv_env(feature_data)  # [B,F2,F1,T'']
-        feature_data = torch.flatten(feature_data.transpose(1, 2), 1, 2)  # [B,F,T'']
+        if self.cfg.interleaved_resolutions:
+            feature_data = torch.flatten(feature_data.transpose(1, 2), 1, 2)  # [B,F,T'']
+        else:  # stacked resolutions
+            feature_data = torch.flatten(feature_data, 1, 2)  # [B,F,T'']
         feature_data = torch.pow(feature_data.abs() + 1e-5, 1 / 2.5)
         feature_data = feature_data.transpose(1, 2)  # [B,T'',F]
         feature_data = self.normalization_env(feature_data)
@@ -155,7 +160,13 @@ class SupervisedConvolutionalFeatureExtractionV4(nn.Module):
         if self.training and run_ctx.epoch >= self.cfg.specaug_config.start_epoch:
             filter_idcs_tf = self.get_sorted_filter_indices()
             num_env = self.conv_env.out_channels
-            filter_idcs_env = torch.stack([filter_idcs_tf * num_env + filter_idx for filter_idx in range(num_env)])
+            num_tf = self.conv_tf.out_channels
+            if self.cfg.interleaved_resolutions:
+                filter_idcs_env = torch.stack([filter_idcs_tf * num_env + filter_idx for filter_idx in range(num_env)])
+                filter_idcs_env = filter_idcs_env.T.flatten()
+            else:
+                filter_idcs_env = torch.stack([filter_idcs_tf + num_tf * filter_idx for filter_idx in range(num_env)])
+                filter_idcs_env = filter_idcs_env.T.flatten()
             freq_mask_max_size = int(
                 self.cfg.specaug_config.freq_mask_max_size +
                 self.cfg.specaug_config.freq_mask_max_size_delta_per_epoch * run_ctx.epoch
@@ -168,7 +179,7 @@ class SupervisedConvolutionalFeatureExtractionV4(nn.Module):
                 freq_min_num_masks=self.cfg.specaug_config.freq_min_num_masks,
                 freq_mask_max_size=freq_mask_max_size,
                 freq_max_num_masks=self.cfg.specaug_config.freq_max_num_masks,
-                sorted_indices=filter_idcs_env.T.flatten(),
+                sorted_indices=filter_idcs_env,
             )
         else:
             feature_data_masked = feature_data
