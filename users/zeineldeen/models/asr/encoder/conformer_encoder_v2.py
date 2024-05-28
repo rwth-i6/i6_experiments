@@ -87,6 +87,7 @@ class ConformerEncoderV2:
         mhsa_weight_dropout=None,
         conv_weight_dropout=None,
         frontend_conv_weight_dropout=None,
+        ctc_weight_dropout=None,
         memory_variant_opts: Optional[ConformerMemoryVariantOpts] = None,
     ):
         """
@@ -232,6 +233,7 @@ class ConformerEncoderV2:
         self.conv_weight_drop = conv_weight_dropout
         self.mhsa_weight_drop = mhsa_weight_dropout
         self.frontend_conv_weight_drop = frontend_conv_weight_dropout
+        self.ctc_weight_drop = ctc_weight_dropout
 
         self.memory_variant_opts = memory_variant_opts
         if self.memory_variant_opts:
@@ -1083,7 +1085,7 @@ class ConformerEncoderV2:
                     mhsa_input = conv_module1
                 mhsa = self._create_mhsa_module(prefix_name, mhsa_input, i)
                 mhsa = self.network.add_combine_layer(
-                    "{}_res".format(prefix_name), kind="add", source=[mhsa, mhsa_input], n_out=self.enc_value_dim
+                    "{}_self_att_res".format(prefix_name), kind="add", source=[mhsa, mhsa_input], n_out=self.enc_value_dim
                 )
 
             conv_module = self._create_convolution_module(prefix_name, mhsa, i, half_step=self.sandwich_conv)
@@ -1254,7 +1256,7 @@ class ConformerEncoderV2:
                 loss="ctc",
                 dropout=self.ctc_dropout,
                 loss_opts=default_ctc_loss_opts,
-                param_dropout=self.ff_weight_drop,
+                param_dropout=self.ctc_weight_drop,
                 param_dropout_min_ndim=2,
                 param_variational_noise=self.ff_weight_noise,
             )
