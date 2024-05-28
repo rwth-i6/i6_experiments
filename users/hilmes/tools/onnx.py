@@ -90,6 +90,7 @@ class ModelQuantizeStaticJob(Job):
         "num_bins": None,
         "random_seed": 0,
         "filter_opts": None,
+        "loss_table": None
     }
 
     def __init__(self,
@@ -111,6 +112,7 @@ class ModelQuantizeStaticJob(Job):
         num_bins: Optional[int] = None,
         random_seed: int = 0,
         filter_opts: Optional[Dict[str, Any]] = None,
+        loss_table: Optional[Tuple[tk.Path, Any]] = None,  # Path to loss table + args
     ):
         """
         :param model:
@@ -128,6 +130,7 @@ class ModelQuantizeStaticJob(Job):
         self.quant_format = quant_format
         self.weight_type = weight_type
         self.filter_opts = filter_opts
+        self.loss_table = loss_table
 
         self.out_model = self.output_path("model.onnx")
         if num_seqs is None:
@@ -150,12 +153,16 @@ class ModelQuantizeStaticJob(Job):
             time = 4
         else:
             time = 1
+        # cpu slow bandaid
+        if time >= 1:
+            time += 5
         if not calibrate_method == CalibrationMethod.MinMax:
             time *= 2
         if self.filter_opts is not None and "single_tag" in self.filter_opts:
             time += 1
 
-        self.rqmt = {"cpu": 8 if num_seqs is not None and num_seqs > 100 else 4, "mem": 16.0 if calibrate_method == CalibrationMethod.MinMax else 64, "time": time}
+
+        self.rqmt = {"cpu": 8 if num_seqs is not None and num_seqs > 100 else 4, "mem": 16.0 if calibrate_method == CalibrationMethod.MinMax else 100, "time": time}
         self.calibration_method = calibrate_method
         self.percentile = percentile
         self.num_bins = num_bins
@@ -197,6 +204,15 @@ class ModelQuantizeStaticJob(Job):
         seed = self.random_seed
         import random
         random.seed(seed)
+        loss_table = None
+        if self.loss_table is not None:
+            loss_table = []
+            with open(self.loss_table[0], "rt") as f:
+                for line in f:
+                    loss_table.append(line.split(" "))  # (Tag, loss)
+            if "reverse" in self.loss_table[1]:
+                loss_table.reverse()
+
         class DummyDataReader(CalibrationDataReader):
 
             def __init__(self,
@@ -204,15 +220,17 @@ class ModelQuantizeStaticJob(Job):
                          data: Union[Dataset, MetaDataset],
                          max_seqs: int, final_skip:  Optional[Tuple[int, int]] = (None, None),
                          filter_opts: Optional[Dict[str, Any]] = None,
-                         open_budget: Optional[Tuple[int, float]] = (None, None),
+                         open_budget: Tuple[Optional[int], Optional[float]] = (None, None),
+                         loss_table: Optional[List[Tuple[str, str]]] = None
+
                 ):
 
                 self.max_seqs = max_seqs
                 self.data = data
                 self.counter: int = 0
                 sess_option = SessionOptions()
-                logging.info(f"Data Loading {os.getenv('SLURM_CPUS_PER_TASK')}")
-                sess_option.intra_op_num_threads = int(os.getenv('SLURM_CPUS_PER_TASK'))
+                logging.info(f"Data Loading {os.getenv('SLURM_CPUS_PER_TASK', 4)}")
+                sess_option.intra_op_num_threads = int(os.getenv('SLURM_CPUS_PER_TASK', 4))
                 session = InferenceSession(model_str, sess_option)
                 self.input_name_1 = session.get_inputs()[0].name
                 inputs = []
@@ -228,6 +246,7 @@ class ModelQuantizeStaticJob(Job):
                 self.visited_seqs = set()
                 self.open_budget = open_budget[0]
                 self.budget_thresh = None if open_budget[0] is None else open_budget[0] * open_budget[1]
+                self.loss_table = loss_table
 
             def compare_budget(self):
                 if self.budget_thresh is None or self.open_budget is None:
@@ -239,7 +258,7 @@ class ModelQuantizeStaticJob(Job):
                 key = "data" if "data" in self.data.get_data_keys() else "raw_audio"  # hack to make it compatible with both setups for now
                 seq_number = None
                 if not self.data.is_less_than_num_seqs(self.counter) or self.counter >= self.max_seqs or self.compare_budget():
-                    if not self.data.is_less_than_num_seqs(self.counter):
+                    if self.data.is_less_than_num_seqs(self.counter) and self.final_skip_step is None:
                         logging.info(f"Finished after {self.counter} sequences")
                         return None
                     elif self.final_skip_step is not None and self.counter < self.max_seqs + self.final_skip_step * self.final_skip_count:
@@ -254,15 +273,46 @@ class ModelQuantizeStaticJob(Job):
                     else:
                         logging.info("Seen all sequences in dataset")
                         return None
+                if self.loss_table is not None:
+                    seq_number = self.counter
+                    name = self.loss_table[seq_number][0]
+                    real_seq_number = self.data.get_all_tags().index(name)
+                    while real_seq_number in self.seen_seqs or not self.check_filter(real_seq_number):
+                        seq_number += 1
+                        name = self.loss_table[seq_number][0]
+                        real_seq_number = self.data.get_all_tags().index(name)
+                        assert self.loss_table[seq_number][0] == self.data.get_tag(real_seq_number), (self.loss_table[seq_number][0], self.data.get_tag(real_seq_number))
+                        logging.info(f"Position {seq_number} is real {real_seq_number} with Tag {self.data.get_tag(real_seq_number)} matching {self.loss_table[seq_number]}")
+                        self.visited_seqs.add(real_seq_number)
+                        if self.open_budget is not None and self.open_budget == 0:
+                            assert False, "This path should not be reached"
+                            logging.info("Budget Full")
+                            return None
+                        if len(self.visited_seqs) == self.data.num_seqs:
+                            self.visited_seqs = set()
+                            self.open_budget += 1
+                            seq_number = seq_number
+                    seq_number = real_seq_number
                 if seq_number is None:
                         while not seq_number or seq_number in self.seen_seqs or not self.check_filter(seq_number):
                             seq_number = random.randint(0, self.data.num_seqs - 1)
-                            self.visited_seqs.add(seq_number)
-                            assert len(self.visited_seqs) <= self.data.num_seqs, "Visited all sequences"
-                            if len(self.visited_seqs) == self.data.num_seqs and any(x in self.filter_opts for x in ["single_tag", "unique_tags"]):
-                                logging.warning("All seqs seen, still not all num seqs reached")
+                            self.visited_seqs.add(seq_number)  # +2 because seen seqs has not been updated
+                            logging.info(f"{len(self.visited_seqs)} {self.data.num_seqs} {len(self.seen_seqs)}")
+                            logging.info(f"{seq_number}, {seq_number in self.seen_seqs} {not self.check_filter(seq_number)}")
+                            logging.info(f"{len(self.visited_seqs) == self.data.num_seqs} {len(self.seen_seqs)+2 == self.data.num_seqs} {len(self.seen_seqs)+1 == self.data.num_seqs}")
+                            if len(self.visited_seqs) == self.data.num_seqs and (len(self.seen_seqs)+2 == self.data.num_seqs or len(self.seen_seqs)+1 == self.data.num_seqs):
                                 return None
+                            if len(self.visited_seqs) == self.data.num_seqs and not (len(self.seen_seqs)+2 == self.data.num_seqs or len(self.seen_seqs)+1 == self.data.num_seqs) and any(x in self.filter_opts for x in ["single_tag", "unique_tags"]):
+                                return None
+                            if self.open_budget is not None and self.open_budget == 0:
+                                logging.info("Budget Full")
+                                return None
+                            if len(self.visited_seqs) == self.data.num_seqs and not (len(self.seen_seqs)+2 == self.data.num_seqs or len(self.seen_seqs)+1 == self.data.num_seqs):
+                                self.visited_seqs = set()
+                                self.open_budget += 1
+                            #assert len(self.visited_seqs) < self.data.num_seqs, "Visited all sequences"
                 self.seen_seqs.append(seq_number)
+                logging.info(len(self.seen_seqs))
                 self.data.load_seqs(seq_number, seq_number+1)
                 data: np.ndarray = self.data.get_data(seq_number, key)
                 seq_len: np.ndarray = self.data.get_seq_length(seq_number)[key]
@@ -286,15 +336,26 @@ class ModelQuantizeStaticJob(Job):
                         if name == "max_seq_len":
                             seq_len = self.data.get_seq_length(seq_number)["data" if "data" in self.data.get_data_keys() else "raw_audio"]
                             if seq_len > value:
-                                logging.info(
+                                logging.warning(
                                     f"FILTER: Seq {self.data.get_tag(seq_number)} has length {seq_len} longer than {value}")
                                 return False
                         elif name == "min_seq_len":
                             seq_len = self.data.get_seq_length(seq_number)[
                                 "data" if "data" in self.data.get_data_keys() else "raw_audio"]
                             if seq_len < value:
+                                logging.warning(
+                                    f"FILTER: Seq {self.data.get_tag(seq_number)}has length {seq_len} shorter than {value}")
+                                return False
+                        elif name == "range_len":
+                            seq_len = self.data.get_seq_length(seq_number)[
+                                "data" if "data" in self.data.get_data_keys() else "raw_audio"]
+                            if seq_len > value[0] and seq_len < value[1]:
                                 logging.info(
                                     f"FILTER: Seq {self.data.get_tag(seq_number)}has length {seq_len} shorter than {value}")
+                                return True
+                            else:
+                                logging.warning(
+                                    f"FILTER: Seq {self.data.get_tag(seq_number)}has length {seq_len} not in range {value}")
                                 return False
                         elif name == "partition":
                             seq_len = self.data.get_seq_length(seq_number)[
@@ -306,16 +367,20 @@ class ModelQuantizeStaticJob(Job):
                                 value.remove((lower, upper))
                                 logging.info(value)
                                 return True
-                            logging.info(
+                            logging.warning(
                                 f"FILTER: {self.data.get_tag(seq_number)} of length {seq_len} not matching {value}")
                             return False
                         elif name == "budget":
                             seq_len = self.data.get_seq_length(seq_number)[
                                 "data" if "data" in self.data.get_data_keys() else "raw_audio"]
-                            if seq_len < self.open_budget:
+                            if seq_len <= self.open_budget:
                                 logging.info(f"FILTER: Seq with len {seq_len} within budget {self.open_budget}")
                                 self.open_budget -= seq_len
+                                self.visited_seqs = set()
                                 return True
+                            else:
+                                pass
+                                #logging.warning(f"FILTER: Seq with len {seq_len} NOT in budget {self.open_budget}")
                             return False
                         elif name == "unique_tags":
                             seq_tag = self.data.get_tag(seq_number)
@@ -334,16 +399,24 @@ class ModelQuantizeStaticJob(Job):
                         else:
                             raise NotImplementedError
                 if self.open_budget is not None:
+                    assert False
                     seq_len = self.data.get_seq_length(seq_number)[
                         "data" if "data" in self.data.get_data_keys() else "raw_audio"]
                     if seq_len < self.open_budget:
                         logging.info(f"FILTER: Seq with len {seq_len} within budget {self.open_budget}")
                         self.open_budget -= seq_len
                         return True
+                    else:
+                        logging.warning(f"FILTER: Seq with len {seq_len} NOT in budget {self.open_budget}")
                     return False
                 return True
 
         self.dataset = self.convert_to_str(self.dataset)
+        if loss_table is not None:
+            with open("segments", "wt") as f:
+                for tag, loss in loss_table[:self.num_seqs]:
+                    f.write(f"{tag}\n")
+            #self.dataset["seq_list_filter_file"] = "segments"
         dataset: Dataset = init_dataset(self.dataset)
         dataset.init_seq_order(1)
 
@@ -353,7 +426,8 @@ class ModelQuantizeStaticJob(Job):
             max_seqs=self.num_seqs,
             final_skip=self.final_skip,
             filter_opts=self.filter_opts,
-            open_budget=self.budget
+            open_budget=self.budget,
+            loss_table=loss_table,
         )
         quant_options = {
                 "CalibMaxIntermediateOutputs": self.num_parallel_seqs,

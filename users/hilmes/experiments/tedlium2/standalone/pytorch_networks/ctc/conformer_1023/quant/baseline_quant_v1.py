@@ -490,17 +490,18 @@ def static_quant_init_hook(run_ctx, **kwargs):
     run_ctx.apply_quant = False
     run_ctx.tag_file = open("seq_tags.txt", "wt")
 
-
 def static_quant_step(*, model: Model, data, run_ctx, **kwargs):
 
     raw_audio = data["raw_audio"]  # [B, T', F]
     raw_audio_len = data["raw_audio:size1"]  # [B]
     assert not model.training
+    assert model.eval()
+    model.eval()
     _, audio_features_len = model(
         raw_audio=raw_audio,
         raw_audio_len=raw_audio_len,
     )
-    for tag, feat_len, raw_len  in zip(data["seq_tag"], audio_features_len, raw_audio_len):
+    for tag, feat_len, raw_len in zip(data["seq_tag"], audio_features_len, raw_audio_len):
         run_ctx.tag_file.write(tag + f"  len: {feat_len}  raw_len: {raw_len}\n")
 
 def static_quant_finish_hook(run_ctx, **kwargs):

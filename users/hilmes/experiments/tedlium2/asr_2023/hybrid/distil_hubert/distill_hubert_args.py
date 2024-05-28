@@ -131,9 +131,9 @@ def get_pytorch_returnn_configs(
 
     base_config = {
         "extern_data": {
-            "data": {
-                "dim": 80,
-                "shape": (None, 80),
+            "data_raw": {
+                "dim": 1,
+                "shape": (None, 1),
                 "available_for_inference": True,
             },  # input: 1-dimensional waveforms
             "classes": {
@@ -153,13 +153,7 @@ def get_pytorch_returnn_configs(
         "behavior_version": 16,
         "torch_log_memory_usage": True,
     }
-    if not recognition and False:
-        # add teacher features
-        base_config["extern_data"]["data_raw"] = {
-            "dim": 1,
-            "shape": (None, 1),
-            "available_for_inference": True,
-        }  # input: 1-dimensional waveforms
+
     base_post_config = {
         "backend": "torch",
         "debug_print_layer_output_template": True,
@@ -188,6 +182,12 @@ def get_pytorch_returnn_configs(
 
     chunk_400_200_config = copy.deepcopy(hubert_config)
     chunk_400_200_config["chunking"] = "400:200"
+
+    chunk_raw_config = copy.deepcopy(hubert_config)
+    chunk_400 = 400 * 16000
+    chunk_200 = 200 * 16000
+    chunk_raw_config["chunking"] = f"{chunk_400}:{chunk_200}"
+
     #if not recognition:
     #    del chunk_400_200_config['extern_data']['data_raw']
 
@@ -236,6 +236,11 @@ def get_pytorch_returnn_configs(
             base_config["max_seqs"] = 1
             base_config["forward_data"] = "train"
             base_config["model_outputs"] = {"log_probs": {"dim": num_outputs, "shape": (None, num_outputs)}}
+            base_config["extern_data"]["data_raw"] = {
+                "dim": 80,
+                "shape": (None, 80),
+                "available_for_inference": True,
+            }
             if "min_seq_length" in base_config:
                 del base_config["min_seq_length"]
 
@@ -274,8 +279,8 @@ def get_pytorch_returnn_configs(
         return returnn_config
 
     return {
-        **{f"torch_distill_hubert_large_test_{x}": construct_from_net_kwargs(
-            hubert_config,
+        **{f"torch_distill_hubert_fe_test": construct_from_net_kwargs(
+            chunk_raw_config,
             {
                 "model_type": "distill_hubert_v1",
                 "hubert_dict": {
@@ -301,107 +306,13 @@ def get_pytorch_returnn_configs(
                     "upsample_kernel": 3,
                     "upsample_stride": 3,
                     "upsample_padding": 0,
-                    "upsample_out_padding": 0,
+                    "upsample_out_padding": 1,
                     "dropout": 0.2,
+                    "feat_extr": True
                 },
             },
             models_commit="3c9173691521778b1e8b4070c172cbe929e4826b",
-            #max_seqs=2,
-            #grad_acc=14,
-        ) for x in [0.00]},  # 6.4
-        **{f"torch_old_spec_baseline": construct_from_net_kwargs(
-            chunk_400_200_config,
-            {
-                "model_type": "conformer_baseline",
-                "conformer_size": 384,
-                "conv_kernel_size": 7,
-                "att_heads": 6,
-                "ff_dim": 1536,
-                "spec_num_time": 20,
-                "spec_max_time": 20,
-                "spec_num_feat": 5,
-                "spec_max_feat": 16,
-                "pool_1_stride": (3, 1),
-                "pool_1_kernel_size": (1, 2),
-                "pool_1_padding": None,
-                "pool_2_stride": None,
-                "pool_2_kernel_size": (1, 2),
-                "pool_2_padding": None,
-                "num_layers": 12,
-                "upsample_kernel": 3,
-                "upsample_stride": 3,
-                "upsample_padding": 0,
-                "upsample_out_padding": 0,
-                "dropout": 0.2,
-                "old_spec": True
-            },
-            models_commit="3c9173691521778b1e8b4070c172cbe929e4826b",
             # max_seqs=2,
             # grad_acc=14,
-        ) for x in [0.00]}, # 6.2
-        **{f"torch_new_spec_baseline": construct_from_net_kwargs(
-            chunk_400_200_config,
-            {
-                "model_type": "conformer_baseline",
-                "conformer_size": 384,
-                "conv_kernel_size": 7,
-                "att_heads": 6,
-                "ff_dim": 1536,
-                "spec_num_time": 20,
-                "spec_max_time": 20,
-                "spec_num_feat": 5,
-                "spec_max_feat": 16,
-                "pool_1_stride": (3, 1),
-                #"pool_1_kernel_size": (1, 2),
-                #"pool_1_padding": None,
-                #"pool_2_stride": None,
-                #"pool_2_kernel_size": (1, 2),
-                #"pool_2_padding": None,
-                "num_layers": 12,
-                "upsample_kernel": 3,
-                "upsample_stride": 3,
-                "upsample_padding": 0,
-                #"upsample_out_padding": 0,
-                #"dropout": 0.2,
-                "old_spec": False,
-            },
-            models_commit="3c9173691521778b1e8b4070c172cbe929e4826b",
-            # max_seqs=2,
-            # grad_acc=14,
-        ) for x in [0.00]},  # 6.2
-        # **{f"torch_distill_hubert_large_test_chunk_{x}": construct_from_net_kwargs(
-        #     chunk_400_200_config,
-        #     {
-        #         "model_type": "distill_hubert_v1",
-        #         "hubert_dict": {
-        #             "model_name": "base-ls960",
-        #             "distill_scale": x
-        #         },
-        #         "conformer_dict": {
-        #             "hidden_d": 384,
-        #             "conv_kernel_size": 7,
-        #             "att_heads": 6,
-        #             "ff_dim": 1536,
-        #             "spec_num_time": 20,
-        #             "spec_max_time": 20,
-        #             "spec_num_feat": 5,
-        #             "spec_max_feat": 16,
-        #             "pool_1_stride": (3, 1),
-        #             "pool_1_kernel_size": (1, 2),
-        #             "pool_1_padding": None,
-        #             "pool_2_stride": None,
-        #             "pool_2_kernel_size": (1, 2),
-        #             "pool_2_padding": None,
-        #             "num_layers": 12,
-        #             "upsample_kernel": 3,
-        #             "upsample_stride": 3,
-        #             "upsample_padding": 0,
-        #             "upsample_out_padding": 0,
-        #             "dropout": 0.2,
-        #         },
-        #     },
-        #     models_commit="3c9173691521778b1e8b4070c172cbe929e4826b",
-        #     max_seqs=2,
-        #     grad_acc=14,
-        # ) for x in [0.00]},
+        ) for x in [0.00]},
     }

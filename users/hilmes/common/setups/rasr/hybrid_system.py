@@ -57,21 +57,31 @@ def calc_stat(ls):
 
 def hybrid_report_format(report: _Report_Type) -> str:
     quants = report.pop("quant")
-    extra_ls = ["iter", "filter", "quant_min_max", "quant_entropy", "quant_percentile", "rtf-intel"]
+    loss_tables = report.pop("loss_tables")
+    loss_values = {}
+    if len(loss_tables) > 0:
+        for job in loss_tables:
+            with open(loss_tables[job].out_files["loss_table"]) as f:
+                for line in f:
+                    loss_values[line.split(" ")[0]] = float(line.split(" ")[1].strip())
+    extra_ls = ["iter", "filter", "quant_min_max", "quant_entropy", "quant_percentile", "rtf-intel", "loss_table"]
     out = [(recog, str(report[recog])) for recog in report if not any(extra in recog for extra in extra_ls)]
     out = sorted(out, key=lambda x: float(x[1]))
-    best_ls = [out[0]]
+    best_ls = []
+    if len(out) > 0:
+        best_ls.append(out[0])
     for extra in extra_ls:
         if extra == "iter":
-            for quant, count in itertools.product(["min_max", "entropy", "percentile"], ["10", "500", "1000"]):
+            for quant, count in itertools.product(["min_max", "entropy", "percentile"], ["1", "2", "3", "4", "5", "10", "100", "500", "1000", "10000"]):
                 others = ["seed", "avrg", "filter", "rtf"]
                 out2 = [(recog, str(report[recog])) for recog in report if "iter" in recog and quant in recog and (recog.endswith(count) or recog.endswith(count + "-optlm")) and not any(x in report for x in others)]
                 out2 = sorted(out2, key=lambda x: float(x[1]))
                 if len(out2) > 0:
                     ex_str = calc_stat(out2)
+                    out.append(('', ''))
                     out.append((extra + "_" + quant + "_" + count, ex_str))
-                    out.extend(out2[:3])
-                    out.extend(out2[-3:])
+                    out.extend(out2[:5])
+                    out.extend(out2[-5:])
                     best_ls.append(out2[0])
                 # avg list
                 out2 = [(recog, str(report[recog])) for recog in report if "iter" in recog and quant in recog and (
@@ -80,9 +90,10 @@ def hybrid_report_format(report: _Report_Type) -> str:
                 out2 = sorted(out2, key=lambda x: float(x[1]))
                 if len(out2) > 0:
                     ex_str = calc_stat(out2)
+                    out.append(('', ''))
                     out.append((extra + "_avrg" + "_" + quant + "_" + count, ex_str))
-                    out.extend(out2[:3])
-                    out.extend(out2[-3:])
+                    out.extend(out2[:5])
+                    out.extend(out2[-5:])
                     best_ls.append(out2[0])
                 # different seeds
                 for seed in ["24, 2005, 5"]:
@@ -93,20 +104,21 @@ def hybrid_report_format(report: _Report_Type) -> str:
                         if len(out2) > 0:
                             ex_str = calc_stat(out2)
                             out.append((quant + "_seed_" + seed + "_" + extra + "-" + count, ex_str))
-                            out.extend(out2[:3])
-                            out.extend(out2[-3:])
+                            out.extend(out2[:5])
+                            out.extend(out2[-5:])
                             best_ls.append(out2[0])
         elif extra == "filter":
             # max and min len filter methods
-            for quant, count, mode, thresh in itertools.product(["min_max", "entropy", "percentile"], ["10", "500", "1000"], ["max_calib_len_", "min_calib_len_"], ["500", "1000" "1500"]):
+            for quant, count, mode, thresh in itertools.product(["min_max", "entropy", "percentile"], ["10", "500", "1000"], ["max_calib_len_", "min_calib_len_"], ["50", "100", "250", "400", "500", "1000" "1500"]):
                 out2 = [(recog, str(report[recog])) for recog in report if "filter" in recog and quant in recog and (
-                            recog.endswith(count) or recog.endswith(count + "-optlm")) and mode+thresh in recog]
+                            recog.endswith(count) or recog.endswith(count + "-optlm")) and mode+thresh+"-" in recog]
                 out2 = sorted(out2, key=lambda x: float(x[1]))
                 if len(out2) > 0:
                     ex_str = calc_stat(out2)
+                    out.append(('', ''))
                     out.append((extra + "_" + mode + thresh + "_" + quant + "_" + count, ex_str))
-                    out.extend(out2[:3])
-                    out.extend(out2[-3:])
+                    out.extend(out2[:5])
+                    out.extend(out2[-5:])
                     best_ls.append(out2[0])
             # partition filter methods
             partitions = set()
@@ -123,9 +135,10 @@ def hybrid_report_format(report: _Report_Type) -> str:
                 out2 = sorted(out2, key=lambda x: float(x[1]))
                 if len(out2) > 0:
                     ex_str = calc_stat(out2)
+                    out.append(('', ''))
                     out.append((extra + "_" + mode + thresh + "_" + quant + "_" + count, ex_str))
-                    out.extend(out2[:3])
-                    out.extend(out2[-3:])
+                    out.extend(out2[:5])
+                    out.extend(out2[-5:])
                     best_ls.append(out2[0])
             # budget filter methods
             budgets = set()
@@ -135,21 +148,73 @@ def hybrid_report_format(report: _Report_Type) -> str:
                     for i, x in enumerate(spl):
                         if x == "budget":
                             budgets.add(spl[i+1].split("-")[0])  # add the number after the partition which gives identification
-            for quant, thresh in itertools.product(["min_max", "entropy", "percentile"], budgets):
+            for quant, thresh, remaind in itertools.product(["min_max", "entropy", "percentile"], budgets, ["0.01", "0.005"]):
                 mode = "budget_"
-                out2 = [(recog, str(report[recog])) for recog in report if "filter" in recog and quant in recog and mode+thresh in recog]
+                out2 = [(recog, str(report[recog])) for recog in report if "filter" in recog and quant in recog and mode+thresh+"_"+remaind in recog]
                 out2 = sorted(out2, key=lambda x: float(x[1]))
                 tmp = []
+                sequences = []
+                losses = []
+                wers = []
                 for name, value in out2:
                     job_ls = [quants[x] for x in quants if name.split("/")[1].split("-")[0] == x.split("/")[-2] and quant in x and mode+thresh in x]
                     assert len(job_ls) == 1, (job_ls, out2, quants)
+                    with open(job_ls[0].out_seq_info, "rt") as f:
+                        loss_tmp = []
+                        sequences_tmp = []
+                        for line in f:
+                            sequences_tmp.append(line.split(" ")[0].strip()[:-1])
+                            loss_tmp.append(loss_values[line.split(" ")[0].strip()[:-1]])
+                        losses.append(sum(loss_tmp))
+                        sequences.append(sequences_tmp)
+                        wers.append(float(value))
                     tmp.append((name, value, str(job_ls[0].out_num_seqs)))
                 out2 = tmp
                 if len(out2) > 0:
                     ex_str = calc_stat(out2)
-                    out.append((extra + "_" + mode + thresh + "_" + quant, ex_str))
-                    out.extend(out2[:3])
-                    out.extend(out2[-3:])
+                    out.append(('', ''))
+                    out.append((extra + "_" + mode + thresh + "_" + remaind + "_" + quant, ex_str))
+                    out.append(("Correlation between loss and drawn sequence", str(np.corrcoef(wers, losses)[0, 1])))
+                    out.extend(out2[:5])
+                    out.extend(out2[-5:])
+                    best_ls.append(out2[0])
+            # range filter methods
+            ranges = set()
+            for recog in report:
+                if "range_len" in recog:
+                    spl = recog.split("_")
+                    for i, x in enumerate(spl):
+                        if x == "range":
+                            ranges.add(f"{spl[i+2]}_{spl[i+3].split('-')[0]}")  # add the number after the partition which gives identification
+            for quant, ran in itertools.product(["min_max", "entropy", "percentile"], ranges):
+                mode = "range_len_"
+                out2 = [(recog, str(report[recog])) for recog in report if "filter" in recog and quant in recog and mode+ran in recog]
+                out2 = sorted(out2, key=lambda x: float(x[1]))
+                tmp = []
+                sequences = []
+                losses = []
+                wers = []
+                for name, value in out2:
+                    job_ls = [quants[x] for x in quants if name.split("/")[1].split("-")[0] == x.split("/")[-2] and quant in x and mode+ran in x]
+                    assert len(job_ls) == 1, (name, job_ls, out2, quants)
+                    with open(job_ls[0].out_seq_info, "rt") as f:
+                        sequence = []
+                        loss = []
+                        for line in f:
+                            sequences.append(line.split(" ")[0].strip())
+                            wers.append(float(value))
+                            loss.append(loss_values[line.split(" ")[0].strip()[:-1]])
+                        losses.append(sum(loss))
+                        sequences.append(sequence)
+                        tmp.append((name.split("/")[1], value, " ".join(f.readlines()).strip()))
+                out2 = tmp
+                if len(out2) > 0:
+                    ex_str = calc_stat(out2)
+                    out.append(('', ''))
+                    out.append((extra + "_" + mode + ran + "_" + quant, ex_str))
+                    out.append(("Correlation between loss and drawn sequence", str(np.corrcoef(wers, losses)[0, 1])))
+                    out.extend(out2[:5])
+                    out.extend(out2[-5:])
                     best_ls.append(out2[0])
             # single and unique tag filter methods
             for quant, count, mode in itertools.product(["min_max", "entropy", "percentile"], ["10", "20", "30", "50"], ["single_tag", "unique_tags"]):
@@ -158,19 +223,75 @@ def hybrid_report_format(report: _Report_Type) -> str:
                 out2 = sorted(out2, key=lambda x: float(x[1]))
                 if len(out2) > 0:
                     ex_str = calc_stat(out2)
+                    out.append(('', ''))
                     out.append((extra + "_" + mode + "_" + quant + "_" + count, ex_str))
-                    out.extend(out2[:3])
-                    out.extend(out2[-3:])
+                    out.extend(out2[:5])
+                    out.extend(out2[-5:])
                     best_ls.append(out2[0])
+        elif extra == "loss_table":
+            # loss table
+            for quant in ["min_max", "entropy", "percentile", "reverse"]:
+                out2 = [(recog, str(report[recog])) for recog in report if extra in recog and quant in recog]
+                out2 = sorted(out2, key=lambda x: float(x[1]))
+                tmp = []
+                sequences = []
+                losses = []
+                wers = []
+                for name, value in out2:
+                    job_ls = [quants[x] for x in quants if
+                              name.split("/")[1].split("-")[0] == x.split("/")[-2] and extra in x and x.endswith(name.split("/")[1].split("-")[1]) and name.split("/")[0].split("-")[-1] in x]
+                    assert len(job_ls) == 1, (name, job_ls, len(out2), quants)
+                    with open(job_ls[0].out_seq_info, "rt") as f:
+                        for line in f:
+                            sequences.append(line.split(" ")[0].strip())
+                            wers.append(float(value))
+                            losses.append(loss_values[line.split(" ")[0].strip()[:-1]])
+                        tmp.append((name.split("/")[0].split("-")[-1]+"/"+name.split("/")[1], value, " ".join(f.readlines()).strip()))
+                out2 = tmp
+                if len(out2) > 0:
+                    ex_str = calc_stat(out2)
+                    out.append(('', ''))
+                    out.append((extra + " " + quant, ex_str))
+                    out.extend(out2)
+                    out.extend(out2)
+                    best_ls.append(out2[0])
+            quant = "reverse"
+            out2 = [(recog, str(report[recog])) for recog in report if extra in recog and quant not in recog]
+            out2 = sorted(out2, key=lambda x: float(x[1]))
+            tmp = []
+            sequences = []
+            losses = []
+            wers = []
+            for name, value in out2:
+                job_ls = [quants[x] for x in quants if
+                          name.split("/")[1].split("-")[0] == x.split("/")[-2] and extra in x and x.endswith(
+                              name.split("/")[1].split("-")[1]) and name.split("/")[0].split("-")[-1] in x]
+                assert len(job_ls) == 1, (name, job_ls, len(out2), quants)
+                with open(job_ls[0].out_seq_info, "rt") as f:
+                    for line in f:
+                        sequences.append(line.split(" ")[0].strip())
+                        wers.append(float(value))
+                        losses.append(loss_values[line.split(" ")[0].strip()[:-1]])
+                    tmp.append((name.split("/")[0].split("-")[-1] + "/" + name.split("/")[1], value,
+                                " ".join(f.readlines()).strip()))
+            out2 = tmp
+            if len(out2) > 0:
+                ex_str = calc_stat(out2)
+                out.append(('', ''))
+                out.append((extra + " no " + quant, ex_str))
+                out.extend(out2)
+                out.extend(out2)
+                best_ls.append(out2[0])
         else:
             # mixed
             out2 = [(recog, str(report[recog])) for recog in report if extra in recog]
             out2 = sorted(out2, key=lambda x: float(x[1]))
             if len(out2) > 0:
                 ex_str = calc_stat(out2)
+                out.append(('', ''))
                 out.append((extra, ex_str))
-                out.extend(out2[:3])
-                out.extend(out2[-3:])
+                out.extend(out2[:5])
+                out.extend(out2[-5:])
                 best_ls.append(out2[0])
 
     best_ls = sorted(best_ls, key=lambda x: float(x[1]))
@@ -714,32 +835,40 @@ class HybridSystem(NnSystem):
                     train_job=returnn_train_job,
                 )
                 print(f"NN Recog Iteration {time.time() - start}")
-                start = time.time()
-                from i6_core.report import GenerateReportStringJob, MailJob
+                for recog_name, _ in step_args.recognition_args.items():
+                    results = {}
+                    from i6_core.report import GenerateReportStringJob, MailJob
+                    for c in self.dev_corpora + self.test_corpora:
+                        for job_name in self.jobs[c]:
+                            if "scorer" not in job_name:
+                                continue
+                            if not name == job_name.split("-")[1]:
+                                continue
+                            if not f"{recog_name}-{c}" in job_name:  # e.g. "quant_multile-dev
+                                continue
+                            scorer = self.jobs[c][job_name]
+                            if scorer.out_wer:
+                                results[job_name] = scorer.out_wer
+                    tk.register_report(f"reports/{name.replace('/', '_')}/{recog_name}", values=results)
+                    quants = {}
+                    for c in self.dev_corpora + self.test_corpora:
+                        for job_name in self.jobs[c]:
+                            #if "quantize_static" in job_name and "budget" in job_name and f"{recog_name}" in job_name:
+                            if "quantize_static" in job_name and f"{recog_name}" in job_name:
+                                quants[job_name] = self.jobs[c][job_name]
+                    results["quant"] = quants
+                    loss_tables = {}
+                    for c in self.dev_corpora + self.test_corpora:
+                        for job_name in self.jobs[c]:
+                            if "calculate_loss" in job_name and f"{recog_name}" in job_name:
+                                loss_tables[job_name] = self.jobs[c][job_name]
+                    results["loss_tables"] = loss_tables
+                    report = GenerateReportStringJob(report_values=results, report_template=hybrid_report_format)
+                    report.add_alias(f"report/report_{name}_{recog_name}")
+                    mail = MailJob(report.out_report, send_contents=True, subject=name + " " + recog_name)
+                    mail.add_alias(f"report/mail_{name}_{recog_name}")
+                    tk.register_output("mail/" + name + "_" + recog_name, mail.out_status)
 
-                results = {}
-                for c in self.dev_corpora + self.test_corpora:
-                    for job_name in self.jobs[c]:
-                        if "scorer" not in job_name:
-                            continue
-                        if not name == job_name.split("-")[1]:
-                            continue
-                        scorer = self.jobs[c][job_name]
-                        if scorer.out_wer:
-                            results[job_name] = scorer.out_wer
-                tk.register_report(f"reports/{name.replace('/', '_')}", values=results)
-                quants = {}
-                for c in self.dev_corpora + self.test_corpora:
-                    for job_name in self.jobs[c]:
-                        if "quantize_static" in job_name and "budget" in job_name:
-                            quants[job_name] = self.jobs[c][job_name]
-                results["quant"] = quants
-                report = GenerateReportStringJob(report_values=results, report_template=hybrid_report_format)
-                report.add_alias(f"report/report_{name}")
-                mail = MailJob(report.out_report, send_contents=True, subject=name)
-                mail.add_alias(f"report/mail_{name}")
-                tk.register_output("mail/" + name, mail.out_status)
-                print(f"NN Report Iteration {time.time() - start}")
 
     def run_nn_recog_step(self, step_args: NnRecogArgs):
         for eval_c in self.dev_corpora + self.test_corpora:
