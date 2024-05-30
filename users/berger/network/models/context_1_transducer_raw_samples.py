@@ -112,6 +112,7 @@ def make_context_1_conformer_transducer_fullsum(
     vgg_args: Dict = {},
     conformer_args: Dict = {},
     decoder_args: Dict = {},
+    fullsum_v2: bool = False,
 ) -> Tuple[Dict, List]:
     network = {}
     python_code = []
@@ -159,6 +160,7 @@ def make_context_1_conformer_transducer_fullsum(
             targets=f"base:base:{context_labels}",
             num_classes=num_outputs,
             blank_index=blank_index,
+            loss_v2=fullsum_v2,
         )
     else:
         python_code += add_rnnt_loss(

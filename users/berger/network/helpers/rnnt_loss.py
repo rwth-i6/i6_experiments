@@ -1,3 +1,7 @@
+from sisyphus.delayed_ops import DelayedFormat
+from i6_core.tools.git import CloneGitRepositoryJob
+
+
 def rnnt_loss(sources, blank_label=0):
     from returnn.extern.WarpRna import rna_loss
 
@@ -61,6 +65,24 @@ def rnnt_loss_compressed(sources, blank_label=0):
     return loss
 
 
+def rnnt_loss_compressed_v2(sources, blank_label: int = 0):
+    from tensorflow_binding.returnn_tf_op import monotonic_rnnt_loss
+
+    logits = sources(0, as_data=True, auto_convert=False)
+    targets = sources(1, as_data=True, auto_convert=False)
+    encoder = sources(2, as_data=True, auto_convert=False)
+
+    loss = monotonic_rnnt_loss(
+        logits.placeholder,
+        targets.get_placeholder_as_batch_major(),
+        encoder.get_sequence_lengths(),
+        targets.get_sequence_lengths(),
+        blank_label=blank_label,
+    )
+    loss.set_shape((None,))
+    return loss
+
+
 def add_rnnt_loss_compressed(
     network: dict,
     encoder: str,
@@ -68,6 +90,7 @@ def add_rnnt_loss_compressed(
     targets: str,
     num_classes: int,
     blank_index: int = 0,
+    loss_v2: bool = False,
 ):
     network["output"] = {
         "class": "linear",
@@ -86,7 +109,25 @@ def add_rnnt_loss_compressed(
         "from": ["output", targets, encoder],
         "loss": "as_is",
         "out_type": {"batch_dim_axis": 0, "time_dim_axis": None, "shape": ()},
-        "eval": f'self.network.get_config().typed_value("rnnt_loss_compressed")(source, {blank_index})',
     }
 
-    return [rnnt_loss_compressed]
+    if loss_v2:
+        network["rnnt_loss"][
+            "eval"
+        ] = f'self.network.get_config().typed_value("rnnt_loss_compressed_v2")(source, {blank_index})'
+    else:
+        network["rnnt_loss"][
+            "eval"
+        ] = f'self.network.get_config().typed_value("rnnt_loss_compressed")(source, {blank_index})'
+
+    if loss_v2:
+        repo = CloneGitRepositoryJob(
+            "https://github.com/SimBe195/monotonic-rnnt.git", checkout_folder_name="monotonic-rnnt"
+        ).out_repository
+        return [
+            "import sys",
+            DelayedFormat('sys.path.append("{}")', repo),
+            rnnt_loss_compressed_v2,
+        ]
+    else:
+        return [rnnt_loss_compressed]

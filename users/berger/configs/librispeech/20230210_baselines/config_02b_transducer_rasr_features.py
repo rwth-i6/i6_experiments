@@ -66,10 +66,7 @@ def generate_returnn_config(
         }
 
     if train:
-        (
-            network_dict,
-            extra_python,
-        ) = transducer_model.make_context_1_conformer_transducer(
+        (network_dict, extra_python,) = transducer_model.make_context_1_conformer_transducer(
             num_outputs=num_classes,
             specaug_args=specaug_args,
             conformer_args={
@@ -402,7 +399,14 @@ def run_exp(
             {
                 "epochs": [382],
                 "lm_scales": [0.8],
+                "mem": 8,
             }
+        )
+        system.run_recog_step_for_corpora(
+            exp_names=[f"Conformer_Transducer_Viterbi_specaug-v2_{name_suffix}"],
+            corpora=["dev-clean_4gram", "dev-other_4gram", "test-clean_4gram", "test-other_4gram"],
+            recog_exp_names=["recog_ilm-0.3"],
+            **recog_args,
         )
         recog_args["search_parameters"].update(
             {
@@ -473,7 +477,11 @@ def run_exp(
             **recog_args,
         )
 
-    train_job = system.get_train_job(f"Conformer_Transducer_Viterbi_lr-0.0008_{name_suffix}")
+    if "blstm" in name_suffix:
+        train_job = system.get_train_job(f"Conformer_Transducer_Viterbi_specaug-v2_{name_suffix}")
+    else:
+        train_job = system.get_train_job(f"Conformer_Transducer_Viterbi_lr-0.0008_{name_suffix}")
+
     model = train_job.out_checkpoints[400]
     assert isinstance(model, Checkpoint)
 

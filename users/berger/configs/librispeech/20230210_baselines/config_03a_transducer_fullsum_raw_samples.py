@@ -83,6 +83,7 @@ def generate_returnn_config(
                     "activation": "tanh",
                 },
             },
+            fullsum_v2=True,
         )
     else:
         (network_dict, extra_python,) = transducer_model.make_context_1_conformer_transducer_recog(
