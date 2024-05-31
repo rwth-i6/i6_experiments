@@ -8,6 +8,7 @@ def speed_pert(audio, sample_rate, random_state, min_factor={min_factor}, max_fa
 """
 
 speed_pert_v2 = """
+import numpy
 def speed_pert(audio, sample_rate={sample_rate}, min_factor={min_factor}, max_factor={max_factor}, step={step}, random_state=numpy.random.RandomState(1)):
   import librosa
  
