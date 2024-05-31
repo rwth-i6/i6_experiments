@@ -303,6 +303,11 @@ class CTCDecoder:
         renorm_after_remove_blank=True,
         recombine=False,
         max_approx=False,
+        train = False,
+
+        # not used
+        coverage_scale=False,
+
     ):
         """
         :param base_model: base/encoder model instance
@@ -429,6 +434,8 @@ class CTCDecoder:
         self.subnet_unit = ReturnnNetwork()
         self.dec_output = None
         self.output_prob = None
+
+        self.train = train
 
     def get_python_prolog(self):
         """Called in attention_asr_config to add ctc decoder specific python code to the config."""
@@ -1570,6 +1577,11 @@ class CTCDecoder:
         self.ctc_source = "blank_collapse_apply"
 
     def create_network(self):
+
+        if self.train:
+            self.decision_layer_name = "dummy"
+            return
+
         self.decision_layer_name = "out_best_wo_blank"
 
         # modify ctc source
