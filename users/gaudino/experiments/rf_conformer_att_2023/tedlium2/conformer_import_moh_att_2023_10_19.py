@@ -518,10 +518,10 @@ def sis_run_with_prefix(prefix_name: str = None):
         )
 
     # opls att + ctc + trafo lm + ilm
-    # 5.78 with att 0.7, ctc 0.3, prior 0.7, trafo 0.6, ilm 0.45
-    for model_name, beam_size, lm_scale in product(["model_baseline"], [12], [0.6, 0.62, 0.64, 0.66, 0.68, 0.7]):
-        for scales in [(0.7, 0.3, 0.7, 0.45)]:
-            att_scale, ctc_scale, prior_scale, ilm_scale = scales
+    # 5.74 with att 0.7, ctc 0.3, prior 0.7, trafo 0.6, ilm 0.45
+    for model_name, beam_size in product(["model_baseline"], [12, 24]):
+        for scales in [(0.7, 0.3, 0.7, 0.6, 0.45)]:
+            att_scale, ctc_scale, prior_scale, lm_scale, ilm_scale = scales
 
             ilm_model_args = copy.deepcopy(models_with_pt_ckpt[model_name]["model_args"])
             ilm_model_args["preload_from_files"] = preload_from_files_ilm
@@ -552,7 +552,7 @@ def sis_run_with_prefix(prefix_name: str = None):
                 task,
                 models_with_pt_ckpt[model_name]["ckpt"],
                 model_recog,
-                dev_sets=["dev"],
+                dev_sets=["dev", "test"],
                 model_args=ilm_model_args,
                 search_args=search_args,
                 prefix_name=name,

@@ -657,12 +657,13 @@ def import_models():
 
 
 if __name__ == "__main__":
-    import_models()
+    # import_models()
     # convert_lm(
     #     _ted2_lm_ckpt_filename,
     #     "/work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/2023-08-10--rf-librispeech/work/i6_experiments/users/gaudino/returnn/convert_ckpt_rf/tedlium2/trafo_lm_only_24_02_05",
     #     1057,
     # )
+    # Ted2 ILM
     # convert_mini_att_ilm(
     #     ckpt_path_prior="/u/zeineldeen/setups/ubuntu_22_setups/2023-04-17--conformer-att/work/i6_core/returnn/training/AverageTFCheckpointsJob.yB4JK4GDCxWG/output/model/average",
     #     ckpt_path_mini_att="/u/zeineldeen/setups/ubuntu_22_setups/2023-04-17--conformer-att/work/i6_core/returnn/training/GetBestTFCheckpointJob.70hGEsLQ6ynw/output/model/checkpoint",
@@ -670,3 +671,12 @@ if __name__ == "__main__":
     #     model_target_dim=1057,
     #     out_dir="/work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/2023-08-10--rf-librispeech/work/i6_experiments/users/gaudino/returnn/convert_ckpt_rf/tedlium2/mini_att_ilm_24_04_21",
     # )
+
+    # ls960 ILM
+    convert_mini_att_ilm(
+        ckpt_path_prior="/u/zeineldeen/setups/ubuntu_22_setups/2023-04-17--conformer-att/work/i6_core/returnn/training/AverageTFCheckpointsJob.BxqgICRSGkgb/output/model/average",
+        ckpt_path_mini_att="/u/zeineldeen/setups/ubuntu_22_setups/2023-04-17--conformer-att/work/i6_core/returnn/training/GetBestTFCheckpointJob.JLwxrydala1K/output/model/checkpoint",
+        model_in_dim=640,
+        model_target_dim=10025,
+        out_dir="/work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/2023-08-10--rf-librispeech/work/i6_experiments/users/gaudino/returnn/convert_ckpt_rf/librispeech/mini_att_ilm_24_05_28",
+    )

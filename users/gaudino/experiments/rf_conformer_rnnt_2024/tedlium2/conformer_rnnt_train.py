@@ -79,7 +79,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
 
     # train_exp("base-11gb", config_11gb, gpu_mem=11)
     # train_exp("base-11gb-v1", my_config_11gb, num_epochs=400, gpu_mem=11)
-    train_exp(
+    train_exp( #
         "from-scratch-11gb",
         rnnt_train_config,
         config_updates={
@@ -91,6 +91,24 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
             "learning_rate_piecewise_steps": [261_000, 522_000, 580_000],  # 45% 45 % 10%
             "learning_rate_piecewise_values": [1e-5, 1e-3, 1e-5, 1e-6],
         },
+        config_deletes=["learning_rate_warmup_steps", "learning_rate_invsqrt_norm"],
+        num_epochs=400,
+        gpu_mem=11,
+    )
+
+    train_exp( # does not converge
+        "from-scratch-11gb",
+        rnnt_train_config,
+        config_updates={
+            "learning_rate": 1.0,
+            "dynamic_learning_rate": dyn_lr_piecewise_linear,
+            # total steps after 2000 epochs: 982.312
+            # "learning_rate_piecewise_steps": [600_000, 900_000, 982_000],
+            # "learning_rate_piecewise_values": [1e-5, 1e-3, 1e-5, 1e-6],
+            "learning_rate_piecewise_steps": [261_000, 522_000, 580_000],  # 45% 45 % 10%
+            "learning_rate_piecewise_values": [1e-5, 1e-3, 1e-5, 1e-6],
+        },
+        config_deletes=["learning_rate_warmup_steps", "learning_rate_invsqrt_norm"],
         num_epochs=400,
         gpu_mem=24,
     )
