@@ -686,7 +686,6 @@ def create_config(
                 assert "sample_rate" in speed_pert_version
                 speed_pert_generic_str = data_aug.speed_pert_generic_v2
             assert isinstance(speed_pert_generic_str, str)
-            python_prolog += ["import numpy\n\n"]
             python_prolog += [speed_pert_generic_str.format(**speed_pert_version)]
         else:
             raise ValueError("Invalid speed_pert_version")
