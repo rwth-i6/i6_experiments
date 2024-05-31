@@ -47,7 +47,7 @@ def py():
         },
     )
 
-    train_exp(
+    train_exp(  # 8.79
         f"v6-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_4-lrlin1e_5_295k-speedpertV2-bpe10k",
         config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
         config_updates={
@@ -63,7 +63,7 @@ def py():
         "spm10k",  # 8.12
         "spm_bpe10k",  # 7.97
         "spm4k",  # 9.86
-        "spm1k",
+        "spm1k",  # 12.72
         "spm_bpe1k",  # 11.76
     ]:
         train_exp(  # 8.23
@@ -80,7 +80,7 @@ def py():
 
     for alpha in [
         0.3,  # 7.88
-        0.5,
+        0.5,  # 7.13
         0.7,  # 6.99
     ]:
         train_exp(
