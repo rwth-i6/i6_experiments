@@ -23,6 +23,7 @@ from .configs import _get_cfg_lrlin_oclr_by_bs_nep, _batch_size_factor
 if TYPE_CHECKING:
     from i6_experiments.users.zeyer.model_with_checkpoints import ModelWithCheckpoints, ModelWithCheckpoint
     from i6_experiments.users.zeyer.datasets.task import Task
+    from i6_experiments.users.zeyer.datasets.score_results import RecogOutput
 
 
 # The model gets raw features (16khz) and does feature extraction internally.
@@ -211,9 +212,22 @@ def train_exp(
         distributed_launch_cmd="torchrun" if num_processes else None,
         time_rqmt=time_rqmt,
     )
-    recog_training_exp(prefix, task, model_with_checkpoint, recog_def=model_recog)
+
+    recog_post_proc_funcs = []
+    if config.get("use_eos_postfix", False):
+        recog_post_proc_funcs.append(_remove_eos_label)
+    recog_training_exp(
+        prefix, task, model_with_checkpoint, recog_def=model_recog, recog_post_proc_funcs=recog_post_proc_funcs
+    )
 
     return model_with_checkpoint
+
+
+def _remove_eos_label(res: RecogOutput) -> RecogOutput:
+    from i6_experiments.users.zeyer.datasets.score_results import RecogOutput
+    from i6_core.returnn.search import SearchRemoveLabelJob
+
+    return RecogOutput(SearchRemoveLabelJob(res.output, remove_label="</S>", output_gzip=True).out_search_results)
 
 
 _sis_prefix: Optional[str] = None
