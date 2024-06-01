@@ -30,7 +30,41 @@ _log_mel_feature_dim = 80
 
 
 def py():
+    """Sisyphus entry point"""
+    """
+    Luca:
+
+        CTC, greedy decoding ohne lm.
+        Habe eigentlich nicht wirklich was gemacht. Ist genau dein setup ohne die attention.
+        Model definition: i6_experiments/users/gaudino/models/asr/rf/conformer_ctc/model_conformer_ctc.py
+        Decoding: i6_experiments/users/gaudino/models/asr/rf/conformer_ctc/model_recog_ctc_greedy.py
+        Sis config: i6_experiments/users/gaudino/experiments/rf_conformer_rnnt_2024/librispeech_960/conformer_ctc_train.py
+        Experiment name: base-24gb-lrlin1e_5_600k_ctc_only_aux4_8
+        Sis work dir: /u/luca.gaudino/setups/2023-08-10--rf-librispeech/alias/librispeech_960_exp2024_05_13_rf/conformer_ctc_train/base-24gb-lrlin1e_5_600k_ctc_only_aux4_8/train
+        Bekomme: {"dev-clean": 3.08, "dev-other": 6.93, "test-clean": 3.24, "test-other": 7.18}
+        
+        No diffs:
+        - Same oggzip files
+        - Same BPE vocab
+        Diffs:
+        - Luca has "seq_postfix": [0]?
+        - Luca uses single 24GB GPU, bfloat16 AMP
+        - Luca uses larger batch 2_400_000 -> 6_400_000, grad accum 1 -> 2
+        - Luca uses wd 1e-06
+        - Luca uses older behavior_version 21 -> 16.
+    """
+
     train_exp(
+        f"v6-bhv20-11gb-f32-bs15k-accgrad5-mgpu4-pavg100-wd1e_5-lrlin1e_5_295k-bpe10k",
+        config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
+        config_updates={
+            **_get_cfg_lrlin_oclr_by_bs_nep(15_000, 500),
+            "accum_grad_multiple_step": 5,
+            "optimizer.weight_decay": 1e-5,
+        },
+    )
+
+    train_exp(  # 9.24
         f"v6-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_4-lrlin1e_5_295k-bpe10k",
         config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
         config_updates={
