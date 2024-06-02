@@ -215,7 +215,7 @@ def train_exp(
 
     recog_post_proc_funcs = []
     if config.get("use_eos_postfix", False):
-        recog_post_proc_funcs.append(_remove_eos_label)
+        recog_post_proc_funcs.append(_remove_eos_label_v2)
     recog_training_exp(
         prefix, task, model_with_checkpoint, recog_def=model_recog, recog_post_proc_funcs=recog_post_proc_funcs
     )
@@ -223,11 +223,11 @@ def train_exp(
     return model_with_checkpoint
 
 
-def _remove_eos_label(res: RecogOutput) -> RecogOutput:
+def _remove_eos_label_v2(res: RecogOutput) -> RecogOutput:
     from i6_experiments.users.zeyer.datasets.score_results import RecogOutput
     from i6_core.returnn.search import SearchRemoveLabelJob
 
-    return RecogOutput(SearchRemoveLabelJob(res.output, remove_label="</S>", output_gzip=True).out_search_results)
+    return RecogOutput(SearchRemoveLabelJob(res.output, remove_label="</s>", output_gzip=True).out_search_results)
 
 
 _sis_prefix: Optional[str] = None
