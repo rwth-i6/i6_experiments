@@ -37,7 +37,7 @@ def mask_audio_features_with_alignments_single_seq(
     :sil_index: Index of silence, in CTC should be same as blank
     :returns: 0-1 maskings for audio features and target sequence
     audio features: 1 = no mask, 0 = mask
-    target sequence: 0 = mask, 1 = no mask
+    target sequence: 1 = mask, 0 = no mask
     """
     device = alignment.device
     unique, counts = alignment.unique_consecutive(return_counts=True)
@@ -69,7 +69,7 @@ def mask_audio_features_with_alignments(
     :sil_index: Index of silence, in CTC should be same as blank
     :returns: 0-1 maskings for audio features and target sequence
     audio features: 1 = no mask, 0 = mask (B, T)
-    target sequence: 0 = mask, 1 = no mask (B, S)
+    target sequence: 1 = mask, 0 = no mask (B, S)
     """
     # pad start and end with sil_index, reshape to 1-dim
     # then we can apply the single seq version
