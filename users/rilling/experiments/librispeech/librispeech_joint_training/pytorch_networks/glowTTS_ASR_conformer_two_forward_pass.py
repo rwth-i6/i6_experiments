@@ -520,7 +520,6 @@ def train_step(*, model: Model, data, run_ctx, **kwargs):
     )
 
     num_phonemes = torch.sum(phonemes_eow_len)
-    breakpoint()
     if "ctc_scale" in kwargs:
         ctc_scale = kwargs["ctc_scale"]
     else:
