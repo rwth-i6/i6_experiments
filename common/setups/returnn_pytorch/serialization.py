@@ -255,7 +255,9 @@ def build_config_constructor_serializers(
 
 
 def build_config_constructor_serializers_v2(
-    cfg: ModelConfiguration, variable_name: Optional[str] = None, unhashed_package_root: Optional[str] = None
+    cfg: ModelConfiguration,
+    variable_name: Optional[str] = None,
+    unhashed_package_root: Optional[str] = None,
 ) -> Tuple[Call, List[Import]]:
     """
     Creates a Call object that will re-construct the given ModelConfiguration when serialized and
@@ -307,7 +309,10 @@ def build_config_constructor_serializers_v2(
             return (
                 Call(
                     callable_name=ModuleFactoryV1.__name__,
-                    kwargs=[("module_class", value.module_class.__name__), ("cfg", subcall)],
+                    kwargs=[
+                        ("module_class", value.module_class.__name__),
+                        ("cfg", subcall),
+                    ],
                 ),
                 subimports,
             )
@@ -389,7 +394,8 @@ def build_config_constructor_serializers_v2(
     # Import the class of `cfg`
     imports = [
         Import(
-            code_object_path=f"{type(cfg).__module__}.{type(cfg).__name__}", unhashed_package_root=unhashed_package_root
+            code_object_path=f"{type(cfg).__module__}.{type(cfg).__name__}",
+            unhashed_package_root=unhashed_package_root,
         )
     ]
 
@@ -413,5 +419,13 @@ def build_config_constructor_serializers_v2(
             seen_hashes.add(imp_hash)
             unique_imports.append(imp)
 
-    return Call(callable_name=type(cfg).__name__, kwargs=call_kwargs, return_assign_variables=variable_name), unique_imports
+    unique_imports.sort(key=lambda imp: str(imp))
 
+    return (
+        Call(
+            callable_name=type(cfg).__name__,
+            kwargs=call_kwargs,
+            return_assign_variables=variable_name,
+        ),
+        unique_imports,
+    )
