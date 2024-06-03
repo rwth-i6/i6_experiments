@@ -19,6 +19,7 @@ class LSTMLMConfig(ModelConfiguration):
     n_lstm_layers: int
     bias: bool = True
     dropout: float = 0.0
+    bidirectional: bool = False
 
 class LSTMLM(nn.Module):
     """
@@ -35,7 +36,7 @@ class LSTMLM(nn.Module):
             bias=cfg.bias,
             batch_first=True,
             dropout=cfg.dropout,
-            bidirectional=False,
+            bidirectional=cfg.bidirectional,
         )
         # if cfg.dropout > 0 and cfg.n_lstm_layers == 1:
         #     self.dropout = nn.Dropout(0.1)

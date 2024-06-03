@@ -139,6 +139,7 @@ def kldiv_ctc_lm_loss(
         log_zero,
     )
     # renormalize to have p_ctc(v|hypothesis) in output dim
+    # TODO: can be more efficient to use gather and subtract
     log_p_ctc = log_pref_scores_beams.log_softmax(dim=-1)
     kl_div = torch.nn.functional.kl_div(
         input=log_lm_score,
@@ -229,7 +230,7 @@ def normalization_check(
     target_lengths,
 ):
     """
-    Due to doubts of the CTC prefox score implementation,
+    Due to doubts of the CTC prefix score implementation,
     this checks if the prefix scores are properly "normalized"
 
     It checks whether sum_v p(a_1^n,v) = p(a_1^n)
