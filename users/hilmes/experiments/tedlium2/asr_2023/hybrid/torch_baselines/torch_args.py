@@ -146,6 +146,47 @@ def get_nn_args(num_outputs: int = 9001, num_epochs: int = 250, debug=False, **n
                 "torch_jj_config2",
             ],
         },
+        "quant-paper": {
+            "epochs": evaluation_epochs,
+            "feature_flow_key": "fb",
+            "prior_scales": [0.9],
+            "pronunciation_scales": [0.0],
+            "lm_scales": [10.0],
+            "lm_lookahead": True,
+            "lookahead_options": None,
+            "create_lattice": True,
+            "eval_single_best": True,
+            "eval_best_in_lattice": True,
+            "search_parameters": {
+                "beam-pruning": 15.0,
+                "beam-pruning-limit": 10000,
+                "word-end-pruning": 0.5,
+                "word-end-pruning-limit": 15000,
+            },
+            "lattice_to_ctm_kwargs": {
+                "fill_empty_segments": True,
+                "best_path_algo": "bellman-ford",
+            },
+            "optimize_am_lm_scale": True,
+            "rtf": 50,
+            "mem": 7,
+            "lmgc_mem": 16,
+            "cpu": 2,
+            "parallelize_conversion": True,
+            "needs_features_size": True,
+            # "quantize": [10, 15, 25, 100, 250, 500, 750, 1000, 2500, 5000],
+            "quantize": [100],
+            "random_seed_draws": 100,
+            "quant_modes": [CalibrationMethod.MinMax, CalibrationMethod.Percentile],
+            "quant_ops": [["Conv", "MatMul"]],
+            "quant_sym_modes": [False],
+            "quant_avg_modes": [False],
+            "quant_percentiles": [99.999],
+            "quant_num_bin_ls": [2048],
+            "training_whitelist": [
+                "torch_jj_config2",
+            ],
+        },
         # "quant-base": {
         #     "epochs": evaluation_epochs,
         #     "feature_flow_key": "fb",
@@ -743,7 +784,7 @@ def get_nn_args(num_outputs: int = 9001, num_epochs: int = 250, debug=False, **n
     # recognition_args.update(speed)
     test_recognition_args = {
         "dev": {},
-        "quant-base": {}
+        "quant-paper": {}
     }
 
     nn_args = HybridArgs(

@@ -1,10 +1,11 @@
 from dataclasses import asdict
 import numpy as np
 from typing import cast
+from sisyphus import tk
 
 from i6_experiments.common.setups.returnn.datastreams.vocabulary import LabelDatastream
 from .tune_eval import QuantArgs
-from ...data.common import DatasetSettings, build_test_dataset
+from ...data.common import DatasetSettings, build_test_dataset, build_st_test_dataset
 from ...data.phon import build_eow_phon_training_datasets, get_text_lexicon
 from ...default_tools import RETURNN_EXE, MINI_RETURNN_ROOT
 from ...lm import get_4gram_binary_lm
@@ -40,9 +41,18 @@ def eow_phon_ted_1023_base(quant=False):
         )
 
     test_dataset_tuples = {}
-    for testset in ["test"]:
-        test_dataset_tuples[testset] = build_test_dataset(
-            dataset_key=testset,
+    # for testset in ["test"]:
+    #     test_dataset_tuples[testset] = build_test_dataset(
+    #         dataset_key=testset,
+    #         settings=train_settings,
+    #     )
+    for path in [
+        "/work/smt3/bahar/expriments/st/iwslt2018/iwslt2018/iwslt/sets/iwslt.dev2010.xml.gz",
+        "/work/smt3/bahar/expriments/st/iwslt2018/iwslt2018/iwslt/sets/iwslt.tst2015.xml.gz",
+        "/work/smt3/bahar/expriments/st/iwslt2018/iwslt2018/iwslt/sets/iwslt.tst2014.xml.gz",
+    ]:
+        test_dataset_tuples[path.split("/")[-1].split(".")[1]] = build_st_test_dataset(
+            corpus_path=tk.Path(path),
             settings=train_settings,
         )
 
@@ -208,57 +218,9 @@ def eow_phon_ted_1023_base(quant=False):
         from ...pytorch_networks.ctc.conformer_1023.quant.baseline_quant_v1_cfg import QuantModelConfigV1
         num_iterations = 100
         # what if we give more information to the activation instead?
-        for activation_bit in [8, 7, 6, 5, 4, 3, 2, 1]:
-            for weight_bit in [8, 7, 6, 5, 4, 3, 2, 1]:
-                results = {}
-                model_config_quant_v1 = QuantModelConfigV1(
-                    weight_quant_dtype="qint8",
-                    weight_quant_method="per_tensor",
-                    activation_quant_dtype="qint8",
-                    activation_quant_method="per_tensor",
-                    dot_quant_dtype="qint8",
-                    dot_quant_method="per_tensor",
-                    Av_quant_dtype="qint8",
-                    Av_quant_method="per_tensor",
-                    moving_average=0.01,
-                    weight_bit_prec=weight_bit,
-                    activation_bit_prec=activation_bit,
-                    linear_quant_output=False,
-                )
-                quant_args = QuantArgs(
-                    sample_ls=[10] if weight_bit < 8 or activation_bit < 8 else [10, 100, 1000, 10000],
-                    quant_config_dict={"quant_config_dict": asdict(model_config_quant_v1)},
-                    decoder="ctc.decoder.flashlight_quant_stat_phoneme_ctc",
-                    num_iterations=num_iterations,
-                    datasets=train_data,
-                    network_module="ctc.conformer_1023.quant.baseline_quant_v1",
-                )
-                quant_str = f"_weight_{weight_bit}_act_{activation_bit}"
-                asr_model = prepare_asr_model(
-                    training_name+quant_str,
-                    train_job,
-                    train_args,
-                    with_prior=True,
-                    datasets=train_data,
-                    get_specific_checkpoint=250,
-                )
-                res, _ = tune_and_evaluate_helper(  # only take best for now, since otherwise too many searches
-                    training_name, asr_model, default_decoder_config, lm_scales=[2.8],
-                    prior_scales=[0.7], quant_args=quant_args, quant_str=quant_str,
-                    dev_dataset_tuples=dev_dataset_tuples,
-                )
-                results.update(res)
-                generate_report(results=results, exp_name=training_name + quant_str)
-                del results
-        num_iterations = 250
-        for filter in [
-            ({"unique_tags": 0.0}, "unique"),
-            ({"single_tag": 0.0}, "single"),
-            ({"max_dur": 1.0}, "max_dur_1"),
-            ({"min_dur": 15.0}, "min_dur_15")
-            ]:
-            for activation_bit in [8]:
-                for weight_bit in [8]:
+        if False:
+            for activation_bit in [8, 7, 6, 5, 4, 3, 2, 1]:
+                for weight_bit in [8, 7, 6, 5, 4, 3, 2, 1]:
                     results = {}
                     model_config_quant_v1 = QuantModelConfigV1(
                         weight_quant_dtype="qint8",
@@ -275,15 +237,14 @@ def eow_phon_ted_1023_base(quant=False):
                         linear_quant_output=False,
                     )
                     quant_args = QuantArgs(
-                        sample_ls=[1], #§, 10, 25, 5],
+                        sample_ls=[10] if weight_bit < 8 or activation_bit < 8 else [10, 100, 1000, 10000],
                         quant_config_dict={"quant_config_dict": asdict(model_config_quant_v1)},
                         decoder="ctc.decoder.flashlight_quant_stat_phoneme_ctc",
                         num_iterations=num_iterations,
                         datasets=train_data,
                         network_module="ctc.conformer_1023.quant.baseline_quant_v1",
-                        filter_args=filter[0],
                     )
-                    quant_str = f"_weight_{weight_bit}_act_{activation_bit}_{filter[1]}"
+                    quant_str = f"_weight_{weight_bit}_act_{activation_bit}"
                     asr_model = prepare_asr_model(
                         training_name+quant_str,
                         train_job,
@@ -294,13 +255,13 @@ def eow_phon_ted_1023_base(quant=False):
                     )
                     res, _ = tune_and_evaluate_helper(  # only take best for now, since otherwise too many searches
                         training_name, asr_model, default_decoder_config, lm_scales=[2.8],
-                        prior_scales=[0.7], quant_args=quant_args, quant_str=quant_str, dev_dataset_tuples=dev_dataset_tuples
+                        prior_scales=[0.7], quant_args=quant_args, quant_str=quant_str,
+                        dev_dataset_tuples=dev_dataset_tuples,
                     )
                     results.update(res)
                     generate_report(results=results, exp_name=training_name + quant_str)
                     del results
-
-        num_iterations = 100
+        transcribers = [(8, 8)]
         for activation_bit in [8]:
             for weight_bit in [8, 7, 6, 5, 4, 3, 2, 1]:
                 results = {}
@@ -316,43 +277,6 @@ def eow_phon_ted_1023_base(quant=False):
                     moving_average=0.01,
                     weight_bit_prec=weight_bit,
                     activation_bit_prec=activation_bit,
-                    linear_quant_output=True,
-                )
-                quant_args = QuantArgs(
-                    sample_ls=[10] if weight_bit < 8 or activation_bit < 8 else [10, 100, 1000, 10000],
-                    quant_config_dict={"quant_config_dict": asdict(model_config_quant_v1)},
-                    decoder="ctc.decoder.flashlight_quant_stat_phoneme_ctc",
-                    num_iterations=num_iterations,
-                    datasets=train_data,
-                    network_module="ctc.conformer_1023.quant.baseline_quant_v1",
-                )
-                quant_str = f"_weight_{weight_bit}_act_{activation_bit}_qlin"
-                asr_model = prepare_asr_model(
-                    training_name+quant_str, train_job, train_args, with_prior=True, datasets=train_data, get_specific_checkpoint=250
-                )
-                res, _ = tune_and_evaluate_helper(  # only take best for now, since otherwise too many searches
-                    training_name, asr_model, default_decoder_config, lm_scales=[2.8],
-                    prior_scales=[0.7], quant_args=quant_args, quant_str=quant_str, dev_dataset_tuples=dev_dataset_tuples
-                )
-                results.update(res)
-                generate_report(results=results, exp_name=training_name+quant_str)
-                del results
-
-        for activation_bit in [8]:
-            for weight_bit in [8]:
-                results = {}
-                model_config_quant_v1 = QuantModelConfigV1(
-                    weight_quant_dtype="qint8",
-                    weight_quant_method="per_tensor",
-                    activation_quant_dtype="qint8",
-                    activation_quant_method="per_tensor",
-                    dot_quant_dtype="qint8",
-                    dot_quant_method="per_tensor",
-                    Av_quant_dtype="qint8",
-                    Av_quant_method="per_tensor",
-                    moving_average=None,
-                    weight_bit_prec=weight_bit,
-                    activation_bit_prec=activation_bit,
                     linear_quant_output=False,
                 )
                 quant_args = QuantArgs(
@@ -361,9 +285,9 @@ def eow_phon_ted_1023_base(quant=False):
                     decoder="ctc.decoder.flashlight_quant_stat_phoneme_ctc",
                     num_iterations=num_iterations,
                     datasets=train_data,
-                    network_module="ctc.conformer_1023.quant.baseline_quant_v1",
+                    network_module="ctc.conformer_1023.quant.baseline_quant_v2",
                 )
-                quant_str = f"_weight_{weight_bit}_act_{activation_bit}_no_avg"
+                quant_str = f"_v2_weight_{weight_bit}_act_{activation_bit}"
                 asr_model = prepare_asr_model(
                     training_name+quant_str,
                     train_job,
@@ -374,11 +298,143 @@ def eow_phon_ted_1023_base(quant=False):
                 )
                 res, _ = tune_and_evaluate_helper(  # only take best for now, since otherwise too many searches
                     training_name, asr_model, default_decoder_config, lm_scales=[2.8],
-                    prior_scales=[0.7], quant_args=quant_args, quant_str=quant_str, dev_dataset_tuples=dev_dataset_tuples,
+                    prior_scales=[0.7], quant_args=quant_args, quant_str=quant_str,
+                    dev_dataset_tuples=dev_dataset_tuples,
+                    test_dataset_tuples=test_dataset_tuples if (activation_bit, weight_bit) in transcribers else None
                 )
                 results.update(res)
                 generate_report(results=results, exp_name=training_name + quant_str)
                 del results
+        num_iterations = 250
+        if False:
+            for filter in [
+                ({"unique_tags": 0.0}, "unique"),
+                ({"single_tag": 0.0}, "single"),
+                ({"max_dur": 1.0}, "max_dur_1"),
+                ({"min_dur": 15.0}, "min_dur_15")
+                ]:
+                for activation_bit in [8]:
+                    for weight_bit in [8]:
+                        results = {}
+                        model_config_quant_v1 = QuantModelConfigV1(
+                            weight_quant_dtype="qint8",
+                            weight_quant_method="per_tensor",
+                            activation_quant_dtype="qint8",
+                            activation_quant_method="per_tensor",
+                            dot_quant_dtype="qint8",
+                            dot_quant_method="per_tensor",
+                            Av_quant_dtype="qint8",
+                            Av_quant_method="per_tensor",
+                            moving_average=0.01,
+                            weight_bit_prec=weight_bit,
+                            activation_bit_prec=activation_bit,
+                            linear_quant_output=False,
+                        )
+                        quant_args = QuantArgs(
+                            sample_ls=[1], #§, 10, 25, 5],
+                            quant_config_dict={"quant_config_dict": asdict(model_config_quant_v1)},
+                            decoder="ctc.decoder.flashlight_quant_stat_phoneme_ctc",
+                            num_iterations=num_iterations,
+                            datasets=train_data,
+                            network_module="ctc.conformer_1023.quant.baseline_quant_v1",
+                            filter_args=filter[0],
+                        )
+                        quant_str = f"_weight_{weight_bit}_act_{activation_bit}_{filter[1]}"
+                        asr_model = prepare_asr_model(
+                            training_name+quant_str,
+                            train_job,
+                            train_args,
+                            with_prior=True,
+                            datasets=train_data,
+                            get_specific_checkpoint=250,
+                        )
+                        res, _ = tune_and_evaluate_helper(  # only take best for now, since otherwise too many searches
+                            training_name, asr_model, default_decoder_config, lm_scales=[2.8],
+                            prior_scales=[0.7], quant_args=quant_args, quant_str=quant_str, dev_dataset_tuples=dev_dataset_tuples
+                        )
+                        results.update(res)
+                        generate_report(results=results, exp_name=training_name + quant_str)
+                        del results
+
+            num_iterations = 100
+            for activation_bit in [8]:
+                for weight_bit in [8, 7, 6, 5, 4, 3, 2, 1]:
+                    results = {}
+                    model_config_quant_v1 = QuantModelConfigV1(
+                        weight_quant_dtype="qint8",
+                        weight_quant_method="per_tensor",
+                        activation_quant_dtype="qint8",
+                        activation_quant_method="per_tensor",
+                        dot_quant_dtype="qint8",
+                        dot_quant_method="per_tensor",
+                        Av_quant_dtype="qint8",
+                        Av_quant_method="per_tensor",
+                        moving_average=0.01,
+                        weight_bit_prec=weight_bit,
+                        activation_bit_prec=activation_bit,
+                        linear_quant_output=True,
+                    )
+                    quant_args = QuantArgs(
+                        sample_ls=[10] if weight_bit < 8 or activation_bit < 8 else [10, 100, 1000, 10000],
+                        quant_config_dict={"quant_config_dict": asdict(model_config_quant_v1)},
+                        decoder="ctc.decoder.flashlight_quant_stat_phoneme_ctc",
+                        num_iterations=num_iterations,
+                        datasets=train_data,
+                        network_module="ctc.conformer_1023.quant.baseline_quant_v1",
+                    )
+                    quant_str = f"_weight_{weight_bit}_act_{activation_bit}_qlin"
+                    asr_model = prepare_asr_model(
+                        training_name+quant_str, train_job, train_args, with_prior=True, datasets=train_data, get_specific_checkpoint=250
+                    )
+                    res, _ = tune_and_evaluate_helper(  # only take best for now, since otherwise too many searches
+                        training_name, asr_model, default_decoder_config, lm_scales=[2.8],
+                        prior_scales=[0.7], quant_args=quant_args, quant_str=quant_str, dev_dataset_tuples=dev_dataset_tuples
+                    )
+                    results.update(res)
+                    generate_report(results=results, exp_name=training_name+quant_str)
+                    del results
+
+            for activation_bit in [8]:
+                for weight_bit in [8]:
+                    results = {}
+                    model_config_quant_v1 = QuantModelConfigV1(
+                        weight_quant_dtype="qint8",
+                        weight_quant_method="per_tensor",
+                        activation_quant_dtype="qint8",
+                        activation_quant_method="per_tensor",
+                        dot_quant_dtype="qint8",
+                        dot_quant_method="per_tensor",
+                        Av_quant_dtype="qint8",
+                        Av_quant_method="per_tensor",
+                        moving_average=None,
+                        weight_bit_prec=weight_bit,
+                        activation_bit_prec=activation_bit,
+                        linear_quant_output=False,
+                    )
+                    quant_args = QuantArgs(
+                        sample_ls=[10] if weight_bit < 8 or activation_bit < 8 else [10, 100, 1000, 10000],
+                        quant_config_dict={"quant_config_dict": asdict(model_config_quant_v1)},
+                        decoder="ctc.decoder.flashlight_quant_stat_phoneme_ctc",
+                        num_iterations=num_iterations,
+                        datasets=train_data,
+                        network_module="ctc.conformer_1023.quant.baseline_quant_v1",
+                    )
+                    quant_str = f"_weight_{weight_bit}_act_{activation_bit}_no_avg"
+                    asr_model = prepare_asr_model(
+                        training_name+quant_str,
+                        train_job,
+                        train_args,
+                        with_prior=True,
+                        datasets=train_data,
+                        get_specific_checkpoint=250,
+                    )
+                    res, _ = tune_and_evaluate_helper(  # only take best for now, since otherwise too many searches
+                        training_name, asr_model, default_decoder_config, lm_scales=[2.8],
+                        prior_scales=[0.7], quant_args=quant_args, quant_str=quant_str, dev_dataset_tuples=dev_dataset_tuples,
+                    )
+                    results.update(res)
+                    generate_report(results=results, exp_name=training_name + quant_str)
+                    del results
 
     # E-Branchformer
     branchformer_module = "ctc.conformer_1023.i6models_ebranchformer_v1"

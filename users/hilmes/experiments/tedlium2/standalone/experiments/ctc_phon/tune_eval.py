@@ -113,11 +113,23 @@ def tune_and_evaluate_helper(
                             **default_returnn,
                         )
                         results.update(wers)
+                        if test_dataset_tuples is not None and seed in [0]:
+                            decoder_config = copy.deepcopy(base_decoder_config)
+                            search_jobs, wers = search(
+                                search_name,
+                                forward_config={},
+                                asr_model=quant_model,
+                                decoder_module=quant_args.decoder,
+                                decoder_args={"config": asdict(decoder_config)},
+                                test_dataset_tuples=test_dataset_tuples,
+                                **default_returnn,
+                            )
+                            #results.update(wers)
     pick_optimal_params_job = GetOptimalParametersAsVariableJob(
         parameters=tune_parameters, values=tune_values, mode="minimize"
     )
     pick_optimal_params_job.add_alias(training_name + f"/pick_best_dev")
-    if test_dataset_tuples is not None:
+    if test_dataset_tuples is not None and False:
         for key, tune_values in [("test", tune_values)]:
             decoder_config = copy.deepcopy(base_decoder_config)
             decoder_config.lm_weight = pick_optimal_params_job.out_optimal_parameters[0]
