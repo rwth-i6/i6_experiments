@@ -253,16 +253,6 @@ def build_config_constructor_serializers(
 
     return Call(callable_name=type(cfg).__name__, kwargs=call_kwargs, return_assign_variables=variable_name), imports
 
-def deduplicate_list_by_hash(orig_list: list) -> list:
-    seen_hashes = set()
-    unique_objects = []
-    for obj in orig_list:
-        obj_hash = hash(obj)
-        if obj_hash not in seen_hashes:
-            seen_hashes.add(obj_hash)
-            unique_objects.append(obj)
-    return unique_objects
-
 
 def build_config_constructor_serializers_v2(
     cfg: ModelConfiguration, variable_name: Optional[str] = None, unhashed_package_root: Optional[str] = None
