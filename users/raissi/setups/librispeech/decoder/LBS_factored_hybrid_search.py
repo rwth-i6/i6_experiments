@@ -97,6 +97,7 @@ class LBSFactoredHybridDecoder(BASEFactoredHybridDecoder):
             lm_gc_simple_hash=lm_gc_simple_hash,
             gpu=gpu,
         )
+        self.trafo_lm_config = self.get_eugen_trafo_with_quant_and_compress_config()
 
     def get_ls_kazuki_lstm_lm_config(
         self,
@@ -115,7 +116,7 @@ class LBSFactoredHybridDecoder(BASEFactoredHybridDecoder):
             state_manager="lstm",
         ).get()
 
-    def get_eugen_trafo_config(
+    def get_eugen_trafo_with_quant_and_compress_config(
         self,
         min_batch_size: int = 0,
         opt_batch_size: int = 64,
@@ -229,6 +230,62 @@ class LBSFactoredHybridDecoder(BASEFactoredHybridDecoder):
 
         return trafo_config
 
+    def get_eugen_trafo_config(
+        self,
+        min_batch_size: int = 0,
+        opt_batch_size: int = 64,
+        max_batch_size: int = 64,
+        scale: Optional[float] = None,
+    ) -> rasr.RasrConfig:
+        # assert self.library_path is not None
+
+
+        trafo_config = rasr.RasrConfig()
+
+        trafo_config.min_batch_size = min_batch_size
+        trafo_config.opt_batch_size = opt_batch_size
+        trafo_config.max_batch_size = max_batch_size
+        trafo_config.allow_reduced_history = True
+        if scale is not None:
+            trafo_config.scale = scale
+        trafo_config.type = "tfrnn"
+        trafo_config.vocab_file = tk.Path("/work/asr3/raissi/shared_workspaces/gunz/dependencies/ls-eugen-trafo-lm/vocabulary", cached=True)
+        trafo_config.transform_output_negate = True
+        trafo_config.vocab_unknown_word = "<UNK>"
+
+        trafo_config.input_map.info_0.param_name = "word"
+        trafo_config.input_map.info_0.tensor_name = "extern_data/placeholders/delayed/delayed"
+        trafo_config.input_map.info_0.seq_length_tensor_name = "extern_data/placeholders/delayed/delayed_dim0_size"
+
+        trafo_config.input_map.info_1.param_name = "state-lengths"
+        trafo_config.input_map.info_1.tensor_name = "output/rec/dec_0_self_att_att/state_lengths"
+
+        trafo_config.loader.type = "meta"
+        trafo_config.loader.meta_graph_file = (
+            "/work/asr4/raissi/setups/librispeech/960-ls/dependencies/trafo-lm_eugen/integrated_fixup_graph_no_cp_no_quant.meta"
+        )
+        model_path = "/work/asr3/raissi/shared_workspaces/gunz/dependencies/ls-eugen-trafo-lm/epoch.030"
+        trafo_config.loader.saved_model_file = rasr.StringWrapper(model_path, f"{model_path}.index")
+        trafo_config.loader.required_libraries = self.library_path
+
+        trafo_config.output_map.info_0.param_name = "softmax"
+        trafo_config.output_map.info_0.tensor_name = "output/rec/decoder/add"
+
+        trafo_config.output_map.info_1.param_name = "weights"
+        trafo_config.output_map.info_1.tensor_name = "output/rec/output/W/read"
+
+        trafo_config.output_map.info_2.param_name = "bias"
+        trafo_config.output_map.info_2.tensor_name = "output/rec/output/b/read"
+
+
+        trafo_config.state_manager.cache_prefix = True
+        trafo_config.state_manager.min_batch_size = min_batch_size
+        trafo_config.state_manager.min_common_prefix_length = 0
+        trafo_config.state_manager.type = "transformer"
+        trafo_config.softmax_adapter.type = "blas-nce"
+
+        return trafo_config
+
     def recognize_ls_trafo_lm(
         self,
         *,
@@ -265,7 +322,7 @@ class LBSFactoredHybridDecoder(BASEFactoredHybridDecoder):
             is_nn_lm=True,
             keep_value=keep_value,
             label_info=label_info,
-            lm_config=self.get_eugen_trafo_config(),
+            lm_config=self.trafo_lm_config,
             name_override=name_override,
             name_prefix=name_prefix,
             num_encoder_output=num_encoder_output,

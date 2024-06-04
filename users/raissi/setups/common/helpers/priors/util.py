@@ -2,10 +2,19 @@ __all__ = ["read_prior_xml", "write_prior_xml"]
 
 from dataclasses import dataclass
 import numpy as np
-from  typing import List, Tuple, Union
+from typing import List, Tuple, Union
 import xml.etree.ElementTree as ET
 
 from sisyphus import Path
+
+
+@dataclass(frozen=True, eq=True)
+class PartitionDataSetup:
+    n_segment_indices: int = 20
+    n_data_indices: int = 3
+    segment_offset: int = 10
+    data_offset: int = 10
+    split_step: int = 200
 
 
 @dataclass(frozen=True, eq=True)
