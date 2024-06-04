@@ -47,7 +47,7 @@ class Model(torch.nn.Module):
             corpus_key: str
         Returns:
             logprobs: [B, T, C] tensor (C: vocab size, T: audio feature length)
-            input_lengths: [B] tensor
+            feature_lengths: [B] tensor
         """
         raw_audio = raw_audio.squeeze(2) # [B, T']
         try:
@@ -66,16 +66,16 @@ class Model(torch.nn.Module):
         # calculate feature lengths
         if padding_mask is not None:
             non_padding_mask = ~padding_mask
-            input_lengths = non_padding_mask.long().sum(-1)
+            feature_lengths = non_padding_mask.long().sum(-1)
         else:
-            input_lengths = model_out.new_full(
+            feature_lengths = model_out.new_full(
                     (logprobs.size(1),), logprobs.size(0), dtype=torch.long
                 )
 
         # make logprobs [B, T, C]
         logprobs = logprobs.transpose(0, 1)
 
-        return logprobs, input_lengths
+        return logprobs, feature_lengths
 
 def train_step(*, model: Model, data, run_ctx, **kwargs):
     raw_audio = data["raw_audio"]  # [B, T', 1]
@@ -83,7 +83,7 @@ def train_step(*, model: Model, data, run_ctx, **kwargs):
     labels = data["labels"]  # [B, N] (sparse)
     labels_len = data["labels:size1"]  # [B]
 
-    log_probs, input_lengths = model(
+    log_probs, feature_lengths = model(
         raw_audio=raw_audio,
         raw_audio_len=raw_audio_len,
     ) # [B, T, C], [B]
@@ -92,7 +92,7 @@ def train_step(*, model: Model, data, run_ctx, **kwargs):
     ctc_loss = nn.functional.ctc_loss(
         transposed_log_probs,
         labels,
-        input_lengths=input_lengths,
+        input_lengths=feature_lengths,
         target_lengths=labels_len,
         blank=model.model_config.label_target_size,
         reduction="sum",
