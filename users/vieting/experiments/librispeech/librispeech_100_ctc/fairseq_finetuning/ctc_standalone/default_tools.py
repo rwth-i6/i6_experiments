@@ -5,6 +5,8 @@ from sisyphus import tk
 
 from i6_core.tools.git import CloneGitRepositoryJob
 from i6_core.lm.kenlm import CompileKenLMJob
+from i6_experiments.users.vieting.experiments.librispeech.librispeech_960_pretraining.wav2vec2.fairseq \
+    import SetupFairseqJob
 
 from i6_experiments.common.helpers.text_labels.subword_nmt_bpe import get_returnn_subword_nmt
 from i6_experiments.common.tools.sctk import compile_sctk
@@ -23,6 +25,20 @@ I6_MODELS_REPO_PATH = CloneGitRepositoryJob(
     checkout_folder_name="i6_models",
 ).out_repository.copy()
 I6_MODELS_REPO_PATH.hash_overwrite = "LIBRISPEECH_DEFAULT_I6_MODELS"
+
+
+FAIRSEQ_PATH = SetupFairseqJob(
+    fairseq_root = CloneGitRepositoryJob(
+        url="git@github.com:vieting/fairseq_phoneme.git",
+        checkout_folder_name="fairseq",
+        commit="e4a2e4e93efbcbaaae52a17ae6600beb2083fb33",
+    ).out_repository.copy(),
+    python_exe = "/usr/bin/python3",
+).out_fairseq_root
+
+FAIRSEQ_PATH.hash_overwrite = "LIBRISPEECH_DEFAULT_FAIRSEQ"
+
+
 
 SCTK_BINARY_PATH = compile_sctk(branch="v2.4.12").copy()  # use last published version
 SCTK_BINARY_PATH.hash_overwrite = "LIBRISPEECH_DEFAULT_SCTK_BINARY_PATH"
