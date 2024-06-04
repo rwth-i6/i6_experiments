@@ -12,11 +12,12 @@ from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segment
 
 def get_center_window_att_config_builder_rf(
         win_size: int,
-        label_decoder_version: int,
+        use_att_ctx_in_state: bool,
         blank_decoder_version: Optional[int],
         use_joint_model: bool,
         use_weight_feedback: bool = True,
-) -> SegmentalAttConfigBuilderRF:
+        label_decoder_state: str = "nb-lstm",
+) -> Tuple[str, SegmentalAttConfigBuilderRF]:
   variant_params = {
     "dependencies": LibrispeechBPE10025_CTC_ALIGNMENT,
     "dataset": {
@@ -36,10 +37,18 @@ def get_center_window_att_config_builder_rf(
     model_def=from_scratch_model_def,
     get_model_func=_returnn_v2_get_model,
     center_window_size=win_size,
-    label_decoder_version=label_decoder_version,
+    use_att_ctx_in_state=use_att_ctx_in_state,
     blank_decoder_version=blank_decoder_version,
     use_joint_model=use_joint_model,
     use_weight_feedback=use_weight_feedback,
+    label_decoder_state=label_decoder_state
   )
 
-  return config_builder
+  alias = (
+    f"win-size-{win_size}/"
+    f"{'w' if use_weight_feedback else 'wo'}-weight-feedback/"
+    f"{'w' if use_att_ctx_in_state else 'wo'}-att-ctx-in-state/"
+    f"{label_decoder_state}"
+  )
+
+  return alias, config_builder

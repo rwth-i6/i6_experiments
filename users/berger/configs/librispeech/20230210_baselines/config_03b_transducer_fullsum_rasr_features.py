@@ -22,6 +22,7 @@ from i6_experiments.users.berger.systems.dataclasses import ReturnnConfigs, Feat
 from i6_experiments.users.berger.util import default_tools
 from i6_private.users.vieting.helpers.returnn import serialize_dim_tags
 from i6_experiments.users.berger.systems.dataclasses import AlignmentData
+from i6_experiments.users.berger.network.helpers.label_context import ILMMode
 from .config_01b_ctc_blstm_rasr_features import py as py_ctc
 from .config_02b_transducer_rasr_features import py as py_transducer
 from sisyphus import gs, tk
@@ -48,10 +49,7 @@ def generate_returnn_config(
     **kwargs,
 ) -> ReturnnConfig:
     if train:
-        (
-            network_dict,
-            extra_python,
-        ) = transducer_model.make_context_1_conformer_transducer_fullsum(
+        (network_dict, extra_python,) = transducer_model.make_context_1_conformer_transducer_fullsum(
             num_outputs=num_classes,
             specaug_args={
                 "max_time_num": 1,
@@ -83,12 +81,10 @@ def generate_returnn_config(
                     "activation": "tanh",
                 },
             },
+            fullsum_v2=True,
         )
     else:
-        (
-            network_dict,
-            extra_python,
-        ) = transducer_model.make_context_1_conformer_transducer_recog(
+        (network_dict, extra_python,) = transducer_model.make_context_1_conformer_transducer_recog(
             num_outputs=num_classes,
             conformer_args={
                 "num_blocks": 12,
@@ -106,6 +102,7 @@ def generate_returnn_config(
                     "size": 1024,
                     "activation": "tanh",
                 },
+                "ilm_mode": ILMMode.ZeroEnc,
                 "ilm_scale": kwargs.get("ilm_scale", 0.0),
             },
         )
@@ -166,6 +163,9 @@ def run_exp(alignments: Dict[str, AlignmentData], viterbi_model_checkpoint: Chec
         use_wei_lexicon=False,
         feature_type=FeatureType.GAMMATONE_16K,
     )
+
+    for data_input in data.data_inputs.values():
+        data_input.create_lm_images(tools.rasr_binary_path)
 
     # ********** Step args **********
 
@@ -254,6 +254,7 @@ def run_exp(alignments: Dict[str, AlignmentData], viterbi_model_checkpoint: Chec
     system.run_recog_step_for_corpora(corpora=["test-clean_4gram", "test-other_4gram"], **recog_args)
 
     recog_args["lm_scales"] = [0.8]
+    recog_args["seq2seq_v2"] = True
     recog_args["search_parameters"].update(
         {
             "full-sum-decoding": True,
@@ -273,26 +274,32 @@ def run_exp(alignments: Dict[str, AlignmentData], viterbi_model_checkpoint: Chec
 
     recog_args["search_parameters"].update(
         {
-            # "separate-lookahead-lm": True,
+            "separate-lookahead-lm": True,
             "label-full-sum": False,
             "label-pruning": 16.2,
         }
     )
-    recog_args["lookahead_options"].update({"lm_lookahead_scale": 0.45})
     recog_args["use_gpu"] = True
-    recog_args["rtf"] = 50
+    recog_args["rtf"] = 100
+    recog_args["mem"] = 24
 
-    system.run_recog_step_for_corpora(
-        recog_descriptor="fs",
-        recog_exp_names={"Conformer_Transducer_Fullsum_lr-0.0001_bs-9000": ["recog_ilm-0.2"]},
-        corpora=[
-            # "dev-clean_kazuki_transformer",
-            "dev-other_kazuki_transformer",
-            # "test-clean_kazuki_transformer",
-            # "test-other_kazuki_transformer",
-        ],
-        **recog_args,
-    )
+    # recog_args["lm_scales"] = [0.8, 0.9]
+    # for lm_lookahead_scale in [0.3, 0.4, 0.45, 0.5, 0.6]:
+    recog_args["lm_scales"] = [0.9]
+    for lm_lookahead_scale in [0.3, 0.4, 0.45, 0.5, 0.6]:
+        recog_args["lookahead_options"].update({"lm_lookahead_scale": lm_lookahead_scale})
+
+        system.run_recog_step_for_corpora(
+            recog_descriptor=f"fs_lookahead-{lm_lookahead_scale}",
+            recog_exp_names={"Conformer_Transducer_Fullsum_lr-0.0001_bs-9000": ["recog_ilm-0.2", "recog_ilm-0.3"]},
+            corpora=[
+                "dev-clean_kazuki_transformer",
+                "dev-other_kazuki_transformer",
+                "test-clean_kazuki_transformer",
+                "test-other_kazuki_transformer",
+            ],
+            **recog_args,
+        )
 
     assert system.summary_report
     return system.summary_report

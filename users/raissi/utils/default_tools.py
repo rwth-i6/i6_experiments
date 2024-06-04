@@ -93,6 +93,7 @@ RETURNN_ROOT_MORITZ = tk.Path(
     hash_overwrite="CONFORMER_RETURNN_Len_FIX",
 )
 RETURNN_ROOT_TORCH = tk.Path("/work/tools/users/raissi/returnn_versions/torch", hash_overwrite="TORCH_RETURNN_ROOT")
+RETURNN_ROOT_BW_FACTORED = tk.Path("/work/tools/users/raissi/returnn_versions/bw-factored", hash_overwrite="BW_RETURNN_ROOT")
 
 SCTK_BINARY_PATH = compile_sctk(branch="v2.4.12")  # use last published version
 SCTK_BINARY_PATH.hash_overwrite = "DEFAULT_SCTK_BINARY_PATH"

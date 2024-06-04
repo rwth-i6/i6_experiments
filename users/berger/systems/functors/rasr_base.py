@@ -266,6 +266,7 @@ class RasrFunctor(ABC):
                 returnn_config=prior_config,
                 returnn_root=self.returnn_root,
                 returnn_python_exe=self.returnn_python_exe,
+                mem_rqmt=8,
             )
             return forward_job.out_prior_xml_file
         else:

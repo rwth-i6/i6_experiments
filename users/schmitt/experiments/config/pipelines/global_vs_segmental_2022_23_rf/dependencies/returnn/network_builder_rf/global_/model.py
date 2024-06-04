@@ -5,7 +5,10 @@ from returnn.tensor import Tensor, Dim, single_step_dim
 import returnn.frontend as rf
 
 from i6_experiments.users.schmitt.returnn_frontend.model_interfaces.model import ModelDef
-from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.global_.decoder import GlobalAttDecoder
+from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.global_.decoder import (
+  GlobalAttDecoder,
+  GlobalAttEfficientDecoder
+)
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.encoder.global_ import GlobalConformerEncoder
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.base import _batch_size_factor, _log_mel_feature_dim
 from i6_experiments.users.schmitt.returnn_frontend.model_interfaces.supports_label_scorer_torch import RFModelWithMakeLabelScorer
@@ -31,6 +34,8 @@ class GlobalAttentionModel(rf.Module):
           dec_att_num_heads: Dim = Dim(name="att_num_heads", dimension=1),
           enc_dropout: float = 0.1,
           eos_idx: int,
+          use_weight_feedback: bool = True,
+          use_att_ctx_in_state: bool = True,
   ):
     super(GlobalAttentionModel, self).__init__()
 
@@ -51,7 +56,12 @@ class GlobalAttentionModel(rf.Module):
       l2=l2,
     )
 
-    self.label_decoder = GlobalAttDecoder(
+    if not use_weight_feedback and not use_att_ctx_in_state:
+      decoder_cls = GlobalAttEfficientDecoder
+    else:
+      decoder_cls = GlobalAttDecoder
+
+    self.label_decoder = decoder_cls(
       enc_out_dim=self.encoder.out_dim,
       target_dim=target_dim,
       att_num_heads=dec_att_num_heads,
@@ -60,6 +70,8 @@ class GlobalAttentionModel(rf.Module):
       enc_key_total_dim=enc_key_total_dim,
       l2=l2,
       eos_idx=eos_idx,
+      use_weight_feedback=use_weight_feedback,
+      use_att_ctx_in_state=use_att_ctx_in_state,
     )
 
     if language_model:
@@ -101,6 +113,8 @@ class MakeModel:
           num_enc_layers: int = 12,
           pos_emb_dropout: float = 0.0,
           language_model: Optional[Dict[str, Any]] = None,
+          use_weight_feedback: bool = True,
+          use_att_ctx_in_state: bool = True,
           **extra,
   ) -> GlobalAttentionModel:
     """make"""
@@ -140,6 +154,8 @@ class MakeModel:
       target_dim=target_dim,
       blank_idx=target_dim.dimension,
       language_model=lm,
+      use_weight_feedback=use_weight_feedback,
+      use_att_ctx_in_state=use_att_ctx_in_state,
       **extra,
     )
 
@@ -179,8 +195,17 @@ def from_scratch_model_def(*, epoch: int, in_dim: Dim, target_dim: Dim) -> Globa
   # real input is raw audio, internally it does logmel
   in_dim = Dim(name="logmel", dimension=_log_mel_feature_dim, kind=Dim.Types.Feature)
   lm_opts = config.typed_value("external_lm")
+  use_weight_feedback = config.bool("use_weight_feedback", True)
+  use_att_ctx_in_state = config.bool("use_att_ctx_in_state", True)
+
   return MakeModel.make_model(
-    in_dim, target_dim, enc_aux_logits=enc_aux_logits or (), pos_emb_dropout=pos_emb_dropout, language_model=lm_opts
+    in_dim,
+    target_dim,
+    enc_aux_logits=enc_aux_logits or (),
+    pos_emb_dropout=pos_emb_dropout,
+    language_model=lm_opts,
+    use_weight_feedback=use_weight_feedback,
+    use_att_ctx_in_state=use_att_ctx_in_state,
   )
 
 

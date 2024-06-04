@@ -70,10 +70,7 @@ def generate_returnn_config(
         }
 
     if train:
-        (
-            network_dict,
-            extra_python,
-        ) = transducer_model.make_context_1_conformer_transducer(
+        (network_dict, extra_python,) = transducer_model.make_context_1_conformer_transducer(
             num_outputs=num_classes,
             specaug_args=specaug_args,
             conformer_args={
@@ -107,10 +104,7 @@ def generate_returnn_config(
             specaug_v2=specaug_v2,
         )
     else:
-        (
-            network_dict,
-            extra_python,
-        ) = transducer_model.make_context_1_conformer_transducer_recog(
+        (network_dict, extra_python,) = transducer_model.make_context_1_conformer_transducer_recog(
             num_outputs=num_classes,
             conformer_args={
                 "num_blocks": 12,

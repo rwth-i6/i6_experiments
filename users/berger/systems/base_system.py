@@ -59,7 +59,8 @@ class BaseSystem(ABC, Generic[TrainJobType, ConfigType]):
         self._functors = self._initialize_functors()
 
     @abstractmethod
-    def _initialize_functors(self) -> Functors[types.TrainJobType, types.ConfigType]: ...
+    def _initialize_functors(self) -> Functors[types.TrainJobType, types.ConfigType]:
+        ...
 
     def get_train_job(self, exp_name: Optional[str] = None) -> types.TrainJobType:
         if exp_name is not None:

@@ -47,6 +47,8 @@ import i6_experiments.users.raissi.setups.common.helpers.network as net_helpers
 import i6_experiments.users.raissi.setups.common.helpers.train as train_helpers
 import i6_experiments.users.raissi.setups.common.helpers.decode as decode_helpers
 
+from i6_experiments.users.raissi.setups.common.helpers.priors.factored_estimation import get_triphone_priors
+from i6_experiments.users.raissi.setups.common.helpers.priors.util import PartitionDataSetup
 
 # user based modules
 from i6_experiments.users.raissi.setups.common.data.backend import BackendInfo
@@ -74,7 +76,7 @@ from i6_experiments.users.raissi.setups.common.decoder.BASE_factored_hybrid_sear
 
 from i6_experiments.users.raissi.setups.common.data.backend import Backend, BackendInfo
 
-
+from i6_experiments.users.raissi.setups.common.decoder.BASE_factored_hybrid_search import DecodingTensorMap
 from i6_experiments.users.raissi.setups.common.decoder.config import (
     PriorInfo,
     PriorConfig,
@@ -159,9 +161,6 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
 
     def get_model_path(self, model_job, epoch):
         return model_job.out_checkpoints[epoch].ckpt_path
-
-    def set_local_flf_tool_for_decoding(self, path=None):
-        self.csp["base"].flf_tool_exe = path
 
     # -------------------------------------------- Training --------------------------------------------------------
 
@@ -279,7 +278,7 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
                 network["classes_"]["from"] = "slice_classes"
 
         else:
-            network=encoder_net
+            network = encoder_net
 
         return network
 
@@ -736,9 +735,38 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
 
         self.experiments[key]["priors"] = p_info
 
-
-    def set_triphone_priors_factored(self):
+    def set_triphone_priors_factored(
+        self,
+        key: str,
+        epoch: int,
+        tensor_map: DecodingTensorMap,
+        partition_data_setup: PartitionDataSetup = None,
+        model_path: tk.Path = None,
+    ):
         self.create_hdf()
+        if self.experiments[key]["graph"].get("inference", None) is None:
+            self.set_graph_for_experiment(key)
+        if partition_data_setup is None:
+            partition_data_setup = PartitionDataSetup()
+
+        if model_path is None:
+            model_path = DelayedFormat(self.get_model_path(model_job=self.experiments[key]["train_job"], epoch=epoch))
+        triphone_priors = get_triphone_priors(
+            name=f"{self.experiments[key]['name']}/e{epoch}",
+            graph_path=self.experiments[key]["graph"]["inference"],
+            model_path=model_path,
+            data_paths=self.hdfs[self.train_key],
+            tensor_map=tensor_map,
+            partition_data_setup=partition_data_setup,
+            label_info=self.label_info,
+        )
+
+        p_info = PriorInfo(
+            center_state_prior=PriorConfig(file=triphone_priors[1], scale=0.0),
+            left_context_prior=PriorConfig(file=triphone_priors[2], scale=0.0),
+            right_context_prior=PriorConfig(file=triphone_priors[0], scale=0.0),
+        )
+        self.experiments[key]["priors"] = p_info
 
     def set_triphone_priors_returnn_rasr(
         self,

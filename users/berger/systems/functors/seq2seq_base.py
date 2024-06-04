@@ -73,10 +73,16 @@ class Seq2SeqFunctor(RasrFunctor, ABC):
         tf_graph: tk.Path,
         checkpoint: returnn.Checkpoint,
         feature_type: FeatureType = FeatureType.SAMPLES,
+        output_layer_name: str = "output",
         **_,
     ) -> rasr.FlowNetwork:
         if label_scorer.scorer_type == "precomputed-log-posterior":
-            feature_flow = self._make_precomputed_tf_feature_flow(base_feature_flow, tf_graph, checkpoint)
+            feature_flow = self._make_precomputed_tf_feature_flow(
+                base_flow=base_feature_flow,
+                tf_graph=tf_graph,
+                tf_checkpoint=checkpoint,
+                output_layer_name=output_layer_name,
+            )
         elif label_scorer.scorer_type in ["tf-attention", "tf-rnn-transducer", "tf-ffnn-transducer", "tf-segmental"]:
             feature_flow = copy.deepcopy(base_feature_flow)
             feature_flow.config = feature_flow.config or rasr.RasrConfig()

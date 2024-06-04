@@ -1,4 +1,5 @@
 from typing import Dict, List, Optional, Tuple
+from i6_core.returnn import CodeWrapper
 from i6_experiments.users.berger.network.helpers.mlp import add_feed_forward_stack
 from i6_experiments.users.berger.network.helpers.output import add_softmax_output
 from i6_experiments.users.berger.network.helpers.compressed_input import (
@@ -11,6 +12,7 @@ from enum import Enum, auto
 
 class ILMMode(Enum):
     ZeroEnc = auto()
+    ZeroEncInclBlank = auto()
 
 
 def add_context_label_sequence_blank(
@@ -18,7 +20,6 @@ def add_context_label_sequence_blank(
     base_labels: str = "data:classes",
     blank_index: int = 0,
 ) -> Tuple[str, str]:
-
     # Example:
     # Classes = ..AB..C.D.
     # Then base labels should be ABCD
@@ -51,7 +52,6 @@ def add_context_label_sequence_noblank(
     nonword_labels: List[int],
     base_labels: str = "data:classes",
 ):
-
     # Example:
     # Classes = AAABBCCCDD
     # Let A be a nonword label, e.g. silence
@@ -192,7 +192,6 @@ def add_context_1_decoder(
     combination_mode: Optional[str] = "add",
     output_args: Dict = {},
 ) -> Tuple[List[str], Dict]:
-
     output_unit = {}
 
     decoder_ff = add_dec_ffnn_stack(output_unit, context_labels, embedding_size, dec_mlp_args)
@@ -269,10 +268,9 @@ def add_context_1_decoder_recog(
     dec_mlp_args: Dict = {},
     joint_mlp_args: Dict = {},
     ilm_scale: float = 0.0,
-    ilm_mode: ILMMode = ILMMode.ZeroEnc,
+    ilm_mode: ILMMode = ILMMode.ZeroEncInclBlank,
     combination_mode: Optional[str] = "add",
 ):
-
     output_unit = {}
 
     output_unit["output_choice"] = {
@@ -324,7 +322,7 @@ def add_context_1_decoder_recog(
     }
 
     if ilm_scale:
-        if ilm_mode == ILMMode.ZeroEnc:
+        if ilm_mode == ILMMode.ZeroEnc or ilm_mode == ILMMode.ZeroEncInclBlank:
             output_unit["zero_enc"] = {"class": "eval", "from": "data:source", "eval": "source(0) * 0"}
             joint_input_ilm = ["zero_enc", "decoder"]
         else:
@@ -352,21 +350,25 @@ def add_context_1_decoder_recog(
             "reuse_params": "output",
         }
 
-        assert blank_idx == 0, "Blank idx != 0 not implemented for ilm"
-        # Set p(blank) = 1 and re-normalize the non-blank probs
-        # so we want P'[b, 0] = 1, sum(P'[b, 1:]) = 1, given a normalized tensor P, i.e. sum(P[b, :]) = 1
-        # in log space logP'[b, 0] = 0, sum(exp(logP'[b, 1:])) = 1
-        # so set logP'[b, 1:] <- logP[b, 1:] - log(1 - exp(P[b, 0]))
-        # then sum(exp(logP'[b, 1:])) = sum(P[1:] / (1 - exp(P[b, 0]))) = sum(P[b, 1:]) / sum(b, P[1:]) = 1
-        output_unit["ilm_renorm"] = {
-            "class": "eval",
-            "from": ["ilm"],
-            "eval": "tf.concat([tf.zeros(tf.shape(source(0)[:, :1])), source(0)[:, 1:] - tf.math.log(1.0 - tf.exp(source(0)[:, :1]))], axis=-1)",
-        }
+        if ilm_mode == ILMMode.ZeroEncInclBlank:
+            ilm_layer = "ilm"
+        else:
+            assert blank_idx == 0, "Blank idx != 0 not implemented for ilm"
+            # Set p(blank) = 1 and re-normalize the non-blank probs
+            # so we want P'[b, 0] = 1, sum(P'[b, 1:]) = 1, given a normalized tensor P, i.e. sum(P[b, :]) = 1
+            # in log space logP'[b, 0] = 0, sum(exp(logP'[b, 1:])) = 1
+            # so set logP'[b, 1:] <- logP[b, 1:] - log(1 - exp(P[b, 0]))
+            # then sum(exp(logP'[b, 1:])) = sum(P[1:] / (1 - exp(P[b, 0]))) = sum(P[b, 1:]) / sum(b, P[1:]) = 1
+            output_unit["ilm_renorm"] = {
+                "class": "eval",
+                "from": ["ilm"],
+                "eval": "tf.concat([tf.zeros(tf.shape(source(0)[:, :1])), source(0)[:, 1:] - tf.math.log(1.0 - tf.exp(source(0)[:, :1]))], axis=-1)",
+            }
+            ilm_layer = "ilm_renorm"
 
         output_unit["output_sub_ilm"] = {
             "class": "eval",
-            "from": ["output", "ilm_renorm"],
+            "from": ["output", ilm_layer],
             "eval": f"source(0) - {ilm_scale} * source(1)",
         }
 
@@ -382,6 +384,183 @@ def add_context_1_decoder_recog(
     return joint_output, output_unit
 
 
+def add_precomputed_context_1_decoder_recog(
+    network: Dict,
+    num_outputs: int,
+    blank_idx: int = 0,
+    encoder: str = "encoder",
+    embedding_size: int = 128,
+    dec_mlp_args: Dict = {},
+    joint_mlp_args: Dict = {},
+    ilm_scale: float = 0.0,
+    ilm_mode: ILMMode = ILMMode.ZeroEncInclBlank,
+    combination_mode: Optional[str] = "add",
+):
+    output_unit = {}
+
+    # [V-1]
+    output_unit["all_context"] = {
+        "class": "constant",
+        "value": list(range(1, num_outputs)),  # first index: out-of-bounds for all-zero-embedding of init history
+        "dtype": "int32",
+        "with_batch_dim": True,
+        "as_batch": True,
+        "sparse_dim": CodeWrapper(f"FeatureDim('label', dimension={num_outputs})"),
+    }
+
+    # [V-1, F]
+    output_unit["context_embedding"] = {
+        "class": "linear",
+        "from": "all_context",
+        "n_out": embedding_size,
+        "with_bias": False,
+        "initial_output": None,
+    }
+
+    # [V, F]
+    output_unit["context_embedding_padded"] = {
+        "class": "pad",
+        "from": "context_embedding",
+        "axes": "B",
+        "padding": (1, 0),
+        "value": 0,
+        "mode": "constant",
+    }
+
+    # [V, D]
+    decoder_ff = add_feed_forward_stack(
+        output_unit, from_list="context_embedding_padded", name="dec_ff", **dec_mlp_args
+    )
+    output_unit["decoder"] = {
+        "class": "copy",
+        "from": decoder_ff,
+    }
+
+    # [V, T, E]
+    output_unit["tile_encoder"] = {
+        "class": "eval",
+        "from": f"base:base:{encoder}",
+        "eval": f"tf.tile(source(0), [{num_outputs}, 1, 1])",
+    }
+
+    joint_input = ["tile_encoder", "decoder"]
+    if combination_mode is None or combination_mode == "concat":
+        # [V, T, E+D]
+        output_unit["joint_input"] = {
+            "class": "copy",
+            "from": joint_input,
+        }
+    else:
+        # [V, T, E]
+        output_unit["joint_input"] = {
+            "class": "combine",
+            "from": joint_input,
+            "kind": combination_mode,
+        }
+
+    # [V, T, J]
+    joint_output = add_feed_forward_stack(output_unit, from_list="joint_input", name="joint_ff", **joint_mlp_args)
+
+    # [V, T, V]
+    output_unit["output"] = {
+        "class": "linear",
+        "from": joint_output,
+        "activation": "log_softmax",
+        "n_out": num_outputs,
+    }
+
+    if ilm_scale:
+        if ilm_mode == ILMMode.ZeroEnc or ilm_mode == ILMMode.ZeroEncInclBlank:
+            # [V, T, E]
+            output_unit["zero_enc"] = {"class": "eval", "from": "tile_encoder", "eval": "source(0) * 0"}
+            # [V, T, E+D]
+            joint_input_ilm = ["zero_enc", "decoder"]
+        else:
+            raise NotImplementedError
+        if combination_mode is None or combination_mode == "concat":
+            # [V, T, E+D]
+            output_unit["joint_input_ilm"] = {
+                "class": "copy",
+                "from": joint_input_ilm,
+            }
+        else:
+            # [V, T, E]
+            output_unit["joint_input_ilm"] = {
+                "class": "combine",
+                "from": joint_input_ilm,
+                "kind": combination_mode,
+            }
+
+        # [V, T, J]
+        joint_output_ilm = add_feed_forward_stack(
+            output_unit, from_list="joint_input_ilm", name="joint_ff_ilm", reuse_from_name="joint_ff", **joint_mlp_args
+        )
+
+        # [V, T, V]
+        output_unit["ilm"] = {
+            "class": "linear",
+            "from": joint_output_ilm,
+            "activation": "log_softmax",
+            "n_out": num_outputs,
+            "reuse_params": "output",
+        }
+
+        if ilm_mode == ILMMode.ZeroEncInclBlank:
+            ilm_layer = "ilm"
+        else:
+            assert blank_idx == 0, "Blank idx != 0 not implemented for ilm"
+            # Set p(blank) = 1 and re-normalize the non-blank probs
+            # so we want P'[b, 0] = 1, sum(P'[b, 1:]) = 1, given a normalized tensor P, i.e. sum(P[b, :]) = 1
+            # in log space logP'[b, 0] = 0, sum(exp(logP'[b, 1:])) = 1
+            # so set logP'[b, 1:] <- logP[b, 1:] - log(1 - exp(P[b, 0]))
+            # then sum(exp(logP'[b, 1:])) = sum(P[1:] / (1 - exp(P[b, 0]))) = sum(P[b, 1:]) / sum(b, P[1:]) = 1
+            output_unit["ilm_renorm"] = {
+                "class": "eval",
+                "from": "ilm",
+                "eval": "tf.concat([tf.zeros(tf.shape(source(0)[:, :1])), source(0)[:, 1:] - tf.math.log(1.0 - tf.exp(source(0)[:, :1]))], axis=-1)",
+            }
+            ilm_layer = "ilm_renorm"
+
+        # [V, T, V]
+        output_unit["output_sub_ilm"] = {
+            "class": "eval",
+            "from": ["output", ilm_layer],
+            "eval": f"source(0) - {ilm_scale} * source(1)",
+            "is_output_layer": True,
+        }
+
+        out_layer = "output/rec/output_sub_ilm"
+    else:
+        out_layer = "output"
+
+    network["output"] = {
+        "class": "subnetwork",
+        "from": encoder,
+        "subnetwork": {
+            "rec": {
+                "class": "subnetwork",
+                "from": "data",
+                "subnetwork": output_unit,
+            },
+            "output": {
+                "class": "copy",
+                "from": "rec",
+            },
+        },
+        "is_output_layer": False,
+    }
+
+    network["output_precompute"] = {
+        "class": "eval",
+        "from": out_layer,
+        "eval": f"tf.transpose(tf.reshape(tf.transpose(source(0, auto_convert=False, enforce_batch_major=True), [0, 2, 1]), [1, {num_outputs*num_outputs}, -1]), [0, 2, 1])",
+        "is_output_layer": True,
+        "out_type": {"shape": (None, num_outputs * num_outputs), "dim": num_outputs * num_outputs},
+    }
+
+    return output_unit
+
+
 def add_context_1_decoder_fullsum(
     network: Dict,
     context_labels: str,
@@ -392,7 +571,6 @@ def add_context_1_decoder_fullsum(
     combination_mode: Optional[str] = "add",
     compress_joint_input: bool = True,
 ) -> Tuple[List[str], Dict, List]:
-
     output_unit = {}
     extra_python = []
 

@@ -13,13 +13,13 @@ from i6_experiments.common.tools.sctk import compile_sctk
 RETURNN_EXE = tk.Path("/usr/bin/python3", hash_overwrite="GENERIC_RETURNN_LAUNCHER")
 
 MINI_RETURNN_ROOT = CloneGitRepositoryJob(
-    "https://github.com/JackTemaki/MiniReturnn", commit="3f47cb87f298254d86d9faf37916067dd2c74674"
+    "https://github.com/JackTemaki/MiniReturnn", commit="a8b6c2551d72d68b9173654c0254a8944e62b293"
 ).out_repository.copy()
 MINI_RETURNN_ROOT.hash_overwrite = "LIBRISPEECH_DEFAULT_RETURNN_ROOT"
 
 I6_MODELS_REPO_PATH = CloneGitRepositoryJob(
     url="https://github.com/rwth-i6/i6_models",
-    commit="933c6c13f7d6c74e5a59af0257e17c208dae9da3",
+    commit="918143c1011fe5a19c5fcfb61fe05050a8d58a2b",
     checkout_folder_name="i6_models",
 ).out_repository.copy()
 I6_MODELS_REPO_PATH.hash_overwrite = "LIBRISPEECH_DEFAULT_I6_MODELS"

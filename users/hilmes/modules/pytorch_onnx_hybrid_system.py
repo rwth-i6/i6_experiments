@@ -29,7 +29,7 @@ from i6_experiments.users.hilmes.common.setups.rasr.hybrid_system import HybridS
 from i6_experiments.users.hilmes.experiments.tedlium2.asr_2023.hybrid.torch_baselines.pytorch_networks.prior.forward import \
     ReturnnForwardComputePriorJob
 from i6_experiments.users.hilmes.tools.onnx import ExportPyTorchModelToOnnxJob
-
+from i6_core.tools.git import CloneGitRepositoryJob
 
 def get_quant_str(
         quant_mode: CalibrationMethod,
@@ -88,6 +88,8 @@ def get_quant_str(
             mode_str_tmp += f"_single_tag"
         if "unique_tags" in filter_opts:
             mode_str_tmp += f"_unique_tags"
+        if "range_len" in filter_opts:
+            mode_str_tmp += f"_range_len_{filter_opts['range_len'][0]}_{filter_opts['range_len'][1]}"
 
     return mode_str_tmp
 
@@ -144,7 +146,6 @@ class PyTorchOnnxHybridSystem(HybridSystem):
             prior_config.config["load_epoch"] = epoch_num
         if "chunking" in prior_config.config.keys():
             del prior_config.config["chunking"]
-        from i6_core.tools.git import CloneGitRepositoryJob
         if any(x in name for x in ["distill_whisper"]):
             returnn_root = CloneGitRepositoryJob(
                 "https://github.com/rwth-i6/returnn",
@@ -227,7 +228,6 @@ class PyTorchOnnxHybridSystem(HybridSystem):
                     epoch_num = best_checkpoint_job.out_epoch
                 elif epoch == "avrg":
                     assert train_job is not None, "train_job needed to average checkpoints"
-                    from i6_core.tools.git import CloneGitRepositoryJob
                     chkpts = []
                     for x in [0, 1, 2, 3]:
                         best_job = GetBestPtCheckpointJob(train_job.out_model_dir, train_job.out_learning_rates,
@@ -269,7 +269,6 @@ class PyTorchOnnxHybridSystem(HybridSystem):
                     num_mixtures=returnn_config.config['extern_data']['classes']['dim'],
                     num_features=returnn_config.config['extern_data']['data']['dim']).out_mixtures
                 lmgc_scorer = rasr.GMMFeatureScorer(acoustic_mixture_path)
-
                 onnx_job = ExportPyTorchModelToOnnxJob(
                     pytorch_checkpoint=checkpoint,
                     returnn_config=returnn_config,
@@ -299,6 +298,7 @@ class PyTorchOnnxHybridSystem(HybridSystem):
                     final_skip_ls: Optional[Tuple[List[int], List[int]]] = tmp_kwargs.pop("final_skip_ls", None)
                     smooth_ls = tmp_kwargs.pop("smooth_ls", [])
                     quant_filter_opts = tmp_kwargs.pop("quant_filter_opts", [None])
+                    loss_table_args = tmp_kwargs.pop("loss_table_args", None)
                     for data_num in data_num_ls:
                         for quant_mode, average, sym, activation_type, weight_type, quant_format, quant_ops, percentile, num_bins, filter_opts in itertools.product(quant_modes, avg_modes, sym_modes, activation_type_ls, weight_type_ls, quant_format_ls, quant_ops_ls, percentile_ls, num_bin_ls, quant_filter_opts):
                             if not quant_mode == CalibrationMethod.MinMax and "speed" in name:
@@ -351,7 +351,7 @@ class PyTorchOnnxHybridSystem(HybridSystem):
                                 quant_job.add_alias("quantize_static/" + name + "/" + mode_str + "/epoch" + epoch_str + data_str)
                                 quant_job.set_keep_value(5)
                                 quant_model = quant_job.out_model
-                                if data_num is None:
+                                if data_num is None or "range_len_" in mode_str:
                                     self.jobs[recognition_corpus_key][f"quantize_static/" + name + "/" + mode_str + "/epoch" + epoch_str] = quant_job
                                 scorer = OnnxFeatureScorer(
                                     mixtures=acoustic_mixture_path,
@@ -484,9 +484,138 @@ class PyTorchOnnxHybridSystem(HybridSystem):
                                     lmgc_scorer=lmgc_scorer,
                                     **tmp_kwargs,
                                 )
+                            # calculate based on loss
+                            if epoch_str == "250":
+                                from i6_core.returnn.forward import ReturnnForwardJobV2
+                                from i6_core.returnn.config import ReturnnConfig
+                                loss_config: ReturnnConfig = copy.deepcopy(prior_config)
+                                serializer_objects = copy.deepcopy(loss_config.python_epilog[0].serializer_objects)[:-3]
+                                from i6_experiments.common.setups.serialization import Import, ExplicitHash, ExternalImport
+                                package = "i6_experiments.users.hilmes.experiments.tedlium2.asr_2023.hybrid.torch_baselines"
+                                prior_computation = Import(package + ".pytorch_networks.prior.basic.loss_forward_step",
+                                                           import_as="forward_step")
+                                serializer_objects.append(prior_computation)
+                                prior_computation = Import(
+                                    package + ".pytorch_networks.prior.prior_callback.PrintLossCallback",
+                                    import_as="forward_callback"
+                                )
+                                serializer_objects.append(prior_computation)
+                                models_commit = "75e03f37ac74d3d0c7358d29bb9b71dcec1bf120"
+                                i6_models_repo = CloneGitRepositoryJob(
+                                    url="https://github.com/rwth-i6/i6_models",
+                                    commit=models_commit,
+                                    checkout_folder_name="i6_models",
+                                    branch="bene_conf_enc" if models_commit == "75e03f37ac74d3d0c7358d29bb9b71dcec1bf120" else None,
+                                ).out_repository
+                                if models_commit == "75e03f37ac74d3d0c7358d29bb9b71dcec1bf120":
+                                    i6_models_repo.hash_overwrite = "TEDLIUM2_DEFAULT_I6_MODELS"
+                                i6_models = ExternalImport(import_path=i6_models_repo)
+                                serializer_objects.insert(0, i6_models)
+                                loss_config.python_epilog[0].serializer_objects = serializer_objects
+                                loss_config.config["max_seqs"] = 1
+                                loss_config.config["forward_data"] = "train"
+                                loss_config.config["model_outputs"] = {"ce_score": {"dim": 1, "shape": (1,)}}
+                                loss_config.config["train"]["datasets"]["align"]["partition_epoch"] = 1
+                                #if "min_seq_length" in loss_config.config:
+                                #    del loss_config.config["min_seq_length"]
+                                calculate_loss_job = ReturnnForwardJobV2(
+                                    model_checkpoint=checkpoint,
+                                    returnn_config=loss_config,
+                                    log_verbosity=5,
+                                    mem_rqmt=16,
+                                    time_rqmt=2 if not "whisper" in name else 4,
+                                    device="gpu",
+                                    cpu_rqmt=2,
+                                    returnn_python_exe=self.returnn_python_exe,
+                                    returnn_root=self.returnn_root,
+                                    output_files=["loss_table"]
+                                )
+                                calculate_loss_job.add_alias("calulate_loss/" + name + "/epoch_" + epoch_str)
+                                tk.register_output("calculate_loss/" + name + "/epoch_" + epoch_str,
+                                                   calculate_loss_job.out_files["loss_table"])
+                                self.jobs[recognition_corpus_key][
+                                    f"calculate_loss/" + name + "/epoch_" + epoch_str] = calculate_loss_job
+                                if loss_table_args is not None:
+                                    for args in loss_table_args:
+                                        mode_str = get_quant_str(
+                                            quant_mode=quant_mode,
+                                            average=average,
+                                            sym=sym,
+                                            activation_type=activation_type,
+                                            weight_type=weight_type,
+                                            quant_format=quant_format,
+                                            quant_ops=quant_ops,
+                                            percentile=percentile,
+                                            num_bins=num_bins,
+                                            random_seed=0,
+                                            filter_opts=filter_opts,
+                                        )
+                                        string = ""
+                                        for arg in args:
+                                            string += f"_{arg}"
+                                        mode_str += f"_loss_table{string}"
+                                        quant_job = ModelQuantizeStaticJob(
+                                            model=onnx_model,
+                                            dataset=prior_config.config["train"]["datasets"]["feat"],
+                                            num_seqs=data_num,
+                                            num_parallel_seqs=num_parallel_seqs,
+                                            calibrate_method=quant_mode,
+                                            moving_average=average,
+                                            symmetric=sym,
+                                            weight_type=weight_type,
+                                            activation_type=activation_type,
+                                            quant_format=quant_format,
+                                            ops_to_quant=quant_ops,
+                                            num_bins=num_bins,
+                                            percentile=percentile,
+                                            random_seed=random_seed,
+                                            filter_opts=filter_opts,
+                                            loss_table=(calculate_loss_job.out_files["loss_table"], args)
+                                        )
+                                        if data_num is None:
+                                            data_str = ""
+                                        else:
+                                            data_str = "-" + str(data_num)
+                                        quant_job.add_alias("quantize_static/" + name + "/" + mode_str + "/epoch" + epoch_str + data_str)
+                                        quant_job.set_keep_value(5)
+                                        quant_model = quant_job.out_model
+                                        self.jobs[recognition_corpus_key][f"quantize_static/" + name + "/" + mode_str + "/epoch" + epoch_str + data_str] = quant_job
+                                        scorer = OnnxFeatureScorer(
+                                            mixtures=acoustic_mixture_path,
+                                            model=quant_model,
+                                            priori_scale=prior,
+                                            io_map=io_map,
+                                            inter_op_threads=tmp_kwargs.get("cpu", 1),
+                                            intra_op_threads=tmp_kwargs.get("cpu", 1),
+                                            prior_file=prior_file
+                                        )
+
+                                        self.feature_scorers[recognition_corpus_key][f"pre-nn-{name}-{prior:02.2f}-{mode_str}{data_str}"] = scorer
+                                        self.feature_flows[recognition_corpus_key][f"{feature_flow_key}-onnx-{epoch_str}-{mode_str}{data_str}"] = feature_flow
+
+                                        recog_name = f"e{epoch_str}-prior{prior:02.2f}-ps{pron:02.2f}-lm{lm:02.2f}-{mode_str}{data_str}"
+                                        recog_func(
+                                            name=f"{name}-{recognition_corpus_key}-{recog_name}",
+                                            prefix=f"nn_recog/{name}/",
+                                            corpus=recognition_corpus_key,
+                                            flow=feature_flow,
+                                            feature_scorer=scorer,
+                                            pronunciation_scale=pron,
+                                            lm_scale=lm,
+                                            search_parameters=search_parameters,
+                                            lattice_to_ctm_kwargs=lattice_to_ctm_kwargs,
+                                            parallelize_conversion=parallelize_conversion,
+                                            rtf=rtf,
+                                            mem=mem,
+                                            lmgc_alias=f"lmgc/{name}/{recognition_corpus_key}-{recog_name}",
+                                            lmgc_scorer=lmgc_scorer,
+                                            **tmp_kwargs,
+                                        )
+
 
                 if "quant" in name and not "rtf" in name:
                     continue
+
                 scorer = OnnxFeatureScorer(
                     mixtures=acoustic_mixture_path,
                     model=onnx_model,

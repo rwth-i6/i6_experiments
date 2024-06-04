@@ -87,34 +87,34 @@ def build_data_input(
 
     return {
             "class": "MetaDataset",
-            #"data_map": {"classes": ("hdf_align", "data"), "data_raw": ("ogg", "data"), "data": ("hdf_feat", "data")},
-            "data_map": {"classes": ("hdf_align", "data"), "data": ("hdf_feat", "data")},
+            "data_map": {"classes": ("hdf_align", "data"), "data_raw": ("ogg", "data")},
+            #"data_map": {"classes": ("hdf_align", "data"), "data": ("hdf_feat", "data")},
             "datasets": {
                 "hdf_align": {
                     "class": "HDFDataset",
                     "files": [align_hdf],
                     "use_cache_manager": True,
                 },
-                # "ogg": {
-                #     "class": "OggZipDataset",
-                #     "audio": {"features": "raw", "peak_normalization": True, "sample_rate": 16000},
-                #     "partition_epoch": partition_epoch,
-                #     "path": [raw_features],
-                #     "seq_ordering": seq_ordering,
-                #     "use_cache_manager": True,
-                #     "segment_file": segment_list,
-                #     "targets": None,
-                # },
-                "hdf_feat": {
-                    "class": "HDFDataset",
-                    "files": [feat_hdf],
-                    "use_cache_manager": True,
-                    "seq_ordering": seq_ordering,
+                "ogg": {
+                    "class": "OggZipDataset",
+                    "audio": {"features": "raw", "peak_normalization": True, "sample_rate": 16000},
                     "partition_epoch": partition_epoch,
-                    "seq_list_filter_file": segment_list,
+                    "path": [raw_features],
+                    "seq_ordering": seq_ordering,
+                    "use_cache_manager": True,
+                    "segment_file": segment_list,
+                    "targets": None,
                 },
+                # "hdf_feat": {
+                #     "class": "HDFDataset",
+                #     "files": [feat_hdf],
+                #     "use_cache_manager": True,
+                #     "seq_ordering": seq_ordering,
+                #     "partition_epoch": partition_epoch,
+                #     "seq_list_filter_file": segment_list,
+                # },
             },
-            "seq_order_control_dataset": "hdf_feat",
+            "seq_order_control_dataset": "ogg",
     }
 
 
@@ -255,7 +255,7 @@ def get_corpus_data_inputs(
         allophone_labeling=allophone_labeling,
         alias_prefix=alias_prefix + "/nn_train_data",
         partition_epoch=5,
-        acoustic_mixtures=gmm_system.outputs["train"]["final"].acoustic_mixtures,  # TODO: NN Mixtures
+        #acoustic_mixtures=gmm_system.outputs["train"]["final"].acoustic_mixtures,  # TODO: NN Mixtures
         seq_ordering="laplace:.1000",
         raw_features=train_features_raw,
     )

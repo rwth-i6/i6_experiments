@@ -149,7 +149,8 @@ class LabelScorer:
         return {
             key: val
             for key, val in self.config._items()
-            if key not in [
+            if key
+            not in [
                 "label-scorer-type",
                 "scale",
                 "label-file",

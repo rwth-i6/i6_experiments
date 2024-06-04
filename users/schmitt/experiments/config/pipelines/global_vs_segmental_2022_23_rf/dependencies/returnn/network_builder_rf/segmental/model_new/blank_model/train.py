@@ -126,3 +126,18 @@ def viterbi_training_v3(
     emit_blank_target_dim=emit_blank_target_dim,
     pack_dim=pack_dim
   )
+
+
+# TODO: implement viterbi_training_v4
+def viterbi_training_v4(
+        *,
+        model: BlankDecoderV3,
+        enc_args: Dict,
+        enc_spatial_dim: Dim,
+        label_states_unmasked: rf.Tensor,
+        label_states_unmasked_spatial_dim: Dim,
+        emit_ground_truth: rf.Tensor,
+        emit_blank_target_dim: Dim,
+        batch_dims: List[Dim],
+):
+  pass

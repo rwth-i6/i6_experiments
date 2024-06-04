@@ -47,7 +47,6 @@ class TransducerTranscriber(torch.nn.Module):
         with torch.no_grad():
             sources = sources.squeeze(-1)
             x, source_lengths = self.feature_extraction(sources, source_lengths)
-            print("Features: ", x[0, :3, :5])
             sequence_mask = lengths_to_padding_mask(source_lengths)
 
             x = self.specaugment(x)  # [B, T, F]

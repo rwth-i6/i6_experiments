@@ -244,9 +244,11 @@ def run_exp() -> SummaryReport:
     for lm_name in ["4gram", "kazuki_transformer"]:
         data_per_lm[lm_name] = get_hybrid_data(
             train_key="enhanced_tfgridnet_v1",
-            dev_keys=["segmented_libri_css_tfgridnet_dev_v1", "segmented_libri_css_tfgridnet_eval_v1"]
-            if lm_name == "4gram"
-            else [],
+            dev_keys=(
+                ["segmented_libri_css_tfgridnet_dev_v1", "segmented_libri_css_tfgridnet_eval_v1"]
+                if lm_name == "4gram"
+                else []
+            ),
             test_keys=["segmented_libri_css_tfgridnet_eval_v1"] if lm_name == "kazuki_transformer" else [],
             gmm_system=gmm_system,
             returnn_root=tools.returnn_root,

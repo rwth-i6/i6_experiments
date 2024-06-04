@@ -119,6 +119,7 @@ def make_context_1_conformer_transducer_fullsum(
     conformer_args: Dict = {},
     decoder_args: Dict = {},
     specaug_v2: bool = False,
+    fullsum_v2: bool = False,
 ) -> Tuple[Dict, List]:
     network = {}
     python_code = []
@@ -155,11 +156,7 @@ def make_context_1_conformer_transducer_fullsum(
     }
     context_labels = "pred_labels_int32"
 
-    (
-        joint_output,
-        decoder_unit,
-        decoder_python,
-    ) = label_context.add_context_1_decoder_fullsum(
+    (joint_output, decoder_unit, decoder_python,) = label_context.add_context_1_decoder_fullsum(
         network,
         context_labels=context_labels,
         encoder="encoder",
@@ -176,6 +173,7 @@ def make_context_1_conformer_transducer_fullsum(
             targets=f"base:base:{context_labels}",
             num_classes=num_outputs,
             blank_index=blank_index,
+            loss_v2=fullsum_v2,
         )
     else:
         python_code += add_rnnt_loss(
@@ -221,6 +219,29 @@ def make_context_1_conformer_transducer_recog(
         num_outputs=num_outputs,
         encoder="encoder",
         **decoder_args,
+    )
+
+    return network, python_code
+
+
+def make_context_1_conformer_transducer_precomputed_recog(
+    num_outputs: int,
+    vgg_args: Dict = {},
+    conformer_args: Dict = {},
+    decoder_args: Dict = {},
+) -> Tuple[Dict, List]:
+    network = {}
+    python_code = []
+
+    from_list = ["data"]
+
+    from_list = add_initial_conv(network, from_list, **vgg_args)
+    from_list, _ = add_conformer_stack(network, from_list, **conformer_args)
+
+    network["encoder"] = {"class": "copy", "from": from_list}
+
+    label_context.add_precomputed_context_1_decoder_recog(
+        network, num_outputs=num_outputs, encoder="encoder", **decoder_args
     )
 
     return network, python_code
@@ -342,11 +363,7 @@ def make_context_1_blstm_transducer_fullsum(
     }
     context_labels = "pred_labels_int32"
 
-    (
-        joint_output,
-        decoder_unit,
-        decoder_python,
-    ) = label_context.add_context_1_decoder_fullsum(
+    (joint_output, decoder_unit, decoder_python,) = label_context.add_context_1_decoder_fullsum(
         network,
         context_labels=context_labels,
         encoder="encoder",

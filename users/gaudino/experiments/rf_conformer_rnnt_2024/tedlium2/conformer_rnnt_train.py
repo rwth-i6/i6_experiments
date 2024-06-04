@@ -56,7 +56,8 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
     batch_size=15_000 * _batch_size_factor,
     max_seqs=200,
     # max_seq_length_default_target=75,
-    specaugment_steps=(10_000, 20_000, 40_000),
+    # specaugment_steps=(10_000, 20_000, 40_000),
+    specaugment_steps=(5_900, 18_000, 36_000),
     # gradient_clip=0,
     # gradient_clip_global_norm = 1.0
     optimizer={
@@ -67,33 +68,45 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
     # accum_grad_multiple_step=4,
     # gradient_noise=0.0,
     learning_rate=2.5e-3,
-    dynamic_learning_rate=dyn_lr_lin_warmup_invsqrt_decay,
-    learning_rate_warmup_steps=40_000,
-    learning_rate_invsqrt_norm=40_000,
+    dynamic_learning_rate=dyn_lr_piecewise_linear,
+    # learning_rate_piecewise_steps= [261_000, 522_000, 580_000],  # 45% 45 % 10% # 11gb
+    learning_rate_piecewise_steps = [85_500, 171_000, 190_000],  # 45% 45 % 10% # 24gb
     # aux_loss_layers=[4, 8],
     max_seq_length_default_target=None,
-    gradient_clip_global_norm=5.0,
+    # gradient_clip_global_norm=5.0,
     accum_grad_multiple_step=2,
     # aux_loss_layers=[12],
 )
 
     # train_exp("base-11gb", config_11gb, gpu_mem=11)
     # train_exp("base-11gb-v1", my_config_11gb, num_epochs=400, gpu_mem=11)
-    train_exp(
-        "from-scratch-11gb",
+    train_exp( #
+        "from-scratch-24gb",
         rnnt_train_config,
         config_updates={
             "learning_rate": 1.0,
-            "dynamic_learning_rate": dyn_lr_piecewise_linear,
-            # total steps after 2000 epochs: 982.312
-            # "learning_rate_piecewise_steps": [600_000, 900_000, 982_000],
-            # "learning_rate_piecewise_values": [1e-5, 1e-3, 1e-5, 1e-6],
-            "learning_rate_piecewise_steps": [261_000, 522_000, 580_000],  # 45% 45 % 10%
-            "learning_rate_piecewise_values": [1e-5, 1e-3, 1e-5, 1e-6],
+            "learning_rate_piecewise_values": [8e-5, 8e-4, 8e-5, 1e-6],
         },
         num_epochs=400,
         gpu_mem=24,
     )
+
+    # train_exp( # does not converge (wrong steps + more mistakes)
+    #     "from-scratch-11gb",
+    #     rnnt_train_config,
+    #     config_updates={
+    #         "learning_rate": 1.0,
+    #         "dynamic_learning_rate": dyn_lr_piecewise_linear,
+    #         # total steps after 2000 epochs: 982.312
+    #         # "learning_rate_piecewise_steps": [600_000, 900_000, 982_000],
+    #         # "learning_rate_piecewise_values": [1e-5, 1e-3, 1e-5, 1e-6],
+    #         "learning_rate_piecewise_steps": [261_000, 522_000, 580_000],  # 45% 45 % 10%
+    #         "learning_rate_piecewise_values": [1e-5, 1e-3, 1e-5, 1e-6],
+    #     },
+    #     config_deletes=["learning_rate_warmup_steps", "learning_rate_invsqrt_norm"],
+    #     num_epochs=400,
+    #     gpu_mem=24,
+    # )
 
 
 _sis_prefix: Optional[str] = None

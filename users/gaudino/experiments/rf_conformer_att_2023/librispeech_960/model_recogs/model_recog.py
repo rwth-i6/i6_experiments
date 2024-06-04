@@ -166,15 +166,12 @@ def model_recog(
             lm_state = lm_out["state"]
             lm_log_prob = rf.log_softmax(lm_out["output"], axis=model.target_dim)
 
-
-
-            if not model.search_args.get("use_lm_first_label", False) and i > 0:
+            if model.search_args.get("use_lm_first_label", True) or i > 0:
                 label_log_prob = (
                     label_log_prob + model.search_args["lm_scale"] * lm_log_prob
                 )
 
         if model.search_args.get("ilm_scale", 0.0) > 0:
-            breakpoint()
             ilm_out = model.ilm(input_embed, state=ilm_state, spatial_dim=single_step_dim)
             ilm_state = ilm_out["state"]
             ilm_log_prob = rf.log_softmax(ilm_out["output"], axis=model.target_dim)

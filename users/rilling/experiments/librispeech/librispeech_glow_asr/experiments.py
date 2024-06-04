@@ -37,7 +37,7 @@ def glowASR(TTS_experiments: dict):
 
     :param dict TTS_experiments: Dictionary containing the TTS-only experiments from ../librispeech_glowtts to import Glow-TTS decoder parameters
     """    
-    prefix_name = "experiments/librispeech/librispeech_glow_asr/pytorch/"
+    prefix_name = "experiments/librispeech/ASR_only/raw_audio/"
 
     train_settings = TrainingDatasetSettings(
         custom_processing_function=None, partition_epoch=3, epoch_wise_filters=[], seq_ordering="laplace:.1000"

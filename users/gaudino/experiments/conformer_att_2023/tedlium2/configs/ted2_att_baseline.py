@@ -1104,9 +1104,99 @@ def conformer_baseline():
                 )
             )
     prior_file_ctc_only = compute_ctc_prior(
-        only_ctc_name + "default_last", prior_args, last_checkpoint, bpe_size=BPE_1K
+        only_ctc_name + "/default_last", prior_args, last_checkpoint, bpe_size=BPE_1K
     )
     # best checkpoint path "/u/zeineldeen/setups/ubuntu_22_setups/2023-04-17--conformer-att/work/i6_core/returnn/training/ReturnnTrainingJob.9o6iL7eblZwa/output/models/epoch.400"
+
+    # train only CTC no pretrain
+    no_pre_args = copy.deepcopy(args)
+    no_pre_args["decoder_args"] = CTCDecoderArgs(train=True)
+    no_pre_args["with_pretrain"] = False
+    only_ctc_name = f"base_bpe1000_peakLR{lr}_ep{ep}_globalNorm_epochOCLR_fixZoneout_encDrop{enc_drop}_woDepthConvPre_weightDrop0.1_decAttDrop0.0_embedDim256_numBlocks12_onlyCTC"
+
+    # _, train_data = run_exp(
+    #     only_ctc_name,
+    #     no_pre_args,
+    #     num_epochs=ep,
+    #     epoch_wise_filter=None,
+    #     bpe_size=BPE_1K,
+    #     partition_epoch=4,
+    #     search_args={ "decoder_args": CTCDecoderArgs(), **no_pre_args},
+    # )
+
+
+    # train only CTC with guassian "att weights"
+
+    only_ctc_args = copy.deepcopy(args)
+    only_ctc_args["decoder_args"].ce_loss_scale = 0.0
+    only_ctc_args["encoder_args"].ctc_att_weights_gauss = True
+    only_ctc_args["encoder_args"].ctc_att_weights_gauss_stddev = 1.0
+    only_ctc_args["encoder_args"].ctc_att_weights_gauss_window = 5
+
+    only_ctc_args2 = copy.deepcopy(only_ctc_args)
+
+    for use_enc in [False, True]:
+        only_ctc_args["encoder_args"].ctc_att_weights_use_enc = use_enc
+        only_ctc_name = name + "_onlyCTC_gaussWeights" + ("_no_enc" if not use_enc else "")
+
+        if(use_enc):
+            only_ctc_args["gradient_clip_global_norm"] = 5.0
+            only_ctc_name += "_gradClip5.0"
+
+        _, train_data = run_exp(
+            only_ctc_name,
+            only_ctc_args,
+            num_epochs=ep,
+            epoch_wise_filter=None,
+            bpe_size=BPE_1K,
+            partition_epoch=4,
+            search_args={"ctc_decode": True, "ctc_blank_idx": 1057, **only_ctc_args},
+        )
+
+    only_ctc_args["decoder_args"] = CTCDecoderArgs()
+
+    last_checkpoint = Checkpoint(
+                tk.Path(
+                    "/work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/2023-10-15--conformer-no-app/work/i6_core/returnn/training/ReturnnTrainingJob.4dFO6QJQ4h7x/output/models/epoch.400.index"
+                )
+            )
+    prior_file_ctc_only = compute_ctc_prior(
+        name + "_onlyCTC_gaussWeights" + "_gradClip5.0" + "/default_last", only_ctc_args, last_checkpoint, bpe_size=BPE_1K
+    )
+
+    only_ctc_args.pop("gradient_clip_global_norm")
+    only_ctc_args["encoder_args"].ctc_att_weights_use_enc = False
+
+    last_checkpoint = Checkpoint(
+                tk.Path(
+                    "/work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/2023-10-15--conformer-no-app/work/i6_core/returnn/training/ReturnnTrainingJob.4v01A22bWufz/output/models/epoch.400.index"
+                )
+            )
+    prior_file_ctc_only = compute_ctc_prior(
+        name + "_onlyCTC_gaussWeights" + "_no_enc" + "/default_last", only_ctc_args, last_checkpoint, bpe_size=BPE_1K
+    )
+
+
+
+
+    for use_enc, std, window in product([], [0.5, 1.0, 2.0], [3, 5, 10]):
+        only_ctc_args = copy.deepcopy(only_ctc_args2)
+        only_ctc_args["encoder_args"].ctc_att_weights_gauss_stddev = std
+        only_ctc_args["encoder_args"].ctc_att_weights_gauss_window = window
+        only_ctc_args["encoder_args"].ctc_att_weights_use_enc = use_enc
+        only_ctc_args["gradient_clip_global_norm"] = 5.0
+
+        only_ctc_name = name + f"_onlyCTC_gaussWeights_std{std}_window{window}" + ("_no_enc" if not use_enc else "")
+
+        _, train_data = run_exp(
+            only_ctc_name,
+            only_ctc_args,
+            num_epochs=ep,
+            epoch_wise_filter=None,
+            bpe_size=BPE_1K,
+            partition_epoch=4,
+            search_args={"ctc_decode": True, "ctc_blank_idx": 1057, **only_ctc_args},
+        )
 
     # train scale CTC
     scale_ctc_name = name + "_ctcScale0.3"

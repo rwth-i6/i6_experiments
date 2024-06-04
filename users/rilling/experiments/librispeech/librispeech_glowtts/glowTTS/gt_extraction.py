@@ -21,7 +21,7 @@ def get_ground_truth_audio_and_spectrograms():
     :return: durations_hdf
     """
 
-    prefix = "experiments/librispeech/tts_architecture/glow_tts/ground_truth/"
+    prefix = "experiments/librispeech/ground_truth/"
 
     def run_exp(name, args, dataset):
         forward_config = get_forward_config(

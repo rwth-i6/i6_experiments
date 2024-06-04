@@ -71,7 +71,7 @@ def py():
     for vocab in [
         "bpe10k",  # 5.32
         "spm10k",  # 5.16
-        "spm_bpe10k",
+        "spm_bpe10k",  # 5.21
     ]:
         train_exp(  # 5.16
             f"v6-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-speedpertV2-{vocab}",
@@ -90,12 +90,12 @@ def py():
     # alpha=0.1 seems too aggressive for AED, bad convergence
     for alpha in [
         0.3,  # 5.26
-        0.5,
-        0.6,
+        0.5,  # 5.13
+        0.6,  # 5.13
         0.7,  # 4.98 (!!)
-        0.8,
-        0.9,
-        1.0,  # sanity check
+        0.8,  # 5.14
+        0.9,  # 5.18
+        1.0,  # 5.35. sanity check, should be like baseline (5.16), could be attributed to randomness?
     ]:
         train_exp(
             f"v6-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-speedpertV2-spm10k"

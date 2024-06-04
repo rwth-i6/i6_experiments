@@ -23,6 +23,7 @@ from .configs import _get_cfg_lrlin_oclr_by_bs_nep, _batch_size_factor
 if TYPE_CHECKING:
     from i6_experiments.users.zeyer.model_with_checkpoints import ModelWithCheckpoints, ModelWithCheckpoint
     from i6_experiments.users.zeyer.datasets.task import Task
+    from i6_experiments.users.zeyer.datasets.score_results import RecogOutput
 
 
 # The model gets raw features (16khz) and does feature extraction internally.
@@ -30,13 +31,74 @@ _log_mel_feature_dim = 80
 
 
 def py():
+    """Sisyphus entry point"""
+    """
+    Luca:
+
+        CTC, greedy decoding ohne lm.
+        Habe eigentlich nicht wirklich was gemacht. Ist genau dein setup ohne die attention.
+        Model definition: i6_experiments/users/gaudino/models/asr/rf/conformer_ctc/model_conformer_ctc.py
+        Decoding: i6_experiments/users/gaudino/models/asr/rf/conformer_ctc/model_recog_ctc_greedy.py
+        Sis config: i6_experiments/users/gaudino/experiments/rf_conformer_rnnt_2024/librispeech_960/conformer_ctc_train.py
+        Experiment name: base-24gb-lrlin1e_5_600k_ctc_only_aux4_8
+        Sis work dir: /u/luca.gaudino/setups/2023-08-10--rf-librispeech/alias/librispeech_960_exp2024_05_13_rf/conformer_ctc_train/base-24gb-lrlin1e_5_600k_ctc_only_aux4_8/train
+        Bekomme: {"dev-clean": 3.08, "dev-other": 6.93, "test-clean": 3.24, "test-other": 7.18}
+        
+        No diffs:
+        - Same oggzip files
+        - Same BPE vocab
+        Diffs:
+        - Luca has "seq_postfix": [0]?
+        - Luca uses single 24GB GPU, bfloat16 AMP
+        - Luca uses larger batch 2_400_000 -> 6_400_000, grad accum 1 -> 2
+        - Luca uses wd 1e-06
+        - Luca uses older behavior_version 21 -> 16.
+    """
+
+    train_exp(
+        f"v6-bhv20-11gb-f32-bs15k-accgrad5-mgpu4-pavg100-wd1e_5-lrlin1e_5_295k-bpe10k",
+        config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
+        config_updates={
+            **_get_cfg_lrlin_oclr_by_bs_nep(15_000, 500),
+            "accum_grad_multiple_step": 5,
+            "optimizer.weight_decay": 1e-5,
+        },
+    )
+
+    train_exp(  # 9.24
+        f"v6-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_4-lrlin1e_5_295k-bpe10k",
+        config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
+        config_updates={
+            **_get_cfg_lrlin_oclr_by_bs_nep(15_000, 500),
+        },
+    )
+
+    train_exp(
+        f"v6-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-bpe10k",
+        config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
+        config_updates={
+            **_get_cfg_lrlin_oclr_by_bs_nep(15_000, 500),
+            "optimizer.weight_decay": 1e-2,
+        },
+    )
+
+    train_exp(  # 8.79
+        f"v6-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_4-lrlin1e_5_295k-speedpertV2-bpe10k",
+        config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
+        config_updates={
+            **_get_cfg_lrlin_oclr_by_bs_nep(15_000, 500),
+            "__train_audio_preprocess": speed_pert_librosa_config,
+            "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
+        },
+    )
+
     for vocab in [
-        "spm20k",
+        "spm20k",  # 7.44
         "bpe10k",  # 8.23
         "spm10k",  # 8.12
         "spm_bpe10k",  # 7.97
         "spm4k",  # 9.86
-        "spm1k",
+        "spm1k",  # 12.72
         "spm_bpe1k",  # 11.76
     ]:
         train_exp(  # 8.23
@@ -53,8 +115,8 @@ def py():
 
     for alpha in [
         0.3,  # 7.88
-        0.5,
-        0.7,
+        0.5,  # 7.13
+        0.7,  # 6.99
     ]:
         train_exp(
             "v6-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-speedpertV2-spm10k"
@@ -70,22 +132,22 @@ def py():
             train_vocab_opts={"other_opts": {"enable_sampling": True, "alpha": alpha}},
         )
 
-    for alpha in [
-        0.3,
-    ]:
-        train_exp(
-            "v6-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-speedpertV2-spm_bpe10k"
-            f"-spmSample{str(alpha).replace('.', '')}",
-            config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
-            config_updates={
-                **_get_cfg_lrlin_oclr_by_bs_nep(15_000, 500),
-                "optimizer.weight_decay": 1e-2,
-                "__train_audio_preprocess": speed_pert_librosa_config,
-                "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
-            },
-            vocab="spm_bpe10k",
-            train_vocab_opts={"other_opts": {"enable_sampling": True, "alpha": alpha}},
-        )
+    # v6-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-speedpertV2
+    # with spm_bpe10k and enable_sampling, alpha in {0.3, 0.7} was both very bad (90% WER).
+
+    train_exp(
+        "v6-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-speedpertV2-spm10k-eos-spmSample07",
+        config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
+        config_updates={
+            **_get_cfg_lrlin_oclr_by_bs_nep(15_000, 500),
+            "optimizer.weight_decay": 1e-2,
+            "__train_audio_preprocess": speed_pert_librosa_config,
+            "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
+            "use_eos_postfix": True,
+        },
+        vocab="spm10k",
+        train_vocab_opts={"other_opts": {"enable_sampling": True, "alpha": 0.7}},
+    )
 
 
 # noinspection PyShadowingNames
@@ -150,9 +212,22 @@ def train_exp(
         distributed_launch_cmd="torchrun" if num_processes else None,
         time_rqmt=time_rqmt,
     )
-    recog_training_exp(prefix, task, model_with_checkpoint, recog_def=model_recog)
+
+    recog_post_proc_funcs = []
+    if config.get("use_eos_postfix", False):
+        recog_post_proc_funcs.append(_remove_eos_label_v2)
+    recog_training_exp(
+        prefix, task, model_with_checkpoint, recog_def=model_recog, recog_post_proc_funcs=recog_post_proc_funcs
+    )
 
     return model_with_checkpoint
+
+
+def _remove_eos_label_v2(res: RecogOutput) -> RecogOutput:
+    from i6_experiments.users.zeyer.datasets.score_results import RecogOutput
+    from i6_core.returnn.search import SearchRemoveLabelJob
+
+    return RecogOutput(SearchRemoveLabelJob(res.output, remove_label="</s>", output_gzip=True).out_search_results)
 
 
 _sis_prefix: Optional[str] = None
@@ -248,6 +323,11 @@ def ctc_training(*, model: Model, data: rf.Tensor, data_spatial_dim: Dim, target
     if data.feature_dim and data.feature_dim.dimension == 1:
         data = rf.squeeze(data, axis=data.feature_dim)
     assert not data.feature_dim  # raw audio
+
+    if config.bool("use_eos_postfix", False):
+        targets, (targets_spatial_dim,) = rf.pad(
+            targets, axes=[targets_spatial_dim], padding=[(0, 1)], value=model.eos_idx
+        )
 
     collected_outputs = {}
     logits, enc_spatial_dim = model(data, in_spatial_dim=data_spatial_dim, collected_outputs=collected_outputs)

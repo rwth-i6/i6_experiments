@@ -7,5 +7,5 @@ from .combine import combine_priors_across_hmm_states
 from .flat import CreateFlatPriorsJob
 from .smoothen import smoothen_priors, SmoothenPriorsJob
 from .scale import scale_priors, ScalePriorsJob
-from .transcription import get_mono_transcription_priors
+from .transcription import get_prior_from_transcription
 from .tri_join import JoinRightContextPriorsJob, ReshapeCenterStatePriorsJob

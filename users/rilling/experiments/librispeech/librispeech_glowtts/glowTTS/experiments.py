@@ -29,7 +29,7 @@ def get_pytorch_glowTTS(x_vector_exp: dict, gl_checkpoint: dict):
     :return dict: Dictionary containing the experiment dictionaries to import attributes of experiment jobs in other experiment folders (should be done using storage)
     """    
 
-    prefix = "experiments/librispeech/tts_architecture/glow_tts/raw_audio/"
+    prefix = "experiments/librispeech/TTS_only/v1/raw_audio/"
     experiments = {}
 
     def run_exp(

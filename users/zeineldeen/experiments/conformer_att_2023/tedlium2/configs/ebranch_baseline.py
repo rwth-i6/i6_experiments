@@ -995,17 +995,6 @@ def conformer_baseline():
 
                                     args["encoder_args"].num_blocks = num_blocks
 
-                                    args["with_pretrain"] = False
-                                    specaug_steps = {"step0": 12_000, "step1": 18_000, "step2": 24_000}
-                                    args["specaug_str_func_opts"] = {
-                                        "version": 2,
-                                        **specaug_steps,
-                                        "max_time_num": 100,
-                                        "max_time_dim": 20,
-                                        "min_num_add_factor": 0,
-                                        "freq_dim_factor": 5,
-                                    }
-
                                     args["encoder_args"].frontend_conv_weight_dropout = weight_drop
                                     args["encoder_args"].mhsa_weight_dropout = weight_drop
                                     args["encoder_args"].ff_weight_dropout = weight_drop
@@ -1013,6 +1002,9 @@ def conformer_baseline():
 
                                     args["decoder_args"].embed_dim = target_embed_dim
                                     args["decoder_args"].att_dropout = dec_att_drop
+
+                                    args["batch_size"] = 10_000 * 160
+                                    args["accum_grad"] = 3
 
                                     exp_name += f"_weightDrop{weight_drop}_decAttDrop{dec_att_drop}_embedDim{target_embed_dim}_numBlocks{num_blocks}"
 
