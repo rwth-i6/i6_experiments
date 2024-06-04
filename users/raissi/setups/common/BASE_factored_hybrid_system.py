@@ -530,7 +530,7 @@ class BASEFactoredHybridSystem(NnSystem):
         self.native_lstm2_path = compile_native_op_job.out_op
 
     def set_local_flf_tool_for_decoding(self, path):
-        self.csp["base"].flf_tool_exe = path
+        self.crp["base"].flf_tool_exe = path
 
     # --------------------- Init procedure -----------------
     def set_initial_nn_args(self, initial_nn_args):

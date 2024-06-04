@@ -671,8 +671,11 @@ class BASEFactoredHybridDecoder:
         if search_parameters.tdp_scale is not None:
             if name_override is None:
                 name += f"-tdpScale-{search_parameters.tdp_scale}"
-                name += f"-spTdp-{format_tdp(search_parameters.tdp_speech)}"
                 name += f"-silTdp-{format_tdp(search_parameters.tdp_silence)}"
+                if search_parameters.tdp_nonword is not None:
+                    name += f"-nwTdp-{format_tdp(search_parameters.tdp_nonword)}"
+                name += f"-spTdp-{format_tdp(search_parameters.tdp_speech)}"
+
 
             if self.feature_scorer_type.is_factored():
                 if search_parameters.transition_scales is not None:
@@ -758,6 +761,12 @@ class BASEFactoredHybridDecoder:
         adv_search_extra_config = (
             copy.deepcopy(adv_search_extra_config) if adv_search_extra_config is not None else rasr.RasrConfig()
         )
+
+        if search_parameters.word_recombination_limit is not None:
+            adv_search_extra_config.flf_lattice_tool.network.recognizer.recognizer.reduce_context_word_recombination = True
+            adv_search_extra_config.flf_lattice_tool.network.recognizer.recognizer.reduce_context_word_recombination_limit = search_parameters.word_recombination_limit
+            name += f"recombLim{search_parameters.word_recombination_limit}"
+
         if search_parameters.altas is not None:
             adv_search_extra_config.flf_lattice_tool.network.recognizer.recognizer.acoustic_lookahead_temporal_approximation_scale = (
                 search_parameters.altas
@@ -907,7 +916,7 @@ class BASEFactoredHybridDecoder:
         if add_sis_alias_and_output:
             tk.register_output(f"{pre_path}/{name}.wer", scorer.out_report_dir)
 
-        if opt_lm_am and search_parameters.altas is None:
+        if opt_lm_am and (search_parameters.altas is None or search_parameters.altas < 3.0):
             assert search_parameters.beam >= 15.0
             if pron_scale is not None:
                 if isinstance(pron_scale, DelayedBase) and pron_scale.is_set():
@@ -1311,14 +1320,16 @@ class BASEFactoredHybridDecoder:
         best_priors = best_overall_n.out_argmin[0]
         best_tdp_scale = best_overall_n.out_argmin[1]
         best_tdp_sil = best_overall_n.out_argmin[2]
-        best_tdp_sp = best_overall_n.out_argmin[3]
+        best_tdp_nw = best_overall_n.out_argmin[3]
+        best_tdp_sp = best_overall_n.out_argmin[4]
         if use_pron:
-            best_pron = best_overall_n.out_argmin[4]
+            best_pron = best_overall_n.out_argmin[5]
 
             base_cfg = dataclasses.replace(
                 search_parameters,
                 tdp_scale=best_tdp_scale,
                 tdp_silence=push_delayed_tuple(best_tdp_sil),
+                tdp_nonword=push_delayed_tuple(best_tdp_nw),
                 tdp_speech=push_delayed_tuple(best_tdp_sp),
                 pron_scale=best_pron,
             )
@@ -1327,6 +1338,7 @@ class BASEFactoredHybridDecoder:
                 search_parameters,
                 tdp_scale=best_tdp_scale,
                 tdp_silence=push_delayed_tuple(best_tdp_sil),
+                tdp_nonword=push_delayed_tuple(best_tdp_nw),
                 tdp_speech=push_delayed_tuple(best_tdp_sp),
             )
 

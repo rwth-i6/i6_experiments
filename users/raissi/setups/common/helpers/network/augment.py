@@ -29,11 +29,29 @@ DEFAULT_INIT = "variance_scaling_initializer(mode='fan_in', distribution='unifor
 class LogLinearScales:
     label_posterior_scale: float
     transition_scale: float
+    context_label_posterior_scale: float = 1.0
     label_prior_scale: Optional[float] = None
 
     @classmethod
     def default(cls) -> "LogLinearScales":
-        return cls(label_posterior_scale=0.3, label_prior_scale=None, transition_scale=0.3)
+        return cls(label_posterior_scale=0.3, transition_scale=0.3, label_prior_scale=None, context_label_posterior_scale=1.0)
+
+@dataclass(frozen=True, eq=True)
+class LossScales:
+    center_scale:int = 1.0
+    right_scale: int = 1.0
+    left_scale: int = 1.0
+
+    def get_scale(self, label_name: str):
+        if 'center' in label_name:
+            return self.center_scale
+        elif 'right' in label_name:
+            return self.right_scale
+        elif 'left' in label_name:
+            return self.left_scale
+        else:
+            raise NotImplemented("Not recognized label name for output loss scale")
+
 
 
 Layer = Dict[str, Any]
@@ -889,3 +907,183 @@ def add_fast_bw_layer_to_returnn_config(
     # ToDo: handel the import model part
 
     return returnn_config
+
+def add_fast_bw_factored_layer_to_network(
+    crp: rasr.CommonRasrParameters,
+    network: Network,
+    log_linear_scales: LogLinearScales,
+    loss_scales: LossScales,
+    label_info: LabelInfo,
+    reference_layers: [str] = ["left-output", "center-output" "right-output"],
+    label_prior_type: Optional[PriorType] = None,
+    label_prior: Optional[returnn.CodeWrapper] = None,
+    label_prior_estimation_axes: str = None,
+    extra_rasr_config: Optional[rasr.RasrConfig] = None,
+    extra_rasr_post_config: Optional[rasr.RasrConfig] = None,
+) -> Network:
+
+    crp = correct_rasr_FSA_bug(crp)
+
+    if label_prior_type is not None:
+        assert log_linear_scales.label_prior_scale is not None, "If you plan to use the prior, please set the scale for it"
+        if label_prior_type == PriorType.TRANSCRIPT:
+            assert label_prior is not None, "You forgot to set the label prior file"
+
+    inputs = []
+    for reference_layer in reference_layers:
+        for attribute in ["loss", "loss_opts", "target"]:
+            if reference_layer in network:
+                network[reference_layer].pop(attribute, None)
+
+        out_denot = reference_layer.split("-")[0]
+        am_scale = log_linear_scales.label_posterior_scale if "center" in reference_layer else log_linear_scales.context_label_posterior_scale
+        # prior calculation
+        if label_prior_type is not None:
+            prior_name = ("_").join(["label_prior", out_denot])
+            comb_name = ("_").join(["comb-prior", out_denot])
+            prior_eval_string = "(safe_log(source(1)) * prior_scale)"
+            inputs.append(comb_name)
+            if label_prior_type == PriorType.TRANSCRIPT:
+                network[prior_name] = {"class": "constant", "dtype": "float32", "value": label_prior}
+            elif label_prior_type == PriorType.AVERAGE:
+                network[prior_name] = {
+                    "class": "accumulate_mean",
+                    "exp_average": 0.001,
+                    "from": reference_layer,
+                    "is_prob_distribution": True,
+                }
+            elif label_prior_type == PriorType.ONTHEFLY:
+                assert label_prior_estimation_axes is not None, "You forgot to set one which axis you want to average the prior, eg. bt"
+                network[prior_name] = {
+                        "class": "reduce",
+                        "mode": "mean",
+                        "from": reference_layer,
+                        "axis": label_prior_estimation_axes,
+                    }
+                prior_eval_string = "tf.stop_gradient((safe_log(source(1)) * prior_scale))"
+            else:
+                raise NotImplementedError("Unknown PriorType")
+
+            network[comb_name] = {
+                "class": "combine",
+                "kind": "eval",
+                "eval": f"am_scale*(safe_log(source(0)) - {prior_eval_string})",
+                "eval_locals": {
+                    "am_scale": am_scale,
+                    "prior_scale": log_linear_scales.label_prior_scale,
+                },
+                "from": [reference_layer, prior_name],
+            }
+
+        else:
+            comb_name = ("_").join(["multiply-scale", out_denot])
+            inputs.append(comb_name)
+            network[comb_name] = {
+                "class": "combine",
+                "kind": "eval",
+                "eval": "am_scale*(safe_log(source(0)))",
+                "eval_locals": {"am_scale": am_scale},
+                "from": [reference_layer],
+            }
+
+        bw_out = ("_").join(["output-bw", out_denot])
+        network[bw_out] = {
+            "class": "copy",
+            "from": reference_layer,
+            "loss": "via_layer",
+            "loss_opts": {
+                "align_layer": ("/").join(["fast_bw", out_denot]),
+                "loss_wrt_to_act_in": "softmax",
+            },
+            "loss_scale": loss_scales.get_scale(reference_layer),
+        }
+
+    network["fast_bw"] = {
+        "class": "fast_bw_factored",
+        "align_target": "hmm-monophone",
+        "hmm_opts": {"num_contexts": label_info.n_contexts},
+        "from": inputs,
+        "tdp_scale": log_linear_scales.transition_scale,
+        "n_out": label_info.n_contexts*2 + label_info.get_n_state_classes()
+    }
+
+    # Create additional Rasr config file for the automaton
+    mapping = {
+        "corpus": "neural-network-trainer.corpus",
+        "lexicon": ["neural-network-trainer.alignment-fsa-exporter.model-combination.lexicon"],
+        "acoustic_model": ["neural-network-trainer.alignment-fsa-exporter.model-combination.acoustic-model"],
+    }
+    config, post_config = rasr.build_config_from_mapping(crp, mapping)
+    post_config["*"].output_channel.file = "fastbw.log"
+
+    # Define action
+    config.neural_network_trainer.action = "python-control"
+    # neural_network_trainer.alignment_fsa_exporter.allophone_state_graph_builder
+    config.neural_network_trainer.alignment_fsa_exporter.allophone_state_graph_builder.orthographic_parser.allow_for_silence_repetitions = (
+        False
+    )
+    config.neural_network_trainer.alignment_fsa_exporter.allophone_state_graph_builder.orthographic_parser.normalize_lemma_sequence_scores = (
+        False
+    )
+    # neural_network_trainer.alignment_fsa_exporter
+    config.neural_network_trainer.alignment_fsa_exporter.model_combination.acoustic_model.fix_allophone_context_at_word_boundaries = (
+        True
+    )
+    config.neural_network_trainer.alignment_fsa_exporter.model_combination.acoustic_model.transducer_builder_filter_out_invalid_allophones = (
+        True
+    )
+
+    # additional config
+    config._update(extra_rasr_config)
+    post_config._update(extra_rasr_post_config)
+
+    automaton_config = rasr.WriteRasrConfigJob(config, post_config).out_config
+    tk.register_output("train/bw.config", automaton_config)
+
+    network["fast_bw"]["sprint_opts"] = {
+        "sprintExecPath": rasr.RasrCommand.select_exe(crp.nn_trainer_exe, "nn-trainer"),
+        "sprintConfigStr": DelayedFormat("--config={}", automaton_config),
+        "sprintControlConfig": {"verbose": True},
+        "usePythonSegmentOrder": False,
+        "numInstances": 1,
+    }
+
+    return network
+
+
+def add_fast_bw_factored_layer_to_returnn_config(
+    crp: rasr.CommonRasrParameters,
+    returnn_config: returnn.ReturnnConfig,
+    log_linear_scales: LogLinearScales,
+    loss_scales: LossScales,
+    label_info: LabelInfo,
+    import_model: [tk.Path, str] = None,
+    reference_layers: [str] = ["left-output", "center-output", "right-output"],
+    label_prior_type: Optional[PriorType] = None,
+    label_prior: Optional[returnn.CodeWrapper] = None,
+    label_prior_estimation_axes: str = None,
+    extra_rasr_config: Optional[rasr.RasrConfig] = None,
+    extra_rasr_post_config: Optional[rasr.RasrConfig] = None,
+) -> returnn.ReturnnConfig:
+
+    returnn_config.config["network"] = add_fast_bw_factored_layer_to_network(
+        crp=crp,
+        network=returnn_config.config["network"],
+        log_linear_scales=log_linear_scales,
+        loss_scales=loss_scales,
+        label_info=label_info,
+        reference_layers=reference_layers,
+        label_prior_type=label_prior_type,
+        label_prior=label_prior,
+        label_prior_estimation_axes=label_prior_estimation_axes,
+        extra_rasr_config=extra_rasr_config,
+        extra_rasr_post_config=extra_rasr_post_config,
+    )
+
+    if "chunking" in returnn_config.config:
+        del returnn_config.config["chunking"]
+    if "pretrain" in returnn_config.config and import_model is not None:
+        del returnn_config.config["pretrain"]
+
+    return returnn_config
+

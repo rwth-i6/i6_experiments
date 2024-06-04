@@ -157,6 +157,7 @@ class SearchParameters:
     altas: Optional[float] = None
     lm_lookahead_scale: Optional[float] = None
     lm_lookahead_history_limit: Int = 1
+    word_recombination_limit: Optional[Int] = None
     posterior_scales: Optional[PosteriorScales] = None
     silence_penalties: Optional[Tuple[Float, Float]] = None  # loop, fwd
     state_dependent_tdps: Optional[Union[str, tk.Path]] = None
@@ -188,6 +189,11 @@ class SearchParameters:
 
     def with_lm_lookahead_history_limit(self, history_limit: Int) -> "SearchParameters":
         return dataclasses.replace(self, lm_lookahead_history_limit=history_limit)
+
+    def with_word_recombination_limit(self, word_recombination_limit: Int) -> "SearchParameters":
+        return dataclasses.replace(self, word_recombination_limit=word_recombination_limit)
+
+
 
     def with_prior_scale(
         self,
