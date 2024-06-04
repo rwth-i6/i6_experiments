@@ -147,7 +147,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
     #     gpu_mem=11,
     # )
 
-    train_exp( #
+    train_exp( # dev 7.8 test 7.22
         "base-11gb-v3-lrlin1e_5_261k_aux4_8_zoneout_fix",
         my_config_11gb,
         config_updates={
@@ -203,7 +203,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
     # )
 
 
-    model = train_exp( #
+    model = train_exp( # dev 8.53 test 7.7
         "base-24gb-v6-lrlin1e_5_85k_zoneout_fix",
         config_24gb_v6,
         config_updates={

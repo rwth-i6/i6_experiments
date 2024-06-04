@@ -370,69 +370,224 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
     #     gpu_mem=11,
     # )
 
-    train_exp(
-        "from-scratch-11gb_lrmin1e-5_lrmax1e-3_aux4_8_adjSpec6k_noCurrL",
+    # train_exp( # does not converge
+    #     "from-scratch-11gb_lrmin1e-5_lrmax1e-3_aux4_8_adjSpec6k_noCurrL",
+    #     ctc_train_config,
+    #     config_updates={
+    #         "learning_rate": 1.0,
+    #         "dynamic_learning_rate": dyn_lr_piecewise_linear,
+    #         # total steps after 2000 epochs: 982.312
+    #         "learning_rate_piecewise_steps": [261_000, 522_000, 580_000], # 45% 45 % 10%
+    #         "learning_rate_piecewise_values": [1e-5, 1e-3, 1e-5, 1e-6],
+    #         "aux_loss_layers": [4, 8],
+    #         "specaugment_steps": (5_900, 18_000, 36_000),
+    #         "epoch_wise_filter": {
+    # # (1, 5): {"max_mean_len": 1000},  # better?
+    # # older settings:
+    # # (1, 5): {"max_mean_len": 200},
+    # # (6, 10): {"max_mean_len": 500},
+    #     },
+    # },
+    #     num_epochs=400,
+    #     gpu_mem=11,
+    # )
+
+    # train_exp( # does not converge
+    #     "from-scratch-11gb_lrmin8e-5_lrmax8e-4_aux4_8_noSpec_noCurrL",
+    #     ctc_train_config,
+    #     config_updates={
+    #         "learning_rate": 1.0,
+    #         "dynamic_learning_rate": dyn_lr_piecewise_linear,
+    #         # total steps after 2000 epochs: 982.312
+    #         "learning_rate_piecewise_steps": [261_000, 522_000, 580_000], # 45% 45 % 10%
+    #         "learning_rate_piecewise_values": [8e-5, 8e-4, 8e-5, 1e-6],
+    #         "aux_loss_layers": [4, 8],
+    #         "use_specaugment": False,
+    #         "epoch_wise_filter": {
+    # # (1, 5): {"max_mean_len": 1000},  # better?
+    # # older settings:
+    # # (1, 5): {"max_mean_len": 200},
+    # # (6, 10): {"max_mean_len": 500},
+    #     },
+    # },
+    #     num_epochs=400,
+    #     gpu_mem=11,
+    # )
+
+    # train_exp( # does not converge
+    #     "from-scratch-11gb_lrmin1e-5_lrmax1e-3_aux4_8_noSpec_noCurrL",
+    #     ctc_train_config,
+    #     config_updates={
+    #         "learning_rate": 1.0,
+    #         "dynamic_learning_rate": dyn_lr_piecewise_linear,
+    #         # total steps after 2000 epochs: 982.312
+    #         "learning_rate_piecewise_steps": [261_000, 522_000, 580_000], # 45% 45 % 10%
+    #         "learning_rate_piecewise_values": [1e-5, 1e-3, 1e-5, 1e-6],
+    #         "aux_loss_layers": [4, 8],
+    #         "use_specaugment": False,
+    #         "epoch_wise_filter": {
+    # # (1, 5): {"max_mean_len": 1000},  # better?
+    # # older settings:
+    # # (1, 5): {"max_mean_len": 200},
+    # # (6, 10): {"max_mean_len": 500},
+    #     },
+    # },
+    #     num_epochs=400,
+    #     gpu_mem=11,
+    # )
+
+    # train_exp( # does not converge
+    #     "from-scratch-11gb_lrmin1e-5_lrmax1e-3_aux4_8_noSpec",
+    #     ctc_train_config,
+    #     config_updates={
+    #         "learning_rate": 1.0,
+    #         "dynamic_learning_rate": dyn_lr_piecewise_linear,
+    #         # total steps after 2000 epochs: 982.312
+    #         "learning_rate_piecewise_steps": [261_000, 522_000, 580_000], # 45% 45 % 10%
+    #         "learning_rate_piecewise_values": [1e-5, 1e-3, 1e-5, 1e-6],
+    #         "aux_loss_layers": [4, 8],
+    #         "use_specaugment": False,
+    # },
+    #     num_epochs=400,
+    #     gpu_mem=11,
+    # )
+
+    # train_exp( # does not converge
+    #     "from-scratch-11gb_lrmin1e-5_lrmax1e-3_aux4_8_adjSpec6k_adjCurrL",
+    #     ctc_train_config,
+    #     config_updates={
+    #         "learning_rate": 1.0,
+    #         "dynamic_learning_rate": dyn_lr_piecewise_linear,
+    #         # total steps after 2000 epochs: 982.312
+    #         "learning_rate_piecewise_steps": [261_000, 522_000, 580_000], # 45% 45 % 10%
+    #         "learning_rate_piecewise_values": [1e-5, 1e-3, 1e-5, 1e-6],
+    #         "aux_loss_layers": [4, 8],
+    #         "specaugment_steps": (5_900, 18_000, 36_000),
+    #         "epoch_wise_filter": {
+    # # (1, 5): {"max_mean_len": 1000},  # better?
+    # # older settings:
+    # # (1, 5): {"max_mean_len": 200},
+    # # (6, 10): {"max_mean_len": 500},
+    #             (1,2): {"max_mean_len": 400},
+    #             (2,4): {"max_mean_len": 800},
+    #     },
+    # },
+    #     num_epochs=400,
+    #     gpu_mem=11,
+    # )
+
+    # train_exp( # does not converge
+    #     "from-scratch-11gb_lrmin1e-5_lrmax1e-3_aux4_8_adjSpec6k_accumGrad4",
+    #     ctc_train_config,
+    #     config_updates={
+    #         "learning_rate": 1.0,
+    #         "dynamic_learning_rate": dyn_lr_piecewise_linear,
+    #         # total steps after 2000 epochs: 982.312
+    #         "learning_rate_piecewise_steps": [261_000, 522_000, 580_000], # 45% 45 % 10%
+    #         "learning_rate_piecewise_values": [1e-5, 1e-3, 1e-5, 1e-6],
+    #         "aux_loss_layers": [4, 8],
+    #         "specaugment_steps": (5_900, 18_000, 36_000),
+    #         "accum_grad_multiple_step": 4,
+    # },
+    #     config_deletes=["learning_rate_warmup_steps", "learning_rate_invsqrt_norm"],
+    #     num_epochs=400,
+    #     gpu_mem=11,
+    # )
+
+    # train_exp( # does not converge
+    #     "from-scratch-11gb_lrmax2e-3_aux4_8_adjSpec",
+    #     ctc_train_config,
+    #     config_updates={
+    #         "learning_rate": 1.0,
+    #         "dynamic_learning_rate": dyn_lr_piecewise_linear,
+    #         # total steps after 2000 epochs: 982.312
+    #         "learning_rate_piecewise_steps": [261_000, 522_000, 580_000], # 45% 45 % 10%
+    #         "learning_rate_piecewise_values": [2e-4, 2e-3, 2e-4, 1e-6],
+    #         "aux_loss_layers": [4, 8],
+    #         "specaugment_steps": (5_900, 18_000, 36_000),
+    # },
+    #     num_epochs=400,
+    #     gpu_mem=11,
+    # )
+
+    train_exp( #
+        "from-scratch-11gb_lrmax8e-4_aux4_8_adjSpec_no_norm_loss",
         ctc_train_config,
         config_updates={
             "learning_rate": 1.0,
             "dynamic_learning_rate": dyn_lr_piecewise_linear,
             # total steps after 2000 epochs: 982.312
             "learning_rate_piecewise_steps": [261_000, 522_000, 580_000], # 45% 45 % 10%
-            "learning_rate_piecewise_values": [1e-5, 1e-3, 1e-5, 1e-6],
+            "learning_rate_piecewise_values": [8e-5, 8e-4, 8e-5, 1e-6],
             "aux_loss_layers": [4, 8],
             "specaugment_steps": (5_900, 18_000, 36_000),
-            "epoch_wise_filter": {
-    # (1, 5): {"max_mean_len": 1000},  # better?
-    # older settings:
-    # (1, 5): {"max_mean_len": 200},
-    # (6, 10): {"max_mean_len": 500},
-        },
+            "use_normalized_loss": False,
     },
         num_epochs=400,
         gpu_mem=11,
     )
 
-    train_exp(
-        "from-scratch-11gb_lrmin1e-5_lrmax1e-3_aux4_8_adjSpec6k_adjCurrL",
+    train_exp( #
+        "from-scratch-11gb_lrmax8e-4_aux4_8_adjSpec_no_norm_loss_no_grad_clip",
         ctc_train_config,
         config_updates={
             "learning_rate": 1.0,
             "dynamic_learning_rate": dyn_lr_piecewise_linear,
             # total steps after 2000 epochs: 982.312
             "learning_rate_piecewise_steps": [261_000, 522_000, 580_000], # 45% 45 % 10%
-            "learning_rate_piecewise_values": [1e-5, 1e-3, 1e-5, 1e-6],
+            "learning_rate_piecewise_values": [8e-5, 8e-4, 8e-5, 1e-6],
             "aux_loss_layers": [4, 8],
             "specaugment_steps": (5_900, 18_000, 36_000),
-            "epoch_wise_filter": {
-    # (1, 5): {"max_mean_len": 1000},  # better?
-    # older settings:
-    # (1, 5): {"max_mean_len": 200},
-    # (6, 10): {"max_mean_len": 500},
-                (1,2): {"max_mean_len": 400},
-                (2,4): {"max_mean_len": 800},
-        },
+            "use_normalized_loss": False,
+    },
+        config_deletes=["learning_rate_warmup_steps", "learning_rate_invsqrt_norm", "gradient_clip_global_norm"],
+        num_epochs=400,
+        gpu_mem=11,
+    )
+
+    train_exp( #
+        "from-scratch-11gb_lrmax8e-4_aux4_8_adjSpe_eps2e-8",
+        ctc_train_config,
+        config_updates={
+            "learning_rate": 1.0,
+            "dynamic_learning_rate": dyn_lr_piecewise_linear,
+            # total steps after 2000 epochs: 982.312
+            "learning_rate_piecewise_steps": [261_000, 522_000, 580_000], # 45% 45 % 10%
+            "learning_rate_piecewise_values": [8e-5, 8e-4, 8e-5, 1e-6],
+            "aux_loss_layers": [4, 8],
+            "specaugment_steps": (5_900, 18_000, 36_000),
+            "optimizer": {
+                "class": "adamw",
+                "epsilon": 2e-8,
+                "weight_decay": 1e-6,
+            },
     },
         num_epochs=400,
         gpu_mem=11,
     )
 
-    train_exp(
-        "from-scratch-11gb_lrmin1e-5_lrmax1e-3_aux4_8_adjSpec6k_accumGrad4",
+    train_exp( #
+        "from-scratch-11gb_lrmax8e-4_aux4_8_adjSpe_adam",
         ctc_train_config,
         config_updates={
             "learning_rate": 1.0,
             "dynamic_learning_rate": dyn_lr_piecewise_linear,
             # total steps after 2000 epochs: 982.312
             "learning_rate_piecewise_steps": [261_000, 522_000, 580_000], # 45% 45 % 10%
-            "learning_rate_piecewise_values": [1e-5, 1e-3, 1e-5, 1e-6],
+            "learning_rate_piecewise_values": [8e-5, 8e-4, 8e-5, 1e-6],
             "aux_loss_layers": [4, 8],
             "specaugment_steps": (5_900, 18_000, 36_000),
-            "accum_grad_multiple_step": 4,
+            "optimizer": {
+                "class": "adam",
+                "epsilon": 1e-8,
+                "weight_decay": 1e-6,
+            },
     },
-        config_deletes=["learning_rate_warmup_steps", "learning_rate_invsqrt_norm"],
         num_epochs=400,
         gpu_mem=11,
     )
+
+
 
 
 

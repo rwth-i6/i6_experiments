@@ -160,7 +160,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
         },
     )
 
-    train_exp(  # dev-other
+    train_exp(  # dev-other 7.17
         "base-24gb-lrlin1e_5_600k_ctc_only_aux4_8_no_mel_norm",
         config_24gb_v6,
         config_updates={

@@ -482,7 +482,7 @@ def sis_run_with_prefix(prefix_name: str = None):
     # att + trafo lm + ilm correction
     for model_name, lm_scale, ilm_scale, beam_size in product(
         # ["model_baseline", "model_ctc0.5_att0.5"], [0.36] ,[0.28], [12]
-        ["model_baseline"], [0.36], [0.28], [] #12
+        ["model_baseline"], [0.36], [0.28], [12,24] #12
     ):
         ilm_model_args = copy.deepcopy(models_with_pt_ckpt[model_name]["model_args"])
         ilm_model_args["preload_from_files"] = preload_from_files_ilm
@@ -492,7 +492,7 @@ def sis_run_with_prefix(prefix_name: str = None):
             + "/"
             + model_name
             + f"/att_trafolm{lm_scale}_ilm{ilm_scale}"
-            + f"_beam{beam_size}"
+            + f"_beam{beam_size}_fffix"
         )
         search_args = {
             "beam_size": beam_size,
@@ -502,6 +502,7 @@ def sis_run_with_prefix(prefix_name: str = None):
             "bsf": 32,
             "use_first_lm": True,
             "use_zoneout_output": True,
+            "hash_overwrite": "ffix",
         }
         recog_res, recog_out = recog_model(
             task,
@@ -532,7 +533,7 @@ def sis_run_with_prefix(prefix_name: str = None):
                 + model_name
                 + f"/opls_att{att_scale}_ctc{ctc_scale}_trafolm{lm_scale}_ilm{ilm_scale}"
                 + (f"_prior{prior_scale}" if prior_scale > 0 else "")
-                + f"_beam{beam_size}"
+                + f"_beam{beam_size}_ffix"
             )
             search_args = {
                 "beam_size": beam_size,
@@ -546,6 +547,7 @@ def sis_run_with_prefix(prefix_name: str = None):
                 "prior_corr": True if prior_scale > 0 else False,
                 "prior_scale": prior_scale,
                 "ctc_prior_file": models[model_name]["prior"],
+                "use_first_lm": True,
             }
 
             recog_res, recog_out = recog_model(
