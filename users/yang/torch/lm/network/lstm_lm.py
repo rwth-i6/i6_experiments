@@ -21,6 +21,7 @@ class LSTMLMConfig(ModelConfiguration):
     use_bottle_neck: bool = False
     bottle_neck_dim: int = 512
     dropout: float = 0.0
+    trainable: bool = True
 
 class LSTMLM(nn.Module):
     """
@@ -53,6 +54,7 @@ class LSTMLM(nn.Module):
         self._param_init(**cfg.init_args)
 
 
+
     def _param_init(self, init_args_w=None, init_args_b=None):
         if init_args_w is None:
             init_args_w = {'func': 'normal', 'arg': {'mean': 0.0, 'std': 0.1}}
@@ -75,6 +77,9 @@ class LSTMLM(nn.Module):
                         NotImplementedError
                     hyp = init_args_w['arg']
                 init_func(param, **hyp)
+    def _param_freeze(self):
+        for params in self.parameters():
+            params.requires_grad= False
 
     def forward(self, x):
         """

@@ -18,6 +18,7 @@ from returnn.frontend.encoder.conformer import ConformerEncoder, ConformerConvSu
 from i6_experiments.users.zeyer.model_interfaces import ModelDef, ModelDefWithCfg, RecogDef, TrainDef
 from i6_experiments.users.zeyer.returnn.models.rf_layerdrop import SequentialLayerDrop
 from i6_experiments.users.zeyer.speed_pert.librosa_config import speed_pert_librosa_config
+from i6_experiments.users.yang.torch.loss.ctc_pref_scores_loss import log_ctc_pref_beam_scores
 
 from .configs import *
 from .configs import _get_cfg_lrlin_oclr_by_bs_nep, _batch_size_factor
@@ -34,7 +35,7 @@ _log_mel_feature_dim = 80
 def py():
     for vocab in [
     #    "spm20k",
-        "bpe10k",  # 8.23
+        "bpe10k",  # 8.23, best epoch 482, checkpoint /work/asr4/zeyer/setups-data/combined/2021-05-31/work/i6_core/returnn/training/ReturnnTrainingJob.6k24VqNUdOqz/output/models/epoch.482.pt
     #    "spm10k",  # 8.12
     #    "spm_bpe10k",  # 7.97
     #    "spm4k",  # 9.86
@@ -43,7 +44,7 @@ def py():
     ]:
         train_exp(  # 8.23
             #f"v6-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-speedpertV2-{vocab}",
-            'debug_run',
+            'debug_run_lm',
             #config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
             debug_config,
             config_updates={
@@ -255,6 +256,35 @@ def ctc_training(*, model: Model, data: rf.Tensor, data_spatial_dim: Dim, target
 
     collected_outputs = {}
     logits, enc_spatial_dim = model(data, in_spatial_dim=data_spatial_dim, collected_outputs=collected_outputs)
+
+    # LM model and outputs:
+    ex_lm = model.lstm_model
+
+    target_tensor = targets.raw_tensor.long()
+    input_labels, (targets_w_eos_spatial_dim,) = rf.pad(
+        targets, axes=[targets_spatial_dim], padding=[(1, 0)], value=model.bos_idx
+    )
+    targets_w_eos, _ = rf.pad(
+        targets, axes=[targets_spatial_dim], padding=[(0, 1)], value=model.eos_idx, out_dims=[targets_w_eos_spatial_dim]
+    )
+    lm_target = targets_w_eos.raw_tensor.long()
+
+    # move the LM to device
+    cur_device = target_tensor.device
+    if next(ex_lm.parameters()).device != cur_device:
+        print("move the LM to gpu")
+        ex_lm.to(cur_device)
+    target_lengths = targets_spatial_dim.dyn_size_ext.raw_tensor
+    shifted_target = torch.nn.functional.pad(target_tensor, (1,0,0,0))
+    shifted_target_length = target_lengths + 1
+
+    lm_output = ex_lm(shifted_target)
+    lm_loss = torch.nn.functional.cross_entropy(lm_output.transpose(1, 2), lm_target, reduction='none')
+    seq_mask = get_seq_mask(shifted_target_length, lm_output.shape[1], lm_target.device)
+    lm_loss = (lm_loss * seq_mask).sum()
+    ppl = torch.exp(lm_loss/shifted_target_length.sum())
+    rf.get_run_ctx().mark_as_loss(name='ppl', loss=ppl, as_error=True)
+
     if aux_loss_layers:
         for i, layer_idx in enumerate(aux_loss_layers):
             if layer_idx > len(model.encoder.layers):
@@ -292,16 +322,29 @@ def ctc_training(*, model: Model, data: rf.Tensor, data_spatial_dim: Dim, target
         custom_inv_norm_factor=targets_spatial_dim.get_size_tensor(),
         use_normalized_loss=use_normalized_loss,
     )
-    extra_loss = pytorch_loss(logits, targets, model.blank_idx, input_lengths=enc_spatial_dim, target_lengths=targets_spatial_dim)
+    extra_loss = pytorch_loss(logits, targets, model.blank_idx, input_lengths=enc_spatial_dim, target_lengths=targets_spatial_dim, lm_outputs=lm_output)
+    prefix_posterior = ctc_prefix_posterior(logits,targets, input_lengths=enc_spatial_dim, target_lengths=targets_spatial_dim ,blank_index=model.blank_idx)
+    # prefix_posterior shape (B,S+1,V+1) , LM output shape (B, S+1, V)
+    prefix_posterior_no_blank = prefix_posterior[:,:,:-1]
+    lm_log_prob = lm_output.detach() # just to make sure no grad computed for the LM
+    kl_div_loss = torch.nn.functional.kl_div(prefix_posterior_no_blank,lm_log_prob,reduction='sum', log_target=True)
+    rf.get_run_ctx().mark_as_loss(name='lm_kl_loss',
+                                  loss=kl_div_loss,
+                                  custom_inv_norm_factor=targets_spatial_dim.get_size_tensor(),
+                                  use_normalized_loss=use_normalized_loss, )
+
+    print('get run#############', prefix_posterior[0])
+
     rf.get_run_ctx().mark_as_loss(name='debug_loss',
                                   loss=extra_loss,
                                   custom_inv_norm_factor=targets_spatial_dim.get_size_tensor(),
                                   use_normalized_loss=use_normalized_loss,)
 
 
-def pytorch_loss(logits, targets, blank_index, input_lengths: Dim, target_lengths: Dim):
-    torch_logits = logits.raw_tensor
-    torch_logits = torch_logits.transpose(0,1)
+def pytorch_loss(logits, targets, blank_index, input_lengths: Dim, target_lengths: Dim, lm_outputs=None):
+    print(lm_outputs.shape)
+    torch_logits = logits.raw_tensor # shape (B, T, V)
+    torch_logits = torch_logits.transpose(0,1) # (T, B, V) for nn.functional.ctc_loss
     log_probs = nn.functional.log_softmax(torch_logits, dim=-1)
     torch_input_lengths = input_lengths.dyn_size_ext.raw_tensor
     torch_target_lengths = target_lengths.dyn_size_ext.raw_tensor
@@ -309,7 +352,54 @@ def pytorch_loss(logits, targets, blank_index, input_lengths: Dim, target_length
     test_loss = nn.functional.ctc_loss(log_probs, torch_targets, input_lengths=torch_input_lengths,
                                        target_lengths=torch_target_lengths,
                                        blank=blank_index, reduction='sum')
+    print('test_loss##############:', test_loss.detach().cpu().numpy())
     return test_loss
+
+
+def ctc_prefix_posterior(logits, targets, input_lengths, target_lengths, blank_index):
+    '''
+    logits: ctc outputs with shape (B,T,V)
+    targets: target seq without eos
+    blank_index:
+    input_lengths: length of the input
+    '''
+    log_probs = nn.functional.log_softmax(logits.raw_tensor.transpose(0,1), dim=-1) # to shape (T,B,V)
+    # confirmed that the log prob of eos (index 0) is very low, around -50 or so
+    torch_input_lengths = input_lengths.dyn_size_ext.raw_tensor
+    torch_targets = targets.raw_tensor.long()
+    batch_size, max_seq_len = torch_targets.shape
+    prefix_score, _ = log_ctc_pref_beam_scores(log_probs, torch_targets, torch_input_lengths, blank_idx=blank_index)
+    prefix_score_norm_1 = prefix_score[:, :-1, :]
+    indices = torch_targets.unsqueeze(-1)
+    prefix_score_norm_2 = prefix_score_norm_1.gather(-1, indices)
+    prefix_score_norm = prefix_score_norm_2.squeeze(-1)
+    prefix_score_norm = torch.cat([torch.zeros((batch_size, 1),device=prefix_score_norm.device), prefix_score_norm], dim=-1)
+    prefix_posterior_v2 = torch.logsumexp(prefix_score, dim=-1)
+    # print('prefix score norm', prefix_score_norm[0].detach().cpu().numpy())
+    # print('prefix posterior v2 norm', prefix_posterior_v2[0].detach().cpu().numpy())
+    prefix_posterior = prefix_score - prefix_score_norm.unsqueeze(-1)
+    target_posterior = prefix_posterior[:, :-1, :].gather(-1, indices).squeeze(-1)[0]
+    #print("each position posterior", torch.exp(target_posterior).detach().cpu().numpy())
+    torch_target_lengths = target_lengths.dyn_size_ext.raw_tensor.long()
+    # print('questionalbe rf tensor', target_lengths.dyn_size_ext)
+    # print('questionable get size tensor', target_lengths.get_size_tensor().raw_tensor)
+    #print(torch_target_lengths.device)
+    torch_target_lengths = torch_target_lengths.to(prefix_posterior.device)
+    # print('questionable tensor', torch_target_lengths)
+    # print('questionable tensor shape', torch_target_lengths.shape)
+    # print('log probs shape', log_probs.shape)
+    # print('blank idx', blank_index)
+    print('prefix_posterior shape', prefix_posterior.shape)
+    print('prefix_score shape', prefix_score.shape)
+
+    final_ctc_prob = prefix_score[:,:,blank_index].gather(-1,torch_target_lengths.unsqueeze(-1)).squeeze(-1)
+    final_prob_sum = torch.sum(final_ctc_prob)
+
+    print('prefix ctc score#########', final_prob_sum.detach().cpu().numpy())
+
+
+    return prefix_posterior
+
 
 
 ctc_training: TrainDef[Model]
@@ -407,6 +497,57 @@ def _gather_backrefs(s, *, backrefs: Tensor):
         return s
     raise TypeError(f"_gather_backrefs: unexpected type ({type(s)})")
 
+from i6_experiments.users.yang.torch.lm.network.lstm_lm import LSTMLM, LSTMLMConfig
+from i6_experiments.users.yang.torch.utils import get_seq_mask
+# for debugging, use a default LSTM config
+
+
+# class Model(rf.Module):
+#     def __init__(self, in_dim, **kwargs):
+#         super().__init__()
+#         self.ctc_model = CTCModel(in_dim, **kwargs)
+#         self.lstm_model = LSTMLM(step=0, cfg=get_lstm_default_config()) # dirty way to add the LM, will be called in the loss function
+#
+#
+#
+#     def __call__(
+#         self,
+#         source: Tensor,
+#         *,
+#         in_spatial_dim: Dim,
+#         collected_outputs: Optional[Dict[str, Tensor]] = None,):
+#         am_output, enc_spatial_dim= self.ctc_model(source, in_spatial_dim=in_spatial_dim, collected_outputs=collected_outputs)
+#
+#         return am_output, enc_spatial_dim
+
+
+
+
+
+def get_lstm_default_config(**kwargs):
+    num_outputs = kwargs.get('num_outputs', 10025)
+    embed_dim = kwargs.get('embed_dim', 512)
+    hidden_dim = kwargs.get('hidden_dim', 2048)
+    num_lstm_layers = kwargs.get('num_lstm_layers',2)
+    bottle_neck = kwargs.get('bottle_neck', False)
+    bottle_neck_dim = kwargs.get('bottle_neck_dim', 512)
+    dropout = kwargs.get('dropout', 0.2)
+    default_init_args = {
+        'init_args_w':{'func': 'normal', 'arg': {'mean': 0.0, 'std': 0.1}},
+        'init_args_b': {'func': 'normal', 'arg': {'mean': 0.0, 'std': 0.1}}
+    }
+    init_args = kwargs.get('init_args', default_init_args)
+    model_config = LSTMLMConfig(
+        vocab_dim=num_outputs,
+        embed_dim=embed_dim,
+        hidden_dim=hidden_dim,
+        n_lstm_layers=num_lstm_layers,
+        init_args=init_args,
+        dropout=dropout,
+        trainable= False,
+    )
+    return model_config
+
 
 class Model(rf.Module):
     """Model definition"""
@@ -431,6 +572,17 @@ class Model(rf.Module):
         enc_att_dropout: float = 0.1,
     ):
         super(Model, self).__init__()
+        ############ external LM, pure pytorch code
+        lstm_cfg = get_lstm_default_config()
+        self.lstm_model = LSTMLM(step=0, cfg=lstm_cfg)
+        # load the hyperparameters from checkpoints
+        # modelpath, hardcoded:
+        lstm_path = "/work/asr4/zyang/torch/librispeech/work/i6_core/returnn/training/ReturnnTrainingJob.la2CPTQHhFyg/output/models/epoch.030.pt"
+        self.lstm_model.load_state_dict(torch.load(lstm_path)["model"])
+        if not lstm_cfg.trainable:
+            self.lstm_model._param_freeze()
+
+
 
         from returnn.config import get_global_config
 
@@ -461,6 +613,7 @@ class Model(rf.Module):
             att_dropout=enc_att_dropout,
             sequential=enc_sequential,
         )
+
 
         self.target_dim = target_dim
         self.blank_idx = blank_idx
