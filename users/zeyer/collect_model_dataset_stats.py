@@ -6,7 +6,7 @@ Thus, this can also be used to calculate prior statistics for a model.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Optional, Union, Any, Dict
+from typing import TYPE_CHECKING, Optional, Union, Any, Dict, Tuple
 from dataclasses import dataclass
 
 from sisyphus import tk
@@ -24,7 +24,7 @@ from i6_experiments.users.zeyer.model_interfaces import ModelDef, ModelDefWithCf
 from i6_experiments.users.zeyer.model_with_checkpoints import ModelWithCheckpoint
 
 if TYPE_CHECKING:
-    from returnn.tensor import TensorDict
+    from returnn.tensor import Tensor, Dim, TensorDict
 
 
 def collect_statistics(
@@ -70,7 +70,54 @@ def collect_statistics(
             forward_job.set_env(k, v)
     if forward_alias_name:
         forward_job.add_alias(forward_alias_name)
-    return StatisticsOutput(**forward_job.out_files)
+    return StatisticsOutput(**{k: forward_job.out_files[v] for k, v in out_files.items()})
+
+
+def collect_log_mel_feature_statistics(
+    *, dataset: DatasetConfig, dim: int, backend: str = "torch", behavior_version: int = 21, **kwargs
+):
+    """
+    Get feature stats
+
+    :param dataset:
+    :param dim: log mel feature dim
+    :param backend:
+    :param behavior_version:
+    :param kwargs: all passed to rf.audio.log_mel_filterbank_from_raw.
+        Default sampling_rate is 16_000, which is also what we have for Librispeech usually.
+        Note on log_base: Default is 10.0.
+            Note that in some earlier setups, and also Mohammads original AED setup,
+            we used log_base=math.exp(2.3026), which is almost 10.0 but not exactly...
+    """
+    return collect_statistics(
+        dataset=dataset,
+        forward_def=_log_mel_stats_returnn_forward,
+        config={
+            "backend": backend,
+            "behavior_version": behavior_version,
+            "_audio_feature_dim": dim,
+            "_audio_feature_opts": kwargs,
+        },
+    )
+
+
+def _log_mel_stats_returnn_forward(source: Tensor, /, in_spatial_dim: Dim, model: Any) -> Tuple[Tensor, Dim]:
+    from returnn.config import get_global_config
+    import returnn.frontend as rf
+    from returnn.tensor import Dim
+
+    model  # noqa # unused
+    config = get_global_config()
+    feat_dim = config.int("_audio_feature_dim", -1)
+    assert feat_dim > 0
+    feat_dim = Dim(feat_dim, name="audio", kind=Dim.Types.Feature)
+    opts = config.typed_value("_audio_feature_opts", None)
+    assert isinstance(opts, dict)
+
+    source, out_spatial_dim = rf.audio.log_mel_filterbank_from_raw(
+        source, in_spatial_dim=in_spatial_dim, out_dim=feat_dim, **opts
+    )
+    return source, out_spatial_dim
 
 
 @dataclass
@@ -226,7 +273,7 @@ def _collect_stats_returnn_forward_config(
         batch_size_dependent = returnn_forward_config.post_config.pop("__batch_size_dependent")
     for k, v in dict(
         batching="sorted",
-        batch_size=20000 * model_def.batch_size_factor,
+        batch_size=(20000 * model_def.batch_size_factor) if model_def else (20000 * 160),
         max_seqs=200,
     ).items():
         if k in returnn_forward_config.config:

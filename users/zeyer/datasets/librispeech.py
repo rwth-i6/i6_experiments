@@ -340,6 +340,8 @@ class LibrispeechOggZip(DatasetConfig):
                 eos_id = vocab.get_eos_idx()
                 assert eos_id is not None, f"{self}: vocab {vocab} does not define EOS"
                 d["targets"]["seq_postfix"] = [eos_id]
+        else:
+            d["targets"] = None
         if training:
             d["partition_epoch"] = self.train_epoch_split
             if self.train_epoch_wise_filter is not None:
@@ -701,16 +703,9 @@ def get_librispeech_log_mel_stats(dim: int, **kwargs) -> StatisticsOutput:
             Note that in some earlier setups, and also Mohammads original AED setup,
             we used log_base=math.exp(2.3026), which is almost 10.0 but not exactly...
     """
-    from i6_experiments.users.zeyer.collect_model_dataset_stats import collect_statistics
+    from i6_experiments.users.zeyer.collect_model_dataset_stats import collect_log_mel_feature_statistics
 
-    return collect_statistics(
-        dataset=get_librispeech_raw_audio_only(),
-        forward_def=_librispeech_log_mel_stats_returnn_forward,
-        config={
-            "_audio_feature_dim": dim,
-            "_audio_feature_opts": kwargs,
-        },
-    )
+    return collect_log_mel_feature_statistics(dataset=get_librispeech_raw_audio_only(), dim=dim, **kwargs)
 
 
 def _librispeech_log_mel_stats_returnn_forward(
