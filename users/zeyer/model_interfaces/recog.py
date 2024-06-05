@@ -4,7 +4,7 @@ Recog definition
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Optional, Protocol
+from typing import TYPE_CHECKING, Optional, Protocol, Tuple
 
 if TYPE_CHECKING:
     from returnn.tensor import Tensor, Dim
@@ -24,13 +24,17 @@ class RecogDef(Protocol[ModelT]):
         model: ModelT,
         data: Tensor,
         data_spatial_dim: Dim,
-    ) -> Tensor:
+    ) -> Tuple[Tensor, Tensor, Dim, Dim]:
         """
-        :return: recog output, including beam or not, depending on output_with_beam
+        :return:
+            recog results including beam {batch, beam, out_spatial},
+            log probs {batch, beam},
+            out_spatial_dim,
+            final beam_dim
         """
         raise NotImplementedError
 
-    output_with_beam: bool = True
+    output_with_beam: bool = True  # False not really supported...
     output_blank_label: Optional[str] = None
 
     # A batched beam search can be dependent on the batch size,
