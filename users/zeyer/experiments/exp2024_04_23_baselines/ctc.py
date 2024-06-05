@@ -535,6 +535,7 @@ class Model(rf.Module):
     ):
         super(Model, self).__init__()
 
+        import numpy
         from returnn.config import get_global_config
 
         config = get_global_config(return_empty_if_none=True)
@@ -598,7 +599,9 @@ class Model(rf.Module):
         feature_stats = config.typed_value("feature_stats")
         if feature_stats:
             assert isinstance(feature_stats, dict)
-            self.feature_stats = {k: rf.constant(v, dims=[self.in_dim]) for k, v in feature_stats.items()}
+            self.feature_stats = {
+                k: rf.constant(numpy.loadtxt(v), dims=[self.in_dim]) for k, v in feature_stats.items()
+            }
 
         self._specaugment_opts = {
             "steps": config.typed_value("specaugment_steps") or (0, 1000, 2000),
