@@ -55,15 +55,21 @@ def py():
         - Luca uses older behavior_version 21 -> 16.
     """
 
-    train_exp(
-        f"v6-bhv20-11gb-f32-bs15k-accgrad5-mgpu4-pavg100-wd1e_5-lrlin1e_5_295k-bpe10k",
-        config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
-        config_updates={
-            **_get_cfg_lrlin_oclr_by_bs_nep(15_000, 500),
-            "accum_grad_multiple_step": 5,
-            "optimizer.weight_decay": 1e-5,
-        },
-    )
+    for wd in [
+        # 1e-5,  # 9.9
+        1e-4,
+        1e-3,
+        1e-2,
+    ]:
+        train_exp(
+            f"v6-bhv20-11gb-f32-bs15k-accgrad5-mgpu4-pavg100-wd{str(wd).replace('-','_')}-lrlin1e_5_295k-bpe10k",
+            config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
+            config_updates={
+                **_get_cfg_lrlin_oclr_by_bs_nep(15_000, 500),
+                "accum_grad_multiple_step": 5,
+                "optimizer.weight_decay": wd,
+            },
+        )
 
     train_exp(  # 9.24
         f"v6-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_4-lrlin1e_5_295k-bpe10k",
