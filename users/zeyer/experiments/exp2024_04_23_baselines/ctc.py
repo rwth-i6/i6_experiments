@@ -62,6 +62,8 @@ def py():
             1e-3,
             1e-2,
         ]:
+            if (acc, wd) == (1, 1e-4):
+                continue  # skip for now
             train_exp(
                 f"v6-bhv20-11gb-f32-bs15k-accgrad{acc}"
                 f"-mgpu4-pavg100-wd{('%.e'%wd).replace('e-0', 'e_')}"
