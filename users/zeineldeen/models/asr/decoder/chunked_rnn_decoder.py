@@ -1,5 +1,6 @@
 """
 Model, based on Mohammads code.
+Starting point here: i6_experiments.users.zeyer.experiments.exp2023_02_16_chunked_attention.model
 """
 
 
