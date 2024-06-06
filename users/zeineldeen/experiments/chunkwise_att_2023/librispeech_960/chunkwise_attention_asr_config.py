@@ -23,7 +23,7 @@ from i6_experiments.users.zeineldeen.models.lm.external_lm_decoder_v2 import (
     ExternalLMDecoder,
 )
 
-from i6_experiments.users.zeyer.experiments.exp2023_02_16_chunked_attention.model import (
+from i6_experiments.users.zeineldeen.models.asr.decoder.chunked_rnn_decoder import (
     RNNDecoder as ChunkwiseRNNDecoder,
     _check_alignment,
 )
