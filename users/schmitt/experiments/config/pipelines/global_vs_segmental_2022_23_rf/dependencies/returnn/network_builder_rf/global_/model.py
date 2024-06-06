@@ -87,11 +87,23 @@ class GlobalAttentionModel(rf.Module):
 class MakeModel:
   """for import"""
 
-  def __init__(self, in_dim: int, target_dim: int, *, eos_label: int = 0, num_enc_layers: int = 12):
+  def __init__(
+          self,
+          in_dim: int,
+          target_dim: int,
+          *,
+          eos_label: int = 0,
+          num_enc_layers: int = 12,
+          enc_aux_logits: Sequence[int] = (),
+  ):
     self.in_dim = in_dim
     self.target_dim = target_dim
     self.eos_label = eos_label
     self.num_enc_layers = num_enc_layers
+
+    # do not set attribute otherwise to keep job hashes
+    if enc_aux_logits != ():
+      self.enc_aux_logits = enc_aux_logits
 
   def __call__(self) -> GlobalAttentionModel:
     from returnn.datasets.util.vocabulary import Vocabulary
@@ -102,7 +114,11 @@ class MakeModel:
       [str(i) for i in range(target_dim.dimension)], eos_label=self.eos_label
     )
 
-    return self.make_model(in_dim, target_dim, num_enc_layers=self.num_enc_layers)
+    extra = {}
+    if hasattr(self, "enc_aux_logits"):
+      extra["enc_aux_logits"] = self.enc_aux_logits
+
+    return self.make_model(in_dim, target_dim, num_enc_layers=self.num_enc_layers, **extra)
 
   @classmethod
   def make_model(

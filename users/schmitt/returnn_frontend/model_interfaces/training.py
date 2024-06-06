@@ -48,3 +48,22 @@ class FramewiseTrainDef(Protocol[ModelT]):
         raise NotImplementedError
 
     learning_rate_control_error_measure: Optional[str] = None
+
+
+class FullSumTrainDef(Protocol[ModelT]):
+  """
+  Defines the losses (mark_as_loss).
+  """
+
+  def __call__(
+          self,
+          *,
+          model: ModelT,
+          data: Tensor,
+          data_spatial_dim: Dim,
+          non_blank_targets: Tensor,
+          non_blank_targets_spatial_dim: Dim,
+  ):
+    raise NotImplementedError
+
+  learning_rate_control_error_measure: Optional[str] = None

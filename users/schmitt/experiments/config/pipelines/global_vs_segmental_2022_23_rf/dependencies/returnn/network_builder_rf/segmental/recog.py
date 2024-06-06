@@ -8,6 +8,7 @@ from returnn.frontend.tensor_array import TensorArray
 from i6_experiments.users.schmitt.returnn_frontend.model_interfaces.recog import RecogDef
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.base import _batch_size_factor
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.segmental.model import SegmentalAttentionModel
+from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.segmental import recombination
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.segmental.utils import get_masked, get_non_blank_mask
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.beam_search import utils as beam_search_utils
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.segmental.model_new.blank_model.model import (
@@ -16,82 +17,12 @@ from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segment
 )
 
 
-def recombine_seqs(
-        seq_targets: list,
-        seq_log_prob: Tensor,
-        seq_backrefs: list,
-        seq_hash: Tensor,
-        beam_dim: Dim,
-        batch_dim: Dim,
-        i: int
-) -> Tensor:
-  if len(seq_targets) in (0, 1):
-    return seq_log_prob
-
-  print("seq_hash: ", seq_hash.raw_tensor)
-  print("seq_log_prob before: ", seq_log_prob.raw_tensor)
-
-  seq_hash_cpu = rf.copy_to_device(seq_hash.copy_transpose([batch_dim, beam_dim]), device="cpu")
-  # convert from neg log prob to log prob
-  seq_log_prob = rf.copy_to_device(seq_log_prob.copy_transpose([batch_dim, beam_dim]), device="cpu")
-
-  for b in range(batch_dim.dyn_size_ext.raw_tensor.item()):
-    # for each batch dim, we need to find the seqs that have the same hash value
-    seq_sets = {}
-    for h in range(beam_dim.dimension):
-      # hash value of current hypothesis
-      seq_hash_value = seq_hash_cpu.raw_tensor[b, h].item()
-      if seq_hash_value not in seq_sets:
-        seq_sets[seq_hash_value] = []
-      # insert hypothesis index into the list of hypotheses with the same hash value
-      seq_sets[seq_hash_value].append(h)
-    # for each set of hypotheses with the same hash value, we keep the one with the highest log prob
-    for seq_set in seq_sets.values():
-      if len(seq_set) == 1:
-        continue
-      best_score = float("-inf")
-      best_idx = -1
-      for idx in seq_set:
-        if seq_log_prob.raw_tensor[b, idx] > best_score:
-          best_score = seq_log_prob.raw_tensor[b, idx]
-          best_idx = idx
-      # print("batch: ", b, "seq_set: ", seq_set, "best_idx: ", best_idx, "best_score: ", best_score)
-      # exit()
-      for idx in seq_set:
-        if idx != best_idx:
-          seq_log_prob.raw_tensor[b, idx] = float("-inf")
-        else:
-          seq_log_prob.raw_tensor[b, idx] = best_score
-
-  seq_log_prob = seq_log_prob
-  print("seq_log_prob after: ", seq_log_prob.raw_tensor)
-  exit()
-
-  return rf.copy_to_device(seq_log_prob, device="gpu")
-
-
-def update_seq_hash(seq_hash: Tensor, target: Tensor, backrefs: Tensor) -> Tensor:
-  print("update_seq_hash")
-  print("old seq_hash", seq_hash.raw_tensor)
-  print("target", target.raw_tensor)
-  print("backrefs", backrefs.raw_tensor)
-  print("\n\n")
-
-  old_seq_hash = rf.gather(seq_hash, indices=backrefs)
-  seq_hash = rf.where(
-    target == 10025,
-    old_seq_hash,
-    (old_seq_hash * 257 + (target + 1)) % (10 ** 9 + 7)
-  )
-  return seq_hash
-
-
 def model_recog(
         *,
         model: SegmentalAttentionModel,
         data: Tensor,
         data_spatial_dim: Dim,
-        use_recombination: bool = False,
+        use_recombination: Optional[str] = None,
 ) -> Tuple[Tensor, Tensor, Dim, Dim]:
   """
   Function is run within RETURNN.
@@ -129,6 +60,27 @@ def model_recog(
     blank_decoder_state = model.blank_decoder.default_initial_state(batch_dims=batch_dims_)
   if model.language_model:
     lm_state = model.language_model.default_initial_state(batch_dims=batch_dims_)
+    for state in lm_state:
+      if state == "pos":
+        # pass
+        lm_state[state] = rf.zeros(batch_dims_, dtype="int32")
+      else:
+        self_att_expand_dim = Dim(rf.zeros(batch_dims_, dtype="int32"), name="self_att_expand_dim_init")
+        lm_state[state].self_att.accum_axis = self_att_expand_dim
+
+        k_accum = lm_state[state].self_att.k_accum  # type: rf.Tensor
+        k_accum_raw = k_accum.raw_tensor
+        lm_state[state].self_att.k_accum = k_accum.copy_template_replace_dim_tag(
+          k_accum.get_axis_from_description("stag:self_att_expand_dim_init"), self_att_expand_dim
+        )
+        lm_state[state].self_att.k_accum.raw_tensor = k_accum_raw
+
+        v_accum = lm_state[state].self_att.v_accum  # type: rf.Tensor
+        v_accum_raw = v_accum.raw_tensor
+        lm_state[state].self_att.v_accum = v_accum.copy_template_replace_dim_tag(
+          v_accum.get_axis_from_description("stag:self_att_expand_dim_init"), self_att_expand_dim
+        )
+        lm_state[state].self_att.v_accum.raw_tensor = v_accum_raw
 
   bos_idx = 0
 
@@ -144,6 +96,7 @@ def model_recog(
   seq_log_prob = rf.constant(0.0, dims=batch_dims_)
   if use_recombination:
     assert len(batch_dims) == 1
+    assert use_recombination in {"sum", "max"}
     seq_hash = rf.constant(0, dims=batch_dims_, dtype="int64")
 
   input_embed = rf.zeros(
@@ -212,7 +165,13 @@ def model_recog(
         spatial_dim=single_step_dim,
         state=lm_state,
       )
-      label_log_prob += rf.log_softmax(lm_logits, axis=model.target_dim)
+      lm_label_log_prob = rf.log_softmax(lm_logits, axis=model.target_dim)
+      # print(i)
+      # print("lm_label_log_prob: ", lm_label_log_prob.copy_transpose(batch_dims + [beam_dim, model.target_dim]).raw_tensor[0, :, :6])
+      # print()
+      # if i == 10:
+      #   exit()
+      label_log_prob += 0.4 * lm_label_log_prob
 
     # ------------------- blank step -------------------
 
@@ -243,12 +202,29 @@ def model_recog(
     else:
       output_log_prob = label_log_prob
 
+    # for shorter seqs in the batch, set the blank score to zero and the others to ~-inf
+    output_log_prob = rf.where(
+      rf.convert_to_tensor(i >= rf.copy_to_device(enc_spatial_dim.get_size_tensor(), data.device)),
+      rf.sparse_to_dense(
+        model.blank_idx,
+        axis=model.target_dim if model.use_joint_model else model.align_target_dim,
+        label_value=0.0,
+        other_value=-1.0e30
+      ),
+      output_log_prob
+    )
+
     # ------------------- top-k -------------------
 
     if use_recombination:
-      seq_log_prob = recombine_seqs(seq_targets, seq_log_prob, seq_backrefs, seq_hash, beam_dim, batch_dims[0], i)
-      if i == 3:
-        exit()
+      seq_log_prob = recombination.recombine_seqs(
+        seq_targets,
+        seq_log_prob,
+        seq_hash,
+        beam_dim,
+        batch_dims[0],
+        use_sum=use_recombination == "sum"
+      )
 
     seq_log_prob = seq_log_prob + output_log_prob  # Batch, InBeam, Vocab
     old_beam_dim = beam_dim.copy()
@@ -257,11 +233,12 @@ def model_recog(
       k_dim=Dim(beam_size, name=f"dec-step{i}-beam"),
       axis=[beam_dim, model.target_dim if model.use_joint_model else model.align_target_dim]
     )  # seq_log_prob, backrefs, target: Batch, Beam
+    # print("seq_log_prob: ", seq_log_prob.raw_tensor)
     seq_targets.append(target)
     seq_backrefs.append(backrefs)
 
     if use_recombination:
-      seq_hash = update_seq_hash(seq_hash, target, backrefs)
+      seq_hash = recombination.update_seq_hash(seq_hash, target, backrefs, model.blank_idx)
 
     # mask for updating label-sync states
     update_state_mask = rf.convert_to_tensor(target != model.blank_idx)
@@ -289,33 +266,84 @@ def model_recog(
     # ------------------- update external LM state -------------------
 
     if model.language_model:
-      def _get_masked_state_lm(old: rf.Tensor, new: rf.Tensor, mask: rf.Tensor):
-        if isinstance(old, Dim):
-          return new
-
-        def _update(tensor: rf.Tensor):
-          tensor = tensor.copy_transpose(batch_dims + [old_beam_dim] + tensor.remaining_dims(batch_dims_))
-          tensor_raw_tensor = beam_search_utils.batch_gather(
-            tensor.raw_tensor,
-            indices=backrefs.copy_transpose(batch_dims + [beam_dim]).raw_tensor
+      for state in lm_state:
+        if state == "pos":
+          lm_state[state] = rf.where(
+            update_state_mask,
+            rf.gather(lm_state_updated[state], indices=backrefs),
+            rf.gather(lm_state[state], indices=backrefs)
           )
-          tensor = tensor.copy_template_replace_dim_tag(1, beam_dim)
-          tensor.raw_tensor = tensor_raw_tensor
-          return tensor
+        else:
+          updated_accum_axis = lm_state_updated[state].self_att.accum_axis
 
-        old = _update(old)
-        new = _update(new)
+          updated_self_att_expand_dim_dyn_size_ext = rf.gather(updated_accum_axis.dyn_size_ext, indices=backrefs)
+          masked_self_att_expand_dim_dyn_size_ext = rf.where(
+            update_state_mask,
+            updated_self_att_expand_dim_dyn_size_ext,
+            updated_self_att_expand_dim_dyn_size_ext - 1
+          )
+          masked_self_att_expand_dim = Dim(masked_self_att_expand_dim_dyn_size_ext, name="self_att_expand_dim_init")
+          lm_state[state].self_att.accum_axis = masked_self_att_expand_dim
 
-        return rf.where(mask, new, old)
+          def _mask_lm_state(tensor: rf.Tensor):
+            tensor = rf.gather(tensor, indices=backrefs)
+            tensor = tensor.copy_transpose(
+              [updated_accum_axis] + tensor.remaining_dims(updated_accum_axis))
+            tensor_raw = tensor.raw_tensor
+            tensor_raw = tensor_raw[:rf.reduce_max(
+              masked_self_att_expand_dim_dyn_size_ext,
+              axis=masked_self_att_expand_dim_dyn_size_ext.dims
+            ).raw_tensor.item()]
+            tensor = tensor.copy_template_replace_dim_tag(
+              tensor.get_axis_from_description(updated_accum_axis), masked_self_att_expand_dim
+            )
+            tensor.raw_tensor = tensor_raw
+            return tensor
 
-      lm_state = tree.map_structure(
-        lambda old_state, new_state: _get_masked_state_lm(old_state, new_state, update_state_mask),
-        lm_state, lm_state_updated
-      )
+          lm_state[state].self_att.k_accum = _mask_lm_state(lm_state_updated[state].self_att.k_accum)
+          lm_state[state].self_att.v_accum = _mask_lm_state(lm_state_updated[state].self_att.v_accum)
 
-      exit()
+          # lm_state[state].self_att.k_accum = rf.gather(lm_state_updated[state].self_att.k_accum, indices=backrefs)
+          # lm_state[state].self_att.k_accum = lm_state[state].self_att.k_accum.copy_transpose(
+          #   [updated_accum_axis] + lm_state[state].self_att.k_accum.remaining_dims(updated_accum_axis))
+          # k_accum_raw = lm_state[state].self_att.k_accum.raw_tensor
+          # k_accum_raw = k_accum_raw[:rf.reduce_max(
+          #   masked_self_att_expand_dim_dyn_size_ext,
+          #   axis=masked_self_att_expand_dim_dyn_size_ext.dims
+          # ).raw_tensor.item()]
+          # lm_state[state].self_att.k_accum = lm_state[state].self_att.k_accum.copy_template_replace_dim_tag(
+          #   lm_state[state].self_att.k_accum.get_axis_from_description(updated_accum_axis), masked_self_att_expand_dim
+          # )
+          # lm_state[state].self_att.k_accum.raw_tensor = k_accum_raw
+          #
+          # lm_state[state].self_att.v_accum = rf.gather(lm_state_updated[state].self_att.v_accum, indices=backrefs)
+          # lm_state[state].self_att.v_accum = lm_state[state].self_att.v_accum.copy_transpose(
+          #   [updated_accum_axis] + lm_state[state].self_att.v_accum.remaining_dims(updated_accum_axis))
+          # v_accum_raw = lm_state[state].self_att.v_accum.raw_tensor
+          # v_accum_raw = v_accum_raw[:rf.reduce_max(
+          #   masked_self_att_expand_dim_dyn_size_ext,
+          #   axis=masked_self_att_expand_dim_dyn_size_ext.dims
+          # ).raw_tensor.item()]
+          # lm_state[state].self_att.v_accum = lm_state[state].self_att.v_accum.copy_template_replace_dim_tag(
+          #   lm_state[state].self_att.v_accum.get_axis_from_description(updated_accum_axis), masked_self_att_expand_dim
+          # )
+          # lm_state[state].self_att.v_accum.raw_tensor = v_accum_raw
 
     i += 1
+
+  # last recombination
+  if use_recombination:
+    seq_log_prob = recombination.recombine_seqs(
+      seq_targets,
+      seq_log_prob,
+      seq_hash,
+      beam_dim,
+      batch_dims[0],
+      use_sum=use_recombination == "sum"
+    )
+
+  # print("seq_log_prob: ", seq_log_prob.raw_tensor)
+  # exit()
 
   # Backtrack via backrefs, resolve beams.
   seq_targets_ = []

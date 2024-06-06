@@ -9,6 +9,8 @@ from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segment
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.segmental.model_new.blank_model.model import (
   BlankDecoderV1,
   BlankDecoderV3,
+  BlankDecoderV5,
+  BlankDecoderV6,
 )
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.segmental.model_new.label_model.model import (
   SegmentalAttLabelDecoder, SegmentalAttEfficientLabelDecoder
@@ -65,7 +67,7 @@ class SegmentalAttentionModel(rf.Module):
       l2=l2,
     )
 
-    assert blank_decoder_version in {1, 3, 4}
+    assert blank_decoder_version in {1, 3, 4, 5, 6}
     assert label_decoder_state in {"nb-lstm", "joint-lstm"}
     if not use_joint_model:
       assert label_decoder_state == "nb-lstm"
@@ -96,9 +98,20 @@ class SegmentalAttentionModel(rf.Module):
           align_target_dim=align_target_dim,
           encoder_out_dim=self.encoder.out_dim,
         )
-      else:
+      elif blank_decoder_version in {3, 4}:
         # the logic for blank_decoder_version == 4 is in the train/recog code
         self.blank_decoder = BlankDecoderV3(
+          length_model_state_dim=length_model_state_dim,
+          label_state_dim=self.label_decoder.get_lstm().out_dim,
+          encoder_out_dim=self.encoder.out_dim,
+        )
+      elif blank_decoder_version == 5:
+        self.blank_decoder = BlankDecoderV5(
+          label_state_dim=self.label_decoder.get_lstm().out_dim,
+          encoder_out_dim=self.encoder.out_dim,
+        )
+      else:
+        self.blank_decoder = BlankDecoderV6(
           length_model_state_dim=length_model_state_dim,
           label_state_dim=self.label_decoder.get_lstm().out_dim,
           encoder_out_dim=self.encoder.out_dim,
@@ -286,4 +299,21 @@ def _returnn_v2_get_model(*, epoch: int, **_kwargs_unused):
   model_def = config.typed_value("_model_def")
   model = model_def(
     epoch=epoch, in_dim=data.feature_dim, align_target_dim=targets.sparse_dim, target_dim=non_blank_targets.sparse_dim)
+  return model
+
+
+def _returnn_v2_get_model_for_full_sum_training(*, epoch: int, **_kwargs_unused):
+  from returnn.tensor import Tensor, Dim
+  from returnn.config import get_global_config
+
+  config = get_global_config()
+  default_input_key = config.typed_value("default_input")
+  default_target_key = config.typed_value("target")
+  extern_data_dict = config.typed_value("extern_data")
+  data = Tensor(name=default_input_key, **extern_data_dict[default_input_key])
+  targets = Tensor(name=default_target_key, **extern_data_dict[default_target_key])
+
+  model_def = config.typed_value("_model_def")
+  model = model_def(
+    epoch=epoch, in_dim=data.feature_dim, align_target_dim=targets.sparse_dim, target_dim=targets.sparse_dim)
   return model

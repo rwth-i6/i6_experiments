@@ -58,6 +58,7 @@ def train_import_global_tf(
         n_epochs_list: Tuple[int, ...],
         const_lr_list: Tuple[float, ...],
         time_rqmt: int = 80,
+        import_model_name: str = default_import_model_name,
 ):
   if not config_builder.use_att_ctx_in_state:
     # only randomly init FF weights, since only the input dim of the lstm layer is different
@@ -66,12 +67,12 @@ def train_import_global_tf(
     custom_missing_load_func = None
 
   for n_epochs, const_lr in itertools.product(n_epochs_list, const_lr_list):
-    train_alias = alias + f"/train_from_global_att_tf_checkpoint/standard-training/{n_epochs}-epochs_{const_lr}-const-lr_wo-ctc-loss"
+    train_alias = alias + f"/train_from_{import_model_name}/standard-training/{n_epochs}-epochs_{const_lr}-const-lr_wo-ctc-loss"
 
     train_opts = {
       "preload_from_files": {
         "pretrained_global_att_params": {
-          "filename": external_checkpoints[default_import_model_name],
+          "filename": external_checkpoints[import_model_name],
           "init_for_train": True,
         }
       },

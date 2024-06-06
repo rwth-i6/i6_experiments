@@ -89,9 +89,20 @@ class ConfigBuilderRF(ABC):
     train_step_func = opts.pop("train_step_func")
 
     remaining_opt_keys = [
-      "aux_loss_layers", "preload_from_files", "accum_grad_multiple_step", "optimizer", "batching",
-      "torch_distributed", "pos_emb_dropout", "rf_att_dropout_broadcast", "grad_scaler", "gradient_clip_global_norm",
-      "spec_augment_steps", "torch_amp"
+      "aux_loss_layers",
+      "preload_from_files",
+      "accum_grad_multiple_step",
+      "optimizer",
+      "batching",
+      "torch_distributed",
+      "pos_emb_dropout",
+      "rf_att_dropout_broadcast",
+      "grad_scaler",
+      "gradient_clip_global_norm",
+      # "specaugment_steps",
+      "torch_amp",
+      "full_sum_training_beam_size",
+      # "max_seq_length"
     ]
     config_dict.update(
       {k: opts.pop(k) for k in remaining_opt_keys if k in opts}
@@ -220,6 +231,7 @@ class ConfigBuilderRF(ABC):
       })
     elif lr_opts["type"] == "dyn_lr_piecewise_linear":
       _lrlin_oclr_steps_by_bs_nep = {
+        (3, 125): [194_000, 388_000, 430_000],  # ~3450steps/ep, 125 eps -> 430k steps in total
         (8, 125): [139_000, 279_000, 310_000],  # ~2485steps/ep, 125 eps -> 310k steps in total
         (8, 250): [279_000, 558_000, 621_000],  # ~2485steps/ep, 250 eps -> 621k steps in total
         (8, 500): [558_000, 1_117_000, 1_242_000],  # ~2485steps/ep, 500 eps -> 1.242k steps in total
@@ -288,6 +300,7 @@ class ConfigBuilderRF(ABC):
         pre_process=CodeWrapper("speed_pert") if dataset_opts.get("use_speed_pert") else None,
         seq_ordering=self.variant_params["config"]["train_seq_ordering"],
         epoch_wise_filter=dataset_opts.get("epoch_wise_filter", None),
+        seq_postfix=dataset_opts.get("seq_postfix", self.variant_params["dependencies"].model_hyperparameters.sos_idx),
         **self.get_default_dataset_opts("train", dataset_opts)
       )
     else:
@@ -307,6 +320,7 @@ class ConfigBuilderRF(ABC):
         pre_process=None,
         seq_ordering="sorted_reverse",
         epoch_wise_filter=None,
+        seq_postfix=dataset_opts.get("seq_postfix", self.variant_params["dependencies"].model_hyperparameters.sos_idx),
         **self.get_default_dataset_opts("cv", dataset_opts)
       )
     else:
@@ -326,6 +340,7 @@ class ConfigBuilderRF(ABC):
         pre_process=None,
         seq_ordering="sorted_reverse",
         epoch_wise_filter=None,
+        seq_postfix=dataset_opts.get("seq_postfix", self.variant_params["dependencies"].model_hyperparameters.sos_idx),
         **self.get_default_dataset_opts("devtrain", dataset_opts)
       )
     else:
@@ -515,5 +530,9 @@ class SegmentalAttConfigBuilderRF(LibrispeechConformerConfigBuilderRF):
       "bos_label": self.variant_params["dependencies"].model_hyperparameters.sos_idx,
       "eos_label": self.variant_params["dependencies"].model_hyperparameters.sos_idx,
     }
+
+    use_recombination = opts.get("use_recombination")
+    if use_recombination is not None:
+      recog_config.config["use_recombination"] = use_recombination
 
     return recog_config

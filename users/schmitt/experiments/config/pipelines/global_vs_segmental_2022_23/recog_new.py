@@ -246,6 +246,12 @@ class ReturnnDecodingExperiment(DecodingExperiment, ABC):
     self.search_rqmt = search_rqmt if search_rqmt is not None else {}
 
     self.alias += "/returnn_decoding" if search_alias is None else f"/{search_alias}"
+
+    use_recombination = self.recog_opts.get("use_recombination")
+    if use_recombination is not None:
+      assert use_recombination in {"sum", "max"}
+      self.alias += f"_w-{use_recombination}-recomb"
+
     if isinstance(self, ReturnnSegmentalAttDecodingExperiment):
       length_scale = self.config_builder.variant_params["network"]["length_scale"]
       if length_scale != 1.0:

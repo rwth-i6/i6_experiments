@@ -24,8 +24,11 @@ def _returnn_v2_forward_step(*, model, extern_data: TensorDict, **_kwargs_unused
     default_target_key = config.typed_value("target")
     targets = extern_data[default_target_key]
     extra.update(dict(targets=targets, targets_spatial_dim=targets.get_time_dim_tag()))
-  if config.bool("use_recombination", False):
-    extra.update(dict(use_recombination=True))
+
+  use_recombination = config.typed_value("use_recombination", None)
+  if use_recombination:
+    extra.update(dict(use_recombination=use_recombination))
+
   recog_out = recog_def(model=model, data=data, data_spatial_dim=data_spatial_dim, **extra)
   if len(recog_out) == 5:
     # recog results including beam {batch, beam, out_spatial},

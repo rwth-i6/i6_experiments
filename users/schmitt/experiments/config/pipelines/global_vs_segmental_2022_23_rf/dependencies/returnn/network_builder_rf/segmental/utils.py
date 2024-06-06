@@ -34,11 +34,12 @@ def get_masked(
   result = rf.scatter(
     input, indices=idxs, indices_dim=mask_dim, out_dim=result_spatial_dim_temp)
   # remove accumulated blanks at the last position
-  result = result.copy_transpose([result_spatial_dim_temp] + batch_dims)
+  rem_dims = result.remaining_dims([result_spatial_dim_temp] + batch_dims)
+  result = result.copy_transpose([result_spatial_dim_temp] + batch_dims + rem_dims)
   result_raw_tensor = result.raw_tensor
   result = result.copy_template_replace_dim_tag(0, result_spatial_dim)
   result.raw_tensor = result_raw_tensor[:-1]
-  result = result.copy_transpose(batch_dims + [result_spatial_dim])
+  result = result.copy_transpose(batch_dims + [result_spatial_dim] + rem_dims)
 
   return result, result_spatial_dim
 
@@ -67,7 +68,6 @@ def get_unmasked(
 
 def get_segment_starts_and_lens(
         non_blank_mask: Tensor,
-        align_targets: Tensor,
         align_targets_spatial_dim: Dim,
         model: SegmentalAttentionModel,
         batch_dims: Sequence[Dim],

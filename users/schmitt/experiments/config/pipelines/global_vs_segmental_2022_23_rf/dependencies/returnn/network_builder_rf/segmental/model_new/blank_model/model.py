@@ -11,11 +11,9 @@ from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segment
 
 
 class BlankDecoderBase(rf.Module, ABC):
-  def __init__(self, length_model_state_dim: Dim):
+  def __init__(self):
     super(BlankDecoderBase, self).__init__()
-    self.length_model_state_dim = length_model_state_dim
     self.emit_prob_dim = Dim(name="emit_prob", dimension=1)
-    self.emit_prob = rf.Linear(self.length_model_state_dim, self.emit_prob_dim)
 
   @property
   @abstractmethod
@@ -55,11 +53,6 @@ class BlankDecoderBase(rf.Module, ABC):
 
     return rf.gather(enc, axis=enc_spatial_dim, indices=i, clip_to_valid=clip_to_valid)
 
-  def decode_logits(self, *, s_blank: Tensor) -> Tensor:
-    """logits for the decoder"""
-    logits = self.emit_prob(s_blank)
-    return logits
-
   def get_label_decoder_deps(self) -> Optional[List[str]]:
     return None
 
@@ -72,10 +65,9 @@ class BlankDecoderV1(BlankDecoderBase):
           align_target_dim: Dim,
           encoder_out_dim: Dim,
   ):
-    super(BlankDecoderV1, self).__init__(length_model_state_dim=length_model_state_dim)
+    super(BlankDecoderV1, self).__init__()
     self.length_model_state_dim = length_model_state_dim
     self.length_model_embed_dim = length_model_embed_dim
-    self.emit_prob_dim = Dim(name="emit_prob", dimension=1)
 
     self.target_embed = rf.Embedding(align_target_dim, self.length_model_embed_dim)
     self.s = rf.LSTM(
@@ -125,10 +117,9 @@ class BlankDecoderV2(BlankDecoderBase):
           label_state_dim: Dim,
           encoder_out_dim: Dim,
   ):
-    super(BlankDecoderV2, self).__init__(length_model_state_dim=length_model_state_dim)
+    super(BlankDecoderV2, self).__init__()
     self.length_model_state_dim = length_model_state_dim
     self.length_model_embed_dim = length_model_embed_dim
-    self.emit_prob_dim = Dim(name="emit_prob", dimension=1)
 
     self.target_embed = rf.Embedding(target_dim, self.length_model_embed_dim)
     self.s = rf.LSTM(
@@ -164,6 +155,11 @@ class BlankDecoderV2(BlankDecoderBase):
 
     return {"s_blank": s_blank}, state_
 
+  def decode_logits(self, *, s_blank: Tensor) -> Tensor:
+    """logits for the decoder"""
+    logits = self.emit_prob(s_blank)
+    return logits
+
   def get_label_decoder_deps(self) -> Optional[List[str]]:
     return ["s"]
 
@@ -175,9 +171,8 @@ class BlankDecoderV3(BlankDecoderBase):
           label_state_dim: Dim,
           encoder_out_dim: Dim,
   ):
-    super(BlankDecoderV3, self).__init__(length_model_state_dim=length_model_state_dim)
+    super(BlankDecoderV3, self).__init__()
     self.length_model_state_dim = length_model_state_dim
-    self.emit_prob_dim = Dim(name="emit_prob", dimension=1)
 
     self.s = rf.LSTM(
       encoder_out_dim + label_state_dim,
@@ -210,6 +205,53 @@ class BlankDecoderV3(BlankDecoderBase):
     state_.i = state.i + 1
 
     return {"s_blank": s_blank}, state_
+
+  def decode_logits(self, *, s_blank: Tensor) -> Tensor:
+    """logits for the decoder"""
+    logits = self.emit_prob(s_blank)
+    return logits
+
+  def get_label_decoder_deps(self) -> Optional[List[str]]:
+    return ["s"]
+
+
+class BlankDecoderV5(BlankDecoderBase):
+  @property
+  def _s(self) -> rf.LSTM:
+    raise NotImplementedError
+
+  def __init__(
+          self,
+          label_state_dim: Dim,
+          encoder_out_dim: Dim,
+  ):
+    super(BlankDecoderV5, self).__init__()
+
+    self.emit_prob = rf.Linear(encoder_out_dim + label_state_dim, self.emit_prob_dim)
+
+  def get_label_decoder_deps(self) -> Optional[List[str]]:
+    return ["s"]
+
+
+class BlankDecoderV6(BlankDecoderBase):
+  def __init__(
+          self,
+          length_model_state_dim: Dim,
+          label_state_dim: Dim,
+          encoder_out_dim: Dim,
+  ):
+    super(BlankDecoderV6, self).__init__()
+    self.length_model_state_dim = length_model_state_dim
+
+    self.s = rf.LSTM(
+      encoder_out_dim,
+      self.length_model_state_dim,
+    )
+    self.emit_prob = rf.Linear(self.length_model_state_dim + label_state_dim, self.emit_prob_dim)
+
+  @property
+  def _s(self) -> rf.LSTM:
+    return self.s
 
   def get_label_decoder_deps(self) -> Optional[List[str]]:
     return ["s"]
