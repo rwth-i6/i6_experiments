@@ -599,9 +599,15 @@ class Model(rf.Module):
         feature_stats = config.typed_value("feature_stats")
         if feature_stats:
             assert isinstance(feature_stats, dict)
-            self.feature_stats = {
-                k: rf.convert_to_tensor(numpy.loadtxt(v), dims=[self.in_dim]) for k, v in feature_stats.items()
-            }
+            self.feature_stats = rf.ParameterList(
+                {
+                    k: rf.Parameter(
+                        rf.convert_to_tensor(numpy.loadtxt(v), dims=[self.in_dim], dtype=rf.get_default_float_dtype()),
+                        auxiliary=True,
+                    )
+                    for k, v in feature_stats.items()
+                }
+            )
 
         self._specaugment_opts = {
             "steps": config.typed_value("specaugment_steps") or (0, 1000, 2000),
@@ -637,7 +643,7 @@ class Model(rf.Module):
         if self.feature_norm:
             source = rf.normalize(source, axis=in_spatial_dim)
         if self.feature_stats:
-            source = (source - self.feature_stats["mean"]) / self.feature_stats["std_dev"]
+            source = (source - self.feature_stats.mean) / self.feature_stats.std_dev
         if self._mixup:
             source = self._mixup(source, spatial_dim=in_spatial_dim)
         # SpecAugment
