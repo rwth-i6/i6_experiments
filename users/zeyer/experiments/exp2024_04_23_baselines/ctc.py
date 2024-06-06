@@ -600,7 +600,7 @@ class Model(rf.Module):
         if feature_stats:
             assert isinstance(feature_stats, dict)
             self.feature_stats = {
-                k: rf.constant(numpy.loadtxt(v), dims=[self.in_dim]) for k, v in feature_stats.items()
+                k: rf.convert_to_tensor(numpy.loadtxt(v), dims=[self.in_dim]) for k, v in feature_stats.items()
             }
 
         self._specaugment_opts = {
