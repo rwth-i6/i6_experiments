@@ -1,7 +1,6 @@
 """
-Chunked AED Sisyphus Config for TED-LIUM-v2 which contains experiments for this paper:
-    Title: Chunked Attention-based Encoder-Decoder Model for Streaming Speech Recognition
-    Link: https://arxiv.org/abs/2309.08436
+based on:
+users/zeineldeen/experiments/conformer_att_2022/librispeech_960/configs/baseline_960h_v2.py
 """
 
 from __future__ import annotations
@@ -22,19 +21,16 @@ from i6_experiments.users.zeineldeen.experiments.chunkwise_att_2023.librispeech_
 from i6_experiments.users.zeineldeen.experiments.conformer_att_2022.librispeech_960.additional_config import (
     apply_fairseq_init_to_conformer,
 )
-from i6_experiments.users.zeineldeen.experiments.chunkwise_att_2023.tedlium2.data import (
+from i6_experiments.users.zeineldeen.experiments.chunkwise_att_2023.librispeech_960.data import (
     build_training_datasets,
     build_test_dataset,
     build_chunkwise_training_datasets,
 )
 from i6_experiments.users.zeineldeen.experiments.conformer_att_2023.librispeech_960.default_tools import (
-    # RETURNN_ROOT,
+    RETURNN_ROOT,
     RETURNN_CPU_EXE,
-    SCTK_BINARY_PATH,
 )
-from i6_experiments.users.zeineldeen.experiments.conformer_att_2023.tedlium2.default_tools import (
-    RETURNN_ROOT_V2 as RETURNN_ROOT,
-)
+from i6_experiments.users.zeineldeen.experiments.conformer_att_2023.tedlium2.default_tools import RETURNN_ROOT_V2
 from i6_experiments.users.zeineldeen.experiments.conformer_att_2022.librispeech_960.feature_extraction_net import (
     log10_net_10ms,
 )
@@ -72,6 +68,31 @@ BPE_10K = 10000
 BPE_5K = 5000
 BPE_1K = 1000
 
+# dev-other:
+# Seq-length 'audio_features' Stats:
+#   2864 seqs
+#   Mean: 102995.8959497207  (6.4 sec)
+#   Std dev: 69081.77143805166  (4.3 sec)
+#   Min/max: 17040 / 562480 (1.1 / 35.2 sec)
+# Seq-length 'bpe_labels' Stats:
+#   2864 seqs
+#   Mean: 21.13966480446923
+#   Std dev: 13.536136898032625
+#   Min/max: 2 / 110
+#
+# test-other:
+# Seq-length 'audio_features' Stats:
+#   2939 seqs
+#   Mean: 104686.32936372912  (6.5 sec)
+#   Std dev: 70821.55181403323  (4.4 sec)
+#   Min/max: 20000 / 552160  (1.2 / 34.5 sec)
+# Seq-length 'bpe_labels' Stats:
+#   2939 seqs
+#   Mean: 21.22796869683565
+#   Std dev: 14.559673655773087
+#   Min/max: 2 / 137
+
+
 # --------------------------- LM --------------------------- #
 
 lstm_10k_lm_opts = {
@@ -84,72 +105,33 @@ lstm_lm_opts_map = {
     BPE_10K: lstm_10k_lm_opts,
 }
 
-# Trafo LM trained by willi
-# - setup dir: /u/michel/setups/language_modelling/tedlium/neurallm/trafo_kazuki19
-# - config: /u/michel/setups/language_modelling/tedlium/neurallm/trafo_kazuki19/tdl1.config
-trafo_lm_net = TransformerLM(
-    source="prev:output",
-    num_layers=30,
-    vocab_size=1057,
-    use_as_ext_lm=True,
-    ff_dim=4096,
-    att_num_heads=12,
-    embed_dim=128,
-    qk_dim=768,
-    v_dim=768,
-    out_dim=768,
-    emb_cpu_lookup=False,
-    embed_pos=False,  # wo abs pos encoding
-    conv_act="gelu",
-)
+trafo_lm_net = TransformerLM(source="prev:output", num_layers=24, vocab_size=10025, use_as_ext_lm=True)
 trafo_lm_net.create_network()
-trafo_1k_lm_opts = {
+trafo_10k_lm_opts = {
     "lm_subnet": trafo_lm_net.network.get_net(),
     "load_on_init_opts": {
-        "filename": "/work/asr4/michel/setups-data/language_modelling/tedlium/neurallm/trafo_kazuki19/net-model/network.020",
+        "filename": "/work/asr3/irie/experiments/lm/librispeech/2018-03-05--lmbpe-zeyer/data-train/transfo_24_d00.4096_1024.sgd.lr1.8_heads/bk-net-model/network.023",
+        "params_prefix": "",
+        "load_if_prefix": "lm_output_masked/",
+    },
+    "name": "trafo",
+}
+
+bpe5k_lm = get_lm("ls960_trafo24_bs3000_5ep_5kbpe")  # type: ZeineldeenLM
+trafo_5k_lm_opts = {
+    "lm_subnet": bpe5k_lm.combination_network,
+    "load_on_init_opts": {
+        "filename": get_best_checkpoint(bpe5k_lm.train_job, key="dev_score_output/output"),
         "params_prefix": "",
         "load_if_prefix": "lm_output/",
     },
     "name": "trafo",
 }
 
-trafo_lm_opts_map = {BPE_1K: trafo_1k_lm_opts}
-
-# train:
-# Seq-length 'audio_features' Stats:
-#   92973 seqs
-#   Mean: 131396.26378626248  (8.2 sec)
-#   Std dev: 70640.3150616384
-#   Min/max: 4480 / 360977  (0.28 sec / 22.56 sec)
-# Seq-length 'bpe_labels' Stats:
-#   92973 seqs
-#   Mean: 39.46015509879227
-#   Std dev: 23.121978685238307
-#   Min/max: 2 / 153
-#
-# dev:
-# Seq-length 'audio_features' Stats:
-#   507 seqs
-#   Mean: 181567.81065088772 (11 sec)
-#   Std dev: 90829.89353459886
-#   Min/max: 7520 / 638720  (0.47 sec / 39.92 sec)
-# Seq-length 'bpe_labels' Stats:
-#   507 seqs
-#   Mean: 58.13412228796851
-#   Std dev: 33.32746140640928
-#   Min/max: 2 / 211
-#
-# test:
-# Seq-length 'audio_features' Stats:
-#   1155 seqs
-#   Mean: 130516.24675324683 (8 sec)
-#   Std dev: 69077.22250260337  (4 sec)
-#   Min/max: 5600 / 520768 (0.35 sec / 32.55 sec)
-# Seq-length 'bpe_labels' Stats:
-#   1155 seqs
-#   Mean: 38.384415584415635
-#   Std dev: 22.381681584409716
-#   Min/max: 2 / 179
+trafo_lm_opts_map = {
+    BPE_10K: trafo_10k_lm_opts,
+    BPE_5K: trafo_5k_lm_opts,
+}
 
 
 # ----------------------------------------------------------- #
@@ -161,7 +143,7 @@ prefix_name = os.path.basename(abs_name)[: -len(".py")]
 
 def get_test_dataset_tuples(bpe_size, selected_datasets=None):
     test_dataset_tuples = {}
-    for testset in ["dev", "test"]:
+    for testset in ["dev-clean", "dev-other", "test-clean", "test-other"]:
         if selected_datasets and testset not in selected_datasets:
             continue
         test_dataset_tuples[testset] = build_test_dataset(
@@ -180,7 +162,7 @@ def run_train(
     feature_extraction_net,
     num_epochs,
     recog_epochs,
-    time_rqmt: float = 168,
+    time_rqmt=168,
     **kwargs,
 ):
     exp_prefix = os.path.join(prefix_name, exp_name)
@@ -210,8 +192,8 @@ def run_single_search(
     checkpoint,
     feature_extraction_net,
     recog_dataset,
-    recog_bliss_corpus,
     recog_ref,
+    recog_bliss_corpus,
     mem_rqmt=8,
     time_rqmt=4,
     **kwargs,
@@ -231,86 +213,13 @@ def run_single_search(
         recognition_reference=recog_ref,
         recognition_bliss_corpus=recog_bliss_corpus,
         returnn_exe=RETURNN_CPU_EXE,
-        returnn_root=RETURNN_ROOT,
+        returnn_root=kwargs.get("returnn_root", RETURNN_ROOT),
         mem_rqmt=mem_rqmt,
         time_rqmt=time_rqmt,
         use_sclite=True,
+        use_gpu_test=kwargs.get("use_gpu_test", False),
+        gpu_mem=kwargs.get("gpu_mem", 11),
     )
-
-
-def run_concat_seq_recog(
-    exp_name, corpus_names, num, train_data, search_args, checkpoint, mem_rqmt=8, time_rqmt=1, gpu_mem=11
-):
-    exp_prefix = os.path.join(prefix_name, exp_name)
-
-    from i6_experiments.users.zeineldeen.experiments.chunkwise_att_2023.concat_seqs import (
-        ConcatDatasetSeqsJob,
-        ConcatSeqsDataset,
-        CreateConcatSeqsCTMAndSTMJob,
-    )
-    from i6_core.corpus.convert import CorpusToStmJob
-
-    if isinstance(corpus_names, str):
-        corpus_names = [corpus_names]
-    assert isinstance(corpus_names, list)
-
-    for corpus_name in corpus_names:
-        test_datasets = get_test_dataset_tuples(bpe_size=BPE_1K)
-        stm = CorpusToStmJob(bliss_corpus=test_datasets[corpus_name][2]).out_stm_path
-        tk.register_output(f"concat_seqs/{num}/orig_{corpus_name}_stm", stm)
-        concat_dataset_seqs = ConcatDatasetSeqsJob(corpus_name="TED-LIUM-realease2", stm=stm, num=num, overlap_dur=None)
-        tk.register_output(f"concat_seqs/{num}/{corpus_name}_stm", concat_dataset_seqs.out_stm)
-        tk.register_output(f"concat_seqs/{num}/{corpus_name}_tags", concat_dataset_seqs.out_concat_seq_tags)
-        tk.register_output(f"concat_seqs/{num}/{corpus_name}_lens", concat_dataset_seqs.out_concat_seq_lens_py)
-
-        returnn_search_config = create_config(
-            training_datasets=train_data,
-            **search_args,
-            feature_extraction_net=log10_net_10ms,
-            is_recog=True,
-        )
-
-        returnn_concat_dataset = ConcatSeqsDataset(
-            dataset=test_datasets[corpus_name][0].as_returnn_opts(),
-            seq_tags=concat_dataset_seqs.out_concat_seq_tags,
-            seq_lens_py=concat_dataset_seqs.out_orig_seq_lens_py,
-        )
-
-        _, search_words = search_single(
-            os.path.join(exp_prefix, corpus_name),
-            returnn_search_config,
-            checkpoint,
-            recognition_dataset=returnn_concat_dataset,
-            recognition_reference=test_datasets[corpus_name][1],
-            recognition_bliss_corpus=test_datasets[corpus_name][2],
-            returnn_exe=RETURNN_CPU_EXE,
-            returnn_root=RETURNN_ROOT,
-            mem_rqmt=mem_rqmt,
-            time_rqmt=time_rqmt,
-            # no scoring
-            use_sclite=False,
-            use_returnn_compute_wer=False,
-            gpu_mem=gpu_mem,
-        )
-
-        from i6_core.corpus.convert import CorpusToStmJob
-        from i6_core.recognition.scoring import ScliteJob
-
-        stm_file = concat_dataset_seqs.out_stm
-
-        concat_ctm_and_stm_job = CreateConcatSeqsCTMAndSTMJob(
-            recog_words_file=search_words, stm_py_file=concat_dataset_seqs.out_stm_py, stm_file=stm_file
-        )
-        tk.register_output(exp_prefix + f"/{corpus_name}/sclite/stm", concat_ctm_and_stm_job.out_stm_file)
-        tk.register_output(exp_prefix + f"/{corpus_name}/sclite/ctm", concat_ctm_and_stm_job.out_ctm_file)
-
-        sclite_job = ScliteJob(
-            ref=concat_ctm_and_stm_job.out_stm_file,
-            hyp=concat_ctm_and_stm_job.out_ctm_file,
-            sctk_binary_path=SCTK_BINARY_PATH,
-        )
-        tk.register_output(exp_prefix + f"/{corpus_name}/sclite/wer", sclite_job.out_wer)
-        tk.register_output(exp_prefix + f"/{corpus_name}/sclite/report", sclite_job.out_report_dir)
 
 
 def run_lm_fusion(
@@ -325,6 +234,7 @@ def run_lm_fusion(
     feature_net,
     bpe_size,
     args,
+    am_scale=1.0,
     beam_size=12,
     prior_scales=None,
     prior_type=None,
@@ -333,6 +243,7 @@ def run_lm_fusion(
     prior_type_name=None,
     coverage_scale=None,
     coverage_threshold=None,
+    lm_desc_suffix="",
     **kwargs,
 ):
     assert lm_type in ["lstm", "trafo"], "lm type should be lstm or trafo"
@@ -354,6 +265,8 @@ def run_lm_fusion(
         search_checkpoint = train_job.out_checkpoints[epoch]
 
     ext_lm_opts = lstm_lm_opts_map[bpe_size] if lm_type == "lstm" else trafo_lm_opts_map[bpe_size]
+
+    ext_lm_opts["am_scale"] = am_scale
 
     time_rqmt = 1.0
 
@@ -434,7 +347,12 @@ def run_lm_fusion(
             if prior_type_name is None:
                 prior_type_name = prior_type
 
-            lm_desc = f"lm-scale-{lm_scale}"
+            lm_desc = ""
+
+            if am_scale:
+                lm_desc += f"am-scale-{am_scale}-"
+
+            lm_desc += f"lm-scale-{lm_scale}"
             if prior_scale:
                 lm_desc += f"-prior-{prior_scale}-{prior_type_name}"
             lm_desc += f"-beam-{beam_size}"
@@ -446,6 +364,9 @@ def run_lm_fusion(
                 search_args["decoder_args"].coverage_scale = coverage_scale
                 search_args["decoder_args"].coverage_threshold = coverage_threshold
                 lm_desc += f"_coverage-thre{coverage_threshold}-scale{coverage_scale}"
+
+            if lm_desc_suffix:
+                lm_desc += f"{lm_desc_suffix}"
 
             name = f"{exp_name}/recog-{lm_type}-lm/ep-{epoch}/{lm_desc}/{test_set}"
 
@@ -459,9 +380,12 @@ def run_lm_fusion(
                 checkpoint=search_checkpoint,
                 feature_extraction_net=feature_net,
                 recog_dataset=test_dataset_tuples[test_set][0],
-                recog_bliss_corpus=test_dataset_tuples[test_set][2],
                 recog_ref=test_dataset_tuples[test_set][1],
+                recog_bliss_corpus=test_dataset_tuples[test_set][2],
                 time_rqmt=kwargs.get("time_rqmt", time_rqmt),
+                gpu_mem=kwargs.get("gpu_mem", 11),
+                use_gpu_test=kwargs.get("use_gpu_test", False),
+                returnn_root=kwargs.get("returnn_root", RETURNN_ROOT),
             )
 
 
@@ -578,12 +502,12 @@ def run_exp(
     exp_name: str,
     train_args,
     feature_extraction_net=log10_net_10ms,
-    num_epochs=200,
+    num_epochs=300,
     search_args=None,
     recog_epochs=None,
-    bpe_size=1000,
-    partition_epoch=4,
-    time_rqmt: float = 168,
+    bpe_size=10000,
+    partition_epoch=20,
+    time_rqmt=168,
     train_fixed_alignment=None,
     cv_fixed_alignment=None,
     recog_ext_pipeline=False,
@@ -597,7 +521,7 @@ def run_exp(
             bpe_size=bpe_size,
             use_raw_features=True,
             partition_epoch=partition_epoch,
-            epoch_wise_filter=None,
+            epoch_wise_filter=kwargs.get("epoch_wise_filter", [(1, 5, 1000)]),
             link_speed_perturbation=train_args.get("speed_pert", True),
             seq_ordering=kwargs.get("seq_ordering", "laplace:.1000"),
         )
@@ -606,27 +530,24 @@ def run_exp(
             bpe_size=bpe_size,
             use_raw_features=True,
             partition_epoch=partition_epoch,
-            epoch_wise_filter=None,
+            epoch_wise_filter=kwargs.get("epoch_wise_filter", [(1, 5, 1000)]),
             link_speed_perturbation=train_args.get("speed_pert", True),
             seq_ordering=kwargs.get("seq_ordering", "laplace:.1000"),
             seq_postfix=kwargs.get("seq_postfix", 0),
         )
 
-    if kwargs.get("do_not_train", False):
-        return None, train_data
-    else:
-        train_job = run_train(
-            prefix_name,
-            exp_name,
-            train_args,
-            train_data,
-            feature_extraction_net,
-            num_epochs,
-            recog_epochs,
-            time_rqmt=time_rqmt,
-            **kwargs,
-        )
-        train_jobs_map[exp_name] = train_job
+    train_job = run_train(
+        prefix_name,
+        exp_name,
+        train_args,
+        train_data,
+        feature_extraction_net,
+        num_epochs,
+        recog_epochs,
+        time_rqmt=time_rqmt,
+        **kwargs,
+    )
+    train_jobs_map[exp_name] = train_job
 
     run_search(
         prefix_name,
@@ -642,33 +563,6 @@ def run_exp(
         recog_ext_pipeline=recog_ext_pipeline,
         **kwargs,
     )
-
-    if kwargs.get("concat_recog_opts", None):
-        ckpt_ = kwargs["concat_recog_opts"]["checkpoint"]
-        if isinstance(ckpt_, str):
-            assert ckpt_ in ["best", "avg"]
-            if ckpt_ == "best":
-                concat_recog_ckpt = train_job_best_epoch[exp_name]
-            else:
-                concat_recog_ckpt = train_job_avg_ckpt[exp_name]
-        elif isinstance(ckpt_, int):
-            concat_recog_ckpt = train_job.out_checkpoints[ckpt_]
-        else:
-            raise TypeError(f"concat_recog_opts['checkpoint'] must be str or int, got {type(ckpt_)}")
-        concat_recog_search_args = kwargs["concat_recog_opts"].get("search_args", None)
-        search_args_ = copy.deepcopy(train_args)
-        if concat_recog_search_args:
-            search_args_.update(concat_recog_search_args)
-        run_concat_seq_recog(
-            exp_name=exp_name + f"_concat{kwargs['concat_recog_opts']['num']}",
-            corpus_names=kwargs["concat_recog_opts"]["corpus_names"],
-            num=kwargs["concat_recog_opts"]["num"],
-            train_data=train_data,
-            search_args=search_args_,
-            checkpoint=concat_recog_ckpt,
-            gpu_mem=kwargs.get("gpu_mem", 11),
-        )
-
     return train_job, train_data
 
 
@@ -679,7 +573,7 @@ def run_forward(
     model_ckpt,
     hdf_layers=None,
     feature_extraction_net=log10_net_10ms,
-    bpe_size=1000,
+    bpe_size=10000,
     time_rqmt=12,
     mem_rqmt=15,
     override_returnn_config=None,
@@ -721,11 +615,6 @@ def run_forward(
             feature_extraction_net=feature_extraction_net,
         )
 
-    if isinstance(model_ckpt, tk.Path):
-        path_as_str = model_ckpt.path
-        assert isinstance(path_as_str, str)
-        new_hash_overwrite = (model_ckpt.hash_overwrite[0], model_ckpt.hash_overwrite[1] + "_index")
-        model_ckpt = Checkpoint(index_path=tk.Path(path_as_str + ".index", hash_overwrite=new_hash_overwrite))
     if isinstance(model_ckpt, str):
         model_ckpt_index_path = tk.Path(model_ckpt + ".index")
         model_ckpt = Checkpoint(index_path=model_ckpt_index_path)
@@ -776,6 +665,8 @@ def train_mini_lstm(
     use_dec_state=False,
     use_ffn=False,
     ffn_opts=None,
+    train_fixed_alignment=None,
+    cv_fixed_alignment=None,
     **kwargs,
 ):
     if not w_drop:
@@ -804,13 +695,26 @@ def train_mini_lstm(
     mini_lstm_args.update(kwargs)
 
     exp_prefix = os.path.join(prefix_name, exp_name, name)
-    mini_lstm_train_data = build_training_datasets(
-        bpe_size=1000,
-        use_raw_features=True,
-        epoch_wise_filter=None,
-        link_speed_perturbation=False,  # depends only on text
-        seq_ordering=kwargs.get("seq_ordering", "laplace:.1000"),
-    )
+    if train_fixed_alignment is None:
+        mini_lstm_train_data = build_training_datasets(
+            bpe_size=10000,
+            use_raw_features=True,
+            epoch_wise_filter=None,
+            link_speed_perturbation=False,  # depends only on text
+            seq_ordering=kwargs.get("seq_ordering", "laplace:.1000"),
+        )
+    else:
+        mini_lstm_train_data = build_chunkwise_training_datasets(
+            train_fixed_alignment=train_fixed_alignment,
+            cv_fixed_alignment=cv_fixed_alignment,
+            bpe_size=BPE_10K,
+            use_raw_features=True,
+            partition_epoch=20,
+            epoch_wise_filter=None,
+            link_speed_perturbation=False,
+            seq_ordering=kwargs.get("seq_ordering", "laplace:.1000"),
+        )
+
     returnn_config = create_config(
         training_datasets=mini_lstm_train_data,
         **mini_lstm_args,
@@ -914,7 +818,7 @@ def train_mini_self_att(
 
     exp_prefix = os.path.join(prefix_name, exp_name, name)
     mini_self_att_train_data = build_training_datasets(
-        bpe_size=1000,
+        bpe_size=10000,
         use_raw_features=True,
         epoch_wise_filter=None,
         link_speed_perturbation=False,  # depends only on text
@@ -938,115 +842,6 @@ def train_mini_self_att(
         time_rqmt=time_rqmt,
     )
     return train_job
-
-
-def compute_search_errors(exp_name, corpus_name, train_data, forward_args, model_checkpoint):
-    returnn_root_fix = tk.Path(
-        "/u/zeineldeen/setups/ubuntu_22_setups/2023-06-14--streaming-conf/returnn",
-        hash_overwrite="returnn_root_fix_forward",
-    )
-
-    returnn_forward_config = create_config(
-        training_datasets=train_data,
-        **forward_args,
-        feature_extraction_net=log10_net_10ms,
-        is_recog=True,
-    )
-    returnn_forward_config.config["forward_batch_size"] = 15_000 * 160
-
-    # add test dataset
-    test_dataset = get_test_dataset_tuples(bpe_size=BPE_1K, selected_datasets=[corpus_name])
-    returnn_forward_config.config["forward_data"] = test_dataset[corpus_name][0].as_returnn_opts()
-    # remove all others if exist
-    returnn_forward_config.config.pop("train", None)
-    returnn_forward_config.config.pop("dev", None)
-    returnn_forward_config.config.pop("devtrain", None)
-
-    def dump_scores_and_targets(config_, targets_hdf_name, scores_hdf_name):
-        config_.config["network"]["dump_targets"] = {
-            "class": "hdf_dump",
-            "from": "data:bpe_labels",
-            "filename": f"{targets_hdf_name}.hdf",
-            "is_output_layer": True,
-        }
-        assert "output_log_prob" not in config_.config["network"]["output"]["unit"], "output_log_prob already exists?"
-        config_.config["network"]["output"]["unit"]["output_log_prob"] = {
-            "class": "activation",
-            "from": "output_prob",
-            "activation": "safe_log",
-        }
-        config_.config["network"]["output"]["unit"]["dump_output"] = {
-            "class": "hdf_dump",
-            "from": "output_log_prob",
-            "filename": f"{scores_hdf_name}.hdf",
-            "is_output_layer": True,
-        }
-        j = ReturnnForwardJob(
-            model_checkpoint=model_checkpoint,
-            returnn_config=config_,
-            returnn_python_exe=RETURNN_CPU_EXE,
-            returnn_root=returnn_root_fix,
-            hdf_outputs=[f"{targets_hdf_name}.hdf", f"{scores_hdf_name}.hdf"],
-            eval_mode=True,
-        )
-        return j
-
-    j = dump_scores_and_targets(
-        copy.deepcopy(returnn_forward_config),
-        targets_hdf_name="ground_truth_targets",
-        scores_hdf_name="ground_truth_scores",
-    )
-    ground_truth_targets = j.out_hdf_files["ground_truth_targets.hdf"]
-    ground_truth_scores = j.out_hdf_files["ground_truth_scores.hdf"]
-    tk.register_output(
-        os.path.join(prefix_name, exp_name, f"{corpus_name}_search_errors/ground_truth_targets"), ground_truth_targets
-    )
-    tk.register_output(
-        os.path.join(prefix_name, exp_name, f"{corpus_name}_search_errors/ground_truth_scores"), ground_truth_scores
-    )
-
-    # 2. forward with beam search and dump scores of 1-best
-    config_ = copy.deepcopy(returnn_forward_config)
-    config_.config["network"]["dump_decision"] = {
-        "class": "hdf_dump",
-        "from": "out_best_wo_blank",
-        "filename": "search_output.hdf",
-        "is_output_layer": True,
-    }
-    returnn_forward_config.post_config["forward_use_search"] = True  # allow search
-    j = ReturnnForwardJob(
-        model_checkpoint=model_checkpoint,
-        returnn_config=config_,
-        returnn_python_exe=RETURNN_CPU_EXE,
-        returnn_root=returnn_root_fix,
-        hdf_outputs=["search_output.hdf"],
-        eval_mode=False,
-    )
-    search_output = j.out_hdf_files["search_output.hdf"]  # targets included here?
-    tk.register_output(os.path.join(prefix_name, exp_name, f"{corpus_name}_search_errors/search_output"), search_output)
-
-    j = dump_scores_and_targets(
-        copy.deepcopy(returnn_forward_config), targets_hdf_name="search_targets", scores_hdf_name="search_scores"
-    )
-    search_targets = j.out_hdf_files["search_targets.hdf"]
-    search_scores = j.out_hdf_files["search_scores.hdf"]
-    tk.register_output(
-        os.path.join(prefix_name, exp_name, f"{corpus_name}_search_errors/search_targets"), search_targets
-    )
-    tk.register_output(os.path.join(prefix_name, exp_name, f"{corpus_name}_search_errors/search_scores"), search_scores)
-
-    from i6_experiments.users.zeineldeen.experiments.chunkwise_att_2023.search_errors import ComputeSearchErrorsJob
-
-    # search_errors = ComputeSearchErrorsJob(
-    #     ground_truth_scores_hdf=ground_truth_scores,
-    #     search_scores_hdf=search_scores,
-    #     ground_truth_targets_hdf=ground_truth_targets,
-    #     search_targets_hdf=None,  #
-    #     blank_idx=0,  # EOC
-    # )
-    # tk.register_output(
-    #     os.path.join(exp_name, f"{corpus_name}_search_errors/search_errors"), search_errors.out_search_errors
-    # )
 
 
 # --------------------------- General Settings --------------------------- #
@@ -1087,16 +882,15 @@ lstm_dec_exp_args = copy.deepcopy(
 
 # --------------------------- Experiments --------------------------- #
 
-# base_bpe1000_peakLR0.0008_ep400_globalNorm_epochOCLR_pre3_fixZoneout_encDrop0.15_woDepthConvPre_weightDrop0.1_decAttDrop0.0_embedDim256_numBlocks12
-# 7.4/6.9
-global_att_ep400 = "/u/zeineldeen/setups/ubuntu_22_setups/2023-04-17--conformer-att/work/i6_core/returnn/training/AverageTFCheckpointsJob.yB4JK4GDCxWG/output/model/average"
+# Global attention baseline:
+#
+# dev-clean  2.28
+# dev-other  5.63
+# test-clean  2.48
+# test-other  5.71
 
-# base_bpe1000_peakLR0.0008_ep200_globalNorm_epochOCLR_pre3_fixZoneout_encDrop0.1_woDepthConvPre
-# 8.2/7.6
-# global_att_ep200 = tk.Path(
-#     "/u/zeineldeen/setups/ubuntu_22_setups/2023-04-17--conformer-att/work/i6_core/returnn/training/AverageTFCheckpointsJob.43W6IZbd5Arr/output/model/average",
-#     hash_overwrite="global_att_ep200",
-# )
+global_att_best_ckpt = "/work/asr4/zeineldeen/setups-data/librispeech/2022-11-28--conformer-att/models-backup/best_att_100/avg_ckpt/epoch.2029"
+global_att_v2 = "/work/asr4/zeineldeen/setups-data/librispeech/2022-11-28--conformer-att/work/i6_core/returnn/training/AverageTFCheckpointsJob.BxqgICRSGkgb/output/model/epoch.570"
 
 # from Albert:
 # with task=“train” and search_type=“end-of-chunk”, it would align on-the-fly
@@ -1105,58 +899,10 @@ global_att_ep400 = "/u/zeineldeen/setups/ubuntu_22_setups/2023-04-17--conformer-
 
 default_args = copy.deepcopy(lstm_dec_exp_args)
 default_args["learning_rates_list"] = list(numpy.linspace(8e-4, 1e-5, 60))
-default_args["retrain_checkpoint"] = global_att_ep400
+default_args["retrain_checkpoint"] = global_att_best_ckpt
 default_args["chunk_size"] = 20
 default_args["chunk_step"] = 20 * 3 // 4
 default_args["search_type"] = "end-of-chunk"  # align on-the-fly
-
-default_args["decoder_args"].embed_dim = 256
-default_args["encoder_args"].mhsa_weight_dropout = 0.0
-default_args["encoder_args"].ff_weight_dropout = 0.1
-default_args["encoder_args"].conv_weight_dropout = 0.1
-default_args["encoder_args"].dropout = 0.15
-default_args["encoder_args"].dropout_in = 0.15
-default_args["encoder_args"].att_dropout = 0.15
-default_args["decoder_args"].use_zoneout_output = True
-
-from i6_experiments.users.zeineldeen.experiments.conformer_att_2023.tedlium2.configs.ted2_att_baseline import (
-    compute_features_stats,
-)
-
-_, _, global_mean, global_std = compute_features_stats(output_dirname="logmel_80", feat_dim=80)
-default_args["global_stats"] = {"mean": global_mean, "stddev": global_std}
-
-
-def get_base_v1_args(base_args, lr, ep, enc_drop=0.1, pretrain_reps=3):
-    #  base_bpe1000_peakLR0.0008_ep200_globalNorm_epochOCLR_pre3_fixZoneout_encDrop0.1_woDepthConvPre
-    # Average ckpt: 8.19/7.64 (50 epochs)
-    # - Epoch-based OCLR with peak LR 8e-4
-    # - EncDrop 0.1, fixed zoneout
-    # - Pretrain 3, no depthwise conv pretrain
-    # - Feature global normalization
-
-    base_v1_args = copy.deepcopy(base_args)
-    base_v1_args.pop("oclr_opts", None)
-    cyc_ep = int(0.45 * ep)
-    # Epoch-based OCLR
-    base_v1_args["learning_rates_list"] = (
-        list(numpy.linspace(lr / 10, lr, cyc_ep))
-        + list(numpy.linspace(lr, lr / 10, cyc_ep))
-        + list(numpy.linspace(lr / 10, 1e-6, ep - 2 * cyc_ep))
-    )
-    base_v1_args["global_stats"] = {"mean": global_mean, "stddev": global_std}
-    base_v1_args["with_pretrain"] = True
-    base_v1_args["pretrain_reps"] = pretrain_reps
-    base_v1_args["pretrain_opts"] = {
-        "variant": 3,
-        "initial_batch_size": 22500 * 160,
-        "ignored_keys_for_reduce_dim": ["conv_kernel_size"],
-    }
-    base_v1_args["encoder_args"].dropout = enc_drop
-    base_v1_args["encoder_args"].dropout_in = enc_drop
-    base_v1_args["encoder_args"].att_dropout = enc_drop
-    base_v1_args["decoder_args"].use_zoneout_output = True
-    return base_v1_args
 
 
 def get_ctc_chunksyn_align_config(
@@ -1174,7 +920,7 @@ def get_ctc_chunksyn_align_config(
             "extern_data": {
                 "bpe_labels": {
                     "available_for_inference": False,
-                    "dim": 1058,  # from CTC so +1 for blank
+                    "dim": 10026,  # from CTC so +1 for blank
                     "shape": (None,),
                     "sparse": True,
                 },
@@ -1206,7 +952,7 @@ def get_ctc_chunksyn_align_config(
                     "filename": f"alignments-{dataset_name}.hdf",
                 },
             },
-            "batch_size": 5000,  # ctc alignment
+            "batch_size": 5000,
         }
     )
     config.post_config["use_tensorflow"] = True
@@ -1235,7 +981,7 @@ def get_ctc_rna_based_chunk_alignments(
     }
 
     if model_ckpt is None:
-        model_ckpt = global_att_ep400
+        model_ckpt = global_att_best_ckpt
 
     if fixed_ctc_rna_align_without_eos:
         assert not ignore_eoc_in_input  # should not be needed then
@@ -1247,8 +993,6 @@ def get_ctc_rna_based_chunk_alignments(
         have_custom_exp_name = False
     else:
         have_custom_exp_name = True
-
-    ctc_dump_exp_name = "debug1"
 
     for dataset in ["train", "dev"]:
         args = copy.deepcopy(base_model_train_args or default_args)
@@ -1320,8 +1064,8 @@ def run_chunkwise_train(
     accum_grad: int = 2,
     time_rqmt: float = 72,
     start_lrs: Union[float, List[Optional[float]]] = 1e-4,
-    final_lrs: Union[float, List[Optional[float]]] = 1e-6,
     decay_pt_factors: Union[float, List[Optional[float]]] = 1 / 3,
+    min_lr: float = 1e-6,
     window_left_padding: Optional[int] = None,
     end_slice_size: Optional[int] = None,
     end_slice_start: Optional[int] = None,
@@ -1337,14 +1081,10 @@ def run_chunkwise_train(
     lrs_list: Optional[List[float]] = None,
     lr_list_desc: Optional[str] = None,
     return_args: bool = False,
-    return_hdf_align: bool = False,
-    do_not_train=False,
     **kwargs,
 ):
     if isinstance(start_lrs, float):
         start_lrs = [start_lrs]
-    if isinstance(final_lrs, float):
-        final_lrs = [final_lrs]
     if isinstance(decay_pt_factors, float):
         decay_pt_factors = [decay_pt_factors]
 
@@ -1360,255 +1100,230 @@ def run_chunkwise_train(
         for chunk_size in chunk_sizes:
             for chunk_step_factor in chunk_step_factors:
                 for start_lr in start_lrs:
-                    for final_lr in final_lrs:
-                        for decay_pt_factor in decay_pt_factors:
-                            train_args = copy.deepcopy(default_args)
-                            train_args["speed_pert"] = speed_pert
-                            train_args["search_type"] = None
+                    for decay_pt_factor in decay_pt_factors:
+                        train_args = copy.deepcopy(default_args)
+                        train_args["speed_pert"] = speed_pert  # no speed pert
+                        train_args["search_type"] = None  # fixed alignment
 
-                            train_args["max_seq_length"] = None  # no filtering!
+                        train_args["max_seq_length"] = None  # no filtering!
 
-                            train_args["encoder_args"].with_ctc = with_ctc
-                            if ctc_self_align_delay:
-                                assert with_ctc, "need CTC for self-align"
-                                train_args["encoder_args"].ctc_self_align_delay = ctc_self_align_delay
-                                train_args["encoder_args"].ctc_self_align_scale = ctc_self_align_delay_scale
+                        train_args["encoder_args"].with_ctc = with_ctc
+                        if ctc_self_align_delay:
+                            assert with_ctc, "need CTC for self-align"
+                            train_args["encoder_args"].ctc_self_align_delay = ctc_self_align_delay
+                            train_args["encoder_args"].ctc_self_align_scale = ctc_self_align_delay_scale
 
-                            if enc_stream_type == "causal" or enc_stream_type.startswith("causal-"):
-                                if enc_stream_type == "causal":
-                                    train_args["encoder_args"].use_causal_layers = True  # causal MHSA and conv
-                                elif enc_stream_type == "causal-mhsa":
-                                    train_args["encoder_args"].use_causal_layers = True
-                                    train_args["encoder_args"].use_causal_conv = False  # causal MHSA only
-                                elif enc_stream_type == "causal-reset-conv":
-                                    train_args["encoder_args"].use_causal_layers = True
-                                    train_args["encoder_args"].conv_alternative_name = "depthwise_conv2_causal"
-                                    train_args.setdefault("retrain_checkpoint_opts", {}).setdefault(
-                                        "ignore_params_prefixes", []
-                                    ).extend(
-                                        [
-                                            "conformer_block_%02i_conv_mod_depthwise_conv2_causal/" % (i + 1)
-                                            for i in range(train_args["encoder_args"].num_blocks)
-                                        ]
-                                    )
-
-                            train_args["batch_size"] = batch_size * 160
-                            train_args["accum_grad"] = accum_grad
-
-                            train_args["enable_check_align"] = enable_check_align  # to not break hashes
-
-                            train_args["chunk_size"] = chunk_size
-                            if chunk_size is None:
-                                train_args["chunk_step"] = None
-                                chunk_step = None
-                            else:
-                                chunk_step = max(1, int(chunk_size * chunk_step_factor))
-                                train_args["chunk_step"] = chunk_step
-
-                            if lrs_list is not None:
-                                train_args["learning_rates_list"] = lrs_list
-                            elif epoch_oclr_lr:
-                                assert start_lr is None
-                                cyc_ep = int(0.45 * total_epoch)
-                                train_args["learning_rates_list"] = (
-                                    list(numpy.linspace(epoch_oclr_lr / 10, epoch_oclr_lr, cyc_ep))
-                                    + list(numpy.linspace(epoch_oclr_lr, epoch_oclr_lr / 10, cyc_ep))
-                                    + list(numpy.linspace(epoch_oclr_lr / 10, final_lr, total_epoch - 2 * cyc_ep))
-                                )
-                            else:
-                                decay_pt = int(total_epoch * decay_pt_factor)
-                                train_args["learning_rates_list"] = [start_lr] * decay_pt + list(
-                                    numpy.linspace(start_lr, final_lr, total_epoch - decay_pt)
+                        if enc_stream_type == "causal" or enc_stream_type.startswith("causal-"):
+                            if enc_stream_type == "causal":
+                                train_args["encoder_args"].use_causal_layers = True  # causal MHSA and conv
+                            elif enc_stream_type == "causal-mhsa":
+                                train_args["encoder_args"].use_causal_layers = True
+                                train_args["encoder_args"].use_causal_conv = False  # causal MHSA only
+                            elif enc_stream_type == "causal-reset-conv":
+                                train_args["encoder_args"].use_causal_layers = True
+                                train_args["encoder_args"].conv_alternative_name = "depthwise_conv2_causal"
+                                train_args.setdefault("retrain_checkpoint_opts", {}).setdefault(
+                                    "ignore_params_prefixes", []
+                                ).extend(
+                                    [
+                                        "conformer_block_%02i_conv_mod_depthwise_conv2_causal/" % (i + 1)
+                                        for i in range(train_args["encoder_args"].num_blocks)
+                                    ]
                                 )
 
-                            chunk_level = "input" if enc_stream_type == "chunked" else "encoder"
-                            train_args["chunk_level"] = chunk_level
-                            train_args["eoc_idx"] = 0
+                        train_args["batch_size"] = batch_size * 160
+                        train_args["accum_grad"] = accum_grad
 
-                            exp_name = f"{enc_stream_type}_att_chunk"
-                            if chunk_size is not None:
-                                assert chunk_step is not None
-                                exp_name += f"-{chunk_size}_step-{chunk_step}"
-                            else:
-                                exp_name += "-globalAtt"  # no chunking
+                        train_args["enable_check_align"] = enable_check_align  # to not break hashes
 
-                            if start_lr is not None:
-                                exp_name += f"_linDecay{total_epoch}_{start_lr}_decayPt{decay_pt_factor}"
-                            if final_lr is not None:
-                                exp_name += f"_finalLR{final_lr}"
-                            elif epoch_oclr_lr is not None:
-                                exp_name += f"_epochOCLR-{epoch_oclr_lr}_ep{total_epoch}"
-                            elif lrs_list:
-                                assert lr_list_desc
-                                exp_name += f"_{lr_list_desc}"
+                        train_args["chunk_size"] = chunk_size
+                        if chunk_size is None:
+                            train_args["chunk_step"] = None
+                            chunk_step = None
+                        else:
+                            chunk_step = max(1, int(chunk_size * chunk_step_factor))
+                            train_args["chunk_step"] = chunk_step
 
-                            exp_name += f"_bs{batch_size}_accum{accum_grad}"
+                        if lrs_list is not None:
+                            train_args["learning_rates_list"] = lrs_list
+                        elif epoch_oclr_lr:
+                            assert start_lr is None
+                            cyc_ep = int(0.45 * total_epoch)
+                            train_args["learning_rates_list"] = (
+                                list(numpy.linspace(epoch_oclr_lr / 10, epoch_oclr_lr, cyc_ep))
+                                + list(numpy.linspace(epoch_oclr_lr, epoch_oclr_lr / 10, cyc_ep))
+                                + list(numpy.linspace(epoch_oclr_lr / 10, 1e-6, total_epoch - 2 * cyc_ep))
+                            )
+                        else:
+                            decay_pt = int(total_epoch * decay_pt_factor)
+                            train_args["learning_rates_list"] = [start_lr] * decay_pt + list(
+                                numpy.linspace(start_lr, min_lr, total_epoch - decay_pt)
+                            )
 
-                            if window_left_padding is not None:
-                                train_args["window_left_padding"] = window_left_padding
-                                exp_name += f"_winLeft{window_left_padding}"
+                        chunk_level = "input" if enc_stream_type == "chunked" else "encoder"
+                        train_args["chunk_level"] = chunk_level
+                        train_args["eoc_idx"] = 0
 
-                            if end_slice_size is not None:
-                                train_args["end_slice_size"] = end_slice_size
-                                assert end_slice_start is not None, "need end_slice_start"
-                                train_args["end_slice_start"] = end_slice_start
-                                exp_name += f"_endSliceStart{end_slice_start}_endSlice{end_slice_size}"
+                        exp_name = f"{enc_stream_type}_att_chunk"
+                        if chunk_size is not None:
+                            assert chunk_step is not None
+                            exp_name += f"-{chunk_size}_step-{chunk_step}"
+                        else:
+                            exp_name += "-globalAtt"  # no chunking
 
-                            if pos_enc is None:
-                                train_args["encoder_args"].pos_enc = pos_enc
-                                exp_name += f"_woPosEnc"
-                            else:
-                                assert pos_enc == "rel"
+                        if start_lr:
+                            exp_name += f"_linDecay{total_epoch}_{start_lr}_decayPt{decay_pt_factor}"
+                            if min_lr != 1e-6:
+                                exp_name += f"_minLR{min_lr}"
+                        elif epoch_oclr_lr:
+                            exp_name += f"_epochOCLR-{epoch_oclr_lr}_ep{total_epoch}"
+                        elif lrs_list:
+                            assert lr_list_desc
+                            exp_name += f"_{lr_list_desc}"
 
-                            if conf_mem_opts is not None:
-                                train_args["conf_mem_opts"] = conf_mem_opts
-                                exp_name += f"_memVariant{conf_mem_opts['self_att_version']}"
-                                mem_size = conf_mem_opts.get("mem_size", 1)
-                                if mem_size > 1:
-                                    exp_name += f"_memSize{mem_size}"
-                                if conf_mem_opts.get("mask_paddings", False):
-                                    exp_name += f"_memMaskPad"
-                                if conf_mem_opts.get("conv_cache_size", None):
-                                    exp_name += f"_convCache{conf_mem_opts['conv_cache_size']}"
-                                if conf_mem_opts.get("use_cached_prev_kv", False):
-                                    exp_name += f"_useCachedKV"
-                                if conf_mem_opts.get("mem_slice_start", None) is not None:
-                                    assert conf_mem_opts.get("mem_slice_size", None) is not None
-                                    exp_name += (
-                                        f"_memSlice{conf_mem_opts['mem_slice_start']}-{conf_mem_opts['mem_slice_size']}"
-                                    )
-                                if conf_mem_opts.get("use_emformer_mem", False):
-                                    exp_name += f"_emfMem"
-                                train_args["recursion_limit"] = 4000
+                        exp_name += f"_bs{batch_size}_accum{accum_grad}"
 
-                            if with_ctc:
-                                exp_name += "_withCtc"
+                        if window_left_padding is not None:
+                            train_args["window_left_padding"] = window_left_padding
+                            exp_name += f"_winLeft{window_left_padding}"
 
+                        if end_slice_size is not None:
+                            train_args["end_slice_size"] = end_slice_size
+                            assert end_slice_start is not None, "need end_slice_start"
+                            train_args["end_slice_start"] = end_slice_start
+                            exp_name += f"_endSliceStart{end_slice_start}_endSlice{end_slice_size}"
+
+                        if pos_enc is None:
+                            train_args["encoder_args"].pos_enc = pos_enc
+                            exp_name += f"_woPosEnc"
+                        else:
+                            assert pos_enc == "rel"
+
+                        if conf_mem_opts is not None:
+                            train_args["conf_mem_opts"] = conf_mem_opts
+                            exp_name += f"_memVariant{conf_mem_opts['self_att_version']}"
+                            mem_size = conf_mem_opts.get("mem_size", 1)
+                            if mem_size > 1:
+                                exp_name += f"_memSize{mem_size}"
+                            if conf_mem_opts.get("mask_paddings", False):
+                                exp_name += f"_memMaskPad"
+                            if conf_mem_opts.get("conv_cache_size", None):
+                                exp_name += f"_convCache{conf_mem_opts['conv_cache_size']}"
+                            if conf_mem_opts.get("use_cached_prev_kv", False):
+                                exp_name += f"_useCachedKV"
+                            if conf_mem_opts.get("mem_slice_start", None) is not None:
+                                assert conf_mem_opts.get("mem_slice_size", None) is not None
+                                exp_name += (
+                                    f"_memSlice{conf_mem_opts['mem_slice_start']}-{conf_mem_opts['mem_slice_size']}"
+                                )
+                            train_args["recursion_limit"] = 4000
+
+                        if with_ctc:
+                            exp_name += "_withCtc"
+
+                        if full_sum_approx:
+                            # NOTE: no need to mask EOC for the decoder since the targets do not contain EOC (just bpe labels)
+                            train_args["decoder_args"].prev_target_embed_direct = True
+                            train_args["decoder_args"].full_sum_simple_approx = True
+                            exp_name += "_fullSumApprox"
+
+                        if decoder_mask_eoc:
+                            train_args["decoder_args"].masked_computation_blank_idx = train_args["eoc_idx"]
+                            exp_name += "_maskEOC"
+
+                        if retrain_ckpt:
+                            assert suffix, "set suffix for retrain to avoid overwriting"
+                            train_args["retrain_checkpoint"] = retrain_ckpt
+
+                        train_args["chunked_decoder"] = chunked_decoder
+                        if not chunked_decoder:
+                            exp_name += "_noChunkedDec"
+
+                        if from_scratch_train:
+                            train_args.update(get_base_v1_args(train_args, lr=epoch_oclr_lr, ep=total_epoch))
+                            train_args["with_pretrain"] = True
+                            train_args["retrain_checkpoint"] = None
+                            exp_name += "_fromScratch"
+
+                        if kwargs.get("rel_pos_clipping", None):
+                            train_args["encoder_args"].rel_pos_clipping = kwargs["rel_pos_clipping"]
+                            exp_name += f"_relPosClip{kwargs['rel_pos_clipping']}"
+
+                        if kwargs.get("freeze_bn", False):
+                            train_args["freeze_bn"] = True
+                            exp_name += "_freezeBN"
+
+                        if kwargs.get("remove_att_ctx_from_dec_state", False):
+                            train_args["remove_att_ctx_from_dec_state"] = True
+                            exp_name += "_woDecAtt"
+
+                        if suffix:
+                            exp_name += suffix
+
+                        # override
+                        if with_ctc:
+                            search_score_key = "dev_score_output/output_prob"
+                        else:
+                            search_score_key = "dev_score"
+
+                        if chunk_size is None or chunked_decoder is False or from_scratch_train:
+                            run_exp(
+                                prefix_name=prefix_name,
+                                exp_name=exp_name,
+                                train_args=train_args,
+                                num_epochs=total_epoch,
+                                epoch_wise_filter=None,
+                                time_rqmt=time_rqmt,
+                                key=search_score_key,
+                                use_sclite=True,
+                                speed_pert=speed_pert,
+                                **kwargs,
+                            )
+                        elif on_the_fly_align:
+                            train_args["search_type"] = "end-of-chunk"  # on-the-fly alignment
+                            run_exp(
+                                prefix_name=prefix_name,
+                                exp_name=exp_name,
+                                train_args=train_args,
+                                num_epochs=total_epoch,
+                                epoch_wise_filter=None,
+                                time_rqmt=time_rqmt,
+                                key=search_score_key,
+                                use_sclite=True,
+                                **kwargs,
+                            )
+                        else:
                             if full_sum_approx:
-                                # NOTE: no need to mask EOC for the decoder since the targets do not contain EOC (just bpe labels)
-                                train_args["decoder_args"].prev_target_embed_direct = True
-                                train_args["decoder_args"].full_sum_simple_approx = True
-                                exp_name += "_fullSumApprox"
-
-                            if decoder_mask_eoc:
-                                train_args["decoder_args"].masked_computation_blank_idx = train_args["eoc_idx"]
-                                exp_name += "_maskEOC"
-
-                            if retrain_ckpt:
-                                assert suffix, "set suffix for retrain to avoid overwriting"
-                                train_args["retrain_checkpoint"] = retrain_ckpt
-
-                            train_args["chunked_decoder"] = chunked_decoder
-                            if not chunked_decoder:
-                                exp_name += "_noChunkedDec"
-
-                            if from_scratch_train:
-                                train_args.update(get_base_v1_args(train_args, lr=epoch_oclr_lr, ep=total_epoch))
-                                train_args["with_pretrain"] = True
-                                train_args["retrain_checkpoint"] = None
-                                exp_name += "_fromScratch"
-
-                            if kwargs.get("rel_pos_clipping", None):
-                                train_args["encoder_args"].rel_pos_clipping = kwargs["rel_pos_clipping"]
-                                exp_name += f"_relPosClip{kwargs['rel_pos_clipping']}"
-
-                            if kwargs.get("remove_att_ctx_from_dec_state", False):
-                                train_args["remove_att_ctx_from_dec_state"] = True
-                                exp_name += "_woDecAtt"
-
-                            if kwargs.get("use_curr_enc_for_dec_state", False):
-                                train_args["use_curr_enc_for_dec_state"] = True
-                                exp_name += "_useCurrFrame"
-
-                            if kwargs.get("asr_ce_scale", None) is not None:
-                                train_args["decoder_args"].ce_loss_scale = kwargs["asr_ce_scale"]
-                                exp_name += f"_ceScale{kwargs['asr_ce_scale']}"
-
-                            if suffix:
-                                exp_name += suffix
-
-                            # override
-                            if with_ctc:
-                                search_score_key = "dev_score_output/output_prob"
+                                # just use original targets without EOC
+                                train_fixed_alignment = None
+                                cv_fixed_alignment = None
                             else:
-                                search_score_key = "dev_score"
+                                assert ctc_chunksync_align, "Need CTC chunk-sync alignments"
+                                train_fixed_alignment = ctc_chunksync_align["train"][f"{chunk_size}_{chunk_step}"]
+                                cv_fixed_alignment = ctc_chunksync_align["dev"][f"{chunk_size}_{chunk_step}"]
+                            _, train_data = run_exp(
+                                prefix_name=prefix_name,
+                                exp_name=exp_name,
+                                train_args=train_args,
+                                num_epochs=total_epoch,
+                                train_fixed_alignment=train_fixed_alignment,
+                                cv_fixed_alignment=cv_fixed_alignment,
+                                epoch_wise_filter=None,
+                                time_rqmt=time_rqmt,
+                                key=search_score_key,
+                                use_sclite=True,
+                                seq_postfix=None if full_sum_approx else 0,
+                                **kwargs,
+                            )
 
-                            if chunk_size is None or chunked_decoder is False or from_scratch_train:
-                                run_exp(
-                                    prefix_name=prefix_name,
-                                    exp_name=exp_name,
-                                    train_args=train_args,
-                                    num_epochs=total_epoch,
-                                    epoch_wise_filter=None,
-                                    time_rqmt=time_rqmt,
-                                    key=search_score_key,
-                                    use_sclite=True,
-                                    speed_pert=speed_pert,
-                                    **kwargs,
-                                )
-                            elif on_the_fly_align:
-                                train_args["search_type"] = "end-of-chunk"  # on-the-fly alignment
-                                exp_name += "_onTheFlyAlign"
-                                _, train_data = run_exp(
-                                    prefix_name=prefix_name,
-                                    exp_name=exp_name,
-                                    train_args=train_args,
-                                    num_epochs=total_epoch,
-                                    epoch_wise_filter=None,
-                                    time_rqmt=time_rqmt,
-                                    key=search_score_key,
-                                    use_sclite=True,
-                                    do_not_train=do_not_train,
-                                    **kwargs,
-                                )
-                                if return_hdf_align:
-                                    return (
-                                        train_args,
-                                        exp_name,
-                                        train_data,
-                                        ctc_chunksync_align["train"][f"{chunk_size}_{chunk_step}"],
-                                        ctc_chunksync_align["dev"][f"{chunk_size}_{chunk_step}"],
-                                    )
-                            else:
-                                if full_sum_approx:
-                                    # just use original targets without EOC
-                                    train_fixed_alignment = None
-                                    cv_fixed_alignment = None
-                                else:
-                                    assert ctc_chunksync_align, "Need CTC chunk-sync alignments"
-                                    train_fixed_alignment = ctc_chunksync_align["train"][f"{chunk_size}_{chunk_step}"]
-                                    cv_fixed_alignment = ctc_chunksync_align["dev"][f"{chunk_size}_{chunk_step}"]
-                                _, train_data = run_exp(
-                                    prefix_name=prefix_name,
-                                    exp_name=exp_name,
-                                    train_args=train_args,
-                                    num_epochs=total_epoch,
-                                    train_fixed_alignment=train_fixed_alignment,
-                                    cv_fixed_alignment=cv_fixed_alignment,
-                                    epoch_wise_filter=None,
-                                    time_rqmt=time_rqmt,
-                                    key=search_score_key,
-                                    use_sclite=True,
-                                    seq_postfix=None if full_sum_approx else 0,
-                                    **kwargs,
-                                )
+                            if return_args:
+                                assert len(total_epochs) == 1
+                                assert len(chunk_sizes) == 1
+                                assert len(chunk_step_factors) == 1
+                                assert len(start_lrs) == 1
+                                assert len(decay_pt_factors) == 1
 
-                                if return_args:
-                                    assert len(total_epochs) == 1
-                                    assert len(chunk_sizes) == 1
-                                    assert len(chunk_step_factors) == 1
-                                    assert len(start_lrs) == 1
-                                    assert len(decay_pt_factors) == 1
-
-                                    if return_hdf_align:
-                                        return (
-                                            train_args,
-                                            exp_name,
-                                            train_data,
-                                            train_fixed_alignment,
-                                            cv_fixed_alignment,
-                                        )
-                                    return train_args, exp_name, train_data
+                                return train_args, exp_name, train_data, train_fixed_alignment, cv_fixed_alignment
 
 
 def _run_exp_full_sum_simple_approx(
@@ -1685,32 +1400,33 @@ def _run_exp_full_sum_simple_approx(
         num_epochs=total_epochs,
         epoch_wise_filter=None,
         time_rqmt=72,
-        selected_datasets=["dev"],
+        selected_datasets=["dev-other"],
         key="dev_score_output/output_prob" if with_ctc else "dev_score",
         use_sclite=True,
     )
 
 
 def py():
-    for decoder_mask_eoc in [True, False]:
+    for mask_eoc in [True, False]:
         run_chunkwise_train(
             enc_stream_type="global",
             run_all_for_best_last_avg=True,
             enable_check_align=False,
-            chunk_sizes=[5, 10, 25],
+            chunk_sizes=[1, 5, 10, 25],
             chunk_step_factors=[1],
             start_lrs=[2e-4],
-            decay_pt_factors=[0.0, 0.1, 0.2, 0.25],
-            final_lrs=[1e-6, 1e-5],
+            decay_pt_factors=[0.25, 1 / 3],
             gpu_mem=11,
-            total_epochs=[20 * 4],
+            total_epochs=[10 * 20, 20 * 20],
             batch_size=15_000,
             accum_grad=2,
             time_rqmt=120,
-            decoder_mask_eoc=decoder_mask_eoc,
+            decoder_mask_eoc=mask_eoc,
         )
 
-    for decoder_mask_eoc in [True, False]:
+    # global_att_chunk-1_step-1_linDecay200_0.0002_decayPt0.25_bs15000_accum2
+    # 2.37         5.8           2.51          6.03      200
+    for mask_eoc in [True, False]:
         run_chunkwise_train(
             enc_stream_type="global",
             run_all_for_best_last_avg=True,
@@ -1719,49 +1435,36 @@ def py():
             chunk_step_factors=[1],
             start_lrs=[2e-4],
             decay_pt_factors=[0.25],
-            final_lrs=[1e-6],
             gpu_mem=11,
-            total_epochs=[20 * 4, 30 * 4, 40 * 4],
+            total_epochs=[20 * 20],
             batch_size=15_000,
             accum_grad=2,
             time_rqmt=120,
-            decoder_mask_eoc=decoder_mask_eoc,
+            decoder_mask_eoc=mask_eoc,
+            remove_att_ctx_from_dec_state=True
         )
 
-    # TODO: mask out EOC symbol + ctx from decoder state
-    run_chunkwise_train(
-        enc_stream_type="global",
-        run_all_for_best_last_avg=True,
-        enable_check_align=False,
-        chunk_sizes=[1, 5, 10, 25],
-        chunk_step_factors=[1],
-        start_lrs=[2e-4],
-        decay_pt_factors=[0.25, 1 / 3],
-        final_lrs=[1e-6],
-        gpu_mem=11,
-        total_epochs=[20 * 4, 40 * 4],
-        batch_size=15_000,
-        accum_grad=2,
-        time_rqmt=120,
-        decoder_mask_eoc=True,
-        remove_att_ctx_from_dec_state=True,
-    )
+    # TODO: with prev:att, just as-is, no change (done above)
 
-    # # TODO: use overlap
+    # TODO: change it to h_t, with att out linear transformation (should then be same kind of embedding, also same dim)
+
+    # TODO: h_t without linear trafo (might be different dim)
+
+    # TODO: no h_t at all (also different dim)
     # run_chunkwise_train(
     #     enc_stream_type="global",
     #     run_all_for_best_last_avg=True,
     #     enable_check_align=False,
-    #     chunk_sizes=[5, 10, 25],
-    #     chunk_step_factors=[0.5, 0.75],  # 50%, 25% overlaps
+    #     chunk_sizes=[1, 20],
+    #     chunk_step_factors=[1],
     #     start_lrs=[2e-4],
-    #     decay_pt_factors=[0.25, 1 / 3],
-    #     final_lrs=[1e-6],
-    #     gpu_mem=11,
-    #     total_epochs=[20 * 4, 40 * 4],
-    #     batch_size=15_000,
-    #     accum_grad=2,
+    #     decay_pt_factors=[0.25],
+    #     gpu_mem=24,
+    #     total_epochs=[300, 400],
+    #     batch_size=30_000,
+    #     accum_grad=1,
     #     time_rqmt=120,
     #     decoder_mask_eoc=True,
     #     remove_att_ctx_from_dec_state=True,
+    #     returnn_root=RETURNN_ROOT_V2,
     # )
