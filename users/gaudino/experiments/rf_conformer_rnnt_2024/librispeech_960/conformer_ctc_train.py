@@ -10,6 +10,7 @@ import numpy as np
 import hashlib
 import contextlib
 import functools
+from sisyphus import tk
 
 from returnn.tensor import Tensor, Dim, single_step_dim
 import returnn.frontend as rf
@@ -32,10 +33,10 @@ from i6_experiments.users.gaudino.models.asr.rf.conformer_ctc.model_recog_ctc_gr
 
 if TYPE_CHECKING:
     from i6_experiments.users.zeyer.model_interfaces import ModelDef, RecogDef, TrainDef
-    from i6_experiments.users.zeyer.model_with_checkpoints import (
-        ModelWithCheckpoints,
-        ModelWithCheckpoint,
-    )
+from i6_experiments.users.zeyer.model_with_checkpoints import (
+    ModelWithCheckpoints,
+    ModelWithCheckpoint,
+)
 
 # From Mohammad, 2023-06-29
 # dev-clean  2.27
@@ -99,6 +100,9 @@ _log_mel_feature_dim = 80
 
 def sis_run_with_prefix(prefix_name: Optional[str] = None):
     """run the exp"""
+
+    from i6_core.returnn.training import PtCheckpoint
+
     _sis_setup_global_prefix(prefix_name)
 
     # Moh:      dev-clean  2.27, dev-other  5.39, test-clean  2.41,  test-other  5.51
@@ -158,9 +162,12 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
             "aux_loss_layers":[],
             "mel_normalization_ted2": False,
         },
+        search_config={
+            "mel_normalization_ted2": False,
+        },
     )
 
-    train_exp(  # dev-other 7.17
+    train_exp(  # dev-other 6.92
         "base-24gb-lrlin1e_5_600k_ctc_only_aux4_8_no_mel_norm",
         config_24gb_v6,
         config_updates={
@@ -171,7 +178,34 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
             "learning_rate_piecewise_values": [1e-5, 1e-3, 1e-5, 1e-6],
             "mel_normalization_ted2": False,
         },
+        search_config = {
+            "mel_normalization_ted2": False,
+        },
     )
+
+    _torch_ckpt_path = "/u/luca.gaudino/setups/2023-08-10--rf-librispeech/work/i6_core/returnn/training/ReturnnTrainingJob.AWwVft0oGy8e/output/models/epoch.1981.pt"
+
+    new_ckpt_path = tk.Path(
+        _torch_ckpt_path,
+        hash_overwrite= "ctc" + "_torch_ckpt",
+    )
+    new_ckpt = PtCheckpoint(new_ckpt_path)
+
+    recog_config = {
+        "mel_normalization_ted2": False,
+    }
+
+    # recog ctc only model
+    _recog(
+        "model_recogs/base-24gb-lrlin1e_5_600k_ctc_only_aux4_8_no_mel_norm/ep1981/ctc_greedy/recog_results",
+        ModelWithCheckpoint(
+            definition=from_scratch_model_def, checkpoint=new_ckpt
+        ),
+        model_recog,
+        recog_config=recog_config,
+    )
+
+
 
 _sis_prefix: Optional[str] = None
 
@@ -227,6 +261,7 @@ def train_exp(
     fine_tune: Optional[Union[int, List[Tuple[int, Dict[str, Any]]]]] = None,
     time_rqmt: Optional[int] = None,
     model_avg: bool = False,
+    search_config: Optional[Dict[str, Any]] = None,
 ) -> ModelWithCheckpoints:
     """
     Train experiment
@@ -264,7 +299,7 @@ def train_exp(
         time_rqmt=time_rqmt,
     )
     recog_training_exp(
-        prefix, task, model_with_checkpoint, recog_def=model_recog, model_avg=model_avg
+        prefix, task, model_with_checkpoint, recog_def=model_recog, model_avg=model_avg, search_config=search_config
     )
 
     if fine_tune:

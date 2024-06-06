@@ -130,35 +130,39 @@ def model_recog(
     # Initial state.
     beam_dim = Dim(1, name="initial-beam")
     batch_dims_ = [beam_dim] + batch_dims
-    decoder_state = model.decoder_default_initial_state(
-        batch_dims=batch_dims_, enc_spatial_dim=enc_spatial_dim
-    )
+
     target = rf.constant(model.bos_idx, dims=batch_dims_, sparse_dim=model.target_dim_w_blank)
     ended = rf.constant(False, dims=batch_dims_)
     out_seq_len = rf.constant(0, dims=batch_dims_)
     seq_log_prob = rf.constant(0.0, dims=batch_dims_)
+
+    blank_idx = model.target_dim.get_dim_value()
+
+    enc_out = enc_args["enc"]
 
 
     # TODO implement rnnt search
     temperature = 1.0
     step_max_tokens = 100
 
-    def _init_b_hypos(self, device: torch.device) -> List[Hypothesis]:
-        token = self.blank
-        state = None
+    def _init_b_hypos(device: torch.device) -> List[Hypothesis]:
+        token = blank_idx
+        decoder_state = model.decoder_default_initial_state(
+            batch_dims=batch_dims_, enc_spatial_dim=enc_spatial_dim
+        )
 
-        one_tensor = torch.tensor([1], device=device)
-        pred_out, _, pred_state = model.predict(torch.tensor([[token]], device=device), one_tensor, state)
+        blank_tensor = rf.constant(blank_idx, dims=Dim(1), sparse_dim=model.target_dim_w_blank)
+        pred_out, _, pred_state = model.predictor(blank_tensor, decoder_state.predictor)
         init_hypo = (
             [token],
-            pred_out[0].detach(),
+            pred_out, # pred_out[0].detach(), TODO: what is this doing?
             pred_state,
             0.0,
         )
         return [init_hypo]
 
     def _gen_next_token_probs(
-        self, enc_out: torch.Tensor, hypos: List[Hypothesis], device: torch.device
+            enc_out: Tensor, hypos: List[Hypothesis], device: torch.device
     ) -> torch.Tensor:
         one_tensor = torch.tensor([1], device=device)
         predictor_out = torch.stack([_get_hypo_predictor_out(h) for h in hypos], dim=0)
@@ -168,11 +172,10 @@ def model_recog(
             predictor_out,
             torch.tensor([1] * len(hypos), device=device),
         )  # [beam_width, 1, 1, num_tokens]
-        joined_out = torch.nn.functional.log_softmax(joined_out / self.temperature, dim=3)
+        joined_out = torch.nn.functional.log_softmax(joined_out / temperature, dim=3)
         return joined_out[:, 0, 0]
 
     def _gen_b_hypos(
-        self,
         b_hypos: List[Hypothesis],
         a_hypos: List[Hypothesis],
         next_token_probs: torch.Tensor,
@@ -199,7 +202,6 @@ def model_recog(
         return [b_hypos[idx] for idx in sorted_idx]
 
     def _gen_a_hypos(
-        self,
         a_hypos: List[Hypothesis],
         b_hypos: List[Hypothesis],
         next_token_probs: torch.Tensor,
@@ -230,14 +232,13 @@ def model_recog(
                 new_scores.append(score)
 
         if base_hypos:
-            new_hypos = self._gen_new_hypos(base_hypos, new_tokens, new_scores, t, device)
+            new_hypos = _gen_new_hypos(base_hypos, new_tokens, new_scores, t, device)
         else:
             new_hypos: List[Hypothesis] = []
 
         return new_hypos
 
     def _gen_new_hypos(
-        self,
         base_hypos: List[Hypothesis],
         tokens: List[int],
         scores: List[float],
@@ -246,7 +247,7 @@ def model_recog(
     ) -> List[Hypothesis]:
         tgt_tokens = torch.tensor([[token] for token in tokens], device=device)
         states = _batch_state(base_hypos)
-        pred_out, _, pred_states = self.model.predict(
+        pred_out, _, pred_states = model.predict(
             tgt_tokens,
             torch.tensor([1] * len(base_hypos), device=device),
             states,
@@ -257,12 +258,16 @@ def model_recog(
             new_hypos.append((new_tokens, pred_out[i].detach(), _slice_state(pred_states, i, device), scores[i]))
         return new_hypos
 
+    # TODO: call for every seq
+    # for enc_out in enc_out_batched:
+
     # from _search function
-    n_time_steps = enc_out.shape[1]
+    n_time_steps = enc_out.get_dim(1)
     device = enc_out.device
 
+    breakpoint()
     a_hypos: List[Hypothesis] = []
-    b_hypos = self._init_b_hypos(device) if hypo is None else hypo
+    b_hypos = _init_b_hypos(device) # used for streaming: if hypo is None else hypo
     for t in range(n_time_steps):
         a_hypos = b_hypos
         b_hypos = torch.jit.annotate(List[Hypothesis], [])
@@ -270,14 +275,14 @@ def model_recog(
         symbols_current_t = 0
 
         while a_hypos:
-            next_token_probs = self._gen_next_token_probs(enc_out[:, t: t + 1], a_hypos, device)
+            next_token_probs = _gen_next_token_probs(enc_out[:, t: t + 1], a_hypos, device)
             next_token_probs = next_token_probs.cpu()
-            b_hypos = self._gen_b_hypos(b_hypos, a_hypos, next_token_probs, key_to_b_hypo)
+            b_hypos = _gen_b_hypos(b_hypos, a_hypos, next_token_probs, key_to_b_hypo)
 
-            if symbols_current_t == self.step_max_tokens:
+            if symbols_current_t == step_max_tokens:
                 break
 
-            a_hypos = self._gen_a_hypos(
+            a_hypos = _gen_a_hypos(
                 a_hypos,
                 b_hypos,
                 next_token_probs,
@@ -288,7 +293,7 @@ def model_recog(
             if a_hypos:
                 symbols_current_t += 1
 
-        _, sorted_idx = torch.tensor([self.hypo_sort_key(hyp) for hyp in b_hypos]).topk(beam_width)
+        _, sorted_idx = torch.tensor([hypo_sort_key(hyp) for hyp in b_hypos]).topk(beam_width)
         b_hypos = [b_hypos[idx] for idx in sorted_idx]
 
     # return b_hypos
