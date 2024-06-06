@@ -571,6 +571,9 @@ class RNNDecoderArgs(DecoderArgs):
 
     use_zoneout_output: bool = False
 
+    ff_weight_dropout: Optional[float] = None
+    ff_weight_noise: Optional[float] = None
+
 
 def create_config(
     training_datasets,
@@ -1082,7 +1085,10 @@ def create_config(
         exp_config["network"]["output"]["unit"].pop("s", None)
 
         # change inputs
-        exp_config["network"]["output"]["unit"]["s_wo_att"]["from"] = "prev:target_embed"  # remove prev:att
+        if decoder_args["full_sum_simple_approx"]:
+            exp_config["network"]["output"]["unit"]["s_wo_att"]["from"] = "prev_target_embed"
+        else:
+            exp_config["network"]["output"]["unit"]["s_wo_att"]["from"] = "prev:target_embed"
         exp_config["network"]["output"]["unit"]["s_transformed"]["from"] = "s_wo_att"
         assert exp_config["network"]["output"]["unit"]["readout_in"]["from"][0] == "s"
         exp_config["network"]["output"]["unit"]["readout_in"]["from"][0] = "s_wo_att"

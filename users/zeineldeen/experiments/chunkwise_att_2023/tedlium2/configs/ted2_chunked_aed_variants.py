@@ -1747,6 +1747,28 @@ def py():
         remove_att_ctx_from_dec_state=True,
     )
 
+    # TODO: exact full-sum training
+    run_chunkwise_train(
+        enc_stream_type="global",
+        run_all_for_best_last_avg=True,
+        enable_check_align=False,
+        chunk_sizes=[25],
+        chunk_step_factors=[1],
+        start_lrs=[2e-4],
+        decay_pt_factors=[0.25, 1 / 3],
+        final_lrs=[1e-6],
+        gpu_mem=11,
+        total_epochs=[20 * 4, 40 * 4],
+        batch_size=15_000,
+        accum_grad=2,
+        time_rqmt=120,
+        decoder_mask_eoc=False,  # there are no blanks in the target seq
+        remove_att_ctx_from_dec_state=True,  # remove att ctx dependency so we can do exact full sum
+        full_sum_approx=True,
+    )
+
+    # TODO: exact full-sum training starting from viterbi-trained model
+
     # # TODO: use overlap
     # run_chunkwise_train(
     #     enc_stream_type="global",
