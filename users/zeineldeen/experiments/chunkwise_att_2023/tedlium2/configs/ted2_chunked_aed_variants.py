@@ -1759,8 +1759,8 @@ def py():
         final_lrs=[1e-6],
         gpu_mem=11,
         total_epochs=[20 * 4, 40 * 4],
-        batch_size=15_000,
-        accum_grad=2,
+        batch_size=10_000,
+        accum_grad=3,
         time_rqmt=120,
         decoder_mask_eoc=False,  # there are no blanks in the target seq
         remove_att_ctx_from_dec_state=True,  # remove att ctx dependency so we can do exact full sum
