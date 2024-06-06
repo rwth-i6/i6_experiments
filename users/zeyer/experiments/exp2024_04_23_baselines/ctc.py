@@ -63,7 +63,9 @@ def py():
             1e-2,
         ]:
             train_exp(
-                f"v6-bhv20-11gb-f32-bs15k-accgrad{acc}-mgpu4-pavg100-wd{str(wd).replace('-','_')}-lrlin1e_5_295k-bpe10k",
+                f"v6-bhv20-11gb-f32-bs15k-accgrad{acc}"
+                f"-mgpu4-pavg100-wd{('%.e'%wd).replace('e-0', 'e_')}"
+                f"-lrlin1e_5_295k-bpe10k",
                 config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
                 config_updates={
                     **_get_cfg_lrlin_oclr_by_bs_nep(15_000, 500),
