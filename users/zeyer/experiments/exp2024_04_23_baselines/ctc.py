@@ -55,26 +55,25 @@ def py():
         - Luca uses older behavior_version 21 -> 16.
     """
 
-    for acc in [5, 1]:
-        for wd in [
-            # 1e-5,  # accum=5, wd=1e-5: 9.90
-            1e-4,  # accum=1, wd=1e-4: 9.24
-            1e-3,
-            1e-2,
-        ]:
-            if (acc, wd) == (1, 1e-4):
-                continue  # skip for now
-            train_exp(
-                f"v6-bhv20-11gb-f32-bs15k-accgrad{acc}"
-                f"-mgpu4-pavg100-wd{('%.e'%wd).replace('e-0', 'e_')}"
-                f"-lrlin1e_5_295k-bpe10k",
-                config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
-                config_updates={
-                    **_get_cfg_lrlin_oclr_by_bs_nep(15_000, 500),
-                    "accum_grad_multiple_step": acc,
-                    "optimizer.weight_decay": wd,
-                },
-            )
+    for acc, wd in [
+        # (5, 1e-5),  # 9.90
+        (5, 1e-3),
+        (5, 1e-2),
+        # (1, 1e-4),  # 9.24
+        (1, 1e-3),
+        (1, 1e-2),
+    ]:
+        train_exp(
+            f"v6-bhv20-11gb-f32-bs15k-accgrad{acc}"
+            f"-mgpu4-pavg100-wd{('%.e'%wd).replace('e-0', 'e_')}"
+            f"-lrlin1e_5_295k-bpe10k",
+            config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
+            config_updates={
+                **_get_cfg_lrlin_oclr_by_bs_nep(15_000, 500),
+                "accum_grad_multiple_step": acc,
+                "optimizer.weight_decay": wd,
+            },
+        )
 
     train_exp(  # 8.79
         f"v6-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_4-lrlin1e_5_295k-speedpertV2-bpe10k",
