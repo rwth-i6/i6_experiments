@@ -179,9 +179,9 @@ def py():
     # Test different feature normalization schemes.
     for name, model_opts in {
         None: None,
-        "featBN": {"feature_batch_norm": True},
-        "featNorm": {"feature_norm": True},
-        "featGN": {"feature_stats": {"mean": feature_stats.mean, "std_dev": feature_stats.std_dev}},
+        "featBN": {"feature_batch_norm": True},  # batch norm
+        "featNorm": {"feature_norm": True},  # normalize (on sequence level)
+        "featGN": {"feature_stats": {"mean": feature_stats.mean, "std_dev": feature_stats.std_dev}},  # global norm
     }.items():
         train_exp(
             "v6-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-"
