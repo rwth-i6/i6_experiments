@@ -933,6 +933,8 @@ def create_config(
     decoder_args = asdict(decoder_args)
     decoder_args.update({"target": target, "beam_size": beam_size})
 
+    chunked_decoder_trained_with_fs = False
+
     if chunked_decoder:
         decoder_args["enc_chunks_dim"] = chunked_time_dim
         decoder_args["enc_time_dim"] = chunk_size_dim
@@ -941,6 +943,7 @@ def create_config(
         decoder_args["enable_check_align"] = enable_check_align  # just here to keep some old changes
 
         if decoder_args["full_sum_simple_approx"] and is_recog:
+            chunked_decoder_trained_with_fs = True
             decoder_args["full_sum_simple_approx"] = False
             decoder_args["masked_computation_blank_idx"] = eoc_idx
     elif chunk_size and not dump_ctc_dataset and not dump_ctc and not dump_alignments_dataset:
@@ -1085,7 +1088,7 @@ def create_config(
         exp_config["network"]["output"]["unit"].pop("s", None)
 
         # change inputs
-        if decoder_args["full_sum_simple_approx"]:
+        if decoder_args["full_sum_simple_approx"] or chunked_decoder_trained_with_fs:
             exp_config["network"]["output"]["unit"]["s_wo_att"]["from"] = "prev_target_embed"
         else:
             exp_config["network"]["output"]["unit"]["s_wo_att"]["from"] = "prev:target_embed"
