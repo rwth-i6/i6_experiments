@@ -55,6 +55,23 @@ def py():
         - Luca uses older behavior_version 21 -> 16.
     """
 
+    train_exp(
+        f"v6-bhv21-24gb-bf16-bs40k-accgrad2-wd1e_6-lrlin1e_5_450k-bpe10k",
+        config_24gb_v6,
+        config_updates={
+            **_get_cfg_lrlin_oclr_by_bs_nep(40_000, 2000),
+        },
+    )
+
+    train_exp(
+        f"v6-bhv21-24gb-bf16-bs40k-accgrad2-wd1e_6-lrlin1e_5_600k-bpe10k",
+        config_24gb_v6,
+        config_updates={
+            **_get_cfg_lrlin_oclr_by_bs_nep(40_000, 2000),
+            "learning_rate_piecewise_steps": [600_000, 900_000, 982_000],
+        },
+    )
+
     for acc, wd in [
         # (5, 1e-5),  # 9.90
         (5, 1e-3),
