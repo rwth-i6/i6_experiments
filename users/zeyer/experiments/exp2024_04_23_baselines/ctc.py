@@ -143,17 +143,20 @@ def py():
         ("spm10k", 0.5),  # 7.13
         ("spm10k", 0.7),  # 6.99
         ("spm10k", 0.8),
-        # alpha for BPE has a very different effect, and it causes the seq len to be much longer.
+        # alpha for SPM-BPE has a very different effect, and it causes the seq len to be much longer.
         # The higher the alpha, the longer (the reverse as for SPM Unigram).
         # See archive/returnn-spm_bpe10-sample.config.
         ("spm_bpe10k", 0.005),
         ("spm_bpe10k", 0.01),
         # ("spm_bpe10k", 0.3),  # broken
         # ("spm_bpe10k", 0.7),  # broken
+        # alpha for BPE is again a bit different, but more similar to SPM-BPE than SPM-Unigram.
+        # See archive/returnn-bpe10-sample.config.
+        ("bpe10k", 0.01),
     ]:
         train_exp(
             f"v6-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-speedpertV2-{vocab}"
-            f"-spmSample{str(alpha).replace('.', '')}",
+            f"-{'spmSample' if vocab.startswith('spm') else 'bpeSample'}{str(alpha).replace('.', '')}",
             config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
             config_updates={
                 **_get_cfg_lrlin_oclr_by_bs_nep(15_000, 500),
@@ -162,11 +165,14 @@ def py():
                 "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
             },
             vocab=vocab,
-            train_vocab_opts={"other_opts": {"enable_sampling": True, "alpha": alpha}},
+            train_vocab_opts={
+                "other_opts": (
+                    {"enable_sampling": True, "alpha": alpha}
+                    if vocab.startswith("spm")
+                    else {"class": "SamplingBytePairEncoding", "breadth_prob": alpha}
+                )
+            },
         )
-
-    # TODO SamplingBytePairEncoding for orig bpe10k, breadth_prob=0.01
-    # See archive/returnn-bpe10-sample.config.
 
     train_exp(
         "v6-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-speedpertV2-spm10k-eos-spmSample07",
