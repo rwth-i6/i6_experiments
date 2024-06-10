@@ -144,7 +144,7 @@ def main(args):
         predictions.append(data_utils.normalizer(sample["pred_text"]))
         references.append(sample["reference"])
 
-    # Write manifest results to args.manifest_path
+    # Write manifest results to args.manifest_path. This required modification in normalizer/eval_utils.py script
     manifest_path = data_utils.write_manifest(
         args.manifest_path, references, predictions, args.model_id, args.dataset_path, args.dataset, args.split
     )
