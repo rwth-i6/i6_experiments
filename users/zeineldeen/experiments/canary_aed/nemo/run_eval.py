@@ -16,6 +16,8 @@ import soundfile
 from tqdm import tqdm
 from normalizer import data_utils
 
+from datasets import load_from_disk
+
 from nemo.collections.asr.models import ASRModel
 
 DATA_CACHE_DIR = "/var/tmp/audio_cache"
@@ -108,9 +110,6 @@ def main(args):
     asr_model = ASRModel.restore_from(args.model_path, map_location=device)
     asr_model.freeze()
 
-    from datasets import load_from_disk
-
-    print("Loading dataset...")
     dataset = load_from_disk(args.dataset_path)
 
     if args.max_eval_samples is not None and args.max_eval_samples > 0:
