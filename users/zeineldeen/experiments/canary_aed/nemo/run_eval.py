@@ -20,8 +20,6 @@ from nemo.collections.asr.models import ASRModel
 
 DATA_CACHE_DIR = "/var/tmp/audio_cache"
 
-wer_metric = evaluate.load("wer")
-
 
 def dataset_iterator(dataset):
     for i, item in enumerate(dataset):
@@ -110,10 +108,10 @@ def main(args):
     asr_model = ASRModel.restore_from(args.model_path, map_location=device)
     asr_model.freeze()
 
-    from datasets import load_dataset
+    from datasets import load_from_disk
 
-    # download model is defautl to REUSE_DATASET_IF_EXISTS which means it does not download data again
-    dataset = load_dataset(args.dataset_path)
+    print("Loading dataset...")
+    dataset = load_from_disk(args.dataset_path)
 
     if args.max_eval_samples is not None and args.max_eval_samples > 0:
         print(f"Subsampling dataset to first {args.max_eval_samples} samples !")
@@ -140,6 +138,7 @@ def main(args):
     )
     print("Results saved at path:", os.path.abspath(manifest_path))
 
+    wer_metric = evaluate.load("wer")
     wer = wer_metric.compute(references=references, predictions=predictions)
     wer = round(100 * wer, 2)
 
