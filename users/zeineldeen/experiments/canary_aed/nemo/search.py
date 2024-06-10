@@ -40,7 +40,7 @@ class SearchJob(Job):
         }
 
         self.out_search_results = self.output_path("search_results")
-        self.out_wer = self.output_path("wer")
+        self.out_wer = self.output_var("wer")
 
     def tasks(self):
         yield Task("create_files", mini_task=True)
@@ -64,6 +64,8 @@ class SearchJob(Job):
             self.out_search_results.get_path(),
             "--device",
             "0" if self.device == "gpu" else "-1",
+            "--wer_out_path",
+            self.out_wer.get_path(),
         ]
         for k, v in self.search_args.items():
             if k == "device":

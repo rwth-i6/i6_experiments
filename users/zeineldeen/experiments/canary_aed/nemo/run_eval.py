@@ -154,6 +154,11 @@ def main(args):
 
     print("WER:", wer, "%")
 
+    if args.wer_out_path:
+        with open(args.wer_out_path, "w") as f:
+            f.write(f"{wer}\n")
+        print(f"Wrote WER (%) to {args.wer_out_path}")
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
@@ -172,6 +177,8 @@ if __name__ == "__main__":
     parser.add_argument("--split", type=str, required=True, help="Dataset split.")
 
     parser.add_argument("--manifest_path", type=str, required=True, help="Path to save the search output.")
+
+    parser.add_argument("--wer_out_path", type=str, default=None, help="Path to save the WER output.")
 
     parser.add_argument(
         "--device",
