@@ -64,13 +64,14 @@ def py():
             dataset_name=test_set,
             split="test",
             search_script=search_script,
-            search_args={"batch_size": 1},
+            search_args={"batch_size": 64},
             python_exe=python_exe,
             device="gpu",
             time_rqmt=4,
             mem_rqmt=4,
             cpu_rqmt=2,
         )
-        search_job.add_alias(f"canary_1b/{test_set}")
-        tk.register_output(f"canary_1b/{test_set}/search_out", search_job.out_search_results)
-        tk.register_output(f"canary_1b/{test_set}/wer", search_job.out_wer)
+        search_job.rqmt["sbatch_args"] = ["-p", "gpu_24gb"]
+        search_job.add_alias(f"canary_1b/{test_set}_bs64")
+        tk.register_output(f"canary_1b/{test_set}_bs64/search_out", search_job.out_search_results)
+        tk.register_output(f"canary_1b/{test_set}_bs64/wer", search_job.out_wer)
