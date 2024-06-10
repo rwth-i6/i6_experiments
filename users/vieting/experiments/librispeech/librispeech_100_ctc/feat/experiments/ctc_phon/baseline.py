@@ -1,11 +1,13 @@
 import copy
+import os.path
 from dataclasses import asdict
 import numpy as np
 from typing import cast, Any, Dict, List, Optional
 
+from sisyphus import tk
 from i6_core.tools.parameter_tuning import GetOptimalParametersAsVariableJob
-
 from i6_experiments.common.setups.returnn.datastreams.vocabulary import LabelDatastream
+from i6_experiments.users.vieting.tools.report import Report
 
 from ...data.common import DatasetSettings, build_test_dataset
 from ...data.phon import build_eow_phon_training_datasets, get_text_lexicon
@@ -16,6 +18,11 @@ from ...pipeline import training, prepare_asr_model, search, ASRModel
 
 def eow_phon_ls960_1023_base():
     prefix_name = "experiments/librispeech/librispeech_960_ctc/feat"
+
+    report = Report(
+        columns_start=["train_name"],
+        columns_end=["lm_scale", "prior_scale", "wer"],
+    )
 
     train_settings = DatasetSettings(
         preemphasis=0.97,  # TODO: Check if this is really useful
@@ -80,6 +87,7 @@ def eow_phon_ls960_1023_base():
         tune_parameters = []
         tune_values_clean = []
         tune_values_other = []
+        assert training_name.startswith(prefix_name + "/"),  "Assumption for report"
         for lm_weight in lm_scales:
             for prior_scale in prior_scales:
                 decoder_config = copy.deepcopy(base_decoder_config)
@@ -98,6 +106,16 @@ def eow_phon_ls960_1023_base():
                 tune_parameters.append((lm_weight, prior_scale))
                 tune_values_clean.append((wers[search_name + "/dev-clean"]))
                 tune_values_other.append((wers[search_name + "/dev-other"]))
+                for key, wer in wers.items():
+                    report.add(
+                        {
+                            "train_name": training_name[len(prefix_name + "/"):],
+                            "prior_scale": prior_scale,
+                            "lm_scale": lm_weight,
+                            "eval_set": key.split("/")[-1],
+                            "wer": wer,
+                        }
+                    )
 
         for key, tune_values in [("test-clean", tune_values_clean), ("test-other", tune_values_other)]:
             pick_optimal_params_job = GetOptimalParametersAsVariableJob(
@@ -116,6 +134,16 @@ def eow_phon_ls960_1023_base():
                 test_dataset_tuples={key: test_dataset_tuples[key]},
                 **default_returnn,
             )
+            for key, wer in wers.items():
+                report.add(
+                    {
+                        "train_name": training_name[len(prefix_name + "/"):],
+                        "prior_scale": decoder_config.prior_scale.get(),
+                        "lm_scale": decoder_config.lm_weight.get(),
+                        "eval_set": key.split("/")[-1],
+                        "wer": wer,
+                    }
+                )
 
     default_decoder_config = DecoderConfig(
         lexicon=get_text_lexicon(),
@@ -291,4 +319,14 @@ def eow_phon_ls960_1023_base():
     tune_and_evaluate_helper(
         training_name, asr_model, default_decoder_config, lm_scales=[2.3, 2.5, 2.7], prior_scales=[0.2, 0.3, 0.4],
         forward_config={"batch_size": 100 * 16000},
+    )
+
+    # finish report
+    report.delete_redundant_columns()
+    report.delete_redundant_rows()
+    report.merge_eval_sets("eval_set")
+    tk.register_report(
+        os.path.join(prefix_name, "report.csv"),
+        values=report.get_values(),
+        template=report.get_template(),
     )
