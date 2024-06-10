@@ -6,11 +6,11 @@ import argparse
 import os
 import sys
 
-sys.path.append("/u/zeineldeen/setups/ubuntu_22_setups/2024-06-07--canary-aed/recipe/open_asr_leaderboard/normalizer")
+# sys.path.append("/u/zeineldeen/setups/ubuntu_22_setups/2024-06-07--canary-aed/recipe/open_asr_leaderboard/normalizer")
 
 import shutil
 import torch
-import evaluate
+
 import soundfile
 
 from tqdm import tqdm
@@ -22,7 +22,17 @@ from nemo.collections.asr.models import ASRModel
 
 DATA_CACHE_DIR = "/var/tmp/audio_cache"
 
-wer_metric = evaluate.load("wer")
+
+def compute_wer(predictions, references):
+    from jiwer import compute_measures
+
+    incorrect = 0
+    total = 0
+    for prediction, reference in zip(predictions, references):
+        measures = compute_measures(reference, prediction)
+        incorrect += measures["substitutions"] + measures["deletions"] + measures["insertions"]
+        total += measures["substitutions"] + measures["deletions"] + measures["hits"]
+    return incorrect / total
 
 
 def dataset_iterator(dataset):
@@ -133,13 +143,13 @@ def main(args):
         predictions.append(data_utils.normalizer(sample["pred_text"]))
         references.append(sample["reference"])
 
-    # Write manifest results
+    # Write manifest results to args.manifest_path
     manifest_path = data_utils.write_manifest(
         args.manifest_path, references, predictions, args.model_id, args.dataset_path, args.dataset, args.split
     )
     print("Results saved at path:", os.path.abspath(manifest_path))
 
-    wer = wer_metric.compute(references=references, predictions=predictions)
+    wer = compute_wer(references=references, predictions=predictions)
     wer = round(100 * wer, 2)
 
     print("WER:", wer, "%")
