@@ -73,3 +73,4 @@ def py():
         )
         search_job.add_alias(f"canary_1b/{test_set}")
         tk.register_output(f"canary_1b/{test_set}/search_out", search_job.out_search_results)
+        tk.register_output(f"canary_1b/{test_set}/wer", search_job.out_wer)
