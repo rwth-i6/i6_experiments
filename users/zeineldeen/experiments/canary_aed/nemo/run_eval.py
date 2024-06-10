@@ -122,6 +122,7 @@ def main(args):
     asr_model = ASRModel.restore_from(args.model_path, map_location=device)
     asr_model.freeze()
 
+    # TODO: how to set the num_workers?
     dataset = load_from_disk(args.dataset_path)
 
     if args.max_eval_samples is not None and args.max_eval_samples > 0:

@@ -64,6 +64,7 @@ def py():
             dataset_name=test_set,
             split="test",
             search_script=search_script,
+            search_args={"batch_size": 1},
             python_exe=python_exe,
             device="gpu",
             time_rqmt=4,
