@@ -52,8 +52,11 @@ def py():
     )
 
     search_job = SearchJob(
+        model_id=MODEL_ID,
         model_path=model_path,
         dataset_path=dataset_paths["ami"],
+        dataset_name="ami",
+        split="test",
         search_script=search_script,
         python_exe=python_exe,
         device="gpu",

@@ -10,8 +10,11 @@ from i6_core.util import create_executable
 class SearchJob(Job):
     def __init__(
         self,
+        model_id: str,
         model_path: tk.Path,
         dataset_path: tk.Path,
+        dataset_name: str,
+        split: str,
         search_script: tk.Path,
         search_args: Optional[Dict[str, Any]] = None,
         python_exe: Optional[tk.Path] = None,
@@ -20,8 +23,11 @@ class SearchJob(Job):
         mem_rqmt: int = 4,
         cpu_rqmt: int = 2,
     ):
+        self.model_id = model_id
         self.model_path = model_path
         self.dataset_path = dataset_path
+        self.dataset_name = dataset_name
+        self.split = split
         self.search_script = search_script
         self.search_args = search_args
         self.python_exe = python_exe if python_exe is not None else "python3"
@@ -43,10 +49,16 @@ class SearchJob(Job):
         cmd = [
             self.python_exe.get_path(),
             self.search_script.get_path(),
+            "--model_id",
+            self.model_id,
             "--model_path",
             self.model_path.get_path(),
             "--dataset_path",
             self.dataset_path,
+            "--dataset",
+            self.dataset_name,
+            "--split",
+            self.split,
             "--device",
             0 if self.device == "gpu" else -1,
         ]
@@ -69,8 +81,11 @@ class SearchJob(Job):
     @classmethod
     def hash(cls, kwargs):
         d = {
+            "model_id": kwargs["model_id"],
             "model_path": kwargs["model_path"],
             "dataset_path": kwargs["dataset_path"],
+            "dataset_name": kwargs["dataset_name"],
+            "split": kwargs["split"],
             "search_script": kwargs["search_script"],
             "search_args": kwargs["search_args"],
             "python_exe": kwargs["python_exe"],
