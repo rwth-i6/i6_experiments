@@ -4,6 +4,7 @@ from sisyphus import *
 
 from i6_core.datasets.huggingface import DownloadAndPrepareHuggingFaceDatasetJob
 from i6_experiments.users.zeineldeen.experiments.canary_aed.nemo.download import DownloadNemoModel
+from i6_experiments.users.zeineldeen.experiments.canary_aed.nemo.search import SearchJob
 
 TEST_DATASETS = ["ami", "earnings22", "gigaspeech"]
 MODEL_ID = "nvidia/canary-1b"
@@ -32,12 +33,27 @@ def download_test_datasets() -> Dict[str, tk.Path]:
     return out_dirs
 
 
-def download_canary_1b_model():
+def download_canary_1b_model() -> tk.Path:
     j = DownloadNemoModel(model_id=MODEL_ID, device=-1)
     tk.register_output("canary_1b_nemo_model", j.out_model_dir)
     return j.out_model_dir
 
 
 def py():
-    download_test_datasets()
-    download_canary_1b_model()
+    dataset_paths = download_test_datasets()
+    model_path = download_canary_1b_model()
+
+    search_script = tk.Path(
+        "/u/zeineldeen/setups/ubuntu_22_setups/2024-06-07--canary-aed/recipe/i6_experiments/users/zeineldeen/experiments/canary_aed/nemo/run_eval.py",
+        hash_overwrite="run_eval_v1",
+    )
+
+    search_job = SearchJob(
+        model_path=model_path,
+        dataset_path=dataset_paths["ami"],
+        search_script=search_script,
+        device="gpu",
+        time_rqmt=4,
+        mem_rqmt=4,
+        cpu_rqmt=2,
+    )
