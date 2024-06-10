@@ -87,6 +87,7 @@ def eow_phon_ls100_1023_base():
         tune_parameters = []
         tune_values_clean = []
         tune_values_other = []
+        assert training_name.startswith(prefix_name + "/"),  "Assumption for report"
         for lm_weight in lm_scales:
             for prior_scale in prior_scales:
                 decoder_config = copy.deepcopy(base_decoder_config)
@@ -108,7 +109,7 @@ def eow_phon_ls100_1023_base():
                 for key, wer in wers.items():
                     report.add(
                         {
-                            "train_name": training_name,
+                            "train_name": training_name[len(prefix_name + "/"):],
                             "prior_scale": prior_scale,
                             "lm_scale": lm_weight,
                             "eval_set": key.split("/")[-1],
@@ -136,7 +137,7 @@ def eow_phon_ls100_1023_base():
             for key, wer in wers.items():
                 report.add(
                     {
-                        "train_name": training_name,
+                        "train_name": training_name[len(prefix_name + "/"):],
                         "prior_scale": decoder_config.prior_scale.get(),
                         "lm_scale": decoder_config.lm_weight.get(),
                         "eval_set": key.split("/")[-1],
