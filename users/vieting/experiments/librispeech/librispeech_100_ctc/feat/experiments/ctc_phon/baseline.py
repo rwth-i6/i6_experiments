@@ -321,6 +321,214 @@ def eow_phon_ls960_1023_base():
         forward_config={"batch_size": 100 * 16000},
     )
 
+    # check updates from LS100
+    from ...pytorch_networks.ctc.conformer_1023.i6modelsV1_VGG4LayerActFrontendV1_feat_v1_cfg import (
+        ModelConfig as CustomFeatureModelConfig,
+    )
+    from ...pytorch_networks.features.feature_extraction_v4 import (
+        SupervisedConvolutionalFeatureExtractionV4Config,
+        SpecaugConfig as FeatureSpecaugConfig,
+    )
+    specaug_config_scf = FeatureSpecaugConfig(
+        start_epoch=1,
+        time_min_num_masks=2,
+        time_max_mask_per_n_frames=25,
+        time_mask_max_size=20,
+        freq_min_num_masks=2,
+        freq_max_num_masks=5,
+        freq_mask_max_size=64,
+        freq_mask_max_size_delta_per_epoch=(256 - 64) / 300,
+    )
+    scf_config = SupervisedConvolutionalFeatureExtractionV4Config(
+        module_class="SupervisedConvolutionalFeatureExtractionV4",
+        wave_norm=True,
+        num_tf=150,
+        size_tf=256,
+        stride_tf=10,
+        init_tf="gammatone",
+        num_env=5,
+        size_env=40,
+        stride_env=16,
+        init_env="hann",
+        interleaved_resolutions=True,
+        convs=[(1, 50, 50)],
+        init_convs="ones",
+        specaug_config=specaug_config_scf,
+        specaug_before_conv_red=True,
+    )
+    frontend_config = VGG4LayerActFrontendV1Config_mod(
+        in_features=50,
+        conv1_channels=32,
+        conv2_channels=64,
+        conv3_channels=64,
+        conv4_channels=32,
+        conv_kernel_size=(3, 3),
+        conv_padding=None,
+        pool1_kernel_size=(2, 1),
+        pool1_stride=(2, 1),
+        pool1_padding=None,
+        pool2_kernel_size=(2, 1),
+        pool2_stride=(2, 1),
+        pool2_padding=None,
+        activation_str="ReLU",
+        out_features=512,
+        activation=None,
+    )
+    model_config = CustomFeatureModelConfig(
+        feature_extraction_config=scf_config,
+        frontend_config=frontend_config,
+        specaug_config=specaug_config,
+        label_target_size=vocab_size_without_blank,
+        conformer_size=512,
+        num_layers=12,
+        num_heads=8,
+        ff_dim=2048,
+        att_weights_dropout=0.1,
+        conv_dropout=0.1,
+        ff_dropout=0.1,
+        mhsa_dropout=0.1,
+        conv_kernel_size=31,
+        final_dropout=0.1,
+        specaug_start_epoch=9999,
+        feature_training_start_epoch=0,
+        feature_training_end_epoch=-1,
+    )
+
+    for specaug_dim_start, specaug_dim_end in [(32, 64), (64, 128), (64, 256)]:
+        network_module = "ctc.conformer_1023.i6modelsV1_VGG4LayerActFrontendV1_feat_v1"
+        model_config.feature_extraction_config.specaug_config.freq_mask_max_size = specaug_dim_start
+        model_config.feature_extraction_config.specaug_config.freq_mask_max_size_delta_per_epoch = (
+            (specaug_dim_end - specaug_dim_start) / 300
+        )
+        train_args = {
+            "config": {
+                **copy.deepcopy(train_config_24gbgpu_amp),
+                "batch_size": 360 * 16000,
+            },
+            "network_module": network_module,
+            "net_args": {"model_config_dict": asdict(model_config)},
+            "debug": False,
+        }
+        training_name = (
+                prefix_name + "/" + network_module +
+                f".512dim_sub4_24gbgpu_50eps_bs360.convredv11.init."
+                f"sasortv2dim{specaug_dim_start}to{specaug_dim_end}beforeTrue"
+        )
+        train_job = training(training_name, train_data, train_args, num_epochs=500, **default_returnn)
+        train_job.rqmt["gpu_mem"] = 24
+        asr_model = prepare_asr_model(
+            training_name, train_job, train_args, with_prior=True, datasets=train_data, get_specific_checkpoint=500,
+            prior_config={"batch_size": 50 * 16000},
+        )
+        tune_and_evaluate_helper(
+            training_name, asr_model, default_decoder_config, lm_scales=[3.5], prior_scales=[0.3, 0.5],
+            forward_config={"batch_size": 100 * 16000},
+        )
+
+    # repeat with different random seed
+    model_config = CustomFeatureModelConfig(
+        feature_extraction_config=scf_config,
+        frontend_config=frontend_config,
+        specaug_config=specaug_config,
+        label_target_size=vocab_size_without_blank,
+        conformer_size=512,
+        num_layers=12,
+        num_heads=8,
+        ff_dim=2048,
+        att_weights_dropout=0.2,
+        conv_dropout=0.2,
+        ff_dropout=0.2,
+        mhsa_dropout=0.2,
+        conv_kernel_size=31,
+        final_dropout=0.2,
+        specaug_start_epoch=9999,
+        feature_training_start_epoch=0,
+        feature_training_end_epoch=-1,
+    )
+    for specaug_dim_start, specaug_dim_end in [(64, 128)]:
+        network_module = "ctc.conformer_1023.i6modelsV1_VGG4LayerActFrontendV1_feat_v1"
+        model_config.feature_extraction_config.specaug_config.freq_mask_max_size = specaug_dim_start
+        model_config.feature_extraction_config.specaug_config.freq_mask_max_size_delta_per_epoch = (
+            (specaug_dim_end - specaug_dim_start) / 300
+        )
+        train_args = {
+            "config": {
+                **copy.deepcopy(train_config_24gbgpu_amp),
+                "batch_size": 360 * 16000,
+                "random_seed": 43,
+            },
+            "network_module": network_module,
+            "net_args": {"model_config_dict": asdict(model_config)},
+            "debug": False,
+        }
+        training_name = (
+                prefix_name + "/" + network_module +
+                f".512dim_sub4_24gbgpu_50eps_bs360.convredv11.init."
+                f"sasortv2dim{specaug_dim_start}to{specaug_dim_end}beforeTrue.rndseed43"
+        )
+        train_job = training(training_name, train_data, train_args, num_epochs=500, **default_returnn)
+        train_job.rqmt["gpu_mem"] = 24
+        asr_model = prepare_asr_model(
+            training_name, train_job, train_args, with_prior=True, datasets=train_data, get_specific_checkpoint=500,
+            prior_config={"batch_size": 50 * 16000},
+        )
+        tune_and_evaluate_helper(
+            training_name, asr_model, default_decoder_config, lm_scales=[3.5], prior_scales=[0.3, 0.5],
+            forward_config={"batch_size": 100 * 16000},
+        )
+
+    # test higher dropout
+    model_config = CustomFeatureModelConfig(
+        feature_extraction_config=scf_config,
+        frontend_config=frontend_config,
+        specaug_config=specaug_config,
+        label_target_size=vocab_size_without_blank,
+        conformer_size=512,
+        num_layers=12,
+        num_heads=8,
+        ff_dim=2048,
+        att_weights_dropout=0.2,
+        conv_dropout=0.2,
+        ff_dropout=0.2,
+        mhsa_dropout=0.2,
+        conv_kernel_size=31,
+        final_dropout=0.2,
+        specaug_start_epoch=9999,
+        feature_training_start_epoch=0,
+        feature_training_end_epoch=-1,
+    )
+    for specaug_dim_start, specaug_dim_end in [(64, 128)]:
+        network_module = "ctc.conformer_1023.i6modelsV1_VGG4LayerActFrontendV1_feat_v1"
+        model_config.feature_extraction_config.specaug_config.freq_mask_max_size = specaug_dim_start
+        model_config.feature_extraction_config.specaug_config.freq_mask_max_size_delta_per_epoch = (
+            (specaug_dim_end - specaug_dim_start) / 300
+        )
+        train_args = {
+            "config": {
+                **copy.deepcopy(train_config_24gbgpu_amp),
+                "batch_size": 360 * 16000,
+            },
+            "network_module": network_module,
+            "net_args": {"model_config_dict": asdict(model_config)},
+            "debug": False,
+        }
+        training_name = (
+                prefix_name + "/" + network_module +
+                f".512dim_sub4_24gbgpu_50eps_bs360.convredv11.init."
+                f"sasortv2dim{specaug_dim_start}to{specaug_dim_end}beforeTrue.drop0.2"
+        )
+        train_job = training(training_name, train_data, train_args, num_epochs=500, **default_returnn)
+        train_job.rqmt["gpu_mem"] = 24
+        asr_model = prepare_asr_model(
+            training_name, train_job, train_args, with_prior=True, datasets=train_data, get_specific_checkpoint=500,
+            prior_config={"batch_size": 50 * 16000},
+        )
+        tune_and_evaluate_helper(
+            training_name, asr_model, default_decoder_config, lm_scales=[3.5], prior_scales=[0.3, 0.5],
+            forward_config={"batch_size": 100 * 16000},
+        )
+
+
     # finish report
     report.delete_redundant_columns()
     report.delete_redundant_rows()
