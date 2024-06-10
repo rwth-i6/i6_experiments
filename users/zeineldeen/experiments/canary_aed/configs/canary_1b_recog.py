@@ -56,18 +56,19 @@ def py():
         "/work/asr4/zeineldeen/setups-data/ubuntu_22_setups/2024-06-07--canary-aed/nemo_venv/bin/python3"
     )
 
-    search_job = SearchJob(
-        model_id=MODEL_ID,
-        model_path=model_path,
-        dataset_path=dataset_paths["ami"],
-        dataset_name="ami",
-        split="test",
-        search_script=search_script,
-        python_exe=python_exe,
-        device="gpu",
-        time_rqmt=4,
-        mem_rqmt=4,
-        cpu_rqmt=2,
-    )
-    search_job.add_alias("canary_1b_ami")
-    tk.register_output("canary_1b_ami/search_out", search_job.out_search_results)
+    for test_set in TEST_DATASETS:
+        search_job = SearchJob(
+            model_id=MODEL_ID,
+            model_path=model_path,
+            dataset_path=dataset_paths[test_set],
+            dataset_name=test_set,
+            split="test",
+            search_script=search_script,
+            python_exe=python_exe,
+            device="gpu",
+            time_rqmt=4,
+            mem_rqmt=4,
+            cpu_rqmt=2,
+        )
+        search_job.add_alias(f"canary_1b/{test_set}")
+        tk.register_output(f"canary_1b/{test_set}/search_out", search_job.out_search_results)
