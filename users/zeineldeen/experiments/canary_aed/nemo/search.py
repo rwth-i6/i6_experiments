@@ -65,3 +65,14 @@ class SearchJob(Job):
         env["OMP_NUM_THREADS"] = str(self.rqmt["cpu"])
         env["MKL_NUM_THREADS"] = str(self.rqmt["cpu"])
         sp.check_call(self.get_cmd(), env=env)
+
+    @classmethod
+    def hash(cls, kwargs):
+        d = {
+            "model_path": kwargs["model_path"],
+            "dataset_path": kwargs["dataset_path"],
+            "search_script": kwargs["search_script"],
+            "search_args": kwargs["search_args"],
+            "python_exe": kwargs["python_exe"],
+        }
+        return super().hash(d)
