@@ -39,6 +39,7 @@ class SearchJob(Job):
             "time": time_rqmt,
         }
 
+        self.out_search_results = self.output_path("search_results")
         self.out_wer = self.output_path("wer")
 
     def tasks(self):
@@ -59,6 +60,8 @@ class SearchJob(Job):
             self.dataset_name,
             "--split",
             self.split,
+            "--manifest_path",
+            self.out_search_results.get_path(),
             "--device",
             "0" if self.device == "gpu" else "-1",
         ]

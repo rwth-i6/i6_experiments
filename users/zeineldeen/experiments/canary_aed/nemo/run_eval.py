@@ -22,6 +22,8 @@ from nemo.collections.asr.models import ASRModel
 
 DATA_CACHE_DIR = "/var/tmp/audio_cache"
 
+wer_metric = evaluate.load("wer")
+
 
 def dataset_iterator(dataset):
     for i, item in enumerate(dataset):
@@ -133,11 +135,10 @@ def main(args):
 
     # Write manifest results
     manifest_path = data_utils.write_manifest(
-        references, predictions, args.model_id, args.dataset_path, args.dataset, args.split
+        args.manifest_path, references, predictions, args.model_id, args.dataset_path, args.dataset, args.split
     )
     print("Results saved at path:", os.path.abspath(manifest_path))
 
-    wer_metric = evaluate.load("wer")
     wer = wer_metric.compute(references=references, predictions=predictions)
     wer = round(100 * wer, 2)
 
@@ -159,6 +160,8 @@ if __name__ == "__main__":
     parser.add_argument("--dataset_path", type=str, required=True, help="Dataset path.")
     parser.add_argument("--dataset", type=str, required=True, help="Dataset name.")
     parser.add_argument("--split", type=str, required=True, help="Dataset split.")
+
+    parser.add_argument("--manifest_path", type=str, required=True, help="Path to save the search output.")
 
     parser.add_argument(
         "--device",

@@ -70,4 +70,4 @@ def py():
         cpu_rqmt=2,
     )
     search_job.add_alias("canary_1b_ami")
-    tk.register_output("canary_1b_ami/wer", search_job.out_wer)
+    tk.register_output("canary_1b_ami/search_out", search_job.out_search_results)
