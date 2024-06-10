@@ -193,8 +193,10 @@ def py():
     feature_stats = get_librispeech_log_mel_stats(_log_mel_feature_dim)
 
     # Test different feature normalization schemes.
+    # Note: It seems the diff between dev-other and test-other is less here, probably du to the normalization.
     for name, model_opts in {
-        None: None,
+        None: None,  # {"dev-clean": 3.69, "dev-other": 6.99, "test-clean": 3.83, "test-other": 7.32}
+        # featBN: {"dev-clean": 3.63, "dev-other": 6.96, "test-clean": 3.82, "test-other": 7.15}
         "featBN": {"feature_batch_norm": True},  # batch norm
         "featNorm": {"feature_norm": True},  # normalize (on sequence level)
         "featGN": {"feature_stats": {"mean": feature_stats.mean, "std_dev": feature_stats.std_dev}},  # global norm
