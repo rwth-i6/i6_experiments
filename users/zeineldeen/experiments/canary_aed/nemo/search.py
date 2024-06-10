@@ -30,7 +30,7 @@ class SearchJob(Job):
         self.split = split
         self.search_script = search_script
         self.search_args = search_args if search_args is not None else {}
-        self.python_exe = python_exe if python_exe is not None else "python3"
+        self.python_exe = python_exe
         self.device = device
         self.rqmt = {
             "gpu": 1 if device == "gpu" else 0,
