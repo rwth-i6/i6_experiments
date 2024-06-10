@@ -560,7 +560,6 @@ def eow_phon_ls100_1023_base():
         ("v2", 64, 192, True, True, [(1, 50, 50)]),
         ("v2", 64, 256, True, True, [(1, 50, 50)]),
         ("v2", 64, 192, True, False, [(1, 50, 50)]),
-        ("v2", 64, 192, True, False, [(1, 50, 5)]),
     ]:
         scf_config_v4.specaug_config.freq_mask_max_size = f_dim_start
         scf_config_v4.specaug_config.freq_mask_max_size_delta_per_epoch = (f_dim_end - f_dim_start) / 300
@@ -584,8 +583,7 @@ def eow_phon_ls100_1023_base():
             prefix_name + "/" + network_module +
             f".384dim_sub4_24gbgpu_100eps_bs2x180.convredv11.init."
             f"sasort{exp_name}dim{f_dim_start}to{f_dim_end}before{specaug_before_conv}"
-            f"{'' if interleave else '.stackres'}" +
-            (f"group{convs[0][-1]}" if convs[0][-1] != 50 else "")
+            f"{'' if interleave else '.stackres'}"
         )
         train_job = training(training_name, train_data, train_args, num_epochs=300, **default_returnn)
         train_job.rqmt["gpu_mem"] = 24
@@ -626,8 +624,12 @@ def eow_phon_ls100_1023_base():
         specaug_config=specaug_config,
         specaug_before_conv_red=True,
     )
-    for exp_name, f_dim_start, f_dim_end, specaug_before_conv, interleave, convs in [
-        ("v2", 64, 256, True, True, [(1, 50, 50)]),
+    for exp_name, f_dim_start, f_dim_end, specaug_before_conv, interleave, random_seed, convs in [
+        ("v2", 64, 256, True, True, None, [(1, 50, 50)]),
+        ("v2", 64, 320, True, True, None, [(1, 50, 50)]),
+        ("v2", 16, 256, True, True, None, [(1, 50, 50)]),
+        ("v2", 128, 256, True, True, None, [(1, 50, 50)]),
+        ("v2", 64, 256, True, True, 43, [(1, 50, 50)]),
     ]:
         scf_config_v4.specaug_config.freq_mask_max_size = f_dim_start
         scf_config_v4.specaug_config.freq_mask_max_size_delta_per_epoch = (f_dim_end - f_dim_start) / 300
@@ -635,6 +637,109 @@ def eow_phon_ls100_1023_base():
         scf_config_v4.convs = convs
         model_config.feature_extraction_config = scf_config_v4
         model_config.frontend_config.in_features = scf_config_v4.convs[-1][1]
+        network_module = "ctc.conformer_1023.i6modelsV1_VGG4LayerActFrontendV1_feat_v1"
+        train_args = {
+            "config": {
+                **copy.deepcopy(train_config_24gbgpu_amp),
+                **({} if random_seed is None else {"random_seed": random_seed}),
+                "batch_size": 360 * 16000,
+            },
+            "network_module": network_module,
+            "net_args": {"model_config_dict": asdict(model_config)},
+            "debug": False,
+        }
+
+        training_name = (
+            prefix_name + "/" + network_module +
+            f".384dim_sub4_24gbgpu_100eps_bs360.convredv11.init."
+            f"sasort{exp_name}dim{f_dim_start}to{f_dim_end}before{specaug_before_conv}"
+            f"{'' if interleave else '.stackres'}" +
+            (f"group{convs[0][-1]}" if convs[0][-1] != 50 else "") +
+            (f"_rndseed{random_seed}" if random_seed is not None else "")
+        )
+        train_job = training(training_name, train_data, train_args, num_epochs=300, **default_returnn)
+        train_job.rqmt["gpu_mem"] = 24
+        asr_model = prepare_asr_model(
+            training_name, train_job, train_args, with_prior=True, datasets=train_data, get_specific_checkpoint=300,
+            prior_config={"batch_size": 50 * 16000},
+        )
+        tune_and_evaluate_helper(
+            training_name, asr_model, default_decoder_config, lm_scales=[3.5], prior_scales=[0.3, 0.5],
+            forward_config={"batch_size": 100 * 16000},
+        )
+
+    # check original log Mel batch size
+    specaug_config = SpecaugConfig(
+        repeat_per_n_frames=25,
+        max_dim_time=20,
+        max_dim_feat=16,
+        num_repeat_feat=5,
+    )
+    specaug_config_scf = FeatureSpecaugConfig(
+        start_epoch=1,
+        time_min_num_masks=2,
+        time_max_mask_per_n_frames=25,
+        time_mask_max_size=20,
+        freq_min_num_masks=2,
+        freq_max_num_masks=5,
+        freq_mask_max_size=16,
+        freq_mask_max_size_delta_per_epoch=(256 - 64) / 300,
+    )
+    scf_config_v4 = SupervisedConvolutionalFeatureExtractionV4Config(
+        module_class="SupervisedConvolutionalFeatureExtractionV4",
+        wave_norm=True,
+        num_tf=150,
+        size_tf=256,
+        stride_tf=10,
+        init_tf="gammatone",
+        num_env=5,
+        size_env=40,
+        stride_env=16,
+        init_env="hann",
+        interleaved_resolutions=True,
+        convs=[(1, 50, 50)],
+        init_convs="ones",
+        specaug_config=specaug_config_scf,
+        specaug_before_conv_red=True,
+    )
+    frontend_config = VGG4LayerActFrontendV1Config_mod(
+        in_features=50,
+        conv1_channels=32,
+        conv2_channels=64,
+        conv3_channels=64,
+        conv4_channels=32,
+        conv_kernel_size=(3, 3),
+        conv_padding=None,
+        pool1_kernel_size=(2, 1),
+        pool1_stride=(2, 1),
+        pool1_padding=None,
+        pool2_kernel_size=(2, 1),
+        pool2_stride=(2, 1),
+        pool2_padding=None,
+        activation_str="ReLU",
+        out_features=384,
+        activation=None,
+    )
+    for dropout in [0.25, 0.3, 0.35, 0.4]:
+        model_config = CustomFeatureModelConfig(
+            feature_extraction_config=scf_config_v4,
+            frontend_config=frontend_config,
+            specaug_config=specaug_config,
+            label_target_size=vocab_size_without_blank,
+            conformer_size=384,
+            num_layers=12,
+            num_heads=4,
+            ff_dim=1536,
+            att_weights_dropout=dropout,
+            conv_dropout=dropout,
+            ff_dropout=dropout,
+            mhsa_dropout=dropout,
+            conv_kernel_size=31,
+            final_dropout=dropout,
+            specaug_start_epoch=9999,
+            feature_training_start_epoch=0,
+            feature_training_end_epoch=-1,
+        )
         network_module = "ctc.conformer_1023.i6modelsV1_VGG4LayerActFrontendV1_feat_v1"
         train_args = {
             "config": {
@@ -648,10 +753,7 @@ def eow_phon_ls100_1023_base():
 
         training_name = (
             prefix_name + "/" + network_module +
-            f".384dim_sub4_24gbgpu_100eps_bs360.convredv11.init."
-            f"sasort{exp_name}dim{f_dim_start}to{f_dim_end}before{specaug_before_conv}"
-            f"{'' if interleave else '.stackres'}" +
-            (f"group{convs[0][-1]}" if convs[0][-1] != 50 else "")
+            f".384dim_sub4_24gbgpu_100eps_bs360.convredv11.init.sasortv2dim64to256beforeTrue.drop{dropout}"
         )
         train_job = training(training_name, train_data, train_args, num_epochs=300, **default_returnn)
         train_job.rqmt["gpu_mem"] = 24
