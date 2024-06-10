@@ -47,13 +47,19 @@ def py():
         "/u/zeineldeen/setups/ubuntu_22_setups/2024-06-07--canary-aed/recipe/i6_experiments/users/zeineldeen/experiments/canary_aed/nemo/run_eval.py",
         hash_overwrite="run_eval_v1",
     )
+    python_exe = tk.Path(
+        "/work/asr4/zeineldeen/setups-data/ubuntu_22_setups/2024-06-07--canary-aed/nemo_venv/bin/python3"
+    )
 
     search_job = SearchJob(
         model_path=model_path,
         dataset_path=dataset_paths["ami"],
         search_script=search_script,
+        python_exe=python_exe,
         device="gpu",
         time_rqmt=4,
         mem_rqmt=4,
         cpu_rqmt=2,
     )
+    search_job.add_alias("canary_1b_ami")
+    tk.register_output("canary_1b_ami/wer", search_job.out_wer)
