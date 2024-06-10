@@ -29,7 +29,7 @@ class SearchJob(Job):
         self.dataset_name = dataset_name
         self.split = split
         self.search_script = search_script
-        self.search_args = search_args
+        self.search_args = search_args if search_args is not None else {}
         self.python_exe = python_exe if python_exe is not None else "python3"
         self.device = device
         self.rqmt = {
@@ -54,13 +54,13 @@ class SearchJob(Job):
             "--model_path",
             self.model_path.get_path(),
             "--dataset_path",
-            self.dataset_path,
+            self.dataset_path.get_path(),
             "--dataset",
             self.dataset_name,
             "--split",
             self.split,
             "--device",
-            0 if self.device == "gpu" else -1,
+            "0" if self.device == "gpu" else "-1",
         ]
         for k, v in self.search_args.items():
             if k == "device":

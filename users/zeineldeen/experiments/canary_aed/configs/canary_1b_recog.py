@@ -36,7 +36,12 @@ def download_test_datasets() -> Dict[str, tk.Path]:
 def download_canary_1b_model() -> tk.Path:
     j = DownloadNemoModel(model_id=MODEL_ID, device=-1)
     tk.register_output("canary_1b_nemo_model", j.out_model_dir)
-    return j.out_model_dir
+    # return j.out_model_dir
+    # TODO: let the job returns directly the model path instead
+    return tk.Path(
+        j.out_model_dir.get_path()
+        + "/models--nvidia--canary-1b/snapshots/dd32c0c709e2bfc79f583e16b9df4b3a160f7e86/canary-1b.nemo"
+    )
 
 
 def py():
