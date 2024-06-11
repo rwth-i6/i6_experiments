@@ -6,7 +6,8 @@ from i6_core.datasets.huggingface import DownloadAndPrepareHuggingFaceDatasetJob
 from i6_experiments.users.zeineldeen.experiments.canary_aed.nemo.download import DownloadNemoModel
 from i6_experiments.users.zeineldeen.experiments.canary_aed.nemo.search import SearchJob
 
-TEST_DATASETS = ["ami", "earnings22", "gigaspeech"]
+TEST_DATASETS = {"ami": "test", "earnings22": "test", "gigaspeech": "test", "librispeech": "test.other"}
+
 MODEL_ID = "nvidia/canary-1b"
 
 
@@ -16,11 +17,11 @@ def download_test_datasets() -> Dict[str, tk.Path]:
 
     out_dirs = {}
 
-    for test_dataset in TEST_DATASETS:
+    for test_dataset, split in TEST_DATASETS.items():
         j = DownloadAndPrepareHuggingFaceDatasetJob(
             path="open-asr-leaderboard/datasets-test-only",
             name=test_dataset,
-            split="test",
+            split=split,
             time_rqmt=24,
             mem_rqmt=4,
             cpu_rqmt=4,
@@ -56,19 +57,19 @@ def py():
         "/work/asr4/zeineldeen/setups-data/ubuntu_22_setups/2024-06-07--canary-aed/nemo_venv/bin/python3"
     )
 
-    for test_set in TEST_DATASETS:
+    for test_set, split in TEST_DATASETS.items():
         search_job = SearchJob(
             model_id=MODEL_ID,
             model_path=model_path,
             dataset_path=dataset_paths[test_set],
             dataset_name=test_set,
-            split="test",
+            split=split,
             search_script=search_script,
             search_args={"batch_size": 64},
             python_exe=python_exe,
             device="gpu",
             time_rqmt=4,
-            mem_rqmt=4,
+            mem_rqmt=8,
             cpu_rqmt=2,
         )
         search_job.rqmt["sbatch_args"] = ["-p", "gpu_24gb"]
