@@ -78,7 +78,7 @@ def py():
         (5, 1e-2),
         # (1, 1e-4),  # 9.24
         (1, 1e-3),
-        (1, 1e-2),
+        (1, 1e-2),  # 8.16
     ]:
         train_exp(
             f"v6-bhv20-11gb-f32-bs15k-accgrad{acc}"
@@ -174,7 +174,7 @@ def py():
             },
         )
 
-    train_exp(
+    train_exp(  # 7.36 (vs without EOS 6.99), so EOS made it worse
         "v6-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-speedpertV2-spm10k-eos-spmSample07",
         config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
         config_updates={
@@ -199,6 +199,7 @@ def py():
         # featBN: {"dev-clean": 3.63, "dev-other": 6.96, "test-clean": 3.82, "test-other": 7.15}
         "featBN": {"feature_batch_norm": True},  # batch norm
         "featNorm": {"feature_norm": True},  # normalize (on sequence level)
+        # featGN: {"dev-clean": 3.65, "dev-other": 7.04, "test-clean": 3.82, "test-other": 7.27}
         "featGN": {"feature_stats": {"mean": feature_stats.mean, "std_dev": feature_stats.std_dev}},  # global norm
     }.items():
         train_exp(
