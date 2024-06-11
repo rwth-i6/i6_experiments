@@ -77,7 +77,7 @@ def py():
         (5, 1e-3),
         (5, 1e-2),
         # (1, 1e-4),  # 9.24
-        (1, 1e-3),
+        (1, 1e-3),  # 9.19
         (1, 1e-2),  # 8.16
     ]:
         train_exp(
@@ -198,6 +198,7 @@ def py():
         None: None,  # {"dev-clean": 3.69, "dev-other": 6.99, "test-clean": 3.83, "test-other": 7.32}
         # featBN: {"dev-clean": 3.63, "dev-other": 6.96, "test-clean": 3.82, "test-other": 7.15}
         "featBN": {"feature_batch_norm": True},  # batch norm
+        # featNorm: {"dev-clean": 3.65, "dev-other": 6.97, "test-clean": 3.74, "test-other": 7.34}
         "featNorm": {"feature_norm": True},  # normalize (on sequence level)
         # featGN: {"dev-clean": 3.65, "dev-other": 7.04, "test-clean": 3.82, "test-other": 7.27}
         "featGN": {"feature_stats": {"mean": feature_stats.mean, "std_dev": feature_stats.std_dev}},  # global norm
