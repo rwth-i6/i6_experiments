@@ -65,7 +65,7 @@ def py():
             dataset_name=test_set,
             split=split,
             search_script=search_script,
-            search_args={"batch_size": 64, "pcn": False, "max_eval_samples": -1},
+            search_args={"batch_size": 64, "pnc": False, "max_eval_samples": -1},
             python_exe=python_exe,
             device="gpu",
             time_rqmt=24,
@@ -73,6 +73,6 @@ def py():
             cpu_rqmt=2,
         )
         search_job.rqmt["sbatch_args"] = ["-p", "gpu_24gb"]
-        search_job.add_alias(f"canary_1b/{test_set}_bs64_wo-pcn")
-        tk.register_output(f"canary_1b/{test_set}_bs64_wo-pcn/search_out", search_job.out_search_results)
-        tk.register_output(f"canary_1b/{test_set}_bs64_wo-pcn/wer", search_job.out_wer)
+        search_job.add_alias(f"canary_1b/{test_set}_bs64_wo-pnc")
+        tk.register_output(f"canary_1b/{test_set}_bs64_wo-pnc/search_out", search_job.out_search_results)
+        tk.register_output(f"canary_1b/{test_set}_bs64_wo-pnc/wer", search_job.out_wer)
