@@ -85,21 +85,28 @@ def py():
             vocab=vocab,
         )
 
-    # Testing sampling in SPM. Baseline without sampling: 5.24 dev-other.
-    # The lower the alpha, the more aggressive the sampling.
-    # alpha=0.1 seems too aggressive for AED, bad convergence
-    for alpha in [
-        0.3,  # 5.26
-        0.5,  # 5.13
-        0.6,  # 5.13
-        0.7,  # 4.98 (!!)
-        0.8,  # 5.14
-        0.9,  # 5.18
-        1.0,  # 5.35. sanity check, should be like baseline (5.16), could be attributed to randomness?
+    for vocab, alpha in [
+        # Testing sampling in SPM.
+        # The lower the alpha, the more aggressive the sampling.
+        # See archive/returnn-spm10-sample.config for playing around with alpha and checking avg seq len.
+        # spm10k without sampling: 5.24 dev-other
+        ("spm10k", 1.0),  # 5.35. sanity check, should be like baseline (5.16), could be attributed to randomness?
+        ("spm10k", 0.9),  # 5.18
+        ("spm10k", 0.8),  # 5.14
+        ("spm10k", 0.7),  # 4.98 (!!)
+        ("spm10k", 0.6),  # 5.13
+        ("spm10k", 0.5),  # 5.13
+        ("spm10k", 0.3),  # 5.26
+        # spm10k, alpha=0.1: seems too aggressive for AED, bad convergence
+        # alpha for BPE is again a bit different, but more similar to SPM-BPE than SPM-Unigram.
+        # See archive/returnn-bpe10-sample.config.
+        # The higher the alpha, the longer the sequence, i.e. the more aggressive the sampling.
+        # bpe10k without sampling: 5.32
+        ("bpe10k", 0.01),
     ]:
         train_exp(
-            f"v6-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-speedpertV2-spm10k"
-            f"-spmSample{str(alpha).replace('.', '')}",
+            f"v6-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-speedpertV2-{vocab}"
+            f"-{'spmSample' if vocab.startswith('spm') else 'bpeSample'}{str(alpha).replace('.', '')}",
             config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
             config_updates={
                 **_get_cfg_lrlin_oclr_by_bs_nep(15_000, 500),
@@ -107,8 +114,14 @@ def py():
                 "__train_audio_preprocess": speed_pert_librosa_config,
                 "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
             },
-            vocab="spm10k",
-            train_vocab_opts={"other_opts": {"enable_sampling": True, "alpha": alpha}},
+            vocab=vocab,
+            train_vocab_opts={
+                "other_opts": (
+                    {"enable_sampling": True, "alpha": alpha}
+                    if vocab.startswith("spm")
+                    else {"class": "SamplingBytePairEncoding", "breadth_prob": alpha}
+                )
+            },
         )
 
 
