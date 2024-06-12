@@ -53,9 +53,21 @@ def py():
         "/u/zeineldeen/setups/ubuntu_22_setups/2024-06-07--canary-aed/recipe/i6_experiments/users/zeineldeen/experiments/canary_aed/nemo/run_eval.py",
         hash_overwrite="run_eval_v1",
     )
+    # to run canary model, this env has installed nemo toolkit with:
+    #   pip3 install git+https://github.com/NVIDIA/NeMo.git@r2.0.0rc0#egg=nemo_toolkit[all]
+    # related issue: https://github.com/huggingface/open_asr_leaderboard/issues/26
     python_exe = tk.Path(
         "/work/asr4/zeineldeen/setups-data/ubuntu_22_setups/2024-06-07--canary-aed/nemo_venv/bin/python3"
     )
+
+    # Greedy decoding:
+    #
+    # testset     | ours  | huggingface
+    # -----------------------------------
+    # libri       | 2.95  | 2.94
+    # ami         | 13.96 | 14.0
+    # earnings22  | 12.23 | 12.25
+    # gigaspeech  | 10.14 | 10.19
 
     for test_set, split in TEST_DATASETS.items():
         search_job = SearchJob(
