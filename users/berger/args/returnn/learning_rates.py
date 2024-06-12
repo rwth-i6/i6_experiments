@@ -156,7 +156,6 @@ def get_oclr_function(
     **kwargs,
 ) -> str:
     initial_lr = initial_lr or peak_lr / 10
-    decayed_lr = decayed_lr or initial_lr
     final_lr = final_lr or initial_lr / 5
     cycle_epoch = cycle_epoch or (num_epochs * 9) // 20  # 45% of the training
 

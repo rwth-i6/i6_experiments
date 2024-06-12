@@ -49,7 +49,7 @@ class BuildGenericSeq2SeqGlobalCacheJob(rasr.RasrCommand, Job):
         self.out_log_file = self.log_file_output_path("build_global_cache", crp, False)
         self.out_global_cache = self.output_path("global.cache", cached=True)
 
-        self.rqmt = {"time": 1, "cpu": 1, "mem": 4}
+        self.rqmt = {"time": 1, "cpu": 1, "mem": 8}
 
     def tasks(self):
         yield Task("create_files", mini_task=True)
@@ -356,7 +356,8 @@ class GenericSeq2SeqSearchJobV2(rasr.RasrCommand, Job):
             if "minimum_representation" in la_opts:
                 la_config.minimum_representation = la_opts["minimum_representation"]
             if "lm_lookahead_scale" in la_opts:
-                la_config.lm_lookahead_scale = la_opts["lm_lookahead_scale"]
+                # la_config.lm_lookahead_scale = la_opts["lm_lookahead_scale"]
+                la_config.scale = la_opts["lm_lookahead_scale"]
             if "cache_low" in la_opts:
                 post_config.flf_lattice_tool.network.recognizer.recognizer.lm_lookahead.cache_size_low = la_opts[
                     "cache_low"

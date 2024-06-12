@@ -66,7 +66,10 @@ def generate_returnn_config(
         }
 
     if train:
-        (network_dict, extra_python,) = transducer_model.make_context_1_conformer_transducer(
+        (
+            network_dict,
+            extra_python,
+        ) = transducer_model.make_context_1_conformer_transducer(
             num_outputs=num_classes,
             specaug_args=specaug_args,
             conformer_args={
@@ -408,18 +411,35 @@ def run_exp(
             recog_exp_names=["recog_ilm-0.3"],
             **recog_args,
         )
+
+        # switch to seq2seq v2 and run rescale experiments
+
+        for data_input in data.data_inputs.values():
+            data_input.create_lm_images(tools.rasr_binary_path)
+        system.init_corpora(
+            dev_keys=data.dev_keys,
+            test_keys=data.test_keys,
+            align_keys=data.align_keys,
+            corpus_data=data.data_inputs,
+            am_args=exp_args.transducer_recog_am_args,
+        )
+        system.setup_scoring()
         recog_args["search_parameters"].update(
             {
-                "label-pruning": 11.0,
+                "label-pruning": 10.5,
                 "label-pruning-limit": 300,
                 "word-end-pruning": 0.5,
                 "word-end-pruning-limit": 200,
             }
         )
+        recog_args["seq2seq_v2"] = True
+        recog_args["rqmt_update"] = {"sbatch_args": ["-A", "rescale_speed", "-p", "rescale_amd"], "cpu": 2}
+
         system.run_recog_step_for_corpora(
             exp_names=[f"Conformer_Transducer_Viterbi_specaug-v2_{name_suffix}"],
+            recog_exp_names=["recog_ilm-0.3"],
             corpora=["dev-other_4gram"],
-            recog_descriptor="lp-11_lpl-300_wep-0.5_wepl-200",
+            recog_descriptor="lp-10.5_lpl-300_wep-0.5_wepl-200",
             **recog_args,
         )
 
@@ -450,20 +470,8 @@ def run_exp(
             ),
         )
 
-        for data_input in data.data_inputs.values():
-            data_input.create_lm_images(tools.rasr_binary_path)
-        system.init_corpora(
-            dev_keys=data.dev_keys,
-            test_keys=data.test_keys,
-            align_keys=data.align_keys,
-            corpus_data=data.data_inputs,
-            am_args=exp_args.transducer_recog_am_args,
-        )
-        system.setup_scoring()
-
         recog_args.update(
             {
-                "seq2seq_v2": True,
                 "label_scorer_type": "precomputed-log-posterior",
                 "model_flow_args": {"output_layer_name": "output_precompute"},
             }
@@ -473,7 +481,7 @@ def run_exp(
         system.run_recog_step_for_corpora(
             exp_names=[f"Conformer_Transducer_Viterbi_specaug-v2_{name_suffix}"],
             corpora=["dev-other_4gram"],
-            recog_descriptor="lp-11_lpl-300_wep-0.5_wepl-200",
+            recog_descriptor="lp-10.5_lpl-300_wep-0.5_wepl-200",
             **recog_args,
         )
 
