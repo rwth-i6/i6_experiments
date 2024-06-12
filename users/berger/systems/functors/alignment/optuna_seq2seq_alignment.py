@@ -26,7 +26,7 @@ class OptunaSeq2SeqAlignmentFunctor(
         align_config: returnn.OptunaReturnnConfig,
         align_corpus: dataclasses.NamedCorpusInfo,
         epoch: types.EpochType,
-        trial_num: types.TrialType = "best",
+        trial_num: int,
         prior_scale: float = 0,
         prior_args: Dict = {},
         label_unit: str = "phoneme",
@@ -88,11 +88,7 @@ class OptunaSeq2SeqAlignmentFunctor(
         )
 
         exp_full = f"align_e-{self._get_epoch_string(epoch)}_prior-{prior_scale:02.2f}"
-
-        if trial_num == "best":
-            path = f"nn_align/{align_corpus.name}/{train_job.name}/trial-{trial_num}/{exp_full}"
-        else:
-            path = f"nn_align/{align_corpus.name}/{train_job.name}/trial-{trial_num:03d}/{exp_full}"
+        path = f"nn_align/{align_corpus.name}/{train_job.name}/trial-{trial_num:03d}/{exp_full}"
 
         align.set_vis_name(f"Alignment {path}")
         align.add_alias(path)

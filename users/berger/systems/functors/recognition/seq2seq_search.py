@@ -158,9 +158,11 @@ class Seq2SeqSearchFunctor(
             if rqmt_update is not None:
                 rec.rqmt.update(rqmt_update)
 
-            exp_full = (
-                f"{recog_config.name}_e-{self._get_epoch_string(epoch)}_prior-{prior_scale:02.2f}_lm-{lm_scale:02.2f}"
-            )
+            exp_full = f"{recog_config.name}_e-{self._get_epoch_string(epoch)}"
+            if prior_scale != 0:
+                exp_full += f"_prior-{prior_scale:02.2f}"
+            if lm_scale != 0:
+                exp_full += f"_lm-{lm_scale:02.2f}"
 
             path = f"nn_recog/{recog_corpus.name}/{train_job.name}/{exp_full}"
 

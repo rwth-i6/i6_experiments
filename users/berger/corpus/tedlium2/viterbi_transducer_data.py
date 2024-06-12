@@ -1,18 +1,18 @@
 import copy
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 from i6_core.lexicon.modification import AddEowPhonemesToLexiconJob
 from sisyphus import tk
 
-from i6_experiments.users.berger.systems.dataclasses import FeatureType
+from i6_experiments.users.berger.systems.dataclasses import AlignmentData, FeatureType
 from i6_experiments.users.berger.corpus.general.experiment_data import BasicSetupData
+from i6_experiments.users.berger.corpus.general.hdf import build_feature_alignment_meta_dataset_config
 
-from ..general import build_feature_label_meta_dataset_config
 from . import data
 
 
-def get_tedlium2_data_dumped_labels(
-    num_classes: int,
+def get_tedlium2_data(
+    alignments: Dict[str, AlignmentData],
     returnn_root: tk.Path,
     returnn_python_exe: tk.Path,
     rasr_binary_path: tk.Path,
@@ -24,6 +24,8 @@ def get_tedlium2_data_dumped_labels(
     add_unknown: bool = False,
     augmented_lexicon: bool = True,
     feature_type: FeatureType = FeatureType.GAMMATONE_16K,
+    dc_detection: bool = False,
+    **kwargs,
 ) -> BasicSetupData:
     if cv_keys is None:
         cv_keys = ["dev"]
@@ -40,6 +42,7 @@ def get_tedlium2_data_dumped_labels(
             add_all_allophones=True,
             add_unknown_phoneme_and_mapping=add_unknown,
             filter_unk_from_corpus=True,
+            **kwargs,
         )
     )
 
@@ -48,15 +51,15 @@ def get_tedlium2_data_dumped_labels(
     train_lexicon = train_data_inputs[train_key].lexicon.filename
     eow_lexicon = AddEowPhonemesToLexiconJob(train_lexicon).out_lexicon
 
-    train_data_config = build_feature_label_meta_dataset_config(
-        label_dim=num_classes - 1,
+    train_data_config = build_feature_alignment_meta_dataset_config(
         data_inputs=[train_data_inputs[train_key]],
-        lexicon=eow_lexicon,
         feature_type=feature_type,
+        alignments=[alignments[f"{train_key}_align"]],
         returnn_root=returnn_root,
         returnn_python_exe=returnn_python_exe,
         rasr_binary_path=rasr_binary_path,
         rasr_arch=rasr_arch,
+        dc_detection=dc_detection,
         extra_config={
             "partition_epoch": 5,
             "seq_ordering": "laplace:.1000",
@@ -65,15 +68,15 @@ def get_tedlium2_data_dumped_labels(
 
     # ********** CV data **********
 
-    cv_data_config = build_feature_label_meta_dataset_config(
-        label_dim=num_classes - 1,
-        data_inputs=[cv_data_inputs[key] for key in cv_keys],
-        lexicon=eow_lexicon,
+    cv_data_config = build_feature_alignment_meta_dataset_config(
+        data_inputs=[cv_data_inputs[cv_key] for cv_key in cv_keys],
         feature_type=feature_type,
+        alignments=[alignments[f"{cv_key}_align"] for cv_key in cv_keys],
         returnn_root=returnn_root,
         returnn_python_exe=returnn_python_exe,
         rasr_binary_path=rasr_binary_path,
         rasr_arch=rasr_arch,
+        dc_detection=dc_detection,
         single_hdf=True,
         extra_config={
             "partition_epoch": 1,
