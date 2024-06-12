@@ -1,0 +1,1 @@
+The `normalizer` folder is taken from here: https://github.com/huggingface/open_asr_leaderboard/tree/main/normalizer. The `write_manifest` function was modified in order to pass the manifest output path as parameter to the function.
