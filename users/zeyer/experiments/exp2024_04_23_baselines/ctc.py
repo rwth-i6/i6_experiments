@@ -139,20 +139,28 @@ def py():
     # Testing different vocabs together with sampling.
     for vocab, alpha in [
         # See archive/returnn-spm10-sample.config for playing around with alpha and checking avg seq len.
-        ("spm10k", 0.3),  # 7.88
-        ("spm10k", 0.5),  # 7.13
+        # The lower the alpha, the longer the seq len, i.e. the more aggressive the sampling.
+        # spm10k no sampling: 8.12
+        ("spm10k", 0.8),  # 7.08
         ("spm10k", 0.7),  # 6.99
-        ("spm10k", 0.8),
+        ("spm10k", 0.5),  # 7.13
+        ("spm10k", 0.3),  # 7.88
         # alpha for SPM-BPE has a very different effect, and it causes the seq len to be much longer.
         # The higher the alpha, the longer (the reverse as for SPM Unigram).
         # See archive/returnn-spm_bpe10-sample.config.
-        ("spm_bpe10k", 0.005),
-        ("spm_bpe10k", 0.01),
+        # spm_bpe10k no sampling: 7.97
+        ("spm_bpe10k", 0.001),
+        ("spm_bpe10k", 0.005),  # 8.66
+        ("spm_bpe10k", 0.01),  # 8.99
         # ("spm_bpe10k", 0.3),  # broken
         # ("spm_bpe10k", 0.7),  # broken
         # alpha for BPE is again a bit different, but more similar to SPM-BPE than SPM-Unigram.
         # See archive/returnn-bpe10-sample.config.
-        ("bpe10k", 0.01),
+        # The higher the alpha, the longer the sequence, i.e. the more aggressive the sampling.
+        # bpe10k no sampling: 8.23
+        ("bpe10k", 0.005),
+        ("bpe10k", 0.01),  # 7.10
+        ("bpe10k", 0.02),
     ]:
         train_exp(
             f"v6-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-speedpertV2-{vocab}"
