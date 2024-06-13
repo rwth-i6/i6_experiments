@@ -69,9 +69,12 @@ def py():
         )
 
     for vocab in [
+        "spm20k",
         "bpe10k",  # 5.32
         "spm10k",  # 5.16
         "spm_bpe10k",  # 5.21
+        "spm4k",
+        "spm1k",
     ]:
         train_exp(  # 5.16
             f"v6-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-speedpertV2-{vocab}",
