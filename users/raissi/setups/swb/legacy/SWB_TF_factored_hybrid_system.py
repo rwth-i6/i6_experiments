@@ -197,6 +197,9 @@ class SWBTFFactoredHybridSystem(TFFactoredHybridBaseSystem):
             }
             # 1/9 for 3-state, same amount of silence
         }
+        self.transcript_prior_xml = {"monostate": ("/").join(
+                    [self.dependencies_path, "haotian/monostate/monostate.we.transcript.prior.xml"]
+                ),}
 
     # -------------------- External helpers --------------------
 

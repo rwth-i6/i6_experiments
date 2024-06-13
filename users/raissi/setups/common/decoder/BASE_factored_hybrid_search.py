@@ -948,6 +948,8 @@ class BASEFactoredHybridDecoder:
                     name_after_rerun = re.sub(r"Lm[0-9]*.[0.9*]", f"Lm{rounded_lm_scale}", name)
 
                 name_prefix_len = len(f"{name_prefix}{self.name}/")
+                #in order to have access afterwards to the lm scale mainly
+                self.tuned_params = params
 
                 return self.recognize(
                     add_sis_alias_and_output=add_sis_alias_and_output,
