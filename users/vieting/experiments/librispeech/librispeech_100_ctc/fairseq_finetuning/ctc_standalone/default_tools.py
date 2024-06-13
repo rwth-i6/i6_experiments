@@ -29,15 +29,26 @@ I6_MODELS_REPO_PATH.hash_overwrite = "LIBRISPEECH_DEFAULT_I6_MODELS"
 
 FAIRSEQ_PATH = SetupFairseqJob(
     fairseq_root = CloneGitRepositoryJob(
-        url="git@github.com:vieting/fairseq_phoneme.git",
+        url="git@github.com:facebookresearch/fairseq.git",
         checkout_folder_name="fairseq",
-        commit="e4a2e4e93efbcbaaae52a17ae6600beb2083fb33",
+        commit="c7c478b92fe135838a2b9ec8341495c732a92401",
     ).out_repository.copy(),
     python_exe = "/usr/bin/python3",
 ).out_fairseq_root
+FAIRSEQ_PATH.hash_overwrite = "git@gihub.com:facebookresearch/fairseq.git::main::c7c478b92fe135838a2b9ec8341495c732a92401"
 
-FAIRSEQ_PATH.hash_overwrite = "LIBRISPEECH_DEFAULT_FAIRSEQ"
-
+def set_fairseq_path(url, branch=None, commit=None):
+    global FAIRSEQ_PATH
+    FAIRSEQ_PATH = SetupFairseqJob(
+        fairseq_root = CloneGitRepositoryJob(
+            url=url,
+            branch=branch,
+            checkout_folder_name="fairseq",
+            commit=commit,
+        ).out_repository,
+        python_exe = "/usr/bin/python3",
+    ).out_fairseq_root
+    FAIRSEQ_PATH.hash_overwrite = f"{url}::{branch}::{commit}"
 
 
 SCTK_BINARY_PATH = compile_sctk(branch="v2.4.12").copy()  # use last published version
