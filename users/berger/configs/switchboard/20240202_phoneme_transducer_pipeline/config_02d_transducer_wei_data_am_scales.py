@@ -11,7 +11,7 @@ from i6_experiments.users.berger.args.returnn.config import get_returnn_config
 from i6_experiments.users.berger.args.returnn.learning_rates import (
     LearningRateSchedules,
 )
-import i6_experiments.users.berger.network.models.context_1_transducer_tinaconf as transducer_model
+import i6_experiments.users.berger.network.models.context_1_transducer as transducer_model
 from i6_experiments.users.berger.recipe.summary.report import SummaryReport
 from i6_experiments.users.berger.systems.returnn_seq2seq_system import (
     ReturnnSeq2SeqSystem,
@@ -21,7 +21,7 @@ from i6_experiments.users.berger.systems.dataclasses import (
     FeatureType,
     SummaryKey,
 )
-from i6_experiments.users.berger.util import default_tools, recursive_update
+from i6_experiments.users.berger.util import default_tools
 from i6_private.users.vieting.helpers.returnn import serialize_dim_tags
 from i6_experiments.users.berger.systems.dataclasses import AlignmentData
 from i6_experiments.users.berger.corpus.switchboard.viterbi_transducer_data import (
@@ -50,15 +50,37 @@ def generate_returnn_config(
     dev_data_config: dict,
     **kwargs,
 ) -> ReturnnConfig:
+    specaug_v2 = kwargs.get("specaug_v2", False)
+
+    if specaug_v2:
+        specaug_args = {
+            "min_reps_time": 0,
+            "max_reps_time": 20,
+            "max_len_time": 20,
+            "min_reps_feature": 0,
+            "max_reps_feature": 1,
+            "max_len_feature": 15,
+        }
+    else:
+        specaug_args = {
+            "max_time_num": 1,
+            "max_time": 15,
+            "max_feature_num": 5,
+            "max_feature": 4,
+        }
+
     if train:
-        (network_dict, extra_python,) = transducer_model.make_context_1_conformer_transducer(
-            num_inputs=40,
+        (
+            network_dict,
+            extra_python,
+        ) = transducer_model.make_context_1_conformer_transducer(
             num_outputs=num_classes,
-            specaug_args={
-                "max_time_num": 1,
-                "max_time": 15,
-                "max_feature_num": 5,
-                "max_feature": 4,
+            specaug_args=specaug_args,
+            conformer_args={
+                "num_blocks": 12,
+                "size": 512,
+                "dropout": 0.1,
+                "l2": 5e-06,
             },
             decoder_args={
                 "dec_mlp_args": {
@@ -82,11 +104,20 @@ def generate_returnn_config(
             },
             loss_boost_scale=kwargs.get("loss_boost_scale", 5.0),
             loss_boost_v2=kwargs.get("loss_boost_v2", False),
+            specaug_v2=specaug_v2,
         )
     else:
-        (network_dict, extra_python,) = transducer_model.make_context_1_conformer_transducer_recog(
-            num_inputs=40,
+        (
+            network_dict,
+            extra_python,
+        ) = transducer_model.make_context_1_conformer_transducer_recog(
             num_outputs=num_classes,
+            conformer_args={
+                "num_blocks": 12,
+                "size": 512,
+                "dropout": 0.1,
+                "l2": 5e-06,
+            },
             decoder_args={
                 "dec_mlp_args": {
                     "num_layers": 2,
@@ -108,12 +139,12 @@ def generate_returnn_config(
         "dev": dev_data_config,
         "chunking": (
             {
-                "data": 400,
-                "classes": 100,
+                "data": 256,
+                "classes": 64,
             },
             {
-                "data": 200,
-                "classes": 50,
+                "data": 128,
+                "classes": 32,
             },
         ),
     }
@@ -143,10 +174,8 @@ def generate_returnn_config(
         grad_noise=0.0,
         grad_clip=0.0,
         schedule=LearningRateSchedules.OCLR,
-        # initial_lr=1e-03 / 30,
-        # peak_lr=1e-03,
         initial_lr=1e-05,
-        peak_lr=kwargs.get("peak_lr", 4e-04),
+        peak_lr=kwargs.get("peak_lr", 8e-04),
         final_lr=1e-06,
         n_steps_per_epoch=3210,
         batch_size=12500,
@@ -175,33 +204,6 @@ def run_exp(
         dc_detection=True,
     )
 
-    # ********** Step args **********
-
-    train_args = exp_args.get_transducer_train_step_args(
-        num_epochs=300,
-        gpu_mem_rqmt=24,
-    )
-
-    recog_args = exp_args.get_transducer_recog_step_args(
-        num_classes,
-        lm_scales=[0.5],
-        epochs=[300],
-        search_parameters={"label-pruning": 14.4},
-        feature_type=FeatureType.GAMMATONE_8K,
-        reduction_factor=4,
-        reduction_subtrahend=0,
-        flow_args={"dc_detection": True},
-    )
-    recog_am_args = copy.deepcopy(exp_args.transducer_recog_am_args)
-    recog_am_args.update(
-        {
-            # "state_tying": "lookup",
-            # "state_tying_file": tk.Path("/work/asr4/berger/dependencies/switchboard/state_tying/wei_mono-eow"),
-            "tying_type": "global-and-nonword",
-            "nonword_phones": ["[NOISE]", "[VOCALIZEDNOISE]", "[LAUGHTER]"],
-        }
-    )
-
     # ********** System **********
 
     system = ReturnnSeq2SeqSystem(
@@ -221,6 +223,32 @@ def run_exp(
         summary_sort_keys=[SummaryKey.ERR, SummaryKey.CORPUS],
     )
 
+    # ********** Step args **********
+
+    train_args = exp_args.get_transducer_train_step_args(
+        num_epochs=300,
+    )
+
+    recog_args = exp_args.get_transducer_recog_step_args(
+        num_classes,
+        lm_scales=[0.4, 0.45, 0.5],
+        epochs=list(range(290, 301)),
+        search_parameters={"label-pruning": 14.4},
+        feature_type=FeatureType.GAMMATONE_8K,
+        reduction_factor=4,
+        reduction_subtrahend=0,
+        flow_args={"dc_detection": True},
+    )
+    recog_am_args = copy.deepcopy(exp_args.transducer_recog_am_args)
+    recog_am_args.update(
+        {
+            # "state_tying": "lookup",
+            # "state_tying_file": tk.Path("/work/asr4/berger/dependencies/switchboard/state_tying/wei_mono-eow"),
+            "tying_type": "global-and-nonword",
+            "nonword_phones": ["[NOISE]", "[VOCALIZEDNOISE]", "[LAUGHTER]"],
+        }
+    )
+
     system.init_corpora(
         dev_keys=data.dev_keys,
         test_keys=data.test_keys,
@@ -232,9 +260,6 @@ def run_exp(
 
     # ********** Returnn Configs **********
 
-    # for lr in [4e-04, 6e-04, 8e-04]:
-    #     for label_smoothing in [None, 0.2]:
-    #         for loss_boost_scale in [0.0, 5.0]:
     for lr in [8e-04]:
         for label_smoothing in [None]:
             for loss_boost_scale in [0.0]:
@@ -244,9 +269,10 @@ def run_exp(
                     dev_data_config=data.cv_data_config,
                     peak_lr=lr,
                     label_smoothing=label_smoothing,
-                    loss_boost_v2=False,
+                    loss_boost_v2=True,
                     loss_boost_scale=loss_boost_scale,
                     model_preload=None,
+                    specaug_v2=True,
                 )
 
                 returnn_configs = ReturnnConfigs(
@@ -258,85 +284,70 @@ def run_exp(
                             train_data_config=data.train_data_config,
                             dev_data_config=data.cv_data_config,
                         )
-                        for ilm_scale in [0.0, 0.1, 0.2, 0.3]
+                        for ilm_scale in [0.0, 0.1, 0.15, 0.2, 0.3]
                     },
                 )
-                name = f"Conformer_Transducer_Viterbi_wei-data_tinaconf_{name_suffix}_lr-{lr}"
+                name = f"Conformer_Transducer_Viterbi_wei-data_{name_suffix}_lr-{lr}"
                 if label_smoothing:
                     name += f"_ls-{label_smoothing}"
                 if loss_boost_scale:
-                    name += f"_loss-boost"
+                    name += "_loss-boost"
 
                 system.add_experiment_configs(name, returnn_configs)
 
     system.run_train_step(**train_args)
 
-    system.run_dev_recog_step(**recog_args)
+    if False:
+        system.run_dev_recog_step(**recog_args)
 
     if "am-1.0" in name_suffix:
-        for bp in [0.0, 0.5, 1.0]:
-            recursive_update(
-                recog_args,
-                {
-                    "epochs": [300],
-                    "lm_scales": [0.4, 0.5, 0.6, 0.7, 0.8],
-                    "search_parameters": {"blank-label-penalty": bp} if bp else {},
-                },
-            )
-
-            system.run_dev_recog_step(
-                exp_names=[
-                    "Conformer_Transducer_Viterbi_wei-data_tinaconf_align-blstm-am-1.0_lr-0.0008"
-                ],
-                recog_descriptor=f"bp-{bp}",
-                **recog_args,
-            )
-
-        for lp in [12.0, 14.0, 16.0, 18.0, 20.0]:
-            recursive_update(
-                recog_args,
-                {
-                    "epochs": [300],
-                    "lm_scales": [0.8],
-                    "search_parameters": {
-                        "blank-label-penalty": 1.0,
-                        "label-pruning": lp,
-                    },
-                },
-            )
-
-            system.run_dev_recog_step(
-                exp_names=[
-                    "Conformer_Transducer_Viterbi_wei-data_tinaconf_align-blstm-am-1.0_lr-0.0008"
-                ],
-                recog_exp_names={
-                    "Conformer_Transducer_Viterbi_wei-data_tinaconf_align-blstm-am-1.0_lr-0.0008": [
-                        "recog_ilm-0.1"
-                    ]
-                },
-                recog_descriptor=f"lp-{lp}",
-                **recog_args,
-            )
-
-    recursive_update(
-        recog_args,
-        {
-            "epochs": [300],
-            "lm_scales": [0.8],
-            "search_parameters": {"blank-label-penalty": 1.0},
-        },
-    )
-    system.run_dev_recog_step(
-        recog_exp_names={key: ["recog_ilm-0.1"] for key in system.get_exp_names()},
-        **recog_args,
-    )
-    system.run_test_recog_step(
-        recog_exp_names={key: ["recog_ilm-0.1"] for key in system.get_exp_names()},
-        **recog_args,
-    )
+        recog_args.update(
+            {
+                "lm_scales": [0.5],
+                "epochs": [291],
+            }
+        )
+        system.run_dev_recog_step(recog_exp_names=["recog_ilm-0.2"], **recog_args)
+        system.run_test_recog_step(recog_exp_names=["recog_ilm-0.2"], **recog_args)
+    elif "am-0.7" in name_suffix:
+        recog_args.update(
+            {
+                "lm_scales": [0.5],
+                "epochs": [291],
+            }
+        )
+        system.run_dev_recog_step(recog_exp_names=["recog_ilm-0.3"], **recog_args)
+        system.run_test_recog_step(recog_exp_names=["recog_ilm-0.3"], **recog_args)
+    elif "am-0.5" in name_suffix:
+        recog_args.update(
+            {
+                "lm_scales": [0.4],
+                "epochs": [297],
+            }
+        )
+        system.run_dev_recog_step(recog_exp_names=["recog_ilm-0.3"], **recog_args)
+        system.run_test_recog_step(recog_exp_names=["recog_ilm-0.3"], **recog_args)
+    elif "am-0.3" in name_suffix:
+        recog_args.update(
+            {
+                "lm_scales": [0.4],
+                "epochs": [297],
+            }
+        )
+        system.run_dev_recog_step(recog_exp_names=["recog_ilm-0.3"], **recog_args)
+        system.run_test_recog_step(recog_exp_names=["recog_ilm-0.3"], **recog_args)
+    elif "am-0.1" in name_suffix:
+        recog_args.update(
+            {
+                "lm_scales": [0.4],
+                "epochs": [297],
+            }
+        )
+        system.run_dev_recog_step(recog_exp_names=["recog_ilm-0.3"], **recog_args)
+        system.run_test_recog_step(recog_exp_names=["recog_ilm-0.3"], **recog_args)
 
     train_job = system.get_train_job(
-        f"Conformer_Transducer_Viterbi_wei-data_tinaconf_{name_suffix}_lr-0.0008"
+        f"Conformer_Transducer_Viterbi_wei-data_{name_suffix}_lr-0.0008"
     )
     model = train_job.out_checkpoints[300]
     assert isinstance(model, Checkpoint)

@@ -9,6 +9,7 @@ from .config_01b_ctc_conformer import py as py_01b
 from .config_01c_ctc_blstm_wei_data import py as py_01c
 from .config_02b_transducer_wei_data import py as py_02b
 from .config_02c_transducer_wei_data_tinaconf import py as py_02c
+from .config_02d_transducer_wei_data_am_scales import py as py_02d
 from .config_03b_transducer_fullsum_wei_data import py as py_03b
 
 
@@ -21,6 +22,7 @@ def main() -> SummaryReport:
         py_01c()[0],
         py_02b()[0],
         py_02c()[0],
+        py_02d()[0],
         py_03b(),
     ]:
         subreport = copy.deepcopy(subreport)
