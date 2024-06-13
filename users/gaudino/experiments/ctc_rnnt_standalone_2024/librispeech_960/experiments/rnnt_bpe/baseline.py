@@ -149,7 +149,7 @@ def rnnt_bpe_ls960_1023_base():
     predictor_config = PredictorConfig(
         symbol_embedding_dim=256,
         emebdding_dropout=0.2,
-        num_lstm_layers=2,
+        num_lstm_layers=1, # 2
         lstm_hidden_dim=512,
         lstm_dropout=0.1,
     )
@@ -222,8 +222,8 @@ def rnnt_bpe_ls960_1023_base():
     }
 
     training_name = (
-        prefix_name + "/" + network_module + ".512dim_sub6_24gbgpu_25eps_accum2_fullspec1_continue_from_ctc50eps_numlstm2"
-        # prefix_name + "/" + network_module + ".512dim_sub6_24gbgpu_25eps_accum2_fullspec1_continue_from_ctc50eps"
+        # prefix_name + "/" + network_module + ".512dim_sub6_24gbgpu_25eps_accum2_fullspec1_continue_from_ctc50eps_numlstm2"
+        prefix_name + "/" + network_module + ".512dim_sub6_24gbgpu_25eps_accum2_fullspec1_continue_from_ctc50eps"
     )
     train_job = training(
         training_name, train_data_bpe5000, train_args_warprnnt_accum2_fullspec1, num_epochs=250, **default_returnn

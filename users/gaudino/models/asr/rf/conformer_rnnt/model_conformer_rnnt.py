@@ -1,6 +1,15 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Optional, Union, Tuple, Sequence, List, Collection, Dict
+from typing import (
+    TYPE_CHECKING,
+    Optional,
+    Union,
+    Tuple,
+    Sequence,
+    List,
+    Collection,
+    Dict,
+)
 import tree
 import math
 import numpy as np
@@ -145,6 +154,7 @@ class Predictor(rf.Module):
         self.output_dim = output_dim
         self.embedding_dropout = emebdding_dropout
         self.lstm_dropout = lstm_dropout
+        self.num_lstm_layers = num_lstm_layers
 
         self.symbol_embedding_dim = Dim(
             name="symbol_embedding", dimension=symbol_embedding_dim
@@ -159,7 +169,7 @@ class Predictor(rf.Module):
                 self.symbol_embedding_dim if idx == 0 else self.lstm_hidden_dim,
                 self.lstm_hidden_dim,
             )
-            for idx in range(num_lstm_layers)
+            for idx in range(self.num_lstm_layers)
         )
 
         # self.lstm_layers = torch.nn.ModuleList(
@@ -291,6 +301,7 @@ class Joiner(rf.Module):
         # source_lengths: rf.Tensor,
         target_encodings: rf.Tensor,
         # target_lengths: rf.Tensor,
+        batch_dims: Sequence[Dim],
     ) -> Tuple[rf.Tensor, rf.Tensor, rf.Tensor]:
         r"""Forward pass for training.
 
@@ -320,19 +331,21 @@ class Joiner(rf.Module):
                     number of valid elements along dim 2 for i-th batch element in joint network output.
         """
 
+        time_axis = len(batch_dims)
+
         joint_encodings_raw = (
-            source_encodings.raw_tensor.unsqueeze(2).contiguous()
-            + target_encodings.raw_tensor.unsqueeze(1).contiguous()
+            source_encodings.raw_tensor.unsqueeze(time_axis + 1).contiguous()
+            + target_encodings.raw_tensor.unsqueeze(time_axis).contiguous()
         )
 
         joint_encodings = rf.Tensor(
             name="joint_encodings",
             raw_tensor=joint_encodings_raw,
-            dims=[
-                source_encodings.dims[0],
-                source_encodings.dims[1],
-                target_encodings.dims[1],
-                source_encodings.dims[2],
+            dims=batch_dims
+            + [
+                source_encodings.dims[time_axis],  # T
+                target_encodings.dims[time_axis],  # U
+                source_encodings.dims[-1],  # F
             ],
             dtype=source_encodings.dtype,
         )
@@ -372,7 +385,6 @@ class Model(rf.Module):
         enc_att_dropout: float = 0.1,
         l2: float = 0.0001,
         language_model: Optional[RFModelWithMakeLabelScorer] = None,
-        mel_normalization: bool = True,
         joiner_dim: int = 640,
     ):
         super(Model, self).__init__()
@@ -381,7 +393,7 @@ class Model(rf.Module):
 
         config = get_global_config(return_empty_if_none=True)
 
-        self.mel_normalization = mel_normalization
+        self.mel_normalization = config.typed_value("mel_normalization_ted2", True)
 
         self.in_dim = in_dim
         self.encoder = ConformerEncoder(
@@ -603,12 +615,13 @@ class Model(rf.Module):
         state: Optional[rf.State] = None,
     ) -> Tuple[Dict[str, rf.Tensor], rf.State]:
         """step of the inner loop"""
+        batch_dims = enc.remaining_dims(
+            remove=(enc.feature_dim, enc_spatial_dim)
+            if enc_spatial_dim != single_step_dim
+            else (enc.feature_dim,)
+        )
+
         if state is None:
-            batch_dims = enc.remaining_dims(
-                remove=(enc.feature_dim, enc_spatial_dim)
-                if enc_spatial_dim != single_step_dim
-                else (enc.feature_dim,)
-            )
             state = self.decoder_default_initial_state(
                 batch_dims=batch_dims, enc_spatial_dim=enc_spatial_dim
             )
@@ -619,9 +632,9 @@ class Model(rf.Module):
             target, state.predictor, spatial_dim=target_spatial_dim
         )
 
-        pred_out = pred_lstm.copy_swap_axes(0,1)
+        pred_out = pred_lstm.copy_swap_axes(0, 1)
 
-        joiner = self.joiner(enc_lin, pred_out)
+        joiner = self.joiner(enc_lin, pred_out, batch_dims=batch_dims)
 
         return {"output": joiner}, state_
 
@@ -746,12 +759,26 @@ def from_scratch_training(
 
     targets_mod = targets.copy()
     targets_mod.sparse_dim = model.target_dim_w_blank
-    blanks = rf.expand_dim(rf.full(dims=targets_mod.dims[:-1], fill_value=model.blank_idx, dtype=targets_mod.dtype), Dim(1))
+    blanks = rf.expand_dim(
+        rf.full(
+            dims=targets_mod.dims[:-1],
+            fill_value=model.blank_idx,
+            dtype=targets_mod.dtype,
+        ),
+        Dim(1),
+    )
     blanks.sparse_dim = model.target_dim_w_blank
 
-    targets_mod, targets_spatial_dim = rf.concat((blanks, blanks.dims[1]), (targets_mod, targets.dims[1]))
+    targets_mod, targets_spatial_dim = rf.concat(
+        (blanks, blanks.dims[1]), (targets_mod, targets.dims[1])
+    )
 
-    step_out, _ = model.loop_step(**enc_args, enc_spatial_dim=enc_spatial_dim, target=targets_mod, target_spatial_dim=targets_spatial_dim)
+    step_out, _ = model.loop_step(
+        **enc_args,
+        enc_spatial_dim=enc_spatial_dim,
+        target=targets_mod,
+        target_spatial_dim=targets_spatial_dim,
+    )
 
     logits = step_out["output"]
 
@@ -783,10 +810,10 @@ def from_scratch_training(
         dtype=logprobs.dtype,
     )
 
-    num_phonemes = rf.reduce_sum(labels_len, axis=labels_len.dims[0])
-
     rnnt_loss.mark_as_loss(
-        name="rnnt", custom_inv_norm_factor=num_phonemes
+        name="rnnt",
+        custom_inv_norm_factor=targets_spatial_dim.get_size_tensor(),
+        use_normalized_loss=use_normalized_loss,
     )
 
     # def _body(input_embed: Tensor, state: rf.State):
@@ -841,6 +868,7 @@ def from_scratch_training(
 
 from_scratch_training: TrainDef[Model]
 from_scratch_training.learning_rate_control_error_measure = "dev_score_full_sum"
+
 
 @contextlib.contextmanager
 def _opt_apply_pretrain_to_encoder(

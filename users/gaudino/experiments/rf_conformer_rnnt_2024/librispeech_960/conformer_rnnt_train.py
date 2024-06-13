@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Optional, Union, Tuple, Sequence, List, Collec
 import tree
 import math
 import numpy as np
+import torch
 import hashlib
 import contextlib
 import functools
@@ -20,78 +21,24 @@ from returnn.frontend.encoder.conformer import ConformerEncoder, ConformerConvSu
 from i6_experiments.users.gaudino.model_interfaces.supports_label_scorer_torch import (
     RFModelWithMakeLabelScorer,
 )
-from i6_experiments.users.gaudino.experiments.rf_conformer_att_2023.librispeech_960.configs import *
-from i6_experiments.users.gaudino.experiments.rf_conformer_att_2023.librispeech_960.configs import (
+from i6_experiments.users.gaudino.experiments.rf_conformer_att_2023.tedlium2.configs import *
+from i6_experiments.users.gaudino.experiments.rf_conformer_att_2023.tedlium2.configs import (
     _batch_size_factor,
     _cfg_lrlin1e_5_295k,
     _get_cfg_lrlin_oclr_by_bs_nep,
 )
-# from .trafo_lm import trafo_lm_kazuki_import
-
-from i6_experiments.users.gaudino.models.asr.rf.conformer_ctc.model_conformer_ctc import from_scratch_model_def, from_scratch_training
-from i6_experiments.users.gaudino.models.asr.rf.conformer_ctc.model_recog_ctc_greedy import model_recog
+from i6_experiments.users.gaudino.experiments.rf_conformer_att_2023.librispeech_960.trafo_lm import trafo_lm_kazuki_import
 
 if TYPE_CHECKING:
-    from i6_experiments.users.zeyer.model_interfaces import ModelDef, RecogDef, TrainDef
-from i6_experiments.users.zeyer.model_with_checkpoints import (
+    from i6_experiments.users.gaudino.model_interfaces import ModelDef, RecogDef, TrainDef
+
+from i6_experiments.users.gaudino.model_with_checkpoints import (
     ModelWithCheckpoints,
     ModelWithCheckpoint,
 )
 
-# From Mohammad, 2023-06-29
-# dev-clean  2.27
-# dev-other  5.39
-# test-clean  2.41
-# test-other  5.51
-# _returnn_tf_config_filename = (
-#   "/work/asr4/zeineldeen/setups-data/librispeech/2022-11-28--conformer-att/work/i6_core/returnn/search/ReturnnSearchJobV2.1oORPHJTAcW0/output/returnn.config")
-# E.g. via /u/zeineldeen/setups/librispeech/2022-11-28--conformer-att/work
-_returnn_tf_ckpt_filename = "i6_core/returnn/training/AverageTFCheckpointsJob.BxqgICRSGkgb/output/model/average.index"
-# /u/zeineldeen/setups/librispeech/2022-11-28--conformer-att/work/i6_core/returnn/training/AverageTFCheckpointsJob.BxqgICRSGkgb
-# Main train (2035 subepochs): /work/asr4/zeineldeen/setups-data/librispeech/2022-11-28--conformer-att/work/i6_core/returnn/training/ReturnnTrainingJob.SAh74CLCNJQi
-# 15k batch size, accum grad 2 (1350 steps per epoch?)
-# (With batch size 40k (here default), I have usually 495 steps/epoch. Same accum grad 2.)
-# peak_lr = 0.9e-3 (1e-3 should also be fine), with Adam, optimizer_epsilon = 1e-08
-# phase1: peak_lr / 10 -> peak_lr (45%)
-# phase2: peak_lr -> peak_lr / 10 (45%)
-# phase3: peak_lr / 10 -> 1e-6 (10%)
-# all linear decay and step-based
-# specaugment like my orig (same here, specaugorig), speed perturb same here.
-# weight decay: L2 1e-4 in some layers (not all): FF, depthwise conv, self-att, output, LSTM, readout
-# Final from learning_rates file:
-# 2035: EpochData(learningRate=<misleading>, error={
-# 'dev_error_ctc': 0.0520755184693418,
-# 'dev_error_output/output_prob': 0.035661241551042944,
-# 'dev_score_ctc': 0.2796084385705723,
-# 'dev_score_output/output_prob': 0.1718613621694714,
-# 'devtrain_error_ctc': 0.005757552549708462,
-# 'devtrain_error_output/output_prob': 0.005408351877314902,
-# 'devtrain_score_ctc': 0.022935187616968285,
-# 'devtrain_score_output/output_prob': 0.05237826015574962,
-# 'train_error_ctc': 0.05592114304093772,
-# 'train_error_output/output_prob': 0.041970552995693494,
-# 'train_score_ctc': 0.21249712733341475,
-# 'train_score_output/output_prob': 0.20816428663741796,
-# }),
-# Retrain RETURNN training job (600 subepochs): /u/zeineldeen/setups/librispeech/2022-11-28--conformer-att/work/i6_core/returnn/training/ReturnnTrainingJob.ZhtaEElHqWlr
-# Epoch-wise LR:
-# Fixed for 20 subepochs: 1e-4
-# Linear(?) decay for remaining (?): 1e-4 to 1e-6
-# Final from learning_rates file:
-# 600: EpochData(learningRate=1e-06, error={
-# 'dev_error_ctc': 0.04999311020358747,
-# 'dev_error_output/output_prob': 0.03406881170076022,
-# 'dev_score_ctc': 0.2881619431223589,
-# 'dev_score_output/output_prob': 0.16851828029171323,
-# 'devtrain_error_ctc': 0.003611245977923651,
-# 'devtrain_error_output/output_prob': 0.004028583366881808,
-# 'devtrain_score_ctc': 0.014762402644778178,
-# 'devtrain_score_output/output_prob': 0.0458638666428664,
-# 'train_error_ctc': 0.051649620746772214,
-# 'train_error_output/output_prob': 0.03977601830532325,
-# 'train_score_ctc': 0.19722012590584306,
-# 'train_score_output/output_prob': 0.19768974342596793,
-# }),
+from i6_experiments.users.gaudino.models.asr.rf.conformer_rnnt.model_conformer_rnnt import from_scratch_model_def, from_scratch_training
+from i6_experiments.users.gaudino.models.asr.rf.conformer_rnnt.model_recog_rnnt import model_recog
 
 
 # The model gets raw features (16khz) and does feature extraction internally.
@@ -109,142 +56,74 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
     # RF recog: {"dev-clean": 2.25, "dev-other": 5.34, "test-clean": 2.42, "test-other": 5.56}
     # _recog_imported()
 
-    # train_exp("from-scratch-train", config_11gb, gpu_mem=11)
+    rnnt_train_config = dict(
+    batching="laplace:.1000",
+    batch_size=15_000 * _batch_size_factor,
+    max_seqs=200,
+    # max_seq_length_default_target=75,
+    # specaugment_steps=(10_000, 20_000, 40_000),
+    specaugment_steps=(5_900, 18_000, 36_000),
+    # gradient_clip=0,
+    # gradient_clip_global_norm = 1.0
+    optimizer={
+        "class": "adamw",
+        "epsilon": 1e-8,
+        "weight_decay": 1e-6,
+    },
+    # accum_grad_multiple_step=4,
+    # gradient_noise=0.0,
+    learning_rate=2.5e-3,
+    dynamic_learning_rate=dyn_lr_piecewise_linear,
+    # learning_rate_piecewise_steps= [261_000, 522_000, 580_000],  # 45% 45 % 10% # 11gb
+    learning_rate_piecewise_steps = [85_500, 171_000, 190_000],  # 45% 45 % 10% # 24gb
+    # aux_loss_layers=[4, 8],
+    max_seq_length_default_target=None,
+    # gradient_clip_global_norm=5.0,
+    accum_grad_multiple_step=2,
+    # aux_loss_layers=[12],
+)
 
-    # model = train_exp(  # 5.41
-    #     "base-24gb-v6-lrlin1e_5_600k",
-    #     config_24gb_v6,
-    #     config_updates={
-    #         "learning_rate": 1.0,
-    #         "dynamic_learning_rate": dyn_lr_piecewise_linear,
-    #         # total steps after 2000 epochs: 982.312
-    #         "learning_rate_piecewise_steps": [600_000, 900_000, 982_000],
-    #         "learning_rate_piecewise_values": [1e-5, 1e-3, 1e-5, 1e-6],
-    #     },
-    # )
+    # train_exp("base-11gb", config_11gb, gpu_mem=11)
+    # train_exp("base-11gb-v1", my_config_11gb, num_epochs=400, gpu_mem=11)
 
-    train_exp(  # dev-other 9.01
-        "base-24gb-lrlin1e_5_600k_ctc_only",
+    train_exp(
+        "from-scratch-24gb_aux4_8",
         config_24gb_v6,
         config_updates={
+            "batch_size": 8_000 * _batch_size_factor,
             "learning_rate": 1.0,
             "dynamic_learning_rate": dyn_lr_piecewise_linear,
             # total steps after 2000 epochs: 982.312
             "learning_rate_piecewise_steps": [600_000, 900_000, 982_000],
             "learning_rate_piecewise_values": [1e-5, 1e-3, 1e-5, 1e-6],
-            "aux_loss_layers":[],
-        },
-    )
-
-    train_exp(  # dev-other 6.93
-        "base-24gb-lrlin1e_5_600k_ctc_only_aux4_8",
-        config_24gb_v6,
-        config_updates={
-            "learning_rate": 1.0,
-            "dynamic_learning_rate": dyn_lr_piecewise_linear,
-            # total steps after 2000 epochs: 982.312
-            "learning_rate_piecewise_steps": [600_000, 900_000, 982_000],
-            "learning_rate_piecewise_values": [1e-5, 1e-3, 1e-5, 1e-6],
-        },
-    )
-
-
-    # without mel normalization
-    train_exp(  # dev-other
-        "base-24gb-lrlin1e_5_600k_ctc_only_no_mel_norm",
-        config_24gb_v6,
-        config_updates={
-            "learning_rate": 1.0,
-            "dynamic_learning_rate": dyn_lr_piecewise_linear,
-            # total steps after 2000 epochs: 982.312
-            "learning_rate_piecewise_steps": [600_000, 900_000, 982_000],
-            "learning_rate_piecewise_values": [1e-5, 1e-3, 1e-5, 1e-6],
-            "aux_loss_layers":[],
             "mel_normalization_ted2": False,
         },
+        config_deletes=["torch_amp"],
         search_config={
             "mel_normalization_ted2": False,
         },
-    )
-
-    train_exp(  # dev-other 6.92
-        "base-24gb-lrlin1e_5_600k_ctc_only_aux4_8_no_mel_norm",
-        config_24gb_v6,
-        config_updates={
-            "learning_rate": 1.0,
-            "dynamic_learning_rate": dyn_lr_piecewise_linear,
-            # total steps after 2000 epochs: 982.312
-            "learning_rate_piecewise_steps": [600_000, 900_000, 982_000],
-            "learning_rate_piecewise_values": [1e-5, 1e-3, 1e-5, 1e-6],
-            "mel_normalization_ted2": False,
-        },
-        search_config = {
-            "mel_normalization_ted2": False,
-        },
-    )
-
-    # no eos
-    train_exp(  # dev-other
-        "base-24gb-lrlin1e_5_600k_ctc_only_no_eos",
-        config_24gb_v6,
-        config_updates={
-            "learning_rate": 1.0,
-            "dynamic_learning_rate": dyn_lr_piecewise_linear,
-            # total steps after 2000 epochs: 982.312
-            "learning_rate_piecewise_steps": [600_000, 900_000, 982_000],
-            "learning_rate_piecewise_values": [1e-5, 1e-3, 1e-5, 1e-6],
-            "aux_loss_layers":[],
-            "mel_normalization_ted2": False,
-            "hash_override": 1,
-        },
-        search_config={
-            "mel_normalization_ted2": False,
-        },
-        with_eos_postfix=False,
-    )
-
-    train_exp(  # dev-other
-        "base-24gb-lrlin1e_5_600k_ctc_only_aux4_8_no_eos",
-        config_24gb_v6,
-        config_updates={
-            "learning_rate": 1.0,
-            "dynamic_learning_rate": dyn_lr_piecewise_linear,
-            # total steps after 2000 epochs: 982.312
-            "learning_rate_piecewise_steps": [600_000, 900_000, 982_000],
-            "learning_rate_piecewise_values": [1e-5, 1e-3, 1e-5, 1e-6],
-            "mel_normalization_ted2": False,
-            "hash_override": 1,
-        },
-        search_config = {
-            "mel_normalization_ted2": False,
-        },
-        with_eos_postfix=False,
-
+        num_epochs=400,
+        gpu_mem=24,
     )
 
 
-    _torch_ckpt_path = "/u/luca.gaudino/setups/2023-08-10--rf-librispeech/work/i6_core/returnn/training/ReturnnTrainingJob.AWwVft0oGy8e/output/models/epoch.1981.pt"
+    # some recog for debugging
+    _torch_ckpt_path = "/work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/2023-08-10--rf-librispeech/work/i6_core/returnn/training/ReturnnTrainingJob.J6Uj9xtt1v5J/output/models/epoch.003.pt"
 
     new_ckpt_path = tk.Path(
         _torch_ckpt_path,
-        hash_overwrite= "ctc" + "_torch_ckpt",
+        hash_overwrite= "rnnt" + "_torch_ckpt",
     )
     new_ckpt = PtCheckpoint(new_ckpt_path)
 
-    recog_config = {
-        "mel_normalization_ted2": False,
-    }
-
-    # recog ctc only model
-    _recog(
-        "model_recogs/base-24gb-lrlin1e_5_600k_ctc_only_aux4_8_no_mel_norm/ep1981/ctc_greedy/recog_results",
-        ModelWithCheckpoint(
-            definition=from_scratch_model_def, checkpoint=new_ckpt
-        ),
-        model_recog,
-        recog_config=recog_config,
-    )
-
+    # _recog(
+    #     "model_recogs/from-scratch-24gb/rnnt_beam_search/recog_results",
+    #     ModelWithCheckpoint(
+    #         definition=from_scratch_model_def, checkpoint=new_ckpt
+    #     ),
+    #     model_recog,
+    #     dev_sets=["dev"]
+    # )
 
 
 _sis_prefix: Optional[str] = None
@@ -274,7 +153,7 @@ def _recog(
     if recog_def is None:
         recog_def = model_recog
 
-    task = _get_ls_task()
+    task = _get_ted2_task()
 
     res = recog_model(
         task,
@@ -302,7 +181,6 @@ def train_exp(
     time_rqmt: Optional[int] = None,
     model_avg: bool = False,
     search_config: Optional[Dict[str, Any]] = None,
-    with_eos_postfix: bool = True,
 ) -> ModelWithCheckpoints:
     """
     Train experiment
@@ -316,7 +194,7 @@ def train_exp(
         _sis_setup_global_prefix()
 
     prefix = _sis_prefix + "/" + name
-    task = _get_ls_task(with_eos_postfix=with_eos_postfix)
+    task = _get_ls_task()
     config = config.copy()
     config = dict_update_deep(config, config_updates, config_deletes)
     if "__num_epochs" in config:
@@ -338,6 +216,7 @@ def train_exp(
         num_processes=num_processes,
         distributed_launch_cmd="torchrun" if num_processes else "mpirun",
         time_rqmt=time_rqmt,
+        include_native_ops=True,
     )
     recog_training_exp(
         prefix, task, model_with_checkpoint, recog_def=model_recog, model_avg=model_avg, search_config=search_config
@@ -401,9 +280,10 @@ def train_exp(
 
 
 _ls_task = None
+_ted2_task = None
 
 
-def _get_ls_task(with_eos_postfix=True):
+def _get_ls_task():
     global _ls_task
     if _ls_task:
         return _ls_task
@@ -412,11 +292,24 @@ def _get_ls_task(with_eos_postfix=True):
         get_librispeech_task_bpe10k_raw,
     )
 
-    _ls_task = get_librispeech_task_bpe10k_raw(with_eos_postfix=with_eos_postfix)
+    _ls_task = get_librispeech_task_bpe10k_raw(with_eos_postfix=True)
     return _ls_task
 
 
-py = sis_run_with_prefix  # if run directly via `sis m ...`
+def _get_ted2_task():
+    global _ted2_task
+    if _ted2_task:
+        return _ted2_task
+
+    from i6_experiments.users.gaudino.datasets.tedlium2 import (
+        get_tedlium2_task_bpe1k_raw,
+    )
+
+    _ted2_task = get_tedlium2_task_bpe1k_raw(with_eos_postfix=True, train_epoch_wise_filter=None)
+    return _ted2_task
+
+
+py = sis_run_with_prefix  # if run directly via `sis m ...
 
 
 def model_warmup(*, model: Model, **_kwargs):

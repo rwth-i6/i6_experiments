@@ -56,7 +56,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
     # RF recog: {"dev-clean": 2.25, "dev-other": 5.34, "test-clean": 2.42, "test-other": 5.56}
     # _recog_imported()
 
-    rnnt_train_config = dict(
+    rnnt_train_config_24gb = dict(
     batching="laplace:.1000",
     batch_size=15_000 * _batch_size_factor,
     max_seqs=200,
@@ -86,16 +86,17 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
     # train_exp("base-11gb", config_11gb, gpu_mem=11)
     # train_exp("base-11gb-v1", my_config_11gb, num_epochs=400, gpu_mem=11)
 
-    # train_exp( # TODO: runs in loss nan
-    #     "from-scratch-24gb",
-    #     rnnt_train_config,
-    #     config_updates={
-    #         "learning_rate": 1.0,
-    #         "learning_rate_piecewise_values": [8e-5, 8e-4, 8e-5, 1e-6],
-    #     },
-    #     num_epochs=400,
-    #     gpu_mem=24,
-    # )
+    train_exp( # TODO: runs in loss nan
+        "from-scratch-24gb_norm_loss",
+        rnnt_train_config_24gb,
+        config_updates={
+            "learning_rate": 1.0,
+            "learning_rate_piecewise_values": [8e-5, 8e-4, 8e-5, 1e-6],
+            "hash_override": 1,
+        },
+        num_epochs=400,
+        gpu_mem=24,
+    )
 
     _torch_ckpt_path = "/work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/2023-08-10--rf-librispeech/work/i6_core/returnn/training/ReturnnTrainingJob.J6Uj9xtt1v5J/output/models/epoch.003.pt"
 
