@@ -10,7 +10,7 @@ from i6_core.tools.parameter_tuning import GetOptimalParametersAsVariableJob
 from i6_experiments.common.setups.returnn.datastreams.vocabulary import LabelDatastream
 from ...data.common import DatasetSettings, build_test_dataset
 from ...data.phon import build_eow_phon_training_datasets, get_text_lexicon
-from ...default_tools import RETURNN_EXE, MINI_RETURNN_ROOT
+from ...default_tools import RETURNN_EXE, MINI_RETURNN_ROOT, set_fairseq_path
 from ...lm import get_4gram_binary_lm
 from ...pipeline import training, prepare_asr_model, search, ASRModel
 
@@ -23,6 +23,8 @@ def eow_phon_ls100_ctc_base(
     fairseq_github_branch: Optional[str] = None,
     fairseq_github_commit: Optional[str] = None,
     ):
+    if fairseq_github_url is not None:
+        set_fairseq_path(fairseq_github_url, fairseq_github_branch, fairseq_github_commit)
     if train_name_suffix is None:
         prefix_name = "ctc_eow_phon"
     else:

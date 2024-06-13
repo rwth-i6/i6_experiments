@@ -10,7 +10,6 @@ from i6_experiments.common.setups.returnn_pytorch.serialization import Collectio
 from i6_experiments.common.setups.serialization import ExternalImport, Import, PartialImport
 
 from . import PACKAGE
-from .default_tools import I6_MODELS_REPO_PATH, FAIRSEQ_PATH
 
 
 def serialize_training(
@@ -41,6 +40,8 @@ def serialize_training(
     pytorch_train_step = Import(
         code_object_path=package + ".%s.train_step" % network_module, unhashed_package_root=PACKAGE
     )
+    # paths might have been set differently in the mean time
+    from .default_tools import I6_MODELS_REPO_PATH, FAIRSEQ_PATH
     i6_models = ExternalImport(import_path=I6_MODELS_REPO_PATH)
     fairseq = ExternalImport(import_path=fairseq_root or FAIRSEQ_PATH)
 
