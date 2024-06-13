@@ -9,7 +9,7 @@ pretrain_job = run_fairseq_pretraining()
 checkpoint = 300
 model_conf_w2v = {
     "_name": "wav2vec_ctc",
-    "w2v_path": pretrain_job.out_models[checkpoint],
+    "w2v_path": pretrain_job.out_models[checkpoint].model,
     "apply_mask": True,
     "mask_prob": 0.65,
     "mask_channel_prob": 0.5,
