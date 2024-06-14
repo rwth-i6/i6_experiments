@@ -28,22 +28,12 @@ def dyn_lr_piecewise_linear(*, global_train_step: int, learning_rate: float, **_
 
 
 def test_piecewise_linear():
+    from returnn.config import global_config_ctx, Config
     from numpy.testing import assert_almost_equal, assert_equal
 
     def _f(x, xs, ys):
-        assert isinstance(x, int)
-        assert len(xs) + 1 == len(ys)
-        last_step = 0
-        for i, step in enumerate(xs):
-            assert isinstance(step, int)
-            assert step > last_step
-            assert x >= last_step
-            if x < step:
-                factor = (x + 1 - last_step) / (step - last_step)
-                return ys[i + 1] * factor + ys[i] * (1 - factor)
-            last_step = step
-
-        return ys[-1]
+        with global_config_ctx(Config({"learning_rate_piecewise_steps": xs, "learning_rate_piecewise_values": ys})):
+            return dyn_lr_piecewise_linear(global_train_step=x, learning_rate=1.0)
 
     assert_almost_equal(_f(0, [10, 20], [0, 1, 0.5]), 0.1)
     assert_almost_equal(_f(5, [10, 20], [0, 1, 0.5]), 0.6)
