@@ -48,6 +48,7 @@ def center_window_returnn_frame_wise_beam_search(
       "forward_step_func": _returnn_v2_forward_step,
       "forward_callback": _returnn_v2_get_forward_callback,
       "use_recombination": use_recombination,
+      "batch_size": 15_000
     },
     search_alias=f'returnn_decoding{"_pure_torch" if pure_torch else ""}'
   ).run()

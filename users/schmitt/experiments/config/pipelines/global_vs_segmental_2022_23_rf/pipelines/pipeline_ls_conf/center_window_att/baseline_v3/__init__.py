@@ -10,13 +10,72 @@ from sisyphus import Path
 
 
 def run_exps():
+  # ------------------------------------- ctx-1 models -------------------------------------
+
   for model_alias, config_builder in baseline.center_window_att_baseline_rf(
-    win_size_list=(5,), blank_decoder_version=4,
+    win_size_list=(5,), label_decoder_state="nb-linear1", blank_decoder_version=5
+  ):
+    for import_model_name in ("glob.conformer.mohammad.5.4",):
+      for train_alias, checkpoint in train.train_center_window_att_viterbi_import_global_tf(
+        alias=model_alias,
+        config_builder=config_builder,
+        n_epochs_list=(100,),
+        const_lr_list=(1e-4,),
+        import_model_name=import_model_name,
+      ):
+        recog.center_window_returnn_frame_wise_beam_search(
+          alias=train_alias,
+          config_builder=config_builder,
+          checkpoint=checkpoint,
+        )
+
+  for model_alias, config_builder in baseline.center_window_att_baseline_rf(
+    win_size_list=(5,), label_decoder_state="nb-linear1", blank_decoder_version=3
+  ):
+    for import_model_name in ("glob.conformer.mohammad.5.4",):
+      for train_alias, checkpoint in train.train_center_window_att_viterbi_import_global_tf(
+        alias=model_alias,
+        config_builder=config_builder,
+        n_epochs_list=(100,),
+        const_lr_list=(1e-4,),
+        import_model_name=import_model_name,
+      ):
+        recog.center_window_returnn_frame_wise_beam_search(
+          alias=train_alias,
+          config_builder=config_builder,
+          checkpoint=checkpoint,
+        )
+
+  for model_alias, config_builder in baseline.center_window_att_baseline_rf(
+          win_size_list=(5,),
+          label_decoder_state="nb-linear1",
+          blank_decoder_version=5,
+          use_weight_feedback=False,
+          use_att_ctx_in_state=False
+  ):
+    for import_model_name in ("glob.conformer.mohammad.5.4",):
+      for train_alias, checkpoint in train.train_center_window_att_viterbi_import_global_tf(
+        alias=model_alias,
+        config_builder=config_builder,
+        n_epochs_list=(100,),
+        const_lr_list=(1e-4,),
+        import_model_name=import_model_name,
+      ):
+        recog.center_window_returnn_frame_wise_beam_search(
+          alias=train_alias,
+          config_builder=config_builder,
+          checkpoint=checkpoint,
+        )
+
+  # ------------------------------------- blank decoder variants -------------------------------------
+
+  for model_alias, config_builder in baseline.center_window_att_baseline_rf(
+    win_size_list=(5,), blank_decoder_version=5,
   ):
     for train_alias, checkpoint in train.train_center_window_att_viterbi_import_global_tf(
       alias=model_alias,
       config_builder=config_builder,
-      n_epochs_list=(10,),
+      n_epochs_list=(100,),
       const_lr_list=(1e-4,),
     ):
       recog.center_window_returnn_frame_wise_beam_search(
@@ -25,54 +84,22 @@ def run_exps():
         checkpoint=checkpoint,
       )
 
-  # for model_alias, config_builder in baseline.center_window_att_baseline_rf(
-  #   win_size_list=(5,), blank_decoder_version=5,
-  # ):
-  #   for train_alias, checkpoint in train.train_center_window_att_viterbi_import_global_tf(
-  #     alias=model_alias,
-  #     config_builder=config_builder,
-  #     n_epochs_list=(10,),
-  #     const_lr_list=(1e-4,),
-  #   ):
-  #     pass
-      # recog.center_window_returnn_frame_wise_beam_search(
-      #   alias=train_alias,
-      #   config_builder=config_builder,
-      #   checkpoint=checkpoint,
-      # )
+  for model_alias, config_builder in baseline.center_window_att_baseline_rf(
+    win_size_list=(5,), blank_decoder_version=6,
+  ):
+    for train_alias, checkpoint in train.train_center_window_att_viterbi_import_global_tf(
+      alias=model_alias,
+      config_builder=config_builder,
+      n_epochs_list=(100,),
+      const_lr_list=(1e-4,),
+    ):
+      recog.center_window_returnn_frame_wise_beam_search(
+        alias=train_alias,
+        config_builder=config_builder,
+        checkpoint=checkpoint,
+      )
 
-  # for model_alias, config_builder in baseline.center_window_att_baseline_rf(
-  #   win_size_list=(5,), blank_decoder_version=6,
-  # ):
-  #   for train_alias, checkpoint in train.train_center_window_att_viterbi_import_global_tf(
-  #     alias=model_alias,
-  #     config_builder=config_builder,
-  #     n_epochs_list=(10,),
-  #     const_lr_list=(1e-4,),
-  #   ):
-  #     pass
-      # recog.center_window_returnn_frame_wise_beam_search(
-      #   alias=train_alias,
-      #   config_builder=config_builder,
-      #   checkpoint=checkpoint,
-      # )
-
-  # for model_alias, config_builder in baseline.center_window_att_baseline_rf(
-  #   win_size_list=(5,)
-  # ):
-  #   for max_shift, num_iterations in [(1, 1), (2, 1), (1, 2)]:
-  #     for train_alias, checkpoint in train.train_center_window_att_viterbi_import_global_tf(
-  #       alias=model_alias,
-  #       config_builder=config_builder,
-  #       n_epochs_list=(100,),
-  #       const_lr_list=(1e-4,),
-  #       alignment_augmentation_opts={"max_shift": max_shift, "num_iterations": num_iterations},
-  #     ):
-  #       recog.center_window_returnn_frame_wise_beam_search(
-  #         alias=train_alias,
-  #         config_builder=config_builder,
-  #         checkpoint=checkpoint,
-  #       )
+  # ------------------------------------- from-scratch Viterbi training -------------------------------------
 
   for model_alias, config_builder in baseline.center_window_att_baseline_rf(
     win_size_list=(5,),
@@ -88,51 +115,69 @@ def run_exps():
         checkpoint=checkpoint,
       )
 
-  # for model_alias, config_builder in baseline.center_window_att_baseline_rf(
-  #   win_size_list=(5,),
-  # ):
-  #   for train_alias, checkpoint in train.train_center_window_att_viterbi_from_scratch(
-  #     alias=model_alias,
-  #     config_builder=config_builder,
-  #     n_epochs_list=(500,),
-  #     use_speed_pert=True,
-  #   ):
-  #     recog.center_window_returnn_frame_wise_beam_search(
-  #       alias=train_alias,
-  #       config_builder=config_builder,
-  #       checkpoint=checkpoint,
-  #     )
-
   # ------------------------------------- best models: KEEP! -------------------------------------
-  for model_alias, config_builder in baseline.center_window_att_baseline_rf(
-    win_size_list=(5, 129),
-  ):
-    for train_alias, checkpoint in train.train_center_window_att_viterbi_import_global_tf(
-      alias=model_alias,
-      config_builder=config_builder,
-      n_epochs_list=(100,),
-      const_lr_list=(1e-4,),
-    ):
-      recog.center_window_returnn_frame_wise_beam_search(
-        alias=train_alias,
-        config_builder=config_builder,
-        checkpoint=checkpoint,
-      )
+
+  for use_weight_feedback in (True, False):
+    for use_att_ctx_in_state in (True, False):
+      for model_alias, config_builder in baseline.center_window_att_baseline_rf(
+        win_size_list=(5,), use_weight_feedback=use_weight_feedback, use_att_ctx_in_state=use_att_ctx_in_state
+      ):
+        for import_model_name in ("glob.conformer.mohammad.5.4",):
+          for train_alias, checkpoint in train.train_center_window_att_viterbi_import_global_tf(
+            alias=model_alias,
+            config_builder=config_builder,
+            n_epochs_list=(100,),
+            const_lr_list=(1e-4,),
+            import_model_name=import_model_name,
+          ):
+            recog.center_window_returnn_frame_wise_beam_search(
+              alias=train_alias,
+              config_builder=config_builder,
+              checkpoint=checkpoint,
+            )
+            if "129" not in model_alias:
+              recog.center_window_returnn_frame_wise_beam_search(
+                alias=train_alias,
+                config_builder=config_builder,
+                checkpoint=checkpoint,
+                checkpoint_aliases=("last",),
+                # lm_type="trafo",
+                # lm_scale_list=(0.4,),
+              )
+              if use_weight_feedback and use_att_ctx_in_state:
+                recog.center_window_returnn_frame_wise_beam_search(
+                  alias=train_alias,
+                  config_builder=config_builder,
+                  checkpoint=checkpoint,
+                  checkpoint_aliases=("last",),
+                  lm_type="trafo",
+                  lm_scale_list=(0.54,),
+                  ilm_type="mini_att",
+                  ilm_scale_list=(0.4,),
+                )
 
   for model_alias, config_builder in baseline.center_window_att_baseline_rf(
-    win_size_list=(5,),
+          win_size_list=(129,),
   ):
-    for train_alias, checkpoint in train.train_center_window_att_viterbi_import_global_tf(
-      alias=model_alias,
-      config_builder=config_builder,
-      n_epochs_list=(100,),
-      const_lr_list=(1e-4,),
-    ):
-      for use_recombination in {"max", "sum"}:
+    for import_model_name in ("glob.conformer.mohammad.5.4",):
+      for train_alias, checkpoint in train.train_center_window_att_viterbi_import_global_tf(
+              alias=model_alias,
+              config_builder=config_builder,
+              n_epochs_list=(100,),
+              const_lr_list=(1e-4,),
+              import_model_name=import_model_name,
+      ):
         recog.center_window_returnn_frame_wise_beam_search(
           alias=train_alias,
           config_builder=config_builder,
           checkpoint=checkpoint,
-          checkpoint_aliases=("best-4-avg",),
-          use_recombination=use_recombination,
         )
+        if "129" not in model_alias:
+          recog.center_window_returnn_frame_wise_beam_search(
+            alias=train_alias,
+            config_builder=config_builder,
+            checkpoint=checkpoint,
+            checkpoint_aliases=("last",),
+            # lm_type="trafo",
+            # lm_scale_list=(0.4,),
+          )

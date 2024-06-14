@@ -145,11 +145,7 @@ def viterbi_training_v4(
   # (UnicodeDecodeError: 'ascii' codec can't decode byte 0xe2 in position 0: ordinal not in range(128))
   # therefore, we use the following workaround
   enc = enc_args["enc"]  # type: rf.Tensor
-  enc_raw = enc.raw_tensor
-  enc = enc.copy_template_replace_dim_tag(
-    enc.get_axis_from_description(enc_spatial_dim), non_blank_mask_dim
-  )
-  enc.raw_tensor = enc_raw
+  enc = utils.copy_tensor_replace_dim_tag(enc, enc_spatial_dim, non_blank_mask_dim)
 
   am, _ = utils.get_masked(
     input=enc,
@@ -213,11 +209,7 @@ def viterbi_training_v5(
 ):
   # using dim.declare_same_as() leads to an error after an epoch is finished (see viterbi_training_v4)
   enc = enc_args["enc"]  # type: rf.Tensor
-  enc_raw = enc.raw_tensor
-  enc = enc.copy_template_replace_dim_tag(
-    enc.get_axis_from_description(enc_spatial_dim), label_states_unmasked_spatial_dim
-  )
-  enc.raw_tensor = enc_raw
+  enc = utils.copy_tensor_replace_dim_tag(enc, enc_spatial_dim, label_states_unmasked_spatial_dim)
 
   blank_logits = model.emit_prob(rf.concat_features(enc, label_states_unmasked))
   blank_logits_packed, pack_dim, emit_ground_truth_packed = get_packed_logits_and_emit_ground_truth(
@@ -248,11 +240,7 @@ def viterbi_training_v6(
 ):
   # using dim.declare_same_as() leads to an error after an epoch is finished (see viterbi_training_v4)
   enc = enc_args["enc"]  # type: rf.Tensor
-  enc_raw = enc.raw_tensor
-  enc = enc.copy_template_replace_dim_tag(
-    enc.get_axis_from_description(enc_spatial_dim), label_states_unmasked_spatial_dim
-  )
-  enc.raw_tensor = enc_raw
+  enc = utils.copy_tensor_replace_dim_tag(enc, enc_spatial_dim, label_states_unmasked_spatial_dim)
 
   s, _ = model.s(
     enc,

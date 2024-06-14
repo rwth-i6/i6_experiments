@@ -68,9 +68,9 @@ class SegmentalAttentionModel(rf.Module):
     )
 
     assert blank_decoder_version in {1, 3, 4, 5, 6}
-    assert label_decoder_state in {"nb-lstm", "joint-lstm"}
+    assert label_decoder_state in {"nb-lstm", "joint-lstm", "nb-linear1"}
     if not use_joint_model:
-      assert label_decoder_state == "nb-lstm"
+      assert label_decoder_state in ("nb-lstm", "nb-linear1")
 
     if not use_weight_feedback and not use_att_ctx_in_state:
       label_decoder_cls = SegmentalAttEfficientLabelDecoder
@@ -88,6 +88,7 @@ class SegmentalAttentionModel(rf.Module):
       center_window_size=center_window_size,
       use_weight_feedback=use_weight_feedback,
       use_att_ctx_in_state=use_att_ctx_in_state,
+      decoder_state=label_decoder_state,
     )
 
     if not use_joint_model:
@@ -280,6 +281,10 @@ from_scratch_model_def.batch_size_factor = _batch_size_factor
 
 
 def _returnn_v2_get_model(*, epoch: int, **_kwargs_unused):
+  """
+  Here, we use a separate blank model and define the blank_index=len(target_vocab). In this case, the target_dim
+  is one smaller than the align_target_dim and the EOS label is unused.
+  """
   from returnn.tensor import Tensor, Dim
   from returnn.config import get_global_config
 
@@ -302,9 +307,14 @@ def _returnn_v2_get_model(*, epoch: int, **_kwargs_unused):
   return model
 
 
-def _returnn_v2_get_model_for_full_sum_training(*, epoch: int, **_kwargs_unused):
-  from returnn.tensor import Tensor, Dim
+def _returnn_v2_get_joint_model(*, epoch: int, **_kwargs_unused):
+  """
+  Here, we reinterpret the EOS label as a blank label and use a single softmax for both blank and non-blank labels.
+  Therefore, we assume align_target_dim and target_dim to be the same.
+  """
+  from returnn.tensor import Tensor
   from returnn.config import get_global_config
+  from returnn.datasets.util.vocabulary import BytePairEncoding
 
   config = get_global_config()
   default_input_key = config.typed_value("default_input")
@@ -312,6 +322,10 @@ def _returnn_v2_get_model_for_full_sum_training(*, epoch: int, **_kwargs_unused)
   extern_data_dict = config.typed_value("extern_data")
   data = Tensor(name=default_input_key, **extern_data_dict[default_input_key])
   targets = Tensor(name=default_target_key, **extern_data_dict[default_target_key])
+
+  non_blank_vocab = config.typed_value("non_blank_vocab")
+  if non_blank_vocab is not None:
+    targets.sparse_dim.vocab = BytePairEncoding(**non_blank_vocab)
 
   model_def = config.typed_value("_model_def")
   model = model_def(

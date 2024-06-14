@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import Optional, Dict
 
 from returnn.tensor import TensorDict
 
@@ -25,9 +25,8 @@ def _returnn_v2_forward_step(*, model, extern_data: TensorDict, **_kwargs_unused
     targets = extern_data[default_target_key]
     extra.update(dict(targets=targets, targets_spatial_dim=targets.get_time_dim_tag()))
 
-  use_recombination = config.typed_value("use_recombination", None)
-  if use_recombination:
-    extra.update(dict(use_recombination=use_recombination))
+  beam_search_opts = config.typed_value("beam_search_opts", {})  # type: Dict
+  extra.update(beam_search_opts)
 
   recog_out = recog_def(model=model, data=data, data_spatial_dim=data_spatial_dim, **extra)
   if len(recog_out) == 5:

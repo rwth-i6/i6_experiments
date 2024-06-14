@@ -22,6 +22,9 @@ class GlobalAttDecoder(BaseLabelDecoder):
     )
     state.att.feature_dim_axis = len(state.att.dims) - 1
 
+    if self.use_mini_att:
+      state.mini_att_lstm = self.mini_att_lstm.default_initial_state(batch_dims=batch_dims)
+
     if self.use_weight_feedback:
       state.accum_att_weights = rf.zeros(
         list(batch_dims) + [enc_spatial_dim, self.att_num_heads], feature_dim=self.att_num_heads
@@ -52,6 +55,7 @@ class GlobalAttDecoder(BaseLabelDecoder):
           enc_spatial_dim: Dim,
           input_embed: rf.Tensor,
           state: Optional[rf.State] = None,
+          use_mini_att: bool = False,
   ) -> Tuple[Dict[str, rf.Tensor], rf.State]:
     """step of the inner loop"""
     if state is None:
@@ -79,9 +83,12 @@ class GlobalAttDecoder(BaseLabelDecoder):
     if self.use_weight_feedback:
       state_.accum_att_weights = state.accum_att_weights + att_weights * inv_fertility * 0.5
 
-    att0 = rf.dot(att_weights, enc, reduce=enc_spatial_dim, use_mask=False)
-    att0.feature_dim = self.enc_out_dim
-    att, _ = rf.merge_dims(att0, dims=(self.att_num_heads, self.enc_out_dim))
+    if use_mini_att:
+      att_lstm, state_.mini_att_lstm = self.mini_att_lstm(
+        input_embed, state=state.mini_att_lstm, spatial_dim=single_step_dim)
+      att = self.mini_att(att_lstm)
+    else:
+      att = self.get_att(att_weights, enc, enc_spatial_dim)
     state_.att = att
 
     return {"s": s, "att": att}, state_
@@ -110,6 +117,9 @@ class GlobalAttEfficientDecoder(GlobalAttDecoder):
           enc_ctx: rf.Tensor,
           enc_spatial_dim: Dim,
           s: rf.Tensor,
+          input_embed: rf.Tensor,
+          input_embed_spatial_dim: Dim,
+          use_mini_att: bool = False,
   ) -> rf.Tensor:
     s_transformed = self.s_transformed(s)
 
@@ -118,10 +128,17 @@ class GlobalAttEfficientDecoder(GlobalAttDecoder):
     energy_in = enc_ctx + weight_feedback + s_transformed
     energy = self.energy(rf.tanh(energy_in))
     att_weights = rf.softmax(energy, axis=enc_spatial_dim)
-    # we do not need use_mask because the softmax output is already padded with zeros
-    att0 = rf.dot(att_weights, enc, reduce=enc_spatial_dim, use_mask=False)
-    att0.feature_dim = self.enc_out_dim
-    att, _ = rf.merge_dims(att0, dims=(self.att_num_heads, self.enc_out_dim))
+    if use_mini_att:
+      att_lstm, _ = self.mini_att_lstm(
+        input_embed,
+        state=self.mini_att_lstm.default_initial_state(
+          batch_dims=input_embed.remaining_dims([input_embed_spatial_dim, input_embed.feature_dim])),
+        spatial_dim=input_embed_spatial_dim
+      )
+      att = self.mini_att(att_lstm)
+    else:
+      # we do not need use_mask because the softmax output is already padded with zeros
+      att = self.get_att(att_weights, enc, enc_spatial_dim)
 
     return att
 

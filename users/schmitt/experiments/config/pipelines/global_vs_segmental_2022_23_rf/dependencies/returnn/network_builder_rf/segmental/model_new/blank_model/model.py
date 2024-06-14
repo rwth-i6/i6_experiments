@@ -229,6 +229,11 @@ class BlankDecoderV5(BlankDecoderBase):
 
     self.emit_prob = rf.Linear(encoder_out_dim + label_state_dim, self.emit_prob_dim)
 
+  def default_initial_state(self, *, batch_dims: Sequence[Dim]) -> rf.State:
+    """Default initial state"""
+    state = rf.State()
+    return state
+
   def get_label_decoder_deps(self) -> Optional[List[str]]:
     return ["s"]
 
@@ -248,6 +253,13 @@ class BlankDecoderV6(BlankDecoderBase):
       self.length_model_state_dim,
     )
     self.emit_prob = rf.Linear(self.length_model_state_dim + label_state_dim, self.emit_prob_dim)
+
+  def default_initial_state(self, *, batch_dims: Sequence[Dim]) -> rf.State:
+    """Default initial state"""
+    state = rf.State(
+      s_blank=self._s.default_initial_state(batch_dims=batch_dims),
+    )
+    return state
 
   @property
   def _s(self) -> rf.LSTM:

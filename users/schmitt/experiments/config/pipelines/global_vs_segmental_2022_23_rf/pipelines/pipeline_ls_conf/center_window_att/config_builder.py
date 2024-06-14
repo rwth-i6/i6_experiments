@@ -8,7 +8,7 @@ from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segment
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.general.returnn.exes import RETURNN_EXE_NEW, RETURNN_CURRENT_ROOT
 
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.config_builder_rf.base import SegmentalAttConfigBuilderRF
-from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.segmental.model import from_scratch_model_def, _returnn_v2_get_model
+from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.segmental.model import from_scratch_model_def, _returnn_v2_get_model, _returnn_v2_get_joint_model
 
 
 def get_center_window_att_config_builder_rf(
@@ -35,16 +35,21 @@ def get_center_window_att_config_builder_rf(
     "returnn_root": RETURNN_CURRENT_ROOT
   }
 
+  if use_joint_model:
+    get_model_func = _returnn_v2_get_joint_model
+  else:
+    get_model_func = _returnn_v2_get_model
+
   config_builder = SegmentalAttConfigBuilderRF(
     variant_params=variant_params,
     model_def=from_scratch_model_def,
-    get_model_func=_returnn_v2_get_model,
+    get_model_func=get_model_func,
     center_window_size=win_size,
     use_att_ctx_in_state=use_att_ctx_in_state,
     blank_decoder_version=blank_decoder_version,
     use_joint_model=use_joint_model,
     use_weight_feedback=use_weight_feedback,
-    label_decoder_state=label_decoder_state
+    label_decoder_state=label_decoder_state,
   )
 
   alias = (

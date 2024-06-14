@@ -25,6 +25,8 @@ class BaseLabelDecoder(rf.Module):
           l2: float = 0.0001,
           use_weight_feedback: bool = True,
           use_att_ctx_in_state: bool = True,
+          decoder_state: str = "nb-lstm",
+          use_mini_att: bool = False,
   ):
     super(BaseLabelDecoder, self).__init__()
 
@@ -40,29 +42,53 @@ class BaseLabelDecoder(rf.Module):
 
     self.target_embed = rf.Embedding(target_dim, Dim(name="target_embed", dimension=640))
 
-    zoneout_lstm_opts = dict(
-      out_dim=Dim(name="lstm", dimension=1024),
-      zoneout_factor_cell=0.15,
-      zoneout_factor_output=0.05,
-      use_zoneout_output=False,  # like RETURNN/TF ZoneoutLSTM old default
-      # parts_order="icfo",  # like RETURNN/TF ZoneoutLSTM
-      # parts_order="ifco",
-      parts_order="jifo",  # NativeLSTM (the code above converts it...)
-      forget_bias=0.0,  # the code above already adds it during conversion
-    )
     self.use_att_ctx_in_state = use_att_ctx_in_state
-    if use_att_ctx_in_state:
-      self.s = rf.ZoneoutLSTM(
-        self.target_embed.out_dim + att_num_heads * enc_out_dim,
-        **zoneout_lstm_opts,
-      )
-    else:
-      self.s_wo_att = rf.ZoneoutLSTM(
-        self.target_embed.out_dim,
-        **zoneout_lstm_opts,
-      )
-
     self.use_weight_feedback = use_weight_feedback
+
+    self.decoder_state = decoder_state
+    if "lstm" in decoder_state:
+      ilm_layer_class = rf.ZoneoutLSTM
+      ilm_layer_opts = dict(
+        out_dim=Dim(name="lstm", dimension=1024),
+        zoneout_factor_cell=0.15,
+        zoneout_factor_output=0.05,
+        use_zoneout_output=False,  # like RETURNN/TF ZoneoutLSTM old default
+        # parts_order="icfo",  # like RETURNN/TF ZoneoutLSTM
+        # parts_order="ifco",
+        parts_order="jifo",  # NativeLSTM (the code above converts it...)
+        forget_bias=0.0,  # the code above already adds it during conversion
+      )
+      if use_att_ctx_in_state:
+        self.s = ilm_layer_class(
+          self.target_embed.out_dim + att_num_heads * enc_out_dim,
+          **ilm_layer_opts,
+        )
+      else:
+        self.s_wo_att = ilm_layer_class(
+          self.target_embed.out_dim,
+          **ilm_layer_opts,
+        )
+    else:
+      ilm_layer_class = rf.Linear
+      ilm_layer_opts = dict(
+        out_dim=Dim(name="linear-ilm", dimension=1024),
+      )
+      if use_att_ctx_in_state:
+        self.s_linear = ilm_layer_class(
+          self.target_embed.out_dim + att_num_heads * enc_out_dim,
+          **ilm_layer_opts,
+        )
+      else:
+        self.s_wo_att_linear = ilm_layer_class(
+          self.target_embed.out_dim,
+          **ilm_layer_opts,
+        )
+
+    self.use_mini_att = use_mini_att
+    if use_mini_att:
+      self.mini_att_lstm = rf.LSTM(self.target_embed.out_dim, Dim(name="mini-att-lstm", dimension=50))
+      self.mini_att = rf.Linear(self.mini_att_lstm.out_dim, self.att_num_heads * self.enc_out_dim)
+
     if use_weight_feedback:
       self.weight_feedback = rf.Linear(att_num_heads, enc_key_total_dim, with_bias=False)
 
@@ -86,15 +112,42 @@ class BaseLabelDecoder(rf.Module):
           self,
           input_embed: rf.Tensor,
           prev_att: rf.Tensor,
-          prev_s_state: rf.LstmState,
-  ):
-    if self.use_att_ctx_in_state:
-      return self.s(rf.concat_features(input_embed, prev_att), state=prev_s_state, spatial_dim=single_step_dim)
+          prev_s_state: Optional[rf.LstmState],
+  ) -> Tuple[rf.Tensor, Optional[rf.LstmState]]:
+    if "lstm" in self.decoder_state:
+      ilm_forward_opts = dict(
+        state=prev_s_state,
+        spatial_dim=single_step_dim,
+      )
+      if self.use_att_ctx_in_state:
+        return self.s(rf.concat_features(input_embed, prev_att), **ilm_forward_opts)
+      else:
+        return self.s_wo_att(input_embed, **ilm_forward_opts)
     else:
-      return self.s_wo_att(input_embed, state=prev_s_state, spatial_dim=single_step_dim)
+      if self.use_att_ctx_in_state:
+        return self.s_linear(rf.concat_features(input_embed, prev_att)), None
+      else:
+        return self.s_wo_att_linear(input_embed), None
 
   def get_lstm(self):
-    if self.use_att_ctx_in_state:
-      return self.s
+    if "lstm" in self.decoder_state:
+      if self.use_att_ctx_in_state:
+        return self.s
+      else:
+        return self.s_wo_att
     else:
-      return self.s_wo_att
+      if self.use_att_ctx_in_state:
+        return self.s_linear
+      else:
+        return self.s_wo_att_linear
+
+  def get_att(
+          self,
+          att_weights: rf.Tensor,
+          enc: rf.Tensor,
+          reduce_dim: Dim
+  ) -> rf.Tensor:
+    att0 = rf.dot(att_weights, enc, reduce=reduce_dim, use_mask=False)
+    att0.feature_dim = self.enc_out_dim
+    att, _ = rf.merge_dims(att0, dims=(self.att_num_heads, self.enc_out_dim))
+    return att

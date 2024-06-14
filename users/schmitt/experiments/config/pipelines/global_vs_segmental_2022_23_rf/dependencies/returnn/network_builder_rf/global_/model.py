@@ -23,7 +23,7 @@ class GlobalAttentionModel(rf.Module):
           enc_key_total_dim: Dim = Dim(name="enc_key_total_dim", dimension=1024),
           att_dropout: float = 0.1,
           l2: float = 0.0001,
-          language_model: Optional[RFModelWithMakeLabelScorer] = None,
+          language_model: Optional[rf.Module] = None,
           enc_in_dim: Dim,
           enc_out_dim: Dim = Dim(name="enc", dimension=512),
           enc_num_layers: int = 12,
@@ -36,6 +36,7 @@ class GlobalAttentionModel(rf.Module):
           eos_idx: int,
           use_weight_feedback: bool = True,
           use_att_ctx_in_state: bool = True,
+          use_mini_att: bool = False,
   ):
     super(GlobalAttentionModel, self).__init__()
 
@@ -72,16 +73,21 @@ class GlobalAttentionModel(rf.Module):
       eos_idx=eos_idx,
       use_weight_feedback=use_weight_feedback,
       use_att_ctx_in_state=use_att_ctx_in_state,
+      use_mini_att=use_mini_att,
     )
 
     if language_model:
-      self.language_model, self.language_model_make_label_scorer = language_model
+      self.language_model = language_model
     else:
       self.language_model = None
-      self.language_model_make_label_scorer = None
 
     self.blank_idx = blank_idx
     self.target_dim = target_dim
+
+    if use_mini_att:
+      for name, param in self.named_parameters():
+        if "mini_att" not in name:
+          param.trainable = False
 
 
 class MakeModel:
@@ -131,6 +137,7 @@ class MakeModel:
           language_model: Optional[Dict[str, Any]] = None,
           use_weight_feedback: bool = True,
           use_att_ctx_in_state: bool = True,
+          use_mini_att: bool = False,
           **extra,
   ) -> GlobalAttentionModel:
     """make"""
@@ -145,7 +152,6 @@ class MakeModel:
       from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.lm.trafo import model as trafo_lm
 
       lm = trafo_lm.MakeModel(vocab_dim=target_dim, **language_model)()
-      lm = (lm, functools.partial(trafo_lm.make_label_scorer_torch, model=lm))
 
     return GlobalAttentionModel(
       enc_in_dim=in_dim,
@@ -172,6 +178,7 @@ class MakeModel:
       language_model=lm,
       use_weight_feedback=use_weight_feedback,
       use_att_ctx_in_state=use_att_ctx_in_state,
+      use_mini_att=use_mini_att,
       **extra,
     )
 
@@ -213,6 +220,7 @@ def from_scratch_model_def(*, epoch: int, in_dim: Dim, target_dim: Dim) -> Globa
   lm_opts = config.typed_value("external_lm")
   use_weight_feedback = config.bool("use_weight_feedback", True)
   use_att_ctx_in_state = config.bool("use_att_ctx_in_state", True)
+  use_mini_att = config.bool("use_mini_att", False)
 
   return MakeModel.make_model(
     in_dim,
@@ -222,6 +230,7 @@ def from_scratch_model_def(*, epoch: int, in_dim: Dim, target_dim: Dim) -> Globa
     language_model=lm_opts,
     use_weight_feedback=use_weight_feedback,
     use_att_ctx_in_state=use_att_ctx_in_state,
+    use_mini_att=use_mini_att,
   )
 
 

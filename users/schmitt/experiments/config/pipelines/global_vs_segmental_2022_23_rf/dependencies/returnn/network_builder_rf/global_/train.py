@@ -48,6 +48,7 @@ def get_s_and_att(
       enc_spatial_dim=enc_spatial_dim,
       input_embed=input_embed,
       state=state.decoder,
+      use_mini_att=model.use_mini_att,
     )
     return loop_out_, new_state
 
@@ -84,6 +85,9 @@ def get_s_and_att_efficient(
     enc_ctx=enc_args["enc_ctx"],
     enc_spatial_dim=enc_spatial_dim,
     s=s,
+    input_embed=input_embeddings,
+    input_embed_spatial_dim=targets_spatial_dim,
+    use_mini_att=model.use_mini_att,
   )
 
   return s, att

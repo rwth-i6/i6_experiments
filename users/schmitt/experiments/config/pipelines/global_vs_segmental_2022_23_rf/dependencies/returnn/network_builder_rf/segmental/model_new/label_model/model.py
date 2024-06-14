@@ -23,12 +23,14 @@ class SegmentalAttLabelDecoder(BaseLabelDecoder):
   ) -> rf.State:
     """Default initial state"""
     state = rf.State(
-      s=self.get_lstm().default_initial_state(batch_dims=batch_dims),
       att=rf.zeros(list(batch_dims) + [self.att_num_heads * self.enc_out_dim]),
       segment_starts=rf.zeros(batch_dims, sparse_dim=segment_starts_sparse_dim, dtype="int32"),
       segment_lens=rf.zeros(batch_dims, sparse_dim=segment_lens_sparse_dim, dtype="int32"),
     )
     state.att.feature_dim_axis = len(state.att.dims) - 1
+
+    if "lstm" in self.decoder_state:
+      state.s = self.get_lstm().default_initial_state(batch_dims=batch_dims)
 
     if self.use_weight_feedback:
       state.accum_att_weights = rf.zeros(
@@ -144,11 +146,14 @@ class SegmentalAttLabelDecoder(BaseLabelDecoder):
 
     # during search, these need to be the values from the previous "emit" step (not necessarily the previous time step)
     prev_att = state.att
-    prev_s_state = state.s
+    prev_s_state = state.s if "lstm" in self.decoder_state else None
     prev_segment_starts = state.segment_starts
     prev_segment_lens = state.segment_lens
 
-    s, state_.s = self._update_state(input_embed, prev_att, prev_s_state)
+    s, s_state = self._update_state(input_embed, prev_att, prev_s_state)
+    if "lstm" in self.decoder_state:
+      state_.s = s_state
+
     s_transformed = self.s_transformed(s)
 
     slice_dim = Dim(name="slice", dimension=segment_lens)
@@ -177,9 +182,7 @@ class SegmentalAttLabelDecoder(BaseLabelDecoder):
     energy = self.energy(rf.tanh(energy_in))
     att_weights = rf.softmax(energy, axis=slice_dim)
     # we do not need use_mask because the softmax output is already padded with zeros
-    att0 = rf.dot(att_weights, enc_sliced, reduce=slice_dim, use_mask=False)
-    att0.feature_dim = self.enc_out_dim
-    att, _ = rf.merge_dims(att0, dims=(self.att_num_heads, self.enc_out_dim))
+    att = self.get_att(att_weights, enc_sliced, reduce_dim=slice_dim)
     state_.att = att
 
     if self.use_weight_feedback:

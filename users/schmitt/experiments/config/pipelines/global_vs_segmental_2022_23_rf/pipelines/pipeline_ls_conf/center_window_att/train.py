@@ -9,7 +9,6 @@ from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segment
   viterbi_training,
   full_sum_training,
 )
-from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.segmental.model import _returnn_v2_get_model_for_full_sum_training
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.pipelines.pipeline_ls_conf.checkpoints import (
   external_checkpoints,
   default_import_model_name,
@@ -27,7 +26,7 @@ def train_center_window_att_viterbi_from_scratch(
         use_mgpu: bool = True,
 ):
   for n_epochs in n_epochs_list:
-    alias += f"/viterbi-train_from_scratch/{n_epochs}-epochs_bs-{batch_size}_w-ctc-loss_{'w' if use_speed_pert else 'wo'}-speed-pert"
+    alias += f"/viterbi-train_from_scratch/{n_epochs}-epochs_bs-{batch_size}_wo-ctc-loss_{'w' if use_speed_pert else 'wo'}-speed-pert"
 
     train_opts = {
       "dataset_opts": {
@@ -110,12 +109,19 @@ def train_center_window_att_full_sum_from_scratch(
         batch_size: int = 15_000,
         use_mgpu: bool = True,
         beam_size: Optional[int] = None,
+        lattice_downsampling: int = 1,
+        alignment_interpolation_factor: float = 0.5,
+        train_on_viterbi_paths: bool = False,
 ):
-  # TODO: do this in a nicer way
-  config_builder = copy.deepcopy(config_builder)
-  config_builder.get_model_func = _returnn_v2_get_model_for_full_sum_training
+  # # TODO: do this in a nicer way
+  # config_builder = copy.deepcopy(config_builder)
+  # config_builder.get_model_func = _returnn_v2_get_model_for_full_sum_training
   for n_epochs in n_epochs_list:
-    alias += f"/full-sum-train_from_scratch/{n_epochs}-epochs_bs-{batch_size}_w-ctc-loss_{'w' if use_speed_pert else 'wo'}-speed-pert"
+    alias += (
+      f"/full-sum-train_from_scratch/{n_epochs}-epochs_bs-{batch_size}_{'w' if use_speed_pert else 'wo'}-sp"
+      f"_beams-{beam_size}_lat-down-{lattice_downsampling}_{alignment_interpolation_factor}-interp"
+      f"_{'ce' if train_on_viterbi_paths else 'sum'}-loss"
+    )
 
     train_opts = {
       "dataset_opts": {
@@ -152,10 +158,15 @@ def train_center_window_att_full_sum_from_scratch(
       # "max_seq_length": {"targets": 75},
       "train_def": full_sum_training,
       "train_step_func": _returnn_v2_full_sum_train_step,
+      "full_sum_alignment_interpolation_factor": alignment_interpolation_factor,
+      "full_sum_lattice_downsampling": lattice_downsampling,
     }
 
     if beam_size is not None:
-      train_opts["full_sum_training_beam_size"] = beam_size
+      train_opts["full_sum_beam_size"] = beam_size
+
+    if train_on_viterbi_paths:
+      train_opts["full_sum_train_on_viterbi_paths"] = True
 
     train_rqmt = {
       "time": time_rqmt,
@@ -195,7 +206,7 @@ def train_center_window_att_viterbi_import_global_tf(
         alignment_augmentation_opts: Optional[Dict] = None,
         import_model_name: str = default_import_model_name,
 ):
-  if not config_builder.use_att_ctx_in_state:
+  if not config_builder.use_att_ctx_in_state and "lstm" in config_builder.label_decoder_state:
     # only randomly init FF weights, since only the input dim of the lstm layer is different
     custom_missing_load_func = load_missing_params
   else:

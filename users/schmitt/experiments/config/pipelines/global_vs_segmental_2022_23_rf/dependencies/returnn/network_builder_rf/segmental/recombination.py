@@ -68,12 +68,12 @@ def recombine_seqs_train(
         label_log_prob: Tensor,
         label_indices: Tensor,
         ground_truth: Tensor,
-        labels_padded_spatial_sizes: Tensor,
         target_dim: Dim,
         single_col_dim: Dim,
         beam_dim: Dim,
         batch_dims: Sequence[Dim],
         blank_idx: int,
+        use_sum_recombination: bool = True,
 ) -> Tensor:
   # local horizontal scores for each hyp: [B, beam]
   horizontal_scores = rf.gather(
@@ -176,22 +176,30 @@ def recombine_seqs_train(
     rf.constant(-1.0e30, dims=batch_dims)
   )
 
+  # for each hyp, merge horizontal and diagonal scores into one column
+  # i.e. [-inf, ..., d, ..., -inf] + [-inf, ..., h, ..., -inf] -> [-inf, ..., d, h, ..., -inf]
   best_scores = rf.maximum(horizontal_scores, diagonal_scores)
-  sum_scores = rf.exp(horizontal_scores - best_scores) + rf.exp(diagonal_scores - best_scores)
-  sum_scores = best_scores + rf.safe_log(sum_scores)
+  merged_scores = rf.exp(horizontal_scores - best_scores) + rf.exp(diagonal_scores - best_scores)
+  merged_scores = best_scores + rf.safe_log(merged_scores)
 
-  best_scores = rf.reduce_max(sum_scores, axis=beam_dim)
-  is_max = sum_scores == best_scores
-  sum_scores = best_scores + rf.log(rf.reduce_sum(rf.exp(sum_scores - best_scores), axis=beam_dim))
+  # recombine the scores of different hypotheses
+  best_scores = rf.reduce_max(merged_scores, axis=beam_dim)
+  is_max = merged_scores == best_scores
 
-  sum_scores = rf.expand_dim(sum_scores, beam_dim)
-  sum_scores = rf.where(
+  if use_sum_recombination:
+    recombined_score = best_scores + rf.log(rf.reduce_sum(rf.exp(merged_scores - best_scores), axis=beam_dim))
+  else:
+    recombined_score = best_scores
+
+  # add back the beam dimension and set the score of the worse hypotheses to -1.0e30
+  recombined_score = rf.expand_dim(recombined_score, beam_dim)
+  recombined_score = rf.where(
     is_max,
-    sum_scores,
+    recombined_score,
     rf.constant(-1.0e30, dims=batch_dims)
   )
 
-  return sum_scores
+  return recombined_score
 
 
 def update_seq_hash(seq_hash: Tensor, target: Tensor, backrefs: Tensor, blank_idx: int) -> Tensor:

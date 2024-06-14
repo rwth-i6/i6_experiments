@@ -18,7 +18,8 @@ from i6_core.corpus.convert import CorpusToStmJob
 
 from i6_experiments.users.schmitt.flow import get_raw_wav_feature_flow
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.general.rasr.config import RasrConfigBuilder
-from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.config_builder_rf.base import ConfigBuilderRF
+from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.config_builder_rf.base import ConfigBuilderRF, GlobalAttConfigBuilderRF, SegmentalAttConfigBuilderRF
+from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.pipelines.pipeline_ls_conf.global_att.config_builder import get_global_att_config_builder_rf
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.returnn.config_builder.base import ConfigBuilder
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.returnn.config_builder.global_ import GlobalConfigBuilder
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.returnn.config_builder.segmental import SegmentalConfigBuilder
@@ -41,6 +42,7 @@ from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segment
   TEDLIUM2BPE1057_CTC_ALIGNMENT,
 )
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.corpora import tedlium2, librispeech
+from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.global_.train import _returnn_v2_train_step, from_scratch_training
 
 
 class DecodingExperiment(ABC):
@@ -166,28 +168,60 @@ class GlobalAttDecodingExperiment(DecodingExperiment, ABC):
 
   def get_mini_att_checkpoint(self, train_mini_lstm_opts: Dict) -> Checkpoint:
     assert train_mini_lstm_opts["use_eos"], "trivial for global att but set for clarity"
-
     num_epochs = 10
-    train_mini_lstm_exp = GlobalTrainExperiment(
-      config_builder=self.config_builder,
-      alias=self.alias,
-      num_epochs=num_epochs,
-      train_opts={
-        "import_model_train_epoch1": self.checkpoint,
-        "lr_opts": {
-          "type": "newbob",
-          "learning_rate": 1e-4,
-          "learning_rate_control": "newbob_multi_epoch",
-          "learning_rate_control_min_num_epochs_per_new_lr": 3,
-          "learning_rate_control_relative_error_relative_lr": True,
-          "learning_rate_control_error_measure": "dev_error_label_model/output_prob"
-        },
-        "train_mini_lstm_opts": train_mini_lstm_opts,
-        "tf_session_opts": {"gpu_options": {"per_process_gpu_memory_fraction": 0.95}},
-        "max_seq_length": {"targets": 75}
-      }
-    )
-    mini_att_checkpoints, model_dir, learning_rates = train_mini_lstm_exp.run_train()
+
+    if isinstance(self.config_builder, GlobalConfigBuilder):
+      train_mini_lstm_exp = GlobalTrainExperiment(
+        config_builder=self.config_builder,
+        alias=self.alias,
+        num_epochs=num_epochs,
+        train_opts={
+          "import_model_train_epoch1": self.checkpoint,
+          "lr_opts": {
+            "type": "newbob",
+            "learning_rate": 1e-4,
+            "learning_rate_control": "newbob_multi_epoch",
+            "learning_rate_control_min_num_epochs_per_new_lr": 3,
+            "learning_rate_control_relative_error_relative_lr": True,
+            "learning_rate_control_error_measure": "dev_error_label_model/output_prob"
+          },
+          "train_mini_lstm_opts": train_mini_lstm_opts,
+          "tf_session_opts": {"gpu_options": {"per_process_gpu_memory_fraction": 0.95}},
+          "max_seq_length": {"targets": 75}
+        }
+      )
+      mini_att_checkpoints, model_dir, learning_rates = train_mini_lstm_exp.run_train()
+    else:
+      assert isinstance(self.config_builder, GlobalAttConfigBuilderRF)
+      train_mini_lstm_exp = GlobalTrainExperiment(
+        config_builder=self.config_builder,
+        alias=self.alias,
+        num_epochs=num_epochs,
+        train_rqmt={"time": 10},
+        train_opts={
+          "preload_from_files": {
+            "pretrained_global_att_params": {
+              "filename": self.checkpoint,
+              "init_for_train": True,
+              "ignore_missing": True,
+            }
+          },
+          "train_def": from_scratch_training,
+          "train_step_func": _returnn_v2_train_step,
+          "batching": "random",
+          "aux_loss_layers": None,
+          "lr_opts": {
+            "type": "const_then_linear",
+            "const_lr": 1e-4,
+            "const_frac": 1 / 3,
+            "final_lr": 1e-6,
+            "num_epochs": num_epochs
+          },
+          "train_mini_lstm_opts": train_mini_lstm_opts,
+        }
+      )
+      mini_att_checkpoints, model_dir, learning_rates = train_mini_lstm_exp.run_train()
+
     return mini_att_checkpoints[num_epochs]
 
 
@@ -209,24 +243,61 @@ class SegmentalAttDecodingExperiment(DecodingExperiment, ABC):
       train_opts = {"dataset_opts": {"hdf_targets": align_targets}}
 
     num_epochs = 10
-    train_mini_lstm_exp = SegmentalTrainExperiment(
-      config_builder=self.config_builder,
-      alias=self.alias,
-      num_epochs=num_epochs,
-      train_opts={
-        "import_model_train_epoch1": self.checkpoint,
-        "lr_opts": {
-          "type": "newbob",
-          "learning_rate": 1e-4,
-          "learning_rate_control": "newbob_multi_epoch",
-          "learning_rate_control_min_num_epochs_per_new_lr": 3,
-          "learning_rate_control_relative_error_relative_lr": True,
-          "learning_rate_control_error_measure": "dev_error_label_model/output_prob"
-        },
-        "train_mini_lstm_opts": train_mini_lstm_opts,
-        **train_opts
-      }
-    )
+
+    if isinstance(self.config_builder, SegmentalConfigBuilder):
+      train_mini_lstm_exp = SegmentalTrainExperiment(
+        config_builder=self.config_builder,
+        alias=self.alias,
+        num_epochs=num_epochs,
+        train_opts={
+          "import_model_train_epoch1": self.checkpoint,
+          "lr_opts": {
+            "type": "newbob",
+            "learning_rate": 1e-4,
+            "learning_rate_control": "newbob_multi_epoch",
+            "learning_rate_control_min_num_epochs_per_new_lr": 3,
+            "learning_rate_control_relative_error_relative_lr": True,
+            "learning_rate_control_error_measure": "dev_error_label_model/output_prob"
+          },
+          "train_mini_lstm_opts": train_mini_lstm_opts,
+          **train_opts
+        }
+      )
+    else:
+      assert isinstance(self.config_builder, SegmentalAttConfigBuilderRF)
+      _, config_builder_ = get_global_att_config_builder_rf(
+        use_weight_feedback=self.config_builder.use_weight_feedback,
+        use_att_ctx_in_state=self.config_builder.use_att_ctx_in_state
+      )
+
+      train_mini_lstm_exp = GlobalTrainExperiment(
+        config_builder=config_builder_,
+        alias=self.alias,
+        num_epochs=num_epochs,
+        train_rqmt={"time": 10},
+        train_opts={
+          "preload_from_files": {
+            "pretrained_global_att_params": {
+              "filename": self.checkpoint,
+              "init_for_train": True,
+              "ignore_missing": True,
+            }
+          },
+          "train_def": from_scratch_training,
+          "train_step_func": _returnn_v2_train_step,
+          "batching": "random",
+          "aux_loss_layers": None,
+          "lr_opts": {
+            "type": "const_then_linear",
+            "const_lr": 1e-4,
+            "const_frac": 1 / 3,
+            "final_lr": 1e-6,
+            "num_epochs": num_epochs
+          },
+          "train_mini_lstm_opts": train_mini_lstm_opts,
+        }
+      )
+
     mini_att_checkpoints, model_dir, learning_rates = train_mini_lstm_exp.run_train()
     return mini_att_checkpoints[num_epochs]
 
@@ -733,12 +804,12 @@ class DecodingPipeline(ABC):
           ilm_opts: Optional[Dict] = None,
           run_analysis: bool = False,
           search_rqmt: Optional[Dict] = None,
-          search_alias: Optional[str] = None
+          search_alias: Optional[str] = None,
+          corpus_keys: Tuple[str, ...] = ("dev-other",)
   ):
     self.recog_opts = recog_opts if recog_opts is not None else {}
-    assert "lm_opts" not in self.recog_opts, "lm_opts are set by the pipeline"
-    assert "ilm_correction_opts" not in self.recog_opts, "ilm_correction_opts are set by the pipeline"
-    assert "beam_size" not in self.recog_opts, "beam_size is set by the pipeline"
+    for key in ("lm_opts", "ilm_correction_opts", "beam_size", "search_corpus_key"):
+      assert key not in self.recog_opts, f"{key} is set by the pipeline"
 
     self.alias = alias
     self.config_builder = config_builder
@@ -753,6 +824,7 @@ class DecodingPipeline(ABC):
     self.run_analysis = run_analysis
     self.search_rqmt = search_rqmt
     self.search_alias = search_alias
+    self.corpus_keys = corpus_keys
 
   @abstractmethod
   def run_experiment(
@@ -764,12 +836,20 @@ class DecodingPipeline(ABC):
       for beam_size in self.beam_sizes:
         for lm_scale in self.lm_scales:
           for ilm_scale in self.ilm_scales:
-            self.run_experiment(
-              beam_size=beam_size,
-              lm_scale=lm_scale,
-              ilm_scale=ilm_scale,
-              checkpoint_alias=checkpoint_alias
-            )
+            for corpus_key in self.corpus_keys:
+              self.recog_opts.update({
+                "lm_opts": {"scale": lm_scale, **self.lm_opts} if lm_scale > 0 else None,
+                "ilm_correction_opts": {
+                  "scale": ilm_scale, **self.ilm_opts} if ilm_scale > 0 and lm_scale > 0 else None,
+                "beam_size": beam_size,
+                "search_corpus_key": corpus_key
+              })
+              self.run_experiment(
+                beam_size=beam_size,
+                lm_scale=lm_scale,
+                ilm_scale=ilm_scale,
+                checkpoint_alias=checkpoint_alias
+              )
 
 
 class ReturnnGlobalAttDecodingPipeline(DecodingPipeline):
@@ -778,12 +858,6 @@ class ReturnnGlobalAttDecodingPipeline(DecodingPipeline):
     self.config_builder = config_builder
 
   def run_experiment(self, beam_size: int, lm_scale: float, ilm_scale: float, checkpoint_alias: str):
-    self.recog_opts.update({
-      "lm_opts": {"scale": lm_scale, **self.lm_opts} if lm_scale > 0 else None,
-      "ilm_correction_opts": {"scale": ilm_scale, **self.ilm_opts} if ilm_scale > 0 and lm_scale > 0 else None,
-      "beam_size": beam_size
-    })
-
     if lm_scale > 0 and beam_size in (50, 84) and "batch_size" not in self.recog_opts:
       self.recog_opts["batch_size"] = 4000 * 160
 
@@ -826,12 +900,6 @@ class ReturnnSegmentalAttDecodingPipeline(DecodingPipeline):
         self.analysis_opts["ground_truth_hdf"] = self.realignment
 
   def run_experiment(self, beam_size: int, lm_scale: float, ilm_scale: float, checkpoint_alias: str):
-    self.recog_opts.update({
-      "lm_opts": {"scale": lm_scale, **self.lm_opts} if lm_scale > 0 else None,
-      "ilm_correction_opts": {"scale": ilm_scale, **self.ilm_opts} if ilm_scale > 0 else None,
-      "beam_size": beam_size
-    })
-
     if lm_scale > 0:
       if beam_size == 12 and "batch_size" not in self.recog_opts:
         self.recog_opts["batch_size"] = 7500 * 160
