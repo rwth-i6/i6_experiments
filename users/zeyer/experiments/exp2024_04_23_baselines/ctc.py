@@ -32,6 +32,10 @@ _log_mel_feature_dim = 80
 
 def py():
     """Sisyphus entry point"""
+    from i6_experiments.users.zeyer.datasets.librispeech import get_librispeech_log_mel_stats
+
+    feature_stats = get_librispeech_log_mel_stats(_log_mel_feature_dim)
+
     """
     Luca:
 
@@ -53,9 +57,10 @@ def py():
         - Luca uses larger batch 2_400_000 -> 6_400_000, grad accum 1 -> 2
         - Luca uses wd 1e-06
         - Luca uses older behavior_version 21 -> 16.
+        - Luca uses feature normalization (global based on Tedlium statistics...). 
     """
 
-    train_exp(
+    train_exp(  # {"dev-clean": 6.44, "dev-other": 9.77, "test-clean": 6.89, "test-other": 9.98}
         f"v6-bhv21-24gb-bf16-bs40k-accgrad2-wd1e_6-lrlin1e_5_450k-bpe10k",
         config_24gb_v6,
         config_updates={
@@ -63,9 +68,19 @@ def py():
         },
     )
 
-    train_exp(
+    train_exp(  # {"dev-clean": 6.61, "dev-other": 9.68, "test-clean": 7.01, "test-other": 10.36}
         f"v6-bhv21-24gb-bf16-bs40k-accgrad2-wd1e_6-lrlin1e_5_600k-bpe10k",
         config_24gb_v6,
+        config_updates={
+            **_get_cfg_lrlin_oclr_by_bs_nep(40_000, 2000),
+            "learning_rate_piecewise_steps": [600_000, 900_000, 982_000],
+        },
+    )
+
+    train_exp(
+        f"v6-bhv21-24gb-bf16-bs40k-accgrad2-wd1e_6-lrlin1e_5_600k-featGN-bpe10k",
+        config_24gb_v6,
+        model_config={"feature_stats": {"mean": feature_stats.mean, "std_dev": feature_stats.std_dev}},
         config_updates={
             **_get_cfg_lrlin_oclr_by_bs_nep(40_000, 2000),
             "learning_rate_piecewise_steps": [600_000, 900_000, 982_000],
@@ -195,10 +210,6 @@ def py():
         vocab="spm10k",
         train_vocab_opts={"other_opts": {"enable_sampling": True, "alpha": 0.7}},
     )
-
-    from i6_experiments.users.zeyer.datasets.librispeech import get_librispeech_log_mel_stats
-
-    feature_stats = get_librispeech_log_mel_stats(_log_mel_feature_dim)
 
     # Test different feature normalization schemes.
     # Note: It seems the diff between dev-other and test-other is less here, probably du to the normalization.
