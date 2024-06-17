@@ -248,6 +248,7 @@ def py():
             model_config={
                 "conv_norm": rf.build_dict(
                     BatchRenorm,
+                    use_mask=True,
                     r_max=rf.build_dict(rf.PiecewiseLinearStepwiseScheduler, points={5_000: 1.0, 40_000: 3.0}),
                     d_max=rf.build_dict(rf.PiecewiseLinearStepwiseScheduler, points={5_000: 0.0, 25_000: 5.0}),
                 )
