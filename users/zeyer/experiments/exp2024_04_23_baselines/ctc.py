@@ -240,34 +240,37 @@ def py():
 
     from i6_experiments.users.zeyer.nn_rf.batchnorm import BatchRenorm
 
-    for vocab, alpha in [("bpe10k", 0.01)]:  # [("bpe10k", 0.01), ("spm10k", 0.7)]:
-        train_exp(
-            f"v6-batchRenorm-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-speedpertV2-{vocab}"
-            f"-{'spmSample' if vocab.startswith('spm') else 'bpeSample'}{str(alpha).replace('.', '')}",
-            config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
-            model_config={
-                "conv_norm": rf.build_dict(
-                    BatchRenorm,
-                    use_mask=True,
-                    r_max=rf.build_dict(rf.PiecewiseLinearStepwiseScheduler, points={5_000: 1.0, 40_000: 3.0}),
-                    d_max=rf.build_dict(rf.PiecewiseLinearStepwiseScheduler, points={5_000: 0.0, 25_000: 5.0}),
-                )
-            },
-            config_updates={
-                **_get_cfg_lrlin_oclr_by_bs_nep(15_000, 500),
-                "optimizer.weight_decay": 1e-2,
-                "__train_audio_preprocess": speed_pert_librosa_config,
-                "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
-            },
-            vocab=vocab,
-            train_vocab_opts={
-                "other_opts": (
-                    {"enable_sampling": True, "alpha": alpha}
-                    if vocab.startswith("spm")
-                    else {"class": "SamplingBytePairEncoding", "breadth_prob": alpha}
-                )
-            },
-        )
+    for name, opts in {
+        "batchRenorm": rf.build_dict(
+            BatchRenorm,
+            use_mask=True,
+            r_max=rf.build_dict(rf.PiecewiseLinearStepwiseScheduler, points={5_000: 1.0, 40_000: 3.0}),
+            d_max=rf.build_dict(rf.PiecewiseLinearStepwiseScheduler, points={5_000: 0.0, 25_000: 5.0}),
+        ),
+        "groupNorm": {"class": rf.GroupNorm, "num_groups": 32},
+        "layerNorm": {"class": rf.LayerNorm},
+    }.items():
+        for vocab, alpha in [("bpe10k", 0.01)]:  # [("bpe10k", 0.01), ("spm10k", 0.7)]:
+            train_exp(
+                f"v6-{name}-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-speedpertV2-{vocab}"
+                f"-{'spmSample' if vocab.startswith('spm') else 'bpeSample'}{str(alpha).replace('.', '')}",
+                config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
+                model_config={"conv_norm": opts},
+                config_updates={
+                    **_get_cfg_lrlin_oclr_by_bs_nep(15_000, 500),
+                    "optimizer.weight_decay": 1e-2,
+                    "__train_audio_preprocess": speed_pert_librosa_config,
+                    "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
+                },
+                vocab=vocab,
+                train_vocab_opts={
+                    "other_opts": (
+                        {"enable_sampling": True, "alpha": alpha}
+                        if vocab.startswith("spm")
+                        else {"class": "SamplingBytePairEncoding", "breadth_prob": alpha}
+                    )
+                },
+            )
 
 
 # noinspection PyShadowingNames
