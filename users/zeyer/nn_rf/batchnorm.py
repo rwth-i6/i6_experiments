@@ -5,7 +5,7 @@ https://github.com/rwth-i6/returnn/issues/1539
 """
 
 from __future__ import annotations
-from typing import Optional, Union, Callable
+from typing import Optional, Union, Any, Callable
 from returnn.tensor import Tensor, Dim
 import returnn.frontend as rf
 
@@ -50,8 +50,8 @@ class BatchRenorm(rf.Module):
         eps: float = 1e-3,
         use_mask: Optional[bool] = None,
         unbiased: bool = False,
-        r_max: Union[float, Callable[[BatchRenorm], float]] = 1.0,
-        d_max: Union[float, Callable[[BatchRenorm], float]] = 0.0,
+        r_max: Union[float, Callable[[BatchRenorm], Union[float, Tensor]], Any] = 1.0,
+        d_max: Union[float, Callable[[BatchRenorm], Union[float, Tensor]], Any] = 0.0,
     ):
         """
         :param in_dim: the feature dimension of the input
@@ -88,6 +88,10 @@ class BatchRenorm(rf.Module):
         self.eps = eps
         self.use_mask = use_mask
         self.unbiased = unbiased
+        if isinstance(r_max, dict):
+            r_max = rf.build_from_dict(r_max)
+        if isinstance(d_max, dict):
+            d_max = rf.build_from_dict(d_max)
         self.r_max = r_max
         self.d_max = d_max
         self.running_mean = rf.Parameter([in_dim], auxiliary=True)
@@ -139,7 +143,7 @@ class BatchRenorm(rf.Module):
 
         def _train_mean_std_dev():
             inv_std_dev_ = rf.rsqrt(variance_cur_batch + self.eps)
-            if r_max > 1:
+            if isinstance(r_max, Tensor) or r_max > 1:
                 inv_std_dev_ *= rf.clip_by_value(
                     rf.rsqrt(self.running_variance + self.eps)
                     * rf.sqrt(rf.stop_gradient(variance_cur_batch) + self.eps),
@@ -147,7 +151,7 @@ class BatchRenorm(rf.Module):
                     r_max,
                 )
             mean_ = mean_cur_batch
-            if d_max > 0:
+            if isinstance(d_max, Tensor) or d_max > 0:
                 limit = d_max * rf.reciprocal(rf.stop_gradient(inv_std_dev_))
                 mean_ += rf.clip_by_value(self.running_mean - rf.stop_gradient(mean_cur_batch), -limit, limit)
             return mean_, inv_std_dev_
