@@ -146,8 +146,8 @@ def run_fairseq_pretraining():
     job = FairseqHydraTrainingJob(
         fairseq_config,
         save_interval=25,
-        max_epoch=300,
-        max_update=400000,
+        max_epoch=600,
+        max_update=420000,
         fairseq_root=fairseq_root,
         fairseq_python_exe=fairseq_exe,
         rqmt={"time": 120, "mem": 12, "cpu": 2, "gpu": num_gpus},
