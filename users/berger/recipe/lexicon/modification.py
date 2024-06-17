@@ -124,7 +124,6 @@ class DeleteLemmataFromLexiconJob(Job):
         out_lexicon.phonemes = in_lexicon.phonemes
         out_lexicon.lemmata = []
 
-        silence_phon = None
         for lemma in in_lexicon.lemmata:
             if not any(orth in lemma.orth for orth in self.orths):
                 out_lexicon.lemmata.append(lemma)
