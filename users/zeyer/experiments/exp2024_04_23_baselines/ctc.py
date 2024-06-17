@@ -247,8 +247,8 @@ def py():
             r_max=rf.build_dict(rf.PiecewiseLinearStepwiseScheduler, points={5_000: 1.0, 40_000: 3.0}),
             d_max=rf.build_dict(rf.PiecewiseLinearStepwiseScheduler, points={5_000: 0.0, 25_000: 5.0}),
         ),
-        "groupNorm": {"class": rf.GroupNorm, "num_groups": 32},
-        "layerNorm": {"class": rf.LayerNorm},
+        "groupNorm": rf.build_dict(rf.GroupNorm, num_groups=32),
+        "layerNorm": rf.build_dict(rf.LayerNorm),
     }.items():
         for vocab, alpha in [("bpe10k", 0.01)]:  # [("bpe10k", 0.01), ("spm10k", 0.7)]:
             train_exp(
