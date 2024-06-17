@@ -126,7 +126,7 @@ def py():
         "spm1k",  # 12.72
         "spm_bpe1k",  # 11.76
     ]:
-        train_exp(  # 8.23
+        train_exp(
             f"v6-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-speedpertV2-{vocab}",
             config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
             config_updates={
@@ -138,6 +138,7 @@ def py():
             vocab=vocab,
         )
 
+    # lrlin1e_5_393k
     train_exp(
         f"v6-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_393k-speedpertV2-bpe10k",
         config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
@@ -235,6 +236,36 @@ def py():
             },
             vocab="spm10k",
             train_vocab_opts={"other_opts": {"enable_sampling": True, "alpha": 0.7}},
+        )
+
+    from i6_experiments.users.zeyer.nn_rf.batchnorm import BatchRenorm
+
+    for vocab, alpha in [("bpe10k", 0.01)]:  # [("bpe10k", 0.01), ("spm10k", 0.7)]:
+        train_exp(
+            f"v6-batchRenorm-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-speedpertV2-{vocab}"
+            f"-{'spmSample' if vocab.startswith('spm') else 'bpeSample'}{str(alpha).replace('.', '')}",
+            config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
+            model_config={
+                "conv_norm": rf.build_dict(
+                    BatchRenorm,
+                    r_max=rf.build_dict(rf.PiecewiseLinearStepwiseScheduler, points={5_000: 1.0, 40_000: 3.0}),
+                    d_max=rf.build_dict(rf.PiecewiseLinearStepwiseScheduler, points={5_000: 0.0, 25_000: 5.0}),
+                )
+            },
+            config_updates={
+                **_get_cfg_lrlin_oclr_by_bs_nep(15_000, 500),
+                "optimizer.weight_decay": 1e-2,
+                "__train_audio_preprocess": speed_pert_librosa_config,
+                "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
+            },
+            vocab=vocab,
+            train_vocab_opts={
+                "other_opts": (
+                    {"enable_sampling": True, "alpha": alpha}
+                    if vocab.startswith("spm")
+                    else {"class": "SamplingBytePairEncoding", "breadth_prob": alpha}
+                )
+            },
         )
 
 
@@ -342,6 +373,9 @@ def ctc_model_def(*, epoch: int, in_dim: Dim, target_dim: Dim) -> Model:
     # real input is raw audio, internally it does logmel
     in_dim = Dim(name="logmel", dimension=_log_mel_feature_dim, kind=Dim.Types.Feature)
 
+    conv_norm = config.typed_value("conv_norm", None)
+    conv_norm: Dict[str, Any] = {"class": "rf.BatchNorm", "use_mask": True} if not conv_norm else conv_norm
+
     return Model(
         in_dim,
         num_enc_layers=num_enc_layers,
@@ -349,7 +383,7 @@ def ctc_model_def(*, epoch: int, in_dim: Dim, target_dim: Dim) -> Model:
         enc_ff_dim=Dim(name="enc-ff", dimension=2048, kind=Dim.Types.Feature),
         enc_att_num_heads=8,
         enc_conformer_layer_opts=dict(
-            conv_norm_opts=dict(use_mask=True),
+            conv_norm=conv_norm,
             self_att_opts=dict(
                 # Shawn et al 2018 style, old RETURNN way.
                 with_bias=False,

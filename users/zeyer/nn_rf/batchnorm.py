@@ -72,6 +72,7 @@ class BatchRenorm(rf.Module):
             r_max can also be scheduled via a callable, e.g. using rf.get_run_ctx().step inside.
             The original paper suggests to keep r_max=1.0 for the first 5k steps,
             then linearly increase to reach r_max=3.0 at 40k steps.
+            You can use ``rf.build_dict(rf.PiecewiseLinearStepwiseScheduler, points={5_000: 1.0, 40_000: 3.0})``.
         :param d_max: clip how much we should use the running mean instead of the current batch mean during training.
             Value should be >= 0.0.
             d_max=0.0 means always use the current batch mean, i.e. like standard batch norm.
@@ -79,6 +80,7 @@ class BatchRenorm(rf.Module):
             d_max can also be scheduled via a callable, e.g. using rf.get_run_ctx().step inside.
             The original paper suggests to keep d_max=0.0 for the first 5k steps,
             then linearly increase to reach d_max=5.0 at 25k steps.
+            You can use ``rf.build_dict(rf.PiecewiseLinearStepwiseScheduler, points={5_000: 0.0, 25_000: 5.0})``.
         """
         super().__init__()
         assert isinstance(in_dim, Dim)
