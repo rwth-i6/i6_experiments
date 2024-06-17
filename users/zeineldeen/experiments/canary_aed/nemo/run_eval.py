@@ -85,9 +85,11 @@ def buffer_audio_and_transcribe(
             filepaths = write_audio(buffer, cache_prefix)
 
             if pnc is not None:
-                transcriptions = model.transcribe(filepaths, batch_size=batch_size, pnc=False, verbose=False)
+                transcriptions = model.transcribe(
+                    filepaths, batch_size=batch_size, pnc=False, verbose=False, num_workers=4
+                )
             else:
-                transcriptions = model.transcribe(filepaths, batch_size=batch_size, verbose=False)
+                transcriptions = model.transcribe(filepaths, batch_size=batch_size, verbose=False, num_workers=4)
             # if transcriptions form a tuple (from RNNT), extract just "best" hypothesis
             if type(transcriptions) == tuple and len(transcriptions) == 2:
                 transcriptions = transcriptions[0]
