@@ -105,7 +105,8 @@ def py():
         # See archive/returnn-bpe10-sample.config.
         # The higher the alpha, the longer the sequence, i.e. the more aggressive the sampling.
         # bpe10k without sampling: 5.32
-        ("bpe10k", 0.01),
+        ("bpe10k", 0.01),  # 5.25
+        ("bpe10k", 0.02),
     ]:
         train_exp(
             f"v6-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-speedpertV2-{vocab}"

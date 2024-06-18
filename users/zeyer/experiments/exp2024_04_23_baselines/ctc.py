@@ -154,6 +154,8 @@ def py():
 
     # Testing different vocabs together with sampling.
     for vocab, alpha in [
+        # spm20k no sampling: 7.44
+        ("spm20k", 0.7),
         # See archive/returnn-spm10-sample.config for playing around with alpha and checking avg seq len.
         # The lower the alpha, the longer the seq len, i.e. the more aggressive the sampling.
         # spm10k no sampling: 8.12
