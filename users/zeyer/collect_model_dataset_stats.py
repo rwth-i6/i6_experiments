@@ -66,6 +66,45 @@ def collect_log_mel_feature_statistics(
     )
 
 
+def compute_model_softmax_prior_statistics(
+    *,
+    model: ModelWithCheckpoint,
+    model_output_kind: str = "logits",
+    dataset: DatasetConfig,
+    backend: str = "torch",
+    behavior_version: int = 21,
+    **kwargs,
+) -> StatisticsOutput:
+    """
+    Calculate model softmax prior average.
+
+    :param model: after construction, the model will be called as:
+        ``out, out_spatial_dim = model(input, in_spatial_dim=in_spatial_dim)``
+        (This is the RETURNN ISeqDownsamplingEncoder interface.)
+        ``out.feature_dim`` is expected to be set.
+        Use ``model_output_kind`` to specify what kind of output you have in the model output ``out``.
+        (If you have a model with a different interface, just call :collect_statistics` directly
+         with your custom ``forward_def`` function.)
+    :param model_output_kind: "logits", "log_prob" or "prob"
+    :param dataset:
+    :param backend:
+    :param behavior_version:
+    :param kwargs: passed to :func:`collect_statistics`
+    """
+    assert model_output_kind in {"logits", "log_prob", "prob"}
+    return collect_statistics(
+        model=model,
+        dataset=dataset,
+        forward_def=_model_softmax_prior_returnn_forward,
+        config={
+            "backend": backend,
+            "behavior_version": behavior_version,
+            "_model_output_kind": model_output_kind,
+        },
+        **kwargs,
+    )
+
+
 def collect_statistics(
     *,
     dataset: DatasetConfig,
@@ -130,6 +169,31 @@ def _log_mel_stats_returnn_forward(source: Tensor, /, in_spatial_dim: Dim, model
         source, in_spatial_dim=in_spatial_dim, out_dim=feat_dim, **opts
     )
     return source, out_spatial_dim
+
+
+def _model_softmax_prior_returnn_forward(source: Tensor, /, in_spatial_dim: Dim, model: Any) -> Tuple[Tensor, Dim]:
+    """ForwardDef API"""
+    from returnn.config import get_global_config
+    import returnn.frontend as rf
+    from returnn.tensor import Tensor, Dim
+
+    out, out_spatial_dim = model(source, in_spatial_dim=in_spatial_dim)
+    assert isinstance(out, Tensor) and isinstance(out_spatial_dim, Dim)
+    assert out.feature_dim  # we expect a feature dim
+    assert out_spatial_dim in out.dims
+
+    config = get_global_config()
+    model_output_kind = config.typed_value("_model_output_kind", None)
+    if model_output_kind == "logits":
+        out = rf.softmax(out, axis=out.feature_dim)
+    elif model_output_kind == "log_prob":
+        out = rf.exp(out)
+    elif model_output_kind == "prob":
+        pass
+    else:
+        raise ValueError(f"invalid model_output_kind {model_output_kind!r}")
+
+    return out, out_spatial_dim
 
 
 _prior_mean_out_filename = "stats.mean.txt"
