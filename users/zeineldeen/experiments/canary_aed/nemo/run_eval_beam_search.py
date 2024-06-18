@@ -153,10 +153,6 @@ def get_our_canary_label_scorer(
             )  # [batch*beam,in_seq_len|1,D]
             dec_input_mask = mask_padded_tokens(input, pad_id=pad_id).float()
 
-            import pdb
-
-            pdb.set_trace()
-
             # decoder_mems_list is a list of size num_layers that cache output activations of shape
             # [batch*beam,history,D]
             decoder_mems_list = trafo_decoder_module.decoder.forward(
@@ -178,10 +174,6 @@ def get_our_canary_label_scorer(
 
             log_probs = log_probs.squeeze(1)  # [batch*beam,V]
             log_probs = _map(log_probs)  # [batch,beam,V]
-
-            # if input is not None:
-            #     for j in range(len(decoder_mems_list)):
-            #         decoder_mems_list[j] = decoder_mems_list[j].repeat(beam_size, 1, 1)
 
             def _map(x):
                 assert isinstance(x, torch.Tensor) and x.shape[:1] == (batch_size * beam_size,)
@@ -209,36 +201,6 @@ beam_search_v5_opts = BeamSearchOptsV5(
     adaptive_pruning=False,
 )
 
-# debug with batch size 3 and beam size 4:
-# running their beam search:
-#
-# (Pdb) decoder_input_ids
-# tensor([[ 3,  4,  8,  4, 10],
-#         [ 3,  4,  8,  4, 10],
-#         [ 3,  4,  8,  4, 10]])
-# [batch*1,out_len|5]
-#
-# (Pdb) decoder_hidden_states.shape
-# torch.Size([3, 5, 1024])  # [batch*1,out_len|5,D]
-#
-# (Pdb) decoder_mems_list[0].shape
-# torch.Size([3, 5, 1024])  # [batch*1,out_len|5,D]
-#
-# (Pdb) log_probs.shape
-# torch.Size([3, 1, 4128])  # [batch*1,1,V]
-#
-# step 2:
-#
-# (Pdb) decoder_input_ids.shape
-# torch.Size([12, 1])  # [batch*beam,out_len|1]
-#
-# (Pdb) decoder_hidden_states.shape
-# torch.Size([12, 1, 1024])
-#
-# prev_state:
-# (Pdb) decoder_mems_list[0].shape
-# torch.Size([12, 5, 1024])
-
 
 def _transcribe_output_processing_our_beam_search(
     outputs, trcfg: MultiTaskTranscriptionConfig
@@ -264,10 +226,13 @@ def _transcribe_output_processing_our_beam_search(
 
     pdb.set_trace()
 
-    best_hyp_int = seq_targets[:, 0, : out_seq_len[:, 0]]  # [B,1,L]
-    # TODO: convert hyp to text using model.tokenizer
-    # TODO: filter out EOS?
-    return best_hyp_int
+    best_hyps = []
+    for i in range(seq_targets.shape[0]):
+        # TODO: convert hyp to text using model.tokenizer
+        # TODO: filter out EOS?
+        best_hyp_int = seq_targets[i, 0, : out_seq_len[i, 0]]  # [B,1,L]
+        best_hyps.append(best_hyp_int)
+    return best_hyps
 
 
 def buffer_audio_and_transcribe(
@@ -314,6 +279,10 @@ def buffer_audio_and_transcribe(
 
 
 def main(args):
+    import better_exchook
+
+    better_exchook.install()
+
     if args.device >= 0:
         device = torch.device(f"cuda:{args.device}")
     else:
