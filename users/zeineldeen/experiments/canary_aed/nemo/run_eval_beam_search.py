@@ -225,7 +225,6 @@ def _transcribe_output_processing_our_beam_search(
         best_hyp_int = seq_targets[i, 0, : out_seq_len[i, 0]].tolist()
         best_hyp_text = asr_model.tokenizer.ids_to_text(best_hyp_int)
         best_hyps.append(asr_model.decoding.strip_special_tokens(best_hyp_text))
-    print(best_hyps)
     return best_hyps
 
 
