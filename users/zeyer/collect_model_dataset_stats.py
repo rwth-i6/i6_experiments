@@ -113,6 +113,7 @@ def collect_statistics(
 
 
 def _log_mel_stats_returnn_forward(source: Tensor, /, in_spatial_dim: Dim, model: Any) -> Tuple[Tensor, Dim]:
+    """ForwardDef API"""
     from returnn.config import get_global_config
     import returnn.frontend as rf
     from returnn.tensor import Dim
