@@ -17,6 +17,6 @@ model_conf_w2v = {
     "layerdrop": 0.1,
     "activation_dropout": 0.1,
     "feature_grad_mult": 0.0,
-    "freeze_finetune_updates": 10000 # was 0 in fairseq config
+    "freeze_finetune_updates": 10000,  # was 0 in fairseq config
 }
 eow_phon_ls100_ctc_base(model_conf_w2v=model_conf_w2v, train_name_suffix=f"w2v_vanilla_cp_{checkpoint}_pipeline")
