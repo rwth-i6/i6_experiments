@@ -160,8 +160,8 @@ def get_our_canary_label_scorer(
 
             nonlocal enc, enc_input_mask
             if enc.size(1) < beam_size:
-                enc = enc[:, :1].expand(-1, beam_size, -1, -1).continguous()  # [batch,beam,T,D]
-                enc_input_mask = enc_input_mask[:, :1].expand(-1, beam_size, -1).continguous()  # [batch,beam,T]
+                enc = enc[:, :1].expand(-1, beam_size, -1, -1).contiguous()  # [batch,beam,T,D]
+                enc_input_mask = enc_input_mask[:, :1].expand(-1, beam_size, -1).contiguous()  # [batch,beam,T]
             enc_ = enc[:, :beam_size].flatten(0, 1)
             enc_input_mask_ = enc_input_mask[:, :beam_size].flatten(0, 1)  # [batch*beam,T]
 
