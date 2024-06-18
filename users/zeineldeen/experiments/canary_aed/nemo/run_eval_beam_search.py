@@ -153,13 +153,17 @@ def get_our_canary_label_scorer(
             )  # [batch*beam,in_seq_len|1,D]
             dec_input_mask = mask_padded_tokens(input, pad_id=pad_id).float()
 
+            _, enc_len, enc_dim = enc.size()
+            enc_input_mask_ = enc_input_mask.repeat(1, beam_size).view(-1, enc_len)
+            enc_ = enc.repeat(1, beam_size, 1).view(-1, enc_len, enc_dim)
+
             # decoder_mems_list is a list of size num_layers that cache output activations of shape
             # [batch*beam,history,D]
             decoder_mems_list = trafo_decoder_module.decoder.forward(
                 decoder_states=dec_embed,
                 decoder_mask=dec_input_mask,
-                encoder_states=enc,
-                encoder_mask=enc_input_mask,
+                encoder_states=enc_,
+                encoder_mask=enc_input_mask_,
                 decoder_mems_list=prev_model_state,
                 return_mems=True,
                 return_mems_as_list=True,
