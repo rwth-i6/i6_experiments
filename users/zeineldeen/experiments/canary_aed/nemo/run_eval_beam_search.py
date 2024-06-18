@@ -92,7 +92,7 @@ def pack_results(results: list, buffer, transcriptions):
 
 
 def get_our_canary_label_scorer(
-    model: ASRModel, enc: torch.Tensor, enc_input_mask: torch.Tensor, pad_id: int, bos_prefix_seq: List[int]
+    model: ASRModel, enc: torch.Tensor, enc_input_mask: torch.Tensor, pad_id: int, bos_prefix_seq: torch.Tensor
 ) -> LabelScorerIntf:
     """
     Creates a CanaryLabelScorer object that is used in the beam search implementation.
@@ -111,9 +111,10 @@ def get_our_canary_label_scorer(
         def get_initial_state(self, *, batch_size: int, device: torch.device) -> Any:
             return {
                 "step": StateObjIgnored(0),
-                "prefix_input": torch.tile(
-                    torch.tensor(bos_prefix_seq, device=device)[None, :], [batch_size, 1]
-                ),  # [Batch,InputSeqLen]
+                # "prefix_input": torch.tile(
+                #     torch.tensor(bos_prefix_seq, device=device)[None, :], [batch_size, 1]
+                # ),  # [Batch,InputSeqLen]
+                "prefix_input": bos_prefix_seq,  # [Batch,InputSeqLen]
                 "model_state": None,
             }
 
@@ -194,18 +195,6 @@ def get_our_canary_label_scorer(
     return CanaryLabelScorer()
 
 
-# TODO: make this configurable
-beam_search_v5_opts = BeamSearchOptsV5(
-    beam_size=4,
-    bos_label=3,
-    eos_label=2,
-    num_labels=4128,
-    length_normalization_exponent=1,
-    pruning_threshold=0.0,
-    adaptive_pruning=False,
-)
-
-
 def _transcribe_output_processing_our_beam_search(
     outputs, trcfg: MultiTaskTranscriptionConfig
 ) -> GenericTranscriptionType:
@@ -213,9 +202,14 @@ def _transcribe_output_processing_our_beam_search(
     enc_states = outputs.pop("encoder_states")
     enc_lens = outputs.pop("encoded_lengths")
     enc_mask = outputs.pop("encoder_mask")
+    dec_input_ids = outputs.pop("decoder_input_ids")
 
     canary_label_scorer = get_our_canary_label_scorer(
-        model=asr_model, enc=enc_states, enc_input_mask=enc_mask, pad_id=1, bos_prefix_seq=[3, 4, 8, 4, 10]
+        model=asr_model,
+        enc=enc_states,
+        enc_input_mask=enc_mask,
+        pad_id=asr_model.tokenizer.pad_id,
+        bos_prefix_seq=dec_input_ids,  # [3, 4, 8, 4, 10],
     )
 
     seq_targets, _, out_seq_len = beam_search_v5(
@@ -292,6 +286,17 @@ def main(args):
     asr_model = ASRModel.restore_from(args.model_path, map_location=device)
     asr_model.freeze()
 
+    global beam_search_v5_opts
+    beam_search_v5_opts = BeamSearchOptsV5(
+        beam_size=args.beam_size,
+        bos_label=asr_model.tokenizer.bos_id,
+        eos_label=asr_model.tokenizer.eos_id,
+        num_labels=len(asr_model.tokenizer.vocab),
+        length_normalization_exponent=1,
+        pruning_threshold=args.pruning_threshold,
+        adaptive_pruning=args.adaptive_pruning,
+    )
+
     # hook our beam search implementation
     asr_model._transcribe_output_processing = _transcribe_output_processing_our_beam_search
 
@@ -352,6 +357,10 @@ if __name__ == "__main__":
     parser.add_argument("--manifest_path", type=str, required=True, help="Path to save the search output.")
 
     parser.add_argument("--wer_out_path", type=str, default=None, help="Path to save the WER output.")
+
+    parser.add_argument("--beam_size", type=int, default=4)
+    parser.add_argument("--pruning_threshold", type=float, default=0.0)
+    parser.add_argument("--adaptive_pruning", type=bool, default=False)
 
     parser.add_argument(
         "--device",
