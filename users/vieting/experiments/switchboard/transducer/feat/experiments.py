@@ -514,6 +514,7 @@ def run_mel_stage3():
     from i6_core.text.processing import PipelineJob
     from i6_core.lm.perplexity import ComputePerplexityJob
     from i6_experiments.users.vieting.jobs.nbest import LatticeToNBestListJob, NBestListToHDFDatasetJob
+    from i6_experiments.users.vieting.jobs.lm import UtteranceLMScoresFromWordScoresFileJob
     crp_wei = copy.deepcopy(nn_system_stage2.crp["hub5e00"])
     crp_wei.corpus_duration = 300.
     crp_wei.corpus_config.file = tk.Path("/u/corpora/speech/switchboard-1/xml/swb1-all/swb1-all.corpus.gz")
@@ -538,7 +539,7 @@ def run_mel_stage3():
         ["grep '<orth>'", r"sed -r 's/\s*<orth> (.*) <\/orth>/\1/g'"],
     ).out
     job_ppl = ComputePerplexityJob(nn_system_stage2.crp["train"], text_file)
-    tk.register_output("debug_ppl", job_ppl.score_file)
+    job_lm_scores = UtteranceLMScoresFromWordScoresFileJob(train_corpus.corpus_object.corpus_file, job_ppl.score_file)
     job = NBestListToHDFDatasetJob(
         n=4,
         nbest_path=job_nbest.out_nbest_file,
@@ -546,6 +547,7 @@ def run_mel_stage3():
         state_tying=state_tying,
         returnn_root=RETURNN_ROOT,
         phoneme_alignment=returnn_datasets["train"]["datasets"]["hdf"]["files"],
+        lm_scores=job_lm_scores.out_score_file,
         concurrent=100,
     )
     hdf_files = {
