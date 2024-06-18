@@ -581,17 +581,6 @@ model_recog.output_blank_label = "<blank>"
 model_recog.batch_size_dependent = False  # not totally correct, but we treat it as such...
 
 
-def _gather_backrefs(s, *, backrefs: Tensor):
-    if isinstance(s, Tensor):
-        if backrefs.sparse_dim in s.dims:
-            return rf.gather(s, indices=backrefs)  # really the default case
-        return s  # e.g. scalar or so, independent from beam
-    if isinstance(s, Dim):
-        assert s.dimension or backrefs not in s.dyn_size_ext.dims  # currently not supported, also not expected
-        return s
-    raise TypeError(f"_gather_backrefs: unexpected type ({type(s)})")
-
-
 class Model(rf.Module):
     """Model definition"""
 
