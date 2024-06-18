@@ -27,6 +27,45 @@ if TYPE_CHECKING:
     from returnn.tensor import Tensor, Dim, TensorDict
 
 
+@dataclass
+class StatisticsOutput:
+    """statistics"""
+
+    mean: tk.Path
+    std_dev: tk.Path
+    min: tk.Path
+    max: tk.Path
+    info: tk.Path
+
+
+def collect_log_mel_feature_statistics(
+    *, dataset: DatasetConfig, dim: int, backend: str = "torch", behavior_version: int = 21, **kwargs
+) -> StatisticsOutput:
+    """
+    Get feature stats
+
+    :param dataset:
+    :param dim: log mel feature dim
+    :param backend:
+    :param behavior_version:
+    :param kwargs: all passed to rf.audio.log_mel_filterbank_from_raw.
+        Default sampling_rate is 16_000, which is also what we have for Librispeech usually.
+        Note on log_base: Default is 10.0.
+            Note that in some earlier setups, and also Mohammads original AED setup,
+            we used log_base=math.exp(2.3026), which is almost 10.0 but not exactly...
+    """
+    return collect_statistics(
+        dataset=dataset,
+        forward_def=_log_mel_stats_returnn_forward,
+        config={
+            "backend": backend,
+            "behavior_version": behavior_version,
+            "_audio_feature_dim": dim,
+            "_audio_feature_opts": kwargs,
+        },
+    )
+
+
 def collect_statistics(
     *,
     dataset: DatasetConfig,
@@ -73,34 +112,6 @@ def collect_statistics(
     return StatisticsOutput(**{k: forward_job.out_files[v] for k, v in out_files.items()})
 
 
-def collect_log_mel_feature_statistics(
-    *, dataset: DatasetConfig, dim: int, backend: str = "torch", behavior_version: int = 21, **kwargs
-):
-    """
-    Get feature stats
-
-    :param dataset:
-    :param dim: log mel feature dim
-    :param backend:
-    :param behavior_version:
-    :param kwargs: all passed to rf.audio.log_mel_filterbank_from_raw.
-        Default sampling_rate is 16_000, which is also what we have for Librispeech usually.
-        Note on log_base: Default is 10.0.
-            Note that in some earlier setups, and also Mohammads original AED setup,
-            we used log_base=math.exp(2.3026), which is almost 10.0 but not exactly...
-    """
-    return collect_statistics(
-        dataset=dataset,
-        forward_def=_log_mel_stats_returnn_forward,
-        config={
-            "backend": backend,
-            "behavior_version": behavior_version,
-            "_audio_feature_dim": dim,
-            "_audio_feature_opts": kwargs,
-        },
-    )
-
-
 def _log_mel_stats_returnn_forward(source: Tensor, /, in_spatial_dim: Dim, model: Any) -> Tuple[Tensor, Dim]:
     from returnn.config import get_global_config
     import returnn.frontend as rf
@@ -118,17 +129,6 @@ def _log_mel_stats_returnn_forward(source: Tensor, /, in_spatial_dim: Dim, model
         source, in_spatial_dim=in_spatial_dim, out_dim=feat_dim, **opts
     )
     return source, out_spatial_dim
-
-
-@dataclass
-class StatisticsOutput:
-    """statistics"""
-
-    mean: tk.Path
-    std_dev: tk.Path
-    min: tk.Path
-    max: tk.Path
-    info: tk.Path
 
 
 _prior_mean_out_filename = "stats.mean.txt"
