@@ -222,10 +222,10 @@ def _transcribe_output_processing_our_beam_search(
 
     best_hyps = []
     for i in range(seq_targets.shape[0]):
-        # TODO: convert hyp to text using model.tokenizer
-        # TODO: filter out EOS?
-        best_hyp_int = seq_targets[i, 0, : out_seq_len[i, 0]]  # [B,1,L]
-        best_hyps.append(best_hyp_int)
+        best_hyp_int = seq_targets[i, 0, : out_seq_len[i, 0]].tolist()
+        best_hyp_text = asr_model.tokenizer.ids_to_text(best_hyp_int)
+        best_hyps.append(asr_model.decoding.strip_special_tokens(best_hyp_text))
+    print(best_hyps)
     return best_hyps
 
 
