@@ -1,6 +1,7 @@
 """
 Adapted from here: https://github.com/huggingface/open_asr_leaderboard/blob/5c03c1f85a84ab7a991dcc1b3f14905ec6d632c9/nemo_asr/run_eval.py
 """
+
 from __future__ import annotations
 
 import argparse
@@ -98,7 +99,7 @@ def get_our_canary_label_scorer(
     Creates a CanaryLabelScorer object that is used in the beam search implementation.
 
     :param model: nemo ASRModel object
-    :param enc: [B,T]
+    :param enc: [B,T,D]
     :param enc_input_mask: [B,T]
     :param pad_id:
     :param bos_prefix_seq:
@@ -106,6 +107,9 @@ def get_our_canary_label_scorer(
 
     trafo_decoder_module = model.transf_decoder  # type: torch.nn.Module
     log_softmax_module = model.log_softmax  # type: torch.nn.Module
+
+    enc = enc[:, None]  # [B,Beam=1,T,D]
+    enc_input_mask = enc_input_mask[:, None]  # [B,Beam=1,T]
 
     class CanaryLabelScorer(LabelScorerIntf):
         def get_initial_state(self, *, batch_size: int, device: torch.device) -> Any:
@@ -154,9 +158,12 @@ def get_our_canary_label_scorer(
             )  # [batch*beam,in_seq_len|1,D]
             dec_input_mask = mask_padded_tokens(input, pad_id=pad_id).float()
 
-            _, enc_len, enc_dim = enc.size()
-            enc_input_mask_ = enc_input_mask.unsqueeze(1).expand(-1, beam_size, -1).contiguous().view(-1, enc_len)
-            enc_ = enc.unsqueeze(1).expand(-1, beam_size, -1, -1).contiguous().view(-1, enc_len, enc_dim)
+            nonlocal enc, enc_input_mask
+            if enc.size(1) < beam_size:
+                enc = enc[:, :1].expand(-1, beam_size, -1, -1).continguous()  # [batch,beam,T,D]
+                enc_input_mask = enc_input_mask[:, :1].expand(-1, beam_size, -1).continguous()  # [batch,beam,T]
+            enc_ = enc[:, :beam_size].flatten(0, 1)
+            enc_input_mask_ = enc_input_mask[:, :beam_size].flatten(0, 1)  # [batch*beam,T]
 
             # decoder_mems_list is a list of size num_layers that cache output activations of shape
             # [batch*beam,history,D]
