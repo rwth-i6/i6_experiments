@@ -154,8 +154,8 @@ def get_our_canary_label_scorer(
             dec_input_mask = mask_padded_tokens(input, pad_id=pad_id).float()
 
             _, enc_len, enc_dim = enc.size()
-            enc_input_mask_ = enc_input_mask.repeat(1, beam_size).view(-1, enc_len)
-            enc_ = enc.repeat(1, beam_size, 1).view(-1, enc_len, enc_dim)
+            enc_input_mask_ = enc_input_mask.unsqueeze(1).expand(-1, beam_size, -1).contiguous().view(-1, enc_len)
+            enc_ = enc.unsqueeze(1).expand(-1, beam_size, -1, -1).contiguous().view(-1, enc_len, enc_dim)
 
             # decoder_mems_list is a list of size num_layers that cache output activations of shape
             # [batch*beam,history,D]
@@ -225,10 +225,6 @@ def _transcribe_output_processing_our_beam_search(
         device=enc_states.device,
         opts=beam_search_v5_opts,
     )  # [B,Beam,L]
-
-    import pdb
-
-    pdb.set_trace()
 
     best_hyps = []
     for i in range(seq_targets.shape[0]):
