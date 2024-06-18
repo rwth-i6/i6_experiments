@@ -95,8 +95,10 @@ def py():
         tk.register_output(f"canary_1b/huggingface/{test_set}_bs64_greedy/wer", search_job.out_wer)
 
     # Run with our beam search
-    for beam_size in [4]:
+    for beam_size in [1, 4, 8]:
         for test_set, split in TEST_DATASETS.items():
+            if test_set == "gigaspeech":
+                continue  # TODO: need to ask nick to set a reservaion tag to increase time limit
             search_job = SearchJob(
                 model_id=MODEL_ID,
                 model_path=model_path,
@@ -107,11 +109,11 @@ def py():
                 search_args={"batch_size": 64, "pnc": False, "max_eval_samples": -1, "beam_size": beam_size},
                 python_exe=python_exe,
                 device="gpu",
-                time_rqmt=24,
+                time_rqmt=0.5,
                 mem_rqmt=8,
                 cpu_rqmt=2,
             )
-            search_job.rqmt["sbatch_args"] = ["-p", "gpu_24gb"]
+            search_job.rqmt["sbatch_args"] = ["-p", "gpu_test_24gb"]
             search_job.add_alias(f"canary_1b/beam_search_v5/{test_set}_bs64_beam{beam_size}")
             tk.register_output(
                 f"canary_1b/beam_search_v5/{test_set}_bs64_beam{beam_size}/search_out", search_job.out_search_results
