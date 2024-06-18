@@ -165,7 +165,8 @@ def py():
         # The higher the alpha, the longer (the reverse as for SPM Unigram).
         # See archive/returnn-spm_bpe10-sample.config.
         # spm_bpe10k no sampling: 7.97
-        ("spm_bpe10k", 0.001),
+        ("spm_bpe10k", 0.0001),
+        ("spm_bpe10k", 0.001),  # 8.15
         ("spm_bpe10k", 0.005),  # 8.66
         ("spm_bpe10k", 0.01),  # 8.99
         # ("spm_bpe10k", 0.3),  # broken
@@ -174,7 +175,7 @@ def py():
         # See archive/returnn-bpe10-sample.config.
         # The higher the alpha, the longer the sequence, i.e. the more aggressive the sampling.
         # bpe10k no sampling: 8.23
-        ("bpe10k", 0.005),
+        ("bpe10k", 0.005),  # 7.32
         ("bpe10k", 0.01),  # 7.10
         ("bpe10k", 0.02),
     ]:
