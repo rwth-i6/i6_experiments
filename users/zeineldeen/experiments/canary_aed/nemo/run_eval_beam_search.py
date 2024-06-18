@@ -209,7 +209,7 @@ def _transcribe_output_processing_our_beam_search(
         enc=enc_states,
         enc_input_mask=enc_mask,
         pad_id=asr_model.tokenizer.pad_id,
-        bos_prefix_seq=dec_input_ids,  # [3, 4, 8, 4, 10],
+        bos_prefix_seq=dec_input_ids,  # [3, 4, 8, 4, 10]
     )
 
     seq_targets, _, out_seq_len = beam_search_v5(
