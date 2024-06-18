@@ -179,7 +179,7 @@ def py():
         # bpe10k no sampling: 8.23
         ("bpe10k", 0.005),  # 7.32
         ("bpe10k", 0.01),  # 7.10
-        ("bpe10k", 0.02),
+        ("bpe10k", 0.02),  # 7.35
     ]:
         train_exp(
             f"v6-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-speedpertV2-{vocab}"
