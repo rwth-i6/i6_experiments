@@ -222,6 +222,25 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
 
     )
 
+    train_exp(  # dev-other
+        "base-24gb-lrlin1e_5_600k_ctc_only_aux4_8_40subsample",
+        config_24gb_v6,
+        config_updates={
+            "learning_rate": 1.0,
+            "dynamic_learning_rate": dyn_lr_piecewise_linear,
+            # total steps after 2000 epochs: 982.312
+            "learning_rate_piecewise_steps": [600_000, 900_000, 982_000],
+            "learning_rate_piecewise_values": [1e-5, 1e-3, 1e-5, 1e-6],
+            "mel_normalization_ted2": False,
+            "conv_2nd_stride": 2,
+        },
+        search_config = {
+            "mel_normalization_ted2": False,
+        },
+        with_eos_postfix=False,
+
+    )
+
 
     _torch_ckpt_path = "/u/luca.gaudino/setups/2023-08-10--rf-librispeech/work/i6_core/returnn/training/ReturnnTrainingJob.AWwVft0oGy8e/output/models/epoch.1981.pt"
 

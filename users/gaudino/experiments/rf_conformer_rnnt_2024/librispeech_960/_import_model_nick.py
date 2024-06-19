@@ -18,7 +18,9 @@ from i6_experiments.users.gaudino.experiments.rf_conformer_att_2023.librispeech_
     MakeModel,
 )
 
-from i6_experiments.users.gaudino.models.asr.rf.conformer_rnnt.model_conformer_rnnt import MakeModel as MakeModelRNNT
+from i6_experiments.users.gaudino.models.asr.rf.conformer_rnnt.model_conformer_rnnt import (
+    MakeModelV2 as MakeModelRNNT,
+)
 
 from i6_experiments.users.gaudino.models.asr.rf.nn_lm.lm_import_2023_11_09 import (
     MakeModel as MakeModelLM,
@@ -38,7 +40,9 @@ from itertools import product
 
 _nick_pure_torch_rnnt_ckpt_path = "/work/asr4/rossenbach/sisyphus_work_folders/tts_decoder_asr_work/i6_core/returnn/training/ReturnnTrainingJob.6lwn4XuFkhkI/output/models/epoch.250.pt"
 
-from i6_experiments.users.gaudino.experiments.conformer_att_2023.tedlium2.model_ckpt_info import models
+from i6_experiments.users.gaudino.experiments.conformer_att_2023.tedlium2.model_ckpt_info import (
+    models,
+)
 
 
 def convert_checkpoint(
@@ -63,13 +67,12 @@ def convert_checkpoint(
             print(f"{k}: {v.shape if hasattr(v, 'shape') else v}")
         # print(reader.debug_string().decode("utf-8"))
 
-
     print()
-
 
     print("Creating model...")
     rf.select_backend_torch()
-    model = MakeModelRNNT(80, 1_057)()
+    # model = MakeModelRNNT(80, 1_057)()
+    model = MakeModelRNNT(80, 5048)()
 
     print("Created model:", model)
     print("Model parameters:")
@@ -83,7 +86,8 @@ def convert_checkpoint(
     print("Create ParamMapping...")
     param_mapping = {}
     _add_params_predictor_joiner(param_mapping)
-    # _add_params_conformer(param_mapping, prefix="")
+    _add_params_conformer(param_mapping, prefix="")
+
     # if not ctc_only:
     #     _add_params_att_decoder(param_mapping)
     # _add_params_trafo_lm(param_mapping)
@@ -91,14 +95,13 @@ def convert_checkpoint(
     #     _add_params_conformer(param_mapping, prefix="sep_enc_ctc_")
 
     for name, param in model.named_parameters():
-        if name in param_mapping:
-            assert isinstance(name, str)
-            assert isinstance(param, rf.Parameter)
+        assert isinstance(name, str)
+        assert isinstance(param, rf.Parameter)
 
-            value = map_param_func(ckpt, name, param, param_mapping)
-            assert isinstance(value, numpy.ndarray)
-            # noinspection PyProtectedMember
-            param._raw_backend.set_parameter_initial_value(param, value)
+        value = map_param_func(ckpt, name, param, param_mapping)
+        assert isinstance(value, numpy.ndarray)
+        # noinspection PyProtectedMember
+        param._raw_backend.set_parameter_initial_value(param, value)
 
     epoch = 1
     if epoch is None:
@@ -114,11 +117,9 @@ def convert_checkpoint(
 
     pt_model = rf_module_to_pt_module(model)
 
-    breakpoint()
-
     if save_model:
         os.makedirs(out_dir, exist_ok=True)
-        filename = out_dir + "/" + ckpt_name + ".pt"
+        filename = out_dir + "/" + ckpt_name # + ".pt"
         print(f"*** saving PyTorch model checkpoint: {filename}")
         torch.save(
             {"model": pt_model.state_dict(), "epoch": epoch, "step": step}, filename
@@ -139,98 +140,145 @@ def convert_checkpoint(
             os.symlink(os.path.basename(meta_filename), symlink_filename_2)
         # assert os.path.exists(self.out_checkpoint.get_path())
 
+
+_transpose_list = [
+    "encoder_out_linear.weight",
+    "encoder.input_projection.weight",
+    "joiner.linear.weight",
+    "predictor.linear.weight",
+]
+
+for layer_idx in range(12):
+    _transpose_list.append(f"encoder.layers.{layer_idx}.ffn1.linear_ff.weight")
+    _transpose_list.append(f"encoder.layers.{layer_idx}.ffn1.linear_out.weight")
+    _transpose_list.append(f"encoder.layers.{layer_idx}.ffn2.linear_ff.weight")
+    _transpose_list.append(f"encoder.layers.{layer_idx}.ffn2.linear_out.weight")
+
+    _transpose_list.append(
+        f"encoder.layers.{layer_idx}.conv_block.positionwise_conv1.weight"
+    )
+    _transpose_list.append(
+        f"encoder.layers.{layer_idx}.self_att.qkv.weight"
+    )
+
+
 def _add_params_conformer(param_mapping: Dict[str, str], prefix: str):
     # rf -> pt
     # frontend
-    for layer_idx in [0, 1, 2]:
-        orig_name = "conv0" if layer_idx == 0 else f"subsample_conv{layer_idx - 1}"
+    for layer_idx in [0, 1, 2, 3]:
+        orig_name = f"conformer.frontend.conv{layer_idx + 1}"
         param_mapping.update(
             {
                 prefix
-                + f"encoder.input_layer.conv_layers.{layer_idx}.filter": f"{orig_name}/W",
+                + f"enc_input_layer.conv_layers.{layer_idx}.filter": f"{orig_name}.weight",
                 prefix
-                + f"encoder.input_layer.conv_layers.{layer_idx}.bias": f"{orig_name}/bias",
+                + f"enc_input_layer.conv_layers.{layer_idx}.bias": f"{orig_name}.bias",
             }
         )
     param_mapping.update(
         {
-            prefix + "encoder.input_projection.weight": "source_linear/W",
+            prefix
+            + "encoder.input_projection.weight": "conformer.frontend.linear.weight",
+            prefix + "encoder.input_projection.bias": "conformer.frontend.linear.bias",
             # prefix + "ctc.weight": "ctc/W",
             # prefix + "ctc.bias": "ctc/b",
-            prefix + "enc_aux_logits_12.weight": "ctc/W",
-            prefix + "enc_aux_logits_12.bias": "ctc/b",
+            # prefix + "enc_aux_logits_12.weight": "ctc/W",
+            # prefix + "enc_aux_logits_12.bias": "ctc/b",
         }
     )
     # conformer
     for layer_idx in range(12):
+        orig_name_prefix = f"conformer.module_list.{layer_idx}."
         # FF
         for sub in [1, 2]:
             param_mapping[
                 prefix + f"encoder.layers.{layer_idx}.ffn{sub}.linear_ff.weight"
-            ] = f"conformer_block_{layer_idx + 1:02d}_ffmod_{sub}_ff1/W"
+            ] = (orig_name_prefix + f"ff{sub}.linear_ff.weight")
             param_mapping[
                 prefix + f"encoder.layers.{layer_idx}.ffn{sub}.linear_ff.bias"
-            ] = f"conformer_block_{layer_idx + 1:02d}_ffmod_{sub}_ff1/b"
+            ] = (orig_name_prefix + f"ff{sub}.linear_ff.bias")
             param_mapping[
                 prefix + f"encoder.layers.{layer_idx}.ffn{sub}.linear_out.weight"
-            ] = f"conformer_block_{layer_idx + 1:02d}_ffmod_{sub}_ff2/W"
+            ] = (orig_name_prefix + f"ff{sub}.linear_out.weight")
             param_mapping[
                 prefix + f"encoder.layers.{layer_idx}.ffn{sub}.linear_out.bias"
-            ] = f"conformer_block_{layer_idx + 1:02d}_ffmod_{sub}_ff2/b"
+            ] = (orig_name_prefix + f"ff{sub}.linear_out.bias")
             param_mapping[
                 prefix + f"encoder.layers.{layer_idx}.ffn{sub}_layer_norm.scale"
-            ] = f"conformer_block_{layer_idx + 1:02d}_ffmod_{sub}_ln/scale"
+            ] = (orig_name_prefix + f"ff{sub}.layer_norm.weight")
             param_mapping[
                 prefix + f"encoder.layers.{layer_idx}.ffn{sub}_layer_norm.bias"
-            ] = f"conformer_block_{layer_idx + 1:02d}_ffmod_{sub}_ln/bias"
+            ] = (orig_name_prefix + f"ff{sub}.layer_norm.bias")
         # conv
         param_mapping[
             prefix + f"encoder.layers.{layer_idx}.conv_block.positionwise_conv1.weight"
-        ] = f"conformer_block_{layer_idx + 1:02d}_conv_mod_pointwise_conv1/W"
+        ] = (orig_name_prefix + "conv.pointwise_conv1.weight")
         param_mapping[
             prefix + f"encoder.layers.{layer_idx}.conv_block.positionwise_conv1.bias"
-        ] = f"conformer_block_{layer_idx + 1:02d}_conv_mod_pointwise_conv1/b"
+        ] = (orig_name_prefix + "conv.pointwise_conv1.bias")
         param_mapping[
             prefix + f"encoder.layers.{layer_idx}.conv_block.depthwise_conv.filter"
-        ] = f"conformer_block_{layer_idx + 1:02d}_conv_mod_depthwise_conv2/W"
+        ] = (orig_name_prefix + "conv.depthwise_conv.weight")
         param_mapping[
             prefix + f"encoder.layers.{layer_idx}.conv_block.depthwise_conv.bias"
-        ] = f"conformer_block_{layer_idx + 1:02d}_conv_mod_depthwise_conv2/bias"
+        ] = (orig_name_prefix + "conv.depthwise_conv.bias")
         param_mapping[
             prefix + f"encoder.layers.{layer_idx}.conv_block.positionwise_conv2.weight"
-        ] = f"conformer_block_{layer_idx + 1:02d}_conv_mod_pointwise_conv2/W"
+        ] = (orig_name_prefix + "conv.pointwise_conv2.weight")
         param_mapping[
             prefix + f"encoder.layers.{layer_idx}.conv_block.positionwise_conv2.bias"
-        ] = f"conformer_block_{layer_idx + 1:02d}_conv_mod_pointwise_conv2/b"
-        param_mapping[
-            prefix + f"encoder.layers.{layer_idx}.conv_layer_norm.scale"
-        ] = f"conformer_block_{layer_idx + 1:02d}_conv_mod_ln/scale"
-        param_mapping[
-            prefix + f"encoder.layers.{layer_idx}.conv_layer_norm.bias"
-        ] = f"conformer_block_{layer_idx + 1:02d}_conv_mod_ln/bias"
+        ] = (orig_name_prefix + "conv.pointwise_conv2.bias")
+        param_mapping[prefix + f"encoder.layers.{layer_idx}.conv_block.norm.gamma"] = (
+            orig_name_prefix + "conv.norm.weight"
+        )
+        param_mapping[prefix + f"encoder.layers.{layer_idx}.conv_block.norm.beta"] = (
+            orig_name_prefix + "conv.norm.bias"
+        )
+        param_mapping[prefix + f"encoder.layers.{layer_idx}.conv_layer_norm.scale"] = (
+            orig_name_prefix + "conv.layer_norm.weight"
+        )
+        param_mapping[prefix + f"encoder.layers.{layer_idx}.conv_layer_norm.bias"] = (
+            orig_name_prefix + "conv.layer_norm.bias"
+        )
         # self-att
-        param_mapping[
-            prefix + f"encoder.layers.{layer_idx}.self_att.qkv.weight"
-        ] = f"conformer_block_{layer_idx + 1:02d}_self_att/QKV"
-        param_mapping[
-            prefix + f"encoder.layers.{layer_idx}.self_att.proj.weight"
-        ] = f"conformer_block_{layer_idx + 1:02d}_self_att_linear/W"
+        param_mapping[prefix + f"encoder.layers.{layer_idx}.self_att.qkv.weight"] = (
+            orig_name_prefix + "mhsa.mhsa.in_proj_weight"
+        )
+        param_mapping[prefix + f"encoder.layers.{layer_idx}.self_att.qkv.bias"] = (
+            orig_name_prefix + "mhsa.mhsa.in_proj_bias"
+        )
+        param_mapping[prefix + f"encoder.layers.{layer_idx}.self_att.proj.weight"] = (
+            orig_name_prefix + "mhsa.mhsa.out_proj.weight"
+        )
+        param_mapping[prefix + f"encoder.layers.{layer_idx}.self_att.proj.bias"] = (
+            orig_name_prefix + "mhsa.mhsa.out_proj.bias"
+        )
         param_mapping[
             prefix + f"encoder.layers.{layer_idx}.self_att_layer_norm.scale"
-        ] = f"conformer_block_{layer_idx + 1:02d}_self_att_ln/scale"
+        ] = (orig_name_prefix + "mhsa.layernorm.weight")
         param_mapping[
             prefix + f"encoder.layers.{layer_idx}.self_att_layer_norm.bias"
-        ] = f"conformer_block_{layer_idx + 1:02d}_self_att_ln/bias"
-        param_mapping[
-            prefix + f"encoder.layers.{layer_idx}.self_att.learned_pos_emb.pos_emb"
-        ] = f"conformer_block_{layer_idx + 1:02d}_self_att_ln_rel_pos_enc/encoding_matrix"
+        ] = (orig_name_prefix + "mhsa.layernorm.bias")
+        # param_mapping[
+        #     prefix + f"encoder.layers.{layer_idx}.self_att.learned_pos_emb.pos_emb"
+        # ] = f"conformer_block_{layer_idx + 1:02d}_self_att_ln_rel_pos_enc/encoding_matrix"
+
         # final layer norm
-        param_mapping[
-            prefix + f"encoder.layers.{layer_idx}.final_layer_norm.scale"
-        ] = f"conformer_block_{layer_idx + 1:02d}_ln/scale"
-        param_mapping[
-            prefix + f"encoder.layers.{layer_idx}.final_layer_norm.bias"
-        ] = f"conformer_block_{layer_idx + 1:02d}_ln/bias"
+        param_mapping[prefix + f"encoder.layers.{layer_idx}.final_layer_norm.scale"] = (
+            orig_name_prefix + "final_layer_norm.weight"
+        )
+        param_mapping[prefix + f"encoder.layers.{layer_idx}.final_layer_norm.bias"] = (
+            orig_name_prefix + "final_layer_norm.bias"
+        )
+
+    # output layer
+    param_mapping.update(
+        {
+            prefix + "encoder_out_linear.weight": "encoder_out_linear.weight",
+            prefix + "encoder_out_linear.bias": "encoder_out_linear.bias",
+        }
+    )
+
 
 def _add_params_predictor_joiner(param_mapping: Dict[str, str]):
     # add params of trafo lm
@@ -238,7 +286,6 @@ def _add_params_predictor_joiner(param_mapping: Dict[str, str]):
         param_mapping.update(
             {
                 f"predictor.layers.{layer_idx}.ff_weight": f"predictor.lstm_layers.{layer_idx}.weight_ih_l0",
-
                 f"predictor.layers.{layer_idx}.rec_weight": f"predictor.lstm_layers.{layer_idx}.weight_hh_l0",
                 f"predictor.layers.{layer_idx}.bias": f"predictor.lstm_layers.{layer_idx}.bias_ih_l0",
             }
@@ -274,11 +321,13 @@ def map_param_func(
     assert isinstance(var, rf.Parameter)
 
     if name in param_mapping:
-        breakpoint()
         var_name = param_mapping[name]
-        assert name in ckpt["model"].keys(), f"missing {var_name}"
-        value = ckpt["model"][name].numpy()
+        assert var_name in ckpt["model"].keys(), f"missing {var_name}"
+        value = ckpt["model"][var_name].numpy()
         assert isinstance(value, numpy.ndarray)
+
+        if name in _transpose_list:
+            value = value.T
 
         assert (
             value.shape == var.batch_shape
@@ -328,6 +377,10 @@ def map_param_func(
     raise NotImplementedError(f"cannot map {name!r} {var}")
 
 
-
 if __name__ == "__main__":
-    convert_checkpoint(ckpt_path=_nick_pure_torch_rnnt_ckpt_path, print_params=True, out_dir="", save_model=False)
+    convert_checkpoint(
+        ckpt_path=_nick_pure_torch_rnnt_ckpt_path,
+        print_params=True,
+        out_dir="/work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/2023-08-10--rf-librispeech/work/i6_experiments/users/gaudino/returnn/convert_ckpt_rf/librispeech/rnnt_nick_240614",
+        save_model=True,
+    )

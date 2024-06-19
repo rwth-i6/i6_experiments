@@ -101,6 +101,8 @@ def model_recog(
         not model.language_model
     )  # not implemented here. use the pure PyTorch search instead
 
+    breakpoint()
+
     batch_dims = data.remaining_dims((data_spatial_dim, data.feature_dim))
     enc_args, enc_spatial_dim = model.encode(data, in_spatial_dim=data_spatial_dim)
     beam_size = 12

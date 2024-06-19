@@ -37,7 +37,7 @@ from i6_experiments.users.gaudino.model_with_checkpoints import (
     ModelWithCheckpoint,
 )
 
-from i6_experiments.users.gaudino.models.asr.rf.conformer_rnnt.model_conformer_rnnt import from_scratch_model_def, from_scratch_training
+from i6_experiments.users.gaudino.models.asr.rf.conformer_rnnt.model_conformer_rnnt import from_scratch_model_def, from_scratch_training, from_scratch_model_def_v2
 from i6_experiments.users.gaudino.models.asr.rf.conformer_rnnt.model_recog_rnnt import model_recog
 
 
@@ -86,24 +86,47 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
     # train_exp("base-11gb", config_11gb, gpu_mem=11)
     # train_exp("base-11gb-v1", my_config_11gb, num_epochs=400, gpu_mem=11)
 
-    train_exp(
-        "from-scratch-24gb_aux4_8",
-        config_24gb_v6,
-        config_updates={
-            "batch_size": 8_000 * _batch_size_factor,
-            "learning_rate": 1.0,
-            "dynamic_learning_rate": dyn_lr_piecewise_linear,
-            # total steps after 2000 epochs: 982.312
-            "learning_rate_piecewise_steps": [600_000, 900_000, 982_000],
-            "learning_rate_piecewise_values": [1e-5, 1e-3, 1e-5, 1e-6],
+    # train_exp(
+    #     "from-scratch-24gb_aux4_8",
+    #     config_24gb_v6,
+    #     config_updates={
+    #         "batch_size": 8_000 * _batch_size_factor,
+    #         "learning_rate": 1.0,
+    #         "dynamic_learning_rate": dyn_lr_piecewise_linear,
+    #         # total steps after 2000 epochs: 982.312
+    #         "learning_rate_piecewise_steps": [600_000, 900_000, 982_000],
+    #         "learning_rate_piecewise_values": [1e-5, 1e-3, 1e-5, 1e-6],
+    #         "mel_normalization_ted2": False,
+    #     },
+    #     config_deletes=["torch_amp"],
+    #     search_config={
+    #         "mel_normalization_ted2": False,
+    #     },
+    #     num_epochs=400,
+    #     gpu_mem=24,
+    # )
+
+    ## recog rnnt BPE5k nick
+
+    # imported checkpoint
+    _torch_ckpt_path = "/work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/2023-08-10--rf-librispeech/work/i6_experiments/users/gaudino/returnn/convert_ckpt_rf/librispeech/rnnt_nick_240614/epoch.250.pt"
+
+    new_ckpt_path = tk.Path(
+        _torch_ckpt_path,
+        hash_overwrite= "rnnt_nick" + "_torch_rf_ckpt",
+    )
+    new_ckpt = PtCheckpoint(new_ckpt_path)
+
+    _recog(
+        "model_recogs/rnnt_nick_1/rnnt_beam_search/recog_results",
+        ModelWithCheckpoint(
+            definition=from_scratch_model_def_v2, checkpoint=new_ckpt
+        ),
+        model_recog,
+        dev_sets=["dev-other"],
+        recog_config={
             "mel_normalization_ted2": False,
         },
-        config_deletes=["torch_amp"],
-        search_config={
-            "mel_normalization_ted2": False,
-        },
-        num_epochs=400,
-        gpu_mem=24,
     )
 
 
@@ -153,7 +176,7 @@ def _recog(
     if recog_def is None:
         recog_def = model_recog
 
-    task = _get_ted2_task()
+    task = _get_ls_task(bpe_size="BPE5k")
 
     res = recog_model(
         task,
@@ -194,7 +217,7 @@ def train_exp(
         _sis_setup_global_prefix()
 
     prefix = _sis_prefix + "/" + name
-    task = _get_ls_task()
+    task = _get_ls_task(bpe_size="BPE10k")
     config = config.copy()
     config = dict_update_deep(config, config_updates, config_deletes)
     if "__num_epochs" in config:
@@ -282,18 +305,35 @@ def train_exp(
 _ls_task = None
 _ted2_task = None
 
-
-def _get_ls_task():
+def _get_ls_task(bpe_size):
     global _ls_task
     if _ls_task:
         return _ls_task
 
-    from i6_experiments.users.zeyer.datasets.librispeech import (
-        get_librispeech_task_bpe10k_raw,
+    from i6_experiments.users.gaudino.datasets.librispeech import (
+        get_librispeech_task_bpe10k_raw, get_librispeech_task_bpe5k_raw
     )
 
-    _ls_task = get_librispeech_task_bpe10k_raw(with_eos_postfix=True)
+    if bpe_size == "BPE10k":
+        _ls_task = get_librispeech_task_bpe10k_raw(with_eos_postfix=True)
+
+    if bpe_size == "BPE5k":
+        _ls_task = get_librispeech_task_bpe5k_raw(with_eos_postfix=True)
+
     return _ls_task
+
+
+# def _get_ls_task():
+#     global _ls_task
+#     if _ls_task:
+#         return _ls_task
+#
+#     from i6_experiments.users.zeyer.datasets.librispeech import (
+#         get_librispeech_task_bpe10k_raw,
+#     )
+#
+#     _ls_task = get_librispeech_task_bpe10k_raw(with_eos_postfix=True)
+#     return _ls_task
 
 
 def _get_ted2_task():
