@@ -34,19 +34,6 @@ _alias_prefix = "datasets/LibriSpeech/"
 
 _librispeech_ogg_zip_dict = librispeech.get_ogg_zip_dict()
 
-# $ ls -la /u/zeyer/setups/librispeech/dataset/tars/
-# -rw-r--r-- 1 zeyer assi   360977013 Feb 26  2018 dev-clean.zip
-# -rw-r--r-- 1 zeyer assi   338709788 Feb 26  2018 dev-other.zip
-# -rw-r--r-- 1 zeyer assi        1024 Feb 27  2018 .history.zeyer
-# -rw-r--r-- 1 zeyer assi   369096021 Feb 26  2018 test-clean.zip
-# -rw-r--r-- 1 zeyer assi   353841318 Feb 26  2018 test-other.zip
-# -rw-r--r-- 1 zeyer assi  6625963133 Feb 26  2018 train-clean-100.zip
-# -rw-r--r-- 1 zeyer assi 23919296392 Feb 26  2018 train-clean-360.zip
-# -rw-r--r-- 1 zeyer assi 31839925140 Feb 26  2018 train-other-500.zip
-_librispeech_tars_zip_base_path = tk.Path(
-    "/u/zeyer/setups/librispeech/dataset/tars", hash_overwrite="Librispeech-tars-zip-base-path"
-)
-
 # Get Bliss corpus. Same audio format as in ogg_zip, so already there anyway due to how we created the ogg_zip.
 # WARNING: Do not use these directly... It will keep another ogg copy of the audio...
 # However, these are used later in the scoring, so when changing them, make sure it's optional,
@@ -372,6 +359,19 @@ class LibrispeechOldFlacTarZip(DatasetConfig):
     i.e. keeping the original flac files inside the zip files.
     """
 
+    # $ ls -la /u/zeyer/setups/librispeech/dataset/tars/
+    # -rw-r--r-- 1 zeyer assi   360977013 Feb 26  2018 dev-clean.zip
+    # -rw-r--r-- 1 zeyer assi   338709788 Feb 26  2018 dev-other.zip
+    # -rw-r--r-- 1 zeyer assi        1024 Feb 27  2018 .history.zeyer
+    # -rw-r--r-- 1 zeyer assi   369096021 Feb 26  2018 test-clean.zip
+    # -rw-r--r-- 1 zeyer assi   353841318 Feb 26  2018 test-other.zip
+    # -rw-r--r-- 1 zeyer assi  6625963133 Feb 26  2018 train-clean-100.zip
+    # -rw-r--r-- 1 zeyer assi 23919296392 Feb 26  2018 train-clean-360.zip
+    # -rw-r--r-- 1 zeyer assi 31839925140 Feb 26  2018 train-other-500.zip
+    _librispeech_tars_zip_base_path = tk.Path(
+        "/u/zeyer/setups/librispeech/dataset/tars", hash_overwrite="Librispeech-tars-zip-base-path"
+    )
+
     def __init__(
         self,
         *,
@@ -457,7 +457,7 @@ class LibrispeechOldFlacTarZip(DatasetConfig):
     def get_dataset(self, key: str, *, training: bool = False, subset: Optional[int] = None) -> Dict[str, Any]:
         d = {
             "class": "LibriSpeechCorpus",
-            "path": _librispeech_tars_zip_base_path,
+            "path": self._librispeech_tars_zip_base_path,
             "use_zip": True,
             "prefix": key,
             "use_cache_manager": True,
