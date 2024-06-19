@@ -51,6 +51,7 @@ def _get_bliss_corpus_dict() -> Dict[str, tk.Path]:
 def _get_corpus_text_dict(key: str) -> tk.Path:
     job = CorpusToTextDictJob(_get_bliss_corpus_dict()[key], gzip=True)
     job.add_alias(_alias_prefix + f"{key.replace('-', '_')}_corpus_text_dict")
+    tk.register_output(_alias_prefix + f"{key.replace('-', '_')}_corpus_text_dict.py.gz", job.out_dictionary)
     return job.out_dictionary
 
 
@@ -60,6 +61,7 @@ def _get_train_corpus_text() -> tk.Path:
     train_corpus_text_dict = _get_corpus_text_dict(key)
     job = TextDictToTextLinesJob(train_corpus_text_dict, gzip=True)
     job.add_alias(_alias_prefix + f"{key.replace('-', '_')}_corpus_text_lines")
+    tk.register_output(_alias_prefix + f"{key.replace('-', '_')}_corpus_text_lines.txt.gz", job.out_text_lines)
     return job.out_text_lines
 
 
@@ -85,7 +87,8 @@ def _get_spm_vocab(
             "eos_id": 0,  # default is 2
         },
     )
-    _spm_train_job.add_alias(_alias_prefix + f"vocab/spm_{model_type.name.lower()}_{dim_str}_train")
+    _spm_train_job.add_alias(_alias_prefix + f"vocab/spm_{model_type.value}_{dim_str}_train")
+    tk.register_output(_alias_prefix + f"vocab/spm_{model_type.value}_{dim_str}_train.model", _spm_train_job.out_model)
     spm = SentencePieceModel(
         dim=dim,
         model_file=_spm_train_job.out_model,
