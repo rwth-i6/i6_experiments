@@ -30,6 +30,8 @@ if TYPE_CHECKING:
     from i6_experiments.users.zeyer.collect_model_dataset_stats import StatisticsOutput
 
 
+_alias_prefix = "datasets/LibriSpeech/"
+
 librispeech_ogg_zip_dict = librispeech.get_ogg_zip_dict()
 
 # $ ls -la /u/zeyer/setups/librispeech/dataset/tars/
@@ -59,6 +61,7 @@ _train_corpus_text = TextDictToTextLinesJob(_train_corpus_text_dict, gzip=True).
 def _get_spm_vocab(
     *, dim: Union[int, str], model_type: SentencePieceType = SentencePieceType.UNIGRAM
 ) -> SentencePieceModel:
+    dim_str = str(dim)
     if isinstance(dim, str):
         # Not sure if power-of-two or just multiple-of-64, but 10240 has more 2s in it (2048*5) than 10048.
         dim = {"20k": 20_480, "10k": 10_240, "5k": 5_120, "4k": 4_096, "1k": 1_024}[dim]
@@ -76,6 +79,7 @@ def _get_spm_vocab(
             "eos_id": 0,  # default is 2
         },
     )
+    _spm_train_job.add_alias(_alias_prefix + f"vocab/spm{dim_str}{model_type}-train")
     spm = SentencePieceModel(
         dim=dim,
         model_file=_spm_train_job.out_model,
