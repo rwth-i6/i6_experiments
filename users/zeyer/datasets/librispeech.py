@@ -335,7 +335,7 @@ class LibrispeechOggZip(DatasetConfig):
         assert parts, f"invalid key {key!r}"
         for part in parts:
             files += [_get_librispeech_ogg_zip_dict()[part]]
-        d = {
+        d: Dict[str, Any] = {
             "class": "OggZipDataset",
             "path": files,
             "use_cache_manager": True,
