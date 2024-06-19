@@ -117,6 +117,7 @@ def py():
         },
     )
 
+    # Comparing vocabs. Note that max_seq_length_default_target=75 always here...
     for vocab in [
         "spm20k",  # 7.44
         "bpe10k",  # 8.23
@@ -136,6 +137,39 @@ def py():
                 "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
             },
             vocab=vocab,
+        )
+
+    # Comparing vocabs with better settings: feature norm, sampling, no max seq len.
+    for vocab, alpha in [
+        ("spm20k", 0.7),
+        ("bpe10k", 0.01),
+        ("spm10k", 0.7),
+        # ("spm_bpe10k", ...),  # unclear what sampling scheme...
+        ("spm4k", 0.7),
+        ("spm1k", 0.7),
+        # ("spm_bpe1k", ...)
+    ]:
+        train_exp(
+            f"v6-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-maxSeqLenNone"
+            f"-wd1e_2-lrlin1e_5_295k-featBN-speedpertV2-{vocab}"
+            f"-{'spmSample' if vocab.startswith('spm') else 'bpeSample'}{str(alpha).replace('.', '')}",
+            config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
+            model_config={"feature_batch_norm": True},
+            config_updates={
+                **_get_cfg_lrlin_oclr_by_bs_nep(15_000, 500),
+                "optimizer.weight_decay": 1e-2,
+                "__train_audio_preprocess": speed_pert_librosa_config,
+                "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
+                "max_seq_length_default_target": None,
+            },
+            vocab=vocab,
+            train_vocab_opts={
+                "other_opts": (
+                    {"enable_sampling": True, "alpha": alpha}
+                    if vocab.startswith("spm")
+                    else {"class": "SamplingBytePairEncoding", "breadth_prob": alpha}
+                )
+            },
         )
 
     # lrlin1e_5_393k
@@ -201,6 +235,7 @@ def py():
             },
         )
 
+    # Checking EOS.
     train_exp(  # 7.36 (vs without EOS 6.99), so EOS made it worse
         "v6-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-speedpertV2-spm10k-eos-spmSample07",
         config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
@@ -243,6 +278,7 @@ def py():
 
     from i6_experiments.users.zeyer.nn_rf.batchnorm import BatchRenorm
 
+    # Replacing batch norm in the Conformer Convolution Module with other normalization schemes.
     for name, opts in {
         "batchRenorm": rf.build_dict(
             BatchRenorm,
