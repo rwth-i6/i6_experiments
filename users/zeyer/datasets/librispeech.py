@@ -32,7 +32,7 @@ if TYPE_CHECKING:
 
 _alias_prefix = "datasets/LibriSpeech/"
 
-librispeech_ogg_zip_dict = librispeech.get_ogg_zip_dict()
+_librispeech_ogg_zip_dict = librispeech.get_ogg_zip_dict()
 
 # $ ls -la /u/zeyer/setups/librispeech/dataset/tars/
 # -rw-r--r-- 1 zeyer assi   360977013 Feb 26  2018 dev-clean.zip
@@ -43,7 +43,7 @@ librispeech_ogg_zip_dict = librispeech.get_ogg_zip_dict()
 # -rw-r--r-- 1 zeyer assi  6625963133 Feb 26  2018 train-clean-100.zip
 # -rw-r--r-- 1 zeyer assi 23919296392 Feb 26  2018 train-clean-360.zip
 # -rw-r--r-- 1 zeyer assi 31839925140 Feb 26  2018 train-other-500.zip
-librispeech_tars_zip_base_path = tk.Path(
+_librispeech_tars_zip_base_path = tk.Path(
     "/u/zeyer/setups/librispeech/dataset/tars", hash_overwrite="Librispeech-tars-zip-base-path"
 )
 
@@ -181,7 +181,7 @@ def _get_dataset(key: str, *, subset=None, train_partition_epoch=None, training:
     parts = [part for part in _Parts if part.startswith(key)]
     assert parts, f"invalid key {key!r}"
     for part in parts:
-        files += [librispeech_ogg_zip_dict[part]]
+        files += [_librispeech_ogg_zip_dict[part]]
     d = {
         "class": "OggZipDataset",
         "path": files,
@@ -328,7 +328,7 @@ class LibrispeechOggZip(DatasetConfig):
         parts = [part for part in _Parts if part.startswith(key)]
         assert parts, f"invalid key {key!r}"
         for part in parts:
-            files += [librispeech_ogg_zip_dict[part]]
+            files += [_librispeech_ogg_zip_dict[part]]
         d = {
             "class": "OggZipDataset",
             "path": files,
@@ -457,7 +457,7 @@ class LibrispeechOldFlacTarZip(DatasetConfig):
     def get_dataset(self, key: str, *, training: bool = False, subset: Optional[int] = None) -> Dict[str, Any]:
         d = {
             "class": "LibriSpeechCorpus",
-            "path": librispeech_tars_zip_base_path,
+            "path": _librispeech_tars_zip_base_path,
             "use_zip": True,
             "prefix": key,
             "use_cache_manager": True,
