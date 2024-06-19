@@ -32,16 +32,35 @@ if TYPE_CHECKING:
 
 _alias_prefix = "datasets/LibriSpeech/"
 
-_librispeech_ogg_zip_dict = librispeech.get_ogg_zip_dict()
 
-# Get Bliss corpus. Same audio format as in ogg_zip, so already there anyway due to how we created the ogg_zip.
-# WARNING: Do not use these directly... It will keep another ogg copy of the audio...
-# However, these are used later in the scoring, so when changing them, make sure it's optional,
-# to not break hashes of old setups.
-_bliss_corpus_dict = librispeech.get_bliss_corpus_dict(audio_format="ogg")
-_corpus_text_dicts = {k: CorpusToTextDictJob(v, gzip=True).out_dictionary for k, v in _bliss_corpus_dict.items()}
-_train_corpus_text_dict = _corpus_text_dicts["train-other-960"]
-_train_corpus_text = TextDictToTextLinesJob(_train_corpus_text_dict, gzip=True).out_text_lines
+@cache
+def _get_librispeech_ogg_zip_dict() -> Dict[str, tk.Path]:
+    return librispeech.get_ogg_zip_dict()
+
+
+@cache
+def _get_bliss_corpus_dict() -> Dict[str, tk.Path]:
+    # Get Bliss corpus. Same audio format as in ogg_zip, so already there anyway due to how we created the ogg_zip.
+    # WARNING: Do not use these directly... It will keep another ogg copy of the audio...
+    # However, these are used later in the scoring, so when changing them, make sure it's optional,
+    # to not break hashes of old setups.
+    return librispeech.get_bliss_corpus_dict(audio_format="ogg")
+
+
+@cache
+def _get_corpus_text_dict(key: str) -> tk.Path:
+    job = CorpusToTextDictJob(_get_bliss_corpus_dict()[key], gzip=True)
+    job.add_alias(_alias_prefix + f"{key.replace('-', '_')}_corpus_text_dict")
+    return job.out_dictionary
+
+
+@cache
+def _get_train_corpus_text() -> tk.Path:
+    key = "train-other-960"
+    train_corpus_text_dict = _get_corpus_text_dict(key)
+    job = TextDictToTextLinesJob(train_corpus_text_dict, gzip=True)
+    job.add_alias(_alias_prefix + f"{key.replace('-', '_')}_corpus_text_lines")
+    return job.out_text_lines
 
 
 @cache
@@ -56,7 +75,7 @@ def _get_spm_vocab(
 
     # https://github.com/google/sentencepiece/blob/master/doc/options.md
     _spm_train_job = TrainSentencePieceJob(
-        training_text=_train_corpus_text,
+        training_text=_get_train_corpus_text(),
         vocab_size=dim,
         model_type=model_type,
         additional_options={
@@ -66,7 +85,7 @@ def _get_spm_vocab(
             "eos_id": 0,  # default is 2
         },
     )
-    _spm_train_job.add_alias(_alias_prefix + f"vocab/spm{dim_str}{model_type}-train")
+    _spm_train_job.add_alias(_alias_prefix + f"vocab/spm_{model_type.name.lower()}_{dim_str}_train")
     spm = SentencePieceModel(
         dim=dim,
         model_file=_spm_train_job.out_model,
@@ -168,7 +187,7 @@ def _get_dataset(key: str, *, subset=None, train_partition_epoch=None, training:
     parts = [part for part in _Parts if part.startswith(key)]
     assert parts, f"invalid key {key!r}"
     for part in parts:
-        files += [_librispeech_ogg_zip_dict[part]]
+        files += [_get_librispeech_ogg_zip_dict()[part]]
     d = {
         "class": "OggZipDataset",
         "path": files,
@@ -315,7 +334,7 @@ class LibrispeechOggZip(DatasetConfig):
         parts = [part for part in _Parts if part.startswith(key)]
         assert parts, f"invalid key {key!r}"
         for part in parts:
-            files += [_librispeech_ogg_zip_dict[part]]
+            files += [_get_librispeech_ogg_zip_dict()[part]]
         d = {
             "class": "OggZipDataset",
             "path": files,
@@ -652,7 +671,7 @@ def _score_recog_out_v1(dataset: DatasetConfig, recog_output: RecogOutput) -> Sc
     hyp_words = recog_output.output
     corpus_name = dataset.get_main_name()
 
-    bliss_corpus = _bliss_corpus_dict[corpus_name]
+    bliss_corpus = _get_bliss_corpus_dict()[corpus_name]
     search_ctm = SearchWordsToCTMJob(recog_words_file=hyp_words, bliss_corpus=bliss_corpus).out_ctm_file
     stm_file = CorpusToStmJob(bliss_corpus=bliss_corpus).out_stm_path
 
@@ -674,7 +693,7 @@ def _score_recog_out_v2(dataset: DatasetConfig, recog_output: RecogOutput) -> Sc
     hyp_words = recog_output.output
     corpus_name = dataset.get_main_name()
 
-    corpus_text_dict = _corpus_text_dicts[corpus_name]
+    corpus_text_dict = _get_corpus_text_dict(corpus_name)
     # Arbitrary seg length time. The jobs SearchWordsDummyTimesToCTMJob and TextDictToStmJob
     # serialize two points after decimal, so long seqs (>1h or so) might be problematic,
     # and no reason not to just use a high value here to avoid this problem whenever we get to it.
