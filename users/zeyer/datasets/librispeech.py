@@ -12,6 +12,7 @@ from sisyphus import tk
 from i6_core.corpus.convert import CorpusToTextDictJob
 from i6_core.text.convert import TextDictToTextLinesJob
 from i6_core.text.label.sentencepiece.train import TrainSentencePieceJob, SentencePieceType
+from i6_core.text.label.sentencepiece.vocab import ExtractSentencePieceVocabJob
 from returnn.util.basic import NotSpecified
 from returnn_common.datasets_old_2022_10.interface import DatasetConfig, VocabConfig
 from i6_experiments.common.datasets import librispeech
@@ -89,6 +90,10 @@ def _get_spm_vocab(
     )
     _spm_train_job.add_alias(_alias_prefix + f"vocab/spm_{model_type.value}_{dim_str}_train")
     tk.register_output(_alias_prefix + f"vocab/spm_{model_type.value}_{dim_str}_train.model", _spm_train_job.out_model)
+    tk.register_output(
+        _alias_prefix + f"vocab/spm_{model_type.value}_{dim_str}_train.vocab",
+        ExtractSentencePieceVocabJob(_spm_train_job.out_model).out_vocab,
+    )
     spm = SentencePieceModel(
         dim=dim,
         model_file=_spm_train_job.out_model,
