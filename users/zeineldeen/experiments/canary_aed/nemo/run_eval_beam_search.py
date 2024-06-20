@@ -379,8 +379,6 @@ if __name__ == "__main__":
 
     parser.add_argument("--cache_dir_name_suffix", type=str, default=None, help="Cache dir name suffix.")
 
-    parser.add_argument("--cache_dir_name_suffix", type=str, required=True, help="Cache dir name suffix.")
-
     parser.add_argument("--manifest_path", type=str, required=True, help="Path to save the search output.")
 
     parser.add_argument("--wer_out_path", type=str, default=None, help="Path to save the WER output.")
