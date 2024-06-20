@@ -49,15 +49,6 @@ def py():
     dataset_paths = download_test_datasets()
     model_path = download_canary_1b_model()
 
-    huggface_search_script = tk.Path(
-        "/u/zeineldeen/setups/ubuntu_22_setups/2024-06-07--canary-aed/recipe/i6_experiments/users/zeineldeen/experiments/canary_aed/nemo/run_eval.py",
-        hash_overwrite="run_eval_v1",
-    )
-    our_beam_search_script = tk.Path(
-        "/u/zeineldeen/setups/ubuntu_22_setups/2024-06-07--canary-aed/recipe/i6_experiments/users/zeineldeen/experiments/canary_aed/nemo/run_eval_beam_search.py",
-        hash_overwrite="run_eval_v2",
-    )
-
     # to run canary model, this env has installed nemo toolkit with:
     #   pip3 install git+https://github.com/NVIDIA/NeMo.git@r2.0.0rc0#egg=nemo_toolkit[all]
     # related issue: https://github.com/huggingface/open_asr_leaderboard/issues/26
@@ -74,48 +65,60 @@ def py():
     # earnings22  | 12.23 | 12.25
     # gigaspeech  | 10.14 | 10.19
 
-    for test_set, split in TEST_DATASETS.items():
-        search_job = SearchJob(
-            model_id=MODEL_ID,
-            model_path=model_path,
-            dataset_path=dataset_paths[test_set],
-            dataset_name=test_set,
-            split=split,
-            search_script=huggface_search_script,
-            search_args={"batch_size": 64, "pnc": False, "max_eval_samples": -1},
-            python_exe=python_exe,
-            device="gpu",
-            time_rqmt=24,
-            mem_rqmt=8,
-            cpu_rqmt=2,
+    for run in range(1):
+        huggface_search_script = tk.Path(
+            "/u/zeineldeen/setups/ubuntu_22_setups/2024-06-07--canary-aed/recipe/i6_experiments/users/zeineldeen/experiments/canary_aed/nemo/run_eval.py",
+            hash_overwrite=f"run_eval_v1_rtf_run{run}",
         )
-        search_job.rqmt["sbatch_args"] = ["-p", "gpu_24gb"]
-        search_job.add_alias(f"canary_1b/huggingface/{test_set}_bs64_greedy")
-        tk.register_output(f"canary_1b/huggingface/{test_set}_bs64_greedy/search_out", search_job.out_search_results)
-        tk.register_output(f"canary_1b/huggingface/{test_set}_bs64_greedy/wer", search_job.out_wer)
+        for test_set, split in TEST_DATASETS.items():
+            for bs in [64]:  # [16, 32, 64]:
+                name = f"{test_set}_bs{bs}_greedy_run{run}"
+                search_job = SearchJob(
+                    model_id=MODEL_ID,
+                    model_path=model_path,
+                    dataset_path=dataset_paths[test_set],
+                    dataset_name=test_set,
+                    cache_dir_name_suffix=name,
+                    split=split,
+                    search_script=huggface_search_script,
+                    search_args={"batch_size": bs, "pnc": False, "max_eval_samples": -1},
+                    python_exe=python_exe,
+                    device="gpu",
+                    time_rqmt=24,
+                    mem_rqmt=8,
+                    cpu_rqmt=4,
+                )
+                search_job.rqmt["sbatch_args"] = ["-p", "gpu_test_24gb", "-w", "cn-290", "--reservation", "hlt_6"]
+                search_job.add_alias(f"canary_1b/huggingface/{name}")
+                tk.register_output(f"canary_1b/huggingface/{name}/search_out", search_job.out_search_results)
+                tk.register_output(f"canary_1b/huggingface/{name}/wer", search_job.out_wer)
 
     # Run with our beam search
-    for beam_size in [1, 4, 8, 12]:
-        for test_set, split in TEST_DATASETS.items():
-            if test_set == "gigaspeech":
-                continue
-            bs_ = 64 if beam_size <= 4 else 32
-            search_job = SearchJob(
-                model_id=MODEL_ID,
-                model_path=model_path,
-                dataset_path=dataset_paths[test_set],
-                dataset_name=test_set,
-                split=split,
-                search_script=our_beam_search_script,
-                search_args={"batch_size": bs_, "pnc": False, "max_eval_samples": -1, "beam_size": beam_size},
-                python_exe=python_exe,
-                device="gpu",
-                time_rqmt=24,
-                mem_rqmt=8,
-                cpu_rqmt=4,
-            )
-            search_job.rqmt["sbatch_args"] = ["-p", "gpu_test_24gb", "-w", "cn-290", "--reservation", "hlt_6"]
-            name = f"{test_set}_bs{bs_}_beam{beam_size}"
-            search_job.add_alias(f"canary_1b/beam_search_v5/{name}")
-            tk.register_output(f"canary_1b/beam_search_v5/{name}/search_out", search_job.out_search_results)
-            tk.register_output(f"canary_1b/beam_search_v5/{name}/wer", search_job.out_wer)
+    for run in range(1):
+        our_beam_search_script = tk.Path(
+            "/u/zeineldeen/setups/ubuntu_22_setups/2024-06-07--canary-aed/recipe/i6_experiments/users/zeineldeen/experiments/canary_aed/nemo/run_eval_beam_search.py",
+            hash_overwrite=f"run_eval_v2_rtf_run{run}",
+        )
+        for beam_size in [1, 4]:
+            for bs_ in [16, 32]:
+                for test_set, split in TEST_DATASETS.items():
+                    name = f"{test_set}_bs{bs_}_beam{beam_size}_run{run}"
+                    search_job = SearchJob(
+                        model_id=MODEL_ID,
+                        model_path=model_path,
+                        dataset_path=dataset_paths[test_set],
+                        dataset_name=test_set,
+                        cache_dir_name_suffix=name,
+                        split=split,
+                        search_script=our_beam_search_script,
+                        search_args={"batch_size": bs_, "pnc": False, "max_eval_samples": -1, "beam_size": beam_size},
+                        python_exe=python_exe,
+                        device="gpu",
+                        time_rqmt=24,
+                        mem_rqmt=8,
+                        cpu_rqmt=4,
+                    )
+                    search_job.rqmt["sbatch_args"] = ["-p", "gpu_test_24gb", "-w", "cn-290", "--reservation", "hlt_6"]
+                    search_job.add_alias(f"canary_1b/beam_search_v5/{name}")
+                    tk.register_output(f"canary_1b/beam_search_v5/{name}/search_out", search_job.out_search_results)
+                    tk.register_output(f"canary_1b/beam_search_v5/{name}/wer", search_job.out_wer)

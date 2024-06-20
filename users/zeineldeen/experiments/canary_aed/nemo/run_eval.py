@@ -155,6 +155,8 @@ def main(args):
         f"{args.model_id.replace('/', '-')}-{args.dataset_path.replace('/', '')}-"
         f"{args.dataset.replace('/', '-')}-{args.split}"
     )
+    if args.cache_dir_name_suffix:
+        cache_prefix += f"_{args.cache_dir_name_suffix}"
     results = buffer_audio_and_transcribe(asr_model, dataset, args.batch_size, args.pnc, cache_prefix, verbose=True)
     for sample in results:
         predictions.append(data_utils.normalizer(sample["pred_text"]))
@@ -192,6 +194,8 @@ if __name__ == "__main__":
     parser.add_argument("--dataset_path", type=str, required=True, help="Dataset path.")
     parser.add_argument("--dataset", type=str, required=True, help="Dataset name.")
     parser.add_argument("--split", type=str, required=True, help="Dataset split.")
+
+    parser.add_argument("--cache_dir_name_suffix", type=str, default=None, help="Cache dir name suffix.")
 
     parser.add_argument("--manifest_path", type=str, required=True, help="Path to save the search output.")
 

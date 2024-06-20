@@ -14,6 +14,7 @@ class SearchJob(Job):
         model_path: tk.Path,
         dataset_path: tk.Path,
         dataset_name: str,
+        cache_dir_name_suffix: str,
         split: str,
         search_script: tk.Path,
         search_args: Optional[Dict[str, Any]] = None,
@@ -27,6 +28,7 @@ class SearchJob(Job):
         self.model_path = model_path
         self.dataset_path = dataset_path
         self.dataset_name = dataset_name
+        self.cache_dir_name_suffix = cache_dir_name_suffix
         self.split = split
         self.search_script = search_script
         self.search_args = search_args if search_args is not None else {}
@@ -58,6 +60,8 @@ class SearchJob(Job):
             self.dataset_path.get_path(),
             "--dataset",
             self.dataset_name,
+            "--cache_dir_name_suffix",
+            self.cache_dir_name_suffix,
             "--split",
             self.split,
             "--manifest_path",
@@ -90,6 +94,7 @@ class SearchJob(Job):
             "model_path": kwargs["model_path"],
             "dataset_path": kwargs["dataset_path"],
             "dataset_name": kwargs["dataset_name"],
+            "cache_dir_name_suffix": kwargs["cache_dir_name_suffix"],
             "split": kwargs["split"],
             "search_script": kwargs["search_script"],
             "search_args": kwargs["search_args"],
