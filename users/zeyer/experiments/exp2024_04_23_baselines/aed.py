@@ -68,8 +68,9 @@ def py():
             },
         )
 
+    # Comparing vocabs.
     for vocab in [
-        "spm20k",
+        "spm20k",  # 5.14 (but test-other is 6.18!)
         "bpe10k",  # 5.32
         "spm10k",  # 5.16
         "spm_bpe10k",  # 5.21
