@@ -78,6 +78,12 @@ def buffer_audio_and_transcribe(
 ):
     buffer = []
     results = []
+
+    model.total_audio_length_in_sec = 0.0
+    model.total_recog_time_in_sec = 0.0
+    model.total_enc_recog_time_in_sec = 0.0
+    model.total_dec_recog_time_in_sec = 0.0
+
     for sample in tqdm(dataset_iterator(dataset), desc="Evaluating: Sample id", unit="", disable=not verbose):
         buffer.append(sample)
 
@@ -86,10 +92,10 @@ def buffer_audio_and_transcribe(
 
             if pnc is not None:
                 transcriptions = model.transcribe(
-                    filepaths, batch_size=batch_size, pnc=False, verbose=False, num_workers=4
+                    filepaths, batch_size=batch_size, pnc=False, verbose=False, num_workers=2
                 )
             else:
-                transcriptions = model.transcribe(filepaths, batch_size=batch_size, verbose=False, num_workers=4)
+                transcriptions = model.transcribe(filepaths, batch_size=batch_size, verbose=False, num_workers=2)
             # if transcriptions form a tuple (from RNNT), extract just "best" hypothesis
             if type(transcriptions) == tuple and len(transcriptions) == 2:
                 transcriptions = transcriptions[0]
@@ -107,6 +113,14 @@ def buffer_audio_and_transcribe(
             transcriptions = transcriptions[0]
         results = pack_results(results, buffer, transcriptions)
         buffer.clear()
+
+    print(f"Total audio duration: {model.total_audio_length_in_sec:.3f} sec")
+    print(f"Total recog time: {model.total_recog_time_in_sec:.3f} sec")
+    print(f"Total enc recog time: {model.total_enc_recog_time_in_sec:.3f} sec")
+    print(f"Total dec recog time: {model.total_dec_recog_time_in_sec:.3f} sec")
+    print(f"Overall RTF: {model.total_recog_time_in_sec / model.total_audio_length_in_sec:.3f}")
+    print(f"Enc RTF: {model.total_enc_recog_time_in_sec / model.total_audio_length_in_sec:.3f}")
+    print(f"Dec RTF: {model.total_dec_recog_time_in_sec / model.total_audio_length_in_sec:.3f}")
 
     # Delete temp cache dir
     if os.path.exists(DATA_CACHE_DIR):
