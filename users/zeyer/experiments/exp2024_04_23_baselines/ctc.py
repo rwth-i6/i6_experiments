@@ -140,19 +140,20 @@ def py():
         )
 
     # Comparing vocabs with better settings: feature norm, sampling, no max seq len.
-    for vocab, alpha in [
-        ("spm20k", 0.7),
-        ("bpe10k", 0.01),
-        ("spm10k", 0.7),
-        # ("spm_bpe10k", ...),  # unclear what sampling scheme...
-        ("spm4k", 0.7),
-        ("spm1k", 0.7),
+    for vocab, sample, alpha in [
+        ("spm20k", "spm", 0.7),
+        ("bpe10k", "bpe", 0.01),
+        ("spm10k", "spm", 0.7),
+        ("spm10k", "bpe", 0.01),
+        ("spm_bpe10k", "bpe", 0.01),
+        ("spm4k", "spm", 0.7),
+        ("spm1k", "spm", 0.7),
         # ("spm_bpe1k", ...)
     ]:
         train_exp(
             f"v6-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-maxSeqLenNone"
             f"-wd1e_2-lrlin1e_5_295k-featBN-speedpertV2-{vocab}"
-            f"-{'spmSample' if vocab.startswith('spm') else 'bpeSample'}{str(alpha).replace('.', '')}",
+            f"-{sample}Sample{str(alpha).replace('.', '')}",
             config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
             model_config={"feature_batch_norm": True},
             config_updates={
@@ -166,7 +167,7 @@ def py():
             train_vocab_opts={
                 "other_opts": (
                     {"enable_sampling": True, "alpha": alpha}
-                    if vocab.startswith("spm")
+                    if sample == "spm"
                     else {"class": "SamplingBytePairEncoding", "breadth_prob": alpha}
                 )
             },

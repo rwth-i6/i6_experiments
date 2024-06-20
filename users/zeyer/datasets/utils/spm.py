@@ -52,6 +52,17 @@ class SentencePieceModel(VocabConfig):
         }
         if self.other_opts:
             d.update(self.other_opts)
+            if d["class"] == "SamplingBytePairEncoding":
+                # Need to fix this a bit. model_file not used here. But we need vocab_file instead.
+                model_file = d.pop("model_file")
+                if not d.get("vocab_file"):
+                    from i6_core.text.label.sentencepiece.vocab import ExtractSentencePieceVocabJob
+
+                    d["vocab_file"] = ExtractSentencePieceVocabJob(model_file).out_vocab
+                d.setdefault("word_prefix_symbol", "▁")
+                d.setdefault("unknown_label", self.unknown_label)
+                d.setdefault("bos_label", self.bos_idx)
+                d.setdefault("eos_label", self.eos_idx)
         return d
 
     def get_eos_idx(self) -> Optional[int]:
