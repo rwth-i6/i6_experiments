@@ -225,7 +225,7 @@ def _transcribe_output_processing_our_beam_search(
         max_seq_len=enc_lens,
         device=enc_states.device,
         opts=beam_search_v5_opts,
-        # debug_out=sys.stdout,
+        debug_out=sys.stdout,
     )  # [B,Beam,L]
 
     best_hyps = []
