@@ -98,7 +98,7 @@ def convert_checkpoint(
         assert isinstance(name, str)
         assert isinstance(param, rf.Parameter)
 
-        value = map_param_func(ckpt, name, param, param_mapping)
+        value = map_param_func(ckpt, name, param, param_mapping, model)
         assert isinstance(value, numpy.ndarray)
         # noinspection PyProtectedMember
         param._raw_backend.set_parameter_initial_value(param, value)
@@ -119,7 +119,7 @@ def convert_checkpoint(
 
     if save_model:
         os.makedirs(out_dir, exist_ok=True)
-        filename = out_dir + "/" + ckpt_name # + ".pt"
+        filename = out_dir + "/" + ckpt_name  # + ".pt"
         print(f"*** saving PyTorch model checkpoint: {filename}")
         torch.save(
             {"model": pt_model.state_dict(), "epoch": epoch, "step": step}, filename
@@ -158,8 +158,9 @@ for layer_idx in range(12):
         f"encoder.layers.{layer_idx}.conv_block.positionwise_conv1.weight"
     )
     _transpose_list.append(
-        f"encoder.layers.{layer_idx}.self_att.qkv.weight"
+        f"encoder.layers.{layer_idx}.conv_block.positionwise_conv2.weight"
     )
+
 
 
 def _add_params_conformer(param_mapping: Dict[str, str], prefix: str):
@@ -228,10 +229,10 @@ def _add_params_conformer(param_mapping: Dict[str, str], prefix: str):
         param_mapping[
             prefix + f"encoder.layers.{layer_idx}.conv_block.positionwise_conv2.bias"
         ] = (orig_name_prefix + "conv.pointwise_conv2.bias")
-        param_mapping[prefix + f"encoder.layers.{layer_idx}.conv_block.norm.gamma"] = (
+        param_mapping[prefix + f"encoder.layers.{layer_idx}.conv_block.norm.scale"] = (
             orig_name_prefix + "conv.norm.weight"
         )
-        param_mapping[prefix + f"encoder.layers.{layer_idx}.conv_block.norm.beta"] = (
+        param_mapping[prefix + f"encoder.layers.{layer_idx}.conv_block.norm.bias"] = (
             orig_name_prefix + "conv.norm.bias"
         )
         param_mapping[prefix + f"encoder.layers.{layer_idx}.conv_layer_norm.scale"] = (
@@ -241,15 +242,15 @@ def _add_params_conformer(param_mapping: Dict[str, str], prefix: str):
             orig_name_prefix + "conv.layer_norm.bias"
         )
         # self-att
-        param_mapping[prefix + f"encoder.layers.{layer_idx}.self_att.qkv.weight"] = (
-            orig_name_prefix + "mhsa.mhsa.in_proj_weight"
-        )
-        param_mapping[prefix + f"encoder.layers.{layer_idx}.self_att.qkv.bias"] = (
-            orig_name_prefix + "mhsa.mhsa.in_proj_bias"
-        )
-        param_mapping[prefix + f"encoder.layers.{layer_idx}.self_att.proj.weight"] = (
-            orig_name_prefix + "mhsa.mhsa.out_proj.weight"
-        )
+        # param_mapping[prefix + f"encoder.layers.{layer_idx}.self_att.qkv.weight"] = (
+        #     orig_name_prefix + "mhsa.mhsa.in_proj_weight"
+        # )
+        # param_mapping[prefix + f"encoder.layers.{layer_idx}.self_att.qkv.bias"] = (
+        #     orig_name_prefix + "mhsa.mhsa.in_proj_bias"
+        # )
+        # param_mapping[prefix + f"encoder.layers.{layer_idx}.self_att.proj.weight"] = (
+        #     orig_name_prefix + "mhsa.mhsa.out_proj.weight"
+        # )
         param_mapping[prefix + f"encoder.layers.{layer_idx}.self_att.proj.bias"] = (
             orig_name_prefix + "mhsa.mhsa.out_proj.bias"
         )
@@ -308,7 +309,7 @@ def _add_params_predictor_joiner(param_mapping: Dict[str, str]):
 
 
 def map_param_func(
-    ckpt, name: str, var: rf.Parameter, param_mapping: Dict[str, str]
+    ckpt, name: str, var: rf.Parameter, param_mapping: Dict[str, str], model: rf.Module
 ) -> numpy.ndarray:
     """map params, TF to RF"""
     from i6_experiments.users.zeyer.returnn.convert.params import (
@@ -337,13 +338,49 @@ def map_param_func(
         ), f"new param {name} {var.dtype} vs ckpt param {var_name} {value.dtype}"
         return value
 
+    layer_idx = int(name.split(".")[2])
+    num_heads = model.encoder.layers[layer_idx].self_att.num_heads.dimension
+    self_att_dim = model.encoder.layers[layer_idx].self_att.out_dim.dimension
+
+    if name.endswith(".self_att.qkv.weight"):
+        value = ckpt["model"][
+            f"conformer.module_list.{layer_idx}.mhsa.mhsa.in_proj_weight"
+        ]
+        # from rf to torch
+        # value = (
+        #     value.reshape(self_att_dim, num_heads, 3, self_att_dim // num_heads)
+        #     .permute(2, 1, 3, 0)
+        #     .reshape(-1, self_att_dim)
+        # )
+        value = value.reshape(3, num_heads, self_att_dim // num_heads, self_att_dim).permute(3, 1, 0, 2).reshape(self_att_dim, -1)
+        assert value.shape == var.batch_shape, name + f" {value.shape} vs {var.batch_shape}"
+        return value.numpy()
+
+    if name.endswith(".self_att.qkv.bias"):
+        value = ckpt["model"][
+            f"conformer.module_list.{layer_idx}.mhsa.mhsa.in_proj_bias"
+        ]
+        # value = value.reshape(num_heads, 3, self_att_dim // num_heads).permute(1, 0, 2).reshape(-1)
+        value = value.reshape(3, num_heads, self_att_dim // num_heads).permute(1, 0, 2).reshape(-1)
+        assert value.shape == var.batch_shape, name + f" {value.shape} vs {var.batch_shape}"
+        return value.numpy()
+
+    if name.endswith(".self_att.proj.weight"):
+        value = ckpt["model"][
+            f"conformer.module_list.{layer_idx}.mhsa.mhsa.out_proj.weight"
+        ]
+        # value = value.reshape(num_heads, self_att_dim // num_heads, self_att_dim).permute(2, 0, 1).reshape(-1, self_att_dim)
+        value = value.reshape(self_att_dim, num_heads, self_att_dim // num_heads).permute(1, 2, 0).reshape(self_att_dim, -1)
+        assert value.shape == var.batch_shape, name + f" {value.shape} vs {var.batch_shape}"
+        return value.numpy()
+
     # if name == "s.ff_weight":
     #     value = reader.get_tensor("output/rec/s/rec/lstm_cell/kernel")
     #     value = convert_params_np.convert_tf_lstm_to_native_lstm_ff(value)
     #     assert value.shape == var.batch_shape, name
     #     assert value.dtype.name == var.dtype, name
     #     return value
-    #
+    #0
     # if name == "s.rec_weight":
     #     value = reader.get_tensor("output/rec/s/rec/lstm_cell/kernel")
     #     value = convert_params_np.convert_tf_lstm_to_native_lstm_rec(value)
@@ -381,6 +418,6 @@ if __name__ == "__main__":
     convert_checkpoint(
         ckpt_path=_nick_pure_torch_rnnt_ckpt_path,
         print_params=True,
-        out_dir="/work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/2023-08-10--rf-librispeech/work/i6_experiments/users/gaudino/returnn/convert_ckpt_rf/librispeech/rnnt_nick_240614",
+        out_dir="/work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/2023-08-10--rf-librispeech/work/i6_experiments/users/gaudino/returnn/convert_ckpt_rf/librispeech/rnnt_nick_240619",
         save_model=True,
     )

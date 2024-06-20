@@ -1,0 +1,2 @@
+#!/usr/bin/env bash
+/usr/bin/python3 -mtorch.distributed.run --standalone --nnodes=1 --nproc-per-node=4 /u/schmitt/src/returnn_new/rnn.py /u/schmitt/experiments/segmental_models_2022_23_rf_pycharm/recipe/i6_experiments/users/schmitt/experiments/config/pipelines/global_vs_segmental_2022_23_rf/dependencies/returnn/network_builder_rf/segmental/luca_example_transducer/ReturnnTrainingJob/output/train_config.config

@@ -188,9 +188,10 @@ class MakeModelV2:
             enc_ff_dim=Dim(name="enc-ff", dimension=2048, kind=Dim.Types.Feature),
             enc_att_num_heads=8,
             enc_conformer_layer_opts=dict(
-                conv_norm_opts=dict(
-                    use_mask=True, track_running_stats=False
-                ),  # Changed: track_running_stats=False
+                conv_norm = rf.LayerNorm,
+                # conv_norm_opts=dict(
+                #     in_dim=
+                # ),  # Changed below
                 self_att=rf.SelfAttention,
                 self_att_opts=dict(
                     with_bias=True,  # Changed: with_bias=True
