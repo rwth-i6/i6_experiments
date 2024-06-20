@@ -100,25 +100,50 @@ def py():
             hash_overwrite=f"run_eval_v2_rtf_run{run}",
         )
         for beam_size in [1, 4]:
-            for bs_ in [16, 32]:
-                for test_set, split in TEST_DATASETS.items():
-                    name = f"{test_set}_bs{bs_}_beam{beam_size}_run{run}"
-                    search_job = SearchJob(
-                        model_id=MODEL_ID,
-                        model_path=model_path,
-                        dataset_path=dataset_paths[test_set],
-                        dataset_name=test_set,
-                        cache_dir_name_suffix=name,
-                        split=split,
-                        search_script=our_beam_search_script,
-                        search_args={"batch_size": bs_, "pnc": False, "max_eval_samples": -1, "beam_size": beam_size},
-                        python_exe=python_exe,
-                        device="gpu",
-                        time_rqmt=24,
-                        mem_rqmt=8,
-                        cpu_rqmt=4,
-                    )
-                    search_job.rqmt["sbatch_args"] = ["-p", "gpu_test_24gb", "-w", "cn-290", "--reservation", "hlt_6"]
-                    search_job.add_alias(f"canary_1b/beam_search_v5/{name}")
-                    tk.register_output(f"canary_1b/beam_search_v5/{name}/search_out", search_job.out_search_results)
-                    tk.register_output(f"canary_1b/beam_search_v5/{name}/wer", search_job.out_wer)
+            for bs in [16, 32]:
+                for thre_pruning in [0.0]:
+                    for adaptive_prune in [False]:
+                        if beam_size == 1 and (thre_pruning != 0.0 or adaptive_prune is True):
+                            continue
+                        for test_set, split in TEST_DATASETS.items():
+                            name = f"{test_set}_bs{bs}_beam{beam_size}_run{run}"
+                            search_args = {
+                                "batch_size": bs,
+                                "pnc": False,
+                                "max_eval_samples": -1,
+                                "beam_size": beam_size,
+                            }
+                            if adaptive_prune:
+                                search_args["adaptive_pruning"] = True
+                                name += "adaptivePrune"
+                            if thre_pruning:
+                                search_args["threshold_pruning"] = thre_pruning
+                                name += f"threPruning{thre_pruning}"
+                            search_job = SearchJob(
+                                model_id=MODEL_ID,
+                                model_path=model_path,
+                                dataset_path=dataset_paths[test_set],
+                                dataset_name=test_set,
+                                cache_dir_name_suffix=name,
+                                split=split,
+                                search_script=our_beam_search_script,
+                                search_args=search_args,
+                                python_exe=python_exe,
+                                device="gpu",
+                                time_rqmt=24,
+                                mem_rqmt=8,
+                                cpu_rqmt=4,
+                            )
+                            search_job.rqmt["sbatch_args"] = [
+                                "-p",
+                                "gpu_test_24gb",
+                                "-w",
+                                "cn-290",
+                                "--reservation",
+                                "hlt_6",
+                            ]
+                            search_job.add_alias(f"canary_1b/beam_search_v5/{name}")
+                            tk.register_output(
+                                f"canary_1b/beam_search_v5/{name}/search_out", search_job.out_search_results
+                            )
+                            tk.register_output(f"canary_1b/beam_search_v5/{name}/wer", search_job.out_wer)

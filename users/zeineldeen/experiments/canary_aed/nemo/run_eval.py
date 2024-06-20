@@ -157,6 +157,7 @@ def main(args):
     )
     if args.cache_dir_name_suffix:
         cache_prefix += f"_{args.cache_dir_name_suffix}"
+    print(f"Using batch size: {args.batch_size}")
     results = buffer_audio_and_transcribe(asr_model, dataset, args.batch_size, args.pnc, cache_prefix, verbose=True)
     for sample in results:
         predictions.append(data_utils.normalizer(sample["pred_text"]))
