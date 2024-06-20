@@ -71,7 +71,7 @@ def py():
             hash_overwrite=f"run_eval_v1_rtf_run{run}",
         )
         for test_set, split in TEST_DATASETS.items():
-            for bs in [64]:  # [16, 32, 64]:
+            for bs in [16, 32, 64]:
                 name = f"{test_set}_bs{bs}_greedy_run{run}"
                 search_job = SearchJob(
                     model_id=MODEL_ID,
