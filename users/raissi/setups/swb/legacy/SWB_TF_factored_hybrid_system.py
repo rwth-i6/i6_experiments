@@ -3,6 +3,7 @@ __all__ = ["SWBTFFactoredHybridSystem"]
 import copy
 import dataclasses
 import itertools
+import numpy as np
 import sys
 from IPython import embed
 
@@ -197,9 +198,9 @@ class SWBTFFactoredHybridSystem(TFFactoredHybridBaseSystem):
             }
             # 1/9 for 3-state, same amount of silence
         }
-        self.transcript_prior_xml = {"monostate": ("/").join(
-                    [self.dependencies_path, "haotian/monostate/monostate.we.transcript.prior.xml"]
-                ),}
+        self.transcript_prior_xml = {
+            "monostate": ("/").join([self.dependencies_path, "haotian/monostate/monostate.we.transcript.prior.xml"]),
+        }
 
     # -------------------- External helpers --------------------
 
@@ -207,9 +208,7 @@ class SWBTFFactoredHybridSystem(TFFactoredHybridBaseSystem):
         feature_name = self.feature_info.feature_type.get()
         for corpus_key in ["train", "hub500", "hub501"]:
             self.feature_bundles[corpus_key] = {feature_name: feature_bundles[corpus_key]}
-            self.feature_flows[corpus_key] = {
-                feature_name: features.basic_cache_flow(feature_bundles[corpus_key])
-            }
+            self.feature_flows[corpus_key] = {feature_name: features.basic_cache_flow(feature_bundles[corpus_key])}
             mapping = {"train": "train", "hub500": "dev", "hub501": "eval"}
             cache_pattern = feature_bundles[corpus_key].get_path().split(".bundle")[0]
             caches = [tk.Path(f"{cache_pattern}.{i}") for i in range(1, concurrent[mapping[corpus_key]] + 1)]
@@ -253,7 +252,6 @@ class SWBTFFactoredHybridSystem(TFFactoredHybridBaseSystem):
         self.crp[self.crp_names[bw_key]].corpus_config.segments.file = ("/").join(
             [self.cross_validation_info["pre_path"], self.cross_validation_info["merged_corpus_segment"]]
         )
-
 
     def get_recognizer_and_args(
         self,
@@ -344,6 +342,48 @@ class SWBTFFactoredHybridSystem(TFFactoredHybridBaseSystem):
 
         return recognizer, recog_args
 
+    def get_best_recog_scales_and_transition_values(
+        self,
+        key: str,
+        num_encoder_output: int,
+        recog_args: SWBSearchParameters,
+        lm_scale: float,
+    ) -> SWBSearchParameters:
+
+        assert self.experiments[key]["decode_job"]["runner"] is not None, "Please set the recognizer"
+        recognizer = self.experiments[key]["decode_job"]["runner"]
+
+        tune_args = recog_args.with_lm_scale(lm_scale)
+        best_config_scales = recognizer.recognize_optimize_scales_v2(
+            label_info=self.label_info,
+            search_parameters=tune_args,
+            num_encoder_output=num_encoder_output,
+            altas_value=2.0,
+            altas_beam=16.0,
+            tdp_sil=[(11.0, 0.0, "infinity", 20.0)],
+            tdp_speech=[(8.0, 0.0, "infinity", 0.0)],
+            tdp_nonword=[(8.0, 0.0, "infinity", 0.0)],
+            prior_scales=[[v] for v in np.arange(0.1, 0.8, 0.1).round(1)],
+            tdp_scales=[0.1, 0.2],
+        )
+
+        nnsp_tdp = [(l, 0.0, "infinity", e) for l in [8.0, 11.0, 13.0] for e in [10.0, 15.0, 20.0]]
+        sp_tdp = [(l, 0.0, "infinity", e) for l in [5.0, 8.0, 11.0] for e in [0.0, 5.0]]
+        best_config= recognizer.recognize_optimize_transtition_values(
+            label_info=self.label_info,
+            search_parameters=best_config_scales,
+            num_encoder_output=512,
+            altas_value=2.0,
+            altas_beam=16.0,
+            tdp_sil=nnsp_tdp,
+            tdp_speech=sp_tdp,
+        )
+
+        return best_config
+
+
+
+
     def get_aligner_and_args(
         self,
         key: str,
@@ -405,7 +445,7 @@ class SWBTFFactoredHybridSystem(TFFactoredHybridBaseSystem):
         if feature_path is None:
             feature_path = self.feature_flows[crp_corpus]
 
-        #consider if you need to create separate alignment params
+        # consider if you need to create separate alignment params
         align_args = self.get_parameters_for_aligner(context_type=context_type, prior_info=p_info)
         align_args = dataclasses.replace(align_args, non_word_phonemes="[LAUGHTER],[NOISE],[VOCALIZEDNOISE]")
 
