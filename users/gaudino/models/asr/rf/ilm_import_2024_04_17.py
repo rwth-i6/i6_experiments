@@ -25,6 +25,7 @@ class MiniAtt_ILM_Model(rf.Module):
         mini_att_lstm_dim: int = 50,
         mini_att_out_dim: int = 512,
         prior_dim: int = 1024,
+        s_use_zoneout_output: bool = True, # for ted2, for ls960 set to false
         # layer_out_dim: int = 768, # default values for ted2 trafo lm
         # layer_ff_dim: int = 4096,
         # embed_dim: int = 128,
@@ -49,12 +50,14 @@ class MiniAtt_ILM_Model(rf.Module):
             self.mini_att_lstm_dim, self.mini_att_out_dim, with_bias=True
         )
 
+        self.s_use_zoneout_output = s_use_zoneout_output
+
         self.prior_s = rf.ZoneoutLSTM(
             in_dim + self.mini_att_out_dim,
             self.prior_dim,
             zoneout_factor_cell=0.15,
             zoneout_factor_output=0.05,
-            use_zoneout_output=False,  # like RETURNN/TF ZoneoutLSTM old default
+            use_zoneout_output=self.s_use_zoneout_output,
             # parts_order="icfo",  # like RETURNN/TF ZoneoutLSTM
             # parts_order="ifco",
             parts_order="jifo",  # NativeLSTM (the code above converts it...)

@@ -6,8 +6,15 @@ from i6_core.lib.hdf import get_returnn_simple_hdf_writer
 
 
 class AverageXVectorSpeakerEmbeddingsJob(Job):
+    """
+    Job to compute the average x-vector for each speaker in a corpus
+    Takes an HDF containing an x-vector for each sequence in a corpus in combination with the speaker id, 
+    collects all x-vectors for every speaker id and pools them using the mean vector. 
+
+    :param tk.Path x_vector_hdf: Path to HDF from x-vector forward job
+    :param tk.Path returnn_root: Path to Returnn Root
+    """    
     def __init__(self, x_vector_hdf: tk.Path, returnn_root: tk.Path):
-    # def __init__(self, x_vector_hdf: str, returnn_root: str):
         self.x_vector_hdf = x_vector_hdf
         self.returnn_root = returnn_root
 
@@ -17,10 +24,7 @@ class AverageXVectorSpeakerEmbeddingsJob(Job):
         yield Task("run", mini_task=True, rqmt={"sbatch_args": ["-p", "cpu_slow"]})
 
     def run(self):
-        print(f"self.x_vector_hdf: {self.x_vector_hdf}")
         x_vectors, seq_tags, speaker_labels = self.load_xvector_data(self.x_vector_hdf.get_path())
-        # x_vectors, seq_tags, speaker_labels = self.load_xvector_data(self.x_vector_hdf)
-        print(f"x_vectors.shape: {x_vectors.shape}")
 
         speaker_labels, indices = torch.sort(torch.Tensor(speaker_labels))
         x_vectors = x_vectors[indices, :]
@@ -61,22 +65,10 @@ class AverageXVectorSpeakerEmbeddingsJob(Job):
         seq_tags = input_data["seqTags"]
         lengths = input_data["seqLengths"]
 
+        # break if targets are not given hence no speaker_labels are in the HDF
         assert "targets" in input_data.keys()
         assert "speaker_labels" in input_data["targets"]["data"]
         speaker_labels = input_data["targets"]["data"]["speaker_labels"]
-
-        # data_seqs = []
-        # data_tags = []
-        # data_speaker_label = []
-        # offset = 0
-
-        # for tag, length, speaker_label in zip(seq_tags, lengths, speaker_labels):
-        #     tag = tag if isinstance(tag, str) else tag.decode()
-        #     in_data = inputs[offset : offset + length[0]]
-        #     data_seqs.append(in_data)
-        #     offset += length[0]
-        #     data_tags.append(tag)
-        #     data_speaker_label.append(speaker_label)
 
         x_vectors = np.array(inputs)
         x_vectors = x_vectors.reshape((lengths.shape[0], 512))

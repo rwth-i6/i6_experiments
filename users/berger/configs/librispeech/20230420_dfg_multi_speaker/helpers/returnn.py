@@ -1,6 +1,7 @@
 """
 RETURNN-related helpers
 """
+
 from typing import Any
 from i6_core.returnn import ReturnnConfig, CodeWrapper
 

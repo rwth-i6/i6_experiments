@@ -178,12 +178,14 @@ def run_exp(alignments: Dict[str, Any], **kwargs) -> SummaryReport:
             "base_chunk_size": 256,
             "chunking_factors": {"data": 1, "classes": red_fact},
             "extra_config": {
-                "pretrain": {
-                    "repetitions": 6,
-                    "construction_algo": CodeWrapper("pretrain_construction_algo"),
-                }
-                if kwargs.get("pretrain", False)
-                else None,
+                "pretrain": (
+                    {
+                        "repetitions": 6,
+                        "construction_algo": CodeWrapper("pretrain_construction_algo"),
+                    }
+                    if kwargs.get("pretrain", False)
+                    else None
+                ),
                 "train": {"reduce_target_factor": red_fact},
                 "dev": {"reduce_target_factor": red_fact},
             },

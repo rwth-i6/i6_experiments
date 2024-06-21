@@ -255,8 +255,16 @@ class GlobalConfigBuilder(ConfigBuilder, ABC):
   def edit_network_only_train_length_model(self, net_dict: Dict):
     raise NotImplementedError
 
-  def edit_network_modify_decoder(self, version: int, net_dict: Dict, train: bool, target_num_labels: int):
-    network_builder.modify_decoder(version, net_dict, "output", target_num_labels, False, train)
+  def edit_network_modify_decoder(
+          self,
+          version: int,
+          net_dict: Dict,
+          train: bool,
+          target_num_labels: int,
+          python_prolog: Optional[List] = None
+  ):
+    network_builder.modify_decoder(
+      version, net_dict, "output", target_num_labels, False, train, python_prolog)
 
 
 class SWBBlstmGlobalAttentionConfigBuilder(GlobalConfigBuilder, SWBBlstmConfigBuilder, ConfigBuilder):

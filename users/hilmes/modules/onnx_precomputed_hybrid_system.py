@@ -42,6 +42,7 @@ class OnnxPrecomputedHybridSystem(HybridSystem):
             del prior_config.config["chunking"]
         if "torch_amp" in prior_config.config.keys():
             del prior_config.config['torch_amp']
+        prior_config.config["extern_data"]["data_raw"] = {"dim": 1, "shape": (None, 1), "available_for_inference": True}
         from i6_core.tools.git import CloneGitRepositoryJob
         # if "align" not in prior_config.config["train"]["datasets"]:
         returnn_root = CloneGitRepositoryJob(
@@ -163,9 +164,9 @@ class OnnxPrecomputedHybridSystem(HybridSystem):
                 onnx_job.add_alias(f"export_onnx/{name}/epoch_{epoch_str}")
                 onnx_job.set_keep_value(5)
                 onnx_model = onnx_job.out_onnx_model
-                io_map = {"features": "data", "output": "log_probs"}
+                io_map = {"features": "data_raw", "output": "log_probs"}
                 if needs_features_size:
-                    io_map["features-size"] = "data:size1"
+                    io_map["features-size"] = "data_raw:size1"
 
                 if nn_prior or acoustic_mixture_path is None:
                     prior_file, prior_config = self.calcluate_nn_prior(
@@ -178,9 +179,13 @@ class OnnxPrecomputedHybridSystem(HybridSystem):
                     )
                     # This can't be acoustic_mixture_path because python hands in the object itself, not a copy thus
                     # one would override the old mixture_path (if there is any) for all other exps
+                    if "data_raw" in returnn_config.config['extern_data']:
+                        features = returnn_config.config['extern_data']['data_raw']['dim']
+                    else:
+                        features = returnn_config.config['extern_data']['data']['dim']
                     tmp_acoustic_mixture_path = CreateDummyMixturesJob(
                         num_mixtures=returnn_config.config['extern_data']['classes']['dim'],
-                        num_features=returnn_config.config['extern_data']['data']['dim']).out_mixtures
+                        num_features=features).out_mixtures
                     lmgc_scorer = rasr.GMMFeatureScorer(acoustic_mixture_path)
                     scorer = rasr.PrecomputedHybridFeatureScorer(
                         prior_mixtures=tmp_acoustic_mixture_path,

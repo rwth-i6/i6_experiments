@@ -1710,16 +1710,33 @@ def py():
             decoder_mask_eoc=decoder_mask_eoc,
         )
 
-    # TODO: mask out EOC symbol + ctx from decoder state
+    for decoder_mask_eoc in [True, False]:
+        run_chunkwise_train(
+            enc_stream_type="global",
+            run_all_for_best_last_avg=True,
+            enable_check_align=False,
+            chunk_sizes=[1, 5, 10, 25],
+            chunk_step_factors=[1],
+            start_lrs=[2e-4],
+            decay_pt_factors=[0.25],
+            final_lrs=[1e-6],
+            gpu_mem=11,
+            total_epochs=[20 * 4, 30 * 4, 40 * 4],
+            batch_size=15_000,
+            accum_grad=2,
+            time_rqmt=120,
+            decoder_mask_eoc=decoder_mask_eoc,
+        )
 
+    # TODO: mask out EOC symbol + ctx from decoder state
     run_chunkwise_train(
         enc_stream_type="global",
         run_all_for_best_last_avg=True,
         enable_check_align=False,
-        chunk_sizes=[5, 25],
+        chunk_sizes=[1, 5, 10, 25],
         chunk_step_factors=[1],
         start_lrs=[2e-4],
-        decay_pt_factors=[0.25],
+        decay_pt_factors=[0.25, 1 / 3],
         final_lrs=[1e-6],
         gpu_mem=11,
         total_epochs=[20 * 4, 40 * 4],
@@ -1730,33 +1747,43 @@ def py():
         remove_att_ctx_from_dec_state=True,
     )
 
-    # TODO: large chunks + overlap
-    # for left_context, center_context, right_context, conv_size, mem_size in [
-    #     (0, 80, 0, 0, 0),
-    # ]:
-    #     run_chunkwise_train(
-    #         enc_stream_type="chunked",
-    #         run_all_for_best_last_avg=True,
-    #         enable_check_align=False,
-    #         chunk_sizes=[25],
-    #         chunk_step_factors=[20 / 25],
-    #         start_lrs=[2e-4],
-    #         decay_pt_factors=[1 / 3],
-    #         gpu_mem=24,
-    #         total_epochs=[120],
-    #         batch_size=15_000,
-    #         accum_grad=2,
-    #         time_rqmt=120,
-    #         end_slice_start=left_context,
-    #         end_slice_size=center_context,
-    #         window_left_padding=left_context * 6,
-    #         # conf_mem_opts={
-    #         #     "self_att_version": 1,
-    #         #     "mem_size": mem_size,
-    #         #     "use_cached_prev_kv": True,
-    #         #     "conv_cache_size": conv_size,
-    #         #     "mem_slice_start": left_context,
-    #         #     "mem_slice_size": 20,
-    #         # },
-    #         suffix=f"_L{left_context}_C{center_context}_R{right_context}",
-    #     )
+    # TODO: exact full-sum training
+    run_chunkwise_train(
+        enc_stream_type="global",
+        run_all_for_best_last_avg=True,
+        enable_check_align=False,
+        chunk_sizes=[25],
+        chunk_step_factors=[1],
+        start_lrs=[2e-4],
+        decay_pt_factors=[0.25, 1 / 3],
+        final_lrs=[1e-6],
+        gpu_mem=11,
+        total_epochs=[20 * 4, 40 * 4],
+        batch_size=10_000,
+        accum_grad=3,
+        time_rqmt=120,
+        decoder_mask_eoc=False,  # there are no blanks in the target seq
+        remove_att_ctx_from_dec_state=True,  # remove att ctx dependency so we can do exact full sum
+        full_sum_approx=True,
+    )
+
+    # TODO: exact full-sum training starting from viterbi-trained model
+
+    # # TODO: use overlap
+    # run_chunkwise_train(
+    #     enc_stream_type="global",
+    #     run_all_for_best_last_avg=True,
+    #     enable_check_align=False,
+    #     chunk_sizes=[5, 10, 25],
+    #     chunk_step_factors=[0.5, 0.75],  # 50%, 25% overlaps
+    #     start_lrs=[2e-4],
+    #     decay_pt_factors=[0.25, 1 / 3],
+    #     final_lrs=[1e-6],
+    #     gpu_mem=11,
+    #     total_epochs=[20 * 4, 40 * 4],
+    #     batch_size=15_000,
+    #     accum_grad=2,
+    #     time_rqmt=120,
+    #     decoder_mask_eoc=True,
+    #     remove_att_ctx_from_dec_state=True,
+    # )

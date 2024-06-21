@@ -54,9 +54,10 @@ from .shared import commons
 from .shared import attentions
 from .monotonic_align import maximum_path
 
-from .shared.forward import search_init_hook, search_finish_hook
+from .shared.forward import prior_init_hook, prior_step, prior_finish_hook
 
 from .shared.eval_forward import *
+from .shared.eval_invertibility import *
 
 from IPython import embed
 
@@ -435,8 +436,7 @@ class Model(nn.Module):
                 return log_probs, torch.sum(out_mask, dim=1)
             else:
                 z, logdet = self.decoder(y, z_mask, g=g, reverse=False) # [B, F, T]
-                from IPython import embed
-                embed()
+
                 with torch.no_grad():
                     x_s_sq_r = torch.exp(-2 * x_logs)
                     logp1 = torch.sum(-0.5 * math.log(2 * math.pi) - x_logs, [1]).unsqueeze(-1)  # [b, t, 1]

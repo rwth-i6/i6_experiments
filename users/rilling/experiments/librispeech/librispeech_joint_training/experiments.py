@@ -3,6 +3,7 @@ import os
 import numpy as np
 from sisyphus import tk
 from dataclasses import asdict
+import torch
 
 
 from .data import (
@@ -14,8 +15,8 @@ from .data import (
     get_arpa_lm,
     get_text_lexicon,
 )
-from .config import get_training_config, get_extract_durations_forward__config, get_forward_config, get_search_config
-from .pipeline import training, forward, search
+from .config import get_training_config, get_extract_durations_forward__config, get_forward_config, get_search_config, get_prior_config
+from .pipeline import training, forward, search, compute_prior
 
 from i6_experiments.users.rilling.experiments.librispeech.common.tts_eval import tts_eval
 
@@ -23,6 +24,7 @@ from .default_tools import RETURNN_COMMON, RETURNN_PYTORCH_EXE, RETURNN_PYTORCH_
 from .pytorch_networks.shared.i6modelsV1_VGG4LayerActFrontendV1_v4_cfg import (
     SpecaugConfig,
     ModelConfig,
+    ModelConfigV2,
     VGG4LayerActFrontendV1Config_mod,
     TextEncoderConfig,
     FlowDecoderConfig,
@@ -32,13 +34,12 @@ from i6_experiments.users.rilling.experiments.librispeech.librispeech_x_vectors.
 
 
 def get_glow_joint(x_vector_exp, gl_checkpoint):
-    """
-    Baseline for the glow TTS in returnn_common with serialization
+    """Experiments on joint training of Glow-TTS and a Conformer ASR using the latent space of Glow-TTS as features.
 
-    Uses updated RETURNN_COMMON
-
-    :return: durations_hdf
-    """
+    :param dict x_vector_exp: Dictionary of x-vector experiments from ../librispeech_x_vectors to import x-vector model for on-the-fly speaker embedding generation for TTS and ASR
+    :param dict gl_checkpoint: Dictionary containing checkpoint and config of a BLSTM transforming log-mel into linear spectrogram for G&L vocoding
+    :return dict: Dictionary containing the experiments with all their jobs to be used to import checkpoints or other job attributes in other experiments 
+    """    
 
     prefix = "experiments/librispeech/joint_training/default/raw_audio/"
     experiments = {}
@@ -62,8 +63,38 @@ def get_glow_joint(x_vector_exp, gl_checkpoint):
         eval_tts=False,
         tts_eval_datasets=None,
         eval_invertibility=False,
+        eval_asr_invertibility=False,
+        large_gpu_training=False,
+        with_prior=False,
     ):
+        """Creates the Jobs for training, TTS generation/forwarding, ASR search and evaluations
+
+        :param str name: Name of the experiment for alias creation
+        :param dict args: General arguments for training, forward and search configs
+        :param TrainingDataset dataset: Dataset used for training and TTS forwarding (without eval.)
+        :param dict test_dataset: Dictionary containing datasets to be used for ASR evaluation
+        :param int num_epochs: Number of epochs in training, defaults to 100
+        :param bool use_custom_engine: whether a custom engine is to be used in Returnn, defaults to False
+        :param dict training_args: Additional arguments for training, passed to the train step, defaults to {}
+        :param dict forward_args: Additional arguments for forwarding passed to the forward step, defaults to {}
+        :param dict search_args: Additional arguments for search passed to the search init step, defaults to {}
+        :param list[int] keep_epochs: List of checkpoints that should be kept during training, defaults to None
+        :param bool extract_x_vector: whether the x-vectors whould be extracted into an HDF (only useful if x-vector model is unfrozen), defaults to False
+        :param bool tts_forward: whether TTS forwarding should be run (not evaluation, uses training dataset), defaults to True
+        :param bool asr_search: whether ASR search should be run, defaults to True
+        :param bool use_speaker_labels_in_dev: whether the validation set should contain speaker labels, defaults to False
+        :param ReturnnTrainingJob given_train_job_for_forward: , defaults to None
+        :param bool eval_tts: whether TTS should be evaluated, defaults to False
+        :param dict tts_eval_datasets: Dictionary containing datasets for TTS evaluation, defaults to None
+        :param bool eval_invertibility: whether invertibility of coupling blocks should be evaluated, defaults to False
+        :param bool eval_asr_invertibility: whether the invertibility of the ASR usage of the coupling blocks should be evaluated (only useful if separate passes are used for TTS and ASR), defaults to False
+        :param bool large_gpu_training: whether the GPU memory requirement for trianing should be set to 24GB, defaults to False
+        :param bool with_prior: Whether the prior of the internal language model should be estimated for prior correction (defaults to True if search_args["prior_scale]!=0), defaults to False
+        :return dict: Dictionary containing all the jobs for this experiment
+        """        
         exp = {}
+
+        with_prior = with_prior or ("prior_scale" in search_args and search_args["prior_scale"] != 0)
 
         if given_train_job_for_forward is None:
             training_config = get_training_config(
@@ -82,10 +113,23 @@ def get_glow_joint(x_vector_exp, gl_checkpoint):
                 returnn_root=MINI_RETURNN_ROOT,
                 prefix=prefix + name,
                 num_epochs=num_epochs,
+                large_gpu=large_gpu_training
             )
         else:
             train_job = given_train_job_for_forward
         exp["train_job"] = train_job
+
+        if with_prior:
+            returnn_config = get_prior_config(training_datasets=dataset, **args)
+            prior_file = compute_prior(
+                prefix + name,
+                returnn_config,
+                checkpoint=train_job.out_checkpoints[num_epochs],
+                returnn_exe=RETURNN_PYTORCH_ASR_SEARCH_EXE,
+                returnn_root=MINI_RETURNN_ROOT,
+            )
+            tk.register_output(prefix + name + "/prior.txt", prior_file)
+            search_args["prior_file"] = prior_file
 
         if extract_x_vector:
             forward_x_vector_config = get_forward_config(
@@ -112,22 +156,12 @@ def get_glow_joint(x_vector_exp, gl_checkpoint):
                 ),
             )
 
-            # forward_config_gl2 = get_forward_config(
-            #     forward_dataset=dataset,
-            #     **{**args, **{"config": {"batch_size": 50 * 16000}}},
-            #     forward_args={
-            #         **forward_args,
-            #         "gl_net_checkpoint": gl_checkpoint["checkpoint"],
-            #         "gl_net_config": gl_checkpoint["config"],
-            #     },
-            #     target="corpus_gl",
-            #     cv_data=True,
-            # )
-
         if eval_invertibility:
-            forward_config_invert = get_forward_config(
-                forward_dataset=dataset, **{**args, **{"config": {"batch_size": 50 * 16000}}}, target="invertibility"
-            )
+            forward_config_invert = get_prior_config(dataset, target="invertibility", **args)
+
+        if eval_asr_invertibility:
+            # Only used to check invertibility for models using two forward passes
+            forward_config_invert = get_prior_config(dataset, target="asr_invertibility", **args)
 
         if asr_search:
             search_config = get_search_config(
@@ -168,19 +202,8 @@ def get_glow_joint(x_vector_exp, gl_checkpoint):
                     nisqa_eval=True,
                     swer_eval=True,
                     swer_eval_corpus_key=ds_k,
+                    nisqa_confidence=True,
                 )
-
-            # forward_job_gl = tts_eval(
-            #     checkpoint=train_job.out_checkpoints[num_epochs],
-            #     prefix_name=prefix + name,
-            #     returnn_config=forward_config_gl2,
-            #     returnn_exe=RETURNN_PYTORCH_EXE,
-            #     returnn_root=MINI_RETURNN_ROOT,
-            #     vocoder="gl",
-            #     nisqa_eval=True,
-            #     swer_eval=True,
-            #     swer_eval_corpus_key="train-clean-100",
-            # )
 
         if eval_invertibility:
             forward_job = forward(
@@ -193,6 +216,18 @@ def get_glow_joint(x_vector_exp, gl_checkpoint):
             )
 
             exp["invertibility_job"] = forward_job
+
+        if eval_asr_invertibility:
+            forward_job = forward(
+                checkpoint=train_job.out_checkpoints[num_epochs],
+                config=forward_config_invert,
+                returnn_exe=RETURNN_PYTORCH_EXE,
+                returnn_root=MINI_RETURNN_ROOT,
+                prefix=prefix + name,
+                target="asr_invertibility",
+            )
+
+            exp["asr_invertibility_job"] = forward_job
 
         if asr_search:
             search(
@@ -298,6 +333,11 @@ def get_glow_joint(x_vector_exp, gl_checkpoint):
     )
     asr_test_datasets2["dev-clean"] = build_test_dataset(librispeech_key="train-clean-100", dataset_key="dev-clean")
 
+    asr_test_datasets3 = copy.deepcopy(asr_test_datasets)
+    asr_test_datasets3["dev-clean"] = build_test_dataset(librispeech_key="train-clean-100", dataset_key="dev-clean")
+    asr_test_datasets3["test-clean"] = build_test_dataset(librispeech_key="train-clean-100", dataset_key="test-clean")
+    asr_test_datasets3["test-other"] = build_test_dataset(librispeech_key="train-clean-100", dataset_key="test-other")
+
     tts_forward_datasets = {}
     tts_forward_datasets_xvectors = {}
 
@@ -382,6 +422,55 @@ def get_glow_joint(x_vector_exp, gl_checkpoint):
         gin_channels=512,
         n_speakers=speaker_datastream.vocab_size,
     )
+
+    strong_specaug_config = SpecaugConfig(
+        repeat_per_n_frames=25,
+        max_dim_time=20,
+        max_dim_feat=16,
+        num_repeat_feat=5,
+    )
+    strong_frontend_config = VGG4LayerActFrontendV1Config_mod(
+        in_features=80,
+        conv1_channels=32,
+        conv2_channels=64,
+        conv3_channels=64,
+        conv4_channels=32,
+        conv_kernel_size=(3, 3),
+        conv_padding=None,
+        pool1_kernel_size=(2, 1),
+        pool1_stride=(2, 1),
+        pool1_padding=None,
+        pool2_kernel_size=(2, 1),
+        pool2_stride=(2, 1),
+        pool2_padding=None,
+        out_features=384,
+        activation_str="ReLU",
+        activation=None
+    )
+    model_config_strong_conformer = ModelConfig(
+        frontend_config=strong_frontend_config,
+        specaug_config=strong_specaug_config,
+        text_encoder_config=text_encoder_config,
+        decoder_config=flow_decoder_config,
+        label_target_size=vocab_size_without_blank_asr,
+        conformer_size=384,
+        num_layers=12,
+        num_heads=4,
+        ff_dim=1536,
+        att_weights_dropout=0.2,
+        conv_dropout=0.2,
+        ff_dropout=0.2,
+        mhsa_dropout=0.2,
+        conv_kernel_size=31,
+        final_dropout=0.2,
+        specauc_start_epoch=1,
+        out_channels=80,
+        gin_channels=256,
+        n_speakers=speaker_datastream.vocab_size,
+    )
+
+    model_config_strong_conformer_weak_specaug = copy.deepcopy(model_config_strong_conformer)
+    model_config_strong_conformer_weak_specaug.specaug_config = specaug_config
 
     net_module = "glowTTS_ASR_conformer_x_vector"
 
@@ -600,18 +689,23 @@ def get_glow_joint(x_vector_exp, gl_checkpoint):
         search_args=default_search_args,
         eval_tts=True,
         tts_eval_datasets=tts_forward_datasets_xvectors,
+        eval_invertibility=True,
     )
 
     for lm in [2.0, 2.5, 3.0, 3.5, 4.0, 4.5]:
-        exp_dict = run_exp(
-            net_module + f"/tuning/lm_{lm}",
-            train_args_v2,
-            training_datasets,
-            asr_test_datasets,
-            250,
-            forward_args=forward_args,
-            search_args={**default_search_args, **{"lm_weight": lm}},
-        )
+        for ps in [0, 0.3, 0.5]:
+            additional_search_args = {"lm_weight": lm} if ps == 0 else {"lm_weight": lm, "prior_scale": ps}
+            suffix = f"/tuning/lm_{lm}" if ps == 0 else f"/tuning/lm_{lm}_ps_{ps}"
+
+            exp_dict = run_exp(
+                net_module + suffix,
+                train_args_v2,
+                training_datasets,
+                asr_test_datasets,
+                250,
+                forward_args=forward_args,
+                search_args={**default_search_args, **additional_search_args},
+            )
     exp_dict = run_exp(
         net_module + "_ctc_scale_0.1",
         train_args_v2,
@@ -623,18 +717,23 @@ def get_glow_joint(x_vector_exp, gl_checkpoint):
         search_args=default_search_args,
         eval_tts=True,
         tts_eval_datasets=tts_forward_datasets_xvectors,
+        eval_invertibility=True
     )
     for lm in [2.0, 2.5, 3.0, 3.5, 4.0, 4.5]:
-        exp_dict = run_exp(
-            net_module + f"_ctc_scale_0.1/tuning/lm_{lm}",
-            train_args_v2,
-            training_datasets,
-            asr_test_datasets,
-            250,
-            training_args={"ctc_scale": 0.1},
-            forward_args=forward_args,
-            search_args={**default_search_args, **{"lm_weight": lm}},
-        )
+        for ps in [0, 0.3, 0.5]:
+            additional_search_args = {"lm_weight": lm} if ps == 0 else {"lm_weight": lm, "prior_scale": ps}
+            suffix = f"_ctc_scale_0.1/tuning/lm_{lm}" if ps == 0 else f"_ctc_scale_0.1/tuning/lm_{lm}_ps_{ps}"
+
+            exp_dict = run_exp(
+                net_module + suffix,
+                train_args_v2,
+                training_datasets,
+                asr_test_datasets,
+                250,
+                training_args={"ctc_scale": 0.1},
+                forward_args=forward_args,
+                search_args={**default_search_args, **additional_search_args},
+            )
 
     train_args_spec_augment_v2 = copy.deepcopy(train_args_v2)
     train_args_spec_augment_v2["net_args"]["model_config"]["specaug_config"] = asdict(specaug_config)
@@ -651,15 +750,18 @@ def get_glow_joint(x_vector_exp, gl_checkpoint):
     )
 
     for lm in [2.0, 2.5, 3.0, 3.5, 4.0, 4.5]:
-        exp_dict = run_exp(
-            net_module + f"_spec_augment/tuning/lm_{lm}",
-            train_args_spec_augment_v2,
-            training_datasets,
-            asr_test_datasets,
-            250,
-            forward_args=forward_args,
-            search_args={**default_search_args, **{"lm_weight": lm}},
-        )
+        for ps in [0, 0.3, 0.5]:
+            additional_search_args = {"lm_weight": lm} if ps == 0 else {"lm_weight": lm, "prior_scale": ps}
+            suffix = f"_spec_augment/tuning/lm_{lm}" if ps == 0 else f"_spec_augment/tuning/lm_{lm}_ps_{ps}"
+            exp_dict = run_exp(
+                net_module + suffix,
+                train_args_spec_augment_v2,
+                training_datasets,
+                asr_test_datasets,
+                250,
+                forward_args=forward_args,
+                search_args={**default_search_args, **additional_search_args},
+            )
 
     exp_dict = run_exp(
         net_module + "_spec_augment_ctc_scale_0.1",
@@ -675,16 +777,19 @@ def get_glow_joint(x_vector_exp, gl_checkpoint):
     )
 
     for lm in [2.0, 2.5, 3.0, 3.5, 4.0, 4.5]:
-        exp_dict = run_exp(
-            net_module + f"_spec_augment_ctc_scale_0.1/tuning/lm_{lm}",
-            train_args_spec_augment_v2,
-            training_datasets,
-            asr_test_datasets,
-            250,
-            training_args={"ctc_scale": 0.1},
-            forward_args=forward_args,
-            search_args={**default_search_args, **{"lm_weight": lm}},
-        )
+        for ps in [0, 0.3, 0.5]:
+            additional_search_args = {"lm_weight": lm} if ps == 0 else {"lm_weight": lm, "prior_scale": ps}
+            suffix = f"_spec_augment_ctc_scale_0.1/tuning/lm_{lm}" if ps == 0 else f"_spec_augment_ctc_scale_0.1/tuning/lm_{lm}_ps_{ps}"
+            exp_dict = run_exp(
+                net_module + suffix,
+                train_args_spec_augment_v2,
+                training_datasets,
+                asr_test_datasets,
+                250,
+                training_args={"ctc_scale": 0.1},
+                forward_args=forward_args,
+                search_args={**default_search_args, **additional_search_args},
+            )
 
     train_args_control = copy.deepcopy(train_args)
     net_module = "glowTTS_ASR_conformer_x_vector_control"
@@ -935,26 +1040,31 @@ def get_glow_joint(x_vector_exp, gl_checkpoint):
     )
 
     for lm in [2.0, 2.5, 3.0, 3.5, 4.0, 4.5]:
-        exp_dict = run_exp(
-            net_module + f"/tuning/lm_{lm}",
-            train_args_two_forward_v2,
-            training_datasets,
-            asr_test_datasets,
-            250,
-            forward_args=forward_args,
-            search_args={**default_search_args, **{"lm_weight": lm}},
-        )
+        for ps in [0, 0.3, 0.5]:
+            additional_search_args = {"lm_weight": lm} if ps == 0 else {"lm_weight": lm, "prior_scale": ps}
+            suffix = f"/tuning/lm_{lm}" if ps == 0 else f"/tuning/lm_{lm}_ps_{ps}"
+            exp_dict = run_exp(
+                net_module + suffix,
+                train_args_two_forward_v2,
+                training_datasets,
+                asr_test_datasets,
+                250,
+                forward_args=forward_args,
+                search_args={**default_search_args, **additional_search_args},
+            )
 
-        exp_dict = run_exp(
-            net_module + f"_ctc_scale_0.1/tuning/lm_{lm}",
-            train_args_two_forward_v2,
-            training_datasets,
-            asr_test_datasets,
-            250,
-            training_args={"ctc_scale": 0.1},
-            forward_args=forward_args,
-            search_args={**default_search_args, **{"lm_weight": lm}},
-        )
+            suffix = f"_ctc_scale_0.1/tuning/lm_{lm}" if ps == 0 else f"_ctc_scale_0.1/tuning/lm_{lm}_ps_{ps}"
+
+            exp_dict = run_exp(
+                net_module + suffix,
+                train_args_two_forward_v2,
+                training_datasets,
+                asr_test_datasets,
+                250,
+                training_args={"ctc_scale": 0.1},
+                forward_args=forward_args,
+                search_args={**default_search_args, **additional_search_args},
+            )
 
     net_module = "glowTTS_ASR_conformer_two_forward_pass"
     train_args_two_forward_no_xvector = copy.deepcopy(train_args_spec_augment)
@@ -972,6 +1082,8 @@ def get_glow_joint(x_vector_exp, gl_checkpoint):
         search_args=default_search_args,
         eval_tts=True,
         tts_eval_datasets=tts_forward_datasets,
+        eval_invertibility=True,
+        eval_asr_invertibility=True,
     )
     exp_dict = run_exp(
         net_module + "_ctc_scale_0.1",
@@ -984,28 +1096,180 @@ def get_glow_joint(x_vector_exp, gl_checkpoint):
         search_args=default_search_args,
         eval_tts=True,
         tts_eval_datasets=tts_forward_datasets,
+        eval_invertibility=True,
+        eval_asr_invertibility=True,
     )
 
     for lm in [2.0, 2.5, 3.0, 3.5, 4.0, 4.5]:
-        exp_dict = run_exp(
-            net_module + f"/tuning/lm_{lm}",
-            train_args_two_forward_no_xvector,
-            training_datasets,
-            asr_test_datasets,
-            250,
-            forward_args=forward_args,
-            search_args={**default_search_args, **{"lm_weight": lm}},
-        )
-        exp_dict = run_exp(
-            net_module + f"_ctc_scale_0.1/tuning/lm_{lm}",
-            train_args_two_forward_no_xvector,
-            training_datasets,
-            asr_test_datasets,
-            250,
-            training_args={"ctc_scale": 0.1},
-            forward_args=forward_args,
-            search_args={**default_search_args, **{"lm_weight": lm}},
-        )
+        for ps in [0, 0.3, 0.5]:
+            additional_search_args = {"lm_weight": lm, "prior_scale": ps} if ps != 0 else {"lm_weight": lm}
+            exp_dict = run_exp(
+                net_module + f"/tuning/lm_{lm}_ps_{ps}",
+                train_args_two_forward_no_xvector,
+                training_datasets,
+                asr_test_datasets,
+                250,
+                forward_args=forward_args,
+                search_args={**default_search_args, **additional_search_args},
+                with_prior=(ps!=0)
+            )
+            exp_dict = run_exp(
+                net_module + f"_ctc_scale_0.1/tuning/lm_{lm}_ps_{ps}",
+                train_args_two_forward_no_xvector,
+                training_datasets,
+                asr_test_datasets,
+                250,
+                training_args={"ctc_scale": 0.1},
+                forward_args=forward_args,
+                search_args={**default_search_args, **additional_search_args},
+                with_prior=(ps!=0)
+            )
+
+    tuned_search_args = {"lm_weight": 3.0, "prior_scale": 0.5}
+    exp_dict = run_exp(
+        net_module + f"/tuned",
+        train_args_two_forward_no_xvector,
+        training_datasets,
+        asr_test_datasets3,
+        250,
+        forward_args=forward_args,
+        search_args={**default_search_args, **tuned_search_args},
+        with_prior=(ps!=0)
+    )
+    tuned_search_args = {"lm_weight": 2.5, "prior_scale": 0.5}
+    exp_dict = run_exp(
+        net_module + f"_ctc_scale_0.1/tuned",
+        train_args_two_forward_no_xvector,
+        training_datasets,
+        asr_test_datasets3,
+        250,
+        training_args={"ctc_scale": 0.1},
+        forward_args=forward_args,
+        search_args={**default_search_args, **tuned_search_args},
+        with_prior=(ps!=0)
+    )
+
+    train_args_two_forward_no_xvector_strong_conformer = copy.deepcopy(train_args_two_forward_no_xvector)
+    train_args_two_forward_no_xvector_strong_conformer["net_args"]["model_config"] = asdict(model_config_strong_conformer)
+
+    exp_dict = run_exp(
+        net_module + "_strong_conformer_ctc_scale_0.1",
+        train_args_two_forward_no_xvector_strong_conformer,
+        training_datasets,
+        asr_test_datasets,
+        250,
+        training_args={"ctc_scale": 0.1},
+        forward_args=forward_args,
+        search_args=default_search_args,
+        eval_tts=True,
+        tts_eval_datasets=tts_forward_datasets,
+        large_gpu_training=True
+    )
+
+    exp_dict = run_exp(
+        net_module + "_strong_conformer_ctc_scale_1.0",
+        train_args_two_forward_no_xvector_strong_conformer,
+        training_datasets,
+        asr_test_datasets,
+        250,
+        training_args={"ctc_scale": 1.0},
+        forward_args=forward_args,
+        search_args=default_search_args,
+        eval_tts=True,
+        tts_eval_datasets=tts_forward_datasets,
+        large_gpu_training=True
+    )
+
+    train_args_two_forward_no_xvector_strong_conformer_weak_specaug = copy.deepcopy(train_args_two_forward_no_xvector_strong_conformer)
+    train_args_two_forward_no_xvector_strong_conformer_weak_specaug["net_args"]["model_config"] = asdict(model_config_strong_conformer_weak_specaug)
+    exp_dict = run_exp(
+        net_module + "_strong_conformer_weak_specaug_ctc_scale_0.1",
+        train_args_two_forward_no_xvector_strong_conformer_weak_specaug,
+        training_datasets,
+        asr_test_datasets,
+        250,
+        training_args={"ctc_scale": 0.1},
+        forward_args=forward_args,
+        search_args=default_search_args,
+        eval_tts=True,
+        tts_eval_datasets=tts_forward_datasets,
+        large_gpu_training=True
+    )
+
+    exp_dict = run_exp(
+        net_module + "_strong_conformer_weak_specaug_ctc_scale_1.0",
+        train_args_two_forward_no_xvector_strong_conformer_weak_specaug,
+        training_datasets,
+        asr_test_datasets,
+        250,
+        training_args={"ctc_scale": 1.0},
+        forward_args=forward_args,
+        search_args=default_search_args,
+        eval_tts=True,
+        tts_eval_datasets=tts_forward_datasets,
+        large_gpu_training=True
+    )
+
+    for lm in [2.0, 2.5, 3.0, 3.5, 4.0, 4.5]:
+        for ps in [0, 0.3, 0.5]:
+            additional_search_args = {"lm_weight": lm, "prior_scale": ps} if ps != 0 else {"lm_weight": lm}
+            exp_dict = run_exp(
+                net_module + f"_strong_conformer_weak_specaug_ctc_scale_0.1/tuning/lm_{lm}_ps_{ps}",
+                train_args_two_forward_no_xvector_strong_conformer_weak_specaug,
+                training_datasets,
+                asr_test_datasets,
+                250,
+                training_args={"ctc_scale": 0.1},
+                forward_args=forward_args,
+                search_args={**default_search_args, **additional_search_args},
+                eval_tts=True,
+                tts_eval_datasets=tts_forward_datasets,
+                large_gpu_training=True,
+            )
+
+            exp_dict = run_exp(
+                net_module + f"_strong_conformer_weak_specaug_ctc_scale_1.0/tuning/lm_{lm}_ps_{ps}",
+                train_args_two_forward_no_xvector_strong_conformer_weak_specaug,
+                training_datasets,
+                asr_test_datasets,
+                250,
+                training_args={"ctc_scale": 1.0},
+                forward_args=forward_args,
+                search_args={**default_search_args, **additional_search_args},
+                eval_tts=True,
+                tts_eval_datasets=tts_forward_datasets,
+                large_gpu_training=True,
+            )
+
+    tuned_search_args = {"lm_weight": 3.5, "prior_scale": 0.3}
+    exp_dict = run_exp(
+        net_module + f"_strong_conformer_weak_specaug_ctc_scale_0.1/tuned",
+        train_args_two_forward_no_xvector_strong_conformer_weak_specaug,
+        training_datasets,
+        asr_test_datasets3,
+        250,
+        training_args={"ctc_scale": 0.1},
+        forward_args=forward_args,
+        search_args={**default_search_args, **tuned_search_args},
+        eval_tts=True,
+        tts_eval_datasets=tts_forward_datasets,
+        large_gpu_training=True,
+    )
+
+    tuned_search_args = {"lm_weight": 4.0, "prior_scale": 0.5}
+    exp_dict = run_exp(
+        net_module + f"_strong_conformer_weak_specaug_ctc_scale_1.0/tuned",
+        train_args_two_forward_no_xvector_strong_conformer_weak_specaug,
+        training_datasets,
+        asr_test_datasets3,
+        250,
+        training_args={"ctc_scale": 1.0},
+        forward_args=forward_args,
+        search_args={**default_search_args, **tuned_search_args},
+        eval_tts=True,
+        tts_eval_datasets=tts_forward_datasets,
+        large_gpu_training=True,
+    )
 
     train_args_conformer_only = copy.deepcopy(train_args)
     train_args_conformer_only["net_args"]["model_config"] = asdict(model_config)
@@ -1024,16 +1288,19 @@ def get_glow_joint(x_vector_exp, gl_checkpoint):
     )
 
     for lm in [2.0, 2.5, 3.0, 3.5, 4.0, 4.5]:
-        exp_dict = run_exp(
-            net_module + f"/tuning/lm_{lm}",
-            train_args_conformer_only,
-            training_datasets,
-            asr_test_datasets,
-            250,
-            forward_args=forward_args,
-            search_args={**default_search_args, **{"lm_weight": lm}},
-            tts_forward=False,
-        )
+        for ps in [0, 0.3, 0.5]:
+            additional_search_args = {"lm_weight": lm, "prior_scale": ps} if ps != 0 else {"lm_weight": lm}
+            exp_dict = run_exp(
+                net_module + f"/tuning/lm_{lm}_ps_{ps}",
+                train_args_conformer_only,
+                training_datasets,
+                asr_test_datasets,
+                250,
+                forward_args=forward_args,
+                search_args={**default_search_args, **additional_search_args},
+                tts_forward=False,
+                with_prior=(ps!=0)
+            )
 
     train_args_conformer_only_spec_augment = copy.deepcopy(train_args_spec_augment)
     train_args_conformer_only_spec_augment["network_module"] = net_module
@@ -1050,16 +1317,31 @@ def get_glow_joint(x_vector_exp, gl_checkpoint):
     )
 
     for lm in [2.0, 2.5, 3.0, 3.5, 4.0, 4.5]:
-        exp_dict = run_exp(
-            net_module + f"_spec_augment/tuning/lm_{lm}",
-            train_args_conformer_only_spec_augment,
-            training_datasets,
-            asr_test_datasets,
-            250,
-            forward_args=forward_args,
-            search_args={**default_search_args, **{"lm_weight": lm}},
-            tts_forward=False,
-        )
+        for ps in [0, 0.3, 0.5]:
+            additional_search_args = {"lm_weight": lm, "prior_scale": ps} if ps != 0 else {"lm_weight": lm}
+            suffix = f"_spec_augment/tuning/lm_{lm}_ps_{ps}" if ps != 0 else f"_spec_augment/tuning/lm_{lm}"
+            exp_dict = run_exp(
+                net_module + suffix,
+                train_args_conformer_only_spec_augment,
+                training_datasets,
+                asr_test_datasets,
+                250,
+                forward_args=forward_args,
+                search_args={**default_search_args, **additional_search_args},
+                tts_forward=False,
+            )
+
+    tuned_search_args = {"lm_weight": 2.5, "prior_scale": 0.5}
+    exp_dict = run_exp(
+        net_module + "_spec_augment/tuned",
+        train_args_conformer_only_spec_augment,
+        training_datasets,
+        asr_test_datasets3,
+        250,
+        forward_args=forward_args,
+        search_args={**default_search_args, **tuned_search_args},
+        tts_forward=False,
+    )
 
     exp_dict = run_exp(
         net_module + "_spec_augment_tts_train_segments",
@@ -1112,16 +1394,19 @@ def get_glow_joint(x_vector_exp, gl_checkpoint):
     )
 
     for lm in [2.0, 2.5, 3.0, 3.5, 4.0, 4.5]:
-        exp_dict = run_exp(
-            net_module + f"/tuning/lm_{lm}",
-            train_args_glow_conformer,
-            training_datasets,
-            asr_test_datasets,
-            250,
-            forward_args=forward_args,
-            search_args={**default_search_args, **{"lm_weight": lm}},
-            tts_forward=False,
-        )
+        for ps in [0, 0.3, 0.5]:
+            additional_search_args = {"lm_weight": lm} if ps == 0 else {"lm_weight": lm, "prior_scale": ps}
+            suffix = f"/tuning/lm_{lm}" if ps == 0 else f"/tuning/lm_{lm}_ps_{ps}"
+            exp_dict = run_exp(
+                net_module + suffix,
+                train_args_glow_conformer,
+                training_datasets,
+                asr_test_datasets,
+                250,
+                forward_args=forward_args,
+                search_args={**default_search_args, **additional_search_args},
+                tts_forward=False,
+            )
 
     net_module = "glow_ASR_conformer_specaugment_before"
     train_args_glow_conformer_specaugment_before = copy.deepcopy(train_args_glow_conformer)
@@ -1139,16 +1424,19 @@ def get_glow_joint(x_vector_exp, gl_checkpoint):
     )
 
     for lm in [2.0, 2.5, 3.0, 3.5, 4.0, 4.5]:
-        exp_dict = run_exp(
-            net_module + f"/tuning/lm_{lm}",
-            train_args_glow_conformer_specaugment_before,
-            training_datasets,
-            asr_test_datasets,
-            250,
-            forward_args=forward_args,
-            search_args={**default_search_args, **{"lm_weight": lm}},
-            tts_forward=False,
-        )
+        for ps in [0, 0.3, 0.5]:
+            additional_search_args = {"lm_weight": lm} if ps == 0 else {"lm_weight": lm, "prior_scale": ps}
+            suffix = f"/tuning/lm_{lm}" if ps == 0 else f"/tuning/lm_{lm}_ps_{ps}"
+            exp_dict = run_exp(
+                net_module + suffix,
+                train_args_glow_conformer_specaugment_before,
+                training_datasets,
+                asr_test_datasets,
+                250,
+                forward_args=forward_args,
+                search_args={**default_search_args, **additional_search_args},
+                tts_forward=False,
+            )
 
     exp_dict = run_exp(
         net_module + "_tts_train_segments",
@@ -1241,16 +1529,19 @@ def get_glow_joint(x_vector_exp, gl_checkpoint):
     )
 
     for lm in [2.0, 2.5, 3.0, 3.5, 4.0, 4.5]:
-        exp_dict = run_exp(
-            net_module + f"/tuning/lm_{lm}",
-            train_args_glow_conformer_specaugment_before_x_vector_v2,
-            training_datasets,
-            asr_test_datasets,
-            250,
-            forward_args=forward_args,
-            search_args={**default_search_args, **{"lm_weight": lm}},
-            tts_forward=False,
-        )
+        for ps in [0, 0.3, 0.5]:
+            additional_search_args = {"lm_weight": lm} if ps == 0 else {"lm_weight": lm, "prior_scale": ps}
+            suffix = f"/tuning/lm_{lm}" if ps == 0 else f"/tuning/lm_{lm}_ps_{ps}"
+            exp_dict = run_exp(
+                net_module + suffix,
+                train_args_glow_conformer_specaugment_before_x_vector_v2,
+                training_datasets,
+                asr_test_datasets,
+                250,
+                forward_args=forward_args,
+                search_args={**default_search_args, **additional_search_args},
+                tts_forward=False,
+            )
 
     net_module = "glow_ASR_conformer_specaugment_before_xvector_v3"
     train_args_glow_conformer_specaugment_before_x_vector_v3 = copy.deepcopy(
@@ -1322,27 +1613,32 @@ def get_glow_joint(x_vector_exp, gl_checkpoint):
     )
 
     for lm in [2.0, 2.5, 3.0, 3.5, 4.0, 4.5]:
-        exp_dict = run_exp(
-            train_args_glow_conformer_xvector["network_module"] + f"grad_clip_10/tuning/lm_{lm}",
-            train_args_glow_conformer_xvector,
-            training_datasets,
-            asr_test_datasets,
-            250,
-            forward_args=forward_args,
-            search_args={**default_search_args, **{"lm_weight": lm}},
-            tts_forward=False,
-        )
+        for ps in [0, 0.3, 0.5]:
+            additional_search_args = {"lm_weight": lm} if ps == 0 else {"lm_weight": lm, "prior_scale": ps}
+            suffix = f"grad_clip_10/tuning/lm_{lm}" if ps == 0 else f"grad_clip_10/tuning/lm_{lm}_ps_{ps}"
+            exp_dict = run_exp(
+                train_args_glow_conformer_xvector["network_module"] + suffix,
+                train_args_glow_conformer_xvector,
+                training_datasets,
+                asr_test_datasets,
+                250,
+                forward_args=forward_args,
+                search_args={**default_search_args, **additional_search_args},
+                tts_forward=False,
+            )
 
-        exp_dict = run_exp(
-            train_args_glow_conformer_xvector_eval["network_module"] + f"/tuning/lm_{lm}",
-            train_args_glow_conformer_xvector_eval,
-            training_datasets,
-            asr_test_datasets,
-            250,
-            forward_args=forward_args,
-            search_args={**default_search_args, **{"lm_weight": lm}},
-            tts_forward=False,
-        )
+            suffix = f"/tuning/lm_{lm}" if ps == 0 else f"/tuning/lm_{lm}_ps_{ps}"
+
+            exp_dict = run_exp(
+                train_args_glow_conformer_xvector_eval["network_module"] + suffix,
+                train_args_glow_conformer_xvector_eval,
+                training_datasets,
+                asr_test_datasets,
+                250,
+                forward_args=forward_args,
+                search_args={**default_search_args, **additional_search_args},
+                tts_forward=False,
+            )
 
     train_args_glow_conformer_specaug_before_ddi_actnorm = copy.deepcopy(train_args_glow_conformer_specaugment_before)
     net_module = "glow_ASR_conformer_specaugment_before_ddi_actnorm"
@@ -1431,4 +1727,166 @@ def get_glow_joint(x_vector_exp, gl_checkpoint):
         search_args=default_search_args,
         tts_forward=False,
     )
+
+    #=================== 200EP training =================================
+    model_config_specaug = copy.deepcopy(model_config)
+    model_config_specaug.specaug_config = specaug_config
+    train_args_200ep = {
+        "net_args": {"fe_config": asdict(fe_config), "model_config": asdict(model_config_specaug)},
+        "network_module": net_module,
+        "debug": True,
+        "config": {
+            "optimizer": {"class": "adam", "epsilon": 1e-8},
+            "learning_rates": list(np.linspace(7e-6, 7e-4, 88))
+            + list(np.linspace(7e-4, 7e-5, 88))
+            + list(np.linspace(7e-5, 1e-8, 24)),
+            "batch_size": 300 * 16000,
+            "max_seq_length": {"audio_features": 25 * 16000},
+            "max_seqs": 60,
+        },
+    }
+
+    train_args_200ep["config"]["preload_from_files"] = {
+        "x_vector_model": {
+            "filename": x_vect_train_job.out_checkpoints[x_vect_train_job.returnn_config.get("num_epochs", 100)],
+            "init_for_train": True,
+            "prefix": "x_vector.",
+            "ignore_missing": True,
+        }
+    }
+
+    net_module = "glowTTS_ASR_conformer_x_vector_v2"
+    train_args_200ep["network_module"] = net_module
+
+    exp_dict = run_exp(
+        net_module + "_200ep_spec_augment_ctc_scale_0.1",
+        train_args_200ep,
+        training_datasets_pe1,
+        asr_test_datasets,
+        200,
+        training_args={"ctc_scale": 0.1},
+        forward_args=forward_args,
+        search_args=default_search_args,
+        eval_tts=True,
+        tts_eval_datasets=tts_forward_datasets_xvectors,
+        eval_invertibility=True,
+    )
+
+    net_module = "glowTTS_ASR_conformer_two_forward_pass"
+    train_args_200ep_two_forward = copy.deepcopy(train_args_200ep)
+    del train_args_200ep_two_forward["config"]["preload_from_files"]
+    train_args_200ep_two_forward["network_module"] = net_module
+
+    exp_dict = run_exp(
+        net_module + "_200ep_ctc_scale_0.1",
+        train_args_200ep_two_forward,
+        training_datasets_pe1,
+        asr_test_datasets,
+        200,
+        training_args={"ctc_scale": 0.1},
+        forward_args=forward_args,
+        search_args=default_search_args,
+        eval_tts=True,
+        tts_eval_datasets=tts_forward_datasets,
+        eval_invertibility=True,
+    )
+
+    for lm in [2.0, 2.5, 3.0, 3.5, 4.0, 4.5]:
+        for ps in [0, 0.3, 0.5]:
+            additional_search_args = {"lm_weight": lm, "prior_scale": ps}
+            suffix = f"/tuning/lm_{lm}_ps_{ps}"
+
+            exp_dict = run_exp(
+                train_args_200ep["network_module"] + "_200ep_spec_augment_ctc_scale_0.1" + suffix,
+                train_args_200ep,
+                training_datasets_pe1,
+                asr_test_datasets,
+                200,
+                training_args={"ctc_scale": 0.1},
+                forward_args=forward_args,
+                search_args={**default_search_args, **additional_search_args},
+                eval_tts=True,
+                tts_eval_datasets=tts_forward_datasets_xvectors,
+            )
+            breakpoint()
+
+            exp_dict = run_exp(
+                train_args_200ep_two_forward["network_module"] + "_200ep_ctc_scale_0.1" + suffix,
+                train_args_200ep_two_forward,
+                training_datasets_pe1,
+                asr_test_datasets,
+                200,
+                training_args={"ctc_scale": 0.1},
+                forward_args=forward_args,
+                search_args={**default_search_args, **additional_search_args},
+                eval_tts=True,
+                tts_eval_datasets=tts_forward_datasets,
+                eval_invertibility=True,
+                with_prior=True,
+            )
+
+    # ================== BLSTM =================
+    model_config_blstm = ModelConfigV2(
+        specaug_config=None,
+        decoder_config=flow_decoder_config,
+        text_encoder_config=text_encoder_config,
+        specauc_start_epoch=1,
+        label_target_size=vocab_size_without_blank_asr,
+        subsampling_factor=4,
+        blstm_layers=2,
+        blstm_hidden_dim=512,
+        blstm_dropout=0.2,
+        out_channels=80,
+        gin_channels=256,
+        n_speakers=speaker_datastream.vocab_size,
+    )
+
+    net_module="glowTTS_ASR_blstm_x_vector"
+    train_args_blstm = copy.deepcopy(train_args)
+    train_args_blstm["net_args"]["model_config"] = asdict(model_config_blstm)
+    train_args_blstm["network_module"] = net_module
+    exp_dict = run_exp(
+        net_module,
+        train_args_blstm,
+        training_datasets,
+        asr_test_datasets,
+        250,
+        forward_args=forward_args,
+        search_args=default_search_args,
+        eval_tts=True,
+        tts_forward=False,
+        tts_eval_datasets=tts_forward_datasets_xvectors,
+    )
+
+    for lm_w in [2.0, 2.5, 3.0, 3.5, 4.0, 4.5]:
+        additional_search_args = {"lm_weight": lm_w}
+        exp_dict = run_exp(
+            net_module + f"/tuning/lm_{lm_w}",
+            train_args_blstm,
+            training_datasets,
+            asr_test_datasets,
+            250,
+            forward_args=forward_args,
+            search_args={**default_search_args, **additional_search_args},
+            eval_tts=True,
+            tts_forward=False,
+            tts_eval_datasets=tts_forward_datasets_xvectors,
+        )
+
+    model_config_blstm_specaug = copy.deepcopy(model_config_blstm)
+    model_config_blstm_specaug.specaug_config = specaug_config
+    train_args_blstm["net_args"]["model_config"] = asdict(model_config_blstm_specaug)
+    exp_dict = run_exp(
+        net_module + "_specaug",
+        train_args_blstm,
+        training_datasets,
+        asr_test_datasets,
+        250,
+        forward_args=forward_args,
+        search_args=default_search_args,
+        eval_tts=True,
+        tts_forward=False,
+        tts_eval_datasets=tts_forward_datasets_xvectors,
+    )
+
     return experiments

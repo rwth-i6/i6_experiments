@@ -281,7 +281,7 @@ def bpe_ted_1023_base():
         activation=None,
     )
 
-    for bpe in [0, 32, 64, 100, 128, 256, 512, 1024]:
+    for bpe in [32, 64, 100, 128, 256, 512, 1024]:
         prefix_name_bpe = f"experiments/tedlium2/ctc_rnnt_standalone_2024/bpe_ctc_bpe_{bpe}"
         train_data_bpe = build_bpe_training_datasets(
             prefix=prefix_name_bpe,

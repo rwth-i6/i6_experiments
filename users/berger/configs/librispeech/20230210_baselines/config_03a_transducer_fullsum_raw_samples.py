@@ -47,10 +47,7 @@ def generate_returnn_config(
     model_preload: tk.Path,
 ) -> ReturnnConfig:
     if train:
-        (
-            network_dict,
-            extra_python,
-        ) = transducer_model.make_context_1_conformer_transducer_fullsum(
+        (network_dict, extra_python,) = transducer_model.make_context_1_conformer_transducer_fullsum(
             num_outputs=num_classes,
             gt_args={
                 "sample_rate": 16000,
@@ -86,12 +83,10 @@ def generate_returnn_config(
                     "activation": "tanh",
                 },
             },
+            fullsum_v2=True,
         )
     else:
-        (
-            network_dict,
-            extra_python,
-        ) = transducer_model.make_context_1_conformer_transducer_recog(
+        (network_dict, extra_python,) = transducer_model.make_context_1_conformer_transducer_recog(
             num_outputs=num_classes,
             gt_args={
                 "sample_rate": 16000,

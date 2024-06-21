@@ -139,15 +139,16 @@ def run_fairseq_pretraining():
     fairseq_args = get_fairseq_args(num_gpus=num_gpus)
     fairseq_config = FairseqHydraConfig(fairseq_args)
     fairseq_root = get_fairseq_root()
-    fairseq_exe = tk.Path(
-        "/home/pv653172/setups/librispeech/20230328_wav2vec2/dependencies/python_launcher.sh",
-        hash_overwrite="python_launcher",
-    )
+    itc_python_launcher = "/home/pv653172/setups/librispeech/20230328_wav2vec2/dependencies/python_launcher.sh"
+    if os.path.exists(itc_python_launcher):
+        fairseq_exe = tk.Path(itc_python_launcher, hash_overwrite="python_launcher")
+    else:
+        fairseq_exe = tk.Path("/usr/bin/python3", hash_overwrite="python_launcher")
     job = FairseqHydraTrainingJob(
         fairseq_config,
         save_interval=25,
-        max_epoch=300,
-        max_update=400000,
+        max_epoch=600,
+        max_update=420000,
         fairseq_root=fairseq_root,
         fairseq_python_exe=fairseq_exe,
         rqmt={"time": 120, "mem": 12, "cpu": 2, "gpu": num_gpus},

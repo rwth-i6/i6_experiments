@@ -195,6 +195,7 @@ def eow_phon_ls960_1023_base():
         "max_seq_length": {"audio_features": 35 * 16000},
         "accum_grad_multiple_step": 1,
         "torch_amp_options": {"dtype": "bfloat16"},
+        "gradient_clip": 1.0,
     }
 
     network_module = "ctc.conformer_1023.i6modelsV1_VGG4LayerActFrontendV1_v6"

@@ -70,10 +70,7 @@ def generate_returnn_config(
         }
 
     if train:
-        (
-            network_dict,
-            extra_python,
-        ) = transducer_model.make_context_1_conformer_transducer(
+        (network_dict, extra_python,) = transducer_model.make_context_1_conformer_transducer(
             num_outputs=num_classes,
             specaug_args=specaug_args,
             conformer_args={
@@ -107,10 +104,7 @@ def generate_returnn_config(
             specaug_v2=specaug_v2,
         )
     else:
-        (
-            network_dict,
-            extra_python,
-        ) = transducer_model.make_context_1_conformer_transducer_recog(
+        (network_dict, extra_python,) = transducer_model.make_context_1_conformer_transducer_recog(
             num_outputs=num_classes,
             conformer_args={
                 "num_blocks": 12,
@@ -186,7 +180,9 @@ def generate_returnn_config(
     return returnn_config
 
 
-def run_exp(alignments: Dict[str, AlignmentData], name_suffix: str = "") -> Tuple[SummaryReport, Checkpoint]:
+def run_exp(
+    alignments: Dict[str, AlignmentData], name_suffix: str = ""
+) -> Tuple[SummaryReport, Checkpoint]:
     assert tools.returnn_root is not None
     assert tools.returnn_python_exe is not None
     assert tools.rasr_binary_path is not None
@@ -312,134 +308,225 @@ def run_exp(alignments: Dict[str, AlignmentData], name_suffix: str = "") -> Tupl
                     train_data_config=data.train_data_config,
                     dev_data_config=data.cv_data_config,
                 )
-                for ilm_scale in [0.0, 0.2]
+                for ilm_scale in [0.0, 0.1, 0.15, 0.2, 0.25, 0.3]
             },
         ),
     )
 
     system.run_train_step(**train_args)
-    system.run_dev_recog_step(**recog_args)
 
-    recog_args.update(
-        {
-            "lm_scales": [0.6, 0.7],
-            "epochs": [
-                213,
-                249,
-                261,
-                279,
-                283,
-                283,
-                284,
-                285,
-                286,
-                289,
-                291,
-                297,
-                298,
-                299,
-                300,
+    if False:
+        recog_args.update(
+            {
+                "lm_scales": [0.6, 0.7],
+                "epochs": [
+                    213,
+                    249,
+                    261,
+                    279,
+                    283,
+                    283,
+                    284,
+                    285,
+                    286,
+                    289,
+                    291,
+                    297,
+                    298,
+                    299,
+                    300,
+                ],
+            }
+        )
+        system.run_dev_recog_step(
+            exp_names=[
+                f"Conformer_Transducer_Viterbi_wei-data_{name_suffix}_lr-0.0008"
             ],
-        }
-    )
+            recog_exp_names=["recog_ilm-0.1", "recog_ilm-0.2"],
+            **recog_args,
+        )
+
+    recog_args.update({"lm_scales": [0.6], "epochs": [298]})
     system.run_dev_recog_step(
         exp_names=[f"Conformer_Transducer_Viterbi_wei-data_{name_suffix}_lr-0.0008"],
-        recog_exp_names=["recog_ilm-0.1", "recog_ilm-0.2"],
+        recog_exp_names=["recog_ilm-0.2"],
         **recog_args,
     )
 
-    recog_args.update(
-        {
-            "epochs": [
-                213,
-                249,
-                261,
-                267,
-                273,
-                276,
-                279,
-                280,
-                281,
-                282,
-                283,
-                284,
-                285,
-                286,
-                289,
-                291,
-                298,
-                298,
-                299,
-                300,
-            ]
-        }
-    )
+    if False:
+        recog_args.update(
+            {
+                "epochs": [
+                    213,
+                    249,
+                    261,
+                    267,
+                    273,
+                    276,
+                    279,
+                    280,
+                    281,
+                    282,
+                    283,
+                    284,
+                    285,
+                    286,
+                    289,
+                    291,
+                    298,
+                    298,
+                    299,
+                    300,
+                ]
+            }
+        )
+        system.run_dev_recog_step(
+            exp_names=[
+                f"Conformer_Transducer_Viterbi_wei-data_{name_suffix}_lr-0.0008_loss-boost"
+            ],
+            recog_exp_names=["recog_ilm-0.1", "recog_ilm-0.2"],
+            **recog_args,
+        )
+
+    recog_args.update({"epochs": [300], "lm_scales": [0.7]})
     system.run_dev_recog_step(
-        exp_names=[f"Conformer_Transducer_Viterbi_wei-data_{name_suffix}_lr-0.0008_loss-boost"],
-        recog_exp_names=["recog_ilm-0.1", "recog_ilm-0.2"],
+        exp_names=[
+            f"Conformer_Transducer_Viterbi_wei-data_{name_suffix}_lr-0.0008_loss-boost"
+        ],
+        recog_exp_names=["recog_ilm-0.1"],
         **recog_args,
     )
 
-    recog_args.update(
-        {
-            "epochs": [
-                213,
-                249,
-                261,
-                267,
-                273,
-                279,
-                284,
-                285,
-                289,
-                291,
-                297,
-                298,
-                299,
-                300,
-            ]
-        }
-    )
+    if False:
+        recog_args.update(
+            {
+                "epochs": [
+                    213,
+                    249,
+                    261,
+                    267,
+                    273,
+                    279,
+                    284,
+                    285,
+                    289,
+                    291,
+                    297,
+                    298,
+                    299,
+                    300,
+                ]
+            }
+        )
+        system.run_dev_recog_step(
+            exp_names=[
+                f"Conformer_Transducer_Viterbi_wei-data_{name_suffix}_lr-0.0008_ls-0.2"
+            ],
+            recog_exp_names=["recog_ilm-0.1", "recog_ilm-0.2"],
+            **recog_args,
+        )
+
+    recog_args.update({"epochs": [300], "lm_scales": [0.4]})
     system.run_dev_recog_step(
-        exp_names=[f"Conformer_Transducer_Viterbi_wei-data_{name_suffix}_lr-0.0008_ls-0.2"],
-        recog_exp_names=["recog_ilm-0.1", "recog_ilm-0.2"],
+        exp_names=[
+            f"Conformer_Transducer_Viterbi_wei-data_{name_suffix}_lr-0.0008_ls-0.2"
+        ],
+        recog_exp_names=["recog_ilm-0.1"],
         **recog_args,
     )
 
-    recog_args.update(
-        {
-            "epochs": [
-                213,
-                249,
-                261,
-                267,
-                273,
-                274,
-                279,
-                280,
-                281,
-                282,
-                283,
-                284,
-                285,
-                286,
-                289,
-                291,
-                297,
-                298,
-                299,
-                300,
-            ]
-        }
-    )
+    if False:
+        recog_args.update(
+            {
+                "epochs": [
+                    213,
+                    249,
+                    261,
+                    267,
+                    273,
+                    274,
+                    279,
+                    280,
+                    281,
+                    282,
+                    283,
+                    284,
+                    285,
+                    286,
+                    289,
+                    291,
+                    297,
+                    298,
+                    299,
+                    300,
+                ]
+            }
+        )
+        system.run_dev_recog_step(
+            exp_names=[
+                f"Conformer_Transducer_Viterbi_wei-data_{name_suffix}_lr-0.0008_ls-0.2_loss-boost"
+            ],
+            recog_exp_names=["recog_ilm-0.1", "recog_ilm-0.2"],
+            **recog_args,
+        )
+
+    recog_args.update({"epochs": [291], "lm_scales": [0.7]})
     system.run_dev_recog_step(
-        exp_names=[f"Conformer_Transducer_Viterbi_wei-data_{name_suffix}_lr-0.0008_ls-0.2_loss-boost"],
-        recog_exp_names=["recog_ilm-0.1", "recog_ilm-0.2"],
+        exp_names=[
+            f"Conformer_Transducer_Viterbi_wei-data_{name_suffix}_lr-0.0008_ls-0.2_loss-boost"
+        ],
+        recog_exp_names=["recog_ilm-0.1"],
         **recog_args,
     )
 
-    train_job = system.get_train_job(f"Conformer_Transducer_Viterbi_wei-data_{name_suffix}_lr-0.0008")
-    model = train_job.out_checkpoints[298]
+    if False:
+        recog_args.update(
+            {
+                "epochs": [
+                    213,
+                    225,
+                    249,
+                    261,
+                    280,
+                    281,
+                    285,
+                    286,
+                    289,
+                    292,
+                    297,
+                    298,
+                    299,
+                    300,
+                ],
+                "lm_scales": [0.4, 0.45, 0.5, 0.55, 0.6, 0.65, 0.7],
+            }
+        )
+        system.run_dev_recog_step(
+            exp_names=[
+                f"Conformer_Transducer_Viterbi_wei-data_specaug-v2_{name_suffix}"
+            ],
+            recog_exp_names=[
+                "recog_ilm-0.0",
+                "recog_ilm-0.1",
+                "recog_ilm-0.15",
+                "recog_ilm-0.2",
+                "recog_ilm-0.25",
+                "recog_ilm-0.3",
+            ],
+            **recog_args,
+        )
+
+    recog_args.update({"epochs": [292], "lm_scales": [0.45]})
+    system.run_dev_recog_step(
+        exp_names=[f"Conformer_Transducer_Viterbi_wei-data_specaug-v2_{name_suffix}"],
+        recog_exp_names=["recog_ilm-0.15"],
+        **recog_args,
+    )
+
+    train_job = system.get_train_job(
+        f"Conformer_Transducer_Viterbi_wei-data_specaug-v2_{name_suffix}"
+    )
+    model = train_job.out_checkpoints[292]
     assert isinstance(model, Checkpoint)
 
     assert system.summary_report

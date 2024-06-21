@@ -58,21 +58,6 @@ class VGG4LayerActFrontendV1Config_mod(VGG4LayerActFrontendV1Config):
         return VGG4LayerActFrontendV1Config(**d)
 
 
-@dataclass
-class ConformerEncoderV1Config(ModelConfiguration):
-    """
-    Attributes:
-        num_layers: Number of conformer layers in the conformer encoder
-        frontend: A pair of ConformerFrontend and corresponding config
-        block_cfg: Configuration for ConformerBlockV1
-    """
-
-    num_layers: int
-
-    # nested configurations
-    frontend: ModuleFactoryV1
-    block_cfg: ConformerBlockV1Config
-
 
 @dataclass
 class SpecaugConfig(ModelConfiguration):
@@ -215,7 +200,27 @@ class PhonemePredictionConfigBLSTM(ModelConfiguration):
     def from_dict(cls, d):
         d = d.copy()
         return PhonemePredictionConfigBLSTM(**d)
-
+    
+@dataclass
+class ConformerASRConfig():
+    frontend_config: VGG4LayerActFrontendV1Config
+    label_target_size: int
+    conformer_size: int
+    num_layers: int
+    num_heads: int
+    ff_dim: int
+    att_weights_dropout: float
+    conv_dropout: float
+    ff_dropout: float
+    mhsa_dropout: float
+    conv_kernel_size: int
+    final_dropout: float
+    
+    @classmethod
+    def from_dict(cls, d):
+        d = d.copy()
+        d["frontend_config"] = VGG4LayerActFrontendV1Config_mod.from_dict(d["frontend_config"])
+        return ConformerASRConfig(**d)
 
 @dataclass
 class ModelConfigV1:
@@ -250,7 +255,7 @@ class ModelConfigV2:
     gin_channels: int
     n_speakers: Union[tk.Variable, int]
     specauc_start_epoch: Optional[int] = None
-    phoneme_prediction_config: Optional[Union[PhonemePredictionConfig, PhonemePredictionConfigCNN, PhonemePredictionConfigBLSTM]] = None
+    phoneme_prediction_config: Optional[Union[PhonemePredictionConfig, PhonemePredictionConfigCNN, PhonemePredictionConfigBLSTM, ConformerASRConfig]] = None
     specaug_config: Optional[SpecaugConfig] = None
 
     @classmethod
@@ -272,6 +277,8 @@ class ModelConfigV2:
                 d["phoneme_prediction_config"] = PhonemePredictionConfigCNN.from_dict(d["phoneme_prediction_config"])
             elif "subsampling_factor" in d["phoneme_prediction_config"].keys():
                 d["phoneme_prediction_config"] = PhonemePredictionConfigBLSTM.from_dict(d["phoneme_prediction_config"])
+            elif "conformer_size" in d["phoneme_prediction_config"].keys():
+                 d["phoneme_prediction_config"] = ConformerASRConfig.from_dict(d["phoneme_prediction_config"])
             else:
                 d["phoneme_prediction_config"] = PhonemePredictionConfig.from_dict(d["phoneme_prediction_config"])
         return ModelConfigV2(**d)

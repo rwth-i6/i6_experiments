@@ -108,13 +108,31 @@ class ExtractSeq2SeqSearchStatisticsJob(Job):
                 features = seg.find('./layer[@name="recognizer"]/statistics/frames[@port="features"]')
                 seq_ss_statistics[full_name]["frames"] = int(features.attrib["number"])
 
+                seq_ss_statistics[full_name]["encoder_fwd"] = 0.0
+                for element in seg.iterfind(
+                    './layer[@name="recognizer"]/information[@component="flf-lattice-tool.network.recognizer.label-scorer"]'
+                ):
+                    if element.text.strip().startswith("encoder fwd time"):
+                        seq_ss_statistics[full_name]["encoder_fwd"] = float(element.text.strip().split()[-1])
+                        break
+
+                seq_ss_statistics[full_name]["decoder_fwd"] = 0.0
+                for element in seg.iterfind(
+                    './layer[@name="recognizer"]/information[@component="flf-lattice-tool.network.recognizer.label-scorer"]'
+                ):
+                    if element.text.strip().startswith("decoder fwd time"):
+                        seq_ss_statistics[full_name]["decoder_fwd"] = float(element.text.strip().split()[-1])
+                        break
+
                 tf_fwd = seg.find(
                     './layer[@name="recognizer"]/information[@component="flf-lattice-tool.network.recognizer.feature-extraction.tf-fwd"]'
                 )
                 if tf_fwd is not None:
                     seq_ss_statistics[full_name]["tf_fwd"] = float(tf_fwd.text.strip().split()[-1])
                 else:
-                    seq_ss_statistics[full_name]["tf_fwd"] = 0.0
+                    seq_ss_statistics[full_name]["tf_fwd"] = (
+                        seq_ss_statistics[full_name]["encoder_fwd"] + seq_ss_statistics[full_name]["decoder_fwd"]
+                    )
 
                 eval_statistics[full_name] = {}
                 for evaluation in seg.findall(".//evaluation"):
@@ -131,7 +149,7 @@ class ExtractSeq2SeqSearchStatisticsJob(Job):
             for stat, val in s.items():
                 if stat == "frames":
                     pass
-                elif stat == "tf_fwd":
+                elif stat == "tf_fwd" or stat == "encoder_fwd" or stat == "decoder_fwd":
                     prev_count, prev_frames = ss_statistics[stat]
                     ss_statistics[stat] = (
                         prev_count + val,
@@ -162,11 +180,18 @@ class ExtractSeq2SeqSearchStatisticsJob(Job):
         self.rescoring_rtf.set(rescoring_time / (3600.0 * 1000.0 * self.corpus_duration))
         self.tf_lm_time.set(lm_time / (3600.0 * 1000.0))
         self.tf_lm_rtf.set(lm_time / (3600.0 * 1000.0 * self.corpus_duration))
-        self.decoding_rtf.set((recognizer_time + rescoring_time) / (3600.0 * 1000.0 * self.corpus_duration))
+        self.decoding_rtf.set(
+            (recognizer_time + rescoring_time) / (3600.0 * 1000.0 * self.corpus_duration)
+            - ss_statistics["encoder_fwd"]
+            - ss_statistics["decoder_fwd"]
+        )
         self.ss_statistics.set(dict(ss_statistics.items()))
         self.seq_ss_statistics.set(seq_ss_statistics)
         self.eval_statistics.set(eval_statistics)
-        self.overall_rtf.set(self.recognizer_rtf + self.ss_statistics["tf_fwd"])
+        if ss_statistics["encoder_fwd"] != 0 and ss_statistics["decoder_fwd"] != 0:
+            self.overall_rtf.set(self.recognizer_rtf.get())
+        else:
+            self.overall_rtf.set(self.recognizer_rtf + ss_statistics["tf_fwd"])
 
 
 class ExtractSearchStatisticsJobWeiV2(Job):

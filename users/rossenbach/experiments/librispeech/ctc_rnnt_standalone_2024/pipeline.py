@@ -31,6 +31,12 @@ class ASRModel:
     prior_file: Optional[tk.Path]
     prefix_name: Optional[str]
 
+@dataclass
+class NeuralLM:
+    checkpoint: tk.Path
+    net_args: Dict[str, Any]
+    network_module: str
+    prefix_name: Optional[str]
 
 def search_single(
     prefix_name: str,
@@ -79,7 +85,7 @@ def search_single(
 
     stm_file = CorpusToStmJob(bliss_corpus=recognition_bliss_corpus).out_stm_path
 
-    sclite_job = ScliteJob(ref=stm_file, hyp=search_ctm, sctk_binary_path=SCTK_BINARY_PATH)
+    sclite_job = ScliteJob(ref=stm_file, hyp=search_ctm, sctk_binary_path=SCTK_BINARY_PATH, precision_ndigit=2)
     tk.register_output(prefix_name + "/sclite/wer", sclite_job.out_wer)
     tk.register_output(prefix_name + "/sclite/report", sclite_job.out_report_dir)
 
@@ -204,6 +210,16 @@ def training(training_name, datasets, train_args, num_epochs, returnn_exe, retur
     return train_job
 
 
+@dataclass
+class QuantArgs:
+    quant_config_dict: Dict[str, Any]
+    num_samples: int
+    seed: int
+    datasets: TrainingDatasets
+    network_module: str
+    filter_args: Optional[Dict[str, Any]] = None
+
+
 def prepare_asr_model(
     training_name,
     train_job,
@@ -214,6 +230,7 @@ def prepare_asr_model(
     get_best_averaged_checkpoint: Optional[Tuple[int, str]] = None,
     get_last_averaged_checkpoint: Optional[int] = None,
     prior_config: Optional[Dict[str, Any]] = None,
+    quant_args: Optional[QuantArgs] = None
 ):
     """
     :param training_name:
@@ -291,12 +308,76 @@ def prepare_asr_model(
         if prior_config is not None:
             raise ValueError("prior_config can only be set if with_prior is True")
 
-    asr_model = ASRModel(
-        checkpoint=checkpoint,
-        network_module=train_args["network_module"],
-        net_args=train_args["net_args"],
-        prior_file=prior_file,
-        prefix_name=training_name,
-    )
+    if quant_args:
+        from .config import get_static_quant_config
+        quant_config = get_static_quant_config(
+            training_datasets=quant_args.datasets,
+            network_module=quant_args.network_module,
+            net_args=train_args["net_args"],
+            quant_args=quant_args.quant_config_dict,
+            config={},
+            num_samples=quant_args.num_samples,
+            dataset_seed=quant_args.seed,
+            debug=False,
+            dataset_filter_args=quant_args.filter_args
+        )
+        quant_chkpt = quantize_static(
+            prefix_name=training_name,
+            returnn_config=quant_config,
+            checkpoint=checkpoint,
+            returnn_exe=RETURNN_EXE,
+            returnn_root=MINI_RETURNN_ROOT,
+        )
+        asr_model = ASRModel(
+            checkpoint=quant_chkpt,
+            net_args=train_args["net_args"] | quant_args.quant_config_dict,
+            network_module=quant_args.network_module,
+            prior_file=prior_file,
+            prefix_name=training_name
+        )
+    else:
+        asr_model = ASRModel(
+            checkpoint=checkpoint,
+            network_module=train_args["network_module"],
+            net_args=train_args["net_args"],
+            prior_file=prior_file,
+            prefix_name=training_name,
+        )
 
     return asr_model
+
+
+@tk.block()
+def quantize_static(
+    prefix_name: str,
+    returnn_config: ReturnnConfig,
+    checkpoint: tk.Path,
+    returnn_exe: tk.Path,
+    returnn_root: tk.Path,
+    mem_rqmt: int = 16,
+):
+    """
+    Run search for a specific test dataset
+
+    :param prefix_name: prefix folder path for alias and output files
+    :param returnn_config: the RETURNN config to be used for forwarding
+    :param Checkpoint checkpoint: path to RETURNN PyTorch model checkpoint
+    :param returnn_exe: The python executable to run the job with (when using container just "python3")
+    :param returnn_root: Path to a checked out RETURNN repository
+    :param mem_rqmt: override the default memory requirement
+    """
+    quantize_job = ReturnnForwardJobV2(
+        model_checkpoint=checkpoint,
+        returnn_config=returnn_config,
+        log_verbosity=5,
+        mem_rqmt=mem_rqmt,
+        time_rqmt=2,
+        device="gpu",
+        cpu_rqmt=8,
+        returnn_python_exe=returnn_exe,
+        returnn_root=returnn_root,
+        output_files=['model.pt', "seq_tags.txt"],
+    )
+    quantize_job.set_keep_value(5)
+    quantize_job.add_alias(prefix_name + "/calibration")
+    return quantize_job.out_files['model.pt']

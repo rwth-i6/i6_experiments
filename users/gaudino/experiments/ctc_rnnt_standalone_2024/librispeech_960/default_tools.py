@@ -10,10 +10,10 @@ from i6_experiments.common.helpers.text_labels.subword_nmt_bpe import get_return
 from i6_experiments.common.tools.sctk import compile_sctk
 
 # python from apptainer/singularity/docker
-RETURNN_EXE = tk.Path(
-    "/u/luca.gaudino/bin/returnn_launcher_nocuda.sh", hash_overwrite="GENERIC_RETURNN_LAUNCHER"
-)
-# RETURNN_EXE = tk.Path("/usr/bin/python3", hash_overwrite="GENERIC_RETURNN_LAUNCHER")
+# RETURNN_EXE = tk.Path(
+#     "/u/luca.gaudino/bin/returnn_launcher_nocuda.sh", hash_overwrite="GENERIC_RETURNN_LAUNCHER"
+# )
+RETURNN_EXE = tk.Path("/usr/bin/python3", hash_overwrite="GENERIC_RETURNN_LAUNCHER")
 
 MINI_RETURNN_ROOT = CloneGitRepositoryJob(
     "https://github.com/JackTemaki/MiniReturnn", commit="0dc69329b21ce0acade4fcb2bf1be0dc8cc0b121"

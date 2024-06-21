@@ -16,6 +16,8 @@ from i6_experiments.users.gaudino.modules.network import ReturnnNetwork
 
 from i6_core.returnn.config import CodeWrapper
 
+import numpy as np
+
 
 class ConformerEncoder:
     """
@@ -56,9 +58,11 @@ class ConformerEncoder:
         ctc_opts=None,
         ctc_self_align_delay: Optional[int] = None,
         ctc_self_align_scale: float = 0.5,
-
         enc_layer_w_ctc: Optional[int] = None,
-
+        ctc_att_weights_gauss=False,
+        ctc_att_weights_gauss_stddev=1.0,
+        ctc_att_weights_gauss_window=5,
+            ctc_att_weights_use_enc=True,
         subsample=None,
         start_conv_init=None,
         conv_module_init=None,
@@ -89,7 +93,6 @@ class ConformerEncoder:
         mhsa_weight_dropout=None,
         conv_weight_dropout=None,
         memory_variant_opts: Optional[ConformerMemoryVariantOpts] = None,
-
         conv_use_time_mask=False,
     ):
         """
@@ -168,7 +171,9 @@ class ConformerEncoder:
 
         bn_momentum = batch_norm_opts.pop("momentum", 0.1)
         bn_eps = batch_norm_opts.pop("epsilon", 1e-3)
-        bn_update_sample_only_in_train = batch_norm_opts.pop("update_sample_only_in_training", True)
+        bn_update_sample_only_in_train = batch_norm_opts.pop(
+            "update_sample_only_in_training", True
+        )
         bn_delay_sample_update = batch_norm_opts.pop("delay_sample_update", True)
         self.batch_norm_opts = {
             "momentum": bn_momentum,
@@ -190,6 +195,10 @@ class ConformerEncoder:
         self.ctc_self_align_scale = ctc_self_align_scale
 
         self.enc_layer_w_ctc = enc_layer_w_ctc
+        self.ctc_att_weights_gauss = ctc_att_weights_gauss
+        self.ctc_att_weights_gauss_stddev = ctc_att_weights_gauss_stddev
+        self.ctc_att_weights_gauss_window = ctc_att_weights_gauss_window
+        self.ctc_att_weights_use_enc = ctc_att_weights_use_enc
 
         self.start_conv_init = start_conv_init
         self.conv_module_init = conv_module_init
@@ -223,7 +232,9 @@ class ConformerEncoder:
         self.use_sqrd_relu = use_sqrd_relu
 
         self.use_causal_layers = use_causal_layers
-        self.use_causal_conv = use_causal_conv if use_causal_conv is not None else self.use_causal_layers
+        self.use_causal_conv = (
+            use_causal_conv if use_causal_conv is not None else self.use_causal_layers
+        )
 
         self.conv_alternative_name = conv_alternative_name
         self.fix_merge_dims = fix_merge_dims
@@ -245,13 +256,19 @@ class ConformerEncoder:
         if self.memory_variant_opts:
             self.concat_window_dim = SpatialDim("concat-window")  # W*N
             self.enc_att_num_heads_dim = SpatialDim("enc-att-num-heads", att_num_heads)
-            self.enc_per_head_dim = FeatureDim("enc-dim-per-head", self.enc_key_per_head_dim)
+            self.enc_per_head_dim = FeatureDim(
+                "enc-dim-per-head", self.enc_key_per_head_dim
+            )
             if self.memory_variant_opts.conv_cache_size:
                 self.conv_cache_concat_dim = SpatialDim("conv-cache-concat")
             if self.memory_variant_opts.use_emformer_mem:
-                self.emformer_mem_bank_dim = SpatialDim("emformer-mem-bank")  # M, the same as C but different tag
+                self.emformer_mem_bank_dim = SpatialDim(
+                    "emformer-mem-bank"
+                )  # M, the same as C but different tag
                 self.emformer_ext_query_dim = SpatialDim("emformer-ext-query")  # W+1
-                self.concat_window_with_mem_dim = SpatialDim("concat-window-with-mem")  # W*N+M
+                self.concat_window_with_mem_dim = SpatialDim(
+                    "concat-window-with-mem"
+                )  # W*N+M
 
         self.conv_use_time_mask = conv_use_time_mask
 
@@ -282,7 +299,9 @@ class ConformerEncoder:
         )
 
         if self.use_sqrd_relu:
-            swish_act = self.network.add_activation_layer("{}_relu".format(prefix_name), ff1, activation="relu")
+            swish_act = self.network.add_activation_layer(
+                "{}_relu".format(prefix_name), ff1, activation="relu"
+            )
             swish_act = self.network.add_eval_layer(
                 "{}_square_relu".format(prefix_name), swish_act, eval="source(0) ** 2"
             )
@@ -291,7 +310,9 @@ class ConformerEncoder:
                 "{}_swish".format(prefix_name), ff1, activation=self.activation
             )
 
-        drop1 = self.network.add_dropout_layer("{}_drop1".format(prefix_name), swish_act, dropout=self.dropout)
+        drop1 = self.network.add_dropout_layer(
+            "{}_drop1".format(prefix_name), swish_act, dropout=self.dropout
+        )
 
         ff2 = self.network.add_linear_layer(
             "{}_ff2".format(prefix_name),
@@ -303,19 +324,28 @@ class ConformerEncoder:
             param_dropout=self.ff_weight_drop,
         )
 
-        drop2 = self.network.add_dropout_layer("{}_drop2".format(prefix_name), ff2, dropout=self.dropout)
+        drop2 = self.network.add_dropout_layer(
+            "{}_drop2".format(prefix_name), ff2, dropout=self.dropout
+        )
 
-        half_step_ff = self.network.add_eval_layer("{}_half_step".format(prefix_name), drop2, eval="0.5 * source(0)")
+        half_step_ff = self.network.add_eval_layer(
+            "{}_half_step".format(prefix_name), drop2, eval="0.5 * source(0)"
+        )
 
         res_inputs = [half_step_ff, source]
 
         ff_module_res = self.network.add_combine_layer(
-            "{}_res".format(prefix_name), kind="add", source=res_inputs, n_out=self.enc_key_dim
+            "{}_res".format(prefix_name),
+            kind="add",
+            source=res_inputs,
+            n_out=self.enc_key_dim,
         )
 
         return ff_module_res
 
-    def _get_mem_chunks(self, prefix_name: str, input_layer: str, mem_size: int) -> List[Tuple[str, Union[str, Dim]]]:
+    def _get_mem_chunks(
+        self, prefix_name: str, input_layer: str, mem_size: int
+    ) -> List[Tuple[str, Union[str, Dim]]]:
         """
         :param name: layer prefix name
         :param input_layer: name of input layer to shift of shape [B*C, W, D]
@@ -340,14 +370,16 @@ class ConformerEncoder:
             )  # [B, C, W, D]
             # Merge batch and chunk dim again.
             chunk_shifted = self.network.add_generic_layer(
-                f"{prefix_name}_chunk_shifted_" + (f"_{mem_idx}" if mem_idx > 0 else ""),
+                f"{prefix_name}_chunk_shifted_"
+                + (f"_{mem_idx}" if mem_idx > 0 else ""),
                 cls="merge_dims",
                 source=chunk_shifted,
                 axes=("B", self.memory_variant_opts.chunked_time_dim),
             )  # [B*C, W, D]
             # Make sure the time_dim_axis (T) is set to the correct dim (W).
             chunk_shifted = self.network.add_generic_layer(
-                f"{prefix_name}_chunk_shifted__" + (f"_{mem_idx}" if mem_idx > 0 else ""),
+                f"{prefix_name}_chunk_shifted__"
+                + (f"_{mem_idx}" if mem_idx > 0 else ""),
                 cls="reinterpret_data",
                 source=chunk_shifted,
                 set_axes={"T": "spatial"},
@@ -356,12 +388,15 @@ class ConformerEncoder:
             if self.memory_variant_opts.mem_slice_start is not None:
                 assert self.memory_variant_opts.mem_slice_size is not None
                 chunk_shifted = self.network.add_generic_layer(
-                    f"{prefix_name}_chunk_shifted__" + (f"_{mem_idx}" if mem_idx > 0 else "") + "_sliced",
+                    f"{prefix_name}_chunk_shifted__"
+                    + (f"_{mem_idx}" if mem_idx > 0 else "")
+                    + "_sliced",
                     cls="slice",
                     source=chunk_shifted,
                     axis="T",
                     slice_start=self.memory_variant_opts.mem_slice_start,
-                    slice_end=self.memory_variant_opts.mem_slice_start + self.memory_variant_opts.mem_slice_size,
+                    slice_end=self.memory_variant_opts.mem_slice_start
+                    + self.memory_variant_opts.mem_slice_size,
                 )
 
             mem_chunks.append((chunk_shifted, "T"))
@@ -371,7 +406,12 @@ class ConformerEncoder:
         return mem_chunks
 
     def _self_att_v2(
-        self, prefix_name: str, *, input_layer: str, concat_prev_chunks_inputs: str, layer_index: int
+        self,
+        prefix_name: str,
+        *,
+        input_layer: str,
+        concat_prev_chunks_inputs: str,
+        layer_index: int,
     ) -> str:
         """
         Self-Attention implementation via RETURNN layers instead of using RETURNN SelfAttentionLayer
@@ -382,12 +422,16 @@ class ConformerEncoder:
         """
 
         if self.memory_variant_opts.use_cached_prev_kv:
-            assert concat_prev_chunks_inputs is None, "Should use cached keys and values instead."
+            assert (
+                concat_prev_chunks_inputs is None
+            ), "Should use cached keys and values instead."
 
         K = self.network.add_generic_layer(
             f"{prefix_name}_ln_K",
             cls="linear",
-            source=input_layer if self.memory_variant_opts.use_cached_prev_kv else concat_prev_chunks_inputs,
+            source=input_layer
+            if self.memory_variant_opts.use_cached_prev_kv
+            else concat_prev_chunks_inputs,
             n_out=self.enc_key_dim,
             forward_weights_init=self.mhsa_init,
             with_bias=False,
@@ -397,7 +441,9 @@ class ConformerEncoder:
         V = self.network.add_generic_layer(
             f"{prefix_name}_ln_V",
             cls="linear",
-            source=input_layer if self.memory_variant_opts.use_cached_prev_kv else concat_prev_chunks_inputs,
+            source=input_layer
+            if self.memory_variant_opts.use_cached_prev_kv
+            else concat_prev_chunks_inputs,
             n_out=self.enc_value_dim,
             forward_weights_init=self.mhsa_init,
             with_bias=False,
@@ -415,7 +461,9 @@ class ConformerEncoder:
             # C is approx 15-20.
             # Then we can concat it to K and V.
             # Note on prefix_name: The outer _create_mhsa_module adds the additional "_self_att" prefix.
-            mem_bank = self._block_prefix_name(layer_index - 1) + "_self_att_emformer_mem"  # [B*C, D]
+            mem_bank = (
+                self._block_prefix_name(layer_index - 1) + "_self_att_emformer_mem"
+            )  # [B*C, D]
 
             # Same projection which is usually applied to get back to the residual stream.
             mem_bank = self.network.add_generic_layer(
@@ -424,7 +472,8 @@ class ConformerEncoder:
                 source=mem_bank,
                 n_out=self.enc_key_dim,
                 with_bias=False,
-                reuse_params=self._block_prefix_name(layer_index - 1) + "_self_att_linear",
+                reuse_params=self._block_prefix_name(layer_index - 1)
+                + "_self_att_linear",
                 param_dropout=self.mhsa_weight_drop,
             )  # [B*C, D]
             mem_bank = self.network.add_dropout_layer(
@@ -433,7 +482,10 @@ class ConformerEncoder:
 
             if self.memory_variant_opts.apply_tanh_on_emformer_mem:
                 mem_bank = self.network.add_generic_layer(
-                    f"{prefix_name}_emformer_mem_tanh", cls="activation", source=mem_bank, activation="tanh"
+                    f"{prefix_name}_emformer_mem_tanh",
+                    cls="activation",
+                    source=mem_bank,
+                    activation="tanh",
                 )
             else:
                 mem_bank = self.network.add_generic_layer(
@@ -453,7 +505,12 @@ class ConformerEncoder:
                 f"{prefix_name}_emformer_mem_set_new_dim",
                 cls="reinterpret_data",
                 source=mem_bank,
-                set_dim_tags=[(self.memory_variant_opts.chunked_time_dim, self.emformer_mem_bank_dim)],
+                set_dim_tags=[
+                    (
+                        self.memory_variant_opts.chunked_time_dim,
+                        self.emformer_mem_bank_dim,
+                    )
+                ],
             )  # [B, M, D]
 
             mem_bank_K = self.network.add_generic_layer(
@@ -503,11 +560,15 @@ class ConformerEncoder:
         else:
             mem_bank_K, mem_bank_V = None, None
 
-        kv_dim = self.concat_window_with_mem_dim if mem_bank_K else self.concat_window_dim  # W*N [+M]
+        kv_dim = (
+            self.concat_window_with_mem_dim if mem_bank_K else self.concat_window_dim
+        )  # W*N [+M]
 
         if self.memory_variant_opts.use_cached_prev_kv or mem_bank_K:
             # concat previous cached keys and values
-            concat_keys = self._get_mem_chunks(f"{prefix_name}_ln_K_", K, self.memory_variant_opts.mem_size)
+            concat_keys = self._get_mem_chunks(
+                f"{prefix_name}_ln_K_", K, self.memory_variant_opts.mem_size
+            )
             concat_keys.append((K, "T"))
             if mem_bank_K:
                 concat_keys.append((mem_bank_K, self.emformer_mem_bank_dim))
@@ -528,7 +589,9 @@ class ConformerEncoder:
         )  # [B*C, W*N, H, D/H]
 
         if self.memory_variant_opts.use_cached_prev_kv or mem_bank_V:
-            concat_values = self._get_mem_chunks(f"{prefix_name}_ln_V_", V, self.memory_variant_opts.mem_size)
+            concat_values = self._get_mem_chunks(
+                f"{prefix_name}_ln_V_", V, self.memory_variant_opts.mem_size
+            )
             concat_values.append((V, "T"))
             if mem_bank_V:
                 concat_values.append((mem_bank_V, self.emformer_mem_bank_dim))
@@ -608,7 +671,10 @@ class ConformerEncoder:
             dtype="float32",
         )  # [1]
         Q_energy_factor = self.network.add_generic_layer(
-            f"{prefix_name}_Q_energy_factor", cls="eval", source=dim_per_head_const, eval="source(0) ** -0.5"
+            f"{prefix_name}_Q_energy_factor",
+            cls="eval",
+            source=dim_per_head_const,
+            eval="source(0) ** -0.5",
         )  # [1]
         Q_H = self.network.add_generic_layer(
             f"{prefix_name}_ln_Q_H",
@@ -642,14 +708,18 @@ class ConformerEncoder:
             clipping=self.rel_pos_clipping,
             query_spatial_dim=query_dim,  # W+1 or W
             key_value_spatial_dim=kv_dim,  # W*N [+M]
-            query_offset=self.memory_variant_opts.chunk_size * self.memory_variant_opts.mem_size,
+            query_offset=self.memory_variant_opts.chunk_size
+            * self.memory_variant_opts.mem_size,
         )  # [queries (W [+1]), kvs (W*N [+M]), D/H]
 
         if self.memory_variant_opts.use_emformer_mem:  # -> have summary, i.e. [W+1]
             mask_query = "emformer_mask_query_dim"
             if mask_query not in self.network:
                 range_in_query_dim = self.network.add_generic_layer(
-                    "emformer_range_query_dim", cls="range_in_axis", source=Q, axis=self.emformer_ext_query_dim
+                    "emformer_range_query_dim",
+                    cls="range_in_axis",
+                    source=Q,
+                    axis=self.emformer_ext_query_dim,
                 )  # [W+1]
                 mask_query = self.network.add_eval_layer(
                     mask_query,
@@ -669,9 +739,14 @@ class ConformerEncoder:
                 range_in_kv_dim = self.network.add_generic_layer(
                     "emformer_range_kv_dim", cls="range_in_axis", source=K, axis=kv_dim
                 )  # [W*N + M]
-                kv_dim_len = self.network.add_generic_layer("kv_dim_len", cls="length", source=K, axis=kv_dim)
+                kv_dim_len = self.network.add_generic_layer(
+                    "kv_dim_len", cls="length", source=K, axis=kv_dim
+                )
                 mem_len = self.network.add_generic_layer(
-                    "mem_len", cls="length", source=mem_bank_K, axis=self.emformer_mem_bank_dim
+                    "mem_len",
+                    cls="length",
+                    source=mem_bank_K,
+                    axis=self.emformer_mem_bank_dim,
                 )
                 mask_kv = self.network.add_eval_layer(
                     mask_kv,
@@ -751,7 +826,10 @@ class ConformerEncoder:
             # TODO: is this safe? find a better way
             set_axes={
                 "T": f"dim:"
-                + str(self.memory_variant_opts.chunk_size + (1 if self.memory_variant_opts.use_emformer_mem else 0))
+                + str(
+                    self.memory_variant_opts.chunk_size
+                    + (1 if self.memory_variant_opts.use_emformer_mem else 0)
+                )
             },
         )  # [B*C, W [+1], D]
 
@@ -805,7 +883,9 @@ class ConformerEncoder:
             if self.memory_variant_opts.use_cached_prev_kv is False:
                 # shifted inputs + current chunk
                 ln_concat_chunks = self._get_mem_chunks(
-                    prefix_name=f"{prefix_name}_ln", input_layer=ln, mem_size=self.memory_variant_opts.mem_size
+                    prefix_name=f"{prefix_name}_ln",
+                    input_layer=ln,
+                    mem_size=self.memory_variant_opts.mem_size,
                 )
                 ln_concat_chunks += [(ln, "T")]
                 ln_ = self.network.add_generic_layer(
@@ -818,7 +898,9 @@ class ConformerEncoder:
                 ln_ = None
 
             if self.memory_variant_opts.self_att_version == 0:
-                assert self.memory_variant_opts.use_cached_prev_kv is False, "Not implemented."
+                assert (
+                    self.memory_variant_opts.use_cached_prev_kv is False
+                ), "Not implemented."
                 # this implementation is not efficient.
                 ln_rel_pos_enc = self.network.add_relative_pos_encoding_layer(
                     f"{prefix_name}_ln_rel_pos_enc",
@@ -839,7 +921,9 @@ class ConformerEncoder:
                     key_shift=ln_rel_pos_enc if ln_rel_pos_enc is not None else None,
                     l2=self.self_att_l2,
                     attention_left_only=self.use_causal_layers,
-                    param_variational_noise=self.weight_noise if "mhsa" in self.weight_noise_layers else None,
+                    param_variational_noise=self.weight_noise
+                    if "mhsa" in self.weight_noise_layers
+                    else None,
                     param_dropout=self.mhsa_weight_drop,
                 )  # [B*C, W*N, D]
                 mhsa_splits = self.network.add_generic_layer(
@@ -865,7 +949,10 @@ class ConformerEncoder:
                 #   - ln_ contains the cached keys and values only
                 #   - project only current chunk
                 mhsa = self._self_att_v2(
-                    prefix_name, input_layer=ln, concat_prev_chunks_inputs=ln_, layer_index=layer_index
+                    prefix_name,
+                    input_layer=ln,
+                    concat_prev_chunks_inputs=ln_,
+                    layer_index=layer_index,
                 )
         else:
             mhsa = self.network.add_self_att_layer(
@@ -879,7 +966,9 @@ class ConformerEncoder:
                 key_shift=ln_rel_pos_enc if ln_rel_pos_enc is not None else None,
                 l2=self.self_att_l2,
                 attention_left_only=self.use_causal_layers,
-                param_variational_noise=self.weight_noise if "mhsa" in self.weight_noise_layers else None,
+                param_variational_noise=self.weight_noise
+                if "mhsa" in self.weight_noise_layers
+                else None,
                 param_dropout=self.mhsa_weight_drop,
             )
 
@@ -893,16 +982,23 @@ class ConformerEncoder:
             param_dropout=self.mhsa_weight_drop,
         )
 
-        drop = self.network.add_dropout_layer("{}_dropout".format(prefix_name), mhsa_linear, dropout=self.dropout)
+        drop = self.network.add_dropout_layer(
+            "{}_dropout".format(prefix_name), mhsa_linear, dropout=self.dropout
+        )
 
         res_inputs = [drop, source]
 
         mhsa_res = self.network.add_combine_layer(
-            "{}_res".format(prefix_name), kind="add", source=res_inputs, n_out=self.enc_value_dim
+            "{}_res".format(prefix_name),
+            kind="add",
+            source=res_inputs,
+            n_out=self.enc_value_dim,
         )
         return mhsa_res
 
-    def _create_convolution_module(self, prefix_name, source, layer_index, half_step=False):
+    def _create_convolution_module(
+        self, prefix_name, source, layer_index, half_step=False
+    ):
         """
         Add Convolution Module:
           LN + point-wise-conv + GLU + depth-wise-conv + BN + Swish + point-wise-conv + Dropout
@@ -928,9 +1024,14 @@ class ConformerEncoder:
             param_dropout=self.conv_weight_drop,
         )
 
-        glu_act = self.network.add_gating_layer("{}_glu".format(prefix_name), pointwise_conv1)
+        glu_act = self.network.add_gating_layer(
+            "{}_glu".format(prefix_name), pointwise_conv1
+        )
 
-        if self.memory_variant_opts is not None and self.memory_variant_opts.conv_cache_size:
+        if (
+            self.memory_variant_opts is not None
+            and self.memory_variant_opts.conv_cache_size
+        ):
             mem_chunks = self._get_mem_chunks(
                 prefix_name=f"{prefix_name}_glu_act",
                 input_layer=glu_act,
@@ -956,7 +1057,6 @@ class ConformerEncoder:
                 axes="T",
                 padding=(self.conv_kernel_size - 1, 0),
             )
-
 
             depthwise_conv = self.network.add_conv_layer(
                 prefix_name + "_" + (self.conv_alternative_name or "depthwise_conv2"),
@@ -990,26 +1090,36 @@ class ConformerEncoder:
                 **conv_extra_kwargs,
             )
 
-        if self.memory_variant_opts is not None and self.memory_variant_opts.conv_cache_size:
+        if (
+            self.memory_variant_opts is not None
+            and self.memory_variant_opts.conv_cache_size
+        ):
             # we apply convolution over the concatenated chunks but we only need the output of the current
             # chunk, thus, we need to slice from [B*C, W*N, D] to [B*C, W, D]
-            assert self.memory_variant_opts.mem_slice_size, "mem_slice_size must be set."
+            assert (
+                self.memory_variant_opts.mem_slice_size
+            ), "mem_slice_size must be set."
             depthwise_conv = self.network.add_generic_layer(
                 f"{prefix_name}_depthwise_conv_slice",
                 cls="slice",
                 source=depthwise_conv,
                 axis="T",
-                slice_start=self.memory_variant_opts.mem_slice_size * self.memory_variant_opts.conv_cache_size,
+                slice_start=self.memory_variant_opts.mem_slice_size
+                * self.memory_variant_opts.conv_cache_size,
             )
 
         if self.use_ln:
-            bn = self.network.add_layer_norm_layer("{}_layer_norm".format(prefix_name), depthwise_conv)
+            bn = self.network.add_layer_norm_layer(
+                "{}_layer_norm".format(prefix_name), depthwise_conv
+            )
         else:
             bn = self.network.add_batch_norm_layer(
                 "{}_bn".format(prefix_name), depthwise_conv, opts=self.batch_norm_opts
             )
 
-        swish_act = self.network.add_activation_layer("{}_swish".format(prefix_name), bn, activation="swish")
+        swish_act = self.network.add_activation_layer(
+            "{}_swish".format(prefix_name), bn, activation="swish"
+        )
 
         pointwise_conv2 = self.network.add_linear_layer(
             "{}_pointwise_conv2".format(prefix_name),
@@ -1022,22 +1132,32 @@ class ConformerEncoder:
             param_dropout=self.conv_weight_drop,
         )
 
-        drop = self.network.add_dropout_layer("{}_drop".format(prefix_name), pointwise_conv2, dropout=self.dropout)
+        drop = self.network.add_dropout_layer(
+            "{}_drop".format(prefix_name), pointwise_conv2, dropout=self.dropout
+        )
 
         if half_step:
-            drop = self.network.add_eval_layer("{}_half_step".format(prefix_name), drop, eval="0.5 * source(0)")
+            drop = self.network.add_eval_layer(
+                "{}_half_step".format(prefix_name), drop, eval="0.5 * source(0)"
+            )
 
         res_inputs = [drop, source]
 
         res = self.network.add_combine_layer(
-            "{}_res".format(prefix_name), kind="add", source=res_inputs, n_out=self.enc_key_dim
+            "{}_res".format(prefix_name),
+            kind="add",
+            source=res_inputs,
+            n_out=self.enc_key_dim,
         )
         return res
 
     def _block_prefix_name(self, layer_index: int) -> str:
         assert layer_index >= 1
         if self.add_to_prefix_name:
-            prefix_name = "conformer_block_%s_%02i" % (self.add_to_prefix_name, layer_index)
+            prefix_name = "conformer_block_%s_%02i" % (
+                self.add_to_prefix_name,
+                layer_index,
+            )
         else:
             prefix_name = "conformer_block_%02i" % layer_index
         return prefix_name
@@ -1074,7 +1194,9 @@ class ConformerEncoder:
                     mhsa_input = conv_module1
                 mhsa = self._create_mhsa_module(prefix_name, mhsa_input, i)
 
-            conv_module = self._create_convolution_module(prefix_name, mhsa, i, half_step=self.sandwich_conv)
+            conv_module = self._create_convolution_module(
+                prefix_name, mhsa, i, half_step=self.sandwich_conv
+            )
             ff_module2_input = conv_module
 
         ff_module2 = self._create_ff_module(prefix_name, 2, ff_module2_input, i)
@@ -1085,7 +1207,9 @@ class ConformerEncoder:
             assert 0 <= i - 1 < len(self.subsample)
             subsample_factor = self.subsample_list[i - 1]
             if subsample_factor > 1:
-                res = self.network.add_pool_layer(res + "_pool{}".format(i), res, pool_size=(subsample_factor,))
+                res = self.network.add_pool_layer(
+                    res + "_pool{}".format(i), res, pool_size=(subsample_factor,)
+                )
         res = self.network.add_copy_layer(prefix_name, res)
         return res
 
@@ -1150,7 +1274,9 @@ class ConformerEncoder:
                 activation=self.input_layer_conv_act,
                 init=self.start_conv_init,
                 merge_out=False,
-                param_variational_noise=self.weight_noise if "frontend_conv" in self.weight_noise_layers else None,
+                param_variational_noise=self.weight_noise
+                if "frontend_conv" in self.weight_noise_layers
+                else None,
             )
 
             subsampled_input = self.network.add_conv_block(
@@ -1164,7 +1290,9 @@ class ConformerEncoder:
                 split_input=False,
                 prefix_name="subsample_",
                 merge_out_fixed=self.fix_merge_dims,
-                param_variational_noise=self.weight_noise if "frontend_conv" in self.weight_noise_layers else None,
+                param_variational_noise=self.weight_noise
+                if "frontend_conv" in self.weight_noise_layers
+                else None,
             )
         elif self.input_layer == "conv-6":
             extra_conv_opts = {}
@@ -1178,7 +1306,9 @@ class ConformerEncoder:
                 activation=self.input_layer_conv_act,
                 init=self.start_conv_init,
                 merge_out=False,
-                param_variational_noise=self.weight_noise if "frontend_conv" in self.weight_noise_layers else None,
+                param_variational_noise=self.weight_noise
+                if "frontend_conv" in self.weight_noise_layers
+                else None,
                 extra_conv_opts=extra_conv_opts,
             )
 
@@ -1193,7 +1323,9 @@ class ConformerEncoder:
                 split_input=False,
                 prefix_name="subsample_",
                 merge_out_fixed=self.fix_merge_dims,
-                param_variational_noise=self.weight_noise if "frontend_conv" in self.weight_noise_layers else None,
+                param_variational_noise=self.weight_noise
+                if "frontend_conv" in self.weight_noise_layers
+                else None,
                 extra_conv_opts=extra_conv_opts,
             )
 
@@ -1209,28 +1341,94 @@ class ConformerEncoder:
         )
 
         if self.add_abs_pos_enc_to_input:
-            source_linear = self.network.add_pos_encoding_layer("input_abs_pos_enc", source_linear, add_to_input=True)
+            source_linear = self.network.add_pos_encoding_layer(
+                "input_abs_pos_enc", source_linear, add_to_input=True
+            )
 
         if self.dropout_in:
-            source_linear = self.network.add_dropout_layer("source_dropout", source_linear, dropout=self.dropout_in)
+            source_linear = self.network.add_dropout_layer(
+                "source_dropout", source_linear, dropout=self.dropout_in
+            )
 
         conformer_block_src = source_linear
         for i in range(1, self.num_blocks + 1):
             conformer_block_src = self._create_conformer_block(i, conformer_block_src)
 
-        encoder = self.network.add_copy_layer(self.output_layer_name, conformer_block_src)
+        encoder = self.network.add_copy_layer(
+            self.output_layer_name, conformer_block_src
+        )
 
         if self.with_ctc:
             default_ctc_loss_opts = {"beam_width": 1}
             if self.native_ctc:
                 default_ctc_loss_opts["use_native"] = True
             else:
-                self.ctc_opts.update({"ignore_longer_outputs_than_inputs": True})  # always enable
+                self.ctc_opts.update(
+                    {"ignore_longer_outputs_than_inputs": True}
+                )  # always enable
             if self.ctc_opts:
                 default_ctc_loss_opts["ctc_opts"] = self.ctc_opts
 
-            if self.enc_layer_w_ctc is not None and self.enc_layer_w_ctc <= self.num_blocks:
+            if (
+                self.enc_layer_w_ctc is not None
+                and self.enc_layer_w_ctc <= self.num_blocks
+            ):
                 encoder = f"conformer_block_{self.enc_layer_w_ctc:02d}"
+
+            if self.ctc_att_weights_gauss:
+
+                window_size = self.ctc_att_weights_gauss_window
+                gaussian_weights = [np.exp(-0.5 * ((i - window_size // 2) / self.ctc_att_weights_gauss_stddev) ** 2) for i in range(window_size)]
+                # normalize
+                gaussian_weights = list(np.array(gaussian_weights) / np.sum(gaussian_weights))
+
+                # gaussian_weights_code = "np.array(%r, dtype=np.float32)" % gaussian_weights
+                # gaussian_weights_value = CodeWrapper(gaussian_weights_code)
+
+                gaussian_weights_value = CodeWrapper(
+                    f"eval(\"exec('import numpy') or numpy.array({gaussian_weights}, dtype=numpy.float32)\")"
+                )
+
+                self.network.update(
+                    {
+                        # encoder [B,T,D]
+                        "enc_win": {"class": "window", "from": encoder, "window_size": window_size},  # [B,T,W,D]
+                        "gaussian_weights_1":   {
+                            "class": "constant",
+                            "value": gaussian_weights_value,
+                            "dtype": "float32",
+                        },
+                        "enc_weighted_with_gaussian": {
+                            "class": "combine",
+                            "kind": "mul",
+                            "from": ["enc_win", "gaussian_weights_1"],
+                        },
+                        "enc_attention": {
+                            "class": "eval",
+                            "eval": "tf.reduce_sum(source(0, auto_convert=False), axis=-2)",
+                            "from": "enc_weighted_with_gaussian",
+                            "out_type": {"shape": (None, self.enc_key_dim), "dtype": "float32"},
+                        },
+                        # "enc_attention": {
+                        #     "class": "reduce",
+                        #     "mode": "sum",
+                        #     "from": "enc_weighted_with_gaussian",
+                        #     "axes": ["enc_win:window"],
+                        # },
+                        "enc_with_attention": {
+                            "class": "concat",
+                            "from": [
+                                (encoder, "f"),
+                                ("enc_attention", "f"),
+                            ],
+                        },
+                    }
+                )
+
+                if self.ctc_att_weights_use_enc:
+                    encoder = "enc_with_attention"
+                else:
+                    encoder = "enc_attention"
 
             self.network.add_softmax_layer(
                 "ctc",
@@ -1243,13 +1441,21 @@ class ConformerEncoder:
             )
             if self.ctc_loss_scale or self.ctc_self_align_delay:
                 self.network["ctc"]["loss_scale"] = (self.ctc_loss_scale or 1.0) * (
-                    (1.0 - self.ctc_self_align_scale) if self.ctc_self_align_delay else 1.0
+                    (1.0 - self.ctc_self_align_scale)
+                    if self.ctc_self_align_delay
+                    else 1.0
                 )
 
             if self.ctc_self_align_delay:
                 # http://arxiv.org/abs/2105.05005
-                assert self.ctc_self_align_delay > 0  # not implemented otherwise, but also not sure if meaningful
-                self.network["ctc_log_prob"] = {"class": "activation", "from": "ctc", "activation": "safe_log"}
+                assert (
+                    self.ctc_self_align_delay > 0
+                )  # not implemented otherwise, but also not sure if meaningful
+                self.network["ctc_log_prob"] = {
+                    "class": "activation",
+                    "from": "ctc",
+                    "activation": "safe_log",
+                }
                 # Cut off first N frames.
                 self.network[f"ctc_log_prob_slice{self.ctc_self_align_delay}"] = {
                     "class": "slice",
@@ -1258,7 +1464,9 @@ class ConformerEncoder:
                     "slice_start": self.ctc_self_align_delay,
                 }
                 # Forced alignment using that.
-                self.network[f"ctc_forced_alignment_slice{self.ctc_self_align_delay}"] = {
+                self.network[
+                    f"ctc_forced_alignment_slice{self.ctc_self_align_delay}"
+                ] = {
                     "class": "forced_align",
                     "align_target": f"data:{self.target}",
                     "topology": "ctc",
@@ -1272,7 +1480,9 @@ class ConformerEncoder:
                     "axis": "sparse_dim",
                     "sparse": True,
                 }
-                self.network[f"ctc_forced_alignment_shift{self.ctc_self_align_delay}"] = {
+                self.network[
+                    f"ctc_forced_alignment_shift{self.ctc_self_align_delay}"
+                ] = {
                     "class": "postfix_in_time",
                     "from": f"ctc_forced_alignment_slice{self.ctc_self_align_delay}",
                     "postfix": "_blank_idx",
@@ -1283,7 +1493,8 @@ class ConformerEncoder:
                     "class": "copy",
                     "from": "ctc",
                     "loss": "ce",
-                    "loss_scale": (self.ctc_loss_scale or 1.0) * self.ctc_self_align_scale,
+                    "loss_scale": (self.ctc_loss_scale or 1.0)
+                    * self.ctc_self_align_scale,
                     "target": f"layer:ctc_forced_alignment_shift{self.ctc_self_align_delay}",
                 }
 
@@ -1292,13 +1503,19 @@ class ConformerEncoder:
     def _create_conformer_blocks(self, input):
         if self.proj_input:
             conformer_block_src = self.network.add_linear_layer(
-                "encoder_proj", input, n_out=self.enc_key_dim, activation=None, with_bias=False
+                "encoder_proj",
+                input,
+                n_out=self.enc_key_dim,
+                activation=None,
+                with_bias=False,
             )
         else:
             conformer_block_src = input
         for i in range(1, self.num_blocks + 1):
             conformer_block_src = self._create_conformer_block(i, conformer_block_src)
-        encoder = self.network.add_copy_layer(self.output_layer_name, conformer_block_src)
+        encoder = self.network.add_copy_layer(
+            self.output_layer_name, conformer_block_src
+        )
         return encoder
 
     def create_network(self):
@@ -1344,7 +1561,9 @@ def _energy_mask_emformer_mem(
 
     chunk_size_dim  # unused  # noqa
 
-    energy_data: Tensor = source(0, as_data=True)  # [B*C, H, W*N+M, W+1], M=C, dims not necessarily that order
+    energy_data: Tensor = source(
+        0, as_data=True
+    )  # [B*C, H, W*N+M, W+1], M=C, dims not necessarily that order
 
     assert len(energy_data.batch.virtual_dims) == 2
     batch_virtual_dim0, batch_virtual_dim1 = energy_data.batch.virtual_dims
@@ -1361,8 +1580,16 @@ def _energy_mask_emformer_mem(
             continue
         energy_dims.append(d)
         energy_shape.append(d.get_dim_value())
-    energy: tf.Tensor = tf.reshape(energy_data.raw_tensor, energy_shape)  # [B, C, H, W*N [+M], W+1]
-    assert set(energy_dims) == {batch_dim, chunked_time_dim, att_num_heads_dim, query_dim, kv_dim}
+    energy: tf.Tensor = tf.reshape(
+        energy_data.raw_tensor, energy_shape
+    )  # [B, C, H, W*N [+M], W+1]
+    assert set(energy_dims) == {
+        batch_dim,
+        chunked_time_dim,
+        att_num_heads_dim,
+        query_dim,
+        kv_dim,
+    }
     assert len(energy_dims) == len(energy_shape) == energy.shape.rank == 5
 
     def _bc_shape(d_: Dim):
@@ -1391,7 +1618,9 @@ def _energy_mask_emformer_mem(
     mask = mask0 & mask1  # [..C.., ..W+1.., ..W*N+M..]
     energy = tf.where(mask, energy, neg_inf)
 
-    energy = tf.reshape(energy, [d.get_dim_value() for d in energy_data.dims])  # [B*C, H, W*N+M, W+1]
+    energy = tf.reshape(
+        energy, [d.get_dim_value() for d in energy_data.dims]
+    )  # [B*C, H, W*N+M, W+1]
     if numpy.isinf(neg_inf):
         self.allow_inf_in_output = True
     return energy

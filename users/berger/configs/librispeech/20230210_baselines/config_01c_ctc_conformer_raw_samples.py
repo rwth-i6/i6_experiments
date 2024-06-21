@@ -142,8 +142,8 @@ def run_exp() -> Tuple[SummaryReport, Checkpoint, Dict[str, AlignmentData]]:
     )
 
     recog_args = exp_args.get_ctc_recog_step_args(num_classes)
-    align_args = exp_args.get_ctc_align_step_args(num_classes)
-    recog_args["epochs"] = [320, 400, 480, 500, "best"]
+    align_args = exp_args.get_ctc_align_step_args(num_classes, epoch=500)
+    recog_args["epochs"] = [320, 500, "best"]
     recog_args["prior_scales"] = [0.3]
     recog_args["lm_scales"] = [0.9]
 

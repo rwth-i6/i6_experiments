@@ -203,7 +203,7 @@ class Model(nn.Module):
                 final_dropout=0.2,
                 specauc_start_epoch=1
             )
-    
+
         self.cfg = conformer_model_config
         frontend_config = self.cfg.frontend_config
         conformer_size = self.cfg.conformer_size
@@ -244,7 +244,6 @@ class Model(nn.Module):
         self.final_dropout = nn.Dropout(p=self.cfg.final_dropout)
         self.specaug_start_epoch = self.cfg.specauc_start_epoch
 
-
     def forward(self, raw_audio, raw_audio_len):
         with torch.no_grad():
             self.decoder.eval()
@@ -274,12 +273,12 @@ class Model(nn.Module):
                 audio_features_masked_2 = spec_augment_in
 
         conformer_in = audio_features_masked_2
-        
+
         if self.layer_norm:
             conformer_in = torch.nn.functional.layer_norm(conformer_in, (conformer_in.size(-1),))
         elif self.bn is not None:
             conformer_in = self.bn(conformer_in.transpose(1,2)).transpose(1,2)
-        
+
         conformer_out, out_mask = self.conformer(conformer_in, mask)
         conformer_out = self.final_dropout(conformer_out)
         logits = self.final_linear(conformer_out)
@@ -297,4 +296,3 @@ class Model(nn.Module):
 
     def store_inverse(self):
         self.decoder.store_inverse()
-

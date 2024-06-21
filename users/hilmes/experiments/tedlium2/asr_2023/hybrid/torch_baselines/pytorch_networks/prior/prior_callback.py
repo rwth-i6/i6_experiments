@@ -58,3 +58,19 @@ class ComputePriorCallback(ForwardCallbackIface):
         plt.ylabel("prior")
         plt.grid(True)
         plt.savefig("../output/prior.png")
+
+
+class PrintLossCallback(ForwardCallbackIface):
+    def init(self, *, model: torch.nn.Module):
+        self.seq_loss_pairs = []
+
+    def process_seq(self, *, seq_tag: str, outputs: TensorDict):
+        loss: torch.Tensor = outputs["ce_score"].raw_tensor
+        self.seq_loss_pairs.append((seq_tag, loss.cpu().numpy()[0]))
+
+    def finish(self):
+        # Write txt file
+        sorted_pairs = sorted(self.seq_loss_pairs, key=lambda x: x[1])
+        with open("loss_table", "wt") as f:
+            for x in sorted_pairs:
+                f.write(f"{x[0]} {x[1]}\n")

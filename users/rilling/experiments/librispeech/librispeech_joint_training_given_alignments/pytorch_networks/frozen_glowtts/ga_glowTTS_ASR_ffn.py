@@ -508,6 +508,7 @@ def phoneme_prediction_step(*, model: Model, data, run_ctx, **kwargs):
         given_attn=given_attn,
         recognition_input=run_ctx.recognition_input,
     )
+    breakpoint()
     x_mask = torch.unsqueeze(commons.sequence_mask(phonemes_len, phonemes.size(1)), 1).to(phonemes.dtype)
 
     attn_mask = torch.unsqueeze(x_mask, -1) * torch.unsqueeze(z_mask, 2)

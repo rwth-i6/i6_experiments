@@ -23,6 +23,7 @@ from .configs import _get_cfg_lrlin_oclr_by_bs_nep, _batch_size_factor
 if TYPE_CHECKING:
     from i6_experiments.users.zeyer.model_with_checkpoints import ModelWithCheckpoints, ModelWithCheckpoint
     from i6_experiments.users.zeyer.datasets.task import Task
+    from i6_experiments.users.zeyer.datasets.score_results import RecogOutput
 
 
 # The model gets raw features (16khz) and does feature extraction internally.
@@ -30,41 +31,286 @@ _log_mel_feature_dim = 80
 
 
 def py():
+    """Sisyphus entry point"""
+    from i6_experiments.users.zeyer.datasets.librispeech import get_librispeech_log_mel_stats
+
+    feature_stats = get_librispeech_log_mel_stats(_log_mel_feature_dim)
+
+    """
+    Luca:
+
+        CTC, greedy decoding ohne lm.
+        Habe eigentlich nicht wirklich was gemacht. Ist genau dein setup ohne die attention.
+        Model definition: i6_experiments/users/gaudino/models/asr/rf/conformer_ctc/model_conformer_ctc.py
+        Decoding: i6_experiments/users/gaudino/models/asr/rf/conformer_ctc/model_recog_ctc_greedy.py
+        Sis config: i6_experiments/users/gaudino/experiments/rf_conformer_rnnt_2024/librispeech_960/conformer_ctc_train.py
+        Experiment name: base-24gb-lrlin1e_5_600k_ctc_only_aux4_8
+        Sis work dir: /u/luca.gaudino/setups/2023-08-10--rf-librispeech/alias/librispeech_960_exp2024_05_13_rf/conformer_ctc_train/base-24gb-lrlin1e_5_600k_ctc_only_aux4_8/train
+        Bekomme: {"dev-clean": 3.08, "dev-other": 6.93, "test-clean": 3.24, "test-other": 7.18}
+        
+        No diffs:
+        - Same oggzip files
+        - Same BPE vocab
+        Diffs:
+        - Luca has "seq_postfix": [0]?
+        - Luca uses single 24GB GPU, bfloat16 AMP
+        - Luca uses larger batch 2_400_000 -> 6_400_000, grad accum 1 -> 2
+        - Luca uses wd 1e-06
+        - Luca uses older behavior_version 21 -> 16.
+        - Luca uses feature normalization (global based on Tedlium statistics...). 
+    """
+
+    train_exp(  # {"dev-clean": 6.44, "dev-other": 9.77, "test-clean": 6.89, "test-other": 9.98}
+        f"v6-bhv21-24gb-bf16-bs40k-accgrad2-wd1e_6-lrlin1e_5_450k-bpe10k",
+        config_24gb_v6,
+        config_updates={
+            **_get_cfg_lrlin_oclr_by_bs_nep(40_000, 2000),
+        },
+    )
+
+    train_exp(  # {"dev-clean": 6.61, "dev-other": 9.68, "test-clean": 7.01, "test-other": 10.36}
+        f"v6-bhv21-24gb-bf16-bs40k-accgrad2-wd1e_6-lrlin1e_5_600k-bpe10k",
+        config_24gb_v6,
+        config_updates={
+            **_get_cfg_lrlin_oclr_by_bs_nep(40_000, 2000),
+            "learning_rate_piecewise_steps": [600_000, 900_000, 982_000],
+        },
+    )
+
     train_exp(
-        "v6-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-speedpertV2",
+        f"v6-bhv21-24gb-bf16-bs40k-accgrad2-wd1e_6-lrlin1e_5_600k-featGN-bpe10k",
+        config_24gb_v6,
+        model_config={"feature_stats": {"mean": feature_stats.mean, "std_dev": feature_stats.std_dev}},
+        config_updates={
+            **_get_cfg_lrlin_oclr_by_bs_nep(40_000, 2000),
+            "learning_rate_piecewise_steps": [600_000, 900_000, 982_000],
+        },
+    )
+
+    for acc, wd in [
+        # (5, 1e-5),  # 9.90
+        (5, 1e-3),  # 9.53
+        (5, 1e-2),  # 9.23
+        # (1, 1e-4),  # 9.24
+        (1, 1e-3),  # 9.19
+        (1, 1e-2),  # 8.16
+    ]:
+        train_exp(
+            f"v6-bhv20-11gb-f32-bs15k-accgrad{acc}"
+            f"-mgpu4-pavg100-wd{('%.e'%wd).replace('e-0', 'e_')}"
+            f"-lrlin1e_5_295k-bpe10k",
+            config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
+            config_updates={
+                **_get_cfg_lrlin_oclr_by_bs_nep(15_000, 500),
+                "accum_grad_multiple_step": acc,
+                "optimizer.weight_decay": wd,
+            },
+        )
+
+    train_exp(  # 8.79
+        f"v6-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_4-lrlin1e_5_295k-speedpertV2-bpe10k",
         config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
         config_updates={
             **_get_cfg_lrlin_oclr_by_bs_nep(15_000, 500),
-            "optimizer.weight_decay": 1e-2,
             "__train_audio_preprocess": speed_pert_librosa_config,
             "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
         },
     )
 
+    # Comparing vocabs. Note that max_seq_length_default_target=75 always here...
+    for vocab in [
+        "spm20k",  # 7.44
+        "bpe10k",  # 8.23
+        "spm10k",  # 8.12
+        "spm_bpe10k",  # 7.97
+        "spm4k",  # 9.86
+        "spm1k",  # 12.72
+        "spm_bpe1k",  # 11.76
+    ]:
+        train_exp(
+            f"v6-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-speedpertV2-{vocab}",
+            config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
+            config_updates={
+                **_get_cfg_lrlin_oclr_by_bs_nep(15_000, 500),
+                "optimizer.weight_decay": 1e-2,
+                "__train_audio_preprocess": speed_pert_librosa_config,
+                "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
+            },
+            vocab=vocab,
+        )
+
+    # Comparing vocabs with better settings: feature norm, sampling, no max seq len.
+    for vocab, sample, alpha in [
+        ("spm20k", "spm", 0.7),
+        ("bpe10k", "bpe", 0.01),
+        ("spm10k", "spm", 0.7),
+        ("spm10k", "bpe", 0.01),
+        ("spm_bpe10k", "bpe", 0.01),
+        ("spm4k", "spm", 0.7),
+        ("spm1k", "spm", 0.7),
+        # ("spm_bpe1k", ...)
+    ]:
+        train_exp(
+            f"v6-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-maxSeqLenNone"
+            f"-wd1e_2-lrlin1e_5_295k-featBN-speedpertV2-{vocab}"
+            f"-{sample}Sample{str(alpha).replace('.', '')}",
+            config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
+            model_config={"feature_batch_norm": True},
+            config_updates={
+                **_get_cfg_lrlin_oclr_by_bs_nep(15_000, 500),
+                "optimizer.weight_decay": 1e-2,
+                "__train_audio_preprocess": speed_pert_librosa_config,
+                "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
+                "max_seq_length_default_target": None,
+            },
+            vocab=vocab,
+            train_vocab_opts={
+                "other_opts": (
+                    {"enable_sampling": True, "alpha": alpha}
+                    if sample == "spm"
+                    else {"class": "SamplingBytePairEncoding", "breadth_prob": alpha}
+                )
+            },
+        )
+
+    # lrlin1e_5_393k
     train_exp(
-        "v6-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-speedpertV2-spm10k",
+        f"v6-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_393k-speedpertV2-bpe10k",
         config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
         config_updates={
             **_get_cfg_lrlin_oclr_by_bs_nep(15_000, 500),
+            "learning_rate_piecewise_steps": [393_000, 590_000, 652_000],  # total steps after 500 epochs: ~652k
             "optimizer.weight_decay": 1e-2,
             "__train_audio_preprocess": speed_pert_librosa_config,
             "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
         },
-        vocab="spm10k",
+        vocab="bpe10k",
     )
 
-    train_exp(
-        "v6-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-speedpertV2-spm10k-spmSample03",
+    # Testing different vocabs together with sampling.
+    for vocab, alpha in [
+        # spm20k no sampling: 7.44
+        ("spm20k", 0.7),
+        # See archive/returnn-spm10-sample.config for playing around with alpha and checking avg seq len.
+        # The lower the alpha, the longer the seq len, i.e. the more aggressive the sampling.
+        # spm10k no sampling: 8.12
+        ("spm10k", 0.8),  # 7.08
+        ("spm10k", 0.7),  # 6.99
+        ("spm10k", 0.5),  # 7.13
+        ("spm10k", 0.3),  # 7.88
+        # alpha for SPM-BPE has a very different effect, and it causes the seq len to be much longer.
+        # The higher the alpha, the longer (the reverse as for SPM Unigram).
+        # See archive/returnn-spm_bpe10-sample.config.
+        # spm_bpe10k no sampling: 7.97
+        ("spm_bpe10k", 0.0001),
+        ("spm_bpe10k", 0.001),  # 8.15
+        ("spm_bpe10k", 0.005),  # 8.66
+        ("spm_bpe10k", 0.01),  # 8.99
+        # ("spm_bpe10k", 0.3),  # broken
+        # ("spm_bpe10k", 0.7),  # broken
+        # alpha for BPE is again a bit different, but more similar to SPM-BPE than SPM-Unigram.
+        # See archive/returnn-bpe10-sample.config.
+        # The higher the alpha, the longer the sequence, i.e. the more aggressive the sampling.
+        # bpe10k no sampling: 8.23
+        ("bpe10k", 0.005),  # 7.32
+        ("bpe10k", 0.01),  # 7.10
+        ("bpe10k", 0.02),  # 7.35
+    ]:
+        train_exp(
+            f"v6-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-speedpertV2-{vocab}"
+            f"-{'spmSample' if vocab.startswith('spm') else 'bpeSample'}{str(alpha).replace('.', '')}",
+            config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
+            config_updates={
+                **_get_cfg_lrlin_oclr_by_bs_nep(15_000, 500),
+                "optimizer.weight_decay": 1e-2,
+                "__train_audio_preprocess": speed_pert_librosa_config,
+                "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
+            },
+            vocab=vocab,
+            train_vocab_opts={
+                "other_opts": (
+                    {"enable_sampling": True, "alpha": alpha}
+                    if vocab.startswith("spm")
+                    else {"class": "SamplingBytePairEncoding", "breadth_prob": alpha}
+                )
+            },
+        )
+
+    # Checking EOS.
+    train_exp(  # 7.36 (vs without EOS 6.99), so EOS made it worse
+        "v6-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-speedpertV2-spm10k-eos-spmSample07",
         config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
         config_updates={
             **_get_cfg_lrlin_oclr_by_bs_nep(15_000, 500),
             "optimizer.weight_decay": 1e-2,
             "__train_audio_preprocess": speed_pert_librosa_config,
             "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
+            "use_eos_postfix": True,
         },
         vocab="spm10k",
-        train_vocab_opts={"other_opts": {"enable_sampling": True, "alpha": 0.3}},
+        train_vocab_opts={"other_opts": {"enable_sampling": True, "alpha": 0.7}},
     )
+
+    # Test different feature normalization schemes.
+    # Note: It seems the diff between dev-other and test-other is less here, probably du to the normalization.
+    for name, model_opts in {
+        None: None,  # {"dev-clean": 3.69, "dev-other": 6.99, "test-clean": 3.83, "test-other": 7.32}
+        # featBN: {"dev-clean": 3.63, "dev-other": 6.96, "test-clean": 3.82, "test-other": 7.15}
+        "featBN": {"feature_batch_norm": True},  # batch norm
+        # featNorm: {"dev-clean": 3.65, "dev-other": 6.97, "test-clean": 3.74, "test-other": 7.34}
+        "featNorm": {"feature_norm": True},  # normalize (on sequence level)
+        # featGN: {"dev-clean": 3.65, "dev-other": 7.04, "test-clean": 3.82, "test-other": 7.27}
+        "featGN": {"feature_stats": {"mean": feature_stats.mean, "std_dev": feature_stats.std_dev}},  # global norm
+    }.items():
+        train_exp(
+            "v6-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-"
+            f"{(name + '-') if name else ''}speedpertV2-spm10k-spmSample07",
+            config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
+            model_config=model_opts,
+            config_updates={
+                **_get_cfg_lrlin_oclr_by_bs_nep(15_000, 500),
+                "optimizer.weight_decay": 1e-2,
+                "__train_audio_preprocess": speed_pert_librosa_config,
+                "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
+            },
+            vocab="spm10k",
+            train_vocab_opts={"other_opts": {"enable_sampling": True, "alpha": 0.7}},
+        )
+
+    from i6_experiments.users.zeyer.nn_rf.batchnorm import BatchRenorm
+
+    # Replacing batch norm in the Conformer Convolution Module with other normalization schemes.
+    for name, opts in {
+        "batchRenorm": rf.build_dict(
+            BatchRenorm,
+            use_mask=True,
+            r_max=rf.build_dict(rf.PiecewiseLinearStepwiseScheduler, points={5_000: 1.0, 40_000: 3.0}),
+            d_max=rf.build_dict(rf.PiecewiseLinearStepwiseScheduler, points={5_000: 0.0, 25_000: 5.0}),
+        ),
+        "groupNorm": rf.build_dict(rf.GroupNorm, num_groups=32),
+        "layerNorm": rf.build_dict(rf.LayerNorm),
+    }.items():
+        for vocab, alpha in [("bpe10k", 0.01)]:  # [("bpe10k", 0.01), ("spm10k", 0.7)]:
+            train_exp(
+                f"v6-{name}-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-speedpertV2-{vocab}"
+                f"-{'spmSample' if vocab.startswith('spm') else 'bpeSample'}{str(alpha).replace('.', '')}",
+                config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
+                model_config={"conv_norm": opts},
+                config_updates={
+                    **_get_cfg_lrlin_oclr_by_bs_nep(15_000, 500),
+                    "optimizer.weight_decay": 1e-2,
+                    "__train_audio_preprocess": speed_pert_librosa_config,
+                    "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
+                },
+                vocab=vocab,
+                train_vocab_opts={
+                    "other_opts": (
+                        {"enable_sampling": True, "alpha": alpha}
+                        if vocab.startswith("spm")
+                        else {"class": "SamplingBytePairEncoding", "breadth_prob": alpha}
+                    )
+                },
+            )
 
 
 # noinspection PyShadowingNames
@@ -126,12 +372,25 @@ def train_exp(
         num_epochs=num_epochs,
         gpu_mem=gpu_mem,
         num_processes=num_processes,
-        distributed_launch_cmd="torchrun" if num_processes else None,
+        distributed_launch_cmd="torchrun" if num_processes else "mpirun",
         time_rqmt=time_rqmt,
     )
-    recog_training_exp(prefix, task, model_with_checkpoint, recog_def=model_recog)
+
+    recog_post_proc_funcs = []
+    if config.get("use_eos_postfix", False):
+        recog_post_proc_funcs.append(_remove_eos_label_v2)
+    recog_training_exp(
+        prefix, task, model_with_checkpoint, recog_def=model_recog, recog_post_proc_funcs=recog_post_proc_funcs
+    )
 
     return model_with_checkpoint
+
+
+def _remove_eos_label_v2(res: RecogOutput) -> RecogOutput:
+    from i6_experiments.users.zeyer.datasets.score_results import RecogOutput
+    from i6_core.returnn.search import SearchRemoveLabelJob
+
+    return RecogOutput(SearchRemoveLabelJob(res.output, remove_label="</s>", output_gzip=True).out_search_results)
 
 
 _sis_prefix: Optional[str] = None
@@ -158,6 +417,9 @@ def ctc_model_def(*, epoch: int, in_dim: Dim, target_dim: Dim) -> Model:
     # real input is raw audio, internally it does logmel
     in_dim = Dim(name="logmel", dimension=_log_mel_feature_dim, kind=Dim.Types.Feature)
 
+    conv_norm = config.typed_value("conv_norm", None)
+    conv_norm: Dict[str, Any] = {"class": "rf.BatchNorm", "use_mask": True} if not conv_norm else conv_norm
+
     return Model(
         in_dim,
         num_enc_layers=num_enc_layers,
@@ -165,7 +427,7 @@ def ctc_model_def(*, epoch: int, in_dim: Dim, target_dim: Dim) -> Model:
         enc_ff_dim=Dim(name="enc-ff", dimension=2048, kind=Dim.Types.Feature),
         enc_att_num_heads=8,
         enc_conformer_layer_opts=dict(
-            conv_norm_opts=dict(use_mask=True),
+            conv_norm=conv_norm,
             self_att_opts=dict(
                 # Shawn et al 2018 style, old RETURNN way.
                 with_bias=False,
@@ -227,6 +489,11 @@ def ctc_training(*, model: Model, data: rf.Tensor, data_spatial_dim: Dim, target
     if data.feature_dim and data.feature_dim.dimension == 1:
         data = rf.squeeze(data, axis=data.feature_dim)
     assert not data.feature_dim  # raw audio
+
+    if config.bool("use_eos_postfix", False):
+        targets, (targets_spatial_dim,) = rf.pad(
+            targets, axes=[targets_spatial_dim], padding=[(0, 1)], value=model.eos_idx
+        )
 
     collected_outputs = {}
     logits, enc_spatial_dim = model(data, in_spatial_dim=data_spatial_dim, collected_outputs=collected_outputs)
@@ -354,17 +621,6 @@ model_recog.output_blank_label = "<blank>"
 model_recog.batch_size_dependent = False  # not totally correct, but we treat it as such...
 
 
-def _gather_backrefs(s, *, backrefs: Tensor):
-    if isinstance(s, Tensor):
-        if backrefs.sparse_dim in s.dims:
-            return rf.gather(s, indices=backrefs)  # really the default case
-        return s  # e.g. scalar or so, independent from beam
-    if isinstance(s, Dim):
-        assert s.dimension or backrefs not in s.dyn_size_ext.dims  # currently not supported, also not expected
-        return s
-    raise TypeError(f"_gather_backrefs: unexpected type ({type(s)})")
-
-
 class Model(rf.Module):
     """Model definition"""
 
@@ -389,6 +645,7 @@ class Model(rf.Module):
     ):
         super(Model, self).__init__()
 
+        import numpy
         from returnn.config import get_global_config
 
         config = get_global_config(return_empty_if_none=True)
@@ -444,6 +701,24 @@ class Model(rf.Module):
                 vocab_labels, user_defined_symbols={model_recog.output_blank_label: blank_idx}
             )
 
+        self.feature_batch_norm = None
+        if config.bool("feature_batch_norm", False):
+            self.feature_batch_norm = rf.BatchNorm(self.in_dim, affine=False, use_mask=True)
+        self.feature_norm = config.bool("feature_norm", False)
+        self.feature_stats = None
+        feature_stats = config.typed_value("feature_stats")
+        if feature_stats:
+            assert isinstance(feature_stats, dict)
+            self.feature_stats = rf.ParameterList(
+                {
+                    k: rf.Parameter(
+                        rf.convert_to_tensor(numpy.loadtxt(v), dims=[self.in_dim], dtype=rf.get_default_float_dtype()),
+                        auxiliary=True,
+                    )
+                    for k, v in feature_stats.items()
+                }
+            )
+
         self._specaugment_opts = {
             "steps": config.typed_value("specaugment_steps") or (0, 1000, 2000),
             "max_consecutive_spatial_dims": config.typed_value("specaugment_max_consecutive_spatial_dims") or 20,
@@ -473,6 +748,12 @@ class Model(rf.Module):
             out_dim=self.in_dim,
             sampling_rate=16_000,
         )
+        if self.feature_batch_norm:
+            source = self.feature_batch_norm(source)
+        if self.feature_norm:
+            source = rf.normalize(source, axis=in_spatial_dim)
+        if self.feature_stats:
+            source = (source - self.feature_stats.mean) / self.feature_stats.std_dev
         if self._mixup:
             source = self._mixup(source, spatial_dim=in_spatial_dim)
         # SpecAugment

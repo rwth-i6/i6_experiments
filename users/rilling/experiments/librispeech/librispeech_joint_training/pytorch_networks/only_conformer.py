@@ -56,9 +56,6 @@ from .shared.forward import (
     # search_init_hook,
     search_step,
     search_finish_hook,
-    prior_init_hook,
-    prior_finish_hook,
-    prior_step,
 )
 
 from IPython import embed
@@ -277,4 +274,39 @@ def search_init_hook(run_ctx, **kwargs):
         run_ctx.prior_scale = kwargs["prior_scale"]
     else:
         run_ctx.prior = None
+
+
+def prior_init_hook(run_ctx, **kwargs):
+    # we are storing durations, but call it output.hdf to match
+    # the default output of the ReturnnForwardJob
+    run_ctx.sum_probs = None
+    run_ctx.sum_frames = 0
+
+
+def prior_finish_hook(run_ctx, **kwargs):
+    all_frames = run_ctx.sum_frames.detach().cpu().numpy()
+    all_probs = run_ctx.sum_probs.detach().cpu().numpy()
+    average_probs = all_probs / all_frames
+    log_average_probs = np.log(average_probs)
+    print("Prior sum in std-space (should be close to 1.0):", np.sum(average_probs))
+    with open("prior.txt", 'w') as f:
+        np.savetxt(f, log_average_probs, delimiter=' ')
+    print("Saved prior in prior.txt in +log space.")
+
+
+def prior_step(*, model, data, run_ctx, **kwargs):
+    raw_audio = data["audio_features"]  # [B, T', F]
+    raw_audio_len = data["audio_features:size1"]  # [B]
+
+    logprobs, audio_features_len = model(
+        raw_audio=raw_audio,
+        raw_audio_len=raw_audio_len,
+    )
+
+    probs = torch.exp(logprobs)
+    run_ctx.sum_frames = run_ctx.sum_frames + torch.sum(audio_features_len)
+    if run_ctx.sum_probs is None:
+        run_ctx.sum_probs = torch.sum(probs, dim=(0, 1))
+    else:
+        run_ctx.sum_probs += torch.sum(probs, dim=(0, 1))
 

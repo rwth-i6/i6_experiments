@@ -1,5 +1,4 @@
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.labels.v2.general import SegmentalLabelDefinition
-from i6_experiments.users.schmitt.augmentation.alignment import shift_alignment_boundaries_func_str
 from i6_experiments.users.schmitt.chunking import custom_chunkin_func_str, custom_chunkin_w_reduction_func_str
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.returnn.network_builder import network_builder
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.returnn.network_builder.lm import lm_irie, lstm_bpe_10k
@@ -120,6 +119,15 @@ class SegmentalConfigBuilder(ConfigBuilder, ABC):
         lm_embedding_layer_name=lm_embedding_layer_name
       )
 
+    ctc_shallow_fusion_opts = opts.get("ctc_shallow_fusion_opts", None)
+    if ctc_shallow_fusion_opts is not None:
+      network_builder.add_ctc_shallow_fusion(
+        network=recog_config.config["network"],
+        rec_layer_name="output",
+        ctc_scale=ctc_shallow_fusion_opts["ctc_scale"],
+        target_num_labels_w_blank=self.dependencies.model_hyperparameters.target_num_labels,
+      )
+
     return recog_config
 
   def get_compile_tf_graph_config(self, opts: Dict):
@@ -133,11 +141,20 @@ class SegmentalConfigBuilder(ConfigBuilder, ABC):
       if type(net_dict[item]) == dict and item != "output":
         self.edit_network_only_train_length_model(net_dict[item])
 
-  def edit_network_modify_decoder(self, version: int, net_dict: Dict, train: bool, target_num_labels: int):
+  def edit_network_modify_decoder(
+          self,
+          version: int,
+          net_dict: Dict,
+          train: bool,
+          target_num_labels: int,
+          python_prolog: Optional[List] = None
+  ):
     if train:
-      network_builder.modify_decoder(version, net_dict, "label_model", target_num_labels, False, train)
+      network_builder.modify_decoder(
+        version, net_dict, "label_model", target_num_labels, False, train, python_prolog)
     else:
-      network_builder.modify_decoder(version, net_dict, "output", target_num_labels, True, train)
+      network_builder.modify_decoder(
+        version, net_dict, "output", target_num_labels, True, train, python_prolog)
 
   def get_dump_scores_config(self, corpus_key: str, opts: Dict):
     returnn_config = self.get_eval_config(eval_corpus_key=corpus_key, opts=opts)
@@ -326,28 +343,6 @@ class SegmentalConfigBuilder(ConfigBuilder, ABC):
     forward_recog_config.config["network"]["output_wo_b"]["from"] = "output_w_beam"
 
     return forward_recog_config
-
-  def add_align_augment(self, net_dict, networks_dict, python_prolog):
-    python_prolog.append(shift_alignment_boundaries_func_str.format(
-      blank_idx=self.dependencies.model_hyperparameters.blank_idx,
-      max_shift=2
-    ))
-
-    def _add_align_augment_layer(network_dict):
-      network_dict.update({
-        "existing_alignment0": copy.deepcopy(network_dict["existing_alignment"]),
-        "existing_alignment": {
-          "class": "eval",
-          "from": "existing_alignment0",
-          "eval": "self.network.get_config().typed_value('shift_alignment_boundaries')(source(0, as_data=True), network=self.network)"
-        }
-      })
-
-    if net_dict is not None:
-      _add_align_augment_layer(net_dict)
-    if networks_dict is not None:
-      for net_dict in networks_dict:
-        _add_align_augment_layer(net_dict)
 
   @staticmethod
   def get_att_t_dim_tag_code_wrapper():

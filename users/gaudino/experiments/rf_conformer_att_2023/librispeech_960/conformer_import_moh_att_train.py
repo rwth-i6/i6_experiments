@@ -102,7 +102,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
     # RF recog: {"dev-clean": 2.25, "dev-other": 5.34, "test-clean": 2.42, "test-other": 5.56}
     # _recog_imported()
 
-    train_exp("from-scratch-train", config_11gb, gpu_mem=11)
+    # train_exp("from-scratch-train", config_11gb, gpu_mem=11)
 
     # train_exp(  # dev-other 7.6
     #     "base-24gb-bs30k-f32",
@@ -323,8 +323,35 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
     #     # OOM in ep 889
     #     post_config_updates={"PYTORCH_CUDA_ALLOC_CONF": "backend:cudaMallocAsync"},
     # )
-    model = train_exp(  # 5.41
-        "base-24gb-v6-lrlin1e_5_600k",
+
+
+    # model = train_exp(  # 5.41
+    #     "base-24gb-v6-lrlin1e_5_600k",
+    #     config_24gb_v6,
+    #     config_updates={
+    #         "learning_rate": 1.0,
+    #         "dynamic_learning_rate": dyn_lr_piecewise_linear,
+    #         # total steps after 2000 epochs: 982.312
+    #         "learning_rate_piecewise_steps": [600_000, 900_000, 982_000],
+    #         "learning_rate_piecewise_values": [1e-5, 1e-3, 1e-5, 1e-6],
+    #     },
+    # )
+    # model = train_exp( # 5.42
+    #     "base-24gb-v6-lrlin1e_5_600k_noCTC",
+    #     config_24gb_v6,
+    #     config_updates={
+    #         "learning_rate": 1.0,
+    #         "dynamic_learning_rate": dyn_lr_piecewise_linear,
+    #         # total steps after 2000 epochs: 982.312
+    #         "learning_rate_piecewise_steps": [600_000, 900_000, 982_000],
+    #         "learning_rate_piecewise_values": [1e-5, 1e-3, 1e-5, 1e-6],
+    #         "aux_loss_layers": [],
+    #     },
+    # )
+
+    # train with bpe5k vocab
+    model = train_exp(
+        "base-24gb-v6-lrlin1e_5_600k-bpe5k",
         config_24gb_v6,
         config_updates={
             "learning_rate": 1.0,
@@ -332,8 +359,25 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
             # total steps after 2000 epochs: 982.312
             "learning_rate_piecewise_steps": [600_000, 900_000, 982_000],
             "learning_rate_piecewise_values": [1e-5, 1e-3, 1e-5, 1e-6],
+            "bpe_size": "BPE5k",
         },
+        bpe_size="BPE5k",
     )
+    model = train_exp(
+        "base-24gb-v6-lrlin1e_5_600k_noCTC-bpe5k",
+        config_24gb_v6,
+        config_updates={
+            "learning_rate": 1.0,
+            "dynamic_learning_rate": dyn_lr_piecewise_linear,
+            # total steps after 2000 epochs: 982.312
+            "learning_rate_piecewise_steps": [600_000, 900_000, 982_000],
+            "learning_rate_piecewise_values": [1e-5, 1e-3, 1e-5, 1e-6],
+            "aux_loss_layers": [],
+            "bpe_size": "BPE5k",
+        },
+        bpe_size="BPE5k",
+    )
+
     # All beam search experiments using model_recog_pure_torch, beam_search_sep_ended_keep_v6.
     # for name, recog_config in {
     #     "beam12-batch200-lenReward01": {
@@ -1015,6 +1059,7 @@ def train_exp(
     fine_tune: Optional[Union[int, List[Tuple[int, Dict[str, Any]]]]] = None,
     time_rqmt: Optional[int] = None,
     model_avg: bool = False,
+    bpe_size: str = "BPE10k",
 ) -> ModelWithCheckpoints:
     """
     Train experiment
@@ -1022,13 +1067,13 @@ def train_exp(
     from i6_experiments.users.gaudino.experiments.rf_conformer_att_2023.train import (
         train,
     )
-    from i6_experiments.users.zeyer.recog import recog_training_exp
+    from i6_experiments.users.gaudino.recog_2 import recog_training_exp
 
     if _sis_prefix is None:
         _sis_setup_global_prefix()
 
     prefix = _sis_prefix + "/" + name
-    task = _get_ls_task()
+    task = _get_ls_task(bpe_size)
     config = config.copy()
     config = dict_update_deep(config, config_updates, config_deletes)
     if "__num_epochs" in config:
@@ -1115,16 +1160,21 @@ def train_exp(
 _ls_task = None
 
 
-def _get_ls_task():
+def _get_ls_task(bpe_size):
     global _ls_task
     if _ls_task:
         return _ls_task
 
-    from i6_experiments.users.zeyer.datasets.librispeech import (
-        get_librispeech_task_bpe10k_raw,
+    from i6_experiments.users.gaudino.datasets.librispeech import (
+        get_librispeech_task_bpe10k_raw, get_librispeech_task_bpe5k_raw
     )
 
-    _ls_task = get_librispeech_task_bpe10k_raw(with_eos_postfix=True)
+    if bpe_size == "BPE10k":
+        _ls_task = get_librispeech_task_bpe10k_raw(with_eos_postfix=True)
+
+    if bpe_size == "BPE5k":
+        _ls_task = get_librispeech_task_bpe5k_raw(with_eos_postfix=True)
+
     return _ls_task
 
 

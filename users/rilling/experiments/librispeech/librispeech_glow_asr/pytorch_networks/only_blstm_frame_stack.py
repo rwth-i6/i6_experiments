@@ -31,7 +31,7 @@ from .shared import commons
 from .shared import attentions
 from .monotonic_align import maximum_path
 
-from .shared.forward import forward_init_hook, forward_step, forward_finish_hook
+from .shared.forward import forward_init_hook, forward_step, forward_finish_hook, prior_init_hook, prior_finish_hook, prior_step
 from .shared.train import train_step
 
 from IPython import embed

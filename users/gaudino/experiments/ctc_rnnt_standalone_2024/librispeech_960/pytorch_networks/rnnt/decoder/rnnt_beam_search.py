@@ -77,6 +77,7 @@ class ModifiedRNNTBeamSearch(RNNTBeamSearch):
         Returns:
             List[Hypothesis]: top-``beam_width`` hypotheses found by beam search.
         """
+
         if input.dim() != 3:
             raise ValueError("input must be of shape (B, T, D)")
 

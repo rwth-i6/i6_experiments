@@ -66,9 +66,9 @@ def run_exp(**kwargs) -> Tuple[Dict[str, Any], SummaryReport]:
         train_keys=[train_key],
         dev_keys=[dev_key],
         test_keys=[test_key],
-        align_keys=[train_key, dev_key, speechsource_train_key, speechsource_dev_key]
-        if kwargs.get("align", False)
-        else [],
+        align_keys=(
+            [train_key, dev_key, speechsource_train_key, speechsource_dev_key] if kwargs.get("align", False) else []
+        ),
         freq=frequency,
         lm_name="64k_3gram",
         recog_lex_name="nab-64k",

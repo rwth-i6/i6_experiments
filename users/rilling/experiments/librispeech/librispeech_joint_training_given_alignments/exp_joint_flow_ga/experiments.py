@@ -38,11 +38,8 @@ from ..storage import tts_models
 
 def get_glow_joint_flow_ga(x_vector_exp, joint_exps, tts_exps, gl_checkpoint):
     """
-    Baseline for the glow TTS in returnn_common with serialization
-
-    Uses updated RETURNN_COMMON
-
-    :return: durations_hdf
+    Experiments training Glow-TTS with an additional auxiliary loss using a simple model for phoneme reconstruction (FFN or CNN).
+    Other than the models in ../exp_joint these models also use the given external alignment for the Glow-TTS training so MAS/Viterbi is completely omitted
     """
 
     prefix = "experiments/librispeech/joint_training/given_alignments/raw_audio/joint_models/flow_given_alignment/"
@@ -59,33 +56,38 @@ def get_glow_joint_flow_ga(x_vector_exp, joint_exps, tts_exps, gl_checkpoint):
         forward_args={},
         search_args={},
         keep_epochs=None,
-        extract_x_vector=False,
-        tts_forward=True,
-        asr_search=True,
         phoneme_pred=True,
         encoder_phoneme_pred=False,
-        asr_cv_set=False,
-        given_train_job_for_forward=None,
         eval_invertibility=False,
         tts_eval_datasets=None,
     ):
+        """Creates the jobs for training, TTS generation/forwarding and phoneme prediction evaluation
+
+        :param str name: Name of the experiment used for alias
+        :param dict args: General arguments used for Returnn config generation
+        :param TrainingDataset dataset: Dataset used for training
+        :param dict test_dataset: Dictionary containing datasets used for phoneme prediction evaluation
+        :param int num_epochs: Number of epochs for training, defaults to 100
+        :param bool use_custom_engine: whether a custom engine should be used in Returnn, defaults to False
+        :param dict training_args: Additional arguments passed to the training config and the train steps, defaults to {}
+        :param dict forward_args: Additional arguments passed to the TTS forward config and forward steps, defaults to {}
+        :param dict search_args: Additional arguments passed to the phoneme prediction and respective steps, defaults to {}
+        :param list[int] keep_epochs: List containing the number of checkpoints that are not supposed to be deleted during training, defaults to None
+        :param bool phoneme_pred: whether phoneme prediction using the inverse decoder output should be run and evaluated, uses test_dataset for evaluation, defaults to True
+        :param bool encoder_phoneme_pred: whether phoneme prediction using the encoder output should be run, uses test_dataset for evaluation, defaults to False
+        :param bool eval_invertibility: whether invertibility of the models coupling blocks should be run, defaults to False
+        :param dict tts_eval_datasets: Dictionary of datasets to be used for TTS evaluation (autoMOS, NISQA), defaults to None
+        :return dict: Dictionary containing all the jobs created for
+        """
         exp = {}
 
-        if given_train_job_for_forward is None:
-            training_config = get_training_config(
-                training_datasets=dataset,
-                **args,
-                training_args=training_args,
-                use_custom_engine=use_custom_engine,
-                keep_epochs=keep_epochs,
-                asr_cv_set=asr_cv_set,
-            )  # implicit reconstruction loss
-
-        if asr_search or phoneme_pred:
-            search_config = get_search_config(
-                **args,
-                search_args=search_args,
-            )
+        training_config = get_training_config(
+            training_datasets=dataset,
+            **args,
+            training_args=training_args,
+            use_custom_engine=use_custom_engine,
+            keep_epochs=keep_epochs,
+        ) 
 
         if phoneme_pred:
             phoneme_pred_config = get_search_config(
@@ -102,65 +104,40 @@ def get_glow_joint_flow_ga(x_vector_exp, joint_exps, tts_exps, gl_checkpoint):
         if encoder_phoneme_pred:
             encoder_phoneme_pred_config = get_search_config(**args, search_args=search_args, target="encoder_phoneme")
 
-        if given_train_job_for_forward is None:
-            train_job = training(
-                config=training_config,
-                returnn_exe=RETURNN_PYTORCH_EXE,
-                returnn_root=MINI_RETURNN_ROOT,
-                prefix=prefix + name,
-                num_epochs=num_epochs,
-            )
-        else: 
-            train_job = given_train_job_for_forward
+        train_job = training(
+            config=training_config,
+            returnn_exe=RETURNN_PYTORCH_EXE,
+            returnn_root=MINI_RETURNN_ROOT,
+            prefix=prefix + name,
+            num_epochs=num_epochs,
+        )
+
         exp["train_job"] = train_job
 
-        if tts_forward:
-            for ds_k, ds in tts_eval_datasets.items():
-                forward_config_gl = get_forward_config(
-                    forward_dataset=ds,
-                    **{**args, **{"config": {"batch_size": 50 * 16000}}},
-                    forward_args={
-                        **forward_args,
-                        "gl_net_checkpoint": gl_checkpoint["checkpoint"],
-                        "gl_net_config": gl_checkpoint["config"],
-                    },
-                    target="corpus_gl",
-                )
-                forward_job_gl = tts_eval(
-                    checkpoint=train_job.out_checkpoints[num_epochs],
-                    prefix_name=prefix + name,
-                    returnn_config=forward_config_gl,
-                    returnn_exe=RETURNN_PYTORCH_EXE,
-                    returnn_exe_asr=RETURNN_PYTORCH_ASR_SEARCH_EXE,
-                    returnn_root=MINI_RETURNN_ROOT,
-                    vocoder="gl",
-                    nisqa_eval=True, 
-                    swer_eval=True,
-                    swer_eval_corpus_key=ds_k
-                )
-
-        if extract_x_vector:
-            forward_x_vector_config = get_forward_config(
-                forward_dataset=dataset, **args, forward_args=forward_args, target="xvector", train_data=True
+        for ds_k, ds in tts_eval_datasets.items():
+            forward_config_gl = get_forward_config(
+                forward_dataset=ds,
+                **{**args, **{"config": {"batch_size": 50 * 16000}}},
+                forward_args={
+                    **forward_args,
+                    "gl_net_checkpoint": gl_checkpoint["checkpoint"],
+                    "gl_net_config": gl_checkpoint["config"],
+                },
+                target="corpus_gl",
             )
-            forward_xvector_job = forward(
+            forward_job_gl = tts_eval(
                 checkpoint=train_job.out_checkpoints[num_epochs],
-                config=forward_x_vector_config,
+                prefix_name=prefix + name,
+                returnn_config=forward_config_gl,
                 returnn_exe=RETURNN_PYTORCH_EXE,
+                returnn_exe_asr=RETURNN_PYTORCH_ASR_SEARCH_EXE,
                 returnn_root=MINI_RETURNN_ROOT,
-                prefix=prefix + name,
-                target="xvector",
+                vocoder="gl",
+                nisqa_eval=True, 
+                swer_eval=True,
+                swer_eval_corpus_key=ds_k
             )
-            exp["forward_xvector_job"] = forward_xvector_job
-        if asr_search:
-            search(
-                prefix + name + "/search",
-                search_config,
-                train_job.out_checkpoints[num_epochs],
-                test_dataset,
-                RETURNN_PYTORCH_EXE,
-                MINI_RETURNN_ROOT,
-            )
+
         if phoneme_pred:
             compute_phoneme_pred_accuracy(
                 prefix + name,
@@ -192,8 +169,6 @@ def get_glow_joint_flow_ga(x_vector_exp, joint_exps, tts_exps, gl_checkpoint):
                 target="invertibility",
             )
             exp["invertibility_job"] = forward_job
-        # if "ce_loss_scale" in training_args and training_args["ce_loss_scale"] == 0.01:
-        #     breakpoint()
         return exp
 
     glowTTS_durations_job = tts_exps["glowTTS/enc192/200ep/long_cooldown/not_silence_preprocessed"]["forward_job_joint_durations"]
@@ -296,30 +271,6 @@ def get_glow_joint_flow_ga(x_vector_exp, joint_exps, tts_exps, gl_checkpoint):
             get_bliss_corpus_dict()["train-clean-100"],
         )
 
-    specaug_config = SpecaugConfig(
-        repeat_per_n_frames=100,
-        max_dim_time=20,
-        max_dim_feat=8,
-        num_repeat_feat=5,
-    )
-    frontend_config = VGG4LayerActFrontendV1Config_mod(
-        in_features=80,
-        conv1_channels=16,
-        conv2_channels=16,
-        conv3_channels=16,
-        conv4_channels=16,
-        conv_kernel_size=(3, 3),
-        conv_padding=None,
-        pool1_kernel_size=(2, 1),
-        pool1_stride=(2, 1),
-        pool1_padding=None,
-        pool2_kernel_size=(2, 1),
-        pool2_stride=(2, 1),
-        pool2_padding=None,
-        activation_str="ReLU",
-        out_features=96,
-        activation=None,
-    )
     text_encoder_config = TextEncoderConfig(
         n_vocab=label_datastream_tts.vocab_size,
         hidden_channels=192,
@@ -428,7 +379,6 @@ def get_glow_joint_flow_ga(x_vector_exp, joint_exps, tts_exps, gl_checkpoint):
         training_args={"ce_loss_scale": 0.1},
         search_args=default_search_args,
         tts_eval_datasets=tts_forward_datasets_xvectors,
-        asr_search=False,
         encoder_phoneme_pred=True,
     )
 
@@ -442,7 +392,6 @@ def get_glow_joint_flow_ga(x_vector_exp, joint_exps, tts_exps, gl_checkpoint):
         training_args={"ce_loss_scale": 0.1},
         search_args=default_search_args,
         tts_eval_datasets=tts_forward_datasets_xvectors,
-        asr_search=False,
         encoder_phoneme_pred=True,
     )
 
@@ -460,7 +409,6 @@ def get_glow_joint_flow_ga(x_vector_exp, joint_exps, tts_exps, gl_checkpoint):
         training_args={"ce_loss_scale": 0.1},
         search_args=default_search_args,
         tts_eval_datasets=tts_forward_datasets_xvectors,
-        asr_search=False,
         encoder_phoneme_pred=True,
     )
 
@@ -474,7 +422,6 @@ def get_glow_joint_flow_ga(x_vector_exp, joint_exps, tts_exps, gl_checkpoint):
         training_args={"ce_loss_scale": 0.1},
         search_args=default_search_args,
         tts_eval_datasets=tts_forward_datasets_xvectors,
-        asr_search=False,
         encoder_phoneme_pred=True,
     )
 
@@ -488,7 +435,6 @@ def get_glow_joint_flow_ga(x_vector_exp, joint_exps, tts_exps, gl_checkpoint):
         training_args={"ce_loss_scale": 1.0},
         search_args=default_search_args,
         tts_eval_datasets=tts_forward_datasets_xvectors,
-        asr_search=False,
         encoder_phoneme_pred=True,
     )
 
@@ -502,7 +448,6 @@ def get_glow_joint_flow_ga(x_vector_exp, joint_exps, tts_exps, gl_checkpoint):
         training_args={"ce_loss_scale": 1.0},
         search_args=default_search_args,
         tts_eval_datasets=tts_forward_datasets_xvectors,
-        asr_search=False,
         encoder_phoneme_pred=True,
     )
 
@@ -537,7 +482,6 @@ def get_glow_joint_flow_ga(x_vector_exp, joint_exps, tts_exps, gl_checkpoint):
         training_args={"ce_loss_scale": 0.1},
         search_args=default_search_args,
         tts_eval_datasets=tts_forward_datasets_xvectors,
-        asr_search=False,
     )
 
     exp_dict = run_exp(
@@ -550,7 +494,6 @@ def get_glow_joint_flow_ga(x_vector_exp, joint_exps, tts_exps, gl_checkpoint):
         training_args={"ce_loss_scale": 0.1},
         search_args=default_search_args,
         tts_eval_datasets=tts_forward_datasets_xvectors,
-        asr_search=False,
     )
 
     net_module = "ga_glowTTS_ASR_cnn_x_vector_v2"
@@ -566,7 +509,6 @@ def get_glow_joint_flow_ga(x_vector_exp, joint_exps, tts_exps, gl_checkpoint):
         training_args={"ce_loss_scale": 0.1},
         search_args=default_search_args,
         tts_eval_datasets=tts_forward_datasets_xvectors,
-        asr_search=False,
         encoder_phoneme_pred=True,
     )
 
@@ -580,7 +522,6 @@ def get_glow_joint_flow_ga(x_vector_exp, joint_exps, tts_exps, gl_checkpoint):
         training_args={"ce_loss_scale": 0.1},
         search_args=default_search_args,
         tts_eval_datasets=tts_forward_datasets_xvectors,
-        asr_search=False,
         encoder_phoneme_pred=True,
     )
 
@@ -594,7 +535,6 @@ def get_glow_joint_flow_ga(x_vector_exp, joint_exps, tts_exps, gl_checkpoint):
         training_args={"ce_loss_scale": 0.01},
         search_args=default_search_args,
         tts_eval_datasets=tts_forward_datasets_xvectors,
-        asr_search=False,
         encoder_phoneme_pred=True,
     )
 
@@ -608,6 +548,5 @@ def get_glow_joint_flow_ga(x_vector_exp, joint_exps, tts_exps, gl_checkpoint):
         training_args={"ce_loss_scale": 0.01},
         search_args=default_search_args,
         tts_eval_datasets=tts_forward_datasets_xvectors,
-        asr_search=False,
         encoder_phoneme_pred=True,
     )

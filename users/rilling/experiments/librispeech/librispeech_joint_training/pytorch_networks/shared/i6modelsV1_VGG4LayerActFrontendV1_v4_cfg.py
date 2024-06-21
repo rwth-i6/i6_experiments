@@ -130,5 +130,28 @@ class ModelConfig():
         d["decoder_config"] = FlowDecoderConfig.from_dict(d["decoder_config"])
         d["text_encoder_config"] = TextEncoderConfig.from_dict(d["text_encoder_config"])
         return ModelConfig(**d)
+    
+@dataclass
+class ModelConfigV2():
+    specaug_config: Union[SpecaugConfig, None]
+    decoder_config: FlowDecoderConfig
+    text_encoder_config: TextEncoderConfig
+    specauc_start_epoch: int
+    label_target_size: int
+    subsampling_factor: int
+    blstm_layers: int
+    blstm_hidden_dim: int
+    blstm_dropout: float
+    out_channels: int
+    gin_channels: int
+    n_speakers: Union[tk.Variable, int]
+    
+    @classmethod
+    def from_dict(cls, d):
+        d = d.copy()
+        d["specaug_config"] = SpecaugConfig.from_dict(d["specaug_config"])
+        d["decoder_config"] = FlowDecoderConfig.from_dict(d["decoder_config"])
+        d["text_encoder_config"] = TextEncoderConfig.from_dict(d["text_encoder_config"])
+        return ModelConfigV2(**d)
 
 

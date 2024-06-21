@@ -91,6 +91,7 @@ def get_feature_extraction_args_16kHz(
     gt_args: Optional[Dict] = None,
 ) -> Dict:
     mfcc_filter_width = features.filter_width_from_channels(channels=20, f_max=8000)  # = 16000 / 2
+    filterbank_filter_width = features.filter_width_from_channels(channels=80, f_max=8000)  # = 16000 / 2
 
     if mfcc_cepstrum_options is None:
         mfcc_cepstrum_options = {
@@ -141,6 +142,30 @@ def get_feature_extraction_args_16kHz(
                 },
                 "normalization_options": {},
             }
+        },
+        "filterbank": {
+            "filterbank_options": {
+                "warping_function": "mel",
+                "filter_width": filterbank_filter_width,
+                "normalize": False,
+                "normalization_options": {},
+                "without_samples": False,
+                "samples_options": {
+                    "audio_format": "wav",
+                    # "scale_input": 2**-15,
+                    "dc_detection": dc_detection,
+                },
+                "fft_options": {
+                    "preemphasis": 0.97,
+                    "window_type": "hanning",
+                    "window_shift": 0.01,
+                    "window_length": 0.025,
+                },
+                "apply_log": True,
+                "add_epsilon": True,
+                "add_features_output": True,
+                # "warp_differential_unit": False,
+            },
         },
         "energy": {
             "energy_options": {

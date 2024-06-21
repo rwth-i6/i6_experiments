@@ -25,7 +25,7 @@ class OptunaLegacyAlignmentFunctor(
         num_inputs: int,
         num_classes: int,
         epoch: types.EpochType,
-        trial_num: types.TrialType = "best",
+        trial_num: int,
         prior_scale: float = 0,
         prior_args: Dict = {},
         feature_type: dataclasses.FeatureType = dataclasses.FeatureType.SAMPLES,
@@ -78,10 +78,7 @@ class OptunaLegacyAlignmentFunctor(
         )
 
         exp_full = f"align_e-{self._get_epoch_string(epoch)}_prior-{prior_scale:02.2f}"
-        if trial_num is None:
-            path = f"nn_align/{align_corpus.name}/{train_job.name}/{exp_full}"
-        else:
-            path = f"nn_align/{align_corpus.name}/{train_job.name}/trial-{trial_num:03d}/{exp_full}"
+        path = f"nn_align/{align_corpus.name}/{train_job.name}/trial-{trial_num:03d}/{exp_full}"
 
         align.set_vis_name(f"Alignment {path}")
         align.add_alias(path)

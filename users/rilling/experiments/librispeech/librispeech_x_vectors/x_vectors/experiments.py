@@ -14,13 +14,10 @@ from ..storage import add_x_vector_extraction
 
 
 def get_pytorch_xvector():
-    """
-    Baseline for the glow TTS in returnn_common with serialization
+    """Contains experiments training x-vector TDNN models, which can for example be used for Glow-TTS with x-vector embeddings
 
-    Uses updated RETURNN_COMMON
-
-    :return: durations_hdf
-    """
+    :return dict: Dictionary containing the experiments used by some Glow-TTS experiments to load the x-vector model parameters from the training jobs checkpoint (should be done using storage instead)
+    """    
 
     prefix = "experiments/librispeech/x_vector/"
 

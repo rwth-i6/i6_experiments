@@ -14,6 +14,7 @@ from __future__ import annotations
 import copy
 import functools
 from typing import TYPE_CHECKING, Optional, Union, Tuple, Sequence
+import numpy
 import tree
 
 from returnn.tensor import Tensor, Dim, single_step_dim
@@ -68,23 +69,17 @@ def py():
             },
         )
 
-    train_exp(  # 5.16
-        "v6-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-speedpertV2-spm10k",
-        config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
-        config_updates={
-            **_get_cfg_lrlin_oclr_by_bs_nep(15_000, 500),
-            "optimizer.weight_decay": 1e-2,
-            "__train_audio_preprocess": speed_pert_librosa_config,
-            "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
-        },
-        vocab="spm10k",
-    )
-
-    # alpha=0.1 seems too aggressive for AED, bad convergence
-    for alpha in [0.3, 0.5, 0.7]:
-        train_exp(
-            f"v6-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-speedpertV2-spm10k"
-            f"-spmSample{str(alpha).replace('.', '')}",
+    # Comparing vocabs.
+    for vocab in [
+        "spm20k",  # 5.14 (but test-other is 6.18!)
+        "bpe10k",  # 5.32
+        "spm10k",  # 5.16
+        "spm_bpe10k",  # 5.21
+        "spm4k",
+        "spm1k",
+    ]:
+        train_exp(  # 5.16
+            f"v6-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-speedpertV2-{vocab}",
             config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
             config_updates={
                 **_get_cfg_lrlin_oclr_by_bs_nep(15_000, 500),
@@ -92,8 +87,81 @@ def py():
                 "__train_audio_preprocess": speed_pert_librosa_config,
                 "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
             },
-            vocab="spm10k",
-            train_vocab_opts={"other_opts": {"enable_sampling": True, "alpha": alpha}},
+            vocab=vocab,
+        )
+
+    # Comparing vocabs with better settings: feature norm, sampling, no max seq len.
+    for vocab, alpha in [
+        # ("spm20k", 0.7),
+        ("bpe10k", 0.01),
+        ("spm10k", 0.7),
+        # ("spm_bpe10k", ...),  # unclear what sampling scheme...
+        # ("spm4k", 0.7),
+        # ("spm1k", 0.7),
+        # ("spm_bpe1k", ...)
+    ]:
+        train_exp(  # 5.16
+            f"v6-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-maxSeqLenNone"
+            f"-wd1e_2-lrlin1e_5_295k-featBN-speedpertV2-{vocab}"
+            f"-{'spmSample' if vocab.startswith('spm') else 'bpeSample'}{str(alpha).replace('.', '')}",
+            config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
+            model_config={"feature_batch_norm": True},
+            config_updates={
+                **_get_cfg_lrlin_oclr_by_bs_nep(15_000, 500),
+                "optimizer.weight_decay": 1e-2,
+                "__train_audio_preprocess": speed_pert_librosa_config,
+                "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
+                "max_seq_length_default_target": None,
+            },
+            vocab=vocab,
+            train_vocab_opts={
+                "other_opts": (
+                    {"enable_sampling": True, "alpha": alpha}
+                    if vocab.startswith("spm")
+                    else {"class": "SamplingBytePairEncoding", "breadth_prob": alpha}
+                )
+            },
+        )
+
+    # Sampling.
+    for vocab, alpha in [
+        # Testing sampling in SPM.
+        # The lower the alpha, the more aggressive the sampling.
+        # See archive/returnn-spm10-sample.config for playing around with alpha and checking avg seq len.
+        # spm10k without sampling: 5.24 dev-other
+        ("spm10k", 1.0),  # 5.35. sanity check, should be like baseline (5.16), could be attributed to randomness?
+        ("spm10k", 0.9),  # 5.18
+        ("spm10k", 0.8),  # 5.14
+        ("spm10k", 0.7),  # 4.98 (!!)
+        ("spm10k", 0.6),  # 5.13
+        ("spm10k", 0.5),  # 5.13
+        ("spm10k", 0.3),  # 5.26
+        # spm10k, alpha=0.1: seems too aggressive for AED, bad convergence
+        # alpha for BPE is again a bit different, but more similar to SPM-BPE than SPM-Unigram.
+        # See archive/returnn-bpe10-sample.config.
+        # The higher the alpha, the longer the sequence, i.e. the more aggressive the sampling.
+        # bpe10k without sampling: 5.32
+        ("bpe10k", 0.01),  # 5.25
+        ("bpe10k", 0.02),
+    ]:
+        train_exp(
+            f"v6-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-speedpertV2-{vocab}"
+            f"-{'spmSample' if vocab.startswith('spm') else 'bpeSample'}{str(alpha).replace('.', '')}",
+            config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
+            config_updates={
+                **_get_cfg_lrlin_oclr_by_bs_nep(15_000, 500),
+                "optimizer.weight_decay": 1e-2,
+                "__train_audio_preprocess": speed_pert_librosa_config,
+                "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
+            },
+            vocab=vocab,
+            train_vocab_opts={
+                "other_opts": (
+                    {"enable_sampling": True, "alpha": alpha}
+                    if vocab.startswith("spm")
+                    else {"class": "SamplingBytePairEncoding", "breadth_prob": alpha}
+                )
+            },
         )
 
 
@@ -156,7 +224,7 @@ def train_exp(
         num_epochs=num_epochs,
         gpu_mem=gpu_mem,
         num_processes=num_processes,
-        distributed_launch_cmd="torchrun" if num_processes else None,
+        distributed_launch_cmd="torchrun" if num_processes else "mpirun",
         time_rqmt=time_rqmt,
     )
     recog_training_exp(prefix, task, model_with_checkpoint, recog_def=model_recog)
@@ -534,6 +602,24 @@ class Model(rf.Module):
         for i in enc_aux_logits:
             setattr(self, f"enc_aux_logits_{i}", rf.Linear(self.encoder.out_dim, wb_target_dim))
 
+        self.feature_batch_norm = None
+        if config.bool("feature_batch_norm", False):
+            self.feature_batch_norm = rf.BatchNorm(self.in_dim, affine=False, use_mask=True)
+        self.feature_norm = config.bool("feature_norm", False)
+        self.feature_stats = None
+        feature_stats = config.typed_value("feature_stats")
+        if feature_stats:
+            assert isinstance(feature_stats, dict)
+            self.feature_stats = rf.ParameterList(
+                {
+                    k: rf.Parameter(
+                        rf.convert_to_tensor(numpy.loadtxt(v), dims=[self.in_dim], dtype=rf.get_default_float_dtype()),
+                        auxiliary=True,
+                    )
+                    for k, v in feature_stats.items()
+                }
+            )
+
         self._specaugment_opts = {
             "steps": config.typed_value("specaugment_steps") or (0, 1000, 2000),
             "max_consecutive_spatial_dims": config.typed_value("specaugment_max_consecutive_spatial_dims") or 20,
@@ -563,6 +649,12 @@ class Model(rf.Module):
             out_dim=self.in_dim,
             sampling_rate=16_000,
         )
+        if self.feature_batch_norm:
+            source = self.feature_batch_norm(source)
+        if self.feature_norm:
+            source = rf.normalize(source, axis=in_spatial_dim)
+        if self.feature_stats:
+            source = (source - self.feature_stats.mean) / self.feature_stats.std_dev
         if self._mixup:
             source = self._mixup(source, spatial_dim=in_spatial_dim)
         # SpecAugment

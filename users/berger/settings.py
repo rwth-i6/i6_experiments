@@ -1,3 +1,4 @@
+import getpass
 import sys
 
 sys.path.append("/u/beck/dev/cachemanager/")
@@ -10,6 +11,13 @@ def file_caching(path, is_output=False):
         return "`cf %s`" % path
 
 
+CPU_SLOW_JOBLIST = [
+    "ScliteJob",
+    "Hub5ScoreJob",
+    "PipelineJob",
+]
+
+
 def check_engine_limits(current_rqmt, task):
     """
     i6 support for gpu_mem
@@ -20,6 +28,10 @@ def check_engine_limits(current_rqmt, task):
             current_rqmt["sbatch_args"] = ["-p", "gpu_24gb"]
         else:
             current_rqmt["sbatch_args"] = ["-p", "gpu_11gb"]
+
+    if task._job.__class__.__name__ in CPU_SLOW_JOBLIST:
+        current_rqmt["sbatch_args"] = ["-p", "cpu_slow"]
+
     return current_rqmt
 
 
@@ -39,7 +51,7 @@ def engine():
 
     return EngineSelector(
         engines={
-            "short": LocalEngine(cpus=4, mem=8),
+            "short": LocalEngine(cpus=4, mem=16),
             "long": SimpleLinuxUtilityForResourceManagementEngine(default_rqmt=default_rqmt),
         },
         default_engine="long",
@@ -63,6 +75,9 @@ def worker_wrapper(job, task_name, call):
         "AdvancedTreeSearchJob",
         "AdvancedTreeSearchLmImageAndGlobalCacheJob",
         "GenericSeq2SeqSearchJob",
+        "GenericSeq2SeqSearchJobV2",
+        "CreateLmImageJob",
+        "BuildGenericSeq2SeqGlobalCacheJob",
         "GenericSeq2SeqLmImageAndGlobalCacheJob",
         "LatticeToCtmJob",
         "OptimizeAMandLMScaleJob",
@@ -148,4 +163,11 @@ DEFAULT_ENVIRONMENT_SET["LD_LIBRARY_PATH"] = ":".join(
 )
 
 TMP_PREFIX = "/var/tmp/"
-DEFAULT_ENVIRONMENT_SET["TMPDIR"] = TMP_PREFIX
+DEFAULT_ENVIRONMENT_SET.update(
+    {
+        "TMPDIR": TMP_PREFIX,
+        "TMP": TMP_PREFIX,
+        "NUMBA_CACHE_DIR": f"{TMP_PREFIX}/numba_cache_{getpass.getuser()}",  # used for librosa
+        "PYTORCH_KERNEL_CACHE_PATH": f"{TMP_PREFIX}/pt_kernel_cache_{getpass.getuser()}",  # used for cuda pytorch
+    }
+)

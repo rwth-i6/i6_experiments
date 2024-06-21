@@ -15,12 +15,14 @@ from ..data import (
     get_text_lexicon,
     get_bliss_corpus_dict
 )
-from ..config import get_training_config, get_extract_durations_forward__config, get_forward_config, get_search_config
-from ..pipeline import training, forward, search, compute_phoneme_pred_accuracy
+from ..config import get_training_config, get_extract_durations_forward__config, get_forward_config, get_search_config, get_prior_config
+from ..pipeline import training, forward, search, compute_phoneme_pred_accuracy, compute_prior
 
 from i6_experiments.users.rilling.experiments.librispeech.common.tts_eval import tts_eval
 
 from ..default_tools import RETURNN_COMMON, RETURNN_PYTORCH_EXE, RETURNN_PYTORCH_ASR_SEARCH_EXE, MINI_RETURNN_ROOT
+from i6_models.parts.frontend.vgg_act import VGG4LayerActFrontendV1, VGG4LayerActFrontendV1Config
+
 from ..pytorch_networks.shared.configs import (
     SpecaugConfig,
     ModelConfigV1,
@@ -31,7 +33,8 @@ from ..pytorch_networks.shared.configs import (
     FlowDecoderConfig,
     PhonemePredictionConfig,
     PhonemePredictionConfigCNN,
-    PhonemePredictionConfigBLSTM
+    PhonemePredictionConfigBLSTM, 
+    ConformerASRConfig
 )
 
 from ..storage import tts_models, add_tts_model, TTSModel
@@ -39,12 +42,10 @@ from ..storage import tts_models, add_tts_model, TTSModel
 
 def get_glow_joint_2step(x_vector_exp, joint_exps, tts_exps, gl_checkpoint):
     """
-    Baseline for the glow TTS in returnn_common with serialization
-
-    Uses updated RETURNN_COMMON
-
-    :return: durations_hdf
-    """
+    Experiments performing two step training (first block) or further training on pre-trained models from ../exp_joint and ../exp_joint_ga (second and third block)
+    The experiments contain further TTS training after a first train step with very strong auxiliary loss (first block)
+    but also ASR and phoneme prediction trainings after a pre-training (last blocks)
+    """   
 
     prefix = "experiments/librispeech/joint_training/given_alignments/raw_audio/joint_models/flow_given_alignment/"
     experiments = {}
@@ -60,24 +61,43 @@ def get_glow_joint_2step(x_vector_exp, joint_exps, tts_exps, gl_checkpoint):
         forward_args={},
         search_args={},
         keep_epochs=None,
-        extract_x_vector=False,
         tts_forward=True,
         asr_search=True,
         phoneme_pred=True,
         asr_cv_set=False,
-        given_train_job_for_forward=None,
     ):
+        """Creates the jobs to run training, forwarding/TTS evaluation and phoneme prediction evaluation for the given experiment
+
+        :param str name: Name of the experiment used for aliases
+        :param dict args: General arguments used for the Returnn Configs
+        :param TrainingDataset dataset: Dataset for training
+        :param dict test_dataset: Dictionary of datasets used for evaluation 
+        :param int num_epochs: Number of epochs for training, defaults to 100
+        :param bool use_custom_engine: whether a custom engine is used in Returnn, defaults to False
+        :param dict training_args: Additional arguments for training, defaults to {}
+        :param dict forward_args: Additional arguments for TTS forward, defaults to {}
+        :param dict search_args: Additional arguments for phoneme prediction, defaults to {}
+        :param list[int] keep_epochs: List of numbers of checkpoints that are supposed to be kept during training, defaults to None
+        :param bool tts_forward: whether TTS evaluation should be run (autoMOS, NISQA), defaults to True
+        :param bool asr_search: whether ASR search should be run, defaults to True
+        :param bool phoneme_pred: whether phoneme prediction evaluation should be run, defaults to True
+        :param bool asr_cv_set: whether the training should use the ASR validation set for CV during training (necessary for ASR trainings), defaults to False
+        :return dict: Dictionary containing all the jobs of the experiment
+        """        
         exp = {}
 
-        if given_train_job_for_forward is None:
-            training_config = get_training_config(
-                training_datasets=dataset,
-                **args,
-                training_args=training_args,
-                use_custom_engine=use_custom_engine,
-                keep_epochs=keep_epochs,
-                asr_cv_set=asr_cv_set,
-            )  # implicit reconstruction loss
+        assert num_epochs == len(args["config"]["learning_rates"]), "Number of Epochs and Number of LR steps differs!"
+
+        with_prior = "prior_scale" in search_args
+
+        training_config = get_training_config(
+            training_datasets=dataset,
+            **args,
+            training_args=training_args,
+            use_custom_engine=use_custom_engine,
+            keep_epochs=keep_epochs,
+            asr_cv_set=asr_cv_set,
+        )
 
         if tts_forward:
             forward_config_gl = get_forward_config(
@@ -104,17 +124,26 @@ def get_glow_joint_2step(x_vector_exp, joint_exps, tts_exps, gl_checkpoint):
                 target="phoneme"
             )
 
-        if given_train_job_for_forward is None:
-            train_job = training(
-                config=training_config,
-                returnn_exe=RETURNN_PYTORCH_EXE,
-                returnn_root=MINI_RETURNN_ROOT,
-                prefix=prefix + name,
-                num_epochs=num_epochs,
-            )
-        else: 
-            train_job = given_train_job_for_forward
+        train_job = training(
+            config=training_config,
+            returnn_exe=RETURNN_PYTORCH_EXE,
+            returnn_root=MINI_RETURNN_ROOT,
+            prefix=prefix + name,
+            num_epochs=num_epochs,
+        )
         exp["train_job"] = train_job
+
+        if with_prior:
+            returnn_config = get_prior_config(training_datasets=dataset, **args)
+            prior_file = compute_prior(
+                prefix + name,
+                returnn_config,
+                checkpoint=train_job.out_checkpoints[num_epochs],
+                returnn_exe=RETURNN_PYTORCH_ASR_SEARCH_EXE,
+                returnn_root=MINI_RETURNN_ROOT,
+            )
+            tk.register_output(prefix + name + "/prior.txt", prior_file)
+            search_args["prior_file"] = prior_file
 
         if tts_forward:
             forward_job_gl = tts_eval(
@@ -128,19 +157,6 @@ def get_glow_joint_2step(x_vector_exp, joint_exps, tts_exps, gl_checkpoint):
             )
             exp["forward_job_gl"] = forward_job_gl
 
-        if extract_x_vector:
-            forward_x_vector_config = get_forward_config(
-                forward_dataset=dataset, **args, forward_args=forward_args, target="xvector", train_data=True
-            )
-            forward_xvector_job = forward(
-                checkpoint=train_job.out_checkpoints[num_epochs],
-                config=forward_x_vector_config,
-                returnn_exe=RETURNN_PYTORCH_EXE,
-                returnn_root=MINI_RETURNN_ROOT,
-                prefix=prefix + name,
-                target="xvector",
-            )
-            exp["forward_xvector_job"] = forward_xvector_job
         if asr_search:
             search(
                 prefix + name + "/search",
@@ -173,6 +189,14 @@ def get_glow_joint_2step(x_vector_exp, joint_exps, tts_exps, gl_checkpoint):
         use_tts_train_segments=True,
         durations_file=glowTTS_durations_job.out_hdf_files["output.hdf"],
         xvectors_file=x_vector_extractions["x_vector_cnn/1e-3_not_silence_preprocessed"]["hdf"],
+    )
+
+    train_settings = TrainingDatasetSettings(
+        custom_processing_function=None, partition_epoch=3, epoch_wise_filters=[], seq_ordering="laplace:.1000"
+    )
+
+    training_datasets_pe3 = build_training_dataset(
+        settings=train_settings, librispeech_key="train-clean-100", silence_preprocessing=False
     )
 
     from typing import cast
@@ -491,3 +515,105 @@ def get_glow_joint_2step(x_vector_exp, joint_exps, tts_exps, gl_checkpoint):
         search_args=default_search_args,
         asr_search=False,
     )
+
+
+    # ==================== CNN pretrained 2nd step Conformer ======================
+    net_module = "frozen_glowtts.glowASR_conformer_x_vector"
+    first_step_cnn = tts_models["glowTTS_ASR_cnn_x_vector/tts_pretrained/no_specaug/tts_target_size/ce_ls_0.1"]
+    model_config = first_step_cnn.config
+
+    specaug_config_conf = SpecaugConfig(
+        repeat_per_n_frames=100,
+        max_dim_feat=8,
+        num_repeat_feat=5,
+        max_dim_time=20,
+    )
+
+    frontend_config = VGG4LayerActFrontendV1Config_mod(
+        in_features=80,
+        conv1_channels=32,
+        conv2_channels=64,
+        conv3_channels=64,
+        conv4_channels=32,
+        conv_kernel_size=(3, 3),
+        conv_padding=None,
+        pool1_kernel_size=(2, 1),
+        pool1_stride=(2, 1),
+        pool1_padding=None,
+        pool2_kernel_size=(2, 1),
+        pool2_stride=(2, 1),
+        pool2_padding=None,
+        out_features=384,
+        activation_str="ReLU",
+    )
+
+    model_config.phoneme_prediction_config = ConformerASRConfig(
+        frontend_config=frontend_config,
+        label_target_size=vocab_size_without_blank_asr,
+        conformer_size=384,
+        num_layers=12,
+        num_heads=4,
+        ff_dim=1536,
+        att_weights_dropout=0.2,
+        conv_dropout=0.2,
+        ff_dropout=0.2,
+        mhsa_dropout=0.2,
+        conv_kernel_size=31,
+        final_dropout=0.2,
+    )
+    
+    model_config.specaug_config = specaug_config_conf
+    model_config.specauc_start_epoch = 1
+
+    train_args = {
+        "net_args": {"fe_config": asdict(fe_config), "model_config": asdict(model_config)},
+        "network_module": net_module,
+        "debug": True,
+        "config": {
+            "optimizer": {"class": "adam", "epsilon": 1e-8},
+            "learning_rates": list(np.linspace(7e-6, 7e-4, 110)) + list(np.linspace(7e-4, 7e-5, 110)) + list(np.linspace(7e-5, 1e-8, 30)),
+            "batch_size": 360 * 16000,
+            # "gradient_clip_norm": 1.0,
+            "stop_on_nonfinite_train_score": False,
+            # "max_seq_length": {"audio_features": 25 * 16000},
+            # "max_seqs": 60,
+            "preload_from_files": {
+                "glowTTS": {
+                    "filename": first_step_cnn.checkpoint,
+                    "init_for_train": True,
+                    "ignore_missing": True,
+                    "ignore_params_prefixes": ["encoder", "phoneme_pred_cnn", "phoneme_pred_output"],
+                }
+            }
+        },
+    }
+
+    exp_dict = run_exp(
+        "second_step_asr/" + net_module.replace(".", "/"),
+        train_args,
+        training_datasets_pe3,
+        asr_test_datasets,
+        250,
+        forward_args=forward_args,
+        search_args=default_search_args,
+        asr_search=True,
+        asr_cv_set=True,
+        phoneme_pred=False,
+    )
+
+    for lm_w in [2, 2.5, 3.0, 3.5, 4.0, 4.5]:
+        for ps in [0, 0.3, 0.5]:
+            additional_search_args = {"lm_weight": lm_w} if ps == 0 else {"lm_weight": lm_w, "prior_scale": ps}
+            suffix = f"/tuning/lm_{lm_w}" if ps == 0 else f"/tuning/lm_{lm_w}_ps_{ps}"
+            exp_dict = run_exp(
+                "second_step_asr/" + net_module.replace(".", "/") + suffix,
+                train_args,
+                training_datasets_pe3,
+                asr_test_datasets,
+                250,
+                forward_args=forward_args,
+                search_args={**default_search_args, **additional_search_args},
+                asr_search=True,
+                asr_cv_set=True,
+                phoneme_pred=False,
+            )

@@ -236,6 +236,7 @@ def conformer_baseline():
             RETURNN_ROOT,
             num_epochs=num_epochs,
             gpu_mem=kwargs.get("gpu_mem", 11),
+            horovod_num_processes=kwargs.get("horovod_num_processes", None),
         )
         return train_job
 
@@ -1160,68 +1161,19 @@ def conformer_baseline():
 
                                 recog_datasets_tuples = get_test_dataset_tuples(bpe_size=BPE_1K)
 
-                                # baseline: 7.41/6.85
-                                # dev_coverage0.03_0.11_max/wer  7.34
-                                # test_coverage0.03_0.11_max/wer 6.85
-                                # for test_set in ["test"]:
-                                #     for cov_update in ["max"]:
-                                #         for cov_scale in [0.03, 0.04]:
-                                #             for cov_thre in [0.11, 0.13]:
-                                #                 search_args = copy.deepcopy(args)
-                                #                 search_args["decoder_args"].coverage_scale = cov_scale
-                                #                 search_args["decoder_args"].coverage_threshold = cov_thre
-                                #                 name_ = f"/average_4/{test_set}_coverage{cov_scale}_{cov_thre}"
-                                #                 if cov_update == "max":
-                                #                     name_ += "_max"
-                                #                     search_args["decoder_args"].coverage_update = "max"
-                                #                 run_single_search(
-                                #                     exp_name=name + name_,
-                                #                     train_data=train_data,
-                                #                     search_args=search_args,
-                                #                     checkpoint=train_job_avg_ckpt[name],
-                                #                     feature_extraction_net=log10_net_10ms,
-                                #                     recog_dataset=recog_datasets_tuples[test_set][0],
-                                #                     recog_ref=recog_datasets_tuples[test_set][1],
-                                #                     recog_bliss=recog_datasets_tuples[test_set][2],
-                                #                 )
-
-                                # # TODO: only CTC
-                                # only_ctc_args = copy.deepcopy(args)
-                                # only_ctc_args["decoder_args"].ce_loss_scale = 0.0
-                                # _, train_data = run_exp(
-                                #     name + "_onlyCTC",
-                                #     only_ctc_args,
-                                #     num_epochs=ep,
-                                #     epoch_wise_filter=None,
-                                #     bpe_size=BPE_1K,
-                                #     partition_epoch=4,
-                                #     search_args={"ctc_decode": True, "ctc_blank_idx": 1057, **only_ctc_args},
-                                #     avg_key="dev_score_ctc",
-                                # )
-                                #
-                                # # TODO: scale CTC
-                                # scale_ctc_args = copy.deepcopy(args)
-                                # scale_ctc_args["encoder_args"].ctc_loss_scale = 0.3 / 0.7  # AED scale is 1.0
-                                # _, train_data = run_exp(
-                                #     name + "_ctcScale0.3",
-                                #     scale_ctc_args,
-                                #     num_epochs=ep,
-                                #     epoch_wise_filter=None,
-                                #     bpe_size=BPE_1K,
-                                #     partition_epoch=4,
-                                # )
-                                #
-                                # # TODO: grad clip 5
-                                # grad_clip_args = copy.deepcopy(args)
-                                # grad_clip_args["gradient_clip_global_norm"] = 5
-                                # _, train_data = run_exp(
-                                #     name + "_gradClipNorm5",
-                                #     grad_clip_args,
-                                #     num_epochs=ep,
-                                #     epoch_wise_filter=None,
-                                #     bpe_size=BPE_1K,
-                                #     partition_epoch=4,
-                                # )
+                                # TODO: only CTC
+                                only_ctc_args = copy.deepcopy(args)
+                                only_ctc_args["decoder_args"].ce_loss_scale = 0.0
+                                _, train_data = run_exp(
+                                    name + "_onlyCTC",
+                                    only_ctc_args,
+                                    num_epochs=ep,
+                                    epoch_wise_filter=None,
+                                    bpe_size=BPE_1K,
+                                    partition_epoch=4,
+                                    search_args={"ctc_decode": True, "ctc_blank_idx": 1057, **only_ctc_args},
+                                    avg_key="dev_score_ctc",
+                                )
 
     # base_bpe1000_peakLR0.0008_ep400_globalNorm_epochOCLR_pre3_fixZoneout_encDrop0.15_woDepthConvPre_weightDrop0.1_decAttDrop0.0_embedDim256_numBlocks12
     # 7.4     6.85  avg
@@ -1266,53 +1218,145 @@ def conformer_baseline():
                                         partition_epoch=4,
                                     )
 
-    # TODO: mixup
-    for num_blocks in [12]:
-        for ep in [50 * 4]:
-            for lr in [8e-4]:
-                for target_embed_dim in [256]:
-                    for att_drop in [0.0]:
-                        for weight_drop in [0.1]:
-                            for enc_drop in [0.15]:
-                                for ctc_scale in [0.3]:
-                                    for mixup_apply_prob in [0.2, 0.3, 0.4]:
-                                        base_v1_args, exp_name = get_base_v1_args(
-                                            lr, ep, enc_drop=enc_drop, use_legacy_stats=False
-                                        )
-
-                                        args = copy.deepcopy(base_v1_args)
-                                        args["encoder_args"].num_blocks = num_blocks
-                                        args["encoder_args"].mhsa_weight_dropout = weight_drop
-                                        args["encoder_args"].ff_weight_dropout = weight_drop
-                                        args["encoder_args"].conv_weight_dropout = weight_drop
-
-                                        args["decoder_args"].embed_dim = target_embed_dim
-                                        args["decoder_args"].att_dropout = att_drop
-
-                                        exp_name += f"_weightDrop{weight_drop}_decAttDrop{att_drop}_embedDim{target_embed_dim}_numBlocks{num_blocks}"
-
-                                        args["mixup_aug_opts"] = {
-                                            "use_log10_features": True,
-                                            "buffer_size": 1_000_000,
-                                            "apply_prob": mixup_apply_prob,
-                                            "max_num_mix": 4,
-                                            "lambda_min": 0.15,
-                                            "lambda_max": 0.3,
+                                    if ctc_scale == 0.3:
+                                        args_ = copy.deepcopy(args)
+                                        args_["with_pretrain"] = False
+                                        reset_params_init(args_["encoder_args"])
+                                        specaug_steps = {"step0": 10_000, "step1": 15_000, "step2": 20_000}
+                                        args_["specaug_str_func_opts"] = {
+                                            "version": 2,
+                                            **specaug_steps,
+                                            "max_time_num": 100,
+                                            "max_time_dim": 20,
+                                            "min_num_add_factor": 0,
+                                            "freq_dim_factor": 5,
                                         }
-                                        exp_name += f"_mixup_{mixup_apply_prob}_4_0.15_0.3"
-
-                                        if ctc_scale != 1.0:
-                                            args["encoder_args"].ctc_loss_scale = ctc_scale
-                                            args["decoder_args"].ce_loss_scale = 1.0 - ctc_scale
-                                            exp_name += f"_ctcScale{ctc_scale}"
-
                                         run_exp(
-                                            exp_name,
-                                            args,
+                                            exp_name + "_woPretrain_defaultInit",
+                                            args_,
                                             num_epochs=ep,
-                                            epoch_wise_filter=None,
+                                            epoch_wise_filter=[(1, 2, 400), (3, 4, 800)],
                                             bpe_size=BPE_1K,
                                             partition_epoch=4,
                                         )
+                                        args_["encoder_args"].with_ctc = False
+                                        run_exp(
+                                            exp_name + "_woPretrain_noCTC_defaultInit",
+                                            args_,
+                                            num_epochs=ep,
+                                            epoch_wise_filter=[(1, 2, 400), (3, 4, 800)],
+                                            bpe_size=BPE_1K,
+                                            partition_epoch=4,
+                                            avg_key="dev_score",
+                                        )
 
-    # TODO: smaller models
+    # TODO: multi-gpu
+    # base_bpe1000_peakLR0.0016_ep200_globalNorm_epochOCLR_pre3_fixZoneout_encDrop0.15_woDepthConvPre_weightDrop0.1_decAttDrop0.0_embedDim256_numBlocks12_gradClipNorm5.0_paramSync_step100_accum1_ctcScale0.3_gpu4
+    # 8.66    7.97  avg
+    #
+    # for num_blocks in [12]:
+    #     for ep in [50 * 4]:
+    #         for lr in [8e-4, 13e-4, 16e-4]:
+    #             for target_embed_dim in [256]:
+    #                 for att_drop in [0.0]:
+    #                     for weight_drop in [0.1]:
+    #                         for enc_drop in [0.15]:
+    #                             for ctc_scale in [0.3]:
+    #                                 for sync_step in [100]:
+    #                                     for grad_clip in [None, 1.0, 5.0]:
+    #                                         if grad_clip is None and lr != 8e-4:
+    #                                             continue
+    #
+    #                                         base_v1_args, exp_name = get_base_v1_args(
+    #                                             lr, ep, enc_drop=enc_drop, use_legacy_stats=False
+    #                                         )
+    #
+    #                                         args = copy.deepcopy(base_v1_args)
+    #                                         args["encoder_args"].num_blocks = num_blocks
+    #                                         args["encoder_args"].mhsa_weight_dropout = weight_drop
+    #                                         args["encoder_args"].ff_weight_dropout = weight_drop
+    #                                         args["encoder_args"].conv_weight_dropout = weight_drop
+    #
+    #                                         args["decoder_args"].embed_dim = target_embed_dim
+    #                                         args["decoder_args"].att_dropout = att_drop
+    #
+    #                                         args["horovod_params"] = {
+    #                                             "horovod_reduce_type": "param",
+    #                                             "horovod_param_sync_step": sync_step,
+    #                                             "horovod_dataset_distribution": "random_seed_offset",
+    #                                         }
+    #
+    #                                         args["batch_size"] = 15_000 * 160
+    #                                         args["pretrain_opts"]["initial_batch_size"] = 15_000 * 160
+    #                                         args["accum_grad"] = 1
+    #
+    #                                         exp_name += f"_weightDrop{weight_drop}_decAttDrop{att_drop}_embedDim{target_embed_dim}_numBlocks{num_blocks}"
+    #                                         if grad_clip:
+    #                                             args["gradient_clip_global_norm"] = grad_clip
+    #                                             exp_name += f"_gradClipNorm{grad_clip}"
+    #
+    #                                         exp_name += f"_paramSync_step{sync_step}_accum1"
+    #
+    #                                         if ctc_scale != 1.0:
+    #                                             args["encoder_args"].ctc_loss_scale = ctc_scale
+    #                                             args["decoder_args"].ce_loss_scale = 1.0 - ctc_scale
+    #                                             exp_name += f"_ctcScale{ctc_scale}"
+    #
+    #                                         run_exp(
+    #                                             exp_name + "_gpu4",
+    #                                             args,
+    #                                             num_epochs=ep,
+    #                                             epoch_wise_filter=None,
+    #                                             bpe_size=BPE_1K,
+    #                                             partition_epoch=4 * 4,
+    #                                             horovod_num_processes=4,
+    #                                         )
+
+    # # TODO: mixup
+    # for num_blocks in [12]:
+    #     for ep in [50 * 4]:
+    #         for lr in [8e-4]:
+    #             for target_embed_dim in [256]:
+    #                 for att_drop in [0.0]:
+    #                     for weight_drop in [0.1]:
+    #                         for enc_drop in [0.15]:
+    #                             for ctc_scale in [0.3]:
+    #                                 for mixup_apply_prob in [0.2, 0.3, 0.4]:
+    #                                     base_v1_args, exp_name = get_base_v1_args(
+    #                                         lr, ep, enc_drop=enc_drop, use_legacy_stats=False
+    #                                     )
+    #
+    #                                     args = copy.deepcopy(base_v1_args)
+    #                                     args["encoder_args"].num_blocks = num_blocks
+    #                                     args["encoder_args"].mhsa_weight_dropout = weight_drop
+    #                                     args["encoder_args"].ff_weight_dropout = weight_drop
+    #                                     args["encoder_args"].conv_weight_dropout = weight_drop
+    #
+    #                                     args["decoder_args"].embed_dim = target_embed_dim
+    #                                     args["decoder_args"].att_dropout = att_drop
+    #
+    #                                     exp_name += f"_weightDrop{weight_drop}_decAttDrop{att_drop}_embedDim{target_embed_dim}_numBlocks{num_blocks}"
+    #
+    #                                     args["mixup_aug_opts"] = {
+    #                                         "use_log10_features": True,
+    #                                         "buffer_size": 1_000_000,
+    #                                         "apply_prob": mixup_apply_prob,
+    #                                         "max_num_mix": 4,
+    #                                         "lambda_min": 0.15,
+    #                                         "lambda_max": 0.3,
+    #                                     }
+    #                                     exp_name += f"_mixup_{mixup_apply_prob}_4_0.15_0.3"
+    #
+    #                                     if ctc_scale != 1.0:
+    #                                         args["encoder_args"].ctc_loss_scale = ctc_scale
+    #                                         args["decoder_args"].ce_loss_scale = 1.0 - ctc_scale
+    #                                         exp_name += f"_ctcScale{ctc_scale}"
+    #
+    #                                     run_exp(
+    #                                         exp_name,
+    #                                         args,
+    #                                         num_epochs=ep,
+    #                                         epoch_wise_filter=None,
+    #                                         bpe_size=BPE_1K,
+    #                                         partition_epoch=4,
+    #                                     )

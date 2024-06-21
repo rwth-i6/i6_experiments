@@ -13,7 +13,7 @@ from ...data.common import DatasetSettings, build_test_dataset
 from ...data.bpe import build_bpe_training_datasets, get_text_lexicon
 from ...default_tools import RETURNN_EXE, MINI_RETURNN_ROOT
 from ...lm import get_4gram_binary_lm
-from ...pipeline import training, prepare_asr_model, search
+from ...pipeline import training, prepare_asr_model, search, ASRModel
 from ...storage import add_ctc_model
 
 
@@ -37,6 +37,7 @@ def bpe_ls960_1023_low_vocab_test():
     }
 
     from ...pytorch_networks.ctc.decoder.flashlight_ctc_v1 import DecoderConfig
+    from ...pytorch_networks.ctc.decoder.greedy_bpe_ctc_v3 import DecoderConfig as GreedyDecoderConfig
 
 
 
@@ -132,6 +133,26 @@ def bpe_ls960_1023_low_vocab_test():
                 decoder_args={"config": asdict(decoder_config)}, test_dataset_tuples={key: test_dataset_tuples[key]},
                 **default_returnn
             )
+
+    def greedy_search_helper(
+            training_name: str,
+            asr_model: ASRModel,
+            decoder_config: GreedyDecoderConfig
+        ):
+        # remove prior if exists
+        asr_model = copy.deepcopy(asr_model)
+        asr_model.prior_file = None
+
+        search_name = training_name + "/search_greedy"
+        search_jobs, wers = search(
+            search_name,
+            forward_config={},
+            asr_model=asr_model,
+            decoder_module="ctc.decoder.greedy_bpe_ctc_v3",
+            decoder_args={"config": asdict(decoder_config)},
+            test_dataset_tuples={**dev_dataset_tuples, **test_dataset_tuples},
+            **default_returnn,
+        )
 
     for BPE_SIZE in [128, 256, 512, 1024]:
 
@@ -271,20 +292,36 @@ def bpe_ls960_1023_low_vocab_test():
                         for search_job in search_jobs:
                             search_job.rqmt["sbatch_args"] = "-A rescale_speed -p rescale_amd"
 
+        if BPE_SIZE == 128 or BPE_SIZE == 512:
             # Extra long training for the BPE 128 one
             train_args_conv_first_ep100 = copy.deepcopy(train_args_conv_first)
             train_args_conv_first_ep100["config"]["learning_rates"] = list(np.linspace(7e-6, 5e-4, 240)) + list(
                 np.linspace(5e-4, 5e-5, 720)) + list(np.linspace(5e-5, 1e-7, 40))
             train_args_conv_first_ep100["config"]["gradient_clip"] = 1.0
 
-            training_name = prefix_name + "/" + str(
-                BPE_SIZE) + "/" + network_module_conv_first + ".512dim_sub4_24gbgpu_100eps"
-            train_job = training(training_name, train_data_bpe, train_args_conv_first_ep100, num_epochs=1000, **default_returnn)
-            train_job.rqmt["gpu_mem"] = 24
-            asr_model = prepare_asr_model(
-                training_name, train_job, train_args_conv_first_ep100, with_prior=True, datasets=train_data_bpe,
-                get_specific_checkpoint=1000
-            )
-            tune_and_evaluate_helper(training_name, dev_dataset_tuples, test_dataset_tuples, asr_model,
-                                     default_decoder_config_bpe, lm_scales=[1.6, 1.8, 2.0],
-                                     prior_scales=[0.2, 0.3, 0.4])
+            train_args_conv_first_ep100_sp = copy.deepcopy(train_args_conv_first_ep100)
+            train_args_conv_first_ep100_sp["use_speed_perturbation"] = True
+
+            train_args_pairs = [
+                (".512dim_sub4_24gbgpu_100eps", train_args_conv_first_ep100),
+                (".512dim_sub4_24gbgpu_100eps_sp", train_args_conv_first_ep100_sp)
+            ]
+
+            for name, train_args in train_args_pairs:
+                training_name = prefix_name + "/" + str(
+                    BPE_SIZE) + "/" + network_module_conv_first + name
+                train_job = training(training_name, train_data_bpe, train_args, num_epochs=1000, **default_returnn)
+                train_job.rqmt["gpu_mem"] = 24
+                asr_model = prepare_asr_model(
+                    training_name, train_job, train_args, with_prior=True, datasets=train_data_bpe,
+                    get_specific_checkpoint=1000
+                )
+                add_ctc_model(f"ls960_ctc_bpe_{BPE_SIZE}." + network_module_conv_first + name + "_ckpt1000",
+                              asr_model)
+                tune_and_evaluate_helper(training_name, dev_dataset_tuples, test_dataset_tuples, asr_model,
+                                         default_decoder_config_bpe, lm_scales=[1.6, 1.8, 2.0],
+                                         prior_scales=[0.2, 0.3, 0.4])
+                greedy_decoder_config = GreedyDecoderConfig(
+                    returnn_vocab=label_datastream_bpe.vocab,
+                )
+                greedy_search_helper(training_name, asr_model=asr_model, decoder_config=greedy_decoder_config)

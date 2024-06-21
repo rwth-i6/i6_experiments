@@ -117,6 +117,7 @@ class RasrFunctor(ABC):
             feature_type.CONCAT_SEC_MIX_GAMMATONE_16K: partial(
                 self._make_cached_concatenated_gt_feature_flow_16k, use_sec=True, use_mix=True
             ),
+            feature_type.LOGMEL_16K: self._make_base_logmel_feature_flow_16k,
         }[feature_type](corpus_info=corpus_info, **kwargs)
 
     def _make_base_sample_feature_flow(self, corpus_info: dataclasses.CorpusInfo, dc_detection: bool = False, **kwargs):
@@ -218,11 +219,13 @@ class RasrFunctor(ABC):
         return features.basic_cache_flow(cache_files=cache_files)
 
     def _make_base_logmel_feature_flow_16k(self, corpus_info: dataclasses.CorpusInfo, dc_detection: bool = False, **_):
-        gt_options = copy.deepcopy(get_feature_extraction_args_16kHz(dc_detection=dc_detection)["gt"]["gt_options"])
+        filterbank_options = copy.deepcopy(
+            get_feature_extraction_args_16kHz(dc_detection=dc_detection)["filterbank"]["filterbank_options"]
+        )
         audio_format = corpus_info.crp.audio_format
-        gt_options["samples_options"]["audio_format"] = audio_format
-        gt_options["add_features_output"] = True
-        return features.gammatone_flow(**gt_options)
+        filterbank_options["samples_options"]["audio_format"] = audio_format
+        filterbank_options["add_features_output"] = True
+        return features.filterbank_flow(**filterbank_options)
 
     @lru_cache_with_signature
     def _get_checkpoint(
@@ -263,6 +266,7 @@ class RasrFunctor(ABC):
                 returnn_config=prior_config,
                 returnn_root=self.returnn_root,
                 returnn_python_exe=self.returnn_python_exe,
+                mem_rqmt=8,
             )
             return forward_job.out_prior_xml_file
         else:

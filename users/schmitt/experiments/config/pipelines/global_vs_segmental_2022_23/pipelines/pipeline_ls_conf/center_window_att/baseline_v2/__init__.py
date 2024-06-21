@@ -49,6 +49,15 @@ def run_exps():
         checkpoint_aliases=("last",)
       )
 
+      for ctc_scale in (0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9):
+        recog.center_window_returnn_frame_wise_beam_search(
+          alias=train_alias,
+          config_builder=config_builder,
+          checkpoint=checkpoint,
+          checkpoint_aliases=("last",),
+          ctc_shallow_fusion_opts={"ctc_scale": ctc_scale}
+        )
+
       recog.center_window_returnn_frame_wise_beam_search_use_global_att_ilm(
         alias=train_alias,
         config_builder=config_builder,
@@ -166,51 +175,4 @@ def run_exps():
         ilm_type="mini_att",
         lm_scale_list=(0.52, 0.54, 0.56, 0.58, 0.6),
         ilm_scale_list=(0.3, 0.4, 0.5)
-      )
-
-  for model_alias, config_builder in baseline.center_window_att_baseline(
-          win_size_list=(5,),
-  ):
-    for train_alias, checkpoint in train.train_center_window_att_import_global_global_ctc_align_only_import_encoder(
-            alias=model_alias,
-            config_builder=config_builder,
-            n_epochs_list=(40, 100),
-    ):
-      recog.center_window_returnn_frame_wise_beam_search(
-        alias=train_alias,
-        config_builder=config_builder,
-        checkpoint=checkpoint,
-      )
-
-  for decoder_version in (2,):
-    for model_alias, config_builder in decoder_variations.center_window_att_decoder_variation(
-      win_size_list=(5,),
-      decoder_version=decoder_version,
-    ):
-      for train_alias, checkpoint in train.train_center_window_att_import_global_global_ctc_align_only_import_encoder(
-        alias=model_alias,
-        config_builder=config_builder,
-        n_epochs_list=(40,),
-        time_rqmt=1
-      ):
-        recog.center_window_returnn_frame_wise_beam_search(
-          alias=train_alias,
-          config_builder=config_builder,
-          checkpoint=checkpoint,
-        )
-
-  for model_alias, config_builder in att_weight_interpolation.center_window_att_gaussian_att_weight_interpolation(
-    win_size_list=(1, 3, 129),
-    n_epochs_list=(10,),
-    gauss_scale_list=(1.,)
-  ):
-    for train_alias, checkpoint in train.train_center_window_att_import_global_global_ctc_align(
-            alias=model_alias,
-            config_builder=config_builder,
-            n_epochs_list=(10,),
-    ):
-      recog.center_window_returnn_frame_wise_beam_search(
-        alias=train_alias,
-        config_builder=config_builder,
-        checkpoint=checkpoint,
       )

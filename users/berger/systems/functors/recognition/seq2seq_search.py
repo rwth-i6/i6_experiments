@@ -42,6 +42,7 @@ class Seq2SeqSearchFunctor(
         recognition_scoring_type=RecognitionScoringType.Lattice,
         rqmt_update: Optional[dict] = None,
         search_stats: bool = False,
+        seq2seq_v2: bool = False,
         **kwargs,
     ) -> List[Dict]:
         assert recog_corpus is not None
@@ -112,6 +113,7 @@ class Seq2SeqSearchFunctor(
                         label_scorer=label_scorer,
                         base_feature_flow=base_feature_flow,
                         onnx_model=onnx_model,
+                        feature_type=feature_type,
                         **model_flow_args,
                     )
                 else:
@@ -128,26 +130,39 @@ class Seq2SeqSearchFunctor(
                         base_feature_flow=base_feature_flow,
                         enc_onnx_model=enc_model,
                         dec_onnx_model=dec_model,
+                        feature_type=feature_type,
                         **model_flow_args,
                     )
             else:
                 raise NotImplementedError
 
-            rec = recognition.GenericSeq2SeqSearchJob(
-                crp=crp,
-                feature_flow=feature_flow,
-                label_scorer=label_scorer,
-                label_tree=label_tree,
-                lookahead_options=lookahead_options,
-                **kwargs,
-            )
+            if seq2seq_v2:
+                rec = recognition.GenericSeq2SeqSearchJobV2(
+                    crp=crp,
+                    feature_flow=feature_flow,
+                    label_scorer=label_scorer,
+                    label_tree=label_tree,
+                    lookahead_options=lookahead_options,
+                    **kwargs,
+                )
+            else:
+                rec = recognition.GenericSeq2SeqSearchJob(
+                    crp=crp,
+                    feature_flow=feature_flow,
+                    label_scorer=label_scorer,
+                    label_tree=label_tree,
+                    lookahead_options=lookahead_options,
+                    **kwargs,
+                )
 
             if rqmt_update is not None:
                 rec.rqmt.update(rqmt_update)
 
-            exp_full = (
-                f"{recog_config.name}_e-{self._get_epoch_string(epoch)}_prior-{prior_scale:02.2f}_lm-{lm_scale:02.2f}"
-            )
+            exp_full = f"{recog_config.name}_e-{self._get_epoch_string(epoch)}"
+            if prior_scale != 0:
+                exp_full += f"_prior-{prior_scale:02.2f}"
+            if lm_scale != 0:
+                exp_full += f"_lm-{lm_scale:02.2f}"
 
             path = f"nn_recog/{recog_corpus.name}/{train_job.name}/{exp_full}"
 

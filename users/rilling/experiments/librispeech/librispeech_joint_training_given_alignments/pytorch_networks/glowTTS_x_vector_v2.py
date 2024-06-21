@@ -19,6 +19,7 @@ from .shared.feature_extraction import DbMelFeatureExtraction
 from .shared.configs import DbMelFeatureExtractionConfig, ModelConfigV1
 
 from .shared.eval_forward import *
+from .shared.eval_invertibility import *
 
 
 class XVector(nn.Module):

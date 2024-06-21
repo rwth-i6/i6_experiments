@@ -16,7 +16,7 @@ from . import attentions
 from .monotonic_align import maximum_path
 
 from .feature_extraction import DbMelFeatureExtraction
-from ..glowTTS.feature_config import DbMelFeatureExtractionConfig
+from ..feature_config import DbMelFeatureExtractionConfig
 
 
 class DurationPredictor(nn.Module):
@@ -524,6 +524,7 @@ def forward_step(*, model: Model, data, run_ctx, **kwargs):
     # print(f"audio_feature shape: {audio_features.shape}")
     # print(f"audio_feature length: {audio_features_len}")
     logits, attn, y_lengths = model(phonemes, phonemes_len, audio_features, audio_features_len, speaker_labels)
+    breakpoint()
 
     # embed()
     upsampled_phonemes = torch.matmul(attn.squeeze(1).transpose(1, 2), phonemes.float().unsqueeze(-1)).squeeze(-1)

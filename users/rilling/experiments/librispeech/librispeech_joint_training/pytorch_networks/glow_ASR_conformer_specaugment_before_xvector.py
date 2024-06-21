@@ -54,7 +54,7 @@ from .shared import commons
 from .shared import attentions
 from .monotonic_align import maximum_path
 
-from .shared.forward import search_init_hook, search_finish_hook
+from .shared.forward import search_init_hook, search_finish_hook, prior_finish_hook, prior_init_hook, prior_step
 from .shared.eval_invertibility import forward_init_hook_invertibility, forward_finish_hook_invertibility, forward_step_invertibility
 
 from IPython import embed
@@ -385,7 +385,7 @@ class Model(nn.Module):
         self.specaug_start_epoch = self.cfg.specauc_start_epoch
 
     def forward(
-        self, x=None, x_lengths=None, raw_audio=None, raw_audio_lengths=None, g=None, gen=False, recognition=False, noise_scale=1.0, length_scale=1.0, invertibility_check=False
+        self, x=None, x_lengths=None, raw_audio=None, raw_audio_lengths=None, g=None, gen=False, recognition=False, noise_scale=1.0, length_scale=1.0
     ):
         with torch.no_grad():
             squeezed_audio = torch.squeeze(raw_audio)
@@ -412,11 +412,6 @@ class Model(nn.Module):
         z_mask = torch.unsqueeze(commons.sequence_mask(y_lengths, y_max_length), 1).to(torch.int32)
 
         z, logdet = self.decoder(y, z_mask, g=g, reverse=False)
-
-        if invertibility_check:
-            z, _ = self.decoder(y, z_mask, g=g, reverse=False)
-            y_hat, _ = self.decoder(z, z_mask, g=g, reverse=True)
-            return y_hat, y
 
         conformer_in = z.transpose(1,2)
         mask = mask_tensor(spec_augment_in, y_lengths)

@@ -1,13 +1,10 @@
 import copy
 import os
-from typing import List, Optional
-from i6_core.returnn.config import ReturnnConfig
-
-from sisyphus import gs, tk
 
 import i6_core.rasr as rasr
+from i6_core.returnn.config import CodeWrapper, ReturnnConfig
 from i6_experiments.users.berger.args.experiments import transducer as exp_args
-from i6_experiments.users.berger.args.returnn.config import get_returnn_config, Backend
+from i6_experiments.users.berger.args.returnn.config import Backend, get_returnn_config
 from i6_experiments.users.berger.args.returnn.learning_rates import LearningRateSchedules, Optimizers
 from i6_experiments.users.berger.corpus.tedlium2.phon_transducer_data import get_tedlium2_data_dumped_labels
 from i6_experiments.users.berger.pytorch.models import conformer_transducer_v2 as model
@@ -20,14 +17,14 @@ from i6_experiments.users.berger.systems.dataclasses import (
 )
 from i6_experiments.users.berger.systems.returnn_seq2seq_system import ReturnnSeq2SeqSystem
 from i6_experiments.users.berger.util import default_tools_v2
-from i6_experiments.users.berger.systems.functors.recognition.returnn_search import LexiconType
+from sisyphus import gs, tk
 
 # ********** Settings **********
 
 rasr.flow.FlowNetwork.default_flags = {"cache_mode": "task_dependent"}
 
 num_outputs = 79
-num_subepochs = 500
+num_subepochs = 1000
 
 tools = copy.deepcopy(default_tools_v2)
 tools.rasr_binary_path = tk.Path("/u/berger/repositories/rasr_versions/gen_seq2seq_dev/arch/linux-x86_64-standard")
@@ -47,6 +44,7 @@ def returnn_config_generator(
         "train": train_data_config,
         "dev": dev_data_config,
         "max_seq_length": {"audio_features": 560000},
+        "torch_amp": {"dtype": "bfloat16"},
     }
     serializer = model.get_train_serializer(model_config, **kwargs)
 
@@ -63,10 +61,11 @@ def returnn_config_generator(
         optimizer=Optimizers.AdamW,
         schedule=LearningRateSchedules.OCLR,
         initial_lr=1e-06,
-        peak_lr=8e-05,
+        peak_lr=kwargs.get("peak_lr", 8e-05),
         decayed_lr=1e-05,
         final_lr=1e-08,
-        batch_size=10000 * 160,
+        batch_size=15000 * 160,
+        accum_grad=2,
         use_chunking=False,
         extra_config=extra_config,
     )
@@ -78,16 +77,36 @@ def recog_returnn_configs_generator(
     model_config = model.get_default_config_v1(num_outputs=num_outputs)
 
     enc_extra_config = {
+        "extern_data": {
+            "sources": {"dim": 80, "dtype": "float32"},
+        },
         "model_outputs": {
-            "encoder": {
-                "dim": model_config.transcriber_cfg.dim,
-            }
+            "source_encodings": {
+                "dim": 384,
+                "dtype": "float32",
+            },
         },
     }
     dec_extra_config = {
+        "extern_data": {
+            "source_encodings": {
+                "dim": 384,
+                "time_dim_axis": None,
+                "dtype": "float32",
+            },
+            "targets": {
+                "dim": num_outputs,
+                "time_dim_axis": None,
+                "sparse": True,
+                "shape": (1,),
+                "dtype": "int32",
+            },
+        },
         "model_outputs": {
             "log_probs": {
                 "dim": num_outputs,
+                "time_dim_axis": None,
+                "dtype": "float32",
             }
         },
     }
@@ -96,11 +115,11 @@ def recog_returnn_configs_generator(
 
     return EncDecConfig(
         encoder_config=get_returnn_config(
-            num_inputs=1,
+            num_inputs=80,
             num_outputs=num_outputs,
             target=None,
             extra_python=[enc_serializer],
-            extern_data_config=True,
+            extern_data_config=False,
             backend=Backend.PYTORCH,
             extra_config=enc_extra_config,
         ),
@@ -108,8 +127,9 @@ def recog_returnn_configs_generator(
             num_inputs=1,
             num_outputs=num_outputs,
             target=None,
+            # python_prolog=["from returnn.tensor.dim import Dim, batch_dim"],
             extra_python=[dec_serializer],
-            extern_data_config=True,
+            extern_data_config=False,
             backend=Backend.PYTORCH,
             extra_config=dec_extra_config,
         ),
@@ -148,11 +168,16 @@ def run_exp() -> SummaryReport:
     # ********** Step args **********
 
     train_args = exp_args.get_transducer_train_step_args(num_epochs=num_subepochs, gpu_mem_rqmt=24)
-    recog_args = {
-        "epochs": [500],
-        "prior_scales": [0.0],
-        "lm_scales": [0.0],
-    }
+    recog_args = exp_args.get_transducer_recog_step_args(
+        num_classes=num_outputs,
+        epochs=[num_subepochs],
+        label_scorer_type="onnx-ffnn-transducer",
+        label_scorer_args={"extra_args": {"start_label_index": 0}},
+        reduction_subtrahend=3,
+        # reduction_subtrahend=0,
+        reduction_factor=4,
+        feature_type=FeatureType.LOGMEL_16K,
+    )
 
     # ********** System **********
 
@@ -183,26 +208,19 @@ def run_exp() -> SummaryReport:
 
     # ********** Returnn Configs **********
 
-    system.add_experiment_configs(
-        "Conformer_Transducer",
-        get_returnn_config_collection(
-            data.train_data_config,
-            data.cv_data_config,
-        ),
-    )
+    for peak_lr in [8e-06, 1e-05, 4e-05, 8e-05]:
+        system.add_experiment_configs(
+            f"Conformer_Transducer_lr-{peak_lr}",
+            get_returnn_config_collection(
+                data.train_data_config,
+                data.cv_data_config,
+                peak_lr=peak_lr,
+            ),
+        )
 
     system.run_train_step(**train_args)
 
-    system.run_dev_recog_step(
-        recog_exp_names={
-            exp_name: [
-                recog_exp_name for recog_exp_name in system.get_recog_exp_names()[exp_name] if dev_key in recog_exp_name
-            ]
-            for dev_key in data.dev_keys
-            for exp_name in system.get_exp_names()
-        },
-        **recog_args,
-    )
+    system.run_dev_recog_step(**recog_args)
 
     assert system.summary_report
     return system.summary_report
