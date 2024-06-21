@@ -67,10 +67,11 @@ def run_fairseq_pretraining_negatives_other_target():
     prefix_name = "experiments/librispeech/librispeech_960_pretraining/wav2vec2/"
     alignment = get_alignment_hdf()
     num_gpus = 8
-    fairseq_python_exe = tk.Path(
-        "/home/pv653172/setups/librispeech/20230328_wav2vec2/dependencies/python_launcher.sh",
-        hash_overwrite="itc_python_launcher_py310_torch",
-    )
+    itc_python_launcher = "/home/pv653172/setups/librispeech/20230328_wav2vec2/dependencies/python_launcher.sh"
+    if os.path.exists(itc_python_launcher):
+        fairseq_python_exe = tk.Path(itc_python_launcher, hash_overwrite="itc_python_launcher_py310_torch")
+    else:
+        fairseq_python_exe = tk.Path("/usr/bin/python3", hash_overwrite="itc_python_launcher_py310_torch")
     fairseq_root = get_fairseq_root(fairseq_exe=fairseq_python_exe)
     fairseq_training_args = dict(
         save_interval=25,
