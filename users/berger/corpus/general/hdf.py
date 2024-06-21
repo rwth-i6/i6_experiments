@@ -1,17 +1,18 @@
-from typing import Optional, List
-from i6_core.corpus import SegmentCorpusJob
+from typing import List, Optional
 
+from i6_core.corpus import SegmentCorpusJob
 from i6_core.returnn.hdf import BlissToPcmHDFJob
-from i6_experiments.users.berger.recipe.returnn.hdf import BlissCorpusToTargetHdfJob
-from i6_experiments.users.berger.args.returnn.dataset import MetaDatasetBuilder, hdf_config_dict_for_files
-from i6_experiments.users.berger.systems.dataclasses import AlignmentData, FeatureType
 from sisyphus import tk
+
 from i6_experiments.users.berger.args.jobs.rasr_init_args import (
-    get_feature_extraction_args_16kHz,
     get_feature_extraction_args_8kHz,
+    get_feature_extraction_args_16kHz,
 )
-from i6_experiments.users.berger.helpers import build_rasr_feature_hdfs, RasrDataInput, SeparatedCorpusObject
+from i6_experiments.users.berger.args.returnn.dataset import MetaDatasetBuilder, hdf_config_dict_for_files
+from i6_experiments.users.berger.helpers import RasrDataInput, SeparatedCorpusObject, build_rasr_feature_hdfs
 from i6_experiments.users.berger.recipe.corpus.transform import ReplaceUnknownWordsJob
+from i6_experiments.users.berger.recipe.returnn.hdf import BlissCorpusToTargetHdfJob
+from i6_experiments.users.berger.systems.dataclasses import AlignmentData, FeatureType
 
 
 def build_feature_hdf_dataset_config(
@@ -52,7 +53,20 @@ def build_feature_hdf_dataset_config(
                 rasr_arch=rasr_arch,
                 single_hdf=single_hdf,
             )
-
+    elif feature_type == FeatureType.LOGMEL_16K:
+        logmel_args = get_feature_extraction_args_16kHz(dc_detection=dc_detection)["filterbank"]
+        for data_input in data_inputs:
+            feature_hdfs += build_rasr_feature_hdfs(
+                data_input.corpus_object,
+                split=data_input.concurrent,
+                feature_type="fb",
+                feature_extraction_args=logmel_args,
+                returnn_python_exe=returnn_python_exe,
+                returnn_root=returnn_root,
+                rasr_binary_path=rasr_binary_path,
+                rasr_arch=rasr_arch,
+                single_hdf=single_hdf,
+            )
     elif feature_type == FeatureType.SAMPLES:
         for data_input in data_inputs:
             if single_hdf:
@@ -78,6 +92,10 @@ def build_feature_hdf_dataset_config(
         raise NotImplementedError
 
     return hdf_config_dict_for_files(files=feature_hdfs, extra_config=extra_config)
+
+
+def subsample_by_4(x):
+    return -(-x // 4)
 
 
 def build_feature_alignment_meta_dataset_config(

@@ -1,0 +1,2 @@
+#!/usr/bin/env bash
+/usr/bin/python3 /u/schmitt/src/returnn_new/rnn.py /u/schmitt/experiments/segmental_models_2022_23_rf_pycharm/recipe/i6_experiments/users/schmitt/experiments/config/pipelines/global_vs_segmental_2022_23_rf/dependencies/returnn/network_builder_rf/segmental/luca_example_transducer/ReturnnForwardJobV2/output/recog_config.config

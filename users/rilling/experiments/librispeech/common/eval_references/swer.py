@@ -12,7 +12,7 @@ def get_swer_evaluation_reference():
     from i6_core.corpus.filter import FilterCorpusRemoveUnknownWordSegmentsJob
 
     bliss = FilterCorpusRemoveUnknownWordSegmentsJob(
-        bliss_corpus=get_bliss_corpus_dict()["test-clean"], bliss_lexicon=get_tts_lexicon(), all_unknown=False
+        bliss_corpus=get_bliss_corpus_dict(audio_format="ogg")["test-clean"], bliss_lexicon=get_tts_lexicon(), all_unknown=False
     ).out_corpus
     system = asr_recognizer_systems[asr_system]
 

@@ -1,12 +1,10 @@
 import torch
 from returnn.tensor.tensor_dict import TensorDict
-from ..helper_functions import map_tensor_to_minus1_plus1_interval
 
 
 def train_step(*, model: torch.nn.Module, extern_data: TensorDict, **_):
-    audio_features = extern_data["data"].raw_tensor
+    audio_features = extern_data["data"].raw_tensor.float()
     audio_features = audio_features.squeeze(-1)
-    audio_features = map_tensor_to_minus1_plus1_interval(audio_features)
     assert extern_data["data"].dims[1].dyn_size_ext is not None
 
     audio_features_len = extern_data["data"].dims[1].dyn_size_ext.raw_tensor
@@ -37,8 +35,8 @@ def train_step(*, model: torch.nn.Module, extern_data: TensorDict, **_):
         zero_infinity=True,
     )
 
-    from returnn.tensor import batch_dim
     import returnn.frontend as rf
+    from returnn.tensor import batch_dim
 
     rf.get_run_ctx().mark_as_loss(
         name="CTC", loss=loss, custom_inv_norm_factor=rf.reduce_sum(targets_len_rf, axis=batch_dim)

@@ -1,11 +1,22 @@
-import os.path
-
 import numpy
 import copy
-from typing import Any, Dict, Optional, List
-from dataclasses import dataclass, asdict
+from dataclasses import asdict
 
+from i6_experiments.users.zeineldeen.models.asr.encoder.args import (
+    EncoderArgs,
+    ConformerEncoderArgs,
+    ConformerEncoderV2Args,
+    EBranchformerEncoderArgs,
+)
 from i6_experiments.users.zeineldeen.models.asr.encoder.conformer_encoder import ConformerEncoder
+from i6_experiments.users.zeineldeen.models.asr.encoder.conformer_encoder_v2 import ConformerEncoderV2
+from i6_experiments.users.zeineldeen.models.asr.encoder.ebranchformer_encoder import EBranchformerEncoder
+from i6_experiments.users.zeineldeen.models.asr.decoder.args import (
+    DecoderArgs,
+    TransformerDecoderArgs,
+    RNNDecoderArgs,
+    ConformerDecoderArgs,
+)
 from i6_experiments.users.zeineldeen.models.asr.decoder.transformer_decoder import TransformerDecoder
 from i6_experiments.users.zeineldeen.models.asr.decoder.conformer_decoder import ConformerDecoder
 from i6_experiments.users.zeineldeen.models.asr.decoder.rnn_decoder import RNNDecoder
@@ -212,7 +223,6 @@ def pretrain_layers_and_dims(
     """
 
     InitialDimFactor = initial_dim_factor
-
     encoder_keys = ["ff_dim", "enc_key_dim", "conv_kernel_size"]  # TODO: effect of pretraining conv font-end?
     decoder_keys = ["ff_dim"]
     encoder_args_copy = copy.deepcopy(encoder_args)
@@ -314,14 +324,18 @@ def pretrain_layers_and_dims(
         dim_frac_enc = 1
         dim_frac_dec = 1
 
-    # TODO: use explicit param names otherwise multiple matches can lead to multiple reductions!
-    # TODO: WARNING: this does not include weight dropout and weight noise!
     # do not enable regulizations in the first pretraining step to make it more stable
     if initial_disabled_regularization_patterns is None:
-        regs_words = ["dropout", "noise", "l2"]  # dropout, weight dropout, l2, weight noise
+        # dropout, weight dropout, l2, weight noise
+        regs_words = ["dropout", "weight_noise", "l2"]
     else:
         regs_words = initial_disabled_regularization_patterns
+
+    excluded_keys = ["param_dropout_min_ndim", "weight_noise_layers"]
+
     for k in encoder_args_copy.keys():
+        if k in excluded_keys:
+            continue
         for regs_word in regs_words:
             if regs_word in k and encoder_args_copy[k] is not None:
                 if not isinstance(encoder_args_copy[k], float):
@@ -332,6 +346,8 @@ def pretrain_layers_and_dims(
                     encoder_args_copy[k] *= dim_frac_enc
 
     for k in decoder_args_copy.keys():
+        if k in excluded_keys:
+            continue
         for regs_word in regs_words:
             if regs_word in k and decoder_args_copy[k] is not None:
                 if not isinstance(decoder_args_copy[k], float):
@@ -349,11 +365,6 @@ def pretrain_layers_and_dims(
 
     net_dict = encoder_model.network.get_net()
 
-    # if decoder_args["ce_loss_scale"] == 0.0:
-    #     assert encoder_args["with_ctc"], "CTC loss is not enabled."
-    #     net_dict["output"] = {"class": "copy", "from": "ctc"}
-    #     net_dict["decision"]["target"] = "bpe_labels_w_blank"
-    # else:
     net_dict.update(decoder_model.network.get_net())
 
     net_dict.update(extra_net_dict)
@@ -362,201 +373,6 @@ def pretrain_layers_and_dims(
 
 
 # -------------------------------------------------------------------- #
-
-
-class EncoderArgs:
-    pass
-
-
-@dataclass
-class ConformerEncoderArgs(EncoderArgs):
-    num_blocks: int = 12
-    enc_key_dim: int = 512
-    att_num_heads: int = 8
-    ff_dim: int = 2048
-    conv_kernel_size: int = 32
-    input: str = "data"
-    input_layer: str = "lstm-6"
-    input_layer_conv_act: str = "relu"
-    add_abs_pos_enc_to_input: bool = False
-    pos_enc: str = "rel"
-
-    sandwich_conv: bool = False
-    subsample: Optional[str] = None
-    use_causal_layers: bool = False
-
-    # ctc
-    with_ctc: bool = True
-    native_ctc: bool = True
-    ctc_loss_scale: Optional[float] = None
-    ctc_self_align_delay: Optional[int] = None
-    ctc_self_align_scale: float = 0.5
-    ctc_dropout: float = 0.0
-
-    # param init
-    ff_init: Optional[str] = None
-    mhsa_init: Optional[str] = None
-    mhsa_out_init: Optional[str] = None
-    conv_module_init: Optional[str] = None
-    start_conv_init: Optional[str] = None
-
-    # dropout
-    dropout: float = 0.1
-    dropout_in: float = 0.1
-    att_dropout: float = 0.1
-    lstm_dropout: float = 0.1
-
-    # weight dropout
-    ff_weight_dropout: Optional[float] = None
-    mhsa_weight_dropout: Optional[float] = None
-    conv_weight_dropout: Optional[float] = None
-
-    # norms
-    batch_norm_opts: Optional[Dict[str, Any]] = None
-    use_ln: bool = False
-
-    # other regularization
-    l2: float = 0.0001
-    frontend_conv_l2: float = 0.0001
-    self_att_l2: float = 0.0
-    rel_pos_clipping: int = 16
-
-    use_sqrd_relu: bool = False
-
-    # weight noise
-    weight_noise: Optional[float] = None
-    weight_noise_layers: Optional[List[str]] = None
-
-    convolution_first: bool = False
-
-
-class DecoderArgs:
-    pass
-
-
-@dataclass
-class TransformerDecoderArgs(DecoderArgs):
-    num_layers: int = 6
-    att_num_heads: int = 8
-    ff_dim: int = 2048
-    ff_act: str = "relu"
-    pos_enc: Optional[str] = None
-    embed_pos_enc: bool = False
-
-    # param init
-    ff_init: Optional[str] = None
-    mhsa_init: Optional[str] = None
-    mhsa_out_init: Optional[str] = None
-
-    # dropout
-    dropout: float = 0.1
-    att_dropout: float = 0.1
-    embed_dropout: float = 0.1
-    softmax_dropout: float = 0.0
-
-    # other regularization
-    l2: float = 0.0
-    rel_pos_clipping: int = 16
-    label_smoothing: float = 0.1
-    apply_embed_weight: bool = False
-
-    length_normalization: bool = True
-
-    # ILM
-    replace_cross_att_w_masked_self_att: bool = False
-    create_ilm_decoder: bool = False
-    ilm_type: bool = None
-    ilm_args: Optional[dict] = None
-
-
-@dataclass
-class ConformerDecoderArgs(DecoderArgs):
-    num_layers: int = 6
-    att_num_heads: int = 8
-    ff_dim: int = 2048
-    pos_enc: Optional[str] = "rel"
-
-    # conv module
-    conv_kernel_size: int = 32
-
-    # param init
-    ff_init: Optional[str] = None
-    mhsa_init: Optional[str] = None
-    mhsa_out_init: Optional[str] = None
-    conv_module_init: Optional[str] = None
-
-    # dropout
-    dropout: float = 0.1
-    att_dropout: float = 0.1
-    embed_dropout: float = 0.1
-    softmax_dropout: float = 0.1
-
-    # other regularization
-    l2: float = 0.0001
-    frontend_conv_l2: float = 0.0001
-    rel_pos_clipping: int = 16
-    label_smoothing: float = 0.1
-    apply_embed_weight: bool = False
-
-    length_normalization: bool = True
-
-    use_sqrd_relu: bool = False
-
-    # ILM
-    replace_cross_att_w_masked_self_att: bool = False
-    create_ilm_decoder: bool = False
-    ilm_type: bool = None
-    ilm_args: Optional[dict] = None
-
-
-@dataclass
-class RNNDecoderArgs(DecoderArgs):
-    att_num_heads: int = 1
-    lstm_num_units: int = 1024
-    output_num_units: int = 1024
-    embed_dim: int = 640
-    enc_key_dim: int = 1024  # also attention dim  # also attention dim
-
-    # location feedback
-    loc_conv_att_filter_size: Optional[int] = None
-
-    # param init
-    lstm_weights_init: Optional[str] = None
-    embed_weight_init: Optional[str] = None
-
-    # dropout
-    dropout: float = 0.0
-    softmax_dropout: float = 0.3
-    att_dropout: float = 0.0
-    embed_dropout: float = 0.1
-    rec_weight_dropout: float = 0.0
-
-    # other regularization
-    l2: float = 0.0001
-    zoneout: bool = True
-    reduceout: bool = True
-
-    # lstm lm
-    lstm_lm_dim: int = 1024
-    add_lstm_lm: bool = False
-
-    length_normalization: bool = True
-    length_normalization_exponent: float = 1.0
-
-    coverage_scale: float = None
-    coverage_threshold: float = None
-    coverage_update: str = "sum"
-
-    ce_loss_scale: Optional[float] = 1.0
-
-    label_smoothing: float = 0.1
-
-    use_zoneout_output: bool = False
-
-    monotonic_att_weights_loss_opts: Optional[dict] = None
-    use_monotonic_att_weights_loss_in_recog: Optional[bool] = False
-
-    include_eos_in_search_output: bool = False
 
 
 def create_config(
@@ -732,9 +548,15 @@ def create_config(
         exp_config["newbob_learning_rate_decay"] = lr_decay
 
     # -------------------------- network -------------------------- #
-    encoder_type = None
-    if isinstance(encoder_args, ConformerEncoderArgs):
+
+    if type(encoder_args) is ConformerEncoderArgs:
         encoder_type = ConformerEncoder
+    elif type(encoder_args) is ConformerEncoderV2Args:
+        encoder_type = ConformerEncoderV2
+    elif type(encoder_args) is EBranchformerEncoderArgs:
+        encoder_type = EBranchformerEncoder
+    else:
+        raise ValueError("invalid encoder_args type")
 
     if isinstance(decoder_args, TransformerDecoderArgs):
         decoder_type = TransformerDecoder
@@ -746,7 +568,7 @@ def create_config(
         decoder_type = ConformerDecoder
         dec_type = "conformer"  # TODO: check if same as transformer
     else:
-        assert False, "invalid decoder_args type"
+        raise ValueError("invalid decoder_args type")
 
     encoder_args = asdict(encoder_args)
     if feature_extraction_net:

@@ -5,7 +5,7 @@ from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segment
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.labels.v2.general import \
   SegmentalLabelDefinition
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.labels.v2.librispeech.bpe.bpe import \
-  LibrispeechBPE10025
+  LibrispeechBPE10025, LibrispeechBPE1056
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.labels.v2.librispeech.general import \
   LibrispeechLabelDefinition
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.general.hyperparameters import \
@@ -151,3 +151,39 @@ class LibrispeechBpe10025CtcAlignmentEos(LibrispeechBpe10025CtcAlignment):
         ) for corpus_key, alignment_path in self.librispeech_bpe_10025_ctc_alignment_instance.alignment_paths.items()
       }
     return self._alignment_paths
+
+
+class LibrispeechBpe1056Alignment(LibrispeechBPE1056, LibrispeechLabelDefinition, SegmentalLabelDefinition):
+  """
+    This is a forced alignment from the auxiliary CTC model in Mohammad's global AED setup (5.6% WER).
+  """
+  def __init__(self):
+    super().__init__()
+
+    self._alignment_paths = None
+
+  @property
+  def model_hyperparameters(self) -> SegmentalModelHyperparameters:
+    return SegmentalModelHyperparameters(
+      sos_idx=0, target_num_labels=1056, sil_idx=None, blank_idx=0, target_num_labels_wo_blank=1055)
+
+  @property
+  def rasr_format_paths(self) -> RasrFormats:
+    raise NotImplementedError
+
+  @property
+  def alias(self) -> str:
+    return "att-transducer-alignment"
+
+  @property
+  def alignment_paths(self) -> Dict[str, Path]:
+    if self._alignment_paths is None:
+      raise ValueError("Alignments first need to be set externally!")
+    return self._alignment_paths
+
+  @alignment_paths.setter
+  def alignment_paths(self, value):
+    assert isinstance(value, dict)
+    assert self._alignment_paths is None, "Alignment paths are already set!"
+    assert "train" in value and "cv" in value and "devtrain" in value
+    self._alignment_paths = value

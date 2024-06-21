@@ -8,6 +8,8 @@ def get_lm(name: str) -> rasr_lm_config.LMData:
     ted_4gram = get_corpus_data_inputs()["dev"]["dev"].lm
     assert ted_4gram is not None
 
-    lm_dict["4gram"] = rasr_lm_config.ArpaLMData(filename=ted_4gram["filename"], scale=ted_4gram.get("scale", 1.0))
+    lm_dict["4gram"] = rasr_lm_config.ArpaLMData(
+        filename=ted_4gram["filename"], scale=ted_4gram.get("scale", 1.0), lookahead_lm=None
+    )
 
     return lm_dict[name]

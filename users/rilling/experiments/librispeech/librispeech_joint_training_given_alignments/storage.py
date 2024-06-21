@@ -1,7 +1,8 @@
 from typing import Dict
 from dataclasses import dataclass
 from sisyphus import tk
-from .pytorch_networks.shared.configs import ModelConfigV1
+from typing import Union
+from .pytorch_networks.shared.configs import ModelConfigV1, ModelConfigV2
 
 synthetic_ogg_zip_data = {}
 
@@ -17,7 +18,7 @@ def add_duration(name: str, duration_hdf: tk.Path):
 
 @dataclass
 class TTSModel:
-    config: ModelConfigV1
+    config: Union[ModelConfigV1, ModelConfigV2]
     checkpoint: tk.Path
 
 tts_models: Dict[str, TTSModel] = {}

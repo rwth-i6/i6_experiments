@@ -9,7 +9,11 @@ from i6_experiments.common.setups.serialization import Import, PartialImport
 from i6_experiments.users.berger.pytorch.serializers.basic import (
     get_basic_pt_network_serializer,
 )
-from i6_models.primitives.feature_extraction import LogMelFeatureExtractionV1, LogMelFeatureExtractionV1Config
+from i6_models.primitives.feature_extraction import (
+    RasrCompatibleLogMelFeatureExtractionV1,
+    RasrCompatibleLogMelFeatureExtractionV1Config,
+)
+from i6_models.parts.frontend.vgg_act import VGG4LayerActFrontendV1, VGG4LayerActFrontendV1Config
 from i6_models.parts.frontend.generic_frontend import (
     GenericFrontendV1,
     GenericFrontendV1Config,
@@ -314,17 +318,14 @@ def get_default_config_v2(num_inputs: int, num_outputs: int) -> ConformerCTCConf
 
 def get_default_config_v3(num_outputs: int) -> ConformerCTCConfig:
     feature_extraction = ModuleFactoryV1(
-        module_class=LogMelFeatureExtractionV1,
-        cfg=LogMelFeatureExtractionV1Config(
+        module_class=RasrCompatibleLogMelFeatureExtractionV1,
+        cfg=RasrCompatibleLogMelFeatureExtractionV1Config(
             sample_rate=16000,
             win_size=0.025,
             hop_size=0.01,
-            f_min=60,
-            f_max=7600,
-            min_amp=1e-10,
+            min_amp=1.175494e-38,
             num_filters=80,
-            center=False,
-            n_fft=400,
+            alpha=0.97,
         ),
     )
     specaugment = ModuleFactoryV1(
@@ -339,27 +340,47 @@ def get_default_config_v3(num_outputs: int) -> ConformerCTCConfig:
         ),
     )
 
+    # frontend = ModuleFactoryV1(
+    #     GenericFrontendV1,
+    #     GenericFrontendV1Config(
+    #         in_features=80,
+    #         layer_ordering=[
+    #             FrontendLayerType.Conv2d,
+    #             FrontendLayerType.Conv2d,
+    #             FrontendLayerType.Pool2d,
+    #             FrontendLayerType.Conv2d,
+    #             FrontendLayerType.Conv2d,
+    #             FrontendLayerType.Pool2d,
+    #             FrontendLayerType.Activation,
+    #         ],
+    #         conv_kernel_sizes=[(3, 3), (3, 3), (3, 3), (3, 3)],
+    #         conv_paddings=None,
+    #         conv_out_dims=[32, 64, 64, 32],
+    #         conv_strides=[(1, 1), (1, 1), (1, 1), (1, 1)],
+    #         pool_kernel_sizes=[(2, 1), (2, 1)],
+    #         pool_strides=None,
+    #         pool_paddings=None,
+    #         activations=[torch.nn.ReLU()],
+    #         out_features=384,
+    #     ),
+    # )
     frontend = ModuleFactoryV1(
-        GenericFrontendV1,
-        GenericFrontendV1Config(
+        VGG4LayerActFrontendV1,
+        VGG4LayerActFrontendV1Config(
             in_features=80,
-            layer_ordering=[
-                FrontendLayerType.Conv2d,
-                FrontendLayerType.Conv2d,
-                FrontendLayerType.Pool2d,
-                FrontendLayerType.Conv2d,
-                FrontendLayerType.Conv2d,
-                FrontendLayerType.Pool2d,
-                FrontendLayerType.Activation,
-            ],
-            conv_kernel_sizes=[(3, 3), (3, 3), (3, 3), (3, 3)],
-            conv_paddings=None,
-            conv_out_dims=[32, 64, 64, 32],
-            conv_strides=[(1, 1), (1, 1), (1, 1), (1, 1)],
-            pool_kernel_sizes=[(2, 1), (2, 1)],
-            pool_strides=None,
-            pool_paddings=None,
-            activations=[torch.nn.ReLU()],
+            conv1_channels=32,
+            conv2_channels=64,
+            conv3_channels=64,
+            conv4_channels=32,
+            conv_kernel_size=(3, 3),
+            conv_padding=None,
+            pool1_kernel_size=(2, 1),
+            pool1_stride=(2, 1),
+            pool1_padding=None,
+            pool2_kernel_size=(2, 1),
+            pool2_stride=(2, 1),
+            pool2_padding=None,
+            activation=torch.nn.ReLU(),
             out_features=384,
         ),
     )

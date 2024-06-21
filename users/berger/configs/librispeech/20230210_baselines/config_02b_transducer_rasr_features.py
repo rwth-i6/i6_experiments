@@ -44,6 +44,7 @@ def generate_returnn_config(
     *,
     train_data_config: dict,
     dev_data_config: dict,
+    precompute: bool = False,
     **kwargs,
 ) -> ReturnnConfig:
     specaug_v2 = kwargs.get("specaug_v2", False)
@@ -102,30 +103,50 @@ def generate_returnn_config(
             specaug_v2=specaug_v2,
         )
     else:
-        (
-            network_dict,
-            extra_python,
-        ) = transducer_model.make_context_1_conformer_transducer_recog(
-            num_outputs=num_classes,
-            conformer_args={
-                "num_blocks": 12,
-                "size": 512,
-            },
-            decoder_args={
-                "dec_mlp_args": {
-                    "num_layers": 2,
-                    "size": 640,
-                    "activation": "tanh",
+        if precompute:
+            network_dict, extra_python = transducer_model.make_context_1_conformer_transducer_precomputed_recog(
+                num_outputs=num_classes,
+                conformer_args={
+                    "num_blocks": 12,
+                    "size": 512,
                 },
-                "combination_mode": "concat",
-                "joint_mlp_args": {
-                    "num_layers": 1,
-                    "size": 1024,
-                    "activation": "tanh",
+                decoder_args={
+                    "dec_mlp_args": {
+                        "num_layers": 2,
+                        "size": 640,
+                        "activation": "tanh",
+                    },
+                    "combination_mode": "concat",
+                    "joint_mlp_args": {
+                        "num_layers": 1,
+                        "size": 1024,
+                        "activation": "tanh",
+                    },
+                    "ilm_scale": kwargs.get("ilm_scale", 0.0),
                 },
-                "ilm_scale": kwargs.get("ilm_scale", 0.0),
-            },
-        )
+            )
+        else:
+            network_dict, extra_python = transducer_model.make_context_1_conformer_transducer_recog(
+                num_outputs=num_classes,
+                conformer_args={
+                    "num_blocks": 12,
+                    "size": 512,
+                },
+                decoder_args={
+                    "dec_mlp_args": {
+                        "num_layers": 2,
+                        "size": 640,
+                        "activation": "tanh",
+                    },
+                    "combination_mode": "concat",
+                    "joint_mlp_args": {
+                        "num_layers": 1,
+                        "size": 1024,
+                        "activation": "tanh",
+                    },
+                    "ilm_scale": kwargs.get("ilm_scale", 0.0),
+                },
+            )
 
     extra_config = {
         "train": train_data_config,
@@ -158,7 +179,8 @@ def generate_returnn_config(
         python_prolog=[
             "import sys",
             "sys.setrecursionlimit(10 ** 6)",
-        ],
+        ]
+        + (["from returnn.tf.util.data import FeatureDim"] if precompute else []),
         extra_python=extra_python,
         num_inputs=50,
         num_outputs=num_classes,
@@ -215,6 +237,7 @@ def run_exp(
             SummaryKey.CORPUS,
             SummaryKey.EPOCH,
             SummaryKey.LM,
+            SummaryKey.RTF,
             SummaryKey.WER,
             SummaryKey.SUB,
             SummaryKey.INS,
@@ -249,6 +272,7 @@ def run_exp(
         feature_type=FeatureType.GAMMATONE_16K,
         reduction_factor=4,
         reduction_subtrahend=0,
+        search_stats=True,
     )
 
     # ********** Returnn Configs **********
@@ -319,17 +343,19 @@ def run_exp(
                     dev_data_config=data.cv_data_config,
                     label_smoothing=None,
                     loss_boost_v2=False,
-                    loss_boost_scale=5.0,
+                    loss_boost_scale=0.0,
+                    specaug_v2=True,
                     peak_lr=8e-04,
                     model_preload=None,
                 ),
                 recog_configs={
-                    "recog_ilm": generate_returnn_config(
+                    f"recog_ilm-{ilm_scale}": generate_returnn_config(
                         train=False,
                         train_data_config=data.train_data_config,
                         dev_data_config=data.cv_data_config,
-                        ilm_scale=0.2,
+                        ilm_scale=ilm_scale,
                     )
+                    for ilm_scale in [0.1, 0.2, 0.3]
                 },
             ),
         )
@@ -339,7 +365,131 @@ def run_exp(
     system.run_dev_recog_step(**recog_args)
     system.run_test_recog_step(**recog_args)
 
-    train_job = system.get_train_job(f"Conformer_Transducer_Viterbi_lr-0.0008_{name_suffix}")
+    if "blstm" in name_suffix:
+        recog_args.update(
+            {
+                "epochs": [
+                    245,
+                    294,
+                    320,
+                    321,
+                    323,
+                    369,
+                    376,
+                    381,
+                    382,
+                    384,
+                    385,
+                    386,
+                    387,
+                    393,
+                    394,
+                    395,
+                    397,
+                    399,
+                    400,
+                ],
+                "lm_scales": [0.4, 0.5, 0.6, 0.7, 0.8, 0.9],
+            }
+        )
+        system.run_recog_step_for_corpora(
+            exp_names=[f"Conformer_Transducer_Viterbi_specaug-v2_{name_suffix}"],
+            corpora=["dev-other_4gram"],
+            **recog_args,
+        )
+
+        recog_args.update(
+            {
+                "epochs": [382],
+                "lm_scales": [0.8],
+                "mem": 8,
+            }
+        )
+        system.run_recog_step_for_corpora(
+            exp_names=[f"Conformer_Transducer_Viterbi_specaug-v2_{name_suffix}"],
+            corpora=["dev-clean_4gram", "dev-other_4gram", "test-clean_4gram", "test-other_4gram"],
+            recog_exp_names=["recog_ilm-0.3"],
+            **recog_args,
+        )
+
+        # switch to seq2seq v2 and run rescale experiments
+
+        for data_input in data.data_inputs.values():
+            data_input.create_lm_images(tools.rasr_binary_path)
+        system.init_corpora(
+            dev_keys=data.dev_keys,
+            test_keys=data.test_keys,
+            align_keys=data.align_keys,
+            corpus_data=data.data_inputs,
+            am_args=exp_args.transducer_recog_am_args,
+        )
+        system.setup_scoring()
+        recog_args["search_parameters"].update(
+            {
+                "label-pruning": 10.5,
+                "label-pruning-limit": 300,
+                "word-end-pruning": 0.5,
+                "word-end-pruning-limit": 200,
+            }
+        )
+        recog_args["seq2seq_v2"] = True
+        recog_args["rqmt_update"] = {"sbatch_args": ["-A", "rescale_speed", "-p", "rescale_amd"], "cpu": 2}
+
+        system.run_recog_step_for_corpora(
+            exp_names=[f"Conformer_Transducer_Viterbi_specaug-v2_{name_suffix}"],
+            recog_exp_names=["recog_ilm-0.3"],
+            corpora=["dev-other_4gram"],
+            recog_descriptor="lp-10.5_lpl-300_wep-0.5_wepl-200",
+            **recog_args,
+        )
+
+        system.add_experiment_configs(
+            f"Conformer_Transducer_Viterbi_specaug-v2_{name_suffix}",
+            ReturnnConfigs(
+                train_config=generate_returnn_config(
+                    train=True,
+                    train_data_config=data.train_data_config,
+                    dev_data_config=data.cv_data_config,
+                    label_smoothing=None,
+                    loss_boost_v2=False,
+                    loss_boost_scale=0.0,
+                    specaug_v2=True,
+                    peak_lr=8e-04,
+                    model_preload=None,
+                ),
+                recog_configs={
+                    f"recog_precompute_ilm-{ilm_scale}": generate_returnn_config(
+                        train=False,
+                        train_data_config=data.train_data_config,
+                        dev_data_config=data.cv_data_config,
+                        ilm_scale=ilm_scale,
+                        precompute=True,
+                    )
+                    for ilm_scale in [0.3]
+                },
+            ),
+        )
+
+        recog_args.update(
+            {
+                "label_scorer_type": "precomputed-log-posterior",
+                "model_flow_args": {"output_layer_name": "output_precompute"},
+            }
+        )
+        recog_args["label_scorer_args"]["extra_args"]["first_order"] = True
+        recog_args["label_scorer_args"]["extra_args"]["start_label_index"] = 0
+        system.run_recog_step_for_corpora(
+            exp_names=[f"Conformer_Transducer_Viterbi_specaug-v2_{name_suffix}"],
+            corpora=["dev-other_4gram"],
+            recog_descriptor="lp-10.5_lpl-300_wep-0.5_wepl-200",
+            **recog_args,
+        )
+
+    if "blstm" in name_suffix:
+        train_job = system.get_train_job(f"Conformer_Transducer_Viterbi_specaug-v2_{name_suffix}")
+    else:
+        train_job = system.get_train_job(f"Conformer_Transducer_Viterbi_lr-0.0008_{name_suffix}")
+
     model = train_job.out_checkpoints[400]
     assert isinstance(model, Checkpoint)
 

@@ -412,6 +412,10 @@ class ConformerEncoderArgs(EncoderArgs):
     ctc_self_align_scale: float = 0.5
     ctc_dropout: float = 0.0
     enc_layer_w_ctc: Optional[int] = None
+    ctc_att_weights_gauss: bool = False
+    ctc_att_weights_gauss_stddev: float = 1.0
+    ctc_att_weights_gauss_window: int = 5
+    ctc_att_weights_use_enc: bool = True
 
     # param init
     ff_init: Optional[str] = None
@@ -615,6 +619,10 @@ class CTCDecoderArgs(DecoderArgs):
     renorm_after_remove_blank: bool = True
     recombine: bool = False
     max_approx: bool = False
+    train: bool = False
+
+    # not used
+    coverage_scale: bool = False
 
 
 def create_config(
@@ -813,10 +821,11 @@ def create_config(
     elif isinstance(decoder_args, CTCDecoderArgs):
         decoder_type = CTCDecoder
         dec_type = "ctc"
-        exp_config["extern_data"]["bpe_labels_w_blank"] = copy.deepcopy(
-            exp_config["extern_data"]["bpe_labels"]
-        )
-        exp_config["extern_data"]["bpe_labels_w_blank"]["dim"] += 1
+        if not decoder_args.train:
+            exp_config["extern_data"]["bpe_labels_w_blank"] = copy.deepcopy(
+                exp_config["extern_data"]["bpe_labels"]
+            )
+            exp_config["extern_data"]["bpe_labels_w_blank"]["dim"] += 1
     else:
         assert False, "invalid decoder_args type"
 

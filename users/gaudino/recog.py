@@ -4,6 +4,7 @@ Generic recog, for the model interfaces defined in model_interfaces.py
 
 from __future__ import annotations
 
+import copy
 import os
 from typing import TYPE_CHECKING, Optional, Union, Any, Dict, Sequence, Collection, Iterator, Callable
 
@@ -314,6 +315,7 @@ def search_config_v2(
     extern_data_raw = instanciate_delayed(extern_data_raw)
 
     if model_args.get("preload_from_files", None):
+        model_args = copy.deepcopy(model_args)
         preload_from_files = model_args.pop("preload_from_files")
         returnn_recog_config_dict["preload_from_files"] = preload_from_files
 

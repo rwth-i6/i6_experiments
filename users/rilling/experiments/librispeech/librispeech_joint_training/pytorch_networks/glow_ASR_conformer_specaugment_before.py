@@ -54,7 +54,7 @@ from .shared import commons
 from .shared import attentions
 from .monotonic_align import maximum_path
 
-from .shared.forward import search_init_hook, search_finish_hook
+from .shared.forward import search_init_hook, search_finish_hook, prior_finish_hook, prior_init_hook, prior_step
 from .shared.eval_invertibility import forward_init_hook_invertibility, forward_finish_hook_invertibility, forward_step_invertibility
 
 from IPython import embed
@@ -424,7 +424,7 @@ class Model(nn.Module):
         self.specaug_start_epoch = self.cfg.specauc_start_epoch
 
     def forward(
-        self, x=None, x_lengths=None, raw_audio=None, raw_audio_lengths=None, g=None, gen=False, recognition=False, noise_scale=1.0, length_scale=1.0, invertibility_check=False
+        self, x=None, x_lengths=None, raw_audio=None, raw_audio_lengths=None, g=None, gen=False, recognition=False, noise_scale=1.0, length_scale=1.0
     ):
         if not gen:
             with torch.no_grad():
@@ -451,12 +451,6 @@ class Model(nn.Module):
         y_max_length = y.size(2)
         y, y_lengths, y_max_length = self.preprocess(y, y_lengths, y_max_length)
         z_mask = torch.unsqueeze(commons.sequence_mask(y_lengths, y_max_length), 1).to(torch.int32)
-
-        if invertibility_check:
-            g = None # Remove speaker id, which is set in forward_invertibility_step
-            z, _ = self.decoder(y, z_mask, g=g, reverse=False)
-            y_hat, _ = self.decoder(z, z_mask, g=g, reverse=True)
-            return y_hat, y
 
         z, logdet = self.decoder(y, z_mask, g=g, reverse=False)
         # from IPython import embed

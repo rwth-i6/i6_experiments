@@ -21,7 +21,7 @@ def global_att_returnn_label_sync_beam_search(
         checkpoint_aliases: Tuple[str, ...] = ("last", "best", "best-4-avg"),
         run_analysis: bool = False,
         att_weight_seq_tags: Optional[List] = None,
-        pure_torch: bool = False
+        corpus_keys: Tuple[str, ...] = ("dev-other",),
 ):
   ilm_opts = {"type": ilm_type}
   if ilm_type == "mini_att":
@@ -42,9 +42,10 @@ def global_att_returnn_label_sync_beam_search(
     run_analysis=run_analysis,
     analysis_opts={"att_weight_seq_tags": att_weight_seq_tags},
     recog_opts={
-      "recog_def": model_recog_pure_torch if pure_torch else model_recog,
+      "recog_def": model_recog,
       "forward_step_func": _returnn_v2_forward_step,
       "forward_callback": _returnn_v2_get_forward_callback,
     },
-    search_alias=f'returnn_decoding{"_pure_torch" if pure_torch else ""}'
+    search_alias=f'returnn_decoding',
+    corpus_keys=corpus_keys,
   ).run()

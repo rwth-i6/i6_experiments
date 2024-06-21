@@ -74,6 +74,7 @@ class TrainingDataset:
     devtrain: Dataset
     cv_asr: Dataset
     datastreams: Dict[str, Datastream]
+    prior:Dataset
 
 
 @dataclass()
@@ -431,7 +432,7 @@ def build_training_dataset(
     if use_tts_train_segments:
         train_segments, cv_segments = get_librispeech_tts_segments(ls_corpus_key=librispeech_key)
     else:
-        train_segments = None
+        train_segments, cv_segments = (None, None)
 
     train_bliss, train_ogg = get_train_bliss_and_zip("train-clean-100", silence_preprocessed=silence_preprocessing)
     dev_clean_bliss_tts, dev_clean_ogg = get_train_bliss_and_zip(
@@ -555,7 +556,17 @@ def build_training_dataset(
     )
     devtrain_dataset = make_meta_dataset(devtrain_zip_dataset, joint_speaker_dataset, train_eow_phonemes_dataset, duration_dataset=duration_dataset, xvector_dataset=xvector_dataset)
 
-    return TrainingDataset(train=train_dataset, cv=cv_dataset, cv_asr=cv_dataset_asr, devtrain=devtrain_dataset, datastreams=datastreams)
+    prior_zip_dataset = OggZipDataset(
+        files=train_ogg,
+        audio_options=training_audio_opts,
+        target_options=train_phoneme_datastream_tts.as_returnn_targets_opts(),
+        partition_epoch=1,
+        seq_ordering="sorted_reverse",
+        additional_options=additional_opts,
+    )
+    prior_dataset = make_meta_dataset(prior_zip_dataset, joint_speaker_dataset, train_eow_phonemes_dataset)
+
+    return TrainingDataset(train=train_dataset, cv=cv_dataset, cv_asr=cv_dataset_asr, devtrain=devtrain_dataset, datastreams=datastreams, prior=prior_dataset)
 
 
 @lru_cache()

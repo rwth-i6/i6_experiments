@@ -2,7 +2,6 @@ from typing import List, Optional, Tuple
 from dataclasses import dataclass
 
 import torch
-from torchaudio.models.rnnt import RNNT
 
 
 @dataclass
@@ -31,7 +30,7 @@ def extended_hypothesis(
 
 
 def monotonic_timesync_beam_search(
-    *, model: RNNT, features: torch.Tensor, feature_lengths: torch.Tensor, blank_id: int, beam_size: int = 10
+    *, model: torch.nn.Module, features: torch.Tensor, feature_lengths: torch.Tensor, blank_id: int, beam_size: int = 10
 ) -> Tuple[List[int], float]:
     # Some dimension checks
     if features.dim() == 2:  # [T, F]
@@ -41,14 +40,16 @@ def monotonic_timesync_beam_search(
 
     # Compute encoder once
     enc, enc_lengths = model.transcribe(features, feature_lengths)  # [1, T, E], [1]
+    print("encoder outputs:")
+    print(enc[0, :3, :5])
     T = int(enc_lengths[0].cpu().item())
 
     def predict_next(
         token: int, history_state: Optional[List[List[torch.Tensor]]]
     ) -> Tuple[torch.Tensor, List[List[torch.Tensor]]]:
         new_pred_state, _, new_pred_history_state = model.predict(  # [1, P]
-            targets=torch.tensor([[token]], device=enc.device),
-            target_lengths=torch.tensor([1], device=enc.device),
+            labels=torch.tensor([[token]], device=enc.device),
+            label_lengths=torch.tensor([1], device=enc.device),
             state=history_state,
         )
 
@@ -85,6 +86,7 @@ def monotonic_timesync_beam_search(
 
             assert new_pred_history_state is not None
 
+            print("Predict with encoder state ", enc_state[0, 0, :5], "token", recent_token)
             log_probs, _, _ = model.join(  # [1, C] (packed) or [1, 1, 1, C] (not packed))
                 source_encodings=enc_state,
                 source_lengths=torch.tensor([1], device=enc.device),
@@ -92,6 +94,7 @@ def monotonic_timesync_beam_search(
                 target_lengths=torch.tensor([1], device=enc.device),
             )
             log_probs = log_probs.squeeze()  # [C]
+            print("Probs: ", torch.exp(log_probs[:5]))
 
             # extend hypothesis with all possible next classes
             for c in range(log_probs.size(0)):

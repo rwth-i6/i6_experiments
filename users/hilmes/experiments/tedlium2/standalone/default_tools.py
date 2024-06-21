@@ -19,7 +19,7 @@ MINI_RETURNN_ROOT.hash_overwrite = "TEDLIUM_STANDALONE_DEFAULT_RETURNN_ROOT"
 
 I6_MODELS_REPO_PATH = CloneGitRepositoryJob(
     url="https://github.com/rwth-i6/i6_models",
-    commit="933c6c13f7d6c74e5a59af0257e17c208dae9da3",
+    commit="645d4e1a00349ed46593ab2c82dc373db353c33f",
     checkout_folder_name="i6_models",
 ).out_repository.copy()
 I6_MODELS_REPO_PATH.hash_overwrite = "TEDLIUM_STANDALONE_DEFAULT_I6_MODELS"
@@ -35,3 +35,7 @@ SUBWORD_NMT_REPO = get_returnn_subword_nmt(
     commit_hash="5015a45e28a958f800ef1c50e7880c0c9ef414cf",
 ).copy()
 SUBWORD_NMT_REPO.hash_overwrite = "I6_SUBWORD_NMT_V2"
+
+QUANT_RETURNN = CloneGitRepositoryJob(
+    "https://github.com/JackTemaki/MiniReturnn", commit="f31614f2a071aa75588eff6f2231b54751fb962c"
+).out_repository.copy()

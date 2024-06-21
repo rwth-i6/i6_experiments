@@ -188,6 +188,25 @@ def get_serializer(
                 import_as="forward_finish_hook",
             )
             serializer_objects.extend([vocoder_dependencies, forward_step, init_hook, finish_hook])
+        elif target == "prior":
+            forward_step = Import(
+                code_object_path=package + ".%s.prior_step" % network_module,
+                unhashed_package_root=PACKAGE,
+                import_as="forward_step",
+            )
+            init_hook = Import(
+                code_object_path=package + ".%s.prior_init_hook" % network_module,
+                unhashed_package_root=PACKAGE,
+                import_as="forward_init_hook",
+                )
+            finish_hook = Import(
+                code_object_path=package + ".%s.prior_finish_hook" % network_module,
+                import_as="forward_finish_hook",
+                unhashed_package_root=PACKAGE,
+            )
+            serializer_objects.extend(
+                [forward_step, init_hook, finish_hook]
+            )
         else:
             forward_step = Import(
                 code_object_path=package + f".{network_module}.forward_step_{target}",

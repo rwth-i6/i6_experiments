@@ -22,7 +22,8 @@ def center_window_returnn_frame_wise_beam_search(
         checkpoint_aliases: Tuple[str, ...] = ("last", "best", "best-4-avg"),
         run_analysis: bool = False,
         att_weight_seq_tags: Optional[List] = None,
-        pure_torch: bool = False
+        pure_torch: bool = False,
+        use_recombination: Optional[str] = None,
 ):
   ilm_opts = {"type": ilm_type}
   if ilm_type == "mini_att":
@@ -46,6 +47,8 @@ def center_window_returnn_frame_wise_beam_search(
       "recog_def": model_recog_pure_torch if pure_torch else model_recog,
       "forward_step_func": _returnn_v2_forward_step,
       "forward_callback": _returnn_v2_get_forward_callback,
+      "use_recombination": use_recombination,
+      "batch_size": 15_000
     },
     search_alias=f'returnn_decoding{"_pure_torch" if pure_torch else ""}'
   ).run()

@@ -59,6 +59,7 @@ def returnn_config_generator(
             "train": train_data_config,
             "dev": dev_data_config,
             "max_seq_length": {"audio_features": 560000},
+            "torch_amp": {"dtype": "bfloat16"},
         }
         serializer = model.get_train_serializer(model_config, **kwargs)
 
@@ -132,7 +133,7 @@ def run_exp() -> SummaryReport:
 
     train_args = exp_args.get_transducer_train_step_args(num_epochs=num_subepochs, gpu_mem_rqmt=24)
     recog_args = {
-        "epochs": [20, 40, 80, 160, 320, 500],
+        "epochs": [500],
         "prior_scales": [0.0],
         "lm_scales": [0.0],
         "lexicon_type": LexiconType.BLISS,
@@ -159,7 +160,7 @@ def run_exp() -> SummaryReport:
             data.train_data_config,
             data.cv_data_config,
             data.forward_data_config,
-            beam_sizes=[1, 2, 4],
+            beam_sizes=[1, 2, 3],
         ),
     )
 

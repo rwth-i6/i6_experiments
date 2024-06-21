@@ -21,15 +21,15 @@ from ..pytorch_networks.glowTTS_nar_taco_encoder import NarEncoderConfig
 
 
 def get_pytorch_glowTTS(x_vector_exp: dict, gl_checkpoint: dict):
-    """
-    Baseline for the glow TTS in returnn_common with serialization
+    """Experiments training Glow-TTS on TTS-only. Most experiments have the bug, that the decoder dropout is set using the wrong keyword, which is why the value of 0.05 is overwritten by the default of 0.0
+    The TTS-only experiments in ../librispeech_joing_training_given_alignment/exp_TTS fixed that and are therefore more current
 
-    Uses updated RETURNN_COMMON
+    :param dict x_vector_exp: Dictionary containing x-vector experiments from ../librispeech_x_vectors to import x-vector model for on-the-fly speaker embedding generatino
+    :param dict gl_checkpoint: Dictionary containing checkpoint and config of a BLSTM network to transform log-mel into linear for G&L vocoding
+    :return dict: Dictionary containing the experiment dictionaries to import attributes of experiment jobs in other experiment folders (should be done using storage)
+    """    
 
-    :return: durations_hdf
-    """
-
-    prefix = "experiments/librispeech/tts_architecture/glow_tts/raw_audio/"
+    prefix = "experiments/librispeech/TTS_only/v1/raw_audio/"
     experiments = {}
 
     def run_exp(
@@ -53,6 +53,29 @@ def get_pytorch_glowTTS(x_vector_exp: dict, gl_checkpoint: dict):
         tts_eval_datasets=None,
         forward_device="gpu",
     ):
+        """Creates the jobs for training, forwarding and evaluation of the experiment
+
+        :param str name: Name of the experiment to be used in aliases
+        :param dict args: General arguments to be used in Returnn configs in training and forward
+        :param TrainingDataset dataset: Dataset used for training and TTS forwarding (not evaluation)
+        :param int num_epochs: Number of epochs in training, defaults to 100
+        :param bool use_custom_engine: whether a custom engine is used in Returnn, defaults to False
+        :param Optional[int] extra_evaluate_epoch: if an epoch is given the forward run is also performed using that epoch's checkpoint, defaults to None
+        :param dict forward_args: Additional arguments for the forward step, defaults to {}
+        :param bool further_training: whether an additional training should be run after the first num_epochs epochs for again num_epochs, defaults to False
+        :param bool spectrogram_foward: whether an additional forward run should produce spectrograms, defaults to False
+        :param bool durations_forward: whether an additional forward run should compute the phoneme durations / alignments, defaults to False
+        :param bool latent_space_forward: whether an additional forward run should output the latent space into an HDF, defaults to False
+        :param bool joint_data_forward: whether the forwarding/generation should be run on the full data (train and val. split), defaults to False
+        :param bool train_data_forward: whether the forwarding/generation should be run on the train split of the dataset, defaults to False
+        :param bool joint_durations_forward: whether the phoneme durations extraction should be run on the full dataset (train + val. split), defaults to False
+        :param list[int] keep_epochs: List of checkpoints that should be kept during training (not cleaned up), defaults to None
+        :param bool skip_forward: whether forwarding/generation should be skipped, defaults to False
+        :param bool nisqa_evaluation: whether the autoMOS should be evaluated using NISQA, defaults to False
+        :param dict tts_eval_datasets: Dictionary containing the datasets for TTS evaluation (autoMOS + sWER), defaults to None
+        :param str forward_device: define whether the forward steps are run on "gpu" or "cpu", defaults to "gpu"
+        :return dict: Dictionary containing the jobs of the experiment
+        """
         exp = {}
 
         assert not nisqa_evaluation or (nisqa_evaluation and not skip_forward), "NISQA evaluation with skipping forward jobs is not possible"
@@ -154,7 +177,7 @@ def get_pytorch_glowTTS(x_vector_exp: dict, gl_checkpoint: dict):
                 #     vocoder="univnet"
                 # )
                 # exp["forward_job_univnet"] = forward_job_univnet
-                
+
                 for ds_k, ds in tts_eval_datasets.items():
                     forward_config_gl = get_forward_config(
                         returnn_common_root=RETURNN_COMMON,
@@ -339,7 +362,7 @@ def get_pytorch_glowTTS(x_vector_exp: dict, gl_checkpoint: dict):
     )
 
     from .data import get_tts_log_mel_datastream
-    from .feature_config import DbMelFeatureExtractionConfig
+    from ..feature_config import DbMelFeatureExtractionConfig
     from i6_experiments.users.rossenbach.common_setups.returnn.datastreams.audio import DBMelFilterbankOptions
 
     log_mel_datastream = get_tts_log_mel_datastream(silence_preprocessing=False)

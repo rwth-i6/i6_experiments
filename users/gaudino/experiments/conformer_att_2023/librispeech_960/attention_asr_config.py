@@ -505,8 +505,9 @@ class CTCDecoderArgs(DecoderArgs):
     add_att_dec: bool = False
     att_scale: float = 0.65
     ts_reward: float = 0.0
-    blank_prob_scale: float = 0.0
-    repeat_prob_scale: float = 0.0
+    blank_prob_scale: float = 1.0
+    repeat_prob_scale: float = 1.0
+    label_prob_scale: float = 1.0
     ctc_prior_correction: bool = False
     prior_scale: float = 1.0
     logits: bool = False
@@ -520,10 +521,15 @@ class CTCDecoderArgs(DecoderArgs):
     one_minus_term_mul_scale: float = 1.0
     one_minus_term_sub_scale: float = 0.0
     length_normalization: bool = False
-    hash_override_version: Optional[int] = None
+    length_normalization_scale: float = 1.0
+    target_dim: int = 10025
+    target_embed_dim: int = 640
+    # hash_override_version: Optional[int] = None
     blank_collapse: bool = False
     renorm_p_comb: bool = False
-    recombine:bool = False
+    renorm_after_remove_blank: bool = True
+    recombine: bool = False
+    max_approx: bool = False
 
 
 def create_config(

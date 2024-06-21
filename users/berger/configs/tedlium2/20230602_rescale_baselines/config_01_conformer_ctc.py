@@ -1,5 +1,7 @@
 import copy
 import os
+from typing import Dict, Tuple
+from i6_models.config import ModuleFactoryV1
 from i6_core.returnn.config import ReturnnConfig
 
 from sisyphus import gs, tk
@@ -11,19 +13,18 @@ from i6_experiments.users.berger.args.returnn.learning_rates import LearningRate
 from i6_experiments.users.berger.corpus.tedlium2.ctc_data import get_tedlium2_data_dumped_labels
 from i6_experiments.users.berger.pytorch.models import conformer_ctc
 from i6_experiments.users.berger.recipe.summary.report import SummaryReport
-from i6_experiments.users.berger.systems.dataclasses import ConfigVariant, FeatureType, ReturnnConfigs
+from i6_experiments.users.berger.systems.dataclasses import AlignmentData, ConfigVariant, FeatureType, ReturnnConfigs
 from i6_experiments.users.berger.systems.returnn_seq2seq_system import (
     ReturnnSeq2SeqSystem,
 )
 from i6_experiments.users.berger.util import default_tools_v2
+from i6_experiments.users.berger.pytorch.custom_parts.identity import IdentityConfig, IdentityModule
 
 # ********** Settings **********
 
 rasr.flow.FlowNetwork.default_flags = {"cache_mode": "task_dependent"}
 
 num_outputs = 79
-# num_subepochs = 250
-num_subepochs = 1
 
 tools = copy.deepcopy(default_tools_v2)
 tools.rasr_binary_path = tk.Path("/u/berger/repositories/rasr_versions/gen_seq2seq_dev/arch/linux-x86_64-standard")
@@ -32,32 +33,32 @@ tools.rasr_binary_path = tk.Path("/u/berger/repositories/rasr_versions/gen_seq2s
 # ********** Return Config generators **********
 
 
-def returnn_config_generator(variant: ConfigVariant, train_data_config: dict, dev_data_config: dict) -> ReturnnConfig:
-    model_config = conformer_ctc.get_default_config_v2(num_inputs=50, num_outputs=num_outputs)
+def returnn_config_generator(
+    variant: ConfigVariant, train_data_config: dict, dev_data_config: dict, num_subepochs: int, **kwargs
+) -> ReturnnConfig:
+    model_config = conformer_ctc.get_default_config_v3(num_outputs=num_outputs)
 
     extra_config = {
         "train": train_data_config,
         "dev": dev_data_config,
     }
+    if variant == ConfigVariant.TRAIN:
+        extra_config["max_seq_length"] = {"audio_features": 560000}
+        extra_config["torch_amp"] = {"dtype": "bfloat16"}
     if variant == ConfigVariant.RECOG:
+        extra_config["extern_data"] = {
+            "data": {"dim": 80, "dtype": "float32"},
+        }
         extra_config["model_outputs"] = {
             "log_probs": {
                 "dim": num_outputs,
             }
         }
-
-    extra_config["preload_from_files"] = {
-        "base": {
-            "init_for_train": True,
-            "filename": tk.Path(
-                "/work/asr4/berger/sisyphus_work_dirs/tedlium2/20230602_rescale_baselines/i6_core/returnn/training/ReturnnTrainingJob.yEnOhxiP8CgO/output/models/epoch.250.pt"
-            ),
-        }
-    }
+        model_config.feature_extraction = ModuleFactoryV1(IdentityModule, IdentityConfig())
 
     return get_returnn_config(
         num_epochs=num_subepochs,
-        num_inputs=50,
+        num_inputs=1,
         num_outputs=num_outputs,
         target="classes",
         extra_python=[conformer_ctc.get_serializer(model_config, variant=variant)],
@@ -66,14 +67,14 @@ def returnn_config_generator(variant: ConfigVariant, train_data_config: dict, de
         grad_noise=0.0,
         grad_clip=0.0,
         optimizer=Optimizers.AdamW,
-        schedule=LearningRateSchedules.OCLR,
+        schedule=LearningRateSchedules.OCLR_STEP_TORCH,
         max_seqs=60,
-        # initial_lr=2.2e-05,
-        # peak_lr=2.2e-04,
-        peak_lr=0.0,
-        # final_lr=1e-08,
-        batch_size=12000,
-        accum_grad=3,
+        initial_lr=7e-06,
+        peak_lr=7e-04,
+        decayed_lr=7e-05,
+        final_lr=1e-08,
+        n_steps_per_epoch=480,
+        batch_size=36000 * 160,
         use_chunking=False,
         extra_config=extra_config,
     )
@@ -82,16 +83,37 @@ def returnn_config_generator(variant: ConfigVariant, train_data_config: dict, de
 def get_returnn_config_collection(
     train_data_config: dict,
     dev_data_config: dict,
+    num_subepochs: int,
+    **kwargs,
 ) -> ReturnnConfigs[ReturnnConfig]:
-    generator_kwargs = {"train_data_config": train_data_config, "dev_data_config": dev_data_config}
     return ReturnnConfigs(
-        train_config=returnn_config_generator(variant=ConfigVariant.TRAIN, **generator_kwargs),
-        prior_config=returnn_config_generator(variant=ConfigVariant.PRIOR, **generator_kwargs),
-        recog_configs={"recog": returnn_config_generator(variant=ConfigVariant.RECOG, **generator_kwargs)},
+        train_config=returnn_config_generator(
+            variant=ConfigVariant.TRAIN,
+            train_data_config=train_data_config,
+            dev_data_config=dev_data_config,
+            num_subepochs=num_subepochs,
+            **kwargs,
+        ),
+        prior_config=returnn_config_generator(
+            variant=ConfigVariant.PRIOR,
+            train_data_config=train_data_config,
+            dev_data_config=dev_data_config,
+            num_subepochs=num_subepochs,
+            **kwargs,
+        ),
+        recog_configs={
+            "recog": returnn_config_generator(
+                variant=ConfigVariant.RECOG,
+                train_data_config=train_data_config,
+                dev_data_config=dev_data_config,
+                num_subepochs=num_subepochs,
+                **kwargs,
+            )
+        },
     )
 
 
-def run_exp() -> SummaryReport:
+def run_exp(num_subepochs: int = 250) -> Tuple[SummaryReport, Dict[str, AlignmentData]]:
     assert tools.returnn_root
     assert tools.returnn_python_exe
     assert tools.rasr_binary_path
@@ -101,32 +123,40 @@ def run_exp() -> SummaryReport:
         returnn_python_exe=tools.returnn_python_exe,
         rasr_binary_path=tools.rasr_binary_path,
         augmented_lexicon=True,
-        feature_type=FeatureType.GAMMATONE_16K,
+        feature_type=FeatureType.SAMPLES,
     )
+
+    for data_input in data.data_inputs.values():
+        data_input.create_lm_images(tools.rasr_binary_path)
 
     # ********** Step args **********
 
-    train_args = exp_args.get_ctc_train_step_args(num_epochs=num_subepochs)
+    train_args = exp_args.get_ctc_train_step_args(num_epochs=num_subepochs, gpu_mem_rqmt=24)
     recog_args = exp_args.get_ctc_recog_step_args(
         num_classes=num_outputs,
-        # epochs=[160, num_subepochs],
-        epochs=[1],
-        prior_scales=[0.5],
-        lm_scales=[1.1],
-        feature_type=FeatureType.GAMMATONE_16K,
+        epochs=[ep for ep in [80, 160, 320, 640, 1280, num_subepochs] if ep <= num_subepochs],
+        prior_scales=[0.3, 0.5, 0.7],
+        lm_scales=[0.7, 0.9, 1.1, 1.3],
+        feature_type=FeatureType.LOGMEL_16K,
+        search_stats=True,
+        seq2seq_v2=True,
+    )
+    align_args = exp_args.get_ctc_align_step_args(
+        num_classes=num_outputs,
+        feature_type=FeatureType.LOGMEL_16K,
+        prior_scale=0.3,
+        epoch=num_subepochs,
+        register_output=True,
     )
 
     # ********** System **********
 
-    # tools.returnn_root = tk.Path("/u/berger/repositories/MiniReturnn")
-    # tools.rasr_binary_path = tk.Path(
-    #     "/u/berger/repositories/rasr_versions/gen_seq2seq_onnx_apptainer/arch/linux-x86_64-standard"
-    # )
     system = ReturnnSeq2SeqSystem(tools)
 
     system.init_corpora(
         dev_keys=data.dev_keys,
         test_keys=data.test_keys,
+        align_keys=data.align_keys,
         corpus_data=data.data_inputs,
         am_args=exp_args.ctc_recog_am_args,
     )
@@ -135,24 +165,33 @@ def run_exp() -> SummaryReport:
     # ********** Returnn Configs **********
 
     system.add_experiment_configs(
-        "Conformer_CTC", get_returnn_config_collection(data.train_data_config, data.cv_data_config)
+        f"Conformer_CTC_{num_subepochs}-epochs",
+        get_returnn_config_collection(
+            train_data_config=data.train_data_config,
+            dev_data_config=data.cv_data_config,
+            num_subepochs=num_subepochs,
+        ),
     )
 
     system.run_train_step(**train_args)
     system.run_dev_recog_step(**recog_args)
+    align_data = next(iter(system.run_align_step(**align_args).values()))
 
     assert system.summary_report
-    return system.summary_report
+    return system.summary_report, align_data
 
 
-def py() -> SummaryReport:
+def py() -> Tuple[SummaryReport, Dict[str, AlignmentData]]:
     filename_handle = os.path.splitext(os.path.basename(__file__))[0][len("config_") :]
     gs.ALIAS_AND_OUTPUT_SUBDIR = f"{filename_handle}/"
 
     summary_report = SummaryReport()
 
-    summary_report.merge_report(run_exp(), update_structure=True)
+    summary_report.merge_report(run_exp(num_subepochs=250)[0], update_structure=True)
+    summary_report.merge_report(run_exp(num_subepochs=500)[0], update_structure=True)
+    report, align_data = run_exp(num_subepochs=1000)
+    summary_report.merge_report(report, update_structure=True)
 
     tk.register_report(f"{gs.ALIAS_AND_OUTPUT_SUBDIR}/summary.report", summary_report)
 
-    return summary_report
+    return summary_report, align_data

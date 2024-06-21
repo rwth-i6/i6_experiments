@@ -7,7 +7,7 @@ from sisyphus import tk
 from i6_experiments.users.berger.systems.dataclasses import FeatureType
 from i6_experiments.users.berger.corpus.general.experiment_data import BasicSetupData
 
-from ..general import build_feature_hdf_dataset_config, build_feature_label_meta_dataset_config
+from ..general import build_feature_label_meta_dataset_config
 from . import data
 
 
@@ -80,25 +80,6 @@ def get_tedlium2_data_dumped_labels(
             "seq_ordering": "sorted",
         },
     )
-
-    # ********** forward data **********
-
-    forward_data_config = {
-        key: build_feature_hdf_dataset_config(
-            data_inputs=[data_input],
-            feature_type=feature_type,
-            returnn_root=returnn_root,
-            returnn_python_exe=returnn_python_exe,
-            rasr_binary_path=rasr_binary_path,
-            rasr_arch=rasr_arch,
-            single_hdf=True,
-            extra_config={
-                "partition_epoch": 1,
-                "seq_ordering": "sorted",
-            },
-        )
-        for key, data_input in {**dev_data_inputs, **test_data_inputs}.items()
-    }
 
     # ********** Recog lexicon **********
 

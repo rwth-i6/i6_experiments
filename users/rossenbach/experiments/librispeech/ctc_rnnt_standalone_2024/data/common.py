@@ -12,7 +12,7 @@ from i6_experiments.common.datasets.librispeech import get_ogg_zip_dict, get_bli
 from i6_experiments.common.setups.returnn.datastreams.audio import AudioRawDatastream, ReturnnAudioRawOptions
 from i6_experiments.common.setups.returnn.datastreams.base import Datastream
 from i6_experiments.common.setups.returnn.datastreams.vocabulary import LabelDatastream
-from i6_experiments.common.setups.returnn.datasets import Dataset, OggZipDataset, MetaDataset
+from i6_experiments.common.setups.returnn.datasets import Dataset, OggZipDataset, MetaDataset, HDFDataset
 
 from .cv_segments import get_mixed_cv_segments
 
@@ -96,13 +96,19 @@ def get_zip(alias_name: str, bliss_dataset: tk.Path) -> tk.Path:
 
 # --------------------------- Dataset functions  -----------------------------------
 
+@dataclass()
+class TrainingHDFLabelFiles:
+    train: List[tk.Path]
+    dev_clean: List[tk.Path]
+    dev_other: List[tk.Path]
 
 def build_training_datasets(
     train_ogg: Union[tk.Path, List[tk.Path]],
     dev_clean_ogg: tk.Path,
     dev_other_ogg: tk.Path,
-    label_datastream: LabelDatastream,
+    label_datastream: Optional[LabelDatastream],
     settings: DatasetSettings,
+    training_hdf_label_files: Optional[TrainingHDFLabelFiles] = None,
 ) -> TrainingDatasets:
     """
     generic dataset construction helper to be used by the phon/bpe specific variants
@@ -110,7 +116,9 @@ def build_training_datasets(
     :param train_ogg: path to the train zip, potentially containing altered transcriptions
     :param dev_clean_ogg: path to the ls dev-clean zip, potentially containing altered transcriptions
     :param dev_other_ogg: path to the ls dev-other zip, potentially containing altered transcriptions
-    :param label_datastream: label datastream (e.g. phoneme or bpe related)
+    :param label_datastream: label datastream for the ogg zip (e.g. phoneme or bpe related)
+    :param training_hdf_label_files: e.g. as alternative to label_datastream, use labels from HDF
+        (can be time-synchronous but do not have to)
     :param settings: settings object for the RETURNN data pipeline
     """
     audio_datastream = get_audio_raw_datastream(settings.preemphasis, settings.peak_normalization)
@@ -120,52 +128,72 @@ def build_training_datasets(
         "labels": label_datastream,
     }
 
-    data_map = {"raw_audio": ("zip_dataset", "data"), "labels": ("zip_dataset", "classes")}
+    if training_hdf_label_files is not None:
+        data_map = {"raw_audio": ("zip_dataset", "data"), "labels": ("hdf_dataset", "data")}
+    else:
+        data_map = {"raw_audio": ("zip_dataset", "data"), "labels": ("zip_dataset", "classes")}
 
     training_audio_opts = audio_datastream.as_returnn_audio_opts()
 
-    def make_meta(dataset: OggZipDataset):
+    def make_meta_oggzip(dataset: OggZipDataset, *args, **kwargs):
         return MetaDataset(
             data_map=data_map, datasets={"zip_dataset": dataset}, seq_order_control_dataset="zip_dataset"
         )
 
+    def make_meta_oggzip_hdf(dataset: OggZipDataset, hdf_files: List):
+        return MetaDataset(
+            data_map=data_map,
+            datasets={
+                "zip_dataset": dataset,
+                "hdf_dataset": HDFDataset(
+                    files=hdf_files
+                )
+            },
+            seq_order_control_dataset="zip_dataset"
+        )
+
+    if training_hdf_label_files is None:
+        make_meta = make_meta_oggzip
+    else:
+        make_meta = make_meta_oggzip_hdf
+
     train_zip_dataset = OggZipDataset(
         files=train_ogg,
         audio_options=training_audio_opts,
-        target_options=label_datastream.as_returnn_targets_opts(),
+        target_options=label_datastream.as_returnn_targets_opts() if label_datastream is not None else None,
         partition_epoch=settings.train_partition_epoch,
         seq_ordering=settings.train_seq_ordering,
         additional_options=settings.train_additional_options,
     )
-    train_dataset = make_meta(train_zip_dataset)
+    train_dataset = make_meta(train_zip_dataset, training_hdf_label_files.train)
 
     cv_zip_dataset = OggZipDataset(
         files=[dev_clean_ogg, dev_other_ogg],
         audio_options=audio_datastream.as_returnn_audio_opts(),
-        target_options=label_datastream.as_returnn_targets_opts(),
+        target_options=label_datastream.as_returnn_targets_opts() if label_datastream is not None else None,
         segment_file=get_mixed_cv_segments(),
         seq_ordering="sorted_reverse",
     )
-    cv_dataset = make_meta(cv_zip_dataset)
+    cv_dataset = make_meta(cv_zip_dataset, training_hdf_label_files.dev_clean + training_hdf_label_files.dev_other)
 
     devtrain_zip_dataset = OggZipDataset(
         files=train_ogg,
         audio_options=audio_datastream.as_returnn_audio_opts(),
-        target_options=label_datastream.as_returnn_targets_opts(),
+        target_options=label_datastream.as_returnn_targets_opts() if label_datastream is not None else None,
         seq_ordering="sorted_reverse",
         random_subset=3000,
     )
-    devtrain_dataset = make_meta(devtrain_zip_dataset)
+    devtrain_dataset = make_meta(devtrain_zip_dataset, training_hdf_label_files.train)
 
     prior_zip_dataset = OggZipDataset(
         files=train_ogg,
         audio_options=training_audio_opts,
-        target_options=label_datastream.as_returnn_targets_opts(),
+        target_options=label_datastream.as_returnn_targets_opts() if label_datastream is not None else None,
         partition_epoch=1,
         seq_ordering="sorted_reverse",
         additional_options=None,
     )
-    prior_dataset = make_meta(prior_zip_dataset)
+    prior_dataset = make_meta(prior_zip_dataset, training_hdf_label_files.train)
 
     return TrainingDatasets(
         train=train_dataset,

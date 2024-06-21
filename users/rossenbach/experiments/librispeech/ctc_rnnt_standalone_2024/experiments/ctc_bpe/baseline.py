@@ -13,7 +13,7 @@ from ...data.common import DatasetSettings, build_test_dataset
 from ...data.bpe import build_bpe_training_datasets, get_text_lexicon
 from ...default_tools import RETURNN_EXE, MINI_RETURNN_ROOT
 from ...lm import get_4gram_binary_lm
-from ...pipeline import training, prepare_asr_model, search
+from ...pipeline import training, prepare_asr_model, search, ASRModel
 from ...storage import add_ctc_model
 
 
@@ -60,6 +60,9 @@ def bpe_ls960_1023_base():
         "returnn_root": MINI_RETURNN_ROOT,
     }
 
+    from ...pytorch_networks.ctc.decoder.flashlight_ctc_v1 import DecoderConfig
+    from ...pytorch_networks.ctc.decoder.greedy_bpe_ctc_v3 import DecoderConfig as GreedyDecoderConfig
+
     def tune_and_evaluate_helper(training_name, asr_model, base_decoder_config, lm_scales, prior_scales):
         tune_parameters = []
         tune_values_clean = []
@@ -94,9 +97,26 @@ def bpe_ls960_1023_base():
                 decoder_args={"config": asdict(decoder_config)}, test_dataset_tuples={key: test_dataset_tuples[key]},
                 **default_returnn
             )
+            
+    def greedy_search_helper(
+            training_name: str,
+            asr_model: ASRModel,
+            decoder_config: GreedyDecoderConfig
+        ):
+        # remove prior if exists
+        asr_model = copy.deepcopy(asr_model)
+        asr_model.prior_file = None
 
-
-    from ...pytorch_networks.ctc.decoder.flashlight_ctc_v1 import DecoderConfig
+        search_name = training_name + "/search_greedy"
+        search_jobs, wers = search(
+            search_name,
+            forward_config={},
+            asr_model=asr_model,
+            decoder_module="ctc.decoder.greedy_bpe_ctc_v3",
+            decoder_args={"config": asdict(decoder_config)},
+            test_dataset_tuples=dev_dataset_tuples,
+            **default_returnn,
+        )
 
     default_decoder_config_bpe5000 = DecoderConfig(
         lexicon=get_text_lexicon(prefix=prefix_name, librispeech_key="train-other-960", bpe_size=5000),
@@ -190,6 +210,12 @@ def bpe_ls960_1023_base():
     )
     add_ctc_model("ls960_ctc_bpe_5k." + network_module + ".512dim_sub6_24gbgpu_50eps_ckpt500", asr_model)
     tune_and_evaluate_helper(training_name, asr_model, default_decoder_config_bpe5000, lm_scales=[1.6, 1.8, 2.0], prior_scales=[0.2, 0.3, 0.4])
+
+
+    greedy_decoder_config = GreedyDecoderConfig(
+        returnn_vocab=label_datastream_bpe5000.vocab,
+    )
+    greedy_search_helper(training_name, asr_model=asr_model, decoder_config=greedy_decoder_config)
 
     for token in [16, 32, 64]:
         decoder_config = copy.deepcopy(default_decoder_config_bpe5000)

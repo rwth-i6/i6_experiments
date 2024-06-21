@@ -14,7 +14,7 @@ from i6_experiments.users.rilling.evaluation.phoneme_prediction import MeanPhone
 from .default_tools import SCTK_BINARY_PATH, NISQA_REPO
 
 
-def training(config, returnn_exe, returnn_root, prefix, num_epochs=65):
+def training(config, returnn_exe, returnn_root, prefix, num_epochs=65, large_gpu=False):
     train_job = ReturnnTrainingJob(
         config,
         log_verbosity=5,
@@ -25,6 +25,10 @@ def training(config, returnn_exe, returnn_root, prefix, num_epochs=65):
         returnn_python_exe=returnn_exe,
         returnn_root=returnn_root,
     )
+
+    if large_gpu:
+        train_job.rqmt["gpu_mem"] = 24
+        
     train_job.add_alias(prefix + "/training")
     tk.register_output(prefix + "/training.models", train_job.out_model_dir)
 
@@ -58,6 +62,7 @@ def forward(
         returnn_python_exe=returnn_exe,
         returnn_root=returnn_root,
         mem_rqmt=20,
+        device="cpu"
     )
 
     # last_forward_job.rqmt["gpu_mem"] = 24
@@ -239,3 +244,36 @@ def compute_phoneme_pred_accuracy(
         tk.register_output(prefix_name + f"/{target}_pred/{key}/accuracy", mean_accuracy_job.out_accuracy)
         jobs.append(search_job)
     return jobs
+
+@tk.block()
+def compute_prior(
+        prefix_name,
+        returnn_config,
+        checkpoint,
+        returnn_exe,
+        returnn_root,
+        mem_rqmt=8,
+):
+    """
+    Run search for a specific test dataset
+
+    :param str prefix_name:
+    :param ReturnnConfig returnn_config:
+    :param Checkpoint checkpoint:
+    :param Path returnn_exe:
+    :param Path returnn_root:
+    """
+    search_job = ReturnnForwardJobV2(
+        model_checkpoint=checkpoint,
+        returnn_config=returnn_config,
+        log_verbosity=5,
+        mem_rqmt=mem_rqmt,
+        time_rqmt=1,
+        device="gpu",
+        cpu_rqmt=4,
+        returnn_python_exe=returnn_exe,
+        returnn_root=returnn_root,
+        output_files=["prior.txt"],
+    )
+    search_job.add_alias(prefix_name + "/prior_job")
+    return search_job.out_files["prior.txt"]

@@ -209,3 +209,33 @@ def compute_prior(
     )
     search_job.add_alias(prefix_name + "/prior_job")
     return search_job.out_files["prior.txt"]
+
+def evaluate_invertibility(
+    prefix,
+    config,
+    checkpoint,
+    returnn_exe,
+    returnn_root,
+):
+    hdf_outputs = []
+
+    last_forward_job = ReturnnForwardJob(
+        model_checkpoint=checkpoint,
+        returnn_config=config,
+        hdf_outputs=hdf_outputs,
+        returnn_python_exe=returnn_exe,
+        returnn_root=returnn_root,
+        mem_rqmt=20,
+        device="cpu"
+    )
+
+    forward_prefix = prefix + "/forward_invertibility"
+
+    last_forward_job.add_alias(forward_prefix)
+
+    tts_hdf = None
+
+    tts_hdf = last_forward_job.out_hdf_files["output.hdf"]
+    tk.register_output(forward_prefix, tts_hdf)
+
+    return last_forward_job

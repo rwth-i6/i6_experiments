@@ -1,3 +1,4 @@
+from typing import List
 from sisyphus import Job, Task, tk
 
 from i6_core.lib.lexicon import Lexicon, Lemma
@@ -97,6 +98,35 @@ class DeleteEmptyOrthJob(Job):
                 silence_phon = lemma.phon[0]
                 assert len(lemma.phon) == 1, "Silence lemma does not have only one phoneme"
         assert silence_phon, "No silence lemma found"
+
+        write_xml(self.out_lexicon.get_path(), out_lexicon.to_xml())
+
+
+class DeleteLemmataFromLexiconJob(Job):
+    """
+    Remove lemmata from a bliss lexicon based on their orth
+    """
+
+    def __init__(self, bliss_lexicon: tk.Path, orths: List[str]):
+        self.bliss_lexicon = bliss_lexicon
+        self.orths = orths
+
+        self.out_lexicon = self.output_path("lexicon.xml")
+
+    def tasks(self):
+        yield Task("run", mini_task=True)
+
+    def run(self):
+        in_lexicon = Lexicon()
+        in_lexicon.load(self.bliss_lexicon.get_path())
+
+        out_lexicon = Lexicon()
+        out_lexicon.phonemes = in_lexicon.phonemes
+        out_lexicon.lemmata = []
+
+        for lemma in in_lexicon.lemmata:
+            if not any(orth in lemma.orth for orth in self.orths):
+                out_lexicon.lemmata.append(lemma)
 
         write_xml(self.out_lexicon.get_path(), out_lexicon.to_xml())
 

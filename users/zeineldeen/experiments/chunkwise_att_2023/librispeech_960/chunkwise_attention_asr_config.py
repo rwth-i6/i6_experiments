@@ -23,7 +23,7 @@ from i6_experiments.users.zeineldeen.models.lm.external_lm_decoder_v2 import (
     ExternalLMDecoder,
 )
 
-from i6_experiments.users.zeyer.experiments.exp2023_02_16_chunked_attention.model import (
+from i6_experiments.users.zeineldeen.models.asr.decoder.chunked_rnn_decoder import (
     RNNDecoder as ChunkwiseRNNDecoder,
     _check_alignment,
 )
@@ -571,6 +571,9 @@ class RNNDecoderArgs(DecoderArgs):
 
     use_zoneout_output: bool = False
 
+    ff_weight_dropout: Optional[float] = None
+    ff_weight_noise: Optional[float] = None
+
 
 def create_config(
     training_datasets,
@@ -930,6 +933,8 @@ def create_config(
     decoder_args = asdict(decoder_args)
     decoder_args.update({"target": target, "beam_size": beam_size})
 
+    chunked_decoder_trained_with_fs = False
+
     if chunked_decoder:
         decoder_args["enc_chunks_dim"] = chunked_time_dim
         decoder_args["enc_time_dim"] = chunk_size_dim
@@ -938,6 +943,7 @@ def create_config(
         decoder_args["enable_check_align"] = enable_check_align  # just here to keep some old changes
 
         if decoder_args["full_sum_simple_approx"] and is_recog:
+            chunked_decoder_trained_with_fs = True
             decoder_args["full_sum_simple_approx"] = False
             decoder_args["masked_computation_blank_idx"] = eoc_idx
     elif chunk_size and not dump_ctc_dataset and not dump_ctc and not dump_alignments_dataset:
@@ -1082,7 +1088,10 @@ def create_config(
         exp_config["network"]["output"]["unit"].pop("s", None)
 
         # change inputs
-        exp_config["network"]["output"]["unit"]["s_wo_att"]["from"] = "prev:target_embed"  # remove prev:att
+        if decoder_args["full_sum_simple_approx"] or chunked_decoder_trained_with_fs:
+            exp_config["network"]["output"]["unit"]["s_wo_att"]["from"] = "prev_target_embed"
+        else:
+            exp_config["network"]["output"]["unit"]["s_wo_att"]["from"] = "prev:target_embed"
         exp_config["network"]["output"]["unit"]["s_transformed"]["from"] = "s_wo_att"
         assert exp_config["network"]["output"]["unit"]["readout_in"]["from"][0] == "s"
         exp_config["network"]["output"]["unit"]["readout_in"]["from"][0] = "s_wo_att"

@@ -6,6 +6,7 @@ from i6_experiments.users.berger.recipe import rasr as custom_rasr
 from i6_experiments.users.berger.recipe import mm
 from i6_core.lexicon.allophones import DumpStateTyingJob, StoreAllophonesJob
 from sisyphus import tk
+from i6_experiments.users.berger.recipe.returnn.training import Backend, get_backend
 
 from ... import dataclasses
 from ... import types
@@ -32,6 +33,7 @@ class Seq2SeqAlignmentFunctor(
         label_scorer_args: Dict = {},
         feature_type: dataclasses.FeatureType = dataclasses.FeatureType.SAMPLES,
         flow_args: Dict = {},
+        model_flow_args: Dict = {},
         silence_phone: str = "<blank>",
         register_output: bool = False,
         **kwargs,
@@ -46,15 +48,9 @@ class Seq2SeqAlignmentFunctor(
             align_corpus.corpus_info, feature_type=feature_type, **flow_args
         )
 
-        tf_graph = self._make_tf_graph(
-            train_job=train_job.job,
-            returnn_config=align_config,
-            epoch=epoch,
-            label_scorer_type=label_scorer_type,
-        )
+        backend = get_backend(align_config)
 
         checkpoint = self._get_checkpoint(train_job=train_job.job, epoch=epoch)
-        assert isinstance(checkpoint, returnn.Checkpoint)
 
         if label_scorer_args.get("use_prior", False) and prior_scale:
             prior_file = self._get_prior_file(prior_config=prior_config, checkpoint=checkpoint, **prior_args)
@@ -65,12 +61,37 @@ class Seq2SeqAlignmentFunctor(
 
         label_scorer = custom_rasr.LabelScorer(label_scorer_type, **mod_label_scorer_args)
 
-        feature_flow = self._get_tf_feature_flow_for_label_scorer(
-            label_scorer=label_scorer,
-            base_feature_flow=base_feature_flow,
-            tf_graph=tf_graph,
-            checkpoint=checkpoint,
-        )
+        if backend == Backend.TENSORFLOW:
+            tf_graph = self._make_tf_graph(
+                train_job=train_job.job,
+                returnn_config=align_config,
+                epoch=epoch,
+                label_scorer_type=label_scorer_type,
+            )
+            assert isinstance(checkpoint, returnn.Checkpoint)
+
+            feature_flow = self._get_tf_feature_flow_for_label_scorer(
+                label_scorer=label_scorer,
+                base_feature_flow=base_feature_flow,
+                tf_graph=tf_graph,
+                checkpoint=checkpoint,
+                **model_flow_args,
+            )
+        elif backend == Backend.PYTORCH:
+            assert isinstance(checkpoint, returnn.PtCheckpoint)
+            onnx_model = self._make_onnx_model(
+                returnn_config=align_config,
+                checkpoint=checkpoint,
+            )
+            feature_flow = self._get_onnx_feature_flow_for_label_scorer(
+                label_scorer=label_scorer,
+                base_feature_flow=base_feature_flow,
+                onnx_model=onnx_model,
+                feature_type=feature_type,
+                **model_flow_args,
+            )
+        else:
+            raise NotImplementedError
 
         align = mm.Seq2SeqAlignmentJob(
             crp=crp,

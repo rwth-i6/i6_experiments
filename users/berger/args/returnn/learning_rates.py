@@ -10,6 +10,7 @@ class LearningRateSchedules(Enum):
     NewbobAbs = auto()
     OCLR = auto()
     OCLR_STEP = auto()
+    OCLR_STEP_TORCH = auto()
     CONST_DECAY = auto()
     CONST_DECAY_STEP = auto()
 
@@ -38,6 +39,8 @@ def get_learning_rate_config(
         config.update(get_oclr_config(**kwargs))
     elif schedule == LearningRateSchedules.OCLR_STEP:
         extra_python.append(get_oclr_function(**kwargs))
+    elif schedule == LearningRateSchedules.OCLR_STEP_TORCH:
+        extra_python.append(get_oclr_function_torch(**kwargs))
     elif schedule == LearningRateSchedules.CONST_DECAY:
         config.update(get_const_decay_config(**kwargs))
     elif schedule == LearningRateSchedules.CONST_DECAY_STEP:
@@ -181,6 +184,58 @@ def get_oclr_function(
             return tf.where(global_train_step <= steps, initial_lr + step_size * n,
                        tf.where(global_train_step <= 2*steps, peak_lr - step_size * (n - steps), 
                            tf.maximum(initial_lr - step_size_final * (n - 2*steps), final_lr)))"""
+    )
+
+
+def get_oclr_function_torch(
+    num_epochs: int,
+    n_steps_per_epoch: int,
+    peak_lr: float = 1e-03,
+    inc_epochs: Optional[int] = None,
+    dec_epochs: Optional[int] = None,
+    initial_lr: Optional[float] = None,
+    decayed_lr: Optional[float] = None,
+    final_lr: Optional[float] = None,
+    **kwargs,
+) -> str:
+    initial_lr = initial_lr or peak_lr / 10
+    decayed_lr = decayed_lr or initial_lr
+    final_lr = final_lr or initial_lr / 5
+    inc_epochs = inc_epochs or (num_epochs * 9) // 20
+    dec_epochs = dec_epochs or inc_epochs
+
+    return dedent(
+        f"""def dynamic_learning_rate(*, global_train_step: int, **_):
+            # Increase linearly from initial_lr to peak_lr over the first inc_epoch epochs
+            # Decrease linearly from peak_lr to decayed_lr over the next dec_epoch epochs
+            # Decrease linearly from decayed_lr to final_lr over the remaining epochs
+            initial_lr = {initial_lr}
+            peak_lr = {peak_lr}
+            decayed_lr = {decayed_lr}
+            final_lr = {final_lr}
+            inc_epochs = {inc_epochs}
+            dec_epochs = {dec_epochs}
+            total_epochs = {num_epochs}
+            n_steps_per_epoch = {n_steps_per_epoch}
+
+            # -- derived -- #
+            steps_increase = inc_epochs * n_steps_per_epoch
+            steps_decay = dec_epochs * n_steps_per_epoch
+            steps_final = (total_epochs - inc_epochs - dec_epochs) * n_steps_per_epoch
+
+            step_size_increase = (peak_lr - initial_lr) / steps_increase
+            step_size_decay = (peak_lr - decayed_lr) / steps_decay
+            step_size_final = (decayed_lr - final_lr) / steps_final
+
+            if global_train_step <= steps_increase:
+                return initial_lr + step_size_increase * global_train_step
+            if global_train_step <= steps_increase + steps_decay:
+                return peak_lr - step_size_decay * (global_train_step - steps_increase)
+            
+            return max(
+                decayed_lr - step_size_final * (global_train_step - steps_increase - steps_decay),
+                final_lr
+            )"""
     )
 
 

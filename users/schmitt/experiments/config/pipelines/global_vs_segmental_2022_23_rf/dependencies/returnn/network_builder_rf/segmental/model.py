@@ -6,282 +6,133 @@ import returnn.frontend as rf
 
 from i6_experiments.users.schmitt.returnn_frontend.model_interfaces.model import ModelDef
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.base import _batch_size_factor, _log_mel_feature_dim
-from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.base import BaseModel
+from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.segmental.model_new.blank_model.model import (
+  BlankDecoderV1,
+  BlankDecoderV3,
+  BlankDecoderV5,
+  BlankDecoderV6,
+)
+from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.segmental.model_new.label_model.model import (
+  SegmentalAttLabelDecoder, SegmentalAttEfficientLabelDecoder
+)
+from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.encoder.global_ import GlobalConformerEncoder
+from i6_experiments.users.schmitt.returnn_frontend.model_interfaces.supports_label_scorer_torch import RFModelWithMakeLabelScorer
 
 
-class SegmentalAttentionModel(BaseModel):
+class SegmentalAttentionModel(rf.Module):
   def __init__(
           self,
+          *,
           length_model_state_dim: Dim,
           length_model_embed_dim: Dim,
           center_window_size: int,
           align_target_dim: Dim,
-          **kwargs
+          target_dim: Dim,
+          blank_idx: int,
+          enc_key_total_dim: Dim = Dim(name="enc_key_total_dim", dimension=1024),
+          att_dropout: float = 0.1,
+          l2: float = 0.0001,
+          language_model: Optional[RFModelWithMakeLabelScorer] = None,
+          enc_in_dim: Dim,
+          enc_out_dim: Dim = Dim(name="enc", dimension=512),
+          enc_num_layers: int = 12,
+          enc_aux_logits: Sequence[int] = (),  # layers
+          enc_ff_dim: Dim = Dim(name="enc-ff", dimension=2048),
+          enc_num_heads: int = 4,
+          encoder_layer_opts: Optional[Dict[str, Any]] = None,
+          dec_att_num_heads: Dim = Dim(name="att_num_heads", dimension=1),
+          enc_dropout: float = 0.1,
+          use_att_ctx_in_state: bool = True,
+          blank_decoder_version: int = 1,
+          use_joint_model: bool = False,
+          use_weight_feedback: bool = True,
+          label_decoder_state: str = "nb-lstm",
   ):
-    super(SegmentalAttentionModel, self).__init__(**kwargs)
+    super(SegmentalAttentionModel, self).__init__()
 
-    self.align_target_dim = align_target_dim
+    self.encoder = GlobalConformerEncoder(
+      enc_in_dim,
+      enc_out_dim,
+      num_layers=enc_num_layers,
+      target_dim=target_dim,
+      wb_target_dim=align_target_dim,
+      aux_logits=enc_aux_logits,
+      ff_dim=enc_ff_dim,
+      num_heads=enc_num_heads,
+      encoder_layer_opts=encoder_layer_opts,
+      enc_key_total_dim=enc_key_total_dim,
+      dec_att_num_heads=dec_att_num_heads,
+      dropout=enc_dropout,
+      att_dropout=att_dropout,
+      l2=l2,
+    )
 
-    self.length_model_state_dim = length_model_state_dim
-    self.length_model_embed_dim = length_model_embed_dim
-    self.emit_prob_dim = Dim(name="emit_prob", dimension=1)
+    assert blank_decoder_version in {1, 3, 4, 5, 6}
+    assert label_decoder_state in {"nb-lstm", "joint-lstm", "nb-linear1"}
+    if not use_joint_model:
+      assert label_decoder_state in ("nb-lstm", "nb-linear1")
+
+    if not use_weight_feedback and not use_att_ctx_in_state:
+      label_decoder_cls = SegmentalAttEfficientLabelDecoder
+    else:
+      label_decoder_cls = SegmentalAttLabelDecoder
+
+    self.label_decoder = label_decoder_cls(
+      enc_out_dim=self.encoder.out_dim,
+      target_dim=target_dim,
+      att_num_heads=dec_att_num_heads,
+      att_dropout=att_dropout,
+      blank_idx=blank_idx,
+      enc_key_total_dim=enc_key_total_dim,
+      l2=l2,
+      center_window_size=center_window_size,
+      use_weight_feedback=use_weight_feedback,
+      use_att_ctx_in_state=use_att_ctx_in_state,
+      decoder_state=label_decoder_state,
+    )
+
+    if not use_joint_model:
+      if blank_decoder_version == 1:
+        self.blank_decoder = BlankDecoderV1(
+          length_model_state_dim=length_model_state_dim,
+          length_model_embed_dim=length_model_embed_dim,
+          align_target_dim=align_target_dim,
+          encoder_out_dim=self.encoder.out_dim,
+        )
+      elif blank_decoder_version in {3, 4}:
+        # the logic for blank_decoder_version == 4 is in the train/recog code
+        self.blank_decoder = BlankDecoderV3(
+          length_model_state_dim=length_model_state_dim,
+          label_state_dim=self.label_decoder.get_lstm().out_dim,
+          encoder_out_dim=self.encoder.out_dim,
+        )
+      elif blank_decoder_version == 5:
+        self.blank_decoder = BlankDecoderV5(
+          label_state_dim=self.label_decoder.get_lstm().out_dim,
+          encoder_out_dim=self.encoder.out_dim,
+        )
+      else:
+        self.blank_decoder = BlankDecoderV6(
+          length_model_state_dim=length_model_state_dim,
+          label_state_dim=self.label_decoder.get_lstm().out_dim,
+          encoder_out_dim=self.encoder.out_dim,
+        )
+    else:
+      self.blank_decoder = None
+
+    if language_model:
+      self.language_model, self.language_model_make_label_scorer = language_model
+    else:
+      self.language_model = None
+      self.language_model_make_label_scorer = None
+
+    self.blank_idx = self.label_decoder.blank_idx
     self.center_window_size = center_window_size
-    self.accum_att_weights_dim = Dim(name="accum_att_weights", dimension=center_window_size)
-
-    self.target_embed_length_model = rf.Embedding(align_target_dim, self.length_model_embed_dim)
-    # when using rf.LSTM, something with the parameter import from TF checkpoint was not right
-    # i.e. the import worked but the LSTM output was different than in TF even though the inputs were the same
-    # self.s_length_model = rf.LSTM(self.encoder.out_dim + self.length_model_embed_dim, self.length_model_state_dim)
-    self.s_length_model = rf.ZoneoutLSTM(
-      self.encoder.out_dim + self.length_model_embed_dim,
-      self.length_model_state_dim,
-      parts_order="jifo",
-      forget_bias=0.0,
-    )
-    self.emit_prob = rf.Linear(self.length_model_state_dim, self.emit_prob_dim)
-
-  def label_decoder_default_initial_state(
-          self,
-          *,
-          batch_dims: Sequence[Dim],
-          segment_starts_sparse_dim: Optional[Dim] = None,
-          segment_lens_sparse_dim: Optional[Dim] = None,
-  ) -> rf.State:
-    """Default initial state"""
-    state = rf.State(
-      s=self.s.default_initial_state(batch_dims=batch_dims),
-      att=rf.zeros(list(batch_dims) + [self.att_num_heads * self.encoder.out_dim]),
-      accum_att_weights=rf.zeros(
-        list(batch_dims) + [self.accum_att_weights_dim, self.att_num_heads], feature_dim=self.att_num_heads
-      ),
-      segment_starts=rf.zeros(batch_dims, sparse_dim=segment_starts_sparse_dim, dtype="int32"),
-      segment_lens=rf.zeros(batch_dims, sparse_dim=segment_lens_sparse_dim, dtype="int32"),
-    )
-    state.att.feature_dim_axis = len(state.att.dims) - 1
-    return state
-
-  def label_loop_step_output_templates(self, batch_dims: List[Dim]) -> Dict[str, Tensor]:
-    """loop step out"""
-    return {
-      "s": Tensor(
-        "s", dims=batch_dims + [self.s.out_dim], dtype=rf.get_default_float_dtype(), feature_dim_axis=-1
-      ),
-      "att": Tensor(
-        "att",
-        dims=batch_dims + [self.att_num_heads * self.encoder.out_dim],
-        dtype=rf.get_default_float_dtype(),
-        feature_dim_axis=-1,
-      ),
-    }
-
-  def _get_prev_accum_att_weights_scattered(
-          self,
-          prev_accum_att_weights: Tensor,
-          segment_starts: Tensor,
-          prev_segment_starts: Tensor,
-          prev_segment_lens: Tensor,
-  ) -> Tensor:
-
-    overlap_len = rf.cast(prev_segment_starts + prev_segment_lens - segment_starts, "int32")
-    overlap_len = rf.where(
-      rf.logical_or(overlap_len < 0, overlap_len > prev_segment_lens),
-      rf.convert_to_tensor(0),
-      overlap_len
-    )
-    overlap_start = prev_segment_lens - overlap_len
-
-    slice_dim = Dim(name="slice", dimension=overlap_len)
-    gather_positions = rf.range_over_dim(slice_dim)
-    gather_positions += overlap_start
-    prev_accum_att_weights_overlap = rf.gather(
-      prev_accum_att_weights, axis=self.accum_att_weights_dim, indices=gather_positions, clip_to_valid=True
-    )
-    overlap_range = rf.range_over_dim(slice_dim)
-
-    prev_accum_att_weights_scattered = rf.scatter(
-      prev_accum_att_weights_overlap,
-      out_dim=self.accum_att_weights_dim,
-      indices=overlap_range,
-      indices_dim=slice_dim,
-    )
-
-    return prev_accum_att_weights_scattered
-
-  def _get_accum_att_weights(
-          self,
-          att_t_dim: Dim,
-          enc_spatial_dim: Dim,
-          inv_fertility: Tensor,
-          att_weights: Tensor,
-          prev_accum_att_weights_scattered: Tensor,
-          gather_positions: Tensor,
-  ) -> Tensor:
-    att_weights_range = rf.range_over_dim(att_t_dim)
-    att_weights_scattered = rf.scatter(
-      att_weights,
-      out_dim=self.accum_att_weights_dim,
-      indices=att_weights_range,
-      indices_dim=att_t_dim,
-    )
-
-    inv_fertility_sliced = rf.gather(inv_fertility, axis=enc_spatial_dim, indices=gather_positions, clip_to_valid=True)
-    inv_fertility_scattered = rf.scatter(
-      inv_fertility_sliced,
-      out_dim=self.accum_att_weights_dim,
-      indices=att_weights_range,
-      indices_dim=att_t_dim,
-    )
-
-    accum_att_weights = prev_accum_att_weights_scattered + att_weights_scattered * inv_fertility_scattered * 0.5
-
-    return accum_att_weights
-
-  def _get_weight_feedback(
-          self,
-          prev_accum_att_weights_scattered: Tensor,
-          att_t_dim: Dim,
-  ) -> Tensor:
-    gather_positions = rf.range_over_dim(att_t_dim)
-    prev_accum_att_weights_sliced = rf.gather(
-      prev_accum_att_weights_scattered,
-      axis=self.accum_att_weights_dim,
-      indices=gather_positions,
-      clip_to_valid=True
-    )
-
-    return self.weight_feedback(prev_accum_att_weights_sliced)
-
-  def label_sync_loop_step(
-          self,
-          *,
-          enc: rf.Tensor,
-          enc_ctx: rf.Tensor,
-          inv_fertility: rf.Tensor,
-          enc_spatial_dim: Dim,
-          input_embed: rf.Tensor,
-          segment_starts: rf.Tensor,
-          segment_lens: rf.Tensor,
-          state: Optional[rf.State] = None,
-  ) -> Tuple[Dict[str, rf.Tensor], rf.State]:
-    """step of the inner loop"""
-    if state is None:
-      batch_dims = enc.remaining_dims(
-        remove=(enc.feature_dim, enc_spatial_dim) if enc_spatial_dim != single_step_dim else (enc.feature_dim,)
-      )
-      state = self.label_decoder_default_initial_state(batch_dims=batch_dims)
-    state_ = rf.State()
-
-    # during search, these need to be the values from the previous "emit" step (not necessarily the previous time step)
-    prev_att = state.att
-    prev_s_state = state.s
-    prev_accum_att_weights = state.accum_att_weights
-    prev_segment_starts = state.segment_starts
-    prev_segment_lens = state.segment_lens
-
-    s, state_.s = self.s(rf.concat_features(input_embed, prev_att), state=prev_s_state, spatial_dim=single_step_dim)
-    s_transformed = self.s_transformed(s)
-
-    slice_dim = Dim(name="slice", dimension=segment_lens)
-    gather_positions = rf.range_over_dim(slice_dim)
-    gather_positions += segment_starts
-
-    enc_ctx_sliced = rf.gather(enc_ctx, axis=enc_spatial_dim, indices=gather_positions, clip_to_valid=True)
-    enc_sliced = rf.gather(enc, axis=enc_spatial_dim, indices=gather_positions, clip_to_valid=True)
-
-    prev_accum_att_weights_scattered = self._get_prev_accum_att_weights_scattered(
-      prev_accum_att_weights=prev_accum_att_weights,
-      segment_starts=segment_starts,
-      prev_segment_starts=prev_segment_starts,
-      prev_segment_lens=prev_segment_lens,
-    )
-    weight_feedback = self._get_weight_feedback(
-      prev_accum_att_weights_scattered=prev_accum_att_weights_scattered,
-      att_t_dim=slice_dim,
-    )
-
-    energy_in = enc_ctx_sliced + weight_feedback + s_transformed
-    energy = self.energy(rf.tanh(energy_in))
-    att_weights = rf.softmax(energy, axis=slice_dim)
-    # we do not need use_mask because the softmax output is already padded with zeros
-    att0 = rf.dot(att_weights, enc_sliced, reduce=slice_dim, use_mask=False)
-    att0.feature_dim = self.encoder.out_dim
-    att, _ = rf.merge_dims(att0, dims=(self.att_num_heads, self.encoder.out_dim))
-    state_.att = att
-
-    accum_att_weights = self._get_accum_att_weights(
-      att_t_dim=slice_dim,
-      enc_spatial_dim=enc_spatial_dim,
-      inv_fertility=inv_fertility,
-      att_weights=att_weights,
-      prev_accum_att_weights_scattered=prev_accum_att_weights_scattered,
-      gather_positions=gather_positions,
-    )
-    accum_att_weights.feature_dim = self.att_num_heads
-    state_.accum_att_weights = accum_att_weights
-
-    state_.segment_starts = segment_starts
-    state_.segment_lens = segment_lens
-
-    return {"s": s, "att": att}, state_
-
-  def decode_label_logits(self, *, s: Tensor, input_embed: Tensor, att: Tensor) -> Tensor:
-    """logits for the decoder"""
-    readout_in = self.readout_in(rf.concat_features(s, input_embed, att))
-    readout = rf.reduce_out(readout_in, mode="max", num_pieces=2, out_dim=self.output_prob.in_dim)
-    readout = rf.dropout(readout, drop_prob=0.3, axis=self.dropout_broadcast and readout.feature_dim)
-    logits = self.output_prob(readout)
-    return logits
-
-  def blank_decoder_default_initial_state(self, *, batch_dims: Sequence[Dim]) -> rf.State:
-    """Default initial state"""
-    state = rf.State(
-      s_length_model=self.s_length_model.default_initial_state(batch_dims=batch_dims),
-      i=rf.zeros(batch_dims, dtype="int32"),
-    )
-    return state
-
-  def blank_loop_step_output_templates(self, batch_dims: List[Dim]) -> Dict[str, Tensor]:
-    """loop step out"""
-    return {
-      "s_length_model": Tensor(
-        "s_length_model",
-        dims=batch_dims + [self.s_length_model.out_dim],
-        dtype=rf.get_default_float_dtype(),
-        feature_dim_axis=-1
-      ),
-    }
-
-  def time_sync_loop_step(
-          self,
-          *,
-          enc: rf.Tensor,
-          enc_spatial_dim: Dim,
-          input_embed: rf.Tensor,
-          state: Optional[rf.State] = None,
-  ) -> Tuple[Dict[str, rf.Tensor], rf.State]:
-    """step of the inner loop"""
-    if state is None:
-      batch_dims = enc.remaining_dims(
-        remove=(enc.feature_dim, enc_spatial_dim) if enc_spatial_dim != single_step_dim else (enc.feature_dim,)
-      )
-      state = self.blank_decoder_default_initial_state(batch_dims=batch_dims)
-    state_ = rf.State()
-
-    am = rf.gather(enc, axis=enc_spatial_dim, indices=state.i, clip_to_valid=True)
-    s_length_model, state_.s_length_model = self.s_length_model(
-      rf.concat_features(am, input_embed),
-      state=state.s_length_model,
-      spatial_dim=single_step_dim
-    )
-
-    state_.i = state.i + 1
-
-    return {"s_length_model": s_length_model}, state_
-
-  def decode_blank_logits(self, *, s_length_model: Tensor) -> Tensor:
-    """logits for the decoder"""
-    logits = self.emit_prob(s_length_model)
-    return logits
+    self.target_dim = self.label_decoder.target_dim
+    self.align_target_dim = align_target_dim
+    self.use_joint_model = use_joint_model
+    self.blank_decoder_version = blank_decoder_version
+    self.label_decoder_state = label_decoder_state
 
 
 class MakeModel:
@@ -318,6 +169,14 @@ class MakeModel:
           num_enc_layers: int = 12,
           pos_emb_dropout: float = 0.0,
           language_model: Optional[Dict[str, Any]] = None,
+          use_att_ctx_in_state: bool,
+          blank_decoder_version: int,
+          use_joint_model: bool,
+          use_weight_feedback: bool,
+          label_decoder_state: str,
+          enc_out_dim: int,
+          enc_key_total_dim: int,
+          enc_ff_dim: int,
           **extra,
   ) -> SegmentalAttentionModel:
     """make"""
@@ -335,12 +194,13 @@ class MakeModel:
       lm = (lm, functools.partial(trafo_lm.make_time_sync_label_scorer_torch, model=lm, align_target_dim=align_target_dim))
 
     return SegmentalAttentionModel(
-      in_dim=in_dim,
-      num_enc_layers=num_enc_layers,
-      enc_model_dim=Dim(name="enc", dimension=512, kind=Dim.Types.Feature),
-      enc_ff_dim=Dim(name="enc-ff", dimension=2048, kind=Dim.Types.Feature),
-      enc_att_num_heads=8,
-      enc_conformer_layer_opts=dict(
+      enc_in_dim=in_dim,
+      enc_num_layers=num_enc_layers,
+      enc_out_dim=Dim(name="enc", dimension=enc_out_dim, kind=Dim.Types.Feature),
+      enc_ff_dim=Dim(name="enc-ff", dimension=enc_ff_dim, kind=Dim.Types.Feature),
+      enc_key_total_dim=Dim(name="enc_key_total_dim", dimension=enc_key_total_dim),
+      enc_num_heads=8,
+      encoder_layer_opts=dict(
         conv_norm_opts=dict(use_mask=True),
         self_att_opts=dict(
           # Shawn et al 2018 style, old RETURNN way.
@@ -355,11 +215,16 @@ class MakeModel:
       ),
       target_dim=target_dim,
       align_target_dim=align_target_dim,
-      blank_idx=target_dim.dimension,
+      blank_idx=0 if use_joint_model else target_dim.dimension,
       language_model=lm,
       length_model_state_dim=Dim(name="length_model_state", dimension=128, kind=Dim.Types.Feature),
       length_model_embed_dim=Dim(name="length_model_embed", dimension=128, kind=Dim.Types.Feature),
       center_window_size=center_window_size,
+      use_att_ctx_in_state=use_att_ctx_in_state,
+      blank_decoder_version=blank_decoder_version,
+      use_joint_model=use_joint_model,
+      use_weight_feedback=use_weight_feedback,
+      label_decoder_state=label_decoder_state,
       **extra,
     )
 
@@ -379,6 +244,17 @@ def from_scratch_model_def(
   center_window_size = config.typed_value("center_window_size")
   if center_window_size is None:
     raise ValueError("center_window_size is not set!")
+
+  use_att_ctx_in_state = config.bool("use_att_ctx_in_state", True)
+  label_decoder_state = config.typed_value("label_decoder_state", "nb-lstm")
+  blank_decoder_version = config.int("blank_decoder_version", 1)
+  use_joint_model = config.bool("use_joint_model", False)
+  use_weight_feedback = config.bool("use_weight_feedback", True)
+
+  enc_out_dim = config.int("enc_out_dim", 512)
+  enc_key_total_dim = config.int("enc_key_total_dim", 1024)
+  enc_ff_dim = config.int("enc_ff_dim", 2048)
+
   return MakeModel.make_model(
     in_dim,
     align_target_dim,
@@ -386,7 +262,15 @@ def from_scratch_model_def(
     center_window_size=center_window_size,
     enc_aux_logits=enc_aux_logits or (),
     pos_emb_dropout=pos_emb_dropout,
-    language_model=lm_opts
+    language_model=lm_opts,
+    use_att_ctx_in_state=use_att_ctx_in_state,
+    blank_decoder_version=blank_decoder_version,
+    use_joint_model=use_joint_model,
+    use_weight_feedback=use_weight_feedback,
+    label_decoder_state=label_decoder_state,
+    enc_out_dim=enc_out_dim,
+    enc_key_total_dim=enc_key_total_dim,
+    enc_ff_dim=enc_ff_dim,
   )
 
 
@@ -397,6 +281,10 @@ from_scratch_model_def.batch_size_factor = _batch_size_factor
 
 
 def _returnn_v2_get_model(*, epoch: int, **_kwargs_unused):
+  """
+  Here, we use a separate blank model and define the blank_index=len(target_vocab). In this case, the target_dim
+  is one smaller than the align_target_dim and the EOS label is unused.
+  """
   from returnn.tensor import Tensor, Dim
   from returnn.config import get_global_config
 
@@ -416,4 +304,30 @@ def _returnn_v2_get_model(*, epoch: int, **_kwargs_unused):
   model_def = config.typed_value("_model_def")
   model = model_def(
     epoch=epoch, in_dim=data.feature_dim, align_target_dim=targets.sparse_dim, target_dim=non_blank_targets.sparse_dim)
+  return model
+
+
+def _returnn_v2_get_joint_model(*, epoch: int, **_kwargs_unused):
+  """
+  Here, we reinterpret the EOS label as a blank label and use a single softmax for both blank and non-blank labels.
+  Therefore, we assume align_target_dim and target_dim to be the same.
+  """
+  from returnn.tensor import Tensor
+  from returnn.config import get_global_config
+  from returnn.datasets.util.vocabulary import BytePairEncoding
+
+  config = get_global_config()
+  default_input_key = config.typed_value("default_input")
+  default_target_key = config.typed_value("target")
+  extern_data_dict = config.typed_value("extern_data")
+  data = Tensor(name=default_input_key, **extern_data_dict[default_input_key])
+  targets = Tensor(name=default_target_key, **extern_data_dict[default_target_key])
+
+  non_blank_vocab = config.typed_value("non_blank_vocab")
+  if non_blank_vocab is not None:
+    targets.sparse_dim.vocab = BytePairEncoding(**non_blank_vocab)
+
+  model_def = config.typed_value("_model_def")
+  model = model_def(
+    epoch=epoch, in_dim=data.feature_dim, align_target_dim=targets.sparse_dim, target_dim=targets.sparse_dim)
   return model

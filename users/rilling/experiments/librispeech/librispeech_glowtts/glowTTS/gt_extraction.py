@@ -21,7 +21,7 @@ def get_ground_truth_audio_and_spectrograms():
     :return: durations_hdf
     """
 
-    prefix = "experiments/librispeech/tts_architecture/glow_tts/ground_truth/"
+    prefix = "experiments/librispeech/ground_truth/"
 
     def run_exp(name, args, dataset):
         forward_config = get_forward_config(
@@ -66,7 +66,7 @@ def get_ground_truth_audio_and_spectrograms():
     training_datasets_silence_preprocessed = build_training_dataset(settings=train_settings, librispeech_key="train-clean-100", silence_preprocessing=True)
 
     from .data import get_tts_log_mel_datastream
-    from .feature_config import DbMelFeatureExtractionConfig
+    from ..feature_config import DbMelFeatureExtractionConfig
     from i6_experiments.users.rossenbach.common_setups.returnn.datastreams.audio import DBMelFilterbankOptions
 
     log_mel_datastream = get_tts_log_mel_datastream(silence_preprocessing=False)

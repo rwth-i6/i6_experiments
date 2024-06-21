@@ -17,6 +17,7 @@ from i6_models.primitives.specaugment import specaugment_v1_by_length
 from i6_models.parts.conformer.norm import LayerNormNC
 from i6_models.config import ModelConfiguration, ModuleFactoryV1
 from i6_models.parts.frontend.vgg_act import VGG4LayerActFrontendV1, VGG4LayerActFrontendV1Config
+from i6_models.primitives.feature_extraction import LogMelFeatureExtractionV1, LogMelFeatureExtractionV1Config, RasrCompatibleLogMelFeatureExtractionV1Config, RasrCompatibleLogMelFeatureExtractionV1
 
 def _lengths_to_padding_mask(lengths: torch.Tensor, x: torch.Tensor) -> torch.Tensor:
     """
@@ -55,6 +56,7 @@ class ConformerStudentConfig:
     upsample_padding: int
     upsample_out_padding: int
     dropout: float
+    feat_extr: bool
 
 class Model(nn.Module):
 
@@ -65,7 +67,7 @@ class Model(nn.Module):
         self.conformer_cfg = ConformerStudentConfig(**conformer_dict)
         self.distill_scale = self.hubert_cfg.distill_scale
         self.config = HubertConfig.from_pretrained(f"facebook/hubert-{self.hubert_cfg.model_name}",  cache_dir='/work/asr4/hilmes/debug/whisper/hubert_for_ctc')
-        if not run_ctx.stage == "train_step" and not run_ctx.stage == "init":
+        if not run_ctx.stage == "train_step" and not run_ctx.stage == "init" or True:
             import logging
             logging.warning("Hubert not loaded")
             self.hubert = None
@@ -86,14 +88,22 @@ class Model(nn.Module):
             for param in self.hubert.parameters():
                 param.requires_grad_(False)
 
-        self.upsample_conv = torch.nn.ConvTranspose1d(
-            in_channels=self.config.hidden_size, out_channels=self.config.hidden_size, kernel_size=5, stride=2, padding=1)
         self.final_linear = nn.Linear(self.conformer_cfg.hidden_d, 9001)
         if len(kwargs) >= 2:
             assert False, f"You did not use all kwargs: {kwargs}"
         elif len(kwargs) == 1:
             assert "random" in list(kwargs.keys())[0], "This must only be RETURNN random arg"
         # else len == 0
+
+        if self.conformer_cfg.feat_extr is True:
+            self.fe_cfg = RasrCompatibleLogMelFeatureExtractionV1Config(
+                            sample_rate=16000,
+                            win_size=0.025,
+                            hop_size=0.01,
+                            min_amp=1e-10,
+                            num_filters=80,
+                        )
+            self.feature_extraction = RasrCompatibleLogMelFeatureExtractionV1(self.fe_cfg)
 
         conv_cfg = ConformerConvolutionV1Config(
             channels=self.conformer_cfg.hidden_d,
@@ -148,16 +158,20 @@ class Model(nn.Module):
         )
         # self.initial_linear = nn.Linear(80, conformer_size)
 
-    def forward(self,
-                audio_features: torch.Tensor, audio_features_len: torch.Tensor,
-                raw_audio: torch.Tensor = None,
-                raw_audio_len: torch.Tensor = None):
+    def forward(self, raw_audio: torch.Tensor, raw_audio_len: torch.Tensor):
 
         run_ctx = rf.get_run_ctx()
+        if self.conformer_cfg.feat_extr is True and (self.training or run_ctx.stage == "train_step"):
+            squeezed_features = torch.squeeze(raw_audio, dim=-1)
+            audio_features, audio_features_len = self.feature_extraction(raw_audio=squeezed_features, length=raw_audio_len)
+        else:
+            # for export / forward we take external features
+            audio_features = raw_audio
+            audio_features_len = raw_audio_len
+
         # Hubert teacher:
         if (self.training or run_ctx.stage == "train_step") and raw_audio is not None and raw_audio_len is not None and False:
             assert False, "Since this is just testing this should not happen, if entering here is correct please just delete this line"
-            squeezed_features = torch.squeeze(raw_audio, dim=-1)
             hubert_outputs = self.hubert(input_values=squeezed_features)
             audio_features_size = self.hubert._get_feat_extract_output_lengths(raw_audio_len).to(dtype=torch.int64)
             encoder_output = hubert_outputs.last_hidden_state
@@ -182,7 +196,8 @@ class Model(nn.Module):
         conformer_out, _ = self.conformer(audio_features_masked, mask)
 
         upsampled = self.upsample_conv(conformer_out.transpose(1, 2)).transpose(1, 2)  # final upsampled [B, T, F]
-        upsampled = upsampled[:, 0: audio_features.size()[1], :]
+        print(upsampled.shape, audio_features.shape, audio_features_len, conformer_out.shape)
+        upsampled = upsampled[:, 0: audio_features.size()[1]+1, :]
         student_features = upsampled
         upsampled_dropped = nn.functional.dropout(student_features, p=self.conformer_cfg.dropout, training=self.training)
 
@@ -191,27 +206,22 @@ class Model(nn.Module):
         log_probs = torch.log_softmax(final_out, dim=2)
 
         if teacher_features is not None:
-            return log_probs, logits_ce_order, teacher_features, student_features
+            return log_probs, logits_ce_order, teacher_features, student_features, audio_features_len
         elif self.training or run_ctx.stage == "train_step":
-            return log_probs, logits_ce_order, None, None
+            return log_probs, logits_ce_order, None, None, audio_features_len
         else:
-            return log_probs, logits_ce_order
+            return log_probs, logits_ce_order, audio_features_len
 
 
 def train_step(*, model: Model, extern_data, **_kwargs):
-    audio_features = extern_data["data"].raw_tensor
-    audio_features_len = extern_data["data"].dims[1].dyn_size_ext.raw_tensor
-
     audio_raw = extern_data["data_raw"].raw_tensor
     audio_raw_len = extern_data["data_raw"].dims[1].dyn_size_ext.raw_tensor
 
     phonemes = extern_data["classes"].raw_tensor
     phonemes_len = extern_data["classes"].dims[1].dyn_size_ext.raw_tensor
-    log_probs, logits_ce_order, teacher_features, student_features = model(
+    log_probs, logits_ce_order, teacher_features, student_features, audio_features_len = model(
         raw_audio=audio_raw,
         raw_audio_len=audio_raw_len.to("cuda"),
-        audio_features=audio_features,
-        audio_features_len=audio_features_len.to("cuda")
     )
 
     targets_packed = nn.utils.rnn.pack_padded_sequence(
@@ -219,7 +229,7 @@ def train_step(*, model: Model, extern_data, **_kwargs):
     )
     targets_masked, _ = nn.utils.rnn.pad_packed_sequence(targets_packed, batch_first=True, padding_value=-100)
     targets_masked = targets_masked.long()
-
+    print(f"{logits_ce_order.shape=}, {targets_masked.shape=}")
     loss_ce = nn.functional.cross_entropy(logits_ce_order, targets_masked)
     #loss_features = nn.functional.l1_loss(student_features, teacher_features, reduction="mean")
 
@@ -227,25 +237,3 @@ def train_step(*, model: Model, extern_data, **_kwargs):
     # TODO: KL div loss
     # TODO: look if Hubert model has a softmax somewhere
     #rf.get_run_ctx().mark_as_loss(name="L1 Dist", loss=loss_features, scale=model.distill_scale)
-
-
-def export2(*, model: Model, f: str):
-    model.export_mode = True
-    dummy_data = torch.randn(1, 45000, 1, device="cpu")
-    dummy_data_len = torch.IntTensor([45000])
-    scripted_model = torch.jit.trace(model.eval(), example_inputs=(dummy_data, dummy_data_len))
-    onnx_export(
-        scripted_model,
-        (dummy_data, dummy_data_len),
-        f=f,
-        verbose=True,
-        input_names=["data", "data_len"],
-        output_names=["classes"],
-        opset_version=17,
-        dynamic_axes={
-            # dict value: manually named axes
-            "data": {0: "batch", 1: "time"},
-            "data_len": {0: "batch"},
-            "classes": {0: "batch", 1: "time"},
-        },
-    )

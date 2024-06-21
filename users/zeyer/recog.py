@@ -39,6 +39,7 @@ def recog_training_exp(
     *,
     search_config: Dict[str, Any] = None,
     search_post_config: Optional[Dict[str, Any]] = None,
+    recog_post_proc_funcs: Sequence[Callable[[RecogOutput], RecogOutput]] = (),
     search_mem_rqmt: Union[int, float] = 6,
     exclude_epochs: Collection[int] = (),
     model_avg: bool = False,
@@ -51,6 +52,7 @@ def recog_training_exp(
         recog_def,
         search_config=search_config,
         search_post_config=search_post_config,
+        recog_post_proc_funcs=recog_post_proc_funcs,
         search_mem_rqmt=search_mem_rqmt,
     )
     summarize_job = GetBestRecogTrainExp(
@@ -79,6 +81,7 @@ class _RecogAndScoreFunc:
         *,
         search_config: Optional[Dict[str, Any]] = None,
         search_post_config: Optional[Dict[str, Any]] = None,
+        recog_post_proc_funcs: Sequence[Callable[[RecogOutput], RecogOutput]] = (),
         search_mem_rqmt: Union[int, float] = 6,
     ):
         # Note: When something is added here, remember to handle it in _sis_hash.
@@ -88,6 +91,7 @@ class _RecogAndScoreFunc:
         self.recog_def = recog_def
         self.search_config = search_config
         self.search_post_config = search_post_config
+        self.recog_post_proc_funcs = recog_post_proc_funcs
         self.search_mem_rqmt = search_mem_rqmt
 
     def __call__(self, epoch_or_ckpt: Union[int, PtCheckpoint]) -> ScoreResultCollection:
@@ -103,6 +107,7 @@ class _RecogAndScoreFunc:
             self.recog_def,
             config=self.search_config,
             search_post_config=self.search_post_config,
+            recog_post_proc_funcs=self.recog_post_proc_funcs,
             search_mem_rqmt=self.search_mem_rqmt,
         )
         if isinstance(epoch_or_ckpt, int):
@@ -119,6 +124,8 @@ class _RecogAndScoreFunc:
         del d["search_mem_rqmt"]
         if not self.search_config:
             del d["search_config"]  # compat
+        if not self.recog_post_proc_funcs:
+            del d["recog_post_proc_funcs"]  # compat
         # Not the whole task object is relevant but only some minimal parts.
         task = d.pop("task")
         assert isinstance(task, Task)
@@ -135,6 +142,7 @@ def recog_model(
     *,
     config: Optional[Dict[str, Any]] = None,
     search_post_config: Optional[Dict[str, Any]] = None,
+    recog_post_proc_funcs: Sequence[Callable[[RecogOutput], RecogOutput]] = (),
     search_mem_rqmt: Union[int, float] = 6,
     search_rqmt: Optional[Dict[str, Any]] = None,
     dev_sets: Optional[Collection[str]] = None,
@@ -157,7 +165,7 @@ def recog_model(
             search_mem_rqmt=search_mem_rqmt,
             search_rqmt=search_rqmt,
             search_alias_name=f"{name}/search/{dataset_name}" if name else None,
-            recog_post_proc_funcs=task.recog_post_proc_funcs,
+            recog_post_proc_funcs=list(recog_post_proc_funcs) + list(task.recog_post_proc_funcs),
         )
         score_out = task.score_recog_output_func(dataset, recog_out)
         outputs[dataset_name] = score_out

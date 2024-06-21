@@ -20,6 +20,7 @@ def get_pytorch_serializer_v3(
         use_custom_engine=False,
         search=False,
         prior=False,
+        invertibility=False,
         debug=False,
         search_args: Dict[str, Any]={},
         **kwargs
@@ -91,6 +92,27 @@ def get_pytorch_serializer_v3(
         serializer_objects.extend(
             [forward_step, init_hook, finish_hook]
         )
+
+    if invertibility:
+        forward_step = Import(
+            code_object_path=package + ".%s.forward_step_invertibility" % network_module,
+            unhashed_package_root=PACKAGE,
+            import_as="forward_step",
+        )
+        init_hook = Import(
+            code_object_path=package + ".%s.forward_init_hook_invertibility" % network_module,
+            unhashed_package_root=PACKAGE,
+            import_as="forward_init_hook",
+            )
+        finish_hook = Import(
+            code_object_path=package + ".%s.forward_finish_hook_invertibility" % network_module,
+            import_as="forward_finish_hook",
+            unhashed_package_root=PACKAGE,
+        )
+        serializer_objects.extend(
+            [forward_step, init_hook, finish_hook]
+        )
+
     serializer = TorchCollection(
         serializer_objects=serializer_objects,
         make_local_package_copy=not debug,

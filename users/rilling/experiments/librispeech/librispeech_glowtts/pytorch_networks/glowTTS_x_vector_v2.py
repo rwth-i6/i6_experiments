@@ -17,7 +17,7 @@ from . import attentions
 from .monotonic_align import maximum_path
 
 from .feature_extraction import DbMelFeatureExtraction
-from ..glowTTS.feature_config import DbMelFeatureExtractionConfig
+from ..feature_config import DbMelFeatureExtractionConfig
 
 
 class XVector(nn.Module):

@@ -15,6 +15,7 @@ from .config_02b_transducer_rasr_features import py as py_02b
 from .config_02c_transducer_rasr_features_wei_lex import py as py_02c
 from .config_02e_transducer_rasr_features_tinaconf import py as py_02e
 from .config_02e_transducer_rasr_features_tinaconf_rtf import py as py_02e_rtf
+from .config_02f_transducer_rasr_features_am_scales import py as py_02f
 from .config_03a_transducer_fullsum_raw_samples import py as py_03a
 from .config_03b_transducer_fullsum_rasr_features import py as py_03b
 from .config_03c_transducer_fullsum_rasr_features_wei_lex import py as py_03c
@@ -37,6 +38,7 @@ def main() -> SummaryReport:
     sub_reports.append(copy.deepcopy(py_02c()[0]))
     sub_reports.append(copy.deepcopy(py_02e()))
     sub_reports.append(copy.deepcopy(py_02e_rtf()))
+    sub_reports.append(copy.deepcopy(py_02f()))
     sub_reports.append(copy.deepcopy(py_03a()))
     sub_reports.append(copy.deepcopy(py_03b()))
     sub_reports.append(copy.deepcopy(py_03c()))

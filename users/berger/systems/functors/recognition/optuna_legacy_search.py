@@ -1,13 +1,13 @@
 import copy
 import itertools
-from typing import Dict, List, Optional
+from typing import Dict, List
 
 from i6_core import mm, rasr, recognition
-from i6_experiments.users.berger.recipe import returnn
 from sisyphus import tk
 
-from ... import dataclasses
-from ... import types
+from i6_experiments.users.berger.recipe import returnn
+
+from ... import dataclasses, types
 from ..base import RecognitionFunctor
 from ..optuna_rasr_base import OptunaRasrFunctor
 
@@ -25,7 +25,7 @@ class OptunaAdvancedTreeSearchFunctor(
         num_classes: int,
         epochs: List[types.EpochType],
         lm_scales: List[float],
-        trial_nums: List[Optional[int]] = [None],
+        trial_nums: List[int],
         prior_scales: List[float] = [0],
         pronunciation_scales: List[float] = [0],
         prior_args: Dict = {},
@@ -117,8 +117,8 @@ class OptunaAdvancedTreeSearchFunctor(
                     dataclasses.SummaryKey.TRAIN_NAME.value: train_job.name,
                     dataclasses.SummaryKey.RECOG_NAME.value: recog_config.name,
                     dataclasses.SummaryKey.CORPUS.value: recog_corpus.name,
-                    dataclasses.SummaryKey.TRIAL.value: self._get_trial_value(train_job.job, trial_num),
-                    dataclasses.SummaryKey.EPOCH.value: self._get_epoch_value(train_job.job, epoch),
+                    dataclasses.SummaryKey.TRIAL.value: trial_num,
+                    dataclasses.SummaryKey.EPOCH.value: self._get_epoch_value(train_job.job, epoch, trial_num),
                     dataclasses.SummaryKey.PRON.value: pronunciation_scale,
                     dataclasses.SummaryKey.PRIOR.value: prior_scale,
                     dataclasses.SummaryKey.LM.value: lm_scale,

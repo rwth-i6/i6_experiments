@@ -2,7 +2,7 @@
 Universal helpers to create configuration objects (i6_core ReturnnConfig) for RETURNN training/forwarding
 """
 import copy
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, List
 
 from i6_core.returnn.config import ReturnnConfig, CodeWrapper
 
@@ -183,6 +183,7 @@ def get_static_quant_config(
     config: Dict[str, Any],
     num_samples: int,
     dataset_seed: int,
+    dataset_filter_args: Optional[Dict[str, Any]],
     debug: bool = False,
 ):
     """
@@ -206,6 +207,8 @@ def get_static_quant_config(
     base_config['forward']['seq_ordering'] = 'random'
     base_config['forward']['datasets']['zip_dataset']['fixed_random_subset'] = num_samples
     base_config['forward']['datasets']['zip_dataset']['fixed_random_subset_seed'] = dataset_seed
+    if dataset_filter_args is not None:
+        base_config['forward']['datasets']['zip_dataset']['random_subset_filter_args'] = dataset_filter_args
     config = {**base_config, **copy.deepcopy(config)}
     post_config["backend"] = "torch"
     assert net_args.keys().isdisjoint(quant_args.keys())

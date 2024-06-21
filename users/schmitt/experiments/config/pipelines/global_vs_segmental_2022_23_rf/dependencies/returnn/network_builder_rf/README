@@ -1,0 +1,10 @@
+The contents in this package are all tested for commit:
+
+commit d94322fa3ea82a53426766afe845e62811433df2 (HEAD -> main)
+Author: schmitt <robin.schmitt1@rwth-aachen.de>
+Date:   Thu May 16 10:19:52 2024 +0200
+
+    update
+
+and are consistent with baseline V1 of my old global and segmental model experiments regarding scores, WERs, losses
+and speed.

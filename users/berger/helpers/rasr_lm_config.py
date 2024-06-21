@@ -1,7 +1,9 @@
+from __future__ import annotations
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Optional
 
+from i6_core.lm.lm_image import CreateLmImageJob
 from sisyphus import tk
 
 from i6_core import rasr, returnn
@@ -13,26 +15,44 @@ from .returnn import get_native_lstm_op
 @dataclass
 class LMData(ABC):
     scale: float
+    lookahead_lm: Optional[LMData]
 
     @abstractmethod
-    def get_config(self, tool_paths: ToolPaths) -> rasr.RasrConfig:
+    def get_config(self, **kwargs) -> rasr.RasrConfig:
         ...
 
-    def get_lookahead_config(self, tool_paths: ToolPaths) -> Optional[rasr.RasrConfig]:
-        return None
+    def get_lookahead_config(self, **kwargs) -> Optional[rasr.RasrConfig]:
+        if self.lookahead_lm is None:
+            return None
+        return self.lookahead_lm.get_config(**kwargs)
 
 
 @dataclass
 class ArpaLMData(LMData):
     filename: tk.Path
+    image: Optional[tk.Path] = None
 
-    def get_config(self, tool_paths: ToolPaths) -> rasr.RasrConfig:
+    def get_config(self, **_) -> rasr.RasrConfig:
         config = rasr.RasrConfig()
         config.type = "ARPA"
         config.file = self.filename
         config.scale = self.scale
+        if self.image is not None:
+            config.image = self.image
 
         return config
+
+    def create_image(self, rasr_binary_path: tk.Path, lexicon_file: tk.Path) -> None:
+        if self.image is not None:
+            return
+
+        lm_crp = rasr.CommonRasrParameters()
+        lm_crp.set_executables(rasr_binary_path=rasr_binary_path)
+        rasr.crp_add_default_output(lm_crp)
+        lm_crp.lexicon_config = rasr.RasrConfig()
+        lm_crp.lexicon_config.file = lexicon_file
+        lm_crp.language_model_config = self.get_config()
+        self.image = CreateLmImageJob(crp=lm_crp, mem=8).out_image
 
 
 @dataclass
@@ -42,9 +62,8 @@ class NNLMData(LMData, ABC):
     returnn_config: Optional[returnn.ReturnnConfig] = None
     graph_file: Optional[tk.Path] = None
     unknown_word: str = "<UNK>"
-    lookahead_lm: Optional[LMData] = None
 
-    def _get_graph(self, tool_paths: ToolPaths) -> tk.Path:
+    def _get_graph(self, tool_paths: ToolPaths, **_) -> tk.Path:
         if self.graph_file is not None:
             return self.graph_file
         assert self.returnn_config is not None, "Must specify either a graph .meta file or a returnn config"
@@ -55,7 +74,7 @@ class NNLMData(LMData, ABC):
             blas_lib=tool_paths.blas_lib,
         ).out_graph
 
-    def get_config(self, tool_paths: ToolPaths) -> rasr.RasrConfig:
+    def get_config(self, tool_paths: ToolPaths, **_) -> rasr.RasrConfig:
         config = rasr.RasrConfig()
         config.scale = self.scale
         config.vocab_file = self.vocab_file
@@ -76,11 +95,6 @@ class NNLMData(LMData, ABC):
 
         return config
 
-    def get_lookahead_config(self, tool_paths: ToolPaths) -> Optional[rasr.RasrConfig]:
-        if self.lookahead_lm is None:
-            return None
-        return self.lookahead_lm.get_config(tool_paths)
-
 
 @dataclass
 class RNNLMData(NNLMData):
@@ -89,7 +103,7 @@ class RNNLMData(NNLMData):
     opt_batch_size: int = 64
     allow_reduced_history: bool = True
 
-    def get_config(self, tool_paths: ToolPaths) -> rasr.RasrConfig:
+    def get_config(self, tool_paths: ToolPaths, **_) -> rasr.RasrConfig:
         config = super().get_config(tool_paths)
 
         config.type = "tfrnn"
@@ -106,7 +120,7 @@ class RNNLMData(NNLMData):
 class TransformerLMData(NNLMData):
     max_batch_size: int = 64
 
-    def get_config(self, tool_paths: ToolPaths) -> rasr.RasrConfig:
+    def get_config(self, tool_paths: ToolPaths, **_) -> rasr.RasrConfig:
         config = super().get_config(tool_paths)
 
         config.type = "simple-transformer"

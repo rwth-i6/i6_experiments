@@ -501,7 +501,6 @@ def phoneme_prediction_step(*, model: Model, data, run_ctx, **kwargs):
     z_mask = torch.unsqueeze(commons.sequence_mask(audio_features_len, y_lengths), 1)
     attn_mask = torch.unsqueeze(x_mask, -1) * torch.unsqueeze(z_mask, 2)
     given_attn = commons.generate_path(durations.squeeze(1), attn_mask.squeeze(1)).unsqueeze(1).to(torch.float32)
-
     logits, y_lengths, z_mask = model(
         x=phonemes,
         x_lengths=phonemes_len,

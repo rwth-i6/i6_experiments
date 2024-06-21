@@ -7,7 +7,7 @@ from i6_experiments.users.berger.util import ToolPaths
 from i6_experiments.common.datasets.util import CorpusObject
 from sisyphus import tk
 
-from .rasr_lm_config import LMData
+from i6_experiments.users.berger.helpers.rasr_lm_config import ArpaLMData, LMData
 
 
 @dataclass
@@ -99,6 +99,16 @@ class RasrDataInput:
     lm: Optional[LMData] = None
     concurrent: int = 10
 
+    def create_lm_images(self, rasr_binary_path: tk.Path) -> None:
+        if self.lm is None:
+            return
+
+        if isinstance(self.lm, ArpaLMData):
+            self.lm.create_image(rasr_binary_path=rasr_binary_path, lexicon_file=self.lexicon.filename)
+
+        if self.lm.lookahead_lm is not None and isinstance(self.lm.lookahead_lm, ArpaLMData):
+            self.lm.lookahead_lm.create_image(rasr_binary_path=rasr_binary_path, lexicon_file=self.lexicon.filename)
+
 
 def get_crp_for_data_input(
     data: RasrDataInput,
@@ -114,12 +124,6 @@ def get_crp_for_data_input(
         data.corpus_object.corpus_file, data.concurrent
     ).out_segment_path
 
-    if data.lm is not None:
-        crp.language_model_config = data.lm.get_config(tool_paths)  # type: ignore
-        lookahead_config = data.lm.get_lookahead_config(tool_paths)
-        if lookahead_config is not None:
-            crp.lookahead_language_model_config = lookahead_config  # type: ignore
-
     crp.lexicon_config = rasr.RasrConfig()  # type: ignore
     crp.lexicon_config.file = data.lexicon.filename
     crp.lexicon_config.normalize_pronunciation = data.lexicon.normalize_pronunciation
@@ -127,5 +131,13 @@ def get_crp_for_data_input(
     crp.acoustic_model_config = am.acoustic_model_config(**am_args)  # type: ignore
     crp.acoustic_model_config.allophones.add_all = data.lexicon.add_all_allophones  # type: ignore
     crp.acoustic_model_config.allophones.add_from_lexicon = data.lexicon.add_allophones_from_lexicon  # type: ignore
+
+    if data.lm is not None:
+        lm_config = data.lm.get_config(tool_paths=tool_paths)  # type: ignore
+        lookahead_lm_config = data.lm.get_lookahead_config(tool_paths=tool_paths)
+
+        crp.language_model_config = lm_config
+        if lookahead_lm_config is not None:
+            crp.lookahead_language_model_config = lookahead_lm_config  # type: ignore
 
     return crp

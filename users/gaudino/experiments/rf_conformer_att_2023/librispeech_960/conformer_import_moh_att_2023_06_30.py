@@ -6,7 +6,7 @@ from __future__ import annotations
 from typing import Optional, Any, Tuple, Dict, Sequence, List
 from itertools import product
 
-from i6_experiments.users.gaudino.models.asr.rf.trafo_lm.lm_import_2023_11_09 import (
+from i6_experiments.users.gaudino.models.asr.rf.nn_lm.lm_import_2023_11_09 import (
     Trafo_LM_Model,
 )
 from sisyphus import tk
@@ -19,7 +19,7 @@ from i6_experiments.users.gaudino.models.asr.rf.nn_lm.lm_import_2023_09_03 impor
     LSTM_LM_Model,
     # MakeModel,
 )
-from i6_experiments.users.gaudino.experiments.rf_conformer_att_2023.tedlium2.ilm_import_2024_04_17 import (
+from i6_experiments.users.gaudino.models.asr.rf.ilm_import_2024_04_17 import (
     MiniAtt_ILM_Model,
 )
 from i6_experiments.users.gaudino.model_interfaces.model_interfaces import ModelDef, TrainDef
@@ -60,6 +60,7 @@ import numpy
 _returnn_tf_ckpt_filename = "i6_core/returnn/training/AverageTFCheckpointsJob.BxqgICRSGkgb/output/model/average.index"
 _torch_ckpt_filename_w_lstm_lm = "/work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/2023-08-10--rf-librispeech/work/i6_experiments/users/gaudino/returnn/convert_ckpt_rf/full_w_lm_import_2023_10_18/average.pt"
 _torch_ckpt_filename_w_trafo_lm = "/work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/2023-08-10--rf-librispeech/work/i6_experiments/users/gaudino/returnn/convert_ckpt_rf/librispeech/full_w_trafo_lm_import_2024_02_05/average.pt"
+_torch_ckpt_filename_base_model = "/work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/2023-08-10--rf-librispeech/work/i6_experiments/users/gaudino/returnn/convert_ckpt_rf/librispeech/base_model/average.pt"
 # The model gets raw features (16khz) and does feature extraction internally.
 _log_mel_feature_dim = 80
 
@@ -84,6 +85,9 @@ def sis_run_with_prefix(prefix_name: str = None):
 
     task = get_librispeech_task_bpe10k_raw(with_eos_postfix=True)
 
+    bsf = 10
+    prefix_name = prefix_name + f"/bsf{bsf}"
+
     ### Experiments without LM and with LSTM LM
 
     new_chkpt_path = tk.Path(
@@ -100,11 +104,11 @@ def sis_run_with_prefix(prefix_name: str = None):
 
     # att only
     for beam_size in [12, 18]:
-        recog_name = f"/bsf10/att_beam{beam_size}"
+        recog_name = f"/att_beam{beam_size}"
         name = prefix_name + recog_name
         search_args = {
             "beam_size": beam_size,
-            "bsf": 10,
+            "bsf": bsf,
         }
 
         res, _ = recog_model(
@@ -121,36 +125,12 @@ def sis_run_with_prefix(prefix_name: str = None):
             res.output,
         )
 
-    # att + lstm lm TODO: debug difference
-    for scales, beam_size in product([(1.0, 0.3), (1.0, 0.33), (1.0, 0.27)], [12, 32]):
-        att_scale, lm_scale = scales
-        recog_name = f"/bsf10/opls_att{att_scale}_lstm_lm{lm_scale}_beam{beam_size}"
-        name = prefix_name + recog_name
-        search_args = {
-            "beam_size": beam_size,
-            "add_lstm_lm": True,
-            "lm_scale": lm_scale,
-        }
-        res, _ = recog_model(
-            task,
-            model_with_checkpoint,
-            model_recog,
-            dev_sets=["dev-other"],
-            model_args=model_args,
-            search_args=search_args,
-            prefix_name=name,
-        )
-        tk.register_output(
-            name + f"/recog_results",
-            res.output,
-        )
-
     # espnet ctc prefix decoder
     # beam 12/32: {"dev-clean": 2.83, "dev-other": 6.69, "test-clean": 3.07, "test-other": 7.02}
     for prior_scale, beam_size in product([0.0], []):
         name = (
             prefix_name
-            + f"/bsf10/ctc_prefix_fix"
+            + f"/ctc_prefix_fix"
             + (f"_prior{prior_scale}" if prior_scale != 0.0 else "")
             + f"_beam{beam_size}"
         )
@@ -160,7 +140,7 @@ def sis_run_with_prefix(prefix_name: str = None):
             "use_ctc": True,
             "ctc_scale": 1.0,
             "ctc_state_fix": True,
-            "bsf": 10,
+            "bsf": bsf,
             "prior_corr": prior_scale != 0.0,
             "ctc_prior_file": "/work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/2023-02-22--conformer-swb/work/i6_core/returnn/extract_prior/ReturnnComputePriorJobV2.ZeflcEHlQTjn/output/prior.txt",
             "prior_scale": prior_scale,
@@ -179,16 +159,107 @@ def sis_run_with_prefix(prefix_name: str = None):
             res.output,
         )
 
+    # att + espnet ctc prefix
+    # beam 32: {"dev-clean": 2.14, "dev-other": 5.21, "test-clean": 2.43, "test-other": 5.57}
+    for scales, prior_scale, beam_size in product([(0.7, 0.3)], [0.1], []):
+        att_scale, ctc_scale = scales
+
+        name = (
+            prefix_name
+            + f"/opls_att{att_scale}_ctc{ctc_scale}_fix"
+            + (f"_prior{prior_scale}" if prior_scale != 0.0 else "")
+            + f"_beam{beam_size}"
+        )
+        search_args = {
+            "beam_size": beam_size,
+            "att_scale": att_scale,
+            "use_ctc": True,
+            "ctc_scale": ctc_scale,
+            "ctc_state_fix": True,
+            "bsf": bsf,
+            "prior_corr": prior_scale != 0.0,
+            "ctc_prior_file": "/work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/2023-02-22--conformer-swb/work/i6_core/returnn/extract_prior/ReturnnComputePriorJobV2.ZeflcEHlQTjn/output/prior.txt",
+            "prior_scale": prior_scale,
+        }
+        res, _ = recog_model(
+            task,
+            model_with_checkpoint,
+            model_recog,
+            dev_sets=None,
+            model_args=model_args,
+            search_args=search_args,
+            prefix_name=name,
+        )
+        tk.register_output(
+            name + f"/recog_results",
+            res.output,
+        )
+
+    # ctc only decoding
+    # prior 0.0: {"dev-clean": 2.85, "dev-other": 6.68, "test-clean": 3.09, "test-other": 7.0}
+    for prior_scale in []:
+        search_args = {
+            "bsf": bsf,
+            "prior_corr": prior_scale > 0.0,
+            "ctc_prior_file": "/work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/2023-02-22--conformer-swb/work/i6_core/returnn/extract_prior/ReturnnComputePriorJobV2.ZeflcEHlQTjn/output/prior.txt",
+            "prior_scale": prior_scale,
+        }
+        name = (
+            prefix_name
+            + f"/ctc_greedy"
+            + (f"_prior{prior_scale}" if prior_scale > 0.0 else "")
+        )
+        res, _ = recog_model(
+            task,
+            model_with_checkpoint,
+            model_recog_ctc,
+            dev_sets=None,
+            model_args=model_args,
+            search_args=search_args,
+            prefix_name=name,
+        )
+        tk.register_output(
+            name + f"/recog_results",
+            res.output,
+        )
+
+    # ------------------ with LSTM LM ------------------------
+
+    # att + lstm lm TODO: debug difference
+    for scales, beam_size in product([(1.0, 0.3), (1.0, 0.33), (1.0, 0.27)], []):
+        att_scale, lm_scale = scales
+        recog_name = f"/opls_att{att_scale}_lstm_lm{lm_scale}_beam{beam_size}"
+        name = prefix_name + recog_name
+        search_args = {
+            "beam_size": beam_size,
+            "add_lstm_lm": True,
+            "lm_scale": lm_scale,
+            "bsf": bsf,
+        }
+        res, _ = recog_model(
+            task,
+            model_with_checkpoint,
+            model_recog,
+            dev_sets=["dev-other"],
+            model_args=model_args,
+            search_args=search_args,
+            prefix_name=name,
+        )
+        tk.register_output(
+            name + f"/recog_results",
+            res.output,
+        )
+
     # att + espnet ctc prefix scorer + lstm lm
     for scales, prior_scale, lm_scale, beam_size in product(
         [(0.8, 0.2), (0.85, 0.15)],
         [0.0],
         [0.4, 0.45, 0.5, 0.55, 0.6, 0.65],
-        [12, 32],
+        [],
     ):
         att_scale, ctc_scale = scales
         recog_name = (
-            f"/bsf10/opls_att{att_scale}_ctc{ctc_scale}_fix"
+            f"/opls_att{att_scale}_ctc{ctc_scale}_fix"
             + (f"_prior{prior_scale}" if prior_scale > 0.0 else "")
             + f"_lstm_lm{lm_scale}_beam{beam_size}"
         )
@@ -200,7 +271,7 @@ def sis_run_with_prefix(prefix_name: str = None):
             "att_scale": att_scale,
             "ctc_scale": ctc_scale,
             "use_ctc": True,
-            "bsf": 10,
+            "bsf": bsf,
             "prior_corr": prior_scale > 0.0,
             "ctc_prior_file": "/work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/2023-02-22--conformer-swb/work/i6_core/returnn/extract_prior/ReturnnComputePriorJobV2.ZeflcEHlQTjn/output/prior.txt",
             "prior_scale": prior_scale,
@@ -220,41 +291,7 @@ def sis_run_with_prefix(prefix_name: str = None):
             res.output,
         )
 
-    # att + espnet ctc prefix
-    # beam 32: {"dev-clean": 2.14, "dev-other": 5.21, "test-clean": 2.43, "test-other": 5.57}
-    for scales, prior_scale, beam_size in product([(0.7, 0.3)], [0.1], []):
-        att_scale, ctc_scale = scales
-
-        name = (
-            prefix_name
-            + f"/bsf10/opls_att{att_scale}_ctc{ctc_scale}_fix"
-            + (f"_prior{prior_scale}" if prior_scale != 0.0 else "")
-            + f"_beam{beam_size}"
-        )
-        search_args = {
-            "beam_size": beam_size,
-            "att_scale": att_scale,
-            "use_ctc": True,
-            "ctc_scale": ctc_scale,
-            "ctc_state_fix": True,
-            "bsf": 10,
-            "prior_corr": prior_scale != 0.0,
-            "ctc_prior_file": "/work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/2023-02-22--conformer-swb/work/i6_core/returnn/extract_prior/ReturnnComputePriorJobV2.ZeflcEHlQTjn/output/prior.txt",
-            "prior_scale": prior_scale,
-        }
-        res, _ = recog_model(
-            task,
-            model_with_checkpoint,
-            model_recog,
-            dev_sets=None,
-            model_args=model_args,
-            search_args=search_args,
-            prefix_name=name,
-        )
-        tk.register_output(
-            name + f"/recog_results",
-            res.output,
-        )
+    # ------------ Search Errors ------------
 
     # check for search errors
     for scales in [(0.7, 0.3)]:
@@ -309,40 +346,12 @@ def sis_run_with_prefix(prefix_name: str = None):
                 res,
             )
 
-    # ctc only decoding
-    # prior 0.0: {"dev-clean": 2.85, "dev-other": 6.68, "test-clean": 3.09, "test-other": 7.0}
-    for prior_scale in []:
-        search_args = {
-            "bsf": 10,
-            "prior_corr": prior_scale > 0.0,
-            "ctc_prior_file": "/work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/2023-02-22--conformer-swb/work/i6_core/returnn/extract_prior/ReturnnComputePriorJobV2.ZeflcEHlQTjn/output/prior.txt",
-            "prior_scale": prior_scale,
-        }
-        name = (
-            prefix_name
-            + f"/bsf10/ctc_greedy"
-            + (f"_prior{prior_scale}" if prior_scale > 0.0 else "")
-        )
-        res, _ = recog_model(
-            task,
-            model_with_checkpoint,
-            model_recog_ctc,
-            dev_sets=None,
-            model_args=model_args,
-            search_args=search_args,
-            prefix_name=name,
-        )
-        tk.register_output(
-            name + f"/recog_results",
-            res.output,
-        )
-
     # opts att + ctc TODO: fix bugs
     for scales, blank_scale, beam_size in product([(0.65, 0.35)], [2.0], []):
         att_scale, ctc_scale = scales
         name = (
             prefix_name
-            + f"/bsf20/opts_att{att_scale}_ctc{ctc_scale}"
+            + f"/opts_att{att_scale}_ctc{ctc_scale}"
             + (f"_blank{blank_scale}" if blank_scale != 0.0 else "")
             + f"_beam{beam_size}"
         )
@@ -351,7 +360,7 @@ def sis_run_with_prefix(prefix_name: str = None):
             "att_scale": att_scale,
             "ctc_scale": ctc_scale,
             "blank_scale": blank_scale,
-            "bsf": 20,
+            "bsf": bsf,
         }
 
         #
@@ -400,33 +409,49 @@ def sis_run_with_prefix(prefix_name: str = None):
                 res,
             )
 
-    ### Experiments with transformer LM
+    #  ------------------ with Trafo LM ------------------------
 
-    model_w_trafo_lm_ckpt_path = tk.Path(
-        _torch_ckpt_filename_w_trafo_lm, hash_overwrite="torch_ckpt_w_trafo_lm"
+    # model_w_trafo_lm_ckpt_path = tk.Path(
+    #     _torch_ckpt_filename_w_trafo_lm, hash_overwrite="torch_ckpt_w_trafo_lm"
+    # )
+    # model_w_trafo_lm_ckpt = PtCheckpoint(model_w_trafo_lm_ckpt_path)
+    # model_with_checkpoint = ModelWithCheckpoint(
+    #     definition=from_scratch_model_def, checkpoint=model_w_trafo_lm_ckpt
+    # )
+    #
+    model_ckpt_path = tk.Path(
+        _torch_ckpt_filename_base_model, hash_overwrite="torch_ckpt_base_model"
     )
-    model_w_trafo_lm_ckpt = PtCheckpoint(model_w_trafo_lm_ckpt_path)
+    model_ckpt = PtCheckpoint(model_ckpt_path)
     model_with_checkpoint = ModelWithCheckpoint(
-        definition=from_scratch_model_def, checkpoint=model_w_trafo_lm_ckpt
+        definition=from_scratch_model_def, checkpoint=model_ckpt
     )
 
     model_args = {
-        "add_trafo_lm": True,
-        "trafo_lm_args": {
+        "external_language_model": {
+            "class": "Trafo_LM_Model",
             "num_layers": 24,
             "layer_out_dim": 1024,
             "att_num_heads": 8,
             "use_pos_enc": True,
             "ff_activation": "relu",
         },
+        "preload_from_files": {
+            "01_trafo_lm": {
+                "prefix": "language_model.",
+                "filename": "/work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/2023-08-10--rf-librispeech/work/i6_experiments/users/gaudino/returnn/convert_ckpt_rf/librispeech/trafo_lm_only_24_02_06/network.023.pt",
+            }
+        },
     }
+
+    # ilm ckpt torch: /work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/2023-08-10--rf-librispeech/work/i6_experiments/users/gaudino/returnn/convert_ckpt_rf/librispeech/mini_att_ilm_24_05_28/average.pt
 
     # opts ctc + trafo lm TODO: fix bugs
     for scales, beam_size in product([(1.0, 0.5)], []):
         ctc_scale, lm_scale = scales
         name = (
             prefix_name
-            + f"/bsf20/opts_ctc{ctc_scale}_trafo_lm{lm_scale}"
+            + f"/opts_ctc{ctc_scale}_trafo_lm{lm_scale}"
             + f"_beam{beam_size}"
         )
         search_args = {
@@ -437,7 +462,7 @@ def sis_run_with_prefix(prefix_name: str = None):
             # "remove_trafo_lm_eos": True,
             # "add_eos_to_end": True,
             "lm_scale": lm_scale,
-            "bsf": 20,
+            "bsf": bsf,
         }
 
         recog_res, recog_out = recog_model(
@@ -456,14 +481,14 @@ def sis_run_with_prefix(prefix_name: str = None):
 
     # att + trafo lm
     # beam 32: {"dev-clean": 1.91, "dev-other": 4.14, "test-clean": 2.2, "test-other": 4.6}
-    for lm_scale, beam_size in product([0.42], [40, 48 ,60 ,64, 70]):
-        recog_name = f"/bsf10/att_trafo_lm{lm_scale}_beam{beam_size}"
+    for lm_scale, beam_size in product([0.42], [32]):
+        recog_name = f"/att_trafo_lm{lm_scale}_beam{beam_size}"
         name = prefix_name + recog_name
         search_args = {
             "beam_size": beam_size,
             "add_trafo_lm": True,
             "lm_scale": lm_scale,
-            "bsf": 10,
+            "bsf": bsf,
         }
         res, _ = recog_model(
             task,
@@ -485,7 +510,7 @@ def sis_run_with_prefix(prefix_name: str = None):
         [1.0], [0.0], [0.65], []
     ):
         recog_name = (
-            f"/bsf10/opls_ctc{ctc_scale}_fix"
+            f"/opls_ctc{ctc_scale}_fix"
             + (f"_prior{prior_scale}" if prior_scale > 0.0 else "")
             + f"_trafo_lm{lm_scale}_beam{beam_size}"
         )
@@ -497,11 +522,10 @@ def sis_run_with_prefix(prefix_name: str = None):
             "att_scale": 0.0,
             "ctc_scale": ctc_scale,
             "use_ctc": True,
-            "bsf": 10,
+            "bsf": bsf,
             "prior_corr": prior_scale > 0.0,
             "ctc_prior_file": "/work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/2023-02-22--conformer-swb/work/i6_core/returnn/extract_prior/ReturnnComputePriorJobV2.ZeflcEHlQTjn/output/prior.txt",
             "prior_scale": prior_scale,
-            "ctc_state_fix": True,
         }
         res, _ = recog_model(
             task,
@@ -524,7 +548,7 @@ def sis_run_with_prefix(prefix_name: str = None):
     ):
         att_scale, ctc_scale = scales
         recog_name = (
-            f"/bsf10/opls_att{att_scale}_ctc{ctc_scale}_fix"
+            f"/opls_att{att_scale}_ctc{ctc_scale}_fix"
             + (f"_prior{prior_scale}" if prior_scale > 0.0 else "")
             + f"_trafo_lm{lm_scale}_beam{beam_size}_cpu"
         )
@@ -536,11 +560,10 @@ def sis_run_with_prefix(prefix_name: str = None):
             "att_scale": att_scale,
             "ctc_scale": ctc_scale,
             "use_ctc": True,
-            "bsf": 10,
+            "bsf": bsf,
             "prior_corr": prior_scale > 0.0,
             "ctc_prior_file": "/work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/2023-02-22--conformer-swb/work/i6_core/returnn/extract_prior/ReturnnComputePriorJobV2.ZeflcEHlQTjn/output/prior.txt",
             "prior_scale": prior_scale,
-            "ctc_state_fix": True,
         }
         res, _ = recog_model(
             task,
@@ -557,6 +580,106 @@ def sis_run_with_prefix(prefix_name: str = None):
             name + f"/recog_results",
             res.output,
         )
+
+    # ------------------ with MiniAtt ILM ------------------------
+
+    model_args = {
+        "external_language_model": {
+            "class": "Trafo_LM_Model",
+            "num_layers": 24,
+            "layer_out_dim": 1024,
+            "att_num_heads": 8,
+            "use_pos_enc": True,
+            "ff_activation": "relu",
+        },
+        "internal_language_model": {
+            "class": "MiniAtt_ILM_Model",
+            "s_use_zoneout_output": False,
+        },
+        "preload_from_files": {
+            "01_trafo_lm": {
+                "prefix": "language_model.",
+                "filename": "/work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/2023-08-10--rf-librispeech/work/i6_experiments/users/gaudino/returnn/convert_ckpt_rf/librispeech/trafo_lm_only_24_02_06/network.023.pt",
+            },
+            "01_mini_att_ilm": {
+                "prefix": "ilm.",
+                "filename": "/work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/2023-08-10--rf-librispeech/work/i6_experiments/users/gaudino/returnn/convert_ckpt_rf/librispeech/mini_att_ilm_24_05_28/average.pt",
+            },
+        },
+    }
+
+    # ilm ckpt torch: /work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/2023-08-10--rf-librispeech/work/i6_experiments/users/gaudino/returnn/convert_ckpt_rf/librispeech/mini_att_ilm_24_05_28/average.pt
+
+    # att + trafo lm + ilm
+    #
+    for lm_scale, ilm_scale, beam_size in product([0.54], [0.4], [32, 64]):
+        recog_name = f"/att_trafolm{lm_scale}_ilm{ilm_scale}_beam{beam_size}_ffix"
+        name = prefix_name + recog_name
+        search_args = {
+            "beam_size": beam_size,
+            "add_trafo_lm": True,
+            "lm_scale": lm_scale,
+            "ilm_scale": ilm_scale,
+            "bsf": bsf,
+            "use_lm_first_label": True,
+        }
+        res, _ = recog_model(
+            task,
+            model_with_checkpoint,
+            model_recog,
+            dev_sets=["dev-clean", "dev-other", "test-clean", "test-other"],
+            model_args=model_args,
+            search_args=search_args,
+            prefix_name=name,
+        )
+        tk.register_output(
+            name + f"/recog_results",
+            res.output,
+        )
+
+    # opls att + ctc + trafo lm + ilm
+    for scales, prior_scale, lm_scale, ilm_scale, beam_size in product(
+        [(0.8, 0.2)], [0.05, 0.07], [0.65], [0.4], [32, 40]
+    ):
+        att_scale, ctc_scale = scales
+        recog_name = (
+            f"/opls_att{att_scale}_ctc{ctc_scale}"
+            + (f"_prior{prior_scale}" if prior_scale > 0.0 else "")
+            + f"_trafo_lm{lm_scale}"
+            + f"_ilm{ilm_scale}"
+            + f"_beam{beam_size}_ffix"
+        )
+        name = prefix_name + recog_name
+        search_args = {
+            "beam_size": beam_size,
+            "add_trafo_lm": True,
+            "lm_scale": lm_scale,
+            "att_scale": att_scale,
+            "ctc_scale": ctc_scale,
+            "ilm_scale": ilm_scale,
+            "use_ctc": True,
+            "bsf": bsf,
+            "prior_corr": prior_scale > 0.0,
+            "ctc_prior_file": "/work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/2023-02-22--conformer-swb/work/i6_core/returnn/extract_prior/ReturnnComputePriorJobV2.ZeflcEHlQTjn/output/prior.txt",
+            "prior_scale": prior_scale,
+            "use_lm_first_label": True,
+        }
+        res, _ = recog_model(
+            task,
+            model_with_checkpoint,
+            model_recog,
+            dev_sets=["dev-clean", "dev-other", "test-clean", "test-other"],
+            model_args=model_args,
+            search_args=search_args,
+            prefix_name=name,
+            # device="cpu",
+            # search_mem_rqmt=15,
+        )
+        tk.register_output(
+            name + f"/recog_results",
+            res.output,
+        )
+
 
 
 py = sis_run_with_prefix  # if run directly via `sis m ...`
@@ -799,6 +922,7 @@ class Model(rf.Module):
         self.mel_normalization = model_args.get("mel_normalization", False)
         self.no_ctc = model_args.get("no_ctc", False)
         self.enc_layer_w_ctc = model_args.get("enc_layer_w_ctc", None)
+        self.s_use_zoneout_output = model_args.get("s_use_zoneout_output", False)
 
         self.encoder = ConformerEncoder(
             in_dim,
@@ -887,7 +1011,8 @@ class Model(rf.Module):
             Dim(name="lstm", dimension=1024),
             zoneout_factor_cell=0.15,
             zoneout_factor_output=0.05,
-            use_zoneout_output=False,  # like RETURNN/TF ZoneoutLSTM old default
+            use_zoneout_output=self.s_use_zoneout_output,  # like RETURNN/TF ZoneoutLSTM old default
+            # use_zoneout_output=False,  # like RETURNN/TF ZoneoutLSTM old default # this was a bug
             # parts_order="icfo",  # like RETURNN/TF ZoneoutLSTM
             # parts_order="ifco",
             parts_order="jifo",  # NativeLSTM (the code above converts it...)

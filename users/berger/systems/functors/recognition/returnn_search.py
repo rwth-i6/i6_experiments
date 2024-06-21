@@ -137,6 +137,7 @@ class ReturnnSearchFunctor(RecognitionFunctor[returnn.ReturnnTrainingJob, return
                 returnn_root=self.returnn_root,
                 returnn_python_exe=self.returnn_python_exe,
                 output_files=["search_out.py"],
+                mem_rqmt=8,
             )
 
             if isinstance(epoch, str):

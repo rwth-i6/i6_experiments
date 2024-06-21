@@ -269,6 +269,7 @@ class PlotAttentionWeightsJobV2(Job):
           vocab: Dict[int, str],
           ref_alignment_blank_idx: int,
           target_blank_idx: Optional[int] = None,
+          draw_vertical_lines: bool = False
   ):
     """
       Set the ticks and labels for the x and y axis.
@@ -281,7 +282,8 @@ class PlotAttentionWeightsJobV2(Job):
     ref_labels = ref_alignment[ref_alignment != ref_alignment_blank_idx]
     ref_labels = [vocab[idx] for idx in ref_labels]
     # x axis
-    ax.set_xticks([tick - 1.0 for tick in ref_label_positions])
+    xticks = [tick - 1.0 for tick in ref_label_positions]
+    ax.set_xticks(xticks)
     ax.set_xticklabels(ref_labels, rotation=90)
 
     # output labels of the model
@@ -296,6 +298,10 @@ class PlotAttentionWeightsJobV2(Job):
     # horizontal lines to separate labels on y axis
     for ytick in yticks:
       ax.axhline(y=ytick - .5, xmin=0, xmax=1, color="k", linewidth=.5)
+
+    if draw_vertical_lines:
+      for xtick in xticks:
+        ax.axvline(x=xtick, ymin=0, ymax=1, color="r", linewidth=.5, linestyle="--", alpha=0.5)
 
   @staticmethod
   def _draw_segment_boundaries(
@@ -330,7 +336,13 @@ class PlotAttentionWeightsJobV2(Job):
       ax.axvline(x=center_position + .5, ymin=ymin, ymax=ymax, color="lime")
 
   @staticmethod
-  def plot_ctc_alignment(ax: plt.Axes, ctc_alignment: np.ndarray, num_labels: int, ctc_blank_idx: int):
+  def plot_ctc_alignment(
+          ax: plt.Axes,
+          ctc_alignment: np.ndarray,
+          num_labels: int,
+          ctc_blank_idx: int,
+          plot_trailing_blanks: bool = False
+  ):
     label_idx = 0
     # store alignment like: 000011112222223333, where the number is the label index (~ height in the plot)
     ctc_alignment_plot_data = []
@@ -339,7 +351,7 @@ class PlotAttentionWeightsJobV2(Job):
       if ctc_label != ctc_blank_idx:
         label_idx += 1
       # stop if we reached the last label, the rest of the ctc alignment are blanks
-      if label_idx == num_labels:
+      if label_idx == num_labels and not plot_trailing_blanks:
         break
     ax.plot(ctc_alignment_plot_data, "o", color="black", alpha=.4)
 
@@ -530,13 +542,20 @@ class PlotAlignmentJob(Job):
           json_vocab_path: Path,
           target_blank_idx: int,
           segment_list: List[str],
+          ref_alignment_hdf: Optional[Path] = None,
+          ref_alignment_blank_idx: Optional[int] = None,
           silence_idx: Optional[int] = None,
   ):
+    if ref_alignment_hdf is not None:
+      assert ref_alignment_blank_idx is not None
+
     self.alignment_hdf = alignment_hdf
     self.json_vocab_path = json_vocab_path
     self.target_blank_idx = target_blank_idx
     self.segment_list = segment_list
     self.silence_idx = silence_idx
+    self.ref_alignment_hdf = ref_alignment_hdf if ref_alignment_hdf is not None else alignment_hdf
+    self.ref_alignment_blank_idx = ref_alignment_blank_idx if ref_alignment_blank_idx is not None else target_blank_idx
 
     self.out_plot_dir = self.output_path("plots", True)
 
@@ -582,9 +601,38 @@ class PlotAlignmentJob(Job):
     for i, position in enumerate(label_positions):
       ax.axvline(x=position - 1.0, ymin=ymin, ymax=ymax, color=color)
 
+  @staticmethod
+  def _set_ticks_alt(
+          ax: plt.Axes,
+          alignment: np.ndarray,
+          ref_alignment: np.ndarray,
+          vocab: Dict[int, str],
+          blank_idx: int,
+          ref_alignment_blank_idx: int,
+  ):
+    """
+      Set the ticks and labels for the x and y axis.
+      x-axis: reference alignment
+      y-axis: model output
+    """
+    PlotAttentionWeightsJobV2.set_ticks(
+      ax,
+      ref_alignment=ref_alignment,
+      targets=alignment,
+      vocab=vocab,
+      ref_alignment_blank_idx=ref_alignment_blank_idx,
+      target_blank_idx=blank_idx,
+      draw_vertical_lines=True
+    )
+
+    # draw last horizontal line for trailing blanks
+    labels = alignment[alignment != blank_idx]
+    ax.axhline(y=len(labels) - .5, xmin=0, xmax=1, color="k", linewidth=.5)
+
   def run(self):
     # load data from hdf
     alignment_dict = hdf.load_hdf_data(self.alignment_hdf, segment_list=self.segment_list)
+    ref_alignment_dict = hdf.load_hdf_data(self.ref_alignment_hdf, segment_list=self.segment_list)
 
     # load vocabulary as dictionary
     with open(self.json_vocab_path.get_path(), "r") as f:
@@ -597,13 +645,38 @@ class PlotAlignmentJob(Job):
     # for each seq tag, plot the corresponding att weights
     for seq_tag in alignment_dict.keys():
       alignment = alignment_dict[seq_tag]
+      ref_alignment = ref_alignment_dict[seq_tag]
       labels = alignment[alignment != self.target_blank_idx]
 
-      fig, ax = self._get_fig_ax(alignment)
+      dummy_matrix = np.zeros((len(labels) + 1, len(alignment)))
+      fig, ax = PlotAttentionWeightsJobV2._get_fig_ax(att_weights=dummy_matrix)
+      ax.matshow(dummy_matrix, aspect="auto", alpha=0.0)
       # set y ticks and labels
-      self._set_ticks(ax, alignment, labels, vocab, self.target_blank_idx)
+      self._set_ticks_alt(
+        ax,
+        alignment,
+        ref_alignment,
+        vocab,
+        self.target_blank_idx,
+        ref_alignment_blank_idx=self.ref_alignment_blank_idx
+      )
+      PlotAttentionWeightsJobV2.plot_ctc_alignment(
+        ax,
+        alignment,
+        num_labels=labels.shape[0],
+        ctc_blank_idx=self.target_blank_idx,
+        plot_trailing_blanks=True
+      )
+      # plt.gca().invert_yaxis()
 
       dirname = self.out_plot_dir.get_path()
       filename = os.path.join(dirname, "plot.%s" % seq_tag.replace("/", "_"))
       plt.savefig(filename + ".png")
       plt.savefig(filename + ".pdf")
+
+  @classmethod
+  def hash(cls, kwargs):
+    if kwargs["ref_alignment_hdf"] is None:
+      kwargs.pop("ref_alignment_hdf")
+      kwargs.pop("ref_alignment_blank_idx")
+    return super().hash(kwargs)
