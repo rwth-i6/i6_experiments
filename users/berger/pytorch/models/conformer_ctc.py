@@ -27,6 +27,8 @@ from ..custom_parts.specaugment import (
     SpecaugmentModuleV1,
 )
 from ..custom_parts.vgg_frontend import VGG4LayerActFrontendCeilPoolV1, VGG4LayerActFrontendCeilPoolV1Config
+from ..custom_parts.sequential import SequentialModuleV1Config, SequentialModuleV1
+from ..custom_parts.speed_perturbation import SpeedPerturbationModuleV1, SpeedPerturbationModuleV1Config
 from .util import lengths_to_padding_mask
 
 
@@ -428,14 +430,28 @@ def get_default_config_v3(num_outputs: int) -> ConformerCTCConfig:
 
 def get_default_config_v4(num_outputs: int) -> ConformerCTCConfig:
     feature_extraction = ModuleFactoryV1(
-        module_class=RasrCompatibleLogMelFeatureExtractionV1,
-        cfg=RasrCompatibleLogMelFeatureExtractionV1Config(
-            sample_rate=16000,
-            win_size=0.025,
-            hop_size=0.01,
-            min_amp=1.175494e-38,
-            num_filters=80,
-            alpha=0.97,
+        module_class=SequentialModuleV1,
+        cfg=SequentialModuleV1Config(
+            submodules=[
+                ModuleFactoryV1(
+                    module_class=SpeedPerturbationModuleV1,
+                    cfg=SpeedPerturbationModuleV1Config(
+                        min_speed_factor=0.9,
+                        max_speed_factor=1.1,
+                    ),
+                ),
+                ModuleFactoryV1(
+                    module_class=RasrCompatibleLogMelFeatureExtractionV1,
+                    cfg=RasrCompatibleLogMelFeatureExtractionV1Config(
+                        sample_rate=16000,
+                        win_size=0.025,
+                        hop_size=0.01,
+                        min_amp=1.175494e-38,
+                        num_filters=80,
+                        alpha=0.97,
+                    ),
+                ),
+            ]
         ),
     )
     specaugment = ModuleFactoryV1(
