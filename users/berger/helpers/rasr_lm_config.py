@@ -18,8 +18,7 @@ class LMData(ABC):
     lookahead_lm: Optional[LMData]
 
     @abstractmethod
-    def get_config(self, **kwargs) -> rasr.RasrConfig:
-        ...
+    def get_config(self, **kwargs) -> rasr.RasrConfig: ...
 
     def get_lookahead_config(self, **kwargs) -> Optional[rasr.RasrConfig]:
         if self.lookahead_lm is None:
@@ -63,18 +62,19 @@ class NNLMData(LMData, ABC):
     graph_file: Optional[tk.Path] = None
     unknown_word: str = "<UNK>"
 
-    def _get_graph(self, tool_paths: ToolPaths, **_) -> tk.Path:
+    def _get_graph(self, returnn_python_exe: tk.Path, returnn_root: tk.Path, **_) -> tk.Path:
         if self.graph_file is not None:
             return self.graph_file
         assert self.returnn_config is not None, "Must specify either a graph .meta file or a returnn config"
         return returnn.CompileTFGraphJob(
             self.returnn_config,
-            returnn_python_exe=tool_paths.returnn_python_exe,
-            returnn_root=tool_paths.returnn_root,
-            blas_lib=tool_paths.blas_lib,
+            returnn_python_exe=returnn_python_exe,
+            returnn_root=returnn_root,
         ).out_graph
 
-    def get_config(self, tool_paths: ToolPaths, **_) -> rasr.RasrConfig:
+    def get_config(
+        self, returnn_python_exe: tk.Path, returnn_root: tk.Path, blas_lib: Optional[tk.Path] = None, **_
+    ) -> rasr.RasrConfig:
         config = rasr.RasrConfig()
         config.scale = self.scale
         config.vocab_file = self.vocab_file
@@ -82,9 +82,13 @@ class NNLMData(LMData, ABC):
         config.vocab_unknown_word = self.unknown_word
 
         config.loader.type = "meta"
-        config.loader.meta_graph_file = self._get_graph(tool_paths=tool_paths)
+        config.loader.meta_graph_file = self._get_graph(
+            returnn_python_exe=returnn_python_exe, returnn_root=returnn_root
+        )
         config.loader.saved_model_file = self.model_file
-        config.loader.required_libraries = get_native_lstm_op(tool_paths)
+        config.loader.required_libraries = get_native_lstm_op(
+            returnn_root=returnn_root, returnn_python_exe=returnn_python_exe, blas_lib=blas_lib
+        )
 
         config.input_map.info_0.param_name = "word"
         config.input_map.info_0.tensor_name = "extern_data/placeholders/delayed/delayed"
@@ -103,8 +107,10 @@ class RNNLMData(NNLMData):
     opt_batch_size: int = 64
     allow_reduced_history: bool = True
 
-    def get_config(self, tool_paths: ToolPaths, **_) -> rasr.RasrConfig:
-        config = super().get_config(tool_paths)
+    def get_config(
+        self, returnn_python_exe: tk.Path, returnn_root: tk.Path, blas_lib: Optional[tk.Path] = None, **_
+    ) -> rasr.RasrConfig:
+        config = super().get_config(returnn_python_exe=returnn_python_exe, returnn_root=returnn_root, blas_lib=blas_lib)
 
         config.type = "tfrnn"
 
@@ -120,8 +126,10 @@ class RNNLMData(NNLMData):
 class TransformerLMData(NNLMData):
     max_batch_size: int = 64
 
-    def get_config(self, tool_paths: ToolPaths, **_) -> rasr.RasrConfig:
-        config = super().get_config(tool_paths)
+    def get_config(
+        self, returnn_python_exe: tk.Path, returnn_root: tk.Path, blas_lib: Optional[tk.Path] = None, **_
+    ) -> rasr.RasrConfig:
+        config = super().get_config(returnn_python_exe=returnn_python_exe, returnn_root=returnn_root, blas_lib=blas_lib)
 
         config.type = "simple-transformer"
 

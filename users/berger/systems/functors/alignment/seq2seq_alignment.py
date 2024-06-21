@@ -1,15 +1,15 @@
 import copy
-from typing import Dict
+from typing import Dict, Optional
 
 from i6_core import returnn
-from i6_experiments.users.berger.recipe import rasr as custom_rasr
-from i6_experiments.users.berger.recipe import mm
 from i6_core.lexicon.allophones import DumpStateTyingJob, StoreAllophonesJob
 from sisyphus import tk
+
+from i6_experiments.users.berger.recipe import mm
+from i6_experiments.users.berger.recipe import rasr as custom_rasr
 from i6_experiments.users.berger.recipe.returnn.training import Backend, get_backend
 
-from ... import dataclasses
-from ... import types
+from ... import dataclasses, types
 from ..base import AlignmentFunctor
 from ..seq2seq_base import Seq2SeqFunctor
 
@@ -23,30 +23,47 @@ class Seq2SeqAlignmentFunctor(
         train_job: dataclasses.NamedTrainJob[returnn.ReturnnTrainingJob],
         prior_config: returnn.ReturnnConfig,
         align_config: returnn.ReturnnConfig,
-        align_corpus: dataclasses.NamedCorpusInfo,
+        align_corpus: dataclasses.NamedRasrDataInput,
         epoch: types.EpochType,
+        am_args: Optional[Dict] = None,
         alias_prefix: str = "align",
         prior_scale: float = 0,
-        prior_args: Dict = {},
+        prior_args: Optional[Dict] = None,
         label_unit: str = "phoneme",
         label_scorer_type: str = "precomputed-log-posterior",
-        label_scorer_args: Dict = {},
+        label_scorer_args: Optional[Dict] = None,
         feature_type: dataclasses.FeatureType = dataclasses.FeatureType.SAMPLES,
-        flow_args: Dict = {},
-        model_flow_args: Dict = {},
+        flow_args: Optional[Dict] = None,
+        model_flow_args: Optional[Dict] = None,
         silence_phone: str = "<blank>",
         register_output: bool = False,
         **kwargs,
     ) -> dataclasses.AlignmentData:
-        crp = copy.deepcopy(align_corpus.corpus_info.crp)
+        if am_args is None:
+            am_args = {}
+        if prior_args is None:
+            prior_args = {}
+        if label_scorer_args is None:
+            label_scorer_args = {}
+        if flow_args is None:
+            flow_args = {}
+        if model_flow_args is None:
+            model_flow_args = {}
+
+        crp = align_corpus.data.get_crp(
+            rasr_python_exe=self.rasr_python_exe,
+            rasr_binary_path=self.rasr_binary_path,
+            returnn_python_exe=self.returnn_python_exe,
+            returnn_root=self.returnn_root,
+            blas_lib=self.blas_lib,
+            am_args=am_args,
+        )
 
         mod_label_scorer_args = copy.deepcopy(label_scorer_args)
         if self.requires_label_file(label_unit):
             mod_label_scorer_args["label_file"] = self._get_label_file(crp)
 
-        base_feature_flow = self._make_base_feature_flow(
-            align_corpus.corpus_info, feature_type=feature_type, **flow_args
-        )
+        base_feature_flow = self._make_base_feature_flow(align_corpus.data, feature_type=feature_type, **flow_args)
 
         backend = get_backend(align_config)
 

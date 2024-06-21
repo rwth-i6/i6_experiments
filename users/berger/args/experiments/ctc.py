@@ -42,6 +42,7 @@ def get_ctc_recog_step_args(num_classes: int, reduction_factor: int = 4, **kwarg
         "lm_scales": [0.9],
         "prior_scales": [0.3],
         "use_gpu": False,
+        "am_args": copy.deepcopy(ctc_recog_am_args),
         "label_scorer_args": {
             "use_prior": True,
             "num_classes": num_classes,
@@ -78,6 +79,7 @@ def get_ctc_align_step_args(num_classes: int, reduction_factor: int = 4, **kwarg
         "epoch": "best",
         "prior_scale": 0.3,
         "use_gpu": False,
+        "am_args": copy.deepcopy(ctc_recog_am_args),
         "alignment_options": {
             "label-pruning": 50,
             "label-pruning-limit": 100000,

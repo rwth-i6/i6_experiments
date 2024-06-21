@@ -1,13 +1,15 @@
 import copy
+from dataclasses import dataclass
 from enum import Enum, auto
-from dataclasses import dataclass, field
 from typing import Dict, Generic, Optional, Union
-from i6_core import rasr, recognition, returnn
+
+from i6_core import returnn
+from sisyphus import tk
+
 from i6_experiments.users.berger.helpers import RasrDataInput
 from i6_experiments.users.berger.helpers.hdf import build_hdf_from_alignment
-from . import types
 
-from sisyphus import tk
+from . import types
 
 
 @dataclass
@@ -59,27 +61,9 @@ class NamedTrainJob(Generic[types.TrainJobType]):
 
 
 @dataclass
-class ScorerInfo:
-    ref_file: Optional[tk.Path] = None
-    job_type: types.ScoreJobType = recognition.ScliteJob
-    score_kwargs: Dict = field(default_factory=dict)
-
-    def get_score_job(self, ctm: tk.Path) -> types.ScoreJob:
-        assert self.ref_file is not None
-        return self.job_type(hyp=ctm, ref=self.ref_file, **self.score_kwargs)
-
-
-@dataclass
-class CorpusInfo:
-    data: RasrDataInput
-    crp: rasr.CommonRasrParameters
-    scorer: Optional[ScorerInfo] = None
-
-
-@dataclass
-class NamedCorpusInfo:
+class NamedRasrDataInput:
     name: str
-    corpus_info: CorpusInfo
+    data: RasrDataInput
 
 
 class ConfigVariant(Enum):

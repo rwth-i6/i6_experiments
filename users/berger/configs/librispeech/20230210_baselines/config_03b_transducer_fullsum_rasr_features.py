@@ -250,7 +250,6 @@ def run_exp(alignments: Dict[str, AlignmentData], viterbi_model_checkpoint: Chec
         test_keys=data.test_keys,
         align_keys=data.align_keys,
         corpus_data=data.data_inputs,
-        am_args=exp_args.transducer_recog_am_args,
     )
     system.setup_scoring()
 

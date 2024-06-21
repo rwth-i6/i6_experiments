@@ -1,6 +1,6 @@
 import copy
 import itertools
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 from i6_core import mm, rasr, recognition
 from sisyphus import tk
@@ -21,28 +21,47 @@ class OptunaAdvancedTreeSearchFunctor(
         train_job: dataclasses.NamedTrainJob[returnn.OptunaReturnnTrainingJob],
         prior_config: returnn.OptunaReturnnConfig,
         recog_config: dataclasses.NamedConfig[returnn.OptunaReturnnConfig],
-        recog_corpus: dataclasses.NamedCorpusInfo,
+        recog_corpus: dataclasses.NamedRasrDataInput,
         num_classes: int,
         epochs: List[types.EpochType],
         lm_scales: List[float],
         trial_nums: List[int],
-        prior_scales: List[float] = [0],
-        pronunciation_scales: List[float] = [0],
-        prior_args: Dict = {},
-        lattice_to_ctm_kwargs: Dict = {},
+        prior_scales: Optional[List[float]] = None,
+        pronunciation_scales: Optional[List[float]] = None,
+        prior_args: Optional[Dict] = None,
+        am_args: Optional[Dict] = None,
+        lattice_to_ctm_kwargs: Optional[Dict] = None,
         feature_type: dataclasses.FeatureType = dataclasses.FeatureType.SAMPLES,
-        flow_args: Dict = {},
+        flow_args: Optional[Dict] = None,
         **kwargs,
     ) -> List[Dict]:
+        if prior_scales is None:
+            prior_scales = [0.0]
+        if pronunciation_scales is None:
+            pronunciation_scales = [0.0]
+        if prior_args is None:
+            prior_args = {}
+        if am_args is None:
+            am_args = {}
+        if lattice_to_ctm_kwargs is None:
+            lattice_to_ctm_kwargs = {}
+        if flow_args is None:
+            flow_args = {}
+
         assert recog_corpus is not None
-        crp = copy.deepcopy(recog_corpus.corpus_info.crp)
-        assert recog_corpus.corpus_info.scorer is not None
+        crp = recog_corpus.data.get_crp(
+            rasr_python_exe=self.rasr_python_exe,
+            rasr_binary_path=self.rasr_binary_path,
+            returnn_python_exe=self.returnn_python_exe,
+            returnn_root=self.returnn_root,
+            blas_lib=self.blas_lib,
+            am_args=am_args,
+        )
+        assert recog_corpus.data.scorer is not None
 
         acoustic_mixture_path = mm.CreateDummyMixturesJob(num_classes, 1).out_mixtures
 
-        base_feature_flow = self._make_base_feature_flow(
-            recog_corpus.corpus_info, feature_type=feature_type, **flow_args
-        )
+        base_feature_flow = self._make_base_feature_flow(recog_corpus.data, feature_type=feature_type, **flow_args)
 
         recog_results = []
 
@@ -104,7 +123,7 @@ class OptunaAdvancedTreeSearchFunctor(
             scorer_job = self._lattice_scoring(
                 crp=crp,
                 lattice_bundle=rec.out_lattice_bundle,
-                scorer=recog_corpus.corpus_info.scorer,
+                scorer=recog_corpus.data.scorer,
                 **lattice_to_ctm_kwargs,
             )
             tk.register_output(

@@ -1,3 +1,4 @@
+import copy
 from typing import Dict
 
 from i6_experiments.users.berger.args.jobs.recognition_args import (
@@ -5,7 +6,6 @@ from i6_experiments.users.berger.args.jobs.recognition_args import (
     get_seq2seq_search_parameters,
 )
 from i6_experiments.users.berger.util import recursive_update
-
 
 transducer_recog_am_args = {
     "state_tying": "monophone",
@@ -35,6 +35,7 @@ def get_transducer_recog_step_args(
         "epochs": ["best"],
         "lm_scales": [0.7],
         "prior_scales": [0.0],
+        "am_args": copy.deepcopy(transducer_recog_am_args),
         "use_gpu": False,
         "label_scorer_type": "tf-ffnn-transducer",
         "label_scorer_args": {
@@ -79,6 +80,7 @@ def get_transducer_align_step_args(num_classes: int, reduction_factor: int = 4, 
         "epochs": ["best"],
         "prior_scales": [0.3],
         "use_gpu": False,
+        "am_args": transducer_recog_am_args,
         "alignment_options": {
             "label-pruning": 50,
             "label-pruning-limit": 100000,

@@ -1,10 +1,11 @@
 from i6_core import returnn
+from sisyphus import tk
+
 from i6_experiments.users.berger.systems import functors
 
 from .base_system import BaseSystem
 
-from sisyphus import tk
-
+assert __package__ is not None
 Path = tk.setup_path(__package__)
 
 

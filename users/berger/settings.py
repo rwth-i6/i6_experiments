@@ -23,7 +23,9 @@ def check_engine_limits(current_rqmt, task):
     i6 support for gpu_mem
     """
     current_rqmt["time"] = min(168, current_rqmt.get("time", 2))
-    if current_rqmt.get("gpu", 0) > 0 and "-p" not in current_rqmt.get("sbatch_args", []):
+    if current_rqmt.get("gpu", 0) > 0 and "-p" not in current_rqmt.get(
+        "sbatch_args", []
+    ):
         if current_rqmt.get("gpu_mem", 0) > 11:
             current_rqmt["sbatch_args"] = ["-p", "gpu_24gb"]
         else:
@@ -52,15 +54,34 @@ def engine():
     return EngineSelector(
         engines={
             "short": LocalEngine(cpus=4, mem=16),
-            "long": SimpleLinuxUtilityForResourceManagementEngine(default_rqmt=default_rqmt),
+            "long": SimpleLinuxUtilityForResourceManagementEngine(
+                default_rqmt=default_rqmt
+            ),
         },
         default_engine="long",
     )
 
 
 def worker_wrapper(job, task_name, call):
-    wrapped_jobs = {
+    rasr_jobs = {
         "MakeJob",
+        "CompileNativeOpJob",
+        "AdvancedTreeSearchJob",
+        "AdvancedTreeSearchLmImageAndGlobalCacheJob",
+        "FeatureExtractionJob",
+        "GenericSeq2SeqSearchJob",
+        "GenericSeq2SeqSearchJobV2",
+        "GenericSeq2SeqLmImageAndGlobalCacheJob",
+        "CreateLmImageJob",
+        "BuildGenericSeq2SeqGlobalCacheJob",
+        "LatticeToCtmJob",
+        "OptimizeAMandLMScaleJob",
+        "AlignmentJob",
+        "Seq2SeqAlignmentJob",
+        "EstimateMixturesJob",
+        "EstimateCMLLRJob",
+    }
+    torch_jobs = {
         "ReturnnTrainingJob",
         "ReturnnRasrTrainingJob",
         "OptunaReturnnTrainingJob",
@@ -71,35 +92,32 @@ def worker_wrapper(job, task_name, call):
         "ReturnnComputePriorJob",
         "ReturnnComputePriorJobV2",
         "OptunaReturnnComputePriorJob",
-        "CompileNativeOpJob",
-        "AdvancedTreeSearchJob",
-        "AdvancedTreeSearchLmImageAndGlobalCacheJob",
-        "GenericSeq2SeqSearchJob",
-        "GenericSeq2SeqSearchJobV2",
-        "CreateLmImageJob",
-        "BuildGenericSeq2SeqGlobalCacheJob",
-        "GenericSeq2SeqLmImageAndGlobalCacheJob",
-        "LatticeToCtmJob",
-        "OptimizeAMandLMScaleJob",
-        "AlignmentJob",
-        "Seq2SeqAlignmentJob",
-        "EstimateMixturesJob",
-        "EstimateCMLLRJob",
-        "DumpStateTyingJob",
-        "StoreAllophonesJob",
-        "FeatureExtractionJob",
+        "ReturnnForwardJob",
+        "ReturnnForwardJobV2",
+        "ReturnnForwardComputePriorJob",
+        "OptunaReturnnForwardComputePriorJob",
+        "CompileKenLMJob",
+        "OptunaReportIntermediateScoreJob",
+        "OptunaReportFinalScoreJob",
     }
-    if type(job).__name__ not in wrapped_jobs or task_name == "create_files":
+    onnx_jobs = {
+        "ExportPyTorchModelToOnnxJob",
+        "TorchOnnxExportJob",
+        "OptunaExportPyTorchModelToOnnxJob",
+        "OptunaTorchOnnxExportJob",
+    }
+    jobclass = type(job).__name__
+    if jobclass in rasr_jobs:
+        image = "/work/asr4/berger/apptainer/images/i6_tensorflow-2.8_onnx-1.15.sif"
+    elif jobclass in torch_jobs:
+        image = "/work/asr4/berger/apptainer/images/i6_torch-2.2_onnx-1.16.sif"
+    elif jobclass in onnx_jobs:
+        # use this one because mhsa is not onnx exportable in torch 2 yet
+        image = "/work/asr4/berger/apptainer/images/i6_u22_pytorch1.13_onnx.sif"
+    else:
         return call
-    binds = [
-        "/work/asr4",
-        "/work/asr3",
-        "/work/asr_archive",
-        "/work/common",
-        "/u/corpora",
-        "/u/zhou",
-        "/work/asr3/raissi",
-    ]
+
+    binds = ["/work/asr4", "/work/common", "/work/tools/", "/work/asr4/rossenbach"]
     ts = {t.name(): t for t in job.tasks()}
     t = ts[task_name]
 
@@ -107,16 +125,16 @@ def worker_wrapper(job, task_name, call):
         "apptainer",
         "exec",
     ]
+
+    app_call += ["--env", f"NUMBA_CACHE_DIR=/var/tmp/numba_cache_{getpass.getuser()}"]
+
     if t._rqmt.get("gpu", 0) > 0:
         app_call += ["--nv"]
 
     for path in binds:
         app_call += ["-B", path]
 
-    app_call += [
-        "/work/asr4/berger/apptainer/images/i6_tensorflow-2.8_onnx-1.15.sif",
-        "python3",
-    ]
+    app_call += [image, "python3"]
 
     app_call += call[1:]
 

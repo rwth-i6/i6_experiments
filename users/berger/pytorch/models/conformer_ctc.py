@@ -1,37 +1,33 @@
 from dataclasses import dataclass
 from enum import Enum, auto
-from i6_core.returnn.config import CodeWrapper
-from i6_experiments.users.berger.systems.dataclasses import ConfigVariant
 
+import i6_experiments.users.berger.pytorch.custom_parts as custom_parts
+import i6_models.assemblies.conformer as conformer_i6
+import i6_models.parts.conformer as conformer_parts_i6
 import torch
+from i6_core.returnn.config import CodeWrapper
 from i6_experiments.common.setups.returnn_pytorch.serialization import Collection
 from i6_experiments.common.setups.serialization import Import, PartialImport
 from i6_experiments.users.berger.pytorch.serializers.basic import (
     get_basic_pt_network_serializer,
 )
+from i6_experiments.users.berger.systems.dataclasses import ConfigVariant
+from i6_models.config import ModelConfiguration, ModuleFactoryV1
+from i6_models.parts.conformer.norm import LayerNormNC
+from i6_models.parts.frontend.vgg_act import VGG4LayerActFrontendV1, VGG4LayerActFrontendV1Config
 from i6_models.primitives.feature_extraction import (
     RasrCompatibleLogMelFeatureExtractionV1,
     RasrCompatibleLogMelFeatureExtractionV1Config,
 )
-from i6_models.parts.frontend.vgg_act import VGG4LayerActFrontendV1, VGG4LayerActFrontendV1Config
-from i6_models.parts.frontend.generic_frontend import (
-    GenericFrontendV1,
-    GenericFrontendV1Config,
-    FrontendLayerType,
-)
-import i6_models.parts.conformer as conformer_parts_i6
-import i6_models.assemblies.conformer as conformer_i6
-import i6_experiments.users.berger.pytorch.custom_parts as custom_parts
-from i6_models.config import ModelConfiguration, ModuleFactoryV1
-from i6_models.parts.conformer.norm import LayerNormNC
-from .util import lengths_to_padding_mask
 
 from ..custom_parts.specaugment import (
-    SpecaugmentConfigV1,
-    SpecaugmentModuleV1,
     SpecaugmentByLengthConfigV1,
     SpecaugmentByLengthModuleV1,
+    SpecaugmentConfigV1,
+    SpecaugmentModuleV1,
 )
+from ..custom_parts.vgg_frontend import VGG4LayerActFrontendCeilPoolV1, VGG4LayerActFrontendCeilPoolV1Config
+from .util import lengths_to_padding_mask
 
 
 @dataclass
@@ -61,6 +57,7 @@ class ConformerCTCModel(torch.nn.Module):
             x = self.specaugment(x)  # [B, T, F]
 
         x, sequence_mask = self.conformer(x, sequence_mask)  # [B, T, F]
+        x = x[-1]
         x = self.dropout(x)
         logits = self.final_linear(x)  # [B, T, F]
         log_probs = torch.log_softmax(logits, dim=2)
@@ -424,6 +421,96 @@ def get_default_config_v3(num_outputs: int) -> ConformerCTCConfig:
         specaugment=specaugment,
         conformer=ModuleFactoryV1(conformer_i6.ConformerEncoderV1, cfg=conformer_cfg),
         dim=384,
+        target_size=num_outputs,
+        dropout=0.2,
+    )
+
+
+def get_default_config_v4(num_outputs: int) -> ConformerCTCConfig:
+    feature_extraction = ModuleFactoryV1(
+        module_class=RasrCompatibleLogMelFeatureExtractionV1,
+        cfg=RasrCompatibleLogMelFeatureExtractionV1Config(
+            sample_rate=16000,
+            win_size=0.025,
+            hop_size=0.01,
+            min_amp=1.175494e-38,
+            num_filters=80,
+            alpha=0.97,
+        ),
+    )
+    specaugment = ModuleFactoryV1(
+        module_class=SpecaugmentByLengthModuleV1,
+        cfg=SpecaugmentByLengthConfigV1(
+            time_min_num_masks=2,
+            time_max_mask_per_n_frames=25,
+            time_mask_max_size=20,
+            freq_min_num_masks=2,
+            freq_max_num_masks=16,
+            freq_mask_max_size=5,
+        ),
+    )
+
+    frontend = ModuleFactoryV1(
+        VGG4LayerActFrontendCeilPoolV1,
+        VGG4LayerActFrontendCeilPoolV1Config(
+            in_features=80,
+            conv1_channels=32,
+            conv2_channels=64,
+            conv3_channels=64,
+            conv4_channels=32,
+            conv_kernel_size=(3, 3),
+            conv_padding=None,
+            pool1_kernel_size=(2, 1),
+            pool1_stride=(2, 1),
+            pool1_padding=None,
+            pool2_kernel_size=(2, 1),
+            pool2_stride=(2, 1),
+            pool2_padding=None,
+            activation=torch.nn.ReLU(),
+            out_features=512,
+        ),
+    )
+
+    ff_cfg = conformer_parts_i6.ConformerPositionwiseFeedForwardV1Config(
+        input_dim=512,
+        hidden_dim=2048,
+        dropout=0.2,
+        activation=torch.nn.SiLU(),
+    )
+
+    mhsa_cfg = conformer_parts_i6.ConformerMHSAV1Config(
+        input_dim=512,
+        num_att_heads=8,
+        att_weights_dropout=0.2,
+        dropout=0.2,
+    )
+
+    conv_cfg = conformer_parts_i6.ConformerConvolutionV1Config(
+        channels=512,
+        kernel_size=31,
+        dropout=0.2,
+        activation=torch.nn.SiLU(),
+        norm=LayerNormNC(512),
+    )
+
+    block_cfg = conformer_i6.ConformerBlockV2Config(
+        ff_cfg=ff_cfg,
+        mhsa_cfg=mhsa_cfg,
+        conv_cfg=conv_cfg,
+        modules=["ff", "conv", "mhsa", "ff"],
+    )
+
+    conformer_cfg = conformer_i6.ConformerEncoderV2Config(
+        num_layers=12,
+        frontend=frontend,
+        block_cfg=block_cfg,
+    )
+
+    return ConformerCTCConfig(
+        feature_extraction=feature_extraction,
+        specaugment=specaugment,
+        conformer=ModuleFactoryV1(conformer_i6.ConformerEncoderV2, cfg=conformer_cfg),
+        dim=512,
         target_size=num_outputs,
         dropout=0.2,
     )
