@@ -42,7 +42,7 @@ def serialize_training(
         code_object_path=package + ".%s.train_step" % network_module, unhashed_package_root=PACKAGE
     )
     i6_models = ExternalImport(import_path=I6_MODELS_REPO_PATH)
-    fairseq = ExternalImport(import_path=fairseq_path or FAIRSEQ_PATH)
+    fairseq = ExternalImport(import_path=fairseq_root or FAIRSEQ_PATH)
 
     serializer_objects = [
         i6_models,
