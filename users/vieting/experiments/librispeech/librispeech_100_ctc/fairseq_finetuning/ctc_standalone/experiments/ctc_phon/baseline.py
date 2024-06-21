@@ -10,7 +10,7 @@ from i6_core.tools.parameter_tuning import GetOptimalParametersAsVariableJob
 from i6_experiments.common.setups.returnn.datastreams.vocabulary import LabelDatastream
 from ...data.common import DatasetSettings, build_test_dataset
 from ...data.phon import build_eow_phon_training_datasets, get_text_lexicon
-from ...default_tools import RETURNN_EXE, MINI_RETURNN_ROOT, set_fairseq_path
+from ...default_tools import RETURNN_EXE, MINI_RETURNN_ROOT
 from ...lm import get_4gram_binary_lm
 from ...pipeline import training, prepare_asr_model, search, ASRModel
 
@@ -150,8 +150,9 @@ def eow_phon_ls100_ctc_base(
         train_conf_w2v = {
             "optimizer": {"class": "adam", "betas": [0.9, 0.98], "eps": 1e-8, "weight_decay": 0.0, },
             "learning_rates": list(np.linspace(lr * init_lr_scale, lr, int(math.ceil(num_epochs * 0.1))))
-            + list(np.linspace(lr, lr, int(math.ceil(num_epochs * 0.4))))
-            + list(np.geomspace(lr, final_lr_scale * lr, int(math.ceil(num_epochs * 0.5)))), # tri-stage lr schedule, see:
+                + list(np.linspace(lr, lr, int(math.ceil(num_epochs * 0.4))))
+                + list(np.geomspace(lr, final_lr_scale * lr, int(math.ceil(num_epochs * 0.5)))),                 
+            # tri-stage lr schedule, see:
             # https://github.com/facebookresearch/fairseq/blob/main/fairseq/optim/lr_scheduler/tri_stage_lr_scheduler.py
             "batch_size": 1920 * 16000 / 8, # batch size: 1920s, 16000 samples per second, accum_grad 8
             "accum_grad_multiple_step": 8,
