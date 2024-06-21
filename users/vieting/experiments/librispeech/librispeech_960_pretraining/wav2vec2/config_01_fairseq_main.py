@@ -56,12 +56,12 @@ def get_manifest(valid_percent=0.001, audio_format="ogg", output_prefix="dataset
     return manifest_split_job.out_manifest_path
 
 
-def get_fairseq_root():
+def get_fairseq_root(commit="da8fb630880d529ab47e53381c30ddc8ad235216", fairseq_exe=None):
     fairseq_root = CloneGitRepositoryJob(
         "https://github.com/facebookresearch/fairseq",
         checkout_folder_name="fairseq",
-        commit="da8fb630880d529ab47e53381c30ddc8ad235216").out_repository
-    fairseq_root = SetupFairseqJob(fairseq_root).out_fairseq_root
+        commit=commit).out_repository
+    fairseq_root = SetupFairseqJob(fairseq_root, fairseq_exe).out_fairseq_root
     return fairseq_root
 
 
