@@ -178,7 +178,7 @@ def compute_prior(
     return search_job.out_files["prior.txt"]
 
 
-def training(training_name, datasets, train_args, num_epochs, returnn_exe, returnn_root):
+def training(training_name, datasets, train_args, num_epochs, returnn_exe, returnn_root, fairseq_root):
     """
     :param training_name:
     :param datasets:
@@ -186,8 +186,9 @@ def training(training_name, datasets, train_args, num_epochs, returnn_exe, retur
     :param num_epochs:
     :param returnn_exe: The python executable to run the job with (when using container just "python3")
     :param returnn_root: Path to a checked out RETURNN repository
+    :param fairseq_root: Path to a setuped fairseq repository
     """
-    returnn_config = get_training_config(training_datasets=datasets, **train_args)
+    returnn_config = get_training_config(training_datasets=datasets, fairseq_root=fairseq_root, **train_args)
     default_rqmt = {
         "mem_rqmt": 24,
         "time_rqmt": 168,

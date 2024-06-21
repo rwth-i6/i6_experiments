@@ -3,6 +3,9 @@ import math
 from dataclasses import asdict
 import numpy as np
 from typing import cast, List, Optional
+
+from sisyphus import tk
+
 from i6_core.tools.parameter_tuning import GetOptimalParametersAsVariableJob
 from i6_experiments.common.setups.returnn.datastreams.vocabulary import LabelDatastream
 from ...data.common import DatasetSettings, build_test_dataset
@@ -16,12 +19,10 @@ def eow_phon_ls100_ctc_base(
     model_conf_w2v: Optional[dict] = None,
     train_conf_w2v: Optional[dict] = None,
     train_name_suffix: Optional[str] = None,
-    fairseq_github_url: Optional[str] = None,
+    fairseq_root: Optional[tk.Path] = None,
     fairseq_github_branch: Optional[str] = None,
     fairseq_github_commit: Optional[str] = None,
     ):
-    if fairseq_github_url is not None:
-        set_fairseq_path(fairseq_github_url, fairseq_github_branch, fairseq_github_commit)
     if train_name_suffix is None:
         prefix_name = "ctc_eow_phon"
     else:
@@ -154,7 +155,8 @@ def eow_phon_ls100_ctc_base(
             # https://github.com/facebookresearch/fairseq/blob/main/fairseq/optim/lr_scheduler/tri_stage_lr_scheduler.py
             "batch_size": 1920 * 16000 / 8, # batch size: 1920s, 16000 samples per second, accum_grad 8
             "accum_grad_multiple_step": 8,
-            "gradient_clip": 1
+            "gradient_clip": 1,
+            "random_seed": 187,
         }
 
     if model_conf_w2v is None:
@@ -194,7 +196,7 @@ def eow_phon_ls100_ctc_base(
     }
 
     training_name = prefix_name + "/" + network_module_w2v + ".ls100_24gbgpu"
-    train_job = training(training_name, train_data, train_args_w2v, num_epochs=num_epochs, **default_returnn)
+    train_job = training(training_name, train_data, train_args_w2v, num_epochs=num_epochs,fairseq_root=fairseq_root, **default_returnn)
     train_job.rqmt["gpu_mem"] = 24
     asr_model = prepare_asr_model(
         training_name, train_job, train_args_w2v, with_prior=True, datasets=train_data, get_specific_checkpoint=num_epochs

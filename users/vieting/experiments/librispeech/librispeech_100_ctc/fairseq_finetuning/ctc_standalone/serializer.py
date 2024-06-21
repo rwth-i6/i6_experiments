@@ -4,16 +4,20 @@ including serializing their parameters.
 """
 from typing import Any, Dict, Optional
 
+from sisyphus import tk
+
 from i6_experiments.common.setups.returnn_pytorch.serialization import Collection
 from i6_experiments.common.setups.serialization import ExternalImport, Import, PartialImport
 
 from . import PACKAGE
+from .default_tools import I6_MODELS_REPO_PATH, FAIRSEQ_PATH
 
 
 def serialize_training(
     network_module: str,
     net_args: Dict[str, Any],
     unhashed_net_args: Optional[Dict[str, Any]] = None,
+    fairseq_root: Optional[tk.Path] = None,
     debug: bool = False,
 ) -> Collection:
     """
@@ -37,10 +41,8 @@ def serialize_training(
     pytorch_train_step = Import(
         code_object_path=package + ".%s.train_step" % network_module, unhashed_package_root=PACKAGE
     )
-    # paths might have been set differently in the mean time
-    from .default_tools import I6_MODELS_REPO_PATH, FAIRSEQ_PATH
     i6_models = ExternalImport(import_path=I6_MODELS_REPO_PATH)
-    fairseq = ExternalImport(import_path=FAIRSEQ_PATH)
+    fairseq = ExternalImport(import_path=fairseq_path or FAIRSEQ_PATH)
 
     serializer_objects = [
         i6_models,
@@ -79,6 +81,7 @@ def serialize_forward(
     :param forward_step_name: path to the search decoder file containing forward_step and hooks
     :param forward_init_args: additional arguments to pass to forward_init
     :param unhashed_forward_init_args: additional non-hashed arguments to pass to forward_init
+    :param fairseq_root: path to fairseq repository
     :param debug: run training in debug mode: linking from recipe instead of copy
     :return:
     """

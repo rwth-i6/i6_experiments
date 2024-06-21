@@ -4,6 +4,8 @@ Universal helpers to create configuration objects (i6_core ReturnnConfig) for RE
 import copy
 from typing import Any, Dict, Optional
 
+from sisyphus import tk
+
 from i6_core.returnn.config import ReturnnConfig, CodeWrapper
 
 from i6_experiments.common.setups.returnn_pytorch.serialization import (
@@ -19,6 +21,7 @@ def get_training_config(
     network_module: str,
     config: Dict[str, Any],
     net_args: Dict[str, Any],
+    fairseq_root: Optional[tk.Path] = None,
     unhashed_net_args: Optional[Dict[str, Any]] = None,
     debug: bool = False,
     use_speed_perturbation: bool = False,
@@ -30,6 +33,7 @@ def get_training_config(
     :param training_datasets: datasets for training
     :param network_module: path to the pytorch config file containing Model
     :param net_args: extra arguments for constructing the PyTorch model
+    :param fairseq_root: path to the setuped fairseq root directory
     :param unhashed_net_args: unhashed extra arguments for constructing the PyTorch model
     :param config: config arguments for RETURNN
     :param debug: run training in debug mode (linking from recipe instead of copy)
@@ -57,6 +61,7 @@ def get_training_config(
         network_module=network_module,
         net_args=net_args,
         unhashed_net_args=unhashed_net_args,
+        fairseq_root=fairseq_root,
         debug=debug,
     )
     python_prolog = None

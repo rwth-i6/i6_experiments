@@ -1,16 +1,14 @@
 from i6_experiments.users.vieting.experiments.librispeech.\
     librispeech_100_ctc.fairseq_finetuning.ctc_standalone.experiments.ctc_phon.baseline import eow_phon_ls100_ctc_base
 from i6_experiments.users.vieting.experiments.librispeech.\
-    librispeech_960_pretraining.wav2vec2.config_02_fairseq_phoneme \
-        import run_fairseq_pretraining_informed, get_fairseq_root
+    librispeech_960_pretraining.wav2vec2.config_01_fairseq_main \
+        import run_fairseq_pretraining, get_fairseq_root
 
 # Pretraining
-pretrain_job = run_fairseq_pretraining_informed()
-
-# Get fairseq root
-fairseq_root = get_fairseq_root()
+pretrain_job = run_fairseq_pretraining()
 
 # Finetuning
+fairseq_root = get_fairseq_root()
 checkpoints = [100, 200, 300, 400, 500, 600]
 for checkpoint in checkpoints:
     model_conf_w2v = {
@@ -27,6 +25,6 @@ for checkpoint in checkpoints:
     }
     eow_phon_ls100_ctc_base(
         model_conf_w2v=model_conf_w2v,
-        train_name_suffix=f"w2v_neg_sampling_other_target_cp{checkpoint}",
+        train_name_suffix=f"w2v_vanilla_cp{checkpoint}",
         fairseq_root=fairseq_root,
     )

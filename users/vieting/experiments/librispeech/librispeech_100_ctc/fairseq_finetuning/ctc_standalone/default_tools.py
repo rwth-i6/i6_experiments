@@ -35,21 +35,7 @@ FAIRSEQ_PATH = SetupFairseqJob(
     ).out_repository.copy(),
     python_exe = "/usr/bin/python3",
 ).out_fairseq_root
-FAIRSEQ_PATH.hash_overwrite = "git@gihub.com:facebookresearch/fairseq.git::main::c7c478b92fe135838a2b9ec8341495c732a92401"
-
-def set_fairseq_path(url, branch=None, commit=None):
-    global FAIRSEQ_PATH
-    FAIRSEQ_PATH = SetupFairseqJob(
-        fairseq_root = CloneGitRepositoryJob(
-            url=url,
-            branch=branch,
-            checkout_folder_name="fairseq",
-            commit=commit,
-        ).out_repository,
-        python_exe = "/usr/bin/python3",
-    ).out_fairseq_root
-    FAIRSEQ_PATH.hash_overwrite = f"{url}::{branch}::{commit}"
-
+FAIRSEQ_PATH.hash_overwrite = "DEFAULT_FAIRSEQ_PATH"
 
 SCTK_BINARY_PATH = compile_sctk(branch="v2.4.12").copy()  # use last published version
 SCTK_BINARY_PATH.hash_overwrite = "LIBRISPEECH_DEFAULT_SCTK_BINARY_PATH"
