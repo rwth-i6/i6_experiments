@@ -1,3 +1,7 @@
+import os
+
+from sisyphus import tk, gs
+
 from i6_experiments.users.vieting.experiments.librispeech.\
     librispeech_100_ctc.fairseq_finetuning.ctc_standalone.experiments.ctc_phon.baseline import eow_phon_ls100_ctc_base
 from i6_experiments.users.vieting.experiments.librispeech.\
@@ -8,7 +12,8 @@ from i6_experiments.users.vieting.experiments.librispeech.\
 pretrain_job = run_fairseq_pretraining()
 
 # Finetuning
-fairseq_root = get_fairseq_root()
+fairseq_root = get_fairseq_root(fairseq_exe=tk.Path("/usr/bin/python3"))
+
 checkpoints = [100, 200, 300, 400, 500, 600]
 for checkpoint in checkpoints:
     model_conf_w2v = {
@@ -25,6 +30,6 @@ for checkpoint in checkpoints:
     }
     eow_phon_ls100_ctc_base(
         model_conf_w2v=model_conf_w2v,
-        train_name_suffix=f"w2v_vanilla_cp{checkpoint}",
+        train_name_suffix=os.path.join("w2v_vanilla", f"checkpoint_{checkpoint}"),
         fairseq_root=fairseq_root,
     )
