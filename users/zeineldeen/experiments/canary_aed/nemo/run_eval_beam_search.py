@@ -288,13 +288,13 @@ def buffer_audio_and_transcribe(
         results = pack_results(results, buffer, transcriptions)
         buffer.clear()
 
-    print(f"Total audio duration: {model.total_audio_length_in_sec:.3f} sec")
-    print(f"Total recog time: {model.total_recog_time_in_sec:.3f} sec")
-    print(f"Total enc recog time: {model.total_enc_recog_time_in_sec:.3f} sec")
-    print(f"Total dec recog time: {model.total_dec_recog_time_in_sec:.3f} sec")
-    print(f"Overall RTF: {model.total_recog_time_in_sec / model.total_audio_length_in_sec:.3f}")
-    print(f"Enc RTF: {model.total_enc_recog_time_in_sec / model.total_audio_length_in_sec:.3f}")
-    print(f"Dec RTF: {model.total_dec_recog_time_in_sec / model.total_audio_length_in_sec:.3f}")
+    print(f"Total audio duration: {model.total_audio_length_in_sec} sec")
+    print(f"Total recog time: {model.total_recog_time_in_sec} sec")
+    print(f"Total enc recog time: {model.total_enc_recog_time_in_sec} sec")
+    print(f"Total dec recog time: {model.total_dec_recog_time_in_sec} sec")
+    print(f"Overall RTF: {model.total_recog_time_in_sec / model.total_audio_length_in_sec}")
+    print(f"Enc RTF: {model.total_enc_recog_time_in_sec / model.total_audio_length_in_sec}")
+    print(f"Dec RTF: {model.total_dec_recog_time_in_sec / model.total_audio_length_in_sec}")
 
     # Delete temp cache dir
     if os.path.exists(DATA_CACHE_DIR):
