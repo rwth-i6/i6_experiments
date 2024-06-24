@@ -77,7 +77,7 @@ def py():
         },
     )
 
-    train_exp(
+    train_exp(  # {"dev-clean": 6.89, "dev-other": 9.84, "test-clean": 7.23, "test-other": 10.45}
         f"v6-bhv21-24gb-bf16-bs40k-accgrad2-wd1e_6-lrlin1e_5_600k-featGN-bpe10k",
         config_24gb_v6,
         model_config={"feature_stats": {"mean": feature_stats.mean, "std_dev": feature_stats.std_dev}},
