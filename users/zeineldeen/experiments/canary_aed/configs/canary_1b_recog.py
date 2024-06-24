@@ -123,7 +123,7 @@ def py():
                 for bs in [16]:
                     for len_reward in [0.0, 0.1]:
                         name = f"{test_set}_bs{bs}_beam{beam_size}_run{run}"
-                        extra_search_args = {"beam_size": beam_size}
+                        extra_search_args = {"beam_size": beam_size, "batch_size": bs}
                         if len_reward:
                             extra_search_args["length_normalization_exponent"] = 0.0
                             extra_search_args["length_reward"] = len_reward
