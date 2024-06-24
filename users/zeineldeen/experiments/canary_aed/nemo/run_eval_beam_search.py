@@ -30,10 +30,9 @@ from nemo.collections.common.parts.transformer_utils import mask_padded_tokens
 
 sys.path.insert(0, "/u/zeineldeen/setups/ubuntu_22_setups/2024-06-07--canary-aed/recipe")
 
-from i6_experiments.users.zeyer.decoding.beam_search_torch.interface import (
-    LabelScorerIntf,
-    StateObjIgnored,
-)
+from i6_experiments.users.zeyer.decoding.beam_search_torch.interface import LabelScorerIntf, StateObjIgnored
+from i6_experiments.users.zeyer.decoding.beam_search_torch.scorers.length_reward import LengthRewardScorer
+from i6_experiments.users.zeyer.decoding.beam_search_torch.scorers.shallow_fusion import ShallowFusedLabelScorers
 from i6_experiments.users.zeyer.decoding.beam_search_torch.beam_search_v5 import (
     beam_search_v5,
     BeamSearchOptsV5,
@@ -199,7 +198,18 @@ def get_our_canary_label_scorer(
                 "model_state": decoder_mems_list,
             }
 
-    return CanaryLabelScorer()
+        def max_remaining_seq_score(
+            self, *, state: Any, max_remaining_steps: torch.Tensor, device: torch.device
+        ) -> torch.Tensor:
+            return torch.zeros((1, 1), device=device)
+
+    dec_label_scorer = CanaryLabelScorer()
+    if length_reward_value:
+        return ShallowFusedLabelScorers(
+            {"decoder": (dec_label_scorer, 1.0), "length_reward": (LengthRewardScorer(), length_reward_value)}
+        )
+
+    return dec_label_scorer
 
 
 def _transcribe_output_processing_our_beam_search(
@@ -313,10 +323,13 @@ def main(args):
         bos_label=asr_model.tokenizer.bos_id,
         eos_label=asr_model.tokenizer.eos_id,
         num_labels=len(asr_model.tokenizer.vocab),
-        length_normalization_exponent=1,
+        length_normalization_exponent=args.length_normalization_exponent,
         pruning_threshold=args.pruning_threshold,
         adaptive_pruning=args.adaptive_pruning,
     )
+
+    global length_reward_value
+    length_reward_value = args.length_reward
 
     # hook our beam search implementation
     asr_model._transcribe_output_processing = _transcribe_output_processing_our_beam_search
@@ -333,10 +346,11 @@ def main(args):
     references = []
 
     # run streamed inference
-    cache_prefix = (
-        f"{args.model_id.replace('/', '-')}-{args.dataset_path.replace('/', '')}-"
-        f"{args.dataset.replace('/', '-')}-{args.split}"
-    )
+    # cache_prefix = (
+    #     f"{args.model_id.replace('/', '-')}-{args.dataset_path.replace('/', '')}-"
+    #     f"{args.dataset.replace('/', '-')}-{args.split}"
+    # )
+    cache_prefix = f"{args.dataset.replace('/', '-')}"
     if args.cache_dir_name_suffix:
         cache_prefix += f"_{args.cache_dir_name_suffix}"
     print(f"Using batch size: {args.batch_size}")
@@ -387,6 +401,8 @@ if __name__ == "__main__":
     parser.add_argument("--beam_size", type=int, default=4)
     parser.add_argument("--pruning_threshold", type=float, default=0.0)
     parser.add_argument("--adaptive_pruning", type=bool, default=False)
+    parser.add_argument("--length_normalization_exponent", type=float, default=1.0)
+    parser.add_argument("--length_reward", type=float, default=0.0)
 
     parser.add_argument(
         "--device",

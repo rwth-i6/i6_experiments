@@ -99,51 +99,99 @@ def py():
             "/u/zeineldeen/setups/ubuntu_22_setups/2024-06-07--canary-aed/recipe/i6_experiments/users/zeineldeen/experiments/canary_aed/nemo/run_eval_beam_search.py",
             hash_overwrite=f"run_eval_v2_rtf_run{run}",
         )
-        for beam_size in [1, 4]:
-            for bs in [16, 32]:
-                for thre_pruning in [0.0]:
-                    for adaptive_prune in [False]:
-                        if beam_size == 1 and (thre_pruning != 0.0 or adaptive_prune is True):
-                            continue
-                        for test_set, split in TEST_DATASETS.items():
-                            name = f"{test_set}_bs{bs}_beam{beam_size}_run{run}"
-                            search_args = {
-                                "batch_size": bs,
-                                "pnc": False,
-                                "max_eval_samples": -1,
-                                "beam_size": beam_size,
-                            }
-                            if adaptive_prune:
-                                search_args["adaptive_pruning"] = True
-                                name += "adaptivePrune"
-                            if thre_pruning:
-                                search_args["threshold_pruning"] = thre_pruning
-                                name += f"threPruning{thre_pruning}"
-                            search_job = SearchJob(
-                                model_id=MODEL_ID,
-                                model_path=model_path,
-                                dataset_path=dataset_paths[test_set],
-                                dataset_name=test_set,
-                                cache_dir_name_suffix=name,
-                                split=split,
-                                search_script=our_beam_search_script,
-                                search_args=search_args,
-                                python_exe=python_exe,
-                                device="gpu",
-                                time_rqmt=24,
-                                mem_rqmt=8,
-                                cpu_rqmt=4,
-                            )
-                            search_job.rqmt["sbatch_args"] = [
-                                "-p",
-                                "gpu_test_24gb",
-                                "-w",
-                                "cn-290",
-                                "--reservation",
-                                "hlt_6",
-                            ]
-                            search_job.add_alias(f"canary_1b/beam_search_v5/{name}")
-                            tk.register_output(
-                                f"canary_1b/beam_search_v5/{name}/search_out", search_job.out_search_results
-                            )
-                            tk.register_output(f"canary_1b/beam_search_v5/{name}/wer", search_job.out_wer)
+    #    for beam_size in [4, 8]:
+    #         for thre_pruning in [5, 10, 20]:
+    #             for len_reward in [0.1, 0.2]:
+    #                 for adaptive_prune in [True]:
+    #                     if beam_size == 1 and (thre_pruning != 0.0 or adaptive_prune is True):
+    #                         continue
+    #                     bs = 32 if beam_size <= 4 else 16
+    #                     for test_set, split in TEST_DATASETS.items():
+    #                         name = f"{test_set}_bs{bs}_beamx{beam_size}_run{run}"
+    #                         search_args = {
+    #                             "batch_size": bs,
+    #                             "pnc": False,
+    #                             "max_eval_samples": -1,
+    #                             "beam_size": beam_size,
+    #                             "length_normalization_exponent": 0.0,
+    #                         }
+    #                         if thre_pruning:
+    #                             search_args["pruning_threshold"] = thre_pruning
+    #                             name += f"_threPruning{thre_pruning}"
+    #                         if adaptive_prune:
+    #                             search_args["adaptive_pruning"] = True
+    #                             name += "_adaptivePrune"
+    #                         if len_reward:
+    #                             name += f"_lenReward{len_reward}"
+    #                             search_args["length_reward"] = len_reward
+    #                         search_job = SearchJob(
+    #                             model_id=MODEL_ID,
+    #                             model_path=model_path,
+    #                             dataset_path=dataset_paths[test_set],
+    #                             dataset_name=test_set,
+    #                             cache_dir_name_suffix=name,
+    #                             split=split,
+    #                             search_script=our_beam_search_script,
+    #                             search_args=search_args,
+    #                             python_exe=python_exe,
+    #                             device="gpu",
+    #                             time_rqmt=24,
+    #                             mem_rqmt=8,
+    #                             cpu_rqmt=4,
+    #                         )
+    #                         search_job.rqmt["sbatch_args"] = [
+    #                             "-p",
+    #                             "gpu_test_24gb",
+    #                             "-w",
+    #                             "cn-290",
+    #                             # "--reservation",
+    #                             # "hlt_6",
+    #                         ]
+    #                         search_job.add_alias(f"canary_1b/beam_search_v5/{name}")
+    #                         tk.register_output(
+    #                             f"canary_1b/beam_search_v5/{name}/search_out", search_job.out_search_results
+    #                         )
+    #                         tk.register_output(f"canary_1b/beam_search_v5/{name}/wer", search_job.out_wer)
+
+        for beam_size in [4, 8]:
+            for len_reward in [0.0, 0.1, 0.2]:
+                bs = 32 if beam_size <= 4 else 16
+                for test_set, split in TEST_DATASETS.items():
+                    name = f"{test_set}_bs{bs}_beam{beam_size}_run{run}"
+                    search_args = {
+                        "batch_size": bs,
+                        "pnc": False,
+                        "max_eval_samples": -1,
+                        "beam_size": beam_size,
+                    }
+                    if len_reward:
+                        name += f"_lenReward{len_reward}"
+                        search_args["length_reward"] = len_reward
+                    else:
+                        search_args["length_normalization_exponent"] = 1.0
+                    search_job = SearchJob(
+                        model_id=MODEL_ID,
+                        model_path=model_path,
+                        dataset_path=dataset_paths[test_set],
+                        dataset_name=test_set,
+                        cache_dir_name_suffix=name,
+                        split=split,
+                        search_script=our_beam_search_script,
+                        search_args=search_args,
+                        python_exe=python_exe,
+                        device="gpu",
+                        time_rqmt=24,
+                        mem_rqmt=8,
+                        cpu_rqmt=4,
+                    )
+                    search_job.rqmt["sbatch_args"] = [
+                        "-p",
+                        "gpu_test_24gb",
+                        "-w",
+                        "cn-290",
+                        # "--reservation",
+                        # "hlt_6",
+                    ]
+                    search_job.add_alias(f"canary_1b/beam_search_v5/{name}")
+                    tk.register_output(f"canary_1b/beam_search_v5/{name}/search_out", search_job.out_search_results)
+                    tk.register_output(f"canary_1b/beam_search_v5/{name}/wer", search_job.out_wer)
