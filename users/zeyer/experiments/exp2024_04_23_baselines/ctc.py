@@ -60,7 +60,7 @@ def py():
         - Luca uses feature normalization (global based on Tedlium statistics...). 
     """
 
-    train_exp(  # {"dev-clean": 6.44, "dev-other": 9.77, "test-clean": 6.89, "test-other": 9.98}
+    train_exp(  # {"dev-clean": 3.12, "dev-other": 7.05, "test-clean": 3.2, "test-other": 7.07}
         f"v6-bhv21-24gb-bf16-bs40k-accgrad2-wd1e_6-lrlin1e_5_450k-bpe10k",
         config_24gb_v6,
         config_updates={
@@ -68,7 +68,7 @@ def py():
         },
     )
 
-    train_exp(  # {"dev-clean": 6.61, "dev-other": 9.68, "test-clean": 7.01, "test-other": 10.36}
+    train_exp(  # {"dev-clean": 3.08, "dev-other": 6.84, "test-clean": 3.28, "test-other": 7.21}
         f"v6-bhv21-24gb-bf16-bs40k-accgrad2-wd1e_6-lrlin1e_5_600k-bpe10k",
         config_24gb_v6,
         config_updates={
@@ -77,7 +77,7 @@ def py():
         },
     )
 
-    train_exp(  # {"dev-clean": 6.89, "dev-other": 9.84, "test-clean": 7.23, "test-other": 10.45}
+    train_exp(  # {"dev-clean": 3.1, "dev-other": 6.96, "test-clean": 3.22, "test-other": 7.25}
         f"v6-bhv21-24gb-bf16-bs40k-accgrad2-wd1e_6-lrlin1e_5_600k-featGN-bpe10k",
         config_24gb_v6,
         model_config={"feature_stats": {"mean": feature_stats.mean, "std_dev": feature_stats.std_dev}},
@@ -88,12 +88,12 @@ def py():
     )
 
     for acc, wd in [
-        # (5, 1e-5),  # 9.90
-        (5, 1e-3),  # 9.53
-        (5, 1e-2),  # 9.23
-        # (1, 1e-4),  # 9.24
-        (1, 1e-3),  # 9.19
-        (1, 1e-2),  # 8.16
+        # (5, 1e-5),
+        (5, 1e-3),  # 7.37
+        (5, 1e-2),  # 7.31
+        # (1, 1e-4),
+        (1, 1e-3),  # 6.93
+        (1, 1e-2),  # 6.39
     ]:
         train_exp(
             f"v6-bhv20-11gb-f32-bs15k-accgrad{acc}"
@@ -107,7 +107,7 @@ def py():
             },
         )
 
-    train_exp(  # 8.79
+    train_exp(  # 6.82
         f"v6-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_4-lrlin1e_5_295k-speedpertV2-bpe10k",
         config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
         config_updates={
@@ -119,13 +119,13 @@ def py():
 
     # Comparing vocabs. Note that max_seq_length_default_target=75 always here...
     for vocab in [
-        "spm20k",  # 7.44
-        "bpe10k",  # 8.23
-        "spm10k",  # 8.12
-        "spm_bpe10k",  # 7.97
-        "spm4k",  # 9.86
-        "spm1k",  # 12.72
-        "spm_bpe1k",  # 11.76
+        "spm20k",  # 6.12
+        "bpe10k",  # 6.57
+        "spm10k",  # 6.11
+        "spm_bpe10k",  # 6.34
+        "spm4k",  # 6.20
+        "spm1k",  # 7.34
+        "spm_bpe1k",  # 7.39
     ]:
         train_exp(
             f"v6-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-speedpertV2-{vocab}",
@@ -189,32 +189,30 @@ def py():
 
     # Testing different vocabs together with sampling.
     for vocab, alpha in [
-        # spm20k no sampling: 7.44
+        # spm20k no sampling: 6.12
         ("spm20k", 0.7),
         # See archive/returnn-spm10-sample.config for playing around with alpha and checking avg seq len.
         # The lower the alpha, the longer the seq len, i.e. the more aggressive the sampling.
-        # spm10k no sampling: 8.12
-        ("spm10k", 0.8),  # 7.08
-        ("spm10k", 0.7),  # 6.99
-        ("spm10k", 0.5),  # 7.13
-        ("spm10k", 0.3),  # 7.88
+        # spm10k no sampling: 6.11
+        ("spm10k", 0.8),  # 6.32
+        ("spm10k", 0.7),  # 6.30
+        ("spm10k", 0.5),  # 6.36
+        ("spm10k", 0.3),  # 7.00
         # alpha for SPM-BPE has a very different effect, and it causes the seq len to be much longer.
         # The higher the alpha, the longer (the reverse as for SPM Unigram).
         # See archive/returnn-spm_bpe10-sample.config.
-        # spm_bpe10k no sampling: 7.97
+        # spm_bpe10k no sampling: 6.34
         ("spm_bpe10k", 0.0001),
-        ("spm_bpe10k", 0.001),  # 8.15
-        ("spm_bpe10k", 0.005),  # 8.66
-        ("spm_bpe10k", 0.01),  # 8.99
-        # ("spm_bpe10k", 0.3),  # broken
-        # ("spm_bpe10k", 0.7),  # broken
+        ("spm_bpe10k", 0.001),  # 6.32
+        ("spm_bpe10k", 0.005),  # 6.31
+        ("spm_bpe10k", 0.01),  # 6.33
         # alpha for BPE is again a bit different, but more similar to SPM-BPE than SPM-Unigram.
         # See archive/returnn-bpe10-sample.config.
         # The higher the alpha, the longer the sequence, i.e. the more aggressive the sampling.
-        # bpe10k no sampling: 8.23
-        ("bpe10k", 0.005),  # 7.32
-        ("bpe10k", 0.01),  # 7.10
-        ("bpe10k", 0.02),  # 7.35
+        # bpe10k no sampling: 6.57
+        ("bpe10k", 0.005),  # 6.44
+        ("bpe10k", 0.01),  # 6.33
+        ("bpe10k", 0.02),  # 6.56
     ]:
         train_exp(
             f"v6-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-speedpertV2-{vocab}"
@@ -237,7 +235,7 @@ def py():
         )
 
     # Checking EOS.
-    train_exp(  # 7.36 (vs without EOS 6.99), so EOS made it worse
+    train_exp(  # 6.44 (vs without EOS 6.30), so EOS made it worse
         "v6-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-speedpertV2-spm10k-eos-spmSample07",
         config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
         config_updates={
@@ -254,12 +252,12 @@ def py():
     # Test different feature normalization schemes.
     # Note: It seems the diff between dev-other and test-other is less here, probably du to the normalization.
     for name, model_opts in {
-        None: None,  # {"dev-clean": 3.69, "dev-other": 6.99, "test-clean": 3.83, "test-other": 7.32}
-        # featBN: {"dev-clean": 3.63, "dev-other": 6.96, "test-clean": 3.82, "test-other": 7.15}
+        None: None,  # {"dev-clean": 2.9, "dev-other": 6.3, "test-clean": 3.05, "test-other": 6.49}
+        # featBN: {"dev-clean": 2.84, "dev-other": 6.29, "test-clean": 2.97, "test-other": 6.36}
         "featBN": {"feature_batch_norm": True},  # batch norm
-        # featNorm: {"dev-clean": 3.65, "dev-other": 6.97, "test-clean": 3.74, "test-other": 7.34}
+        # featNorm: {"dev-clean": 2.88, "dev-other": 6.3, "test-clean": 2.97, "test-other": 6.55}
         "featNorm": {"feature_norm": True},  # normalize (on sequence level)
-        # featGN: {"dev-clean": 3.65, "dev-other": 7.04, "test-clean": 3.82, "test-other": 7.27}
+        # featGN: {"dev-clean": 2.82, "dev-other": 6.37, "test-clean": 2.99, "test-other": 6.43}
         "featGN": {"feature_stats": {"mean": feature_stats.mean, "std_dev": feature_stats.std_dev}},  # global norm
     }.items():
         train_exp(
