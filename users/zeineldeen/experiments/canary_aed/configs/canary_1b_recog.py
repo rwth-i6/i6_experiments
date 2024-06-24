@@ -5,6 +5,7 @@ from sisyphus import *
 from i6_core.datasets.huggingface import DownloadAndPrepareHuggingFaceDatasetJob
 from i6_experiments.users.zeineldeen.experiments.canary_aed.nemo.download import DownloadNemoModel
 from i6_experiments.users.zeineldeen.experiments.canary_aed.nemo.search import SearchJob
+from i6_experiments.users.zeineldeen.experiments.canary_aed.nemo.stats import ComputePruningStatsJob
 
 TEST_DATASETS = {"ami": "test", "earnings22": "test", "gigaspeech": "test", "librispeech": "test.other"}
 
@@ -103,21 +104,38 @@ def py():
                     extra_search_args={"batch_size": bs},
                     cache_dir_name_suffix=name,
                 )
-                search_job.rqmt["sbatch_args"] = ["-p", "gpu_test_24gb", "-w", "cn-290", "--reservation", "hlt_6"]
+                search_job.rqmt["sbatch_args"] = ["-p", "gpu_test_24gb", "-w", "cn-290"]
                 search_job.add_alias(f"canary_1b/huggingface/{name}")
                 tk.register_output(f"canary_1b/huggingface/{name}/search_out", search_job.out_search_results)
                 tk.register_output(f"canary_1b/huggingface/{name}/wer", search_job.out_wer)
 
+                if bs == 16 and test_set == "ami":
+                    for beam_size in [4, 8, 12]:
+                        name = f"{test_set}_bs{bs}_run{run}_beam{beam_size}"
+                        search_job = get_search_job(
+                            test_set=test_set,
+                            split=split,
+                            search_script=huggface_search_script,
+                            extra_search_args={"batch_size": bs, "beam_size": beam_size},
+                            cache_dir_name_suffix=name,
+                        )
+                        search_job.rqmt["sbatch_args"] = ["-p", "gpu_test_24gb", "-w", "cn-290"]
+                        search_job.add_alias(f"canary_1b/huggingface/{name}")
+                        tk.register_output(f"canary_1b/huggingface/{name}/search_out", search_job.out_search_results)
+                        tk.register_output(f"canary_1b/huggingface/{name}/wer", search_job.out_wer)
+
     # TODO: run with our beam search
 
-    for run in range(1):
+    for run in range(2):
         our_beam_search_script = tk.Path(
             "/u/zeineldeen/setups/ubuntu_22_setups/2024-06-07--canary-aed/recipe/i6_experiments/users/zeineldeen/experiments/canary_aed/nemo/run_eval_beam_search.py",
             hash_overwrite=f"run_eval_v2_rtf_run{run}",
         )
         # TODO: just simple beam search w/wo length norm
         for test_set, split in TEST_DATASETS.items():
-            if test_set.lower() != "ami":
+            if run != 0:
+                continue
+            if test_set.lower() not in ["ami"]:
                 continue
             for beam_size in [1, 4, 8, 12]:
                 for bs in [16]:
@@ -143,9 +161,19 @@ def py():
                         tk.register_output(f"canary_1b/beam_search_v5/{name}/search_out", search_job.out_search_results)
                         tk.register_output(f"canary_1b/beam_search_v5/{name}/wer", search_job.out_wer)
 
+                        stats_job = ComputePruningStatsJob(search_out=search_job.out_search_results)
+                        tk.register_output(
+                            f"canary_1b/beam_search_v5/{name}/stats/avg_num_steps_per_seq",
+                            stats_job.out_avg_num_steps_per_seq,
+                        )
+                        tk.register_output(
+                            f"canary_1b/beam_search_v5/{name}/stats/avg_num_act_hyps_per_step",
+                            stats_job.out_avg_num_act_hyps_per_step,
+                        )
+
         # TODO: simple beam search + adaptive pruning
         for test_set, split in TEST_DATASETS.items():
-            if test_set.lower() != "ami":
+            if test_set.lower() not in ["ami"]:
                 continue
             for beam_size in [4, 8, 12]:
                 for pruning_thre in [10, 20]:
@@ -173,3 +201,13 @@ def py():
                                 f"canary_1b/beam_search_v5/{name}/search_out", search_job.out_search_results
                             )
                             tk.register_output(f"canary_1b/beam_search_v5/{name}/wer", search_job.out_wer)
+
+                            stats_job = ComputePruningStatsJob(search_out=search_job.out_search_results)
+                            tk.register_output(
+                                f"canary_1b/beam_search_v5/{name}/stats/avg_num_steps_per_seq",
+                                stats_job.out_avg_num_steps_per_seq,
+                            )
+                            tk.register_output(
+                                f"canary_1b/beam_search_v5/{name}/stats/avg_num_act_hyps_per_step",
+                                stats_job.out_avg_num_act_hyps_per_step,
+                            )
