@@ -173,8 +173,8 @@ def py():
             },
         )
 
-    # lrlin1e_5_393k
-    train_exp(
+    # lrlin1e_5_393k vs lrlin1e_5_295k
+    train_exp(  # 6.57 (vs 6.57 with lrlin1e_5_295k), slightly worse (not dev-other but others)
         f"v6-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_393k-speedpertV2-bpe10k",
         config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
         config_updates={
