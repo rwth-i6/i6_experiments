@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Optional, Union, Any, Dict, Sequence, Collecti
 
 import sisyphus
 from sisyphus import tk
+from sisyphus import tools as sis_tools
 from i6_core.util import instanciate_delayed
 
 from i6_core.returnn import ReturnnConfig
@@ -627,8 +628,6 @@ class GetBestRecogTrainExp(sisyphus.Job):
         }
     """
 
-    __sis_hash_exclude__ = {"exclude_epochs": ()}
-
     def __init__(
         self,
         exp: ModelWithCheckpoints,
@@ -655,6 +654,27 @@ class GetBestRecogTrainExp(sisyphus.Job):
         self._scores_outputs = {}  # type: Dict[int, ScoreResultCollection]  # epoch -> scores out
         for epoch in exp.fixed_epochs:
             self._add_recog(epoch)
+
+    @classmethod
+    def hash(cls, parsed_args: Dict[str, Any]) -> str:
+        """
+        :param parsed_args:
+        :return: hash for job given the arguments
+        """
+        # Extend the default hash() function.
+        d = parsed_args.copy()
+        if not d["exclude_epochs"]:
+            d.pop("exclude_epochs")
+        exp: ModelWithCheckpoints = d["exp"]
+        assert isinstance(exp, ModelWithCheckpoints)
+        assert exp.fixed_epochs  # need some fixed epochs to define the hash
+        last_fixed_epoch = max(exp.fixed_epochs)
+        recog_and_score_func = d["recog_and_score_func"]
+        res = recog_and_score_func(last_fixed_epoch)
+        assert isinstance(res, ScoreResultCollection)
+        # Add this to the hash, to make sure the pipeline of the recog and scoring influences the hash.
+        d["_last_fixed_epoch_results"] = res
+        return sis_tools.sis_hash(d)
 
     def update(self):
         """
