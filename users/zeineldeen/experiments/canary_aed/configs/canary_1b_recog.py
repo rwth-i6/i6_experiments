@@ -158,6 +158,7 @@ def py():
                                 "length_reward": len_reward,
                                 "pruning_threshold": pruning_thre,
                                 "adaptive_pruning": True,
+                                "batch_size": bs,
                             }
                             search_job = get_search_job(
                                 test_set=test_set,
