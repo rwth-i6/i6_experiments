@@ -13,7 +13,12 @@ from i6_core.util import instanciate_delayed
 
 from i6_core.returnn import ReturnnConfig
 from i6_core.returnn.training import ReturnnTrainingJob, PtCheckpoint, AverageTorchCheckpointsJob
-from i6_core.returnn.search import ReturnnSearchJobV2, SearchRemoveLabelJob, SearchTakeBestJob
+from i6_core.returnn.search import (
+    ReturnnSearchJobV2,
+    SearchRemoveLabelJob,
+    SearchCollapseRepeatedLabelsJob,
+    SearchTakeBestJob,
+)
 from i6_core.returnn.forward import ReturnnForwardJobV2
 from returnn_common import nn
 from returnn_common.datasets_old_2022_10.interface import DatasetConfig
@@ -229,6 +234,8 @@ def search_dataset(
     if search_alias_name:
         search_job.add_alias(search_alias_name)
     if recog_def.output_blank_label:
+        # Also assume we should collapse repeated labels first.
+        res = SearchCollapseRepeatedLabelsJob(res, output_gzip=True).out_search_results
         res = SearchRemoveLabelJob(res, remove_label=recog_def.output_blank_label, output_gzip=True).out_search_results
     for f in recog_post_proc_funcs:  # for example BPE to words
         res = f(RecogOutput(output=res)).output
