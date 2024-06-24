@@ -165,7 +165,7 @@ def build_training_datasets(
         seq_ordering=settings.train_seq_ordering,
         additional_options=settings.train_additional_options,
     )
-    train_dataset = make_meta(train_zip_dataset, training_hdf_label_files.train)
+    train_dataset = make_meta(train_zip_dataset, training_hdf_label_files.train if training_hdf_label_files else None)
 
     cv_zip_dataset = OggZipDataset(
         files=[dev_clean_ogg, dev_other_ogg],
@@ -174,7 +174,10 @@ def build_training_datasets(
         segment_file=get_mixed_cv_segments(),
         seq_ordering="sorted_reverse",
     )
-    cv_dataset = make_meta(cv_zip_dataset, training_hdf_label_files.dev_clean + training_hdf_label_files.dev_other)
+    cv_dataset = make_meta(
+        cv_zip_dataset,
+        training_hdf_label_files.dev_clean + training_hdf_label_files.dev_other if training_hdf_label_files else None
+    )
 
     devtrain_zip_dataset = OggZipDataset(
         files=train_ogg,
@@ -183,7 +186,7 @@ def build_training_datasets(
         seq_ordering="sorted_reverse",
         random_subset=3000,
     )
-    devtrain_dataset = make_meta(devtrain_zip_dataset, training_hdf_label_files.train)
+    devtrain_dataset = make_meta(devtrain_zip_dataset, training_hdf_label_files.train if training_hdf_label_files else None)
 
     prior_zip_dataset = OggZipDataset(
         files=train_ogg,
@@ -193,7 +196,7 @@ def build_training_datasets(
         seq_ordering="sorted_reverse",
         additional_options=None,
     )
-    prior_dataset = make_meta(prior_zip_dataset, training_hdf_label_files.train)
+    prior_dataset = make_meta(prior_zip_dataset, training_hdf_label_files.train if training_hdf_label_files else None)
 
     return TrainingDatasets(
         train=train_dataset,
