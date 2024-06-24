@@ -138,6 +138,11 @@ def main(args):
     asr_model = ASRModel.restore_from(args.model_path, map_location=device)
     asr_model.freeze()
 
+    if args.beam_size > 1:
+        asr_model.decoding.cfg.beam.beam_size = args.beam_size
+
+    print("decoding settings:", asr_model.decoding.cfg)
+
     # TODO: how to set the num_workers?
     dataset = load_from_disk(args.dataset_path)
 
@@ -201,6 +206,8 @@ if __name__ == "__main__":
     parser.add_argument("--manifest_path", type=str, required=True, help="Path to save the search output.")
 
     parser.add_argument("--wer_out_path", type=str, default=None, help="Path to save the WER output.")
+
+    parser.add_argument("--beam_size", type=int, default=1)
 
     parser.add_argument(
         "--device",
