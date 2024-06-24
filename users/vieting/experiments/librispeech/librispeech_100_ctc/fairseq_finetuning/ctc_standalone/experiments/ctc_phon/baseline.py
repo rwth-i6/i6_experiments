@@ -20,8 +20,6 @@ def eow_phon_ls100_ctc_base(
     train_conf_w2v: Optional[dict] = None,
     train_name_suffix: Optional[str] = None,
     fairseq_root: Optional[tk.Path] = None,
-    fairseq_github_branch: Optional[str] = None,
-    fairseq_github_commit: Optional[str] = None,
     ):
     if train_name_suffix is None:
         prefix_name = "ctc_eow_phon"
