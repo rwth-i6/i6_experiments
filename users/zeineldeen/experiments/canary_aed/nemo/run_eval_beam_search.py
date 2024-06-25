@@ -37,6 +37,10 @@ from i6_experiments.users.zeyer.decoding.beam_search_torch.beam_search_v5 import
     beam_search_v5,
     BeamSearchOptsV5,
 )
+from i6_experiments.users.zeyer.decoding.beam_search_torch.beam_search_sep_ended_keep_v6 import (
+    beam_search_sep_ended_keep_v6,
+    BeamSearchSepEndedKeepOpts,
+)
 
 DATA_CACHE_DIR = "/var/tmp/audio_cache"
 
@@ -229,12 +233,12 @@ def _transcribe_output_processing_our_beam_search(
         bos_prefix_seq=dec_input_ids,  # [3, 4, 8, 4, 10]
     )
 
-    seq_targets, _, out_seq_len = beam_search_v5(
+    seq_targets, _, out_seq_len = beam_search_func(
         canary_label_scorer,
         batch_size=enc_states.size(0),
         max_seq_len=enc_lens,
         device=enc_states.device,
-        opts=beam_search_v5_opts,
+        opts=beam_search_opts,
         debug_out=sys.stdout,
     )  # [B,Beam,L]
 
@@ -317,16 +321,32 @@ def main(args):
     asr_model = ASRModel.restore_from(args.model_path, map_location=device)
     asr_model.freeze()
 
-    global beam_search_v5_opts
-    beam_search_v5_opts = BeamSearchOptsV5(
-        beam_size=args.beam_size,
-        bos_label=asr_model.tokenizer.bos_id,
-        eos_label=asr_model.tokenizer.eos_id,
-        num_labels=len(asr_model.tokenizer.vocab),
-        length_normalization_exponent=args.length_normalization_exponent,
-        pruning_threshold=args.pruning_threshold,
-        adaptive_pruning=args.adaptive_pruning,
-    )
+    global beam_search_opts
+    global beam_search_func
+    if args.beam_search_strategy == "v5":
+        beam_search_opts = BeamSearchOptsV5(
+            beam_size=args.beam_size,
+            bos_label=asr_model.tokenizer.bos_id,
+            eos_label=asr_model.tokenizer.eos_id,
+            num_labels=len(asr_model.tokenizer.vocab),
+            length_normalization_exponent=0.0,
+            pruning_threshold=args.pruning_threshold,
+            adaptive_pruning=args.adaptive_pruning,
+        )
+        beam_search_func = beam_search_v5
+    elif args.beam_search_strategy == "sep_ended_keep":
+        beam_search_opts = BeamSearchSepEndedKeepOpts(
+            beam_size=args.beam_size,
+            beam_ended_size=1,
+            bos_label=asr_model.tokenizer.bos_id,
+            eos_label=asr_model.tokenizer.eos_id,
+            num_labels=len(asr_model.tokenizer.vocab),
+            pruning_threshold=args.pruning_threshold,
+            adaptive_pruning=args.adaptive_pruning,
+        )
+        beam_search_func = beam_search_sep_ended_keep_v6
+    else:
+        raise ValueError(f"Unknown beam search strategy: {args.beam_search_strategy}")
 
     global length_reward_value
     length_reward_value = args.length_reward
@@ -398,6 +418,7 @@ if __name__ == "__main__":
 
     parser.add_argument("--wer_out_path", type=str, default=None, help="Path to save the WER output.")
 
+    parser.add_argument("--beam_search_strategy", default="v5", help="Beam search strategy to use.")
     parser.add_argument("--beam_size", type=int, default=4)
     parser.add_argument("--pruning_threshold", type=float, default=0.0)
     parser.add_argument("--adaptive_pruning", type=bool, default=False)

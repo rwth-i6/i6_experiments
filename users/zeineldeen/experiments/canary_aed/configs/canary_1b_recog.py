@@ -211,3 +211,28 @@ def py():
                                 f"canary_1b/beam_search_v5/{name}/stats/avg_num_act_hyps_per_step",
                                 stats_job.out_avg_num_act_hyps_per_step,
                             )
+
+                            # TODO: sep_ended_keep beam search
+                            search_job = get_search_job(
+                                test_set=test_set,
+                                split=split,
+                                search_script=our_beam_search_script,
+                                extra_search_args={"beam_search_strategy": "sep_ended_keep", **extra_search_args},
+                                cache_dir_name_suffix=name,
+                            )
+                            search_job.rqmt["sbatch_args"] = ["-p", "gpu_test_24gb", "-w", "cn-290"]
+                            search_job.add_alias(f"canary_1b/sep_ended_keep_v6/{name}")
+                            tk.register_output(
+                                f"canary_1b/sep_ended_keep_v6/{name}/search_out", search_job.out_search_results
+                            )
+                            tk.register_output(f"canary_1b/sep_ended_keep_v6/{name}/wer", search_job.out_wer)
+
+                            stats_job = ComputePruningStatsJob(search_out=search_job.out_search_results)
+                            tk.register_output(
+                                f"canary_1b/sep_ended_keep_v6/{name}/stats/avg_num_steps_per_seq",
+                                stats_job.out_avg_num_steps_per_seq,
+                            )
+                            tk.register_output(
+                                f"canary_1b/sep_ended_keep_v6/{name}/stats/avg_num_act_hyps_per_step",
+                                stats_job.out_avg_num_act_hyps_per_step,
+                            )
