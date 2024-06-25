@@ -14,7 +14,7 @@ class SearchJob(Job):
         model_path: tk.Path,
         dataset_path: tk.Path,
         dataset_name: str,
-        cache_dir_name_suffix: str,
+        cache_dir_name_suffix: Optional[str],
         split: str,
         search_script: tk.Path,
         search_args: Optional[Dict[str, Any]] = None,
@@ -60,8 +60,6 @@ class SearchJob(Job):
             self.dataset_path.get_path(),
             "--dataset",
             self.dataset_name,
-            "--cache_dir_name_suffix",
-            self.cache_dir_name_suffix,
             "--split",
             self.split,
             "--manifest_path",
@@ -71,6 +69,9 @@ class SearchJob(Job):
             "--wer_out_path",
             self.out_wer.get_path(),
         ]
+        if self.cache_dir_name_suffix:
+            cmd.append("--cache_dir_name_suffix")
+            cmd.append(self.cache_dir_name_suffix)
         for k, v in self.search_args.items():
             if k == "device":
                 continue  # ignored. this is only set via job parameter
