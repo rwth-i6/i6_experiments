@@ -66,19 +66,26 @@ class Model(nn.Module):
                     hyp = init_args_w['arg']
                 init_func(param, **hyp)
 
-    def forward(self, x):
+    def forward(self, x, states):
         """
         Return logits of each batch at each time step
-        x: (B, S, F)
+        :param x: (B, S, F)
+        :param states: tuple of h, c, with [batch, #layers, F] each
         """
         x = self.embed(x)
         if self.dropout:
             x = self.dropout(x)
         batch_size = x.shape[0]
-        h0 = torch.zeros((self.cfg.n_lstm_layers, batch_size, self.cfg.hidden_dim), device=x.device).detach()
-        c0 = torch.zeros_like(h0, device=x.device).detach()
+        if states is None:
+            h0 = torch.zeros((self.cfg.n_lstm_layers, batch_size, self.cfg.hidden_dim), device=x.device).detach()
+            c0 = torch.zeros_like(h0, device=x.device).detach()
+        else:
+            _h0, _c0 = states
+            h0 = torch.transpose(_h0, 0, 1)  # reshape to [#layers, batch, F]
+            c0 = torch.transpose(_c0, 0, 1)
+
         # This is a uni-directional LSTM, so sequence masking is not necessary
-        x, _ = self.lstm(x, (h0, c0))
+        x, (h, c) = self.lstm(x, (h0, c0))
         if self.dropout:
             x = self.dropout(x)
         if self.use_bottle_neck:
@@ -86,7 +93,7 @@ class Model(nn.Module):
             if self.dropout:
                 x = self.dropout(x)
         x = self.final_linear(x)
-        return x
+        return x, (torch.transpose(h, 0, 1), torch.transpose(c, 0, 1))  # return states with [batch, #layers, F]
     
     
 def train_step(*, model: Model, data, run_ctx, **kwargs):
@@ -94,7 +101,7 @@ def train_step(*, model: Model, data, run_ctx, **kwargs):
     labels_len = data["data:size1"]
     delayed_labels = data["delayed"]
 
-    lm_logits = model(delayed_labels)  # (B, S, F)
+    lm_logits, _ = model(delayed_labels)  # (B, S, F)
 
     ce_loss = torch.nn.functional.cross_entropy(lm_logits.transpose(1, 2), labels.long(), reduction='none')
     seq_mask = mask_tensor(labels, labels_len)
