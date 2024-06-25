@@ -176,7 +176,7 @@ def py():
             if test_set.lower() not in ["ami"]:
                 continue
             for beam_size in [4, 8, 12]:
-                for pruning_thre in [10, 20]:
+                for pruning_thre in [10, 15, 20, 25, 30]:
                     for bs in [16]:
                         for len_reward in [0.1]:
                             name = f"{test_set}_bs{bs}_beam{beam_size}_run{run}_prune{pruning_thre}_adaptive_lenReward{len_reward}"
