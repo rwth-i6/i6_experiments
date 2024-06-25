@@ -105,7 +105,10 @@ def buffer_audio_and_transcribe(
     if len(buffer) > 0:
         filepaths = write_audio(buffer, cache_prefix)
         if pnc is not None:
-            transcriptions = model.transcribe(filepaths, batch_size=batch_size, pnc=False, verbose=False)
+            transcriptions = model.transcribe(
+                filepaths, batch_size=batch_size, pnc=False, verbose=False, return_hypotheses=True
+            )
+            print(transcriptions)
         else:
             transcriptions = model.transcribe(filepaths, batch_size=batch_size, verbose=False)
         # if transcriptions form a tuple (from RNNT), extract just "best" hypothesis
@@ -139,9 +142,7 @@ def main(args):
     asr_model.freeze()
 
     if args.beam_size > 1:
-        asr_model.decoding.cfg.beam.beam_size = args.beam_size
-
-    print("decoding settings:", asr_model.decoding.cfg)
+        asr_model.decoding.decoding.beam_search.beam_size = args.beam_size
 
     # TODO: how to set the num_workers?
     dataset = load_from_disk(args.dataset_path)
