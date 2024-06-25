@@ -60,6 +60,12 @@ def bpe_ls960_1023_low_vocab_test():
         max_dim_feat=8,  # Jingjing style
         num_repeat_feat=5,
     )
+    specaug_config_full = SpecaugConfig(
+        repeat_per_n_frames=25,
+        max_dim_time=20,
+        max_dim_feat=16,  # Normal Style
+        num_repeat_feat=5,
+    )
     frontend_config = VGG4LayerActFrontendV1Config_mod(
         in_features=80,
         conv1_channels=32,
@@ -259,6 +265,29 @@ def bpe_ls960_1023_low_vocab_test():
                                  )
                 for search_job in search_jobs:
                     search_job.rqmt["sbatch_args"] = "-A rescale_speed -p rescale_amd"
+
+
+            # THIS RUN WAS WITH CORRECT RESCALE SETTINGS
+            decoder_config_bpe_rescale = copy.deepcopy(default_decoder_config_bpe)
+            decoder_config_bpe_rescale.lm_weight = 2.0
+            decoder_config_bpe_rescale.prior_scale = 0.2
+            
+            forward_config = {"max_seqs": 1, "seed": 4}
+            search_name = training_name + "/rescale_accurate/lm2.0_scale0.2_bs1024_bst16_bth_14"
+            search_jobs, wers = search(
+                                 search_name,
+                                 forward_config=forward_config,
+                                 asr_model=asr_model,
+                                 decoder_module="ctc.decoder.flashlight_ctc_v1_rescale_measure",
+                                 decoder_args={"config": asdict(decoder_config_bpe_rescale)},
+                                 test_dataset_tuples={**dev_dataset_tuples, **test_dataset_tuples},
+                                 **default_returnn
+                             )
+            for search_job in search_jobs:
+                search_job.rqmt["sbatch_args"] = "-A rescale_speed -p rescale_amd"
+
+
+
             # increase search time to match phoneme, all with lm 1.8 and prior 0.2
             # Running all in AMD RTF mode
             for beam_size in [256, 512, 1024]:
@@ -302,10 +331,70 @@ def bpe_ls960_1023_low_vocab_test():
             train_args_conv_first_ep100_sp = copy.deepcopy(train_args_conv_first_ep100)
             train_args_conv_first_ep100_sp["use_speed_perturbation"] = True
 
+            train_args_conv_first_ep100_sp_late_peak = copy.deepcopy(train_args_conv_first_ep100_sp)
+            train_args_conv_first_ep100_sp_late_peak["config"]["learning_rates"] = list(np.linspace(7e-6, 5e-4, 480)) + list(
+                np.linspace(5e-4, 5e-5, 480)) + list(np.linspace(5e-5, 1e-7, 40))
+            
+            train_args_conv_first_ep100_sp_more_drop = copy.deepcopy(train_args_conv_first_ep100_sp)
+            model_config_more_drop = copy.deepcopy(model_config)
+            model_config_more_drop.conv_dropout = 0.15
+            model_config_more_drop.ff_dropout = 0.15
+            model_config_more_drop.mhsa_dropout = 0.15
+            model_config_more_drop.final_dropout = 0.15
+            train_args_conv_first_ep100_sp_more_drop["net_args"] = {"model_config_dict": asdict(model_config_more_drop)}
+
+            # Go closer to other experiments, full weight decay and full specaugment
+            train_args_conv_first_ep100_sp_late_peak_full_reg = copy.deepcopy(train_args_conv_first_ep100_sp_late_peak)
+            train_args_conv_first_ep100_sp_late_peak_full_reg["config"]["optimizer"]["weight_decay"] = 1e-2
+            model_config_full_spec = copy.deepcopy(model_config)
+            model_config_full_spec.specaug_config = specaug_config_full
+            train_args_conv_first_ep100_sp_late_peak_full_reg["net_args"] = {"model_config_dict": asdict(model_config_full_spec)}
+
+
+            # Go closer to other experiments, full weight decay and full specaugment
+            train_args_conv_first_ep100_sp_late_peak_full_reg = copy.deepcopy(train_args_conv_first_ep100_sp_late_peak)
+            train_args_conv_first_ep100_sp_late_peak_full_reg["config"]["optimizer"]["weight_decay"] = 1e-2
+            model_config_full_spec = copy.deepcopy(model_config)
+            model_config_full_spec.specaug_config = specaug_config_full
+            train_args_conv_first_ep100_sp_late_peak_full_reg["net_args"] = {"model_config_dict": asdict(model_config_full_spec)}
+
+            frontend_config_256 = copy.deepcopy(frontend_config)
+            frontend_config_256.out_features = 256
+
+            model_config_16x256 = ModelConfig(
+                feature_extraction_config=fe_config,
+                frontend_config=frontend_config_256,
+                specaug_config=specaug_config,
+                label_target_size=vocab_size_without_blank,
+                conformer_size=256,
+                num_layers=16,
+                num_heads=4,
+                ff_dim=1024,
+                att_weights_dropout=0.1,
+                conv_dropout=0.1,
+                ff_dropout=0.1,
+                mhsa_dropout=0.1,
+                conv_kernel_size=31,
+                final_dropout=0.1,
+                specauc_start_epoch=11,  # BPE does not converge otherwise
+            )
+
+            train_args_conv_first_ep100_sp_16x256 = copy.deepcopy(train_args_conv_first_ep100_sp)
+            train_args_conv_first_ep100_sp_16x256["net_args"] = {"model_config_dict": asdict(model_config_16x256)}
+
+
             train_args_pairs = [
                 (".512dim_sub4_24gbgpu_100eps", train_args_conv_first_ep100),
                 (".512dim_sub4_24gbgpu_100eps_sp", train_args_conv_first_ep100_sp)
             ]
+
+            if BPE_SIZE == 128:
+                train_args_pairs += [
+                    (".16x256dim_sub4_24gbgpu_100eps_sp", train_args_conv_first_ep100_sp_16x256),
+                    (".512dim_sub4_24gbgpu_100eps_sp_late_peak", train_args_conv_first_ep100_sp_late_peak),
+                    (".512dim_sub4_24gbgpu_100eps_sp_more_drop", train_args_conv_first_ep100_sp_more_drop),
+                    (".512dim_sub4_24gbgpu_100eps_sp_lp_fullspec", train_args_conv_first_ep100_sp_late_peak_full_reg)
+                ]
 
             for name, train_args in train_args_pairs:
                 training_name = prefix_name + "/" + str(
@@ -325,3 +414,4 @@ def bpe_ls960_1023_low_vocab_test():
                     returnn_vocab=label_datastream_bpe.vocab,
                 )
                 greedy_search_helper(training_name, asr_model=asr_model, decoder_config=greedy_decoder_config)
+

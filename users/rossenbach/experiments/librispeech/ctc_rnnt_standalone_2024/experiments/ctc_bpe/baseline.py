@@ -114,7 +114,7 @@ def bpe_ls960_1023_base():
             asr_model=asr_model,
             decoder_module="ctc.decoder.greedy_bpe_ctc_v3",
             decoder_args={"config": asdict(decoder_config)},
-            test_dataset_tuples=dev_dataset_tuples,
+            test_dataset_tuples={**dev_dataset_tuples, **test_dataset_tuples},
             **default_returnn,
         )
 
@@ -232,6 +232,56 @@ def bpe_ls960_1023_base():
             test_dataset_tuples={"dev-other": dev_dataset_tuples["dev-other"]},
             **default_returnn
         )
+
+
+    # 100 EPS experiment
+    KEEP = [300, 400, 500, 600, 700, 800, 900, 950, 980]
+    train_args_ep100 = copy.deepcopy(train_args)
+    train_args_ep100["config"]["learning_rates"] = list(np.linspace(7e-6, 5e-4, 240)) + list(
+        np.linspace(5e-4, 5e-5, 720)) + list(np.linspace(5e-5, 1e-7, 40))
+    train_args_ep100["config"]["gradient_clip"] = 1.0
+    train_args_ep100["config"]["cleanup_old_models"] = {
+        "keep_last_n": 4,
+        "keep_best_n": 4,
+        "keep": KEEP
+    }
+    train_args_ep100_sp = copy.deepcopy(train_args_ep100)
+    train_args_ep100_sp["use_speed_perturbation"] = True
+
+    training_name = prefix_name + "/" + network_module + ".512dim_sub6_24gbgpu_sp_100eps"
+    train_job = training(training_name, train_data_bpe5000, train_args_ep100_sp, num_epochs=1000, **default_returnn)
+    train_job.rqmt["gpu_mem"] = 24
+    asr_model = prepare_asr_model(
+        training_name, train_job, train_args_ep100_sp, with_prior=True, datasets=train_data_bpe5000, get_specific_checkpoint=1000
+    )
+    tune_and_evaluate_helper(training_name, asr_model, default_decoder_config_bpe5000, lm_scales=[1.6, 1.8, 2.0],
+                             prior_scales=[0.2, 0.3, 0.4])
+    greedy_search_helper(training_name, asr_model=asr_model, decoder_config=greedy_decoder_config)
+    
+    
+    # Re-run in luca style as much as possible
+    # 100 EPS experiment
+    # KEEP = [300, 400, 500, 600, 700, 800, 900, 950, 980]
+    # train_args_ep100 = copy.deepcopy(train_args)
+    # train_args_ep100["config"]["learning_rates"] = list(np.linspace(1e-5, 7e-4, 480)) + list(
+    #     np.linspace(7e-4, 5e-5, 480)) + list(np.linspace(5e-5, 1e-7, 40))
+    # train_args_ep100["config"]["gradient_clip_norm"] = 0.5
+    # train_args_ep100["config"]["cleanup_old_models"] = {
+    #     "keep_last_n": 4,
+    #     "keep_best_n": 4,
+    #     "keep": KEEP
+    # }
+    # train_args_ep100_sp = copy.deepcopy(train_args_ep100)
+    # train_args_ep100_sp["use_speed_perturbation"] = True
+
+    # training_name = prefix_name + "/" + network_module + ".512dim_sub6_luca_style_24gbgpu_sp_100eps"
+    # train_job = training(training_name, train_data_bpe5000, train_args_ep100_sp, num_epochs=1000, **default_returnn)
+    # train_job.rqmt["gpu_mem"] = 24
+    # for keep in KEEP:
+    #     asr_model = prepare_asr_model(
+    #         training_name, train_job, train_args_ep100_sp, with_prior=False, datasets=train_data_bpe5000, get_specific_checkpoint=keep
+    #     )
+    #     greedy_search_helper(training_name, asr_model=asr_model, decoder_config=greedy_decoder_config)
 
     # Conv first
     network_module_conv_first = "ctc.conformer_1023.i6modelsV1_VGG4LayerActFrontendV1_v6_conv_first"
