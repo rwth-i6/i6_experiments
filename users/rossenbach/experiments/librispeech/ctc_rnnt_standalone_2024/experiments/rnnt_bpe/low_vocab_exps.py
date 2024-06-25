@@ -301,16 +301,16 @@ def rnnt_bpe_ls960_1023_low_bpe():
 
             # With speed perturbation
             train_args_warprnnt_fullspec_from_ctc100_noacumm_sp = copy.deepcopy(train_args_warprnnt_fullspec_from_ctc100_noacumm)
-            train_args_warprnnt_fullspec_from_ctc100_noacumm["use_speed_perturbation"] = True
+            train_args_warprnnt_fullspec_from_ctc100_noacumm_sp["use_speed_perturbation"] = True
             training_name = prefix_name + "/" + str(
                 BPE_SIZE) + "/" + network_module + ".512dim_sub4_24gbgpu_100eps_accum1_gradclip_fullspec1_sp_continue_from_ctc100eps"
-            train_job = training(training_name, train_data_bpe, train_args_warprnnt_fullspec_from_ctc100_noacumm,
+            train_job = training(training_name, train_data_bpe, train_args_warprnnt_fullspec_from_ctc100_noacumm_sp,
                                  num_epochs=1000, **default_returnn)
             train_job.rqmt["gpu_mem"] = 24
             train_job.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
             for keep in KEEP:
                 asr_model = prepare_asr_model(
-                    training_name, train_job, train_args_warprnnt_fullspec_from_ctc100_noacumm, with_prior=False,
+                    training_name, train_job, train_args_warprnnt_fullspec_from_ctc100_noacumm_sp, with_prior=False,
                     datasets=train_data_bpe, get_specific_checkpoint=keep
                 )
                 evaluate_helper(
@@ -320,7 +320,39 @@ def rnnt_bpe_ls960_1023_low_bpe():
                     use_gpu=True
                 )
             asr_model = prepare_asr_model(
-                training_name, train_job, train_args_warprnnt_fullspec_from_ctc100_noacumm, with_prior=False,
+                training_name, train_job, train_args_warprnnt_fullspec_from_ctc100_noacumm_sp, with_prior=False,
+                datasets=train_data_bpe, get_specific_checkpoint=1000
+            )
+            evaluate_helper(
+                training_name + "/keep_%i" % 1000,
+                asr_model,
+                decoder_config_bpe5000,
+                use_gpu=True,
+            )
+
+            # With more L2
+            train_args_warprnnt_fullspec_from_ctc100_noacumm_sp_morel2 = copy.deepcopy(train_args_warprnnt_fullspec_from_ctc100_noacumm_sp)
+            train_args_warprnnt_fullspec_from_ctc100_noacumm_sp_morel2["config"]["optimizer"]["weight_decay"] = 1e-2
+
+            training_name = prefix_name + "/" + str(
+                BPE_SIZE) + "/" + network_module + ".512dim_sub4_24gbgpu_100eps_accum1_gradclip_fullspec1_sp_morel2_continue_from_ctc100eps"
+            train_job = training(training_name, train_data_bpe, train_args_warprnnt_fullspec_from_ctc100_noacumm_sp_morel2,
+                                 num_epochs=1000, **default_returnn)
+            train_job.rqmt["gpu_mem"] = 24
+            train_job.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+            for keep in KEEP:
+                asr_model = prepare_asr_model(
+                    training_name, train_job, train_args_warprnnt_fullspec_from_ctc100_noacumm_sp_morel2, with_prior=False,
+                    datasets=train_data_bpe, get_specific_checkpoint=keep
+                )
+                evaluate_helper(
+                    training_name + "/keep_%i" % keep,
+                    asr_model,
+                    decoder_config_bpe5000,
+                    use_gpu=True
+                )
+            asr_model = prepare_asr_model(
+                training_name, train_job, train_args_warprnnt_fullspec_from_ctc100_noacumm_sp_morel2, with_prior=False,
                 datasets=train_data_bpe, get_specific_checkpoint=1000
             )
             evaluate_helper(
