@@ -94,6 +94,7 @@ def py():
         # (1, 1e-4),
         (1, 1e-3),  # 6.93
         (1, 1e-2),  # 6.39
+        (1, 1e-1),
     ]:
         train_exp(
             f"v6-bhv20-11gb-f32-bs15k-accgrad{acc}"
@@ -202,7 +203,7 @@ def py():
         # The higher the alpha, the longer (the reverse as for SPM Unigram).
         # See archive/returnn-spm_bpe10-sample.config.
         # spm_bpe10k no sampling: 6.34
-        ("spm_bpe10k", 0.0001),
+        ("spm_bpe10k", 0.0001),  # 6.26
         ("spm_bpe10k", 0.001),  # 6.32
         ("spm_bpe10k", 0.005),  # 6.31
         ("spm_bpe10k", 0.01),  # 6.33
