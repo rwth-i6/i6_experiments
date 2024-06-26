@@ -139,6 +139,7 @@ def recog_model(
     search_rqmt: Optional[Dict[str, Any]] = None,
     dev_sets: Optional[Collection[str]] = None,
     name: Optional[str] = None,
+    device: Optional[str] = None,
 ) -> ScoreResultCollection:
     """recog"""
     if dev_sets is not None:
@@ -158,6 +159,7 @@ def recog_model(
             search_rqmt=search_rqmt,
             search_alias_name=f"{name}/search/{dataset_name}" if name else None,
             recog_post_proc_funcs=task.recog_post_proc_funcs,
+            device=device,
         )
         score_out = task.score_recog_output_func(dataset, recog_out)
         outputs[dataset_name] = score_out
@@ -175,6 +177,7 @@ def search_dataset(
     search_rqmt: Optional[Dict[str, Any]] = None,
     search_alias_name: Optional[str] = None,
     recog_post_proc_funcs: Sequence[Callable[[RecogOutput], RecogOutput]] = (),
+    device: Optional[str] = None,
 ) -> RecogOutput:
     """
     recog on the specific dataset
@@ -211,6 +214,7 @@ def search_dataset(
             returnn_python_exe=tools_paths.get_returnn_python_exe(),
             returnn_root=tools_paths.get_returnn_root(),
             mem_rqmt=search_mem_rqmt,
+            device=device,
         )
         res = search_job.out_files[_v2_forward_out_filename]
     if search_rqmt:

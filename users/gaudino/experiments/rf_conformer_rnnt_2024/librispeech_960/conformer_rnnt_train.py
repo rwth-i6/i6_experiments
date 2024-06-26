@@ -58,7 +58,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
 
     rnnt_train_config = dict(
     batching="laplace:.1000",
-    batch_size=15_000 * _batch_size_factor,
+    batch_size=8_000 * _batch_size_factor,
     max_seqs=200,
     # max_seq_length_default_target=75,
     # specaugment_steps=(10_000, 20_000, 40_000),
@@ -68,7 +68,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
     optimizer={
         "class": "adamw",
         "epsilon": 1e-8,
-        "weight_decay": 1e-6,
+        "weight_decay": 1e-2,  # Changed from 1e-6
     },
     # accum_grad_multiple_step=4,
     # gradient_noise=0.0,
@@ -106,10 +106,29 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
     #     gpu_mem=24,
     # )
 
+    train_exp(
+        "from-scratch-11gb_aux4_8",
+        rnnt_train_config,
+        config_updates={
+            "learning_rate": 1.0,
+            "dynamic_learning_rate": dyn_lr_piecewise_linear,
+            # total steps after 2000 epochs: 982.312
+            "learning_rate_piecewise_steps": [600_000, 900_000, 982_000],
+            "learning_rate_piecewise_values": [1e-5, 1e-3, 1e-5, 1e-6],
+            "mel_normalization_ted2": False,
+        },
+        search_config={
+            "mel_normalization_ted2": False,
+        },
+        num_epochs=2000,
+        gpu_mem=11,
+        bpe_size="BPE5k",
+    )
+
     ## recog rnnt BPE5k nick
 
     # imported checkpoint
-    _torch_ckpt_path = "/work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/2023-08-10--rf-librispeech/work/i6_experiments/users/gaudino/returnn/convert_ckpt_rf/librispeech/rnnt_nick_240614/epoch.250.pt"
+    _torch_ckpt_path = "/work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/2023-08-10--rf-librispeech/work/i6_experiments/users/gaudino/returnn/convert_ckpt_rf/librispeech/rnnt_nick_240620/epoch.250.pt"
 
     new_ckpt_path = tk.Path(
         _torch_ckpt_path,
@@ -117,35 +136,67 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
     )
     new_ckpt = PtCheckpoint(new_ckpt_path)
 
-    _recog(
-        "model_recogs/rnnt_nick_1/rnnt_beam_search/recog_results",
-        ModelWithCheckpoint(
-            definition=from_scratch_model_def_v2, checkpoint=new_ckpt
-        ),
-        model_recog,
-        dev_sets=["dev-other"],
-        recog_config={
-            "mel_normalization_ted2": False,
-        },
-    )
-
-
-    # some recog for debugging
-    _torch_ckpt_path = "/work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/2023-08-10--rf-librispeech/work/i6_core/returnn/training/ReturnnTrainingJob.J6Uj9xtt1v5J/output/models/epoch.003.pt"
-
-    new_ckpt_path = tk.Path(
-        _torch_ckpt_path,
-        hash_overwrite= "rnnt" + "_torch_ckpt",
-    )
-    new_ckpt = PtCheckpoint(new_ckpt_path)
-
     # _recog(
-    #     "model_recogs/from-scratch-24gb/rnnt_beam_search/recog_results",
+    #     "model_recogs/rnnt_nick_1/rnnt_beam_search_fix/recog_results",
     #     ModelWithCheckpoint(
-    #         definition=from_scratch_model_def, checkpoint=new_ckpt
+    #         definition=from_scratch_model_def_v2, checkpoint=new_ckpt
     #     ),
     #     model_recog,
-    #     dev_sets=["dev"]
+    #     dev_sets=["dev-other"],
+    #     recog_config={
+    #         "mel_normalization_ted2": False,
+    #         "hash_overwrite": "1",
+    #     },
+    #     mini_returnn_data=True,
+    #     device="cpu",
+    # )
+
+    # train like nick TODO
+    # train_exp(
+    #     "like_nick_from_scratch_24gb",
+    #     config_24gb_v6,
+    #     config_updates={
+    #         "batch_size": 12_000 * _batch_size_factor,
+    #         "learning_rate": 1.0,
+    #         "dynamic_learning_rate": dyn_lr_piecewise_linear,
+    #         # total steps after 2000 epochs: 982.312
+    #         "learning_rate_piecewise_steps": [600_000, 900_000, 982_000],
+    #         "learning_rate_piecewise_values": [1e-5, 1e-3, 1e-5, 1e-6],
+    #         "mel_normalization_ted2": False,
+    #     },
+    #     config_deletes=["torch_amp"],
+    #     search_config={
+    #         "mel_normalization_ted2": False,
+    #     },
+    #     gpu_mem=24,
+    #     bpe_size="BPE5k",
+    #     mini_returnn_data=True,
+    #     model_def=from_scratch_model_def_v2,
+    # )
+    #
+    # train_exp( # loss goes nan
+    #     "init_from_ctc_24gb_aux4_8_todo",
+    #     config_24gb_v6,
+    #     config_updates={
+    #         "batch_size": 8_000 * _batch_size_factor,
+    #         "learning_rate": 1.0,
+    #         "dynamic_learning_rate": dyn_lr_piecewise_linear,
+    #         # total steps after 2000 epochs: 982.312
+    #         # total steps after 400 epochs:
+    #         "learning_rate_piecewise_steps": [66_000, 132_000, 145_000], # 45% 45 % 10% # TODO
+    #         # "learning_rate_piecewise_steps": [600_000, 900_000, 982_000], # 45% 45 % 10%
+    #         "learning_rate_piecewise_values": [5e-5, 5e-4, 5e-5, 1e-7],
+    #         "aux_loss_layers": [4,8],
+    #         "preload_from_files": {
+    #             "encoder": {
+    #                 "filename": "/u/luca.gaudino/setups/2023-08-10--rf-librispeech/work/i6_core/returnn/training/ReturnnTrainingJob.AWwVft0oGy8e/output/models/epoch.1982.pt",
+    #                 "ignore_missing": True,
+    #                 "init_for_train": True,
+    #             },
+    #         },
+    #     },
+    #     num_epochs=250,
+    #     gpu_mem=24,
     # )
 
 
@@ -169,14 +220,16 @@ def _recog(
     *,
     search_rqmt: Optional[Dict[str, Any]] = None,
     dev_sets: Optional[Collection[str]] = None,
+    mini_returnn_data: bool = False,
+    device: str = "gpu",
 ):
     from sisyphus import tk
-    from i6_experiments.users.zeyer.recog import recog_model
+    from i6_experiments.users.gaudino.recog_2 import recog_model
 
     if recog_def is None:
         recog_def = model_recog
 
-    task = _get_ls_task(bpe_size="BPE5k")
+    task = _get_ls_task(bpe_size="BPE5k", mini_returnn=mini_returnn_data)
 
     res = recog_model(
         task,
@@ -185,6 +238,7 @@ def _recog(
         config=recog_config,
         search_rqmt=search_rqmt,
         dev_sets=dev_sets,
+        device=device,
     )
     tk.register_output(_sis_prefix + "/" + name, res.output)
 
@@ -204,6 +258,9 @@ def train_exp(
     time_rqmt: Optional[int] = None,
     model_avg: bool = False,
     search_config: Optional[Dict[str, Any]] = None,
+    bpe_size: str = "BPE10k",
+    mini_returnn_data: bool = False,
+    model_def: ModelDef = from_scratch_model_def,
 ) -> ModelWithCheckpoints:
     """
     Train experiment
@@ -211,13 +268,13 @@ def train_exp(
     from i6_experiments.users.gaudino.experiments.rf_conformer_att_2023.train import (
         train,
     )
-    from i6_experiments.users.zeyer.recog import recog_training_exp
+    from i6_experiments.users.gaudino.recog_2 import recog_training_exp
 
     if _sis_prefix is None:
         _sis_setup_global_prefix()
 
     prefix = _sis_prefix + "/" + name
-    task = _get_ls_task(bpe_size="BPE10k")
+    task = _get_ls_task(bpe_size=bpe_size, mini_returnn=mini_returnn_data)
     config = config.copy()
     config = dict_update_deep(config, config_updates, config_deletes)
     if "__num_epochs" in config:
@@ -232,7 +289,7 @@ def train_exp(
         task=task,
         config=config,
         post_config=dict_update_deep(post_config, post_config_updates),
-        model_def=from_scratch_model_def,
+        model_def=model_def,
         train_def=from_scratch_training,
         num_epochs=num_epochs,
         gpu_mem=gpu_mem,
@@ -305,7 +362,7 @@ def train_exp(
 _ls_task = None
 _ted2_task = None
 
-def _get_ls_task(bpe_size):
+def _get_ls_task(bpe_size, mini_returnn=False):
     global _ls_task
     if _ls_task:
         return _ls_task
@@ -318,7 +375,7 @@ def _get_ls_task(bpe_size):
         _ls_task = get_librispeech_task_bpe10k_raw(with_eos_postfix=True)
 
     if bpe_size == "BPE5k":
-        _ls_task = get_librispeech_task_bpe5k_raw(with_eos_postfix=True)
+        _ls_task = get_librispeech_task_bpe5k_raw(with_eos_postfix=True, mini_returnn=mini_returnn)
 
     return _ls_task
 

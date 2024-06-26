@@ -226,6 +226,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
         "base-24gb-lrlin1e_5_600k_ctc_only_aux4_8_40subsample",
         config_24gb_v6,
         config_updates={
+            "batch_size": 30_000 * _batch_size_factor,
             "learning_rate": 1.0,
             "dynamic_learning_rate": dyn_lr_piecewise_linear,
             # total steps after 2000 epochs: 982.312

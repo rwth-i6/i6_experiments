@@ -101,7 +101,6 @@ def model_recog(
         not model.language_model
     )  # not implemented here. use the pure PyTorch search instead
 
-    breakpoint()
 
     batch_dims = data.remaining_dims((data_spatial_dim, data.feature_dim))
     enc_args, enc_spatial_dim = model.encode(data, in_spatial_dim=data_spatial_dim)
@@ -355,8 +354,8 @@ def model_recog(
     lens = []
     for i in range(batch_size):
         for j in range(beam_width):
-            lens.append(len(seq_targets_raw[i][j])-1)
-    max_hyp_len = max(lens) # first blank token will be removed
+            lens.append(len(seq_targets_raw[i][j])-2) # remove first blank and eos token
+    max_hyp_len = max(lens)+1 # first blank token will be removed
 
     seq_targets_raw_padded = torch.full((batch_size, beam_width, max_hyp_len), fill_value=model.eos_idx, device=device)
     for i in range(batch_size):

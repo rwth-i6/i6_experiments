@@ -227,7 +227,8 @@ class MakeModelV2:
             bos_idx=_get_bos_idx(target_dim),
             eos_idx=_get_eos_idx(target_dim),
             language_model=lm,
-            use_i6_models_feat_ext = True,
+            use_i6_models_feat_ext = True, # Changed
+            lstm_biases = True, # Changed
             # feat_ext_opts=dict(
             #     f_min=60,
             #     f_max=7600,
@@ -253,6 +254,7 @@ class Predictor(rf.Module):
         num_lstm_layers: int = 1,
         lstm_hidden_dim: int = 512,
         lstm_dropout: float = 0.1,
+        lstm_biases: bool = False,
     ) -> None:
         """
 
@@ -280,6 +282,7 @@ class Predictor(rf.Module):
             rf.LSTM(
                 self.symbol_embedding_dim if idx == 0 else self.lstm_hidden_dim,
                 self.lstm_hidden_dim,
+                with_bias_rec=lstm_biases,
             )
             for idx in range(self.num_lstm_layers)
         )
@@ -344,7 +347,6 @@ class Predictor(rf.Module):
                     output states; list of lists of tensors
                     representing internal state generated in current invocation of ``forward``.
         """
-
         embedding_out = self.embedding(input)
         embedding_out = rf.dropout(
             embedding_out,
@@ -502,6 +504,8 @@ class Model(rf.Module):
         joiner_dim: int = 640,
         use_i6_models_feat_ext: bool = False,
         feat_ext_opts: Optional[Dict[str, Any]] = None,
+        lstm_biases: bool = False,
+        loss_type: str = "rnnt",
     ):
         super(Model, self).__init__()
 
@@ -593,7 +597,10 @@ class Model(rf.Module):
         self.predictor = Predictor(
             label_target_size=self.target_dim_w_blank,
             output_dim=self.joiner_dim,
+            lstm_biases=lstm_biases,
         )
+
+        self.loss_type = loss_type
 
         for p in self.parameters():
             p.weight_decay = l2
@@ -655,8 +662,11 @@ class Model(rf.Module):
     ) -> Tuple[Dict[str, Tensor], Dim]:
         """encode, and extend the encoder output for things we need in the decoder"""
 
+        breakpoint()
         if self.use_i6_models_feat_ext:
+            orig_device = source.device
             squeezed_features = torch.squeeze(source.raw_tensor)
+            squeezed_features = squeezed_features.to("cpu")
             raw_audio_len = in_spatial_dim.dyn_size_ext.raw_tensor
             audio_features, audio_features_len_raw = self.feature_extraction(
                 squeezed_features, raw_audio_len
@@ -672,8 +682,9 @@ class Model(rf.Module):
                 name="audio-features",
                 dims=[source.dims[0], in_spatial_dim, self.in_dim],
                 raw_tensor=audio_features,
-                dtype="float32",
+                dtype=source.dtype,
             )
+            source = rf.copy_to_device(source, orig_device)
         else:
             # log mel filterbank features
             source, in_spatial_dim = rf.audio.log_mel_filterbank_from_raw_v2(
@@ -993,29 +1004,43 @@ def from_scratch_training(
     labels_len = rf.copy_to_device(targets_spatial_dim.get_size_tensor(), "cuda")
     frames_len = rf.copy_to_device(enc_spatial_dim.get_size_tensor(), "cuda")
 
-    rnnt_loss_raw = warp_rnnt.rnnt_loss(
-        log_probs=logprobs.raw_tensor,
-        frames_lengths=frames_len.raw_tensor,
-        labels=targets.raw_tensor,
-        labels_lengths=labels_len.raw_tensor,
-        blank=model.blank_idx,
-        fastemit_lambda=0.0,
-        reduction="sum",
-        gather=True,
-    )
+    if model.loss_type == "monotonic_rnnt":
+        from returnn.extern_private.BergerMonotonicRNNT.monotonic_rnnt.pytorch_binding import monotonic_rnnt_loss
 
-    rnnt_loss = Tensor(
-        name="rnnt_loss",
-        dims=[Dim(name="rnnt_loss_dim", dimension=1)],
-        raw_tensor=rnnt_loss_raw.unsqueeze(0),
-        dtype=logprobs.dtype,
-    )
+        loss = monotonic_rnnt_loss(
+            acts=logprobs.raw_tensor,
+            labels=targets.raw_tensor,
+            input_lengths=frames_len.raw_tensor,
+            label_lengths=labels_len.raw_tensor,
+            blank_label=model.blank_idx,
+        )
 
-    rnnt_loss.mark_as_loss(
-        name="rnnt",
-        custom_inv_norm_factor=targets_spatial_dim.get_size_tensor(),
-        use_normalized_loss=use_normalized_loss,
-    )
+        loss = rf.convert_to_tensor(loss, name="full_sum_loss")
+        loss.mark_as_loss("full_sum_loss", scale=1.0, use_normalized_loss=True)
+    else:
+        rnnt_loss_raw = warp_rnnt.rnnt_loss(
+            log_probs=logprobs.raw_tensor,
+            frames_lengths=frames_len.raw_tensor,
+            labels=targets.raw_tensor,
+            labels_lengths=labels_len.raw_tensor,
+            blank=model.blank_idx,
+            fastemit_lambda=0.0,
+            reduction="sum",
+            gather=True,
+        )
+
+        rnnt_loss = Tensor(
+            name="rnnt_loss",
+            dims=[Dim(name="rnnt_loss_dim", dimension=1)],
+            raw_tensor=rnnt_loss_raw.unsqueeze(0),
+            dtype=logprobs.dtype,
+        )
+
+        rnnt_loss.mark_as_loss(
+            name="rnnt",
+            custom_inv_norm_factor=targets_spatial_dim.get_size_tensor(),
+            use_normalized_loss=use_normalized_loss,
+        )
 
     # def _body(input_embed: Tensor, state: rf.State):
     #     new_state = rf.State()

@@ -117,6 +117,8 @@ def convert_checkpoint(
 
     pt_model = rf_module_to_pt_module(model)
 
+    breakpoint()
+
     if save_model:
         os.makedirs(out_dir, exist_ok=True)
         filename = out_dir + "/" + ckpt_name  # + ".pt"
@@ -289,6 +291,7 @@ def _add_params_predictor_joiner(param_mapping: Dict[str, str]):
                 f"predictor.layers.{layer_idx}.ff_weight": f"predictor.lstm_layers.{layer_idx}.weight_ih_l0",
                 f"predictor.layers.{layer_idx}.rec_weight": f"predictor.lstm_layers.{layer_idx}.weight_hh_l0",
                 f"predictor.layers.{layer_idx}.bias": f"predictor.lstm_layers.{layer_idx}.bias_ih_l0",
+                f"predictor.layers.{layer_idx}.bias_rec": f"predictor.lstm_layers.{layer_idx}.bias_hh_l0",
             }
         )
 
@@ -318,6 +321,10 @@ def map_param_func(
     from i6_experiments.users.zeyer.returnn.convert.params import (
         tf_to_rf_np as convert_params_tf_to_rf_np,
     )
+    from i6_experiments.users.gaudino.convert import (
+        convert_params,
+    )
+
 
     assert isinstance(var, rf.Parameter)
 
@@ -374,6 +381,10 @@ def map_param_func(
         assert value.shape == var.batch_shape, name + f" {value.shape} vs {var.batch_shape}"
         return value.numpy()
 
+    # if name.endswith(".ff_weight"):
+    #     value = ckpt["model"][f"predictor.lstm_layers.{layer_idx}.weight_ih_l0"].numpy()
+    #     value = convert_params.convert_ff(value, "", "ifjo")
+
     # if name == "s.ff_weight":
     #     value = reader.get_tensor("output/rec/s/rec/lstm_cell/kernel")
     #     value = convert_params_np.convert_tf_lstm_to_native_lstm_ff(value)
@@ -418,6 +429,6 @@ if __name__ == "__main__":
     convert_checkpoint(
         ckpt_path=_nick_pure_torch_rnnt_ckpt_path,
         print_params=True,
-        out_dir="/work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/2023-08-10--rf-librispeech/work/i6_experiments/users/gaudino/returnn/convert_ckpt_rf/librispeech/rnnt_nick_240619",
+        out_dir="/work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/2023-08-10--rf-librispeech/work/i6_experiments/users/gaudino/returnn/convert_ckpt_rf/librispeech/rnnt_nick_240620",
         save_model=True,
     )
