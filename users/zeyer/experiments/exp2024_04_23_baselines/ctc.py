@@ -425,9 +425,11 @@ def ctc_model_def(*, epoch: int, in_dim: Dim, target_dim: Dim) -> Model:
         enc_model_dim=Dim(name="enc", dimension=512, kind=Dim.Types.Feature),
         enc_ff_dim=Dim(name="enc-ff", dimension=2048, kind=Dim.Types.Feature),
         enc_att_num_heads=8,
-        enc_conformer_layer_opts=dict(
+        enc_conformer_layer=rf.build_dict(
+            rf.encoder.conformer.ConformerEncoderLayer,
             conv_norm=conv_norm,
-            self_att_opts=dict(
+            self_att=rf.build_dict(
+                rf.RelPosSelfAttention,
                 # Shawn et al 2018 style, old RETURNN way.
                 with_bias=False,
                 with_linear_pos=False,
@@ -436,7 +438,7 @@ def ctc_model_def(*, epoch: int, in_dim: Dim, target_dim: Dim) -> Model:
                 separate_pos_emb_per_head=False,
                 pos_emb_dropout=pos_emb_dropout,
             ),
-            ff_activation=lambda x: rf.relu(x) ** 2.0,
+            ff_activation=rf.relu_square,
         ),
         target_dim=target_dim,
         blank_idx=target_dim.dimension,
@@ -637,7 +639,7 @@ class Model(rf.Module):
         enc_model_dim: Dim = Dim(name="enc", dimension=512),
         enc_ff_dim: Dim = Dim(name="enc-ff", dimension=2048),
         enc_att_num_heads: int = 4,
-        enc_conformer_layer_opts: Optional[Dict[str, Any]] = None,
+        enc_conformer_layer: Optional[Dict[str, Any]] = None,
         enc_key_total_dim: Dim = Dim(name="enc_key_total_dim", dimension=1024),
         enc_dropout: float = 0.1,
         enc_att_dropout: float = 0.1,
@@ -667,7 +669,7 @@ class Model(rf.Module):
                 pool_sizes=[(1, 2)],
                 strides=[(1, 1), (3, 1), (2, 1)],
             ),
-            encoder_layer_opts=enc_conformer_layer_opts,
+            encoder_layer=enc_conformer_layer,
             num_layers=num_enc_layers,
             num_heads=enc_att_num_heads,
             dropout=enc_dropout,
