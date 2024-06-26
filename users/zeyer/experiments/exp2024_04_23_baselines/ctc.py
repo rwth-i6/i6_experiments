@@ -311,6 +311,27 @@ def py():
                 },
             )
 
+    # This one uses the default RelPosSelfAttention instead of the Shawn et al 2018 style, old RETURNN way.
+    enc_conformer_layer_default = rf.build_dict(
+        rf.encoder.conformer.ConformerEncoderLayer,
+        ff_activation=rf.build_dict(rf.relu_square),
+        num_heads=8,
+    )
+    train_exp(
+        "v6-relPosAttDef"
+        "-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-speedpertV2-spm10k-spmSample07",
+        config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
+        model_config={"enc_conformer_layer": enc_conformer_layer_default},
+        config_updates={
+            **_get_cfg_lrlin_oclr_by_bs_nep(15_000, 500),
+            "optimizer.weight_decay": 1e-2,
+            "__train_audio_preprocess": speed_pert_librosa_config,
+            "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
+        },
+        vocab="spm10k",
+        train_vocab_opts={"other_opts": {"enable_sampling": True, "alpha": 0.7}},
+    )
+
 
 # noinspection PyShadowingNames
 def train_exp(
@@ -411,7 +432,6 @@ def ctc_model_def(*, epoch: int, in_dim: Dim, target_dim: Dim) -> Model:
     in_dim, epoch  # noqa
     config = get_global_config()  # noqa
     enc_aux_logits = config.typed_value("aux_loss_layers")
-    pos_emb_dropout = config.float("pos_emb_dropout", 0.0)
     num_enc_layers = config.int("num_enc_layers", 12)
     # real input is raw audio, internally it does logmel
     in_dim = Dim(name="logmel", dimension=_log_mel_feature_dim, kind=Dim.Types.Feature)
@@ -434,7 +454,6 @@ def ctc_model_def(*, epoch: int, in_dim: Dim, target_dim: Dim) -> Model:
                     with_pos_bias=False,
                     learnable_pos_emb=True,
                     separate_pos_emb_per_head=False,
-                    pos_emb_dropout=pos_emb_dropout,
                 ),
                 ff_activation=rf.build_dict(rf.relu_square),
                 num_heads=8,
