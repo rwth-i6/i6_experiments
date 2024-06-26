@@ -442,22 +442,20 @@ def ctc_model_def(*, epoch: int, in_dim: Dim, target_dim: Dim) -> Model:
         assert not conv_norm, "set only enc_conformer_layer or conv_norm, not both"
         assert isinstance(enc_conformer_layer, dict) and "class" in enc_conformer_layer
     else:
-        enc_conformer_layer = (
-            rf.build_dict(
-                rf.encoder.conformer.ConformerEncoderLayer,
-                conv_norm=conv_norm or {"class": "rf.BatchNorm", "use_mask": True},
-                self_att=rf.build_dict(
-                    rf.RelPosSelfAttention,
-                    # Shawn et al 2018 style, old RETURNN way.
-                    with_bias=False,
-                    with_linear_pos=False,
-                    with_pos_bias=False,
-                    learnable_pos_emb=True,
-                    separate_pos_emb_per_head=False,
-                ),
-                ff_activation=rf.build_dict(rf.relu_square),
-                num_heads=8,
+        enc_conformer_layer = rf.build_dict(
+            rf.encoder.conformer.ConformerEncoderLayer,
+            conv_norm=conv_norm or {"class": "rf.BatchNorm", "use_mask": True},
+            self_att=rf.build_dict(
+                rf.RelPosSelfAttention,
+                # Shawn et al 2018 style, old RETURNN way.
+                with_bias=False,
+                with_linear_pos=False,
+                with_pos_bias=False,
+                learnable_pos_emb=True,
+                separate_pos_emb_per_head=False,
             ),
+            ff_activation=rf.build_dict(rf.relu_square),
+            num_heads=8,
         )
 
     return Model(
