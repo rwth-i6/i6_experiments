@@ -417,29 +417,36 @@ def ctc_model_def(*, epoch: int, in_dim: Dim, target_dim: Dim) -> Model:
     in_dim = Dim(name="logmel", dimension=_log_mel_feature_dim, kind=Dim.Types.Feature)
 
     conv_norm = config.typed_value("conv_norm", None)
-    conv_norm: Dict[str, Any] = {"class": "rf.BatchNorm", "use_mask": True} if not conv_norm else conv_norm
+    enc_conformer_layer = config.typed_value("enc_conformer_layer", None)
+    if enc_conformer_layer:
+        assert not conv_norm, "set only enc_conformer_layer or conv_norm, not both"
+        assert isinstance(enc_conformer_layer, dict) and "class" in enc_conformer_layer
+    else:
+        enc_conformer_layer = (
+            rf.build_dict(
+                rf.encoder.conformer.ConformerEncoderLayer,
+                conv_norm=conv_norm or {"class": "rf.BatchNorm", "use_mask": True},
+                self_att=rf.build_dict(
+                    rf.RelPosSelfAttention,
+                    # Shawn et al 2018 style, old RETURNN way.
+                    with_bias=False,
+                    with_linear_pos=False,
+                    with_pos_bias=False,
+                    learnable_pos_emb=True,
+                    separate_pos_emb_per_head=False,
+                    pos_emb_dropout=pos_emb_dropout,
+                ),
+                ff_activation=rf.build_dict(rf.relu_square),
+                num_heads=8,
+            ),
+        )
 
     return Model(
         in_dim,
         num_enc_layers=num_enc_layers,
         enc_model_dim=Dim(name="enc", dimension=512, kind=Dim.Types.Feature),
         enc_ff_dim=Dim(name="enc-ff", dimension=2048, kind=Dim.Types.Feature),
-        enc_att_num_heads=8,
-        enc_conformer_layer=rf.build_dict(
-            rf.encoder.conformer.ConformerEncoderLayer,
-            conv_norm=conv_norm,
-            self_att=rf.build_dict(
-                rf.RelPosSelfAttention,
-                # Shawn et al 2018 style, old RETURNN way.
-                with_bias=False,
-                with_linear_pos=False,
-                with_pos_bias=False,
-                learnable_pos_emb=True,
-                separate_pos_emb_per_head=False,
-                pos_emb_dropout=pos_emb_dropout,
-            ),
-            ff_activation=rf.build_dict(rf.relu_square),
-        ),
+        enc_conformer_layer=enc_conformer_layer,
         target_dim=target_dim,
         blank_idx=target_dim.dimension,
         bos_idx=_get_bos_idx(target_dim),
@@ -638,11 +645,7 @@ class Model(rf.Module):
         enc_aux_logits: Sequence[int] = (),  # layers
         enc_model_dim: Dim = Dim(name="enc", dimension=512),
         enc_ff_dim: Dim = Dim(name="enc-ff", dimension=2048),
-        enc_att_num_heads: int = 4,
         enc_conformer_layer: Optional[Dict[str, Any]] = None,
-        enc_key_total_dim: Dim = Dim(name="enc_key_total_dim", dimension=1024),
-        enc_dropout: float = 0.1,
-        enc_att_dropout: float = 0.1,
     ):
         super(Model, self).__init__()
 
@@ -671,9 +674,6 @@ class Model(rf.Module):
             ),
             encoder_layer=enc_conformer_layer,
             num_layers=num_enc_layers,
-            num_heads=enc_att_num_heads,
-            dropout=enc_dropout,
-            att_dropout=enc_att_dropout,
             sequential=enc_sequential,
         )
 
@@ -681,9 +681,6 @@ class Model(rf.Module):
         self.blank_idx = blank_idx
         self.eos_idx = eos_idx
         self.bos_idx = bos_idx  # for non-blank labels; for with-blank labels, we use bos_idx=blank_idx
-
-        self.enc_key_total_dim = enc_key_total_dim
-        self.enc_key_per_head_dim = enc_key_total_dim.div_left(enc_att_num_heads)
 
         if not wb_target_dim:
             wb_target_dim = target_dim + 1
