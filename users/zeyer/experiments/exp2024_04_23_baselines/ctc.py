@@ -438,7 +438,7 @@ def ctc_model_def(*, epoch: int, in_dim: Dim, target_dim: Dim) -> Model:
                 separate_pos_emb_per_head=False,
                 pos_emb_dropout=pos_emb_dropout,
             ),
-            ff_activation=rf.relu_square,
+            ff_activation=rf.build_dict(rf.relu_square),
         ),
         target_dim=target_dim,
         blank_idx=target_dim.dimension,
