@@ -143,12 +143,12 @@ def py():
     # Comparing vocabs with better settings: feature norm, sampling, no max seq len.
     for vocab, sample, alpha in [
         ("spm20k", "spm", 0.7),
-        ("bpe10k", "bpe", 0.01),
-        ("spm10k", "spm", 0.7),
+        ("bpe10k", "bpe", 0.01),  # 6.46 (but without featBN,maxSeqLenNone: 6.33)
+        ("spm10k", "spm", 0.7),  # 6.31 (but without maxSeqLenNone: 6.29)
         ("spm10k", "bpe", 0.01),
         ("spm_bpe10k", "bpe", 0.01),
         ("spm4k", "spm", 0.7),
-        ("spm1k", "spm", 0.7),
+        ("spm1k", "spm", 0.7),  # 7.43 (but without spmSample07,featBN,maxSeqLenNone: 7.34)
         # ("spm_bpe1k", ...)
     ]:
         train_exp(
@@ -191,7 +191,8 @@ def py():
     # Testing different vocabs together with sampling.
     for vocab, alpha in [
         # spm20k no sampling: 6.12
-        ("spm20k", 0.7),
+        ("spm20k", 0.8),
+        ("spm20k", 0.7),  # 6.32
         # See archive/returnn-spm10-sample.config for playing around with alpha and checking avg seq len.
         # The lower the alpha, the longer the seq len, i.e. the more aggressive the sampling.
         # spm10k no sampling: 6.11
@@ -203,7 +204,8 @@ def py():
         # The higher the alpha, the longer (the reverse as for SPM Unigram).
         # See archive/returnn-spm_bpe10-sample.config.
         # spm_bpe10k no sampling: 6.34
-        ("spm_bpe10k", 0.0001),  # 6.26
+        ("spm_bpe10k", 1e-5),
+        ("spm_bpe10k", 1e-4),  # 6.26
         ("spm_bpe10k", 0.001),  # 6.32
         ("spm_bpe10k", 0.005),  # 6.31
         ("spm_bpe10k", 0.01),  # 6.33
@@ -280,6 +282,8 @@ def py():
 
     # Replacing batch norm in the Conformer Convolution Module with other normalization schemes.
     for name, opts in {
+        # baseline: (batch-norm): {"dev-clean": 2.73, "dev-other": 6.33, "test-clean": 2.81, "test-other": 6.52}
+        # batchRenorm: {"dev-clean": 2.69, "dev-other": 6.26, "test-clean": 2.91, "test-other": 6.55}
         "batchRenorm": rf.build_dict(
             BatchRenorm,
             use_mask=True,
@@ -287,6 +291,7 @@ def py():
             d_max=rf.build_dict(rf.PiecewiseLinearStepwiseScheduler, points={5_000: 0.0, 25_000: 5.0}),
         ),
         "groupNorm": rf.build_dict(rf.GroupNorm, num_groups=32),
+        # layerNorm: {"dev-clean": 2.58, "dev-other": 6.39, "test-clean": 2.91, "test-other": 6.51}
         "layerNorm": rf.build_dict(rf.LayerNorm),
     }.items():
         for vocab, alpha in [("bpe10k", 0.01)]:  # [("bpe10k", 0.01), ("spm10k", 0.7)]:
