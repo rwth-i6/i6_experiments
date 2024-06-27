@@ -146,7 +146,7 @@ def py():
         ("bpe10k", "bpe", 0.01),  # 6.46 (but without featBN,maxSeqLenNone: 6.33)
         ("spm10k", "spm", 0.7),  # 6.31 (but without maxSeqLenNone: 6.29)
         ("spm10k", "bpe", 0.01),
-        ("spm_bpe10k", "bpe", 0.01),
+        ("spm_bpe10k", "bpe", 0.01),  # 6.19
         ("spm4k", "spm", 0.7),
         ("spm1k", "spm", 0.7),  # 7.43 (but without spmSample07,featBN,maxSeqLenNone: 7.34)
         # ("spm_bpe1k", ...)
@@ -194,6 +194,7 @@ def py():
         # spm20k no sampling: 6.12
         ("spm20k", "spm", 0.8),
         ("spm20k", "spm", 0.7),  # 6.32
+        ("spm20k", "bpe", 0.01),
         # See archive/returnn-spm10-sample.config for playing around with alpha and checking avg seq len.
         # The lower the alpha, the longer the seq len, i.e. the more aggressive the sampling.
         # spm10k no sampling: 6.11
@@ -212,6 +213,7 @@ def py():
         ("spm_bpe10k", "spm", 0.001),  # 6.32
         ("spm_bpe10k", "spm", 0.005),  # 6.31
         ("spm_bpe10k", "spm", 0.01),  # 6.33
+        ("spm_bpe10k", "bpe", 0.01),
         # alpha for BPE is again a bit different, but more similar to SPM-BPE than SPM-Unigram.
         # See archive/returnn-bpe10-sample.config.
         # The higher the alpha, the longer the sequence, i.e. the more aggressive the sampling.
@@ -222,6 +224,7 @@ def py():
         # spm4k no sampling: 6.20
         ("spm4k", "spm", 0.7),
         ("spm4k", "bpe", 0.01),
+        ("spm1k", "bpe", 0.01),
     ]:
         train_exp(
             f"v6-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-speedpertV2-{vocab}"
