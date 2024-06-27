@@ -1,4 +1,4 @@
-from typing import Dict, Optional
+from typing import Callable, Dict, Optional, Union
 
 import torch
 from returnn.tensor.tensor_dict import TensorDict
@@ -172,7 +172,7 @@ def train_step_align_restrict(
     *,
     model: FFNNTransducer,
     extern_data: TensorDict,
-    max_distance_from_alignment: int,
+    max_distance_from_alignment: Union[int, Callable[[int], int]],
     blank_idx: int = 0,
     enc_loss_scales: Optional[Dict[int, float]] = None,
     **_,
@@ -219,17 +219,26 @@ def train_step_align_restrict(
         target_lengths=target_lengths,
     )
 
+    if isinstance(max_distance_from_alignment, int):
+        current_max_distance_from_alignment = max_distance_from_alignment
+    else:
+        epoch = rf.get_run_ctx().epoch
+        if not isinstance(epoch, int):
+            assert epoch.raw_tensor is not None
+            epoch = epoch.raw_tensor.item()
+        current_max_distance_from_alignment = max_distance_from_alignment(epoch)
+
     loss = monotonic_rnnt_loss(
         acts=model_logits.to(dtype=torch.float32),
         labels=targets,
         input_lengths=source_lengths,
         label_lengths=target_lengths,
         alignment=alignments,
-        max_distance_from_alignment=max_distance_from_alignment,
+        max_distance_from_alignment=current_max_distance_from_alignment,
         blank_label=blank_idx,
     )
     rf.get_run_ctx().mark_as_loss(
-        name=f"monotonic_rnnt_restrict-{max_distance_from_alignment}",
+        name=f"monotonic_rnnt_restrict-{current_max_distance_from_alignment}",
         loss=loss,
         custom_inv_norm_factor=target_loss_norm_factor,
     )
@@ -237,18 +246,28 @@ def train_step_align_restrict(
     alignments_packed = torch.nn.utils.rnn.pack_padded_sequence(
         alignments, source_lengths.cpu(), batch_first=True, enforce_sorted=False
     )
-    alignments_masked, _ = torch.nn.utils.rnn.pad_packed_sequence(
-        alignments_packed, batch_first=True, padding_value=-100
-    )
 
     for logits, scale, suffix in [
         (intermediate_logits[layer_idx], scale, f"enc-{layer_idx}") for layer_idx, scale in enc_loss_scales.items()
     ]:
         log_probs = torch.log_softmax(logits, dim=-1)  # [B, T, F]
-        log_probs = torch.transpose(log_probs, 1, 2)  # [B, F, T]
+        log_probs = torch.transpose(log_probs, 0, 1)  # [T, B, C]
 
-        loss = torch.nn.functional.cross_entropy(
-            input=log_probs, target=alignments_masked.long(), ignore_index=-100, reduction="sum"
+        loss = torch.nn.functional.ctc_loss(
+            log_probs=log_probs,
+            targets=targets,
+            input_lengths=source_lengths,
+            target_lengths=target_lengths,
+            blank=blank_idx,
+            reduction="sum",
+            zero_infinity=True,
+        )
+
+        rf.get_run_ctx().mark_as_loss(
+            name=f"CTC_{suffix}",
+            loss=loss,
+            scale=scale,
+            custom_inv_norm_factor=target_loss_norm_factor,
         )
 
         predictions = torch.argmax(logits, dim=-1)
@@ -257,9 +276,6 @@ def train_step_align_restrict(
         )
         num_incorrect_frames = torch.sum((alignments_packed.data != predictions_packed.data))
 
-        rf.get_run_ctx().mark_as_loss(
-            name=f"CE_{suffix}", loss=loss, scale=scale, custom_inv_norm_factor=alignment_loss_norm_factor
-        )
         rf.get_run_ctx().mark_as_loss(
             name=f"FER_{suffix}",
             loss=num_incorrect_frames,

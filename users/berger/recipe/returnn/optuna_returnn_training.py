@@ -332,8 +332,8 @@ class OptunaReturnnTrainingJob(Job):
         if not trial_pruned and max_epoch == self.num_epochs:
             logging.info("Finished trial run normally")
             os.link(
-                f"trial-{task_id:03d}/learning_rates",
-                self.out_trial_learning_rates[task_id].get_path(),
+                f"trial-{trial_num:03d}/learning_rates",
+                self.out_trial_learning_rates[trial_num].get_path(),
             )
 
         if not trial_pruned and max_epoch != self.num_epochs:
@@ -397,8 +397,20 @@ class OptunaReportIntermediateScoreJob(Job):
         trial_id = storage.get_trial_id_from_study_id_trial_number(study_id, self.trial_num)
         trial = optuna.Trial(study, trial_id)
 
-        trial.report(value=self.score.get(), step=self.step)
         self.out_reported_score.set(self.score.get())
+
+        for frozen_trial in study.get_trials(
+            states=[
+                optuna.trial.TrialState.COMPLETE,
+                optuna.trial.TrialState.FAIL,
+                optuna.trial.TrialState.PRUNED,
+            ]
+        ):
+            if frozen_trial.number == self.trial_num:
+                logging.info(f"Trial has already finished with state {frozen_trial.state}")
+                return
+
+        trial.report(value=self.score.get(), step=self.step)
 
     @classmethod
     def hash(cls, kwargs):
@@ -444,10 +456,20 @@ class OptunaReportFinalScoreJob(Job):
         )
 
         best_score = min([score.get() for score in self.scores])
+        self.out_reported_score.set(best_score)
 
-        study.tell(
-            trial=self.trial_num, values=best_score, state=optuna.trial.TrialState.COMPLETE, skip_if_finished=True
-        )
+        for frozen_trial in study.get_trials(
+            states=[
+                optuna.trial.TrialState.COMPLETE,
+                optuna.trial.TrialState.FAIL,
+                optuna.trial.TrialState.PRUNED,
+            ]
+        ):
+            if frozen_trial.number == self.trial_num:
+                logging.info(f"Trial has already finished with state {frozen_trial.state}")
+                return
+
+        study.tell(trial=self.trial_num, values=best_score, state=optuna.trial.TrialState.COMPLETE)
 
     @classmethod
     def hash(cls, kwargs):

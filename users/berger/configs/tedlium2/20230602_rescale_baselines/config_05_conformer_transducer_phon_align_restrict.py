@@ -1,9 +1,8 @@
 import copy
 import os
-from typing import Dict, List, Tuple
+from typing import Dict, List
 
 import i6_core.rasr as rasr
-from i6_core.returnn import PtCheckpoint
 from i6_core.returnn.config import ReturnnConfig
 from i6_experiments.users.berger.args.experiments import transducer as exp_args
 from i6_experiments.users.berger.args.returnn.config import Backend, get_returnn_config
@@ -235,7 +234,6 @@ def run_exp(alignments: Dict[str, AlignmentData]) -> SummaryReport:
         dev_keys=data.dev_keys,
         test_keys=data.test_keys,
         corpus_data=data.data_inputs,
-        am_args=exp_args.transducer_recog_am_args,
     )
     system.setup_scoring()
 

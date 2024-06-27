@@ -208,7 +208,7 @@ def tune_model_broad(trial: optuna.Trial, model_config: model.FFNNTransducerConf
 
 def tune_learn_schedule(trial: optuna.Trial, _: model.FFNNTransducerConfig) -> dict:
     batch_size = trial.suggest_int("batch_size", 10000, 30000, step=5000)
-    peak_lr = trial.suggest_float("peak_lr", 4e-04, 1e-03, log=True)
+    peak_lr = trial.suggest_float("peak_lr", 3e-04, 1e-03)
     initial_lr = peak_lr / 10
     return {"initial_lr": initial_lr, "peak_lr": peak_lr, "batch_size": batch_size * 160}
 
@@ -265,30 +265,32 @@ def returnn_config_generator(
     }
     serializer = model.get_viterbi_train_serializer(model_config, enc_loss_scales={5: 0.3, 11: 0.7})
 
-    return get_returnn_config(
-        num_epochs=num_subepochs,
-        num_inputs=80,
-        num_outputs=num_outputs,
-        target="classes",
-        extra_python=[serializer],
-        extern_data_config=True,
-        backend=Backend.PYTORCH,
-        grad_noise=0.0,
-        grad_clip=0.0,
-        keep_last_n=1,
-        keep_best_n=0,
-        keep=sub_checkpoints,
-        optimizer=Optimizers.AdamW,
-        weight_decay=5e-06,
-        schedule=LearningRateSchedules.OCLR,
-        initial_lr=8e-05,
-        peak_lr=8e-04,
-        decayed_lr=1e-05,
-        final_lr=1e-07,
-        batch_size=30000 * 160,
-        use_chunking=False,
-        extra_config=extra_config,
-    )
+    kwargs = {
+        "num_epochs": num_subepochs,
+        "num_inputs": 80,
+        "num_outputs": num_outputs,
+        "target": "classes",
+        "extra_python": [serializer],
+        "extern_data_config": True,
+        "backend": Backend.PYTORCH,
+        "grad_noise": 0.0,
+        "grad_clip": 0.0,
+        "keep_last_n": 1,
+        "keep_best_n": 0,
+        "keep": sub_checkpoints,
+        "optimizer": Optimizers.AdamW,
+        "weight_decay": 5e-06,
+        "schedule": LearningRateSchedules.OCLR,
+        "initial_lr": 8e-05,
+        "peak_lr": 8e-04,
+        "decayed_lr": 1e-05,
+        "final_lr": 1e-07,
+        "batch_size": 30000 * 160,
+        "use_chunking": False,
+        "extra_config": extra_config,
+    }
+    kwargs.update(tuning_kwargs)
+    return get_returnn_config(**kwargs)
 
 
 def recog_enc_returnn_config_generator(
@@ -493,7 +495,6 @@ def run_exp(alignments: Dict[str, AlignmentData]) -> SummaryReport:
         dev_keys=data.dev_keys,
         test_keys=data.test_keys,
         corpus_data=data.data_inputs,
-        am_args=exp_args.transducer_recog_am_args,
     )
     system.setup_scoring()
 

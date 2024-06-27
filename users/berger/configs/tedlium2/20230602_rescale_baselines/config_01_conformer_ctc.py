@@ -145,6 +145,8 @@ def run_exp(num_subepochs: int = 250) -> Tuple[SummaryReport, Dict[str, Alignmen
         num_classes=num_outputs,
         feature_type=FeatureType.LOGMEL_16K,
         prior_scale=0.3,
+        reduction_factor=4,
+        # label_scorer_args={"extra_args": {"reduction_subtrahend": 3}},
         epoch=num_subepochs,
         register_output=True,
     )
@@ -158,7 +160,6 @@ def run_exp(num_subepochs: int = 250) -> Tuple[SummaryReport, Dict[str, Alignmen
         test_keys=data.test_keys,
         align_keys=data.align_keys,
         corpus_data=data.data_inputs,
-        am_args=exp_args.ctc_recog_am_args,
     )
     system.setup_scoring()
 

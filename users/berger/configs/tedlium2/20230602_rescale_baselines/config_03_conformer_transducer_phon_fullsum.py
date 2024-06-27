@@ -233,7 +233,6 @@ def run_exp(pretrained_checkpoint: PtCheckpoint) -> SummaryReport:
         dev_keys=data.dev_keys,
         test_keys=data.test_keys,
         corpus_data=data.data_inputs,
-        am_args=exp_args.transducer_recog_am_args,
     )
     system.setup_scoring()
 

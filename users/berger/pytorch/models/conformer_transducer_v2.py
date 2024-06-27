@@ -18,12 +18,16 @@ from i6_models.primitives.feature_extraction import (
     RasrCompatibleLogMelFeatureExtractionV1,
     RasrCompatibleLogMelFeatureExtractionV1Config,
 )
+from i6_experiments.users.berger.pytorch.custom_parts.sequential import SequentialModuleV1, SequentialModuleV1Config
+from i6_experiments.users.berger.pytorch.custom_parts.speed_perturbation import (
+    SpeedPerturbationModuleV1,
+    SpeedPerturbationModuleV1Config,
+)
 
 from ..custom_parts.specaugment import (
     SpecaugmentByLengthConfigV1,
     SpecaugmentByLengthModuleV1,
 )
-from ..custom_parts.vgg_frontend import VGG4LayerActFrontendCeilPoolV1, VGG4LayerActFrontendCeilPoolV1Config
 from .util import lengths_to_padding_mask
 
 
@@ -913,6 +917,122 @@ def get_default_config_v2(num_outputs: int) -> FFNNTransducerConfig:
 
     joiner_cfg = TransducerJoinerConfig(
         input_size=1152,
+        layer_size=1024,
+        act=torch.nn.Tanh(),
+        target_size=num_outputs,
+        combination_mode=CombinationMode.CONCAT,
+    )
+
+    return FFNNTransducerConfig(
+        transcriber_cfg=transcriber_cfg,
+        predictor_cfg=predictor_cfg,
+        joiner_cfg=joiner_cfg,
+    )
+
+
+def get_default_config_v3(num_outputs: int) -> FFNNTransducerConfig:
+    feature_extraction = ModuleFactoryV1(
+        module_class=RasrCompatibleLogMelFeatureExtractionV1,
+        cfg=RasrCompatibleLogMelFeatureExtractionV1Config(
+            sample_rate=16000,
+            win_size=0.025,
+            hop_size=0.01,
+            min_amp=1.175494e-38,
+            num_filters=80,
+            alpha=0.97,
+        ),
+    )
+
+    specaugment = ModuleFactoryV1(
+        module_class=SpecaugmentByLengthModuleV1,
+        cfg=SpecaugmentByLengthConfigV1(
+            time_min_num_masks=2,
+            time_max_mask_per_n_frames=35,
+            time_mask_max_size=25,
+            freq_min_num_masks=2,
+            freq_max_num_masks=8,
+            freq_mask_max_size=10,
+        ),
+    )
+
+    frontend = ModuleFactoryV1(
+        VGG4LayerActFrontendV1,
+        VGG4LayerActFrontendV1Config(
+            in_features=80,
+            conv1_channels=32,
+            conv2_channels=64,
+            conv3_channels=64,
+            conv4_channels=32,
+            conv_kernel_size=(3, 3),
+            conv_padding=None,
+            pool1_kernel_size=(2, 1),
+            pool1_stride=(2, 1),
+            pool1_padding=None,
+            pool2_kernel_size=(2, 1),
+            pool2_stride=(2, 1),
+            pool2_padding=None,
+            activation=torch.nn.ReLU(),
+            out_features=512,
+        ),
+    )
+
+    ff_cfg = conformer_parts_i6.ConformerPositionwiseFeedForwardV1Config(
+        input_dim=512,
+        hidden_dim=2048,
+        dropout=0.3,
+        activation=torch.nn.SiLU(),
+    )
+
+    mhsa_cfg = conformer_parts_i6.ConformerMHSAV1Config(
+        input_dim=512,
+        num_att_heads=8,
+        att_weights_dropout=0.3,
+        dropout=0.3,
+    )
+
+    conv_cfg = conformer_parts_i6.ConformerConvolutionV1Config(
+        channels=512,
+        kernel_size=7,
+        dropout=0.3,
+        activation=torch.nn.SiLU(),
+        norm=torch.nn.BatchNorm1d(num_features=512, affine=False),
+    )
+
+    block_cfg = conformer_i6.ConformerBlockV2Config(
+        ff_cfg=ff_cfg,
+        mhsa_cfg=mhsa_cfg,
+        conv_cfg=conv_cfg,
+        modules=["ff", "conv", "mhsa", "ff"],
+    )
+
+    conformer_cfg = conformer_i6.ConformerEncoderV2Config(
+        num_layers=12,
+        frontend=frontend,
+        block_cfg=block_cfg,
+    )
+
+    transcriber_cfg = TransducerTranscriberConfig(
+        feature_extraction=feature_extraction,
+        specaugment=specaugment,
+        encoder=ModuleFactoryV1(module_class=conformer_i6.ConformerEncoderV2, cfg=conformer_cfg),
+        layer_size=512,
+        target_size=num_outputs,
+        enc_loss_layers=[5, 11],
+    )
+
+    predictor_cfg = FFNNTransducerPredictorConfig(
+        layers=2,
+        layer_size=384,
+        activation=torch.nn.Tanh(),
+        dropout=0.3,
+        context_history_size=1,
+        context_embedding_size=256,
+        blank_id=0,
+        target_size=num_outputs,
+    )
+
+    joiner_cfg = TransducerJoinerConfig(
+        input_size=896,
         layer_size=1024,
         act=torch.nn.Tanh(),
         target_size=num_outputs,

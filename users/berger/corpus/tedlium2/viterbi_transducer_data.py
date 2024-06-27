@@ -23,6 +23,7 @@ def get_tedlium2_data(
     test_keys: Optional[List[str]] = None,
     add_unknown: bool = False,
     augmented_lexicon: bool = True,
+    eow_lexicon: bool = True,
     feature_type: FeatureType = FeatureType.GAMMATONE_16K,
     dc_detection: bool = False,
     **kwargs,
@@ -42,14 +43,12 @@ def get_tedlium2_data(
             add_all_allophones=True,
             add_unknown_phoneme_and_mapping=add_unknown,
             filter_unk_from_corpus=True,
+            eow_lexicon=eow_lexicon,
             **kwargs,
         )
     )
 
     # ********** Train data **********
-
-    train_lexicon = train_data_inputs[train_key].lexicon.filename
-    eow_lexicon = AddEowPhonemesToLexiconJob(train_lexicon).out_lexicon
 
     train_data_config = build_feature_alignment_meta_dataset_config(
         data_inputs=[train_data_inputs[train_key]],
@@ -84,18 +83,16 @@ def get_tedlium2_data(
         },
     )
 
-    # ********** Recog lexicon **********
-
-    for rasr_input in {**dev_data_inputs, **test_data_inputs}.values():
-        rasr_input.lexicon.filename = eow_lexicon
-
     # ********** Align data **********
+
+    train_lexicon = train_data_inputs[train_key].lexicon.filename
+    align_lexicon = AddEowPhonemesToLexiconJob(train_lexicon).out_lexicon
 
     align_data_inputs = {
         f"{key}_align": copy.deepcopy(data_input) for key, data_input in {**train_data_inputs, **cv_data_inputs}.items()
     }
     for data_input in align_data_inputs.values():
-        data_input.lexicon.filename = eow_lexicon
+        data_input.lexicon.filename = align_lexicon
 
     return BasicSetupData(
         train_key=train_key,
