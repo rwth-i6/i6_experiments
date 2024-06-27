@@ -197,10 +197,12 @@ def py():
         # See archive/returnn-spm10-sample.config for playing around with alpha and checking avg seq len.
         # The lower the alpha, the longer the seq len, i.e. the more aggressive the sampling.
         # spm10k no sampling: 6.11
+        ("spm10k", "spm", 0.9),
         ("spm10k", "spm", 0.8),  # 6.32
         ("spm10k", "spm", 0.7),  # 6.30
         ("spm10k", "spm", 0.5),  # 6.36
         ("spm10k", "spm", 0.3),  # 7.00
+        ("spm10k", "bpe", 0.01),
         # alpha for SPM-BPE has a very different effect, and it causes the seq len to be much longer.
         # The higher the alpha, the longer (the reverse as for SPM Unigram).
         # See archive/returnn-spm_bpe10-sample.config.
@@ -217,6 +219,9 @@ def py():
         ("bpe10k", "bpe", 0.005),  # 6.44
         ("bpe10k", "bpe", 0.01),  # 6.33
         ("bpe10k", "bpe", 0.02),  # 6.56
+        # spm4k no sampling: 6.20
+        ("spm4k", "spm", 0.7),
+        ("spm4k", "bpe", 0.01),
     ]:
         train_exp(
             f"v6-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-speedpertV2-{vocab}"
