@@ -536,9 +536,6 @@ class Model(rf.Module):
         enc_ff_dim: Dim = Dim(name="enc-ff", dimension=2048),
         enc_att_num_heads: int = 4,
         enc_conformer_layer_opts: Optional[Dict[str, Any]] = None,
-        enc_key_total_dim: Dim = Dim(name="enc_key_total_dim", dimension=1024),
-        att_num_heads: Dim = Dim(name="att_num_heads", dimension=1),
-        att_dropout: float = 0.1,
         enc_dropout: float = 0.1,
         enc_att_dropout: float = 0.1,
     ):
@@ -590,12 +587,6 @@ class Model(rf.Module):
         self.blank_idx = blank_idx
         self.eos_idx = eos_idx
         self.bos_idx = bos_idx  # for non-blank labels; for with-blank labels, we use bos_idx=blank_idx
-
-        self.enc_key_total_dim = enc_key_total_dim
-        self.enc_key_per_head_dim = enc_key_total_dim.div_left(att_num_heads)
-        self.att_num_heads = att_num_heads
-        self.att_dropout = att_dropout
-        self.dropout_broadcast = rf.dropout_broadcast_default()
 
         if enc_aux_logits:
             if not wb_target_dim:
