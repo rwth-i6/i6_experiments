@@ -12,6 +12,7 @@ from returnn.tensor import Tensor, Dim
 import returnn.frontend as rf
 from returnn.frontend.tensor_array import TensorArray
 from returnn.frontend.encoder.conformer import ConformerEncoder, ConformerConvSubsample
+from returnn.frontend.decoder.transformer import TransformerDecoder
 
 from i6_experiments.users.zeyer.model_interfaces import ModelDef, ModelDefWithCfg, RecogDef, TrainDef
 from i6_experiments.users.zeyer.returnn.models.rf_layerdrop import SequentialLayerDrop
@@ -21,7 +22,7 @@ from .configs import *
 from .configs import _get_cfg_lrlin_oclr_by_bs_nep, _batch_size_factor
 
 if TYPE_CHECKING:
-    from i6_experiments.users.zeyer.model_with_checkpoints import ModelWithCheckpoints, ModelWithCheckpoint
+    from i6_experiments.users.zeyer.model_with_checkpoints import ModelWithCheckpoints
     from i6_experiments.users.zeyer.datasets.task import Task
     from i6_experiments.users.zeyer.datasets.score_results import RecogOutput
 
@@ -372,6 +373,20 @@ def py():
         vocab="spm10k",
     )
 
+    train_exp(
+        "v6-relPosAttDef-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-speedpertV2-spm10k",
+        config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
+        model_config={"enc_conformer_layer": enc_conformer_layer_default},
+        config_updates={
+            **_get_cfg_lrlin_oclr_by_bs_nep(15_000, 500),
+            "optimizer.weight_decay": 1e-2,
+            "__train_audio_preprocess": speed_pert_librosa_config,
+            "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
+            "aux_attention_decoder": rf.build_dict(TransformerDecoder, model_dim=6),  # purely used for training
+        },
+        vocab="spm10k",
+    )
+
 
 # noinspection PyShadowingNames
 def train_exp(
@@ -549,6 +564,7 @@ def ctc_training(*, model: Model, data: rf.Tensor, data_spatial_dim: Dim, target
     config = get_global_config()  # noqa
     aux_loss_layers = config.typed_value("aux_loss_layers")
     aux_loss_scales = config.typed_value("aux_loss_scales", ([1.0] * len(aux_loss_layers)) if aux_loss_layers else None)
+    aed_loss_scale = config.float("aed_loss_scale", 1.0)
     use_normalized_loss = config.bool("use_normalized_loss", True)
 
     if data.feature_dim and data.feature_dim.dimension == 1:
@@ -561,7 +577,7 @@ def ctc_training(*, model: Model, data: rf.Tensor, data_spatial_dim: Dim, target
         )
 
     collected_outputs = {}
-    logits, enc_spatial_dim = model(data, in_spatial_dim=data_spatial_dim, collected_outputs=collected_outputs)
+    logits, enc, enc_spatial_dim = model(data, in_spatial_dim=data_spatial_dim, collected_outputs=collected_outputs)
     if aux_loss_layers:
         for i, layer_idx in enumerate(aux_loss_layers):
             if layer_idx > len(model.encoder.layers):
@@ -600,6 +616,48 @@ def ctc_training(*, model: Model, data: rf.Tensor, data_spatial_dim: Dim, target
         use_normalized_loss=use_normalized_loss,
     )
 
+    if model.decoder:
+        # potentially also other types but just assume
+        # noinspection PyTypeChecker
+        decoder: TransformerDecoder = model.decoder
+
+        input_labels, (targets_w_eos_spatial_dim,) = rf.pad(
+            targets, axes=[targets_spatial_dim], padding=[(1, 0)], value=model.bos_idx
+        )
+        targets_w_eos, _ = rf.pad(
+            targets,
+            axes=[targets_spatial_dim],
+            padding=[(0, 1)],
+            value=model.eos_idx,
+            out_dims=[targets_w_eos_spatial_dim],
+        )
+
+        batch_dims = data.remaining_dims(data_spatial_dim)
+        logits, _ = model.decoder(
+            input_labels,
+            spatial_dim=targets_w_eos_spatial_dim,
+            encoder=decoder.transform_encoder(enc, axis=enc_spatial_dim),
+            state=model.decoder.default_initial_state(batch_dims=batch_dims),
+        )
+
+        logits_packed, pack_dim = rf.pack_padded(
+            logits, dims=batch_dims + [targets_w_eos_spatial_dim], enforce_sorted=False
+        )
+        targets_packed, _ = rf.pack_padded(
+            targets_w_eos, dims=batch_dims + [targets_w_eos_spatial_dim], enforce_sorted=False, out_dim=pack_dim
+        )
+
+        log_prob = rf.log_softmax(logits_packed, axis=model.target_dim)
+        log_prob = rf.label_smoothed_log_prob_gradient(log_prob, 0.1, axis=model.target_dim)
+        loss = rf.cross_entropy(
+            target=targets_packed, estimated=log_prob, estimated_type="log-probs", axis=model.target_dim
+        )
+        loss.mark_as_loss("aed_ce", scale=aed_loss_scale, use_normalized_loss=use_normalized_loss)
+
+        best = rf.reduce_argmax(logits_packed, axis=model.target_dim)
+        frame_error = best != targets_packed
+        frame_error.mark_as_loss(name="aed_fer", as_error=True)
+
 
 ctc_training: TrainDef[Model]
 ctc_training.learning_rate_control_error_measure = "ctc"
@@ -625,7 +683,7 @@ def model_recog(
         final beam_dim
     """
     batch_dims = data.remaining_dims((data_spatial_dim, data.feature_dim))
-    logits, enc_spatial_dim = model(data, in_spatial_dim=data_spatial_dim)
+    logits, enc, enc_spatial_dim = model(data, in_spatial_dim=data_spatial_dim)
     beam_size = 12
 
     # Eager-mode implementation of beam search.
@@ -788,13 +846,23 @@ class Model(rf.Module):
 
             self._mixup = Mixup(feature_dim=self.in_dim, opts=MixupOpts(**config.typed_value("mixup")))
 
+        self.decoder = None
+        aux_attention_decoder = config.typed_value("aux_attention_decoder", None)
+        if aux_attention_decoder:
+            assert isinstance(aux_attention_decoder, dict)
+            aux_attention_decoder = aux_attention_decoder.copy()
+            aux_attention_decoder.setdefault("class", "returnn.frontend.decoder.transformer.TransformerDecoder")
+            if isinstance(aux_attention_decoder.get("model_dim", None), int):
+                aux_attention_decoder["model_dim"] = Dim(aux_attention_decoder["model_dim"], name="dec_model")
+            self.decoder = rf.build_from_dict(aux_attention_decoder, encoder_dim=enc_model_dim, vocab_dim=target_dim)
+
     def __call__(
         self,
         source: Tensor,
         *,
         in_spatial_dim: Dim,
         collected_outputs: Optional[Dict[str, Tensor]] = None,
-    ) -> Tuple[Tensor, Dim]:
+    ) -> Tuple[Tensor, Tensor, Dim]:
         """encode, get logits"""
         # log mel filterbank features
         source, in_spatial_dim = rf.audio.log_mel_filterbank_from_raw(
@@ -821,4 +889,4 @@ class Model(rf.Module):
         # Encoder including convolutional frontend
         enc, enc_spatial_dim = self.encoder(source, in_spatial_dim=in_spatial_dim, collected_outputs=collected_outputs)
         logits = self.enc_logits(enc)
-        return logits, enc_spatial_dim
+        return logits, enc, enc_spatial_dim
