@@ -91,10 +91,11 @@ def py():
         )
 
     # Comparing vocabs with better settings: feature norm, sampling, no max seq len.
+    # maxSeqLenNone might not be actually better though...
     for vocab, alpha in [
         # ("spm20k", 0.7),
-        ("bpe10k", 0.01),
-        ("spm10k", 0.7),
+        ("bpe10k", 0.01),  # 5.23
+        ("spm10k", 0.7),  # 5.12, slightly worse than before...
         # ("spm_bpe10k", ...),  # unclear what sampling scheme...
         # ("spm4k", 0.7),
         # ("spm1k", 0.7),
