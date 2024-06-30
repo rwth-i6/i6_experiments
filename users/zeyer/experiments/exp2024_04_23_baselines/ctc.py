@@ -95,7 +95,7 @@ def py():
         # (1, 1e-4),
         (1, 1e-3),  # 6.93
         (1, 1e-2),  # 6.39
-        (1, 1e-1),
+        (1, 1e-1),  # 7.34
     ]:
         train_exp(
             f"v6-bhv20-11gb-f32-bs15k-accgrad{acc}"
@@ -143,12 +143,12 @@ def py():
 
     # Comparing vocabs with better settings: feature norm, sampling, no max seq len.
     for vocab, sample, alpha in [
-        ("spm20k", "spm", 0.7),
+        ("spm20k", "spm", 0.7),  # 6.29
         ("bpe10k", "bpe", 0.01),  # 6.46 (but without featBN,maxSeqLenNone: 6.33)
         ("spm10k", "spm", 0.7),  # 6.31 (but without maxSeqLenNone: 6.29)
         ("spm10k", "bpe", 0.01),  # 6.08
         ("spm_bpe10k", "bpe", 0.01),  # 6.19
-        ("spm4k", "spm", 0.7),
+        ("spm4k", "spm", 0.7),  # 6.55
         ("spm1k", "spm", 0.7),  # 7.43 (but without spmSample07,featBN,maxSeqLenNone: 7.34)
         # ("spm_bpe1k", ...)
     ]:
@@ -314,6 +314,7 @@ def py():
             r_max=rf.build_dict(rf.PiecewiseLinearStepwiseScheduler, points={5_000: 1.0, 40_000: 3.0}),
             d_max=rf.build_dict(rf.PiecewiseLinearStepwiseScheduler, points={5_000: 0.0, 25_000: 5.0}),
         ),
+        # groupNorm: {"dev-clean": 2.66, "dev-other": 6.38, "test-clean": 2.87, "test-other": 6.57}
         "groupNorm": rf.build_dict(rf.GroupNorm, num_groups=32),
         # layerNorm: {"dev-clean": 2.58, "dev-other": 6.39, "test-clean": 2.91, "test-other": 6.51}
         "layerNorm": rf.build_dict(rf.LayerNorm),
