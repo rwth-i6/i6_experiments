@@ -225,7 +225,8 @@ def py():
         # spm4k no sampling: 6.20
         ("spm4k", "spm", 0.7),
         ("spm4k", "bpe", 0.01),
-        ("spm1k", "bpe", 0.01),
+        # smp1k no sampling: 7.34
+        ("spm1k", "bpe", 0.01),  # 8.11 (maybe worse because of max seq len?)
     ]:
         train_exp(
             f"v6-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-speedpertV2-{vocab}"
