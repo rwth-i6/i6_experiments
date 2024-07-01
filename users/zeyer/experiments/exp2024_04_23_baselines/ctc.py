@@ -146,7 +146,7 @@ def py():
         ("spm20k", "spm", 0.7),  # 6.29
         ("bpe10k", "bpe", 0.01),  # 6.46 (but without featBN,maxSeqLenNone: 6.33)
         ("spm10k", "spm", 0.7),  # 6.31 (but without maxSeqLenNone: 6.29)
-        ("spm10k", "bpe", 0.01),  # 6.08
+        ("spm10k", "bpe", 0.01),  # 6.08 (!!)
         ("spm_bpe10k", "bpe", 0.01),  # 6.19
         ("spm4k", "spm", 0.7),  # 6.55
         ("spm1k", "spm", 0.7),  # 7.43 (but without spmSample07,featBN,maxSeqLenNone: 7.34)
