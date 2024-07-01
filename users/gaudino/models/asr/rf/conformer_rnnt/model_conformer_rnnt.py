@@ -615,6 +615,7 @@ class Model(rf.Module):
                 rf.Linear(self.encoder.out_dim, wb_target_dim),
             )
 
+        self.use_spec_augment = config.typed_value("use_spec_augment", True)
         self._specaugment_opts = {
             "steps": config.typed_value("specaugment_steps") or (0, 1000, 2000),
             "max_consecutive_spatial_dims": config.typed_value(
@@ -662,7 +663,6 @@ class Model(rf.Module):
     ) -> Tuple[Dict[str, Tensor], Dim]:
         """encode, and extend the encoder output for things we need in the decoder"""
 
-        breakpoint()
         if self.use_i6_models_feat_ext:
             orig_device = source.device
             squeezed_features = torch.squeeze(source.raw_tensor)
@@ -727,12 +727,13 @@ class Model(rf.Module):
         if self._mixup:
             source = self._mixup(source, spatial_dim=in_spatial_dim)
         # SpecAugment
-        source = rf.audio.specaugment(
-            source,
-            spatial_dim=in_spatial_dim,
-            feature_dim=self.in_dim,
-            **self._specaugment_opts,
-        )
+        if self.use_spec_augment:
+            source = rf.audio.specaugment(
+                source,
+                spatial_dim=in_spatial_dim,
+                feature_dim=self.in_dim,
+                **self._specaugment_opts,
+            )
         # Encoder including convolutional frontend
         with _opt_apply_pretrain_to_encoder(
             self.encoder, collected_outputs, self._pretrain_opts

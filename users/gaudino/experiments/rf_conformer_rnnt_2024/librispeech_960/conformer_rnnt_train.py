@@ -56,9 +56,9 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
     # RF recog: {"dev-clean": 2.25, "dev-other": 5.34, "test-clean": 2.42, "test-other": 5.56}
     # _recog_imported()
 
-    rnnt_train_config = dict(
+    rnnt_train_config_11gb = dict(
     batching="laplace:.1000",
-    batch_size=8_000 * _batch_size_factor,
+    batch_size=6_000 * _batch_size_factor,
     max_seqs=200,
     # max_seq_length_default_target=75,
     # specaugment_steps=(10_000, 20_000, 40_000),
@@ -67,8 +67,8 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
     # gradient_clip_global_norm = 1.0
     optimizer={
         "class": "adamw",
-        "epsilon": 1e-8,
-        "weight_decay": 1e-2,  # Changed from 1e-6
+        "epsilon": 1e-16,
+        "weight_decay": 1e-3,  # Changed from 1e-6
     },
     # accum_grad_multiple_step=4,
     # gradient_noise=0.0,
@@ -82,6 +82,8 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
     accum_grad_multiple_step=2,
     # aux_loss_layers=[12],
 )
+
+    # TODO implement stop_on_nonfinite_loss
 
     # train_exp("base-11gb", config_11gb, gpu_mem=11)
     # train_exp("base-11gb-v1", my_config_11gb, num_epochs=400, gpu_mem=11)
@@ -108,7 +110,27 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
 
     train_exp(
         "from-scratch-11gb_aux4_8",
-        rnnt_train_config,
+        rnnt_train_config_11gb,
+        config_updates={
+            "learning_rate": 1.0,
+            "dynamic_learning_rate": dyn_lr_piecewise_linear,
+            # total steps after 2000 epochs: 982.312
+            "learning_rate_piecewise_steps": [600_000, 900_000, 982_000], # TODO
+            "learning_rate_piecewise_values": [1e-4, 5e-4, 5e-5, 1e-7],
+            "mel_normalization_ted2": False,
+            "max_seq_length":560_000, # TODO
+        },
+        search_config={
+            "mel_normalization_ted2": False,
+        },
+        num_epochs=2000,
+        gpu_mem=11,
+        bpe_size="BPE5k",
+    )
+
+    train_exp(
+        "from-scratch-24gb_aux4_8",
+        config_24gb_v6,
         config_updates={
             "learning_rate": 1.0,
             "dynamic_learning_rate": dyn_lr_piecewise_linear,
@@ -121,7 +143,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
             "mel_normalization_ted2": False,
         },
         num_epochs=2000,
-        gpu_mem=11,
+        gpu_mem=24,
         bpe_size="BPE5k",
     )
 
