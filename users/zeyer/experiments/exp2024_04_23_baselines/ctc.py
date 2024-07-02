@@ -214,7 +214,7 @@ def py():
         ("spm_bpe10k", "spm", 0.001),  # 6.32
         ("spm_bpe10k", "spm", 0.005),  # 6.31
         ("spm_bpe10k", "spm", 0.01),  # 6.33
-        ("spm_bpe10k", "bpe", 0.01),
+        ("spm_bpe10k", "bpe", 0.01),  # 6.11
         # alpha for BPE is again a bit different, but more similar to SPM-BPE than SPM-Unigram.
         # See archive/returnn-bpe10-sample.config.
         # The higher the alpha, the longer the sequence, i.e. the more aggressive the sampling.
