@@ -60,12 +60,14 @@ def train_step(
         "audio_features_len": audio_features_len.to("cuda"),
     }
     # label_mask = (torch.rand((max_seq_len,)) < mask_ratio).long() # Generate the mask (S,)
+    # while not (label_mask == 1).any():
+    #     label_mask = (torch.rand((max_seq_len,)) < mask_ratio).long()
     # min_seq_len = targets_len.min()
     # label_mask = torch.cat([torch.zeros((min_seq_len,)), torch.ones((max_seq_len-min_seq_len,))], dim=-1).long()
     # print(min_seq_len, max_seq_len)
     # print(label_mask)
     label_mask = torch.zeros((max_seq_len,)).long()
-    label_mask[::30] = 1
+    # label_mask[0] = 1
     # print(label_mask)
     if phase == "train" and mask_audio:
         assert extern_data["align"] is not None, "Alignments must be given to mask audio features"
@@ -124,6 +126,7 @@ def train_step(
         # print(label_mask)
         # print(targets_len)
         # print(torch.stack([log_ctc_masked_score, log_lm_masked_score, kldiv, mask_inside_seq], dim=-1))
+
         loss = (kldiv * mask_inside_seq).sum() / (mask_inside_seq.sum())
         rf.get_run_ctx().mark_as_loss(
             name="kldiv_ctc_masked_lm", loss=loss,

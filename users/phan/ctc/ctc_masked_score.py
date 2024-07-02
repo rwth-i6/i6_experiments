@@ -70,7 +70,7 @@ def ctc_masked_score(
 
     # Forward variables
     # for last dim: 0 is n, 1 is b
-    # S+1 for virtual BOS [a_1^0, a_1^1, a_1^2, ..., a_1^{S-1}, a_1^S]
+    # S+1 for virtual BOS [BOS, a_1^1, a_1^2, ..., a_1^{S-1}, a_1^S]
     # [t, b, s, 0 or 1] forward prob of (t, s) for batch (b) where last frame is 0 (non-blank) or 1 (blank)
     forward = torch.full((input_time_size, batch_size, max_seq_len+1, 2), log_zero).to(device) # (T, B, S+1, 2)
     # forward probs if a mask is replaced by a token
@@ -130,7 +130,7 @@ def ctc_masked_score(
         log_probs_targets_t = log_probs[t, :, :].gather(-1, targets.long()) # log probs of target label at current frame
         forward[t, :, idx+1, 0] = log_probs_targets_t[:, idx] + \
             torch.stack([
-                forward[t-1, :, idx, 0].clone(),
+                forward[t-1, :, idx+1, 0].clone(),
                 forward[t-1, :, idx, 1].clone(),
                 torch.where(
                     prev_label_diff[:, idx].bool(),
@@ -270,7 +270,7 @@ def ctc_masked_score(
         targets_next.gather(-1, mask_next_not_mask_idx.unsqueeze(0).expand(batch_size, -1)).unsqueeze(-1).expand(-1, -1, n_out-1).to(device)
 
     # Only update label indices "inside the lattice"
-    # Obivously does not count virtual EOS
+    # does not count virtual EOS
     inside_label = get_seq_mask(target_lengths, max_seq_len+1, device).long().bool()
     for t in range(input_time_size-2, -1, -1):
         inside_time = (t < input_lengths).unsqueeze(-1).expand(-1, max_seq_len+1).to(device)
@@ -290,7 +290,7 @@ def ctc_masked_score(
         log_probs_targets_t = log_probs[t, :, :].gather(-1, targets.long())
         res = log_probs_targets_t[:, idx] + \
             torch.stack([
-                backward[t+1, :, idx+1, 0].clone(),
+                backward[t+1, :, idx, 0].clone(),
                 backward[t+1, :, idx+1, 1].clone(),
                 torch.where(
                     next_label_diff[:, idx].bool(),
@@ -377,14 +377,35 @@ def ctc_masked_score(
     input_time_mask = get_seq_mask(input_lengths, input_time_size, device).long().bool().unsqueeze(-1).unsqueeze(-1).expand(-1, -1, n_masked_pos, n_out-1).transpose(0, 1)
     log_fwd_bwd = torch.where(input_time_mask, forward_masked + backward_paths, torch.tensor(log_zero).to(device)) # only sums up to T of each batch
     numerator = log_fwd_bwd.logsumexp(dim=0) # (B, M, F-1) p(masked sequence, mask = w | acoustic)
-    # denominator = backward[0, :, 0, :].logsumexp(-1).unsqueeze(-1).unsqueeze(-1).expand(-1, -1, n_out-1) # p(masked sequence | acoustic)
+    denominator_batch = backward[0, :, 0, :].logsumexp(-1)
+    denominator = denominator_batch.unsqueeze(-1).unsqueeze(-1).expand(-1, -1, n_out-1) # p(masked sequence | acoustic)
     
     # try changing denom calculation by forward. hopefully more robust?
     forward_last_frame = forward.logsumexp(-1).gather(0, (input_lengths-1).unsqueeze(0).unsqueeze(-1).expand(-1, -1, max_seq_len+1)).squeeze(0)
-    denominator = forward_last_frame.gather(-1, target_lengths.to(device).unsqueeze(-1)).squeeze(-1)
-    denominator = denominator.unsqueeze(-1).unsqueeze(-1).expand(-1, -1, n_out-1)
+    # denominator_batch = forward_last_frame.gather(-1, target_lengths.to(device).unsqueeze(-1)).squeeze(-1)
+    # denominator = denominator_batch.unsqueeze(-1).unsqueeze(-1).expand(-1, n_masked_pos, n_out-1)
+
+    ctc = torch.nn.functional.ctc_loss(
+        log_probs,
+        targets,
+        input_lengths,
+        target_lengths,
+        blank=blank_idx,
+        reduction="none",
+    )
+    torch.set_printoptions(precision=2, threshold=10000, linewidth=50)
+    print(mask)
+    print(not_mask_next_not_mask_idx)
+    print(torch.stack([denominator_batch, ctc], dim=-1))
 
     log_masked_probs = numerator - denominator # p(mask = w | masked sequence, acoustic)
     # log_masked_probs = numerator.log_softmax(-1)
+
+    targets_shifted = torch.where(targets > 0, targets-1, torch.tensor(0).to(device))
+    # print(mask)
+    # print(target_lengths)
+    # print(numerator.gather(-1, targets_shifted[:, masked_pos].unsqueeze(-1)).squeeze(-1))
+    # print(denominator.gather(-1, targets_shifted[:, masked_pos].unsqueeze(-1)).squeeze(-1))
+    # print(log_masked_probs.gather(-1, targets_shifted[:, masked_pos].unsqueeze(-1)).squeeze(-1))
 
     return log_masked_probs, forward, backward, forward_masked, backward_masked
