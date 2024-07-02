@@ -1,5 +1,4 @@
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.pipelines.pipeline_ls_conf.checkpoints import external_checkpoints as external_checkpoints_tf
-from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.pipelines.pipeline_ls_conf.checkpoints import default_import_model_name
 from i6_experiments.users.schmitt.returnn_frontend.convert.checkpoint import ConvertTfCheckpointToRfPtJob
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.global_.model_import import map_param_func_v2 as map_param_func_v2_global
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.global_.model import MakeModel as MakeModelGlobal
@@ -18,6 +17,8 @@ from sisyphus import tk
 
 external_checkpoints = {}
 
+default_import_model_name = "glob.conformer.mohammad.5.4"
+
 for checkpoint_name, checkpoint in external_checkpoints_tf.items():
   global_att_checkpoint = ConvertTfCheckpointToRfPtJob(
     checkpoint=checkpoint,
@@ -30,16 +31,16 @@ for checkpoint_name, checkpoint in external_checkpoints_tf.items():
 
   external_checkpoints[checkpoint_name] = PtCheckpoint(global_att_checkpoint)
 
-global_att_checkpoint_w_ctc = ConvertTfCheckpointToRfPtJob(
-  checkpoint=external_checkpoints_tf[default_import_model_name],
-  make_model_func=MakeModelGlobal(
-    in_dim=80,
-    target_dim=10025,
-    enc_aux_logits=(11,)
-  ),
-  map_func=map_param_func_v2_global
-).out_checkpoint
-external_checkpoints[default_import_model_name + "_w_ctc"] = PtCheckpoint(global_att_checkpoint_w_ctc)
+# global_att_checkpoint_w_ctc = ConvertTfCheckpointToRfPtJob(
+#   checkpoint=external_checkpoints_tf[default_import_model_name],
+#   make_model_func=MakeModelGlobal(
+#     in_dim=80,
+#     target_dim=10025,
+#     enc_aux_logits=(11,)
+#   ),
+#   map_func=map_param_func_v2_global
+# ).out_checkpoint
+# external_checkpoints[default_import_model_name + "_w_ctc"] = PtCheckpoint(global_att_checkpoint_w_ctc)
 
 
 def get_center_window_baseline_v1_tf_checkpoint():

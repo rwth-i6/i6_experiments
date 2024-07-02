@@ -16,6 +16,16 @@ from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segment
 from i6_experiments.users.schmitt.custom_load_params import load_missing_params
 
 
+def _get_optimizer_alias(optimizer_opts: Dict):
+  return (
+    f"opt-{optimizer_opts['class']}-eps-{optimizer_opts['epsilon']}-wd-{optimizer_opts.get('weight_decay', 0.0)}"
+  )
+
+
+def _get_reduced_input_len(input_len: int, config_builder: SegmentalAttConfigBuilderRF):
+  return int(input_len - config_builder.red_subtrahend + config_builder.red_factor - 1) // config_builder.red_factor
+
+
 def train_center_window_att_viterbi_from_scratch(
         alias: str,
         config_builder: SegmentalAttConfigBuilderRF,
@@ -24,9 +34,18 @@ def train_center_window_att_viterbi_from_scratch(
         use_speed_pert: bool = False,
         batch_size: int = 15_000,
         use_mgpu: bool = True,
+        chunked_data_len: Optional[int] = None,
+        nb_loss_scale: float = 1.0,
+        b_loss_scale: float = 1.0,
+        do_realignments: bool = False,
 ):
   for n_epochs in n_epochs_list:
-    alias += f"/viterbi-train_from_scratch/{n_epochs}-epochs_bs-{batch_size}_wo-ctc-loss_{'w' if use_speed_pert else 'wo'}-speed-pert"
+    alias += (
+      f"/{'viterbi' if do_realignments else 'fixed-path'}-train_from_scratch/{n_epochs}-ep_bs-{batch_size}"
+      f"{'_mgpu-4' if use_mgpu else ''}_{'w' if use_speed_pert else 'wo'}-speed-pert"
+      f"_{'chunked-data-len-' + str(chunked_data_len) if chunked_data_len else 'no-chunking'}"
+      f"_nb-loss-x{nb_loss_scale}_b-loss-x{b_loss_scale}"
+    )
 
     train_opts = {
       "dataset_opts": {
@@ -60,7 +79,19 @@ def train_center_window_att_viterbi_from_scratch(
       },
       "train_def": viterbi_training,
       "train_step_func": _returnn_v2_train_step,
+      "nb_loss_scale": nb_loss_scale,
+      "b_loss_scale": b_loss_scale,
+      "training_do_realignments": do_realignments,
     }
+
+    if chunked_data_len:
+      train_opts.update({
+        "chunking": (
+          {"data": chunked_data_len, "targets": _get_reduced_input_len(chunked_data_len, config_builder)},
+          {"data": chunked_data_len // 2, "targets": _get_reduced_input_len(chunked_data_len // 2, config_builder)},
+        ),
+        "min_chunk_size": {"data": config_builder.red_subtrahend + 1, "targets": 1}
+      })
 
     if use_speed_pert:
       train_opts["preload_from_files"] = {
@@ -79,7 +110,7 @@ def train_center_window_att_viterbi_from_scratch(
         "horovod_num_processes": 4,
         "distributed_launch_cmd": "torchrun"
       })
-      train_opts["torch_distributed"] = {}
+      train_opts["torch_distributed"] = {"reduce_type": "param", "param_sync_step": 100}
 
     train_exp = SegmentalTrainExperiment(
       config_builder=config_builder,
@@ -112,6 +143,7 @@ def train_center_window_att_full_sum_from_scratch(
         lattice_downsampling: int = 1,
         alignment_interpolation_factor: float = 0.5,
         train_on_viterbi_paths: bool = False,
+        only_use_blank_model: bool = False,
 ):
   # # TODO: do this in a nicer way
   # config_builder = copy.deepcopy(config_builder)
@@ -158,15 +190,17 @@ def train_center_window_att_full_sum_from_scratch(
       # "max_seq_length": {"targets": 75},
       "train_def": full_sum_training,
       "train_step_func": _returnn_v2_full_sum_train_step,
-      "full_sum_alignment_interpolation_factor": alignment_interpolation_factor,
-      "full_sum_lattice_downsampling": lattice_downsampling,
     }
 
-    if beam_size is not None:
-      train_opts["full_sum_beam_size"] = beam_size
+    full_sum_training_opts = {
+      "alignment_interpolation_factor": alignment_interpolation_factor,
+      "lattice_downsampling": lattice_downsampling,
+      "only_use_blank_model": only_use_blank_model,
+      "beam_size": beam_size,
+      "train_on_viterbi_paths": train_on_viterbi_paths,
+    }
 
-    if train_on_viterbi_paths:
-      train_opts["full_sum_train_on_viterbi_paths"] = True
+    train_opts["full_sum_training_opts"] = full_sum_training_opts
 
     train_rqmt = {
       "time": time_rqmt,
@@ -205,6 +239,10 @@ def train_center_window_att_viterbi_import_global_tf(
         time_rqmt: int = 80,
         alignment_augmentation_opts: Optional[Dict] = None,
         import_model_name: str = default_import_model_name,
+        keep_best_n: int = 4,
+        nb_loss_scale_list: Tuple[float, ...] = (1.0,),
+        b_loss_scale_list: Tuple[float, ...] = (1.0,),
+        optimizer_opts: Optional[Dict] = None,
 ):
   if not config_builder.use_att_ctx_in_state and "lstm" in config_builder.label_decoder_state:
     # only randomly init FF weights, since only the input dim of the lstm layer is different
@@ -212,55 +250,66 @@ def train_center_window_att_viterbi_import_global_tf(
   else:
     custom_missing_load_func = None
 
+  if optimizer_opts is None:
+    optimizer_opts = {"class": "adam", "epsilon": 1e-8}
+
   for n_epochs in n_epochs_list:
     for const_lr in const_lr_list:
-      train_alias = alias + f"/train_from_{import_model_name}/standard-training/{n_epochs}-epochs_{const_lr}-const-lr_wo-ctc-loss"
-      if alignment_augmentation_opts:
-        opts = alignment_augmentation_opts
-        train_alias += f"_align-aug-{opts['num_iterations']}-iters_{opts['max_shift']}-max-shift"
+      for nb_loss_scale in nb_loss_scale_list:
+        for b_loss_scale in b_loss_scale_list:
+          train_alias = alias + (
+            f"/train_from_{import_model_name}/standard-training/{n_epochs}-ep_{const_lr}-const-lr"
+            f"_nb-loss-x{nb_loss_scale}_b-loss-x{b_loss_scale}_{_get_optimizer_alias(optimizer_opts)}"
+          )
+          if alignment_augmentation_opts:
+            opts = alignment_augmentation_opts
+            train_alias += f"_align-aug-{opts['num_iterations']}-iters_{opts['max_shift']}-max-shift"
 
-      train_opts = {
-        "preload_from_files": {
-          "pretrained_global_att_params": {
-            "filename": external_checkpoints[import_model_name],
-            "init_for_train": True,
-            "ignore_missing": True,  # because of length model params
+          train_opts = {
+            "preload_from_files": {
+              "pretrained_global_att_params": {
+                "filename": external_checkpoints[import_model_name],
+                "init_for_train": True,
+                "ignore_missing": True,  # because of length model params
+              }
+            },
+            "aux_loss_layers": None,
+            "accum_grad_multiple_step": 2,
+            "optimizer": optimizer_opts,
+            "train_def": viterbi_training,
+            "train_step_func": _returnn_v2_train_step,
+            "batching": "random",
+            "lr_opts": {
+              "type": "const_then_linear",
+              "const_lr": const_lr,
+              "const_frac": 1 / 3,
+              "final_lr": 1e-6,
+              "num_epochs": n_epochs
+            },
+            "alignment_augmentation_opts": alignment_augmentation_opts,
+            "nb_loss_scale": nb_loss_scale,
+            "b_loss_scale": b_loss_scale,
           }
-        },
-        "aux_loss_layers": None,
-        "accum_grad_multiple_step": 2,
-        "optimizer": {"class": "adam", "epsilon": 1e-8},
-        "train_def": viterbi_training,
-        "train_step_func": _returnn_v2_train_step,
-        "batching": "random",
-        "lr_opts": {
-          "type": "const_then_linear",
-          "const_lr": const_lr,
-          "const_frac": 1 / 3,
-          "final_lr": 1e-6,
-          "num_epochs": n_epochs
-        },
-        "alignment_augmentation_opts": alignment_augmentation_opts
-      }
-      if custom_missing_load_func:
-        train_opts["preload_from_files"]["pretrained_global_att_params"]["custom_missing_load_func"] = custom_missing_load_func
+          if custom_missing_load_func:
+            train_opts["preload_from_files"]["pretrained_global_att_params"]["custom_missing_load_func"] = custom_missing_load_func
+          train_opts["cleanup_old_models"] = {"keep_best_n": keep_best_n, "keep_last_n": 1, "keep": [n_epochs]}
 
-      train_exp = SegmentalTrainExperiment(
-        config_builder=config_builder,
-        alias=train_alias,
-        num_epochs=n_epochs,
-        train_rqmt={
-          "time": time_rqmt
-        },
-        train_opts=train_opts
-      )
-      checkpoints, model_dir, learning_rates = train_exp.run_train()
+          train_exp = SegmentalTrainExperiment(
+            config_builder=config_builder,
+            alias=train_alias,
+            num_epochs=n_epochs,
+            train_rqmt={
+              "time": time_rqmt
+            },
+            train_opts=train_opts
+          )
+          checkpoints, model_dir, learning_rates = train_exp.run_train()
 
-      checkpoint = {
-        "model_dir": model_dir,
-        "learning_rates": learning_rates,
-        "key": "dev_loss_non_blank_ce",
-        "checkpoints": checkpoints,
-        "n_epochs": n_epochs
-      }
-      yield train_alias, checkpoint
+          checkpoint = {
+            "model_dir": model_dir,
+            "learning_rates": learning_rates,
+            "key": "dev_loss_non_blank_ce",
+            "checkpoints": checkpoints,
+            "n_epochs": n_epochs
+          }
+          yield train_alias, checkpoint

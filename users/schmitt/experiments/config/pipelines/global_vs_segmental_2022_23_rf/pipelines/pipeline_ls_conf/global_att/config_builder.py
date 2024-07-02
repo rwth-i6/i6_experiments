@@ -10,6 +10,7 @@ from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segment
 def get_global_att_config_builder_rf(
         use_weight_feedback: bool = True,
         use_att_ctx_in_state: bool = True,
+        decoder_state: str = "nb-lstm",
 ):
   variant_params = {
     "dependencies": LibrispeechBPE10025_LABELS,
@@ -31,11 +32,13 @@ def get_global_att_config_builder_rf(
     get_model_func=_returnn_v2_get_model,
     use_weight_feedback=use_weight_feedback,
     use_att_ctx_in_state=use_att_ctx_in_state,
+    label_decoder_state=decoder_state,
   )
 
   alias = (
     f"{'w' if use_weight_feedback else 'wo'}-weight-feedback/"
-    f"{'w' if use_att_ctx_in_state else 'wo'}-att-ctx-in-state"
+    f"{'w' if use_att_ctx_in_state else 'wo'}-att-ctx-in-state/"
+    f"{decoder_state}"
   )
 
   return alias, config_builder

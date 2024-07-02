@@ -87,7 +87,7 @@ def get_segment_starts_and_lens(
   )
   lens = ends - starts + 1
 
-  return starts, lens
+  return starts, lens, non_blank_positions
 
 
 def get_emit_ground_truth(
@@ -99,7 +99,6 @@ def get_emit_ground_truth(
   sparse_dim = Dim(name="emit_ground_truth", dimension=2)
   # result = rf.expand_dim(result, sparse_dim)
   result.sparse_dim = sparse_dim
-  torch.set_printoptions(threshold=10000)
 
   return result, sparse_dim
 

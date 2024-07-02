@@ -90,6 +90,8 @@ def train_import_global_tf(
     }
     if custom_missing_load_func:
       train_opts["preload_from_files"]["pretrained_global_att_params"]["custom_missing_load_func"] = custom_missing_load_func
+    if config_builder.label_decoder_state != "nb-lstm":
+      train_opts["preload_from_files"]["pretrained_global_att_params"]["ignore_missing"] = True
 
     train_exp = GlobalTrainExperiment(
       config_builder=config_builder,

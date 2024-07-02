@@ -15,6 +15,7 @@ from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segment
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.segmental.model_new.blank_model.model import (
   BlankDecoderV1,
   BlankDecoderV3,
+  BlankDecoderV4,
   BlankDecoderV5,
   BlankDecoderV6,
 )
@@ -30,7 +31,9 @@ def update_state(
         blank_decoder_state_updated: Optional[State],
         lm_state: Optional[State],
         lm_state_updated: Optional[State],
-) -> Tuple[State, Optional[State], Optional[State]]:
+        ilm_state: Optional[State],
+        ilm_state_updated: Optional[State],
+) -> Tuple[State, Optional[State], Optional[State], Optional[State]]:
 
   # ------------------- update blank decoder state -------------------
 
@@ -38,20 +41,28 @@ def update_state(
     blank_decoder_state = tree.map_structure(
       lambda s: rf.gather(s, indices=backrefs), blank_decoder_state_updated)
 
-  # ------------------- update label decoder state -------------------
+  # ------------------- update label decoder state and ILM state -------------------
 
+  def _get_masked_state(old, new, mask):
+    old = rf.gather(old, indices=backrefs)
+    new = rf.gather(new, indices=backrefs)
+    return rf.where(mask, new, old)
+
+  # label decoder
   if model.label_decoder_state == "joint-lstm":
     label_decoder_state = tree.map_structure(
       lambda s: rf.gather(s, indices=backrefs), label_decoder_state_updated)
   else:
-    def _get_masked_state(old, new, mask):
-      old = rf.gather(old, indices=backrefs)
-      new = rf.gather(new, indices=backrefs)
-      return rf.where(mask, new, old)
-
     label_decoder_state = tree.map_structure(
       lambda old_state, new_state: _get_masked_state(old_state, new_state, update_state_mask),
       label_decoder_state, label_decoder_state_updated
+    )
+
+  # ILM
+  if ilm_state is not None:
+    ilm_state = tree.map_structure(
+      lambda old_state, new_state: _get_masked_state(old_state, new_state, update_state_mask),
+      ilm_state, ilm_state_updated
     )
 
   # ------------------- update external LM state -------------------
@@ -94,7 +105,7 @@ def update_state(
         lm_state[state].self_att.k_accum = _mask_lm_state(lm_state_updated[state].self_att.k_accum)
         lm_state[state].self_att.v_accum = _mask_lm_state(lm_state_updated[state].self_att.v_accum)
 
-  return label_decoder_state, blank_decoder_state, lm_state
+  return label_decoder_state, blank_decoder_state, lm_state, ilm_state
 
 
 def get_score(
@@ -106,23 +117,26 @@ def get_score(
         label_decoder_state: State,
         blank_decoder_state: Optional[State],
         lm_state: Optional[State],
+        ilm_state: Optional[State],
         enc_args: Dict[str, Tensor],
         enc_spatial_dim: Dim,
         beam_dim: Dim,
         batch_dims: Sequence[Dim],
         external_lm_scale: Optional[float] = None,
-) -> Tuple[Tensor, State, Optional[State], Optional[State]]:
+        ilm_correction_scale: Optional[float] = None,
+        subtract_ilm_eos_score: bool = False
+) -> Tuple[Tensor, State, Optional[State], Optional[State], Optional[State]]:
   # ------------------- label step -------------------
 
-  center_position = rf.minimum(
+  center_positions = rf.minimum(
     rf.full(dims=[beam_dim] + batch_dims, fill_value=i, dtype="int32"),
     rf.copy_to_device(enc_spatial_dim.get_size_tensor() - 1, input_embed_label_model.device)
   )
   segment_starts = rf.maximum(
-    rf.convert_to_tensor(0, dtype="int32"), center_position - model.center_window_size // 2)
+    rf.convert_to_tensor(0, dtype="int32"), center_positions - model.center_window_size // 2)
   segment_ends = rf.minimum(
     rf.copy_to_device(enc_spatial_dim.get_size_tensor() - 1, input_embed_label_model.device),
-    center_position + model.center_window_size // 2
+    center_positions + model.center_window_size // 2
   )
   segment_lens = segment_ends - segment_starts + 1
 
@@ -132,6 +146,7 @@ def get_score(
     input_embed=input_embed_label_model,
     segment_lens=segment_lens,
     segment_starts=segment_starts,
+    center_positions=center_positions,
     state=label_decoder_state,
   )
   label_logits = model.label_decoder.decode_logits(input_embed=input_embed_label_model, **label_step_out)
@@ -147,14 +162,73 @@ def get_score(
       state=lm_state,
     )
     lm_label_log_prob = rf.log_softmax(lm_logits, axis=model.target_dim)
+
+    # do not apply LM scores to blank
+    if model.use_joint_model:
+      lm_label_log_prob_ = rf.where(
+        rf.range_over_dim(model.target_dim) == model.blank_idx,
+        rf.zeros(batch_dims, dtype="float32"),
+        lm_label_log_prob
+      )
+      lm_label_log_prob = rf.where(
+        rf.convert_to_tensor(i == rf.copy_to_device(enc_spatial_dim.get_size_tensor(), input_embed_label_model.device) - 1),
+        lm_label_log_prob,
+        lm_label_log_prob_
+      )
+    else:
+      lm_eos_log_prob = rf.where(
+        rf.convert_to_tensor(
+          i == rf.copy_to_device(enc_spatial_dim.get_size_tensor(), input_embed_label_model.device) - 1),
+        # TODO: change to non hard-coded BOS index
+        rf.gather(lm_label_log_prob, indices=rf.constant(0, dtype="int32", dims=batch_dims, sparse_dim=nb_target.sparse_dim)),
+        lm_eos_log_prob
+      )
+
     label_log_prob += external_lm_scale * lm_label_log_prob
 
-    lm_eos_log_prob = rf.where(
-      rf.convert_to_tensor(i == rf.copy_to_device(enc_spatial_dim.get_size_tensor(), input_embed_label_model.device) - 1),
-      # TODO: change to non hard-coded BOS index
-      rf.gather(lm_label_log_prob, indices=rf.constant(0, dtype="int32", dims=batch_dims, sparse_dim=nb_target.sparse_dim)),
-      lm_eos_log_prob
+  # --------------------------------- ILM step ---------------------------------
+
+  ilm_eos_log_prob = rf.zeros(batch_dims, dtype="float32")
+  if ilm_state is not None:
+    ilm_step_out, ilm_state = model.label_decoder.loop_step(
+      **enc_args,
+      enc_spatial_dim=enc_spatial_dim,
+      input_embed=input_embed_label_model,
+      segment_lens=segment_lens,
+      segment_starts=segment_starts,
+      center_positions=center_positions,
+      state=ilm_state,
+      use_mini_att=True
     )
+    ilm_logits = model.label_decoder.decode_logits(input_embed=input_embed_label_model, **ilm_step_out)
+    ilm_label_log_prob = rf.log_softmax(ilm_logits, axis=model.target_dim)
+
+    # do not apply ILM correction to blank
+    if model.use_joint_model:
+      ilm_label_log_prob_ = rf.where(
+        rf.range_over_dim(model.target_dim) == model.blank_idx,
+        rf.zeros(batch_dims, dtype="float32"),
+        ilm_label_log_prob
+      )
+      if subtract_ilm_eos_score:
+        ilm_label_log_prob = rf.where(
+          rf.convert_to_tensor(i == rf.copy_to_device(enc_spatial_dim.get_size_tensor(), input_embed_label_model.device) - 1),
+          ilm_label_log_prob,
+          ilm_label_log_prob_
+        )
+      else:
+        ilm_label_log_prob = ilm_label_log_prob_.copy()
+    else:
+      ilm_eos_log_prob = rf.where(
+        rf.convert_to_tensor(
+          i == rf.copy_to_device(enc_spatial_dim.get_size_tensor(), input_embed_label_model.device) - 1),
+        # TODO: change to non hard-coded BOS index
+        rf.gather(ilm_label_log_prob,
+                  indices=rf.constant(0, dtype="int32", dims=batch_dims, sparse_dim=nb_target.sparse_dim)),
+        ilm_eos_log_prob
+      )
+
+    label_log_prob -= ilm_correction_scale * ilm_label_log_prob
 
   # ------------------- blank step -------------------
 
@@ -173,14 +247,16 @@ def get_score(
       blank_step_out, blank_decoder_state = model.blank_decoder.loop_step(**blank_loop_step_kwargs)
       blank_logits = model.blank_decoder.decode_logits(**blank_step_out)
     else:
-      assert isinstance(model.blank_decoder, BlankDecoderV5) or isinstance(model.blank_decoder, BlankDecoderV6)
+      assert any(isinstance(model.blank_decoder, cls_) for cls_ in (BlankDecoderV4, BlankDecoderV5, BlankDecoderV6))
       enc_position = rf.minimum(
         rf.full(dims=batch_dims, fill_value=i, dtype="int32"),
         rf.copy_to_device(enc_spatial_dim.get_size_tensor() - 1, input_embed_label_model.device)
       )
       enc_frame = rf.gather(enc_args["enc"], indices=enc_position, axis=enc_spatial_dim)
       enc_frame = rf.expand_dim(enc_frame, beam_dim)
-      if isinstance(model.blank_decoder, BlankDecoderV5):
+      if isinstance(model.blank_decoder, BlankDecoderV4):
+        blank_logits = model.blank_decoder.decode_logits(enc=enc_frame, label_model_states_unmasked=label_step_out["s"])
+      elif isinstance(model.blank_decoder, BlankDecoderV5):
         # no LSTM -> no state -> just leave (empty) state as is
         blank_logits = model.blank_decoder.emit_prob(
           rf.concat_features(enc_frame, label_step_out["s"]))
@@ -198,6 +274,8 @@ def get_score(
     emit_log_prob = rf.squeeze(emit_log_prob, axis=emit_log_prob.feature_dim)
     blank_log_prob = rf.log(rf.sigmoid(-blank_logits))
     blank_log_prob += lm_eos_log_prob
+    if subtract_ilm_eos_score:
+      blank_log_prob -= ilm_eos_log_prob
 
     # ------------------- combination -------------------
 
@@ -209,19 +287,7 @@ def get_score(
   else:
     output_log_prob = label_log_prob
 
-  # for shorter seqs in the batch, set the blank score to zero and the others to ~-inf
-  output_log_prob = rf.where(
-    rf.convert_to_tensor(i >= rf.copy_to_device(enc_spatial_dim.get_size_tensor(), input_embed_label_model.device)),
-    rf.sparse_to_dense(
-      model.blank_idx,
-      axis=model.target_dim if model.use_joint_model else model.align_target_dim,
-      label_value=0.0,
-      other_value=-1.0e30
-    ),
-    output_log_prob
-  )
-
-  return output_log_prob, label_decoder_state, blank_decoder_state, lm_state
+  return output_log_prob, label_decoder_state, blank_decoder_state, lm_state, ilm_state
 
 
 def model_recog(
@@ -232,6 +298,9 @@ def model_recog(
         beam_size: int,
         use_recombination: Optional[str] = None,
         external_lm_scale: Optional[float] = None,
+        ilm_type: Optional[str] = None,
+        ilm_correction_scale: Optional[float] = None,
+        subtract_ilm_eos_score: bool = False
 ) -> Tuple[Tensor, Tensor, Dim, Dim]:
   """
   Function is run within RETURNN.
@@ -247,13 +316,14 @@ def model_recog(
       final beam_dim
   """
   assert any(
-    isinstance(model.blank_decoder, cls) for cls in (BlankDecoderV1, BlankDecoderV3, BlankDecoderV5, BlankDecoderV6)
+    isinstance(model.blank_decoder, cls) for cls in (
+      BlankDecoderV1, BlankDecoderV3, BlankDecoderV4, BlankDecoderV5, BlankDecoderV6)
   ) or model.blank_decoder is None, "blank_decoder not supported"
   if model.blank_decoder is None:
     assert model.use_joint_model, "blank_decoder is None, so use_joint_model must be True"
   if model.language_model:
     assert external_lm_scale is not None, "external_lm_scale must be defined with LM"
-  assert model.label_decoder_state in {"nb-lstm", "joint-lstm", "nb-linear1"}
+  assert model.label_decoder_state in {"nb-lstm", "joint-lstm", "nb-2linear-ctx1"}
 
   # --------------------------------- init encoder, dims, etc ---------------------------------
 
@@ -283,6 +353,8 @@ def model_recog(
   seq_backrefs = []
 
   update_state_mask = rf.constant(True, dims=batch_dims_)
+
+  output_dim = model.target_dim if model.use_joint_model else model.align_target_dim
 
   # --------------------------------- init states ---------------------------------
 
@@ -321,12 +393,17 @@ def model_recog(
   else:
     lm_state = None
 
+  # ILM
+  if ilm_type is not None:
+    ilm_state = model.label_decoder.default_initial_state(batch_dims=batch_dims_, use_mini_att=True)
+  else:
+    ilm_state = None
+
   # --------------------------------- init targets, embeddings ---------------------------------
 
   if model.use_joint_model:
     target = rf.constant(bos_idx, dims=batch_dims_, sparse_dim=model.target_dim)
-    if model.label_decoder_state in ("nb-lstm", "nb-linear1"):
-      target_non_blank = target.copy()
+    target_non_blank = target.copy()
   else:
     target = rf.constant(bos_idx, dims=batch_dims_, sparse_dim=model.align_target_dim)
     target_non_blank = rf.constant(bos_idx, dims=batch_dims_, sparse_dim=model.target_dim)
@@ -348,11 +425,12 @@ def model_recog(
   i = 0
   while i < max_seq_len.raw_tensor:
     if i > 0:
+      target_non_blank = rf.where(update_state_mask, target, rf.gather(target_non_blank, indices=backrefs))
+      target_non_blank.sparse_dim = model.label_decoder.target_embed.in_dim
+
       if model.label_decoder_state == "joint-lstm":
         input_embed = model.label_decoder.target_embed(target)
       else:
-        target_non_blank = rf.where(update_state_mask, target, rf.gather(target_non_blank, indices=backrefs))
-        target_non_blank.sparse_dim = model.label_decoder.target_embed.in_dim
         input_embed = rf.where(
           update_state_mask,
           model.label_decoder.target_embed(target_non_blank),
@@ -361,7 +439,9 @@ def model_recog(
       if isinstance(model.blank_decoder, BlankDecoderV1):
         input_embed_length_model = model.blank_decoder.target_embed(target)
 
-    output_log_prob, label_decoder_state_updated, blank_decoder_state_updated, lm_state_updated = get_score(
+    (
+      output_log_prob, label_decoder_state_updated, blank_decoder_state_updated, lm_state_updated, ilm_state_updated
+    ) = get_score(
       model=model,
       i=i,
       input_embed_label_model=input_embed,
@@ -370,11 +450,26 @@ def model_recog(
       label_decoder_state=label_decoder_state,
       blank_decoder_state=blank_decoder_state,
       lm_state=lm_state,
+      ilm_state=ilm_state,
       enc_args=enc_args,
       enc_spatial_dim=enc_spatial_dim,
       beam_dim=beam_dim,
       batch_dims=batch_dims,
       external_lm_scale=external_lm_scale,
+      ilm_correction_scale=ilm_correction_scale,
+      subtract_ilm_eos_score=subtract_ilm_eos_score
+    )
+
+    # for shorter seqs in the batch, set the blank score to zero and the others to ~-inf
+    output_log_prob = rf.where(
+      rf.convert_to_tensor(i >= rf.copy_to_device(enc_spatial_dim.get_size_tensor(), data.device)),
+      rf.sparse_to_dense(
+        model.blank_idx,
+        axis=output_dim,
+        label_value=0.0,
+        other_value=-1.0e30
+      ),
+      output_log_prob
     )
 
     # ------------------- recombination -------------------
@@ -395,7 +490,7 @@ def model_recog(
     seq_log_prob, (backrefs, target), beam_dim = rf.top_k(
       seq_log_prob,
       k_dim=Dim(beam_size, name=f"dec-step{i}-beam"),
-      axis=[beam_dim, model.target_dim if model.use_joint_model else model.align_target_dim]
+      axis=[beam_dim, output_dim]
     )
     seq_targets.append(target)
     seq_backrefs.append(backrefs)
@@ -408,7 +503,7 @@ def model_recog(
     # mask for updating label-sync states
     update_state_mask = rf.convert_to_tensor(target != model.blank_idx)
 
-    label_decoder_state, blank_decoder_state, lm_state = update_state(
+    label_decoder_state, blank_decoder_state, lm_state, ilm_state = update_state(
       model=model,
       update_state_mask=update_state_mask,
       backrefs=backrefs,
@@ -418,6 +513,8 @@ def model_recog(
       blank_decoder_state_updated=blank_decoder_state_updated,
       lm_state=lm_state,
       lm_state_updated=lm_state_updated,
+      ilm_state=ilm_state,
+      ilm_state_updated=ilm_state_updated,
     )
 
     i += 1

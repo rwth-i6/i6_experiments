@@ -44,6 +44,7 @@ class FramewiseTrainDef(Protocol[ModelT]):
         data_spatial_dim: Dim,
         align_targets: Tensor,
         align_targets_spatial_dim: Dim,
+        seq_tags: Optional[Tensor] = None,
     ):
         raise NotImplementedError
 

@@ -9,6 +9,7 @@ from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segment
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.segmental.model_new.blank_model.model import (
   BlankDecoderV1,
   BlankDecoderV3,
+  BlankDecoderV4,
   BlankDecoderV5,
   BlankDecoderV6,
 )
@@ -47,6 +48,8 @@ class SegmentalAttentionModel(rf.Module):
           use_joint_model: bool = False,
           use_weight_feedback: bool = True,
           label_decoder_state: str = "nb-lstm",
+          use_mini_att: bool = False,
+          gaussian_att_weight_opts: Optional[Dict[str, Any]] = None,
   ):
     super(SegmentalAttentionModel, self).__init__()
 
@@ -68,9 +71,9 @@ class SegmentalAttentionModel(rf.Module):
     )
 
     assert blank_decoder_version in {1, 3, 4, 5, 6}
-    assert label_decoder_state in {"nb-lstm", "joint-lstm", "nb-linear1"}
+    assert label_decoder_state in {"nb-lstm", "joint-lstm", "nb-2linear-ctx1"}
     if not use_joint_model:
-      assert label_decoder_state in ("nb-lstm", "nb-linear1")
+      assert label_decoder_state in ("nb-lstm", "nb-2linear-ctx1")
 
     if not use_weight_feedback and not use_att_ctx_in_state:
       label_decoder_cls = SegmentalAttEfficientLabelDecoder
@@ -89,6 +92,8 @@ class SegmentalAttentionModel(rf.Module):
       use_weight_feedback=use_weight_feedback,
       use_att_ctx_in_state=use_att_ctx_in_state,
       decoder_state=label_decoder_state,
+      use_mini_att=use_mini_att,
+      gaussian_att_weight_opts=gaussian_att_weight_opts,
     )
 
     if not use_joint_model:
@@ -99,9 +104,14 @@ class SegmentalAttentionModel(rf.Module):
           align_target_dim=align_target_dim,
           encoder_out_dim=self.encoder.out_dim,
         )
-      elif blank_decoder_version in {3, 4}:
-        # the logic for blank_decoder_version == 4 is in the train/recog code
+      elif blank_decoder_version == 3:
         self.blank_decoder = BlankDecoderV3(
+          length_model_state_dim=length_model_state_dim,
+          label_state_dim=self.label_decoder.get_lstm().out_dim,
+          encoder_out_dim=self.encoder.out_dim,
+        )
+      elif blank_decoder_version == 4:
+        self.blank_decoder = BlankDecoderV4(
           length_model_state_dim=length_model_state_dim,
           label_state_dim=self.label_decoder.get_lstm().out_dim,
           encoder_out_dim=self.encoder.out_dim,
@@ -177,6 +187,8 @@ class MakeModel:
           enc_out_dim: int,
           enc_key_total_dim: int,
           enc_ff_dim: int,
+          use_mini_att: bool = False,
+          gaussian_att_weight_opts: Optional[Dict[str, Any]] = None,
           **extra,
   ) -> SegmentalAttentionModel:
     """make"""
@@ -225,6 +237,8 @@ class MakeModel:
       use_joint_model=use_joint_model,
       use_weight_feedback=use_weight_feedback,
       label_decoder_state=label_decoder_state,
+      use_mini_att=use_mini_att,
+      gaussian_att_weight_opts=gaussian_att_weight_opts,
       **extra,
     )
 
@@ -250,6 +264,8 @@ def from_scratch_model_def(
   blank_decoder_version = config.int("blank_decoder_version", 1)
   use_joint_model = config.bool("use_joint_model", False)
   use_weight_feedback = config.bool("use_weight_feedback", True)
+  use_mini_att = config.bool("use_mini_att", False)
+  gaussian_att_weight_opts = config.typed_value("gaussian_att_weight_opts", None)
 
   enc_out_dim = config.int("enc_out_dim", 512)
   enc_key_total_dim = config.int("enc_key_total_dim", 1024)
@@ -271,6 +287,8 @@ def from_scratch_model_def(
     enc_out_dim=enc_out_dim,
     enc_key_total_dim=enc_key_total_dim,
     enc_ff_dim=enc_ff_dim,
+    use_mini_att=use_mini_att,
+    gaussian_att_weight_opts=gaussian_att_weight_opts,
   )
 
 

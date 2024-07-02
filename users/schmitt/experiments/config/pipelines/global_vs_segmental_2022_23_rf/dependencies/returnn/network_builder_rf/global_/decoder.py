@@ -14,18 +14,25 @@ class GlobalAttDecoder(BaseLabelDecoder):
     self.eos_idx = eos_idx
     self.bos_idx = eos_idx
 
-  def decoder_default_initial_state(self, *, batch_dims: Sequence[Dim], enc_spatial_dim: Dim) -> rf.State:
+  def decoder_default_initial_state(
+          self,
+          *,
+          batch_dims: Sequence[Dim],
+          enc_spatial_dim: Dim,
+          use_mini_att: bool = False,
+  ) -> rf.State:
     """Default initial state"""
     state = rf.State(
-      s=self.get_lstm().default_initial_state(batch_dims=batch_dims),
       att=rf.zeros(list(batch_dims) + [self.att_num_heads * self.enc_out_dim]),
     )
     state.att.feature_dim_axis = len(state.att.dims) - 1
 
-    if self.use_mini_att:
-      state.mini_att_lstm = self.mini_att_lstm.default_initial_state(batch_dims=batch_dims)
+    if "lstm" in self.decoder_state:
+      state.s = self.get_lstm().default_initial_state(batch_dims=batch_dims)
+      if self.use_mini_att and "lstm":
+        state.mini_att_lstm = self.mini_att_lstm.default_initial_state(batch_dims=batch_dims)
 
-    if self.use_weight_feedback:
+    if self.use_weight_feedback and not use_mini_att:
       state.accum_att_weights = rf.zeros(
         list(batch_dims) + [enc_spatial_dim, self.att_num_heads], feature_dim=self.att_num_heads
       )
@@ -66,29 +73,38 @@ class GlobalAttDecoder(BaseLabelDecoder):
     state_ = rf.State()
 
     prev_att = state.att
+    prev_s_state = state.s if "lstm" in self.decoder_state else None
 
     # s, state_.s = self.s(rf.concat_features(input_embed, prev_att), state=state.s, spatial_dim=single_step_dim)
-    s, state_.s = self._update_state(input_embed, prev_att, state.s)
-
-    if self.use_weight_feedback:
-      weight_feedback = self.weight_feedback(state.accum_att_weights)
-    else:
-      weight_feedback = rf.zeros((self.enc_key_total_dim,))
-
-    s_transformed = self.s_transformed(s)
-    energy_in = enc_ctx + weight_feedback + s_transformed
-    energy = self.energy(rf.tanh(energy_in))
-    att_weights = rf.softmax(energy, axis=enc_spatial_dim)
-
-    if self.use_weight_feedback:
-      state_.accum_att_weights = state.accum_att_weights + att_weights * inv_fertility * 0.5
+    s, s_state = self._update_state(input_embed, prev_att, prev_s_state)
+    if "lstm" in self.decoder_state:
+      state_.s = s_state
 
     if use_mini_att:
-      att_lstm, state_.mini_att_lstm = self.mini_att_lstm(
-        input_embed, state=state.mini_att_lstm, spatial_dim=single_step_dim)
-      att = self.mini_att(att_lstm)
+      if "lstm" in self.decoder_state:
+        att_lstm, state_.mini_att_lstm = self.mini_att_lstm(
+          input_embed, state=state.mini_att_lstm, spatial_dim=single_step_dim)
+        pre_mini_att = att_lstm
+      else:
+        att_linear = self.mini_att_linear(input_embed)
+        pre_mini_att = att_linear
+      att = self.mini_att(pre_mini_att)
     else:
+      if self.use_weight_feedback:
+        weight_feedback = self.weight_feedback(state.accum_att_weights)
+      else:
+        weight_feedback = rf.zeros((self.enc_key_total_dim,))
+
+      s_transformed = self.s_transformed(s)
+      energy_in = enc_ctx + weight_feedback + s_transformed
+      energy = self.energy(rf.tanh(energy_in))
+      att_weights = rf.softmax(energy, axis=enc_spatial_dim)
+
+      if self.use_weight_feedback:
+        state_.accum_att_weights = state.accum_att_weights + att_weights * inv_fertility * 0.5
+
       att = self.get_att(att_weights, enc, enc_spatial_dim)
+
     state_.att = att
 
     return {"s": s, "att": att}, state_
@@ -121,22 +137,27 @@ class GlobalAttEfficientDecoder(GlobalAttDecoder):
           input_embed_spatial_dim: Dim,
           use_mini_att: bool = False,
   ) -> rf.Tensor:
-    s_transformed = self.s_transformed(s)
-
-    weight_feedback = rf.zeros((self.enc_key_total_dim,))
-
-    energy_in = enc_ctx + weight_feedback + s_transformed
-    energy = self.energy(rf.tanh(energy_in))
-    att_weights = rf.softmax(energy, axis=enc_spatial_dim)
     if use_mini_att:
-      att_lstm, _ = self.mini_att_lstm(
-        input_embed,
-        state=self.mini_att_lstm.default_initial_state(
-          batch_dims=input_embed.remaining_dims([input_embed_spatial_dim, input_embed.feature_dim])),
-        spatial_dim=input_embed_spatial_dim
-      )
-      att = self.mini_att(att_lstm)
+      if "lstm" in self.decoder_state:
+        att_lstm, _ = self.mini_att_lstm(
+          input_embed,
+          state=self.mini_att_lstm.default_initial_state(
+            batch_dims=input_embed.remaining_dims([input_embed_spatial_dim, input_embed.feature_dim])),
+          spatial_dim=input_embed_spatial_dim
+        )
+        pre_mini_att = att_lstm
+      else:
+        att_linear = self.mini_att_linear(input_embed)
+        pre_mini_att = att_linear
+      att = self.mini_att(pre_mini_att)
     else:
+      s_transformed = self.s_transformed(s)
+
+      weight_feedback = rf.zeros((self.enc_key_total_dim,))
+
+      energy_in = enc_ctx + weight_feedback + s_transformed
+      energy = self.energy(rf.tanh(energy_in))
+      att_weights = rf.softmax(energy, axis=enc_spatial_dim)
       # we do not need use_mask because the softmax output is already padded with zeros
       att = self.get_att(att_weights, enc, enc_spatial_dim)
 

@@ -19,6 +19,7 @@ def get_center_window_att_config_builder_rf(
         use_weight_feedback: bool = True,
         label_decoder_state: str = "nb-lstm",
         bpe_vocab_size: int = 10025,
+        gaussian_att_weight_opts: Optional[Dict] = None,
 ) -> Tuple[str, SegmentalAttConfigBuilderRF]:
   assert bpe_vocab_size in {10025, 1056}
   variant_params = {
@@ -50,6 +51,7 @@ def get_center_window_att_config_builder_rf(
     use_joint_model=use_joint_model,
     use_weight_feedback=use_weight_feedback,
     label_decoder_state=label_decoder_state,
+    gaussian_att_weight_opts=gaussian_att_weight_opts
   )
 
   alias = (

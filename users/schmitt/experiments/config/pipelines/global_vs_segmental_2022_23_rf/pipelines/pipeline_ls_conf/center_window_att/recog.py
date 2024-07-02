@@ -18,19 +18,35 @@ def center_window_returnn_frame_wise_beam_search(
         lm_type: Optional[str] = None,
         ilm_scale_list: Tuple[float, ...] = (0.0,),
         ilm_type: Optional[str] = None,
+        subtract_ilm_eos_score: bool = False,
         beam_size_list: Tuple[int, ...] = (12,),
         checkpoint_aliases: Tuple[str, ...] = ("last", "best", "best-4-avg"),
         run_analysis: bool = False,
         att_weight_seq_tags: Optional[List] = None,
         pure_torch: bool = False,
         use_recombination: Optional[str] = None,
+        batch_size: Optional[int] = None,
+        corpus_keys: Tuple[str, ...] = ("dev-other",),
 ):
+  if lm_type is not None:
+    assert len(checkpoint_aliases) == 1, "Do LM recog only for the best checkpoint"
+
   ilm_opts = {"type": ilm_type}
   if ilm_type == "mini_att":
     ilm_opts.update({
       "use_se_loss": False,
-      "correct_eos": False,
+      "correct_eos": subtract_ilm_eos_score,
     })
+
+  recog_opts = {
+    "recog_def": model_recog_pure_torch if pure_torch else model_recog,
+    "forward_step_func": _returnn_v2_forward_step,
+    "forward_callback": _returnn_v2_get_forward_callback,
+    "use_recombination": use_recombination,
+  }
+  if batch_size is not None:
+    recog_opts["batch_size"] = batch_size
+
   ReturnnSegmentalAttDecodingPipeline(
     alias=alias,
     config_builder=config_builder,
@@ -43,12 +59,7 @@ def center_window_returnn_frame_wise_beam_search(
     ilm_opts=ilm_opts,
     run_analysis=run_analysis,
     analysis_opts={"att_weight_seq_tags": att_weight_seq_tags},
-    recog_opts={
-      "recog_def": model_recog_pure_torch if pure_torch else model_recog,
-      "forward_step_func": _returnn_v2_forward_step,
-      "forward_callback": _returnn_v2_get_forward_callback,
-      "use_recombination": use_recombination,
-      "batch_size": 15_000
-    },
-    search_alias=f'returnn_decoding{"_pure_torch" if pure_torch else ""}'
+    recog_opts=recog_opts,
+    search_alias=f'returnn_decoding{"_pure_torch" if pure_torch else ""}',
+    corpus_keys=corpus_keys,
   ).run()

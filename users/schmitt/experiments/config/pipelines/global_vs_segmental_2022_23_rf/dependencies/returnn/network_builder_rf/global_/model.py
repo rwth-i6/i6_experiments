@@ -37,6 +37,7 @@ class GlobalAttentionModel(rf.Module):
           use_weight_feedback: bool = True,
           use_att_ctx_in_state: bool = True,
           use_mini_att: bool = False,
+          decoder_state: str = "nb-lstm",
   ):
     super(GlobalAttentionModel, self).__init__()
 
@@ -74,6 +75,7 @@ class GlobalAttentionModel(rf.Module):
       use_weight_feedback=use_weight_feedback,
       use_att_ctx_in_state=use_att_ctx_in_state,
       use_mini_att=use_mini_att,
+      decoder_state=decoder_state,
     )
 
     if language_model:
@@ -138,6 +140,7 @@ class MakeModel:
           use_weight_feedback: bool = True,
           use_att_ctx_in_state: bool = True,
           use_mini_att: bool = False,
+          decoder_state: str = "nb-lstm",
           **extra,
   ) -> GlobalAttentionModel:
     """make"""
@@ -179,6 +182,7 @@ class MakeModel:
       use_weight_feedback=use_weight_feedback,
       use_att_ctx_in_state=use_att_ctx_in_state,
       use_mini_att=use_mini_att,
+      decoder_state=decoder_state,
       **extra,
     )
 
@@ -221,6 +225,7 @@ def from_scratch_model_def(*, epoch: int, in_dim: Dim, target_dim: Dim) -> Globa
   use_weight_feedback = config.bool("use_weight_feedback", True)
   use_att_ctx_in_state = config.bool("use_att_ctx_in_state", True)
   use_mini_att = config.bool("use_mini_att", False)
+  decoder_state = config.typed_value("label_decoder_state", "nb-lstm")
 
   return MakeModel.make_model(
     in_dim,
@@ -231,6 +236,7 @@ def from_scratch_model_def(*, epoch: int, in_dim: Dim, target_dim: Dim) -> Globa
     use_weight_feedback=use_weight_feedback,
     use_att_ctx_in_state=use_att_ctx_in_state,
     use_mini_att=use_mini_att,
+    decoder_state=decoder_state,
   )
 
 

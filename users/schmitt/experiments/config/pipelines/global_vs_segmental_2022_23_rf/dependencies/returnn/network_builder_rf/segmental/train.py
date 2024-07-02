@@ -21,7 +21,7 @@ from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segment
   full_sum_training as label_model_full_sum_training
 )
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.segmental.realignment import (
-  model_realign
+  model_realign_efficient, model_realign
 )
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.segmental.model_new.blank_model.train import (
   viterbi_training as blank_model_viterbi_training
@@ -41,6 +41,7 @@ from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segment
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.segmental.model_new.blank_model.model import (
   BlankDecoderV1,
   BlankDecoderV3,
+  BlankDecoderV4,
   BlankDecoderV5,
   BlankDecoderV6
 )
@@ -72,6 +73,7 @@ def _returnn_v2_train_step(*, model, extern_data: TensorDict, **_kwargs_unused):
     data_spatial_dim=data_spatial_dim,
     align_targets=targets,
     align_targets_spatial_dim=targets_spatial_dim,
+    seq_tags=extern_data["seq_tag"],
   )
 
 
@@ -117,6 +119,7 @@ def viterbi_training(
         enc_spatial_dim: Optional[Dim] = None,
         batch_dims: Optional[List[Dim]] = None,
         beam_dim: Optional[Dim] = None,
+        seq_tags: Optional[rf.Tensor] = None,
 ):
   if enc_args is not None:
     assert enc_spatial_dim is not None
@@ -150,7 +153,7 @@ def viterbi_training(
 
   if model.use_joint_model:
     # TODO: use rf.window() instead
-    segment_starts, segment_lens = utils.get_segment_starts_and_lens(
+    segment_starts, segment_lens, center_positions = utils.get_segment_starts_and_lens(
       non_blank_mask=rf.sequence_mask(align_targets.dims),  # this way, every frame is interpreted as non-blank
       align_targets_spatial_dim=align_targets_spatial_dim,
       model=model,
@@ -173,7 +176,7 @@ def viterbi_training(
     )
     non_blank_targets.sparse_dim = model.target_dim
 
-    segment_starts, segment_lens = utils.get_segment_starts_and_lens(
+    segment_starts, segment_lens, center_positions = utils.get_segment_starts_and_lens(
       non_blank_mask,
       align_targets_spatial_dim,
       model,
@@ -230,6 +233,14 @@ def viterbi_training(
         print("ctc_align", ctc_align.shape)
         exit()
 
+  chunking = config.typed_value("chunking", None)
+
+  if chunking:
+    print("align_targets_spatial_dim", align_targets_spatial_dim.dyn_size_ext.raw_tensor)
+    print("data_spatial_dim", data_spatial_dim.dyn_size_ext.raw_tensor)
+    print("enc_spatial_dim", enc_spatial_dim.dyn_size_ext.raw_tensor)
+    exit()
+
   if model.use_joint_model:
 
     # ------------------- joint loop -------------------
@@ -237,15 +248,19 @@ def viterbi_training(
     # isinstance() does not work here, since SegmentalAttEfficientJointLabelDecoder inherits from SegmentalAttLabelDecoder
     if type(model.label_decoder) is SegmentalAttLabelDecoder:
       assert model.label_decoder_state == "joint-lstm", "not implemented yet, simple to extend"
-      label_model_viterbi_training(
+      targets = align_targets
+      targets_spatial_dim = align_targets_spatial_dim
+      label_logits, _ = label_model_viterbi_training(
         model=model.label_decoder,
         enc_args=enc_args,
         enc_spatial_dim=enc_spatial_dim,
-        non_blank_targets=align_targets,
-        non_blank_targets_spatial_dim=align_targets_spatial_dim,
+        non_blank_targets=targets,
+        non_blank_targets_spatial_dim=targets_spatial_dim,
         segment_starts=segment_starts,
         segment_lens=segment_lens,
+        center_positions=center_positions,
         batch_dims=batch_dims,
+        separate_blank_loss=model.use_joint_model,
       )
     else:
       assert type(model.label_decoder) is SegmentalAttEfficientLabelDecoder
@@ -260,7 +275,7 @@ def viterbi_training(
         non_blank_mask_ = non_blank_mask
         non_blank_mask_spatial_dim = align_targets_spatial_dim
 
-      label_model_viterbi_training_efficient(
+      label_logits, _ = label_model_viterbi_training_efficient(
         model=model.label_decoder,
         enc_args=enc_args,
         enc_spatial_dim=enc_spatial_dim,
@@ -268,19 +283,28 @@ def viterbi_training(
         targets_spatial_dim=targets_spatial_dim,
         segment_starts=segment_starts,
         segment_lens=segment_lens,
+        center_positions=center_positions,
         non_blank_mask=non_blank_mask_,
         non_blank_mask_spatial_dim=non_blank_mask_spatial_dim,
         ce_targets=align_targets,
         ce_spatial_dim=align_targets_spatial_dim,
         batch_dims=batch_dims,
         beam_dim=beam_dim,
+        separate_blank_loss=model.use_joint_model,
       )
+
+      if rf.get_run_ctx().train_flag and config.bool("training_do_realignments", False):
+        label_log_prob = rf.log_softmax(label_logits, axis=model.target_dim)
+        align_target_scores = -rf.cross_entropy(
+          target=align_targets, estimated=label_log_prob, estimated_type="log-probs", axis=model.target_dim
+        )
+        align_target_scores = rf.reduce_sum(align_target_scores, axis=align_targets_spatial_dim)
   else:
 
     # ------------------- label loop -------------------
 
     if type(model.label_decoder) is SegmentalAttLabelDecoder or force_inefficient_loop:
-      label_decoder_outputs = label_model_viterbi_training(
+      label_logits, label_decoder_outputs = label_model_viterbi_training(
         model=model.label_decoder,
         enc_args=enc_args,
         enc_spatial_dim=enc_spatial_dim,
@@ -288,12 +312,14 @@ def viterbi_training(
         non_blank_targets_spatial_dim=non_blank_targets_spatial_dim,
         segment_starts=segment_starts,
         segment_lens=segment_lens,
+        center_positions=center_positions,
         batch_dims=batch_dims,
         return_label_model_states=model.blank_decoder.get_label_decoder_deps() is not None,
+        separate_blank_loss=model.use_joint_model,
       )
     else:
       assert type(model.label_decoder) is SegmentalAttEfficientLabelDecoder
-      label_decoder_outputs = label_model_viterbi_training_efficient(
+      label_logits, label_decoder_outputs = label_model_viterbi_training_efficient(
         model=model.label_decoder,
         enc_args=enc_args,
         enc_spatial_dim=enc_spatial_dim,
@@ -301,17 +327,19 @@ def viterbi_training(
         targets_spatial_dim=non_blank_targets_spatial_dim,
         segment_starts=segment_starts,
         segment_lens=segment_lens,
+        center_positions=center_positions,
         batch_dims=batch_dims,
         ce_targets=non_blank_targets,
         ce_spatial_dim=non_blank_targets_spatial_dim,
         return_label_model_states=model.blank_decoder.get_label_decoder_deps() is not None,
+        separate_blank_loss=model.use_joint_model,
       )
 
     # ------------------- blank loop -------------------
 
     emit_ground_truth, emit_blank_target_dim = utils.get_emit_ground_truth(align_targets, model.blank_idx)
     if isinstance(model.blank_decoder, BlankDecoderV1):
-      blank_model_viterbi_training(
+      emit_log_prob, blank_log_prob = blank_model_viterbi_training(
         model=model.blank_decoder,
         enc_args=enc_args,
         enc_spatial_dim=enc_spatial_dim,
@@ -320,10 +348,12 @@ def viterbi_training(
         emit_ground_truth=emit_ground_truth,
         emit_blank_target_dim=emit_blank_target_dim,
         batch_dims=batch_dims,
+        beam_dim=beam_dim,
       )
-    elif model.blank_decoder_version in (3, 5, 6):
+    elif model.blank_decoder_version in (3, 4, 5, 6):
       assert isinstance(
         model.blank_decoder, BlankDecoderV3) or isinstance(
+        model.blank_decoder, BlankDecoderV4) or isinstance(
         model.blank_decoder, BlankDecoderV5) or isinstance(
         model.blank_decoder, BlankDecoderV6)
 
@@ -335,7 +365,18 @@ def viterbi_training(
       )
 
       if model.blank_decoder_version == 3:
-        blank_model_viterbi_training_v3(
+        emit_log_prob, blank_log_prob = blank_model_viterbi_training_v3(
+          model=model.blank_decoder,
+          enc_args=enc_args,
+          enc_spatial_dim=enc_spatial_dim,
+          label_states_unmasked=label_states_unmasked,
+          label_states_unmasked_spatial_dim=align_targets_spatial_dim,
+          emit_ground_truth=emit_ground_truth,
+          emit_blank_target_dim=emit_blank_target_dim,
+          batch_dims=batch_dims,
+        )
+      elif model.blank_decoder_version == 4:
+        emit_log_prob, blank_log_prob = blank_model_viterbi_training_v4(
           model=model.blank_decoder,
           enc_args=enc_args,
           enc_spatial_dim=enc_spatial_dim,
@@ -346,7 +387,7 @@ def viterbi_training(
           batch_dims=batch_dims,
         )
       elif model.blank_decoder_version == 5:
-        blank_model_viterbi_training_v5(
+        emit_log_prob, blank_log_prob = blank_model_viterbi_training_v5(
           model=model.blank_decoder,
           enc_args=enc_args,
           enc_spatial_dim=enc_spatial_dim,
@@ -357,7 +398,7 @@ def viterbi_training(
           batch_dims=batch_dims,
         )
       else:
-        blank_model_viterbi_training_v6(
+        emit_log_prob, blank_log_prob = blank_model_viterbi_training_v6(
           model=model.blank_decoder,
           enc_args=enc_args,
           enc_spatial_dim=enc_spatial_dim,
@@ -368,20 +409,53 @@ def viterbi_training(
           batch_dims=batch_dims,
         )
     else:
-      assert model.blank_decoder_version == 4 and isinstance(model.blank_decoder, BlankDecoderV3)
-      blank_model_viterbi_training_v4(
-        model=model.blank_decoder,
+      raise NotImplementedError
+
+  if rf.get_run_ctx().train_flag and config.bool("training_do_realignments", False):
+    train_partition_epoch = config.int("train_partition_epoch", 20)
+    with torch.no_grad():
+      viterbi_alignment_scores, viterbi_alignment, viterbi_alignment_spatial_dim = model_realign(
+        model=model,
         enc_args=enc_args,
         enc_spatial_dim=enc_spatial_dim,
-        label_states=label_decoder_outputs[0],
-        label_states_spatial_dim=label_decoder_outputs[1],
-        non_blank_mask=non_blank_mask,
-        non_blank_mask_dim=align_targets_spatial_dim,
+        non_blank_targets=non_blank_targets,
         non_blank_targets_spatial_dim=non_blank_targets_spatial_dim,
-        emit_ground_truth=emit_ground_truth,
-        emit_blank_target_dim=emit_blank_target_dim,
         batch_dims=batch_dims,
+        beam_size=100,
+        use_recombination="max",
       )
+
+      # realignment has encoder dimension as spatial dim, replace it with align_targets_spatial_dim
+      # in order to combine it with the given alignment
+      viterbi_alignment = utils.copy_tensor_replace_dim_tag(
+        viterbi_alignment, enc_spatial_dim, align_targets_spatial_dim)
+
+      align_targets = rf.where(
+        viterbi_alignment_scores > align_target_scores,
+        viterbi_alignment,
+        align_targets
+      )
+
+      for name, tensor, dim, ndim in zip(
+              ("realignment",),
+              (align_targets,),
+              (model.target_dim.dimension,),
+              (1,)
+      ):
+        # dump the new interpolation alignment to hdf
+        hdf_filename = f"{name}_full-epoch-{(rf.get_run_ctx().epoch - 1) // train_partition_epoch + 1}.hdf"
+        hdf_dataset = SimpleHDFWriter(
+          filename=hdf_filename,
+          dim=dim,
+          ndim=ndim,
+          extend_existing_file=os.path.exists(hdf_filename),
+        )
+        hdf.dump_hdf_rf(
+          hdf_dataset=hdf_dataset,
+          data=tensor,
+          batch_dim=batch_dims[0],
+          seq_tags=seq_tags,
+        )
 
 viterbi_training: TrainDef[SegmentalAttentionModel]
 viterbi_training.learning_rate_control_error_measure = "dev_score_full_sum"
@@ -399,9 +473,9 @@ def full_sum_training(
         interpolation_alignment_spatial_dim: Optional[Dim] = None,
         interpolation_alignment_scores: Optional[rf.Tensor] = None,
 ):
-  assert model.use_joint_model
-  assert isinstance(model.label_decoder, SegmentalAttEfficientLabelDecoder)
-  assert model.label_decoder_state == "nb-lstm"
+  # assert model.use_joint_model
+  # assert isinstance(model.label_decoder, SegmentalAttEfficientLabelDecoder)
+  # assert model.label_decoder_state == "nb-lstm"
   if interpolation_alignment is not None:
     assert interpolation_alignment_scores is not None
 
@@ -411,7 +485,8 @@ def full_sum_training(
   aux_loss_layers = config.typed_value("aux_loss_layers")
   aux_loss_scales = config.typed_value("aux_loss_scales", ([1.0] * len(aux_loss_layers)) if aux_loss_layers else None)
 
-  full_sum_beam_size = config.int("full_sum_beam_size", None)
+  full_sum_training_opts = config.typed_value("full_sum_training_opts", {})
+  full_sum_beam_size = full_sum_training_opts.get("beam_size", None)
 
   if data.feature_dim and data.feature_dim.dimension == 1:
     data = rf.squeeze(data, axis=data.feature_dim)
@@ -448,7 +523,7 @@ def full_sum_training(
 
   # for every frame position, get the corresponding window around it ([B,T,W])
   # TODO: use rf.window() instead
-  segment_starts, segment_lens = utils.get_segment_starts_and_lens(
+  segment_starts, segment_lens, center_positions = utils.get_segment_starts_and_lens(
     rf.sequence_mask(batch_dims + [enc_spatial_dim]),  # this way, every frame is interpreted as non-blank
     enc_spatial_dim,
     model,
@@ -457,11 +532,12 @@ def full_sum_training(
   )
 
   if full_sum_beam_size:
-    downsampling = config.int("full_sum_lattice_downsampling", 1)
-    precompute_chunk_size = config.int("full_sum_precompute_chunk_size", 10)
-    interpolation_alignment_factor = config.float("full_sum_alignment_interpolation_factor", 0.0)
+    downsampling = full_sum_training_opts.get("lattice_downsampling", 1)
+    precompute_chunk_size = full_sum_training_opts.get("precompute_chunk_size", 10)
+    interpolation_alignment_factor = full_sum_training_opts.get("alignment_interpolation_factor", 0.0)
     partition_epoch = config.int("train_partition_epoch", 20)
-    train_on_viterbi_paths = config.bool("full_sum_train_on_viterbi_paths", False)
+    train_on_viterbi_paths = full_sum_training_opts.get("train_on_viterbi_paths", False)
+    only_use_blank_model = full_sum_training_opts.get("only_use_blank_model", False)
 
     # do not use interpolation alignment for eval datasets
     if not rf.get_run_ctx().train_flag or interpolation_alignment_factor == 0.0:
@@ -489,23 +565,34 @@ def full_sum_training(
 
     if train_on_viterbi_paths:
       with torch.no_grad():
+        # viterbi_alignment_scores, viterbi_alignment, viterbi_alignment_spatial_dim = model_realign_efficient(
+        #   model=model.label_decoder,
+        #   enc=enc_args["enc"],
+        #   enc_ctx=enc_args["enc_ctx"],
+        #   enc_spatial_dim=enc_spatial_dim,
+        #   non_blank_targets=non_blank_targets,
+        #   non_blank_targets_spatial_dim=non_blank_targets_spatial_dim,
+        #   segment_starts=segment_starts,
+        #   segment_lens=segment_lens,
+        #   batch_dims=batch_dims,
+        #   beam_size=100 if full_sum_beam_size == 1 else full_sum_beam_size,
+        #   downsampling=downsampling if rf.get_run_ctx().train_flag else 1,
+        #   precompute_chunk_size=precompute_chunk_size,
+        #   interpolation_alignment=interpolation_alignment,
+        #   interpolation_alignment_factor=interpolation_alignment_factor,
+        #   use_recombination="max" if full_sum_beam_size == 1 else None,
+        #   return_realignment=True,
+        # )
         viterbi_alignment_scores, viterbi_alignment, viterbi_alignment_spatial_dim = model_realign(
-          model=model.label_decoder,
-          enc=enc_args["enc"],
-          enc_ctx=enc_args["enc_ctx"],
+          model=model,
+          enc_args=enc_args,
           enc_spatial_dim=enc_spatial_dim,
           non_blank_targets=non_blank_targets,
           non_blank_targets_spatial_dim=non_blank_targets_spatial_dim,
-          segment_starts=segment_starts,
-          segment_lens=segment_lens,
           batch_dims=batch_dims,
           beam_size=100 if full_sum_beam_size == 1 else full_sum_beam_size,
-          downsampling=downsampling if rf.get_run_ctx().train_flag else 1,
-          precompute_chunk_size=precompute_chunk_size,
-          interpolation_alignment=interpolation_alignment,
-          interpolation_alignment_factor=interpolation_alignment_factor,
           use_recombination="max" if full_sum_beam_size == 1 else None,
-          return_realignment=True,
+          only_use_blank_model=only_use_blank_model,
         )
 
       if full_sum_beam_size > 1:
@@ -528,22 +615,33 @@ def full_sum_training(
       )
     else:
       # full-sum loss with beam search
+      # seq_log_prob, _, _ = model_realign_efficient(
+      #   model=model.label_decoder,
+      #   enc=enc_args["enc"],
+      #   enc_ctx=enc_args["enc_ctx"],
+      #   enc_spatial_dim=enc_spatial_dim,
+      #   non_blank_targets=non_blank_targets,
+      #   non_blank_targets_spatial_dim=non_blank_targets_spatial_dim,
+      #   segment_starts=segment_starts,
+      #   segment_lens=segment_lens,
+      #   batch_dims=batch_dims,
+      #   beam_size=full_sum_beam_size,
+      #   downsampling=downsampling if rf.get_run_ctx().train_flag else 1,
+      #   precompute_chunk_size=precompute_chunk_size,
+      #   interpolation_alignment=interpolation_alignment,
+      #   interpolation_alignment_factor=interpolation_alignment_factor,
+      #   use_recombination="sum",
+      # )
       seq_log_prob, _, _ = model_realign(
-        model=model.label_decoder,
-        enc=enc_args["enc"],
-        enc_ctx=enc_args["enc_ctx"],
+        model=model,
+        enc_args=enc_args,
         enc_spatial_dim=enc_spatial_dim,
         non_blank_targets=non_blank_targets,
         non_blank_targets_spatial_dim=non_blank_targets_spatial_dim,
-        segment_starts=segment_starts,
-        segment_lens=segment_lens,
         batch_dims=batch_dims,
-        beam_size=full_sum_beam_size,
-        downsampling=downsampling if rf.get_run_ctx().train_flag else 1,
-        precompute_chunk_size=precompute_chunk_size,
-        interpolation_alignment=interpolation_alignment,
-        interpolation_alignment_factor=interpolation_alignment_factor,
-        use_recombination=None,
+        beam_size=100 if full_sum_beam_size == 1 else full_sum_beam_size,
+        use_recombination="sum",
+        only_use_blank_model=False,
       )
       loss = -1 * seq_log_prob
       loss.mark_as_loss("full_sum_loss", scale=1.0, use_normalized_loss=True)
@@ -551,7 +649,7 @@ def full_sum_training(
     # in training, do realignment and update previous interpolation alignment if realignment is better
     if rf.get_run_ctx().train_flag and interpolation_alignment_factor > 0.0:
       with torch.no_grad():
-        viterbi_alignment_scores, viterbi_alignment, viterbi_alignment_spatial_dim = model_realign(
+        viterbi_alignment_scores, viterbi_alignment, viterbi_alignment_spatial_dim = model_realign_efficient(
           model=model.label_decoder,
           enc=enc_args["enc"],
           enc_ctx=enc_args["enc_ctx"],

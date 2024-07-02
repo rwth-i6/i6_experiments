@@ -267,7 +267,8 @@ class SegmentalAttDecodingExperiment(DecodingExperiment, ABC):
       assert isinstance(self.config_builder, SegmentalAttConfigBuilderRF)
       _, config_builder_ = get_global_att_config_builder_rf(
         use_weight_feedback=self.config_builder.use_weight_feedback,
-        use_att_ctx_in_state=self.config_builder.use_att_ctx_in_state
+        use_att_ctx_in_state=self.config_builder.use_att_ctx_in_state,
+        decoder_state=self.config_builder.label_decoder_state,
       )
 
       train_mini_lstm_exp = GlobalTrainExperiment(
@@ -373,8 +374,8 @@ class ReturnnDecodingExperiment(DecodingExperiment, ABC):
         returnn_root=self.returnn_root,
         returnn_python_exe=self.returnn_python_exe,
         output_files=["output.py.gz"],
-        mem_rqmt=6,
-        time_rqmt=1,
+        mem_rqmt=self.search_rqmt.get("mem", 6),
+        time_rqmt=self.search_rqmt.get("time", 1),
       )
       search_job.add_alias("%s/search_%s" % (self.alias, self.stm_corpus_key))
       search_take_best_job = SearchTakeBestJob(search_py_output=search_job.out_files["output.py.gz"])
@@ -822,7 +823,7 @@ class DecodingPipeline(ABC):
     self.ilm_scales = ilm_scales
     self.ilm_opts = ilm_opts if ilm_opts is not None else {}
     self.run_analysis = run_analysis
-    self.search_rqmt = search_rqmt
+    self.search_rqmt = search_rqmt if search_rqmt is not None else {}
     self.search_alias = search_alias
     self.corpus_keys = corpus_keys
 
@@ -858,17 +859,24 @@ class ReturnnGlobalAttDecodingPipeline(DecodingPipeline):
     self.config_builder = config_builder
 
   def run_experiment(self, beam_size: int, lm_scale: float, ilm_scale: float, checkpoint_alias: str):
-    if lm_scale > 0 and beam_size in (50, 84) and "batch_size" not in self.recog_opts:
-      self.recog_opts["batch_size"] = 4000 * 160
+    recog_opts = copy.deepcopy(self.recog_opts)
+    search_rqmt = copy.deepcopy(self.search_rqmt)
+
+    if lm_scale > 0:
+      if beam_size in (64, 84):
+        if "batch_size" not in recog_opts:
+          recog_opts["batch_size"] = 1250
+        if "time" not in search_rqmt:
+          search_rqmt["time"] = 6
 
     exp = ReturnnGlobalAttDecodingExperiment(
       alias=self.alias,
       config_builder=self.config_builder,
-      recog_opts=self.recog_opts,
+      recog_opts=recog_opts,
       checkpoint=self.checkpoint,
       checkpoint_alias=checkpoint_alias,
       search_alias=self.search_alias,
-      search_rqmt=self.search_rqmt
+      search_rqmt=search_rqmt
     )
     exp.run_eval()
     if self.run_analysis:
@@ -900,19 +908,32 @@ class ReturnnSegmentalAttDecodingPipeline(DecodingPipeline):
         self.analysis_opts["ground_truth_hdf"] = self.realignment
 
   def run_experiment(self, beam_size: int, lm_scale: float, ilm_scale: float, checkpoint_alias: str):
+    recog_opts = copy.deepcopy(self.recog_opts)
+    search_rqmt = copy.deepcopy(self.search_rqmt)
+
     if lm_scale > 0:
-      if beam_size == 12 and "batch_size" not in self.recog_opts:
-        self.recog_opts["batch_size"] = 7500 * 160
-      elif beam_size in (50, 84) and "max_seqs" not in self.recog_opts:
-        self.recog_opts["max_seqs"] = 1
+      if beam_size == 12:
+        if "batch_size" not in recog_opts:
+          recog_opts["batch_size"] = 12_000
+        if "time" not in search_rqmt:
+          search_rqmt["time"] = 2
+      elif beam_size in (24, 32, 64, 84):
+        if "batch_size" not in recog_opts:
+          recog_opts["batch_size"] = 1250
+        if "time" not in search_rqmt:
+          search_rqmt["time"] = 12
+    else:
+      recog_opts["batch_size"] = 15_000
+      if "time" not in search_rqmt:
+        search_rqmt["time"] = 2
 
     exp = ReturnnSegmentalAttDecodingExperiment(
       alias=self.alias,
       config_builder=self.config_builder,
-      recog_opts=self.recog_opts,
+      recog_opts=recog_opts,
       checkpoint=self.checkpoint,
       checkpoint_alias=checkpoint_alias,
-      search_rqmt=self.search_rqmt,
+      search_rqmt=search_rqmt,
       search_alias=self.search_alias
     )
     exp.run_eval()

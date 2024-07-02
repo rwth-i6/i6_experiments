@@ -1,5 +1,7 @@
 from i6_core.returnn.config import CodeWrapper
 
+from . import hdf
+
 from typing import List, Optional, Dict
 from sisyphus import Path
 
@@ -59,15 +61,11 @@ def get_dataset_dict(
     dataset_dict["datasets"]["zip_dataset"]["targets"] = None
 
   if hdf_targets is not None:
-    dataset_dict["datasets"]["align"] = {
-      "class": "HDFDataset",
-      "files": [
-        hdf_targets
-      ],
-      "partition_epoch": partition_epoch,
-      "seq_list_filter_file": segment_file,
-      "use_cache_manager": True,
-    }
+    dataset_dict["datasets"]["align"] = hdf.get_dataset_dict(
+      hdf_files=[hdf_targets],
+      partition_epoch=partition_epoch,
+      segment_file=segment_file
+    )
 
     dataset_dict["data_map"]["targets"] = ("align", "data")
 

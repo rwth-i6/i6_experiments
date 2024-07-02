@@ -1,7 +1,7 @@
 from i6_experiments.users.schmitt.datasets.oggzip import get_dataset_dict as get_oggzip_dataset_dict
 from i6_experiments.users.schmitt.datasets.concat import get_concat_dataset_dict
 from i6_experiments.users.schmitt.datasets.variable import (
-  get_interpolation_alignment_dataset, get_interpolation_alignment_scores_dataset
+  get_interpolation_alignment_dataset, get_interpolation_alignment_scores_dataset, get_realignment_dataset
 )
 from i6_experiments.users.schmitt.datasets.extern_sprint import get_dataset_dict as get_extern_sprint_dataset_dict
 from i6_experiments.users.schmitt.specaugment import *
@@ -35,6 +35,7 @@ class ConfigBuilderRF(ABC):
           model_def: ModelDef,
           get_model_func: Callable,
           use_att_ctx_in_state: bool = True,
+          label_decoder_state: str = "nb-lstm",
   ):
     self.variant_params = variant_params
     self.model_def = model_def
@@ -62,6 +63,10 @@ class ConfigBuilderRF(ABC):
     if not use_att_ctx_in_state:
       self.config_dict["use_att_ctx_in_state"] = use_att_ctx_in_state
 
+    self.label_decoder_state = label_decoder_state
+    if label_decoder_state != "nb-lstm":
+      self.config_dict["label_decoder_state"] = label_decoder_state
+
     self.python_prolog = []
 
   def get_train_config(self, opts: Dict):
@@ -74,6 +79,11 @@ class ConfigBuilderRF(ABC):
 
     if opts.get("full_sum_alignment_interpolation_factor", 0.0) > 0.0:
       dataset_opts["add_alignment_interpolation_datasets"] = True
+
+    if opts.get("training_do_realignments", False):
+      config_dict["train_partition_epoch"] = self.variant_params["dataset"]["corpus"].partition_epoch
+      config_dict["training_do_realignments"] = True
+      dataset_opts["add_realignment_dataset"] = True
 
     config_dict.update(self.get_train_datasets(dataset_opts=dataset_opts))
     extern_data_raw = self.get_extern_data_dict(dataset_opts)
@@ -109,7 +119,7 @@ class ConfigBuilderRF(ABC):
       "rf_att_dropout_broadcast",
       "grad_scaler",
       "gradient_clip_global_norm",
-      # "specaugment_steps",
+      "specaugment_steps",
       "torch_amp",
       # "max_seq_length",
     ]
@@ -216,7 +226,14 @@ class ConfigBuilderRF(ABC):
           "label_decoder.mini_att_lstm.bias",
           "label_decoder.mini_att_lstm.rec_weight",
           "label_decoder.mini_att_lstm.ff_weight",
-        )}
+        )} if "lstm" in self.label_decoder_state else {
+          layer: f"do_not_load_{layer}" for layer in (
+            "label_decoder.mini_att.bias",
+            "label_decoder.mini_att.weight",
+            "label_decoder.mini_att_linear.bias",
+            "label_decoder.mini_att_linear.weight",
+          )
+        }
       }
 
       config_dict["beam_search_opts"].update({
@@ -310,7 +327,9 @@ class ConfigBuilderRF(ABC):
         (8, 250): [279_000, 558_000, 621_000],  # ~2485steps/ep, 250 eps -> 621k steps in total
         (8, 500): [558_000, 1_117_000, 1_242_000],  # ~2485steps/ep, 500 eps -> 1.242k steps in total
         (10, 500): [443_000, 887_000, 986_000],  # ~1973 steps/epoch, total steps after 500 epochs: ~986k
+        (15, 150): [88_000, 176_000, 196_000],  # ~1304 steps/epoch, total steps after 150 epochs: ~196k
         (15, 500): [295_000, 590_000, 652_000],  # total steps after 500 epochs: ~652k
+        (15, 600): [352_000, 705_000, 783_000],  # total steps after 500 epochs: ~783k
         (20, 1000): [438_000, 877_000, 974_000],  # total steps after 1000 epochs: 974.953
         (20, 2000): [878_000, 1_757_000, 1_952_000],  # total steps after 2000 epochs: 1.952.394
         (30, 2000): [587_000, 1_174_000, 1_305_000],  # total steps after 2000 epochs: 1.305.182
@@ -545,6 +564,17 @@ class ConfigBuilderRF(ABC):
           "interpolation_alignment_scores": ("interpolation_alignment_scores_dataset", "data"),
         })
 
+    if dataset_opts.get("add_realignment_dataset"):
+      train_dataset_dict = datasets["train"]
+      assert train_dataset_dict["class"] == "MetaDataset"
+      assert set(train_dataset_dict["data_map"].keys()) == {"data", "targets"}
+      realignment_dataset = {
+        "class": "VariableDataset",
+        "get_dataset": get_realignment_dataset,
+      }
+      train_dataset_dict["datasets"]["realignment"] = realignment_dataset
+      train_dataset_dict["data_map"]["targets"] = ("realignment", "data")
+
     return datasets
 
   def get_search_dataset(self, search_corpus_key: str, dataset_opts: Dict):
@@ -567,6 +597,14 @@ class LibrispeechConformerConfigBuilderRF(ConfigBuilderRF, ABC):
   @property
   def batch_size_factor(self):
     return 160
+
+  @property
+  def red_factor(self):
+    return 960
+
+  @property
+  def red_subtrahend(self):
+    return 399
 
 
 class GlobalAttConfigBuilderRF(LibrispeechConformerConfigBuilderRF):
@@ -604,7 +642,7 @@ class SegmentalAttConfigBuilderRF(LibrispeechConformerConfigBuilderRF):
           blank_decoder_version: Optional[int] = None,
           use_joint_model: bool = False,
           use_weight_feedback: bool = True,
-          label_decoder_state: str = "nb-lstm",
+          gaussian_att_weight_opts: Optional[Dict] = None,
           **kwargs
   ):
     super(SegmentalAttConfigBuilderRF, self).__init__(**kwargs)
@@ -613,7 +651,6 @@ class SegmentalAttConfigBuilderRF(LibrispeechConformerConfigBuilderRF):
       center_window_size=center_window_size,
     ))
     self.use_joint_model = use_joint_model
-    self.label_decoder_state = label_decoder_state
     self.use_weight_feedback = use_weight_feedback
 
     if use_joint_model:
@@ -625,8 +662,8 @@ class SegmentalAttConfigBuilderRF(LibrispeechConformerConfigBuilderRF):
       self.config_dict["use_joint_model"] = use_joint_model
     if not use_weight_feedback:
       self.config_dict["use_weight_feedback"] = use_weight_feedback
-    if label_decoder_state != "nb-lstm":
-      self.config_dict["label_decoder_state"] = label_decoder_state
+    if gaussian_att_weight_opts is not None:
+      self.config_dict["gaussian_att_weight_opts"] = gaussian_att_weight_opts
 
   def get_train_config(self, opts: Dict):
     train_config = super(SegmentalAttConfigBuilderRF, self).get_train_config(opts)
@@ -635,14 +672,20 @@ class SegmentalAttConfigBuilderRF(LibrispeechConformerConfigBuilderRF):
       train_config.config["alignment_augmentation_opts"] = opts["alignment_augmentation_opts"]
 
     remaining_opt_keys = [
-      "full_sum_beam_size",
-      "full_sum_alignment_interpolation_factor",
-      "full_sum_lattice_downsampling",
-      "full_sum_train_on_viterbi_paths",
+      "full_sum_training_opts",
+      "chunking",
+      "min_chunk_size"
     ]
     train_config.config.update(
       {k: opts.pop(k) for k in remaining_opt_keys if k in opts}
     )
+
+    nb_loss_scale = opts.pop("nb_loss_scale", 1.0)
+    if nb_loss_scale and nb_loss_scale != 1.0:
+      train_config.config["nb_loss_scale"] = nb_loss_scale
+    b_loss_scale = opts.pop("b_loss_scale", 1.0)
+    if b_loss_scale and b_loss_scale != 1.0:
+      train_config.config["b_loss_scale"] = b_loss_scale
 
     return train_config
 
@@ -660,6 +703,14 @@ class SegmentalAttConfigBuilderRF(LibrispeechConformerConfigBuilderRF):
     use_recombination = opts.get("use_recombination")
     if use_recombination is not None:
       recog_config.config["beam_search_opts"]["use_recombination"] = use_recombination
+
+    ilm_correction_opts = opts.get("ilm_correction_opts")  # type: Dict
+    if ilm_correction_opts:
+      if ilm_correction_opts.get("correct_eos"):
+        recog_config.config["beam_search_opts"].update({
+          "subtract_ilm_eos_score": True,
+        })
+
 
     return recog_config
 

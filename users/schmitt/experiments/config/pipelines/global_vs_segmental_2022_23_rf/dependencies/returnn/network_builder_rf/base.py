@@ -12,6 +12,31 @@ _log_mel_feature_dim = 80
 _batch_size_factor = 160
 
 
+class LinearDecoder(rf.Module):
+  def __init__(
+          self,
+          in_dim: Dim,
+          out_dim: int,
+  ):
+    super(LinearDecoder, self).__init__()
+
+    self.linear1 = rf.Linear(in_dim, Dim(name="ilm-linear1", dimension=out_dim))
+    self.linear2 = rf.Linear(self.linear1.out_dim, Dim(name="ilm-linear2", dimension=out_dim))
+
+    self.out_dim = self.linear2.out_dim
+
+  def __call__(self, source: Tensor) -> Tensor:
+    x = self.linear1(source)
+    x = rf.dropout(x, drop_prob=0.1, axis=rf.dropout_broadcast_default() and x.feature_dim)
+    x = rf.tanh(x)
+
+    x = self.linear2(x)
+    x = rf.dropout(x, drop_prob=0.1, axis=rf.dropout_broadcast_default() and x.feature_dim)
+    x = rf.tanh(x)
+
+    return x
+
+
 class BaseLabelDecoder(rf.Module):
   def __init__(
           self,
@@ -69,9 +94,10 @@ class BaseLabelDecoder(rf.Module):
           **ilm_layer_opts,
         )
     else:
-      ilm_layer_class = rf.Linear
+      assert decoder_state == "nb-2linear-ctx1"
+      ilm_layer_class = LinearDecoder
       ilm_layer_opts = dict(
-        out_dim=Dim(name="linear-ilm", dimension=1024),
+        out_dim=1024,
       )
       if use_att_ctx_in_state:
         self.s_linear = ilm_layer_class(
@@ -86,8 +112,13 @@ class BaseLabelDecoder(rf.Module):
 
     self.use_mini_att = use_mini_att
     if use_mini_att:
-      self.mini_att_lstm = rf.LSTM(self.target_embed.out_dim, Dim(name="mini-att-lstm", dimension=50))
-      self.mini_att = rf.Linear(self.mini_att_lstm.out_dim, self.att_num_heads * self.enc_out_dim)
+      if "lstm" in decoder_state:
+        self.mini_att_lstm = rf.LSTM(self.target_embed.out_dim, Dim(name="mini-att-lstm", dimension=50))
+        out_dim = self.mini_att_lstm.out_dim
+      else:
+        self.mini_att_linear = rf.Linear(self.target_embed.out_dim, Dim(name="mini-att-linear", dimension=50))
+        out_dim = self.mini_att_linear.out_dim
+      self.mini_att = rf.Linear(out_dim, self.att_num_heads * self.enc_out_dim)
 
     if use_weight_feedback:
       self.weight_feedback = rf.Linear(att_num_heads, enc_key_total_dim, with_bias=False)

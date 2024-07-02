@@ -20,42 +20,72 @@ def run_exps():
         checkpoint_aliases=("best-4-avg",),
       )
 
-    for import_model_name in ("glob.conformer.mohammad.5.4",):
-      for train_alias, checkpoint in train.train_import_global_tf(
-        alias=model_alias,
+    for train_alias, checkpoint in train.train_import_global_tf(
+      alias=model_alias,
+      config_builder=config_builder,
+      n_epochs_list=(300,),
+      const_lr_list=(1e-4,),
+    ):
+      recog.global_att_returnn_label_sync_beam_search(
+        alias=train_alias,
         config_builder=config_builder,
-        n_epochs_list=(100,),
-        const_lr_list=(1e-4,),
-        import_model_name=import_model_name,
-      ):
-        recog.global_att_returnn_label_sync_beam_search(
-          alias=train_alias,
-          config_builder=config_builder,
-          checkpoint=checkpoint,
-          checkpoint_aliases=("best",),
-          lm_type="trafo",
-          lm_scale_list=(0.4, 0.54),
-          ilm_scale_list=(0.4,),
-          ilm_type="mini_att",
-          beam_size_list=(12,)
-        )
+        checkpoint=checkpoint,
+        checkpoint_aliases=("last",),
+        lm_type="trafo",
+        lm_scale_list=(0.5, 0.52, 0.54,),
+        ilm_scale_list=(0.4,),
+        ilm_type="mini_att",
+        beam_size_list=(12, 84),
+        # corpus_keys=("dev-other", "test-other"),
+      )
 
   for model_alias, config_builder in baseline.global_att_baseline_rf(
           use_weight_feedback=False, use_att_ctx_in_state=False
   ):
-    for import_model_name in ("glob.conformer.mohammad.5.4",):
-      for train_alias, checkpoint in train.train_import_global_tf(
-        alias=model_alias,
+    for train_alias, checkpoint in train.train_import_global_tf(
+      alias=model_alias,
+      config_builder=config_builder,
+      n_epochs_list=(100,),
+      const_lr_list=(1e-4,),
+    ):
+      recog.global_att_returnn_label_sync_beam_search(
+        alias=train_alias,
         config_builder=config_builder,
-        n_epochs_list=(100,),
-        const_lr_list=(1e-4,),
-        import_model_name=import_model_name,
-      ):
-        recog.global_att_returnn_label_sync_beam_search(
-          alias=train_alias,
-          config_builder=config_builder,
-          checkpoint=checkpoint,
-        )
+        checkpoint=checkpoint,
+        checkpoint_aliases=("best",),
+      )
+      recog.global_att_returnn_label_sync_beam_search(
+        alias=train_alias,
+        config_builder=config_builder,
+        checkpoint=checkpoint,
+        checkpoint_aliases=("best",),
+        lm_type="trafo",
+        lm_scale_list=(0.1, 0.2),
+        ilm_scale_list=(0.0,),
+        ilm_type="mini_att",
+        beam_size_list=(12,),
+        batch_size=8_000,
+      )
+
+  for model_alias, config_builder in baseline.global_att_baseline_rf(decoder_state="nb-2linear-ctx1"):
+    for train_alias, checkpoint in train.train_import_global_tf(
+      alias=model_alias,
+      config_builder=config_builder,
+      n_epochs_list=(100,),
+      const_lr_list=(1e-4,),
+    ):
+      recog.global_att_returnn_label_sync_beam_search(
+        alias=train_alias,
+        config_builder=config_builder,
+        checkpoint=checkpoint,
+        checkpoint_aliases=("best",),
+        # lm_type="trafo",
+        # lm_scale_list=(0.5, 0.52, 0.54,),
+        # ilm_scale_list=(0.4, 0.44, 0.48,),
+        # ilm_type="mini_att",
+        # beam_size_list=(12,),
+      )
+
 
 
 
