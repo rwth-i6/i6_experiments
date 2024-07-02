@@ -223,8 +223,8 @@ def py():
         ("bpe10k", "bpe", 0.01),  # 6.33
         ("bpe10k", "bpe", 0.02),  # 6.56
         # spm4k no sampling: 6.20
-        ("spm4k", "spm", 0.7),
-        ("spm4k", "bpe", 0.01),
+        ("spm4k", "spm", 0.7),  # 6.59
+        ("spm4k", "bpe", 0.01),  # 6.14
         # smp1k no sampling: 7.34
         ("spm1k", "bpe", 0.01),  # 8.11 (maybe worse because of max seq len?)
     ]:
@@ -290,7 +290,7 @@ def py():
             train_vocab_opts={"other_opts": {"enable_sampling": True, "alpha": 0.7}},
         )
     # featBN but without spmSample07 (baseline without featBN: 6.11)
-    train_exp(
+    train_exp(  # 6.07, so again, featBN slightly better, also diff dev vs test is less
         "v6-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-featBN-speedpertV2-spm10k",
         config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
         model_config={"feature_batch_norm": True},
@@ -342,13 +342,13 @@ def py():
                 },
             )
 
-    # This one uses the default RelPosSelfAttention instead of the Shawn et al 2018 style, old RETURNN way.
+    # relPosAttDef: Use the default RelPosSelfAttention instead of the Shawn et al 2018 style, old RETURNN way.
     enc_conformer_layer_default = rf.build_dict(
         rf.encoder.conformer.ConformerEncoderLayer,
         ff_activation=rf.build_dict(rf.relu_square),
         num_heads=8,
     )
-    train_exp(
+    train_exp(  # 6.18 (vs 6.30), so relPosAttDef is better
         "v6-relPosAttDef"
         "-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-speedpertV2-spm10k-spmSample07",
         config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
