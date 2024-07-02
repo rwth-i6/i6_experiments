@@ -1,22 +1,24 @@
 import torch
 from torch import nn
 from dataclasses import dataclass
+from typing import Optional
 
 from i6_models.config import ModelConfiguration
 from i6_experiments.common.setups.returnn_pytorch.serialization import Collection
 from i6_experiments.users.berger.pytorch.serializers.basic import (
     get_basic_pt_network_serializer,
 )
-from i6_experiments.common.setups.serialization import Import
+from i6_experiments.common.setups.serialization import Import, PartialImport
 from i6_experiments.users.phan.utils import init_linear, init_lstm
 
 
 @dataclass
 class LSTMLMConfig(ModelConfiguration):
-    vocab_dim: int
+    vocab_dim: int # Synonym to input dim. This naming is dumb though.
     embed_dim: int
     hidden_dim: int
     n_lstm_layers: int
+    output_dim: Optional[int] = None
     bias: bool = True
     dropout: float = 0.0
     bidirectional: bool = False
@@ -40,38 +42,70 @@ class LSTMLM(nn.Module):
         )
         # if cfg.dropout > 0 and cfg.n_lstm_layers == 1:
         #     self.dropout = nn.Dropout(0.1)
-        self.final_linear = nn.Linear(cfg.hidden_dim, cfg.vocab_dim, bias=True)
+        if cfg.output_dim is None:
+            output_dim = cfg.vocab_dim
+        else:
+            output_dim = cfg.output_dim
+        if not cfg.bidirectional:
+            lstm_out_dim = cfg.hidden_dim
+        else:
+            lstm_out_dim = 2*cfg.hidden_dim
+        self.final_linear = nn.Linear(lstm_out_dim, output_dim, bias=True)
         init_func = nn.init.normal_
         init_args = {"mean": 0.0, "std": 0.1}
         init_lstm(self.lstm, cfg.n_lstm_layers, init_func, init_args)
         init_linear(self.embed, init_func, init_args)
         init_linear(self.final_linear, init_func, init_args)
 
-    def forward(self, x):
+    def forward(self, x, seq_lengths=None):
         """
         Return log probs of each beam at each time step
         x: (B, S, F)
+        seq_lengths: (B,) sequence lengths, needed for bidirectional case
         """
         x = self.embed(x)
-        batch_size = x.shape[0]
-        h0 = torch.zeros((self.cfg.n_lstm_layers, batch_size, self.cfg.hidden_dim), device=x.device).detach()
-        c0 = torch.zeros_like(h0, device=x.device).detach()
-        x, _ = self.lstm(x, (h0, c0))
-        # if self.dropout:
-        #     x = self.dropout(x)
+
+        if self.cfg.bidirectional:
+            x = torch.nn.utils.rnn.pack_padded_sequence(
+                x,
+                seq_lengths,
+                batch_first=True,
+                enforce_sorted=False,
+            )
+            x, _ = self.lstm(x)
+            x = torch.nn.utils.rnn.unpack_sequence(x)
+            x = torch.nn.utils.rnn.pad_sequence(x, batch_first=True, padding_value=0.0) 
+        else:
+            x, _ = self.lstm(x)
+
         x = self.final_linear(x)
         x = x.log_softmax(dim=-1)
         return x
 
 def get_train_serializer(
     model_config: LSTMLMConfig,
-    train_step_package: str
+    train_step_package: str,
+    partial_train_step: bool = False,
+    partial_kwargs: dict = {},
 ) -> Collection:
+    """
+    :param partial_train_step: Is the train step a partial function?
+    :param partial_kwargs: Contains two dicts: "hashed_arguments" and "unhashed_arguments"
+    """
     # pytorch_package = __package__.rpartition(".")[0]
+    if partial_train_step:
+        train_step_import = PartialImport(
+            code_object_path=f"{train_step_package}.train_step",
+            unhashed_package_root=train_step_package,
+            import_as="train_step",
+            **partial_kwargs,
+        )
+    else:
+        train_step_import = Import(f"{train_step_package}.train_step")
     return get_basic_pt_network_serializer(
         module_import_path=f"{__name__}.{LSTMLM.__name__}",
         model_config=model_config,
         additional_serializer_objects=[
-            Import(f"{train_step_package}.train_step"),
+            train_step_import,
         ],
     )

@@ -87,7 +87,9 @@ def log_ctc_pref_beam_scores(
             (log_probs_t_k_all_beams + log_new_label_prob).where(input_time_mask, torch.tensor(log_zero, device=device))
         ) # the score of a beam should not change if t > input length
     # Reuse the blank idx as EOS, i.e. full forward prob of current hypothesis
-    log_pref_scores_beams[:, :, blank_idx] = torch.logsumexp(log_gamma[-1, :, :, :], dim=1)
+    # log_pref_scores_beams[:, :, blank_idx] = torch.logsumexp(log_gamma[-1, :, :, :], dim=1) # This is incorrect, seqs have different last frame
+    log_gamma_last_frame = log_gamma.gather(0, (input_lengths-1).unsqueeze(0).unsqueeze(-1).unsqueeze(-1).expand(-1, -1, 2, max_seq_len+1)).squeeze(0)
+    log_pref_scores_beams[:, :, blank_idx] = log_gamma_last_frame.logsumexp(dim=1)
     return log_pref_scores_beams, log_gamma
 
 
@@ -208,6 +210,7 @@ def ctc_double_softmax_loss(
         log_zero,
     )
     # renormalize to have p_ctc(v|hypothesis) in output dim
+    # TODO: can be more efficient to use gather and subtract
     log_p_ctc = log_pref_scores_beams.log_softmax(dim=-1)
     # take out correct indices of target sequences
     targets_eos = torch.cat(
@@ -318,6 +321,7 @@ def kldiv_ctc_lm_sample_batch_loss(
         log_zero,
     )
     # renormalize to have p_ctc(v|hypothesis) in output dim
+    # TODO: can be more efficient to use gather and subtract
     log_p_ctc = log_pref_scores_beams.log_softmax(dim=-1)
     log_lm_score = log_lm_score.repeat_interleave(batch_size, dim=0)
     #print(torch.exp(log_p_ctc.gather(-1, targets.unsqueeze(-1).long()).view(batch_size*batch_size, max_seq_len)))

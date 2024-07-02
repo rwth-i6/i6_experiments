@@ -142,7 +142,7 @@ class ConformerCTCModel(torch.nn.Module):
 
         if self.training:
             return log_probs, sequence_mask
-        return log_probs, audio_features_len
+        return log_probs, sequence_mask, audio_features_len # why do we need audio_features_len?
 
 
 def get_train_serializer(

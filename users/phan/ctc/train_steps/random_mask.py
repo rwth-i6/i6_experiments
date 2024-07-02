@@ -1,4 +1,7 @@
-"This train step uses alignments to randomly mask out acoustic inputs of some labels."
+"""
+This train step uses alignments to randomly mask out acoustic inputs of some labels.
+Compute the KL divergence for the masked labels. 
+"""
 
 from returnn.tensor import batch_dim
 from returnn.tensor.tensor_dict import TensorDict

@@ -38,3 +38,18 @@ def modified_log_matmul(A: torch.Tensor, B: torch.Tensor, log_zero=-1e15):
     # write log zero to C[i][j][j] for all i, j
     C_masked = torch.scatter(C, 2, index, log_zero)
     return C_masked.logsumexp(dim=-1)
+
+def logsubstractexp(a, b, log_zero=-1e15, allow_log_neg=False):
+    """
+    Compute log(e^a - e^b). a and b must have same shape.
+
+    :param a: First tensor
+    :param b: Second tensor
+    :param log_zero: Value to represent log(0) and log(negative number)
+    :param allow_log_neg: If True, allows values a to be strictly smaller than in b.
+    If False, enforce the check a >= b.
+    :returns: log(e^a - e^b)
+    """
+    if not allow_log_neg:
+        assert (a >= b).all(), "All elements of tensor a must be >= all elements of tensor b"
+    return torch.where(a > b, a + (1. - (b - a).exp()).log(), log_zero)
