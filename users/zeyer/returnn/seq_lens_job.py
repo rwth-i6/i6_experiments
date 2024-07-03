@@ -3,7 +3,7 @@ Extract seq lens job from RETURNN dataset.
 """
 
 from __future__ import annotations
-from typing import Dict, Any
+from typing import Optional, Dict, Any
 from sisyphus import Job, Task
 from i6_core.returnn import ReturnnConfig
 
@@ -13,6 +13,8 @@ class ExtractSeqLensJob(Job):
     Extracts sequence lengths from a dataset for one specific key.
 
     Also see: :class:`i6_experiments.users.schmitt.corpus.statistics.GetSeqLenFileJob`
+
+    TODO this here can be removed once https://github.com/rwth-i6/i6_core/pull/522 is merged
     """
 
     # noinspection PyShadowingBuiltins
