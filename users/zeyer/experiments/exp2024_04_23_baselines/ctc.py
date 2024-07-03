@@ -197,7 +197,7 @@ def py():
         # spm20k no sampling: 6.12
         ("spm20k", "spm", 0.8),
         ("spm20k", "spm", 0.7),  # 6.32
-        ("spm20k", "bpe", 0.01),
+        ("spm20k", "bpe", 0.01),  # 6.04 (!!)
         # See archive/returnn-spm10-sample.config for playing around with alpha and checking avg seq len.
         # The lower the alpha, the longer the seq len, i.e. the more aggressive the sampling.
         # spm10k no sampling: 6.11
@@ -382,6 +382,9 @@ def py():
     # - featBN
     # - maxSeqLenAudio19_5: Most importantly, this refers to audio len, thus it is independent of targets.
     for vocab, sample, alpha in [
+        ("spm20k", None, None),
+        ("spm20k", "spm", 0.7),
+        ("spm20k", "bpe", 0.01),
         ("bpe10k", None, None),
         ("bpe10k", "bpe", 0.01),
         ("spm10k", None, None),
