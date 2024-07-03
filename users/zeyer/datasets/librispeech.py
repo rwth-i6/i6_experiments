@@ -599,6 +599,7 @@ def get_librispeech_task_raw_v2(
     Use _bpe_to_words_v2 and _score_recog_out_v2 which does not use the Bliss corpus anymore directly,
     so it is easier to copy this setup to a new environment.
     """
+    vocab_ = vocab
     if isinstance(vocab, str):
         vocab = _get_vocab_by_str(vocab)
 
@@ -621,6 +622,8 @@ def get_librispeech_task_raw_v2(
         dataset_common_opts["train_vocab"] = vocab.copy(**train_vocab_opts)
     # We expect that all kwargs are only relevant for the training, thus we only pass them here.
     train_dataset = dataset_cls(**dataset_common_opts, **dataset_train_opts)
+    _extract_audio_seq_len_file(train_dataset)
+    _extract_target_seq_len_file(train_dataset, vocab_)
     eval_datasets = {
         "dev-clean": dataset_cls(**dataset_common_opts, main_key="dev-clean"),
         "dev-other": dataset_cls(**dataset_common_opts, main_key="dev-other"),
@@ -642,6 +645,84 @@ def get_librispeech_task_raw_v2(
     )
     _librispeech_task_raw_v2_cache[cache_key] = task
     return task
+
+
+def _extract_audio_seq_len_file(train_dataset: DatasetConfig):
+    """
+    Extract audio seq len file
+    """
+    from sisyphus import tk
+    from i6_experiments.users.zeyer.returnn.seq_lens_job import ExtractSeqLensJob
+
+    ds_dict = train_dataset.get_train_dataset()
+    # The code is semi-generic. But anyway double check for now. Later to be extended...
+    assert ds_dict["class"] in {"OggZipDataset", "LibriSpeechCorpus"}
+    ds_dict.pop("partition_epoch")
+    ds_dict["targets"] = None
+    ds_dict.pop("epoch_wise_filter", None)
+    ds_dict.pop("seq_ordering")
+    # Originally, I extracted seq len stats with the pre_process.
+    # But this complicates the code below for naming the file,
+    # and also it's redundant.
+    # The seq len stats can easily be inferred from the original stats for a given pre_process function.
+    ds_dict["audio"].pop("pre_process", None)
+    post_ds_dict = {}
+    if "use_cache_manager" in ds_dict:
+        post_ds_dict["use_cache_manager"] = ds_dict.pop("use_cache_manager")
+    name_parts = []
+    for k, v in ds_dict["audio"].items():
+        if v is None:
+            continue
+        k_s = re.sub(r"(?!^)_([a-zA-Z])", lambda m: m.group(1).upper(), k)
+        name_parts.append(f"{k_s}={v}")
+    job = ExtractSeqLensJob(ds_dict, post_ds_dict, key=train_dataset.get_default_input(), format="txt")
+    tk.register_output(_alias_prefix + "seq_len_audio-%s.txt" % "-".join(name_parts), job.out_file)
+    return job.out_file
+
+
+def _extract_target_seq_len_file(train_dataset: DatasetConfig, vocab_cfg: Union[str, VocabConfig]):
+    """
+    Extract target seq len file
+    """
+    from sisyphus import tk
+    from i6_experiments.users.zeyer.returnn.seq_lens_job import ExtractSeqLensJob
+
+    name_parts = []
+    if isinstance(vocab_cfg, str):
+        name_parts.append(vocab_cfg)
+    else:
+        name_parts.append(vocab_cfg.__class__.__name__)
+        for k, v in vocab_cfg.get_opts().items():
+            name_parts.append(f"{k}={v}")
+
+    ds_dict = train_dataset.get_train_dataset()
+    # The code is semi-generic. But anyway double check for now. Later to be extended...
+    assert ds_dict["class"] in {"OggZipDataset", "LibriSpeechCorpus"}
+    ds_dict.pop("partition_epoch")
+    ds_dict["audio"] = None
+    ds_dict.pop("epoch_wise_filter", None)
+    ds_dict.pop("seq_ordering")
+    post_ds_dict = {}
+    if "use_cache_manager" in ds_dict:
+        post_ds_dict["use_cache_manager"] = ds_dict.pop("use_cache_manager")
+    for k, v in ds_dict["targets"].items():
+        if k in {
+            "bpe_file",
+            "vocab_file",
+            "model_file",
+            "unknown_label",
+            "bos_label",
+            "eos_label",
+            "word_prefix_symbol",
+        }:  # ignore those here
+            continue
+        if k == "class" and v in {"SentencePieces"}:
+            continue
+        k_s = re.sub(r"(?!^)_([a-zA-Z])", lambda m: m.group(1).upper(), k)
+        name_parts.append(f"{k_s}={v}")
+    job = ExtractSeqLensJob(ds_dict, post_ds_dict, key=train_dataset.get_default_target(), format="txt")
+    tk.register_output(_alias_prefix + "seq_len_target-%s.txt" % "-".join(name_parts), job.out_file)
+    return job.out_file
 
 
 def _bpe_to_words_v1(bpe: RecogOutput) -> RecogOutput:
