@@ -79,6 +79,11 @@ def train(
         max_seq_length = returnn_train_config_dict.setdefault("max_seq_length", {})
         assert isinstance(max_seq_length, dict)
         max_seq_length[task.train_dataset.get_default_target()] = max_seq_length_default_target
+    max_seq_length_default_input = returnn_train_config_dict.pop("max_seq_length_default_input", None)
+    if max_seq_length_default_input is not None:
+        max_seq_length = returnn_train_config_dict.setdefault("max_seq_length", {})
+        assert isinstance(max_seq_length, dict)
+        max_seq_length[task.train_dataset.get_default_input()] = max_seq_length_default_input
 
     if init_params:
         returnn_train_config_dict["import_model_train_epoch1"] = init_params

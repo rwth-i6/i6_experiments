@@ -30,6 +30,8 @@ if TYPE_CHECKING:
 # The model gets raw features (16khz) and does feature extraction internally.
 _log_mel_feature_dim = 80
 
+_raw_sample_rate = _batch_size_factor * 100  # bs factor is from 10ms frames to raw samples
+
 
 def py():
     """Sisyphus entry point"""
@@ -374,6 +376,54 @@ def py():
         },
         vocab="spm10k",
     )
+
+    # Testing different vocabs together with sampling. Again. Now again with newer settings:
+    # - relPosAttDef
+    # - featBN
+    # - maxSeqLenAudio19_5: Most importantly, this refers to audio len, thus it is independent of targets.
+    for vocab, sample, alpha in [
+        ("bpe10k", None, None),
+        ("bpe10k", "bpe", 0.01),
+        ("spm10k", None, None),
+        ("spm10k", "spm", 0.7),
+        ("spm10k", "bpe", 0.01),
+        ("spm_bpe10k", None, None),
+        ("spm_bpe10k", "spm", 0.7),
+        ("spm_bpe10k", "bpe", 0.01),
+        ("spm4k", None, None),
+        ("spm4k", "spm", 0.7),
+        ("spm4k", "bpe", 0.01),
+        ("spm1k", None, None),
+        ("spm1k", "bpe", 0.01),
+    ]:
+        train_exp(
+            f"v6-relPosAttDef-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100"
+            f"-maxSeqLenAudio19_5-wd1e_2-lrlin1e_5_295k-featBN-speedpertV2"
+            f"-{vocab}" + (f"-{sample}Sample{str(alpha).replace('.', '').replace('-','_')}" if sample else ""),
+            config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
+            model_config={"enc_conformer_layer": enc_conformer_layer_default, "feature_batch_norm": True},
+            config_updates={
+                **_get_cfg_lrlin_oclr_by_bs_nep(15_000, 500),
+                "optimizer.weight_decay": 1e-2,
+                "__train_audio_preprocess": speed_pert_librosa_config,
+                "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
+                "max_seq_length_default_target": None,
+                "max_seq_length_default_input": 19.5 * _raw_sample_rate,
+            },
+            vocab=vocab,
+            train_vocab_opts=(
+                {
+                    "other_opts": (
+                        {
+                            "spm": {"enable_sampling": True, "alpha": alpha},
+                            "bpe": {"class": "SamplingBytePairEncoding", "breadth_prob": alpha},
+                        }[sample]
+                    )
+                }
+                if sample
+                else None
+            ),
+        )
 
     train_exp(
         "v6-relPosAttDef-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-speedpertV2-spm10k",
