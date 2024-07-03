@@ -146,7 +146,7 @@ def py():
         ("spm20k", "spm", 0.7),  # 6.29
         ("bpe10k", "bpe", 0.01),  # 6.46 (but without featBN,maxSeqLenNone: 6.33)
         ("spm10k", "spm", 0.7),  # 6.31 (but without maxSeqLenNone: 6.29)
-        ("spm10k", "bpe", 0.01),  # 6.08 (!!)
+        ("spm10k", "bpe", 0.01),  # 6.08
         ("spm_bpe10k", "bpe", 0.01),  # 6.19
         ("spm4k", "spm", 0.7),  # 6.55
         ("spm1k", "spm", 0.7),  # 7.43 (but without spmSample07,featBN,maxSeqLenNone: 7.34)
@@ -290,7 +290,7 @@ def py():
             train_vocab_opts={"other_opts": {"enable_sampling": True, "alpha": 0.7}},
         )
     # featBN but without spmSample07 (baseline without featBN: 6.11)
-    train_exp(  # 6.07, so again, featBN slightly better, also diff dev vs test is less
+    train_exp(  # 6.07 (!!), so again, featBN slightly better, also diff dev vs test is less
         "v6-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-featBN-speedpertV2-spm10k",
         config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
         model_config={"feature_batch_norm": True},
