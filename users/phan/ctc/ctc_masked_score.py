@@ -378,13 +378,13 @@ def ctc_masked_score(
     log_fwd_bwd = torch.where(input_time_mask, forward_masked + backward_paths, torch.tensor(log_zero).to(device)) # only sums up to T of each batch
     numerator = log_fwd_bwd.logsumexp(dim=0) # (B, M, F-1) p(masked sequence, mask = w | acoustic)
     denominator_batch = backward[0, :, 0, :].logsumexp(-1)
-    denominator = denominator_batch.unsqueeze(-1).unsqueeze(-1).expand(-1, -1, n_out-1) # p(masked sequence | acoustic)
-    
-    # try changing denom calculation by forward. hopefully more robust?
-    forward_last_frame = forward.logsumexp(-1).gather(0, (input_lengths-1).unsqueeze(0).unsqueeze(-1).expand(-1, -1, max_seq_len+1)).squeeze(0)
-    # denominator_batch = forward_last_frame.gather(-1, target_lengths.to(device).unsqueeze(-1)).squeeze(-1)
-    # denominator = denominator_batch.unsqueeze(-1).unsqueeze(-1).expand(-1, n_masked_pos, n_out-1)
+    denominator = denominator_batch.unsqueeze(-1).unsqueeze(-1).expand(-1, n_masked_pos, n_out-1) # p(masked sequence | acoustic)
+    log_masked_probs = numerator - denominator # p(mask = w | masked sequence, acoustic)
 
+    # # try changing denom calculation by forward. hopefully more robust?
+    # forward_last_frame = forward.logsumexp(-1).gather(0, (input_lengths-1).unsqueeze(0).unsqueeze(-1).expand(-1, -1, max_seq_len+1)).squeeze(0)
+    # denominator_batch_fwd = forward_last_frame.gather(-1, target_lengths.to(device).unsqueeze(-1)).squeeze(-1)
+    # # denominator = denominator_batch_fwd.unsqueeze(-1).unsqueeze(-1).expand(-1, n_masked_pos, n_out-1)
     ctc = torch.nn.functional.ctc_loss(
         log_probs,
         targets,
@@ -393,19 +393,17 @@ def ctc_masked_score(
         blank=blank_idx,
         reduction="none",
     )
-    torch.set_printoptions(precision=2, threshold=10000, linewidth=50)
-    print(mask)
-    print(not_mask_next_not_mask_idx)
-    print(torch.stack([denominator_batch, ctc], dim=-1))
-
-    log_masked_probs = numerator - denominator # p(mask = w | masked sequence, acoustic)
-    # log_masked_probs = numerator.log_softmax(-1)
-
-    targets_shifted = torch.where(targets > 0, targets-1, torch.tensor(0).to(device))
+    # torch.set_printoptions(precision=4, threshold=10000, linewidth=100)
+    # # print(mask)
+    # # print(not_mask_next_not_mask_idx)
+    # # print(torch.stack([denominator_batch, ctc], dim=-1))
+    # targets_shifted = torch.where(targets > 0, targets-1, torch.tensor(0).to(device))
     # print(mask)
     # print(target_lengths)
-    # print(numerator.gather(-1, targets_shifted[:, masked_pos].unsqueeze(-1)).squeeze(-1))
-    # print(denominator.gather(-1, targets_shifted[:, masked_pos].unsqueeze(-1)).squeeze(-1))
-    # print(log_masked_probs.gather(-1, targets_shifted[:, masked_pos].unsqueeze(-1)).squeeze(-1))
+    # print(torch.stack([numerator.logsumexp(-1).squeeze(-1), denominator_batch_fwd, denominator_batch, ctc], dim=-1)) # verify forward = backward
+    # mask_ground_truth = numerator.gather(-1, targets_shifted[:, masked_pos].unsqueeze(-1)).squeeze(-1)
+    # print(torch.cat([(mask_ground_truth-denominator_batch.unsqueeze(-1)).exp(), ctc.unsqueeze(-1), log_masked_probs.logsumexp(-1).exp()], dim=-1))
+    # log_p_ground_truth = (mask_ground_truth-denominator_batch.unsqueeze(-1)).exp()
+    # print(torch.stack([log_p_ground_truth, log_masked_probs.logsumexp(-1).exp()], dim=-1))
 
     return log_masked_probs, forward, backward, forward_masked, backward_masked

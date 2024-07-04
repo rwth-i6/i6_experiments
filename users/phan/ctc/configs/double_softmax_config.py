@@ -278,7 +278,7 @@ def lbs_960_double_softmax() -> SummaryReport:
         "conformer_ctc": "/work/asr4/zyang/torch/librispeech/work/i6_core/returnn/training/ReturnnTrainingJob.nuHCdB8qL7NJ/output/models/epoch.600.pt",
         "train_lm": "/work/asr3/zyang/share/mnphan/work_torch_ctc_libri/i6_core/returnn/training/ReturnnTrainingJob.7bqxeOpBaeEk/output/models/epoch.120.pt"
     }
-    for am_scale in [1.0, 1.3]:
+    for am_scale in [0.7, 1.0, 1.3]:
     # for am_scale in [1.0]:
         for rel_scale in [0.2, 0.3]:
             for learning_rate in [1e-5, 1e-6]:

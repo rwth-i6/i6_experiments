@@ -10,7 +10,7 @@ def forward_step(*, model: torch.nn.Module, extern_data: TensorDict, conformer_c
     audio_features = extern_data["data"].raw_tensor
     audio_features_len = extern_data["data"].dims[1].dyn_size_ext.raw_tensor
 
-    log_probs, audio_features_len = model(
+    log_probs, _, _ = model(
         args = [],
         kwargs = {
             "audio_features": audio_features,

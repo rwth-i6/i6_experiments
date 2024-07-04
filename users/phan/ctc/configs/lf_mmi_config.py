@@ -208,7 +208,7 @@ def lbs_960_lf_mmi() -> SummaryReport:
 
     train_args = exp_args.get_ctc_train_step_args(
         num_epochs=num_subepochs,
-        gpu_mem_rqmt=24, # now this, but optimize ctc pref score later
+        gpu_mem_rqmt=11, # now this, but optimize ctc pref score later
     )
     recog_args = exp_args.get_ctc_recog_step_args(
         num_classes=num_outputs,
@@ -256,12 +256,13 @@ def lbs_960_lf_mmi() -> SummaryReport:
         "conformer_ctc": "/work/asr4/zyang/torch/librispeech/work/i6_core/returnn/training/ReturnnTrainingJob.nuHCdB8qL7NJ/output/models/epoch.600.pt",
         "train_lm": "/work/asr3/zyang/share/mnphan/work_torch_ctc_libri/i6_core/returnn/training/ReturnnTrainingJob.3jcPuQFSTdbi/output/models/epoch.080.pt"
     }
-    for am_scale in [1.0]:
-        for lm_scale in [0.1, 0.2, 0.3, 0.4, 0.5]:
+    for am_scale in [0.8, 1.2]:
+        for rel_scale in [0.2, 0.3]:
             for learning_rate in [1e-5, 1e-6]:
                 lr_dict = {
                     "learning_rate": learning_rate,
                 }
+                lm_scale = round(am_scale * rel_scale, 2)
                 schedule = LearningRateSchedules.CONST_LR
                 schedule_str = "const"
                 system.add_experiment_configs(
@@ -281,40 +282,40 @@ def lbs_960_lf_mmi() -> SummaryReport:
                         kwargs={"weight_decay": 0.001},
                     )
                 )
-    system.add_experiment_configs(
-        f"lf_mmi_2gram_ctc{12}_am{1.0}_lm{0.0}_adamw_{schedule_str}_lr{learning_rate}_eps{num_subepochs}",
-        get_returnn_config_collection(
-            data.train_data_config,
-            data.cv_data_config,
-            lr=lr_dict,
-            batch_size=15000 * 160,
-            conformer_ctc_args=conformer_ctc_args,
-            bigram_lm_args=bigram_lm_args,
-            module_preloads=module_preloads,
-            optimizer=Optimizers.AdamW,
-            schedule=schedule,
-            am_scale=1.0,
-            lm_scale=0.0,
-            kwargs={"weight_decay": 0.001},
-        )
-    )
-    system.add_experiment_configs(
-        f"lf_mmi_2gram_ctc{12}_am{1.0}_lm{0.0}_adamw_{schedule_str}_lr{learning_rate}_eps{num_subepochs}",
-        get_returnn_config_collection(
-            data.train_data_config,
-            data.cv_data_config,
-            lr=lr_dict,
-            batch_size=15000 * 160,
-            conformer_ctc_args=conformer_ctc_args,
-            bigram_lm_args=bigram_lm_args,
-            module_preloads=module_preloads,
-            optimizer=Optimizers.AdamW,
-            schedule=schedule,
-            am_scale=1.3,
-            lm_scale=0.3,
-            kwargs={"weight_decay": 0.001},
-        )
-    )
+    # system.add_experiment_configs(
+    #     f"lf_mmi_2gram_ctc{12}_am{1.0}_lm{0.0}_adamw_{schedule_str}_lr{learning_rate}_eps{num_subepochs}",
+    #     get_returnn_config_collection(
+    #         data.train_data_config,
+    #         data.cv_data_config,
+    #         lr=lr_dict,
+    #         batch_size=15000 * 160,
+    #         conformer_ctc_args=conformer_ctc_args,
+    #         bigram_lm_args=bigram_lm_args,
+    #         module_preloads=module_preloads,
+    #         optimizer=Optimizers.AdamW,
+    #         schedule=schedule,
+    #         am_scale=1.0,
+    #         lm_scale=0.0,
+    #         kwargs={"weight_decay": 0.001},
+    #     )
+    # )
+    # system.add_experiment_configs(
+    #     f"lf_mmi_2gram_ctc{12}_am{1.0}_lm{0.0}_adamw_{schedule_str}_lr{learning_rate}_eps{num_subepochs}",
+    #     get_returnn_config_collection(
+    #         data.train_data_config,
+    #         data.cv_data_config,
+    #         lr=lr_dict,
+    #         batch_size=15000 * 160,
+    #         conformer_ctc_args=conformer_ctc_args,
+    #         bigram_lm_args=bigram_lm_args,
+    #         module_preloads=module_preloads,
+    #         optimizer=Optimizers.AdamW,
+    #         schedule=schedule,
+    #         am_scale=1.3,
+    #         lm_scale=0.3,
+    #         kwargs={"weight_decay": 0.001},
+    #     )
+    # )
 
     system.run_train_step(**train_args)
     system.run_dev_recog_step(**recog_args)

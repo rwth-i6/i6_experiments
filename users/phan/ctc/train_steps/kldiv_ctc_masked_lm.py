@@ -59,22 +59,26 @@ def train_step(
         "audio_features": audio_features,
         "audio_features_len": audio_features_len.to("cuda"),
     }
-    # label_mask = (torch.rand((max_seq_len,)) < mask_ratio).long() # Generate the mask (S,)
-    # while not (label_mask == 1).any():
-    #     label_mask = (torch.rand((max_seq_len,)) < mask_ratio).long()
+    label_mask = (torch.rand((max_seq_len,)) < mask_ratio).long() # Generate the mask (S,)
+    while not (label_mask == 1).any():
+        label_mask = (torch.rand((max_seq_len,)) < mask_ratio).long()
     # min_seq_len = targets_len.min()
     # label_mask = torch.cat([torch.zeros((min_seq_len,)), torch.ones((max_seq_len-min_seq_len,))], dim=-1).long()
     # print(min_seq_len, max_seq_len)
     # print(label_mask)
-    label_mask = torch.zeros((max_seq_len,)).long()
-    # label_mask[0] = 1
+    # label_mask = torch.zeros((max_seq_len,)).long()
+    # # label_mask[0] = 1
+    # import random
+    # label_mask[random.randint(0, max_seq_len-1)] = 1
     # print(label_mask)
     if phase == "train" and mask_audio:
         assert extern_data["align"] is not None, "Alignments must be given to mask audio features"
         alignments = extern_data["align"].raw_tensor
         targets, targets_len = convert_alignments_to_target_sequences(alignments, sil_index, 0)
         max_seq_len = targets.shape[1]
-        batch_label_mask = label_mask.unsqueeze(0).expand(batch_size, -1)
+        label_mask = (torch.rand((max_seq_len,)) < mask_ratio).long() # Regenerate the mask (S,)
+        while not (label_mask == 1).any():
+            label_mask = (torch.rand((max_seq_len,)) < mask_ratio).long()
         audio_features_mask = mask_audio_features_exact_label_pos(alignments, label_mask, sil_index)
         forward_kwargs["audio_features_mask"] = audio_features_mask
 
@@ -94,10 +98,11 @@ def train_step(
         input_lengths = sequence_mask.sum(-1).long()
         log_probs = torch.transpose(log_probs, 0, 1) # (T, B, F)
         target_masking = label_mask.unsqueeze(0).expand(batch_size, -1) # (B, S)
-        masked_idx = torch.arange(max_seq_len)[label_mask.bool()]
-        targets_masked = targets.clone() - 1 # because there is no EOS here
-        targets_masked[targets_masked < 0] = 0 # doesn't matter anyway, these are paddings
-        targets_masked[:, masked_idx] = mask_idx
+        masked_pos = torch.arange(max_seq_len)[label_mask.bool()]
+        # targets_masked = targets.clone() - 1 # because there is no EOS here
+        # targets_masked[targets_masked < 0] = mask_idx # doesn't matter anyway, these are paddings
+        targets_masked = torch.where(targets > 0, targets-1, torch.tensor(mask_idx).to(device))
+        targets_masked[:, masked_pos] = mask_idx
         targets_masked_onehot = torch.nn.functional.one_hot(targets_masked, num_classes=lm_input_dim).float() # should be (B, S, 79)
         log_lm_probs = model( # (B, S, F-1)
             args=[targets_masked_onehot, targets_len],
@@ -105,7 +110,7 @@ def train_step(
             module="student_lm",
             inference=False,
         )
-        log_lm_masked_score = log_lm_probs[:, masked_idx, :] # (B, M, F-1)
+        log_lm_masked_score = log_lm_probs[:, masked_pos, :] # (B, M, F-1)
         log_ctc_masked_score, _, _, _, _ = ctc_masked_score( # (B, M, F-1)
             log_probs,
             targets,
@@ -113,12 +118,12 @@ def train_step(
             input_lengths,
             targets_len,
         )
-        mask_inside_seq = seq_mask[:, masked_idx] # (B, M), indicates if a mask in the actual seq or not
-        mask_inside_seq = mask_inside_seq.unsqueeze(-1).expand(-1, -1, log_lm_probs.shape[-1])
+        mask_inside_seq = seq_mask[:, masked_pos] # (B, M), indicates if a mask in the actual seq or not
+        mask_inside_seq_all_labels = mask_inside_seq.unsqueeze(-1).expand(-1, -1, log_lm_probs.shape[-1])
         # take kldiv only on masked tokens
         kldiv = torch.nn.functional.kl_div(
             input=log_lm_masked_score,
-            target=log_ctc_masked_score,
+            target=log_ctc_masked_score.detach(),
             log_target=True,
             reduction="none",
         )
@@ -126,8 +131,17 @@ def train_step(
         # print(label_mask)
         # print(targets_len)
         # print(torch.stack([log_ctc_masked_score, log_lm_masked_score, kldiv, mask_inside_seq], dim=-1))
-
-        loss = (kldiv * mask_inside_seq).sum() / (mask_inside_seq.sum())
+        # print(log_ctc_masked_score.exp())
+        # print(log_lm_masked_score.exp())
+        targets_shifted = torch.where(targets > 0, targets-1, torch.tensor(0).to(device))
+        log_ctc_score_ground_truth = log_ctc_masked_score.gather(-1, targets_shifted[:, masked_pos].unsqueeze(-1)).squeeze(-1)
+        log_lm_score_ground_truth = log_lm_masked_score.gather(-1, targets_shifted[:, masked_pos].unsqueeze(-1)).squeeze(-1)
+        kldiv_ground_truth = kldiv.gather(-1, targets_shifted[:, masked_pos].unsqueeze(-1)).squeeze(-1)
+        # print(torch.stack([log_ctc_score_ground_truth.exp(), log_lm_score_ground_truth.exp(), kldiv_ground_truth, mask_inside_seq], dim=-1))
+        # print(label_mask)
+        # print(masked_pos)
+        # print(targets_len)
+        loss = (kldiv * mask_inside_seq_all_labels).sum() / (mask_inside_seq.sum())
         rf.get_run_ctx().mark_as_loss(
             name="kldiv_ctc_masked_lm", loss=loss,
         )
@@ -136,14 +150,19 @@ def train_step(
     if phase == "eval":
         # It would be infeasible to calculate log PPPL 
         # with each acoustic input masked out
-        # We simply calculate the
+        # We simply calculate the log pseudo PPL of the LM
         seq_mask = get_seq_mask(targets_len, max_seq_len, device)
         acc_loss = 0
         for s in range(max_seq_len):
             targets_s = targets.clone()
             targets_s[:, s] = mask_idx
             targets_s_onehot = torch.nn.functional.one_hot(targets_s, num_classes=lm_input_dim).float()
-            log_lm_probs = model(targets_s_onehot, targets_len)
+            log_lm_probs = model(
+                args=[targets_s_onehot, targets_len],
+                kwargs={},
+                module="student_lm",
+                inference=True,
+            )
             ce = torch.nn.functional.cross_entropy(log_lm_probs.transpose(1, 2), targets, reduction='none')
             acc_loss += (ce[:, s] * seq_mask[:, s]).sum()
         loss = acc_loss/seq_mask.sum()
