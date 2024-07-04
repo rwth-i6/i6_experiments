@@ -197,21 +197,21 @@ def py():
         # spm20k no sampling: 6.12
         ("spm20k", "spm", 0.8),
         ("spm20k", "spm", 0.7),  # 6.32
-        ("spm20k", "bpe", 0.01),  # 6.04 (!!)
+        ("spm20k", "bpe", 0.01),  # 6.04
         # See archive/returnn-spm10-sample.config for playing around with alpha and checking avg seq len.
         # The lower the alpha, the longer the seq len, i.e. the more aggressive the sampling.
         # spm10k no sampling: 6.11
-        ("spm10k", "spm", 0.9),
+        ("spm10k", "spm", 0.9),  # 6.30
         ("spm10k", "spm", 0.8),  # 6.32
         ("spm10k", "spm", 0.7),  # 6.30
         ("spm10k", "spm", 0.5),  # 6.36
         ("spm10k", "spm", 0.3),  # 7.00
-        ("spm10k", "bpe", 0.01),
+        ("spm10k", "bpe", 0.01),  # 6.00
         # alpha for SPM-BPE has a very different effect, and it causes the seq len to be much longer.
         # The higher the alpha, the longer (the reverse as for SPM Unigram).
         # See archive/returnn-spm_bpe10-sample.config.
         # spm_bpe10k no sampling: 6.34
-        ("spm_bpe10k", "spm", 1e-5),
+        ("spm_bpe10k", "spm", 1e-5),  # 6.30
         ("spm_bpe10k", "spm", 1e-4),  # 6.26
         ("spm_bpe10k", "spm", 0.001),  # 6.32
         ("spm_bpe10k", "spm", 0.005),  # 6.31
@@ -292,7 +292,7 @@ def py():
             train_vocab_opts={"other_opts": {"enable_sampling": True, "alpha": 0.7}},
         )
     # featBN but without spmSample07 (baseline without featBN: 6.11)
-    train_exp(  # 6.07 (!!), so again, featBN slightly better, also diff dev vs test is less
+    train_exp(  # 6.07, so again, featBN slightly better, also diff dev vs test is less
         "v6-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-featBN-speedpertV2-spm10k",
         config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
         model_config={"feature_batch_norm": True},
@@ -350,7 +350,7 @@ def py():
         ff_activation=rf.build_dict(rf.relu_square),
         num_heads=8,
     )
-    train_exp(  # 6.18 (vs 6.30), so relPosAttDef is better
+    train_exp(  # 6.18 (no relPosAttDef: 6.30), so relPosAttDef is better
         "v6-relPosAttDef"
         "-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-speedpertV2-spm10k-spmSample07",
         config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
@@ -364,7 +364,7 @@ def py():
         vocab="spm10k",
         train_vocab_opts={"other_opts": {"enable_sampling": True, "alpha": 0.7}},
     )
-    train_exp(
+    train_exp(  # 5.94 (!!) (no relPosAttDef: 6.11), so relPosAttDef is better
         "v6-relPosAttDef-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-speedpertV2-spm10k",
         config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
         model_config={"enc_conformer_layer": enc_conformer_layer_default},
