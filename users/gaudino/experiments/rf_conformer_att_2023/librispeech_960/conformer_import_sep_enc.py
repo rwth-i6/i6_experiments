@@ -349,11 +349,11 @@ def sis_run_with_prefix(prefix_name: str = None):
 
         "preload_from_files": {
             "model_aed": {
-                "prefix": "model_aed.",
+                "prefix": "model_aed.",  #  dev-other 5.36
                 "filename": _torch_ckpt_filename_base_model,
             },
             "model_ctc": {
-                "prefix": "model_ctc.",
+                "prefix": "model_ctc.",  # dev-other
                 "filename": "/u/luca.gaudino/setups/2023-08-10--rf-librispeech/work/i6_core/returnn/training/ReturnnTrainingJob.AWwVft0oGy8e/output/models/epoch.1981.pt",
             },
             "01_trafo_lm": {
@@ -419,8 +419,8 @@ def sis_run_with_prefix(prefix_name: str = None):
         )
 
     for scales, prior_scale, lm_scale, ilm_scale, beam_size in product(
-        [(0.85, 0.15), (0.8, 0.2), (0.75, 0.25), (0.7,0.3), (0.65, 0.35)],
-        [0.0], # , 0.05, 0.07],
+        [(0.75, 0.25), (0.7, 0.3), (0.65, 0.35)],
+        [0.0, 0.05, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6], # , 0.05, 0.07],
         [0.0], [0.0], [32]
     ):
         att_scale, ctc_scale = scales
@@ -442,7 +442,7 @@ def sis_run_with_prefix(prefix_name: str = None):
             "use_ctc": True,
             "bsf": bsf,
             "prior_corr": prior_scale > 0.0,
-            "ctc_prior_file": "/work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/2023-02-22--conformer-swb/work/i6_core/returnn/extract_prior/ReturnnComputePriorJobV2.ZeflcEHlQTjn/output/prior.txt",
+            "ctc_prior_file": "/work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/2023-08-10--rf-librispeech/work/i6_core/returnn/forward/ReturnnForwardJobV2.U1U9MgoNwGYk/output/prior.txt",
             "prior_scale": prior_scale,
             "use_lm_first_label": True,
         }
@@ -468,8 +468,8 @@ def sis_run_with_prefix(prefix_name: str = None):
     # opls att + ctc + trafo lm + ilm
     for scales, prior_scale, lm_scale, ilm_scale, beam_size in product(
         [(0.8, 0.2)],
-        [0.0], # , 0.05, 0.07],
-        [0.65], [0.4], [32]
+        [0.0, 0.05, 0.1, 0.15, 0.2, 0.3], # , 0.05, 0.07],
+        [0.68], [0.4], [32]
     ):
         att_scale, ctc_scale = scales
         recog_name = (
@@ -490,7 +490,7 @@ def sis_run_with_prefix(prefix_name: str = None):
             "use_ctc": True,
             "bsf": bsf,
             "prior_corr": prior_scale > 0.0,
-            "ctc_prior_file": "/work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/2023-02-22--conformer-swb/work/i6_core/returnn/extract_prior/ReturnnComputePriorJobV2.ZeflcEHlQTjn/output/prior.txt",
+            "ctc_prior_file": "/work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/2023-08-10--rf-librispeech/work/i6_core/returnn/forward/ReturnnForwardJobV2.U1U9MgoNwGYk/output/prior.txt",
             "prior_scale": prior_scale,
             "use_lm_first_label": True,
             "hash_overwrite": "123"
@@ -500,8 +500,8 @@ def sis_run_with_prefix(prefix_name: str = None):
             task,
             model_with_checkpoint,
             model_recog,
-            dev_sets=["dev-other"],
-            # dev_sets=["dev-clean", "dev-other", "test-clean", "test-other"],
+            # dev_sets=["dev-clean", "dev-other"],
+            dev_sets=["dev-clean", "dev-other", "test-clean", "test-other"],
             config=recog_config,
             # model_args=model_args,
             # search_args=search_args,
