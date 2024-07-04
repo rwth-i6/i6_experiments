@@ -693,8 +693,12 @@ class GetBestRecogTrainExp(sisyphus.Job):
             from datetime import datetime
 
             log_filename = tk.Path("update.log", self).get_path()
-            os.makedirs(os.path.dirname(log_filename), exist_ok=True)
-            with open(log_filename, "a") as log_stream:
+            try:
+                os.makedirs(os.path.dirname(log_filename), exist_ok=True)
+                log_stream = open(log_filename, "a")
+            except PermissionError:  # maybe some other user runs this, via job import
+                log_stream = open("/dev/stdout", "w")
+            with log_stream:
                 log_stream.write(datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
                 log_stream.write(": get_relevant_epochs_from_training_learning_rate_scores\n")
                 for epoch in get_relevant_epochs_from_training_learning_rate_scores(
