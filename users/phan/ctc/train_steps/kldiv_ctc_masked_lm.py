@@ -14,6 +14,7 @@ import torch
 from i6_experiments.users.phan.utils.masking import get_seq_mask, mask_audio_features_exact_label_pos
 from i6_experiments.users.phan.utils.alignments import convert_alignments_to_target_sequences
 from i6_experiments.users.phan.ctc.ctc_masked_score import ctc_masked_score
+from i6_experiments.users.phan.utils.pseudo_ppl import compute_pseudo_ppl_loop_s
 
 
 def train_step(
@@ -25,6 +26,7 @@ def train_step(
     mask_idx: int,
     mask_audio: bool,
     sil_index: int,
+    am_scale: float,
     **kwargs
 ):
     """
@@ -33,6 +35,8 @@ def train_step(
     :param mask_idx: index used to represent <mask> in the masked LM
     :param mask_audio: if yes, also mask acoustic input of mask 
     :param sil_index: index of [SILENCE] in the alignments
+    :param am_scale: additional scale for the ctc masked score. use to smooth distribution
+    due to ground truth probs being close to 1
     """
     audio_features = extern_data["data"].raw_tensor
     assert extern_data["data"].dims[1].dyn_size_ext is not None
@@ -95,6 +99,7 @@ def train_step(
             module="teacher_ctc",
             inference=True,
         )
+        log_probs = (log_probs*am_scale).log_softmax(-1)
         input_lengths = sequence_mask.sum(-1).long()
         log_probs = torch.transpose(log_probs, 0, 1) # (T, B, F)
         target_masking = label_mask.unsqueeze(0).expand(batch_size, -1) # (B, S)
@@ -146,27 +151,12 @@ def train_step(
             name="kldiv_ctc_masked_lm", loss=loss,
         )
 
-
     if phase == "eval":
+        model.eval()
         # It would be infeasible to calculate log PPPL 
         # with each acoustic input masked out
         # We simply calculate the log pseudo PPL of the LM
-        seq_mask = get_seq_mask(targets_len, max_seq_len, device)
-        acc_loss = 0
-        for s in range(max_seq_len):
-            targets_s = targets.clone()
-            targets_s[:, s] = mask_idx
-            targets_s_onehot = torch.nn.functional.one_hot(targets_s, num_classes=lm_input_dim).float()
-            log_lm_probs = model(
-                args=[targets_s_onehot, targets_len],
-                kwargs={},
-                module="student_lm",
-                inference=True,
-            )
-            ce = torch.nn.functional.cross_entropy(log_lm_probs.transpose(1, 2), targets, reduction='none')
-            acc_loss += (ce[:, s] * seq_mask[:, s]).sum()
-        loss = acc_loss/seq_mask.sum()
-
+        loss = compute_pseudo_ppl_loop_s(model.module_dict["student_lm"], targets, targets_len, mask_idx, lm_input_dim)
         rf.get_run_ctx().mark_as_loss(
             name="log_pseudo_ppl", loss=loss, as_error=True,
         )

@@ -73,8 +73,7 @@ class LSTMLM(nn.Module):
                 enforce_sorted=False,
             )
             x, _ = self.lstm(x)
-            x = torch.nn.utils.rnn.unpack_sequence(x)
-            x = torch.nn.utils.rnn.pad_sequence(x, batch_first=True, padding_value=0.0) 
+            x, _ = torch.nn.utils.rnn.pad_packed_sequence(x, batch_first=True, padding_value=0.0) 
         else:
             x, _ = self.lstm(x)
 

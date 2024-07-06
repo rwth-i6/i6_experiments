@@ -27,7 +27,7 @@ def train_step(*, model: torch.nn.Module, extern_data: TensorDict, ground_truth_
     model.train()
     model.module_dict["teacher_ctc"].eval()
 
-    log_probs, sequence_lengths = model(
+    log_probs, sequence_mask, _ = model(
         args = [],
         kwargs = {
             "audio_features": audio_features,
@@ -36,7 +36,7 @@ def train_step(*, model: torch.nn.Module, extern_data: TensorDict, ground_truth_
         module="teacher_ctc",
         inference=True,
     )
-    sequence_lengths = sequence_lengths.long()
+    sequence_lengths = sequence_mask.sum(-1).long()
     device = log_probs.device
     batch_size, max_seq_len = targets.shape
     # pad 0 at the beginning a,b,c -> <eos>,a,b,c

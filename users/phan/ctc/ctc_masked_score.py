@@ -385,14 +385,14 @@ def ctc_masked_score(
     # forward_last_frame = forward.logsumexp(-1).gather(0, (input_lengths-1).unsqueeze(0).unsqueeze(-1).expand(-1, -1, max_seq_len+1)).squeeze(0)
     # denominator_batch_fwd = forward_last_frame.gather(-1, target_lengths.to(device).unsqueeze(-1)).squeeze(-1)
     # # denominator = denominator_batch_fwd.unsqueeze(-1).unsqueeze(-1).expand(-1, n_masked_pos, n_out-1)
-    ctc = torch.nn.functional.ctc_loss(
-        log_probs,
-        targets,
-        input_lengths,
-        target_lengths,
-        blank=blank_idx,
-        reduction="none",
-    )
+    # ctc = torch.nn.functional.ctc_loss(
+    #     log_probs,
+    #     targets,
+    #     input_lengths,
+    #     target_lengths,
+    #     blank=blank_idx,
+    #     reduction="none",
+    # )
     # torch.set_printoptions(precision=4, threshold=10000, linewidth=100)
     # # print(mask)
     # # print(not_mask_next_not_mask_idx)
@@ -400,7 +400,7 @@ def ctc_masked_score(
     # targets_shifted = torch.where(targets > 0, targets-1, torch.tensor(0).to(device))
     # print(mask)
     # print(target_lengths)
-    # print(torch.stack([numerator.logsumexp(-1).squeeze(-1), denominator_batch_fwd, denominator_batch, ctc], dim=-1)) # verify forward = backward
+    # print(torch.stack([numerator.logsumexp(-1).squeeze(-1), denominator_batch_fwd, denominator_batch, ctc], dim=-1)) # verify forward = backward = sum of numerators
     # mask_ground_truth = numerator.gather(-1, targets_shifted[:, masked_pos].unsqueeze(-1)).squeeze(-1)
     # print(torch.cat([(mask_ground_truth-denominator_batch.unsqueeze(-1)).exp(), ctc.unsqueeze(-1), log_masked_probs.logsumexp(-1).exp()], dim=-1))
     # log_p_ground_truth = (mask_ground_truth-denominator_batch.unsqueeze(-1)).exp()

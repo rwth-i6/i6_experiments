@@ -93,13 +93,13 @@ def train_step(*, model: torch.nn.Module, extern_data: TensorDict, mask_ratio: f
         target_mask = None
 
     
-    log_probs, sequence_lengths = model(
+    log_probs, sequence_mask, _ = model(
         args = [],
         kwargs = forward_kwargs,
         module="teacher_ctc",
         inference=True,
     )
-    sequence_lengths = sequence_lengths.long()
+    sequence_lengths = sequence_mask.sum(-1).long()
 
     # pad 0 at the beginning a,b,c -> <eos>,a,b,c
     eos_targets = torch.cat(

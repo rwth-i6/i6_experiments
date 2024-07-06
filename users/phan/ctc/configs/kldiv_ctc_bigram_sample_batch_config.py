@@ -20,7 +20,7 @@ from i6_experiments.users.jxu.experiments.ctc.lbs_960.ctc_data import get_libris
 from i6_experiments.users.berger.systems.returnn_seq2seq_system import (
     ReturnnSeq2SeqSystem,
 )
-from i6_experiments.users.phan.models import multi_model_wrapper, lstm_lm
+from i6_experiments.users.phan.models import multi_model_wrapper, bigram_lm
 from i6_experiments.common.setups.serialization import ExplicitHash
 
 # ********** Settings **********
@@ -48,29 +48,27 @@ def returnn_config_generator(
     lr: dict,
     batch_size: int,
     conformer_ctc_args: dict,
-    lstm_lm_args: dict,
+    bigram_lm_args: dict,
     module_preloads: dict,
     optimizer: Optimizers,
     schedule: LearningRateSchedules,
-    mask_ratio,
-    mask_audio,
-    am_scale,
+    ground_truth_weight,
     kwargs: dict,
 ) -> ReturnnConfig:
     conformer_ctc_args["num_inputs"] = 80
     conformer_ctc_args["num_outputs"] = num_outputs
     conformer_ctc_config = conformer_ctc.get_default_config_v1(**conformer_ctc_args)
     
-    lstm_lm_config = lstm_lm.LSTMLMConfig(**lstm_lm_args)
+    bigram_lm_config = bigram_lm.BigramLMConfig(**bigram_lm_args)
 
     wrapper_config = multi_model_wrapper.MultiModelWrapperConfig(
         module_class={
             'teacher_ctc': conformer_ctc.ConformerCTCModel,
-            'student_lm': lstm_lm.LSTMLM,
+            'student_lm': bigram_lm.BigramLM,
         },
         module_config={
             'teacher_ctc': conformer_ctc_config,
-            'student_lm': lstm_lm_config,
+            'student_lm': bigram_lm_config,
         },
         module_preload=module_preloads,
     )
@@ -83,21 +81,17 @@ def returnn_config_generator(
         extra_config["model_outputs"] = {"classes": {"dim": num_outputs}}
     module_class_import = {
         'teacher_ctc': "i6_experiments.users.jxu.experiments.ctc.lbs_960.pytorch_networks.baseline.conformer_ctc_d_model_512_num_layers_12_new_frontend_raw_wave",
-        'student_lm': "i6_experiments.users.phan.models.lstm_lm"
+        'student_lm': "i6_experiments.users.phan.models.bigram_lm"
     }
     kwargs.update(lr) # diff LR scheduler will have diff parameters
     # kwargs for serializer
     if variant == ConfigVariant.TRAIN:
         prologue_serializers_kwargs = {
-            "train_step_package": "i6_experiments.users.phan.ctc.train_steps.kldiv_ctc_masked_lm",
+            "train_step_package": "i6_experiments.users.phan.ctc.train_steps.kldiv_ctc_lm_sample_batch",
             "partial_train_step": True,
             "partial_kwargs": {
                 "hashed_arguments": {
-                    "mask_ratio": mask_ratio,
-                    "mask_idx": num_outputs-1,
-                    "mask_audio": mask_audio,
-                    "sil_index": 0,
-                    "am_scale": am_scale
+                    "ground_truth_weight": ground_truth_weight,
                 },
                 "unhashed_arguments": {},
             }
@@ -125,9 +119,6 @@ def returnn_config_generator(
                 "unhashed_arguments": {},
             }
         }
-    extern_data_dict = {"data": {"dim": 1}, "targets": {"dim": 79, "sparse": True}}
-    if mask_audio:
-        extern_data_dict.update({"align": {"dim": num_outputs, "sparse": True}})
     return get_returnn_config(
         num_epochs=num_subepochs,
         num_inputs=1,
@@ -151,7 +142,6 @@ def returnn_config_generator(
         batch_size=batch_size,
         use_chunking=False,
         extra_config=extra_config,
-        extern_data_dict=extern_data_dict, # align should be 79 here
         **kwargs
     )
 
@@ -161,14 +151,12 @@ def get_returnn_config_collection(
         dev_data_config: dict,
         lr: dict,
         conformer_ctc_args: dict,
-        lstm_lm_args: dict,
+        bigram_lm_args: dict,
         module_preloads: dict,
         batch_size: int,
         optimizer: Optimizers,
         schedule: LearningRateSchedules,
-        mask_ratio: float,
-        mask_audio: bool,
-        am_scale: float,
+        ground_truth_weight,
         kwargs: dict
 ) -> ReturnnConfigs[ReturnnConfig]:
     generator_kwargs = {
@@ -177,13 +165,11 @@ def get_returnn_config_collection(
         "lr": lr,
         "batch_size": batch_size,
         "conformer_ctc_args": conformer_ctc_args,
-        "lstm_lm_args": lstm_lm_args,
+        "bigram_lm_args": bigram_lm_args,
         "module_preloads": module_preloads,
         "optimizer": optimizer,
         "schedule": schedule,
-        "mask_ratio": mask_ratio,
-        "mask_audio": mask_audio,
-        "am_scale": am_scale,
+        "ground_truth_weight": ground_truth_weight,
         "kwargs":kwargs
     }
     return ReturnnConfigs(
@@ -193,8 +179,8 @@ def get_returnn_config_collection(
     )
 
 
-def lbs_960_run_kldiv_ctc_masked_lstm() -> SummaryReport:
-    prefix = "experiments/ctc/kldiv_ctc_masked_lstm"
+def lbs_960_run_kldiv_ctc_bigram_sample_batch() -> SummaryReport:
+    prefix = "experiments/ctc/kldiv_ctc_bigram_sample_batch"
     gs.ALIAS_AND_OUTPUT_SUBDIR = (
         prefix
     )
@@ -206,7 +192,6 @@ def lbs_960_run_kldiv_ctc_masked_lstm() -> SummaryReport:
         augmented_lexicon=True,
         feature_type=FeatureType.SAMPLES,
         blank_index_last=False,
-        use_alignments_in_train="gmm",
     )
 
     # ********** Step args **********
@@ -236,7 +221,7 @@ def lbs_960_run_kldiv_ctc_masked_lstm() -> SummaryReport:
 
     # tools.returnn_root = tk.Path("/u/berger/repositories/MiniReturnn")
     tools.rasr_binary_path = tk.Path(
-        "/u/berger/repositories/rasr_versions/nour_seq2seq_onnx_apptainer/arch/linux-x86_64-standard"
+        "/u/minh-nghia.phan/rasr_versions/nour_gen_seq2seq_dev/arch/linux-x86_64-standard"
     )
     tools.returnn_root = tk.Path("/u/minh-nghia.phan/tools/simon_returnn")
     system = ReturnnSeq2SeqSystem(tools)
@@ -250,64 +235,49 @@ def lbs_960_run_kldiv_ctc_masked_lstm() -> SummaryReport:
     system.setup_scoring(score_kwargs={"sctk_binary_path": SCTK_BINARY_PATH})
 
     # ********** Returnn Configs **********
-
-    # Low mask ratio -> lower am scale for smoothing
-
-    for n_lstm_layers in [2]:
-        for init_learning_rate in [1e-3, 1e-4]:
-            for mask_audio in [True]: # to avoid falling back to transcription training
-                for mask_ratio in [0.4, 0.6, 0.8]:
-                    if mask_ratio == 0.4:
-                        ams = [0.5, 0.1]
-                    elif mask_ratio == 0.6:
-                        ams = [1.0, 0.5]
-                    else:
-                        ams = [1.0]
-                    for am_scale in ams:
-                        conformer_ctc_args = {
-                            "time_max_mask_per_n_frames": 25,
-                            "freq_max_num_masks": 5,
-                            "vgg_act": "relu",
-                            "dropout": 0.1,
-                            "num_layers": 12,
-                        }
-                        lstm_lm_args = {
-                            "vocab_dim": num_outputs, # 79
-                            "output_dim": num_outputs-1,
-                            "embed_dim": 128,
-                            "hidden_dim": 640,
-                            "n_lstm_layers": n_lstm_layers,
-                            "dropout": 0.1,
-                            "bidirectional": True,
-                        }
-                        module_preloads = {
-                            "teacher_ctc": "/work/asr4/zyang/torch/librispeech/work/i6_core/returnn/training/ReturnnTrainingJob.nuHCdB8qL7NJ/output/models/epoch.600.pt"
-                        }
-                        newbob_lr = {
-                            "learning_rate": init_learning_rate,
-                            "decay": 0.9 ,
-                            "multi_num_epochs": 20,
-                            "relative_error_threshold": -0.005,
-                        }
-                        mask_audio_str = "maskAudio" if mask_audio else "noMaskAudio"
-                        system.add_experiment_configs(
-                            f"kldiv_ctc_masked_lstm_ctc{12}_lstm{n_lstm_layers}_adamw_newbobrel_lr{init_learning_rate}_maskRatio{mask_ratio}_{mask_audio_str}_am{am_scale}_eps{num_subepochs}",
-                            get_returnn_config_collection(
-                                data.train_data_config,
-                                data.cv_data_config,
-                                lr=newbob_lr,
-                                batch_size=15000 * 160,
-                                conformer_ctc_args=conformer_ctc_args,
-                                lstm_lm_args=lstm_lm_args,
-                                module_preloads=module_preloads,
-                                optimizer=Optimizers.AdamW,
-                                schedule=LearningRateSchedules.NewbobRel,
-                                mask_ratio=mask_ratio,
-                                mask_audio=mask_audio,
-                                am_scale=am_scale,
-                                kwargs={"weight_decay": 0.001},
-                            )
-                        )
+    for num_hidden_layers in [2]:
+        for ground_truth_weight in [0.5, "average"]:
+            conformer_ctc_args = {
+                "time_max_mask_per_n_frames": 25,
+                "freq_max_num_masks": 5,
+                "vgg_act": "relu",
+                "dropout": 0.1,
+                "num_layers": 12,
+            }
+            birgam_lm_args = {
+                "vocab_dim": num_outputs, # 79
+                "embed_dim": 128,
+                "hidden_dim": 640,
+                "n_hidden_layers": num_hidden_layers,
+                "dropout": 0.1,
+            }
+            module_preloads = {
+                "teacher_ctc": "/work/asr4/zyang/torch/librispeech/work/i6_core/returnn/training/ReturnnTrainingJob.nuHCdB8qL7NJ/output/models/epoch.600.pt"
+            }
+            for init_learning_rate in [1e-3, 1e-4]:
+                newbob_lr = {
+                    "learning_rate": init_learning_rate,
+                    "decay": 0.9 ,
+                    "multi_num_epochs": 20,
+                    "relative_error_threshold": -0.005,
+                    "error_measure": "dev_loss_kldiv_ctc_lm_exp",
+                }
+                system.add_experiment_configs(
+                    f"kldiv_ctc_lm_sample_batch_ctc{12}_bigram_adamw_newbobrel_lr{init_learning_rate}_weight{ground_truth_weight}_eps{num_subepochs}",
+                    get_returnn_config_collection(
+                        data.train_data_config,
+                        data.cv_data_config,
+                        lr=newbob_lr,
+                        batch_size=15000 * 160,
+                        conformer_ctc_args=conformer_ctc_args,
+                        bigram_lm_args=birgam_lm_args,
+                        module_preloads=module_preloads,
+                        optimizer=Optimizers.AdamW,
+                        schedule=LearningRateSchedules.NewbobRel,
+                        ground_truth_weight=ground_truth_weight,
+                        kwargs={"weight_decay": 0.001},
+                    )
+                )
 
     system.run_train_step(**train_args)
 

@@ -65,6 +65,7 @@ class MultiModelWrapper(nn.Module):
         For example, teacher forward during training.
         """
         if inference:
+            self.eval()
             with torch.inference_mode():
                 x = self.module_dict[module](*args, **kwargs)
         else:
