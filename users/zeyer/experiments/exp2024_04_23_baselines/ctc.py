@@ -195,7 +195,7 @@ def py():
     # Testing different vocabs together with sampling.
     for vocab, sample, alpha in [
         # spm20k no sampling: 6.12
-        ("spm20k", "spm", 0.8),
+        ("spm20k", "spm", 0.8),  # 6.20
         ("spm20k", "spm", 0.7),  # 6.32
         ("spm20k", "bpe", 0.01),  # 6.04
         # See archive/returnn-spm10-sample.config for playing around with alpha and checking avg seq len.
@@ -393,11 +393,11 @@ def py():
         ("spm_bpe10k", None, None),
         ("spm_bpe10k", "spm", 0.7),
         ("spm_bpe10k", "bpe", 0.01),
-        ("spm4k", None, None),
+        ("spm4k", None, None),  # 6.07 (but test-other even better: 5.94?)
         ("spm4k", "spm", 0.7),
         ("spm4k", "bpe", 0.01),
-        ("spm1k", None, None),
-        ("spm1k", "bpe", 0.01),
+        ("spm1k", None, None),  # 6.07
+        ("spm1k", "bpe", 0.01),  # 6.13 (but dev-clean,test-* are better than no sampling)
     ]:
         train_exp(
             f"v6-relPosAttDef-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100"
