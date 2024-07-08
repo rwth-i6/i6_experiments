@@ -391,7 +391,7 @@ def py():
         ("spm10k", "spm", 0.7),  # 6.20
         ("spm10k", "bpe", 0.01),  # 5.93 (!!)
         ("spm_bpe10k", None, None),
-        ("spm_bpe10k", "spm", 0.7),
+        ("spm_bpe10k", "spm", 1e-4),
         ("spm_bpe10k", "bpe", 0.01),
         ("spm4k", None, None),  # 6.07 (but test-other even better: 5.94?)
         ("spm4k", "spm", 0.7),
