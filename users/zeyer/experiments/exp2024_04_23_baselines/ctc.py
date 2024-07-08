@@ -397,7 +397,14 @@ def py():
         ("spm4k", "spm", 0.7),
         ("spm4k", "bpe", 0.01),
         ("spm1k", None, None),  # 6.07
+        ("spm1k", "spm", 0.7),
         ("spm1k", "bpe", 0.01),  # 6.13 (but dev-clean,test-* are better than no sampling)
+        ("spm_bpe1k", None, None),
+        ("spm_bpe1k", "bpe", 0.01),
+        ("spm512", None, None),
+        ("spm512", "bpe", 0.01),
+        ("spm128", None, None),
+        ("spm128", "bpe", 0.01),
     ]:
         train_exp(
             f"v6-relPosAttDef-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100"
