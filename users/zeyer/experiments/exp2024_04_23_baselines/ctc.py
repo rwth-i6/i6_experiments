@@ -364,7 +364,7 @@ def py():
         vocab="spm10k",
         train_vocab_opts={"other_opts": {"enable_sampling": True, "alpha": 0.7}},
     )
-    train_exp(  # 5.94 (!!) (no relPosAttDef: 6.11), so relPosAttDef is better
+    train_exp(  # 5.94 (no relPosAttDef: 6.11), so relPosAttDef is better
         "v6-relPosAttDef-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-speedpertV2-spm10k",
         config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
         model_config={"enc_conformer_layer": enc_conformer_layer_default},
@@ -388,8 +388,8 @@ def py():
         ("bpe10k", None, None),
         ("bpe10k", "bpe", 0.01),
         ("spm10k", None, None),
-        ("spm10k", "spm", 0.7),
-        ("spm10k", "bpe", 0.01),
+        ("spm10k", "spm", 0.7),  # 6.20
+        ("spm10k", "bpe", 0.01),  # 5.93 (!!)
         ("spm_bpe10k", None, None),
         ("spm_bpe10k", "spm", 0.7),
         ("spm_bpe10k", "bpe", 0.01),
