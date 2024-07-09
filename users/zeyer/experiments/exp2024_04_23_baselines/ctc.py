@@ -384,18 +384,18 @@ def py():
     for vocab, sample, alpha in [
         ("spm20k", None, None),
         ("spm20k", "spm", 0.7),
-        ("spm20k", "bpe", 0.01),
+        ("spm20k", "bpe", 0.01),  # 6.13
         ("bpe10k", None, None),
         ("bpe10k", "bpe", 0.01),
         ("spm10k", None, None),
         ("spm10k", "spm", 0.7),  # 6.20
         ("spm10k", "bpe", 0.01),  # 5.93 (!!)
-        ("spm_bpe10k", None, None),
+        ("spm_bpe10k", None, None),  # 6.33
         ("spm_bpe10k", "spm", 1e-4),
         ("spm_bpe10k", "bpe", 0.01),
         ("spm4k", None, None),  # 6.07 (but test-other even better: 5.94?)
         ("spm4k", "spm", 0.7),
-        ("spm4k", "bpe", 0.01),
+        ("spm4k", "bpe", 0.01),  # 6.05
         ("spm1k", None, None),  # 6.07
         ("spm1k", "spm", 0.7),
         ("spm1k", "bpe", 0.01),  # 6.13 (but dev-clean,test-* are better than no sampling)
