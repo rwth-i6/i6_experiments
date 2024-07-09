@@ -81,7 +81,6 @@ def serialize_forward(
     :param forward_step_name: path to the search decoder file containing forward_step and hooks
     :param forward_init_args: additional arguments to pass to forward_init
     :param unhashed_forward_init_args: additional non-hashed arguments to pass to forward_init
-    :param fairseq_root: path to fairseq repository
     :param debug: run training in debug mode: linking from recipe instead of copy
     :return:
     """
