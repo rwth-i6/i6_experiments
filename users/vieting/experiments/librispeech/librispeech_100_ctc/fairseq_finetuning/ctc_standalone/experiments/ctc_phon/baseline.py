@@ -37,7 +37,7 @@ def eow_phon_ls100_ctc_base(
     # build the training datasets object containing train, cv, dev-train and the extern_data dict
     train_data = build_eow_phon_training_datasets(
         prefix=prefix_name,
-        librispeech_key="train-clean-100", # TODO: Change to "train-clean-100" for the final setup
+        librispeech_key="train-clean-100",
         settings=train_settings,
     )
     label_datastream = cast(LabelDatastream, train_data.datastreams["labels"])
