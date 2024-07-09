@@ -437,12 +437,20 @@ def py():
                 else None
             ),
         )
-    _train_experiments[
-        (
-            "v6-relPosAttDef-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-maxSeqLenAudio19_5-wd1e_2-lrlin1e_5_295k-featBN"
-            "-speedpertV2-spm128"
-        )
-    ].get_training_job().set_env("CUDA_LAUNCH_BLOCKING", "1")
+    # Debugging `CUDA error: an illegal memory access` https://github.com/rwth-i6/returnn/issues/1577 ...
+    for name in [
+        "v6-relPosAttDef-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-maxSeqLenAudio19_5-wd1e_2-lrlin1e_5_295k-featBN"
+        "-speedpertV2-spm128",
+        "v6-relPosAttDef-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-maxSeqLenAudio19_5-wd1e_2-lrlin1e_5_295k-featBN"
+        "-speedpertV2-spm128-bpeSample001",
+        "v6-relPosAttDef-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-maxSeqLenAudio19_5-wd1e_2-lrlin1e_5_295k-featBN"
+        "-speedpertV2-spm1k-spmSample07",
+        "v6-relPosAttDef-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-maxSeqLenAudio19_5-wd1e_2-lrlin1e_5_295k-featBN"
+        "-speedpertV2-spm512-bpeSample001",
+        "v6-relPosAttDef-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-maxSeqLenAudio19_5-wd1e_2-lrlin1e_5_295k-featBN"
+        "-speedpertV2-spm512",
+    ]:
+        _train_experiments[name].get_training_job().set_env("CUDA_LAUNCH_BLOCKING", "1")
 
     train_exp(  # 5.78 (!!!)
         "v6-relPosAttDef-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-speedpertV2-spm10k",
