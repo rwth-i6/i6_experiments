@@ -382,7 +382,7 @@ def py():
     # - featBN
     # - maxSeqLenAudio19_5: Most importantly, this refers to audio len, thus it is independent of targets.
     for vocab, sample, alpha in [
-        ("spm20k", None, None),
+        ("spm20k", None, None),  # 5.96
         ("spm20k", "spm", 0.7),
         ("spm20k", "bpe", 0.01),  # 6.13
         ("bpe10k", None, None),
