@@ -123,7 +123,7 @@ def eow_phon_ls100_ctc_base(
                 training_name,
                 forward_config={},
                 asr_model=asr_model,
-                decoder_module="decoder.flashlight_ctc_v1", # TODO: maybe need to change file
+                decoder_module="decoder.flashlight_ctc_v1",
                 decoder_args={"config": asdict(decoder_config)},
                 test_dataset_tuples={key: test_dataset_tuples[key]},
                 **default_returnn,

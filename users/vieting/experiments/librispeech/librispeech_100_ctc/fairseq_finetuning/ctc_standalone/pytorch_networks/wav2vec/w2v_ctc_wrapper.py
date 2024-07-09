@@ -79,7 +79,7 @@ class Model(torch.nn.Module):
 
 def train_step(*, model: Model, data, run_ctx, **kwargs):
     raw_audio = data["raw_audio"]  # [B, T', 1]
-    raw_audio_len = data["raw_audio:size1"].to("cuda")  # [B] #TODO: check if this is correct
+    raw_audio_len = data["raw_audio:size1"].to("cuda")  # [B]
     labels = data["labels"]  # [B, N] (sparse)
     labels_len = data["labels:size1"]  # [B]
 
