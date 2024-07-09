@@ -95,7 +95,6 @@ def serialize_forward(
         unhashed_arguments=unhashed_net_args or {},
         import_as="get_model",
     )
-    from .default_tools import I6_MODELS_REPO_PATH
     i6_models = ExternalImport(import_path=I6_MODELS_REPO_PATH)
 
     serializer_objects = [
