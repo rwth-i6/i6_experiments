@@ -30,6 +30,8 @@ def train_step(
     **kwargs
 ):
     """
+    THIS ONLY WORKS FOR mask_idx = 0 !!!
+
     :param phase: "train" or "eval". Needed for models having different train and eval procedures.
     :param mask_ratio: How many target labels to msak
     :param mask_idx: index used to represent <mask> in the masked LM
@@ -89,6 +91,9 @@ def train_step(
     seq_mask = get_seq_mask(targets_len, max_seq_len, targets.device)
     lm_input_dim = model.cfg.module_config["student_lm"].vocab_dim
     lm_output_dim = model.cfg.module_config["student_lm"].output_dim
+    # Reason for target_shifted: the phonemes are 1, 2, ..., 78, while the model outputs 0, 1, ..., 77
+    # targets_shifted should be used for eval against model outputs 
+    targets_shifted = torch.where(targets > 0, targets-1, torch.tensor(0).to(device))
 
     # In training, mask ground truth, compute loss only
     # on masked tokens
@@ -132,16 +137,15 @@ def train_step(
             log_target=True,
             reduction="none",
         )
-        torch.set_printoptions(precision=2, threshold=100000, linewidth=150)
-        # print(label_mask)
-        # print(targets_len)
-        # print(torch.stack([log_ctc_masked_score, log_lm_masked_score, kldiv, mask_inside_seq], dim=-1))
-        # print(log_ctc_masked_score.exp())
-        # print(log_lm_masked_score.exp())
-        targets_shifted = torch.where(targets > 0, targets-1, torch.tensor(0).to(device))
-        log_ctc_score_ground_truth = log_ctc_masked_score.gather(-1, targets_shifted[:, masked_pos].unsqueeze(-1)).squeeze(-1)
-        log_lm_score_ground_truth = log_lm_masked_score.gather(-1, targets_shifted[:, masked_pos].unsqueeze(-1)).squeeze(-1)
-        kldiv_ground_truth = kldiv.gather(-1, targets_shifted[:, masked_pos].unsqueeze(-1)).squeeze(-1)
+        # torch.set_printoptions(precision=2, threshold=100000, linewidth=150)
+        # # print(label_mask)
+        # # print(targets_len)
+        # # print(torch.stack([log_ctc_masked_score, log_lm_masked_score, kldiv, mask_inside_seq], dim=-1))
+        # # print(log_ctc_masked_score.exp())
+        # # print(log_lm_masked_score.exp())
+        # log_ctc_score_ground_truth = log_ctc_masked_score.gather(-1, targets_shifted[:, masked_pos].unsqueeze(-1)).squeeze(-1)
+        # log_lm_score_ground_truth = log_lm_masked_score.gather(-1, targets_shifted[:, masked_pos].unsqueeze(-1)).squeeze(-1)
+        # kldiv_ground_truth = kldiv.gather(-1, targets_shifted[:, masked_pos].unsqueeze(-1)).squeeze(-1)
         # print(torch.stack([log_ctc_score_ground_truth.exp(), log_lm_score_ground_truth.exp(), kldiv_ground_truth, mask_inside_seq], dim=-1))
         # print(label_mask)
         # print(masked_pos)
@@ -156,7 +160,7 @@ def train_step(
         # It would be infeasible to calculate log PPPL 
         # with each acoustic input masked out
         # We simply calculate the log pseudo PPL of the LM
-        loss = compute_pseudo_ppl_loop_s(model.module_dict["student_lm"], targets, targets_len, mask_idx, lm_input_dim)
+        loss = compute_pseudo_ppl_loop_s(model.module_dict["student_lm"], targets_shifted, targets_len, mask_idx, lm_input_dim)
         rf.get_run_ctx().mark_as_loss(
             name="log_pseudo_ppl", loss=loss, as_error=True,
         )

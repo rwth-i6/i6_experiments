@@ -28,7 +28,7 @@ from i6_experiments.common.setups.serialization import ExplicitHash
 rasr.flow.FlowNetwork.default_flags = {"cache_mode": "task_dependent"}
 
 num_outputs = 79
-num_subepochs = 100
+num_subepochs = 40
 
 tools = copy.deepcopy(default_tools_v2)
 # tools.returnn_root = tk.Path("/u/minh-nghia.phan/tools/simon_returnn") # Sis will ask to run HDF jobs again
@@ -94,7 +94,7 @@ def returnn_config_generator(
             "partial_kwargs": {
                 "hashed_arguments": {
                     "mask_ratio": mask_ratio,
-                    "mask_idx": num_outputs-1,
+                    "mask_idx": 0,
                     "mask_audio": mask_audio,
                     "sil_index": 0,
                     "am_scale": am_scale
@@ -253,12 +253,12 @@ def lbs_960_run_kldiv_ctc_masked_lstm() -> SummaryReport:
 
     # Low mask ratio -> lower am scale for smoothing
 
-    for n_lstm_layers in [2]:
-        for init_learning_rate in [1e-3, 1e-4]:
+    for n_lstm_layers in [1]:
+        for init_learning_rate in [1e-3]:
             for mask_audio in [True]: # to avoid falling back to transcription training
-                for mask_ratio in [0.4, 0.6, 0.8]:
+                for mask_ratio in [0.4, 0.6, 0.8, 1.0]:
                     if mask_ratio == 0.4:
-                        ams = [0.5, 0.1]
+                        ams = [1.0, 0.5]
                     elif mask_ratio == 0.6:
                         ams = [1.0, 0.5]
                     else:
@@ -273,7 +273,7 @@ def lbs_960_run_kldiv_ctc_masked_lstm() -> SummaryReport:
                         }
                         lstm_lm_args = {
                             "vocab_dim": num_outputs, # 79
-                            "output_dim": num_outputs-1,
+                            "output_dim": num_outputs-1, # 78
                             "embed_dim": 128,
                             "hidden_dim": 640,
                             "n_lstm_layers": n_lstm_layers,

@@ -21,6 +21,10 @@ def train_step(
     **kwargs
 ):
     """
+    THIS ONLY WORKS FOR mask_idx = 0 !!!
+
+    Note that the dataloader should not have EOS!
+
     :param phase: "train" or "eval". Needed for models having different train and eval procedures.
     :param mask_ratio: How many target labels to msak
     :param mask_idx: index used to represent <mask> in the masked LM
@@ -42,6 +46,9 @@ def train_step(
     # This targets and targets_len already have EOS
     batch_size, max_seq_len = targets.shape
     device = targets.device
+    # Reason for target_shifted: the phonemes are 1, 2, ..., 78, while the model outputs 0, 1, ..., 77
+    # targets_shifted should be used for eval against model outputs 
+    targets_shifted = torch.where(targets > 0, targets-1, torch.tensor(0).to(device))
     
     if phase == "train":
         targets_masked, target_masking = mask_target_sequences(
@@ -51,8 +58,8 @@ def train_step(
             mask_idx=mask_idx,
         )
         targets_masked_onehot = torch.nn.functional.one_hot(targets_masked, num_classes=model.cfg.vocab_dim).float() # should be (B, S+1, 80)
-        log_lm_probs = model(targets_masked_onehot, targets_len) # pack for bidirectional LSTM
-        ce = torch.nn.functional.cross_entropy(log_lm_probs.transpose(1, 2), targets, reduction='none')
+        log_lm_probs = model(targets_masked_onehot, targets_len) # pack for bidirectional LSTM, dont count eos
+        ce = torch.nn.functional.cross_entropy(log_lm_probs.transpose(1, 2), targets_shifted, reduction='none')
         # Compute pseudo LL only on masked tokens
         loss = (ce * target_masking).sum() / (target_masking.sum())
         rf.get_run_ctx().mark_as_loss(
@@ -99,7 +106,7 @@ def train_step(
             targets_s[:, s] = mask_idx
             targets_s_onehot = torch.nn.functional.one_hot(targets_s, num_classes=model.cfg.vocab_dim).float()
             log_lm_probs = model(targets_s_onehot, targets_len)
-            ce = torch.nn.functional.cross_entropy(log_lm_probs.transpose(1, 2), targets, reduction='none')
+            ce = torch.nn.functional.cross_entropy(log_lm_probs.transpose(1, 2), targets_shifted, reduction='none')
             acc_loss += (ce[:, s] * seq_mask[:, s]).sum()
         loss = acc_loss/seq_mask.sum()
 

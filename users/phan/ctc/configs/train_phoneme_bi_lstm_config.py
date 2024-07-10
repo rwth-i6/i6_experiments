@@ -33,8 +33,8 @@ from i6_experiments.users.phan.models.lstm_lm import LSTMLM
 
 rasr.flow.FlowNetwork.default_flags = {"cache_mode": "task_dependent"}
 
-input_dim = 80 # (79 + mask)
-output_dim = 79
+input_dim = 79 # (mask + 78 phonemes)
+output_dim = 78
 num_subepochs = 120
 embed_dim = 128
 dropout = 0.1
@@ -63,7 +63,7 @@ def get_dataset(data):
         "orth_symbols_map_file": lambda: cf(vocab_file),
         "orth_replace_map_file": None,
         "word_based": True,
-        "seq_end_symbol": '<sb>',
+        "seq_end_symbol": None,
         "auto_replace_unknown_symbol": False,
         "unknown_symbol": None,
         "add_delayed_seq_data": False,
@@ -114,12 +114,12 @@ def returnn_config_generator(
         extra_python=[
             lstm_lm.get_train_serializer(
                 model_config,
-                "i6_experiments.users.phan.ctc.train_steps.bidirectional_masked_lstm",
+                "i6_experiments.users.phan.ctc.train_steps.bidirectional_masked_lm",
                 partial_train_step=True,
                 partial_kwargs={
                     "hashed_arguments": {
                         "mask_ratio": mask_ratio,
-                        "mask_idx": 79,
+                        "mask_idx": 0,
                     },
                     "unhashed_arguments": {},
                 }
@@ -192,9 +192,9 @@ def lbs960_train_phoneme_bi_lstm() -> SummaryReport:
 
     # ********** Returnn Configs **********
     # Use newbob lr here
-    for init_learning_rate in [1e-3, 1e-4]:
-        for n_lstm_layers in [1, 2]:
-            for mask_ratio in [0.2, 0.4]:
+    for init_learning_rate in [1e-3]:
+        for n_lstm_layers in [1]:
+            for mask_ratio in [0.2, 0.4, 0.6, 0.8, 1.0]:
                 lr = {
                     "learning_rate": init_learning_rate,
                     "decay": 0.9,
