@@ -20,8 +20,11 @@ def get_center_window_att_config_builder_rf(
         label_decoder_state: str = "nb-lstm",
         bpe_vocab_size: int = 10025,
         gaussian_att_weight_opts: Optional[Dict] = None,
+        separate_blank_from_softmax: bool = False,
+        blank_decoder_opts: Optional[Dict] = None,
 ) -> Tuple[str, SegmentalAttConfigBuilderRF]:
   assert bpe_vocab_size in {10025, 1056}
+
   variant_params = {
     "dependencies": LibrispeechBPE10025_CTC_ALIGNMENT if bpe_vocab_size == 10025 else LibrispeechBPE1056_ALIGNMENT,
     "dataset": {
@@ -51,16 +54,19 @@ def get_center_window_att_config_builder_rf(
     use_joint_model=use_joint_model,
     use_weight_feedback=use_weight_feedback,
     label_decoder_state=label_decoder_state,
-    gaussian_att_weight_opts=gaussian_att_weight_opts
+    gaussian_att_weight_opts=gaussian_att_weight_opts,
+    separate_blank_from_softmax=separate_blank_from_softmax,
+    blank_decoder_opts=blank_decoder_opts,
   )
 
   alias = (
     f"bpe-size-{bpe_vocab_size}/"
-    f"win-size-{win_size}/"
+    f"win-size-{win_size}{'_gaussian-std-' + str(gaussian_att_weight_opts['std']) if gaussian_att_weight_opts else ''}/"
     f"{'w' if use_weight_feedback else 'wo'}-wf_"
     f"{'w' if use_att_ctx_in_state else 'wo'}-ctx-in-s/"
     f"bd-{blank_decoder_version}/"
     f"{label_decoder_state}"
+    f"/{'sep-blank-sigmoid' if separate_blank_from_softmax or blank_decoder_version is not None else 'blank-in-softmax'}"
   )
 
   return alias, config_builder

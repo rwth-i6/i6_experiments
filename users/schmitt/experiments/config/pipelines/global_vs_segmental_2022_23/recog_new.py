@@ -16,6 +16,7 @@ from i6_core.text.processing import WriteToTextFileJob
 from i6_core.corpus.filter import FilterCorpusBySegmentsJob
 from i6_core.corpus.convert import CorpusToStmJob
 
+from i6_experiments.users.schmitt.visualization.visualization import PlotAttentionWeightsJobV2
 from i6_experiments.users.schmitt.flow import get_raw_wav_feature_flow
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.general.rasr.config import RasrConfigBuilder
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.config_builder_rf.base import ConfigBuilderRF, GlobalAttConfigBuilderRF, SegmentalAttConfigBuilderRF
@@ -43,6 +44,7 @@ from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segment
 )
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.corpora import tedlium2, librispeech
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.global_.train import _returnn_v2_train_step, from_scratch_training
+from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf import dump_att_weights as dump_att_weights_forward_funcs
 
 
 class DecodingExperiment(ABC):
@@ -399,91 +401,151 @@ class ReturnnDecodingExperiment(DecodingExperiment, ABC):
     if analysis_opts is not None:
       _analysis_opts.update(analysis_opts)
 
-    forward_recog_config = self.config_builder.get_recog_config_for_forward_job(opts=self.recog_opts)
-    forward_search_job = ReturnnForwardJob(
-      model_checkpoint=self.checkpoint,
-      returnn_config=forward_recog_config,
-      returnn_root=self.config_builder.variant_params["returnn_root"],
-      returnn_python_exe=self.config_builder.variant_params["returnn_python_exe"],
-      eval_mode=False
-    )
-    forward_search_job.add_alias("%s/analysis/forward_recog_dump_seq" % self.alias)
-    search_hdf = forward_search_job.out_default_hdf
-    search_not_all_blank_segments = None
+    if isinstance(self.config_builder, SegmentalAttConfigBuilderRF):
+      att_weight_seq_tags = _analysis_opts["att_weight_seq_tags"]
+      if att_weight_seq_tags is None:
+        att_weight_seq_tags = [
+          "dev-other/3660-6517-0005/3660-6517-0005",
+          "dev-other/6467-62797-0001/6467-62797-0001",
+          "dev-other/6467-62797-0002/6467-62797-0002",
+          "dev-other/7697-105815-0015/7697-105815-0015",
+          "dev-other/7697-105815-0051/7697-105815-0051",
+        ]
 
-    if "baseline_v2/baseline/train_from_global_att_checkpoint/standard-training/win-size-5_200-epochs" in self.alias:
-      statistics_job = AlignmentStatisticsJob(
-        alignment=search_hdf,
-        json_vocab=self.config_builder.dependencies.vocab_path,
-        blank_idx=10025,
-        silence_idx=20000,  # dummy idx which is larger than the vocab size
-        returnn_root=RETURNN_ROOT,
-        returnn_python_exe=self.returnn_python_exe
+      segment_file = WriteToTextFileJob(
+        content=att_weight_seq_tags
       )
-      statistics_job.add_alias("%s/analysis/statistics/%s" % (self.alias, self.corpus_key))
-      tk.register_output(statistics_job.get_one_alias(), statistics_job.out_statistics)
+      dump_att_weight_config = self.config_builder.get_dump_att_weight_config(
+        opts={
+          "corpus_key": self.corpus_key,
+          "dataset_opts": {
+            "segment_paths": {self.corpus_key: segment_file.out_file},
+            "hdf_targets": LibrispeechBPE10025_CTC_ALIGNMENT.alignment_paths,
+          },
+          "forward_step_func": dump_att_weights_forward_funcs._returnn_v2_forward_step,
+          "forward_callback": dump_att_weights_forward_funcs._returnn_v2_get_forward_callback,
+          "dump_att_weight_def": dump_att_weights_forward_funcs.dump_att_weights,
+        }
+      )
+      dump_att_weights_job = ReturnnForwardJobV2(
+        model_checkpoint=self.checkpoint,
+        returnn_config=dump_att_weight_config,
+        returnn_root=self.returnn_root,
+        returnn_python_exe=self.returnn_python_exe,
+        output_files=[
+          "att_weights.hdf",
+          "center_positions.hdf",
+          "seg_starts.hdf",
+          "seg_lens.hdf",
+          "targets.hdf",
+        ],
+        mem_rqmt=self.search_rqmt.get("mem", 6),
+        time_rqmt=self.search_rqmt.get("time", 1),
+      )
+      dump_att_weights_job.add_alias(f"{self.alias}/analysis/dump_att_weights")
+      tk.register_output(dump_att_weights_job.get_one_alias(), dump_att_weights_job.out_files["att_weights.hdf"])
 
-    # remove the alignments, which only consist of blank labels because this leads to errors in the following Forward jobs
-    # temporarily, only do this for selected models to avoid unnecessarily restarting completed jobs
-    for variant in [
-      "att_weight_interpolation_no_length_model",
-    ]:
-      if variant in self.alias:
-        remove_all_blank_seqs_job = AlignmentRemoveAllBlankSeqsJob(
-          hdf_align_path=forward_search_job.out_default_hdf,
-          blank_idx=self.config_builder.variant_params["dependencies"].model_hyperparameters.blank_idx,
+      plot_att_weights_job = PlotAttentionWeightsJobV2(
+        att_weight_hdf=dump_att_weights_job.out_files["att_weights.hdf"],
+        targets_hdf=dump_att_weights_job.out_files["targets.hdf"],
+        seg_lens_hdf=dump_att_weights_job.out_files.get("seg_lens.hdf"),
+        seg_starts_hdf=dump_att_weights_job.out_files.get("seg_starts.hdf"),
+        center_positions_hdf=dump_att_weights_job.out_files.get("center_positions.hdf"),
+        target_blank_idx=10025,
+        ref_alignment_blank_idx=10025,
+        ref_alignment_hdf=LibrispeechBPE10025_CTC_ALIGNMENT.alignment_paths[self.corpus_key],
+        json_vocab_path=self.config_builder.variant_params["dependencies"].vocab_path,
+        ctc_alignment_hdf=LibrispeechBPE10025_CTC_ALIGNMENT.alignment_paths[self.corpus_key],
+        segment_whitelist=att_weight_seq_tags,
+      )
+      plot_att_weights_job.add_alias(f"{self.alias}/analysis/plot_att_weights")
+      tk.register_output(plot_att_weights_job.get_one_alias(), plot_att_weights_job.out_plot_dir)
+    else:
+      forward_recog_config = self.config_builder.get_recog_config_for_forward_job(opts=self.recog_opts)
+      forward_search_job = ReturnnForwardJob(
+        model_checkpoint=self.checkpoint,
+        returnn_config=forward_recog_config,
+        returnn_root=self.config_builder.variant_params["returnn_root"],
+        returnn_python_exe=self.config_builder.variant_params["returnn_python_exe"],
+        eval_mode=False
+      )
+      forward_search_job.add_alias("%s/analysis/forward_recog_dump_seq" % self.alias)
+      search_hdf = forward_search_job.out_default_hdf
+      search_not_all_blank_segments = None
+
+      if "baseline_v2/baseline/train_from_global_att_checkpoint/standard-training/win-size-5_200-epochs" in self.alias:
+        statistics_job = AlignmentStatisticsJob(
+          alignment=search_hdf,
+          json_vocab=self.config_builder.dependencies.vocab_path,
+          blank_idx=10025,
+          silence_idx=20000,  # dummy idx which is larger than the vocab size
           returnn_root=RETURNN_ROOT,
-          returnn_python_exe=self.config_builder.variant_params["returnn_python_exe"],
+          returnn_python_exe=self.returnn_python_exe
         )
-        search_hdf = remove_all_blank_seqs_job.out_align
-        search_not_all_blank_segments = remove_all_blank_seqs_job.out_segment_file
-        break
+        statistics_job.add_alias("%s/analysis/statistics/%s" % (self.alias, self.corpus_key))
+        tk.register_output(statistics_job.get_one_alias(), statistics_job.out_statistics)
 
-    for hdf_alias, hdf_targets in zip(
-            ["ground_truth", "search"],
-            [_analysis_opts["ground_truth_hdf"], search_hdf]
-    ):
-      dump_att_weights(
-        self.config_builder,
-        variant_params=self.config_builder.variant_params,
-        checkpoint=self.checkpoint,
-        hdf_targets=hdf_targets,
-        ref_alignment=_analysis_opts["att_weight_ref_alignment_hdf"],
-        corpus_key=self.corpus_key,
-        hdf_alias=hdf_alias,
-        alias=self.alias,
-        ref_alignment_blank_idx=_analysis_opts["att_weight_ref_alignment_blank_idx"],
-        seq_tags_to_analyse=_analysis_opts["att_weight_seq_tags"],
-        plot_energies=_analysis_opts["plot_energies"],
-        dump_ctc=_analysis_opts["dump_ctc"],
-        calc_att_weight_stats=_analysis_opts["calc_att_weight_stats"],
-        sclite_report_dir=self.score_job.out_report_dir,
-      )
+      # remove the alignments, which only consist of blank labels because this leads to errors in the following Forward jobs
+      # temporarily, only do this for selected models to avoid unnecessarily restarting completed jobs
+      for variant in [
+        "att_weight_interpolation_no_length_model",
+      ]:
+        if variant in self.alias:
+          remove_all_blank_seqs_job = AlignmentRemoveAllBlankSeqsJob(
+            hdf_align_path=forward_search_job.out_default_hdf,
+            blank_idx=self.config_builder.variant_params["dependencies"].model_hyperparameters.blank_idx,
+            returnn_root=RETURNN_ROOT,
+            returnn_python_exe=self.config_builder.variant_params["returnn_python_exe"],
+          )
+          search_hdf = remove_all_blank_seqs_job.out_align
+          search_not_all_blank_segments = remove_all_blank_seqs_job.out_segment_file
+          break
 
-      if _analysis_opts.get("dump_ctc_probs"):
-        assert isinstance(self.config_builder, GlobalConfigBuilder)
-        assert _analysis_opts["att_weight_seq_tags"] is not None, "att_weight_seq_tags must be set for dump_ctc_probs"
-        dump_ctc_probs(
+      for hdf_alias, hdf_targets in zip(
+              ["ground_truth", "search"],
+              [_analysis_opts["ground_truth_hdf"], search_hdf]
+      ):
+        dump_att_weights(
           self.config_builder,
           variant_params=self.config_builder.variant_params,
           checkpoint=self.checkpoint,
           hdf_targets=hdf_targets,
+          ref_alignment=_analysis_opts["att_weight_ref_alignment_hdf"],
           corpus_key=self.corpus_key,
           hdf_alias=hdf_alias,
           alias=self.alias,
+          ref_alignment_blank_idx=_analysis_opts["att_weight_ref_alignment_blank_idx"],
           seq_tags_to_analyse=_analysis_opts["att_weight_seq_tags"],
+          plot_energies=_analysis_opts["plot_energies"],
+          dump_ctc=_analysis_opts["dump_ctc"],
+          calc_att_weight_stats=_analysis_opts["calc_att_weight_stats"],
+          sclite_report_dir=self.score_job.out_report_dir,
         )
 
-    calc_search_errors(
-      self.config_builder,
-      variant_params=self.config_builder.variant_params,
-      checkpoint=self.checkpoint,
-      ground_truth_hdf_targets=_analysis_opts["ground_truth_hdf"],
-      search_hdf_targets=search_hdf,
-      corpus_key=self.corpus_key,
-      alias=self.alias,
-      segment_file=search_not_all_blank_segments,
-    )
+        if _analysis_opts.get("dump_ctc_probs"):
+          assert isinstance(self.config_builder, GlobalConfigBuilder)
+          assert _analysis_opts["att_weight_seq_tags"] is not None, "att_weight_seq_tags must be set for dump_ctc_probs"
+          dump_ctc_probs(
+            self.config_builder,
+            variant_params=self.config_builder.variant_params,
+            checkpoint=self.checkpoint,
+            hdf_targets=hdf_targets,
+            corpus_key=self.corpus_key,
+            hdf_alias=hdf_alias,
+            alias=self.alias,
+            seq_tags_to_analyse=_analysis_opts["att_weight_seq_tags"],
+          )
+
+      calc_search_errors(
+        self.config_builder,
+        variant_params=self.config_builder.variant_params,
+        checkpoint=self.checkpoint,
+        ground_truth_hdf_targets=_analysis_opts["ground_truth_hdf"],
+        search_hdf_targets=search_hdf,
+        corpus_key=self.corpus_key,
+        alias=self.alias,
+        segment_file=search_not_all_blank_segments,
+      )
 
 
 class ReturnnGlobalAttDecodingExperiment(GlobalAttDecodingExperiment, ReturnnDecodingExperiment):
@@ -889,7 +951,7 @@ class ReturnnSegmentalAttDecodingPipeline(DecodingPipeline):
     self.config_builder = config_builder
 
     self.realignment = None
-    if self.run_analysis:
+    if self.run_analysis and not isinstance(self.config_builder, ConfigBuilderRF):
       self.realignment = RasrRealignmentExperiment(
         alias=self.alias,
         reduction_factor=960,

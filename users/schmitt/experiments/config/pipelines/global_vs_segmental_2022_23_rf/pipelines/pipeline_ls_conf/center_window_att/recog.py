@@ -24,9 +24,10 @@ def center_window_returnn_frame_wise_beam_search(
         run_analysis: bool = False,
         att_weight_seq_tags: Optional[List] = None,
         pure_torch: bool = False,
-        use_recombination: Optional[str] = None,
+        use_recombination: Optional[str] = "sum",
         batch_size: Optional[int] = None,
         corpus_keys: Tuple[str, ...] = ("dev-other",),
+        reset_eos_params: bool = False,
 ):
   if lm_type is not None:
     assert len(checkpoint_aliases) == 1, "Do LM recog only for the best checkpoint"
@@ -43,6 +44,7 @@ def center_window_returnn_frame_wise_beam_search(
     "forward_step_func": _returnn_v2_forward_step,
     "forward_callback": _returnn_v2_get_forward_callback,
     "use_recombination": use_recombination,
+    "reset_eos_params": reset_eos_params,
   }
   if batch_size is not None:
     recog_opts["batch_size"] = batch_size

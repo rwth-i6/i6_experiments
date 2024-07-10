@@ -47,14 +47,23 @@ def run_exps():
           config_builder=config_builder,
           checkpoint=checkpoint,
         )
-        for use_recombination in ("max", "sum"):
-          recog.center_window_returnn_frame_wise_beam_search(
-            alias=train_alias,
-            config_builder=config_builder,
-            checkpoint=checkpoint,
-            checkpoint_aliases=("last",),
-            use_recombination=use_recombination,
-          )
+        recog.center_window_returnn_frame_wise_beam_search(
+          alias=train_alias,
+          config_builder=config_builder,
+          checkpoint=checkpoint,
+          use_recombination=None,
+        )
+        recog.center_window_returnn_frame_wise_beam_search(
+          alias=train_alias,
+          config_builder=config_builder,
+          checkpoint=checkpoint,
+          checkpoint_aliases=("last",),
+          run_analysis=True,
+          att_weight_seq_tags=[
+            "dev-other/116-288045-0017/116-288045-0017",
+            "dev-other/116-288045-0014/116-288045-0014",
+          ]
+        )
 
   # --------------------------- Comparison with Atanas' transducer models ---------------------------
 
@@ -88,7 +97,18 @@ def run_exps():
           subtract_ilm_eos_score=True,
           use_recombination="sum",
           corpus_keys=("dev-other", "test-other"),
-          batch_size=12_000,  # with 15k, i often get OOM
+          beam_size_list=(12, 84),
+        )
+        recog.center_window_returnn_frame_wise_beam_search(
+          alias=train_alias,
+          config_builder=config_builder,
+          checkpoint=checkpoint,
+          checkpoint_aliases=("last",),
+          run_analysis=True,
+          att_weight_seq_tags=[
+            "dev-other/116-288045-0017/116-288045-0017",
+            "dev-other/116-288045-0014/116-288045-0014",
+          ]
         )
 
   for label_decoder_state in ("nb-lstm", "nb-2linear-ctx1"):
@@ -121,36 +141,54 @@ def run_exps():
           subtract_ilm_eos_score=True,
           use_recombination="sum",
           corpus_keys=("dev-other", "test-other"),
-          batch_size=12_000,  # with 15k, i often get OOM
+          beam_size_list=(12, 84),
         )
 
-  # -------------------------- test different optimizer settings --------------------------------------
+  # --------------------------- Comparison with Atanas' transducer models (reset EOS params) ------------------------
 
-  # for label_decoder_state in ("nb-2linear-ctx1",):
-  #   for model_alias, config_builder in baseline.center_window_att_baseline_rf(
-  #           win_size_list=(5,),
-  #           label_decoder_state=label_decoder_state,
-  #           use_weight_feedback=False,
-  #           use_att_ctx_in_state=False
-  #   ):
-  #     for weight_decay in (1e-1, 1e-2, 1e-3):
-  #       for train_alias, checkpoint in train.train_center_window_att_viterbi_import_global_tf(
-  #         alias=model_alias,
-  #         config_builder=config_builder,
-  #         n_epochs_list=(100,),
-  #         const_lr_list=(1e-4,),
-  #         optimizer_opts={
-  #           "class": "adamw",
-  #           "epsilon": 1e-8,
-  #           "weight_decay": weight_decay,
-  #           "weight_decay_modules_blacklist": ["rf.Embedding", "rf.LearnedRelativePositionalEncoding"]
-  #         },
-  #       ):
-  #         recog.center_window_returnn_frame_wise_beam_search(
-  #           alias=train_alias,
-  #           config_builder=config_builder,
-  #           checkpoint=checkpoint,
-  #         )
+  for label_decoder_state in ("nb-lstm",):
+    for model_alias, config_builder in baseline.center_window_att_baseline_rf(
+            win_size_list=(1,),
+            label_decoder_state=label_decoder_state,
+            use_weight_feedback=False,
+            use_att_ctx_in_state=False
+    ):
+      for train_alias, checkpoint in train.train_center_window_att_viterbi_import_global_tf(
+        alias=model_alias,
+        config_builder=config_builder,
+        n_epochs_list=(300,),
+        const_lr_list=(1e-4,),
+        reset_eos_params=True,
+      ):
+        recog.center_window_returnn_frame_wise_beam_search(
+          alias=train_alias,
+          config_builder=config_builder,
+          checkpoint=checkpoint,
+          reset_eos_params=True,
+        )
+
+  # -------------------------- test separating blank from the softmax --------------------------------------
+
+  for model_alias, config_builder in baseline.center_window_att_baseline_rf(
+          win_size_list=(5,),
+          label_decoder_state="nb-2linear-ctx1",
+          use_weight_feedback=False,
+          use_att_ctx_in_state=False,
+          separate_blank_from_softmax=True
+  ):
+    for train_alias, checkpoint in train.train_center_window_att_viterbi_import_global_tf(
+      alias=model_alias,
+      config_builder=config_builder,
+      n_epochs_list=(300,),
+      const_lr_list=(1e-4,),
+      keep_best_n=0,
+    ):
+      recog.center_window_returnn_frame_wise_beam_search(
+        alias=train_alias,
+        config_builder=config_builder,
+        checkpoint=checkpoint,
+        checkpoint_aliases=("last",),
+      )
 
   # --------------------------- test different blank and non-blank loss scales ---------------------------
 
@@ -188,9 +226,8 @@ def run_exps():
       for train_alias, checkpoint in train.train_center_window_att_viterbi_from_scratch(
         alias=model_alias,
         config_builder=config_builder,
-        n_epochs_list=(150,),
+        n_epochs_list=(600,),
         chunked_data_len=95_440,  # -> 600ms -> 100 encoder frames
-        time_rqmt=2,
         nb_loss_scale=6.0,
         use_mgpu=False,
       ):
@@ -213,6 +250,43 @@ def run_exps():
         n_epochs_list=(600,),
         nb_loss_scale=6.0,
         use_mgpu=False,
+      ):
+        recog.center_window_returnn_frame_wise_beam_search(
+          alias=train_alias,
+          config_builder=config_builder,
+          checkpoint=checkpoint,
+        )
+        recog.center_window_returnn_frame_wise_beam_search(
+          alias=train_alias,
+          config_builder=config_builder,
+          checkpoint=checkpoint,
+          checkpoint_aliases=("last",),
+          lm_type="trafo",
+          lm_scale_list=(0.6,),
+          ilm_type="mini_att",
+          ilm_scale_list=(0.3,),
+          subtract_ilm_eos_score=True,
+          use_recombination="sum",
+          corpus_keys=("dev-other", "test-other"),
+          beam_size_list=(12, 84),
+        )
+
+  for label_decoder_state in ("nb-2linear-ctx1",):
+    for model_alias, config_builder in baseline.center_window_att_baseline_rf(
+            win_size_list=(1,),
+            label_decoder_state=label_decoder_state,
+            use_weight_feedback=False,
+            use_att_ctx_in_state=False
+    ):
+      for train_alias, checkpoint in train.train_center_window_att_viterbi_from_scratch(
+        alias=model_alias,
+        config_builder=config_builder,
+        n_epochs_list=(600,),
+        nb_loss_scale=6.0,
+        use_mgpu=False,
+        ce_aux_loss_layers=(6, 12),
+        ce_aux_loss_focal_loss_factors=(1.0, 1.0),
+        ce_aux_loss_scales=(0.3, 1.0)
       ):
         recog.center_window_returnn_frame_wise_beam_search(
           alias=train_alias,

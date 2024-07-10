@@ -31,6 +31,12 @@ def run_exps():
         config_builder=config_builder,
         checkpoint=checkpoint,
         checkpoint_aliases=("last",),
+      )
+      recog.global_att_returnn_label_sync_beam_search(
+        alias=train_alias,
+        config_builder=config_builder,
+        checkpoint=checkpoint,
+        checkpoint_aliases=("last",),
         lm_type="trafo",
         lm_scale_list=(0.5, 0.52, 0.54,),
         ilm_scale_list=(0.4,),
@@ -60,8 +66,8 @@ def run_exps():
         checkpoint=checkpoint,
         checkpoint_aliases=("best",),
         lm_type="trafo",
-        lm_scale_list=(0.1, 0.2),
-        ilm_scale_list=(0.0,),
+        lm_scale_list=(0.2, 0.3, 0.4),
+        ilm_scale_list=(0.1, 0.2,),
         ilm_type="mini_att",
         beam_size_list=(12,),
         batch_size=8_000,

@@ -38,13 +38,19 @@ def train_center_window_att_viterbi_from_scratch(
         nb_loss_scale: float = 1.0,
         b_loss_scale: float = 1.0,
         do_realignments: bool = False,
+        ce_aux_loss_layers: Optional[Tuple[int, ...]] = None,
+        ce_aux_loss_focal_loss_factors: Optional[Tuple[float, ...]] = None,
+        ce_aux_loss_scales: Optional[Tuple[float, ...]] = None,
 ):
   for n_epochs in n_epochs_list:
     alias += (
       f"/{'viterbi' if do_realignments else 'fixed-path'}-train_from_scratch/{n_epochs}-ep_bs-{batch_size}"
       f"{'_mgpu-4' if use_mgpu else ''}_{'w' if use_speed_pert else 'wo'}-speed-pert"
-      f"_{'chunked-data-len-' + str(chunked_data_len) if chunked_data_len else 'no-chunking'}"
+      f"_{'chunked-data-len-' + str(chunked_data_len) if chunked_data_len else 'no-chunking'}/"
       f"_nb-loss-x{nb_loss_scale}_b-loss-x{b_loss_scale}"
+      f"_ce-aux-{'-'.join(map(str, ce_aux_loss_layers)) if ce_aux_loss_layers else 'None'}"
+      f"_scales-{'-'.join(map(str, ce_aux_loss_scales)) if ce_aux_loss_scales else 'None'}"
+      f"_aux-focal-loss-{'-'.join(map(str, ce_aux_loss_focal_loss_factors)) if ce_aux_loss_focal_loss_factors else 'None'}"
     )
 
     train_opts = {
@@ -64,7 +70,7 @@ def train_center_window_att_viterbi_from_scratch(
         "num_epochs": n_epochs,
         "learning_rate": 1e-3,
       },
-      "aux_loss_layers": None,
+      "aux_loss_layers": ce_aux_loss_layers,
       "specaugment_steps": (5_000, 15_000, 25_000),
       "grad_scaler": None,
       "gradient_clip_global_norm": 5.0,
@@ -84,10 +90,20 @@ def train_center_window_att_viterbi_from_scratch(
       "training_do_realignments": do_realignments,
     }
 
+    if ce_aux_loss_layers:
+      train_opts["aux_loss_type"] = "ce"
+    if ce_aux_loss_focal_loss_factors:
+      train_opts["aux_loss_focal_loss_factors"] = ce_aux_loss_focal_loss_factors
+    if ce_aux_loss_scales:
+      train_opts["aux_loss_scales"] = ce_aux_loss_scales
+
     if chunked_data_len:
       train_opts.update({
         "chunking": (
-          {"data": chunked_data_len, "targets": _get_reduced_input_len(chunked_data_len, config_builder)},
+          {
+            "data": chunked_data_len + config_builder.red_subtrahend,
+            "targets": _get_reduced_input_len(chunked_data_len, config_builder)
+          },
           {"data": chunked_data_len // 2, "targets": _get_reduced_input_len(chunked_data_len // 2, config_builder)},
         ),
         "min_chunk_size": {"data": config_builder.red_subtrahend + 1, "targets": 1}
@@ -243,6 +259,7 @@ def train_center_window_att_viterbi_import_global_tf(
         nb_loss_scale_list: Tuple[float, ...] = (1.0,),
         b_loss_scale_list: Tuple[float, ...] = (1.0,),
         optimizer_opts: Optional[Dict] = None,
+        reset_eos_params: bool = False,
 ):
   if not config_builder.use_att_ctx_in_state and "lstm" in config_builder.label_decoder_state:
     # only randomly init FF weights, since only the input dim of the lstm layer is different
@@ -252,6 +269,15 @@ def train_center_window_att_viterbi_import_global_tf(
 
   if optimizer_opts is None:
     optimizer_opts = {"class": "adam", "epsilon": 1e-8}
+    # optimizer_opts = {
+    #   "class": "adamw",
+    #   "epsilon": 1e-16,
+    #   "weight_decay": 0.01,
+    #   "weight_decay_modules_blacklist": [
+    #       "rf.Embedding",
+    #       "rf.LearnedRelativePositionalEncoding",
+    #   ],
+    # }
 
   for n_epochs in n_epochs_list:
     for const_lr in const_lr_list:
@@ -260,6 +286,7 @@ def train_center_window_att_viterbi_import_global_tf(
           train_alias = alias + (
             f"/train_from_{import_model_name}/standard-training/{n_epochs}-ep_{const_lr}-const-lr"
             f"_nb-loss-x{nb_loss_scale}_b-loss-x{b_loss_scale}_{_get_optimizer_alias(optimizer_opts)}"
+            f"{'_reset-eos' if reset_eos_params else ''}"
           )
           if alignment_augmentation_opts:
             opts = alignment_augmentation_opts
@@ -289,6 +316,7 @@ def train_center_window_att_viterbi_import_global_tf(
             "alignment_augmentation_opts": alignment_augmentation_opts,
             "nb_loss_scale": nb_loss_scale,
             "b_loss_scale": b_loss_scale,
+            "reset_eos_params": reset_eos_params,
           }
           if custom_missing_load_func:
             train_opts["preload_from_files"]["pretrained_global_att_params"]["custom_missing_load_func"] = custom_missing_load_func

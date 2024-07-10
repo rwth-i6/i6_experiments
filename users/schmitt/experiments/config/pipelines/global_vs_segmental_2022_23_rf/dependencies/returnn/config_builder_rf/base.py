@@ -13,6 +13,7 @@ from i6_experiments.users.schmitt.returnn_frontend.utils.serialization import ge
 
 from i6_experiments.common.setups import serialization
 from i6_experiments.common.setups.returnn.serialization import get_serializable_config
+from i6_experiments.users.schmitt.custom_load_params import load_missing_params
 
 from i6_core.returnn.config import ReturnnConfig, CodeWrapper
 from i6_core.returnn.training import AverageTorchCheckpointsJob, GetBestEpochJob, Checkpoint, GetBestPtCheckpointJob
@@ -110,6 +111,9 @@ class ConfigBuilderRF(ABC):
 
     remaining_opt_keys = [
       "aux_loss_layers",
+      "aux_loss_type",
+      "aux_loss_scales",
+      "aux_loss_focal_loss_factors",
       "preload_from_files",
       "accum_grad_multiple_step",
       "optimizer",
@@ -220,13 +224,14 @@ class ConfigBuilderRF(ABC):
       config_dict["preload_from_files"]["mini_lstm"] = {
         "filename": ilm_correction_opts["mini_att_checkpoint"],
         "prefix": "do_not_load_",
-        "var_name_mapping": {layer: f"do_not_load_{layer}" for layer in (
-          "label_decoder.mini_att.bias",
-          "label_decoder.mini_att.weight",
-          "label_decoder.mini_att_lstm.bias",
-          "label_decoder.mini_att_lstm.rec_weight",
-          "label_decoder.mini_att_lstm.ff_weight",
-        )} if "lstm" in self.label_decoder_state else {
+        "var_name_mapping": {
+          layer: f"do_not_load_{layer}" for layer in (
+            "label_decoder.mini_att.bias",
+            "label_decoder.mini_att.weight",
+            "label_decoder.mini_att_lstm.bias",
+            "label_decoder.mini_att_lstm.rec_weight",
+            "label_decoder.mini_att_lstm.ff_weight",
+          )} if "lstm" in self.label_decoder_state else {
           layer: f"do_not_load_{layer}" for layer in (
             "label_decoder.mini_att.bias",
             "label_decoder.mini_att.weight",
@@ -643,8 +648,17 @@ class SegmentalAttConfigBuilderRF(LibrispeechConformerConfigBuilderRF):
           use_joint_model: bool = False,
           use_weight_feedback: bool = True,
           gaussian_att_weight_opts: Optional[Dict] = None,
+          separate_blank_from_softmax: bool = False,
+          blank_decoder_opts: Optional[Dict] = None,
           **kwargs
   ):
+    if use_joint_model:
+      assert not blank_decoder_version, "Either use joint model or separate label and blank model"
+
+    if blank_decoder_opts is not None:
+      assert blank_decoder_version is not None
+      assert blank_decoder_opts["version"] == blank_decoder_version
+
     super(SegmentalAttConfigBuilderRF, self).__init__(**kwargs)
 
     self.config_dict.update(dict(
@@ -652,9 +666,6 @@ class SegmentalAttConfigBuilderRF(LibrispeechConformerConfigBuilderRF):
     ))
     self.use_joint_model = use_joint_model
     self.use_weight_feedback = use_weight_feedback
-
-    if use_joint_model:
-      assert not blank_decoder_version, "Either use joint model or separate label and blank model"
 
     if blank_decoder_version is not None and blank_decoder_version != 1:
       self.config_dict["blank_decoder_version"] = blank_decoder_version
@@ -664,6 +675,13 @@ class SegmentalAttConfigBuilderRF(LibrispeechConformerConfigBuilderRF):
       self.config_dict["use_weight_feedback"] = use_weight_feedback
     if gaussian_att_weight_opts is not None:
       self.config_dict["gaussian_att_weight_opts"] = gaussian_att_weight_opts
+    if separate_blank_from_softmax:
+      self.config_dict["separate_blank_from_softmax"] = separate_blank_from_softmax
+
+    if blank_decoder_opts is not None:
+      self.config_dict["blank_decoder_opts"] = blank_decoder_opts
+
+    self.reset_eos_params = False
 
   def get_train_config(self, opts: Dict):
     train_config = super(SegmentalAttConfigBuilderRF, self).get_train_config(opts)
@@ -686,6 +704,14 @@ class SegmentalAttConfigBuilderRF(LibrispeechConformerConfigBuilderRF):
     b_loss_scale = opts.pop("b_loss_scale", 1.0)
     if b_loss_scale and b_loss_scale != 1.0:
       train_config.config["b_loss_scale"] = b_loss_scale
+
+    if opts.pop("reset_eos_params", False):
+      assert "preload_from_files" in train_config.config
+      assert "pretrained_global_att_params" in train_config.config["preload_from_files"]
+      preload_dict = train_config.config["preload_from_files"]["pretrained_global_att_params"]
+      if "custom_missing_load_func" not in preload_dict:
+        preload_dict["custom_missing_load_func"] = load_missing_params
+      train_config.config["reset_eos_params"] = True
 
     return train_config
 
@@ -711,6 +737,21 @@ class SegmentalAttConfigBuilderRF(LibrispeechConformerConfigBuilderRF):
           "subtract_ilm_eos_score": True,
         })
 
+    if opts["reset_eos_params"]:
+      recog_config.config["reset_eos_params"] = True
+      # recog_config.config["preload_from_files"].update({
+      #   "prefix": "do_not_load_",
+      #   "var_name_mapping": {
+      #     "label_decoder.target_embed": "do_not_load_label_decoder.target_embed_reset_eos",
+      #     "label_decoder.output_prob.weight": "do_not_load_label_decoder.output_prob_reset_eos.weight",
+      #     "label_decoder.output_prob.bias": "do_not_load_label_decoder.output_prob_reset_eos.bias",
+      #   }
+      #     layer: f"do_not_load_{layer}" for layer in (
+      #       "label_decoder.target_embed_reset_eos",
+      #       "label_decoder.output_prob_reset_eos",
+      #     )
+      #   }
+      # })
 
     return recog_config
 
@@ -755,7 +796,7 @@ class SegmentalAttConfigBuilderRF(LibrispeechConformerConfigBuilderRF):
       )
     )
 
-    returnn_train_config = ReturnnConfig(
+    returnn_realign_config = ReturnnConfig(
       config=config_dict,
       post_config=post_config_dict,
       python_prolog=python_prolog,
@@ -763,4 +804,56 @@ class SegmentalAttConfigBuilderRF(LibrispeechConformerConfigBuilderRF):
     )
 
     # serialize remaining functions, e.g. dynamic learning rate
-    return get_serializable_config(returnn_train_config, serialize_dim_tags=False)
+    return get_serializable_config(returnn_realign_config, serialize_dim_tags=False)
+
+  def get_dump_att_weight_config(self, opts: Dict):
+    config_dict = copy.deepcopy(self.config_dict)
+    post_config_dict = copy.deepcopy(self.post_config_dict)
+    python_prolog = copy.deepcopy(self.python_prolog)
+    python_epilog = copy.deepcopy(self.python_epilog)
+
+    dataset_opts = opts.get("dataset_opts", {})
+    config_dict.update(dict(
+      task="forward",
+      batching=opts.get("batching", "random")
+    ))
+
+    config_dict.update(
+      self.get_search_dataset(
+        search_corpus_key=opts["corpus_key"],
+        dataset_opts=dataset_opts
+      ))
+    extern_data_raw = self.get_extern_data_dict(dataset_opts)
+    extern_data_raw = instanciate_delayed(extern_data_raw)
+
+    config_dict["batch_size"] = opts.get("batch_size", 15_000) * self.batch_size_factor
+
+    python_epilog.append(
+      serialization.Collection(
+        [
+          serialization.NonhashedCode(get_import_py_code()),
+          serialization.NonhashedCode(
+            nn.ReturnnConfigSerializer.get_base_extern_data_py_code_str_direct(extern_data_raw)
+          ),
+          *serialize_model_def(self.model_def),
+          serialization.Import(self.get_model_func, import_as="get_model"),
+          serialization.Import(
+            opts["dump_att_weight_def"], import_as="_dump_att_weight_def", ignore_import_as_for_hash=True),
+          serialization.Import(opts["forward_step_func"], import_as="forward_step"),
+          serialization.Import(opts["forward_callback"], import_as="forward_callback"),
+          serialization.PythonEnlargeStackWorkaroundNonhashedCode,
+          serialization.PythonCacheManagerFunctionNonhashedCode,
+          serialization.PythonModelineNonhashedCode
+        ]
+      )
+    )
+
+    returnn_dump_att_weight_config = ReturnnConfig(
+      config=config_dict,
+      post_config=post_config_dict,
+      python_prolog=python_prolog,
+      python_epilog=python_epilog,
+    )
+
+    # serialize remaining functions, e.g. dynamic learning rate
+    return get_serializable_config(returnn_dump_att_weight_config, serialize_dim_tags=False)

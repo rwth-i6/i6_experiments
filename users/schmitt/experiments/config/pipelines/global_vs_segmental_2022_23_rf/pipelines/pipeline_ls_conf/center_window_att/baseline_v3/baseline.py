@@ -9,6 +9,7 @@ def center_window_att_baseline_rf(
         use_att_ctx_in_state: bool = True,
         use_weight_feedback: bool = True,
         blank_decoder_version: int = 3,
+        blank_decoder_opts: Optional[dict] = None,
 ):
   for win_size in win_size_list:
     alias, config_builder = get_center_window_att_config_builder_rf(
@@ -18,6 +19,7 @@ def center_window_att_baseline_rf(
       use_joint_model=False,
       use_weight_feedback=use_weight_feedback,
       label_decoder_state="nb-lstm",
+      blank_decoder_opts=blank_decoder_opts,
     )
     alias = f"{base_alias}/baseline_rf/{alias}"
     yield alias, config_builder

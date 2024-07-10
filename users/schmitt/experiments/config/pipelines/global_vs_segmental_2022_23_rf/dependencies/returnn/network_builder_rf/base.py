@@ -52,6 +52,8 @@ class BaseLabelDecoder(rf.Module):
           use_att_ctx_in_state: bool = True,
           decoder_state: str = "nb-lstm",
           use_mini_att: bool = False,
+          separate_blank_from_softmax: bool = False,
+          reset_eos_params: bool = False,
   ):
     super(BaseLabelDecoder, self).__init__()
 
@@ -65,10 +67,16 @@ class BaseLabelDecoder(rf.Module):
     self.att_dropout = att_dropout
     self.dropout_broadcast = rf.dropout_broadcast_default()
 
-    self.target_embed = rf.Embedding(target_dim, Dim(name="target_embed", dimension=640))
+    target_embed_opts = {"in_dim": target_dim, "out_dim": Dim(name="target_embed", dimension=640)}
+    if reset_eos_params:
+      self.target_embed_reset_eos = rf.Embedding(**target_embed_opts)
+      self.target_embed = self.target_embed_reset_eos
+    else:
+      self.target_embed = rf.Embedding(**target_embed_opts)
 
     self.use_att_ctx_in_state = use_att_ctx_in_state
     self.use_weight_feedback = use_weight_feedback
+    self.separate_blank_from_softmax = separate_blank_from_softmax
 
     self.decoder_state = decoder_state
     if "lstm" in decoder_state:
@@ -129,7 +137,13 @@ class BaseLabelDecoder(rf.Module):
       self.get_lstm().out_dim + self.target_embed.out_dim + att_num_heads * enc_out_dim,
       Dim(name="readout", dimension=1024),
     )
-    self.output_prob = rf.Linear(self.readout_in.out_dim // 2, target_dim)
+
+    output_prob_opts = {"in_dim": self.readout_in.out_dim // 2, "out_dim": target_dim}
+    if reset_eos_params:
+      self.output_prob_reset_eos = rf.Linear(**output_prob_opts)
+      self.output_prob = self.output_prob_reset_eos
+    else:
+      self.output_prob = rf.Linear(**output_prob_opts)
 
     for p in self.parameters():
       p.weight_decay = l2

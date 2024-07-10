@@ -38,12 +38,16 @@ from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segment
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.segmental.model_new.blank_model.train import (
   viterbi_training_v6 as blank_model_viterbi_training_v6
 )
+from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.segmental.model_new.blank_model.train import (
+  viterbi_training_v7 as blank_model_viterbi_training_v7
+)
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.segmental.model_new.blank_model.model import (
   BlankDecoderV1,
   BlankDecoderV3,
   BlankDecoderV4,
   BlankDecoderV5,
-  BlankDecoderV6
+  BlankDecoderV6,
+  BlankDecoderV7,
 )
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.segmental.model_new.label_model.model import (
   SegmentalAttLabelDecoder,
@@ -108,49 +112,12 @@ def _returnn_v2_full_sum_train_step(*, model, extern_data: TensorDict, **_kwargs
   )
 
 
-def viterbi_training(
-        *,
+def get_alignment_args(
         model: SegmentalAttentionModel,
-        data: rf.Tensor,
-        data_spatial_dim: Dim,
         align_targets: rf.Tensor,
         align_targets_spatial_dim: Dim,
-        enc_args: Optional[Dict[str, rf.Tensor]] = None,
-        enc_spatial_dim: Optional[Dim] = None,
-        batch_dims: Optional[List[Dim]] = None,
-        beam_dim: Optional[Dim] = None,
-        seq_tags: Optional[rf.Tensor] = None,
+        batch_dims: List[Dim],
 ):
-  if enc_args is not None:
-    assert enc_spatial_dim is not None
-
-  from returnn.config import get_global_config
-
-  config = get_global_config()  # noqa
-  aux_loss_layers = config.typed_value("aux_loss_layers")
-  aux_loss_scales = config.typed_value("aux_loss_scales", ([1.0] * len(aux_loss_layers)) if aux_loss_layers else None)
-  use_ctc_loss = config.typed_value("use_ctc_loss", True)
-  generate_ctc_alignments_on_the_fly = config.typed_value("generate_ctc_alignments_on_the_fly", False)
-  force_inefficient_loop = config.typed_value("force_inefficient_loop", False)
-
-  if data.feature_dim and data.feature_dim.dimension == 1:
-    data = rf.squeeze(data, axis=data.feature_dim)
-  assert not data.feature_dim  # raw audio
-
-  if batch_dims is None:
-    batch_dims = data.remaining_dims(data_spatial_dim)
-
-  alignment_augmentation_opts = config.typed_value("alignment_augmentation_opts", None)
-  if alignment_augmentation_opts is not None:
-    for _ in range(alignment_augmentation_opts["num_iterations"]):
-      align_targets = shift_alignment_boundaries_batched(
-        alignment=align_targets,
-        alignment_spatial_dim=align_targets_spatial_dim,
-        batch_dims=batch_dims,
-        blank_idx=model.blank_idx,
-        max_shift=alignment_augmentation_opts["max_shift"],
-      )
-
   if model.use_joint_model:
     # TODO: use rf.window() instead
     segment_starts, segment_lens, center_positions = utils.get_segment_starts_and_lens(
@@ -184,6 +151,61 @@ def viterbi_training(
       non_blank_targets_spatial_dim
     )
 
+  return segment_starts, segment_lens, center_positions, non_blank_targets, non_blank_targets_spatial_dim, non_blank_mask
+
+
+def viterbi_training(
+        *,
+        model: SegmentalAttentionModel,
+        data: rf.Tensor,
+        data_spatial_dim: Dim,
+        align_targets: rf.Tensor,
+        align_targets_spatial_dim: Dim,
+        enc_args: Optional[Dict[str, rf.Tensor]] = None,
+        enc_spatial_dim: Optional[Dim] = None,
+        batch_dims: Optional[List[Dim]] = None,
+        beam_dim: Optional[Dim] = None,
+        seq_tags: Optional[rf.Tensor] = None,
+):
+  if enc_args is not None:
+    assert enc_spatial_dim is not None
+
+  from returnn.config import get_global_config
+
+  config = get_global_config()  # noqa
+  aux_loss_layers = config.typed_value("aux_loss_layers")
+  aux_loss_scales = config.typed_value("aux_loss_scales", ([1.0] * len(aux_loss_layers)) if aux_loss_layers else None)
+  aux_loss_focal_loss_factors = config.typed_value("aux_loss_focal_loss_factors", ([0.0] * len(aux_loss_layers)) if aux_loss_layers else None)
+  aux_loss_type = config.typed_value("aux_loss_type", "ctc")
+  force_inefficient_loop = config.typed_value("force_inefficient_loop", False)
+
+  if data.feature_dim and data.feature_dim.dimension == 1:
+    data = rf.squeeze(data, axis=data.feature_dim)
+  assert not data.feature_dim  # raw audio
+
+  if batch_dims is None:
+    batch_dims = data.remaining_dims(data_spatial_dim)
+
+  alignment_augmentation_opts = config.typed_value("alignment_augmentation_opts", None)
+  if alignment_augmentation_opts is not None:
+    for _ in range(alignment_augmentation_opts["num_iterations"]):
+      align_targets = shift_alignment_boundaries_batched(
+        alignment=align_targets,
+        alignment_spatial_dim=align_targets_spatial_dim,
+        batch_dims=batch_dims,
+        blank_idx=model.blank_idx,
+        max_shift=alignment_augmentation_opts["max_shift"],
+      )
+
+  (
+    segment_starts, segment_lens, center_positions, non_blank_targets, non_blank_targets_spatial_dim, non_blank_mask
+  ) = get_alignment_args(
+    model=model,
+    align_targets=align_targets,
+    align_targets_spatial_dim=align_targets_spatial_dim,
+    batch_dims=batch_dims,
+  )
+
   if enc_args is None:
     # ------------------- encoder aux loss -------------------
 
@@ -192,12 +214,13 @@ def viterbi_training(
       data, in_spatial_dim=data_spatial_dim, collected_outputs=collected_outputs)
 
     if aux_loss_layers:
-      if use_ctc_loss:
-        for i, layer_idx in enumerate(aux_loss_layers):
-          if layer_idx > len(model.encoder.layers):
-            continue
-          linear = getattr(model.encoder, f"enc_aux_logits_{layer_idx}")
-          aux_logits = linear(collected_outputs[str(layer_idx - 1)])
+      for i, layer_idx in enumerate(aux_loss_layers):
+        if layer_idx > len(model.encoder.layers):
+          continue
+        linear = getattr(model.encoder, f"enc_aux_logits_{layer_idx}")
+        aux_logits = linear(collected_outputs[str(layer_idx - 1)])
+
+        if aux_loss_type == "ctc":
           aux_loss = rf.ctc_loss(
             logits=aux_logits,
             targets=non_blank_targets,
@@ -205,33 +228,37 @@ def viterbi_training(
             targets_spatial_dim=non_blank_targets_spatial_dim,
             blank_index=model.blank_idx,
           )
-          aux_loss.mark_as_loss(
-            f"ctc_{layer_idx}",
-            scale=aux_loss_scales[i],
-            custom_inv_norm_factor=align_targets_spatial_dim.get_size_tensor(),
-            use_normalized_loss=True,
-          )
-      elif generate_ctc_alignments_on_the_fly:
-        assert len(aux_loss_layers) == 1
-        assert len(batch_dims) == 1
-        assert model.blank_idx == model.target_dim.dimension
-        print("Generating CTC alignments on the fly")
-        layer_idx = aux_loss_layers[0]
-        linear = getattr(model.encoder, f"enc_aux_logits_{layer_idx}")
-        aux_logits = linear(collected_outputs[str(layer_idx - 1)])  # type: rf.Tensor
-        print("aux_logits", aux_logits)
+          loss_name = f"ctc_{layer_idx}"
+        else:
+          assert aux_loss_type == "ce"
 
-        from torchaudio.functional import forced_align
-        rem_dims = aux_logits.remaining_dims(batch_dims + [enc_spatial_dim])
-        ctc_align = forced_align(
-          log_probs=aux_logits.copy_transpose(batch_dims + [enc_spatial_dim] + rem_dims).raw_tensor,
-          targets=non_blank_targets.copy_transpose(batch_dims + [non_blank_targets_spatial_dim]).raw_tensor.contiguous(),
-          input_lengths=enc_spatial_dim.get_size_tensor().raw_tensor,
-          target_lengths=non_blank_targets_spatial_dim.get_size_tensor().raw_tensor,
-          blank=model.blank_idx,
+          aux_logits_packed, pack_dim = rf.pack_padded(
+            aux_logits, dims=batch_dims + [enc_spatial_dim], enforce_sorted=False)
+          align_targets_packed, _ = rf.pack_padded(
+            align_targets, dims=batch_dims + [align_targets_spatial_dim], enforce_sorted=False, out_dim=pack_dim)
+
+          enc_log_probs = rf.log_softmax(aux_logits_packed, axis=model.target_dim)
+          # enc_log_probs = utils.copy_tensor_replace_dim_tag(enc_log_probs, enc_spatial_dim, align_targets_spatial_dim)
+          aux_loss = rf.cross_entropy(
+            target=align_targets_packed,
+            estimated=enc_log_probs,
+            axis=model.align_target_dim,
+            estimated_type="log-probs",
+          )
+          loss_name = f"enc_ce_{layer_idx}"
+
+          best = rf.reduce_argmax(aux_logits_packed, axis=model.align_target_dim)
+          frame_error = best != align_targets_packed
+          frame_error.mark_as_loss(name=f"{loss_name}_fer", as_error=True)
+
+        if aux_loss_focal_loss_factors[i] > 0:
+          aux_loss *= (1.0 - rf.exp(-aux_loss)) ** aux_loss_focal_loss_factors[i]
+        aux_loss.mark_as_loss(
+          loss_name,
+          scale=aux_loss_scales[i],
+          custom_inv_norm_factor=align_targets_spatial_dim.get_size_tensor(),
+          use_normalized_loss=True,
         )
-        print("ctc_align", ctc_align.shape)
-        exit()
 
   chunking = config.typed_value("chunking", None)
 
@@ -350,12 +377,14 @@ def viterbi_training(
         batch_dims=batch_dims,
         beam_dim=beam_dim,
       )
-    elif model.blank_decoder_version in (3, 4, 5, 6):
+    elif model.blank_decoder_version in (3, 4, 5, 6, 7):
       assert isinstance(
         model.blank_decoder, BlankDecoderV3) or isinstance(
         model.blank_decoder, BlankDecoderV4) or isinstance(
         model.blank_decoder, BlankDecoderV5) or isinstance(
-        model.blank_decoder, BlankDecoderV6)
+        model.blank_decoder, BlankDecoderV6) or isinstance(
+        model.blank_decoder, BlankDecoderV7
+      )
 
       label_states_unmasked = utils.get_unmasked(
         input=label_decoder_outputs[0],
@@ -397,13 +426,38 @@ def viterbi_training(
           emit_blank_target_dim=emit_blank_target_dim,
           batch_dims=batch_dims,
         )
-      else:
+      elif model.blank_decoder_version == 6:
         emit_log_prob, blank_log_prob = blank_model_viterbi_training_v6(
           model=model.blank_decoder,
           enc_args=enc_args,
           enc_spatial_dim=enc_spatial_dim,
           label_states_unmasked=label_states_unmasked,
           label_states_unmasked_spatial_dim=align_targets_spatial_dim,
+          emit_ground_truth=emit_ground_truth,
+          emit_blank_target_dim=emit_blank_target_dim,
+          batch_dims=batch_dims,
+        )
+      else:  # BlankDecoderV7
+        # pad center positions to account for virtual label at position -1 to correctly calculate emit distances
+        emit_positions, emit_positions_spatial_dim = rf.pad(
+          center_positions,
+          axes=[non_blank_targets_spatial_dim],
+          padding=[(1, 0)],
+          value=-1,
+        )
+        emit_positions_unmasked = utils.get_unmasked(
+          emit_positions,
+          emit_positions_spatial_dim[0],
+          non_blank_mask,
+          align_targets_spatial_dim
+        )
+        emit_log_prob, blank_log_prob = blank_model_viterbi_training_v7(
+          model=model.blank_decoder,
+          enc_args=enc_args,
+          enc_spatial_dim=enc_spatial_dim,
+          label_states_unmasked=label_states_unmasked,
+          label_states_unmasked_spatial_dim=align_targets_spatial_dim,
+          emit_positions_unmasked=emit_positions_unmasked,
           emit_ground_truth=emit_ground_truth,
           emit_blank_target_dim=emit_blank_target_dim,
           batch_dims=batch_dims,

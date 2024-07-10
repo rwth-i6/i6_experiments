@@ -26,6 +26,7 @@ def _calc_ce_loss_and_fer(
         blank_idx: int,
         separate_blank_loss: bool = False,
         beam_dim: Optional[Dim] = None,
+        separate_blank_from_softmax: bool = False,
 ):
   from returnn.config import get_global_config
   config = get_global_config()  # noqa
@@ -40,7 +41,11 @@ def _calc_ce_loss_and_fer(
     targets, dims=batch_dims + [targets_spatial_dim], enforce_sorted=False, out_dim=pack_dim
   )
 
-  log_prob = rf.log_softmax(logits_packed, axis=target_dim)
+  if separate_blank_from_softmax:
+    log_prob = utils.log_softmax_sep_blank(logits=logits_packed, blank_idx=blank_idx, target_dim=target_dim)
+  else:
+    log_prob = rf.log_softmax(logits_packed, axis=target_dim)
+
   log_prob_label_smoothed = rf.label_smoothed_log_prob_gradient(log_prob, 0.1, axis=target_dim)
   loss = rf.cross_entropy(
     target=non_blank_targets_packed, estimated=log_prob_label_smoothed, estimated_type="log-probs", axis=target_dim
@@ -110,7 +115,7 @@ def _calc_ce_loss_and_fer(
   frame_error.mark_as_loss(name=f"{loss_prefix}_fer", as_error=True)
 
 
-def viterbi_training(
+def forward_sequence(
         *,
         model: SegmentalAttLabelDecoder,
         enc_args: Dict,
@@ -121,9 +126,7 @@ def viterbi_training(
         segment_lens: rf.Tensor,
         center_positions: rf.Tensor,
         batch_dims: List[Dim],
-        separate_blank_loss: bool = False,
         return_label_model_states: bool = False,
-        beam_dim: Optional[Dim] = None,
 ) -> Tuple[rf.Tensor, Optional[Tuple[rf.Tensor, Dim]]]:
   non_blank_input_embeddings = model.target_embed(non_blank_targets)
   non_blank_input_embeddings_shifted = rf.shift_right(
@@ -165,16 +168,6 @@ def viterbi_training(
   )
 
   logits = model.decode_logits(input_embed=non_blank_input_embeddings_shifted, **label_loop_out)
-  _calc_ce_loss_and_fer(
-    logits,
-    non_blank_targets,
-    batch_dims,
-    non_blank_targets_spatial_dim,
-    model.target_dim,
-    blank_idx=model.blank_idx,
-    separate_blank_loss=separate_blank_loss,
-    beam_dim=beam_dim
-  )
 
   if return_label_model_states:
     # need to run the loop one more time to get the last output (which is not needed for the loss computation)
@@ -208,7 +201,51 @@ def viterbi_training(
   return logits, None
 
 
-def viterbi_training_efficient(
+def viterbi_training(
+        *,
+        model: SegmentalAttLabelDecoder,
+        enc_args: Dict,
+        enc_spatial_dim: Dim,
+        non_blank_targets: rf.Tensor,
+        non_blank_targets_spatial_dim: Dim,
+        segment_starts: rf.Tensor,
+        segment_lens: rf.Tensor,
+        center_positions: rf.Tensor,
+        batch_dims: List[Dim],
+        separate_blank_loss: bool = False,
+        return_label_model_states: bool = False,
+        beam_dim: Optional[Dim] = None,
+) -> Tuple[rf.Tensor, Optional[Tuple[rf.Tensor, Dim]]]:
+
+  logits, label_model_states = forward_sequence(
+    model=model,
+    enc_args=enc_args,
+    enc_spatial_dim=enc_spatial_dim,
+    non_blank_targets=non_blank_targets,
+    non_blank_targets_spatial_dim=non_blank_targets_spatial_dim,
+    segment_starts=segment_starts,
+    segment_lens=segment_lens,
+    center_positions=center_positions,
+    batch_dims=batch_dims,
+    return_label_model_states=return_label_model_states,
+  )
+
+  _calc_ce_loss_and_fer(
+    logits,
+    non_blank_targets,
+    batch_dims,
+    non_blank_targets_spatial_dim,
+    model.target_dim,
+    blank_idx=model.blank_idx,
+    separate_blank_loss=separate_blank_loss,
+    beam_dim=beam_dim,
+    separate_blank_from_softmax=model.separate_blank_from_softmax,
+  )
+
+  return logits, label_model_states
+
+
+def forward_sequence_efficient(
         *,
         model: SegmentalAttEfficientLabelDecoder,
         enc_args: Dict,
@@ -219,14 +256,11 @@ def viterbi_training_efficient(
         segment_lens: rf.Tensor,
         center_positions: rf.Tensor,
         batch_dims: List[Dim],
-        ce_targets: rf.Tensor,
-        ce_spatial_dim: Dim,
         non_blank_mask: Optional[rf.Tensor] = None,
         non_blank_mask_spatial_dim: Optional[Dim] = None,
         return_label_model_states: bool = False,
-        beam_dim: Optional[Dim] = None,
-        separate_blank_loss: bool = False,
 ) -> Tuple[rf.Tensor, Optional[Tuple[rf.Tensor, Dim]]]:
+
   input_embeddings = model.target_embed(targets)
   input_embeddings_shifted = rf.shift_right(
     input_embeddings, axis=targets_spatial_dim, pad_value=0.0)
@@ -280,17 +314,6 @@ def viterbi_training_efficient(
     s=s_out,
   )
 
-  _calc_ce_loss_and_fer(
-    logits,
-    ce_targets,
-    batch_dims,
-    ce_spatial_dim,
-    model.target_dim,
-    beam_dim=beam_dim,
-    blank_idx=model.blank_idx,
-    separate_blank_loss=separate_blank_loss
-  )
-
   if return_label_model_states:
     # need to run the lstm one more time to get the last output (which is not needed for the loss computation)
     last_embedding = rf.gather(
@@ -316,6 +339,56 @@ def viterbi_training_efficient(
     )
 
   return logits, None
+
+
+def viterbi_training_efficient(
+        *,
+        model: SegmentalAttEfficientLabelDecoder,
+        enc_args: Dict,
+        enc_spatial_dim: Dim,
+        targets: rf.Tensor,
+        targets_spatial_dim: Dim,
+        segment_starts: rf.Tensor,
+        segment_lens: rf.Tensor,
+        center_positions: rf.Tensor,
+        batch_dims: List[Dim],
+        ce_targets: rf.Tensor,
+        ce_spatial_dim: Dim,
+        non_blank_mask: Optional[rf.Tensor] = None,
+        non_blank_mask_spatial_dim: Optional[Dim] = None,
+        return_label_model_states: bool = False,
+        beam_dim: Optional[Dim] = None,
+        separate_blank_loss: bool = False,
+) -> Tuple[rf.Tensor, Optional[Tuple[rf.Tensor, Dim]]]:
+
+  logits, label_model_states = forward_sequence_efficient(
+    model=model,
+    enc_args=enc_args,
+    enc_spatial_dim=enc_spatial_dim,
+    targets=targets,
+    targets_spatial_dim=targets_spatial_dim,
+    segment_starts=segment_starts,
+    segment_lens=segment_lens,
+    center_positions=center_positions,
+    batch_dims=batch_dims,
+    non_blank_mask=non_blank_mask,
+    non_blank_mask_spatial_dim=non_blank_mask_spatial_dim,
+    return_label_model_states=return_label_model_states,
+  )
+
+  _calc_ce_loss_and_fer(
+    logits,
+    ce_targets,
+    batch_dims,
+    ce_spatial_dim,
+    model.target_dim,
+    beam_dim=beam_dim,
+    blank_idx=model.blank_idx,
+    separate_blank_loss=separate_blank_loss,
+    separate_blank_from_softmax=model.separate_blank_from_softmax,
+  )
+
+  return logits, label_model_states
 
 
 def full_sum_training(

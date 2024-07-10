@@ -12,6 +12,7 @@ from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segment
   BlankDecoderV4,
   BlankDecoderV5,
   BlankDecoderV6,
+  BlankDecoderV7,
 )
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.segmental.model_new.label_model.model import (
   SegmentalAttLabelDecoder, SegmentalAttEfficientLabelDecoder
@@ -50,6 +51,9 @@ class SegmentalAttentionModel(rf.Module):
           label_decoder_state: str = "nb-lstm",
           use_mini_att: bool = False,
           gaussian_att_weight_opts: Optional[Dict[str, Any]] = None,
+          separate_blank_from_softmax: bool = False,
+          reset_eos_params: bool = False,
+          blank_decoder_opts: Optional[Dict[str, Any]] = None,
   ):
     super(SegmentalAttentionModel, self).__init__()
 
@@ -70,10 +74,11 @@ class SegmentalAttentionModel(rf.Module):
       l2=l2,
     )
 
-    assert blank_decoder_version in {1, 3, 4, 5, 6}
+    assert blank_decoder_version in {1, 3, 4, 5, 6, 7}
     assert label_decoder_state in {"nb-lstm", "joint-lstm", "nb-2linear-ctx1"}
     if not use_joint_model:
       assert label_decoder_state in ("nb-lstm", "nb-2linear-ctx1")
+      assert not separate_blank_from_softmax, "only makes sense when jointly modeling blank and non-blanks"
 
     if not use_weight_feedback and not use_att_ctx_in_state:
       label_decoder_cls = SegmentalAttEfficientLabelDecoder
@@ -94,9 +99,12 @@ class SegmentalAttentionModel(rf.Module):
       decoder_state=label_decoder_state,
       use_mini_att=use_mini_att,
       gaussian_att_weight_opts=gaussian_att_weight_opts,
+      separate_blank_from_softmax=separate_blank_from_softmax,
+      reset_eos_params=reset_eos_params,
     )
 
     if not use_joint_model:
+      blank_decoder_opts.pop("version", None)
       if blank_decoder_version == 1:
         self.blank_decoder = BlankDecoderV1(
           length_model_state_dim=length_model_state_dim,
@@ -109,6 +117,7 @@ class SegmentalAttentionModel(rf.Module):
           length_model_state_dim=length_model_state_dim,
           label_state_dim=self.label_decoder.get_lstm().out_dim,
           encoder_out_dim=self.encoder.out_dim,
+          blank_decoder_opts=blank_decoder_opts,
         )
       elif blank_decoder_version == 4:
         self.blank_decoder = BlankDecoderV4(
@@ -121,11 +130,18 @@ class SegmentalAttentionModel(rf.Module):
           label_state_dim=self.label_decoder.get_lstm().out_dim,
           encoder_out_dim=self.encoder.out_dim,
         )
-      else:
+      elif blank_decoder_version == 6:
         self.blank_decoder = BlankDecoderV6(
           length_model_state_dim=length_model_state_dim,
           label_state_dim=self.label_decoder.get_lstm().out_dim,
           encoder_out_dim=self.encoder.out_dim,
+        )
+      else:
+        self.blank_decoder = BlankDecoderV7(
+          length_model_state_dim=length_model_state_dim,
+          label_state_dim=self.label_decoder.get_lstm().out_dim,
+          encoder_out_dim=self.encoder.out_dim,
+          **blank_decoder_opts,
         )
     else:
       self.blank_decoder = None
@@ -181,6 +197,7 @@ class MakeModel:
           language_model: Optional[Dict[str, Any]] = None,
           use_att_ctx_in_state: bool,
           blank_decoder_version: int,
+          blank_decoder_opts: Optional[Dict[str, Any]] = None,
           use_joint_model: bool,
           use_weight_feedback: bool,
           label_decoder_state: str,
@@ -189,6 +206,8 @@ class MakeModel:
           enc_ff_dim: int,
           use_mini_att: bool = False,
           gaussian_att_weight_opts: Optional[Dict[str, Any]] = None,
+          separate_blank_from_softmax: bool = False,
+          reset_eos_params: bool = False,
           **extra,
   ) -> SegmentalAttentionModel:
     """make"""
@@ -234,11 +253,14 @@ class MakeModel:
       center_window_size=center_window_size,
       use_att_ctx_in_state=use_att_ctx_in_state,
       blank_decoder_version=blank_decoder_version,
+      blank_decoder_opts=blank_decoder_opts,
       use_joint_model=use_joint_model,
       use_weight_feedback=use_weight_feedback,
       label_decoder_state=label_decoder_state,
       use_mini_att=use_mini_att,
       gaussian_att_weight_opts=gaussian_att_weight_opts,
+      separate_blank_from_softmax=separate_blank_from_softmax,
+      reset_eos_params=reset_eos_params,
       **extra,
     )
 
@@ -262,10 +284,13 @@ def from_scratch_model_def(
   use_att_ctx_in_state = config.bool("use_att_ctx_in_state", True)
   label_decoder_state = config.typed_value("label_decoder_state", "nb-lstm")
   blank_decoder_version = config.int("blank_decoder_version", 1)
+  blank_decoder_opts = config.typed_value("blank_decoder_opts", {})
   use_joint_model = config.bool("use_joint_model", False)
   use_weight_feedback = config.bool("use_weight_feedback", True)
   use_mini_att = config.bool("use_mini_att", False)
   gaussian_att_weight_opts = config.typed_value("gaussian_att_weight_opts", None)
+  separate_blank_from_softmax = config.bool("separate_blank_from_softmax", False)
+  reset_eos_params = config.bool("reset_eos_params", False)
 
   enc_out_dim = config.int("enc_out_dim", 512)
   enc_key_total_dim = config.int("enc_key_total_dim", 1024)
@@ -281,6 +306,7 @@ def from_scratch_model_def(
     language_model=lm_opts,
     use_att_ctx_in_state=use_att_ctx_in_state,
     blank_decoder_version=blank_decoder_version,
+    blank_decoder_opts=blank_decoder_opts,
     use_joint_model=use_joint_model,
     use_weight_feedback=use_weight_feedback,
     label_decoder_state=label_decoder_state,
@@ -289,6 +315,8 @@ def from_scratch_model_def(
     enc_ff_dim=enc_ff_dim,
     use_mini_att=use_mini_att,
     gaussian_att_weight_opts=gaussian_att_weight_opts,
+    separate_blank_from_softmax=separate_blank_from_softmax,
+    reset_eos_params=reset_eos_params,
   )
 
 

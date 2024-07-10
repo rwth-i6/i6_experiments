@@ -6,6 +6,7 @@ from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segment
   BlankDecoderV4,
   BlankDecoderV5,
   BlankDecoderV6,
+  BlankDecoderV7,
 )
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.segmental import utils
 
@@ -224,6 +225,48 @@ def viterbi_training_v6(
     spatial_dim=label_states_unmasked_spatial_dim
   )
   blank_logits = model.emit_prob(rf.concat_features(s, label_states_unmasked))
+  blank_logits_packed, pack_dim, emit_ground_truth_packed = get_packed_logits_and_emit_ground_truth(
+    blank_logits=blank_logits,
+    align_targets_spatial_dim=label_states_unmasked_spatial_dim,
+    emit_ground_truth=emit_ground_truth,
+    emit_prob_dim=model.emit_prob.out_dim,
+    batch_dims=batch_dims
+  )
+
+  return calc_loss(
+    blank_logits_packed=blank_logits_packed,
+    emit_ground_truth_packed=emit_ground_truth_packed,
+    emit_blank_target_dim=emit_blank_target_dim,
+    blank_logit_dim=model.emit_prob.out_dim
+  )
+
+def viterbi_training_v7(
+        *,
+        model: BlankDecoderV7,
+        enc_args: Dict,
+        enc_spatial_dim: Dim,
+        label_states_unmasked: rf.Tensor,
+        label_states_unmasked_spatial_dim: Dim,
+        emit_positions_unmasked: rf.Tensor,
+        emit_ground_truth: rf.Tensor,
+        emit_blank_target_dim: Dim,
+        batch_dims: List[Dim],
+) -> Tuple[rf.Tensor, rf.Tensor]:
+  # using dim.declare_same_as() leads to an error after an epoch is finished (see viterbi_training_v4)
+  enc = enc_args["enc"]  # type: rf.Tensor
+  enc = utils.copy_tensor_replace_dim_tag(enc, enc_spatial_dim, label_states_unmasked_spatial_dim)
+
+  prev_emit_distances = rf.range_over_dim(
+    label_states_unmasked_spatial_dim, dtype="int32") - emit_positions_unmasked
+  prev_emit_distances -= 1  # 0-based to index embedding
+  prev_emit_distances = rf.clip_by_value(prev_emit_distances, 0, model.distance_dim.dimension - 1)
+  prev_emit_distances.sparse_dim = model.distance_dim
+
+  blank_logits = model.decode_logits(
+    enc=enc,
+    label_model_states_unmasked=label_states_unmasked,
+    prev_emit_distances=prev_emit_distances
+  )
   blank_logits_packed, pack_dim, emit_ground_truth_packed = get_packed_logits_and_emit_ground_truth(
     blank_logits=blank_logits,
     align_targets_spatial_dim=label_states_unmasked_spatial_dim,

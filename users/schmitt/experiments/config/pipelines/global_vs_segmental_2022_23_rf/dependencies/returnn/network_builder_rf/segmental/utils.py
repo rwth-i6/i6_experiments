@@ -166,3 +166,26 @@ def get_linear_alignment(
   )
   linear_alignment.raw_tensor = linear_alignment_raw[:-1]
   return linear_alignment
+
+
+def log_softmax_sep_blank(
+        logits: Tensor,
+        target_dim: Dim,
+        blank_idx: int,
+):
+  """
+  Split logits into blank and non-blank and then calculate sigmoid and softmax separately and then recombine
+  """
+  assert blank_idx == 0, "Only blank_idx=0 is supported"
+
+  blank_dim = Dim(name="blank", dimension=1)
+  non_blank_dim = target_dim - 1
+  blank_logits, label_logits = rf.split(
+    logits, axis=target_dim, out_dims=[blank_dim, non_blank_dim]
+  )
+  blank_log_prob = rf.log(rf.sigmoid(blank_logits))
+  emit_log_prob = rf.log(rf.sigmoid(-blank_logits))
+  label_log_prob = rf.log_softmax(label_logits, axis=non_blank_dim) + rf.squeeze(emit_log_prob, axis=blank_dim)
+  log_prob, _ = rf.concat((blank_log_prob, blank_dim), (label_log_prob, non_blank_dim), out_dim=target_dim)
+
+  return log_prob

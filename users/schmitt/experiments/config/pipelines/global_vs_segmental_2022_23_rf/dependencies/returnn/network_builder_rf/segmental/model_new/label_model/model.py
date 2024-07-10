@@ -229,7 +229,10 @@ class SegmentalAttLabelDecoder(BaseLabelDecoder):
 
   def decode_logits(self, *, s: Tensor, input_embed: Tensor, att: Tensor) -> Tensor:
     """logits for the decoder"""
-    readout_in = self.readout_in(rf.concat_features(s, input_embed, att))
+
+    allow_broadcast = type(self) is SegmentalAttEfficientLabelDecoder
+
+    readout_in = self.readout_in(rf.concat_features(s, input_embed, att, allow_broadcast=allow_broadcast))
     readout = rf.reduce_out(readout_in, mode="max", num_pieces=2, out_dim=self.output_prob.in_dim)
     readout = rf.dropout(readout, drop_prob=0.3, axis=self.dropout_broadcast and readout.feature_dim)
     logits = self.output_prob(readout)
@@ -291,10 +294,11 @@ class SegmentalAttEfficientLabelDecoder(SegmentalAttLabelDecoder):
 
     return att
 
-  def decode_logits(self, *, s: Tensor, input_embed: Tensor, att: Tensor) -> Tensor:
-    """logits for the decoder"""
-    readout_in = self.readout_in(rf.concat_features(s, input_embed, att, allow_broadcast=True))
-    readout = rf.reduce_out(readout_in, mode="max", num_pieces=2, out_dim=self.output_prob.in_dim)
-    readout = rf.dropout(readout, drop_prob=0.3, axis=self.dropout_broadcast and readout.feature_dim)
-    logits = self.output_prob(readout)
-    return logits
+  # use function from SegmentalAttLabelDecoder
+  # def decode_logits(self, *, s: Tensor, input_embed: Tensor, att: Tensor) -> Tensor:
+  #   """logits for the decoder"""
+  #   readout_in = self.readout_in(rf.concat_features(s, input_embed, att, allow_broadcast=True))
+  #   readout = rf.reduce_out(readout_in, mode="max", num_pieces=2, out_dim=self.output_prob.in_dim)
+  #   readout = rf.dropout(readout, drop_prob=0.3, axis=self.dropout_broadcast and readout.feature_dim)
+  #   logits = self.output_prob(readout)
+  #   return logits

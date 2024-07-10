@@ -305,3 +305,51 @@ class BlankDecoderV6(BlankDecoderBase):
 
   def get_label_decoder_deps(self) -> Optional[List[str]]:
     return ["s"]
+
+
+class BlankDecoderV7(BlankDecoderBase):
+  def __init__(
+          self,
+          length_model_state_dim: Dim,
+          label_state_dim: Dim,
+          encoder_out_dim: Dim,
+          distance_embed_dim: int,
+          max_distance: int,
+  ):
+    super(BlankDecoderV7, self).__init__()
+    self.length_model_state_dim = length_model_state_dim
+
+    distance_embed_dim = Dim(name="distance_embed", dimension=distance_embed_dim)
+    # + 1 for all distances > max_distance
+    self.distance_dim = Dim(name="distance", dimension=max_distance + 1)
+
+    self.distance_embed = rf.Embedding(self.distance_dim, distance_embed_dim)
+    self.s = rf.Linear(
+      encoder_out_dim + label_state_dim + distance_embed_dim,
+      self.length_model_state_dim,
+    )
+    self.emit_prob = rf.Linear(self.length_model_state_dim // 2, self.emit_prob_dim)
+
+  def default_initial_state(self, *, batch_dims: Sequence[Dim]) -> rf.State:
+    """Default initial state"""
+    state = rf.State()
+    return state
+
+  @property
+  def _s(self) -> rf.LSTM:
+    raise NotImplementedError
+
+  def get_label_decoder_deps(self) -> Optional[List[str]]:
+    return ["s"]
+
+  def decode_logits(
+          self, *, enc: Tensor, label_model_states_unmasked: rf.Tensor, prev_emit_distances: rf.Tensor) -> Tensor:
+    """logits for the decoder"""
+
+    distance_embed = self.distance_embed(prev_emit_distances)
+
+    s_blank = self.s(rf.concat_features(enc, label_model_states_unmasked, distance_embed))
+    s_blank = rf.reduce_out(s_blank, mode="max", num_pieces=2, out_dim=self.emit_prob.in_dim)
+    s_blank = rf.dropout(s_blank, drop_prob=0.3, axis=rf.dropout_broadcast_default() and s_blank.feature_dim)
+    logits = self.emit_prob(s_blank)
+    return logits

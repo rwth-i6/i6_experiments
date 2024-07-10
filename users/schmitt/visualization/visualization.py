@@ -256,8 +256,19 @@ class PlotAttentionWeightsJobV2(Job):
     """
     num_labels = att_weights.shape[0]
     num_frames = att_weights.shape[1]
-    fig_width = num_frames / 8
-    fig_height = num_labels / 4
+    # change figsize depending on number of frames and labels
+    if num_frames == num_labels:
+      fig_width = num_frames / 4
+      fig_height = fig_width
+    else:
+      if num_frames < 32:
+        width_factor = 4
+        height_factor = 2
+      else:
+        width_factor = 8
+        height_factor = 4
+      fig_width = num_frames / width_factor
+      fig_height = num_labels / height_factor
     figsize = (fig_width, fig_height)
     return plt.subplots(figsize=figsize, constrained_layout=True)
 
@@ -299,9 +310,9 @@ class PlotAttentionWeightsJobV2(Job):
     for ytick in yticks:
       ax.axhline(y=ytick - .5, xmin=0, xmax=1, color="k", linewidth=.5)
 
-    if draw_vertical_lines:
+    if draw_vertical_lines or True:  # always draw
       for xtick in xticks:
-        ax.axvline(x=xtick, ymin=0, ymax=1, color="r", linewidth=.5, linestyle="--", alpha=0.5)
+        ax.axvline(x=xtick, ymin=0, ymax=1, color="k", linewidth=.5, linestyle="--", alpha=0.8)
 
   @staticmethod
   def _draw_segment_boundaries(
@@ -369,6 +380,9 @@ class PlotAttentionWeightsJobV2(Job):
       json_data = f.read()
       vocab = ast.literal_eval(json_data)  # label -> idx
       vocab = {v: k for k, v in vocab.items()}  # idx -> label
+      # if we have a target blank idx, we replace the EOS symbol in the vocab with "<b>"
+      if self.target_blank_idx is not None:
+        vocab[0] = "<b>"
 
     # for each seq tag, plot the corresponding att weights
     for seq_tag in att_weights_dict.keys():

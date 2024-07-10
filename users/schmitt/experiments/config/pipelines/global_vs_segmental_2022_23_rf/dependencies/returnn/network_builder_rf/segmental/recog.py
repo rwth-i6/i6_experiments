@@ -10,7 +10,7 @@ from i6_experiments.users.schmitt.returnn_frontend.model_interfaces.recog import
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.base import _batch_size_factor
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.segmental.model import SegmentalAttentionModel
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.segmental import recombination
-from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.segmental.utils import get_masked, get_non_blank_mask
+from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.segmental import utils
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.beam_search import utils as beam_search_utils
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.segmental.model_new.blank_model.model import (
   BlankDecoderV1,
@@ -18,6 +18,7 @@ from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segment
   BlankDecoderV4,
   BlankDecoderV5,
   BlankDecoderV6,
+  BlankDecoderV7,
 )
 
 
@@ -114,6 +115,7 @@ def get_score(
         input_embed_label_model: Tensor,
         input_embed_blank_model: Optional[Tensor],
         nb_target: Tensor,
+        emit_positions: Tensor,
         label_decoder_state: State,
         blank_decoder_state: Optional[State],
         lm_state: Optional[State],
@@ -150,7 +152,11 @@ def get_score(
     state=label_decoder_state,
   )
   label_logits = model.label_decoder.decode_logits(input_embed=input_embed_label_model, **label_step_out)
-  label_log_prob = rf.log_softmax(label_logits, axis=model.target_dim)
+  if model.label_decoder.separate_blank_from_softmax:
+    label_log_prob = utils.log_softmax_sep_blank(
+      logits=label_logits, blank_idx=model.blank_idx, target_dim=model.target_dim)
+  else:
+    label_log_prob = rf.log_softmax(label_logits, axis=model.target_dim)
 
   # ------------------- external LM step -------------------
 
@@ -247,7 +253,8 @@ def get_score(
       blank_step_out, blank_decoder_state = model.blank_decoder.loop_step(**blank_loop_step_kwargs)
       blank_logits = model.blank_decoder.decode_logits(**blank_step_out)
     else:
-      assert any(isinstance(model.blank_decoder, cls_) for cls_ in (BlankDecoderV4, BlankDecoderV5, BlankDecoderV6))
+      assert any(isinstance(model.blank_decoder, cls_) for cls_ in (
+        BlankDecoderV4, BlankDecoderV5, BlankDecoderV6, BlankDecoderV7))
       enc_position = rf.minimum(
         rf.full(dims=batch_dims, fill_value=i, dtype="int32"),
         rf.copy_to_device(enc_spatial_dim.get_size_tensor() - 1, input_embed_label_model.device)
@@ -260,7 +267,7 @@ def get_score(
         # no LSTM -> no state -> just leave (empty) state as is
         blank_logits = model.blank_decoder.emit_prob(
           rf.concat_features(enc_frame, label_step_out["s"]))
-      else:
+      elif isinstance(model.blank_decoder, BlankDecoderV6):
         prev_lstm_state = blank_decoder_state.s_blank
         blank_decoder_state = rf.State()
         s_blank, blank_decoder_state.s_blank = model.blank_decoder.s(
@@ -269,6 +276,14 @@ def get_score(
           spatial_dim=single_step_dim
         )
         blank_logits = model.blank_decoder.emit_prob(rf.concat_features(s_blank, label_step_out["s"]))
+      else:
+        assert isinstance(model.blank_decoder, BlankDecoderV7)
+        prev_emit_distance = i - emit_positions - 1
+        prev_emit_distance = rf.clip_by_value(
+          prev_emit_distance, 0, model.blank_decoder.distance_dim.dimension - 1)
+        prev_emit_distance.sparse_dim = model.blank_decoder.distance_dim
+        blank_logits = model.blank_decoder.decode_logits(
+          enc=enc_frame, label_model_states_unmasked=label_step_out["s"], prev_emit_distances=prev_emit_distance)
 
     emit_log_prob = rf.log(rf.sigmoid(blank_logits))
     emit_log_prob = rf.squeeze(emit_log_prob, axis=emit_log_prob.feature_dim)
@@ -317,7 +332,7 @@ def model_recog(
   """
   assert any(
     isinstance(model.blank_decoder, cls) for cls in (
-      BlankDecoderV1, BlankDecoderV3, BlankDecoderV4, BlankDecoderV5, BlankDecoderV6)
+      BlankDecoderV1, BlankDecoderV3, BlankDecoderV4, BlankDecoderV5, BlankDecoderV6, BlankDecoderV7)
   ) or model.blank_decoder is None, "blank_decoder not supported"
   if model.blank_decoder is None:
     assert model.use_joint_model, "blank_decoder is None, so use_joint_model must be True"
@@ -340,6 +355,9 @@ def model_recog(
   bos_idx = 0
 
   seq_log_prob = rf.constant(0.0, dims=batch_dims_)
+
+  # for blank decoder v7
+  emit_positions = rf.full(dims=batch_dims_, fill_value=-1, dtype="int32")
 
   if use_recombination:
     assert len(batch_dims) == 1
@@ -439,6 +457,12 @@ def model_recog(
       if isinstance(model.blank_decoder, BlankDecoderV1):
         input_embed_length_model = model.blank_decoder.target_embed(target)
 
+      emit_positions = rf.where(
+        update_state_mask,
+        rf.full(dims=batch_dims, fill_value=i - 1, dtype="int32"),
+        rf.gather(emit_positions, indices=backrefs)
+      )
+
     (
       output_log_prob, label_decoder_state_updated, blank_decoder_state_updated, lm_state_updated, ilm_state_updated
     ) = get_score(
@@ -447,6 +471,7 @@ def model_recog(
       input_embed_label_model=input_embed,
       input_embed_blank_model=input_embed_length_model,
       nb_target=target_non_blank,
+      emit_positions=emit_positions,
       label_decoder_state=label_decoder_state,
       blank_decoder_state=blank_decoder_state,
       lm_state=lm_state,
@@ -544,9 +569,9 @@ def model_recog(
     seq_targets__ = seq_targets__.push_back(target)
   seq_targets = seq_targets__.stack(axis=enc_spatial_dim)
 
-  non_blank_targets, non_blank_targets_spatial_dim = get_masked(
+  non_blank_targets, non_blank_targets_spatial_dim = utils.get_masked(
     seq_targets,
-    get_non_blank_mask(seq_targets, model.blank_idx),
+    utils.get_non_blank_mask(seq_targets, model.blank_idx),
     enc_spatial_dim,
     [beam_dim] + batch_dims,
   )
@@ -655,9 +680,9 @@ def model_recog_pure_torch(
   )
   seq_log_prob_t = rf.convert_to_tensor(seq_log_prob, dims=[batch_dim, beam_dim])
 
-  non_blank_targets, non_blank_targets_spatial_dim = get_masked(
+  non_blank_targets, non_blank_targets_spatial_dim = utils.get_masked(
     seq_targets_t,
-    get_non_blank_mask(seq_targets_t, model.blank_idx),
+    utils.get_non_blank_mask(seq_targets_t, model.blank_idx),
     enc_spatial_dim,
     [beam_dim] + batch_dims,
   )
