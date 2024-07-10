@@ -10,9 +10,6 @@ from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segment
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.returnn.config_builder.global_ import GlobalConfigBuilder
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.config_builder_rf.base import GlobalAttConfigBuilderRF, SegmentalAttConfigBuilderRF, ConfigBuilderRF
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.returnn.config_builder.ctc import CtcConfigBuilder
-from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.pipelines.pipeline_ls_conf.checkpoints import external_checkpoints
-
-default_import_model_name = "glob.conformer.mohammad.5.6"
 
 
 class TrainExperiment(ABC):
@@ -88,7 +85,7 @@ class SegmentalTrainExperiment(TrainExperiment):
   def default_train_opts(self) -> Dict:
     return {
       "chunking_opts": None,
-      "import_model_train_epoch1": external_checkpoints[default_import_model_name],
+      # "import_model_train_epoch1": external_checkpoints[default_import_model_name],
       "lr_opts": {
         "type": "const_then_linear",
         "const_lr": 1e-4,
@@ -109,7 +106,7 @@ class GlobalTrainExperiment(TrainExperiment):
   @property
   def default_train_opts(self) -> Dict:
     return {
-      "import_model_train_epoch1": external_checkpoints[default_import_model_name],
+      # "import_model_train_epoch1": external_checkpoints[default_import_model_name],
       "lr_opts": {
         "type": "const_then_linear",
         "const_lr": 1e-4,
@@ -130,7 +127,7 @@ class CtcTrainExperiment(TrainExperiment):
   @property
   def default_train_opts(self) -> Dict:
     return {
-      "import_model_train_epoch1": external_checkpoints[default_import_model_name],
+      # "import_model_train_epoch1": external_checkpoints[default_import_model_name],
       # "dataset_opts": {"hdf_targets": {
       #   "train": LibrispeechBPE10025_LABELS_WITH_SILENCE._label_paths["train"],
       #   "devtrain": LibrispeechBPE10025_LABELS_WITH_SILENCE._label_paths["train"],
