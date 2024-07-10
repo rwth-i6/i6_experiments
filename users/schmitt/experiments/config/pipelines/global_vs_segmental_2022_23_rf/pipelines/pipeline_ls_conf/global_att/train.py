@@ -12,6 +12,7 @@ def train_from_scratch(
         alias: str,
         config_builder: GlobalAttConfigBuilderRF,
         n_epochs_list: Tuple[int, ...],
+        batch_size: int = 15_000,
         time_rqmt: int = 168,
 ):
   for n_epochs in n_epochs_list:
@@ -30,7 +31,12 @@ def train_from_scratch(
           "epoch_wise_filter": {(1, 5): {"max_mean_len": 1000}}
         },
         "import_model_train_epoch1": None,
-        "lr_opts": {"type": "dyn_lr_lin_warmup_invsqrt_decay"},
+        "lr_opts": {
+          "type": "dyn_lr_piecewise_linear",
+          "batch_size": batch_size,
+          "num_epochs": n_epochs,
+          "learning_rate": 1e-3,
+        },
         "cleanup_old_models": {
           "keep_best_n": 4,
           "keep_last_n": 1,
