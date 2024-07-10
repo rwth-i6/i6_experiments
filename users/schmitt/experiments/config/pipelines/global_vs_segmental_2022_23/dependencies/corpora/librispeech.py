@@ -21,7 +21,6 @@ from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segment
 
 class LibrispeechCorpora:
   def __init__(self):
-    raise NotImplementedError
     self.oggzip_paths = {
       "train": [Path("/u/zeineldeen/setups/librispeech/2022-11-28--conformer-att/work/i6_core/returnn/oggzip/BlissToOggZipJob.Cbboscd6En6A/output/out.ogg.zip", cached=True)],
       "cv": [
