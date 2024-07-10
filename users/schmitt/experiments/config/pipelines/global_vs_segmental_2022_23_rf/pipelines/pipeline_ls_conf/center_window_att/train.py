@@ -14,6 +14,7 @@ from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segment
   default_import_model_name,
 )
 from i6_experiments.users.schmitt.custom_load_params import load_missing_params
+from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.labels.v2.librispeech.label_singletons import LibrispeechBPE10025_CTC_ALIGNMENT
 
 
 def _get_optimizer_alias(optimizer_opts: Dict):
@@ -56,7 +57,8 @@ def train_center_window_att_viterbi_from_scratch(
     train_opts = {
       "dataset_opts": {
         "use_speed_pert": use_speed_pert,
-        "epoch_wise_filter": {(1, 5): {"max_mean_len": 1000}}
+        "epoch_wise_filter": {(1, 5): {"max_mean_len": 1000}},
+        "hdf_targets": LibrispeechBPE10025_CTC_ALIGNMENT.alignment_paths,
       },
       # "import_model_train_epoch1": None,
       "accum_grad_multiple_step": 4,
@@ -293,6 +295,9 @@ def train_center_window_att_viterbi_import_global_tf(
             train_alias += f"_align-aug-{opts['num_iterations']}-iters_{opts['max_shift']}-max-shift"
 
           train_opts = {
+            "dataset_opts": {
+              "hdf_targets": LibrispeechBPE10025_CTC_ALIGNMENT.alignment_paths,
+            },
             "preload_from_files": {
               "pretrained_global_att_params": {
                 "filename": external_checkpoints[import_model_name],
