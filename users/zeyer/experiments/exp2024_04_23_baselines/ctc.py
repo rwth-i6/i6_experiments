@@ -482,6 +482,24 @@ def py():
         train_vocab_opts={"other_opts": {"class": "SamplingBytePairEncoding", "breadth_prob": 0.01}},
     )
 
+    train_exp(
+        "v6-relPosAttDef-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-vn0025"
+        "-lrlin1e_5_295k-featBN"
+        "-speedpertV2-spm10k-bpeSample001",
+        config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
+        model_config={"enc_conformer_layer": enc_conformer_layer_default, "feature_batch_norm": True},
+        config_updates={
+            **_get_cfg_lrlin_oclr_by_bs_nep(15_000, 500),
+            "optimizer.weight_decay": 1e-2,
+            "variational_noise": 0.0025,
+            "__train_audio_preprocess": speed_pert_librosa_config,
+            "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
+            "aux_attention_decoder": rf.build_dict(TransformerDecoder, num_layers=6),  # purely used for training
+        },
+        vocab="spm10k",
+        train_vocab_opts={"other_opts": {"class": "SamplingBytePairEncoding", "breadth_prob": 0.01}},
+    )
+
 
 _train_experiments: Dict[str, ModelWithCheckpoints] = {}
 
@@ -954,6 +972,20 @@ class Model(rf.Module):
             if isinstance(aux_attention_decoder.get("model_dim", None), int):
                 aux_attention_decoder["model_dim"] = Dim(aux_attention_decoder["model_dim"], name="dec_model")
             self.decoder = rf.build_from_dict(aux_attention_decoder, encoder_dim=enc_model_dim, vocab_dim=target_dim)
+
+        vn = config.typed_value("variational_noise", None)
+        if vn:
+            # Use some blacklist. I think the same blacklist as for weight decay is reasonable.
+            # Usually sth like: ["rf.Embedding", "rf.LearnedRelativePositionalEncoding"]
+            blacklist = config.typed_value("optimizer")["weight_decay_modules_blacklist"]
+            blacklist = tuple(eval(name, {"rf": rf}) for name in blacklist)
+            for mod in self.modules():
+                if isinstance(mod, blacklist):
+                    continue
+                for param_name, param in mod.named_parameters(recurse=False):
+                    if param_name.endswith("bias"):  # no bias
+                        continue
+                    rf.weight_noise(mod, param_name, std=vn)
 
     def __call__(
         self,
