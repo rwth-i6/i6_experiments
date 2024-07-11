@@ -985,6 +985,8 @@ class Model(rf.Module):
                 for param_name, param in mod.named_parameters(recurse=False):
                     if param_name.endswith("bias"):  # no bias
                         continue
+                    if param.auxiliary:
+                        continue
                     rf.weight_noise(mod, param_name, std=vn)
 
     def __call__(
