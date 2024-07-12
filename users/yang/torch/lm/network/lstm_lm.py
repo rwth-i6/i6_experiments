@@ -22,6 +22,7 @@ class LSTMLMConfig(ModelConfiguration):
     bottle_neck_dim: int = 512
     dropout: float = 0.0
     trainable: bool = True
+    log_prob_output: bool = False
 
 class LSTMLM(nn.Module):
     """
@@ -35,6 +36,7 @@ class LSTMLM(nn.Module):
         else:
             self.dropout = None
         self.use_bottle_neck = cfg.use_bottle_neck
+        self.use_log_prob_output = cfg.log_prob_output
         #self.embed = nn.Linear(cfg.vocab_dim, cfg.embed_dim, bias=True)
         self.embed = nn.Embedding(cfg.vocab_dim, cfg.embed_dim)
         self.lstm = nn.LSTM(
@@ -100,7 +102,8 @@ class LSTMLM(nn.Module):
             if self.dropout:
                 x = self.dropout(x)
         x = self.final_linear(x)
-        x = x.log_softmax(dim=-1)
+        if self.use_log_prob_output:
+            x = x.log_softmax(dim=-1)
         return x
 
 def get_train_serializer(

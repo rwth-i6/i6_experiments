@@ -122,7 +122,12 @@ def train_exp(
         _sis_setup_global_prefix()
 
     prefix = _sis_prefix + "/" + name
-    task = get_librispeech_task_raw_v2(vocab=vocab, train_vocab_opts=train_vocab_opts)
+    task = get_librispeech_task_raw_v2(vocab=vocab, train_vocab_opts=train_vocab_opts) # original and correct version
+    #task = get_librispeech_task_raw_v2(vocab=vocab, train_vocab_opts=train_vocab_opts,with_eos_postfix=True)
+    # from i6_experiments.users.zeyer.datasets.librispeech import (
+    #     get_librispeech_task_bpe10k_raw,
+    # )
+    # task = get_librispeech_task_bpe10k_raw(with_eos_postfix=True)
     config = config.copy()
     config = dict_update_deep(config, config_updates, config_deletes)
     if "__num_epochs" in config:
@@ -393,6 +398,12 @@ def ctc_prefix_posterior(logits, targets, input_lengths, target_lengths, blank_i
     print('prefix_score shape', prefix_score.shape)
 
     final_ctc_prob = prefix_score[:,:,blank_index].gather(-1,torch_target_lengths.unsqueeze(-1)).squeeze(-1)
+    target_last_position = torch_target_lengths-1
+    last_target_label = torch_targets.gather(-1, target_last_position.unsqueeze(-1)).squeeze(-1)
+    print('targets shape', torch_targets.shape)
+    print('target_lengths', torch_target_lengths.detach().cpu().numpy())
+    print('last label index*******', last_target_label.detach().cpu().numpy())
+    print('eos log prob', log_probs[:,0,0].detach().cpu().numpy())
     final_prob_sum = torch.sum(final_ctc_prob)
 
     print('prefix ctc score#########', final_prob_sum.detach().cpu().numpy())
@@ -627,7 +638,8 @@ class Model(rf.Module):
             wb_target_dim = target_dim + 1
         for i in enc_aux_logits:
             setattr(self, f"enc_aux_logits_{i}", rf.Linear(self.encoder.out_dim, wb_target_dim))
-        self.enc_logits = rf.Linear(self.encoder.out_dim, wb_target_dim)
+        #self.enc_logits = rf.Linear(self.encoder.out_dim, wb_target_dim)
+        self.enc_aux_logits_12 = rf.Linear(self.encoder.out_dim, wb_target_dim)
         self.wb_target_dim = wb_target_dim
 
         if target_dim.vocab and not wb_target_dim.vocab:
@@ -680,5 +692,6 @@ class Model(rf.Module):
         )
         # Encoder including convolutional frontend
         enc, enc_spatial_dim = self.encoder(source, in_spatial_dim=in_spatial_dim, collected_outputs=collected_outputs)
-        logits = self.enc_logits(enc)
+        #logits = self.enc_logits(enc)
+        logits = self.enc_aux_logits_12(enc)
         return logits, enc_spatial_dim
