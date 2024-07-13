@@ -466,6 +466,7 @@ def py():
         vocab="spm10k",
     )
 
+    # Now with featBN and bpeSample001.
     train_exp(
         "v6-relPosAttDef-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-featBN"
         "-speedpertV2-spm10k-bpeSample001",
@@ -482,6 +483,61 @@ def py():
         train_vocab_opts={"other_opts": {"class": "SamplingBytePairEncoding", "breadth_prob": 0.01}},
     )
 
+    # Now aux Trafo decoder with only 2 layers.
+    train_exp(
+        "v6-relPosAttDef-aedLossN2-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-featBN"
+        "-speedpertV2-spm10k-bpeSample001",
+        config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
+        model_config={"enc_conformer_layer": enc_conformer_layer_default, "feature_batch_norm": True},
+        config_updates={
+            **_get_cfg_lrlin_oclr_by_bs_nep(15_000, 500),
+            "optimizer.weight_decay": 1e-2,
+            "__train_audio_preprocess": speed_pert_librosa_config,
+            "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
+            "aux_attention_decoder": rf.build_dict(TransformerDecoder, num_layers=2),  # purely used for training
+        },
+        vocab="spm10k",
+        train_vocab_opts={"other_opts": {"class": "SamplingBytePairEncoding", "breadth_prob": 0.01}},
+    )
+
+    # CTC label smoothing.
+    train_exp(
+        "v6-relPosAttDef-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-featBN"
+        "-speedpertV2-spm10k-bpeSample001-ctcLS01",
+        config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
+        model_config={"enc_conformer_layer": enc_conformer_layer_default, "feature_batch_norm": True},
+        config_updates={
+            **_get_cfg_lrlin_oclr_by_bs_nep(15_000, 500),
+            "optimizer.weight_decay": 1e-2,
+            "__train_audio_preprocess": speed_pert_librosa_config,
+            "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
+            "aux_attention_decoder": rf.build_dict(TransformerDecoder, num_layers=6),  # purely used for training
+            "ctc_label_smoothing": 0.1,
+        },
+        vocab="spm10k",
+        train_vocab_opts={"other_opts": {"class": "SamplingBytePairEncoding", "breadth_prob": 0.01}},
+    )
+
+    # CTC label smoothing excluding blank.
+    train_exp(
+        "v6-relPosAttDef-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-featBN"
+        "-speedpertV2-spm10k-bpeSample001-ctcLS01",
+        config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
+        model_config={"enc_conformer_layer": enc_conformer_layer_default, "feature_batch_norm": True},
+        config_updates={
+            **_get_cfg_lrlin_oclr_by_bs_nep(15_000, 500),
+            "optimizer.weight_decay": 1e-2,
+            "__train_audio_preprocess": speed_pert_librosa_config,
+            "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
+            "aux_attention_decoder": rf.build_dict(TransformerDecoder, num_layers=6),  # purely used for training
+            "ctc_label_smoothing": 0.1,
+            "ctc_label_smoothing_exclude_blank": True,
+        },
+        vocab="spm10k",
+        train_vocab_opts={"other_opts": {"class": "SamplingBytePairEncoding", "breadth_prob": 0.01}},
+    )
+
+    # Now variational noise / weight noise (vn0025).
     train_exp(
         "v6-relPosAttDef-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-vn0025"
         "-lrlin1e_5_295k-featBN"
@@ -500,6 +556,7 @@ def py():
         train_vocab_opts={"other_opts": {"class": "SamplingBytePairEncoding", "breadth_prob": 0.01}},
     )
 
+    # Now weight dropout (wdrop01).
     train_exp(
         "v6-relPosAttDef-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-wdrop01"
         "-lrlin1e_5_295k-featBN"
@@ -700,6 +757,13 @@ def ctc_training(*, model: Model, data: rf.Tensor, data_spatial_dim: Dim, target
     aux_loss_layers = config.typed_value("aux_loss_layers")
     aux_loss_scales = config.typed_value("aux_loss_scales", ([1.0] * len(aux_loss_layers)) if aux_loss_layers else None)
     aed_loss_scale = config.float("aed_loss_scale", 1.0)
+    ctc_label_smoothing = config.float("ctc_label_smoothing", 0.0)
+    ctc_label_smoothing_exclude_blank = config.bool("ctc_label_smoothing_exclude_blank", False)
+    ctc_label_smoothing_opts = {
+        "smoothing": ctc_label_smoothing,
+        "axis": model.wb_target_dim,
+        "exclude_labels": [model.blank_idx] if ctc_label_smoothing_exclude_blank else None,
+    }
     use_normalized_loss = config.bool("use_normalized_loss", True)
 
     if data.feature_dim and data.feature_dim.dimension == 1:
@@ -719,8 +783,11 @@ def ctc_training(*, model: Model, data: rf.Tensor, data_spatial_dim: Dim, target
                 continue
             linear = getattr(model, f"enc_aux_logits_{layer_idx}")
             aux_logits = linear(collected_outputs[str(layer_idx - 1)])
+            aux_log_probs = rf.log_softmax(aux_logits, axis=model.wb_target_dim)
+            aux_log_probs = rf.label_smoothed_log_prob_gradient(aux_log_probs, **ctc_label_smoothing_opts)
             aux_loss = rf.ctc_loss(
-                logits=aux_logits,
+                logits=aux_log_probs,
+                logits_normalized=True,
                 targets=targets,
                 input_spatial_dim=enc_spatial_dim,
                 targets_spatial_dim=targets_spatial_dim,
@@ -738,8 +805,11 @@ def ctc_training(*, model: Model, data: rf.Tensor, data_spatial_dim: Dim, target
             # )
             # error.mark_as_loss("label", as_error=True, custom_inv_norm_factor=targets_spatial_dim.get_size_tensor())
 
+    log_probs = rf.log_softmax(logits, axis=model.wb_target_dim)
+    log_probs = rf.label_smoothed_log_prob_gradient(log_probs, **ctc_label_smoothing_opts)
     loss = rf.ctc_loss(
-        logits=logits,
+        logits=log_probs,
+        logits_normalized=True,
         targets=targets,
         input_spatial_dim=enc_spatial_dim,
         targets_spatial_dim=targets_spatial_dim,
