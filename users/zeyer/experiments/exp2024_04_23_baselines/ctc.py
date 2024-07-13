@@ -383,7 +383,7 @@ def py():
     # - maxSeqLenAudio19_5: Most importantly, this refers to audio len, thus it is independent of targets.
     for vocab, sample, alpha in [
         ("spm20k", None, None),  # 5.96
-        ("spm20k", "spm", 0.7),
+        ("spm20k", "spm", 0.7),  # 6.14
         ("spm20k", "bpe", 0.01),  # 6.13
         ("bpe10k", None, None),
         ("bpe10k", "bpe", 0.01),  # 6.40
@@ -391,16 +391,16 @@ def py():
         ("spm10k", "spm", 0.7),  # 6.20
         ("spm10k", "bpe", 0.01),  # 5.93 (!!)
         ("spm_bpe10k", None, None),  # 6.33
-        ("spm_bpe10k", "spm", 1e-4),
-        ("spm_bpe10k", "bpe", 0.01),
+        ("spm_bpe10k", "spm", 1e-4),  # 6.26
+        ("spm_bpe10k", "bpe", 0.01),  # 6.21
         ("spm4k", None, None),  # 6.07 (but test-other even better: 5.94?)
         ("spm4k", "spm", 0.7),  # 6.42
         ("spm4k", "bpe", 0.01),  # 6.05
         ("spm1k", None, None),  # 6.07
         ("spm1k", "spm", 0.7),
         ("spm1k", "bpe", 0.01),  # 6.13 (but dev-clean,test-* are better than no sampling)
-        ("spm_bpe1k", None, None),
-        ("spm_bpe1k", "bpe", 0.01),
+        ("spm_bpe1k", None, None),  # 6.03
+        ("spm_bpe1k", "bpe", 0.01),  # 6.05
         ("spm512", None, None),
         ("spm512", "bpe", 0.01),
         ("spm128", None, None),
