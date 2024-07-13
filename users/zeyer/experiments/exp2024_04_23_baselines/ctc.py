@@ -521,7 +521,7 @@ def py():
     # CTC label smoothing excluding blank.
     train_exp(
         "v6-relPosAttDef-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-featBN"
-        "-speedpertV2-spm10k-bpeSample001-ctcLS01",
+        "-speedpertV2-spm10k-bpeSample001-ctcLS01xB",
         config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
         model_config={"enc_conformer_layer": enc_conformer_layer_default, "feature_batch_norm": True},
         config_updates={
