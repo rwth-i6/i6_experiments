@@ -1204,4 +1204,5 @@ class Model(rf.Module):
                 (log_probs_blank, dummy_blank_feat_dim),
                 out_dim=self.wb_target_dim,
             )
+            log_probs.feature_dim = self.wb_target_dim
             return log_probs
