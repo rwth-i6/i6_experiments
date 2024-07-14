@@ -537,6 +537,28 @@ def py():
         train_vocab_opts={"other_opts": {"class": "SamplingBytePairEncoding", "breadth_prob": 0.01}},
     )
 
+    # Blank separated with CTC label smoothing excluding blank.
+    train_exp(
+        "v6-relPosAttDef-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-featBN"
+        "-speedpertV2-spm10k-bpeSample001-blankSep-ctcLS01xB",
+        config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
+        model_config={
+            "enc_conformer_layer": enc_conformer_layer_default,
+            "feature_batch_norm": True,
+            "out_blank_separated": True,
+        },
+        config_updates={
+            **_get_cfg_lrlin_oclr_by_bs_nep(15_000, 500),
+            "optimizer.weight_decay": 1e-2,
+            "__train_audio_preprocess": speed_pert_librosa_config,
+            "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
+            "aux_attention_decoder": rf.build_dict(TransformerDecoder, num_layers=6),  # purely used for training
+            "ctc_label_smoothing": 0.1,
+        },
+        vocab="spm10k",
+        train_vocab_opts={"other_opts": {"class": "SamplingBytePairEncoding", "breadth_prob": 0.01}},
+    )
+
     # Now variational noise / weight noise (vn0025).
     train_exp(
         "v6-relPosAttDef-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-vn0025"
@@ -757,13 +779,6 @@ def ctc_training(*, model: Model, data: rf.Tensor, data_spatial_dim: Dim, target
     aux_loss_layers = config.typed_value("aux_loss_layers")
     aux_loss_scales = config.typed_value("aux_loss_scales", ([1.0] * len(aux_loss_layers)) if aux_loss_layers else None)
     aed_loss_scale = config.float("aed_loss_scale", 1.0)
-    ctc_label_smoothing = config.float("ctc_label_smoothing", 0.0)
-    ctc_label_smoothing_exclude_blank = config.bool("ctc_label_smoothing_exclude_blank", False)
-    ctc_label_smoothing_opts = {
-        "smoothing": ctc_label_smoothing,
-        "axis": model.wb_target_dim,
-        "exclude_labels": [model.blank_idx] if ctc_label_smoothing_exclude_blank else None,
-    }
     use_normalized_loss = config.bool("use_normalized_loss", True)
 
     if data.feature_dim and data.feature_dim.dimension == 1:
@@ -783,8 +798,7 @@ def ctc_training(*, model: Model, data: rf.Tensor, data_spatial_dim: Dim, target
                 continue
             linear = getattr(model, f"enc_aux_logits_{layer_idx}")
             aux_logits = linear(collected_outputs[str(layer_idx - 1)])
-            aux_log_probs = rf.log_softmax(aux_logits, axis=model.wb_target_dim)
-            aux_log_probs = rf.label_smoothed_log_prob_gradient(aux_log_probs, **ctc_label_smoothing_opts)
+            aux_log_probs = model.log_probs_wb_from_logits(aux_logits)
             aux_loss = rf.ctc_loss(
                 logits=aux_log_probs,
                 logits_normalized=True,
@@ -805,8 +819,7 @@ def ctc_training(*, model: Model, data: rf.Tensor, data_spatial_dim: Dim, target
             # )
             # error.mark_as_loss("label", as_error=True, custom_inv_norm_factor=targets_spatial_dim.get_size_tensor())
 
-    log_probs = rf.log_softmax(logits, axis=model.wb_target_dim)
-    log_probs = rf.label_smoothed_log_prob_gradient(log_probs, **ctc_label_smoothing_opts)
+    log_probs = model.log_probs_wb_from_logits(logits)
     loss = rf.ctc_loss(
         logits=log_probs,
         logits_normalized=True,
@@ -897,7 +910,7 @@ def model_recog(
     batch_dims_ = [beam_dim] + batch_dims
     seq_log_prob = rf.constant(0.0, dims=batch_dims_)  # Batch, Beam
 
-    label_log_prob = rf.log_softmax(logits, axis=model.wb_target_dim)  # Batch, Spatial, Vocab
+    label_log_prob = model.log_probs_wb_from_logits(logits)  # Batch, Spatial, Vocab
     label_log_prob = rf.where(
         enc_spatial_dim.get_mask(),
         label_log_prob,
@@ -1008,6 +1021,7 @@ class Model(rf.Module):
             setattr(self, f"enc_aux_logits_{i}", rf.Linear(self.encoder.out_dim, wb_target_dim))
         self.enc_logits = rf.Linear(self.encoder.out_dim, wb_target_dim)
         self.wb_target_dim = wb_target_dim
+        self.out_blank_separated = config.bool("out_blank_separated", False)
 
         if target_dim.vocab and not wb_target_dim.vocab:
             from returnn.datasets.util.vocabulary import Vocabulary
@@ -1018,6 +1032,21 @@ class Model(rf.Module):
             wb_target_dim.vocab = Vocabulary.create_vocab_from_labels(
                 vocab_labels, user_defined_symbols={model_recog.output_blank_label: blank_idx}
             )
+
+        ctc_label_smoothing = config.float("ctc_label_smoothing", 0.0)
+        ctc_label_smoothing_exclude_blank = config.bool("ctc_label_smoothing_exclude_blank", self.out_blank_separated)
+        if not self.out_blank_separated:
+            self.ctc_label_smoothing_opts = {
+                "smoothing": ctc_label_smoothing,
+                "axis": self.wb_target_dim,
+                "exclude_labels": [self.blank_idx] if ctc_label_smoothing_exclude_blank else None,
+            }
+        else:  # separate blank
+            assert ctc_label_smoothing_exclude_blank  # required with separate blank
+            self.ctc_label_smoothing_opts = {
+                "smoothing": ctc_label_smoothing,
+                "axis": self.target_dim,
+            }
 
         self.feature_batch_norm = None
         if config.bool("feature_batch_norm", False):
@@ -1127,3 +1156,31 @@ class Model(rf.Module):
         enc, enc_spatial_dim = self.encoder(source, in_spatial_dim=in_spatial_dim, collected_outputs=collected_outputs)
         logits = self.enc_logits(enc)
         return logits, enc, enc_spatial_dim
+
+    def log_probs_wb_from_logits(self, logits: Tensor) -> Tensor:
+        """
+        :return: log probs with blank from logits (wb_target_dim)
+            If out_blank_separated, we use a separate sigmoid for the blank.
+        """
+        if not self.out_blank_separated:
+            log_probs = rf.log_softmax(logits, axis=self.wb_target_dim)
+            log_probs = rf.label_smoothed_log_prob_gradient(log_probs, **self.ctc_label_smoothing_opts)
+            return log_probs
+        else:  # separate blank
+            assert self.blank_idx == self.target_dim.dimension  # not implemented otherwise
+            dummy_blank_feat_dim = Dim(1, name="blank_feat")
+            logits_wo_blank, logits_blank = rf.split(
+                logits, axis=self.wb_target_dim, out_dims=[self.target_dim, dummy_blank_feat_dim]
+            )
+            log_probs_wo_blank = rf.log_softmax(logits_wo_blank, axis=self.target_dim)
+            log_probs_wo_blank = rf.label_smoothed_log_prob_gradient(
+                log_probs_wo_blank, **self.ctc_label_smoothing_opts
+            )
+            log_probs_blank = rf.log_sigmoid(logits_blank)
+            log_probs_emit = rf.squeeze(rf.log_sigmoid(-logits_blank), axis=dummy_blank_feat_dim)
+            log_probs, _ = rf.concat(
+                (log_probs_wo_blank + log_probs_emit, self.target_dim),
+                (log_probs_blank, dummy_blank_feat_dim),
+                out_dim=self.wb_target_dim,
+            )
+            return log_probs
