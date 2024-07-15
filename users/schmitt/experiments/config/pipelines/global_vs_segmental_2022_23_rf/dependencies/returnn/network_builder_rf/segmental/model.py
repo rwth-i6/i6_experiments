@@ -54,6 +54,7 @@ class SegmentalAttentionModel(rf.Module):
           separate_blank_from_softmax: bool = False,
           reset_eos_params: bool = False,
           blank_decoder_opts: Optional[Dict[str, Any]] = None,
+          use_current_frame_in_readout: bool = False,
   ):
     super(SegmentalAttentionModel, self).__init__()
 
@@ -72,6 +73,7 @@ class SegmentalAttentionModel(rf.Module):
       dropout=enc_dropout,
       att_dropout=att_dropout,
       l2=l2,
+      use_weight_feedback=use_weight_feedback,
     )
 
     assert blank_decoder_version in {1, 3, 4, 5, 6, 7}
@@ -101,6 +103,7 @@ class SegmentalAttentionModel(rf.Module):
       gaussian_att_weight_opts=gaussian_att_weight_opts,
       separate_blank_from_softmax=separate_blank_from_softmax,
       reset_eos_params=reset_eos_params,
+      use_current_frame_in_readout=use_current_frame_in_readout,
     )
 
     if not use_joint_model:
@@ -117,7 +120,6 @@ class SegmentalAttentionModel(rf.Module):
           length_model_state_dim=length_model_state_dim,
           label_state_dim=self.label_decoder.get_lstm().out_dim,
           encoder_out_dim=self.encoder.out_dim,
-          blank_decoder_opts=blank_decoder_opts,
         )
       elif blank_decoder_version == 4:
         self.blank_decoder = BlankDecoderV4(
@@ -208,6 +210,7 @@ class MakeModel:
           gaussian_att_weight_opts: Optional[Dict[str, Any]] = None,
           separate_blank_from_softmax: bool = False,
           reset_eos_params: bool = False,
+          use_current_frame_in_readout: bool = False,
           **extra,
   ) -> SegmentalAttentionModel:
     """make"""
@@ -261,6 +264,7 @@ class MakeModel:
       gaussian_att_weight_opts=gaussian_att_weight_opts,
       separate_blank_from_softmax=separate_blank_from_softmax,
       reset_eos_params=reset_eos_params,
+      use_current_frame_in_readout=use_current_frame_in_readout,
       **extra,
     )
 
@@ -291,6 +295,7 @@ def from_scratch_model_def(
   gaussian_att_weight_opts = config.typed_value("gaussian_att_weight_opts", None)
   separate_blank_from_softmax = config.bool("separate_blank_from_softmax", False)
   reset_eos_params = config.bool("reset_eos_params", False)
+  use_current_frame_in_readout = config.bool("use_current_frame_in_readout", False)
 
   enc_out_dim = config.int("enc_out_dim", 512)
   enc_key_total_dim = config.int("enc_key_total_dim", 1024)
@@ -317,6 +322,7 @@ def from_scratch_model_def(
     gaussian_att_weight_opts=gaussian_att_weight_opts,
     separate_blank_from_softmax=separate_blank_from_softmax,
     reset_eos_params=reset_eos_params,
+    use_current_frame_in_readout=use_current_frame_in_readout,
   )
 
 

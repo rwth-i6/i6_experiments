@@ -28,6 +28,7 @@ from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segment
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.segmental.model_new.blank_model.model import (
   BlankDecoderV1,
   BlankDecoderV3,
+  BlankDecoderV4,
   BlankDecoderV5,
   BlankDecoderV6,
 )
@@ -95,11 +96,8 @@ def model_realign_(
       non_blank_targets_spatial_dim=non_blank_targets_spatial_dim,
       batch_dims=batch_dims,
       beam_size=max_num_labels,
-      # use_recombination=None,
       use_recombination="max",
     )
-    print("seq_log_prob", seq_log_prob.raw_tensor)
-    exit()
 
   return viterbi_alignment, seq_log_prob, viterbi_alignment_spatial_dim
 
@@ -463,7 +461,8 @@ def model_realign(
         only_use_blank_model: bool = False,
 ) -> Tuple[rf.Tensor, Optional[rf.Tensor], Optional[Dim]]:
   assert any(
-    isinstance(model.blank_decoder, cls) for cls in (BlankDecoderV1, BlankDecoderV3, BlankDecoderV5, BlankDecoderV6)
+    isinstance(model.blank_decoder, cls) for cls in (
+      BlankDecoderV1, BlankDecoderV3, BlankDecoderV4, BlankDecoderV5, BlankDecoderV6)
   ) or model.blank_decoder is None, "blank_decoder not supported"
   if model.blank_decoder is None:
     assert model.use_joint_model, "blank_decoder is None, so use_joint_model must be True"
@@ -550,7 +549,7 @@ def model_realign(
     non_blank_targets_spatial_sizes, axis=non_blank_targets_spatial_sizes.dims
   ).raw_tensor.item()
   single_col_dim = Dim(dimension=max_num_labels + 1, name="max-num-labels")
-  label_indices = rf.zeros(batch_dims_, dtype="int64", sparse_dim=single_col_dim)
+  label_indices = rf.zeros(batch_dims_, dtype="int32", sparse_dim=single_col_dim)
   prev_label_indices = label_indices.copy()
   enc_spatial_sizes = rf.copy_to_device(enc_spatial_dim.dyn_size_ext, non_blank_targets.device)
 
@@ -630,6 +629,7 @@ def model_realign(
         input_embed=input_embed,
         segment_lens=segment_lens,
         segment_starts=segment_starts,
+        center_positions=center_position,
         state=label_decoder_state,
       )
       label_logits = model.label_decoder.decode_logits(input_embed=input_embed, **label_step_out)
@@ -655,14 +655,17 @@ def model_realign(
         blank_step_out, blank_decoder_state = model.blank_decoder.loop_step(**blank_loop_step_kwargs)
         blank_logits = model.blank_decoder.decode_logits(**blank_step_out)
       else:
-        assert isinstance(model.blank_decoder, BlankDecoderV5) or isinstance(model.blank_decoder, BlankDecoderV6)
+        assert isinstance(model.blank_decoder, BlankDecoderV4) or isinstance(model.blank_decoder, BlankDecoderV5) or isinstance(model.blank_decoder, BlankDecoderV6)
         enc_position = rf.minimum(
           rf.full(dims=batch_dims, fill_value=i, dtype="int32"),
           rf.copy_to_device(enc_spatial_dim.get_size_tensor() - 1, input_embed.device)
         )
         enc_frame = rf.gather(enc_args["enc"], indices=enc_position, axis=enc_spatial_dim)
         enc_frame = rf.expand_dim(enc_frame, beam_dim)
-        if isinstance(model.blank_decoder, BlankDecoderV5):
+        if isinstance(model.blank_decoder, BlankDecoderV4):
+          # no LSTM -> no state -> just leave (empty) state as is
+          blank_logits = model.blank_decoder.decode_logits(enc=enc_frame, label_model_states_unmasked=label_step_out["s"])
+        elif isinstance(model.blank_decoder, BlankDecoderV5):
           # no LSTM -> no state -> just leave (empty) state as is
           blank_logits = model.blank_decoder.emit_prob(
             rf.concat_features(enc_frame, label_step_out["s"]))

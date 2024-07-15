@@ -11,6 +11,8 @@ class GlobalAttDecoder(BaseLabelDecoder):
   def __init__(self, eos_idx: int, **kwargs):
     super(GlobalAttDecoder, self).__init__(**kwargs)
 
+    assert not self.use_current_frame_in_readout, "Not supported yet"
+
     self.eos_idx = eos_idx
     self.bos_idx = eos_idx
 

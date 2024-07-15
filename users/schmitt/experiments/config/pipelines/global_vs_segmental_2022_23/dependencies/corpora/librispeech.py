@@ -2,7 +2,7 @@ from typing import List, Optional
 
 from sisyphus import *
 
-from i6_core.corpus.convert import CorpusToStmJob
+from i6_core.corpus.convert import CorpusToStmJob, CorpusToTxtJob
 from i6_core.corpus.segments import SegmentCorpusJob
 from i6_core.audio.encoding import BlissChangeEncodingJob
 from i6_core.returnn.oggzip import BlissToOggZipJob
@@ -75,6 +75,8 @@ class LibrispeechCorpora:
       "test-other": self.stm_jobs["test-other"].out_stm_path,
       "test-clean": self.stm_jobs["test-clean"].out_stm_path,
     }
+
+    self.corpus_to_txt_job = CorpusToTxtJob(self.corpus_paths["train-other-960"])
 
     self.segment_corpus_jobs = {
       "dev-other": SegmentCorpusJob(bliss_corpus=self.corpus_paths["dev-other"], num_segments=1)

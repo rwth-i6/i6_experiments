@@ -1,27 +1,41 @@
-from typing import Tuple, Optional
+from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.pipelines.pipeline_ls_conf.center_window_att.baseline_v4 import (
+  get_config_builder,
+)
+from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.pipelines.pipeline_ls_conf.center_window_att import (
+  train, recog, realign
+)
 
-from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.pipelines.pipeline_ls_conf.center_window_att.baseline_v4.alias import alias as base_alias
-from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.pipelines.pipeline_ls_conf.center_window_att.config_builder import get_center_window_att_config_builder_rf
 
-
-def center_window_att_baseline_rf(
-        win_size_list: Tuple[int, ...] = (5, 129),
-        use_att_ctx_in_state: bool = True,
-        label_decoder_state: str = "nb-lstm",
-        use_weight_feedback: bool = True,
-        bpe_vocab_size: int = 10025,
-        separate_blank_from_softmax: bool = False,
-):
-  for win_size in win_size_list:
-    alias, config_builder = get_center_window_att_config_builder_rf(
-      win_size=win_size,
-      use_att_ctx_in_state=use_att_ctx_in_state,
-      blank_decoder_version=None,
-      use_joint_model=True,
-      label_decoder_state=label_decoder_state,
-      use_weight_feedback=use_weight_feedback,
-      bpe_vocab_size=bpe_vocab_size,
-      separate_blank_from_softmax=separate_blank_from_softmax,
-    )
-    alias = f"{base_alias}/baseline_rf/{alias}"
-    yield alias, config_builder
+def run_exps():
+  for model_alias, config_builder in get_config_builder.center_window_att_baseline_rf(
+          win_size_list=(5,),
+          label_decoder_state="joint-lstm",
+  ):
+    for train_alias, checkpoint in train.train_center_window_att_viterbi_import_global_tf(
+            alias=model_alias,
+            config_builder=config_builder,
+            n_epochs_list=(300,),
+            const_lr_list=(1e-4,),
+    ):
+      recog.center_window_returnn_frame_wise_beam_search(
+        alias=train_alias,
+        config_builder=config_builder,
+        checkpoint=checkpoint,
+      )
+      recog.center_window_returnn_frame_wise_beam_search(
+        alias=train_alias,
+        config_builder=config_builder,
+        checkpoint=checkpoint,
+        use_recombination=None,
+      )
+      recog.center_window_returnn_frame_wise_beam_search(
+        alias=train_alias,
+        config_builder=config_builder,
+        checkpoint=checkpoint,
+        checkpoint_aliases=("last",),
+        run_analysis=True,
+        att_weight_seq_tags=[
+          "dev-other/116-288045-0017/116-288045-0017",
+          "dev-other/116-288045-0014/116-288045-0014",
+        ]
+      )

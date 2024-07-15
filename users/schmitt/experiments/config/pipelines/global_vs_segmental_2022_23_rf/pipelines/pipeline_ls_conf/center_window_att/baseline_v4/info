@@ -1,0 +1,3 @@
+Joint blank and label modeling (joint softmax)
+Blank prediction uses attention
+full alignment ctx

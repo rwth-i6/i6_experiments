@@ -168,7 +168,8 @@ def train_center_window_att_full_sum_from_scratch(
   # config_builder.get_model_func = _returnn_v2_get_model_for_full_sum_training
   for n_epochs in n_epochs_list:
     alias += (
-      f"/full-sum-train_from_scratch/{n_epochs}-epochs_bs-{batch_size}_{'w' if use_speed_pert else 'wo'}-sp"
+      f"/full-sum-train_from_scratch/{n_epochs}-epochs_bs-{batch_size}"
+      f"{'_mgpu-4' if use_mgpu else ''}_{'w' if use_speed_pert else 'wo'}-sp"
       f"_beams-{beam_size}_lat-down-{lattice_downsampling}_{alignment_interpolation_factor}-interp"
       f"_{'ce' if train_on_viterbi_paths else 'sum'}-loss"
     )
@@ -228,7 +229,7 @@ def train_center_window_att_full_sum_from_scratch(
         "horovod_num_processes": 4,
         "distributed_launch_cmd": "torchrun"
       })
-      train_opts["torch_distributed"] = {}
+      train_opts["torch_distributed"] = {"reduce_type": "param", "param_sync_step": 100}
 
     train_exp = SegmentalTrainExperiment(
       config_builder=config_builder,
@@ -262,6 +263,7 @@ def train_center_window_att_viterbi_import_global_tf(
         b_loss_scale_list: Tuple[float, ...] = (1.0,),
         optimizer_opts: Optional[Dict] = None,
         reset_eos_params: bool = False,
+        batch_size: int = 15_000,
 ):
   if not config_builder.use_att_ctx_in_state and "lstm" in config_builder.label_decoder_state:
     # only randomly init FF weights, since only the input dim of the lstm layer is different
@@ -286,7 +288,7 @@ def train_center_window_att_viterbi_import_global_tf(
       for nb_loss_scale in nb_loss_scale_list:
         for b_loss_scale in b_loss_scale_list:
           train_alias = alias + (
-            f"/train_from_{import_model_name}/standard-training/{n_epochs}-ep_{const_lr}-const-lr"
+            f"/train_from_{import_model_name}/standard-training/{n_epochs}-ep_{const_lr}-const-lr_bs-{batch_size}"
             f"_nb-loss-x{nb_loss_scale}_b-loss-x{b_loss_scale}_{_get_optimizer_alias(optimizer_opts)}"
             f"{'_reset-eos' if reset_eos_params else ''}"
           )
@@ -311,6 +313,7 @@ def train_center_window_att_viterbi_import_global_tf(
             "train_def": viterbi_training,
             "train_step_func": _returnn_v2_train_step,
             "batching": "random",
+            "batch_size": batch_size,
             "lr_opts": {
               "type": "const_then_linear",
               "const_lr": const_lr,

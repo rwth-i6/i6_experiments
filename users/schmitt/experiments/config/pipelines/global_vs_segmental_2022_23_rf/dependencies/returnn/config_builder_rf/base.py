@@ -37,6 +37,7 @@ class ConfigBuilderRF(ABC):
           get_model_func: Callable,
           use_att_ctx_in_state: bool = True,
           label_decoder_state: str = "nb-lstm",
+          use_current_frame_in_readout: bool = False,
   ):
     self.variant_params = variant_params
     self.model_def = model_def
@@ -67,6 +68,10 @@ class ConfigBuilderRF(ABC):
     self.label_decoder_state = label_decoder_state
     if label_decoder_state != "nb-lstm":
       self.config_dict["label_decoder_state"] = label_decoder_state
+
+    self.use_current_frame_in_readout = use_current_frame_in_readout
+    if use_current_frame_in_readout:
+      self.config_dict["use_current_frame_in_readout"] = use_current_frame_in_readout
 
     self.python_prolog = []
 
@@ -130,6 +135,12 @@ class ConfigBuilderRF(ABC):
     config_dict.update(
       {k: opts.pop(k) for k in remaining_opt_keys if k in opts}
     )
+
+    # need to randomly init new input part of readout matrix
+    if self.config_dict.get("use_current_frame_in_readout"):
+      preload_dict = config_dict.get("preload_from_files", {}).get("pretrained_global_att_params", {})
+      if preload_dict and "custom_missing_load_func" not in preload_dict:
+        preload_dict["custom_missing_load_func"] = load_missing_params
 
     python_epilog.append(
       serialization.Collection(
@@ -327,7 +338,8 @@ class ConfigBuilderRF(ABC):
       # and give some estimates for the steps here, i.e. 45%, 90%, almost 100%,
       # making sure the last number is slightly below the real total number of steps.
       _lrlin_oclr_steps_by_bs_nep = {
-        (3, 125): [194_000, 388_000, 430_000],  # ~3450steps/ep, 125 eps -> 430k steps in total
+        (3, 125): [485_156, 970_312, 1_078_000],  # ~8625steps/ep, 125 eps -> 1,078,125 steps in total
+        (3, 500): [1_940_625, 3_881_250, 4_312_000],  # ~8625steps/ep, 500 eps -> 4,312,500 steps in total
         (8, 125): [139_000, 279_000, 310_000],  # ~2485steps/ep, 125 eps -> 310k steps in total
         (8, 250): [279_000, 558_000, 621_000],  # ~2485steps/ep, 250 eps -> 621k steps in total
         (8, 500): [558_000, 1_117_000, 1_242_000],  # ~2485steps/ep, 500 eps -> 1.242k steps in total

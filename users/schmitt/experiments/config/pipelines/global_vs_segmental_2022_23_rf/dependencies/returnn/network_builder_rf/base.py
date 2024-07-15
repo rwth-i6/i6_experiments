@@ -54,6 +54,7 @@ class BaseLabelDecoder(rf.Module):
           use_mini_att: bool = False,
           separate_blank_from_softmax: bool = False,
           reset_eos_params: bool = False,
+          use_current_frame_in_readout: bool = False,
   ):
     super(BaseLabelDecoder, self).__init__()
 
@@ -133,12 +134,23 @@ class BaseLabelDecoder(rf.Module):
 
     self.s_transformed = rf.Linear(self.get_lstm().out_dim, enc_key_total_dim, with_bias=False)
     self.energy = rf.Linear(enc_key_total_dim, att_num_heads, with_bias=False)
-    self.readout_in = rf.Linear(
-      self.get_lstm().out_dim + self.target_embed.out_dim + att_num_heads * enc_out_dim,
-      Dim(name="readout", dimension=1024),
-    )
 
-    output_prob_opts = {"in_dim": self.readout_in.out_dim // 2, "out_dim": target_dim}
+    readout_in_dim = self.get_lstm().out_dim + self.target_embed.out_dim + att_num_heads * enc_out_dim
+    readout_out_dim = Dim(name="readout", dimension=1024)
+    self.use_current_frame_in_readout = use_current_frame_in_readout
+    if use_current_frame_in_readout:
+      readout_in_dim += enc_out_dim
+      self.readout_in_w_current_frame = rf.Linear(
+        readout_in_dim,
+        readout_out_dim,
+      )
+    else:
+      self.readout_in = rf.Linear(
+        readout_in_dim,
+        readout_out_dim,
+      )
+
+    output_prob_opts = {"in_dim": readout_out_dim // 2, "out_dim": target_dim}
     if reset_eos_params:
       self.output_prob_reset_eos = rf.Linear(**output_prob_opts)
       self.output_prob = self.output_prob_reset_eos

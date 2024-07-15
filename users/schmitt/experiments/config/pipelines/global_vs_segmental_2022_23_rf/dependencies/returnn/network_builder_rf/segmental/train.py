@@ -762,6 +762,7 @@ def full_sum_training(
       non_blank_targets_spatial_dim=non_blank_targets_spatial_dim,
       segment_starts=segment_starts,
       segment_lens=segment_lens,
+      center_positions=center_positions,
       batch_dims=batch_dims,
     )
 

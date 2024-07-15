@@ -15,6 +15,7 @@ from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segment
 from i6_experiments.users.schmitt.visualization.visualization import PlotAlignmentJob
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.labels.v2.librispeech.label_singletons import LibrispeechBPE10025_CTC_ALIGNMENT
 
+
 def center_window_returnn_realignment(
         alias: str,
         config_builder: SegmentalAttConfigBuilderRF,
@@ -60,7 +61,7 @@ def center_window_returnn_realignment(
       ref_alignment_hdf=LibrispeechBPE10025_CTC_ALIGNMENT.alignment_paths["dev-other"],
       json_vocab_path=Path(
         "/u/zeineldeen/setups/librispeech/2022-11-28--conformer-att/work/i6_core/text/label/subword_nmt/train/ReturnnTrainBpeJob.vTq56NZ8STWt/output/bpe.vocab"),
-      target_blank_idx=0,
+      target_blank_idx=config_builder.variant_params["dependencies"].model_hyperparameters.blank_idx,
       segment_list=[
         "dev-other/3660-6517-0005/3660-6517-0005",
         "dev-other/6467-62797-0001/6467-62797-0001",

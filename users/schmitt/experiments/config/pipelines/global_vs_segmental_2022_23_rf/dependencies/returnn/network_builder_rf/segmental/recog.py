@@ -151,7 +151,13 @@ def get_score(
     center_positions=center_positions,
     state=label_decoder_state,
   )
-  label_logits = model.label_decoder.decode_logits(input_embed=input_embed_label_model, **label_step_out)
+
+  if model.label_decoder.use_current_frame_in_readout:
+    h_t = rf.gather(enc_args["enc"], axis=enc_spatial_dim, indices=center_positions)
+  else:
+    h_t = None
+
+  label_logits = model.label_decoder.decode_logits(input_embed=input_embed_label_model, **label_step_out, h_t=h_t)
   if model.label_decoder.separate_blank_from_softmax:
     label_log_prob = utils.log_softmax_sep_blank(
       logits=label_logits, blank_idx=model.blank_idx, target_dim=model.target_dim)

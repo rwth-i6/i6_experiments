@@ -3,6 +3,7 @@ from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segment
   LibrispeechBpe10025CtcAlignment,
   LibrispeechBpe10025CtcAlignmentEos,
   LibrispeechBpe1056Alignment,
+  LibrispeechBpe5048Alignment,
 )
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.corpora.librispeech import LibrispeechCorpora
 
@@ -15,3 +16,5 @@ LibrispeechBPE10025_CTC_ALIGNMENT = LibrispeechBpe10025CtcAlignment()
 LibrispeechBPE10025_CTC_ALIGNMENT_EOS = LibrispeechBpe10025CtcAlignmentEos(LibrispeechBPE10025_CTC_ALIGNMENT)
 
 LibrispeechBPE1056_ALIGNMENT = LibrispeechBpe1056Alignment()
+
+LibrispeechBPE5048_ALIGNMENT = LibrispeechBpe5048Alignment()

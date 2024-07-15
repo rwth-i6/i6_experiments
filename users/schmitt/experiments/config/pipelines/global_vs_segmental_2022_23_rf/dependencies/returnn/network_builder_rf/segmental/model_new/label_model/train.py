@@ -167,7 +167,11 @@ def forward_sequence(
     body=_label_loop_body,
   )
 
-  logits = model.decode_logits(input_embed=non_blank_input_embeddings_shifted, **label_loop_out)
+  if model.use_current_frame_in_readout:
+    h_t = rf.gather(enc_args["enc"], axis=enc_spatial_dim, indices=center_positions)
+  else:
+    h_t = None
+  logits = model.decode_logits(input_embed=non_blank_input_embeddings_shifted, **label_loop_out, h_t=h_t)
 
   if return_label_model_states:
     # need to run the loop one more time to get the last output (which is not needed for the loss computation)
@@ -308,10 +312,16 @@ def forward_sequence_efficient(
   if non_blank_mask_spatial_dim is not None:
     non_blank_mask_spatial_dim.dyn_size_ext = rf.copy_to_device(non_blank_mask_spatial_dim.dyn_size_ext, "cpu")
 
+  if model.use_current_frame_in_readout:
+    h_t = rf.gather(enc_args["enc"], axis=enc_spatial_dim, indices=center_positions)
+  else:
+    h_t = None
+
   logits = model.decode_logits(
     input_embed=input_embeddings_shifted,
     att=att,
     s=s_out,
+    h_t=h_t,
   )
 
   if return_label_model_states:
@@ -400,6 +410,7 @@ def full_sum_training(
         non_blank_targets_spatial_dim: Dim,
         segment_starts: rf.Tensor,  # [B, T]
         segment_lens: rf.Tensor,  # [B, T]
+        center_positions: rf.Tensor,  # [B, T]
         batch_dims: List[Dim],
 ) -> Optional[Dict[str, Tuple[rf.Tensor, Dim]]]:
   non_blank_input_embeddings = model.target_embed(non_blank_targets)  # [B, S, D]
@@ -412,37 +423,65 @@ def full_sum_training(
   )  # [B, S+1, D]
   non_blank_input_embeddings_shifted.feature_dim = non_blank_input_embeddings.feature_dim
 
-  label_lstm_out, _ = model.s_wo_att(
-    non_blank_input_embeddings_shifted,
-    state=model.s_wo_att.default_initial_state(batch_dims=batch_dims),
-    spatial_dim=non_blank_targets_spatial_dim_ext,
-  )  # [B, S+1, D]
+  if "lstm" in model.decoder_state:
+    s_out, _ = model.s_wo_att(
+      non_blank_input_embeddings_shifted,
+      state=model.s_wo_att.default_initial_state(batch_dims=batch_dims),
+      spatial_dim=non_blank_targets_spatial_dim_ext,
+    )  # [B, S+1, D]
+  else:
+    s_out = model.s_wo_att_linear(non_blank_input_embeddings_shifted)  # [B, S+1, D]
 
   att = model(
     enc=enc_args["enc"],
     enc_ctx=enc_args["enc_ctx"],
     enc_spatial_dim=enc_spatial_dim,
-    s=label_lstm_out,
+    s=s_out,
     segment_starts=segment_starts,
     segment_lens=segment_lens,
+    center_positions=center_positions,
   )  # [B, S+1, T, D]
 
   logits = model.decode_logits(
     input_embed=non_blank_input_embeddings_shifted,
     att=att,
-    s=label_lstm_out,
+    s=s_out,
   )  # [B, S+1, T, D]
 
-  logits_packed, pack_dim = rf.pack_padded(
-    logits,
-    dims=batch_dims + [enc_spatial_dim, non_blank_targets_spatial_dim_ext],
-    enforce_sorted=False
-  )  # [B * T * (S+1), D]
+  def _get_packed_logits_v1():
+    logits_raw = logits.copy_transpose(batch_dims + [enc_spatial_dim, non_blank_targets_spatial_dim_ext, model.target_dim]).raw_tensor
+    enc_lens = enc_spatial_dim.dyn_size_ext.raw_tensor
+    non_blank_lens = non_blank_targets_spatial_dim_ext.dyn_size_ext.raw_tensor
+    vocab_len = model.target_dim.dimension
+
+    batch_tensors = []
+
+    for b in range(logits_raw.shape[0]):
+      enc_len = enc_lens[b]
+      non_blank_len = non_blank_lens[b]
+      combined_len = enc_len * non_blank_len
+      logits_single = logits_raw[b, :enc_len, :non_blank_len]
+      logits_single = torch.reshape(logits_single, (combined_len, vocab_len))
+      batch_tensors.append(logits_single)
+
+    return torch.cat(batch_tensors, dim=0)
+
+  def _get_packed_logits_v2():
+    logits_packed, pack_dim = rf.pack_padded(
+      logits,
+      dims=batch_dims + [enc_spatial_dim, non_blank_targets_spatial_dim_ext],
+      enforce_sorted=False
+    )  # [B * T * (S+1), D]
+    logits_packed_raw = logits_packed.raw_tensor
+
+    return logits_packed_raw
+
+  logits_packed_raw = _get_packed_logits_v1()
 
   from returnn.extern_private.BergerMonotonicRNNT.monotonic_rnnt.pytorch_binding import monotonic_rnnt_loss
 
   loss = monotonic_rnnt_loss(
-    acts=logits_packed.raw_tensor,
+    acts=logits_packed_raw,
     labels=non_blank_targets.copy_transpose(batch_dims + [non_blank_targets_spatial_dim]).raw_tensor,
     input_lengths=rf.copy_to_device(enc_spatial_dim.dyn_size_ext, logits.device).raw_tensor,
     label_lengths=rf.copy_to_device(non_blank_targets_spatial_dim.dyn_size_ext, logits.device).raw_tensor.int(),
