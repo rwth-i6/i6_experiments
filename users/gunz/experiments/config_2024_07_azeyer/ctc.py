@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import copy
 import functools
+import numpy as np
 from typing import TYPE_CHECKING, Optional, Type, Union, Tuple, Sequence
 
 from returnn.tensor import Tensor, Dim
@@ -14,6 +15,9 @@ from returnn.frontend.tensor_array import TensorArray
 from returnn.frontend.encoder.conformer import ConformerEncoder, ConformerConvSubsample
 from returnn.frontend.decoder.transformer import TransformerDecoder
 
+from i6_core.returnn import CodeWrapper
+from i6_experiments.common.setups import serialization
+from i6_experiments.users.gunz.setups.util.serialization import ModuleImport
 from i6_experiments.users.zeyer.model_interfaces import ModelDef, ModelDefWithCfg, RecogDef, TrainDef
 from i6_experiments.users.zeyer.returnn.models.rf_layerdrop import SequentialLayerDrop
 from i6_experiments.users.zeyer.speed_pert.librosa_config import speed_pert_librosa_config
@@ -82,7 +86,7 @@ def train_exp(
     Train experiment
     """
     from i6_experiments.users.zeyer.recog import recog_training_exp
-    from i6_experiments.users.zeyer.train_v3 import train
+    from ...setups.train_v3 import train
 
     if _sis_prefix is None:
         _sis_setup_global_prefix()
@@ -122,6 +126,10 @@ def train_exp(
         num_processes=num_processes,
         distributed_launch_cmd="torchrun" if num_processes else "mpirun",
         time_rqmt=time_rqmt,
+        prolog=[
+            ModuleImport("numpy", import_as="np"),
+            serialization.Import("returnn.util.file_cache.CachedFile"),
+        ],
     )
 
     recog_post_proc_funcs = []
@@ -161,7 +169,7 @@ def ctc_model_def(*, epoch: int, in_dim: Dim, target_dim: Dim) -> Model:
     config = get_global_config()  # noqa
     enc_aux_logits = config.typed_value("aux_loss_layers")
     num_enc_layers = config.int("num_enc_layers", 12)
-    sampling_rate = config.int("sampling_rate")
+    sampling_rate = config.typed_value("sampling_rate")
     # real input is raw audio, internally it does logmel
     in_dim = Dim(name="logmel", dimension=_log_mel_feature_dim, kind=Dim.Types.Feature)
 
