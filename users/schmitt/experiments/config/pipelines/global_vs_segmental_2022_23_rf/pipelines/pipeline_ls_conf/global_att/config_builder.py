@@ -1,4 +1,4 @@
-from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.config_builder_rf.base import GlobalAttConfigBuilderRF
+from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.config_builder_rf.base import LibrispeechGlobalAttConformerConfigBuilderRF
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.global_.model import from_scratch_model_def, _returnn_v2_get_model
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.labels.v2.librispeech.label_singletons import (
   LibrispeechBPE10025_LABELS,
@@ -26,7 +26,7 @@ def get_global_att_config_builder_rf(
     "returnn_root": RETURNN_CURRENT_ROOT
   }
 
-  config_builder = GlobalAttConfigBuilderRF(
+  config_builder = LibrispeechGlobalAttConformerConfigBuilderRF(
     variant_params=variant_params,
     model_def=from_scratch_model_def,
     get_model_func=_returnn_v2_get_model,

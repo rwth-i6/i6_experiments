@@ -60,44 +60,44 @@ def model_realign_(
   )
   max_num_labels = max_num_labels.raw_tensor.item()
 
-  if model.use_joint_model and isinstance(model.label_decoder, SegmentalAttEfficientLabelDecoder):
-    segment_starts, segment_lens = utils.get_segment_starts_and_lens(
-      rf.sequence_mask(batch_dims + [enc_spatial_dim]),  # this way, every frame is interpreted as non-blank
-      enc_spatial_dim,
-      model,
-      batch_dims,
-      enc_spatial_dim
-    )
-
-    seq_log_prob, viterbi_alignment, viterbi_alignment_spatial_dim = model_realign_efficient(
-      model=model.label_decoder,
-      enc=enc_args["enc"],
-      enc_ctx=enc_args["enc_ctx"],
-      enc_spatial_dim=enc_spatial_dim,
-      non_blank_targets=non_blank_targets,
-      non_blank_targets_spatial_dim=non_blank_targets_spatial_dim,
-      segment_starts=segment_starts,
-      segment_lens=segment_lens,
-      batch_dims=batch_dims,
-      beam_size=max_num_labels,
-      downsampling=1,
-      precompute_chunk_size=10,
-      interpolation_alignment=None,
-      interpolation_alignment_factor=0.0,
-      use_recombination="max",
-      return_realignment=True,
-    )
-  else:
-    seq_log_prob, viterbi_alignment, viterbi_alignment_spatial_dim = model_realign(
-      model=model,
-      enc_args=enc_args,
-      enc_spatial_dim=enc_spatial_dim,
-      non_blank_targets=non_blank_targets,
-      non_blank_targets_spatial_dim=non_blank_targets_spatial_dim,
-      batch_dims=batch_dims,
-      beam_size=max_num_labels,
-      use_recombination="max",
-    )
+  # if model.use_joint_model and isinstance(model.label_decoder, SegmentalAttEfficientLabelDecoder):
+  #   segment_starts, segment_lens = utils.get_segment_starts_and_lens(
+  #     rf.sequence_mask(batch_dims + [enc_spatial_dim]),  # this way, every frame is interpreted as non-blank
+  #     enc_spatial_dim,
+  #     model,
+  #     batch_dims,
+  #     enc_spatial_dim
+  #   )
+  #
+  #   seq_log_prob, viterbi_alignment, viterbi_alignment_spatial_dim = model_realign_efficient(
+  #     model=model.label_decoder,
+  #     enc=enc_args["enc"],
+  #     enc_ctx=enc_args["enc_ctx"],
+  #     enc_spatial_dim=enc_spatial_dim,
+  #     non_blank_targets=non_blank_targets,
+  #     non_blank_targets_spatial_dim=non_blank_targets_spatial_dim,
+  #     segment_starts=segment_starts,
+  #     segment_lens=segment_lens,
+  #     batch_dims=batch_dims,
+  #     beam_size=max_num_labels,
+  #     downsampling=1,
+  #     precompute_chunk_size=10,
+  #     interpolation_alignment=None,
+  #     interpolation_alignment_factor=0.0,
+  #     use_recombination="max",
+  #     return_realignment=True,
+  #   )
+  # else:
+  seq_log_prob, viterbi_alignment, viterbi_alignment_spatial_dim = model_realign(
+    model=model,
+    enc_args=enc_args,
+    enc_spatial_dim=enc_spatial_dim,
+    non_blank_targets=non_blank_targets,
+    non_blank_targets_spatial_dim=non_blank_targets_spatial_dim,
+    batch_dims=batch_dims,
+    beam_size=max_num_labels,
+    use_recombination="max",
+  )
 
   return viterbi_alignment, seq_log_prob, viterbi_alignment_spatial_dim
 

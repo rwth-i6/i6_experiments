@@ -1,7 +1,7 @@
 from typing import Tuple, Optional, List
 import itertools
 
-from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.config_builder_rf.base import GlobalAttConfigBuilderRF
+from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.config_builder_rf.base import LibrispeechGlobalAttConformerConfigBuilderRF
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.train_new import GlobalTrainExperiment
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.pipelines.pipeline_ls_conf.checkpoints import external_checkpoints, default_import_model_name
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.global_.train import _returnn_v2_train_step, from_scratch_training
@@ -10,7 +10,7 @@ from i6_experiments.users.schmitt.custom_load_params import load_missing_params
 
 def train_from_scratch(
         alias: str,
-        config_builder: GlobalAttConfigBuilderRF,
+        config_builder: LibrispeechGlobalAttConformerConfigBuilderRF,
         n_epochs_list: Tuple[int, ...],
         batch_size: int = 15_000,
         time_rqmt: int = 168,
@@ -60,7 +60,7 @@ def train_from_scratch(
 
 def train_import_global_tf(
         alias: str,
-        config_builder: GlobalAttConfigBuilderRF,
+        config_builder: LibrispeechGlobalAttConformerConfigBuilderRF,
         n_epochs_list: Tuple[int, ...],
         const_lr_list: Tuple[float, ...],
         time_rqmt: int = 80,

@@ -277,7 +277,8 @@ class PlotAttentionWeightsJobV2(Job):
           ax: plt.Axes,
           ref_alignment: np.ndarray,
           targets: np.ndarray,
-          vocab: Dict[int, str],
+          target_vocab: Dict[int, str],
+          ref_vocab: Dict[int, str],
           ref_alignment_blank_idx: int,
           target_blank_idx: Optional[int] = None,
           draw_vertical_lines: bool = False
@@ -291,7 +292,7 @@ class PlotAttentionWeightsJobV2(Job):
     # +1 bc plt starts at 1, not at 0
     ref_label_positions = np.where(ref_alignment != ref_alignment_blank_idx)[-1] + 1
     ref_labels = ref_alignment[ref_alignment != ref_alignment_blank_idx]
-    ref_labels = [vocab[idx] for idx in ref_labels]
+    ref_labels = [ref_vocab[idx] for idx in ref_labels]
     # x axis
     xticks = [tick - 1.0 for tick in ref_label_positions]
     ax.set_xticks(xticks)
@@ -300,7 +301,7 @@ class PlotAttentionWeightsJobV2(Job):
     # output labels of the model
     # in case of alignment: filter for non-blank targets. otherwise, just leave the targets array as is
     labels = targets[targets != target_blank_idx] if target_blank_idx is not None else targets
-    labels = [vocab[idx] for idx in labels]
+    labels = [target_vocab[idx] for idx in labels]
     # y axis
     yticks = [tick for tick in range(len(labels))]
     ax.set_yticks(yticks)
@@ -402,7 +403,7 @@ class PlotAttentionWeightsJobV2(Job):
       )
 
       # set y ticks and labels
-      self.set_ticks(ax, ref_alignment, targets, vocab, self.ref_alignment_blank_idx, self.target_blank_idx)
+      self.set_ticks(ax, ref_alignment, targets, vocab, vocab, self.ref_alignment_blank_idx, self.target_blank_idx)
       if self.target_blank_idx is not None:
         self._draw_segment_boundaries(ax, seg_starts, seg_lens, att_weights)
       if center_positions is not None:
@@ -523,7 +524,7 @@ class PlotCtcProbsJob(Job):
       )
 
       # set y ticks and labels
-      PlotAttentionWeightsJobV2.set_ticks(ax, ctc_alignment, targets, vocab, self.ctc_blank_idx, None)
+      PlotAttentionWeightsJobV2.set_ticks(ax, ctc_alignment, targets, vocab, vocab, self.ctc_blank_idx, None)
 
       dirname = self.out_plot_dir.get_path()
       filename = os.path.join(dirname, "plot.%s" % seq_tag.replace("/", "_"))
@@ -559,6 +560,7 @@ class PlotAlignmentJob(Job):
           ref_alignment_hdf: Optional[Path] = None,
           ref_alignment_blank_idx: Optional[int] = None,
           silence_idx: Optional[int] = None,
+          ref_alignment_json_vocab_path: Optional[Path] = None,
   ):
     if ref_alignment_hdf is not None:
       assert ref_alignment_blank_idx is not None
@@ -570,6 +572,11 @@ class PlotAlignmentJob(Job):
     self.silence_idx = silence_idx
     self.ref_alignment_hdf = ref_alignment_hdf if ref_alignment_hdf is not None else alignment_hdf
     self.ref_alignment_blank_idx = ref_alignment_blank_idx if ref_alignment_blank_idx is not None else target_blank_idx
+
+    if ref_alignment_json_vocab_path is None:
+      self.ref_alignment_json_vocab_path = json_vocab_path
+    else:
+      self.ref_alignment_json_vocab_path = ref_alignment_json_vocab_path
 
     self.out_plot_dir = self.output_path("plots", True)
 
@@ -620,7 +627,8 @@ class PlotAlignmentJob(Job):
           ax: plt.Axes,
           alignment: np.ndarray,
           ref_alignment: np.ndarray,
-          vocab: Dict[int, str],
+          target_vocab: Dict[int, str],
+          ref_vocab: Dict[int, str],
           blank_idx: int,
           ref_alignment_blank_idx: int,
   ):
@@ -633,7 +641,8 @@ class PlotAlignmentJob(Job):
       ax,
       ref_alignment=ref_alignment,
       targets=alignment,
-      vocab=vocab,
+      target_vocab=target_vocab,
+      ref_vocab=ref_vocab,
       ref_alignment_blank_idx=ref_alignment_blank_idx,
       target_blank_idx=blank_idx,
       draw_vertical_lines=True
@@ -648,13 +657,21 @@ class PlotAlignmentJob(Job):
     alignment_dict = hdf.load_hdf_data(self.alignment_hdf, segment_list=self.segment_list)
     ref_alignment_dict = hdf.load_hdf_data(self.ref_alignment_hdf, segment_list=self.segment_list)
 
-    # load vocabulary as dictionary
+    # load target vocabulary as dictionary
     with open(self.json_vocab_path.get_path(), "r") as f:
       json_data = f.read()
-      vocab = ast.literal_eval(json_data)  # label -> idx
-      vocab = {v: k for k, v in vocab.items()}  # idx -> label
+      target_vocab = ast.literal_eval(json_data)  # label -> idx
+      target_vocab = {v: k for k, v in target_vocab.items()}  # idx -> label
       if self.silence_idx is not None:
-        vocab[self.silence_idx] = "[Silence]"
+        target_vocab[self.silence_idx] = "[Silence]"
+
+    if self.ref_alignment_json_vocab_path != self.json_vocab_path:
+      with open(self.ref_alignment_json_vocab_path.get_path(), "r") as f:
+        json_data = f.read()
+        ref_vocab = ast.literal_eval(json_data)
+        ref_vocab = {v: k for k, v in ref_vocab.items()}
+    else:
+      ref_vocab = target_vocab
 
     # for each seq tag, plot the corresponding att weights
     for seq_tag in alignment_dict.keys():
@@ -670,7 +687,8 @@ class PlotAlignmentJob(Job):
         ax,
         alignment,
         ref_alignment,
-        vocab,
+        target_vocab,
+        ref_vocab,
         self.target_blank_idx,
         ref_alignment_blank_idx=self.ref_alignment_blank_idx
       )
@@ -693,4 +711,8 @@ class PlotAlignmentJob(Job):
     if kwargs["ref_alignment_hdf"] is None:
       kwargs.pop("ref_alignment_hdf")
       kwargs.pop("ref_alignment_blank_idx")
+
+    if kwargs["ref_alignment_json_vocab_path"] is None:
+      kwargs.pop("ref_alignment_json_vocab_path")
+
     return super().hash(kwargs)

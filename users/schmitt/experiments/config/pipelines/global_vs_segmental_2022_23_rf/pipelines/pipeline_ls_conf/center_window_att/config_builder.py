@@ -8,7 +8,7 @@ from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segment
 )
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.general.returnn.exes import RETURNN_EXE_NEW, RETURNN_CURRENT_ROOT
 
-from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.config_builder_rf.base import SegmentalAttConfigBuilderRF
+from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.config_builder_rf.base import LibrispeechSegmentalAttConformerConfigBuilderRF
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.segmental.model import from_scratch_model_def, _returnn_v2_get_model, _returnn_v2_get_joint_model
 
 
@@ -24,7 +24,7 @@ def get_center_window_att_config_builder_rf(
         separate_blank_from_softmax: bool = False,
         blank_decoder_opts: Optional[Dict] = None,
         use_current_frame_in_readout: bool = False,
-) -> Tuple[str, SegmentalAttConfigBuilderRF]:
+) -> Tuple[str, LibrispeechSegmentalAttConformerConfigBuilderRF]:
   assert bpe_vocab_size in {10025, 1056, 5048}
 
   if bpe_vocab_size == 10025:
@@ -53,7 +53,7 @@ def get_center_window_att_config_builder_rf(
   else:
     get_model_func = _returnn_v2_get_model
 
-  config_builder = SegmentalAttConfigBuilderRF(
+  config_builder = LibrispeechSegmentalAttConformerConfigBuilderRF(
     variant_params=variant_params,
     model_def=from_scratch_model_def,
     get_model_func=get_model_func,

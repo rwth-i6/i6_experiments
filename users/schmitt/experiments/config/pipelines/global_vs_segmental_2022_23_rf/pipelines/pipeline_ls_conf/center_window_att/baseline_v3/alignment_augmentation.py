@@ -25,5 +25,4 @@ def run_exps():
           alias=train_alias,
           config_builder=config_builder,
           checkpoint=checkpoint,
-          checkpoint_aliases=("last",),
         )

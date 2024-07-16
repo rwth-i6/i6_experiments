@@ -10,6 +10,7 @@ from sisyphus import Path
 
 
 def run_exps():
+  # Done
   for model_alias, config_builder in get_config_builder.center_window_att_baseline_rf(
           win_size_list=(5,),
           blank_decoder_version=7,
@@ -28,7 +29,7 @@ def run_exps():
       )
 
   # ------------------- test blank decoder v4 (full label ctx) ---------------------
-
+  # Done
   for model_alias, config_builder in get_config_builder.center_window_att_baseline_rf(
           win_size_list=(1, 5,),
           blank_decoder_version=4,
@@ -62,6 +63,7 @@ def run_exps():
         subtract_ilm_eos_score=True,
       )
 
+  # Done
   for model_alias, config_builder in get_config_builder.center_window_att_baseline_rf(
           win_size_list=(5,),
           blank_decoder_version=4,

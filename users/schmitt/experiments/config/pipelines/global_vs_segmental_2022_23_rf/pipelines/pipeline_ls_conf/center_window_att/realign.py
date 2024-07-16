@@ -5,7 +5,7 @@ from i6_core.returnn.training import PtCheckpoint
 from i6_core.returnn.forward import ReturnnForwardJob, ReturnnForwardJobV2
 from sisyphus import Path, tk
 
-from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.config_builder_rf.base import SegmentalAttConfigBuilderRF
+from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.config_builder_rf.base import LibrispeechSegmentalAttConformerConfigBuilderRF
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.recog_new import ReturnnSegmentalAttDecodingPipeline, RasrSegmentalAttDecodingExperiment
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.realignment_new import RasrRealignmentExperiment
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.recog import _returnn_v2_forward_step, _returnn_v2_get_forward_callback
@@ -18,7 +18,7 @@ from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segment
 
 def center_window_returnn_realignment(
         alias: str,
-        config_builder: SegmentalAttConfigBuilderRF,
+        config_builder: LibrispeechSegmentalAttConformerConfigBuilderRF,
         checkpoint: Union[PtCheckpoint, Dict],
         checkpoint_alias: str,
         plot: bool = False,
@@ -59,8 +59,8 @@ def center_window_returnn_realignment(
       # ref_alignment_hdf=Path(
       #   "/u/schmitt/experiments/segmental_models_2022_23_rf/alias/models/ls_conformer/global_att/baseline_v1/baseline/no-finetuning/ctc_alignments/dev-other/output/alignments.hdf"),
       ref_alignment_hdf=LibrispeechBPE10025_CTC_ALIGNMENT.alignment_paths["dev-other"],
-      json_vocab_path=Path(
-        "/u/zeineldeen/setups/librispeech/2022-11-28--conformer-att/work/i6_core/text/label/subword_nmt/train/ReturnnTrainBpeJob.vTq56NZ8STWt/output/bpe.vocab"),
+      json_vocab_path=config_builder.variant_params["dependencies"].vocab_path,
+      ref_alignment_json_vocab_path=LibrispeechBPE10025_CTC_ALIGNMENT.vocab_path,
       target_blank_idx=config_builder.variant_params["dependencies"].model_hyperparameters.blank_idx,
       segment_list=[
         "dev-other/3660-6517-0005/3660-6517-0005",

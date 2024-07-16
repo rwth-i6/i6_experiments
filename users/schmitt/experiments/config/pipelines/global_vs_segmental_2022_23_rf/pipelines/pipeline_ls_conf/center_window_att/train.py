@@ -1,7 +1,7 @@
 import copy
 from typing import Tuple, Optional, List, Dict, Union, Callable
 
-from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.config_builder_rf.base import SegmentalAttConfigBuilderRF
+from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.config_builder_rf.base import LibrispeechSegmentalAttConformerConfigBuilderRF
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.train_new import SegmentalTrainExperiment
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.segmental.train import (
   _returnn_v2_train_step,
@@ -23,13 +23,13 @@ def _get_optimizer_alias(optimizer_opts: Dict):
   )
 
 
-def _get_reduced_input_len(input_len: int, config_builder: SegmentalAttConfigBuilderRF):
+def _get_reduced_input_len(input_len: int, config_builder: LibrispeechSegmentalAttConformerConfigBuilderRF):
   return int(input_len - config_builder.red_subtrahend + config_builder.red_factor - 1) // config_builder.red_factor
 
 
 def train_center_window_att_viterbi_from_scratch(
         alias: str,
-        config_builder: SegmentalAttConfigBuilderRF,
+        config_builder: LibrispeechSegmentalAttConformerConfigBuilderRF,
         n_epochs_list: Tuple[int, ...],
         time_rqmt: int = 80,
         use_speed_pert: bool = False,
@@ -151,7 +151,7 @@ def train_center_window_att_viterbi_from_scratch(
 
 def train_center_window_att_full_sum_from_scratch(
         alias: str,
-        config_builder: SegmentalAttConfigBuilderRF,
+        config_builder: LibrispeechSegmentalAttConformerConfigBuilderRF,
         n_epochs_list: Tuple[int, ...],
         time_rqmt: int = 80,
         use_speed_pert: bool = False,
@@ -252,7 +252,7 @@ def train_center_window_att_full_sum_from_scratch(
 
 def train_center_window_att_viterbi_import_global_tf(
         alias: str,
-        config_builder: SegmentalAttConfigBuilderRF,
+        config_builder: LibrispeechSegmentalAttConformerConfigBuilderRF,
         n_epochs_list: Tuple[int, ...],
         const_lr_list: Tuple[float, ...] = (1e-4,),
         time_rqmt: int = 80,

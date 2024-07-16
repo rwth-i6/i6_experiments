@@ -181,4 +181,5 @@ def run_exps():
           config_builder=config_builder,
           checkpoint=chckpt,
           checkpoint_alias=f"epoch-{epoch}",
+          plot=True,
         )

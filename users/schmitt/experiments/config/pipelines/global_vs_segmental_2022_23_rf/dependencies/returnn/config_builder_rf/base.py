@@ -624,7 +624,7 @@ class LibrispeechConformerConfigBuilderRF(ConfigBuilderRF, ABC):
     return 399
 
 
-class GlobalAttConfigBuilderRF(LibrispeechConformerConfigBuilderRF):
+class GlobalAttConfigBuilderRF(ConfigBuilderRF, ABC):
   def __init__(
           self,
           use_weight_feedback: bool = True,
@@ -652,7 +652,7 @@ class GlobalAttConfigBuilderRF(LibrispeechConformerConfigBuilderRF):
     return extern_data_dict
 
 
-class SegmentalAttConfigBuilderRF(LibrispeechConformerConfigBuilderRF):
+class SegmentalAttConfigBuilderRF(ConfigBuilderRF, ABC):
   def __init__(
           self,
           center_window_size: int,
@@ -869,3 +869,11 @@ class SegmentalAttConfigBuilderRF(LibrispeechConformerConfigBuilderRF):
 
     # serialize remaining functions, e.g. dynamic learning rate
     return get_serializable_config(returnn_dump_att_weight_config, serialize_dim_tags=False)
+
+
+class LibrispeechGlobalAttConformerConfigBuilderRF(LibrispeechConformerConfigBuilderRF, GlobalAttConfigBuilderRF, ABC):
+  pass
+
+
+class LibrispeechSegmentalAttConformerConfigBuilderRF(LibrispeechConformerConfigBuilderRF, SegmentalAttConfigBuilderRF, ABC):
+  pass
