@@ -41,7 +41,7 @@ class GlobalAttentionModel(rf.Module):
           decoder_state: str = "nb-lstm",
           decoder_type: str = "lstm",
           num_dec_layers: int = 1,
-          target_embed_dim: Dim = Dim(name="target_embed", dimension=640),
+          target_embed_dim: int = 640,
   ):
     super(GlobalAttentionModel, self).__init__()
 
@@ -83,7 +83,7 @@ class GlobalAttentionModel(rf.Module):
         use_att_ctx_in_state=use_att_ctx_in_state,
         use_mini_att=use_mini_att,
         decoder_state=decoder_state,
-        target_embed_dim=target_embed_dim,
+        target_embed_dim=Dim(name="target_embed", dimension=target_embed_dim),
       )
     else:
       assert decoder_type == "trafo"
