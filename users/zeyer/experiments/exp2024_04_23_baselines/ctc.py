@@ -397,13 +397,13 @@ def py():
         ("spm4k", "spm", 0.7),  # 6.42
         ("spm4k", "bpe", 0.01),  # 6.05
         ("spm1k", None, None),  # 6.07
-        ("spm1k", "spm", 0.7),
+        ("spm1k", "spm", 0.7),  # 7.33
         ("spm1k", "bpe", 0.01),  # 6.13 (but dev-clean,test-* are better than no sampling)
         ("spm_bpe1k", None, None),  # 6.03
         ("spm_bpe1k", "bpe", 0.01),  # 6.05
-        ("spm512", None, None),
-        ("spm512", "bpe", 0.01),
-        ("spm128", None, None),
+        ("spm512", None, None),  # 6.08
+        ("spm512", "bpe", 0.01),  # 6.08 (but test-* is better than spm512 without sampling)
+        ("spm128", None, None),  # 6.37
         ("spm128", "bpe", 0.01),
     ]:
         train_exp(
