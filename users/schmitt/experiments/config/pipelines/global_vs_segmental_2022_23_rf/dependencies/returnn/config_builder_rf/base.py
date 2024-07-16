@@ -142,22 +142,21 @@ class ConfigBuilderRF(ABC):
       if preload_dict and "custom_missing_load_func" not in preload_dict:
         preload_dict["custom_missing_load_func"] = load_missing_params
 
+    serialization_list = [
+      serialization.NonhashedCode(get_import_py_code()),
+      serialization.NonhashedCode(nn.ReturnnConfigSerializer.get_base_extern_data_py_code_str_direct(extern_data_raw)),
+      *serialize_model_def(self.model_def), serialization.Import(self.get_model_func, import_as="get_model"),
+      serialization.Import(train_def, import_as="_train_def", ignore_import_as_for_hash=True),
+      serialization.Import(train_step_func, import_as="train_step"),
+      serialization.PythonEnlargeStackWorkaroundNonhashedCode,
+      serialization.PythonModelineNonhashedCode
+    ]
+
+    if opts.get("use_python_cache_manager", True):
+      serialization_list.append(serialization.PythonCacheManagerFunctionNonhashedCode)
+
     python_epilog.append(
-      serialization.Collection(
-        [
-          serialization.NonhashedCode(get_import_py_code()),
-          serialization.NonhashedCode(
-            nn.ReturnnConfigSerializer.get_base_extern_data_py_code_str_direct(extern_data_raw)
-          ),
-          *serialize_model_def(self.model_def),
-          serialization.Import(self.get_model_func, import_as="get_model"),
-          serialization.Import(train_def, import_as="_train_def", ignore_import_as_for_hash=True),
-          serialization.Import(train_step_func, import_as="train_step"),
-          serialization.PythonEnlargeStackWorkaroundNonhashedCode,
-          serialization.PythonCacheManagerFunctionNonhashedCode,
-          serialization.PythonModelineNonhashedCode
-        ]
-      )
+      serialization.Collection(serialization_list)
     )
 
     returnn_train_config = ReturnnConfig(
