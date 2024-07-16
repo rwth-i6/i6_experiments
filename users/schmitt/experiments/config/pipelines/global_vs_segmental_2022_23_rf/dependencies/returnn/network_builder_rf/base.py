@@ -55,6 +55,7 @@ class BaseLabelDecoder(rf.Module):
           separate_blank_from_softmax: bool = False,
           reset_eos_params: bool = False,
           use_current_frame_in_readout: bool = False,
+          target_embed_dim: Dim = Dim(name="target_embed", dimension=640),
   ):
     super(BaseLabelDecoder, self).__init__()
 
@@ -68,7 +69,7 @@ class BaseLabelDecoder(rf.Module):
     self.att_dropout = att_dropout
     self.dropout_broadcast = rf.dropout_broadcast_default()
 
-    target_embed_opts = {"in_dim": target_dim, "out_dim": Dim(name="target_embed", dimension=640)}
+    target_embed_opts = {"in_dim": target_dim, "out_dim": target_embed_dim}
     if reset_eos_params:
       self.target_embed_reset_eos = rf.Embedding(**target_embed_opts)
       self.target_embed = self.target_embed_reset_eos

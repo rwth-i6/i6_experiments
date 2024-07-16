@@ -3,6 +3,7 @@ import functools
 
 from returnn.tensor import Tensor, Dim, single_step_dim
 import returnn.frontend as rf
+from returnn.frontend.decoder.transformer import TransformerDecoder
 
 from i6_experiments.users.schmitt.returnn_frontend.model_interfaces.model import ModelDef
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.global_.decoder import (
@@ -38,6 +39,9 @@ class GlobalAttentionModel(rf.Module):
           use_att_ctx_in_state: bool = True,
           use_mini_att: bool = False,
           decoder_state: str = "nb-lstm",
+          decoder_type: str = "lstm",
+          num_dec_layers: int = 1,
+          target_embed_dim: Dim = Dim(name="target_embed", dimension=640),
   ):
     super(GlobalAttentionModel, self).__init__()
 
@@ -58,25 +62,39 @@ class GlobalAttentionModel(rf.Module):
       l2=l2,
     )
 
-    if not use_weight_feedback and not use_att_ctx_in_state:
-      decoder_cls = GlobalAttEfficientDecoder
-    else:
-      decoder_cls = GlobalAttDecoder
+    if decoder_type == "lstm":
+      assert num_dec_layers == 1
 
-    self.label_decoder = decoder_cls(
-      enc_out_dim=self.encoder.out_dim,
-      target_dim=target_dim,
-      att_num_heads=dec_att_num_heads,
-      att_dropout=att_dropout,
-      blank_idx=blank_idx,
-      enc_key_total_dim=enc_key_total_dim,
-      l2=l2,
-      eos_idx=eos_idx,
-      use_weight_feedback=use_weight_feedback,
-      use_att_ctx_in_state=use_att_ctx_in_state,
-      use_mini_att=use_mini_att,
-      decoder_state=decoder_state,
-    )
+      if not use_weight_feedback and not use_att_ctx_in_state:
+        decoder_cls = GlobalAttEfficientDecoder
+      else:
+        decoder_cls = GlobalAttDecoder
+
+      self.label_decoder = decoder_cls(
+        enc_out_dim=self.encoder.out_dim,
+        target_dim=target_dim,
+        att_num_heads=dec_att_num_heads,
+        att_dropout=att_dropout,
+        blank_idx=blank_idx,
+        enc_key_total_dim=enc_key_total_dim,
+        l2=l2,
+        eos_idx=eos_idx,
+        use_weight_feedback=use_weight_feedback,
+        use_att_ctx_in_state=use_att_ctx_in_state,
+        use_mini_att=use_mini_att,
+        decoder_state=decoder_state,
+        target_embed_dim=target_embed_dim,
+      )
+    else:
+      assert decoder_type == "trafo"
+
+      self.label_decoder = TransformerDecoder(
+        num_layers=num_dec_layers,
+        encoder_dim=self.encoder.out_dim,
+        vocab_dim=target_dim,
+        model_dim=Dim(name="dec", dimension=512),
+        sequential=rf.Sequential,
+      )
 
     if language_model:
       self.language_model = language_model
@@ -103,6 +121,7 @@ class MakeModel:
           eos_label: int = 0,
           num_enc_layers: int = 12,
           enc_aux_logits: Sequence[int] = (),
+          target_embed_dim: int = 640
   ):
     self.in_dim = in_dim
     self.target_dim = target_dim
@@ -112,6 +131,9 @@ class MakeModel:
     # do not set attribute otherwise to keep job hashes
     if enc_aux_logits != ():
       self.enc_aux_logits = enc_aux_logits
+
+    if target_embed_dim != 640:
+      self.target_embed_dim = target_embed_dim
 
   def __call__(self) -> GlobalAttentionModel:
     from returnn.datasets.util.vocabulary import Vocabulary
@@ -125,6 +147,9 @@ class MakeModel:
     extra = {}
     if hasattr(self, "enc_aux_logits"):
       extra["enc_aux_logits"] = self.enc_aux_logits
+
+    if hasattr(self, "target_embed_dim"):
+      extra["target_embed_dim"] = self.target_embed_dim
 
     return self.make_model(in_dim, target_dim, num_enc_layers=self.num_enc_layers, **extra)
 
@@ -141,6 +166,8 @@ class MakeModel:
           use_att_ctx_in_state: bool = True,
           use_mini_att: bool = False,
           decoder_state: str = "nb-lstm",
+          decoder_type: str = "lstm",
+          num_dec_layers: int = 1,
           **extra,
   ) -> GlobalAttentionModel:
     """make"""
@@ -183,6 +210,8 @@ class MakeModel:
       use_att_ctx_in_state=use_att_ctx_in_state,
       use_mini_att=use_mini_att,
       decoder_state=decoder_state,
+      decoder_type=decoder_type,
+      num_dec_layers=num_dec_layers,
       **extra,
     )
 
@@ -226,6 +255,8 @@ def from_scratch_model_def(*, epoch: int, in_dim: Dim, target_dim: Dim) -> Globa
   use_att_ctx_in_state = config.bool("use_att_ctx_in_state", True)
   use_mini_att = config.bool("use_mini_att", False)
   decoder_state = config.typed_value("label_decoder_state", "nb-lstm")
+  decoder_type = config.typed_value("label_decoder_type", "lstm")
+  num_dec_layers = config.int("num_dec_layers", 1)
 
   return MakeModel.make_model(
     in_dim,
@@ -237,6 +268,8 @@ def from_scratch_model_def(*, epoch: int, in_dim: Dim, target_dim: Dim) -> Globa
     use_att_ctx_in_state=use_att_ctx_in_state,
     use_mini_att=use_mini_att,
     decoder_state=decoder_state,
+    decoder_type=decoder_type,
+    num_dec_layers=num_dec_layers,
   )
 
 
