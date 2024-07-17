@@ -46,7 +46,7 @@ post_config = {
     "debug_print_layer_output_template": True,
     "debug_mode": False,
     "batching": "random",
-    "tf_session_opts": {"gpu_options": {"per_process_gpu_memory_fraction": 0.92}},
+    # "tf_session_opts": {"gpu_options": {"per_process_gpu_memory_fraction": 0.92}},
 }
 
 # -------------------------- LR Scheduling -------------------------- #
