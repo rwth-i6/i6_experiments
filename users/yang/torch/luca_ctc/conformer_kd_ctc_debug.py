@@ -8,6 +8,7 @@ import tree
 import math
 import numpy as np
 import hashlib
+import copy
 import contextlib
 import functools
 
@@ -297,10 +298,12 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
         20_000: 4,
     }
     kd_scale = 0.2
-    recog_epoch = np.linspace(0, ep1+ep2+ep3, (ep1+ep2+ep3)//5+1, dtype=int)
-    recog_epoch = list(map(int,list(recog_epoch)[1:]))
-    extra_epochs = [2, 8, 12, 56,57,58,59,52,54, 36,38,16,18]
-    train_lm_scales =  [1.0,0.6] #[0.6, 1.0]
+    #recog_epoch = np.linspace(0, ep1+ep2+ep3, (ep1+ep2+ep3)//5+1, dtype=int)
+    #recog_epoch = list(map(int,list(recog_epoch)[1:]))
+    recog_epoch = [60]
+    #extra_epochs = [2, 8, 12, 56,57,58,59,52,54, 36,38,16,18]
+    extra_epochs= []
+    train_lm_scales =  [1.0] #[0.6, 1.0]
     # new checkpoint
     ############### only eos mask
     base_checkpoint_path = "/u/zyang/setups/rf/alias/conformer_only_target/debug_only_target_kd_scale-0.2_lm_scale-0.6/train/output/models/epoch.024.pt"
@@ -335,44 +338,46 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
                 },
                 post_config_updates={
                     "cleanup_old_models": {"keep": recog_epoch}
-                }
-            )
-
-    for i in extra_epochs:
-        recog_epoch.append(i)
-    train_lm_scales = [1.0]
-    for k in [20]:
-        for train_lm_scale in train_lm_scales:
-            train_exp(  # baseline dev-other 6.9
-                f"debug_eosmask_freeze_gamma_kd_scale-{kd_scale}-trainlm-{train_lm_scale}-top-{k}_lr1-{lr_1}_lr2-{lr_2}_lr3-{lr_3}_ep1-{ep1}_ep2-{ep2}_ep3-{ep3}",
-                config_24gb_finetune,
-                config_updates={
-                    "learning_rate": float(lrs[-1]),
-                    "learning_rates": lrs,
-                    #"dynamic_learning_rate": dyn_lr_piecewise_linear,
-                    # total steps after 2000 epochs: 982.312
-                    # "learning_rate_piecewise_steps": [600_000, 900_000, 982_000],
-                    # "learning_rate_piecewise_values": [1e-5, 1e-3, 1e-5, 1e-6],
-                    "__num_epochs": ep1+ep2+ep3,
-                    "mask_eos_output": True,
-                    "accum_grad_multiple_step": grad_accum_dict[batch_sizes[k]],
-                    "batch_size": batch_sizes[k] * 160,
-                    "add_eos_to_blank": True,
-                    "preload_from_files": {"base": {"init_for_train": True, "ignore_missing": True, "filename": base_checkpoint_path}},
-                    "mel_normalization_ted2": False,
-                    "kd_top_k": k,
-                    "kd_scale": kd_scale,
-                    "eos_mask": True,
-                    "train_lm_scale": train_lm_scale,
-                    "target_in_top_mask": False,
-                    "specaugment_steps": (0,0,0),
-                    "freeze_gamma": True,
-
                 },
-                post_config_updates={
-                    "cleanup_old_models": {"keep": recog_epoch}
-                }
+                greedy_search=False,
+                length_norm_scale=1.0,
             )
+
+    # for i in extra_epochs:
+    #     recog_epoch.append(i)
+    # train_lm_scales = [1.0]
+    # for k in [20]:
+    #     for train_lm_scale in train_lm_scales:
+    #         train_exp(  # baseline dev-other 6.9
+    #             f"debug_eosmask_freeze_gamma_kd_scale-{kd_scale}-trainlm-{train_lm_scale}-top-{k}_lr1-{lr_1}_lr2-{lr_2}_lr3-{lr_3}_ep1-{ep1}_ep2-{ep2}_ep3-{ep3}",
+    #             config_24gb_finetune,
+    #             config_updates={
+    #                 "learning_rate": float(lrs[-1]),
+    #                 "learning_rates": lrs,
+    #                 #"dynamic_learning_rate": dyn_lr_piecewise_linear,
+    #                 # total steps after 2000 epochs: 982.312
+    #                 # "learning_rate_piecewise_steps": [600_000, 900_000, 982_000],
+    #                 # "learning_rate_piecewise_values": [1e-5, 1e-3, 1e-5, 1e-6],
+    #                 "__num_epochs": ep1+ep2+ep3,
+    #                 "mask_eos_output": True,
+    #                 "accum_grad_multiple_step": grad_accum_dict[batch_sizes[k]],
+    #                 "batch_size": batch_sizes[k] * 160,
+    #                 "add_eos_to_blank": True,
+    #                 "preload_from_files": {"base": {"init_for_train": True, "ignore_missing": True, "filename": base_checkpoint_path}},
+    #                 "mel_normalization_ted2": False,
+    #                 "kd_top_k": k,
+    #                 "kd_scale": kd_scale,
+    #                 "eos_mask": True,
+    #                 "train_lm_scale": train_lm_scale,
+    #                 "target_in_top_mask": False,
+    #                 "specaugment_steps": (0,0,0),
+    #                 "freeze_gamma": True,
+    #
+    #             },
+    #             post_config_updates={
+    #                 "cleanup_old_models": {"keep": recog_epoch}
+    #             }
+    #         )
 
 
 _sis_prefix: Optional[str] = None
@@ -435,6 +440,8 @@ def train_exp(
     fine_tune: Optional[Union[int, List[Tuple[int, Dict[str, Any]]]]] = None,
     time_rqmt: Optional[int] = None,
     model_avg: bool = False,
+    greedy_search=True,
+    length_norm_scale=0.0,
 ) -> ModelWithCheckpoints:
     """
     Train experiment
@@ -471,9 +478,22 @@ def train_exp(
         distributed_launch_cmd="torchrun" if num_processes else "mpirun",
         time_rqmt=time_rqmt,
     )
-    recog_training_exp(
-        prefix, task, model_with_checkpoint, recog_def=model_recog, model_avg=model_avg
-    )
+    # greedy search:
+    if greedy_search:
+        from i6_experiments.users.yang.torch.luca_ctc.model_recog_ctc_greedy import model_recog
+        recog_training_exp(
+            prefix, task, model_with_checkpoint, recog_def=model_recog, model_avg=model_avg
+        )
+    else:
+        print('fixed epochs################', model_with_checkpoint.fixed_epochs)
+        recog_config_update = {'batch_size':1600000, "length_norm_scale": length_norm_scale}
+        from i6_experiments.users.yang.torch.decoding.ctc_aed_joint_simple_version import model_recog
+        recog_training_exp(
+            prefix + '-label_sync-lennorm_scale_' +f"{length_norm_scale}", task, model_with_checkpoint, search_config=recog_config_update, recog_def=model_recog, model_avg=model_avg
+        )
+
+    # ctc label sync search
+
 
     if fine_tune:
         if isinstance(fine_tune, int):

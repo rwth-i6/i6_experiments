@@ -228,6 +228,7 @@ class Model(rf.Module):
         # self.att_num_heads = att_num_heads
         # self.att_dropout = att_dropout
         self.dropout_broadcast = rf.dropout_broadcast_default()
+        self.search_args= {}
 
         # https://github.com/rwth-i6/returnn-experiments/blob/master/2020-rnn-transducer/configs/base2.conv2l.specaug4a.ctc.devtrain.config
 
