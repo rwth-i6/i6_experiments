@@ -4,8 +4,10 @@ import copy
 from i6_core import corpus
 from i6_core.lexicon.modification import AddEowPhonemesToLexiconJob
 from i6_experiments.users.berger.systems.dataclasses import FeatureType
+from i6_experiments.users.berger.corpus.general.experiment_data import PytorchCTCSetupData
+from i6_experiments.users.berger.corpus.general.hdf import build_feature_label_meta_dataset_config
 from . import data
-from ..general import CTCSetupData, filter_unk_in_corpus_object, build_feature_hdf_dataset_config
+from ..general import CTCSetupData, build_feature_hdf_dataset_config
 from sisyphus import tk
 
 
@@ -118,6 +120,111 @@ def get_librispeech_data(
         cv_data_config=cv_data_config,
         loss_corpus=loss_corpus,
         loss_lexicon=loss_lexicon,
+        data_inputs={
+            **train_data_inputs,
+            **dev_data_inputs,
+            **test_data_inputs,
+            **align_data_inputs,
+        },
+    )
+
+
+def get_librispeech_data_dumped_labels(
+    num_classes: int,
+    returnn_root: tk.Path,
+    returnn_python_exe: tk.Path,
+    rasr_binary_path: tk.Path,
+    rasr_arch: str = "linux-x86_64-standard",
+    train_key: str = "train-other-960",
+    cv_keys: Optional[List[str]] = None,
+    dev_keys: Optional[List[str]] = None,
+    test_keys: Optional[List[str]] = None,
+    feature_type: FeatureType = FeatureType.SAMPLES,
+    dc_detection: bool = False,
+    **kwargs,
+) -> PytorchCTCSetupData:
+    if cv_keys is None:
+        cv_keys = ["dev-clean", "dev-other"]
+    if dev_keys is None:
+        dev_keys = ["dev-clean", "dev-other"]
+    if test_keys is None:
+        test_keys = ["test-clean", "test-other"]
+
+    # ********** Data inputs **********
+
+    train_data_inputs, cv_data_inputs, dev_data_inputs, test_data_inputs = copy.deepcopy(
+        data.get_data_inputs(
+            train_key=train_key,
+            cv_keys=cv_keys,
+            dev_keys=dev_keys,
+            test_keys=test_keys,
+            ctc_lexicon=True,
+            add_all_allophones=True,
+            audio_format="wav",
+            **kwargs,
+        )
+    )
+
+    # ********** Train data **********
+
+    train_lexicon = train_data_inputs[train_key].lexicon.filename
+    eow_lexicon = AddEowPhonemesToLexiconJob(train_lexicon).out_lexicon
+
+    train_data_config = build_feature_label_meta_dataset_config(
+        label_dim=num_classes - 1,
+        data_inputs=[train_data_inputs[train_key]],
+        lexicon=eow_lexicon,
+        feature_type=feature_type,
+        returnn_root=returnn_root,
+        returnn_python_exe=returnn_python_exe,
+        rasr_binary_path=rasr_binary_path,
+        rasr_arch=rasr_arch,
+        dc_detection=dc_detection,
+        extra_config={
+            "partition_epoch": 20,
+            "seq_ordering": "laplace:.1000",
+        },
+    )
+
+    # ********** CV data **********
+
+    cv_data_config = build_feature_label_meta_dataset_config(
+        label_dim=num_classes - 1,
+        data_inputs=[cv_data_inputs[key] for key in cv_keys],
+        lexicon=eow_lexicon,
+        feature_type=feature_type,
+        returnn_root=returnn_root,
+        returnn_python_exe=returnn_python_exe,
+        rasr_binary_path=rasr_binary_path,
+        rasr_arch=rasr_arch,
+        dc_detection=dc_detection,
+        single_hdf=True,
+        extra_config={
+            "partition_epoch": 1,
+            "seq_ordering": "sorted",
+        },
+    )
+
+    # ********** Recog lexicon **********
+
+    for rasr_input in {**dev_data_inputs, **test_data_inputs}.values():
+        rasr_input.lexicon.filename = eow_lexicon
+
+    # ********** Align data **********
+
+    align_data_inputs = {
+        f"{key}_align": copy.deepcopy(data_input) for key, data_input in {**train_data_inputs, **cv_data_inputs}.items()
+    }
+    for data_input in align_data_inputs.values():
+        data_input.lexicon.filename = eow_lexicon
+
+    return PytorchCTCSetupData(
+        train_key=train_key,
+        dev_keys=list(dev_data_inputs.keys()),
+        test_keys=list(test_data_inputs.keys()),
+        align_keys=[f"{train_key}_align", *[f"{key}_align" for key in cv_keys]],
+        train_data_config=train_data_config,
+        cv_data_config=cv_data_config,
         data_inputs={
             **train_data_inputs,
             **dev_data_inputs,

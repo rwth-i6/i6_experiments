@@ -1,9 +1,13 @@
 import h5py
-from typing import List
+from typing import List, Optional, Union
+import numpy as np
+import torch
 
 from sisyphus import Path, tk
 
 from i6_core.returnn import ReturnnDumpHDFJob
+from returnn.datasets.hdf import SimpleHDFWriter
+from returnn.tensor import Dim, Tensor
 
 
 def load_hdf_data(hdf_path: Path, num_dims: int = 1, segment_list: List = None):
@@ -68,3 +72,77 @@ def build_hdf_from_alignment(
   ).out_hdf
 
   return hdf_file
+
+
+def dump_hdf_numpy(
+        hdf_dataset: SimpleHDFWriter,
+        data: np.array,
+        seq_lens: np.array,
+        seq_tags: List[str],
+):
+  """
+  Dump data to an hdf file.
+
+  :param data: torch.Tensor of shape (batch, spatial) with sparse_dim=dimension
+  :param seq_lens: torch.Tensor of shape (batch,)
+  :param seq_tags: torch.Tensor of shape (batch,)
+  :param dimension: int, the sparse dimension of the data
+  """
+  assert len(data.shape) == 2
+  assert len(seq_lens.shape) == 1
+  assert data.shape[0] == seq_lens.shape[0]
+
+  seq_lens = {0: seq_lens}
+  batch_seq_sizes = np.expand_dims(seq_lens[0], 1)
+
+  hdf_dataset.insert_batch(
+    data,
+    seq_len=seq_lens,
+    seq_tag=list(seq_tags),
+    extra={"seq_sizes": batch_seq_sizes}
+  )
+
+
+def dump_hdf_rf(
+        hdf_dataset: SimpleHDFWriter,
+        data: Tensor,
+        batch_dim: Dim,
+        seq_tags: Union[Tensor, List[str]],
+):
+  """
+  Dump data to an hdf file.
+
+  :param data: torch.Tensor of shape (batch, spatial) with sparse_dim=dimension
+  :param seq_lens: torch.Tensor of shape (batch,)
+  :param seq_tags: torch.Tensor of shape (batch,)
+  :param dimension: int, the sparse dimension of the data
+  """
+  spatial_dims = data.remaining_dims(batch_dim)
+  data_raw = data.copy_transpose(
+    [batch_dim] + spatial_dims
+  ).raw_tensor
+
+  n_batch = data_raw.shape[0]
+
+  if len(spatial_dims) > 0:
+    seq_lens = {}
+    for i, dim in enumerate(spatial_dims):
+      if dim.is_dynamic():
+        seq_lens[i] = dim.get_size_tensor().raw_tensor.numpy()
+
+    batch_seq_sizes = np.zeros((n_batch, len(seq_lens)), dtype="int32")
+    for i, (axis, size) in enumerate(sorted(seq_lens.items())):
+      batch_seq_sizes[:, i] = size
+  else:
+    seq_lens = {}
+    batch_seq_sizes = np.zeros((n_batch, 1))
+
+  seq_tags = list(seq_tags.raw_tensor) if isinstance(seq_tags, Tensor) else seq_tags
+
+  hdf_dataset.insert_batch(
+    data_raw.cpu().numpy(),
+    seq_len=seq_lens,
+    seq_tag=seq_tags,
+    extra={"seq_sizes": batch_seq_sizes}
+  )
+  hdf_dataset.close()

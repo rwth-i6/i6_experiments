@@ -48,6 +48,7 @@ def get_s_and_att(
       enc_spatial_dim=enc_spatial_dim,
       input_embed=input_embed,
       state=state.decoder,
+      use_mini_att=model.use_mini_att,
     )
     return loop_out_, new_state
 
@@ -56,7 +57,11 @@ def get_s_and_att(
     xs=input_embeddings,
     ys=model.loop_step_output_templates(batch_dims=batch_dims),
     initial=rf.State(
-      decoder=model.decoder_default_initial_state(batch_dims=batch_dims, enc_spatial_dim=enc_spatial_dim),
+      decoder=model.decoder_default_initial_state(
+        batch_dims=batch_dims,
+        enc_spatial_dim=enc_spatial_dim,
+        use_mini_att=model.use_mini_att,
+      ),
     ),
     body=_body,
   )
@@ -73,17 +78,23 @@ def get_s_and_att_efficient(
         targets_spatial_dim: Dim,
         batch_dims: List[Dim]
 ) -> Tuple[Tensor, Tensor]:
-  s, _ = model.s_wo_att(
-    input_embeddings,
-    state=model.s_wo_att.default_initial_state(batch_dims=batch_dims),
-    spatial_dim=targets_spatial_dim,
-  )
+  if "lstm" in model.decoder_state:
+    s, _ = model.s_wo_att(
+      input_embeddings,
+      state=model.s_wo_att.default_initial_state(batch_dims=batch_dims),
+      spatial_dim=targets_spatial_dim,
+    )
+  else:
+    s = model.s_wo_att_linear(input_embeddings)
 
   att = model(
     enc=enc_args["enc"],
     enc_ctx=enc_args["enc_ctx"],
     enc_spatial_dim=enc_spatial_dim,
     s=s,
+    input_embed=input_embeddings,
+    input_embed_spatial_dim=targets_spatial_dim,
+    use_mini_att=model.use_mini_att,
   )
 
   return s, att
@@ -118,7 +129,7 @@ def from_scratch_training(
     for i, layer_idx in enumerate(aux_loss_layers):
       if layer_idx > len(model.encoder.layers):
         continue
-      linear = getattr(model, f"enc_aux_logits_{layer_idx}")
+      linear = getattr(model.encoder, f"enc_aux_logits_{layer_idx}")
       aux_logits = linear(collected_outputs[str(layer_idx - 1)])
       aux_loss = rf.ctc_loss(
         logits=aux_logits,

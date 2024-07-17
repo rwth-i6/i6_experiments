@@ -24,5 +24,5 @@ def compile_sctk(
         link_outputs={"bin": "bin/"},
     )
     # This is needed for the compilation to work in the i6 environment, otherwise still untested
-    sctk_make._sis_environment.set("CPPFLAGS", "-std=c++11")
+    sctk_make.set_env("CPPFLAGS", "-std=c++11")
     return sctk_make.out_links["bin"]

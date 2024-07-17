@@ -16,11 +16,17 @@ from i6_experiments.users.berger.recipe.summary.report import SummaryReport
 from i6_experiments.users.berger.systems.returnn_seq2seq_system import (
     ReturnnSeq2SeqSystem,
 )
-from i6_experiments.users.berger.systems.dataclasses import ReturnnConfigs, FeatureType, SummaryKey
+from i6_experiments.users.berger.systems.dataclasses import (
+    ReturnnConfigs,
+    FeatureType,
+    SummaryKey,
+)
 from i6_experiments.users.berger.util import default_tools, recursive_update
 from i6_private.users.vieting.helpers.returnn import serialize_dim_tags
 from i6_experiments.users.berger.systems.dataclasses import AlignmentData
-from i6_experiments.users.berger.corpus.switchboard.viterbi_transducer_data import get_switchboard_data
+from i6_experiments.users.berger.corpus.switchboard.viterbi_transducer_data import (
+    get_switchboard_data,
+)
 from .config_01c_ctc_blstm_wei_data import py as py_ctc_blstm
 from sisyphus import gs, tk
 
@@ -151,7 +157,9 @@ def generate_returnn_config(
     return returnn_config
 
 
-def run_exp(alignments: Dict[str, AlignmentData], name_suffix: str = "") -> Tuple[SummaryReport, Checkpoint]:
+def run_exp(
+    alignments: Dict[str, AlignmentData], name_suffix: str = ""
+) -> Tuple[SummaryReport, Checkpoint]:
     assert tools.returnn_root is not None
     assert tools.returnn_python_exe is not None
     assert tools.rasr_binary_path is not None
@@ -277,7 +285,9 @@ def run_exp(alignments: Dict[str, AlignmentData], name_suffix: str = "") -> Tupl
             )
 
             system.run_dev_recog_step(
-                exp_names=["Conformer_Transducer_Viterbi_wei-data_tinaconf_align-blstm-am-1.0_lr-0.0008"],
+                exp_names=[
+                    "Conformer_Transducer_Viterbi_wei-data_tinaconf_align-blstm-am-1.0_lr-0.0008"
+                ],
                 recog_descriptor=f"bp-{bp}",
                 **recog_args,
             )
@@ -288,26 +298,46 @@ def run_exp(alignments: Dict[str, AlignmentData], name_suffix: str = "") -> Tupl
                 {
                     "epochs": [300],
                     "lm_scales": [0.8],
-                    "search_parameters": {"blank-label-penalty": 1.0, "label-pruning": lp},
+                    "search_parameters": {
+                        "blank-label-penalty": 1.0,
+                        "label-pruning": lp,
+                    },
                 },
             )
 
             system.run_dev_recog_step(
-                exp_names=["Conformer_Transducer_Viterbi_wei-data_tinaconf_align-blstm-am-1.0_lr-0.0008"],
+                exp_names=[
+                    "Conformer_Transducer_Viterbi_wei-data_tinaconf_align-blstm-am-1.0_lr-0.0008"
+                ],
                 recog_exp_names={
-                    "Conformer_Transducer_Viterbi_wei-data_tinaconf_align-blstm-am-1.0_lr-0.0008": ["recog_ilm-0.1"]
+                    "Conformer_Transducer_Viterbi_wei-data_tinaconf_align-blstm-am-1.0_lr-0.0008": [
+                        "recog_ilm-0.1"
+                    ]
                 },
                 recog_descriptor=f"lp-{lp}",
                 **recog_args,
             )
 
     recursive_update(
-        recog_args, {"epochs": [300], "lm_scales": [0.8], "search_parameters": {"blank-label-penalty": 1.0}}
+        recog_args,
+        {
+            "epochs": [300],
+            "lm_scales": [0.8],
+            "search_parameters": {"blank-label-penalty": 1.0},
+        },
     )
-    system.run_dev_recog_step(recog_exp_names={key: ["recog_ilm-0.1"] for key in system.get_exp_names()}, **recog_args)
-    system.run_test_recog_step(recog_exp_names={key: ["recog_ilm-0.1"] for key in system.get_exp_names()}, **recog_args)
+    system.run_dev_recog_step(
+        recog_exp_names={key: ["recog_ilm-0.1"] for key in system.get_exp_names()},
+        **recog_args,
+    )
+    system.run_test_recog_step(
+        recog_exp_names={key: ["recog_ilm-0.1"] for key in system.get_exp_names()},
+        **recog_args,
+    )
 
-    train_job = system.get_train_job(f"Conformer_Transducer_Viterbi_wei-data_tinaconf_{name_suffix}_lr-0.0008")
+    train_job = system.get_train_job(
+        f"Conformer_Transducer_Viterbi_wei-data_tinaconf_{name_suffix}_lr-0.0008"
+    )
     model = train_job.out_checkpoints[300]
     assert isinstance(model, Checkpoint)
 
@@ -326,7 +356,9 @@ def py() -> Tuple[SummaryReport, Dict[str, Checkpoint]]:
 
     for align_model_name, alignments in alignments_blstm.items():
         am_scale_pos = align_model_name.find("am-")
-        align_model_name = "blstm-" + align_model_name[am_scale_pos : am_scale_pos + len("am-1.0")]
+        align_model_name = (
+            "blstm-" + align_model_name[am_scale_pos : am_scale_pos + len("am-1.0")]
+        )
         sub_report, model = run_exp(alignments, name_suffix=f"align-{align_model_name}")
         models[align_model_name] = model
         summary_report.merge_report(sub_report, update_structure=True)

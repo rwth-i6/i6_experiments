@@ -48,6 +48,7 @@ def generate_returnn_config(
     *,
     train_data_config: dict,
     dev_data_config: dict,
+    precompute: bool = False,
     **kwargs,
 ) -> ReturnnConfig:
     if train:
@@ -84,24 +85,44 @@ def generate_returnn_config(
             loss_boost_v2=kwargs.get("loss_boost_v2", False),
         )
     else:
-        network_dict, extra_python = transducer_model.make_context_1_conformer_transducer_recog(
-            num_inputs=50,
-            num_outputs=num_classes,
-            decoder_args={
-                "dec_mlp_args": {
-                    "num_layers": 2,
-                    "size": 640,
-                    "activation": "tanh",
+        if precompute:
+            network_dict, extra_python = transducer_model.make_context_1_conformer_transducer_precomputed_recog(
+                num_inputs=50,
+                num_outputs=num_classes,
+                decoder_args={
+                    "dec_mlp_args": {
+                        "num_layers": 2,
+                        "size": 640,
+                        "activation": "tanh",
+                    },
+                    "combination_mode": "concat",
+                    "joint_mlp_args": {
+                        "num_layers": 1,
+                        "size": 1024,
+                        "activation": "tanh",
+                    },
+                    "ilm_scale": kwargs.get("ilm_scale", 0.0),
                 },
-                "combination_mode": "concat",
-                "joint_mlp_args": {
-                    "num_layers": 1,
-                    "size": 1024,
-                    "activation": "tanh",
+            )
+        else:
+            network_dict, extra_python = transducer_model.make_context_1_conformer_transducer_recog(
+                num_inputs=50,
+                num_outputs=num_classes,
+                decoder_args={
+                    "dec_mlp_args": {
+                        "num_layers": 2,
+                        "size": 640,
+                        "activation": "tanh",
+                    },
+                    "combination_mode": "concat",
+                    "joint_mlp_args": {
+                        "num_layers": 1,
+                        "size": 1024,
+                        "activation": "tanh",
+                    },
+                    "ilm_scale": kwargs.get("ilm_scale", 0.0),
                 },
-                "ilm_scale": kwargs.get("ilm_scale", 0.0),
-            },
-        )
+            )
 
     extra_config = {
         "train": train_data_config,
@@ -134,7 +155,8 @@ def generate_returnn_config(
         python_prolog=[
             "import sys",
             "sys.setrecursionlimit(10 ** 6)",
-        ],
+        ]
+        + (["from returnn.tf.util.data import FeatureDim"] if precompute else []),
         extra_python=extra_python,
         num_inputs=50,
         num_outputs=num_classes,
@@ -260,7 +282,6 @@ def run_exp(
         test_keys=data.test_keys,
         align_keys=data.align_keys,
         corpus_data=data.data_inputs,
-        am_args=exp_args.transducer_recog_am_args,
     )
     system.setup_scoring()
 
@@ -281,13 +302,19 @@ def run_exp(
         returnn_configs = ReturnnConfigs(
             train_config=train_config,
             recog_configs={
-                f"recog_ilm-{ilm_scale}": generate_returnn_config(
+                "recog_ilm-0.2": generate_returnn_config(
                     train=False,
-                    ilm_scale=ilm_scale,
+                    ilm_scale=0.2,
                     train_data_config=data.train_data_config,
                     dev_data_config=data.cv_data_config,
-                )
-                for ilm_scale in [0.2]
+                ),
+                "recog_ilm-0.2_precompute": generate_returnn_config(
+                    train=False,
+                    precompute=True,
+                    ilm_scale=0.2,
+                    train_data_config=data.train_data_config,
+                    dev_data_config=data.cv_data_config,
+                ),
             },
         )
 
@@ -311,7 +338,7 @@ def run_exp(
         )
         recog_args["search_parameters"] = search_params
         descr = f"lp-{lp:.2f}_lpl-{lpl}_wep-{wep:.2f}_wepl-{wepl}"
-        # system.run_recog_step_for_corpora(corpora=["dev-other_4gram"], recog_descriptor=descr, **recog_args)
+        # system.run_recog_step_for_corpora(recog_exp_names=["recog_ilm-0.2"], corpora=["dev-other_4gram"], recog_descriptor=descr, **recog_args)
 
     for _ in range(10):
         lp = np.random.uniform(10.0, 13.0)
@@ -328,7 +355,7 @@ def run_exp(
         )
         recog_args["search_parameters"] = search_params
         descr = f"lp-{lp:.2f}_lpl-{lpl}_wep-{wep:.2f}_wepl-{wepl}"
-        # system.run_recog_step_for_corpora(corpora=["dev-other_4gram"], recog_descriptor=descr, **recog_args)
+        # system.run_recog_step_for_corpora(recog_exp_names=["recog_ilm-0.2"], corpora=["dev-other_4gram"], recog_descriptor=descr, **recog_args)
 
     for _ in range(20):
         lp = 12.0
@@ -345,7 +372,7 @@ def run_exp(
         )
         recog_args["search_parameters"] = search_params
         descr = f"lp-{lp:.2f}_lpl-{lpl}_wep-{wep:.2f}_wepl-{wepl}"
-        # system.run_recog_step_for_corpora(corpora=["dev-other_4gram"], recog_descriptor=descr, **recog_args)
+        # system.run_recog_step_for_corpora(recog_exp_names=["recog_ilm-0.2"], corpora=["dev-other_4gram"], recog_descriptor=descr, **recog_args)
 
     for lp in [
         2.0,
@@ -382,7 +409,9 @@ def run_exp(
             )
             recog_args["search_parameters"] = search_params
             descr = f"lp-{lp:.2f}_lpl-300_wep-{wep:.2f}_wepl-200"
-            system.run_recog_step_for_corpora(corpora=["dev-other_4gram"], recog_descriptor=descr, **recog_args)
+            system.run_recog_step_for_corpora(
+                recog_exp_names=["recog_ilm-0.2"], corpora=["dev-other_4gram"], recog_descriptor=descr, **recog_args
+            )
 
     for lp in [
         2.0,
@@ -419,7 +448,73 @@ def run_exp(
             )
             recog_args["search_parameters"] = search_params
             descr = f"lp-{lp:.2f}_lpl-1000_wep-{wep:.2f}_wepl-500"
-            system.run_recog_step_for_corpora(corpora=["dev-other_4gram"], recog_descriptor=descr, **recog_args)
+            system.run_recog_step_for_corpora(
+                recog_exp_names=["recog_ilm-0.2"], corpora=["dev-other_4gram"], recog_descriptor=descr, **recog_args
+            )
+
+    recog_args.update(
+        {
+            "seq2seq_v2": True,
+            "label_scorer_type": "precomputed-log-posterior",
+            "model_flow_args": {"output_layer_name": "output_precompute"},
+        }
+    )
+    for lp in [
+        9.0,
+        10.0,
+        10.5,
+        11.0,
+        11.5,
+        12.0,
+        12.5,
+        13.0,
+    ]:
+        # for wep in [0.3, 0.5, 0.7]:
+        for wep in [0.5]:
+            search_params = get_seq2seq_search_parameters(
+                lp=lp,
+                lpl=300,
+                wep=wep,
+                wepl=200,
+                allow_blank=True,
+                allow_loop=False,
+            )
+            recog_args["search_parameters"] = search_params
+            descr = f"lp-{lp:.2f}_lpl-300_wep-{wep:.2f}_wepl-200"
+            system.run_recog_step_for_corpora(
+                recog_exp_names=["recog_ilm-0.2_precompute"],
+                corpora=["dev-other_4gram"],
+                recog_descriptor=descr,
+                **recog_args,
+            )
+
+    for lp in [
+        9.0,
+        10.0,
+        10.5,
+        11.0,
+        11.5,
+        12.0,
+        12.5,
+        13.0,
+    ]:
+        for wep in [0.5, 0.6]:
+            search_params = get_seq2seq_search_parameters(
+                lp=lp,
+                lpl=1000,
+                wep=wep,
+                wepl=500,
+                allow_blank=True,
+                allow_loop=False,
+            )
+            recog_args["search_parameters"] = search_params
+            descr = f"lp-{lp:.2f}_lpl-1000_wep-{wep:.2f}_wepl-500"
+            # system.run_recog_step_for_corpora(
+            #     recog_exp_names=["recog_ilm-0.2_precompute"],
+            #     corpora=["dev-other_4gram"],
+            #     recog_descriptor=descr,
+            #     **recog_args,
+            # )
 
     # system.run_dev_recog_step(**recog_args)
     # system.run_test_recog_step(**recog_args)

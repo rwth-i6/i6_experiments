@@ -29,6 +29,7 @@ class GlobalConformerEncoder(ConformerEncoder):
           dropout: float = 0.1,
           att_dropout: float = 0.1,
           l2: float = 0.0001,
+          use_weight_feedback: bool = True,
   ):
     super(GlobalConformerEncoder, self).__init__(
       in_dim,
@@ -57,7 +58,9 @@ class GlobalConformerEncoder(ConformerEncoder):
     self.enc_ctx = rf.Linear(self.out_dim, enc_key_total_dim)
     self.enc_ctx_dropout = 0.2
 
-    self.inv_fertility = rf.Linear(self.out_dim, dec_att_num_heads, with_bias=False)
+    self.use_weight_feedback = use_weight_feedback
+    if use_weight_feedback:
+      self.inv_fertility = rf.Linear(self.out_dim, dec_att_num_heads, with_bias=False)
 
     for p in self.parameters():
       p.weight_decay = l2
@@ -115,7 +118,10 @@ class GlobalConformerEncoder(ConformerEncoder):
         source, in_spatial_dim=in_spatial_dim, collected_outputs=collected_outputs
       )
     enc_ctx = self.enc_ctx(enc)
-    inv_fertility = rf.sigmoid(self.inv_fertility(enc))
+    if self.use_weight_feedback:
+      inv_fertility = rf.sigmoid(self.inv_fertility(enc))
+    else:
+      inv_fertility = None
     return dict(enc=enc, enc_ctx=enc_ctx, inv_fertility=inv_fertility), enc_spatial_dim
 
 

@@ -46,7 +46,7 @@ class NltkTimit(DatasetConfig):
             d["random_permute_audio"] = self.random_permute_audio
         return d
 
-    def get_extern_data(self) -> Dict[str, Dict[str]]:
+    def get_extern_data(self) -> Dict[str, Dict[str, Any]]:
         """extern data"""
         from returnn.tensor import Dim, batch_dim
 
@@ -63,11 +63,11 @@ class NltkTimit(DatasetConfig):
             },
         }
 
-    def get_train_dataset(self) -> Dict[str]:
+    def get_train_dataset(self) -> Dict[str, Any]:
         """train"""
         return self.get_dataset("train")
 
-    def get_eval_datasets(self) -> Dict[str, Dict[str]]:
+    def get_eval_datasets(self) -> Dict[str, Dict[str, Any]]:
         """dev/devtrain/eval or so"""
         return {
             "dev": self.get_dataset("dev"),

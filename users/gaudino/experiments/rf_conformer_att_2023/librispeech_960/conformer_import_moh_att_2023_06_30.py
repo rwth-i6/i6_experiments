@@ -627,7 +627,7 @@ def sis_run_with_prefix(prefix_name: str = None):
             task,
             model_with_checkpoint,
             model_recog,
-            dev_sets=["dev-other"],
+            dev_sets=["dev-clean", "dev-other", "test-clean", "test-other"],
             model_args=model_args,
             search_args=search_args,
             prefix_name=name,
@@ -639,7 +639,7 @@ def sis_run_with_prefix(prefix_name: str = None):
 
     # opls att + ctc + trafo lm + ilm
     for scales, prior_scale, lm_scale, ilm_scale, beam_size in product(
-        [(0.8, 0.2)], [0.05, 0.03, 0.04, 0.06, 0.07], [0.65], [0.4], [32]
+        [(0.8, 0.2)], [0.05, 0.07], [0.65], [0.4], [32, 40]
     ):
         att_scale, ctc_scale = scales
         recog_name = (
@@ -668,7 +668,7 @@ def sis_run_with_prefix(prefix_name: str = None):
             task,
             model_with_checkpoint,
             model_recog,
-            dev_sets=["dev-clean", "dev-other"],
+            dev_sets=["dev-clean", "dev-other", "test-clean", "test-other"],
             model_args=model_args,
             search_args=search_args,
             prefix_name=name,

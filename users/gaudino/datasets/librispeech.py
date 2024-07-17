@@ -20,8 +20,11 @@ from i6_experiments.users.zeyer.speed_pert.librosa_09_10_11_kaiser_fast import (
 from .task import Task, MeasureType, RecogOutput, ScoreResult
 from .utils.bpe import Bpe
 
+from i6_experiments.users.gaudino.experiments.ctc_rnnt_standalone_2024.librispeech_960.default_tools import MINI_RETURNN_ROOT, RETURNN_EXE
+
 
 librispeech_ogg_zip_dict = librispeech.get_ogg_zip_dict()
+librispeech_ogg_zip_dict_mini_returnn = librispeech.get_ogg_zip_dict("corpora",returnn_root=MINI_RETURNN_ROOT, returnn_python_exe=RETURNN_EXE)
 
 # Get Bliss corpus. Same audio format as in ogg_zip, so already there anyway due to how we created the ogg_zip.
 bliss_corpus_dict = librispeech.get_bliss_corpus_dict(audio_format="ogg")
@@ -50,6 +53,15 @@ bpe10k = Bpe(
     bos_idx=0,
     codes=generic_job_output("i6_core/text/label/subword_nmt/train/ReturnnTrainBpeJob.vTq56NZ8STWt/output/bpe.codes"),
     vocab=generic_job_output("i6_core/text/label/subword_nmt/train/ReturnnTrainBpeJob.vTq56NZ8STWt/output/bpe.vocab"),
+    # unknown_label="<unk>",
+    unknown_label=None,
+)
+bpe5k = Bpe(
+    dim=5_048,
+    eos_idx=0,
+    bos_idx=0,
+    codes=generic_job_output("i6_core/text/label/subword_nmt/train/ReturnnTrainBpeJob.yH3Z10x9CgDt/output/bpe.codes"),
+    vocab=generic_job_output("i6_core/text/label/subword_nmt/train/ReturnnTrainBpeJob.yH3Z10x9CgDt/output/bpe.vocab"),
     # unknown_label="<unk>",
     unknown_label=None,
 )
@@ -157,6 +169,7 @@ class LibrispeechOggZip(DatasetConfig):
         train_audio_preprocess: Optional[Any] = NotSpecified,
         train_audio_random_permute: Union[bool, Dict[str, Any]] = False,
         eval_subset: Optional[int] = 3000,
+        mini_returnn: bool = False,
     ):
         """
         :param with_eos_postfix: For RETURNN train/dev/eval datasets, mostly relevant for training.
@@ -184,6 +197,7 @@ class LibrispeechOggZip(DatasetConfig):
         self.train_audio_random_permute = train_audio_random_permute
         self.train_epoch_wise_filter = train_epoch_wise_filter
         self.eval_subset = eval_subset
+        self.mini_returnn = mini_returnn
 
     def get_extern_data(self) -> Dict[str, Dict[str]]:
         """
@@ -230,7 +244,7 @@ class LibrispeechOggZip(DatasetConfig):
         parts = [part for part in _Parts if part.startswith(key)]
         assert parts, f"invalid key {key!r}"
         for part in parts:
-            files += [librispeech_ogg_zip_dict[part]]
+            files += [librispeech_ogg_zip_dict[part] if not self.mini_returnn else librispeech_ogg_zip_dict_mini_returnn[part]]
         d = {
             "class": "OggZipDataset",
             "path": files,
@@ -279,11 +293,14 @@ def get_librispeech_task_spm2k() -> Task:
     # TODO ...
 
 
-def get_librispeech_task_raw(*, vocab: VocabConfig, **dataset_train_opts) -> Task:
+def get_librispeech_task_raw(*, vocab: VocabConfig, mini_returnn=False, **dataset_train_opts) -> Task:
     """
     Librispeech
     """
     dataset_common_opts = dict(audio=_raw_audio_opts.copy(), audio_dim=1, vocab=vocab)
+    dataset_common_opts["mini_returnn"] = mini_returnn
+    if mini_returnn:
+        dataset_common_opts["audio"]["preemphasis"] = 0.97
     # We expect that all kwargs are only relevant for the training, thus we only pass them here.
     train_dataset = LibrispeechOggZip(**dataset_common_opts, **dataset_train_opts)
     dev_dataset = LibrispeechOggZip(**dataset_common_opts, main_key="dev-other")
@@ -310,6 +327,8 @@ def get_librispeech_task_raw(*, vocab: VocabConfig, **dataset_train_opts) -> Tas
 def get_librispeech_task_bpe10k_raw(**dataset_train_opts) -> Task:
     return get_librispeech_task_raw(vocab=bpe10k, **dataset_train_opts)
 
+def get_librispeech_task_bpe5k_raw(mini_returnn=False, **dataset_train_opts) -> Task:
+    return get_librispeech_task_raw(vocab=bpe5k, mini_returnn=mini_returnn, **dataset_train_opts)
 
 def _bpe_to_words(bpe: RecogOutput) -> RecogOutput:
     """BPE to words"""

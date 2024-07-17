@@ -1,13 +1,19 @@
+import getpass
 import copy
 from i6_experiments.users.berger.recipe.summary.report import SummaryReport
 from i6_experiments.users.berger.systems.dataclasses import SummaryKey
 from sisyphus import tk, gs
-
 from .config_01_conformer_ctc import py as py_01
 
-from .config_04a_conformer_transducer_bpe import py as py_04a
-from .config_04a_conformer_transducer_bpe_rasr import py as py_04a_rasr
-from .config_04b_conformer_transducer_phon import py as py_04b
+# from .config_02_conformer_transducer_phon_viterbi import py as py_02
+# from .config_02a_conformer_transducer_phon_viterbi_tuning import py as py_02a
+# from .config_03_conformer_transducer_phon_fullsum import py as py_03
+# from .config_05_conformer_transducer_phon_align_restrict import py as py_05
+from .config_05a_conformer_transducer_phon_align_restrict_tuning import py as py_05a
+
+# from .config_04a_conformer_transducer_bpe import py as py_04a
+# from .config_04a_conformer_transducer_bpe_rasr import py as py_04a_rasr
+# from .config_04b_conformer_transducer_phon import py as py_04b
 
 
 def main() -> SummaryReport:
@@ -46,11 +52,14 @@ def main() -> SummaryReport:
             "ReturnnForwardComputePriorJob",
             "OptunaReturnnForwardComputePriorJob",
             "CompileKenLMJob",
+            "OptunaReportIntermediateScoreJob",
+            "OptunaReportFinalScoreJob",
         }
         onnx_jobs = {
             "ExportPyTorchModelToOnnxJob",
             "TorchOnnxExportJob",
             "OptunaExportPyTorchModelToOnnxJob",
+            "OptunaTorchOnnxExportJob",
         }
         jobclass = type(job).__name__
         if jobclass in rasr_jobs:
@@ -71,6 +80,9 @@ def main() -> SummaryReport:
             "apptainer",
             "exec",
         ]
+
+        app_call += ["--env", f"NUMBA_CACHE_DIR=/var/tmp/numba_cache_{getpass.getuser()}"]
+
         if t._rqmt.get("gpu", 0) > 0:
             app_call += ["--nv"]
 
@@ -88,10 +100,12 @@ def main() -> SummaryReport:
     summary_report = SummaryReport()
 
     for subreport in [
-        copy.deepcopy(py_01()),
-        copy.deepcopy(py_04a()),
-        copy.deepcopy(py_04a_rasr()),
-        copy.deepcopy(py_04b()),
+        copy.deepcopy(py_01()[0]),
+        # copy.deepcopy(py_02()[0]),
+        # copy.deepcopy(py_02a()),
+        # copy.deepcopy(py_03()),
+        # copy.deepcopy(py_05()),
+        copy.deepcopy(py_05a()),
     ]:
         subreport.collapse([SummaryKey.CORPUS.value], best_selector_key=SummaryKey.ERR.value)
         summary_report.merge_report(subreport, update_structure=True)

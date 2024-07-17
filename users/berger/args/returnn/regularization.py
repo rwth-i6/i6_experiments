@@ -13,7 +13,7 @@ def get_chunking_config(
 
     if isinstance(chunking_factors, list):
         chunking_factors = {key: 1 for key in chunking_factors}
-    assert isinstance(chunking_factors, Dict)
+    assert isinstance(chunking_factors, dict)
     return {
         "chunking": (
             {key: base_chunk_size // factor for key, factor in chunking_factors.items()},

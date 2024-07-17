@@ -1,14 +1,13 @@
 import copy
-from typing import Dict
+from typing import Dict, Optional
 
-from sisyphus import tk
 from i6_core.lexicon import DumpStateTyingJob, StoreAllophonesJob
+from sisyphus import tk
 
-from i6_experiments.users.berger.recipe import rasr as custom_rasr
 from i6_experiments.users.berger.recipe import mm, returnn
+from i6_experiments.users.berger.recipe import rasr as custom_rasr
 
-from ... import dataclasses
-from ... import types
+from ... import dataclasses, types
 from ..base import AlignmentFunctor
 from ..optuna_rasr_base import OptunaRasrFunctor
 from ..seq2seq_base import Seq2SeqFunctor
@@ -24,29 +23,44 @@ class OptunaSeq2SeqAlignmentFunctor(
         train_job: dataclasses.NamedTrainJob[returnn.OptunaReturnnTrainingJob],
         prior_config: returnn.OptunaReturnnConfig,
         align_config: returnn.OptunaReturnnConfig,
-        align_corpus: dataclasses.NamedCorpusInfo,
+        align_corpus: dataclasses.NamedRasrDataInput,
         epoch: types.EpochType,
-        trial_num: types.TrialType = "best",
+        trial_num: int,
+        am_args: Optional[Dict] = None,
         prior_scale: float = 0,
-        prior_args: Dict = {},
+        prior_args: Optional[Dict] = None,
         label_unit: str = "phoneme",
         label_scorer_type: str = "precomputed-log-posterior",
-        label_scorer_args: Dict = {},
+        label_scorer_args: Optional[Dict] = None,
         feature_type: dataclasses.FeatureType = dataclasses.FeatureType.SAMPLES,
-        flow_args: Dict = {},
+        flow_args: Optional[Dict] = None,
         silence_phone: str = "<blank>",
         register_output: bool = False,
         **kwargs,
     ) -> dataclasses.AlignmentData:
-        crp = copy.deepcopy(align_corpus.corpus_info.crp)
+        if am_args is None:
+            am_args = {}
+        if prior_args is None:
+            prior_args = {}
+        if label_scorer_args is None:
+            label_scorer_args = {}
+        if flow_args is None:
+            flow_args = {}
+
+        crp = align_corpus.data.get_crp(
+            rasr_python_exe=self.rasr_python_exe,
+            rasr_binary_path=self.rasr_binary_path,
+            returnn_python_exe=self.returnn_python_exe,
+            returnn_root=self.returnn_root,
+            blas_lib=self.blas_lib,
+            am_args=am_args,
+        )
 
         mod_label_scorer_args = copy.deepcopy(label_scorer_args)
         if self.requires_label_file(label_unit):
             mod_label_scorer_args["label_file"] = self._get_label_file(crp)
 
-        base_feature_flow = self._make_base_feature_flow(
-            align_corpus.corpus_info, feature_type=feature_type, **flow_args
-        )
+        base_feature_flow = self._make_base_feature_flow(align_corpus.data, feature_type=feature_type, **flow_args)
 
         tf_graph = self._make_tf_graph(
             train_job=train_job.job,
@@ -88,11 +102,7 @@ class OptunaSeq2SeqAlignmentFunctor(
         )
 
         exp_full = f"align_e-{self._get_epoch_string(epoch)}_prior-{prior_scale:02.2f}"
-
-        if trial_num == "best":
-            path = f"nn_align/{align_corpus.name}/{train_job.name}/trial-{trial_num}/{exp_full}"
-        else:
-            path = f"nn_align/{align_corpus.name}/{train_job.name}/trial-{trial_num:03d}/{exp_full}"
+        path = f"nn_align/{align_corpus.name}/{train_job.name}/trial-{trial_num:03d}/{exp_full}"
 
         align.set_vis_name(f"Alignment {path}")
         align.add_alias(path)

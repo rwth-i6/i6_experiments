@@ -127,6 +127,37 @@ class _RecogAndScoreFunc:
         d["class"] = "_RecogAndScoreFunc"  # some identifier; not full qualname to allow for moving the class
         return sis_hash_helper(d)
 
+def compute_prior(
+    task: Task,
+    model: ModelWithCheckpoint,
+    epoch: int,
+    recog_def: RecogDef,
+    *,
+    config: Optional[Dict[str, Any]] = None,
+    search_rqmt: Optional[Dict[str, Any]] = None,
+    search_mem_rqmt: Union[int, float] = 6,
+    search_post_config: Optional[Dict[str, Any]] = None,
+    device: Optional[str] = "gpu",
+):
+    """compute prior"""
+    train_set = task.train_dataset
+    out_files = [_prior_out_filename]
+    search_job = ReturnnForwardJobV2(
+        model_checkpoint=model.checkpoint,
+        returnn_config=search_config_v2(
+            train_set, model.definition, recog_def, config=config, get_forward_callback=_returnn_v2_get_prior_callback, forward_step=_returnn_v2_forward_step_prior, post_config=search_post_config
+        ),
+        output_files=out_files,
+        returnn_python_exe=tools_paths.get_returnn_python_exe(),
+        returnn_root=tools_paths.get_returnn_root(),
+        mem_rqmt=search_mem_rqmt,
+        device=device,
+    )
+    if search_rqmt:
+        search_job.rqmt.update(search_rqmt)
+    res = search_job.out_files[_prior_out_filename]
+    return res
+
 
 def recog_model(
     task: Task,
@@ -139,6 +170,7 @@ def recog_model(
     search_rqmt: Optional[Dict[str, Any]] = None,
     dev_sets: Optional[Collection[str]] = None,
     name: Optional[str] = None,
+    device: Optional[str] = None,
 ) -> ScoreResultCollection:
     """recog"""
     if dev_sets is not None:
@@ -158,6 +190,7 @@ def recog_model(
             search_rqmt=search_rqmt,
             search_alias_name=f"{name}/search/{dataset_name}" if name else None,
             recog_post_proc_funcs=task.recog_post_proc_funcs,
+            device=device,
         )
         score_out = task.score_recog_output_func(dataset, recog_out)
         outputs[dataset_name] = score_out
@@ -175,6 +208,7 @@ def search_dataset(
     search_rqmt: Optional[Dict[str, Any]] = None,
     search_alias_name: Optional[str] = None,
     recog_post_proc_funcs: Sequence[Callable[[RecogOutput], RecogOutput]] = (),
+    device: Optional[str] = None,
 ) -> RecogOutput:
     """
     recog on the specific dataset
@@ -211,6 +245,7 @@ def search_dataset(
             returnn_python_exe=tools_paths.get_returnn_python_exe(),
             returnn_root=tools_paths.get_returnn_root(),
             mem_rqmt=search_mem_rqmt,
+            device=device,
         )
         res = search_job.out_files[_v2_forward_out_filename]
     if search_rqmt:
@@ -334,6 +369,8 @@ def search_config_v2(
     recog_def: RecogDef,
     *,
     config: Optional[Dict[str, Any]] = None,
+    get_forward_callback = None,
+    forward_step = None,
     post_config: Optional[Dict[str, Any]] = None,
 ) -> ReturnnConfig:
     """
@@ -376,8 +413,8 @@ def search_config_v2(
                     *serialize_model_def(model_def),
                     serialization.Import(_returnn_v2_get_model, import_as="get_model"),
                     serialization.Import(recog_def, import_as="_recog_def", ignore_import_as_for_hash=True),
-                    serialization.Import(_returnn_v2_forward_step, import_as="forward_step"),
-                    serialization.Import(_returnn_v2_get_forward_callback, import_as="forward_callback"),
+                    serialization.Import(forward_step if forward_step else _returnn_v2_forward_step, import_as="forward_step"),
+                    serialization.Import(get_forward_callback if get_forward_callback else _returnn_v2_get_forward_callback, import_as="forward_callback"),
                     serialization.ExplicitHash(
                         {
                             # Increase the version whenever some incompatible change is made in this recog() function,
@@ -479,7 +516,12 @@ def _returnn_v2_get_model(*, epoch: int, **_kwargs_unused):
     assert targets.sparse_dim and targets.sparse_dim.vocab, f"no vocab for {targets}"
 
     model_def = config.typed_value("_model_def")
-    model = model_def(epoch=epoch, in_dim=data.feature_dim, target_dim=targets.sparse_dim)
+    model_args = config.typed_value("model_args")
+    search_args = config.typed_value("search_args")
+    if model_args or search_args:
+        model = model_def(epoch=epoch, in_dim=data.feature_dim, target_dim=targets.sparse_dim, model_args=model_args, search_args=search_args)
+    else:
+        model = model_def(epoch=epoch, in_dim=data.feature_dim, target_dim=targets.sparse_dim)
     return model
 
 
@@ -530,9 +572,33 @@ def _returnn_v2_forward_step(*, model, extern_data: TensorDict, **_kwargs_unused
         assert v.dims[:2] == (batch_dim, beam_dim)
         rf.get_run_ctx().mark_as_output(v, k, dims=v.dims)
 
+def _returnn_v2_forward_step_prior(*, model, extern_data: TensorDict, **_kwargs_unused):
+    import returnn.frontend as rf
+    from returnn.tensor import Tensor, Dim, batch_dim
+    from returnn.config import get_global_config
+
+    if rf.is_executing_eagerly():
+        batch_size = int(batch_dim.get_dim_value())
+        for batch_idx in range(batch_size):
+            seq_tag = extern_data["seq_tag"].raw_tensor[batch_idx].item()
+            print(f"batch {batch_idx+1}/{batch_size} seq_tag: {seq_tag!r}")
+
+    config = get_global_config()
+    default_input_key = config.typed_value("default_input")
+    data = extern_data[default_input_key]
+    data_spatial_dim = data.get_time_dim_tag()
+    recog_def = config.typed_value("_recog_def")
+
+    ctc_out, enc_spatial_dim = recog_def(model=model, data=data, data_spatial_dim=data_spatial_dim)
+
+    assert isinstance(ctc_out, Tensor)
+    rf.get_run_ctx().mark_as_output(ctc_out, "ctc_out", dims=[batch_dim, enc_spatial_dim, model.target_dim_w_blank])
+
 
 _v2_forward_out_filename = "output.py.gz"
 _v2_forward_ext_out_filename = "output_ext.py.gz"
+
+_prior_out_filename = "prior.txt"
 
 
 def _returnn_v2_get_forward_callback():
@@ -596,6 +662,45 @@ def _returnn_v2_get_forward_callback():
             if self.out_ext_file:
                 self.out_ext_file.write("}\n")
                 self.out_ext_file.close()
+
+    return _ReturnnRecogV2ForwardCallbackIface()
+
+
+def _returnn_v2_get_prior_callback():
+    from typing import TextIO
+    from returnn.tensor import Tensor, TensorDict
+    from returnn.forward_iface import ForwardCallbackIface
+    from returnn.config import get_global_config
+
+    config = get_global_config()
+
+    class _ReturnnRecogV2ForwardCallbackIface(ForwardCallbackIface):
+        def __init__(self):
+            self.out_file: Optional[TextIO] = None
+            self.count = 0
+            self.accum = None
+
+        def init(self, *, model):
+
+            self.out_file = open(_prior_out_filename, "wt")
+
+        def process_seq(self, *, seq_tag: str, outputs: TensorDict):
+            ctc_out = outputs["ctc_out"].raw_tensor  # [beam, out_spatial]
+            len = int(outputs["ctc_out"].dims[0].dyn_size_ext.raw_tensor)
+            probs = ctc_out[:len].sum(0) / len
+            if self.accum is None:
+                self.accum = probs
+            else:
+                self.accum = self.accum + probs
+
+            self.count += 1
+
+        def finish(self):
+            self.accum = self.accum / self.count
+            print(f"Sum should be close to 1.0: {self.accum.sum()}")
+            for i in range(self.accum.shape[0]):
+                self.out_file.write(f"{self.accum[i]}\n")
+            self.out_file.close()
 
     return _ReturnnRecogV2ForwardCallbackIface()
 

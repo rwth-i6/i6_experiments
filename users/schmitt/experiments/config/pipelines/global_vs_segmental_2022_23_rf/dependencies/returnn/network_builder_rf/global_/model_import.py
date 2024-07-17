@@ -103,6 +103,13 @@ def _add_params():
     _ParamMapping[
       f"encoder.layers.{layer_idx}.final_layer_norm.bias"
     ] = f"conformer_block_{layer_idx + 1:02d}_ln/bias"
+    # ctc
+    _ParamMapping[
+      f"encoder.enc_aux_logits_{layer_idx}.weight"
+    ] = f"ctc/W"
+    _ParamMapping[
+      f"encoder.enc_aux_logits_{layer_idx}.bias"
+    ] = f"ctc/b"
 
 
 _add_params()

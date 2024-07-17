@@ -1,5 +1,6 @@
 import copy
 import os
+from typing import Dict, Tuple
 from i6_models.config import ModuleFactoryV1
 from i6_core.returnn.config import ReturnnConfig
 
@@ -12,7 +13,7 @@ from i6_experiments.users.berger.args.returnn.learning_rates import LearningRate
 from i6_experiments.users.berger.corpus.tedlium2.ctc_data import get_tedlium2_data_dumped_labels
 from i6_experiments.users.berger.pytorch.models import conformer_ctc
 from i6_experiments.users.berger.recipe.summary.report import SummaryReport
-from i6_experiments.users.berger.systems.dataclasses import ConfigVariant, FeatureType, ReturnnConfigs
+from i6_experiments.users.berger.systems.dataclasses import AlignmentData, ConfigVariant, FeatureType, ReturnnConfigs
 from i6_experiments.users.berger.systems.returnn_seq2seq_system import (
     ReturnnSeq2SeqSystem,
 )
@@ -63,7 +64,7 @@ def returnn_config_generator(
         extra_python=[conformer_ctc.get_serializer(model_config, variant=variant)],
         extern_data_config=True,
         backend=Backend.PYTORCH,
-        grad_noise=kwargs.get("grad_noise", 0.0),
+        grad_noise=0.0,
         grad_clip=0.0,
         optimizer=Optimizers.AdamW,
         schedule=LearningRateSchedules.OCLR_STEP_TORCH,
@@ -112,7 +113,7 @@ def get_returnn_config_collection(
     )
 
 
-def run_exp(num_subepochs: int = 250) -> SummaryReport:
+def run_exp(num_subepochs: int = 250) -> Tuple[SummaryReport, Dict[str, AlignmentData]]:
     assert tools.returnn_root
     assert tools.returnn_python_exe
     assert tools.rasr_binary_path
@@ -140,6 +141,15 @@ def run_exp(num_subepochs: int = 250) -> SummaryReport:
         search_stats=True,
         seq2seq_v2=True,
     )
+    align_args = exp_args.get_ctc_align_step_args(
+        num_classes=num_outputs,
+        feature_type=FeatureType.LOGMEL_16K,
+        prior_scale=0.3,
+        reduction_factor=4,
+        # label_scorer_args={"extra_args": {"reduction_subtrahend": 3}},
+        epoch=num_subepochs,
+        register_output=True,
+    )
 
     # ********** System **********
 
@@ -148,41 +158,41 @@ def run_exp(num_subepochs: int = 250) -> SummaryReport:
     system.init_corpora(
         dev_keys=data.dev_keys,
         test_keys=data.test_keys,
+        align_keys=data.align_keys,
         corpus_data=data.data_inputs,
-        am_args=exp_args.ctc_recog_am_args,
     )
     system.setup_scoring()
 
     # ********** Returnn Configs **********
 
-    for grad_noise in [0.0, 0.1]:
-        system.add_experiment_configs(
-            f"Conformer_CTC_{num_subepochs}-epochs_gn-{grad_noise}",
-            get_returnn_config_collection(
-                train_data_config=data.train_data_config,
-                dev_data_config=data.cv_data_config,
-                num_subepochs=num_subepochs,
-                grad_noise=grad_noise,
-            ),
-        )
+    system.add_experiment_configs(
+        f"Conformer_CTC_{num_subepochs}-epochs",
+        get_returnn_config_collection(
+            train_data_config=data.train_data_config,
+            dev_data_config=data.cv_data_config,
+            num_subepochs=num_subepochs,
+        ),
+    )
 
     system.run_train_step(**train_args)
     system.run_dev_recog_step(**recog_args)
+    align_data = next(iter(system.run_align_step(**align_args).values()))
 
     assert system.summary_report
-    return system.summary_report
+    return system.summary_report, align_data
 
 
-def py() -> SummaryReport:
+def py() -> Tuple[SummaryReport, Dict[str, AlignmentData]]:
     filename_handle = os.path.splitext(os.path.basename(__file__))[0][len("config_") :]
     gs.ALIAS_AND_OUTPUT_SUBDIR = f"{filename_handle}/"
 
     summary_report = SummaryReport()
 
-    summary_report.merge_report(run_exp(num_subepochs=250), update_structure=True)
-    summary_report.merge_report(run_exp(num_subepochs=500), update_structure=True)
-    summary_report.merge_report(run_exp(num_subepochs=1000), update_structure=True)
+    summary_report.merge_report(run_exp(num_subepochs=250)[0], update_structure=True)
+    summary_report.merge_report(run_exp(num_subepochs=500)[0], update_structure=True)
+    report, align_data = run_exp(num_subepochs=1000)
+    summary_report.merge_report(report, update_structure=True)
 
     tk.register_report(f"{gs.ALIAS_AND_OUTPUT_SUBDIR}/summary.report", summary_report)
 
-    return summary_report
+    return summary_report, align_data

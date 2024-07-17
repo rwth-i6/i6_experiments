@@ -51,28 +51,13 @@ def _get_hypo_key(hypo: Hypothesis) -> str:
     return str(hypo[0])
 
 
-def _batch_state(hypos: List[Hypothesis]) -> List[List[torch.Tensor]]: # TODO
-    states: List[List[torch.Tensor]] = []
-    for i in range(len(_get_hypo_state(hypos[0]))):
-        batched_state_components: List[torch.Tensor] = []
-        for j in range(len(_get_hypo_state(hypos[0])[i])):
-            batched_state_components.append(torch.cat([_get_hypo_state(hypo)[i][j] for hypo in hypos]))
-        states.append(batched_state_components)
-    return states
-
-
-def _slice_state(states: List[List[torch.Tensor]], idx: int, device: torch.device) -> List[List[torch.Tensor]]: # TODO
-    idx_tensor = torch.tensor([idx], device=device)
-    return [[state.index_select(0, idx_tensor) for state in state_tuple] for state_tuple in states]
-
-
 def _default_hypo_sort_key(hypo: Hypothesis) -> float:
     return _get_hypo_score(hypo) / (len(_get_hypo_tokens(hypo)) + 1) # is this doing length normalization ?
 
 
 def _compute_updated_scores(
     hypos: List[Hypothesis],
-    next_token_probs: Tensor,
+    next_token_probs: torch.Tensor,
     beam_width: int,
 ) -> Tuple[Tensor, Tensor, Tensor]: # TODO
     hypo_scores = torch.tensor([_get_hypo_score(h) for h in hypos]).unsqueeze(1)
@@ -116,6 +101,7 @@ def model_recog(
         not model.language_model
     )  # not implemented here. use the pure PyTorch search instead
 
+
     batch_dims = data.remaining_dims((data_spatial_dim, data.feature_dim))
     enc_args, enc_spatial_dim = model.encode(data, in_spatial_dim=data_spatial_dim)
     beam_size = 12
@@ -130,49 +116,101 @@ def model_recog(
     # Initial state.
     beam_dim = Dim(1, name="initial-beam")
     batch_dims_ = [beam_dim] + batch_dims
-    decoder_state = model.decoder_default_initial_state(
-        batch_dims=batch_dims_, enc_spatial_dim=enc_spatial_dim
-    )
+
     target = rf.constant(model.bos_idx, dims=batch_dims_, sparse_dim=model.target_dim_w_blank)
     ended = rf.constant(False, dims=batch_dims_)
     out_seq_len = rf.constant(0, dims=batch_dims_)
     seq_log_prob = rf.constant(0.0, dims=batch_dims_)
+    batch_dim = batch_dims[0]
+    batch_size = batch_dim.get_dim_value()
+
+    blank_idx = model.target_dim.get_dim_value()
+
+    enc_out = model.encoder_out_linear(enc_args["enc"])
 
 
     # TODO implement rnnt search
     temperature = 1.0
     step_max_tokens = 100
 
-    def _init_b_hypos(self, device: torch.device) -> List[Hypothesis]:
-        token = self.blank
-        state = None
+    def _batch_state(hypos: List[Hypothesis], beam_dim: Dim) -> List[List[torch.Tensor]]:  # TODO
 
-        one_tensor = torch.tensor([1], device=device)
-        pred_out, _, pred_state = model.predict(torch.tensor([[token]], device=device), one_tensor, state)
+        accum_state = rf.State()
+        # might be improved by not hardcoding lstm predictor
+        for i in range(model.predictor.num_lstm_layers):
+            state_h_arr = TensorArray(_get_hypo_state(hypos[0])[str(i)]["h"])
+            state_c_arr = TensorArray(_get_hypo_state(hypos[0])[str(i)]["c"])
+            for hypo in hypos:
+                state_h_arr = state_h_arr.push_back(_get_hypo_state(hypo)[str(i)]["h"])
+                state_c_arr = state_c_arr.push_back(_get_hypo_state(hypo)[str(i)]["c"])
+            state_lay_i = rf.State()
+            state_lay_i["h"] = state_h_arr.stack(axis=beam_dim)
+            state_lay_i["c"] = state_c_arr.stack(axis=beam_dim)
+            accum_state[str(i)] = state_lay_i
+
+        return accum_state
+
+        # states: List[List[torch.Tensor]] = []
+        # for i in range(len(_get_hypo_state(hypos[0]))):
+        #     batched_state_components: List[torch.Tensor] = []
+        #     for j in range(len(_get_hypo_state(hypos[0])[i])):
+        #         batched_state_components.append(torch.cat([_get_hypo_state(hypo)[i][j] for hypo in hypos]))
+        #     states.append(batched_state_components)
+        # return states
+
+    def _slice_state(states: List[List[torch.Tensor]], idx: int, beam_dim: Dim, device: torch.device) -> List[
+        List[torch.Tensor]]:  # TODO
+        sliced_state = rf.State()
+        for i in range(model.predictor.num_lstm_layers):
+            sliced_state[str(i)] = rf.State()
+            sliced_state[str(i)]["h"] = rf.gather(states[str(i)]["h"], indices=idx, axis=beam_dim)
+            sliced_state[str(i)]["c"] = rf.gather(states[str(i)]["c"], indices=idx, axis=beam_dim)
+        return sliced_state
+        # return [[state.index_select(0, idx_tensor) for state in state_tuple] for state_tuple in states]
+
+    def _init_b_hypos(device: torch.device) -> List[Hypothesis]:
+        token = blank_idx
+        decoder_state = model.decoder_default_initial_state(
+            batch_dims=[], enc_spatial_dim=enc_spatial_dim
+        )
+
+        blank_tensor = rf.constant(blank_idx, dims=[], sparse_dim=model.target_dim_w_blank)
+        pred_out, pred_state = model.predictor(blank_tensor, decoder_state.predictor)
         init_hypo = (
             [token],
-            pred_out[0].detach(),
+            pred_out, # pred_out[0].detach(), TODO: what is this doing?
             pred_state,
             0.0,
         )
         return [init_hypo]
 
     def _gen_next_token_probs(
-        self, enc_out: torch.Tensor, hypos: List[Hypothesis], device: torch.device
+            enc_out: Tensor, hypos: List[Hypothesis], device: torch.device
     ) -> torch.Tensor:
-        one_tensor = torch.tensor([1], device=device)
-        predictor_out = torch.stack([_get_hypo_predictor_out(h) for h in hypos], dim=0)
-        joined_out, _, _ = model.join(
+        pred_out_template = _get_hypo_predictor_out(hypos[0])
+        state_arr = TensorArray(pred_out_template)
+        for hypo in hypos:
+            state_arr = state_arr.push_back(_get_hypo_predictor_out(hypo))
+
+        step_beam_dim = Dim(len(hypos), name="beam")
+        step_u_dim = Dim(1, name="u")
+        predictor_out = state_arr.stack(axis=step_beam_dim)
+        predictor_out = rf.expand_dim(predictor_out, dim=step_u_dim)
+        enc_out = rf.expand_dim(enc_out, dim=step_beam_dim)
+        enc_out = rf.expand_dim(enc_out, dim=single_step_dim)
+
+        joined_out = model.joiner(
             enc_out,
-            one_tensor,
             predictor_out,
-            torch.tensor([1] * len(hypos), device=device),
-        )  # [beam_width, 1, 1, num_tokens]
-        joined_out = torch.nn.functional.log_softmax(joined_out / self.temperature, dim=3)
-        return joined_out[:, 0, 0]
+            batch_dims=[step_beam_dim],
+        )  # [beam_width,1, 1, num_tokens]
+        joined_out = rf.log_softmax(joined_out / temperature, axis=model.target_dim_w_blank)
+        joined_out = rf.squeeze(joined_out, axis=single_step_dim)
+        joined_out = rf.squeeze(joined_out, axis=step_u_dim)
+
+        return joined_out
 
     def _gen_b_hypos(
-        self,
         b_hypos: List[Hypothesis],
         a_hypos: List[Hypothesis],
         next_token_probs: torch.Tensor,
@@ -199,7 +237,6 @@ def model_recog(
         return [b_hypos[idx] for idx in sorted_idx]
 
     def _gen_a_hypos(
-        self,
         a_hypos: List[Hypothesis],
         b_hypos: List[Hypothesis],
         next_token_probs: torch.Tensor,
@@ -230,156 +267,126 @@ def model_recog(
                 new_scores.append(score)
 
         if base_hypos:
-            new_hypos = self._gen_new_hypos(base_hypos, new_tokens, new_scores, t, device)
+            new_hypos = _gen_new_hypos(base_hypos, new_tokens, new_scores, t, device)
         else:
             new_hypos: List[Hypothesis] = []
 
         return new_hypos
 
     def _gen_new_hypos(
-        self,
         base_hypos: List[Hypothesis],
         tokens: List[int],
         scores: List[float],
         t: int,
         device: torch.device,
     ) -> List[Hypothesis]:
-        tgt_tokens = torch.tensor([[token] for token in tokens], device=device)
-        states = _batch_state(base_hypos)
-        pred_out, _, pred_states = self.model.predict(
+        beam_dim=Dim(len(base_hypos), name="beam")
+        tgt_tokens_raw = torch.tensor(tokens, device=device)
+        tgt_tokens = rf.Tensor(
+            name="tgt_tokens",
+            dims=[beam_dim],
+            raw_tensor=tgt_tokens_raw,
+            sparse_dim=model.target_dim_w_blank,
+            dtype="int64",
+        )
+
+        states = _batch_state(base_hypos, beam_dim)
+        pred_out, pred_state = model.predictor(
             tgt_tokens,
-            torch.tensor([1] * len(base_hypos), device=device),
             states,
         )
         new_hypos: List[Hypothesis] = []
         for i, h_a in enumerate(base_hypos):
             new_tokens = _get_hypo_tokens(h_a) + [tokens[i]]
-            new_hypos.append((new_tokens, pred_out[i].detach(), _slice_state(pred_states, i, device), scores[i]))
+            new_hypos.append((new_tokens, rf.gather(pred_out, indices=i, axis=beam_dim), _slice_state(pred_state, i, beam_dim, device), scores[i])) # detach?
         return new_hypos
 
-    # from _search function
-    n_time_steps = enc_out.shape[1]
     device = enc_out.device
+    beam_width = beam_size
 
-    a_hypos: List[Hypothesis] = []
-    b_hypos = self._init_b_hypos(device) if hypo is None else hypo
-    for t in range(n_time_steps):
-        a_hypos = b_hypos
-        b_hypos = torch.jit.annotate(List[Hypothesis], [])
-        key_to_b_hypo: Dict[str, Hypothesis] = {}
-        symbols_current_t = 0
 
-        while a_hypos:
-            next_token_probs = self._gen_next_token_probs(enc_out[:, t: t + 1], a_hypos, device)
-            next_token_probs = next_token_probs.cpu()
-            b_hypos = self._gen_b_hypos(b_hypos, a_hypos, next_token_probs, key_to_b_hypo)
+    seq_log_scores_raw = torch.full((batch_size, beam_width), fill_value= 1e-30, device=device)
+    seq_targets_raw = [[[] for _ in range(beam_width)] for _ in range(batch_size)]
 
-            if symbols_current_t == self.step_max_tokens:
-                break
+    # non-batched search
+    for i in range(batch_size):
+        enc_out_i = rf.gather(enc_out, indices=i, axis=batch_dim)
 
-            a_hypos = self._gen_a_hypos(
-                a_hypos,
-                b_hypos,
-                next_token_probs,
-                t,
-                beam_width,
-                device,
-            )
-            if a_hypos:
-                symbols_current_t += 1
+        # from _search function
+        n_time_steps = enc_out_i.get_dim(0)
 
-        _, sorted_idx = torch.tensor([self.hypo_sort_key(hyp) for hyp in b_hypos]).topk(beam_width)
-        b_hypos = [b_hypos[idx] for idx in sorted_idx]
+        a_hypos: List[Hypothesis] = []
+        b_hypos = _init_b_hypos(device) # used for streaming: if hypo is None else hypo
+        for t in range(n_time_steps):
+            a_hypos = b_hypos
+            b_hypos = torch.jit.annotate(List[Hypothesis], [])
+            key_to_b_hypo: Dict[str, Hypothesis] = {}
+            symbols_current_t = 0
 
-    # return b_hypos
-    # results is in b_hypoes
-    # TODO: extract results
+            while a_hypos:
+                next_token_probs = _gen_next_token_probs(rf.gather(enc_out_i, indices=t, axis=enc_out_i.dims[0]), a_hypos, device)
+                next_token_probs = rf.copy_to_device(next_token_probs, "cpu")
+                b_hypos = _gen_b_hypos(b_hypos, a_hypos, next_token_probs.raw_tensor, key_to_b_hypo)
 
-    return seq_targets, seq_log_prob, out_spatial_dim, beam_dim
+                if symbols_current_t == step_max_tokens:
+                    break
 
-    # old search code
-    i = 0
-    seq_targets = []
-    seq_backrefs = []
-    while True:
-        # if i == 0:
-        #     input_embed = rf.zeros(
-        #         batch_dims_ + [model.target_embed.out_dim],
-        #         feature_dim=model.target_embed.out_dim,
-        #     )
-        # else:
-        #     input_embed = model.target_embed(target)
-        step_out, decoder_state = model.loop_step(
-            **enc_args,
-            enc_spatial_dim=enc_spatial_dim,
-            input_embed=target,
-            state=decoder_state,
-        )
-        # logits = model.decode_logits(input_embed=input_embed, **step_out)
-        label_log_prob = rf.log_softmax(step_out["output"], axis=model.target_dim)
+                a_hypos = _gen_a_hypos(
+                    a_hypos,
+                    b_hypos,
+                    next_token_probs.raw_tensor,
+                    t,
+                    beam_width,
+                    device,
+                )
+                if a_hypos:
+                    symbols_current_t += 1
 
-        # Filter out finished beams
-        label_log_prob = rf.where(
-            ended,
-            rf.sparse_to_dense(
-                model.eos_idx,
-                axis=model.target_dim,
-                label_value=0.0,
-                other_value=-1.0e30,
-            ),
-            label_log_prob,
-        )
-        seq_log_prob = seq_log_prob + label_log_prob  # Batch, InBeam, Vocab
-        seq_log_prob, (backrefs, target), beam_dim = rf.top_k(
-            seq_log_prob,
-            k_dim=Dim(beam_size, name=f"dec-step{i}-beam"),
-            axis=[beam_dim, model.target_dim],
-        )  # seq_log_prob, backrefs, target: Batch, Beam
-        seq_targets.append(target)
-        seq_backrefs.append(backrefs)
-        decoder_state = tree.map_structure(
-            lambda s: rf.gather(s, indices=backrefs), decoder_state
-        )
-        ended = rf.gather(ended, indices=backrefs)
-        out_seq_len = rf.gather(out_seq_len, indices=backrefs)
-        i += 1
+            _, sorted_idx = torch.tensor([_default_hypo_sort_key(hyp) for hyp in b_hypos]).topk(beam_width)
+            b_hypos = [b_hypos[idx] for idx in sorted_idx]
 
-        ended = rf.logical_or(ended, target == model.eos_idx)
-        ended = rf.logical_or(ended, rf.copy_to_device(i >= max_seq_len))
-        if bool(rf.reduce_all(ended, axis=ended.dims).raw_tensor):
-            break
-        out_seq_len = out_seq_len + rf.where(ended, 0, 1)
+        seq_log_scores_raw[i] = torch.tensor([_get_hypo_score(hypo) for hypo in b_hypos])
+        for j, hypo in enumerate(b_hypos):
+            seq_targets_raw[i][j] = _get_hypo_tokens(hypo)
 
-        if i > 1 and length_normalization_exponent != 0:
-            # Length-normalized scores, so we evaluate score_t/len.
-            # If seq ended, score_i/i == score_{i-1}/(i-1), thus score_i = score_{i-1}*(i/(i-1))
-            # Because we count with EOS symbol, shifted by one.
-            seq_log_prob *= rf.where(
-                ended,
-                (i / (i - 1)) ** length_normalization_exponent,
-                1.0,
-            )
+    # pad targets to max length
+    # how to create a dynamic tensor?
+    lens = []
+    for i in range(batch_size):
+        for j in range(beam_width):
+            lens.append(len(seq_targets_raw[i][j])-2) # remove first blank and eos token
+    max_hyp_len = max(lens)+1 # first blank token will be removed
 
-    if i > 0 and length_normalization_exponent != 0:
-        seq_log_prob *= (1 / i) ** length_normalization_exponent
+    seq_targets_raw_padded = torch.full((batch_size, beam_width, max_hyp_len), fill_value=model.eos_idx, device=device)
+    for i in range(batch_size):
+        for j in range(beam_width):
+            seq_targets_raw_padded[i, j, :len(seq_targets_raw[i][j])-1] = torch.tensor(seq_targets_raw[i][j][1:]) # remove first blank token
 
-    # Backtrack via backrefs, resolve beams.
-    seq_targets_ = []
-    indices = rf.range_over_dim(beam_dim)  # FinalBeam -> FinalBeam
-    for backrefs, target in zip(seq_backrefs[::-1], seq_targets[::-1]):
-        # indices: FinalBeam -> Beam
-        # backrefs: Beam -> PrevBeam
-        seq_targets_.insert(0, rf.gather(target, indices=indices))
-        indices = rf.gather(backrefs, indices=indices)  # FinalBeam -> PrevBeam
+    out_spatial_dim = Dim(max_hyp_len, name="out-spatial")
+    beam_dim = Dim(beam_width, name="beam")
+    out_spatial_dim.dyn_size_ext = rf.Tensor(
+        name="out_seq_lens",
+        dims=[batch_dim, beam_dim],
+        raw_tensor=torch.tensor(lens, dtype=torch.int32).view(batch_size, beam_width),
+        dtype="int32",
+    )
 
-    seq_targets__ = TensorArray(seq_targets_[0])
-    for target in seq_targets_:
-        seq_targets__ = seq_targets__.push_back(target)
-    out_spatial_dim = Dim(out_seq_len, name="out-spatial")
-    seq_targets = seq_targets__.stack(axis=out_spatial_dim)
+    seq_targets = rf.Tensor(
+        name="seq_targets",
+        dims=[batch_dim, beam_dim, out_spatial_dim],
+        raw_tensor=seq_targets_raw_padded,
+        dtype="int64",
+        sparse_dim=model.target_dim,
+    )
+
+    seq_log_prob = rf.Tensor(
+        name="seq_log_prob",
+        dims=[batch_dim, beam_dim],
+        raw_tensor=seq_log_scores_raw,
+        dtype="float32",
+    )
 
     return seq_targets, seq_log_prob, out_spatial_dim, beam_dim
-
 
 # RecogDef API
 model_recog: RecogDef[Model]
@@ -394,78 +401,78 @@ model_recog.batch_size_dependent = False
 
 ### Copied from torchaudio
 # TODO: Adapt to rf
-from typing import Callable, Dict, List, Optional, Tuple
-
-import torch
-from torchaudio.models import RNNT
-
-
-__all__ = ["Hypothesis", "RNNTBeamSearch"]
-
-
-Hypothesis = Tuple[List[int], torch.Tensor, List[List[torch.Tensor]], float]
-Hypothesis.__doc__ = """Hypothesis generated by RNN-T beam search decoder,
-    represented as tuple of (tokens, prediction network output, prediction network state, score).
-    """
-
-
-def _get_hypo_tokens(hypo: Hypothesis) -> List[int]:
-    return hypo[0]
-
-
-def _get_hypo_predictor_out(hypo: Hypothesis) -> torch.Tensor:
-    return hypo[1]
-
-
-def _get_hypo_state(hypo: Hypothesis) -> List[List[torch.Tensor]]:
-    return hypo[2]
-
-
-def _get_hypo_score(hypo: Hypothesis) -> float:
-    return hypo[3]
-
-
-def _get_hypo_key(hypo: Hypothesis) -> str:
-    return str(hypo[0])
-
-
-def _batch_state(hypos: List[Hypothesis]) -> List[List[torch.Tensor]]:
-    states: List[List[torch.Tensor]] = []
-    for i in range(len(_get_hypo_state(hypos[0]))):
-        batched_state_components: List[torch.Tensor] = []
-        for j in range(len(_get_hypo_state(hypos[0])[i])):
-            batched_state_components.append(torch.cat([_get_hypo_state(hypo)[i][j] for hypo in hypos]))
-        states.append(batched_state_components)
-    return states
-
-
-def _slice_state(states: List[List[torch.Tensor]], idx: int, device: torch.device) -> List[List[torch.Tensor]]:
-    idx_tensor = torch.tensor([idx], device=device)
-    return [[state.index_select(0, idx_tensor) for state in state_tuple] for state_tuple in states]
-
-
-def _default_hypo_sort_key(hypo: Hypothesis) -> float:
-    return _get_hypo_score(hypo) / (len(_get_hypo_tokens(hypo)) + 1)
-
-
-def _compute_updated_scores(
-    hypos: List[Hypothesis],
-    next_token_probs: torch.Tensor,
-    beam_width: int,
-) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-    hypo_scores = torch.tensor([_get_hypo_score(h) for h in hypos]).unsqueeze(1)
-    nonblank_scores = hypo_scores + next_token_probs[:, :-1]  # [beam_width, num_tokens - 1]
-    nonblank_nbest_scores, nonblank_nbest_idx = nonblank_scores.reshape(-1).topk(beam_width)
-    nonblank_nbest_hypo_idx = nonblank_nbest_idx.div(nonblank_scores.shape[1], rounding_mode="trunc")
-    nonblank_nbest_token = nonblank_nbest_idx % nonblank_scores.shape[1]
-    return nonblank_nbest_scores, nonblank_nbest_hypo_idx, nonblank_nbest_token
-
-
-def _remove_hypo(hypo: Hypothesis, hypo_list: List[Hypothesis]) -> None:
-    for i, elem in enumerate(hypo_list):
-        if _get_hypo_key(hypo) == _get_hypo_key(elem):
-            del hypo_list[i]
-            break
+# from typing import Callable, Dict, List, Optional, Tuple
+#
+# import torch
+# from torchaudio.models import RNNT
+#
+#
+# __all__ = ["Hypothesis", "RNNTBeamSearch"]
+#
+#
+# Hypothesis = Tuple[List[int], torch.Tensor, List[List[torch.Tensor]], float]
+# Hypothesis.__doc__ = """Hypothesis generated by RNN-T beam search decoder,
+#     represented as tuple of (tokens, prediction network output, prediction network state, score).
+#     """
+#
+#
+# def _get_hypo_tokens(hypo: Hypothesis) -> List[int]:
+#     return hypo[0]
+#
+#
+# def _get_hypo_predictor_out(hypo: Hypothesis) -> torch.Tensor:
+#     return hypo[1]
+#
+#
+# def _get_hypo_state(hypo: Hypothesis) -> List[List[torch.Tensor]]:
+#     return hypo[2]
+#
+#
+# def _get_hypo_score(hypo: Hypothesis) -> float:
+#     return hypo[3]
+#
+#
+# def _get_hypo_key(hypo: Hypothesis) -> str:
+#     return str(hypo[0])
+#
+#
+# def _batch_state(hypos: List[Hypothesis]) -> List[List[torch.Tensor]]:
+#     states: List[List[torch.Tensor]] = []
+#     for i in range(len(_get_hypo_state(hypos[0]))):
+#         batched_state_components: List[torch.Tensor] = []
+#         for j in range(len(_get_hypo_state(hypos[0])[i])):
+#             batched_state_components.append(torch.cat([_get_hypo_state(hypo)[i][j] for hypo in hypos]))
+#         states.append(batched_state_components)
+#     return states
+#
+#
+# def _slice_state(states: List[List[torch.Tensor]], idx: int, device: torch.device) -> List[List[torch.Tensor]]:
+#     idx_tensor = torch.tensor([idx], device=device)
+#     return [[state.index_select(0, idx_tensor) for state in state_tuple] for state_tuple in states]
+#
+#
+# def _default_hypo_sort_key(hypo: Hypothesis) -> float:
+#     return _get_hypo_score(hypo) / (len(_get_hypo_tokens(hypo)) + 1)
+#
+#
+# def _compute_updated_scores(
+#     hypos: List[Hypothesis],
+#     next_token_probs: torch.Tensor,
+#     beam_width: int,
+# ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+#     hypo_scores = torch.tensor([_get_hypo_score(h) for h in hypos]).unsqueeze(1)
+#     nonblank_scores = hypo_scores + next_token_probs[:, :-1]  # [beam_width, num_tokens - 1]
+#     nonblank_nbest_scores, nonblank_nbest_idx = nonblank_scores.reshape(-1).topk(beam_width)
+#     nonblank_nbest_hypo_idx = nonblank_nbest_idx.div(nonblank_scores.shape[1], rounding_mode="trunc")
+#     nonblank_nbest_token = nonblank_nbest_idx % nonblank_scores.shape[1]
+#     return nonblank_nbest_scores, nonblank_nbest_hypo_idx, nonblank_nbest_token
+#
+#
+# def _remove_hypo(hypo: Hypothesis, hypo_list: List[Hypothesis]) -> None:
+#     for i, elem in enumerate(hypo_list):
+#         if _get_hypo_key(hypo) == _get_hypo_key(elem):
+#             del hypo_list[i]
+#             break
 
 
 class RNNTBeamSearch(torch.nn.Module):

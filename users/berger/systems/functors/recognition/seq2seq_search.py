@@ -3,15 +3,16 @@ import itertools
 from typing import Dict, List, Optional, Union
 
 from i6_core import returnn
+from sisyphus import tk
+
 from i6_experiments.users.berger.recipe import rasr as custom_rasr
 from i6_experiments.users.berger.recipe import recognition
 from i6_experiments.users.berger.recipe.returnn.training import Backend, get_backend
-from sisyphus import tk
+
+from ... import dataclasses, types
 from ..base import RecognitionFunctor
 from ..rasr_base import RecognitionScoringType
 from ..seq2seq_base import Seq2SeqFunctor
-from ... import dataclasses
-from ... import types
 
 
 class Seq2SeqSearchFunctor(
@@ -25,33 +26,60 @@ class Seq2SeqSearchFunctor(
         recog_config: dataclasses.NamedConfig[
             Union[returnn.ReturnnConfig, dataclasses.EncDecConfig[returnn.ReturnnConfig]]
         ],
-        recog_corpus: dataclasses.NamedCorpusInfo,
+        recog_corpus: dataclasses.NamedRasrDataInput,
         lookahead_options: Dict,
         epochs: List[types.EpochType],
-        lm_scales: List[float] = [0],
-        prior_scales: List[float] = [0],
-        prior_args: Dict = {},
-        lattice_to_ctm_kwargs: Dict = {},
+        am_args: Optional[Dict] = None,
+        lm_scales: Optional[List[float]] = None,
+        prior_scales: Optional[List[float]] = None,
+        prior_args: Optional[Dict] = None,
+        lattice_to_ctm_kwargs: Optional[Dict] = None,
         label_unit: str = "phoneme",
-        label_tree_args: Dict = {},
+        label_tree_args: Optional[Dict] = None,
         label_scorer_type: str = "precomputed-log-posterior",
-        label_scorer_args: Dict = {},
+        label_scorer_args: Optional[Dict] = None,
         feature_type: dataclasses.FeatureType = dataclasses.FeatureType.SAMPLES,
-        flow_args: Dict = {},
-        model_flow_args: Dict = {},
+        flow_args: Optional[Dict] = None,
+        model_flow_args: Optional[Dict] = None,
         recognition_scoring_type=RecognitionScoringType.Lattice,
         rqmt_update: Optional[dict] = None,
         search_stats: bool = False,
         seq2seq_v2: bool = False,
         **kwargs,
     ) -> List[Dict]:
+        if am_args is None:
+            am_args = {}
+        if lm_scales is None:
+            lm_scales = [0.0]
+        if prior_scales is None:
+            prior_scales = [0.0]
+        if prior_args is None:
+            prior_args = {}
+        if lattice_to_ctm_kwargs is None:
+            lattice_to_ctm_kwargs = {}
+        if label_tree_args is None:
+            label_tree_args = {}
+        if label_scorer_args is None:
+            label_scorer_args = {}
+        if flow_args is None:
+            flow_args = {}
+        if model_flow_args is None:
+            model_flow_args = {}
+
         assert recog_corpus is not None
-        crp = copy.deepcopy(recog_corpus.corpus_info.crp)
-        assert recog_corpus.corpus_info.scorer is not None
+        crp = recog_corpus.data.get_crp(
+            rasr_python_exe=self.rasr_python_exe,
+            rasr_binary_path=self.rasr_binary_path,
+            returnn_python_exe=self.returnn_python_exe,
+            returnn_root=self.returnn_root,
+            blas_lib=self.blas_lib,
+            am_args=am_args,
+        )
+        assert recog_corpus.data.scorer is not None
 
         label_tree = custom_rasr.LabelTree(
             label_unit,
-            lexicon_config=recog_corpus.corpus_info.data.lexicon,
+            lexicon_config=recog_corpus.data.lexicon,
             **label_tree_args,
         )
 
@@ -59,9 +87,7 @@ class Seq2SeqSearchFunctor(
         if self.requires_label_file(label_unit):
             mod_label_scorer_args["label_file"] = self._get_label_file(crp)
 
-        base_feature_flow = self._make_base_feature_flow(
-            recog_corpus.corpus_info, feature_type=feature_type, **flow_args
-        )
+        base_feature_flow = self._make_base_feature_flow(recog_corpus.data, feature_type=feature_type, **flow_args)
 
         recog_results = []
 
@@ -158,9 +184,11 @@ class Seq2SeqSearchFunctor(
             if rqmt_update is not None:
                 rec.rqmt.update(rqmt_update)
 
-            exp_full = (
-                f"{recog_config.name}_e-{self._get_epoch_string(epoch)}_prior-{prior_scale:02.2f}_lm-{lm_scale:02.2f}"
-            )
+            exp_full = f"{recog_config.name}_e-{self._get_epoch_string(epoch)}"
+            if prior_scale != 0:
+                exp_full += f"_prior-{prior_scale:02.2f}"
+            if lm_scale != 0:
+                exp_full += f"_lm-{lm_scale:02.2f}"
 
             path = f"nn_recog/{recog_corpus.name}/{train_job.name}/{exp_full}"
 
@@ -171,7 +199,7 @@ class Seq2SeqSearchFunctor(
                 recognition_scoring_type=recognition_scoring_type,
                 crp=crp,
                 lattice_bundle=rec.out_lattice_bundle,
-                scorer=recog_corpus.corpus_info.scorer,
+                scorer=recog_corpus.data.scorer,
                 **lattice_to_ctm_kwargs,
             )
 
@@ -182,9 +210,10 @@ class Seq2SeqSearchFunctor(
 
             rtf = None
             if search_stats:
+                assert recog_corpus.data.corpus_object.duration is not None
                 stats_job = recognition.ExtractSeq2SeqSearchStatisticsJob(
                     search_logs=list(rec.out_log_file.values()),
-                    corpus_duration_hours=recog_corpus.corpus_info.data.corpus_object.duration,
+                    corpus_duration_hours=recog_corpus.data.corpus_object.duration,
                 )
                 rtf = stats_job.overall_rtf
 

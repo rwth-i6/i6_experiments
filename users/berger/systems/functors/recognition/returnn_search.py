@@ -8,6 +8,7 @@ from i6_core.returnn.vocabulary import ReturnnVocabFromPhonemeInventory
 from sisyphus import tk
 
 from i6_experiments.users.berger.helpers.kenlm import arpa_to_kenlm_bin
+from i6_experiments.users.berger.helpers.rasr_lm_config import ArpaLMData
 from i6_experiments.users.berger.recipe.lexicon.conversion import BlissLexiconToWordLexicon
 from i6_experiments.users.berger.recipe.returnn.training import (
     GetBestCheckpointJob,
@@ -49,7 +50,7 @@ class ReturnnSearchFunctor(RecognitionFunctor[returnn.ReturnnTrainingJob, return
         train_job: dataclasses.NamedTrainJob[returnn.ReturnnTrainingJob],
         prior_config: returnn.ReturnnConfig,
         recog_config: dataclasses.NamedConfig[returnn.ReturnnConfig],
-        recog_corpus: dataclasses.NamedCorpusInfo,
+        recog_corpus: dataclasses.NamedRasrDataInput,
         epochs: List[types.EpochType],
         lm_scales: List[float] = [0.0],
         prior_scales: List[float] = [0.0],
@@ -59,8 +60,7 @@ class ReturnnSearchFunctor(RecognitionFunctor[returnn.ReturnnTrainingJob, return
         convert_bpe_results: bool = False,
         **_,
     ) -> List[Dict]:
-        assert recog_corpus.corpus_info.scorer is not None
-        crp = recog_corpus.corpus_info.crp
+        assert recog_corpus.data.scorer is not None
 
         recog_results = []
 
@@ -97,11 +97,10 @@ class ReturnnSearchFunctor(RecognitionFunctor[returnn.ReturnnTrainingJob, return
             if lexicon_type == LexiconType.NONE:
                 lexicon_file = None
             elif lexicon_type == LexiconType.BLISS:
-                assert crp.lexicon_config is not None
-                lexicon_file = crp.lexicon_config.file
+                lexicon_file = recog_corpus.data.lexicon.filename
             elif lexicon_type == LexiconType.FLASHLIGHT:
-                assert crp.lexicon_config is not None
-                lexicon_file = BlissLexiconToWordLexicon(crp.lexicon_config.file).out_lexicon
+                lexicon_file = recog_corpus.data.lexicon.filename
+                lexicon_file = BlissLexiconToWordLexicon(lexicon_file).out_lexicon
             else:
                 raise NotImplementedError
 
@@ -110,8 +109,7 @@ class ReturnnSearchFunctor(RecognitionFunctor[returnn.ReturnnTrainingJob, return
             if vocab_type == VocabType.NONE:
                 vocab_file = None
             elif vocab_type == VocabType.RETURNN:
-                assert crp.lexicon_config is not None
-                vocab_file = ReturnnVocabFromPhonemeInventory(crp.lexicon_config.file).out_vocab
+                vocab_file = ReturnnVocabFromPhonemeInventory(recog_corpus.data.lexicon.filename).out_vocab
             else:
                 raise NotImplementedError
 
@@ -120,9 +118,8 @@ class ReturnnSearchFunctor(RecognitionFunctor[returnn.ReturnnTrainingJob, return
             if lm_type == LmType.NONE:
                 lm_file = None
             elif lm_type == LmType.ARPA_FILE:
-                assert crp.language_model_config is not None
-                assert crp.language_model_config.type == "ARPA"
-                lm_file = arpa_to_kenlm_bin(crp.language_model_config.file)
+                assert isinstance(recog_corpus.data.lm, ArpaLMData)
+                lm_file = arpa_to_kenlm_bin(recog_corpus.data.lm.filename)
             else:
                 raise NotImplementedError
 
@@ -160,10 +157,10 @@ class ReturnnSearchFunctor(RecognitionFunctor[returnn.ReturnnTrainingJob, return
             if convert_bpe_results:
                 search_output = returnn.SearchBPEtoWordsJob(search_output).out_word_search_results
             word2ctm = returnn.SearchWordsToCTMJob(
-                search_output, recog_corpus.corpus_info.data.corpus_object.corpus_file
+                search_output, recog_corpus.data.corpus_object.corpus_file
             ).out_ctm_file
 
-            scorer_job = recog_corpus.corpus_info.scorer.get_score_job(word2ctm)
+            scorer_job = recog_corpus.data.scorer.get_score_job(word2ctm)
 
             tk.register_output(
                 f"{path}.reports",

@@ -1,13 +1,14 @@
-from abc import ABC
 import copy
+from abc import ABC
 
 from i6_core import lexicon, rasr, returnn
-from i6_experiments.users.berger.recipe import rasr as custom_rasr
-from i6_experiments.users.berger.util import lru_cache_with_signature
 from sisyphus import tk
 
-from .rasr_base import RasrFunctor
+from i6_experiments.users.berger.recipe import rasr as custom_rasr
+from i6_experiments.users.berger.util import lru_cache_with_signature
+
 from ..dataclasses import FeatureType
+from .rasr_base import RasrFunctor
 
 
 class Seq2SeqFunctor(RasrFunctor, ABC):
@@ -38,7 +39,7 @@ class Seq2SeqFunctor(RasrFunctor, ABC):
         enc_features_size: str = "sources:size1",
         enc_output_name: str = "source_encodings",
         dec_features_name: str = "source_encodings",
-        dec_history_name: str = "targets",
+        dec_history_name: str = "history",
         dec_output_name: str = "log_probs",
     ) -> None:
         encoder_io_map = rasr.RasrConfig()

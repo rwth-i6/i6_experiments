@@ -56,12 +56,12 @@ def get_manifest(valid_percent=0.001, audio_format="ogg", output_prefix="dataset
     return manifest_split_job.out_manifest_path
 
 
-def get_fairseq_root():
+def get_fairseq_root(commit="da8fb630880d529ab47e53381c30ddc8ad235216", fairseq_exe=None):
     fairseq_root = CloneGitRepositoryJob(
         "https://github.com/facebookresearch/fairseq",
         checkout_folder_name="fairseq",
-        commit="da8fb630880d529ab47e53381c30ddc8ad235216").out_repository
-    fairseq_root = SetupFairseqJob(fairseq_root).out_fairseq_root
+        commit=commit).out_repository
+    fairseq_root = SetupFairseqJob(fairseq_root, fairseq_exe).out_fairseq_root
     return fairseq_root
 
 
@@ -139,15 +139,16 @@ def run_fairseq_pretraining():
     fairseq_args = get_fairseq_args(num_gpus=num_gpus)
     fairseq_config = FairseqHydraConfig(fairseq_args)
     fairseq_root = get_fairseq_root()
-    fairseq_exe = tk.Path(
-        "/home/pv653172/setups/librispeech/20230328_wav2vec2/dependencies/python_launcher.sh",
-        hash_overwrite="python_launcher",
-    )
+    itc_python_launcher = "/home/pv653172/setups/librispeech/20230328_wav2vec2/dependencies/python_launcher.sh"
+    if os.path.exists(itc_python_launcher):
+        fairseq_exe = tk.Path(itc_python_launcher, hash_overwrite="python_launcher")
+    else:
+        fairseq_exe = tk.Path("/usr/bin/python3", hash_overwrite="python_launcher")
     job = FairseqHydraTrainingJob(
         fairseq_config,
         save_interval=25,
-        max_epoch=300,
-        max_update=400000,
+        max_epoch=600,
+        max_update=420000,
         fairseq_root=fairseq_root,
         fairseq_python_exe=fairseq_exe,
         rqmt={"time": 120, "mem": 12, "cpu": 2, "gpu": num_gpus},

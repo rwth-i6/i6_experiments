@@ -48,6 +48,7 @@ def get_tedlium2_data_dumped_labels(
             add_all_allophones=True,
             add_unknown_phoneme_and_mapping=add_unknown,
             filter_unk_from_corpus=True,
+            eow_lexicon=True,
         )
     )
 
@@ -107,11 +108,6 @@ def get_tedlium2_data_dumped_labels(
         )
         for key, data_input in {**dev_data_inputs, **test_data_inputs}.items()
     }
-
-    # ********** Recog lexicon **********
-
-    for rasr_input in {**dev_data_inputs, **test_data_inputs}.values():
-        rasr_input.lexicon.filename = eow_lexicon
 
     # ********** Align data **********
 

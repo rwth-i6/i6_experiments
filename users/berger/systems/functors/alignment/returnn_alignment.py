@@ -9,7 +9,7 @@ class ReturnnAlignmentFunctor(AlignmentFunctor[returnn.ReturnnTrainingJob, retur
         train_job: dataclasses.NamedTrainJob[returnn.ReturnnTrainingJob],
         prior_config: returnn.ReturnnConfig,
         align_config: returnn.ReturnnConfig,
-        align_corpus: dataclasses.NamedCorpusInfo,
+        align_corpus: dataclasses.NamedRasrDataInput,
         **kwargs,
     ) -> dataclasses.AlignmentData:
         raise NotImplementedError

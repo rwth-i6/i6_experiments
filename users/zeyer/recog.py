@@ -9,11 +9,17 @@ from typing import TYPE_CHECKING, Optional, Union, Any, Dict, Sequence, Collecti
 
 import sisyphus
 from sisyphus import tk
+from sisyphus import tools as sis_tools
 from i6_core.util import instanciate_delayed
 
 from i6_core.returnn import ReturnnConfig
 from i6_core.returnn.training import ReturnnTrainingJob, PtCheckpoint, AverageTorchCheckpointsJob
-from i6_core.returnn.search import ReturnnSearchJobV2, SearchRemoveLabelJob, SearchTakeBestJob
+from i6_core.returnn.search import (
+    ReturnnSearchJobV2,
+    SearchRemoveLabelJob,
+    SearchCollapseRepeatedLabelsJob,
+    SearchTakeBestJob,
+)
 from i6_core.returnn.forward import ReturnnForwardJobV2
 from returnn_common import nn
 from returnn_common.datasets_old_2022_10.interface import DatasetConfig
@@ -229,6 +235,8 @@ def search_dataset(
     if search_alias_name:
         search_job.add_alias(search_alias_name)
     if recog_def.output_blank_label:
+        # Also assume we should collapse repeated labels first.
+        res = SearchCollapseRepeatedLabelsJob(res, output_gzip=True).out_search_results
         res = SearchRemoveLabelJob(res, remove_label=recog_def.output_blank_label, output_gzip=True).out_search_results
     for f in recog_post_proc_funcs:  # for example BPE to words
         res = f(RecogOutput(output=res)).output
@@ -620,8 +628,6 @@ class GetBestRecogTrainExp(sisyphus.Job):
         }
     """
 
-    __sis_hash_exclude__ = {"exclude_epochs": ()}
-
     def __init__(
         self,
         exp: ModelWithCheckpoints,
@@ -649,6 +655,27 @@ class GetBestRecogTrainExp(sisyphus.Job):
         for epoch in exp.fixed_epochs:
             self._add_recog(epoch)
 
+    @classmethod
+    def hash(cls, parsed_args: Dict[str, Any]) -> str:
+        """
+        :param parsed_args:
+        :return: hash for job given the arguments
+        """
+        # Extend the default hash() function.
+        d = parsed_args.copy()
+        if not d["exclude_epochs"]:
+            d.pop("exclude_epochs")
+        exp: ModelWithCheckpoints = d["exp"]
+        assert isinstance(exp, ModelWithCheckpoints)
+        assert exp.fixed_epochs  # need some fixed epochs to define the hash
+        last_fixed_epoch = max(exp.fixed_epochs)
+        recog_and_score_func = d["recog_and_score_func"]
+        res = recog_and_score_func(last_fixed_epoch)
+        assert isinstance(res, ScoreResultCollection)
+        # Add this to the hash, to make sure the pipeline of the recog and scoring influences the hash.
+        d["_last_fixed_epoch_results"] = res
+        return sis_tools.sis_hash(d)
+
     def update(self):
         """
         This is run when all inputs have become available,
@@ -666,8 +693,12 @@ class GetBestRecogTrainExp(sisyphus.Job):
             from datetime import datetime
 
             log_filename = tk.Path("update.log", self).get_path()
-            os.makedirs(os.path.dirname(log_filename), exist_ok=True)
-            with open(log_filename, "a") as log_stream:
+            try:
+                os.makedirs(os.path.dirname(log_filename), exist_ok=True)
+                log_stream = open(log_filename, "a")
+            except PermissionError:  # maybe some other user runs this, via job import
+                log_stream = open("/dev/stdout", "w")
+            with log_stream:
                 log_stream.write(datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
                 log_stream.write(": get_relevant_epochs_from_training_learning_rate_scores\n")
                 for epoch in get_relevant_epochs_from_training_learning_rate_scores(

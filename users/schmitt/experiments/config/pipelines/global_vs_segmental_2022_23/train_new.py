@@ -10,10 +10,6 @@ from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segment
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.returnn.config_builder.global_ import GlobalConfigBuilder
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.config_builder_rf.base import GlobalAttConfigBuilderRF, SegmentalAttConfigBuilderRF, ConfigBuilderRF
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.returnn.config_builder.ctc import CtcConfigBuilder
-from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.pipelines.pipeline_ls_conf.checkpoints import external_checkpoints
-from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.labels.v2.librispeech.label_singletons import LibrispeechBPE10025_LABELS_WITH_SILENCE, LibrispeechBPE10025_CTC_ALIGNMENT
-
-default_import_model_name = "glob.conformer.mohammad.5.6"
 
 
 class TrainExperiment(ABC):
@@ -31,9 +27,7 @@ class TrainExperiment(ABC):
     self.train_opts = self.default_train_opts
     if train_opts is not None:
       _train_opts = copy.deepcopy(train_opts)
-      dataset_opts = _train_opts.pop("dataset_opts", {})
       self.train_opts.update(_train_opts)
-      self.train_opts["dataset_opts"].update(dataset_opts)
       if "cleanup_old_models" not in self.train_opts:
         self.train_opts["cleanup_old_models"] = {
           "keep_best_n": 4, "keep_last_n": 1, "keep": [num_epochs]
@@ -91,8 +85,7 @@ class SegmentalTrainExperiment(TrainExperiment):
   def default_train_opts(self) -> Dict:
     return {
       "chunking_opts": None,
-      "dataset_opts": {"hdf_targets": LibrispeechBPE10025_CTC_ALIGNMENT.alignment_paths},
-      "import_model_train_epoch1": external_checkpoints[default_import_model_name],
+      # "import_model_train_epoch1": external_checkpoints[default_import_model_name],
       "lr_opts": {
         "type": "const_then_linear",
         "const_lr": 1e-4,
@@ -113,8 +106,7 @@ class GlobalTrainExperiment(TrainExperiment):
   @property
   def default_train_opts(self) -> Dict:
     return {
-      "import_model_train_epoch1": external_checkpoints[default_import_model_name],
-      "dataset_opts": {},
+      # "import_model_train_epoch1": external_checkpoints[default_import_model_name],
       "lr_opts": {
         "type": "const_then_linear",
         "const_lr": 1e-4,
@@ -135,12 +127,12 @@ class CtcTrainExperiment(TrainExperiment):
   @property
   def default_train_opts(self) -> Dict:
     return {
-      "import_model_train_epoch1": external_checkpoints[default_import_model_name],
-      "dataset_opts": {"hdf_targets": {
-        "train": LibrispeechBPE10025_LABELS_WITH_SILENCE._label_paths["train"],
-        "devtrain": LibrispeechBPE10025_LABELS_WITH_SILENCE._label_paths["train"],
-        "cv": LibrispeechBPE10025_LABELS_WITH_SILENCE._label_paths["train"]
-      }},
+      # "import_model_train_epoch1": external_checkpoints[default_import_model_name],
+      # "dataset_opts": {"hdf_targets": {
+      #   "train": LibrispeechBPE10025_LABELS_WITH_SILENCE._label_paths["train"],
+      #   "devtrain": LibrispeechBPE10025_LABELS_WITH_SILENCE._label_paths["train"],
+      #   "cv": LibrispeechBPE10025_LABELS_WITH_SILENCE._label_paths["train"]
+      # }},
       "lr_opts": {
         "type": "const_then_linear",
         "const_lr": 1e-4,

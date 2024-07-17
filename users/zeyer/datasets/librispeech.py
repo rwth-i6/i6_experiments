@@ -3,7 +3,7 @@ Librispeech dataset
 """
 
 from __future__ import annotations
-from typing import Optional, Any, Union, Tuple, Dict
+from typing import TYPE_CHECKING, Optional, Any, Union, Tuple, Dict
 from copy import deepcopy
 import re
 from functools import cache
@@ -12,6 +12,7 @@ from sisyphus import tk
 from i6_core.corpus.convert import CorpusToTextDictJob
 from i6_core.text.convert import TextDictToTextLinesJob
 from i6_core.text.label.sentencepiece.train import TrainSentencePieceJob, SentencePieceType
+from i6_core.text.label.sentencepiece.vocab import ExtractSentencePieceVocabJob
 from returnn.util.basic import NotSpecified
 from returnn_common.datasets_old_2022_10.interface import DatasetConfig, VocabConfig
 from i6_experiments.common.datasets import librispeech
@@ -25,44 +26,59 @@ from .task import Task, MeasureType, RecogOutput, ScoreResult
 from .utils.bpe import Bpe
 from .utils.spm import SentencePieceModel
 
+if TYPE_CHECKING:
+    from returnn.tensor import Tensor, Dim
+    from i6_experiments.users.zeyer.collect_model_dataset_stats import StatisticsOutput
 
-librispeech_ogg_zip_dict = librispeech.get_ogg_zip_dict()
 
-# $ ls -la /u/zeyer/setups/librispeech/dataset/tars/
-# -rw-r--r-- 1 zeyer assi   360977013 Feb 26  2018 dev-clean.zip
-# -rw-r--r-- 1 zeyer assi   338709788 Feb 26  2018 dev-other.zip
-# -rw-r--r-- 1 zeyer assi        1024 Feb 27  2018 .history.zeyer
-# -rw-r--r-- 1 zeyer assi   369096021 Feb 26  2018 test-clean.zip
-# -rw-r--r-- 1 zeyer assi   353841318 Feb 26  2018 test-other.zip
-# -rw-r--r-- 1 zeyer assi  6625963133 Feb 26  2018 train-clean-100.zip
-# -rw-r--r-- 1 zeyer assi 23919296392 Feb 26  2018 train-clean-360.zip
-# -rw-r--r-- 1 zeyer assi 31839925140 Feb 26  2018 train-other-500.zip
-librispeech_tars_zip_base_path = tk.Path(
-    "/u/zeyer/setups/librispeech/dataset/tars", hash_overwrite="Librispeech-tars-zip-base-path"
-)
+_alias_prefix = "datasets/LibriSpeech/"
 
-# Get Bliss corpus. Same audio format as in ogg_zip, so already there anyway due to how we created the ogg_zip.
-# WARNING: Do not use these directly... It will keep another ogg copy of the audio...
-# However, these are used later in the scoring, so when changing them, make sure it's optional,
-# to not break hashes of old setups.
-_bliss_corpus_dict = librispeech.get_bliss_corpus_dict(audio_format="ogg")
-_corpus_text_dicts = {k: CorpusToTextDictJob(v, gzip=True).out_dictionary for k, v in _bliss_corpus_dict.items()}
-_train_corpus_text_dict = _corpus_text_dicts["train-other-960"]
-_train_corpus_text = TextDictToTextLinesJob(_train_corpus_text_dict, gzip=True).out_text_lines
+
+@cache
+def _get_librispeech_ogg_zip_dict() -> Dict[str, tk.Path]:
+    return librispeech.get_ogg_zip_dict()
+
+
+@cache
+def _get_bliss_corpus_dict() -> Dict[str, tk.Path]:
+    # Get Bliss corpus. Same audio format as in ogg_zip, so already there anyway due to how we created the ogg_zip.
+    # WARNING: Do not use these directly... It will keep another ogg copy of the audio...
+    # However, these are used later in the scoring, so when changing them, make sure it's optional,
+    # to not break hashes of old setups.
+    return librispeech.get_bliss_corpus_dict(audio_format="ogg")
+
+
+@cache
+def _get_corpus_text_dict(key: str) -> tk.Path:
+    job = CorpusToTextDictJob(_get_bliss_corpus_dict()[key], gzip=True)
+    job.add_alias(_alias_prefix + f"{key.replace('-', '_')}_corpus_text_dict")
+    tk.register_output(_alias_prefix + f"{key.replace('-', '_')}_corpus_text_dict.py.gz", job.out_dictionary)
+    return job.out_dictionary
+
+
+@cache
+def _get_train_corpus_text() -> tk.Path:
+    key = "train-other-960"
+    train_corpus_text_dict = _get_corpus_text_dict(key)
+    job = TextDictToTextLinesJob(train_corpus_text_dict, gzip=True)
+    job.add_alias(_alias_prefix + f"{key.replace('-', '_')}_corpus_text_lines")
+    tk.register_output(_alias_prefix + f"{key.replace('-', '_')}_corpus_text_lines.txt.gz", job.out_text_lines)
+    return job.out_text_lines
 
 
 @cache
 def _get_spm_vocab(
     *, dim: Union[int, str], model_type: SentencePieceType = SentencePieceType.UNIGRAM
 ) -> SentencePieceModel:
+    dim_str = str(dim)
     if isinstance(dim, str):
         # Not sure if power-of-two or just multiple-of-64, but 10240 has more 2s in it (2048*5) than 10048.
-        dim = {"20k": 20_480, "10k": 10_240, "5k": 5_120, "4k": 4_096, "1k": 1_024}[dim]
+        dim = {"20k": 20_480, "10k": 10_240, "5k": 5_120, "4k": 4_096, "1k": 1_024, "512": 512, "128": 128}[dim]
     assert isinstance(dim, int) and dim >= 10
 
     # https://github.com/google/sentencepiece/blob/master/doc/options.md
     _spm_train_job = TrainSentencePieceJob(
-        training_text=_train_corpus_text,
+        training_text=_get_train_corpus_text(),
         vocab_size=dim,
         model_type=model_type,
         additional_options={
@@ -71,6 +87,12 @@ def _get_spm_vocab(
             "bos_id": 1,  # default is 1
             "eos_id": 0,  # default is 2
         },
+    )
+    _spm_train_job.add_alias(_alias_prefix + f"vocab/spm_{model_type.value}_{dim_str}_train")
+    tk.register_output(_alias_prefix + f"vocab/spm_{model_type.value}_{dim_str}_train.model", _spm_train_job.out_model)
+    tk.register_output(
+        _alias_prefix + f"vocab/spm_{model_type.value}_{dim_str}_train.vocab",
+        ExtractSentencePieceVocabJob(_spm_train_job.out_model).out_vocab,
     )
     spm = SentencePieceModel(
         dim=dim,
@@ -173,7 +195,7 @@ def _get_dataset(key: str, *, subset=None, train_partition_epoch=None, training:
     parts = [part for part in _Parts if part.startswith(key)]
     assert parts, f"invalid key {key!r}"
     for part in parts:
-        files += [librispeech_ogg_zip_dict[part]]
+        files += [_get_librispeech_ogg_zip_dict()[part]]
     d = {
         "class": "OggZipDataset",
         "path": files,
@@ -320,8 +342,8 @@ class LibrispeechOggZip(DatasetConfig):
         parts = [part for part in _Parts if part.startswith(key)]
         assert parts, f"invalid key {key!r}"
         for part in parts:
-            files += [librispeech_ogg_zip_dict[part]]
-        d = {
+            files += [_get_librispeech_ogg_zip_dict()[part]]
+        d: Dict[str, Any] = {
             "class": "OggZipDataset",
             "path": files,
             "use_cache_manager": True,
@@ -336,6 +358,8 @@ class LibrispeechOggZip(DatasetConfig):
                 eos_id = vocab.get_eos_idx()
                 assert eos_id is not None, f"{self}: vocab {vocab} does not define EOS"
                 d["targets"]["seq_postfix"] = [eos_id]
+        else:
+            d["targets"] = None
         if training:
             d["partition_epoch"] = self.train_epoch_split
             if self.train_epoch_wise_filter is not None:
@@ -361,6 +385,19 @@ class LibrispeechOldFlacTarZip(DatasetConfig):
     i.e. the original tar files repacked into zip files,
     i.e. keeping the original flac files inside the zip files.
     """
+
+    # $ ls -la /u/zeyer/setups/librispeech/dataset/tars/
+    # -rw-r--r-- 1 zeyer assi   360977013 Feb 26  2018 dev-clean.zip
+    # -rw-r--r-- 1 zeyer assi   338709788 Feb 26  2018 dev-other.zip
+    # -rw-r--r-- 1 zeyer assi        1024 Feb 27  2018 .history.zeyer
+    # -rw-r--r-- 1 zeyer assi   369096021 Feb 26  2018 test-clean.zip
+    # -rw-r--r-- 1 zeyer assi   353841318 Feb 26  2018 test-other.zip
+    # -rw-r--r-- 1 zeyer assi  6625963133 Feb 26  2018 train-clean-100.zip
+    # -rw-r--r-- 1 zeyer assi 23919296392 Feb 26  2018 train-clean-360.zip
+    # -rw-r--r-- 1 zeyer assi 31839925140 Feb 26  2018 train-other-500.zip
+    _librispeech_tars_zip_base_path = tk.Path(
+        "/u/zeyer/setups/librispeech/dataset/tars", hash_overwrite="Librispeech-tars-zip-base-path"
+    )
 
     def __init__(
         self,
@@ -447,7 +484,7 @@ class LibrispeechOldFlacTarZip(DatasetConfig):
     def get_dataset(self, key: str, *, training: bool = False, subset: Optional[int] = None) -> Dict[str, Any]:
         d = {
             "class": "LibriSpeechCorpus",
-            "path": librispeech_tars_zip_base_path,
+            "path": self._librispeech_tars_zip_base_path,
             "use_zip": True,
             "prefix": key,
             "use_cache_manager": True,
@@ -562,6 +599,7 @@ def get_librispeech_task_raw_v2(
     Use _bpe_to_words_v2 and _score_recog_out_v2 which does not use the Bliss corpus anymore directly,
     so it is easier to copy this setup to a new environment.
     """
+    vocab_ = vocab
     if isinstance(vocab, str):
         vocab = _get_vocab_by_str(vocab)
 
@@ -584,6 +622,8 @@ def get_librispeech_task_raw_v2(
         dataset_common_opts["train_vocab"] = vocab.copy(**train_vocab_opts)
     # We expect that all kwargs are only relevant for the training, thus we only pass them here.
     train_dataset = dataset_cls(**dataset_common_opts, **dataset_train_opts)
+    _extract_audio_seq_len_file(train_dataset)
+    _extract_target_seq_len_file(train_dataset, vocab_)
     eval_datasets = {
         "dev-clean": dataset_cls(**dataset_common_opts, main_key="dev-clean"),
         "dev-other": dataset_cls(**dataset_common_opts, main_key="dev-other"),
@@ -605,6 +645,84 @@ def get_librispeech_task_raw_v2(
     )
     _librispeech_task_raw_v2_cache[cache_key] = task
     return task
+
+
+def _extract_audio_seq_len_file(train_dataset: DatasetConfig):
+    """
+    Extract audio seq len file
+    """
+    from sisyphus import tk
+    from i6_experiments.users.zeyer.returnn.seq_lens_job import ExtractSeqLensJob
+
+    ds_dict = train_dataset.get_train_dataset()
+    # The code is semi-generic. But anyway double check for now. Later to be extended...
+    assert ds_dict["class"] in {"OggZipDataset", "LibriSpeechCorpus"}
+    ds_dict.pop("partition_epoch")
+    ds_dict["targets"] = None
+    ds_dict.pop("epoch_wise_filter", None)
+    ds_dict.pop("seq_ordering")
+    # Originally, I extracted seq len stats with the pre_process.
+    # But this complicates the code below for naming the file,
+    # and also it's redundant.
+    # The seq len stats can easily be inferred from the original stats for a given pre_process function.
+    ds_dict["audio"].pop("pre_process", None)
+    post_ds_dict = {}
+    if "use_cache_manager" in ds_dict:
+        post_ds_dict["use_cache_manager"] = ds_dict.pop("use_cache_manager")
+    name_parts = []
+    for k, v in ds_dict["audio"].items():
+        if v is None:
+            continue
+        k_s = re.sub(r"(?!^)_([a-zA-Z])", lambda m: m.group(1).upper(), k)
+        name_parts.append(f"{k_s}={v}")
+    job = ExtractSeqLensJob(ds_dict, post_ds_dict, key=train_dataset.get_default_input(), format="txt")
+    tk.register_output(_alias_prefix + "seq_len_audio-%s.txt" % "-".join(name_parts), job.out_file)
+    return job.out_file
+
+
+def _extract_target_seq_len_file(train_dataset: DatasetConfig, vocab_cfg: Union[str, VocabConfig]):
+    """
+    Extract target seq len file
+    """
+    from sisyphus import tk
+    from i6_experiments.users.zeyer.returnn.seq_lens_job import ExtractSeqLensJob
+
+    name_parts = []
+    if isinstance(vocab_cfg, str):
+        name_parts.append(vocab_cfg)
+    else:
+        name_parts.append(vocab_cfg.__class__.__name__)
+        for k, v in vocab_cfg.get_opts().items():
+            name_parts.append(f"{k}={v}")
+
+    ds_dict = train_dataset.get_train_dataset()
+    # The code is semi-generic. But anyway double check for now. Later to be extended...
+    assert ds_dict["class"] in {"OggZipDataset", "LibriSpeechCorpus"}
+    ds_dict.pop("partition_epoch")
+    ds_dict["audio"] = None
+    ds_dict.pop("epoch_wise_filter", None)
+    ds_dict.pop("seq_ordering")
+    post_ds_dict = {}
+    if "use_cache_manager" in ds_dict:
+        post_ds_dict["use_cache_manager"] = ds_dict.pop("use_cache_manager")
+    for k, v in ds_dict["targets"].items():
+        if k in {
+            "bpe_file",
+            "vocab_file",
+            "model_file",
+            "unknown_label",
+            "bos_label",
+            "eos_label",
+            "word_prefix_symbol",
+        }:  # ignore those here
+            continue
+        if k == "class" and v in {"SentencePieces"}:
+            continue
+        k_s = re.sub(r"(?!^)_([a-zA-Z])", lambda m: m.group(1).upper(), k)
+        name_parts.append(f"{k_s}={v}")
+    job = ExtractSeqLensJob(ds_dict, post_ds_dict, key=train_dataset.get_default_target(), format="txt")
+    tk.register_output(_alias_prefix + "seq_len_target-%s.txt" % "-".join(name_parts), job.out_file)
+    return job.out_file
 
 
 def _bpe_to_words_v1(bpe: RecogOutput) -> RecogOutput:
@@ -642,7 +760,7 @@ def _score_recog_out_v1(dataset: DatasetConfig, recog_output: RecogOutput) -> Sc
     hyp_words = recog_output.output
     corpus_name = dataset.get_main_name()
 
-    bliss_corpus = _bliss_corpus_dict[corpus_name]
+    bliss_corpus = _get_bliss_corpus_dict()[corpus_name]
     search_ctm = SearchWordsToCTMJob(recog_words_file=hyp_words, bliss_corpus=bliss_corpus).out_ctm_file
     stm_file = CorpusToStmJob(bliss_corpus=bliss_corpus).out_stm_path
 
@@ -664,7 +782,7 @@ def _score_recog_out_v2(dataset: DatasetConfig, recog_output: RecogOutput) -> Sc
     hyp_words = recog_output.output
     corpus_name = dataset.get_main_name()
 
-    corpus_text_dict = _corpus_text_dicts[corpus_name]
+    corpus_text_dict = _get_corpus_text_dict(corpus_name)
     # Arbitrary seg length time. The jobs SearchWordsDummyTimesToCTMJob and TextDictToStmJob
     # serialize two points after decimal, so long seqs (>1h or so) might be problematic,
     # and no reason not to just use a high value here to avoid this problem whenever we get to it.
@@ -679,6 +797,48 @@ def _score_recog_out_v2(dataset: DatasetConfig, recog_output: RecogOutput) -> Sc
     )
 
     return ScoreResult(dataset_name=corpus_name, main_measure_value=score_job.out_wer, report=score_job.out_report_dir)
+
+
+def get_librispeech_raw_audio_only(*, main_key: str = "train") -> LibrispeechOggZip:
+    """librispeech with raw audio"""
+    return LibrispeechOggZip(audio=_raw_audio_opts, audio_dim=1, main_key=main_key)
+
+
+def get_librispeech_log_mel_stats(dim: int, **kwargs) -> StatisticsOutput:
+    """
+    Get feature stats
+
+    :param dim: feature dim
+    :param kwargs: all passed to rf.audio.log_mel_filterbank_from_raw.
+        Default sampling_rate is 16_000, which is exactly also what we have for Librispeech usually.
+        Note on log_base: Default is 10.0.
+            Note that in some earlier setups, and also Mohammads original AED setup,
+            we used log_base=math.exp(2.3026), which is almost 10.0 but not exactly...
+    """
+    from i6_experiments.users.zeyer.collect_model_dataset_stats import collect_log_mel_feature_statistics
+
+    return collect_log_mel_feature_statistics(dataset=get_librispeech_raw_audio_only(), dim=dim, **kwargs)
+
+
+def _librispeech_log_mel_stats_returnn_forward(
+    source: Tensor, /, in_spatial_dim: Dim, model: Any
+) -> Tuple[Tensor, Dim]:
+    from returnn.config import get_global_config
+    import returnn.frontend as rf
+    from returnn.tensor import Dim
+
+    model  # noqa # unused
+    config = get_global_config()
+    feat_dim = config.int("_audio_feature_dim", -1)
+    assert feat_dim > 0
+    feat_dim = Dim(feat_dim, name="audio", kind=Dim.Types.Feature)
+    opts = config.typed_value("_audio_feature_opts", None)
+    assert isinstance(opts, dict)
+
+    source, out_spatial_dim = rf.audio.log_mel_filterbank_from_raw(
+        source, in_spatial_dim=in_spatial_dim, out_dim=feat_dim, **opts
+    )
+    return source, out_spatial_dim
 
 
 def tests():

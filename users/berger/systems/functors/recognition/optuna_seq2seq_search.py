@@ -1,16 +1,18 @@
 import copy
 import itertools
-from typing import Dict, List
+from typing import Dict, List, Optional, Union
+
+from sisyphus import tk
 
 from i6_experiments.users.berger.recipe import rasr as custom_rasr
 from i6_experiments.users.berger.recipe import recognition, returnn
 from i6_experiments.users.berger.recipe.returnn.training import Backend
-from sisyphus import tk
+from i6_experiments.users.berger.systems.functors.rasr_base import RecognitionScoringType
+
+from ... import dataclasses
 from ..base import RecognitionFunctor
 from ..optuna_rasr_base import OptunaRasrFunctor
 from ..seq2seq_base import Seq2SeqFunctor
-from ... import dataclasses
-from ... import types
 
 
 class OptunaSeq2SeqSearchFunctor(
@@ -22,31 +24,65 @@ class OptunaSeq2SeqSearchFunctor(
         self,
         train_job: dataclasses.NamedTrainJob[returnn.OptunaReturnnTrainingJob],
         prior_config: returnn.OptunaReturnnConfig,
-        recog_config: dataclasses.NamedConfig[returnn.OptunaReturnnConfig],
-        recog_corpus: dataclasses.NamedCorpusInfo,
+        recog_config: dataclasses.NamedConfig[
+            Union[returnn.OptunaReturnnConfig, dataclasses.EncDecConfig[returnn.OptunaReturnnConfig]]
+        ],
+        recog_corpus: dataclasses.NamedRasrDataInput,
         lookahead_options: Dict,
-        epochs: List[types.EpochType],
-        lm_scales: List[float] = [0],
-        trial_nums: List[types.TrialType] = ["best"],
-        prior_scales: List[float] = [0],
-        prior_args: Dict = {},
-        lattice_to_ctm_kwargs: Dict = {},
+        epochs: List[int],
+        trial_nums: List[int],
+        lm_scales: Optional[List[float]] = None,
+        prior_scales: Optional[List[float]] = None,
+        prior_args: Optional[Dict] = None,
+        am_args: Optional[Dict] = None,
+        lattice_to_ctm_kwargs: Optional[Dict] = None,
         label_unit: str = "phoneme",
-        label_tree_args: Dict = {},
+        label_tree_args: Optional[Dict] = None,
         label_scorer_type: str = "precomputed-log-posterior",
-        label_scorer_args: Dict = {},
+        label_scorer_args: Optional[Dict] = None,
         feature_type: dataclasses.FeatureType = dataclasses.FeatureType.SAMPLES,
-        flow_args: Dict = {},
+        flow_args: Optional[Dict] = None,
+        model_flow_args: Optional[Dict] = None,
         backend: Backend = Backend.TENSORFLOW,
+        recognition_scoring_type=RecognitionScoringType.Lattice,
+        rqmt_update: Optional[Dict] = None,
+        search_stats: bool = False,
+        seq2seq_v2: bool = False,
         **kwargs,
     ) -> List[Dict]:
+        if lm_scales is None:
+            lm_scales = [0.0]
+        if prior_scales is None:
+            prior_scales = [0.0]
+        if prior_args is None:
+            prior_args = {}
+        if lattice_to_ctm_kwargs is None:
+            lattice_to_ctm_kwargs = {}
+        if am_args is None:
+            am_args = {}
+        if flow_args is None:
+            flow_args = {}
+        if label_tree_args is None:
+            label_tree_args = {}
+        if label_scorer_args is None:
+            label_scorer_args = {}
+        if model_flow_args is None:
+            model_flow_args = {}
+
         assert recog_corpus is not None
-        crp = copy.deepcopy(recog_corpus.corpus_info.crp)
-        assert recog_corpus.corpus_info.scorer is not None
+        crp = recog_corpus.data.get_crp(
+            rasr_python_exe=self.rasr_python_exe,
+            rasr_binary_path=self.rasr_binary_path,
+            returnn_python_exe=self.returnn_python_exe,
+            returnn_root=self.returnn_root,
+            blas_lib=self.blas_lib,
+            am_args=am_args,
+        )
+        assert recog_corpus.data.scorer is not None
 
         label_tree = custom_rasr.LabelTree(
             label_unit,
-            lexicon_config=recog_corpus.corpus_info.data.lexicon,
+            lexicon_config=recog_corpus.data.lexicon,
             **label_tree_args,
         )
 
@@ -54,11 +90,11 @@ class OptunaSeq2SeqSearchFunctor(
         if self.requires_label_file(label_unit):
             mod_label_scorer_args["label_file"] = self._get_label_file(crp)
 
-        base_feature_flow = self._make_base_feature_flow(
-            recog_corpus.corpus_info, feature_type=feature_type, **flow_args
-        )
+        base_feature_flow = self._make_base_feature_flow(recog_corpus.data, feature_type=feature_type, **flow_args)
 
         recog_results = []
+
+        out_scores = {trial_num: [] for trial_num in trial_nums}
 
         for lm_scale, prior_scale, epoch, trial_num in itertools.product(lm_scales, prior_scales, epochs, trial_nums):
             checkpoint = self._get_checkpoint(train_job.job, epoch, trial_num=trial_num, backend=backend)
@@ -82,6 +118,7 @@ class OptunaSeq2SeqSearchFunctor(
             label_scorer = custom_rasr.LabelScorer(label_scorer_type, **mod_label_scorer_args)
 
             if backend == Backend.TENSORFLOW:
+                assert isinstance(recog_config.config, returnn.OptunaReturnnConfig)
                 tf_graph = self._make_tf_graph(
                     train_job=train_job.job,
                     returnn_config=recog_config.config,
@@ -96,48 +133,87 @@ class OptunaSeq2SeqSearchFunctor(
                     base_feature_flow=base_feature_flow,
                     tf_graph=tf_graph,
                     checkpoint=checkpoint,
+                    feature_type=feature_type,
+                    **model_flow_args,
                 )
             elif backend == Backend.PYTORCH:
                 assert isinstance(checkpoint, returnn.PtCheckpoint)
-                onnx_model = self._make_onnx_model(
-                    train_job=train_job.job,
-                    returnn_config=recog_config.config,
-                    checkpoint=checkpoint,
-                    trial_num=trial_num,
-                )
-                feature_flow = self._get_onnx_feature_flow_for_label_scorer(
-                    label_scorer=label_scorer,
-                    base_feature_flow=base_feature_flow,
-                    onnx_model=onnx_model,
-                )
+                if isinstance(recog_config.config, returnn.OptunaReturnnConfig):
+                    onnx_model = self._make_onnx_model(
+                        train_job=train_job.job,
+                        returnn_config=recog_config.config,
+                        checkpoint=checkpoint,
+                        trial_num=trial_num,
+                    )
+                    feature_flow = self._get_onnx_feature_flow_for_label_scorer(
+                        label_scorer=label_scorer,
+                        base_feature_flow=base_feature_flow,
+                        onnx_model=onnx_model,
+                        feature_type=feature_type,
+                        **model_flow_args,
+                    )
+                else:
+                    enc_model = self._make_onnx_model(
+                        train_job=train_job.job,
+                        returnn_config=recog_config.config.encoder_config,
+                        checkpoint=checkpoint,
+                        trial_num=trial_num,
+                    )
+                    dec_model = self._make_onnx_model(
+                        train_job=train_job.job,
+                        returnn_config=recog_config.config.decoder_config,
+                        checkpoint=checkpoint,
+                        trial_num=trial_num,
+                    )
+                    feature_flow = self._get_onnx_feature_flow_for_label_scorer(
+                        label_scorer=label_scorer,
+                        base_feature_flow=base_feature_flow,
+                        enc_onnx_model=enc_model,
+                        dec_onnx_model=dec_model,
+                        feature_type=feature_type,
+                        **model_flow_args,
+                    )
             else:
                 raise NotImplementedError
 
-            rec = recognition.GenericSeq2SeqSearchJob(
-                crp=crp,
-                feature_flow=feature_flow,
-                label_scorer=label_scorer,
-                label_tree=label_tree,
-                lookahead_options=lookahead_options,
-                **kwargs,
-            )
-
-            exp_full = (
-                f"{recog_config.name}_e-{self._get_epoch_string(epoch)}_prior-{prior_scale:02.2f}_lm-{lm_scale:02.2f}"
-            )
-
-            if trial_num == "best":
-                path = f"nn_recog/{recog_corpus.name}/{train_job.name}/trial-{trial_num}/{exp_full}"
+            if seq2seq_v2:
+                rec = recognition.GenericSeq2SeqSearchJobV2(
+                    crp=crp,
+                    feature_flow=feature_flow,
+                    label_scorer=label_scorer,
+                    label_tree=label_tree,
+                    lookahead_options=lookahead_options,
+                    **kwargs,
+                )
             else:
-                path = f"nn_recog/{recog_corpus.name}/{train_job.name}/trial-{trial_num:03d}/{exp_full}"
+                rec = recognition.GenericSeq2SeqSearchJob(
+                    crp=crp,
+                    feature_flow=feature_flow,
+                    label_scorer=label_scorer,
+                    label_tree=label_tree,
+                    lookahead_options=lookahead_options,
+                    **kwargs,
+                )
+
+            if rqmt_update is not None:
+                rec.rqmt.update(rqmt_update)
+
+            exp_full = f"{recog_config.name}_e-{self._get_epoch_string(epoch)}"
+            if prior_scale != 0:
+                exp_full += f"_prior-{prior_scale:02.2f}"
+            if lm_scale != 0:
+                exp_full += f"_lm-{lm_scale:02.2f}"
+
+            path = f"nn_recog/{recog_corpus.name}/{train_job.name}/trial-{trial_num:03d}/{exp_full}"
 
             rec.set_vis_name(f"Recog {path}")
             rec.add_alias(path)
 
-            scorer_job = self._lattice_scoring(
+            scorer_job = self._score_recognition_output(
+                recognition_scoring_type=recognition_scoring_type,
                 crp=crp,
                 lattice_bundle=rec.out_lattice_bundle,
-                scorer=recog_corpus.corpus_info.scorer,
+                scorer=recog_corpus.data.scorer,
                 **lattice_to_ctm_kwargs,
             )
             tk.register_output(
@@ -145,21 +221,57 @@ class OptunaSeq2SeqSearchFunctor(
                 scorer_job.out_report_dir,
             )
 
+            out_scores[trial_num].append(
+                returnn.OptunaReportIntermediateScoreJob(
+                    trial_num=trial_num,
+                    step=epoch,
+                    score=scorer_job.out_wer,
+                    study_name=train_job.job.study_name,
+                    study_storage=train_job.job.study_storage,
+                ).out_reported_score
+            )
+
+            rtf = None
+            if search_stats:
+                assert recog_corpus.data.corpus_object.duration is not None
+                stats_job = recognition.ExtractSeq2SeqSearchStatisticsJob(
+                    search_logs=list(rec.out_log_file.values()),
+                    corpus_duration_hours=recog_corpus.data.corpus_object.duration,
+                )
+                rtf = stats_job.overall_rtf
+
+                tk.register_output(f"{path}.rtf", rtf)
+
             recog_results.append(
                 {
                     dataclasses.SummaryKey.TRAIN_NAME.value: train_job.name,
                     dataclasses.SummaryKey.RECOG_NAME.value: recog_config.name,
                     dataclasses.SummaryKey.CORPUS.value: recog_corpus.name,
-                    dataclasses.SummaryKey.TRIAL.value: self._get_trial_value(train_job.job, trial_num),
+                    dataclasses.SummaryKey.TRIAL.value: trial_num,
                     dataclasses.SummaryKey.EPOCH.value: self._get_epoch_value(train_job.job, epoch, trial_num),
                     dataclasses.SummaryKey.PRIOR.value: prior_scale,
                     dataclasses.SummaryKey.LM.value: lm_scale,
+                    dataclasses.SummaryKey.RTF.value: rtf,
                     dataclasses.SummaryKey.WER.value: scorer_job.out_wer,
                     dataclasses.SummaryKey.SUB.value: scorer_job.out_percent_substitution,
                     dataclasses.SummaryKey.DEL.value: scorer_job.out_percent_deletions,
                     dataclasses.SummaryKey.INS.value: scorer_job.out_percent_insertions,
                     dataclasses.SummaryKey.ERR.value: scorer_job.out_num_errors,
                 }
+            )
+
+        path = f"nn_recog/{recog_corpus.name}/{train_job.name}/trial-{trial_num:03d}/{exp_full}"
+
+        for trial_num in trial_nums:
+            final_score = returnn.OptunaReportFinalScoreJob(
+                trial_num=trial_num,
+                scores=out_scores[trial_num],
+                study_name=train_job.job.study_name,
+                study_storage=train_job.job.study_storage,
+            ).out_reported_score
+            tk.register_output(
+                f"optuna/{recog_corpus.name}/{train_job.name}/trial-{trial_num:03d}/best_wer",
+                value=final_score,
             )
 
         return recog_results

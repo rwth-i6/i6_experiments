@@ -151,6 +151,7 @@ class Model(rf.Module):
 
         self.mel_normalization = config.typed_value("mel_normalization_ted2", True)
         self.use_specaugment = config.typed_value("use_specaugment", True)
+        self.conv_2nd_stride = config.typed_value("conv_2nd_stride", 3)
 
         self.in_dim = in_dim
         self.encoder = ConformerEncoder(
@@ -166,7 +167,7 @@ class Model(rf.Module):
                 ],
                 filter_sizes=[(3, 3), (3, 3), (3, 3)],
                 pool_sizes=[(1, 2)],
-                strides=[(1, 1), (3, 1), (2, 1)],
+                strides=[(1, 1), (self.conv_2nd_stride, 1), (2, 1)],
             ),
             encoder_layer_opts=enc_conformer_layer_opts,
             num_layers=num_enc_layers,

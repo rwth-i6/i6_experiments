@@ -1,15 +1,16 @@
 from typing import Dict, List
 
 from i6_core import returnn
+from sisyphus import tk
+
 from i6_experiments.users.berger.recipe.returnn.training import (
-    get_backend,
     GetBestCheckpointJob,
     GetBestEpochJob,
+    get_backend,
 )
-from sisyphus import tk
+
+from ... import dataclasses, types
 from ..base import RecognitionFunctor
-from ... import dataclasses
-from ... import types
 
 
 class ReturnnBpeSearchFunctor(RecognitionFunctor[returnn.ReturnnTrainingJob, returnn.ReturnnConfig]):
@@ -24,13 +25,12 @@ class ReturnnBpeSearchFunctor(RecognitionFunctor[returnn.ReturnnTrainingJob, ret
     def __call__(
         self,
         train_job: dataclasses.NamedTrainJob[returnn.ReturnnTrainingJob],
-        prior_config: returnn.ReturnnConfig,
         recog_config: dataclasses.NamedConfig[returnn.ReturnnConfig],
-        recog_corpus: dataclasses.NamedCorpusInfo,
+        recog_corpus: dataclasses.NamedRasrDataInput,
         epochs: List[types.EpochType],
-        **kwargs,
+        **_,
     ) -> List[Dict]:
-        assert recog_corpus.corpus_info.scorer is not None
+        assert recog_corpus.data.scorer is not None
 
         recog_results = []
 
@@ -67,11 +67,9 @@ class ReturnnBpeSearchFunctor(RecognitionFunctor[returnn.ReturnnTrainingJob, ret
             forward_job.add_alias(path)
 
             bpe2word = returnn.SearchBPEtoWordsJob(forward_job.out_files["search_out.py"]).out_word_search_results
-            word2ctm = returnn.SearchWordsToCTMJob(
-                bpe2word, recog_corpus.corpus_info.data.corpus_object.corpus_file
-            ).out_ctm_file
+            word2ctm = returnn.SearchWordsToCTMJob(bpe2word, recog_corpus.data.corpus_object.corpus_file).out_ctm_file
 
-            scorer_job = recog_corpus.corpus_info.scorer.get_score_job(word2ctm)
+            scorer_job = recog_corpus.data.scorer.get_score_job(word2ctm)
 
             tk.register_output(
                 f"{path}.reports",

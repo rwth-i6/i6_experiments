@@ -948,6 +948,8 @@ class BASEFactoredHybridDecoder:
                     name_after_rerun = re.sub(r"Lm[0-9]*.[0.9*]", f"Lm{rounded_lm_scale}", name)
 
                 name_prefix_len = len(f"{name_prefix}{self.name}/")
+                #in order to have access afterwards to the lm scale mainly
+                self.tuned_params = params
 
                 return self.recognize(
                     add_sis_alias_and_output=add_sis_alias_and_output,
@@ -1360,6 +1362,99 @@ class BASEFactoredHybridDecoder:
         )
 
 
+    def recognize_optimize_transtition_values(
+        self,
+        *,
+        label_info: LabelInfo,
+        num_encoder_output: int,
+        search_parameters: SearchParameters,
+        tdp_sil: Optional[List[Tuple[TDP, TDP, TDP, TDP]]] = None,
+        tdp_speech: Optional[List[Tuple[TDP, TDP, TDP, TDP]]] = None,
+        altas_value=14.0,
+        altas_beam=14.0,
+        keep_value=10,
+        gpu: Optional[bool] = None,
+        cpu_rqmt: Optional[int] = None,
+        mem_rqmt: Optional[int] = None,
+        crp_update: Optional[Callable[[rasr.RasrConfig], Any]] = None,
+        pre_path: str = "transition-values",
+        cpu_slow: bool = True,
+    ) -> SearchParameters:
+
+        recog_args = dataclasses.replace(search_parameters, altas=altas_value, beam=altas_beam)
+
+        tdp_sil = tdp_sil if tdp_sil is not None else [recog_args.tdp_silence]
+        tdp_speech = tdp_speech if tdp_speech is not None else [recog_args.tdp_speech]
+        jobs = {
+            (tdp_sl, tdp_sp): self.recognize_count_lm(
+                add_sis_alias_and_output=False,
+                calculate_stats=False,
+                cpu_rqmt=cpu_rqmt,
+                crp_update=crp_update,
+                gpu=gpu,
+                is_min_duration=False,
+                keep_value=keep_value,
+                label_info=label_info,
+                mem_rqmt=mem_rqmt,
+                name_override=f"{self.name}-tdpSil{tdp_sl}-tdpSp{tdp_sp}-",
+                num_encoder_output=num_encoder_output,
+                opt_lm_am=False,
+                rerun_after_opt_lm=False,
+                search_parameters=dataclasses.replace(
+                    recog_args, tdp_silence=tdp_sl, tdp_speech=tdp_sp
+                ),
+                remove_or_set_concurrency=False,
+            )
+            for (tdp_sl, tdp_sp) in itertools.product(
+                tdp_sil, tdp_speech
+            )
+        }
+        jobs_num_e = {k: v.scorer.out_num_errors for k, v in jobs.items()}
+
+        for (tdp_sl, tdp_sp), recog_jobs in jobs.items():
+            if cpu_slow:
+                recog_jobs.search.update_rqmt("run", {"cpu_slow": True})
+
+            pre_name = (
+                f"{pre_path}/{self.name}/"
+                f"tdpSil{format_tdp(tdp_sl)}tdpSp{format_tdp(tdp_sp)}"
+            )
+
+            recog_jobs.lat2ctm.set_keep_value(keep_value)
+            recog_jobs.search.set_keep_value(keep_value)
+
+            recog_jobs.search.add_alias(pre_name)
+            tk.register_output(f"{pre_name}.wer", recog_jobs.scorer.out_report_dir)
+
+        best_overall_wer = ComputeArgminJob({k: v.scorer.out_wer for k, v in jobs.items()})
+        best_overall_n = ComputeArgminJob(jobs_num_e)
+        tk.register_output(
+            f"decoding/tdp-best/{self.name}/args",
+            best_overall_n.out_argmin,
+        )
+        tk.register_output(
+            f"decoding/tdp-best/{self.name}/wer",
+            best_overall_wer.out_min,
+        )
+
+        def push_delayed_tuple(
+            argmin: DelayedBase,
+        ) -> Tuple[DelayedBase, DelayedBase, DelayedBase, DelayedBase]:
+            return tuple(argmin[i] for i in range(4))
+
+        # cannot destructure, need to use indices
+        best_tdp_sil = best_overall_n.out_argmin[0]
+        best_tdp_sp = best_overall_n.out_argmin[1]
+
+        base_cfg = dataclasses.replace(
+            search_parameters,
+            tdp_silence=push_delayed_tuple(best_tdp_sil),
+            tdp_speech=push_delayed_tuple(best_tdp_sp),
+        )
+
+        return base_cfg
+
+
 
 
 class BASEFactoredHybridAligner(BASEFactoredHybridDecoder):
@@ -1399,14 +1494,20 @@ class BASEFactoredHybridAligner(BASEFactoredHybridDecoder):
             set_batch_major_for_feature_scorer=set_batch_major_for_feature_scorer,
         )
 
-    def correct_transition_applicator(self, crp):
+    def correct_transition_applicator(self, crp, correct_fsa_strcuture=False):
         # correct for the FSA bug
         crp.acoustic_model_config.tdp.applicator_type = "corrected"
         # The exit penalty is on the lemma level and should not be applied for alignment
         for tdp_type in ["*", "silence", "nonword-0", "nonword-1"]:
             crp.acoustic_model_config.tdp[tdp_type]["exit"] = 0.0
+        if correct_fsa_strcuture:
+            crp.acoustic_model_config["*"]["fix-allophone-context-at-word-boundaries"] = True
+            crp.acoustic_model_config["*"]["transducer-builder-filter-out-invalid-allophones"] = True
+            crp.acoustic_model_config["*"]["allow-for-silence-repetitions"] = False
 
         return crp
+
+
 
     def get_alignment_job(
         self,
@@ -1414,6 +1515,7 @@ class BASEFactoredHybridAligner(BASEFactoredHybridDecoder):
         alignment_parameters: AlignmentParameters,
         num_encoder_output: int,
         pre_path: Optional[str] = "alignments",
+        correct_fsa_structure: bool = False,
         is_min_duration: bool = False,
         use_estimated_tdps: bool = False,
         crp_update: Optional[Callable[[rasr.RasrConfig], Any]] = None,
@@ -1560,7 +1662,7 @@ class BASEFactoredHybridAligner(BASEFactoredHybridDecoder):
 
                 warnings.warn("you planned to use exit penalty for alignment, we set this to zero")
 
-        align_crp = self.correct_transition_applicator(align_crp)
+        align_crp = self.correct_transition_applicator(align_crp, correct_fsa_strcuture=correct_fsa_structure)
 
         alignment = mm.AlignmentJob(
             crp=align_crp,

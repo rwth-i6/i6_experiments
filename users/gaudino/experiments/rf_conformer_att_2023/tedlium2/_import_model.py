@@ -18,7 +18,13 @@ from i6_experiments.users.gaudino.experiments.rf_conformer_att_2023.librispeech_
     MakeModel,
 )
 
-from i6_experiments.users.gaudino.models.asr.rf.conformer_ctc.model_conformer_ctc import MakeModel as MakeModelCTC
+from i6_experiments.users.gaudino.models.asr.rf.conformer_ctc.model_conformer_ctc import (
+    MakeModel as MakeModelCTC,
+)
+
+from i6_experiments.users.gaudino.models.asr.rf.joint_model_att_ctc.model_conformer_joint import (
+    MakeModel as MakeModelJoint,
+)
 
 from i6_experiments.users.gaudino.models.asr.rf.nn_lm.lm_import_2023_11_09 import (
     MakeModel as MakeModelLM,
@@ -58,7 +64,9 @@ _ted2_lm_ckpt_filename = "/work/asr4/michel/setups-data/language_modelling/tedli
 #     return converter.out_checkpoint
 
 
-from i6_experiments.users.gaudino.experiments.conformer_att_2023.tedlium2.model_ckpt_info import models
+from i6_experiments.users.gaudino.experiments.conformer_att_2023.tedlium2.model_ckpt_info import (
+    models,
+)
 
 
 def convert_checkpoint(
@@ -173,6 +181,7 @@ def convert_checkpoint(
             os.symlink(os.path.basename(meta_filename), symlink_filename_2)
         # assert os.path.exists(self.out_checkpoint.get_path())
 
+
 def convert_lm(ckpt_path_lm, out_dir, model_target_dim, model_args):
     from tensorflow.python.training.py_checkpoint_reader import CheckpointReader
     from returnn.torch.frontend.bridge import rf_module_to_pt_module
@@ -213,6 +222,7 @@ def convert_lm(ckpt_path_lm, out_dir, model_target_dim, model_args):
         torch.save(
             {"model": pt_model.state_dict(), "epoch": epoch, "step": step}, filename
         )
+
 
 def convert_lstm_lm(ckpt_path_lm, out_dir, model_target_dim):
     from tensorflow.python.training.py_checkpoint_reader import CheckpointReader
@@ -255,7 +265,10 @@ def convert_lstm_lm(ckpt_path_lm, out_dir, model_target_dim):
             {"model": pt_model.state_dict(), "epoch": epoch, "step": step}, filename
         )
 
-def convert_mini_att_ilm(ckpt_path_mini_att, ckpt_path_prior, model_in_dim, model_target_dim, out_dir):
+
+def convert_mini_att_ilm(
+    ckpt_path_mini_att, ckpt_path_prior, model_in_dim, model_target_dim, out_dir
+):
     from tensorflow.python.training.py_checkpoint_reader import CheckpointReader
     from returnn.torch.frontend.bridge import rf_module_to_pt_module
 
@@ -289,10 +302,14 @@ def convert_mini_att_ilm(ckpt_path_mini_att, ckpt_path_prior, model_in_dim, mode
         assert isinstance(param, rf.Parameter)
 
         if name.startswith("mini_att"):
-            value = map_param_func_mini_att_ilm(reader_mini_att, name, param, param_mapping)
+            value = map_param_func_mini_att_ilm(
+                reader_mini_att, name, param, param_mapping
+            )
 
         if name.startswith("prior_"):  # TODO
-            value = map_param_func_mini_att_ilm(reader_prior, name, param, param_mapping)
+            value = map_param_func_mini_att_ilm(
+                reader_prior, name, param, param_mapping
+            )
 
         assert isinstance(value, numpy.ndarray)
         # noinspection PyProtectedMember
@@ -313,6 +330,7 @@ def convert_mini_att_ilm(ckpt_path_mini_att, ckpt_path_prior, model_in_dim, mode
         torch.save(
             {"model": pt_model.state_dict(), "epoch": epoch, "step": step}, filename
         )
+
 
 def _add_params_trafo_lm(param_mapping: Dict[str, str]):
     # add params of trafo lm
@@ -343,6 +361,7 @@ def _add_params_trafo_lm(param_mapping: Dict[str, str]):
         }
     )
 
+
 def _add_params_lstm_lm(param_mapping: Dict[str, str]):
     # add params of lstm lm
     for layer_idx in range(4):
@@ -363,6 +382,7 @@ def _add_params_lstm_lm(param_mapping: Dict[str, str]):
         }
     )
 
+
 def _add_params_mini_att_ilm(param_mapping: Dict[str, str]):
     # rf -> tf
     param_mapping.update(
@@ -373,7 +393,6 @@ def _add_params_mini_att_ilm(param_mapping: Dict[str, str]):
             "mini_att_lstm.bias": "att_lstm/rec/b",
             "mini_att.weight": "att/W",
             "mini_att.bias": "att/b",
-
             # prior
             "prior_readout_in.weight": "readout_in/W",
             "prior_readout_in.bias": "readout_in/b",
@@ -597,7 +616,10 @@ def map_param_func_trafo_lm(
 
     raise NotImplementedError(f"cannot map {name!r} {var}")
 
-def map_param_func_lstm(reader, name: str, var: rf.Parameter, param_mapping: Dict[str, str]) -> numpy.ndarray:
+
+def map_param_func_lstm(
+    reader, name: str, var: rf.Parameter, param_mapping: Dict[str, str]
+) -> numpy.ndarray:
     """map params, TF to RF"""
     from tensorflow.python.training.py_checkpoint_reader import CheckpointReader
     from i6_experiments.users.gaudino.convert import (
@@ -621,25 +643,37 @@ def map_param_func_lstm(reader, name: str, var: rf.Parameter, param_mapping: Dic
         assert isinstance(value, numpy.ndarray)
 
         if name.endswith(".ff_weight"):
-            print("Old ff:", value[0][0], value[0][2048], value[0][4096], value[0][6144])
+            print(
+                "Old ff:", value[0][0], value[0][2048], value[0][4096], value[0][6144]
+            )
             value = convert_params.convert_tf_lstm_to_torch_lstm_ff(value)
-            print("Convert ff:", value[0][0], value[2048][0], value[4096][0], value[6144][0])
+            print(
+                "Convert ff:",
+                value[0][0],
+                value[2048][0],
+                value[4096][0],
+                value[6144][0],
+            )
 
         if name.endswith(".rec_weight"):
-            print("Old rec:", value[0][0], value[0][2048], value[0][4096], value[0][6144])
+            print(
+                "Old rec:", value[0][0], value[0][2048], value[0][4096], value[0][6144]
+            )
             value = convert_params.convert_tf_lstm_to_torch_lstm_rec(value)
-            print("Convert rec:", value[0][0], value[2048][0], value[4096][0], value[6144][0])
-
+            print(
+                "Convert rec:",
+                value[0][0],
+                value[2048][0],
+                value[4096][0],
+                value[6144][0],
+            )
 
         if "lstm" in name and name.endswith(".bias"):
             print("Old bias:", value[0], value[2048], value[4096], value[6144])
-            value = convert_params.convert_tf_lstm_to_torch_lstm_bias(
-                value
-            )
+            value = convert_params.convert_tf_lstm_to_torch_lstm_bias(value)
             print("Convert bias:", value[0], value[2048], value[4096], value[6144])
 
-
-        if (name == "output.weight"):
+        if name == "output.weight":
             # value = convert_params_np.convert_tf_lstm_to_native_lstm_ff(value)
             value = value.transpose()
 
@@ -652,6 +686,7 @@ def map_param_func_lstm(reader, name: str, var: rf.Parameter, param_mapping: Dic
         return value
 
     raise NotImplementedError(f"cannot map {name!r} {var}")
+
 
 def map_param_func_mini_att_ilm(
     reader, name: str, var: rf.Parameter, param_mapping: Dict[str, str]
@@ -675,15 +710,21 @@ def map_param_func_mini_att_ilm(
         value = reader.get_tensor(var_name)
 
         if name == "mini_att_lstm.ff_weight" or name == "mini_att_lstm.rec_weight":
-            print("Old ff/rec:", value[0][0], value[0][50], value[0][100], value[0][150])
+            print(
+                "Old ff/rec:", value[0][0], value[0][50], value[0][100], value[0][150]
+            )
             value = convert_params.convert_tf_lstm_to_torch_lstm_ff(value)
-            print("Convert ff/rec:", value[0][0], value[50][0], value[100][0], value[150][0])
+            print(
+                "Convert ff/rec:",
+                value[0][0],
+                value[50][0],
+                value[100][0],
+                value[150][0],
+            )
 
         if name == "mini_att_lstm.bias":
             print("Old bias:", value[0], value[50], value[100], value[150])
-            value = convert_params.convert_tf_lstm_to_torch_lstm_bias(
-                value
-            )
+            value = convert_params.convert_tf_lstm_to_torch_lstm_bias(value)
             print("Convert bias:", value[0], value[50], value[100], value[150])
 
         assert isinstance(value, numpy.ndarray)
@@ -725,6 +766,63 @@ def map_param_func_mini_att_ilm(
     raise NotImplementedError(f"cannot map {name!r} {var}")
 
 
+def get_empty_ckpt_sep(
+    *,
+    out_dir: str,
+    print_params: bool = False,
+    save_model: bool = True,
+):
+    """run"""
+    import returnn.frontend as rf
+    from returnn.torch.frontend.bridge import rf_module_to_pt_module
+
+    print("Creating model...")
+    rf.select_backend_torch()
+
+    model = MakeModelJoint(80, 10_025)()
+
+    print("Created model:", model)
+    print("Model parameters:")
+    for name, param in model.named_parameters():
+        assert isinstance(name, str)
+        assert isinstance(param, rf.Parameter)
+        if print_params:
+            print(f"{name}: {param}")
+    print()
+
+    epoch = 1
+
+    step = 0
+
+    ckpt_name = os.path.basename(_returnn_tf_ckpt_filename)
+
+    pt_model = rf_module_to_pt_module(model)
+
+
+    if save_model:
+        os.makedirs(out_dir, exist_ok=True)
+        filename = out_dir + "/" + ckpt_name + ".pt"
+        print(f"*** saving PyTorch model checkpoint: {filename}")
+        torch.save(
+            {"model": pt_model.state_dict(), "epoch": epoch, "step": step}, filename
+        )
+
+        if ckpt_name != "checkpoint":
+            symlink_filename = out_dir + "/checkpoint.pt"
+            print(
+                f"*** creating symlink {symlink_filename} -> {os.path.basename(filename)}"
+            )
+            os.symlink(os.path.basename(filename), symlink_filename)
+            # create meta information
+            meta_filename = out_dir + "/" + ckpt_name + "." + str(epoch) + ".meta"
+            open(meta_filename, "w").close()
+            symlink_filename_1 = out_dir + "/checkpoint." + str(epoch) + ".meta"
+            symlink_filename_2 = out_dir + "/" + ckpt_name + ".meta"
+            os.symlink(os.path.basename(meta_filename), symlink_filename_1)
+            os.symlink(os.path.basename(meta_filename), symlink_filename_2)
+    # assert os.path.exists(self.out_checkpoint.get_path())
+
+
 def import_models():
     # for model_name, sep_enc in product(list(models.keys())[-1:], [True, False]):
 
@@ -746,16 +844,30 @@ def import_models():
             + " ..."
         )
         out_dir = "/work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/2023-08-10--rf-librispeech/work/i6_experiments/users/gaudino/returnn/convert_ckpt_rf/tedlium2/without_lm/"
-        out_dir_postfix = model_name + ("__ctc_only" if sep_enc else "") + ("__trafo_lm" if add_trafo_lm else "") + "_rf_compatible"
+        out_dir_postfix = (
+            model_name
+            + ("__ctc_only" if sep_enc else "")
+            + ("__trafo_lm" if add_trafo_lm else "")
+            + "_rf_compatible"
+        )
 
         ckpt_path = models[model_name]["ckpt"].ckpt_path
 
+        if not ckpt_path.startswith(
+            "/u/luca.gaudino/setups/2023-10-15--conformer-no-app/"
+        ) and not ckpt_path.startswith(
+            "/work/asr4/zeineldeen/setups-data/ubuntu_22_setups/2023-04-17--conformer-att/"
+        ):
+            if ckpt_path.startswith(
+                "/u/luca.gaudino/setups/2023-08-10--rf-librispeech/"
+            ):
+                ckpt_path = ckpt_path[
+                    len("/u/luca.gaudino/setups/2023-08-10--rf-librispeech/") :
+                ]
 
-        if not ckpt_path.startswith("/u/luca.gaudino/setups/2023-10-15--conformer-no-app/") and not ckpt_path.startswith("/work/asr4/zeineldeen/setups-data/ubuntu_22_setups/2023-04-17--conformer-att/"):
-            if ckpt_path.startswith("/u/luca.gaudino/setups/2023-08-10--rf-librispeech/"):
-                ckpt_path = ckpt_path[len("/u/luca.gaudino/setups/2023-08-10--rf-librispeech/"):]
-
-            ckpt_path = "/u/luca.gaudino/setups/2023-10-15--conformer-no-app/" + ckpt_path
+            ckpt_path = (
+                "/u/luca.gaudino/setups/2023-10-15--conformer-no-app/" + ckpt_path
+            )
         # if ckpt_path.endswith('.index'):
         #     ckpt_path = ckpt_path[:-6]
 
@@ -809,3 +921,9 @@ if __name__ == "__main__":
         10025,
     )
 
+    # ls960 empty checkpoint form sep enc recog
+    get_empty_ckpt_sep(
+        out_dir = "/work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/2023-08-10--rf-librispeech/work/i6_experiments/users/gaudino/returnn/convert_ckpt_rf/librispeech/sep_enc_aed_ctc_empty_24_06_29",
+        print_params=True,
+        save_model=True,
+    )

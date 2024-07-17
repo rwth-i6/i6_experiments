@@ -11,13 +11,19 @@ from i6_experiments.users.berger.args.returnn.config import get_returnn_config
 from i6_experiments.users.berger.args.returnn.learning_rates import (
     LearningRateSchedules,
 )
-from i6_experiments.users.berger.corpus.switchboard.viterbi_transducer_data import get_switchboard_data
+from i6_experiments.users.berger.corpus.switchboard.viterbi_transducer_data import (
+    get_switchboard_data,
+)
 import i6_experiments.users.berger.network.models.context_1_transducer as transducer_model
 from i6_experiments.users.berger.recipe.summary.report import SummaryReport
 from i6_experiments.users.berger.systems.returnn_seq2seq_system import (
     ReturnnSeq2SeqSystem,
 )
-from i6_experiments.users.berger.systems.dataclasses import ReturnnConfigs, FeatureType, SummaryKey
+from i6_experiments.users.berger.systems.dataclasses import (
+    ReturnnConfigs,
+    FeatureType,
+    SummaryKey,
+)
 from i6_experiments.users.berger.util import default_tools
 from i6_private.users.vieting.helpers.returnn import serialize_dim_tags
 from i6_experiments.users.berger.systems.dataclasses import AlignmentData
@@ -47,7 +53,7 @@ def generate_returnn_config(
     **kwargs,
 ) -> ReturnnConfig:
     if train:
-        (network_dict, extra_python,) = transducer_model.make_context_1_conformer_transducer_fullsum(
+        network_dict, extra_python = transducer_model.make_context_1_conformer_transducer_fullsum(
             num_outputs=num_classes,
             specaug_args={
                 "max_time_num": 1,
@@ -79,9 +85,10 @@ def generate_returnn_config(
                     "activation": "tanh",
                 },
             },
+            fullsum_v2=True,
         )
     else:
-        (network_dict, extra_python,) = transducer_model.make_context_1_conformer_transducer_recog(
+        network_dict, extra_python = transducer_model.make_context_1_conformer_transducer_recog(
             num_outputs=num_classes,
             conformer_args={
                 "num_blocks": 12,
@@ -164,7 +171,7 @@ def run_exp(alignments: Dict[str, AlignmentData], viterbi_model_checkpoint: Chec
 
     recog_args = exp_args.get_transducer_recog_step_args(
         num_classes,
-        lm_scales=[0.5, 0.6, 0.7],
+        lm_scales=[0.45, 0.5, 0.6, 0.7],
         epochs=[300],
         search_parameters={"label-pruning": 14.4},
         feature_type=FeatureType.GAMMATONE_8K,
@@ -220,13 +227,17 @@ def run_exp(alignments: Dict[str, AlignmentData], viterbi_model_checkpoint: Chec
 
     for lr, batch_size, accum_grad in [(8e-05, 3000, 3)]:
         train_config = generate_returnn_config(
-            train=True, lr=lr, batch_size=batch_size, accum_grad=accum_grad, **config_generator_kwargs
+            train=True,
+            lr=lr,
+            batch_size=batch_size,
+            accum_grad=accum_grad,
+            **config_generator_kwargs,
         )
         recog_configs = {
             f"recog_ilm-{ilm_scale}": generate_returnn_config(
                 train=False, ilm_scale=ilm_scale, **config_generator_kwargs
             )
-            for ilm_scale in [0.0, 0.25]
+            for ilm_scale in [0.0, 0.15, 0.25]
         }
 
         returnn_configs = ReturnnConfigs(
@@ -234,7 +245,8 @@ def run_exp(alignments: Dict[str, AlignmentData], viterbi_model_checkpoint: Chec
             recog_configs=recog_configs,
         )
         system.add_experiment_configs(
-            f"Conformer_Transducer_Fullsum_lr-{lr}_bs-{batch_size*accum_grad}", returnn_configs
+            f"Conformer_Transducer_Fullsum_lr-{lr}_bs-{batch_size*accum_grad}",
+            returnn_configs,
         )
 
     system.run_train_step(**train_args)
