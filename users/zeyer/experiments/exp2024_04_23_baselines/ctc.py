@@ -452,7 +452,7 @@ def py():
     ]:
         _train_experiments[name].get_training_job().set_env("CUDA_LAUNCH_BLOCKING", "1")
 
-    train_exp(  # 5.78 (!!!)
+    train_exp(  # 5.78
         "v6-relPosAttDef-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-speedpertV2-spm10k",
         config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
         model_config={"enc_conformer_layer": enc_conformer_layer_default},
@@ -467,7 +467,7 @@ def py():
     )
 
     # Now with featBN and bpeSample001.
-    train_exp(
+    train_exp(  # 5.77 (!!!)
         "v6-relPosAttDef-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-featBN"
         "-speedpertV2-spm10k-bpeSample001",
         config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
