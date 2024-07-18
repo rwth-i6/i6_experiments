@@ -755,7 +755,7 @@ def full_sum_training(
           )
   else:
     label_model_full_sum_training(
-      model=model.label_decoder,
+      model=model,
       enc_args=enc_args,
       enc_spatial_dim=enc_spatial_dim,
       non_blank_targets=non_blank_targets,

@@ -154,6 +154,7 @@ def train_center_window_att_full_sum_from_scratch(
         config_builder: LibrispeechSegmentalAttConformerConfigBuilderRF,
         n_epochs_list: Tuple[int, ...],
         time_rqmt: int = 80,
+        gpu_mem_rqmt: int = 11,
         use_speed_pert: bool = False,
         batch_size: int = 15_000,
         use_mgpu: bool = True,
@@ -162,24 +163,23 @@ def train_center_window_att_full_sum_from_scratch(
         alignment_interpolation_factor: float = 0.5,
         train_on_viterbi_paths: bool = False,
         only_use_blank_model: bool = False,
+        checkpoint_alias: Optional[str] = None,
+        lr_scheduling_type: str = "dyn_lr_piecewise_linear",
 ):
-  # # TODO: do this in a nicer way
-  # config_builder = copy.deepcopy(config_builder)
-  # config_builder.get_model_func = _returnn_v2_get_model_for_full_sum_training
   for n_epochs in n_epochs_list:
     alias += (
-      f"/full-sum-train_from_scratch/{n_epochs}-epochs_bs-{batch_size}"
+      f"/full-sum-train_from_{'scratch' if checkpoint_alias is None else checkpoint_alias}/{n_epochs}-epochs_bs-{batch_size}"
       f"{'_mgpu-4' if use_mgpu else ''}_{'w' if use_speed_pert else 'wo'}-sp"
       f"_beams-{beam_size}_lat-down-{lattice_downsampling}_{alignment_interpolation_factor}-interp"
-      f"_{'ce' if train_on_viterbi_paths else 'sum'}-loss"
+      f"_{'ce' if train_on_viterbi_paths else 'sum'}-loss_lr-{lr_scheduling_type}"
     )
 
     train_opts = {
       "dataset_opts": {
         "use_speed_pert": use_speed_pert,
-        "epoch_wise_filter": {(1, 5): {"max_mean_len": 1000}},
         "hdf_targets": {},  # do not use alignment for full sum training
         "seq_postfix": None,
+        "target_is_alignment": False,
       },
       # "import_model_train_epoch1": None,
       "accum_grad_multiple_step": 4,
@@ -187,12 +187,6 @@ def train_center_window_att_full_sum_from_scratch(
       "rf_att_dropout_broadcast": False,
       "batch_size": batch_size,
       "batching": "laplace:.1000",
-      "lr_opts": {
-        "type": "dyn_lr_piecewise_linear",
-        "batch_size": batch_size,
-        "num_epochs": n_epochs,
-        "learning_rate": 1e-3,
-      },
       "aux_loss_layers": None,
       "specaugment_steps": (5_000, 15_000, 25_000),
       "grad_scaler": None,
@@ -211,6 +205,34 @@ def train_center_window_att_full_sum_from_scratch(
       "train_step_func": _returnn_v2_full_sum_train_step,
     }
 
+    if checkpoint_alias is not None:
+      train_opts["preload_from_files"] = {
+        "pretrained_global_att_params": {
+          "filename": external_checkpoints[checkpoint_alias],
+          "init_for_train": True,
+          "ignore_missing": True,  # because of length model params
+        }
+      }
+    else:
+      train_opts["dataset_opts"]["epoch_wise_filter"] = {(1, 5): {"max_mean_len": 1000}}
+
+    if lr_scheduling_type == "dyn_lr_piecewise_linear":
+      train_opts["lr_opts"] = {
+        "type": "dyn_lr_piecewise_linear",
+        "batch_size": batch_size,
+        "num_epochs": n_epochs,
+        "learning_rate": 1e-3,
+      }
+    else:
+      assert lr_scheduling_type == "const_then_linear"
+      train_opts["lr_opts"] = {
+        "type": "const_then_linear",
+        "const_lr": 1e-4,
+        "const_frac": 1 / 3,
+        "final_lr": 1e-6,
+        "num_epochs": n_epochs
+      }
+
     full_sum_training_opts = {
       "alignment_interpolation_factor": alignment_interpolation_factor,
       "lattice_downsampling": lattice_downsampling,
@@ -223,6 +245,7 @@ def train_center_window_att_full_sum_from_scratch(
 
     train_rqmt = {
       "time": time_rqmt,
+      "gpu_mem": gpu_mem_rqmt,
     }
     if use_mgpu:
       train_rqmt.update({
@@ -264,6 +287,11 @@ def train_center_window_att_viterbi_import_global_tf(
         optimizer_opts: Optional[Dict] = None,
         reset_eos_params: bool = False,
         batch_size: int = 15_000,
+        accum_grad_multiple_step: int = 2,
+        specaugment_steps: Tuple[int, ...] = (0, 1000, 2000),
+        gradient_clip_global_norm: float = 0.0,
+        rf_att_dropout_broadcast: bool = False,
+        pos_emb_dropout: float = 0.1,
 ):
   if not config_builder.use_att_ctx_in_state and "lstm" in config_builder.label_decoder_state:
     # only randomly init FF weights, since only the input dim of the lstm layer is different

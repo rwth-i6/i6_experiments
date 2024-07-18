@@ -68,7 +68,9 @@ def dump_att_weights(
             captured_tensors[func][-1].setdefault(k, []).append(v)
       return _trace_func
 
-  new_slice_dim = rf.Dim(model.center_window_size, name="att_window")
+  # we want a static slice dim
+  # either use window size of model or encoder len
+  new_slice_dim = rf.Dim(min(model.center_window_size, max_num_frames), name="att_window")
   if model.use_joint_model:
     if type(model.label_decoder) is SegmentalAttLabelDecoder:
       assert model.label_decoder_state == "joint-lstm", "not implemented yet, simple to extend"

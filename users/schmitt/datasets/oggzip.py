@@ -20,8 +20,10 @@ def get_dataset_dict(
         seq_postfix: Optional[int] = 0,
         use_targets: bool = True,
         peak_normalization: bool = True,
+        model_file: Optional[Path] = None,
 ):
-  assert not use_targets or (bpe_file is not None and vocab_file is not None)
+  # either not use targets or pass arguments for either BPE or SentencePieces
+  assert not use_targets or ((bpe_file is not None and vocab_file is not None) or model_file is not None)
   dataset_dict = {
     "class": "MetaDataset",
     "data_map": {
@@ -49,13 +51,21 @@ def get_dataset_dict(
   }
 
   if use_targets:
-    dataset_dict["datasets"]["zip_dataset"]["targets"] = {
-      "class": "BytePairEncoding",
-      "bpe_file": bpe_file,
-      "vocab_file": vocab_file,
-      "unknown_label": None,
-      "seq_postfix": [seq_postfix] if seq_postfix is not None else None,
-    }
+    if model_file is not None:
+      dataset_dict["datasets"]["zip_dataset"]["targets"] = {
+        "class": "SentencePieces",
+        "alpha": 0.7,  # hard coded for now (Albert's best setting)
+        "enable_sampling": True,
+        "model_file": model_file,
+      }
+    else:
+      dataset_dict["datasets"]["zip_dataset"]["targets"] = {
+        "class": "BytePairEncoding",
+        "bpe_file": bpe_file,
+        "vocab_file": vocab_file,
+        "unknown_label": None,
+        "seq_postfix": [seq_postfix] if seq_postfix is not None else None,
+      }
     dataset_dict["data_map"]["targets"] = ("zip_dataset", "classes")
   else:
     dataset_dict["datasets"]["zip_dataset"]["targets"] = None

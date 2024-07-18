@@ -236,10 +236,10 @@ class BlankDecoderV4(BlankDecoderBase):
   def _s(self) -> rf.LSTM:
     raise NotImplementedError
 
-  def decode_logits(self, *, enc: Tensor, label_model_states_unmasked: rf.Tensor) -> Tensor:
+  def decode_logits(self, *, enc: Tensor, label_model_states_unmasked: rf.Tensor, allow_broadcast: bool = False) -> Tensor:
     """logits for the decoder"""
 
-    s_blank = self.s(rf.concat_features(enc, label_model_states_unmasked))
+    s_blank = self.s(rf.concat_features(enc, label_model_states_unmasked, allow_broadcast=allow_broadcast))
     s_blank = rf.reduce_out(s_blank, mode="max", num_pieces=2, out_dim=self.emit_prob.in_dim)
     s_blank = rf.dropout(s_blank, drop_prob=0.3, axis=rf.dropout_broadcast_default() and s_blank.feature_dim)
     logits = self.emit_prob(s_blank)

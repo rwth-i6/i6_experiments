@@ -4,6 +4,7 @@ from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segment
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.pipelines.pipeline_ls_conf.center_window_att import baseline_v5 as center_window_baseline_v5
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.pipelines.pipeline_ls_conf.center_window_att import baseline_v6 as center_window_baseline_v6
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.pipelines.pipeline_ls_conf.global_att import baseline_v1 as global_att_baseline_v1
+from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.pipelines.pipeline_ls_conf.global_att import baseline_v2 as global_att_baseline_v2
 
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.pipelines.pipeline_ls_conf.global_att import baseline_v1 as global_att_baseline_v1_no_rf
 
@@ -13,7 +14,8 @@ def run_exps():
   global_att_baseline_v1_no_rf.register_ctc_alignments()
 
   global_att_baseline_v1.run_exps()
-  # center_window_baseline_v1.run_exps()
+  global_att_baseline_v2.run_exps()
+  # center_window_baseline_v1.rune_exps()
   center_window_baseline_v3.run_exps()
   center_window_baseline_v4.run_exps()
   center_window_baseline_v5.run_exps()

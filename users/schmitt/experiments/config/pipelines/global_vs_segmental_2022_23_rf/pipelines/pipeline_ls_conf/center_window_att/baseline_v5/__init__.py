@@ -8,7 +8,7 @@ from . import (
 def run_exps():
   # Done
   baseline.run_exps()
-  # Done
+  # Running
   blank_decoder_variants.run_exps()
   # Running
   label_decoder_variants.run_exps()

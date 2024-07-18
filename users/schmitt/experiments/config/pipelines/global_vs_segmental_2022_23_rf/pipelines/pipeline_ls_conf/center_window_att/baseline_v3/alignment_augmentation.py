@@ -13,7 +13,7 @@ def run_exps():
   for model_alias, config_builder in get_config_builder.center_window_att_baseline_rf(
           win_size_list=(5,),
   ):
-    for num_iterations in (1, 2, 3):
+    for num_iterations in (2, 4):
       for train_alias, checkpoint in train.train_center_window_att_viterbi_import_global_tf(
               alias=model_alias,
               config_builder=config_builder,

@@ -4,6 +4,9 @@ from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segment
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.pipelines.pipeline_ls_conf.center_window_att import (
   train, recog, realign
 )
+from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.pipelines.pipeline_ls_conf.checkpoints import (
+  default_import_model_name,
+)
 
 
 def run_exps():
@@ -133,6 +136,20 @@ def run_exps():
           config_builder=config_builder,
           checkpoint=checkpoint,
         )
+        recog.center_window_returnn_frame_wise_beam_search(
+          alias=train_alias,
+          config_builder=config_builder,
+          checkpoint=checkpoint,
+          checkpoint_aliases=("last",),
+          lm_type="trafo",
+          lm_scale_list=(0.6,),
+          ilm_type="mini_att",
+          ilm_scale_list=(0.3,),
+          subtract_ilm_eos_score=True,
+          use_recombination="sum",
+          corpus_keys=("dev-other", "test-other"),
+          beam_size_list=(12, 84),
+        )
 
   # -------------------------- from-scratch Viterbi training --------------------------------
 
@@ -157,7 +174,7 @@ def run_exps():
           checkpoint=checkpoint,
         )
 
-  # -------------------------- from-scratch full-sum training --------------------------------
+  # -------------------------- full-sum training --------------------------------
 
   for model_alias, config_builder in get_config_builder.center_window_att_baseline_rf(
           win_size_list=(1,),
@@ -166,6 +183,7 @@ def run_exps():
           use_weight_feedback=False,
           bpe_vocab_size=5048,
   ):
+    # -------------------------- from-scratch (5k) --------------------------------
     for train_alias, checkpoint in train.train_center_window_att_full_sum_from_scratch(
       alias=model_alias,
       config_builder=config_builder,
@@ -183,3 +201,94 @@ def run_exps():
           checkpoint_alias=f"epoch-{epoch}",
           plot=True,
         )
+
+    # -------------------------- from-global-att (bpe 5k) --------------------------------
+    for train_alias, checkpoint in train.train_center_window_att_full_sum_from_scratch(
+            alias=model_alias,
+            config_builder=config_builder,
+            n_epochs_list=(300,),
+            use_speed_pert=True,
+            batch_size=3_000,
+            time_rqmt=80,
+            checkpoint_alias="luca-aed-bpe5k",
+            lr_scheduling_type="const_then_linear",
+            use_mgpu=False
+    ):
+      for epoch, chckpt in checkpoint["checkpoints"].items():
+        realign.center_window_returnn_realignment(
+          alias=train_alias,
+          config_builder=config_builder,
+          checkpoint=chckpt,
+          checkpoint_alias=f"epoch-{epoch}",
+          plot=True,
+        )
+        if epoch == 30:
+          recog.center_window_returnn_frame_wise_beam_search(
+            alias=train_alias,
+            config_builder=config_builder,
+            checkpoint=chckpt,
+            checkpoint_aliases=(f"epoch-{epoch}",),
+          )
+
+  # -------------------------- from-global-att (bpe 10k) --------------------------------
+  for model_alias, config_builder in get_config_builder.center_window_att_baseline_rf(
+          win_size_list=(1,),
+          label_decoder_state="nb-2linear-ctx1",
+          use_att_ctx_in_state=False,
+          use_weight_feedback=False,
+  ):
+    for train_alias, checkpoint in train.train_center_window_att_full_sum_from_scratch(
+      alias=model_alias,
+      config_builder=config_builder,
+      n_epochs_list=(300,),
+      use_speed_pert=True,
+      batch_size=6_000,
+      time_rqmt=48,
+      checkpoint_alias=default_import_model_name,
+      lr_scheduling_type="const_then_linear",
+      gpu_mem_rqmt=24,
+      use_mgpu=False
+    ):
+      for epoch, chckpt in checkpoint["checkpoints"].items():
+        realign.center_window_returnn_realignment(
+          alias=train_alias,
+          config_builder=config_builder,
+          checkpoint=chckpt,
+          checkpoint_alias=f"epoch-{epoch}",
+          plot=True,
+        )
+
+  # -------------------------- from-scratch (1k) --------------------------------
+  for model_alias, config_builder in get_config_builder.center_window_att_baseline_rf(
+          win_size_list=(1,),
+          label_decoder_state="nb-2linear-ctx1",
+          use_att_ctx_in_state=False,
+          use_weight_feedback=False,
+          bpe_vocab_size=1056,
+  ):
+    # -------------------------- from-scratch --------------------------------
+    for train_alias, checkpoint in train.train_center_window_att_full_sum_from_scratch(
+      alias=model_alias,
+      config_builder=config_builder,
+      n_epochs_list=(500,),
+      use_speed_pert=True,
+      batch_size=8_000,
+      time_rqmt=168,
+      use_mgpu=True,
+    ):
+      for epoch, chckpt in checkpoint["checkpoints"].items():
+        realign.center_window_returnn_realignment(
+          alias=train_alias,
+          config_builder=config_builder,
+          checkpoint=chckpt,
+          checkpoint_alias=f"epoch-{epoch}",
+          plot=True,
+        )
+
+        if epoch == 43:
+          recog.center_window_returnn_frame_wise_beam_search(
+            alias=train_alias,
+            config_builder=config_builder,
+            checkpoint=chckpt,
+            checkpoint_aliases=(f"epoch-{epoch}",),
+          )

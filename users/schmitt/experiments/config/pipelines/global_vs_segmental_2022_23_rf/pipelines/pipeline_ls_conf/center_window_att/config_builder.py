@@ -3,7 +3,8 @@ from typing import Tuple, Optional, List, Dict, Union
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.labels.v2.librispeech.label_singletons import (
   LibrispeechBPE10025_CTC_ALIGNMENT,
   LibrispeechBPE1056_ALIGNMENT,
-  LibrispeechBPE5048_ALIGNMENT,
+  LibrispeechBPE5048_ALIGNMENT_JOINT_MODEL,
+  LibrispeechBPE5048_ALIGNMENT_SEP_MODEL,
   LIBRISPEECH_CORPUS
 )
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.general.returnn.exes import RETURNN_EXE_NEW, RETURNN_CURRENT_ROOT
@@ -24,6 +25,7 @@ def get_center_window_att_config_builder_rf(
         separate_blank_from_softmax: bool = False,
         blank_decoder_opts: Optional[Dict] = None,
         use_current_frame_in_readout: bool = False,
+        use_correct_dim_tags: bool = False,
 ) -> Tuple[str, LibrispeechSegmentalAttConformerConfigBuilderRF]:
   assert bpe_vocab_size in {10025, 1056, 5048}
 
@@ -32,7 +34,10 @@ def get_center_window_att_config_builder_rf(
   elif bpe_vocab_size == 1056:
     dependencies = LibrispeechBPE1056_ALIGNMENT
   else:
-    dependencies = LibrispeechBPE5048_ALIGNMENT
+    if use_joint_model:
+      dependencies = LibrispeechBPE5048_ALIGNMENT_JOINT_MODEL
+    else:
+      dependencies = LibrispeechBPE5048_ALIGNMENT_SEP_MODEL
 
   variant_params = {
     "dependencies": dependencies,
@@ -66,7 +71,8 @@ def get_center_window_att_config_builder_rf(
     gaussian_att_weight_opts=gaussian_att_weight_opts,
     separate_blank_from_softmax=separate_blank_from_softmax,
     blank_decoder_opts=blank_decoder_opts,
-    use_current_frame_in_readout=use_current_frame_in_readout
+    use_current_frame_in_readout=use_current_frame_in_readout,
+    use_correct_dim_tags=use_correct_dim_tags,
   )
 
   alias = (

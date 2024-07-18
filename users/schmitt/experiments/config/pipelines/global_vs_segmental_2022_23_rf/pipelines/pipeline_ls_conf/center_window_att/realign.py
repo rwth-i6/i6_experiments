@@ -39,6 +39,7 @@ def center_window_returnn_realignment(
       "realign_def": model_realign_,
       "forward_step_func": _returnn_v2_forward_step,
       "forward_callback": _returnn_v2_get_forward_callback,
+      "dataset_opts": {"target_is_alignment": False}
     })
 
   realign_job = ReturnnForwardJobV2(

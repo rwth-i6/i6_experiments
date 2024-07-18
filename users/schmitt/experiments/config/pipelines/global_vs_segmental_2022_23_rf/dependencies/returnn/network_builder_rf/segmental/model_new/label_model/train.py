@@ -5,9 +5,14 @@ import torch
 
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.segmental import utils
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.segmental import recombination
+from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.segmental.model import SegmentalAttentionModel
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.segmental.model_new.label_model.model import (
   SegmentalAttLabelDecoder,
   SegmentalAttEfficientLabelDecoder
+)
+
+from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.segmental.model_new.blank_model.model import (
+  BlankDecoderV4
 )
 
 from returnn.tensor import Dim, single_step_dim
@@ -403,7 +408,7 @@ def viterbi_training_efficient(
 
 def full_sum_training(
         *,
-        model: SegmentalAttEfficientLabelDecoder,
+        model: SegmentalAttentionModel,
         enc_args: Dict,
         enc_spatial_dim: Dim,
         non_blank_targets: rf.Tensor,  # [B, S, V]
@@ -413,9 +418,14 @@ def full_sum_training(
         center_positions: rf.Tensor,  # [B, T]
         batch_dims: List[Dim],
 ) -> Optional[Dict[str, Tuple[rf.Tensor, Dim]]]:
-  non_blank_input_embeddings = model.target_embed(non_blank_targets)  # [B, S, D]
+  assert isinstance(model.label_decoder, SegmentalAttEfficientLabelDecoder)
+
+  from returnn.config import get_global_config
+  config = get_global_config()  # noqa
+
+  non_blank_input_embeddings = model.label_decoder.target_embed(non_blank_targets)  # [B, S, D]
   singleton_dim = Dim(name="singleton", dimension=1)
-  singleton_zeros = rf.zeros(batch_dims + [singleton_dim, model.target_embed.out_dim])
+  singleton_zeros = rf.zeros(batch_dims + [singleton_dim, model.label_decoder.target_embed.out_dim])
   non_blank_input_embeddings_shifted, non_blank_targets_spatial_dim_ext = rf.concat(
     (singleton_zeros, singleton_dim),
     (non_blank_input_embeddings, non_blank_targets_spatial_dim),
@@ -423,16 +433,16 @@ def full_sum_training(
   )  # [B, S+1, D]
   non_blank_input_embeddings_shifted.feature_dim = non_blank_input_embeddings.feature_dim
 
-  if "lstm" in model.decoder_state:
-    s_out, _ = model.s_wo_att(
+  if "lstm" in model.label_decoder.decoder_state:
+    s_out, _ = model.label_decoder.s_wo_att(
       non_blank_input_embeddings_shifted,
-      state=model.s_wo_att.default_initial_state(batch_dims=batch_dims),
+      state=model.label_decoder.s_wo_att.default_initial_state(batch_dims=batch_dims),
       spatial_dim=non_blank_targets_spatial_dim_ext,
     )  # [B, S+1, D]
   else:
-    s_out = model.s_wo_att_linear(non_blank_input_embeddings_shifted)  # [B, S+1, D]
+    s_out = model.label_decoder.s_wo_att_linear(non_blank_input_embeddings_shifted)  # [B, S+1, D]
 
-  att = model(
+  att = model.label_decoder(
     enc=enc_args["enc"],
     enc_ctx=enc_args["enc_ctx"],
     enc_spatial_dim=enc_spatial_dim,
@@ -442,17 +452,35 @@ def full_sum_training(
     center_positions=center_positions,
   )  # [B, S+1, T, D]
 
-  logits = model.decode_logits(
+  if model.label_decoder.use_current_frame_in_readout:
+    h_t = rf.gather(enc_args["enc"], axis=enc_spatial_dim, indices=center_positions)
+  else:
+    h_t = None
+
+  logits = model.label_decoder.decode_logits(
     input_embed=non_blank_input_embeddings_shifted,
     att=att,
     s=s_out,
+    h_t=h_t,
   )  # [B, S+1, T, D]
 
+  if model.blank_decoder is not None:
+    assert isinstance(model.blank_decoder, BlankDecoderV4)
+    blank_logits = model.blank_decoder.decode_logits(
+      enc=enc_args["enc"], label_model_states_unmasked=s_out, allow_broadcast=True
+    )
+
+    logits, _ = rf.concat(
+      (logits, model.label_decoder.target_dim),
+      (blank_logits, model.blank_decoder.emit_prob_dim),
+      out_dim=model.align_target_dim,
+    )
+
   def _get_packed_logits_v1():
-    logits_raw = logits.copy_transpose(batch_dims + [enc_spatial_dim, non_blank_targets_spatial_dim_ext, model.target_dim]).raw_tensor
+    logits_raw = logits.copy_transpose(batch_dims + [enc_spatial_dim, non_blank_targets_spatial_dim_ext, model.align_target_dim]).raw_tensor
     enc_lens = enc_spatial_dim.dyn_size_ext.raw_tensor
     non_blank_lens = non_blank_targets_spatial_dim_ext.dyn_size_ext.raw_tensor
-    vocab_len = model.target_dim.dimension
+    vocab_len = model.align_target_dim.dimension
 
     batch_tensors = []
 
@@ -467,16 +495,41 @@ def full_sum_training(
     return torch.cat(batch_tensors, dim=0)
 
   def _get_packed_logits_v2():
-    logits_packed, pack_dim = rf.pack_padded(
-      logits,
-      dims=batch_dims + [enc_spatial_dim, non_blank_targets_spatial_dim_ext],
-      enforce_sorted=False
-    )  # [B * T * (S+1), D]
-    logits_packed_raw = logits_packed.raw_tensor
+    try:
+      logits_packed, pack_dim = rf.pack_padded(
+        logits,
+        dims=batch_dims + [enc_spatial_dim, non_blank_targets_spatial_dim_ext],
+        enforce_sorted=False
+      )  # [B * T * (S+1), D]
+      logits_packed_raw = logits_packed.raw_tensor
+    except Exception as e:
+      return
 
     return logits_packed_raw
 
-  logits_packed_raw = _get_packed_logits_v1()
+  def _profile_packing():
+    from torch.profiler import profile, record_function, ProfilerActivity
+
+    with profile(activities=[ProfilerActivity.CPU], record_shapes=True, profile_memory=True) as prof:
+      _get_packed_logits_v1()
+
+    print("Pack V1:")
+    print(prof.key_averages().table(sort_by="self_cuda_memory_usage", row_limit=10))
+
+    with profile(activities=[ProfilerActivity.CPU], record_shapes=True, profile_memory=True) as prof:
+      _get_packed_logits_v2()
+
+    print("Pack V2:")
+    print(prof.key_averages().table(sort_by="self_cuda_memory_usage", row_limit=10))
+
+  if config.typed_value("profile_packing", False):
+    _profile_packing()
+    exit()
+
+  if config.typed_value("use_packed_logits_v1", True):
+    logits_packed_raw = _get_packed_logits_v1()
+  else:
+    logits_packed_raw = _get_packed_logits_v2()
 
   from returnn.extern_private.BergerMonotonicRNNT.monotonic_rnnt.pytorch_binding import monotonic_rnnt_loss
 

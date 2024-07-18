@@ -2,7 +2,8 @@ from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segment
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.global_.model import from_scratch_model_def, _returnn_v2_get_model
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.labels.v2.librispeech.label_singletons import (
   LibrispeechBPE10025_LABELS,
-LIBRISPEECH_CORPUS
+  LibrispeechSP10240_LABELS,
+  LIBRISPEECH_CORPUS
 )
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.general.returnn.exes import RETURNN_EXE_NEW, RETURNN_CURRENT_ROOT
 
@@ -11,9 +12,18 @@ def get_global_att_config_builder_rf(
         use_weight_feedback: bool = True,
         use_att_ctx_in_state: bool = True,
         decoder_state: str = "nb-lstm",
+        label_decoder_type: str = "lstm",
+        num_label_decoder_layers: int = 1,
+        label_type: str = "bpe10025",
 ):
+  if label_type == "bpe10025":
+    dependencies = LibrispeechBPE10025_LABELS
+  else:
+    assert label_type == "sp10240"
+    dependencies = LibrispeechSP10240_LABELS
+
   variant_params = {
-    "dependencies": LibrispeechBPE10025_LABELS,
+    "dependencies": dependencies,
     "dataset": {
       "feature_type": "raw",
       "corpus": LIBRISPEECH_CORPUS
@@ -33,6 +43,8 @@ def get_global_att_config_builder_rf(
     use_weight_feedback=use_weight_feedback,
     use_att_ctx_in_state=use_att_ctx_in_state,
     label_decoder_state=decoder_state,
+    label_decoder_type=label_decoder_type,
+    num_label_decoder_layers=num_label_decoder_layers,
   )
 
   alias = (

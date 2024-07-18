@@ -4,7 +4,7 @@ from typing import Dict, List, Optional, Tuple, Union
 from abc import ABC, abstractmethod
 
 from i6_core.returnn.forward import ReturnnForwardJob, ReturnnForwardJobV2
-from i6_core.returnn.search import ReturnnSearchJobV2, SearchWordsToCTMJob, SearchBPEtoWordsJob, SearchTakeBestJob
+from i6_core.returnn.search import ReturnnSearchJobV2, SearchWordsToCTMJob, SearchBPEtoWordsJob, SearchTakeBestJob, SearchOutputRawReplaceJob
 from i6_core.recognition.scoring import Hub5ScoreJob, ScliteJob
 from i6_core.returnn.training import Checkpoint, PtCheckpoint
 from i6_core.returnn.compile import CompileTFGraphJob
@@ -383,15 +383,22 @@ class ReturnnDecodingExperiment(DecodingExperiment, ABC):
       search_take_best_job = SearchTakeBestJob(search_py_output=search_job.out_files["output.py.gz"])
       out_search_file = search_take_best_job.out_best_search_results
 
-    bpe_to_words_job = SearchBPEtoWordsJob(out_search_file)
+    if self.config_builder.variant_params["dependencies"].bpe_codes_path is None:
+      out_search_results = SearchOutputRawReplaceJob(
+        out_search_file,
+        replacement_list=[(" ", ""), ("▁", " ")],
+        output_gzip=True
+      ).out_search_results
+    else:
+      out_search_results = SearchBPEtoWordsJob(out_search_file).out_word_search_results
 
     if self.concat_num is not None:
       return WordsToCTMJobV2(
-        words_path=bpe_to_words_job.out_word_search_results
+        words_path=out_search_results
       ).out_ctm_file
     else:
       search_words_to_ctm_job = SearchWordsToCTMJob(
-        bpe_to_words_job.out_word_search_results,
+        out_search_results,
         self.config_builder.variant_params["dataset"]["corpus"].corpus_paths[self.corpus_key])
 
       return search_words_to_ctm_job.out_ctm_file

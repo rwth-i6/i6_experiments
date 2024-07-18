@@ -355,15 +355,43 @@ def _returnn_v2_get_model(*, epoch: int, **_kwargs_unused):
   non_blank_vocab = config.typed_value("non_blank_vocab")
   data = Tensor(name=default_input_key, **extern_data_dict[default_input_key])
   targets = Tensor(name=default_target_key, **extern_data_dict[default_target_key])
-  non_blank_targets = Tensor(
-    name="non_blank_targets",
-    sparse_dim=Dim(description="non_blank_vocab", dimension=targets.sparse_dim.dimension - 1, kind=Dim.Types.Spatial),
-    vocab=non_blank_vocab,
-  )
+
+  align_target_dim = config.typed_value("align_target_dim", None)
+  non_blank_target_dim = config.typed_value("non_blank_target_dim", None)
+
+  if align_target_dim is None:
+    if non_blank_target_dim is None:
+      # if both align_target_dim and non_blank_target_dim are not set, we assume it is the sparse dim of the targets tensor
+      align_target_dim = targets.sparse_dim
+    else:
+      # else, we assume align_target_dim is non_blank_target_dim + 1
+      align_target_dim = Dim(
+        description="align_target_dim", dimension=non_blank_target_dim.dimension + 1, kind=Dim.Types.Spatial)
+
+  if non_blank_target_dim is None:
+    # non_blank_target_dim = Dim(
+    #   description="non_blank_target_dim",
+    #   dimension=align_target_dim.dimension - 1,
+    #   kind=Dim.Types.Spatial,
+    # )
+    non_blank_targets = Tensor(
+      name="non_blank_targets",
+      sparse_dim=Dim(description="non_blank_target_dim", dimension=align_target_dim.dimension - 1, kind=Dim.Types.Spatial),
+      vocab=non_blank_vocab,
+    )
+    non_blank_target_dim = non_blank_targets.sparse_dim
+    # else:
+    #   # # else, we assume non_blank_target_dim is align_target_dim - 1
+    #   # non_blank_target_dim = Dim(
+    #   #   description="non_blank_target_dim",
+    #   #   dimension=align_target_dim.dimension - 1,
+    #   #   kind=Dim.Types.Spatial,
+    #   #   vocab=non_blank_vocab,
+    #   # )
 
   model_def = config.typed_value("_model_def")
   model = model_def(
-    epoch=epoch, in_dim=data.feature_dim, align_target_dim=targets.sparse_dim, target_dim=non_blank_targets.sparse_dim)
+    epoch=epoch, in_dim=data.feature_dim, align_target_dim=align_target_dim, target_dim=non_blank_target_dim)
   return model
 
 

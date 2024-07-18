@@ -28,7 +28,7 @@ def run_exps():
 
   # ------------------------------------- best models: KEEP! -------------------------------------
 
-  for win_size in (1, 5, 11, 25, 129):
+  for win_size in (1, 5, 11, 25, 129, 499):
     for model_alias, config_builder in get_config_builder.center_window_att_baseline_rf(
             win_size_list=(win_size,), use_weight_feedback=not win_size == 1,
     ):

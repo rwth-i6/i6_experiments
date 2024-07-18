@@ -45,6 +45,9 @@ class GlobalAttentionModel(rf.Module):
   ):
     super(GlobalAttentionModel, self).__init__()
 
+    self.bos_idx = eos_idx
+    self.eos_idx = eos_idx
+
     self.encoder = GlobalConformerEncoder(
       enc_in_dim,
       enc_out_dim,
@@ -60,8 +63,10 @@ class GlobalAttentionModel(rf.Module):
       dropout=enc_dropout,
       att_dropout=att_dropout,
       l2=l2,
+      decoder_type=decoder_type,
     )
 
+    self.decoder_type = decoder_type
     if decoder_type == "lstm":
       assert num_dec_layers == 1
 
@@ -88,12 +93,19 @@ class GlobalAttentionModel(rf.Module):
     else:
       assert decoder_type == "trafo"
 
+      # hard code for now
+      self.eos_idx = 0
+      self.bos_idx = 1
+
+      model_dim = Dim(name="dec", dimension=512)
       self.label_decoder = TransformerDecoder(
         num_layers=num_dec_layers,
         encoder_dim=self.encoder.out_dim,
         vocab_dim=target_dim,
-        model_dim=Dim(name="dec", dimension=512),
+        model_dim=model_dim,
         sequential=rf.Sequential,
+        share_embedding=True,
+        input_embedding_scale=model_dim.dimension**0.5
       )
 
     if language_model:
@@ -259,7 +271,7 @@ def from_scratch_model_def(*, epoch: int, in_dim: Dim, target_dim: Dim) -> Globa
   use_mini_att = config.bool("use_mini_att", False)
   decoder_state = config.typed_value("label_decoder_state", "nb-lstm")
   decoder_type = config.typed_value("label_decoder_type", "lstm")
-  num_dec_layers = config.int("num_dec_layers", 1)
+  num_dec_layers = config.int("num_label_decoder_layers", 1)
   target_embed_dim = config.int("target_embed_dim", 640)
 
   return MakeModel.make_model(

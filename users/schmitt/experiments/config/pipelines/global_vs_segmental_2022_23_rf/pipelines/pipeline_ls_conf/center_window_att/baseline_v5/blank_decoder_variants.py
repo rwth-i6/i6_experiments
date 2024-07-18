@@ -45,6 +45,25 @@ def run_exps():
       )
 
   for model_alias, config_builder in get_config_builder.center_window_att_baseline_rf(
+          win_size_list=(499,),
+          blank_decoder_version=4,
+          use_att_ctx_in_state=False,
+          use_weight_feedback=False,
+  ):
+    for train_alias, checkpoint in train.train_center_window_att_viterbi_import_global_tf(
+            alias=model_alias,
+            config_builder=config_builder,
+            n_epochs_list=(300,),
+            const_lr_list=(1e-4,),
+            batch_size=10_000,
+    ):
+      recog.center_window_returnn_frame_wise_beam_search(
+        alias=train_alias,
+        config_builder=config_builder,
+        checkpoint=checkpoint,
+      )
+
+  for model_alias, config_builder in get_config_builder.center_window_att_baseline_rf(
           win_size_list=(1,),
           blank_decoder_version=4,
           use_att_ctx_in_state=False,
@@ -63,3 +82,34 @@ def run_exps():
         checkpoint_alias="best-4-avg",
         plot=True,
       )
+
+  # -------------------------- full-sum training --------------------------------
+
+  for model_alias, config_builder in get_config_builder.center_window_att_baseline_rf(
+          win_size_list=(1, 5),
+          blank_decoder_version=4,
+          use_att_ctx_in_state=False,
+          use_weight_feedback=False,
+          bpe_vocab_size=5048,
+          use_correct_dim_tags=True,
+  ):
+    # -------------------------- from-global-att (bpe 5k) --------------------------------
+    for train_alias, checkpoint in train.train_center_window_att_full_sum_from_scratch(
+            alias=model_alias,
+            config_builder=config_builder,
+            n_epochs_list=(300,),
+            use_speed_pert=True,
+            batch_size=3_000,
+            time_rqmt=80,
+            checkpoint_alias="luca-aed-bpe5k",
+            lr_scheduling_type="const_then_linear",
+            use_mgpu=False
+    ):
+      for epoch, chckpt in checkpoint["checkpoints"].items():
+        realign.center_window_returnn_realignment(
+          alias=train_alias,
+          config_builder=config_builder,
+          checkpoint=chckpt,
+          checkpoint_alias=f"epoch-{epoch}",
+          plot=True,
+        )

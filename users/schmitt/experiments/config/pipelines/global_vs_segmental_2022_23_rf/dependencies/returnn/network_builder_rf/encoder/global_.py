@@ -30,6 +30,7 @@ class GlobalConformerEncoder(ConformerEncoder):
           att_dropout: float = 0.1,
           l2: float = 0.0001,
           use_weight_feedback: bool = True,
+          decoder_type: str = "lstm",
   ):
     super(GlobalConformerEncoder, self).__init__(
       in_dim,
@@ -55,12 +56,14 @@ class GlobalConformerEncoder(ConformerEncoder):
 
     # self.in_dim = in_dim
 
-    self.enc_ctx = rf.Linear(self.out_dim, enc_key_total_dim)
-    self.enc_ctx_dropout = 0.2
+    self.decoder_type = decoder_type
+    if decoder_type == "lstm":
+      self.enc_ctx = rf.Linear(self.out_dim, enc_key_total_dim)
+      self.enc_ctx_dropout = 0.2
 
-    self.use_weight_feedback = use_weight_feedback
-    if use_weight_feedback:
-      self.inv_fertility = rf.Linear(self.out_dim, dec_att_num_heads, with_bias=False)
+      self.use_weight_feedback = use_weight_feedback
+      if use_weight_feedback:
+        self.inv_fertility = rf.Linear(self.out_dim, dec_att_num_heads, with_bias=False)
 
     for p in self.parameters():
       p.weight_decay = l2
@@ -101,7 +104,9 @@ class GlobalConformerEncoder(ConformerEncoder):
       in_spatial_dim=in_spatial_dim,
       out_dim=self.in_dim,
       sampling_rate=16_000,
-      log_base=math.exp(2.3026),  # almost 10.0 but not exactly...
+      log_base=math.exp(
+        2.3026  # almost 10.0 but not exactly...
+      ) if self.decoder_type == "lstm" else 10.0,
     )
     if self._mixup:
       source = self._mixup(source, spatial_dim=in_spatial_dim)
@@ -117,11 +122,16 @@ class GlobalConformerEncoder(ConformerEncoder):
       enc, enc_spatial_dim = self(
         source, in_spatial_dim=in_spatial_dim, collected_outputs=collected_outputs
       )
-    enc_ctx = self.enc_ctx(enc)
-    if self.use_weight_feedback:
-      inv_fertility = rf.sigmoid(self.inv_fertility(enc))
+    if self.decoder_type == "lstm":
+      enc_ctx = self.enc_ctx(enc)
+      if self.use_weight_feedback:
+        inv_fertility = rf.sigmoid(self.inv_fertility(enc))
+      else:
+        inv_fertility = None
     else:
+      enc_ctx = None
       inv_fertility = None
+
     return dict(enc=enc, enc_ctx=enc_ctx, inv_fertility=inv_fertility), enc_spatial_dim
 
 

@@ -38,10 +38,14 @@ class ConfigBuilderRF(ABC):
           use_att_ctx_in_state: bool = True,
           label_decoder_state: str = "nb-lstm",
           use_current_frame_in_readout: bool = False,
+          use_correct_dim_tags: bool = False,
+          label_decoder_type: str = "lstm",
+          num_label_decoder_layers: int = 1,
   ):
     self.variant_params = variant_params
     self.model_def = model_def
     self.get_model_func = get_model_func
+    self.use_correct_dim_tags = use_correct_dim_tags
 
     self.post_config_dict = dict(
       torch_dataloader_opts={"num_workers": 1},
@@ -73,7 +77,21 @@ class ConfigBuilderRF(ABC):
     if use_current_frame_in_readout:
       self.config_dict["use_current_frame_in_readout"] = use_current_frame_in_readout
 
+    self.label_decoder_type = label_decoder_type
+    if label_decoder_type != "lstm":
+      self.config_dict["label_decoder_type"] = label_decoder_type
+    if num_label_decoder_layers != 1:
+      self.config_dict["num_label_decoder_layers"] = num_label_decoder_layers
+
     self.python_prolog = []
+
+    if variant_params["dependencies"].bpe_codes_path is None:
+      # this means we use sentencepiece
+      # append venv to path so that it finds the package (if it's not in the apptainer)
+      self.python_prolog += [
+        "import sys",
+        "sys.path.append('/work/asr3/zeyer/schmitt/venvs/tf_env/lib/python3.10/site-packages')",
+      ]
 
   def get_train_config(self, opts: Dict):
     config_dict = copy.deepcopy(self.config_dict)
@@ -92,12 +110,14 @@ class ConfigBuilderRF(ABC):
       dataset_opts["add_realignment_dataset"] = True
 
     config_dict.update(self.get_train_datasets(dataset_opts=dataset_opts))
-    extern_data_raw = self.get_extern_data_dict(dataset_opts)
+    extern_data_raw = self.get_extern_data_dict(dataset_opts, config_dict)
     extern_data_raw = instanciate_delayed(extern_data_raw)
 
     if dataset_opts.pop("use_speed_pert", None):
+      if "import sys" not in python_prolog:
+        python_prolog.append("import sys")
       python_prolog += [
-        "import sys",
+        # "import sys",
         'sys.path.append("/work/asr4/zeineldeen/py_envs/py_3.10_tf_2.9/lib/python3.10/site-packages")'
       ]
       config_dict["speed_pert"] = speed_pert
@@ -187,7 +207,7 @@ class ConfigBuilderRF(ABC):
         search_corpus_key=opts["search_corpus_key"],
         dataset_opts=dataset_opts
       ))
-    extern_data_raw = self.get_extern_data_dict(dataset_opts)
+    extern_data_raw = self.get_extern_data_dict(dataset_opts, config_dict)
     extern_data_raw = instanciate_delayed(extern_data_raw)
 
     config_dict["batch_size"] = opts.get("batch_size", 15_000) * self.batch_size_factor
@@ -384,14 +404,27 @@ class ConfigBuilderRF(ABC):
     segment_paths = dataset_opts.get("segment_paths", self.variant_params["dependencies"].segment_paths)
     oggzip_paths = dataset_opts.get("oggzip_paths", self.variant_params["dataset"]["corpus"].oggzip_paths)
     if self.variant_params["dataset"]["feature_type"] == "raw":
-      return {
+      opts = {
         "oggzip_path_list": oggzip_paths[corpus_key],
-        "bpe_file": self.variant_params["dependencies"].bpe_codes_path,
-        "vocab_file": self.variant_params["dependencies"].vocab_path,
         "segment_file": segment_paths.get(corpus_key, None),
         "hdf_targets": hdf_targets.get(corpus_key, None),
         "peak_normalization": dataset_opts.get("peak_normalization", True),
       }
+
+      if self.variant_params["dependencies"].bpe_codes_path is None:
+        opts.update({
+          "model_file": self.variant_params["dependencies"].model_path,
+          "bpe_file": None,
+          "vocab_file": None,
+        })
+      else:
+        opts.update({
+          "bpe_file": self.variant_params["dependencies"].bpe_codes_path,
+          "vocab_file": self.variant_params["dependencies"].vocab_path,
+          "model_file": None,
+        })
+
+      return opts
     else:
       assert self.variant_params["dataset"]["feature_type"] == "gammatone"
       return {
@@ -510,7 +543,7 @@ class ConfigBuilderRF(ABC):
         **self.get_default_dataset_opts(corpus_key, dataset_opts)
       )
 
-  def get_extern_data_dict(self, dataset_opts: Dict):
+  def get_extern_data_dict(self, dataset_opts: Dict, config_dict: Dict):
     from returnn.tensor import Dim, batch_dim
 
     extern_data_dict = {}
@@ -525,19 +558,43 @@ class ConfigBuilderRF(ABC):
 
     out_spatial_dim = Dim(description="out_spatial", dimension=None, kind=Dim.Types.Spatial)
 
-    if isinstance(self, SegmentalAttConfigBuilderRF) and self.use_joint_model:
-      vocab_dimension = self.variant_params["dependencies"].model_hyperparameters.target_num_labels_wo_blank
+    if self.use_correct_dim_tags:
+      extern_data_dict["targets"] = {"dim_tags": [batch_dim, out_spatial_dim]}
+
+      if isinstance(self, GlobalAttConfigBuilderRF):
+        non_blank_target_dimension = self.variant_params["dependencies"].model_hyperparameters.target_num_labels_wo_blank
+      else:
+        if isinstance(self, SegmentalAttConfigBuilderRF) and self.use_joint_model:
+          align_target_dimension = self.variant_params["dependencies"].model_hyperparameters.target_num_labels_wo_blank
+          non_blank_target_dimension = self.variant_params["dependencies"].model_hyperparameters.target_num_labels_wo_blank
+        else:
+          align_target_dimension = self.variant_params["dependencies"].model_hyperparameters.target_num_labels
+          non_blank_target_dimension = self.variant_params["dependencies"].model_hyperparameters.target_num_labels_wo_blank
+
+        align_target_dim = Dim(description="align_target_dim", dimension=align_target_dimension, kind=Dim.Types.Spatial)
+
+      non_blank_target_dim = Dim(description="non_blank_target_dim", dimension=non_blank_target_dimension, kind=Dim.Types.Spatial)
+      if isinstance(self, GlobalAttConfigBuilderRF):
+        extern_data_dict["targets"]["sparse_dim"] = non_blank_target_dim
+      else:
+        if dataset_opts["target_is_alignment"]:
+          extern_data_dict["targets"]["sparse_dim"] = align_target_dim
+        else:
+          extern_data_dict["targets"]["sparse_dim"] = non_blank_target_dim
     else:
-      vocab_dimension = self.variant_params["dependencies"].model_hyperparameters.target_num_labels
-    vocab_dim = Dim(
-      description="vocab",
-      dimension=vocab_dimension,
-      kind=Dim.Types.Spatial
-    )
-    extern_data_dict["targets"] = {
-      "dim_tags": [batch_dim, out_spatial_dim],
-      "sparse_dim": vocab_dim,
-    }
+      if isinstance(self, SegmentalAttConfigBuilderRF) and self.use_joint_model:
+        vocab_dimension = self.variant_params["dependencies"].model_hyperparameters.target_num_labels_wo_blank
+      else:
+        vocab_dimension = self.variant_params["dependencies"].model_hyperparameters.target_num_labels
+      vocab_dim = Dim(
+        description="vocab",
+        dimension=vocab_dimension,
+        kind=Dim.Types.Spatial
+      )
+      extern_data_dict["targets"] = {
+        "dim_tags": [batch_dim, out_spatial_dim],
+        "sparse_dim": vocab_dim,
+      }
 
     if dataset_opts.get("add_alignment_interpolation_datasets"):
       score_dim = Dim(description="interpolation_alignment_score", dimension=1, kind=Dim.Types.Feature)
@@ -599,10 +656,11 @@ class ConfigBuilderRF(ABC):
     )
 
   def get_eval_dataset(self, eval_corpus_key: str, dataset_opts: Dict):
-    return dict(
-      extern_data=self.get_extern_data_dict(dataset_opts),
-      eval=self.get_eval_dataset_dict(corpus_key=eval_corpus_key, dataset_opts=dataset_opts)
-    )
+    raise NotImplementedError
+    # return dict(
+    #   extern_data=self.get_extern_data_dict(dataset_opts),
+    #   eval=self.get_eval_dataset_dict(corpus_key=eval_corpus_key, dataset_opts=dataset_opts)
+    # )
 
   @property
   def batch_size_factor(self):
@@ -638,15 +696,22 @@ class GlobalAttConfigBuilderRF(ConfigBuilderRF, ABC):
     if not use_weight_feedback:
       self.config_dict["use_weight_feedback"] = use_weight_feedback
 
-  def get_extern_data_dict(self, dataset_opts: Dict):
-    extern_data_dict = super(GlobalAttConfigBuilderRF, self).get_extern_data_dict(dataset_opts)
-    extern_data_dict["targets"]["vocab"] = {
-      "bpe_file": self.variant_params["dependencies"].bpe_codes_path,
-      "vocab_file": self.variant_params["dependencies"].vocab_path,
-      "unknown_label": None,
-      "bos_label": self.variant_params["dependencies"].model_hyperparameters.sos_idx,
-      "eos_label": self.variant_params["dependencies"].model_hyperparameters.sos_idx,
-    }
+  def get_extern_data_dict(self, dataset_opts: Dict, config_dict: Dict):
+    extern_data_dict = super(GlobalAttConfigBuilderRF, self).get_extern_data_dict(dataset_opts, config_dict)
+
+    if self.variant_params["dependencies"].bpe_codes_path is None:
+      extern_data_dict["targets"]["vocab"] = {
+        "class": "SentencePieces",
+        "model_file": self.variant_params["dependencies"].model_path,
+      }
+    else:
+      extern_data_dict["targets"]["vocab"] = {
+        "bpe_file": self.variant_params["dependencies"].bpe_codes_path,
+        "vocab_file": self.variant_params["dependencies"].vocab_path,
+        "unknown_label": None,
+        "bos_label": self.variant_params["dependencies"].model_hyperparameters.sos_idx,
+        "eos_label": self.variant_params["dependencies"].model_hyperparameters.sos_idx,
+      }
 
     return extern_data_dict
 
@@ -783,7 +848,7 @@ class SegmentalAttConfigBuilderRF(ConfigBuilderRF, ABC):
         search_corpus_key=opts["corpus_key"],
         dataset_opts=dataset_opts
       ))
-    extern_data_raw = self.get_extern_data_dict(dataset_opts)
+    extern_data_raw = self.get_extern_data_dict(dataset_opts, config_dict)
     extern_data_raw = instanciate_delayed(extern_data_raw)
 
     config_dict["batch_size"] = opts.get("batch_size", 15_000) * self.batch_size_factor
@@ -834,7 +899,7 @@ class SegmentalAttConfigBuilderRF(ConfigBuilderRF, ABC):
         search_corpus_key=opts["corpus_key"],
         dataset_opts=dataset_opts
       ))
-    extern_data_raw = self.get_extern_data_dict(dataset_opts)
+    extern_data_raw = self.get_extern_data_dict(dataset_opts, config_dict)
     extern_data_raw = instanciate_delayed(extern_data_raw)
 
     config_dict["batch_size"] = opts.get("batch_size", 15_000) * self.batch_size_factor

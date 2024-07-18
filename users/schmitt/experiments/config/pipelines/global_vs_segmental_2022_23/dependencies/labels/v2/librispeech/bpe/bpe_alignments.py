@@ -20,6 +20,7 @@ from i6_core.lm.lm_image import CreateLmImageJob
 
 from typing import Dict
 import copy
+from abc import ABC
 
 from sisyphus import *
 
@@ -189,16 +190,11 @@ class LibrispeechBpe1056Alignment(LibrispeechBPE1056, LibrispeechLabelDefinition
     self._alignment_paths = value
 
 
-class LibrispeechBpe5048Alignment(LibrispeechBPE5048, LibrispeechLabelDefinition, SegmentalLabelDefinition):
+class LibrispeechBpe5048Alignment(LibrispeechBPE5048, LibrispeechLabelDefinition, SegmentalLabelDefinition, ABC):
   def __init__(self):
     super().__init__()
 
     self._alignment_paths = None
-
-  @property
-  def model_hyperparameters(self) -> SegmentalModelHyperparameters:
-    return SegmentalModelHyperparameters(
-      sos_idx=0, target_num_labels=5049, sil_idx=None, blank_idx=0, target_num_labels_wo_blank=5048)
 
   @property
   def rasr_format_paths(self) -> RasrFormats:
@@ -221,3 +217,16 @@ class LibrispeechBpe5048Alignment(LibrispeechBPE5048, LibrispeechLabelDefinition
     assert "train" in value and "cv" in value and "devtrain" in value
     self._alignment_paths = value
 
+
+class LibrispeechBpe5048AlignmentJointModel(LibrispeechBpe5048Alignment):
+  @property
+  def model_hyperparameters(self) -> SegmentalModelHyperparameters:
+    return SegmentalModelHyperparameters(
+      sos_idx=0, target_num_labels=5049, sil_idx=None, blank_idx=0, target_num_labels_wo_blank=5048)
+
+
+class LibrispeechBpe5048AlignmentSepModel(LibrispeechBpe5048Alignment):
+  @property
+  def model_hyperparameters(self) -> SegmentalModelHyperparameters:
+    return SegmentalModelHyperparameters(
+      sos_idx=0, target_num_labels=5049, sil_idx=None, blank_idx=5048, target_num_labels_wo_blank=5048)

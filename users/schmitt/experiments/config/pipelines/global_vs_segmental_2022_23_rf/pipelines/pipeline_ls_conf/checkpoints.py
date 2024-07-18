@@ -31,9 +31,10 @@ for checkpoint_name, checkpoint in external_checkpoints_tf.items():
 
   external_checkpoints[checkpoint_name] = PtCheckpoint(global_att_checkpoint)
 
-external_checkpoints["albert-trafo-decoder"] = PtCheckpoint(
-  Path("/work/asr3/zeyer/schmitt/model_checkpoints/segmental_models_2022_23_rf/v6-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-speedpertV2-spm10k-spmSample07.498.pt")
-)
+external_checkpoints.update({
+  "albert-aed-trafo-decoder-bpe10k": PtCheckpoint(Path("/work/asr3/zeyer/schmitt/model_checkpoints/segmental_models_2022_23_rf/v6-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-speedpertV2-spm10k-spmSample07.498_converted.pt")),
+  "luca-aed-bpe5k": PtCheckpoint(Path("/work/asr3/zeyer/schmitt/model_checkpoints/segmental_models_2022_23_rf/luca-global-aed-no-ctc-bpe5k-100ep_converted.pt")),
+})
 
 # global_att_checkpoint_w_ctc = ConvertTfCheckpointToRfPtJob(
 #   checkpoint=external_checkpoints_tf[default_import_model_name],
