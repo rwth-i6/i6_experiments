@@ -5,7 +5,7 @@ from returnn.tensor import Tensor, Dim, single_step_dim
 import returnn.frontend as rf
 
 from i6_experiments.users.schmitt.returnn_frontend.model_interfaces.model import ModelDef
-from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.base import _batch_size_factor, _log_mel_feature_dim
+from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.base import _batch_size_factor
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.segmental.model_new.blank_model.model import (
   BlankDecoderV1,
   BlankDecoderV3,
@@ -55,6 +55,7 @@ class SegmentalAttentionModel(rf.Module):
           reset_eos_params: bool = False,
           blank_decoder_opts: Optional[Dict[str, Any]] = None,
           use_current_frame_in_readout: bool = False,
+          target_embed_dim: int = 640,
   ):
     super(SegmentalAttentionModel, self).__init__()
 
@@ -104,6 +105,7 @@ class SegmentalAttentionModel(rf.Module):
       separate_blank_from_softmax=separate_blank_from_softmax,
       reset_eos_params=reset_eos_params,
       use_current_frame_in_readout=use_current_frame_in_readout,
+      target_embed_dim=Dim(name="target_embed", dimension=target_embed_dim),
     )
 
     if not use_joint_model:
@@ -211,6 +213,7 @@ class MakeModel:
           separate_blank_from_softmax: bool = False,
           reset_eos_params: bool = False,
           use_current_frame_in_readout: bool = False,
+          target_embed_dim: int = 640,
           **extra,
   ) -> SegmentalAttentionModel:
     """make"""
@@ -265,6 +268,7 @@ class MakeModel:
       separate_blank_from_softmax=separate_blank_from_softmax,
       reset_eos_params=reset_eos_params,
       use_current_frame_in_readout=use_current_frame_in_readout,
+      target_embed_dim=target_embed_dim,
       **extra,
     )
 
@@ -278,8 +282,9 @@ def from_scratch_model_def(
   config = get_global_config()  # noqa
   enc_aux_logits = config.typed_value("aux_loss_layers")
   pos_emb_dropout = config.float("pos_emb_dropout", 0.0)
+  log_mel_feature_dim = config.int("log_mel_feature_dim", 80)
   # real input is raw audio, internally it does logmel
-  in_dim = Dim(name="logmel", dimension=_log_mel_feature_dim, kind=Dim.Types.Feature)
+  in_dim = Dim(name="logmel", dimension=log_mel_feature_dim, kind=Dim.Types.Feature)
   lm_opts = config.typed_value("external_lm")
   center_window_size = config.typed_value("center_window_size")
   if center_window_size is None:
@@ -300,6 +305,8 @@ def from_scratch_model_def(
   enc_out_dim = config.int("enc_out_dim", 512)
   enc_key_total_dim = config.int("enc_key_total_dim", 1024)
   enc_ff_dim = config.int("enc_ff_dim", 2048)
+
+  target_embed_dim = config.int("target_embed_dim", 640)
 
   return MakeModel.make_model(
     in_dim,
@@ -323,6 +330,7 @@ def from_scratch_model_def(
     separate_blank_from_softmax=separate_blank_from_softmax,
     reset_eos_params=reset_eos_params,
     use_current_frame_in_readout=use_current_frame_in_readout,
+    target_embed_dim=target_embed_dim,
   )
 
 

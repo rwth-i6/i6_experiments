@@ -5,10 +5,6 @@ import functools
 from returnn.tensor import Tensor, Dim, single_step_dim
 import returnn.frontend as rf
 
-from i6_experiments.users.schmitt.returnn_frontend.model_interfaces.model import ModelDef
-from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.base import _batch_size_factor, _log_mel_feature_dim
-from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.base import BaseLabelDecoder
-
 
 class BlankDecoderBase(rf.Module, ABC):
   def __init__(self):

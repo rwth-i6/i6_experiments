@@ -8,7 +8,6 @@ import returnn.frontend as rf
 
 from i6_experiments.users.schmitt.returnn_frontend.model_interfaces.supports_label_scorer_torch import RFModelWithMakeLabelScorer
 
-_log_mel_feature_dim = 80
 _batch_size_factor = 160
 
 

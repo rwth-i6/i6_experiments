@@ -11,7 +11,7 @@ from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segment
   GlobalAttEfficientDecoder
 )
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.encoder.global_ import GlobalConformerEncoder
-from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.base import _batch_size_factor, _log_mel_feature_dim
+from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.base import _batch_size_factor
 from i6_experiments.users.schmitt.returnn_frontend.model_interfaces.supports_label_scorer_torch import RFModelWithMakeLabelScorer
 
 
@@ -168,6 +168,7 @@ class MakeModel:
           decoder_state: str = "nb-lstm",
           decoder_type: str = "lstm",
           num_dec_layers: int = 1,
+          target_embed_dim: int = 640,
           **extra,
   ) -> GlobalAttentionModel:
     """make"""
@@ -212,6 +213,7 @@ class MakeModel:
       decoder_state=decoder_state,
       decoder_type=decoder_type,
       num_dec_layers=num_dec_layers,
+      target_embed_dim=target_embed_dim,
       **extra,
     )
 
@@ -248,8 +250,9 @@ def from_scratch_model_def(*, epoch: int, in_dim: Dim, target_dim: Dim) -> Globa
   config = get_global_config()  # noqa
   enc_aux_logits = config.typed_value("aux_loss_layers")
   pos_emb_dropout = config.float("pos_emb_dropout", 0.0)
+  log_mel_feature_dim = config.int("log_mel_feature_dim", 80)
   # real input is raw audio, internally it does logmel
-  in_dim = Dim(name="logmel", dimension=_log_mel_feature_dim, kind=Dim.Types.Feature)
+  in_dim = Dim(name="logmel", dimension=log_mel_feature_dim, kind=Dim.Types.Feature)
   lm_opts = config.typed_value("external_lm")
   use_weight_feedback = config.bool("use_weight_feedback", True)
   use_att_ctx_in_state = config.bool("use_att_ctx_in_state", True)
@@ -257,6 +260,7 @@ def from_scratch_model_def(*, epoch: int, in_dim: Dim, target_dim: Dim) -> Globa
   decoder_state = config.typed_value("label_decoder_state", "nb-lstm")
   decoder_type = config.typed_value("label_decoder_type", "lstm")
   num_dec_layers = config.int("num_dec_layers", 1)
+  target_embed_dim = config.int("target_embed_dim", 640)
 
   return MakeModel.make_model(
     in_dim,
@@ -270,6 +274,7 @@ def from_scratch_model_def(*, epoch: int, in_dim: Dim, target_dim: Dim) -> Globa
     decoder_state=decoder_state,
     decoder_type=decoder_type,
     num_dec_layers=num_dec_layers,
+    target_embed_dim=target_embed_dim,
   )
 
 
