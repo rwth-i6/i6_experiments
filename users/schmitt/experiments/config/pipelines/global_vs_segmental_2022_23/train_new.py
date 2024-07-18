@@ -70,6 +70,9 @@ class TrainExperiment(ABC):
       horovod_num_processes=self.train_rqmt.get("horovod_num_processes", None),
       distributed_launch_cmd=self.train_rqmt.get("distributed_launch_cmd", "mpirun"),
     )
+    if self.train_rqmt.get("gpu_mem", 11) > 11:
+      train_job.rqmt["gpu_mem"] = self.train_rqmt["gpu_mem"]
+
     train_job.add_alias(self.alias)
     tk.register_output(train_job.get_one_alias() + "/models", train_job.out_model_dir)
     tk.register_output(train_job.get_one_alias() + "/plot_lr", train_job.out_plot_lr)
