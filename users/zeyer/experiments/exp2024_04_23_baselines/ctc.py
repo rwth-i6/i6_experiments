@@ -484,7 +484,7 @@ def py():
     )
 
     # Now aux Trafo decoder with only 2 layers (aedLossN2).
-    train_exp(
+    train_exp(  # 5.81 (but dev-clean, test-clean, test-other are better)
         "v6-relPosAttDef-aedLossN2-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-featBN"
         "-speedpertV2-spm10k-bpeSample001",
         config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
