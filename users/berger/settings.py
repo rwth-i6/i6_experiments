@@ -126,7 +126,12 @@ def worker_wrapper(job, task_name, call):
         "exec",
     ]
 
-    app_call += ["--env", f"NUMBA_CACHE_DIR=/var/tmp/numba_cache_{getpass.getuser()}"]
+    app_call += [
+        "--env",
+        f"NUMBA_CACHE_DIR=/var/tmp/numba_cache_{getpass.getuser()}",
+        "--env",
+        "CUDA_LAUNCH_BLOCKING=1",
+    ]
 
     if t._rqmt.get("gpu", 0) > 0:
         app_call += ["--nv"]

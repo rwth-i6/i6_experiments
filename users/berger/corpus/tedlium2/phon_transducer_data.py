@@ -1,6 +1,8 @@
 import copy
 from typing import List, Optional
 
+from i6_core.corpus.filter import FilterSegmentsByListJob
+from i6_core.corpus.segments import SegmentCorpusJob
 from i6_core.lexicon.modification import AddEowPhonemesToLexiconJob
 from sisyphus import tk
 
@@ -24,6 +26,7 @@ def get_tedlium2_data_dumped_labels(
     add_unknown: bool = False,
     augmented_lexicon: bool = True,
     feature_type: FeatureType = FeatureType.GAMMATONE_16K,
+    filter_out_seg_list: Optional[List[str]] = None,
 ) -> BasicSetupData:
     if cv_keys is None:
         cv_keys = ["dev"]
@@ -48,6 +51,14 @@ def get_tedlium2_data_dumped_labels(
     train_lexicon = train_data_inputs[train_key].lexicon.filename
     eow_lexicon = AddEowPhonemesToLexiconJob(train_lexicon).out_lexicon
 
+    filtered_segment_file = None
+    if filter_out_seg_list:
+        train_corpus_file = train_data_inputs[train_key].corpus_object.corpus_file
+        segment_files = SegmentCorpusJob(train_corpus_file, 1).out_single_segment_files
+        filtered_segment_file = FilterSegmentsByListJob(
+            segment_files, filter_list=filter_out_seg_list, invert_match=False
+        ).out_single_segment_files[1]
+
     train_data_config = build_feature_label_meta_dataset_config(
         label_dim=num_classes - 1,
         data_inputs=[train_data_inputs[train_key]],
@@ -60,6 +71,7 @@ def get_tedlium2_data_dumped_labels(
         extra_config={
             "partition_epoch": 5,
             "seq_ordering": "laplace:.1000",
+            **({"seq_list_filter_file": filtered_segment_file} if filtered_segment_file else {}),
         },
     )
 

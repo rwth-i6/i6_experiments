@@ -31,6 +31,7 @@ rasr.flow.FlowNetwork.default_flags = {"cache_mode": "task_dependent"}
 
 num_outputs = 79
 num_subepochs = 500
+keep_epochs = [50, 100, 150, 200, 250, 300, 350, 400, 450, 475, 500]
 
 tools = copy.deepcopy(default_tools_v2)
 tools.rasr_binary_path = tk.Path("/u/berger/repositories/rasr_versions/gen_seq2seq_dev/arch/linux-x86_64-standard")
@@ -67,11 +68,14 @@ def returnn_config_generator(
         target="classes",
         extra_python=[serializer],
         extern_data_config=True,
+        keep_last_n=1,
+        keep_best_n=0,
+        keep=keep_epochs,
         backend=Backend.PYTORCH,
         grad_noise=0.0,
         grad_clip=0.0,
         optimizer=Optimizers.AdamW,
-        weight_decay=5e-06,
+        weight_decay=0.01,
         schedule=LearningRateSchedules.OCLR,
         initial_lr=8e-05,
         peak_lr=kwargs.get("peak_lr", 8e-04),
@@ -200,7 +204,7 @@ def run_exp(alignments: Dict[str, AlignmentData]) -> SummaryReport:
     train_args = exp_args.get_transducer_train_step_args(num_epochs=num_subepochs, gpu_mem_rqmt=24)
     recog_args = exp_args.get_transducer_recog_step_args(
         num_classes=num_outputs,
-        epochs=[20, 40, 80, 160, 320, num_subepochs],
+        epochs=keep_epochs,
         lm_scales=[0.7],
         label_scorer_type="onnx-ffnn-transducer",
         label_scorer_args={"extra_args": {"start_label_index": 0}},
