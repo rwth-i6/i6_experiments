@@ -622,6 +622,7 @@ def create_config(
         add_ctc_log_prior(exp_config, ctc_log_prior_file)
 
     if ctc_decode:
+        assert ctc_blank_idx is not None, "Set CTC blank index."
         add_ctc_decoding(exp_config, beam_size, ctc_prior_scale, ctc_remove_eos, ext_lm_opts, ctc_blank_idx)
 
     if joint_ctc_att_decode_args:
@@ -971,6 +972,7 @@ def add_mixup_layers(net, feature_extraction_net, mixup_aug_opts, is_recog):
 def add_ctc_decoding(config, beam_size, ctc_prior_scale, ctc_remove_eos, ext_lm_opts, ctc_blank_idx):
     # create bpe labels with blank extern data
     config["extern_data"]["bpe_labels_w_blank"] = copy.deepcopy(config["extern_data"]["bpe_labels"])
+    config["extern_data"]["bpe_labels_w_blank"].pop("vocab", None)  # vocab is with blank now
     config["extern_data"]["bpe_labels_w_blank"]["dim"] += 1
 
     create_ctc_decoder(config["network"], beam_size, ctc_prior_scale, ctc_remove_eos)
