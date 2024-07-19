@@ -519,7 +519,7 @@ def py():
     )
 
     # CTC label smoothing excluding blank (ctcLS01xB).
-    train_exp(
+    train_exp(  # 5.78 (but dev-clean, test-clean, test-other are better than without ctcLS01xB!)
         "v6-relPosAttDef-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-featBN"
         "-speedpertV2-spm10k-bpeSample001-ctcLS01xB",
         config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
