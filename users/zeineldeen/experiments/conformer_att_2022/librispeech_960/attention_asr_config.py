@@ -444,7 +444,7 @@ def create_config(
     exp_config = copy.deepcopy(config)  # type: dict
     exp_post_config = copy.deepcopy(post_config)
 
-    exp_config["extern_data"] = training_datasets.extern_data
+    exp_config["extern_data"] = training_datasets.extern_data.copy()
 
     if not is_recog:
         exp_config["train"] = training_datasets.train.as_returnn_opts()
