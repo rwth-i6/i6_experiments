@@ -125,7 +125,7 @@ class Model(rf.Module):
         *,
         num_enc_layers: int = 12,
         target_dim: Dim,
-        wb_target_dim: Optional[Dim] = None,
+        # wb_target_dim: Optional[Dim] = None,
         blank_idx: int,
         eos_idx: int,
         bos_idx: int,
@@ -152,6 +152,7 @@ class Model(rf.Module):
         self.mel_normalization = config.typed_value("mel_normalization_ted2", True)
         self.use_specaugment = config.typed_value("use_specaugment", True)
         self.conv_2nd_stride = config.typed_value("conv_2nd_stride", 3)
+        self.final_ctc_name = config.typed_value("final_ctc_name", "enc_aux_logits_12")
 
         self.in_dim = in_dim
         self.encoder = ConformerEncoder(
@@ -182,6 +183,16 @@ class Model(rf.Module):
         self.eos_idx = eos_idx
         self.bos_idx = bos_idx  # for non-blank labels; for with-blank labels, we use bos_idx=blank_idx
 
+        if target_dim.vocab and not self.target_dim_w_blank.vocab:
+            from returnn.datasets.util.vocabulary import Vocabulary
+
+            # Just assumption for code now, might extend this later.
+            assert self.target_dim_w_blank.dimension == target_dim.dimension + 1 and blank_idx == target_dim.dimension
+            vocab_labels = list(target_dim.vocab.labels) + ["<blank>"]
+            self.target_dim_w_blank.vocab = Vocabulary.create_vocab_from_labels(
+                vocab_labels, user_defined_symbols={"<blank>": blank_idx}
+            )
+
         # self.enc_key_total_dim = enc_key_total_dim
         # self.enc_key_per_head_dim = enc_key_total_dim.div_left(att_num_heads)
         # self.att_num_heads = att_num_heads
@@ -193,17 +204,15 @@ class Model(rf.Module):
         for p in self.parameters():
             p.weight_decay = l2
 
-        if enc_aux_logits:
-            if not wb_target_dim:
-                wb_target_dim = target_dim + 1
+
         for i in enc_aux_logits:
             setattr(
                 self,
                 f"enc_aux_logits_{i}",
-                rf.Linear(self.encoder.out_dim, wb_target_dim),
+                rf.Linear(self.encoder.out_dim, self.target_dim_w_blank),
             )
 
-        self.enc_aux_logits_12 = rf.Linear(self.encoder.out_dim, self.target_dim_w_blank)
+        setattr(self, self.final_ctc_name, rf.Linear(self.encoder.out_dim, self.target_dim_w_blank))
 
         self._specaugment_opts = {
             "steps": config.typed_value("specaugment_steps") or (0, 1000, 2000),

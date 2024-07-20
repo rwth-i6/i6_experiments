@@ -132,6 +132,7 @@ def sis_run_with_prefix(prefix_name: str = None):
             prefix_name
             + f"/ctc_prefix_fix"
             + (f"_prior{prior_scale}" if prior_scale != 0.0 else "")
+            # + "_noLenNorm"
             + f"_beam{beam_size}"
         )
         search_args = {
@@ -144,6 +145,7 @@ def sis_run_with_prefix(prefix_name: str = None):
             "prior_corr": prior_scale != 0.0,
             "ctc_prior_file": "/work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/2023-02-22--conformer-swb/work/i6_core/returnn/extract_prior/ReturnnComputePriorJobV2.ZeflcEHlQTjn/output/prior.txt",
             "prior_scale": prior_scale,
+            # "length_normalization_exponent": 0.0,
         }
         res, _ = recog_model(
             task,
@@ -161,13 +163,14 @@ def sis_run_with_prefix(prefix_name: str = None):
 
     # att + espnet ctc prefix
     # beam 32: {"dev-clean": 2.14, "dev-other": 5.21, "test-clean": 2.43, "test-other": 5.57}
-    for scales, prior_scale, beam_size in product([(0.7, 0.3)], [0.1], []):
+    for scales, prior_scale, beam_size in product([(0.7, 0.3)], [0.1], [32]):
         att_scale, ctc_scale = scales
 
         name = (
             prefix_name
             + f"/opls_att{att_scale}_ctc{ctc_scale}_fix"
             + (f"_prior{prior_scale}" if prior_scale != 0.0 else "")
+            + "_noLenNorm"
             + f"_beam{beam_size}"
         )
         search_args = {
@@ -180,6 +183,7 @@ def sis_run_with_prefix(prefix_name: str = None):
             "prior_corr": prior_scale != 0.0,
             "ctc_prior_file": "/work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/2023-02-22--conformer-swb/work/i6_core/returnn/extract_prior/ReturnnComputePriorJobV2.ZeflcEHlQTjn/output/prior.txt",
             "prior_scale": prior_scale,
+            "length_normalization_exponent": 0.0,
         }
         res, _ = recog_model(
             task,
@@ -639,7 +643,7 @@ def sis_run_with_prefix(prefix_name: str = None):
 
     # opls att + ctc + trafo lm + ilm
     for scales, prior_scale, lm_scale, ilm_scale, beam_size in product(
-        [(0.8, 0.2)], [0.05, 0.07], [0.65], [0.4], [32, 40]
+        [(0.8, 0.2)], [0.05, 0.07], [0.65], [0.4], [32]
     ):
         att_scale, ctc_scale = scales
         recog_name = (

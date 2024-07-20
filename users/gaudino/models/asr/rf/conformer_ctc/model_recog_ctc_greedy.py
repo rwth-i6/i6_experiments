@@ -51,9 +51,10 @@ def model_recog(
     batch_dims = data.remaining_dims((data_spatial_dim, data.feature_dim))
     enc_args, enc_spatial_dim = model.encode(data, in_spatial_dim=data_spatial_dim)
 
-    assert model.enc_aux_logits_12, "Expected final ctc logits in enc_aux_logits_12"
+    final_ctc_layer = getattr(model, model.final_ctc_name, None)
+    enc_ctc = final_ctc_layer(enc_args["enc"])
 
-    enc_ctc = model.enc_aux_logits_12(enc_args["enc"])
+    enc_ctc = rf.log_softmax(enc_ctc, axis=model.target_dim_w_blank)
 
     if max_seq_len is None:
         max_seq_len = enc_spatial_dim.get_size_tensor()
@@ -115,3 +116,85 @@ model_recog.output_with_beam = True
 # which will not have any effect here.
 model_recog.output_blank_label = "<blank>"
 model_recog.batch_size_dependent = False
+
+def model_recog_ctc_zeyer(
+    *,
+    model: Model,
+    data: Tensor,
+    data_spatial_dim: Dim,
+) -> Tuple[Tensor, Tensor, Dim, Dim]:
+    """
+    Function is run within RETURNN.
+
+    Earlier we used the generic beam_search function,
+    but now we just directly perform the search here,
+    as this is overall simpler and shorter.
+
+    :return:
+        recog results including beam {batch, beam, out_spatial},
+        log probs {batch, beam},
+        out_spatial_dim,
+        final beam_dim
+    """
+    batch_dims = data.remaining_dims((data_spatial_dim, data.feature_dim))
+    enc_args, enc_spatial_dim = model.encode(data, in_spatial_dim=data_spatial_dim)
+    final_ctc_layer = getattr(model, model.final_ctc_name, None)
+    logits = final_ctc_layer(enc_args["enc"])
+    # logits, enc, enc_spatial_dim = model(data, in_spatial_dim=data_spatial_dim)
+    beam_size = 12
+
+    # Eager-mode implementation of beam search.
+    # Initial state.
+    beam_dim = Dim(1, name="initial-beam")
+    batch_dims_ = [beam_dim] + batch_dims
+    seq_log_prob = rf.constant(0.0, dims=batch_dims_)  # Batch, Beam
+
+    label_log_prob = rf.log_softmax(logits, axis=model.target_dim_w_blank)  # Batch, Spatial, Vocab
+    label_log_prob = rf.where(
+        enc_spatial_dim.get_mask(),
+        label_log_prob,
+        rf.sparse_to_dense(model.blank_idx, axis=model.target_dim_w_blank, label_value=0.0, other_value=-1.0e30),
+    )
+    label_log_prob_pre_filter, (backrefs_pre_filter,), pre_filter_beam_dim = rf.top_k(
+        label_log_prob, k_dim=Dim(beam_size, name=f"pre-filter-beam"), axis=[model.target_dim_w_blank]
+    )  # seq_log_prob, backrefs_global: Batch, Spatial, PreFilterBeam. backrefs_pre_filter -> Vocab
+    label_log_prob_pre_filter_ta = TensorArray.unstack(
+        label_log_prob_pre_filter, axis=enc_spatial_dim
+    )  # t -> Batch, PreFilterBeam
+    backrefs_pre_filter_ta = TensorArray.unstack(backrefs_pre_filter, axis=enc_spatial_dim)  # t -> Batch, PreFilterBeam
+
+    max_seq_len = int(enc_spatial_dim.get_dim_value())
+    seq_targets = []
+    seq_backrefs = []
+    for t in range(max_seq_len):
+        # Filter out finished beams
+        seq_log_prob = seq_log_prob + label_log_prob_pre_filter_ta[t]  # Batch, InBeam, PreFilterBeam
+        seq_log_prob, (backrefs, target), beam_dim = rf.top_k(
+            seq_log_prob, k_dim=Dim(beam_size, name=f"dec-step{t}-beam"), axis=[beam_dim, pre_filter_beam_dim]
+        )  # seq_log_prob, backrefs, target: Batch, Beam. backrefs -> InBeam. target -> PreFilterBeam.
+        target = rf.gather(backrefs_pre_filter_ta[t], indices=target)  # Batch, Beam -> Vocab
+        seq_targets.append(target)
+        seq_backrefs.append(backrefs)
+
+    # Backtrack via backrefs, resolve beams.
+    seq_targets_ = []
+    indices = rf.range_over_dim(beam_dim)  # FinalBeam -> FinalBeam
+    for backrefs, target in zip(seq_backrefs[::-1], seq_targets[::-1]):
+        # indices: FinalBeam -> Beam
+        # backrefs: Beam -> PrevBeam
+        seq_targets_.insert(0, rf.gather(target, indices=indices))
+        indices = rf.gather(backrefs, indices=indices)  # FinalBeam -> PrevBeam
+
+    seq_targets__ = TensorArray(seq_targets_[0])
+    for target in seq_targets_:
+        seq_targets__ = seq_targets__.push_back(target)
+    out_spatial_dim = enc_spatial_dim
+    seq_targets = seq_targets__.stack(axis=out_spatial_dim)
+
+    return seq_targets, seq_log_prob, out_spatial_dim, beam_dim
+
+# RecogDef API
+model_recog_ctc_zeyer: RecogDef[Model]
+model_recog_ctc_zeyer.output_with_beam = True
+model_recog_ctc_zeyer.output_blank_label = "<blank>"
+model_recog_ctc_zeyer.batch_size_dependent = False  # not totally correct, but we treat it as such...

@@ -65,6 +65,15 @@ bpe5k = Bpe(
     # unknown_label="<unk>",
     unknown_label=None,
 )
+bpe1k = Bpe(
+    dim=1056,
+    eos_idx=0,
+    bos_idx=0,
+    codes=generic_job_output("i6_core/text/label/subword_nmt/train/ReturnnTrainBpeJob.qhkNn2veTWkV/output/bpe.codes"),
+    vocab=generic_job_output("i6_core/text/label/subword_nmt/train/ReturnnTrainBpeJob.qhkNn2veTWkV/output/bpe.vocab"),
+    # unknown_label="<unk>",
+    unknown_label=None,
+)
 
 
 _Parts = ["train-clean-100", "train-clean-360", "train-other-500", "dev-clean", "dev-other", "test-clean", "test-other"]
@@ -329,6 +338,9 @@ def get_librispeech_task_bpe10k_raw(**dataset_train_opts) -> Task:
 
 def get_librispeech_task_bpe5k_raw(mini_returnn=False, **dataset_train_opts) -> Task:
     return get_librispeech_task_raw(vocab=bpe5k, mini_returnn=mini_returnn, **dataset_train_opts)
+
+def get_librispeech_task_bpe1k_raw(mini_returnn=False, **dataset_train_opts) -> Task:
+    return get_librispeech_task_raw(vocab=bpe1k, mini_returnn=mini_returnn, **dataset_train_opts)
 
 def _bpe_to_words(bpe: RecogOutput) -> RecogOutput:
     """BPE to words"""

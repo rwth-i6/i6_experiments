@@ -225,3 +225,123 @@ class MakeModel:
             in_dim=in_dim,
             target_dim=target_dim,
         )
+
+
+class MiniAtt_ILM_Model_V2(rf.Module):
+    """Model definition (for training)"""
+
+    def __init__(
+        self,
+        in_dim: Dim,
+        target_dim: Dim,
+        *,
+        mini_att_lstm_dim: int = 50,
+        mini_att_out_dim: int = 512,
+        s_use_zoneout_output: bool = True,  # for ted2, for ls960 set to false
+        # layer_out_dim: int = 768, # default values for ted2 trafo lm
+        # layer_ff_dim: int = 4096,
+        # embed_dim: int = 128,
+        # num_layers: int = 30,
+        # att_num_heads: int = 12,
+        # ff_activation: str = "gelu",
+        # use_pos_enc: bool = False, # False for Tedlium2 LM
+        search_args: Optional[Dict[str, Any]] = None,
+    ):
+        super(MiniAtt_ILM_Model_V2, self).__init__()
+
+        self.in_dim = in_dim
+        self.target_dim = target_dim
+
+        self.mini_att_lstm_dim = Dim(mini_att_lstm_dim, name="mini-att-lstm-dim")
+        self.mini_att_out_dim = Dim(mini_att_out_dim, name="mini-att-out-dim")
+
+        self.mini_att_lstm = rf.LSTM(in_dim, self.mini_att_lstm_dim, with_bias=True)
+
+        self.mini_att = rf.Linear(
+            self.mini_att_lstm_dim, self.mini_att_out_dim, with_bias=True
+        )
+
+
+    def default_initial_state(
+        self, *, batch_dims: Sequence[Dim], use_batch_dims_for_pos: bool = False
+    ) -> rf.State:
+        """default initial state"""
+        state = rf.State(
+            mini_att_lstm=self.mini_att_lstm.default_initial_state(
+                batch_dims=batch_dims
+            ),
+        )
+        return state
+
+    def select_state(self, state: rf.State, backrefs) -> rf.State:
+        state = tree.map_structure(lambda s: rf.gather(s, indices=backrefs), state)
+        return state
+
+    def __call__(
+        self,
+        prev_target_emb,
+        *,
+        state: rf.State,
+        # spatial_dim: Dim,
+        batch_dims=None,
+        collected_outputs: Optional[Dict[str, Tensor]] = None,
+    ):
+        """loop step"""
+        new_state = rf.State()
+
+        mini_att_lstm, mini_att_lstm_state = self.mini_att_lstm(
+            prev_target_emb, state=state.mini_att_lstm, spatial_dim=single_step_dim
+        )
+        new_state.mini_att_lstm = mini_att_lstm_state
+
+        mini_att = self.mini_att(mini_att_lstm)
+
+        return {"output": mini_att, "state": new_state}
+
+
+class MakeModelV2:
+    """for import"""
+
+    def __init__(
+        self,
+        in_dim: int,
+        target_dim: int,
+        *,
+        eos_label: int = 0,
+        # num_enc_layers: int = 12,
+    ):
+        self.in_dim = in_dim
+        self.target_dim = target_dim
+
+        self.eos_label = eos_label
+
+    def __call__(self) -> MiniAtt_ILM_Model:
+        from returnn.datasets.util.vocabulary import Vocabulary
+
+        in_dim = Dim(name="in", dimension=self.in_dim, kind=Dim.Types.Feature)
+        target_dim = Dim(
+            name="target", dimension=self.target_dim, kind=Dim.Types.Feature
+        )
+        target_dim.vocab = Vocabulary.create_vocab_from_labels(
+            [str(i) for i in range(target_dim.dimension)], eos_label=self.eos_label
+        )
+
+        return self.make_model(in_dim, target_dim)
+
+    @classmethod
+    def make_model(
+        cls,
+        in_dim: Dim,
+        target_dim: Dim,
+        # *,
+        # search_args: Optional[Dict[str, Any]],
+        # num_enc_layers: int = 12,
+    ) -> MiniAtt_ILM_Model:
+        """make"""
+        return MiniAtt_ILM_Model_V2(
+            in_dim=in_dim,
+            target_dim=target_dim,
+        )
+
+
+

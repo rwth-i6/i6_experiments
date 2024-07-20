@@ -106,7 +106,7 @@ def convert_checkpoint(
 
     print("Creating model...")
     rf.select_backend_torch()
-    if ctc_only:
+    if False: # TODO
         model = MakeModelCTC(80, 1_057)()
     else:
         model = MakeModel(80, 1_057, model_args=model_args)()
@@ -122,7 +122,7 @@ def convert_checkpoint(
     print("Create ParamMapping...")
     param_mapping = {}
     _add_params_conformer(param_mapping, prefix="")
-    if not ctc_only:
+    if not False: # TODO
         _add_params_att_decoder(param_mapping)
     _add_params_trafo_lm(param_mapping)
     # if model_args.get("encoder_ctc", False):
@@ -417,10 +417,10 @@ def _add_params_conformer(param_mapping: Dict[str, str], prefix: str):
     param_mapping.update(
         {
             prefix + "encoder.input_projection.weight": "source_linear/W",
-            # prefix + "ctc.weight": "ctc/W",
-            # prefix + "ctc.bias": "ctc/b",
-            prefix + "enc_aux_logits_12.weight": "ctc/W",
-            prefix + "enc_aux_logits_12.bias": "ctc/b",
+            prefix + "ctc.weight": "ctc/W",
+            prefix + "ctc.bias": "ctc/b",
+            # prefix + "enc_aux_logits_12.weight": "ctc/W",
+            # prefix + "enc_aux_logits_12.bias": "ctc/b",
         }
     )
     # conformer
@@ -843,12 +843,12 @@ def import_models():
             + (" with trafo lm" if add_trafo_lm else "")
             + " ..."
         )
-        out_dir = "/work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/2023-08-10--rf-librispeech/work/i6_experiments/users/gaudino/returnn/convert_ckpt_rf/tedlium2/without_lm/"
+        out_dir = "/work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/2023-08-10--rf-librispeech/work/i6_experiments/users/gaudino/returnn/convert_ckpt_rf/tedlium2/"
         out_dir_postfix = (
             model_name
             + ("__ctc_only" if sep_enc else "")
             + ("__trafo_lm" if add_trafo_lm else "")
-            + "_rf_compatible"
+            # + "_rf_compatible"
         )
 
         ckpt_path = models[model_name]["ckpt"].ckpt_path
@@ -890,7 +890,7 @@ def import_models():
 
 
 if __name__ == "__main__":
-    # import_models()
+    import_models()
     # convert_lm(
     #     _ted2_lm_ckpt_filename,
     #     "/work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/2023-08-10--rf-librispeech/work/i6_experiments/users/gaudino/returnn/convert_ckpt_rf/tedlium2/trafo_lm_only_24_02_05",
@@ -914,16 +914,16 @@ if __name__ == "__main__":
     #     out_dir="/work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/2023-08-10--rf-librispeech/work/i6_experiments/users/gaudino/returnn/convert_ckpt_rf/librispeech/mini_att_ilm_24_05_28",
     # )
 
-    # ls960 LSTM LM
-    convert_lstm_lm(
-        _lstm_lm_path,
-        "/work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/2023-08-10--rf-librispeech/work/i6_experiments/users/gaudino/returnn/convert_ckpt_rf/librispeech/lstm_lm_only_24_05_31",
-        10025,
-    )
-
-    # ls960 empty checkpoint form sep enc recog
-    get_empty_ckpt_sep(
-        out_dir = "/work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/2023-08-10--rf-librispeech/work/i6_experiments/users/gaudino/returnn/convert_ckpt_rf/librispeech/sep_enc_aed_ctc_empty_24_06_29",
-        print_params=True,
-        save_model=True,
-    )
+    # # ls960 LSTM LM
+    # convert_lstm_lm(
+    #     _lstm_lm_path,
+    #     "/work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/2023-08-10--rf-librispeech/work/i6_experiments/users/gaudino/returnn/convert_ckpt_rf/librispeech/lstm_lm_only_24_05_31",
+    #     10025,
+    # )
+    #
+    # # ls960 empty checkpoint form sep enc recog
+    # get_empty_ckpt_sep(
+    #     out_dir = "/work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/2023-08-10--rf-librispeech/work/i6_experiments/users/gaudino/returnn/convert_ckpt_rf/librispeech/sep_enc_aed_ctc_empty_24_06_29",
+    #     print_params=True,
+    #     save_model=True,
+    # )

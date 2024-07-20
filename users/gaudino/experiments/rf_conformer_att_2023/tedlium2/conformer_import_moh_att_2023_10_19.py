@@ -46,7 +46,7 @@ _torch_ckpt_filename_w_trafo_lm = "/work/asr3/zeineldeen/hiwis/luca.gaudino/setu
 # The model gets raw features (16khz) and does feature extraction internally.
 _log_mel_feature_dim = 80
 
-_torch_ckpt_dir_path = "/work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/2023-08-10--rf-librispeech/work/i6_experiments/users/gaudino/returnn/convert_ckpt_rf/tedlium2/without_lm/"
+_torch_ckpt_dir_path = "/work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/2023-08-10--rf-librispeech/work/i6_experiments/users/gaudino/returnn/convert_ckpt_rf/tedlium2/"
 
 
 def sis_run_with_prefix(prefix_name: str = None):
@@ -482,7 +482,7 @@ def sis_run_with_prefix(prefix_name: str = None):
     # att + trafo lm + ilm correction
     for model_name, lm_scale, ilm_scale, beam_size in product(
         # ["model_baseline", "model_ctc0.5_att0.5"], [0.36] ,[0.28], [12]
-        ["model_baseline"], [0.36], [0.28], [12,24] #12
+        ["model_baseline"], [0.36], [0.28], [24] #12
     ):
         ilm_model_args = copy.deepcopy(models_with_pt_ckpt[model_name]["model_args"])
         ilm_model_args["preload_from_files"] = preload_from_files_ilm
@@ -661,23 +661,27 @@ def sis_run_with_prefix(prefix_name: str = None):
             )
 
     # ctc + trafo lm
-    for scales, beam_size in product([(1.0, 0.0, 0.0), (1.0, 0.1, 0.0)], []):
-        ctc_scale, lm_scale, prior_scale = scales
+    for model_name, scales, prior_scale, beam_size in product(["model_baseline", "model_ctc_only"], [(1.0, 0.4), (1.0, 0.5), (1.0, 0.6), (1.0, 0.7)], [0.05, 0.1, 0.2], [12 ,32]):
+        ctc_scale, lm_scale = scales
         name = (
             prefix_name
-            + f"/bsf10_ctc{ctc_scale}_trafolm{lm_scale}_beam{beam_size}_add_eos"
+            + "/"
+            + model_name
+            + f"/opls_ctc{ctc_scale}_trafolm{lm_scale}"
+            + (f"_prior{prior_scale}" if prior_scale > 0 else "")
+            + f"_beam{beam_size}"
         )
         search_args = {
             "beam_size": beam_size,
             "att_scale": 0.0,
             "ctc_scale": ctc_scale,
+            "use_ctc": True,
             "add_trafo_lm": True,
             "lm_scale": lm_scale,
-            "bsf": "bsf40_5",
-            "remove_trafo_lm_eos": True,
-            "add_eos_to_end": True,
-            # "blank_collapse": True,
-            # "blank_threshold": -0.05, # in log space
+            "bsf": bsf,
+            "prior_corr": True if prior_scale > 0 else False,
+            "prior_scale": prior_scale,
+            "ctc_prior_file": models[model_name]["prior"],
         }
 
         dev_sets = ["dev"]  # only dev for testing
@@ -686,10 +690,10 @@ def sis_run_with_prefix(prefix_name: str = None):
         # first recog
         recog_res, recog_out = recog_model(
             task,
-            model_with_checkpoint,
-            model_recog_time_sync,
+            models_with_pt_ckpt[model_name]["ckpt"],
+            model_recog,
             dev_sets=dev_sets,
-            model_args=model_args,
+            model_args=models_with_pt_ckpt[model_name]["model_args"],
             search_args=search_args,
             prefix_name=name,
         )

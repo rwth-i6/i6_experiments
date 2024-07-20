@@ -25,6 +25,7 @@ def model_recog(
     data: Tensor,
     data_spatial_dim: Dim,
     max_seq_len: Optional[int] = None,
+    search_args: Optional[Dict[str, Any]] = None,
 ) -> Tuple[Tensor, Tensor, Dim, Dim]:
     """
     Function is run within RETURNN.
@@ -47,7 +48,8 @@ def model_recog(
     enc_args, enc_spatial_dim = model_aed.encode(data, in_spatial_dim=data_spatial_dim)
 
     enc_args_ctc, enc_spatial_dim_ctc = model_ctc.encode(data, in_spatial_dim=data_spatial_dim)
-    enc_ctc = model_ctc.enc_aux_logits_12(enc_args_ctc["enc"])
+    final_ctc_layer = getattr(model_ctc, model_ctc.final_ctc_name, None)
+    enc_ctc = final_ctc_layer(enc_args_ctc["enc"])
     enc_ctc = rf.log_softmax(enc_ctc, axis=model_ctc.target_dim_w_blank)
 
     beam_size = model_aed.search_args.get("beam_size", 12)
