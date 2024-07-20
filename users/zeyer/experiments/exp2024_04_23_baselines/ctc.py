@@ -467,7 +467,7 @@ def py():
     )
 
     # Now with featBN and bpeSample001.
-    train_exp(  # 5.77 (!!!)
+    train_exp(  # 5.77
         "v6-relPosAttDef-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-featBN"
         "-speedpertV2-spm10k-bpeSample001",
         config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
@@ -538,7 +538,7 @@ def py():
     )
 
     # Blank separated (blankSep).
-    train_exp(
+    train_exp(  # 5.73 (!!!)
         "v6-relPosAttDef-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-featBN"
         "-speedpertV2-spm10k-bpeSample001-blankSep",
         config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
@@ -559,7 +559,7 @@ def py():
     )
 
     # Blank separated (blankSep) with CTC label smoothing excluding blank (ctcLS01xB).
-    train_exp(
+    train_exp(  # 6.14
         "v6-relPosAttDef-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-featBN"
         "-speedpertV2-spm10k-bpeSample001-blankSep-ctcLS01xB",
         config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
@@ -581,7 +581,7 @@ def py():
     )
 
     # Now variational noise / weight noise (vn0025).
-    train_exp(
+    train_exp(  # 5.91 (so worse on dev-other, but it's better on test-other)
         "v6-relPosAttDef-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-vn0025"
         "-lrlin1e_5_295k-featBN"
         "-speedpertV2-spm10k-bpeSample001",
