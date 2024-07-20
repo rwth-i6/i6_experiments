@@ -72,7 +72,7 @@ def run_fairseq_pretraining_negatives_other_target():
         fairseq_python_exe = tk.Path(itc_python_launcher, hash_overwrite="itc_python_launcher_py310_torch")
     else:
         fairseq_python_exe = tk.Path("/usr/bin/python3", hash_overwrite="itc_python_launcher_py310_torch")
-    fairseq_root = get_fairseq_root(fairseq_exe=fairseq_python_exe)
+    fairseq_root = get_fairseq_root(fairseq_exe=fairseq_python_exe, commit="1397363c5c0e3c4e3ab620be562730399c852493")
     fairseq_training_args = dict(
         save_interval=25,
         max_epoch=600,
@@ -87,7 +87,6 @@ def run_fairseq_pretraining_negatives_other_target():
     fairseq_args = get_fairseq_args(num_gpus=num_gpus)
     fairseq_args["task"]["alignment"] = alignment
     fairseq_args["model"]["negative_sampling_strategy"] = "other_target"
-    fairseq_root = get_fairseq_root(fairseq_exe=fairseq_python_exe, commit="1397363c5c0e3c4e3ab620be562730399c852493")
     fairseq_training_args["fairseq_root"] = fairseq_root
     fairseq_config = FairseqHydraConfig(fairseq_args)
     job = FairseqHydraTrainingJob(fairseq_config, **fairseq_training_args)
@@ -104,7 +103,7 @@ def run_fairseq_pretraining_phoneme_boundary_masking():
         "/home/pv653172/setups/librispeech/20230328_wav2vec2/dependencies/python_launcher.sh",
         hash_overwrite="itc_python_launcher_py310_torch",
     )
-    fairseq_root = get_fairseq_root(fairseq_exe=fairseq_python_exe)
+    fairseq_root = get_fairseq_root(fairseq_exe=fairseq_python_exe, commit="b768be5b81987364d39a07d1caad2bfe1e956896")
     fairseq_training_args = dict(
         save_interval=25,
         max_epoch=600,
@@ -120,7 +119,6 @@ def run_fairseq_pretraining_phoneme_boundary_masking():
     fairseq_args["task"]["alignment"] = alignment
     fairseq_args["model"]["mask_strategy"] = "phoneme"
     fairseq_args["model"]["mask_length"] = 1
-    fairseq_root = get_fairseq_root(fairseq_exe=fairseq_python_exe, commit="b768be5b81987364d39a07d1caad2bfe1e956896")
     fairseq_training_args["fairseq_root"] = fairseq_root
     fairseq_config = FairseqHydraConfig(fairseq_args)
     job = FairseqHydraTrainingJob(fairseq_config, **fairseq_training_args)
@@ -137,7 +135,7 @@ def run_fairseq_pretraining_phoneme_negatives_other_target_boundary_masking():
         "/home/pv653172/setups/librispeech/20230328_wav2vec2/dependencies/python_launcher.sh",
         hash_overwrite="itc_python_launcher_py310_torch",
     )
-    fairseq_root = get_fairseq_root(fairseq_exe=fairseq_python_exe)
+    fairseq_root = get_fairseq_root(fairseq_exe=fairseq_python_exe, commit="b768be5b81987364d39a07d1caad2bfe1e956896")
     fairseq_training_args = dict(
         save_interval=25,
         max_epoch=600,
@@ -154,7 +152,6 @@ def run_fairseq_pretraining_phoneme_negatives_other_target_boundary_masking():
     fairseq_args["model"]["negative_sampling_strategy"] = "other_target"
     fairseq_args["model"]["mask_strategy"] = "phoneme"
     fairseq_args["model"]["mask_length"] = 1
-    fairseq_root = get_fairseq_root(fairseq_exe=fairseq_python_exe, commit="b768be5b81987364d39a07d1caad2bfe1e956896")
     fairseq_training_args["fairseq_root"] = fairseq_root
     fairseq_config = FairseqHydraConfig(fairseq_args)
     job = FairseqHydraTrainingJob(fairseq_config, **fairseq_training_args)
@@ -170,7 +167,7 @@ def run_fairseq_pretraining_positive_sampling(num_positives: int = 10):
         "/home/pv653172/setups/librispeech/20230328_wav2vec2/dependencies/python_launcher.sh",
         hash_overwrite="itc_python_launcher_py310_torch",
     )
-    fairseq_root = get_fairseq_root(fairseq_exe=fairseq_python_exe)
+    fairseq_root = get_fairseq_root(fairseq_exe=fairseq_python_exe, commit="654cd1e65473615f3355a2576adbaba5f5b549c2")
     fairseq_training_args = dict(
         save_interval=25,
         max_epoch=600,
@@ -185,8 +182,6 @@ def run_fairseq_pretraining_positive_sampling(num_positives: int = 10):
     fairseq_args = get_fairseq_args(num_gpus=num_gpus)
     fairseq_args["task"]["alignment"] = alignment
     fairseq_args["model"]["num_positives"] = num_positives
-    fairseq_root = get_fairseq_root(fairseq_exe=fairseq_python_exe, commit="654cd1e65473615f3355a2576adbaba5f5b549c2")
-    fairseq_training_args["fairseq_root"] = fairseq_root
     fairseq_config = FairseqHydraConfig(fairseq_args)
     job = FairseqHydraTrainingJob(fairseq_config, **fairseq_training_args)
     job.add_alias(os.path.join(prefix_name, exp_name, "pretraining"))
