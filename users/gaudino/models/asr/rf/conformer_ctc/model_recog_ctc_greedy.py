@@ -114,7 +114,7 @@ model_recog.output_with_beam = True
 # because it would change all recog hashes.
 # Also, it does not matter too much -- it will just cause an extra SearchRemoveLabelJob,
 # which will not have any effect here.
-model_recog.output_blank_label = "<blank>"
+model_recog.output_blank_label = None
 model_recog.batch_size_dependent = False
 
 def model_recog_ctc_zeyer(

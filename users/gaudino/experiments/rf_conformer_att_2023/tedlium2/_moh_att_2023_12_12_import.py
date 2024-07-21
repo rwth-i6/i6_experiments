@@ -343,7 +343,6 @@ def test_import_search():
     for batch_idx in range(batch_dim.get_dim_value()):
         # process seq
 
-        breakpoint()
         hyps = seq_targets.raw_tensor[:, batch_idx, :]
         scores = seq_log_prob.raw_tensor[batch_idx, :]
         hyps_len = seq_targets.dims[0].dyn_size_ext.raw_tensor[:, batch_idx]

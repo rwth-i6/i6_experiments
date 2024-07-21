@@ -87,7 +87,6 @@ class TrafoLMLayer(rf.Module):
 
         # MHSA
         x_mhsa_ln = self.self_att_layer_norm(inp)
-        breakpoint()
         x_mhsa, new_att_state = self.self_att(
             x_mhsa_ln, axis=spatial_dim, state=state.self_att
         )

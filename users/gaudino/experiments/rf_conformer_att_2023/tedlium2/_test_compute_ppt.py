@@ -207,7 +207,6 @@ def test_compute_perplexity():
         seq_targets.dims[1],
         seq_targets.dims[1].get_size_tensor().raw_tensor,
     )
-    breakpoint()
 
     # Compute batch perplexity
     print("*** Compute perplexity")

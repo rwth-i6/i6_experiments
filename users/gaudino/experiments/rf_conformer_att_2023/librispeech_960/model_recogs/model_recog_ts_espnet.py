@@ -15,6 +15,7 @@ from i6_experiments.users.zeyer.model_interfaces import ModelDef, RecogDef, Trai
 from i6_experiments.users.gaudino.experiments.rf_conformer_att_2023.librispeech_960.espnet_ctc.beam_search_timesync_espnet import BeamSearchTimeSync
 
 from i6_experiments.users.gaudino.models.asr.decoder.att_decoder_rf import ATTDecoder
+from i6_experiments.users.gaudino.models.asr.rf.scorers_rf_espnet.lm_ilm_scorer import LM_ILM_Scorer
 
 from i6_experiments.users.gaudino.experiments.rf_conformer_att_2023.librispeech_960.model_recogs.search_functions import remove_eos_from_start_and_end
 
@@ -96,6 +97,10 @@ def model_recog_ts_espnet(
         "decoder": att_scorer
     }
 
+    if model.search_args.get("lm_scale", 0.0) > 0.0 or model.search_args.get("ilm_scale", 0.0) > 0.0:
+        scorers["lm"] = LM_ILM_Scorer(model=model, batch_dims=batch_dims, enc_spatial_dim=enc_spatial_dim, lm_scale=model.search_args.get("lm_scale", 0.0), ilm_scale=model.search_args.get("ilm_scale", 0.0))
+
+
     time_sync_beam_search = BeamSearchTimeSync(
         sos=model.bos_idx,
         beam_size=beam_size,
@@ -103,7 +108,7 @@ def model_recog_ts_espnet(
         weights={
             "ctc": model.search_args.get("ctc_scale", 1.0),
             "decoder": model.search_args.get("att_scale", 1.0),
-            "lm": model.search_args.get("lm_scale", 0.0),
+            "lm": 1.0,
             "length_bonus": model.search_args.get("length_bonus", 0.0),
         },
         token_list=model.target_dim.vocab,

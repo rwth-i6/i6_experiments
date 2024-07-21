@@ -603,6 +603,8 @@ def sis_run_with_prefix(prefix_name: str = None):
         definition=from_scratch_model_def_ctc, checkpoint=ctc_new_chkpt
     )
 
+    ctc_prior_path = "" # TODO compute prior
+
     recog_config_ctc = {
         # "preload_from_files": {
         #     # "model_ctc": {
@@ -659,19 +661,18 @@ def sis_run_with_prefix(prefix_name: str = None):
             res.output,
         )
 
-
     # opls att + ctc + trafo lm + ilm
     for scales, prior_scale, lm_scale, ilm_scale, beam_size in product(
-        [(0.7, 0.3)],
+        [(0.8, 0.2), (0.85, 0.15)],
         [0.0], # , 0.05, 0.07],
-        [0.65], [0.4], [32]
+        [0.0], [0.0], [32]
     ):
         att_scale, ctc_scale = scales
         recog_name = (
             f"/opls_att{att_scale}_ctc{ctc_scale}"
             + (f"_prior{prior_scale}" if prior_scale > 0.0 else "")
-            + f"_trafo_lm{lm_scale}"
-            + f"_ilm{ilm_scale}"
+            + (f"_trafo_lm{lm_scale}" if lm_scale > 0.0 else "")
+            + (f"_ilm{ilm_scale}" if ilm_scale > 0.0 else "")
             + f"_beam{beam_size}_fix2"
         )
         name = prefix_name + model_name + recog_name
@@ -685,7 +686,7 @@ def sis_run_with_prefix(prefix_name: str = None):
             "use_ctc": True,
             "bsf": bsf,
             "prior_corr": prior_scale > 0.0,
-            "ctc_prior_file": "/work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/2023-08-10--rf-librispeech/work/i6_core/returnn/forward/ReturnnForwardJobV2.U1U9MgoNwGYk/output/prior.txt",
+            "ctc_prior_file": ctc_prior_path,
             "prior_scale": prior_scale,
             "use_lm_first_label": True,
             "hash_overwrite": "123"

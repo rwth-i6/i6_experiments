@@ -45,8 +45,11 @@ def model_recog(
 
     batch_dims = data.remaining_dims((data_spatial_dim, data.feature_dim))
     enc_args, enc_spatial_dim = model.encode(data, in_spatial_dim=data_spatial_dim)
-    if search_args.get("encoder_ctc", False):
-        enc_args_ctc, enc_spatial_dim_ctc = model.encode_ctc(data, in_spatial_dim=data_spatial_dim)
+
+    final_ctc_layer = getattr(model, model.final_ctc_name, None)
+    enc_ctc = final_ctc_layer(enc_args["enc"])
+
+    enc_ctc = rf.log_softmax(enc_ctc, axis=model.target_dim_w_blank)
 
     beam_size = search_args.get("beam_size", 12)
     length_normalization_exponent = search_args.get("length_normalization_exponent", 1.0)
@@ -60,20 +63,9 @@ def model_recog(
     # Initial state.
     beam_dim = Dim(1, name="initial-beam")
     batch_dims_ = [beam_dim] + batch_dims
-    decoder_state = model.decoder_default_initial_state(
-        batch_dims=batch_dims_, enc_spatial_dim=enc_spatial_dim
-    )
 
     if search_args.get("lm_scale", 0.0) > 0:
         lm_state = model.language_model.default_initial_state(batch_dims=batch_dims_)
-
-    if search_args.get("ilm_scale", 0.0) > 0:
-        ilm_state = model.ilm.default_initial_state(batch_dims=batch_dims_)
-
-    # if search_args.get("add_lstm_lm", False):
-    #     lm_state = model.lstm_lm.lm_default_initial_state(batch_dims=batch_dims_)
-    # if search_args.get("add_trafo_lm", False):
-    #     trafo_lm_state = model.trafo_lm.default_initial_state(batch_dims=batch_dims_)
 
     target = rf.constant(model.bos_idx, dims=batch_dims_, sparse_dim=model.target_dim)
     ended = rf.constant(False, dims=batch_dims_)
@@ -87,19 +79,14 @@ def model_recog(
 
     blank_index = model.target_dim.get_dim_value()
 
-    if search_args.get("use_ctc", False) or search_args.get("rescore_with_ctc", False):
-        if search_args.get("encoder_ctc", False):
-            enc_ctc = enc_args_ctc["ctc"]
-        else:
-            enc_ctc = enc_args["ctc"]
 
-        ctc_out = (
-            enc_ctc
-            .copy_transpose((batch_size_dim, enc_spatial_dim, model.target_dim_w_b))
-            .raw_tensor
-        )  # [B,T,V+1]
+    ctc_out = (
+        enc_ctc
+        .copy_transpose((batch_size_dim, enc_spatial_dim, model.target_dim_w_b))
+        .raw_tensor
+    )  # [B,T,V+1]
 
-    if search_args.get("mask_eos", True) and (search_args.get("use_ctc", False) or search_args.get("rescore_with_ctc", False)):
+    if search_args.get("mask_eos", True):
         ctc_eos = ctc_out[:, :, model.eos_idx].unsqueeze(2)
         ctc_blank = ctc_out[:, :, model.blank_idx].unsqueeze(2)
         ctc_out[:, :, model.blank_idx] = torch.logsumexp(
@@ -107,34 +94,33 @@ def model_recog(
         )
         ctc_out[:, :, model.eos_idx] = -1e30
 
-    if search_args.get("use_ctc", False):
-        # ctc prefix scorer espnet
-        from i6_experiments.users.gaudino.experiments.rf_conformer_att_2023.librispeech_960.espnet_ctc.ctc_prefix_score_espnet import (
-            CTCPrefixScoreTH,
+    # ctc prefix scorer espnet
+    from i6_experiments.users.gaudino.experiments.rf_conformer_att_2023.librispeech_960.espnet_ctc.ctc_prefix_score_espnet import (
+        CTCPrefixScoreTH,
+    )
+
+    # hlens = max_seq_len.raw_tensor.repeat(beam_size).view(beam_size, data.raw_tensor.shape[0]).transpose(0, 1)
+    hlens = max_seq_len.raw_tensor
+
+    if search_args.get("prior_corr", False):
+        ctc_log_prior = numpy.loadtxt(search_args.get("prior_file", search_args.get("ctc_prior_file", "")), dtype="float32")
+        ctc_out = ctc_out - (
+            torch.tensor(ctc_log_prior)
+            .repeat(ctc_out.shape[0], ctc_out.shape[1], 1)
+            .to(ctc_out.device)
+            * search_args["prior_scale"]
         )
+        ctc_out = ctc_out - torch.logsumexp(ctc_out, dim=2, keepdim=True)
 
-        # hlens = max_seq_len.raw_tensor.repeat(beam_size).view(beam_size, data.raw_tensor.shape[0]).transpose(0, 1)
-        hlens = max_seq_len.raw_tensor
-
-        if search_args.get("prior_corr", False):
-            ctc_log_prior = numpy.loadtxt(search_args.get("prior_file", search_args.get("ctc_prior_file", "")), dtype="float32")
-            ctc_out = ctc_out - (
-                torch.tensor(ctc_log_prior)
-                .repeat(ctc_out.shape[0], ctc_out.shape[1], 1)
-                .to(ctc_out.device)
-                * search_args["prior_scale"]
-            )
-            ctc_out = ctc_out - torch.logsumexp(ctc_out, dim=2, keepdim=True)
-
-        ctc_prefix_scorer = CTCPrefixScoreTH(
-            ctc_out,
-            hlens,
-            blank_index,
-            0,
-            search_args.get("window_margin", 0),
-            search_args.get("mask_eos", True),
-        )
-        ctc_state = None
+    ctc_prefix_scorer = CTCPrefixScoreTH(
+        ctc_out,
+        hlens,
+        blank_index,
+        0,
+        search_args.get("window_margin", 0),
+        search_args.get("mask_eos", True),
+    )
+    ctc_state = None
 
     enc_args.pop("ctc", None)
 
@@ -142,30 +128,29 @@ def model_recog(
     seq_targets = []
     seq_backrefs = []
     while True:
-        # fixed: before it was computed at step 0
-        if i == 0:
-            input_embed = rf.zeros(batch_dims_ + [model.target_embed.out_dim], feature_dim=model.target_embed.out_dim)
-        else:
-            input_embed = model.target_embed(target)
-
-        step_out, decoder_state = model.loop_step(
-            **enc_args,
-            enc_spatial_dim=enc_spatial_dim,
-            input_embed=input_embed,
-            state=decoder_state,
+        # add ctc espnet
+        ctc_prefix_scores, ctc_state = ctc_prefix_scorer(
+            output_length=i,
+            last_ids=target_ctc,
+            state=ctc_state,
+            att_w=att_weights if (search_args.get("window_margin", 0) > 0 and att_weights) else None,
         )
-        att_weights = step_out.pop("att_weights", None).raw_tensor
-        if search_args.get("use_ctc", False) and "att_weights" in step_out.keys():
-            if i==0:
-                att_weights = torch.flatten(att_weights.squeeze(3).view(batch_size, 1, -1), end_dim=1)
-            else:
-                att_weights = torch.flatten(att_weights.squeeze(3).view(batch_size, beam_size, -1), end_dim=1)
-        logits = model.decode_logits(input_embed=input_embed, **step_out)
-        label_log_prob = rf.log_softmax(
-            logits, axis=model.target_dim
-        )  # (Dim{'initial-beam'(1)}, Dim{B}, Dim{F'target'(10025)})
 
-        label_log_prob = label_log_prob * search_args.get("att_scale", 1.0)
+        if i == 0:
+            ctc_prefix_scores = ctc_prefix_scores.view(batch_size, beam_size, -1)[
+                :, 0, :
+            ].unsqueeze(1)
+        else:
+            ctc_prefix_scores = ctc_prefix_scores.view(batch_size, beam_size, -1)
+
+        ctc_prefix_scores = rf.Tensor(
+            name="ctc_prefix_scores",
+            # dims=batch_dims_ + [model.target_dim],
+            dims=[batch_size_dim, beam_dim, model.target_dim],
+            dtype="float32",
+            raw_tensor=ctc_prefix_scores[:, :, :blank_index],
+        )
+        label_log_prob = ctc_prefix_scores
 
         if search_args.get("lm_scale", 0.0) > 0:
             lm_out = model.language_model(target, state=lm_state, spatial_dim=single_step_dim)
@@ -176,42 +161,6 @@ def model_recog(
                 label_log_prob = (
                     label_log_prob + search_args["lm_scale"] * lm_log_prob
                 )
-
-        if search_args.get("ilm_scale", 0.0) > 0:
-            ilm_out = model.ilm(input_embed, state=ilm_state, spatial_dim=single_step_dim)
-            ilm_state = ilm_out["state"]
-            ilm_log_prob = rf.log_softmax(ilm_out["output"], axis=model.target_dim)
-
-            label_log_prob = (
-                label_log_prob - search_args["ilm_scale"] * ilm_log_prob
-            )
-
-        if search_args.get("use_ctc", False):
-            # add ctc espnet
-            ctc_prefix_scores, ctc_state = ctc_prefix_scorer(
-                output_length=i,
-                last_ids=target_ctc,
-                state=ctc_state,
-                att_w=att_weights if (search_args.get("window_margin", 0) > 0 and att_weights) else None,
-            )
-
-            if i == 0:
-                ctc_prefix_scores = ctc_prefix_scores.view(batch_size, beam_size, -1)[
-                    :, 0, :
-                ].unsqueeze(1)
-            else:
-                ctc_prefix_scores = ctc_prefix_scores.view(batch_size, beam_size, -1)
-
-            ctc_prefix_scores = rf.Tensor(
-                name="ctc_prefix_scores",
-                # dims=batch_dims_ + [model.target_dim],
-                dims=[batch_size_dim, beam_dim, model.target_dim],
-                dtype="float32",
-                raw_tensor=ctc_prefix_scores[:, :, :blank_index],
-            )
-            label_log_prob = (
-                label_log_prob + search_args.get("ctc_scale") * ctc_prefix_scores
-            )
 
         # Filter out finished beams
         label_log_prob = rf.where(
@@ -232,33 +181,25 @@ def model_recog(
         )  # seq_log_prob, backrefs, target: Batch, Beam
         seq_targets.append(target)
         seq_backrefs.append(backrefs)
-        decoder_state = tree.map_structure(
-            lambda s: rf.gather(s, indices=backrefs), decoder_state
-        )
 
         if search_args.get("lm_scale", 0.0) > 0:
             lm_state = model.language_model.select_state(lm_state, backrefs)
-
-        if search_args.get("ilm_scale", 0.0) > 0:
-            ilm_state = model.ilm.select_state(ilm_state, backrefs)
-
 
         ended = rf.gather(ended, indices=backrefs)
         out_seq_len = rf.gather(out_seq_len, indices=backrefs)
         i += 1
 
-        if search_args.get("use_ctc", False):
-            best_ids = target
-            if search_args.get("ctc_state_fix", True):
-                # if i >= 1:
-                #     best_ids = target + model.target_dim.get_dim_value()
-                best_ids = target + backrefs * (model.target_dim.get_dim_value() + 1)
+        best_ids = target
+        if search_args.get("ctc_state_fix", True):
+            # if i >= 1:
+            #     best_ids = target + model.target_dim.get_dim_value()
+            best_ids = target + backrefs * (model.target_dim.get_dim_value() + 1)
 
-            # ctc state selection
-            ctc_state = ctc_prefix_scorer.index_select_state(
-                ctc_state, best_ids.raw_tensor
-            )
-            target_ctc = torch.flatten(target.raw_tensor)
+        # ctc state selection
+        ctc_state = ctc_prefix_scorer.index_select_state(
+            ctc_state, best_ids.raw_tensor
+        )
+        target_ctc = torch.flatten(target.raw_tensor)
 
         ended = rf.logical_or(ended, target == model.eos_idx)
         ended = rf.logical_or(ended, rf.copy_to_device(i >= max_seq_len))
@@ -296,15 +237,11 @@ def model_recog(
     out_spatial_dim = Dim(out_seq_len, name="out-spatial")
     seq_targets = seq_targets__.stack(axis=out_spatial_dim)
 
-    if search_args.get("rescore_w_ctc",False):
-        from .two_pass import rescore_w_ctc
-        seq_targets, seq_log_prob = rescore_w_ctc(model, seq_targets, seq_log_prob, ctc_out, batch_size, beam_size, model.blank_idx)
-
     return seq_targets, seq_log_prob, out_spatial_dim, beam_dim
 
 
 # RecogDef API
 model_recog: RecogDef[Model]
 model_recog.output_with_beam = True
-model_recog.output_blank_label = "<blank>"
+model_recog.output_blank_label = None
 model_recog.batch_size_dependent = False

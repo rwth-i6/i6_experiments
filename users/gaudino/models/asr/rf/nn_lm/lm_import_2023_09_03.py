@@ -41,22 +41,22 @@ class LSTM_LM_Model(rf.Module):
 
         self.output = rf.Linear(lstm_model_dim, target_dim)
 
-    def loop_step(self, prev_target, prev_state):
+    def __call__(self, prev_target, state, spatial_dim: Dim,):
         """loop step"""
         lm_state = rf.State()
         input = self.input(prev_target)
         input += self.input_bias
         # breakpoint()
-        lstm_0, lstm_0_state = self.lstm_0(input, state=prev_state.lstm_0, spatial_dim=single_step_dim)
+        lstm_0, lstm_0_state = self.lstm_0(input, state=state.lstm_0, spatial_dim=single_step_dim)
         lm_state.lstm_0 = lstm_0_state
-        lstm_1, lstm_1_state = self.lstm_1(lstm_0, state=prev_state.lstm_1, spatial_dim=single_step_dim)
+        lstm_1, lstm_1_state = self.lstm_1(lstm_0, state=state.lstm_1, spatial_dim=single_step_dim)
         lm_state.lstm_1 = lstm_1_state
-        lstm_2, lstm_2_state = self.lstm_2(lstm_1, state=prev_state.lstm_2, spatial_dim=single_step_dim)
+        lstm_2, lstm_2_state = self.lstm_2(lstm_1, state=state.lstm_2, spatial_dim=single_step_dim)
         lm_state.lstm_2 = lstm_2_state
-        lstm_3, lstm_3_state = self.lstm_3(lstm_2, state=prev_state.lstm_3, spatial_dim=single_step_dim)
+        lstm_3, lstm_3_state = self.lstm_3(lstm_2, state=state.lstm_3, spatial_dim=single_step_dim)
         lm_state.lstm_3 = lstm_3_state
         output = self.output(lstm_3)
-        return {"output": output}, lm_state
+        return {"output": output, "state": lm_state}
 
     def lm_default_initial_state(self, *, batch_dims: Sequence[Dim]
     ) -> rf.State:

@@ -22,6 +22,14 @@ from i6_experiments.users.gaudino.experiments.rf_conformer_att_2023.librispeech_
     trafo_lm_kazuki_import,
 )
 
+from i6_experiments.users.gaudino.models.asr.rf.nn_lm.lm_import_2023_11_09 import (
+    Trafo_LM_Model,
+)
+from i6_experiments.users.gaudino.models.asr.rf.nn_lm.lm_import_2023_09_03 import (
+    LSTM_LM_Model,
+    # MakeModel,
+)
+
 if TYPE_CHECKING:
     from i6_experiments.users.zeyer.model_interfaces import ModelDef, RecogDef, TrainDef
     from i6_experiments.users.zeyer.model_with_checkpoints import (
@@ -69,24 +77,24 @@ class MakeModel:
         *,
         num_enc_layers: int = 12,
         pos_emb_dropout: float = 0.0,
-        language_model: Optional[Dict[str, Any]] = None,
+        lm_opts: Optional[Dict[str, Any]] = None,
         **extra,
     ) -> Model:
         """make"""
+
         lm = None
-        if language_model:
-            assert isinstance(language_model, dict)
-            language_model = language_model.copy()
-            cls_name = language_model.pop("class")
-            assert cls_name == "TransformerDecoder"
-            language_model.pop("vocab_dim", None)  # will just overwrite
+        if lm_opts:
+            assert isinstance(lm_opts, dict)
+            lm_opts = lm_opts.copy()
+            cls_name = lm_opts.pop("class")
+            assert cls_name == "Trafo_LM_Model" or cls_name == "LSTM_LM_Model"
+            lm_opts.pop("vocab_dim", None)  # will just overwrite
 
-            from i6_experiments.users.gaudino.experiments.rf_conformer_att_2023.librispeech_960.trafo_lm.trafo_lm import (
-                trafo_lm,
-            )
+            if cls_name == "Trafo_LM_Model":
+                lm = Trafo_LM_Model(target_dim, target_dim, **lm_opts)
 
-            lm = trafo_lm.MakeModel(vocab_dim=target_dim, **language_model)()
-            lm = (lm, functools.partial(trafo_lm.make_label_scorer_torch, model=lm))
+            elif cls_name == "LSTM_LM_Model":
+                lm = LSTM_LM_Model(target_dim, target_dim, **lm_opts)
 
         return Model(
             in_dim,
@@ -248,9 +256,8 @@ class Model(rf.Module):
         # Note: Even though we have this here, it is not used in loop_step or decode_logits.
         # Instead, it is intended to make a separate label scorer for it.
         self.language_model = None
-        self.language_model_make_label_scorer = None
         if language_model:
-            self.language_model, self.language_model_make_label_scorer = language_model
+            self.language_model = language_model
 
     def encode(
         self,
@@ -362,7 +369,7 @@ def from_scratch_model_def(*, epoch: int, in_dim: Dim, target_dim: Dim) -> Model
         target_dim,
         enc_aux_logits=enc_aux_logits or (),
         pos_emb_dropout=pos_emb_dropout,
-        language_model=lm_opts,
+        lm_opts=lm_opts,
     )
 
 
