@@ -45,6 +45,7 @@ def py():
         config_updates={
             **_get_cfg_lrlin_oclr_by_bs_nep(40_000, 2000),
         },
+        enabled=False,
     )
 
     train_exp(  # {"dev-clean": 3.08, "dev-other": 6.84, "test-clean": 3.28, "test-other": 7.21}
@@ -54,6 +55,7 @@ def py():
             **_get_cfg_lrlin_oclr_by_bs_nep(40_000, 2000),
             "learning_rate_piecewise_steps": [600_000, 900_000, 982_000],
         },
+        enabled=False,
     )
 
     train_exp(  # {"dev-clean": 3.1, "dev-other": 6.96, "test-clean": 3.22, "test-other": 7.25}
@@ -64,6 +66,7 @@ def py():
             **_get_cfg_lrlin_oclr_by_bs_nep(40_000, 2000),
             "learning_rate_piecewise_steps": [600_000, 900_000, 982_000],
         },
+        enabled=False,
     )
 
     for acc, wd in [
@@ -85,6 +88,7 @@ def py():
                 "accum_grad_multiple_step": acc,
                 "optimizer.weight_decay": wd,
             },
+            enabled=False,
         )
 
     train_exp(  # 6.82
@@ -95,6 +99,7 @@ def py():
             "__train_audio_preprocess": speed_pert_librosa_config,
             "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
         },
+        enabled=False,
     )
 
     # Comparing vocabs. Note that max_seq_length_default_target=75 always here...
@@ -117,6 +122,7 @@ def py():
                 "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
             },
             vocab=vocab,
+            enabled=False,
         )
 
     # Comparing vocabs with better settings: feature norm, sampling, no max seq len.
@@ -152,6 +158,7 @@ def py():
                     }[sample]
                 )
             },
+            enabled=False,
         )
 
     # lrlin1e_5_393k vs lrlin1e_5_295k
@@ -166,6 +173,7 @@ def py():
             "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
         },
         vocab="bpe10k",
+        enabled=False,
     )
 
     # Testing different vocabs together with sampling.
@@ -225,6 +233,7 @@ def py():
                     }[sample]
                 )
             },
+            enabled=False,
         )
 
     # Checking EOS.
@@ -240,6 +249,7 @@ def py():
         },
         vocab="spm10k",
         train_vocab_opts={"other_opts": {"enable_sampling": True, "alpha": 0.7}},
+        enabled=False,
     )
 
     # Test different feature normalization schemes.
@@ -266,6 +276,7 @@ def py():
             },
             vocab="spm10k",
             train_vocab_opts={"other_opts": {"enable_sampling": True, "alpha": 0.7}},
+            enabled=False,
         )
     # featBN but without spmSample07 (baseline without featBN: 6.11)
     train_exp(  # 6.07, so again, featBN slightly better, also diff dev vs test is less
@@ -279,6 +290,7 @@ def py():
             "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
         },
         vocab="spm10k",
+        enabled=False,
     )
 
     from i6_experiments.users.zeyer.nn_rf.batchnorm import BatchRenorm
@@ -318,6 +330,7 @@ def py():
                         else {"class": "SamplingBytePairEncoding", "breadth_prob": alpha}
                     )
                 },
+                enabled=False,
             )
 
     # relPosAttDef: Use the default RelPosSelfAttention instead of the Shawn et al 2018 style, old RETURNN way.
@@ -339,6 +352,7 @@ def py():
         },
         vocab="spm10k",
         train_vocab_opts={"other_opts": {"enable_sampling": True, "alpha": 0.7}},
+        enabled=False,
     )
     train_exp(  # 5.94 (no relPosAttDef: 6.11), so relPosAttDef is better
         "v6-relPosAttDef-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-speedpertV2-spm10k",
@@ -351,6 +365,7 @@ def py():
             "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
         },
         vocab="spm10k",
+        enabled=False,
     )
 
     # Testing different vocabs together with sampling. Again. Now again with newer settings:
@@ -442,6 +457,7 @@ def py():
             "aux_attention_decoder": rf.build_dict(TransformerDecoder, num_layers=6),  # purely used for training
         },
         vocab="spm10k",
+        enabled=False,
     )
 
     # Now with featBN and bpeSample001.
@@ -476,6 +492,7 @@ def py():
         },
         vocab="spm10k",
         train_vocab_opts={"other_opts": {"class": "SamplingBytePairEncoding", "breadth_prob": 0.01}},
+        enabled=False,
     )
 
     # CTC label smoothing (ctcLS01).
@@ -622,13 +639,17 @@ def train_exp(
     gpu_mem: Optional[int] = 24,
     num_processes: Optional[int] = None,
     time_rqmt: Optional[int] = None,  # set this to 1 or below to get the fast test queue
-) -> ModelWithCheckpoints:
+    enabled: bool = True,
+) -> Optional[ModelWithCheckpoints]:
     """
     Train experiment
     """
     from i6_experiments.users.zeyer.train_v3 import train
     from i6_experiments.users.zeyer.recog import recog_training_exp
     from i6_experiments.users.zeyer.datasets.librispeech import get_librispeech_task_raw_v2
+
+    if not enabled:
+        return None
 
     if _sis_prefix is None:
         _sis_setup_global_prefix()
