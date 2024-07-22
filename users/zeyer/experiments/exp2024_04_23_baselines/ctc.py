@@ -22,6 +22,7 @@ from .configs import *
 from .configs import _get_cfg_lrlin_oclr_by_bs_nep, _batch_size_factor
 
 if TYPE_CHECKING:
+    from i6_experiments.common.setups import serialization
     from i6_experiments.users.zeyer.model_with_checkpoints import ModelWithCheckpoints
     from i6_experiments.users.zeyer.datasets.task import Task
     from i6_experiments.users.zeyer.datasets.score_results import RecogOutput
@@ -35,6 +36,8 @@ _raw_sample_rate = _batch_size_factor * 100  # bs factor is from 10ms frames to 
 
 def py():
     """Sisyphus entry point"""
+    from sisyphus import gs
+    from i6_experiments.common.setups import serialization
     from i6_experiments.users.zeyer.datasets.librispeech import get_librispeech_log_mel_stats
 
     feature_stats = get_librispeech_log_mel_stats(_log_mel_feature_dim)
@@ -618,6 +621,33 @@ def py():
         train_vocab_opts={"other_opts": {"class": "SamplingBytePairEncoding", "breadth_prob": 0.01}},
     )
 
+    # Log prob normed gradient
+    train_exp(  # 6.14
+        "v6-relPosAttDef-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-featBN"
+        "-speedpertV2-spm10k-bpeSample001-lpNormedGrad",
+        config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
+        model_config={
+            "enc_conformer_layer": enc_conformer_layer_default,
+            "feature_batch_norm": True,
+            "out_blank_separated": True,
+        },
+        config_updates={
+            **_get_cfg_lrlin_oclr_by_bs_nep(15_000, 500),
+            "optimizer.weight_decay": 1e-2,
+            "__train_audio_preprocess": speed_pert_librosa_config,
+            "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
+            "aux_attention_decoder": rf.build_dict(TransformerDecoder, num_layers=6),  # purely used for training
+            "log_prob_normed_grad": {
+                "func": {"clamp_min": 0.5, "clamp_max": 1.1, "scale_type": "inv_num_labels", "prior_exp": 1.0}
+            },
+        },
+        vocab="spm10k",
+        train_vocab_opts={"other_opts": {"class": "SamplingBytePairEncoding", "breadth_prob": 0.01}},
+        epilog=[
+            serialization.NonhashedCode(f"sys.path.append({gs.BASE_DIR + '/projects/2024-alignment-analysis'!r})\n")
+        ],
+    )
+
 
 _train_experiments: Dict[str, ModelWithCheckpoints] = {}
 
@@ -635,6 +665,7 @@ def train_exp(
     config_updates: Optional[Dict[str, Any]] = None,
     config_deletes: Optional[Sequence[str]] = None,
     post_config_updates: Optional[Dict[str, Any]] = None,
+    epilog: Sequence[serialization.SerializerObject] = (),
     num_epochs: int = 2000,
     gpu_mem: Optional[int] = 24,
     num_processes: Optional[int] = None,
@@ -680,6 +711,7 @@ def train_exp(
         task=task,
         config=config,
         post_config=dict_update_deep(post_config, post_config_updates),
+        epilog=epilog,
         model_def=model_def,
         train_def=train_def,
         num_epochs=num_epochs,
@@ -1072,6 +1104,7 @@ class Model(rf.Module):
                 "smoothing": ctc_label_smoothing,
                 "axis": self.target_dim,
             }
+        self.log_prob_normed_grad_opts = config.typed_value("log_prob_normed_grad", None)
 
         self.feature_batch_norm = None
         if config.bool("feature_batch_norm", False):
@@ -1189,7 +1222,7 @@ class Model(rf.Module):
         """
         if not self.out_blank_separated:
             log_probs = rf.log_softmax(logits, axis=self.wb_target_dim)
-            log_probs = rf.label_smoothed_log_prob_gradient(log_probs, **self.ctc_label_smoothing_opts)
+            log_probs = self._maybe_apply_on_log_probs(log_probs)
             return log_probs
         else:  # separate blank
             assert self.blank_idx == self.target_dim.dimension  # not implemented otherwise
@@ -1198,9 +1231,7 @@ class Model(rf.Module):
                 logits, axis=self.wb_target_dim, out_dims=[self.target_dim, dummy_blank_feat_dim]
             )
             log_probs_wo_blank = rf.log_softmax(logits_wo_blank, axis=self.target_dim)
-            log_probs_wo_blank = rf.label_smoothed_log_prob_gradient(
-                log_probs_wo_blank, **self.ctc_label_smoothing_opts
-            )
+            log_probs_wo_blank = self._maybe_apply_on_log_probs(log_probs_wo_blank)
             log_probs_blank = rf.log_sigmoid(logits_blank)
             log_probs_emit = rf.squeeze(rf.log_sigmoid(-logits_blank), axis=dummy_blank_feat_dim)
             log_probs, _ = rf.concat(
@@ -1210,3 +1241,28 @@ class Model(rf.Module):
             )
             log_probs.feature_dim = self.wb_target_dim
             return log_probs
+
+    def _maybe_apply_on_log_probs(self, log_probs: Tensor) -> Tensor:
+        log_probs = self._maybe_apply_log_probs_normed_grad(log_probs)
+        log_probs = rf.label_smoothed_log_prob_gradient(log_probs, **self.ctc_label_smoothing_opts)
+        return log_probs
+
+    def _maybe_apply_log_probs_normed_grad(self, log_probs: Tensor) -> Tensor:
+        if not self.log_prob_normed_grad_opts:
+            return log_probs
+
+        from alignments.util import normed_gradient, NormedGradientFuncInvPrior
+
+        opts: Dict[str, Any] = self.log_prob_normed_grad_opts.copy()
+        func_opts = opts.pop("func")
+        assert isinstance(func_opts, dict)
+        func_opts = func_opts.copy()
+        assert func_opts.get("class", "inv_prior") == "inv_prior"  # only case for now
+        func_opts.pop("class", None)
+        func = NormedGradientFuncInvPrior(**func_opts)
+
+        log_probs_ = log_probs.copy_template()
+        log_probs_.raw_tensor = normed_gradient(
+            log_probs.raw_tensor, feat_axis=log_probs.feature_dim_axis, **opts, func=func
+        )
+        return log_probs_
