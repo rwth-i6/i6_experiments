@@ -540,25 +540,30 @@ def py():
     )
 
     # Blank separated (blankSep).
-    train_exp(  # 5.73 (!!!)
-        "v6-relPosAttDef-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-featBN"
-        "-speedpertV2-spm10k-bpeSample001-blankSep",
-        config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
-        model_config={
-            "enc_conformer_layer": enc_conformer_layer_default,
-            "feature_batch_norm": True,
-            "out_blank_separated": True,
-        },
-        config_updates={
-            **_get_cfg_lrlin_oclr_by_bs_nep(15_000, 500),
-            "optimizer.weight_decay": 1e-2,
-            "__train_audio_preprocess": speed_pert_librosa_config,
-            "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
-            "aux_attention_decoder": rf.build_dict(TransformerDecoder, num_layers=6),  # purely used for training
-        },
-        vocab="spm10k",
-        train_vocab_opts={"other_opts": {"class": "SamplingBytePairEncoding", "breadth_prob": 0.01}},
-    )
+    for vocab, alpha in [
+        ("bpe10k", 0.01),
+        ("spm10k", 0.01),  # 5.73 (!!!)
+        ("spm512", 0.01),
+    ]:
+        train_exp(
+            "v6-relPosAttDef-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-featBN"
+            f"-speedpertV2-{vocab}-bpeSample{alpha}-blankSep",
+            config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
+            model_config={
+                "enc_conformer_layer": enc_conformer_layer_default,
+                "feature_batch_norm": True,
+                "out_blank_separated": True,
+            },
+            config_updates={
+                **_get_cfg_lrlin_oclr_by_bs_nep(15_000, 500),
+                "optimizer.weight_decay": 1e-2,
+                "__train_audio_preprocess": speed_pert_librosa_config,
+                "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
+                "aux_attention_decoder": rf.build_dict(TransformerDecoder, num_layers=6),  # purely used for training
+            },
+            vocab="spm10k",
+            train_vocab_opts={"other_opts": {"class": "SamplingBytePairEncoding", "breadth_prob": alpha}},
+        )
 
     # Blank separated (blankSep) with CTC label smoothing excluding blank (ctcLS01xB).
     train_exp(  # 6.14
