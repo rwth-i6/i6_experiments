@@ -562,7 +562,7 @@ def py():
         )
 
     # Blank separated (blankSep) with CTC label smoothing excluding blank (ctcLS01xB).
-    train_exp(  # 6.14
+    train_exp(  # 6.14. A bit unclear why so much worse, maybe some bug?
         "v6-relPosAttDef-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-featBN"
         "-speedpertV2-spm10k-bpeSample001-blankSep-ctcLS01xB",
         config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
@@ -631,8 +631,8 @@ def py():
             train_vocab_opts={"other_opts": {"class": "SamplingBytePairEncoding", "breadth_prob": 0.01}},
         )
 
-    # Log prob normed gradient
-    train_exp(  # 6.14
+    # Log prob normed gradient (lpNormedGrad)
+    train_exp(
         "v6-relPosAttDef-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-featBN"
         "-speedpertV2-spm10k-bpeSample001-lpNormedGrad",
         config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
@@ -658,7 +658,7 @@ def py():
     )
 
     # Log prob normed gradient (lpNormedGrad) with blank separated (blankSep)
-    train_exp(  # 6.14
+    train_exp(
         "v6-relPosAttDef-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-featBN"
         "-speedpertV2-spm10k-bpeSample001-blankSep-lpNormedGrad",
         config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
