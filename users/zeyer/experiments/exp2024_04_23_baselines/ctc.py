@@ -629,6 +629,32 @@ def py():
         model_config={
             "enc_conformer_layer": enc_conformer_layer_default,
             "feature_batch_norm": True,
+        },
+        config_updates={
+            **_get_cfg_lrlin_oclr_by_bs_nep(15_000, 500),
+            "optimizer.weight_decay": 1e-2,
+            "__train_audio_preprocess": speed_pert_librosa_config,
+            "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
+            "aux_attention_decoder": rf.build_dict(TransformerDecoder, num_layers=6),  # purely used for training
+            "log_prob_normed_grad": {
+                "func": {"clamp_min": 0.5, "clamp_max": 1.1, "scale_type": "inv_num_labels", "prior_exp": 1.0}
+            },
+        },
+        vocab="spm10k",
+        train_vocab_opts={"other_opts": {"class": "SamplingBytePairEncoding", "breadth_prob": 0.01}},
+        epilog=[
+            serialization.NonhashedCode(f"sys.path.append({gs.BASE_DIR + '/projects/2024-alignment-analysis'!r})\n")
+        ],
+    )
+
+    # Log prob normed gradient (lpNormedGrad) with blank separated (blankSep)
+    train_exp(  # 6.14
+        "v6-relPosAttDef-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-featBN"
+        "-speedpertV2-spm10k-bpeSample001-blankSep-lpNormedGrad",
+        config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
+        model_config={
+            "enc_conformer_layer": enc_conformer_layer_default,
+            "feature_batch_norm": True,
             "out_blank_separated": True,
         },
         config_updates={
