@@ -603,7 +603,7 @@ def py():
     )
 
     # Now weight dropout (wdrop01).
-    train_exp(
+    train_exp(  # 5.96
         "v6-relPosAttDef-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-wdrop01"
         "-lrlin1e_5_295k-featBN"
         "-speedpertV2-spm10k-bpeSample001",
