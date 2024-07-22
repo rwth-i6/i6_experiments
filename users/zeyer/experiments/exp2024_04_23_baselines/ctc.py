@@ -385,7 +385,8 @@ def py():
         ("spm20k", None, None),  # 5.96
         ("spm20k", "spm", 0.7),  # 6.14
         ("spm20k", "bpe", 0.01),  # 6.13
-        ("bpe10k", None, None),
+        ("spm20k", "bpe", 0.02),
+        ("bpe10k", None, None),  # 6.49
         ("bpe10k", "bpe", 0.01),  # 6.40
         ("spm10k", None, None),  # 6.00
         ("spm10k", "spm", 0.7),  # 6.20
@@ -402,9 +403,10 @@ def py():
         ("spm_bpe1k", None, None),  # 6.03
         ("spm_bpe1k", "bpe", 0.01),  # 6.05
         ("spm512", None, None),  # 6.08
+        ("spm512", "bpe", 0.005),
         ("spm512", "bpe", 0.01),  # 6.08 (but test-* is better than spm512 without sampling)
         ("spm128", None, None),  # 6.37
-        ("spm128", "bpe", 0.01),
+        ("spm128", "bpe", 0.01),  # 6.40
     ]:
         train_exp(
             f"v6-relPosAttDef-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100"
