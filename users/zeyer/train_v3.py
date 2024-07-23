@@ -13,14 +13,16 @@ from i6_experiments.users.zeyer.model_interfaces import ModelT, ModelDef, ModelD
 if TYPE_CHECKING:
     from returnn.tensor import TensorDict
     from i6_experiments.common.setups import serialization
-    from i6_experiments.users.zeyer.datasets.task import Task
+    from i6_experiments.users.zeyer.datasets.task import Task, DatasetConfig
     from i6_experiments.users.zeyer.model_with_checkpoints import ModelWithCheckpoints, Checkpoint
 
 
 def train(
     prefix_name: str,
     *,
-    task: Task,
+    task: Optional[Task] = None,
+    train_dataset: Optional[DatasetConfig] = None,
+    train_epoch_split: Optional[int] = None,
     config: Dict[str, Any],
     post_config: Optional[Dict[str, Any]] = None,
     env_updates: Optional[Dict[str, str]] = None,
@@ -59,16 +61,26 @@ def train(
 
     unhashed_package_root, setup_base_name = get_base_module(train_def)
 
+    if train_dataset is None:
+        assert task
+        train_dataset = task.train_dataset
+    train_dataset_dict = train_dataset.get_train_dataset()
+    if train_epoch_split is None:
+        if task:
+            train_epoch_split = task.train_epoch_split
+        elif "partition_epoch" in train_dataset_dict:
+            train_epoch_split = train_dataset_dict["partition_epoch"]
+
     returnn_train_config_dict: Dict[str, Any] = dict(
         backend=model_def.backend,
         behavior_version=model_def.behavior_version,
         # dataset
-        default_input=task.train_dataset.get_default_input(),
-        target=task.train_dataset.get_default_target(),
-        train=mp_ds_utils.multi_proc_dataset_opts(task.train_dataset.get_train_dataset()),
-        eval_datasets=mp_ds_utils.multi_proc_eval_datasets_opts(task.train_dataset.get_eval_datasets()),
+        default_input=train_dataset.get_default_input(),
+        target=train_dataset.get_default_target(),
+        train=mp_ds_utils.multi_proc_dataset_opts(train_dataset_dict),
+        eval_datasets=mp_ds_utils.multi_proc_eval_datasets_opts(train_dataset.get_eval_datasets()),
         learning_rate_control_error_measure=train_def.learning_rate_control_error_measure,
-        newbob_multi_num_epochs=task.train_epoch_split,
+        newbob_multi_num_epochs=train_epoch_split or 1,
     )
     returnn_train_config_dict.update(config)
     if isinstance(model_def, ModelDefWithCfg):
@@ -78,17 +90,17 @@ def train(
     if max_seq_length_default_target is not None:
         max_seq_length = returnn_train_config_dict.setdefault("max_seq_length", {})
         assert isinstance(max_seq_length, dict)
-        max_seq_length[task.train_dataset.get_default_target()] = max_seq_length_default_target
+        max_seq_length[train_dataset.get_default_target()] = max_seq_length_default_target
     max_seq_length_default_input = returnn_train_config_dict.pop("max_seq_length_default_input", None)
     if max_seq_length_default_input is not None:
         max_seq_length = returnn_train_config_dict.setdefault("max_seq_length", {})
         assert isinstance(max_seq_length, dict)
-        max_seq_length[task.train_dataset.get_default_input()] = max_seq_length_default_input
+        max_seq_length[train_dataset.get_default_input()] = max_seq_length_default_input
 
     if init_params:
         returnn_train_config_dict["import_model_train_epoch1"] = init_params
 
-    extern_data_raw = task.train_dataset.get_extern_data()
+    extern_data_raw = train_dataset.get_extern_data()
     # The extern_data is anyway not hashed, so we can also instanciate any delayed objects here.
     # It's not hashed because we assume that all aspects of the dataset are already covered
     # by the datasets itself as part in the config above.
