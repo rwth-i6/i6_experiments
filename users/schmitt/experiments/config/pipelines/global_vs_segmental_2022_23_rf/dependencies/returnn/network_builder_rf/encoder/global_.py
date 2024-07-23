@@ -2,6 +2,8 @@ from typing import Optional, Dict, Any, Sequence, Tuple, List, Union, TYPE_CHECK
 import contextlib
 import math
 import functools
+import torch
+import numpy
 
 from returnn.tensor import Tensor, Dim, single_step_dim
 import returnn.frontend as rf
@@ -31,6 +33,8 @@ class GlobalConformerEncoder(ConformerEncoder):
           l2: float = 0.0001,
           use_weight_feedback: bool = True,
           decoder_type: str = "lstm",
+          feature_extraction_opts: Optional[Dict[str, Any]] = None,
+
   ):
     super(GlobalConformerEncoder, self).__init__(
       in_dim,
@@ -53,6 +57,10 @@ class GlobalConformerEncoder(ConformerEncoder):
     from returnn.config import get_global_config
 
     config = get_global_config(return_empty_if_none=True)
+
+    if not feature_extraction_opts:
+      feature_extraction_opts = {}
+    self.feature_extraction_opts = feature_extraction_opts
 
     # self.in_dim = in_dim
 
@@ -90,6 +98,68 @@ class GlobalConformerEncoder(ConformerEncoder):
 
       self._mixup = Mixup(feature_dim=self.in_dim, opts=MixupOpts(**config.typed_value("mixup")))
 
+  def log_mel_filterbank_from_raw(
+          self,
+          raw_audio: Tensor,
+          in_spatial_dim: Dim,
+          out_dim: Dim,
+          sampling_rate: int = 16_000,
+          window_len: float = 0.025,
+          step_len: float = 0.010,
+          n_fft: Optional[int] = None,
+          log_base: Union[int, float] = 10,
+          f_min: Optional[Union[int, float]] = None,
+          f_max: Optional[Union[int, float]] = None,
+          mel_normalization: bool = False,
+  ) -> Tuple[Tensor, Dim]:
+    from returnn.util import math as util_math
+
+    if raw_audio.feature_dim and raw_audio.feature_dim.dimension == 1:
+      raw_audio = rf.squeeze(raw_audio, axis=raw_audio.feature_dim)
+    window_num_frames = int(window_len * sampling_rate)
+    step_num_frames = int(step_len * sampling_rate)
+    if not n_fft:
+      n_fft = util_math.next_power_of_two(window_num_frames)
+    spectrogram, out_spatial_dim, in_dim_ = rf.stft(raw_audio, in_spatial_dim=in_spatial_dim,
+      frame_step=step_num_frames, frame_length=window_num_frames, fft_length=n_fft, )
+    power_spectrogram = rf.abs(spectrogram) ** 2.0
+    mel_fbank = rf.audio.mel_filterbank(
+      power_spectrogram, in_dim=in_dim_, out_dim=out_dim, sampling_rate=sampling_rate, f_min=f_min, f_max=f_max)
+    log_mel_fbank = rf.safe_log(mel_fbank, eps=1e-10)
+    if log_base != math.e:
+      log_mel_fbank = log_mel_fbank * (1.0 / math.log(log_base))
+
+    if mel_normalization:
+      # hard-coded for spanish task
+      es8khz_global_mean = rf.Tensor(
+        name="es8khz_global_mean",
+        dims=[log_mel_fbank.feature_dim],
+        dtype=log_mel_fbank.dtype,
+        raw_tensor=torch.tensor(
+          numpy.loadtxt(
+            "/nas/models/asr/rschmitt/setups/spanish/2024-07-09--trans-att-i6/stats/feature_mean",
+            dtype="float32",
+          )
+        ),
+      )
+      es8khz_global_stddev = rf.Tensor(
+        name="es8khz_global_stddev",
+        dims=[log_mel_fbank.feature_dim],
+        dtype=log_mel_fbank.dtype,
+        raw_tensor=torch.tensor(
+          numpy.loadtxt(
+            "/nas/models/asr/rschmitt/setups/spanish/2024-07-09--trans-att-i6/stats/feature_std_dev",
+            dtype="float32",
+          )
+        ),
+      )
+
+      log_mel_fbank = (
+        log_mel_fbank - rf.copy_to_device(es8khz_global_mean)
+      ) / rf.copy_to_device(es8khz_global_stddev)
+
+    return log_mel_fbank, out_spatial_dim
+
   def encode(
           self,
           source: Tensor,
@@ -99,14 +169,14 @@ class GlobalConformerEncoder(ConformerEncoder):
   ) -> Tuple[Dict[str, Tensor], Dim]:
     """encode, and extend the encoder output for things we need in the decoder"""
     # log mel filterbank features
-    source, in_spatial_dim = rf.audio.log_mel_filterbank_from_raw(
-      source,
+    source, in_spatial_dim = self.log_mel_filterbank_from_raw(
+      raw_audio=source,
       in_spatial_dim=in_spatial_dim,
       out_dim=self.in_dim,
-      sampling_rate=16_000,
       log_base=math.exp(
         2.3026  # almost 10.0 but not exactly...
       ) if self.decoder_type == "lstm" else 10.0,
+      **self.feature_extraction_opts
     )
     if self._mixup:
       source = self._mixup(source, spatial_dim=in_spatial_dim)

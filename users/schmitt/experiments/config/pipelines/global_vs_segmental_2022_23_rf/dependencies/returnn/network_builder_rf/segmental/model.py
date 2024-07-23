@@ -56,6 +56,7 @@ class SegmentalAttentionModel(rf.Module):
           blank_decoder_opts: Optional[Dict[str, Any]] = None,
           use_current_frame_in_readout: bool = False,
           target_embed_dim: int = 640,
+          feature_extraction_opts: Optional[Dict[str, Any]] = None,
   ):
     super(SegmentalAttentionModel, self).__init__()
 
@@ -75,6 +76,7 @@ class SegmentalAttentionModel(rf.Module):
       att_dropout=att_dropout,
       l2=l2,
       use_weight_feedback=use_weight_feedback,
+      feature_extraction_opts=feature_extraction_opts,
     )
 
     assert blank_decoder_version in {1, 3, 4, 5, 6, 7}
@@ -214,6 +216,7 @@ class MakeModel:
           reset_eos_params: bool = False,
           use_current_frame_in_readout: bool = False,
           target_embed_dim: int = 640,
+          feature_extraction_opts: Optional[Dict[str, Any]] = None,
           **extra,
   ) -> SegmentalAttentionModel:
     """make"""
@@ -269,6 +272,7 @@ class MakeModel:
       reset_eos_params=reset_eos_params,
       use_current_frame_in_readout=use_current_frame_in_readout,
       target_embed_dim=target_embed_dim,
+      feature_extraction_opts=feature_extraction_opts,
       **extra,
     )
 
@@ -308,6 +312,8 @@ def from_scratch_model_def(
 
   target_embed_dim = config.int("target_embed_dim", 640)
 
+  feature_extraction_opts = config.typed_value("feature_extraction_opts", None)
+
   return MakeModel.make_model(
     in_dim,
     align_target_dim,
@@ -331,6 +337,7 @@ def from_scratch_model_def(
     reset_eos_params=reset_eos_params,
     use_current_frame_in_readout=use_current_frame_in_readout,
     target_embed_dim=target_embed_dim,
+    feature_extraction_opts=feature_extraction_opts,
   )
 
 

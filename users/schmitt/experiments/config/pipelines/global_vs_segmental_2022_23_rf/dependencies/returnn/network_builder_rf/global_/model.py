@@ -42,6 +42,7 @@ class GlobalAttentionModel(rf.Module):
           decoder_type: str = "lstm",
           num_dec_layers: int = 1,
           target_embed_dim: int = 640,
+          feature_extraction_opts: Optional[Dict[str, Any]] = None,
   ):
     super(GlobalAttentionModel, self).__init__()
 
@@ -64,6 +65,7 @@ class GlobalAttentionModel(rf.Module):
       att_dropout=att_dropout,
       l2=l2,
       decoder_type=decoder_type,
+      feature_extraction_opts=feature_extraction_opts,
     )
 
     self.decoder_type = decoder_type
@@ -181,6 +183,7 @@ class MakeModel:
           decoder_type: str = "lstm",
           num_dec_layers: int = 1,
           target_embed_dim: int = 640,
+          feature_extraction_opts: Optional[Dict[str, Any]] = None,
           **extra,
   ) -> GlobalAttentionModel:
     """make"""
@@ -226,6 +229,7 @@ class MakeModel:
       decoder_type=decoder_type,
       num_dec_layers=num_dec_layers,
       target_embed_dim=target_embed_dim,
+      feature_extraction_opts=feature_extraction_opts,
       **extra,
     )
 
@@ -273,6 +277,7 @@ def from_scratch_model_def(*, epoch: int, in_dim: Dim, target_dim: Dim) -> Globa
   decoder_type = config.typed_value("label_decoder_type", "lstm")
   num_dec_layers = config.int("num_label_decoder_layers", 1)
   target_embed_dim = config.int("target_embed_dim", 640)
+  feature_extraction_opts = config.typed_value("feature_extraction_opts", None)
 
   return MakeModel.make_model(
     in_dim,
@@ -287,6 +292,7 @@ def from_scratch_model_def(*, epoch: int, in_dim: Dim, target_dim: Dim) -> Globa
     decoder_type=decoder_type,
     num_dec_layers=num_dec_layers,
     target_embed_dim=target_embed_dim,
+    feature_extraction_opts=feature_extraction_opts,
   )
 
 
