@@ -2,9 +2,12 @@ from typing import Tuple, Optional, List, Dict, Union
 
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.labels.v2.librispeech.label_singletons import (
   LibrispeechBPE10025_CTC_ALIGNMENT,
-  LibrispeechBPE1056_ALIGNMENT,
+  LibrispeechBPE1056_ALIGNMENT_JOINT_MODEL,
+  LibrispeechBPE1056_ALIGNMENT_SEP_MODEL,
   LibrispeechBPE5048_ALIGNMENT_JOINT_MODEL,
   LibrispeechBPE5048_ALIGNMENT_SEP_MODEL,
+  LibrispeechSP10240_ALIGNMENT_SEP_MODEL,
+  LibrispeechSP10240_ALIGNMENT_JOINT_MODEL,
   LIBRISPEECH_CORPUS
 )
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.general.returnn.exes import RETURNN_EXE_NEW, RETURNN_CURRENT_ROOT
@@ -27,17 +30,25 @@ def get_center_window_att_config_builder_rf(
         use_current_frame_in_readout: bool = False,
         use_correct_dim_tags: bool = False,
 ) -> Tuple[str, LibrispeechSegmentalAttConformerConfigBuilderRF]:
-  assert bpe_vocab_size in {10025, 1056, 5048}
+  assert bpe_vocab_size in {10025, 1056, 5048, 10240}
 
   if bpe_vocab_size == 10025:
     dependencies = LibrispeechBPE10025_CTC_ALIGNMENT
   elif bpe_vocab_size == 1056:
-    dependencies = LibrispeechBPE1056_ALIGNMENT
-  else:
+    if use_joint_model:
+      dependencies = LibrispeechBPE1056_ALIGNMENT_JOINT_MODEL
+    else:
+      dependencies = LibrispeechBPE1056_ALIGNMENT_SEP_MODEL
+  elif bpe_vocab_size == 5048:
     if use_joint_model:
       dependencies = LibrispeechBPE5048_ALIGNMENT_JOINT_MODEL
     else:
       dependencies = LibrispeechBPE5048_ALIGNMENT_SEP_MODEL
+  else:
+    if use_joint_model:
+      dependencies = LibrispeechSP10240_ALIGNMENT_JOINT_MODEL
+    else:
+      dependencies = LibrispeechSP10240_ALIGNMENT_SEP_MODEL
 
   variant_params = {
     "dependencies": dependencies,

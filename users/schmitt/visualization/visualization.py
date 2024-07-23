@@ -18,10 +18,10 @@ import numpy as np
 import h5py
 from typing import Optional, Any, Dict, Tuple, List
 
-import recipe.i6_experiments.users.schmitt.tools as tools_mod
+import i6_experiments.users.schmitt.tools as tools_mod
 tools_dir = os.path.dirname(tools_mod.__file__)
 
-from recipe.i6_experiments.users.schmitt import hdf
+from i6_experiments.users.schmitt import hdf
 
 
 class PlotAttentionWeightsJob(Job):
@@ -297,6 +297,17 @@ class PlotAttentionWeightsJobV2(Job):
     xticks = [tick - 1.0 for tick in ref_label_positions]
     ax.set_xticks(xticks)
     ax.set_xticklabels(ref_labels, rotation=90)
+
+    # secondary x-axis at the bottom with time stamps
+    time_ticks = range(0, len(ref_alignment), 10)
+
+    # Create the secondary y-axis at the bottom
+    time_axis = ax.secondary_xaxis('bottom')
+
+    # Set the ticks and labels for the secondary y-axis
+    time_axis.set_xticks(time_ticks)
+    time_axis.set_xticklabels(time_ticks)
+    # ----
 
     # output labels of the model
     # in case of alignment: filter for non-blank targets. otherwise, just leave the targets array as is
@@ -716,3 +727,42 @@ class PlotAlignmentJob(Job):
       kwargs.pop("ref_alignment_json_vocab_path")
 
     return super().hash(kwargs)
+
+
+def plot_att_weights(
+        att_weight_hdf: Path,
+        targets_hdf: Path,
+        seg_starts_hdf: Optional[Path],
+        seg_lens_hdf: Optional[Path],
+        center_positions_hdf: Optional[Path],
+        target_blank_idx: Optional[int],
+        ref_alignment_blank_idx: int,
+        ref_alignment_hdf: Path,
+        json_vocab_path: Path,
+        ctc_alignment_hdf: Optional[Path] = None,
+        segment_whitelist: Optional[List[str]] = None,
+        plot_name: str = "plots"
+):
+  plot_att_weights_job = PlotAttentionWeightsJobV2(
+    att_weight_hdf=att_weight_hdf,
+    targets_hdf=targets_hdf,
+    seg_starts_hdf=seg_starts_hdf,
+    seg_lens_hdf=seg_lens_hdf,
+    center_positions_hdf=center_positions_hdf,
+    target_blank_idx=target_blank_idx,
+    ref_alignment_blank_idx=ref_alignment_blank_idx,
+    ref_alignment_hdf=ref_alignment_hdf,
+    json_vocab_path=json_vocab_path,
+    ctc_alignment_hdf=ctc_alignment_hdf,
+    segment_whitelist=segment_whitelist
+  )
+
+  # overwrite the output paths to paths in the cwd
+  plot_att_weights_job.out_plot_dir = Path(f"{plot_name}", )
+  plot_att_weights_job.out_plot_w_cog_dir = Path(f"{plot_name}_w_cog", )
+  if not os.path.exists(plot_att_weights_job.out_plot_dir.get_path()):
+    os.makedirs(plot_att_weights_job.out_plot_dir.get_path())
+  if not os.path.exists(plot_att_weights_job.out_plot_w_cog_dir.get_path()):
+    os.makedirs(plot_att_weights_job.out_plot_w_cog_dir.get_path())
+
+  plot_att_weights_job.run()

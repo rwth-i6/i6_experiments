@@ -6,6 +6,7 @@ from i6_experiments.users.schmitt.returnn_frontend.model_interfaces.training imp
 
 from returnn.tensor import TensorDict
 from returnn.datasets.hdf import SimpleHDFWriter
+from returnn.frontend.decoder.transformer import TransformerDecoder
 
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.segmental import utils
 from i6_experiments.users.schmitt import hdf
@@ -52,6 +53,10 @@ from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segment
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.segmental.model_new.label_model.model import (
   SegmentalAttLabelDecoder,
   SegmentalAttEfficientLabelDecoder
+)
+from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.global_.decoder import (
+  GlobalAttDecoder,
+  GlobalAttEfficientDecoder,
 )
 
 from returnn.tensor import Dim
@@ -237,7 +242,7 @@ def viterbi_training(
           align_targets_packed, _ = rf.pack_padded(
             align_targets, dims=batch_dims + [align_targets_spatial_dim], enforce_sorted=False, out_dim=pack_dim)
 
-          enc_log_probs = rf.log_softmax(aux_logits_packed, axis=model.target_dim)
+          enc_log_probs = rf.log_softmax(aux_logits_packed, axis=model.align_target_dim)
           # enc_log_probs = utils.copy_tensor_replace_dim_tag(enc_log_probs, enc_spatial_dim, align_targets_spatial_dim)
           aux_loss = rf.cross_entropy(
             target=align_targets_packed,
@@ -330,7 +335,11 @@ def viterbi_training(
 
     # ------------------- label loop -------------------
 
-    if type(model.label_decoder) is SegmentalAttLabelDecoder or force_inefficient_loop:
+    if (
+            type(model.label_decoder) is SegmentalAttLabelDecoder or
+            type(model.label_decoder) is GlobalAttDecoder or
+            force_inefficient_loop
+    ):
       label_logits, label_decoder_outputs = label_model_viterbi_training(
         model=model.label_decoder,
         enc_args=enc_args,
@@ -345,7 +354,10 @@ def viterbi_training(
         separate_blank_loss=model.use_joint_model,
       )
     else:
-      assert type(model.label_decoder) is SegmentalAttEfficientLabelDecoder
+      assert (
+                     type(model.label_decoder) is SegmentalAttEfficientLabelDecoder or
+                      type(model.label_decoder) is GlobalAttEfficientDecoder
+      )
       label_logits, label_decoder_outputs = label_model_viterbi_training_efficient(
         model=model.label_decoder,
         enc_args=enc_args,

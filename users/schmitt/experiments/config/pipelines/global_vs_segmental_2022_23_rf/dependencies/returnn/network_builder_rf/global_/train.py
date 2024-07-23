@@ -1,4 +1,4 @@
-from typing import Dict, List, Tuple
+from typing import Dict, List, Tuple, Optional, Union
 
 from returnn.tensor import TensorDict
 from returnn.tensor import Tensor, Dim
@@ -39,8 +39,8 @@ def get_s_and_att(
         input_embeddings: Tensor,
         enc_spatial_dim: Dim,
         targets_spatial_dim: Dim,
-        batch_dims: List[Dim]
-) -> Tuple[Tensor, Tensor]:
+        batch_dims: List[Dim],
+) -> Tuple[Tensor, Tensor, rf.State]:
   def _body(input_embed: Tensor, state: rf.State):
     new_state = rf.State()
     loop_out_, new_state.decoder = model.loop_step(
@@ -52,7 +52,7 @@ def get_s_and_att(
     )
     return loop_out_, new_state
 
-  loop_out, _, _ = rf.scan(
+  loop_out, final_state, _ = rf.scan(
     spatial_dim=targets_spatial_dim,
     xs=input_embeddings,
     ys=model.loop_step_output_templates(batch_dims=batch_dims),
@@ -66,7 +66,7 @@ def get_s_and_att(
     body=_body,
   )
 
-  return loop_out["s"], loop_out["att"]
+  return loop_out["s"], loop_out["att"], final_state
 
 
 def get_s_and_att_efficient(
@@ -76,16 +76,17 @@ def get_s_and_att_efficient(
         input_embeddings: Tensor,
         enc_spatial_dim: Dim,
         targets_spatial_dim: Dim,
-        batch_dims: List[Dim]
-) -> Tuple[Tensor, Tensor]:
+        batch_dims: List[Dim],
+) -> Tuple[Tensor, Tensor, rf.State]:
   if "lstm" in model.decoder_state:
-    s, _ = model.s_wo_att(
+    s, final_state = model.s_wo_att(
       input_embeddings,
       state=model.s_wo_att.default_initial_state(batch_dims=batch_dims),
       spatial_dim=targets_spatial_dim,
     )
   else:
     s = model.s_wo_att_linear(input_embeddings)
+    final_state = None
 
   att = model(
     enc=enc_args["enc"],
@@ -97,7 +98,63 @@ def get_s_and_att_efficient(
     use_mini_att=model.use_mini_att,
   )
 
-  return s, att
+  return s, att, final_state
+
+
+def forward_sequence(
+        model: Union[GlobalAttDecoder, GlobalAttEfficientDecoder],
+        targets: rf.Tensor,
+        targets_spatial_dim: Dim,
+        enc_args: Dict[str, rf.Tensor],
+        enc_spatial_dim: Dim,
+        batch_dims: List[Dim],
+        return_label_model_states: bool = False,
+) -> Tuple[rf.Tensor, Optional[Tuple[rf.Tensor, Dim]]]:
+  input_embeddings = model.target_embed(targets)
+  input_embeddings = rf.shift_right(input_embeddings, axis=targets_spatial_dim, pad_value=0.0)
+
+  if type(model) is GlobalAttDecoder:
+    s, att, final_state = get_s_and_att(
+      model=model,
+      enc_args=enc_args,
+      input_embeddings=input_embeddings,
+      enc_spatial_dim=enc_spatial_dim,
+      targets_spatial_dim=targets_spatial_dim,
+      batch_dims=batch_dims
+    )
+  else:
+    assert type(model) is GlobalAttEfficientDecoder
+    s, att, final_state = get_s_and_att_efficient(
+      model=model,
+      enc_args=enc_args,
+      input_embeddings=input_embeddings,
+      enc_spatial_dim=enc_spatial_dim,
+      targets_spatial_dim=targets_spatial_dim,
+      batch_dims=batch_dims
+    )
+
+  logits = model.decode_logits(input_embed=input_embeddings, s=s, att=att)
+
+  if return_label_model_states:
+    # need to run the loop one more time to get the last output (which is not needed for the loss computation)
+    last_embedding = rf.gather(
+        input_embeddings,
+        axis=targets_spatial_dim,
+        indices=rf.copy_to_device(targets_spatial_dim.get_size_tensor() - 1)
+    )
+    last_loop_out, _ = model.loop_step(
+      **enc_args,
+      enc_spatial_dim=enc_spatial_dim,
+      input_embed=last_embedding,
+      state=final_state,
+    )
+    singleton_dim = Dim(name="singleton", dimension=1)
+    return logits, rf.concat(
+      (s, targets_spatial_dim),
+      (rf.expand_dim(last_loop_out["s"], singleton_dim), singleton_dim),
+    )
+
+  return logits, None
 
 
 def from_scratch_training(
@@ -116,8 +173,6 @@ def from_scratch_training(
   aux_loss_scales = config.typed_value("aux_loss_scales", ([1.0] * len(aux_loss_layers)) if aux_loss_layers else None)
   aed_loss_scale = config.float("aed_loss_scale", 1.0)
   use_normalized_loss = config.bool("use_normalized_loss", True)
-
-  force_inefficient_loop = config.bool("force_inefficient_loop", False)
 
   if data.feature_dim and data.feature_dim.dimension == 1:
     data = rf.squeeze(data, axis=data.feature_dim)
@@ -146,30 +201,16 @@ def from_scratch_training(
       )
 
   batch_dims = data.remaining_dims(data_spatial_dim)
-  input_embeddings = model.label_decoder.target_embed(targets)
-  input_embeddings = rf.shift_right(input_embeddings, axis=targets_spatial_dim, pad_value=0.0)
 
-  if type(model.label_decoder) is GlobalAttDecoder or force_inefficient_loop:
-    s, att = get_s_and_att(
-      model=model.label_decoder,
-      enc_args=enc_args,
-      input_embeddings=input_embeddings,
-      enc_spatial_dim=enc_spatial_dim,
-      targets_spatial_dim=targets_spatial_dim,
-      batch_dims=batch_dims
-    )
-  else:
-    assert type(model.label_decoder) is GlobalAttEfficientDecoder
-    s, att = get_s_and_att_efficient(
-      model=model.label_decoder,
-      enc_args=enc_args,
-      input_embeddings=input_embeddings,
-      enc_spatial_dim=enc_spatial_dim,
-      targets_spatial_dim=targets_spatial_dim,
-      batch_dims=batch_dims
-    )
+  logits, _ = forward_sequence(
+    model=model.label_decoder,
+    targets=targets,
+    targets_spatial_dim=targets_spatial_dim,
+    enc_args=enc_args,
+    enc_spatial_dim=enc_spatial_dim,
+    batch_dims=batch_dims
+  )
 
-  logits = model.label_decoder.decode_logits(input_embed=input_embeddings, s=s, att=att)
   logits_packed, pack_dim = rf.pack_padded(logits, dims=batch_dims + [targets_spatial_dim], enforce_sorted=False)
   targets_packed, _ = rf.pack_padded(
     targets, dims=batch_dims + [targets_spatial_dim], enforce_sorted=False, out_dim=pack_dim

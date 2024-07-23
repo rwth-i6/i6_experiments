@@ -154,7 +154,7 @@ class LibrispeechBpe10025CtcAlignmentEos(LibrispeechBpe10025CtcAlignment):
     return self._alignment_paths
 
 
-class LibrispeechBpe1056Alignment(LibrispeechBPE1056, LibrispeechLabelDefinition, SegmentalLabelDefinition):
+class LibrispeechBpe1056Alignment(LibrispeechBPE1056, LibrispeechLabelDefinition, SegmentalLabelDefinition, ABC):
   """
     This is a forced alignment from the auxiliary CTC model in Mohammad's global AED setup (5.6% WER).
   """
@@ -162,11 +162,6 @@ class LibrispeechBpe1056Alignment(LibrispeechBPE1056, LibrispeechLabelDefinition
     super().__init__()
 
     self._alignment_paths = None
-
-  @property
-  def model_hyperparameters(self) -> SegmentalModelHyperparameters:
-    return SegmentalModelHyperparameters(
-      sos_idx=0, target_num_labels=1057, sil_idx=None, blank_idx=0, target_num_labels_wo_blank=1056)
 
   @property
   def rasr_format_paths(self) -> RasrFormats:
@@ -188,6 +183,20 @@ class LibrispeechBpe1056Alignment(LibrispeechBPE1056, LibrispeechLabelDefinition
     assert self._alignment_paths is None, "Alignment paths are already set!"
     assert "train" in value and "cv" in value and "devtrain" in value
     self._alignment_paths = value
+
+
+class LibrispeechBpe1056AlignmentJointModel(LibrispeechBpe1056Alignment):
+  @property
+  def model_hyperparameters(self) -> SegmentalModelHyperparameters:
+    return SegmentalModelHyperparameters(
+      sos_idx=0, target_num_labels=1057, sil_idx=None, blank_idx=0, target_num_labels_wo_blank=1056)
+
+
+class LibrispeechBpe1056AlignmentSepModel(LibrispeechBpe1056Alignment):
+  @property
+  def model_hyperparameters(self) -> SegmentalModelHyperparameters:
+    return SegmentalModelHyperparameters(
+      sos_idx=0, target_num_labels=1057, sil_idx=None, blank_idx=1056, target_num_labels_wo_blank=1056)
 
 
 class LibrispeechBpe5048Alignment(LibrispeechBPE5048, LibrispeechLabelDefinition, SegmentalLabelDefinition, ABC):

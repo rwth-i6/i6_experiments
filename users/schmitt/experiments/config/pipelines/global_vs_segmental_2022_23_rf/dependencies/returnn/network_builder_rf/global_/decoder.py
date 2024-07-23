@@ -11,8 +11,6 @@ class GlobalAttDecoder(BaseLabelDecoder):
   def __init__(self, eos_idx: int, **kwargs):
     super(GlobalAttDecoder, self).__init__(**kwargs)
 
-    assert not self.use_current_frame_in_readout, "Not supported yet"
-
     self.eos_idx = eos_idx
     self.bos_idx = eos_idx
 
@@ -135,12 +133,14 @@ class GlobalAttEfficientDecoder(GlobalAttDecoder):
           enc_ctx: rf.Tensor,
           enc_spatial_dim: Dim,
           s: rf.Tensor,
-          input_embed: rf.Tensor,
-          input_embed_spatial_dim: Dim,
+          input_embed: Optional[rf.Tensor] = None,
+          input_embed_spatial_dim: Optional[Dim] = None,
           use_mini_att: bool = False,
   ) -> rf.Tensor:
     if use_mini_att:
+      assert input_embed is not None
       if "lstm" in self.decoder_state:
+        assert input_embed_spatial_dim is not None
         att_lstm, _ = self.mini_att_lstm(
           input_embed,
           state=self.mini_att_lstm.default_initial_state(
@@ -165,9 +165,17 @@ class GlobalAttEfficientDecoder(GlobalAttDecoder):
 
     return att
 
-  def decode_logits(self, *, s: Tensor, input_embed: Tensor, att: Tensor) -> Tensor:
+  def decode_logits(self, *, s: Tensor, input_embed: Tensor, att: Tensor, h_t: Optional[Tensor] = None) -> Tensor:
     """logits for the decoder"""
-    readout_in = self.readout_in(rf.concat_features(s, input_embed, att, allow_broadcast=True))
+
+    if self.use_current_frame_in_readout:
+      assert h_t is not None, "Need h_t for readout!"
+      readout_input = rf.concat_features(s, input_embed, att, h_t, allow_broadcast=True)
+    else:
+      readout_input = rf.concat_features(s, input_embed, att)
+
+    readout_in = self.readout_in(readout_input)
+
     readout = rf.reduce_out(readout_in, mode="max", num_pieces=2, out_dim=self.output_prob.in_dim)
     readout = rf.dropout(readout, drop_prob=0.3, axis=self.dropout_broadcast and readout.feature_dim)
     logits = self.output_prob(readout)

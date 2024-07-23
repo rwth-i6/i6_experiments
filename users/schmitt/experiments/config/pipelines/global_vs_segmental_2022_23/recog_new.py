@@ -45,6 +45,7 @@ from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segment
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.corpora import tedlium2, librispeech
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.global_.train import _returnn_v2_train_step, from_scratch_training
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf import dump_att_weights as dump_att_weights_forward_funcs
+from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf import analyze_gradients as analyze_gradients_forward_funcs
 
 
 class DecodingExperiment(ABC):
@@ -422,18 +423,17 @@ class ReturnnDecodingExperiment(DecodingExperiment, ABC):
       segment_file = WriteToTextFileJob(
         content=att_weight_seq_tags
       )
-      dump_att_weight_config = self.config_builder.get_dump_att_weight_config(
-        opts={
-          "corpus_key": self.corpus_key,
-          "dataset_opts": {
-            "segment_paths": {self.corpus_key: segment_file.out_file},
-            "hdf_targets": LibrispeechBPE10025_CTC_ALIGNMENT.alignment_paths,
-          },
-          "forward_step_func": dump_att_weights_forward_funcs._returnn_v2_forward_step,
-          "forward_callback": dump_att_weights_forward_funcs._returnn_v2_get_forward_callback,
-          "dump_att_weight_def": dump_att_weights_forward_funcs.dump_att_weights,
-        }
-      )
+      dump_att_weights_opts = {
+        "corpus_key": self.corpus_key,
+        "dataset_opts": {
+          "segment_paths": {self.corpus_key: segment_file.out_file},
+          "hdf_targets": LibrispeechBPE10025_CTC_ALIGNMENT.alignment_paths,
+        },
+        "forward_step_func": dump_att_weights_forward_funcs._returnn_v2_forward_step,
+        "forward_callback": dump_att_weights_forward_funcs._returnn_v2_get_forward_callback,
+        "dump_att_weight_def": dump_att_weights_forward_funcs.dump_att_weights,
+      }
+      dump_att_weight_config = self.config_builder.get_dump_att_weight_config(opts=dump_att_weights_opts)
       dump_att_weights_job = ReturnnForwardJobV2(
         model_checkpoint=self.checkpoint,
         returnn_config=dump_att_weight_config,
@@ -467,6 +467,29 @@ class ReturnnDecodingExperiment(DecodingExperiment, ABC):
       )
       plot_att_weights_job.add_alias(f"{self.alias}/analysis/plot_att_weights")
       tk.register_output(plot_att_weights_job.get_one_alias(), plot_att_weights_job.out_plot_dir)
+
+      if _analysis_opts.get("analyze_gradients", False):
+        analyze_gradients_opts = copy.deepcopy(dump_att_weights_opts)
+        del analyze_gradients_opts["dump_att_weight_def"]
+        analyze_gradients_opts.update({
+          "forward_step_func": analyze_gradients_forward_funcs._returnn_v2_forward_step,
+          "forward_callback": analyze_gradients_forward_funcs._returnn_v2_get_forward_callback,
+          "analyze_gradients_def": analyze_gradients_forward_funcs.analyze_gradients,
+        })
+
+        analyze_gradients_config = self.config_builder.get_analyze_gradients_config(opts=analyze_gradients_opts)
+        analyze_gradients_job = ReturnnForwardJobV2(
+          model_checkpoint=self.checkpoint,
+          returnn_config=analyze_gradients_config,
+          returnn_root=self.returnn_root,
+          returnn_python_exe=self.returnn_python_exe,
+          output_files=["analysis.txt"],
+          mem_rqmt=self.search_rqmt.get("mem", 6),
+          time_rqmt=self.search_rqmt.get("time", 1),
+        )
+        analyze_gradients_job.add_alias(f"{self.alias}/analysis/analyze_gradients")
+        tk.register_output(analyze_gradients_job.get_one_alias(), analyze_gradients_job.out_files["analysis.txt"])
+
     else:
       forward_recog_config = self.config_builder.get_recog_config_for_forward_job(opts=self.recog_opts)
       forward_search_job = ReturnnForwardJob(

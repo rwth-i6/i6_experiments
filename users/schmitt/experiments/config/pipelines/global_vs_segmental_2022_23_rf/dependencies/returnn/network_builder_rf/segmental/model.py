@@ -3,6 +3,7 @@ import functools
 
 from returnn.tensor import Tensor, Dim, single_step_dim
 import returnn.frontend as rf
+from returnn.frontend.decoder.transformer import TransformerDecoder
 
 from i6_experiments.users.schmitt.returnn_frontend.model_interfaces.model import ModelDef
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.base import _batch_size_factor
@@ -16,6 +17,9 @@ from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segment
 )
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.segmental.model_new.label_model.model import (
   SegmentalAttLabelDecoder, SegmentalAttEfficientLabelDecoder
+)
+from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.global_.decoder import (
+  GlobalAttDecoder, GlobalAttEfficientDecoder
 )
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.encoder.global_ import GlobalConformerEncoder
 from i6_experiments.users.schmitt.returnn_frontend.model_interfaces.supports_label_scorer_torch import RFModelWithMakeLabelScorer
@@ -77,40 +81,94 @@ class SegmentalAttentionModel(rf.Module):
       l2=l2,
       use_weight_feedback=use_weight_feedback,
       feature_extraction_opts=feature_extraction_opts,
+      decoder_type="trafo" if label_decoder_state == "trafo" else "lstm"
     )
 
     assert blank_decoder_version in {1, 3, 4, 5, 6, 7}
-    assert label_decoder_state in {"nb-lstm", "joint-lstm", "nb-2linear-ctx1"}
+    assert label_decoder_state in {"nb-lstm", "joint-lstm", "nb-2linear-ctx1", "trafo"}
     if not use_joint_model:
-      assert label_decoder_state in ("nb-lstm", "nb-2linear-ctx1")
+      assert label_decoder_state in ("nb-lstm", "nb-2linear-ctx1", "trafo")
       assert not separate_blank_from_softmax, "only makes sense when jointly modeling blank and non-blanks"
 
-    if not use_weight_feedback and not use_att_ctx_in_state:
-      label_decoder_cls = SegmentalAttEfficientLabelDecoder
-    else:
-      label_decoder_cls = SegmentalAttLabelDecoder
+    # label decoder
+    # if center_window_size is None, use global attention decoder
+    if center_window_size is None:
+      if label_decoder_state == "trafo":
+        self.bos_idx = 1
+        assert not language_model, "need to change bos_idx in recog implementation"
 
-    self.label_decoder = label_decoder_cls(
-      enc_out_dim=self.encoder.out_dim,
-      target_dim=target_dim,
-      att_num_heads=dec_att_num_heads,
-      att_dropout=att_dropout,
-      blank_idx=blank_idx,
-      enc_key_total_dim=enc_key_total_dim,
-      l2=l2,
-      center_window_size=center_window_size,
-      use_weight_feedback=use_weight_feedback,
-      use_att_ctx_in_state=use_att_ctx_in_state,
-      decoder_state=label_decoder_state,
-      use_mini_att=use_mini_att,
-      gaussian_att_weight_opts=gaussian_att_weight_opts,
-      separate_blank_from_softmax=separate_blank_from_softmax,
-      reset_eos_params=reset_eos_params,
-      use_current_frame_in_readout=use_current_frame_in_readout,
-      target_embed_dim=Dim(name="target_embed", dimension=target_embed_dim),
-    )
+        model_dim = Dim(name="dec", dimension=512)
+        self.label_decoder = TransformerDecoder(
+          num_layers=6,
+          encoder_dim=self.encoder.out_dim,
+          vocab_dim=target_dim,
+          model_dim=model_dim,
+          sequential=rf.Sequential,
+          share_embedding=True,
+          input_embedding_scale=model_dim.dimension ** 0.5
+        )
+      else:
+        self.bos_idx = 0
+        if not use_weight_feedback and not use_att_ctx_in_state:
+          label_decoder_cls = GlobalAttEfficientDecoder
+        else:
+          label_decoder_cls = GlobalAttDecoder
+
+        self.label_decoder = label_decoder_cls(
+          enc_out_dim=self.encoder.out_dim,
+          target_dim=target_dim,
+          att_num_heads=dec_att_num_heads,
+          att_dropout=att_dropout,
+          blank_idx=blank_idx,
+          enc_key_total_dim=enc_key_total_dim,
+          l2=l2,
+          use_weight_feedback=use_weight_feedback,
+          use_att_ctx_in_state=use_att_ctx_in_state,
+          decoder_state=label_decoder_state,
+          use_mini_att=use_mini_att,
+          separate_blank_from_softmax=separate_blank_from_softmax,
+          reset_eos_params=reset_eos_params,
+          use_current_frame_in_readout=use_current_frame_in_readout,
+          target_embed_dim=Dim(name="target_embed", dimension=target_embed_dim),
+          eos_idx=blank_idx
+        )
+    else:
+      if label_decoder_state == "trafo":
+        raise NotImplementedError("Trafo decoder not implemented for segmental model")
+      else:
+        self.bos_idx = 0
+
+        if not use_weight_feedback and not use_att_ctx_in_state:
+          label_decoder_cls = SegmentalAttEfficientLabelDecoder
+        else:
+          label_decoder_cls = SegmentalAttLabelDecoder
+
+        self.label_decoder = label_decoder_cls(
+          enc_out_dim=self.encoder.out_dim,
+          target_dim=target_dim,
+          att_num_heads=dec_att_num_heads,
+          att_dropout=att_dropout,
+          blank_idx=blank_idx,
+          enc_key_total_dim=enc_key_total_dim,
+          l2=l2,
+          center_window_size=center_window_size,
+          use_weight_feedback=use_weight_feedback,
+          use_att_ctx_in_state=use_att_ctx_in_state,
+          decoder_state=label_decoder_state,
+          use_mini_att=use_mini_att,
+          gaussian_att_weight_opts=gaussian_att_weight_opts,
+          separate_blank_from_softmax=separate_blank_from_softmax,
+          reset_eos_params=reset_eos_params,
+          use_current_frame_in_readout=use_current_frame_in_readout,
+          target_embed_dim=Dim(name="target_embed", dimension=target_embed_dim),
+        )
 
     if not use_joint_model:
+      if label_decoder_state == "trafo":
+        label_state_dim = model_dim
+      else:
+        label_state_dim = self.label_decoder.get_lstm().out_dim
+
       blank_decoder_opts.pop("version", None)
       if blank_decoder_version == 1:
         self.blank_decoder = BlankDecoderV1(
@@ -122,30 +180,30 @@ class SegmentalAttentionModel(rf.Module):
       elif blank_decoder_version == 3:
         self.blank_decoder = BlankDecoderV3(
           length_model_state_dim=length_model_state_dim,
-          label_state_dim=self.label_decoder.get_lstm().out_dim,
+          label_state_dim=label_state_dim,
           encoder_out_dim=self.encoder.out_dim,
         )
       elif blank_decoder_version == 4:
         self.blank_decoder = BlankDecoderV4(
           length_model_state_dim=length_model_state_dim,
-          label_state_dim=self.label_decoder.get_lstm().out_dim,
+          label_state_dim=label_state_dim,
           encoder_out_dim=self.encoder.out_dim,
         )
       elif blank_decoder_version == 5:
         self.blank_decoder = BlankDecoderV5(
-          label_state_dim=self.label_decoder.get_lstm().out_dim,
+          label_state_dim=label_state_dim,
           encoder_out_dim=self.encoder.out_dim,
         )
       elif blank_decoder_version == 6:
         self.blank_decoder = BlankDecoderV6(
           length_model_state_dim=length_model_state_dim,
-          label_state_dim=self.label_decoder.get_lstm().out_dim,
+          label_state_dim=label_state_dim,
           encoder_out_dim=self.encoder.out_dim,
         )
       else:
         self.blank_decoder = BlankDecoderV7(
           length_model_state_dim=length_model_state_dim,
-          label_state_dim=self.label_decoder.get_lstm().out_dim,
+          label_state_dim=label_state_dim,
           encoder_out_dim=self.encoder.out_dim,
           **blank_decoder_opts,
         )
@@ -158,9 +216,12 @@ class SegmentalAttentionModel(rf.Module):
       self.language_model = None
       self.language_model_make_label_scorer = None
 
-    self.blank_idx = self.label_decoder.blank_idx
+    self.blank_idx = blank_idx
     self.center_window_size = center_window_size
-    self.target_dim = self.label_decoder.target_dim
+    if label_decoder_state == "trafo":
+      self.target_dim = self.label_decoder.vocab_dim
+    else:
+      self.target_dim = self.label_decoder.target_dim
     self.align_target_dim = align_target_dim
     self.use_joint_model = use_joint_model
     self.blank_decoder_version = blank_decoder_version
@@ -291,8 +352,6 @@ def from_scratch_model_def(
   in_dim = Dim(name="logmel", dimension=log_mel_feature_dim, kind=Dim.Types.Feature)
   lm_opts = config.typed_value("external_lm")
   center_window_size = config.typed_value("center_window_size")
-  if center_window_size is None:
-    raise ValueError("center_window_size is not set!")
 
   use_att_ctx_in_state = config.bool("use_att_ctx_in_state", True)
   label_decoder_state = config.typed_value("label_decoder_state", "nb-lstm")

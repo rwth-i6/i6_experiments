@@ -1,0 +1,3 @@
+Baseline label model (full explicit label ctx + implicit align ctx (ctx vector in state))
+Blank decoder V1 (full alignment ctx)
+Static (Gaussian) att weights

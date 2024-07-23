@@ -22,6 +22,8 @@ def center_window_returnn_realignment(
         checkpoint: Union[PtCheckpoint, Dict],
         checkpoint_alias: str,
         plot: bool = False,
+        batch_size: int = 15_000,
+        time_rqmt: int = 1,
 ):
   alias += (
     f"/returnn_realignment/{checkpoint_alias}-checkpoint"
@@ -39,7 +41,8 @@ def center_window_returnn_realignment(
       "realign_def": model_realign_,
       "forward_step_func": _returnn_v2_forward_step,
       "forward_callback": _returnn_v2_get_forward_callback,
-      "dataset_opts": {"target_is_alignment": False}
+      "dataset_opts": {"target_is_alignment": False},
+      "batch_size": batch_size,
     })
 
   realign_job = ReturnnForwardJobV2(
@@ -49,7 +52,7 @@ def center_window_returnn_realignment(
     returnn_python_exe=RETURNN_EXE_NEW,
     output_files=["scores.py.gz", "realignment.hdf"],
     mem_rqmt=6,
-    time_rqmt=1,
+    time_rqmt=time_rqmt,
   )
   realign_job.add_alias(f"{alias}/realignment")
   tk.register_output(realign_job.get_one_alias(), realign_job.out_files["realignment.hdf"])

@@ -3,6 +3,7 @@ from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segment
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.pipelines.pipeline_ls_conf.center_window_att import baseline_v4 as center_window_baseline_v4
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.pipelines.pipeline_ls_conf.center_window_att import baseline_v5 as center_window_baseline_v5
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.pipelines.pipeline_ls_conf.center_window_att import baseline_v6 as center_window_baseline_v6
+from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.pipelines.pipeline_ls_conf.center_window_att import baseline_v7 as center_window_baseline_v7
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.pipelines.pipeline_ls_conf.global_att import baseline_v1 as global_att_baseline_v1
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.pipelines.pipeline_ls_conf.global_att import baseline_v2 as global_att_baseline_v2
 
@@ -20,3 +21,4 @@ def run_exps():
   center_window_baseline_v4.run_exps()
   center_window_baseline_v5.run_exps()
   center_window_baseline_v6.run_exps()
+  center_window_baseline_v7.run_exps()

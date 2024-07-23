@@ -318,7 +318,7 @@ def test_alignment_augmentation_batched(hdf_path: str):
 
   blank_idx = 10025
   max_shift = 2
-  num_iterations = 2
+  num_iterations = 4
 
   hdf_dataset = HDFDataset([hdf_path])
   hdf_dataset.initialize()

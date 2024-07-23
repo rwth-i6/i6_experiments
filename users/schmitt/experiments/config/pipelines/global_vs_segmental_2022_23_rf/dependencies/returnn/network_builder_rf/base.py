@@ -144,6 +144,7 @@ class BaseLabelDecoder(rf.Module):
         readout_in_dim,
         readout_out_dim,
       )
+      self.readout_in = self.readout_in_w_current_frame
     else:
       self.readout_in = rf.Linear(
         readout_in_dim,

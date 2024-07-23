@@ -23,6 +23,7 @@ from i6_experiments.users.schmitt.returnn_frontend.model_interfaces.recog import
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.base import _batch_size_factor
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.segmental.model import SegmentalAttentionModel
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.segmental import recombination
+from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.segmental import recog
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.segmental.utils import get_masked, get_non_blank_mask
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.beam_search import utils as beam_search_utils
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.segmental.model_new.blank_model.model import (
@@ -34,7 +35,6 @@ from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segment
 )
 
 from returnn.tensor import Dim, single_step_dim, TensorDict
-import returnn.frontend as rf
 from returnn.frontend.tensor_array import TensorArray
 
 
@@ -46,58 +46,53 @@ def model_realign_(
         non_blank_targets: rf.Tensor,
         non_blank_targets_spatial_dim: Dim,
 ):
-
-  if data.feature_dim and data.feature_dim.dimension == 1:
-    data = rf.squeeze(data, axis=data.feature_dim)
-  assert not data.feature_dim  # raw audio
-
   batch_dims = data.remaining_dims(data_spatial_dim)
-  enc_args, enc_spatial_dim = model.encoder.encode(data, in_spatial_dim=data_spatial_dim)
-
   max_num_labels = rf.reduce_max(
     non_blank_targets_spatial_dim.dyn_size_ext,
-    axis=batch_dims
+    axis=non_blank_targets_spatial_dim.dyn_size_ext.dims
   )
   max_num_labels = max_num_labels.raw_tensor.item()
 
-  # if model.use_joint_model and isinstance(model.label_decoder, SegmentalAttEfficientLabelDecoder):
-  #   segment_starts, segment_lens = utils.get_segment_starts_and_lens(
-  #     rf.sequence_mask(batch_dims + [enc_spatial_dim]),  # this way, every frame is interpreted as non-blank
-  #     enc_spatial_dim,
-  #     model,
-  #     batch_dims,
-  #     enc_spatial_dim
-  #   )
-  #
-  #   seq_log_prob, viterbi_alignment, viterbi_alignment_spatial_dim = model_realign_efficient(
-  #     model=model.label_decoder,
-  #     enc=enc_args["enc"],
-  #     enc_ctx=enc_args["enc_ctx"],
-  #     enc_spatial_dim=enc_spatial_dim,
-  #     non_blank_targets=non_blank_targets,
-  #     non_blank_targets_spatial_dim=non_blank_targets_spatial_dim,
-  #     segment_starts=segment_starts,
-  #     segment_lens=segment_lens,
-  #     batch_dims=batch_dims,
-  #     beam_size=max_num_labels,
-  #     downsampling=1,
-  #     precompute_chunk_size=10,
-  #     interpolation_alignment=None,
-  #     interpolation_alignment_factor=0.0,
-  #     use_recombination="max",
-  #     return_realignment=True,
-  #   )
-  # else:
-  seq_log_prob, viterbi_alignment, viterbi_alignment_spatial_dim = model_realign(
+  # use recognition with cheating targets to get the alignment
+  # using a beam size of max_num_labels * 2 ensures that we search the whole lattice: the recombination is done
+  # after top-k, which means each node at a certain time step can have two hypotheses which lead there. at most,
+  # there are max_num_labels nodes at a time step, hence the max_num_labels * 2 beam size.
+  viterbi_alignment, seq_log_prob, viterbi_alignment_spatial_dim, beam_dim = recog.model_recog(
     model=model,
-    enc_args=enc_args,
-    enc_spatial_dim=enc_spatial_dim,
-    non_blank_targets=non_blank_targets,
-    non_blank_targets_spatial_dim=non_blank_targets_spatial_dim,
-    batch_dims=batch_dims,
-    beam_size=max_num_labels,
+    data=data,
+    data_spatial_dim=data_spatial_dim,
+    beam_size=max_num_labels * 2,
     use_recombination="max",
+    cheating_targets=non_blank_targets,
+    cheating_targets_spatial_dim=non_blank_targets_spatial_dim,
+    return_non_blank_seqs=False,
   )
+
+  # reduce to best hypothesis (remove beam dim)
+  best_hyps = rf.reduce_argmax(seq_log_prob, axis=beam_dim)
+  seq_log_prob = rf.reduce_max(seq_log_prob, axis=beam_dim)
+  viterbi_alignment = rf.gather(
+    viterbi_alignment,
+    indices=best_hyps,
+    axis=beam_dim,
+  )
+
+  # if data.feature_dim and data.feature_dim.dimension == 1:
+  #   data = rf.squeeze(data, axis=data.feature_dim)
+  # assert not data.feature_dim  # raw audio
+  #
+  # enc_args, enc_spatial_dim = model.encoder.encode(data, in_spatial_dim=data_spatial_dim)
+  #
+  # seq_log_prob, viterbi_alignment, viterbi_alignment_spatial_dim = model_realign(
+  #   model=model,
+  #   enc_args=enc_args,
+  #   enc_spatial_dim=enc_spatial_dim,
+  #   non_blank_targets=non_blank_targets,
+  #   non_blank_targets_spatial_dim=non_blank_targets_spatial_dim,
+  #   batch_dims=batch_dims,
+  #   beam_size=max_num_labels,
+  #   use_recombination="max",
+  # )
 
   return viterbi_alignment, seq_log_prob, viterbi_alignment_spatial_dim
 
@@ -466,7 +461,7 @@ def model_realign(
   ) or model.blank_decoder is None, "blank_decoder not supported"
   if model.blank_decoder is None:
     assert model.use_joint_model, "blank_decoder is None, so use_joint_model must be True"
-  assert model.label_decoder_state in {"nb-lstm", "joint-lstm", "nb-2linear-ctx1"}
+  assert model.label_decoder_state in {"nb-lstm", "joint-lstm", "nb-2linear-ctx1", "trafo"}
 
   # --------------------------------- init dims, etc ---------------------------------
 

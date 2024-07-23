@@ -189,3 +189,13 @@ def log_softmax_sep_blank(
   log_prob, _ = rf.concat((blank_log_prob, blank_dim), (label_log_prob, non_blank_dim), out_dim=target_dim)
 
   return log_prob
+
+
+def cumsum(x: Tensor, dim: Dim):
+  orig_dims = x.dims
+  x = x.copy_transpose([dim] + x.remaining_dims([dim]))
+  x_raw = x.raw_tensor
+  x = x.copy_template()
+  x.raw_tensor = torch.cumsum(x_raw, dim=x.get_axis_from_description(dim), dtype=x_raw.dtype)
+  x = x.copy_transpose(orig_dims)
+  return x

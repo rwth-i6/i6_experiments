@@ -794,13 +794,19 @@ class SegmentalAttConfigBuilderRF(ConfigBuilderRF, ABC):
   def get_recog_config(self, opts: Dict):
     recog_config = super(SegmentalAttConfigBuilderRF, self).get_recog_config(opts)
 
-    recog_config.config["non_blank_vocab"] = {
-      "bpe_file": self.variant_params["dependencies"].bpe_codes_path,
-      "vocab_file": self.variant_params["dependencies"].vocab_path,
-      "unknown_label": None,
-      "bos_label": self.variant_params["dependencies"].model_hyperparameters.sos_idx,
-      "eos_label": self.variant_params["dependencies"].model_hyperparameters.sos_idx,
-    }
+    if self.variant_params["dependencies"].bpe_codes_path is None:
+      recog_config.config["non_blank_vocab"] = {
+        "model_file": self.variant_params["dependencies"].model_path,
+        "class": "SentencePieces",
+      }
+    else:
+      recog_config.config["non_blank_vocab"] = {
+        "bpe_file": self.variant_params["dependencies"].bpe_codes_path,
+        "vocab_file": self.variant_params["dependencies"].vocab_path,
+        "unknown_label": None,
+        "bos_label": self.variant_params["dependencies"].model_hyperparameters.sos_idx,
+        "eos_label": self.variant_params["dependencies"].model_hyperparameters.sos_idx,
+      }
 
     use_recombination = opts.get("use_recombination")
     if use_recombination is not None:
@@ -838,6 +844,7 @@ class SegmentalAttConfigBuilderRF(ConfigBuilderRF, ABC):
     python_epilog = copy.deepcopy(self.python_epilog)
 
     dataset_opts = opts.get("dataset_opts", {})
+    dataset_opts["seq_postfix"] = None
     config_dict.update(dict(
       task="forward",
       batching=opts.get("batching", "random")
@@ -889,6 +896,7 @@ class SegmentalAttConfigBuilderRF(ConfigBuilderRF, ABC):
     python_epilog = copy.deepcopy(self.python_epilog)
 
     dataset_opts = opts.get("dataset_opts", {})
+    dataset_opts["target_is_alignment"] = True
     config_dict.update(dict(
       task="forward",
       batching=opts.get("batching", "random")
@@ -915,6 +923,58 @@ class SegmentalAttConfigBuilderRF(ConfigBuilderRF, ABC):
           serialization.Import(self.get_model_func, import_as="get_model"),
           serialization.Import(
             opts["dump_att_weight_def"], import_as="_dump_att_weight_def", ignore_import_as_for_hash=True),
+          serialization.Import(opts["forward_step_func"], import_as="forward_step"),
+          serialization.Import(opts["forward_callback"], import_as="forward_callback"),
+          serialization.PythonEnlargeStackWorkaroundNonhashedCode,
+          serialization.PythonCacheManagerFunctionNonhashedCode,
+          serialization.PythonModelineNonhashedCode
+        ]
+      )
+    )
+
+    returnn_dump_att_weight_config = ReturnnConfig(
+      config=config_dict,
+      post_config=post_config_dict,
+      python_prolog=python_prolog,
+      python_epilog=python_epilog,
+    )
+
+    # serialize remaining functions, e.g. dynamic learning rate
+    return get_serializable_config(returnn_dump_att_weight_config, serialize_dim_tags=False)
+
+  def get_analyze_gradients_config(self, opts: Dict):
+    config_dict = copy.deepcopy(self.config_dict)
+    post_config_dict = copy.deepcopy(self.post_config_dict)
+    python_prolog = copy.deepcopy(self.python_prolog)
+    python_epilog = copy.deepcopy(self.python_epilog)
+
+    dataset_opts = opts.get("dataset_opts", {})
+    config_dict.update(dict(
+      task="forward",
+      batching=opts.get("batching", "random")
+    ))
+
+    config_dict.update(
+      self.get_search_dataset(
+        search_corpus_key=opts["corpus_key"],
+        dataset_opts=dataset_opts
+      ))
+    extern_data_raw = self.get_extern_data_dict(dataset_opts, config_dict)
+    extern_data_raw = instanciate_delayed(extern_data_raw)
+
+    config_dict["batch_size"] = opts.get("batch_size", 15_000) * self.batch_size_factor
+
+    python_epilog.append(
+      serialization.Collection(
+        [
+          serialization.NonhashedCode(get_import_py_code()),
+          serialization.NonhashedCode(
+            nn.ReturnnConfigSerializer.get_base_extern_data_py_code_str_direct(extern_data_raw)
+          ),
+          *serialize_model_def(self.model_def),
+          serialization.Import(self.get_model_func, import_as="get_model"),
+          serialization.Import(
+            opts["analyze_gradients_def"], import_as="_analyze_gradients_def", ignore_import_as_for_hash=True),
           serialization.Import(opts["forward_step_func"], import_as="forward_step"),
           serialization.Import(opts["forward_callback"], import_as="forward_callback"),
           serialization.PythonEnlargeStackWorkaroundNonhashedCode,

@@ -139,6 +139,9 @@ def dump_hdf_rf(
 
   seq_tags = list(seq_tags.raw_tensor) if isinstance(seq_tags, Tensor) else seq_tags
 
+  if data_raw.requires_grad:
+    data_raw = data_raw.detach()  # cannot call .numpy() on a tensor that requires grad
+
   hdf_dataset.insert_batch(
     data_raw.cpu().numpy(),
     seq_len=seq_lens,

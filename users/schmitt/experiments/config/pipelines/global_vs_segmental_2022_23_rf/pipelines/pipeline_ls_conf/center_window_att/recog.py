@@ -28,6 +28,7 @@ def center_window_returnn_frame_wise_beam_search(
         batch_size: Optional[int] = None,
         corpus_keys: Tuple[str, ...] = ("dev-other",),
         reset_eos_params: bool = False,
+        analyze_gradients: bool = False,
 ):
   if lm_type is not None:
     assert len(checkpoint_aliases) == 1, "Do LM recog only for the best checkpoint"
@@ -45,6 +46,7 @@ def center_window_returnn_frame_wise_beam_search(
     "forward_callback": _returnn_v2_get_forward_callback,
     "use_recombination": use_recombination,
     "reset_eos_params": reset_eos_params,
+    "dataset_opts": {"target_is_alignment": True}
   }
   if batch_size is not None:
     recog_opts["batch_size"] = batch_size
@@ -60,7 +62,7 @@ def center_window_returnn_frame_wise_beam_search(
     ilm_scales=ilm_scale_list,
     ilm_opts=ilm_opts,
     run_analysis=run_analysis,
-    analysis_opts={"att_weight_seq_tags": att_weight_seq_tags},
+    analysis_opts={"att_weight_seq_tags": att_weight_seq_tags, "analyze_gradients": analyze_gradients},
     recog_opts=recog_opts,
     search_alias=f'returnn_decoding{"_pure_torch" if pure_torch else ""}',
     corpus_keys=corpus_keys,

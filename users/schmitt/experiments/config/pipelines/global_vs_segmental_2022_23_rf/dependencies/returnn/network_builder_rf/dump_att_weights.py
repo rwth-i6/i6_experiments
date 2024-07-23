@@ -1,5 +1,5 @@
 import os.path
-from typing import Optional, Dict
+from typing import Optional, Dict, List
 import sys
 
 from returnn.tensor import TensorDict
@@ -18,6 +18,76 @@ from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segment
   forward_sequence, forward_sequence_efficient
 )
 from i6_experiments.users.schmitt import hdf
+
+
+def dump_hdfs(
+        att_weights: rf.Tensor,
+        center_positions: rf.Tensor,
+        segment_lens: rf.Tensor,
+        segment_starts: rf.Tensor,
+        align_targets: rf.Tensor,
+        seq_tags: rf.Tensor,
+        batch_dims: List[rf.Dim],
+        align_target_dim: int,
+        dirname: Optional[str] = None,
+):
+  if dirname is not None and not os.path.exists(dirname):
+    os.makedirs(dirname)
+
+  for tensor_name, tensor, dim, ndim in (
+          ("att_weights", att_weights, 1, 3),
+          ("center_positions", center_positions, 1, 1),
+          ("seg_lens", segment_lens, 1, 1),
+          ("seg_starts", segment_starts, 1, 1),
+          ("targets", align_targets, align_target_dim, 1),
+  ):
+    filename = f"{tensor_name}.hdf"
+    if dirname is not None:
+      filename = os.path.join(dirname, filename)
+
+    hdf_dataset = SimpleHDFWriter(
+      filename=filename,
+      dim=dim,
+      ndim=ndim,
+      extend_existing_file=os.path.exists(filename)
+    )
+    hdf.dump_hdf_rf(
+      hdf_dataset=hdf_dataset,
+      data=tensor,
+      batch_dim=batch_dims[0],
+      seq_tags=seq_tags,
+    )
+    hdf_dataset.close()
+
+
+def scatter_att_weights(
+        att_weights: rf.Tensor,
+        segment_starts: rf.Tensor,
+        new_slice_dim: rf.Dim,
+        align_targets_spatial_dim: rf.Dim,
+):
+  # scatter the attention weights to the align_targets_spatial_dim to get shape [T, S]
+  scatter_indices = segment_starts + rf.range_over_dim(new_slice_dim)
+  align_targets_spatial_sizes = rf.copy_to_device(
+    align_targets_spatial_dim.dyn_size_ext, device=att_weights.device
+  )
+  # in case we padded the attention weights with zeros, we would scatter out of bounds
+  # in this case, we just scatter to the last position. since we padded with zeros, this
+  # will not affect the resulting attention weights (scatter just adds values pointing to the same position)
+  scatter_indices = rf.where(
+    scatter_indices > align_targets_spatial_sizes - 1,
+    align_targets_spatial_sizes - 1,
+    scatter_indices,
+  )
+  scatter_indices.sparse_dim = align_targets_spatial_dim
+
+  att_weights = rf.scatter(
+    att_weights,
+    indices=scatter_indices,
+    indices_dim=new_slice_dim,
+  )
+
+  return att_weights
 
 
 def dump_att_weights(
@@ -205,11 +275,11 @@ def dump_att_weights(
 
         # at the end of the seq, there may be less than center_window_size attention weights
         # in this case, just pad with zeros until we reach center_window_size
-        if max_slice_size < model.center_window_size:
+        if max_slice_size < new_slice_dim.dimension:
           new_out, _ = rf.pad(
             new_out,
             axes=[old_slice_dim],
-            padding=[(0, model.center_window_size - max_slice_size)],
+            padding=[(0, new_slice_dim.dimension - max_slice_size)],
             out_dims=[new_slice_dim],
             value=0.0,
           )
@@ -251,48 +321,23 @@ def dump_att_weights(
           batch_dims + [model.label_decoder.att_num_heads, non_blank_targets_spatial_dim])
         att_weights = utils.copy_tensor_replace_dim_tag(new_out, old_slice_dim, new_slice_dim)
 
-  # scatter the attention weights to the align_targets_spatial_dim to get shape [T, S]
-  scatter_indices = segment_starts + rf.range_over_dim(new_slice_dim)
-  align_targets_spatial_sizes = rf.copy_to_device(
-    align_targets_spatial_dim.dyn_size_ext, device=data.device
-  )
-  # in case we padded the attention weights with zeros, we would scatter out of bounds
-  # in this case, we just scatter to the last position. since we padded with zeros, this
-  # will not affect the resulting attention weights (scatter just adds values pointing to the same position)
-  scatter_indices = rf.where(
-    scatter_indices > align_targets_spatial_sizes - 1,
-    align_targets_spatial_sizes - 1,
-    scatter_indices,
-  )
-  scatter_indices.sparse_dim = align_targets_spatial_dim
-
-  att_weights = rf.scatter(
-    att_weights,
-    indices=scatter_indices,
-    indices_dim=new_slice_dim,
+  att_weights = scatter_att_weights(
+    att_weights=att_weights,
+    segment_starts=segment_starts,
+    new_slice_dim=new_slice_dim,
+    align_targets_spatial_dim=align_targets_spatial_dim,
   )
 
-  for tensor_name, tensor, dim, ndim in (
-          ("att_weights", att_weights, 1, 3),
-          ("center_positions", center_positions, 1, 1),
-          ("seg_lens", segment_lens, 1, 1),
-          ("seg_starts", segment_starts, 1, 1),
-          ("targets", align_targets, model.align_target_dim.dimension, 1),
-  ):
-    filename = f"{tensor_name}.hdf"
-    hdf_dataset = SimpleHDFWriter(
-      filename=filename,
-      dim=dim,
-      ndim=ndim,
-      extend_existing_file=os.path.exists(filename)
-    )
-    hdf.dump_hdf_rf(
-      hdf_dataset=hdf_dataset,
-      data=tensor,
-      batch_dim=batch_dims[0],
-      seq_tags=seq_tags,
-    )
-    hdf_dataset.close()
+  dump_hdfs(
+    att_weights=att_weights,
+    center_positions=center_positions,
+    segment_lens=segment_lens,
+    segment_starts=segment_starts,
+    align_targets=align_targets,
+    align_target_dim=model.align_target_dim.dimension,
+    seq_tags=seq_tags,
+    batch_dims=batch_dims,
+  )
 
 
 

@@ -17,5 +17,5 @@ def run_exps():
   att_weight_feedback.run_exps()
   # Done
   blank_decoder_variants.run_exps()
-  # Running
+  # Done
   label_decoder_variants.run_exps()
