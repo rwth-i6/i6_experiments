@@ -1297,8 +1297,13 @@ class Model(rf.Module):
         func_opts.pop("class", None)
         func = NormedGradientFuncInvPrior(**func_opts)
 
+        assert log_probs.batch_dim_axis is not None and log_probs.feature_dim_axis is not None
         log_probs_ = log_probs.copy_template()
         log_probs_.raw_tensor = normed_gradient(
-            log_probs.raw_tensor, feat_axis=log_probs.feature_dim_axis, **opts, func=func
+            log_probs.raw_tensor,
+            batch_axis=log_probs.batch_dim_axis,
+            feat_axis=log_probs.feature_dim_axis,
+            **opts,
+            func=func,
         )
         return log_probs_
