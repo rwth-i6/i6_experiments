@@ -109,6 +109,7 @@ def forward_sequence(
         enc_spatial_dim: Dim,
         batch_dims: List[Dim],
         return_label_model_states: bool = False,
+        h_t: Optional[rf.Tensor] = None,
 ) -> Tuple[rf.Tensor, Optional[Tuple[rf.Tensor, Dim]]]:
   input_embeddings = model.target_embed(targets)
   input_embeddings = rf.shift_right(input_embeddings, axis=targets_spatial_dim, pad_value=0.0)
@@ -133,7 +134,7 @@ def forward_sequence(
       batch_dims=batch_dims
     )
 
-  logits = model.decode_logits(input_embed=input_embeddings, s=s, att=att)
+  logits = model.decode_logits(input_embed=input_embeddings, s=s, att=att, h_t=h_t)
 
   if return_label_model_states:
     # need to run the loop one more time to get the last output (which is not needed for the loss computation)
@@ -146,7 +147,7 @@ def forward_sequence(
       **enc_args,
       enc_spatial_dim=enc_spatial_dim,
       input_embed=last_embedding,
-      state=final_state,
+      state=final_state.decoder,
     )
     singleton_dim = Dim(name="singleton", dimension=1)
     return logits, rf.concat(

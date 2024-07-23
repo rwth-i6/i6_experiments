@@ -151,7 +151,7 @@ def run_exps():
   # -------------------------- full-sum training --------------------------------
 
   for model_alias, config_builder in get_config_builder.center_window_att_baseline_rf(
-          win_size_list=(1, 5),
+          win_size_list=(1,),
           blank_decoder_version=4,
           use_att_ctx_in_state=False,
           use_weight_feedback=False,
@@ -182,7 +182,7 @@ def run_exps():
 
   # window size 11 with current frame in readout
   for model_alias, config_builder in get_config_builder.center_window_att_baseline_rf(
-          win_size_list=(11,),
+          win_size_list=(None,),
           blank_decoder_version=4,
           use_att_ctx_in_state=False,
           use_weight_feedback=False,

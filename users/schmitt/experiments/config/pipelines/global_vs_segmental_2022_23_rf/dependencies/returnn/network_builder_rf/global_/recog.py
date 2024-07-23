@@ -135,7 +135,7 @@ def model_recog(
     # --------------------------------- external LM step ---------------------------------
 
     if lm_state is not None:
-      lm_logits, lm_state = model.language_model(
+      lm_logits, lm_state, _ = model.language_model(
         target,
         spatial_dim=single_step_dim,
         state=lm_state,

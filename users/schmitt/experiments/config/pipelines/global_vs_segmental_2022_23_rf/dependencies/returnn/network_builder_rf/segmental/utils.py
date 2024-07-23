@@ -79,13 +79,17 @@ def get_segment_starts_and_lens(
   non_blank_positions, _ = get_masked(
     targets_range, non_blank_mask, align_targets_spatial_dim, batch_dims, out_spatial_dim
   )
-  starts = rf.maximum(
-    rf.convert_to_tensor(0, dtype="int32"), non_blank_positions - model.center_window_size // 2)
-  ends = rf.minimum(
-    rf.copy_to_device(align_targets_spatial_dim.get_size_tensor() - 1, non_blank_positions.device),
-    non_blank_positions + model.center_window_size // 2
-  )
-  lens = ends - starts + 1
+  if model.center_window_size is None:
+    starts = None
+    lens = None
+  else:
+    starts = rf.maximum(
+      rf.convert_to_tensor(0, dtype="int32"), non_blank_positions - model.center_window_size // 2)
+    ends = rf.minimum(
+      rf.copy_to_device(align_targets_spatial_dim.get_size_tensor() - 1, non_blank_positions.device),
+      non_blank_positions + model.center_window_size // 2
+    )
+    lens = ends - starts + 1
 
   return starts, lens, non_blank_positions
 

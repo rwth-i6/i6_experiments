@@ -228,7 +228,7 @@ def get_score(
 
   lm_eos_log_prob = rf.zeros(batch_dims, dtype="float32")
   if lm_state is not None:
-    lm_logits, lm_state = model.language_model(
+    lm_logits, lm_state, _ = model.language_model(
       nb_target,
       spatial_dim=single_step_dim,
       state=lm_state,

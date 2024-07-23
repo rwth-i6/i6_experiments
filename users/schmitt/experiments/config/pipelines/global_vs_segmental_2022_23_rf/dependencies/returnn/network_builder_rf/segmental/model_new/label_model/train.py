@@ -248,6 +248,11 @@ def viterbi_training(
       return_label_model_states=return_label_model_states,
     )
   else:
+    if model.use_current_frame_in_readout:
+      h_t = rf.gather(enc_args["enc"], axis=enc_spatial_dim, indices=center_positions)
+    else:
+      h_t = None
+
     logits, label_model_states = forward_sequence_global_att(
       model=model,
       targets=non_blank_targets,
@@ -256,6 +261,7 @@ def viterbi_training(
       enc_spatial_dim=enc_spatial_dim,
       batch_dims=batch_dims,
       return_label_model_states=return_label_model_states,
+      h_t=h_t,
     )
 
   _calc_ce_loss_and_fer(
@@ -411,6 +417,11 @@ def viterbi_training_efficient(
       return_label_model_states=return_label_model_states,
     )
   else:
+    if model.use_current_frame_in_readout:
+      h_t = rf.gather(enc_args["enc"], axis=enc_spatial_dim, indices=center_positions)
+    else:
+      h_t = None
+
     logits, label_model_states = forward_sequence_global_att(
       model=model,
       targets=targets,
@@ -419,6 +430,7 @@ def viterbi_training_efficient(
       enc_spatial_dim=enc_spatial_dim,
       batch_dims=batch_dims,
       return_label_model_states=return_label_model_states,
+      h_t=h_t,
     )
 
   _calc_ce_loss_and_fer(
