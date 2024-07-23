@@ -54,7 +54,7 @@ def model_recog(
   # --------------------------------- init encoder, dims, etc ---------------------------------
 
   enc_args, enc_spatial_dim = model.encoder.encode(data, in_spatial_dim=data_spatial_dim)
-  if model.decoder_type == "trafo":
+  if model.label_decoder.decoder_state == "trafo":
     enc_args["enc"] = model.label_decoder.transform_encoder(enc_args["enc"], axis=enc_spatial_dim)
 
   if max_seq_len is None:
@@ -77,7 +77,7 @@ def model_recog(
   seq_backrefs = []
 
   # --------------------------------- init states ---------------------------------
-  if model.decoder_type == "lstm":
+  if model.label_decoder.decoder_state != "trafo":
     decoder_state = model.label_decoder.decoder_default_initial_state(
       batch_dims=batch_dims_, enc_spatial_dim=enc_spatial_dim)
   else:
@@ -104,7 +104,7 @@ def model_recog(
 
   i = 0
   while True:
-    if model.decoder_type == "lstm":
+    if model.label_decoder.decoder_state != "trafo":
       # --------------------------------- get embeddings ---------------------------------
       if i == 0:
         input_embed = rf.zeros(
@@ -146,7 +146,7 @@ def model_recog(
     # --------------------------------- ILM step ---------------------------------
 
     if ilm_state is not None:
-      assert model.decoder_type == "lstm", "not implemented yet"
+      assert model.label_decoder.decoder_state != "trafo", "not implemented yet"
 
       ilm_step_out, ilm_state = model.label_decoder.loop_step(
         **enc_args,
@@ -178,7 +178,7 @@ def model_recog(
     # --------------------------------- update states ---------------------------------
 
     # decoder
-    if model.decoder_type == "lstm":
+    if model.label_decoder.decoder_state != "trafo":
       decoder_state = tree.map_structure(lambda s: rf.gather(s, indices=backrefs), decoder_state)
     else:
       decoder_state = tree.map_structure(
@@ -239,10 +239,6 @@ def model_recog(
     seq_targets__ = seq_targets__.push_back(target)
   out_spatial_dim = Dim(out_seq_len, name="out-spatial")
   seq_targets = seq_targets__.stack(axis=out_spatial_dim)
-
-  # if model.decoder_type == "trafo":
-  #   print("seq_targets:", seq_targets.raw_tensor)
-  #   exit()
 
   return seq_targets, seq_log_prob, out_spatial_dim, beam_dim
 

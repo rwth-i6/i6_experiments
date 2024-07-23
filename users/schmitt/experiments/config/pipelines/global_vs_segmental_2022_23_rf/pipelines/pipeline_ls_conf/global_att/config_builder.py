@@ -12,7 +12,6 @@ def get_global_att_config_builder_rf(
         use_weight_feedback: bool = True,
         use_att_ctx_in_state: bool = True,
         decoder_state: str = "nb-lstm",
-        label_decoder_type: str = "lstm",
         num_label_decoder_layers: int = 1,
         label_type: str = "bpe10025",
 ):
@@ -43,7 +42,6 @@ def get_global_att_config_builder_rf(
     use_weight_feedback=use_weight_feedback,
     use_att_ctx_in_state=use_att_ctx_in_state,
     label_decoder_state=decoder_state,
-    label_decoder_type=label_decoder_type,
     num_label_decoder_layers=num_label_decoder_layers,
   )
 

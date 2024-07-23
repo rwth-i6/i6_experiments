@@ -39,7 +39,6 @@ class ConfigBuilderRF(ABC):
           label_decoder_state: str = "nb-lstm",
           use_current_frame_in_readout: bool = False,
           use_correct_dim_tags: bool = False,
-          label_decoder_type: str = "lstm",
           num_label_decoder_layers: int = 1,
   ):
     self.variant_params = variant_params
@@ -77,9 +76,6 @@ class ConfigBuilderRF(ABC):
     if use_current_frame_in_readout:
       self.config_dict["use_current_frame_in_readout"] = use_current_frame_in_readout
 
-    self.label_decoder_type = label_decoder_type
-    if label_decoder_type != "lstm":
-      self.config_dict["label_decoder_type"] = label_decoder_type
     if num_label_decoder_layers != 1:
       self.config_dict["num_label_decoder_layers"] = num_label_decoder_layers
 

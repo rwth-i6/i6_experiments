@@ -39,7 +39,6 @@ class GlobalAttentionModel(rf.Module):
           use_att_ctx_in_state: bool = True,
           use_mini_att: bool = False,
           decoder_state: str = "nb-lstm",
-          decoder_type: str = "lstm",
           num_dec_layers: int = 1,
           target_embed_dim: int = 640,
           feature_extraction_opts: Optional[Dict[str, Any]] = None,
@@ -64,12 +63,11 @@ class GlobalAttentionModel(rf.Module):
       dropout=enc_dropout,
       att_dropout=att_dropout,
       l2=l2,
-      decoder_type=decoder_type,
+      decoder_type="trafo" if decoder_state == "trafo" else "lstm",
       feature_extraction_opts=feature_extraction_opts,
     )
 
-    self.decoder_type = decoder_type
-    if decoder_type == "lstm":
+    if decoder_state != "trafo":
       assert num_dec_layers == 1
 
       if not use_weight_feedback and not use_att_ctx_in_state:
@@ -93,8 +91,6 @@ class GlobalAttentionModel(rf.Module):
         target_embed_dim=Dim(name="target_embed", dimension=target_embed_dim),
       )
     else:
-      assert decoder_type == "trafo"
-
       # hard code for now
       self.eos_idx = 0
       self.bos_idx = 1
@@ -180,7 +176,6 @@ class MakeModel:
           use_att_ctx_in_state: bool = True,
           use_mini_att: bool = False,
           decoder_state: str = "nb-lstm",
-          decoder_type: str = "lstm",
           num_dec_layers: int = 1,
           target_embed_dim: int = 640,
           feature_extraction_opts: Optional[Dict[str, Any]] = None,
@@ -226,7 +221,6 @@ class MakeModel:
       use_att_ctx_in_state=use_att_ctx_in_state,
       use_mini_att=use_mini_att,
       decoder_state=decoder_state,
-      decoder_type=decoder_type,
       num_dec_layers=num_dec_layers,
       target_embed_dim=target_embed_dim,
       feature_extraction_opts=feature_extraction_opts,
@@ -274,7 +268,6 @@ def from_scratch_model_def(*, epoch: int, in_dim: Dim, target_dim: Dim) -> Globa
   use_att_ctx_in_state = config.bool("use_att_ctx_in_state", True)
   use_mini_att = config.bool("use_mini_att", False)
   decoder_state = config.typed_value("label_decoder_state", "nb-lstm")
-  decoder_type = config.typed_value("label_decoder_type", "lstm")
   num_dec_layers = config.int("num_label_decoder_layers", 1)
   target_embed_dim = config.int("target_embed_dim", 640)
   feature_extraction_opts = config.typed_value("feature_extraction_opts", None)
@@ -289,7 +282,6 @@ def from_scratch_model_def(*, epoch: int, in_dim: Dim, target_dim: Dim) -> Globa
     use_att_ctx_in_state=use_att_ctx_in_state,
     use_mini_att=use_mini_att,
     decoder_state=decoder_state,
-    decoder_type=decoder_type,
     num_dec_layers=num_dec_layers,
     target_embed_dim=target_embed_dim,
     feature_extraction_opts=feature_extraction_opts,
