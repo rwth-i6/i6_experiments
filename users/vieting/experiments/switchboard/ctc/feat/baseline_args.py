@@ -81,7 +81,10 @@ def get_nn_args_single(
     feature_net = feature_network_class(**feature_args).get_as_subnetwork()
     source_layer = "data"
 
-    if wave_norm:
+    if wave_norm == "fix":
+        feature_net["subnetwork"]["wave_norm"] = {"axes": "T", "class": "norm", "from": source_layer, "trainable": False}
+        source_layer = "wave_norm"
+    elif wave_norm:
         feature_net["subnetwork"]["wave_norm"] = {"axes": "T", "class": "norm", "from": source_layer}
         source_layer = "wave_norm"
     if preemphasis:
