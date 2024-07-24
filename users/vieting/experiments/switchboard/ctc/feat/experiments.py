@@ -136,58 +136,40 @@ def run_mel_baseline():
         "rasr_loss_corpus_segments": rasr_loss_corpus_segments,
         "rasr_loss_lexicon_path": rasr_loss_lexicon_path,
         "datasets": returnn_datasets,
+        "conformer_type": "wei",
+        "specaug_old": {"max_feature": 8},
     }
     feature_args = {"class": "LogMelNetwork", "wave_norm": True, "frame_size": 200, "frame_shift": 80, "fft_size": 256}
+    lr_args = {
+        "peak_lr": 4e-4,
+        "start_lr": 1.325e-05,
+        "end_lr": 1e-5,
+        "increase_epochs": 180,
+        "decrease_epochs": 180,
+        "final_epochs": 0,
+    }
+    report_args = {
+        "wave_norm": "True",
+        "preemphasis": None,
+    }
+    recog_args = {"epochs": [300, 400, 450, "best"]}
 
     nn_args, report_args_collection = get_nn_args_baseline(
         nn_base_args={
             "bs10k_lgm80_baseline": dict(
-                returnn_args={"conformer_type": "wei", "specaug_old": {"max_feature": 8}, **returnn_args},
+                returnn_args=returnn_args,
                 feature_args=feature_args,
-                lr_args={
-                    "peak_lr": 4e-4,
-                    "start_lr": 1.325e-05,
-                    "end_lr": 1e-5,
-                    "increase_epochs": 180,
-                    "decrease_epochs": 180,
-                    "final_epochs": 0,
-                },
-                report_args={
-                    "architecture": "conf-wei",
-                    "lr": "wei_peak_4e-4_e450_cycle360",
-                    "specaug": "wei_adapt_80dim",
-                    "wave_norm": "True",
-                    "batch_size": "10k",
-                },
+                lr_args=lr_args,
+                report_args={**report_args, "batch_size": "10k"},
             ),
             "bs5k_lgm80_baseline": dict(
-                returnn_args={
-                    "conformer_type": "wei",
-                    "specaug_old": {"max_feature": 8},
-                    **returnn_args,
-                    "batch_size": 5000,
-                },
+                returnn_args={**returnn_args, "batch_size": 5000},
                 feature_args=feature_args,
-                lr_args={
-                    "peak_lr": 4e-4,
-                    "start_lr": 1.325e-05,
-                    "end_lr": 1e-5,
-                    "increase_epochs": 180,
-                    "decrease_epochs": 180,
-                    "final_epochs": 0,
-                },
-                report_args={
-                    "architecture": "conf-wei",
-                    "lr": "wei_peak_4e-4_e450_cycle360",
-                    "specaug": "wei_adapt_80dim",
-                    "wave_norm": "True",
-                    "batch_size": "5k",
-                },
+                lr_args=lr_args,
+                report_args={**report_args, "batch_size": "5k"},
             ),
             "bs2x5k_lgm80_baseline": dict(
                 returnn_args={
-                    "conformer_type": "wei",
-                    "specaug_old": {"max_feature": 8},
                     **returnn_args,
                     "batch_size": 5000,
                     "extra_args": {
@@ -196,28 +178,15 @@ def run_mel_baseline():
                     },
                 },
                 feature_args=feature_args,
-                lr_args={
-                    "peak_lr": 4e-4,
-                    "start_lr": 1.325e-05,
-                    "end_lr": 1e-5,
-                    "increase_epochs": 180,
-                    "decrease_epochs": 180,
-                    "final_epochs": 0,
-                },
-                report_args={
-                    "architecture": "conf-wei",
-                    "lr": "wei_peak_4e-4_e450_cycle360",
-                    "specaug": "wei_adapt_80dim",
-                    "wave_norm": "True",
-                    "batch_size": "2x5k",
-                },
+                lr_args=lr_args,
+                report_args={**report_args, "batch_size": "2x5k"},
             ),
         },
         num_epochs=450,
-        evaluation_epochs=[300, 400, 450],
+        evaluation_epochs=[ep for ep in recog_args["epochs"] if isinstance(ep, int)],
         prefix="conformer_",
     )
-    report, ctc_nn_system = run_nn_args(nn_args, report_args_collection, dev_corpora)
+    report, ctc_nn_system = run_nn_args(nn_args, report_args_collection, dev_corpora, recog_args=recog_args)
     return report, ctc_nn_system
 
 
