@@ -697,15 +697,18 @@ def _extract_target_seq_len_file(train_dataset: DatasetConfig, vocab_cfg: Union[
 
     ds_dict = train_dataset.get_train_dataset()
     # The code is semi-generic. But anyway double check for now. Later to be extended...
-    assert ds_dict["class"] in {"OggZipDataset", "LibriSpeechCorpus"}
+    assert ds_dict["class"] in {"OggZipDataset", "LibriSpeechCorpus", "LmDataset"}
+    vocab_key = "targets" if ds_dict["class"] in {"OggZipDataset", "LibriSpeechCorpus"} else "orth_vocab"
     ds_dict.pop("partition_epoch")
-    ds_dict["audio"] = None
+    if ds_dict["class"] in {"OggZipDataset", "LibriSpeechCorpus"}:
+        assert "audio" in ds_dict
+        ds_dict["audio"] = None
     ds_dict.pop("epoch_wise_filter", None)
     ds_dict.pop("seq_ordering")
     post_ds_dict = {}
     if "use_cache_manager" in ds_dict:
         post_ds_dict["use_cache_manager"] = ds_dict.pop("use_cache_manager")
-    for k, v in ds_dict["targets"].items():
+    for k, v in ds_dict[vocab_key].items():
         if k in {
             "bpe_file",
             "vocab_file",
