@@ -685,7 +685,7 @@ def _extract_target_seq_len_file(train_dataset: DatasetConfig, vocab_cfg: Union[
     Extract target seq len file
     """
     from sisyphus import tk
-    from i6_experiments.users.zeyer.returnn.seq_lens_job import ExtractSeqLensJob
+    from i6_core.returnn.dataset import ExtractSeqLensJob
 
     name_parts = []
     if isinstance(vocab_cfg, str):
