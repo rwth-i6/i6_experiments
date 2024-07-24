@@ -603,6 +603,7 @@ def run_mel_stage3():
         "specaug_old": False,
         "rasr_loss_args": {"transducer_training_stage": "mbr"},
         "conformer_args": {"dropout": 0.25, "batch_norm_freeze": True},
+        "preload_checkpoint": nn_system_stage2.train_jobs["fullsum_lgm80_bs3k_v1"].out_checkpoints[210],
     }
     feature_args = {
         "class": "LogMelNetwork",
@@ -612,8 +613,8 @@ def run_mel_stage3():
         "fft_size": 256,
     }
     recog_args = {
-        "lm_scales": [0.75],
-        "lookahead_options": {"lm_lookahead_scale": 0.75},
+        "lm_scales": [0.55],
+        "lookahead_options": {"lm_lookahead_scale": 0.55},
         "label_scorer_args": {
             "extra_args": {
                 "blank-label-index": 0,
@@ -647,26 +648,36 @@ def run_mel_stage3():
     }
 
     # set up experiments
+    nn_base_args = {
+        "bs2k_v1": dict(
+            returnn_args={
+                **returnn_args,
+            },
+            report_args={"stage": "mbr"},
+            **common_args,
+        ),
+        "bs2k_v1_weidata": dict(
+            returnn_args={
+                **returnn_args,
+                "datasets": returnn_datasets_wei,
+            },
+            report_args={"stage": "mbr"},
+            **common_args,
+        ),
+    }
+    for lr in [5e-6, 7e-6, 9e-6, 11e-6]:
+        returnn_args_tmp = copy.deepcopy(returnn_args)
+        returnn_args_tmp["extra_args"]["learning_rate"] = lr
+        returnn_args_tmp["extra_args"]["min_learning_rate"] = lr
+        nn_base_args[f"bs2k_v1_lr{lr}"] = {
+            "returnn_args": returnn_args_tmp, "report_args": {"stage": "mbr"}, **common_args}
+    for laplace in [600, 2400, 4800, 9600, 12000]:
+        returnn_args_tmp = copy.deepcopy(returnn_args)
+        returnn_args_tmp["datasets"]["train"]["datasets"]["ogg"]["seq_ordering"] = f"laplace:.{laplace}"
+        nn_base_args[f"bs2k_v1_laplace{laplace}"] = {
+            "returnn_args": returnn_args_tmp, "report_args": {"stage": "mbr"}, **common_args}
     nn_args, report_args_collection = get_nn_args_baseline(
-        nn_base_args={
-            "bs2k_v1": dict(
-                returnn_args={
-                    "preload_checkpoint": nn_system_stage2.train_jobs["fullsum_lgm80_bs3k_v1"].out_checkpoints[210],
-                    **returnn_args,
-                },
-                report_args={"stage": "mbr"},
-                **common_args,
-            ),
-            "bs2k_v1_weidata": dict(
-                returnn_args={
-                    "preload_checkpoint": nn_system_stage2.train_jobs["fullsum_lgm80_bs3k_v1"].out_checkpoints[210],
-                    **returnn_args,
-                    "datasets": returnn_datasets_wei,
-                },
-                report_args={"stage": "mbr"},
-                **common_args,
-            ),
-        },
+        nn_base_args=nn_base_args,
         num_epochs=6,
         evaluation_epochs=list(range(1, 7)),
         prefix="mbr_lgm80_",
@@ -695,6 +706,7 @@ def py():
     _, report_rasr_gt_stage1 = run_rasr_gt_stage1()
     _, report_mel_stage1 = run_mel_stage1()
     _, report_mel_stage2 = run_mel_stage2()
+    _, report_mel_stage3 = run_mel_stage3()
 
     report_base = Report(
         columns_start=["train_name", "features", "alignment"],
@@ -705,6 +717,7 @@ def py():
         report_rasr_gt_stage1,
         report_mel_stage1,
         report_mel_stage2,
+        report_mel_stage3,
     ])
     report.delete_redundant_columns()
     tk.register_report(
