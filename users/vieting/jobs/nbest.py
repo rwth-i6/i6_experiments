@@ -139,6 +139,7 @@ class NBestListToHDFDatasetJob(Job):
         returnn_root: Optional[tk.Path] = None,
         risk_phoneme_level: bool = True,
         phoneme_alignment: Optional[List[tk.Path]] = None,
+        lm_scores: Optional[tk.Path] = None,
         ignore_non_words: bool = True,
         concurrent: int = 1,
     ):
@@ -149,6 +150,7 @@ class NBestListToHDFDatasetJob(Job):
         self.returnn_root = returnn_root
         self.risk_phoneme_level = risk_phoneme_level
         self.phoneme_alignment = phoneme_alignment
+        self.lm_scores = lm_scores
         self.ignore_non_words = ignore_non_words
         self._non_words = []
         self.concurrent = concurrent
@@ -200,7 +202,12 @@ class NBestListToHDFDatasetJob(Job):
             if returnn_root is not None:
                 sys.path.append(returnn_root)
             from returnn.datasets.hdf import HDFDataset
-            phoneme_alignment = HDFDataset(self.phoneme_alignment, use_cache_manager=False)  #TUDU: True
+            phoneme_alignment = HDFDataset(self.phoneme_alignment, use_cache_manager=True)
+
+        # load reference LM scores
+        if self.lm_scores is not None:
+            with open(self.lm_scores.get()) as f:
+                lm_scores = eval(f.read())
 
         # create datasets
         hdf_writer = get_returnn_simple_hdf_writer(returnn_root)
@@ -292,15 +299,20 @@ class NBestListToHDFDatasetJob(Job):
                         score[-1] = -sum(scores[col] * scales[col] for col in scales)
                         risk_word_level[-1] = self.levenshtein_distance(ref_words, hyp_words)
                         ref_in_hyps = True
-                        ref_in_hyps_with_mismatching_pronunciation = False
                         if ref_phonemes is not None:
                             if self.levenshtein_distance(ref_phonemes, classes_n) > 0:
-                                ref_in_hyps = False
                                 ref_in_hyps_with_mismatching_pronunciation = True
 
             ref_in_hyps = ref_in_hyps or ref_in_hyps_with_mismatching_pronunciation
             if not ref_in_hyps:
-                print(f"No ref found for segment {segment}")
+                if self.lm_scores is not None and segment in lm_scores and ref_phonemes is not None:
+                    classes[-1] = ref_phonemes.tolist()
+                    classes_lens[-1] = len(ref_phonemes)
+                    score[-1] = lm_scores[segment] * scales["lm"]
+                    risk_word_level[-1] = 0
+                    print(f"Force ref into hyps for segment {segment}")
+                else:
+                    print(f"WARNING: No ref or LM score and alignment found for segment {segment}")
             if ref_in_hyps_with_mismatching_pronunciation:
                 print(
                     f"Use hypothesis that is correct on word level "
