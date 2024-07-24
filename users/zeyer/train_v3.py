@@ -8,6 +8,7 @@ Note, changes from the earlier v2, as it was in experiments/exp2023_04_25_rf/tra
 
 from __future__ import annotations
 from typing import TYPE_CHECKING, Optional, Union, Dict, Any, Sequence
+import copy
 from i6_experiments.users.zeyer.model_interfaces import ModelT, ModelDef, ModelDefWithCfg, TrainDef, serialize_model_def
 
 if TYPE_CHECKING:
@@ -70,6 +71,24 @@ def train(
             train_epoch_split = task.train_epoch_split
         elif "partition_epoch" in train_dataset_dict:
             train_epoch_split = train_dataset_dict["partition_epoch"]
+    # Usually always apply MultiProcDataset. But some exceptions for now:
+    apply_multi_proc = train_dataset_dict["class"] != "LmDataset"
+    del train_dataset_dict
+    del task
+
+    config = config.copy()
+    kwargs = kwargs.copy()
+    if "__num_epochs" in config:
+        kwargs["num_epochs"] = config.pop("__num_epochs")
+    if "__gpu_mem" in config:
+        gpu_mem = config.pop("__gpu_mem")
+    if "__num_processes" in config:
+        num_processes = config.pop("__num_processes")
+        kwargs["distributed_launch_cmd"] = "torchrun" if num_processes else "mpirun"
+    if "__train_audio_preprocess" in config:
+        train_dataset = copy.copy(train_dataset)
+        assert hasattr(train_dataset, "train_audio_preprocess")
+        train_dataset.train_audio_preprocess = config.pop("__train_audio_preprocess")
 
     returnn_train_config_dict: Dict[str, Any] = dict(
         backend=model_def.backend,
@@ -77,8 +96,16 @@ def train(
         # dataset
         default_input=train_dataset.get_default_input(),
         target=train_dataset.get_default_target(),
-        train=mp_ds_utils.multi_proc_dataset_opts(train_dataset_dict),
-        eval_datasets=mp_ds_utils.multi_proc_eval_datasets_opts(train_dataset.get_eval_datasets()),
+        train=(
+            mp_ds_utils.multi_proc_dataset_opts(train_dataset.get_train_dataset())
+            if apply_multi_proc
+            else train_dataset.get_train_dataset()
+        ),
+        eval_datasets=(
+            mp_ds_utils.multi_proc_eval_datasets_opts(train_dataset.get_eval_datasets())
+            if apply_multi_proc
+            else train_dataset.get_eval_datasets()
+        ),
         learning_rate_control_error_measure=train_def.learning_rate_control_error_measure,
         newbob_multi_num_epochs=train_epoch_split or 1,
     )
@@ -171,7 +198,6 @@ def train(
         serialize_dim_tags=False,
     )
 
-    kwargs = kwargs.copy()
     for k, v in dict(
         log_verbosity=5,
         num_epochs=150,

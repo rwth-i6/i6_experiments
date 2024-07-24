@@ -723,18 +723,7 @@ def train_exp(
 
     prefix = _sis_prefix + "/" + name
     task = get_librispeech_task_raw_v2(vocab=vocab, train_vocab_opts=train_vocab_opts)
-    config = config.copy()
     config = dict_update_deep(config, config_updates, config_deletes)
-    if "__num_epochs" in config:
-        num_epochs = config.pop("__num_epochs")
-    if "__gpu_mem" in config:
-        gpu_mem = config.pop("__gpu_mem")
-    if "__num_processes" in config:
-        num_processes = config.pop("__num_processes")
-    if "__train_audio_preprocess" in config:
-        task: Task = copy.copy(task)
-        task.train_dataset = copy.copy(task.train_dataset)
-        task.train_dataset.train_audio_preprocess = config.pop("__train_audio_preprocess")
 
     if not model_def:
         model_def = ctc_model_def
