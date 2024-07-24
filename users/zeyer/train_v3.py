@@ -84,6 +84,7 @@ def train(
         gpu_mem = config.pop("__gpu_mem")
     if "__num_processes" in config:
         num_processes = config.pop("__num_processes")
+    if not kwargs.get("distributed_launch_cmd"):
         kwargs["distributed_launch_cmd"] = "torchrun" if num_processes else "mpirun"
     if "__train_audio_preprocess" in config:
         train_dataset = copy.copy(train_dataset)
