@@ -515,9 +515,6 @@ def run_mel_stage3():
     from i6_core.lm.perplexity import ComputePerplexityJob
     from i6_experiments.users.vieting.jobs.nbest import LatticeToNBestListJob, NBestListToHDFDatasetJob
     from i6_experiments.users.vieting.jobs.lm import UtteranceLMScoresFromWordScoresFileJob
-    crp_wei = copy.deepcopy(nn_system_stage2.crp["hub5e00"])
-    crp_wei.corpus_duration = 300.
-    crp_wei.corpus_config.file = tk.Path("/u/corpora/speech/switchboard-1/xml/swb1-all/swb1-all.corpus.gz")
     nn_system_stage2.crp["train"].flf_tool_exe = tk.Path(
         "/work/asr4/vieting/programs/rasr/20240611v4/rasr/arch/linux-x86_64-standard/flf-tool.linux-x86_64-standard",
         hash_overwrite="rasr_flf_tool_testing",
@@ -543,7 +540,7 @@ def run_mel_stage3():
     job = NBestListToHDFDatasetJob(
         n=4,
         nbest_path=job_nbest.out_nbest_file,
-        corpus_file=crp_wei.corpus_config.file,
+        corpus_file=train_corpus.corpus_object.corpus_file,
         state_tying=state_tying,
         returnn_root=RETURNN_ROOT,
         phoneme_alignment=returnn_datasets["train"]["datasets"]["hdf"]["files"],
@@ -569,17 +566,7 @@ def run_mel_stage3():
             }
             for key in ["classes", "classes_size", "score", "risk"]
         })
-    returnn_datasets["train"]["datasets"]["ogg"]["seq_ordering"] = "laplace:.1200"
-    returnn_datasets_wei = copy.deepcopy(returnn_datasets)
-    for dataset in iterate_returnn_datasets(returnn_datasets_wei):
-        dataset["datasets"].update({
-            f"nbest_{key}": {
-                "class": "HDFDataset",
-                "files": [f"/work/asr4/vieting/setups/swb/testing/20240320_transducer_mbr_dataset/wei/dump/dataset.{key}.hdf".replace("classes_size", "classes_lens")],
-                "use_cache_manager": True,
-            }
-            for key in ["classes", "classes_size", "score", "risk"]
-        })
+    returnn_datasets["train"]["datasets"]["ogg"]["seq_ordering"] = "laplace:.4800"
 
     # common parameters
     returnn_args = {
@@ -650,32 +637,11 @@ def run_mel_stage3():
     # set up experiments
     nn_base_args = {
         "bs2k_v1": dict(
-            returnn_args={
-                **returnn_args,
-            },
-            report_args={"stage": "mbr"},
-            **common_args,
-        ),
-        "bs2k_v1_weidata": dict(
-            returnn_args={
-                **returnn_args,
-                "datasets": returnn_datasets_wei,
-            },
+            returnn_args=returnn_args,
             report_args={"stage": "mbr"},
             **common_args,
         ),
     }
-    for lr in [5e-6, 7e-6, 9e-6, 11e-6]:
-        returnn_args_tmp = copy.deepcopy(returnn_args)
-        returnn_args_tmp["extra_args"]["learning_rate"] = lr
-        returnn_args_tmp["extra_args"]["min_learning_rate"] = lr
-        nn_base_args[f"bs2k_v1_lr{lr}"] = {
-            "returnn_args": returnn_args_tmp, "report_args": {"stage": "mbr"}, **common_args}
-    for laplace in [600, 2400, 4800, 9600, 12000]:
-        returnn_args_tmp = copy.deepcopy(returnn_args)
-        returnn_args_tmp["datasets"]["train"]["datasets"]["ogg"]["seq_ordering"] = f"laplace:.{laplace}"
-        nn_base_args[f"bs2k_v1_laplace{laplace}"] = {
-            "returnn_args": returnn_args_tmp, "report_args": {"stage": "mbr"}, **common_args}
     nn_args, report_args_collection = get_nn_args_baseline(
         nn_base_args=nn_base_args,
         num_epochs=6,
