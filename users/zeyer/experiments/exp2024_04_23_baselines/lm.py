@@ -1,5 +1,8 @@
 """
 Language models
+
+some ref:
+https://github.com/rwth-i6/returnn-experiments/blob/master/2019-lm-transformers/librispeech/bpe_10k/transfo_24_d00.4096_1024.sgd.lr1.8_heads.config
 """
 
 from __future__ import annotations
@@ -29,15 +32,17 @@ def py():
 
     # TODO try train_vocab_opts={"other_opts": {"class": "SamplingBytePairEncoding", "breadth_prob": 0.01}}
     # TODO label smoothing?
+    # TODO try "optimizer.class": "RAdam", "optimizer.decoupled_weight_decay": True. but needs newer PyTorch?
 
     train(
         "lm/trafo",
         config=dict_update_deep(
             config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
             {
-                **_get_cfg_lrlin_oclr_by_bs_nep(15_000, 500),  # TODO wrong...
+                **_get_cfg_lrlin_oclr_by_bs_nep(10_000, 500),  # TODO wrong...
                 "optimizer.weight_decay": 1e-2,
                 "calculate_exp_loss": True,
+                "max_seqs": 32,  # TODO really?
             },
         ),
         train_dataset=get_librispeech_lm_dataset(vocab="spm10k"),
