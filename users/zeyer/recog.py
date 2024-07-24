@@ -135,6 +135,9 @@ class _RecogAndScoreFunc:
         # Not the whole task object is relevant but only some minimal parts.
         task = d.pop("task")
         assert isinstance(task, Task)
+        # TODO: This is actually not really needed here because the trained model should already cover
+        #  all training relevant aspects.
+        #  But we cannot remove this easily now to not break old hashes...
         for k in ["train_dataset", "train_epoch_split"]:  # for hash relevant parts
             d[f"task.{k}"] = getattr(task, k)
         d["class"] = "_RecogAndScoreFunc"  # some identifier; not full qualname to allow for moving the class

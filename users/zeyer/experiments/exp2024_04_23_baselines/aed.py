@@ -196,7 +196,13 @@ def train_exp(
 
     prefix = _sis_prefix + "/" + name
     task = get_librispeech_task_raw_v2(vocab=vocab, train_vocab_opts=train_vocab_opts)
+    config = config.copy()
     config = dict_update_deep(config, config_updates, config_deletes)
+    # This logic is also in train(), but keep it here because it would break the hash because of _RecogAndScoreFunc...
+    if "__train_audio_preprocess" in config:
+        task: Task = copy.copy(task)
+        task.train_dataset = copy.copy(task.train_dataset)
+        task.train_dataset.train_audio_preprocess = config.pop("__train_audio_preprocess")
 
     if not model_def:
         model_def = aed_model_def
