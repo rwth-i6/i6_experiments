@@ -623,7 +623,7 @@ def get_librispeech_task_raw_v2(
     # We expect that all kwargs are only relevant for the training, thus we only pass them here.
     train_dataset = dataset_cls(**dataset_common_opts, **dataset_train_opts)
     _extract_audio_seq_len_file(train_dataset)
-    _extract_target_seq_len_file(train_dataset, vocab_)
+    _extract_text_seq_len_file(train_dataset, vocab_, name="target")
     eval_datasets = {
         "dev-clean": dataset_cls(**dataset_common_opts, main_key="dev-clean"),
         "dev-other": dataset_cls(**dataset_common_opts, main_key="dev-other"),
@@ -680,7 +680,7 @@ def _extract_audio_seq_len_file(train_dataset: DatasetConfig):
     return job.out_file
 
 
-def _extract_target_seq_len_file(train_dataset: DatasetConfig, vocab_cfg: Union[str, VocabConfig]):
+def _extract_text_seq_len_file(train_dataset: DatasetConfig, vocab_cfg: Union[str, VocabConfig], *, name: str):
     """
     Extract target seq len file
     """
@@ -723,8 +723,8 @@ def _extract_target_seq_len_file(train_dataset: DatasetConfig, vocab_cfg: Union[
             continue
         k_s = re.sub(r"(?!^)_([a-zA-Z])", lambda m: m.group(1).upper(), k)
         name_parts.append(f"{k_s}={v}")
-    job = ExtractSeqLensJob(ds_dict, post_ds_dict, key=train_dataset.get_default_target(), format="txt")
-    tk.register_output(_alias_prefix + "seq_len_target-%s.txt" % "-".join(name_parts), job.out_file)
+    job = ExtractSeqLensJob(ds_dict, post_ds_dict, key=train_dataset.get_default_target(), output_format="txt")
+    tk.register_output(_alias_prefix + f"seq_len_{name}-" + "%s.txt" % "-".join(name_parts), job.out_file)
     return job.out_file
 
 
@@ -997,7 +997,7 @@ def get_librispeech_lm_dataset(
         opts["train_vocab"] = vocab.copy(**train_vocab_opts)
     # We expect that all kwargs are only relevant for the training, thus we only pass them here.
     train_dataset = LibrispeechLmDataset(vocab=vocab, **opts)
-    _extract_target_seq_len_file(train_dataset, vocab_)
+    _extract_text_seq_len_file(train_dataset, vocab_, name="lm_text")
 
     _librispeech_lm_dataset_raw_cache[cache_key] = train_dataset
     return train_dataset
