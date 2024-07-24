@@ -28,6 +28,7 @@ def py():
     from .configs import config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4
 
     # TODO try train_vocab_opts={"other_opts": {"class": "SamplingBytePairEncoding", "breadth_prob": 0.01}}
+    # TODO label smoothing?
 
     train(
         "lm/trafo",
@@ -49,11 +50,11 @@ def lm_model_def(*, epoch: int, in_dim: Dim, target_dim: Dim) -> rf.Module:
     """Function is run within RETURNN."""
     from returnn.config import get_global_config
 
-    epoch  # noqa
-    assert in_dim == target_dim
+    in_dim, epoch  # noqa
+    assert target_dim
     config = get_global_config()  # noqa
 
-    model = rf.build_from_dict(config.typed_value("_model_def"), vocab_dim=in_dim)
+    model = rf.build_from_dict(config.typed_value("_model_def"), vocab_dim=target_dim)
     return model
 
 
@@ -107,7 +108,6 @@ def lm_train_def(
     # log_prob = rf.label_smoothed_log_prob_gradient(log_prob, 0.1, axis=model.target_dim)
     loss = rf.cross_entropy(target=targets_packed, estimated=log_prob, estimated_type="log-probs", axis=model.vocab_dim)
     loss.mark_as_loss("ce", use_normalized_loss=use_normalized_loss)
-    # TODO perplexity...
 
     best = rf.reduce_argmax(logits_packed, axis=model.vocab_dim)
     frame_error = best != targets_packed
