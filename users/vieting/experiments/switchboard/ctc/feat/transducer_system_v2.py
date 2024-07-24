@@ -648,31 +648,32 @@ class TransducerSystem:
             rec.add_alias(path)
             self.recog_jobs[path] = rec
 
-            scorer_job = self._lattice_scoring(
-                filename=path,
-                recognition_corpus_key=recognition_corpus_key,
-                recognition_job=rec,
-                **lattice_to_ctm_kwargs,
-            )
-
-            if self._report:
-                report_args = report_args or {}
-                self._report.add(
-                    {
-                        "train_name": train_exp_name,
-                        "recog_name": recog_exp_name,
-                        "corpus": recognition_corpus_key,
-                        "trial": self._get_trial_value(train_exp_name, trial_num),
-                        "epoch": self._get_epoch_value(train_exp_name, epoch, trial_num),
-                        "prior_scale": prior_scale,
-                        "lm_scale": lm_scale,
-                        "wer": scorer_job.out_wer,
-                        "sub": scorer_job.out_percent_substitution,
-                        "del": scorer_job.out_percent_deletions,
-                        "ins": scorer_job.out_percent_insertions,
-                        **report_args.get(train_exp_name, {}),
-                    }
+            if recognition_corpus_key in self.scorers:
+                scorer_job = self._lattice_scoring(
+                    filename=path,
+                    recognition_corpus_key=recognition_corpus_key,
+                    recognition_job=rec,
+                    **lattice_to_ctm_kwargs,
                 )
+
+                if self._report:
+                    report_args = report_args or {}
+                    self._report.add(
+                        {
+                            "train_name": train_exp_name,
+                            "recog_name": recog_exp_name,
+                            "corpus": recognition_corpus_key,
+                            "trial": self._get_trial_value(train_exp_name, trial_num),
+                            "epoch": self._get_epoch_value(train_exp_name, epoch, trial_num),
+                            "prior_scale": prior_scale,
+                            "lm_scale": lm_scale,
+                            "wer": scorer_job.out_wer,
+                            "sub": scorer_job.out_percent_substitution,
+                            "del": scorer_job.out_percent_deletions,
+                            "ins": scorer_job.out_percent_insertions,
+                            **report_args.get(train_exp_name, {}),
+                        }
+                    )
 
     def _atr_nn_recognition(
         self,
