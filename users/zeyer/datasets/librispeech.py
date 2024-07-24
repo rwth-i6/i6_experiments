@@ -841,6 +841,166 @@ def _librispeech_log_mel_stats_returnn_forward(
     return source, out_spatial_dim
 
 
+class LibrispeechLmDataset(DatasetConfig):
+    """
+    Librispeech LM dataset
+    """
+
+    def __init__(
+        self,
+        *,
+        vocab: VocabConfig,
+        train_vocab: Optional[VocabConfig] = None,
+        main_key: Optional[str] = None,
+        train_epoch_split: int = default_train_epoch_split,
+        train_sort_laplace_num_seqs: int = 1000,
+        eval_subset: Optional[int] = 3000,
+    ):
+        super().__init__()
+        self.vocab = vocab
+        self.train_vocab = train_vocab
+        self.main_key = main_key
+        self.train_epoch_split = train_epoch_split
+        self.train_sort_laplace_num_seqs = train_sort_laplace_num_seqs
+        self.eval_subset = eval_subset
+
+    def _sis_hash(self) -> bytes:
+        import hashlib
+        from sisyphus.hash import sis_hash_helper
+
+        # Keep consistent once we do any changes.
+        state = self.__dict__.copy()
+        if not self.train_vocab:
+            state.pop("train_vocab")  # backward compat
+        byte_list = [b"LibrispeechLmDataset", sis_hash_helper(state)]
+
+        # Same as sis_hash_helper.
+        byte_str = b"(" + b", ".join(byte_list) + b")"
+        if len(byte_str) > 4096:
+            return hashlib.sha256(byte_str).digest()
+        else:
+            return byte_str
+
+    def get_extern_data(self) -> Dict[str, Dict[str, Any]]:
+        """
+        Get extern data
+        """
+        from returnn.tensor import Dim, batch_dim
+
+        out_spatial_dim = Dim(None, name="out-spatial", kind=Dim.Types.Spatial)
+        classes_dim = Dim(self.vocab.get_num_classes(), name="vocab", kind=Dim.Types.Spatial)
+
+        return {
+            "data": {
+                "dim_tags": [batch_dim, out_spatial_dim],
+                "sparse_dim": classes_dim,
+                "vocab": self.vocab.get_opts(),
+            }
+        }
+
+    def get_default_input(self) -> Optional[str]:
+        """data"""
+        return "data"
+
+    def get_default_target(self) -> Optional[str]:
+        """data"""
+        return "data"
+
+    def get_train_dataset(self) -> Dict[str, Any]:
+        return self.get_dataset("train", training=True)
+
+    def get_eval_datasets(self) -> Dict[str, Dict[str, Any]]:
+        return {
+            "dev": self.get_dataset("transcriptions-dev-other", subset=self.eval_subset),
+            "devtrain": self.get_dataset("transcriptions-train-clean-100", subset=self.eval_subset),
+        }
+
+    def get_main_name(self) -> str:
+        return self.main_key
+
+    def get_main_dataset(self) -> Dict[str, Any]:
+        return self.get_dataset(self.main_key)
+
+    def get_dataset(self, key: str, *, training: bool = False, subset: Optional[int] = None) -> Dict[str, Any]:
+        vocab = self.train_vocab if training and self.train_vocab else self.vocab
+        if key == "train":
+            from i6_experiments.common.datasets.librispeech.language_model import get_librispeech_normalized_lm_data
+
+            d: Dict[str, Any] = {
+                "class": "LmDataset",
+                "corpus_file": [get_librispeech_normalized_lm_data(), _get_train_corpus_text()],
+                "use_cache_manager": True,
+                "orth_vocab": vocab.get_opts().copy(),
+                "seq_end_symbol": None,  # handled via orth_vocab
+                "unknown_symbol": None,  # handled via orth_vocab
+            }
+        elif key.startswith("transcriptions-"):
+            files = []
+            parts = [part for part in _Parts if part.startswith(key[len("transcriptions-") :])]
+            assert parts, f"invalid key {key!r}"
+            for part in parts:
+                files += [_get_librispeech_ogg_zip_dict()[part]]
+            d: Dict[str, Any] = {
+                "class": "OggZipDataset",
+                "path": files,
+                "use_cache_manager": True,
+            }
+            if self.vocab is not None:
+                vocab = self.train_vocab if training and self.train_vocab else self.vocab
+                d["targets"] = vocab.get_opts().copy()
+        else:
+            raise ValueError(f"invalid key {key!r}")
+        if training:
+            d["partition_epoch"] = self.train_epoch_split
+            d["seq_ordering"] = f"laplace:.{self.train_sort_laplace_num_seqs}"
+        else:
+            if d["class"] == "OggZipDataset":
+                d["fixed_random_seed"] = 1
+            d["seq_ordering"] = "sorted_reverse"
+        if subset:
+            d["fixed_random_subset"] = subset  # faster
+        if d["class"] == "OggZipDataset":
+            d = {
+                "class": "MetaDataset",
+                "datasets": {"ogg_zip": d},
+                "data_map": {"data": ("ogg_zip", "classes")},
+                "seq_order_control_dataset": "ogg_zip",
+            }
+        return d
+
+
+_librispeech_lm_dataset_raw_cache = {}
+
+
+def get_librispeech_lm_dataset(
+    *,
+    vocab: Union[VocabConfig, str],
+    train_vocab_opts: Optional[Dict[str, Any]] = None,
+    **opts,
+) -> LibrispeechLmDataset:
+    """
+    Librispeech LM.
+    """
+    vocab_ = vocab
+    if isinstance(vocab, str):
+        vocab = _get_vocab_by_str(vocab)
+
+    cache_key = make_hashable((vocab, train_vocab_opts, opts))
+    if cache_key in _librispeech_lm_dataset_raw_cache:
+        return _librispeech_lm_dataset_raw_cache[cache_key]
+
+    opts = opts.copy()
+    if train_vocab_opts:
+        assert "train_vocab" not in opts
+        opts["train_vocab"] = vocab.copy(**train_vocab_opts)
+    # We expect that all kwargs are only relevant for the training, thus we only pass them here.
+    train_dataset = LibrispeechLmDataset(vocab=vocab, **opts)
+    _extract_target_seq_len_file(train_dataset, vocab_)
+
+    _librispeech_lm_dataset_raw_cache[cache_key] = train_dataset
+    return train_dataset
+
+
 def tests():
     from sisyphus.hash import sis_hash_helper
 
