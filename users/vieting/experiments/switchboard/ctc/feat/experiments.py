@@ -624,7 +624,7 @@ def run_mel_baseline():
 
     nn_args, report_args_collection = get_nn_args_baseline(
         nn_base_args={
-            "lgm80_baseline": dict(
+            "bs10k_lgm80_baseline": dict(
                 returnn_args={"conformer_type": "wei", "specaug_old": {"max_feature": 8}, **returnn_args},
                 feature_args=feature_args,
                 lr_args={
@@ -640,11 +640,65 @@ def run_mel_baseline():
                     "lr": "wei_peak_4e-4_e450_cycle360",
                     "specaug": "wei_adapt_80dim",
                     "wave_norm": "True",
+                    "batch_size": "10k",
+                },
+            ),
+            "bs5k_lgm80_baseline": dict(
+                returnn_args={
+                    "conformer_type": "wei",
+                    "specaug_old": {"max_feature": 8},
+                    **returnn_args,
+                    "batch_size": 5000,
+                },
+                feature_args=feature_args,
+                lr_args={
+                    "peak_lr": 4e-4,
+                    "start_lr": 1.325e-05,
+                    "end_lr": 1e-5,
+                    "increase_epochs": 180,
+                    "decrease_epochs": 180,
+                    "final_epochs": 0,
+                },
+                report_args={
+                    "architecture": "conf-wei",
+                    "lr": "wei_peak_4e-4_e450_cycle360",
+                    "specaug": "wei_adapt_80dim",
+                    "wave_norm": "True",
+                    "batch_size": "5k",
+                },
+            ),
+            "bs2x5k_lgm80_baseline": dict(
+                returnn_args={
+                    "conformer_type": "wei",
+                    "specaug_old": {"max_feature": 8},
+                    **returnn_args,
+                    "batch_size": 5000,
+                    "extra_args": {
+                        "accum_grad_multiple_step": 2,
+                        "watch_memory": True,
+                    },
+                },
+                feature_args=feature_args,
+                lr_args={
+                    "peak_lr": 4e-4,
+                    "start_lr": 1.325e-05,
+                    "end_lr": 1e-5,
+                    "increase_epochs": 180,
+                    "decrease_epochs": 180,
+                    "final_epochs": 0,
+                },
+                report_args={
+                    "architecture": "conf-wei",
+                    "lr": "wei_peak_4e-4_e450_cycle360",
+                    "specaug": "wei_adapt_80dim",
+                    "wave_norm": "True",
+                    "batch_size": "2x5k",
                 },
             ),
         },
         num_epochs=450,
-        prefix="conformer_bs10k_",
+        evaluation_epochs=[300, 400, 450],
+        prefix="conformer_",
     )
     report, ctc_nn_system = run_nn_args(nn_args, report_args_collection, dev_corpora)
     return report, ctc_nn_system
