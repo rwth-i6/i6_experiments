@@ -48,6 +48,7 @@ def train(
     :func:`i6_experiments.users.zeyer.utils.sis_setup.get_base_module`
     from train_def.
     """
+    from sisyphus import tk
     from i6_core.util import instanciate_delayed
     from i6_core.returnn.training import ReturnnTrainingJob
     from i6_core.returnn.config import ReturnnConfig
@@ -216,6 +217,7 @@ def train(
     if env_updates:
         for k, v in env_updates.items():
             returnn_train_job.set_env(k, v)
+    tk.register_output(prefix_name + "/train_scores", returnn_train_job.out_learning_rates)
 
     return ModelWithCheckpoints.from_training_job(definition=model_def, training_job=returnn_train_job)
 
