@@ -42,7 +42,7 @@ def py():
         ),
         train_dataset=get_librispeech_lm_dataset(vocab="spm10k"),
         model_def=ModelDefWithCfg(
-            lm_model_def, {"_model_def_dict": rf.build_dict(TransformerDecoder, encoder_dim=None)}
+            lm_model_def, {"_model_def_dict": rf.build_dict(TransformerDecoder, encoder_dim=None, num_layers=12)}
         ),
         train_def=lm_train_def,
     )
