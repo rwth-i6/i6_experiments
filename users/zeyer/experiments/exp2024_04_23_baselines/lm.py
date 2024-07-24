@@ -40,7 +40,7 @@ def py():
             },
         ),
         train_dataset=get_librispeech_lm_dataset(vocab="spm10k"),
-        model_def=ModelDefWithCfg(lm_model_def, {"model": rf.build_dict(TransformerDecoder, encoder_dim=None)}),
+        model_def=ModelDefWithCfg(lm_model_def, {"_model_def": rf.build_dict(TransformerDecoder, encoder_dim=None)}),
         train_def=lm_train_def,
     )
 
@@ -53,7 +53,7 @@ def lm_model_def(*, epoch: int, in_dim: Dim, target_dim: Dim) -> rf.Module:
     assert in_dim == target_dim
     config = get_global_config()  # noqa
 
-    model = rf.build_from_dict(config.typed_value("model"), vocab_dim=in_dim)
+    model = rf.build_from_dict(config.typed_value("_model_def"), vocab_dim=in_dim)
     return model
 
 
