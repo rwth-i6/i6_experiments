@@ -35,7 +35,7 @@ def py():
     # TODO try "optimizer.class": "RAdam", "optimizer.decoupled_weight_decay": True. but needs newer PyTorch?
 
     train(
-        "lm/trafo",
+        "lm/trafo-b32",
         config=dict_update_deep(
             config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
             {
@@ -43,6 +43,24 @@ def py():
                 "optimizer.weight_decay": 1e-2,
                 "calculate_exp_loss": True,
                 "max_seqs": 32,  # TODO really?
+            },
+        ),
+        train_dataset=get_librispeech_lm_dataset(vocab="spm10k"),
+        model_def=ModelDefWithCfg(
+            lm_model_def, {"_model_def_dict": rf.build_dict(TransformerDecoder, encoder_dim=None, num_layers=12)}
+        ),
+        train_def=lm_train_def,
+    )
+
+    train(
+        "lm/trafo-b100",
+        config=dict_update_deep(
+            config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
+            {
+                **_get_cfg_lrlin_oclr_by_bs_nep(10_000, 500),  # TODO wrong...
+                "optimizer.weight_decay": 1e-2,
+                "calculate_exp_loss": True,
+                "max_seqs": 100,
             },
         ),
         train_dataset=get_librispeech_lm_dataset(vocab="spm10k"),
