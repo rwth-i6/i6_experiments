@@ -214,7 +214,6 @@ def train_exp(
         num_epochs=num_epochs,
         gpu_mem=gpu_mem,
         num_processes=num_processes,
-        distributed_launch_cmd="torchrun" if num_processes else "mpirun",
         time_rqmt=time_rqmt,
     )
     recog_training_exp(prefix, task, model_with_checkpoint, recog_def=model_recog)
