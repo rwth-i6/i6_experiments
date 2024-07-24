@@ -947,10 +947,9 @@ class LibrispeechLmDataset(DatasetConfig):
                 "class": "OggZipDataset",
                 "path": files,
                 "use_cache_manager": True,
+                "audio": None,
+                "targets": vocab.get_opts().copy(),
             }
-            if self.vocab is not None:
-                vocab = self.train_vocab if training and self.train_vocab else self.vocab
-                d["targets"] = vocab.get_opts().copy()
         else:
             raise ValueError(f"invalid key {key!r}")
         if training:
