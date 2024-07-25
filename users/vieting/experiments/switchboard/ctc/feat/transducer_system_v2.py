@@ -542,7 +542,7 @@ class TransducerSystem:
         base_feature_flow: rasr.FlowNetwork,
         tf_graph: tk.Path,
         checkpoint: returnn.Checkpoint,
-        **kwargs
+        **kwargs,
     ) -> rasr.FlowNetwork:
         if custom_rasr.LabelScorer.need_tf_flow(label_scorer.scorer_type):
             feature_flow = self._make_tf_feature_flow(base_feature_flow, tf_graph, checkpoint, **kwargs)
