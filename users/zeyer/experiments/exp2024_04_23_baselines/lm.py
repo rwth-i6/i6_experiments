@@ -97,6 +97,60 @@ def py():
         train_def=lm_train_def,
     )
 
+    train(
+        "lm/trafo-n24-d512-gelu-drop0-b100_6k-wrongLr",
+        config=dict_update_deep(
+            config_11gb_lm_v1,
+            {
+                **_get_cfg_lrlin_oclr_by_bs_nep(100, 6_000, 100),  # TODO...
+                "learning_rate_piecewise_steps": [561_600 // 2, 1_123_200 // 2, 1_248_000 // 2],  # wrongLr
+            },
+        ),
+        train_dataset=get_librispeech_lm_dataset(vocab="spm10k"),
+        model_def=ModelDefWithCfg(
+            lm_model_def,
+            {
+                "_model_def_dict": rf.build_dict(
+                    TransformerDecoder,
+                    encoder_dim=None,
+                    num_layers=24,
+                    model_dim=512,
+                    ff_activation=rf.build_dict(rf.gelu),
+                    dropout=0.0,
+                    att_dropout=0.0,
+                )
+            },
+        ),
+        train_def=lm_train_def,
+    )
+
+    train(
+        "lm/trafo-n48-d512-gelu-drop0-b64_3k-wrongLr",
+        config=dict_update_deep(
+            config_11gb_lm_v1,
+            {
+                **_get_cfg_lrlin_oclr_by_bs_nep(64, 3_000, 100),  # TODO...
+                "learning_rate_piecewise_steps": [561_600 // 4, 1_123_200 // 4, 1_248_000 // 4],  # wrongLr
+            },
+        ),
+        train_dataset=get_librispeech_lm_dataset(vocab="spm10k"),
+        model_def=ModelDefWithCfg(
+            lm_model_def,
+            {
+                "_model_def_dict": rf.build_dict(
+                    TransformerDecoder,
+                    encoder_dim=None,
+                    num_layers=48,
+                    model_dim=512,
+                    ff_activation=rf.build_dict(rf.gelu),
+                    dropout=0.0,
+                    att_dropout=0.0,
+                )
+            },
+        ),
+        train_def=lm_train_def,
+    )
+
 
 def lm_model_def(*, epoch: int, in_dim: Dim, target_dim: Dim) -> rf.Module:
     """Function is run within RETURNN."""
@@ -184,6 +238,8 @@ _lrlin_oclr_steps_by_bs_nep = {
     # (15, 400): [234_000, 469_000, 521_000],  # total steps after 400 epochs: ~521k
     (32, 10_000, 20): [561_600, 1_123_200, 1_248_000],  # ~62421steps/ep, 20 eps -> 1,248k steps in total
     (32, 2_000, 100): [2_832_000, 5_665_000, 6_295_000],  # ~62951steps/ep, 100 eps -> 6,295k steps in total
+    (64, 3_000, 100): ...,  # TODO
+    (100, 6_000, 100): ...,  # TODO
     (200, 10_000, 100): ...,  # TODO
     (200, 13_000, 100): ...,  # TODO
 }
