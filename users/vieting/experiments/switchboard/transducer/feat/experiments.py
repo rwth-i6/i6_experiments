@@ -12,6 +12,7 @@ from i6_experiments.users.vieting.experiments.switchboard.ctc.feat.experiments i
     run_mel_baseline as run_mel_baseline_ctc,
     run_scf_baseline as run_scf_baseline_ctc,
     run_scf_baseline as run_scf_baseline_ctc,
+    run_scf_baseline as run_scf_baseline_ctc,
 )
 from i6_experiments.users.vieting.experiments.switchboard.ctc.feat.transducer_system_v2 import (
     TransducerSystem,
