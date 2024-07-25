@@ -22,7 +22,14 @@ from .data import get_switchboard_data, get_returnn_datasets_transducer_viterbi
 from .baseline_args import get_nn_args as get_nn_args_baseline
 from .helpers.lr.oclr import dynamic_learning_rate
 from .helpers.lr.fullsum import dynamic_learning_rate as dynamic_learning_rate_fullsum
-from .default_tools import RASR_BINARY_PATH, RASR_BINARY_PATH_PRECISION, RETURNN_ROOT, RETURNN_ROOT_FULLSUM, RETURNN_EXE, SCTK_BINARY_PATH
+from .default_tools import (
+    RASR_BINARY_PATH,
+    RASR_BINARY_PATH_PRECISION,
+    RETURNN_ROOT,
+    RETURNN_ROOT_FULLSUM,
+    RETURNN_EXE,
+    SCTK_BINARY_PATH,
+)
 
 
 def get_ctc_alignment() -> List[tk.Path]:
@@ -339,7 +346,7 @@ def run_mel_stage1():
                 returnn_args=returnn_args_ctc_align,
                 report_args={"alignment": "ctc-conf-e401"},
                 lr_args={"dynamic_learning_rate": dynamic_learning_rate},
-                feature_args={"wave_cast": True, **feature_args}
+                feature_args={"wave_cast": True, **feature_args},
             ),
         },
         num_epochs=300,
@@ -367,7 +374,7 @@ def run_mel_stage2():
             "accum_grad_multiple_step": 3,
             "gradient_clip": 0.0,
             "min_learning_rate": 1e-6,
-            "max_seq_length": {'classes': 600},
+            "max_seq_length": {"classes": 600},
         },
         "specaug_old": {"max_feature": 8},
         "rasr_loss_args": {"transducer_training_stage": "fullsum"},
@@ -430,7 +437,8 @@ def run_mel_stage2():
             "bs3k_v1_align-ctc-conf-e401": dict(
                 returnn_args={
                     "preload_checkpoint": nn_system_stage1.train_jobs[
-                        "viterbi_lgm80_bs15k_v1_align-ctc-conf-e401"].out_checkpoints[300],
+                        "viterbi_lgm80_bs15k_v1_align-ctc-conf-e401"
+                    ].out_checkpoints[300],
                     **returnn_args,
                 },
                 report_args={"stage": "fullsum"},
@@ -506,8 +514,11 @@ def run_mel_stage3():
         "label_scorer_type": "tf-ffnn-transducer",
         "epochs": [210],
     }
-    nn_system_stage2.returnn_configs["fullsum_lgm80_bs3k_v1"].recog_configs["recog"].config[
-        "network"]["output"]["unit"]["label_context"]["from"] = "output"  # no ILM, just SF
+    nn_system_stage2.returnn_configs["fullsum_lgm80_bs3k_v1"].recog_configs["recog"].config["network"]["output"][
+        "unit"
+    ]["label_context"][
+        "from"
+    ] = "output"  # no ILM, just SF
     nn_system_stage2.run_recogs_for_corpora(
         ["train"], "fullsum_lgm80_bs3k_v1", SearchTypes.GenericSeq2SeqSearchJob, **recog_args_nbest
     )
@@ -515,6 +526,7 @@ def run_mel_stage3():
     from i6_core.lm.perplexity import ComputePerplexityJob
     from i6_experiments.users.vieting.jobs.nbest import LatticeToNBestListJob, NBestListToHDFDatasetJob
     from i6_experiments.users.vieting.jobs.lm import UtteranceLMScoresFromWordScoresFileJob
+
     nn_system_stage2.crp["train"].flf_tool_exe = tk.Path(
         "/work/asr4/vieting/programs/rasr/20240611v4/rasr/arch/linux-x86_64-standard/flf-tool.linux-x86_64-standard",
         hash_overwrite="rasr_flf_tool_testing",
@@ -526,7 +538,8 @@ def run_mel_stage3():
     job_nbest = LatticeToNBestListJob(
         nn_system_stage2.crp["train"],
         nn_system_stage2.recog_jobs[
-            "nn_recog/train/fullsum_lgm80_bs3k_v1/recog_e-210_prior-0.00_lm-0.40"].out_lattice_bundle,
+            "nn_recog/train/fullsum_lgm80_bs3k_v1/recog_e-210_prior-0.00_lm-0.40"
+        ].out_lattice_bundle,
         200,
         word_level=False,
     )
@@ -554,18 +567,19 @@ def run_mel_stage3():
         "risk": list(job.out_risk_hdfs.values()),
     }
     for dataset in iterate_returnn_datasets(returnn_datasets):
-        dataset["data_map"].update({
-            f"nbest_{key}": (f"nbest_{key}", "data")
-            for key in ["classes", "classes_size", "score", "risk"]
-        })
-        dataset["datasets"].update({
-            f"nbest_{key}": {
-                "class": "HDFDataset",
-                "files": hdf_files[key],
-                "use_cache_manager": True,
+        dataset["data_map"].update(
+            {f"nbest_{key}": (f"nbest_{key}", "data") for key in ["classes", "classes_size", "score", "risk"]}
+        )
+        dataset["datasets"].update(
+            {
+                f"nbest_{key}": {
+                    "class": "HDFDataset",
+                    "files": hdf_files[key],
+                    "use_cache_manager": True,
+                }
+                for key in ["classes", "classes_size", "score", "risk"]
             }
-            for key in ["classes", "classes_size", "score", "risk"]
-        })
+        )
     returnn_datasets["train"]["datasets"]["ogg"]["seq_ordering"] = "laplace:.4800"
 
     # common parameters
@@ -585,7 +599,7 @@ def run_mel_stage3():
                 "nbest_risk": {"dim": 4, "dtype": "int64", "sparse": True},
                 "nbest_score": {"dim": 4, "dtype": "float64", "time_dim_axis": None},
                 "nbest_classes_size": {"dim": 4, "dtype": "int64", "sparse": True},
-            }
+            },
         },
         "specaug_old": False,
         "rasr_loss_args": {"transducer_training_stage": "mbr"},
@@ -678,13 +692,15 @@ def py():
         columns_start=["train_name", "features", "alignment"],
         columns_end=["epoch", "recog_name", "lm_scale", "ins", "del", "sub", "wer"],
     )
-    report = Report.merge_reports([
-        report_base,
-        report_rasr_gt_stage1,
-        report_mel_stage1,
-        report_mel_stage2,
-        report_mel_stage3,
-    ])
+    report = Report.merge_reports(
+        [
+            report_base,
+            report_rasr_gt_stage1,
+            report_mel_stage1,
+            report_mel_stage2,
+            report_mel_stage3,
+        ]
+    )
     report.delete_redundant_columns()
     tk.register_report(
         os.path.join(gs.ALIAS_AND_OUTPUT_SUBDIR, "report_swb_transducer.csv"),
