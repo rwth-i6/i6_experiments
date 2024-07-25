@@ -92,7 +92,11 @@ def format_func(s, *args, **kwargs):
 
 
 def make_rasr_ctc_loss_opts(
-    rasr_binary_path: tk.Path, rasr_arch: str = "linux-x86_64-standard", v2: bool = True, num_instances: int = 2, **kwargs
+    rasr_binary_path: tk.Path,
+    rasr_arch: str = "linux-x86_64-standard",
+    v2: bool = True,
+    num_instances: int = 2,
+    **kwargs,
 ):
     trainer_exe = rasr_binary_path.join_right(f"nn-trainer.{rasr_arch}")
 
