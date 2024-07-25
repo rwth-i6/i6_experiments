@@ -323,7 +323,14 @@ def run_scf_stage1():
         {"classes": 64, "data": 64 * 4 * 80 + 200 - 80},
         {"classes": 32, "data": 32 * 4 * 80},
     )
-    feature_args = {"class": "ScfNetwork", "size_tf": 256 // 2, "stride_tf": 10 // 2, "preemphasis": 0.97, "wave_norm": True, "wave_cast": True}
+    feature_args = {
+        "class": "ScfNetwork",
+        "size_tf": 256 // 2,
+        "stride_tf": 10 // 2,
+        "preemphasis": 0.97,
+        "wave_norm": True,
+        "wave_cast": True,
+    }
     common_args = {
         "feature_args": feature_args,
         "lr_args": {"dynamic_learning_rate": dynamic_learning_rate_scf},
@@ -375,18 +382,18 @@ def run_scf_stage1_from_checkpoint():
             "learning_rate_control_error_measure": "sum_dev_score",
             "min_learning_rate": 1e-6,
             "preload_from_files": {
-                        "existing-model": {
-                            "filename": "/u/maximilian.kannen/setups/20230406_feat/work/i6_core/returnn/training/ReturnnTrainingJob.O9Y8K5i3P1Qo/output/models/epoch.400.index",
-                            "init_for_train": True,
-                            "prefix": "features", 
-                            "var_name_mapping": {
-                                "/conv_h_filter/conv_h_filter": "features/conv_h_filter/conv_h_filter",
-                                "/conv_l/W": "features/conv_l/W",
-                                "/conv_l_act/bias": "features/conv_l_act/bias",
-                                "/conv_l_act/scale": "features/conv_l_act/scale"
-                            },
-                        }
+                "existing-model": {
+                    "filename": "/u/maximilian.kannen/setups/20230406_feat/work/i6_core/returnn/training/ReturnnTrainingJob.O9Y8K5i3P1Qo/output/models/epoch.400.index",
+                    "init_for_train": True,
+                    "prefix": "features",
+                    "var_name_mapping": {
+                        "/conv_h_filter/conv_h_filter": "features/conv_h_filter/conv_h_filter",
+                        "/conv_l/W": "features/conv_l/W",
+                        "/conv_l_act/bias": "features/conv_l_act/bias",
+                        "/conv_l_act/scale": "features/conv_l_act/scale",
                     },
+                }
+            },
         },
         "specaug_old": {"max_feature": 15},
     }
@@ -404,7 +411,14 @@ def run_scf_stage1_from_checkpoint():
         {"classes": 64, "data": 64 * 4 * 80 + 200 - 80},
         {"classes": 32, "data": 32 * 4 * 80},
     )
-    feature_args = {"class": "ScfNetwork", "size_tf": 256 // 2, "stride_tf": 10 // 2, "preemphasis": 0.97, "wave_norm": True, "wave_cast": True}
+    feature_args = {
+        "class": "ScfNetwork",
+        "size_tf": 256 // 2,
+        "stride_tf": 10 // 2,
+        "preemphasis": 0.97,
+        "wave_norm": True,
+        "wave_cast": True,
+    }
     common_args = {
         "feature_args": feature_args,
         "lr_args": {"dynamic_learning_rate": dynamic_learning_rate_scf},
@@ -419,27 +433,30 @@ def run_scf_stage1_from_checkpoint():
                 feature_args=feature_args,
             ),
             "bs15k_v1_align-ctc-conf-e400_featues_from_checkpoint_400_froozen": dict(
-                returnn_args={
-                    **returnn_args_ctc_align,
-                    "staged_opts": {1: "freeze_features"}
-                },
+                returnn_args={**returnn_args_ctc_align, "staged_opts": {1: "freeze_features"}},
                 report_args={"alignment": "ctc-conf-e400"},
                 lr_args={"dynamic_learning_rate": dynamic_learning_rate_scf},
                 feature_args=feature_args,
             ),
-
         },
         num_epochs=300,
         evaluation_epochs=[270, 280, 290, 300],
         prefix="viterbi_scf80_",
     )
-    config = copy.deepcopy(nn_args.returnn_recognition_configs["viterbi_scf80_bs15k_v1_align-ctc-conf-e400_featues_from_checkpoint_400"].config)
+    config = copy.deepcopy(
+        nn_args.returnn_recognition_configs[
+            "viterbi_scf80_bs15k_v1_align-ctc-conf-e400_featues_from_checkpoint_400"
+        ].config
+    )
     config["extern_data"]["data"]["dtype"] = "float32"
     config["extern_data"]["classes"]["dtype"] = "int32"
     config["label_scorer_args"]["extra_args"]["reduction-subtrahend"] = 322
-    nn_args.returnn_recognition_configs["viterbi_scf80_bs15k_v1_align-ctc-conf-e400_featues_from_checkpoint_400"].config = config
+    nn_args.returnn_recognition_configs[
+        "viterbi_scf80_bs15k_v1_align-ctc-conf-e400_featues_from_checkpoint_400"
+    ].config = config
     nn_system, report = run_nn_args(nn_args, report_args_collection, dev_corpora["transducer"])
     return nn_system, report
+
 
 def run_mel_stage1():
     ctc_alignment = get_ctc_alignment()
