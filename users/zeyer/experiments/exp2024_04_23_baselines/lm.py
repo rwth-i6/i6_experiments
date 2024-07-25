@@ -149,11 +149,11 @@ def py():
     )
 
     train(
-        "lm/trafo-n96-d512-gelu-drop0-b32_1500-wrongLr",
+        "lm/trafo-n96-d512-gelu-drop0-b32_1350-wrongLr",
         config=dict_update_deep(
             config_11gb_lm_v1,
             {
-                **_get_cfg_lrlin_oclr_by_bs_nep(32, 1_500, 100),  # TODO?
+                **_get_cfg_lrlin_oclr_by_bs_nep(32, 1_350, 100),  # TODO?
                 "learning_rate_piecewise_steps": [561_600 // 5, 1_123_200 // 5, 1_248_000 // 5],  # wrongLr
             },
         ),
@@ -258,7 +258,7 @@ lm_train_def.learning_rate_control_error_measure = "ce"
 # and give some estimates for the steps here, i.e. 45%, 90%, almost 100%,
 # making sure the last number is slightly below the real total number of steps.
 _lrlin_oclr_steps_by_bs_nep = {
-    (32, 1_500, 100): ...,  # TODO
+    (32, 1_350, 100): ...,  # TODO
     (32, 2_000, 100): [2_832_000, 5_665_000, 6_295_000],  # ~62951steps/ep, 100 eps -> 6,295k steps in total
     (32, 10_000, 20): [561_600, 1_123_200, 1_248_000],  # ~62421steps/ep, 20 eps -> 1,248k steps in total
     (100, 6_000, 100): ...,  # TODO
