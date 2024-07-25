@@ -9,16 +9,15 @@ from __future__ import annotations
 
 import copy
 import functools
-from typing import TYPE_CHECKING, Optional, Union, Tuple, Sequence
+from typing import TYPE_CHECKING, Optional, Union, Any, Sequence, Tuple, Dict
 
 from returnn.tensor import Tensor, Dim
 import returnn.frontend as rf
 from returnn.frontend.decoder.transformer import TransformerDecoder
 
+from i6_experiments.users.zeyer.utils.dict_update import dict_update_deep
 from i6_experiments.users.zeyer.model_interfaces import ModelDef, ModelDefWithCfg, RecogDef, TrainDef
 from i6_experiments.users.zeyer.returnn.models.rf_layerdrop import SequentialLayerDrop
-
-from .configs import *
 
 
 def py():
@@ -203,6 +202,8 @@ def _get_cfg_lrlin_oclr_by_bs_nep(max_seqs: int, bs_feat: int, n_ep: int, *, pea
     :param bs_feat: batch size for features (not including _batch_size_factor)
     :param n_ep: num epochs
     """
+    from i6_experiments.users.zeyer.lr_schedules.piecewise_linear import dyn_lr_piecewise_linear
+
     return {
         "__num_epochs": n_ep,
         "batch_size": bs_feat,
