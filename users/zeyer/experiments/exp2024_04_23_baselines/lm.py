@@ -19,7 +19,6 @@ from i6_experiments.users.zeyer.model_interfaces import ModelDef, ModelDefWithCf
 from i6_experiments.users.zeyer.returnn.models.rf_layerdrop import SequentialLayerDrop
 
 from .configs import *
-from .configs import _get_cfg_lrlin_oclr_by_bs_nep as _wrong_get_cfg_lrlin_oclr_by_bs_nep
 
 
 def py():
@@ -28,56 +27,43 @@ def py():
     from i6_experiments.users.zeyer.datasets.librispeech import get_librispeech_lm_dataset
     from .configs import config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4
 
-    # TODO LmDataset not as gzip, to allow for direct mmap
-    #  (Also need to implement that in RETURNN.)
+    # TODO LmDataset not as gzip, to allow for direct mmap?
 
     # TODO try train_vocab_opts={"other_opts": {"class": "SamplingBytePairEncoding", "breadth_prob": 0.01}}
     # TODO label smoothing?
     # TODO try "optimizer.class": "RAdam", "optimizer.decoupled_weight_decay": True. but needs newer PyTorch?
+    # TODO I have max_seq_length 75. For spm10k, that are 98.16% of the data. Maybe try without?
 
     train(
-        "lm/trafo-b32",
+        "lm/trafo-trafo-n12-d512-drop0-b200_10k-wrongLr",
         config=dict_update_deep(
             config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
             {
-                **_wrong_get_cfg_lrlin_oclr_by_bs_nep(10_000, 500),  # TODO wrong...
+                **_get_cfg_lrlin_oclr_by_bs_nep(200, 10_000, 100),  # TODO...
+                "learning_rate_piecewise_steps": [561_600, 1_123_200, 1_248_000],  # wrongLr
                 "optimizer.weight_decay": 1e-2,
                 "calculate_exp_loss": True,
-                "max_seqs": 32,  # TODO really?
             },
         ),
         train_dataset=get_librispeech_lm_dataset(vocab="spm10k"),
         model_def=ModelDefWithCfg(
-            lm_model_def, {"_model_def_dict": rf.build_dict(TransformerDecoder, encoder_dim=None, num_layers=12)}
+            lm_model_def,
+            {
+                "_model_def_dict": rf.build_dict(
+                    TransformerDecoder, encoder_dim=None, num_layers=12, model_dim=512, dropout=0.0, att_dropout=0.0
+                )
+            },
         ),
         train_def=lm_train_def,
     )
 
     train(
-        "lm/trafo-b100",
+        "lm/trafo-n24-d1024-drop0-b32_2k-wrongLr",
         config=dict_update_deep(
             config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
             {
-                **_wrong_get_cfg_lrlin_oclr_by_bs_nep(10_000, 500),  # TODO wrong...
-                "optimizer.weight_decay": 1e-2,
-                "calculate_exp_loss": True,
-                "max_seqs": 100,
-            },
-        ),
-        train_dataset=get_librispeech_lm_dataset(vocab="spm10k"),
-        model_def=ModelDefWithCfg(
-            lm_model_def, {"_model_def_dict": rf.build_dict(TransformerDecoder, encoder_dim=None, num_layers=12)}
-        ),
-        train_def=lm_train_def,
-    )
-
-    train(
-        "lm/trafo-n24-d1024-drop0-b32-wrongLr",
-        config=dict_update_deep(
-            config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
-            {
-                **_get_cfg_lrlin_oclr_by_bs_nep(32, 2_000, 100),  # TODO...
-                "learning_rate_piecewise_steps": [561_600 * 5, 1_123_200 * 5, 1_248_000 * 5],  # wrongLr
+                **_get_cfg_lrlin_oclr_by_bs_nep(32, 2_000, 100),
+                "learning_rate_piecewise_steps": [2_808_000, 5_616_000, 6_240_000],  # wrongLr (but not too wrong)
                 "optimizer.weight_decay": 1e-2,
                 "calculate_exp_loss": True,
             },
@@ -180,7 +166,8 @@ _lrlin_oclr_steps_by_bs_nep = {
     # (8, 125): [139_000, 279_000, 310_000],  # ~2485steps/ep, 125 eps -> 310k steps in total
     # (15, 400): [234_000, 469_000, 521_000],  # total steps after 400 epochs: ~521k
     (32, 10_000, 20): [561_600, 1_123_200, 1_248_000],  # ~62421steps/ep, 20 eps -> 1,248k steps in total
-    (32, 2_000, 100): ...,  # TODO ...
+    (32, 2_000, 100): [2_832_000, 5_665_000, 6_295_000],  # ~62951steps/ep, 100 eps -> 6,295k steps in total
+    (200, 10_000, 100): ...,  # TODO
 }
 
 
