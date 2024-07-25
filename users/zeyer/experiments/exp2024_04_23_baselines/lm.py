@@ -149,12 +149,36 @@ def py():
     )
 
     train(
-        "lm/trafo-n96-d512-gelu-drop0-b32_2k",
+        "lm/trafo-n80-d512-gelu-drop0-b32_2k",
+        config=dict_update_deep(
+            config_11gb_lm_v1,
+            {**_get_cfg_lrlin_oclr_by_bs_nep(32, 2_000, 100)},
+        ),
+        train_dataset=get_librispeech_lm_dataset(vocab="spm10k"),
+        model_def=ModelDefWithCfg(
+            lm_model_def,
+            {
+                "_model_def_dict": rf.build_dict(
+                    TransformerDecoder,
+                    encoder_dim=None,
+                    num_layers=80,
+                    model_dim=512,
+                    ff_activation=rf.build_dict(rf.gelu),
+                    dropout=0.0,
+                    att_dropout=0.0,
+                )
+            },
+        ),
+        train_def=lm_train_def,
+    )
+
+    train(
+        "lm/trafo-n96-d512-gelu-drop0-b32_1500-wrongLr",
         config=dict_update_deep(
             config_11gb_lm_v1,
             {
-                **_get_cfg_lrlin_oclr_by_bs_nep(32, 2_000, 100),  # TODO?
-                # "learning_rate_piecewise_steps": [561_600 // 4, 1_123_200 // 4, 1_248_000 // 4]  # wrongLr
+                **_get_cfg_lrlin_oclr_by_bs_nep(32, 1_500, 100),  # TODO?
+                "learning_rate_piecewise_steps": [561_600 // 5, 1_123_200 // 5, 1_248_000 // 5],  # wrongLr
             },
         ),
         train_dataset=get_librispeech_lm_dataset(vocab="spm10k"),
@@ -258,10 +282,9 @@ lm_train_def.learning_rate_control_error_measure = "ce"
 # and give some estimates for the steps here, i.e. 45%, 90%, almost 100%,
 # making sure the last number is slightly below the real total number of steps.
 _lrlin_oclr_steps_by_bs_nep = {
-    # (8, 125): [139_000, 279_000, 310_000],  # ~2485steps/ep, 125 eps -> 310k steps in total
-    # (15, 400): [234_000, 469_000, 521_000],  # total steps after 400 epochs: ~521k
-    (32, 10_000, 20): [561_600, 1_123_200, 1_248_000],  # ~62421steps/ep, 20 eps -> 1,248k steps in total
+    (32, 1_500, 100): ...,  # TODO
     (32, 2_000, 100): [2_832_000, 5_665_000, 6_295_000],  # ~62951steps/ep, 100 eps -> 6,295k steps in total
+    (32, 10_000, 20): [561_600, 1_123_200, 1_248_000],  # ~62421steps/ep, 20 eps -> 1,248k steps in total
     (100, 6_000, 100): ...,  # TODO
     (200, 10_000, 100): ...,  # TODO
     (200, 13_000, 100): ...,  # TODO
