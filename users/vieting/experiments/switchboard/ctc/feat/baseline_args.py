@@ -38,7 +38,8 @@ def get_nn_args(nn_base_args, num_epochs, evaluation_epochs=None, prefix="", tra
 
     for name, args in nn_base_args.items():
         returnn_config, returnn_recog_config, report_args = get_nn_args_single(
-            num_epochs=num_epochs, evaluation_epochs=evaluation_epochs, **copy.deepcopy(args))
+            num_epochs=num_epochs, evaluation_epochs=evaluation_epochs, **copy.deepcopy(args)
+        )
         returnn_configs[prefix + name] = returnn_config
         returnn_recog_configs[prefix + name] = returnn_recog_config
         report_args_collection[prefix + name] = report_args
@@ -67,8 +68,13 @@ def get_nn_args(nn_base_args, num_epochs, evaluation_epochs=None, prefix="", tra
 
 
 def get_nn_args_single(
-    num_outputs: int = 88, num_epochs: int = 500, evaluation_epochs: Optional[List[int]] = None,
-    lr_args=None, feature_args=None, returnn_args=None, report_args=None,
+    num_outputs: int = 88,
+    num_epochs: int = 500,
+    evaluation_epochs: Optional[List[int]] = None,
+    lr_args=None,
+    feature_args=None,
+    returnn_args=None,
+    report_args=None,
 ):
     feature_args = feature_args or {"class": "GammatoneNetwork", "sample_rate": 8000}
     preemphasis = feature_args.pop("preemphasis", None)
@@ -83,13 +89,20 @@ def get_nn_args_single(
     source_layer = "data"
 
     if wave_norm == "fix":
-        feature_net["subnetwork"]["wave_norm"] = {"axes": "T", "class": "norm", "from": source_layer, "trainable": False}
+        feature_net["subnetwork"]["wave_norm"] = {
+            "axes": "T",
+            "class": "norm",
+            "from": source_layer,
+            "trainable": False,
+        }
         source_layer = "wave_norm"
     elif wave_norm:
         feature_net["subnetwork"]["wave_norm"] = {"axes": "T", "class": "norm", "from": source_layer}
         source_layer = "wave_norm"
     if preemphasis:
-        feature_net["subnetwork"]["preemphasis"] = PreemphasisNetwork(alpha=preemphasis).get_as_subnetwork(source=source_layer)
+        feature_net["subnetwork"]["preemphasis"] = PreemphasisNetwork(alpha=preemphasis).get_as_subnetwork(
+            source=source_layer
+        )
         source_layer = "preemphasis"
     if preemphasis_first and wave_norm and preemphasis:
         feature_net["subnetwork"]["preemphasis"]["from"] = feature_net["subnetwork"]["wave_norm"]["from"]
@@ -183,11 +196,11 @@ def get_returnn_config(
         "phon_future_length": 0,
         "allophone_file": tk.Path(
             "/u/vieting/setups/swb/20230406_feat/dependencies/allophones_blank",
-            hash_overwrite="SWB_ALLOPHONE_FILE_WEI_BLANK"
+            hash_overwrite="SWB_ALLOPHONE_FILE_WEI_BLANK",
         ),
         "state_tying_file": tk.Path(
             "/u/vieting/setups/swb/20230406_feat/dependencies/state-tying_blank",
-            hash_overwrite="SWB_STATE_TYING_FILE_WEI_BLANK"
+            hash_overwrite="SWB_STATE_TYING_FILE_WEI_BLANK",
         ),
     }
 

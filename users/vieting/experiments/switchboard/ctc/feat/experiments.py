@@ -466,7 +466,10 @@ def run_scf_specaug_sort():
     ).out_repository
     returnn_root.hash_overwrite = "returnn_conv_padding"
     report, ctc_nn_system = run_nn_args(
-        nn_args, report_args_collection, dev_corpora, returnn_root=returnn_root,
+        nn_args,
+        report_args_collection,
+        dev_corpora,
+        returnn_root=returnn_root,
         recog_args={"epochs": [350, 400, 450, "best"]},
     )
     return report
