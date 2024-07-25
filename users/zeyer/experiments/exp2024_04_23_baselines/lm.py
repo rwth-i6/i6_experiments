@@ -27,6 +27,14 @@ def py():
     from i6_experiments.users.zeyer.datasets.librispeech import get_librispeech_lm_dataset
     from .configs import config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4
 
+    config_11gb_v1 = dict_update_deep(
+        config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
+        {
+            "optimizer.weight_decay": 1e-2,
+            "calculate_exp_loss": True,
+        },
+    )
+
     # TODO LmDataset not as gzip, to allow for direct mmap?
 
     # TODO try train_vocab_opts={"other_opts": {"class": "SamplingBytePairEncoding", "breadth_prob": 0.01}}
@@ -37,12 +45,10 @@ def py():
     train(
         "lm/trafo-n12-d512-drop0-b200_10k-wrongLr",
         config=dict_update_deep(
-            config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
+            config_11gb_v1,
             {
                 **_get_cfg_lrlin_oclr_by_bs_nep(200, 10_000, 100),  # TODO...
                 "learning_rate_piecewise_steps": [561_600, 1_123_200, 1_248_000],  # wrongLr
-                "optimizer.weight_decay": 1e-2,
-                "calculate_exp_loss": True,
             },
         ),
         train_dataset=get_librispeech_lm_dataset(vocab="spm10k"),
@@ -60,12 +66,10 @@ def py():
     train(
         "lm/trafo-n12-d512-drop0-b200_13k-wrongLr",
         config=dict_update_deep(
-            config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
+            config_11gb_v1,
             {
                 **_get_cfg_lrlin_oclr_by_bs_nep(200, 13_000, 100),  # TODO...
                 "learning_rate_piecewise_steps": [561_600, 1_123_200, 1_248_000],  # wrongLr
-                "optimizer.weight_decay": 1e-2,
-                "calculate_exp_loss": True,
             },
         ),
         train_dataset=get_librispeech_lm_dataset(vocab="spm10k"),
@@ -83,12 +87,10 @@ def py():
     train(
         "lm/trafo-n24-d1024-drop0-b32_2k-wrongLr",
         config=dict_update_deep(
-            config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
+            config_11gb_v1,
             {
                 **_get_cfg_lrlin_oclr_by_bs_nep(32, 2_000, 100),
                 "learning_rate_piecewise_steps": [2_808_000, 5_616_000, 6_240_000],  # wrongLr (but not too wrong)
-                "optimizer.weight_decay": 1e-2,
-                "calculate_exp_loss": True,
             },
         ),
         train_dataset=get_librispeech_lm_dataset(vocab="spm10k"),
