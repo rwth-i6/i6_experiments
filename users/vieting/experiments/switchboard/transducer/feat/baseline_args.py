@@ -62,9 +62,11 @@ def get_nn_args_single(
     lr_args=None, feature_args=None, returnn_args=None, report_args=None,
 ):
     if feature_args is not None:
+        feature_args = feature_args or {"class": "GammatoneNetwork", "sample_rate": 8000}
         preemphasis = feature_args.pop("preemphasis", None)
         wave_norm = feature_args.pop("wave_norm", False)
         wave_cast = feature_args.pop("wave_cast", False)
+        preemphasis_first = feature_args.pop("preemphasis_first", False)
         feature_network_class = {
             "LogMelNetwork": LogMelNetwork,
             "GammatoneNetwork": GammatoneNetwork,
@@ -72,25 +74,26 @@ def get_nn_args_single(
         }[feature_args.pop("class")]
         feature_net = feature_network_class(**feature_args).get_as_subnetwork()
         source_layer = "data"
+        if preemphasis:
+            for layer in feature_net["subnetwork"]:
+                layer_config = feature_net["subnetwork"][layer]
+                if layer_config.get('class') != 'variable':
+                    if feature_net["subnetwork"][layer].get("from") == "data":
+                        feature_net["subnetwork"][layer]["from"] = "preemphasis"
+            feature_net["subnetwork"]["preemphasis"] = PreemphasisNetwork(alpha=preemphasis).get_as_subnetwork()
+        if wave_norm:
+            for layer in feature_net["subnetwork"]:
+                if feature_net["subnetwork"][layer].get("from") == "data":
+                    feature_net["subnetwork"][layer]["from"] = "wave_norm"
+            feature_net["subnetwork"]["wave_norm"] = {"axes": "T", "class": "norm", "from": "wave_cast"}
+            if preemphasis:
+                feature_net["subnetwork"]["preemphasis"]["from"] = "wave_norm"
         if wave_cast:
             for layer in feature_net["subnetwork"]:
-                if feature_net["subnetwork"][layer].get("from") == source_layer:
+                if feature_net["subnetwork"][layer].get("from") == "wave_norm":
                     feature_net["subnetwork"][layer]["from"] = "wave_cast"
             feature_net["subnetwork"]["wave_cast"] = {"class": "cast", "dtype": "float32", "from": source_layer}
             source_layer = "wave_cast"
-        if wave_norm:
-            for layer in feature_net["subnetwork"]:
-                if feature_net["subnetwork"][layer].get("from") == source_layer:
-                    feature_net["subnetwork"][layer]["from"] = "wave_norm"
-            feature_net["subnetwork"]["wave_norm"] = {"axes": "T", "class": "norm", "from": source_layer}
-            source_layer = "wave_norm"
-        if preemphasis:
-            assert source_layer == "data", "not yet implemented, needs to be fixed in PreemphasisNetwork"
-            for layer in feature_net["subnetwork"]:
-                if feature_net["subnetwork"][layer].get("from", "data") == source_layer:
-                    feature_net["subnetwork"][layer]["from"] = "preemphasis"
-            feature_net["subnetwork"]["preemphasis"] = PreemphasisNetwork(alpha=preemphasis).get_as_subnetwork()
-            source_layer = "preemphasis"
     else:
         feature_net = None
 
@@ -104,6 +107,14 @@ def get_nn_args_single(
         **(returnn_args or {}),
     )
 
+    recog_args = returnn_args.copy() if returnn_args else {}
+
+    if "extra_args" in recog_args:
+        if "audio_perturb_args" in recog_args["extra_args"]:
+            del recog_args["extra_args"]["audio_perturb_args"]
+        if "audio_perturb_runner" in recog_args["extra_args"]:
+            del recog_args["extra_args"]["audio_perturb_runner"]
+
     returnn_recog_config = get_returnn_config(
         num_inputs=num_inputs,
         num_outputs=num_outputs,
@@ -111,7 +122,7 @@ def get_nn_args_single(
         recognition=True,
         num_epochs=num_epochs,
         feature_net=feature_net,
-        **(returnn_args or {}),
+        **(recog_args or {}),
     )
 
     report_args = {
