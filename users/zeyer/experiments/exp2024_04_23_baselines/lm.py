@@ -148,6 +148,33 @@ def py():
         train_def=lm_train_def,
     )
 
+    train(
+        "lm/trafo-n96-d512-gelu-drop0-b32_2k",
+        config=dict_update_deep(
+            config_11gb_lm_v1,
+            {
+                **_get_cfg_lrlin_oclr_by_bs_nep(32, 2_000, 100),  # TODO?
+                # "learning_rate_piecewise_steps": [561_600 // 4, 1_123_200 // 4, 1_248_000 // 4]  # wrongLr
+            },
+        ),
+        train_dataset=get_librispeech_lm_dataset(vocab="spm10k"),
+        model_def=ModelDefWithCfg(
+            lm_model_def,
+            {
+                "_model_def_dict": rf.build_dict(
+                    TransformerDecoder,
+                    encoder_dim=None,
+                    num_layers=96,
+                    model_dim=512,
+                    ff_activation=rf.build_dict(rf.gelu),
+                    dropout=0.0,
+                    att_dropout=0.0,
+                )
+            },
+        ),
+        train_def=lm_train_def,
+    )
+
 
 def lm_model_def(*, epoch: int, in_dim: Dim, target_dim: Dim) -> rf.Module:
     """Function is run within RETURNN."""
