@@ -11,7 +11,7 @@ from i6_experiments.common.setups.returnn_pytorch.serialization import (
 )
 from i6_experiments.common.setups.serialization import Import
 from .data.common import TrainingDatasets
-from .serializer import serialize_training, serialize_forward, PACKAGE
+from .serializer import serialize_training, serialize_forward, PACKAGE, serialize_quant
 
 
 def get_training_config(
@@ -217,6 +217,46 @@ def get_static_quant_config(
         net_args=net_args | quant_args,
         debug=debug,
         forward_step_name="static_quant"
+    )
+    returnn_config = ReturnnConfig(config=config, post_config=post_config, python_epilog=[serializer])
+    return returnn_config
+
+
+def get_onnx_export_config(
+    network_module: str,
+    config: Dict[str, Any],
+    net_args: Dict[str, Any],
+    unhashed_net_args: Optional[Dict[str, Any]] = None,
+    debug: bool = False,
+) -> ReturnnConfig:
+    """
+    Get a generic config for forwarding
+
+    :param network_module: path to the pytorch config file containing Model
+    :param net_args: extra arguments for constructing the PyTorch model
+    :param decoder: which (python) file to load which defines the forward, forward_init and forward_finish functions
+    :param config: config arguments for RETURNN
+    :param unhashed_net_args: unhashed extra arguments for constructing the PyTorch model
+    :param debug: run training in debug mode (linking from recipe instead of copy)
+    """
+
+    # changing these does not change the hash
+    post_config = {}
+
+    # changeing these does change the hash
+    base_config = {
+        "batch_size": 1000 * 16000,
+        "max_seqs": 240,
+    }
+    config = {**base_config, **copy.deepcopy(config)}
+    post_config["backend"] = "torch"
+
+    serializer = serialize_quant(
+        network_module=network_module,
+        net_args=net_args,
+        unhashed_net_args=unhashed_net_args,
+        debug=debug,
+        export_step_name="export"
     )
     returnn_config = ReturnnConfig(config=config, post_config=post_config, python_epilog=[serializer])
     return returnn_config

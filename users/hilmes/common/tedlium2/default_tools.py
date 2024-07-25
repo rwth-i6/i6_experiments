@@ -15,10 +15,12 @@ from i6_core.tools.git import CloneGitRepositoryJob
 
 PACKAGE = __package__
 
-RASR_BINARY_PATH = compile_rasr_binaries_i6mode(
-    configure_options=["--apptainer-setup=2023-05-08_tensorflow-2.8_v1"],
-    commit="a1218e196557aa6d02570bbb38767e987b7a77a2",
-)  #  use most recent RASR
+# RASR_BINARY_PATH = compile_rasr_binaries_i6mode(
+#     configure_options=["--apptainer-setup=2023-05-08_tensorflow-2.8_v1"],
+#     commit="a1218e196557aa6d02570bbb38767e987b7a77a2",
+# )  #  use most recent RASR
+RASR_BINARY_PATH = tk.Path(
+        "/work/asr4/hilmes/dev/rasr_onnx_115_24_01_24/arch/linux-x86_64-standard")
 RASR_BINARY_PATH.hash_overwrite = "TEDLIUM2_DEFAULT_RASR_BINARY_PATH"
 
 SCTK_BINARY_PATH = compile_sctk()  # use last published version

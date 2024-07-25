@@ -72,14 +72,17 @@ def search_single(
     )
     search_job.add_alias(prefix_name + "/search_job")
 
-    search_ctm = SearchWordsToCTMJob(
+    search_ctm_job = SearchWordsToCTMJob(
         recog_words_file=search_job.out_files["search_out.py"],
         bliss_corpus=recognition_bliss_corpus,
-    ).out_ctm_file
+    )
+    search_ctm_job.add_alias(prefix_name + "/ctm_job")
+    search_ctm = search_ctm_job.out_ctm_file
 
     stm_file = CorpusToStmJob(bliss_corpus=recognition_bliss_corpus).out_stm_path
 
     sclite_job = ScliteJob(ref=stm_file, hyp=search_ctm, sctk_binary_path=SCTK_BINARY_PATH, precision_ndigit=3)
+    sclite_job.add_alias(prefix_name + "/sclite_job")
     tk.register_output(prefix_name + "/sclite/wer", sclite_job.out_wer)
     tk.register_output(prefix_name + "/sclite/report", sclite_job.out_report_dir)
 
@@ -137,7 +140,7 @@ def search(
             test_dataset_reference,
             returnn_exe,
             returnn_root,
-            mem_rqmt=16 if "8192" in "search_name" else 10,
+            mem_rqmt=30 if "hubert_tune" in search_name else 10,
             use_gpu=use_gpu,
         )
         search_jobs.append(search_job)
@@ -176,6 +179,8 @@ def compute_prior(
         returnn_root=returnn_root,
         output_files=["prior.txt"],
     )
+    if "hubert_tune_v1_xlarge" in prefix_name:
+        search_job.rqmt['time'] += 12
     search_job.add_alias(prefix_name + "/prior_job")
     return search_job.out_files["prior.txt"]
 
@@ -285,7 +290,10 @@ def prepare_asr_model(
             avg = AverageTorchCheckpointsJob(
                 checkpoints=checkpoints, returnn_python_exe=RETURNN_EXE, returnn_root=MINI_RETURNN_ROOT
             )
+            if "v6_20_1024" in training_name:
+                avg.rqmt['mem'] += 2
             checkpoint = avg.out_checkpoint
+            avg.add_alias(training_name + "/avg_best_%i_cpkt/avrg_job" % num_checkpoints)
             training_name = training_name + "/avg_best_%i_cpkt" % num_checkpoints
         else:
             # we only have one
@@ -299,6 +307,7 @@ def prepare_asr_model(
             returnn_python_exe=RETURNN_EXE,
             returnn_root=MINI_RETURNN_ROOT,
         )
+        avg.add_alias(training_name + "/avg_last_%i_cpkt/avrg_job" % num_checkpoints)
         checkpoint = avg.out_checkpoint
         training_name = training_name + "/avg_last_%i_cpkt" % num_checkpoints
     else:
@@ -315,6 +324,10 @@ def prepare_asr_model(
             unhashed_net_args=train_args.get("unhashed_net_args", None),
             debug=train_args.get("debug", False),
         )
+        if "hubert_tune_v1_large" in training_name:
+            returnn_config.config['max_seqs'] = 20
+        elif "hubert_tune_v1_xlarge" in training_name:
+            returnn_config.config['max_seqs'] = 15
         prior_file = compute_prior(
             training_name,
             returnn_config,
@@ -336,3 +349,68 @@ def prepare_asr_model(
     )
 
     return asr_model
+
+
+def generate_kd_hypothesis(
+        prefix_name: str,
+        train_job: ReturnnTrainingJob,
+        train_args,
+        train_data: TrainingDatasets,
+        checkpoint: int,
+        decoder_config,
+        prior_scale: float,
+        lm_scale: float,
+        train_referece: Optional[tk.Path] = None,
+        decoder: str = "ctc.decoder.flashlight_ctc_v2"
+):
+    decoder_config = copy.deepcopy(decoder_config)
+    decoder_config.lm_weight = lm_scale
+    decoder_config.prior_scale = prior_scale
+    asr_model = prepare_asr_model(
+        prefix_name, train_job, train_args, with_prior=True, datasets=train_data,
+        get_specific_checkpoint=checkpoint
+    )
+    decoder_args = {"config": asdict(decoder_config)}
+    decoder_args["config"]["prior_file"] = asr_model.prior_file
+    returnn_search_config = get_forward_config(
+        network_module=asr_model.network_module,
+        config={},
+        net_args=asr_model.net_args,
+        decoder_args=decoder_args,
+        decoder=decoder,
+        debug=True,
+    )
+    returnn_config = copy.deepcopy(returnn_search_config)
+    returnn_config.config["forward"] = train_data.train.as_returnn_opts()
+    search_job = ReturnnForwardJobV2(
+        model_checkpoint=asr_model.checkpoint,
+        returnn_config=returnn_config,
+        log_verbosity=5,
+        mem_rqmt=10,
+        time_rqmt=24,
+        device="gpu",
+        cpu_rqmt=2,
+        returnn_python_exe=RETURNN_EXE,
+        returnn_root=MINI_RETURNN_ROOT,
+        output_files=["search_out.py", "n_best_probs.py"],
+    )
+    prefix_name = prefix_name + "/search_lm%.1f_prior%.1f" % (lm_scale, prior_scale)
+    search_job.add_alias(prefix_name + "/n_best_probs_job")
+
+    if train_referece is not None:
+        search_ctm_job = SearchWordsToCTMJob(
+            recog_words_file=search_job.out_files["search_out.py"],
+            bliss_corpus=train_referece,
+        )
+        search_ctm_job.add_alias(prefix_name + "/ctm_job")
+        search_ctm = search_ctm_job.out_ctm_file
+
+        stm_file = CorpusToStmJob(bliss_corpus=train_referece).out_stm_path
+
+        sclite_job = ScliteJob(ref=stm_file, hyp=search_ctm, sctk_binary_path=SCTK_BINARY_PATH,
+                               precision_ndigit=3)
+        sclite_job.add_alias(prefix_name + "/sclite_job")
+        tk.register_output(prefix_name + "/sclite/wer", sclite_job.out_wer)
+        tk.register_output(prefix_name + "/sclite/report", sclite_job.out_report_dir)
+
+    return search_job.out_files['n_best_probs.py']
