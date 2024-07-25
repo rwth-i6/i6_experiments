@@ -85,11 +85,12 @@ def get_nn_args_single(
             feature_net["subnetwork"]["wave_norm"] = {"axes": "T", "class": "norm", "from": source_layer}
             source_layer = "wave_norm"
         if preemphasis:
-            assert source_layer == "data", "not yet implemented, needs to be fixed in PreemphasisNetwork"
             for layer in feature_net["subnetwork"]:
                 if feature_net["subnetwork"][layer].get("from", "data") == source_layer:
                     feature_net["subnetwork"][layer]["from"] = "preemphasis"
-            feature_net["subnetwork"]["preemphasis"] = PreemphasisNetwork(alpha=preemphasis).get_as_subnetwork()
+            feature_net["subnetwork"]["preemphasis"] = PreemphasisNetwork(alpha=preemphasis).get_as_subnetwork(
+                source=source_layer
+            )
             source_layer = "preemphasis"
     else:
         feature_net = None
