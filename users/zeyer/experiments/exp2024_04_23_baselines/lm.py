@@ -35,7 +35,7 @@ def py():
     # TODO I have max_seq_length 75. For spm10k, that are 98.16% of the data. Maybe try without?
 
     train(
-        "lm/trafo-trafo-n12-d512-drop0-b200_10k-wrongLr",
+        "lm/trafo-n12-d512-drop0-b200_10k-wrongLr",
         config=dict_update_deep(
             config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
             {
@@ -58,7 +58,7 @@ def py():
     )
 
     train(
-        "lm/trafo-trafo-n12-d512-drop0-b200_13k-wrongLr",
+        "lm/trafo-n12-d512-drop0-b200_13k-wrongLr",
         config=dict_update_deep(
             config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
             {
