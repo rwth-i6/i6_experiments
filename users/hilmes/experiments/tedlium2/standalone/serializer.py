@@ -126,3 +126,62 @@ def serialize_forward(
         },
     )
     return serializer
+
+
+def serialize_quant(
+    network_module: str,
+    net_args: Dict[str, Any],
+    unhashed_net_args: Optional[Dict[str, Any]] = None,
+    export_module: Optional[str] = None,
+    export_step_name: str = "forward",
+    debug: bool = False,
+):
+    """
+    Serialize for a forward job. Can be used e.g. for search or prior computation.
+
+    :param network_module: path to the pytorch config file containing Model
+    :param net_args: arguments for the model
+    :param unhashed_net_args: as above but not hashed
+    :param forward_module: optionally define a module file which contains the forward definition.
+        If not provided the network_module is used.
+    :param forward_step_name: path to the search decoder file containing forward_step and hooks
+    :param forward_init_args: additional arguments to pass to forward_init
+    :param unhashed_forward_init_args: additional non-hashed arguments to pass to forward_init
+    :param debug: run training in debug mode: linking from recipe instead of copy
+    :return:
+    """
+
+    package = PACKAGE + ".pytorch_networks"
+
+    pytorch_model_import = PartialImport(
+        code_object_path=package + ".%s.Model" % network_module,
+        unhashed_package_root=PACKAGE,
+        hashed_arguments=net_args,
+        unhashed_arguments=unhashed_net_args or {},
+        import_as="get_model",
+    )
+
+    i6_models = ExternalImport(import_path=I6_MODELS_REPO_PATH)
+
+    serializer_objects = [
+        i6_models,
+        pytorch_model_import,
+    ]
+
+    forward_module = export_module or network_module
+
+    forward_step = Import(
+        code_object_path=package + ".%s.%s" % (forward_module, export_step_name),
+        unhashed_package_root=PACKAGE,
+        import_as="export",
+    )
+    serializer_objects.extend([forward_step])
+
+    serializer = Collection(
+        serializer_objects=serializer_objects,
+        make_local_package_copy=not debug,
+        packages={
+            package,
+        },
+    )
+    return serializer

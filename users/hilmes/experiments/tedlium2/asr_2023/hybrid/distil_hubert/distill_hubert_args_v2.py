@@ -43,7 +43,7 @@ def get_nn_args(num_outputs: int = 9001, num_epochs: int = 250, debug=False, **n
     recognition_args = {
         "dev": {
             "epochs": evaluation_epochs + ["best", "avrg"],
-            "feature_flow_key": "fb",
+            "feature_flow_key": "samples",
             "prior_scales": [0.7, 0.9],
             "pronunciation_scales": [0.0],
             "lm_scales": [10.0],
@@ -236,11 +236,11 @@ def get_pytorch_returnn_configs(
             base_config["max_seqs"] = 1
             base_config["forward_data"] = "train"
             base_config["model_outputs"] = {"log_probs": {"dim": num_outputs, "shape": (None, num_outputs)}}
-            base_config["extern_data"]["data_raw"] = {
-                "dim": 80,
-                "shape": (None, 80),
-                "available_for_inference": True,
-            }
+            # base_config["extern_data"]["data_raw"] = {
+            #     "dim": 80,
+            #     "shape": (None, 80),
+            #     "available_for_inference": True,
+            # }
             if "min_seq_length" in base_config:
                 del base_config["min_seq_length"]
 
@@ -279,10 +279,10 @@ def get_pytorch_returnn_configs(
         return returnn_config
 
     return {
-        **{f"torch_distill_hubert_fe_test": construct_from_net_kwargs(
+        **{f"torch_distill_hubert_expfe_test": construct_from_net_kwargs(
             chunk_raw_config,
             {
-                "model_type": "distill_hubert_v1",
+                "model_type": "distill_hubert_v2",
                 "hubert_dict": {
                     "model_name": "base-ls960",
                     "distill_scale": x
@@ -306,7 +306,7 @@ def get_pytorch_returnn_configs(
                     "upsample_kernel": 3,
                     "upsample_stride": 3,
                     "upsample_padding": 0,
-                    "upsample_out_padding": 1,
+                    "upsample_out_padding": 0,
                     "dropout": 0.2,
                     "feat_extr": True
                 },

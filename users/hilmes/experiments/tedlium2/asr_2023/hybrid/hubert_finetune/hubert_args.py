@@ -293,16 +293,16 @@ def get_pytorch_returnn_configs(
             max_seqs=2,
             grad_acc=50,
         ) for x in [[y for y in range(23)]]},  # 4.9!
-        **{f"torch_hubert_large_constlr": construct_from_net_kwargs(
-            const_config,
-            {
-                "model_type": "hubert_tune",
-                "hubert_model": "large-ls960-ft",
-                "finetune_layer": x,
-                "finetune_feature_extractor": True
-            },
-            models_commit="95f55219d3d882b9386eac8e7c2b52b53e829b97",
-            max_seqs=2,
-            grad_acc=50,
-        ) for x in [[y for y in range(23)]]},  # 4.9!
+        # **{f"torch_hubert_large_constlr": construct_from_net_kwargs(
+        #     const_config,
+        #     {
+        #         "model_type": "hubert_tune",
+        #         "hubert_model": "large-ls960-ft",
+        #         "finetune_layer": x,
+        #         "finetune_feature_extractor": True
+        #     },
+        #     models_commit="95f55219d3d882b9386eac8e7c2b52b53e829b97",
+        #     max_seqs=2,
+        #     grad_acc=50,
+        # ) for x in [[y for y in range(23)]]},  # 4.9!
     }

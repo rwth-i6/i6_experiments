@@ -6,9 +6,9 @@ from i6_core.features import FilterbankJob, samples_flow
 
 from i6_experiments.users.hilmes.common.setups.rasr.util import RasrSteps
 
-from .corpus_data import get_corpus_data_inputs
-from i6_experiments.users.hilmes.common.tedlium2.hybrid.baseline_args import get_log_mel_feature_extraction_args
-from .distill_hubert_args import get_nn_args
+from .corpus_data_v2 import get_corpus_data_inputs
+from i6_experiments.users.hilmes.common.tedlium2.hybrid.baseline_args import get_log_mel_feature_extraction_args, get_samples_extraction_args
+from .distill_hubert_args_v2 import get_nn_args
 from i6_experiments.users.hilmes.modules.pytorch_onnx_hybrid_system import PyTorchOnnxHybridSystem
 from i6_experiments.users.hilmes.modules.onnx_precomputed_hybrid_system import OnnxPrecomputedHybridSystem
 
@@ -37,9 +37,6 @@ def run_tedlium2_torch_distill_hubert():
 
     rasr_init_args.feature_extraction_args = args
 
-    feature_extraction_args = rasr_init_args.feature_extraction_args["fb"]
-    feature_extraction_class = FilterbankJob
-
     (
         nn_train_data_inputs,
         nn_cv_data_inputs,
@@ -47,7 +44,7 @@ def run_tedlium2_torch_distill_hubert():
         nn_dev_data_inputs,
         nn_test_data_inputs,
     ) = get_corpus_data_inputs(
-        gmm_system, feature_extraction_args, feature_extraction_class, alias_prefix=prefix
+        gmm_system, alias_prefix=prefix
     )
     steps = RasrSteps()
     steps.add_step("extract", rasr_init_args.feature_extraction_args)
@@ -64,13 +61,8 @@ def run_tedlium2_torch_distill_hubert():
         hash_overwrite="TF23_MKL_BLAS",
     )
     rasr_binary = tk.Path(
-        "/work/asr4/hilmes/dev/rasr_onnx_115_24_01_24/arch/linux-x86_64-standard")
-        #"/work/asr4/hilmes/dev/rasr_onnx_114_17_04_24/arch/linux-x86_64-standard")
+        "/work/asr4/hilmes/dev/rasr_onnx_117_16_07_24/arch/linux-x86_64-standard")
     rasr_binary.hash_overwrite = "TEDLIUM2_DEFAULT_RASR_BINARY_PATH_HUBERT"
-
-    # rasr_binary = tk.Path(
-    #     "/u/hilmes/dev/rasr/arch/linux-x86_64-standard")
-    # rasr_binary.hash_overwrite = "TEDLIUM2_DEFAULT_RASR_BINARY_PATH"
 
     returnn_root = CloneGitRepositoryJob(
         "https://github.com/rwth-i6/returnn",

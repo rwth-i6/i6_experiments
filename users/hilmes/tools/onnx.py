@@ -8,9 +8,6 @@ from i6_core.returnn.config import ReturnnConfig
 from i6_core.returnn.training import PtCheckpoint
 from onnxruntime.quantization import quant_pre_process, quantize_static, CalibrationDataReader, CalibrationMethod, QuantType, QuantFormat
 from onnxruntime import InferenceSession, SessionOptions
-from returnn.datasets import Dataset, init_dataset
-from returnn.datasets.hdf import HDFDataset
-from returnn.datasets.meta import MetaDataset
 import numpy as np
 
 class ExportPyTorchModelToOnnxJob(Job):
@@ -97,7 +94,7 @@ class ModelQuantizeStaticJob(Job):
         model: tk.Path,
         dataset: Dict[str, Any],
         num_seqs: Optional[Union[int, str]] = 10,
-        num_parallel_seqs: int = 25,
+        num_parallel_seqs: Optional[int] = 25,
         calibrate_method: CalibrationMethod = CalibrationMethod.MinMax,
         moving_average: bool = False,
         smoothing_factor: float = 0.0,
@@ -196,6 +193,9 @@ class ModelQuantizeStaticJob(Job):
         return res
 
     def run(self):
+        from returnn.datasets import Dataset, init_dataset
+        from returnn.datasets.hdf import HDFDataset
+        from returnn.datasets.meta import MetaDataset
         logging.info("Start Prep")
         quant_pre_process(
             input_model_path=self.model.get_path(),
@@ -255,9 +255,43 @@ class ModelQuantizeStaticJob(Job):
                     return self.budget_thresh > self.open_budget
 
             def get_next(self):
+                if isinstance(self.data, MetaDataset):
+                    return self.get_next_meta()
+                else:
+                    return self.get_next_hdf()
+
+            def get_next_meta(self):
+                key = "raw_audio"
+                if not self.data.is_less_than_num_seqs(self.counter) or self.counter >= self.max_seqs:
+                    return None
+                else:
+                    seq_number = self.counter
+                    self.data.load_seqs(seq_number, seq_number + 1)
+                    data: np.ndarray = self.data.get_data(seq_number, key)
+                    seq_len: np.ndarray = self.data.get_seq_length(seq_number)[key]
+                    self.seq_infos.append((self.data.get_tag(seq_number), seq_len))
+                    assert self.data.get_tag(seq_number) not in self.seen_seqs, "In the base case this should never happen"
+                    self.seen_seqs.append(self.data.get_tag(seq_number))
+                    logging.info(
+                        f"Next Seq Tag {self.data.get_tag(seq_number)} with idx number {seq_number} and len {seq_len}")
+                    if self.counter % 10 == 0:
+                        logging.info(f"{self.counter} seqs seen")
+                    data = np.expand_dims(data, axis=0)
+                    if self.input_name_2 is not None:
+                        assert seq_len == data.shape[1], (data.shape, seq_len)
+                        seq_len = np.array([seq_len], dtype=np.int32)
+                        self.counter += 1
+                        return {self.input_name_1: data, self.input_name_2: seq_len}
+                    else:
+                        self.counter += 1
+                        return {self.input_name_1: data}
+
+
+            def get_next_hdf(self):
                 key = "data" if "data" in self.data.get_data_keys() else "raw_audio"  # hack to make it compatible with both setups for now
                 seq_number = None
-                if not self.data.is_less_than_num_seqs(self.counter) or self.counter >= self.max_seqs or self.compare_budget():
+                if not self.data.is_less_than_num_seqs(
+                        self.counter) or self.counter >= self.max_seqs or self.compare_budget():
                     if self.data.is_less_than_num_seqs(self.counter) and self.final_skip_step is None:
                         logging.info(f"Finished after {self.counter} sequences")
                         return None
@@ -269,7 +303,8 @@ class ModelQuantizeStaticJob(Job):
                         while seq_number in self.seen_seqs:
                             seq_number = random.randint(0, self.data.num_seqs - 1)
                             self.visited_seqs.add(seq_number)
-                            assert len(self.visited_seqs) <= self.data.num_seqs, f"Visited all sequences {len(self.visited_seqs)} vs. {self.data.num_seqs}"
+                            assert len(
+                                self.visited_seqs) <= self.data.num_seqs, f"Visited all sequences {len(self.visited_seqs)} vs. {self.data.num_seqs}"
                     else:
                         logging.info("Seen all sequences in dataset")
                         return None
@@ -281,8 +316,10 @@ class ModelQuantizeStaticJob(Job):
                         seq_number += 1
                         name = self.loss_table[seq_number][0]
                         real_seq_number = self.data.get_all_tags().index(name)
-                        assert self.loss_table[seq_number][0] == self.data.get_tag(real_seq_number), (self.loss_table[seq_number][0], self.data.get_tag(real_seq_number))
-                        logging.info(f"Position {seq_number} is real {real_seq_number} with Tag {self.data.get_tag(real_seq_number)} matching {self.loss_table[seq_number]}")
+                        assert self.loss_table[seq_number][0] == self.data.get_tag(real_seq_number), (
+                        self.loss_table[seq_number][0], self.data.get_tag(real_seq_number))
+                        logging.info(
+                            f"Position {seq_number} is real {real_seq_number} with Tag {self.data.get_tag(real_seq_number)} matching {self.loss_table[seq_number]}")
                         self.visited_seqs.add(real_seq_number)
                         if self.open_budget is not None and self.open_budget == 0:
                             assert False, "This path should not be reached"
@@ -294,30 +331,44 @@ class ModelQuantizeStaticJob(Job):
                             seq_number = seq_number
                     seq_number = real_seq_number
                 if seq_number is None:
-                        while not seq_number or seq_number in self.seen_seqs or not self.check_filter(seq_number):
-                            seq_number = random.randint(0, self.data.num_seqs - 1)
-                            self.visited_seqs.add(seq_number)  # +2 because seen seqs has not been updated
-                            logging.info(f"{len(self.visited_seqs)} {self.data.num_seqs} {len(self.seen_seqs)}")
-                            logging.info(f"{seq_number}, {seq_number in self.seen_seqs} {not self.check_filter(seq_number)}")
-                            logging.info(f"{len(self.visited_seqs) == self.data.num_seqs} {len(self.seen_seqs)+2 == self.data.num_seqs} {len(self.seen_seqs)+1 == self.data.num_seqs}")
-                            if len(self.visited_seqs) == self.data.num_seqs and (len(self.seen_seqs)+2 == self.data.num_seqs or len(self.seen_seqs)+1 == self.data.num_seqs):
-                                return None
-                            if len(self.visited_seqs) == self.data.num_seqs and not (len(self.seen_seqs)+2 == self.data.num_seqs or len(self.seen_seqs)+1 == self.data.num_seqs) and any(x in self.filter_opts for x in ["single_tag", "unique_tags"]):
-                                return None
-                            if self.open_budget is not None and self.open_budget == 0:
-                                logging.info("Budget Full")
-                                return None
-                            if len(self.visited_seqs) == self.data.num_seqs and not (len(self.seen_seqs)+2 == self.data.num_seqs or len(self.seen_seqs)+1 == self.data.num_seqs):
-                                self.visited_seqs = set()
-                                self.open_budget += 1
-                            #assert len(self.visited_seqs) < self.data.num_seqs, "Visited all sequences"
+                    while not seq_number or seq_number in self.seen_seqs or not self.check_filter(seq_number):
+                        seq_number = random.randint(0, self.data.num_seqs - 1)
+                        self.visited_seqs.add(seq_number)  # +2 because seen seqs has not been updated
+                        logging.info(f"{len(self.visited_seqs)} {self.data.num_seqs} {len(self.seen_seqs)}")
+                        logging.info(
+                            f"{seq_number}, {seq_number in self.seen_seqs} {not self.check_filter(seq_number)}")
+                        logging.info(
+                            f"{len(self.visited_seqs) == self.data.num_seqs} {len(self.seen_seqs) + 2 == self.data.num_seqs} {len(self.seen_seqs) + 1 == self.data.num_seqs}")
+                        if len(self.visited_seqs) == self.data.num_seqs and (
+                                len(self.seen_seqs) + 2 == self.data.num_seqs or len(
+                                self.seen_seqs) + 1 == self.data.num_seqs):
+                            return None
+                        if len(self.visited_seqs) == self.data.num_seqs and not (
+                                len(self.seen_seqs) + 2 == self.data.num_seqs or len(
+                                self.seen_seqs) + 1 == self.data.num_seqs) and any(
+                                x in self.filter_opts for x in ["single_tag", "unique_tags"]):
+                            return None
+                        if self.open_budget is not None and self.open_budget == 0:
+                            logging.info("Budget Full")
+                            return None
+                        if len(self.visited_seqs) == self.data.num_seqs and not (
+                                len(self.seen_seqs) + 2 == self.data.num_seqs or len(
+                                self.seen_seqs) + 1 == self.data.num_seqs):
+                            self.visited_seqs = set()
+                            self.open_budget += 1
+                        # assert len(self.visited_seqs) < self.data.num_seqs, "Visited all sequences"
                 self.seen_seqs.append(seq_number)
                 logging.info(len(self.seen_seqs))
-                self.data.load_seqs(seq_number, seq_number+1)
+                # if isinstance(self.data, MetaDataset):
+                # if not self.data.expected_load_seq_start > seq_number:
+                self.data.load_seqs(seq_number, seq_number + 1)
+                # else:
+                #    self.data.load_seqs(seq_number, seq_number+1)
                 data: np.ndarray = self.data.get_data(seq_number, key)
                 seq_len: np.ndarray = self.data.get_seq_length(seq_number)[key]
                 self.seq_infos.append((self.data.get_tag(seq_number), seq_len))
-                logging.info(f"Next Seq Tag {self.data.get_tag(seq_number)} with idx number {seq_number} and len {seq_len}")
+                logging.info(
+                    f"Next Seq Tag {self.data.get_tag(seq_number)} with idx number {seq_number} and len {seq_len}")
                 if self.counter % 10 == 0:
                     logging.info(f"{self.counter} seqs seen")
                 data = np.expand_dims(data, axis=0)
@@ -329,6 +380,7 @@ class ModelQuantizeStaticJob(Job):
                 else:
                     self.counter += 1
                     return {self.input_name_1: data}
+
 
             def check_filter(self, seq_number) -> bool:
                 if self.filter_opts is not None and len(self.filter_opts) > 0:

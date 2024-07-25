@@ -7,6 +7,7 @@ and with the proper feature extraction from i6-models
 import numpy as np
 import torch
 from torch import nn
+from transformers import HubertModel, HubertConfig
 
 from i6_models.parts.conformer.norm import LayerNormNC
 from i6_models.assemblies.conformer.conformer_v2 import ConformerEncoderV2, ConformerEncoderV2Config, ConformerBlockV2Config
@@ -21,7 +22,7 @@ from i6_models.primitives.feature_extraction import LogMelFeatureExtractionV1
 
 from returnn.torch.context import get_run_ctx
 
-from .i6modelsV2_VGG4LayerActFrontendV1_auxloss_v1_cfg import ModelConfig
+from .conformerv2_distill_v1_cfg import ModelConfig, HubertTeacherConfig
 
 
 def mask_tensor(tensor: torch.Tensor, seq_len: torch.Tensor) -> torch.Tensor:
@@ -41,9 +42,10 @@ def mask_tensor(tensor: torch.Tensor, seq_len: torch.Tensor) -> torch.Tensor:
 
 
 class Model(torch.nn.Module):
-    def __init__(self, model_config_dict, **kwargs):
+    def __init__(self, model_config_dict, hubert_config_dict, **kwargs):
         super().__init__()
         self.cfg = ModelConfig.from_dict(model_config_dict)
+        self.hubert_cfg = HubertTeacherConfig(**hubert_config_dict)
         frontend_config = self.cfg.frontend_config
         conformer_size = self.cfg.conformer_size
         conformer_config = ConformerEncoderV2Config(
@@ -63,7 +65,10 @@ class Model(torch.nn.Module):
                     dropout=self.cfg.mhsa_dropout,
                 ),
                 conv_cfg=ConformerConvolutionV1Config(
-                    channels=conformer_size, kernel_size=self.cfg.conv_kernel_size, dropout=self.cfg.conv_dropout, activation=nn.functional.silu,
+                    channels=conformer_size,
+                    kernel_size=self.cfg.conv_kernel_size,
+                    dropout=self.cfg.conv_dropout,
+                    activation=nn.functional.silu,
                     norm=LayerNormNC(conformer_size)
                 ),
                 modules=self.cfg.module_list,
@@ -80,6 +85,24 @@ class Model(torch.nn.Module):
         ])
         self.output_dropout = nn.Dropout(p=self.cfg.final_dropout)
         self.specaug_start_epoch = self.cfg.specauc_start_epoch
+        if self.training:
+            print("Load Hubert model parameters")
+            self.hubert: HubertModel = HubertModel.from_pretrained(f"facebook/hubert-{self.hubert_cfg.model_name}",
+                                                                cache_dir="/work/asr4/hilmes/debug/whisper/transformers/")
+            for param in self.hubert.parameters():
+                param.requires_grad_(False)
+        else:
+            self.hubert = None
+
+        self.upsample_conv = torch.nn.ConvTranspose1d(
+            in_channels=self.cfg.conformer_size,
+            out_channels=self.hubert.config.hidden_size,
+            kernel_size=1,
+            stride=1,
+            padding=0,
+            output_padding=0
+        )
+
 
         # No particular weight init!
 
@@ -97,7 +120,7 @@ class Model(torch.nn.Module):
         squeezed_features = torch.squeeze(raw_audio, dim=-1)
         with torch.no_grad():
             audio_features, audio_features_len = self.feature_extraction(squeezed_features, raw_audio_len)
-
+            print(audio_features.size())
             run_ctx = get_run_ctx()
             if self.training and run_ctx.epoch >= self.specaug_start_epoch:
                 audio_features_masked_2 = specaugment_v1_by_length(
@@ -112,14 +135,23 @@ class Model(torch.nn.Module):
             else:
                 audio_features_masked_2 = audio_features
 
+        if self.training or run_ctx.stage == "train_step":
+            hubert_outputs = self.hubert(input_values=squeezed_features, )
+            audio_features_size = self.hubert._get_feat_extract_output_lengths(raw_audio_len).to(dtype=torch.int64)
+            encoder_output = hubert_outputs.last_hidden_state
+            teacher_features = encoder_output
+            print(teacher_features.shape)
+            teacher_features = torch.index_select(teacher_features, 1, torch.arange(0, teacher_features.size(1), step=2, device=teacher_features.device, dtype=torch.int64))
+        else:
+            teacher_features = None
+
         conformer_in = audio_features_masked_2
         # create the mask for the conformer input
         mask = mask_tensor(conformer_in, audio_features_len)
 
-
         return_layers = self.cfg.aux_ctc_loss_layers or [self.cfg.num_layers - 1]
-
         conformer_out_layers, out_mask = self.conformer(conformer_in, mask, return_layers=return_layers)
+        student_features = self.upsample_conv(conformer_out_layers[-1].transpose(1, 2)).transpose(1, 2)
         log_probs_list = []
         for i, (out_layer, scale) in enumerate(zip(conformer_out_layers, self.cfg.aux_ctc_loss_scales)):
             if scale == 0.0:
@@ -127,12 +159,18 @@ class Model(torch.nn.Module):
             conformer_out = self.output_dropout(out_layer)
             logits = self.output_linears[i](conformer_out)
             log_probs = torch.log_softmax(logits, dim=2)
+
             log_probs_list.append(log_probs)
 
-        if len(log_probs_list) == 1:
+        if len(log_probs_list) == 1 and not self.training:
             log_probs_list = log_probs_list[0]
 
-        return log_probs_list, torch.sum(out_mask, dim=1)
+        if teacher_features is not None:
+            print(f"{student_features.shape =}, {teacher_features.shape =}")
+            teacher_features = teacher_features[:, :student_features.size(1), :]
+            print(f"{student_features.shape =}, {teacher_features.shape =}")
+
+        return log_probs_list, torch.sum(out_mask, dim=1), teacher_features, student_features
 
 
 def train_step(*, model: Model, data, run_ctx, **kwargs):
@@ -143,12 +181,10 @@ def train_step(*, model: Model, data, run_ctx, **kwargs):
     labels = data["labels"]  # [B, N] (sparse)
     labels_len = data["labels:size1"]  # [B, N]
 
-    logprobs_list, audio_features_len = model(
+    logprobs_list, audio_features_len, teacher_features, student_features = model(
         raw_audio=raw_audio,
         raw_audio_len=raw_audio_len,
     )
-    if not isinstance(logprobs_list, list):
-        logprobs_list = [logprobs_list]
     for logprobs, layer_index, scale in zip(logprobs_list, model.cfg.aux_ctc_loss_layers, model.cfg.aux_ctc_loss_scales):
         transposed_logprobs = torch.permute(logprobs, (1, 0, 2))  # CTC needs [T, B, F]
         ctc_loss = nn.functional.ctc_loss(
@@ -162,6 +198,8 @@ def train_step(*, model: Model, data, run_ctx, **kwargs):
         )
         num_phonemes = torch.sum(labels_len)
         run_ctx.mark_as_loss(name=f"ctc_loss_layer{layer_index + 1}", loss=ctc_loss, scale=scale, inv_norm_factor=num_phonemes)
+    loss_features = nn.functional.l1_loss(student_features, teacher_features, reduction="mean")
+    get_run_ctx().mark_as_loss(name="L1 Dist", loss=loss_features, scale=model.hubert_cfg.distill_scale)
 
 
 def prior_init_hook(run_ctx, **kwargs):
@@ -186,7 +224,7 @@ def prior_step(*, model: Model, data, run_ctx, **kwargs):
     raw_audio = data["raw_audio"]  # [B, T', F]
     raw_audio_len = data["raw_audio:size1"]  # [B]
 
-    logprobs, audio_features_len = model(
+    logprobs, audio_features_len, _, _ = model(
         raw_audio=raw_audio,
         raw_audio_len=raw_audio_len,
     )

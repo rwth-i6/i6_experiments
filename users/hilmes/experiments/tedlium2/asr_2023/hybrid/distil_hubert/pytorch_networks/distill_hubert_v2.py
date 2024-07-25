@@ -13,11 +13,12 @@ from i6_models.assemblies.conformer.conformer_v1 import (
     ConformerConvolutionV1Config,
     ConformerMHSAV1Config,
 )
+from librosa import filters
 from i6_models.primitives.specaugment import specaugment_v1_by_length
 from i6_models.parts.conformer.norm import LayerNormNC
 from i6_models.config import ModelConfiguration, ModuleFactoryV1
 from i6_models.parts.frontend.vgg_act import VGG4LayerActFrontendV1, VGG4LayerActFrontendV1Config
-from i6_models.primitives.feature_extraction import LogMelFeatureExtractionV1, LogMelFeatureExtractionV1Config, RasrCompatibleLogMelFeatureExtractionV1Config, RasrCompatibleLogMelFeatureExtractionV1
+from i6_models.primitives.feature_extraction import LogMelFeatureExtractionV1Config, RasrCompatibleLogMelFeatureExtractionV1Config, RasrCompatibleLogMelFeatureExtractionV1
 
 def _lengths_to_padding_mask(lengths: torch.Tensor, x: torch.Tensor) -> torch.Tensor:
     """
@@ -33,6 +34,73 @@ def _lengths_to_padding_mask(lengths: torch.Tensor, x: torch.Tensor) -> torch.Te
 class HubertTeacherConfig:
     model_name: str
     distill_scale: float
+
+
+class ExportableLogMelFeatureExtractionV1(nn.Module):
+    """
+    Librosa-compatible log-mel feature extraction using log10. Does not use torchaudio.
+
+    Using it wrapped with torch.no_grad() is recommended if no gradient is needed
+    """
+
+    def __init__(self, cfg: LogMelFeatureExtractionV1Config):
+        super().__init__()
+        self.center = cfg.center
+        self.hop_length = int(cfg.hop_size * cfg.sample_rate)
+        self.min_amp = cfg.min_amp
+        self.n_fft = cfg.n_fft
+        self.win_length = int(cfg.win_size * cfg.sample_rate)
+
+        self.register_buffer(
+            "mel_basis",
+            torch.tensor(
+                filters.mel(
+                    sr=cfg.sample_rate,
+                    n_fft=cfg.n_fft,
+                    n_mels=cfg.num_filters,
+                    fmin=cfg.f_min,
+                    fmax=cfg.f_max,
+                )
+            ),
+        )
+        self.register_buffer("window", torch.hann_window(self.win_length))
+
+    def forward(self, raw_audio, length) -> Tuple[torch.Tensor, torch.Tensor]:
+        """
+        :param raw_audio: [B, T]
+        :param length in samples: [B]
+        :return features as [B,T,F] and length in frames [B]
+        """
+        power_spectrum = (
+            torch.sum(
+                torch.stft(
+                    raw_audio,
+                    n_fft=self.n_fft,
+                    hop_length=self.hop_length,
+                    win_length=self.win_length,
+                    window=self.window,
+                    center=self.center,
+                    pad_mode="constant",
+                    return_complex=False,
+                ) ** 2,
+                dim=-1
+            )
+
+        )
+        if len(power_spectrum.size()) == 2:
+            # For some reason torch.stft removes the batch axis for batch sizes of 1, so we need to add it again
+            power_spectrum = torch.unsqueeze(power_spectrum, 0)
+        melspec = torch.einsum("...ft,mf->...mt", power_spectrum, self.mel_basis)
+        log_melspec = torch.log10(torch.clamp(melspec, min=self.min_amp))
+        feature_data = torch.transpose(log_melspec, 1, 2)
+
+        if self.center:
+            length = (length // self.hop_length) + 1
+        else:
+            length = ((length - self.n_fft) // self.hop_length) + 1
+
+        return feature_data, length.int()
+
 
 @dataclass
 class ConformerStudentConfig:
@@ -96,15 +164,17 @@ class Model(nn.Module):
         # else len == 0
 
         if self.conformer_cfg.feat_extr is True:
-            self.fe_cfg = RasrCompatibleLogMelFeatureExtractionV1Config(
+            self.fe_cfg = LogMelFeatureExtractionV1Config(
                             sample_rate=16000,
                             win_size=0.025,
                             hop_size=0.01,
                             min_amp=1.175494e-38,
                             num_filters=80,
-                            alpha=0.97,
+                            center=True,
+                            f_min=60,
+                            f_max=7600,
                         )
-            self.feature_extraction = RasrCompatibleLogMelFeatureExtractionV1(self.fe_cfg)
+            self.feature_extraction = ExportableLogMelFeatureExtractionV1(self.fe_cfg)
 
         conv_cfg = ConformerConvolutionV1Config(
             channels=self.conformer_cfg.hidden_d,
@@ -162,13 +232,8 @@ class Model(nn.Module):
     def forward(self, raw_audio: torch.Tensor, raw_audio_len: torch.Tensor):
 
         run_ctx = rf.get_run_ctx()
-        if raw_audio.shape[-1] == 1 or (self.conformer_cfg.feat_extr is True and (self.training or run_ctx.stage == "train_step")):
-            squeezed_features = torch.squeeze(raw_audio, dim=-1)
-            audio_features, audio_features_len = self.feature_extraction(raw_audio=squeezed_features, length=raw_audio_len)
-        else:
-            # for export / forward we take external features
-            audio_features = raw_audio
-            audio_features_len = raw_audio_len
+        squeezed_features = torch.squeeze(raw_audio, dim=-1)
+        audio_features, audio_features_len = self.feature_extraction(raw_audio=squeezed_features, length=raw_audio_len)
 
         # Hubert teacher:
         if (self.training or run_ctx.stage == "train_step") and raw_audio is not None and raw_audio_len is not None and False:
@@ -197,7 +262,6 @@ class Model(nn.Module):
         conformer_out, _ = self.conformer(audio_features_masked, mask)
 
         upsampled = self.upsample_conv(conformer_out.transpose(1, 2)).transpose(1, 2)  # final upsampled [B, T, F]
-        upsampled = upsampled[:, 0: audio_features.size()[1]+1, :]
         student_features = upsampled
         upsampled_dropped = nn.functional.dropout(student_features, p=self.conformer_cfg.dropout, training=self.training)
 
@@ -223,6 +287,7 @@ def train_step(*, model: Model, extern_data, **_kwargs):
         raw_audio=audio_raw,
         raw_audio_len=audio_raw_len.to("cuda"),
     )
+    logits_ce_order = logits_ce_order[:, :, :phonemes.size()[1]]
 
     targets_packed = nn.utils.rnn.pack_padded_sequence(
         phonemes, phonemes_len.to("cpu"), batch_first=True, enforce_sorted=False

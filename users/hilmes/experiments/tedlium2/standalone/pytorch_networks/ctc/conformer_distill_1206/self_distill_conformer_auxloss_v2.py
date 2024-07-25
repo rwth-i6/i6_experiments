@@ -1,7 +1,5 @@
 """
-Like v2, but with i6_models specaugment (v3)
-and now controllable start time for when specaugment is applied (v4)
-and with the proper feature extraction from i6-models
+Like v1 but with the option to calculate KD only for non blank positions
 """
 
 import numpy as np
@@ -21,7 +19,7 @@ from i6_models.primitives.feature_extraction import LogMelFeatureExtractionV1
 
 from returnn.torch.context import get_run_ctx
 
-from .i6modelsV2_VGG4LayerActFrontendV1_auxloss_v1_cfg import ModelConfig
+from .self_distill_conformer_auxloss_v2_cfg import ModelConfig, DistillConfig
 
 
 def mask_tensor(tensor: torch.Tensor, seq_len: torch.Tensor) -> torch.Tensor:
@@ -40,8 +38,16 @@ def mask_tensor(tensor: torch.Tensor, seq_len: torch.Tensor) -> torch.Tensor:
     return seq_mask
 
 
+class Teacher(torch.nn.Module):
+
+    def __init__(self, conformer, linears):
+        super().__init__()
+        self.conformer = conformer
+        self.output_linears = linears
+
+
 class Model(torch.nn.Module):
-    def __init__(self, model_config_dict, **kwargs):
+    def __init__(self, model_config_dict, distill_config_dict, **kwargs):
         super().__init__()
         self.cfg = ModelConfig.from_dict(model_config_dict)
         frontend_config = self.cfg.frontend_config
@@ -70,14 +76,53 @@ class Model(torch.nn.Module):
                 scales=self.cfg.module_scales,
             ),
         )
-
-        self.feature_extraction = LogMelFeatureExtractionV1(cfg=self.cfg.feature_extraction_config)
         self.conformer = ConformerEncoderV2(cfg=conformer_config)
         self.num_output_linears = 1 if self.cfg.aux_ctc_loss_layers is None else len(self.cfg.aux_ctc_loss_layers)
         self.output_linears = nn.ModuleList([
             nn.Linear(conformer_size, self.cfg.label_target_size + 1)  # + CTC blank
             for _ in range(self.num_output_linears)
         ])
+        self.distill_config = DistillConfig.from_dict(distill_config_dict)
+        distill_frontend_config = self.distill_config.frontend_config
+        distill_conformer_size = self.distill_config.conformer_size
+        distill_conformer_config = ConformerEncoderV2Config(
+            num_layers=self.distill_config.num_layers,
+            frontend=ModuleFactoryV1(module_class=VGG4LayerActFrontendV1, cfg=distill_frontend_config),
+            block_cfg=ConformerBlockV2Config(
+                ff_cfg=ConformerPositionwiseFeedForwardV1Config(
+                    input_dim=distill_conformer_size,
+                    hidden_dim=self.distill_config.ff_dim,
+                    dropout=self.distill_config.ff_dropout,
+                    activation=nn.functional.silu,
+                ),
+                mhsa_cfg=ConformerMHSAV1Config(
+                    input_dim=distill_conformer_size,
+                    num_att_heads=self.distill_config.num_heads,
+                    att_weights_dropout=self.distill_config.att_weights_dropout,
+                    dropout=self.distill_config.mhsa_dropout,
+                ),
+                conv_cfg=ConformerConvolutionV1Config(
+                    channels=distill_conformer_size,
+                    kernel_size=self.distill_config.conv_kernel_size,
+                    dropout=self.distill_config.conv_dropout,
+                    activation=nn.functional.silu,
+                    norm=LayerNormNC(distill_conformer_size),
+                ),
+                modules=self.cfg.module_list,
+                scales=self.cfg.module_scales,
+            ),
+        )
+        if self.training:
+            teacher_conformer = ConformerEncoderV2(cfg=distill_conformer_config)
+            self.teacher_num_output_linears = 1 if self.distill_config.aux_ctc_loss_layers is None else len(self.distill_config.aux_ctc_loss_layers)
+            output_linears = nn.ModuleList([
+                nn.Linear(distill_conformer_size, self.cfg.label_target_size + 1)  # + CTC blank
+                for _ in range(self.teacher_num_output_linears)
+            ])
+            self.teacher = Teacher(teacher_conformer, output_linears)
+            self.teacher_dropout = nn.Dropout(p=self.distill_config.final_dropout)
+
+        self.feature_extraction = LogMelFeatureExtractionV1(cfg=self.cfg.feature_extraction_config)
         self.output_dropout = nn.Dropout(p=self.cfg.final_dropout)
         self.specaug_start_epoch = self.cfg.specauc_start_epoch
 
@@ -121,18 +166,35 @@ class Model(torch.nn.Module):
 
         conformer_out_layers, out_mask = self.conformer(conformer_in, mask, return_layers=return_layers)
         log_probs_list = []
+        logit_ls = []
         for i, (out_layer, scale) in enumerate(zip(conformer_out_layers, self.cfg.aux_ctc_loss_scales)):
             if scale == 0.0:
                 continue
             conformer_out = self.output_dropout(out_layer)
             logits = self.output_linears[i](conformer_out)
+            logit_ls.append(logits)
             log_probs = torch.log_softmax(logits, dim=2)
             log_probs_list.append(log_probs)
 
         if len(log_probs_list) == 1:
             log_probs_list = log_probs_list[0]
+        if len(logit_ls) == 1:
+            logit_ls = logit_ls[0]
 
-        return log_probs_list, torch.sum(out_mask, dim=1)
+        teacher_logit_ls = None
+        if self.training or run_ctx.stage == "train_step":
+            with torch.no_grad():
+                teacher_out_layers, teacher_out_mask = self.teacher.conformer(audio_features, mask)
+                teacher_logit_ls = []
+                for i, (out_layer, scale) in enumerate(zip(teacher_out_layers, self.distill_config.aux_ctc_loss_scales)):
+                    teacher_out = self.teacher_dropout(out_layer)
+                    teacher_logits = self.teacher.output_linears[i](teacher_out)
+                    teacher_logit_ls.append(teacher_logits)
+
+            if len(teacher_logit_ls) == 1:
+                teacher_logit_ls = teacher_logit_ls[0]
+
+        return log_probs_list, torch.sum(out_mask, dim=1), logit_ls, teacher_logit_ls
 
 
 def train_step(*, model: Model, data, run_ctx, **kwargs):
@@ -143,12 +205,13 @@ def train_step(*, model: Model, data, run_ctx, **kwargs):
     labels = data["labels"]  # [B, N] (sparse)
     labels_len = data["labels:size1"]  # [B, N]
 
-    logprobs_list, audio_features_len = model(
+    logprobs_list, audio_features_len, student_logits, teacher_logits = model(
         raw_audio=raw_audio,
         raw_audio_len=raw_audio_len,
     )
     if not isinstance(logprobs_list, list):
         logprobs_list = [logprobs_list]
+
     for logprobs, layer_index, scale in zip(logprobs_list, model.cfg.aux_ctc_loss_layers, model.cfg.aux_ctc_loss_scales):
         transposed_logprobs = torch.permute(logprobs, (1, 0, 2))  # CTC needs [T, B, F]
         ctc_loss = nn.functional.ctc_loss(
@@ -161,7 +224,31 @@ def train_step(*, model: Model, data, run_ctx, **kwargs):
             zero_infinity=True,
         )
         num_phonemes = torch.sum(labels_len)
-        run_ctx.mark_as_loss(name=f"ctc_loss_layer{layer_index + 1}", loss=ctc_loss, scale=scale, inv_norm_factor=num_phonemes)
+        run_ctx.mark_as_loss(name=f"ctc_loss_layer{layer_index + 1}", loss=ctc_loss, scale=scale*model.distill_config.ctc_scale, inv_norm_factor=num_phonemes)
+
+    T = model.distill_config.t
+    for teacher_logit, student_logit, layer_index, scale in zip(teacher_logits, student_logits, model.distill_config.aux_kd_loss_layers, model.distill_config.aux_kd_loss_scales):
+        if model.distill_config.eliminate_blanks is True:
+            print(teacher_logit[0][:2][:])
+            pos = torch.argmax(teacher_logit, dim=-1)
+            print(pos[0][:2], pos.shape)
+            pos_blank = pos == model.cfg.label_target_size
+            pos_non_blank = ~pos_blank
+            print(pos_non_blank[0][:2], pos_non_blank.shape)
+            teacher_logit = torch.masked_select(teacher_logit, pos_non_blank)
+            student_logit = torch.masked_select(student_logit, pos_non_blank)
+            print(teacher_logit.shape, student_logit.shape)
+
+        soft_targets = nn.functional.softmax(teacher_logit / T, dim=-1)
+        soft_prob = nn.functional.log_softmax(student_logit / T, dim=-1)
+        if model.distill_config.exp_targets is True:
+            soft_targets = soft_targets.exp()
+        soft_targets_loss = torch.sum(soft_targets * (soft_targets.log() - soft_prob)) / soft_prob.size()[0] * (
+                    T ** 2)
+        num_phonemes = torch.sum(labels_len)
+        run_ctx.mark_as_loss(name=f"KL_{layer_index + 1}", loss=soft_targets_loss, scale=scale*model.distill_config.distill_scale,
+                             inv_norm_factor=num_phonemes)
+
 
 
 def prior_init_hook(run_ctx, **kwargs):

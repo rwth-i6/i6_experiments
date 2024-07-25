@@ -39,6 +39,7 @@ def baseline_report_format(report: _Report_Type) -> str:
                     out2 = sorted(out2, key=lambda x: float(x[1]))
                     if len(out2) > 0:
                         ex_str = calc_stat(out2)
+                        out.append(('', ''))
                         out.append((dataset + " " + extra + f"_samples_{samples}", ex_str))
                         out.extend(out2[:3])
                         out.extend(out2[-3:])
@@ -47,6 +48,7 @@ def baseline_report_format(report: _Report_Type) -> str:
                 out2 = [(" ".join(recog.split("/")[3:]), str(report[recog])) for recog in report if extra in recog  and dataset in recog]
                 out2 = sorted(out2, key=lambda x: float(x[1]))
                 if len(out2) > 0:
+                    out.append(('', ''))
                     out.append((dataset + " " + extra, ""))
                     out.extend(out2)
                     best_ls.append(out2[0])
