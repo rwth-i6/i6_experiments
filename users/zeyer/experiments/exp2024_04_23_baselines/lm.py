@@ -19,16 +19,17 @@ from i6_experiments.users.zeyer.model_interfaces import ModelDef, ModelDefWithCf
 from i6_experiments.users.zeyer.returnn.models.rf_layerdrop import SequentialLayerDrop
 
 from .configs import *
-from .configs import _get_cfg_lrlin_oclr_by_bs_nep
+from .configs import _get_cfg_lrlin_oclr_by_bs_nep as _wrong_get_cfg_lrlin_oclr_by_bs_nep
 
 
 def py():
     """Sisyphus entry point"""
-    from sisyphus import gs
-    from i6_experiments.common.setups import serialization
     from i6_experiments.users.zeyer.train_v3 import train
     from i6_experiments.users.zeyer.datasets.librispeech import get_librispeech_lm_dataset
     from .configs import config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4
+
+    # TODO LmDataset not as gzip, to allow for direct mmap
+    #  (Also need to implement that in RETURNN.)
 
     # TODO try train_vocab_opts={"other_opts": {"class": "SamplingBytePairEncoding", "breadth_prob": 0.01}}
     # TODO label smoothing?
@@ -39,7 +40,7 @@ def py():
         config=dict_update_deep(
             config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
             {
-                **_get_cfg_lrlin_oclr_by_bs_nep(10_000, 500),  # TODO wrong...
+                **_wrong_get_cfg_lrlin_oclr_by_bs_nep(10_000, 500),  # TODO wrong...
                 "optimizer.weight_decay": 1e-2,
                 "calculate_exp_loss": True,
                 "max_seqs": 32,  # TODO really?
@@ -57,7 +58,7 @@ def py():
         config=dict_update_deep(
             config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
             {
-                **_get_cfg_lrlin_oclr_by_bs_nep(10_000, 500),  # TODO wrong...
+                **_wrong_get_cfg_lrlin_oclr_by_bs_nep(10_000, 500),  # TODO wrong...
                 "optimizer.weight_decay": 1e-2,
                 "calculate_exp_loss": True,
                 "max_seqs": 100,
@@ -66,6 +67,29 @@ def py():
         train_dataset=get_librispeech_lm_dataset(vocab="spm10k"),
         model_def=ModelDefWithCfg(
             lm_model_def, {"_model_def_dict": rf.build_dict(TransformerDecoder, encoder_dim=None, num_layers=12)}
+        ),
+        train_def=lm_train_def,
+    )
+
+    train(
+        "lm/trafo-n24-d1024-drop0-b32-wrongLr",
+        config=dict_update_deep(
+            config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
+            {
+                **_get_cfg_lrlin_oclr_by_bs_nep(32, 2_000, 100),  # TODO...
+                "learning_rate_piecewise_steps": [561_600 * 5, 1_123_200 * 5, 1_248_000 * 5],  # wrongLr
+                "optimizer.weight_decay": 1e-2,
+                "calculate_exp_loss": True,
+            },
+        ),
+        train_dataset=get_librispeech_lm_dataset(vocab="spm10k"),
+        model_def=ModelDefWithCfg(
+            lm_model_def,
+            {
+                "_model_def_dict": rf.build_dict(
+                    TransformerDecoder, encoder_dim=None, num_layers=24, model_dim=1024, dropout=0.0, att_dropout=0.0
+                )
+            },
         ),
         train_def=lm_train_def,
     )
@@ -141,3 +165,38 @@ def lm_train_def(
 
 lm_train_def: TrainDef
 lm_train_def.learning_rate_control_error_measure = "ce"
+
+
+# By batch size and num (sub)epochs.
+# See also in .configs.
+# If the dict is missing some entry,
+# unfortunately there is currently no good automatic way to get the number.
+# I need to log at the stats of some setup with this batch size.
+# I just run some setup with some arbitrary LR scheduling (calling it "wrongLr"),
+# or maybe with sqrt-decay, and then look at the stats (steps/ep, or total num steps),
+# and give some estimates for the steps here, i.e. 45%, 90%, almost 100%,
+# making sure the last number is slightly below the real total number of steps.
+_lrlin_oclr_steps_by_bs_nep = {
+    # (8, 125): [139_000, 279_000, 310_000],  # ~2485steps/ep, 125 eps -> 310k steps in total
+    # (15, 400): [234_000, 469_000, 521_000],  # total steps after 400 epochs: ~521k
+    (32, 10_000, 20): [561_600, 1_123_200, 1_248_000],  # ~62421steps/ep, 20 eps -> 1,248k steps in total
+    (32, 2_000, 100): ...,  # TODO ...
+}
+
+
+def _get_cfg_lrlin_oclr_by_bs_nep(max_seqs: int, bs_feat: int, n_ep: int, *, peak_lr: float = 1e-3) -> Dict[str, Any]:
+    """
+    :param max_seqs:
+    :param bs_feat: batch size for features (not including _batch_size_factor)
+    :param n_ep: num epochs
+    """
+    return {
+        "__num_epochs": n_ep,
+        "batch_size": bs_feat,
+        "max_seqs": max_seqs,
+        "learning_rate": 1.0,
+        "dynamic_learning_rate": dyn_lr_piecewise_linear,
+        # If the dict has no entry for the bs_feat,n_ep combination, see above.
+        "learning_rate_piecewise_steps": _lrlin_oclr_steps_by_bs_nep[(max_seqs, bs_feat, n_ep)],
+        "learning_rate_piecewise_values": [peak_lr * 1e-2, peak_lr, peak_lr * 1e-2, peak_lr * 1e-3],
+    }
