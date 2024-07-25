@@ -676,6 +676,7 @@ def _extract_audio_seq_len_file(train_dataset: DatasetConfig):
         k_s = re.sub(r"(?!^)_([a-zA-Z])", lambda m: m.group(1).upper(), k)
         name_parts.append(f"{k_s}={v}")
     job = ExtractSeqLensJob(ds_dict, post_ds_dict, key=train_dataset.get_default_input(), output_format="txt")
+    job.rqmt["time"] = 3
     tk.register_output(_alias_prefix + "seq_len_audio-%s.txt" % "-".join(name_parts), job.out_file)
     return job.out_file
 
