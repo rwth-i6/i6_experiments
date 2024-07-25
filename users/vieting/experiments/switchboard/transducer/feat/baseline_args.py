@@ -29,7 +29,8 @@ def get_nn_args(nn_base_args, num_epochs, evaluation_epochs=None, prefix="", tra
 
     for name, args in nn_base_args.items():
         returnn_config, returnn_recog_config, report_args = get_nn_args_single(
-            num_epochs=num_epochs, evaluation_epochs=evaluation_epochs, **copy.deepcopy(args))
+            num_epochs=num_epochs, evaluation_epochs=evaluation_epochs, **copy.deepcopy(args)
+        )
         returnn_configs[prefix + name] = returnn_config
         returnn_recog_configs[prefix + name] = returnn_recog_config
         report_args_collection[prefix + name] = report_args
@@ -58,8 +59,14 @@ def get_nn_args(nn_base_args, num_epochs, evaluation_epochs=None, prefix="", tra
 
 
 def get_nn_args_single(
-    num_outputs: int = 88, num_inputs: int = 1, num_epochs: int = 500, evaluation_epochs: Optional[List[int]] = None,
-    lr_args=None, feature_args=None, returnn_args=None, report_args=None,
+    num_outputs: int = 88,
+    num_inputs: int = 1,
+    num_epochs: int = 500,
+    evaluation_epochs: Optional[List[int]] = None,
+    lr_args=None,
+    feature_args=None,
+    returnn_args=None,
+    report_args=None,
 ):
     if feature_args is not None:
         feature_args = feature_args or {"class": "GammatoneNetwork", "sample_rate": 8000}
@@ -126,13 +133,17 @@ def get_nn_args_single(
     )
 
     report_args = {
-        **({
-            "features": feature_network_class.__name__,
-            "preemphasis": preemphasis,
-            "wave_norm": wave_norm,
-        } if feature_args is not None else {
-            "features": "RasrFeatureCaches",
-        }),
+        **(
+            {
+                "features": feature_network_class.__name__,
+                "preemphasis": preemphasis,
+                "wave_norm": wave_norm,
+            }
+            if feature_args is not None
+            else {
+                "features": "RasrFeatureCaches",
+            }
+        ),
         **(report_args or {}),
     }
 
@@ -201,11 +212,11 @@ def get_returnn_config(
         "phon_future_length": 0,
         "allophone_file": tk.Path(
             "/u/vieting/setups/swb/20230406_feat/dependencies/allophones_blank",
-            hash_overwrite="SWB_ALLOPHONE_FILE_WEI_BLANK"
+            hash_overwrite="SWB_ALLOPHONE_FILE_WEI_BLANK",
         ),
         "state_tying_file": tk.Path(
             "/u/vieting/setups/swb/20230406_feat/dependencies/state-tying_blank",
-            hash_overwrite="SWB_STATE_TYING_FILE_WEI_BLANK"
+            hash_overwrite="SWB_STATE_TYING_FILE_WEI_BLANK",
         ),
     }
     lr_args = lr_args or {}
