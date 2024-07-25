@@ -112,14 +112,6 @@ def get_nn_args_single(
         **(returnn_args or {}),
     )
 
-    recog_args = returnn_args.copy() if returnn_args else {}
-
-    if "extra_args" in recog_args:
-        if "audio_perturb_args" in recog_args["extra_args"]:
-            del recog_args["extra_args"]["audio_perturb_args"]
-        if "audio_perturb_runner" in recog_args["extra_args"]:
-            del recog_args["extra_args"]["audio_perturb_runner"]
-
     returnn_recog_config = get_returnn_config(
         num_inputs=num_inputs,
         num_outputs=num_outputs,
@@ -127,7 +119,7 @@ def get_nn_args_single(
         recognition=True,
         num_epochs=num_epochs,
         feature_net=feature_net,
-        **(recog_args or {}),
+        **(returnn_args or {}),
     )
 
     report_args = {
