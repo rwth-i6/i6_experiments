@@ -11,8 +11,6 @@ from i6_experiments.users.berger.helpers.hdf import build_hdf_from_alignment
 from i6_experiments.users.vieting.experiments.switchboard.ctc.feat.experiments import (
     run_mel_baseline as run_mel_baseline_ctc,
     run_scf_baseline as run_scf_baseline_ctc,
-    run_scf_baseline as run_scf_baseline_ctc,
-    run_scf_baseline as run_scf_baseline_ctc,
 )
 from i6_experiments.users.vieting.experiments.switchboard.ctc.feat.transducer_system_v2 import (
     TransducerSystem,
