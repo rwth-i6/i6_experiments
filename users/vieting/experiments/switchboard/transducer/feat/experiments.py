@@ -22,7 +22,7 @@ from i6_experiments.users.vieting.experiments.switchboard.ctc.feat.transducer_sy
 from .data import get_switchboard_data, get_returnn_datasets_transducer_viterbi
 from .baseline_args import get_nn_args as get_nn_args_baseline
 from .helpers.lr.oclr import dynamic_learning_rate
-from .helpers.lr.oclr_scf import dynamic_learning_rate as dynamic_learning_rate_scf
+from .helpers.lr.oclr_configurable import dynamic_learning_rate as dynamic_learning_rate_configurable
 from .helpers.lr.fullsum import dynamic_learning_rate as dynamic_learning_rate_fullsum
 from .default_tools import (
     RASR_BINARY_PATH,
@@ -34,13 +34,17 @@ from .default_tools import (
 )
 
 
-def get_ctc_alignment(use_scf_aligment=False) -> List[tk.Path]:
+def get_ctc_alignment(ctc_alignment_model="mel", alignment_epoch=401) -> List[tk.Path]:
     train_corpus, dev_corpora, _ = get_switchboard_data()
 
-    if use_scf_aligment:
-        _, ctc_nn_system = run_scf_baseline_ctc()
+    # switch statmenet for different alignment models
+    if ctc_alignment_model == "mel":
+        ctc_nn_system = run_mel_baseline_ctc()[1]
+    elif ctc_alignment_model == "scf":
+        ctc_nn_system = run_scf_baseline_ctc()[1]
     else:
-        _, ctc_nn_system = run_mel_baseline_ctc()
+        raise ValueError(f"Unknown ctc_alignment_model: {ctc_alignment_model}")
+
     am_args = {
         "state_tying": "monophone",
         "states_per_phone": 1,
@@ -50,7 +54,7 @@ def get_ctc_alignment(use_scf_aligment=False) -> List[tk.Path]:
         "phon_future_length": 0,
     }
     align_args = {
-        "epochs": [400],
+        "epochs": [alignment_epoch],
         "lm_scales": [0.7],
         "prior_scales": [0.3],
         "use_gpu": False,
@@ -284,7 +288,7 @@ def run_rasr_gt_stage1():
 
 
 def run_scf_stage1():
-    ctc_alignment = get_ctc_alignment(use_scf_aligment=True)
+    ctc_alignment = get_ctc_alignment(ctc_alignment_model="scf", alignment_epoch=400)
 
     gs.ALIAS_AND_OUTPUT_SUBDIR = "experiments/switchboard/transducer/feat/"
     _, dev_corpora, _ = get_switchboard_data()
@@ -310,17 +314,16 @@ def run_scf_stage1():
         },
         "specaug_old": {"max_feature": 15},
     }
-    returnn_args_ctc_align = copy.deepcopy(returnn_args)
-    returnn_args_ctc_align["datasets"] = returnn_datasets_align_ctc
-    returnn_args_ctc_align["extra_args"]["extern_data"] = {
+    returnn_args["datasets"] = returnn_datasets_align_ctc
+    returnn_args["extra_args"]["extern_data"] = {
         "data": {"dim": 1, "dtype": "int16"},
         "classes": {"dim": 88, "dtype": "int8", "sparse": True},
     }
-    returnn_args_ctc_align["extra_args"]["min_chunk_size"] = {"classes": 2, "data": 644}
+    returnn_args["extra_args"]["min_chunk_size"] = {"classes": 2, "data": 644}
     # Data sequence is longer by factor 4 because of subsampling and 80 because of feature extraction vs.
     # raw waveform. Also, there are frame size - frame shift more samples at the end. This should be more correct than
     # the version above.
-    returnn_args_ctc_align["extra_args"]["chunking"] = (
+    returnn_args["extra_args"]["chunking"] = (
         {"classes": 64, "data": 64 * 4 * 80 + 200 - 80},
         {"classes": 32, "data": 32 * 4 * 80},
     )
@@ -334,127 +337,85 @@ def run_scf_stage1():
     }
     common_args = {
         "feature_args": feature_args,
-        "lr_args": {"dynamic_learning_rate": dynamic_learning_rate_scf},
+        "lr_args": {"dynamic_learning_rate": dynamic_learning_rate_configurable},
     }
 
     nn_args, report_args_collection = get_nn_args_baseline(
         nn_base_args={
-            "bs15k_v1_align-ctc-conf-e400": dict(
-                returnn_args=returnn_args_ctc_align,
+            "bs15k_align-ctc-conf-e400": dict(
+                returnn_args=returnn_args,
                 report_args={"alignment": "ctc-conf-e401"},
-                lr_args={"dynamic_learning_rate": dynamic_learning_rate_scf},
+                lr_args={"dynamic_learning_rate": dynamic_learning_rate_configurable},
                 feature_args=feature_args,
             ),
-        },
-        num_epochs=300,
-        evaluation_epochs=[270, 280, 290, 300],
-        prefix="viterbi_scf80_",
-    )
-    config = copy.deepcopy(nn_args.returnn_recognition_configs["viterbi_scf80_bs15k_v1_align-ctc-conf-e400"].config)
-    config["extern_data"]["data"]["dtype"] = "float32"
-    config["extern_data"]["classes"]["dtype"] = "int32"
-    nn_args.returnn_recognition_configs["viterbi_scf80_bs15k_v1_align-ctc-conf-e400"].config = config
-    nn_system, report = run_nn_args(nn_args, report_args_collection, dev_corpora["transducer"])
-    return nn_system, report
-
-
-def run_scf_stage1_from_checkpoint():
-    ctc_alignment = get_ctc_alignment(use_scf_aligment=True)
-
-    gs.ALIAS_AND_OUTPUT_SUBDIR = "experiments/switchboard/transducer/feat/"
-    _, dev_corpora, _ = get_switchboard_data()
-    returnn_datasets = get_returnn_datasets_transducer_viterbi(context_window={"classes": 1, "data": 121})
-    returnn_datasets_hash_break = get_returnn_datasets_transducer_viterbi(
-        context_window={"classes": 1, "data": 121},
-        keep_hashes=False,
-    )
-    returnn_datasets_align_ctc = get_returnn_datasets_transducer_viterbi(
-        alignment=ctc_alignment,
-        features="waveform_pcm",
-    )
-    returnn_args = {
-        "batch_size": 15000,
-        "datasets": returnn_datasets,
-        "extra_args": {
-            # data sequence is longer by factor 4 because of subsampling and 80 because of feature extraction vs.
-            # raw waveform
-            "chunking": ({"classes": 64, "data": 64 * 4 * 80}, {"classes": 32, "data": 32 * 4 * 80}),
-            "gradient_clip": 20.0,
-            "learning_rate_control_error_measure": "sum_dev_score",
-            "min_learning_rate": 1e-6,
-            "preload_from_files": {
-                "existing-model": {
-                    "filename": "/u/maximilian.kannen/setups/20230406_feat/work/i6_core/returnn/training/ReturnnTrainingJob.O9Y8K5i3P1Qo/output/models/epoch.400.index",
-                    "init_for_train": True,
-                    "prefix": "features",
-                    "var_name_mapping": {
-                        "/conv_h_filter/conv_h_filter": "features/conv_h_filter/conv_h_filter",
-                        "/conv_l/W": "features/conv_l/W",
-                        "/conv_l_act/bias": "features/conv_l_act/bias",
-                        "/conv_l_act/scale": "features/conv_l_act/scale",
+            "bs15k_align-ctc-conf-e400_feat-ctc-e400": dict(
+                returnn_args={
+                    **returnn_args,
+                    "extra_args": {
+                        # data sequence is longer by factor 4 because of subsampling and 80 because of feature extraction vs.
+                        # raw waveform
+                        "chunking": ({"classes": 64, "data": 64 * 4 * 80}, {"classes": 32, "data": 32 * 4 * 80}),
+                        "gradient_clip": 20.0,
+                        "learning_rate_control_error_measure": "sum_dev_score",
+                        "min_learning_rate": 1e-6,
+                        "preload_from_files": {
+                            "existing-model": {
+                                "filename": "/u/maximilian.kannen/setups/20230406_feat/work/i6_core/returnn/training/ReturnnTrainingJob.O9Y8K5i3P1Qo/output/models/epoch.400.index",
+                                "init_for_train": True,
+                                "prefix": "features", 
+                                "var_name_mapping": {
+                                    "/conv_h_filter/conv_h_filter": "features/conv_h_filter/conv_h_filter",
+                                    "/conv_l/W": "features/conv_l/W",
+                                    "/conv_l_act/bias": "features/conv_l_act/bias",
+                                    "/conv_l_act/scale": "features/conv_l_act/scale"
+                                },
+                            }
+                        },
                     },
-                }
-            },
-        },
-        "specaug_old": {"max_feature": 15},
-    }
-    returnn_args_ctc_align = copy.deepcopy(returnn_args)
-    returnn_args_ctc_align["datasets"] = returnn_datasets_align_ctc
-    returnn_args_ctc_align["extra_args"]["extern_data"] = {
-        "data": {"dim": 1, "dtype": "int16"},
-        "classes": {"dim": 88, "dtype": "int8", "sparse": True},
-    }
-    returnn_args_ctc_align["extra_args"]["min_chunk_size"] = {"classes": 2, "data": 644}
-    # Data sequence is longer by factor 4 because of subsampling and 80 because of feature extraction vs.
-    # raw waveform. Also, there are frame size - frame shift more samples at the end. This should be more correct than
-    # the version above.
-    returnn_args_ctc_align["extra_args"]["chunking"] = (
-        {"classes": 64, "data": 64 * 4 * 80 + 200 - 80},
-        {"classes": 32, "data": 32 * 4 * 80},
-    )
-    feature_args = {
-        "class": "ScfNetwork",
-        "size_tf": 256 // 2,
-        "stride_tf": 10 // 2,
-        "preemphasis": 0.97,
-        "wave_norm": True,
-        "wave_cast": True,
-    }
-    common_args = {
-        "feature_args": feature_args,
-        "lr_args": {"dynamic_learning_rate": dynamic_learning_rate_scf},
-    }
-
-    nn_args, report_args_collection = get_nn_args_baseline(
-        nn_base_args={
-            "bs15k_v1_align-ctc-conf-e400_featues_from_checkpoint_400": dict(
-                returnn_args=returnn_args_ctc_align,
+                },
                 report_args={"alignment": "ctc-conf-e400"},
-                lr_args={"dynamic_learning_rate": dynamic_learning_rate_scf},
+                lr_args={"dynamic_learning_rate": dynamic_learning_rate_configurable},
                 feature_args=feature_args,
             ),
-            "bs15k_v1_align-ctc-conf-e400_featues_from_checkpoint_400_froozen": dict(
-                returnn_args={**returnn_args_ctc_align, "staged_opts": {1: "freeze_features"}},
+            "bs15k_align-ctc-conf-e400_feat-ctc-e400_froozen": dict(
+                returnn_args={
+                    **returnn_args,
+                    "extra_args": {
+                        # data sequence is longer by factor 4 because of subsampling and 80 because of feature extraction vs.
+                        # raw waveform
+                        "chunking": ({"classes": 64, "data": 64 * 4 * 80}, {"classes": 32, "data": 32 * 4 * 80}),
+                        "gradient_clip": 20.0,
+                        "learning_rate_control_error_measure": "sum_dev_score",
+                        "min_learning_rate": 1e-6,
+                        "preload_from_files": {
+                            "existing-model": {
+                                "filename":  tk.Path("/u/maximilian.kannen/setups/20230406_feat/alias/experiments/switchboard/ctc/feat/train_nn/conformer_bs2x5k_scf_baseline_preemphasis97_/output/models/epoch.400.index"),
+                                "init_for_train": True,
+                                "prefix": "features", 
+                                "var_name_mapping": {
+                                    "/conv_h_filter/conv_h_filter": "features/conv_h_filter/conv_h_filter",
+                                    "/conv_l/W": "features/conv_l/W",
+                                    "/conv_l_act/bias": "features/conv_l_act/bias",
+                                    "/conv_l_act/scale": "features/conv_l_act/scale"
+                                },
+                            }
+                        },
+                    },
+                    "staged_opts": {1: "freeze_features"},
+                },
                 report_args={"alignment": "ctc-conf-e400"},
-                lr_args={"dynamic_learning_rate": dynamic_learning_rate_scf},
+                lr_args={"dynamic_learning_rate": dynamic_learning_rate_configurable},
                 feature_args=feature_args,
             ),
         },
         num_epochs=300,
         evaluation_epochs=[270, 280, 290, 300],
-        prefix="viterbi_scf80_",
+        prefix="viterbi_scf_",
     )
-    config = copy.deepcopy(
-        nn_args.returnn_recognition_configs[
-            "viterbi_scf80_bs15k_v1_align-ctc-conf-e400_featues_from_checkpoint_400"
-        ].config
-    )
+    config = copy.deepcopy(nn_args.returnn_recognition_configs["viterbi_scf_bs15k_align-ctc-conf-e400"].config)
     config["extern_data"]["data"]["dtype"] = "float32"
     config["extern_data"]["classes"]["dtype"] = "int32"
-    config["label_scorer_args"]["extra_args"]["reduction-subtrahend"] = 322
-    nn_args.returnn_recognition_configs[
-        "viterbi_scf80_bs15k_v1_align-ctc-conf-e400_featues_from_checkpoint_400"
-    ].config = config
+    nn_args.returnn_recognition_configs["viterbi_scf_bs15k_align-ctc-conf-e400"].config = config
     nn_system, report = run_nn_args(nn_args, report_args_collection, dev_corpora["transducer"])
     return nn_system, report
 
