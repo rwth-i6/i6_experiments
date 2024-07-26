@@ -34,6 +34,9 @@ def py():
     # TODO try "optimizer.class": "RAdam", "optimizer.decoupled_weight_decay": True. but needs newer PyTorch?
     # TODO I have max_seq_length 75. For spm10k, that are 98.16% of the data. Maybe try without?
 
+    # TODO check users/zeyer/experiments/exp2023_04_25_rf/README.md
+    # TODO check users/zeyer/experiments/exp2023_04_25_rf/Transformer.md
+
     train(
         "lm/trafo-n12-d512-drop0-b200_10k-wrongLr",
         config=dict_update_deep(
