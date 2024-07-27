@@ -381,25 +381,34 @@ def py():
         ("spm20k", "bpe", 0.01),  # 6.13
         ("spm20k", "bpe", 0.02),
         ("bpe10k", None, None),  # 6.49
+        # TODO ("bpe10k", "bpe", 0.005),
         ("bpe10k", "bpe", 0.01),  # 6.40
         ("spm10k", None, None),  # 6.00
+        # TODO ("spm10k", "spm", 0.8),
         ("spm10k", "spm", 0.7),  # 6.20
+        ("spm10k", "bpe", 0.005),
         ("spm10k", "bpe", 0.01),  # 5.93 (!!)
         ("spm_bpe10k", None, None),  # 6.33
         ("spm_bpe10k", "spm", 1e-4),  # 6.26
+        # TODO ("spm_bpe10k", "bpe", 0.005),
         ("spm_bpe10k", "bpe", 0.01),  # 6.21
         ("spm4k", None, None),  # 6.07 (but test-other even better: 5.94?)
         ("spm4k", "spm", 0.7),  # 6.42
+        # TODO ("spm4k", "bpe", 0.005),
         ("spm4k", "bpe", 0.01),  # 6.05
         ("spm1k", None, None),  # 6.07
+        ("spm1k", "spm", 0.9),
         ("spm1k", "spm", 0.7),  # 7.33
+        ("spm1k", "bpe", 0.005),
         ("spm1k", "bpe", 0.01),  # 6.13 (but dev-clean,test-* are better than no sampling)
         ("spm_bpe1k", None, None),  # 6.03
         ("spm_bpe1k", "bpe", 0.01),  # 6.05
         ("spm512", None, None),  # 6.08
-        ("spm512", "bpe", 0.005),
+        ("spm512", "bpe", 0.001),
+        ("spm512", "bpe", 0.005),  # 6.01
         ("spm512", "bpe", 0.01),  # 6.08 (but test-* is better than spm512 without sampling)
         ("spm128", None, None),  # 6.37
+        # TODO ("spm128", "bpe", 0.005),
         ("spm128", "bpe", 0.01),  # 6.40
     ]:
         train_exp(
