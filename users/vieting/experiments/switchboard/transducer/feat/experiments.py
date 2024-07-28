@@ -39,9 +39,9 @@ def get_ctc_alignment(ctc_alignment_model="mel", alignment_epoch=401) -> List[tk
 
     # switch statmenet for different alignment models
     if ctc_alignment_model == "mel":
-        ctc_nn_system = run_mel_baseline_ctc()[1]
+        _, ctc_nn_system = run_mel_baseline_ctc()
     elif ctc_alignment_model == "scf":
-        ctc_nn_system = run_scf_baseline_ctc()[1]
+        _, ctc_nn_system = run_scf_baseline_ctc()
     else:
         raise ValueError(f"Unknown ctc_alignment_model: {ctc_alignment_model}")
 
@@ -340,6 +340,8 @@ def run_scf_stage1():
         "lr_args": {"dynamic_learning_rate": dynamic_learning_rate_configurable},
     }
 
+    _, nn_system_ctc = run_scf_baseline_ctc()
+
     nn_args, report_args_collection = get_nn_args_baseline(
         nn_base_args={
             "bs15k_align-ctc-conf-e400": dict(
@@ -360,7 +362,7 @@ def run_scf_stage1():
                         "min_learning_rate": 1e-6,
                         "preload_from_files": {
                             "existing-model": {
-                                "filename": "/u/maximilian.kannen/setups/20230406_feat/work/i6_core/returnn/training/ReturnnTrainingJob.O9Y8K5i3P1Qo/output/models/epoch.400.index",
+                                "filename": nn_system_ctc.train_jobs["conformer_bs2x5k_scf_baseline_preemphasis97_wn"].out_checkpoints[400],
                                 "init_for_train": True,
                                 "prefix": "features", 
                                 "var_name_mapping": {
@@ -389,7 +391,7 @@ def run_scf_stage1():
                         "min_learning_rate": 1e-6,
                         "preload_from_files": {
                             "existing-model": {
-                                "filename":  tk.Path("/u/maximilian.kannen/setups/20230406_feat/alias/experiments/switchboard/ctc/feat/train_nn/conformer_bs2x5k_scf_baseline_preemphasis97_/output/models/epoch.400.index"),
+                                "filename": nn_system_ctc.train_jobs["conformer_bs2x5k_scf_baseline_preemphasis97_wn"].out_checkpoints[400],
                                 "init_for_train": True,
                                 "prefix": "features", 
                                 "var_name_mapping": {
