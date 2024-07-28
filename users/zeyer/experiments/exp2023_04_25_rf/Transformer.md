@@ -45,7 +45,7 @@ Decoder:
 
 - sometimes sliding window attention (supported also by Flash attention)
 
-- T5 style layer norm: No bias and no subtraction of mean
+- T5 style layer norm / RMSNorm: No bias and no subtraction of mean
 
 - Conformer uses Swish (Silu) activation in FF
 
