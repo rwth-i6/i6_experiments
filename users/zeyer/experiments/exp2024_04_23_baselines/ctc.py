@@ -378,8 +378,9 @@ def py():
     for vocab, sample, alpha in [
         ("spm20k", None, None),  # 5.96
         ("spm20k", "spm", 0.7),  # 6.14
+        # TODO ("spm20k", "bpe", 0.005),
         ("spm20k", "bpe", 0.01),  # 6.13
-        ("spm20k", "bpe", 0.02),
+        ("spm20k", "bpe", 0.02),  # 6.21
         ("bpe10k", None, None),  # 6.49
         # TODO ("bpe10k", "bpe", 0.005),
         ("bpe10k", "bpe", 0.01),  # 6.40
