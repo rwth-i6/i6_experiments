@@ -298,7 +298,7 @@ def run_scf_stage1():
     )
     returnn_args = {
         "batch_size": 15000,
-        "datasets": returnn_datasets_align_ctc ,
+        "datasets": returnn_datasets_align_ctc,
         "extra_args": {
             # data sequence is longer by factor 4 because of subsampling and 80 because of feature extraction vs.
             # raw waveform
@@ -331,7 +331,7 @@ def run_scf_stage1():
 
     _, nn_system_ctc = run_scf_baseline_ctc()
 
-    existing_model_dict = {
+    preload_dict = {
         "filename": nn_system_ctc.train_jobs["conformer_bs2x5k_scf_baseline_preemphasis97_wn"].out_checkpoints[400],
         "init_for_train": True,
         "prefix": "features",
@@ -339,7 +339,7 @@ def run_scf_stage1():
             "/conv_h_filter/conv_h_filter": "features/conv_h_filter/conv_h_filter",
             "/conv_l/W": "features/conv_l/W",
             "/conv_l_act/bias": "features/conv_l_act/bias",
-            "/conv_l_act/scale": "features/conv_l_act/scale"
+            "/conv_l_act/scale": "features/conv_l_act/scale",
         },
     }
 
@@ -355,9 +355,7 @@ def run_scf_stage1():
                     **returnn_args,
                     "extra_args": {
                         **returnn_args["extra_args"],
-                        "preload_from_files": {
-                            "existing-model": existing_model_dict
-                        },
+                        "preload_from_files": {"existing-model": preload_dict},
                     },
                 },
                 report_args={"alignment": "ctc-conf-e400"},
@@ -368,9 +366,7 @@ def run_scf_stage1():
                     **returnn_args,
                     "extra_args": {
                         **returnn_args["extra_args"],
-                        "preload_from_files": {
-                            "existing-model": existing_model_dict
-                        },
+                        "preload_from_files": {"existing-model": preload_dict},
                     },
                     "staged_opts": {1: "freeze_features"},
                 },
