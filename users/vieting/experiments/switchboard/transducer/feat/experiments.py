@@ -311,6 +311,7 @@ def run_scf_stage1():
             "gradient_clip": 20.0,
             "learning_rate_control_error_measure": "sum_dev_score",
             "min_learning_rate": 1e-6,
+            "learning_rate_n_step": 2650,
         },
         "specaug_old": {"max_feature": 15},
     }

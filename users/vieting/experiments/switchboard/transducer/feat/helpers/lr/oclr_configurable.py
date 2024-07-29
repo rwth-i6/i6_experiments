@@ -1,17 +1,16 @@
-from returnn.config import get_global_config
-
-config = get_global_config()
-initial_lr = config.typed_dict.get("learning_rate_initial_lr", 8e-5)
-peak_lr = config.typed_dict.get("learning_rate_peak_lr", 8e-4)
-final_lr = config.typed_dict.get("learning_rate_final_lr", 1e-6)
-cycle_epoch = config.typed_dict.get("learning_rate_cycle_epoch", 135)
-total_epoch = config.typed_dict.get("learning_rate_total_epoch", 300)
-n_step = config.typed_dict.get("learning_rate_n_step")
 
 def dynamic_learning_rate(*, network, global_train_step, learning_rate, **kwargs):
     """
     One cycle learning rate: triangular linear w.r.t. iterations (steps)
     """
+    from returnn.config import get_global_config
+    config = get_global_config()
+    initial_lr = config.typed_dict.get("learning_rate_initial_lr", 8e-5)
+    peak_lr = config.typed_dict.get("learning_rate_peak_lr", 8e-4)
+    final_lr = config.typed_dict.get("learning_rate_final_lr", 1e-6)
+    cycle_epoch = config.typed_dict.get("learning_rate_cycle_epoch", 135)
+    total_epoch = config.typed_dict.get("learning_rate_total_epoch", 300)
+    n_step = config.typed_dict.get("learning_rate_n_step", 2650)
     # -- derived -- #
     steps = cycle_epoch * n_step
     step_size = (peak_lr - initial_lr) / steps
