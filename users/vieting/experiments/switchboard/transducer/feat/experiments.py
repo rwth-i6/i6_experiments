@@ -292,9 +292,9 @@ def run_scf_stage1():
 
     gs.ALIAS_AND_OUTPUT_SUBDIR = "experiments/switchboard/transducer/feat/"
     _, dev_corpora, _ = get_switchboard_data()
-    returnn_datasets_hash_break = get_returnn_datasets_transducer_viterbi(
-        context_window={"classes": 1, "data": 121},
-        keep_hashes=False,
+    returnn_datasets_align_ctc = get_returnn_datasets_transducer_viterbi(
+        alignment=ctc_alignment,
+        features="waveform_pcm",
     )
     returnn_args = {
         "batch_size": 15000,
