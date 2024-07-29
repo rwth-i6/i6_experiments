@@ -19,6 +19,7 @@ from sisyphus.delayed_ops import DelayedFormat
 # -------------------- Recipes --------------------
 import i6_core.corpus as corpus_recipe
 import i6_core.features as features
+import i6_core.lexicon as lexicon
 import i6_core.mm as mm
 import i6_core.rasr as rasr
 import i6_core.recognition as recog
@@ -34,6 +35,12 @@ from i6_experiments.common.setups.rasr.util import (
     RasrDataInput,
 )
 
+from i6_experiments.users.raissi.setups.common.analysis import (
+    ComputeAveragePhonemeLengthJob,
+    ComputeSilenceRatioJob,
+    ComputeTSEJob,
+    PlotViterbiAlignmentsJob,
+)
 
 from i6_experiments.users.raissi.setups.common.BASE_factored_hybrid_system import (
     BASEFactoredHybridSystem,
@@ -1227,3 +1234,84 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
         )
 
         return aligner, align_args
+
+    def calculate_alignment_statistics(
+        self,
+        key,
+        non_speech_labels: [str],
+        name: str = None,
+        silence_label: str = "[SILENCE]{#+#}@i@f",
+        reference_alignment_key: str = "GMM",
+        alignment_bundle: tk.Path = None,
+        reference_alignment: tk.Path = None,
+        reference_allophones: tk.Path = None,
+        segments: [str] = None,
+    ):
+        assert (
+            self.experiments[key]["align_job"] is not None or alignment_bundle is not None
+        ), "Please set either the alignment job or provide a bundle"
+
+        if reference_alignment is None:
+            if reference_alignment_key in self.reference_alignment:
+                reference_alignment = self.reference_alignment[reference_alignment_key].get("alignment")
+            assert reference_alignment is not None, "Please provide a reference alignment"
+
+        if reference_allophones is None:
+            if reference_alignment_key in self.reference_alignment:
+                reference_allophones = self.reference_alignment[reference_alignment_key].get("allophones")
+            assert reference_allophones is not None, "Please provide a reference allophone file"
+
+        alignment = self.experiments[key]["align_job"].out_alignment_bundle
+        allophones = lexicon.StoreAllophonesJob(self.crp[self.crp_names["align.train"]]).out_allophone_file
+        exp_name = self.experiments[key]["name"] if name is None else name
+        if not isinstance(reference_alignment, tk.Path):
+            reference_alignment = tk.Path(reference_alignment, cached=True)
+        if not isinstance(reference_allophones, tk.Path):
+            reference_allophones = tk.Path(reference_allophones, cached=True)
+
+        tse_job = ComputeTSEJob(
+            allophone_file=allophones,
+            alignment_cache=alignment,
+            ref_allophone_file=reference_allophones,
+            ref_alignment_cache=reference_alignment,
+            upsample_factor=self.frame_rate_reduction_ratio_info.factor,
+        )
+        tse_job.add_alias(f"statistics/alignment/{exp_name}/tse")
+        tk.register_output(
+            f"statistics/alignment/{exp_name}/word_tse",
+            tse_job.out_tse_frames,
+        )
+
+        stat_job_phoneme = ComputeAveragePhonemeLengthJob(
+            allophone_file=allophones,
+            alignment_files=alignment,
+            silence_label=silence_label,
+            non_speech_labels=non_speech_labels,
+        )
+        stat_job_phoneme.add_alias(f"statistics/alignment/{exp_name}/average_phoneme_job")
+        tk.register_output(
+            f"statistics/alignment/{exp_name}/out_average_phoneme_length.txt",
+            stat_job_phoneme.out_average_phoneme_length,
+        )
+
+        stat_job_sil = ComputeSilenceRatioJob(
+            allophone_file=allophones,
+            alignment_files=alignment,
+            silence_label=silence_label,
+        )
+        stat_job_sil.add_alias(f"statistics/alignment/{exp_name}/silence_ratio_job")
+        tk.register_output(
+            f"statistics/alignment/{exp_name}/silence_ratio_silence_ratio.txt",
+            stat_job_sil.out_silence_ratio,
+        )
+
+        if segments is not None:
+            plots = PlotViterbiAlignmentsJob(
+                alignment_bundle_path=alignment,
+                allophones_path=allophones,
+                segments=segments,
+                font_size=8,
+                show_labels=True,
+                monophone=True,
+            )
+            tk.register_output(f"alignments/plots/{exp_name}", plots.out_plot_folder)

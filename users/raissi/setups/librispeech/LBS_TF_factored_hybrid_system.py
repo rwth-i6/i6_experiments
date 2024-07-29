@@ -3,6 +3,7 @@ __all__ = ["LBSTFFactoredHybridSystem"]
 import copy
 import dataclasses
 import itertools
+import numpy as np
 import sys
 from IPython import embed
 
@@ -46,14 +47,24 @@ from i6_experiments.users.raissi.setups.common.data.factored_label import (
     RasrStateTying,
 )
 
-from i6_experiments.users.raissi.setups.common.decoder.BASE_factored_hybrid_search import (
-    RasrFeatureScorer,
+
+
+from i6_experiments.users.raissi.setups.librispeech.decoder import (
+    LBSSearchParameters
 )
 
-from i6_experiments.users.raissi.setups.common.decoder.config import (
+from i6_experiments.users.raissi.setups.common.decoder import (
     PriorInfo,
     PriorConfig,
     PosteriorScales,
+    RasrFeatureScorer,
+
+)
+
+from i6_experiments.users.raissi.experiments.librispeech.configs.LFR_factored.baseline.config import (
+    ALIGN_GMM_TRI_ALLOPHONES,
+    ALIGN_GMM_TRI_10MS,
+
 )
 
 from i6_experiments.users.raissi.setups.librispeech.config import CV_SEGMENTS, P_HMM_AM7T1_ALIGNMENT_40ms
@@ -89,6 +100,18 @@ class LBSTFFactoredHybridSystem(TFFactoredHybridBaseSystem):
         )
         self.recognizers = {"base": lbs_decoder.LBSFactoredHybridDecoder}
         self.cv_info = {"segment_list": CV_SEGMENTS, "alignment": {"dev-other_dev-clean": P_HMM_AM7T1_ALIGNMENT_40ms}}
+        self.reference_alignment = {
+            "GMM": {
+                "alignment": ALIGN_GMM_TRI_10MS,
+                "allophones": ALIGN_GMM_TRI_ALLOPHONES,
+            }
+        }
+        self.alignment_example_segments = [
+                            "train-other-960/2920-156224-0013/2920-156224-0013",
+                            "train-other-960/2498-134786-0003/2498-134786-0003",
+                            "train-other-960/6178-86034-0008/6178-86034-0008",
+                            "train-other-960/5983-39669-0034/5983-39669-0034",
+                        ]
 
     def get_recognizer_and_args(
         self,
@@ -178,6 +201,46 @@ class LBSTFFactoredHybridSystem(TFFactoredHybridBaseSystem):
         )
 
         return recognizer, recog_args
+
+    def get_best_recog_scales_and_transition_values(
+        self,
+        key: str,
+        num_encoder_output: int,
+        recog_args: LBSSearchParameters,
+        lm_scale: float,
+        tdp_scales: List = [0.1, 0.2],
+    ) -> LBSSearchParameters:
+
+        assert self.experiments[key]["decode_job"]["runner"] is not None, "Please set the recognizer"
+        recognizer = self.experiments[key]["decode_job"]["runner"]
+
+        tune_args = recog_args.with_lm_scale(lm_scale)
+        best_config_scales = recognizer.recognize_optimize_scales_v2(
+            label_info=self.label_info,
+            search_parameters=tune_args,
+            num_encoder_output=num_encoder_output,
+            altas_value=2.0,
+            altas_beam=16.0,
+            tdp_sil=[(11.0, 0.0, "infinity", 20.0)],
+            tdp_speech=[(8.0, 0.0, "infinity", 0.0)],
+            tdp_nonword=[(8.0, 0.0, "infinity", 0.0)],
+            prior_scales=[[v] for v in np.arange(0.1, 0.8, 0.1).round(1)],
+            tdp_scales=tdp_scales,
+
+        )
+
+        nnsp_tdp = [(l, 0.0, "infinity", e) for l in [8.0, 11.0, 13.0] for e in [10.0, 15.0, 20.0]]
+        sp_tdp = [(l, 0.0, "infinity", e) for l in [5.0, 8.0, 11.0] for e in [0.0, 5.0]]
+        best_config = recognizer.recognize_optimize_transtition_values(
+            label_info=self.label_info,
+            search_parameters=best_config_scales,
+            num_encoder_output=num_encoder_output,
+            altas_beam=16.0,
+            tdp_sil=nnsp_tdp,
+            tdp_speech=sp_tdp,
+        )
+
+        return best_config
 
     def get_aligner_and_args(
         self,

@@ -202,6 +202,19 @@ class SWBTFFactoredHybridSystem(TFFactoredHybridBaseSystem):
             "monostate": ("/").join([self.dependencies_path, "haotian/monostate/monostate.we.transcript.prior.xml"]),
         }
 
+        self.reference_alignment = {
+            "GMM": {
+                "alignment": "/work/asr3/luescher/setups-data/silence/stats/switchboard/dependencies/magic_zoltan/tuske__2016_01_28__align.combined.train",
+                "allophones": f"{self.dependencies_path}/zoltan_allophones",
+            }
+        }
+
+        self.alignment_example_segments = [
+            "switchboard-1/sw02001A/sw2001A-ms98-a-0002",
+            "switchboard-1/sw02019A/sw2019A-ms98-a-0029",
+            "switchboard-1/sw02008A/sw2008A-ms98-a-0002",
+        ]
+
     # -------------------- External helpers --------------------
 
     def set_gammatone_features(self):
@@ -339,6 +352,7 @@ class SWBTFFactoredHybridSystem(TFFactoredHybridBaseSystem):
             lm_gc_simple_hash=lm_gc_simple_hash if (lm_gc_simple_hash is not None and lm_gc_simple_hash) else None,
             **decoder_kwargs,
         )
+        self.experiments[key]["decode_job"]["runner"] = recognizer
 
         return recognizer, recog_args
 
@@ -348,10 +362,14 @@ class SWBTFFactoredHybridSystem(TFFactoredHybridBaseSystem):
         num_encoder_output: int,
         recog_args: SWBSearchParameters,
         lm_scale: float,
+        altas_for_transition_optimization: float = 2.0,
+        prior_scales: Optional[List] = None,
+        tdp_scales: Optional[List] = None,
     ) -> SWBSearchParameters:
 
         assert self.experiments[key]["decode_job"]["runner"] is not None, "Please set the recognizer"
         recognizer = self.experiments[key]["decode_job"]["runner"]
+
 
         tune_args = recog_args.with_lm_scale(lm_scale)
         best_config_scales = recognizer.recognize_optimize_scales_v2(
@@ -363,26 +381,23 @@ class SWBTFFactoredHybridSystem(TFFactoredHybridBaseSystem):
             tdp_sil=[(11.0, 0.0, "infinity", 20.0)],
             tdp_speech=[(8.0, 0.0, "infinity", 0.0)],
             tdp_nonword=[(8.0, 0.0, "infinity", 0.0)],
-            prior_scales=[[v] for v in np.arange(0.1, 0.8, 0.1).round(1)],
-            tdp_scales=[0.1, 0.2],
+            prior_scales=[[v] for v in np.arange(0.1, 0.8, 0.1).round(1)] if prior_scales is None else prior_scales,
+            tdp_scales=[0.1, 0.2] if tdp_scales is None else tdp_scales,
         )
 
         nnsp_tdp = [(l, 0.0, "infinity", e) for l in [8.0, 11.0, 13.0] for e in [10.0, 15.0, 20.0]]
         sp_tdp = [(l, 0.0, "infinity", e) for l in [5.0, 8.0, 11.0] for e in [0.0, 5.0]]
-        best_config= recognizer.recognize_optimize_transtition_values(
+        best_config = recognizer.recognize_optimize_transtition_values(
             label_info=self.label_info,
             search_parameters=best_config_scales,
-            num_encoder_output=512,
-            altas_value=2.0,
+            num_encoder_output=num_encoder_output,
+            altas_value=altas_for_transition_optimization,
             altas_beam=16.0,
             tdp_sil=nnsp_tdp,
             tdp_speech=sp_tdp,
         )
 
         return best_config
-
-
-
 
     def get_aligner_and_args(
         self,
