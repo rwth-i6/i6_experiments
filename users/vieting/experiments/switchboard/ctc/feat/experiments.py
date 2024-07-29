@@ -243,7 +243,6 @@ def run_scf_baseline():
                 returnn_args={
                     **returnn_args,
                     "batch_size": 7000,
-                    "accum_grad_multiple_step": 1,
                     "extra_args": {"watch_memory": True, "conv_pad_seq_len_to_power": 1.5},
                 },
                 feature_args=feature_args,
