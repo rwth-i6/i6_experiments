@@ -11,7 +11,7 @@ def dynamic_learning_rate(*, network, global_train_step, learning_rate, **kwargs
     final_lr = config.typed_dict.get("learning_rate_final_lr", 1e-6)
     cycle_epoch = config.typed_dict.get("learning_rate_cycle_epoch", 135)
     total_epoch = config.typed_dict.get("learning_rate_total_epoch", 300)
-    n_step = config.typed_dict.get("learning_rate_n_step", 2650)
+    n_step = config.typed_dict.get("learning_rate_n_step")
     # -- derived -- #
     steps = cycle_epoch * n_step
     step_size = (peak_lr - initial_lr) / steps
