@@ -34,10 +34,10 @@ from .default_tools import (
 )
 
 
-def get_ctc_alignment(ctc_alignment_model="mel", alignment_epoch=401) -> List[tk.Path]:
+def get_ctc_alignment(ctc_alignment_model: str = "mel", alignment_epoch: int = 401) -> List[tk.Path]:
     train_corpus, dev_corpora, _ = get_switchboard_data()
 
-    # switch statmenet for different alignment models
+    # switch statement for different alignment models
     if ctc_alignment_model == "mel":
         _, ctc_nn_system = run_mel_baseline_ctc()
     elif ctc_alignment_model == "scf":
@@ -312,22 +312,15 @@ def run_scf_stage1():
             "learning_rate_control_error_measure": "sum_dev_score",
             "min_learning_rate": 1e-6,
             "learning_rate_n_step": 2650,
+            "extern_data": {
+                "data": {"dim": 1, "dtype": "int16"},
+                "classes": {"dim": 88, "dtype": "int8", "sparse": True},
+            },
+            "min_chunk_size": {"classes": 2, "data": 644},
         },
         "specaug_old": {"max_feature": 15},
     }
-    returnn_args["datasets"] = returnn_datasets_align_ctc
-    returnn_args["extra_args"]["extern_data"] = {
-        "data": {"dim": 1, "dtype": "int16"},
-        "classes": {"dim": 88, "dtype": "int8", "sparse": True},
-    }
-    returnn_args["extra_args"]["min_chunk_size"] = {"classes": 2, "data": 644}
-    # Data sequence is longer by factor 4 because of subsampling and 80 because of feature extraction vs.
-    # raw waveform. Also, there are frame size - frame shift more samples at the end. This should be more correct than
-    # the version above.
-    returnn_args["extra_args"]["chunking"] = (
-        {"classes": 64, "data": 64 * 4 * 80 + 200 - 80},
-        {"classes": 32, "data": 32 * 4 * 80},
-    )
+
     feature_args = {
         "class": "ScfNetwork",
         "size_tf": 256 // 2,
@@ -343,72 +336,51 @@ def run_scf_stage1():
 
     _, nn_system_ctc = run_scf_baseline_ctc()
 
+    existing_model_dict = {
+        "filename": nn_system_ctc.train_jobs["conformer_bs2x5k_scf_baseline_preemphasis97_wn"].out_checkpoints[400],
+        "init_for_train": True,
+        "prefix": "features",
+        "var_name_mapping": {
+            "/conv_h_filter/conv_h_filter": "features/conv_h_filter/conv_h_filter",
+            "/conv_l/W": "features/conv_l/W",
+            "/conv_l_act/bias": "features/conv_l_act/bias",
+            "/conv_l_act/scale": "features/conv_l_act/scale"
+        },
+    }
+
     nn_args, report_args_collection = get_nn_args_baseline(
         nn_base_args={
             "bs15k_align-ctc-conf-e400": dict(
                 returnn_args=returnn_args,
                 report_args={"alignment": "ctc-conf-e401"},
-                lr_args={"dynamic_learning_rate": dynamic_learning_rate_configurable},
-                feature_args=feature_args,
+                **common_args,
             ),
             "bs15k_align-ctc-conf-e400_feat-ctc-e400": dict(
                 returnn_args={
                     **returnn_args,
                     "extra_args": {
-                        # data sequence is longer by factor 4 because of subsampling and 80 because of feature extraction vs.
-                        # raw waveform
-                        "chunking": ({"classes": 64, "data": 64 * 4 * 80}, {"classes": 32, "data": 32 * 4 * 80}),
-                        "gradient_clip": 20.0,
-                        "learning_rate_control_error_measure": "sum_dev_score",
-                        "min_learning_rate": 1e-6,
+                        **returnn_args["extra_args"],
                         "preload_from_files": {
-                            "existing-model": {
-                                "filename": nn_system_ctc.train_jobs["conformer_bs2x5k_scf_baseline_preemphasis97_wn"].out_checkpoints[400],
-                                "init_for_train": True,
-                                "prefix": "features", 
-                                "var_name_mapping": {
-                                    "/conv_h_filter/conv_h_filter": "features/conv_h_filter/conv_h_filter",
-                                    "/conv_l/W": "features/conv_l/W",
-                                    "/conv_l_act/bias": "features/conv_l_act/bias",
-                                    "/conv_l_act/scale": "features/conv_l_act/scale"
-                                },
-                            }
+                            "existing-model": existing_model_dict
                         },
                     },
                 },
                 report_args={"alignment": "ctc-conf-e400"},
-                lr_args={"dynamic_learning_rate": dynamic_learning_rate_configurable},
-                feature_args=feature_args,
+                **common_args,
             ),
             "bs15k_align-ctc-conf-e400_feat-ctc-e400_froozen": dict(
                 returnn_args={
                     **returnn_args,
                     "extra_args": {
-                        # data sequence is longer by factor 4 because of subsampling and 80 because of feature extraction vs.
-                        # raw waveform
-                        "chunking": ({"classes": 64, "data": 64 * 4 * 80}, {"classes": 32, "data": 32 * 4 * 80}),
-                        "gradient_clip": 20.0,
-                        "learning_rate_control_error_measure": "sum_dev_score",
-                        "min_learning_rate": 1e-6,
+                        **returnn_args["extra_args"],
                         "preload_from_files": {
-                            "existing-model": {
-                                "filename": nn_system_ctc.train_jobs["conformer_bs2x5k_scf_baseline_preemphasis97_wn"].out_checkpoints[400],
-                                "init_for_train": True,
-                                "prefix": "features", 
-                                "var_name_mapping": {
-                                    "/conv_h_filter/conv_h_filter": "features/conv_h_filter/conv_h_filter",
-                                    "/conv_l/W": "features/conv_l/W",
-                                    "/conv_l_act/bias": "features/conv_l_act/bias",
-                                    "/conv_l_act/scale": "features/conv_l_act/scale"
-                                },
-                            }
+                            "existing-model": existing_model_dict
                         },
                     },
                     "staged_opts": {1: "freeze_features"},
                 },
                 report_args={"alignment": "ctc-conf-e400"},
-                lr_args={"dynamic_learning_rate": dynamic_learning_rate_configurable},
-                feature_args=feature_args,
+                **common_args,
             ),
         },
         num_epochs=300,

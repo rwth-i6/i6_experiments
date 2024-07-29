@@ -4,6 +4,7 @@ def dynamic_learning_rate(*, network, global_train_step, learning_rate, **kwargs
     One cycle learning rate: triangular linear w.r.t. iterations (steps)
     """
     from returnn.config import get_global_config
+
     config = get_global_config()
     initial_lr = config.typed_dict.get("learning_rate_initial_lr", 8e-5)
     peak_lr = config.typed_dict.get("learning_rate_peak_lr", 8e-4)
