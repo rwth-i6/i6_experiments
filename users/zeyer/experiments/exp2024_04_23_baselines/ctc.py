@@ -642,7 +642,7 @@ def py():
         )
 
     # Log prob normed gradient (lpNormedGrad)
-    train_exp(
+    train_exp(  # 5.71 (!!!) (i.e. better than without)
         "v6-relPosAttDef-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-featBN"
         "-speedpertV2-spm10k-bpeSample001-lpNormedGrad",
         config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
@@ -668,7 +668,7 @@ def py():
     )
 
     # Log prob normed gradient (lpNormedGrad) with blank separated (blankSep)
-    train_exp(
+    train_exp(  # 6.05 (so lpNormedGrad is worse here, but specifically in combination with blankSep?)
         "v6-relPosAttDef-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-featBN"
         "-speedpertV2-spm10k-bpeSample001-blankSep-lpNormedGrad",
         config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
