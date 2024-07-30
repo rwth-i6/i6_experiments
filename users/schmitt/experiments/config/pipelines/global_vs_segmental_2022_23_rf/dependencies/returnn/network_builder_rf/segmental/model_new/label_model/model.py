@@ -263,8 +263,6 @@ class SegmentalAttEfficientLabelDecoder(SegmentalAttLabelDecoder):
           segment_lens: rf.Tensor,
           center_positions: rf.Tensor,
   ) -> rf.Tensor:
-    s_transformed = self.s_transformed(s)
-
     slice_dim = Dim(name="slice", dimension=segment_lens)
     gather_positions = rf.range_over_dim(slice_dim, dtype=enc_spatial_dim.dyn_size_ext.dtype)
     gather_positions += segment_starts
@@ -283,6 +281,7 @@ class SegmentalAttEfficientLabelDecoder(SegmentalAttLabelDecoder):
       att_weights = rf.softmax(att_weights, axis=slice_dim, use_mask=True)
       att_weights = rf.expand_dim(att_weights, dim=self.att_num_heads)
     else:
+      s_transformed = self.s_transformed(s)
       enc_ctx_sliced = rf.gather(enc_ctx, axis=enc_spatial_dim, indices=gather_positions, clip_to_valid=True)
       weight_feedback = rf.zeros((self.enc_key_total_dim,))
       energy_in = enc_ctx_sliced + weight_feedback + s_transformed

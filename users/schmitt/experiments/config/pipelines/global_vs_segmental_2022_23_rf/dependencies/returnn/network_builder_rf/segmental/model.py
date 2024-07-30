@@ -4,6 +4,7 @@ import functools
 from returnn.tensor import Tensor, Dim, single_step_dim
 import returnn.frontend as rf
 from returnn.frontend.decoder.transformer import TransformerDecoder
+from returnn.frontend.attention import RelPosCausalSelfAttention
 
 from i6_experiments.users.schmitt.returnn_frontend.model_interfaces.model import ModelDef
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.base import _batch_size_factor
@@ -61,6 +62,7 @@ class SegmentalAttentionModel(rf.Module):
           use_current_frame_in_readout: bool = False,
           target_embed_dim: int = 640,
           feature_extraction_opts: Optional[Dict[str, Any]] = None,
+          trafo_decoder_opts: Optional[Dict[str, Any]] = None,
   ):
     super(SegmentalAttentionModel, self).__init__()
 
@@ -81,7 +83,7 @@ class SegmentalAttentionModel(rf.Module):
       l2=l2,
       use_weight_feedback=use_weight_feedback,
       feature_extraction_opts=feature_extraction_opts,
-      decoder_type="trafo" if label_decoder_state == "trafo" else "lstm"
+      decoder_type="trafo" if label_decoder_state == "trafo" else "lstm",
     )
 
     assert blank_decoder_version in {1, 3, 4, 5, 6, 7}
@@ -98,14 +100,39 @@ class SegmentalAttentionModel(rf.Module):
         assert not language_model, "need to change bos_idx in recog implementation"
 
         model_dim = Dim(name="dec", dimension=512)
+        if trafo_decoder_opts is None:
+          decoder_layer_opts = None
+          trafo_opts = {
+            "share_embedding": True,
+            "input_embedding_scale": model_dim.dimension ** 0.5,
+          }
+        else:
+          assert trafo_decoder_opts["self_att_type"] == "rel_pos_causal_self_attention"
+          decoder_layer_opts = {
+            "self_att": RelPosCausalSelfAttention,
+            "att_lin_with_bias": False,
+            "self_att_opts": {
+              "with_pos_bias": False,
+              "with_linear_pos": False,
+              "learnable_pos_emb": True,
+              "separate_pos_emb_per_head": False,
+            }
+          }
+          trafo_opts = {
+            "logits_with_bias": True,
+            "share_embedding": False,
+            "input_embedding_scale": 1.0,
+            "use_sin_pos_enc": False,
+          }
+
         self.label_decoder = TransformerDecoder(
           num_layers=6,
           encoder_dim=self.encoder.out_dim,
           vocab_dim=target_dim,
           model_dim=model_dim,
           sequential=rf.Sequential,
-          share_embedding=True,
-          input_embedding_scale=model_dim.dimension ** 0.5
+          decoder_layer_opts=decoder_layer_opts,
+          **trafo_opts,
         )
       else:
         self.bos_idx = 0
@@ -373,6 +400,8 @@ def from_scratch_model_def(
 
   feature_extraction_opts = config.typed_value("feature_extraction_opts", None)
 
+  trafo_decoder_opts = config.typed_value("trafo_decoder_opts", None)
+
   return MakeModel.make_model(
     in_dim,
     align_target_dim,
@@ -397,6 +426,7 @@ def from_scratch_model_def(
     use_current_frame_in_readout=use_current_frame_in_readout,
     target_embed_dim=target_embed_dim,
     feature_extraction_opts=feature_extraction_opts,
+    trafo_decoder_opts=trafo_decoder_opts,
   )
 
 
