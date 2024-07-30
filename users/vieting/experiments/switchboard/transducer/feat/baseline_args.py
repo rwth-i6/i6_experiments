@@ -257,7 +257,11 @@ def get_returnn_config(
             "min_learning_rate": 1e-6,
         }
     )
-    conformer_base_config.update(extra_args or {})
+    conformer_base_config.update(copy.deepcopy(extra_args) or {})
+    if recognition:
+        if "dtype" in conformer_base_config["extern_data"]["data"]:
+            conformer_base_config["extern_data"]["data"]["dtype"] = "float32"
+        conformer_base_config["extern_data"]["classes"]["dtype"] = "int32"
 
     staged_network_dict = None
     if staged_opts is not None and not recognition:
