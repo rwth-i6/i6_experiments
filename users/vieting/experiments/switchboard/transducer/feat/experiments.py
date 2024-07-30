@@ -381,10 +381,6 @@ def run_scf_stage1():
         evaluation_epochs=[270, 280, 290, 300],
         prefix="viterbi_scf_",
     )
-    config = copy.deepcopy(nn_args.returnn_recognition_configs["viterbi_scf_bs15k_align-ctc-conf-e400"].config)
-    config["extern_data"]["data"]["dtype"] = "float32"
-    config["extern_data"]["classes"]["dtype"] = "int32"
-    nn_args.returnn_recognition_configs["viterbi_scf_bs15k_align-ctc-conf-e400"].config = config
     nn_system, report = run_nn_args(nn_args, report_args_collection, dev_corpora["transducer"])
     return nn_system, report
 
