@@ -73,6 +73,12 @@ def get_ctc_alignment(ctc_alignment_model: str = "mel", alignment_epoch: int = 4
         },
         "rtf": 5,
     }
+    if ctc_alignment_model == "scf":
+        align_args["train_exp_name"] = "conformer_bs2x5k_scf_baseline_preemphasis97_wn"
+    elif ctc_alignment_model == "mel":
+        align_args["train_exp_name"] = "conformer_bs5k_lgm80_baseline"
+    else:
+        raise ValueError(f"Unknown ctc_alignment_model: {ctc_alignment_model}")
     train_corpus.concurrent = 100
     train_corpus.lexicon = dev_corpora["ctc"]["hub5e00"].lexicon
     ctc_nn_system.corpus_data["train"] = train_corpus
