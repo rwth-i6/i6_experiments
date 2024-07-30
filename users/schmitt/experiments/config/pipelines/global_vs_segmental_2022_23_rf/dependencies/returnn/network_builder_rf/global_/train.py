@@ -1,8 +1,9 @@
 from typing import Dict, List, Tuple, Optional, Union
 
 from returnn.tensor import TensorDict
-from returnn.tensor import Tensor, Dim
+from returnn.tensor import Tensor, Dim, single_step_dim
 import returnn.frontend as rf
+from returnn.frontend.decoder.transformer import TransformerDecoder
 
 from i6_experiments.users.schmitt.returnn_frontend.model_interfaces.training import TrainDef
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.global_.model import GlobalAttentionModel
@@ -102,57 +103,83 @@ def get_s_and_att_efficient(
 
 
 def forward_sequence(
-        model: Union[GlobalAttDecoder, GlobalAttEfficientDecoder],
+        model: Union[GlobalAttDecoder, GlobalAttEfficientDecoder, TransformerDecoder],
         targets: rf.Tensor,
         targets_spatial_dim: Dim,
         enc_args: Dict[str, rf.Tensor],
         enc_spatial_dim: Dim,
         batch_dims: List[Dim],
         return_label_model_states: bool = False,
-        h_t: Optional[rf.Tensor] = None,
+        center_positions: Optional[rf.Tensor] = None,
 ) -> Tuple[rf.Tensor, Optional[Tuple[rf.Tensor, Dim]]]:
   input_embeddings = model.target_embed(targets)
   input_embeddings = rf.shift_right(input_embeddings, axis=targets_spatial_dim, pad_value=0.0)
 
-  if type(model) is GlobalAttDecoder:
-    s, att, final_state = get_s_and_att(
-      model=model,
-      enc_args=enc_args,
-      input_embeddings=input_embeddings,
-      enc_spatial_dim=enc_spatial_dim,
-      targets_spatial_dim=targets_spatial_dim,
-      batch_dims=batch_dims
+  if type(model) is TransformerDecoder:
+    logits, _, _ = model(
+      targets,
+      spatial_dim=targets_spatial_dim,
+      encoder=model.transform_encoder(enc_args["enc"], axis=enc_spatial_dim),
+      state=model.default_initial_state(batch_dims=batch_dims)
     )
   else:
-    assert type(model) is GlobalAttEfficientDecoder
-    s, att, final_state = get_s_and_att_efficient(
-      model=model,
-      enc_args=enc_args,
-      input_embeddings=input_embeddings,
-      enc_spatial_dim=enc_spatial_dim,
-      targets_spatial_dim=targets_spatial_dim,
-      batch_dims=batch_dims
-    )
+    if type(model) is GlobalAttDecoder:
+      s, att, final_state = get_s_and_att(
+        model=model,
+        enc_args=enc_args,
+        input_embeddings=input_embeddings,
+        enc_spatial_dim=enc_spatial_dim,
+        targets_spatial_dim=targets_spatial_dim,
+        batch_dims=batch_dims
+      )
+    else:
+      assert type(model) is GlobalAttEfficientDecoder
+      s, att, final_state = get_s_and_att_efficient(
+        model=model,
+        enc_args=enc_args,
+        input_embeddings=input_embeddings,
+        enc_spatial_dim=enc_spatial_dim,
+        targets_spatial_dim=targets_spatial_dim,
+        batch_dims=batch_dims
+      )
 
-  logits = model.decode_logits(input_embed=input_embeddings, s=s, att=att, h_t=h_t)
+    if model.use_current_frame_in_readout or model.use_current_frame_in_readout_w_gate or model.use_current_frame_in_readout_random:
+      h_t = rf.gather(enc_args["enc"], axis=enc_spatial_dim, indices=center_positions)
+    else:
+      h_t = None
+
+    logits = model.decode_logits(input_embed=input_embeddings, s=s, att=att, h_t=h_t)
 
   if return_label_model_states:
+    assert model is not TransformerDecoder, "not implemented yet"
     # need to run the loop one more time to get the last output (which is not needed for the loss computation)
     last_embedding = rf.gather(
         input_embeddings,
         axis=targets_spatial_dim,
         indices=rf.copy_to_device(targets_spatial_dim.get_size_tensor() - 1)
     )
-    last_loop_out, _ = model.loop_step(
-      **enc_args,
-      enc_spatial_dim=enc_spatial_dim,
-      input_embed=last_embedding,
-      state=final_state.decoder,
-    )
+    if type(model) is GlobalAttDecoder:
+      last_loop_out, _ = model.loop_step(
+        **enc_args,
+        enc_spatial_dim=enc_spatial_dim,
+        input_embed=last_embedding,
+        state=final_state.decoder,
+      )
+      last_s_out = last_loop_out["s"]
+    else:
+      if "lstm" in model.decoder_state:
+        last_s_out_s, _ = model.s_wo_att(
+          last_embedding,
+          state=final_state,
+          spatial_dim=single_step_dim,
+        )
+      else:
+        last_s_out = model.s_wo_att_linear(last_embedding)
+
     singleton_dim = Dim(name="singleton", dimension=1)
     return logits, rf.concat(
       (s, targets_spatial_dim),
-      (rf.expand_dim(last_loop_out["s"], singleton_dim), singleton_dim),
+      (rf.expand_dim(last_s_out, singleton_dim), singleton_dim),
     )
 
   return logits, None

@@ -6,7 +6,7 @@ import functools
 from returnn.tensor import Tensor, Dim, single_step_dim
 import returnn.frontend as rf
 
-from i6_experiments.users.schmitt.returnn_frontend.model_interfaces.supports_label_scorer_torch import RFModelWithMakeLabelScorer
+from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.segmental import utils
 
 _batch_size_factor = 160
 
@@ -54,9 +54,13 @@ class BaseLabelDecoder(rf.Module):
           separate_blank_from_softmax: bool = False,
           reset_eos_params: bool = False,
           use_current_frame_in_readout: bool = False,
+          use_current_frame_in_readout_w_gate: bool = False,
+          use_current_frame_in_readout_random: bool = False,
           target_embed_dim: Dim = Dim(name="target_embed", dimension=640),
   ):
     super(BaseLabelDecoder, self).__init__()
+
+    assert not (use_current_frame_in_readout and use_current_frame_in_readout_w_gate), "only one of them allowed"
 
     self.target_dim = target_dim
     self.blank_idx = blank_idx
@@ -151,6 +155,15 @@ class BaseLabelDecoder(rf.Module):
         readout_out_dim,
       )
 
+    self.use_current_frame_in_readout_w_gate = use_current_frame_in_readout_w_gate
+    if use_current_frame_in_readout_w_gate:
+      self.attention_gate = rf.Linear(
+        att_num_heads * enc_out_dim,
+        Dim(name="attention_gate", dimension=1),
+      )
+
+    self.use_current_frame_in_readout_random = use_current_frame_in_readout_random
+
     output_prob_opts = {"in_dim": readout_out_dim // 2, "out_dim": target_dim}
     if reset_eos_params:
       self.output_prob_reset_eos = rf.Linear(**output_prob_opts)
@@ -209,3 +222,45 @@ class BaseLabelDecoder(rf.Module):
     att0.feature_dim = self.enc_out_dim
     att, _ = rf.merge_dims(att0, dims=(self.att_num_heads, self.enc_out_dim))
     return att
+
+  def decode_logits(self, *, s: Tensor, input_embed: Tensor, att: Tensor, h_t: Optional[Tensor] = None) -> Tensor:
+    if self.use_current_frame_in_readout:
+      assert h_t is not None, "Need h_t for readout!"
+      readout_input = rf.concat_features(s, input_embed, att, h_t, allow_broadcast=True)
+    elif self.use_current_frame_in_readout_w_gate or self.use_current_frame_in_readout_random:
+      if not (not rf.get_run_ctx().train_flag and self.use_current_frame_in_readout_random):
+        assert h_t is not None, "Need h_t for readout!"
+      if self.use_current_frame_in_readout_w_gate:
+        alpha = rf.sigmoid(self.attention_gate(att))
+      else:
+        alpha = rf.random_uniform(
+          dims=att.remaining_dims(att.feature_dim),
+          dtype="int32",
+          minval=0,
+          maxval=2,
+        )
+        alpha = rf.cast(alpha, "float32")
+      # need to have same feature dim for interpolation
+      if h_t is not None:
+        h_t = utils.copy_tensor_replace_dim_tag(h_t, self.enc_out_dim, att.feature_dim)
+
+      if self.use_current_frame_in_readout_random and not rf.get_run_ctx().train_flag:
+        if h_t is None:
+          att_h_t = att
+        else:
+          att_h_t = h_t
+      else:
+        att_h_t = alpha * att + (1 - alpha) * h_t
+        if self.use_current_frame_in_readout_w_gate:
+          att_h_t = rf.squeeze(att_h_t, axis=self.attention_gate.out_dim)
+        att_h_t.feature_dim = att.feature_dim
+
+      readout_input = rf.concat_features(s, input_embed, att_h_t, allow_broadcast=True)
+    else:
+      readout_input = rf.concat_features(s, input_embed, att, allow_broadcast=True)
+
+    readout_in = self.readout_in(readout_input)
+    readout = rf.reduce_out(readout_in, mode="max", num_pieces=2, out_dim=self.output_prob.in_dim)
+    readout = rf.dropout(readout, drop_prob=0.3, axis=self.dropout_broadcast and readout.feature_dim)
+    logits = self.output_prob(readout)
+    return logits

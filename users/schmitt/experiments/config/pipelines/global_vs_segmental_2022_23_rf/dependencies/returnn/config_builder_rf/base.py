@@ -38,9 +38,17 @@ class ConfigBuilderRF(ABC):
           use_att_ctx_in_state: bool = True,
           label_decoder_state: str = "nb-lstm",
           use_current_frame_in_readout: bool = False,
+          use_current_frame_in_readout_w_gate: bool = False,
+          use_current_frame_in_readout_random: bool = False,
           use_correct_dim_tags: bool = False,
           num_label_decoder_layers: int = 1,
   ):
+    assert (use_current_frame_in_readout_random ^ use_current_frame_in_readout_w_gate) or (
+                  use_current_frame_in_readout_random ^ use_current_frame_in_readout) or (
+      not use_current_frame_in_readout_random and not use_current_frame_in_readout_w_gate and not use_current_frame_in_readout
+    ), "Either none or exactly one can be true"
+
+
     self.variant_params = variant_params
     self.model_def = model_def
     self.get_model_func = get_model_func
@@ -75,6 +83,12 @@ class ConfigBuilderRF(ABC):
     self.use_current_frame_in_readout = use_current_frame_in_readout
     if use_current_frame_in_readout:
       self.config_dict["use_current_frame_in_readout"] = use_current_frame_in_readout
+
+    if use_current_frame_in_readout_w_gate:
+      self.config_dict["use_current_frame_in_readout_w_gate"] = use_current_frame_in_readout_w_gate
+
+    if use_current_frame_in_readout_random:
+      self.config_dict["use_current_frame_in_readout_random"] = use_current_frame_in_readout_random
 
     if num_label_decoder_layers != 1:
       self.config_dict["num_label_decoder_layers"] = num_label_decoder_layers
@@ -300,6 +314,110 @@ class ConfigBuilderRF(ABC):
 
     # serialize remaining functions, e.g. dynamic learning rate
     return get_serializable_config(returnn_train_config, serialize_dim_tags=False)
+
+  def get_dump_att_weight_config(self, opts: Dict):
+    config_dict = copy.deepcopy(self.config_dict)
+    post_config_dict = copy.deepcopy(self.post_config_dict)
+    python_prolog = copy.deepcopy(self.python_prolog)
+    python_epilog = copy.deepcopy(self.python_epilog)
+
+    dataset_opts = opts.get("dataset_opts", {})
+    config_dict.update(dict(
+      task="forward",
+      batching=opts.get("batching", "random")
+    ))
+
+    config_dict.update(
+      self.get_search_dataset(
+        search_corpus_key=opts["corpus_key"],
+        dataset_opts=dataset_opts
+      ))
+    extern_data_raw = self.get_extern_data_dict(dataset_opts, config_dict)
+    extern_data_raw = instanciate_delayed(extern_data_raw)
+
+    config_dict["batch_size"] = opts.get("batch_size", 15_000) * self.batch_size_factor
+
+    python_epilog.append(
+      serialization.Collection(
+        [
+          serialization.NonhashedCode(get_import_py_code()),
+          serialization.NonhashedCode(
+            nn.ReturnnConfigSerializer.get_base_extern_data_py_code_str_direct(extern_data_raw)
+          ),
+          *serialize_model_def(self.model_def),
+          serialization.Import(self.get_model_func, import_as="get_model"),
+          serialization.Import(
+            opts["dump_att_weight_def"], import_as="_dump_att_weight_def", ignore_import_as_for_hash=True),
+          serialization.Import(opts["forward_step_func"], import_as="forward_step"),
+          serialization.Import(opts["forward_callback"], import_as="forward_callback"),
+          serialization.PythonEnlargeStackWorkaroundNonhashedCode,
+          serialization.PythonCacheManagerFunctionNonhashedCode,
+          serialization.PythonModelineNonhashedCode
+        ]
+      )
+    )
+
+    returnn_dump_att_weight_config = ReturnnConfig(
+      config=config_dict,
+      post_config=post_config_dict,
+      python_prolog=python_prolog,
+      python_epilog=python_epilog,
+    )
+
+    # serialize remaining functions, e.g. dynamic learning rate
+    return get_serializable_config(returnn_dump_att_weight_config, serialize_dim_tags=False)
+
+  def get_analyze_gradients_config(self, opts: Dict):
+    config_dict = copy.deepcopy(self.config_dict)
+    post_config_dict = copy.deepcopy(self.post_config_dict)
+    python_prolog = copy.deepcopy(self.python_prolog)
+    python_epilog = copy.deepcopy(self.python_epilog)
+
+    dataset_opts = opts.get("dataset_opts", {})
+    config_dict.update(dict(
+      task="forward",
+      batching=opts.get("batching", "random")
+    ))
+
+    config_dict.update(
+      self.get_search_dataset(
+        search_corpus_key=opts["corpus_key"],
+        dataset_opts=dataset_opts
+      ))
+    extern_data_raw = self.get_extern_data_dict(dataset_opts, config_dict)
+    extern_data_raw = instanciate_delayed(extern_data_raw)
+
+    config_dict["batch_size"] = opts.get("batch_size", 15_000) * self.batch_size_factor
+
+    python_epilog.append(
+      serialization.Collection(
+        [
+          serialization.NonhashedCode(get_import_py_code()),
+          serialization.NonhashedCode(
+            nn.ReturnnConfigSerializer.get_base_extern_data_py_code_str_direct(extern_data_raw)
+          ),
+          *serialize_model_def(self.model_def),
+          serialization.Import(self.get_model_func, import_as="get_model"),
+          serialization.Import(
+            opts["analyze_gradients_def"], import_as="_analyze_gradients_def", ignore_import_as_for_hash=True),
+          serialization.Import(opts["forward_step_func"], import_as="forward_step"),
+          serialization.Import(opts["forward_callback"], import_as="forward_callback"),
+          serialization.PythonEnlargeStackWorkaroundNonhashedCode,
+          serialization.PythonCacheManagerFunctionNonhashedCode,
+          serialization.PythonModelineNonhashedCode
+        ]
+      )
+    )
+
+    returnn_analyze_gradients_config = ReturnnConfig(
+      config=config_dict,
+      post_config=post_config_dict,
+      python_prolog=python_prolog,
+      python_epilog=python_epilog,
+    )
+
+    # serialize remaining functions, e.g. dynamic learning rate
+    return get_serializable_config(returnn_analyze_gradients_config, serialize_dim_tags=False)
 
   def get_recog_checkpoints(
           self, model_dir: Path, learning_rates: Path, key: str, checkpoints: Dict[int, Checkpoint], n_epochs: int):
@@ -711,6 +829,13 @@ class GlobalAttConfigBuilderRF(ConfigBuilderRF, ABC):
 
     return extern_data_dict
 
+  def get_dump_att_weight_config(self, opts: Dict):
+    if "dataset_opts" not in opts:
+      opts["dataset_opts"] = {}
+    opts["dataset_opts"]["target_is_alignment"] = False
+
+    return super(GlobalAttConfigBuilderRF, self).get_dump_att_weight_config(opts)
+
 
 class SegmentalAttConfigBuilderRF(ConfigBuilderRF, ABC):
   def __init__(
@@ -733,6 +858,7 @@ class SegmentalAttConfigBuilderRF(ConfigBuilderRF, ABC):
 
     super(SegmentalAttConfigBuilderRF, self).__init__(**kwargs)
 
+    self.center_window_size = center_window_size
     self.config_dict.update(dict(
       center_window_size=center_window_size,
     ))
@@ -886,109 +1012,11 @@ class SegmentalAttConfigBuilderRF(ConfigBuilderRF, ABC):
     return get_serializable_config(returnn_realign_config, serialize_dim_tags=False)
 
   def get_dump_att_weight_config(self, opts: Dict):
-    config_dict = copy.deepcopy(self.config_dict)
-    post_config_dict = copy.deepcopy(self.post_config_dict)
-    python_prolog = copy.deepcopy(self.python_prolog)
-    python_epilog = copy.deepcopy(self.python_epilog)
+    if "dataset_opts" not in opts:
+      opts["dataset_opts"] = {}
+    opts["dataset_opts"]["target_is_alignment"] = True
 
-    dataset_opts = opts.get("dataset_opts", {})
-    dataset_opts["target_is_alignment"] = True
-    config_dict.update(dict(
-      task="forward",
-      batching=opts.get("batching", "random")
-    ))
-
-    config_dict.update(
-      self.get_search_dataset(
-        search_corpus_key=opts["corpus_key"],
-        dataset_opts=dataset_opts
-      ))
-    extern_data_raw = self.get_extern_data_dict(dataset_opts, config_dict)
-    extern_data_raw = instanciate_delayed(extern_data_raw)
-
-    config_dict["batch_size"] = opts.get("batch_size", 15_000) * self.batch_size_factor
-
-    python_epilog.append(
-      serialization.Collection(
-        [
-          serialization.NonhashedCode(get_import_py_code()),
-          serialization.NonhashedCode(
-            nn.ReturnnConfigSerializer.get_base_extern_data_py_code_str_direct(extern_data_raw)
-          ),
-          *serialize_model_def(self.model_def),
-          serialization.Import(self.get_model_func, import_as="get_model"),
-          serialization.Import(
-            opts["dump_att_weight_def"], import_as="_dump_att_weight_def", ignore_import_as_for_hash=True),
-          serialization.Import(opts["forward_step_func"], import_as="forward_step"),
-          serialization.Import(opts["forward_callback"], import_as="forward_callback"),
-          serialization.PythonEnlargeStackWorkaroundNonhashedCode,
-          serialization.PythonCacheManagerFunctionNonhashedCode,
-          serialization.PythonModelineNonhashedCode
-        ]
-      )
-    )
-
-    returnn_dump_att_weight_config = ReturnnConfig(
-      config=config_dict,
-      post_config=post_config_dict,
-      python_prolog=python_prolog,
-      python_epilog=python_epilog,
-    )
-
-    # serialize remaining functions, e.g. dynamic learning rate
-    return get_serializable_config(returnn_dump_att_weight_config, serialize_dim_tags=False)
-
-  def get_analyze_gradients_config(self, opts: Dict):
-    config_dict = copy.deepcopy(self.config_dict)
-    post_config_dict = copy.deepcopy(self.post_config_dict)
-    python_prolog = copy.deepcopy(self.python_prolog)
-    python_epilog = copy.deepcopy(self.python_epilog)
-
-    dataset_opts = opts.get("dataset_opts", {})
-    config_dict.update(dict(
-      task="forward",
-      batching=opts.get("batching", "random")
-    ))
-
-    config_dict.update(
-      self.get_search_dataset(
-        search_corpus_key=opts["corpus_key"],
-        dataset_opts=dataset_opts
-      ))
-    extern_data_raw = self.get_extern_data_dict(dataset_opts, config_dict)
-    extern_data_raw = instanciate_delayed(extern_data_raw)
-
-    config_dict["batch_size"] = opts.get("batch_size", 15_000) * self.batch_size_factor
-
-    python_epilog.append(
-      serialization.Collection(
-        [
-          serialization.NonhashedCode(get_import_py_code()),
-          serialization.NonhashedCode(
-            nn.ReturnnConfigSerializer.get_base_extern_data_py_code_str_direct(extern_data_raw)
-          ),
-          *serialize_model_def(self.model_def),
-          serialization.Import(self.get_model_func, import_as="get_model"),
-          serialization.Import(
-            opts["analyze_gradients_def"], import_as="_analyze_gradients_def", ignore_import_as_for_hash=True),
-          serialization.Import(opts["forward_step_func"], import_as="forward_step"),
-          serialization.Import(opts["forward_callback"], import_as="forward_callback"),
-          serialization.PythonEnlargeStackWorkaroundNonhashedCode,
-          serialization.PythonCacheManagerFunctionNonhashedCode,
-          serialization.PythonModelineNonhashedCode
-        ]
-      )
-    )
-
-    returnn_dump_att_weight_config = ReturnnConfig(
-      config=config_dict,
-      post_config=post_config_dict,
-      python_prolog=python_prolog,
-      python_epilog=python_epilog,
-    )
-
-    # serialize remaining functions, e.g. dynamic learning rate
-    return get_serializable_config(returnn_dump_att_weight_config, serialize_dim_tags=False)
+    return super(SegmentalAttConfigBuilderRF, self).get_dump_att_weight_config(opts)
 
 
 class LibrispeechGlobalAttConformerConfigBuilderRF(LibrispeechConformerConfigBuilderRF, GlobalAttConfigBuilderRF, ABC):

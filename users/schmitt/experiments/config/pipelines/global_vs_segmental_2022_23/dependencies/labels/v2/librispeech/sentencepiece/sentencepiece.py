@@ -16,7 +16,7 @@ class LibrispeechSP10240(LabelDefinition, ABC):
 
   @property
   def vocab_path(self) -> Optional[Path]:
-    return None
+    return Path("/work/asr4/zeyer/setups-data/combined/2021-05-31/work/i6_core/text/label/sentencepiece/vocab/ExtractSentencePieceVocabJob.mSRAzk018au3/output/spm.vocab")
 
   @property
   def bpe_codes_path(self) -> Optional[Path]:

@@ -3,6 +3,8 @@ from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segment
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.labels.v2.librispeech.label_singletons import (
   LibrispeechBPE10025_LABELS,
   LibrispeechSP10240_LABELS,
+  LibrispeechBPE1056_LABELS,
+  LibrispeechBPE5048_LABELS,
   LIBRISPEECH_CORPUS
 )
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.general.returnn.exes import RETURNN_EXE_NEW, RETURNN_CURRENT_ROOT
@@ -17,6 +19,10 @@ def get_global_att_config_builder_rf(
 ):
   if label_type == "bpe10025":
     dependencies = LibrispeechBPE10025_LABELS
+  elif label_type == "bpe5048":
+    dependencies = LibrispeechBPE5048_LABELS
+  elif label_type == "bpe1056":
+    dependencies = LibrispeechBPE1056_LABELS
   else:
     assert label_type == "sp10240"
     dependencies = LibrispeechSP10240_LABELS

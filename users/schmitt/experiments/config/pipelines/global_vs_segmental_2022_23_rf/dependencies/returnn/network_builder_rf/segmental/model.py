@@ -60,6 +60,8 @@ class SegmentalAttentionModel(rf.Module):
           reset_eos_params: bool = False,
           blank_decoder_opts: Optional[Dict[str, Any]] = None,
           use_current_frame_in_readout: bool = False,
+          use_current_frame_in_readout_w_gate: bool = False,
+          use_current_frame_in_readout_random: bool = False,
           target_embed_dim: int = 640,
           feature_extraction_opts: Optional[Dict[str, Any]] = None,
           trafo_decoder_opts: Optional[Dict[str, Any]] = None,
@@ -156,8 +158,10 @@ class SegmentalAttentionModel(rf.Module):
           separate_blank_from_softmax=separate_blank_from_softmax,
           reset_eos_params=reset_eos_params,
           use_current_frame_in_readout=use_current_frame_in_readout,
+          use_current_frame_in_readout_w_gate=use_current_frame_in_readout_w_gate,
+          use_current_frame_in_readout_random=use_current_frame_in_readout_random,
           target_embed_dim=Dim(name="target_embed", dimension=target_embed_dim),
-          eos_idx=blank_idx
+          eos_idx=blank_idx,
         )
     else:
       if label_decoder_state == "trafo":
@@ -187,6 +191,8 @@ class SegmentalAttentionModel(rf.Module):
           separate_blank_from_softmax=separate_blank_from_softmax,
           reset_eos_params=reset_eos_params,
           use_current_frame_in_readout=use_current_frame_in_readout,
+          use_current_frame_in_readout_w_gate=use_current_frame_in_readout_w_gate,
+          use_current_frame_in_readout_random=use_current_frame_in_readout_random,
           target_embed_dim=Dim(name="target_embed", dimension=target_embed_dim),
         )
 
@@ -391,6 +397,8 @@ def from_scratch_model_def(
   separate_blank_from_softmax = config.bool("separate_blank_from_softmax", False)
   reset_eos_params = config.bool("reset_eos_params", False)
   use_current_frame_in_readout = config.bool("use_current_frame_in_readout", False)
+  use_current_frame_in_readout_w_gate = config.bool("use_current_frame_in_readout_w_gate", False)
+  use_current_frame_in_readout_random = config.bool("use_current_frame_in_readout_random", False)
 
   enc_out_dim = config.int("enc_out_dim", 512)
   enc_key_total_dim = config.int("enc_key_total_dim", 1024)
@@ -424,6 +432,8 @@ def from_scratch_model_def(
     separate_blank_from_softmax=separate_blank_from_softmax,
     reset_eos_params=reset_eos_params,
     use_current_frame_in_readout=use_current_frame_in_readout,
+    use_current_frame_in_readout_w_gate=use_current_frame_in_readout_w_gate,
+    use_current_frame_in_readout_random=use_current_frame_in_readout_random,
     target_embed_dim=target_embed_dim,
     feature_extraction_opts=feature_extraction_opts,
     trafo_decoder_opts=trafo_decoder_opts,

@@ -10,6 +10,8 @@ from returnn.frontend.decoder.transformer import TransformerDecoder
 from i6_experiments.users.schmitt.returnn_frontend.model_interfaces.recog import RecogDef
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.base import _batch_size_factor
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.segmental.model import SegmentalAttentionModel
+from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.segmental.model_new.label_model.model import SegmentalAttLabelDecoder
+from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.global_.decoder import GlobalAttDecoder
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.segmental import recombination
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.segmental import utils
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.beam_search import utils as beam_search_utils
@@ -184,13 +186,17 @@ def get_score(
     rf.full(dims=[beam_dim] + batch_dims, fill_value=i, dtype="int32"),
     rf.copy_to_device(enc_spatial_dim.get_size_tensor() - 1)
   )
-  segment_starts = rf.maximum(
-    rf.convert_to_tensor(0, dtype="int32"), center_positions - model.center_window_size // 2)
-  segment_ends = rf.minimum(
-    rf.copy_to_device(enc_spatial_dim.get_size_tensor() - 1),
-    center_positions + model.center_window_size // 2
-  )
-  segment_lens = segment_ends - segment_starts + 1
+  if model.center_window_size is not None:
+    segment_starts = rf.maximum(
+      rf.convert_to_tensor(0, dtype="int32"), center_positions - model.center_window_size // 2)
+    segment_ends = rf.minimum(
+      rf.copy_to_device(enc_spatial_dim.get_size_tensor() - 1),
+      center_positions + model.center_window_size // 2
+    )
+    segment_lens = segment_ends - segment_starts + 1
+  else:
+    segment_starts = None
+    segment_lens = None
 
   if model.label_decoder_state == "trafo":
     label_logits, label_decoder_state, label_step_s_out = model.label_decoder(
@@ -200,18 +206,30 @@ def get_score(
       state=label_decoder_state,
     )
   else:
-    label_step_out, label_decoder_state = model.label_decoder.loop_step(
-      **enc_args,
-      enc_spatial_dim=enc_spatial_dim,
-      input_embed=input_embed_label_model,
-      segment_lens=segment_lens,
-      segment_starts=segment_starts,
-      center_positions=center_positions,
-      state=label_decoder_state,
-    )
+    if model.center_window_size is None:
+      label_step_out, label_decoder_state = model.label_decoder.loop_step(
+        **enc_args,
+        enc_spatial_dim=enc_spatial_dim,
+        input_embed=input_embed_label_model,
+        state=label_decoder_state,
+      )
+    else:
+      label_step_out, label_decoder_state = model.label_decoder.loop_step(
+        **enc_args,
+        enc_spatial_dim=enc_spatial_dim,
+        input_embed=input_embed_label_model,
+        segment_lens=segment_lens,
+        segment_starts=segment_starts,
+        center_positions=center_positions,
+        state=label_decoder_state,
+      )
     label_step_s_out = label_step_out["s"]
 
-    if model.label_decoder.use_current_frame_in_readout:
+    if (
+            model.label_decoder.use_current_frame_in_readout or
+            model.label_decoder.use_current_frame_in_readout_w_gate or
+            model.label_decoder.use_current_frame_in_readout_random
+    ):
       h_t = rf.gather(enc_args["enc"], axis=enc_spatial_dim, indices=center_positions)
     else:
       h_t = None
@@ -223,6 +241,12 @@ def get_score(
       logits=label_logits, blank_idx=model.blank_idx, target_dim=model.target_dim)
   else:
     label_log_prob = rf.log_softmax(label_logits, axis=model.target_dim)
+
+  if model.label_decoder.use_current_frame_in_readout_random:
+    label_logits2 = model.label_decoder.decode_logits(input_embed=input_embed_label_model, **label_step_out)
+    label_log_prob2 = rf.log_softmax(label_logits2, axis=model.target_dim)
+    alpha = 0.7
+    label_log_prob = alpha * label_log_prob + (1 - alpha) * label_log_prob2
 
   # ------------------- external LM step -------------------
 
@@ -272,7 +296,7 @@ def get_score(
       state=ilm_state,
       use_mini_att=True
     )
-    ilm_logits = model.label_decoder.decode_logits(input_embed=input_embed_label_model, **ilm_step_out)
+    ilm_logits = model.label_decoder.decode_logits(input_embed=input_embed_label_model, **ilm_step_out, h_t=h_t)
     ilm_label_log_prob = rf.log_softmax(ilm_logits, axis=model.target_dim)
 
     # do not apply ILM correction to blank
@@ -457,7 +481,12 @@ def model_recog(
   if model.label_decoder_state == "trafo":
     label_decoder_state = _get_init_trafo_state(model.label_decoder, batch_dims_)
   else:
-    label_decoder_state = model.label_decoder.default_initial_state(batch_dims=batch_dims_)
+    if isinstance(model.label_decoder, GlobalAttDecoder):
+      label_decoder_state = model.label_decoder.decoder_default_initial_state(
+        batch_dims=batch_dims_, enc_spatial_dim=enc_spatial_dim)
+    else:
+      assert isinstance(model.label_decoder, SegmentalAttLabelDecoder)
+      label_decoder_state = model.label_decoder.default_initial_state(batch_dims=batch_dims_)
 
   # blank decoder
   if model.blank_decoder is not None:

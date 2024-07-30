@@ -1,5 +1,5 @@
 import os.path
-from typing import Optional, Dict, List
+from typing import Optional, Dict, List, Callable
 import sys
 
 import torch
@@ -11,6 +11,7 @@ import returnn.frontend as rf
 from returnn.datasets.hdf import SimpleHDFWriter
 from returnn.config import get_global_config
 from returnn.frontend.encoder.conformer import ConformerEncoder
+from returnn.frontend.decoder.transformer import TransformerDecoder, TransformerDecoderLayer
 
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.segmental import utils
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.segmental.model import SegmentalAttentionModel
@@ -18,9 +19,21 @@ from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segment
   SegmentalAttLabelDecoder,
   SegmentalAttEfficientLabelDecoder,
 )
+from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.global_.decoder import (
+  GlobalAttDecoder,
+  GlobalAttEfficientDecoder,
+)
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.segmental.train import get_alignment_args
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.segmental.model_new.label_model.train import (
-  forward_sequence, forward_sequence_efficient
+  forward_sequence_efficient as forward_sequence_efficient_segmental,
+)
+from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.segmental.model_new.label_model.train import (
+  forward_sequence as forward_sequence_segmental,
+)
+from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.global_.train import (
+  forward_sequence as forward_sequence_global,
+  get_s_and_att_efficient as get_s_and_att_efficient_global,
+  get_s_and_att as get_s_and_att_global,
 )
 from i6_experiments.users.schmitt import hdf
 from i6_experiments.users.schmitt.visualization.visualization import plot_att_weights
@@ -67,12 +80,75 @@ def analyze_weights(model: SegmentalAttentionModel):
   exit()
 
 
-def analyze_gradients():
-  pass
+def _plot_log_prob_gradient_wrt_to_input(
+        input: rf.Tensor,
+        log_probs: rf.Tensor,
+        targets: rf.Tensor,
+        batch_dims: List[rf.Dim],
+        seq_tags: rf.Tensor,
+        enc_spatial_dim: rf.Dim,
+        targets_spatial_dim: rf.Dim,
+        input_name: str,
+        json_vocab_path: Path
+):
+  input_raw = input.raw_tensor
+  log_probs_raw = log_probs.raw_tensor
+  B = log_probs_raw.size(0)  # noqa
+  S = log_probs_raw.size(1)  # noqa
+
+  batch_gradients = []
+  for b in range(B):
+    s_gradients = []
+    for s in range(S):
+      v = targets.raw_tensor[b, s]
+      input_raw.retain_grad()
+      log_probs_raw.retain_grad()
+      log_probs_raw[b, s, v].backward(retain_graph=True)
+
+      x_linear_grad_l2 = torch.linalg.vector_norm(input_raw.grad[b], dim=-1)
+      s_gradients.append(x_linear_grad_l2)
+    batch_gradients.append(torch.stack(s_gradients, dim=0))
+  x_linear_grad_l2_raw = torch.stack(batch_gradients, dim=0)[:, :, :, None]
+  x_linear_grad_l2 = rf.convert_to_tensor(
+    x_linear_grad_l2_raw,
+    dims=batch_dims + [targets_spatial_dim, enc_spatial_dim, rf.Dim(1, name="dummy")],
+  )
+
+  dirname = f"log-prob-grads_wrt_{input_name}"
+  dump_hdfs(
+    att_weights=x_linear_grad_l2,
+    batch_dims=batch_dims,
+    dirname=dirname,
+    seq_tags=seq_tags,
+  )
+
+  # json_vocab_path = Path(
+  #   "/work/asr4/zeyer/setups-data/combined/2021-05-31/work/i6_core/text/label/sentencepiece/vocab/ExtractSentencePieceVocabJob.mSRAzk018au3/output/spm.vocab")
+  targets_hdf = Path("targets.hdf")
+  ref_alignment_hdf = Path(
+    "/work/asr3/zeyer/schmitt/sisyphus_work_dirs/segmental_models_2021_22/i6_core/returnn/forward/ReturnnForwardJob.1fohfY7LLczN/output/alignments.hdf")
+  ref_alignment_json_vocab_path = Path(
+    "/u/zeineldeen/setups/librispeech/2022-11-28--conformer-att/work/i6_core/text/label/subword_nmt/train/ReturnnTrainBpeJob.vTq56NZ8STWt/output/bpe.vocab")
+  ref_alignment_blank_idx = 10025
+
+  plot_att_weights(
+    att_weight_hdf=Path(os.path.join(dirname, "att_weights.hdf")),
+    targets_hdf=targets_hdf,
+    seg_starts_hdf=None,
+    seg_lens_hdf=None,
+    center_positions_hdf=None,
+    target_blank_idx=None,
+    ref_alignment_blank_idx=ref_alignment_blank_idx,
+    ref_alignment_hdf=ref_alignment_hdf,
+    ref_alignment_json_vocab_path=ref_alignment_json_vocab_path,
+    json_vocab_path=json_vocab_path,
+    segment_whitelist=list(seq_tags.raw_tensor),
+    plot_name=dirname
+  )
 
 
-global code_obj_to_func
-global captured_tensors  # func -> (list of calls) -> tensor local name -> (list of versions) -> tensor
+code_obj_to_func = None
+captured_tensors = None  # func -> (list of calls) -> tensor local name -> (list of versions) -> tensor
 
 
 def _trace_func(frame, event, arg):
@@ -94,17 +170,121 @@ def _trace_func(frame, event, arg):
     return _trace_func
 
 
-def analyze_att_energy_gradients(
+def copy_lower_triangular_matrix_to_upper(matrix: torch.Tensor):
+  # Get the indices of the lower triangular part (excluding the diagonal)
+  lower_tri_indices = torch.tril_indices(row=matrix.size(0), col=matrix.size(1), offset=-1)
+  # Get the values from the lower triangular part (excluding the diagonal)
+  lower_tri_values = matrix[lower_tri_indices[0], lower_tri_indices[1]]
+  # Swap the indices to get the positions for the upper triangular part
+  upper_tri_indices = lower_tri_indices.flip(0)
+  # Create a copy of the original matrix to keep it unchanged
+  full_matrix = matrix.clone()
+  # Place the values in the corresponding upper triangular positions
+  full_matrix[upper_tri_indices[0], upper_tri_indices[1]] = lower_tri_values
+
+  return full_matrix
+
+
+def get_tensors_trafo_decoder(
+        model: TransformerDecoder,
+        enc_args: Dict[str, rf.Tensor],
+        enc_spatial_dim: rf.Dim,
+        non_blank_targets: rf.Tensor,
+        non_blank_targets_spatial_dim: rf.Dim,
+        batch_dims: List[rf.Dim],
+        dec_layer_idx: int,
+        get_cross_attentions: bool = True,
+):
+  funcs_to_trace_list = [
+    TransformerDecoder.__call__,
+    TransformerDecoderLayer.__call__,
+    rf.CrossAttention.__call__,
+    rf.CrossAttention.attention,
+    rf.dot_attention,
+  ]
+  global code_obj_to_func
+  global captured_tensors
+  code_obj_to_func = {func.__code__: func for func in funcs_to_trace_list}
+  captured_tensors = {}
+
+  _dec_layer_idx = 2 * dec_layer_idx + int(get_cross_attentions)
+
+  _layer_mapping = {
+    # dot_attention is called twice per decoder layer (self-attention and cross-attention)
+    # we want the last cross-attention, therefore we use 11 as the second arg here
+    "att_weights": (rf.dot_attention, _dec_layer_idx, "att_weights", -1),
+    "energy": (rf.dot_attention, _dec_layer_idx, "energy", -1),
+    "logits": (TransformerDecoder.__call__, 0, "logits", -1),
+  }
+
+  sys.settrace(_trace_func)
+  model(
+    non_blank_targets,
+    spatial_dim=non_blank_targets_spatial_dim,
+    encoder=model.transform_encoder(enc_args["enc"], axis=enc_spatial_dim),
+    state=model.default_initial_state(batch_dims=batch_dims)
+  )
+  sys.settrace(None)
+
+  att_weights = None
+  energies = None
+  logits = None
+
+  for tensor_name, var_path in _layer_mapping.items():
+    new_out = captured_tensors
+    for k in var_path:
+      new_out = new_out[k]
+
+    if tensor_name == "att_weights":
+      att_weights = new_out
+    elif tensor_name == "energy":
+      energies = new_out
+    else:
+      assert tensor_name == "logits"
+      logits = new_out  # type: rf.Tensor
+
+  return att_weights, energies, logits
+
+
+def set_trace_variables(
+        funcs_to_trace_list: List,
+):
+  funcs_to_trace_list = funcs_to_trace_list
+  global code_obj_to_func
+  global captured_tensors
+  code_obj_to_func = {func.__code__: func for func in funcs_to_trace_list}
+  captured_tensors = {}
+
+
+def process_captured_tensors(
+        layer_mapping: Dict,
+        process_func: Optional[Callable] = None
+):
+  tensor_list = []
+
+  for tensor_name, var_path in list(layer_mapping.items()):
+    new_out = captured_tensors
+    for k in var_path:
+      new_out = new_out[k]
+
+    tensor_list.append(process_func(new_out) if process_func else new_out)
+    del layer_mapping[tensor_name]
+
+  return tensor_list if len(tensor_list) > 1 else tensor_list[0]
+
+
+def analyze_gradients(
         model: SegmentalAttentionModel,
         data: rf.Tensor,
         data_spatial_dim: rf.Dim,
-        align_targets: rf.Tensor,
-        align_targets_spatial_dim: rf.Dim,
+        targets: rf.Tensor,
+        targets_spatial_dim: rf.Dim,
         seq_tags: rf.Tensor,
 ):
   if data.feature_dim and data.feature_dim.dimension == 1:
     data = rf.squeeze(data, axis=data.feature_dim)
   assert not data.feature_dim  # raw audio
+  batch_dims = data.remaining_dims(data_spatial_dim)
 
   config = get_global_config()
 
@@ -116,72 +296,93 @@ def analyze_att_energy_gradients(
     param.trainable = True
   rf.set_requires_gradient(data)
 
-  # enable gradients
-  with torch.enable_grad():
-    batch_dims = data.remaining_dims(data_spatial_dim)
+  if isinstance(model, SegmentalAttentionModel):
     (
-      segment_starts, segment_lens, center_positions, non_blank_targets, non_blank_targets_spatial_dim, non_blank_mask
+      segment_starts, segment_lens, center_positions, non_blank_targets, non_blank_targets_spatial_dim,
+      non_blank_mask
     ) = get_alignment_args(
       model=model,
-      align_targets=align_targets,
-      align_targets_spatial_dim=align_targets_spatial_dim,
+      align_targets=targets,
+      align_targets_spatial_dim=targets_spatial_dim,
       batch_dims=batch_dims,
     )
+  else:
+    segment_starts = None
+    segment_lens = None
+    center_positions = None
+    non_blank_targets = targets
+    non_blank_targets_spatial_dim = targets_spatial_dim
+    non_blank_mask = None
 
+  with torch.enable_grad():
     # ------------------- run encoder and capture encoder input -----------------
-    funcs_to_trace_list = [
-      model.encoder.encode,
-      ConformerEncoder.__call__
-    ]
-    global code_obj_to_func
-    code_obj_to_func = {func.__code__: func for func in funcs_to_trace_list}
-    _layer_mapping = {
-      "x_linear": (ConformerEncoder.__call__, 0, "x_linear", -1),
-    }
+    set_trace_variables(
+      funcs_to_trace_list=[
+        model.encoder.encode,
+        ConformerEncoder.__call__
+      ]
+    )
 
+    collected_outputs = {}
     sys.settrace(_trace_func)
     enc_args, enc_spatial_dim = model.encoder.encode(
-      data, in_spatial_dim=data_spatial_dim)
+      data, in_spatial_dim=data_spatial_dim, collected_outputs=collected_outputs)
     sys.settrace(None)
 
-    for tensor_name, var_path in _layer_mapping.items():
-      new_out = captured_tensors
-      for k in var_path:
-        new_out = new_out[k]
-
-      x_linear = new_out  # type: rf.Tensor
+    x_linear = process_captured_tensors(
+      layer_mapping={"x_linear": (ConformerEncoder.__call__, 0, "x_linear", -1)},
+    )
+    assert isinstance(x_linear, rf.Tensor)
 
     # ----------------------------------------------------------------------------------
 
-    max_num_labels = rf.reduce_max(non_blank_targets_spatial_dim.dyn_size_ext, axis=batch_dims).raw_tensor.item()
-    max_num_frames = rf.reduce_max(enc_spatial_dim.dyn_size_ext, axis=batch_dims).raw_tensor.item()
+    for enc_layer_idx in range(11, 12):
+      enc = collected_outputs[str(enc_layer_idx)]
+      enc_args = {
+        "enc": enc,
+      }
 
-    new_slice_dim = rf.Dim(min(model.center_window_size, max_num_frames), name="att_window")
-    if model.use_joint_model:
-      if type(model.label_decoder) is SegmentalAttLabelDecoder:
-        assert model.label_decoder_state == "joint-lstm", "not implemented yet, simple to extend"
-        raise NotImplementedError
-      else:
-        assert type(model.label_decoder) is SegmentalAttEfficientLabelDecoder
-        raise NotImplementedError
-    else:
-      if type(model.label_decoder) is SegmentalAttLabelDecoder:
-        raise NotImplementedError
-      else:
-        funcs_to_trace_list = [
-          forward_sequence_efficient,
-          SegmentalAttEfficientLabelDecoder.__call__,
-          SegmentalAttLabelDecoder.decode_logits,
-        ]
-        code_obj_to_func = {func.__code__: func for func in funcs_to_trace_list}
-        _layer_mapping = {
-          "att_weights": (SegmentalAttEfficientLabelDecoder.__call__, 0, "att_weights", -1),
-          "energy": (SegmentalAttEfficientLabelDecoder.__call__, 0, "energy", -1),
-          "logits": (SegmentalAttLabelDecoder.decode_logits, 0, "logits", -1),
-        }
+      if not isinstance(model.label_decoder, TransformerDecoder):
+        enc_args["enc_ctx"] = model.encoder.enc_ctx(enc)  # does not exist for transformer decoder
+
+      if model.label_decoder.use_weight_feedback:
+        enc_args["inv_fertility"] = rf.sigmoid(model.encoder.inv_fertility(enc))  # does not exist for transformer decoder
+
+      if isinstance(model.label_decoder, GlobalAttDecoder) or isinstance(model.label_decoder, TransformerDecoder):
+        dump_hdfs(
+          batch_dims=batch_dims,
+          seq_tags=seq_tags,
+          align_targets=non_blank_targets,
+          align_target_dim=model.target_dim.dimension
+        )
+
+      if isinstance(model.label_decoder, SegmentalAttLabelDecoder):
+        dump_hdfs(
+          batch_dims=batch_dims,
+          seq_tags=seq_tags,
+          center_positions=center_positions,
+          segment_starts=segment_starts,
+          segment_lens=segment_lens,
+          align_targets=non_blank_targets,
+          align_target_dim=model.target_dim.dimension
+        )
+
+        max_num_frames = rf.reduce_max(enc_spatial_dim.dyn_size_ext, axis=batch_dims).raw_tensor.item()
+        new_slice_dim = rf.Dim(min(model.center_window_size, max_num_frames), name="att_window")
+
+        assert type(model.label_decoder) is SegmentalAttEfficientLabelDecoder, "need to extend for other models"
+        assert not model.use_joint_model
+
+        set_trace_variables(
+          funcs_to_trace_list=[
+            forward_sequence_efficient_segmental,
+            SegmentalAttEfficientLabelDecoder.__call__,
+            SegmentalAttEfficientLabelDecoder.decode_logits,
+          ]
+        )
 
         sys.settrace(_trace_func)
-        forward_sequence_efficient(
+        forward_sequence_efficient_segmental(
           model=model.label_decoder,
           enc_args=enc_args,
           enc_spatial_dim=enc_spatial_dim,
@@ -194,261 +395,277 @@ def analyze_att_energy_gradients(
         )
         sys.settrace(None)
 
-        att_weights = None
-        logits = None
+        def _replace_slice_dim(tensor: rf.Tensor):
+          old_slice_dim = tensor.remaining_dims(
+            batch_dims + [model.label_decoder.att_num_heads, non_blank_targets_spatial_dim])
+          assert len(old_slice_dim) == 1
+          return utils.copy_tensor_replace_dim_tag(tensor, old_slice_dim[0], new_slice_dim)
 
-        for tensor_name, var_path in _layer_mapping.items():
-          new_out = captured_tensors
-          for k in var_path:
-            new_out = new_out[k]
+        att_weights = process_captured_tensors(
+          layer_mapping={"att_weights": (SegmentalAttEfficientLabelDecoder.__call__, 0, "att_weights", -1)},
+          process_func=_replace_slice_dim
+        )
+        assert isinstance(att_weights, rf.Tensor)
 
-          if tensor_name == "att_weights":
-            old_slice_dim = new_out.remaining_dims(
-              batch_dims + [model.label_decoder.att_num_heads, non_blank_targets_spatial_dim])
-            att_weights = utils.copy_tensor_replace_dim_tag(new_out, old_slice_dim, new_slice_dim)
-          elif tensor_name == "energy":
-            old_slice_dim = new_out.remaining_dims(
-              batch_dims + [model.label_decoder.att_num_heads, non_blank_targets_spatial_dim])
-            energies = utils.copy_tensor_replace_dim_tag(new_out, old_slice_dim, new_slice_dim)
-          else:
-            assert tensor_name == "logits"
-            logits = new_out  # type: rf.Tensor
+        if model.center_window_size != 1:
+          energies = process_captured_tensors(
+            layer_mapping={"energy": (SegmentalAttEfficientLabelDecoder.__call__, 0, "energy", -1)},
+            process_func=_replace_slice_dim
+          )
+          assert isinstance(energies, rf.Tensor)
+        else:
+          energies = None  # no energies for center window size 1 (att weights = 1 for current frame)
 
+        logits = process_captured_tensors(
+          layer_mapping={"logits": (SegmentalAttLabelDecoder.decode_logits, 0, "logits", -1)}
+        )
+        assert isinstance(logits, rf.Tensor)
+        log_probs = rf.log_softmax(logits, axis=model.target_dim)
 
+        # shapes
         # print("att_weights", att_weights)  # [B, T, S, 1]
         # print("logits", logits)  # [B, S, V]
         # print("non_blank_targets", non_blank_targets.raw_tensor[0, :])  # [B, S]
-        # print("x_linear", x_linear)  # [B, T, F]
 
-        att_weights_raw = att_weights.raw_tensor
-        energies_raw = energies.raw_tensor
-        x_linear_raw = x_linear.raw_tensor
+        json_vocab_path = Path(
+          "/u/zeineldeen/setups/librispeech/2022-11-28--conformer-att/work/i6_core/text/label/subword_nmt/train/ReturnnTrainBpeJob.vTq56NZ8STWt/output/bpe.vocab")
 
-        b = 0
-        s = 0
-        S = non_blank_targets_spatial_dim.dyn_size_ext.raw_tensor[b].item()  # noqa
-
-        energies_raw.retain_grad()
-        x_linear_raw.retain_grad()
-
-        t_max = 100
-        t_step = 10
-        num_steps = t_max // t_step
-
-        for s in range(S):
-          fig, axs = plt.subplots(num_steps, 1, figsize=(num_steps, 20))  # Create num_step subplots stacked vertically
-
-          for i, t in enumerate(range(0, t_max, t_step)):
-            energies_raw[b, t, s, 0].backward(retain_graph=True)
-
-            x_linear_grad = x_linear_raw.grad[b]
-            x_linear_grad = torch.mean(torch.abs(x_linear_grad), dim=1)
-
-            axs[i].plot(x_linear_grad.detach().cpu().numpy())  # Plot on the i-th subplot
-            axs[i].set_title(f"Gradient at t={t}")  # Optional: Set title for each subplot
-
-          plt.tight_layout()  # Adjust layout to not overlap
-          plt.savefig(f"x_linear_grads_s-{s}_t-{t_max}_step-{t_step}.png")
-          plt.close()
-        exit()
-
-
-def analyze_log_prob_gradients(
-        model: SegmentalAttentionModel,
-        data: rf.Tensor,
-        data_spatial_dim: rf.Dim,
-        align_targets: rf.Tensor,
-        align_targets_spatial_dim: rf.Dim,
-        seq_tags: rf.Tensor,
-):
-  if data.feature_dim and data.feature_dim.dimension == 1:
-    data = rf.squeeze(data, axis=data.feature_dim)
-  assert not data.feature_dim  # raw audio
-
-  config = get_global_config()
-
-  # start by analyzing the weights
-  # analyze_weights(model)
-
-  # set all params trainable, i.e. require gradients
-  for name, param in model.named_parameters():
-    param.trainable = True
-  rf.set_requires_gradient(data)
-
-  with torch.enable_grad():
-    batch_dims = data.remaining_dims(data_spatial_dim)
-    (
-      segment_starts, segment_lens, center_positions, non_blank_targets, non_blank_targets_spatial_dim, non_blank_mask
-    ) = get_alignment_args(
-      model=model,
-      align_targets=align_targets,
-      align_targets_spatial_dim=align_targets_spatial_dim,
-      batch_dims=batch_dims,
-    )
-
-    collected_outputs = {}
-    enc_args, enc_spatial_dim = model.encoder.encode(
-      data, in_spatial_dim=data_spatial_dim, collected_outputs=collected_outputs)
-
-    for enc_layer_idx in range(12):
-      enc = collected_outputs[str(enc_layer_idx)]
-      enc_args = {
-        "enc": enc,
-        "enc_ctx": model.encoder.enc_ctx(enc),
-      }
-
-      max_num_labels = rf.reduce_max(non_blank_targets_spatial_dim.dyn_size_ext, axis=batch_dims).raw_tensor.item()
-      max_num_frames = rf.reduce_max(enc_spatial_dim.dyn_size_ext, axis=batch_dims).raw_tensor.item()
-
-      new_slice_dim = rf.Dim(min(model.center_window_size, max_num_frames), name="att_window")
-      if model.use_joint_model:
-        if type(model.label_decoder) is SegmentalAttLabelDecoder:
-          assert model.label_decoder_state == "joint-lstm", "not implemented yet, simple to extend"
-          raise NotImplementedError
-        else:
-          assert type(model.label_decoder) is SegmentalAttEfficientLabelDecoder
-          raise NotImplementedError
-      else:
-        if type(model.label_decoder) is SegmentalAttLabelDecoder:
-          raise NotImplementedError
-        else:
-          funcs_to_trace_list = [
-            forward_sequence_efficient,
-            SegmentalAttEfficientLabelDecoder.__call__,
-            SegmentalAttLabelDecoder.decode_logits,
+      elif type(model.label_decoder) is GlobalAttEfficientDecoder:
+        set_trace_variables(
+          funcs_to_trace_list=[
+            forward_sequence_global,
+            get_s_and_att_efficient_global,
+            GlobalAttEfficientDecoder.__call__,
+            GlobalAttEfficientDecoder.decode_logits,
           ]
-          global code_obj_to_func
-          global captured_tensors
-          code_obj_to_func = {func.__code__: func for func in funcs_to_trace_list}
-          captured_tensors = {}
-          _layer_mapping = {
-            "att_weights": (SegmentalAttEfficientLabelDecoder.__call__, 0, "att_weights", -1),
-            "energy": (SegmentalAttEfficientLabelDecoder.__call__, 0, "energy", -1),
-            "logits": (SegmentalAttLabelDecoder.decode_logits, 0, "logits", -1),
-          }
+        )
 
-          sys.settrace(_trace_func)
-          forward_sequence_efficient(
-            model=model.label_decoder,
-            enc_args=enc_args,
-            enc_spatial_dim=enc_spatial_dim,
-            targets=non_blank_targets,
-            targets_spatial_dim=non_blank_targets_spatial_dim,
-            segment_starts=segment_starts,
-            segment_lens=segment_lens,
-            center_positions=center_positions,
-            batch_dims=batch_dims,
-          )
-          sys.settrace(None)
+        sys.settrace(_trace_func)
+        forward_sequence_global(
+          model=model.label_decoder,
+          enc_args=enc_args,
+          enc_spatial_dim=enc_spatial_dim,
+          targets=non_blank_targets,
+          targets_spatial_dim=non_blank_targets_spatial_dim,
+          center_positions=center_positions,
+          batch_dims=batch_dims,
+        )
+        sys.settrace(None)
 
-          att_weights = None
-          logits = None
+        att_weights = process_captured_tensors(
+          layer_mapping={"att_weights": (GlobalAttEfficientDecoder.__call__, 0, "att_weights", -1)},
+        )
+        assert isinstance(att_weights, rf.Tensor)
+        energies = process_captured_tensors(
+          layer_mapping={"energy": (GlobalAttEfficientDecoder.__call__, 0, "energy", -1)},
+        )
+        assert isinstance(energies, rf.Tensor)
+        logits = process_captured_tensors(
+          layer_mapping={"logits": (GlobalAttEfficientDecoder.decode_logits, 0, "logits", -1)}
+        )
+        assert isinstance(logits, rf.Tensor)
+        log_probs = rf.log_softmax(logits, axis=model.target_dim)
 
-          for tensor_name, var_path in _layer_mapping.items():
-            new_out = captured_tensors
-            for k in var_path:
-              new_out = new_out[k]
+        # shapes
+        # print("att_weights", att_weights)  # [B, T, S, 1]
+        # print("logits", logits)  # [B, S, V]
+        # print("non_blank_targets", non_blank_targets.raw_tensor[0, :])  # [B, S]
 
-            if tensor_name == "att_weights":
-              old_slice_dim = new_out.remaining_dims(
-                batch_dims + [model.label_decoder.att_num_heads, non_blank_targets_spatial_dim])
-              att_weights = utils.copy_tensor_replace_dim_tag(new_out, old_slice_dim, new_slice_dim)
-            elif tensor_name == "energy":
-              old_slice_dim = new_out.remaining_dims(
-                batch_dims + [model.label_decoder.att_num_heads, non_blank_targets_spatial_dim])
-              energies = utils.copy_tensor_replace_dim_tag(new_out, old_slice_dim, new_slice_dim)
-            else:
-              assert tensor_name == "logits"
-              logits = new_out  # type: rf.Tensor
+        json_vocab_path = Path(
+          "/u/zeineldeen/setups/librispeech/2022-11-28--conformer-att/work/i6_core/text/label/subword_nmt/train/ReturnnTrainBpeJob.vTq56NZ8STWt/output/bpe.vocab")
+      elif type(model.label_decoder) is GlobalAttDecoder:
+        set_trace_variables(
+          funcs_to_trace_list=[
+            forward_sequence_global,
+            get_s_and_att_global,
+            GlobalAttDecoder.loop_step,
+            GlobalAttDecoder.decode_logits,
+          ]
+        )
 
-          print("\n\n")
+        sys.settrace(_trace_func)
+        forward_sequence_global(
+          model=model.label_decoder,
+          enc_args=enc_args,
+          enc_spatial_dim=enc_spatial_dim,
+          targets=non_blank_targets,
+          targets_spatial_dim=non_blank_targets_spatial_dim,
+          center_positions=center_positions,
+          batch_dims=batch_dims,
+        )
+        sys.settrace(None)
 
-          print("seq_tags", seq_tags.raw_tensor)
+        max_num_labels = rf.reduce_max(non_blank_targets_spatial_dim.dyn_size_ext, axis=batch_dims).raw_tensor.item()
 
-          print("\n")
+        att_weights = process_captured_tensors(
+          layer_mapping={
+            f"att_weight_step{i}": (GlobalAttDecoder.loop_step, i, "att_weights", -1) for i in range(max_num_labels)},
+        )
+        att_weights = rf.stack(att_weights, out_dim=non_blank_targets_spatial_dim)
 
-          # print("att_weights", att_weights)  # [B, T, S, 1]
-          # print("logits", logits)  # [B, S, V]
-          # print("non_blank_targets", non_blank_targets.raw_tensor[0, :])  # [B, S]
+        energies = process_captured_tensors(
+          layer_mapping={
+            f"energy_step{i}": (GlobalAttDecoder.loop_step, i, "energy", -1) for i in range(max_num_labels)},
+        )
+        energies = rf.stack(energies, out_dim=non_blank_targets_spatial_dim)
 
-          log_probs = rf.log_softmax(logits, axis=model.target_dim)
+        logits = process_captured_tensors(
+          layer_mapping={"logits": (GlobalAttDecoder.decode_logits, 0, "logits", -1)}
+        )
+        assert isinstance(logits, rf.Tensor)
+        log_probs = rf.log_softmax(logits, axis=model.target_dim)
+        log_probs = log_probs.copy_transpose(batch_dims + [non_blank_targets_spatial_dim, model.target_dim])
 
-          att_weights_raw = att_weights.raw_tensor
-          energies_raw = energies.raw_tensor
-          log_probs_raw = log_probs.raw_tensor  # type: torch.Tensor
+        # shapes
+        # print("att_weights", att_weights)  # [B, T, S, 1]
+        # print("logits", log_probs)  # [B, S, V]
+        # print("non_blank_targets", non_blank_targets.raw_tensor[0, :])  # [B, S]
 
-          b = 0
-          S = non_blank_targets_spatial_dim.dyn_size_ext.raw_tensor[b].item()  # noqa
+        json_vocab_path = Path(
+          "/u/zeineldeen/setups/librispeech/2022-11-28--conformer-att/work/i6_core/text/label/subword_nmt/train/ReturnnTrainBpeJob.vTq56NZ8STWt/output/bpe.vocab")
+      else:
+        assert isinstance(model.label_decoder, TransformerDecoder)
 
-          # for each target label, compute gradient of log-prob with respect to energies and att weights
-          # and append to list, which will be stacked later
-          att_weights_grads_list = []
-          energies_grads_list = []
-          for s in range(S):
-            target_idx = non_blank_targets.raw_tensor[b, s]
-
-            att_weights_raw.retain_grad()
-            energies_raw.retain_grad()
-            log_probs_raw.retain_grad()
-            log_probs_raw[b, s, target_idx].backward(retain_graph=True)
-
-            att_weights_grads_list.append(att_weights_raw.grad[b, :, s, 0])
-            energies_grads_list.append(energies_raw.grad[b, :, s, 0])
-
-          # stack att weight gradients
-          att_weights_grads_raw = torch.stack(att_weights_grads_list, dim=1)[None, :, :, None]
-          att_weights_grads = att_weights.copy_template(name="att_weights_grads")
-          att_weights_grads.raw_tensor = att_weights_grads_raw
-
-          # stack energies gradients
-          energies_grads_raw = torch.stack(energies_grads_list, dim=1)[None, :, :, None]
-          energies_grads = att_weights.copy_template(name="energies_grads")
-          energies_grads.raw_tensor = energies_grads_raw
-
-          # ------------------ plot gradients -----------------
-          for tensor, name in (
-                  (att_weights, "att_weights"),
-                  (att_weights_grads, "att_weights_grads"),
-                  (energies_grads, "energies_grads"),
-          ):
-            scattered_tensor = scatter_att_weights(
-              att_weights=tensor,
-              segment_starts=segment_starts,
-              new_slice_dim=new_slice_dim,
-              align_targets_spatial_dim=align_targets_spatial_dim,
+        for get_cross_attentions in [True, False]:
+          for dec_layer_idx in range(6):
+            set_trace_variables(
+              funcs_to_trace_list=[
+                TransformerDecoder.__call__,
+                TransformerDecoderLayer.__call__,
+                rf.CrossAttention.__call__,
+                rf.CrossAttention.attention,
+                rf.dot_attention,
+              ]
             )
 
-            dirname = f"encoder-layer-{enc_layer_idx + 1}"
-            hdf_dirname = os.path.join(dirname, f"{name}_hdfs")
-            plot_dirname = os.path.join(dirname, f"{name}_plots")
-            # if not os.path.exists(hdf_dirname):
-            #   os.makedirs(hdf_dirname)
-
-            dump_hdfs(
-              att_weights=scattered_tensor,
-              center_positions=center_positions,
-              segment_lens=segment_lens,
-              segment_starts=segment_starts,
-              align_targets=align_targets,
-              seq_tags=seq_tags,
-              batch_dims=batch_dims,
-              align_target_dim=model.align_target_dim.dimension,
-              dirname=hdf_dirname
+            sys.settrace(_trace_func)
+            model.label_decoder(
+              non_blank_targets,
+              spatial_dim=non_blank_targets_spatial_dim,
+              encoder=model.label_decoder.transform_encoder(enc_args["enc"], axis=enc_spatial_dim),
+              state=model.label_decoder.default_initial_state(batch_dims=batch_dims)
             )
+            sys.settrace(None)
 
-            plot_att_weights(
-              att_weight_hdf=Path(os.path.join(hdf_dirname, "att_weights.hdf")),
-              targets_hdf=Path(os.path.join(hdf_dirname, "targets.hdf")),
-              seg_starts_hdf=Path(os.path.join(hdf_dirname, "seg_starts.hdf")),
-              seg_lens_hdf=Path(os.path.join(hdf_dirname, "seg_lens.hdf")),
-              center_positions_hdf=Path(os.path.join(hdf_dirname, "center_positions.hdf")),
-              target_blank_idx=model.blank_idx,
-              ref_alignment_blank_idx=model.blank_idx,
-              ref_alignment_hdf=Path(os.path.join(hdf_dirname, "targets.hdf")),
-              json_vocab_path=Path(config.typed_value("forward_data")["datasets"]["zip_dataset"]["targets"]["vocab_file"]),
-              segment_whitelist=list(seq_tags.raw_tensor),
-              plot_name=plot_dirname
+            _dec_layer_idx = 2 * dec_layer_idx + int(get_cross_attentions)
+            att_weights = process_captured_tensors(
+              layer_mapping={"att_weights": (rf.dot_attention, _dec_layer_idx, "att_weights", -1)}
             )
+            assert isinstance(att_weights, rf.Tensor)
+            energies = process_captured_tensors(
+              layer_mapping={"energy": (rf.dot_attention, _dec_layer_idx, "energy", -1)}
+            )
+            assert isinstance(energies, rf.Tensor)
+            logits = process_captured_tensors(
+              layer_mapping={"logits": (TransformerDecoder.__call__, 0, "logits", -1)}
+            )
+            log_probs = rf.log_softmax(logits, axis=model.target_dim)
+
+            # shapes for trafo decoder
+            # print("att_weights", att_weights)  # [B, H, S, T] -> [B, T, S, 1]
+            # print("energies", energies)  # [B, H, S, T]
+            # print("logits", logits)  # [B, S, V]
+
+            # print("x_linear", x_linear)  # [B, T, F]
+            # print("logits", logits)  # [B, S, V]
+
+            json_vocab_path = Path(
+              "/work/asr4/zeyer/setups-data/combined/2021-05-31/work/i6_core/text/label/sentencepiece/vocab/ExtractSentencePieceVocabJob.mSRAzk018au3/output/spm.vocab")
+
+            def _plot_attention_weights():
+              if get_cross_attentions:
+                att_head_dim = att_weights.remaining_dims(batch_dims + [enc_spatial_dim, targets_spatial_dim])
+                assert len(att_head_dim) == 1
+                att_head_dim = att_head_dim[0]
+              else:
+                # this is either the att head dim or the kv-dim
+                att_head_and_kv_dim = att_weights.remaining_dims(batch_dims + [targets_spatial_dim])
+                # att head dim is static, kv-dim is dynamic
+                att_head_dim = [dim for dim in att_head_and_kv_dim if dim.is_static()][0]
+                kv_dim = [dim for dim in att_head_and_kv_dim if dim.is_dynamic()][0]
+                # kv_dim has seq lens (1, 2, ..., S) but needs single len (S) for my hdf_dump script
+                kv_dim.dyn_size_ext.raw_tensor = targets_spatial_dim.dyn_size_ext.raw_tensor.clone()
+
+              for tensor, tensor_name in (
+                      # (att_weights, "att_weights"),
+                      (energies, "energies"),
+              ):
+                for h in range(att_head_dim.dimension):
+                  tensor_single_head = rf.gather(
+                    tensor,
+                    indices=rf.constant(h, dims=batch_dims),
+                    axis=att_head_dim,
+                  )
+                  dummy_att_head_dim = rf.Dim(1, name="att_head")
+                  tensor_single_head = rf.expand_dim(tensor_single_head, dim=dummy_att_head_dim)
+
+                  if get_cross_attentions:
+                    # [B, S, T, 1]
+                    tensor_single_head = tensor_single_head.copy_transpose(
+                      batch_dims + [targets_spatial_dim, enc_spatial_dim, dummy_att_head_dim])
+                  else:
+                    # [B, S, S, 1]
+                    tensor_single_head = tensor_single_head.copy_transpose(
+                      batch_dims + [targets_spatial_dim, kv_dim, dummy_att_head_dim])
+                    # optionally copy lower triangular part to upper triangular part
+                    # att_weights_single_head.raw_tensor[0, :, :, 0] = copy_lower_triangular_matrix_to_upper(
+                    #   att_weights_single_head.raw_tensor[0, :, :, 0]
+                    # )
+
+                  if get_cross_attentions:
+                    dirname = f"cross-att/enc-layer-{enc_layer_idx + 1}_dec-layer-{dec_layer_idx + 1}"
+                  else:
+                    dirname = f"self-att/dec-layer-{dec_layer_idx + 1}"
+                  dirname = os.path.join(dirname, f"{tensor_name}_head-{h}")
+
+                  dump_hdfs(
+                    att_weights=tensor_single_head,
+                    batch_dims=batch_dims,
+                    dirname=dirname,
+                    seq_tags=seq_tags,
+                  )
+
+                  json_vocab_path = Path("/work/asr4/zeyer/setups-data/combined/2021-05-31/work/i6_core/text/label/sentencepiece/vocab/ExtractSentencePieceVocabJob.mSRAzk018au3/output/spm.vocab")
+                  targets_hdf = Path("targets.hdf")
+                  if get_cross_attentions:
+                    ref_alignment_hdf = Path("/work/asr3/zeyer/schmitt/sisyphus_work_dirs/segmental_models_2021_22/i6_core/returnn/forward/ReturnnForwardJob.1fohfY7LLczN/output/alignments.hdf")
+                    ref_alignment_json_vocab_path = Path("/u/zeineldeen/setups/librispeech/2022-11-28--conformer-att/work/i6_core/text/label/subword_nmt/train/ReturnnTrainBpeJob.vTq56NZ8STWt/output/bpe.vocab")
+                    ref_alignment_blank_idx = 10025
+                  else:
+                    ref_alignment_hdf = targets_hdf
+                    ref_alignment_json_vocab_path = json_vocab_path
+                    ref_alignment_blank_idx = -1  # dummy index
+
+                  plot_att_weights(
+                    att_weight_hdf=Path(os.path.join(dirname, "att_weights.hdf")),
+                    # targets_hdf=Path(os.path.join(hdf_dirname, "targets.hdf")),
+                    targets_hdf=targets_hdf,
+                    seg_starts_hdf=None,
+                    seg_lens_hdf=None,
+                    center_positions_hdf=None,
+                    target_blank_idx=None,
+                    ref_alignment_blank_idx=ref_alignment_blank_idx,
+                    ref_alignment_hdf=ref_alignment_hdf,
+                    ref_alignment_json_vocab_path=ref_alignment_json_vocab_path,
+                    json_vocab_path=json_vocab_path,
+                    segment_whitelist=list(seq_tags.raw_tensor),
+                    plot_name=dirname
+                  )
+
+            _plot_attention_weights()
+
+      _plot_log_prob_gradient_wrt_to_input(
+        input=enc_args["enc"],
+        log_probs=log_probs,
+        targets=non_blank_targets,
+        batch_dims=batch_dims,
+        seq_tags=seq_tags,
+        enc_spatial_dim=enc_spatial_dim,
+        targets_spatial_dim=non_blank_targets_spatial_dim,
+        input_name="enc-12",
+        json_vocab_path=json_vocab_path
+      )
+
 
 
 def _returnn_v2_forward_step(*, model, extern_data: TensorDict, **_kwargs_unused):
@@ -471,12 +688,12 @@ def _returnn_v2_forward_step(*, model, extern_data: TensorDict, **_kwargs_unused
   align_targets_spatial_dim = align_targets.get_time_dim_tag()
   analyze_gradients_def = config.typed_value("_analyze_gradients_def")
 
-  analyze_log_prob_gradients(
+  analyze_gradients_def(
     model=model,
     data=data,
     data_spatial_dim=data_spatial_dim,
-    align_targets=align_targets,
-    align_targets_spatial_dim=align_targets_spatial_dim,
+    targets=align_targets,
+    targets_spatial_dim=align_targets_spatial_dim,
     seq_tags=extern_data["seq_tag"],
   )
 

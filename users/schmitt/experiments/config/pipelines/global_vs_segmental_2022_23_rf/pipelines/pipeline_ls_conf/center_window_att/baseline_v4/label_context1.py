@@ -36,13 +36,13 @@ def run_exps():
           checkpoint=checkpoint,
           checkpoint_aliases=("last",),
           lm_type="trafo",
-          lm_scale_list=(0.54,),
+          lm_scale_list=(0.6,),
           ilm_type="mini_att",
-          ilm_scale_list=(0.4,),
+          ilm_scale_list=(0.3,),
           subtract_ilm_eos_score=True,
           use_recombination="sum",
-          corpus_keys=("dev-other", "test-other"),
-          beam_size_list=(12, 84),
+          corpus_keys=("dev-other",),
+          beam_size_list=(12,),
         )
         if win_size == 5:
           recog.center_window_returnn_frame_wise_beam_search(
@@ -80,6 +80,7 @@ def run_exps():
   #         checkpoint=checkpoint,
   #       )
 
+  # -------------------------- from-scratch fixed-path training w/o aux losses (Done) ----------------------------
   for label_decoder_state in ("nb-2linear-ctx1",):
     for model_alias, config_builder in get_config_builder.center_window_att_baseline_rf(
             win_size_list=(1,),
@@ -114,6 +115,7 @@ def run_exps():
           beam_size_list=(12, 84),
         )
 
+  # -------------------------- from-scratch fixed-path training w/ aux losses (Done) ----------------------------
   for label_decoder_state in ("nb-2linear-ctx1",):
     for model_alias, config_builder in get_config_builder.center_window_att_baseline_rf(
             win_size_list=(1,),
@@ -183,7 +185,7 @@ def run_exps():
           use_weight_feedback=False,
           bpe_vocab_size=5048,
   ):
-    # -------------------------- from-scratch (5k) --------------------------------
+    # -------------------------- from-scratch (5k) (Running) --------------------------------
     for train_alias, checkpoint in train.train_center_window_att_full_sum_from_scratch(
       alias=model_alias,
       config_builder=config_builder,
@@ -202,16 +204,13 @@ def run_exps():
             checkpoint_alias=f"epoch-{epoch}",
             plot=True,
           )
-        if epoch == 0:
-          recog.center_window_returnn_frame_wise_beam_search(
-            alias=train_alias,
-            config_builder=config_builder,
-            checkpoint=chckpt,
-            checkpoint_aliases=(f"epoch-{epoch}",),
-            run_analysis=True,
-          )
+      recog.center_window_returnn_frame_wise_beam_search(
+        alias=train_alias,
+        config_builder=config_builder,
+        checkpoint=checkpoint,
+      )
 
-    # -------------------------- from-global-att (bpe 5k) --------------------------------
+    # -------------------------- from-global-att (bpe 5k) (Done) --------------------------------
     for train_alias, checkpoint in train.train_center_window_att_full_sum_from_scratch(
             alias=model_alias,
             config_builder=config_builder,
@@ -232,15 +231,27 @@ def run_exps():
             checkpoint_alias=f"epoch-{epoch}",
             plot=True,
           )
-        if epoch in (30, 128):
-          recog.center_window_returnn_frame_wise_beam_search(
-            alias=train_alias,
-            config_builder=config_builder,
-            checkpoint=chckpt,
-            checkpoint_aliases=(f"epoch-{epoch}",),
-          )
+      recog.center_window_returnn_frame_wise_beam_search(
+        alias=train_alias,
+        config_builder=config_builder,
+        checkpoint=checkpoint,
+      )
+      recog.center_window_returnn_frame_wise_beam_search(
+        alias=train_alias,
+        config_builder=config_builder,
+        checkpoint=checkpoint,
+        checkpoint_aliases=("last",),
+        lm_type="trafo",
+        lm_scale_list=(0.6,),
+        ilm_type="mini_att",
+        ilm_scale_list=(0.3,),
+        subtract_ilm_eos_score=True,
+        use_recombination="sum",
+        corpus_keys=("dev-other",),
+        beam_size_list=(12,),
+      )
 
-  # -------------------------- from-global-att (bpe 10k) --------------------------------
+  # -------------------------- from-global-att (bpe 10k) (Done) --------------------------------
   for model_alias, config_builder in get_config_builder.center_window_att_baseline_rf(
           win_size_list=(1,),
           label_decoder_state="nb-2linear-ctx1",
@@ -269,7 +280,41 @@ def run_exps():
             plot=True,
           )
 
-  # -------------------------- from-scratch (1k) --------------------------------
+      recog.center_window_returnn_frame_wise_beam_search(
+        alias=train_alias,
+        config_builder=config_builder,
+        checkpoint=checkpoint,
+      )
+      recog.center_window_returnn_frame_wise_beam_search(
+        alias=train_alias,
+        config_builder=config_builder,
+        checkpoint=checkpoint,
+        checkpoint_aliases=("last",),
+        lm_type="trafo",
+        lm_scale_list=(0.5, 0.6, 0.7),
+        ilm_type="mini_att",
+        ilm_scale_list=(0.3,),
+        subtract_ilm_eos_score=True,
+        use_recombination="sum",
+        corpus_keys=("dev-other",),
+        beam_size_list=(12,),
+      )
+      recog.center_window_returnn_frame_wise_beam_search(
+        alias=train_alias,
+        config_builder=config_builder,
+        checkpoint=checkpoint,
+        checkpoint_aliases=("last",),
+        lm_type="trafo",
+        lm_scale_list=(0.5, 0.6, 0.7),
+        ilm_type="mini_att",
+        ilm_scale_list=(0.4,),
+        subtract_ilm_eos_score=True,
+        use_recombination="sum",
+        corpus_keys=("dev-other",),
+        beam_size_list=(12,),
+      )
+
+  # -------------------------- from-scratch (1k) (Running) --------------------------------
   for model_alias, config_builder in get_config_builder.center_window_att_baseline_rf(
           win_size_list=(1,),
           label_decoder_state="nb-2linear-ctx1",
@@ -286,6 +331,7 @@ def run_exps():
       batch_size=8_000,
       time_rqmt=168,
       use_mgpu=True,
+      gpu_mem_rqmt=24,
     ):
       for epoch, chckpt in checkpoint["checkpoints"].items():
         if epoch % 5 == 0:
@@ -297,10 +343,8 @@ def run_exps():
             plot=True,
           )
 
-        if epoch == 43:
-          recog.center_window_returnn_frame_wise_beam_search(
-            alias=train_alias,
-            config_builder=config_builder,
-            checkpoint=chckpt,
-            checkpoint_aliases=(f"epoch-{epoch}",),
-          )
+      recog.center_window_returnn_frame_wise_beam_search(
+        alias=train_alias,
+        config_builder=config_builder,
+        checkpoint=checkpoint,
+      )

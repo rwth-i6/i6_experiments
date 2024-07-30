@@ -28,6 +28,8 @@ def get_center_window_att_config_builder_rf(
         separate_blank_from_softmax: bool = False,
         blank_decoder_opts: Optional[Dict] = None,
         use_current_frame_in_readout: bool = False,
+        use_current_frame_in_readout_w_gate: bool = False,
+        use_current_frame_in_readout_random: bool = False,
         use_correct_dim_tags: bool = False,
 ) -> Tuple[str, LibrispeechSegmentalAttConformerConfigBuilderRF]:
   assert bpe_vocab_size in {10025, 1056, 5048, 10240}
@@ -83,6 +85,8 @@ def get_center_window_att_config_builder_rf(
     separate_blank_from_softmax=separate_blank_from_softmax,
     blank_decoder_opts=blank_decoder_opts,
     use_current_frame_in_readout=use_current_frame_in_readout,
+    use_current_frame_in_readout_w_gate=use_current_frame_in_readout_w_gate,
+    use_current_frame_in_readout_random=use_current_frame_in_readout_random,
     use_correct_dim_tags=use_correct_dim_tags,
   )
 
@@ -92,7 +96,10 @@ def get_center_window_att_config_builder_rf(
     f"{'w' if use_weight_feedback else 'wo'}-wf_"
     f"{'w' if use_att_ctx_in_state else 'wo'}-ctx-in-s/"
     f"bd-{blank_decoder_version}/"
-    f"{label_decoder_state}{'_cur_frame_in_readout' if use_current_frame_in_readout else ''}"
+    f"{label_decoder_state}"
+    f"{'_cur_frame_in_readout' if use_current_frame_in_readout else ''}"
+    f"{'_cur_frame_in_readout_w_gate' if use_current_frame_in_readout_w_gate else ''}"
+    f"{'_cur_frame_in_readout_random' if use_current_frame_in_readout_random else ''}"
     f"/{'sep-blank-sigmoid' if separate_blank_from_softmax or blank_decoder_version is not None else 'blank-in-softmax'}"
   )
 

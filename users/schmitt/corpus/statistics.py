@@ -7,7 +7,7 @@ import numpy as np
 from sisyphus import Path, Job, Task
 
 from i6_core.returnn.config import ReturnnConfig
-from recipe.i6_core import util
+from i6_core import util
 
 
 class GetSeqLenFileJob(Job):

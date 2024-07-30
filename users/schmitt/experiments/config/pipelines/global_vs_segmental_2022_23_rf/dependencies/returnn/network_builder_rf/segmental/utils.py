@@ -4,8 +4,6 @@ import torch
 from returnn.tensor import Tensor, Dim
 import returnn.frontend as rf
 
-from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.segmental.model import SegmentalAttentionModel
-
 
 def get_non_blank_mask(x: Tensor, blank_idx: int):
   non_blank_mask = x != rf.convert_to_tensor(blank_idx)
@@ -69,7 +67,7 @@ def get_unmasked(
 def get_segment_starts_and_lens(
         non_blank_mask: Tensor,
         align_targets_spatial_dim: Dim,
-        model: SegmentalAttentionModel,
+        center_window_size: Optional[int],
         batch_dims: Sequence[Dim],
         out_spatial_dim: Dim
 ):
@@ -79,15 +77,15 @@ def get_segment_starts_and_lens(
   non_blank_positions, _ = get_masked(
     targets_range, non_blank_mask, align_targets_spatial_dim, batch_dims, out_spatial_dim
   )
-  if model.center_window_size is None:
+  if center_window_size is None:
     starts = None
     lens = None
   else:
     starts = rf.maximum(
-      rf.convert_to_tensor(0, dtype="int32"), non_blank_positions - model.center_window_size // 2)
+      rf.convert_to_tensor(0, dtype="int32"), non_blank_positions - center_window_size // 2)
     ends = rf.minimum(
       rf.copy_to_device(align_targets_spatial_dim.get_size_tensor() - 1, non_blank_positions.device),
-      non_blank_positions + model.center_window_size // 2
+      non_blank_positions + center_window_size // 2
     )
     lens = ends - starts + 1
 

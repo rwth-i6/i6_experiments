@@ -18,6 +18,8 @@ def run_exps():
         config_builder=config_builder,
         checkpoint=checkpoint,
         checkpoint_aliases=("best-4-avg",),
+        run_analysis=True,
+        analyze_gradients=True,
       )
 
     for train_alias, checkpoint in train.train_import_global_tf(

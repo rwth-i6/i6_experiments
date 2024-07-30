@@ -16,6 +16,8 @@ from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segment
 from i6_experiments.users.schmitt.custom_load_params import load_missing_params
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.labels.v2.librispeech.label_singletons import LibrispeechBPE10025_CTC_ALIGNMENT
 
+from i6_core.returnn.training import PtCheckpoint
+
 
 def _get_optimizer_alias(optimizer_opts: Dict):
   return (
@@ -165,6 +167,7 @@ def train_center_window_att_full_sum_from_scratch(
         only_use_blank_model: bool = False,
         checkpoint_alias: Optional[str] = None,
         lr_scheduling_type: str = "dyn_lr_piecewise_linear",
+        checkpoint_path: Optional[PtCheckpoint] = None,
 ):
   for n_epochs in n_epochs_list:
     alias += (
@@ -208,7 +211,7 @@ def train_center_window_att_full_sum_from_scratch(
     if checkpoint_alias is not None:
       train_opts["preload_from_files"] = {
         "pretrained_global_att_params": {
-          "filename": external_checkpoints[checkpoint_alias],
+          "filename": external_checkpoints[checkpoint_alias] if checkpoint_path is None else checkpoint_path,
           "init_for_train": True,
           "ignore_missing": True,  # because of length model params
         }
@@ -266,7 +269,7 @@ def train_center_window_att_full_sum_from_scratch(
     checkpoint = {
       "model_dir": model_dir,
       "learning_rates": learning_rates,
-      "key": "dev_loss_non_blank_ce",
+      "key": "dev_loss_full_sum_loss",
       "checkpoints": checkpoints,
       "n_epochs": n_epochs
     }

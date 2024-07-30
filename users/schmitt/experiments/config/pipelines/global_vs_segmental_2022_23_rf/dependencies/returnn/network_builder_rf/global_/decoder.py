@@ -109,20 +109,6 @@ class GlobalAttDecoder(BaseLabelDecoder):
 
     return {"s": s, "att": att}, state_
 
-  def decode_logits(self, *, s: Tensor, input_embed: Tensor, att: Tensor, h_t: Optional[Tensor]) -> Tensor:
-    """logits for the decoder"""
-    if self.use_current_frame_in_readout:
-      assert h_t is not None, "Need h_t for readout!"
-      readout_input = rf.concat_features(s, input_embed, att, h_t, allow_broadcast=True)
-    else:
-      readout_input = rf.concat_features(s, input_embed, att)
-
-    readout_in = self.readout_in(readout_input)
-    readout = rf.reduce_out(readout_in, mode="max", num_pieces=2, out_dim=self.output_prob.in_dim)
-    readout = rf.dropout(readout, drop_prob=0.3, axis=self.dropout_broadcast and readout.feature_dim)
-    logits = self.output_prob(readout)
-    return logits
-
 
 class GlobalAttEfficientDecoder(GlobalAttDecoder):
   def __init__(self, **kwargs):
@@ -170,19 +156,3 @@ class GlobalAttEfficientDecoder(GlobalAttDecoder):
       att = self.get_att(att_weights, enc, enc_spatial_dim)
 
     return att
-
-  def decode_logits(self, *, s: Tensor, input_embed: Tensor, att: Tensor, h_t: Optional[Tensor] = None) -> Tensor:
-    """logits for the decoder"""
-
-    if self.use_current_frame_in_readout:
-      assert h_t is not None, "Need h_t for readout!"
-      readout_input = rf.concat_features(s, input_embed, att, h_t, allow_broadcast=True)
-    else:
-      readout_input = rf.concat_features(s, input_embed, att)
-
-    readout_in = self.readout_in(readout_input)
-
-    readout = rf.reduce_out(readout_in, mode="max", num_pieces=2, out_dim=self.output_prob.in_dim)
-    readout = rf.dropout(readout, drop_prob=0.3, axis=self.dropout_broadcast and readout.feature_dim)
-    logits = self.output_prob(readout)
-    return logits

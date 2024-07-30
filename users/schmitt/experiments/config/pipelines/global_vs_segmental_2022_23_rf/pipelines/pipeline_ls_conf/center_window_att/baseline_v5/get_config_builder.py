@@ -11,6 +11,8 @@ def center_window_att_baseline_rf(
         blank_decoder_version: int = 3,
         bpe_vocab_size: int = 10025,
         use_current_frame_in_readout: bool = False,
+        use_current_frame_in_readout_w_gate: bool = False,
+        use_current_frame_in_readout_random: bool = False,
         use_correct_dim_tags: bool = False,
 ):
   for win_size in win_size_list:
@@ -22,6 +24,8 @@ def center_window_att_baseline_rf(
       use_weight_feedback=use_weight_feedback,
       label_decoder_state="nb-2linear-ctx1",
       use_current_frame_in_readout=use_current_frame_in_readout,
+      use_current_frame_in_readout_w_gate=use_current_frame_in_readout_w_gate,
+      use_current_frame_in_readout_random=use_current_frame_in_readout_random,
       bpe_vocab_size=bpe_vocab_size,
       use_correct_dim_tags=use_correct_dim_tags,
     )

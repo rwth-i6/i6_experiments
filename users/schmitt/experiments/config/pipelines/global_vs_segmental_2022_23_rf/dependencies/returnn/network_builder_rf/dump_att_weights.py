@@ -13,6 +13,11 @@ from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segment
   SegmentalAttLabelDecoder,
   SegmentalAttEfficientLabelDecoder,
 )
+from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.global_.decoder import (
+  GlobalAttDecoder,
+  GlobalAttEfficientDecoder
+)
+from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.global_.train import forward_sequence as forward_sequence_global
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.segmental.train import get_alignment_args
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.segmental.model_new.label_model.train import (
   forward_sequence, forward_sequence_efficient
@@ -21,16 +26,18 @@ from i6_experiments.users.schmitt import hdf
 
 
 def dump_hdfs(
-        att_weights: rf.Tensor,
-        center_positions: rf.Tensor,
-        segment_lens: rf.Tensor,
-        segment_starts: rf.Tensor,
-        align_targets: rf.Tensor,
-        seq_tags: rf.Tensor,
         batch_dims: List[rf.Dim],
-        align_target_dim: int,
+        seq_tags: rf.Tensor,
+        att_weights: Optional[rf.Tensor] = None,
+        center_positions: Optional[rf.Tensor] = None,
+        segment_lens: Optional[rf.Tensor] = None,
+        segment_starts: Optional[rf.Tensor] = None,
+        align_targets: Optional[rf.Tensor] = None,
+        align_target_dim: Optional[int] = None,
         dirname: Optional[str] = None,
 ):
+  assert len(batch_dims) == 1
+  assert (align_target_dim is None) == (align_targets is None), "align_target_dim is required if align_targets is given"
   if dirname is not None and not os.path.exists(dirname):
     os.makedirs(dirname)
 
@@ -41,6 +48,9 @@ def dump_hdfs(
           ("seg_starts", segment_starts, 1, 1),
           ("targets", align_targets, align_target_dim, 1),
   ):
+    if tensor is None:
+      continue
+
     filename = f"{tensor_name}.hdf"
     if dirname is not None:
       filename = os.path.join(dirname, filename)
@@ -103,18 +113,9 @@ def dump_att_weights(
   assert not data.feature_dim  # raw audio
 
   batch_dims = data.remaining_dims(data_spatial_dim)
-  (
-    segment_starts, segment_lens, center_positions, non_blank_targets, non_blank_targets_spatial_dim, non_blank_mask
-  ) = get_alignment_args(
-    model=model,
-    align_targets=align_targets,
-    align_targets_spatial_dim=align_targets_spatial_dim,
-    batch_dims=batch_dims,
-  )
 
   enc_args, enc_spatial_dim = model.encoder.encode(data, in_spatial_dim=data_spatial_dim)
 
-  max_num_labels = rf.reduce_max(non_blank_targets_spatial_dim.dyn_size_ext, axis=batch_dims).raw_tensor.item()
   max_num_frames = rf.reduce_max(enc_spatial_dim.dyn_size_ext, axis=batch_dims).raw_tensor.item()
 
   code_obj_to_func = {}
@@ -138,34 +139,262 @@ def dump_att_weights(
             captured_tensors[func][-1].setdefault(k, []).append(v)
       return _trace_func
 
-  # we want a static slice dim
-  # either use window size of model or encoder len
-  new_slice_dim = rf.Dim(min(model.center_window_size, max_num_frames), name="att_window")
-  if model.use_joint_model:
-    if type(model.label_decoder) is SegmentalAttLabelDecoder:
-      assert model.label_decoder_state == "joint-lstm", "not implemented yet, simple to extend"
+  if isinstance(model, SegmentalAttentionModel):
+    (
+      segment_starts, segment_lens, center_positions, non_blank_targets, non_blank_targets_spatial_dim, non_blank_mask
+    ) = get_alignment_args(
+      model=model,
+      align_targets=align_targets,
+      align_targets_spatial_dim=align_targets_spatial_dim,
+      batch_dims=batch_dims,
+    )
+    max_num_labels = rf.reduce_max(non_blank_targets_spatial_dim.dyn_size_ext, axis=batch_dims).raw_tensor.item()
+
+    if model.center_window_size is not None:
+      # we want a static slice dim
+      # either use window size of model or encoder len
+      new_slice_dim = rf.Dim(min(model.center_window_size, max_num_frames), name="att_window")
+    else:
+      new_slice_dim = None
+    if isinstance(model.label_decoder, SegmentalAttLabelDecoder):
+      if model.use_joint_model:
+        if type(model.label_decoder) is SegmentalAttLabelDecoder:
+          assert model.label_decoder_state == "joint-lstm", "not implemented yet, simple to extend"
+          funcs_to_trace_list = [
+            forward_sequence,
+            SegmentalAttLabelDecoder.loop_step,
+          ]
+          code_obj_to_func = {func.__code__: func for func in funcs_to_trace_list}
+          _layer_mapping = {
+            f"att_weight_step{i}": (SegmentalAttLabelDecoder.loop_step, i, "att_weights", -1) for i in range(max_num_frames)
+          }
+
+          targets = align_targets
+          targets_spatial_dim = align_targets_spatial_dim
+
+          sys.settrace(_trace_func)
+          forward_sequence(
+            model=model.label_decoder,
+            enc_args=enc_args,
+            enc_spatial_dim=enc_spatial_dim,
+            non_blank_targets=targets,
+            non_blank_targets_spatial_dim=targets_spatial_dim,
+            segment_starts=segment_starts,
+            segment_lens=segment_lens,
+            center_positions=center_positions,
+            batch_dims=batch_dims,
+          )
+          sys.settrace(None)
+          att_weights_ = []
+          for tensor_name, var_path in _layer_mapping.items():
+            new_out = captured_tensors
+            for k in var_path:
+              new_out = new_out[k]
+            old_slice_dim = new_out.remaining_dims(batch_dims + [model.label_decoder.att_num_heads])
+            assert len(old_slice_dim) == 1
+            old_slice_dim = old_slice_dim[0]
+            max_slice_size = rf.reduce_max(old_slice_dim.dyn_size_ext, axis=batch_dims).raw_tensor.item()
+
+            # at the end of the seq, there may be less than center_window_size attention weights
+            # in this case, just pad with zeros until we reach center_window_size
+            if max_slice_size < model.center_window_size:
+              new_out, _ = rf.pad(
+                new_out,
+                axes=[old_slice_dim],
+                padding=[(0, model.center_window_size - max_slice_size)],
+                out_dims=[new_slice_dim],
+                value=0.0,
+              )
+            else:
+              new_out = utils.copy_tensor_replace_dim_tag(new_out, old_slice_dim, new_slice_dim)
+
+            att_weights_.append(new_out)
+
+          att_weights__ = TensorArray(att_weights_[0])
+          for target in att_weights_:
+            att_weights__ = att_weights__.push_back(target)
+          att_weights = att_weights__.stack(axis=align_targets_spatial_dim)
+        else:
+          assert type(model.label_decoder) is SegmentalAttEfficientLabelDecoder
+          if model.label_decoder_state == "joint-lstm":
+            targets = align_targets
+            targets_spatial_dim = align_targets_spatial_dim
+            non_blank_mask_ = None
+            non_blank_mask_spatial_dim = None
+          else:
+            targets = non_blank_targets
+            targets_spatial_dim = non_blank_targets_spatial_dim
+            non_blank_mask_ = non_blank_mask
+            non_blank_mask_spatial_dim = align_targets_spatial_dim
+
+          funcs_to_trace_list = [
+            forward_sequence_efficient,
+            SegmentalAttEfficientLabelDecoder.__call__,
+          ]
+          code_obj_to_func = {func.__code__: func for func in funcs_to_trace_list}
+          _layer_mapping = {"att_weights": (SegmentalAttEfficientLabelDecoder.__call__, 0, "att_weights", -1)}
+
+          sys.settrace(_trace_func)
+          forward_sequence_efficient(
+            model=model.label_decoder,
+            enc_args=enc_args,
+            enc_spatial_dim=enc_spatial_dim,
+            targets=targets,
+            targets_spatial_dim=targets_spatial_dim,
+            segment_starts=segment_starts,
+            segment_lens=segment_lens,
+            center_positions=center_positions,
+            batch_dims=batch_dims,
+            non_blank_mask=non_blank_mask_,
+            non_blank_mask_spatial_dim=non_blank_mask_spatial_dim,
+          )
+          sys.settrace(None)
+          for tensor_name, var_path in _layer_mapping.items():
+            new_out = captured_tensors
+            for k in var_path:
+              new_out = new_out[k]
+            old_slice_dim = new_out.remaining_dims(batch_dims + [model.label_decoder.att_num_heads, align_targets_spatial_dim])
+            att_weights = utils.copy_tensor_replace_dim_tag(new_out, old_slice_dim, new_slice_dim)
+      else:
+        if type(model.label_decoder) is SegmentalAttLabelDecoder:
+          funcs_to_trace_list = [
+            forward_sequence,
+            SegmentalAttLabelDecoder.loop_step,
+          ]
+          code_obj_to_func = {func.__code__: func for func in funcs_to_trace_list}
+          _layer_mapping = {
+            f"att_weight_step{i}": (SegmentalAttLabelDecoder.loop_step, i, "att_weights", -1) for i in range(max_num_labels)
+          }
+
+          sys.settrace(_trace_func)
+          forward_sequence(
+            model=model.label_decoder,
+            enc_args=enc_args,
+            enc_spatial_dim=enc_spatial_dim,
+            non_blank_targets=non_blank_targets,
+            non_blank_targets_spatial_dim=non_blank_targets_spatial_dim,
+            segment_starts=segment_starts,
+            segment_lens=segment_lens,
+            center_positions=center_positions,
+            batch_dims=batch_dims,
+          )
+          sys.settrace(None)
+          att_weights_ = []
+          for tensor_name, var_path in _layer_mapping.items():
+            new_out = captured_tensors
+            for k in var_path:
+              new_out = new_out[k]
+            old_slice_dim = new_out.remaining_dims(batch_dims + [model.label_decoder.att_num_heads])
+            assert len(old_slice_dim) == 1
+            old_slice_dim = old_slice_dim[0]
+            max_slice_size = rf.reduce_max(old_slice_dim.dyn_size_ext, axis=batch_dims).raw_tensor.item()
+
+            # at the end of the seq, there may be less than center_window_size attention weights
+            # in this case, just pad with zeros until we reach center_window_size
+            if max_slice_size < new_slice_dim.dimension:
+              new_out, _ = rf.pad(
+                new_out,
+                axes=[old_slice_dim],
+                padding=[(0, new_slice_dim.dimension - max_slice_size)],
+                out_dims=[new_slice_dim],
+                value=0.0,
+              )
+            else:
+              new_out = utils.copy_tensor_replace_dim_tag(new_out, old_slice_dim, new_slice_dim)
+
+            att_weights_.append(new_out)
+
+          att_weights__ = TensorArray(att_weights_[0])
+          for target in att_weights_:
+            att_weights__ = att_weights__.push_back(target)
+          att_weights = att_weights__.stack(axis=non_blank_targets_spatial_dim)
+        else:
+          assert type(model.label_decoder) is SegmentalAttEfficientLabelDecoder
+          funcs_to_trace_list = [
+            forward_sequence_efficient,
+            SegmentalAttEfficientLabelDecoder.__call__,
+          ]
+          code_obj_to_func = {func.__code__: func for func in funcs_to_trace_list}
+          _layer_mapping = {"att_weights": (SegmentalAttEfficientLabelDecoder.__call__, 0, "att_weights", -1)}
+
+          sys.settrace(_trace_func)
+          forward_sequence_efficient(
+            model=model.label_decoder,
+            enc_args=enc_args,
+            enc_spatial_dim=enc_spatial_dim,
+            targets=non_blank_targets,
+            targets_spatial_dim=non_blank_targets_spatial_dim,
+            segment_starts=segment_starts,
+            segment_lens=segment_lens,
+            center_positions=center_positions,
+            batch_dims=batch_dims,
+          )
+          sys.settrace(None)
+          for tensor_name, var_path in _layer_mapping.items():
+            new_out = captured_tensors
+            for k in var_path:
+              new_out = new_out[k]
+            old_slice_dim = new_out.remaining_dims(
+              batch_dims + [model.label_decoder.att_num_heads, non_blank_targets_spatial_dim])
+            att_weights = utils.copy_tensor_replace_dim_tag(new_out, old_slice_dim, new_slice_dim)
+
+      # attention weights need to be transferred from slice dim to align_targets_spatial_dim (T)
+      att_weights = scatter_att_weights(
+        att_weights=att_weights,
+        segment_starts=segment_starts,
+        new_slice_dim=new_slice_dim,
+        align_targets_spatial_dim=align_targets_spatial_dim,
+      )
+      dump_targets = align_targets
+      dump_targets_dim = model.align_target_dim.dimension
+    else:
+      assert type(model.label_decoder) is GlobalAttEfficientDecoder, "not implemented yet"
       funcs_to_trace_list = [
-        forward_sequence,
-        SegmentalAttLabelDecoder.loop_step,
+        forward_sequence_global,
+        GlobalAttEfficientDecoder.__call__,
       ]
       code_obj_to_func = {func.__code__: func for func in funcs_to_trace_list}
-      _layer_mapping = {
-        f"att_weight_step{i}": (SegmentalAttLabelDecoder.loop_step, i, "att_weights", -1) for i in range(max_num_frames)
-      }
-
-      targets = align_targets
-      targets_spatial_dim = align_targets_spatial_dim
+      _layer_mapping = {"att_weights": (GlobalAttEfficientDecoder.__call__, 0, "att_weights", -1)}
 
       sys.settrace(_trace_func)
-      forward_sequence(
+      forward_sequence_global(
         model=model.label_decoder,
         enc_args=enc_args,
         enc_spatial_dim=enc_spatial_dim,
-        non_blank_targets=targets,
-        non_blank_targets_spatial_dim=targets_spatial_dim,
-        segment_starts=segment_starts,
-        segment_lens=segment_lens,
+        targets=non_blank_targets,
+        targets_spatial_dim=non_blank_targets_spatial_dim,
+        batch_dims=batch_dims,
         center_positions=center_positions,
+      )
+      sys.settrace(None)
+      for tensor_name, var_path in _layer_mapping.items():
+        new_out = captured_tensors
+        for k in var_path:
+          new_out = new_out[k]
+        att_weights = new_out.copy_transpose(
+          batch_dims + [non_blank_targets_spatial_dim, enc_spatial_dim, model.label_decoder.att_num_heads])
+
+      dump_targets = non_blank_targets
+      dump_targets_dim = model.target_dim.dimension
+  else:
+    max_num_labels = rf.reduce_max(align_targets_spatial_dim.dyn_size_ext, axis=batch_dims).raw_tensor.item()
+    if type(model.label_decoder) is GlobalAttDecoder:
+      funcs_to_trace_list = [
+        forward_sequence_global,
+        GlobalAttDecoder.loop_step,
+      ]
+      code_obj_to_func = {func.__code__: func for func in funcs_to_trace_list}
+      _layer_mapping = {
+        f"att_weight_step{i}": (GlobalAttDecoder.loop_step, i, "att_weights", -1) for i in range(max_num_labels)
+      }
+
+      sys.settrace(_trace_func)
+      forward_sequence_global(
+        model=model.label_decoder,
+        enc_args=enc_args,
+        enc_spatial_dim=enc_spatial_dim,
+        targets=align_targets,
+        targets_spatial_dim=align_targets_spatial_dim,
         batch_dims=batch_dims,
       )
       sys.settrace(None)
@@ -174,23 +403,6 @@ def dump_att_weights(
         new_out = captured_tensors
         for k in var_path:
           new_out = new_out[k]
-        old_slice_dim = new_out.remaining_dims(batch_dims + [model.label_decoder.att_num_heads])
-        assert len(old_slice_dim) == 1
-        old_slice_dim = old_slice_dim[0]
-        max_slice_size = rf.reduce_max(old_slice_dim.dyn_size_ext, axis=batch_dims).raw_tensor.item()
-
-        # at the end of the seq, there may be less than center_window_size attention weights
-        # in this case, just pad with zeros until we reach center_window_size
-        if max_slice_size < model.center_window_size:
-          new_out, _ = rf.pad(
-            new_out,
-            axes=[old_slice_dim],
-            padding=[(0, model.center_window_size - max_slice_size)],
-            out_dims=[new_slice_dim],
-            value=0.0,
-          )
-        else:
-          new_out = utils.copy_tensor_replace_dim_tag(new_out, old_slice_dim, new_slice_dim)
 
         att_weights_.append(new_out)
 
@@ -198,147 +410,26 @@ def dump_att_weights(
       for target in att_weights_:
         att_weights__ = att_weights__.push_back(target)
       att_weights = att_weights__.stack(axis=align_targets_spatial_dim)
+      att_weights = att_weights.copy_transpose(batch_dims + [align_targets_spatial_dim, enc_spatial_dim, model.label_decoder.att_num_heads])
+
+      dump_targets = align_targets
+      dump_targets_dim = model.target_dim.dimension
+      center_positions = None
+      segment_lens = None
+      segment_starts = None
     else:
-      assert type(model.label_decoder) is SegmentalAttEfficientLabelDecoder
-      if model.label_decoder_state == "joint-lstm":
-        targets = align_targets
-        targets_spatial_dim = align_targets_spatial_dim
-        non_blank_mask_ = None
-        non_blank_mask_spatial_dim = None
-      else:
-        targets = non_blank_targets
-        targets_spatial_dim = non_blank_targets_spatial_dim
-        non_blank_mask_ = non_blank_mask
-        non_blank_mask_spatial_dim = align_targets_spatial_dim
-
-      funcs_to_trace_list = [
-        forward_sequence_efficient,
-        SegmentalAttEfficientLabelDecoder.__call__,
-      ]
-      code_obj_to_func = {func.__code__: func for func in funcs_to_trace_list}
-      _layer_mapping = {"att_weights": (SegmentalAttEfficientLabelDecoder.__call__, 0, "att_weights", -1)}
-
-      sys.settrace(_trace_func)
-      forward_sequence_efficient(
-        model=model.label_decoder,
-        enc_args=enc_args,
-        enc_spatial_dim=enc_spatial_dim,
-        targets=targets,
-        targets_spatial_dim=targets_spatial_dim,
-        segment_starts=segment_starts,
-        segment_lens=segment_lens,
-        center_positions=center_positions,
-        batch_dims=batch_dims,
-        non_blank_mask=non_blank_mask_,
-        non_blank_mask_spatial_dim=non_blank_mask_spatial_dim,
-      )
-      sys.settrace(None)
-      for tensor_name, var_path in _layer_mapping.items():
-        new_out = captured_tensors
-        for k in var_path:
-          new_out = new_out[k]
-        old_slice_dim = new_out.remaining_dims(batch_dims + [model.label_decoder.att_num_heads, align_targets_spatial_dim])
-        att_weights = utils.copy_tensor_replace_dim_tag(new_out, old_slice_dim, new_slice_dim)
-  else:
-    if type(model.label_decoder) is SegmentalAttLabelDecoder:
-      funcs_to_trace_list = [
-        forward_sequence,
-        SegmentalAttLabelDecoder.loop_step,
-      ]
-      code_obj_to_func = {func.__code__: func for func in funcs_to_trace_list}
-      _layer_mapping = {
-        f"att_weight_step{i}": (SegmentalAttLabelDecoder.loop_step, i, "att_weights", -1) for i in range(max_num_labels)
-      }
-
-      sys.settrace(_trace_func)
-      forward_sequence(
-        model=model.label_decoder,
-        enc_args=enc_args,
-        enc_spatial_dim=enc_spatial_dim,
-        non_blank_targets=non_blank_targets,
-        non_blank_targets_spatial_dim=non_blank_targets_spatial_dim,
-        segment_starts=segment_starts,
-        segment_lens=segment_lens,
-        center_positions=center_positions,
-        batch_dims=batch_dims,
-      )
-      sys.settrace(None)
-      att_weights_ = []
-      for tensor_name, var_path in _layer_mapping.items():
-        new_out = captured_tensors
-        for k in var_path:
-          new_out = new_out[k]
-        old_slice_dim = new_out.remaining_dims(batch_dims + [model.label_decoder.att_num_heads])
-        assert len(old_slice_dim) == 1
-        old_slice_dim = old_slice_dim[0]
-        max_slice_size = rf.reduce_max(old_slice_dim.dyn_size_ext, axis=batch_dims).raw_tensor.item()
-
-        # at the end of the seq, there may be less than center_window_size attention weights
-        # in this case, just pad with zeros until we reach center_window_size
-        if max_slice_size < new_slice_dim.dimension:
-          new_out, _ = rf.pad(
-            new_out,
-            axes=[old_slice_dim],
-            padding=[(0, new_slice_dim.dimension - max_slice_size)],
-            out_dims=[new_slice_dim],
-            value=0.0,
-          )
-        else:
-          new_out = utils.copy_tensor_replace_dim_tag(new_out, old_slice_dim, new_slice_dim)
-
-        att_weights_.append(new_out)
-
-      att_weights__ = TensorArray(att_weights_[0])
-      for target in att_weights_:
-        att_weights__ = att_weights__.push_back(target)
-      att_weights = att_weights__.stack(axis=non_blank_targets_spatial_dim)
-    else:
-      funcs_to_trace_list = [
-        forward_sequence_efficient,
-        SegmentalAttEfficientLabelDecoder.__call__,
-      ]
-      code_obj_to_func = {func.__code__: func for func in funcs_to_trace_list}
-      _layer_mapping = {"att_weights": (SegmentalAttEfficientLabelDecoder.__call__, 0, "att_weights", -1)}
-
-      sys.settrace(_trace_func)
-      forward_sequence_efficient(
-        model=model.label_decoder,
-        enc_args=enc_args,
-        enc_spatial_dim=enc_spatial_dim,
-        targets=non_blank_targets,
-        targets_spatial_dim=non_blank_targets_spatial_dim,
-        segment_starts=segment_starts,
-        segment_lens=segment_lens,
-        center_positions=center_positions,
-        batch_dims=batch_dims,
-      )
-      sys.settrace(None)
-      for tensor_name, var_path in _layer_mapping.items():
-        new_out = captured_tensors
-        for k in var_path:
-          new_out = new_out[k]
-        old_slice_dim = new_out.remaining_dims(
-          batch_dims + [model.label_decoder.att_num_heads, non_blank_targets_spatial_dim])
-        att_weights = utils.copy_tensor_replace_dim_tag(new_out, old_slice_dim, new_slice_dim)
-
-  att_weights = scatter_att_weights(
-    att_weights=att_weights,
-    segment_starts=segment_starts,
-    new_slice_dim=new_slice_dim,
-    align_targets_spatial_dim=align_targets_spatial_dim,
-  )
+      raise NotImplementedError
 
   dump_hdfs(
     att_weights=att_weights,
     center_positions=center_positions,
     segment_lens=segment_lens,
     segment_starts=segment_starts,
-    align_targets=align_targets,
-    align_target_dim=model.align_target_dim.dimension,
+    align_targets=dump_targets,
+    align_target_dim=dump_targets_dim,
     seq_tags=seq_tags,
     batch_dims=batch_dims,
   )
-
 
 
 def _returnn_v2_forward_step(*, model, extern_data: TensorDict, **_kwargs_unused):

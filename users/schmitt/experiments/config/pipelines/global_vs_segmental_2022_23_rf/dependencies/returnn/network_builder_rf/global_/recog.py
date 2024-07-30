@@ -54,7 +54,7 @@ def model_recog(
   # --------------------------------- init encoder, dims, etc ---------------------------------
 
   enc_args, enc_spatial_dim = model.encoder.encode(data, in_spatial_dim=data_spatial_dim)
-  if model.label_decoder.decoder_state == "trafo":
+  if model.decoder_state == "trafo":
     enc_args["enc"] = model.label_decoder.transform_encoder(enc_args["enc"], axis=enc_spatial_dim)
 
   if max_seq_len is None:
@@ -77,7 +77,7 @@ def model_recog(
   seq_backrefs = []
 
   # --------------------------------- init states ---------------------------------
-  if model.label_decoder.decoder_state != "trafo":
+  if model.decoder_state != "trafo":
     decoder_state = model.label_decoder.decoder_default_initial_state(
       batch_dims=batch_dims_, enc_spatial_dim=enc_spatial_dim)
   else:
@@ -104,7 +104,7 @@ def model_recog(
 
   i = 0
   while True:
-    if model.label_decoder.decoder_state != "trafo":
+    if model.decoder_state != "trafo":
       # --------------------------------- get embeddings ---------------------------------
       if i == 0:
         input_embed = rf.zeros(
@@ -123,7 +123,7 @@ def model_recog(
       )
       logits = model.label_decoder.decode_logits(input_embed=input_embed, **step_out)
     else:
-      logits, decoder_state = model.label_decoder(
+      logits, decoder_state, _ = model.label_decoder(
         target,
         spatial_dim=single_step_dim,
         encoder=enc_args["enc"],
@@ -146,7 +146,7 @@ def model_recog(
     # --------------------------------- ILM step ---------------------------------
 
     if ilm_state is not None:
-      assert model.label_decoder.decoder_state != "trafo", "not implemented yet"
+      assert model.decoder_state != "trafo", "not implemented yet"
 
       ilm_step_out, ilm_state = model.label_decoder.loop_step(
         **enc_args,
@@ -178,7 +178,7 @@ def model_recog(
     # --------------------------------- update states ---------------------------------
 
     # decoder
-    if model.label_decoder.decoder_state != "trafo":
+    if model.decoder_state != "trafo":
       decoder_state = tree.map_structure(lambda s: rf.gather(s, indices=backrefs), decoder_state)
     else:
       decoder_state = tree.map_structure(

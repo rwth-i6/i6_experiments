@@ -180,7 +180,7 @@ def forward_sequence(
     body=_label_loop_body,
   )
 
-  if model.use_current_frame_in_readout:
+  if model.use_current_frame_in_readout or model.use_current_frame_in_readout_w_gate or model.use_current_frame_in_readout_random:
     h_t = rf.gather(enc_args["enc"], axis=enc_spatial_dim, indices=center_positions)
   else:
     h_t = None
@@ -248,11 +248,6 @@ def viterbi_training(
       return_label_model_states=return_label_model_states,
     )
   else:
-    if model.use_current_frame_in_readout:
-      h_t = rf.gather(enc_args["enc"], axis=enc_spatial_dim, indices=center_positions)
-    else:
-      h_t = None
-
     logits, label_model_states = forward_sequence_global_att(
       model=model,
       targets=non_blank_targets,
@@ -261,7 +256,7 @@ def viterbi_training(
       enc_spatial_dim=enc_spatial_dim,
       batch_dims=batch_dims,
       return_label_model_states=return_label_model_states,
-      h_t=h_t,
+      center_positions=center_positions,
     )
 
   _calc_ce_loss_and_fer(
@@ -342,7 +337,7 @@ def forward_sequence_efficient(
   if non_blank_mask_spatial_dim is not None:
     non_blank_mask_spatial_dim.dyn_size_ext = rf.copy_to_device(non_blank_mask_spatial_dim.dyn_size_ext, "cpu")
 
-  if model.use_current_frame_in_readout:
+  if model.use_current_frame_in_readout or model.use_current_frame_in_readout_w_gate or model.use_current_frame_in_readout_random:
     h_t = rf.gather(enc_args["enc"], axis=enc_spatial_dim, indices=center_positions)
   else:
     h_t = None
@@ -417,11 +412,6 @@ def viterbi_training_efficient(
       return_label_model_states=return_label_model_states,
     )
   else:
-    if model.use_current_frame_in_readout:
-      h_t = rf.gather(enc_args["enc"], axis=enc_spatial_dim, indices=center_positions)
-    else:
-      h_t = None
-
     logits, label_model_states = forward_sequence_global_att(
       model=model,
       targets=targets,
@@ -430,7 +420,7 @@ def viterbi_training_efficient(
       enc_spatial_dim=enc_spatial_dim,
       batch_dims=batch_dims,
       return_label_model_states=return_label_model_states,
-      h_t=h_t,
+      center_positions=center_positions,
     )
 
   _calc_ce_loss_and_fer(
@@ -523,7 +513,11 @@ def full_sum_training(
         center_positions=center_positions,
       )  # [B, S+1, T, D]
 
-    if model.label_decoder.use_current_frame_in_readout:
+    if (
+            model.label_decoder.use_current_frame_in_readout or
+            model.label_decoder.use_current_frame_in_readout_w_gate or
+            model.label_decoder.use_current_frame_in_readout_random
+    ):
       h_t = rf.gather(enc_args["enc"], axis=enc_spatial_dim, indices=center_positions)
     else:
       h_t = None
@@ -581,9 +575,9 @@ def full_sum_training(
     )  # [B * T * (S+1), D]
     logits_packed_raw = logits_packed.raw_tensor
 
-    return logits_packed_raw
+    return logits_packed_raw, logits_packed
 
-  logits_packed_raw = _get_packed_logits_v2()
+  logits_packed_raw, logits_packed = _get_packed_logits_v2()
 
   from returnn.extern_private.BergerMonotonicRNNT.monotonic_rnnt.pytorch_binding import monotonic_rnnt_loss
 

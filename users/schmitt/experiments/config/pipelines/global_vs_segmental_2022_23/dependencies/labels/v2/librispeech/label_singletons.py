@@ -1,4 +1,9 @@
-from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.labels.v2.librispeech.bpe.bpe_labels import LibrispeechBPE10025Labels, LibrispeechBPE10025LabelsWithSilence
+from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.labels.v2.librispeech.bpe.bpe_labels import (
+  LibrispeechBPE10025Labels,
+  LibrispeechBPE10025LabelsWithSilence,
+  LibrispeechBPE5048Labels,
+  LibrispeechBPE1056Labels
+)
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.labels.v2.librispeech.sentencepiece.sentencepiece_labels import LibrispeechSP10240Labels
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.labels.v2.librispeech.bpe.bpe_alignments import (
   LibrispeechBpe10025CtcAlignment,
@@ -22,6 +27,10 @@ LibrispeechBPE10025_LABELS = LibrispeechBPE10025Labels()
 LibrispeechBPE10025_LABELS_WITH_SILENCE = LibrispeechBPE10025LabelsWithSilence(LibrispeechBPE10025_LABELS)
 LibrispeechBPE10025_CTC_ALIGNMENT = LibrispeechBpe10025CtcAlignment()
 LibrispeechBPE10025_CTC_ALIGNMENT_EOS = LibrispeechBpe10025CtcAlignmentEos(LibrispeechBPE10025_CTC_ALIGNMENT)
+
+LibrispeechBPE1056_LABELS = LibrispeechBPE1056Labels()
+
+LibrispeechBPE5048_LABELS = LibrispeechBPE5048Labels()
 
 # BPE alignments
 LibrispeechBPE1056_ALIGNMENT_JOINT_MODEL = LibrispeechBpe1056AlignmentJointModel()

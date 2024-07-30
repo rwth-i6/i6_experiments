@@ -17,6 +17,9 @@ def run_exps():
         config_builder=config_builder,
         checkpoint=checkpoint,
         checkpoint_aliases=("epoch-498",),
+        plot_att_weights=False,
+        analyze_gradients=True,
+        run_analysis=True,
       )
 
 

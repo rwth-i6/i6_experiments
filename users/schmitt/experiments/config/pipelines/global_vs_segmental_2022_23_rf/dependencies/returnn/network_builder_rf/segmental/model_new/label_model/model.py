@@ -227,22 +227,6 @@ class SegmentalAttLabelDecoder(BaseLabelDecoder):
 
     return {"s": s, "att": att}, state_
 
-  def decode_logits(self, *, s: Tensor, input_embed: Tensor, att: Tensor, h_t: Optional[Tensor] = None) -> Tensor:
-    """logits for the decoder"""
-
-    allow_broadcast = type(self) is SegmentalAttEfficientLabelDecoder
-
-    if self.use_current_frame_in_readout:
-      assert h_t is not None, "Need h_t for readout!"
-      readout_in = self.readout_in_w_current_frame(
-        rf.concat_features(s, input_embed, att, h_t, allow_broadcast=allow_broadcast))
-    else:
-      readout_in = self.readout_in(rf.concat_features(s, input_embed, att, allow_broadcast=allow_broadcast))
-    readout = rf.reduce_out(readout_in, mode="max", num_pieces=2, out_dim=self.output_prob.in_dim)
-    readout = rf.dropout(readout, drop_prob=0.3, axis=self.dropout_broadcast and readout.feature_dim)
-    logits = self.output_prob(readout)
-    return logits
-
 
 class SegmentalAttEfficientLabelDecoder(SegmentalAttLabelDecoder):
   def __init__(self, **kwargs):
@@ -297,57 +281,3 @@ class SegmentalAttEfficientLabelDecoder(SegmentalAttLabelDecoder):
     enc_spatial_dim.dyn_size_ext = rf.copy_to_device(enc_spatial_dim.dyn_size_ext, "cpu")
 
     return att
-
-  def get_packed_att(
-          self,
-          *,
-          enc: rf.Tensor,
-          enc_ctx: rf.Tensor,
-          enc_spatial_dim: Dim,
-          s_spatial_dim: Dim,
-          batch_dims: List[Dim],
-          s: rf.Tensor,
-          segment_starts: rf.Tensor,
-          segment_lens: rf.Tensor,
-          center_positions: rf.Tensor,
-  ):
-    s_transformed = self.s_transformed(s)
-
-    weight_feedback = rf.zeros((self.enc_key_total_dim,))
-
-    energy_in = enc_ctx + weight_feedback + s_transformed
-    energy = self.energy(rf.tanh(energy_in))
-    att_weights = rf.softmax(energy, axis=enc_spatial_dim)
-    # we do not need use_mask because the softmax output is already padded with zeros
-    att = self.get_att(att_weights, enc, enc_spatial_dim)
-
-    return att
-
-  def decode_logits_packed(
-          self,
-          *,
-          s: Tensor,
-          input_embed: Tensor,
-          att: Tensor,
-          h_t: Optional[Tensor] = None,
-          enc_spatial_dim: Dim,
-          s_spatial_dim: Dim,
-          batch_dims: List[Dim],
-  ) -> Tuple[Tensor, Dim]:
-    """logits for the decoder"""
-
-    allow_broadcast = type(self) is SegmentalAttEfficientLabelDecoder
-
-    if self.use_current_frame_in_readout:
-      assert h_t is not None, "Need h_t for readout!"
-      readout_input = rf.concat_features(s, input_embed, att, h_t, allow_broadcast=allow_broadcast)
-    else:
-      readout_input = rf.concat_features(s, input_embed, att, allow_broadcast=allow_broadcast)
-
-    readout_input, pack_dim = rf.pack_padded(readout_input, dims=batch_dims + [enc_spatial_dim, s_spatial_dim])
-
-    readout_in = self.readout_in(readout_input)
-    readout = rf.reduce_out(readout_in, mode="max", num_pieces=2, out_dim=self.output_prob.in_dim)
-    readout = rf.dropout(readout, drop_prob=0.3, axis=self.dropout_broadcast and readout.feature_dim)
-    logits = self.output_prob(readout)
-    return logits, pack_dim

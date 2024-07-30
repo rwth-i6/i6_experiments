@@ -128,7 +128,7 @@ def get_alignment_args(
     segment_starts, segment_lens, center_positions = utils.get_segment_starts_and_lens(
       non_blank_mask=rf.sequence_mask(align_targets.dims),  # this way, every frame is interpreted as non-blank
       align_targets_spatial_dim=align_targets_spatial_dim,
-      model=model,
+      center_window_size=model.center_window_size,
       batch_dims=batch_dims,
       out_spatial_dim=align_targets_spatial_dim
     )
@@ -151,7 +151,7 @@ def get_alignment_args(
     segment_starts, segment_lens, center_positions = utils.get_segment_starts_and_lens(
       non_blank_mask,
       align_targets_spatial_dim,
-      model,
+      model.center_window_size,
       batch_dims,
       non_blank_targets_spatial_dim
     )
@@ -592,7 +592,7 @@ def full_sum_training(
   segment_starts, segment_lens, center_positions = utils.get_segment_starts_and_lens(
     rf.sequence_mask(batch_dims + [enc_spatial_dim]),  # this way, every frame is interpreted as non-blank
     enc_spatial_dim,
-    model,
+    model.center_window_size,
     batch_dims,
     enc_spatial_dim
   )

@@ -193,6 +193,8 @@ class PlotAttentionWeightsJobV2(Job):
           json_vocab_path: Path,
           ctc_alignment_hdf: Optional[Path] = None,
           segment_whitelist: Optional[List[str]] = None,
+          ref_alignment_json_vocab_path: Optional[Path] = None,
+          plot_w_cog: bool = True,
   ):
     assert target_blank_idx is None or (seg_lens_hdf is not None and seg_starts_hdf is not None)
     self.seg_lens_hdf = seg_lens_hdf
@@ -207,9 +209,17 @@ class PlotAttentionWeightsJobV2(Job):
     self.ctc_alignment_hdf = ctc_alignment_hdf
     self.segment_whitelist = segment_whitelist if segment_whitelist is not None else []
 
+    if ref_alignment_json_vocab_path is None:
+      self.ref_alignment_json_vocab_path = json_vocab_path
+    else:
+      self.ref_alignment_json_vocab_path = ref_alignment_json_vocab_path
+
     self.out_plot_dir = self.output_path("plots", True)
     self.out_plot_w_ctc_dir = self.output_path("plots_w_ctc", True)
-    self.out_plot_w_cog_dir = self.output_path("plots_w_cog", True)
+
+    self.plot_w_cog = plot_w_cog
+    if plot_w_cog:
+      self.out_plot_w_cog_dir = self.output_path("plots_w_cog", True)
     self.out_plot_path = MultiOutputPath(self, "plots/plots.$(TASK)", self.out_plot_dir)
 
   def tasks(self):
@@ -324,7 +334,15 @@ class PlotAttentionWeightsJobV2(Job):
 
     if draw_vertical_lines or True:  # always draw
       for xtick in xticks:
-        ax.axvline(x=xtick, ymin=0, ymax=1, color="k", linewidth=.5, linestyle="--", alpha=0.8)
+        if len(ref_alignment) == len(targets):
+          # this is like a square grid
+          x = xtick + 0.5
+          linestyle = "-"
+        else:
+          # here, the vertical lines are at the center of the reference labels
+          x = xtick
+          linestyle = "--"
+        ax.axvline(x=x, ymin=0, ymax=1, color="k", linewidth=.5, linestyle=linestyle, alpha=0.8)
 
   @staticmethod
   def _draw_segment_boundaries(
@@ -388,13 +406,22 @@ class PlotAttentionWeightsJobV2(Job):
     att_weights_dict, targets_dict, seg_starts_dict, seg_lens_dict, center_positions_dict, ctc_alignment_dict, ref_alignment_dict = self.load_data()
 
     # load vocabulary as dictionary
-    with open(self.json_vocab_path.get_path(), "r") as f:
+    with open(self.json_vocab_path.get_path(), "r", encoding="utf-8") as f:
       json_data = f.read()
-      vocab = ast.literal_eval(json_data)  # label -> idx
-      vocab = {v: k for k, v in vocab.items()}  # idx -> label
+      target_vocab = ast.literal_eval(json_data)  # label -> idx
+      target_vocab = {v: k for k, v in target_vocab.items()}  # idx -> label
       # if we have a target blank idx, we replace the EOS symbol in the vocab with "<b>"
       if self.target_blank_idx is not None:
-        vocab[0] = "<b>"
+        target_vocab[0] = "<b>"
+
+    # load reference alignment vocabulary as dictionary
+    if self.ref_alignment_json_vocab_path != self.json_vocab_path:
+      with open(self.ref_alignment_json_vocab_path.get_path(), "r") as f:
+        json_data = f.read()
+        ref_vocab = ast.literal_eval(json_data)
+        ref_vocab = {v: k for k, v in ref_vocab.items()}
+    else:
+      ref_vocab = target_vocab
 
     # for each seq tag, plot the corresponding att weights
     for seq_tag in att_weights_dict.keys():
@@ -414,7 +441,7 @@ class PlotAttentionWeightsJobV2(Job):
       )
 
       # set y ticks and labels
-      self.set_ticks(ax, ref_alignment, targets, vocab, vocab, self.ref_alignment_blank_idx, self.target_blank_idx)
+      self.set_ticks(ax, ref_alignment, targets, target_vocab, ref_vocab, self.ref_alignment_blank_idx, self.target_blank_idx)
       if self.target_blank_idx is not None:
         self._draw_segment_boundaries(ax, seg_starts, seg_lens, att_weights)
       if center_positions is not None:
@@ -438,11 +465,14 @@ class PlotAttentionWeightsJobV2(Job):
         plt.savefig(filename + ".pdf")
 
       # plot center of gravity
-      ax.lines[-1].remove()  # remove ctc alignment plot
-      self.plot_center_of_gravity(ax, att_weights)
-      filename = os.path.join(self.out_plot_w_cog_dir.get_path(), "plot.%s" % seq_tag.replace("/", "_"))
-      plt.savefig(filename + ".png")
-      plt.savefig(filename + ".pdf")
+      if self.plot_w_cog:
+        ax.lines[-1].remove()  # remove ctc alignment plot
+        self.plot_center_of_gravity(ax, att_weights)
+        filename = os.path.join(self.out_plot_w_cog_dir.get_path(), "plot.%s" % seq_tag.replace("/", "_"))
+        plt.savefig(filename + ".png")
+        plt.savefig(filename + ".pdf")
+
+      plt.close()
 
 
   @classmethod
@@ -453,6 +483,10 @@ class PlotAttentionWeightsJobV2(Job):
       d.pop("center_positions_hdf")
     if d["ctc_alignment_hdf"] is None:
       d.pop("ctc_alignment_hdf")
+    if d["ref_alignment_json_vocab_path"] is None:
+      d.pop("ref_alignment_json_vocab_path")
+    if d["plot_w_cog"] is True:
+      d.pop("plot_w_cog")
 
     return super().hash(d)
 
@@ -741,7 +775,8 @@ def plot_att_weights(
         json_vocab_path: Path,
         ctc_alignment_hdf: Optional[Path] = None,
         segment_whitelist: Optional[List[str]] = None,
-        plot_name: str = "plots"
+        ref_alignment_json_vocab_path: Optional[Path] = None,
+        plot_name: str = "plots",
 ):
   plot_att_weights_job = PlotAttentionWeightsJobV2(
     att_weight_hdf=att_weight_hdf,
@@ -754,15 +789,14 @@ def plot_att_weights(
     ref_alignment_hdf=ref_alignment_hdf,
     json_vocab_path=json_vocab_path,
     ctc_alignment_hdf=ctc_alignment_hdf,
-    segment_whitelist=segment_whitelist
+    segment_whitelist=segment_whitelist,
+    ref_alignment_json_vocab_path=ref_alignment_json_vocab_path,
+    plot_w_cog=False,
   )
 
   # overwrite the output paths to paths in the cwd
-  plot_att_weights_job.out_plot_dir = Path(f"{plot_name}", )
-  plot_att_weights_job.out_plot_w_cog_dir = Path(f"{plot_name}_w_cog", )
+  plot_att_weights_job.out_plot_dir = Path(f"{plot_name}/plots", )
   if not os.path.exists(plot_att_weights_job.out_plot_dir.get_path()):
     os.makedirs(plot_att_weights_job.out_plot_dir.get_path())
-  if not os.path.exists(plot_att_weights_job.out_plot_w_cog_dir.get_path()):
-    os.makedirs(plot_att_weights_job.out_plot_w_cog_dir.get_path())
 
   plot_att_weights_job.run()

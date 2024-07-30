@@ -27,6 +27,7 @@ from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segment
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.corpora.swb import SWBCorpus
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.search_errors import calc_search_errors
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.att_weights import dump_att_weights, dump_ctc_probs
+import i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.analysis as analysis_rf
 from i6_experiments.users.schmitt.corpus.concat.convert import WordsToCTMJobV2
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.general.returnn.exes import RETURNN_EXE, RETURNN_CURRENT_ROOT, RETURNN_ROOT
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.general.rasr.exes import RasrExecutables, RasrExecutablesNew
@@ -272,6 +273,7 @@ class SegmentalAttDecodingExperiment(DecodingExperiment, ABC):
         use_weight_feedback=self.config_builder.use_weight_feedback,
         use_att_ctx_in_state=self.config_builder.use_att_ctx_in_state,
         decoder_state=self.config_builder.label_decoder_state,
+        label_type=f"bpe{self.config_builder.variant_params['dependencies'].model_hyperparameters.target_num_labels_wo_blank}",
       )
 
       train_mini_lstm_exp = GlobalTrainExperiment(
@@ -409,7 +411,7 @@ class ReturnnDecodingExperiment(DecodingExperiment, ABC):
     if analysis_opts is not None:
       _analysis_opts.update(analysis_opts)
 
-    if isinstance(self.config_builder, SegmentalAttConfigBuilderRF):
+    if isinstance(self.config_builder, ConfigBuilderRF):
       att_weight_seq_tags = _analysis_opts["att_weight_seq_tags"]
       if att_weight_seq_tags is None:
         att_weight_seq_tags = [
@@ -419,58 +421,32 @@ class ReturnnDecodingExperiment(DecodingExperiment, ABC):
           "dev-other/7697-105815-0015/7697-105815-0015",
           "dev-other/7697-105815-0051/7697-105815-0051",
         ]
-
       segment_file = WriteToTextFileJob(
         content=att_weight_seq_tags
       )
-      dump_att_weights_opts = {
+
+      analysis_config_opts = {
         "corpus_key": self.corpus_key,
         "dataset_opts": {
           "segment_paths": {self.corpus_key: segment_file.out_file},
-          "hdf_targets": LibrispeechBPE10025_CTC_ALIGNMENT.alignment_paths,
         },
-        "forward_step_func": dump_att_weights_forward_funcs._returnn_v2_forward_step,
-        "forward_callback": dump_att_weights_forward_funcs._returnn_v2_get_forward_callback,
-        "dump_att_weight_def": dump_att_weights_forward_funcs.dump_att_weights,
       }
-      dump_att_weight_config = self.config_builder.get_dump_att_weight_config(opts=dump_att_weights_opts)
-      dump_att_weights_job = ReturnnForwardJobV2(
-        model_checkpoint=self.checkpoint,
-        returnn_config=dump_att_weight_config,
-        returnn_root=self.returnn_root,
-        returnn_python_exe=self.returnn_python_exe,
-        output_files=[
-          "att_weights.hdf",
-          "center_positions.hdf",
-          "seg_starts.hdf",
-          "seg_lens.hdf",
-          "targets.hdf",
-        ],
-        mem_rqmt=self.search_rqmt.get("mem", 6),
-        time_rqmt=self.search_rqmt.get("time", 1),
-      )
-      dump_att_weights_job.add_alias(f"{self.alias}/analysis/dump_att_weights")
-      tk.register_output(dump_att_weights_job.get_one_alias(), dump_att_weights_job.out_files["att_weights.hdf"])
+      if isinstance(self.config_builder, SegmentalAttConfigBuilderRF):
+        analysis_config_opts["dataset_opts"]["hdf_targets"] = LibrispeechBPE10025_CTC_ALIGNMENT.alignment_paths
 
-      plot_att_weights_job = PlotAttentionWeightsJobV2(
-        att_weight_hdf=dump_att_weights_job.out_files["att_weights.hdf"],
-        targets_hdf=dump_att_weights_job.out_files["targets.hdf"],
-        seg_lens_hdf=dump_att_weights_job.out_files.get("seg_lens.hdf"),
-        seg_starts_hdf=dump_att_weights_job.out_files.get("seg_starts.hdf"),
-        center_positions_hdf=dump_att_weights_job.out_files.get("center_positions.hdf"),
-        target_blank_idx=10025,
-        ref_alignment_blank_idx=10025,
-        ref_alignment_hdf=LibrispeechBPE10025_CTC_ALIGNMENT.alignment_paths[self.corpus_key],
-        json_vocab_path=self.config_builder.variant_params["dependencies"].vocab_path,
-        ctc_alignment_hdf=LibrispeechBPE10025_CTC_ALIGNMENT.alignment_paths[self.corpus_key],
-        segment_whitelist=att_weight_seq_tags,
-      )
-      plot_att_weights_job.add_alias(f"{self.alias}/analysis/plot_att_weights")
-      tk.register_output(plot_att_weights_job.get_one_alias(), plot_att_weights_job.out_plot_dir)
+      if _analysis_opts.get("plot_att_weights", True):
+        analysis_rf.dump_att_weights(
+          config_builder=self.config_builder,
+          seq_tags=att_weight_seq_tags,
+          corpus_key=self.corpus_key,
+          checkpoint=self.checkpoint,
+          returnn_root=self.returnn_root,
+          returnn_python_exe=self.returnn_python_exe,
+          alias=self.alias,
+        )
 
       if _analysis_opts.get("analyze_gradients", False):
-        analyze_gradients_opts = copy.deepcopy(dump_att_weights_opts)
-        del analyze_gradients_opts["dump_att_weight_def"]
+        analyze_gradients_opts = copy.deepcopy(analysis_config_opts)
         analyze_gradients_opts.update({
           "forward_step_func": analyze_gradients_forward_funcs._returnn_v2_forward_step,
           "forward_callback": analyze_gradients_forward_funcs._returnn_v2_get_forward_callback,
@@ -483,13 +459,12 @@ class ReturnnDecodingExperiment(DecodingExperiment, ABC):
           returnn_config=analyze_gradients_config,
           returnn_root=self.returnn_root,
           returnn_python_exe=self.returnn_python_exe,
-          output_files=["analysis.txt"],
+          output_files=["targets.hdf"],
           mem_rqmt=self.search_rqmt.get("mem", 6),
           time_rqmt=self.search_rqmt.get("time", 1),
         )
         analyze_gradients_job.add_alias(f"{self.alias}/analysis/analyze_gradients")
-        tk.register_output(analyze_gradients_job.get_one_alias(), analyze_gradients_job.out_files["analysis.txt"])
-
+        tk.register_output(analyze_gradients_job.get_one_alias(), analyze_gradients_job.out_files["targets.hdf"])
     else:
       forward_recog_config = self.config_builder.get_recog_config_for_forward_job(opts=self.recog_opts)
       forward_search_job = ReturnnForwardJob(

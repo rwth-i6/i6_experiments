@@ -67,6 +67,7 @@ class GlobalAttentionModel(rf.Module):
       feature_extraction_opts=feature_extraction_opts,
     )
 
+    self.decoder_state = decoder_state
     if decoder_state != "trafo":
       assert num_dec_layers == 1
 
