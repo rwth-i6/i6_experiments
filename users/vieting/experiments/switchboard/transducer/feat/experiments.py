@@ -34,14 +34,14 @@ from .default_tools import (
 )
 
 
-def get_ctc_alignment(ctc_alignment_model: str = "mel", alignment_epoch: int = 401) -> List[tk.Path]:
+def get_ctc_alignment(ctc_alignment_model: str = "conformer_bs5k_lgm80_baseline", alignment_epoch: int = 401) -> List[tk.Path]:
     train_corpus, dev_corpora, _ = get_switchboard_data()
 
     # switch statement for different alignment models
-    if ctc_alignment_model == "mel":
-        _, ctc_nn_system = run_mel_baseline_ctc()
-    elif ctc_alignment_model == "scf":
+    if "scf" in ctc_alignment_model:
         _, ctc_nn_system = run_scf_baseline_ctc()
+    elif "mel" in ctc_alignment_model:
+        _, ctc_nn_system = run_mel_baseline_ctc()
     else:
         raise ValueError(f"Unknown ctc_alignment_model: {ctc_alignment_model}")
 
@@ -55,6 +55,7 @@ def get_ctc_alignment(ctc_alignment_model: str = "mel", alignment_epoch: int = 4
     }
     align_args = {
         "epochs": [alignment_epoch],
+        "train_exp_name": ctc_alignment_model,
         "lm_scales": [0.7],
         "prior_scales": [0.3],
         "use_gpu": False,
@@ -73,12 +74,6 @@ def get_ctc_alignment(ctc_alignment_model: str = "mel", alignment_epoch: int = 4
         },
         "rtf": 5,
     }
-    if ctc_alignment_model == "scf":
-        align_args["train_exp_name"] = "conformer_bs2x5k_scf_baseline_preemphasis97_wn"
-    elif ctc_alignment_model == "mel":
-        align_args["train_exp_name"] = "conformer_bs5k_lgm80_baseline"
-    else:
-        raise ValueError(f"Unknown ctc_alignment_model: {ctc_alignment_model}")
     train_corpus.concurrent = 100
     train_corpus.lexicon = dev_corpora["ctc"]["hub5e00"].lexicon
     ctc_nn_system.corpus_data["train"] = train_corpus
@@ -294,7 +289,7 @@ def run_rasr_gt_stage1():
 
 
 def run_scf_stage1():
-    ctc_alignment = get_ctc_alignment(ctc_alignment_model="scf", alignment_epoch=400)
+    ctc_alignment = get_ctc_alignment(ctc_alignment_model="conformer_bs2x5k_scf_baseline_preemphasis97_wn", alignment_epoch=400)
 
     gs.ALIAS_AND_OUTPUT_SUBDIR = "experiments/switchboard/transducer/feat/"
     _, dev_corpora, _ = get_switchboard_data()

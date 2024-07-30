@@ -861,7 +861,7 @@ class TransducerSystem:
                 f"{path}.alignment.cache.bundle",
                 align.out_alignment_bundle,
             )
-            self.alignments[align_corpus_key][train_exp_name] = rasr.FlagDependentFlowAttribute(
+            self.alignments[align_corpus_key] = rasr.FlagDependentFlowAttribute(
                 "cache_mode",
                 {
                     "task_dependent": align.out_alignment_path,
@@ -923,19 +923,8 @@ class TransducerSystem:
             )
 
     def run_align_step(self, align_args: Optional[Dict] = None) -> None:
-        align_args = align_args or {}
-        train_exp_name = align_args.pop('train_exp_name', None)
-        if train_exp_name is None:
-            for train_exp_name in self.returnn_configs.keys():
-                for al_c in self.align_corpora:
-                    self._nn_alignment(
-                        train_exp_name,
-                        align_corpus_key=al_c,
-                        **(align_args or {}),
-        else:  
-            for al_c in self.align_corpora:
-                self._nn_alignment(
-                    train_exp_name,
-                    align_corpus_key=al_c,
-                    **align_args,
-                )
+        for al_c in self.align_corpora:
+            self._nn_alignment(
+                align_corpus_key=al_c,
+                **(align_args or {}),
+            )
