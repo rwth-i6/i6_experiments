@@ -338,15 +338,17 @@ def run_scf_stage1():
     _, nn_system_ctc = run_scf_baseline_ctc()
 
     preload_dict = {
-        "filename": nn_system_ctc.train_jobs["conformer_bs2x5k_scf_baseline_preemphasis97_wn"].out_checkpoints[400],
-        "init_for_train": True,
-        "prefix": "features",
-        "var_name_mapping": {
-            "/conv_h_filter/conv_h_filter": "features/conv_h_filter/conv_h_filter",
-            "/conv_l/W": "features/conv_l/W",
-            "/conv_l_act/bias": "features/conv_l_act/bias",
-            "/conv_l_act/scale": "features/conv_l_act/scale",
-        },
+        "existing-model": {
+            "filename": nn_system_ctc.train_jobs["conformer_bs2x5k_scf_baseline_preemphasis97_wn"].out_checkpoints[400],
+            "init_for_train": True,
+            "prefix": "features",
+            "var_name_mapping": {
+                "/conv_h_filter/conv_h_filter": "features/conv_h_filter/conv_h_filter",
+                "/conv_l/W": "features/conv_l/W",
+                "/conv_l_act/bias": "features/conv_l_act/bias",
+                "/conv_l_act/scale": "features/conv_l_act/scale",
+            },
+        }
     }
 
     nn_args, report_args_collection = get_nn_args_baseline(
@@ -361,7 +363,7 @@ def run_scf_stage1():
                     **returnn_args,
                     "extra_args": {
                         **returnn_args["extra_args"],
-                        "preload_from_files": {"existing-model": preload_dict},
+                        "preload_from_files": preload_dict,
                     },
                 },
                 report_args={"alignment": "ctc-conf-e400"},
@@ -372,7 +374,7 @@ def run_scf_stage1():
                     **returnn_args,
                     "extra_args": {
                         **returnn_args["extra_args"],
-                        "preload_from_files": {"existing-model": preload_dict},
+                        "preload_from_files": preload_dict,
                     },
                     "staged_opts": {1: "freeze_features"},
                 },
