@@ -567,7 +567,7 @@ def py():
                 "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
                 "aux_attention_decoder": rf.build_dict(TransformerDecoder, num_layers=6),  # purely used for training
             },
-            vocab="spm10k",
+            vocab=vocab,
             train_vocab_opts={"other_opts": {"class": "SamplingBytePairEncoding", "breadth_prob": alpha}},
         )
 
