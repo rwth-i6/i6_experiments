@@ -861,7 +861,9 @@ class TransducerSystem:
                 f"{path}.alignment.cache.bundle",
                 align.out_alignment_bundle,
             )
-            self.alignments[align_corpus_key] = rasr.FlagDependentFlowAttribute(
+            if align_corpus_key not in self.alignments:
+                self.alignments[align_corpus_key] = {}
+            self.alignments[align_corpus_key][train_exp_name] = rasr.FlagDependentFlowAttribute(
                 "cache_mode",
                 {
                     "task_dependent": align.out_alignment_path,

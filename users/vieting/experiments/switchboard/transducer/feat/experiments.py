@@ -86,7 +86,7 @@ def get_ctc_alignment(ctc_alignment_model: str = "conformer_bs5k_lgm80_baseline"
     ctc_nn_system.base_crp.set_executables(rasr_binary_path=ctc_nn_system.rasr_binary_path)
     ctc_nn_system.run_align_step(align_args)
     alignment = build_hdf_from_alignment(
-        alignment_cache=ctc_nn_system.alignments["train"].alternatives["bundle"],
+        alignment_cache=ctc_nn_system.alignments["train"][ctc_alignment_model],
         allophone_file=allophone_file,
         state_tying_file=state_tying_job,
         silence_phone="<blank>",
