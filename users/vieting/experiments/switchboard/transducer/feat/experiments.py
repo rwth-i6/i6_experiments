@@ -706,8 +706,8 @@ def run_scf_stage1():
                 {"classes": 64, "data": (64 * 4 * 16 + 40 - 16) * 5 + 128 - 5},
                 {"classes": 32, "data": 32 * 4 * 16 * 5},
             ),
-            # There have to be (40 - 1) * 5 + 128 samples to create one feature frame. RETURNN needs -1.
-            "min_chunk_size": {"classes": 1, "data": (40 - 1) * 5 + 128 - 1},
+            # There have to be (40 - 1) * 5 + 128 samples to create one feature frame. RETURNN needs +1.
+            "min_chunk_size": {"classes": 1, "data": (40 - 1) * 5 + 128 + 1},
             "gradient_clip": 20.0,
             "learning_rate_control_error_measure": "sum_dev_score",
             "min_learning_rate": 1e-6,
