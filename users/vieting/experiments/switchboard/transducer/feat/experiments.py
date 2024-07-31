@@ -788,6 +788,98 @@ def run_scf_stage1():
     return nn_system, report
 
 
+def run_scf_stage2():
+    gs.ALIAS_AND_OUTPUT_SUBDIR = "experiments/switchboard/transducer/feat/"
+
+    nn_system_stage1, _ = run_scf_stage1()
+    _, dev_corpora, _ = get_switchboard_data()
+    returnn_datasets = get_returnn_datasets_transducer_viterbi(keep_hashes=False)
+    returnn_args = {
+        "batch_size": 3000,
+        "datasets": returnn_datasets,
+        "extra_args": {
+            "accum_grad_multiple_step": 3,
+            "gradient_clip": 0.0,
+            "min_learning_rate": 1e-6,
+            "max_seq_length": {"classes": 600},
+        },
+        "specaug_old": {"max_feature": 15},
+        "rasr_loss_args": {"transducer_training_stage": "fullsum"},
+        "conformer_args": {"dropout": 0.25, "batch_norm_freeze": True},
+    }
+    feature_args = {
+        "class": "ScfNetwork",
+        "size_tf": 256 // 2,
+        "stride_tf": 10 // 2,
+        "preemphasis": 0.97,
+        "wave_norm": True,
+        "wave_cast": True,
+    }
+    recog_args = {
+        "lm_scales": [0.3, 0.35, 0.4, 0.45],
+        "label_scorer_args": {
+            "extra_args": {
+                "blank-label-index": 0,
+                "context-size": 1,
+                "label-scorer-type": "tf-ffnn-transducer",
+                "max-batch-size": 256,
+                "reduction-factors": 80 * 4,
+                # There have to be (40 - 1) * 5 + 128 samples to create one feature frame. RASR needs -1.
+                "reduction-subtrahend": (40 - 1) * 5 + 128 - 1, 
+                "start-label-index": 89,
+                "transform-output-negate": True,
+                "use-start-label": True,
+            },
+        },
+        "search_parameters": {
+            "allow-blank-label": True,
+            "allow-label-recombination": True,
+            "allow-word-end-recombination": True,
+            "create-lattice": True,
+            "full-sum-decoding": True,
+            "label-pruning": 8.8,
+            "label-pruning-limit": 50000,
+            "recombination-lm.type": "simple-history",
+            "separate-recombination-lm": True,
+            "word-end-pruning": 0.5,
+            "word-end-pruning-limit": 5000,
+        },
+        "epochs": [210, 220, 230, 240, "best"],
+    }
+    common_args = {
+        "feature_args": feature_args,
+        "lr_args": {"dynamic_learning_rate": dynamic_learning_rate_fullsum},
+    }
+
+    nn_args, report_args_collection = get_nn_args_baseline(
+        nn_base_args={
+            "bs3k_v1_align-ctc-conf-e400": dict(
+                returnn_args={
+                    "preload_checkpoint": nn_system_stage1.train_jobs[
+                        "viterbi_scf_bs15k_v1_align-ctc-conf-e400"
+                    ].out_checkpoints[300],
+                    **returnn_args,
+                },
+                report_args={"stage": "fullsum"},
+                **common_args,
+            ),
+        },
+        num_epochs=240,
+        evaluation_epochs=[210, 220, 230, 240],
+        prefix="fullsum_scf_",
+    )
+    nn_system, report = run_nn_args(
+        nn_args,
+        report_args_collection,
+        dev_corpora["transducer"],
+        returnn_root=RETURNN_ROOT_FULLSUM,
+        recog_args=recog_args,
+    )
+    for training_name in nn_system.train_jobs:
+        nn_system.train_jobs[training_name].rqmt["gpu_mem"] = 24
+    return nn_system, report
+
+
 def py():
     """
     called if the file is passed to sis manager, used to run all experiments (replacement for main)
