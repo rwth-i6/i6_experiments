@@ -687,6 +687,7 @@ def run_scf_stage1():
     ctc_alignment = get_ctc_alignment(
         ctc_alignment_model="conformer_bs2x5k_scf_baseline_preemphasis97_wn", alignment_epoch=400
     )
+    _, nn_system_ctc = run_scf_baseline_ctc()
 
     gs.ALIAS_AND_OUTPUT_SUBDIR = "experiments/switchboard/transducer/feat/"
     _, dev_corpora, _ = get_switchboard_data()
@@ -726,8 +727,6 @@ def run_scf_stage1():
         "feature_args": feature_args,
         "lr_args": {"dynamic_learning_rate": dynamic_learning_rate_configurable},
     }
-
-    _, nn_system_ctc = run_scf_baseline_ctc()
 
     preload_dict = {
         "existing-model": {
