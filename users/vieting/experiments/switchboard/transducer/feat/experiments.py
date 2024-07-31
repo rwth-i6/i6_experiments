@@ -743,6 +743,8 @@ def run_scf_stage1():
                 "/conv_l/W": "features/conv_l/W",
                 "/conv_l_act/bias": "features/conv_l_act/bias",
                 "/conv_l_act/scale": "features/conv_l_act/scale",
+                "/wave_norm/bias": "features/wave_norm/bias",
+                "/wave_norm/scale": "features/wave_norm/scale",
             },
         }
     }
