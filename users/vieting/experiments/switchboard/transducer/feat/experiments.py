@@ -350,7 +350,7 @@ def run_scf_stage1():
         nn_base_args={
             "bs15k_align-ctc-conf-e400": dict(
                 returnn_args=returnn_args,
-                report_args={"alignment": "ctc-conf-e400"},
+                report_args={"alignment": "ctc-scf-conf-e400"},
                 **common_args,
             ),
             "bs15k_align-ctc-conf-e400_feat-ctc-e400": dict(
@@ -361,7 +361,7 @@ def run_scf_stage1():
                         "preload_from_files": preload_dict,
                     },
                 },
-                report_args={"alignment": "ctc-conf-e400"},
+                report_args={"alignment": "ctc-scf-conf-e400"},
                 **common_args,
             ),
             "bs15k_align-ctc-conf-e400_feat-ctc-e400_froozen": dict(
@@ -373,7 +373,7 @@ def run_scf_stage1():
                     },
                     "staged_opts": {1: "freeze_features"},
                 },
-                report_args={"alignment": "ctc-conf-e400"},
+                report_args={"alignment": "ctc-scf-conf-e400"},
                 **common_args,
             ),
         },
