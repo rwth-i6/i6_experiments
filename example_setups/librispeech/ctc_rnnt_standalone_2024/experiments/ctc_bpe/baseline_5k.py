@@ -1,5 +1,6 @@
-from sisyphus import tk
-
+"""
+WARNING: This baseline is highly outdated, updates coming soon
+"""
 import copy
 from dataclasses import asdict
 import numpy as np
