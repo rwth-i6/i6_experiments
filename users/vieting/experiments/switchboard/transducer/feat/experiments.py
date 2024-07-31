@@ -869,6 +869,8 @@ def run_scf_stage2():
         returnn_root=RETURNN_ROOT_FULLSUM,
         recog_args=recog_args,
     )
+    for training_name in nn_system.train_jobs:
+        nn_system.train_jobs[training_name].rqmt["gpu_mem"] = 24
     return nn_system, report
 
 
