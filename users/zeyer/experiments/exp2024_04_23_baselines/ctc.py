@@ -623,7 +623,7 @@ def py():
     for wdrop in [
         0.01,
         0.05,
-        0.1,  # 5.96
+        0.1,  # 5.96 (TODO recheck, I think the alias changed from wdrop01 to wdrop001...)
     ]:
         train_exp(
             f"v6-relPosAttDef-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2"
