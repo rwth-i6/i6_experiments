@@ -699,9 +699,15 @@ def run_scf_stage1():
         "batch_size": 15000,
         "datasets": returnn_datasets_align_ctc,
         "extra_args": {
-            # data sequence is longer by factor 4 because of subsampling and 80 because of feature extraction vs.
-            # raw waveform
-            "chunking": ({"classes": 64, "data": 64 * 4 * 80}, {"classes": 32, "data": 32 * 4 * 80}),
+            # Data sequence is longer by factor 4 because of subsampling and 80 (16 * 5 for both SCF layers
+            # respectively) because of feature extraction vs. raw waveform. Also, there are frame size - frame shift
+            # more samples at the end for each conv layer with padding "valid".
+            "chunking": (
+                {"classes": 64, "data": (64 * 4 * 16 + 40 - 16) * 5 + 128 - 5},
+                {"classes": 32, "data": 32 * 4 * 16 * 5},
+            ),
+            # There have to be (40 - 1) * 5 + 128 samples to create one feature frame. RETURNN needs -1.
+            "min_chunk_size": {"classes": 1, "data": (40 - 1) * 5 + 128 - 1},
             "gradient_clip": 20.0,
             "learning_rate_control_error_measure": "sum_dev_score",
             "min_learning_rate": 1e-6,
@@ -710,7 +716,6 @@ def run_scf_stage1():
                 "data": {"dim": 1, "dtype": "int16"},
                 "classes": {"dim": 88, "dtype": "int8", "sparse": True},
             },
-            "min_chunk_size": {"classes": 2, "data": 644},
         },
         "specaug_old": {"max_feature": 15},
     }
