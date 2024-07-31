@@ -623,12 +623,12 @@ def py():
     called if the file is passed to sis manager, used to run all experiments (replacement for main)
     """
     report_mel, _ = run_mel_baseline()
-    report_scf = run_scf_baseline()
+    report_scf, _ = run_scf_baseline()
     report_scf_specaug_sort = run_scf_specaug_sort()
 
     report_base = Report(
-        columns_start=["train_name", "wave_norm", "specaug", "lr", "batch_size"],
-        columns_end=["epoch", "recog_name", "lm", "optlm", "lm_scale", "prior_scale"],
+        columns_start=["train_name", "batch_size"],
+        columns_end=["epoch", "lm_scale", "prior_scale"],
     )
     report = Report.merge_reports(
         [

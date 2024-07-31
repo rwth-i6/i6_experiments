@@ -888,6 +888,8 @@ def py():
     _, report_mel_stage1 = run_mel_stage1()
     _, report_mel_stage2 = run_mel_stage2()
     _, report_mel_stage3 = run_mel_stage3()
+    _, report_scf_stage1 = run_scf_stage1()
+    _, report_scf_stage2 = run_scf_stage2()
 
     report_base = Report(
         columns_start=["train_name", "features", "alignment"],
@@ -900,6 +902,8 @@ def py():
             report_mel_stage1,
             report_mel_stage2,
             report_mel_stage3,
+            report_scf_stage1,
+            report_scf_stage2,
         ]
     )
     report.delete_redundant_columns()
