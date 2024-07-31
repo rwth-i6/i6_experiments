@@ -34,7 +34,9 @@ from .default_tools import (
 )
 
 
-def get_ctc_alignment(ctc_alignment_model: str = "conformer_bs10k_lgm80_baseline", alignment_epoch: int = 401) -> List[tk.Path]:
+def get_ctc_alignment(
+    ctc_alignment_model: str = "conformer_bs10k_lgm80_baseline", alignment_epoch: int = 401
+) -> List[tk.Path]:
     train_corpus, dev_corpora, _ = get_switchboard_data()
 
     # switch statement for different alignment models
@@ -289,7 +291,9 @@ def run_rasr_gt_stage1():
 
 
 def run_scf_stage1():
-    ctc_alignment = get_ctc_alignment(ctc_alignment_model="conformer_bs2x5k_scf_baseline_preemphasis97_wn", alignment_epoch=400)
+    ctc_alignment = get_ctc_alignment(
+        ctc_alignment_model="conformer_bs2x5k_scf_baseline_preemphasis97_wn", alignment_epoch=400
+    )
 
     gs.ALIAS_AND_OUTPUT_SUBDIR = "experiments/switchboard/transducer/feat/"
     _, dev_corpora, _ = get_switchboard_data()
