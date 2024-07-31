@@ -722,7 +722,7 @@ def _extract_text_seq_len_file(train_dataset: DatasetConfig, vocab_cfg: Union[st
             "word_prefix_symbol",
         }:  # ignore those here
             continue
-        if k == "class" and v in {"SentencePieces"}:
+        if k == "class" and v in {"SentencePieces", "Utf8ByteTargets"}:
             continue
         k_s = re.sub(r"(?!^)_([a-zA-Z])", lambda m: m.group(1).upper(), k)
         name_parts.append(f"{k_s}={v}")
