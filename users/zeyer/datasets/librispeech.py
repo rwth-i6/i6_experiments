@@ -691,10 +691,12 @@ def _extract_text_seq_len_file(train_dataset: DatasetConfig, vocab_cfg: Union[st
     name_parts = []
     if isinstance(vocab_cfg, str):
         name_parts.append(vocab_cfg)
-    else:
+    elif isinstance(vocab_cfg, VocabConfig):
         name_parts.append(vocab_cfg.__class__.__name__)
         for k, v in vocab_cfg.get_opts().items():
             name_parts.append(f"{k}={v}")
+    else:
+        raise TypeError(f"invalid vocab_cfg {vocab_cfg!r} type {type(vocab_cfg)}")
 
     ds_dict = train_dataset.get_train_dataset()
     # The code is semi-generic. But anyway double check for now. Later to be extended...
@@ -973,6 +975,7 @@ class LibrispeechLmDataset(DatasetConfig):
 
 
 _librispeech_lm_dataset_raw_cache = {}
+_librispeech_lm_raw_seq_lens = False
 
 
 def get_librispeech_lm_dataset(
@@ -999,6 +1002,13 @@ def get_librispeech_lm_dataset(
     # We expect that all kwargs are only relevant for the training, thus we only pass them here.
     train_dataset = LibrispeechLmDataset(vocab=vocab, **opts)
     _extract_text_seq_len_file(train_dataset, vocab_, name="lm_text")
+
+    global _librispeech_lm_raw_seq_lens
+    if not _librispeech_lm_raw_seq_lens:
+        from i6_experiments.users.zeyer.datasets.utils.bytes import Utf8BytesVocab
+
+        _librispeech_lm_raw_seq_lens = True
+        _extract_text_seq_len_file(LibrispeechLmDataset(vocab=Utf8BytesVocab()), vocab_cfg="utf8bytes", name="lm_text")
 
     _librispeech_lm_dataset_raw_cache[cache_key] = train_dataset
     return train_dataset
