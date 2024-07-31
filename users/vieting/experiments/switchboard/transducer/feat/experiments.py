@@ -486,8 +486,6 @@ def run_scf_stage2():
         "rasr_loss_args": {"transducer_training_stage": "fullsum"},
         "conformer_args": {"dropout": 0.25, "batch_norm_freeze": True},
     }
-    returnn_args_keep_hash = copy.deepcopy(returnn_args)
-    returnn_args_keep_hash["extra_args"]["learning_rate_control_error_measure"] = "sum_dev_score"
     feature_args = {
         "class": "ScfNetwork",
         "size_tf": 256 // 2,
