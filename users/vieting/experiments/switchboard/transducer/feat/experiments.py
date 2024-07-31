@@ -290,105 +290,6 @@ def run_rasr_gt_stage1():
     return nn_system, report
 
 
-def run_scf_stage1():
-    ctc_alignment = get_ctc_alignment(
-        ctc_alignment_model="conformer_bs2x5k_scf_baseline_preemphasis97_wn", alignment_epoch=400
-    )
-
-    gs.ALIAS_AND_OUTPUT_SUBDIR = "experiments/switchboard/transducer/feat/"
-    _, dev_corpora, _ = get_switchboard_data()
-    returnn_datasets_align_ctc = get_returnn_datasets_transducer_viterbi(
-        alignment=ctc_alignment,
-        features="waveform_pcm",
-    )
-    returnn_args = {
-        "batch_size": 15000,
-        "datasets": returnn_datasets_align_ctc,
-        "extra_args": {
-            # data sequence is longer by factor 4 because of subsampling and 80 because of feature extraction vs.
-            # raw waveform
-            "chunking": ({"classes": 64, "data": 64 * 4 * 80}, {"classes": 32, "data": 32 * 4 * 80}),
-            "gradient_clip": 20.0,
-            "learning_rate_control_error_measure": "sum_dev_score",
-            "min_learning_rate": 1e-6,
-            "learning_rate_n_step": 2650,
-            "extern_data": {
-                "data": {"dim": 1, "dtype": "int16"},
-                "classes": {"dim": 88, "dtype": "int8", "sparse": True},
-            },
-            "min_chunk_size": {"classes": 2, "data": 644},
-        },
-        "specaug_old": {"max_feature": 15},
-    }
-
-    feature_args = {
-        "class": "ScfNetwork",
-        "size_tf": 256 // 2,
-        "stride_tf": 10 // 2,
-        "preemphasis": 0.97,
-        "wave_norm": True,
-        "wave_cast": True,
-    }
-    common_args = {
-        "feature_args": feature_args,
-        "lr_args": {"dynamic_learning_rate": dynamic_learning_rate_configurable},
-    }
-
-    _, nn_system_ctc = run_scf_baseline_ctc()
-
-    preload_dict = {
-        "existing-model": {
-            "filename": nn_system_ctc.train_jobs["conformer_bs2x5k_scf_baseline_preemphasis97_wn"].out_checkpoints[400],
-            "init_for_train": True,
-            "prefix": "features",
-            "var_name_mapping": {
-                "/conv_h_filter/conv_h_filter": "features/conv_h_filter/conv_h_filter",
-                "/conv_l/W": "features/conv_l/W",
-                "/conv_l_act/bias": "features/conv_l_act/bias",
-                "/conv_l_act/scale": "features/conv_l_act/scale",
-            },
-        }
-    }
-
-    nn_args, report_args_collection = get_nn_args_baseline(
-        nn_base_args={
-            "bs15k_align-ctc-conf-e400": dict(
-                returnn_args=returnn_args,
-                report_args={"alignment": "ctc-scf-conf-e400"},
-                **common_args,
-            ),
-            "bs15k_align-ctc-conf-e400_feat-ctc-e400": dict(
-                returnn_args={
-                    **returnn_args,
-                    "extra_args": {
-                        **returnn_args["extra_args"],
-                        "preload_from_files": preload_dict,
-                    },
-                },
-                report_args={"alignment": "ctc-scf-conf-e400"},
-                **common_args,
-            ),
-            "bs15k_align-ctc-conf-e400_feat-ctc-e400_froozen": dict(
-                returnn_args={
-                    **returnn_args,
-                    "extra_args": {
-                        **returnn_args["extra_args"],
-                        "preload_from_files": preload_dict,
-                    },
-                    "staged_opts": {1: "freeze_features"},
-                },
-                report_args={"alignment": "ctc-scf-conf-e400"},
-                **common_args,
-            ),
-        },
-        num_epochs=300,
-        evaluation_epochs=[270, 280, 290, 300],
-        prefix="viterbi_scf_",
-    )
-    nn_system, report = run_nn_args(nn_args, report_args_collection, dev_corpora["transducer"])
-    return nn_system, report
-
-
 def run_mel_stage1():
     ctc_alignment = get_ctc_alignment()
 
@@ -779,6 +680,105 @@ def run_mel_stage3():
         returnn_root=RETURNN_ROOT_FULLSUM,
         recog_args=recog_args,
     )
+    return nn_system, report
+
+
+def run_scf_stage1():
+    ctc_alignment = get_ctc_alignment(
+        ctc_alignment_model="conformer_bs2x5k_scf_baseline_preemphasis97_wn", alignment_epoch=400
+    )
+
+    gs.ALIAS_AND_OUTPUT_SUBDIR = "experiments/switchboard/transducer/feat/"
+    _, dev_corpora, _ = get_switchboard_data()
+    returnn_datasets_align_ctc = get_returnn_datasets_transducer_viterbi(
+        alignment=ctc_alignment,
+        features="waveform_pcm",
+    )
+    returnn_args = {
+        "batch_size": 15000,
+        "datasets": returnn_datasets_align_ctc,
+        "extra_args": {
+            # data sequence is longer by factor 4 because of subsampling and 80 because of feature extraction vs.
+            # raw waveform
+            "chunking": ({"classes": 64, "data": 64 * 4 * 80}, {"classes": 32, "data": 32 * 4 * 80}),
+            "gradient_clip": 20.0,
+            "learning_rate_control_error_measure": "sum_dev_score",
+            "min_learning_rate": 1e-6,
+            "learning_rate_n_step": 2650,
+            "extern_data": {
+                "data": {"dim": 1, "dtype": "int16"},
+                "classes": {"dim": 88, "dtype": "int8", "sparse": True},
+            },
+            "min_chunk_size": {"classes": 2, "data": 644},
+        },
+        "specaug_old": {"max_feature": 15},
+    }
+
+    feature_args = {
+        "class": "ScfNetwork",
+        "size_tf": 256 // 2,
+        "stride_tf": 10 // 2,
+        "preemphasis": 0.97,
+        "wave_norm": True,
+        "wave_cast": True,
+    }
+    common_args = {
+        "feature_args": feature_args,
+        "lr_args": {"dynamic_learning_rate": dynamic_learning_rate_configurable},
+    }
+
+    _, nn_system_ctc = run_scf_baseline_ctc()
+
+    preload_dict = {
+        "existing-model": {
+            "filename": nn_system_ctc.train_jobs["conformer_bs2x5k_scf_baseline_preemphasis97_wn"].out_checkpoints[400],
+            "init_for_train": True,
+            "prefix": "features",
+            "var_name_mapping": {
+                "/conv_h_filter/conv_h_filter": "features/conv_h_filter/conv_h_filter",
+                "/conv_l/W": "features/conv_l/W",
+                "/conv_l_act/bias": "features/conv_l_act/bias",
+                "/conv_l_act/scale": "features/conv_l_act/scale",
+            },
+        }
+    }
+
+    nn_args, report_args_collection = get_nn_args_baseline(
+        nn_base_args={
+            "bs15k_align-ctc-conf-e400": dict(
+                returnn_args=returnn_args,
+                report_args={"alignment": "ctc-scf-conf-e400"},
+                **common_args,
+            ),
+            "bs15k_align-ctc-conf-e400_feat-ctc-e400": dict(
+                returnn_args={
+                    **returnn_args,
+                    "extra_args": {
+                        **returnn_args["extra_args"],
+                        "preload_from_files": preload_dict,
+                    },
+                },
+                report_args={"alignment": "ctc-scf-conf-e400"},
+                **common_args,
+            ),
+            "bs15k_align-ctc-conf-e400_feat-ctc-e400_froozen": dict(
+                returnn_args={
+                    **returnn_args,
+                    "extra_args": {
+                        **returnn_args["extra_args"],
+                        "preload_from_files": preload_dict,
+                    },
+                    "staged_opts": {1: "freeze_features"},
+                },
+                report_args={"alignment": "ctc-scf-conf-e400"},
+                **common_args,
+            ),
+        },
+        num_epochs=300,
+        evaluation_epochs=[270, 280, 290, 300],
+        prefix="viterbi_scf_",
+    )
+    nn_system, report = run_nn_args(nn_args, report_args_collection, dev_corpora["transducer"])
     return nn_system, report
 
 
