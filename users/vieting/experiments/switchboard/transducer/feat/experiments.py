@@ -818,7 +818,8 @@ def run_scf_stage2():
                 "label-scorer-type": "tf-ffnn-transducer",
                 "max-batch-size": 256,
                 "reduction-factors": 80 * 4,
-                "reduction-subtrahend": 200 - 1,  # STFT window size - 1
+                # There have to be (40 - 1) * 5 + 128 samples to create one feature frame. RETURNN needs -1.
+                "reduction-subtrahend": (40 - 1) * 5 + 128 - 1, 
                 "start-label-index": 89,
                 "transform-output-negate": True,
                 "use-start-label": True,
