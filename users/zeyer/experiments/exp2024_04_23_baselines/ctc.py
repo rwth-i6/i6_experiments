@@ -595,9 +595,11 @@ def py():
 
     # Variational noise / weight noise (vn0025 etc).
     for vn in [
-        0.001,
+        # Baseline: 5.77
+        0.0005,
+        0.001,  # 5.79
         0.0025,  # 5.91 (so worse on dev-other, but it's better on test-other)
-        0.01,
+        0.01,  # 5.86
     ]:
         train_exp(
             "v6-relPosAttDef-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2"
