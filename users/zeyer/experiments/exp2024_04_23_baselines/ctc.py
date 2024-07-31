@@ -644,30 +644,39 @@ def py():
         )
 
     # Log prob normed gradient (lpNormedGrad)
-    train_exp(  # 5.71 (!!!) (i.e. better than without)
-        "v6-relPosAttDef-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-featBN"
-        "-speedpertV2-spm10k-bpeSample001-lpNormedGrad",
-        config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
-        model_config={
-            "enc_conformer_layer": enc_conformer_layer_default,
-            "feature_batch_norm": True,
+    for name, opts in {
+        # 5.71 (!!!) (i.e. better than without)
+        "C05_11P1": {"func": {"clamp_min": 0.5, "clamp_max": 1.1, "scale_type": "inv_num_labels", "prior_exp": 1.0}},
+        "C05_11P1Seq": {
+            "prior": "seq_grad",
+            "func": {"clamp_min": 0.5, "clamp_max": 1.1, "scale_type": "inv_num_labels", "prior_exp": 1.0},
         },
-        config_updates={
-            **_get_cfg_lrlin_oclr_by_bs_nep(15_000, 500),
-            "optimizer.weight_decay": 1e-2,
-            "__train_audio_preprocess": speed_pert_librosa_config,
-            "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
-            "aux_attention_decoder": rf.build_dict(TransformerDecoder, num_layers=6),  # purely used for training
-            "log_prob_normed_grad": {
-                "func": {"clamp_min": 0.5, "clamp_max": 1.1, "scale_type": "inv_num_labels", "prior_exp": 1.0}
+        "C05_11P07": {"func": {"clamp_min": 0.5, "clamp_max": 1.1, "scale_type": "inv_num_labels", "prior_exp": 0.7}},
+    }.items():
+        train_exp(
+            "v6-relPosAttDef-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-featBN"
+            f"-speedpertV2-spm10k-bpeSample001-lpNormedGrad{name}",
+            config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
+            model_config={
+                "enc_conformer_layer": enc_conformer_layer_default,
+                "feature_batch_norm": True,
             },
-        },
-        vocab="spm10k",
-        train_vocab_opts={"other_opts": {"class": "SamplingBytePairEncoding", "breadth_prob": 0.01}},
-        epilog=[
-            serialization.NonhashedCode(f"sys.path.append({gs.BASE_DIR + '/projects/2024-alignment-analysis'!r})\n")
-        ],
-    )
+            config_updates={
+                **_get_cfg_lrlin_oclr_by_bs_nep(15_000, 500),
+                "optimizer.weight_decay": 1e-2,
+                "__train_audio_preprocess": speed_pert_librosa_config,
+                "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
+                "aux_attention_decoder": rf.build_dict(TransformerDecoder, num_layers=6),  # purely used for training
+                # See _maybe_apply_log_probs_normed_grad below.
+                # func are opts for NormedGradientFuncInvPrior, other opts are for normed_gradient.
+                "log_prob_normed_grad": opts,
+            },
+            vocab="spm10k",
+            train_vocab_opts={"other_opts": {"class": "SamplingBytePairEncoding", "breadth_prob": 0.01}},
+            epilog=[
+                serialization.NonhashedCode(f"sys.path.append({gs.BASE_DIR + '/projects/2024-alignment-analysis'!r})\n")
+            ],
+        )
 
     # Log prob normed gradient (lpNormedGrad) with blank separated (blankSep)
     train_exp(  # 6.05 (so lpNormedGrad is worse here, but specifically in combination with blankSep?)
