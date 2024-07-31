@@ -38,10 +38,10 @@ def get_ctc_alignment(ctc_alignment_model: str = "conformer_bs10k_lgm80_baseline
     train_corpus, dev_corpora, _ = get_switchboard_data()
 
     # switch statement for different alignment models
-    if "scf" in ctc_alignment_model:
-        _, ctc_nn_system = run_scf_baseline_ctc()
-    elif "mel" in ctc_alignment_model:
+    if "mel" in ctc_alignment_model or "lgm" in ctc_alignment_model:
         _, ctc_nn_system = run_mel_baseline_ctc()
+    elif "scf" in ctc_alignment_model:
+        _, ctc_nn_system = run_scf_baseline_ctc()
     else:
         raise ValueError(f"Unknown ctc_alignment_model: {ctc_alignment_model}")
 
