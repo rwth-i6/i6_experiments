@@ -856,7 +856,7 @@ def run_scf_stage2():
             "bs3k_v1_align-ctc-conf-e400": dict(
                 returnn_args={
                     "preload_checkpoint": nn_system_stage1.train_jobs[
-                        "viterbi_scf_bs15k_v1_align-ctc-conf-e400"
+                        "viterbi_scf_bs15k_align-ctc-conf-e400"
                     ].out_checkpoints[300],
                     **returnn_args,
                 },
