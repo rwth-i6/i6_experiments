@@ -11,6 +11,7 @@ from i6_experiments.users.berger.helpers.hdf import build_hdf_from_alignment
 from i6_experiments.users.vieting.util.returnn import iterate_returnn_datasets
 from i6_experiments.users.vieting.experiments.switchboard.ctc.feat.experiments import (
     run_mel_baseline as run_mel_baseline_ctc,
+    run_scf_baseline as run_scf_baseline_ctc,
 )
 from i6_experiments.users.vieting.experiments.switchboard.ctc.feat.transducer_system_v2 import (
     TransducerSystem,
@@ -21,6 +22,7 @@ from i6_experiments.users.vieting.experiments.switchboard.ctc.feat.transducer_sy
 from .data import get_switchboard_data, get_returnn_datasets_transducer_viterbi
 from .baseline_args import get_nn_args as get_nn_args_baseline
 from .helpers.lr.oclr import dynamic_learning_rate
+from .helpers.lr.oclr_configurable import dynamic_learning_rate as dynamic_learning_rate_configurable
 from .helpers.lr.fullsum import dynamic_learning_rate as dynamic_learning_rate_fullsum
 from .default_tools import (
     RASR_BINARY_PATH,
@@ -32,9 +34,17 @@ from .default_tools import (
 )
 
 
-def get_ctc_alignment() -> List[tk.Path]:
+def get_ctc_alignment(ctc_alignment_model: str = "conformer_bs10k_lgm80_baseline", alignment_epoch: int = 401) -> List[tk.Path]:
     train_corpus, dev_corpora, _ = get_switchboard_data()
-    _, ctc_nn_system = run_mel_baseline_ctc()
+
+    # switch statement for different alignment models
+    if "mel" in ctc_alignment_model or "lgm" in ctc_alignment_model:
+        _, ctc_nn_system = run_mel_baseline_ctc()
+    elif "scf" in ctc_alignment_model:
+        _, ctc_nn_system = run_scf_baseline_ctc()
+    else:
+        raise ValueError(f"Unknown ctc_alignment_model: {ctc_alignment_model}")
+
     am_args = {
         "state_tying": "monophone",
         "states_per_phone": 1,
@@ -44,7 +54,8 @@ def get_ctc_alignment() -> List[tk.Path]:
         "phon_future_length": 0,
     }
     align_args = {
-        "epochs": [401],
+        "epochs": [alignment_epoch],
+        "train_exp_name": ctc_alignment_model,
         "lm_scales": [0.7],
         "prior_scales": [0.3],
         "use_gpu": False,
@@ -75,7 +86,7 @@ def get_ctc_alignment() -> List[tk.Path]:
     ctc_nn_system.base_crp.set_executables(rasr_binary_path=ctc_nn_system.rasr_binary_path)
     ctc_nn_system.run_align_step(align_args)
     alignment = build_hdf_from_alignment(
-        alignment_cache=ctc_nn_system.alignments["train"].alternatives["bundle"],
+        alignment_cache=ctc_nn_system.alignments["train"][ctc_alignment_model].alternatives["bundle"],
         allophone_file=allophone_file,
         state_tying_file=state_tying_job,
         silence_phone="<blank>",
@@ -274,6 +285,103 @@ def run_rasr_gt_stage1():
         prefix="viterbi_rasrgt_",
     )
     nn_system, report = run_nn_args(nn_args, report_args_collection, dev_corpora["transducer"], recog_args=recog_args)
+    return nn_system, report
+
+
+def run_scf_stage1():
+    ctc_alignment = get_ctc_alignment(ctc_alignment_model="conformer_bs2x5k_scf_baseline_preemphasis97_wn", alignment_epoch=400)
+
+    gs.ALIAS_AND_OUTPUT_SUBDIR = "experiments/switchboard/transducer/feat/"
+    _, dev_corpora, _ = get_switchboard_data()
+    returnn_datasets_align_ctc = get_returnn_datasets_transducer_viterbi(
+        alignment=ctc_alignment,
+        features="waveform_pcm",
+    )
+    returnn_args = {
+        "batch_size": 15000,
+        "datasets": returnn_datasets_align_ctc,
+        "extra_args": {
+            # data sequence is longer by factor 4 because of subsampling and 80 because of feature extraction vs.
+            # raw waveform
+            "chunking": ({"classes": 64, "data": 64 * 4 * 80}, {"classes": 32, "data": 32 * 4 * 80}),
+            "gradient_clip": 20.0,
+            "learning_rate_control_error_measure": "sum_dev_score",
+            "min_learning_rate": 1e-6,
+            "learning_rate_n_step": 2650,
+            "extern_data": {
+                "data": {"dim": 1, "dtype": "int16"},
+                "classes": {"dim": 88, "dtype": "int8", "sparse": True},
+            },
+            "min_chunk_size": {"classes": 2, "data": 644},
+        },
+        "specaug_old": {"max_feature": 15},
+    }
+
+    feature_args = {
+        "class": "ScfNetwork",
+        "size_tf": 256 // 2,
+        "stride_tf": 10 // 2,
+        "preemphasis": 0.97,
+        "wave_norm": True,
+        "wave_cast": True,
+    }
+    common_args = {
+        "feature_args": feature_args,
+        "lr_args": {"dynamic_learning_rate": dynamic_learning_rate_configurable},
+    }
+
+    _, nn_system_ctc = run_scf_baseline_ctc()
+
+    preload_dict = {
+        "existing-model": {
+            "filename": nn_system_ctc.train_jobs["conformer_bs2x5k_scf_baseline_preemphasis97_wn"].out_checkpoints[400],
+            "init_for_train": True,
+            "prefix": "features",
+            "var_name_mapping": {
+                "/conv_h_filter/conv_h_filter": "features/conv_h_filter/conv_h_filter",
+                "/conv_l/W": "features/conv_l/W",
+                "/conv_l_act/bias": "features/conv_l_act/bias",
+                "/conv_l_act/scale": "features/conv_l_act/scale",
+            },
+        }
+    }
+
+    nn_args, report_args_collection = get_nn_args_baseline(
+        nn_base_args={
+            "bs15k_align-ctc-conf-e400": dict(
+                returnn_args=returnn_args,
+                report_args={"alignment": "ctc-scf-conf-e400"},
+                **common_args,
+            ),
+            "bs15k_align-ctc-conf-e400_feat-ctc-e400": dict(
+                returnn_args={
+                    **returnn_args,
+                    "extra_args": {
+                        **returnn_args["extra_args"],
+                        "preload_from_files": preload_dict,
+                    },
+                },
+                report_args={"alignment": "ctc-scf-conf-e400"},
+                **common_args,
+            ),
+            "bs15k_align-ctc-conf-e400_feat-ctc-e400_froozen": dict(
+                returnn_args={
+                    **returnn_args,
+                    "extra_args": {
+                        **returnn_args["extra_args"],
+                        "preload_from_files": preload_dict,
+                    },
+                    "staged_opts": {1: "freeze_features"},
+                },
+                report_args={"alignment": "ctc-scf-conf-e400"},
+                **common_args,
+            ),
+        },
+        num_epochs=300,
+        evaluation_epochs=[270, 280, 290, 300],
+        prefix="viterbi_scf_",
+    )
+    nn_system, report = run_nn_args(nn_args, report_args_collection, dev_corpora["transducer"])
     return nn_system, report
 
 

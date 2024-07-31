@@ -233,6 +233,18 @@ def run_scf_baseline():
                 lr_args=lr_args,
                 report_args={"batch_size": "2x5k"},
             ),
+            "bs2x5k_scf_baseline_preemphasis97_wn": dict(
+                returnn_args=returnn_args,
+                feature_args= {**feature_args, "preemphasis": 0.97, "wave_norm": True},
+                lr_args=lr_args,
+                report_args={"batch_size": "2x5k"},
+            ),
+            "bs2x5k_scf_baseline_preemphasis97": dict(
+                returnn_args=returnn_args,
+                feature_args= {**feature_args, "preemphasis": 0.97},
+                lr_args=lr_args,
+                report_args={"batch_size": "2x5k"},
+            ),
             "bs7k_scf_baseline": dict(
                 returnn_args={
                     **returnn_args,
@@ -261,7 +273,7 @@ def run_scf_baseline():
         returnn_root=returnn_root,
         recog_args={"epochs": [350, 400, 450, "best"]},
     )
-    return report
+    return report, ctc_nn_system
 
 
 def run_scf_audio_perturbation():
