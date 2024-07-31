@@ -34,7 +34,7 @@ from .default_tools import (
 )
 
 
-def get_ctc_alignment(ctc_alignment_model: str = "conformer_bs5k_lgm80_baseline", alignment_epoch: int = 401) -> List[tk.Path]:
+def get_ctc_alignment(ctc_alignment_model: str = "conformer_bs10k_lgm80_baseline", alignment_epoch: int = 401) -> List[tk.Path]:
     train_corpus, dev_corpora, _ = get_switchboard_data()
 
     # switch statement for different alignment models
