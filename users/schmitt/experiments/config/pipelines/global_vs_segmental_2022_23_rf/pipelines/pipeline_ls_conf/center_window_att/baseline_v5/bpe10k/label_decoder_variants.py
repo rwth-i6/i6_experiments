@@ -120,5 +120,4 @@ def run_exps():
             config_builder=config_builder,
             checkpoint=chckpt,
             checkpoint_aliases=(f"epoch-{epoch}",),
-            run_analysis=True
           )
