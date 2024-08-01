@@ -387,8 +387,9 @@ def py():
         ("spm10k", None, None),  # 6.00
         # TODO ("spm10k", "spm", 0.8),
         ("spm10k", "spm", 0.7),  # 6.20
-        ("spm10k", "bpe", 0.005),
-        ("spm10k", "bpe", 0.01),  # 5.93 (!!)
+        ("spm10k", "bpe", 0.001),
+        ("spm10k", "bpe", 0.005),  # 5.89 (!!)
+        ("spm10k", "bpe", 0.01),  # 5.93
         ("spm_bpe10k", None, None),  # 6.33
         ("spm_bpe10k", "spm", 1e-4),  # 6.26
         # TODO ("spm_bpe10k", "bpe", 0.005),
@@ -405,7 +406,7 @@ def py():
         ("spm_bpe1k", None, None),  # 6.03
         ("spm_bpe1k", "bpe", 0.01),  # 6.05
         ("spm512", None, None),  # 6.08
-        ("spm512", "bpe", 0.001),
+        ("spm512", "bpe", 0.001),  # 6.05
         ("spm512", "bpe", 0.005),  # 6.01
         ("spm512", "bpe", 0.01),  # 6.08 (but test-* is better than spm512 without sampling)
         ("spm128", None, None),  # 6.37
@@ -621,8 +622,9 @@ def py():
 
     # Weight dropout (wdrop01 etc).
     for wdrop in [
+        0.001,
         0.01,
-        0.05,
+        0.05,  # 7.33 ??
         0.1,  # 5.96 (TODO recheck, I think the alias changed from wdrop01 to wdrop001...)
     ]:
         train_exp(
