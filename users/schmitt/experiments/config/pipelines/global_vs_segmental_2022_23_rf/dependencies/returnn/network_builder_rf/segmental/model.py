@@ -460,10 +460,26 @@ def _returnn_v2_get_model(*, epoch: int, **_kwargs_unused):
   extern_data_dict = config.typed_value("extern_data")
   non_blank_vocab = config.typed_value("non_blank_vocab")
   data = Tensor(name=default_input_key, **extern_data_dict[default_input_key])
-  targets = Tensor(name=default_target_key, **extern_data_dict[default_target_key])
 
   align_target_dim = config.typed_value("align_target_dim", None)
   non_blank_target_dim = config.typed_value("non_blank_target_dim", None)
+
+  # if dim tags are not given, maybe dimensions (integers) are given. then we can create the dim tags here.
+  if align_target_dim is None:
+    align_target_dimension = config.int("align_target_dimension", None)
+    if align_target_dimension:
+      align_target_dim = Dim(
+        description="align_target_dim", dimension=align_target_dimension, kind=Dim.Types.Spatial)
+  if non_blank_target_dim is None:
+    non_blank_target_dimension = config.int("non_blank_target_dimension", None)
+    if non_blank_target_dimension:
+      non_blank_target_dim = Dim(
+        description="non_blank_target_dim", dimension=non_blank_target_dimension, kind=Dim.Types.Spatial)
+
+  if default_target_key in extern_data_dict:
+    targets = Tensor(name=default_target_key, **extern_data_dict[default_target_key])
+  else:
+    assert align_target_dim is not None or non_blank_target_dim is not None
 
   if align_target_dim is None:
     if non_blank_target_dim is None:
@@ -515,9 +531,17 @@ def _returnn_v2_get_joint_model(*, epoch: int, **_kwargs_unused):
   default_target_key = config.typed_value("target")
   extern_data_dict = config.typed_value("extern_data")
   data = Tensor(name=default_input_key, **extern_data_dict[default_input_key])
-  targets = Tensor(name=default_target_key, **extern_data_dict[default_target_key])
-
   non_blank_vocab = config.typed_value("non_blank_vocab")
+
+  if default_target_key in extern_data_dict:
+    targets = Tensor(name=default_target_key, **extern_data_dict[default_target_key])
+  else:
+    align_target_dimension = config.int("align_target_dimension", None)
+    assert align_target_dimension
+    align_target_dim = Dim(
+      description="align_target_dim", dimension=align_target_dimension, kind=Dim.Types.Spatial)
+    targets = Tensor(name=default_target_key, sparse_dim=align_target_dim)
+
   if non_blank_vocab is not None:
     targets.sparse_dim.vocab = BytePairEncoding(**non_blank_vocab)
 

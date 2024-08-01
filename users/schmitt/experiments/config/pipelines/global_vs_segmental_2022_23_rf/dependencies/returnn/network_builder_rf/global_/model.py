@@ -304,7 +304,15 @@ def _returnn_v2_get_model(*, epoch: int, **_kwargs_unused):
   default_target_key = config.typed_value("target")
   extern_data_dict = config.typed_value("extern_data")
   data = Tensor(name=default_input_key, **extern_data_dict[default_input_key])
-  targets = Tensor(name=default_target_key, **extern_data_dict[default_target_key])
+
+  if default_target_key in extern_data_dict:
+    targets = Tensor(name=default_target_key, **extern_data_dict[default_target_key])
+  else:
+    non_blank_target_dimension = config.typed_value("non_blank_target_dimension", None)
+    vocab = config.typed_value("vocab", None)
+    assert non_blank_target_dimension and vocab
+    target_dim = Dim(description="non_blank_target_dim", dimension=non_blank_target_dimension, kind=Dim.Types.Spatial)
+    targets = Tensor(name=default_target_key, sparse_dim=target_dim, vocab=vocab)
 
   model_def = config.typed_value("_model_def")
   model = model_def(epoch=epoch, in_dim=data.feature_dim, target_dim=targets.sparse_dim)

@@ -220,6 +220,25 @@ class ConfigBuilderRF(ABC):
     extern_data_raw = self.get_extern_data_dict(dataset_opts, config_dict)
     extern_data_raw = instanciate_delayed(extern_data_raw)
 
+    if dataset_opts.get("remove_targets_from_extern_data", False):
+      # remove targets from extern_data and instead insert the dimension (integer) and the vocab separately
+      # into the config dict. the corresponding dim_tags are then build in the get_model function.
+      target_sparse_dim = extern_data_raw["targets"]["sparse_dim"]
+      targets_vocab = extern_data_raw["targets"].get("vocab", None)
+      del extern_data_raw["targets"]
+
+      if isinstance(self, GlobalAttConfigBuilderRF):
+        dim_tag_name = "non_blank_target_dimension"
+      else:
+        if dataset_opts["target_is_alignment"]:
+          dim_tag_name = "align_target_dimension"
+        else:
+          dim_tag_name = "non_blank_target_dimension"
+
+      config_dict[dim_tag_name] = target_sparse_dim.dimension
+      if targets_vocab is not None:
+        config_dict["vocab"] = targets_vocab
+
     config_dict["batch_size"] = opts.get("batch_size", 15_000) * self.batch_size_factor
 
     config_dict["beam_search_opts"] = {
@@ -780,6 +799,21 @@ class ConfigBuilderRF(ABC):
   def batch_size_factor(self):
     raise NotImplementedError
 
+  def get_vocab_dict_for_tensor(self):
+    if self.variant_params["dependencies"].bpe_codes_path is None:
+      return {
+        "model_file": self.variant_params["dependencies"].model_path,
+        "class": "SentencePieces",
+      }
+    else:
+      return {
+        "bpe_file": self.variant_params["dependencies"].bpe_codes_path,
+        "vocab_file": self.variant_params["dependencies"].vocab_path,
+        "unknown_label": None,
+        "bos_label": self.variant_params["dependencies"].model_hyperparameters.sos_idx,
+        "eos_label": self.variant_params["dependencies"].model_hyperparameters.sos_idx,
+      }
+
 
 class LibrispeechConformerConfigBuilderRF(ConfigBuilderRF, ABC):
   @property
@@ -916,19 +950,7 @@ class SegmentalAttConfigBuilderRF(ConfigBuilderRF, ABC):
   def get_recog_config(self, opts: Dict):
     recog_config = super(SegmentalAttConfigBuilderRF, self).get_recog_config(opts)
 
-    if self.variant_params["dependencies"].bpe_codes_path is None:
-      recog_config.config["non_blank_vocab"] = {
-        "model_file": self.variant_params["dependencies"].model_path,
-        "class": "SentencePieces",
-      }
-    else:
-      recog_config.config["non_blank_vocab"] = {
-        "bpe_file": self.variant_params["dependencies"].bpe_codes_path,
-        "vocab_file": self.variant_params["dependencies"].vocab_path,
-        "unknown_label": None,
-        "bos_label": self.variant_params["dependencies"].model_hyperparameters.sos_idx,
-        "eos_label": self.variant_params["dependencies"].model_hyperparameters.sos_idx,
-      }
+    recog_config.config["non_blank_vocab"] = self.get_vocab_dict_for_tensor()
 
     use_recombination = opts.get("use_recombination")
     if use_recombination is not None:
@@ -941,7 +963,7 @@ class SegmentalAttConfigBuilderRF(ConfigBuilderRF, ABC):
           "subtract_ilm_eos_score": True,
         })
 
-    if opts["reset_eos_params"]:
+    if opts.pop("reset_eos_params", False):
       recog_config.config["reset_eos_params"] = True
       # recog_config.config["preload_from_files"].update({
       #   "prefix": "do_not_load_",
