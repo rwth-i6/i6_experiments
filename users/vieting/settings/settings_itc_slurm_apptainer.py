@@ -11,7 +11,7 @@ import os.path
 CONTAINER_MODE = "apptainer"
 
 # local path or e.g. docker registry image path
-CONTAINER_IMAGE = "/home/pv653172/setups/librispeech/20230328_wav2vec2/dependencies/u22_torch1.13_fairseq.sif"
+CONTAINER_IMAGE = "/home/pv653172/setups/librispeech/20230328_wav2vec2/dependencies/u22_torch24.sif"
 
 # file systems to bind in a "<source_path>:<target_path>" format
 CONTAINER_BINDS = [
@@ -240,8 +240,6 @@ def worker_wrapper(job, task_name, call):
     if isinstance(e, EngineSelector):
         e = engine().get_used_engine_by_rqmt(t.rqmt())
     if isinstance(e, LocalEngine):
-        print(f"running ${' '.join(call)}")
         return call
     else:
-        print(f"running ${' '.join(command)}")
         return command
