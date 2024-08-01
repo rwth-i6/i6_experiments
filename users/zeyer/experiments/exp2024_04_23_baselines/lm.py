@@ -42,7 +42,7 @@ def py():
         config=dict_update_deep(
             config_11gb_lm_v1,
             {
-                **_get_cfg_lrlin_oclr_by_bs_nep(200, 10_000, 100),  # TODO...
+                **_get_cfg_lrlin_oclr_incomplete(200, 10_000, 100),
                 "learning_rate_piecewise_steps": [561_600, 1_123_200, 1_248_000],  # wrongLr
             },
         ),
@@ -59,7 +59,7 @@ def py():
     )
 
     train(
-        "lm/trafo-n12-d512-gelu-drop0-b200_10k-wrongLr",
+        "lm/trafo-n12-d512-gelu-drop0-b200_10k_v2",
         config=dict_update_deep(
             config_11gb_lm_v1,
             {**_get_cfg_lrlin_oclr_by_bs_nep_v2(200, 10_000, 100)},
@@ -87,8 +87,8 @@ def py():
         config=dict_update_deep(
             config_11gb_lm_v1,
             {
-                **_get_cfg_lrlin_oclr_by_bs_nep(32, 2_000, 100),
-                "learning_rate_piecewise_steps": [2_808_000, 5_616_000, 6_240_000],  # wrongLr (but not too wrong)
+                **_get_cfg_lrlin_oclr_incomplete(32, 2_000, 100),
+                "learning_rate_piecewise_steps": [2_808_000, 5_616_000, 6_240_000],  # wrongLr
             },
         ),
         train_dataset=get_librispeech_lm_dataset(vocab="spm10k"),
@@ -128,10 +128,13 @@ def py():
     )
 
     train(
-        "lm/trafo-n48-d512-gelu-drop0-b32_2k",
+        "lm/trafo-n48-d512-gelu-drop0-b32_2k-wrongLr",
         config=dict_update_deep(
             config_11gb_lm_v1,
-            {**_get_cfg_lrlin_oclr_by_bs_nep(32, 2_000, 100)},
+            {
+                **_get_cfg_lrlin_oclr_incomplete(32, 2_000, 100),
+                "learning_rate_piecewise_steps": [2_832_000, 5_665_000, 6_295_000],  # wrongLr
+            },
         ),
         train_dataset=get_librispeech_lm_dataset(vocab="spm10k"),
         model_def=ModelDefWithCfg(
@@ -180,7 +183,7 @@ def py():
         config=dict_update_deep(
             config_11gb_lm_v1,
             {
-                **_get_cfg_lrlin_oclr_by_bs_nep(32, 1_000, 100),  # TODO?
+                **_get_cfg_lrlin_oclr_incomplete(32, 1_000, 100),
                 "learning_rate_piecewise_steps": [561_600 // 5, 1_123_200 // 5, 1_248_000 // 5],  # wrongLr
             },
         ),
@@ -299,23 +302,6 @@ lm_train_def: TrainDef
 lm_train_def.learning_rate_control_error_measure = "ce"
 
 
-# By batch size and num (sub)epochs.
-# See also in .configs.
-# If the dict is missing some entry,
-# unfortunately there is currently no good automatic way to get the number.
-# I need to log at the stats of some setup with this batch size.
-# I just run some setup with some arbitrary LR scheduling (calling it "wrongLr"),
-# or maybe with sqrt-decay, and then look at the stats (steps/ep, or total num steps),
-# and give some estimates for the steps here, i.e. 45%, 90%, almost 100%,
-# making sure the last number is slightly below the real total number of steps.
-_lrlin_oclr_steps_by_bs_nep = {
-    (32, 1_000, 100): ...,  # TODO
-    (32, 2_000, 100): [2_832_000, 5_665_000, 6_295_000],  # ~62951steps/ep, 100 eps -> 6,295k steps in total
-    (32, 10_000, 20): [561_600, 1_123_200, 1_248_000],  # ~62421steps/ep, 20 eps -> 1,248k steps in total
-    (100, 6_000, 100): ...,  # TODO
-    (200, 10_000, 100): ...,  # TODO
-    (200, 13_000, 100): ...,  # TODO
-}
 # Just specify avg num steps per (sub)epoch (partition epoch 20) for batch size settings: (max_seqs, batch_size).
 # Calculated via:
 # tools/calc-avg-num-train-steps-per-ep-from-seq-lens.py \
@@ -334,7 +320,7 @@ _tot_num_steps_by_bs = {
 }
 
 
-def _get_cfg_lrlin_oclr_by_bs_nep(max_seqs: int, bs_feat: int, n_ep: int, *, peak_lr: float = 1e-3) -> Dict[str, Any]:
+def _get_cfg_lrlin_oclr_incomplete(max_seqs: int, bs_feat: int, n_ep: int, *, peak_lr: float = 1e-3) -> Dict[str, Any]:
     """
     :param max_seqs:
     :param bs_feat: batch size for features (not including _batch_size_factor)
@@ -349,7 +335,6 @@ def _get_cfg_lrlin_oclr_by_bs_nep(max_seqs: int, bs_feat: int, n_ep: int, *, pea
         "learning_rate": 1.0,
         "dynamic_learning_rate": dyn_lr_piecewise_linear,
         # If the dict has no entry for the bs_feat,n_ep combination, see above.
-        "learning_rate_piecewise_steps": _lrlin_oclr_steps_by_bs_nep[(max_seqs, bs_feat, n_ep)],
         "learning_rate_piecewise_values": [peak_lr * 1e-2, peak_lr, peak_lr * 1e-2, peak_lr * 1e-3],
     }
 
