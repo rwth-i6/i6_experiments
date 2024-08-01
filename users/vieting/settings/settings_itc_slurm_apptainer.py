@@ -44,7 +44,7 @@ def check_engine_limits(current_rqmt, task):
     # The cluster allows only 7 days of runtime, so never
     # schedule jobs with more than that
 
-    current_rqmt['time'] = min(168, current_rqmt.get('time', 2))
+    current_rqmt['time'] = min(120, current_rqmt.get('time', 2))
 
     # Example:
     # A slurm cluster has different partitions for differently sized GPUs,
@@ -240,6 +240,12 @@ def worker_wrapper(job, task_name, call):
     if isinstance(e, EngineSelector):
         e = engine().get_used_engine_by_rqmt(t.rqmt())
     if isinstance(e, LocalEngine):
-        return call
+        # Needs to be `call` if sisyphus is run within apptainer
+        # return call
+
+        # If sisyphus is not run within apptainer, still wrap but remove --nv flag to avoid a warning since mini tasks
+        # should never require a GPU.
+        command.remove("--nv")
+        return command
     else:
         return command
