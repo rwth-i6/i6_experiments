@@ -268,6 +268,12 @@ _lrlin_oclr_steps_by_bs_nep = {
     (200, 10_000, 100): ...,  # TODO
     (200, 13_000, 100): ...,  # TODO
 }
+# Just specify avg num steps per (sub)epoch for batch size settings: (max_seqs, batch_size).
+# TODO instead of the estimates, just exactly calculate this.
+_tot_num_steps_by_bs = {
+    (200, 10_000): 14040,
+    (200, 13_000): 10955,
+}
 
 
 def _get_cfg_lrlin_oclr_by_bs_nep(max_seqs: int, bs_feat: int, n_ep: int, *, peak_lr: float = 1e-3) -> Dict[str, Any]:
