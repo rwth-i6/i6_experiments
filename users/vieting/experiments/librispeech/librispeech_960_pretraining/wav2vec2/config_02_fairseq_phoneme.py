@@ -132,7 +132,7 @@ def run_fairseq_pretraining_phoneme_negatives_other_target_boundary_masking():
     alignment = get_alignment_hdf()
     num_gpus = 8
     fairseq_python_exe = tk.Path(
-        "/home/pv653172/setups/librispeech/20230328_wav2vec2/dependencies/python_launcher.sh",
+        "/usr/bin/python3",
         hash_overwrite="itc_python_launcher_py310_torch",
     )
     fairseq_root = get_fairseq_root(fairseq_exe=fairseq_python_exe, commit="b768be5b81987364d39a07d1caad2bfe1e956896")
@@ -163,10 +163,7 @@ def run_fairseq_pretraining_positive_sampling(num_positives: int = 10):
     prefix_name = "experiments/librispeech/librispeech_960_pretraining/wav2vec2/"
     alignment = get_alignment_hdf()
     num_gpus = 8
-    fairseq_python_exe = tk.Path(
-        "/home/pv653172/setups/librispeech/20230328_wav2vec2/dependencies/python_launcher.sh",
-        hash_overwrite="itc_python_launcher_py310_torch",
-    )
+    fairseq_python_exe = tk.Path("/usr/bin/python3")
     fairseq_root = get_fairseq_root(fairseq_exe=fairseq_python_exe, commit="654cd1e65473615f3355a2576adbaba5f5b549c2")
     fairseq_training_args = dict(
         save_interval=25,
