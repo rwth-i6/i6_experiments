@@ -156,6 +156,7 @@ def run_fairseq_pretraining_phoneme_negatives_other_target_boundary_masking():
     tk.register_output(f"{prefix_name}/{exp_name}/pretraining/scores.png", job.out_plot_se)
     return job
 
+
 def run_fairseq_pretraining_positive_sampling(num_positives: int = 10):
     prefix_name = "experiments/librispeech/librispeech_960_pretraining/wav2vec2/"
     alignment = get_alignment_hdf()
@@ -181,6 +182,7 @@ def run_fairseq_pretraining_positive_sampling(num_positives: int = 10):
     job.add_alias(os.path.join(prefix_name, exp_name, "pretraining"))
     tk.register_output(f"{prefix_name}/{exp_name}/pretraining/scores.png", job.out_plot_se)
     return job    
+
 
 def py():
     run_fairseq_pretraining_negatives_other_target()
