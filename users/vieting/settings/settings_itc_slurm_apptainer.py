@@ -245,7 +245,7 @@ def worker_wrapper(job, task_name, call):
 
         # If sisyphus is not run within apptainer, still wrap but remove --nv flag to avoid a warning since mini tasks
         # should never require a GPU.
-        command.remove("--nv")
+        command = [cmd_part for cmd_part in command if cmd_part != "--nv"]
         return command
     else:
         return command
