@@ -59,10 +59,10 @@ def py():
     )
 
     train(
-        "lm/trafo-n12-d512-gelu-drop0-b200_10k_v2",
+        "lm/trafo-n12-d512-gelu-drop0-b200_10k",
         config=dict_update_deep(
             config_11gb_lm_v1,
-            {**_get_cfg_lrlin_oclr_by_bs_nep_v2(200, 10_000, 100)},
+            {**_get_cfg_lrlin_oclr_by_bs_nep(200, 10_000, 100)},
         ),
         train_dataset=get_librispeech_lm_dataset(vocab="spm10k"),
         model_def=ModelDefWithCfg(
@@ -104,10 +104,10 @@ def py():
     )
 
     train(
-        "lm/trafo-n24-d512-gelu-drop0-b100_5k_v2",
+        "lm/trafo-n24-d512-gelu-drop0-b100_5k",
         config=dict_update_deep(
             config_11gb_lm_v1,
-            {**_get_cfg_lrlin_oclr_by_bs_nep_v2(100, 5_000, 100)},
+            {**_get_cfg_lrlin_oclr_by_bs_nep(100, 5_000, 100)},
         ),
         train_dataset=get_librispeech_lm_dataset(vocab="spm10k"),
         model_def=ModelDefWithCfg(
@@ -155,10 +155,10 @@ def py():
     )
 
     train(
-        "lm/trafo-n48-d512-gelu-drop0-b32_2k_v2",
+        "lm/trafo-n48-d512-gelu-drop0-b32_2k",
         config=dict_update_deep(
             config_11gb_lm_v1,
-            {**_get_cfg_lrlin_oclr_by_bs_nep_v2(32, 2_000, 100)},
+            {**_get_cfg_lrlin_oclr_by_bs_nep(32, 2_000, 100)},
         ),
         train_dataset=get_librispeech_lm_dataset(vocab="spm10k"),
         model_def=ModelDefWithCfg(
@@ -206,10 +206,10 @@ def py():
     )
 
     train(
-        "lm/trafo-n96-d512-gelu-drop0-b32_1k_v2",
+        "lm/trafo-n96-d512-gelu-drop0-b32_1k",
         config=dict_update_deep(
             config_11gb_lm_v1,
-            {**_get_cfg_lrlin_oclr_by_bs_nep_v2(32, 1_000, 100)},
+            {**_get_cfg_lrlin_oclr_by_bs_nep(32, 1_000, 100)},
         ),
         train_dataset=get_librispeech_lm_dataset(vocab="spm10k"),
         model_def=ModelDefWithCfg(
@@ -339,7 +339,7 @@ def _get_cfg_lrlin_oclr_incomplete(max_seqs: int, bs_feat: int, n_ep: int, *, pe
     }
 
 
-def _get_cfg_lrlin_oclr_by_bs_nep_v2(
+def _get_cfg_lrlin_oclr_by_bs_nep(
     max_seqs: int, batch_size: int, n_ep: int, *, peak_lr: float = 1e-3
 ) -> Dict[str, Any]:
     """
