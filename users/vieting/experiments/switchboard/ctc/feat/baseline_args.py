@@ -138,7 +138,6 @@ def get_nn_args_single(
         if "audio_perturb_runner" in recog_args["extra_args"]:
             del recog_args["extra_args"]["audio_perturb_runner"]
 
-
     returnn_recog_config = get_returnn_config(
         num_inputs=1,
         num_outputs=num_outputs,
@@ -256,42 +255,38 @@ def get_returnn_config(
         # network["source"] = specaug_layer_jingjing(in_layer=["features"])
         pass
 
-    if audio_perturbation and recognition:	
+    if audio_perturbation and recognition:
         if preemphasis_perturbation:
             for layer in feature_net["subnetwork"]:
                 layer_config = feature_net["subnetwork"][layer]
-                if layer_config.get('class') != 'variable':
+                if layer_config.get("class") != "variable":
                     if feature_net["subnetwork"][layer].get("from") == "data":
                         feature_net["subnetwork"][layer]["from"] = "preemphasis"
             feature_net["subnetwork"]["preemphasis"] = PreemphasisNetwork(alpha=0.97).get_as_subnetwork()
         elif codec_perturbation:
             for layer in feature_net["subnetwork"]:
                 layer_config = feature_net["subnetwork"][layer]
-                if layer_config.get('class') != 'variable':
+                if layer_config.get("class") != "variable":
                     if feature_net["subnetwork"][layer].get("from") == "data":
                         feature_net["subnetwork"][layer]["from"] = "codec"
             feature_net["subnetwork"]["codec"] = {
                 "class": "subnetwork",
                 "from": ["data"],
                 "subnetwork": {
-                    "safe_input": {
-                        "class": "eval",
-                        "from": "data",
-                        "eval": "tf.clip_by_value(source(0), -1.0, 1.0)"
-                    },
+                    "safe_input": {"class": "eval", "from": "data", "eval": "tf.clip_by_value(source(0), -1.0, 1.0)"},
                     "magnitude": {
                         "class": "eval",
                         "from": "safe_input",
-                        "eval": "tf.math.log1p(255.0 * tf.abs(source(0))) / tf.math.log1p(255.0)"
+                        "eval": "tf.math.log1p(255.0 * tf.abs(source(0))) / tf.math.log1p(255.0)",
                     },
                     "output": {
                         "class": "eval",
                         "from": "magnitude",
                         "eval": "tf.sign(source(0)) * source(1)",
-                        "from": ["safe_input", "magnitude"]
-                    }
+                        "from": ["safe_input", "magnitude"],
+                    },
                 },
-                "trainable": False
+                "trainable": False,
             }
 
     if isinstance(batch_size, int):
