@@ -49,6 +49,8 @@ class WaveformPerturbation:
             - 'format' (str): The audio format such as 'wav', 'vorbis' etc.
             - 'encoding' or 'compression' (str/float): The encoding or compression technique and its level to be used.
             - 'prob' (float): The probability of applying this specific codec.
+            - 'minimum' (int): Minimal value for mu. default is 255.
+            - 'maximum' (int): Max value for mu.
             Example: [{"format": "wav", "encoding": "ULAW", "prob": 0.4}]
 
         :param preemphasis: A dictionary containing parameters for the preemphasis filter.
@@ -117,25 +119,28 @@ class WaveformPerturbation:
 
         if random_state.random() < factor.prob:
             preemphasis_coefficient = random_state.random() * (factor.max - factor.min) + factor.min
-            audio = preemphasis_numpy(audio, coeff=preemphasis_coefficient)
-
-        return audio
+            return preemphasis_numpy(audio, coeff=preemphasis_coefficient)
+        else:
+            return preemphasis_numpy(audio)
 
     @staticmethod
     def apply_codecs(audio, sample_rate, random_state, codecs):
+        import numpy as np
+
         for codec in codecs:
             prob = codec.pop("prob", 1.0)
-            if random_state.random() < prob:
-                if codec.get("encoding") == "ULAW":
-                    # check if audio is in the right range for mu-law encoding
-                    if np.max(np.abs(audio)) > 1.0:
-                        raise ValueError("Audio must be in the range [-1, 1] for mu-law encoding.")
-                    # standard value for mu-law encoding
-                    mu = 255.0
-                    # mu-law encoding formula
-                    audio = np.sign(audio) * np.log1p(mu * np.abs(audio)) / np.log1p(mu)
+            min_value = codec.pop("minimum", 255)
+            max_value = codec.pop("maximum", 255)
+            if codec.get("encoding") == "ULAW":
+                if random_state.random() < prob:
+                    mu = random_state.random() * (max_value - min_value) + min_value
                 else:
-                    raise NotImplementedError(f"Codec {codec} not implemented.")
+                    # standard value for mu-law encoding
+                    mu = 255
+                # mu-law encoding formula
+                audio = np.sign(audio) * np.log1p(mu * np.abs(audio)) / np.log1p(mu)
+            else:
+                raise NotImplementedError(f"Codec {codec} not implemented.")
         return audio
 
     @staticmethod
