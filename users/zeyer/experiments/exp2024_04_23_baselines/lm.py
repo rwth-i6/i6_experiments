@@ -83,27 +83,6 @@ def py():
     )
 
     train(
-        "lm/trafo-n12-d512-drop0-b200_13k-wrongLr",
-        config=dict_update_deep(
-            config_11gb_lm_v1,
-            {
-                **_get_cfg_lrlin_oclr_by_bs_nep(200, 13_000, 100),  # TODO...
-                "learning_rate_piecewise_steps": [561_600, 1_123_200, 1_248_000],  # wrongLr
-            },
-        ),
-        train_dataset=get_librispeech_lm_dataset(vocab="spm10k"),
-        model_def=ModelDefWithCfg(
-            lm_model_def,
-            {
-                "_model_def_dict": rf.build_dict(
-                    TransformerDecoder, encoder_dim=None, num_layers=12, model_dim=512, dropout=0.0, att_dropout=0.0
-                )
-            },
-        ),
-        train_def=lm_train_def,
-    )
-
-    train(
         "lm/trafo-n24-d1024-drop0-b32_2k-wrongLr",
         config=dict_update_deep(
             config_11gb_lm_v1,
@@ -118,33 +97,6 @@ def py():
             {
                 "_model_def_dict": rf.build_dict(
                     TransformerDecoder, encoder_dim=None, num_layers=24, model_dim=1024, dropout=0.0, att_dropout=0.0
-                )
-            },
-        ),
-        train_def=lm_train_def,
-    )
-
-    train(
-        "lm/trafo-n24-d512-gelu-drop0-b100_6k-wrongLr",
-        config=dict_update_deep(
-            config_11gb_lm_v1,
-            {
-                **_get_cfg_lrlin_oclr_by_bs_nep(100, 6_000, 100),  # TODO...
-                "learning_rate_piecewise_steps": [561_600 // 2, 1_123_200 // 2, 1_248_000 // 2],  # wrongLr
-            },
-        ),
-        train_dataset=get_librispeech_lm_dataset(vocab="spm10k"),
-        model_def=ModelDefWithCfg(
-            lm_model_def,
-            {
-                "_model_def_dict": rf.build_dict(
-                    TransformerDecoder,
-                    encoder_dim=None,
-                    num_layers=24,
-                    model_dim=512,
-                    ff_activation=rf.build_dict(rf.gelu),
-                    dropout=0.0,
-                    att_dropout=0.0,
                 )
             },
         ),
