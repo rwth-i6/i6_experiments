@@ -705,6 +705,9 @@ def py():
         ],
     )
 
+    # TODO conformer also with FeedForwardGated, RMSNorm, ..., other things from Transformer++, Llama, Palm, ...
+    # TODO also e-branchformer, zigformer, ...
+
 
 _train_experiments: Dict[str, ModelWithCheckpoints] = {}
 
