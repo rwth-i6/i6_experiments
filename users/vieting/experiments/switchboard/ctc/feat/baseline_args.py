@@ -124,17 +124,14 @@ def get_nn_args_single(
         **(returnn_args or {}),
     )
 
-    recog_args = returnn_args.copy() if returnn_args else {}
-    feature_recog_net = copy.deepcopy(feature_net)
-
     returnn_recog_config = get_returnn_config(
         num_inputs=1,
         num_outputs=num_outputs,
         evaluation_epochs=evaluation_epochs,
         recognition=True,
         num_epochs=num_epochs,
-        feature_net=feature_recog_net,
-        **(recog_args or {}),
+        feature_net=feature_net,
+        **(returnn_args or {}),
     )
 
     report_args = {
@@ -241,18 +238,19 @@ def get_returnn_config(
         pass
 
     if audio_perturbation and recognition:
+        feature_recog_net = copy.deepcopy(feature_net)
         audio_perturb_args = extra_args.get("audio_perturb_args", {})
         if "preemphasis" in audio_perturb_args:
-            for layer in feature_net["subnetwork"]:
-                if feature_net["subnetwork"][layer].get("from", None) == "data":
-                    feature_net["subnetwork"][layer]["from"] = "preemphasis"
+            for layer in feature_recog_net["subnetwork"]:
+                if feature_recog_net["subnetwork"][layer].get("from", None) == "data":
+                    feature_recog_net["subnetwork"][layer]["from"] = "preemphasis"
             alpha = audio_perturb_args.get("default")
-            feature_net["subnetwork"]["preemphasis"] = PreemphasisNetwork(alpha=alpha).get_as_subnetwork()
+            feature_recog_net["subnetwork"]["preemphasis"] = PreemphasisNetwork(alpha=alpha).get_as_subnetwork()
         else "codecs" in audio_perturb_args:
-            for layer in feature_net["subnetwork"]:
-                if feature_net["subnetwork"][layer].get("from", None) == "data":
-                    feature_net["subnetwork"][layer]["from"] = "codec"
-            feature_net["subnetwork"]["codec"] = {
+            for layer in feature_recog_net["subnetwork"]:
+                if feature_recog_net["subnetwork"][layer].get("from", None) == "data":
+                    feature_recog_net["subnetwork"][layer]["from"] = "codec"
+            feature_recog_net["subnetwork"]["codec"] = {
                 "class": "subnetwork",
                 "from": ["data"],
                 "subnetwork": {
