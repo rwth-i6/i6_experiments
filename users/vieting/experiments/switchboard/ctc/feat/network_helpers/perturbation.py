@@ -71,7 +71,7 @@ class WaveformPerturbation:
         self._perturbations = []
         self.non_linearity = non_linearity
         if preemphasis:
-            self._perturbations.append(functools.partial(self.preemphasis, factor=PerturbationFactor(**preemphasis)))
+            self._perturbations.append(functools.partial(self.preemphasis, preemphasis_args=preemphasis))
         if codecs:
             self._perturbations.append(functools.partial(self.apply_codecs, codecs=codecs))
         if non_linearity:
@@ -109,7 +109,7 @@ class WaveformPerturbation:
         return audio
 
     @staticmethod
-    def preemphasis(audio, sample_rate, random_state, factor, default_coeff=0.97):
+    def preemphasis(audio, sample_rate, random_state, preemphasis_args):
         import numpy as np
 
         def preemphasis_numpy(waveform, coeff):
@@ -117,8 +117,10 @@ class WaveformPerturbation:
             waveform[..., 1:] -= coeff * waveform[..., :-1]
             return waveform
 
-        if random_state.random() < factor.prob:
-            preemphasis_coefficient = random_state.random() * (factor.max - factor.min) + factor.min
+        if random_state.random() < preemphasis_args.get("prob", None):
+            preemphasis_coefficient = random_state.random() * (
+                preemphasis_args.get("max", None) - preemphasis_args.get("min", None)
+            ) + preemphasis_args.get("min", None)
             return preemphasis_numpy(audio, coeff=preemphasis_coefficient)
         else:
             return preemphasis_numpy(audio, coeff=default_coeff)

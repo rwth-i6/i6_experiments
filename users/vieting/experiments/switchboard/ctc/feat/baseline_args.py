@@ -134,8 +134,6 @@ def get_nn_args_single(
         recognition=True,
         num_epochs=num_epochs,
         feature_net=feature_recog_net,
-        preemphasis_perturbation=preemphasis_perturbation,
-        codec_perturbation=codec_perturbation,
         **(recog_args or {}),
     )
 
@@ -172,8 +170,6 @@ def get_returnn_config(
     staged_opts: Optional[Dict[int, Any]] = None,
     audio_perturbation: bool = False,
     use_multi_proc_dataset: bool = False,
-    preemphasis_perturbation: bool = False,
-    codec_perturbation: bool = False,
 ):
     base_config = {
         "extern_data": {
@@ -259,7 +255,9 @@ def get_returnn_config(
             for layer in feature_net["subnetwork"]:
                 if feature_net["subnetwork"][layer].get("from", None) == "data":
                     feature_net["subnetwork"][layer]["from"] = "preemphasis"
-            feature_net["subnetwork"]["preemphasis"] = PreemphasisNetwork(alpha=0.97).get_as_subnetwork()
+            audio_perturb_args = extra_args.get("audio_perturb_args", {})
+            default_coeff = audio_perturb_args.get("default_coeff", 0.97)
+            feature_net["subnetwork"]["preemphasis"] = PreemphasisNetwork(alpha=default_coeff).get_as_subnetwork()
         elif codec_perturbation:
             for layer in feature_net["subnetwork"]:
                 if feature_net["subnetwork"][layer].get("from", None) == "data":
