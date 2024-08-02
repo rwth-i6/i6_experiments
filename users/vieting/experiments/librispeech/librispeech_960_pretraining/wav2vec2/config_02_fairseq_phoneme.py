@@ -139,7 +139,7 @@ def run_fairseq_pretraining_phoneme_negatives_other_target_boundary_masking():
         max_update=420000,
         fairseq_root=fairseq_root,
         fairseq_python_exe=fairseq_python_exe,
-        rqmt={"time": 120, "mem": 12, "cpu": 2, "gpu": num_gpus},
+        rqmt={"time": 120, "mem": 16, "cpu": 2, "gpu": num_gpus},
     )
 
     # run pre-training
@@ -169,7 +169,7 @@ def run_fairseq_pretraining_positive_sampling(num_positives: int = 10):
         max_update=420000,
         fairseq_root=fairseq_root,
         fairseq_python_exe=fairseq_python_exe,
-        rqmt={"time": 336, "mem": 12, "cpu": 2, "gpu": num_gpus},
+        rqmt={"time": 336, "mem": 16, "cpu": 2, "gpu": num_gpus},
     )
 
     # run pre-training
