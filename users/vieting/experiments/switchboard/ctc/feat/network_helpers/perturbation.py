@@ -123,7 +123,7 @@ class WaveformPerturbation:
             ) + preemphasis_args.get("minimum", None)
             return preemphasis_numpy(audio, coeff=preemphasis_coefficient)
         else:
-            return preemphasis_numpy(audio, coeff=preemphasis_args.get("default_coeff", 0.97))
+            return preemphasis_numpy(audio, coeff=preemphasis_args.get("default", 0.97))
 
     @staticmethod
     def apply_codecs(audio, sample_rate, random_state, codecs):
