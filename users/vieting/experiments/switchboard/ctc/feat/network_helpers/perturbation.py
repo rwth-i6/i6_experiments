@@ -49,8 +49,8 @@ class WaveformPerturbation:
             - 'format' (str): The audio format such as 'wav', 'vorbis' etc.
             - 'encoding' or 'compression' (str/float): The encoding or compression technique and its level to be used.
             - 'prob' (float): The probability of applying this specific codec.
-            - 'minimum' (int): Minimal value for mu. default is 255.
-            - 'maximum' (int): Max value for mu.
+            - 'minimum' (int): Minimum value for codec if needed. E.g., default for mu is 255.
+            - 'maximum' (int): Maximum value for codec if needed.
             Example: [{"format": "wav", "encoding": "ULAW", "prob": 0.4}]
 
         :param preemphasis: A dictionary containing parameters for the preemphasis filter.
@@ -109,10 +109,10 @@ class WaveformPerturbation:
         return audio
 
     @staticmethod
-    def preemphasis(audio, sample_rate, random_state, factor):
+    def preemphasis(audio, sample_rate, random_state, factor, default_coeff=0.97):
         import numpy as np
 
-        def preemphasis_numpy(waveform, coeff=0.97):
+        def preemphasis_numpy(waveform, coeff):
             waveform = np.copy(waveform)
             waveform[..., 1:] -= coeff * waveform[..., :-1]
             return waveform
@@ -121,17 +121,17 @@ class WaveformPerturbation:
             preemphasis_coefficient = random_state.random() * (factor.max - factor.min) + factor.min
             return preemphasis_numpy(audio, coeff=preemphasis_coefficient)
         else:
-            return preemphasis_numpy(audio)
+            return preemphasis_numpy(audio, coeff=default_coeff)
 
     @staticmethod
     def apply_codecs(audio, sample_rate, random_state, codecs):
         import numpy as np
 
         for codec in codecs:
-            prob = codec.pop("prob", 1.0)
-            min_value = codec.pop("minimum", 255)
-            max_value = codec.pop("maximum", 255)
             if codec.get("encoding") == "ULAW":
+                prob = codec.pop("prob", 1.0)
+                min_value = codec.pop("minimum", 255)
+                max_value = codec.pop("maximum", 255)
                 if random_state.random() < prob:
                     mu = random_state.random() * (max_value - min_value) + min_value
                 else:
