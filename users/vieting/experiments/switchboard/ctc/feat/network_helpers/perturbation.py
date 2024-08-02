@@ -128,12 +128,14 @@ class WaveformPerturbation:
     @staticmethod
     def apply_codecs(audio, sample_rate, random_state, codecs):
         import numpy as np
-
         for codec in codecs:
             if codec.get("encoding") == "ULAW":
                 prob = codec.pop("prob", 1.0)
                 min_value = codec.pop("minimum", 255)
                 max_value = codec.pop("maximum", 255)
+                # check if audio is in the right range for mu-law encoding
+                if np.max(np.abs(audio)) > 1.0:
+                    raise ValueError("Audio must be in the range [-1, 1] for mu-law encoding.")
                 if random_state.random() < prob:
                     mu = random_state.random() * (max_value - min_value) + min_value
                 else:
