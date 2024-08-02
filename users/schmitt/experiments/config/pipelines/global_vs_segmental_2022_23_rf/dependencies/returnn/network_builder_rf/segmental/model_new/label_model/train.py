@@ -540,18 +540,19 @@ def full_sum_training(
     else:
       label_decoder_target_dim = model.label_decoder.target_dim
 
-    # calculate the label log prob as log(prob(label)) + log(prob(emit))
-    emit_log_prob = rf.squeeze(rf.log(rf.sigmoid(blank_logits)), axis=blank_logits.feature_dim)
-    label_log_prob = rf.log_softmax(logits, axis=label_decoder_target_dim) + emit_log_prob
-    # invert the log softmax operation to arrive at the label logits (which are now combined with the emit logits)
-    logits = label_log_prob + rf.log(rf.reduce_sum(rf.exp(label_log_prob), axis=label_decoder_target_dim))
-
+    # normally, we combine the labels with blank in log space: label_log_prob = log(softmax(label_logits)) + log(sigmoid(blank_logits))
+    # However, Simon's full-sum loss implementation expects logits as input. Therefore, we need to do the combination
+    # in logit space
+    blank_log_prob = rf.log(rf.sigmoid(-blank_logits))
+    log_alt_norm = -blank_logits - blank_log_prob
+    logits = logits - rf.log(rf.reduce_sum(rf.exp(logits), axis=label_decoder_target_dim)) + rf.log(rf.sigmoid(blank_logits)) + log_alt_norm
     logits, _ = rf.concat(
       (logits, label_decoder_target_dim),
       (-blank_logits, model.blank_decoder.emit_prob_dim),
       out_dim=model.align_target_dim,
       allow_broadcast=True
     )
+    logits = rf.squeeze(logits, axis=model.blank_decoder.emit_prob_dim)
 
   def _get_packed_logits_v1():
     # manually pack logits by looping over batch dim
