@@ -266,16 +266,27 @@ def get_returnn_config(
                 "class": "subnetwork",
                 "from": ["data"],
                 "subnetwork": {
-                    "magnitude": {
+                    "assert_range": {
                         "class": "eval",
                         "from": "data",
+                        "eval": """
+                            tf.debugging.assert_less_equal(
+                                tf.abs(source(0)),
+                                tf.constant(1.0, dtype=source(0).dtype),
+                                message="Input values must be in the range [-1.0, 1.0]"
+                            )
+                        """,
+                    },
+                    "magnitude": {
+                        "class": "eval",
+                        "from": "assert_range",
                         "eval": "tf.math.log1p(255.0 * tf.abs(source(0))) / tf.math.log1p(255.0)",
                     },
                     "output": {
                         "class": "eval",
                         "from": "magnitude",
                         "eval": "tf.sign(source(0)) * source(1)",
-                        "from": ["data", "magnitude"],
+                        "from": ["assert_range", "magnitude"],
                     },
                 },
                 "trainable": False,
