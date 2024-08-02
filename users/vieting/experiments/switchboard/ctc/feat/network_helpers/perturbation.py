@@ -119,11 +119,11 @@ class WaveformPerturbation:
 
         if random_state.random() < preemphasis_args.get("prob", None):
             preemphasis_coefficient = random_state.random() * (
-                preemphasis_args.get("max", None) - preemphasis_args.get("min", None)
-            ) + preemphasis_args.get("min", None)
+                preemphasis_args.get("maximum", None) - preemphasis_args.get("minimum", None)
+            ) + preemphasis_args.get("minimum", None)
             return preemphasis_numpy(audio, coeff=preemphasis_coefficient)
         else:
-            return preemphasis_numpy(audio, coeff=default_coeff)
+            return preemphasis_numpy(audio, coeff=preemphasis_args.get("default_coeff", 0.97))
 
     @staticmethod
     def apply_codecs(audio, sample_rate, random_state, codecs):
