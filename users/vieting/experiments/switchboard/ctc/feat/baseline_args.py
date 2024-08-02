@@ -240,25 +240,15 @@ def get_returnn_config(
         # network["source"] = specaug_layer_jingjing(in_layer=["features"])
         pass
 
-    if recognition:
-        preemphasis_perturbation = False
-        codec_perturbation = False
-        # If audio perturbation is enabled, we need to add the perturbation layers to the feature network
-        audio_perturb_args = extra_args.get("audio_perturb_args", {})
-        preemphasis_perturbation = "preemphasis" in audio_perturb_args
-        codec_perturbation = "codecs" in audio_perturb_args
-        extra_args.pop("audio_perturb_args", None)
-        extra_args.pop("audio_perturb_runner", None)
-
     if audio_perturbation and recognition:
-        if preemphasis_perturbation:
+        audio_perturb_args = extra_args.get("audio_perturb_args", {})
+        if "preemphasis" in audio_perturb_args:
             for layer in feature_net["subnetwork"]:
                 if feature_net["subnetwork"][layer].get("from", None) == "data":
                     feature_net["subnetwork"][layer]["from"] = "preemphasis"
-            audio_perturb_args = extra_args.get("audio_perturb_args", {})
-            default_coeff = audio_perturb_args.get("default_coeff", 0.97)
-            feature_net["subnetwork"]["preemphasis"] = PreemphasisNetwork(alpha=default_coeff).get_as_subnetwork()
-        elif codec_perturbation:
+            alpha = audio_perturb_args.get("default_coeff")
+            feature_net["subnetwork"]["preemphasis"] = PreemphasisNetwork(alpha=alpha).get_as_subnetwork()
+        elif "codecs" in audio_perturb_args:
             for layer in feature_net["subnetwork"]:
                 if feature_net["subnetwork"][layer].get("from", None) == "data":
                     feature_net["subnetwork"][layer]["from"] = "codec"
@@ -291,6 +281,8 @@ def get_returnn_config(
                 },
                 "trainable": False,
             }
+        extra_args.pop("audio_perturb_args", None)
+        extra_args.pop("audio_perturb_runner", None)
 
     if isinstance(batch_size, int):
         # If batch size is int, adapt to waveform. If it is dict, assume it is already correct.
