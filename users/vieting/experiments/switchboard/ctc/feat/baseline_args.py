@@ -128,15 +128,13 @@ def get_nn_args_single(
     feature_recog_net = copy.deepcopy(feature_net)
     preemphasis_perturbation = False
     codec_perturbation = False
-    if "extra_args" in recog_args:
-        if "audio_perturb_args" in recog_args["extra_args"]:
-            if "preemphasis" in recog_args["extra_args"]["audio_perturb_args"]:
-                preemphasis_perturbation = True
-            if "codecs" in recog_args["extra_args"]["audio_perturb_args"]:
-                codec_perturbation = True
-            del recog_args["extra_args"]["audio_perturb_args"]
-        if "audio_perturb_runner" in recog_args["extra_args"]:
-            del recog_args["extra_args"]["audio_perturb_runner"]
+    # If audio perturbation is enabled, we need to add the perturbation layers to the feature network
+    extra_args = recog_args.get("extra_args", {})
+    audio_perturb_args = extra_args.get("audio_perturb_args", {})
+    preemphasis_perturbation = "preemphasis" in audio_perturb_args
+    codec_perturbation = "codecs" in audio_perturb_args
+    extra_args.pop("audio_perturb_args", None)
+    extra_args.pop("audio_perturb_runner", None)
 
     returnn_recog_config = get_returnn_config(
         num_inputs=1,
