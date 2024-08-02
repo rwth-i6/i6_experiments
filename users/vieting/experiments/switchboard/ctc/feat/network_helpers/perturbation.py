@@ -6,10 +6,11 @@ class PerturbationFactor:
     Class to wrap perturbation factors, e.g. for speed or tempo perturbation.
     """
 
-    def __init__(self, prob, minimum, maximum):
+    def __init__(self, prob, minimum, maximum, default=None):
         self.prob = prob
         self.min = minimum
         self.max = maximum
+        self.default = default
 
 
 class WaveformPerturbation:
@@ -72,7 +73,7 @@ class WaveformPerturbation:
         self._perturbations = []
         self.non_linearity = non_linearity
         if preemphasis:
-            self._perturbations.append(functools.partial(self.preemphasis, preemphasis_args=preemphasis))
+            self._perturbations.append(functools.partial(self.preemphasis, factor=PerturbationFactor(**preemphasis)))
         if codecs:
             self._perturbations.append(functools.partial(self.apply_codecs, codecs=codecs))
         if non_linearity:
@@ -110,7 +111,7 @@ class WaveformPerturbation:
         return audio
 
     @staticmethod
-    def preemphasis(audio, sample_rate, random_state, preemphasis_args):
+    def preemphasis(audio, sample_rate, random_state, factor):
         import numpy as np
 
         def preemphasis_numpy(waveform, coeff):
@@ -118,13 +119,11 @@ class WaveformPerturbation:
             waveform[..., 1:] -= coeff * waveform[..., :-1]
             return waveform
 
-        if random_state.random() < preemphasis_args.get("prob", None):
-            preemphasis_coefficient = random_state.random() * (
-                preemphasis_args.get("maximum", None) - preemphasis_args.get("minimum", None)
-            ) + preemphasis_args.get("minimum", None)
+        if random_state.random() < factor.get("prob", None):
+            preemphasis_coefficient = random_state.random() * (factor.max - factor.min) + factor.min
             return preemphasis_numpy(audio, coeff=preemphasis_coefficient)
         else:
-            return preemphasis_numpy(audio, coeff=preemphasis_args.get("default", 0.97))
+            return preemphasis_numpy(audio, coeff=factor.default)
 
     @staticmethod
     def apply_codecs(audio, sample_rate, random_state, codecs):
