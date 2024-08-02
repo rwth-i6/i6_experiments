@@ -266,17 +266,16 @@ def get_returnn_config(
                 "class": "subnetwork",
                 "from": ["data"],
                 "subnetwork": {
-                    "safe_input": {"class": "eval", "from": "data", "eval": "tf.clip_by_value(source(0), -1.0, 1.0)"},
                     "magnitude": {
                         "class": "eval",
-                        "from": "safe_input",
+                        "from": "data",
                         "eval": "tf.math.log1p(255.0 * tf.abs(source(0))) / tf.math.log1p(255.0)",
                     },
                     "output": {
                         "class": "eval",
                         "from": "magnitude",
                         "eval": "tf.sign(source(0)) * source(1)",
-                        "from": ["safe_input", "magnitude"],
+                        "from": ["data", "magnitude"],
                     },
                 },
                 "trainable": False,
