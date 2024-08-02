@@ -57,7 +57,8 @@ class WaveformPerturbation:
             - 'prob' (float): The probability of applying the preemphasis filter.
             - 'minimum' (float): The minimum preemphasis factor.
             - 'maximum' (float): The maximum preemphasis factor.
-            Example: {"prob": 0.9, "minimum": 0.9, "maximum": 1.0}
+            - 'default' (float): The default preemphasis factor.
+            Example: {"prob": 0.9, "minimum": 0.9, "maximum": 1.0, "default": 0.97}
         :param non_linearity: A dictionary containing parameters for the non-linearity filter.
             - 'prob' (float): The probability of applying the non-linearity filter.
             - 'minimum' (float): The minimum non-linearity exponent.
