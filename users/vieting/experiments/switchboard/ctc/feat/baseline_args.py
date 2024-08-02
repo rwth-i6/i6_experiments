@@ -257,17 +257,13 @@ def get_returnn_config(
     if audio_perturbation and recognition:
         if preemphasis_perturbation:
             for layer in feature_net["subnetwork"]:
-                layer_config = feature_net["subnetwork"][layer]
-                if layer_config.get("class") != "variable":
-                    if feature_net["subnetwork"][layer].get("from") == "data":
-                        feature_net["subnetwork"][layer]["from"] = "preemphasis"
+                if feature_net["subnetwork"][layer].get("from", None) == "data":
+                    feature_net["subnetwork"][layer]["from"] = "preemphasis"
             feature_net["subnetwork"]["preemphasis"] = PreemphasisNetwork(alpha=0.97).get_as_subnetwork()
         elif codec_perturbation:
             for layer in feature_net["subnetwork"]:
-                layer_config = feature_net["subnetwork"][layer]
-                if layer_config.get("class") != "variable":
-                    if feature_net["subnetwork"][layer].get("from") == "data":
-                        feature_net["subnetwork"][layer]["from"] = "codec"
+                if feature_net["subnetwork"][layer].get("from", None) == "data":
+                    feature_net["subnetwork"][layer]["from"] = "codec"
             feature_net["subnetwork"]["codec"] = {
                 "class": "subnetwork",
                 "from": ["data"],
