@@ -399,9 +399,11 @@ def py():
         # TODO ("spm4k", "bpe", 0.005),
         ("spm4k", "bpe", 0.01),  # 6.05
         ("spm1k", None, None),  # 6.07
-        ("spm1k", "spm", 0.9),
+        ("spm1k", "spm", 0.99),
+        ("spm1k", "spm", 0.9),  # 7.04
         ("spm1k", "spm", 0.7),  # 7.33
-        ("spm1k", "bpe", 0.005),
+        ("spm1k", "bpe", 0.0),
+        ("spm1k", "bpe", 0.005),  # 6.25
         ("spm1k", "bpe", 0.01),  # 6.13 (but dev-clean,test-* are better than no sampling)
         ("spm_bpe1k", None, None),  # 6.03
         ("spm_bpe1k", "bpe", 0.01),  # 6.05
