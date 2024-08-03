@@ -552,7 +552,7 @@ def py():
     for vocab, alpha in [
         ("bpe10k", 0.01),
         ("spm10k", 0.01),  # 5.73 (!!!)
-        ("spm512", 0.01),
+        ("spm512", 0.01),  # 11.82  # TODO should use maxSeqLenAudio19_5
     ]:
         train_exp(
             "v6-relPosAttDef-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-featBN"
