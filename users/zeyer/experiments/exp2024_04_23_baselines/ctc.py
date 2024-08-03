@@ -549,19 +549,27 @@ def py():
     )
 
     # Blank separated (blankSep).
-    for vocab, alpha in [
-        ("bpe10k", 0.01),
-        ("spm10k", 0.01),  # 5.73 (!!!)
-        ("spm512", 0.01),  # 11.82  # TODO should use maxSeqLenAudio19_5
+    for vocab, alpha, max_seq_len_via_audio in [
+        ("bpe10k", 0.01, False),
+        ("spm10k", 0.01, False),  # 5.73 (!!!)
+        ("spm10k", 0.01, True),
+        ("spm512", 0.01, True),
     ]:
         train_exp(
-            "v6-relPosAttDef-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-featBN"
+            "v6-relPosAttDef-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100"
+            f"{'-maxSeqLenAudio19_5' if max_seq_len_via_audio else ''}"
+            "-wd1e_2-lrlin1e_5_295k-featBN"
             f"-speedpertV2-{vocab}-bpeSample{str(alpha).replace('.', '')}-blankSep",
             config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
             model_config={
                 "enc_conformer_layer": enc_conformer_layer_default,
                 "feature_batch_norm": True,
                 "out_blank_separated": True,
+                **(
+                    {"max_seq_length_default_target": None, "max_seq_length_default_input": 19.5 * _raw_sample_rate}
+                    if max_seq_len_via_audio
+                    else {}
+                ),
             },
             config_updates={
                 **_get_cfg_lrlin_oclr_by_bs_nep(15_000, 500),
