@@ -624,10 +624,11 @@ def py():
 
     # Weight dropout (wdrop01 etc).
     for wdrop in [
+        # baseline: 5.77
         0.001,
-        0.01,
-        0.05,  # 7.33 ??
-        0.1,  # 5.96 (TODO recheck, I think the alias changed from wdrop01 to wdrop001...)
+        0.01,  # 5.96
+        0.05,  # 7.33
+        0.1,  # 8.91
     ]:
         train_exp(
             f"v6-relPosAttDef-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2"
