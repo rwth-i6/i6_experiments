@@ -189,7 +189,7 @@ def get_returnn_base_data(
     return returnn_datasets
 
 
-def get_returnn_ogg_datasets(use_multi_proc_dataset=False, **kwargs) -> Dict[str, Dict]:
+def get_returnn_ogg_datasets(use_multi_proc_dataset=False, pre_process=None, **kwargs) -> Dict[str, Dict]:
     """
     Get only ogg input datasets without targets.
     """
@@ -199,6 +199,9 @@ def get_returnn_ogg_datasets(use_multi_proc_dataset=False, **kwargs) -> Dict[str
         "dev": returnn_datasets["dev"].get_data_dict()["datasets"]["ogg"],
         "eval_datasets": {"devtrain": returnn_datasets["eval_datasets"]["devtrain"].get_data_dict()["datasets"]["ogg"]},
     }
+    if pre_process is not None:
+        returnn_datasets["train"]["audio"]["pre_process"] = pre_process
+
     if use_multi_proc_dataset:
         returnn_datasets["train"] = {
             "class": "MultiProcDataset",
