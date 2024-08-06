@@ -1190,6 +1190,10 @@ def py():
     report_mel, _ = run_mel_baseline()
     report_scf, _ = run_scf_baseline()
     report_scf_specaug_sort = run_scf_specaug_sort()
+    report_scf_audio_perturbation = run_scf_audio_perturbation()
+    report_scf_audio_perturbation_from_checkpoint = run_scf_audio_perturbation_from_checkpoint()
+    report_mel_audio_perturbation = run_mel_audio_perturbation()
+    report_mel_audio_perturbation_from_checkpoint = run_mel_audio_perturbation_from_checkpoint()
 
     report_base = Report(
         columns_start=["train_name", "batch_size"],
@@ -1201,6 +1205,10 @@ def py():
             report_mel,
             report_scf,
             report_scf_specaug_sort,
+            report_scf_audio_perturbation,
+            report_scf_audio_perturbation_from_checkpoint,
+            report_mel_audio_perturbation,
+            report_mel_audio_perturbation_from_checkpoint,
         ]
     )
     tk.register_report(
