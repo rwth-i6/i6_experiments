@@ -155,6 +155,7 @@ class SegmentalAttLabelDecoder(BaseLabelDecoder):
     prev_att = state.att
     prev_s_state = state.s if "lstm" in self.decoder_state else None
 
+    input_embed = rf.dropout(input_embed, drop_prob=self.target_embed_dropout, axis=None)
     s, s_state = self._update_state(input_embed, prev_att, prev_s_state)
     if "lstm" in self.decoder_state:
       state_.s = s_state
@@ -205,6 +206,8 @@ class SegmentalAttLabelDecoder(BaseLabelDecoder):
         energy_in = enc_ctx_sliced + weight_feedback + s_transformed
         energy = self.energy(rf.tanh(energy_in))
         att_weights = rf.softmax(energy, axis=slice_dim)
+        # axis = None is equivalent to settings dropout_noise_shape in old RETURNN
+        att_weights = rf.dropout(att_weights, drop_prob=self.att_weight_dropout, axis=None)
 
       # we do not need use_mask because the softmax output is already padded with zeros
       att = self.get_att(att_weights, enc_sliced, reduce_dim=slice_dim)
@@ -271,6 +274,7 @@ class SegmentalAttEfficientLabelDecoder(SegmentalAttLabelDecoder):
       energy_in = enc_ctx_sliced + weight_feedback + s_transformed
       energy = self.energy(rf.tanh(energy_in))
       att_weights = rf.softmax(energy, axis=slice_dim)
+      att_weights = rf.dropout(att_weights, drop_prob=self.att_weight_dropout, axis=None)
 
     # we do not need use_mask because the softmax output is already padded with zeros
     att0 = rf.dot(att_weights, enc_sliced, reduce=slice_dim, use_mask=False)

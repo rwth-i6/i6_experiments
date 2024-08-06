@@ -7,7 +7,7 @@ from returnn.frontend.decoder.transformer import TransformerDecoder
 from returnn.frontend.attention import RelPosCausalSelfAttention
 
 from i6_experiments.users.schmitt.returnn_frontend.model_interfaces.model import ModelDef
-from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.base import _batch_size_factor
+from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.base import _batch_size_factor, get_common_config_params, apply_weight_dropout
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.segmental.model_new.blank_model.model import (
   BlankDecoderV1,
   BlankDecoderV3,
@@ -66,6 +66,8 @@ class SegmentalAttentionModel(rf.Module):
           target_embed_dim: int = 640,
           feature_extraction_opts: Optional[Dict[str, Any]] = None,
           trafo_decoder_opts: Optional[Dict[str, Any]] = None,
+          target_embed_dropout: float = 0.0,
+          att_weight_dropout: float = 0.0,
   ):
     super(SegmentalAttentionModel, self).__init__()
 
@@ -163,6 +165,8 @@ class SegmentalAttentionModel(rf.Module):
           use_current_frame_in_readout_random=use_current_frame_in_readout_random,
           target_embed_dim=Dim(name="target_embed", dimension=target_embed_dim),
           eos_idx=blank_idx,
+          target_embed_dropout=target_embed_dropout,
+          att_weight_dropout=att_weight_dropout,
         )
     else:
       if label_decoder_state == "trafo":
@@ -195,6 +199,8 @@ class SegmentalAttentionModel(rf.Module):
           use_current_frame_in_readout_w_gate=use_current_frame_in_readout_w_gate,
           use_current_frame_in_readout_random=use_current_frame_in_readout_random,
           target_embed_dim=Dim(name="target_embed", dimension=target_embed_dim),
+          target_embed_dropout=target_embed_dropout,
+          att_weight_dropout=att_weight_dropout,
         )
 
     if not use_joint_model:
@@ -265,6 +271,8 @@ class SegmentalAttentionModel(rf.Module):
     self.use_joint_model = use_joint_model
     self.blank_decoder_version = blank_decoder_version
     self.label_decoder_state = label_decoder_state
+
+    apply_weight_dropout(self)
 
 
 class MakeModel:
@@ -384,21 +392,12 @@ def from_scratch_model_def(
 
   in_dim, epoch  # noqa
   config = get_global_config()  # noqa
-  enc_aux_logits = config.typed_value("aux_loss_layers")
-  pos_emb_dropout = config.float("pos_emb_dropout", 0.0)
-  log_mel_feature_dim = config.int("log_mel_feature_dim", 80)
-  # real input is raw audio, internally it does logmel
-  in_dim = Dim(name="logmel", dimension=log_mel_feature_dim, kind=Dim.Types.Feature)
-  lm_opts = config.typed_value("external_lm")
+
   center_window_size = config.typed_value("center_window_size")
 
-  use_att_ctx_in_state = config.bool("use_att_ctx_in_state", True)
-  label_decoder_state = config.typed_value("label_decoder_state", "nb-lstm")
   blank_decoder_version = config.int("blank_decoder_version", 1)
   blank_decoder_opts = config.typed_value("blank_decoder_opts", {})
   use_joint_model = config.bool("use_joint_model", False)
-  use_weight_feedback = config.bool("use_weight_feedback", True)
-  use_mini_att = config.bool("use_mini_att", False)
   gaussian_att_weight_opts = config.typed_value("gaussian_att_weight_opts", None)
   separate_blank_from_softmax = config.bool("separate_blank_from_softmax", False)
   reset_eos_params = config.bool("reset_eos_params", False)
@@ -410,39 +409,30 @@ def from_scratch_model_def(
   enc_key_total_dim = config.int("enc_key_total_dim", 1024)
   enc_ff_dim = config.int("enc_ff_dim", 2048)
 
-  target_embed_dim = config.int("target_embed_dim", 640)
-
-  feature_extraction_opts = config.typed_value("feature_extraction_opts", None)
-
   trafo_decoder_opts = config.typed_value("trafo_decoder_opts", None)
+
+  common_config_params = get_common_config_params()
+  in_dim = common_config_params.pop("in_dim")
 
   return MakeModel.make_model(
     in_dim,
     align_target_dim,
     target_dim,
     center_window_size=center_window_size,
-    enc_aux_logits=enc_aux_logits or (),
-    pos_emb_dropout=pos_emb_dropout,
-    language_model=lm_opts,
-    use_att_ctx_in_state=use_att_ctx_in_state,
     blank_decoder_version=blank_decoder_version,
     blank_decoder_opts=blank_decoder_opts,
     use_joint_model=use_joint_model,
-    use_weight_feedback=use_weight_feedback,
-    label_decoder_state=label_decoder_state,
     enc_out_dim=enc_out_dim,
     enc_key_total_dim=enc_key_total_dim,
     enc_ff_dim=enc_ff_dim,
-    use_mini_att=use_mini_att,
     gaussian_att_weight_opts=gaussian_att_weight_opts,
     separate_blank_from_softmax=separate_blank_from_softmax,
     reset_eos_params=reset_eos_params,
     use_current_frame_in_readout=use_current_frame_in_readout,
     use_current_frame_in_readout_w_gate=use_current_frame_in_readout_w_gate,
     use_current_frame_in_readout_random=use_current_frame_in_readout_random,
-    target_embed_dim=target_embed_dim,
-    feature_extraction_opts=feature_extraction_opts,
     trafo_decoder_opts=trafo_decoder_opts,
+    **common_config_params,
   )
 
 

@@ -163,7 +163,7 @@ def run_exps():
             config_builder=config_builder,
             n_epochs_list=(300,),
             use_speed_pert=True,
-            batch_size=6_000,
+            batch_size=5_000,
             time_rqmt=80,
             gpu_mem_rqmt=24,
             checkpoint_alias="ctc-fixed-path-300ep",
@@ -205,7 +205,7 @@ def run_exps():
             config_builder=config_builder,
             n_epochs_list=(300,),
             use_speed_pert=True,
-            batch_size=6_000,
+            batch_size=5_000,
             time_rqmt=80,
             gpu_mem_rqmt=24,
             checkpoint_alias="ctc-fixed-path-300ep",
@@ -223,7 +223,7 @@ def run_exps():
             run_analysis=True,
           )
 
-  # ------------------- blank decoder v4 (label ctx 1) fixed-path from-scratch (Running) ---------------------
+  # ------------------- blank decoder v4 (label ctx 1) fixed-path from-scratch (Done) ---------------------
 
   # window size 1 (like transducer)
   for model_alias, config_builder in get_config_builder.center_window_att_baseline_rf(
@@ -247,15 +247,34 @@ def run_exps():
         config_builder=config_builder,
         checkpoint=checkpoint,
       )
-      for epoch, chckpt in checkpoint["checkpoints"].items():
-        if epoch % 50 == 0:
-          recog.center_window_returnn_frame_wise_beam_search(
-            alias=train_alias,
-            config_builder=config_builder,
-            checkpoint=chckpt,
-            checkpoint_aliases=(f"epoch-{epoch}",),
-          )
-
+      recog.center_window_returnn_frame_wise_beam_search(
+        alias=train_alias,
+        config_builder=config_builder,
+        checkpoint=checkpoint,
+        checkpoint_aliases=("last",),
+        lm_type="trafo",
+        lm_scale_list=(0.6,),
+        ilm_type="mini_att",
+        ilm_scale_list=(0.3,),
+        subtract_ilm_eos_score=True,
+        use_recombination="sum",
+        corpus_keys=("dev-other",),
+        beam_size_list=(12,),
+      )
+      recog.center_window_returnn_frame_wise_beam_search(
+        alias=train_alias,
+        config_builder=config_builder,
+        checkpoint=checkpoint,
+        checkpoint_aliases=("last",),
+        lm_type="trafo",
+        lm_scale_list=(0.54,),
+        ilm_type="mini_att",
+        ilm_scale_list=(0.4,),
+        subtract_ilm_eos_score=True,
+        use_recombination="sum",
+        corpus_keys=("dev-other",),
+        beam_size_list=(12,),
+      )
       recog.center_window_returnn_frame_wise_beam_search(
         alias=train_alias,
         config_builder=config_builder,
@@ -297,6 +316,20 @@ def run_exps():
         lm_scale_list=(0.6,),
         ilm_type="mini_att",
         ilm_scale_list=(0.3,),
+        subtract_ilm_eos_score=True,
+        use_recombination="sum",
+        corpus_keys=("dev-other",),
+        beam_size_list=(12,),
+      )
+      recog.center_window_returnn_frame_wise_beam_search(
+        alias=train_alias,
+        config_builder=config_builder,
+        checkpoint=checkpoint,
+        checkpoint_aliases=("last",),
+        lm_type="trafo",
+        lm_scale_list=(0.54,),
+        ilm_type="mini_att",
+        ilm_scale_list=(0.4,),
         subtract_ilm_eos_score=True,
         use_recombination="sum",
         corpus_keys=("dev-other",),

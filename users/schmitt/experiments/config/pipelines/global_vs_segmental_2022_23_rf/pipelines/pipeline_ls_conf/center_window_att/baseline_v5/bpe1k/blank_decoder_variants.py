@@ -60,7 +60,7 @@ def run_exps():
               use_speed_pert=True,
               batch_size=3_000,
               time_rqmt=80,
-              use_mgpu=False,
+              use_mgpu=True,
       ):
         for epoch, chckpt in checkpoint["checkpoints"].items():
           if epoch % 5 == 0:

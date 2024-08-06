@@ -30,4 +30,11 @@ def run_exps():
             use_speed_pert=True,
             gpu_mem_rqmt=24,
     ):
-      pass
+      recog.center_window_returnn_frame_wise_beam_search(
+        alias=train_alias,
+        config_builder=config_builder,
+        checkpoint=checkpoint,
+        checkpoint_aliases=("last",),
+        run_analysis=True,
+        analyze_gradients=True,
+      )

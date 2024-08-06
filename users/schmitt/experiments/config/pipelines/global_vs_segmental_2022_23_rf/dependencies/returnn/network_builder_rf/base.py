@@ -1,7 +1,4 @@
-from typing import Optional, Dict, Any, Sequence, Tuple, List, Union, TYPE_CHECKING
-import contextlib
-import math
-import functools
+from typing import Optional, Tuple
 
 from returnn.tensor import Tensor, Dim, single_step_dim
 import returnn.frontend as rf
@@ -57,6 +54,8 @@ class BaseLabelDecoder(rf.Module):
           use_current_frame_in_readout_w_gate: bool = False,
           use_current_frame_in_readout_random: bool = False,
           target_embed_dim: Dim = Dim(name="target_embed", dimension=640),
+          target_embed_dropout: float = 0.0,
+          att_weight_dropout: float = 0.0,
   ):
     super(BaseLabelDecoder, self).__init__()
 
@@ -71,6 +70,8 @@ class BaseLabelDecoder(rf.Module):
     self.att_num_heads = att_num_heads
     self.att_dropout = att_dropout
     self.dropout_broadcast = rf.dropout_broadcast_default()
+    self.target_embed_dropout = target_embed_dropout
+    self.att_weight_dropout = att_weight_dropout
 
     target_embed_opts = {"in_dim": target_dim, "out_dim": target_embed_dim}
     if reset_eos_params:
@@ -224,6 +225,8 @@ class BaseLabelDecoder(rf.Module):
     return att
 
   def decode_logits(self, *, s: Tensor, input_embed: Tensor, att: Tensor, h_t: Optional[Tensor] = None) -> Tensor:
+    input_embed = rf.dropout(input_embed, drop_prob=self.target_embed_dropout, axis=None)
+
     if self.use_current_frame_in_readout:
       assert h_t is not None, "Need h_t for readout!"
       readout_input = rf.concat_features(s, input_embed, att, h_t, allow_broadcast=True)
@@ -264,3 +267,62 @@ class BaseLabelDecoder(rf.Module):
     readout = rf.dropout(readout, drop_prob=0.3, axis=self.dropout_broadcast and readout.feature_dim)
     logits = self.output_prob(readout)
     return logits
+
+
+def get_common_config_params():
+  from returnn.config import get_global_config
+
+  config = get_global_config()  # noqa
+
+  enc_aux_logits = config.typed_value("aux_loss_layers")
+  pos_emb_dropout = config.float("pos_emb_dropout", 0.0)
+  log_mel_feature_dim = config.int("log_mel_feature_dim", 80)
+  # real input is raw audio, internally it does logmel
+  in_dim = Dim(name="logmel", dimension=log_mel_feature_dim, kind=Dim.Types.Feature)
+  language_model = config.typed_value("external_lm")
+  use_weight_feedback = config.bool("use_weight_feedback", True)
+  use_att_ctx_in_state = config.bool("use_att_ctx_in_state", True)
+  label_decoder_state = config.typed_value("label_decoder_state", "nb-lstm")
+  target_embed_dim = config.int("target_embed_dim", 640)
+  feature_extraction_opts = config.typed_value("feature_extraction_opts", None)
+  use_mini_att = config.bool("use_mini_att", False)
+  att_dropout = config.float("att_dropout", 0.1)
+  target_embed_dropout = config.float("target_embed_dropout", 0.0)
+  att_weight_dropout = config.float("att_weight_dropout", 0.0)
+
+  return dict(
+    in_dim=in_dim,
+    enc_aux_logits=enc_aux_logits or (),
+    pos_emb_dropout=pos_emb_dropout,
+    language_model=language_model,
+    use_weight_feedback=use_weight_feedback,
+    use_att_ctx_in_state=use_att_ctx_in_state,
+    label_decoder_state=label_decoder_state,
+    target_embed_dim=target_embed_dim,
+    feature_extraction_opts=feature_extraction_opts,
+    use_mini_att=use_mini_att,
+    att_dropout=att_dropout,
+    target_embed_dropout=target_embed_dropout,
+    att_weight_dropout=att_weight_dropout,
+  )
+
+
+def apply_weight_dropout(model: rf.Module):
+  from returnn.config import get_global_config
+  config = get_global_config()  # noqa
+
+  weight_dropout = config.float("weight_dropout", None)
+  if weight_dropout:
+    # Use some blacklist. I think the same blacklist as for weight decay is reasonable.
+    # Usually sth like: ["rf.Embedding", "rf.LearnedRelativePositionalEncoding"]
+    blacklist = config.typed_value("optimizer")["weight_decay_modules_blacklist"]
+    blacklist = tuple(eval(name, {"rf": rf}) for name in blacklist)
+    for mod in model.modules():
+      if isinstance(mod, blacklist):
+        continue
+      for param_name, param in mod.named_parameters(recurse=False):
+        if param_name.endswith("bias"):  # no bias
+          continue
+        if param.auxiliary:
+          continue
+        rf.weight_dropout(mod, param_name, drop_prob=weight_dropout)

@@ -75,7 +75,7 @@ class GlobalAttDecoder(BaseLabelDecoder):
     prev_att = state.att
     prev_s_state = state.s if "lstm" in self.decoder_state else None
 
-    # s, state_.s = self.s(rf.concat_features(input_embed, prev_att), state=state.s, spatial_dim=single_step_dim)
+    input_embed = rf.dropout(input_embed, drop_prob=self.target_embed_dropout, axis=None)
     s, s_state = self._update_state(input_embed, prev_att, prev_s_state)
     if "lstm" in self.decoder_state:
       state_.s = s_state
@@ -99,6 +99,7 @@ class GlobalAttDecoder(BaseLabelDecoder):
       energy_in = enc_ctx + weight_feedback + s_transformed
       energy = self.energy(rf.tanh(energy_in))
       att_weights = rf.softmax(energy, axis=enc_spatial_dim)
+      att_weights = rf.dropout(att_weights, drop_prob=self.att_weight_dropout, axis=None)
 
       if self.use_weight_feedback:
         state_.accum_att_weights = state.accum_att_weights + att_weights * inv_fertility * 0.5

@@ -11,8 +11,11 @@ from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segment
   GlobalAttEfficientDecoder
 )
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.encoder.global_ import GlobalConformerEncoder
-from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.base import _batch_size_factor
-from i6_experiments.users.schmitt.returnn_frontend.model_interfaces.supports_label_scorer_torch import RFModelWithMakeLabelScorer
+from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.base import (
+  _batch_size_factor,
+  get_common_config_params,
+  apply_weight_dropout,
+)
 
 
 class GlobalAttentionModel(rf.Module):
@@ -38,10 +41,12 @@ class GlobalAttentionModel(rf.Module):
           use_weight_feedback: bool = True,
           use_att_ctx_in_state: bool = True,
           use_mini_att: bool = False,
-          decoder_state: str = "nb-lstm",
+          label_decoder_state: str = "nb-lstm",
           num_dec_layers: int = 1,
           target_embed_dim: int = 640,
           feature_extraction_opts: Optional[Dict[str, Any]] = None,
+          target_embed_dropout: float = 0.0,
+          att_weight_dropout: float = 0.0,
   ):
     super(GlobalAttentionModel, self).__init__()
 
@@ -63,12 +68,12 @@ class GlobalAttentionModel(rf.Module):
       dropout=enc_dropout,
       att_dropout=att_dropout,
       l2=l2,
-      decoder_type="trafo" if decoder_state == "trafo" else "lstm",
+      decoder_type="trafo" if label_decoder_state == "trafo" else "lstm",
       feature_extraction_opts=feature_extraction_opts,
     )
 
-    self.decoder_state = decoder_state
-    if decoder_state != "trafo":
+    self.decoder_state = label_decoder_state
+    if label_decoder_state != "trafo":
       assert num_dec_layers == 1
 
       if not use_weight_feedback and not use_att_ctx_in_state:
@@ -88,8 +93,10 @@ class GlobalAttentionModel(rf.Module):
         use_weight_feedback=use_weight_feedback,
         use_att_ctx_in_state=use_att_ctx_in_state,
         use_mini_att=use_mini_att,
-        decoder_state=decoder_state,
+        decoder_state=label_decoder_state,
         target_embed_dim=Dim(name="target_embed", dimension=target_embed_dim),
+        target_embed_dropout=target_embed_dropout,
+        att_weight_dropout=att_weight_dropout,
       )
     else:
       # hard code for now
@@ -119,6 +126,8 @@ class GlobalAttentionModel(rf.Module):
       for name, param in self.named_parameters():
         if "mini_att" not in name:
           param.trainable = False
+
+    apply_weight_dropout(self)
 
 
 class MakeModel:
@@ -176,7 +185,7 @@ class MakeModel:
           use_weight_feedback: bool = True,
           use_att_ctx_in_state: bool = True,
           use_mini_att: bool = False,
-          decoder_state: str = "nb-lstm",
+          label_decoder_state: str = "nb-lstm",
           num_dec_layers: int = 1,
           target_embed_dim: int = 640,
           feature_extraction_opts: Optional[Dict[str, Any]] = None,
@@ -221,7 +230,7 @@ class MakeModel:
       use_weight_feedback=use_weight_feedback,
       use_att_ctx_in_state=use_att_ctx_in_state,
       use_mini_att=use_mini_att,
-      decoder_state=decoder_state,
+      label_decoder_state=label_decoder_state,
       num_dec_layers=num_dec_layers,
       target_embed_dim=target_embed_dim,
       feature_extraction_opts=feature_extraction_opts,
@@ -259,33 +268,16 @@ def from_scratch_model_def(*, epoch: int, in_dim: Dim, target_dim: Dim) -> Globa
 
   in_dim, epoch  # noqa
   config = get_global_config()  # noqa
-  enc_aux_logits = config.typed_value("aux_loss_layers")
-  pos_emb_dropout = config.float("pos_emb_dropout", 0.0)
-  log_mel_feature_dim = config.int("log_mel_feature_dim", 80)
-  # real input is raw audio, internally it does logmel
-  in_dim = Dim(name="logmel", dimension=log_mel_feature_dim, kind=Dim.Types.Feature)
-  lm_opts = config.typed_value("external_lm")
-  use_weight_feedback = config.bool("use_weight_feedback", True)
-  use_att_ctx_in_state = config.bool("use_att_ctx_in_state", True)
-  use_mini_att = config.bool("use_mini_att", False)
-  decoder_state = config.typed_value("label_decoder_state", "nb-lstm")
   num_dec_layers = config.int("num_label_decoder_layers", 1)
-  target_embed_dim = config.int("target_embed_dim", 640)
-  feature_extraction_opts = config.typed_value("feature_extraction_opts", None)
+
+  common_config_params = get_common_config_params()
+  in_dim = common_config_params.pop("in_dim")
 
   return MakeModel.make_model(
     in_dim,
     target_dim,
-    enc_aux_logits=enc_aux_logits or (),
-    pos_emb_dropout=pos_emb_dropout,
-    language_model=lm_opts,
-    use_weight_feedback=use_weight_feedback,
-    use_att_ctx_in_state=use_att_ctx_in_state,
-    use_mini_att=use_mini_att,
-    decoder_state=decoder_state,
     num_dec_layers=num_dec_layers,
-    target_embed_dim=target_embed_dim,
-    feature_extraction_opts=feature_extraction_opts,
+    **common_config_params,
   )
 
 

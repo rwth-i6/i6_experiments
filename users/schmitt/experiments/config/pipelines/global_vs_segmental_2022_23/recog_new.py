@@ -461,7 +461,8 @@ class ReturnnDecodingExperiment(DecodingExperiment, ABC):
         #     ref_alignment_vocab_path=_analysis_opts["ref_alignment_vocab_path"],
         #     seq_alias="search"
         #   )
-      if "models/ls_conformer/global_att/baseline_v1/baseline_rf/bpe10025/w-weight-feedback/w-att-ctx-in-state/nb-lstm/import_glob.conformer.mohammad.5.4/returnn_decoding/best-4-avg-checkpoint/no-lm/beam-size-12/dev-other" == self.alias:
+      # if "models/ls_conformer/global_att/baseline_v1/baseline_rf/bpe10025/w-weight-feedback/w-att-ctx-in-state/nb-lstm/import_glob.conformer.mohammad.5.4/returnn_decoding/best-4-avg-checkpoint/no-lm/beam-size-12/dev-other" == self.alias:
+      if isinstance(self.config_builder, SegmentalAttConfigBuilderRF) and self.config_builder.center_window_size == 5 and not self.config_builder.use_joint_model and not self.config_builder.use_weight_feedback:
         analysis_rf.calculate_search_errors(
           config_builder=self.config_builder,
           checkpoint=self.checkpoint,

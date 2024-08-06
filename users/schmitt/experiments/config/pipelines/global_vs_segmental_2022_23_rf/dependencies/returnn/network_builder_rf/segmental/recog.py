@@ -225,7 +225,7 @@ def get_score(
       )
     label_step_s_out = label_step_out["s"]
 
-    if (
+    if not isinstance(model.label_decoder, TransformerDecoder) and (
             model.label_decoder.use_current_frame_in_readout or
             model.label_decoder.use_current_frame_in_readout_w_gate or
             model.label_decoder.use_current_frame_in_readout_random
@@ -242,7 +242,7 @@ def get_score(
   else:
     label_log_prob = rf.log_softmax(label_logits, axis=model.target_dim)
 
-  if model.label_decoder.use_current_frame_in_readout_random:
+  if not isinstance(model.label_decoder, TransformerDecoder) and model.label_decoder.use_current_frame_in_readout_random:
     label_logits2 = model.label_decoder.decode_logits(input_embed=input_embed_label_model, **label_step_out)
     label_log_prob2 = rf.log_softmax(label_logits2, axis=model.target_dim)
     alpha = 0.6

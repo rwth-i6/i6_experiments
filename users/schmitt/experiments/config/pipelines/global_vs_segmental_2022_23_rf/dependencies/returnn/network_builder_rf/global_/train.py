@@ -112,9 +112,6 @@ def forward_sequence(
         return_label_model_states: bool = False,
         center_positions: Optional[rf.Tensor] = None,
 ) -> Tuple[rf.Tensor, Optional[Tuple[rf.Tensor, Dim]]]:
-  input_embeddings = model.target_embed(targets)
-  input_embeddings = rf.shift_right(input_embeddings, axis=targets_spatial_dim, pad_value=0.0)
-
   if type(model) is TransformerDecoder:
     logits, _, _ = model(
       targets,
@@ -123,6 +120,10 @@ def forward_sequence(
       state=model.default_initial_state(batch_dims=batch_dims)
     )
   else:
+    input_embeddings = model.target_embed(targets)
+    input_embeddings = rf.shift_right(input_embeddings, axis=targets_spatial_dim, pad_value=0.0)
+    input_embeddings = rf.dropout(input_embeddings, drop_prob=model.target_embed_dropout, axis=None)
+
     if type(model) is GlobalAttDecoder:
       s, att, final_state = get_s_and_att(
         model=model,

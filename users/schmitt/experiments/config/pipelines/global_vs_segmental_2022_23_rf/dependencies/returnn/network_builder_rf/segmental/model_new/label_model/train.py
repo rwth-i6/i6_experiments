@@ -144,6 +144,7 @@ def forward_sequence(
   non_blank_input_embeddings = model.target_embed(non_blank_targets)
   non_blank_input_embeddings_shifted = rf.shift_right(
     non_blank_input_embeddings, axis=non_blank_targets_spatial_dim, pad_value=0.0)
+  non_blank_input_embeddings = rf.dropout(non_blank_input_embeddings, drop_prob=model.target_embed_dropout, axis=None)
 
   # ------------------- label loop -------------------
 
