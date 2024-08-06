@@ -299,9 +299,9 @@ def run_scf_baseline_decaying_batchsize():
             "conv_pad_seq_len_to_power": 1.5,
             "preload_from_files": {
                 "existing-model": {
-                    "filename": nn_system.train_jobs[
-                        "conformer_bs2x5k_scf_baseline_preemphasis97_wn"
-                    ].out_checkpoints[24],
+                    "filename": nn_system.train_jobs["conformer_bs2x5k_scf_baseline_preemphasis97_wn"].out_checkpoints[
+                        24
+                    ],
                     "init_for_train": True,
                 }
             },
@@ -643,7 +643,7 @@ def run_scf_audio_perturbation():
 
             if key in ["speed", "tempo", "preemphasis", "non_linearity"]:
                 key_component = f"{key}_{value['prob']}_{value['minimum']}_{value['maximum']}"
-                if 'default' in value:
+                if "default" in value:
                     key_component += f"_{value['default']}"
                 key_string += key_component
                 report_dict[key] = f"{value['prob']}_{value['minimum']}_{value['maximum']}"
@@ -704,7 +704,7 @@ def run_scf_audio_perturbation():
 
 def run_scf_audio_perturbation_from_checkpoint():
     gs.ALIAS_AND_OUTPUT_SUBDIR = "experiments/switchboard/ctc/feat/"
-    
+
     _, nn_system = run_scf_baseline()
 
     (
@@ -799,7 +799,7 @@ def run_scf_audio_perturbation_from_checkpoint():
 
             if key in ["speed", "tempo", "preemphasis", "non_linearity"]:
                 key_component = f"{key}_{value['prob']}_{value['minimum']}_{value['maximum']}"
-                if 'default' in value:
+                if "default" in value:
                     key_component += f"_{value['default']}"
                 key_string += key_component
                 report_dict[key] = f"{value['prob']}_{value['minimum']}_{value['maximum']}"
