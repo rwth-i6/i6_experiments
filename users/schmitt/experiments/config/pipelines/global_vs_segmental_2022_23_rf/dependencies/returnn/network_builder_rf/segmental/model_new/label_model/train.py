@@ -453,7 +453,8 @@ def full_sum_training(
   assert isinstance(
     model.label_decoder, SegmentalAttEfficientLabelDecoder) or isinstance(
     model.label_decoder, GlobalAttEfficientDecoder) or isinstance(
-    model.label_decoder, TransformerDecoder
+    model.label_decoder, TransformerDecoder) or isinstance(
+    model.label_decoder, GlobalAttDecoder
   )
 
   from returnn.config import get_global_config
@@ -487,13 +488,63 @@ def full_sum_training(
     non_blank_input_embeddings_shifted.feature_dim = non_blank_input_embeddings.feature_dim
 
     if "lstm" in model.label_decoder.decoder_state:
-      s_out, _ = model.label_decoder.s_wo_att(
-        non_blank_input_embeddings_shifted,
-        state=model.label_decoder.s_wo_att.default_initial_state(batch_dims=batch_dims),
-        spatial_dim=non_blank_targets_spatial_dim_ext,
-      )  # [B, S+1, D]
+      if type(model.label_decoder) is GlobalAttDecoder:
+        def _body(input_embed: rf.Tensor, state: rf.State):
+          new_state = rf.State()
+          loop_out_, new_state.decoder = model.label_decoder.loop_step(
+            **enc_args,
+            enc_spatial_dim=enc_spatial_dim,
+            input_embed=input_embed,
+            state=state.decoder,
+          )
+          return loop_out_, new_state
+
+        loop_out, _, _ = rf.scan(
+          spatial_dim=non_blank_targets_spatial_dim_ext,
+          xs=non_blank_input_embeddings_shifted,
+          ys=model.label_decoder.loop_step_output_templates(batch_dims=batch_dims),
+          initial=rf.State(
+            decoder=model.label_decoder.decoder_default_initial_state(
+              batch_dims=batch_dims,
+              enc_spatial_dim=enc_spatial_dim,
+            ),
+          ),
+          body=_body,
+        )
+        s_out = loop_out["s"]
+      else:
+        s_out, _ = model.label_decoder.s_wo_att(
+          non_blank_input_embeddings_shifted,
+          state=model.label_decoder.s_wo_att.default_initial_state(batch_dims=batch_dims),
+          spatial_dim=non_blank_targets_spatial_dim_ext,
+        )  # [B, S+1, D]
     else:
-      s_out = model.label_decoder.s_wo_att_linear(non_blank_input_embeddings_shifted)  # [B, S+1, D]
+      if type(model.label_decoder) is GlobalAttDecoder:
+        def _body(input_embed: rf.Tensor, state: rf.State):
+          new_state = rf.State()
+          loop_out_, new_state.decoder = model.label_decoder.loop_step(
+            **enc_args,
+            enc_spatial_dim=enc_spatial_dim,
+            input_embed=input_embed,
+            state=state.decoder,
+          )
+          return loop_out_, new_state
+
+        loop_out, _, _ = rf.scan(
+          spatial_dim=non_blank_targets_spatial_dim_ext,
+          xs=non_blank_input_embeddings_shifted,
+          ys=model.label_decoder.loop_step_output_templates(batch_dims=batch_dims),
+          initial=rf.State(
+            decoder=model.label_decoder.decoder_default_initial_state(
+              batch_dims=batch_dims,
+              enc_spatial_dim=enc_spatial_dim,
+            ),
+          ),
+          body=_body,
+        )
+        s_out = loop_out["s"]
+      else:
+        s_out = model.label_decoder.s_wo_att_linear(non_blank_input_embeddings_shifted)  # [B, S+1, D]
 
     if isinstance(model.label_decoder, GlobalAttEfficientDecoder):
       att = model.label_decoder(
@@ -502,7 +553,10 @@ def full_sum_training(
         enc_spatial_dim=enc_spatial_dim,
         s=s_out,
       )
+    elif type(model.label_decoder) is GlobalAttDecoder:
+      att = loop_out["att"]
     else:
+      assert isinstance(model.label_decoder, SegmentalAttEfficientLabelDecoder)
       att = model.label_decoder(
         enc=enc_args["enc"],
         enc_ctx=enc_args["enc_ctx"],

@@ -7,6 +7,7 @@ from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segment
   BlankDecoderV5,
   BlankDecoderV6,
   BlankDecoderV7,
+  BlankDecoderV8,
 )
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.segmental import utils
 
@@ -270,6 +271,38 @@ def viterbi_training_v7(
   blank_logits_packed, pack_dim, emit_ground_truth_packed = get_packed_logits_and_emit_ground_truth(
     blank_logits=blank_logits,
     align_targets_spatial_dim=label_states_unmasked_spatial_dim,
+    emit_ground_truth=emit_ground_truth,
+    emit_prob_dim=model.emit_prob.out_dim,
+    batch_dims=batch_dims
+  )
+
+  return calc_loss(
+    blank_logits_packed=blank_logits_packed,
+    emit_ground_truth_packed=emit_ground_truth_packed,
+    emit_blank_target_dim=emit_blank_target_dim,
+    blank_logit_dim=model.emit_prob.out_dim
+  )
+
+
+def viterbi_training_v8(
+        *,
+        model: BlankDecoderV8,
+        enc_args: Dict,
+        enc_spatial_dim: Dim,
+        emit_ground_truth: rf.Tensor,
+        emit_blank_target_dim: Dim,
+        batch_dims: List[Dim],
+) -> Tuple[rf.Tensor, rf.Tensor]:
+  emit_ground_truth_spatial_dim = emit_ground_truth.remaining_dims(batch_dims)[0]
+
+  # using dim.declare_same_as() leads to an error after an epoch is finished (see viterbi_training_v4)
+  enc = enc_args["enc"]  # type: rf.Tensor
+  enc = utils.copy_tensor_replace_dim_tag(enc, enc_spatial_dim, emit_ground_truth_spatial_dim)
+
+  blank_logits = model.decode_logits(enc=enc)
+  blank_logits_packed, pack_dim, emit_ground_truth_packed = get_packed_logits_and_emit_ground_truth(
+    blank_logits=blank_logits,
+    align_targets_spatial_dim=emit_ground_truth_spatial_dim,
     emit_ground_truth=emit_ground_truth,
     emit_prob_dim=model.emit_prob.out_dim,
     batch_dims=batch_dims

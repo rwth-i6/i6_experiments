@@ -245,7 +245,7 @@ def get_score(
   if model.label_decoder.use_current_frame_in_readout_random:
     label_logits2 = model.label_decoder.decode_logits(input_embed=input_embed_label_model, **label_step_out)
     label_log_prob2 = rf.log_softmax(label_logits2, axis=model.target_dim)
-    alpha = 0.7
+    alpha = 0.6
     label_log_prob = alpha * label_log_prob + (1 - alpha) * label_log_prob2
 
   # ------------------- external LM step -------------------
@@ -409,7 +409,7 @@ def model_recog(
         cheating_targets: Optional[Tensor] = None,
         cheating_targets_spatial_dim: Optional[Dim] = None,
         return_non_blank_seqs: bool = True,
-) -> Tuple[Tensor, Tensor, Dim, Dim]:
+) -> Tuple[Tensor, Tensor, Dim, Tensor, Dim, Dim]:
   """
   Function is run within RETURNN.
 
@@ -543,6 +543,13 @@ def model_recog(
       value=model.blank_idx,
     )
     cheating_targets_padded_spatial_dim = cheating_targets_padded_spatial_dim[0]
+
+    # rf.pad falsely pads right after the padding. this means that for shorter seqs, the padding is behind the padding.
+    cheating_targets_padded = rf.where(
+      rf.range_over_dim(cheating_targets_padded_spatial_dim) < rf.copy_to_device(cheating_targets_padded_spatial_dim.dyn_size_ext) - 1,
+      cheating_targets_padded,
+      model.blank_idx
+    )
 
     cheating_targets_padded_spatial_sizes = rf.copy_to_device(cheating_targets_padded_spatial_dim.dyn_size_ext)
     cheating_targets_spatial_sizes = rf.copy_to_device(cheating_targets_spatial_dim.dyn_size_ext)
@@ -729,21 +736,23 @@ def model_recog(
     seq_targets__ = seq_targets__.push_back(target)
   seq_targets = seq_targets__.stack(axis=enc_spatial_dim)
 
-  if return_non_blank_seqs:
-    non_blank_targets, non_blank_targets_spatial_dim = utils.get_masked(
-      seq_targets,
-      utils.get_non_blank_mask(seq_targets, model.blank_idx),
-      enc_spatial_dim,
-      [beam_dim] + batch_dims,
-    )
-    non_blank_targets.sparse_dim = model.target_dim
+  # if return_non_blank_seqs:
+  non_blank_targets, non_blank_targets_spatial_dim = utils.get_masked(
+    seq_targets,
+    utils.get_non_blank_mask(seq_targets, model.blank_idx),
+    enc_spatial_dim,
+    [beam_dim] + batch_dims,
+  )
+  non_blank_targets.sparse_dim = model.target_dim
 
-    seq_targets = non_blank_targets
-    seq_targets_spatial_dim = non_blank_targets_spatial_dim
-  else:
-    seq_targets_spatial_dim = enc_spatial_dim
+  best_hyps = rf.reduce_argmax(seq_log_prob, axis=beam_dim)
+  best_alignment = rf.gather(
+    seq_targets,
+    indices=best_hyps,
+    axis=beam_dim,
+  )
 
-  return seq_targets, seq_log_prob, seq_targets_spatial_dim, beam_dim
+  return best_alignment, seq_log_prob, enc_spatial_dim, non_blank_targets, non_blank_targets_spatial_dim, beam_dim
 
 
 # RecogDef API

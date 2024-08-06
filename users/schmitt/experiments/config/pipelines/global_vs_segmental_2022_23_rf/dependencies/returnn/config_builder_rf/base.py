@@ -408,6 +408,13 @@ class ConfigBuilderRF(ABC):
 
     config_dict["batch_size"] = opts.get("batch_size", 15_000) * self.batch_size_factor
 
+    config_dict.update({
+      "ref_alignment_hdf": opts["ref_alignment_hdf"],
+      "ref_alignment_vocab_path": opts["ref_alignment_vocab_path"],
+      "ref_alignment_blank_idx": opts["ref_alignment_blank_idx"],
+      "json_vocab_path": opts["json_vocab_path"],
+    })
+
     python_epilog.append(
       serialization.Collection(
         [
@@ -492,6 +499,8 @@ class ConfigBuilderRF(ABC):
       _lrlin_oclr_steps_by_bs_nep = {
         (3, 125): [485_156, 970_312, 1_078_000],  # ~8625steps/ep, 125 eps -> 1,078,125 steps in total
         (3, 500): [1_940_625, 3_881_250, 4_312_000],  # ~8625steps/ep, 500 eps -> 4,312,500 steps in total
+        (5, 500): [887_000, 1_774_000, 1_972_000],  # ~8625steps/ep, 500 eps -> 4,312,500 steps in total
+        (6, 500): [970_000, 1_940_000, 2_156_000],  # ~8625steps/ep, 500 eps -> 4,312,500 steps in total
         (8, 125): [139_000, 279_000, 310_000],  # ~2485steps/ep, 125 eps -> 310k steps in total
         (8, 250): [279_000, 558_000, 621_000],  # ~2485steps/ep, 250 eps -> 621k steps in total
         (8, 500): [558_000, 1_117_000, 1_242_000],  # ~2485steps/ep, 500 eps -> 1.242k steps in total
@@ -635,15 +644,22 @@ class ConfigBuilderRF(ABC):
         pre_process=None,
         seq_ordering="sorted_reverse",
         epoch_wise_filter=None,
+        seq_postfix=dataset_opts.get("seq_postfix", self.variant_params["dependencies"].model_hyperparameters.sos_idx),
         **self.get_default_dataset_opts(corpus_key, dataset_opts)
       )
 
       concat_num = dataset_opts.get("concat_num")  # type: Optional[int]
       if concat_num:
+        if dataset_opts.get("concat_segment_paths"):
+          seq_list_file = dataset_opts["concat_segment_paths"].get(corpus_key)
+        else:
+          seq_list_file = self.variant_params["dataset"]["corpus"].segment_paths[corpus_key + "_concat-%d" % concat_num]
         dataset_dict = get_concat_dataset_dict(
           original_dataset_dict=dataset_dict,
           seq_len_file=self.variant_params["dataset"]["corpus"].seq_len_files[corpus_key],
-          seq_list_file=self.variant_params["dataset"]["corpus"].segment_paths[corpus_key + "_concat-%d" % concat_num]
+          seq_list_file=seq_list_file,
+          remove_in_between_postfix=dataset_opts.get("remove_in_between_postfix", None),
+          repeat_in_between_last_frame_up_to_multiple_of=dataset_opts.get("repeat_in_between_last_frame_up_to_multiple_of", None),
         )
 
       return dataset_dict
@@ -799,6 +815,14 @@ class ConfigBuilderRF(ABC):
   def batch_size_factor(self):
     raise NotImplementedError
 
+  @property
+  def red_factor(self):
+    raise NotImplementedError
+
+  @property
+  def red_subtrahend(self):
+    raise NotImplementedError
+
   def get_vocab_dict_for_tensor(self):
     if self.variant_params["dependencies"].bpe_codes_path is None:
       return {
@@ -847,19 +871,8 @@ class GlobalAttConfigBuilderRF(ConfigBuilderRF, ABC):
   def get_extern_data_dict(self, dataset_opts: Dict, config_dict: Dict):
     extern_data_dict = super(GlobalAttConfigBuilderRF, self).get_extern_data_dict(dataset_opts, config_dict)
 
-    if self.variant_params["dependencies"].bpe_codes_path is None:
-      extern_data_dict["targets"]["vocab"] = {
-        "class": "SentencePieces",
-        "model_file": self.variant_params["dependencies"].model_path,
-      }
-    else:
-      extern_data_dict["targets"]["vocab"] = {
-        "bpe_file": self.variant_params["dependencies"].bpe_codes_path,
-        "vocab_file": self.variant_params["dependencies"].vocab_path,
-        "unknown_label": None,
-        "bos_label": self.variant_params["dependencies"].model_hyperparameters.sos_idx,
-        "eos_label": self.variant_params["dependencies"].model_hyperparameters.sos_idx,
-      }
+    vocab = self.get_vocab_dict_for_tensor()
+    extern_data_dict["targets"]["vocab"] = vocab
 
     return extern_data_dict
 
@@ -869,6 +882,57 @@ class GlobalAttConfigBuilderRF(ConfigBuilderRF, ABC):
     opts["dataset_opts"]["target_is_alignment"] = False
 
     return super(GlobalAttConfigBuilderRF, self).get_dump_att_weight_config(opts)
+
+  def get_forward_config(self, opts: Dict):
+    config_dict = copy.deepcopy(self.config_dict)
+    post_config_dict = copy.deepcopy(self.post_config_dict)
+    python_prolog = copy.deepcopy(self.python_prolog)
+    python_epilog = copy.deepcopy(self.python_epilog)
+
+    dataset_opts = opts.get("dataset_opts", {})
+    config_dict.update(dict(
+      task="forward",
+      batching=opts.get("batching", "random")
+    ))
+
+    config_dict.update(
+      self.get_search_dataset(
+        search_corpus_key=opts["corpus_key"],
+        dataset_opts=dataset_opts
+      ))
+    extern_data_raw = self.get_extern_data_dict(dataset_opts, config_dict)
+    extern_data_raw = instanciate_delayed(extern_data_raw)
+
+    config_dict["batch_size"] = opts.get("batch_size", 15_000) * self.batch_size_factor
+
+    python_epilog.append(
+      serialization.Collection(
+        [
+          serialization.NonhashedCode(get_import_py_code()),
+          serialization.NonhashedCode(
+            nn.ReturnnConfigSerializer.get_base_extern_data_py_code_str_direct(extern_data_raw)
+          ),
+          *serialize_model_def(self.model_def),
+          serialization.Import(self.get_model_func, import_as="get_model"),
+          serialization.Import(opts["forward_def"], import_as="_forward_def", ignore_import_as_for_hash=True),
+          serialization.Import(opts["forward_step_func"], import_as="forward_step"),
+          serialization.Import(opts["forward_callback"], import_as="forward_callback"),
+          serialization.PythonEnlargeStackWorkaroundNonhashedCode,
+          serialization.PythonCacheManagerFunctionNonhashedCode,
+          serialization.PythonModelineNonhashedCode
+        ]
+      )
+    )
+
+    returnn_forward_config = ReturnnConfig(
+      config=config_dict,
+      post_config=post_config_dict,
+      python_prolog=python_prolog,
+      python_epilog=python_epilog,
+    )
+
+    # serialize remaining functions, e.g. dynamic learning rate
+    return get_serializable_config(returnn_forward_config, serialize_dim_tags=False)
 
 
 class SegmentalAttConfigBuilderRF(ConfigBuilderRF, ABC):
@@ -958,10 +1022,9 @@ class SegmentalAttConfigBuilderRF(ConfigBuilderRF, ABC):
 
     ilm_correction_opts = opts.get("ilm_correction_opts")  # type: Dict
     if ilm_correction_opts:
-      if ilm_correction_opts.get("correct_eos"):
-        recog_config.config["beam_search_opts"].update({
-          "subtract_ilm_eos_score": True,
-        })
+      recog_config.config["beam_search_opts"].update({
+        "subtract_ilm_eos_score": True,
+      })
 
     if opts.pop("reset_eos_params", False):
       recog_config.config["reset_eos_params"] = True

@@ -15,6 +15,7 @@ from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segment
   BlankDecoderV5,
   BlankDecoderV6,
   BlankDecoderV7,
+  BlankDecoderV8,
 )
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.segmental.model_new.label_model.model import (
   SegmentalAttLabelDecoder, SegmentalAttEfficientLabelDecoder
@@ -88,7 +89,7 @@ class SegmentalAttentionModel(rf.Module):
       decoder_type="trafo" if label_decoder_state == "trafo" else "lstm",
     )
 
-    assert blank_decoder_version in {1, 3, 4, 5, 6, 7}
+    assert blank_decoder_version in {1, 3, 4, 5, 6, 7, 8}
     assert label_decoder_state in {"nb-lstm", "joint-lstm", "nb-2linear-ctx1", "trafo"}
     if not use_joint_model:
       assert label_decoder_state in ("nb-lstm", "nb-2linear-ctx1", "trafo")
@@ -233,12 +234,17 @@ class SegmentalAttentionModel(rf.Module):
           label_state_dim=label_state_dim,
           encoder_out_dim=self.encoder.out_dim,
         )
-      else:
+      elif blank_decoder_version == 7:
         self.blank_decoder = BlankDecoderV7(
           length_model_state_dim=length_model_state_dim,
           label_state_dim=label_state_dim,
           encoder_out_dim=self.encoder.out_dim,
           **blank_decoder_opts,
+        )
+      else:
+        self.blank_decoder = BlankDecoderV8(
+          length_model_state_dim=length_model_state_dim,
+          encoder_out_dim=self.encoder.out_dim,
         )
     else:
       self.blank_decoder = None

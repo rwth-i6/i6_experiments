@@ -75,26 +75,20 @@ def scatter_att_weights(
         segment_starts: rf.Tensor,
         new_slice_dim: rf.Dim,
         align_targets_spatial_dim: rf.Dim,
+        batch_dims: List[rf.Dim],
 ):
   # scatter the attention weights to the align_targets_spatial_dim to get shape [T, S]
   scatter_indices = segment_starts + rf.range_over_dim(new_slice_dim)
   align_targets_spatial_sizes = rf.copy_to_device(
     align_targets_spatial_dim.dyn_size_ext, device=att_weights.device
   )
-  # in case we padded the attention weights with zeros, we would scatter out of bounds
-  # in this case, we just scatter to the last position. since we padded with zeros, this
-  # will not affect the resulting attention weights (scatter just adds values pointing to the same position)
-  scatter_indices = rf.where(
-    scatter_indices > align_targets_spatial_sizes - 1,
-    align_targets_spatial_sizes - 1,
-    scatter_indices,
-  )
-  scatter_indices.sparse_dim = align_targets_spatial_dim
-
-  att_weights = rf.scatter(
-    att_weights,
-    indices=scatter_indices,
+  att_weights = utils.scatter_w_masked_indices(
+    x=att_weights,
+    mask=scatter_indices < align_targets_spatial_sizes,
+    scatter_indices=scatter_indices,
+    result_spatial_dim=align_targets_spatial_dim,
     indices_dim=new_slice_dim,
+    batch_dims=batch_dims
   )
 
   return att_weights

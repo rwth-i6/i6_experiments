@@ -37,10 +37,6 @@ class TrainExperiment(ABC):
     self.alias = self.alias + "/train"
     if self.train_opts.get("train_mini_lstm_opts") is not None:  # need to check for None because it can be {}
       self.alias += "_mini_lstm"
-      if self.train_opts["train_mini_lstm_opts"].get("use_eos", False):
-        self.alias += "/w_eos"
-      else:
-        self.alias += "/wo_eos"
 
       if self.train_opts["train_mini_lstm_opts"].get("use_se_loss", False):
         self.alias += "/w_se_loss"

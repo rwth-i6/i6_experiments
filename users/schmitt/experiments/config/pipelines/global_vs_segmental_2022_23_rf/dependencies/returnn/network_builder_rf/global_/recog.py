@@ -9,6 +9,7 @@ from returnn.frontend.tensor_array import TensorArray
 from i6_experiments.users.schmitt.returnn_frontend.model_interfaces.recog import RecogDef
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.base import _batch_size_factor
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.global_.model import GlobalAttentionModel
+from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.segmental import utils
 
 
 def _trafo_gather_backrefs(s, *, backrefs: Tensor):
@@ -32,7 +33,9 @@ def model_recog(
         external_lm_scale: Optional[float] = None,
         ilm_type: Optional[str] = None,
         ilm_correction_scale: Optional[float] = None,
-) -> Tuple[Tensor, Tensor, Dim, Dim]:
+        cheating_targets: Optional[Tensor] = None,
+        cheating_targets_spatial_dim: Optional[Dim] = None,
+) -> Tuple[Tensor, Tensor, Dim, Tensor, Dim, Dim]:
   """
   Function is run within RETURNN.
 
@@ -46,6 +49,7 @@ def model_recog(
       out_spatial_dim,
       final beam_dim
   """
+  assert (cheating_targets is None) == (cheating_targets_spatial_dim is None)
 
   if ilm_type is not None:
     assert ilm_type in ("mini_att",)
@@ -99,6 +103,10 @@ def model_recog(
   # --------------------------------- init targets ---------------------------------
 
   target = rf.constant(model.bos_idx, dims=batch_dims_, sparse_dim=model.target_dim)
+
+  # ------------------------------- cheating targets ---------------------------------
+  if cheating_targets is not None:
+    vocab_range = rf.range_over_dim(model.target_dim)
 
   # --------------------------------- main loop ---------------------------------
 
@@ -158,6 +166,23 @@ def model_recog(
       ilm_logits = model.label_decoder.decode_logits(input_embed=input_embed, **ilm_step_out)
       ilm_label_log_prob = rf.log_softmax(ilm_logits, axis=model.target_dim)
       label_log_prob -= ilm_correction_scale * ilm_label_log_prob
+
+    if cheating_targets is not None:
+      label_ground_truth = rf.gather(
+        cheating_targets,
+        indices=rf.constant(i, dims=batch_dims),
+        axis=cheating_targets_spatial_dim,
+      )
+      label_log_prob_mask = vocab_range == label_ground_truth
+      # label_log_prob_mask = rf.logical_or(
+      #   label_log_prob_mask,
+      #   i > cheating_targets_spatial_dim.get_size_tensor()
+      # )
+      label_log_prob = rf.where(
+        label_log_prob_mask,
+        label_log_prob,
+        rf.constant(-1.0e30, dims=batch_dims + [beam_dim, model.target_dim])
+      )
 
     # --------------------------------- filter finished beams, pick top-k ---------------------------------
 
@@ -240,7 +265,28 @@ def model_recog(
   out_spatial_dim = Dim(out_seq_len, name="out-spatial")
   seq_targets = seq_targets__.stack(axis=out_spatial_dim)
 
-  return seq_targets, seq_log_prob, out_spatial_dim, beam_dim
+  best_hyps = rf.reduce_argmax(seq_log_prob, axis=beam_dim)
+  best_seq_targets = rf.gather(
+    seq_targets,
+    indices=best_hyps,
+    axis=beam_dim,
+  )
+
+  # out_spatial_dim has 2 dims (batch, beam) since seqs can have different lengths for global AED
+  # just gather the best seq lengths (same as for the seqs themselves)
+  best_seq_targets_spatial_dim = out_spatial_dim.copy()
+  best_seq_targets_spatial_dim.dyn_size_ext = rf.gather(
+    out_spatial_dim.dyn_size_ext,
+    indices=best_hyps,
+    axis=beam_dim,
+  )
+
+  # replace the old dim with the new one
+  best_seq_targets = utils.copy_tensor_replace_dim_tag(
+    best_seq_targets, out_spatial_dim, best_seq_targets_spatial_dim
+  )
+
+  return best_seq_targets, seq_log_prob, best_seq_targets_spatial_dim, seq_targets, out_spatial_dim, beam_dim
 
 
 # RecogDef API

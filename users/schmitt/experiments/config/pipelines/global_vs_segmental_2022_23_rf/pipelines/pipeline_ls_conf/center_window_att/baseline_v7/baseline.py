@@ -30,14 +30,4 @@ def run_exps():
             use_speed_pert=True,
             gpu_mem_rqmt=24,
     ):
-      for epoch, chckpt in checkpoint["checkpoints"].items():
-        if epoch == 3:
-          realign.center_window_returnn_realignment(
-            alias=train_alias,
-            config_builder=config_builder,
-            checkpoint=chckpt,
-            checkpoint_alias=f"epoch-{epoch}",
-            plot=True,
-            batch_size=4_000,
-            time_rqmt=3,
-          )
+      pass

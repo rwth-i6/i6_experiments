@@ -42,6 +42,9 @@ from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segment
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.segmental.model_new.blank_model.train import (
   viterbi_training_v7 as blank_model_viterbi_training_v7
 )
+from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.segmental.model_new.blank_model.train import (
+  viterbi_training_v8 as blank_model_viterbi_training_v8
+)
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.segmental.model_new.blank_model.model import (
   BlankDecoderV1,
   BlankDecoderV3,
@@ -49,6 +52,7 @@ from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segment
   BlankDecoderV5,
   BlankDecoderV6,
   BlankDecoderV7,
+  BlankDecoderV8,
 )
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.segmental.model_new.label_model.model import (
   SegmentalAttLabelDecoder,
@@ -389,13 +393,14 @@ def viterbi_training(
         batch_dims=batch_dims,
         beam_dim=beam_dim,
       )
-    elif model.blank_decoder_version in (3, 4, 5, 6, 7):
+    elif model.blank_decoder_version in (3, 4, 5, 6, 7, 8):
       assert isinstance(
         model.blank_decoder, BlankDecoderV3) or isinstance(
         model.blank_decoder, BlankDecoderV4) or isinstance(
         model.blank_decoder, BlankDecoderV5) or isinstance(
         model.blank_decoder, BlankDecoderV6) or isinstance(
-        model.blank_decoder, BlankDecoderV7
+        model.blank_decoder, BlankDecoderV7) or isinstance(
+        model.blank_decoder, BlankDecoderV8
       )
 
       label_states_unmasked = utils.get_unmasked(
@@ -449,7 +454,7 @@ def viterbi_training(
           emit_blank_target_dim=emit_blank_target_dim,
           batch_dims=batch_dims,
         )
-      else:  # BlankDecoderV7
+      elif model.blank_decoder_version == 7:
         # pad center positions to account for virtual label at position -1 to correctly calculate emit distances
         emit_positions, emit_positions_spatial_dim = rf.pad(
           center_positions,
@@ -470,6 +475,15 @@ def viterbi_training(
           label_states_unmasked=label_states_unmasked,
           label_states_unmasked_spatial_dim=align_targets_spatial_dim,
           emit_positions_unmasked=emit_positions_unmasked,
+          emit_ground_truth=emit_ground_truth,
+          emit_blank_target_dim=emit_blank_target_dim,
+          batch_dims=batch_dims,
+        )
+      else:  # BlankDecoderV8
+        emit_log_prob, blank_log_prob = blank_model_viterbi_training_v8(
+          model=model.blank_decoder,
+          enc_args=enc_args,
+          enc_spatial_dim=enc_spatial_dim,
           emit_ground_truth=emit_ground_truth,
           emit_blank_target_dim=emit_blank_target_dim,
           batch_dims=batch_dims,

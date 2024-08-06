@@ -5,6 +5,10 @@ import numpy as np
 import h5py
 from typing import Optional, Dict
 
+from i6_core import util
+
+from i6_experiments.users.schmitt import hdf
+
 
 class CalcSearchErrorJobV2(Job):
   def __init__(
@@ -257,7 +261,60 @@ class CalcSearchErrorJobV2(Job):
       #     )
       #     f.write(log_txt)
 
+    with open(self.out_search_errors.get_path(), "w+") as f:
+      f.write("Search errors: %f%%" % ((num_search_errors / num_seqs) * 100))
 
+
+class CalcSearchErrorJobRF(Job):
+  def __init__(
+          self,
+          ground_truth_scores_file: Path,
+          ground_truth_hdf: Path,
+          search_hyps_file: Path,
+          search_seqs_hdf: Path,
+  ):
+    self.ground_truth_scores_file = ground_truth_scores_file
+    self.ground_truth_hdf = ground_truth_hdf
+    self.search_hyps_file = search_hyps_file
+    self.search_seqs_hdf = search_seqs_hdf
+
+    self.out_search_errors = self.output_path("search_errors")
+
+  def tasks(self):
+    yield Task(
+      "run", rqmt={"cpu": 1, "mem": 4, "time": 1, "gpu": 0}, mini_task=True)
+
+  def run(self):
+    with util.uopen(self.ground_truth_scores_file.get_path(), "r") as f:
+      ground_truth_scores = eval(f.read())  # Dict[tag, score]
+
+    with util.uopen(self.search_hyps_file.get_path(), "r") as f:
+      search_hyps = eval(f.read())  # Dict[tag, List[Tuple[score, hyp]]]
+      best_search_scores = {
+        tag: max(hyp, key=lambda x: x[0])[0] for tag, hyp in search_hyps.items()
+      }
+
+    ground_truth_data_dict = hdf.load_hdf_data(hdf_path=self.ground_truth_hdf)  # type: Dict[str, np.ndarray]
+    search_data_dict = hdf.load_hdf_data(hdf_path=self.search_seqs_hdf)  # type: Dict[str, np.ndarray]
+
+    num_seqs = len(ground_truth_scores)
+    num_search_errors = 0
+    for tag in ground_truth_scores:
+      if list(ground_truth_data_dict[tag]) != list(search_data_dict[tag]):
+
+        print("Output mismatch for tag %s" % tag)
+        print("Ground truth: %s" % ground_truth_data_dict[tag])
+        print("Ground truth score: %s" % ground_truth_scores[tag])
+        print("Search: %s" % search_data_dict[tag])
+        print("Search score: %s" % best_search_scores[tag])
+
+        if ground_truth_scores[tag] > best_search_scores[tag]:
+          print("Search error!")
+          num_search_errors += 1
+        else:
+          print("No search error!")
+
+        print("\n ------------------------------------ \n")
 
     with open(self.out_search_errors.get_path(), "w+") as f:
       f.write("Search errors: %f%%" % ((num_search_errors / num_seqs) * 100))

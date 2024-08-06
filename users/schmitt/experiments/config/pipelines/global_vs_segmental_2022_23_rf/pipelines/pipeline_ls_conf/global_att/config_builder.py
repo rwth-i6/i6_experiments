@@ -52,6 +52,7 @@ def get_global_att_config_builder_rf(
   )
 
   alias = (
+    f"{label_type}/"
     f"{'w' if use_weight_feedback else 'wo'}-weight-feedback/"
     f"{'w' if use_att_ctx_in_state else 'wo'}-att-ctx-in-state/"
     f"{decoder_state}"

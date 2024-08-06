@@ -57,6 +57,7 @@ def get_dataset_dict(
         "alpha": 0.7,  # hard coded for now (Albert's best setting)
         "enable_sampling": True,
         "model_file": model_file,
+        # "seq_postfix": [seq_postfix] if seq_postfix is not None else None,  # does not work for sentencepiece?
       }
     else:
       dataset_dict["datasets"]["zip_dataset"]["targets"] = {

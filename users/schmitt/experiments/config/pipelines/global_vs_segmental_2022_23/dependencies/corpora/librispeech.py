@@ -4,6 +4,7 @@ from sisyphus import *
 
 from i6_core.corpus.convert import CorpusToStmJob, CorpusToTxtJob
 from i6_core.corpus.segments import SegmentCorpusJob
+from i6_core.corpus.filter import FilterCorpusBySegmentDurationJob
 from i6_core.audio.encoding import BlissChangeEncodingJob
 from i6_core.returnn.oggzip import BlissToOggZipJob
 from i6_core.tools.download import DownloadJob
@@ -17,6 +18,7 @@ from i6_experiments.users.schmitt.rasr.convert import ArpaLMToWordListJob, Label
 
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.general.returnn.exes import RETURNN_CURRENT_ROOT, RETURNN_EXE_NEW
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.lm.trafo import model_import as trafo_lm_import
+from i6_experiments.users.schmitt.corpus.segment_ends import AugmentCorpusSegmentEndsJob
 
 
 class LibrispeechCorpora:
@@ -50,31 +52,26 @@ class LibrispeechCorpora:
       "dev-clean": self.corpus_paths_wav_imported["dev-clean"]
     }
 
-    self.oggzip_paths_mine = {
-      key: BlissToOggZipJob(
-        self.corpus_paths_wav[key],
-        returnn_python_exe=RETURNN_EXE_NEW,
-        returnn_root=RETURNN_CURRENT_ROOT
-      ) for key in self.corpus_paths_wav
+    self.corpus_paths_w_correct_segment_ends = {
+      "dev-other": AugmentCorpusSegmentEndsJob(
+        bliss_corpous=self.corpus_paths["dev-other"],
+        oggzip_path=self.oggzip_paths["dev-other"][0]
+      ).out_bliss_corpus
     }
-    tk.register_output("dev-other-my-oggzip", self.oggzip_paths_mine["dev-other"].out_ogg_zip)
-
-    self.corpus_paths_ogg = get_bliss_corpus_dict(audio_format="ogg")
-    tk.register_output("dev-other_corpus_ogg", self.corpus_paths_ogg["dev-other"])
+    dev_other_corpus_by_duration = self.get_corpus_filtered_by_duration_bins("dev-other")
+    self.corpus_paths.update(dev_other_corpus_by_duration)
 
     self.stm_jobs = {
-      "dev-other": CorpusToStmJob(self.corpus_paths["dev-other"]),
-      "dev-clean": CorpusToStmJob(self.corpus_paths["dev-clean"]),
-      "test-other": CorpusToStmJob(self.corpus_paths["test-other"]),
-      "test-clean": CorpusToStmJob(self.corpus_paths["test-clean"]),
+      k: CorpusToStmJob(v) for k, v in self.corpus_paths.items() if (k.startswith("dev-") or k.startswith("test-"))
     }
 
-    self.stm_paths = {
-      "dev-other": self.stm_jobs["dev-other"].out_stm_path,
-      "dev-clean": self.stm_jobs["dev-clean"].out_stm_path,
-      "test-other": self.stm_jobs["test-other"].out_stm_path,
-      "test-clean": self.stm_jobs["test-clean"].out_stm_path,
-    }
+    self.oggzip_paths.update({k: self.oggzip_paths["dev-other"] for k in dev_other_corpus_by_duration.keys()})
+    self.segment_paths.update({
+      k: SegmentCorpusJob(
+        v, num_segments=1).out_single_segment_files[1] for k, v in dev_other_corpus_by_duration.items()
+    })
+
+    self.stm_paths = {k: v.out_stm_path for k, v in self.stm_jobs.items()}
 
     self.corpus_to_txt_job = CorpusToTxtJob(self.corpus_paths["train-other-960"])
 
@@ -220,3 +217,17 @@ class LibrispeechCorpora:
     # concat_stm_file_job.add_alias("concat-stms-%d" % concat_num)
 
     return concat_stm_file_job.out_stm_file
+
+  def get_corpus_filtered_by_duration_bins(self, corpus_key, min_duration=0.1, max_duration=31.0, step_size=5.0):
+    import numpy as np
+    corpus_by_duration = {
+      f"{corpus_key}_{min_duration_}-{max_duration_}": FilterCorpusBySegmentDurationJob(
+        bliss_corpus=self.corpus_paths_w_correct_segment_ends[corpus_key],
+        min_duration=min_duration_,
+        max_duration=max_duration_,
+      ).out_corpus for min_duration_, max_duration_ in zip(
+        np.arange(min_duration, max_duration, step_size),
+        np.arange(min_duration + step_size, max_duration + step_size, step_size)
+      )
+    }
+    return corpus_by_duration

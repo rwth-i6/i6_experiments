@@ -31,6 +31,14 @@ def run_exps():
         config_builder=config_builder,
         checkpoint=checkpoint,
       )
+      recog.center_window_returnn_frame_wise_beam_search(
+        alias=train_alias,
+        config_builder=config_builder,
+        checkpoint=checkpoint,
+        checkpoint_aliases=("last",),
+        run_analysis=True,
+        analyze_gradients=True,
+      )
 
   # ------------------- use current frame in readout with gate (Done) ---------------------
   for model_alias, config_builder in get_config_builder.center_window_att_baseline_rf(
@@ -91,33 +99,33 @@ def run_exps():
             run_analysis=True,
           )
 
-  # -------------------------- full-sum training (Running) --------------------------------
-
+  # ------------------- use current frame in readout (Running) ---------------------
   for model_alias, config_builder in get_config_builder.center_window_att_baseline_rf(
           win_size_list=(None,),
           blank_decoder_version=4,
-          use_att_ctx_in_state=False,
+          use_att_ctx_in_state=True,
           use_weight_feedback=False,
-          bpe_vocab_size=5048,
-          use_correct_dim_tags=True,
           use_current_frame_in_readout=True,
   ):
-    for train_alias, checkpoint in train.train_center_window_att_full_sum_from_scratch(
+    for train_alias, checkpoint in train.train_center_window_att_viterbi_import_global_tf(
             alias=model_alias,
             config_builder=config_builder,
             n_epochs_list=(300,),
-            use_speed_pert=True,
-            batch_size=3_000,
-            time_rqmt=80,
-            checkpoint_alias="luca-aed-bpe5k",
-            lr_scheduling_type="const_then_linear",
-            use_mgpu=False
+            const_lr_list=(1e-4,),
+            batch_size=10_000,
     ):
+      recog.center_window_returnn_frame_wise_beam_search(
+        alias=train_alias,
+        config_builder=config_builder,
+        checkpoint=checkpoint,
+      )
       for epoch, chckpt in checkpoint["checkpoints"].items():
-        if epoch % 50 == 0:
+        if epoch % 50 == 0 or epoch == 52:
           recog.center_window_returnn_frame_wise_beam_search(
             alias=train_alias,
             config_builder=config_builder,
             checkpoint=chckpt,
             checkpoint_aliases=(f"epoch-{epoch}",),
+            run_analysis=True,
+            analyze_gradients=True,
           )

@@ -34,7 +34,6 @@ def train_center_window_att_viterbi_from_scratch(
         config_builder: LibrispeechSegmentalAttConformerConfigBuilderRF,
         n_epochs_list: Tuple[int, ...],
         time_rqmt: int = 80,
-        use_speed_pert: bool = False,
         batch_size: int = 15_000,
         use_mgpu: bool = True,
         chunked_data_len: Optional[int] = None,
@@ -44,22 +43,26 @@ def train_center_window_att_viterbi_from_scratch(
         ce_aux_loss_layers: Optional[Tuple[int, ...]] = None,
         ce_aux_loss_focal_loss_factors: Optional[Tuple[float, ...]] = None,
         ce_aux_loss_scales: Optional[Tuple[float, ...]] = None,
+        use_curriculum_learning: bool = True,
+        lr_scheduling_type: str = "dyn_lr_piecewise_linear",
 ):
   for n_epochs in n_epochs_list:
     alias += (
       f"/{'viterbi' if do_realignments else 'fixed-path'}-train_from_scratch/{n_epochs}-ep_bs-{batch_size}"
-      f"{'_mgpu-4' if use_mgpu else ''}_{'w' if use_speed_pert else 'wo'}-speed-pert"
+      f"{'_mgpu-4' if use_mgpu else ''}_wo-speed-pert"
       f"_{'chunked-data-len-' + str(chunked_data_len) if chunked_data_len else 'no-chunking'}/"
       f"_nb-loss-x{nb_loss_scale}_b-loss-x{b_loss_scale}"
       f"_ce-aux-{'-'.join(map(str, ce_aux_loss_layers)) if ce_aux_loss_layers else 'None'}"
       f"_scales-{'-'.join(map(str, ce_aux_loss_scales)) if ce_aux_loss_scales else 'None'}"
       f"_aux-focal-loss-{'-'.join(map(str, ce_aux_loss_focal_loss_factors)) if ce_aux_loss_focal_loss_factors else 'None'}"
+      f"_{'curriculum' if use_curriculum_learning else 'no-curriculum'}"
+      f"_lr-{lr_scheduling_type}"
     )
 
     train_opts = {
       "dataset_opts": {
-        "use_speed_pert": use_speed_pert,
-        "epoch_wise_filter": {(1, 5): {"max_mean_len": 1000}},
+        "use_speed_pert": False,  # not implemented yet for fixed-path training
+        # "epoch_wise_filter": {(1, 5): {"max_mean_len": 1000}},
         "hdf_targets": LibrispeechBPE10025_CTC_ALIGNMENT.alignment_paths,
       },
       # "import_model_train_epoch1": None,
@@ -68,12 +71,6 @@ def train_center_window_att_viterbi_from_scratch(
       "rf_att_dropout_broadcast": False,
       "batch_size": batch_size,
       "batching": "laplace:.1000",
-      "lr_opts": {
-        "type": "dyn_lr_piecewise_linear",
-        "batch_size": batch_size,
-        "num_epochs": n_epochs,
-        "learning_rate": 1e-3,
-      },
       "aux_loss_layers": ce_aux_loss_layers,
       "specaugment_steps": (5_000, 15_000, 25_000),
       "grad_scaler": None,
@@ -94,6 +91,26 @@ def train_center_window_att_viterbi_from_scratch(
       "training_do_realignments": do_realignments,
     }
 
+    if lr_scheduling_type == "dyn_lr_piecewise_linear":
+      train_opts["lr_opts"] = {
+        "type": "dyn_lr_piecewise_linear",
+        "batch_size": batch_size,
+        "num_epochs": n_epochs,
+        "learning_rate": 1e-3,
+      }
+    else:
+      assert lr_scheduling_type == "const_then_linear"
+      train_opts["lr_opts"] = {
+        "type": "const_then_linear",
+        "const_lr": 1e-4,
+        "const_frac": 1 / 3,
+        "final_lr": 1e-6,
+        "num_epochs": n_epochs
+      }
+
+    if use_curriculum_learning:
+      train_opts["dataset_opts"]["epoch_wise_filter"] = {(1, 5): {"max_mean_len": 1000}}
+
     if ce_aux_loss_layers:
       train_opts["aux_loss_type"] = "ce"
     if ce_aux_loss_focal_loss_factors:
@@ -112,15 +129,6 @@ def train_center_window_att_viterbi_from_scratch(
         ),
         "min_chunk_size": {"data": config_builder.red_subtrahend + 1, "targets": 1}
       })
-
-    if use_speed_pert:
-      train_opts["preload_from_files"] = {
-        "pretrained_ctc_weights": {
-          "filename": external_checkpoints[default_import_model_name + "_w_ctc"],
-          "init_for_train": True,
-          "ignore_missing": False,
-        }
-      }
 
     train_rqmt = {
       "time": time_rqmt,

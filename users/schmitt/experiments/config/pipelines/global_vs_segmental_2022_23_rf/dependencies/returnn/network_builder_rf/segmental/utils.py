@@ -1,4 +1,4 @@
-from typing import Optional, Sequence, Tuple
+from typing import Optional, Sequence, Tuple, List
 import torch
 
 from returnn.tensor import Tensor, Dim
@@ -201,3 +201,34 @@ def cumsum(x: Tensor, dim: Dim):
   x.raw_tensor = torch.cumsum(x_raw, dim=x.get_axis_from_description(dim), dtype=x_raw.dtype)
   x = x.copy_transpose(orig_dims)
   return x
+
+
+def scatter_w_masked_indices(
+        x: Tensor,
+        mask: Tensor,
+        scatter_indices: Tensor,
+        result_spatial_dim: Dim,
+        indices_dim: Dim,
+        batch_dims: List[Dim],
+):
+  scatter_spatial_dim_sizes = rf.copy_to_device(result_spatial_dim.get_size_tensor())
+  scatter_spatial_dim_sizes_max = rf.cast(rf.reduce_max(scatter_spatial_dim_sizes, axis=scatter_spatial_dim_sizes.dims), "int32")
+  # scatter out-of-bounds indices to extended last position
+  indices = rf.where(
+    mask,
+    scatter_indices,
+    scatter_spatial_dim_sizes_max
+  )
+  # scatter according to indices into extended dim
+  result_spatial_dim_temp = result_spatial_dim + 1
+  result = rf.scatter(
+    x, indices=indices, indices_dim=indices_dim, out_dim=result_spatial_dim_temp)
+  # remove accumulated results at the last position
+  rem_dims = result.remaining_dims([result_spatial_dim_temp] + batch_dims)
+  result = result.copy_transpose([result_spatial_dim_temp] + batch_dims + rem_dims)
+  result_raw_tensor = result.raw_tensor
+  result = result.copy_template_replace_dim_tag(0, result_spatial_dim)
+  result.raw_tensor = result_raw_tensor[:-1]
+  result = result.copy_transpose(batch_dims + [result_spatial_dim] + rem_dims)
+
+  return result

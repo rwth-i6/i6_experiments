@@ -448,7 +448,14 @@ class PlotAttentionWeightsJobV2(Job):
         self._draw_center_positions(ax, center_positions)
 
       dirname = self.out_plot_dir.get_path()
-      filename = os.path.join(dirname, "plot.%s" % seq_tag.replace("/", "_"))
+      if seq_tag.startswith("dev-other"):
+        concat_num = len(seq_tag.split(";"))
+        if concat_num > 1:
+          filename = os.path.join(dirname, f"plot.{seq_tag.split(';')[0].replace('/', '_')}.+{concat_num - 1}")
+        else:
+          filename = os.path.join(dirname, "plot.%s" % seq_tag.replace("/", "_"))
+      else:
+        filename = os.path.join(dirname, "plot.%s" % seq_tag.replace("/", "_"))
       plt.savefig(filename + ".png")
       plt.savefig(filename + ".pdf")
 

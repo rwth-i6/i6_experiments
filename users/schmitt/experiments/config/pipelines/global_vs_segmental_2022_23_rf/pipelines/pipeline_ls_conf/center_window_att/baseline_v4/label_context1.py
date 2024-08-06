@@ -195,15 +195,6 @@ def run_exps():
       time_rqmt=168,
       use_mgpu=True,
     ):
-      for epoch, chckpt in checkpoint["checkpoints"].items():
-        if epoch % 5 == 0:
-          realign.center_window_returnn_realignment(
-            alias=train_alias,
-            config_builder=config_builder,
-            checkpoint=chckpt,
-            checkpoint_alias=f"epoch-{epoch}",
-            plot=True,
-          )
       recog.center_window_returnn_frame_wise_beam_search(
         alias=train_alias,
         config_builder=config_builder,
@@ -222,33 +213,10 @@ def run_exps():
             lr_scheduling_type="const_then_linear",
             use_mgpu=False
     ):
-      for epoch, chckpt in checkpoint["checkpoints"].items():
-        if epoch % 5 == 0:
-          realign.center_window_returnn_realignment(
-            alias=train_alias,
-            config_builder=config_builder,
-            checkpoint=chckpt,
-            checkpoint_alias=f"epoch-{epoch}",
-            plot=True,
-          )
       recog.center_window_returnn_frame_wise_beam_search(
         alias=train_alias,
         config_builder=config_builder,
         checkpoint=checkpoint,
-      )
-      recog.center_window_returnn_frame_wise_beam_search(
-        alias=train_alias,
-        config_builder=config_builder,
-        checkpoint=checkpoint,
-        checkpoint_aliases=("last",),
-        lm_type="trafo",
-        lm_scale_list=(0.6,),
-        ilm_type="mini_att",
-        ilm_scale_list=(0.3,),
-        subtract_ilm_eos_score=True,
-        use_recombination="sum",
-        corpus_keys=("dev-other",),
-        beam_size_list=(12,),
       )
 
   # -------------------------- from-global-att (bpe 10k) (Done) --------------------------------
@@ -270,16 +238,6 @@ def run_exps():
       gpu_mem_rqmt=24,
       use_mgpu=False
     ):
-      for epoch, chckpt in checkpoint["checkpoints"].items():
-        if epoch % 5 == 0:
-          realign.center_window_returnn_realignment(
-            alias=train_alias,
-            config_builder=config_builder,
-            checkpoint=chckpt,
-            checkpoint_alias=f"epoch-{epoch}",
-            plot=True,
-          )
-
       recog.center_window_returnn_frame_wise_beam_search(
         alias=train_alias,
         config_builder=config_builder,
@@ -289,7 +247,7 @@ def run_exps():
         alias=train_alias,
         config_builder=config_builder,
         checkpoint=checkpoint,
-        checkpoint_aliases=("last",),
+        checkpoint_aliases=("best-4-avg",),
         lm_type="trafo",
         lm_scale_list=(0.5, 0.6, 0.7),
         ilm_type="mini_att",
@@ -303,7 +261,7 @@ def run_exps():
         alias=train_alias,
         config_builder=config_builder,
         checkpoint=checkpoint,
-        checkpoint_aliases=("last",),
+        checkpoint_aliases=("best-4-avg",),
         lm_type="trafo",
         lm_scale_list=(0.5, 0.6, 0.7),
         ilm_type="mini_att",
@@ -333,16 +291,6 @@ def run_exps():
       use_mgpu=True,
       gpu_mem_rqmt=24,
     ):
-      for epoch, chckpt in checkpoint["checkpoints"].items():
-        if epoch % 5 == 0:
-          realign.center_window_returnn_realignment(
-            alias=train_alias,
-            config_builder=config_builder,
-            checkpoint=chckpt,
-            checkpoint_alias=f"epoch-{epoch}",
-            plot=True,
-          )
-
       recog.center_window_returnn_frame_wise_beam_search(
         alias=train_alias,
         config_builder=config_builder,

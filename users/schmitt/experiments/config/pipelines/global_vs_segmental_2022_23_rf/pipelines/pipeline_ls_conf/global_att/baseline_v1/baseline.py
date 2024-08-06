@@ -6,11 +6,13 @@ def global_att_baseline_rf(
         use_weight_feedback: bool = True,
         use_att_ctx_in_state: bool = True,
         decoder_state: str = "nb-lstm",
+        label_type: str = "bpe10025",
 ):
   alias, config_builder = get_global_att_config_builder_rf(
     use_weight_feedback=use_weight_feedback,
     use_att_ctx_in_state=use_att_ctx_in_state,
     decoder_state=decoder_state,
+    label_type=label_type,
   )
   alias = f"{base_alias}/baseline_rf/{alias}"
   yield alias, config_builder

@@ -42,3 +42,12 @@ def run_exps():
         corpus_keys=("dev-other", "test-other"),
         beam_size_list=(84,),
       )
+      recog.center_window_returnn_frame_wise_beam_search(
+        alias=train_alias,
+        config_builder=config_builder,
+        checkpoint=checkpoint,
+        checkpoint_aliases=("best-4-avg",),
+        run_analysis=True,
+        analyze_gradients=True,
+        concat_num=2,
+      )

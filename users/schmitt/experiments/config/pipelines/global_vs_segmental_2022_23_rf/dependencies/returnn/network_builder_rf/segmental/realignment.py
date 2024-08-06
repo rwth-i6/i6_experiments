@@ -57,7 +57,7 @@ def model_realign_(
   # using a beam size of max_num_labels * 2 ensures that we search the whole lattice: the recombination is done
   # after top-k, which means each node at a certain time step can have two hypotheses which lead there. at most,
   # there are max_num_labels nodes at a time step, hence the max_num_labels * 2 beam size.
-  viterbi_alignment, seq_log_prob, viterbi_alignment_spatial_dim, beam_dim = recog.model_recog(
+  viterbi_alignment, seq_log_prob, viterbi_alignment_spatial_dim, _, _, beam_dim = recog.model_recog(
     model=model,
     data=data,
     data_spatial_dim=data_spatial_dim,
@@ -68,14 +68,8 @@ def model_realign_(
     return_non_blank_seqs=False,
   )
 
-  # reduce to best hypothesis (remove beam dim)
-  best_hyps = rf.reduce_argmax(seq_log_prob, axis=beam_dim)
+  # reduce to best score (remove beam dim)
   seq_log_prob = rf.reduce_max(seq_log_prob, axis=beam_dim)
-  viterbi_alignment = rf.gather(
-    viterbi_alignment,
-    indices=best_hyps,
-    axis=beam_dim,
-  )
 
   # if data.feature_dim and data.feature_dim.dimension == 1:
   #   data = rf.squeeze(data, axis=data.feature_dim)
