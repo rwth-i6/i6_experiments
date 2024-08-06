@@ -62,7 +62,7 @@ from i6_experiments.users.raissi.setups.common.decoder import (
 )
 
 from i6_experiments.users.raissi.experiments.librispeech.configs.LFR_factored.baseline.config import (
-    ALIGN_GMM_TRI_ALLOPHONES,
+    ALIGN_GMM_TRI_ALLOPHONES_NOUNK,
     ALIGN_GMM_TRI_10MS,
 
 )
@@ -103,7 +103,7 @@ class LBSTFFactoredHybridSystem(TFFactoredHybridBaseSystem):
         self.reference_alignment = {
             "GMM": {
                 "alignment": ALIGN_GMM_TRI_10MS,
-                "allophones": ALIGN_GMM_TRI_ALLOPHONES,
+                "allophones": ALIGN_GMM_TRI_ALLOPHONES_NOUNK,
             }
         }
         self.alignment_example_segments = [

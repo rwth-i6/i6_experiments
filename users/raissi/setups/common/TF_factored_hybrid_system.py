@@ -466,6 +466,13 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
         self.experiments[key]["extra_returnn_code"]["prolog"] = returnn_config.python_prolog
         self.experiments[key]["extra_returnn_code"]["epilog"] = returnn_config.python_epilog
 
+    def set_staging_info(
+        self, checkpoint: returnn.Checkpoint, copy_param_mode: train_helpers.CopyParamMode.subset, stage_epochs: List
+    ) -> Dict:
+        self.staging_info = dataclasses.replace(
+            self.staging_info, checkpoint=checkpoint, copy_param_mode=copy_param_mode, stage_epochs=stage_epochs
+        )
+
     # -------------------- Decoding --------------------
     def _compute_returnn_rasr_priors(
         self,
@@ -1246,6 +1253,7 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
         reference_alignment: tk.Path = None,
         reference_allophones: tk.Path = None,
         segments: [str] = None,
+        use_legacy_tse_calculation: bool = True,
     ):
         assert (
             self.experiments[key]["align_job"] is not None or alignment_bundle is not None
@@ -1269,13 +1277,24 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
         if not isinstance(reference_allophones, tk.Path):
             reference_allophones = tk.Path(reference_allophones, cached=True)
 
-        tse_job = ComputeTSEJob(
-            allophone_file=allophones,
-            alignment_cache=alignment,
-            ref_allophone_file=reference_allophones,
-            ref_alignment_cache=reference_alignment,
-            upsample_factor=self.frame_rate_reduction_ratio_info.factor,
-        )
+        if use_legacy_tse_calculation:
+            tse_job = ComputeTSEJob(
+                allophone_file=allophones,
+                alignment_cache=alignment,
+                ref_allophone_file=reference_allophones,
+                ref_alignment_cache=reference_alignment,
+                upsample_factor=self.frame_rate_reduction_ratio_info.factor,
+            )
+
+        else:
+            tse_job = mm.ComputeTimeStampErrorJob(
+                hyp_alignment_cache=alignment,
+                ref_alignment_cache=reference_alignment,
+                hyp_allophone_file=allophones,
+                ref_allophone_file=reference_allophones,
+                hyp_upsample_factor=4,
+            )
+
         tse_job.add_alias(f"statistics/alignment/{exp_name}/tse")
         tk.register_output(
             f"statistics/alignment/{exp_name}/word_tse",

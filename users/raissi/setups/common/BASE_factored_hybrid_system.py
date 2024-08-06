@@ -132,6 +132,8 @@ class BASEFactoredHybridSystem(NnSystem):
 
         # general modeling approach
         self.label_info = LabelInfo.default_ls()
+        self.feature_info = FeatureInfo.default()
+        self.staging_info = train_helpers.StagingInfo.default()
         self.frame_rate_reduction_ratio_info = FrameRateReductionRatioinfo.default()
         self.lexicon_args = get_lexicon_args(norm_pronunciation=False)
         self.tdp_values = get_tdp_values()
@@ -161,8 +163,6 @@ class BASEFactoredHybridSystem(NnSystem):
         # data and pipeline related
         self.inputs = {}  # nested dictionary first keys corpora, second level InputKeys
         self.experiments: Dict[str, Experiment] = {}
-
-        self.feature_info = FeatureInfo.default()
 
         # train information
         self.initial_train_args = {
