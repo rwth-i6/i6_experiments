@@ -617,9 +617,9 @@ def run_scf_audio_perturbation():
         {"tempo": {"prob": 0.6, "minimum": 0.83, "maximum": 1.17}},
         {"tempo": {"prob": 0.6, "minimum": 0.9, "maximum": 1.1}},
         {"tempo": {"prob": 0.6, "minimum": 0.8, "maximum": 1.2}},
-        {"preemphasis": {"prob": 0.3, "minimum": 0.94, "maximum": 1.0}, "default": 0.97},
-        {"preemphasis": {"prob": 0.7, "minimum": 0.94, "maximum": 1.0}, "default": 0.97},
-        {"preemphasis": {"prob": 1.0, "minimum": 0.94, "maximum": 1.0}, "default": 0.97},
+        {"preemphasis": {"prob": 0.3, "minimum": 0.94, "maximum": 1.0, "default": 0.97}},
+        {"preemphasis": {"prob": 0.7, "minimum": 0.94, "maximum": 1.0, "default": 0.97}},
+        {"preemphasis": {"prob": 1.0, "minimum": 0.94, "maximum": 1.0, "default": 0.97}},
         {"codecs": [{"encoding": "ULAW", "prob": 0.4}]},
         {"codecs": [{"encoding": "ULAW", "prob": 0.6}]},
         {"non_linearity": {"prob": 0.4, "minimum": 0.9, "maximum": 1.1}},
@@ -643,6 +643,8 @@ def run_scf_audio_perturbation():
 
             if key in ["speed", "tempo", "preemphasis", "non_linearity"]:
                 key_component = f"{key}_{value['prob']}_{value['minimum']}_{value['maximum']}"
+                if 'default' in value:
+                    key_component += f"_{value['default']}"
                 key_string += key_component
                 report_dict[key] = f"{value['prob']}_{value['minimum']}_{value['maximum']}"
             elif key == "codecs":
@@ -777,9 +779,9 @@ def run_scf_audio_perturbation_from_checkpoint():
 
     # seperated because the training needs a different network without preemphasis
     perturbation_args_preemphasis = [
-        {"preemphasis": {"prob": 0.3, "minimum": 0.94, "maximum": 1.0}, "default": 0.97},
-        {"preemphasis": {"prob": 0.7, "minimum": 0.94, "maximum": 1.0}, "default": 0.97},
-        {"preemphasis": {"prob": 1.0, "minimum": 0.94, "maximum": 1.0}, "default": 0.97},
+        {"preemphasis": {"prob": 0.3, "minimum": 0.94, "maximum": 1.0, "default": 0.97}},
+        {"preemphasis": {"prob": 0.7, "minimum": 0.94, "maximum": 1.0, "default": 0.97}},
+        {"preemphasis": {"prob": 1.0, "minimum": 0.94, "maximum": 1.0, "default": 0.97}},
     ]
 
     def process_args(args: Dict[str, Any]):
@@ -797,6 +799,8 @@ def run_scf_audio_perturbation_from_checkpoint():
 
             if key in ["speed", "tempo", "preemphasis", "non_linearity"]:
                 key_component = f"{key}_{value['prob']}_{value['minimum']}_{value['maximum']}"
+                if 'default' in value:
+                    key_component += f"_{value['default']}"
                 key_string += key_component
                 report_dict[key] = f"{value['prob']}_{value['minimum']}_{value['maximum']}"
             elif key == "codecs":
@@ -1088,9 +1092,9 @@ def run_mel_audio_perturbation_from_checkpoint():
         {"non_linearity": {"prob": 0.7, "minimum": 0.9, "maximum": 1.1}},
         {"non_linearity": {"prob": 0.3, "minimum": 0.9, "maximum": 1.1}},
         {"non_linearity": {"prob": 1, "minimum": 0.9, "maximum": 1.1}},
-        {"preemphasis": {"prob": 0.3, "minimum": 0.94, "maximum": 1.0}, "default": 0.97},
-        {"preemphasis": {"prob": 0.7, "minimum": 0.94, "maximum": 1.0}, "default": 0.97},
-        {"preemphasis": {"prob": 1.0, "minimum": 0.94, "maximum": 1.0}, "default": 0.97},
+        {"preemphasis": {"prob": 0.3, "minimum": 0.94, "maximum": 1.0, "default": 0.97}},
+        {"preemphasis": {"prob": 0.7, "minimum": 0.94, "maximum": 1.0, "default": 0.97}},
+        {"preemphasis": {"prob": 1.0, "minimum": 0.94, "maximum": 1.0, "default": 0.97}},
     ]
 
     def process_args(args: Dict[str, Any]):
