@@ -46,6 +46,11 @@ class ExtraConfig:
     # Hypothesis logging
     print_hypothesis: bool = True
 
+def inference_both(input_data, feat_model, main_model):
+    features, features_len = feat_model.run(None, input_data)
+    final_output, final_output_len = main_model.run(None, {'features': features, 'features_len': features_len.astype(np.int64)})
+
+    return final_output, final_output_len
 
 def forward_init_hook(run_ctx, **kwargs):
     """
@@ -99,27 +104,56 @@ def forward_init_hook(run_ctx, **kwargs):
     else:
         run_ctx.prior = None
 
+    import torch._C._onnx as _C_onnx
     import onnxruntime as ort
     from torch.onnx import export as onnx_export
+    from torch.export import export as new_export
     from torch import nn
     model = run_ctx.engine._model
     
+    class IdLayer(nn.Module):
+        def __init__(self):
+            super().__init__()
+
+        def forward(self, x, y):
+            return x,y
+
     dummy_data = torch.rand(3,16000, device='cpu', dtype=torch.float32)
     dummy_data_len = torch.ones((3,), dtype=torch.int64)*16000
 
     model.eval()
 
     onnx_export(
-            model,
+            model.feature_extraction,
             (dummy_data, dummy_data_len),
-            f='model.onnx',
+            f='feature_extraction.onnx',
             verbose=False,
-            input_names=['data', 'data_len'],
-            output_names=['classes'],
+            input_names=['data','data_len'],
+            output_names=['features', 'features_len'],
             opset_version=17,
             dynamic_axes={
                 'data': {0: 'batch', 1: 'time'},
                 'data_len': {0: 'batch'},
+                'features': {0: 'batch', 1: 'time', 2: 'features'},
+                'features_len': {0: 'batch'},
+                }           
+            )
+   
+    model.feature_extraction = IdLayer()
+    dummy_data = torch.rand(1, 96, 80, device='cpu', dtype=torch.float32)
+    dummy_data_len = torch.ones((1,), dtype=torch.int64)*96
+
+    onnx_export(
+            model,
+            (dummy_data, dummy_data_len),
+            f='model.onnx',
+            verbose=False,
+            input_names=['features', 'features_len'],
+            output_names=['classes'],
+            opset_version=17,
+            dynamic_axes={
+                'features': {0: 'batch', 1: 'time', 2: 'features'},
+                'features_len': {0: 'batch'},
                 'classes': {0: 'batch', 1: 'time'}
                 }           
             )
@@ -127,7 +161,9 @@ def forward_init_hook(run_ctx, **kwargs):
     sess_option.intra_op_num_threads = int(os.getenv('SLURM_CPUS_PER_TASK', 4))
 
 
-    run_ctx.onnx_sess = ort.InferenceSession(
+    run_ctx.onnx_fe_sess = ort.InferenceSession(
+            'feature_extraction.onnx', providers=['CPUExecutionProvider'], sess_options=sess_options)
+    run_ctx.onnx_model_sess = ort.InferenceSession(
             'model.onnx', providers=['CPUExecutionProvider'], sess_options=sess_options)
 
     run_ctx.print_rtf = extra_config.print_rtf
@@ -167,12 +203,12 @@ def forward_step(*, model, data, run_ctx, **kwargs):
         run_ctx.running_audio_len_s += audio_len_batch
 
     am_start = time.time()
-    logprobs, audio_features_len = run_ctx.onnx_sess.run(
-            None,
+    logprobs, audio_features_len = inference_both( 
             {
                 'data': np.squeeze(raw_audio.numpy()),
                 'data_len': raw_audio_len.numpy()
-            } )
+            }
+    , run_ctx.onnx_fe_sess, run_ctx.onnx_model_sess)
 
     tags = data["seq_tag"]
 
