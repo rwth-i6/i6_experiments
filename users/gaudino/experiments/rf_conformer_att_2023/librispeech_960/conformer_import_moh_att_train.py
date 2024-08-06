@@ -339,6 +339,8 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
     #     post_config_updates={"PYTORCH_CUDA_ALLOC_CONF": "backend:cudaMallocAsync"},
     # )
 
+    # bpe 10k ATT/CTC model
+
     _torch_ckpt_path = "/work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/2023-08-10--rf-librispeech/work/i6_core/returnn/training/ReturnnTrainingJob.CMIQklG8vBT6/output/models/epoch.2000.pt"
 
     new_ckpt_path = tk.Path(
@@ -347,7 +349,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
     )
     new_ckpt = PtCheckpoint(new_ckpt_path)
 
-    for lm_scale, beam_size in product([0.3, 0.4, 0.5, 0.6, 0.7], [12, 20, 40]):
+    for lm_scale, beam_size in product([0.25], [40, 48]):
         recog_config={
             "batch_size": 1250 * _batch_size_factor,
             "search_args": {
@@ -371,13 +373,59 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
         }
 
         _recog(
-            "base-24gb-v6-lrlin1e_5_600k" + "/bsf10" + f"/att_trafo_lm{lm_scale}_beam{beam_size}" + "/recog_results",
+            "base-24gb-v6-lrlin1e_5_600k" + "/bsf10" + f"/att_trafo_lm{lm_scale}_beam{beam_size}",
             ModelWithCheckpoint(
                 definition=from_scratch_model_def, checkpoint=new_ckpt
             ),
             recog_def=model_recog_extended,
             recog_config=recog_config,
-            dev_sets=["dev-other"],
+            # dev_sets=["dev-other"],
+            dev_sets=None,
+            device="gpu",
+        )
+
+    # bpe 10k noCTC model
+
+    _torch_ckpt_path = "/work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/2023-08-10--rf-librispeech/work/i6_core/returnn/training/ReturnnTrainingJob.Kh5PT8N397Fe/output/models/epoch.2000.pt"
+
+    new_ckpt_path = tk.Path(
+        _torch_ckpt_path,
+        hash_overwrite= "att" + "_torch_ckpt",
+    )
+    new_ckpt = PtCheckpoint(new_ckpt_path)
+
+    for lm_scale, beam_size in product([0.25], [40, 48]):
+        recog_config={
+            "batch_size": 1250 * _batch_size_factor,
+            "search_args": {
+                "beam_size": beam_size,
+                "lm_scale": lm_scale,
+            },
+            "external_language_model": {
+                "class": "Trafo_LM_Model",
+                "num_layers": 24,
+                "layer_out_dim": 1024,
+                "att_num_heads": 8,
+                "use_pos_enc": True,
+                "ff_activation": "relu",
+            },
+            "preload_from_files": {
+                "01_trafo_lm": {
+                    "prefix": "language_model.",
+                    "filename": "/work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/2023-08-10--rf-librispeech/work/i6_experiments/users/gaudino/returnn/convert_ckpt_rf/librispeech/trafo_lm_only_24_02_06/network.023.pt",
+                },
+            },
+        }
+
+        _recog(
+            "base-24gb-v6-lrlin1e_5_600k_noCTC" + "/bsf10" + f"/att_trafo_lm{lm_scale}_beam{beam_size}",
+            ModelWithCheckpoint(
+                definition=from_scratch_model_def, checkpoint=new_ckpt
+            ),
+            recog_def=model_recog_extended,
+            recog_config=recog_config,
+            dev_sets=None,
+            # dev_sets=["dev-other"],
             device="gpu",
         )
 
@@ -416,22 +464,22 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
     #     num_epochs=40,
     # )
 
-    train_mini_att_ilm(
-        "base-24gb-v6-lrlin1e_5_600k",
-        ModelWithCheckpoint(model_def_mini_att_ilm, new_ckpt),
-        "my-ilm-11gb-v2",
-        config_11gb_ilm,
-        config_updates={
-            "use_specaugment": False,
-            "hash_overwrite": "60eps"
-        },
-        gpu_mem=11,
-        data_opts=dict(
-            bpe_size="BPE10k",
-            train_epoch_wise_filter={},
-        ),
-        num_epochs=60,
-    )
+    # train_mini_att_ilm(
+    #     "base-24gb-v6-lrlin1e_5_600k",
+    #     ModelWithCheckpoint(model_def_mini_att_ilm, new_ckpt),
+    #     "my-ilm-11gb-v2",
+    #     config_11gb_ilm,
+    #     config_updates={
+    #         "use_specaugment": False,
+    #         "hash_overwrite": "60eps"
+    #     },
+    #     gpu_mem=11,
+    #     data_opts=dict(
+    #         bpe_size="BPE10k",
+    #         train_epoch_wise_filter={},
+    #     ),
+    #     num_epochs=60,
+    # )
 
 
 
@@ -490,7 +538,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
 
     # train with bpe1k vocab
     model = train_exp(
-        "base-24gb-v6-lrlin1e_5_600k-bpe1k",
+        "base-24gb-v6-lrlin1e_5_600k-bpe1k_real",
         config_24gb_v6,
         config_updates={
             "learning_rate": 1.0,
@@ -505,7 +553,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
         },
     )
     model = train_exp(
-        "base-24gb-v6-lrlin1e_5_600k_noCTC-bpe1k",
+        "base-24gb-v6-lrlin1e_5_600k_noCTC-bpe1k_real",
         config_24gb_v6,
         config_updates={
             "learning_rate": 1.0,
@@ -1187,8 +1235,9 @@ def _recog(
         search_rqmt=search_rqmt,
         dev_sets=dev_sets,
         device=device,
+        name=name,
     )
-    tk.register_output(_sis_prefix + "/" + name, res.output)
+    tk.register_output(_sis_prefix + "/" + name + "/recog_results", res.output)
 
 
 # noinspection PyShadowingNames
@@ -1330,7 +1379,8 @@ def train_mini_att_ilm(
     if _sis_prefix is None:
         _sis_setup_global_prefix()
 
-    prefix = _sis_prefix + "/" + name + "/ilm/" + ilm_name
+    model_name = name + "/ilm/" + ilm_name
+    prefix = _sis_prefix+ "/" + model_name
     task = _get_ls_task(**data_opts)
     config = config.copy()
     config = dict_update_deep(config, config_updates, config_deletes)
@@ -1406,7 +1456,7 @@ def train_mini_att_ilm(
     }
 
     _recog(
-        prefix + f"/att_trafo_lm{lm_scale}_ilm{ilm_scale}_beam{beam_size}" + "/recog_results",
+        model_name + f"/att_trafo_lm{lm_scale}_ilm{ilm_scale}_beam{beam_size}" + "/recog_results",
         model_with_checkpoints.get_epoch(num_epochs),
         recog_def=model_recog_extended,
         recog_config=recog_config,
@@ -1426,13 +1476,15 @@ _ls_task = None
 
 
 def _get_ls_task(bpe_size="BPE10k", **data_opts):
-    global _ls_task
-    if _ls_task:
-        return _ls_task
+    # global _ls_task
+    # if _ls_task:
+    #     return _ls_task
 
     from i6_experiments.users.gaudino.datasets.librispeech import (
         get_librispeech_task_bpe10k_raw, get_librispeech_task_bpe5k_raw, get_librispeech_task_bpe1k_raw
     )
+
+    _ls_task = None
 
     if bpe_size == "BPE10k":
         _ls_task = get_librispeech_task_bpe10k_raw(with_eos_postfix=True, **data_opts)

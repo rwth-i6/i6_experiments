@@ -82,7 +82,7 @@ def model_recog(
 
     ctc_out = (
         enc_ctc
-        .copy_transpose((batch_size_dim, enc_spatial_dim, model.target_dim_w_b))
+        .copy_transpose((batch_size_dim, enc_spatial_dim, model.target_dim_w_blank))
         .raw_tensor
     )  # [B,T,V+1]
 
@@ -102,8 +102,11 @@ def model_recog(
     # hlens = max_seq_len.raw_tensor.repeat(beam_size).view(beam_size, data.raw_tensor.shape[0]).transpose(0, 1)
     hlens = max_seq_len.raw_tensor
 
-    if search_args.get("prior_corr", False):
-        ctc_log_prior = numpy.loadtxt(search_args.get("prior_file", search_args.get("ctc_prior_file", "")), dtype="float32")
+    if search_args.get("prior_scale", 0.0) > 0.0:
+        ctc_prior = numpy.loadtxt(search_args.get("prior_file", search_args.get("ctc_prior_file", "")), dtype="float32")
+        ctc_log_prior = torch.tensor(ctc_prior)
+        if not search_args.get("ctc_log_prior", False):
+            ctc_log_prior = torch.log(ctc_log_prior)
         ctc_out = ctc_out - (
             torch.tensor(ctc_log_prior)
             .repeat(ctc_out.shape[0], ctc_out.shape[1], 1)

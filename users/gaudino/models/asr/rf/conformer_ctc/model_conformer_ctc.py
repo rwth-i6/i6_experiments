@@ -12,7 +12,7 @@ import functools
 from returnn.tensor import Tensor, Dim, single_step_dim
 import returnn.frontend as rf
 from returnn.frontend.tensor_array import TensorArray
-from returnn.frontend.encoder.conformer import ConformerEncoder, ConformerConvSubsample
+from returnn.frontend.encoder.conformer import ConformerEncoder, ConformerConvSubsampleV2, ConformerConvSubsample
 
 from i6_experiments.users.gaudino.model_interfaces.supports_label_scorer_torch import (
     RFModelWithMakeLabelScorer,
@@ -123,6 +123,113 @@ class MakeModel:
             **extra,
         )
 
+class MakeModelV2:
+    """for import with i6 models settings"""
+
+    def __init__(
+        self,
+        in_dim: int,
+        target_dim: int,
+        *,
+        eos_label: int = 0,
+        num_enc_layers: int = 12,
+    ):
+        self.in_dim = in_dim
+        self.target_dim = target_dim
+        self.eos_label = eos_label
+        self.num_enc_layers = num_enc_layers
+
+    def __call__(self) -> Model:
+        from returnn.datasets.util.vocabulary import Vocabulary
+
+        in_dim = Dim(name="in", dimension=self.in_dim, kind=Dim.Types.Feature)
+        target_dim = Dim(
+            name="target", dimension=self.target_dim, kind=Dim.Types.Feature
+        )
+        target_dim.vocab = Vocabulary.create_vocab_from_labels(
+            [str(i) for i in range(target_dim.dimension)], eos_label=self.eos_label
+        )
+
+        return self.make_model(in_dim, target_dim, num_enc_layers=self.num_enc_layers)
+
+    @classmethod
+    def make_model(
+        cls,
+        in_dim: Dim,
+        target_dim: Dim,
+        *,
+        num_enc_layers: int = 12,
+        pos_emb_dropout: float = 0.0,
+        language_model: Optional[Dict[str, Any]] = None,
+        **extra,
+    ) -> Model:
+        """make"""
+        lm = None
+        if language_model:
+            assert isinstance(language_model, dict)
+            language_model = language_model.copy()
+            cls_name = language_model.pop("class")
+            assert cls_name == "TransformerDecoder"
+            language_model.pop("vocab_dim", None)  # will just overwrite
+
+            from i6_experiments.users.gaudino.experiments.rf_conformer_att_2023.librispeech_960.trafo_lm.trafo_lm import (
+                trafo_lm,
+            )
+
+            lm = trafo_lm.MakeModel(vocab_dim=target_dim, **language_model)()
+            lm = (lm, functools.partial(trafo_lm.make_label_scorer_torch, model=lm))
+
+        return Model(
+            in_dim,
+            num_enc_layers=num_enc_layers,
+            enc_model_dim=Dim(name="enc", dimension=512, kind=Dim.Types.Feature),
+            enc_ff_dim=Dim(name="enc-ff", dimension=2048, kind=Dim.Types.Feature),
+            enc_att_num_heads=8,
+            enc_conformer_layer_opts=dict(
+                conv_norm = rf.LayerNorm,
+                # conv_norm_opts=dict(
+                #     in_dim=
+                # ),  # Changed below
+                self_att=rf.SelfAttention,
+                self_att_opts=dict(
+                    with_bias=True,  # Changed: with_bias=True
+                    # with_linear_pos=False,
+                    # with_pos_bias=False,
+                    # learnable_pos_emb=False,  # Changed: learnable_pos_emb=False
+                    # separate_pos_emb_per_head=False,
+                    # pos_emb_dropout=pos_emb_dropout,
+                ),
+                ff_activation=rf.silu,  # Changed: rf.silu
+                conv_kernel_size=31,  # Changed: conv_kernel_size=31
+            ),
+            enc_input_layer=ConformerConvSubsampleV2(
+                in_dim,
+                out_dims=[
+                    Dim(32, name="conv1"),
+                    Dim(64, name="conv2"),
+                    Dim(64, name="conv3"),
+                    Dim(32, name="conv4"),  # Changed: Dim(64, name="conv4")
+                ],
+                filter_sizes=[(3, 3), (3, 3), (3, 3), (3, 3)],  # Changed
+                activation_times=[False, True, False, True],  # Changed
+                pool_sizes=[(1, 1), (3, 1), (1, 1), (2, 1)],  # Changed
+                pool_strides=[(1, 1), (2, 1), (1, 1), (2, 1)],  # Changed !!! different from rnnt
+                strides=[(1, 1), (1, 1), (1, 1), (1, 1)],  # Changed
+                padding="same",  # Changed: padding="valid"
+                pool_padding="valid",  # Changed
+                swap_merge_dim_order=True,  # Changed
+                # Note: uses relu activation by default
+            ),
+            enc_use_input_proj_bias=True,  # Changed: enc_use_input_proj_bias=True
+            target_dim=target_dim,
+            blank_idx=target_dim.dimension,
+            bos_idx=_get_bos_idx(target_dim),
+            eos_idx=_get_eos_idx(target_dim),
+            language_model=lm,
+            use_i6_models_feat_ext = True, # Changed
+            **extra,
+        )
+
 
 class Model(rf.Module):
     """Model definition"""
@@ -142,6 +249,7 @@ class Model(rf.Module):
         enc_ff_dim: Dim = Dim(name="enc-ff", dimension=2048),
         enc_att_num_heads: int = 4,
         enc_conformer_layer_opts: Optional[Dict[str, Any]] = None,
+        enc_input_layer: Optional[ConformerConvSubsampleV2] = None,
         # enc_key_total_dim: Dim = Dim(name="enc_key_total_dim", dimension=1024),
         # att_num_heads: Dim = Dim(name="att_num_heads", dimension=1),
         # att_dropout: float = 0.1,
@@ -149,7 +257,10 @@ class Model(rf.Module):
         enc_att_dropout: float = 0.1,
         l2: float = 0.0001,
         language_model: Optional[RFModelWithMakeLabelScorer] = None,
-        joiner_dim: int = 640,
+        # joiner_dim: int = 640,
+        enc_use_input_proj_bias: bool = False,
+        use_i6_models_feat_ext: bool = False,
+        feat_ext_opts: Optional[Dict[str, Any]] = None,
     ):
         super(Model, self).__init__()
 
@@ -161,13 +272,36 @@ class Model(rf.Module):
         self.use_specaugment = config.typed_value("use_specaugment", True)
         self.conv_2nd_stride = config.typed_value("conv_2nd_stride", 3)
         self.final_ctc_name = config.typed_value("final_ctc_name", "enc_aux_logits_12")
+        self.gauss_window_size = config.typed_value("gauss_window_size", 0)
+        self.gauss_std = config.typed_value("gauss_std", 0.0)
+
+        self.use_i6_models_feat_ext = use_i6_models_feat_ext
+        if self.use_i6_models_feat_ext:
+            from i6_models.primitives.feature_extraction import (
+                LogMelFeatureExtractionV1,
+                LogMelFeatureExtractionV1Config,
+            )
+
+            mel_config = LogMelFeatureExtractionV1Config(
+                sample_rate=16000,
+                win_size=0.025,
+                hop_size=0.01,
+                f_min=60,
+                f_max=7600,
+                min_amp=1e-10,
+                num_filters=80,
+                center=False,
+                **(feat_ext_opts or {}),
+            )
+            self.feature_extraction = LogMelFeatureExtractionV1(cfg=mel_config)
+
+        # self.feat_ext_opts = feat_ext_opts
 
         self.in_dim = in_dim
-        self.encoder = ConformerEncoder(
-            in_dim,
-            enc_model_dim,
-            ff_dim=enc_ff_dim,
-            input_layer=ConformerConvSubsample(
+        self.enc_model_dim = enc_model_dim
+
+        if enc_input_layer is None:
+            enc_input_layer = ConformerConvSubsample(
                 in_dim,
                 out_dims=[
                     Dim(32, name="conv1"),
@@ -177,13 +311,30 @@ class Model(rf.Module):
                 filter_sizes=[(3, 3), (3, 3), (3, 3)],
                 pool_sizes=[(1, 2)],
                 strides=[(1, 1), (self.conv_2nd_stride, 1), (2, 1)],
-            ),
+            )
+
+        self.encoder = ConformerEncoder(
+            in_dim,
+            enc_model_dim,
+            ff_dim=enc_ff_dim,
+            input_layer=enc_input_layer,
             encoder_layer_opts=enc_conformer_layer_opts,
             num_layers=num_enc_layers,
             num_heads=enc_att_num_heads,
             dropout=enc_dropout,
             att_dropout=enc_att_dropout,
         )
+
+        self.enc_use_input_proj_bias = enc_use_input_proj_bias
+
+        if self.enc_use_input_proj_bias:
+            self.encoder.input_projection = rf.Linear(
+                self.encoder.input_layer.out_dim
+                if self.encoder.input_layer
+                else self.encoder.in_dim,
+                self.encoder.out_dim,
+                with_bias=True,
+            )
 
         self.target_dim = target_dim
         self.target_dim_w_blank = target_dim + 1
@@ -221,6 +372,9 @@ class Model(rf.Module):
             )
 
         setattr(self, self.final_ctc_name, rf.Linear(self.encoder.out_dim, self.target_dim_w_blank))
+
+        if self.gauss_window_size > 0.0:
+            self.enc_gauss_linear = rf.Linear(2*self.enc_model_dim, enc_model_dim)
 
         self._specaugment_opts = {
             "steps": config.typed_value("specaugment_steps") or (0, 1000, 2000),
@@ -267,14 +421,38 @@ class Model(rf.Module):
         collected_outputs: Optional[Dict[str, Tensor]] = None,
     ) -> Tuple[Dict[str, Tensor], Dim]:
         """encode, and extend the encoder output for things we need in the decoder"""
-        # log mel filterbank features
-        source, in_spatial_dim = rf.audio.log_mel_filterbank_from_raw(
-            source,
-            in_spatial_dim=in_spatial_dim,
-            out_dim=self.in_dim,
-            sampling_rate=16_000,
-            log_base=math.exp(2.3026),  # almost 10.0 but not exactly...
-        )
+
+        if self.use_i6_models_feat_ext:
+            orig_device = source.device
+            squeezed_features = torch.squeeze(source.raw_tensor)
+            squeezed_features = squeezed_features.to("cpu")
+            raw_audio_len = in_spatial_dim.dyn_size_ext.raw_tensor
+            audio_features, audio_features_len_raw = self.feature_extraction(
+                squeezed_features, raw_audio_len
+            )
+            audio_features_len = rf.Tensor(
+                name="audio-features-len",
+                dims=[source.dims[0]],
+                raw_tensor=audio_features_len_raw,
+                dtype="int32",
+            )
+            in_spatial_dim = Dim(None, name="in-spatial-dim", dyn_size_ext=audio_features_len)
+            source = rf.Tensor(
+                name="audio-features",
+                dims=[source.dims[0], in_spatial_dim, self.in_dim],
+                raw_tensor=audio_features,
+                dtype=source.dtype,
+            )
+            source = rf.copy_to_device(source, orig_device)
+        else:
+            # log mel filterbank features
+            source, in_spatial_dim = rf.audio.log_mel_filterbank_from_raw(
+                source,
+                in_spatial_dim=in_spatial_dim,
+                out_dim=self.in_dim,
+                sampling_rate=16_000,
+                log_base=math.exp(2.3026),  # almost 10.0 but not exactly...
+            )
 
         if self.mel_normalization:
             ted2_global_mean = rf.Tensor(
@@ -323,6 +501,43 @@ class Model(rf.Module):
                 in_spatial_dim=in_spatial_dim,
                 collected_outputs=collected_outputs,
             )
+
+        if self.gauss_window_size > 0:
+            enc_raw = enc.raw_tensor # B,T,F
+            r_win = self.gauss_window_size // 2
+
+            # Create a 1D Gaussian kernel
+            gauss = torch.exp(
+                -0.5 * (torch.arange(-r_win, r_win + 1) / self.gauss_std) ** 2
+            )
+
+            # Normalize the kernel
+            gauss = (gauss / gauss.sum()).to("cuda")
+
+            # pad with window size // 2 on both sides on the time dimension
+            data_pad = torch.nn.functional.pad(enc_raw, (0, 0, r_win, r_win))
+
+            # Create a view of the data with a sliding window
+            data_unf = data_pad.unfold(1, self.gauss_window_size, 1)
+            data_unf = data_unf.permute(0, 1, 3, 2)
+
+            # Apply the Gaussian kernel
+            enc_gauss_raw = torch.einsum("btwh, w -> btwh", data_unf, gauss)
+
+            # Sum the weighted values
+            enc_gauss_raw = enc_gauss_raw.sum(dim=2)
+
+            enc_gauss = rf.Tensor(
+                name="enc_gauss",
+                dims=enc.dims,
+                dtype=enc.dtype,
+                raw_tensor=enc_gauss_raw,
+            )
+            
+            # concat the original data with the weighted data
+            enc_w_gauss, _ = rf.concat((enc, self.enc_model_dim), (enc_gauss, self.enc_model_dim))
+
+            enc = self.enc_gauss_linear(enc_w_gauss)
 
         return (
             dict(enc=enc),
@@ -377,6 +592,31 @@ from_scratch_model_def: ModelDef[Model]
 from_scratch_model_def.behavior_version = 16
 from_scratch_model_def.backend = "torch"
 from_scratch_model_def.batch_size_factor = 160
+
+def from_scratch_model_def_v2(*, epoch: int, in_dim: Dim, target_dim: Dim) -> Model:
+    """Function is run within RETURNN."""
+    from returnn.config import get_global_config
+
+    in_dim, epoch  # noqa
+    config = get_global_config()  # noqa
+    enc_aux_logits = config.typed_value("aux_loss_layers")
+    pos_emb_dropout = config.float("pos_emb_dropout", 0.0)
+    # real input is raw audio, internally it does logmel
+    in_dim = Dim(name="logmel", dimension=_log_mel_feature_dim, kind=Dim.Types.Feature)
+    lm_opts = config.typed_value("external_language_model")
+    return MakeModelV2.make_model(
+        in_dim,
+        target_dim,
+        enc_aux_logits=enc_aux_logits or (),
+        pos_emb_dropout=pos_emb_dropout,
+        language_model=lm_opts,
+    )
+
+
+from_scratch_model_def_v2: ModelDef[Model]
+from_scratch_model_def_v2.behavior_version = 16
+from_scratch_model_def_v2.backend = "torch"
+from_scratch_model_def_v2.batch_size_factor = 160
 
 
 def from_scratch_training(

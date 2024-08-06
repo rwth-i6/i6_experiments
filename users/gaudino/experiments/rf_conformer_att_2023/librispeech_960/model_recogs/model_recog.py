@@ -126,6 +126,10 @@ def model_recog(
             )
             ctc_out = ctc_out - torch.logsumexp(ctc_out, dim=2, keepdim=True)
 
+        if search_args.get("blank_scale_minus", 0.0) > 0.0:
+            ctc_blank = ctc_out[:, :, model.blank_idx]
+            ctc_out[:, :, model.blank_idx] = ctc_blank - search_args.get("blank_scale_minus", 0.0)
+
         ctc_prefix_scorer = CTCPrefixScoreTH(
             ctc_out,
             hlens,
@@ -154,8 +158,9 @@ def model_recog(
             input_embed=input_embed,
             state=decoder_state,
         )
-        att_weights = step_out.pop("att_weights", None).raw_tensor
+        att_weights = step_out.pop("att_weights", None)
         if search_args.get("use_ctc", False) and "att_weights" in step_out.keys():
+            att_weights = att_weights.raw_tensor
             if i==0:
                 att_weights = torch.flatten(att_weights.squeeze(3).view(batch_size, 1, -1), end_dim=1)
             else:

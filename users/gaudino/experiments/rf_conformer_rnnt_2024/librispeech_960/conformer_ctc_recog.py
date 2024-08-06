@@ -27,12 +27,22 @@ from i6_experiments.users.gaudino.experiments.rf_conformer_att_2023.librispeech_
     _cfg_lrlin1e_5_295k,
     _get_cfg_lrlin_oclr_by_bs_nep,
 )
+
 # from .trafo_lm import trafo_lm_kazuki_import
 
-from i6_experiments.users.gaudino.models.asr.rf.conformer_ctc.model_conformer_ctc import from_scratch_model_def, from_scratch_training
-from i6_experiments.users.gaudino.models.asr.rf.conformer_ctc.model_recog_ctc_greedy import model_recog
-from i6_experiments.users.gaudino.models.asr.rf.conformer_ctc.model_recog_ctc_ls import model_recog as model_recog_ls
-from i6_experiments.users.gaudino.models.asr.rf.conformer_ctc.model_forward_prior import model_forward_prior
+from i6_experiments.users.gaudino.models.asr.rf.conformer_ctc.model_conformer_ctc import (
+    from_scratch_model_def,
+    from_scratch_training,
+)
+from i6_experiments.users.gaudino.models.asr.rf.conformer_ctc.model_recog_ctc_greedy import (
+    model_recog,
+)
+from i6_experiments.users.gaudino.models.asr.rf.conformer_ctc.model_recog_ctc_ls import (
+    model_recog as model_recog_ls,
+)
+from i6_experiments.users.gaudino.models.asr.rf.conformer_ctc.model_forward_prior import (
+    model_forward_prior,
+)
 
 
 if TYPE_CHECKING:
@@ -120,7 +130,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
 
     new_ckpt_path = tk.Path(
         _torch_ckpt_path,
-        hash_overwrite= "ctc" + "_torch_ckpt",
+        hash_overwrite="ctc" + "_torch_ckpt",
     )
     new_ckpt = PtCheckpoint(new_ckpt_path)
 
@@ -128,7 +138,6 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
         "batch_size": 1250 * 160,
         "mel_normalization_ted2": False,
         "hash_override": 1,
-
         "external_language_model": {
             "class": "Trafo_LM_Model",
             "num_layers": 24,
@@ -137,8 +146,6 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
             "use_pos_enc": True,
             "ff_activation": "relu",
         },
-
-
         "preload_from_files": {
             "01_trafo_lm": {
                 "prefix": "language_model.",
@@ -151,7 +158,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
 
     model_name = "/model_recogs/bsf10/base-24gb-lrlin1e_5_600k_ctc_only_aux4_8_no_mel_norm/ep1982/"
 
-    for lm_scale, beam_size in product([0.6, 0.7, 0.8], [32]):
+    for lm_scale, beam_size in product([0.55, 0.6, 0.65], []):
         recog_name = f"opls_ctc1.0_trafolm{lm_scale}_beam{beam_size}"
 
         search_args = {
@@ -165,24 +172,20 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
 
         res = recog_model(
             task,
-            ModelWithCheckpoint(
-                definition=from_scratch_model_def, checkpoint=new_ckpt
-            ),
+            ModelWithCheckpoint(definition=from_scratch_model_def, checkpoint=new_ckpt),
             recog_def=model_recog_ls,
             config=recog_config,
-            search_rqmt=None,
             dev_sets=["dev-other"],
             name=name,
         )
         tk.register_output(name + "/recog_results", res.output)
-
 
     # --------------------------- no eos model ----------------------------
 
     _torch_ckpt_path = "/work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/2023-08-10--rf-librispeech/work/i6_core/returnn/training/ReturnnTrainingJob.6XXpx2nMCWDx/output/models/epoch.1982.pt"
     new_ckpt_path = tk.Path(
         _torch_ckpt_path,
-        hash_overwrite= "ctc_no_eos" + "_torch_ckpt",
+        hash_overwrite="ctc_no_eos" + "_torch_ckpt",
     )
     new_ckpt = PtCheckpoint(new_ckpt_path)
 
@@ -198,10 +201,19 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
     #     recog_config=recog_config,
     # )
 
-    model_name = "/model_recogs/bsf10/base-24gb-lrlin1e_5_600k_ctc_only_aux4_8_no_eos/ep1982/"
+    model_name = (
+        "/model_recogs/bsf10/base-24gb-lrlin1e_5_600k_ctc_only_aux4_8_no_eos/ep1982/"
+    )
 
-    for lm_scale, beam_size in product([0.6, 0.7, 0.8], []):
-        recog_name = f"opls_ctc1.0_trafolm{lm_scale}_beam{beam_size}"
+    for lm_scale, prior_scale, beam_size in product([0.65], [0.0], [32]):
+        recog_name = (
+            f"opls_ctc1.0_trafolm{lm_scale}"
+            + (f"_prior{prior_scale}_fix" if prior_scale > 0.0 else "")
+            + f"_beam{beam_size}"
+        )
+        # recog_name = f"ctc_greedy" + (
+        #     f"_prior{prior_scale}_fix" if prior_scale > 0.0 else ""
+        # )
 
         name = _sis_prefix + model_name + recog_name
 
@@ -209,22 +221,23 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
             "beam_size": beam_size,
             "lm_scale": lm_scale,
             "length_normalization_exponent": 1.0,
+            "ctc_prior_file": "/work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/2023-08-10--rf-librispeech/work/i6_core/returnn/forward/ReturnnForwardJobV2.OSftOYzAjRUg/output/prior.txt",
+            "prior_scale": prior_scale,
+            "ctc_log_prior": False,
         }
         recog_config["search_args"] = search_args
 
         res = recog_model(
             task,
-            ModelWithCheckpoint(
-                definition=from_scratch_model_def, checkpoint=new_ckpt
-            ),
+            ModelWithCheckpoint(definition=from_scratch_model_def, checkpoint=new_ckpt),
             recog_def=model_recog_ls,
             config=recog_config,
             search_rqmt=None,
-            dev_sets=["dev-other"],
+            dev_sets=None,
+            # dev_sets=["dev-other"],
             name=name,
         )
         tk.register_output(name + "/recog_results", res.output)
-
 
     # ------------------------ albert 6.3 model ------------------------------
 
@@ -240,8 +253,14 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
 
     model_name = "/model_recogs/bsf10/v6-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-speedpertV2-bpe10k-bpeSample001/ep491/"
 
-    for lm_scale, beam_size in product([0.6, 0.7, 0.8], []):
-        recog_name = f"opls_ctc1.0_trafolm{lm_scale}_beam{beam_size}"
+    for lm_scale, prior_scale, beam_size in product(
+        [0.55, 0.6], [0.0, 0.05], [32]
+    ):
+        recog_name = (
+            f"opls_ctc1.0_trafolm{lm_scale}"
+            + (f"_prior{prior_scale}" if prior_scale > 0.0 else "")
+            + f"_beam{beam_size}"
+        )
 
         name = _sis_prefix + model_name + recog_name
 
@@ -249,27 +268,25 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
             "beam_size": beam_size,
             "lm_scale": lm_scale,
             "length_normalization_exponent": 1.0,
+            "ctc_prior_file": "/work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/2023-08-10--rf-librispeech/work/i6_core/returnn/forward/ReturnnForwardJobV2.H7vpOsL8iXP5/output/prior.txt",
+            "prior_scale": prior_scale,
+            "ctc_log_prior": False,
         }
         recog_config["search_args"] = search_args
 
         res = recog_model(
             task,
-            ModelWithCheckpoint(
-                definition=from_scratch_model_def, checkpoint=new_ckpt
-            ),
+            ModelWithCheckpoint(definition=from_scratch_model_def, checkpoint=new_ckpt),
             recog_def=model_recog_ls,
             config=recog_config,
             search_rqmt=None,
-            dev_sets=["dev-other"],
+            dev_sets=None,
+            # dev_sets=["dev-other"],
             name=name,
         )
         tk.register_output(name + "/recog_results", res.output)
 
-
-
     # recog ctc only model
-
-
 
 
 _sis_prefix: Optional[str] = None
@@ -325,10 +342,10 @@ def _get_ls_task(with_eos_postfix=True, **dataset_opts):
         get_librispeech_task_bpe10k_raw,
     )
 
-    _ls_task = get_librispeech_task_bpe10k_raw(with_eos_postfix=with_eos_postfix, **dataset_opts)
+    _ls_task = get_librispeech_task_bpe10k_raw(
+        with_eos_postfix=with_eos_postfix, **dataset_opts
+    )
     return _ls_task
 
 
 py = sis_run_with_prefix  # if run directly via `sis m ...`
-
-

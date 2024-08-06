@@ -50,9 +50,8 @@ def model_forward_prior(
     batch_dims = data.remaining_dims((data_spatial_dim, data.feature_dim))
     enc_args, enc_spatial_dim = model.encode(data, in_spatial_dim=data_spatial_dim)
 
-    assert model.enc_aux_logits_12, "Expected final ctc logits in enc_aux_logits_12"
-
-    enc_ctc = model.enc_aux_logits_12(enc_args["enc"])
+    final_ctc_layer = getattr(model, model.final_ctc_name, None)
+    enc_ctc = final_ctc_layer(enc_args["enc"])
 
     max_seq_len = enc_spatial_dim.get_size_tensor()
 

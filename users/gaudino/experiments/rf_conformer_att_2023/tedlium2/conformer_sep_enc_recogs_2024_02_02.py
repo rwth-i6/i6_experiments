@@ -423,18 +423,27 @@ def sis_run_with_prefix(prefix_name: str = None):
     #         res.output,
     #     )
 
-    for scales, prior_scale, lm_scale, ilm_scale, beam_size in product(
-        [(0.9, 0.1), (0.82, 0.18), (0.8, 0.2), (0.78, 0.22), (0.7, 0.3)],
-        [0.0 , 0.05],
-        [0.7], [0.45], [32]
+    for scales, prior_scale, lm_scale, ilm_scale, blank_scale, beam_size in product(
+        [(0.65, 0.35)],
+        [0.5],
+        [0.4, 0.43], # [0.7, 0.73],
+        [0.0], # [0.45],
+        [0.0],
+        [32]
     ):
         att_scale, ctc_scale = scales
+
+        # with_lm_ilm, with_lm
+
+
         recog_name = (
-            f"/opls_att{att_scale}_ctc{ctc_scale}"
+            ("/with_lm" if lm_scale > 0.0 and ilm_scale == 0.0 else "")
+             + f"/opls_att{att_scale}_ctc{ctc_scale}"
             + (f"_prior{prior_scale}" if prior_scale > 0.0 else "")
             + (f"_trafo_lm{lm_scale}" if lm_scale > 0.0 else "")
             + (f"_ilm{ilm_scale}" if ilm_scale > 0.0 else "")
-            + f"_beam{beam_size}"
+            + (f"_blank{blank_scale}" if blank_scale > 0.0 else "")
+            + f"_beam{beam_size}_fix"
         )
         name = prefix_name + model_name + recog_name
         search_args = {
@@ -450,13 +459,15 @@ def sis_run_with_prefix(prefix_name: str = None):
             "ctc_prior_file": models["model_ctc_only"]["prior"],
             "prior_scale": prior_scale,
             "use_lm_first_label": True,
+            "encoder_ctc": True,
+            "blank_scale_minus": blank_scale,
         }
         recog_config["search_args"] = search_args
         res = recog_model_2(
             task,
             model_baseline_checkpoint,
             model_recog,
-            dev_sets=["dev"],
+            dev_sets=["dev", "test"],
             config=recog_config,
             name=name,
             device="gpu",

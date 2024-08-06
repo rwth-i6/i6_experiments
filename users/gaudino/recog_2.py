@@ -170,7 +170,7 @@ def recog_model(
     search_rqmt: Optional[Dict[str, Any]] = None,
     dev_sets: Optional[Collection[str]] = None,
     name: Optional[str] = None,
-    device: Optional[str] = None,
+    device: Optional[str] = "gpu",
 ) -> ScoreResultCollection:
     """recog"""
     if dev_sets is not None:
@@ -208,7 +208,7 @@ def search_dataset(
     search_rqmt: Optional[Dict[str, Any]] = None,
     search_alias_name: Optional[str] = None,
     recog_post_proc_funcs: Sequence[Callable[[RecogOutput], RecogOutput]] = (),
-    device: Optional[str] = None,
+    device: Optional[str] = "gpu",
 ) -> RecogOutput:
     """
     recog on the specific dataset

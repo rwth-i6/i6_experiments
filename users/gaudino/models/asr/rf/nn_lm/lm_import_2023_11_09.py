@@ -9,6 +9,8 @@ from typing import Optional, Union, Any, Tuple, List, Dict, Callable
 import copy as _copy
 from returnn.util.basic import NotSpecified
 
+from i6_experiments.users.gaudino.models.asr.rf.nn_lm.attention_modified import sinusoidal_positional_encoding_v2
+
 import functools
 
 # from .base import ISeqDownsamplingEncoder
@@ -124,6 +126,7 @@ class Trafo_LM_Model(rf.Module):
         att_num_heads: int = 12,
         ff_activation: str = "gelu",
         use_pos_enc: bool = False, # False for Tedlium2 LM
+        pos_enc_diff_pos: bool = False,
         search_args: Optional[Dict[str, Any]] = None,
     ):
         super(Trafo_LM_Model, self).__init__()
@@ -136,11 +139,12 @@ class Trafo_LM_Model(rf.Module):
         self.num_layers = num_layers
 
         self.use_pos_enc = use_pos_enc
+        self.pos_enc_diff_pos = pos_enc_diff_pos
 
         self.target_embed_raw = rf.Embedding(self.in_dim, self.embed_dim)
         if self.use_pos_enc:
             self.pos_enc = functools.partial(
-                rf.sinusoidal_positional_encoding, feat_dim=self.embed_dim, dtype=self.target_embed_raw.weight.dtype
+                sinusoidal_positional_encoding_v2, feat_dim=self.embed_dim, dtype=self.target_embed_raw.weight.dtype, out_with_dims=self.pos_enc_diff_pos
             )
 
         self.target_embed_lin = rf.Linear(
@@ -204,10 +208,22 @@ class Trafo_LM_Model(rf.Module):
         new_state = rf.State()
 
         target_embed_raw = self.target_embed_raw(prev_target)
+
+        breakpoint()
         # target_embed_with_pos, pos_emb_spatial_dim = self.target_embed_with_pos(
         #     target_embed_raw
         # )
         if self.use_pos_enc:
+            # if self.pos_enc_diff_pos:
+            #     breakpoint()
+            #     batch_size = target_embed_raw.dims[0].get_dim_value()
+            #     beam_size = target_embed_raw.dims[1].get_dim_value()
+            #     target_embed_rt = target_embed_raw.raw_tensor
+            #     for i in range(batch_size):
+            #         for j in range(beam_size):
+            #             target_embed_rt[i, j] = target_embed_rt[i, j] + self.pos_enc(spatial_dim=spatial_dim, offset=state.pos.raw_tensor[i, j])
+            #     target_embed_raw.raw_tensor = target_embed_rt
+            # else:
             target_embed_with_pos = target_embed_raw + self.pos_enc(spatial_dim=spatial_dim, offset=state.pos)
         else:
             target_embed_with_pos = target_embed_raw

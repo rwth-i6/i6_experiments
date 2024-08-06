@@ -108,7 +108,7 @@ def sis_run_with_prefix(prefix_name: str = None):
         models_with_pt_ckpt[model_name]["model_args"] = model_args
 
     bsf = 10
-    prefix_name_single_seq = prefix_name + f"/single_seq"
+    prefix_name_single_seq = prefix_name + f"/single_seq" + "_fix_zoneout_output"
     prefix_name_bsf32 = prefix_name + f"/bsf32"
     prefix_name = prefix_name + f"/bsf{bsf}" + "_fix_zoneout_output"
 
@@ -116,17 +116,17 @@ def sis_run_with_prefix(prefix_name: str = None):
 
     # att only
     # for model_name in list(model_names)[:-1]:
-    for model_name in ["model_baseline", "model_ctc0.5_att0.5"]:
-        for beam_size in []:
+    for model_name in ["model_baseline"]:
+        for beam_size in [12]:
             search_args = {
                 "beam_size": beam_size,
                 # "lm_scale": lm_scale,
                 # "add_trafo_lm": True,
-                "max_seq": 1,
+                # "max_seq": 1,
                 "bsf": bsf,
                 # "length_normalization_exponent": len_norm,
             }
-            name = prefix_name_single_seq + "/" + model_name + f"/att_beam{beam_size}"
+            name = prefix_name + "/" + model_name + f"/att_beam{beam_size}"
             res, _ = recog_model(
                 task,
                 models_with_pt_ckpt[model_name]["ckpt"],
@@ -408,16 +408,16 @@ def sis_run_with_prefix(prefix_name: str = None):
             )
 
     ctc_beam_search_model_names = {
-        "model_ctc0.5_att0.5": {
-            "scales": [(0.5, 0.5, 0.6), (0.5, 0.5, 0.8)],
-        },
+        # "model_ctc0.5_att0.5": {
+        #     "scales": [(0.5, 0.5, 0.6), (0.5, 0.5, 0.8)],
+        # },
         "model_baseline": {"scales": [(0.5, 0.5, 0.4)]},
     }
 
     # ctc beam search espnet
     for model_name in ctc_beam_search_model_names:
         for scales, beam_size in product(
-            ctc_beam_search_model_names[model_name]["scales"], []  # 32
+            ctc_beam_search_model_names[model_name]["scales"], [32]  # 32
         ):
             att_scale, ctc_scale, prior_scale = scales
 
@@ -679,9 +679,9 @@ def sis_run_with_prefix(prefix_name: str = None):
         )
 
     # att + ctc + trafo lm opls
-    for model_name, beam_size in product(["model_baseline"], []):  # 12
+    for model_name, beam_size in product(["model_baseline"], [12, 32]):  # 12
         # for model_name, beam_size in product(opls_model_names.keys(), []):
-        for scales in opls_model_names[model_name]["scales"]:
+        for scales in opls_model_names[model_name]["scales_w_fix"]:
             att_scale, ctc_scale, prior_scale, lm_scale = scales
             name = (
                 prefix_name
@@ -708,7 +708,7 @@ def sis_run_with_prefix(prefix_name: str = None):
                 task,
                 models_with_pt_ckpt[model_name]["ckpt"],
                 model_recog,
-                dev_sets=["dev"],
+                dev_sets=["dev", "test"],
                 model_args=models_with_pt_ckpt[model_name]["model_args"],
                 search_args=search_args,
                 prefix_name=name,

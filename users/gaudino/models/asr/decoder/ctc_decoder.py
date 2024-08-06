@@ -961,16 +961,11 @@ class CTCDecoder:
                     "axis": "f",
                 },  # [B,1]
                 "one": {"class": "constant", "value": 1.0},
-                "prev_ctc_log_scores": {
+                "prev_ctc_scores": {
                     "class": "gather",
-                    "from": "ctc_log_scores",
+                    "from": "data:source",
                     "position": "prev:output",
                     "axis": "f",
-                },
-                "prev_ctc_scores": {
-                    "class": "activation",
-                    "activation": "safe_exp",
-                    "from": "prev_ctc_log_scores",
                 },
                 "repeat_prob_term": {
                     "class": "switch",

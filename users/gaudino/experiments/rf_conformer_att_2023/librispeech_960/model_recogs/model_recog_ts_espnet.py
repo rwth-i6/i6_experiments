@@ -161,7 +161,7 @@ def model_recog_ts_espnet(
     seq_targets = t_array.copy_transpose([out_spatial_dim] + batch_dims_)
 
     seq_log_prob = rf.Tensor('seq_log_prob', batch_dims_, dtype="float32", raw_tensor=torch.tensor(scores).to(torch.float32).unsqueeze(0))
-    seq_log_prob = rf.copy_to_device(seq_log_prob, "cuda")
+    # seq_log_prob = rf.copy_to_device(seq_log_prob, "cuda")
 
 
     return seq_targets, seq_log_prob, out_spatial_dim, beam_dim

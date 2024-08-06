@@ -22,6 +22,10 @@ from i6_experiments.users.gaudino.models.asr.rf.conformer_rnnt.model_conformer_r
     MakeModelV2 as MakeModelRNNT,
 )
 
+from i6_experiments.users.gaudino.models.asr.rf.conformer_ctc.model_conformer_ctc import (
+    MakeModelV2 as MakeModelCTC,
+)
+
 from i6_experiments.users.gaudino.models.asr.rf.nn_lm.lm_import_2023_11_09 import (
     MakeModel as MakeModelLM,
 )
@@ -40,6 +44,8 @@ from itertools import product
 
 _nick_pure_torch_rnnt_ckpt_path = "/work/asr4/rossenbach/sisyphus_work_folders/tts_decoder_asr_work/i6_core/returnn/training/ReturnnTrainingJob.6lwn4XuFkhkI/output/models/epoch.250.pt"
 
+_nick_pure_torch_ctc_ckpt_path = "/work/asr4/rossenbach/sisyphus_work_folders/tts_decoder_asr_work/i6_core/returnn/training/ReturnnTrainingJob.AJThHdkfGHkP/output/models/epoch.500.pt"
+
 from i6_experiments.users.gaudino.experiments.conformer_att_2023.tedlium2.model_ckpt_info import (
     models,
 )
@@ -48,6 +54,7 @@ from i6_experiments.users.gaudino.experiments.conformer_att_2023.tedlium2.model_
 def convert_checkpoint(
     *,
     ckpt_path: str,
+    is_ctc_model: bool = False,
     ckpt_path_lm: Optional[str] = None,
     ckpt_path_sep: Optional[str] = None,
     out_dir: str,
@@ -72,7 +79,10 @@ def convert_checkpoint(
     print("Creating model...")
     rf.select_backend_torch()
     # model = MakeModelRNNT(80, 1_057)()
-    model = MakeModelRNNT(80, 5048)()
+    if is_ctc_model:
+        model = MakeModelCTC(80, 5048)()
+    else:
+        model = MakeModelRNNT(80, 5048)()
 
     print("Created model:", model)
     print("Model parameters:")
@@ -85,7 +95,10 @@ def convert_checkpoint(
 
     print("Create ParamMapping...")
     param_mapping = {}
-    _add_params_predictor_joiner(param_mapping)
+    if is_ctc_model:
+        _add_params_ctc(param_mapping)
+    else:
+        _add_params_predictor_joiner(param_mapping)
     _add_params_conformer(param_mapping, prefix="")
 
     # if not ctc_only:
@@ -117,8 +130,6 @@ def convert_checkpoint(
 
     pt_model = rf_module_to_pt_module(model)
 
-    breakpoint()
-
     if save_model:
         os.makedirs(out_dir, exist_ok=True)
         filename = out_dir + "/" + ckpt_name  # + ".pt"
@@ -148,6 +159,7 @@ _transpose_list = [
     "encoder.input_projection.weight",
     "joiner.linear.weight",
     "predictor.linear.weight",
+    "enc_aux_logits_12.weight",
 ]
 
 for layer_idx in range(12):
@@ -282,6 +294,13 @@ def _add_params_conformer(param_mapping: Dict[str, str], prefix: str):
         }
     )
 
+def _add_params_ctc(param_mapping: Dict[str, str]):
+    param_mapping.update(
+        {
+            "enc_aux_logits_12.weight": "final_linear.weight",
+            "enc_aux_logits_12.bias": "final_linear.bias",
+        }
+    )
 
 def _add_params_predictor_joiner(param_mapping: Dict[str, str]):
     # add params of trafo lm
@@ -426,9 +445,20 @@ def map_param_func(
 
 
 if __name__ == "__main__":
+    # rnnt
+    # convert_checkpoint(
+    #     ckpt_path=_nick_pure_torch_rnnt_ckpt_path,
+    #     print_params=True,
+    #     out_dir="/work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/2023-08-10--rf-librispeech/work/i6_experiments/users/gaudino/returnn/convert_ckpt_rf/librispeech/rnnt_nick_240620",
+    #     save_model=True,
+    # )
+
+    # ctc
     convert_checkpoint(
-        ckpt_path=_nick_pure_torch_rnnt_ckpt_path,
+        ckpt_path=_nick_pure_torch_ctc_ckpt_path,
+        is_ctc_model=True,
         print_params=True,
-        out_dir="/work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/2023-08-10--rf-librispeech/work/i6_experiments/users/gaudino/returnn/convert_ckpt_rf/librispeech/rnnt_nick_240620",
+        out_dir="/work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/2023-08-10--rf-librispeech/work/i6_experiments/users/gaudino/returnn/convert_ckpt_rf/librispeech/ctc_nick_240730",
         save_model=True,
     )
+

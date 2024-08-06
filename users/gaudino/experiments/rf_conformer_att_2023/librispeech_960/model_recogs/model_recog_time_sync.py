@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 from typing import Optional, Any, Tuple, Dict, Sequence, List
 import tree
 from functools import partial
@@ -33,6 +34,7 @@ def model_recog_time_sync(
     data: Tensor,
     data_spatial_dim: Dim,
     max_seq_len: Optional[int] = None,
+    search_args: Optional[Dict[str, Any]] = None,
 ) -> Tuple[Tensor, Tensor, Dim, Dim]:
     """
     Function is run within RETURNN.
@@ -47,13 +49,18 @@ def model_recog_time_sync(
         out_spatial_dim,
         final beam_dim
     """
+    if hasattr(model, "search_args"):
+        search_args = model.search_args
+
     batch_dims = data.remaining_dims((data_spatial_dim, data.feature_dim))
     enc_args, enc_spatial_dim = model.encode(data, in_spatial_dim=data_spatial_dim)
-    if model.search_args.get("encoder_ctc", False):
-        enc_args_ctc, enc_spatial_dim_ctc = model.encode_ctc(data, in_spatial_dim=data_spatial_dim)
+    if search_args.get("encoder_ctc", False):
+        enc_args_ctc, enc_spatial_dim_ctc = model.encode_ctc(
+            data, in_spatial_dim=data_spatial_dim
+        )
 
-    beam_size = model.search_args.get("beam_size", 12)
-    length_normalization_exponent = model.search_args.get(
+    beam_size = search_args.get("beam_size", 12)
+    length_normalization_exponent = search_args.get(
         "length_normalization_exponent", 1.0
     )
     if max_seq_len is None:
@@ -70,9 +77,10 @@ def model_recog_time_sync(
         batch_dims=batch_dims_, enc_spatial_dim=enc_spatial_dim
     )
 
-    if model.search_args.get("add_trafo_lm", False):
-        trafo_lm_state = model.trafo_lm.default_initial_state(batch_dims=batch_dims_, use_batch_dims_for_pos=True)
-        prev_trafo_lm_state = trafo_lm_state
+    if search_args.get("add_trafo_lm", False):
+        trafo_lm_state = model.language_model.default_initial_state(
+            batch_dims=batch_dims_, use_batch_dims_for_pos=True
+        )
 
     initial_target = rf.constant(
         model.bos_idx, dims=batch_dims_, sparse_dim=model.target_dim_w_b
@@ -90,34 +98,32 @@ def model_recog_time_sync(
 
     blank_index = model.target_dim.get_dim_value()
 
-    if model.search_args.get("encoder_ctc", False):
+    if search_args.get("encoder_ctc", False):
         enc_ctc = enc_args_ctc["ctc"]
     else:
-        enc_ctc = enc_args["ctc"]
+        enc_ctc = rf.softmax(model.ctc(enc_args["enc"]), axis=model.target_dim_w_b)
 
     # already in log space
-    ctc_out_raw = (
-        enc_ctc
-        .copy_transpose((batch_size_dim, enc_spatial_dim, model.target_dim_w_b))
-        .raw_tensor
-    )  # [B,T,V+1]
+    ctc_out_raw = enc_ctc.copy_transpose(
+        (batch_size_dim, enc_spatial_dim, model.target_dim_w_b)
+    ).raw_tensor  # [B,T,V+1]
 
-    if model.search_args.get("mask_eos", True):
+    if search_args.get("mask_eos", True):
         ctc_eos = ctc_out_raw[:, :, model.eos_idx].unsqueeze(2)
         ctc_blank = ctc_out_raw[:, :, model.blank_idx].unsqueeze(2)
-        ctc_out_raw[:, :, model.blank_idx] = torch.logsumexp(
+        ctc_out_raw[:, :, model.blank_idx] = torch.sum(
             torch.cat([ctc_eos, ctc_blank], dim=2), dim=2
         )
-        ctc_out_raw[:, :, model.eos_idx] = -1e30
+        ctc_out_raw[:, :, model.eos_idx] = 0.0
 
     orig_max_seq_len_raw = max_seq_len.raw_tensor
 
     ctc_spatial_dim = enc_spatial_dim
-    if model.search_args.get("blank_collapse", False):
+    if search_args.get("blank_collapse", False):
         col_probs, col_lens = blank_collapse_batched(
             ctc_out_raw.to("cpu"),
             orig_max_seq_len_raw,
-            model.search_args.get("blank_threshold", 0.0),
+            search_args.get("blank_threshold", 0.0),
             blank_index,
         )
         ctc_spatial_dim = enc_spatial_dim.copy(description="ctc-spatial")
@@ -125,59 +131,50 @@ def model_recog_time_sync(
         ctc_spatial_dim.dyn_size_ext.raw_tensor = orig_max_seq_len_raw
         ctc_out_raw = col_probs.to("cuda")
 
-    # important to to this after blank collapse
-    if model.search_args.get("prior_corr", False):
+    # important to do this after blank collapse
+    if search_args.get("prior_scale", 0.0) > 0.0:
         ctc_log_prior = numpy.loadtxt(
-            model.search_args.get("ctc_prior_file", None), dtype="float32"
+            search_args.get("ctc_prior_file", None), dtype="float32"
         )
-        ctc_out_raw = ctc_out_raw - (
-            torch.tensor(ctc_log_prior)
-            .repeat(ctc_out_raw.shape[0], ctc_out_raw.shape[1], 1)
-            .to("cuda")
-            * model.search_args.get("prior_scale", 0.3)
-        )
-        ctc_out_raw = ctc_out_raw - torch.logsumexp(ctc_out_raw, dim=2, keepdim=True)
 
-    if model.search_args.get("blank_scale", 0.0) > 0.0:
+        ctc_log_prior = torch.tensor(ctc_log_prior).repeat(ctc_out_raw.shape[0], ctc_out_raw.shape[1], 1).to("cuda")
+
+        # better do this in log space
+        ctc_out_log_raw = torch.log(ctc_out_raw)
+
+        ctc_out_log_raw = ctc_out_log_raw - (ctc_log_prior * search_args.get("prior_scale", 0.3))
+        ctc_out_log_raw = ctc_out_log_raw - torch.logsumexp(
+            ctc_out_log_raw, dim=2, keepdim=True
+        )
+
+        ctc_out_raw = torch.exp(ctc_out_log_raw)
+
+    if search_args.get("blank_scale", 0.0) > 0.0:
         ctc_blank = ctc_out_raw[:, :, model.blank_idx]
-        ctc_out_raw[:, :, model.blank_idx] = ctc_blank - model.search_args.get("blank_scale", 0.0)
+        ctc_out_raw[:, :, model.blank_idx] = ctc_blank - search_args.get(
+            "blank_scale", 0.0
+        )
 
-    ctc_out = rf.Tensor(
-        name="ctc_out",
-        dims=(batch_size_dim, ctc_spatial_dim, model.target_dim_w_b),
-        dtype="float32",
-        raw_tensor=ctc_out_raw,
-    )
+    # ctc_out = rf.Tensor(
+    #     name="ctc_out",
+    #     dims=(batch_size_dim, ctc_spatial_dim, model.target_dim_w_b),
+    #     dtype="float32",
+    #     raw_tensor=ctc_out_raw,
+    # )
 
-    # if model.search_args["use_ctc"]:
-    #     # ctc prefix scorer espnet
-    #     from i6_experiments.users.gaudino.experiments.rf_conformer_att_2023.librispeech_960.espnet_ctc.ctc_prefix_score_espnet import (
-    #         CTCPrefixScoreTH,
-    #     )
-    #
-    #     # hlens = max_seq_len.raw_tensor.repeat(beam_size).view(beam_size, data.raw_tensor.shape[0]).transpose(0, 1)
-    #
-    #
-    #
-    #     ctc_prefix_scorer = CTCPrefixScoreTH(
-    #         ctc_out,
-    #         hlens,
-    #         10025,
-    #         0,
-    #         model.search_args["window_margin"],
-    #         model.search_args["mask_eos"],
-    #     )
-    #     ctc_state = None
+    ctc_out_log_raw = torch.log(ctc_out_raw)
+
     enc_args.pop("ctc")
 
     prev_decoder_state = decoder_state
     prev_target = initial_target
     prev_target_non_blank = initial_target
 
-    eps = 1e-30
+    eps = 1e-20
     i = 0
     seq_targets = []
     seq_backrefs = []
+    out_str = [[""] * beam_size for _ in range(batch_size)]
 
     def trafo_lm_state_func(backrefs, s):
         if type(s) == Dim:
@@ -185,11 +182,11 @@ def model_recog_time_sync(
         else:
             return rf.gather(s, indices=backrefs)
 
-    if model.search_args.get("add_eos_to_end", False):
-        max_seq_len = max_seq_len + 1 # add one step to loop
+    if search_args.get("add_eos_to_end", False):
+        max_seq_len = max_seq_len + 1  # add one step to loop
 
     for i in range(torch.max(max_seq_len.raw_tensor)):
-        is_last_step = (i+1 == torch.max(max_seq_len.raw_tensor))
+        is_last_step = i + 1 == torch.max(max_seq_len.raw_tensor)
 
         # gather prev non-blank targets and prev_decoder_state via backrefs
         if i == 1:
@@ -228,7 +225,7 @@ def model_recog_time_sync(
         prev_decoder_state_all = decoder_state_1
 
         # handle trafo lm state
-        if model.search_args.get("add_trafo_lm", False) and i > 0:
+        if search_args.get("add_trafo_lm", False) and i > 0:
             prev_pos_raw = prev_trafo_lm_state_all["pos"].raw_tensor
             prev_trafo_lm_state_all.pop("pos")
             pos_raw = trafo_lm_state["pos"].raw_tensor
@@ -251,7 +248,9 @@ def model_recog_time_sync(
             )
 
             # prepare prev_trafo_lm_state
-            if prev_trafo_lm_state_all["0"]["self_att"]["accum_axis"].dimension != 0: # check for initial state
+            if (
+                prev_trafo_lm_state_all["0"]["self_att"]["accum_axis"].dimension != 0
+            ):  # check for initial state
                 prev_trafo_lm_state = tree.map_structure(
                     partial(trafo_lm_state_func, seq_backrefs[i - 1]),
                     prev_trafo_lm_state_all,
@@ -259,17 +258,21 @@ def model_recog_time_sync(
             else:
                 prev_trafo_lm_state = prev_trafo_lm_state_all
                 # change beam dim of k_accum and v_accum
-                for lay in range(model.trafo_lm.num_layers):
+                for lay in range(model.language_model.num_layers):
                     lay = str(lay)
-                    k_accum_temp = prev_trafo_lm_state[lay]["self_att"]["k_accum"].copy_template_replace_dim_tag(1, beam_dim)
-                    k_accum_temp.raw_tensor = prev_trafo_lm_state[lay]["self_att"]["k_accum"].raw_tensor.repeat(
-                        (1, beam_size, 1, 1, 1)
-                    )
+                    k_accum_temp = prev_trafo_lm_state[lay]["self_att"][
+                        "k_accum"
+                    ].copy_template_replace_dim_tag(1, beam_dim)
+                    k_accum_temp.raw_tensor = prev_trafo_lm_state[lay]["self_att"][
+                        "k_accum"
+                    ].raw_tensor.repeat((1, beam_size, 1, 1, 1))
                     prev_trafo_lm_state[lay]["self_att"]["k_accum"] = k_accum_temp
-                    v_accum_temp = prev_trafo_lm_state[lay]["self_att"]["v_accum"].copy_template_replace_dim_tag(1, beam_dim)
-                    v_accum_temp.raw_tensor = prev_trafo_lm_state[lay]["self_att"]["v_accum"].raw_tensor.repeat(
-                        (1, beam_size, 1, 1, 1)
-                    )
+                    v_accum_temp = prev_trafo_lm_state[lay]["self_att"][
+                        "v_accum"
+                    ].copy_template_replace_dim_tag(1, beam_dim)
+                    v_accum_temp.raw_tensor = prev_trafo_lm_state[lay]["self_att"][
+                        "v_accum"
+                    ].raw_tensor.repeat((1, beam_size, 1, 1, 1))
                     prev_trafo_lm_state[lay]["self_att"]["v_accum"] = v_accum_temp
 
             # shift hist of prev_trafo_lm_state if needed
@@ -279,7 +282,7 @@ def model_recog_time_sync(
                 trafo_lm_state_1 = trafo_lm_state
             elif torch.any(mask_combined.raw_tensor):
                 # shift
-                for lay in range(model.trafo_lm.num_layers):
+                for lay in range(model.language_model.num_layers):
                     lay = str(lay)
                     old_accum_axis = prev_trafo_lm_state[lay]["self_att"]["accum_axis"]
                     new_accum_axis = trafo_lm_state[lay]["self_att"]["accum_axis"]
@@ -350,7 +353,7 @@ def model_recog_time_sync(
                 prev_trafo_lm_state["pos"] = prev_pos_change_dim
                 trafo_lm_state_1 = prev_trafo_lm_state
             prev_trafo_lm_state_all = trafo_lm_state_1
-        elif model.search_args.get("add_trafo_lm", False) and i == 0:
+        elif search_args.get("add_trafo_lm", False) and i == 0:
             trafo_lm_state_1 = trafo_lm_state
             prev_trafo_lm_state_all = trafo_lm_state_1
 
@@ -373,42 +376,40 @@ def model_recog_time_sync(
         logits = model.decode_logits(input_embed=input_embed, **step_out)
         att_label_log_prob = rf.log_softmax(logits, axis=model.target_dim)
 
-        att_label_log_prob = att_label_log_prob * model.search_args.get(
-            "att_scale", 1.0
-        )
+        att_label_log_prob = att_label_log_prob * search_args.get("att_scale", 1.0)
 
-        if model.search_args.get("add_eos_to_end", False) and is_last_step:
+        if search_args.get("add_eos_to_end", False) and is_last_step:
             eos_log_prob = rf.Tensor(
                 name="eos_log_prob",
                 dtype="float32",
                 dims=att_label_log_prob.dims[:-1],
-                raw_tensor=att_label_log_prob.raw_tensor[:, :, model.eos_idx]
+                raw_tensor=att_label_log_prob.raw_tensor[:, :, model.eos_idx],
             )
 
         # continue in pure pytorch because slicing is easier
         # rf.gather(ctc_out, indices=i, axis=enc_spatial_dim) does not work
 
         # add beam dim to ctc_out_raw and get step i
-        ctc_index = min(i, torch.max(orig_max_seq_len_raw)-1)
-        ctc_out_raw_step = ctc_out_raw.unsqueeze(1).repeat(
+        ctc_index = min(i, torch.max(orig_max_seq_len_raw) - 1)
+        ctc_out_log_raw_step = ctc_out_log_raw.unsqueeze(1).repeat(
             [1, beam_dim.get_dim_value(), 1, 1]
         )[
             :, :, ctc_index
         ]  # [B, beam, T, V+1]
+        ctc_non_blank = ctc_out_log_raw_step[:, :, :blank_index]
 
         # renormalize ctc_out_raw_step
-        ctc_non_blank = ctc_out_raw_step[:, :, :blank_index]
-        ctc_non_blank = ctc_non_blank - torch.logsumexp(
-            ctc_non_blank, dim=2, keepdim=True
-        )
+        # ctc_non_blank = ctc_non_blank - torch.logsumexp(
+        #     ctc_non_blank, dim=2, keepdim=True
+        # )
 
         label_log_prob_non_blank = (
-            ctc_non_blank * model.search_args.get("ctc_scale", 0.0)
+            ctc_non_blank * search_args.get("ctc_scale", 0.0)
             + att_label_log_prob.raw_tensor
         )
 
-        if model.search_args.get("add_trafo_lm", False):
-            trafo_lm_out = model.trafo_lm(
+        if search_args.get("add_trafo_lm", False):
+            trafo_lm_out = model.language_model(
                 target_1, state=trafo_lm_state_1, spatial_dim=single_step_dim
             )
             trafo_lm_state = trafo_lm_out["state"]
@@ -416,49 +417,62 @@ def model_recog_time_sync(
             trafo_log_prob = rf.log_softmax(
                 trafo_lm_out["output"], axis=model.target_dim
             )
-            if i > 0:
-                trafo_log_prob_raw = trafo_log_prob.raw_tensor
-                if model.search_args.get("add_eos_to_end", False) and is_last_step:
-                    eos_log_prob.raw_tensor = eos_log_prob.raw_tensor + trafo_log_prob_raw[:, :, model.eos_idx] * model.search_args.get("lm_scale", 0.0)
 
-                if model.search_args.get("remove_trafo_lm_eos", False):
-                    # warning this basically set eos to 0 for the whole prob distribution
-                    trafo_log_prob_raw[:, :, model.eos_idx] = -1e30
-                    trafo_log_prob_raw = trafo_log_prob_raw - torch.logsumexp(
-                        trafo_log_prob_raw, dim=2, keepdim=True
-                    )
-                label_log_prob_non_blank = (
-                    label_log_prob_non_blank
-                    + model.search_args["lm_scale"] * trafo_log_prob_raw
+            trafo_log_prob_raw = trafo_log_prob.raw_tensor
+            if search_args.get("add_eos_to_end", False) and is_last_step:
+                eos_log_prob.raw_tensor = eos_log_prob.raw_tensor + trafo_log_prob_raw[
+                    :, :, model.eos_idx
+                ] * search_args.get("lm_scale", 0.0)
+
+            if search_args.get("remove_trafo_lm_eos", False):
+                # warning this basically set eos to 0 for the whole prob distribution
+                trafo_log_prob_raw[:, :, model.eos_idx] = -1e30
+                trafo_log_prob_raw = trafo_log_prob_raw - torch.logsumexp(
+                    trafo_log_prob_raw, dim=2, keepdim=True
                 )
 
-        blank_log_prob = ctc_out_raw_step[:, :, blank_index]
+            label_log_prob_non_blank = (
+                label_log_prob_non_blank + search_args["lm_scale"] * trafo_log_prob_raw # still raw tensor for omt slicing etc
+            )
 
-        one_minus_term = torch.ones_like(blank_log_prob) - torch.exp(blank_log_prob)
-
-        repeat_prob = torch.gather(
-            ctc_out_raw_step, 2, target.raw_tensor.to(torch.int64).unsqueeze(2)
+        blank_log_prob = ctc_out_log_raw_step[:, :, blank_index]
+        repeat_log_prob = torch.gather(
+            ctc_out_log_raw_step, 2, target.raw_tensor.to(torch.int64).unsqueeze(2)
         ).squeeze(2)
-        one_minus_term = torch.where(
-            mask_not_blank.raw_tensor,
-            one_minus_term - torch.exp(repeat_prob),
-            one_minus_term,
-        )
 
-        label_log_prob_non_blank = (
-            torch.log(
+        if search_args.get("use_one_minus_term", False):
+            ctc_out_raw_step = ctc_out_raw.unsqueeze(1).repeat(
+                [1, beam_dim.get_dim_value(), 1, 1]
+            )[
+                :, :, ctc_index
+            ]  # [B, beam, T, V+1]
+            blank_prob = ctc_out_raw_step[:, :, blank_index]
+            repeat_prob = torch.gather(
+                ctc_out_raw_step, 2, target.raw_tensor.to(torch.int64).unsqueeze(2)
+            ).squeeze(2)
+            one_minus_term = torch.ones_like(blank_prob) - blank_prob
+
+            one_minus_term = torch.where(
+                mask_not_blank.raw_tensor,
+                one_minus_term - repeat_prob,
+                one_minus_term,
+            )
+            one_minus_term_log = torch.log(
                 torch.maximum(one_minus_term, torch.fill(one_minus_term, eps))
             ).unsqueeze(2)
-            + label_log_prob_non_blank
-        )
+            label_log_prob_non_blank = one_minus_term_log + label_log_prob_non_blank
 
         label_log_prob = torch.cat(
             [label_log_prob_non_blank, blank_log_prob.unsqueeze(2)], dim=2
         )
 
         label_log_prob = label_log_prob.scatter_(
-            2, target.raw_tensor.unsqueeze(2).to(torch.int64), repeat_prob.unsqueeze(2)
+            2,
+            target.raw_tensor.unsqueeze(2).to(torch.int64),
+            repeat_log_prob.unsqueeze(2),
         )
+
+        breakpoint()
 
         label_log_prob = rf.Tensor(
             name="label_log_prob",
@@ -479,7 +493,7 @@ def model_recog_time_sync(
             label_log_prob,
         )
 
-        if model.search_args.get("add_eos_to_end", False) and is_last_step:
+        if search_args.get("add_eos_to_end", False) and is_last_step:
             seq_log_prob = seq_log_prob + eos_log_prob
             break
 
@@ -497,7 +511,7 @@ def model_recog_time_sync(
             lambda s: rf.gather(s, indices=backrefs), decoder_state
         )
 
-        if model.search_args.get("add_trafo_lm", False):
+        if search_args.get("add_trafo_lm", False):
             pos = trafo_lm_state["pos"]
             trafo_lm_state.pop("pos")
             trafo_lm_state = tree.map_structure(
@@ -505,10 +519,46 @@ def model_recog_time_sync(
             )
             trafo_lm_state["pos"] = pos
 
+        # TODO: recombination
+        mask_not_blank = rf.compare(target, "not_equal", model.blank_idx)
+        out_str_prev = copy.deepcopy(out_str)
+        for batch in range(batch_size):
+            for beam in range(beam_size):
+                backref = backrefs.raw_tensor[batch, beam]
+                if mask_not_blank.raw_tensor[batch, beam]:
+                    out_str[batch][beam] = out_str_prev[batch][
+                        backref
+                    ] + model.target_dim.vocab.id_to_label(
+                        int(target.raw_tensor[batch, beam])
+                    )
+                else:
+                    out_str[batch][beam] = out_str_prev[batch][backref]
+
+        for batch in range(batch_size):
+            hyp_set = {}
+            for beam in range(beam_size):
+                if hyp_set.get(out_str[batch][beam], None) is not None:
+                    hyp_set[out_str[batch][beam]].append(beam)
+                else:
+                    hyp_set[out_str[batch][beam]] = [beam]
+
+            for hyp in hyp_set.keys():
+                if len(hyp_set[hyp]) > 1:
+                    max_idx = hyp_set[hyp][0]
+                    max_prob = seq_log_prob.raw_tensor[batch, max_idx]
+                    for idx in hyp_set[hyp][1:]:
+                        if seq_log_prob.raw_tensor[batch, idx] > max_prob:
+                            max_idx = idx
+                            max_prob = seq_log_prob.raw_tensor[batch, idx]
+
+                    for idx in hyp_set[hyp]:
+                        if idx != max_idx:
+                            seq_log_prob.raw_tensor[batch, idx] = -1e30
+
         ended = rf.gather(ended, indices=backrefs)
         out_seq_len = rf.gather(out_seq_len, indices=backrefs)
 
-        ended = rf.logical_or(ended, target == model.eos_idx) # TODO: keep this or not?
+        ended = rf.logical_or(ended, target == model.eos_idx)  # TODO: keep this or not?
         ended = rf.logical_or(ended, rf.copy_to_device(i + 1 >= max_seq_len))
         if bool(rf.reduce_all(ended, axis=ended.dims).raw_tensor):
             break
@@ -557,19 +607,6 @@ def model_recog_time_sync(
         model.blank_idx,
         model.eos_idx,
     )
-
-    if model.search_args.get("rescore_w_ctc", False):
-        from .two_pass import rescore_w_ctc
-
-        seq_targets, seq_log_prob = rescore_w_ctc(
-            model,
-            seq_targets,
-            seq_log_prob,
-            ctc_out,
-            batch_size,
-            beam_size,
-            model.blank_idx,
-        )
 
     return seq_targets, seq_log_prob, out_spatial_dim, beam_dim
 
