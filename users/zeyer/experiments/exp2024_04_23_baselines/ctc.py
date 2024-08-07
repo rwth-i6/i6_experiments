@@ -550,7 +550,7 @@ def py():
 
     # Blank separated (blankSep).
     for vocab, alpha, max_seq_len_via_audio in [
-        ("bpe10k", 0.01, False),
+        ("bpe10k", 0.01, False),  # 5.98
         ("spm10k", 0.01, False),  # 5.73 (!!!)
         ("spm10k", 0.01, True),
         ("spm512", 0.01, True),
@@ -660,10 +660,12 @@ def py():
     for name, opts in {
         # 5.71 (!!!) (i.e. better than without)
         "C05_11P1": {"func": {"clamp_min": 0.5, "clamp_max": 1.1, "scale_type": "inv_num_labels", "prior_exp": 1.0}},
+        # 5.83
         "C05_11P1Seq": {
             "prior": "seq_grad",
             "func": {"clamp_min": 0.5, "clamp_max": 1.1, "scale_type": "inv_num_labels", "prior_exp": 1.0},
         },
+        # 5.75
         "C05_11P07": {"func": {"clamp_min": 0.5, "clamp_max": 1.1, "scale_type": "inv_num_labels", "prior_exp": 0.7}},
     }.items():
         train_exp(
