@@ -37,8 +37,9 @@ def py():
     # TODO check users/zeyer/experiments/exp2023_04_25_rf/README.md
     # TODO check users/zeyer/experiments/exp2023_04_25_rf/Transformer.md
 
-    # TODO check input_embed_scale together with shared_embedding
-    # TODO check Llama-like model
+    # TODO more on Llama/Transformer++-like model
+    # TODO tune LR
+    # TODO devtrain better
 
     train(
         "lm/trafo-n12-d512-drop0-b200_10k-wrongLr",
