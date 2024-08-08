@@ -156,6 +156,7 @@ def _plot_cosine_sim_matrix(
         seq_tags: rf.Tensor,
         batch_dim: rf.Dim,
         spatial_dim: rf.Dim,
+        extra_name: Optional[str] = None,
 ):
   assert len(x.dims) == 3
 
@@ -185,14 +186,14 @@ def _plot_cosine_sim_matrix(
 
     plt.matshow(cos_sim, cmap="seismic")
     plt.colorbar()
-    plt.savefig(os.path.join(dirname, f"cos_sim_{seq_tag.replace('/', '_')}.png"))
+    plt.savefig(os.path.join(dirname, f"cos_sim_{seq_tag.replace('/', '_')}_{extra_name if extra_name else ''}.png"))
     plt.close()
 
     x_norm_b = x_norm_b.cpu().detach().numpy()
     from sklearn.cluster import KMeans, DBSCAN, SpectralClustering
     # kmeans = KMeans(n_clusters=num_non_blank_targets + 1, random_state=0).fit(x_norm_b)
     # clusters = KMeans(n_clusters=2, random_state=0).fit(x_norm_b)
-    clusters = SpectralClustering(n_clusters=2, random_state=0).fit(x_norm_b)
+    clusters = SpectralClustering(n_clusters=4, random_state=0).fit(x_norm_b)
     plt.matshow(clusters.labels_[None, :], cmap="tab20c")
     plt.savefig(os.path.join(dirname, f"clusters_{seq_tag.replace('/', '_')}.png"))
     plt.close()
@@ -206,9 +207,11 @@ def _blank_model_analysis(
         seq_tags: rf.Tensor,
         batch_dim: rf.Dim,
         non_blank_targets_spatial_dim: rf.Dim,
+        enc_spatial_dim: rf.Dim,
+        label_model_states: Optional[rf.Tensor] = None
 ):
   assert len(x.dims) == 3
-  assert model.blank_decoder_version == 4
+  assert model.blank_decoder_version in (3, 4, 8)
 
   dirname = f"{input_name}_blank_model_analysis"
   if os.path.exists(dirname):
@@ -218,59 +221,95 @@ def _blank_model_analysis(
 
   B = batch_dim.dyn_size_ext.raw_tensor.item()  # noqa
   spatial_dim = x.remaining_dims([batch_dim, x.feature_dim])[0]
-  spatial_dimension = rf.reduce_max(spatial_dim.dyn_size_ext, axis=batch_dim).raw_tensor.item()
-  feature_dimension = model.blank_decoder.s.out_dim.dimension
+  # spatial_dimension = rf.reduce_max(spatial_dim.dyn_size_ext, axis=batch_dim).raw_tensor.item()
+  # feature_dimension = model.blank_decoder.s.out_dim.dimension
 
-  x_raw = x.copy_transpose([batch_dim, spatial_dim, x.feature_dim]).raw_tensor
+  if model.blank_decoder_version == 8:
+    blank_model_input = x
+  else:
+    blank_model_input = rf.concat_features(x, label_model_states, allow_broadcast=False)
 
-  s_weight = model.blank_decoder.s.weight
-  s_weight = s_weight.copy_transpose([model.blank_decoder.s.in_dim, model.blank_decoder.s.out_dim]).raw_tensor
-  s_bias = model.blank_decoder.s.bias.raw_tensor
-  # apply linear layer
-  x_raw = torch.matmul(x_raw, s_weight[:512]) + s_bias
-  # apply maxout (2)
-  x_raw = x_raw.view(B, spatial_dimension, feature_dimension // 2, 2)
-  x_raw = torch.max(x_raw, dim=-1).values
+  if model.blank_decoder_version == 3:
+    x_transformed, _ = model.blank_decoder.loop_step(
+      enc=x,
+      enc_spatial_dim=enc_spatial_dim,
+      label_model_state=label_model_states,
+      state=model.blank_decoder.default_initial_state(batch_dims=[batch_dim]),
+      spatial_dim=enc_spatial_dim,
+    )
+    x_transformed = x_transformed["s_blank"]
+  else:
+    x_transformed = model.blank_decoder.s(blank_model_input)
+    x_transformed = rf.reduce_out(x_transformed, mode="max", num_pieces=2, out_dim=model.blank_decoder.emit_prob.in_dim)
 
-  x_norm = x_raw / x_raw.norm(dim=-1, keepdim=True)
+  x_transformed = x_transformed.copy_transpose(
+    x_transformed.remaining_dims(x_transformed.feature_dim) + [x_transformed.feature_dim]
+  )
+  x_transformed_raw = x_transformed.raw_tensor
 
-  emit_prob_weight = model.blank_decoder.emit_prob.weight.raw_tensor
-  emit_prob_bias = model.blank_decoder.emit_prob.bias.raw_tensor
-  emit_logits = torch.matmul(x_raw, emit_prob_weight) + emit_prob_bias
+  x_transformed_norm = x_transformed.copy()
+  x_transformed_norm.raw_tensor = x_transformed_raw / x_transformed_raw.norm(dim=-1, keepdim=True)
 
-  for b in range(B):
-    seq_tag = seq_tags.raw_tensor[b].item()
-    seq_len_b = spatial_dim.dyn_size_ext.raw_tensor[b].item()
-    x_norm_b = x_norm[b, :seq_len_b]
-    cos_sim = torch.matmul(x_norm_b, x_norm_b.transpose(0, 1))
-    # cos_sim = torch.tril(cos_sim, diagonal=0)
-    cos_sim = cos_sim.cpu().detach().numpy()
+  if len(x_transformed_norm.dims) == 3:
+    _plot_cosine_sim_matrix(
+      x=x_transformed_norm,
+      input_name=dirname,
+      seq_tags=seq_tags,
+      batch_dim=batch_dim,
+      spatial_dim=enc_spatial_dim,
+    )
+  else:
+    assert len(x_transformed_norm.dims) == 4
+    x_transformed_norm = x_transformed_norm.copy_transpose(
+      [batch_dim, non_blank_targets_spatial_dim, enc_spatial_dim, x_transformed_norm.feature_dim])
+    S = rf.reduce_max(
+      non_blank_targets_spatial_dim.dyn_size_ext,
+      axis=non_blank_targets_spatial_dim.dyn_size_ext.dims
+    ).raw_tensor.item()
 
-    plt.matshow(cos_sim, cmap="seismic")
-    plt.colorbar()
-    plt.savefig(os.path.join(dirname, f"cos_sim_{seq_tag.replace('/', '_')}.png"))
-    plt.close()
+    for s in range(S):
+      _plot_cosine_sim_matrix(
+        x=rf.gather(x_transformed_norm, axis=non_blank_targets_spatial_dim, indices=rf.constant(s, dims=[batch_dim])),
+        input_name=f"{dirname}/s_{s}",
+        seq_tags=seq_tags,
+        batch_dim=batch_dim,
+        spatial_dim=enc_spatial_dim,
+      )
+  #   exit()
+  #
+  #
+  # # emit_prob_weight = model.blank_decoder.emit_prob.weight.raw_tensor
+  # # emit_prob_bias = model.blank_decoder.emit_prob.bias.raw_tensor
+  # # emit_logits = torch.matmul(x_raw, emit_prob_weight) + emit_prob_bias
+  #
+  # for b in range(B):
+  #   seq_tag = seq_tags.raw_tensor[b].item()
+  #   seq_len_b = spatial_dim.dyn_size_ext.raw_tensor[b].item()
+  #   x_norm_b = x_transformed_norm[b, :seq_len_b]
+  #   cos_sim = torch.matmul(x_norm_b, x_norm_b.transpose(0, 1))
+  #   # cos_sim = torch.tril(cos_sim, diagonal=0)
+  #   cos_sim = cos_sim.cpu().detach().numpy()
+  #
+  #   plt.matshow(cos_sim, cmap="seismic")
+  #   plt.colorbar()
+  #   plt.savefig(os.path.join(dirname, f"cos_sim_{seq_tag.replace('/', '_')}.png"))
+  #   plt.close()
+  #
+  #   x_norm_b = x_norm_b.cpu().detach().numpy()
+  #   from sklearn.cluster import SpectralClustering
+  #   clusters = SpectralClustering(n_clusters=2, random_state=0).fit(x_norm_b)
+  #
+  #   plt.matshow(clusters.labels_[None, :], cmap="tab20c")
+  #   plt.savefig(os.path.join(dirname, f"clusters_{seq_tag.replace('/', '_')}.png"))
+  #   plt.close()
 
-    x_norm_b = x_norm_b.cpu().detach().numpy()
-    from sklearn.cluster import KMeans, DBSCAN, SpectralClustering
-    num_non_blank_targets = non_blank_targets_spatial_dim.dyn_size_ext.raw_tensor[b].item()
-    # kmeans = KMeans(n_clusters=num_non_blank_targets + 1, random_state=0).fit(x_norm_b)
-    # clusters = KMeans(n_clusters=2, random_state=0, n_init="auto").fit(x_norm_b)
-    clusters = SpectralClustering(n_clusters=2, random_state=0).fit(x_norm_b)
-    # print("seq_tag", seq_tag)
-    # print("labels: ", clusters.labels_)
-    # print("n_iter: ", clusters.n_iter_)
-    plt.matshow(clusters.labels_[None, :], cmap="tab20c")
-    plt.savefig(os.path.join(dirname, f"clusters_{seq_tag.replace('/', '_')}.png"))
-    plt.close()
-
-    emit_logits_b = emit_logits[b, :seq_len_b]
-    emit_logits_b = emit_logits_b.cpu().detach().numpy()
-    emit_logits_b = np.squeeze(emit_logits_b)
-    plt.matshow(emit_logits_b[None, :], cmap="seismic")
-    plt.colorbar()
-    plt.savefig(os.path.join(dirname, f"emit_logits_{seq_tag.replace('/', '_')}.png"))
-    plt.close()
+    # emit_logits_b = emit_logits[b, :seq_len_b]
+    # emit_logits_b = emit_logits_b.cpu().detach().numpy()
+    # emit_logits_b = np.squeeze(emit_logits_b)
+    # plt.matshow(emit_logits_b[None, :], cmap="seismic")
+    # plt.colorbar()
+    # plt.savefig(os.path.join(dirname, f"emit_logits_{seq_tag.replace('/', '_')}.png"))
+    # plt.close()
 
 
 def _info_mixing_analysis(
@@ -634,7 +673,7 @@ def analyze_gradients(
           )
           att_weights, _ = rf.stack(att_weights, out_dim=non_blank_targets_spatial_dim)
 
-          if model.center_window_size != 1:
+          if model.center_window_size != 1 and model.label_decoder.gaussian_att_weight_opts is None:
             energies = process_captured_tensors(
               layer_mapping={
                 f"energy_step{i}": (SegmentalAttLabelDecoder.loop_step, i, "energy", -1) for i in range(max_num_labels)},
@@ -643,6 +682,14 @@ def analyze_gradients(
             energies, _ = rf.stack(energies, out_dim=non_blank_targets_spatial_dim)
           else:
             energies = None
+
+          label_model_states = process_captured_tensors(
+            layer_mapping={
+              f"s_step{i}": (SegmentalAttLabelDecoder.loop_step, i, "s", -1) for i in range(max_num_labels)},
+          )
+          label_model_states, _ = rf.stack(label_model_states, out_dim=non_blank_targets_spatial_dim)
+          label_model_states.feature_dim = label_model_states.remaining_dims(
+            batch_dims + [non_blank_targets_spatial_dim])[0]
 
           logits = process_captured_tensors(
             layer_mapping={"logits": (SegmentalAttLabelDecoder.decode_logits, 0, "logits", -1)}
@@ -693,7 +740,7 @@ def analyze_gradients(
           )
           assert isinstance(att_weights, rf.Tensor)
 
-          if model.center_window_size != 1:
+          if model.center_window_size != 1 or model.label_decoder.gaussian_att_weight_opts is not None:
             energies = process_captured_tensors(
               layer_mapping={"energy": (SegmentalAttEfficientLabelDecoder.__call__, 0, "energy", -1)},
               process_func=_replace_slice_dim
@@ -701,6 +748,10 @@ def analyze_gradients(
             assert isinstance(energies, rf.Tensor)
           else:
             energies = None  # no energies for center window size 1 (att weights = 1 for current frame)
+
+          label_model_states = process_captured_tensors(
+            layer_mapping={f"s": (forward_sequence_efficient_segmental, 0, "s_out", -1)},
+          )
 
           logits = process_captured_tensors(
             layer_mapping={"logits": (SegmentalAttEfficientLabelDecoder.decode_logits, 0, "logits", -1)}
@@ -954,7 +1005,7 @@ def analyze_gradients(
             _plot_attention_weights()
 
       if isinstance(model.label_decoder, GlobalAttDecoder):
-        for s in range(10):
+        for s in range(max_num_labels):
           energy_in_s = rf.gather(
             energy_in,
             indices=rf.constant(s, dims=batch_dims),
@@ -967,7 +1018,8 @@ def analyze_gradients(
             input_name=f"energy_in_analysis/s-{s}",
             batch_dim=batch_dims[0],
             seq_tags=seq_tags,
-            spatial_dim=enc_spatial_dim
+            spatial_dim=enc_spatial_dim,
+            extra_name=str(s)
           )
 
       for input_name, input_ in (
@@ -975,7 +1027,7 @@ def analyze_gradients(
               (f"enc_ctx-{enc_layer_idx}", enc_args["enc_ctx"]),
               ("x_linear", x_linear),
       ):
-        if isinstance(model, SegmentalAttentionModel) and (
+        if isinstance(model, SegmentalAttentionModel) and isinstance(model.label_decoder, SegmentalAttLabelDecoder) and (
                 model.center_window_size == 1 or model.label_decoder.gaussian_att_weight_opts is not None) and (
           "enc_ctx" in input_name
         ):
@@ -1004,14 +1056,26 @@ def analyze_gradients(
           spatial_dim=enc_spatial_dim
         )
 
-      if isinstance(model, SegmentalAttentionModel) and model.blank_decoder_version == 4:
+      if isinstance(model, SegmentalAttentionModel) and model.blank_decoder_version in (3, 4, 8,):
+        label_model_states_unmasked = utils.get_unmasked(
+          label_model_states,
+          input_spatial_dim=non_blank_targets_spatial_dim,
+          mask=non_blank_mask,
+          mask_spatial_dim=targets_spatial_dim,
+        )
+        label_model_states_unmasked = utils.copy_tensor_replace_dim_tag(
+          label_model_states_unmasked, targets_spatial_dim, enc_spatial_dim
+        )
+
         _blank_model_analysis(
           model=model,
           x=collected_outputs["11"],
           input_name=f"enc-{11}",
           batch_dim=batch_dims[0],
           seq_tags=seq_tags,
-          non_blank_targets_spatial_dim=non_blank_targets_spatial_dim
+          non_blank_targets_spatial_dim=non_blank_targets_spatial_dim,
+          enc_spatial_dim=enc_spatial_dim,
+          label_model_states=label_model_states_unmasked,
         )
 
       # plot attention weights for non-trafo decoders
@@ -1025,8 +1089,8 @@ def analyze_gradients(
           (att_weights, "att_weights"),
           (energies, "energies"),
         ]:
-          if isinstance(model, SegmentalAttentionModel) and model.center_window_size == 1 and tensor_name == "energies":
-            continue  # no energies for center window size 1 (att weights = 1 for current frame)
+          if energies is None:
+            continue
 
           tensor_dirname = os.path.join(dirname, tensor_name)
 
