@@ -85,6 +85,59 @@ def py():
         train_def=lm_train_def,
     )
 
+    # Testing noShare and embedScale1.
+    train(
+        "lm/trafo-n12-d512-gelu-noShare-embedScale1-drop0-b200_10k",
+        config=dict_update_deep(
+            config_11gb_lm_v1,
+            {**_get_cfg_lrlin_oclr_by_bs_nep(200, 10_000, 100)},
+        ),
+        train_dataset=get_librispeech_lm_dataset(vocab="spm10k"),
+        model_def=ModelDefWithCfg(
+            lm_model_def,
+            {
+                "_model_def_dict": rf.build_dict(
+                    TransformerDecoder,
+                    encoder_dim=None,
+                    num_layers=12,
+                    model_dim=512,
+                    ff_activation=rf.build_dict(rf.gelu),
+                    share_embedding=False,
+                    input_embedding_scale=1.0,
+                    dropout=0.0,
+                    att_dropout=0.0,
+                )
+            },
+        ),
+        train_def=lm_train_def,
+    )
+
+    # Testing embedScale1 (with shared embeddings).
+    train(
+        "lm/trafo-n12-d512-gelu-embedScale1-drop0-b200_10k",
+        config=dict_update_deep(
+            config_11gb_lm_v1,
+            {**_get_cfg_lrlin_oclr_by_bs_nep(200, 10_000, 100)},
+        ),
+        train_dataset=get_librispeech_lm_dataset(vocab="spm10k"),
+        model_def=ModelDefWithCfg(
+            lm_model_def,
+            {
+                "_model_def_dict": rf.build_dict(
+                    TransformerDecoder,
+                    encoder_dim=None,
+                    num_layers=12,
+                    model_dim=512,
+                    ff_activation=rf.build_dict(rf.gelu),
+                    input_embedding_scale=1.0,
+                    dropout=0.0,
+                    att_dropout=0.0,
+                )
+            },
+        ),
+        train_def=lm_train_def,
+    )
+
     # Llama / Transformer++ like
     train(
         "lm/trafo-n12-d512-noAbsPos-rmsNorm-ffGated-rope-noBias-drop0-b200_10k",
