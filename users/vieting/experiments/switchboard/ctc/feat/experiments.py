@@ -487,6 +487,7 @@ def run_scf_frozen_features():
     )
     return report
 
+
 def run_scf_audio_perturbation():
     gs.ALIAS_AND_OUTPUT_SUBDIR = "experiments/switchboard/ctc/feat/"
 
@@ -811,6 +812,7 @@ def run_scf_audio_perturbation_from_checkpoint():
     )
     return report
 
+
 def run_scf_specaug_sort():
     gs.ALIAS_AND_OUTPUT_SUBDIR = "experiments/switchboard/ctc/feat/"
 
@@ -895,6 +897,7 @@ def run_scf_specaug_sort():
         recog_args={"epochs": [350, 400, 450, "best"]},
     )
     return report
+
 
 def run_mel_audio_perturbation():
     gs.ALIAS_AND_OUTPUT_SUBDIR = "experiments/switchboard/ctc/feat/"
