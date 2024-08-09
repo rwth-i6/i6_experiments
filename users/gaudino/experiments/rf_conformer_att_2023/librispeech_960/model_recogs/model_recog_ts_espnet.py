@@ -32,6 +32,7 @@ def model_recog_ts_espnet(
     data: Tensor,
     data_spatial_dim: Dim,
     max_seq_len: Optional[int] = None,
+    search_args: Optional[Dict[str, Any]] = None,
 ) -> Tuple[Tensor, Tensor, Dim, Dim]:
     """
     Function is run within RETURNN.
@@ -46,9 +47,12 @@ def model_recog_ts_espnet(
         out_spatial_dim,
         final beam_dim
     """
+    if hasattr(model, "search_args"):
+        search_args = model.search_args
+
     batch_dims = data.remaining_dims((data_spatial_dim, data.feature_dim))
     batch_size_dim = batch_dims[0]
-    beam_size = model.search_args.get("beam_size", 12)
+    beam_size = search_args.get("beam_size", 12)
 
     beam_dim = Dim(beam_size, name="beam-dim")
     batch_dims_ = batch_dims + [beam_dim]
@@ -71,7 +75,7 @@ def model_recog_ts_espnet(
         .raw_tensor[0]
     )
 
-    if model.search_args.get("mask_eos", True):
+    if search_args.get("mask_eos", True):
         ctc_eos = ctc_out[ :, model.eos_idx].unsqueeze(1)
         ctc_blank = ctc_out[ :, model.blank_idx].unsqueeze(1)
         ctc_out[ :, model.blank_idx] = torch.logsumexp(
@@ -79,14 +83,15 @@ def model_recog_ts_espnet(
         )
         ctc_out[ :, model.eos_idx] = -1e30
 
-    if model.search_args.get("prior_corr", False):
-        ctc_log_prior = numpy.loadtxt(model.search_args.get("prior_file", model.search_args.get("ctc_prior_file", "")),
+    if search_args.get("prior_scale", 0.0) > 0.0:
+        prior = numpy.loadtxt(search_args.get("prior_file", search_args.get("ctc_prior_file", "")),
                                       dtype="float32")
+        prior = torch.tensor(prior).repeat(ctc_out.shape[0], 1).to(ctc_out.device)
+        if not search_args.get("is_log_prior", True):
+            prior = torch.log(prior)
         ctc_out = ctc_out - (
-            torch.tensor(ctc_log_prior)
-            .repeat(ctc_out.shape[0], 1)
-            .to(ctc_out.device)
-            * model.search_args["prior_scale"]
+            prior
+            * search_args["prior_scale"]
         )
         ctc_out = ctc_out - torch.logsumexp(ctc_out, dim=1, keepdim=True)
 
@@ -97,8 +102,8 @@ def model_recog_ts_espnet(
         "decoder": att_scorer
     }
 
-    if model.search_args.get("lm_scale", 0.0) > 0.0 or model.search_args.get("ilm_scale", 0.0) > 0.0:
-        scorers["lm"] = LM_ILM_Scorer(model=model, batch_dims=batch_dims, enc_spatial_dim=enc_spatial_dim, lm_scale=model.search_args.get("lm_scale", 0.0), ilm_scale=model.search_args.get("ilm_scale", 0.0))
+    if search_args.get("lm_scale", 0.0) > 0.0 or search_args.get("ilm_scale", 0.0) > 0.0:
+        scorers["lm"] = LM_ILM_Scorer(model=model, batch_dims=batch_dims, enc_spatial_dim=enc_spatial_dim, lm_scale=search_args.get("lm_scale", 0.0), ilm_scale=search_args.get("ilm_scale", 0.0))
 
 
     time_sync_beam_search = BeamSearchTimeSync(
@@ -106,10 +111,10 @@ def model_recog_ts_espnet(
         beam_size=beam_size,
         scorers=scorers,
         weights={
-            "ctc": model.search_args.get("ctc_scale", 1.0),
-            "decoder": model.search_args.get("att_scale", 1.0),
+            "ctc": search_args.get("ctc_scale", 1.0),
+            "decoder": search_args.get("att_scale", 1.0),
             "lm": 1.0,
-            "length_bonus": model.search_args.get("length_bonus", 0.0),
+            "length_bonus": search_args.get("length_bonus", 0.0),
         },
         token_list=model.target_dim.vocab,
         blank=model.blank_idx,

@@ -10,6 +10,8 @@ import logging
 from returnn.tensor import Tensor, Dim, single_step_dim
 import returnn.frontend as rf
 
+from .array__modified import cum_concat_step
+
 
 __all__ = [
     "dot_attention",
@@ -228,8 +230,8 @@ def _causal_self_att_step(
 ) -> Tuple[Tensor, Tensor, Dim, CausalSelfAttentionState]:
     if axis == single_step_dim:
         assert state, f"{self}: need state for single step"
-        k, hist_dim = rf.cum_concat_step(k, prev_accum=state.k_accum, axis=state.accum_axis)
-        v, _ = rf.cum_concat_step(v, prev_accum=state.v_accum, out_spatial_dim=hist_dim, axis=state.accum_axis)
+        k, hist_dim = cum_concat_step(k, prev_accum=state.k_accum, axis=state.accum_axis)
+        v, _ = cum_concat_step(v, prev_accum=state.v_accum, out_spatial_dim=hist_dim, axis=state.accum_axis)
     else:
         if state and state.accum_axis.dimension != 0:
             raise NotImplementedError(  # need to concat ...

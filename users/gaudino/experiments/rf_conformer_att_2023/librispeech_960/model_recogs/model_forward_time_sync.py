@@ -44,10 +44,11 @@ def model_forward_time_sync(
         out_spatial_dim,
         final beam_dim
     """
+
     batch_dims = data.remaining_dims((data_spatial_dim, data.feature_dim))
     enc_args, enc_spatial_dim = model.encode(data, in_spatial_dim=data_spatial_dim)
     beam_size = 1
-    length_normalization_exponent = model.search_args.get("length_normalization_exponent", 1.0)
+    length_normalization_exponent = model.search_args.get("length_normalization_exponent", 0.0)
     if max_seq_len is None:
         max_seq_len = enc_spatial_dim.get_size_tensor()
     else:
@@ -99,34 +100,6 @@ def model_forward_time_sync(
         raw_tensor=ctc_out_raw,
     )
 
-    # if model.search_args["use_ctc"]:
-    #     # ctc prefix scorer espnet
-    #     from i6_experiments.users.gaudino.experiments.rf_conformer_att_2023.librispeech_960.espnet_ctc.ctc_prefix_score_espnet import (
-    #         CTCPrefixScoreTH,
-    #     )
-    #
-    #     # hlens = max_seq_len.raw_tensor.repeat(beam_size).view(beam_size, data.raw_tensor.shape[0]).transpose(0, 1)
-    #
-    #
-    #     if model.search_args["prior_corr"]:
-    #         ctc_log_prior = numpy.loadtxt(_ctc_prior_filename, dtype="float32")
-    #         ctc_out = ctc_out - (
-    #             torch.tensor(ctc_log_prior)
-    #             .repeat(ctc_out.shape[0], ctc_out.shape[1], 1)
-    #             .to("cuda")
-    #             * model.search_args["prior_scale"]
-    #         )
-    #         ctc_out = ctc_out - torch.logsumexp(ctc_out, dim=2, keepdim=True)
-    #
-    #     ctc_prefix_scorer = CTCPrefixScoreTH(
-    #         ctc_out,
-    #         hlens,
-    #         10025,
-    #         0,
-    #         model.search_args["window_margin"],
-    #         model.search_args["mask_eos"],
-    #     )
-    #     ctc_state = None
     enc_args.pop("ctc")
 
     # viterbi alignment

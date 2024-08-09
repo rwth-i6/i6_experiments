@@ -87,7 +87,7 @@ def model_recog(
 
     blank_index = model.target_dim.get_dim_value()
 
-    if search_args.get("use_ctc", False) or search_args.get("rescore_with_ctc", False):
+    if search_args.get("ctc_scale", 0.0) > 0.0 or search_args.get("rescore_with_ctc", False):
         if search_args.get("encoder_ctc", False):
             enc_ctc = enc_args_ctc["ctc"]
         else:
@@ -99,7 +99,7 @@ def model_recog(
             .raw_tensor
         )  # [B,T,V+1]
 
-    if search_args.get("mask_eos", True) and (search_args.get("use_ctc", False) or search_args.get("rescore_with_ctc", False)):
+    if search_args.get("mask_eos", True) and (search_args.get("ctc_scale", 0.0) > 0.0 or search_args.get("rescore_with_ctc", False)):
         ctc_eos = ctc_out[:, :, model.eos_idx].unsqueeze(2)
         ctc_blank = ctc_out[:, :, model.blank_idx].unsqueeze(2)
         ctc_out[:, :, model.blank_idx] = torch.logsumexp(
@@ -107,7 +107,7 @@ def model_recog(
         )
         ctc_out[:, :, model.eos_idx] = -1e30
 
-    if search_args.get("use_ctc", False):
+    if search_args.get("ctc_scale", 0.0) > 0.0:
         # ctc prefix scorer espnet
         from i6_experiments.users.gaudino.experiments.rf_conformer_att_2023.librispeech_960.espnet_ctc.ctc_prefix_score_espnet import (
             CTCPrefixScoreTH,
@@ -116,12 +116,14 @@ def model_recog(
         # hlens = max_seq_len.raw_tensor.repeat(beam_size).view(beam_size, data.raw_tensor.shape[0]).transpose(0, 1)
         hlens = max_seq_len.raw_tensor
 
-        if search_args.get("prior_corr", False):
-            ctc_log_prior = numpy.loadtxt(search_args.get("prior_file", search_args.get("ctc_prior_file", "")), dtype="float32")
+        if search_args.get("prior_scale", 0.0) > 0.0:
+            prior = numpy.loadtxt(search_args.get("prior_file", search_args.get("ctc_prior_file", "")),
+                                  dtype="float32")
+            prior = torch.tensor(prior).repeat(ctc_out.shape[0], ctc_out.shape[1], 1).to(ctc_out.device)
+            if not search_args.get("is_log_prior", True):
+                prior = torch.log(prior)
             ctc_out = ctc_out - (
-                torch.tensor(ctc_log_prior)
-                .repeat(ctc_out.shape[0], ctc_out.shape[1], 1)
-                .to(ctc_out.device)
+                prior
                 * search_args["prior_scale"]
             )
             ctc_out = ctc_out - torch.logsumexp(ctc_out, dim=2, keepdim=True)
@@ -159,7 +161,7 @@ def model_recog(
             state=decoder_state,
         )
         att_weights = step_out.pop("att_weights", None)
-        if search_args.get("use_ctc", False) and "att_weights" in step_out.keys():
+        if search_args.get("ctc_scale", 0.0) > 0.0 and "att_weights" in step_out.keys():
             att_weights = att_weights.raw_tensor
             if i==0:
                 att_weights = torch.flatten(att_weights.squeeze(3).view(batch_size, 1, -1), end_dim=1)
@@ -191,7 +193,7 @@ def model_recog(
                 label_log_prob - search_args["ilm_scale"] * ilm_log_prob
             )
 
-        if search_args.get("use_ctc", False):
+        if search_args.get("ctc_scale", 0.0) > 0.0:
             # add ctc espnet
             ctc_prefix_scores, ctc_state = ctc_prefix_scorer(
                 output_length=i,
@@ -252,7 +254,7 @@ def model_recog(
         out_seq_len = rf.gather(out_seq_len, indices=backrefs)
         i += 1
 
-        if search_args.get("use_ctc", False):
+        if search_args.get("ctc_scale", 0.0) > 0.0:
             best_ids = target
             if search_args.get("ctc_state_fix", True):
                 # if i >= 1:
