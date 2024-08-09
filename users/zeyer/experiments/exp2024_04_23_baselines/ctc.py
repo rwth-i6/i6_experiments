@@ -865,7 +865,6 @@ def ctc_model_def(*, epoch: int, in_dim: Dim, target_dim: Dim) -> Model:
         in_dim,
         num_enc_layers=num_enc_layers,
         enc_model_dim=Dim(name="enc", dimension=512, kind=Dim.Types.Feature),
-        enc_ff_dim=Dim(name="enc-ff", dimension=2048, kind=Dim.Types.Feature),
         enc_conformer_layer=enc_conformer_layer,
         target_dim=target_dim,
         blank_idx=target_dim.dimension,
@@ -1111,7 +1110,6 @@ class Model(rf.Module):
         bos_idx: int,
         enc_aux_logits: Sequence[int] = (),  # layers
         enc_model_dim: Dim = Dim(name="enc", dimension=512),
-        enc_ff_dim: Dim = Dim(name="enc-ff", dimension=2048),
         enc_conformer_layer: Optional[Dict[str, Any]] = None,
     ):
         super(Model, self).__init__()
@@ -1131,7 +1129,6 @@ class Model(rf.Module):
         self.encoder = ConformerEncoder(
             in_dim,
             enc_model_dim,
-            ff_dim=enc_ff_dim,
             input_layer=ConformerConvSubsample(
                 in_dim,
                 out_dims=[Dim(32, name="conv1"), Dim(64, name="conv2"), Dim(64, name="conv3")],
