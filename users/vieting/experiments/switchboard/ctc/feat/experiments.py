@@ -152,7 +152,7 @@ def run_mel_baseline():
         "wave_norm": "True",
         "preemphasis": None,
     }
-    recog_args = {"epochs": [300, 400, 450, "best"]}
+    recog_args = {"epochs": [6, 12, 24, 350, 390, 400, 410, 450, "best"]}
 
     nn_args, report_args_collection = get_nn_args_baseline(
         nn_base_args={
