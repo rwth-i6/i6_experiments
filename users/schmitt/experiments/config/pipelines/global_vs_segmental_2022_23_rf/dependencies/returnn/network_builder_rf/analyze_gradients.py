@@ -11,7 +11,8 @@ from returnn.frontend.tensor_array import TensorArray
 import returnn.frontend as rf
 from returnn.datasets.hdf import SimpleHDFWriter
 from returnn.config import get_global_config
-from returnn.frontend.encoder.conformer import ConformerEncoder
+from returnn.frontend.encoder.conformer import ConformerEncoder, ConformerEncoderLayer
+from returnn.frontend.attention import RelPosSelfAttention
 from returnn.frontend.decoder.transformer import TransformerDecoder, TransformerDecoderLayer
 
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.segmental import utils
@@ -373,6 +374,49 @@ def _info_mixing_analysis(
         exit()
 
 
+def _plot_multi_head_enc_self_att(
+        att_weights: rf.Tensor,
+        energies: rf.Tensor,
+        head_dim: rf.Dim,
+        batch_dims: List[rf.Dim],
+        enc_query_dim: rf.Dim,
+        enc_kv_dim: rf.Dim,
+        dirname: str,
+        seq_tags: rf.Tensor,
+):
+  for tensor, tensor_name in (
+          (att_weights, "att_weights"),
+          (energies, "energies"),
+  ):
+    for h in range(head_dim.dimension):
+      tensor_single_head = rf.gather(
+        tensor,
+        indices=rf.constant(h, dims=batch_dims),
+        axis=head_dim,
+      )
+      dummy_att_head_dim = rf.Dim(1, name="att_head")
+      tensor_single_head = rf.expand_dim(tensor_single_head, dim=dummy_att_head_dim)
+      tensor_single_head = tensor_single_head.copy_transpose(
+        batch_dims + [enc_query_dim, enc_kv_dim, dummy_att_head_dim])
+
+      head_dirname = os.path.join(dirname, f"{tensor_name}_head-{h}")
+      if not os.path.exists(head_dirname):
+        os.makedirs(head_dirname)
+
+      tensor_single_head_raw = tensor_single_head.raw_tensor
+
+      for b in range(tensor_single_head_raw.size(0)):
+        seq_tag = seq_tags.raw_tensor[b].item()
+        seq_len_b = enc_query_dim.dyn_size_ext.raw_tensor[b].item()
+        tensor_single_head_b_raw = tensor_single_head_raw[b, :seq_len_b, :seq_len_b, 0]
+        tensor_single_head_b_raw = tensor_single_head_b_raw.cpu().detach().numpy()
+
+        plt.matshow(tensor_single_head_b_raw, cmap="Blues")
+        plt.ylabel("queries")
+        plt.xlabel("keys/values")
+        plt.savefig(os.path.join(head_dirname, f"{tensor_name}_{seq_tag.replace('/', '_')}.png"))
+        plt.close()
+
 
 code_obj_to_func = None
 captured_tensors = None  # func -> (list of calls) -> tensor local name -> (list of versions) -> tensor
@@ -563,7 +607,9 @@ def analyze_gradients(
     set_trace_variables(
       funcs_to_trace_list=[
         model.encoder.encode,
-        ConformerEncoder.__call__
+        ConformerEncoder.__call__,
+        ConformerEncoderLayer.__call__,
+        RelPosSelfAttention.__call__,
       ]
     )
 
@@ -577,6 +623,28 @@ def analyze_gradients(
       layer_mapping={"x_linear": (ConformerEncoder.__call__, 0, "x_linear", -1)},
     )
     assert isinstance(x_linear, rf.Tensor)
+
+    enc_att_weights = process_captured_tensors(
+      layer_mapping={"att_weights": (RelPosSelfAttention.__call__, 11, "att_weights", -1)},
+    )
+    assert isinstance(enc_att_weights, rf.Tensor)
+    enc_att_energies = process_captured_tensors(
+      layer_mapping={"energies": (RelPosSelfAttention.__call__, 11, "scores", -1)},
+    )
+    assert isinstance(enc_att_energies, rf.Tensor)
+
+    enc_att_head_dim = enc_att_weights.remaining_dims(batch_dims + enc_att_weights.get_dyn_size_tags())[0]
+    enc_kv_dim = enc_att_weights.remaining_dims(batch_dims + [enc_att_head_dim, enc_spatial_dim])[0]
+    _plot_multi_head_enc_self_att(
+      att_weights=enc_att_weights,
+      energies=enc_att_energies,
+      head_dim=enc_att_head_dim,
+      batch_dims=batch_dims,
+      enc_query_dim=enc_spatial_dim,
+      enc_kv_dim=enc_kv_dim,
+      dirname="enc_self_att",
+      seq_tags=seq_tags,
+    )
 
     # ----------------------------------------------------------------------------------
 
@@ -752,12 +820,14 @@ def analyze_gradients(
           label_model_states = process_captured_tensors(
             layer_mapping={f"s": (forward_sequence_efficient_segmental, 0, "s_out", -1)},
           )
+          assert isinstance(label_model_states, rf.Tensor)
 
           logits = process_captured_tensors(
             layer_mapping={"logits": (SegmentalAttEfficientLabelDecoder.decode_logits, 0, "logits", -1)}
           )
           assert isinstance(logits, rf.Tensor)
           log_probs = rf.log_softmax(logits, axis=model.target_dim)
+          log_probs = log_probs.copy_transpose(batch_dims + [non_blank_targets_spatial_dim, model.target_dim])
 
           # shapes
           # print("att_weights", att_weights)  # [B, T, S, 1]
@@ -814,10 +884,15 @@ def analyze_gradients(
           layer_mapping={"energy": (GlobalAttEfficientDecoder.__call__, 0, "energy", -1)},
         )
         assert isinstance(energies, rf.Tensor)
+        label_model_states = process_captured_tensors(
+          layer_mapping={f"s": (forward_sequence_efficient_segmental, 0, "s_out", -1)},
+        )
+        assert isinstance(label_model_states, rf.Tensor)
         logits = process_captured_tensors(
           layer_mapping={"logits": (GlobalAttEfficientDecoder.decode_logits, 0, "logits", -1)}
         )
         assert isinstance(logits, rf.Tensor)
+
         log_probs = rf.log_softmax(logits, axis=model.target_dim)
         log_probs = log_probs.copy_transpose(batch_dims + [non_blank_targets_spatial_dim, model.target_dim])
 
@@ -864,6 +939,14 @@ def analyze_gradients(
             f"energy_step{i}": (GlobalAttDecoder.loop_step, i, "energy", -1) for i in range(max_num_labels)},
         )
         energies, _ = rf.stack(energies, out_dim=non_blank_targets_spatial_dim)
+
+        label_model_states = process_captured_tensors(
+          layer_mapping={
+            f"s_step{i}": (GlobalAttDecoder.loop_step, i, "s", -1) for i in range(max_num_labels)},
+        )
+        label_model_states, _ = rf.stack(label_model_states, out_dim=non_blank_targets_spatial_dim)
+        label_model_states.feature_dim = label_model_states.remaining_dims(
+          batch_dims + [non_blank_targets_spatial_dim])[0]
 
         logits = process_captured_tensors(
           layer_mapping={"logits": (GlobalAttDecoder.decode_logits, 0, "logits", -1)}
