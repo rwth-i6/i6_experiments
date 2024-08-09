@@ -40,6 +40,8 @@ _log_mel_feature_dim = 80
 
 
 def py():
+    # TODO test with additional abs pos enc
+
     train_exp(  # 5.32, but should give 5.11?
         "v6-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-speedpertV2",
         config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,

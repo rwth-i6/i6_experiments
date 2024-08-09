@@ -40,6 +40,8 @@ def py():
     from i6_experiments.common.setups import serialization
     from i6_experiments.users.zeyer.datasets.librispeech import get_librispeech_log_mel_stats
 
+    # TODO test different frontends
+
     feature_stats = get_librispeech_log_mel_stats(_log_mel_feature_dim)
 
     train_exp(  # {"dev-clean": 3.12, "dev-other": 7.05, "test-clean": 3.2, "test-other": 7.07}
