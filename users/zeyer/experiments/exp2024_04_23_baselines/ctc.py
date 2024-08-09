@@ -387,7 +387,7 @@ def py():
         ("spm10k", None, None),  # 6.00
         # TODO ("spm10k", "spm", 0.8),
         ("spm10k", "spm", 0.7),  # 6.20
-        ("spm10k", "bpe", 0.001),
+        ("spm10k", "bpe", 0.001),  # 5.93
         ("spm10k", "bpe", 0.005),  # 5.89 (!!)
         ("spm10k", "bpe", 0.01),  # 5.93
         ("spm_bpe10k", None, None),  # 6.33
@@ -399,10 +399,12 @@ def py():
         # TODO ("spm4k", "bpe", 0.005),
         ("spm4k", "bpe", 0.01),  # 6.05
         ("spm1k", None, None),  # 6.07
-        ("spm1k", "spm", 0.99),
+        ("spm1k", "spm", 1.0),
+        ("spm1k", "spm", 0.99),  # 6.93
         ("spm1k", "spm", 0.9),  # 7.04
         ("spm1k", "spm", 0.7),  # 7.33
-        ("spm1k", "bpe", 0.0),
+        ("spm1k", "bpe", 0.0),  # 6.07
+        ("spm1k", "bpe", 0.001),
         ("spm1k", "bpe", 0.005),  # 6.25
         ("spm1k", "bpe", 0.01),  # 6.13 (but dev-clean,test-* are better than no sampling)
         ("spm_bpe1k", None, None),  # 6.03
@@ -553,34 +555,38 @@ def py():
         ("bpe10k", 0.01, False),  # 5.98
         ("spm10k", 0.01, False),  # 5.73 (!!!)
         ("spm10k", 0.01, True),
-        ("spm512", 0.01, True),
+        ("spm512", 0.01, True),  # 6.02
     ]:
-        train_exp(
-            "v6-relPosAttDef-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100"
-            f"{'-maxSeqLenAudio19_5' if max_seq_len_via_audio else ''}"
-            "-wd1e_2-lrlin1e_5_295k-featBN"
-            f"-speedpertV2-{vocab}-bpeSample{str(alpha).replace('.', '')}-blankSep",
-            config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
-            model_config={
-                "enc_conformer_layer": enc_conformer_layer_default,
-                "feature_batch_norm": True,
-                "out_blank_separated": True,
-                **(
-                    {"max_seq_length_default_target": None, "max_seq_length_default_input": 19.5 * _raw_sample_rate}
-                    if max_seq_len_via_audio
-                    else {}
-                ),
-            },
-            config_updates={
-                **_get_cfg_lrlin_oclr_by_bs_nep(15_000, 500),
-                "optimizer.weight_decay": 1e-2,
-                "__train_audio_preprocess": speed_pert_librosa_config,
-                "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
-                "aux_attention_decoder": rf.build_dict(TransformerDecoder, num_layers=6),  # purely used for training
-            },
-            vocab=vocab,
-            train_vocab_opts={"other_opts": {"class": "SamplingBytePairEncoding", "breadth_prob": alpha}},
-        )
+        for blank_sep in [False, True]:
+            train_exp(
+                "v6-relPosAttDef-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100"
+                f"{'-maxSeqLenAudio19_5' if max_seq_len_via_audio else ''}"
+                "-wd1e_2-lrlin1e_5_295k-featBN"
+                f"-speedpertV2-{vocab}-bpeSample{str(alpha).replace('.', '')}"
+                f"{'-blankSep' if blank_sep else ''}",
+                config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
+                model_config={
+                    "enc_conformer_layer": enc_conformer_layer_default,
+                    "feature_batch_norm": True,
+                    **({"out_blank_separated": True} if blank_sep else {}),
+                    **(
+                        {"max_seq_length_default_target": None, "max_seq_length_default_input": 19.5 * _raw_sample_rate}
+                        if max_seq_len_via_audio
+                        else {}
+                    ),
+                },
+                config_updates={
+                    **_get_cfg_lrlin_oclr_by_bs_nep(15_000, 500),
+                    "optimizer.weight_decay": 1e-2,
+                    "__train_audio_preprocess": speed_pert_librosa_config,
+                    "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
+                    "aux_attention_decoder": rf.build_dict(
+                        TransformerDecoder, num_layers=6
+                    ),  # purely used for training
+                },
+                vocab=vocab,
+                train_vocab_opts={"other_opts": {"class": "SamplingBytePairEncoding", "breadth_prob": alpha}},
+            )
 
     # Blank separated (blankSep) with CTC label smoothing excluding blank (ctcLS01xB).
     train_exp(  # 6.14. A bit unclear why so much worse, maybe some bug?
