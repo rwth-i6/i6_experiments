@@ -884,14 +884,14 @@ def analyze_gradients(
           layer_mapping={"energy": (GlobalAttEfficientDecoder.__call__, 0, "energy", -1)},
         )
         assert isinstance(energies, rf.Tensor)
-        label_model_states = process_captured_tensors(
-          layer_mapping={f"s": (forward_sequence_efficient_segmental, 0, "s_out", -1)},
-        )
-        assert isinstance(label_model_states, rf.Tensor)
         logits = process_captured_tensors(
           layer_mapping={"logits": (GlobalAttEfficientDecoder.decode_logits, 0, "logits", -1)}
         )
         assert isinstance(logits, rf.Tensor)
+        label_model_states = process_captured_tensors(
+          layer_mapping={f"s": (get_s_and_att_efficient_global, 0, "s", -1)},
+        )
+        assert isinstance(label_model_states, rf.Tensor)
 
         log_probs = rf.log_softmax(logits, axis=model.target_dim)
         log_probs = log_probs.copy_transpose(batch_dims + [non_blank_targets_spatial_dim, model.target_dim])
