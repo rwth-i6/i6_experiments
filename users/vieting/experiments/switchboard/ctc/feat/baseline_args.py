@@ -237,6 +237,54 @@ def get_returnn_config(
         # network["source"] = specaug_layer_jingjing(in_layer=["features"])
         pass
 
+    if audio_perturbation and recognition:
+        feature_net = copy.deepcopy(feature_net)
+        audio_perturb_args = extra_args.get("audio_perturb_args", {})
+        source_layer = "data"
+        if "preemphasis" in audio_perturb_args:
+            for layer in feature_net["subnetwork"]:
+                if feature_net["subnetwork"][layer].get("from", None) == source_layer:
+                    feature_net["subnetwork"][layer]["from"] = "preemphasis"
+                    source_layer = "preemphasis"
+            alpha = audio_perturb_args.get("default")
+            feature_net["subnetwork"]["preemphasis"] = PreemphasisNetwork(alpha=alpha).get_as_subnetwork()
+        if "codecs" in audio_perturb_args:
+            for layer in feature_net["subnetwork"]:
+                if feature_net["subnetwork"][layer].get("from", None) == source_layer:
+                    feature_net["subnetwork"][layer]["from"] = "codec"
+                    source_layer = "codec"
+            feature_net["subnetwork"]["codec"] = {
+                "class": "subnetwork",
+                "from": ["data"],
+                "subnetwork": {
+                    "assert_range": {
+                        "class": "eval",
+                        "from": "data",
+                        "eval": """
+                            tf.debugging.assert_less_equal(
+                                tf.abs(source(0)),
+                                tf.constant(1.0, dtype=source(0).dtype),
+                                message="Input values must be in the range [-1.0, 1.0]"
+                            )
+                        """,
+                    },
+                    "magnitude": {
+                        "class": "eval",
+                        "from": "assert_range",
+                        "eval": "tf.math.log1p(255.0 * tf.abs(source(0))) / tf.math.log1p(255.0)",
+                    },
+                    "output": {
+                        "class": "eval",
+                        "from": "magnitude",
+                        "eval": "tf.sign(source(0)) * source(1)",
+                        "from": ["assert_range", "magnitude"],
+                    },
+                },
+                "trainable": False,
+            }
+        extra_args.pop("audio_perturb_args", None)
+        extra_args.pop("audio_perturb_runner", None)
+
     if isinstance(batch_size, int):
         # If batch size is int, adapt to waveform. If it is dict, assume it is already correct.
         batch_size = {"classes": batch_size, "data": batch_size * sample_rate // 100}
