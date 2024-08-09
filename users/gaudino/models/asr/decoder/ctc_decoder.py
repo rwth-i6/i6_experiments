@@ -1222,7 +1222,7 @@ class CTCDecoder:
     def add_greedy_decoder(self, subnet_unit: ReturnnNetwork):
         choice_layer_source = "data:source"
         input_type = None
-        if self.blank_prob_scale > 0.0:
+        if self.blank_prob_scale != 1.0:
             subnet_unit.update(
                 {
                     "ctc_log_scores": {
@@ -1246,7 +1246,7 @@ class CTCDecoder:
                     "scaled_blank_log_prob": {
                         "class": "eval",
                         "from": "blank_log_prob",
-                        "eval": f"source(0) - {self.blank_prob_scale}",
+                        "eval": f"source(0) * {self.blank_prob_scale}",
                     },
                     "scaled_blank_log_prob_expand": {
                         "class": "expand_dims",

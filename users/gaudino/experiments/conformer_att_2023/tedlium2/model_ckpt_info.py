@@ -202,4 +202,243 @@ models = {
         # how is this computed?
         "ctc_only": True,
     },
+    # gauss window
+    # base_bpe1000_peakLR0.0008_ep400_globalNorm_epochOCLR_pre3_fixZoneout_encDrop0.15_woDepthConvPre_weightDrop0.1_decAttDrop0.0_embedDim256_numBlocks12_onlyCTC/
+    # base_bpe1000_peakLR0.0008_ep400_globalNorm_epochOCLR_pre3_fixZoneout_encDrop0.15_woDepthConvPre_weightDrop0.1_decAttDrop0.0_embedDim256_numBlocks12_onlyCTCdefault_last/
+    # base_bpe1000_peakLR0.0008_ep400_globalNorm_epochOCLR_pre3_fixZoneout_encDrop0.15_woDepthConvPre_weightDrop0.1_decAttDrop0.0_embedDim256_numBlocks12_onlyCTC_gaussWeights/
+    # base_bpe1000_peakLR0.0008_ep400_globalNorm_epochOCLR_pre3_fixZoneout_encDrop0.15_woDepthConvPre_weightDrop0.1_decAttDrop0.0_embedDim256_numBlocks12_onlyCTC_gaussWeights_control/
+    # base_bpe1000_peakLR0.0008_ep400_globalNorm_epochOCLR_pre3_fixZoneout_encDrop0.15_woDepthConvPre_weightDrop0.1_decAttDrop0.0_embedDim256_numBlocks12_onlyCTC_gaussWeights_control_no_enc/
+    # base_bpe1000_peakLR0.0008_ep400_globalNorm_epochOCLR_pre3_fixZoneout_encDrop0.15_woDepthConvPre_weightDrop0.1_decAttDrop0.0_embedDim256_numBlocks12_onlyCTC_gaussWeights_gradClip5.0/
+    # base_bpe1000_peakLR0.0008_ep400_globalNorm_epochOCLR_pre3_fixZoneout_encDrop0.15_woDepthConvPre_weightDrop0.1_decAttDrop0.0_embedDim256_numBlocks12_onlyCTC_gaussWeights_no_enc/
+    # base_bpe1000_peakLR0.0008_ep400_globalNorm_epochOCLR_pre3_fixZoneout_encDrop0.15_woDepthConvPre_weightDrop0.1_decAttDrop0.0_embedDim256_numBlocks12_onlyCTC_gaussWeights_std0.1/
+    # base_bpe1000_peakLR0.0008_ep400_globalNorm_epochOCLR_pre3_fixZoneout_encDrop0.15_woDepthConvPre_weightDrop0.1_decAttDrop0.0_embedDim256_numBlocks12_onlyCTC_gaussWeights_std0.1_no_enc/
+    # base_bpe1000_peakLR0.0008_ep400_globalNorm_epochOCLR_pre3_fixZoneout_encDrop0.15_woDepthConvPre_weightDrop0.1_decAttDrop0.0_embedDim256_numBlocks12_onlyCTC_gaussWeights_std0.5/
+    # base_bpe1000_peakLR0.0008_ep400_globalNorm_epochOCLR_pre3_fixZoneout_encDrop0.15_woDepthConvPre_weightDrop0.1_decAttDrop0.0_embedDim256_numBlocks12_onlyCTC_gaussWeights_std0.5_no_enc/
+    # base_bpe1000_peakLR0.0008_ep400_globalNorm_epochOCLR_pre3_fixZoneout_encDrop0.15_woDepthConvPre_weightDrop0.1_decAttDrop0.0_embedDim256_numBlocks12_onlyCTC_gaussWeights_std10.0/
+    # base_bpe1000_peakLR0.0008_ep400_globalNorm_epochOCLR_pre3_fixZoneout_encDrop0.15_woDepthConvPre_weightDrop0.1_decAttDrop0.0_embedDim256_numBlocks12_onlyCTC_gaussWeights_std10.0_no_enc/
+    # base_bpe1000_peakLR0.0008_ep400_globalNorm_epochOCLR_pre3_fixZoneout_encDrop0.15_woDepthConvPre_weightDrop0.1_decAttDrop0.0_embedDim256_numBlocks12_onlyCTC_gaussWeights_std2.0/
+    # base_bpe1000_peakLR0.0008_ep400_globalNorm_epochOCLR_pre3_fixZoneout_encDrop0.15_woDepthConvPre_weightDrop0.1_decAttDrop0.0_embedDim256_numBlocks12_onlyCTC_gaussWeights_std2.0_no_enc/
+    # base_bpe1000_peakLR0.0008_ep400_globalNorm_epochOCLR_pre3_fixZoneout_encDrop0.15_woDepthConvPre_weightDrop0.1_decAttDrop0.0_embedDim256_numBlocks12_onlyCTC_gaussWeights_window10/
+    # base_bpe1000_peakLR0.0008_ep400_globalNorm_epochOCLR_pre3_fixZoneout_encDrop0.15_woDepthConvPre_weightDrop0.1_decAttDrop0.0_embedDim256_numBlocks12_onlyCTC_gaussWeights_window10_no_enc/
+    # base_bpe1000_peakLR0.0008_ep400_globalNorm_epochOCLR_pre3_fixZoneout_encDrop0.15_woDepthConvPre_weightDrop0.1_decAttDrop0.0_embedDim256_numBlocks12_onlyCTC_gaussWeights_window20/
+    # base_bpe1000_peakLR0.0008_ep400_globalNorm_epochOCLR_pre3_fixZoneout_encDrop0.15_woDepthConvPre_weightDrop0.1_decAttDrop0.0_embedDim256_numBlocks12_onlyCTC_gaussWeights_window20_no_enc/
+    # base_bpe1000_peakLR0.0008_ep400_globalNorm_epochOCLR_pre3_fixZoneout_encDrop0.15_woDepthConvPre_weightDrop0.1_decAttDrop0.0_embedDim256_numBlocks12_onlyCTC_gaussWeights_window50/
+    # base_bpe1000_peakLR0.0008_ep400_globalNorm_epochOCLR_pre3_fixZoneout_encDrop0.15_woDepthConvPre_weightDrop0.1_decAttDrop0.0_embedDim256_numBlocks12_onlyCTC_gaussWeights_window50_no_enc/
+    "model_ctc_only_gauss1.0_win5": {
+        "ckpt": Checkpoint(
+            tk.Path(
+                "/work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/2023-10-15--conformer-no-app/work/i6_core/returnn/training/ReturnnTrainingJob.4dFO6QJQ4h7x/output/models/epoch.400.index"
+            )
+        ),
+       "prior": "/work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/2023-10-15--conformer-no-app/work/i6_core/returnn/extract_prior/ReturnnComputePriorJobV2.ky9twIeNdnSy/output/prior.txt" ,
+        "ctc_only": True,
+        "gauss_window": 5,
+        "gauss_std": 1.0,
+        "use_enc": True,
+    },
+    "model_ctc_only_win1": {
+        "ckpt": Checkpoint(
+            tk.Path(
+                "/work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/2023-10-15--conformer-no-app/work/i6_core/returnn/training/ReturnnTrainingJob.0zYdcDMmqV69/output/models/epoch.400.index"
+            )
+        ),
+        "prior": "/work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/2023-10-15--conformer-no-app/work/i6_core/returnn/extract_prior/ReturnnComputePriorJobV2.Vaem3d9qn6nk/output/prior.txt",
+        "ctc_only": True,
+        "gauss_window": 1,
+        "gauss_std": 0.0,
+        "use_enc": True,
+    },
+    "model_ctc_only_gauss0.1_win5": {
+        "ckpt": Checkpoint(
+            tk.Path(
+                "/work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/2023-10-15--conformer-no-app/work/i6_core/returnn/training/ReturnnTrainingJob.fyDjgnJKuyAi/output/models/epoch.400.index"
+            )
+        ),
+        "prior": "/work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/2023-10-15--conformer-no-app/work/i6_core/returnn/extract_prior/ReturnnComputePriorJobV2.SKiPIF4FFauQ/output/prior.txt",
+        "ctc_only": True,
+        "gauss_window": 5,
+        "gauss_std": 0.1,
+        "use_enc": True,
+    },
+    "model_ctc_only_gauss0.5_win5": {
+        "ckpt": Checkpoint(
+            tk.Path(
+                "/work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/2023-10-15--conformer-no-app/work/i6_core/returnn/training/ReturnnTrainingJob.1DjID8GO0eX8/output/models/epoch.400.index"
+            )
+        ),
+        "prior": "/work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/2023-10-15--conformer-no-app/work/i6_core/returnn/extract_prior/ReturnnComputePriorJobV2.5FcoTsOlzOQ9/output/prior.txt",
+        "ctc_only": True,
+        "gauss_window": 5,
+        "gauss_std": 0.5,
+        "use_enc": True,
+    },
+    "model_ctc_only_gauss2.0_win5": {
+        "ckpt": Checkpoint(
+            tk.Path(
+                "/work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/2023-10-15--conformer-no-app/work/i6_core/returnn/training/ReturnnTrainingJob.YiunxgR7jbIP/output/models/epoch.400.index"
+            )
+        ),
+        "prior": "/work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/2023-10-15--conformer-no-app/work/i6_core/returnn/extract_prior/ReturnnComputePriorJobV2.t60vT80MfG0Q/output/prior.txt",
+        "ctc_only": True,
+        "gauss_window": 5,
+        "gauss_std": 2.0,
+        "use_enc": True,
+    },
+    "model_ctc_only_gauss10.0_win5": {
+        "ckpt": Checkpoint(
+            tk.Path(
+                "/work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/2023-10-15--conformer-no-app/work/i6_core/returnn/training/ReturnnTrainingJob.8gclCL9UPoC5/output/models/epoch.400.index"
+            )
+        ),
+        "prior": "/work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/2023-10-15--conformer-no-app/work/i6_core/returnn/extract_prior/ReturnnComputePriorJobV2.oVCdW0hUIWqa/output/prior.txt",
+        "ctc_only": True,
+        "gauss_window": 5,
+        "gauss_std": 10.0,
+        "use_enc": True,
+    },
+    "model_ctc_only_gauss1.0_win10": {
+        "ckpt": Checkpoint(
+            tk.Path(
+                "/work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/2023-10-15--conformer-no-app/work/i6_core/returnn/training/ReturnnTrainingJob.DNbLpWOSkVNm/output/models/epoch.400.index"
+            )
+        ),
+        "prior": "/work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/2023-10-15--conformer-no-app/work/i6_core/returnn/extract_prior/ReturnnComputePriorJobV2.FXT7iFlXlmRG/output/prior.txt",
+        "ctc_only": True,
+        "gauss_window": 10,
+        "gauss_std": 1.0,
+        "use_enc": True,
+    },
+    "model_ctc_only_gauss1.0_win20": {
+        "ckpt": Checkpoint(
+            tk.Path(
+                "/work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/2023-10-15--conformer-no-app/work/i6_core/returnn/training/ReturnnTrainingJob.NaSSUF2CCQjC/output/models/epoch.400.index"
+            )
+        ),
+        "prior": "/work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/2023-10-15--conformer-no-app/work/i6_core/returnn/extract_prior/ReturnnComputePriorJobV2.oWmJBoaKTPc8/output/prior.txt",
+        "ctc_only": True,
+        "gauss_window": 20,
+        "gauss_std": 1.0,
+        "use_enc": True,
+    },
+    "model_ctc_only_gauss1.0_win50": {
+        "ckpt": Checkpoint(
+            tk.Path(
+                "/work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/2023-10-15--conformer-no-app/work/i6_core/returnn/training/ReturnnTrainingJob.xtrvlmco4Kz6/output/models/epoch.400.index"
+            )
+        ),
+        "prior": "/work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/2023-10-15--conformer-no-app/work/i6_core/returnn/extract_prior/ReturnnComputePriorJobV2.06YYtz8OyO6m/output/prior.txt",
+        "ctc_only": True,
+        "gauss_window": 20,
+        "gauss_std": 1.0,
+        "use_enc": True,
+    },
+    # no enc so only c_t
+    "model_ctc_only_gauss1.0_win5_noEnc": {
+        "ckpt": Checkpoint(
+            tk.Path(
+                "/work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/2023-10-15--conformer-no-app/work/i6_core/returnn/training/ReturnnTrainingJob.4v01A22bWufz/output/models/epoch.400.index"
+            )
+        ),
+        "prior": "/work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/2023-10-15--conformer-no-app/work/i6_core/returnn/extract_prior/ReturnnComputePriorJobV2.dqQTti5anInd/output/prior.txt",
+        "ctc_only": True,
+        "gauss_window": 5,
+        "gauss_std": 1.0,
+        "use_enc": False,
+    },
+    "model_ctc_only_win1_noEnc": {
+        "ckpt": Checkpoint(
+            tk.Path(
+                "/work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/2023-10-15--conformer-no-app/work/i6_core/returnn/training/ReturnnTrainingJob.Jr8vnK7r1Ps7/output/models/epoch.400.index"
+            )
+        ),
+        "prior": "/work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/2023-10-15--conformer-no-app/work/i6_core/returnn/extract_prior/ReturnnComputePriorJobV2.eM5XKItcbCfs/output/prior.txt",
+        "ctc_only": True,
+        "gauss_window": 1,
+        "gauss_std": 0.0,
+        "use_enc": False,
+    },
+    "model_ctc_only_gauss0.1_win5_noEnc": {
+        "ckpt": Checkpoint(
+            tk.Path(
+                "/work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/2023-10-15--conformer-no-app/work/i6_core/returnn/training/ReturnnTrainingJob.mCDQso8aoCRC/output/models/epoch.400.index"
+            )
+        ),
+        "prior": "/work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/2023-10-15--conformer-no-app/work/i6_core/returnn/extract_prior/ReturnnComputePriorJobV2.KA1zej08CKHN/output/prior.txt",
+        "ctc_only": True,
+        "gauss_window": 5,
+        "gauss_std": 0.1,
+        "use_enc": False,
+    },
+    "model_ctc_only_gauss0.5_win5_noEnc": {
+        "ckpt": Checkpoint(
+            tk.Path(
+                "/work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/2023-10-15--conformer-no-app/work/i6_core/returnn/training/ReturnnTrainingJob.RXdcWniIsEjb/output/models/epoch.400.index"
+            )
+        ),
+        "prior": "/work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/2023-10-15--conformer-no-app/work/i6_core/returnn/extract_prior/ReturnnComputePriorJobV2.tiXWpx4cwZp2/output/prior.txt",
+        "ctc_only": True,
+        "gauss_window": 5,
+        "gauss_std": 0.5,
+        "use_enc": False,
+    },
+    "model_ctc_only_gauss2.0_win5_noEnc": {
+        "ckpt": Checkpoint(
+            tk.Path(
+                "/work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/2023-10-15--conformer-no-app/work/i6_core/returnn/training/ReturnnTrainingJob.nb0a9524rtZk/output/models/epoch.400.index"
+            )
+        ),
+        "prior": "/work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/2023-10-15--conformer-no-app/work/i6_core/returnn/extract_prior/ReturnnComputePriorJobV2.LE81vHzY0zMV/output/prior.txt",
+        "ctc_only": True,
+        "gauss_window": 5,
+        "gauss_std": 2.0,
+        "use_enc": False,
+    },
+    "model_ctc_only_gauss10.0_win5_noEnc": {
+        "ckpt": Checkpoint(
+            tk.Path(
+                "/work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/2023-10-15--conformer-no-app/work/i6_core/returnn/training/ReturnnTrainingJob.NJr0phivEKNl/output/models/epoch.400.index"
+            )
+        ),
+        "prior": "/work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/2023-10-15--conformer-no-app/work/i6_core/returnn/extract_prior/ReturnnComputePriorJobV2.EAqoXhWbk8ip/output/prior.txt",
+        "ctc_only": True,
+        "gauss_window": 5,
+        "gauss_std": 10.0,
+        "use_enc": False,
+    },
+    "model_ctc_only_gauss1.0_win10_noEnc": {
+        "ckpt": Checkpoint(
+            tk.Path(
+                "/work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/2023-10-15--conformer-no-app/work/i6_core/returnn/training/ReturnnTrainingJob.RtBg9xA505e2/output/models/epoch.400.index"
+            )
+        ),
+        "prior": "/work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/2023-10-15--conformer-no-app/work/i6_core/returnn/extract_prior/ReturnnComputePriorJobV2.3bPXQh7bvC2z/output/prior.txt",
+        "ctc_only": True,
+        "gauss_window": 10,
+        "gauss_std": 1.0,
+        "use_enc": False,
+    },
+    "model_ctc_only_gauss1.0_win20_noEnc": {
+        "ckpt": Checkpoint(
+            tk.Path(
+                "/work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/2023-10-15--conformer-no-app/work/i6_core/returnn/training/ReturnnTrainingJob.miqhweaUVtKT/output/models/epoch.400.index"
+            )
+        ),
+        "prior": "/work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/2023-10-15--conformer-no-app/work/i6_core/returnn/extract_prior/ReturnnComputePriorJobV2.oqpkq3LDUqAd/output/prior.txt",
+        "ctc_only": True,
+        "gauss_window": 20,
+        "gauss_std": 1.0,
+        "use_enc": False,
+    },
+    "model_ctc_only_gauss1.0_win50_noEnc": {
+        "ckpt": Checkpoint(
+            tk.Path(
+                "/work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/2023-10-15--conformer-no-app/work/i6_core/returnn/training/ReturnnTrainingJob.fgGQTQyT3JB5/output/models/epoch.400.index"
+            )
+        ),
+        "prior": "/work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/2023-10-15--conformer-no-app/work/i6_core/returnn/extract_prior/ReturnnComputePriorJobV2.Jd0pNVRmw2yp/output/prior.txt",
+        "ctc_only": True,
+        "gauss_window": 50,
+        "gauss_std": 1.0,
+        "use_enc": False,
+    },
 }

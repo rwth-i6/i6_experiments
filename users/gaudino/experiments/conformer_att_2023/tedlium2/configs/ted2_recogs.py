@@ -46,6 +46,10 @@ from i6_experiments.users.gaudino.experiments.conformer_att_2023.librispeech_960
     rescore_att_ctc_search,
 )
 
+from i6_experiments.users.gaudino.experiments.conformer_att_2023.tedlium2.model_ckpt_info import (
+    models,
+)
+
 from i6_core.returnn.training import Checkpoint
 
 
@@ -106,6 +110,19 @@ prior_file = "work/i6_core/returnn/extract_prior/ReturnnComputePriorJobV2.2UG8sL
 
 # ----------------------------------------------------------- #
 
+def adjust_enc_args_to_model_name(enc_args, model_name):
+    new_enc_args = copy.deepcopy(enc_args)
+    if "enc_layer_w_ctc" in models[model_name].keys():
+        new_enc_args.enc_layer_w_ctc = models[model_name]["enc_layer_w_ctc"]
+    if "no_ctc" in models[model_name].keys():
+        new_enc_args.with_ctc = not models[model_name]["no_ctc"]
+    if "gauss_window" in models[model_name].keys():
+        new_enc_args.ctc_att_weights_gauss = True
+        new_enc_args.ctc_att_weights_gauss_stddev = models[model_name]["gauss_std"]
+        new_enc_args.ctc_att_weights_gauss_window = models[model_name]["gauss_window"]
+    if "use_enc" in models[model_name].keys():
+        new_enc_args.ctc_att_weights_use_enc = models[model_name]["use_enc"]
+    return new_enc_args
 
 def otps_recogs_additonal_trainings():
     abs_name = os.path.abspath(__file__)
@@ -429,18 +446,6 @@ def otps_recogs_additonal_trainings():
     base_v1_args, exp_name = get_base_v1_args(lr, ep, enc_drop=enc_drop)
     args = copy.deepcopy(base_v1_args)
 
-    from i6_experiments.users.gaudino.experiments.conformer_att_2023.tedlium2.model_ckpt_info import (
-        models,
-    )
-
-    def adjust_enc_args_to_model_name(enc_args, model_name):
-        new_enc_args = copy.deepcopy(enc_args)
-        if "enc_layer_w_ctc" in models[model_name].keys():
-            new_enc_args.enc_layer_w_ctc = models[model_name]["enc_layer_w_ctc"]
-        if "no_ctc" in models[model_name].keys():
-            new_enc_args.with_ctc = not models[model_name]["no_ctc"]
-        return new_enc_args
-
     def get_train_data(**kwargs):
         train_data = build_training_datasets(
             bpe_size=1000,
@@ -463,7 +468,7 @@ def otps_recogs_additonal_trainings():
     args["batch_size"] = bsf * 20000
 
     # att only decoding
-    for model_name, beam_size in product(list(models.keys())[:-1], [12, 32]):
+    for model_name, beam_size in product(list(models.keys())[:-19], [12, 32]):
         # for model_name, beam_size, use_time_mask in product(["model_att_only_currL"], [12, 32], [False]):
         search_args = copy.deepcopy(args)
         search_args["encoder_args"] = adjust_enc_args_to_model_name(
@@ -571,23 +576,78 @@ def otps_recogs_additonal_trainings():
         "model_ctc_only": {
             "prior_scale": [0.17],  # dev/test 9.27/8.46 -> 9.23/8.37
         },
+        "model_ctc_only_gauss1.0_win5": { # dev/test 9.38/ -> 9.22/
+            "prior_scale": [0.15],
+        },
+        "model_ctc_only_gauss1.0_win5_noEnc": { # dev/test 9.28/ -> 9.23/
+            "prior_scale": [0.15],
+        },
+        "model_ctc_only_win1":{
+            "prior_scale": [0.2],  # big jump ?
+        },
+        "model_ctc_only_gauss0.1_win5":{
+            "prior_scale": [0.0, 0.13], # no improvement
+        },
+        "model_ctc_only_gauss0.5_win5": {
+            "prior_scale": [0.17, 0.2],
+        },
+        "model_ctc_only_gauss2.0_win5": {
+            "prior_scale": [0.2],
+        },
+        "model_ctc_only_gauss10.0_win5": {
+            "prior_scale": [0.17],
+        },
+        "model_ctc_only_gauss1.0_win10": {
+            "prior_scale": [0.17],
+        },
+        "model_ctc_only_gauss1.0_win20": {
+            "prior_scale": [0.15],
+        },
+        "model_ctc_only_gauss1.0_win50": {
+            "prior_scale": [0.17, 0.2],
+        },
+        "model_ctc_only_win1_noEnc": {
+            "prior_scale": [0.17],
+        },
+        "model_ctc_only_gauss0.1_win5_noEnc": {
+            "prior_scale": [0.17],
+        },
+        "model_ctc_only_gauss0.5_win5_noEnc": {
+            "prior_scale": [0.15],
+        },
+        "model_ctc_only_gauss2.0_win5_noEnc": {
+            "prior_scale": [0.15],
+        },
+        "model_ctc_only_gauss10.0_win5_noEnc": {
+            "prior_scale": [0.17],
+        },
+        "model_ctc_only_gauss1.0_win10_noEnc": {
+            "prior_scale": [0.17],
+        },
+        "model_ctc_only_gauss1.0_win20_noEnc": {
+            "prior_scale": [0.15],
+        },
+        "model_ctc_only_gauss1.0_win50_noEnc": {
+            "prior_scale": [0.15],
+        },
     }
 
-    for model_name in []:  # list(ctc_prior_model_names.keys())[4:10]:
+    for model_name in list(ctc_prior_model_names.keys())[-16:]:  # list(ctc_prior_model_names.keys())[4:10]:
         for prior_scale in ctc_prior_model_names[model_name]["prior_scale"]:
-            # for prior_scale in [0.15, 0.17, 0.2, 0.22, 0.25]:
+        # for prior_scale in [0.0, 0.1, 0.13, 0.15, 0.17, 0.2, 0.23]:
             search_args = copy.deepcopy(args)
             search_args["encoder_args"] = adjust_enc_args_to_model_name(
                 search_args["encoder_args"], model_name
             )
             search_args["ctc_log_prior_file"] = models[model_name]["prior"]
             search_args["decoder_args"] = CTCDecoderArgs(
-                ctc_prior_correction=True,
+                ctc_prior_correction=prior_scale > 0,
                 prior_scale=prior_scale,
                 target_dim=1057,
             )
             run_decoding(
-                f"bsf{bsf}/" + model_name + f"/ctc_greedy_prior{prior_scale}",
+                f"bsf{bsf}/" + model_name + f"/ctc_greedy" +
+                (f"_prior{prior_scale}" if prior_scale > 0 else "") + "_fixstd",
                 train_data_baseline,
                 checkpoint=models[model_name]["ckpt"],
                 search_args=search_args,
@@ -608,7 +668,7 @@ def otps_recogs_additonal_trainings():
         lr, ep, enc_drop=enc_drop, use_legacy_stats=False
     )
     base_v2_args["batch_size"] = bsf * 20000
-    for model_name, scales in product(["model_ctc0.5_att0.5"], [(1, 0.008), (1, 0.01), (1, 0.1)]):
+    for model_name, scales in product([], [(1, 0.008), (1, 0.01), (1, 0.1)]): # "model_ctc0.5_att0.5"
         att_scale, ctc_scale = scales
         prior_scale = 0.0
         beam_size = 12

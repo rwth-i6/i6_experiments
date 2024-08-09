@@ -1378,7 +1378,11 @@ class ConformerEncoder:
             if self.ctc_att_weights_gauss:
                 # currently only supports uneven window size
                 window_size = self.ctc_att_weights_gauss_window
-                gaussian_weights = [np.exp(-0.5 * ((i - window_size // 2) / self.ctc_att_weights_gauss_stddev) ** 2) for i in range(window_size)]
+                if self.ctc_att_weights_gauss_stddev > 0:
+                    gaussian_weights = [np.exp(-0.5 * ((i - window_size // 2) / self.ctc_att_weights_gauss_stddev) ** 2) for i in range(window_size)]
+                else:
+                    gaussian_weights = [0.0] * window_size
+                    gaussian_weights[window_size // 2] = 1.0
                 # normalize
                 gaussian_weights = list(np.array(gaussian_weights) / np.sum(gaussian_weights))
 
