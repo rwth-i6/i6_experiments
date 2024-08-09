@@ -119,7 +119,7 @@ class WaveformPerturbation:
             waveform[..., 1:] -= coeff * waveform[..., :-1]
             return waveform
 
-        if random_state.random() < factor.get("prob", None):
+        if random_state.random() < factor.prob:
             preemphasis_coefficient = random_state.random() * (factor.max - factor.min) + factor.min
             return preemphasis_numpy(audio, coeff=preemphasis_coefficient)
         else:
