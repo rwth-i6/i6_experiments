@@ -668,6 +668,7 @@ def py():
     for name, opts in {
         # 5.71 (!!!) (i.e. better than without)
         "C05_11P1": {"func": {"clamp_min": 0.5, "clamp_max": 1.1, "scale_type": "inv_num_labels", "prior_exp": 1.0}},
+        "C05_15P1": {"func": {"clamp_min": 0.5, "clamp_max": 1.5, "scale_type": "inv_num_labels", "prior_exp": 1.0}},
         # 5.83
         "C05_11P1Seq": {
             "prior": "seq_grad",
