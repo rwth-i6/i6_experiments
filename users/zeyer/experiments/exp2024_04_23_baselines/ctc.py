@@ -554,7 +554,7 @@ def py():
     for vocab, alpha, max_seq_len_via_audio in [
         ("bpe10k", 0.01, False),  # 5.98
         ("spm10k", 0.01, False),  # 5.73 (!!!)
-        ("spm10k", 0.01, True),
+        ("spm10k", 0.01, True),  # 5.74
         ("spm512", 0.01, True),  # 6.02
     ]:
         for blank_sep in [False, True]:
