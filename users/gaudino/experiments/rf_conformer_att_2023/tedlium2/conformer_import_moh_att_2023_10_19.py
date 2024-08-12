@@ -110,15 +110,17 @@ def sis_run_with_prefix(prefix_name: str = None):
         models_with_pt_ckpt[model_name]["model_args"] = model_args
 
     bsf = 10
+    bsf_40 = 40
     prefix_name_single_seq = prefix_name + f"/single_seq" + "_fix_zoneout_output"
     prefix_name_bsf32 = prefix_name + f"/bsf32"
-    prefix_name = prefix_name + f"/bsf{bsf}" + "_fix_zoneout_output_240809"
+    prefix_name_40 = prefix_name + f"/bsf{bsf_40}" + "_240809"
+    prefix_name = prefix_name + f"/bsf{bsf}" + "_240809"
 
     # ----------------- No LM -------------------
 
     no_lm_name = "/no_lm"
 
-    # att only
+    # att only -> done
     for model_name in [name for name in att_model_names if not scales_att[name].get("wer", None)]:
         for beam_size in [12, 24]:
             search_args = {
@@ -140,7 +142,7 @@ def sis_run_with_prefix(prefix_name: str = None):
                 res.output,
             )
 
-    # ctc greedy
+    # ctc greedy -> done
     for model_name in [name for name in ctc_model_names if not scales_ctc_prior[name].get("wer", None)]:
         for beam_size, scales in product([], scales_ctc_prior[model_name]["scales"]):
             prior_scale = scales[0]
@@ -174,10 +176,11 @@ def sis_run_with_prefix(prefix_name: str = None):
                 res.output,
             )
 
-    # opls ctc
+    # opls ctc -> done
     for model_name in [name for name in ctc_model_names if not scales_ctc_prior_opls[name].get("wer", None)]:
+        all_scales = scales_ctc_prior_opls[model_name]["scales"]
         for beam_size, scales in product(
-            [32], scales_ctc_prior_opls[model_name]["scales"]
+            [32], all_scales
         ):
             prior_scale = scales[0]
             search_args = {
@@ -203,7 +206,7 @@ def sis_run_with_prefix(prefix_name: str = None):
                 task,
                 models_with_pt_ckpt[model_name]["ckpt"],
                 model_recog,
-                dev_sets=["dev", "test"],  # set to None for all
+                dev_sets=["dev"] if len(all_scales) > 1 else None,  # set to None for all
                 model_args=models_with_pt_ckpt[model_name]["model_args"],
                 search_args=search_args,
                 prefix_name=name,
@@ -213,10 +216,11 @@ def sis_run_with_prefix(prefix_name: str = None):
                 res.output,
             )
 
-    # tsbs ctc
+    # tsbs ctc -> done for now
     for model_name in ["model_baseline"]:
+        all_scales = scales_ctc_prior_tsbs[model_name]["scales"]
         for scales, beam_size in product(
-            scales_ctc_prior_tsbs[model_name]["scales"], []  # 32
+            all_scales, [12]
         ):
             prior_scale = scales[0]
             search_args = {
@@ -242,7 +246,7 @@ def sis_run_with_prefix(prefix_name: str = None):
                 task,
                 models_with_pt_ckpt[model_name]["ckpt"],
                 model_recog_ts_espnet,
-                dev_sets=["dev", "test"],  # set to None for all
+                dev_sets=["dev"] if len(all_scales) > 1 else None,  # set to None for all
                 model_args=models_with_pt_ckpt[model_name]["model_args"],
                 search_args=search_args,
                 prefix_name=name,
@@ -252,9 +256,10 @@ def sis_run_with_prefix(prefix_name: str = None):
                 res.output,
             )
 
-    # opls att + ctc
+    # opls att + ctc -> done
     for model_name in [name for name in both_model_names if not scales_att_ctc_opls[name].get("wer", None)]:
-        for scales, beam_size in product(scales_att_ctc_opls[model_name]["scales"], []):  # 12
+        all_scales = scales_att_ctc_opls[model_name]["scales"]
+        for scales, beam_size in product(all_scales, [12, 32]):  # 12
             (
                 att_scale,
                 ctc_scale,
@@ -284,7 +289,7 @@ def sis_run_with_prefix(prefix_name: str = None):
                 task,
                 models_with_pt_ckpt[model_name]["ckpt"],
                 model_recog,
-                dev_sets=["dev", "test"],  # set to None for all
+                dev_sets=["dev"] if len(all_scales) > 1 else None,  # set to None for all
                 model_args=models_with_pt_ckpt[model_name]["model_args"],
                 search_args=search_args,
                 prefix_name=name,
@@ -292,6 +297,45 @@ def sis_run_with_prefix(prefix_name: str = None):
             tk.register_output(
                 name + f"/recog_results",
                 res.output,
+            )
+
+    # optsr att + ctc
+    # for model_name in ["model_baseline"]:
+    for model_name in [name for name in both_model_names if not scales_att_ctc_optsr[name].get("wer", None)]:
+        prior_scales = [0.1, 0.2, 0.3, 0.4, 0.5 ,0.6 ,0.7]
+        all_scales = [scales_att_ctc_optsr[model_name]["scales"][0] + [prior_scale] for prior_scale in prior_scales]
+        for scales, beam_size in product(all_scales, [12]):
+            att_scale, ctc_scale, prior_scale = scales
+            name = (
+                prefix_name_40 + "/" + model_name + no_lm_name
+                + f"/optsr_att{att_scale}_ctc{ctc_scale}"
+                + (f"_prior{prior_scale}" if prior_scale != 0.0 else "")
+                + f"_beam{beam_size}"
+            )
+            search_args = {
+                "beam_size": beam_size,
+                "att_scale": att_scale,
+                "ctc_scale": ctc_scale,
+                "bsf": bsf_40,
+                "mask_eos": True,
+                "ctc_prior_file": models[model_name]["prior"],
+                "prior_scale": prior_scale,
+                "add_eos_to_end": True,
+                "hash_overwrite": "problem ctc log",
+            }
+
+            recog_res, recog_out = recog_model(
+                task,
+                models_with_pt_ckpt[model_name]["ckpt"],
+                model_recog_time_sync,
+                dev_sets=["dev"] if len(all_scales) > 1 else None,
+                model_args=model_args,
+                search_args=search_args,
+                prefix_name=name,
+            )
+            tk.register_output(
+                name + f"/recog_results",
+                recog_res.output,
             )
 
     # tsbs att + ctc
@@ -361,40 +405,88 @@ def sis_run_with_prefix(prefix_name: str = None):
     with_lm_name = "/with_lm"
 
     # att + trafo lm
-    for model_name, lm_scale, beam_size in product(
-        ["model_baseline"], [0.18], []  # 12
-    ):
-        lm_model_args = copy.deepcopy(models_with_pt_ckpt[model_name]["model_args"])
-        name = (
-            prefix_name
-            + with_lm_name
-            + "/"
-            + model_name
-            + f"/att_trafolm{lm_scale}"
-            + f"_beam{beam_size}"
-        )
-        search_args = {
-            "beam_size": beam_size,
-            "att_scale": 1.0,
-            "lm_scale": lm_scale,
-            "bsf": bsf,
-            "use_zoneout_output": True,
-            "use_first_lm": True,
-        }
+    for model_name in [name for name in att_model_names if not scales_att_lm[name].get("wer", None)]:
 
-        recog_res, recog_out = recog_model(
-            task,
-            models_with_pt_ckpt[model_name]["ckpt"],
-            model_recog,
-            dev_sets=["dev"],
-            model_args=lm_model_args,
-            search_args=search_args,
-            prefix_name=name,
-        )
-        tk.register_output(
-            name + f"/recog_results",
-            recog_res.output,
-        )
+        diffs = [-0.05, -0.03, -0.01, 0.0, 0.01, 0.03, 0.05]
+        all_scales = [[round(scales_att_lm[model_name]["scales"][0][0] + lm_scale, 2)] for lm_scale in diffs]
+        for scales, beam_size in product(all_scales, [12]):
+            lm_scale = scales[0]
+            lm_model_args = copy.deepcopy(models_with_pt_ckpt[model_name]["model_args"])
+            name = (
+                prefix_name
+                + with_lm_name
+                + "/"
+                + model_name
+                + f"/att_trafolm{lm_scale}"
+                + f"_beam{beam_size}"
+            )
+            search_args = {
+                "beam_size": beam_size,
+                "att_scale": 1.0,
+                "lm_scale": lm_scale,
+                "bsf": bsf,
+                "use_zoneout_output": True,
+                "use_first_lm": True,
+            }
+
+            recog_res, recog_out = recog_model(
+                task,
+                models_with_pt_ckpt[model_name]["ckpt"],
+                model_recog,
+                dev_sets=["dev"] if len(all_scales) > 1 else None,
+                model_args=lm_model_args,
+                search_args=search_args,
+                prefix_name=name,
+            )
+            tk.register_output(
+                name + f"/recog_results",
+                recog_res.output,
+            )
+
+    # optsr ctc + trafo lm
+    for model_name in ["model_ctc_only"]:
+    # for model_name in [name for name in ctc_model_names if not scales_ctc_lm_optsr[name].get("wer", None)]:
+        if scales_ctc_lm_optsr[model_name].get("scales", None):
+            all_scales = scales_ctc_lm_optsr[model_name].get("scales", None)
+        else:
+            lm_scales = [0.35, 0.4, 0.45, 0.5, 0.55]
+            all_scales = [scales_ctc_prior[model_name]["scales"][0] + [lm_scale] for lm_scale in lm_scales]
+        for scales, beam_size in product(all_scales, [12]):
+            prior_scale, lm_scale = scales
+            name = (
+                prefix_name_40 + "/" + model_name + with_lm_name
+                + f"/optsr_ctc_trafo_lm{lm_scale}"
+                + (f"_prior{prior_scale}" if prior_scale != 0.0 else "")
+                + f"_beam{beam_size}"
+            )
+            search_args = {
+                "beam_size": beam_size,
+                "att_scale": 0.0,
+                "ctc_scale": 1.0,
+                "bsf": bsf_40,
+                "mask_eos": True,
+                "ctc_prior_file": models[model_name]["prior"],
+                "prior_scale": prior_scale,
+                "add_eos_to_end": True,
+                "hash_overwrite": "problem ctc log",
+                "add_trafo_lm": True,
+                "lm_scale": lm_scale,
+                "lm_skip": True,
+            }
+
+            recog_res, recog_out = recog_model(
+                task,
+                models_with_pt_ckpt[model_name]["ckpt"],
+                model_recog_time_sync,
+                dev_sets=["dev"] if len(all_scales) > 1 else None,
+                model_args=model_args,
+                search_args=search_args,
+                prefix_name=name,
+            )
+            tk.register_output(
+                name + f"/recog_results",
+                recog_res.output,
+            )
 
     # att + ctc + trafo lm opls
     for model_name, beam_size in product(["model_baseline"], []):  # 12, 32

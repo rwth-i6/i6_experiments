@@ -145,7 +145,7 @@ models = {
         "prior": "/work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/2023-10-15--conformer-no-app/work/i6_core/returnn/extract_prior/ReturnnComputePriorJobV2.xE5gRKwcIqiU/output/prior.txt",
         "enc_layer_w_ctc": 10,
     },
-    "model_ctc1.0_att1.0_lay6": {
+    "model_baseline_lay6": {
         "ckpt": Checkpoint(
             tk.Path(
                 "/u/luca.gaudino/setups/2023-10-15--conformer-no-app/work/i6_core/returnn/training/AverageTFCheckpointsJob.blMBlPQmI98T/output/model/average.index"
@@ -154,7 +154,7 @@ models = {
         "prior": "/work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/2023-10-15--conformer-no-app/work/i6_core/returnn/extract_prior/ReturnnComputePriorJobV2.n7bJXRdAxMzQ/output/prior.txt",
         "enc_layer_w_ctc": 6,
     },
-    "model_ctc1.0_att1.0_lay8": {
+    "model_baseline_lay8": {
         "ckpt": Checkpoint(
             tk.Path(
                 "/u/luca.gaudino/setups/2023-10-15--conformer-no-app/work/i6_core/returnn/training/AverageTFCheckpointsJob.u6FZCXVWY47j/output/model/average.index"
@@ -163,7 +163,7 @@ models = {
         "prior": "/work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/2023-10-15--conformer-no-app/work/i6_core/returnn/extract_prior/ReturnnComputePriorJobV2.vDNVuXdu71fC/output/prior.txt",
         "enc_layer_w_ctc": 8,
     },
-    "model_ctc1.0_att1.0_lay10": {
+    "model_baseline_lay10": {
         "ckpt": Checkpoint(
             tk.Path(
                 "/u/luca.gaudino/setups/2023-10-15--conformer-no-app/work/i6_core/returnn/training/AverageTFCheckpointsJob.Pxff6AKX9mkH/output/model/average.index"

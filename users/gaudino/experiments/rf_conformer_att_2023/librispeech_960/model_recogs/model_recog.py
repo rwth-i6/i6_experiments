@@ -93,6 +93,8 @@ def model_recog(
         else:
             enc_ctc = enc_args["ctc"]
 
+        enc_ctc = rf.log(enc_ctc)
+
         ctc_out = (
             enc_ctc
             .copy_transpose((batch_size_dim, enc_spatial_dim, model.target_dim_w_b))

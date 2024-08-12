@@ -106,9 +106,8 @@ def model_recog_time_sync(
     if search_args.get("encoder_ctc", False):
         enc_ctc = enc_args_ctc["ctc"]
     else:
-        enc_ctc = rf.softmax(model.ctc(enc_args["enc"]), axis=model.target_dim_w_b)
+        enc_ctc = enc_args["ctc"]
 
-    # already in log space
     ctc_out_raw = enc_ctc.copy_transpose(
         (batch_size_dim, enc_spatial_dim, model.target_dim_w_b)
     ).raw_tensor  # [B,T,V+1]
@@ -425,7 +424,13 @@ def model_recog_time_sync(
         )
 
         if search_args.get("add_eos_to_end", False) and is_last_step:
-            seq_log_prob = seq_log_prob + eos_log_prob
+            seq_log_prob_w_eos = seq_log_prob + eos_log_prob
+
+            seq_log_prob = rf.where(
+                ended,
+                seq_log_prob,
+                seq_log_prob_w_eos,
+            ) # dont add it twice
             break
 
         seq_log_prob = seq_log_prob + label_log_prob  # Batch, InBeam, Vocab

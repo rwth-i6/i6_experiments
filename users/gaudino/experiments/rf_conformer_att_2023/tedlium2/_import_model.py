@@ -73,8 +73,6 @@ def convert_checkpoint(
     *,
     model_args,
     ckpt_path: str,
-    ckpt_path_lm: str,
-    ckpt_path_sep: Optional[str] = None,
     out_dir: str,
     print_params: bool = False,
     save_model: bool = True,
@@ -89,57 +87,36 @@ def convert_checkpoint(
     reader = CheckpointReader(ckpt_path)
     if print_params:
         print(reader.debug_string().decode("utf-8"))
-    if model_args.get("add_trafo_lm", False):
-        print("Input LM checkpoint:" + ckpt_path_lm)
-        reader_lm = CheckpointReader(ckpt_path_lm)
-        if print_params:
-            print(reader_lm.debug_string().decode("utf-8"))
-    if model_args.get("encoder_ctc", False):
-        print("Input sep checkpoint:" + ckpt_path_sep)
-        reader_2 = CheckpointReader(ckpt_path_sep)
-        if print_params:
-            print(reader_2.debug_string().decode("utf-8"))
-
-    print()
 
     ctc_only = model_args.get("ctc_only", False)
 
     print("Creating model...")
     rf.select_backend_torch()
-    if False: # TODO
+    if ctc_only: # TODO
         model = MakeModelCTC(80, 1_057)()
     else:
         model = MakeModel(80, 1_057, model_args=model_args)()
-    print("Created model:", model)
-    print("Model parameters:")
+
+    if print_params:
+        print("Model parameters:")
     for name, param in model.named_parameters():
         assert isinstance(name, str)
         assert isinstance(param, rf.Parameter)
         if print_params:
             print(f"{name}: {param}")
-    print()
 
     print("Create ParamMapping...")
     param_mapping = {}
     _add_params_conformer(param_mapping, prefix="")
-    if not False: # TODO
+    if not ctc_only:
         _add_params_att_decoder(param_mapping)
-    _add_params_trafo_lm(param_mapping)
-    # if model_args.get("encoder_ctc", False):
-    #     _add_params_conformer(param_mapping, prefix="sep_enc_ctc_")
+
 
     for name, param in model.named_parameters():
         assert isinstance(name, str)
         assert isinstance(param, rf.Parameter)
 
-        if name.startswith("trafo_lm."):
-            sub_name = name.removeprefix("trafo_lm.")
-            value = map_param_func_trafo_lm(reader_lm, sub_name, param, param_mapping)
-        elif name.startswith("sep_enc_ctc_"):
-            sub_name = name.removeprefix("sep_enc_ctc_")
-            value = map_param_func_v3(reader_2, sub_name, param, param_mapping)
-        else:
-            value = map_param_func_v3(reader, name, param, param_mapping)
+        value = map_param_func_v3(reader, name, param, param_mapping)
         assert isinstance(value, numpy.ndarray)
         # noinspection PyProtectedMember
         param._raw_backend.set_parameter_initial_value(param, value)
@@ -826,28 +803,47 @@ def get_empty_ckpt_sep(
 def import_models():
     # for model_name, sep_enc in product(list(models.keys())[-1:], [True, False]):
 
-    model_list = ["model_ctc_only"]
-    # model_list = ["model_ctc0.9_att0.1", "model_ctc0.8_att0.2", "model_ctc0.7_att0.3", "model_ctc0.6_att0.4", "model_ctc0.5_att0.5", "model_ctc0.4_att0.6"]
-    for model_name, sep_enc, add_trafo_lm in product(model_list, [False], [False]):
+
+    model_list = [
+    # scales models
+    "model_ctc0.9_att0.1",
+    "model_ctc0.8_att0.2",
+    "model_ctc0.7_att0.3",
+    "model_ctc0.6_att0.4",
+    "model_ctc0.5_att0.5",
+    "model_ctc0.4_att0.6",
+    "model_ctc0.3_att0.7",
+    "model_ctc0.2_att0.8",
+    "model_ctc0.1_att0.9",
+    "model_ctc0.001_att0.999",
+
+    # layer models baseline
+    "model_baseline_lay6",
+    "model_baseline_lay8",
+    "model_baseline_lay10",
+
+    # layer models ctc 0.3 att 0.7
+    "model_ctc0.3_att0.7_lay6",
+    "model_ctc0.3_att0.7_lay8",
+    "model_ctc0.3_att0.7_lay10",
+
+    # standalone models
+    "model_att_only_currL",
+    ]
+    for model_name in model_list:
         model_args = {
             "target_embed_dim": 256,
-            "add_trafo_lm": add_trafo_lm,
-            "encoder_ctc": sep_enc,
             "no_ctc": models[model_name].get("no_ctc", False),
             "ctc_only": models[model_name].get("ctc_only", False),
         }
 
         print(
             f"Converting model {model_name}"
-            + (" with separate ctc only encoder" if sep_enc else "")
-            + (" with trafo lm" if add_trafo_lm else "")
             + " ..."
         )
         out_dir = "/work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/2023-08-10--rf-librispeech/work/i6_experiments/users/gaudino/returnn/convert_ckpt_rf/tedlium2/"
         out_dir_postfix = (
             model_name
-            + ("__ctc_only" if sep_enc else "")
-            + ("__trafo_lm" if add_trafo_lm else "")
             # + "_rf_compatible"
         )
 
@@ -874,18 +870,13 @@ def import_models():
         convert_checkpoint(
             model_args=model_args,
             ckpt_path=ckpt_path,
-            ckpt_path_lm=_ted2_lm_ckpt_filename if add_trafo_lm else None,
-            ckpt_path_sep=models["model_ctc_only"]["ckpt"].ckpt_path
-            if sep_enc
-            else None,
             out_dir=out_dir + out_dir_postfix,
             print_params=False,
             save_model=True,
         )
         print(
             f"Model {model_name}"
-            + (" with separate ctc only encoder" if sep_enc else "")
-            + " converted."
+            + " converted.\n"
         )
 
 
