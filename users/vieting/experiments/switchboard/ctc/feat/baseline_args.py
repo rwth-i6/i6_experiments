@@ -221,7 +221,6 @@ def get_returnn_config(
 
     if audio_perturbation:
         prolog += get_code_for_perturbation()
-
     for layer in list(network.keys()):
         if network[layer]["from"] == "data":
             network[layer]["from"] = "features"
@@ -244,9 +243,9 @@ def get_returnn_config(
 
         feature_net = copy.deepcopy(feature_net)
         audio_perturb_args = extra_args.get("audio_perturb_args", {})
-        assert not ("preemphasis" in audio_perturb_args and "codecs" in audio_perturb_args), (
-            "Not implemented yet, need to think about the order to apply"
-        )
+        assert not (
+            "preemphasis" in audio_perturb_args and "codecs" in audio_perturb_args
+        ), "Not implemented yet, need to think about the order to apply"
         source_layer = "data"
         if "preemphasis" in audio_perturb_args:
             # preemphasis in training is done in perturbation pre-processing, add to network for recognition
