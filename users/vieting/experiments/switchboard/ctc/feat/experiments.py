@@ -331,10 +331,9 @@ def run_scf_baseline_decaying_batchsize():
                     "final_epochs": 0,
                 },
                 report_args={
-                    "architecture": "conf-wei",
-                    "lr": "wei_peak_4e-4_e426_cycle360",
-                    "specaug": "wei_adapt_80dim",
-                    "deacy_epochs": "24_10000_5000",
+                    "deacy_epoch": 24,
+                    "start_batch_size": 5000,
+                    "end_batch_size": 10000,
                 },
             ),
         },
