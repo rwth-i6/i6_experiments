@@ -57,6 +57,7 @@ def process_args(args: Dict[str, Any]):
 
     return key_string, report_dict
 
+
 def run_nn_args(nn_args, report_args_collection, dev_corpora, report_name="", returnn_root=None, recog_args=None):
     returnn_configs = {}
     for exp in nn_args.returnn_training_configs:
@@ -236,7 +237,6 @@ def run_scf_baseline():
         "datasets": returnn_datasets,
         "extra_args": {
             "accum_grad_multiple_step": 2,
-            "watch_memory": True,
             "conv_pad_seq_len_to_power": 1.5,
         },
         "conformer_type": "wei",
@@ -303,88 +303,6 @@ def run_scf_baseline():
     return report, ctc_nn_system
 
 
-def run_scf_baseline_decaying_batchsize():
-    gs.ALIAS_AND_OUTPUT_SUBDIR = "experiments/switchboard/ctc/feat/"
-
-    _, nn_system = run_scf_baseline()
-
-    (
-        returnn_datasets,
-        rasr_loss_corpus_path,
-        rasr_loss_corpus_segments,
-        rasr_loss_lexicon_path,
-        dev_corpora,
-    ) = get_datasets()
-    returnn_args = {
-        "batch_size": 5000,
-        "rasr_binary_path": RASR_BINARY_PATH,
-        "rasr_loss_corpus_path": rasr_loss_corpus_path,
-        "rasr_loss_corpus_segments": rasr_loss_corpus_segments,
-        "rasr_loss_lexicon_path": rasr_loss_lexicon_path,
-        "datasets": returnn_datasets,
-        "extra_args": {
-            "conv_pad_seq_len_to_power": 1.5,
-            "preload_from_files": {
-                "existing-model": {
-                    "filename": nn_system.train_jobs["conformer_bs2x5k_scf_baseline_preemphasis97_wn"].out_checkpoints[
-                        24
-                    ],
-                    "init_for_train": True,
-                }
-            },
-        },
-        "conformer_type": "wei",
-        "specaug_old": {"max_feature": 15},
-    }
-    feature_args = {
-        "class": "ScfNetwork",
-        "size_tf": 256 // 2,
-        "stride_tf": 10 // 2,
-        "preemphasis": 0.97,
-        "wave_norm": True,
-    }
-
-    nn_args, report_args_collection = get_nn_args_baseline(
-        nn_base_args={
-            "scf_baseline": dict(
-                returnn_args=returnn_args,
-                feature_args=feature_args,
-                lr_args={
-                    "peak_lr": 4e-4,
-                    "start_lr": 6.2668056e-05,
-                    "end_lr": 1e-5,
-                    "increase_epochs": 156,
-                    "decrease_epochs": 180,
-                    "final_epochs": 0,
-                },
-                report_args={
-                    "deacy_epoch": 24,
-                    "start_batch_size": 5000,
-                    "end_batch_size": 10000,
-                },
-            ),
-        },
-        num_epochs=426,
-        evaluation_epochs=[376, 400, 426],
-        prefix="conformer_bs5k_decay_",
-    )
-
-    returnn_root = CloneGitRepositoryJob(
-        "https://github.com/rwth-i6/returnn",
-        commit="c4d36d06f6465e82a50d400d114259e07b8b0709",
-    ).out_repository
-    returnn_root.hash_overwrite = "returnn_conv_padding"
-    report = run_nn_args(
-        nn_args,
-        report_args_collection,
-        dev_corpora,
-        "report_scf_baseline_bs_decay.csv",
-        returnn_root=returnn_root,
-        recog_args={"epochs": [376, 400, 426, "best"]},
-    )
-    return report
-
-
 def run_scf_frozen_features():
     gs.ALIAS_AND_OUTPUT_SUBDIR = "experiments/switchboard/ctc/feat/"
 
@@ -408,6 +326,10 @@ def run_scf_frozen_features():
         "datasets": returnn_datasets,
         "conformer_type": "wei",
         "specaug_old": {"max_feature": 15},
+        "extra_args": {
+            "accum_grad_multiple_step": 2,
+            "conv_pad_seq_len_to_power": 1.5,
+        },
     }
 
     common_feature_args = {
@@ -437,39 +359,10 @@ def run_scf_frozen_features():
 
     nn_args, report_args_collection = get_nn_args_baseline(
         nn_base_args={
-            "scf_baseline": {
-                "returnn_args": {
-                    "staged_opts": {
-                        1: "freeze_features",
-                        16: "unfreeze_features",
-                    },
-                    "extra_args": {
-                        "accum_grad_multiple_step": 2,
-                        "conv_pad_seq_len_to_power": 1.5,
-                        "preload_from_files": {
-                            "existing-model": {
-                                "filename": nn_system.train_jobs[
-                                    "conformer_bs2x5k_scf_baseline_preemphasis97_wn"
-                                ].out_checkpoints[400],
-                                "init_for_train": True,
-                                "prefix": "features",
-                            },
-                        },
-                    },
-                    **common_returnn_args,
-                },
-                "feature_args": common_feature_args,
-                "lr_args": common_lr_args,
-                "report_args": common_report_args,
-            },
             "epoch_256_freezing": {
                 "returnn_args": {
                     "staged_opts": {
                         256: "freeze_features",
-                    },
-                    "extra_args": {
-                        "accum_grad_multiple_step": 2,
-                        "conv_pad_seq_len_to_power": 1.5,
                     },
                     **common_returnn_args,
                 },
@@ -520,6 +413,10 @@ def run_scf_audio_perturbation():
         "specaug_old": {"max_feature": 15},
         "audio_perturbation": True,
         "use_multi_proc_dataset": True,
+        "extra_args": {
+            "accum_grad_multiple_step": 2,
+            "conv_pad_seq_len_to_power": 1.5,
+        },
     }
     feature_args = {"class": "ScfNetwork", "size_tf": 256 // 2, "stride_tf": 10 // 2}
     lr_args = {
@@ -566,9 +463,7 @@ def run_scf_audio_perturbation():
                 "extra_args": {
                     "audio_perturb_args": args,
                     "audio_perturb_runner": CodeWrapper("WaveformPerturbation(**audio_perturb_args)"),
-                    "conv_pad_seq_len_to_power": 1.5,
-                    "watch_memory": True,
-                    "accum_grad_multiple_step": 2,
+                    **returnn_args["extra_args"],
                 },
                 **returnn_args,
             },
@@ -622,9 +517,13 @@ def run_scf_audio_perturbation_from_checkpoint():
         "audio_perturbation": True,
         "use_multi_proc_dataset": True,
         "specaug_old": {"max_feature": 15},
+        "extra_args": {
+            "accum_grad_multiple_step": 2,
+            "conv_pad_seq_len_to_power": 1.5,
+        },
     }
 
-    # usually the lr args woud need to be adapted to fit with the checkpoint, 
+    # usually the lr args would need to be adapted to fit with the checkpoint, 
     # but experiments showed that restarting the scheduling is better
     lr_args = {
         "peak_lr": 4e-4,
@@ -691,8 +590,6 @@ def run_scf_audio_perturbation_from_checkpoint():
                 "extra_args": {
                     "audio_perturb_args": args,
                     "audio_perturb_runner": CodeWrapper("WaveformPerturbation(**audio_perturb_args)"),
-                    "conv_pad_seq_len_to_power": 1.5,
-                    "accum_grad_multiple_step": 2,
                     "preload_from_files": {
                         "existing-model": {
                             "filename": nn_system.train_jobs[
@@ -701,6 +598,7 @@ def run_scf_audio_perturbation_from_checkpoint():
                             "init_for_train": True,
                         }
                     },
+                    **returnn_args["extra_args"],
                 },
                 **returnn_args,
             },
@@ -783,7 +681,6 @@ def run_scf_specaug_sort():
         "datasets": returnn_datasets,
         "extra_args": {
             "accum_grad_multiple_step": 2,
-            "watch_memory": True,
             "conv_pad_seq_len_to_power": 1.5,
         },
         "conformer_type": "wei",
@@ -823,6 +720,7 @@ def run_scf_specaug_sort():
                                 "init_for_train": True,
                             },
                         },
+                        **returnn_args["extra_args"],
                     },
                 },
                 feature_args=feature_args,
@@ -846,6 +744,88 @@ def run_scf_specaug_sort():
         dev_corpora,
         returnn_root=returnn_root,
         recog_args={"epochs": [350, 400, 450, "best"]},
+    )
+    return report
+
+
+def run_scf_baseline_decaying_batchsize():
+    gs.ALIAS_AND_OUTPUT_SUBDIR = "experiments/switchboard/ctc/feat/"
+
+    _, nn_system = run_scf_baseline()
+
+    (
+        returnn_datasets,
+        rasr_loss_corpus_path,
+        rasr_loss_corpus_segments,
+        rasr_loss_lexicon_path,
+        dev_corpora,
+    ) = get_datasets()
+    returnn_args = {
+        "batch_size": 5000,
+        "rasr_binary_path": RASR_BINARY_PATH,
+        "rasr_loss_corpus_path": rasr_loss_corpus_path,
+        "rasr_loss_corpus_segments": rasr_loss_corpus_segments,
+        "rasr_loss_lexicon_path": rasr_loss_lexicon_path,
+        "datasets": returnn_datasets,
+        "extra_args": {
+            "conv_pad_seq_len_to_power": 1.5,
+            "preload_from_files": {
+                "existing-model": {
+                    "filename": nn_system.train_jobs["conformer_bs2x5k_scf_baseline_preemphasis97_wn"].out_checkpoints[
+                        24
+                    ],
+                    "init_for_train": True,
+                }
+            },
+        },
+        "conformer_type": "wei",
+        "specaug_old": {"max_feature": 15},
+    }
+    feature_args = {
+        "class": "ScfNetwork",
+        "size_tf": 256 // 2,
+        "stride_tf": 10 // 2,
+        "preemphasis": 0.97,
+        "wave_norm": True,
+    }
+
+    nn_args, report_args_collection = get_nn_args_baseline(
+        nn_base_args={
+            "scf_baseline": dict(
+                returnn_args=returnn_args,
+                feature_args=feature_args,
+                lr_args={
+                    "peak_lr": 4e-4,
+                    "start_lr": 6.2668056e-05,
+                    "end_lr": 1e-5,
+                    "increase_epochs": 156,
+                    "decrease_epochs": 180,
+                    "final_epochs": 0,
+                },
+                report_args={
+                    "deacy_epoch": 24,
+                    "start_batch_size": 5000,
+                    "end_batch_size": 10000,
+                },
+            ),
+        },
+        num_epochs=426,
+        evaluation_epochs=[376, 400, 426],
+        prefix="conformer_bs5k_decay_",
+    )
+
+    returnn_root = CloneGitRepositoryJob(
+        "https://github.com/rwth-i6/returnn",
+        commit="c4d36d06f6465e82a50d400d114259e07b8b0709",
+    ).out_repository
+    returnn_root.hash_overwrite = "returnn_conv_padding"
+    report = run_nn_args(
+        nn_args,
+        report_args_collection,
+        dev_corpora,
+        "report_scf_baseline_bs_decay.csv",
+        returnn_root=returnn_root,
+        recog_args={"epochs": [376, 400, 426, "best"]},
     )
     return report
 
@@ -1005,14 +985,8 @@ def run_mel_audio_perturbation_from_checkpoint():
         "use_multi_proc_dataset": True,
         "specaug_old": {"max_feature": 8},
     }
-    # lr_args={                      Since we use a checkpoint the correct lr_args would be these, but tests showed that restarting the lr schedule is better
-    #     "peak_lr": 4e-4,
-    #     "start_lr": 6.2668056e-05,
-    #     "end_lr": 1e-5,
-    #     "increase_epochs": 156,
-    #     "decrease_epochs": 180,
-    #     "final_epochs": 0,
-    # },
+    # usually the lr args would need to be adapted to fit with the checkpoint, 
+    # but experiments showed that restarting the scheduling is better
     lr_args = {
         "peak_lr": 4e-4,
         "start_lr": 1.325e-05,
