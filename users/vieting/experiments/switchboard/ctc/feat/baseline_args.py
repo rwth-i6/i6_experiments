@@ -240,6 +240,9 @@ def get_returnn_config(
     if audio_perturbation and recognition:
         feature_net = copy.deepcopy(feature_net)
         audio_perturb_args = extra_args.get("audio_perturb_args", {})
+        assert not ("preemphasis" in audio_perturb_args and "codecs" in audio_perturb_args), (
+            "Not implemented yet, need to think about the order to apply"
+        )
         source_layer = "data"
         if "preemphasis" in audio_perturb_args:
             for layer in feature_net["subnetwork"]:
