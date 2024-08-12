@@ -251,7 +251,9 @@ def get_returnn_config(
                     feature_net["subnetwork"][layer]["from"] = "preemphasis"
             source_layer = "preemphasis"
             alpha = audio_perturb_args["preemphasis"].get("default")
-            feature_net["subnetwork"]["preemphasis"] = PreemphasisNetwork(alpha=alpha).get_as_subnetwork()
+            feature_net["subnetwork"]["preemphasis"] = PreemphasisNetwork(alpha=alpha).get_as_subnetwork(
+                source=source_layer
+            )
         if "codecs" in audio_perturb_args:
             for layer in feature_net["subnetwork"]:
                 if feature_net["subnetwork"][layer].get("from", None) == source_layer:
