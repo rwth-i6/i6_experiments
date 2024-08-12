@@ -761,6 +761,7 @@ def run_scf_audio_perturbation_from_checkpoint():
                     "audio_perturb_args": args,
                     "audio_perturb_runner": CodeWrapper("WaveformPerturbation(**audio_perturb_args)"),
                     "conv_pad_seq_len_to_power": 1.5,
+                    "accum_grad_multiple_step": 2,
                     "preload_from_files": {
                         "existing-model": {
                             "filename": nn_system.train_jobs["conformer_bs2x5k_scf_baseline"].out_checkpoints[24],
