@@ -1360,3 +1360,47 @@ def conformer_baseline():
     #                                         bpe_size=BPE_1K,
     #                                         partition_epoch=4,
     #                                     )
+
+    base_v1_args, exp_name = get_base_v1_args(
+        lr, ep, enc_drop=enc_drop, use_legacy_stats=False
+    )
+    args = copy.deepcopy(base_v1_args)
+
+
+    conformer_v2_enc_args = ConformerEncoderV2Args(
+        num_blocks=12,
+        input_layer="conv-6",
+        att_num_heads=8,
+        ff_dim=2048,
+        enc_key_dim=512,
+        conv_kernel_size=32,
+        pos_enc="rel",
+        dropout=0.2,
+        att_dropout=0.2,
+        l2=0.0001,
+    )
+    apply_fairseq_init_to_conformer(conformer_enc_args)
+
+    args["encoder_args"].num_blocks = num_blocks
+    args["encoder_args"].mhsa_weight_dropout = weight_drop
+    args["encoder_args"].ff_weight_dropout = weight_drop
+    args["encoder_args"].conv_weight_dropout = weight_drop
+
+    args["decoder_args"].embed_dim = target_embed_dim
+    args["decoder_args"].att_dropout = att_drop
+
+    exp_name += f"_weightDrop{weight_drop}_decAttDrop{att_drop}_embedDim{target_embed_dim}_numBlocks{num_blocks}"
+
+    if ctc_scale != 1.0:
+        args["encoder_args"].ctc_loss_scale = ctc_scale
+        args["decoder_args"].ce_loss_scale = 1.0 - ctc_scale
+        exp_name += f"_ctcScale{ctc_scale}"
+
+    run_exp(
+        exp_name,
+        args,
+        num_epochs=ep,
+        epoch_wise_filter=None,
+        bpe_size=BPE_1K,
+        partition_epoch=4,
+    )
