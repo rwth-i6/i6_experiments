@@ -453,11 +453,10 @@ def run_scf_audio_perturbation():
     nn_base_args = {}
 
     for args in perturbation_args:
-        exp_name_suffix, report_dict = process_args(args)
+        exp_name_suffix, report_args = process_args(args)
 
         # Construct the exp_name and report_args
         exp_name = f"scf_bs2x5k_perturb_{exp_name_suffix}"
-        report_args = report_dict
         nn_base_args[exp_name] = dict(
             returnn_args={
                 "extra_args": {
@@ -580,11 +579,10 @@ def run_scf_audio_perturbation_from_checkpoint():
     nn_base_args = {}
 
     for args in perturbation_args:
-        exp_name_suffix, report_dict = process_args(args)
+        exp_name_suffix, report_args = process_args(args)
 
         # Construct the exp_name and report_args
         exp_name = f"scf_bs2x5k_perturb_from_checkpoint_24_{exp_name_suffix}"
-        report_args = report_dict
         nn_base_args[exp_name] = dict(
             returnn_args={
                 "extra_args": {
@@ -613,11 +611,10 @@ def run_scf_audio_perturbation_from_checkpoint():
             report_args=report_args,
         )
     for args in perturbation_args_preemphasis:
-        exp_name_suffix, report_dict = process_args(args)
+        exp_name_suffix, report_args = process_args(args)
 
         # Construct the exp_name and report_args
         exp_name = f"scf_bs2x5k_perturb_from_checkpoint_24_{exp_name_suffix}"
-        report_args = report_dict
         nn_base_args[exp_name] = dict(
             returnn_args={
                 "extra_args": {
@@ -1027,11 +1024,10 @@ def run_mel_audio_perturbation_from_checkpoint():
     nn_base_args = {}
 
     for args in perturbation_args:
-        exp_name_suffix, report_dict = process_args(args)
+        exp_name_suffix, report_args = process_args(args)
 
         # Construct the exp_name and report_args
         exp_name = f"mel_bs2x5k_perturb_from_checkpoint_24_{exp_name_suffix}"
-        report_args = report_dict
         nn_base_args[exp_name] = dict(
             returnn_args={
                 "extra_args": {
