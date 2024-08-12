@@ -245,6 +245,7 @@ def get_returnn_config(
         )
         source_layer = "data"
         if "preemphasis" in audio_perturb_args:
+            # preemphasis in training is done in perturbation pre-processing, add to network for recognition
             for layer in feature_net["subnetwork"]:
                 if feature_net["subnetwork"][layer].get("from", None) == source_layer:
                     feature_net["subnetwork"][layer]["from"] = "preemphasis"
