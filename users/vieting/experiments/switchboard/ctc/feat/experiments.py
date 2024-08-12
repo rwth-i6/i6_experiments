@@ -29,6 +29,33 @@ def get_datasets(**kwargs):
     rasr_loss_segments = segments["all_filtered"]
     return returnn_datasets, rasr_loss_corpus, rasr_loss_segments, rasr_loss_lexicon, dev_corpora["ctc"]
 
+def process_args(args: Dict[str, Any]):
+    """
+    Process the argument dictionary to generate a key string and a report string.
+
+    Returns:
+        tuple: A tuple containing the key string and the report string.
+    """
+
+    key_string = ""
+    report_dict = {}
+
+    for key, value in args.items():
+
+        if key in ["speed", "tempo", "preemphasis", "non_linearity"]:
+            key_component = f"{key}_{value['prob']}_{value['minimum']}_{value['maximum']}"
+            if "default" in value:
+                key_component += f"_{value['default']}"
+            key_string += key_component
+            report_dict[key] = f"{value['prob']}_{value['minimum']}_{value['maximum']}"
+        elif key == "codecs":
+            codecs_str = "_".join([f"{codec['encoding']}_{codec['prob']}" for codec in value])
+            key_string += f"{key}_{codecs_str}_"
+            report_dict[key] = codecs_str
+        else:
+            raise ValueError(f"Unknown argument name: {key}")
+
+    return key_string, report_dict
 
 def run_nn_args(nn_args, report_args_collection, dev_corpora, report_name="", returnn_root=None, recog_args=None):
     returnn_configs = {}
@@ -526,34 +553,6 @@ def run_scf_audio_perturbation():
         {"non_linearity": {"prob": 0.6, "minimum": 0.8, "maximum": 1.2}},
     ]
 
-    def process_args(args: Dict[str, Any]):
-        """
-        Process the argument dictionary to generate a key string and a report string.
-
-        Returns:
-            tuple: A tuple containing the key string and the report string.
-        """
-
-        key_string = ""
-        report_dict = {}
-
-        for key, value in args.items():
-
-            if key in ["speed", "tempo", "preemphasis", "non_linearity"]:
-                key_component = f"{key}_{value['prob']}_{value['minimum']}_{value['maximum']}"
-                if "default" in value:
-                    key_component += f"_{value['default']}"
-                key_string += key_component
-                report_dict[key] = f"{value['prob']}_{value['minimum']}_{value['maximum']}"
-            elif key == "codecs":
-                codecs_str = "_".join([f"{codec['encoding']}_{codec['prob']}" for codec in value])
-                key_string += f"{key}_{codecs_str}_"
-                report_dict[key] = codecs_str
-            else:
-                raise ValueError(f"Unknown argument name: {key}")
-
-        return key_string, report_dict
-
     nn_base_args = {}
 
     for args in perturbation_args:
@@ -678,36 +677,6 @@ def run_scf_audio_perturbation_from_checkpoint():
         {"preemphasis": {"prob": 0.7, "minimum": 0.90, "maximum": 1.0, "default": 0.95}},
         {"preemphasis": {"prob": 1.0, "minimum": 0.94, "maximum": 1.0, "default": 0.97}},
     ]
-
-    def process_args(args: Dict[str, Any]):
-        """
-        Process the argument dictionary to generate a key string and a report string.
-
-        Returns:
-            tuple: A tuple containing the key string and the report string.
-        """
-
-        key_string = ""
-        report_dict = {}
-
-        for key, value in args.items():
-
-            if key in ["speed", "tempo", "preemphasis", "non_linearity"]:
-                key_component = f"{key}_{value['prob']}_{value['minimum']}_{value['maximum']}"
-                if "default" in value:
-                    key_component += f"_{value['default']}"
-                key_string += key_component
-                report_dict[key] = f"{value['prob']}_{value['minimum']}_{value['maximum']}"
-            elif key == "codecs":
-                codecs_str = "_".join(
-                    [f"{codec['encoding']}_{codec['prob']}_{codec['minimum']}_{codec['maximum']}" for codec in value]
-                )
-                key_string += f"{key}_{codecs_str}_"
-                report_dict[key] = codecs_str
-            else:
-                raise ValueError(f"Unknown argument name: {key}")
-
-        return key_string, report_dict
 
     nn_base_args = {}
 
@@ -1078,34 +1047,6 @@ def run_mel_audio_perturbation_from_checkpoint():
         {"preemphasis": {"prob": 0.7, "minimum": 0.94, "maximum": 1.0, "default": 0.97}},
         {"preemphasis": {"prob": 1.0, "minimum": 0.94, "maximum": 1.0, "default": 0.97}},
     ]
-
-    def process_args(args: Dict[str, Any]):
-        """
-        Process the argument dictionary to generate a key string and a report string.
-
-        Returns:
-            tuple: A tuple containing the key string and the report string.
-        """
-
-        key_string = ""
-        report_dict = {}
-
-        for key, value in args.items():
-
-            if key in ["speed", "tempo", "preemphasis", "non_linearity"]:
-                key_component = f"{key}_{value['prob']}_{value['minimum']}_{value['maximum']}"
-                key_string += key_component
-                report_dict[key] = f"{value['prob']}_{value['minimum']}_{value['maximum']}"
-            elif key == "codecs":
-                codecs_str = "_".join(
-                    [f"{codec['encoding']}_{codec['prob']}_{codec['minimum']}_{codec['maximum']}" for codec in value]
-                )
-                key_string += f"{key}_{codecs_str}_"
-                report_dict[key] = codecs_str
-            else:
-                raise ValueError(f"Unknown argument name: {key}")
-
-        return key_string, report_dict
 
     nn_base_args = {}
 
