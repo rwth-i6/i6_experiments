@@ -255,6 +255,7 @@ def get_returnn_config(
                 source=source_layer
             )
         if "codecs" in audio_perturb_args:
+            # codec in training is applied in perturbation pre-processing, add to network for recognition
             for layer in feature_net["subnetwork"]:
                 if feature_net["subnetwork"][layer].get("from", None) == source_layer:
                     feature_net["subnetwork"][layer]["from"] = "codec"
