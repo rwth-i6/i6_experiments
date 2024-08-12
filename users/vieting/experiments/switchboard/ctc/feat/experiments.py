@@ -152,7 +152,7 @@ def run_mel_baseline():
         "wave_norm": "True",
         "preemphasis": None,
     }
-    recog_args = {"epochs": [6, 12, 24, 350, 390, 400, 410, 450, "best"]}
+    recog_args = {"epochs": [350, 390, 400, 410, 450]}
 
     nn_args, report_args_collection = get_nn_args_baseline(
         nn_base_args={
@@ -183,7 +183,7 @@ def run_mel_baseline():
             ),
         },
         num_epochs=450,
-        evaluation_epochs=[ep for ep in recog_args["epochs"] if isinstance(ep, int)],
+        evaluation_epochs=[6, 12, 24, 350, 390, 400, 410, 450],
         prefix="conformer_",
     )
     report, ctc_nn_system = run_nn_args(nn_args, report_args_collection, dev_corpora, recog_args=recog_args)
@@ -271,7 +271,7 @@ def run_scf_baseline():
         report_args_collection,
         dev_corpora,
         returnn_root=returnn_root,
-        recog_args={"epochs": [6, 12, 24, 350, 390, 400, 410, 450, "best"]},
+        recog_args = {"epochs": [350, 390, 400, 410, 450]},
     )
     return report, ctc_nn_system
 
@@ -339,7 +339,7 @@ def run_scf_baseline_decaying_batchsize():
             ),
         },
         num_epochs=426,
-        evaluation_epochs=[374, 400, 426],
+        evaluation_epochs=[376, 400, 426],
         prefix="conformer_bs5k_decay_",
     )
 
@@ -354,7 +354,7 @@ def run_scf_baseline_decaying_batchsize():
         dev_corpora,
         "report_scf_baseline_bs_decay.csv",
         returnn_root=returnn_root,
-        recog_args={"epochs": [374, 400, 426, "best"]},
+        recog_args={"epochs": [376, 400, 426, "best"]},
     )
     return report
 
