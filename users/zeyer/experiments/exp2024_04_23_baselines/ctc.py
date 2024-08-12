@@ -614,7 +614,8 @@ def py():
     # TODO maybe reduce weight decay
     for vn in [
         # Baseline: 5.77
-        0.0005,
+        0.0001,
+        0.0005,  # 5.75
         0.001,  # 5.79
         0.0025,  # 5.91 (so worse on dev-other, but it's better on test-other)
         0.01,  # 5.86
