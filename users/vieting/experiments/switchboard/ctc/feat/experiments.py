@@ -29,6 +29,7 @@ def get_datasets(**kwargs):
     rasr_loss_segments = segments["all_filtered"]
     return returnn_datasets, rasr_loss_corpus, rasr_loss_segments, rasr_loss_lexicon, dev_corpora["ctc"]
 
+
 def process_args(args: Dict[str, Any]):
     """
     Process the argument dictionary to generate a key string and a report string.
@@ -262,13 +263,13 @@ def run_scf_baseline():
             ),
             "bs2x5k_scf_baseline_preemphasis97_wn": dict(
                 returnn_args=returnn_args,
-                feature_args= {**feature_args, "preemphasis": 0.97, "wave_norm": True},
+                feature_args={**feature_args, "preemphasis": 0.97, "wave_norm": True},
                 lr_args=lr_args,
                 report_args={"batch_size": "2x5k"},
             ),
             "bs2x5k_scf_baseline_preemphasis97": dict(
                 returnn_args=returnn_args,
-                feature_args= {**feature_args, "preemphasis": 0.97},
+                feature_args={**feature_args, "preemphasis": 0.97},
                 lr_args=lr_args,
                 report_args={"batch_size": "2x5k"},
             ),
@@ -298,7 +299,7 @@ def run_scf_baseline():
         report_args_collection,
         dev_corpora,
         returnn_root=returnn_root,
-        recog_args = {"epochs": [350, 390, 400, 410, 450]},
+        recog_args={"epochs": [350, 390, 400, 410, 450]},
     )
     return report, ctc_nn_system
 
@@ -522,7 +523,7 @@ def run_scf_audio_perturbation_from_checkpoint():
         },
     }
 
-    # usually the lr args would need to be adapted to fit with the checkpoint, 
+    # usually the lr args would need to be adapted to fit with the checkpoint,
     # but experiments showed that restarting the scheduling is better
     lr_args = {
         "peak_lr": 4e-4,
@@ -982,7 +983,7 @@ def run_mel_audio_perturbation_from_checkpoint():
         "use_multi_proc_dataset": True,
         "specaug_old": {"max_feature": 8},
     }
-    # usually the lr args would need to be adapted to fit with the checkpoint, 
+    # usually the lr args would need to be adapted to fit with the checkpoint,
     # but experiments showed that restarting the scheduling is better
     lr_args = {
         "peak_lr": 4e-4,
