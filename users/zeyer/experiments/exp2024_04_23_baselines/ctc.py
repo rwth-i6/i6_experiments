@@ -611,6 +611,7 @@ def py():
     )
 
     # Variational noise / weight noise (vn0025 etc).
+    # TODO maybe reduce weight decay
     for vn in [
         # Baseline: 5.77
         0.0005,
@@ -637,6 +638,7 @@ def py():
         )
 
     # Weight dropout (wdrop01 etc).
+    # TODO maybe reduce weight decay
     for wdrop in [
         # baseline: 5.77
         0.001,
