@@ -624,14 +624,9 @@ def run_scf_audio_perturbation_from_checkpoint():
         "use_multi_proc_dataset": True,
         "specaug_old": {"max_feature": 15},
     }
-    # lr_args={                      Since we use a checkpoint the correct lr_args would be these, but tests showed that restarting the lr schedule is better
-    #     "peak_lr": 4e-4,
-    #     "start_lr": 6.2668056e-05,
-    #     "end_lr": 1e-5,
-    #     "increase_epochs": 156,
-    #     "decrease_epochs": 180,
-    #     "final_epochs": 0,
-    # },
+
+    # usually the lr args woud need to be adapted to fit with the checkpoint, 
+    # but experiments showed that restarting the scheduling is better
     lr_args = {
         "peak_lr": 4e-4,
         "start_lr": 1.325e-05,
@@ -679,6 +674,8 @@ def run_scf_audio_perturbation_from_checkpoint():
     perturbation_args_preemphasis = [
         {"preemphasis": {"prob": 0.3, "minimum": 0.94, "maximum": 1.0, "default": 0.97}},
         {"preemphasis": {"prob": 0.7, "minimum": 0.94, "maximum": 1.0, "default": 0.97}},
+        {"preemphasis": {"prob": 0.7, "minimum": 0.90, "maximum": 1.0, "default": 0.97}},
+        {"preemphasis": {"prob": 0.7, "minimum": 0.90, "maximum": 1.0, "default": 0.95}},
         {"preemphasis": {"prob": 1.0, "minimum": 0.94, "maximum": 1.0, "default": 0.97}},
     ]
 
