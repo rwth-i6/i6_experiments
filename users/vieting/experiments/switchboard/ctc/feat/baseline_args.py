@@ -262,7 +262,7 @@ def get_returnn_config(
             source_layer = "codec"
             feature_net["subnetwork"]["codec"] = {
                 "class": "subnetwork",
-                "from": ["data"],
+                "from": source_layer,
                 "subnetwork": {
                     "assert_range": {
                         "class": "eval",
