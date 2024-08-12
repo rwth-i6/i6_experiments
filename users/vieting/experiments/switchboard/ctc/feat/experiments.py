@@ -472,21 +472,6 @@ def run_scf_frozen_features():
     )
     return report
 
-    returnn_root = CloneGitRepositoryJob(
-        "https://github.com/rwth-i6/returnn",
-        commit="c4d36d06f6465e82a50d400d114259e07b8b0709",
-    ).out_repository
-    returnn_root.hash_overwrite = "returnn_conv_padding"
-    report = run_nn_args(
-        nn_args,
-        report_args_collection,
-        dev_corpora,
-        "report_scf_frozen_features.csv",
-        returnn_root=returnn_root,
-        recog_args={"epochs": [350, 400, 450, "best"]},
-    )
-    return report
-
 
 def run_scf_audio_perturbation():
     gs.ALIAS_AND_OUTPUT_SUBDIR = "experiments/switchboard/ctc/feat/"
