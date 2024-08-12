@@ -190,7 +190,7 @@ def run_fairseq_pretraining_positive_sampling(num_positives: int = 10):
     alignment = get_alignment_hdf()
     num_gpus = 8
     fairseq_python_exe = tk.Path("/usr/bin/python3")
-    fairseq_root = get_fairseq_root(fairseq_exe=fairseq_python_exe, commit="654cd1e65473615f3355a2576adbaba5f5b549c2")
+    fairseq_root = get_fairseq_root(fairseq_exe=fairseq_python_exe, commit="91b936231c5ebbfd639ccd7e78869d3df45a12bb")
     fairseq_training_args = dict(
         save_interval=25,
         max_epoch=600,
