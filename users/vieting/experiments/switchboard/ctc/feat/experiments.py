@@ -1,7 +1,7 @@
 import copy
 import os.path
 from sisyphus import tk, gs
-from typing import Any, Dict
+from typing import Any, Dict, Tuple
 
 from i6_core.returnn.config import CodeWrapper
 from i6_core.recognition import Hub5ScoreJob
@@ -30,7 +30,7 @@ def get_datasets(**kwargs):
     return returnn_datasets, rasr_loss_corpus, rasr_loss_segments, rasr_loss_lexicon, dev_corpora["ctc"]
 
 
-def process_args(args: Dict[str, Any]):
+def args_to_key_and_report_strings(args: Dict[str, Any]) -> Tuple[str, str]:
     """
     Process the argument dictionary to generate a key string and a report string.
 
@@ -454,7 +454,7 @@ def run_scf_audio_perturbation():
     nn_base_args = {}
 
     for args in perturbation_args:
-        exp_name_suffix, report_args = process_args(args)
+        exp_name_suffix, report_args = args_to_key_and_report_strings(args)
 
         # Construct the exp_name and report_args
         exp_name = f"scf_bs2x5k_perturb_{exp_name_suffix}"
@@ -580,7 +580,7 @@ def run_scf_audio_perturbation_from_checkpoint():
     nn_base_args = {}
 
     for args in perturbation_args:
-        exp_name_suffix, report_args = process_args(args)
+        exp_name_suffix, report_args = args_to_key_and_report_strings(args)
 
         # Construct the exp_name and report_args
         exp_name = f"scf_bs2x5k_perturb_from_checkpoint_24_{exp_name_suffix}"
@@ -612,7 +612,7 @@ def run_scf_audio_perturbation_from_checkpoint():
             report_args=report_args,
         )
     for args in perturbation_args_preemphasis:
-        exp_name_suffix, report_args = process_args(args)
+        exp_name_suffix, report_args = args_to_key_and_report_strings(args)
 
         # Construct the exp_name and report_args
         exp_name = f"scf_bs2x5k_perturb_from_checkpoint_24_{exp_name_suffix}"
@@ -1025,7 +1025,7 @@ def run_mel_audio_perturbation_from_checkpoint():
     nn_base_args = {}
 
     for args in perturbation_args:
-        exp_name_suffix, report_args = process_args(args)
+        exp_name_suffix, report_args = args_to_key_and_report_strings(args)
 
         # Construct the exp_name and report_args
         exp_name = f"mel_bs2x5k_perturb_from_checkpoint_24_{exp_name_suffix}"
