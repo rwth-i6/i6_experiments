@@ -42,7 +42,6 @@ def args_to_key_and_report_strings(args: Dict[str, Any]) -> Tuple[str, str]:
     report_dict = {}
 
     for key, value in args.items():
-
         if key in ["speed", "tempo", "preemphasis", "non_linearity"]:
             key_component = f"{key}_{value['prob']}_{value['minimum']}_{value['maximum']}"
             if "default" in value:
@@ -382,7 +381,7 @@ def run_scf_frozen_features():
         commit="c4d36d06f6465e82a50d400d114259e07b8b0709",
     ).out_repository
     returnn_root.hash_overwrite = "returnn_conv_padding"
-    report = run_nn_args(
+    report, _ = run_nn_args(
         nn_args,
         report_args_collection,
         dev_corpora,
@@ -484,7 +483,7 @@ def run_scf_audio_perturbation():
         commit="c4d36d06f6465e82a50d400d114259e07b8b0709",
     ).out_repository
     returnn_root.hash_overwrite = "returnn_conv_padding"
-    report, ctc_nn_system = run_nn_args(
+    report, _ = run_nn_args(
         nn_args,
         report_args_collection,
         dev_corpora,
@@ -649,7 +648,7 @@ def run_scf_audio_perturbation_from_checkpoint():
         commit="c4d36d06f6465e82a50d400d114259e07b8b0709",
     ).out_repository
     returnn_root.hash_overwrite = "returnn_conv_padding"
-    report = run_nn_args(
+    report, _ = run_nn_args(
         nn_args,
         report_args_collection,
         dev_corpora,
@@ -817,7 +816,7 @@ def run_scf_baseline_decaying_batchsize():
         commit="c4d36d06f6465e82a50d400d114259e07b8b0709",
     ).out_repository
     returnn_root.hash_overwrite = "returnn_conv_padding"
-    report = run_nn_args(
+    report, _ = run_nn_args(
         nn_args,
         report_args_collection,
         dev_corpora,
@@ -1068,7 +1067,7 @@ def run_mel_audio_perturbation_from_checkpoint():
         commit="c4d36d06f6465e82a50d400d114259e07b8b0709",
     ).out_repository
     returnn_root.hash_overwrite = "returnn_conv_padding"
-    report = run_nn_args(
+    report, _ = run_nn_args(
         nn_args,
         report_args_collection,
         dev_corpora,
