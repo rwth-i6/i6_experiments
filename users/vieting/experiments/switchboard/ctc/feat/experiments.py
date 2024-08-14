@@ -383,9 +383,17 @@ def run_scf_frozen_features():
                             "existing-model": {
                                 "filename": nn_system.train_jobs[
                                     "conformer_bs2x5k_scf_baseline_preemphasis97_wn"
-                                ].out_checkpoints[306],
+                                ].out_checkpoints[400],
                             "init_for_train": True,
                             "prefix": "features",
+                            "var_name_mapping": {
+                                "/conv_h_filter/conv_h_filter": "features/conv_h_filter/conv_h_filter",
+                                "/conv_l/W": "features/conv_l/W",
+                                "/conv_l_act/bias": "features/conv_l_act/bias",
+                                "/conv_l_act/scale": "features/conv_l_act/scale",
+                                "/wave_norm/bias": "features/wave_norm/bias",
+                                "/wave_norm/scale": "features/wave_norm/scale",
+                                },
                             },
                         },
                     },
