@@ -419,7 +419,7 @@ def run_scf_frozen_features():
         dev_corpora,
         "report_scf_frozen_features.csv",
         returnn_root=returnn_root,
-        recog_args={"epochs": [350, 400, 450, "best"]},
+        recog_args={"epochs": [350, 390, 400, 410, 450]},
     )
     return report
 
@@ -688,7 +688,7 @@ def run_scf_audio_perturbation_from_checkpoint():
         dev_corpora,
         "report_scf_audio_perturbation_from_checkpoint24_second_round.csv",
         returnn_root=returnn_root,
-        recog_args={"epochs": [376, 390, 400, 426, "best"]},
+        recog_args={"epochs": [376, 390, 400, 426]},
     )
     return report
 
