@@ -642,7 +642,8 @@ def py():
     # TODO maybe reduce weight decay
     for wdrop in [
         # baseline: 5.77
-        0.001,
+        0.0001,
+        0.001,  # 5.86
         0.01,  # 5.96
         0.05,  # 7.33
         0.1,  # 8.91
