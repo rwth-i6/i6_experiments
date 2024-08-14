@@ -373,6 +373,7 @@ def run_scf_frozen_features():
             },
             "fixed_features": {
                 "returnn_args": {
+                    **common_returnn_args,
                     "staged_opts": {
                         1: "freeze_features",
                     },
@@ -382,13 +383,12 @@ def run_scf_frozen_features():
                             "existing-model": {
                                 "filename": nn_system.train_jobs[
                                     "conformer_bs2x5k_scf_baseline_preemphasis97_wn"
-                                ].out_checkpoints[400],
+                                ].out_checkpoints[306],
                             "init_for_train": True,
                             "prefix": "features",
                             },
                         },
                     },
-                    **common_returnn_args,
                 },
                 "feature_args": common_feature_args,
                 "lr_args": common_lr_args,
