@@ -238,6 +238,7 @@ def run_scf_baseline():
         "extra_args": {
             "accum_grad_multiple_step": 2,
             "conv_pad_seq_len_to_power": 1.5,
+            "watch_memory": True,
         },
         "conformer_type": "wei",
         "specaug_old": {"max_feature": 15},
@@ -370,6 +371,29 @@ def run_scf_frozen_features():
                 "lr_args": common_lr_args,
                 "report_args": common_report_args,
             },
+            "fixed_features": {
+                "returnn_args": {
+                    "staged_opts": {
+                        1: "fixed_features",
+                    },
+                    "extra_args": {
+                        "preload_from_files": {
+                            "existing-model": {
+                                "filename": nn_system.train_jobs[
+                                    "conformer_bs2x5k_scf_baseline_preemphasis97_wn"
+                                ].out_checkpoints[400],
+                            "init_for_train": True,
+                            "präfix": "features",
+                            },
+                        },
+                        **common_returnn_args["extra_args"],
+                    },
+                    **common_returnn_args,
+                },
+                "feature_args": common_feature_args,
+                "lr_args": common_lr_args,
+                "report_args": common_report_args,
+            }
         },
         num_epochs=450,
         evaluation_epochs=[350, 400, 450],
