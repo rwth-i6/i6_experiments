@@ -374,19 +374,19 @@ def run_scf_frozen_features():
             "fixed_features": {
                 "returnn_args": {
                     "staged_opts": {
-                        1: "fixed_features",
+                        1: "freeze_features",
                     },
                     "extra_args": {
+                        **common_returnn_args["extra_args"],
                         "preload_from_files": {
                             "existing-model": {
                                 "filename": nn_system.train_jobs[
                                     "conformer_bs2x5k_scf_baseline_preemphasis97_wn"
                                 ].out_checkpoints[400],
                             "init_for_train": True,
-                            "präfix": "features",
+                            "prefix": "features",
                             },
                         },
-                        **common_returnn_args["extra_args"],
                     },
                     **common_returnn_args,
                 },
