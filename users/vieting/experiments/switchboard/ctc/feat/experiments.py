@@ -512,7 +512,7 @@ def run_scf_audio_perturbation():
         report_args_collection,
         dev_corpora,
         returnn_root=returnn_root,
-        recog_args={"epochs": [350, 400, 450, "best"]},
+        recog_args={"epochs": [350, 390, 400, 410, 450]},
     )
     return report
 
@@ -665,7 +665,7 @@ def run_scf_audio_perturbation_from_checkpoint():
     nn_args, report_args_collection = get_nn_args_baseline(
         nn_base_args=nn_base_args,
         num_epochs=426,
-        evaluation_epochs=[376, 390, 400, 426],
+        evaluation_epochs=[[376, 386, 396, 406, 426]],
         prefix="conformer_",
     )
 
@@ -680,7 +680,7 @@ def run_scf_audio_perturbation_from_checkpoint():
         dev_corpora,
         "report_scf_audio_perturbation_from_checkpoint24_second_round.csv",
         returnn_root=returnn_root,
-        recog_args={"epochs": [376, 390, 400, 426]},
+        recog_args={"epochs": [[376, 386, 396, 406, 426]]},
     )
     return report
 
@@ -753,7 +753,7 @@ def run_scf_specaug_sort():
             ),
         },
         num_epochs=450,
-        evaluation_epochs=[350, 400, 450],
+        evaluation_epochs=[350, 390, 400, 410, 450],
         prefix="conformer_",
     )
 
@@ -767,7 +767,7 @@ def run_scf_specaug_sort():
         report_args_collection,
         dev_corpora,
         returnn_root=returnn_root,
-        recog_args={"epochs": [350, 400, 450, "best"]},
+        recog_args={"epochs": [350, 390, 400, 410, 450]},
     )
     return report
 
@@ -834,7 +834,7 @@ def run_scf_baseline_decaying_batchsize():
             ),
         },
         num_epochs=426,
-        evaluation_epochs=[376, 400, 426],
+        evaluation_epochs=[366, 376, 386, 426],
         prefix="conformer_bs5k_decay_",
     )
 
@@ -849,7 +849,7 @@ def run_scf_baseline_decaying_batchsize():
         dev_corpora,
         "report_scf_baseline_bs_decay.csv",
         returnn_root=returnn_root,
-        recog_args={"epochs": [376, 400, 426, "best"]},
+        recog_args={"epochs": [366, 376, 386, 426]},
     )
     return report
 
@@ -1079,7 +1079,7 @@ def run_mel_audio_perturbation_from_checkpoint():
     nn_args, report_args_collection = get_nn_args_baseline(
         nn_base_args=nn_base_args,
         num_epochs=426,
-        evaluation_epochs=[376, 390, 400, 426],
+        evaluation_epochs=[376, 386, 396, 406, 426],
         prefix="conformer_",
     )
 
@@ -1093,7 +1093,7 @@ def run_mel_audio_perturbation_from_checkpoint():
         report_args_collection,
         dev_corpora,
         "report_mel_audio_perturbation_from_checkpoint24.csv",
-        recog_args={"epochs": [376, 390, 400, 426, "best"]},
+        recog_args={"epochs": [376, 386, 396, 406, 426]},
     )
     return report
 
