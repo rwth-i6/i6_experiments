@@ -1107,7 +1107,6 @@ def run_mel_audio_perturbation_from_checkpoint():
         report_args_collection,
         dev_corpora,
         "report_mel_audio_perturbation_from_checkpoint24.csv",
-        returnn_root=returnn_root,
         recog_args={"epochs": [376, 390, 400, 426, "best"]},
     )
     return report
