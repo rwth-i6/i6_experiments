@@ -646,6 +646,7 @@ def run_scf_audio_perturbation_from_checkpoint():
                     "audio_perturb_args": args,
                     "audio_perturb_runner": CodeWrapper("WaveformPerturbation(**audio_perturb_args)"),
                     "conv_pad_seq_len_to_power": 1.5,
+                    "watch_memory": True,
                     "accum_grad_multiple_step": 2,
                     "preload_from_files": {
                         "existing-model": {
