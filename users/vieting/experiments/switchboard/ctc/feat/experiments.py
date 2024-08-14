@@ -404,7 +404,7 @@ def run_scf_frozen_features():
             }
         },
         num_epochs=450,
-        evaluation_epochs=[350, 390, 400, 410, 450],
+        evaluation_epochs=[350, 400, 450],
         prefix="conformer_bs2x5k_frozen_features_",
     )
 
