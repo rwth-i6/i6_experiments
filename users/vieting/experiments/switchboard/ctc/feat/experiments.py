@@ -949,8 +949,6 @@ def run_mel_audio_perturbation():
                     "final_epochs": 0,
                 },
                 report_args={
-                    "architecture": "conf-wei",
-                    "lr": "wei_peak_4e-4_e450_cycle360",
                     "speed": "0.6_0.88_1.12",
                     "tempo": "0.6_0.83_1.17",
                 },
@@ -980,8 +978,6 @@ def run_mel_audio_perturbation():
                     "final_epochs": 0,
                 },
                 report_args={
-                    "architecture": "conf-wei",
-                    "lr": "wei_peak_4e-4_e450_cycle360",
                     "speed": "0.6_0.88_1.12",
                     "tempo": "0.6_0.83_1.17",
                     "preemphasis": "0.9_0.9_1.0",
@@ -1013,8 +1009,6 @@ def run_mel_audio_perturbation():
                     "final_epochs": 0,
                 },
                 report_args={
-                    "architecture": "conf-wei",
-                    "lr": "wei_peak_4e-4_e450_cycle360",
                     "speed": "0.6_0.88_1.12",
                     "tempo": "0.6_0.83_1.17",
                     "preemphasis": "0.9_0.9_1.0",
