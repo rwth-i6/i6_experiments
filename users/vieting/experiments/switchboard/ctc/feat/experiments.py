@@ -176,10 +176,6 @@ def run_mel_baseline():
         "decrease_epochs": 180,
         "final_epochs": 0,
     }
-    report_args = {
-        "wave_norm": "True",
-        "preemphasis": None,
-    }
     recog_args = {"epochs": [350, 390, 400, 410, 450]}
 
     nn_args, report_args_collection = get_nn_args_baseline(
@@ -188,13 +184,13 @@ def run_mel_baseline():
                 returnn_args=returnn_args,
                 feature_args=feature_args,
                 lr_args=lr_args,
-                report_args={**report_args, "batch_size": "10k"},
+                report_args={"batch_size": "10k"},
             ),
             "bs5k_lgm80_baseline": dict(
                 returnn_args={**returnn_args, "batch_size": 5000},
                 feature_args=feature_args,
                 lr_args=lr_args,
-                report_args={**report_args, "batch_size": "5k"},
+                report_args={"batch_size": "5k"},
             ),
             "bs2x5k_lgm80_baseline": dict(
                 returnn_args={
@@ -207,7 +203,7 @@ def run_mel_baseline():
                 },
                 feature_args=feature_args,
                 lr_args=lr_args,
-                report_args={**report_args, "batch_size": "2x5k"},
+                report_args={"batch_size": "2x5k"},
             ),
         },
         num_epochs=450,
@@ -351,11 +347,7 @@ def run_scf_frozen_features():
     }
 
     common_report_args = {
-        "architecture": "conf-wei",
-        "lr": "wei_peak_4e-4_e450_cycle360",
-        "specaug": "wei_adapt_80dim",
-        "wave_norm": "True",
-        "preemphasis": "0.97",
+        "batch_size": "2x5k",
     }
 
     nn_args, report_args_collection = get_nn_args_baseline(
@@ -404,7 +396,7 @@ def run_scf_frozen_features():
             }
         },
         num_epochs=450,
-        evaluation_epochs=[350, 400, 450],
+        evaluation_epochs=[350, 390, 400, 410, 450],
         prefix="conformer_bs2x5k_frozen_features_",
     )
 
@@ -912,8 +904,6 @@ def run_mel_audio_perturbation():
                     "lr": "wei_peak_4e-4_e450_cycle360",
                     "speed": "0.6_0.88_1.12",
                     "tempo": "0.6_0.83_1.17",
-                    "specaug": "wei_adapt_80dim",
-                    "wave_norm": "True",
                 },
             ),
             "lgm80_conf-wei-oldspecaug-audio_perturbation_v1": dict(
@@ -945,8 +935,6 @@ def run_mel_audio_perturbation():
                     "lr": "wei_peak_4e-4_e450_cycle360",
                     "speed": "0.6_0.88_1.12",
                     "tempo": "0.6_0.83_1.17",
-                    "specaug": "wei_adapt_80dim",
-                    "wave_norm": "True",
                     "preemphasis": "0.9_0.9_1.0",
                 },
             ),
@@ -980,8 +968,6 @@ def run_mel_audio_perturbation():
                     "lr": "wei_peak_4e-4_e450_cycle360",
                     "speed": "0.6_0.88_1.12",
                     "tempo": "0.6_0.83_1.17",
-                    "specaug": "wei_adapt_80dim",
-                    "wave_norm": "True",
                     "preemphasis": "0.9_0.9_1.0",
                     "codec": "wav_ulaw_0.4",
                 },
