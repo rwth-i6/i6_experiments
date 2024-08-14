@@ -237,8 +237,8 @@ def run_scf_baseline():
         "datasets": returnn_datasets,
         "extra_args": {
             "accum_grad_multiple_step": 2,
-            "conv_pad_seq_len_to_power": 1.5,
             "watch_memory": True,
+            "conv_pad_seq_len_to_power": 1.5,
         },
         "conformer_type": "wei",
         "specaug_old": {"max_feature": 15},
@@ -542,6 +542,7 @@ def run_scf_audio_perturbation_from_checkpoint():
         "specaug_old": {"max_feature": 15},
         "extra_args": {
             "accum_grad_multiple_step": 2,
+            "watch_memory": True,
             "conv_pad_seq_len_to_power": 1.5,
         },
     }
@@ -702,6 +703,7 @@ def run_scf_specaug_sort():
         "datasets": returnn_datasets,
         "extra_args": {
             "accum_grad_multiple_step": 2,
+            "watch_memory": True,
             "conv_pad_seq_len_to_power": 1.5,
         },
         "conformer_type": "wei",
