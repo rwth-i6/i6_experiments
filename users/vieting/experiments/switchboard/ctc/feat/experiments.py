@@ -544,6 +544,7 @@ def run_scf_audio_perturbation_from_checkpoint():
             "accum_grad_multiple_step": 2,
             "watch_memory": True,
             "conv_pad_seq_len_to_power": 1.5,
+            "audio_perturb_runner": CodeWrapper("WaveformPerturbation(**audio_perturb_args)"),
         },
     }
 
@@ -611,8 +612,8 @@ def run_scf_audio_perturbation_from_checkpoint():
         nn_base_args[exp_name] = dict(
             returnn_args={
                 "extra_args": {
+                    **returnn_args["extra_args"],
                     "audio_perturb_args": args,
-                    "audio_perturb_runner": CodeWrapper("WaveformPerturbation(**audio_perturb_args)"),
                     "preload_from_files": {
                         "existing-model": {
                             "filename": nn_system.train_jobs[
@@ -621,7 +622,6 @@ def run_scf_audio_perturbation_from_checkpoint():
                             "init_for_train": True,
                         }
                     },
-                    **returnn_args["extra_args"],
                 },
                 **returnn_args,
             },
@@ -643,11 +643,8 @@ def run_scf_audio_perturbation_from_checkpoint():
         nn_base_args[exp_name] = dict(
             returnn_args={
                 "extra_args": {
+                    **returnn_args["extra_args"],
                     "audio_perturb_args": args,
-                    "audio_perturb_runner": CodeWrapper("WaveformPerturbation(**audio_perturb_args)"),
-                    "conv_pad_seq_len_to_power": 1.5,
-                    "watch_memory": True,
-                    "accum_grad_multiple_step": 2,
                     "preload_from_files": {
                         "existing-model": {
                             "filename": nn_system.train_jobs["conformer_bs2x5k_scf_baseline"].out_checkpoints[24],
@@ -1002,6 +999,11 @@ def run_mel_audio_perturbation_from_checkpoint():
         "audio_perturbation": True,
         "use_multi_proc_dataset": True,
         "specaug_old": {"max_feature": 8},
+        "extra_args": {
+            "audio_perturb_runner": CodeWrapper("WaveformPerturbation(**audio_perturb_args)"),
+            "conv_pad_seq_len_to_power": 1.5,
+            "accum_grad_multiple_step": 2,
+        },
     }
     # usually the lr args would need to be adapted to fit with the checkpoint,
     # but experiments showed that restarting the scheduling is better
@@ -1052,10 +1054,8 @@ def run_mel_audio_perturbation_from_checkpoint():
         nn_base_args[exp_name] = dict(
             returnn_args={
                 "extra_args": {
+                    **returnn_args["extra_args"],
                     "audio_perturb_args": args,
-                    "audio_perturb_runner": CodeWrapper("WaveformPerturbation(**audio_perturb_args)"),
-                    "conv_pad_seq_len_to_power": 1.5,
-                    "accum_grad_multiple_step": 2,
                     "preload_from_files": {
                         "existing-model": {
                             "filename": nn_system.train_jobs["conformer_bs2x5k_lgm80_baseline"].out_checkpoints[24],
