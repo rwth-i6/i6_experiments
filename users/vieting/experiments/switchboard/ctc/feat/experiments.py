@@ -758,8 +758,8 @@ def run_scf_audio_perturbation_from_checkpoint():
         nn_args,
         report_args_collection,
         dev_corpora,
-        returnn_root=returnn_root,
         "report_scf_audio_perturbation_from_checkpoint24.csv",
+        returnn_root=returnn_root,
         recog_args={"epochs": [376, 386, 396, 406, 426]},
     )
     return report
