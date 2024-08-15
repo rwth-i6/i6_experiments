@@ -238,11 +238,14 @@ def get_returnn_config(
         pass
 
     if audio_perturbation and recognition:
+        # Remove pre-processing from recognition and replace with layers in the network if needed
+        datasets["train"]["dataset"]["audio"].pop("pre_process", None)
+
         feature_net = copy.deepcopy(feature_net)
         audio_perturb_args = extra_args.get("audio_perturb_args", {})
-        assert not ("preemphasis" in audio_perturb_args and "codecs" in audio_perturb_args), (
-            "Not implemented yet, need to think about the order to apply"
-        )
+        assert not (
+            "preemphasis" in audio_perturb_args and "codecs" in audio_perturb_args
+        ), "Not implemented yet, need to think about the order to apply"
         source_layer = "data"
         if "preemphasis" in audio_perturb_args:
             # preemphasis in training is done in perturbation pre-processing, add to network for recognition
