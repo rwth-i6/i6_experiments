@@ -4,7 +4,7 @@ from i6_core.returnn.config import CodeWrapper
 from i6_experiments.common.setups.returnn_pytorch.serialization import (
     Collection,
     PyTorchModel,
-    build_config_constructor_serializers,
+    build_config_constructor_serializers_v2,
 )
 from i6_experiments.common.setups.serialization import Import, SerializerObject
 from i6_models.config import ModelConfiguration
@@ -27,7 +27,7 @@ def get_basic_pt_network_serializer(
     model_import = Import(module_import_path)
     serializer_objects: List[SerializerObject] = [model_import]
 
-    constructor_call, imports = build_config_constructor_serializers(model_config, "cfg")
+    constructor_call, imports = build_config_constructor_serializers_v2(model_config, "cfg")
     serializer_objects.extend(imports)
     serializer_objects.append(constructor_call)
 

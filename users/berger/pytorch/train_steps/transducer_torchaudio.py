@@ -1,7 +1,6 @@
 import torch
 from torchaudio.models.rnnt import RNNT
 from returnn.tensor.tensor_dict import TensorDict
-from ..helper_functions import map_tensor_to_minus1_plus1_interval
 
 
 def train_step(*, model: RNNT, extern_data: TensorDict, blank_id: int, **kwargs):
@@ -10,7 +9,6 @@ def train_step(*, model: RNNT, extern_data: TensorDict, blank_id: int, **kwargs)
     audio_features = extern_data["data"].raw_tensor  # [B, T, F]
     assert audio_features is not None
     audio_features = audio_features.squeeze(-1)
-    audio_features = map_tensor_to_minus1_plus1_interval(audio_features)
     assert extern_data["data"].dims[1].dyn_size_ext is not None
     audio_features_len_rf = extern_data["data"].dims[1].dyn_size_ext  # [B]
     assert audio_features_len_rf is not None
@@ -59,7 +57,6 @@ def train_step_k2(*, model: RNNT, extern_data: TensorDict, blank_id: int, rnnt_t
     audio_features = extern_data["data"].raw_tensor  # [B, T, F]
     assert audio_features is not None
     audio_features = audio_features.squeeze(-1)
-    audio_features = map_tensor_to_minus1_plus1_interval(audio_features)
     assert extern_data["data"].dims[1].dyn_size_ext is not None
     audio_features_len_rf = extern_data["data"].dims[1].dyn_size_ext  # [B]
     assert audio_features_len_rf is not None
@@ -123,7 +120,6 @@ def train_step_k2_pruned(
     audio_features = extern_data["data"].raw_tensor  # [B, T, F]
     assert audio_features is not None
     audio_features = audio_features.squeeze(-1)
-    audio_features = map_tensor_to_minus1_plus1_interval(audio_features)
     assert extern_data["data"].dims[1].dyn_size_ext is not None
     audio_features_len_rf = extern_data["data"].dims[1].dyn_size_ext  # [B]
     assert audio_features_len_rf is not None

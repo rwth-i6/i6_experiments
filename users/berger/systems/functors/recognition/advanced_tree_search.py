@@ -27,6 +27,7 @@ class AdvancedTreeSearchFunctor(
         prior_scales: Optional[List[float]] = None,
         pronunciation_scales: Optional[List[float]] = None,
         prior_args: Optional[Dict] = None,
+        prior_epoch: Optional[int] = None,
         am_args: Optional[Dict] = None,
         lattice_to_ctm_kwargs: Optional[Dict] = None,
         feature_type: dataclasses.FeatureType = dataclasses.FeatureType.SAMPLES,
@@ -73,6 +74,7 @@ class AdvancedTreeSearchFunctor(
             lm_scales, prior_scales, pronunciation_scales, epochs
         ):
             checkpoint = self._get_checkpoint(train_job.job, epoch)
+
             if backend == Backend.TENSORFLOW:
                 tf_graph = self._make_tf_graph(
                     train_job=train_job.job,
@@ -101,9 +103,13 @@ class AdvancedTreeSearchFunctor(
             else:
                 raise NotImplementedError
 
+            if prior_epoch is None:
+                prior_checkpoint = checkpoint
+            else:
+                prior_checkpoint = self._get_checkpoint(train_job.job, prior_epoch)
             prior_file = self._get_prior_file(
                 prior_config=prior_config,
-                checkpoint=checkpoint,
+                checkpoint=prior_checkpoint,
                 **prior_args,
             )
 

@@ -1,12 +1,10 @@
 import torch
 from returnn.tensor.tensor_dict import TensorDict
-from ..helper_functions import map_tensor_to_minus1_plus1_interval
 
 
 def forward_step(*, model: torch.nn.Module, extern_data: TensorDict, **kwargs):
     audio_features = extern_data["data"].raw_tensor
     assert audio_features is not None
-    audio_features = map_tensor_to_minus1_plus1_interval(audio_features)
 
     audio_features_len = extern_data["data"].dims[1].dyn_size_ext.raw_tensor
     assert audio_features_len is not None

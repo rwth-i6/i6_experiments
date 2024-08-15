@@ -74,13 +74,13 @@ class ExportPyTorchModelToOnnxJobV2(Job):
         returnn_config: ReturnnConfig,
         returnn_python_exe: tk.Path,
         returnn_root: tk.Path,
-        verbostity: int = 4,
+        verbosity: int = 4,
     ):
         self.pytorch_checkpoint = pytorch_checkpoint
         self.returnn_python_exe = returnn_python_exe
         self.returnn_config = returnn_config
         self.returnn_root = returnn_root
-        self.verbosity = verbostity
+        self.verbosity = verbosity
 
         self.out_returnn_config = self.output_path("returnn.config")
         self.out_onnx_model = self.output_path("model.onnx")

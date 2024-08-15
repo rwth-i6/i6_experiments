@@ -21,6 +21,7 @@ from i6_experiments.users.berger.recipe.converse.scoring import (
 from i6_experiments.users.berger.recipe.recognition.scoring import UpsampleCtmFileJob
 from i6_experiments.users.berger.recipe.returnn.training import get_backend
 from i6_experiments.users.berger.util import lru_cache_with_signature
+from i6_experiments.users.berger.recipe.returnn.onnx import ExportPyTorchModelToOnnxJobV2
 
 from .. import dataclasses, types
 
@@ -87,20 +88,25 @@ class RasrFunctor(ABC):
         self,
         returnn_config: returnn.ReturnnConfig,
         checkpoint: returnn.PtCheckpoint,
+        mini_returnn: bool = False,
     ) -> tk.Path:
-        # onnx_export_job = custom_returnn.ExportPyTorchModelToOnnxJob(
-        #     pytorch_checkpoint=checkpoint,
-        #     returnn_config=returnn_config,
-        #     returnn_root=self.returnn_root,
-        # )
-        onnx_export_job = returnn.TorchOnnxExportJob(
-            returnn_config=returnn_config,
-            checkpoint=checkpoint,
-            input_names=[],
-            output_names=[],
-            returnn_python_exe=self.returnn_python_exe,
-            returnn_root=self.returnn_root,
-        )
+        if mini_returnn:
+            onnx_export_job = ExportPyTorchModelToOnnxJobV2(
+                pytorch_checkpoint=checkpoint,
+                returnn_config=returnn_config,
+                returnn_python_exe=self.returnn_python_exe,
+                returnn_root=self.returnn_root,
+                verbosity=5,
+            )
+        else:
+            onnx_export_job = returnn.TorchOnnxExportJob(
+                returnn_config=returnn_config,
+                checkpoint=checkpoint,
+                input_names=[],
+                output_names=[],
+                returnn_python_exe=self.returnn_python_exe,
+                returnn_root=self.returnn_root,
+            )
         return onnx_export_job.out_onnx_model
 
     def _make_base_feature_flow(

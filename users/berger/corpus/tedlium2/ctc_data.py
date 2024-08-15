@@ -37,6 +37,7 @@ def get_tedlium2_data_dumped_labels(
     augmented_lexicon: bool = True,
     feature_type: FeatureType = FeatureType.GAMMATONE_16K,
     blank_idx: int = 0,
+    partition_epoch: int = 5,
 ) -> ReturnnSearchSetupData:
     if cv_keys is None:
         cv_keys = ["dev"]
@@ -72,7 +73,7 @@ def get_tedlium2_data_dumped_labels(
             rasr_binary_path=rasr_binary_path,
             rasr_arch=rasr_arch,
             extra_config={
-                "partition_epoch": 5,
+                "partition_epoch": partition_epoch,
                 "seq_ordering": "laplace:.1000",
             },
             remove_blank_idx=blank_idx,
@@ -88,7 +89,7 @@ def get_tedlium2_data_dumped_labels(
             rasr_binary_path=rasr_binary_path,
             rasr_arch=rasr_arch,
             extra_config={
-                "partition_epoch": 5,
+                "partition_epoch": partition_epoch,
                 "seq_ordering": "laplace:.1000",
             },
         )

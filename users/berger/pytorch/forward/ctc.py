@@ -5,7 +5,6 @@ from returnn.frontend import Tensor
 from returnn.tensor.tensor_dict import TensorDict
 from returnn.datasets.util.vocabulary import Vocabulary
 from sisyphus import tk
-from ..helper_functions import map_tensor_to_minus1_plus1_interval
 
 
 def flashlight_ctc_decoder_forward_step(
@@ -33,7 +32,6 @@ def flashlight_ctc_decoder_forward_step(
 
     audio_features = extern_data["data"].raw_tensor
     assert audio_features is not None
-    audio_features = map_tensor_to_minus1_plus1_interval(audio_features)
 
     assert extern_data["data"].dims[1].dyn_size_ext is not None
     audio_features_len = extern_data["data"].dims[1].dyn_size_ext.raw_tensor
