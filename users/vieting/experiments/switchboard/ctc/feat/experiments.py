@@ -257,6 +257,12 @@ def run_scf_baseline():
                 lr_args=lr_args,
                 report_args={"batch_size": "2x5k"},
             ),
+            "bs2x5k_scf_baseline_wn": dict(
+                returnn_args=returnn_args,
+                 feature_args={**feature_args,"wave_norm": True},
+                lr_args=lr_args,
+                report_args={"batch_size": "2x5k"},
+            ),
             "bs2x5k_scf_baseline_preemphasis97_wn": dict(
                 returnn_args=returnn_args,
                 feature_args={**feature_args, "preemphasis": 0.97, "wave_norm": True},
@@ -714,6 +720,30 @@ def run_scf_audio_perturbation_from_checkpoint():
                 **returnn_args,
             },
             feature_args={"class": "ScfNetwork", "size_tf": 256 // 2, "stride_tf": 10 // 2},
+            lr_args=lr_args,
+            report_args=report_args,
+        )
+    # comparison with wave norm
+    for args in perturbation_args_preemphasis:
+        exp_name_suffix, report_args = args_to_key_and_report_strings(args)
+
+        # Construct the exp_name and report_args
+        exp_name = f"scf_bs2x5k_perturb_from_checkpoint_24_wn_{exp_name_suffix}"
+        nn_base_args[exp_name] = dict(
+            returnn_args={
+                "extra_args": {
+                    **returnn_args["extra_args"],
+                    "audio_perturb_args": args,
+                    "preload_from_files": {
+                        "existing-model": {
+                            "filename": nn_system.train_jobs["conformer_bs2x5k_scf_baseline_wn"].out_checkpoints[24],
+                            "init_for_train": True,
+                        }
+                    },
+                },
+                **returnn_args,
+            },
+            feature_args={"class": "ScfNetwork", "size_tf": 256 // 2, "stride_tf": 10 // 2, "wave_norm": True},
             lr_args=lr_args,
             report_args=report_args,
         )
