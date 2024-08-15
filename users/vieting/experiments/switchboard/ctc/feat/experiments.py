@@ -1158,12 +1158,6 @@ def run_mel_audio_perturbation_from_checkpoint():
         evaluation_epochs=[376, 386, 396, 406, 426],
         prefix="conformer_",
     )
-
-    returnn_root = CloneGitRepositoryJob(
-        "https://github.com/rwth-i6/returnn",
-        commit="c4d36d06f6465e82a50d400d114259e07b8b0709",
-    ).out_repository
-    returnn_root.hash_overwrite = "returnn_conv_padding"
     report, _ = run_nn_args(
         nn_args,
         report_args_collection,
