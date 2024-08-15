@@ -368,6 +368,11 @@ def run_scf_baseline_lr_reset():
         evaluation_epochs=[326, 376, 386, 396, 406, 426],
         prefix="conformer_",
     )
+    returnn_root = CloneGitRepositoryJob(
+        "https://github.com/rwth-i6/returnn",
+        commit="c4d36d06f6465e82a50d400d114259e07b8b0709",
+    ).out_repository
+    returnn_root.hash_overwrite = "returnn_conv_padding"
     report, ctc_nn_system = run_nn_args(
         nn_args,
         report_args_collection,
