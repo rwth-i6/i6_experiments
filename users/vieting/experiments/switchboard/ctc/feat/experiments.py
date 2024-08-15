@@ -259,7 +259,7 @@ def run_scf_baseline():
             ),
             "bs2x5k_scf_baseline_wn": dict(
                 returnn_args=returnn_args,
-                 feature_args={**feature_args,"wave_norm": True},
+                feature_args={**feature_args, "wave_norm": True},
                 lr_args=lr_args,
                 report_args={"batch_size": "2x5k"},
             ),
@@ -329,17 +329,23 @@ def run_scf_baseline_lr_reset():
             "conv_pad_seq_len_to_power": 1.5,
             "preload_from_files": {
                 "existing-model": {
-                    "filename": nn_system.train_jobs[
-                        "conformer_bs2x5k_scf_baseline_preemphasis97_wn"
-                    ].out_checkpoints[400],
-                "init_for_train": True,
+                    "filename": nn_system.train_jobs["conformer_bs2x5k_scf_baseline_preemphasis97_wn"].out_checkpoints[
+                        400
+                    ],
+                    "init_for_train": True,
                 },
             },
         },
         "conformer_type": "wei",
         "specaug_old": {"max_feature": 15},
     }
-    feature_args = {"class": "ScfNetwork", "size_tf": 256 // 2, "stride_tf": 10 // 2, "preemphasis": 0.97, "wave_norm": True}
+    feature_args = {
+        "class": "ScfNetwork",
+        "size_tf": 256 // 2,
+        "stride_tf": 10 // 2,
+        "preemphasis": 0.97,
+        "wave_norm": True,
+    }
     lr_args = {
         "peak_lr": 4e-4,
         "start_lr": 1.325e-05,
@@ -448,15 +454,15 @@ def run_scf_frozen_features():
                                 "filename": nn_system.train_jobs[
                                     "conformer_bs2x5k_scf_baseline_preemphasis97_wn"
                                 ].out_checkpoints[400],
-                            "init_for_train": True,
-                            "prefix": "features",
-                            "var_name_mapping": {
-                                "/conv_h_filter/conv_h_filter": "features/conv_h_filter/conv_h_filter",
-                                "/conv_l/W": "features/conv_l/W",
-                                "/conv_l_act/bias": "features/conv_l_act/bias",
-                                "/conv_l_act/scale": "features/conv_l_act/scale",
-                                "/wave_norm/bias": "features/wave_norm/bias",
-                                "/wave_norm/scale": "features/wave_norm/scale",
+                                "init_for_train": True,
+                                "prefix": "features",
+                                "var_name_mapping": {
+                                    "/conv_h_filter/conv_h_filter": "features/conv_h_filter/conv_h_filter",
+                                    "/conv_l/W": "features/conv_l/W",
+                                    "/conv_l_act/bias": "features/conv_l_act/bias",
+                                    "/conv_l_act/scale": "features/conv_l_act/scale",
+                                    "/wave_norm/bias": "features/wave_norm/bias",
+                                    "/wave_norm/scale": "features/wave_norm/scale",
                                 },
                             },
                         },
@@ -465,7 +471,7 @@ def run_scf_frozen_features():
                 "feature_args": common_feature_args,
                 "lr_args": common_lr_args,
                 "report_args": common_report_args,
-            }
+            },
         },
         num_epochs=450,
         evaluation_epochs=[350, 390, 400, 410, 450],
