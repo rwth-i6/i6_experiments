@@ -396,6 +396,71 @@ def run_scf_baseline_lr_reset():
     return report, ctc_nn_system
 
 
+def run_mel_baseline_lr_reset():
+    gs.ALIAS_AND_OUTPUT_SUBDIR = "experiments/switchboard/ctc/feat/"
+    _, nn_system = run_scf_baseline()
+    (
+        returnn_datasets,
+        rasr_loss_corpus_path,
+        rasr_loss_corpus_segments,
+        rasr_loss_lexicon_path,
+        dev_corpora,
+    ) = get_datasets()
+    returnn_args = {
+        "batch_size": 5000,
+        "rasr_binary_path": RASR_BINARY_PATH,
+        "rasr_loss_corpus_path": rasr_loss_corpus_path,
+        "rasr_loss_corpus_segments": rasr_loss_corpus_segments,
+        "rasr_loss_lexicon_path": rasr_loss_lexicon_path,
+        "datasets": returnn_datasets,
+        "extra_args": {
+            "accum_grad_multiple_step": 2,
+            "watch_memory": True,
+            "conv_pad_seq_len_to_power": 1.5,
+            "preload_from_files": {
+                "existing-model": {
+                    "filename": nn_system.train_jobs["conformer_bs2x5k_lgm80_baseline"].out_checkpoints[
+                        400
+                    ],
+                    "init_for_train": True,
+                },
+            },
+        },
+        "conformer_type": "wei",
+        "specaug_old": {"max_feature": 15},
+    }
+    feature_args = {"class": "LogMelNetwork", "wave_norm": True, "frame_size": 200, "frame_shift": 80, "fft_size": 256}
+    lr_args = {
+        "peak_lr": 4e-4,
+        "start_lr": 1.325e-05,
+        "end_lr": 1e-5,
+        "increase_epochs": 180,
+        "decrease_epochs": 180,
+        "final_epochs": 0,
+    }
+
+    nn_args, report_args_collection = get_nn_args_baseline(
+        nn_base_args={
+            "bs2x5k_lgm80_baseline_lr_reset": dict(
+                returnn_args=returnn_args,
+                feature_args=feature_args,
+                lr_args=lr_args,
+                report_args={"batch_size": "2x5k"},
+            ),
+        },
+        num_epochs=426,
+        evaluation_epochs=[326, 376, 386, 396, 406, 426],
+        prefix="conformer_",
+    )
+    report, ctc_nn_system = run_nn_args(
+        nn_args,
+        report_args_collection,
+        dev_corpora,
+        recog_args={"epochs": [326, 376, 386, 396, 406, 426]},
+    )
+    return report, ctc_nn_system
+
+
 def run_scf_frozen_features():
     gs.ALIAS_AND_OUTPUT_SUBDIR = "experiments/switchboard/ctc/feat/"
 
