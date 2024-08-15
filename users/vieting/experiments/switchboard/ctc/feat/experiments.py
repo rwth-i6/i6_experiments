@@ -205,6 +205,19 @@ def run_mel_baseline():
                 lr_args=lr_args,
                 report_args={"batch_size": "2x5k"},
             ),
+            "bs2x5k_lgm80_baseline_preemphasis97": dict(
+                returnn_args={
+                    **returnn_args,
+                    "batch_size": 5000,
+                    "extra_args": {
+                        "accum_grad_multiple_step": 2,
+                        "watch_memory": True,
+                    },
+                },
+                feature_args={**feature_args, "preemphasis": 0.97},
+                lr_args=lr_args,
+                report_args={"batch_size": "2x5k"},
+            ),
         },
         num_epochs=450,
         evaluation_epochs=[6, 12, 24, 350, 390, 400, 410, 450],
@@ -668,15 +681,21 @@ def run_scf_audio_perturbation_from_checkpoint():
     nn_args, report_args_collection = get_nn_args_baseline(
         nn_base_args=nn_base_args,
         num_epochs=426,
-        evaluation_epochs=[[376, 386, 396, 406, 426]],
+        evaluation_epochs=[376, 386, 396, 406, 426],
         prefix="conformer_",
     )
+    returnn_root = CloneGitRepositoryJob(
+        "https://github.com/rwth-i6/returnn",
+        commit="c4d36d06f6465e82a50d400d114259e07b8b0709",
+    ).out_repository
+    returnn_root.hash_overwrite = "returnn_conv_padding"
     report, _ = run_nn_args(
         nn_args,
         report_args_collection,
         dev_corpora,
+        returnn_root=returnn_root,
         "report_scf_audio_perturbation_from_checkpoint24.csv",
-        recog_args={"epochs": [[376, 386, 396, 406, 426]]},
+        recog_args={"epochs": [376, 386, 396, 406, 426]},
     )
     return report
 
@@ -823,9 +842,9 @@ def run_scf_baseline_decaying_batchsize():
                     "final_epochs": 0,
                 },
                 report_args={
-                    "deacy_epoch": 24,
-                    "start_batch_size": 5000,
-                    "end_batch_size": 10000,
+                    "batch_size_decay_epoch": 24,
+                    "batch_size_start": 5000,
+                    "batch_size_end": 10000,
                 },
             ),
         },
@@ -875,7 +894,6 @@ def run_mel_audio_perturbation_from_checkpoint():
         "specaug_old": {"max_feature": 8},
         "extra_args": {
             "audio_perturb_runner": CodeWrapper("WaveformPerturbation(**audio_perturb_args)"),
-            "conv_pad_seq_len_to_power": 1.5,
             "accum_grad_multiple_step": 2,
         },
     }
@@ -889,6 +907,8 @@ def run_mel_audio_perturbation_from_checkpoint():
         "decrease_epochs": 180,
         "final_epochs": 0,
     }
+
+    feature_args = {"class": "LogMelNetwork", "wave_norm": True, "frame_size": 200, "frame_shift": 80, "fft_size": 256}
 
     perturbation_args = [
         {"codecs": [{"encoding": "ULAW", "prob": 0.3, "minimum": 250, "maximum": 260}]},
@@ -911,11 +931,15 @@ def run_mel_audio_perturbation_from_checkpoint():
         {"non_linearity": {"prob": 0.7, "minimum": 0.9, "maximum": 1.1}},
         {"non_linearity": {"prob": 0.3, "minimum": 0.9, "maximum": 1.1}},
         {"non_linearity": {"prob": 1, "minimum": 0.9, "maximum": 1.1}},
+    ]
+
+    # seperated because the training needs a different network without preemphasis
+    perturbation_args_preemphasis = [
         {"preemphasis": {"prob": 0.3, "minimum": 0.94, "maximum": 1.0, "default": 0.97}},
         {"preemphasis": {"prob": 0.7, "minimum": 0.94, "maximum": 1.0, "default": 0.97}},
-        {"preemphasis": {"prob": 1.0, "minimum": 0.94, "maximum": 1.0, "default": 0.97}},
         {"preemphasis": {"prob": 0.7, "minimum": 0.90, "maximum": 1.0, "default": 0.97}},
         {"preemphasis": {"prob": 0.7, "minimum": 0.90, "maximum": 1.0, "default": 0.95}},
+        {"preemphasis": {"prob": 1.0, "minimum": 0.94, "maximum": 1.0, "default": 0.97}},
     ]
 
     nn_base_args = {}
@@ -939,13 +963,31 @@ def run_mel_audio_perturbation_from_checkpoint():
                 },
                 **returnn_args,
             },
-            feature_args={
-                "class": "LogMelNetwork",
-                "wave_norm": True,
-                "frame_size": 200,
-                "frame_shift": 80,
-                "fft_size": 256,
+            feature_args=feature_args,
+            lr_args=lr_args,
+            report_args=report_args,
+        )
+
+    for args in perturbation_args_preemphasis:
+        exp_name_suffix, report_args = args_to_key_and_report_strings(args)
+
+        # Construct the exp_name and report_args
+        exp_name = f"mel_bs2x5k_perturb_from_checkpoint_24_{exp_name_suffix}"
+        nn_base_args[exp_name] = dict(
+            returnn_args={
+                "extra_args": {
+                    **returnn_args["extra_args"],
+                    "audio_perturb_args": args,
+                    "preload_from_files": {
+                        "existing-model": {
+                            "filename": nn_system.train_jobs["bs2x5k_lgm80_baseline_preemphasis97"].out_checkpoints[24],
+                            "init_for_train": True,
+                        }
+                    },
+                },
+                **returnn_args,
             },
+            feature_args=feature_args,
             lr_args=lr_args,
             report_args=report_args,
         )
