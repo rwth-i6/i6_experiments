@@ -416,7 +416,6 @@ def run_mel_baseline_lr_reset():
         "extra_args": {
             "accum_grad_multiple_step": 2,
             "watch_memory": True,
-            "conv_pad_seq_len_to_power": 1.5,
             "preload_from_files": {
                 "existing-model": {
                     "filename": nn_system.train_jobs["conformer_bs2x5k_lgm80_baseline"].out_checkpoints[400],
