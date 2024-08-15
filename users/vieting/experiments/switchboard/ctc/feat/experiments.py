@@ -424,7 +424,7 @@ def run_mel_baseline_lr_reset():
             },
         },
         "conformer_type": "wei",
-        "specaug_old": {"max_feature": 15},
+        "specaug_old": {"max_feature": 8},
     }
     feature_args = {"class": "LogMelNetwork", "wave_norm": True, "frame_size": 200, "frame_shift": 80, "fft_size": 256}
     lr_args = {
