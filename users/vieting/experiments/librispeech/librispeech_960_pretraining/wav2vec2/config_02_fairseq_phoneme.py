@@ -218,6 +218,7 @@ def run_fairseq_pretraining_positive_sampling(num_positives: int = 10):
 
 def py():
     run_fairseq_pretraining_negatives_other_target()
+    run_fairseq_pretraining_negatives_hard()
     run_fairseq_pretraining_phoneme_boundary_masking()
     run_fairseq_pretraining_phoneme_negatives_other_target_boundary_masking()
     run_fairseq_pretraining_positive_sampling(num_positives=5)
