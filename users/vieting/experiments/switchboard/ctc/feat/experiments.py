@@ -398,7 +398,7 @@ def run_scf_baseline_lr_reset():
 
 def run_mel_baseline_lr_reset():
     gs.ALIAS_AND_OUTPUT_SUBDIR = "experiments/switchboard/ctc/feat/"
-    _, nn_system = run_scf_baseline()
+    _, nn_system = run_mel_baseline()
     (
         returnn_datasets,
         rasr_loss_corpus_path,
