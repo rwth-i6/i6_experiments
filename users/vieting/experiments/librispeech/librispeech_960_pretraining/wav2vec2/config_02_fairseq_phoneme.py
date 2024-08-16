@@ -95,6 +95,34 @@ def run_fairseq_pretraining_negatives_other_target():
     return job
 
 
+def run_fairseq_pretraining_negatives_hard():
+    prefix_name = "experiments/librispeech/librispeech_960_pretraining/wav2vec2/"
+    alignment = get_alignment_hdf()
+    num_gpus = 8
+    fairseq_python_exe = tk.Path("/usr/bin/python3")
+    fairseq_root = get_fairseq_root(fairseq_exe=fairseq_python_exe, commit="56acedca3b72c09ec30b7208da0d15ada03d0479")
+    fairseq_training_args = dict(
+        save_interval=25,
+        max_epoch=600,
+        max_update=420000,
+        fairseq_root=fairseq_root,
+        fairseq_python_exe=fairseq_python_exe,
+        rqmt={"time": 120, "mem": 12, "cpu": 2, "gpu": num_gpus},
+    )
+
+    # run pre-training
+    exp_name = "monophone_negatives_hard_v1"
+    fairseq_args = get_fairseq_args(num_gpus=num_gpus)
+    fairseq_args["task"]["alignment"] = alignment
+    fairseq_args["model"]["negative_sampling_strategy"] = "hard_negatives"
+    fairseq_training_args["fairseq_root"] = fairseq_root
+    fairseq_config = FairseqHydraConfig(fairseq_args)
+    job = FairseqHydraTrainingJob(fairseq_config, **fairseq_training_args)
+    job.add_alias(os.path.join(prefix_name, exp_name, "pretraining"))
+    tk.register_output(f"{prefix_name}/{exp_name}/pretraining/scores.png", job.out_plot_se)
+    return job
+
+
 def run_fairseq_pretraining_phoneme_boundary_masking():
     prefix_name = "experiments/librispeech/librispeech_960_pretraining/wav2vec2/"
     alignment = get_alignment_hdf()
@@ -181,11 +209,12 @@ def run_fairseq_pretraining_positive_sampling(num_positives: int = 10):
     job = FairseqHydraTrainingJob(fairseq_config, **fairseq_training_args)
     job.add_alias(os.path.join(prefix_name, exp_name, "pretraining"))
     tk.register_output(f"{prefix_name}/{exp_name}/pretraining/scores.png", job.out_plot_se)
-    return job    
+    return job
 
 
 def py():
     run_fairseq_pretraining_negatives_other_target()
+    run_fairseq_pretraining_negatives_hard()
     run_fairseq_pretraining_phoneme_boundary_masking()
     run_fairseq_pretraining_phoneme_negatives_other_target_boundary_masking()
     run_fairseq_pretraining_positive_sampling(num_positives=5)
