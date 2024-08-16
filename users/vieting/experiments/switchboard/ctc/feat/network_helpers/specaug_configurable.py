@@ -242,16 +242,21 @@ def transform(data, network, **config):
     
     def get_masked():
         x_masked = x
+        time_mask_max_size = tf.gather(specaug_params['time_mask_max_size'], current_epoch)
+        time_mask_max_num = tf.gather(specaug_params['time_mask_max_num'], current_epoch)
+        freq_mask_max_num = tf.gather(specaug_params['freq_mask_max_num'], current_epoch)
+        freq_mask_max_size = tf.gather(specaug_params['freq_mask_max_size'], current_epoch)
+        max_num_time_masks = tf.maximum(
+            tf.shape(x)[data.time_dim_axis] // tf.cast(1.0 / config['time_mask_max_proportion'] * tf.cast(time_mask_max_size, tf.float32), tf.int32),
+            time_mask_max_num
+        )
         x_masked = random_mask(
             x_masked,
             batch_axis=data.batch_dim_axis,
             axis=data.time_dim_axis,
             min_num=0,
-            max_num=tf.maximum(
-                tf.shape(x)[data.time_dim_axis] // int(1.0 / config['time_mask_max_proportion'] * specaug_params['time_mask_max_size'][current_epoch]),
-                specaug_params['time_mask_max_num'][current_epoch],
-            ),
-            max_dims=specaug_params['time_mask_max_size'][current_epoch],
+            max_num=max_num_time_masks,
+            max_dims=time_mask_max_size,
             sorted_indices=tf.range(tf.shape(x)[data.time_dim_axis]),
         )
         x_masked = random_mask(
@@ -259,8 +264,8 @@ def transform(data, network, **config):
             batch_axis=data.batch_dim_axis,
             axis=data.feature_dim_axis,
             min_num=0,
-            max_num=specaug_params['freq_mask_max_num'][current_epoch],
-            max_dims=specaug_params['freq_mask_max_size'][current_epoch],
+            max_num=freq_mask_max_num,
+            max_dims=freq_mask_max_size,
             sorted_indices=sorted_indices,
         )
         return x_masked
