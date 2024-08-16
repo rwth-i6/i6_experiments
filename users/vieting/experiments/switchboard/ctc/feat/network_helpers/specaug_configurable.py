@@ -212,8 +212,6 @@ def random_mask(x, batch_axis, axis, min_num, max_num, max_dims, sorted_indices)
     return x
 
 def transform(data, network, **config):
-    from specaug_params import generate_specaug_params
-
     x = data.placeholder
     step = network.global_train_step
     current_epoch = tf.cast(step / config['steps_per_epoch'], tf.int32)
