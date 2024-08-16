@@ -787,7 +787,7 @@ def run_scf_specaug_sort():
         "conformer_type": "wei",
         "specaug_old": {"max_feature": 15},
     }
-    feature_args = {"class": "ScfNetwork", "size_tf": 256 // 2, "stride_tf": 10 // 2}
+    feature_args = {"class": "ScfNetwork", "size_tf": 256 // 2, "stride_tf": 10 // 2, "wave_norm": True, "preemphasis": 0.97}
     lr_args = {
         "peak_lr": 4e-4,
         "start_lr": 1.325e-05,
@@ -800,32 +800,9 @@ def run_scf_specaug_sort():
     nn_args, report_args_collection = get_nn_args_baseline(
         nn_base_args={
             "bs2x5k_scf_specaugsortlayer2": dict(
-                returnn_args={**returnn_args, "specaug_old": {"max_feature": 15, "sort_layer2": True}},
+                returnn_args={**returnn_args, "specaug_new": {}},
                 feature_args=feature_args,
                 lr_args=lr_args,
-                report_args={"batch_size": "2x5k"},
-            ),
-            "bs2x5k_scf_specaugsortlayer2frome210": dict(
-                returnn_args={
-                    **returnn_args,
-                    "specaug_old": {"max_feature": 15, "sort_layer2": True},
-                    "extra_args": {
-                        "watch_memory": True,
-                        "conv_pad_seq_len_to_power": 1.5,
-                        "preload_from_files": {
-                            "existing-model": {
-                                "filename": (
-                                    "/work/asr4/vieting/setups/swb/work/20230406_feat/i6_core/returnn/training/"
-                                    "ReturnnTrainingJob.y9otnVMrBAWw/output/models/backup.epoch.210"
-                                ),
-                                "init_for_train": True,
-                            },
-                        },
-                        **returnn_args["extra_args"],
-                    },
-                },
-                feature_args=feature_args,
-                lr_args={**lr_args, "peak_lr": 3.35e-4, "increase_epochs": 0, "decrease_epochs": 150},
                 report_args={"batch_size": "2x5k"},
             ),
         },
