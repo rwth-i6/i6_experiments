@@ -784,8 +784,8 @@ def run_scf_specaug_sort():
             "watch_memory": True,
             "conv_pad_seq_len_to_power": 1.5,
         },
+        "specaug_new": {"max_feature": 15},
         "conformer_type": "wei",
-        "specaug_old": {"max_feature": 15},
     }
     feature_args = {"class": "ScfNetwork", "size_tf": 256 // 2, "stride_tf": 10 // 2, "wave_norm": True, "preemphasis": 0.97}
     lr_args = {
@@ -800,7 +800,7 @@ def run_scf_specaug_sort():
     nn_args, report_args_collection = get_nn_args_baseline(
         nn_base_args={
             "bs2x5k_scf_specaugsortlayer2": dict(
-                returnn_args={**returnn_args, "specaug_new": {}},
+                returnn_args=returnn_args,
                 feature_args=feature_args,
                 lr_args=lr_args,
                 report_args={"batch_size": "2x5k"},

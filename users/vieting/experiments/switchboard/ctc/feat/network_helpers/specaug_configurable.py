@@ -24,7 +24,7 @@ def add_specaug_layer(
     Returns:
         tuple: A tuple containing the name of the SpecAugment layer and the functions required for it.
     """
-    from specaug_param_helper import generate_specaug_params
+    from .specaug_param_helper import generate_specaug_params
 
     if from_list is None:
         from_list = ["data"]
@@ -269,5 +269,5 @@ def transform(data, network, **config):
     x = network.cond_on_train(get_masked, lambda: x)
     return x
 
-def get_specaug_funcs() -> List[Callable]:
+def get_specaug_funcs() -> list:
     return [sort_filters_by_center_freq, _mask, random_mask, transform]
