@@ -212,6 +212,7 @@ def random_mask(x, batch_axis, axis, min_num, max_num, max_dims, sorted_indices)
     return x
 
 def transform(data, network, **config):
+    import tensorflow as tf
     x = data.placeholder
     step = network.global_train_step
     current_epoch = tf.cast(step / config['steps_per_epoch'], tf.int32)
