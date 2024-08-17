@@ -170,7 +170,7 @@ def random_mask(x, batch_axis, axis, min_num, max_num, max_dims, sorted_indices)
         num = min_num
     else:
         num = tf.random.uniform(
-            shape=(n_batch,), minval=min_num, maxval=max_num + 1, dtype=tf.int32
+            shape=(n_batch,), minval=min_num, maxval=max_num, dtype=tf.int32
         )
     # https://github.com/tensorflow/tensorflow/issues/9260
     # https://timvieira.github.io/blog/post/2014/08/01/gumbel-max-trick-and-weighted-reservoir-sampling/
