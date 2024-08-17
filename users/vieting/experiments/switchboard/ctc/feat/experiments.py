@@ -784,7 +784,7 @@ def run_scf_specaug_sort():
             "watch_memory": True,
             "conv_pad_seq_len_to_power": 1.5,
         },
-        "specaug_new": {"max_feature": 15, "steps_per_epoch": 4100},
+        "specaug_new": {"max_feature": 8, "steps_per_epoch": 4100},
         "conformer_type": "wei",
     }
     feature_args = {"class": "ScfNetwork", "size_tf": 256 // 2, "stride_tf": 10 // 2, "wave_norm": True, "preemphasis": 0.97}
