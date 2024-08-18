@@ -20,6 +20,25 @@ def add_specaug_layer(
         from_list (Optional[Union[str, List[str]]], optional): The input layer(s) for the SpecAugment layer.
             Default is ["data"].
         config (Dict, optional): A dictionary containing configuration options for the SpecAugment layer.
+            Config Dict Parameters:
+                max_time_num (int): The beginning maximum number of time masks to be applied. Default is 3.
+                max_time (int): The beginning maximum size (in time frames) of each time mask. Default is 10.
+                max_feature_num (int): The beginning maximum number of frequency masks to be applied. Default is 4.
+                max_feature (int): The beginning maximum size (in frequency bins) of each frequency mask. Default is 5.
+                enable_sorting (bool): Whether to sort filters by their center frequency before applying masks. Default is True.
+                steps_per_epoch (int): The number of steps per epoch. Make sure this parameter is accurate since the all the scheduling depends on it. Default is 2080.
+                sorting_start_epoch (int): The subepoch number to start sorting filters. Default is 0.
+                mask_growth_strategy (str): The strategy for increasing the mask sizes over epochs (linear or step). Default is "linear".
+                time_mask_num_schedule (Dict[int, float]): A dictionary mapping subepoch numbers to the multiplicator for the time mask number.
+                    Default is {0: 1, 10: 1.5, 20: 2}.
+                time_mask_size_schedule (Dict[int, float]): A dictionary mapping subepoch numbers to the multiplicator for the time mask size.
+                    Default is {0: 1, 15: 1.5, 25: 2}.
+                freq_mask_num_schedule (Dict[int, float]): A dictionary mapping subepoch numbers to the multiplicator for the frequency mask number.
+                    Default is {0: 1, 5: 1.2, 15: 1.5}.
+                freq_mask_size_schedule (Dict[int, float]): A dictionary mapping subepoch numbers to the multiplicator for the frequency mask size.
+                    Default is {0: 1, 10: 1.2, 20: 1.5}.
+                time_mask_max_proportion (float): The maximum proportion of the time axis that can be masked. Default is 0.7.
+                freq_mask_max_proportion (float): The maximum proportion of the frequency axis that can be masked. Default is 0.7.
         num_epochs (int, optional): The total number of epochs for which the training will run. default 450
 
     Returns:
@@ -241,19 +260,17 @@ def transform(data, network, **config):
         freq_mask_max_num = tf.gather(specaug_params["freq_mask_max_num"], current_epoch)
         freq_mask_max_size = tf.gather(specaug_params["freq_mask_max_size"], current_epoch)
         time_mask_max_proportion = tf.cast(
-            tf.math.floor(config["time_mask_max_proportion"] * tf.cast(tf.shape(x)[data.time_dim_axis], tf.float32)), 
-            tf.int32
+            tf.math.floor(config["time_mask_max_proportion"] * tf.cast(tf.shape(x)[data.time_dim_axis], tf.float32)),
+            tf.int32,
         )
         freq_mask_max_proportion = tf.cast(
-            tf.math.floor(config["freq_mask_max_proportion"] * tf.cast(tf.shape(x)[data.feature_dim_axis], tf.float32)), 
-            tf.int32
+            tf.math.floor(config["freq_mask_max_proportion"] * tf.cast(tf.shape(x)[data.feature_dim_axis], tf.float32)),
+            tf.int32,
         )
-
 
         # check for the limits
         actual_time_mask_max_num = tf.minimum(time_mask_max_num, time_mask_max_proportion // time_mask_max_size)
         actual_freq_mask_max_num = tf.minimum(freq_mask_max_num, freq_mask_max_proportion // freq_mask_max_size)
-
 
         x_masked = random_mask(
             x_masked,
