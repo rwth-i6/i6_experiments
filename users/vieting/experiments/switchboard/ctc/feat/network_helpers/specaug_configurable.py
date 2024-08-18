@@ -254,15 +254,6 @@ def transform(data, network, **config):
         actual_time_mask_max_num = tf.minimum(time_mask_max_num, time_mask_max_proportion // time_mask_max_size)
         actual_freq_mask_max_num = tf.minimum(freq_mask_max_num, freq_mask_max_proportion // freq_mask_max_size)
 
-        # give a warning if the number of masks was limited
-        tf.print(
-            "Warning: The number of masks was limited by max_proportion! Consider changing your config."
-        ) if tf.reduce_any(
-            [
-                tf.greater(time_mask_max_num, actual_time_mask_max_num),
-                tf.greater(freq_mask_max_num, actual_freq_mask_max_num),
-            ]
-        ) else None
 
         x_masked = random_mask(
             x_masked,
