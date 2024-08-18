@@ -785,6 +785,8 @@ def run_scf_stage1():
         prefix="viterbi_scf_",
     )
     nn_system, report = run_nn_args(nn_args, report_args_collection, dev_corpora["transducer"])
+    for training_name in nn_system.train_jobs:
+        nn_system.train_jobs[training_name].rqmt["gpu_mem"] = 24
     return nn_system, report
 
 
