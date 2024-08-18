@@ -762,7 +762,7 @@ def run_scf_audio_perturbation_from_checkpoint():
     return report
 
 
-def run_scf_specaug_sort():
+def run_scf_specaug():
     gs.ALIAS_AND_OUTPUT_SUBDIR = "experiments/switchboard/ctc/feat/"
 
     (
@@ -772,7 +772,7 @@ def run_scf_specaug_sort():
         rasr_loss_lexicon_path,
         dev_corpora,
     ) = get_datasets()
-    returnn_args = {
+    base_returnn_args = {
         "batch_size": 5000,
         "rasr_binary_path": RASR_BINARY_PATH,
         "rasr_loss_corpus_path": rasr_loss_corpus_path,
@@ -784,7 +784,6 @@ def run_scf_specaug_sort():
             "watch_memory": True,
             "conv_pad_seq_len_to_power": 1.5,
         },
-        "specaug_new": {"max_feature": 15, "steps_per_epoch": 4100},
         "conformer_type": "wei",
     }
     feature_args = {"class": "ScfNetwork", "size_tf": 256 // 2, "stride_tf": 10 // 2, "wave_norm": True, "preemphasis": 0.97}
@@ -798,21 +797,60 @@ def run_scf_specaug_sort():
     }
 
     nn_args, report_args_collection = get_nn_args_baseline(
-        nn_base_args={
-            "bs2x5k_scf_specaugsortlayer2": dict(
-                returnn_args=returnn_args,
+        nn_base_args = {
+            "baseline_with_sorting": dict(
+                returnn_args={**base_returnn_args, "specaug_new": {"enable_sorting": True, "max_feature": 15, "steps_per_epoch": 4100}},
                 feature_args=feature_args,
                 lr_args=lr_args,
-                report_args={"batch_size": "2x5k"},
+                report_args={"batch_size": "2x5k", "experiment": "baseline_with_sorting"},
             ),
-            "bs2x5k_scf_specaugsortlayer2_smaller_mask": dict(
-                returnn_args={
-                    **returnn_args,
-                    "specaug_new": {"max_feature": 8, "steps_per_epoch": 4100},
-                },
+            "sorting_after_100_epochs": dict(
+                returnn_args={**base_returnn_args, "specaug_new": {"enable_sorting": True, "sorting_start_epoch": 100, "max_feature": 15, "steps_per_epoch": 4100}},
                 feature_args=feature_args,
                 lr_args=lr_args,
-                report_args={"batch_size": "2x5k"},
+                report_args={"batch_size": "2x5k", "experiment": "sorting_after_100_epochs"},
+            ),
+            "smaller_masks_no_sorting": dict(
+                returnn_args={**base_returnn_args, "specaug_new": {"enable_sorting": False, "max_feature": 8, "steps_per_epoch": 4100}},
+                feature_args=feature_args,
+                lr_args=lr_args,
+                report_args={"batch_size": "2x5k", "experiment": "smaller_masks_no_sorting"},
+            ),
+            "smaller_masks_with_sorting": dict(
+                returnn_args={**base_returnn_args, "specaug_new": {"enable_sorting": True, "max_feature": 8, "steps_per_epoch": 4100}},
+                feature_args=feature_args,
+                lr_args=lr_args,
+                report_args={"batch_size": "2x5k", "experiment": "smaller_masks_with_sorting"},
+            ),
+            "linear_growth_no_sorting": dict(
+                returnn_args={**base_returnn_args, "specaug_new": {"enable_sorting": False, "mask_growth_strategy": "linear", "max_feature": 15, "steps_per_epoch": 4100}},
+                feature_args=feature_args,
+                lr_args=lr_args,
+                report_args={"batch_size": "2x5k", "experiment": "linear_growth_no_sorting"},
+            ),
+            "linear_growth_with_sorting": dict(
+                returnn_args={**base_returnn_args, "specaug_new": {"enable_sorting": True, "mask_growth_strategy": "linear", "max_feature": 15, "steps_per_epoch": 4100}},
+                feature_args=feature_args,
+                lr_args=lr_args,
+                report_args={"batch_size": "2x5k", "experiment": "linear_growth_with_sorting"},
+            ),
+            "delayed_sorting_large_masks": dict(
+                returnn_args={**base_returnn_args, "specaug_new": {"enable_sorting": True, "sorting_start_epoch": 200, "max_feature": 20, "steps_per_epoch": 4100}},
+                feature_args=feature_args,
+                lr_args=lr_args,
+                report_args={"batch_size": "2x5k", "experiment": "delayed_sorting_large_masks"},
+            ),
+            "early_sorting_large_masks": dict(
+                returnn_args={**base_returnn_args, "specaug_new": {"enable_sorting": True, "sorting_start_epoch": 50, "max_feature": 20, "steps_per_epoch": 4100}},
+                feature_args=feature_args,
+                lr_args=lr_args,
+                report_args={"batch_size": "2x5k", "experiment": "early_sorting_large_masks"},
+            ),
+            "nonlinear_growth_with_sorting": dict(
+                returnn_args={**base_returnn_args, "specaug_new": {"enable_sorting": True, "mask_growth_strategy": "nonlinear", "max_feature": 15, "steps_per_epoch": 4100}},
+                feature_args=feature_args,
+                lr_args=lr_args,
+                report_args={"batch_size": "2x5k", "experiment": "nonlinear_growth_with_sorting"},
             ),
         },
         num_epochs=450,
@@ -829,6 +867,7 @@ def run_scf_specaug_sort():
         nn_args,
         report_args_collection,
         dev_corpora,
+        "report_scf_specaug.csv",
         returnn_root=returnn_root,
         recog_args={"epochs": [350, 390, 400, 410, 450]},
     )
