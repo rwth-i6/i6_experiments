@@ -343,7 +343,7 @@ def run_scf_baseline_lr_reset():
             "preload_from_files": {
                 "existing-model": {
                     "filename": nn_system.train_jobs["conformer_bs2x5k_scf_baseline_preemphasis97_wn"].out_checkpoints[
-                        400
+                        24
                     ],
                     "init_for_train": True,
                 },
@@ -418,7 +418,7 @@ def run_mel_baseline_lr_reset():
             "watch_memory": True,
             "preload_from_files": {
                 "existing-model": {
-                    "filename": nn_system.train_jobs["conformer_bs2x5k_lgm80_baseline"].out_checkpoints[400],
+                    "filename": nn_system.train_jobs["conformer_bs2x5k_lgm80_baseline"].out_checkpoints[24],
                     "init_for_train": True,
                 },
             },
