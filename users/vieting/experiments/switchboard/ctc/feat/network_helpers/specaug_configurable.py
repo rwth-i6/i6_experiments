@@ -25,7 +25,7 @@ def add_specaug_layer(
                 max_time (int): The beginning maximum size (in time frames) of each time mask. Default is 10.
                 max_feature_num (int): The beginning maximum number of frequency masks to be applied. Default is 4.
                 max_feature (int): The beginning maximum size (in frequency bins) of each frequency mask. Default is 5.
-                enable_sorting (bool): Whether to sort filters by their center frequency before applying masks. Default is True.
+                enable_sorting (bool): Whether to sort filters by their center frequency before applying masks. Default is False.
                 steps_per_epoch (int): The number of steps per epoch. Make sure this parameter is accurate since the all the scheduling depends on it. Default is 2080.
                 sorting_start_epoch (int): The subepoch number to start sorting filters. Default is 0.
                 mask_growth_strategy (str): The strategy for increasing the mask sizes over epochs (linear or step). Default is "linear".
@@ -54,7 +54,7 @@ def add_specaug_layer(
         "max_time": 10,
         "max_feature_num": 4,
         "max_feature": 5,
-        "enable_sorting": True,
+        "enable_sorting": False,
         "sorting_start_epoch": 0,
         "steps_per_epoch": 2080,
         "mask_growth_strategy": "linear",

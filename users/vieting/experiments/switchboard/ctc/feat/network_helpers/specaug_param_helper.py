@@ -1,11 +1,8 @@
-
 from typing import Dict, List
 
+
 def generate_specaug_params(
-    num_epochs: int,
-    base_values: Dict[str, int],
-    schedules: Dict[str, Dict[int, float]],
-    growth_strategy: str
+    num_epochs: int, base_values: Dict[str, int], schedules: Dict[str, Dict[int, float]], growth_strategy: str
 ) -> Dict[str, List[int]]:
     """
     Generate specaug parameters for each epoch in advance.
@@ -44,22 +41,22 @@ def get_mask_param(current_epoch: int, base_value: int, schedule: Dict[int, floa
         int: Calculated parameter value for the current epoch.
     """
     epochs = sorted(schedule.keys())
-    
+
     for i in range(len(epochs) - 1):
-        if epochs[i] <= current_epoch < epochs[i+1]:
-            lower_epoch, upper_epoch = epochs[i], epochs[i+1]
+        if epochs[i] <= current_epoch < epochs[i + 1]:
+            lower_epoch, upper_epoch = epochs[i], epochs[i + 1]
             lower_mult, upper_mult = schedule[lower_epoch], schedule[upper_epoch]
-            
-            if growth_strategy == 'linear':
+
+            if growth_strategy == "linear":
                 progress = (current_epoch - lower_epoch) / (upper_epoch - lower_epoch)
                 multiplier = lower_mult + (upper_mult - lower_mult) * progress
-            elif growth_strategy == 'step':
+            elif growth_strategy == "step":
                 multiplier = lower_mult
             else:
                 raise ValueError(f"Unknown mask growth strategy: {growth_strategy}")
-            
+
             return int(base_value * multiplier)
-    
+
     # If we're past the last epoch in the schedule, use the last multiplier
     last_mult = schedule[epochs[-1]]
     return int(base_value * last_mult)

@@ -151,7 +151,7 @@ def make_conformer_fullsum_ctc_model(
     specaug_old: Optional[Dict[str, Any]] = None,
     specaug_config: Optional[Dict[str, Any]] = None,
     recognition: bool = False,
-    num_epochs: int = None,
+    num_epochs: Optional[int] = None,
 ) -> Tuple[Dict, Union[str, List[str]]]:
     network = {}
     from_list = ["data"]
@@ -172,6 +172,7 @@ def make_conformer_fullsum_ctc_model(
             }
             from_list, python_code = specaug_func(network, from_list=from_list, **specaug_old_args)
         elif specaug_config is not None:
+            assert specaug_old is None
             from_list, python_code = add_specaug_layer_configurable(network, from_list=from_list, num_epochs=num_epochs, config=specaug_config)
         else:
             from_list, python_code = add_specaug_layer_v2(network, from_list=from_list)
