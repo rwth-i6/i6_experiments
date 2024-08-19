@@ -855,7 +855,7 @@ def run_scf_specaug():
         },
         num_epochs=450,
         evaluation_epochs=[350, 390, 400, 410, 450],
-        prefix="conformer_",
+        prefix="conformer_specaug_",
     )
 
     returnn_root = CloneGitRepositoryJob(
