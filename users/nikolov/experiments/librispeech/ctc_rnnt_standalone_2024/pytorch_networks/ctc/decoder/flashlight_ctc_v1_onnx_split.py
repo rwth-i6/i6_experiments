@@ -5,6 +5,7 @@ includes handling of prior computation
 """
 
 from dataclasses import dataclass
+import os
 import time
 import numpy as np
 from typing import Any, Dict, Optional
@@ -157,8 +158,9 @@ def forward_init_hook(run_ctx, **kwargs):
                 'classes': {0: 'batch', 1: 'time'}
                 }           
             )
+    
     sess_options = ort.SessionOptions()
-    sess_option.intra_op_num_threads = int(os.getenv('SLURM_CPUS_PER_TASK', 4))
+    sess_options.intra_op_num_threads = int(os.getenv('SLURM_CPUS_PER_TASK', 4))
 
 
     run_ctx.onnx_fe_sess = ort.InferenceSession(

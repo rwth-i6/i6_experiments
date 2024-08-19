@@ -81,26 +81,24 @@ class LogMelFeatureExtractionV1OnnxExportable(nn.Module):
         power_spectrum = (
             torch.sum(
                 torch.stft(
-                        raw_audio,
-                        n_fft=self.n_fft,
-                        hop_length=self.hop_length,
-                        win_length=self.win_length,
-                        window=self.window,
-                        center=self.center,
-                        pad_mode="constant",
-                        return_complex=False,
-                    ) ** 2,
+                    raw_audio,
+                    n_fft=self.n_fft,
+                    hop_length=self.hop_length,
+                    win_length=self.win_length,
+                    window=self.window,
+                    center=self.center,
+                    pad_mode="constant",
+                    return_complex=False,
+                ) ** 2,
                 dim=-1,
             )
         )
         if len(power_spectrum.size()) == 2:
             # For some reason torch.stft removes the batch axis for batch sizes of 1, so we need to add it again
             power_spectrum = torch.unsqueeze(power_spectrum, 0)
-        melspec = torch.einsum("...ft,mf->...mt", power_spectrum.to(torch.float64), self.mel_basis.to(torch.float64)) 
-        #melspec = torch.matmul(power_spectrum.transpose(-1,-2), self.mel_basis.t()).transpose(-1,-2)        
+        melspec = torch.einsum("...ft,mf->...mt", power_spectrum, self.mel_basis)
         log_melspec = torch.log10(torch.clamp(melspec, min=self.min_amp))
-        #feature_data = torch.zeros(torch.transpose(melspec, 1, 2).shape, dtype=torch.float64)
-        feature_data = torch.transpose(log_melspec, 1, 2).to(torch.float32)
+        feature_data = torch.transpose(log_melspec, 1, 2)
         if self.center:
             length = (length // self.hop_length) + 1
         else:

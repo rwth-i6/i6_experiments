@@ -15,7 +15,7 @@ from ...pipeline import training, prepare_asr_model, search, ASRModel
 
 
 def eow_phon_ls960_1023_base():
-    prefix_name = "example_setups/librispeech/ctc_rnnt_standalone_2024/ls960_ctc_eow_phon"
+    prefix_name = "example_setups/librispeech/ctc_rnnt_standalone_2024/ls960_ctc_eow_phon/torch22"
 
     train_settings = DatasetSettings(
         preemphasis=0.97,  # TODO: Check if this is really useful
@@ -241,7 +241,7 @@ def eow_phon_ls960_1023_base():
     asr_model_onnx = copy.deepcopy(asr_model)
     asr_model_onnx.network_module = "ctc.conformer_new.i6modelsV1_VGG4LayerActFrontendV1_v6_onnx_exportable" 
     tune_and_evaluate_helper(
-        training_name+"/onnx_export", asr_model_onnx, default_decoder_config, lm_scales=[2.3, 2.5, 2.7], prior_scales=[0.2, 0.3, 0.4], decoder_module='ctc.decoder.flashlight_ctc_v1_onnx_v1'
+        training_name+"/onnx_export", asr_model_onnx, default_decoder_config, lm_scales=[2.3, 2.5, 2.7], prior_scales=[0.2, 0.3, 0.4], decoder_module='ctc.decoder.flashlight_ctc_v1'
     )
 
     # No improvement, just as example
