@@ -16,11 +16,14 @@ def generate_specaug_params(
     Returns:
         Dict[str, List[int]]: Pre-generated parameter values for each epoch.
     """
+
+    if schedules is None:
+        schedules = {}
     params = {key: [] for key in base_values.keys()}
 
     for epoch in range(num_epochs):
         for key, base_value in base_values.items():
-            schedule = schedules[key]
+            schedule = schedules.get(key, {0: 1.0})
             param_value = get_mask_param(epoch, base_value, schedule, growth_strategy)
             params[key].append(param_value)
 
