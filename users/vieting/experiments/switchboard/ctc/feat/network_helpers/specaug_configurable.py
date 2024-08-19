@@ -30,13 +30,13 @@ def add_specaug_layer(
                 sorting_start_epoch (int): The subepoch number to start sorting filters. Default is 0.
                 mask_growth_strategy (str): The strategy for increasing the mask sizes over epochs (linear or step). Default is "linear".
                 time_mask_num_schedule (Dict[int, float]): A dictionary mapping subepoch numbers to the multiplicator for the time mask number.
-                    Default is {0: 1, 10: 1.5, 20: 2}.
+                    Default is None.
                 time_mask_size_schedule (Dict[int, float]): A dictionary mapping subepoch numbers to the multiplicator for the time mask size.
-                    Default is {0: 1, 15: 1.5, 25: 2}.
+                    Default is None.
                 freq_mask_num_schedule (Dict[int, float]): A dictionary mapping subepoch numbers to the multiplicator for the frequency mask number.
-                    Default is {0: 1, 5: 1.2, 15: 1.5}.
+                    Default is None.
                 freq_mask_size_schedule (Dict[int, float]): A dictionary mapping subepoch numbers to the multiplicator for the frequency mask size.
-                    Default is {0: 1, 10: 1.2, 20: 1.5}.
+                    Default is None.
                 time_mask_max_proportion (float): The maximum proportion of the time axis that can be masked. Default is 0.7.
                 freq_mask_max_proportion (float): The maximum proportion of the frequency axis that can be masked. Default is 0.7.
         num_epochs (int, optional): The total number of epochs for which the training will run. default 450
@@ -50,18 +50,14 @@ def add_specaug_layer(
         from_list = ["data"]
 
     default_config = {
-        "max_time_num": 3,
-        "max_time": 10,
-        "max_feature_num": 4,
-        "max_feature": 5,
+        "max_time_num": 1,
+        "max_time": 15,
+        "max_feature_num": 5,
+        "max_feature": 4,
         "enable_sorting": False,
         "sorting_start_epoch": 0,
         "steps_per_epoch": 2080,
-        "mask_growth_strategy": "linear",
-        "time_mask_num_schedule": {0: 1, 10: 1.5, 20: 2},
-        "time_mask_size_schedule": {0: 1, 15: 1.5, 25: 2},
-        "freq_mask_num_schedule": {0: 1, 5: 1.2, 15: 1.5},
-        "freq_mask_size_schedule": {0: 1, 10: 1.2, 20: 1.5},
+        "mask_growth_strategy": "linear", 
         "time_mask_max_proportion": 0.7,
         "freq_mask_max_proportion": 0.7,
     }
@@ -79,11 +75,12 @@ def add_specaug_layer(
         "freq_mask_max_num": full_config["max_feature_num"],
         "freq_mask_max_size": full_config["max_feature"],
     }
+
     schedules = {
-        "time_mask_max_num": full_config["time_mask_num_schedule"],
-        "time_mask_max_size": full_config["time_mask_size_schedule"],
-        "freq_mask_max_num": full_config["freq_mask_num_schedule"],
-        "freq_mask_max_size": full_config["freq_mask_size_schedule"],
+        "time_mask_max_num": full_config.get("time_mask_num_schedule", {}),
+        "time_mask_max_size": full_config.get("time_mask_size_schedule", {}),
+        "freq_mask_max_num": full_config.get("freq_mask_num_schedule", {}),
+        "freq_mask_max_size": full_config.get("freq_mask_size_schedule", {}),
     }
 
     specaug_params = generate_specaug_params(
