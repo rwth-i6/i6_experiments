@@ -847,7 +847,7 @@ def run_scf_specaug():
                 report_args={"batch_size": "2x5k", "experiment": "early_sorting_large_masks"},
             ),
             "nonlinear_growth_with_sorting": dict(
-                returnn_args={**base_returnn_args, "specaug_new": {"enable_sorting": True, "mask_growth_strategy": "nonlinear", "max_feature": 15, "steps_per_epoch": 4100}},
+                returnn_args={**base_returnn_args, "specaug_new": {"enable_sorting": True, "mask_growth_strategy": "step", "max_feature": 15, "steps_per_epoch": 4100}},
                 feature_args=feature_args,
                 lr_args=lr_args,
                 report_args={"batch_size": "2x5k", "experiment": "nonlinear_growth_with_sorting"},
