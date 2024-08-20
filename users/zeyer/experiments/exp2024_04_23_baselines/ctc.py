@@ -399,12 +399,12 @@ def py():
         # TODO ("spm4k", "bpe", 0.005),
         ("spm4k", "bpe", 0.01),  # 6.05
         ("spm1k", None, None),  # 6.07
-        ("spm1k", "spm", 1.0),
+        ("spm1k", "spm", 1.0),  # 6.73
         ("spm1k", "spm", 0.99),  # 6.93
         ("spm1k", "spm", 0.9),  # 7.04
         ("spm1k", "spm", 0.7),  # 7.33
         ("spm1k", "bpe", 0.0),  # 6.07
-        ("spm1k", "bpe", 0.001),
+        ("spm1k", "bpe", 0.001),  # 6.15
         ("spm1k", "bpe", 0.005),  # 6.25
         ("spm1k", "bpe", 0.01),  # 6.13 (but dev-clean,test-* are better than no sampling)
         ("spm_bpe1k", None, None),  # 6.03
@@ -552,10 +552,10 @@ def py():
 
     # Blank separated (blankSep).
     for vocab, alpha, max_seq_len_via_audio in [
-        ("bpe10k", 0.01, False),  # 5.98
-        ("spm10k", 0.01, False),  # 5.73 (!!!)
+        ("bpe10k", 0.01, False),  # 5.98 (with) vs 6.18 (without)
+        ("spm10k", 0.01, False),  # 5.73 (!!)
         ("spm10k", 0.01, True),  # 5.74
-        ("spm512", 0.01, True),  # 6.02
+        ("spm512", 0.01, True),  # 6.02 (with) vs 6.02 (without) (but without is worse on test,dev-clean)
     ]:
         for blank_sep in [False, True]:
             train_exp(
@@ -668,7 +668,7 @@ def py():
 
     # Log prob normed gradient (lpNormedGrad)
     for name, opts in {
-        # 5.71 (!!!) (i.e. better than without)
+        # 5.71 (!!) (i.e. better than without)
         "C05_11P1": {"func": {"clamp_min": 0.5, "clamp_max": 1.1, "scale_type": "inv_num_labels", "prior_exp": 1.0}},
         "C05_15P1": {"func": {"clamp_min": 0.5, "clamp_max": 1.5, "scale_type": "inv_num_labels", "prior_exp": 1.0}},
         # 5.83
@@ -756,7 +756,7 @@ def py():
     )
 
     # rmsNorm. (Baseline: 5.77)
-    train_exp(
+    train_exp(  # 5.74, i.e. helps a bit
         "v6-relPosAttDef-rmsNorm-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2"
         "-lrlin1e_5_295k-featBN-speedpertV2-spm10k-bpeSample001",
         config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
@@ -781,7 +781,7 @@ def py():
     )
 
     # noBias. (Baseline: 5.77)
-    train_exp(
+    train_exp(  # 5.65 (!!!)
         "v6-relPosAttDef-noBias-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2"
         "-lrlin1e_5_295k-featBN-speedpertV2-spm10k-bpeSample001",
         config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
