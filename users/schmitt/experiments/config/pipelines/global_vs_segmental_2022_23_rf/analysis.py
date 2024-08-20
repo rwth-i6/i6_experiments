@@ -196,7 +196,8 @@ def analyze_gradients(
     config_opts["dataset_opts"]["repeat_in_between_last_frame_up_to_multiple_of"] = {
       "data": config_builder.red_factor,
     }
-    if isinstance(config_builder, GlobalAttConfigBuilderRF) and not isinstance(config_builder.variant_params["dependencies"], LibrispeechSP10240):
+    # if bpe_codes_path is None, this means we use sentencepiece and we do not need to remove the in-between postfix
+    if isinstance(config_builder, GlobalAttConfigBuilderRF) and config_builder.variant_params["dependencies"].bpe_codes_path is not None:
       config_opts["dataset_opts"]["remove_in_between_postfix"] = {
         "targets": config_builder.variant_params["dependencies"].model_hyperparameters.sos_idx,
       }

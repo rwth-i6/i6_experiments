@@ -26,10 +26,10 @@ def run_exps():
         plot_att_weights=False,
       )
 
-    for train_alias, checkpoint in train.train_from_scratch(
+    for train_alias, checkpoint in train.train_global_att(
       alias=model_alias,
       config_builder=config_builder,
-      n_epochs_list=(500,),
+      n_epochs=500,
       time_rqmt=10
     ):
       for epoch, chckpt in checkpoint["checkpoints"].items():
@@ -43,10 +43,10 @@ def run_exps():
             analyze_gradients=True,
           )
 
-    for train_alias, checkpoint in train.train_from_scratch(
+    for train_alias, checkpoint in train.train_global_att(
       alias=model_alias,
       config_builder=config_builder,
-      n_epochs_list=(500,),
+      n_epochs=500,
       time_rqmt=80,
       use_mgpu=False,
       batch_size=10_000,
@@ -66,10 +66,10 @@ def run_exps():
           decoder_state="nb-2linear-ctx1",
           label_type="bpe1056",
   ):
-    for train_alias, checkpoint in train.train_from_scratch(
+    for train_alias, checkpoint in train.train_global_att(
       alias=model_alias,
       config_builder=config_builder,
-      n_epochs_list=(500,),
+      n_epochs=500,
       use_mgpu=False,
     ):
       for epoch, chckpt in checkpoint["checkpoints"].items():
@@ -88,10 +88,10 @@ def run_exps():
           decoder_state="nb-2linear-ctx1",
           label_type="bpe1056",
   ):
-    for train_alias, checkpoint in train.train_from_scratch(
+    for train_alias, checkpoint in train.train_global_att(
       alias=model_alias,
       config_builder=config_builder,
-      n_epochs_list=(500,),
+      n_epochs=500,
       use_mgpu=False,
     ):
       for epoch, chckpt in checkpoint["checkpoints"].items():

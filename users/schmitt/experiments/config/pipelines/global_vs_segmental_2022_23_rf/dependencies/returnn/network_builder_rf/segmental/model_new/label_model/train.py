@@ -610,9 +610,11 @@ def full_sum_training(
     # in logit space
     blank_log_prob = rf.safe_log(rf.sigmoid(-blank_logits))
     log_alt_norm = -blank_logits - blank_log_prob
-    # logits = logits - rf.log(rf.reduce_sum(rf.exp(logits), axis=label_decoder_target_dim)) + rf.log(rf.sigmoid(blank_logits)) + log_alt_norm
-    log_sum_exp_logits = rf.safe_log(rf.reduce_sum(rf.exp(logits), axis=label_decoder_target_dim))
-    logits = logits - log_sum_exp_logits + rf.safe_log(rf.sigmoid(blank_logits)) + log_alt_norm
+    max_logit = rf.reduce_max(logits, axis=label_decoder_target_dim)
+    # subtract max_logit to avoid infinities in softmax
+    log_softmax = logits - rf.safe_log(
+      rf.reduce_sum(rf.exp(logits - max_logit), axis=label_decoder_target_dim)) - max_logit
+    logits = log_softmax + rf.safe_log(rf.sigmoid(blank_logits)) + log_alt_norm
     logits, _ = rf.concat(
       (logits, label_decoder_target_dim),
       (-blank_logits, model.blank_decoder.emit_prob_dim),
