@@ -11,7 +11,7 @@ from . import (
 def run_exps():
   # Done
   baseline.run_exps()
-  # Running
+  # Done
   alignment_augmentation.run_exps()
   # Done
   att_weight_feedback.run_exps()

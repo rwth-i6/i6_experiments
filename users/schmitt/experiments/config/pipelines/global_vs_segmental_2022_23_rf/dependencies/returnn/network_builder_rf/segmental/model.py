@@ -16,6 +16,8 @@ from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segment
   BlankDecoderV6,
   BlankDecoderV7,
   BlankDecoderV8,
+  BlankDecoderV9,
+  BlankDecoderV10,
 )
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.segmental.model_new.label_model.model import (
   SegmentalAttLabelDecoder, SegmentalAttEfficientLabelDecoder
@@ -93,7 +95,7 @@ class SegmentalAttentionModel(rf.Module):
       need_enc_ctx=center_window_size != 1 and not use_trafo_att,  # win size 1 means hard att, so no enc ctx needed
     )
 
-    assert blank_decoder_version in {1, 3, 4, 5, 6, 7, 8}
+    assert blank_decoder_version in {1, 3, 4, 5, 6, 7, 8, 9, 10}
     assert label_decoder_state in {"nb-lstm", "joint-lstm", "nb-2linear-ctx1", "trafo"}
     if not use_joint_model:
       assert label_decoder_state in ("nb-lstm", "nb-2linear-ctx1", "trafo")
@@ -252,10 +254,18 @@ class SegmentalAttentionModel(rf.Module):
           encoder_out_dim=self.encoder.out_dim,
           **blank_decoder_opts,
         )
-      else:
+      elif blank_decoder_version == 8:
         self.blank_decoder = BlankDecoderV8(
           length_model_state_dim=length_model_state_dim,
           encoder_out_dim=self.encoder.out_dim,
+        )
+      elif blank_decoder_version == 9:
+        self.blank_decoder = BlankDecoderV9(
+          energy_in_dim=self.label_decoder.enc_key_total_dim,
+        )
+      else:
+        self.blank_decoder = BlankDecoderV10(
+          energy_in_dim=self.label_decoder.enc_key_total_dim,
         )
     else:
       self.blank_decoder = None

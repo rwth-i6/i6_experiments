@@ -397,3 +397,76 @@ class BlankDecoderV8(BlankDecoderBase):
 
   def get_label_decoder_deps(self) -> Optional[List[str]]:
     return ["s"]
+
+
+class BlankDecoderV9(BlankDecoderBase):
+  def __init__(
+          self,
+          energy_in_dim: Dim,
+  ):
+    super(BlankDecoderV9, self).__init__()
+
+    self.emit_prob = rf.Linear(energy_in_dim, self.emit_prob_dim)
+
+  def default_initial_state(self, *, batch_dims: Sequence[Dim]) -> rf.State:
+    """Default initial state"""
+    state = rf.State()
+    return state
+
+  @property
+  def _s(self) -> rf.LSTM:
+    raise NotImplementedError
+
+  def decode_logits(
+          self,
+          *,
+          energy_in: Tensor,
+  ) -> Tensor:
+    """logits for the decoder"""
+
+    logits = self.emit_prob(rf.dropout(energy_in, drop_prob=0.1))
+    return logits
+
+  def get_label_decoder_deps(self) -> Optional[List[str]]:
+    return ["s"]
+
+
+class BlankDecoderV10(BlankDecoderBase):
+  def __init__(
+          self,
+          length_model_state_dim: Dim,
+          energy_in_dim: Dim,
+  ):
+    super(BlankDecoderV10, self).__init__()
+    self.length_model_state_dim = length_model_state_dim
+
+    self.s = rf.Linear(
+      energy_in_dim,
+      self.length_model_state_dim,
+    )
+    self.emit_prob = rf.Linear(self.length_model_state_dim // 2, self.emit_prob_dim)
+
+  def default_initial_state(self, *, batch_dims: Sequence[Dim]) -> rf.State:
+    """Default initial state"""
+    state = rf.State()
+    return state
+
+  @property
+  def _s(self) -> rf.LSTM:
+    raise NotImplementedError
+
+  def decode_logits(
+          self,
+          *,
+          energy_in: Tensor,
+  ) -> Tensor:
+    """logits for the decoder"""
+
+    s_blank = self.s(energy_in)
+    s_blank = rf.reduce_out(s_blank, mode="max", num_pieces=2, out_dim=self.emit_prob.in_dim)
+    s_blank = rf.dropout(s_blank, drop_prob=0.3, axis=rf.dropout_broadcast_default() and s_blank.feature_dim)
+    logits = self.emit_prob(s_blank)
+    return logits
+
+  def get_label_decoder_deps(self) -> Optional[List[str]]:
+    return ["s"]

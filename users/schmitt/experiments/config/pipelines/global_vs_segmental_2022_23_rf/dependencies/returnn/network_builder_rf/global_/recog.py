@@ -129,6 +129,7 @@ def model_recog(
         input_embed=input_embed,
         state=decoder_state,
       )
+      energy_in = step_out.pop("energy_in")
       logits = model.label_decoder.decode_logits(input_embed=input_embed, **step_out)
     else:
       logits, decoder_state, _ = model.label_decoder(

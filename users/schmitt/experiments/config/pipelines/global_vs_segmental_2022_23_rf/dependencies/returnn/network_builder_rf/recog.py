@@ -146,12 +146,13 @@ def _returnn_v2_get_forward_callback():
         seq_len = hdf_targets.dims[0].dyn_size_ext.raw_tensor.item()
         hdf_targets_raw = hdf_targets.raw_tensor[:seq_len]
 
-        hdf.dump_hdf_numpy(
-          hdf_dataset=self.hdf_file,
-          data=hdf_targets_raw[None],  # [1, T]
-          seq_lens=np.array([seq_len]),  # [1]
-          seq_tags=[seq_tag],
-        )
+        if seq_len > 0:
+          hdf.dump_hdf_numpy(
+            hdf_dataset=self.hdf_file,
+            data=hdf_targets_raw[None],  # [1, T]
+            seq_lens=np.array([seq_len]),  # [1]
+            seq_tags=[seq_tag],
+          )
 
     def finish(self):
       self.out_file.write("}\n")

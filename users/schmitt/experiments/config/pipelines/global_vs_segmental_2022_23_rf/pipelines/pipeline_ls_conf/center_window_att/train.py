@@ -385,7 +385,7 @@ def train_center_window_att_full_sum_from_scratch(
         "type": "dyn_lr_piecewise_linear",
         "batch_size": batch_size,
         "num_epochs": n_epochs,
-        "learning_rate": 1e-3,
+        "peak_lr": 1e-3,
       }
     else:
       assert lr_scheduling_type == "const_then_linear"

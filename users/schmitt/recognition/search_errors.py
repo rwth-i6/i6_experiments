@@ -272,11 +272,13 @@ class CalcSearchErrorJobRF(Job):
           ground_truth_hdf: Path,
           search_hyps_file: Path,
           search_seqs_hdf: Path,
+          target_blank_idx: int,
   ):
     self.ground_truth_scores_file = ground_truth_scores_file
     self.ground_truth_hdf = ground_truth_hdf
     self.search_hyps_file = search_hyps_file
     self.search_seqs_hdf = search_seqs_hdf
+    self.target_blank_idx = target_blank_idx
 
     self.out_search_errors = self.output_path("search_errors")
 
@@ -300,15 +302,25 @@ class CalcSearchErrorJobRF(Job):
     num_seqs = len(ground_truth_scores)
     num_search_errors = 0
     for tag in ground_truth_scores:
-      if list(ground_truth_data_dict[tag]) != list(search_data_dict[tag]):
+      ground_truth_seq = ground_truth_data_dict[tag]
+      search_seq = search_data_dict[tag]
+
+      if self.target_blank_idx is not None:
+        ground_truth_seq = ground_truth_seq[ground_truth_seq != self.target_blank_idx]
+        search_seq = search_seq[search_seq != self.target_blank_idx]
+
+      if list(ground_truth_seq) != list(search_seq):
+
+        ground_truth_score = ground_truth_scores[tag]
+        best_search_score = best_search_scores[tag]
 
         print("Output mismatch for tag %s" % tag)
-        print("Ground truth: %s" % ground_truth_data_dict[tag])
-        print("Ground truth score: %s" % ground_truth_scores[tag])
-        print("Search: %s" % search_data_dict[tag])
-        print("Search score: %s" % best_search_scores[tag])
+        print("Ground truth: %s" % ground_truth_seq)
+        print("Ground truth score: %s" % ground_truth_score)
+        print("Search: %s" % search_seq)
+        print("Search score: %s" % best_search_score)
 
-        if ground_truth_scores[tag] > best_search_scores[tag]:
+        if ground_truth_scores[tag] > best_search_score:
           print("Search error!")
           num_search_errors += 1
         else:

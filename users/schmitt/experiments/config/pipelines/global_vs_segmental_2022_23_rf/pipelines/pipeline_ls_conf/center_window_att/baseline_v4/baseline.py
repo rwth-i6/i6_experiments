@@ -28,14 +28,3 @@ def run_exps():
         checkpoint=checkpoint,
         use_recombination=None,
       )
-      recog.center_window_returnn_frame_wise_beam_search(
-        alias=train_alias,
-        config_builder=config_builder,
-        checkpoint=checkpoint,
-        checkpoint_aliases=("last",),
-        run_analysis=True,
-        att_weight_seq_tags=[
-          "dev-other/116-288045-0017/116-288045-0017",
-          "dev-other/116-288045-0014/116-288045-0014",
-        ]
-      )

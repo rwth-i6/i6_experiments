@@ -45,6 +45,9 @@ from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segment
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.segmental.model_new.blank_model.train import (
   viterbi_training_v8 as blank_model_viterbi_training_v8
 )
+from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.segmental.model_new.blank_model.train import (
+  viterbi_training_v9 as blank_model_viterbi_training_v9
+)
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.segmental.model_new.blank_model.model import (
   BlankDecoderV1,
   BlankDecoderV3,
@@ -53,6 +56,8 @@ from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segment
   BlankDecoderV6,
   BlankDecoderV7,
   BlankDecoderV8,
+  BlankDecoderV9,
+  BlankDecoderV10,
 )
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.segmental.model_new.label_model.model import (
   SegmentalAttLabelDecoder,
@@ -286,7 +291,7 @@ def viterbi_training(
       assert model.label_decoder_state == "joint-lstm", "not implemented yet, simple to extend"
       targets = align_targets
       targets_spatial_dim = align_targets_spatial_dim
-      label_logits, _ = label_model_viterbi_training(
+      label_logits, _, _ = label_model_viterbi_training(
         model=model.label_decoder,
         enc_args=enc_args,
         enc_spatial_dim=enc_spatial_dim,
@@ -311,7 +316,7 @@ def viterbi_training(
         non_blank_mask_ = non_blank_mask
         non_blank_mask_spatial_dim = align_targets_spatial_dim
 
-      label_logits, _ = label_model_viterbi_training_efficient(
+      label_logits, _, _ = label_model_viterbi_training_efficient(
         model=model.label_decoder,
         enc_args=enc_args,
         enc_spatial_dim=enc_spatial_dim,
@@ -344,7 +349,7 @@ def viterbi_training(
             type(model.label_decoder) is GlobalAttDecoder or
             force_inefficient_loop
     ):
-      label_logits, label_decoder_outputs = label_model_viterbi_training(
+      label_logits, label_decoder_outputs, energy_in = label_model_viterbi_training(
         model=model.label_decoder,
         enc_args=enc_args,
         enc_spatial_dim=enc_spatial_dim,
@@ -362,7 +367,7 @@ def viterbi_training(
                      type(model.label_decoder) is SegmentalAttEfficientLabelDecoder or
                       type(model.label_decoder) is GlobalAttEfficientDecoder
       )
-      label_logits, label_decoder_outputs = label_model_viterbi_training_efficient(
+      label_logits, label_decoder_outputs, energy_in = label_model_viterbi_training_efficient(
         model=model.label_decoder,
         enc_args=enc_args,
         enc_spatial_dim=enc_spatial_dim,
@@ -393,14 +398,16 @@ def viterbi_training(
         batch_dims=batch_dims,
         beam_dim=beam_dim,
       )
-    elif model.blank_decoder_version in (3, 4, 5, 6, 7, 8):
+    elif model.blank_decoder_version in (3, 4, 5, 6, 7, 8, 9):
       assert isinstance(
         model.blank_decoder, BlankDecoderV3) or isinstance(
         model.blank_decoder, BlankDecoderV4) or isinstance(
         model.blank_decoder, BlankDecoderV5) or isinstance(
         model.blank_decoder, BlankDecoderV6) or isinstance(
         model.blank_decoder, BlankDecoderV7) or isinstance(
-        model.blank_decoder, BlankDecoderV8
+        model.blank_decoder, BlankDecoderV8) or isinstance(
+        model.blank_decoder, BlankDecoderV9) or isinstance(
+        model.blank_decoder, BlankDecoderV10
       )
 
       label_states_unmasked = utils.get_unmasked(
@@ -479,11 +486,22 @@ def viterbi_training(
           emit_blank_target_dim=emit_blank_target_dim,
           batch_dims=batch_dims,
         )
-      else:  # BlankDecoderV8
+      elif model.blank_decoder_version == 8:
         emit_log_prob, blank_log_prob = blank_model_viterbi_training_v8(
           model=model.blank_decoder,
           enc_args=enc_args,
           enc_spatial_dim=enc_spatial_dim,
+          emit_ground_truth=emit_ground_truth,
+          emit_blank_target_dim=emit_blank_target_dim,
+          batch_dims=batch_dims,
+        )
+      else:  # BlankDecoderV9 or V10
+        emit_log_prob, blank_log_prob = blank_model_viterbi_training_v9(
+          model=model.blank_decoder,
+          energy_in=energy_in[0],  # Tuple[Tensor, Dim] -> Tensor
+          energy_in_spatial_dim=energy_in[1],  # Tuple[Tensor, Dim] -> Dim
+          enc_spatial_dim=enc_spatial_dim,
+          non_blank_mask=non_blank_mask,
           emit_ground_truth=emit_ground_truth,
           emit_blank_target_dim=emit_blank_target_dim,
           batch_dims=batch_dims,
@@ -580,6 +598,9 @@ def full_sum_training(
   collected_outputs = {}
   enc_args, enc_spatial_dim = model.encoder.encode(
     data, in_spatial_dim=data_spatial_dim, collected_outputs=collected_outputs)
+
+  # if config.bool("debug", False):
+  #   print("\n\nseq_tags", seq_tags.raw_tensor)
 
   if aux_loss_layers:
     for i, layer_idx in enumerate(aux_loss_layers):

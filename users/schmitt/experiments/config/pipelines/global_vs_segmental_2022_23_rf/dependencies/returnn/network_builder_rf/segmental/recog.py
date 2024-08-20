@@ -22,6 +22,8 @@ from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segment
   BlankDecoderV5,
   BlankDecoderV6,
   BlankDecoderV7,
+  BlankDecoderV8,
+  BlankDecoderV9,
 )
 
 
@@ -248,6 +250,7 @@ def get_score(
     else:
       h_t = None
 
+    energy_in = label_step_out.pop("energy_in", None)
     label_logits = model.label_decoder.decode_logits(input_embed=input_embed_label_model, **label_step_out, h_t=h_t)
 
   if model.label_decoder_state != "trafo" and model.label_decoder.separate_blank_from_softmax:
@@ -357,8 +360,6 @@ def get_score(
       blank_step_out, blank_decoder_state = model.blank_decoder.loop_step(**blank_loop_step_kwargs)
       blank_logits = model.blank_decoder.decode_logits(**blank_step_out)
     else:
-      assert any(isinstance(model.blank_decoder, cls_) for cls_ in (
-        BlankDecoderV4, BlankDecoderV5, BlankDecoderV6, BlankDecoderV7))
       enc_position = rf.minimum(
         rf.full(dims=batch_dims, fill_value=i, dtype="int32"),
         rf.copy_to_device(enc_spatial_dim.get_size_tensor() - 1)
@@ -367,6 +368,15 @@ def get_score(
       enc_frame = rf.expand_dim(enc_frame, beam_dim)
       if isinstance(model.blank_decoder, BlankDecoderV4):
         blank_logits = model.blank_decoder.decode_logits(enc=enc_frame, label_model_states_unmasked=label_step_s_out)
+      elif isinstance(model.blank_decoder, BlankDecoderV8):
+        blank_logits = model.blank_decoder.decode_logits(enc=enc_frame)
+      elif isinstance(model.blank_decoder, BlankDecoderV9):
+        energy_in = rf.gather(
+          energy_in,
+          indices=rf.constant(i, dtype="int32", dims=batch_dims),
+          axis=enc_spatial_dim
+        )
+        blank_logits = model.blank_decoder.decode_logits(energy_in=energy_in)
       elif isinstance(model.blank_decoder, BlankDecoderV5):
         # no LSTM -> no state -> just leave (empty) state as is
         blank_logits = model.blank_decoder.emit_prob(
@@ -439,7 +449,15 @@ def model_recog(
   """
   assert any(
     isinstance(model.blank_decoder, cls) for cls in (
-      BlankDecoderV1, BlankDecoderV3, BlankDecoderV4, BlankDecoderV5, BlankDecoderV6, BlankDecoderV7)
+      BlankDecoderV1,
+      BlankDecoderV3,
+      BlankDecoderV4,
+      BlankDecoderV5,
+      BlankDecoderV6,
+      BlankDecoderV7,
+      BlankDecoderV8,
+      BlankDecoderV9,
+    )
   ) or model.blank_decoder is None, "blank_decoder not supported"
   if model.blank_decoder is None:
     assert model.use_joint_model, "blank_decoder is None, so use_joint_model must be True"

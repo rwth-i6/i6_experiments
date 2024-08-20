@@ -1,8 +1,8 @@
 from . import (
-  full_sum,
+  from_scratch,
 )
 
 
 def run_exps():
   # Running
-  full_sum.run_exps()
+  from_scratch.run_exps()

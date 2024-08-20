@@ -27,6 +27,14 @@ def run_exps():
           config_builder=config_builder,
           checkpoint=checkpoint,
         )
+        recog.center_window_returnn_frame_wise_beam_search(
+          alias=train_alias,
+          config_builder=config_builder,
+          checkpoint=checkpoint,
+          checkpoint_aliases=("last",),
+          run_analysis=True,
+          analyze_gradients=True,
+        )
 
   # Running
   for model_alias, config_builder in get_config_builder.center_window_att_baseline_rf(
@@ -45,4 +53,12 @@ def run_exps():
           alias=train_alias,
           config_builder=config_builder,
           checkpoint=checkpoint,
+        )
+        recog.center_window_returnn_frame_wise_beam_search(
+          alias=train_alias,
+          config_builder=config_builder,
+          checkpoint=checkpoint,
+          checkpoint_aliases=("last",),
+          run_analysis=True,
+          analyze_gradients=True,
         )

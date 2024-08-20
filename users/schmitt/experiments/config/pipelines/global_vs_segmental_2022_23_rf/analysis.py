@@ -266,6 +266,8 @@ def calculate_search_errors(
     )
     ground_truth_scores_file = realign_job.out_files["scores.py.gz"]
     ground_truth_seqs_hdf = realign_job.out_files["realignment.hdf"]
+
+    target_blank_idx = config_builder.variant_params["dependencies"].model_hyperparameters.blank_idx
   else:
     assert isinstance(config_builder, GlobalAttConfigBuilderRF)
     forward_config = config_builder.get_forward_config(
@@ -298,11 +300,14 @@ def calculate_search_errors(
       forward_dataset, returnn_python_exe=returnn_python_exe, returnn_root=returnn_root
     ).out_hdf
 
+    target_blank_idx = None
+
   calc_search_errors_job = CalcSearchErrorJobRF(
     ground_truth_scores_file=ground_truth_scores_file,
     search_hyps_file=search_hyps_file,
     search_seqs_hdf=best_search_hyp_hdf,
     ground_truth_hdf=ground_truth_seqs_hdf,
+    target_blank_idx=target_blank_idx,
   )
   calc_search_errors_job.add_alias(f"{alias}/analysis/calc_search_errors")
   tk.register_output(calc_search_errors_job.get_one_alias(), calc_search_errors_job.out_search_errors)

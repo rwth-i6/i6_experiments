@@ -65,3 +65,36 @@ def dyn_lr_piecewise_linear(*, global_train_step: int, learning_rate: float, **_
     last_step = step
 
   return learning_rate * lrs[-1]
+
+
+def plot_dyn_lr_piecewise_linear():
+  import matplotlib.pyplot as plt
+  import numpy as np
+
+  def _dyn_lr_piecewise_linear(global_train_step: int, learning_rate: float, steps, lrs) -> float:
+    last_step = 0
+    for i, step in enumerate(steps):
+      assert step > last_step
+      assert global_train_step >= last_step
+      if global_train_step < step:
+        factor = (global_train_step + 1 - last_step) / (step - last_step)
+        return learning_rate * (lrs[i + 1] * factor + lrs[i] * (1 - factor))
+      last_step = step
+
+    return learning_rate * lrs[-1]
+
+  steps = [295_000, 590_000, 652_000]
+  steps = [600000, 900000, 982000]
+  peak_lr = 1e-3
+  lrs = [peak_lr * 1e-2, peak_lr, peak_lr * 1e-2, peak_lr * 1e-3]
+
+  effective_lrs = []
+  for train_step in range(982000):
+    effective_lrs.append(_dyn_lr_piecewise_linear(train_step, 1.0, steps, lrs))
+  plt.plot(effective_lrs)
+  plt.show()
+  print(effective_lrs)
+
+
+if __name__ == "__main__":
+  plot_dyn_lr_piecewise_linear()

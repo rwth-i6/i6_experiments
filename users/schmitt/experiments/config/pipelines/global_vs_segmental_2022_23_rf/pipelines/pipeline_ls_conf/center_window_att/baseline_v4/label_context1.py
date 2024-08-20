@@ -44,18 +44,6 @@ def run_exps():
           corpus_keys=("dev-other",),
           beam_size_list=(12,),
         )
-        if win_size == 5:
-          recog.center_window_returnn_frame_wise_beam_search(
-            alias=train_alias,
-            config_builder=config_builder,
-            checkpoint=checkpoint,
-            checkpoint_aliases=("last",),
-            run_analysis=True,
-            att_weight_seq_tags=[
-              "dev-other/116-288045-0017/116-288045-0017",
-              "dev-other/116-288045-0014/116-288045-0014",
-            ]
-          )
 
   # -------------------------- from-scratch fixed-path training (similar to Atanas) (Done) ----------------------------
 
@@ -185,21 +173,21 @@ def run_exps():
           use_weight_feedback=False,
           bpe_vocab_size=5048,
   ):
-    # -------------------------- from-scratch (5k) (Running) --------------------------------
-    for train_alias, checkpoint in train.train_center_window_att_full_sum_from_scratch(
-      alias=model_alias,
-      config_builder=config_builder,
-      n_epochs_list=(500,),
-      use_speed_pert=True,
-      batch_size=3_000,
-      time_rqmt=168,
-      use_mgpu=True,
-    ):
-      recog.center_window_returnn_frame_wise_beam_search(
-        alias=train_alias,
-        config_builder=config_builder,
-        checkpoint=checkpoint,
-      )
+    # # -------------------------- from-scratch (5k) (Running) --------------------------------
+    # for train_alias, checkpoint in train.train_center_window_att_full_sum_from_scratch(
+    #   alias=model_alias,
+    #   config_builder=config_builder,
+    #   n_epochs_list=(500,),
+    #   use_speed_pert=True,
+    #   batch_size=3_000,
+    #   time_rqmt=168,
+    #   use_mgpu=True,
+    # ):
+    #   recog.center_window_returnn_frame_wise_beam_search(
+    #     alias=train_alias,
+    #     config_builder=config_builder,
+    #     checkpoint=checkpoint,
+    #   )
 
     # -------------------------- from-global-att (bpe 5k) (Done) --------------------------------
     for train_alias, checkpoint in train.train_center_window_att_full_sum_from_scratch(
@@ -272,27 +260,27 @@ def run_exps():
         beam_size_list=(12,),
       )
 
-  # -------------------------- from-scratch (1k) (Running) --------------------------------
-  for model_alias, config_builder in get_config_builder.center_window_att_baseline_rf(
-          win_size_list=(1,),
-          label_decoder_state="nb-2linear-ctx1",
-          use_att_ctx_in_state=False,
-          use_weight_feedback=False,
-          bpe_vocab_size=1056,
-  ):
-    # -------------------------- from-scratch --------------------------------
-    for train_alias, checkpoint in train.train_center_window_att_full_sum_from_scratch(
-      alias=model_alias,
-      config_builder=config_builder,
-      n_epochs_list=(500,),
-      use_speed_pert=True,
-      batch_size=8_000,
-      time_rqmt=168,
-      use_mgpu=True,
-      gpu_mem_rqmt=24,
-    ):
-      recog.center_window_returnn_frame_wise_beam_search(
-        alias=train_alias,
-        config_builder=config_builder,
-        checkpoint=checkpoint,
-      )
+  # # -------------------------- from-scratch (1k) (Running) --------------------------------
+  # for model_alias, config_builder in get_config_builder.center_window_att_baseline_rf(
+  #         win_size_list=(1,),
+  #         label_decoder_state="nb-2linear-ctx1",
+  #         use_att_ctx_in_state=False,
+  #         use_weight_feedback=False,
+  #         bpe_vocab_size=1056,
+  # ):
+  #   # -------------------------- from-scratch --------------------------------
+  #   for train_alias, checkpoint in train.train_center_window_att_full_sum_from_scratch(
+  #     alias=model_alias,
+  #     config_builder=config_builder,
+  #     n_epochs_list=(500,),
+  #     use_speed_pert=True,
+  #     batch_size=8_000,
+  #     time_rqmt=168,
+  #     use_mgpu=True,
+  #     gpu_mem_rqmt=24,
+  #   ):
+  #     recog.center_window_returnn_frame_wise_beam_search(
+  #       alias=train_alias,
+  #       config_builder=config_builder,
+  #       checkpoint=checkpoint,
+  #     )

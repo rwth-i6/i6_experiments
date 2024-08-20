@@ -554,6 +554,10 @@ class ConfigBuilderRF(ABC):
       lr_settings.update({
         "learning_rate": const_lr,
       })
+    elif lr_opts["type"] == "list":
+      lr_settings.update({
+        "learning_rates": lr_opts["learning_rates"],
+      })
     else:
       raise NotImplementedError
 

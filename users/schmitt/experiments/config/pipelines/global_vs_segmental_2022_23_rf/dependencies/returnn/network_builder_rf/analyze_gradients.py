@@ -5,6 +5,7 @@ import sys
 import numpy as np
 import torch
 import matplotlib.pyplot as plt
+import mpl_toolkits
 
 from returnn.tensor import TensorDict
 from returnn.frontend.tensor_array import TensorArray
@@ -44,6 +45,9 @@ from i6_experiments.users.schmitt.visualization.visualization import plot_att_we
 from .dump_att_weights import dump_hdfs, scatter_att_weights
 
 from sisyphus import Path
+
+sys.path.append("/work/asr3/zeyer/schmitt/venvs/imageio-2.35.0")
+import imageio
 
 
 def _get_scattered_grad_tensor(
@@ -155,16 +159,46 @@ def _plot_log_prob_gradient_wrt_to_input(
 def _plot_cosine_sim_matrix(
         x: rf.Tensor,
         input_name: str,
+        dirname: str,
         seq_tags: rf.Tensor,
         batch_dim: rf.Dim,
         spatial_dim: rf.Dim,
         extra_name: Optional[str] = None,
+        batch_mask: Optional[rf.Tensor] = None,
+        non_blank_positions_dict: Optional[Dict] = None,
+        highlight_position: Optional[int] = None
 ):
+  """
+  Visualizes the cosine similarity matrix of the given tensor `x` for each batch and saves the plots as images.
+
+  Args:
+      x (rf.Tensor): A 3-dimensional tensor with dimensions [batch_dim, spatial_dim, feature_dim].
+      input_name (str): Name associated with the input data, used for directory naming.
+      seq_tags (rf.Tensor): Tensor containing sequence tags for each batch, used in naming the output files.
+      batch_dim (rf.Dim): Batch dimension of the input tensor `x`.
+      spatial_dim (rf.Dim): Spatial dimension (typically sequence length) of the input tensor `x`.
+      extra_name (Optional[str], optional): Additional string to append to filenames. Default is None.
+      batch_mask (Optional[rf.Tensor], optional): Mask tensor to exclude specific batches from visualization. Default is None.
+
+  Raises:
+      AssertionError: If the input tensor `x` does not have exactly 3 dimensions.
+
+  The function performs the following steps:
+  1. Creates a directory named `{input_name}_cosine_sim` if it doesn't already exist.
+  2. Transposes the input tensor to have the shape [batch_dim, spatial_dim, feature_dim].
+  3. Normalizes the tensor along the feature dimension.
+  4. For each batch in the input tensor:
+     - Computes the cosine similarity matrix for the sequence data in that batch.
+     - Saves a plot of the cosine similarity matrix.
+     - Applies spectral clustering to the normalized features and saves a plot of the cluster labels.
+  """
   assert len(x.dims) == 3
 
-  dirname = f"{input_name}_cosine_sim"
+  plot_file_paths = {}
+
+  dirname = f"{dirname}_cosine_sim"
   if os.path.exists(dirname):
-    return
+    return plot_file_paths
   else:
     os.makedirs(dirname)
 
@@ -179,6 +213,9 @@ def _plot_cosine_sim_matrix(
   B = batch_dim.dyn_size_ext.raw_tensor.item()  # noqa
 
   for b in range(B):
+    if batch_mask is not None and not batch_mask.raw_tensor[b].item():
+      continue
+
     seq_tag = seq_tags.raw_tensor[b].item()
     seq_len_b = spatial_dim.dyn_size_ext.raw_tensor[b].item()
     x_norm_b = x_norm[b, :seq_len_b]
@@ -186,10 +223,45 @@ def _plot_cosine_sim_matrix(
     # cos_sim = torch.tril(cos_sim, diagonal=0)
     cos_sim = cos_sim.cpu().detach().numpy()
 
-    plt.matshow(cos_sim, cmap="seismic")
-    plt.colorbar()
-    plt.savefig(os.path.join(dirname, f"cos_sim_{seq_tag.replace('/', '_')}_{extra_name if extra_name else ''}.png"))
+    fig = plt.figure()
+    ax = plt.axes()
+    mat = ax.matshow(cos_sim, cmap="seismic")
+    ax.set_title(f"{input_name} Cosine similarity matrix for \n {seq_tag}", fontsize=12, pad=20)
+    ax.xaxis.set_ticks_position('bottom')
+    ax.set_xlabel("Time steps", fontsize=10, labelpad=4)
+    ax.set_ylabel("Time steps", fontsize=10, labelpad=4)
+
+    # show top axis with non-blank positions
+    if non_blank_positions_dict is not None:
+      non_blank_positions = non_blank_positions_dict[seq_tag]
+      num_non_blanks = len(non_blank_positions)
+
+      ref_align_axis = ax.secondary_xaxis('top')
+      ref_align_axis.set_xticks(non_blank_positions)
+      ref_align_axis.tick_params("x", length=4)
+      ref_align_axis.set_xlabel("Ref. non-blank positions", fontsize=10, labelpad=4)
+
+      # the second condition is needed if we are at the EOS token, because this won't be in the ref alignment
+      if highlight_position is not None and highlight_position < num_non_blanks:
+        # draw red triangle pointing to the highlighted position
+        ref_align_axis.set_xticklabels(
+          [""] * highlight_position + ["\u25BC"] + [""] * (num_non_blanks - highlight_position - 1),
+          color='red',
+        )
+        ref_align_axis.tick_params("x", pad=1)
+      else:
+        ref_align_axis.set_xticklabels([])
+
+    fig.tight_layout()
+    cax = fig.add_axes([ax.get_position().x1 + 0.01, ax.get_position().y0, 0.02, ax.get_position().height])
+    plt.colorbar(mat, cax=cax)
+    plot_file_path = os.path.join(
+      dirname, f"cos_sim_{seq_tag.replace('/', '_')}_{extra_name if extra_name else ''}.png")
+    plt.savefig(
+      plot_file_path,
+    )
     plt.close()
+    plot_file_paths[seq_tag] = plot_file_path
 
     x_norm_b = x_norm_b.cpu().detach().numpy()
     from sklearn.cluster import KMeans, DBSCAN, SpectralClustering
@@ -199,71 +271,80 @@ def _plot_cosine_sim_matrix(
     plt.matshow(clusters.labels_[None, :], cmap="tab20c")
     plt.savefig(os.path.join(dirname, f"clusters_{seq_tag.replace('/', '_')}.png"))
     plt.close()
-  # exit()
+
+  return plot_file_paths
 
 
 def _blank_model_analysis(
         model: SegmentalAttentionModel,
         x: rf.Tensor,
-        input_name: str,
+        dirname: str,
         seq_tags: rf.Tensor,
         batch_dim: rf.Dim,
         non_blank_targets_spatial_dim: rf.Dim,
+        align_targets_spatial_dim: rf.Dim,
+        non_blank_mask: rf.Tensor,
         enc_spatial_dim: rf.Dim,
         label_model_states: Optional[rf.Tensor] = None
 ):
   assert len(x.dims) == 3
   assert model.blank_decoder_version in (3, 4, 8)
 
-  dirname = f"{input_name}_blank_model_analysis"
-  if os.path.exists(dirname):
-    return
-  else:
-    os.makedirs(dirname)
+  dirname = f"{dirname}_blank_model_analysis"
+
+  label_model_states_unmasked = utils.get_unmasked(
+    label_model_states,
+    input_spatial_dim=non_blank_targets_spatial_dim,
+    mask=non_blank_mask,
+    mask_spatial_dim=align_targets_spatial_dim,
+  )
+  label_model_states_unmasked = utils.copy_tensor_replace_dim_tag(
+    label_model_states_unmasked,
+    align_targets_spatial_dim,
+    enc_spatial_dim
+  )
 
   B = batch_dim.dyn_size_ext.raw_tensor.item()  # noqa
-  spatial_dim = x.remaining_dims([batch_dim, x.feature_dim])[0]
-  # spatial_dimension = rf.reduce_max(spatial_dim.dyn_size_ext, axis=batch_dim).raw_tensor.item()
-  # feature_dimension = model.blank_decoder.s.out_dim.dimension
 
   if model.blank_decoder_version == 8:
     blank_model_input = x
   else:
-    blank_model_input = rf.concat_features(x, label_model_states, allow_broadcast=False)
+    blank_model_input = rf.concat_features(x, label_model_states_unmasked, allow_broadcast=False)
 
-  if model.blank_decoder_version == 3:
-    x_transformed, _ = model.blank_decoder.loop_step(
-      enc=x,
-      enc_spatial_dim=enc_spatial_dim,
-      label_model_state=label_model_states,
-      state=model.blank_decoder.default_initial_state(batch_dims=[batch_dim]),
-      spatial_dim=enc_spatial_dim,
-    )
-    x_transformed = x_transformed["s_blank"]
-  else:
-    x_transformed = model.blank_decoder.s(blank_model_input)
-    x_transformed = rf.reduce_out(x_transformed, mode="max", num_pieces=2, out_dim=model.blank_decoder.emit_prob.in_dim)
+  def _apply_blank_model(blank_model_input_: rf.Tensor):
+    if model.blank_decoder_version == 3:
+      x_transformed_, _ = model.blank_decoder.loop_step(
+        enc=x,
+        enc_spatial_dim=enc_spatial_dim,
+        label_model_state=label_model_states_unmasked,
+        state=model.blank_decoder.default_initial_state(batch_dims=[batch_dim]),
+        spatial_dim=enc_spatial_dim,
+      )
+      x_transformed_ = x_transformed_["s_blank"]
+    else:
+      x_transformed_ = model.blank_decoder.s(blank_model_input_)
+      x_transformed_ = rf.reduce_out(
+        x_transformed_, mode="max", num_pieces=2, out_dim=model.blank_decoder.emit_prob.in_dim)
 
-  x_transformed = x_transformed.copy_transpose(
-    x_transformed.remaining_dims(x_transformed.feature_dim) + [x_transformed.feature_dim]
+    return x_transformed_
+
+  x_transformed = _apply_blank_model(blank_model_input)
+
+  assert len(x_transformed.dims) == 3
+  _plot_cosine_sim_matrix(
+    x=x_transformed,
+    dirname=f"{dirname}_merged",
+    input_name="Blank model features",
+    seq_tags=seq_tags,
+    batch_dim=batch_dim,
+    spatial_dim=enc_spatial_dim,
   )
-  x_transformed_raw = x_transformed.raw_tensor
 
-  x_transformed_norm = x_transformed.copy()
-  x_transformed_norm.raw_tensor = x_transformed_raw / x_transformed_raw.norm(dim=-1, keepdim=True)
+  if model.blank_decoder_version == 4:
+    blank_model_input = rf.concat_features(x, label_model_states, allow_broadcast=True)
+    x_transformed = _apply_blank_model(blank_model_input)
 
-  if len(x_transformed_norm.dims) == 3:
-    _plot_cosine_sim_matrix(
-      x=x_transformed_norm,
-      input_name=dirname,
-      seq_tags=seq_tags,
-      batch_dim=batch_dim,
-      spatial_dim=enc_spatial_dim,
-    )
-  else:
-    assert len(x_transformed_norm.dims) == 4
-    x_transformed_norm = x_transformed_norm.copy_transpose(
-      [batch_dim, non_blank_targets_spatial_dim, enc_spatial_dim, x_transformed_norm.feature_dim])
+    assert len(x_transformed.dims) == 4
     S = rf.reduce_max(
       non_blank_targets_spatial_dim.dyn_size_ext,
       axis=non_blank_targets_spatial_dim.dyn_size_ext.dims
@@ -271,13 +352,14 @@ def _blank_model_analysis(
 
     for s in range(S):
       _plot_cosine_sim_matrix(
-        x=rf.gather(x_transformed_norm, axis=non_blank_targets_spatial_dim, indices=rf.constant(s, dims=[batch_dim])),
-        input_name=f"{dirname}/s_{s}",
+        x=rf.gather(x_transformed, axis=non_blank_targets_spatial_dim, indices=rf.constant(s, dims=[batch_dim])),
+        dirname=f"{dirname}_per_step/s_{s}",
+        input_name=f"Blank model features step {s}",
         seq_tags=seq_tags,
         batch_dim=batch_dim,
         spatial_dim=enc_spatial_dim,
+        batch_mask=non_blank_targets_spatial_dim.dyn_size_ext > s,
       )
-
 
 def _plot_multi_head_enc_self_att_one_fig(
         att_weights: rf.Tensor,
@@ -569,6 +651,11 @@ def analyze_gradients(
   ref_alignment_blank_idx = config.typed_value("ref_alignment_blank_idx", int)
   ref_alignment_vocab_path = Path(config.typed_value("ref_alignment_vocab_path", str))
   json_vocab_path = Path(config.typed_value("json_vocab_path", str))
+
+  ref_alignment_dict = hdf.load_hdf_data(ref_alignment_hdf)
+  non_blank_positions_dict = {}
+  for seq_tag in ref_alignment_dict:
+    non_blank_positions_dict[seq_tag] = np.where(ref_alignment_dict[seq_tag] != ref_alignment_blank_idx)[0]
 
   with torch.enable_grad():
     # ------------------- run encoder and capture encoder input -----------------
@@ -1089,6 +1176,8 @@ def analyze_gradients(
             _plot_attention_weights()
 
       if isinstance(model.label_decoder, GlobalAttDecoder) and not model.label_decoder.trafo_att:
+        # store the paths to the plots for the energies
+        energy_plot_paths = {}
         for s in range(max_num_labels):
           energy_in_s = rf.gather(
             energy_in,
@@ -1097,14 +1186,29 @@ def analyze_gradients(
           )
           energy_in_s = energy_in_s.copy_transpose(batch_dims + [enc_spatial_dim, model.label_decoder.enc_key_total_dim])
 
-          _plot_cosine_sim_matrix(
-            energy_in_s,
-            input_name=f"energy_in_analysis/s-{s}",
-            batch_dim=batch_dims[0],
-            seq_tags=seq_tags,
-            spatial_dim=enc_spatial_dim,
-            extra_name=str(s)
-          )
+          for seq_tag, path in _plot_cosine_sim_matrix(
+              energy_in_s,
+              dirname=f"energy_in_analysis/s-{s}",
+              input_name=f"energy_in_s-{s}",
+              batch_dim=batch_dims[0],
+              seq_tags=seq_tags,
+              spatial_dim=enc_spatial_dim,
+              extra_name=str(s),
+              batch_mask=non_blank_targets_spatial_dim.dyn_size_ext > s,
+              non_blank_positions_dict=non_blank_positions_dict,
+              highlight_position=s,
+            ).items():
+            if seq_tag not in energy_plot_paths:
+              energy_plot_paths[seq_tag] = []
+            if s < len(non_blank_positions_dict[seq_tag]):
+              energy_plot_paths[seq_tag].append(path)
+
+        # create gifs for the energies going from s=1...S
+        for tag, paths in energy_plot_paths.items():
+          images = []
+          for file_path in paths:
+            images.append(imageio.imread(file_path))
+          imageio.mimsave(f'energy_in_analysis/{tag.replace("/", "_")}.gif', images, fps=2, loop=0)
 
       tensors = [
         *[(f"enc-{i}", collected_outputs[str(i)]) for i in range(12)],
@@ -1114,12 +1218,6 @@ def analyze_gradients(
         tensors.append((f"enc_ctx-{enc_layer_idx}", enc_args["enc_ctx"]))
 
       for input_name, input_ in tensors:
-        # if isinstance(model, SegmentalAttentionModel) and isinstance(model.label_decoder, SegmentalAttLabelDecoder) and (
-        #         model.center_window_size == 1 or model.label_decoder.gaussian_att_weight_opts is not None) and (
-        #   "enc_ctx" in input_name
-        # ):
-        #   continue  # encoder ctx not used
-
         _plot_log_prob_gradient_wrt_to_input(
           input_=input_,
           log_probs=log_probs,
@@ -1138,48 +1236,47 @@ def analyze_gradients(
         _plot_cosine_sim_matrix(
           input_,
           input_name=input_name,
+          dirname=input_name,
           batch_dim=batch_dims[0],
           seq_tags=seq_tags,
-          spatial_dim=enc_spatial_dim
+          spatial_dim=enc_spatial_dim,
+          non_blank_positions_dict=non_blank_positions_dict,
         )
 
       if isinstance(model, SegmentalAttentionModel) and model.blank_decoder_version in (3, 4, 8,):
-        label_model_states_unmasked = utils.get_unmasked(
-          label_model_states,
-          input_spatial_dim=non_blank_targets_spatial_dim,
-          mask=non_blank_mask,
-          mask_spatial_dim=targets_spatial_dim,
-        )
-        label_model_states_unmasked = utils.copy_tensor_replace_dim_tag(
-          label_model_states_unmasked, targets_spatial_dim, enc_spatial_dim
-        )
-
         _blank_model_analysis(
           model=model,
           x=collected_outputs["11"],
-          input_name=f"enc-{11}",
+          dirname=f"enc-{11}",
           batch_dim=batch_dims[0],
           seq_tags=seq_tags,
           non_blank_targets_spatial_dim=non_blank_targets_spatial_dim,
           enc_spatial_dim=enc_spatial_dim,
-          label_model_states=label_model_states_unmasked,
+          label_model_states=label_model_states,
+          non_blank_mask=non_blank_mask,
+          align_targets_spatial_dim=targets_spatial_dim,
         )
+
+      att_weight_tensor_list = [
+        (att_weights, "att_weights"),
+        (energies, "energies"),
+      ]
+      if config.bool("analyze_att_weight_dropout", False):
+        att_weights_drop01 = rf.dropout(att_weights, 0.1, on_forward=True, axis=batch_dims + [enc_spatial_dim])
+        att_weight_tensor_list.append((att_weights_drop01, "att_weights_drop01_broadcast_to_labels"))
 
       # plot attention weights for non-trafo decoders
       # (for trafo decoders, the attention weights are plotted in the loop above)
       if not isinstance(model.label_decoder, TransformerDecoder) and not model.label_decoder.trafo_att:
         dirname = f"cross-att/enc-layer-{enc_layer_idx + 1}"
-        if os.path.exists(dirname):
-          return
 
-        for tensor, tensor_name in [
-          (att_weights, "att_weights"),
-          (energies, "energies"),
-        ]:
+        for tensor, tensor_name in att_weight_tensor_list:
           if energies is None:
             continue
 
           tensor_dirname = os.path.join(dirname, tensor_name)
+          if os.path.exists(tensor_dirname):
+            continue
 
           assert non_blank_targets_spatial_dim in tensor.dims
           if tensor.dims != tuple(batch_dims + [non_blank_targets_spatial_dim, enc_spatial_dim, model.label_decoder.att_num_heads]):

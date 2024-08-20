@@ -93,3 +93,21 @@ def run_exps():
         corpus_keys=("dev-other", "test-other"),
         beam_size_list=(12,),
       )
+
+  for model_alias, config_builder in get_config_builder.center_window_att_baseline_rf(
+          win_size_list=(1,), use_weight_feedback=False, use_att_ctx_in_state=False,
+  ):
+    for train_alias, checkpoint in train.train_center_window_att_viterbi_import_global_tf(
+            alias=model_alias,
+            config_builder=config_builder,
+            n_epochs_list=(300,),
+            const_lr_list=(1e-4,),
+    ):
+      recog.center_window_returnn_frame_wise_beam_search(
+        alias=train_alias,
+        config_builder=config_builder,
+        checkpoint=checkpoint,
+        checkpoint_aliases=("last",),
+        run_analysis=True,
+        analyze_gradients=True,
+      )

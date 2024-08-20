@@ -19,7 +19,7 @@ def train_from_scratch(
   for n_epochs in n_epochs_list:
     alias += (
             f"/train_from_scratch/{n_epochs}-epochs_wo-ctc-loss"
-            f"{'_mgpu-4' if use_mgpu else ''}"
+            f"{'_mgpu-4' if use_mgpu else ''}_bs-{batch_size}"
     )
 
     train_rqmt = {
