@@ -91,7 +91,7 @@ def get_s_and_att_efficient(
 
   att = model(
     enc=enc_args["enc"],
-    enc_ctx=enc_args["enc_ctx"],
+    enc_ctx=enc_args.get("enc_ctx"),
     enc_spatial_dim=enc_spatial_dim,
     s=s,
     input_embed=input_embeddings,

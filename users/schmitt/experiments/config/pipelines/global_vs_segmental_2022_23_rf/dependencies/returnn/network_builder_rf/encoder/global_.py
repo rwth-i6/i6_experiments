@@ -32,6 +32,7 @@ class GlobalConformerEncoder(ConformerEncoder):
           att_dropout: float = 0.1,
           l2: float = 0.0001,
           use_weight_feedback: bool = True,
+          need_enc_ctx: bool = True,
           decoder_type: str = "lstm",
           feature_extraction_opts: Optional[Dict[str, Any]] = None,
 
@@ -66,7 +67,10 @@ class GlobalConformerEncoder(ConformerEncoder):
 
     self.decoder_type = decoder_type
     if decoder_type == "lstm":
-      self.enc_ctx = rf.Linear(self.out_dim, enc_key_total_dim)
+
+      self.need_enc_ctx = need_enc_ctx
+      if need_enc_ctx:
+        self.enc_ctx = rf.Linear(self.out_dim, enc_key_total_dim)
       self.enc_ctx_dropout = 0.2
 
       self.use_weight_feedback = use_weight_feedback
@@ -193,7 +197,10 @@ class GlobalConformerEncoder(ConformerEncoder):
         source, in_spatial_dim=in_spatial_dim, collected_outputs=collected_outputs
       )
     if self.decoder_type == "lstm":
-      enc_ctx = self.enc_ctx(enc)
+      if self.need_enc_ctx:
+        enc_ctx = self.enc_ctx(enc)
+      else:
+        enc_ctx = None
       if self.use_weight_feedback:
         inv_fertility = rf.sigmoid(self.inv_fertility(enc))
       else:

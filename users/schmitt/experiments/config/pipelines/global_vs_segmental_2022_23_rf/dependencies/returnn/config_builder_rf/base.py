@@ -160,7 +160,13 @@ class ConfigBuilderRF(ABC):
       "gradient_clip_global_norm",
       "specaugment_steps",
       "torch_amp",
+      "gradient_clip",
+      "gradient_noise",
       # "max_seq_length",
+      "weight_dropout",
+      "att_dropout",
+      "att_weight_dropout",
+      "target_embed_dropout",
     ]
     config_dict.update(
       {k: opts.pop(k) for k in remaining_opt_keys if k in opts}
@@ -472,6 +478,35 @@ class ConfigBuilderRF(ABC):
 
     return checkpoints
 
+  def get_lrlin_oclr_steps_by_bs_nep(self):
+    # By batch size (in k) and num (sub)epochs.
+    # 500 subepochs is usually for multi-GPU with 4 GPUs,
+    # i.e. the same as single-GPU 2000 subepochs.
+    # If the dict is missing some entry,
+    # unfortunately there is currently no good automatic way to get the number.
+    # I need to log at the stats of some setup with this batch size.
+    # I just run some setup with some arbitrary LR scheduling (calling it "wrongLr"),
+    # or maybe with sqrt-decay, and then look at the stats (steps/ep, or total num steps),
+    # and give some estimates for the steps here, i.e. 45%, 90%, almost 100%,
+    # making sure the last number is slightly below the real total number of steps.
+    return {
+      (3, 125): [485_156, 970_312, 1_078_000],  # ~8625steps/ep, 125 eps -> 1,078,125 steps in total
+      (3, 500): [1_940_625, 3_881_250, 4_312_000],  # ~8625steps/ep, 500 eps -> 4,312,500 steps in total
+      (5, 500): [887_000, 1_774_000, 1_972_000],  # ~8625steps/ep, 500 eps -> 4,312,500 steps in total
+      (6, 500): [970_000, 1_940_000, 2_156_000],  # ~8625steps/ep, 500 eps -> 4,312,500 steps in total
+      (8, 125): [139_000, 279_000, 310_000],  # ~2485steps/ep, 125 eps -> 310k steps in total
+      (8, 250): [279_000, 558_000, 621_000],  # ~2485steps/ep, 250 eps -> 621k steps in total
+      (8, 500): [558_000, 1_117_000, 1_242_000],  # ~2485steps/ep, 500 eps -> 1.242k steps in total
+      (10, 500): [443_000, 887_000, 986_000],  # ~1973 steps/epoch, total steps after 500 epochs: ~986k
+      (15, 150): [88_000, 176_000, 196_000],  # ~1304 steps/epoch, total steps after 150 epochs: ~196k
+      (15, 500): [295_000, 590_000, 652_000],  # total steps after 500 epochs: ~652k
+      (15, 600): [352_000, 705_000, 783_000],  # total steps after 500 epochs: ~783k
+      (20, 1000): [438_000, 877_000, 974_000],  # total steps after 1000 epochs: 974.953
+      (20, 2000): [878_000, 1_757_000, 1_952_000],  # total steps after 2000 epochs: 1.952.394
+      (30, 2000): [587_000, 1_174_000, 1_305_000],  # total steps after 2000 epochs: 1.305.182
+      (40, 2000): [450_000, 900_000, 982_000],  # total steps after 2000 epochs: 982.312
+    }
+
   def get_lr_settings(self, lr_opts, python_epilog: Optional[List] = None):
     lr_settings = {}
     if lr_opts["type"] == "newbob":
@@ -486,39 +521,26 @@ class ConfigBuilderRF(ABC):
         "learning_rates": [const_lr] * int((num_epochs*const_frac)) + list(np.linspace(const_lr, final_lr, num_epochs - int((num_epochs*const_frac)))),
       })
     elif lr_opts["type"] == "dyn_lr_piecewise_linear":
-      # By batch size (in k) and num (sub)epochs.
-      # 500 subepochs is usually for multi-GPU with 4 GPUs,
-      # i.e. the same as single-GPU 2000 subepochs.
-      # If the dict is missing some entry,
-      # unfortunately there is currently no good automatic way to get the number.
-      # I need to log at the stats of some setup with this batch size.
-      # I just run some setup with some arbitrary LR scheduling (calling it "wrongLr"),
-      # or maybe with sqrt-decay, and then look at the stats (steps/ep, or total num steps),
-      # and give some estimates for the steps here, i.e. 45%, 90%, almost 100%,
-      # making sure the last number is slightly below the real total number of steps.
-      _lrlin_oclr_steps_by_bs_nep = {
-        (3, 125): [485_156, 970_312, 1_078_000],  # ~8625steps/ep, 125 eps -> 1,078,125 steps in total
-        (3, 500): [1_940_625, 3_881_250, 4_312_000],  # ~8625steps/ep, 500 eps -> 4,312,500 steps in total
-        (5, 500): [887_000, 1_774_000, 1_972_000],  # ~8625steps/ep, 500 eps -> 4,312,500 steps in total
-        (6, 500): [970_000, 1_940_000, 2_156_000],  # ~8625steps/ep, 500 eps -> 4,312,500 steps in total
-        (8, 125): [139_000, 279_000, 310_000],  # ~2485steps/ep, 125 eps -> 310k steps in total
-        (8, 250): [279_000, 558_000, 621_000],  # ~2485steps/ep, 250 eps -> 621k steps in total
-        (8, 500): [558_000, 1_117_000, 1_242_000],  # ~2485steps/ep, 500 eps -> 1.242k steps in total
-        (10, 500): [443_000, 887_000, 986_000],  # ~1973 steps/epoch, total steps after 500 epochs: ~986k
-        (15, 150): [88_000, 176_000, 196_000],  # ~1304 steps/epoch, total steps after 150 epochs: ~196k
-        (15, 500): [295_000, 590_000, 652_000],  # total steps after 500 epochs: ~652k
-        (15, 600): [352_000, 705_000, 783_000],  # total steps after 500 epochs: ~783k
-        (20, 1000): [438_000, 877_000, 974_000],  # total steps after 1000 epochs: 974.953
-        (20, 2000): [878_000, 1_757_000, 1_952_000],  # total steps after 2000 epochs: 1.952.394
-        (30, 2000): [587_000, 1_174_000, 1_305_000],  # total steps after 2000 epochs: 1.305.182
-        (40, 2000): [450_000, 900_000, 982_000],  # total steps after 2000 epochs: 982.312
-      }
+      _lrlin_oclr_steps_by_bs_nep = self.get_lrlin_oclr_steps_by_bs_nep()
       peak_lr = lr_opts.get("peak_lr", 1e-3)
       return dict(
         dynamic_learning_rate=dynamic_lr.dyn_lr_piecewise_linear,
         learning_rate=1.0,
         learning_rate_piecewise_steps=_lrlin_oclr_steps_by_bs_nep[(lr_opts["batch_size"] // 1000, lr_opts["num_epochs"])],
         learning_rate_piecewise_values=[peak_lr * 1e-2, peak_lr, peak_lr * 1e-2, peak_lr * 1e-3],
+      )
+    elif lr_opts["type"] == "dyn_lr_piecewise_linear_epoch-wise":
+      peak_lr = lr_opts.get("peak_lr", 1e-3)
+      initial_lr = peak_lr / 10
+      cyc_ep = int(0.45 * lr_opts["num_epochs"])
+      return dict(
+        learning_rates=list(
+          np.linspace(initial_lr, peak_lr, cyc_ep)  # go up
+        ) + list(
+            np.linspace(peak_lr, initial_lr, cyc_ep)  # go down
+        ) + list(
+          np.linspace(initial_lr, 1e-6, lr_opts["num_epochs"] - 2 * cyc_ep)  # cool down
+        )
       )
     elif lr_opts["type"] == "dyn_lr_lin_warmup_invsqrt_decay":
       return dict(

@@ -68,6 +68,7 @@ class SegmentalAttentionModel(rf.Module):
           trafo_decoder_opts: Optional[Dict[str, Any]] = None,
           target_embed_dropout: float = 0.0,
           att_weight_dropout: float = 0.0,
+          use_trafo_att: bool = False,
   ):
     super(SegmentalAttentionModel, self).__init__()
 
@@ -89,6 +90,7 @@ class SegmentalAttentionModel(rf.Module):
       use_weight_feedback=use_weight_feedback,
       feature_extraction_opts=feature_extraction_opts,
       decoder_type="trafo" if label_decoder_state == "trafo" else "lstm",
+      need_enc_ctx=center_window_size != 1 and not use_trafo_att,  # win size 1 means hard att, so no enc ctx needed
     )
 
     assert blank_decoder_version in {1, 3, 4, 5, 6, 7, 8}
@@ -144,6 +146,7 @@ class SegmentalAttentionModel(rf.Module):
         if not use_weight_feedback and not use_att_ctx_in_state:
           label_decoder_cls = GlobalAttEfficientDecoder
         else:
+          assert not use_trafo_att, "Trafo attention needs GlobalAttEfficientDecoder"
           label_decoder_cls = GlobalAttDecoder
 
         self.label_decoder = label_decoder_cls(
@@ -167,10 +170,11 @@ class SegmentalAttentionModel(rf.Module):
           eos_idx=blank_idx,
           target_embed_dropout=target_embed_dropout,
           att_weight_dropout=att_weight_dropout,
+          use_trafo_attention=use_trafo_att,
         )
     else:
-      if label_decoder_state == "trafo":
-        raise NotImplementedError("Trafo decoder not implemented for segmental model")
+      if label_decoder_state == "trafo" or use_trafo_att:
+        raise NotImplementedError("Trafo decoder and attention not implemented for segmental model")
       else:
         self.bos_idx = 0
 
@@ -201,6 +205,7 @@ class SegmentalAttentionModel(rf.Module):
           target_embed_dim=Dim(name="target_embed", dimension=target_embed_dim),
           target_embed_dropout=target_embed_dropout,
           att_weight_dropout=att_weight_dropout,
+          use_hard_attention=center_window_size == 1,
         )
 
     if not use_joint_model:
@@ -410,6 +415,7 @@ def from_scratch_model_def(
   enc_ff_dim = config.int("enc_ff_dim", 2048)
 
   trafo_decoder_opts = config.typed_value("trafo_decoder_opts", None)
+  use_trafo_att = config.bool("use_trafo_att", False)
 
   common_config_params = get_common_config_params()
   in_dim = common_config_params.pop("in_dim")
@@ -432,6 +438,7 @@ def from_scratch_model_def(
     use_current_frame_in_readout_w_gate=use_current_frame_in_readout_w_gate,
     use_current_frame_in_readout_random=use_current_frame_in_readout_random,
     trafo_decoder_opts=trafo_decoder_opts,
+    use_trafo_att=use_trafo_att,
     **common_config_params,
   )
 

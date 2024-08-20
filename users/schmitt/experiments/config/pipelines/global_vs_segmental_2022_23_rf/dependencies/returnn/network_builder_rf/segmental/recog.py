@@ -127,6 +127,17 @@ def update_state(
       backrefs=backrefs
     )
   else:
+    if model.label_decoder.trafo_att:
+      trafo_att_state = label_decoder_state.pop("trafo_att")
+      trafo_att_state_updated = label_decoder_state_updated.pop("trafo_att")
+
+      trafo_att_state = _get_masked_trafo_state(
+        trafo_state=trafo_att_state,
+        trafo_state_updated=trafo_att_state_updated,
+        update_state_mask=update_state_mask,
+        backrefs=backrefs
+      )
+
     def _get_masked_state(old, new, mask):
       old = rf.gather(old, indices=backrefs)
       new = rf.gather(new, indices=backrefs)
@@ -140,6 +151,9 @@ def update_state(
         lambda old_state, new_state: _get_masked_state(old_state, new_state, update_state_mask),
         label_decoder_state, label_decoder_state_updated
       )
+
+    if model.label_decoder.trafo_att:
+      label_decoder_state["trafo_att"] = trafo_att_state
 
   # ILM
   if ilm_state is not None:
@@ -484,6 +498,9 @@ def model_recog(
     if isinstance(model.label_decoder, GlobalAttDecoder):
       label_decoder_state = model.label_decoder.decoder_default_initial_state(
         batch_dims=batch_dims_, enc_spatial_dim=enc_spatial_dim)
+
+      if model.label_decoder.trafo_att:
+        label_decoder_state.trafo_att = _get_init_trafo_state(model.label_decoder.trafo_att, batch_dims_)
     else:
       assert isinstance(model.label_decoder, SegmentalAttLabelDecoder)
       label_decoder_state = model.label_decoder.default_initial_state(batch_dims=batch_dims_)

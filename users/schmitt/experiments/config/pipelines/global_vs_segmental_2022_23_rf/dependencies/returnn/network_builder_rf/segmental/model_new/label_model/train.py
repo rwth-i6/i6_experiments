@@ -327,7 +327,7 @@ def forward_sequence_efficient(
     non_blank_mask_spatial_dim.dyn_size_ext = rf.copy_to_device(non_blank_mask_spatial_dim.dyn_size_ext, s_out.device)
   att = model(
     enc=enc_args["enc"],
-    enc_ctx=enc_args["enc_ctx"],
+    enc_ctx=enc_args.get("enc_ctx"),
     enc_spatial_dim=enc_spatial_dim,
     s=s_out,
     segment_starts=segment_starts,
@@ -553,6 +553,8 @@ def full_sum_training(
         enc_ctx=enc_args["enc_ctx"],
         enc_spatial_dim=enc_spatial_dim,
         s=s_out,
+        input_embed=non_blank_input_embeddings_shifted,
+        input_embed_spatial_dim=non_blank_targets_spatial_dim_ext,
       )
     elif type(model.label_decoder) is GlobalAttDecoder:
       att = loop_out["att"]

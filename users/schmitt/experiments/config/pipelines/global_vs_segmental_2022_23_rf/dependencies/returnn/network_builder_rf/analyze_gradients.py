@@ -15,6 +15,7 @@ from returnn.frontend.encoder.conformer import ConformerEncoder, ConformerEncode
 from returnn.frontend.attention import RelPosSelfAttention
 from returnn.frontend.decoder.transformer import TransformerDecoder, TransformerDecoderLayer
 
+from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.base import TrafoAttention
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.segmental import utils
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.segmental.model import SegmentalAttentionModel
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.segmental.model_new.label_model.model import (
@@ -276,102 +277,69 @@ def _blank_model_analysis(
         batch_dim=batch_dim,
         spatial_dim=enc_spatial_dim,
       )
-  #   exit()
-  #
-  #
-  # # emit_prob_weight = model.blank_decoder.emit_prob.weight.raw_tensor
-  # # emit_prob_bias = model.blank_decoder.emit_prob.bias.raw_tensor
-  # # emit_logits = torch.matmul(x_raw, emit_prob_weight) + emit_prob_bias
-  #
-  # for b in range(B):
-  #   seq_tag = seq_tags.raw_tensor[b].item()
-  #   seq_len_b = spatial_dim.dyn_size_ext.raw_tensor[b].item()
-  #   x_norm_b = x_transformed_norm[b, :seq_len_b]
-  #   cos_sim = torch.matmul(x_norm_b, x_norm_b.transpose(0, 1))
-  #   # cos_sim = torch.tril(cos_sim, diagonal=0)
-  #   cos_sim = cos_sim.cpu().detach().numpy()
-  #
-  #   plt.matshow(cos_sim, cmap="seismic")
-  #   plt.colorbar()
-  #   plt.savefig(os.path.join(dirname, f"cos_sim_{seq_tag.replace('/', '_')}.png"))
-  #   plt.close()
-  #
-  #   x_norm_b = x_norm_b.cpu().detach().numpy()
-  #   from sklearn.cluster import SpectralClustering
-  #   clusters = SpectralClustering(n_clusters=2, random_state=0).fit(x_norm_b)
-  #
-  #   plt.matshow(clusters.labels_[None, :], cmap="tab20c")
-  #   plt.savefig(os.path.join(dirname, f"clusters_{seq_tag.replace('/', '_')}.png"))
-  #   plt.close()
-
-    # emit_logits_b = emit_logits[b, :seq_len_b]
-    # emit_logits_b = emit_logits_b.cpu().detach().numpy()
-    # emit_logits_b = np.squeeze(emit_logits_b)
-    # plt.matshow(emit_logits_b[None, :], cmap="seismic")
-    # plt.colorbar()
-    # plt.savefig(os.path.join(dirname, f"emit_logits_{seq_tag.replace('/', '_')}.png"))
-    # plt.close()
 
 
-def _info_mixing_analysis(
-        input_: rf.Tensor,
-        representation: rf.Tensor,
-        log_probs: rf.Tensor,
-        targets: rf.Tensor,
+def _plot_multi_head_enc_self_att_one_fig(
+        att_weights: rf.Tensor,
+        energies: rf.Tensor,
+        head_dim: rf.Dim,
         batch_dims: List[rf.Dim],
+        enc_query_dim: rf.Dim,
+        enc_kv_dim: rf.Dim,
+        dirname: str,
         seq_tags: rf.Tensor,
-        enc_spatial_dim: rf.Dim,
-        targets_spatial_dim: rf.Dim,
-        input_name: str,
-        json_vocab_path: Path
 ):
-  """
-  Analyze the mixing of the input and the representation in the log probabilities.
+    # Calculate grid size
+    num_heads = head_dim.dimension
+    grid_rows, grid_cols = 2, 4
 
-  :param input_: The input frames for the Conformer, i.e. x_linear.
-  :param representation: The intermediate encoder representation to analyse.
-  """
-  input_raw = input_.raw_tensor
-  representation_raw = representation.raw_tensor
-  log_probs_raw = log_probs.raw_tensor
-  B = log_probs_raw.size(0)  # noqa
-  S = log_probs_raw.size(1)  # noqa
-  T = input_raw.size(1)  # noqa
-  F = input_raw.size(2)  # noqa
+    for tensor, tensor_name in (
+            (att_weights, "att_weights"),
+            (energies, "energies"),
+    ):
+        for b in range(tensor.raw_tensor.size(0)):
+            seq_tag = seq_tags.raw_tensor[b].item()
+            seq_len_b = enc_query_dim.dyn_size_ext.raw_tensor[b].item()
 
-  print()
-  print("input_raw", input_raw.shape)
-  print("log_probs_raw", log_probs_raw.shape)
+            # Create a figure for the 2x4 grid
+            fig, axes = plt.subplots(grid_rows, grid_cols, figsize=(20, 10))
+            fig.suptitle(f'{tensor_name} for sequence {seq_tag}')
 
-  batch_gradients = []
-  for b in range(B):
-    s_gradients = []
-    for s in range(S):
-      v = targets.raw_tensor[b, s]
-      input_raw.retain_grad()
-      representation_raw.retain_grad()
-      log_probs_raw.retain_grad()
-      log_probs_raw[b, s, v].backward(retain_graph=True, inputs=[representation_raw])
+            for h in range(num_heads):
+                tensor_single_head = rf.gather(
+                    tensor,
+                    indices=rf.constant(h, dims=batch_dims),
+                    axis=head_dim,
+                )
+                dummy_att_head_dim = rf.Dim(1, name="att_head")
+                tensor_single_head = rf.expand_dim(tensor_single_head, dim=dummy_att_head_dim)
+                tensor_single_head = tensor_single_head.copy_transpose(
+                    batch_dims + [enc_query_dim, enc_kv_dim, dummy_att_head_dim])
 
-      log_prob_grad_wrt_repr = representation_raw.grad[b]
-      print("log_prob_grad_wrt_repr", log_prob_grad_wrt_repr.shape)
+                tensor_single_head_raw = tensor_single_head.raw_tensor
+                tensor_single_head_b_raw = tensor_single_head_raw[b, :seq_len_b, :seq_len_b, 0]
+                tensor_single_head_b_raw = tensor_single_head_b_raw.cpu().detach().numpy()
 
-      gs = []
-      for t in range(T):
-        g = 0
-        for f in range(F):
-          representation_raw[b, t, f].backward(
-            retain_graph=True,
-            inputs=[input_raw]
-          )
-          repr_grad_wrt_input = input_raw.grad[b, t]
+                # Determine the current grid position
+                row_idx = h // grid_cols
+                col_idx = h % grid_cols
 
-          g += log_prob_grad_wrt_repr[t, f] * repr_grad_wrt_input
+                # Plot in the appropriate grid position
+                ax = axes[row_idx, col_idx]
+                ax.matshow(tensor_single_head_b_raw, cmap="Blues")
+                ax.set_title(f"Head {h}")
+                ax.set_ylabel("queries")
+                ax.set_xlabel("keys/values")
 
-        g = torch.linalg.vector_norm(g, dim=-1)
+            # Adjust layout and save the figure
+            plt.tight_layout(rect=[0, 0.03, 1, 0.95])
+            head_dirname = os.path.join(dirname, f"{tensor_name}_grid")
+            if not os.path.exists(head_dirname):
+                os.makedirs(head_dirname)
 
-        print("g", g)
-        exit()
+            plt.savefig(os.path.join(head_dirname, f"{tensor_name}_{seq_tag.replace('/', '_')}.png"))
+            plt.close(fig)
+
 
 
 def _plot_multi_head_enc_self_att(
@@ -635,7 +603,7 @@ def analyze_gradients(
 
     enc_att_head_dim = enc_att_weights.remaining_dims(batch_dims + enc_att_weights.get_dyn_size_tags())[0]
     enc_kv_dim = enc_att_weights.remaining_dims(batch_dims + [enc_att_head_dim, enc_spatial_dim])[0]
-    _plot_multi_head_enc_self_att(
+    _plot_multi_head_enc_self_att_one_fig(
       att_weights=enc_att_weights,
       energies=enc_att_energies,
       head_dim=enc_att_head_dim,
@@ -662,7 +630,7 @@ def analyze_gradients(
           align_target_dim=model.target_dim.dimension
         )
 
-      if not isinstance(model.label_decoder, TransformerDecoder):
+      if not isinstance(model.label_decoder, TransformerDecoder) and hasattr(model.encoder, "enc_ctx"):
         enc_args["enc_ctx"] = model.encoder.enc_ctx(enc)  # does not exist for transformer decoder
 
         if model.label_decoder.use_weight_feedback:
@@ -850,7 +818,7 @@ def analyze_gradients(
             batch_dims=batch_dims,
           )
 
-      elif type(model.label_decoder) is GlobalAttEfficientDecoder:
+      elif type(model.label_decoder) is GlobalAttEfficientDecoder and not model.label_decoder.trafo_att:
         set_trace_variables(
           funcs_to_trace_list=[
             forward_sequence_global,
@@ -960,27 +928,48 @@ def analyze_gradients(
         # print("logits", log_probs)  # [B, S, V]
         # print("non_blank_targets", non_blank_targets.raw_tensor[0, :])  # [B, S]
       else:
-        assert isinstance(model.label_decoder, TransformerDecoder)
+        assert isinstance(model.label_decoder, TransformerDecoder) or (
+                  type(model.label_decoder) is GlobalAttEfficientDecoder and model.label_decoder.trafo_att)
 
         for get_cross_attentions in [True, False]:
           for dec_layer_idx in range(5, 6):
-            set_trace_variables(
-              funcs_to_trace_list=[
-                TransformerDecoder.__call__,
-                TransformerDecoderLayer.__call__,
-                rf.CrossAttention.__call__,
-                rf.CrossAttention.attention,
-                rf.dot_attention,
+            funcs_to_trace_list = [
+              TransformerDecoder.__call__ if isinstance(
+                model.label_decoder, TransformerDecoder) else TrafoAttention.__call__,
+              TransformerDecoderLayer.__call__,
+              rf.CrossAttention.__call__,
+              rf.CrossAttention.attention,
+              rf.dot_attention,
+            ]
+            if not isinstance(model.label_decoder, TransformerDecoder):
+              funcs_to_trace_list += [
+                forward_sequence_global,
+                get_s_and_att_efficient_global,
+                GlobalAttEfficientDecoder.__call__,
+                GlobalAttEfficientDecoder.decode_logits,
               ]
+            set_trace_variables(
+              funcs_to_trace_list=funcs_to_trace_list
             )
 
             sys.settrace(_trace_func)
-            model.label_decoder(
-              non_blank_targets,
-              spatial_dim=non_blank_targets_spatial_dim,
-              encoder=model.label_decoder.transform_encoder(enc_args["enc"], axis=enc_spatial_dim),
-              state=model.label_decoder.default_initial_state(batch_dims=batch_dims)
-            )
+            if isinstance(model.label_decoder, TransformerDecoder):
+              model.label_decoder(
+                non_blank_targets,
+                spatial_dim=non_blank_targets_spatial_dim,
+                encoder=model.label_decoder.transform_encoder(enc_args["enc"], axis=enc_spatial_dim),
+                state=model.label_decoder.default_initial_state(batch_dims=batch_dims)
+              )
+            else:
+              forward_sequence_global(
+                model=model.label_decoder,
+                enc_args=enc_args,
+                enc_spatial_dim=enc_spatial_dim,
+                targets=non_blank_targets,
+                targets_spatial_dim=non_blank_targets_spatial_dim,
+                center_positions=center_positions,
+                batch_dims=batch_dims,
+              )
             sys.settrace(None)
 
             _dec_layer_idx = 2 * dec_layer_idx + int(get_cross_attentions)
@@ -992,9 +981,21 @@ def analyze_gradients(
               layer_mapping={"energy": (rf.dot_attention, _dec_layer_idx, "energy", -1)}
             )
             assert isinstance(energies, rf.Tensor)
-            logits = process_captured_tensors(
-              layer_mapping={"logits": (TransformerDecoder.__call__, 0, "logits", -1)}
-            )
+
+            if isinstance(model.label_decoder, TransformerDecoder):
+              logits = process_captured_tensors(
+                layer_mapping={"logits": (TransformerDecoder.__call__, 0, "logits", -1)}
+              )
+            else:
+              label_model_states = process_captured_tensors(
+                layer_mapping={f"s": (get_s_and_att_efficient_global, 0, "s", -1)},
+              )
+              assert isinstance(label_model_states, rf.Tensor)
+
+              logits = process_captured_tensors(
+                layer_mapping={"logits": (GlobalAttEfficientDecoder.decode_logits, 0, "logits", -1)}
+              )
+            assert isinstance(logits, rf.Tensor)
             log_probs = rf.log_softmax(logits, axis=model.target_dim)
 
             # shapes for trafo decoder
@@ -1007,17 +1008,17 @@ def analyze_gradients(
 
             def _plot_attention_weights():
               if get_cross_attentions:
-                att_head_dim = att_weights.remaining_dims(batch_dims + [enc_spatial_dim, targets_spatial_dim])
+                att_head_dim = att_weights.remaining_dims(batch_dims + [enc_spatial_dim, non_blank_targets_spatial_dim])
                 assert len(att_head_dim) == 1
                 att_head_dim = att_head_dim[0]
               else:
                 # this is either the att head dim or the kv-dim
-                att_head_and_kv_dim = att_weights.remaining_dims(batch_dims + [targets_spatial_dim])
+                att_head_and_kv_dim = att_weights.remaining_dims(batch_dims + [non_blank_targets_spatial_dim])
                 # att head dim is static, kv-dim is dynamic
                 att_head_dim = [dim for dim in att_head_and_kv_dim if dim.is_static()][0]
                 kv_dim = [dim for dim in att_head_and_kv_dim if dim.is_dynamic()][0]
                 # kv_dim has seq lens (1, 2, ..., S) but needs single len (S) for my hdf_dump script
-                kv_dim.dyn_size_ext.raw_tensor = targets_spatial_dim.dyn_size_ext.raw_tensor.clone()
+                kv_dim.dyn_size_ext.raw_tensor = non_blank_targets_spatial_dim.dyn_size_ext.raw_tensor.clone()
 
               for tensor, tensor_name in (
                       (att_weights, "att_weights"),
@@ -1035,11 +1036,11 @@ def analyze_gradients(
                   if get_cross_attentions:
                     # [B, S, T, 1]
                     tensor_single_head = tensor_single_head.copy_transpose(
-                      batch_dims + [targets_spatial_dim, enc_spatial_dim, dummy_att_head_dim])
+                      batch_dims + [non_blank_targets_spatial_dim, enc_spatial_dim, dummy_att_head_dim])
                   else:
                     # [B, S, S, 1]
                     tensor_single_head = tensor_single_head.copy_transpose(
-                      batch_dims + [targets_spatial_dim, kv_dim, dummy_att_head_dim])
+                      batch_dims + [non_blank_targets_spatial_dim, kv_dim, dummy_att_head_dim])
                     # optionally copy lower triangular part to upper triangular part
                     # att_weights_single_head.raw_tensor[0, :, :, 0] = copy_lower_triangular_matrix_to_upper(
                     #   att_weights_single_head.raw_tensor[0, :, :, 0]
@@ -1087,7 +1088,7 @@ def analyze_gradients(
 
             _plot_attention_weights()
 
-      if isinstance(model.label_decoder, GlobalAttDecoder):
+      if isinstance(model.label_decoder, GlobalAttDecoder) and not model.label_decoder.trafo_att:
         for s in range(max_num_labels):
           energy_in_s = rf.gather(
             energy_in,
@@ -1105,16 +1106,19 @@ def analyze_gradients(
             extra_name=str(s)
           )
 
-      for input_name, input_ in (
-              *[(f"enc-{i}", collected_outputs[str(i)]) for i in range(12)],
-              (f"enc_ctx-{enc_layer_idx}", enc_args["enc_ctx"]),
-              ("x_linear", x_linear),
-      ):
-        if isinstance(model, SegmentalAttentionModel) and isinstance(model.label_decoder, SegmentalAttLabelDecoder) and (
-                model.center_window_size == 1 or model.label_decoder.gaussian_att_weight_opts is not None) and (
-          "enc_ctx" in input_name
-        ):
-          continue  # encoder ctx not used
+      tensors = [
+        *[(f"enc-{i}", collected_outputs[str(i)]) for i in range(12)],
+        ("x_linear", x_linear),
+      ]
+      if "enc_ctx" in enc_args:
+        tensors.append((f"enc_ctx-{enc_layer_idx}", enc_args["enc_ctx"]))
+
+      for input_name, input_ in tensors:
+        # if isinstance(model, SegmentalAttentionModel) and isinstance(model.label_decoder, SegmentalAttLabelDecoder) and (
+        #         model.center_window_size == 1 or model.label_decoder.gaussian_att_weight_opts is not None) and (
+        #   "enc_ctx" in input_name
+        # ):
+        #   continue  # encoder ctx not used
 
         _plot_log_prob_gradient_wrt_to_input(
           input_=input_,
@@ -1163,7 +1167,7 @@ def analyze_gradients(
 
       # plot attention weights for non-trafo decoders
       # (for trafo decoders, the attention weights are plotted in the loop above)
-      if not isinstance(model.label_decoder, TransformerDecoder):
+      if not isinstance(model.label_decoder, TransformerDecoder) and not model.label_decoder.trafo_att:
         dirname = f"cross-att/enc-layer-{enc_layer_idx + 1}"
         if os.path.exists(dirname):
           return

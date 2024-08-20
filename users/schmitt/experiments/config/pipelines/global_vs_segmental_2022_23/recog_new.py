@@ -431,7 +431,7 @@ class ReturnnDecodingExperiment(DecodingExperiment, ABC):
       #     ref_alignment_vocab_path=_analysis_opts["ref_alignment_vocab_path"],
       #   )
 
-      if _analysis_opts.get("analyze_gradients", False):
+      if _analysis_opts.get("analyze_gradients", True):
         analysis_rf.analyze_gradients(
           config_builder=self.config_builder,
           seq_tags=att_weight_seq_tags,
@@ -441,9 +441,9 @@ class ReturnnDecodingExperiment(DecodingExperiment, ABC):
           returnn_python_exe=self.returnn_python_exe,
           alias=self.alias,
           hdf_targets=analysis_opts.get("ground_truth_hdf"),
-          ref_alignment_hdf=_analysis_opts["ref_alignment_hdf"],
-          ref_alignment_blank_idx=_analysis_opts["ref_alignment_blank_idx"],
-          ref_alignment_vocab_path=_analysis_opts["ref_alignment_vocab_path"],
+          ref_alignment_hdf=_analysis_opts.get("ref_alignment_hdf"),
+          ref_alignment_blank_idx=_analysis_opts.get("ref_alignment_blank_idx"),
+          ref_alignment_vocab_path=_analysis_opts.get("ref_alignment_vocab_path"),
           seq_alias="ground-truth"
         )
         # if "global_att/baseline_v2/baseline_rf/sp10240/w-weight-feedback/w-att-ctx-in-state/trafo/import_albert-aed-trafo-decoder-bpe10k/returnn_decoding/epoch-498-checkpoint/no-lm/beam-size-12/dev-other_concat" in self.alias:
@@ -876,7 +876,8 @@ class DecodingPipeline(ABC):
           run_analysis: bool = False,
           search_rqmt: Optional[Dict] = None,
           search_alias: Optional[str] = None,
-          corpus_keys: Tuple[str, ...] = ("dev-other",)
+          corpus_keys: Tuple[str, ...] = ("dev-other",),
+          only_do_analysis: bool = False
   ):
     self.recog_opts = recog_opts if recog_opts is not None else {}
     for key in ("lm_opts", "ilm_correction_opts", "beam_size", "search_corpus_key"):
@@ -896,6 +897,7 @@ class DecodingPipeline(ABC):
     self.search_rqmt = search_rqmt if search_rqmt is not None else {}
     self.search_alias = search_alias
     self.corpus_keys = corpus_keys
+    self.only_do_analysis = only_do_analysis
 
   @abstractmethod
   def run_experiment(
@@ -948,7 +950,8 @@ class ReturnnGlobalAttDecodingPipeline(DecodingPipeline):
       search_alias=self.search_alias,
       search_rqmt=search_rqmt
     )
-    exp.run_eval()
+    if not self.only_do_analysis:
+      exp.run_eval()
     if self.run_analysis:
       exp.run_analysis(self.analysis_opts)
 
@@ -1006,6 +1009,7 @@ class ReturnnSegmentalAttDecodingPipeline(DecodingPipeline):
       search_rqmt=search_rqmt,
       search_alias=self.search_alias
     )
-    exp.run_eval()
+    if not self.only_do_analysis:
+      exp.run_eval()
     if self.run_analysis:
       exp.run_analysis(self.analysis_opts)

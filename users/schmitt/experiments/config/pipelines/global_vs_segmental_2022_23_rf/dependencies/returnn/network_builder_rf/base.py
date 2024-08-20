@@ -1,11 +1,64 @@
-from typing import Optional, Tuple
+from typing import Optional, Tuple, Dict
 
 from returnn.tensor import Tensor, Dim, single_step_dim
 import returnn.frontend as rf
+from returnn.frontend.decoder.transformer import TransformerDecoder, TransformerDecoderLayer
 
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.segmental import utils
 
 _batch_size_factor = 160
+
+
+class TrafoAttention(TransformerDecoder):
+  def __init__(self, **kwargs):
+    super(TrafoAttention, self).__init__(**kwargs)
+
+    delattr(self, "input_embedding")
+    delattr(self, "logits")
+
+  def __call__(
+          self,
+          input_embeddings: Tensor,
+          *,
+          spatial_dim: Dim,
+          state: rf.State,
+          encoder: Optional[rf.State] = None,
+          collected_outputs: Optional[Dict[str, Tensor]] = None,
+  ) -> Tuple[Tensor, rf.State]:
+    """
+    forward, single step or whole sequence.
+
+    :param source: labels
+    :param spatial_dim: single_step_dim or spatial dim of source
+    :param state: e.g. via :func:`default_initial_state`
+    :param encoder: via :func:`transform_encoder`
+    :param collected_outputs:
+    :return: logits, new state
+    """
+    new_state = rf.State()
+
+    decoded = input_embeddings * self.input_embedding_scale
+    decoded = decoded + self.pos_enc(spatial_dim=spatial_dim, offset=state.pos)
+    decoded = rf.dropout(decoded, self.input_dropout)
+    if self.input_embedding_proj is not None:
+      decoded = self.input_embedding_proj(decoded)
+
+    new_state.pos = state.pos + (1 if spatial_dim == single_step_dim else spatial_dim.get_size_tensor())
+
+    for layer_name, layer in self.layers.items():
+      layer: TransformerDecoderLayer  # or similar
+      decoded, new_state[layer_name] = layer(
+        decoded,
+        spatial_dim=spatial_dim,
+        state=state[layer_name],
+        encoder=encoder[layer_name] if encoder else None,
+      )
+      if collected_outputs is not None:
+        collected_outputs[layer_name] = decoded
+
+    decoded = self.final_layer_norm(decoded)
+
+    return decoded, new_state
 
 
 class LinearDecoder(rf.Module):
@@ -56,6 +109,8 @@ class BaseLabelDecoder(rf.Module):
           target_embed_dim: Dim = Dim(name="target_embed", dimension=640),
           target_embed_dropout: float = 0.0,
           att_weight_dropout: float = 0.0,
+          use_hard_attention: bool = False,
+          use_trafo_attention: bool = False,
   ):
     super(BaseLabelDecoder, self).__init__()
 
@@ -137,10 +192,29 @@ class BaseLabelDecoder(rf.Module):
     if use_weight_feedback:
       self.weight_feedback = rf.Linear(att_num_heads, enc_key_total_dim, with_bias=False)
 
-    self.s_transformed = rf.Linear(self.get_lstm().out_dim, enc_key_total_dim, with_bias=False)
-    self.energy = rf.Linear(enc_key_total_dim, att_num_heads, with_bias=False)
+    if not use_hard_attention and not use_trafo_attention:
+      self.s_transformed = rf.Linear(self.get_lstm().out_dim, enc_key_total_dim, with_bias=False)
+      self.energy = rf.Linear(enc_key_total_dim, att_num_heads, with_bias=False)
+      att_dim = att_num_heads * enc_out_dim
+      self.trafo_att = None
+    else:
+      if use_trafo_attention:
+        model_dim = target_embed_dim
+        self.trafo_att = TrafoAttention(
+          num_layers=6,
+          encoder_dim=enc_out_dim,
+          vocab_dim=target_dim,  # not used (embeddings are calculated before)
+          model_dim=model_dim,
+          sequential=rf.Sequential,
+          share_embedding=True,  # not used
+          input_embedding_scale=model_dim.dimension ** 0.5  # not used
+        )
+        att_dim = model_dim
+      else:
+        self.trafo_att = None
+        att_dim = att_num_heads * enc_out_dim
 
-    readout_in_dim = self.get_lstm().out_dim + self.target_embed.out_dim + att_num_heads * enc_out_dim
+    readout_in_dim = self.get_lstm().out_dim + self.target_embed.out_dim + att_dim
     readout_out_dim = Dim(name="readout", dimension=1024)
     self.use_current_frame_in_readout = use_current_frame_in_readout
     if use_current_frame_in_readout:

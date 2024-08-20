@@ -9,7 +9,6 @@ from i6_core.returnn import ReturnnDumpHDFJob
 
 from i6_experiments.users.schmitt.visualization.visualization import PlotAttentionWeightsJobV2
 from i6_experiments.users.schmitt.recognition.search_errors import CalcSearchErrorJobRF
-from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.labels.v2.librispeech.sentencepiece.sentencepiece import LibrispeechSP10240
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.config_builder_rf.base import ConfigBuilderRF, SegmentalAttConfigBuilderRF, GlobalAttConfigBuilderRF
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf import dump_att_weights as dump_att_weights_forward_funcs
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf import analyze_gradients as analyze_gradients_forward_funcs
@@ -149,14 +148,11 @@ def analyze_gradients(
     "dataset_opts": {
       **segment_paths_dict,
       "concat_num": concat_num,
-      "target_is_alignment": False,
+      "target_is_alignment": isinstance(config_builder, SegmentalAttConfigBuilderRF),
     },
     "forward_step_func": analyze_gradients_forward_funcs._returnn_v2_forward_step,
     "forward_callback": analyze_gradients_forward_funcs._returnn_v2_get_forward_callback,
     "analyze_gradients_def": analyze_gradients_forward_funcs.analyze_gradients,
-    "ref_alignment_hdf": ref_alignment_hdf,
-    "ref_alignment_blank_idx": ref_alignment_blank_idx,
-    "ref_alignment_vocab_path": ref_alignment_vocab_path,
     "json_vocab_path": config_builder.variant_params["dependencies"].vocab_path,
   }
 
@@ -181,6 +177,17 @@ def analyze_gradients(
         time_rqmt=1,
       )
       hdf_targets = realign_job.out_files["realignment.hdf"]
+
+      if ref_alignment_hdf is None:
+        ref_alignment_hdf = hdf_targets
+        ref_alignment_vocab_path = config_opts["json_vocab_path"]
+        ref_alignment_blank_idx = config_builder.variant_params["dependencies"].model_hyperparameters.blank_idx
+
+  config_opts.update({
+    "ref_alignment_hdf": ref_alignment_hdf,
+    "ref_alignment_blank_idx": ref_alignment_blank_idx,
+    "ref_alignment_vocab_path": ref_alignment_vocab_path,
+  })
 
   if hdf_targets is not None:
     config_opts["dataset_opts"]["hdf_targets"] = {corpus_key: hdf_targets}

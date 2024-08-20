@@ -22,9 +22,15 @@ class GlobalAttDecoder(BaseLabelDecoder):
           use_mini_att: bool = False,
   ) -> rf.State:
     """Default initial state"""
-    state = rf.State(
-      att=rf.zeros(list(batch_dims) + [self.att_num_heads * self.enc_out_dim]),
-    )
+    state = rf.State()
+
+    if self.trafo_att:
+      state.trafo_att = self.trafo_att.default_initial_state(batch_dims=batch_dims)
+      att_dim = self.trafo_att.model_dim
+    else:
+      att_dim = self.att_num_heads * self.enc_out_dim
+
+    state.att = rf.zeros(list(batch_dims) + [att_dim])
     state.att.feature_dim_axis = len(state.att.dims) - 1
 
     if "lstm" in self.decoder_state:
@@ -90,21 +96,29 @@ class GlobalAttDecoder(BaseLabelDecoder):
         pre_mini_att = att_linear
       att = self.mini_att(pre_mini_att)
     else:
-      if self.use_weight_feedback:
-        weight_feedback = self.weight_feedback(state.accum_att_weights)
+      if self.trafo_att:
+        att, state_.trafo_att = self.trafo_att(
+          input_embed,
+          state=state.trafo_att,
+          spatial_dim=single_step_dim,
+          encoder=self.trafo_att.transform_encoder(enc, axis=enc_spatial_dim)
+        )
       else:
-        weight_feedback = rf.zeros((self.enc_key_total_dim,))
+        if self.use_weight_feedback:
+          weight_feedback = self.weight_feedback(state.accum_att_weights)
+        else:
+          weight_feedback = rf.zeros((self.enc_key_total_dim,))
 
-      s_transformed = self.s_transformed(s)
-      energy_in = enc_ctx + weight_feedback + s_transformed
-      energy = self.energy(rf.tanh(energy_in))
-      att_weights = rf.softmax(energy, axis=enc_spatial_dim)
-      att_weights = rf.dropout(att_weights, drop_prob=self.att_weight_dropout, axis=None)
+        s_transformed = self.s_transformed(s)
+        energy_in = enc_ctx + weight_feedback + s_transformed
+        energy = self.energy(rf.tanh(energy_in))
+        att_weights = rf.softmax(energy, axis=enc_spatial_dim)
+        att_weights = rf.dropout(att_weights, drop_prob=self.att_weight_dropout, axis=None)
 
-      if self.use_weight_feedback:
-        state_.accum_att_weights = state.accum_att_weights + att_weights * inv_fertility * 0.5
+        if self.use_weight_feedback:
+          state_.accum_att_weights = state.accum_att_weights + att_weights * inv_fertility * 0.5
 
-      att = self.get_att(att_weights, enc, enc_spatial_dim)
+        att = self.get_att(att_weights, enc, enc_spatial_dim)
 
     state_.att = att
 
@@ -123,7 +137,7 @@ class GlobalAttEfficientDecoder(GlobalAttDecoder):
           self,
           *,
           enc: rf.Tensor,
-          enc_ctx: rf.Tensor,
+          enc_ctx: Optional[rf.Tensor],  # not needed in case of trafo_att
           enc_spatial_dim: Dim,
           s: rf.Tensor,
           input_embed: Optional[rf.Tensor] = None,
@@ -146,14 +160,25 @@ class GlobalAttEfficientDecoder(GlobalAttDecoder):
         pre_mini_att = att_linear
       att = self.mini_att(pre_mini_att)
     else:
-      s_transformed = self.s_transformed(s)
+      if self.trafo_att:
+        batch_dims = enc.remaining_dims(
+          remove=(enc.feature_dim, enc_spatial_dim) if enc_spatial_dim != single_step_dim else (enc.feature_dim,)
+        )
+        att, _ = self.trafo_att(
+          input_embed,
+          spatial_dim=input_embed_spatial_dim,
+          encoder=self.trafo_att.transform_encoder(enc, axis=enc_spatial_dim),
+          state=self.trafo_att.default_initial_state(batch_dims=batch_dims)
+        )
+      else:
+        s_transformed = self.s_transformed(s)
 
-      weight_feedback = rf.zeros((self.enc_key_total_dim,))
+        weight_feedback = rf.zeros((self.enc_key_total_dim,))
 
-      energy_in = enc_ctx + weight_feedback + s_transformed
-      energy = self.energy(rf.tanh(energy_in))
-      att_weights = rf.softmax(energy, axis=enc_spatial_dim)
-      # we do not need use_mask because the softmax output is already padded with zeros
-      att = self.get_att(att_weights, enc, enc_spatial_dim)
+        energy_in = enc_ctx + weight_feedback + s_transformed
+        energy = self.energy(rf.tanh(energy_in))
+        att_weights = rf.softmax(energy, axis=enc_spatial_dim)
+        # we do not need use_mask because the softmax output is already padded with zeros
+        att = self.get_att(att_weights, enc, enc_spatial_dim)
 
     return att

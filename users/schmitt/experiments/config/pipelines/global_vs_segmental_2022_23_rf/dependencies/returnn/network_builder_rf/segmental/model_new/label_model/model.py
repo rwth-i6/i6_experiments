@@ -243,7 +243,7 @@ class SegmentalAttEfficientLabelDecoder(SegmentalAttLabelDecoder):
           self,
           *,
           enc: rf.Tensor,
-          enc_ctx: rf.Tensor,
+          enc_ctx: Optional[rf.Tensor],  # not needed for, e.g., window size 1
           enc_spatial_dim: Dim,
           s: rf.Tensor,
           segment_starts: rf.Tensor,

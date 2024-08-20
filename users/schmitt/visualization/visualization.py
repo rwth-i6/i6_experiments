@@ -412,7 +412,7 @@ class PlotAttentionWeightsJobV2(Job):
       target_vocab = {v: k for k, v in target_vocab.items()}  # idx -> label
       # if we have a target blank idx, we replace the EOS symbol in the vocab with "<b>"
       if self.target_blank_idx is not None:
-        target_vocab[0] = "<b>"
+        target_vocab[self.target_blank_idx] = "<b>"
 
     # load reference alignment vocabulary as dictionary
     if self.ref_alignment_json_vocab_path != self.json_vocab_path:
