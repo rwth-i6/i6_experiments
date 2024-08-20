@@ -16,9 +16,6 @@ def generate_specaug_params(
     Returns:
         Dict[str, List[int]]: Pre-generated parameter values for each epoch.
     """
-
-    if schedules is None:
-        schedules = {}
     params = {key: [] for key in base_values.keys()}
 
     for epoch in range(num_epochs):
