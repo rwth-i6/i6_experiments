@@ -26,7 +26,7 @@ def add_specaug_layer(
                 max_feature_num (int): The beginning maximum number of frequency masks to be applied. Default is 4.
                 max_feature (int): The beginning maximum size (in frequency bins) of each frequency mask. Default is 5.
                 enable_sorting (bool): Whether to sort filters by their center frequency before applying masks. Default is False.
-                steps_per_epoch (int): The number of steps per epoch. Make sure this parameter is accurate since the all the scheduling depends on it. Default is 2080.
+                steps_per_epoch (int): The number of steps per epoch. Make sure this parameter is accurate since the all the scheduling depends on it.
                 sorting_start_epoch (int): The subepoch number to start sorting filters. Default is 0.
                 mask_growth_strategy (str): The strategy for increasing the mask sizes over epochs (linear or step). Default is "linear".
                 time_mask_num_schedule (Dict[int, float]): A dictionary mapping subepoch numbers to the multiplicator for the time mask number.
@@ -56,8 +56,8 @@ def add_specaug_layer(
         "max_feature": 4,
         "enable_sorting": False,
         "sorting_start_epoch": 0,
-        "steps_per_epoch": 2080,
-        "mask_growth_strategy": "linear", 
+        "steps_per_epoch": None,
+        "mask_growth_strategy": "linear",
         "time_mask_max_proportion": 0.7,
         "freq_mask_max_proportion": 0.7,
     }
@@ -67,6 +67,8 @@ def add_specaug_layer(
 
     # Merge provided config with defaults
     full_config = {**default_config, **config}
+
+    assert full_config["steps_per_epoch"] is not None, "steps_per_epoch must be provided in the config"
 
     # Generate the SpecAugment parameters in advance
     base_values = {
