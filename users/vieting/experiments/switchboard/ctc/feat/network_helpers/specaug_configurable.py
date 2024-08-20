@@ -31,13 +31,13 @@ def add_specaug_layer(
                 sorting_start_epoch (int): The subepoch number to start sorting filters. Default is 1.
                 mask_growth_strategy (str): The strategy for increasing the mask sizes over epochs (linear or step). Default is "linear".
                 time_mask_num_schedule (Dict[int, float]): A dictionary mapping subepoch numbers to the multiplicator for the time mask number.
-                    Default is None (unchanged over the enitre training).
+                    Default is None (unchanged over the entire training).
                 time_mask_size_schedule (Dict[int, float]): A dictionary mapping subepoch numbers to the multiplicator for the time mask size.
-                    Default is None (unchanged over the enitre training).
+                    Default is None (unchanged over the entire training).
                 freq_mask_num_schedule (Dict[int, float]): A dictionary mapping subepoch numbers to the multiplicator for the frequency mask number.
-                    Default is None (unchanged over the enitre training).
+                    Default is None (unchanged over the entire training).
                 freq_mask_size_schedule (Dict[int, float]): A dictionary mapping subepoch numbers to the multiplicator for the frequency mask size.
-                    Default is None (unchanged over the enitre training).
+                    Default is None (unchanged over the entire training).
                 time_mask_max_proportion (float): The maximum proportion of the time axis that can be masked. Default is 1.
                 freq_mask_max_proportion (float): The maximum proportion of the frequency axis that can be masked. Default is 1.
         num_epochs (int, optional): The total number of epochs for which the training will run. default 450
