@@ -141,7 +141,7 @@ def transform(data, network, **config):
         time_mask_max_num = tf.gather(specaug_params["time_mask_max_num"], current_epoch)
         freq_mask_max_num = tf.gather(specaug_params["freq_mask_max_num"], current_epoch)
         freq_mask_max_size = tf.gather(specaug_params["freq_mask_max_size"], current_epoch)
-        total_time_masks_max_size = tf.cast(
+        total_time_masks_max_frames = tf.cast(
             tf.math.floor(config["time_mask_max_proportion"] * tf.cast(tf.shape(x)[data.time_dim_axis], tf.float32)),
             tf.int32,
         )
@@ -151,7 +151,7 @@ def transform(data, network, **config):
         )
 
         # check for the limits
-        actual_time_mask_max_num = tf.minimum(time_mask_max_num, total_time_masks_max_size // time_mask_max_size)
+        actual_time_mask_max_num = tf.minimum(time_mask_max_num, total_time_masks_max_frames // time_mask_max_size)
         actual_freq_mask_max_num = tf.minimum(freq_mask_max_num, total_freq_masks_max_size // freq_mask_max_size)
 
         x_masked = random_mask(
