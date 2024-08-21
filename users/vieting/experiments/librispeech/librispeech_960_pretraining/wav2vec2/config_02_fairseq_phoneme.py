@@ -133,6 +133,6 @@ def py():
     for num_positives in [5, 10, 15]:
         run_fairseq_pretraining(
             exp_name=f"monophone_positive_sampling_{num_positives}_v1",
-            commit="654cd1e65473615f3355a2576adbaba5f5b549c2",
+            commit="91b936231c5ebbfd639ccd7e78869d3df45a12bb",
             num_positives=num_positives,
         )
