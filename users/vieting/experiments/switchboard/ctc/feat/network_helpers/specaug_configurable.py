@@ -40,6 +40,7 @@ def add_specaug_layer(
                     Default is None (unchanged over the entire training).
                 time_mask_max_proportion (float): The maximum proportion of the time axis that can be masked. Default is 1.
                 freq_mask_max_proportion (float): The maximum proportion of the frequency axis that can be masked. Default is 1.
+                max_time_num_seq_len_divisor (int): The divisor for the sequence length to determine the maximum number of time masks. Default is 0.7.
         num_epochs (int, optional): The total number of epochs for which the training will run. default 450
 
     Returns:
@@ -61,6 +62,7 @@ def add_specaug_layer(
         "mask_growth_strategy": "linear",
         "time_mask_max_proportion": 1.0,
         "freq_mask_max_proportion": 1.0,
+        "max_time_num_seq_len_divisor": 0.7,
     }
 
     if config is None:
@@ -151,7 +153,13 @@ def transform(data, network, **config):
         )
 
         # check for the limits
-        actual_time_mask_max_num = tf.minimum(time_mask_max_num, total_time_masks_max_frames // time_mask_max_size)
+        actual_time_mask_max_num = tf.minimum(
+            tf.maximum(
+                time_mask_max_num,
+                tf.shape(x)[data.time_dim_axis] // int(1.0 / max_time_num_seq_len_divisor * time_mask_max_size),
+            ),
+            total_time_masks_max_frames // time_mask_max_size,
+        )
         actual_freq_mask_max_num = tf.minimum(freq_mask_max_num, total_freq_masks_max_size // freq_mask_max_size)
 
         x_masked = random_mask(
