@@ -59,6 +59,8 @@ def model_recog_ts_espnet(
     assert batch_size_dim.get_dim_value() == 1, f"batch size {batch_size_dim.get_dim_value()} > 1 not supported yet"
 
     enc_args, enc_spatial_dim = model.encode(data, in_spatial_dim=data_spatial_dim)
+    if search_args.get("encoder_ctc", False):
+        enc_args_ctc, enc_spatial_dim_ctc = model.encode_ctc(data, in_spatial_dim=data_spatial_dim)
 
     if max_seq_len is None:
         max_seq_len = enc_spatial_dim.get_size_tensor()
@@ -66,7 +68,10 @@ def model_recog_ts_espnet(
         max_seq_len = rf.convert_to_tensor(max_seq_len, dtype="int32")
     print("** max seq len:", max_seq_len.raw_tensor)
 
-    enc_ctc = enc_args["ctc"]
+    if search_args.get("encoder_ctc", False):
+        enc_ctc = enc_args_ctc["ctc"]
+    else:
+        enc_ctc = enc_args["ctc"]
     enc_args.pop("ctc")
 
     ctc_out = (

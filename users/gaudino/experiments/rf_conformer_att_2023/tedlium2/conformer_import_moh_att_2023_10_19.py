@@ -299,11 +299,10 @@ def sis_run_with_prefix(prefix_name: str = None):
                 res.output,
             )
 
-    # optsr att + ctc
+    # optsr att + ctc -> done
     # for model_name in ["model_baseline"]:
     for model_name in [name for name in both_model_names if not scales_att_ctc_optsr[name].get("wer", None)]:
-        prior_scales = [0.1, 0.2, 0.3, 0.4, 0.5 ,0.6 ,0.7]
-        all_scales = [scales_att_ctc_optsr[model_name]["scales"][0] + [prior_scale] for prior_scale in prior_scales]
+        all_scales = scales_att_ctc_optsr[model_name]["scales"]
         for scales, beam_size in product(all_scales, [12]):
             att_scale, ctc_scale, prior_scale = scales
             name = (
@@ -404,11 +403,9 @@ def sis_run_with_prefix(prefix_name: str = None):
 
     with_lm_name = "/with_lm"
 
-    # att + trafo lm
+    # att + trafo lm -> done
     for model_name in [name for name in att_model_names if not scales_att_lm[name].get("wer", None)]:
-
-        diffs = [-0.05, -0.03, -0.01, 0.0, 0.01, 0.03, 0.05]
-        all_scales = [[round(scales_att_lm[model_name]["scales"][0][0] + lm_scale, 2)] for lm_scale in diffs]
+        all_scales = scales_att_lm[model_name]["scales"]
         for scales, beam_size in product(all_scales, [12]):
             lm_scale = scales[0]
             lm_model_args = copy.deepcopy(models_with_pt_ckpt[model_name]["model_args"])
@@ -444,13 +441,13 @@ def sis_run_with_prefix(prefix_name: str = None):
             )
 
     # optsr ctc + trafo lm
-    for model_name in ["model_ctc_only"]:
-    # for model_name in [name for name in ctc_model_names if not scales_ctc_lm_optsr[name].get("wer", None)]:
-        if scales_ctc_lm_optsr[model_name].get("scales", None):
-            all_scales = scales_ctc_lm_optsr[model_name].get("scales", None)
-        else:
-            lm_scales = [0.35, 0.4, 0.45, 0.5, 0.55]
-            all_scales = [scales_ctc_prior[model_name]["scales"][0] + [lm_scale] for lm_scale in lm_scales]
+    # TODO: why do models break?
+    for model_name in [name for name in ctc_model_names]:
+        prior_scale = [0.0]
+        lm_scale = [0.05, 0.1, 0.2, 0.3, 0.4, 0.5]
+        all_scales = [prior_scale + [lm_scale] for lm_scale in lm_scale]
+        # all_scales = scales_ctc_lm_optsr[model_name].get("scales", None)
+
         for scales, beam_size in product(all_scales, [12]):
             prior_scale, lm_scale = scales
             name = (
@@ -488,9 +485,95 @@ def sis_run_with_prefix(prefix_name: str = None):
                 recog_res.output,
             )
 
+    # opls ctc + trafo lm -> done
+    for model_name in [name for name in ctc_model_names if not scales_ctc_lm_opls[name].get("wer", None)]:
+        all_scales = scales_ctc_lm_opls[model_name]["scales"]
+        for scales, beam_size in product(all_scales, [12, 32]):
+            prior_scale, lm_scale = scales
+            name = (
+                prefix_name
+                + with_lm_name
+                + "/"
+                + model_name
+                + f"/opls_ctc_trafolm{lm_scale}"
+                + (f"_prior{prior_scale}" if prior_scale > 0 else "")
+                + f"_beam{beam_size}"
+            )
+            search_args = {
+                "beam_size": beam_size,
+                "att_scale": 0.0,
+                "ctc_scale": 1.0,
+                "use_ctc": True,
+                "add_trafo_lm": True,
+                "lm_scale": lm_scale,
+                "bsf": bsf,
+                "prior_scale": prior_scale,
+                "ctc_prior_file": models[model_name]["prior"],
+                "hash_overwrite": "why not running?",
+            }
+
+            # first recog
+            recog_res, recog_out = recog_model(
+                task,
+                models_with_pt_ckpt[model_name]["ckpt"],
+                model_recog,
+                dev_sets=["dev"] if len(all_scales) > 1 else None,
+                model_args=models_with_pt_ckpt[model_name]["model_args"],
+                search_args=search_args,
+                prefix_name=name,
+            )
+            tk.register_output(
+                name + f"/recog_results",
+                recog_res.output,
+            )
+
+    # att + ctc + trafo lm optsr
+    for model_name in [name for name in both_model_names]:
+        # lm_scale = [0.3, 0.4, 0.45, 0.5, 0.55, 0.6, 0.7]
+        # all_scales = [scales_att_ctc_lm_optsr[model_name]["scales"][0][:3] + [lm_scale] for lm_scale in lm_scale]
+        all_scales = scales_att_ctc_lm_optsr[model_name]["scales"]
+        for scales, beam_size in product(all_scales, [12, 24, 32]):
+            att_scale, ctc_scale, prior_scale, lm_scale = scales
+            name = (
+                prefix_name_40 + "/" + model_name + with_lm_name
+                + f"/optsr_att{att_scale}_ctc{ctc_scale}"
+                + f"_trafolm{lm_scale}"
+                + (f"_prior{prior_scale}" if prior_scale != 0.0 else "")
+                + f"_beam{beam_size}"
+            )
+            search_args = {
+                "beam_size": beam_size,
+                "att_scale": att_scale,
+                "ctc_scale": ctc_scale,
+                "bsf": bsf_40,
+                "mask_eos": True,
+                "ctc_prior_file": models[model_name]["prior"],
+                "prior_scale": prior_scale,
+                "add_eos_to_end": True,
+                "add_trafo_lm": True,
+                "lm_scale": lm_scale,
+                "lm_skip": True,
+            }
+
+            recog_res, recog_out = recog_model(
+                task,
+                models_with_pt_ckpt[model_name]["ckpt"],
+                model_recog_time_sync,
+                dev_sets=["dev"] if len(all_scales) > 1 else None,
+                model_args=model_args,
+                search_args=search_args,
+                prefix_name=name,
+            )
+            tk.register_output(
+                name + f"/recog_results",
+                recog_res.output,
+            )
+
     # att + ctc + trafo lm opls
-    for model_name, beam_size in product(["model_baseline"], []):  # 12, 32
-        for scales in scales_att_ctc_lm_opls[model_name]["scales"]:
+    for model_name in [name for name in both_model_names]:
+        # lm_scale = [0.35, 0.4, 0.45, 0.5, 0.55, 0.6]
+        all_scales = scales_att_ctc_lm_opls[model_name]["scales"]
+        for scales, beam_size in product(all_scales, [12, 24, 32]):
             att_scale, ctc_scale, prior_scale, lm_scale = scales
             name = (
                 prefix_name
@@ -509,7 +592,6 @@ def sis_run_with_prefix(prefix_name: str = None):
                 "add_trafo_lm": True,
                 "lm_scale": lm_scale,
                 "bsf": bsf,
-                "prior_corr": True if prior_scale > 0 else False,
                 "prior_scale": prior_scale,
                 "ctc_prior_file": models[model_name]["prior"],
             }
@@ -518,7 +600,7 @@ def sis_run_with_prefix(prefix_name: str = None):
                 task,
                 models_with_pt_ckpt[model_name]["ckpt"],
                 model_recog,
-                dev_sets=["dev", "test"],
+                dev_sets=["dev"] if len(all_scales) > 1 else None,
                 model_args=models_with_pt_ckpt[model_name]["model_args"],
                 search_args=search_args,
                 prefix_name=name,
@@ -528,52 +610,6 @@ def sis_run_with_prefix(prefix_name: str = None):
                 recog_res.output,
             )
 
-    # opls ctc + trafo lm
-    for model_name, scales, beam_size in product(
-        ["model_ctc_only"],
-        [(1.0, 0.6, 0.1), (1.0, 0.7, 0.2)],
-        [], # 32
-    ):
-        ctc_scale, lm_scale, prior_scale = scales
-        name = (
-            prefix_name
-            + with_lm_name
-            + "/"
-            + model_name
-            + f"/opls_ctc{ctc_scale}_trafolm{lm_scale}"
-            + (f"_prior{prior_scale}" if prior_scale > 0 else "")
-            + f"_beam{beam_size}"
-        )
-        search_args = {
-            "beam_size": beam_size,
-            "att_scale": 0.0,
-            "ctc_scale": ctc_scale,
-            "use_ctc": True,
-            "add_trafo_lm": True,
-            "lm_scale": lm_scale,
-            "bsf": bsf,
-            "prior_corr": True if prior_scale > 0 else False,
-            "prior_scale": prior_scale,
-            "ctc_prior_file": models[model_name]["prior"],
-        }
-
-        dev_sets = ["dev", "test"]  # only dev for testing
-        # dev_sets = None  # all
-
-        # first recog
-        recog_res, recog_out = recog_model(
-            task,
-            models_with_pt_ckpt[model_name]["ckpt"],
-            model_recog,
-            dev_sets=dev_sets,
-            model_args=models_with_pt_ckpt[model_name]["model_args"],
-            search_args=search_args,
-            prefix_name=name,
-        )
-        tk.register_output(
-            name + f"/recog_results",
-            recog_res.output,
-        )
 
 
     # ----------------- With ILM -----------------
@@ -607,7 +643,6 @@ def sis_run_with_prefix(prefix_name: str = None):
 
     # att + trafo lm + ilm correction
     for model_name, lm_scale, ilm_scale, beam_size in product(
-        # ["model_baseline", "model_ctc0.5_att0.5"], [0.36] ,[0.28], [12]
         ["model_baseline"],
         [0.36],
         [0.28],

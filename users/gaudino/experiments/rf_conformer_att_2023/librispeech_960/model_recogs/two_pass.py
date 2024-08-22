@@ -3,7 +3,7 @@ import returnn.frontend as rf
 
 
 def rescore_w_ctc(
-    model, seq_targets, seq_log_prob, ctc_logits, batch_size, beam_size, blank_idx=10025
+    search_args, seq_targets, seq_log_prob, ctc_logits, batch_size, beam_size, blank_idx=10025
 ):
     """rescore hyps with ctc"""
 
@@ -17,8 +17,8 @@ def rescore_w_ctc(
 
     ctc_scores = rf.Tensor('ctc_re_scores', seq_log_prob.dims, dtype=seq_log_prob.dtype, raw_tensor=ctc_scores)
     seq_log_prob = (
-        model.search_args["att_scale"] * seq_log_prob
-        + model.search_args["ctc_scale"] * ctc_scores
+        search_args["rescore_att_scale"] * seq_log_prob
+        + search_args["rescore_ctc_scale"] * ctc_scores
     )
 
     return seq_targets, seq_log_prob

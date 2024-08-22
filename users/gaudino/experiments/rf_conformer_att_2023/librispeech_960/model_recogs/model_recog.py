@@ -70,11 +70,6 @@ def model_recog(
     if search_args.get("ilm_scale", 0.0) > 0:
         ilm_state = model.ilm.default_initial_state(batch_dims=batch_dims_)
 
-    # if search_args.get("add_lstm_lm", False):
-    #     lm_state = model.lstm_lm.lm_default_initial_state(batch_dims=batch_dims_)
-    # if search_args.get("add_trafo_lm", False):
-    #     trafo_lm_state = model.trafo_lm.default_initial_state(batch_dims=batch_dims_)
-
     target = rf.constant(model.bos_idx, dims=batch_dims_, sparse_dim=model.target_dim)
     ended = rf.constant(False, dims=batch_dims_)
     out_seq_len = rf.constant(0, dims=batch_dims_)
@@ -181,10 +176,9 @@ def model_recog(
             lm_state = lm_out["state"]
             lm_log_prob = rf.log_softmax(lm_out["output"], axis=model.target_dim)
 
-            if search_args.get("use_lm_first_label", True) or i > 0:
-                label_log_prob = (
-                    label_log_prob + search_args["lm_scale"] * lm_log_prob
-                )
+            label_log_prob = (
+                label_log_prob + search_args["lm_scale"] * lm_log_prob
+            )
 
         if search_args.get("ilm_scale", 0.0) > 0:
             ilm_out = model.ilm(input_embed, state=ilm_state, spatial_dim=single_step_dim)
@@ -307,7 +301,7 @@ def model_recog(
 
     if search_args.get("rescore_w_ctc",False):
         from .two_pass import rescore_w_ctc
-        seq_targets, seq_log_prob = rescore_w_ctc(model, seq_targets, seq_log_prob, ctc_out, batch_size, beam_size, model.blank_idx)
+        seq_targets, seq_log_prob = rescore_w_ctc(search_args, seq_targets, seq_log_prob, ctc_out, batch_size, beam_size, model.blank_idx)
 
     return seq_targets, seq_log_prob, out_spatial_dim, beam_dim
 

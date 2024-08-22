@@ -364,7 +364,7 @@ def model_recog_time_sync(
                 ] * search_args.get("lm_scale", 0.0)
 
             label_log_prob_non_blank = (
-                label_log_prob_non_blank - search_args.get("lm_scale", 0.0) * ilm_log_prob.raw_tensor
+                label_log_prob_non_blank - search_args.get("ilm_scale", 0.0) * ilm_log_prob.raw_tensor
             )
 
         blank_log_prob = ctc_out_log_raw_step[:, :, blank_index]

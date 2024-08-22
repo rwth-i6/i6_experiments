@@ -30,6 +30,10 @@ from i6_experiments.users.gaudino.experiments.rf_conformer_att_2023.librispeech_
 from i6_experiments.users.gaudino.experiments.rf_conformer_att_2023.librispeech_960.model_recogs.model_recog_time_sync import (
     model_recog_time_sync,
 )
+from i6_experiments.users.gaudino.experiments.rf_conformer_att_2023.librispeech_960.model_recogs.model_recog_ts_espnet import (
+    model_recog_ts_espnet,
+)
+
 from i6_experiments.users.gaudino.experiments.rf_conformer_att_2023.librispeech_960.model_recogs.model_recog_ts_robin import (
     model_recog as model_recog_ts_robin,
 )
@@ -44,9 +48,6 @@ from i6_experiments.users.gaudino.experiments.rf_conformer_att_2023.librispeech_
 )
 from i6_experiments.users.gaudino.experiments.rf_conformer_att_2023.librispeech_960.model_recogs.model_forward_time_sync import (
     model_forward_time_sync,
-)
-from i6_experiments.users.gaudino.experiments.rf_conformer_att_2023.librispeech_960.model_recogs.model_recog_ts_espnet import (
-    model_recog_ts_espnet,
 )
 
 
@@ -781,8 +782,55 @@ def sis_run_with_prefix(prefix_name: str = None):
             res.output,
         )
 
+    # two pass rescoring att + ctc + trafo lm + ilm
+    for scales, prior_scale, lm_scale, ilm_scale, beam_size in product(
+        [(0.8, 0.2), (0.85, 0.15), (0.9, 0.1), (0.95, 0.05), (0.99, 0.01)],
+        [0.0], [0.54], [0.4], [12]
+    ):
+        att_scale, ctc_scale = scales
+        recog_name = (
+            f"/two_pass_att{att_scale}_ctc{ctc_scale}"
+            + (f"_prior{prior_scale}" if prior_scale > 0.0 else "")
+            + f"_trafo_lm{lm_scale}"
+            + f"_ilm{ilm_scale}"
+            + f"_beam{beam_size}"
+        )
+        name = prefix_name + with_lm_ilm_name + recog_name
+        search_args = {
+            "beam_size": beam_size,
+            "add_trafo_lm": True,
+            "lm_scale": lm_scale,
+            "att_scale": 1.0,
+            # "ctc_scale": ctc_scale,
+            "ilm_scale": ilm_scale,
+            # "use_ctc": True,
+            "bsf": bsf,
+            "prior_corr": prior_scale > 0.0,
+            "ctc_prior_file": "/work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/2023-02-22--conformer-swb/work/i6_core/returnn/extract_prior/ReturnnComputePriorJobV2.ZeflcEHlQTjn/output/prior.txt",
+            "prior_scale": prior_scale,
+            "rescore_with_ctc": True,
+            "rescore_att_scale": att_scale,
+            "rescore_ctc_scale": ctc_scale,
+        }
+        res, _ = recog_model(
+            task,
+            model_with_checkpoint,
+            model_recog,
+            dev_sets=["dev-other"],
+            # dev_sets=["dev-clean", "dev-other", "test-clean", "test-other"],
+            model_args=model_args,
+            search_args=search_args,
+            prefix_name=name,
+            # device="cpu",
+            # search_mem_rqmt=15,
+        )
+        tk.register_output(
+            name + f"/recog_results",
+            res.output,
+        )
+
     # optsr att + ctc + trafo  + ilm
-    for scales, prior_scale, lm_scale, ilm_scale, beam_size in product([(0.8, 0.2)], [0.2], [0.5], [0.3, 0.35, 0.4, 0.45, 0.5], [12]): # 12
+    for scales, prior_scale, lm_scale, ilm_scale, beam_size in product([(0.8, 0.2)], [0.2], [0.7, 0.73, 0.75, 0.8, 0.85], [0.38, 0.4, 0.42], [32]): # 12
         att_scale, ctc_scale = scales
         name = (
             prefix_name_40
@@ -791,7 +839,7 @@ def sis_run_with_prefix(prefix_name: str = None):
             + (f"_trafo_lm{lm_scale}" if lm_scale > 0.0 else "")
             + (f"_prior{prior_scale}" if prior_scale != 0.0 else "")
             + (f"_ilm{ilm_scale}" if ilm_scale > 0.0 else "")
-            + f"_beam{beam_size}_fix3"
+            + f"_beam{beam_size}_fix4"
         )
         search_args = {
             "beam_size": beam_size,
@@ -804,7 +852,7 @@ def sis_run_with_prefix(prefix_name: str = None):
             "add_trafo_lm": lm_scale > 0.0,
             "lm_scale": lm_scale,
             "lm_skip": True,
-            "hash_overwrite": "fix 3 eos end",
+            "hash_overwrite": "fix 4 ilm scale",
             "length_normalization_exponent": 0.0,
             "add_eos_to_end": True,
             "ilm_scale": ilm_scale,
@@ -919,7 +967,7 @@ def sis_run_with_prefix(prefix_name: str = None):
 
     # ctc bs att + ctc + lstm lm + ilm
     for scales, prior_scale, lm_scale, ilm_scale, beam_size in product(
-        [(0.6, 0.4)], [0.3], [0.35, 0.38, 0.4, 0.42, 0.45, 0.5, 0.6, 0.65], [0.0], [12]
+        [(0.6, 0.4)], [0.3], [0.35, 0.38, 0.4, 0.42, 0.45, 0.5, 0.6, 0.65], [0.0], []
     ):
         att_scale, ctc_scale = scales
         recog_name = (
@@ -927,7 +975,7 @@ def sis_run_with_prefix(prefix_name: str = None):
             + (f"_prior{prior_scale}" if prior_scale > 0.0 else "")
             + (f"_lstmlm{lm_scale}" if lm_scale > 0.0 else "")
             + (f"_ilm{ilm_scale}" if ilm_scale > 0.0 else "")
-            + f"_beam{beam_size}_cpu"
+            + f"_beam{beam_size}"
         )
         name = single_seq_prefix_name + (with_lm_ilm_name if ilm_scale > 0.0 else with_lm_name) + recog_name
         search_args = {
@@ -953,8 +1001,8 @@ def sis_run_with_prefix(prefix_name: str = None):
             model_args=model_args,
             search_args=search_args,
             prefix_name=name,
-            device="cpu",
-            search_rqmt={"time": 24}
+            # device="cpu",
+            # search_rqmt={"time": 24}
             # search_mem_rqmt=15,
         )
         tk.register_output(
