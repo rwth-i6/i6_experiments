@@ -82,7 +82,7 @@ def model_recog(
 
     blank_index = model.target_dim.get_dim_value()
 
-    if search_args.get("ctc_scale", 0.0) > 0.0 or search_args.get("rescore_with_ctc", False):
+    if search_args.get("ctc_scale", 0.0) > 0.0 or search_args.get("rescore_w_ctc", False):
         if search_args.get("encoder_ctc", False):
             enc_ctc = enc_args_ctc["ctc"]
         else:
@@ -96,7 +96,7 @@ def model_recog(
             .raw_tensor
         )  # [B,T,V+1]
 
-    if search_args.get("mask_eos", True) and (search_args.get("ctc_scale", 0.0) > 0.0 or search_args.get("rescore_with_ctc", False)):
+    if search_args.get("mask_eos", True) and (search_args.get("ctc_scale", 0.0) > 0.0 or search_args.get("rescore_w_ctc", False)):
         ctc_eos = ctc_out[:, :, model.eos_idx].unsqueeze(2)
         ctc_blank = ctc_out[:, :, model.blank_idx].unsqueeze(2)
         ctc_out[:, :, model.blank_idx] = torch.logsumexp(

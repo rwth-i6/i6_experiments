@@ -7,6 +7,7 @@ def rescore_w_ctc(
 ):
     """rescore hyps with ctc"""
 
+    ctc_logits = ctc_logits.to("cpu")
     ctc_scores = torch.zeros_like(seq_log_prob.raw_tensor)
     seq_targets_raw = torch.clone(seq_targets.raw_tensor)  # [T, Batch, Beam]
     for i in range(batch_size):
