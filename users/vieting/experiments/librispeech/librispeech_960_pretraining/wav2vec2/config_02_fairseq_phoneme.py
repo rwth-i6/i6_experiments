@@ -63,20 +63,23 @@ def get_fairseq_root(commit="e4a2e4e93efbcbaaae52a17ae6600beb2083fb33", fairseq_
     return fairseq_root
 
 
-def run_fairseq_pretraining(exp_name, commit, **kwargs):
+def run_fairseq_pretraining(exp_name, commit, python_exe_hash_overwrite=None, **kwargs):
     """
     Runs a FairseqHydraTrainingJob to pretrain a wav2vec 2.0 model.
 
     Args:
-        exp_name: The name of the experiment, used for output and alias folder.
-        commit: The commit ID of the fairseq_phoneme repository to use.
+        exp_name (str): The name of the experiment, used for output and alias folder.
+        commit (str): The commit ID of the fairseq_phoneme repository to use.
+        python_exe_hash_overwrite (Optional[str]): The hash overwrite for the fairseq_python_exe to use.
+            It should only be used to achieve compatibility with the previous setup structure and should be ignored
+            in all other cases.
         **kwargs: Additional arguments to pass to the job. These will be used to overwrite the model configuration.
     """
     # job requirements
     prefix_name = "experiments/librispeech/librispeech_960_pretraining/wav2vec2/"
     alignment = get_alignment_hdf()
     num_gpus = 8
-    fairseq_python_exe = tk.Path("/usr/bin/python3") # maybe add: hash_overwrite="itc_python_launcher_py310_torch"?
+    fairseq_python_exe = tk.Path("/usr/bin/python3", hash_overwrite=python_exe_hash_overwrite) # maybe add: hash_overwrite="itc_python_launcher_py310_torch"?
     fairseq_root = get_fairseq_root(fairseq_exe=fairseq_python_exe, commit=commit)
     fairseq_training_args = dict(
         save_interval=25,
@@ -106,18 +109,21 @@ def py():
     run_fairseq_pretraining(
         exp_name="monophone_negatives_other_target_v1",
         commit="1397363c5c0e3c4e3ab620be562730399c852493",
+        python_exe_hash_overwrite="itc_python_launcher_py310_torch",
         negative_sampling_strategy="other_target",
     )
     # negatives hard
     run_fairseq_pretraining(
         exp_name="monophone_negatives_hard_v1",
         commit="56acedca3b72c09ec30b7208da0d15ada03d0479",
+        python_exe_hash_overwrite="itc_python_launcher_py310_torch",
         negative_sampling_strategy="hard_negatives",
     )
     # boundary_masking
     run_fairseq_pretraining(
         exp_name="monophone_boundary_masking_v1",
         commit="b768be5b81987364d39a07d1caad2bfe1e956896",
+        python_exe_hash_overwrite="itc_python_launcher_py310_torch",
         mask_strategy="phoneme",
         mask_length=1,
     )
