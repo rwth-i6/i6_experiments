@@ -9,7 +9,7 @@ def rescore_w_ctc(
 
     ctc_logits = ctc_logits.to("cpu")
     ctc_scores = torch.zeros_like(seq_log_prob.raw_tensor)
-    seq_targets_raw = torch.clone(seq_targets.raw_tensor)  # [T, Batch, Beam]
+    seq_targets_raw = torch.clone(seq_targets.raw_tensor).to("cpu")  # [T, Batch, Beam]
     for i in range(batch_size):
         for j in range(beam_size):
             seq = seq_targets_raw[:, i, j]
