@@ -14,7 +14,10 @@ def rescore_w_ctc(
         for j in range(beam_size):
             seq = seq_targets_raw[:, i, j]
             seq = seq[seq != 0]
-            ctc_scores[i, j] = ctc_forward_algorithm(ctc_logits[i], seq, blank_idx)
+            if seq.numel():
+                ctc_scores[i, j] = ctc_forward_algorithm(ctc_logits[i], seq, blank_idx)
+            else:
+                ctc_scores[i, j] = torch.sum(ctc_logits[i,:, blank_idx])
 
     ctc_scores = rf.Tensor('ctc_re_scores', seq_log_prob.dims, dtype=seq_log_prob.dtype, raw_tensor=ctc_scores)
     seq_log_prob = (
