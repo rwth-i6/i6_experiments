@@ -163,7 +163,7 @@ def transform(data, network, **config):
         max_time_num_seq_len = tf.cast(
             tf.math.floordiv(
                 tf.cast(tf.shape(x)[data.time_dim_axis], tf.float32),
-                max_time_num_seq_len_divisor * tf.cast(time_mask_max_size, tf.int32),
+                max_time_num_seq_len_divisor * tf.cast(time_mask_max_size, tf.float32),
             ),
             tf.int32,
         )
