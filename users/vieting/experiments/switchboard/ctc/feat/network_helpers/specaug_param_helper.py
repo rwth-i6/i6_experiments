@@ -20,7 +20,9 @@ def generate_specaug_params(
 
     for epoch in range(num_epochs):
         for key, base_value in base_values.items():
-            schedule = schedules.get(key, {0: 1.0})
+            schedule = schedules.get(key, {})
+            if schedule == {}:
+                schedule = {0: 1.0}
             assert 0 in schedule, "Schedule must start at epoch 0"
             param_value = get_mask_param(epoch, base_value, schedule, growth_strategy)
             params[key].append(param_value)
