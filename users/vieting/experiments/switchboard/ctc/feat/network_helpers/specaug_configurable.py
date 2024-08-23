@@ -24,23 +24,31 @@ def add_specaug_layer(
             Config Dict Parameters:
                 max_time_num (int): The beginning maximum number of time masks to be applied. Default is 3.
                 max_time (int): The beginning maximum size (in time frames) of each time mask. Default is 10.
-                max_feature_num (int): The beginning maximum number of frequency masks to be applied. Default is 4.
-                max_feature (int): The beginning maximum size (in frequency bins) of each frequency mask. Default is 5.
-                enable_sorting (bool): Whether to sort filters by their center frequency before applying masks. Default is False.
-                steps_per_epoch (int): The number of steps per epoch. Make sure this parameter is accurate since the all the scheduling depends on it.
+                max_feature_num (int): The beginning maximum number of frequency masks to be applied. Default is 5.
+                max_feature (int): The beginning maximum size (in frequency bins) of each frequency mask. Default is 4.
+                enable_sorting (bool): Whether to sort filters by their center frequency before applying masks.
+                    Default is False.
+                steps_per_epoch (int): The number of steps per epoch.
+                    Make sure this parameter is accurate since the all the scheduling depends on it.
                 sorting_start_epoch (int): The subepoch number to start sorting filters. Default is 1.
-                mask_growth_strategy (str): The strategy for increasing the mask sizes over epochs (linear or step). Default is "linear".
-                time_mask_num_schedule (Dict[int, float]): A dictionary mapping subepoch numbers to the multiplicator for the time mask number.
+                mask_growth_strategy (str):
+                    The strategy for increasing the mask sizes over epochs (linear or step). Default is "linear".
+                time_mask_num_schedule (Dict[int, float]):
+                    A dictionary mapping subepoch numbers to the multiplicator for the time mask number.
                     Default is None (unchanged over the entire training).
-                time_mask_size_schedule (Dict[int, float]): A dictionary mapping subepoch numbers to the multiplicator for the time mask size.
+                time_mask_size_schedule (Dict[int, float]):
+                    A dictionary mapping subepoch numbers to the multiplicator for the time mask size.
                     Default is None (unchanged over the entire training).
-                freq_mask_num_schedule (Dict[int, float]): A dictionary mapping subepoch numbers to the multiplicator for the frequency mask number.
+                freq_mask_num_schedule (Dict[int, float]):
+                    A dictionary mapping subepoch numbers to the multiplicator for the frequency mask number.
                     Default is None (unchanged over the entire training).
-                freq_mask_size_schedule (Dict[int, float]): A dictionary mapping subepoch numbers to the multiplicator for the frequency mask size.
+                freq_mask_size_schedule (Dict[int, float]):
+                    A dictionary mapping subepoch numbers to the multiplicator for the frequency mask size.
                     Default is None (unchanged over the entire training).
                 time_mask_max_proportion (float): The maximum proportion of the time axis that can be masked. Default is 1.
                 freq_mask_max_proportion (float): The maximum proportion of the frequency axis that can be masked. Default is 1.
-                max_time_num_seq_len_divisor (int): The divisor for the sequence length to determine the maximum number of time masks. Default is 0.7.
+                max_time_num_seq_len_divisor (int):
+                    The divisor for the sequence length to determine the maximum number of time masks. Default is 0.7.
         num_epochs (int, optional): The total number of epochs for which the training will run. default 450
 
     Returns:

@@ -811,7 +811,7 @@ def run_scf_specaug():
 
     nn_args, report_args_collection = get_nn_args_baseline(
         nn_base_args={
-            "old_baseline": dict(
+            "baseline": dict(
                 returnn_args={
                     **base_returnn_args,
                     "specaug_config": {"enable_sorting": False, "max_feature": 15, "steps_per_epoch": 4100},
@@ -820,7 +820,23 @@ def run_scf_specaug():
                 lr_args=lr_args,
                 report_args={"batch_size": "2x5k", "enable_sorting": False, "max_feature": 15},
             ),
-            "baseline_with_sorting": dict(
+            "baseline_increase_flag": dict(
+                returnn_args={
+                    **base_returnn_args,
+                    "specaug_config": {
+                        "enable_sorting": False,
+                        "max_feature": 15,
+                        "max_feature_num": 2,
+                        "steps_per_epoch": 4100,
+                        "time_mask_num_schedule": {0: 1, 1: 2},
+                        "freq_mask_num_schedule": {0: 1, 1: 2.5},
+                    },
+                },
+                feature_args=feature_args,
+                lr_args=lr_args,
+                report_args={"batch_size": "2x5k", "enable_sorting": False, "max_feature": 15},
+            ),
+            "experiment_with_sorting": dict(
                 returnn_args={
                     **base_returnn_args,
                     "specaug_config": {"enable_sorting": True, "max_feature": 15, **base_specaug_config},
