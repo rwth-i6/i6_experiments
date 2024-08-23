@@ -79,7 +79,7 @@ def run_fairseq_pretraining(exp_name, commit, python_exe_hash_overwrite=None, **
     prefix_name = "experiments/librispeech/librispeech_960_pretraining/wav2vec2/"
     alignment = get_alignment_hdf()
     num_gpus = 8
-    fairseq_python_exe = tk.Path("/usr/bin/python3", hash_overwrite=python_exe_hash_overwrite) # maybe add: hash_overwrite="itc_python_launcher_py310_torch"?
+    fairseq_python_exe = tk.Path("/usr/bin/python3", hash_overwrite=python_exe_hash_overwrite)
     fairseq_root = get_fairseq_root(fairseq_exe=fairseq_python_exe, commit=commit)
     fairseq_training_args = dict(
         save_interval=25,
