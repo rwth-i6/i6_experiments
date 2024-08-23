@@ -121,6 +121,7 @@ def transform(data, network, **config):
     x = data.placeholder
     step = network.global_train_step
     current_epoch = tf.cast(step / config["steps_per_epoch"], tf.int32)
+    max_time_num_seq_len_divisor = tf.constant(config["max_time_num_seq_len_divisor"], dtype=tf.float32)
 
     specaug_params = config["specaug_params"]
 
@@ -164,7 +165,7 @@ def transform(data, network, **config):
         actual_time_mask_max_num = tf.minimum(
             tf.maximum(
                 time_mask_max_num,
-                tf.shape(x)[data.time_dim_axis] // int(1.0 / config["max_time_num_seq_len_divisor"] * time_mask_max_size),
+                tf.shape(x)[data.time_dim_axis] // int(1.0 / max_time_num_seq_len_divisor * time_mask_max_size),
             ),
             total_time_masks_max_frames // time_mask_max_size,
         )
