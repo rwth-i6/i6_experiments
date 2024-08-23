@@ -131,6 +131,7 @@ def kldiv_ctc_lm_loss(
     :return: KL Div Loss sum p_CTC*log p_LM
     '''
     device = log_probs.device
+    log_probs = log_probs.detach()
     input_time_size, batch_size, n_out = log_probs.shape
     max_seq_len = targets.shape[1]
     log_pref_scores_beams, _ = log_ctc_pref_beam_scores(
@@ -200,6 +201,7 @@ def ctc_double_softmax_loss(
     :return: Double softmax loss with CTC as AM and LM score as training LM
     """
     device = log_probs.device
+    log_lm_score = log_lm_score.detach()
     input_time_size, batch_size, n_out = log_probs.shape
     max_seq_len = targets.shape[1]
     log_pref_scores_beams, log_gamma = log_ctc_pref_beam_scores(
@@ -307,6 +309,7 @@ def kldiv_ctc_lm_sample_batch_loss(
     about this when passing to returnn
     '''
     device = log_probs.device
+    log_lm_score = log_lm_score.detach()
     input_time_size, batch_size, n_out = log_probs.shape
     log_probs = log_probs.transpose(0, 1).repeat(batch_size, 1, 1).transpose(0, 1)
     input_lengths = input_lengths.repeat(batch_size)
