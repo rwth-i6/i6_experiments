@@ -140,6 +140,34 @@ def py():
         train_def=lm_train_def,
     )
 
+    # Like Llama but rel pos instead of rope.
+    train(
+        "lm/trafo-n12-d512-noAbsPos-rmsNorm-ffGated-relPosEnc-noBias-drop0-b200_10k",
+        config=dict_update_deep(
+            config_11gb_lm_v1,
+            {**_get_cfg_lrlin_oclr_by_bs_nep(200, 10_000, 100)},
+        ),
+        train_dataset=get_librispeech_lm_dataset(vocab="spm10k"),
+        model_def=ModelDefWithCfg(
+            lm_model_def,
+            {
+                "_model_def_dict": rf.build_dict(
+                    TransformerDecoder,
+                    encoder_dim=None,
+                    num_layers=12,
+                    model_dim=512,
+                    pos_enc=None,
+                    norm=rf.build_dict(rf.RMSNorm),
+                    ff=rf.build_dict(rf.decoder.transformer.FeedForwardGated),
+                    decoder_layer_opts=dict(self_att=rf.build_dict(rf.RelPosCausalSelfAttention, with_bias=False)),
+                    dropout=0.0,
+                    att_dropout=0.0,
+                )
+            },
+        ),
+        train_def=lm_train_def,
+    )
+
     # Llama / Transformer++ like
     train(
         "lm/trafo-n12-d512-noAbsPos-rmsNorm-ffGated-rope-noBias-drop0-b200_10k",
