@@ -3,7 +3,7 @@ import torch.nn as nn
 
 from returnn.tensor import Tensor
 
-def mask_eos_label(input: Tensor, eos_idx: int=0, blank_idx: int=10025, dim: int=-1, log_inf: float=-20000, add_to_blank: bool=False):
+def mask_eos_label(input: Tensor, eos_idx: int=0, blank_idx: int=10025, dim: int=-1, log_inf: float=-1e20, add_to_blank: bool=False):
     """
     take rf tensor as input and return a rf tensor, however, the operation is done with torch tensors
     if add the eos prob to blank, then the log-prob has to be computed

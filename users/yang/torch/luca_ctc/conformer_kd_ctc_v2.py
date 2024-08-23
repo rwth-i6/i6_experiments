@@ -21,24 +21,16 @@ from i6_experiments.users.gaudino.model_interfaces.supports_label_scorer_torch i
     RFModelWithMakeLabelScorer,
 )
 
-from i6_experiments.users.yang.torch.luca_ctc.configs import *
-from i6_experiments.users.yang.torch.luca_ctc.configs import (
-    _batch_size_factor,
-    _cfg_lrlin1e_5_295k,
+from i6_experiments.users.yang.torch.albert_exp2024_04_23_baselines.configs import *
+from i6_experiments.users.yang.torch.albert_exp2024_04_23_baselines.configs import (
     _get_cfg_lrlin_oclr_by_bs_nep,
-    const_linear_learning_rates,
-linear_const_linear_learning_rates,
+    _fine_tune_get_cfg_lrlin_oclr_by_bs_nep,
 )
-# from i6_experiments.users.gaudino.experiments.rf_conformer_att_2023.librispeech_960.configs import *
-# from i6_experiments.users.gaudino.experiments.rf_conformer_att_2023.librispeech_960.configs import (
-#     _batch_size_factor,
-#     _cfg_lrlin1e_5_295k,
-#     _get_cfg_lrlin_oclr_by_bs_nep,
-# )
 # from .trafo_lm import trafo_lm_kazuki_import
 
 from i6_experiments.users.yang.torch.luca_ctc.model_conformer_kd_ctc import from_scratch_model_def, from_scratch_training
-from i6_experiments.users.yang.torch.luca_ctc.model_recog_ctc_greedy import model_recog
+#from i6_experiments.users.yang.torch.luca_ctc.model_recog_ctc_greedy import model_recog
+from i6_experiments.users.yang.torch.decoding.ctc_greedy import model_recog_greedy
 
 # from i6_experiments.users.gaudino.models.asr.rf.conformer_ctc.model_conformer_ctc import from_scratch_model_def, from_scratch_training
 # from i6_experiments.users.gaudino.models.asr.rf.conformer_ctc.model_recog_ctc_greedy import model_recog
@@ -385,30 +377,30 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
 
 
 
-    lr_1 = 2e-6
-    lr_2 = 1e-5
-    lr_3 = 1e-6
-    ep1 = 28
-    ep2 = 2
-    ep3 = 30
-    lrs = linear_const_linear_learning_rates(lr_1,lr_2,lr_3, ep1,ep2, ep3)
-    top_k = [20]
-    batch_sizes = {
-        200: 15_000,
-        1000: 15_000, # still have gpu mem issue
-        20: 10_000
-    }
-    grad_accum_dict = {
-        15_000: 5,
-        20_000: 4,
-        10_000: 8,
-    }
-    kd_scales = [0.0, 0.2,0.4]
-    recog_epoch = np.linspace(0, ep1+ep2+ep3, (ep1+ep2+ep3)//5+1, dtype=int)
-    recog_epoch = list(map(int,list(recog_epoch)[1:]))
-    extra_epochs = [1,2, 8, 12, 56,57,58,59,52,54, 36,38,16,18]
-    train_lm_scales = [0.6]
-    kd_layer=8
+    # lr_1 = 2e-6
+    # lr_2 = 1e-5
+    # lr_3 = 1e-6
+    # ep1 = 28
+    # ep2 = 2
+    # ep3 = 30
+    # lrs = linear_const_linear_learning_rates(lr_1,lr_2,lr_3, ep1,ep2, ep3)
+    # top_k = [20]
+    # batch_sizes = {
+    #     200: 15_000,
+    #     1000: 15_000, # still have gpu mem issue
+    #     20: 10_000
+    # }
+    # grad_accum_dict = {
+    #     15_000: 5,
+    #     20_000: 4,
+    #     10_000: 8,
+    # }
+    # kd_scales = [0.0, 0.2,0.4]
+    # recog_epoch = np.linspace(0, ep1+ep2+ep3, (ep1+ep2+ep3)//5+1, dtype=int)
+    # recog_epoch = list(map(int,list(recog_epoch)[1:]))
+    # extra_epochs = [1,2, 8, 12, 56,57,58,59,52,54, 36,38,16,18]
+    # train_lm_scales = [0.6]
+    # kd_layer=8
     # new checkpoint
     ############### only eos mask
     #base_checkpoint_path = "/u/zyang/setups/rf/alias/conformer_only_target/debug_only_target_kd_scale-0.2_lm_scale-0.6/train/output/models/epoch.024.pt"
@@ -450,29 +442,32 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
     #             greedy_search=True,
     #         )
     kd_layer = 12
-    kd_scales = [0.2]
+    kd_scales = [0.5]
     # kd_scale 0.4, dev-other 7.7, broken
+    epoch = 125
+
+    recog_epoch = np.linspace(0, epoch, epoch // 5 + 1, dtype=int)
+    recog_epoch = list(map(int, list(recog_epoch)[1:]))
+    extra_epochs = [118, 122,124,116,114,108]
+    for i in extra_epochs:
+        recog_epoch.append(i)
 
 
-    train_lm_scales = [0.6, 1.0,0.4]
+    train_lm_scales = [0.6]
     for kd_scale in kd_scales:
         for train_lm_scale in train_lm_scales:
-            k = 20
+            k = 10
             train_exp(
-                f"debug_eosmask_freeze_ctc_kd_layer-{kd_layer}_kd_scale-{kd_scale}-trainlm-{train_lm_scale}-top-{k}_lr1-{lr_1}_lr2-{lr_2}_lr3-{lr_3}_ep1-{ep1}_ep2-{ep2}_ep3-{ep3}_singlegpu12",
-                config_11gb_singalgpu_finetune,
+                f"debug_eosmask_kd_layer-{kd_layer}_kd_scale-{kd_scale}-trainlm-{train_lm_scale}-top-{k}_lr1e-3_4gpu12-epoch{epoch}",
+                config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
                 config_updates={
-                    "learning_rate": float(lrs[-1]),
-                    "learning_rates": lrs,
+                    **_get_cfg_lrlin_oclr_by_bs_nep(8_000, epoch),
                     #"dynamic_learning_rate": dyn_lr_piecewise_linear,
                     # total steps after 2000 epochs: 982.312
                     # "learning_rate_piecewise_steps": [600_000, 900_000, 982_000],
                     # "learning_rate_piecewise_values": [1e-5, 1e-3, 1e-5, 1e-6],
-                    "__num_epochs": ep1+ep2+ep3,
                     "mask_eos_output": True,
-                    "accum_grad_multiple_step": grad_accum_dict[batch_sizes[k]] *2,
-                    "batch_size": batch_sizes[k] * 80,
-                    "add_eos_to_blank": True,
+                    "add_eos_to_blank": False,
                     "preload_from_files": {"base": {"init_for_train": True, "ignore_missing": True, "filename": base_checkpoint_path}},
                     "mel_normalization_ted2": False,
                     "kd_top_k": k,
@@ -480,9 +475,53 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
                     "eos_mask": True,
                     "train_lm_scale": train_lm_scale,
                     "target_in_top_mask": False,
-                    "specaugment_steps": (0,0,0),
+                    #"specaugment_steps": (0,0,0),
                     "kd_layer": kd_layer,
-                    "freeze_ctc_p": True,
+
+                },
+                 post_config_updates={
+                     "cleanup_old_models": {"keep": recog_epoch}
+                 },
+                greedy_search=True,
+                reserve_code="hlt_9"
+                #mem_rqmt=30,
+            )
+
+    train_lm_scales = [0.6]
+    kd_scales = [0.5, 0.2]
+    epoch = 125
+
+    recog_epoch = np.linspace(0, epoch, epoch // 5 + 1, dtype=int)
+    recog_epoch = list(map(int, list(recog_epoch)[1:]))
+    extra_epochs = [118, 122,124,116,114,108]
+    for i in extra_epochs:
+        recog_epoch.append(i)
+    for i in extra_epochs:
+        recog_epoch.append(i)
+    for kd_scale in kd_scales:
+        for train_lm_scale in train_lm_scales:
+            k = 10
+            train_exp(
+                f"debug_eosmask_kd_layer-{kd_layer}_kd_scale-{kd_scale}-trainlm-{train_lm_scale}-top-{k}_lr1e-3_singlegpu12-epoch{epoch}",
+                config_11gb_v6_f32_accgrad1_gpu1_wd1e_4,
+                config_updates={
+                    **_get_cfg_lrlin_oclr_by_bs_nep(8_000, epoch),
+                    #"dynamic_learning_rate": dyn_lr_piecewise_linear,
+                    # total steps after 2000 epochs: 982.312
+                    # "learning_rate_piecewise_steps": [600_000, 900_000, 982_000],
+                    # "learning_rate_piecewise_values": [1e-5, 1e-3, 1e-5, 1e-6],
+                    "mask_eos_output": True,
+                    "add_eos_to_blank": False,
+                    "preload_from_files": {"base": {"init_for_train": True, "ignore_missing": True, "filename": base_checkpoint_path}},
+                    "mel_normalization_ted2": False,
+                    "kd_top_k": k,
+                    "kd_scale": kd_scale,
+                    "eos_mask": True,
+                    "train_lm_scale": train_lm_scale,
+                    "target_in_top_mask": False,
+                    #"specaugment_steps": (0,0,0),
+                    "kd_layer": kd_layer,
+                    "accum_grad_multiple_step": 1,
 
                 },
                 post_config_updates={
@@ -491,6 +530,40 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
                 greedy_search=True,
                 mem_rqmt=30,
             )
+    # kd_scales = [0.5]
+    # for grad_accu in [2,4]:
+    #     for kd_scale in kd_scales:
+    #         for train_lm_scale in train_lm_scales:
+    #             k = 10
+    #             train_exp(
+    #                 f"debug_eosmask_kd_layer-{kd_layer}_kd_scale-{kd_scale}-trainlm-{train_lm_scale}-top-{k}_lr1e-4_singlegpu12-finetune-epoch{epoch}-gradaccu{grad_accu}",
+    #                 config_11gb_v6_f32_accgrad1_gpu1_wd1e_4,
+    #                 config_updates={
+    #                     **_fine_tune_get_cfg_lrlin_oclr_by_bs_nep(8_000, epoch, peak_lr=1e-4),
+    #                     #"dynamic_learning_rate": dyn_lr_piecewise_linear,
+    #                     # total steps after 2000 epochs: 982.312
+    #                     # "learning_rate_piecewise_steps": [600_000, 900_000, 982_000],
+    #                     # "learning_rate_piecewise_values": [1e-5, 1e-3, 1e-5, 1e-6],
+    #                     "mask_eos_output": True,
+    #                     "add_eos_to_blank": False,
+    #                     "preload_from_files": {"base": {"init_for_train": True, "ignore_missing": True, "filename": base_checkpoint_path}},
+    #                     "mel_normalization_ted2": False,
+    #                     "kd_top_k": k,
+    #                     "kd_scale": kd_scale,
+    #                     "eos_mask": True,
+    #                     "train_lm_scale": train_lm_scale,
+    #                     "target_in_top_mask": False,
+    #                     #"specaugment_steps": (0,0,0),
+    #                     "kd_layer": kd_layer,
+    #                     "accum_grad_multiple_step": grad_accu,
+    #
+    #                 },
+    #                 post_config_updates={
+    #                     "cleanup_old_models": {"keep": recog_epoch}
+    #                 },
+    #                 greedy_search=True,
+    #                 mem_rqmt=30,
+    #             )
 
 
 _sis_prefix: Optional[str] = None
@@ -528,6 +601,7 @@ def train_exp(
     fine_tune: Optional[Union[int, List[Tuple[int, Dict[str, Any]]]]] = None,
     time_rqmt: Optional[int] = None,
     mem_rqmt: Optional[int] = None,
+    reserve_code: Optional[str] = None,
     model_avg: bool = False,
     greedy_search=True,
     length_norm_scale=0.0,
@@ -539,7 +613,8 @@ def train_exp(
     #     train,
     # )
     from i6_experiments.users.yang.torch.luca_ctc.train import train
-    from i6_experiments.users.yang.torch.luca_ctc.recog import recog_training_exp
+    #from i6_experiments.users.yang.torch.luca_ctc.recog import recog_training_exp
+    from i6_experiments.users.yang.torch.decoding.recog import recog_training_exp
     #from i6_experiments.users.zeyer.recog import recog_training_exp
 
     if _sis_prefix is None:
@@ -568,13 +643,14 @@ def train_exp(
         num_processes=num_processes,
         distributed_launch_cmd="torchrun" if num_processes else "mpirun",
         time_rqmt=time_rqmt,
-        mem_rqmt = mem_rqmt,
+        mem_rqmt=mem_rqmt,
+        reserve_code=reserve_code,
     )
     # greedy search:
     if greedy_search:
-        from i6_experiments.users.yang.torch.luca_ctc.model_recog_ctc_greedy import model_recog
+        from i6_experiments.users.yang.torch.decoding.ctc_greedy import model_recog_greedy
         recog_training_exp(
-            prefix, task, model_with_checkpoint, recog_def=model_recog, model_avg=model_avg
+            prefix, task, model_with_checkpoint, recog_def=model_recog_greedy,
         )
     else:
         print('fixed epochs################', model_with_checkpoint.fixed_epochs)

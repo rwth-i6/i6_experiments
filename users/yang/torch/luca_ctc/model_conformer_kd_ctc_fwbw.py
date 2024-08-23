@@ -23,9 +23,10 @@ from i6_experiments.users.gaudino.experiments.rf_conformer_att_2023.librispeech_
     trafo_lm_kazuki_import,
 )
 from i6_experiments.users.yang.torch.utils.tensor_ops import mask_eos_label
-from i6_experiments.users.yang.torch.utils.masking import get_seq_mask_v2
+from i6_experiments.users.yang.torch.utils.masking import get_seq_mask, get_seq_mask_v2
 from i6_experiments.users.yang.torch.loss.ctc_pref_scores_loss import ctc_prefix_posterior
 from i6_experiments.users.yang.torch.lm.network.lstm_lm import LSTMLM, LSTMLMConfig
+from i6_experiments.users.yang.torch.loss.ctc_forward_backward import ctc_forward
 
 if TYPE_CHECKING:
     from i6_experiments.users.zeyer.model_interfaces import ModelDef, RecogDef, TrainDef
@@ -547,68 +548,111 @@ def from_scratch_training(
         freeze_ctc_p = config.bool("freeze_ctc_p", False)
         lm_output_top_k, top_k_list = torch.topk(lm_output, K, dim=-1)
         torch_targets = targets.raw_tensor
+
+
+
+        # manually repeat the targets to check the label mask
         torch_input_lengths = enc_spatial_dim.dyn_size_ext.raw_tensor
         torch_target_lengths = targets_spatial_dim.dyn_size_ext.raw_tensor
         torch_target_w_eos_lengths = targets_w_eos_spatial_dim.dyn_size_ext.raw_tensor
         max_target_w_eos_length = lm_output.shape[1]
         lm_scale = config.typed_value("train_lm_scale", 1.0)
         lm_output_top_k = lm_scale * lm_output_top_k
+        top_k_list = top_k_list[:,:-1,:] # (B,S,K) no eos position for fw-bw kd
+        lm_output_top_k = lm_output_top_k[:, :-1,:] # (B,S,K), no eos position
         if config.bool("eos_mask", False):
-            eos_mask = top_k_list == 0  # (B, S+1, K)
-            before_last_pos_mask = get_seq_mask_v2(seq_lens=torch_target_lengths, max_seq_len=max_target_w_eos_length, device=lm_output_top_k.device)
-            eos_mask_before_last_pos = torch.logical_and(eos_mask,  before_last_pos_mask.unsqueeze(-1))  # (B, S+1, K) only when s < S+1 the eos pos in top-k list is true
-            lm_output_top_k = torch.where(eos_mask_before_last_pos, -1e25 * torch.ones_like(lm_output_top_k), lm_output_top_k)
+            fw_bw_eos_mask = (top_k_list != model.eos_idx).float()
+            fw_bw_eos_log_mask = -1e25 * (1. - fw_bw_eos_mask) # unmasked pos 0, masked pos log_zero
+            lm_output_top_k = lm_output_top_k + fw_bw_eos_log_mask
+
         log_lm_output_top_k_renorm = torch.nn.functional.log_softmax(lm_output_top_k, dim=-1) # used for kl loss computation
 
-        # print_gpu_memory_usage('after compute LM')
-        # print_gpu_memory_usage(pos='after compute lm empty cache')
 
         if add_eos_to_blank:
             ctc_log_prob = aux_logits.raw_tensor # the output is already normalized by mask_eos_label func # shape (B,T,V)
         else:
             ctc_log_prob = nn.functional.log_softmax(aux_logits.raw_tensor, dim=-1)
 
-        # print_gpu_memory_usage(pos='before compute ctc prefix')
-        torch.cuda.empty_cache()
-        log_ctc_prefix, seq_ctc_score = ctc_prefix_posterior(ctc_log_probs=ctc_log_prob, targets=torch_targets,
-                                                             targets_w_bos=torch_lm_input_labels,
-                                                             targets_w_eos=torch_lm_target_labels,
-                                                             input_lengths=torch_input_lengths,
-                                                             target_lengths=torch_target_lengths,
-                                                             blank_index=model.blank_idx,
-                                                             eos_idx=0,
-                                                             out_no_blank=False,
-                                                             top_k_list=top_k_list,
-                                                             freeze_gamma=freeze_gamma,
-                                                             freeze_ctc=freeze_ctc_p)
+        #torch.cuda.empty_cache()
         # the computation of gamma should be correct
         # print_gpu_memory_usage(pos='after compute ctc prefix')
 
+        backward = True
+        batch_size = ctc_log_prob.shape[0]
+        # debug_top_k = True
+        # if debug_top_k:
+        #     top_k_list = torch.cat([top_k_list, torch_targets.unsqueeze(-1)], dim=-1) # always add target
+
+        gamma_fw, (gamma_bw, fw_bw) = ctc_forward(
+            log_probs=ctc_log_prob.transpose(0,1),
+            targets=torch_targets,  # (B, S)
+            targets_w_bos=torch_lm_input_labels,  # (B S+1)
+            targets_w_eos=torch_lm_target_labels,  # (B, S+1)
+            input_lengths=torch_input_lengths,  # (B,)
+            target_length=torch_target_lengths,  # (B,)
+            blank_idx=model.blank_idx,
+            eos_idx=model.eos_idx,
+            bos_idx=model.bos_idx,
+            log_zero=-1e25,  # maybe better than float min for preventing overflowing
+            backward=backward,
+            top_k_list=top_k_list,)
+
+        # gamma_fw [T,B,2,S+1]
+        # based on the input and output length, get the corresponding value of gamma
+        #
+        final_score = gamma_fw[torch_input_lengths-1, torch.arange(batch_size), :, torch_target_lengths] # shape (B,2)?
+        final_score = final_score.logsumexp(dim=-1)
+
+        # aux_loss = rf.ctc_loss(
+        #     logits=aux_logits_12,
+        #     targets=targets,
+        #     input_spatial_dim=enc_spatial_dim,
+        #     targets_spatial_dim=targets_spatial_dim,
+        #     blank_index=model.blank_idx,
+        # )
+        #print("!!!aux_loss", aux_loss.raw_tensor.detach().cpu().numpy())
+
+        #torch_ctc_loss = torch.nn.functional.ctc_loss(ctc_log_prob.transpose(0,1), torch_targets, torch_input_lengths, torch_target_lengths, blank=model.blank_idx, reduction='none')
+
+        #print("!!!torch ctc loss", torch_ctc_loss.detach().cpu().numpy())
 
 
 
-        kl_div_loss = torch.nn.functional.kl_div(input=log_ctc_prefix, target=log_lm_output_top_k_renorm, reduction='none',
-                                                 log_target=True)
-        if config.bool("target_in_top_mask", False):
-            target_mask = torch.any(torch_lm_target_labels.unsqueeze(-1) == top_k_list, dim=-1)  # (B, S+1) check if the target label is in the top-k list
-            kl_div_loss = torch.where(target_mask.unsqueeze(-1), kl_div_loss, torch.zeros_like(kl_div_loss))
+
+        if top_k_list is not None:
+            if config.bool("eos_mask", False):
+                fw_bw = fw_bw + fw_bw_eos_log_mask
+            fw_bw_renorm = fw_bw.log_softmax(dim=-1)
+            # fake_fw_bw_renorm = fake_fw_bw.log_softmax(dim=-1)
+            # print("!!! top_k_list", top_k_list[0,:7,:].detach().cpu().numpy())
+            # print("!!!fwbw  value", fake_fw_bw[0, :7, :].squeeze(-1).detach().cpu().numpy())
+            # print("!!!fwbw  last values", fake_fw_bw[0, -7:, :].squeeze(-1).detach().cpu().numpy())
+            fwbw_kl_loss = torch.nn.functional.kl_div(input=fw_bw_renorm,  target=log_lm_output_top_k_renorm, reduction='none', log_target=True)
+            # print('!!!#### fwbw kl shape', fwbw_kl_loss.shape)
+            target_mask = get_seq_mask(seq_lens=torch_target_lengths, max_seq_len=torch_targets.shape[1], device=fwbw_kl_loss.device)
+            target_mask = target_mask.unsqueeze(-1) * fw_bw_eos_mask
+            fwbw_kl_loss = fwbw_kl_loss * target_mask
+
+
+        # if config.bool("target_in_top_mask", False):
+        #     target_mask = torch.any(torch_lm_target_labels.unsqueeze(-1) == top_k_list, dim=-1)  # (B, S+1) check if the target label is in the top-k list
+        #     kl_div_loss = torch.where(target_mask.unsqueeze(-1), kl_div_loss, torch.zeros_like(kl_div_loss))
 
         # print_gpu_memory_usage(pos='after compute kl loss')
-        target_w_eos_mask = get_seq_mask_v2(seq_lens=torch_target_w_eos_lengths, max_seq_len=max_target_w_eos_length, device=log_ctc_prefix.device)
-        kl_div_loss_with_mask = kl_div_loss.where(target_w_eos_mask.unsqueeze(-1), torch.zeros_like(kl_div_loss)).sum()
-        torch.cuda.empty_cache()
+
         kd_scale = config.typed_value("kd_scale", 0.2)
         rf.get_run_ctx().mark_as_loss(
             name="lm_kd_loss",
-            loss=kl_div_loss_with_mask,
+            loss=fwbw_kl_loss.sum(),
             scale=kd_scale,
-            custom_inv_norm_factor=targets_w_eos_spatial_dim.get_size_tensor(),
+            custom_inv_norm_factor=targets_spatial_dim.get_size_tensor(),
             use_normalized_loss=use_normalized_loss,
         )
 
-        ctc_scale = 1
+        ctc_scale = config.typed_value("ctc_scale", 1.0)
         # final layer ctc loss
         if freeze_gamma or freeze_ctc_p:
+            assert False
             aux_loss = rf.ctc_loss(
                 logits=aux_logits,
                 targets=targets,
@@ -624,10 +668,9 @@ def from_scratch_training(
             )
         else:
             if kd_layer == 12:
-                # use the ctc score computed by forward path
                 rf.get_run_ctx().mark_as_loss(
                     name="debug_ctc",
-                    loss=-seq_ctc_score.sum(),
+                    loss=-final_score.sum(),
                     scale=ctc_scale,
                     custom_inv_norm_factor=targets_spatial_dim.get_size_tensor(),
                     use_normalized_loss=use_normalized_loss,

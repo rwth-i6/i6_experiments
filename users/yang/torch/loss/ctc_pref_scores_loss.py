@@ -144,6 +144,7 @@ def log_ctc_pref_beam_scores_v2(
         log_zero=-1e25,  # maybe better than float min for preventing overflowing
         top_k_list=None, # (B,S+1,K)
         freeze_gamma=False,
+        freeze_ctc=False,
 ):
     '''
     Given log probs of times and ground truths,
@@ -175,6 +176,7 @@ def log_ctc_pref_beam_scores_v2(
     :param input_lengths: Input lengths (B,)
     :param blank_idx: Blank index in F dim
     :param log_zero: Value of log zero. Default to -1e15 to prevent overflow comparing to float32 min
+    :param freeze_ctc: note that the grad of gamma is kept, only when computing the prefix score, the ctc prob multiplied with gamma is detached
     :return: (log_pref_scores_beams, log_gamma)
 
     log_pref_scores_beams (B, S+1, F). For batch b with ground truth a_0^N-1, [b, n, v] is
@@ -198,11 +200,7 @@ def log_ctc_pref_beam_scores_v2(
     # (B, S, F), for first beam (empty prefix), all is True
     prev_label_all_beams = targets.unsqueeze(-1).expand(-1, -1,
                                                         n_out)  # (B, S, F), S here from 1 to max_seq_len, dim 2 is prev_label of all beams
-    # beams = torch.arange(n_out, device=device).unsqueeze(0).unsqueeze(0).expand(batch_size, max_seq_len,
-    #                                                                             -1)  # (B, S, F), S here from 0 to max_seq_len-1, dim 2 is beam
-    # prev_label_diff = beams != prev_label_all_beams  # (B, S, F)
-    # prev_label_diff = torch.cat(
-    #     [torch.full((batch_size, 1, n_out), torch.tensor(True), device=device), prev_label_diff], dim=1)
+
     top_k_prev_label_diff = top_k_list[:, :-1, :] != prev_label_all_beams  # (B, S, F)
     top_k_prev_label_diff = torch.cat(
         [torch.full((batch_size, 1, n_out), torch.tensor(True), device=device), top_k_prev_label_diff], dim=1)
@@ -233,7 +231,7 @@ def log_ctc_pref_beam_scores_v2(
 
         # log_new_label_prob is not necessary, at least split into prev_gamma_1, and prev_gamma_0
         log_label_sum = torch.logaddexp(prev_gamma_1, prev_gamma_0) # (B, S+1)
-        log_label_sum_target_masked = torch.where(target_label_shift_diff, log_label_sum, prev_gamma_1)
+        log_label_sum_target_masked = torch.where(target_label_shift_diff, log_label_sum, prev_gamma_1) # no bug?
         log_label_sum_top_k_masked = torch.where(top_k_prev_label_diff, log_label_sum.unsqueeze(-1), prev_gamma_1.unsqueeze(-1)) # (B, S+1, K)
 
         new_gamma_0_label = log_probs_t_k_ground_truth + torch.logaddexp(log_label_sum_target_masked[:, :-1], prev_gamma_0[:, 1:]) # shape (B,S) the computation of gamma should not be influenced by top-k
@@ -254,6 +252,9 @@ def log_ctc_pref_beam_scores_v2(
 
 
         cur_selected_log_probs = selected_log_probs[t] # shape (B,S+1,K)
+        if freeze_ctc:
+            cur_selected_log_probs = cur_selected_log_probs.detach()
+
 
         # log_probs_t_k_all_beams = log_probs[t, :, :].unsqueeze(-1).expand((-1, -1, max_seq_len + 1)).transpose(1, 2) #
         # input_time_mask = (t < input_lengths).to(device).unsqueeze(-1).expand((-1, (max_seq_len + 1) * n_out)).view(-1,
@@ -289,7 +290,7 @@ def log_ctc_pref_beam_scores_v2(
 
 
 
-def ctc_prefix_posterior(ctc_log_probs, targets, targets_w_bos, targets_w_eos, input_lengths, target_lengths, blank_index, eos_idx=0, out_no_blank=True, top_k_list=None, freeze_gamma=False):
+def ctc_prefix_posterior(ctc_log_probs, targets, targets_w_bos, targets_w_eos, input_lengths, target_lengths, blank_index, eos_idx=0, out_no_blank=True, top_k_list=None, freeze_gamma=False, freeze_ctc=False):
     '''
     ctc_log_probs: ctc outputs with shape (B,T,V), normalized log probs
     targets: target seq without eos
@@ -304,7 +305,7 @@ def ctc_prefix_posterior(ctc_log_probs, targets, targets_w_bos, targets_w_eos, i
     torch_input_lengths = input_lengths
     torch_targets = targets.long()
     batch_size, max_seq_len = torch_targets.shape
-    prefix_score,  ctc_eos_score = log_ctc_pref_beam_scores_v2(log_probs, torch_targets, targets_w_bos, targets_w_eos,torch_input_lengths, blank_idx=blank_index, eos_idx=eos_idx, top_k_list=top_k_list, freeze_gamma=freeze_gamma)
+    prefix_score,  ctc_eos_score = log_ctc_pref_beam_scores_v2(log_probs, torch_targets, targets_w_bos, targets_w_eos,torch_input_lengths, blank_idx=blank_index, eos_idx=eos_idx, top_k_list=top_k_list, freeze_gamma=freeze_gamma, freeze_ctc=freeze_ctc)
     indices = torch_targets.unsqueeze(-1)
     if top_k_list is None:
         prefix_score_norm = prefix_score[:, :-1, :].gather(-1, indices).squeeze(-1) # norm for given context a_1^N

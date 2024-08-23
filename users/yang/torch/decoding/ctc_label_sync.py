@@ -12,7 +12,9 @@ from returnn.frontend.tensor_array import TensorArray
 # from i6_experiments.users.gaudino.experiments.rf_conformer_att_2023.librispeech_960.conformer_import_moh_att_2023_06_30 import Model
 from i6_experiments.users.zeyer.model_interfaces import ModelDef, RecogDef, TrainDef
 from i6_experiments.users.yang.torch.lm.network.lstm_lm import LSTMLM, LSTMLMConfig
+from i6_experiments.users.yang.torch.luca_ctc.model_conformer_kd_ctc import Model
 from i6_experiments.users.yang.torch.luca_ctc.model_conformer_kd_ctc import get_lstm_default_config
+from i6_experiments.users.yang.torch.utils.masking import get_seq_mask_v2
 import torch
 import numpy
 
@@ -23,7 +25,7 @@ import numpy
 # many hard-coded functions/variables, just to test the label-sync search
 # for now only ctc (and ELM) is considered
 
-def model_recog(
+def model_recog_label_sync(
     *,
     model,
     data: Tensor,
@@ -59,22 +61,28 @@ def model_recog(
 
     beam_size = search_args.get("beam_size", 12)
     lm_scale = search_args.get("lm_scale", 0.0)
+    length_normalization_exponent = search_args.get("length_norm_scale", 0.0)
+    lm_linear_combine = search_args.get("lm_linear_combine", False)
     if lm_scale > 0:
         # for now hard coded pure torch based LSTM
         if hasattr(model, "train_extern_lm"):
             lm = model.train_extern_lm
         else:
-            lstm_cfg = get_lstm_default_config()
+            print("*********************init LM")
+            lstm_cfg = get_lstm_default_config(log_prob_output=True)
+            print('if lm log output***************************', lstm_cfg.log_prob_output)
             lm = LSTMLM(step=0, cfg=lstm_cfg)
             lstm_path = "/work/asr4/zyang/torch/librispeech/work/i6_core/returnn/training/ReturnnTrainingJob.la2CPTQHhFyg/output/models/epoch.030.pt"
             lm.load_state_dict(torch.load(lstm_path)["model"])
             print('*************************train extern lm loaded***********************************')
+        cur_device = log_ctc_prob.device
+        if next(lm.parameters()).device != cur_device:
+            print("move the LM to gpu")
+            lm.to(cur_device)
+        lm.dropout = None
     # by default no length norm
-    from returnn.config import get_global_config
-    config = get_global_config()
     #length_normalization_exponent = model.search_args.get("length_normalization_exponent", 0.0)
-    length_normalization_exponent = config.typed_value("length_norm_scale", 0.0)
-    print("length norm scale!!!!!!!!!!!!", length_normalization_exponent)
+    #length_normalization_exponent = config.typed_value("length_norm_scale", 0.0)
     if max_seq_len is None:
         max_seq_len = enc_spatial_dim.get_size_tensor()
     else:
@@ -90,11 +98,7 @@ def model_recog(
     #     batch_dims=batch_dims_, enc_spatial_dim=enc_spatial_dim
     # )
 
-    if model.search_args.get("lm_scale", 0.0) > 0:
-        lm_state = model.language_model.default_initial_state(batch_dims=batch_dims_)
 
-    if model.search_args.get("ilm_scale", 0.0) > 0:
-        ilm_state = model.ilm.default_initial_state(batch_dims=batch_dims_)
 
     # if model.search_args.get("add_lstm_lm", False):
     #     lm_state = model.lstm_lm.lm_default_initial_state(batch_dims=batch_dims_)
@@ -112,6 +116,9 @@ def model_recog(
     target_ctc = [model.bos_idx for _ in range(batch_size * beam_size)]
 
     blank_index = model.target_dim.get_dim_value()
+
+    batch_shift_base = torch.arange(0, batch_size, dtype=torch.int64, device=log_ctc_prob.device)
+    batch_shift = batch_shift_base * beam_size
 
     # if model.search_args.get("use_ctc", False) or model.search_args.get("rescore_with_ctc", False):
     #     if model.search_args.get("encoder_ctc", False):
@@ -193,7 +200,12 @@ def model_recog(
 
     # lm init states:
     if lm_scale > 0:
-        (h0, c0) = lm.get_default_init_state(batch_size, device=ctc_out.device)
+        (h0, c0) = lm.get_default_init_state(batch_size, device=ctc_out.device) # shape (N,B,d), init step b=1
+        # the forwarding of lstm lm should be (B*d, 1, d), namely no T dim
+        num_lstm_layers = h0.shape[0]
+        lstm_dim = h0.shape[-1]
+
+    seq_lm_score = torch.zeros([batch_size,beam_size], device=ctc_out.device)
 
 
 
@@ -274,17 +286,34 @@ def model_recog(
             label_log_prob = ctc_prefix_scores
         # lm_scores:
         if lm_scale > 0:
-            lm_log_prob, (h0, c0) = lm.incremental_step(target, h0, c0)
-            if i==0:
-                lm_log_prob = lm_log_prob[:,0,:].unsqueeze(1) # (B,1, V)
+            raw_target = target.raw_tensor
+            # raw_target shape (B*b,1)
+            raw_target = raw_target.view(-1,1)
+            lm_log_prob, (h0, c0) = lm.incremental_step(raw_target, h0, c0) # (B*b,1,V) and (N, B*b, h)
+
+            if i == 0:
+                lm_log_prob = lm_log_prob.view(batch_size, 1, model.target_dim.get_dim_value())
+            else:
+                lm_log_prob = lm_log_prob.view(batch_size, beam_size, model.target_dim.get_dim_value())
                 # states are anyway the same
-            rf_lm_log_prob = rf.Tensor(
-                name="external_lm_scores",
-                dims=[batch_size_dim, beam_dim, model.target_dim],
-                dtype="float32",
-                raw_tensor=lm_log_prob
-            )
-            label_log_prob = label_log_prob + lm_scale * rf_lm_log_prob
+            if lm_linear_combine:
+                lm_log_prob_renorm = (lm_scale*lm_log_prob).log_softmax(axis=-1)
+                lm_linear_comb_scale = search_args.get("lm_liner_combine_scale", 0.0)
+                assert lm_linear_comb_scale < 1
+                # add ctc/aed score and lm score linearly
+                raw_label_log_prob = label_log_prob.raw_tensor
+                lm_linear_comb_scale = torch.tensor(lm_linear_comb_scale)
+                raw_combined_score = torch.logaddexp(raw_label_log_prob + torch.log(1-lm_linear_comb_scale), lm_log_prob_renorm + torch.log(lm_linear_comb_scale))
+                label_log_prob.raw_tensor = raw_combined_score
+
+            else:
+                rf_lm_log_prob = rf.Tensor(
+                    name="external_lm_scores",
+                    dims=[batch_size_dim, beam_dim, model.target_dim],
+                    dtype="float32",
+                    raw_tensor=lm_log_prob
+                )
+                label_log_prob = label_log_prob + lm_scale * rf_lm_log_prob
 
         # Filter out finished beams
         label_log_prob = rf.where(
@@ -304,11 +333,40 @@ def model_recog(
             axis=[beam_dim, model.target_dim],
         )  # seq_log_prob, backrefs, target: Batch, Beam
 
+        # sanity check lm output
+
+
         # update lm states
         if lm_scale > 0:
             raw_backrefs = backrefs.raw_tensor
-            h0 = torch.gather(h0, dim=1, index=raw_backrefs)
-            c0 = torch.gather(c0, dim=1, index=raw_backrefs)
+            if i > 0:
+                raw_backrefs = backrefs.raw_tensor + batch_shift.unsqueeze(-1)
+
+            #
+
+            # raw_backrefs_tmp = backrefs.raw_tensor + batch_shift.unsqueeze(-1)
+            raw_backrefs = raw_backrefs.view(-1) # (B*b)
+            # assert! bug here
+            h0 = h0[:, raw_backrefs, :]
+            c0 = c0[:, raw_backrefs, :]
+
+
+
+
+            # if i==0:
+            #     tmp_beam = 1
+            # else:
+            #     tmp_beam = beam_size
+            # select_lm_log_prob = lm_log_prob.view(batch_size*tmp_beam,model.target_dim.get_dim_value())[raw_backrefs,:]
+            # select_lm_log_prob = select_lm_log_prob.view(batch_size, beam_size, -1)
+            # raw_target = target.raw_tensor
+            # lm_beam_score = torch.gather(select_lm_log_prob, index=raw_target.unsqueeze(-1), dim=-1).squeeze(-1)
+            # print("**step ",i)
+            # print("lm beam score", lm_beam_score)
+            # print('raw target', raw_target)
+
+
+
 
         seq_targets.append(target)
         seq_backrefs.append(backrefs)
@@ -328,6 +386,18 @@ def model_recog(
 
 
         ended = rf.gather(ended, indices=backrefs)
+
+
+        # if lm_scale >0:
+        #     raw_ended = ended.raw_tensor.transpose(0,1)
+        #     # print("********raw ended", raw_ended)
+        #     # print("***** raw ended shape", raw_ended.shape)
+        #     seq_lm_score_reorder = seq_lm_score.reshape(batch_size*beam_size)
+        #     seq_lm_score_reorder = seq_lm_score_reorder[raw_backrefs]
+        #     seq_lm_score_reorder = seq_lm_score_reorder.view(batch_size, beam_size)
+        #     seq_lm_score = torch.where(raw_ended, seq_lm_score_reorder, seq_lm_score_reorder + lm_beam_score)
+            # print(' **** seq_lm_score', seq_lm_score)
+
         out_seq_len = rf.gather(out_seq_len, indices=backrefs)
         i += 1
 
@@ -346,6 +416,7 @@ def model_recog(
 
         ended = rf.logical_or(ended, target == model.eos_idx)
         ended = rf.logical_or(ended, rf.copy_to_device(i >= max_seq_len))
+        #ended = rf.logical_or(ended, rf.copy_to_device(i >= rf.convert_to_tensor(50, dtype="int32")))
         if bool(rf.reduce_all(ended, axis=ended.dims).raw_tensor):
             break
         out_seq_len = out_seq_len + rf.where(ended, 0, 1)
@@ -380,15 +451,77 @@ def model_recog(
     out_spatial_dim = Dim(out_seq_len, name="out-spatial")
     seq_targets = seq_targets__.stack(axis=out_spatial_dim)
 
-    if model.search_args.get("rescore_w_ctc",False):
-        from .two_pass import rescore_w_ctc
-        seq_targets, seq_log_prob = rescore_w_ctc(model, seq_targets, seq_log_prob, ctc_out, batch_size, beam_size, model.blank_idx)
+
+
+    # print("!!!!!!!!!!!!!!!************raw seq shape",  seq_targets.raw_tensor.shape)
+    # raw_seq_targets = seq_targets.raw_tensor[:,0,0] # 1-D tensor (L, B, b)
+    # lm_input = torch.cat([torch.zeros_like(raw_seq_targets)[:1], raw_seq_targets[:-1]], dim=0)
+    # lm_input = lm_input.unsqueeze(0)
+    # max_len = lm_input.shape[1]
+    # lm_output = lm(lm_input)
+    # lm_output_probs = lm_output.log_softmax(dim=-1)
+    # seq_len = out_seq_len.raw_tensor[0,:1]# (5, 3)?
+    # seq_len = seq_len +1
+    # seq_len_mask = get_seq_mask_v2(seq_len, max_len, device=lm_output_probs.device) # (B=1,)
+    # lm_target_probs = torch.gather(lm_output_probs, index=raw_seq_targets.unsqueeze(0).unsqueeze(-1), dim=-1).squeeze()
+    # print("batch size", batch_size)
+    #
+    # print('seq len', seq_len)
+    # print('max len', max_len)
+    # print('output len', out_seq_len.raw_tensor+1)
+    # print('lm_output shape', lm_output_probs.shape)
+    # print('lm target probs', lm_target_probs)
+    #
+    #
+    # h1, c1 = lm.get_default_init_state(1, device=ctc_out.device)
+    #
+    #
+    # accu_score = 0
+    # for i in range(max_len):
+    #     step_output, (h1,c1) = lm.incremental_step(lm_input[:,i].unsqueeze(1), h1, c1)
+    #     step_output = step_output.log_softmax(dim=-1)
+    #     # print(step_output.shape)
+    #     # print(raw_seq_targets[i].unsqueeze(0).unsqueeze(-1).shape)
+    #     step_target_prob = torch.gather(step_output, index=raw_seq_targets[i].unsqueeze(0).unsqueeze(-1).unsqueeze(-1), dim=-1)
+    #     # print('!!!step label',raw_seq_targets[i] )
+    #     # print('!!!step lm score', step_target_prob)
+    #     if i < seq_len.squeeze(0):
+    #         accu_score = accu_score + step_target_prob.squeeze(0).squeeze(0)
+    #
+    # # print("*************again**********************")
+    # # lm_output = lm(lm_input)
+    # # lm_output_probs = lm_output.log_softmax(dim=-1)
+    # # lm_target_probs = torch.gather(lm_output_probs, index=raw_seq_targets.unsqueeze(0).unsqueeze(-1), dim=-1).squeeze()
+    #
+    # # h1, c1 = lm.get_default_init_state(batch_size, device=ctc_out.device)
+    # # for i in range(max_len):
+    # #     step_output, (h1,c1) = lm.incremental_step(lm_input[:,i].unsqueeze(1), h1, c1)
+    # #     step_output = step_output.log_softmax(dim=-1)
+    # #     print(step_output.shape)
+    # #     print(raw_seq_targets[i].unsqueeze(0).unsqueeze(-1).shape)
+    # #     step_target_prob = torch.gather(step_output, index=raw_seq_targets[i].unsqueeze(0).unsqueeze(-1).unsqueeze(-1), dim=-1)
+    # #     print('!!!step label',raw_seq_targets[i] )
+    # #     print('!!!step lm score', step_target_prob)
+    #
+    # lm_final_score = torch.sum(torch.where(seq_len_mask, lm_target_probs, torch.zeros_like(lm_target_probs)))
+    # print('best seq',raw_seq_targets)
+    # print('best seq tensor shape', raw_seq_targets.shape)
+    # print('!!!!!!!!!!!!!!*****************seq log prob', seq_log_prob.raw_tensor)
+    # print('!!!!!!!!!!!!!!*********************************seq lm score', lm_final_score)
+    # print('!!!!!!!!!!!!!!********************************* accu lm score', accu_score)
+    # print('!!!!!!!!!!!!!!************************************accumulated lm score', seq_lm_score)
+
+    # check the computation of lm score
+
+    # if model.search_args.get("rescore_w_ctc",False):
+    #     from .two_pass import rescore_w_ctc
+    #     seq_targets, seq_log_prob = rescore_w_ctc(model, seq_targets, seq_log_prob, ctc_out, batch_size, beam_size, model.blank_idx)
 
     return seq_targets, seq_log_prob, out_spatial_dim, beam_dim
 
 
 # RecogDef API
-model_recog: RecogDef[Model]
-model_recog.output_with_beam = True
-model_recog.output_blank_label = "<blank>"
-model_recog.batch_size_dependent = False
+model_recog_label_sync: RecogDef[Model]
+model_recog_label_sync.output_with_beam = True
+model_recog_label_sync.output_blank_label = "<blank>"
+model_recog_label_sync.batch_size_dependent = False

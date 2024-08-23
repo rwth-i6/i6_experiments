@@ -86,7 +86,7 @@ class LSTMLM(nn.Module):
     def forward(self, x):
         """
         Return log probs of each batch at each time step
-        x: (B, S, F)
+        x: (B, S)
         """
         x = self.embed(x)
         if self.dropout:
@@ -105,6 +105,23 @@ class LSTMLM(nn.Module):
         if self.use_log_prob_output:
             x = x.log_softmax(dim=-1)
         return x
+    def incremental_step(self, target, h0, c0):
+        """
+        param:
+        param:
+        """
+        # x: (batch * beam,1)
+        # input embedding:
+        x = self.embed(target) # (batch* beam,1, embd)
+        x, (h1, c1) = self.lstm(x, (h0, c0))
+        output = self.final_linear(x)
+        out_log_prob = output.log_softmax(dim=-1)
+        return out_log_prob, (h1, c1)
+
+    def get_default_init_state(self, batch_size, device):
+        h0 = torch.zeros((self.cfg.n_lstm_layers, batch_size, self.cfg.hidden_dim), device=device).detach()
+        c0 = torch.zeros_like(h0)
+        return h0, c0
 
 def get_train_serializer(
     model_config: LSTMLMConfig,

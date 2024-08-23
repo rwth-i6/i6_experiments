@@ -106,6 +106,12 @@ config_24gb_v5 = dict_update_deep(
 
 config_24gb_v6 = dict_update_deep(config_24gb_v5, None, ["pretrain_opts"])
 config_24gb_finetune = dict_update_deep(config_24gb_v6, None, ["dynamic_learning_rate"])
+
+config_11gb_singalgpu_finetune = dict_update_deep(config_24gb_finetune,
+                                                  {
+                                                      "__gpu_mem": 11,
+                                                      "accum_grad_multiple_step": 1,  # per single GPU
+                                                  }, ["torch_amp"])
 config_11gb_multigpu_4_finetune = dict_update_deep(config_24gb_finetune,
                                               {
                                                   "__gpu_mem": 11,
@@ -144,8 +150,13 @@ _lrlin_oclr_steps_by_bs_nep = {
     (8, 125): [139_000, 279_000, 310_000],  # ~2485steps/ep, 125 eps -> 310k steps in total
     (8, 250): [279_000, 558_000, 621_000],  # ~2485steps/ep, 250 eps -> 621k steps in total
     (8, 500): [558_000, 1_117_000, 1_242_000],  # ~2485steps/ep, 500 eps -> 1.242k steps in total
+    (10, 100): [88_000, 177_000, 197_000],
     (10, 500): [443_000, 887_000, 986_000],  # ~1973 steps/epoch, total steps after 500 epochs: ~986k
+    (13, 100): [680_00, 136_000, 150000],     # computed from (15,100)
+    (15, 100): [59_000, 118_000, 130_000],  # computed from (15,500) for fine-tune
+    (15, 400): [234_000, 469_000, 521_000],  # total steps after 400 epochs: ~521k
     (15, 500): [295_000, 590_000, 652_000],  # total steps after 500 epochs: ~652k
+    (15, 600): [352_000, 704_000, 782_000],  # total steps after 600 epochs: ~782k
     (20, 1000): [438_000, 877_000, 974_000],  # total steps after 1000 epochs: 974.953
     (20, 2000): [878_000, 1_757_000, 1_952_000],  # total steps after 2000 epochs: 1.952.394
     (30, 2000): [587_000, 1_174_000, 1_305_000],  # total steps after 2000 epochs: 1.305.182

@@ -11,6 +11,8 @@ import functools
 
 from returnn.tensor import Tensor, Dim, single_step_dim
 import returnn.frontend as rf
+
+from i6_experiments.users.zeyer.model_interfaces import RecogDef
 from returnn.frontend.tensor_array import TensorArray
 from returnn.frontend.encoder.conformer import ConformerEncoder, ConformerConvSubsample
 
@@ -30,7 +32,7 @@ _batch_size_factor = 160
 
 from i6_experiments.users.gaudino.experiments.rf_conformer_att_2023.librispeech_960.trafo_lm import trafo_lm_kazuki_import
 
-def model_recog(
+def model_recog_greedy(
     *,
     model,
     data: Tensor,
@@ -50,12 +52,33 @@ def model_recog(
         out_spatial_dim,
         final beam_dim
     """
+    from returnn.config import get_global_config
+    config = get_global_config()
+    search_args = config.typed_value("search_args", {})
+    mask_eos = search_args.get("mask_eos_output", True)
+    add_eos_to_blank = search_args.get("add_eos_to_blank", False)
     batch_dims = data.remaining_dims((data_spatial_dim, data.feature_dim))
-    enc_args, enc_spatial_dim = model.encode(data, in_spatial_dim=data_spatial_dim)
+    # sepcify encoder output name, and how to compute the ctc output
+    collected_outputs = {}
+    enc, enc_spatial_dim = model.encode(data, in_spatial_dim=data_spatial_dim, collected_outputs=collected_outputs)
 
-    assert model.enc_aux_logits_12, "Expected final ctc logits in enc_aux_logits_12"
+    #enc_args, enc_spatial_dim = model.encode(data, in_spatial_dim=data_spatial_dim)
 
-    enc_ctc = model.enc_aux_logits_12(enc_args["enc"])
+
+
+    assert hasattr(model, "ctc_output_layer")
+    #assert model.enc_aux_logits_12, "Expected final ctc logits in enc_aux_logits_12"
+
+    #enc_ctc = model.enc_aux_logits_12(enc_args["enc"])
+    #enc_ctc = model.ctc_output_layer(collected_outputs["11"])
+    ctc_enc_layer_id = model.ctc_enc_layer_id
+    if isinstance(ctc_enc_layer_id, int):
+        ctc_enc_layer_id = str(ctc_enc_layer_id)
+    else:
+        assert isinstance(ctc_enc_layer_id, str)
+    enc_ctc = model.ctc_output_layer(collected_outputs[ctc_enc_layer_id])
+
+
 
     if max_seq_len is None:
         max_seq_len = enc_spatial_dim.get_size_tensor()
@@ -73,7 +96,8 @@ def model_recog(
     )  # [B,T,V+1]
 
     # always add up blank and eos in log space
-    ctc_out = mask_eos_label(ctc_out, add_to_blank=True)
+    if mask_eos:
+        ctc_out = mask_eos_label(ctc_out, add_to_blank=add_eos_to_blank)
 
 
     blank_index = model.target_dim.get_dim_value()
@@ -117,11 +141,11 @@ def model_recog(
 
 
 # RecogDef API
-model_recog: RecogDef[Model]
-model_recog.output_with_beam = True
+model_recog_greedy: RecogDef[Model]
+model_recog_greedy.output_with_beam = True
 # output_blank_label=blank is actually wrong for AED, but now we don't change it anymore
 # because it would change all recog hashes.
 # Also, it does not matter too much -- it will just cause an extra SearchRemoveLabelJob,
 # which will not have any effect here.
-model_recog.output_blank_label = "<blank>"
-model_recog.batch_size_dependent = False
+model_recog_greedy.output_blank_label = "<blank>"
+model_recog_greedy.batch_size_dependent = False

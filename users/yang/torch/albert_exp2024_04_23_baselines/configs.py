@@ -56,10 +56,16 @@ post_config = dict(
 # and give some estimates for the steps here, i.e. 45%, 90%, almost 100%,
 # making sure the last number is slightly below the real total number of steps.
 _lrlin_oclr_steps_by_bs_nep = {
+    (7, 125): [139_000, 279_000, 310_000],
     (8, 125): [139_000, 279_000, 310_000],  # ~2485steps/ep, 125 eps -> 310k steps in total
     (8, 250): [279_000, 558_000, 621_000],  # ~2485steps/ep, 250 eps -> 621k steps in total
     (8, 500): [558_000, 1_117_000, 1_242_000],  # ~2485steps/ep, 500 eps -> 1.242k steps in total
+    (10, 100): [88_000, 177_000, 197_000],
+    (10, 200): [176_000, 354_000, 394_000],
     (10, 500): [443_000, 887_000, 986_000],  # ~1973 steps/epoch, total steps after 500 epochs: ~986k
+    (13, 100): [680_00, 136_000, 150000],     # computed from (15,100)
+    (15, 100): [59_000, 118_000, 130_000],  # computed from (15,500) for fine-tune
+    (15, 200): [118_000, 236_000, 260_000],  # computed from (15,500) for fine-tune
     (15, 400): [234_000, 469_000, 521_000],  # total steps after 400 epochs: ~521k
     (15, 500): [295_000, 590_000, 652_000],  # total steps after 500 epochs: ~652k
     (15, 600): [352_000, 704_000, 782_000],  # total steps after 600 epochs: ~782k
@@ -86,6 +92,23 @@ def _get_cfg_lrlin_oclr_by_bs_nep(bs_feat: int, n_ep: int, *, peak_lr: float = 1
     }
 
 
+
+def _fine_tune_get_cfg_lrlin_oclr_by_bs_nep(bs_feat: int, n_ep: int, *, peak_lr: float = 1e-3) -> Dict[str, Any]:
+    """
+    :param bs_feat: batch size for features (not including _batch_size_factor)
+    :param n_ep: num epochs
+    """
+    return {
+        "__num_epochs": n_ep,
+        "batch_size": bs_feat * _batch_size_factor,
+        "learning_rate": 1.0,
+        "dynamic_learning_rate": dyn_lr_piecewise_linear,
+        # If the dict has no entry for the bs_feat,n_ep combination, see above.
+        "learning_rate_piecewise_steps": _lrlin_oclr_steps_by_bs_nep[(bs_feat // 1000, n_ep)],
+        "learning_rate_piecewise_values": [peak_lr * 1e-1, peak_lr, peak_lr * 1e-1, peak_lr * 1e-2],
+    }
+
+
 # combine this for example with _get_cfg_lrlin_oclr_by_bs_nep(15_000, 500)
 config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4 = dict_update_deep(
     config_24gb_v6,
@@ -100,6 +123,14 @@ config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4 = dict_update_deep(
         "torch_amp",  # f32
     ],
 )
+config_11gb_v6_f32_accgrad1_gpu1_wd1e_4 = dict_update_deep(
+config_24gb_v6,
+    {
+        "__gpu_mem": 11,
+        "accum_grad_multiple_step": 1,  # per single GPU
+    }, ["torch_amp"]
+)
+
 debug_config = dict_update_deep(
     config_24gb_v6,
     {
