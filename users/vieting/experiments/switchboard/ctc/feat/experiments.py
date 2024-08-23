@@ -813,6 +813,7 @@ def run_scf_specaug():
                 lr_args=lr_args,
                 report_args={"batch_size": "2x5k", "enable_sorting": False, "max_feature": 15},
             ),
+            # note this only reduces the masking in frequency dimension, not in time.
             "baseline_increase_flag": dict(
                 returnn_args={
                     **base_returnn_args,
