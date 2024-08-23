@@ -762,7 +762,7 @@ def run_scf_audio_perturbation_from_checkpoint():
     return report
 
 
-def run_scf_specaug_sort():
+def run_scf_specaug():
     gs.ALIAS_AND_OUTPUT_SUBDIR = "experiments/switchboard/ctc/feat/"
 
     (
@@ -772,7 +772,7 @@ def run_scf_specaug_sort():
         rasr_loss_lexicon_path,
         dev_corpora,
     ) = get_datasets()
-    returnn_args = {
+    base_returnn_args = {
         "batch_size": 5000,
         "rasr_binary_path": RASR_BINARY_PATH,
         "rasr_loss_corpus_path": rasr_loss_corpus_path,
@@ -785,9 +785,14 @@ def run_scf_specaug_sort():
             "conv_pad_seq_len_to_power": 1.5,
         },
         "conformer_type": "wei",
-        "specaug_old": {"max_feature": 15},
     }
-    feature_args = {"class": "ScfNetwork", "size_tf": 256 // 2, "stride_tf": 10 // 2}
+    feature_args = {
+        "class": "ScfNetwork",
+        "size_tf": 256 // 2,
+        "stride_tf": 10 // 2,
+        "wave_norm": True,
+        "preemphasis": 0.97,
+    }
     lr_args = {
         "peak_lr": 4e-4,
         "start_lr": 1.325e-05,
@@ -799,39 +804,35 @@ def run_scf_specaug_sort():
 
     nn_args, report_args_collection = get_nn_args_baseline(
         nn_base_args={
-            "bs2x5k_scf_specaugsortlayer2": dict(
-                returnn_args={**returnn_args, "specaug_old": {"max_feature": 15, "sort_layer2": True}},
+            "baseline": dict(
+                returnn_args={
+                    **base_returnn_args,
+                    "specaug_config": {"enable_sorting": False, "max_feature": 15, "steps_per_epoch": 4100},
+                },
                 feature_args=feature_args,
                 lr_args=lr_args,
-                report_args={"batch_size": "2x5k"},
+                report_args={"batch_size": "2x5k", "enable_sorting": False, "max_feature": 15},
             ),
-            "bs2x5k_scf_specaugsortlayer2frome210": dict(
+            # note this only reduces the masking in frequency dimension, not in time.
+            "baseline_increase_flag": dict(
                 returnn_args={
-                    **returnn_args,
-                    "specaug_old": {"max_feature": 15, "sort_layer2": True},
-                    "extra_args": {
-                        "watch_memory": True,
-                        "conv_pad_seq_len_to_power": 1.5,
-                        "preload_from_files": {
-                            "existing-model": {
-                                "filename": (
-                                    "/work/asr4/vieting/setups/swb/work/20230406_feat/i6_core/returnn/training/"
-                                    "ReturnnTrainingJob.y9otnVMrBAWw/output/models/backup.epoch.210"
-                                ),
-                                "init_for_train": True,
-                            },
-                        },
-                        **returnn_args["extra_args"],
+                    **base_returnn_args,
+                    "specaug_config": {
+                        "enable_sorting": False,
+                        "max_feature": 15,
+                        "max_feature_num": 2,
+                        "steps_per_epoch": 4100,
+                        "freq_mask_num_schedule": {0: 1, 1: 2.5},
                     },
                 },
                 feature_args=feature_args,
-                lr_args={**lr_args, "peak_lr": 3.35e-4, "increase_epochs": 0, "decrease_epochs": 150},
-                report_args={"batch_size": "2x5k"},
+                lr_args=lr_args,
+                report_args={"batch_size": "2x5k", "enable_sorting": False, "max_feature": 15},
             ),
         },
         num_epochs=450,
         evaluation_epochs=[350, 390, 400, 410, 450],
-        prefix="conformer_",
+        prefix="conformer_bs2x5k_scf_specaug_",
     )
 
     returnn_root = CloneGitRepositoryJob(
@@ -843,6 +844,7 @@ def run_scf_specaug_sort():
         nn_args,
         report_args_collection,
         dev_corpora,
+        "report_scf_specaug.csv",
         returnn_root=returnn_root,
         recog_args={"epochs": [350, 390, 400, 410, 450]},
     )
