@@ -160,12 +160,15 @@ def transform(data, network, **config):
             tf.math.floor(config["freq_mask_max_proportion"] * tf.cast(tf.shape(x)[data.feature_dim_axis], tf.float32)),
             tf.int32,
         )
-
+        max_time_num_seq_len = tf.math.floordiv(
+            tf.cast(tf.shape(x)[data.time_dim_axis], tf.float32),
+            max_time_num_seq_len_divisor * tf.cast(time_mask_max_size, tf.float32)
+        )
         # check for the limits
         actual_time_mask_max_num = tf.minimum(
             tf.maximum(
                 time_mask_max_num,
-                tf.shape(x)[data.time_dim_axis] // int(1.0 / max_time_num_seq_len_divisor * time_mask_max_size),
+                max_time_num_seq_len,
             ),
             total_time_masks_max_frames // time_mask_max_size,
         )
