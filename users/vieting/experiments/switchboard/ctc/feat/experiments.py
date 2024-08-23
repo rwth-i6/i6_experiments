@@ -822,7 +822,6 @@ def run_scf_specaug():
                         "max_feature": 15,
                         "max_feature_num": 2,
                         "steps_per_epoch": 4100,
-                        "time_mask_num_schedule": {0: 1, 1: 2},
                         "freq_mask_num_schedule": {0: 1, 1: 2.5},
                     },
                 },
