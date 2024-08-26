@@ -3,7 +3,8 @@ import os
 from typing import Dict, Tuple
 
 import i6_core.rasr as rasr
-from i6_core.returnn.config import ReturnnConfig
+from i6_core.returnn.config import CodeWrapper, ReturnnConfig
+from i6_experiments.common.setups.serialization import Import
 from i6_experiments.users.berger.args.experiments import ctc as exp_args
 from i6_experiments.users.berger.args.returnn.config import Backend, get_returnn_config
 from i6_experiments.users.berger.args.returnn.learning_rates import LearningRateSchedules, Optimizers
@@ -44,6 +45,23 @@ def returnn_config_generator(
     variant: ConfigVariant, train_data_config: dict, dev_data_config: dict, **kwargs
 ) -> ReturnnConfig:
     model_config = conformer_ctc.get_default_config_v1(num_outputs)
+    if kwargs.get("preemphasis", True):
+        model_config.feature_extraction.cfg.submodules[1].cfg.alpha = 0.97
+    else:
+        model_config.feature_extraction.cfg.submodules[1].cfg.alpha = 0.0
+
+    if not kwargs.get("speed_perturb", True):
+        model_config.feature_extraction.module_class = model_config.feature_extraction.cfg.submodules[1].module_class
+        model_config.feature_extraction.cfg = model_config.feature_extraction.cfg.submodules[1].cfg
+        python_prolog = [
+            "import sys",
+            "sys.path.insert(0, '/u/berger/asr-exps/tedlium2/20240812_align_restricted_transducer/recipe')",
+            Import(
+                "i6_experiments.users.rossenbach.experiments.librispeech.ctc_rnnt_standalone_2024.extra_code.speed_perturbation.legacy_speed_perturbation"
+            ),
+        ]
+    else:
+        python_prolog = None
 
     if variant == ConfigVariant.TRAIN:
         extra_config: dict = {
@@ -69,6 +87,7 @@ def returnn_config_generator(
         num_inputs=1,
         num_outputs=num_outputs,
         target="classes",
+        python_prolog=python_prolog,
         extra_python=[
             conformer_ctc.get_serializer(model_config, variant=variant, recog_type=conformer_ctc.RecogType.FLASHLIGHT)
         ],
@@ -139,6 +158,7 @@ def run_exp() -> Tuple[SummaryReport, Dict[str, AlignmentData]]:
         augmented_lexicon=True,
         feature_type=FeatureType.SAMPLES,
         partition_epoch=10,
+        ogg_dataset=True,
     )
 
     for data_input in data.data_inputs.values():
@@ -157,6 +177,7 @@ def run_exp() -> Tuple[SummaryReport, Dict[str, AlignmentData]]:
         lm_type=LmType.ARPA_FILE,
         vocab_type=VocabType.RETURNN,
         search_stats=True,
+        ogg_dataset=True,
     )
     align_args = exp_args.get_ctc_align_step_args(
         num_classes=num_outputs,
@@ -200,11 +221,43 @@ def run_exp() -> Tuple[SummaryReport, Dict[str, AlignmentData]]:
     # ********** Returnn Configs **********
 
     system.add_experiment_configs(
-        "Conformer_CTC",
+        "Conformer_CTC_ogg",
         get_returnn_config_collection(
             train_data_config=data.train_data_config,
             dev_data_config=data.cv_data_config,
             num_subepochs=num_subepochs,
+            preemphasis=True,
+            speed_perturb=True,
+        ),
+    )
+
+    data.train_data_config = copy.deepcopy(data.train_data_config)
+    data.cv_data_config = copy.deepcopy(data.cv_data_config)
+    data.train_data_config["datasets"]["data"]["audio"]["preemphasis"] = 0.97
+
+    system.add_experiment_configs(
+        "Conformer_CTC_ogg_pre-preemphasis",
+        get_returnn_config_collection(
+            train_data_config=data.train_data_config,
+            dev_data_config=data.cv_data_config,
+            num_subepochs=num_subepochs,
+            preemphasis=False,
+            speed_perturb=True,
+        ),
+    )
+
+    data.train_data_config = copy.deepcopy(data.train_data_config)
+    data.cv_data_config = copy.deepcopy(data.cv_data_config)
+    data.train_data_config["datasets"]["data"]["audio"]["pre_process"] = CodeWrapper("legacy_speed_perturbation")
+
+    system.add_experiment_configs(
+        "Conformer_CTC_ogg_pre-speed-perturb",
+        get_returnn_config_collection(
+            train_data_config=data.train_data_config,
+            dev_data_config=data.cv_data_config,
+            num_subepochs=num_subepochs,
+            preemphasis=False,
+            speed_perturb=False,
         ),
     )
 

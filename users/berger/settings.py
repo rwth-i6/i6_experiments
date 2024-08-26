@@ -105,6 +105,7 @@ def worker_wrapper(job, task_name, call):
         "TorchOnnxExportJob",
         "OptunaExportPyTorchModelToOnnxJob",
         "OptunaTorchOnnxExportJob",
+        "BlissToOggZipJob",
     }
     jobclass = type(job).__name__
     if jobclass in rasr_jobs:

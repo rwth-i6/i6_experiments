@@ -8,6 +8,8 @@ def prior_init_hook(run_ctx: RunCtx, **kwargs):
 
 
 def prior_finish_hook(run_ctx: RunCtx, **kwargs):
+    import numpy as np
+
     all_probs = run_ctx.sum_probs.detach().cpu().numpy()
     all_frames = run_ctx.sum_frames.detach().cpu().numpy()
     average_probs = all_probs / all_frames

@@ -143,13 +143,20 @@ def get_flashlight_recog_serializer(
         model_config=model_config,
         additional_serializer_objects=[
             PartialImport(
-                code_object_path=f"{pytorch_package}.forward.ctc.flashlight_ctc_decoder_forward_step",
-                import_as="forward_step",
+                code_object_path=f"{pytorch_package}.forward_minireturnn.ctc.flashlight_ctc_decoder_init_hook",
+                import_as="forward_init_hook",
                 hashed_arguments=kwargs,
                 unhashed_arguments={},
                 unhashed_package_root="",
             ),
-            Import(f"{pytorch_package}.forward.search_callback.SearchCallback", import_as="forward_callback"),
+            Import(
+                f"{pytorch_package}.forward_minireturnn.ctc.flashlight_ctc_decoder_forward_step",
+                import_as="forward_step",
+            ),
+            Import(
+                f"{pytorch_package}.forward_minireturnn.ctc.flashlight_ctc_decoder_finish_hook",
+                import_as="forward_finish_hook",
+            ),
         ],
     )
 

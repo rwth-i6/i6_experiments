@@ -15,11 +15,13 @@ class ReturnnNativeSystem(BaseSystem[returnn.ReturnnTrainingJob, returnn.Returnn
     ) -> functors.Functors[returnn.ReturnnTrainingJob, returnn.ReturnnConfig]:
         assert self._tool_paths.returnn_root is not None
         assert self._tool_paths.returnn_python_exe is not None
+        assert self._tool_paths.rasr_binary_path is not None
         train_functor = functors.ReturnnTrainFunctor(self._tool_paths.returnn_root, self._tool_paths.returnn_python_exe)
 
         recog_functor = functors.ReturnnSearchFunctor(
             self._tool_paths.returnn_root,
             self._tool_paths.returnn_python_exe,
+            self._tool_paths.rasr_binary_path,
         )
 
         align_functor = functors.ReturnnAlignmentFunctor()

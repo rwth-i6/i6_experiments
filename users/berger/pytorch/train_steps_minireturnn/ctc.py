@@ -2,7 +2,7 @@ import torch
 from returnn.torch.context import RunCtx
 
 
-def train_step(*, model: torch.nn.Module, data: dict, run_ctx: RunCtx, **kwargs):
+def train_step(*, model: torch.nn.Module, data: dict, run_ctx: RunCtx, blank_idx: int = 0, **kwargs):
     audio_features = data["data"].float()  # [B, T', F]
     audio_features_len = data["data:size1"]  # [B]
 
@@ -21,7 +21,7 @@ def train_step(*, model: torch.nn.Module, data: dict, run_ctx: RunCtx, **kwargs)
         targets=targets,
         input_lengths=sequence_lengths,
         target_lengths=targets_len,
-        blank=0,
+        blank=blank_idx,
         reduction="sum",
         zero_infinity=True,
     )

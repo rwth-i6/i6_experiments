@@ -71,7 +71,7 @@ def get_returnn_config(
     target: Optional[str] = "classes",
     num_inputs: Optional[int] = None,
     num_outputs: Optional[int] = None,
-    python_prolog: Optional[Union[List, Dict]] = None,
+    python_prolog: Optional[List] = None,
     extern_data_config: bool = False,
     extra_python: Optional[List] = None,
     use_chunking: bool = True,
@@ -79,7 +79,7 @@ def get_returnn_config(
     hash_full_python_code: bool = False,
     **kwargs,
 ) -> returnn.ReturnnConfig:
-    python_prolog = python_prolog or ["import numpy as np"]
+    python_prolog = ["import numpy as np"] + (python_prolog or [])
     extra_python = extra_python or []
     config_dict: dict[str, Any] = {"target": target}
     if num_inputs is not None:

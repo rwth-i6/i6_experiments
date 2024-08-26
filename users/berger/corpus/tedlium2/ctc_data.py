@@ -17,6 +17,10 @@ from i6_experiments.users.berger.corpus.general.hdf import (
     build_feature_alignment_meta_dataset_config,
     build_feature_hdf_dataset_config,
 )
+from i6_experiments.users.berger.corpus.general.ogg import (
+    build_oggzip_datset_config,
+    build_oggzip_label_meta_dataset_config,
+)
 
 from . import data
 from ..general import build_feature_label_meta_dataset_config
@@ -38,6 +42,7 @@ def get_tedlium2_data_dumped_labels(
     feature_type: FeatureType = FeatureType.GAMMATONE_16K,
     blank_idx: int = 0,
     partition_epoch: int = 5,
+    ogg_dataset: bool = False,
 ) -> ReturnnSearchSetupData:
     if cv_keys is None:
         cv_keys = ["dev"]
@@ -64,89 +69,147 @@ def get_tedlium2_data_dumped_labels(
     eow_lexicon = AddEowPhonemesToLexiconJob(train_lexicon).out_lexicon
 
     if alignments:
-        train_data_config = build_feature_alignment_meta_dataset_config(
-            data_inputs=[train_data_inputs[train_key]],
-            alignments=[alignments[f"{train_key}_align"]],
-            feature_type=feature_type,
-            returnn_root=returnn_root,
-            returnn_python_exe=returnn_python_exe,
-            rasr_binary_path=rasr_binary_path,
-            rasr_arch=rasr_arch,
-            extra_config={
-                "partition_epoch": partition_epoch,
-                "seq_ordering": "laplace:.1000",
-            },
-            remove_blank_idx=blank_idx,
-        )
+        if ogg_dataset:
+            raise NotImplementedError
+        else:
+            train_data_config = build_feature_alignment_meta_dataset_config(
+                data_inputs=[train_data_inputs[train_key]],
+                alignments=[alignments[f"{train_key}_align"]],
+                feature_type=feature_type,
+                returnn_root=returnn_root,
+                returnn_python_exe=returnn_python_exe,
+                rasr_binary_path=rasr_binary_path,
+                rasr_arch=rasr_arch,
+                extra_config={
+                    "partition_epoch": partition_epoch,
+                    "seq_ordering": "laplace:.1000",
+                },
+                remove_blank_idx=blank_idx,
+            )
     else:
-        train_data_config = build_feature_label_meta_dataset_config(
-            label_dim=num_classes - 1,
-            data_inputs=[train_data_inputs[train_key]],
-            lexicon=eow_lexicon,
-            feature_type=feature_type,
-            returnn_root=returnn_root,
-            returnn_python_exe=returnn_python_exe,
-            rasr_binary_path=rasr_binary_path,
-            rasr_arch=rasr_arch,
-            extra_config={
-                "partition_epoch": partition_epoch,
-                "seq_ordering": "laplace:.1000",
-            },
-        )
+        if ogg_dataset:
+            train_data_config = build_oggzip_label_meta_dataset_config(
+                label_dim=num_classes - 1,
+                data_inputs=[train_data_inputs[train_key]],
+                lexicon=eow_lexicon,
+                returnn_root=returnn_root,
+                returnn_python_exe=returnn_python_exe,
+                audio_config={
+                    "features": "raw",
+                    "peak_normalization": True,
+                },
+                extra_config={
+                    "partition_epoch": partition_epoch,
+                    "seq_ordering": "laplace:.1000",
+                },
+            )
+        else:
+            train_data_config = build_feature_label_meta_dataset_config(
+                label_dim=num_classes - 1,
+                data_inputs=[train_data_inputs[train_key]],
+                lexicon=eow_lexicon,
+                feature_type=feature_type,
+                returnn_root=returnn_root,
+                returnn_python_exe=returnn_python_exe,
+                rasr_binary_path=rasr_binary_path,
+                rasr_arch=rasr_arch,
+                extra_config={
+                    "partition_epoch": partition_epoch,
+                    "seq_ordering": "laplace:.1000",
+                },
+            )
 
     # ********** CV data **********
 
     if alignments:
-        cv_data_config = build_feature_alignment_meta_dataset_config(
-            data_inputs=[cv_data_inputs[cv_key] for cv_key in cv_keys],
-            alignments=[alignments[f"{cv_key}_align"] for cv_key in cv_keys],
-            feature_type=feature_type,
-            returnn_root=returnn_root,
-            returnn_python_exe=returnn_python_exe,
-            rasr_binary_path=rasr_binary_path,
-            rasr_arch=rasr_arch,
-            single_hdf=True,
-            extra_config={
-                "partition_epoch": 1,
-                "seq_ordering": "sorted",
-            },
-            remove_blank_idx=blank_idx,
-        )
+        if ogg_dataset:
+            raise NotImplementedError
+        else:
+            cv_data_config = build_feature_alignment_meta_dataset_config(
+                data_inputs=[cv_data_inputs[cv_key] for cv_key in cv_keys],
+                alignments=[alignments[f"{cv_key}_align"] for cv_key in cv_keys],
+                feature_type=feature_type,
+                returnn_root=returnn_root,
+                returnn_python_exe=returnn_python_exe,
+                rasr_binary_path=rasr_binary_path,
+                rasr_arch=rasr_arch,
+                single_hdf=True,
+                extra_config={
+                    "partition_epoch": 1,
+                    "seq_ordering": "sorted",
+                },
+                remove_blank_idx=blank_idx,
+            )
     else:
-        cv_data_config = build_feature_label_meta_dataset_config(
-            label_dim=num_classes - 1,
-            data_inputs=[cv_data_inputs[key] for key in cv_keys],
-            lexicon=eow_lexicon,
-            feature_type=feature_type,
-            returnn_root=returnn_root,
-            returnn_python_exe=returnn_python_exe,
-            rasr_binary_path=rasr_binary_path,
-            rasr_arch=rasr_arch,
-            single_hdf=True,
-            extra_config={
-                "partition_epoch": 1,
-                "seq_ordering": "sorted",
-            },
-        )
+        if ogg_dataset:
+            cv_data_config = build_oggzip_label_meta_dataset_config(
+                label_dim=num_classes - 1,
+                data_inputs=[cv_data_inputs[key] for key in cv_keys],
+                lexicon=eow_lexicon,
+                returnn_root=returnn_root,
+                returnn_python_exe=returnn_python_exe,
+                audio_config={
+                    "features": "raw",
+                    "peak_normalization": True,
+                },
+                extra_config={
+                    "partition_epoch": 1,
+                    "seq_ordering": "sorted",
+                },
+            )
+        else:
+            cv_data_config = build_feature_label_meta_dataset_config(
+                label_dim=num_classes - 1,
+                data_inputs=[cv_data_inputs[key] for key in cv_keys],
+                lexicon=eow_lexicon,
+                feature_type=feature_type,
+                returnn_root=returnn_root,
+                returnn_python_exe=returnn_python_exe,
+                rasr_binary_path=rasr_binary_path,
+                rasr_arch=rasr_arch,
+                single_hdf=True,
+                extra_config={
+                    "partition_epoch": 1,
+                    "seq_ordering": "sorted",
+                },
+            )
 
     # ********** forward data **********
 
-    forward_data_config = {
-        key: build_feature_hdf_dataset_config(
-            data_inputs=[data_input],
-            feature_type=feature_type,
-            returnn_root=returnn_root,
-            returnn_python_exe=returnn_python_exe,
-            rasr_binary_path=rasr_binary_path,
-            rasr_arch=rasr_arch,
-            single_hdf=True,
-            extra_config={
-                "partition_epoch": 1,
-                "seq_ordering": "sorted",
-            },
-        )
-        for key, data_input in {**dev_data_inputs, **test_data_inputs}.items()
-    }
+    if ogg_dataset:
+        forward_data_config = {
+            key: build_oggzip_datset_config(
+                data_inputs=[data_input],
+                returnn_root=returnn_root,
+                returnn_python_exe=returnn_python_exe,
+                audio_config={
+                    "features": "raw",
+                    "peak_normalization": True,
+                },
+                extra_config={
+                    "partition_epoch": 1,
+                    "seq_ordering": "sorted",
+                },
+            )
+            for key, data_input in {**dev_data_inputs, **test_data_inputs}.items()
+        }
+    else:
+        forward_data_config = {
+            key: build_feature_hdf_dataset_config(
+                data_inputs=[data_input],
+                feature_type=feature_type,
+                returnn_root=returnn_root,
+                returnn_python_exe=returnn_python_exe,
+                rasr_binary_path=rasr_binary_path,
+                rasr_arch=rasr_arch,
+                single_hdf=True,
+                extra_config={
+                    "partition_epoch": 1,
+                    "seq_ordering": "sorted",
+                },
+            )
+            for key, data_input in {**dev_data_inputs, **test_data_inputs}.items()
+        }
 
     # ********** Align data **********
 
