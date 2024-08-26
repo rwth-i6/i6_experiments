@@ -121,5 +121,7 @@ def bpe5k_kazuki_lstm():
         checkpoint=train_job.out_checkpoints[300],
         net_args=train_args["net_args"],
         network_module=network_module,
-        prefix_name=training_name
+        prefix_name=training_name,
+        bpe_vocab=label_datastream_bpe5000.vocab,
+        bpe_codes=label_datastream_bpe5000.codes,
     ))

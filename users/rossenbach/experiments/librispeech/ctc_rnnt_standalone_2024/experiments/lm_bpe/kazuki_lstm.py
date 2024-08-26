@@ -204,6 +204,7 @@ def bpe_kazuki_lstm():
         "accum_grad_multiple_step": 1,
         "learning_rates": [1e-3],
     }
+
     train_args_modern_v1 = copy.deepcopy(train_args)
     train_args_modern_v1["config"] = train_config_modern_v1
     training_name = prefix_name + "/" + network_module + ".2x2024_1k_RAdam_1e-3"
@@ -227,10 +228,11 @@ def bpe_kazuki_lstm():
         "gradient_clip_norm": 1.0,
         "learning_rates": ([1e-3] * 50) + list(np.linspace(1e-3, 1e-5, 50))
     }
-    train_args_modern_v1 = copy.deepcopy(train_args)
-    train_args_modern_v1["config"] = train_config_modern_v1
-    training_name = prefix_name + "/" + network_module + ".2x2024_1k_RAdam_1e-3_1ep_reduce_gcn1.0"
-    train_job = training(training_name, train_data_bpe10k_part100, train_args_modern_v1, num_epochs=100, **lm_returnn)
+    # Inf / Nan loss in 199, skip update fix was not applied yet
+    # train_args_modern_v1 = copy.deepcopy(train_args)
+    # train_args_modern_v1["config"] = train_config_modern_v1
+    # training_name = prefix_name + "/" + network_module + ".2x2024_1k_RAdam_1e-3_1ep_reduce_gcn1.0"
+    # train_job = training(training_name, train_data_bpe10k_part100, train_args_modern_v1, num_epochs=100, **lm_returnn)
 
     train_config_modern_v1 = {
         "optimizer": {"class": "RAdam"},
