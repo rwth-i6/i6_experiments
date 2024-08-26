@@ -25,6 +25,8 @@ def get_ctc_model(name: str) -> ASRModel:
     return _ctc_models[name]
 
 
+# Neural LM Models -------------------------------------------------------------------------------------------------------
+
 _lm_models: Dict[str, tk.Path] = {}
 
 def add_lm(name: str, lm_model: NeuralLM):
@@ -36,3 +38,18 @@ def add_lm(name: str, lm_model: NeuralLM):
 def get_lm_model(name: str) -> NeuralLM:
     global _lm_models
     return _lm_models[name]
+
+
+# Vocoder Models -------------------------------------------------------------------------------------------------------
+
+@dataclass
+class VocoderPackage:
+    checkpoint: tk.Path
+    config: Dict[str, Any]
+
+vocoders: Dict[str, VocoderPackage] = {}
+
+def add_vocoder(name: str, vocoder: VocoderPackage):
+    global vocoders
+    assert name not in vocoders.keys()
+    vocoders[name] = vocoder
