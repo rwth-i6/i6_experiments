@@ -404,6 +404,7 @@ def py():
         ("spm1k", "spm", 0.9),  # 7.04
         ("spm1k", "spm", 0.7),  # 7.33
         ("spm1k", "bpe", 0.0),  # 6.07
+        # TODO ("spm1k", "bpe", 0.0005),
         ("spm1k", "bpe", 0.001),  # 6.15
         ("spm1k", "bpe", 0.005),  # 6.25
         ("spm1k", "bpe", 0.01),  # 6.13 (but dev-clean,test-* are better than no sampling)
@@ -414,7 +415,7 @@ def py():
         ("spm512", "bpe", 0.005),  # 6.01
         ("spm512", "bpe", 0.01),  # 6.08 (but test-* is better than spm512 without sampling)
         ("spm128", None, None),  # 6.37
-        # TODO ("spm128", "bpe", 0.005),
+        # TODO ("spm128", "bpe", 0.001),
         ("spm128", "bpe", 0.01),  # 6.40
     ]:
         train_exp(
