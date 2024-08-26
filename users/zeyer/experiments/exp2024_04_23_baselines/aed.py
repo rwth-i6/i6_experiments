@@ -38,6 +38,8 @@ if TYPE_CHECKING:
 # The model gets raw features (16khz) and does feature extraction internally.
 _log_mel_feature_dim = 80
 
+_raw_sample_rate = _batch_size_factor * 100  # bs factor is from 10ms frames to raw samples
+
 
 def py():
     # TODO test with additional abs pos enc
@@ -71,7 +73,7 @@ def py():
             },
         )
 
-    # Comparing vocabs.
+    # Comparing vocabs. WARNING: max_seq_len is not adapted here.
     for vocab in [
         "spm20k",  # 5.14 (but test-other is 6.18!)
         "bpe10k",  # 5.32
@@ -165,6 +167,80 @@ def py():
                     else {"class": "SamplingBytePairEncoding", "breadth_prob": alpha}
                 )
             },
+        )
+
+    # relPosAttDef: Use the default RelPosSelfAttention instead of the Shawn et al 2018 style, old RETURNN way.
+    enc_conformer_layer_default = rf.build_dict(
+        rf.encoder.conformer.ConformerEncoderLayer,
+        ff_activation=rf.build_dict(rf.relu_square),
+        num_heads=8,
+    )
+    for vocab, sample, alpha, max_seq_len_via_audio, model_name, model_cfg in [
+        ("spm10k", "spm", 0.7, False, None, {}),
+        ("spm10k", "bpe", 0.01, False, None, {}),
+        ("spm10k", "bpe", 0.01, False, "relPosAttDef", {"enc_conformer_layer": enc_conformer_layer_default}),
+        (
+            "spm10k",
+            "bpe",
+            0.01,
+            False,
+            "relPosAttDef-featBN",
+            {
+                "enc_conformer_layer": enc_conformer_layer_default,
+                "feature_batch_norm": True,
+            },
+        ),
+        (
+            "spm10k",
+            "bpe",
+            0.01,
+            False,
+            "relPosAttDef-noBias-featBN",
+            {
+                "enc_conformer_layer": rf.build_dict(
+                    rf.encoder.conformer.ConformerEncoderLayer,
+                    ff=rf.build_dict(
+                        rf.encoder.conformer.ConformerPositionwiseFeedForward,
+                        activation=rf.build_dict(rf.relu_square),
+                        with_bias=False,
+                    ),
+                    num_heads=8,
+                ),
+                "feature_batch_norm": True,
+            },
+        ),
+    ]:
+        train_exp(
+            f"v6" + (f"-{model_name}" if model_name else "") + f"-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100"
+            f"{'-maxSeqLenAudio19_5' if max_seq_len_via_audio else ''}"
+            f"-wd1e_2-lrlin1e_5_295k-speedpertV2"
+            f"-{vocab}" + (f"-{vocab}-{sample}Sample{str(alpha).replace('.', '').replace('-','_')}" if sample else ""),
+            config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
+            model_config=model_cfg,
+            config_updates={
+                **_get_cfg_lrlin_oclr_by_bs_nep(15_000, 500),
+                "optimizer.weight_decay": 1e-2,
+                "__train_audio_preprocess": speed_pert_librosa_config,
+                "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
+                **(
+                    {"max_seq_length_default_target": None, "max_seq_length_default_input": 19.5 * _raw_sample_rate}
+                    if max_seq_len_via_audio
+                    else {}
+                ),
+            },
+            vocab=vocab,
+            train_vocab_opts=(
+                {
+                    "other_opts": (
+                        {
+                            "spm": {"enable_sampling": True, "alpha": alpha},
+                            "bpe": {"class": "SamplingBytePairEncoding", "breadth_prob": alpha},
+                        }[sample]
+                    )
+                }
+                if sample
+                else None
+            ),
         )
 
 
