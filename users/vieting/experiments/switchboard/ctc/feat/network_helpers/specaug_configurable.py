@@ -176,6 +176,24 @@ def transform(data, network, **config):
             total_time_masks_max_frames // time_mask_max_size,
         )
         actual_freq_mask_max_num = tf.minimum(freq_mask_max_num, total_freq_masks_max_size // freq_mask_max_size)
+         
+        # Check if limits where hit and which one
+        time_lower_limit_hit = tf.equal(actual_time_mask_max_num, max_time_num_seq_len)
+        time_upper_limit_hit = tf.equal(actual_time_mask_max_num, total_time_masks_max_frames // time_mask_max_size)
+
+        freq_limit_hit = tf.equal(actual_freq_mask_max_num, total_freq_masks_max_size // freq_mask_max_size)
+        with tf.control_dependencies([
+            tf.print("--------------------"),
+            tf.print("Lower limit (time):", max_time_num_seq_len),
+            tf.print("Upper limit (time):", total_time_masks_max_frames // time_mask_max_size),
+            tf.print("actual_time_mask_max_num:", actual_time_mask_max_num),
+            tf.print("actual_freq_mask_max_num:", actual_freq_mask_max_num),
+            tf.print(" The total time frames:", tf.shape(x)[data.time_dim_axis]),
+            tf.cond(time_lower_limit_hit, lambda: tf.print("Warning: actual_time_mask_max_num has hit the lower limit!"), lambda: tf.no_op()),
+            tf.cond(time_upper_limit_hit, lambda: tf.print("Warning: actual_time_mask_max_num has hit the upper limit!"), lambda: tf.no_op()),
+            tf.cond(freq_limit_hit, lambda: tf.print("Warning: actual_freq_mask_max_num has hit a limit!"), lambda: tf.no_op()),
+        ]):
+            x_masked = tf.identity(x_masked)
 
         x_masked = random_mask(
             x_masked,
