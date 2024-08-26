@@ -115,7 +115,7 @@ def py():
     # negatives hard
     run_fairseq_pretraining(
         exp_name="monophone_negatives_hard_v1",
-        commit="56acedca3b72c09ec30b7208da0d15ada03d0479",
+        commit="be51394d876428ad531e0786d80de43d6a8818af",
         python_exe_hash_overwrite="itc_python_launcher_py310_torch",
         negative_sampling_strategy="hard_negatives",
     )
