@@ -837,6 +837,25 @@ def run_scf_specaug():
                 lr_args=lr_args,
                 report_args={"batch_size": "2x5k", "enable_sorting": False, "max_feature": 15},
             ),
+            "variance_based_specaug": dict(
+                returnn_args={
+                    **base_returnn_args,
+                    "specaug_config": {
+                        "enable_sorting": False,
+                        "mask_based_on_variance": True,
+                        "variance_factor": 0.5,
+                        "total_max_number_masks": 50,
+                    },
+                },
+                feature_args=feature_args,
+                lr_args=lr_args,
+                report_args={
+                    "batch_size": "2x5k",
+                    "mask_based_on_variance": True,
+                    "variance_factor": 0.5,
+                    "total_max_number_masks": 50,
+                },
+            ),
         },
         num_epochs=450,
         evaluation_epochs=[350, 390, 400, 410, 450],
