@@ -13,7 +13,7 @@ from i6_experiments.common.tools.sctk import compile_sctk
 RETURNN_EXE = tk.Path("/usr/bin/python3", hash_overwrite="GENERIC_RETURNN_LAUNCHER")
 
 MINI_RETURNN_ROOT = CloneGitRepositoryJob(
-    "https://github.com/JackTemaki/MiniReturnn", commit="a8b6c2551d72d68b9173654c0254a8944e62b293"
+    "https://github.com/JackTemaki/MiniReturnn", commit="52da103a1b6c762fa25dfce592ee10b3490f5083"
 ).out_repository.copy()
 MINI_RETURNN_ROOT.hash_overwrite = "LIBRISPEECH_DEFAULT_RETURNN_ROOT"
 
