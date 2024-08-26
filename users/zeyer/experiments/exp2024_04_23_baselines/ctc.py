@@ -550,11 +550,15 @@ def py():
         train_vocab_opts={"other_opts": {"class": "SamplingBytePairEncoding", "breadth_prob": 0.01}},
     )
 
+    # TODO max_seq_len_via_audio seems to hurt a bit with sampling?
+    #   Probably because now we don't filter when the seq gets very long, and that confuses training.
+    #   -> In the sampling, make some upper limit?
+
     # Blank separated (blankSep).
     for vocab, alpha, max_seq_len_via_audio in [
         ("bpe10k", 0.01, False),  # 5.98 (with) vs 6.18 (without)
-        ("spm10k", 0.01, False),  # 5.73 (!!)
-        ("spm10k", 0.01, True),  # 5.74
+        ("spm10k", 0.01, False),  # 5.73 (!!) (with) vs 5.77 (without) (but almost no diff on test)
+        ("spm10k", 0.01, True),  # 5.74 (with) vs 5.80 (without) (but without is better on test,dev-clean)
         ("spm512", 0.01, True),  # 6.02 (with) vs 6.02 (without) (but without is worse on test,dev-clean)
     ]:
         for blank_sep in [False, True]:
@@ -670,7 +674,9 @@ def py():
     for name, opts in {
         # 5.71 (!!) (i.e. better than without)
         "C05_11P1": {"func": {"clamp_min": 0.5, "clamp_max": 1.1, "scale_type": "inv_num_labels", "prior_exp": 1.0}},
+        # 5.85
         "C05_15P1": {"func": {"clamp_min": 0.5, "clamp_max": 1.5, "scale_type": "inv_num_labels", "prior_exp": 1.0}},
+        "C01_11P1": {"func": {"clamp_min": 0.1, "clamp_max": 1.1, "scale_type": "inv_num_labels", "prior_exp": 1.0}},
         # 5.83
         "C05_11P1Seq": {
             "prior": "seq_grad",
@@ -809,7 +815,7 @@ def py():
     )
 
     # rope+rmsNorm+noBias. (Baseline: 5.77)
-    train_exp(
+    train_exp(  # 5.87, so worse. rope makes it worse, as seen before, but rmsNorm and noBias should make it better.
         "v6-relPosAttDef-rope-rmsNorm-noBias-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2"
         "-lrlin1e_5_295k-featBN-speedpertV2-spm10k-bpeSample001",
         config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
@@ -839,7 +845,7 @@ def py():
     )
 
     # rope. (Baseline: 5.77)
-    train_exp(  # 5.87
+    train_exp(  # 5.87, so rope is worse here.
         "v6-relPosAttDef-rope-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2"
         "-lrlin1e_5_295k-featBN-speedpertV2-spm10k-bpeSample001",
         config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
