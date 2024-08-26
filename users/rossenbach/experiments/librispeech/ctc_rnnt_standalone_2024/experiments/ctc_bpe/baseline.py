@@ -97,7 +97,8 @@ def bpe_ls960_1023_base():
                 decoder_args={"config": asdict(decoder_config)}, test_dataset_tuples={key: test_dataset_tuples[key]},
                 **default_returnn
             )
-            
+
+
     def greedy_search_helper(
             training_name: str,
             asr_model: ASRModel,
@@ -202,7 +203,7 @@ def bpe_ls960_1023_base():
         "debug": False,
     }
 
-    training_name = prefix_name + "/" + network_module + ".512dim_sub6_24gbgpu_50eps"
+    training_name = prefix_name + "/" + network_module + ".512dim_sub4_24gbgpu_50eps"
     train_job = training(training_name, train_data_bpe5000, train_args, num_epochs=500, **default_returnn)
     train_job.rqmt["gpu_mem"] = 24
     asr_model = prepare_asr_model(
