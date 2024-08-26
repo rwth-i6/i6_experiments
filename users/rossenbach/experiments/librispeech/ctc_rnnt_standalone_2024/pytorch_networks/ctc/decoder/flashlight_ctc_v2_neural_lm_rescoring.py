@@ -23,6 +23,9 @@ class DecoderConfig():
     lexicon: str
     returnn_vocab: str
 
+    # not optional anymore
+    arpa_lm: str
+
     # lm stuff
     lm_module: str
     lm_args: Dict[str, Any]
@@ -30,6 +33,11 @@ class DecoderConfig():
     lm_vocab: str
     lm_bpe_codes: str
     lm_is_bpe: bool
+
+    lm_length_exponent: float
+    lm_rescore_scale: float
+
+    n_best: int
 
     # additional search options
     lm_weight: float = 0.0
@@ -176,10 +184,11 @@ def forward_init_hook(run_ctx, **kwargs):
     labels = vocab.labels
 
     if config.lm_is_bpe:
-        bpe_vocab = Vocabulary.create_vocab(
+        run_ctx.bpe_vocab = Vocabulary.create_vocab(
             vocab_file=config.returnn_vocab,
             bpe_file=config.lm_bpe_codes,
             unknown_label=None,
+            seq_postfix=0,
         )
     else:
         raise NotImplementedError("Only BPE LM supported for now")
@@ -190,18 +199,22 @@ def forward_init_hook(run_ctx, **kwargs):
             lm_index_to_word[i] = line.split(" ")[0].strip()
 
 
-    language_model = load_lm(config, run_ctx)
-    neural_lm = CustomLM(language_model=language_model, bpe_vocab=bpe_vocab, lm_vocab=lm_index_to_word)
+    run_ctx.language_model = load_lm(config, run_ctx)
+
+    if config.arpa_lm is not None:
+        lm = cf(config.arpa_lm)
+    else:
+        lm = None
 
     run_ctx.ctc_decoder = ctc_decoder(
         lexicon=config.lexicon,
-        lm=neural_lm,
+        lm=lm,
         lm_weight=config.lm_weight,
         tokens=labels + ["[blank]"],
         blank_token="[blank]",
         sil_token="[blank]",
         unk_word="[unknown]",
-        nbest=1,
+        nbest=config.n_best,
         beam_size=config.beam_size,
         beam_size_token=config.beam_size_token,
         beam_threshold=config.beam_threshold,
@@ -210,6 +223,8 @@ def forward_init_hook(run_ctx, **kwargs):
     )
     run_ctx.labels = labels
     run_ctx.blank_log_penalty = config.blank_log_penalty
+    run_ctx.lm_length_exponent = config.lm_length_exponent
+    run_ctx.lm_rescore_scale = config.lm_rescore_scale
 
     if config.prior_file:
         run_ctx.prior = np.loadtxt(config.prior_file, dtype="float32")
@@ -226,6 +241,7 @@ def forward_init_hook(run_ctx, **kwargs):
         run_ctx.running_audio_len_s = 0
         run_ctx.total_am_time = 0
         run_ctx.total_search_time = 0
+        run_ctx.total_lm_time = 0
 
     run_ctx.print_hypothesis = extra_config.print_hypothesis
 
@@ -239,7 +255,9 @@ def forward_finish_hook(run_ctx, **kwargs):
               (run_ctx.total_am_time, run_ctx.total_am_time / run_ctx.running_audio_len_s))
         print("Total-Search-Time: %.2fs, Search-RTF: %.3f" %
               (run_ctx.total_search_time, run_ctx.total_search_time / run_ctx.running_audio_len_s))
-        total_proc_time = run_ctx.total_am_time + run_ctx.total_search_time
+        print("Total-Rescore-LM-Time: %.2fs, Search-RTF: %.3f" %
+              (run_ctx.total_lm_time, run_ctx.total_lm_time / run_ctx.running_audio_len_s))
+        total_proc_time = run_ctx.total_am_time + run_ctx.total_search_time + run_ctx.total_lm_time
         print("Total-time: %.2f, Batch-RTF: %.3f" % (total_proc_time, total_proc_time / run_ctx.running_audio_len_s))
 
 
@@ -272,7 +290,6 @@ def forward_step(*, model, data, run_ctx, **kwargs):
 
     search_start = time.time()
     hypothesis = run_ctx.ctc_decoder(logprobs_cpu, audio_features_len.cpu())
-    assert False
     search_time = time.time() - search_start
     run_ctx.total_search_time += search_time
 
@@ -280,10 +297,43 @@ def forward_step(*, model, data, run_ctx, **kwargs):
         print("Batch-AM-Time: %.2fs, AM-RTF: %.3f" % (am_time, am_time / audio_len_batch))
         print("Batch-Search-Time: %.2fs, Search-RTF: %.3f" % (search_time, search_time / audio_len_batch))
         print("Batch-time: %.2f, Batch-RTF: %.3f" % (am_time + search_time, (am_time + search_time) / audio_len_batch))
+        lm_start_time = time.time()
 
+    from IPython import embed
     for hyp, tag in zip(hypothesis, tags):
-        words = hyp[0].words
-        sequence = " ".join([word for word in words if not word.startswith("[")])
+        word_hyps = [" ".join([word for word in sub_hyp.words if not word.startswith("[")]) for sub_hyp in hyp]
+        scores = np.asarray([sub_hyp.score for sub_hyp in hyp])
+        bpe_sequences = [run_ctx.bpe_vocab.get_seq(words) for words in word_hyps]
+        sequence_lengths = [len(s) for s in bpe_sequences]
+        max_length = np.max(sequence_lengths)
+        extended_bpe_sequences = []
+        for s, l in zip (bpe_sequences, sequence_lengths):
+            extended_bpe_sequences.append(s + [0] * (max_length - l))
+        for e in extended_bpe_sequences:
+            assert len(e) == max_length
+        with torch.no_grad():
+            input_sequences = np.asarray([[0] + s[:-1] for s in extended_bpe_sequences])
+            output = torch.tensor(np.asarray(extended_bpe_sequences), dtype=torch.int64).to(device=run_ctx.device)
+            inp = torch.tensor(input_sequences, dtype=torch.int64).to(device=run_ctx.device)  # [B, max_length]
+            logits = run_ctx.language_model(inp)
+            logprobs = torch.nn.functional.log_softmax(logits, dim=-1)
+            selected_logprobs = torch.gather(logprobs, -1, torch.unsqueeze(output, -1))
+            print(selected_logprobs.shape)
+        numpy_logprobs = selected_logprobs.squeeze(-1).detach().cpu().numpy()
+        lm_scores = np.asarray([np.sum(lp[:l]) for lp, l in zip(numpy_logprobs, sequence_lengths)])
+        assert len(lm_scores) == len(scores)
+        if run_ctx.lm_length_exponent > 0.0:
+            lm_scores = lm_scores / (np.asarray(sequence_lengths) ** run_ctx.lm_length_exponent)
+        final_scores = scores + (run_ctx.lm_rescore_scale * lm_scores)
+        best_idx = np.argmax(final_scores)
+        sequence = word_hyps[best_idx]
+        # sequence = " ".join([word for word in words if not word.startswith("[")])
         if run_ctx.print_hypothesis:
             print(sequence)
         run_ctx.recognition_file.write("%s: %s,\n" % (repr(tag), repr(sequence)))
+
+    if run_ctx.print_rtf:
+        lm_time = time.time() - lm_start_time
+        run_ctx.total_lm_time += lm_time
+        print("Batch-LM-Time: %.2fs, LM-RTF: %.3f" % (lm_time, lm_time / audio_len_batch))
+        print("Batch-time: %.2f, Batch-RTF: %.3f" % (am_time + search_time + lm_time, (am_time + search_time + lm_time) / audio_len_batch))
