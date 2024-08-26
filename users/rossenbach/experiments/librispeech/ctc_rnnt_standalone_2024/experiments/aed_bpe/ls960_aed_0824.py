@@ -18,7 +18,7 @@ from ...storage import get_ctc_model, get_lm_model, NeuralLM
 
 
 def aed_bpe_ls960_1023_base():
-    prefix_name = "experiments/librispeech/ctc_rnnt_standalone_2024/ls960_aed_bpe_5k"
+    prefix_name = "experiments/librispeech/ctc_rnnt_standalone_2024/ls960_aed_0824_low_bpe"
 
     train_settings = DatasetSettings(
         preemphasis=0.97,  # TODO: Check if this is really useful
@@ -59,7 +59,7 @@ def aed_bpe_ls960_1023_base():
     }
 
     from ...pytorch_networks.aed.decoder.greedy_prototype import DecoderConfig as GreedyDecoderConfig
-    from ...pytorch_networks.aed.decoder.ctc_greedy_only_v2 import DecoderConfig as CtcGreedyDecoderConfig
+    from ...pytorch_networks.aed.decoder.ctc_greedy_only_v1 import DecoderConfig as CtcGreedyDecoderConfig
     from ...pytorch_networks.aed.decoder.beam_search_single_v1 import DecoderConfig as BeamSearchDecoderConfig, BeamSearchOpts
 
     from ...pytorch_networks.aed.decoder.beam_search_single_v1_with_lm import \
@@ -82,29 +82,6 @@ def aed_bpe_ls960_1023_base():
             forward_config={} if seed is None else {"seed": seed},
             asr_model=asr_model,
             decoder_module="aed.decoder.greedy_prototype",
-            decoder_args={"config": asdict(decoder_config)},
-            use_gpu=use_gpu,
-            test_dataset_tuples={**dev_dataset_tuples, **test_dataset_tuples},
-            **default_returnn,
-        )
-        
-    def ctc_greedy_search_helper(
-            training_name: str,
-            asr_model: ASRModel,
-            decoder_config: CtcGreedyDecoderConfig,
-            seed: Optional[int] = None,
-            use_gpu: bool = False,
-        ):
-        # remove prior if exists
-        asr_model = copy.deepcopy(asr_model)
-        asr_model.prior_file = None
-
-        search_name = training_name + "/search_greedy_ctc_only"
-        search_jobs, wers = search(
-            search_name,
-            forward_config={} if seed is None else {"seed": seed},
-            asr_model=asr_model,
-            decoder_module="aed.decoder.ctc_greedy_only_v2",
             decoder_args={"config": asdict(decoder_config)},
             use_gpu=use_gpu,
             test_dataset_tuples={**dev_dataset_tuples, **test_dataset_tuples},
@@ -293,7 +270,7 @@ def aed_bpe_ls960_1023_base():
     )
 
     ctc_greedy_decoder_config = CtcGreedyDecoderConfig(
-        returnn_vocab=label_datastream_bpe5000.vocab,
+        returnn_vocab=label_datastream_bpe5000.vocab
     )
 
     train_config_24gbgpu_amp_july_baseline = {
@@ -355,35 +332,6 @@ def aed_bpe_ls960_1023_base():
         "debug": True,
     }
 
-    # Diverged at around ep 100 :(
-
-    # training_name = prefix_name + "/" + network_module + ".512dim_sub6_24gbgpu_100eps_new_baseline"
-    # train_job = training(training_name, train_data_bpe5000, train_args, num_epochs=1000, **default_returnn)
-    # train_job.rqmt["gpu_mem"] = 24
-    # train_job.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
-
-    # asr_model = prepare_asr_model(
-    #     training_name, train_job, train_args, with_prior=False, datasets=train_data_bpe5000,
-    #     get_specific_checkpoint=1000
-    # )
-    # greedy_search_helper(training_name, asr_model=asr_model, decoder_config=greedy_decoder_config)
-    # beam_search_prototype(
-    #     training_name,
-    #     asr_model=asr_model,
-    #     decoder_config=BeamSearchDecoderConfig(
-    #         returnn_vocab=label_datastream_bpe5000.vocab,
-    #         beam_search_opts=BeamSearchOpts(
-    #             beam_size=12,
-    #             length_normalization_exponent=1.0,
-    #             length_reward=0,
-    #             bos_label=0,
-    #             eos_label=0,
-    #             num_labels=label_datastream_bpe5000.vocab_size
-    #         )
-    #     ),
-    #     use_gpu=True,
-    # )
-
     # long training with v4 and attention dropout
 
     model_zeineldeen_config_v4_attdrop = copy.deepcopy(model_zeineldeen_config_v4)
@@ -401,8 +349,6 @@ def aed_bpe_ls960_1023_base():
         get_specific_checkpoint=1000
     )
     greedy_search_helper(training_name, asr_model=asr_model, decoder_config=greedy_decoder_config)
-    ctc_greedy_search_helper(training_name, asr_model=asr_model, decoder_config=ctc_greedy_decoder_config)
-
     beam_search_prototype(
         training_name,
         asr_model=asr_model,
@@ -443,67 +389,11 @@ def aed_bpe_ls960_1023_base():
                 ),
                 use_gpu=True,
             )
+            
+            
 
-    train_config_24gbgpu_amp_august_baseline = {
-        "optimizer": {"class": "radam", "epsilon": 1e-12, "weight_decay": 1e-2, "decoupled_weight_decay": True},
-        "learning_rates": list(np.linspace(5e-5, 5e-5, 20)) + list(
-            np.linspace(5e-4, 5e-4, 460)) + list(np.linspace(5e-4, 5e-5, 480)) + list(np.linspace(5e-5, 1e-7, 40)),
-        #############
-        "batch_size": 300 * 16000,
-        "max_seq_length": {"audio_features": 35 * 16000},
-        "gradient_clip_norm": 1.0,
-        "torch_amp_options": {"dtype": "bfloat16"},
-    }
 
-    network_module = "aed.conformer_zoneout_prototype_0624.aed_prototype_v4"
-    train_args = {
-        "config": train_config_24gbgpu_amp_august_baseline,
-        "network_module": network_module,
-        "net_args": {"model_config_dict": asdict(model_zeineldeen_config_v4_attdrop)},
-        "use_speed_perturbation": True,
-        "debug": True,
-    }
 
-    training_name = prefix_name + "/" + network_module + ".512dim_sub6_24gbgpu_100eps_new_baseline_attdrop_sp"
-    train_job = training(training_name, train_data_bpe5000, train_args, num_epochs=1000, **default_returnn)
-    train_job.rqmt["gpu_mem"] = 24
-    train_job.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
-
-    asr_model = prepare_asr_model(
-        training_name, train_job, train_args, with_prior=False, datasets=train_data_bpe5000,
-        get_specific_checkpoint=1000
-    )
-    greedy_search_helper(training_name, asr_model=asr_model, decoder_config=greedy_decoder_config)
-    beam_search_prototype(
-        training_name,
-        asr_model=asr_model,
-        decoder_config=BeamSearchDecoderConfig(
-            returnn_vocab=label_datastream_bpe5000.vocab,
-            beam_search_opts=BeamSearchOpts(
-                beam_size=12,
-                length_normalization_exponent=1.0,
-                length_reward=0,
-                bos_label=0,
-                eos_label=0,
-                num_labels=label_datastream_bpe5000.vocab_size
-            )
-        ),
-        use_gpu=True,
-    )
-
-    train_args_bs240 = copy.deepcopy(train_args)
-    train_args_bs240["config"]["batch_size"] = 240 * 16000
-
-    training_name = prefix_name + "/" + network_module + ".512dim_sub6_24gbgpu_100eps_new_baseline_attdrop_sp_bs240"
-    train_job = training(training_name, train_data_bpe5000, train_args_bs240, num_epochs=1000, **default_returnn)
-    train_job.rqmt["gpu_mem"] = 24
-    train_job.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
-
-    asr_model = prepare_asr_model(
-        training_name, train_job, train_args_bs240, with_prior=False, datasets=train_data_bpe5000,
-        get_specific_checkpoint=1000
-    )
-    greedy_search_helper(training_name, asr_model=asr_model, decoder_config=greedy_decoder_config)
 
     # 11GB Runs from here
 
