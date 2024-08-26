@@ -214,7 +214,7 @@ def py():
             f"v6" + (f"-{model_name}" if model_name else "") + f"-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100"
             f"{'-maxSeqLenAudio19_5' if max_seq_len_via_audio else ''}"
             f"-wd1e_2-lrlin1e_5_295k-speedpertV2"
-            f"-{vocab}" + (f"-{vocab}-{sample}Sample{str(alpha).replace('.', '').replace('-','_')}" if sample else ""),
+            f"-{vocab}" + (f"-{sample}Sample{str(alpha).replace('.', '').replace('-','_')}" if sample else ""),
             config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
             model_config=model_cfg,
             config_updates={
