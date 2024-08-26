@@ -37,6 +37,15 @@ class NeuralLM:
     net_args: Dict[str, Any]
     network_module: str
     prefix_name: Optional[str]
+    bpe_vocab: Optional[tk.Path] = None
+    bpe_codes: Optional[tk.Path] = None
+
+@dataclass
+class TTSModel:
+    checkpoint: tk.Path
+    net_args: Dict[str, Any]
+    network_module: str
+    prefix_name: Optional[str]
 
 def search_single(
     prefix_name: str,
@@ -69,7 +78,7 @@ def search_single(
         returnn_config=returnn_config,
         log_verbosity=5,
         mem_rqmt=mem_rqmt,
-        time_rqmt=24,
+        time_rqmt=0.5 if use_gpu else 12,
         device="gpu" if use_gpu else "cpu",
         cpu_rqmt=2,
         returnn_python_exe=returnn_exe,
@@ -196,7 +205,7 @@ def training(training_name, datasets, train_args, num_epochs, returnn_exe, retur
     """
     returnn_config = get_training_config(training_datasets=datasets, **train_args)
     default_rqmt = {
-        "mem_rqmt": 24,
+        "mem_rqmt": 20,
         "time_rqmt": 168,
         "cpu_rqmt": 6,
         "log_verbosity": 5,
@@ -208,6 +217,46 @@ def training(training_name, datasets, train_args, num_epochs, returnn_exe, retur
     train_job.add_alias(training_name + "/training")
     tk.register_output(training_name + "/learning_rates", train_job.out_learning_rates)
     return train_job
+
+def tts_eval_v2(
+        prefix_name,
+        returnn_config,
+        checkpoint,
+        returnn_exe,
+        returnn_root,
+        mem_rqmt=8,
+        use_gpu=False,
+        store_log_mels=False,
+):
+    """
+    Run search for a specific test dataset
+
+    :param prefix_name: prefix folder path for alias and output files
+    :param returnn_config: the RETURNN config to be used for forwarding
+    :param Checkpoint checkpoint: path to RETURNN PyTorch model checkpoint
+    :param returnn_exe: The python executable to run the job with (when using container just "python3")
+    :param returnn_root: Path to a checked out RETURNN repository
+    :param mem_rqmt: override the default memory requirement
+    """
+
+    output_files = ["audio_files", "out_corpus.xml.gz"]
+    if store_log_mels:
+        output_files += ["log_mels.hdf"]
+    forward_job = ReturnnForwardJobV2(
+        model_checkpoint=checkpoint,
+        returnn_config=returnn_config,
+        log_verbosity=5,
+        mem_rqmt=mem_rqmt,
+        time_rqmt=24,
+        device="gpu" if use_gpu else "cpu",
+        cpu_rqmt=4,
+        returnn_python_exe=returnn_exe,
+        returnn_root=returnn_root,
+        output_files=output_files,
+    )
+    forward_job.add_alias(prefix_name + "/tts_eval_job")
+    # evaluate_nisqa(prefix_name, forward_job.out_files["out_corpus.xml.gz"], with_bootstrap=True)
+    return forward_job
 
 
 @dataclass
@@ -345,6 +394,32 @@ def prepare_asr_model(
         )
 
     return asr_model
+
+def prepare_tts_model(
+    training_name,
+    train_job,
+    train_args,
+    get_specific_checkpoint: int,
+):
+    """
+    For now basically do nothing except for creating the dataclass
+
+    :param training_name:
+    :param train_job:
+    :param train_args:
+    :param get_specific_checkpoint:
+    :return:
+    """
+    checkpoint = train_job.out_checkpoints[get_specific_checkpoint]
+    training_name = training_name + "/ep_%i_cpkt" % get_specific_checkpoint
+
+    tts_model = TTSModel(
+        checkpoint=checkpoint,
+        network_module=train_args["network_module"],
+        net_args=train_args["net_args"],
+        prefix_name=training_name,
+    )
+    return tts_model
 
 
 @tk.block()
