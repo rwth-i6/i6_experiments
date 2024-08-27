@@ -225,7 +225,7 @@ def _plot_cosine_sim_matrix(
 
     fig = plt.figure()
     ax = plt.axes()
-    mat = ax.matshow(cos_sim, cmap="seismic")
+    mat = ax.matshow(cos_sim, cmap="seismic", vmin=-1, vmax=1)
     ax.set_title(f"{input_name} Cosine similarity matrix for \n {seq_tag}", fontsize=12, pad=20)
     ax.xaxis.set_ticks_position('bottom')
     ax.set_xlabel("Time steps", fontsize=10, labelpad=4)
@@ -263,14 +263,37 @@ def _plot_cosine_sim_matrix(
     plt.close()
     plot_file_paths[seq_tag] = plot_file_path
 
-    x_norm_b = x_norm_b.cpu().detach().numpy()
-    from sklearn.cluster import KMeans, DBSCAN, SpectralClustering
-    # kmeans = KMeans(n_clusters=num_non_blank_targets + 1, random_state=0).fit(x_norm_b)
-    # clusters = KMeans(n_clusters=2, random_state=0).fit(x_norm_b)
-    clusters = SpectralClustering(n_clusters=4, random_state=0).fit(x_norm_b)
-    plt.matshow(clusters.labels_[None, :], cmap="tab20c")
-    plt.savefig(os.path.join(dirname, f"clusters_{seq_tag.replace('/', '_')}.png"))
-    plt.close()
+    x_raw_b = x_raw[b, :seq_len_b]
+    x_raw_b = x_raw_b.cpu().detach().numpy()
+
+    from returnn.config import get_global_config
+    config = get_global_config()
+    if config.bool("debug", False):
+      from sklearn.decomposition import PCA
+      pca = PCA(n_components=3)
+      x_pca = pca.fit_transform(x_raw_b)
+      fig = plt.figure()
+      ax = plt.axes()
+      ax.set_title(f"{input_name} PCA for {seq_tag}", fontsize=12, pad=20)
+      ax.set_xlabel("PCA component 1", fontsize=10, labelpad=4)
+      ax.set_ylabel("PCA component 2", fontsize=10, labelpad=4)
+      if non_blank_positions_dict is not None:
+        for i, pair in enumerate(x_pca):
+          if i in range(5):
+            scat = ax.scatter(pair[0], pair[1], pair[2], marker='x' if i in non_blank_positions else 'o', color="red")
+          else:
+            scat = ax.scatter(pair[0], pair[1], pair[2], marker='x' if i in non_blank_positions else 'o', c=i, cmap="summer", vmin=0, vmax=x_pca.shape[0] - 1)
+      else:
+        scat = ax.scatter(x_pca[:, 0], x_pca[:, 1], c=np.arange(x_pca.shape[0]), cmap="summer")
+      fig.tight_layout(pad=5)
+      cax = fig.add_axes([ax.get_position().x1 + 0.01, ax.get_position().y0, 0.02, ax.get_position().height])
+      plt.colorbar(scat, cax=cax)
+      plt.savefig(os.path.join(dirname, f"pca_{seq_tag.replace('/', '_')}.png"))
+      plt.close()
+
+      plt.plot(x_raw[:, 0])
+      plt.savefig(os.path.join(dirname, f"feature_0_{seq_tag.replace('/', '_')}.png"))
+      plt.close()
 
   return plot_file_paths
 
@@ -285,7 +308,8 @@ def _blank_model_analysis(
         align_targets_spatial_dim: rf.Dim,
         non_blank_mask: rf.Tensor,
         enc_spatial_dim: rf.Dim,
-        label_model_states: Optional[rf.Tensor] = None
+        label_model_states: Optional[rf.Tensor] = None,
+        non_blank_positions_dict: Optional[Dict] = None,
 ):
   assert len(x.dims) == 3
   assert model.blank_decoder_version in (3, 4, 8)
@@ -338,28 +362,30 @@ def _blank_model_analysis(
     seq_tags=seq_tags,
     batch_dim=batch_dim,
     spatial_dim=enc_spatial_dim,
+    non_blank_positions_dict=non_blank_positions_dict,
   )
 
-  if model.blank_decoder_version == 4:
-    blank_model_input = rf.concat_features(x, label_model_states, allow_broadcast=True)
-    x_transformed = _apply_blank_model(blank_model_input)
-
-    assert len(x_transformed.dims) == 4
-    S = rf.reduce_max(
-      non_blank_targets_spatial_dim.dyn_size_ext,
-      axis=non_blank_targets_spatial_dim.dyn_size_ext.dims
-    ).raw_tensor.item()
-
-    for s in range(S):
-      _plot_cosine_sim_matrix(
-        x=rf.gather(x_transformed, axis=non_blank_targets_spatial_dim, indices=rf.constant(s, dims=[batch_dim])),
-        dirname=f"{dirname}_per_step/s_{s}",
-        input_name=f"Blank model features step {s}",
-        seq_tags=seq_tags,
-        batch_dim=batch_dim,
-        spatial_dim=enc_spatial_dim,
-        batch_mask=non_blank_targets_spatial_dim.dyn_size_ext > s,
-      )
+  # optionally plot per label step
+  # if model.blank_decoder_version == 4:
+  #   blank_model_input = rf.concat_features(x, label_model_states, allow_broadcast=True)
+  #   x_transformed = _apply_blank_model(blank_model_input)
+  #
+  #   assert len(x_transformed.dims) == 4
+  #   S = rf.reduce_max(
+  #     non_blank_targets_spatial_dim.dyn_size_ext,
+  #     axis=non_blank_targets_spatial_dim.dyn_size_ext.dims
+  #   ).raw_tensor.item()
+  #
+  #   for s in range(S):
+  #     _plot_cosine_sim_matrix(
+  #       x=rf.gather(x_transformed, axis=non_blank_targets_spatial_dim, indices=rf.constant(s, dims=[batch_dim])),
+  #       dirname=f"{dirname}_per_step/s_{s}",
+  #       input_name=f"Blank model features step {s}",
+  #       seq_tags=seq_tags,
+  #       batch_dim=batch_dim,
+  #       spatial_dim=enc_spatial_dim,
+  #       batch_mask=non_blank_targets_spatial_dim.dyn_size_ext > s,
+  #     )
 
 def _plot_multi_head_enc_self_att_one_fig(
         att_weights: rf.Tensor,
@@ -1255,6 +1281,7 @@ def analyze_gradients(
           label_model_states=label_model_states,
           non_blank_mask=non_blank_mask,
           align_targets_spatial_dim=targets_spatial_dim,
+          non_blank_positions_dict=non_blank_positions_dict,
         )
 
       att_weight_tensor_list = [

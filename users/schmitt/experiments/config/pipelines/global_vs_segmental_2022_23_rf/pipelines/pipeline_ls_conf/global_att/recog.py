@@ -27,6 +27,7 @@ def global_att_returnn_label_sync_beam_search(
         corpus_keys: Tuple[str, ...] = ("dev-other",),
         batch_size: Optional[int] = None,
         concat_num: Optional[int] = None,
+        only_do_analysis: bool = False,
 ):
   if lm_type is not None:
     assert len(checkpoint_aliases) == 1, "Do LM recog only for the best checkpoint"
@@ -73,4 +74,5 @@ def global_att_returnn_label_sync_beam_search(
     recog_opts=recog_opts,
     search_alias=f'returnn_decoding',
     corpus_keys=corpus_keys,
+    only_do_analysis=only_do_analysis
   ).run()

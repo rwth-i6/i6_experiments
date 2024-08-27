@@ -119,6 +119,7 @@ def run_exps():
         analyze_gradients=True,
       )
 
+  # ------------------- blank decoder v8 ---------------------
   for model_alias, config_builder in get_config_builder.center_window_att_baseline_rf(
           win_size_list=(1,),
           blank_decoder_version=8,
@@ -176,13 +177,11 @@ def run_exps():
           config_builder=config_builder,
           checkpoint=checkpoint,
         )
-        for epoch, chckpt in checkpoint["checkpoints"].items():
-          if epoch in (2, 4, 10, 50, 100):
-            recog.center_window_returnn_frame_wise_beam_search(
-              alias=train_alias,
-              config_builder=config_builder,
-              checkpoint=chckpt,
-              checkpoint_aliases=(f"epoch-{epoch}",),
-              run_analysis=True,
-              analyze_gradients=True,
-            )
+        recog.center_window_returnn_frame_wise_beam_search(
+          alias=train_alias,
+          config_builder=config_builder,
+          checkpoint=checkpoint,
+          checkpoint_aliases=("last",),
+          run_analysis=True,
+          analyze_gradients=True,
+        )

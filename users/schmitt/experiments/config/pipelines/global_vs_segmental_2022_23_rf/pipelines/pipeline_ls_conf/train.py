@@ -47,12 +47,21 @@ def get_common_train_opts_rqmt(
         use_speed_pert: bool = True,
         checkpoint_alias: Optional[str] = None,
         checkpoint_path: Optional[PtCheckpoint] = None,
+        gpu_mem_rqmt: int = 11,
+        keep_epochs: Optional[List[int]] = None,
+        filter_data_len: Optional[float] = None,
+        filter_target_len: Optional[float] = None,
+        accum_grad_multiple_step: int = 4,
+        cluster_reservation_string: Optional[str] = None,
+        use_torch_amp: bool = False,
 ):
   alias = (
-    f"/{training_type}_from_{'scratch' if checkpoint_alias is None else checkpoint_alias}/"
-    f"{n_epochs}-epochs_bs-{batch_size}"
+    f"/{training_type}_from_{'scratch' if checkpoint_alias is None else checkpoint_alias}"
     f"/{n_epochs}-ep_bs-{batch_size}{'_mgpu-4' if use_mgpu else ''}_{'w' if use_speed_pert else 'wo'}-sp"
     f"_{'curric' if use_curriculum_learning else 'no-curric'}_lr-{lr_scheduling_type}"
+    f"_reg-{regularization_type}{'_filter-data-' + str(filter_data_len) if filter_data_len else ''}"
+    f"{'_filter-target-' + str(filter_target_len) if filter_target_len else ''}"
+    f"_accum-{accum_grad_multiple_step}"
   )
 
   if ce_aux_loss_layers:
@@ -69,7 +78,7 @@ def get_common_train_opts_rqmt(
       "use_speed_pert": use_speed_pert,
     },
     # "import_model_train_epoch1": None,
-    "accum_grad_multiple_step": 4,
+    "accum_grad_multiple_step": accum_grad_multiple_step,
     "pos_emb_dropout": 0.1,
     "rf_att_dropout_broadcast": False,
     "batch_size": batch_size,
@@ -87,8 +96,18 @@ def get_common_train_opts_rqmt(
       "epsilon": 1e-16,
       "weight_decay": reg_opts.pop("weight_decay"),
     },
+    "cleanup_old_models": {"keep": keep_epochs if keep_epochs else [n_epochs], "keep_best_n": 4, "keep_last_n": 1},
     **reg_opts,
   }
+
+  if filter_data_len:
+    train_opts["max_seq_length"] = {"data": filter_data_len}
+
+  if filter_target_len:
+    train_opts["max_seq_length"] = {"targets": filter_target_len}
+
+  if gpu_mem_rqmt == 24 and use_torch_amp:
+    train_opts["torch_amp"] = "bfloat16"
 
   if checkpoint_alias is not None:
     train_opts["preload_from_files"] = {
@@ -104,7 +123,18 @@ def get_common_train_opts_rqmt(
       "type": "dyn_lr_piecewise_linear",
       "batch_size": batch_size,
       "num_epochs": n_epochs,
-      "learning_rate": 1e-3,
+      "peak_lr": 1e-3,
+    }
+  elif lr_scheduling_type == "const":
+    train_opts["lr_opts"] = {
+      "type": "const",
+      "const_lr": 1e-6,
+    }
+  elif lr_scheduling_type.startswith("dyn_lr_piecewise_linear_epoch-wise"):
+    train_opts["lr_opts"] = {
+      "type": lr_scheduling_type,
+      "num_epochs": n_epochs,
+      "peak_lr": 1e-3,
     }
   else:
     assert lr_scheduling_type == "const_then_linear"
@@ -128,6 +158,7 @@ def get_common_train_opts_rqmt(
 
   train_rqmt = {
     "time": time_rqmt,
+    "gpu_mem": gpu_mem_rqmt,
   }
   if use_mgpu:
     train_rqmt.update({
@@ -135,5 +166,7 @@ def get_common_train_opts_rqmt(
       "distributed_launch_cmd": "torchrun"
     })
     train_opts["torch_distributed"] = {"reduce_type": "param", "param_sync_step": 100}
+  if cluster_reservation_string:
+    train_rqmt["sbatch_args"] = ["--reservation", cluster_reservation_string]
 
   return train_opts, train_rqmt, alias

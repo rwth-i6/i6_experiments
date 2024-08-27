@@ -16,6 +16,9 @@ def get_global_att_config_builder_rf(
         decoder_state: str = "nb-lstm",
         num_label_decoder_layers: int = 1,
         label_type: str = "bpe10025",
+        conformer_w_abs_pos_enc: bool = False,
+        conformer_wo_rel_pos_enc: bool = False,
+        disable_enc_self_att_until_epoch: int = None,
 ):
   if label_type == "bpe10025":
     dependencies = LibrispeechBPE10025_LABELS
@@ -49,13 +52,27 @@ def get_global_att_config_builder_rf(
     use_att_ctx_in_state=use_att_ctx_in_state,
     label_decoder_state=decoder_state,
     num_label_decoder_layers=num_label_decoder_layers,
+    conformer_w_abs_pos_enc=conformer_w_abs_pos_enc,
+    conformer_wo_rel_pos_enc=conformer_wo_rel_pos_enc,
+    disable_enc_self_att_until_epoch=disable_enc_self_att_until_epoch
   )
 
   alias = (
     f"{label_type}/"
     f"{'w' if use_weight_feedback else 'wo'}-weight-feedback/"
     f"{'w' if use_att_ctx_in_state else 'wo'}-att-ctx-in-state/"
-    f"{decoder_state}"
+    f"{decoder_state}/"
   )
+
+  if (not conformer_w_abs_pos_enc) and (not conformer_wo_rel_pos_enc) and (disable_enc_self_att_until_epoch is None):
+    alias += "standard-conformer"
+  else:
+    alias += "conformer"
+    if conformer_w_abs_pos_enc:
+      alias += "-w-abs-pos"
+    if conformer_wo_rel_pos_enc:
+      alias += "-wo-rel-pos"
+    if disable_enc_self_att_until_epoch is not None:
+      alias += f"-no-self-att-until-{disable_enc_self_att_until_epoch}"
 
   return alias, config_builder

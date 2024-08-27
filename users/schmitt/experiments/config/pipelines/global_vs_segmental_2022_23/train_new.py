@@ -68,6 +68,8 @@ class TrainExperiment(ABC):
     )
     if self.train_rqmt.get("gpu_mem", 11) > 11:
       train_job.rqmt["gpu_mem"] = self.train_rqmt["gpu_mem"]
+    if "sbatch_args" in self.train_rqmt:
+      train_job.rqmt["sbatch_args"] = self.train_rqmt["sbatch_args"]
 
     train_job.add_alias(self.alias)
     tk.register_output(train_job.get_one_alias() + "/models", train_job.out_model_dir)
@@ -114,7 +116,7 @@ class GlobalTrainExperiment(TrainExperiment):
         "num_epochs": self.num_epochs
       },
       "tf_session_opts": {"gpu_options": {"per_process_gpu_memory_fraction": 0.95}},
-      "max_seq_length": {"targets": 75},
+      # "max_seq_length": {"targets": 75},  # disable
       "train_mini_lstm_opts": None,
     }
 

@@ -291,7 +291,7 @@ def viterbi_training(
       assert model.label_decoder_state == "joint-lstm", "not implemented yet, simple to extend"
       targets = align_targets
       targets_spatial_dim = align_targets_spatial_dim
-      label_logits, _, _ = label_model_viterbi_training(
+      label_logits, _ = label_model_viterbi_training(
         model=model.label_decoder,
         enc_args=enc_args,
         enc_spatial_dim=enc_spatial_dim,
@@ -316,7 +316,7 @@ def viterbi_training(
         non_blank_mask_ = non_blank_mask
         non_blank_mask_spatial_dim = align_targets_spatial_dim
 
-      label_logits, _, _ = label_model_viterbi_training_efficient(
+      label_logits, _ = label_model_viterbi_training_efficient(
         model=model.label_decoder,
         enc_args=enc_args,
         enc_spatial_dim=enc_spatial_dim,
@@ -349,7 +349,7 @@ def viterbi_training(
             type(model.label_decoder) is GlobalAttDecoder or
             force_inefficient_loop
     ):
-      label_logits, label_decoder_outputs, energy_in = label_model_viterbi_training(
+      label_logits, label_decoder_outputs = label_model_viterbi_training(
         model=model.label_decoder,
         enc_args=enc_args,
         enc_spatial_dim=enc_spatial_dim,
@@ -367,7 +367,7 @@ def viterbi_training(
                      type(model.label_decoder) is SegmentalAttEfficientLabelDecoder or
                       type(model.label_decoder) is GlobalAttEfficientDecoder
       )
-      label_logits, label_decoder_outputs, energy_in = label_model_viterbi_training_efficient(
+      label_logits, label_decoder_outputs = label_model_viterbi_training_efficient(
         model=model.label_decoder,
         enc_args=enc_args,
         enc_spatial_dim=enc_spatial_dim,

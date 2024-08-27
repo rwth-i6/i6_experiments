@@ -9,7 +9,7 @@ from . import (
 
 
 def run_exps():
-  # Running
+  # Done
   alignment_augmentation.run_exps()
   # Done
   baseline.run_exps()

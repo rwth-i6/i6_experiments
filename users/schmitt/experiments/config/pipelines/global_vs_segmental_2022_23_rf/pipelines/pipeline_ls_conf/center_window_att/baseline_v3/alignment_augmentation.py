@@ -36,7 +36,7 @@ def run_exps():
           analyze_gradients=True,
         )
 
-  # Running
+  # Done
   for model_alias, config_builder in get_config_builder.center_window_att_baseline_rf(
           win_size_list=(None,),
           use_current_frame_in_readout=True,

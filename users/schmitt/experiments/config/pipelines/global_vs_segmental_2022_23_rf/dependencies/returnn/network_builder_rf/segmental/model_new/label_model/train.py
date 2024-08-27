@@ -233,7 +233,7 @@ def viterbi_training(
         separate_blank_loss: bool = False,
         return_label_model_states: bool = False,
         beam_dim: Optional[Dim] = None,
-) -> Tuple[rf.Tensor, Optional[Tuple[rf.Tensor, Dim]], Optional[Tuple[rf.Tensor, Dim]]]:
+) -> Tuple[rf.Tensor, Optional[Tuple[rf.Tensor, Dim]]]:
 
   if isinstance(model, SegmentalAttLabelDecoder):
     logits, label_model_states = forward_sequence(
@@ -248,9 +248,8 @@ def viterbi_training(
       batch_dims=batch_dims,
       return_label_model_states=return_label_model_states,
     )
-    energy_in = None
   else:
-    logits, label_model_states, energy_in = forward_sequence_global_att(
+    logits, label_model_states = forward_sequence_global_att(
       model=model,
       targets=non_blank_targets,
       targets_spatial_dim=non_blank_targets_spatial_dim,
@@ -273,7 +272,7 @@ def viterbi_training(
     separate_blank_from_softmax=model.separate_blank_from_softmax,
   )
 
-  return logits, label_model_states, energy_in
+  return logits, label_model_states
 
 
 def forward_sequence_efficient(
@@ -396,7 +395,7 @@ def viterbi_training_efficient(
         return_label_model_states: bool = False,
         beam_dim: Optional[Dim] = None,
         separate_blank_loss: bool = False,
-) -> Tuple[rf.Tensor, Optional[Tuple[rf.Tensor, Dim]], Optional[Tuple[rf.Tensor, Dim]]]:
+) -> Tuple[rf.Tensor, Optional[Tuple[rf.Tensor, Dim]]]:
 
   if isinstance(model, SegmentalAttEfficientLabelDecoder):
     logits, label_model_states = forward_sequence_efficient(
@@ -413,9 +412,8 @@ def viterbi_training_efficient(
       non_blank_mask_spatial_dim=non_blank_mask_spatial_dim,
       return_label_model_states=return_label_model_states,
     )
-    energy_in = None
   else:
-    logits, label_model_states, energy_in = forward_sequence_global_att(
+    logits, label_model_states = forward_sequence_global_att(
       model=model,
       targets=targets,
       targets_spatial_dim=targets_spatial_dim,
@@ -438,7 +436,7 @@ def viterbi_training_efficient(
     separate_blank_from_softmax=model.separate_blank_from_softmax,
   )
 
-  return logits, label_model_states, energy_in
+  return logits, label_model_states
 
 
 def full_sum_training(
@@ -562,15 +560,18 @@ def full_sum_training(
       att = loop_out["att"]
     else:
       assert isinstance(model.label_decoder, SegmentalAttEfficientLabelDecoder)
-      att = model.label_decoder(
-        enc=enc_args["enc"],
-        enc_ctx=enc_args["enc_ctx"],
-        enc_spatial_dim=enc_spatial_dim,
-        s=s_out,
-        segment_starts=segment_starts,
-        segment_lens=segment_lens,
-        center_positions=center_positions,
-      )  # [B, S+1, T, D]
+      if model.center_window_size == 1:
+        att = enc_args["enc"]
+      else:
+        att = model.label_decoder(
+          enc=enc_args["enc"],
+          enc_ctx=enc_args["enc_ctx"],
+          enc_spatial_dim=enc_spatial_dim,
+          s=s_out,
+          segment_starts=segment_starts,
+          segment_lens=segment_lens,
+          center_positions=center_positions,
+        )  # [B, S+1, T, D]
 
     if (
             model.label_decoder.use_current_frame_in_readout or
@@ -587,12 +588,6 @@ def full_sum_training(
       s=s_out,
       h_t=h_t,
     )  # [B, S+1, T, D]
-
-    # print("non_blank_input_embeddings_shifted", non_blank_input_embeddings_shifted.raw_tensor)
-    # print("att", att.raw_tensor)
-    # print("s_out", s_out.raw_tensor)
-    # print("h_t", h_t.raw_tensor)
-    # print("logits", logits.raw_tensor)
 
   if model.blank_decoder is not None:
     assert isinstance(model.blank_decoder, BlankDecoderV4)
@@ -664,28 +659,6 @@ def full_sum_training(
     label_lengths=rf.copy_to_device(non_blank_targets_spatial_dim.dyn_size_ext, logits.device).raw_tensor.int(),
     blank_label=model.blank_idx,
   )
-
-  if config.bool("debug", False):
-    print("\n\nloss", loss)
-    exit()
-    torch.autograd.set_detect_anomaly(True)
-    # if any(list(torch.isnan(loss).detach().cpu().numpy())):
-    if rf.get_run_ctx().get_step_tensor().raw_tensor.item() > 4800:
-      torch.set_printoptions(threshold=10_000)
-      print("\n\nloss", loss)
-      print("log_sum_exp_logits", log_sum_exp_logits.raw_tensor)
-      print("max(log_sum_exp_logits)", rf.reduce_max(log_sum_exp_logits, axis=log_sum_exp_logits.dims).raw_tensor)
-      print("min(log_sum_exp_logits)", rf.reduce_min(log_sum_exp_logits, axis=log_sum_exp_logits.dims).raw_tensor)
-      # print("attention", att.raw_tensor)
-      # print("enc", enc_args["enc"].raw_tensor)
-      # print("enc_ctx", enc_args["enc_ctx"].raw_tensor)
-      # print("s_out", s_out.raw_tensor)
-      # print("logits", logits.raw_tensor)
-      # print("non_blank_targets", non_blank_targets.raw_tensor)
-      #
-      # print("conv frontend layer 0 filter", model.encoder.input_layer.conv_layers[0].filter.raw_tensor)
-
-      # exit()
 
   loss = rf.convert_to_tensor(loss, name="full_sum_loss")
   loss.mark_as_loss("full_sum_loss", scale=1.0, use_normalized_loss=True)

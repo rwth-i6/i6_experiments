@@ -25,6 +25,13 @@ plot_paths.update({
   ) for i in range(12)
 })
 
+plot_paths.update({
+  f"grad_wrt_enc{i}": (
+    f"no-lm/beam-size-12/dev-other/analysis/analyze_gradients_ground-truth/work/enc-{i}_cosine_sim/plots/"
+    "cos_sim_dev-other_3660-6517-0005_3660-6517-0005.png"
+  ) for i in range(12)
+})
+
 script_dir = os.path.dirname(os.path.realpath(__file__))
 
 for plot_name, plot_path in plot_paths.items():

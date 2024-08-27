@@ -250,7 +250,6 @@ def get_score(
     else:
       h_t = None
 
-    energy_in = label_step_out.pop("energy_in", None)
     label_logits = model.label_decoder.decode_logits(input_embed=input_embed_label_model, **label_step_out, h_t=h_t)
 
   if model.label_decoder_state != "trafo" and model.label_decoder.separate_blank_from_softmax:

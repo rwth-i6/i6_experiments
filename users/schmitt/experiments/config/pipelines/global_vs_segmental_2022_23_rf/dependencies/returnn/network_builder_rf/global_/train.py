@@ -41,7 +41,7 @@ def get_s_and_att(
         enc_spatial_dim: Dim,
         targets_spatial_dim: Dim,
         batch_dims: List[Dim],
-) -> Tuple[Tensor, Tensor, Tensor, rf.State]:
+) -> Tuple[Tensor, Tensor, rf.State]:
   def _body(input_embed: Tensor, state: rf.State):
     new_state = rf.State()
     loop_out_, new_state.decoder = model.loop_step(
@@ -57,7 +57,7 @@ def get_s_and_att(
     spatial_dim=targets_spatial_dim,
     xs=input_embeddings,
     ys=model.loop_step_output_templates(
-      batch_dims=batch_dims, enc_spatial_dim=enc_spatial_dim, use_mini_att=model.use_mini_att),
+      batch_dims=batch_dims),
     initial=rf.State(
       decoder=model.decoder_default_initial_state(
         batch_dims=batch_dims,
@@ -68,7 +68,7 @@ def get_s_and_att(
     body=_body,
   )
 
-  return loop_out["s"], loop_out["att"], loop_out["energy_in"], final_state
+  return loop_out["s"], loop_out["att"], final_state
 
 
 def get_s_and_att_efficient(
@@ -79,7 +79,7 @@ def get_s_and_att_efficient(
         enc_spatial_dim: Dim,
         targets_spatial_dim: Dim,
         batch_dims: List[Dim],
-) -> Tuple[Tensor, Tensor, Tensor, rf.State]:
+) -> Tuple[Tensor, Tensor, rf.State]:
   if "lstm" in model.decoder_state:
     s, final_state = model.s_wo_att(
       input_embeddings,
@@ -90,7 +90,7 @@ def get_s_and_att_efficient(
     s = model.s_wo_att_linear(input_embeddings)
     final_state = None
 
-  att, energy_in = model(
+  att = model(
     enc=enc_args["enc"],
     enc_ctx=enc_args.get("enc_ctx"),
     enc_spatial_dim=enc_spatial_dim,
@@ -100,7 +100,7 @@ def get_s_and_att_efficient(
     use_mini_att=model.use_mini_att,
   )
 
-  return s, att, energy_in, final_state
+  return s, att, final_state
 
 
 def forward_sequence(
@@ -112,7 +112,7 @@ def forward_sequence(
         batch_dims: List[Dim],
         return_label_model_states: bool = False,
         center_positions: Optional[rf.Tensor] = None,
-) -> Tuple[rf.Tensor, Optional[Tuple[rf.Tensor, Dim]], Optional[Tuple[rf.Tensor, Dim]]]:
+) -> Tuple[rf.Tensor, Optional[Tuple[rf.Tensor, Dim]]]:
   if type(model) is TransformerDecoder:
     logits, _, _ = model(
       targets,
@@ -120,14 +120,13 @@ def forward_sequence(
       encoder=model.transform_encoder(enc_args["enc"], axis=enc_spatial_dim),
       state=model.default_initial_state(batch_dims=batch_dims)
     )
-    energy_in = None
   else:
     input_embeddings = model.target_embed(targets)
     input_embeddings = rf.shift_right(input_embeddings, axis=targets_spatial_dim, pad_value=0.0)
     input_embeddings = rf.dropout(input_embeddings, drop_prob=model.target_embed_dropout, axis=None)
 
     if type(model) is GlobalAttDecoder:
-      s, att, energy_in, final_state = get_s_and_att(
+      s, att, final_state = get_s_and_att(
         model=model,
         enc_args=enc_args,
         input_embeddings=input_embeddings,
@@ -137,7 +136,7 @@ def forward_sequence(
       )
     else:
       assert type(model) is GlobalAttEfficientDecoder
-      s, att, energy_in, final_state = get_s_and_att_efficient(
+      s, att, final_state = get_s_and_att_efficient(
         model=model,
         enc_args=enc_args,
         input_embeddings=input_embeddings,
@@ -169,7 +168,6 @@ def forward_sequence(
         state=final_state.decoder,
       )
       last_s_out = last_loop_out["s"]
-      last_energy_in = last_loop_out["energy_in"]
     else:
       if "lstm" in model.decoder_state:
         last_s_out, _ = model.s_wo_att(
@@ -180,15 +178,6 @@ def forward_sequence(
       else:
         last_s_out = model.s_wo_att_linear(last_embedding)
 
-      _, last_energy_in = model(
-        enc=enc_args["enc"],
-        enc_ctx=enc_args["enc_ctx"],
-        enc_spatial_dim=enc_spatial_dim,
-        s=last_s_out,
-        input_embed=last_embedding,
-        input_embed_spatial_dim=single_step_dim,
-      )
-
     singleton_dim = Dim(name="singleton", dimension=1)
 
     s_concat = rf.concat(
@@ -196,17 +185,9 @@ def forward_sequence(
       (rf.expand_dim(last_s_out, singleton_dim), singleton_dim),
     )
 
-    if energy_in is None:
-      energy_in_concat = None
-    else:
-      energy_in_concat = rf.concat(
-        (energy_in, targets_spatial_dim),
-        (rf.expand_dim(last_energy_in, singleton_dim), singleton_dim),
-      )
+    return logits, s_concat
 
-    return logits, s_concat, energy_in_concat
-
-  return logits, None, None
+  return logits, None
 
 
 def from_scratch_training(
@@ -254,7 +235,7 @@ def from_scratch_training(
 
   batch_dims = data.remaining_dims(data_spatial_dim)
 
-  logits, _, _ = forward_sequence(
+  logits, _ = forward_sequence(
     model=model.label_decoder,
     targets=targets,
     targets_spatial_dim=targets_spatial_dim,

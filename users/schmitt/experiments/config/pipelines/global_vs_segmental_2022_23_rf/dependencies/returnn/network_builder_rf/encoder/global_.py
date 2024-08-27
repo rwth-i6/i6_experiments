@@ -248,3 +248,27 @@ def _opt_apply_pretrain_to_encoder(
             return
     yield
     return
+
+
+class GlobalConformerEncoderWAbsolutePos(ConformerEncoder):
+  def __call__(
+          self,
+          source: Tensor,
+          *,
+          in_spatial_dim: Dim,
+          collected_outputs: Optional[Dict[str, Tensor]] = None,
+  ) -> Tuple[Tensor, Dim]:
+    """forward"""
+    if self.input_layer:
+      x_subsample, out_spatial_dim = self.input_layer(source, in_spatial_dim=in_spatial_dim)
+    else:
+      x_subsample, out_spatial_dim = source, in_spatial_dim
+
+    x_subsample = x_subsample + rf.sinusoidal_positional_encoding(
+      spatial_dim=out_spatial_dim, feat_dim=x_subsample.feature_dim)
+
+    x_linear = self.input_projection(x_subsample)
+    x = rf.dropout(x_linear, self.input_dropout, axis=self.dropout_broadcast and self.input_projection.out_dim)
+    x = self.layers(x, spatial_dim=out_spatial_dim, collected_outputs=collected_outputs)
+    return x, out_spatial_dim
+

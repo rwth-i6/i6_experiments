@@ -34,7 +34,7 @@ def train_center_window_att(
         alias: str,
         config_builder: LibrispeechSegmentalAttConformerConfigBuilderRF,
         n_epochs: int,
-        time_rqmt: int = 80,
+        time_rqmt: int = 168,
         batch_size: int = 15_000,
         use_mgpu: bool = True,
         chunked_data_len: Optional[int] = None,
@@ -49,6 +49,12 @@ def train_center_window_att(
         regularization_type: str = "v1",
         checkpoint_alias: Optional[str] = None,
         checkpoint_path: Optional[PtCheckpoint] = None,
+        use_speed_pert: bool = True,
+        gpu_mem_rqmt: int = 11,
+        keep_epochs: Optional[List[int]] = None,
+        filter_data_len: Optional[float] = None,
+        filter_target_len: Optional[float] = None,
+        accum_grad_multiple_step: int = 4,
 ):
   train_opts, train_rqmt, alias_ = get_common_train_opts_rqmt(
     n_epochs=n_epochs,
@@ -61,10 +67,14 @@ def train_center_window_att(
     use_curriculum_learning=use_curriculum_learning,
     lr_scheduling_type=lr_scheduling_type,
     regularization_type=regularization_type,
-    use_speed_pert=False,
+    use_speed_pert=use_speed_pert,
     checkpoint_alias=checkpoint_alias,
     checkpoint_path=checkpoint_path,
     training_type=training_type,
+    gpu_mem_rqmt=gpu_mem_rqmt,
+    keep_epochs=keep_epochs,
+    filter_data_len=filter_data_len,
+    filter_target_len=filter_target_len,
   )
 
   alias += (
@@ -75,19 +85,31 @@ def train_center_window_att(
   )
 
   train_opts.update({
-    "train_step_func": _returnn_v2_train_step,
     "nb_loss_scale": nb_loss_scale,
     "b_loss_scale": b_loss_scale,
   })
 
-  if training_type == "full_sum":
+  if training_type == "full-sum":
     train_opts.update({
       "train_def": full_sum_training,
+      "train_step_func": _returnn_v2_full_sum_train_step,
+    })
+    train_opts["dataset_opts"].update({
+      "target_is_alignment": False,
+      "seq_postfix": None,
     })
   else:
     assert training_type == "fixed-path"
+    train_opts.update({
+      "train_def": viterbi_training,
+      "train_step_func": _returnn_v2_train_step,
+    })
     train_opts["train_def"] = viterbi_training
-    train_opts["dataset_opts"]["hdf_targets"] = LibrispeechBPE10025_CTC_ALIGNMENT.alignment_paths
+    train_opts["dataset_opts"].update({
+      "hdf_targets": LibrispeechBPE10025_CTC_ALIGNMENT.alignment_paths,
+      "target_is_alignment": True,
+      # "seq_postfix": None,
+    })
 
   if chunked_data_len:
     train_opts.update({

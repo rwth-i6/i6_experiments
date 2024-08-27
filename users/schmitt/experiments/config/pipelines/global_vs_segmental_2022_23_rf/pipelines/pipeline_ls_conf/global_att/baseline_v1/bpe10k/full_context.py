@@ -10,6 +10,27 @@ from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segment
 
 def run_exps():
   for model_alias, config_builder in baseline.global_att_baseline_rf(use_weight_feedback=True):
+    # v5: same as v3, but use bpe size 10k
+    for train_alias, checkpoint in train.train_global_att(
+      alias=model_alias,
+      config_builder=config_builder,
+      n_epochs=500,
+      keep_epochs=list(range(1, 240)) + [500],
+      lr_scheduling_type="dyn_lr_piecewise_linear_epoch-wise_v2",
+      filter_data_len=19.5 * 16_000,  # sample rate 16kHz
+    ):
+      for epoch, chckpt in checkpoint["checkpoints"].items():
+        if epoch == 70:
+          recog.global_att_returnn_label_sync_beam_search(
+            alias=train_alias,
+            config_builder=config_builder,
+            checkpoint=chckpt,
+            checkpoint_aliases=(f"epoch-{epoch}",),
+            run_analysis=True,
+            analyze_gradients=True,
+            only_do_analysis=True,
+          )
+
     for train_alias, checkpoint in (
             (f"{model_alias}/import_{default_import_model_name}", external_checkpoints[default_import_model_name]),
             (f"{model_alias}/import_glob.conformer.mohammad.5.4", external_checkpoints["glob.conformer.mohammad.5.4"]),

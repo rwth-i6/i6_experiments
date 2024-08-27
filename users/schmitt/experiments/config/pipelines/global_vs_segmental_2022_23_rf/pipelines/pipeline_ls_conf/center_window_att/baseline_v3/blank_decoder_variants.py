@@ -46,16 +46,15 @@ def run_exps():
         config_builder=config_builder,
         checkpoint=checkpoint,
       )
-      for epoch, chckpt in checkpoint["checkpoints"].items():
-        if epoch in (2, 4, 10, 50, 100, 200):
-          recog.center_window_returnn_frame_wise_beam_search(
-            alias=train_alias,
-            config_builder=config_builder,
-            checkpoint=chckpt,
-            checkpoint_aliases=(f"epoch-{epoch}",),
-            run_analysis=True,
-            analyze_gradients=True,
-          )
+      recog.center_window_returnn_frame_wise_beam_search(
+        alias=train_alias,
+        config_builder=config_builder,
+        checkpoint=checkpoint,
+        checkpoint_aliases=("last",),
+        run_analysis=True,
+        analyze_gradients=True,
+      )
+
 
   # ------------------- blank decoder v4 ---------------------
   # Done

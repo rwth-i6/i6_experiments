@@ -17,6 +17,7 @@ def train_global_att(
         n_epochs: int,
         batch_size: int = 15_000,
         time_rqmt: int = 168,
+        gpu_mem_rqmt: int = 11,
         use_mgpu: bool = True,
         ce_aux_loss_layers: Optional[Tuple[int, ...]] = None,
         ce_aux_loss_focal_loss_factors: Optional[Tuple[float, ...]] = None,
@@ -27,6 +28,12 @@ def train_global_att(
         checkpoint_alias: Optional[str] = None,
         checkpoint_path: Optional[PtCheckpoint] = None,
         use_speed_pert: bool = True,
+        keep_epochs: Optional[List[int]] = None,
+        filter_data_len: Optional[float] = None,
+        filter_target_len: Optional[float] = None,
+        cluster_reservation_string: Optional[str] = None,
+        accum_grad_multiple_step: int = 4,
+        use_torch_amp: bool = False,
 ):
   # alias += (
   #         f"/train_from_scratch/{n_epochs}-epochs_wo-ctc-loss"
@@ -48,6 +55,13 @@ def train_global_att(
     training_type="train",
     checkpoint_alias=checkpoint_alias,
     checkpoint_path=checkpoint_path,
+    gpu_mem_rqmt=gpu_mem_rqmt,
+    keep_epochs=keep_epochs,
+    filter_data_len=filter_data_len,
+    filter_target_len=filter_target_len,
+    cluster_reservation_string=cluster_reservation_string,
+    accum_grad_multiple_step=accum_grad_multiple_step,
+    use_torch_amp=use_torch_amp,
   )
 
   alias += alias_

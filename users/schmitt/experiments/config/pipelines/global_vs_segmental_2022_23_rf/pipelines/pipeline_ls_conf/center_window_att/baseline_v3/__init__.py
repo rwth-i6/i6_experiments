@@ -15,7 +15,7 @@ def run_exps():
   alignment_augmentation.run_exps()
   # Done
   att_weight_feedback.run_exps()
-  # Done
+  # Running
   blank_decoder_variants.run_exps()
   # Done
   label_decoder_variants.run_exps()

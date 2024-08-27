@@ -48,8 +48,6 @@ class GlobalAttDecoder(BaseLabelDecoder):
   def loop_step_output_templates(
           self,
           batch_dims: List[Dim],
-          enc_spatial_dim: Dim,
-          use_mini_att: bool = False
   ) -> Dict[str, Tensor]:
     """loop step out"""
     output_templates = {
@@ -63,13 +61,6 @@ class GlobalAttDecoder(BaseLabelDecoder):
         feature_dim_axis=-1,
       ),
     }
-    if not use_mini_att:
-      output_templates["energy_in"] = Tensor(
-        "energy_in",
-        dims=batch_dims + [enc_spatial_dim, self.energy.in_dim],
-        dtype=rf.get_default_float_dtype(),
-        feature_dim_axis=-1,
-      )
     return output_templates
 
   def loop_step(
@@ -111,10 +102,6 @@ class GlobalAttDecoder(BaseLabelDecoder):
         att_linear = self.mini_att_linear(input_embed)
         pre_mini_att = att_linear
       att = self.mini_att(pre_mini_att)
-
-      batch_dims = enc.remaining_dims(
-        remove=(enc.feature_dim, enc_spatial_dim) if enc_spatial_dim != single_step_dim else (enc.feature_dim,)
-      )
     else:
       if self.trafo_att:
         att, state_.trafo_att = self.trafo_att(
@@ -131,7 +118,6 @@ class GlobalAttDecoder(BaseLabelDecoder):
 
         s_transformed = self.s_transformed(s)
         energy_in = enc_ctx + weight_feedback + s_transformed
-        output_dict["energy_in"] = energy_in
 
         energy = self.energy(rf.tanh(energy_in))
         att_weights = rf.softmax(energy, axis=enc_spatial_dim)
@@ -166,7 +152,7 @@ class GlobalAttEfficientDecoder(GlobalAttDecoder):
           input_embed: Optional[rf.Tensor] = None,
           input_embed_spatial_dim: Optional[Dim] = None,
           use_mini_att: bool = False,
-  ) -> Tuple[rf.Tensor, rf.Tensor]:
+  ) -> rf.Tensor:
     if use_mini_att:
       assert input_embed is not None
       if "lstm" in self.decoder_state:
@@ -182,8 +168,6 @@ class GlobalAttEfficientDecoder(GlobalAttDecoder):
         att_linear = self.mini_att_linear(input_embed)
         pre_mini_att = att_linear
       att = self.mini_att(pre_mini_att)
-
-      energy_in = None
     else:
       if self.trafo_att:
         batch_dims = enc.remaining_dims(
@@ -206,4 +190,4 @@ class GlobalAttEfficientDecoder(GlobalAttDecoder):
         # we do not need use_mask because the softmax output is already padded with zeros
         att = self.get_att(att_weights, enc, enc_spatial_dim)
 
-    return att, energy_in
+    return att

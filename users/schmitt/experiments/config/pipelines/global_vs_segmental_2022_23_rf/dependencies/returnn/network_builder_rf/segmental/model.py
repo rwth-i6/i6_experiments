@@ -25,7 +25,11 @@ from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segment
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.global_.decoder import (
   GlobalAttDecoder, GlobalAttEfficientDecoder
 )
-from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.encoder.global_ import GlobalConformerEncoder
+from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.encoder.global_ import (
+  GlobalConformerEncoder,
+  GlobalConformerEncoderWAbsolutePos,
+)
+from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.self_att import EpochConditionedRelPosSelfAttention
 from i6_experiments.users.schmitt.returnn_frontend.model_interfaces.supports_label_scorer_torch import RFModelWithMakeLabelScorer
 
 
@@ -71,10 +75,19 @@ class SegmentalAttentionModel(rf.Module):
           target_embed_dropout: float = 0.0,
           att_weight_dropout: float = 0.0,
           use_trafo_att: bool = False,
+          readout_dimension: int = 1024,
+          ilm_dimension: int = 1024,
+          use_readout: bool = True,
+          conformer_w_abs_pos_enc
   ):
     super(SegmentalAttentionModel, self).__init__()
 
-    self.encoder = GlobalConformerEncoder(
+    if conformer_w_abs_pos_enc:
+      enc_cls = GlobalConformerEncoderWAbsolutePos
+    else:
+      enc_cls = GlobalConformerEncoder
+
+    self.encoder = enc_cls(
       enc_in_dim,
       enc_out_dim,
       num_layers=enc_num_layers,
@@ -173,6 +186,9 @@ class SegmentalAttentionModel(rf.Module):
           target_embed_dropout=target_embed_dropout,
           att_weight_dropout=att_weight_dropout,
           use_trafo_attention=use_trafo_att,
+          readout_dimension=readout_dimension,
+          ilm_dimension=ilm_dimension,
+          use_readout=use_readout,
         )
     else:
       if label_decoder_state == "trafo" or use_trafo_att:
@@ -208,6 +224,9 @@ class SegmentalAttentionModel(rf.Module):
           target_embed_dropout=target_embed_dropout,
           att_weight_dropout=att_weight_dropout,
           use_hard_attention=center_window_size == 1,
+          readout_dimension=readout_dimension,
+          ilm_dimension=ilm_dimension,
+          use_readout=use_readout,
         )
 
     if not use_joint_model:
@@ -340,6 +359,8 @@ class MakeModel:
           use_current_frame_in_readout: bool = False,
           target_embed_dim: int = 640,
           feature_extraction_opts: Optional[Dict[str, Any]] = None,
+          conformer_wo_rel_pos_enc: bool = False,
+          disable_enc_self_att_until_epoch: Optional[int] = None,
           **extra,
   ) -> SegmentalAttentionModel:
     """make"""
@@ -356,6 +377,25 @@ class MakeModel:
       lm = trafo_lm.MakeModel(vocab_dim=target_dim, **language_model)()
       lm = (lm, functools.partial(trafo_lm.make_time_sync_label_scorer_torch, model=lm, align_target_dim=align_target_dim))
 
+    if conformer_wo_rel_pos_enc:
+      self_att_opts = {}
+      self_att = rf.SelfAttention
+    else:
+      self_att_opts = dict(
+        # Shawn et al 2018 style, old RETURNN way.
+        with_bias=False,
+        with_linear_pos=False,
+        with_pos_bias=False,
+        learnable_pos_emb=True,
+        separate_pos_emb_per_head=False,
+        pos_emb_dropout=pos_emb_dropout,
+      )
+      if disable_enc_self_att_until_epoch:
+        self_att_opts["enable_from_epoch"] = disable_enc_self_att_until_epoch
+        self_att = EpochConditionedRelPosSelfAttention
+      else:
+        self_att = rf.RelPosSelfAttention
+
     return SegmentalAttentionModel(
       enc_in_dim=in_dim,
       enc_num_layers=num_enc_layers,
@@ -365,15 +405,8 @@ class MakeModel:
       enc_num_heads=8,
       encoder_layer_opts=dict(
         conv_norm_opts=dict(use_mask=True),
-        self_att_opts=dict(
-          # Shawn et al 2018 style, old RETURNN way.
-          with_bias=False,
-          with_linear_pos=False,
-          with_pos_bias=False,
-          learnable_pos_emb=True,
-          separate_pos_emb_per_head=False,
-          pos_emb_dropout=pos_emb_dropout,
-        ),
+        self_att_opts=self_att_opts,
+        self_att=self_att,
         ff_activation=lambda x: rf.relu(x) ** 2.0,
       ),
       target_dim=target_dim,

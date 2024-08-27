@@ -31,6 +31,9 @@ def get_center_window_att_config_builder_rf(
         use_current_frame_in_readout_w_gate: bool = False,
         use_current_frame_in_readout_random: bool = False,
         use_correct_dim_tags: bool = False,
+        target_embed_dimension: int = 640,
+        readout_dimension: int = 1024,
+        ilm_dimension: int = 1024,
 ) -> Tuple[str, LibrispeechSegmentalAttConformerConfigBuilderRF]:
   assert bpe_vocab_size in {10025, 1056, 5048, 10240}
 
@@ -88,6 +91,9 @@ def get_center_window_att_config_builder_rf(
     use_current_frame_in_readout_w_gate=use_current_frame_in_readout_w_gate,
     use_current_frame_in_readout_random=use_current_frame_in_readout_random,
     use_correct_dim_tags=use_correct_dim_tags,
+    target_embed_dimension=target_embed_dimension,
+    readout_dimension=readout_dimension,
+    ilm_dimension=ilm_dimension
   )
 
   alias = (

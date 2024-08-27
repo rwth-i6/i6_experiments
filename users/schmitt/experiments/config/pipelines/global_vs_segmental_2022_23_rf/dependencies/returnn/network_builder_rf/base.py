@@ -107,10 +107,13 @@ class BaseLabelDecoder(rf.Module):
           use_current_frame_in_readout_w_gate: bool = False,
           use_current_frame_in_readout_random: bool = False,
           target_embed_dim: Dim = Dim(name="target_embed", dimension=640),
+          ilm_dimension: int = 1024,
+          readout_dimension: int = 1024,
           target_embed_dropout: float = 0.0,
           att_weight_dropout: float = 0.0,
           use_hard_attention: bool = False,
           use_trafo_attention: bool = False,
+          use_readout: bool = True,
   ):
     super(BaseLabelDecoder, self).__init__()
 
@@ -143,7 +146,7 @@ class BaseLabelDecoder(rf.Module):
     if "lstm" in decoder_state:
       ilm_layer_class = rf.ZoneoutLSTM
       ilm_layer_opts = dict(
-        out_dim=Dim(name="lstm", dimension=1024),
+        out_dim=Dim(name="lstm", dimension=ilm_dimension),
         zoneout_factor_cell=0.15,
         zoneout_factor_output=0.05,
         use_zoneout_output=False,  # like RETURNN/TF ZoneoutLSTM old default
@@ -166,7 +169,7 @@ class BaseLabelDecoder(rf.Module):
       assert decoder_state == "nb-2linear-ctx1"
       ilm_layer_class = LinearDecoder
       ilm_layer_opts = dict(
-        out_dim=1024,
+        out_dim=ilm_dimension,
       )
       if use_att_ctx_in_state:
         self.s_linear = ilm_layer_class(
@@ -212,23 +215,31 @@ class BaseLabelDecoder(rf.Module):
         att_dim = model_dim
       else:
         self.trafo_att = None
-        att_dim = att_num_heads * enc_out_dim
+        # att_dim = att_num_heads * enc_out_dim
+        att_dim = enc_out_dim
 
-    readout_in_dim = self.get_lstm().out_dim + self.target_embed.out_dim + att_dim
-    readout_out_dim = Dim(name="readout", dimension=1024)
+    readout_in_dim = self.get_lstm().out_dim
+    if use_readout:
+      readout_in_dim += self.target_embed.out_dim
+    readout_in_dim += att_dim
+
+    readout_out_dim = Dim(name="readout", dimension=readout_dimension)
     self.use_current_frame_in_readout = use_current_frame_in_readout
+    self.use_readout = use_readout
     if use_current_frame_in_readout:
       readout_in_dim += enc_out_dim
-      self.readout_in_w_current_frame = rf.Linear(
-        readout_in_dim,
-        readout_out_dim,
-      )
-      self.readout_in = self.readout_in_w_current_frame
+      if use_readout:
+        self.readout_in_w_current_frame = rf.Linear(
+          readout_in_dim,
+          readout_out_dim,
+        )
+        self.readout_in = self.readout_in_w_current_frame
     else:
-      self.readout_in = rf.Linear(
-        readout_in_dim,
-        readout_out_dim,
-      )
+      if use_readout:
+        self.readout_in = rf.Linear(
+          readout_in_dim,
+          readout_out_dim,
+        )
 
     self.use_current_frame_in_readout_w_gate = use_current_frame_in_readout_w_gate
     if use_current_frame_in_readout_w_gate:
@@ -239,7 +250,10 @@ class BaseLabelDecoder(rf.Module):
 
     self.use_current_frame_in_readout_random = use_current_frame_in_readout_random
 
-    output_prob_opts = {"in_dim": readout_out_dim // 2, "out_dim": target_dim}
+    if use_readout:
+      output_prob_opts = {"in_dim": readout_out_dim // 2, "out_dim": target_dim}
+    else:
+      output_prob_opts = {"in_dim": att_dim, "out_dim": target_dim}
     if reset_eos_params:
       self.output_prob_reset_eos = rf.Linear(**output_prob_opts)
       self.output_prob = self.output_prob_reset_eos
@@ -334,12 +348,21 @@ class BaseLabelDecoder(rf.Module):
 
       readout_input = rf.concat_features(s, input_embed, att_h_t, allow_broadcast=True)
     else:
-      readout_input = rf.concat_features(s, input_embed, att, allow_broadcast=True)
+      if self.use_readout:
+        readout_input = rf.concat_features(s, input_embed, att, allow_broadcast=True)
+      else:
+        readout_input = att + utils.copy_tensor_replace_dim_tag(s, self.get_lstm().out_dim, att.feature_dim)
 
-    readout_in = self.readout_in(readout_input)
-    readout = rf.reduce_out(readout_in, mode="max", num_pieces=2, out_dim=self.output_prob.in_dim)
-    readout = rf.dropout(readout, drop_prob=0.3, axis=self.dropout_broadcast and readout.feature_dim)
-    logits = self.output_prob(readout)
+    if self.use_readout:
+      readout_in = self.readout_in(readout_input)
+      readout = rf.reduce_out(readout_in, mode="max", num_pieces=2, out_dim=self.output_prob.in_dim)
+      readout = rf.dropout(readout, drop_prob=0.3, axis=self.dropout_broadcast and readout.feature_dim)
+      logits = self.output_prob(readout)
+    else:
+      logits = self.output_prob(readout_input)
+      logits = rf.dropout(logits, drop_prob=0.1, axis=self.dropout_broadcast and logits.feature_dim)
+      logits = rf.relu(logits)
+
     return logits
 
 
@@ -357,12 +380,22 @@ def get_common_config_params():
   use_weight_feedback = config.bool("use_weight_feedback", True)
   use_att_ctx_in_state = config.bool("use_att_ctx_in_state", True)
   label_decoder_state = config.typed_value("label_decoder_state", "nb-lstm")
+
   target_embed_dim = config.int("target_embed_dim", 640)
+  readout_dimension = config.int("readout_dimension", 1024)
+  ilm_dimension = config.int("ilm_dimension", 1024)
+
   feature_extraction_opts = config.typed_value("feature_extraction_opts", None)
   use_mini_att = config.bool("use_mini_att", False)
   att_dropout = config.float("att_dropout", 0.1)
   target_embed_dropout = config.float("target_embed_dropout", 0.0)
   att_weight_dropout = config.float("att_weight_dropout", 0.0)
+
+  use_readout = config.bool("use_readout", True)
+
+  conformer_w_abs_pos_enc = config.bool("conformer_w_abs_pos_enc", False)
+  conformer_wo_rel_pos_enc = config.bool("conformer_wo_rel_pos_enc", False)
+  disable_enc_self_att_until_epoch = config.int("disable_enc_self_att_until_epoch", 0)
 
   return dict(
     in_dim=in_dim,
@@ -378,6 +411,12 @@ def get_common_config_params():
     att_dropout=att_dropout,
     target_embed_dropout=target_embed_dropout,
     att_weight_dropout=att_weight_dropout,
+    ilm_dimension=ilm_dimension,
+    readout_dimension=readout_dimension,
+    use_readout=use_readout,
+    conformer_w_abs_pos_enc=conformer_w_abs_pos_enc,
+    conformer_wo_rel_pos_enc=conformer_wo_rel_pos_enc,
+    disable_enc_self_att_until_epoch=disable_enc_self_att_until_epoch,
   )
 
 

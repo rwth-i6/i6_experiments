@@ -42,6 +42,12 @@ class ConfigBuilderRF(ABC):
           use_current_frame_in_readout_random: bool = False,
           use_correct_dim_tags: bool = False,
           num_label_decoder_layers: int = 1,
+          target_embed_dimension: int = 640,
+          readout_dimension: int = 1024,
+          ilm_dimension: int = 1024,
+          conformer_w_abs_pos_enc: bool = False,
+          conformer_wo_rel_pos_enc: bool = False,
+          disable_enc_self_att_until_epoch: Optional[int] = None,
   ):
     assert (use_current_frame_in_readout_random ^ use_current_frame_in_readout_w_gate) or (
                   use_current_frame_in_readout_random ^ use_current_frame_in_readout) or (
@@ -92,6 +98,20 @@ class ConfigBuilderRF(ABC):
 
     if num_label_decoder_layers != 1:
       self.config_dict["num_label_decoder_layers"] = num_label_decoder_layers
+
+    if target_embed_dimension != 640:
+      self.config_dict["target_embed_dim"] = target_embed_dimension
+    if readout_dimension != 1024:
+      self.config_dict["readout_dimension"] = readout_dimension
+    if ilm_dimension != 1024:
+      self.config_dict["ilm_dimension"] = ilm_dimension
+
+    if conformer_w_abs_pos_enc:
+      self.config_dict["conformer_w_abs_pos_enc"] = True
+    if conformer_wo_rel_pos_enc:
+      self.config_dict["conformer_wo_rel_pos_enc"] = True
+    if disable_enc_self_att_until_epoch is not None:
+      self.config_dict["disable_enc_self_att_until_epoch"] = disable_enc_self_att_until_epoch
 
     self.python_prolog = []
 
@@ -162,7 +182,7 @@ class ConfigBuilderRF(ABC):
       "torch_amp",
       "gradient_clip",
       "gradient_noise",
-      # "max_seq_length",
+      "max_seq_length",
       "weight_dropout",
       "att_dropout",
       "att_weight_dropout",
@@ -529,7 +549,7 @@ class ConfigBuilderRF(ABC):
         learning_rate_piecewise_steps=_lrlin_oclr_steps_by_bs_nep[(lr_opts["batch_size"] // 1000, lr_opts["num_epochs"])],
         learning_rate_piecewise_values=[peak_lr * 1e-2, peak_lr, peak_lr * 1e-2, peak_lr * 1e-3],
       )
-    elif lr_opts["type"] == "dyn_lr_piecewise_linear_epoch-wise":
+    elif lr_opts["type"] == "dyn_lr_piecewise_linear_epoch-wise_v1":
       peak_lr = lr_opts.get("peak_lr", 1e-3)
       initial_lr = peak_lr / 10
       cyc_ep = int(0.45 * lr_opts["num_epochs"])
@@ -540,6 +560,20 @@ class ConfigBuilderRF(ABC):
             np.linspace(peak_lr, initial_lr, cyc_ep)  # go down
         ) + list(
           np.linspace(initial_lr, 1e-6, lr_opts["num_epochs"] - 2 * cyc_ep)  # cool down
+        )
+      )
+    elif lr_opts["type"] == "dyn_lr_piecewise_linear_epoch-wise_v2":
+      peak_lr = lr_opts.get("peak_lr", 1e-3)
+      initial_lr = peak_lr * 1e-2
+      final_lr = peak_lr * 1e-3
+      cyc_ep = int(0.45 * lr_opts["num_epochs"])
+      return dict(
+        learning_rates=list(
+          np.linspace(initial_lr, peak_lr, cyc_ep)  # go up
+        ) + list(
+            np.linspace(peak_lr, initial_lr, cyc_ep)  # go down
+        ) + list(
+          np.linspace(initial_lr, final_lr, lr_opts["num_epochs"] - 2 * cyc_ep)  # cool down
         )
       )
     elif lr_opts["type"] == "dyn_lr_lin_warmup_invsqrt_decay":
