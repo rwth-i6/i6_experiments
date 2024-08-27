@@ -185,7 +185,7 @@ def get_ogg_zip_dict(
     for name, bliss_corpus in bliss_corpus_dict.items():
         ogg_zip_job = BlissToOggZipJob(
             bliss_corpus,
-            no_conversion=True,
+            no_conversion=False,
             returnn_python_exe=returnn_python_exe,
             returnn_root=returnn_root,
         )
