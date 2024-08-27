@@ -49,7 +49,8 @@ def add_specaug_layer(
                 freq_mask_max_proportion (float): The maximum proportion of the frequency axis that can be masked. Default is 1.
                 max_time_num_seq_len_divisor (int):
                     The divisor for the sequence length to determine the maximum number of time masks. Default is 0.7.
-        num_epochs (int, optional): The total number of epochs for which the training will run. default 450
+                enable_logging (bool): Whether to enable detailed logging via print statements. Defaults to False.
+        num_epochs (int, optional): The total number of epochs for which the training will run. default 450.
 
     Returns:
         tuple: A tuple containing the name of the SpecAugment layer and the functions required for it.
@@ -71,6 +72,7 @@ def add_specaug_layer(
         "time_mask_max_proportion": 1.0,
         "freq_mask_max_proportion": 1.0,
         "max_time_num_seq_len_divisor": 0.7,
+        "enable_logging": False,
     }
 
     if config is None:
@@ -176,6 +178,26 @@ def transform(data, network, **config):
             total_time_masks_max_frames // time_mask_max_size,
         )
         actual_freq_mask_max_num = tf.minimum(freq_mask_max_num, total_freq_masks_max_size // freq_mask_max_size)
+
+        enable_logging = tf.convert_to_tensor(config["enable_logging"], dtype=tf.bool)
+
+        def logging_ops():
+            with tf.control_dependencies(
+                [
+                    tf.print(
+                        "Specaug Log: ",
+                        current_epoch,
+                        actual_time_mask_max_num,
+                        actual_freq_mask_max_num,
+                        max_time_num_seq_len,
+                        tf.shape(x)[data.time_dim_axis],
+                        sep=", ",
+                    )
+                ]
+            ):
+                return tf.identity(x_masked)
+
+        x_masked = tf.cond(enable_logging, logging_ops, lambda: tf.identity(x_masked))
 
         x_masked = random_mask(
             x_masked,
