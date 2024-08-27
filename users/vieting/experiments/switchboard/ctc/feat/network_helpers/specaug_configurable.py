@@ -49,7 +49,8 @@ def add_specaug_layer(
                 freq_mask_max_proportion (float): The maximum proportion of the frequency axis that can be masked. Default is 1.
                 max_time_num_seq_len_divisor (int):
                     The divisor for the sequence length to determine the maximum number of time masks. Default is 0.7.
-        num_epochs (int, optional): The total number of epochs for which the training will run. default 450
+                enable_logging (bool): Whether to enable detailed logging via print statements. Defaults to False.
+        num_epochs (int, optional): The total number of epochs for which the training will run. default 450.
 
     Returns:
         tuple: A tuple containing the name of the SpecAugment layer and the functions required for it.
@@ -71,6 +72,7 @@ def add_specaug_layer(
         "time_mask_max_proportion": 1.0,
         "freq_mask_max_proportion": 1.0,
         "max_time_num_seq_len_divisor": 0.7,
+        "enable_logging": False,
     }
 
     if config is None:
@@ -180,20 +182,28 @@ def transform(data, network, **config):
         # Check if limits where hit and which one
         time_lower_limit_hit = tf.equal(actual_time_mask_max_num, max_time_num_seq_len)
         time_upper_limit_hit = tf.equal(actual_time_mask_max_num, total_time_masks_max_frames // time_mask_max_size)
-
         freq_limit_hit = tf.equal(actual_freq_mask_max_num, total_freq_masks_max_size // freq_mask_max_size)
-        with tf.control_dependencies([
-            tf.print("--------------------"),
-            tf.print("Lower limit (time):", max_time_num_seq_len),
-            tf.print("Upper limit (time):", total_time_masks_max_frames // time_mask_max_size),
-            tf.print("actual_time_mask_max_num:", actual_time_mask_max_num),
-            tf.print("actual_freq_mask_max_num:", actual_freq_mask_max_num),
-            tf.print(" The total time frames:", tf.shape(x)[data.time_dim_axis]),
-            tf.cond(time_lower_limit_hit, lambda: tf.print("Warning: actual_time_mask_max_num has hit the lower limit!"), lambda: tf.no_op()),
-            tf.cond(time_upper_limit_hit, lambda: tf.print("Warning: actual_time_mask_max_num has hit the upper limit!"), lambda: tf.no_op()),
-            tf.cond(freq_limit_hit, lambda: tf.print("Warning: actual_freq_mask_max_num has hit a limit!"), lambda: tf.no_op()),
-        ]):
-            x_masked = tf.identity(x_masked)
+
+        enable_logging = tf.convert_to_tensor(config.get("enable_logging", False), dtype=tf.bool)
+
+        def logging_ops():
+            with tf.control_dependencies([
+                tf.print("--------------------"),
+                tf.print("Lower limit (time):", max_time_num_seq_len),
+                tf.print("Upper limit (time):", total_time_masks_max_frames // time_mask_max_size),
+                tf.print("actual_time_mask_max_num:", actual_time_mask_max_num),
+                tf.print("actual_freq_mask_max_num:", actual_freq_mask_max_num),
+                tf.print(" The total time frames:", tf.shape(x)[data.time_dim_axis]),
+                tf.cond(time_lower_limit_hit, lambda: tf.print("Warning: actual_time_mask_max_num has hit the lower limit!"), lambda: tf.no_op()),
+                tf.cond(time_upper_limit_hit, lambda: tf.print("Warning: actual_time_mask_max_num has hit the upper limit!"), lambda: tf.no_op()),
+                tf.cond(freq_limit_hit, lambda: tf.print("Warning: actual_freq_mask_max_num has hit a limit!"), lambda: tf.no_op()),
+            ]):
+                return tf.identity(x_masked)
+
+        def no_op():
+            return x_masked
+
+        x_masked = tf.cond(enable_logging, logging_ops, no_op)
 
         x_masked = random_mask(
             x_masked,
