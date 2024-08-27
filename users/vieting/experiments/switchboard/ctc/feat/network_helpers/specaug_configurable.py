@@ -184,26 +184,23 @@ def transform(data, network, **config):
         time_upper_limit_hit = tf.equal(actual_time_mask_max_num, total_time_masks_max_frames // time_mask_max_size)
         freq_limit_hit = tf.equal(actual_freq_mask_max_num, total_freq_masks_max_size // freq_mask_max_size)
 
-        enable_logging = tf.convert_to_tensor(config.get("enable_logging", False), dtype=tf.bool)
+        enable_logging = tf.convert_to_tensor(config["enable_logging"], dtype=tf.bool)
 
         def logging_ops():
+
             with tf.control_dependencies([
-                tf.print("--------------------"),
-                tf.print("Lower limit (time):", max_time_num_seq_len),
-                tf.print("Upper limit (time):", total_time_masks_max_frames // time_mask_max_size),
-                tf.print("actual_time_mask_max_num:", actual_time_mask_max_num),
-                tf.print("actual_freq_mask_max_num:", actual_freq_mask_max_num),
-                tf.print(" The total time frames:", tf.shape(x)[data.time_dim_axis]),
-                tf.cond(time_lower_limit_hit, lambda: tf.print("Warning: actual_time_mask_max_num has hit the lower limit!"), lambda: tf.no_op()),
-                tf.cond(time_upper_limit_hit, lambda: tf.print("Warning: actual_time_mask_max_num has hit the upper limit!"), lambda: tf.no_op()),
-                tf.cond(freq_limit_hit, lambda: tf.print("Warning: actual_freq_mask_max_num has hit a limit!"), lambda: tf.no_op()),
+                tf.print(
+                "Specaug Log: ",
+                current_epoch,
+                actual_time_mask_max_num,
+                actual_freq_mask_max_num,
+                tf.shape(x)[data.time_dim_axis],
+                sep=", "
+            )
             ]):
                 return tf.identity(x_masked)
 
-        def no_op():
-            return x_masked
-
-        x_masked = tf.cond(enable_logging, logging_ops, no_op)
+        tf.cond(enable_logging, logging_ops, lambda: tf.no_op())
 
         x_masked = random_mask(
             x_masked,
