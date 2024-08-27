@@ -178,7 +178,7 @@ def transform(data, network, **config):
             total_time_masks_max_frames // time_mask_max_size,
         )
         actual_freq_mask_max_num = tf.minimum(freq_mask_max_num, total_freq_masks_max_size // freq_mask_max_size)
-         
+
         # Check if limits where hit and which one
         time_lower_limit_hit = tf.equal(actual_time_mask_max_num, max_time_num_seq_len)
         time_upper_limit_hit = tf.equal(actual_time_mask_max_num, total_time_masks_max_frames // time_mask_max_size)
@@ -187,17 +187,20 @@ def transform(data, network, **config):
         enable_logging = tf.convert_to_tensor(config["enable_logging"], dtype=tf.bool)
 
         def logging_ops():
-            with tf.control_dependencies([
-                tf.print(
-                    "Specaug Log: ",
-                    current_epoch,
-                    actual_time_mask_max_num,
-                    actual_freq_mask_max_num,
-                    tf.shape(x)[data.time_dim_axis],
-                    sep=", "
-                )
-            ]):
+            with tf.control_dependencies(
+                [
+                    tf.print(
+                        "Specaug Log: ",
+                        current_epoch,
+                        actual_time_mask_max_num,
+                        actual_freq_mask_max_num,
+                        tf.shape(x)[data.time_dim_axis],
+                        sep=", ",
+                    )
+                ]
+            ):
                 return tf.identity(x_masked)
+
         x_masked = tf.cond(enable_logging, logging_ops, lambda: tf.identity(x_masked))
 
         x_masked = random_mask(
