@@ -179,11 +179,6 @@ def transform(data, network, **config):
         )
         actual_freq_mask_max_num = tf.minimum(freq_mask_max_num, total_freq_masks_max_size // freq_mask_max_size)
 
-        # Check if limits where hit and which one
-        time_lower_limit_hit = tf.equal(actual_time_mask_max_num, max_time_num_seq_len)
-        time_upper_limit_hit = tf.equal(actual_time_mask_max_num, total_time_masks_max_frames // time_mask_max_size)
-        freq_limit_hit = tf.equal(actual_freq_mask_max_num, total_freq_masks_max_size // freq_mask_max_size)
-
         enable_logging = tf.convert_to_tensor(config["enable_logging"], dtype=tf.bool)
 
         def logging_ops():
@@ -194,6 +189,7 @@ def transform(data, network, **config):
                         current_epoch,
                         actual_time_mask_max_num,
                         actual_freq_mask_max_num,
+                        max_time_num_seq_len
                         tf.shape(x)[data.time_dim_axis],
                         sep=", ",
                     )
