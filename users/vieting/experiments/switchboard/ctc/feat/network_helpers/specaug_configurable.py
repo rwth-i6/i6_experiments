@@ -189,7 +189,7 @@ def transform(data, network, **config):
                         current_epoch,
                         actual_time_mask_max_num,
                         actual_freq_mask_max_num,
-                        max_time_num_seq_len
+                        max_time_num_seq_len,
                         tf.shape(x)[data.time_dim_axis],
                         sep=", ",
                     )
