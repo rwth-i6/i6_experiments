@@ -257,6 +257,9 @@ def py():
 
     # Test different feature normalization schemes.
     # Note: It seems the diff between dev-other and test-other is less here, probably du to the normalization.
+    # WARNING: While featBN is best here, this might be due to having a regularization effect,
+    #   because when looking at convergence rate, e.g. featGN is a bit better, followed by featNorm.
+    #   featBN actually has the worst convergence rate! (But the diff is not so big.)
     for name, model_opts in {
         None: None,  # {"dev-clean": 2.9, "dev-other": 6.3, "test-clean": 3.05, "test-other": 6.49}
         # featBN: {"dev-clean": 2.84, "dev-other": 6.29, "test-clean": 2.97, "test-other": 6.36}
@@ -619,7 +622,7 @@ def py():
     # TODO maybe reduce weight decay
     for vn in [
         # Baseline: 5.77
-        0.0001,
+        0.0001,  # 5.80
         0.0005,  # 5.75
         0.001,  # 5.79
         0.0025,  # 5.91 (so worse on dev-other, but it's better on test-other)
