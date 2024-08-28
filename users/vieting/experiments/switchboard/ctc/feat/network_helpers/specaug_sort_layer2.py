@@ -20,14 +20,11 @@ def add_specaug_layer(
 
     return [name], get_specaug_funcs()
 
-
-def sort_filters_by_center_freq(x):
+def get_frequenzy_response(x):
     """
-    This function either sorts the filters by their center frequency and returns them,
-    or it returns the indices that would sort the filters.
+    This function returns the frequency response of the filters.
     :param tf.Tensor x: The filter layer to sort.
-    :param bool return_sorted_filters: Whether to return the sorted filters or the sorted indices.
-    :return: Sorted filters or sorted indices.
+    :return: Frequency response of the filters.
     """
     import numpy as np
     import tensorflow as tf
@@ -43,6 +40,21 @@ def sort_filters_by_center_freq(x):
     zm1_pow = tf.pow(zm1, tf.cast(exponents, dtype="complex64"))  # (F, N)
     f_resp = tf.tensordot(zm1_pow, tf.cast(tf.transpose(filters), dtype="complex64"), axes=1)  # (F, C)
     f_resp = tf.abs(f_resp)
+    # move to log domain, not needed for center frequencies
+    # f_resp = 20 * tf.math.log(f_resp) / tf.math.log(tf.constant(10.0))
+
+    return f_resp
+
+def sort_filters_by_center_freq(x):
+    """
+    This function either sorts the filters by their center frequency and returns them,
+    or it returns the indices that would sort the filters.
+    :param tf.Tensor x: The filter layer to sort.
+    :return: Sorted filters or sorted indices.
+    """
+    import tensorflow as tf
+
+    f_resp = get_frequenzy_response(x)
     # move to log domain, not needed for center frequencies
     # f_resp = 20 * tf.math.log(f_resp) / tf.math.log(tf.constant(10.0))
 
