@@ -92,8 +92,7 @@ def _mask(x, batch_axis, axis, pos, max_amount, sorted_indices):
     n_batch = tf.shape(x)[batch_axis]
     dim = tf.shape(x)[axis]
     amount = tf.random.uniform(
-        shape=(n_batch,), minval=1, maxval=max_amount + 1,
-        dtype=tf.int32
+        shape=(n_batch,), minval=1, maxval=max_amount + 1, dtype=tf.int32
     )
     pos2 = tf.math.minimum(pos + amount, dim)
     idxs = tf.expand_dims(tf.range(0, dim), 0)  # (1,dim)
