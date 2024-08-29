@@ -841,8 +841,9 @@ def run_scf_specaug():
                 returnn_args={
                     **base_returnn_args,
                     "specaug_config": {
+                        "steps_per_epoch": 4100,
                         "enable_sorting": False,
-                        "mask_based_on_variance": True,
+                        "filter_based_masking_strategy": "variance",
                         "variance_factor": 0.5,
                         "max_number_masks_for_variance_specaug": 75,
                     },
@@ -851,7 +852,7 @@ def run_scf_specaug():
                 lr_args=lr_args,
                 report_args={
                     "batch_size": "2x5k",
-                    "mask_based_on_variance": True,
+                    "filter_based_masking_strategy": "variance",
                     "variance_factor": 0.5,
                     "max_number_masks_for_variance_specaug": 75,
                 },
