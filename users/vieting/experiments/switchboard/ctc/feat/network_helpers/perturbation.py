@@ -25,6 +25,7 @@ class WaveformPerturbation:
         self,
         speed: Optional[Dict[str, Any]] = None,
         tempo: Optional[Dict[str, Any]] = None,
+        pitch: Optional[Dict[str, Any]] = None,
         sox_effects: Optional[List[List[str]]] = None,
         codecs: Optional[List[Dict[str, Any]]] = None,
         preemphasis: Optional[Dict[str, Any]] = None,
@@ -36,12 +37,21 @@ class WaveformPerturbation:
             - 'prob' (float): The probability of applying speed perturbation.
             - 'minimum' (float): The minimum factor by which the audio speed will be decreased.
             - 'maximum' (float): The maximum factor by which the audio speed will be increased.
+            - 'default' (float): The default speed factor.
             Example: {"prob": 0.6, "minimum": 0.88, "maximum": 1.12}
 
         :param tempo: A dictionary specifying the parameters for tempo perturbation.
             - 'prob' (float): The probability of applying tempo perturbation.
             - 'minimum' (float): The minimum factor by which the audio tempo will be decreased.
             - 'maximum' (float): The maximum factor by which the audio tempo will be increased.
+            - 'default' (float): The default tempo factor.
+            Example: {"prob": 0.6, "minimum": 0.83, "maximum": 1.17}
+
+        :param pitch: A dictionary specifying the parameters for pitch perturbation.
+            - 'prob' (float): The probability of applying pitch perturbation.
+            - 'minimum' (float): The minimum factor by which the audio pitch will be decreased.
+            - 'maximum' (float): The maximum factor by which the audio pitch will be increased.
+            - 'default' (float): The default pitch factor.
             Example: {"prob": 0.6, "minimum": 0.83, "maximum": 1.17}
 
         :param sox_effects: A list of Lists, each dictionary representing a SoX effect.
@@ -69,6 +79,7 @@ class WaveformPerturbation:
 
         self._speed = PerturbationFactor(**speed) if speed else None
         self._tempo = PerturbationFactor(**tempo) if tempo else None
+        self.pitch = PerturbationFactor(**pitch) if pitch else None
         self._sox_effects = sox_effects or []
         self._perturbations = []
         self.non_linearity = non_linearity
@@ -104,6 +115,9 @@ class WaveformPerturbation:
         if self._tempo is not None and random_state.random() < self._tempo.prob and not speed:
             factor = random_state.random() * (self._tempo.max - self._tempo.min) + self._tempo.min
             tfm.stretch(factor)
+        if self.pitch is not None and random_state.random() < self.pitch.prob:
+            factor = random_state.random() * (self.pitch.max - self.pitch.min) + self.pitch.min
+            tfm.pitch(factor)
         for effect in self._sox_effects:
             effect_name, *params = effect
             getattr(tfm, effect_name)(*params)
