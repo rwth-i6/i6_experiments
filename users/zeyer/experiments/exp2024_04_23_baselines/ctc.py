@@ -908,6 +908,8 @@ def py():
     # TODO also e-branchformer, zigformer, ...
     # TODO test different frontends
 
+    # TODO input_embedding_scale like in E-Branchformer...
+
 
 _train_experiments: Dict[str, ModelWithCheckpoints] = {}
 
