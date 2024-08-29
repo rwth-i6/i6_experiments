@@ -853,7 +853,7 @@ def run_scf_specaug():
                     "batch_size": "2x5k",
                     "mask_based_on_variance": True,
                     "variance_factor": 0.5,
-                    "total_max_number_masks": 50,
+                    "max_number_masks_for_variance_specaug": 75,
                 },
             ),
         },
