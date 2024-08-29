@@ -6,7 +6,7 @@ import i6_experiments.users.berger.args.returnn.regularization as regularization
 from i6_experiments.users.berger.recipe.returnn.training import Backend
 
 
-def get_base_config(backend: Backend) -> Dict[str, Any]:
+def get_base_config() -> Dict[str, Any]:
     result = {
         "debug_print_layer_output_template": True,
         "log_batch_size": True,
@@ -16,14 +16,6 @@ def get_base_config(backend: Backend) -> Dict[str, Any]:
         "window": 1,
         "update_on_device": True,
     }
-    if backend == Backend.TENSORFLOW:
-        result["use_tensorflow"] = True
-    elif backend == Backend.PYTORCH:
-        result["backend"] = "torch"
-        result["use_lovely_tensors"] = True
-        # result["torch_amp"] = {"dtype": "bfloat16"}
-    else:
-        raise NotImplementedError
     return result
 
 
@@ -67,6 +59,7 @@ def get_network_config(network: Dict) -> Dict[str, Dict]:
 def get_returnn_config(
     network: Optional[Dict] = None,
     *,
+    use_base_config: bool = True,
     backend: Backend = Backend.TENSORFLOW,
     target: Optional[str] = "classes",
     num_inputs: Optional[int] = None,
@@ -90,8 +83,16 @@ def get_returnn_config(
         config_dict.update(
             get_extern_data_config(num_inputs=num_inputs, num_outputs=num_outputs, target=target, **kwargs)
         )
-    config_dict.update(get_base_config(backend))
+    if use_base_config:
+        config_dict.update(get_base_config())
 
+    if backend == Backend.TENSORFLOW:
+        config_dict["use_tensorflow"] = True
+    elif backend == Backend.PYTORCH:
+        config_dict["backend"] = "torch"
+        config_dict["use_lovely_tensors"] = True
+    else:
+        raise NotImplementedError
     if network:
         config_dict.update(get_network_config(network))
 

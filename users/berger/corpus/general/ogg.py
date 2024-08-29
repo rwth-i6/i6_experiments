@@ -21,15 +21,19 @@ def build_oggzip_datset_config(
     extra_config: Optional[dict] = None,
     segment_files: Optional[Dict[int, tk.Path]] = None,
 ) -> dict:
-    oggzip_files = [
+    oggzip_jobs = [
         BlissToOggZipJob(
             bliss_corpus=data_input.corpus_object.corpus_file,
             segments=segment_files,
             returnn_root=returnn_root,
             returnn_python_exe=returnn_python_exe,
-        ).out_ogg_zip
+        )
         for data_input in data_inputs
     ]
+    for job in oggzip_jobs:
+        job.rqmt = {"cpu": 1, "mem": 4, "time": 24}
+
+    oggzip_files = [job.out_ogg_zip for job in oggzip_jobs]
     return oggzip_config_dict_for_files(oggzip_files, audio_config=audio_config, extra_config=extra_config)
 
 

@@ -9,6 +9,10 @@ from i6_experiments.users.berger.corpus.general.hdf import build_feature_label_m
 from . import data
 from ..general import CTCSetupData, build_feature_hdf_dataset_config
 from sisyphus import tk
+from i6_experiments.users.berger.corpus.general.ogg import (
+    build_oggzip_datset_config,
+    build_oggzip_label_meta_dataset_config,
+)
 
 
 def get_librispeech_data(
@@ -141,6 +145,8 @@ def get_librispeech_data_dumped_labels(
     test_keys: Optional[List[str]] = None,
     feature_type: FeatureType = FeatureType.SAMPLES,
     dc_detection: bool = False,
+    partition_epoch: int = 20,
+    ogg_dataset: bool = False,
     **kwargs,
 ) -> PytorchCTCSetupData:
     if cv_keys is None:
@@ -170,40 +176,74 @@ def get_librispeech_data_dumped_labels(
     train_lexicon = train_data_inputs[train_key].lexicon.filename
     eow_lexicon = AddEowPhonemesToLexiconJob(train_lexicon).out_lexicon
 
-    train_data_config = build_feature_label_meta_dataset_config(
-        label_dim=num_classes - 1,
-        data_inputs=[train_data_inputs[train_key]],
-        lexicon=eow_lexicon,
-        feature_type=feature_type,
-        returnn_root=returnn_root,
-        returnn_python_exe=returnn_python_exe,
-        rasr_binary_path=rasr_binary_path,
-        rasr_arch=rasr_arch,
-        dc_detection=dc_detection,
-        extra_config={
-            "partition_epoch": 20,
-            "seq_ordering": "laplace:.1000",
-        },
-    )
+    if ogg_dataset:
+        train_data_config = build_oggzip_label_meta_dataset_config(
+            label_dim=num_classes - 1,
+            data_inputs=[train_data_inputs[train_key]],
+            lexicon=eow_lexicon,
+            returnn_root=returnn_root,
+            returnn_python_exe=returnn_python_exe,
+            audio_config={
+                "features": "raw",
+                "peak_normalization": True,
+            },
+            extra_config={
+                "partition_epoch": partition_epoch,
+                "seq_ordering": "laplace:.1000",
+            },
+        )
+    else:
+        train_data_config = build_feature_label_meta_dataset_config(
+            label_dim=num_classes - 1,
+            data_inputs=[train_data_inputs[train_key]],
+            lexicon=eow_lexicon,
+            feature_type=feature_type,
+            returnn_root=returnn_root,
+            returnn_python_exe=returnn_python_exe,
+            rasr_binary_path=rasr_binary_path,
+            rasr_arch=rasr_arch,
+            dc_detection=dc_detection,
+            extra_config={
+                "partition_epoch": partition_epoch,
+                "seq_ordering": "laplace:.1000",
+            },
+        )
 
     # ********** CV data **********
 
-    cv_data_config = build_feature_label_meta_dataset_config(
-        label_dim=num_classes - 1,
-        data_inputs=[cv_data_inputs[key] for key in cv_keys],
-        lexicon=eow_lexicon,
-        feature_type=feature_type,
-        returnn_root=returnn_root,
-        returnn_python_exe=returnn_python_exe,
-        rasr_binary_path=rasr_binary_path,
-        rasr_arch=rasr_arch,
-        dc_detection=dc_detection,
-        single_hdf=True,
-        extra_config={
-            "partition_epoch": 1,
-            "seq_ordering": "sorted",
-        },
-    )
+    if ogg_dataset:
+        cv_data_config = build_oggzip_label_meta_dataset_config(
+            label_dim=num_classes - 1,
+            data_inputs=[cv_data_inputs[key] for key in cv_keys],
+            lexicon=eow_lexicon,
+            returnn_root=returnn_root,
+            returnn_python_exe=returnn_python_exe,
+            audio_config={
+                "features": "raw",
+                "peak_normalization": True,
+            },
+            extra_config={
+                "partition_epoch": 1,
+                "seq_ordering": "sorted",
+            },
+        )
+    else:
+        cv_data_config = build_feature_label_meta_dataset_config(
+            label_dim=num_classes - 1,
+            data_inputs=[cv_data_inputs[key] for key in cv_keys],
+            lexicon=eow_lexicon,
+            feature_type=feature_type,
+            returnn_root=returnn_root,
+            returnn_python_exe=returnn_python_exe,
+            rasr_binary_path=rasr_binary_path,
+            rasr_arch=rasr_arch,
+            dc_detection=dc_detection,
+            single_hdf=True,
+            extra_config={
+                "partition_epoch": 1,
+                "seq_ordering": "sorted",
+            },
+        )
 
     # ********** Recog lexicon **********
 

@@ -1,6 +1,6 @@
 import copy
 from enum import Enum, auto
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from i6_core import returnn
 from i6_core.lexicon.modification import itertools
@@ -64,6 +64,7 @@ class ReturnnSearchFunctor(RecognitionFunctor[returnn.ReturnnTrainingJob, return
         lm_type: LmType = LmType.NONE,
         convert_bpe_results: bool = False,
         ogg_dataset: bool = False,
+        extra_audio_config: Optional[dict] = None,
         **_,
     ) -> List[Dict]:
         assert recog_corpus.data.scorer is not None
@@ -84,6 +85,7 @@ class ReturnnSearchFunctor(RecognitionFunctor[returnn.ReturnnTrainingJob, return
                             audio_config={
                                 "features": "raw",
                                 "peak_normalization": True,
+                                **(extra_audio_config or {}),
                             },
                             extra_config={
                                 "partition_epoch": 1,
