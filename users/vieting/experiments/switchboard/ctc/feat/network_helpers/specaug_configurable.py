@@ -412,6 +412,28 @@ def transform_with_filter_masking(data, network, **config):
                 ),
             )
 
+
+        enable_logging = tf.convert_to_tensor(config["enable_logging"], dtype=tf.bool)
+
+        def logging_ops():
+            with tf.control_dependencies(
+                [
+                    tf.print(
+                        "Specaug variance Log: ",
+                        current_epoch,
+                        actual_time_mask_max_num,
+                        max_number_masks_for_probability_specaug,
+                        max_time_num_seq_len,
+                        tf.shape(x)[data.time_dim_axis],
+                        variance.shape,
+                        sep=", ",
+                    )
+                ]
+            ):
+                return tf.identity(x_masked)
+
+        x_masked = tf.cond(enable_logging, logging_ops, lambda: tf.identity(x_masked))
+
         x_masked = random_mask(
             x_masked,
             batch_axis=data.batch_dim_axis,
