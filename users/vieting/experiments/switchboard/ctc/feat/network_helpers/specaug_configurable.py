@@ -134,7 +134,7 @@ def add_specaug_layer(
             _mask,
             random_mask,
         ]
-    else:
+    elif full_config["filter_based_masking_strategy"] == "variance":
         network[name] = {
             "class": "eval",
             "from": from_list,
