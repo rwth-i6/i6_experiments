@@ -844,6 +844,7 @@ def run_scf_specaug():
                         "steps_per_epoch": 4100,
                         "enable_sorting": False,
                         "filter_based_masking_strategy": "variance",
+                        "enable_logging": True,
                         "variance_factor": 0.5,
                         "max_number_masks_for_variance_specaug": 75,
                     },
