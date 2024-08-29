@@ -204,7 +204,7 @@ def transform(data, network, **config):
     step = network.global_train_step
     current_epoch = tf.cast(step / config["steps_per_epoch"], tf.int32)
     max_time_num_seq_len_divisor = tf.constant(config["max_time_num_seq_len_divisor"], dtype=tf.float32)
-
+    variance_factor = tf.cast(config["variance_factor"], tf.float32)
     specaug_params = config["specaug_params"]
 
     # Determine if we should use sorting
@@ -415,24 +415,22 @@ def transform_with_filter_masking(data, network, **config):
 
         enable_logging = tf.convert_to_tensor(config["enable_logging"], dtype=tf.bool)
 
-        def logging_ops():
-            with tf.control_dependencies(
-                [
-                    tf.print(
-                        "Specaug variance Log: ",
-                        current_epoch,
-                        actual_time_mask_max_num,
-                        max_number_masks_for_probability_specaug,
-                        max_time_num_seq_len,
-                        tf.shape(x)[data.time_dim_axis],
-                        variance.shape,
-                        sep=", ",
-                    )
-                ]
-            ):
-                return tf.identity(x_masked)
+            def logging_ops():
+                with tf.control_dependencies(
+                    [
+                        tf.print(
+                            "Specaug variance Log: ",
+                            current_epoch,
+                            actual_time_mask_max_num,
+                            tf.shape(x)[data.time_dim_axis],
+                            variance.shape,
+                            sep=", ",
+                        )
+                    ]
+                ):
+                    return tf.identity(x_masked)
 
-        x_masked = tf.cond(enable_logging, logging_ops, lambda: tf.identity(x_masked))
+            x_masked = tf.cond(enable_logging, logging_ops, lambda: tf.identity(x_masked))
 
         x_masked = random_mask(
             x_masked,
