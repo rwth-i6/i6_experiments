@@ -844,7 +844,7 @@ def run_scf_specaug():
                         "enable_sorting": False,
                         "mask_based_on_variance": True,
                         "variance_factor": 0.5,
-                        "total_max_number_masks": 50,
+                        "max_number_masks_for_variance_specaug": 75,
                     },
                 },
                 feature_args=feature_args,
