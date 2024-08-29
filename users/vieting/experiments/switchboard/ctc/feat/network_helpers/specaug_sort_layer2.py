@@ -51,6 +51,7 @@ def sort_filters_by_center_freq(x):
     This function either sorts the filters by their center frequency and returns them,
     or it returns the indices that would sort the filters.
     :param tf.Tensor x: The filter layer to sort.
+    :param bool return_sorted_filters: Whether to return the sorted filters or the sorted indices.
     :return: Sorted filters or sorted indices.
     """
     import numpy as np
