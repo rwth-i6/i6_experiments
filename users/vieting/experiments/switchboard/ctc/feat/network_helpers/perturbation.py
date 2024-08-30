@@ -62,6 +62,8 @@ class WaveformPerturbation:
             - 'prob' (float): The probability of applying this specific codec.
             - 'minimum' (int): Minimum value for codec if needed. E.g., default for mu is 255.
             - 'maximum' (int): Maximum value for codec if needed.
+            - 'default' (int): Default value to use when codec is not applied.
+                If None, the input does not get changed if the codec is not applied.
             Example: [{"format": "wav", "encoding": "ULAW", "prob": 0.4}]
 
         :param preemphasis: A dictionary containing parameters for the preemphasis filter.
@@ -153,8 +155,11 @@ class WaveformPerturbation:
                 if random_state.random() < prob:
                     mu = random_state.random() * (max_value - min_value) + min_value
                 else:
+                    if codec.get("default") is None:
+                       continue
+                    else:
                     # standard value for mu-law encoding
-                    mu = 255
+                    mu = codec.get("default")
                 # mu-law encoding formula
                 audio = np.sign(audio) * np.log1p(mu * np.abs(audio)) / np.log1p(mu)
             else:

@@ -617,10 +617,10 @@ def run_scf_audio_perturbation_from_checkpoint():
     }
 
     perturbation_args = [
-        {"codecs": [{"encoding": "ULAW", "prob": 0.3, "minimum": 250, "maximum": 260}]},
-        {"codecs": [{"encoding": "ULAW", "prob": 0.7, "minimum": 250, "maximum": 260}]},
-        {"codecs": [{"encoding": "ULAW", "prob": 0.7, "minimum": 240, "maximum": 270}]},
-        {"codecs": [{"encoding": "ULAW", "prob": 1, "minimum": 250, "maximum": 260}]},
+        {"codecs": [{"encoding": "ULAW", "prob": 0.3, "minimum": 250, "maximum": 260, "default": None}]},
+        {"codecs": [{"encoding": "ULAW", "prob": 0.7, "minimum": 250, "maximum": 260, "default": None}]},
+        {"codecs": [{"encoding": "ULAW", "prob": 0.7, "minimum": 240, "maximum": 270, "default": None}]},
+        {"codecs": [{"encoding": "ULAW", "prob": 1, "minimum": 250, "maximum": 260, "default": None}]},
         {"tempo": {"prob": 0.3, "minimum": 0.83, "maximum": 1.17}},
         {"tempo": {"prob": 0.8, "minimum": 0.83, "maximum": 1.17}},
         {"tempo": {"prob": 0.3, "minimum": 0.7, "maximum": 1.3}},
@@ -979,10 +979,10 @@ def run_mel_audio_perturbation_from_checkpoint():
     feature_args = {"class": "LogMelNetwork", "wave_norm": True, "frame_size": 200, "frame_shift": 80, "fft_size": 256}
 
     perturbation_args = [
-        {"codecs": [{"encoding": "ULAW", "prob": 0.3, "minimum": 250, "maximum": 260}]},
-        {"codecs": [{"encoding": "ULAW", "prob": 0.7, "minimum": 250, "maximum": 260}]},
-        {"codecs": [{"encoding": "ULAW", "prob": 0.7, "minimum": 240, "maximum": 270}]},
-        {"codecs": [{"encoding": "ULAW", "prob": 1, "minimum": 250, "maximum": 260}]},
+        {"codecs": [{"encoding": "ULAW", "prob": 0.3, "minimum": 250, "maximum": 260, "default": None}]},
+        {"codecs": [{"encoding": "ULAW", "prob": 0.7, "minimum": 250, "maximum": 260, "default": None}]},
+        {"codecs": [{"encoding": "ULAW", "prob": 0.7, "minimum": 240, "maximum": 270, "default": None}]},
+        {"codecs": [{"encoding": "ULAW", "prob": 1, "minimum": 250, "maximum": 260, "default": None}]},
         {"tempo": {"prob": 0.3, "minimum": 0.83, "maximum": 1.17}},
         {"tempo": {"prob": 0.8, "minimum": 0.83, "maximum": 1.17}},
         {"tempo": {"prob": 0.3, "minimum": 0.7, "maximum": 1.3}},
