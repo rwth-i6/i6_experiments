@@ -155,11 +155,10 @@ class WaveformPerturbation:
                 if random_state.random() < prob:
                     mu = random_state.random() * (max_value - min_value) + min_value
                 else:
-                    if codec.get("default") is None:
+                    # standard value for mu-law encoding
+                    mu = codec.get("default")
+                    if mu is None:
                        continue
-                    else:
-                        # standard value for mu-law encoding
-                        mu = codec.get("default")
                 # mu-law encoding formula
                 audio = np.sign(audio) * np.log1p(mu * np.abs(audio)) / np.log1p(mu)
             else:
