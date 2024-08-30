@@ -979,10 +979,6 @@ def run_mel_audio_perturbation_from_checkpoint():
     feature_args = {"class": "LogMelNetwork", "wave_norm": True, "frame_size": 200, "frame_shift": 80, "fft_size": 256}
 
     perturbation_args = [
-        {"codecs": [{"encoding": "ULAW", "prob": 0.3, "minimum": 1, "maximum": 10, "default": None}]},
-        {"codecs": [{"encoding": "ULAW", "prob": 0.7, "minimum": 1, "maximum": 10, "default": None}]},
-        {"codecs": [{"encoding": "ULAW", "prob": 0.7, "minimum": 1, "maximum": 20, "default": None}]},
-        {"codecs": [{"encoding": "ULAW", "prob": 1, "minimum": 1, "maximum": 10, "default": None}]},
         {"tempo": {"prob": 0.3, "minimum": 0.83, "maximum": 1.17}},
         {"tempo": {"prob": 0.8, "minimum": 0.83, "maximum": 1.17}},
         {"tempo": {"prob": 0.3, "minimum": 0.7, "maximum": 1.3}},
