@@ -196,7 +196,6 @@ def filter_based_masking(x, batch_axis, axis, probability_distribution, max_numb
 
     return x
 
-
 def transform(data, network, **config):
     import tensorflow as tf
 
