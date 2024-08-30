@@ -158,8 +158,8 @@ class WaveformPerturbation:
                     if codec.get("default") is None:
                        continue
                     else:
-                    # standard value for mu-law encoding
-                    mu = codec.get("default")
+                        # standard value for mu-law encoding
+                        mu = codec.get("default")
                 # mu-law encoding formula
                 audio = np.sign(audio) * np.log1p(mu * np.abs(audio)) / np.log1p(mu)
             else:
