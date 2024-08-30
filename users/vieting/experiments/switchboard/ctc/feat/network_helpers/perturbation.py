@@ -61,7 +61,7 @@ class WaveformPerturbation:
             - 'encoding' or 'compression' (str/float): The encoding or compression technique and its level to be used.
             - 'prob' (float): The probability of applying this specific codec.
             - 'minimum' (int): Minimum value for codec if needed (default 1).
-            - 'maximum' (int): Maximum value for codec if needed (default 1).
+            - 'maximum' (int): Maximum value for codec if needed (default 255).
             - 'default' (int): Default value to use when codec is not applied.
                 If None, the input does not get changed if the codec is not applied.
             Example: [{"format": "wav", "encoding": "ULAW", "prob": 0.4}]
@@ -148,7 +148,7 @@ class WaveformPerturbation:
             if codec.get("encoding") == "ULAW":
                 prob = codec.pop("prob", 1.0)
                 min_value = codec.pop("minimum", 1)
-                max_value = codec.pop("maximum", 1)
+                max_value = codec.pop("maximum", 255)
                 # check if audio is in the right range for mu-law encoding
                 if np.max(np.abs(audio)) > 1.0:
                     raise ValueError("Audio must be in the range [-1, 1] for mu-law encoding.")
