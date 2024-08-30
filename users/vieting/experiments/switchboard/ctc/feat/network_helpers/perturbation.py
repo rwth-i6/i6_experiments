@@ -25,6 +25,7 @@ class WaveformPerturbation:
         self,
         speed: Optional[Dict[str, Any]] = None,
         tempo: Optional[Dict[str, Any]] = None,
+        pitch: Optional[Dict[str, Any]] = None,
         sox_effects: Optional[List[List[str]]] = None,
         codecs: Optional[List[Dict[str, Any]]] = None,
         preemphasis: Optional[Dict[str, Any]] = None,
@@ -36,13 +37,22 @@ class WaveformPerturbation:
             - 'prob' (float): The probability of applying speed perturbation.
             - 'minimum' (float): The minimum factor by which the audio speed will be decreased.
             - 'maximum' (float): The maximum factor by which the audio speed will be increased.
+            - 'default' (float): The default speed factor.
             Example: {"prob": 0.6, "minimum": 0.88, "maximum": 1.12}
 
         :param tempo: A dictionary specifying the parameters for tempo perturbation.
             - 'prob' (float): The probability of applying tempo perturbation.
             - 'minimum' (float): The minimum factor by which the audio tempo will be decreased.
             - 'maximum' (float): The maximum factor by which the audio tempo will be increased.
+            - 'default' (float): The default tempo factor.
             Example: {"prob": 0.6, "minimum": 0.83, "maximum": 1.17}
+
+        :param pitch: A dictionary specifying the parameters for pitch perturbation.
+            - 'prob' (float): The probability of applying pitch perturbation.
+            - 'minimum' (float): The minimum number of semitones to shift.
+            - 'maximum' (float): The maximum number of semitones to shift.
+            - 'default' (float): The default pitch semitones to shift.
+            Example: {"prob": 0.6, "minimum": -3, "maximum": 3, "default": 0}
 
         :param sox_effects: A list of Lists, each dictionary representing a SoX effect.
 
@@ -50,8 +60,10 @@ class WaveformPerturbation:
             - 'format' (str): The audio format such as 'wav', 'vorbis' etc.
             - 'encoding' or 'compression' (str/float): The encoding or compression technique and its level to be used.
             - 'prob' (float): The probability of applying this specific codec.
-            - 'minimum' (int): Minimum value for codec if needed. E.g., default for mu is 255.
-            - 'maximum' (int): Maximum value for codec if needed.
+            - 'minimum' (int): Minimum value for codec if needed (default 255).
+            - 'maximum' (int): Maximum value for codec if needed (default 255).
+            - 'default' (int): Default value to use when codec is not applied.
+                If None, the input does not get changed if the codec is not applied.
             Example: [{"format": "wav", "encoding": "ULAW", "prob": 0.4}]
 
         :param preemphasis: A dictionary containing parameters for the preemphasis filter.
@@ -69,6 +81,7 @@ class WaveformPerturbation:
 
         self._speed = PerturbationFactor(**speed) if speed else None
         self._tempo = PerturbationFactor(**tempo) if tempo else None
+        self.pitch = PerturbationFactor(**pitch) if pitch else None
         self._sox_effects = sox_effects or []
         self._perturbations = []
         self.non_linearity = non_linearity
@@ -104,6 +117,9 @@ class WaveformPerturbation:
         if self._tempo is not None and random_state.random() < self._tempo.prob and not speed:
             factor = random_state.random() * (self._tempo.max - self._tempo.min) + self._tempo.min
             tfm.stretch(factor)
+        if self.pitch is not None and random_state.random() < self.pitch.prob:
+            factor = random_state.random() * (self.pitch.max - self.pitch.min) + self.pitch.min
+            tfm.pitch(factor)
         for effect in self._sox_effects:
             effect_name, *params = effect
             getattr(tfm, effect_name)(*params)
@@ -140,7 +156,9 @@ class WaveformPerturbation:
                     mu = random_state.random() * (max_value - min_value) + min_value
                 else:
                     # standard value for mu-law encoding
-                    mu = 255
+                    mu = codec.get("default")
+                    if mu is None:
+                       continue
                 # mu-law encoding formula
                 audio = np.sign(audio) * np.log1p(mu * np.abs(audio)) / np.log1p(mu)
             else:

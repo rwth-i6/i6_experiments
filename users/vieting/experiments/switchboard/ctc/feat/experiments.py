@@ -42,7 +42,7 @@ def args_to_key_and_report_strings(args: Dict[str, Any]) -> Tuple[str, str]:
     report_dict = {}
 
     for key, value in args.items():
-        if key in ["speed", "tempo", "preemphasis", "non_linearity"]:
+        if key in ["speed", "tempo", "pitch", "preemphasis", "non_linearity"]:
             key_component = f"{key}_{value['prob']}_{value['minimum']}_{value['maximum']}"
             if "default" in value:
                 key_component += f"_{value['default']}"
@@ -617,16 +617,20 @@ def run_scf_audio_perturbation_from_checkpoint():
     }
 
     perturbation_args = [
-        {"codecs": [{"encoding": "ULAW", "prob": 0.3, "minimum": 250, "maximum": 260}]},
-        {"codecs": [{"encoding": "ULAW", "prob": 0.7, "minimum": 250, "maximum": 260}]},
-        {"codecs": [{"encoding": "ULAW", "prob": 0.7, "minimum": 240, "maximum": 270}]},
-        {"codecs": [{"encoding": "ULAW", "prob": 1, "minimum": 250, "maximum": 260}]},
+        {"codecs": [{"encoding": "ULAW", "prob": 0.3, "minimum": 1, "maximum": 10, "default": None}]},
+        {"codecs": [{"encoding": "ULAW", "prob": 0.7, "minimum": 1, "maximum": 10, "default": None}]},
+        {"codecs": [{"encoding": "ULAW", "prob": 0.7, "minimum": 1, "maximum": 20, "default": None}]},
+        {"codecs": [{"encoding": "ULAW", "prob": 1, "minimum": 1, "maximum": 10, "default": None}]},
         {"tempo": {"prob": 0.3, "minimum": 0.83, "maximum": 1.17}},
         {"tempo": {"prob": 0.8, "minimum": 0.83, "maximum": 1.17}},
         {"tempo": {"prob": 0.3, "minimum": 0.7, "maximum": 1.3}},
         {"tempo": {"prob": 0.8, "minimum": 0.7, "maximum": 1.3}},
         {"tempo": {"prob": 1, "minimum": 0.83, "maximum": 1.17}},
         {"tempo": {"prob": 1, "minimum": 0.7, "maximum": 1.3}},
+        {"pitch": {"prob": 0.3, "minimum": -2, "maximum": 2}},
+        {"pitch": {"prob": 0.3, "minimum": -3, "maximum": 3}},
+        {"pitch": {"prob": 0.7, "minimum": -2, "maximum": 2}},
+        {"pitch": {"prob": 0.7, "minimum": -3, "maximum": 3}},
         {"speed": {"prob": 0.5, "minimum": 0.88, "maximum": 1.12}},
         {"speed": {"prob": 0.3, "minimum": 0.88, "maximum": 1.12}},
         {"speed": {"prob": 0.7, "minimum": 0.88, "maximum": 1.12}},
@@ -975,16 +979,16 @@ def run_mel_audio_perturbation_from_checkpoint():
     feature_args = {"class": "LogMelNetwork", "wave_norm": True, "frame_size": 200, "frame_shift": 80, "fft_size": 256}
 
     perturbation_args = [
-        {"codecs": [{"encoding": "ULAW", "prob": 0.3, "minimum": 250, "maximum": 260}]},
-        {"codecs": [{"encoding": "ULAW", "prob": 0.7, "minimum": 250, "maximum": 260}]},
-        {"codecs": [{"encoding": "ULAW", "prob": 0.7, "minimum": 240, "maximum": 270}]},
-        {"codecs": [{"encoding": "ULAW", "prob": 1, "minimum": 250, "maximum": 260}]},
         {"tempo": {"prob": 0.3, "minimum": 0.83, "maximum": 1.17}},
         {"tempo": {"prob": 0.8, "minimum": 0.83, "maximum": 1.17}},
         {"tempo": {"prob": 0.3, "minimum": 0.7, "maximum": 1.3}},
         {"tempo": {"prob": 0.8, "minimum": 0.7, "maximum": 1.3}},
         {"tempo": {"prob": 1, "minimum": 0.83, "maximum": 1.17}},
         {"tempo": {"prob": 1, "minimum": 0.7, "maximum": 1.3}},
+        {"pitch": {"prob": 0.3, "minimum": -2, "maximum": 2}},
+        {"pitch": {"prob": 0.3, "minimum": -3, "maximum": 3}},
+        {"pitch": {"prob": 0.7, "minimum": -2, "maximum": 2}},
+        {"pitch": {"prob": 0.7, "minimum": -3, "maximum": 3}},
         {"speed": {"prob": 0.5, "minimum": 0.88, "maximum": 1.12}},
         {"speed": {"prob": 0.3, "minimum": 0.88, "maximum": 1.12}},
         {"speed": {"prob": 0.7, "minimum": 0.88, "maximum": 1.12}},
