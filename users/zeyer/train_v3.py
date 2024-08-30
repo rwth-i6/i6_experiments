@@ -10,6 +10,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Optional, Union, Dict, Any, Sequence
 import copy
 from i6_experiments.users.zeyer.model_interfaces import ModelT, ModelDef, ModelDefWithCfg, TrainDef, serialize_model_def
+from i6_experiments.users.zeyer.utils.dict_update import dict_update_deep
 
 if TYPE_CHECKING:
     from returnn.tensor import TensorDict
@@ -111,9 +112,9 @@ def train(
         learning_rate_control_error_measure=train_def.learning_rate_control_error_measure,
         newbob_multi_num_epochs=train_epoch_split or 1,
     )
-    returnn_train_config_dict.update(config)
+    returnn_train_config_dict = dict_update_deep(returnn_train_config_dict, config)
     if isinstance(model_def, ModelDefWithCfg):
-        returnn_train_config_dict.update(model_def.config)
+        returnn_train_config_dict = dict_update_deep(returnn_train_config_dict, model_def.config)
 
     max_seq_length_default_target = returnn_train_config_dict.pop("max_seq_length_default_target", None)
     if max_seq_length_default_target is not None:
@@ -183,7 +184,7 @@ def train(
         sort_config=False,
     )
     if post_config:
-        returnn_train_config.post_config.update(post_config)
+        returnn_train_config.post_config = dict_update_deep(returnn_train_config.post_config, post_config)
 
     for k, v in SharedPostConfig.items():
         if k in returnn_train_config.config or k in returnn_train_config.post_config:
