@@ -908,6 +908,7 @@ def py():
     from returnn.frontend.encoder.e_branchformer import EBranchformerLayer
 
     # E-Branchformer. (already with our default ff and noBias)
+    # Ref: https://github.com/espnet/espnet/blob/master/egs2/librispeech/asr1/conf/tuning/train_asr_e_branchformer.yaml
     train_exp(
         "v6-EBranchformer-relPosAttDef-noBias-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2"
         "-lrlin1e_5_295k-featBN-speedpertV2-spm10k-bpeSample001",
@@ -919,6 +920,7 @@ def py():
                     rf.encoder.conformer.ConformerPositionwiseFeedForward,
                     activation=rf.build_dict(rf.relu_square),
                     with_bias=False,
+                    # TODO the ffdim in EBranchformer is only 1024...
                 ),
                 num_heads=8,
             ),
