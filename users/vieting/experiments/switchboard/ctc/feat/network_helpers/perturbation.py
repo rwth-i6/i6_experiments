@@ -49,10 +49,10 @@ class WaveformPerturbation:
 
         :param pitch: A dictionary specifying the parameters for pitch perturbation.
             - 'prob' (float): The probability of applying pitch perturbation.
-            - 'minimum' (float): The minimum factor by which the audio pitch will be decreased.
-            - 'maximum' (float): The maximum factor by which the audio pitch will be increased.
-            - 'default' (float): The default pitch factor.
-            Example: {"prob": 0.6, "minimum": 0.83, "maximum": 1.17}
+            - 'minimum' (float): The minimum number of semitones to shift.
+            - 'maximum' (float): The maximum number of semitones to shift.
+            - 'default' (float): The default pitch semitones to shift.
+            Example: {"prob": 0.6, "minimum": -3, "maximum": 3, "default": 0}
 
         :param sox_effects: A list of Lists, each dictionary representing a SoX effect.
 
