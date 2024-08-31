@@ -410,6 +410,34 @@ def py():
         train_def=lm_train_def,
     )
 
+    # Llama for 2 full epochs.
+    train(
+        "lm/trafo-n48-d512-noAbsPos-rmsNorm-ffGated-rope-noBias-drop0-b32_2k-ep40",
+        config=dict_update_deep(
+            config_11gb_lm_v1,
+            {**_get_cfg_lrlin_oclr_by_bs_nep(32, 2_000, 40)},
+        ),
+        train_dataset=get_librispeech_lm_dataset(vocab="spm10k"),
+        model_def=ModelDefWithCfg(
+            lm_model_def,
+            {
+                "_model_def_dict": rf.build_dict(
+                    TransformerDecoder,
+                    encoder_dim=None,
+                    num_layers=48,
+                    model_dim=512,
+                    pos_enc=None,
+                    norm=rf.build_dict(rf.RMSNorm),
+                    ff=rf.build_dict(rf.decoder.transformer.FeedForwardGated),
+                    decoder_layer_opts=dict(self_att=rf.build_dict(rf.RotaryPosCausalSelfAttention, with_bias=False)),
+                    dropout=0.0,
+                    att_dropout=0.0,
+                )
+            },
+        ),
+        train_def=lm_train_def,
+    )
+
     train(
         "lm/trafo-n96-d512-gelu-drop0-b32_1k-wrongLr",
         config=dict_update_deep(
