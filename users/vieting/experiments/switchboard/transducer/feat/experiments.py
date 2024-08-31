@@ -1029,11 +1029,12 @@ def run_scf_stage3():
         "preload_checkpoint": nn_system_stage2.train_jobs["fullsum_scf_bs3k_v1_align-ctc-conf-e400"].out_checkpoints[210],
     }
     feature_args = {
-        "class": "LogMelNetwork",
+        "class": "ScfNetwork",
+        "size_tf": 256 // 2,
+        "stride_tf": 10 // 2,
+        "preemphasis": 0.97,
         "wave_norm": True,
-        "frame_size": 200,
-        "frame_shift": 80,
-        "fft_size": 256,
+        "wave_cast": True,
     }
     recog_args = {
         "lm_scales": [0.55],
