@@ -299,6 +299,41 @@ def py():
         train_def=lm_train_def,
     )
 
+    # Results from trafo-n24-d512-gelu-drop0-b100_6k-wrongLr (check the Git log):
+    # The n24-d512 with wrongLr ("learning_rate_piecewise_steps": [561_600 // 2, 1_123_200 // 2, 1_248_000 // 2])
+    # and b100_6k got surprisingly a better PPL already in subepoch 37,
+    # but then it crashed with OOM. That's why we use b100_5k now for n24-d512.
+    # However, that gives us a worse PPL.
+    # So is this because of smaller batch size (then we should try grad accum)
+    # or because of the wrong LR schedule?
+    # wrongLr for b100_6k: [280_800, 561_600, 624_000]
+    # correct schedule for b100_6k: [915_615, 1831_230, 2_034_700]
+
+    # Check grad accum 2.
+    train(
+        "lm/trafo-n24-d512-gelu-drop0-b100_5k-accgrad2",
+        config=dict_update_deep(
+            config_11gb_lm_v1,
+            {"accum_grad_multiple_step": 2, **_get_cfg_lrlin_oclr_by_bs_nep(100, 5_000, 100)},
+        ),
+        train_dataset=get_librispeech_lm_dataset(vocab="spm10k"),
+        model_def=ModelDefWithCfg(
+            lm_model_def,
+            {
+                "_model_def_dict": rf.build_dict(
+                    TransformerDecoder,
+                    encoder_dim=None,
+                    num_layers=24,
+                    model_dim=512,
+                    ff_activation=rf.build_dict(rf.gelu),
+                    dropout=0.0,
+                    att_dropout=0.0,
+                )
+            },
+        ),
+        train_def=lm_train_def,
+    )
+
     train(
         "lm/trafo-n48-d512-gelu-drop0-b32_2k-wrongLr",
         config=dict_update_deep(
