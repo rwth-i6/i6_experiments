@@ -197,12 +197,13 @@ def filter_based_masking(x, batch_axis, axis, probability_distribution, max_numb
 
     return x
 
+
 def get_peak_to_average_ratio(x):
     import tensorflow as tf
 
     x = tf.convert_to_tensor(x)
     f_resp = get_frequency_response(x)
-    
+
     peak = tf.reduce_max(f_resp, axis=0)
     average = tf.reduce_mean(f_resp, axis=0)
     peak_to_average_ratio = peak - average
