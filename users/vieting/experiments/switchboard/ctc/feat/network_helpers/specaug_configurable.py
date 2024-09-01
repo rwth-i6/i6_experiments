@@ -131,6 +131,7 @@ def add_specaug_layer(
             get_frequency_response,
             transform_with_filter_masking,
             filter_based_masking,
+            get_peak_to_average_ratio,
             _mask,
             random_mask,
         ]
@@ -195,6 +196,19 @@ def filter_based_masking(x, batch_axis, axis, probability_distribution, max_numb
     x = tf.where(mask, tf.zeros_like(x), x)
 
     return x
+
+def get_peak_to_average_ratio(x):
+    import tensorflow as tf
+
+    x = tf.convert_to_tensor(x)
+    f_resp = get_frequency_response(x)
+    
+    peak = tf.reduce_max(f_resp, axis=0)
+    average = tf.reduce_mean(f_resp, axis=0)
+    peak_to_average_ratio = peak - average
+
+    return peak_to_average_ratio
+
 
 def transform(data, network, **config):
     import tensorflow as tf
@@ -414,21 +428,19 @@ def transform_with_filter_masking(data, network, **config):
 
         enable_logging = tf.convert_to_tensor(config["enable_logging"], dtype=tf.bool)
 
-            def logging_ops():
-                with tf.control_dependencies(
-                    [
-                        tf.print(
-                            "Specaug variance Log: ",
-                            current_epoch,
-                            actual_time_mask_max_num,
-                            tf.shape(x)[data.time_dim_axis],
-                            variance.shape,
-                            sep=", ",
-                        )
-                    ]
-                ):
-                    return tf.identity(x_masked)
-
+        def logging_ops():
+            with tf.control_dependencies(
+                [
+                    tf.print(
+                        "Specaug Log: ",
+                        current_epoch,
+                        tf.shape(x)[data.time_dim_axis],
+                        sep=", ",
+                    )
+                ]
+            ):
+                return tf.identity(x_masked)
+        if config["filter_based_masking_strategy"] is not None:
             x_masked = tf.cond(enable_logging, logging_ops, lambda: tf.identity(x_masked))
 
         x_masked = random_mask(
