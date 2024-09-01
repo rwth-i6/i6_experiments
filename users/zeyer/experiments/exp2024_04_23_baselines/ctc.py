@@ -680,7 +680,9 @@ def py():
         "C05_11P1": {"func": {"clamp_min": 0.5, "clamp_max": 1.1, "scale_type": "inv_num_labels", "prior_exp": 1.0}},
         # 5.85
         "C05_15P1": {"func": {"clamp_min": 0.5, "clamp_max": 1.5, "scale_type": "inv_num_labels", "prior_exp": 1.0}},
+        # 6.21
         "C01_11P1": {"func": {"clamp_min": 0.1, "clamp_max": 1.1, "scale_type": "inv_num_labels", "prior_exp": 1.0}},
+        "C08_11P1": {"func": {"clamp_min": 0.8, "clamp_max": 1.1, "scale_type": "inv_num_labels", "prior_exp": 1.0}},
         # 5.83
         "C05_11P1Seq": {
             "prior": "seq_grad",
