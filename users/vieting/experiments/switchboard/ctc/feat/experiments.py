@@ -49,7 +49,11 @@ def args_to_key_and_report_strings(args: Dict[str, Any]) -> Tuple[str, str]:
             key_string += key_component
             report_dict[key] = f"{value['prob']}_{value['minimum']}_{value['maximum']}"
         elif key == "codecs":
-            codecs_str = "_".join([f"{codec['encoding']}_{codec['prob']}" for codec in value])
+            codecs_str_list = []
+            for codec in value:
+                codec_str = f"{codec['encoding']}_{codec['prob']}_{codec['minimum']}_{codec['maximum']}"
+                codecs_str_list.append(codec_str)
+            codecs_str = "_".join(codecs_str_list)
             key_string += f"{key}_{codecs_str}_"
             report_dict[key] = codecs_str
         else:
@@ -672,6 +676,7 @@ def run_scf_audio_perturbation_from_checkpoint():
         exp_name = f"scf_bs2x5k_perturb_from_checkpoint_24_{exp_name_suffix}"
         nn_base_args[exp_name] = dict(
             returnn_args={
+                **returnn_args,
                 "extra_args": {
                     **returnn_args["extra_args"],
                     "audio_perturb_args": args,
@@ -684,7 +689,6 @@ def run_scf_audio_perturbation_from_checkpoint():
                         }
                     },
                 },
-                **returnn_args,
             },
             feature_args={
                 "class": "ScfNetwork",
@@ -703,6 +707,7 @@ def run_scf_audio_perturbation_from_checkpoint():
         exp_name = f"scf_bs2x5k_perturb_from_checkpoint_24_{exp_name_suffix}"
         nn_base_args[exp_name] = dict(
             returnn_args={
+                **returnn_args,
                 "extra_args": {
                     **returnn_args["extra_args"],
                     "audio_perturb_args": args,
@@ -713,7 +718,6 @@ def run_scf_audio_perturbation_from_checkpoint():
                         }
                     },
                 },
-                **returnn_args,
             },
             feature_args={"class": "ScfNetwork", "size_tf": 256 // 2, "stride_tf": 10 // 2},
             lr_args=lr_args,
@@ -727,6 +731,7 @@ def run_scf_audio_perturbation_from_checkpoint():
         exp_name = f"scf_bs2x5k_perturb_from_checkpoint_24_wn_{exp_name_suffix}"
         nn_base_args[exp_name] = dict(
             returnn_args={
+                **returnn_args,
                 "extra_args": {
                     **returnn_args["extra_args"],
                     "audio_perturb_args": args,
@@ -737,7 +742,6 @@ def run_scf_audio_perturbation_from_checkpoint():
                         }
                     },
                 },
-                **returnn_args,
             },
             feature_args={"class": "ScfNetwork", "size_tf": 256 // 2, "stride_tf": 10 // 2, "wave_norm": True},
             lr_args=lr_args,
