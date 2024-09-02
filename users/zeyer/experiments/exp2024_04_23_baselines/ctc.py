@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING, Optional, Union, Tuple, Sequence
 from returnn.tensor import Tensor, Dim
 import returnn.frontend as rf
 from returnn.frontend.tensor_array import TensorArray
-from returnn.frontend.encoder.conformer import ConformerEncoder, ConformerConvSubsample
+from returnn.frontend.encoder.conformer import ConformerEncoder, ConformerEncoderLayer, ConformerConvSubsample
 from returnn.frontend.decoder.transformer import TransformerDecoder
 
 from i6_experiments.users.zeyer.model_interfaces import ModelDef, ModelDefWithCfg, RecogDef, TrainDef
@@ -820,6 +820,36 @@ def py():
         train_vocab_opts={"other_opts": {"class": "SamplingBytePairEncoding", "breadth_prob": 0.01}},
     )
 
+    # Testing Conformer layer without layernorm (noFinalNorm). (Baseline 5.65)
+    # (But this is just one step. Maybe the macaron structure does also not make sense anymore then...)
+    train_exp(
+        "v6-relPosAttDef-noBias-noFinalNorm-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2"
+        "-lrlin1e_5_295k-featBN-speedpertV2-spm10k-bpeSample001",
+        config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
+        model_config={
+            "enc_conformer_layer": rf.build_dict(
+                rf.encoder.conformer.ConformerEncoderLayer,
+                ff=rf.build_dict(
+                    rf.encoder.conformer.ConformerPositionwiseFeedForward,
+                    activation=rf.build_dict(rf.relu_square),
+                    with_bias=False,
+                ),
+                num_heads=8,
+            ),
+            "enc_conformer_final_layer_norm": "last",
+            "feature_batch_norm": True,
+        },
+        config_updates={
+            **_get_cfg_lrlin_oclr_by_bs_nep(15_000, 500),
+            "optimizer.weight_decay": 1e-2,
+            "__train_audio_preprocess": speed_pert_librosa_config,
+            "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
+            "aux_attention_decoder": rf.build_dict(TransformerDecoder, num_layers=6),  # purely used for training
+        },
+        vocab="spm10k",
+        train_vocab_opts={"other_opts": {"class": "SamplingBytePairEncoding", "breadth_prob": 0.01}},
+    )
+
     # rope+rmsNorm+noBias. (Baseline: 5.77)
     train_exp(  # 5.87, so worse. rope makes it worse, as seen before, but rmsNorm and noBias should make it better.
         "v6-relPosAttDef-rope-rmsNorm-noBias-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2"
@@ -1494,6 +1524,18 @@ class Model(rf.Module):
             sequential=enc_sequential,
             **(enc_other_opts or {}),
         )
+
+        # Experiments without final layer norm. (We might clean this up when this is not successful.)
+        # Just patch the encoder here.
+        enc_conformer_final_layer_norm = config.typed_value("enc_conformer_final_layer_norm", None)
+        if enc_conformer_final_layer_norm is None:
+            pass
+        elif enc_conformer_final_layer_norm == "last":  # only in the last, i.e. remove everywhere else
+            for layer in self.encoder.layers[:-1]:
+                layer: ConformerEncoderLayer
+                layer.final_layer_norm = rf.identity
+        else:
+            raise ValueError(f"invalid enc_conformer_final_layer_norm {enc_conformer_final_layer_norm!r}")
 
         self.target_dim = target_dim
         self.blank_idx = blank_idx
