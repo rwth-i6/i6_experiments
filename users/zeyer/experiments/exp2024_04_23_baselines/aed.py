@@ -178,7 +178,7 @@ def py():
     for vocab, sample, alpha, max_seq_len_via_audio, model_name, model_cfg in [
         ("spm10k", "spm", 0.7, False, None, {}),
         ("spm10k", "bpe", 0.01, False, None, {}),  # 5.14
-        ("spm10k", "bpe", 0.01, False, "relPosAttDef", {"enc_conformer_layer": enc_conformer_layer_default}),
+        ("spm10k", "bpe", 0.01, False, "relPosAttDef", {"enc_conformer_layer": enc_conformer_layer_default}),  # 5.12
         (
             "spm10k",
             "bpe",
