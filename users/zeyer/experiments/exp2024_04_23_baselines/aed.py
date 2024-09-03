@@ -179,7 +179,7 @@ def py():
         ("spm10k", "spm", 0.7, False, None, {}),
         ("spm10k", "bpe", 0.01, False, None, {}),  # 5.14
         ("spm10k", "bpe", 0.01, False, "relPosAttDef", {"enc_conformer_layer": enc_conformer_layer_default}),  # 5.12
-        (
+        (  # 5.14, seems a bit worse (also looking at test)
             "spm10k",
             "bpe",
             0.01,
