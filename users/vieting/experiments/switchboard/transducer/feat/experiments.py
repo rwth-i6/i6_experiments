@@ -881,6 +881,221 @@ def run_scf_stage2():
         nn_system.train_jobs[training_name].rqmt["gpu_mem"] = 24
     return nn_system, report
 
+def run_scf_stage3():
+    gs.ALIAS_AND_OUTPUT_SUBDIR = "experiments/switchboard/transducer/feat/"
+
+    # create datasets
+    nn_system_stage2, _ = run_scf_stage2()
+    nn_system_stage2 = copy.deepcopy(nn_system_stage2)
+    train_corpus, dev_corpora, _ = get_switchboard_data(lexicon_remove_sentence_boundary=True)
+    returnn_datasets = get_returnn_datasets_transducer_viterbi(keep_hashes=False)
+
+    train_corpus.concurrent = 300
+    train_corpus.lexicon = dev_corpora["transducer"]["hub5e00"].lexicon  # does not contain all train words
+    nn_system_stage2.corpus_data["train"] = train_corpus
+    train_corpus.lm = copy.deepcopy(train_corpus.lm)
+    train_corpus.lm["filename"] = tk.Path(
+        "/work/asr4/vieting/setups/swb/dependencies/swb.zoltan.4gram.lm.gz",
+        hash_overwrite="swb_zoltan_lm",
+    )
+    nn_system_stage2.crp["train"] = nn_system_stage2.get_crp(train_corpus)
+    nn_system_stage2.crp["train"].acoustic_model_config = copy.deepcopy(
+        nn_system_stage2.crp["hub5e00"].acoustic_model_config
+    )
+    recog_args_nbest = {
+        "lm_scales": [0.4],
+        "lookahead_options": {"lm_lookahead_scale": 0.4},
+        "label_scorer_args": {
+            "extra_args": {
+                "blank-label-index": 0,
+                "context-size": 1,
+                "label-scorer-type": "tf-ffnn-transducer",
+                "max-batch-size": 256,
+                "reduction-factors": 80 * 4,
+                "reduction-subtrahend": (40 - 1) * 5 + 128,
+                "start-label-index": 89,
+                "transform-output-negate": True,
+                "use-start-label": True,
+            },
+        },
+        "label_tree_args": {"skip_silence": True},
+        "search_parameters": {
+            "allow-blank-label": True,
+            "allow-label-recombination": True,
+            "allow-word-end-recombination": True,
+            "create-lattice": True,
+            "full-sum-decoding": True,
+            "label-pruning": 9.0,
+            "label-pruning-limit": 20000,
+            "label-recombination-limit": 1,
+            "recombination-lm.type": "simple-history",
+            "separate-recombination-lm": True,
+            "word-end-pruning": 0.8,
+            "word-end-pruning-limit": 2000,
+        },
+        "label_scorer_type": "tf-ffnn-transducer",
+        "epochs": [210],
+    }
+    nn_system_stage2.returnn_configs["fullsum_scf_bs3k_v1_align-ctc-conf-e400"].recog_configs["recog"].config["network"]["output"][
+        "unit"
+    ]["label_context"][
+        "from"
+    ] = "output"  # no ILM, just SF
+    nn_system_stage2.run_recogs_for_corpora(
+        ["train"], "fullsum_scf_bs3k_v1_align-ctc-conf-e400", SearchTypes.GenericSeq2SeqSearchJob, **recog_args_nbest
+    )
+    from i6_core.text.processing import PipelineJob
+    from i6_core.lm.perplexity import ComputePerplexityJob
+    from i6_experiments.users.vieting.jobs.nbest import LatticeToNBestListJob, NBestListToHDFDatasetJob
+    from i6_experiments.users.vieting.jobs.lm import UtteranceLMScoresFromWordScoresFileJob
+
+    nn_system_stage2.crp["train"].flf_tool_exe = tk.Path(
+        "/work/asr4/vieting/programs/rasr/20240611v4/rasr/arch/linux-x86_64-standard/flf-tool.linux-x86_64-standard",
+        hash_overwrite="rasr_flf_tool_testing",
+    )
+    nn_system_stage2.crp["train"].lm_util_exe = tk.Path(
+        "/work/asr4/vieting/programs/rasr/20240611v4/rasr/arch/linux-x86_64-standard/lm-util.linux-x86_64-standard",
+        hash_overwrite="rasr_lm_util_testing",
+    )
+    job_nbest = LatticeToNBestListJob(
+        nn_system_stage2.crp["train"],
+        nn_system_stage2.recog_jobs[
+            "nn_recog/train/fullsum_scf_bs3k_v1_align-ctc-conf-e400/recog_e-210_prior-0.00_lm-0.40"
+        ].out_lattice_bundle,
+        200,
+        word_level=False,
+    )
+    state_tying = DumpStateTyingJob(nn_system_stage2.crp["hub5e00"]).out_state_tying
+    text_file = PipelineJob(
+        train_corpus.corpus_object.corpus_file,
+        ["grep '<orth>'", r"sed -r 's/\s*<orth> (.*) <\/orth>/\1/g'"],
+    ).out
+    job_ppl = ComputePerplexityJob(nn_system_stage2.crp["train"], text_file)
+    job_lm_scores = UtteranceLMScoresFromWordScoresFileJob(train_corpus.corpus_object.corpus_file, job_ppl.score_file)
+    job = NBestListToHDFDatasetJob(
+        n=4,
+        nbest_path=job_nbest.out_nbest_file,
+        corpus_file=train_corpus.corpus_object.corpus_file,
+        state_tying=state_tying,
+        returnn_root=RETURNN_ROOT,
+        phoneme_alignment=returnn_datasets["train"]["datasets"]["hdf"]["files"],
+        lm_scores=job_lm_scores.out_score_file,
+        concurrent=100,
+    )
+    hdf_files = {
+        "classes": list(job.out_classes_hdfs.values()),
+        "classes_size": list(job.out_classes_lens_hdfs.values()),
+        "score": list(job.out_score_hdfs.values()),
+        "risk": list(job.out_risk_hdfs.values()),
+    }
+    for dataset in iterate_returnn_datasets(returnn_datasets):
+        dataset["data_map"].update(
+            {f"nbest_{key}": (f"nbest_{key}", "data") for key in ["classes", "classes_size", "score", "risk"]}
+        )
+        dataset["datasets"].update(
+            {
+                f"nbest_{key}": {
+                    "class": "HDFDataset",
+                    "files": hdf_files[key],
+                    "use_cache_manager": True,
+                }
+                for key in ["classes", "classes_size", "score", "risk"]
+            }
+        )
+    returnn_datasets["train"]["datasets"]["ogg"]["seq_ordering"] = "laplace:.4800"
+
+    # common parameters
+    returnn_args = {
+        "batch_size": 2000,
+        "datasets": returnn_datasets,
+        "extra_args": {
+            "accum_grad_multiple_step": 8,
+            "gradient_clip": 0.0,
+            "learning_rate": 1e-5,
+            "min_learning_rate": 1e-5,
+            "max_seq_length": {"classes": 435, "nbest_classes": 200},
+            "extern_data": {
+                "data": {"dim": 1},
+                "classes": {"dim": 88, "dtype": "uint16", "sparse": True},
+                "nbest_classes": {"dim": 88, "dtype": "int64", "shape": [None, 4]},
+                "nbest_risk": {"dim": 4, "dtype": "int64", "sparse": True},
+                "nbest_score": {"dim": 4, "dtype": "float64", "time_dim_axis": None},
+                "nbest_classes_size": {"dim": 4, "dtype": "int64", "sparse": True},
+            },
+        },
+        "specaug_old": False,
+        "rasr_loss_args": {"transducer_training_stage": "mbr"},
+        "conformer_args": {"dropout": 0.25, "batch_norm_freeze": True},
+        "preload_checkpoint": nn_system_stage2.train_jobs["fullsum_scf_bs3k_v1_align-ctc-conf-e400"].out_checkpoints[210],
+    }
+    feature_args = {
+        "class": "ScfNetwork",
+        "size_tf": 256 // 2,
+        "stride_tf": 10 // 2,
+        "preemphasis": 0.97,
+        "wave_norm": True,
+        "wave_cast": True,
+    }
+    recog_args = {
+        "lm_scales": [0.55],
+        "lookahead_options": {"lm_lookahead_scale": 0.55},
+        "label_scorer_args": {
+            "extra_args": {
+                "blank-label-index": 0,
+                "context-size": 1,
+                "label-scorer-type": "tf-ffnn-transducer",
+                "max-batch-size": 256,
+                "reduction-factors": 80 * 4,
+                "reduction-subtrahend": (40 - 1) * 5 + 128,
+                "start-label-index": 89,
+                "transform-output-negate": True,
+                "use-start-label": True,
+            },
+        },
+        "search_parameters": {
+            "allow-blank-label": True,
+            "allow-label-recombination": True,
+            "allow-word-end-recombination": True,
+            "create-lattice": True,
+            "full-sum-decoding": True,
+            "label-pruning": 13.5,
+            "label-pruning-limit": 20000,
+            "recombination-lm.type": "simple-history",
+            "separate-recombination-lm": True,
+            "word-end-pruning": 0.8,
+            "word-end-pruning-limit": 2000,
+        },
+        "epochs": [1, 2, 3, 4, 5, 6],
+    }
+    common_args = {
+        "feature_args": feature_args,
+    }
+
+    # set up experiments
+    nn_base_args = {
+        "bs2k_v1": dict(
+            returnn_args=returnn_args,
+            report_args={"stage": "mbr"},
+            **common_args,
+        ),
+    }
+    nn_args, report_args_collection = get_nn_args_baseline(
+        nn_base_args=nn_base_args,
+        num_epochs=6,
+        evaluation_epochs=list(range(1, 7)),
+        prefix="mbr_scf_",
+    )
+
+    # run training and recognition
+    nn_system, report = run_nn_args(
+        nn_args,
+        report_args_collection,
+        dev_corpora["transducer"],
+        returnn_root=RETURNN_ROOT_FULLSUM,
+        recog_args=recog_args,
+    )
+    return nn_system, report
+
 
 def py():
     """
@@ -892,6 +1107,7 @@ def py():
     _, report_mel_stage3 = run_mel_stage3()
     _, report_scf_stage1 = run_scf_stage1()
     _, report_scf_stage2 = run_scf_stage2()
+    _, report_scf_stage3 = run_scf_stage3()
 
     report_base = Report(
         columns_start=["train_name", "features", "alignment"],
@@ -906,6 +1122,7 @@ def py():
             report_mel_stage3,
             report_scf_stage1,
             report_scf_stage2,
+            report_scf_stage3,
         ]
     )
     report.delete_redundant_columns()
