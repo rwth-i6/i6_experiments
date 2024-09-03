@@ -912,7 +912,7 @@ def run_scf_stage3():
                 "label-scorer-type": "tf-ffnn-transducer",
                 "max-batch-size": 256,
                 "reduction-factors": 80 * 4,
-                "reduction-subtrahend": (40 - 1) * 5 + 128 - 1,
+                "reduction-subtrahend": (40 - 1) * 5 + 128,
                 "start-label-index": 89,
                 "transform-output-negate": True,
                 "use-start-label": True,
