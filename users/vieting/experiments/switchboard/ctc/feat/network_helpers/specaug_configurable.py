@@ -131,7 +131,6 @@ def add_specaug_layer(
             get_frequency_response,
             transform_with_filter_masking,
             filter_based_masking,
-            get_peak_to_average_ratio,
             _mask,
             random_mask,
         ]
@@ -196,17 +195,6 @@ def filter_based_masking(x, batch_axis, axis, probability_distribution, max_numb
     x = tf.where(mask, tf.zeros_like(x), x)
 
     return x
-
-
-def get_peak_to_average_ratio(x):
-    import tensorflow as tf
-    f_resp = get_frequency_response(x)
-
-    peak = tf.reduce_max(f_resp, axis=0)
-    average = tf.reduce_mean(f_resp, axis=0)
-    peak_to_average_ratio = peak / average
-
-    return peak_to_average_ratio
 
 
 def transform(data, network, **config):
