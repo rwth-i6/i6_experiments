@@ -784,18 +784,18 @@ def sis_run_with_prefix(prefix_name: str = None):
 
     # two pass rescoring att + ctc + trafo lm + ilm
     for scales, prior_scale, lm_scale, ilm_scale, beam_size in product(
-        [(0.8, 0.2), (0.85, 0.15), (0.9, 0.1), (0.95, 0.05), (0.99, 0.01)],
-        [0.0], [0.54], [0.4], [12]
+        [(1.0, 0.0009), (1.0 ,0.001)],
+        [0.0], [0.42], [0.0], [12, 32, 40]
     ):
         att_scale, ctc_scale = scales
         recog_name = (
             f"/two_pass_att{att_scale}_ctc{ctc_scale}"
             + (f"_prior{prior_scale}" if prior_scale > 0.0 else "")
             + f"_trafo_lm{lm_scale}"
-            + f"_ilm{ilm_scale}"
+            + (f"_ilm{ilm_scale}" if ilm_scale > 0.0 else "")
             + f"_beam{beam_size}"
         )
-        name = prefix_name + with_lm_ilm_name + recog_name
+        name = prefix_name + with_lm_name + recog_name
         search_args = {
             "beam_size": beam_size,
             "add_trafo_lm": True,
@@ -808,16 +808,17 @@ def sis_run_with_prefix(prefix_name: str = None):
             "prior_corr": prior_scale > 0.0,
             "ctc_prior_file": "/work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/2023-02-22--conformer-swb/work/i6_core/returnn/extract_prior/ReturnnComputePriorJobV2.ZeflcEHlQTjn/output/prior.txt",
             "prior_scale": prior_scale,
-            "rescore_with_ctc": True,
+            "rescore_w_ctc": True,
             "rescore_att_scale": att_scale,
             "rescore_ctc_scale": ctc_scale,
+            "hash_overwrite": "fix",
         }
         res, _ = recog_model(
             task,
             model_with_checkpoint,
             model_recog,
-            dev_sets=["dev-other"],
-            # dev_sets=["dev-clean", "dev-other", "test-clean", "test-other"],
+            # dev_sets=["dev-other"],
+            dev_sets=["dev-clean", "dev-other", "test-clean", "test-other"],
             model_args=model_args,
             search_args=search_args,
             prefix_name=name,
@@ -830,7 +831,7 @@ def sis_run_with_prefix(prefix_name: str = None):
         )
 
     # optsr att + ctc + trafo  + ilm
-    for scales, prior_scale, lm_scale, ilm_scale, beam_size in product([(0.8, 0.2)], [0.2], [0.7, 0.73, 0.75, 0.8, 0.85], [0.38, 0.4, 0.42], [32]): # 12
+    for scales, prior_scale, lm_scale, ilm_scale, beam_size in product([(0.8, 0.2)], [0.2], [0.7, 0.8], [0.42], [32]): # 12
         att_scale, ctc_scale = scales
         name = (
             prefix_name_40
@@ -862,11 +863,12 @@ def sis_run_with_prefix(prefix_name: str = None):
             task,
             model_with_checkpoint,
             model_recog_time_sync,
-            dev_sets=["dev-other"],
+            dev_sets=None,
+            # dev_sets=["dev-other"],
             model_args=model_args,
             search_args=search_args,
             prefix_name=name,
-            search_rqmt={"time": 4}
+            search_rqmt={"time": 6}
         )
         tk.register_output(
             name + f"/recog_results",

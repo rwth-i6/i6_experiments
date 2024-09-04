@@ -23,6 +23,7 @@ def model_recog_ctc(
     data: Tensor,
     data_spatial_dim: Dim,
     max_seq_len: Optional[int] = None,
+    search_args: Optional[Dict[str, Any]] = None,
 ) -> Tuple[Tensor, Tensor, Dim, Dim]:
     """
     Function is run within RETURNN.
@@ -37,6 +38,9 @@ def model_recog_ctc(
         out_spatial_dim,
         final beam_dim
     """
+    if hasattr(model, "search_args"):
+        search_args = model.search_args
+
     batch_dims = data.remaining_dims((data_spatial_dim, data.feature_dim))
     enc_args, enc_spatial_dim = model.encode(data, in_spatial_dim=data_spatial_dim)
 
@@ -61,12 +65,12 @@ def model_recog_ctc(
     hlens = max_seq_len.raw_tensor
 
     ctc_spatial_dim = enc_spatial_dim
-    if model.search_args.get("blank_collapse", False):
+    if search_args.get("blank_collapse", False):
         col_probs, col_lens = blank_collapse_batched(
             ctc_out_raw.to("cpu"),
             hlens,
-            model.search_args.get("blank_threshold", 0.0),
-            model.search_args.get("blank_idx", 10025),
+            search_args.get("blank_threshold", 0.0),
+            search_args.get("blank_idx", 10025),
         )
         ctc_spatial_dim = enc_spatial_dim.copy(description="ctc-spatial")
         hlens = col_lens.to(torch.int32)
@@ -74,17 +78,17 @@ def model_recog_ctc(
         ctc_out_raw = col_probs.to("cuda")
         ctc_out.raw_tensor = ctc_out_raw
 
-    if model.search_args.get("prior_corr", False):
+    if search_args.get("prior_corr", False):
         ctc_log_prior = numpy.loadtxt(
-            model.search_args.get("ctc_prior_file", None), dtype="float32"
+            search_args.get("ctc_prior_file", None), dtype="float32"
         )
         ctc_out_raw = ctc_out_raw - (
             torch.tensor(ctc_log_prior)
             .repeat(ctc_out_raw.shape[0], ctc_out_raw.shape[1], 1)
             .to("cuda")
-            * model.search_args.get("prior_scale", 0.3)
+            * search_args.get("prior_scale", 0.3)
         )
-        if model.search_args.get("prior_corr_renorm", False):
+        if search_args.get("prior_corr_renorm", False):
             ctc_out_raw = ctc_out_raw - torch.logsumexp(ctc_out_raw, dim=2, keepdim=True)
         ctc_out.raw_tensor = ctc_out_raw
 

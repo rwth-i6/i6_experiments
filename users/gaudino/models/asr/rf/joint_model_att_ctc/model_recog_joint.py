@@ -52,8 +52,8 @@ def model_recog(
     enc_ctc = final_ctc_layer(enc_args_ctc["enc"])
     enc_ctc = rf.log_softmax(enc_ctc, axis=model_ctc.target_dim_w_blank)
 
-    beam_size = model_aed.search_args.get("beam_size", 12)
-    length_normalization_exponent = model_aed.search_args.get("length_normalization_exponent", 1.0)
+    beam_size = model.search_args.get("beam_size", 12)
+    length_normalization_exponent = model.search_args.get("length_normalization_exponent", 1.0)
     if max_seq_len is None:
         max_seq_len = enc_spatial_dim.get_size_tensor()
     else:
@@ -91,7 +91,7 @@ def model_recog(
 
     blank_index = model.target_dim.get_dim_value()
 
-    if model.search_args.get("use_ctc", False) or model.search_args.get("rescore_with_ctc", False):
+    if model.search_args.get("use_ctc", False) or model.search_args.get("rescore_w_ctc", False):
 
         ctc_out = (
             enc_ctc
@@ -116,13 +116,15 @@ def model_recog(
         # hlens = max_seq_len.raw_tensor.repeat(beam_size).view(beam_size, data.raw_tensor.shape[0]).transpose(0, 1)
         hlens = max_seq_len.raw_tensor
 
-        if model.search_args.get("prior_corr", False):
-            ctc_log_prior = numpy.loadtxt(model.search_args.get("prior_file", model.search_args.get("ctc_prior_file", "")), dtype="float32")
+        if search_args.get("prior_scale", 0.0) > 0.0:
+            prior = numpy.loadtxt(search_args.get("prior_file", search_args.get("ctc_prior_file", "")),
+                                  dtype="float32")
+            prior = torch.tensor(prior).repeat(ctc_out.shape[0], ctc_out.shape[1], 1).to(ctc_out.device)
+            if not search_args.get("is_log_prior", True):
+                prior = torch.log(prior)
             ctc_out = ctc_out - (
-                torch.tensor(ctc_log_prior)
-                .repeat(ctc_out.shape[0], ctc_out.shape[1], 1)
-                .to(ctc_out.device)
-                * model.search_args["prior_scale"]
+                prior
+                * search_args["prior_scale"]
             )
             ctc_out = ctc_out - torch.logsumexp(ctc_out, dim=2, keepdim=True)
 
@@ -294,9 +296,9 @@ def model_recog(
     out_spatial_dim = Dim(out_seq_len, name="out-spatial")
     seq_targets = seq_targets__.stack(axis=out_spatial_dim)
 
-    # if model.search_args.get("rescore_w_ctc",False):
-    #     from .two_pass import rescore_w_ctc
-    #     seq_targets, seq_log_prob = rescore_w_ctc(model, seq_targets, seq_log_prob, ctc_out, batch_size, beam_size, model.blank_idx)
+    if search_args.get("rescore_w_ctc",False):
+        from i6_experiments.users.gaudino.experiments.rf_conformer_att_2023.librispeech_960.model_recogs.two_pass import rescore_w_ctc
+        seq_targets, seq_log_prob = rescore_w_ctc(search_args, seq_targets, seq_log_prob, ctc_out, batch_size, beam_size, model.blank_idx)
 
     return seq_targets, seq_log_prob, out_spatial_dim, beam_dim
 

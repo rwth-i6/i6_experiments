@@ -43,7 +43,7 @@ def forward_model(
     """recog"""
     if dev_sets is not None:
         assert all(k in task.eval_datasets for k in dev_sets)
-    # outputs = {}
+    outputs = {}
     for name, dataset in task.eval_datasets.items():
         if dev_sets is not None:
             if name not in dev_sets:
@@ -51,10 +51,10 @@ def forward_model(
         recog_out = forward_dataset(dataset=dataset, model=model, recog_def=recog_def,
                                     search_post_config=search_post_config, search_mem_rqmt=search_mem_rqmt,
                                     recog_post_proc_funcs=task.recog_post_proc_funcs, model_args=model_args,
-                                    search_args=search_args, prefix_name=prefix_name, forward_lm=forward_lm)
+                                    search_args=search_args, prefix_name=prefix_name + f"/{name}", forward_lm=forward_lm)
         # score_out = task.score_recog_output_func(dataset, recog_out)
-        # outputs[name] = score_out
-    return recog_out
+        outputs[name] = recog_out
+    return outputs
 
 def forward_custom_dataset(
     *,

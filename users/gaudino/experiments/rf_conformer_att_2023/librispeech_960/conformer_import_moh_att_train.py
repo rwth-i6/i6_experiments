@@ -45,6 +45,8 @@ from i6_experiments.users.gaudino.models.asr.rf.ilm_import_2024_04_17 import (
 )
 
 from i6_experiments.users.gaudino.experiments.rf_conformer_att_2023.librispeech_960.model_recogs.model_recog import model_recog as model_recog_extended
+from i6_experiments.users.gaudino.experiments.rf_conformer_att_2023.librispeech_960.model_recogs.model_recog_ctc_greedy import model_recog_ctc
+from i6_experiments.users.gaudino.experiments.rf_conformer_att_2023.librispeech_960.model_recogs.model_recog_time_sync import model_recog_time_sync
 
 # From Mohammad, 2023-06-29
 # dev-clean  2.27
@@ -112,6 +114,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
     from i6_core.returnn.training import PtCheckpoint
 
     _sis_setup_global_prefix(prefix_name)
+
 
     # Moh:      dev-clean  2.27, dev-other  5.39, test-clean  2.41,  test-other  5.51
     # RF recog: {"dev-clean": 2.25, "dev-other": 5.34, "test-clean": 2.42, "test-other": 5.56}
@@ -349,28 +352,30 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
     )
     new_ckpt = PtCheckpoint(new_ckpt_path)
 
-    for lm_scale, beam_size in product([0.25], [40, 48]):
-        recog_config={
-            "batch_size": 1250 * _batch_size_factor,
-            "search_args": {
+    recog_config = {
+        "batch_size": 1250 * _batch_size_factor,
+        "external_language_model": {
+            "class": "Trafo_LM_Model",
+            "num_layers": 24,
+            "layer_out_dim": 1024,
+            "att_num_heads": 8,
+            "use_pos_enc": True,
+            "ff_activation": "relu",
+        },
+        "preload_from_files": {
+            "01_trafo_lm": {
+                "prefix": "language_model.",
+                "filename": "/work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/2023-08-10--rf-librispeech/work/i6_experiments/users/gaudino/returnn/convert_ckpt_rf/librispeech/trafo_lm_only_24_02_06/network.023.pt",
+            },
+        },
+        "aux_loss_layers": [4,8],
+    }
+
+    for lm_scale, beam_size in product([0.25], []):
+        recog_config["search_args"] = {
                 "beam_size": beam_size,
                 "lm_scale": lm_scale,
             },
-            "external_language_model": {
-                "class": "Trafo_LM_Model",
-                "num_layers": 24,
-                "layer_out_dim": 1024,
-                "att_num_heads": 8,
-                "use_pos_enc": True,
-                "ff_activation": "relu",
-            },
-            "preload_from_files": {
-                "01_trafo_lm": {
-                    "prefix": "language_model.",
-                    "filename": "/work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/2023-08-10--rf-librispeech/work/i6_experiments/users/gaudino/returnn/convert_ckpt_rf/librispeech/trafo_lm_only_24_02_06/network.023.pt",
-                },
-            },
-        }
 
         _recog(
             "base-24gb-v6-lrlin1e_5_600k" + "/bsf10" + f"/att_trafo_lm{lm_scale}_beam{beam_size}",
@@ -378,6 +383,187 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
                 definition=from_scratch_model_def, checkpoint=new_ckpt
             ),
             recog_def=model_recog_extended,
+            recog_config=recog_config,
+            # dev_sets=["dev-other"],
+            dev_sets=None,
+            device="gpu",
+        )
+
+    model_name = "/base-24gb-v6-lrlin1e_5_600k-ep2000"
+
+    # ctc greedy
+    name = "bsf10" + model_name + "/ctc_greedy"
+    search_args = {
+        "bsf": 10,
+        "ctc_prior_file": "",
+        "prior_scale": 0.0,
+    }
+    recog_config["search_args"] = search_args
+
+    _recog(
+        name,
+        ModelWithCheckpoint(
+            definition=from_scratch_model_def, checkpoint=new_ckpt
+        ),
+        recog_def=model_recog_ctc,
+        recog_config=recog_config,
+        # dev_sets=["dev-other"],
+        dev_sets=None,
+        device="gpu",
+    )
+
+    # opls ctc + lm
+    # opls_ctc_trafo_lm0.7_beam32/recog_results
+    # {"dev-clean": 2.14, "dev-other": 4.74, "test-clean": 2.4, "test-other": 5.07}
+    for prior_scale, lm_scale, beam_size in product(
+        [0.0], [0.0, 0.6, 0.7], []
+    ):
+        recog_name = (
+            f"/opls_ctc"
+            + (f"_prior{prior_scale}" if prior_scale > 0.0 else "")
+            + (f"_trafo_lm{lm_scale}" if lm_scale > 0.0 else "")
+            + f"_beam{beam_size}"
+        )
+        name = "/bsf10" + model_name + ("/with_lm" if lm_scale > 0.0 else "") + recog_name
+        search_args = {
+            "beam_size": beam_size,
+            "add_trafo_lm": lm_scale > 0.0,
+            "lm_scale": lm_scale,
+            "att_scale": 0.0,
+            "ctc_scale": 1.0,
+            "bsf": 10,
+            "ctc_prior_file": "",
+            "prior_scale": prior_scale,
+            "use_lm_first_label": True,
+        }
+
+        recog_config["search_args"] = search_args
+
+        _recog(
+            name,
+            ModelWithCheckpoint(
+                definition=from_scratch_model_def, checkpoint=new_ckpt
+            ),
+            recog_def=model_recog_extended,
+            recog_config=recog_config,
+            # dev_sets=["dev-other"],
+            dev_sets=None,
+            device="gpu",
+        )
+
+    # opls att + ctc
+    for scales, prior_scale, lm_scale, beam_size in product(
+        [(0.9, 0.1)], [0.0], [0.0, 0.5], []
+    ):
+        att_scale, ctc_scale = scales
+        recog_name = (
+            f"/opls_att{att_scale}_ctc{ctc_scale}"
+            + (f"_prior{prior_scale}" if prior_scale > 0.0 else "")
+            + (f"_trafo_lm{lm_scale}" if lm_scale > 0.0 else "")
+            + f"_beam{beam_size}"
+        )
+        name = "bsf10" + model_name + ("/with_lm" if lm_scale > 0.0 else "") + recog_name
+        search_args = {
+            "beam_size": beam_size,
+            "add_trafo_lm": lm_scale > 0.0,
+            "lm_scale": lm_scale,
+            "att_scale": att_scale,
+            "ctc_scale": ctc_scale,
+            "bsf": 10,
+            "ctc_prior_file": "",
+            "prior_scale": prior_scale,
+            "use_lm_first_label": True,
+        }
+
+        recog_config["search_args"] = search_args
+
+        _recog(
+            name,
+            ModelWithCheckpoint(
+                definition=from_scratch_model_def, checkpoint=new_ckpt
+            ),
+            recog_def=model_recog_extended,
+            recog_config=recog_config,
+            # dev_sets=["dev-other"],
+            dev_sets=None,
+            device="gpu",
+        )
+
+    # optsr ctc + lm
+    for prior_scale, lm_scale, beam_size in product(
+        [0.0], [0.5, 0.55, 0.6, 0.65], [12]
+    ):
+        recog_name = (
+            f"/optsr_ctc"
+            + (f"_prior{prior_scale}" if prior_scale > 0.0 else "")
+            + (f"_trafo_lm{lm_scale}" if lm_scale > 0.0 else "")
+            + f"_beam{beam_size}"
+        )
+        name = "bsf40" + model_name + ("/with_lm" if lm_scale > 0.0 else "") + recog_name
+        search_args = {
+            "beam_size": beam_size,
+            "add_trafo_lm": lm_scale > 0.0,
+            "lm_scale": lm_scale,
+            "att_scale": 0.0,
+            "ctc_scale": 1.0,
+            "bsf": 40,
+            "ctc_prior_file": "",
+            "prior_scale": prior_scale,
+            "use_lm_first_label": True,
+            "lm_skip": True,
+        }
+
+        recog_config["search_args"] = search_args
+        recog_config["batch_size"] = 4*1250*_batch_size_factor
+        recog_config["external_language_model"]["pos_enc_diff_pos"] = True
+
+        _recog(
+            name,
+            ModelWithCheckpoint(
+                definition=from_scratch_model_def, checkpoint=new_ckpt
+            ),
+            recog_def=model_recog_time_sync,
+            recog_config=recog_config,
+            dev_sets=["dev-other"],
+            # dev_sets=None,
+            device="gpu",
+        )
+
+    # optsr att + ctc
+    for scales, prior_scale, lm_scale, beam_size in product(
+        [(0.9, 0.1)], [0.0], [0.0, 0.3], [12, 32] # TODO: run tst for lm 0.0
+    ):
+        att_scale, ctc_scale = scales
+        recog_name = (
+            f"/optsr_att{att_scale}_ctc{ctc_scale}"
+            + (f"_prior{prior_scale}" if prior_scale > 0.0 else "")
+            + (f"_trafo_lm{lm_scale}" if lm_scale > 0.0 else "")
+            + f"_beam{beam_size}"
+        )
+        name = "bsf40" + model_name + ("/with_lm" if lm_scale > 0.0 else "") + recog_name
+        search_args = {
+            "beam_size": beam_size,
+            "add_trafo_lm": lm_scale > 0.0,
+            "lm_scale": lm_scale,
+            "att_scale": att_scale,
+            "ctc_scale": ctc_scale,
+            "bsf": 40,
+            "ctc_prior_file": "",
+            "prior_scale": prior_scale,
+            "use_lm_first_label": True,
+            "lm_skip": True,
+        }
+
+        recog_config["search_args"] = search_args
+        recog_config["batch_size"] = 4*1250*_batch_size_factor
+        recog_config["external_language_model"]["pos_enc_diff_pos"] = True
+
+        _recog(
+            name,
+            ModelWithCheckpoint(
+                definition=from_scratch_model_def, checkpoint=new_ckpt
+            ),
+            recog_def=model_recog_time_sync,
             recog_config=recog_config,
             # dev_sets=["dev-other"],
             dev_sets=None,
@@ -1235,7 +1421,7 @@ def _recog(
         search_rqmt=search_rqmt,
         dev_sets=dev_sets,
         device=device,
-        name=name,
+        name=_sis_prefix + "/" + name,
     )
     tk.register_output(_sis_prefix + "/" + name + "/recog_results", res.output)
 
@@ -1614,7 +1800,7 @@ class Model(rf.Module):
         num_enc_layers: int = 12,
         target_dim: Dim,
         target_embed_dim: Dim,
-        wb_target_dim: Optional[Dim] = None,
+        target_dim_w_b: Optional[Dim] = None,
         blank_idx: int,
         eos_idx: int,
         bos_idx: int,
@@ -1723,14 +1909,16 @@ class Model(rf.Module):
         for p in self.parameters():
             p.weight_decay = l2
 
+        self.enc_aux_logits = enc_aux_logits
         if enc_aux_logits:
-            if not wb_target_dim:
-                wb_target_dim = target_dim + 1
+            if not target_dim_w_b:
+                target_dim_w_b = target_dim + 1
+                self.target_dim_w_b = target_dim_w_b
         for i in enc_aux_logits:
             setattr(
                 self,
                 f"enc_aux_logits_{i}",
-                rf.Linear(self.encoder.out_dim, wb_target_dim),
+                rf.Linear(self.encoder.out_dim, target_dim_w_b),
             )
 
         self._specaugment_opts = {
@@ -1803,6 +1991,9 @@ class Model(rf.Module):
                 feature_dim=self.in_dim,
                 **self._specaugment_opts,
             )
+
+        if len(self.enc_aux_logits) > 0 and not collected_outputs:
+            collected_outputs = {}
         # Encoder including convolutional frontend
         with _opt_apply_pretrain_to_encoder(
             self.encoder, collected_outputs, self._pretrain_opts
@@ -1814,8 +2005,13 @@ class Model(rf.Module):
             )
         enc_ctx = self.enc_ctx(enc)
         inv_fertility = rf.sigmoid(self.inv_fertility(enc))
+        ctc = None
+        if len(self.enc_aux_logits) > 0:
+            idx = max(self.enc_aux_logits)
+            ctc_layer = getattr(self, f"enc_aux_logits_{idx}", None)
+            ctc=rf.softmax(ctc_layer(collected_outputs[str(idx-1)]), axis=self.target_dim_w_b)
         return (
-            dict(enc=enc, enc_ctx=enc_ctx, inv_fertility=inv_fertility),
+            dict(enc=enc, enc_ctx=enc_ctx, inv_fertility=inv_fertility, ctc=ctc),
             enc_spatial_dim,
         )
 

@@ -98,6 +98,7 @@ def sis_run_with_prefix(prefix_name: str = None):
 
     bsf = 10
     bsf_40 = 40
+    prefix_name_single_seq = prefix_name + "/single_seq"
     prefix_name_40 = prefix_name + f"/bsf{bsf_40}"
     prefix_name = prefix_name + f"/bsf{bsf}"
 
@@ -197,10 +198,10 @@ def sis_run_with_prefix(prefix_name: str = None):
 
     # optsr att + ctc
     for model_name in [name for name in att_model_names if not scales_att_ctc_only_lm_optsr[name].get("wer", None)]:
-        lm_scale = [0.2, 0.3,0.4,0.45,0.5, 0.55, 0.6, 0.7]
-        all_scales = [scales_att_ctc_only_lm_optsr[model_name]["scales"][0][:3] + [scale] for scale in lm_scale]
-        # all_scales = scales_att_ctc_only_optsr[model_name]["scales"]
-        for scales, beam_size in product(all_scales, [12]):
+        # lm_scale = [0.2, 0.3,0.4,0.45,0.5, 0.55, 0.6, 0.7]
+        # all_scales = [scales_att_ctc_only_lm_optsr[model_name]["scales"][0][:3] + [scale] for scale in lm_scale]
+        all_scales = scales_att_ctc_only_lm_optsr[model_name]["scales"]
+        for scales, beam_size in product(all_scales, [12, 24, 32]):
             att_scale, ctc_scale, prior_scale, lm_scale = scales
 
             # with_lm_ilm, with_lm
@@ -228,9 +229,9 @@ def sis_run_with_prefix(prefix_name: str = None):
                 "prior_scale": prior_scale,
                 "add_eos_to_end": True,
                 "encoder_ctc": True,
-                "hash_overwrite": "more time",
                 # "blank_scale_minus": blank_scale,
-                # lm skip?
+                "lm_skip": True,
+                "hash_overwrite": "more time"
             }
 
             recog_config = models_with_pt_ckpt[model_name]["recog_config"]
@@ -243,7 +244,7 @@ def sis_run_with_prefix(prefix_name: str = None):
                 config=recog_config,
                 name=name,
                 device="gpu",
-                search_rqmt={"time": 6},
+                search_rqmt={"time": 12},
                 # search_mem_rqmt=15,
             )
             tk.register_output(
@@ -604,21 +605,22 @@ def sis_run_with_prefix(prefix_name: str = None):
             res.output,
         )
 
-    # optsr att + ctc # TODO ILM
+    # optsr att + ctc
     for scales, prior_scale, lm_scale, ilm_scale, beam_size in product(
-        [(0.65, 0.35)],
-        [0.0],
-        [0.0],  # [0.7, 0.73],
-        [0.0],  # [0.45],
-        [],
+        [(0.85, 0.15)],
+        [0.1],
+        [0.3],  # [0.7, 0.73],
+        [0.4],  # [0.45],
+        [12, 32],
     ):
         att_scale, ctc_scale = scales
 
         # with_lm_ilm, with_lm
 
         recog_name = (
-            ("/with_lm" if lm_scale > 0.0 and ilm_scale == 0.0 else "")
-            + f"/opls_att{att_scale}_ctc{ctc_scale}"
+            ("/with_lm" if lm_scale > 0.0 and ilm_scale == 0.0 else "") +
+            ("/with_lm_ilm" if ilm_scale > 0.0 else "")
+            + f"/optsr_att{att_scale}_ctc{ctc_scale}"
             + (f"_prior{prior_scale}" if prior_scale > 0.0 else "")
             + (f"_trafo_lm{lm_scale}" if lm_scale > 0.0 else "")
             + (f"_ilm{ilm_scale}" if ilm_scale > 0.0 else "")
@@ -639,17 +641,19 @@ def sis_run_with_prefix(prefix_name: str = None):
             "encoder_ctc": True,
             "lm_skip": True,
             "add_eos_to_end": True,
+            "hash_overwrite": "more time",
         }
         recog_config["search_args"] = search_args
         res = recog_model_2(
             task,
             model_baseline_checkpoint,
             model_recog_time_sync,
-            dev_sets=["dev"],
-            # dev_sets=["dev", "test"],
+            # dev_sets=["dev"],
+            dev_sets=["dev", "test"],
             config=recog_config,
             name=name,
             device="gpu",
+            search_rqmt={"time": 12},
             # search_mem_rqmt=15,
         )
         tk.register_output(
@@ -657,10 +661,16 @@ def sis_run_with_prefix(prefix_name: str = None):
             res.output,
         )
 
+    ctc_bs_recog_config = orig_recog_config.copy()
+    ctc_bs_recog_config.pop("batch_size")
+    ctc_bs_recog_config["max_seqs"] = 1
+
     # ctc bs att + ctc
+    # ctcbs_att0.5_ctc0.5_prior0.5_beam12/recog_results
+    # {"dev": 7.23, "test": 6.66}
     for scales, prior_scale, lm_scale, ilm_scale, beam_size in product(
-        [(0.5, 0.5), (0.55, 0.45), (0.6, 0.4), (0.65, 0.35), (0.7, 0.3), (0.75, 0.25), (0.8, 0.2), (0.85, 0.15), (0.9, 0.1)],
-        [0.0],
+        [(0.5, 0.5)],
+        [0.5],
         [0.0],  # [0.7, 0.73],
         [0.0],  # [0.45],
         [12],
@@ -677,23 +687,23 @@ def sis_run_with_prefix(prefix_name: str = None):
             + (f"_ilm{ilm_scale}" if ilm_scale > 0.0 else "")
             + f"_beam{beam_size}"
         )
-        name = prefix_name + model_name + recog_name
+        name = prefix_name_single_seq + model_name + recog_name
         search_args = {
             "beam_size": beam_size,
             "att_scale": att_scale,
             "ctc_scale": ctc_scale,
-            "max_seq": 1,
             "ctc_prior_file": models["model_ctc_only"]["prior"],
             "prior_scale": prior_scale,
             "encoder_ctc": True,
+            "hash_overwrite": "fix log ctc",
         }
-        recog_config["search_args"] = search_args
+        ctc_bs_recog_config["search_args"] = search_args
         res = recog_model_2(
             task,
             model_baseline_checkpoint,
             model_recog_ts_espnet,
-            dev_sets=["dev"],
-            config=recog_config,
+            dev_sets=["dev", "test"],
+            config=ctc_bs_recog_config,
             name=name,
             device="gpu",
             # search_mem_rqmt=15,

@@ -758,7 +758,7 @@ scales_att_ctc_lm_optsr = {
         "wer": (6.4, 6.2),
         "scales": [scales_att_ctc_optsr["model_ctc0.3_att0.7_lay10"]["scales"][0] + [0.3]], # did not try lower
     },
-}
+} # done
 
 # att + ctc + lm opls
 
@@ -1005,160 +1005,160 @@ scales_att_ctc_only_opls = {
 
 scales_att_ctc_only_lm_optsr = {
     "model_baseline": {
-        "wer": None,
-        "scales": [scales_att_ctc_only_optsr["model_baseline"]["scales"][0] + [0.43]],
+        "wer": (6.6, 6.2),
+        "scales": [scales_att_ctc_only_optsr["model_baseline"]["scales"][0] + [0.3]],
     },
 
     "model_ctc0.9_att0.1": {
-        "wer": None,
-        "scales": [scales_att_ctc_only_optsr["model_ctc0.9_att0.1"]["scales"][0] + [0.4]],
+        "wer": (6.5, 6.1),
+        "scales": [scales_att_ctc_only_optsr["model_ctc0.9_att0.1"]["scales"][0] + [0.6]],
     },
     "model_ctc0.8_att0.2": {
-        "wer": None,
-        "scales": [scales_att_ctc_only_optsr["model_ctc0.8_att0.2"]["scales"][0] + [0.4]],
+        "wer": (6.3, 6.0),
+        "scales": [scales_att_ctc_only_optsr["model_ctc0.8_att0.2"]["scales"][0] + [0.55]],
     },
     "model_ctc0.7_att0.3": {
-        "wer": None,
-        "scales": [scales_att_ctc_only_optsr["model_ctc0.7_att0.3"]["scales"][0] + [0.3]],  # did not try lower
+        "wer": (6.3, 6.0),
+        "scales": [scales_att_ctc_only_optsr["model_ctc0.7_att0.3"]["scales"][0] + [0.5]],
     },
     "model_ctc0.6_att0.4": {
-        "wer": None,
-        "scales": [scales_att_ctc_only_optsr["model_ctc0.6_att0.4"]["scales"][0] + [0.45]],
+        "wer": (6.4, 6.0),
+        "scales": [scales_att_ctc_only_optsr["model_ctc0.6_att0.4"]["scales"][0] + [0.55]],
     },
     "model_ctc0.5_att0.5": {
-        "wer": None,
-        "scales": [scales_att_ctc_only_optsr["model_ctc0.5_att0.5"]["scales"][0] + [0.45]],
+        "wer": (6.3, 6.1),
+        "scales": [scales_att_ctc_only_optsr["model_ctc0.5_att0.5"]["scales"][0] + [0.6]],
     },
     "model_ctc0.4_att0.6": {
-        "wer": None,
-        "scales": [scales_att_ctc_only_optsr["model_ctc0.4_att0.6"]["scales"][0] + [0.4]],
+        "wer": (6.6, 6.1),
+        "scales": [scales_att_ctc_only_optsr["model_ctc0.4_att0.6"]["scales"][0] + [0.3]],
     },
     "model_ctc0.3_att0.7": {
-        "wer": None,
+        "wer": (6.5 ,6.1),
         "scales": [scales_att_ctc_only_optsr["model_ctc0.3_att0.7"]["scales"][0] + [0.4]],
     },
     "model_ctc0.2_att0.8": {
-        "wer": None,
-        "scales": [scales_att_ctc_only_optsr["model_ctc0.2_att0.8"]["scales"][0] + [0.45]],
+        "wer": (6.4, 6.0),
+        "scales": [scales_att_ctc_only_optsr["model_ctc0.2_att0.8"]["scales"][0] + [0.55]],
     },
     "model_ctc0.1_att0.9": {
-        "wer": None,
+        "wer": (6.6, 6.0),
         "scales": [scales_att_ctc_only_optsr["model_ctc0.1_att0.9"]["scales"][0] + [0.4]],
     },
     "model_ctc0.001_att0.999": {
-        "wer": None,
-        "scales": [scales_att_ctc_only_optsr["model_ctc0.001_att0.999"]["scales"][0] + [0.45]],
+        "wer": (6.7, 6.1),
+        "scales": [scales_att_ctc_only_optsr["model_ctc0.001_att0.999"]["scales"][0] + [0.55]],
     },
 
     "model_baseline_lay6": {
-        "wer": None,
-        "scales": [scales_att_ctc_only_optsr["model_baseline_lay6"]["scales"][0] + [0.4]],
+        "wer": (6.5, 6.0),
+        "scales": [scales_att_ctc_only_optsr["model_baseline_lay6"]["scales"][0] + [0.45]],
     },
     "model_baseline_lay8": {
-        "wer": None,
-        "scales": [scales_att_ctc_only_optsr["model_baseline_lay8"]["scales"][0] + [0.5]],
+        "wer": (6.5, 6.2),
+        "scales": [scales_att_ctc_only_optsr["model_baseline_lay8"]["scales"][0] + [0.45]],
     },
     "model_baseline_lay10": {
-        "wer": None,
-        "scales": [scales_att_ctc_only_optsr["model_baseline_lay10"]["scales"][0] + [0.45]],
+        "wer": (6.3, 6.0),
+        "scales": [scales_att_ctc_only_optsr["model_baseline_lay10"]["scales"][0] + [0.6]],
     },
 
     "model_ctc0.3_att0.7_lay6": {
-        "wer": None,
-        "scales": [scales_att_ctc_only_optsr["model_ctc0.3_att0.7_lay6"]["scales"][0] + [0.4]],
+        "wer": (6.5, 6.1),
+        "scales": [scales_att_ctc_only_optsr["model_ctc0.3_att0.7_lay6"]["scales"][0] + [0.5]],
     },
     "model_ctc0.3_att0.7_lay8": {
-        "wer": None,
-        "scales": [scales_att_ctc_only_optsr["model_ctc0.3_att0.7_lay8"]["scales"][0] + [0.45]],
+        "wer": (6.3, 6.0),
+        "scales": [scales_att_ctc_only_optsr["model_ctc0.3_att0.7_lay8"]["scales"][0] + [0.55]],
     },
     "model_ctc0.3_att0.7_lay10": {
-        "wer": None,
-        "scales": [scales_att_ctc_only_optsr["model_ctc0.3_att0.7_lay10"]["scales"][0] + [0.45]],
+        "wer": (6.2, 5.9),
+        "scales": [scales_att_ctc_only_optsr["model_ctc0.3_att0.7_lay10"]["scales"][0] + [0.5]],
     },
 
     "model_att_only_currL": {
-        "wer": None,
-        "scales": [scales_att_ctc_only_optsr["model_att_only_currL"]["scales"][0] + [0.45]],
+        "wer": (6.8, 6.3),
+        "scales": [scales_att_ctc_only_optsr["model_att_only_currL"]["scales"][0] + [0.4]],
     },
-}
+} # done
 
 # att + ctc only model + lm opls
 
 scales_att_ctc_only_lm_opls = {
     "model_baseline": {
-        "wer": None,
+        "wer": (6.3, 5.9),
         "scales": [scales_att_ctc_only_opls["model_baseline"]["scales"][0] + [0.43]],
     },
 
     "model_ctc0.9_att0.1": {
-        "wer": None,
+        "wer": (6.5, 6.3),
         "scales": [scales_att_ctc_only_opls["model_ctc0.9_att0.1"]["scales"][0] + [0.4]],
     },
     "model_ctc0.8_att0.2": {
-        "wer": None,
+        "wer": (6.4, 6.0),
         "scales": [scales_att_ctc_only_opls["model_ctc0.8_att0.2"]["scales"][0] + [0.4]],
     },
     "model_ctc0.7_att0.3": {
-        "wer": None,
+        "wer": (6.4, 6.1),
         "scales": [scales_att_ctc_only_opls["model_ctc0.7_att0.3"]["scales"][0] + [0.3]], # did not try lower
     },
     "model_ctc0.6_att0.4": {
-        "wer": None,
+        "wer": (6.3, 6.2),
         "scales": [scales_att_ctc_only_opls["model_ctc0.6_att0.4"]["scales"][0] + [0.45]],
     },
     "model_ctc0.5_att0.5": {
-        "wer": None,
+        "wer": (6.3, 5.9),
         "scales": [scales_att_ctc_only_opls["model_ctc0.5_att0.5"]["scales"][0] + [0.45]],
     },
     "model_ctc0.4_att0.6": {
-        "wer": None,
+        "wer": (6.3, 5.9),
         "scales": [scales_att_ctc_only_opls["model_ctc0.4_att0.6"]["scales"][0] + [0.4]],
     },
     "model_ctc0.3_att0.7": {
-        "wer": None,
+        "wer": (6.2, 5.9),
         "scales": [scales_att_ctc_only_opls["model_ctc0.3_att0.7"]["scales"][0] + [0.4]],
     },
     "model_ctc0.2_att0.8": {
-        "wer": None,
+        "wer": (6.2, 5.9),
         "scales": [scales_att_ctc_only_opls["model_ctc0.2_att0.8"]["scales"][0] + [0.45]],
     },
     "model_ctc0.1_att0.9": {
-        "wer": None,
+        "wer": (6.3, 5.9),
         "scales": [scales_att_ctc_only_opls["model_ctc0.1_att0.9"]["scales"][0] + [0.4]],
     },
     "model_ctc0.001_att0.999": {
-        "wer": None,
+        "wer": (6.6, 6.1),
         "scales": [scales_att_ctc_only_opls["model_ctc0.001_att0.999"]["scales"][0] + [0.45]],
     },
 
     "model_baseline_lay6": {
-        "wer": None,
+        "wer": (6.4, 6.1),
         "scales": [scales_att_ctc_only_opls["model_baseline_lay6"]["scales"][0] + [0.4]],
     },
     "model_baseline_lay8": {
-        "wer": None,
+        "wer": (6.3, 6.0),
         "scales": [scales_att_ctc_only_opls["model_baseline_lay8"]["scales"][0] + [0.5]],
     },
     "model_baseline_lay10": {
-        "wer": None,
+        "wer": (6.4, 5.9),
         "scales": [scales_att_ctc_only_opls["model_baseline_lay10"]["scales"][0] + [0.45]],
     },
 
     "model_ctc0.3_att0.7_lay6": {
-        "wer": None,
+        "wer": (6.3, 6.0),
         "scales": [scales_att_ctc_only_opls["model_ctc0.3_att0.7_lay6"]["scales"][0] + [0.4]],
     },
     "model_ctc0.3_att0.7_lay8": {
-        "wer": None,
+        "wer": (6.3, 5.9),
         "scales": [scales_att_ctc_only_opls["model_ctc0.3_att0.7_lay8"]["scales"][0] + [0.45]],
     },
     "model_ctc0.3_att0.7_lay10": {
-        "wer": None,
+        "wer": (6.2, 5.9),
         "scales": [scales_att_ctc_only_opls["model_ctc0.3_att0.7_lay10"]["scales"][0] + [0.45]],
     },
 
     "model_att_only_currL": {
-        "wer": None,
+        "wer": (6.5, 6.2),
         "scales": [scales_att_ctc_only_opls["model_att_only_currL"]["scales"][0] + [0.45]],
     },
-}
+} # done

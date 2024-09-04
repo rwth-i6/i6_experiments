@@ -159,16 +159,26 @@ def convert_checkpoint(
         # assert os.path.exists(self.out_checkpoint.get_path())
 
 
-def convert_lm(ckpt_path_lm, out_dir, model_target_dim, model_args):
+def convert_lm(ckpt_path_lm, out_dir, model_target_dim, print_params=False, model_args=None):
     from tensorflow.python.training.py_checkpoint_reader import CheckpointReader
     from returnn.torch.frontend.bridge import rf_module_to_pt_module
 
     print("Loading checkpoint...")
     reader_lm = CheckpointReader(ckpt_path_lm)
+    if print_params:
+        print(reader_lm.debug_string().decode("utf-8"))
 
     print("Creating model...")
     rf.select_backend_torch()
     model = MakeModelLM(model_target_dim, model_target_dim, model_args=model_args)()
+
+    if print_params:
+        print("Model parameters:")
+    for name, param in model.named_parameters():
+        assert isinstance(name, str)
+        assert isinstance(param, rf.Parameter)
+        if print_params:
+            print(f"{name}: {param}")
 
     print("Create ParamMapping...")
     param_mapping = {}
@@ -201,20 +211,30 @@ def convert_lm(ckpt_path_lm, out_dir, model_target_dim, model_args):
         )
 
 
-def convert_lstm_lm(ckpt_path_lm, out_dir, model_target_dim):
+def convert_lstm_lm(ckpt_path_lm, out_dir, model_target_dim, print_params=False, model_args=None):
     from tensorflow.python.training.py_checkpoint_reader import CheckpointReader
     from returnn.torch.frontend.bridge import rf_module_to_pt_module
 
     print("Loading checkpoint...")
     reader_lm = CheckpointReader(ckpt_path_lm)
+    if print_params:
+        print(reader_lm.debug_string().decode("utf-8"))
 
     print("Creating model...")
     rf.select_backend_torch()
-    model = MakeModelLSTMLM(model_target_dim, model_target_dim)()
+    model = MakeModelLSTMLM(model_target_dim, model_target_dim, model_args=model_args)()
+
+    if print_params:
+        print("Model parameters:")
+    for name, param in model.named_parameters():
+        assert isinstance(name, str)
+        assert isinstance(param, rf.Parameter)
+        if print_params:
+            print(f"{name}: {param}")
 
     print("Create ParamMapping...")
     param_mapping = {}
-    _add_params_lstm_lm(param_mapping)
+    _add_params_lstm_lm(param_mapping, num_layers=model_args.get("num_layers", 4))
 
     print("Mapping parameters...")
     for name, param in model.named_parameters():
@@ -339,14 +359,14 @@ def _add_params_trafo_lm(param_mapping: Dict[str, str]):
     )
 
 
-def _add_params_lstm_lm(param_mapping: Dict[str, str]):
+def _add_params_lstm_lm(param_mapping: Dict[str, str], num_layers=4):
     # add params of lstm lm
-    for layer_idx in range(4):
+    for layer_idx in range(num_layers):
         param_mapping.update(
             {
-                f"lstm_{layer_idx}.ff_weight": f"lstm{layer_idx}/rec/W",
-                f"lstm_{layer_idx}.rec_weight": f"lstm{layer_idx}/rec/W_re",
-                f"lstm_{layer_idx}.bias": f"lstm{layer_idx}/rec/b",
+                f"layers.{layer_idx}.ff_weight": f"lstm{layer_idx}/rec/W",
+                f"layers.{layer_idx}.rec_weight": f"lstm{layer_idx}/rec/W_re",
+                f"layers.{layer_idx}.bias": f"lstm{layer_idx}/rec/b",
             }
         )
 
@@ -620,39 +640,18 @@ def map_param_func_lstm(
         assert isinstance(value, numpy.ndarray)
 
         if name.endswith(".ff_weight"):
-            print(
-                "Old ff:", value[0][0], value[0][2048], value[0][4096], value[0][6144]
-            )
             value = convert_params.convert_tf_lstm_to_torch_lstm_ff(value)
-            print(
-                "Convert ff:",
-                value[0][0],
-                value[2048][0],
-                value[4096][0],
-                value[6144][0],
-            )
+
 
         if name.endswith(".rec_weight"):
-            print(
-                "Old rec:", value[0][0], value[0][2048], value[0][4096], value[0][6144]
-            )
             value = convert_params.convert_tf_lstm_to_torch_lstm_rec(value)
-            print(
-                "Convert rec:",
-                value[0][0],
-                value[2048][0],
-                value[4096][0],
-                value[6144][0],
-            )
 
         if "lstm" in name and name.endswith(".bias"):
-            print("Old bias:", value[0], value[2048], value[4096], value[6144])
             value = convert_params.convert_tf_lstm_to_torch_lstm_bias(value)
-            print("Convert bias:", value[0], value[2048], value[4096], value[6144])
 
-        if name == "output.weight":
-            # value = convert_params_np.convert_tf_lstm_to_native_lstm_ff(value)
-            value = value.transpose()
+        # if name == "output.weight":
+        #     # value = convert_params_np.convert_tf_lstm_to_native_lstm_ff(value)
+        #     value = value.transpose()
 
         assert (
             value.shape == var.batch_shape
@@ -881,7 +880,7 @@ def import_models():
 
 
 if __name__ == "__main__":
-    import_models()
+    # import_models()
     # convert_lm(
     #     _ted2_lm_ckpt_filename,
     #     "/work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/2023-08-10--rf-librispeech/work/i6_experiments/users/gaudino/returnn/convert_ckpt_rf/tedlium2/trafo_lm_only_24_02_05",
@@ -918,3 +917,12 @@ if __name__ == "__main__":
     #     print_params=True,
     #     save_model=True,
     # )
+
+    # Ted2 transcriptions only LM
+    convert_lstm_lm(
+        "/work/asr4/michel/setups-data/language_modelling/tedlium/neurallm/decoder_sized_transcripts_only/net-model/network.050",
+        "/work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/2023-08-10--rf-librispeech/work/i6_experiments/users/gaudino/returnn/convert_ckpt_rf/tedlium2/trafo_lm_trans_24_09_04",
+        1057,
+        print_params=True,
+        model_args={"num_layers": 1, "lstm_input_dim": 128, "lstm_model_dim": 1000},
+    )

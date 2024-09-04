@@ -532,7 +532,7 @@ def sis_run_with_prefix(prefix_name: str = None):
         # lm_scale = [0.3, 0.4, 0.45, 0.5, 0.55, 0.6, 0.7]
         # all_scales = [scales_att_ctc_lm_optsr[model_name]["scales"][0][:3] + [lm_scale] for lm_scale in lm_scale]
         all_scales = scales_att_ctc_lm_optsr[model_name]["scales"]
-        for scales, beam_size in product(all_scales, [12, 24, 32]):
+        for scales, beam_size in product(all_scales, [12, 24]):
             att_scale, ctc_scale, prior_scale, lm_scale = scales
             name = (
                 prefix_name_40 + "/" + model_name + with_lm_name
@@ -569,7 +569,7 @@ def sis_run_with_prefix(prefix_name: str = None):
                 recog_res.output,
             )
 
-    # att + ctc + trafo lm opls
+    # att + ctc + trafo lm opls -> done
     for model_name in [name for name in both_model_names]:
         # lm_scale = [0.35, 0.4, 0.45, 0.5, 0.55, 0.6]
         all_scales = scales_att_ctc_lm_opls[model_name]["scales"]
@@ -640,6 +640,8 @@ def sis_run_with_prefix(prefix_name: str = None):
             "filename": "/work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/2023-08-10--rf-librispeech/work/i6_experiments/users/gaudino/returnn/convert_ckpt_rf/tedlium2/trafo_lm_only_24_02_05/network.020.pt",
         },
     }
+
+    with_lm_ilm_name = "/with_lm_ilm"
 
     # att + trafo lm + ilm correction
     for model_name, lm_scale, ilm_scale, beam_size in product(
@@ -718,6 +720,54 @@ def sis_run_with_prefix(prefix_name: str = None):
                 task,
                 models_with_pt_ckpt[model_name]["ckpt"],
                 model_recog,
+                dev_sets=["dev", "test"],
+                model_args=ilm_model_args,
+                search_args=search_args,
+                prefix_name=name,
+            )
+            tk.register_output(
+                name + f"/recog_results",
+                recog_res.output,
+            )
+
+    # optsr att + ctc + trafo lm + ilm
+    #
+    for model_name, beam_size in product(["model_baseline"], [12, 24, 32]):
+        for scales, ilm_scale in product([(0.85, 0.15, 0.3, 0.55)], [0.45, 0.5]):
+            att_scale, ctc_scale, prior_scale, lm_scale = scales
+
+            ilm_model_args = copy.deepcopy(
+                models_with_pt_ckpt[model_name]["model_args"]
+            )
+            ilm_model_args["preload_from_files"] = preload_from_files_ilm
+
+            name = (
+                prefix_name_40 + "/" + model_name + with_lm_ilm_name
+                + f"/optsr_att{att_scale}_ctc{ctc_scale}"
+                + f"_trafolm{lm_scale}"
+                + f"_ilm{ilm_scale}"
+                + (f"_prior{prior_scale}" if prior_scale != 0.0 else "")
+                + f"_beam{beam_size}"
+            )
+            search_args = {
+                "beam_size": beam_size,
+                "att_scale": att_scale,
+                "ctc_scale": ctc_scale,
+                "bsf": bsf_40,
+                "mask_eos": True,
+                "ctc_prior_file": models[model_name]["prior"],
+                "prior_scale": prior_scale,
+                "add_eos_to_end": True,
+                "add_trafo_lm": True,
+                "lm_scale": lm_scale,
+                "lm_skip": True,
+                "ilm_scale": ilm_scale,
+            }
+
+            recog_res, recog_out = recog_model(
+                task,
+                models_with_pt_ckpt[model_name]["ckpt"],
+                model_recog_time_sync,
                 dev_sets=["dev", "test"],
                 model_args=ilm_model_args,
                 search_args=search_args,
