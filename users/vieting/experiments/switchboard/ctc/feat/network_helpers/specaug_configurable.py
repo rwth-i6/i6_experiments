@@ -127,6 +127,7 @@ def add_specaug_layer(
             "eval": f"self.network.get_config().typed_value('transform_with_filter_masking')(source(0, as_data=True), network=self.network, **{full_config})",
         }
         return [name], [
+            sort_filters_by_center_freq,
             get_frequency_response,
             transform_with_filter_masking,
             filter_based_masking,
@@ -203,6 +204,7 @@ def transform(data, network, **config):
     step = network.global_train_step
     current_epoch = tf.cast(step / config["steps_per_epoch"], tf.int32)
     max_time_num_seq_len_divisor = tf.constant(config["max_time_num_seq_len_divisor"], dtype=tf.float32)
+    variance_factor = tf.cast(config["variance_factor"], tf.float32)
     specaug_params = config["specaug_params"]
 
     # Determine if we should use sorting
@@ -319,6 +321,18 @@ def transform_with_filter_masking(data, network, **config):
     # Get filter indices (sorted or unsorted)
     filter_layer = network.layers["features"].subnetwork.layers["conv_h_filter"].output.placeholder
     num_filters = network.layers["features"].subnetwork.layers["conv_l"].output.shape[-1]
+
+    def get_sorted_indices():
+        sorted_filter_indices = sort_filters_by_center_freq(filter_layer)
+        sorted_indices = tf.stack(
+            [sorted_filter_indices * num_filters + filter_idx for filter_idx in range(num_filters)]
+        )
+        return tf.reshape(tf.transpose(sorted_indices), (-1,))
+
+    def get_unsorted_indices():
+        return tf.range(tf.shape(x)[data.feature_dim_axis])
+
+    sorted_indices = tf.cond(use_sorting, get_sorted_indices, get_unsorted_indices)
 
     def get_masked():
         x_masked = x
