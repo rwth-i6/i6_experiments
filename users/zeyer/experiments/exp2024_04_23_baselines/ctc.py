@@ -1078,6 +1078,7 @@ def py():
     )
 
     # Test input_embedding_scale (inScale) (baseline 5.65).
+    # (TODO but this actually only makes sense together with abs pos enc?)
     train_exp(
         "v6-relPosAttDef-inScale-noBias-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2"
         "-lrlin1e_5_295k-featBN-speedpertV2-spm10k-bpeSample001",
