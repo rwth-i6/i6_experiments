@@ -3,6 +3,7 @@ Language models
 
 some ref:
 https://github.com/rwth-i6/returnn-experiments/blob/master/2019-lm-transformers/librispeech/bpe_10k/transfo_24_d00.4096_1024.sgd.lr1.8_heads.config
+https://github.com/rwth-i6/returnn-experiments/blob/master/2019-lm-transformers/librispeech/word_200k_vocab/re_transfo_96_d00.2048_512.head_8.sgd.lr1.cl1.small_batch.config
 """
 
 from __future__ import annotations
