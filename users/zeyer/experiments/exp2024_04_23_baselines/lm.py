@@ -332,6 +332,8 @@ def py():
             },
         ),
         train_def=lm_train_def,
+        # got GPU OOM in some later epoch... so play around here to fix this
+        env_updates={"PYTORCH_CUDA_ALLOC_CONF": "backend:cudaMallocAsync"},
     )
 
     # 2 full epochs (40 subepochs).
