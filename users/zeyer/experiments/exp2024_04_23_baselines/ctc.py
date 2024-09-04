@@ -385,7 +385,7 @@ def py():
         ("spm20k", "bpe", 0.01),  # 6.13
         ("spm20k", "bpe", 0.02),  # 6.21
         ("bpe10k", None, None),  # 6.49
-        ("bpe10k", "bpe", 0.005),
+        ("bpe10k", "bpe", 0.005),  # 6.48
         ("bpe10k", "bpe", 0.01),  # 6.40
         ("spm10k", None, None),  # 6.00
         # TODO ("spm10k", "spm", 0.8),
