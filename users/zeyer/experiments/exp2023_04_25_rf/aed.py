@@ -930,6 +930,8 @@ def model_recog(
             )
 
     if i > 0 and length_normalization_exponent != 0:
+        # WARNING: small error here, should be (1/(i-1))^(length_normalization_exponent).
+        #  But not changing this now to not change behavior.
         seq_log_prob *= (1 / i) ** length_normalization_exponent
 
     # Backtrack via backrefs, resolve beams.
