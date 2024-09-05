@@ -58,9 +58,10 @@ def sis_run_with_prefix(prefix_name: str = None):
     )
 
     model_args = {}
+    search_args = {"with_eos": False}
 
     # compute perplexity
-    name = prefix_name + "/ted2lm_gelu_no_pos_enc"
+    name = prefix_name + "/ted2lm_gelu_no_pos_enc_no_eos"
 
     dev_sets = ["dev", "test"]
 
@@ -70,7 +71,7 @@ def sis_run_with_prefix(prefix_name: str = None):
         model_forward_lm,
         dev_sets=dev_sets,
         model_args=model_args,
-        # search_args=search_args,
+        search_args=search_args,
         prefix_name=name,
         forward_lm=True,
     )
@@ -84,8 +85,8 @@ def sis_run_with_prefix(prefix_name: str = None):
 
     # transciption only lm
     new_chkpt_path = tk.Path(
-        "/work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/2023-08-10--rf-librispeech/work/i6_experiments/users/gaudino/returnn/convert_ckpt_rf/tedlium2/trafo_lm_trans_24_09_04/network.050.pt",
-        hash_overwrite="ted2_lm_trans_only",
+        "/work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/2023-08-10--rf-librispeech/work/i6_experiments/users/gaudino/returnn/convert_ckpt_rf/tedlium2/trafo_lm_trans_24_09_04/network.005.pt",
+        hash_overwrite="ted2_lm_trans_only_ep5",
     )
     new_chkpt = PtCheckpoint(new_chkpt_path)
     model_with_checkpoint = ModelWithCheckpoint(
@@ -93,9 +94,10 @@ def sis_run_with_prefix(prefix_name: str = None):
     )
 
     model_args = {"num_layers": 1, "lstm_input_dim": 128, "lstm_model_dim": 1000}
+    search_args = {"with_eos": False}
 
     # compute perplexity
-    name = prefix_name + "/ted2lm_trans_only"
+    name = prefix_name + "/ted2lm_trans_only_no_eos_ep5"
 
     dev_sets = ["dev", "test"]
 
@@ -105,6 +107,7 @@ def sis_run_with_prefix(prefix_name: str = None):
         model_forward_lm,
         dev_sets=dev_sets,
         model_args=model_args,
+        search_args=search_args,
         prefix_name=name,
         forward_lm=True,
     )

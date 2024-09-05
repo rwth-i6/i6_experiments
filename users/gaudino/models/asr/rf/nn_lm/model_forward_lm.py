@@ -58,9 +58,16 @@ def model_forward_lm(
 
     assert len(batch_dims) == 1
 
-    ground_truth_pad = rf.pad(ground_truth, axes=ground_truth.dims, padding=[(0, 0), (0, 2)], out_dims=ground_truth.dims, value=0)[0]
+    # add eos to ground truth
+    with_eos = False
+    if with_eos:
+        ground_truth_pad = rf.pad(ground_truth, axes=ground_truth.dims, padding=[(0, 0), (0, 1)], out_dims=ground_truth.dims, value=0)[0]
+        S = torch.max(seq_len.raw_tensor)+1
+    else:
+        ground_truth_pad = ground_truth
+        S = torch.max(seq_len.raw_tensor)
 
-    for i in range(torch.max(seq_len.raw_tensor)+1):
+    for i in range(S):
         lm_out = model(target, state=trafo_lm_state, spatial_dim=single_step_dim)
         label_log_prob = rf.log_softmax(lm_out["output"], axis=model.target_dim)
         trafo_lm_state = lm_out["state"]

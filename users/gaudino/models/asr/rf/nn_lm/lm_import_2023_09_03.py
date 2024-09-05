@@ -30,6 +30,7 @@ class LSTM_LM_Model(rf.Module):
     ):
         super(LSTM_LM_Model, self).__init__()
         self.in_dim = in_dim
+        self.target_dim = target_dim
         lstm_input_dim = Dim(name="lstm-input", dimension=lstm_input_dim)
         lstm_model_dim = Dim(name="lstm-model", dimension=lstm_model_dim)
 
@@ -76,7 +77,7 @@ class LSTM_LM_Model(rf.Module):
         output = self.output(decoded)
         return {"output": output, "state": lm_state}
 
-    def lm_default_initial_state(self, *, batch_dims: Sequence[Dim]
+    def default_initial_state(self, *, batch_dims: Sequence[Dim]
     ) -> rf.State:
         """Default initial state"""
         state = rf.State({k: v.default_initial_state(batch_dims=batch_dims) for k, v in self.layers.items()})

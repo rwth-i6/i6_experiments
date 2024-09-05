@@ -920,7 +920,7 @@ if __name__ == "__main__":
 
     # Ted2 transcriptions only LM
     convert_lstm_lm(
-        "/work/asr4/michel/setups-data/language_modelling/tedlium/neurallm/decoder_sized_transcripts_only/net-model/network.050",
+        "/work/asr4/michel/setups-data/language_modelling/tedlium/neurallm/decoder_sized_transcripts_only/net-model/network.005",
         "/work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/2023-08-10--rf-librispeech/work/i6_experiments/users/gaudino/returnn/convert_ckpt_rf/tedlium2/trafo_lm_trans_24_09_04",
         1057,
         print_params=True,
