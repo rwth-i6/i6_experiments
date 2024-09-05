@@ -371,12 +371,23 @@ def transform_with_filter_masking(data, network, **config):
             probs = variance / tf.reduce_sum(variance)
             uniform_probs = tf.ones_like(probs) / tf.cast(n_features, tf.float32)
             final_probs = filter_factor * probs + (1 - filter_factor) * uniform_probs
-        elif config["filter_based_masking_strategy"] == "peakToAverage":
+        elif config["filter_based_masking_strategy"] == "peakToAverageRatio":
             # Get peak to average ratio for each filter
             f_resp = get_frequency_response(filter_layer)
             peak = tf.reduce_max(f_resp, axis=0)
             average = tf.reduce_mean(f_resp, axis=0)
             ratio = peak / average
+            n_features = tf.shape(x)[data.feature_dim_axis]
+            # Normalize the ratio to get probabilities
+            probs = ratio / tf.reduce_sum(ratio)
+            uniform_probs = tf.ones_like(probs) / tf.cast(n_features, tf.float32)
+            final_probs = filter_factor * probs + (1 - filter_factor) * uniform_probs
+        elif config["filter_based_masking_strategy"] == "peakToAverageDifference":
+            # Get peak to average ratio for each filter
+            f_resp = get_frequency_response(filter_layer)
+            peak = tf.reduce_max(f_resp, axis=0)
+            average = tf.reduce_mean(f_resp, axis=0)
+            ratio = peak - average
             n_features = tf.shape(x)[data.feature_dim_axis]
             # Normalize the ratio to get probabilities
             probs = ratio / tf.reduce_sum(ratio)
