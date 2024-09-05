@@ -1,5 +1,5 @@
 from typing import Dict, Union, Optional, List
-from .specaug_sort_layer2 import sort_filters_by_center_freq, _mask, random_mask
+from .specaug_sort_layer2 import sort_filters_by_center_freq, _mask, random_mask, get_frequency_response
 
 
 def add_specaug_layer(
@@ -49,8 +49,14 @@ def add_specaug_layer(
                 freq_mask_max_proportion (float): The maximum proportion of the frequency axis that can be masked. Default is 1.
                 max_time_num_seq_len_divisor (int):
                     The divisor for the sequence length to determine the maximum number of time masks. Default is 0.7.
-                enable_logging (bool): Whether to enable detailed logging via print statements. Defaults to False.
-        num_epochs (int, optional): The total number of epochs for which the training will run. default 450.
+                filter_based_masking_strategy (string): Which filter strategy to use for masking. Default is None.
+                filter_factor (float): The factor that determines the probability of masking a feature based on a filter. Default is 0.5.
+                max_number_masks_for_filter_based_specaug (int): The total maximum number of masks to be applied if any filter-based masking is used. Default is 50.
+                filter_mask_schedule (Dict[int, float]):
+                    A dictionary mapping subepoch numbers to the multiplicator for the max_number_masks_for_filter_based_specaug.
+                    Default is None (unchanged over the entire training).
+                enable_logging (bool): Whether to enable logging for debugging purposes. Default is False.
+        num_epochs (int, optional): The total number of epochs for which the training will run. default 450
 
     Returns:
         tuple: A tuple containing the name of the SpecAugment layer and the functions required for it.
@@ -66,13 +72,16 @@ def add_specaug_layer(
         "max_feature_num": 5,
         "max_feature": 4,
         "enable_sorting": False,
+        "enable_logging": False,
         "sorting_start_epoch": 1,
         "steps_per_epoch": None,
         "mask_growth_strategy": "linear",
         "time_mask_max_proportion": 1.0,
         "freq_mask_max_proportion": 1.0,
         "max_time_num_seq_len_divisor": 0.7,
-        "enable_logging": False,
+        "filter_based_masking_strategy": None,
+        "filter_factor": 0.5,
+        "max_number_masks_for_filter_based_specaug": 50,
     }
 
     if config is None:
@@ -89,6 +98,7 @@ def add_specaug_layer(
         "time_mask_max_size": full_config["max_time"],
         "freq_mask_max_num": full_config["max_feature_num"],
         "freq_mask_max_size": full_config["max_feature"],
+        "max_number_masks_for_filter_based_specaug": full_config["max_number_masks_for_filter_based_specaug"],
     }
 
     schedules = {
@@ -96,6 +106,7 @@ def add_specaug_layer(
         "time_mask_max_size": full_config.get("time_mask_size_schedule", {}),
         "freq_mask_max_num": full_config.get("freq_mask_num_schedule", {}),
         "freq_mask_max_size": full_config.get("freq_mask_size_schedule", {}),
+        "max_number_masks_for_filter_based_specaug": full_config.get("filter_mask_schedule", {}),
     }
 
     specaug_params = generate_specaug_params(
@@ -108,13 +119,82 @@ def add_specaug_layer(
     # Update config with pre-generated parameters
     full_config["specaug_params"] = specaug_params
 
-    network[name] = {
-        "class": "eval",
-        "from": from_list,
-        "eval": f"self.network.get_config().typed_value('transform')(source(0, as_data=True), network=self.network, **{full_config})",
-    }
+    if full_config["filter_based_masking_strategy"] is not None:
 
-    return [name], get_specaug_funcs()
+        network[name] = {
+            "class": "eval",
+            "from": from_list,
+            "eval": f"self.network.get_config().typed_value('transform_with_filter_masking')(source(0, as_data=True), network=self.network, **{full_config})",
+        }
+        return [name], [
+            sort_filters_by_center_freq,
+            get_frequency_response,
+            transform_with_filter_masking,
+            filter_based_masking,
+            _mask,
+            random_mask,
+        ]
+    else:
+        network[name] = {
+            "class": "eval",
+            "from": from_list,
+            "eval": f"self.network.get_config().typed_value('transform')(source(0, as_data=True), network=self.network, **{full_config})",
+        }
+        return [name], [
+            sort_filters_by_center_freq,
+            _mask,
+            random_mask,
+            transform,
+        ]
+
+
+def filter_based_masking(x, batch_axis, axis, probability_distribution, max_number_masks_for_probability_specaug):
+    """
+    :param tf.Tensor x: (batch,time,feature)
+    :param int batch_axis:
+    :param int axis:
+    :param tf.Tensor probability_distribution:
+    :param int max_number_masks_for_probability_specaug:
+    """
+    import tensorflow as tf
+
+    n_batch = tf.shape(x)[batch_axis]  # Batch size
+    ndim = x.get_shape().ndims  # Number of dimensions in x
+    n_features = tf.shape(x)[axis]  # Feature dimension size
+
+    # Random number of masks for each batch  shape: (n_batch,)
+    num_masks = tf.random.uniform(
+        shape=[n_batch], minval=0, maxval=max_number_masks_for_probability_specaug + 1, dtype=tf.int32
+    )
+    # Total number of masks to generate across all batches
+    total_masks = tf.reduce_sum(num_masks)
+
+    # Sample feature indices to be masked based on the probability distribution (categorical needs 2d) shape: (1, total_masks)
+    logits = tf.math.log(probability_distribution)
+    masked_features = tf.random.categorical(tf.expand_dims(logits, 0), total_masks)
+    # Generate batch offsets to map the masks to the corresponding batches. example: [0,0,1,2,2,2]
+    batch_indices = tf.repeat(tf.range(n_batch), num_masks)
+
+    # Gather the selected feature indices (have to match the shape)
+    feature_indices = tf.gather(tf.reshape(masked_features, [-1]), tf.range(total_masks))  # shape: (total_masks,)
+    feature_indices = tf.reshape(tf.cast(feature_indices, tf.int32), [-1])  # shape: (total_masks,)
+
+    # Combine batch offsets and feature indices
+    indices = tf.stack([batch_indices, feature_indices], axis=1)  # shape: (total_masks, 2)
+
+    # Create a boolean mask initialized to False. shape: (n_batch, n_features)
+    mask = tf.tensor_scatter_nd_update(
+        tf.zeros((n_batch, n_features), dtype=tf.bool), indices, tf.ones_like(indices[:, 0], dtype=tf.bool)
+    )
+    # Reshape the mask to match the input tensor shape
+    mask_shape = [
+        tf.shape(x)[i] if i in (batch_axis, axis) else 1 for i in range(ndim)
+    ]  # shape: (batch, time, feature)
+    mask = tf.reshape(mask, mask_shape)  # shape: (batch, time, feature)
+
+    x = tf.where(mask, tf.zeros_like(x), x)
+
+    return x
 
 
 def transform(data, network, **config):
@@ -124,7 +204,6 @@ def transform(data, network, **config):
     step = network.global_train_step
     current_epoch = tf.cast(step / config["steps_per_epoch"], tf.int32)
     max_time_num_seq_len_divisor = tf.constant(config["max_time_num_seq_len_divisor"], dtype=tf.float32)
-
     specaug_params = config["specaug_params"]
 
     # Determine if we should use sorting
@@ -223,5 +302,134 @@ def transform(data, network, **config):
     return x
 
 
-def get_specaug_funcs() -> list:
-    return [sort_filters_by_center_freq, _mask, random_mask, transform]
+def transform_with_filter_masking(data, network, **config):
+    import tensorflow as tf
+
+    x = data.placeholder
+    step = network.global_train_step
+    current_epoch = tf.cast(step / config["steps_per_epoch"], tf.int32)
+    max_time_num_seq_len_divisor = tf.constant(config["max_time_num_seq_len_divisor"], dtype=tf.float32)
+    filter_factor = tf.cast(config["filter_factor"], tf.float32)
+    specaug_params = config["specaug_params"]
+
+    # Determine if we should use sorting
+    use_sorting = tf.logical_and(
+        config["enable_sorting"], tf.greater_equal(current_epoch, config["sorting_start_epoch"])
+    )
+
+    # Get filter indices (sorted or unsorted)
+    filter_layer = network.layers["features"].subnetwork.layers["conv_h_filter"].output.placeholder
+    num_filters = network.layers["features"].subnetwork.layers["conv_l"].output.shape[-1]
+
+    def get_sorted_indices():
+        sorted_filter_indices = sort_filters_by_center_freq(filter_layer)
+        sorted_indices = tf.stack(
+            [sorted_filter_indices * num_filters + filter_idx for filter_idx in range(num_filters)]
+        )
+        return tf.reshape(tf.transpose(sorted_indices), (-1,))
+
+    def get_unsorted_indices():
+        return tf.range(tf.shape(x)[data.feature_dim_axis])
+
+    sorted_indices = tf.cond(use_sorting, get_sorted_indices, get_unsorted_indices)
+
+    def get_masked():
+        x_masked = x
+        time_mask_max_size = tf.gather(specaug_params["time_mask_max_size"], current_epoch)
+        time_mask_max_num = tf.gather(specaug_params["time_mask_max_num"], current_epoch)
+        freq_mask_max_num = tf.gather(specaug_params["freq_mask_max_num"], current_epoch)
+        freq_mask_max_size = tf.gather(specaug_params["freq_mask_max_size"], current_epoch)
+        total_time_masks_max_frames = tf.cast(
+            tf.math.floor(config["time_mask_max_proportion"] * tf.cast(tf.shape(x)[data.time_dim_axis], tf.float32)),
+            tf.int32,
+        )
+        total_freq_masks_max_size = tf.cast(
+            tf.math.floor(config["freq_mask_max_proportion"] * tf.cast(tf.shape(x)[data.feature_dim_axis], tf.float32)),
+            tf.int32,
+        )
+        max_time_num_seq_len = tf.cast(
+            tf.math.floordiv(
+                tf.cast(tf.shape(x)[data.time_dim_axis], tf.float32),
+                tf.cast(1.0, tf.float32) / max_time_num_seq_len_divisor * tf.cast(time_mask_max_size, tf.float32),
+            ),
+            tf.int32,
+        )
+        # check for the limits
+        actual_time_mask_max_num = tf.minimum(
+            tf.maximum(
+                time_mask_max_num,
+                max_time_num_seq_len,
+            ),
+            total_time_masks_max_frames // time_mask_max_size,
+        )
+        actual_freq_mask_max_num = tf.minimum(freq_mask_max_num, total_freq_masks_max_size // freq_mask_max_size)
+
+        if config["filter_based_masking_strategy"] == "variance":
+            f_resp = get_frequency_response(filter_layer)
+            variance = tf.math.reduce_variance(f_resp, axis=0)
+            n_features = tf.shape(x)[data.feature_dim_axis]
+            probs = variance / tf.reduce_sum(variance)
+            uniform_probs = tf.ones_like(probs) / tf.cast(n_features, tf.float32)
+            final_probs = filter_factor * probs + (1 - filter_factor) * uniform_probs
+        elif config["filter_based_masking_strategy"] == "peakToAverage":
+            # Get peak to average ratio for each filter
+            f_resp = get_frequency_response(filter_layer)
+            peak = tf.reduce_max(f_resp, axis=0)
+            average = tf.reduce_mean(f_resp, axis=0)
+            ratio = peak / average
+            n_features = tf.shape(x)[data.feature_dim_axis]
+            # Normalize the ratio to get probabilities
+            probs = ratio / tf.reduce_sum(ratio)
+            uniform_probs = tf.ones_like(probs) / tf.cast(n_features, tf.float32)
+            final_probs = filter_factor * probs + (1 - filter_factor) * uniform_probs
+
+        enable_logging = tf.convert_to_tensor(config["enable_logging"], dtype=tf.bool)
+
+        def logging_ops():
+            with tf.control_dependencies(
+                [
+                    tf.print(
+                        "Specaug Log: ",
+                        current_epoch,
+                        tf.shape(x)[data.time_dim_axis],
+                        sep=", ",
+                    )
+                ]
+            ):
+                return tf.identity(x_masked)
+
+        if config["filter_based_masking_strategy"] is not None:
+            x_masked = tf.cond(enable_logging, logging_ops, lambda: tf.identity(x_masked))
+
+            x_masked = filter_based_masking(
+                x_masked,
+                batch_axis=data.batch_dim_axis,
+                axis=data.feature_dim_axis,
+                probability_distribution=final_probs,
+                max_number_masks_for_probability_specaug=tf.gather(
+                    config["specaug_params"]["max_number_masks_for_filter_based_specaug"], current_epoch
+                ),
+            )
+
+        x_masked = random_mask(
+            x_masked,
+            batch_axis=data.batch_dim_axis,
+            axis=data.time_dim_axis,
+            min_num=0,
+            max_num=actual_time_mask_max_num,
+            max_dims=time_mask_max_size,
+            sorted_indices=tf.range(tf.shape(x)[data.time_dim_axis]),
+        )
+        x_masked = random_mask(
+            x_masked,
+            batch_axis=data.batch_dim_axis,
+            axis=data.feature_dim_axis,
+            min_num=0,
+            max_num=actual_freq_mask_max_num,
+            max_dims=freq_mask_max_size,
+            sorted_indices=sorted_indices,
+        )
+        return x_masked
+
+    x = network.cond_on_train(get_masked, lambda: x)
+    return x

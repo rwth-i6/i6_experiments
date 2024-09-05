@@ -837,6 +837,48 @@ def run_scf_specaug():
                 lr_args=lr_args,
                 report_args={"batch_size": "2x5k", "enable_sorting": False, "max_feature": 15},
             ),
+            "variance_based_specaug": dict(
+                returnn_args={
+                    **base_returnn_args,
+                    "specaug_config": {
+                        "steps_per_epoch": 4100,
+                        "enable_sorting": False,
+                        "filter_based_masking_strategy": "variance",
+                        "enable_logging": True,
+                        "filter_factor": 0.5,
+                        "max_number_masks_for_filter_based_specaug": 75,
+                    },
+                },
+                feature_args=feature_args,
+                lr_args=lr_args,
+                report_args={
+                    "batch_size": "2x5k",
+                    "filter_based_masking_strategy": "variance",
+                    "filter_factor": 0.5,
+                    "max_number_masks_for_filter_based_specaug": 75,
+                },
+            ),
+            "peakToAverage_based_specaug": dict(
+                returnn_args={
+                    **base_returnn_args,
+                    "specaug_config": {
+                        "steps_per_epoch": 4100,
+                        "enable_sorting": False,
+                        "filter_based_masking_strategy": "peakToAverage",
+                        "enable_logging": True,
+                        "filter_factor": 0.5,
+                        "max_number_masks_for_filter_based_specaug": 75,
+                    },
+                },
+                feature_args=feature_args,
+                lr_args=lr_args,
+                report_args={
+                    "batch_size": "2x5k",
+                    "filter_based_masking_strategy": "peakToAverage",
+                    "filter_factor": 0.5,
+                    "max_number_masks_for_filter_based_specaug": 75,
+                },
+            ),
         },
         num_epochs=450,
         evaluation_epochs=[350, 390, 400, 410, 450],

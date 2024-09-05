@@ -21,6 +21,31 @@ def add_specaug_layer(
     return [name], get_specaug_funcs()
 
 
+def get_frequency_response(x):
+    """
+    This function returns the frequency response of the filters.
+    :param tf.Tensor x: The filter layer to sort.
+    :return: Frequency response of the filters.
+    """
+    import numpy as np
+    import tensorflow as tf
+
+    x = tf.convert_to_tensor(x)  # (256, 1, 150) = (N, 1, C)
+
+    # implementation similar to scipy.signal.freqz, which uses numpy.polynomial.polynomial.polyval
+    filters = tf.transpose(tf.squeeze(x))  # (C, N)
+    num_freqs = 128  # F
+    w = tf.linspace(0.0, np.pi - np.pi / num_freqs, num_freqs)  # (F,)
+    zm1 = tf.expand_dims(tf.exp(-1j * tf.cast(w, "complex64")), 1)  # (F, 1)
+    exponents = tf.expand_dims(tf.range(tf.shape(filters)[1]), 0)  # (1, N)
+    zm1_pow = tf.pow(zm1, tf.cast(exponents, dtype="complex64"))  # (F, N)
+    f_resp = tf.tensordot(zm1_pow, tf.cast(tf.transpose(filters), dtype="complex64"), axes=1)  # (F, C)
+    f_resp = tf.abs(f_resp)
+    f_resp = 20 * tf.math.log(f_resp) / tf.math.log(tf.constant(10.0))
+
+    return f_resp
+
+
 def sort_filters_by_center_freq(x):
     """
     This function either sorts the filters by their center frequency and returns them,
