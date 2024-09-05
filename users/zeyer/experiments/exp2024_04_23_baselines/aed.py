@@ -134,7 +134,7 @@ def py():
         # The lower the alpha, the more aggressive the sampling.
         # See archive/returnn-spm10-sample.config for playing around with alpha and checking avg seq len.
         # spm10k without sampling: 5.24 dev-other
-        ("spm10k", 1.0),  # 5.35. sanity check, should be like baseline (5.16), could be attributed to randomness?
+        ("spm10k", 1.0),  # 5.35. As we see from CTC exps, this is not exactly the same as no sampling.
         ("spm10k", 0.9),  # 5.18
         ("spm10k", 0.8),  # 5.14
         ("spm10k", 0.7),  # 4.98 (!!)
@@ -176,8 +176,10 @@ def py():
         num_heads=8,
     )
     for vocab, sample, alpha, max_seq_len_via_audio, model_name, model_cfg in [
-        ("spm10k", "spm", 0.7, False, None, {}),
+        ("spm10k", "spm", 0.7, False, None, {}),  # 4.98
+        ("spm10k", "bpe", 0.005, False, None, {}),
         ("spm10k", "bpe", 0.01, False, None, {}),  # 5.14
+        # TODO ("spm10k", "bpe", 0.01, True, None, {}),
         ("spm10k", "bpe", 0.01, False, "relPosAttDef", {"enc_conformer_layer": enc_conformer_layer_default}),  # 5.12
         (  # 5.14, seems a bit worse (also looking at test)
             "spm10k",
@@ -190,7 +192,7 @@ def py():
                 "feature_batch_norm": True,
             },
         ),
-        (
+        (  # 5.07
             "spm10k",
             "bpe",
             0.01,
@@ -207,6 +209,24 @@ def py():
                     num_heads=8,
                 ),
                 "feature_batch_norm": True,
+            },
+        ),
+        (
+            "spm10k",
+            "bpe",
+            0.005,
+            False,
+            "relPosAttDef-noBias",
+            {
+                "enc_conformer_layer": rf.build_dict(
+                    rf.encoder.conformer.ConformerEncoderLayer,
+                    ff=rf.build_dict(
+                        rf.encoder.conformer.ConformerPositionwiseFeedForward,
+                        activation=rf.build_dict(rf.relu_square),
+                        with_bias=False,
+                    ),
+                    num_heads=8,
+                ),
             },
         ),
     ]:
