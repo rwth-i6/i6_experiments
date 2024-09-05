@@ -50,6 +50,7 @@ def add_specaug_layer(
                 max_time_num_seq_len_divisor (int):
                     The divisor for the sequence length to determine the maximum number of time masks. Default is 0.7.
                 filter_based_masking_strategy (string): Which filter strategy to use for masking. Default is None.
+                    Options are: None, "variance", "peakToAverageRatio", "peakToAverageDifference".
                 filter_factor (float): The factor that determines the probability of masking a feature based on a filter. Default is 0.5.
                 max_number_masks_for_filter_based_specaug (int): The total maximum number of masks to be applied if any filter-based masking is used. Default is 50.
                 filter_mask_schedule (Dict[int, float]):
