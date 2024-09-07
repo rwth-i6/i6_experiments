@@ -799,7 +799,7 @@ def run_scf_specaug():
         "size_tf": 256 // 2,
         "stride_tf": 10 // 2,
         "wave_norm": True,
-        "preemphasis": 0.97,
+        "preemphasis": 1.0,
     }
     lr_args = {
         "peak_lr": 4e-4,
@@ -844,6 +844,8 @@ def run_scf_specaug():
                         "steps_per_epoch": 4100,
                         "enable_sorting": False,
                         "filter_based_masking_strategy": "variance",
+                        "freq_mask_max_size" : 0,
+                        "freq_mask_max_num": 0,
                         "enable_logging": True,
                         "filter_factor": 0.5,
                         "max_number_masks_for_filter_based_specaug": 75,
@@ -855,6 +857,8 @@ def run_scf_specaug():
                     "batch_size": "2x5k",
                     "filter_based_masking_strategy": "variance",
                     "filter_factor": 0.5,
+                    "freq_mask_max_size" : 0,
+                    "freq_mask_max_num": 0,
                     "max_number_masks_for_filter_based_specaug": 75,
                 },
             ),
@@ -865,6 +869,8 @@ def run_scf_specaug():
                         "steps_per_epoch": 4100,
                         "enable_sorting": False,
                         "filter_based_masking_strategy": "peakToAverageRatio",
+                        "freq_mask_max_size" : 0,
+                        "freq_mask_max_num": 0,
                         "enable_logging": True,
                         "filter_factor": 0.5,
                         "max_number_masks_for_filter_based_specaug": 75,
@@ -875,6 +881,8 @@ def run_scf_specaug():
                 report_args={
                     "batch_size": "2x5k",
                     "filter_based_masking_strategy": "peakToAverageRatio",
+                    "freq_mask_max_size" : 0,
+                    "freq_mask_max_num": 0,
                     "filter_factor": 0.5,
                     "max_number_masks_for_filter_based_specaug": 75,
                 },
@@ -885,6 +893,8 @@ def run_scf_specaug():
                     "specaug_config": {
                         "steps_per_epoch": 4100,
                         "enable_sorting": False,
+                        "freq_mask_max_size" : 0,
+                        "freq_mask_max_num": 0,
                         "filter_based_masking_strategy": "peakToAverageDifference",
                         "enable_logging": True,
                         "filter_factor": 0.5,
@@ -897,13 +907,15 @@ def run_scf_specaug():
                     "batch_size": "2x5k",
                     "filter_based_masking_strategy": "peakToAverageDifference",
                     "filter_factor": 0.5,
+                    "freq_mask_max_size" : 0,
+                    "freq_mask_max_num": 0,
                     "max_number_masks_for_filter_based_specaug": 75,
                 },
             ),
         },
         num_epochs=450,
         evaluation_epochs=[350, 390, 400, 410, 450],
-        prefix="conformer_bs2x5k_scf_specaug_",
+        prefix="conformer_bs2x5k_scf_pre1_specaug_",
     )
 
     returnn_root = CloneGitRepositoryJob(
