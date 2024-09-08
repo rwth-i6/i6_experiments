@@ -86,7 +86,21 @@ def _get_cfg_lrlin_oclr_by_bs_nep(bs_feat: int, n_ep: int, *, peak_lr: float = 1
     }
 
 
+# Just specify avg num steps per (sub)epoch (partition epoch 20) for batch_size // 1000.
+# (Assumes max_seqs 200, spm10k, max_seq_len 75, multi-GPU 4.)
+# Estimated via some existing log, or alternatively via:
+# tools/calc-avg-num-train-steps-per-ep-from-seq-lens.py \
+#   output/datasets/LibriSpeech/seq_len_audio-features=raw-sampleRate=16000-peakNormalization=True.txt \
+#   --seq_lens_file_for_max_seq_len \
+#     output/datasets/LibriSpeech/seq_len_target-spm10k-class=SamplingBytePairEncoding-breadthProb=0.001.txt \
+#   --partition_epoch 20 --seq_ordering "laplace:.1000" \
+#   --max_seq_len 75 --multi_gpu 4 --num_epochs 20 \
+#   --max_seqs 200 --batch_size (N * 1000 * 160)
+# Then using p10 (10% percentile) from the output.
+# Using some lower number than the real one should be safe.
+# It means we might reach the end of the LR schedule slightly earlier than in the real case.
 _tot_num_steps_by_bs = {
+    5: 3898,
     8: 2485,
     10: 1973,
     15: 1303,

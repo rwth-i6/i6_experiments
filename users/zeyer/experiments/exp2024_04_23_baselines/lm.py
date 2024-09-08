@@ -573,7 +573,7 @@ lm_train_def.learning_rate_control_error_measure = "ce"
 #   --partition_epoch 20 --seq_ordering "laplace:.1000" \
 #   --max_seq_len 75 --multi_gpu 4 --num_epochs 20 \
 #   --max_seqs ... --batch_size ...
-# Then using p10.
+# Then using p10 (10% percentile) from the output.
 _tot_num_steps_by_bs = {
     (32, 1_000): 73840,
     (32, 2_000): 62946,
