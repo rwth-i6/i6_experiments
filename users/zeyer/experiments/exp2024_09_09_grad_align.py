@@ -4,6 +4,7 @@ Alignments
 
 from __future__ import annotations
 import os
+import sys
 from sisyphus import tk, Job, Task, Path
 
 
@@ -37,6 +38,11 @@ class ForcedAlignOnScoreMatrixJob(Job):
         import numpy as np
         from matplotlib import pyplot as plt
         from mpl_toolkits.axes_grid1 import make_axes_locatable
+        import i6_experiments
+
+        recipe_dir = os.path.dirname(os.path.dirname(i6_experiments.__file__))
+        sys.path.insert(0, recipe_dir)
+
         from i6_experiments.users.schmitt.hdf import load_hdf_data
 
         # TODO: EOS has to be removed before
