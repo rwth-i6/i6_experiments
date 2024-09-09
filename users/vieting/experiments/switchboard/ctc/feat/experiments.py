@@ -858,13 +858,13 @@ def run_scf_specaug():
                     "max_number_masks_for_filter_based_specaug": 75,
                 },
             ),
-            "peakToAverageRatio_based_specaug": dict(
+            "peakToAverage_based_specaug": dict(
                 returnn_args={
                     **base_returnn_args,
                     "specaug_config": {
                         "steps_per_epoch": 4100,
                         "enable_sorting": False,
-                        "filter_based_masking_strategy": "peakToAverageRatio",
+                        "filter_based_masking_strategy": "peakToAverage",
                         "enable_logging": True,
                         "filter_factor": 0.5,
                         "max_number_masks_for_filter_based_specaug": 75,
@@ -874,28 +874,7 @@ def run_scf_specaug():
                 lr_args=lr_args,
                 report_args={
                     "batch_size": "2x5k",
-                    "filter_based_masking_strategy": "peakToAverageRatio",
-                    "filter_factor": 0.5,
-                    "max_number_masks_for_filter_based_specaug": 75,
-                },
-            ),
-            "peakToAverageDifference_based_specaug": dict(
-                returnn_args={
-                    **base_returnn_args,
-                    "specaug_config": {
-                        "steps_per_epoch": 4100,
-                        "enable_sorting": False,
-                        "filter_based_masking_strategy": "peakToAverageDifference",
-                        "enable_logging": True,
-                        "filter_factor": 0.5,
-                        "max_number_masks_for_filter_based_specaug": 75,
-                    },
-                },
-                feature_args=feature_args,
-                lr_args=lr_args,
-                report_args={
-                    "batch_size": "2x5k",
-                    "filter_based_masking_strategy": "peakToAverageDifference",
+                    "filter_based_masking_strategy": "peakToAverage",
                     "filter_factor": 0.5,
                     "max_number_masks_for_filter_based_specaug": 75,
                 },
