@@ -754,6 +754,8 @@ def run_scf_stage1():
             "filename": nn_system_ctc.train_jobs["conformer_bs2x5k_scf_baseline_preemphasis1_wn"].out_checkpoints[
                 400
             ],
+            "ignore_missing": True,
+            "ignore_params": ["global_step", "output/W", "output/b"],
             "init_for_train": True,
         }
     }
