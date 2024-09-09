@@ -3,6 +3,7 @@ Language models
 
 some ref:
 https://github.com/rwth-i6/returnn-experiments/blob/master/2019-lm-transformers/librispeech/bpe_10k/transfo_24_d00.4096_1024.sgd.lr1.8_heads.config
+https://github.com/rwth-i6/returnn-experiments/blob/master/2019-lm-transformers/librispeech/word_200k_vocab/re_transfo_96_d00.2048_512.head_8.sgd.lr1.cl1.small_batch.config
 """
 
 from __future__ import annotations
@@ -572,7 +573,7 @@ lm_train_def.learning_rate_control_error_measure = "ce"
 #   --partition_epoch 20 --seq_ordering "laplace:.1000" \
 #   --max_seq_len 75 --multi_gpu 4 --num_epochs 20 \
 #   --max_seqs ... --batch_size ...
-# Then using p10.
+# Then using p10 (10% percentile) from the output.
 _tot_num_steps_by_bs = {
     (32, 1_000): 73840,
     (32, 2_000): 62946,
