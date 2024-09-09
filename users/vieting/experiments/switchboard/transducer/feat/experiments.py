@@ -724,7 +724,7 @@ def run_scf_stage1():
         "class": "ScfNetwork",
         "size_tf": 256 // 2,
         "stride_tf": 10 // 2,
-        "preemphasis": 0.97,
+        "preemphasis": 1.0,
         "wave_norm": True,
         "wave_cast": True,
     }
@@ -735,7 +735,7 @@ def run_scf_stage1():
 
     preload_dict = {
         "existing-model": {
-            "filename": nn_system_ctc.train_jobs["conformer_bs2x5k_scf_baseline_preemphasis97_wn"].out_checkpoints[400],
+            "filename": nn_system_ctc.train_jobs["conformer_bs2x5k_scf_baseline_preemphasis1_wn"].out_checkpoints[400],
             "init_for_train": True,
             "prefix": "features",
             "var_name_mapping": {
@@ -746,6 +746,15 @@ def run_scf_stage1():
                 "/wave_norm/bias": "features/wave_norm/bias",
                 "/wave_norm/scale": "features/wave_norm/scale",
             },
+        }
+    }
+
+    preload_dict_full = {
+        "existing-model": {
+            "filename": nn_system_ctc.train_jobs["conformer_bs2x5k_scf_baseline_preemphasis1_wn"].out_checkpoints[
+                400
+            ],
+            "init_for_train": True,
         }
     }
 
@@ -779,10 +788,22 @@ def run_scf_stage1():
                 report_args={"alignment": "ctc-scf-conf-e400"},
                 **common_args,
             ),
+            "bs15k_align-ctc-conf-e400_feat-ctc-e400_decoder_froozen": dict(
+                returnn_args={
+                    **returnn_args,
+                    "extra_args": {
+                        **returnn_args["extra_args"],
+                        "preload_from_files": preload_dict_full,
+                    },
+                    "staged_opts": {1: "freeze_decoder"},
+                },
+                report_args={"alignment": "ctc-scf-conf-e400"},
+                **common_args,
+            ),
         },
         num_epochs=300,
         evaluation_epochs=[270, 280, 290, 300],
-        prefix="viterbi_scf_",
+        prefix="viterbi_scf_pre1_",
     )
     nn_system, report = run_nn_args(nn_args, report_args_collection, dev_corpora["transducer"])
     for training_name in nn_system.train_jobs:

@@ -271,6 +271,13 @@ def get_returnn_config(
             if opts == "freeze_features":
                 network_mod["features"]["trainable"] = False
                 staged_network_dict[epoch] = copy.deepcopy(network_mod)
+            if opts == "freeze_decoder":
+                for layer in list(network_mod.keys()):
+                    if layer.startswith("conformer"):
+                        network_mod[layer]["trainable"] = False
+                    elif layer == "features":
+                        network_mod[layer]["trainable"] = False
+                staged_network_dict[epoch] = copy.deepcopy(network_mod)
             elif opts == "remove_aux":
                 for layer in list(network_mod.keys()):
                     if layer.startswith("aux"):
