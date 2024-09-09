@@ -32,7 +32,7 @@ def get_bpe_to_word_idx_mapping(bpe_align, blank_idx):
   return word_indices
 
 
-def get_allophone_word_end_positions(allophone_idxs, state_tying_vocab, silence_idx, non_final_idx):
+def get_allophone_word_end_positions(allophone_idxs, state_tying_vocab, silence_idx, non_final_idx, count_silence=True):
   """
   Get indices of allophones that correspond to word ends, including silence.
   :return:
@@ -55,7 +55,8 @@ def get_allophone_word_end_positions(allophone_idxs, state_tying_vocab, silence_
   is_word_end = np.append(final_states[:-1] > final_states[1:], [True])
   # silence is always [SILENCE]@i@f.0,
   # so we need to add it to the word ends because it is not counted in the previous line
-  is_word_end = np.logical_or(is_word_end, is_silence)
+  if count_silence:
+    is_word_end = np.logical_or(is_word_end, is_silence)
   word_ends = allophone_idxs[is_word_end]
   word_end_positions = allophone_positions[is_word_end]
   return word_end_positions
