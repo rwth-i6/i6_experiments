@@ -168,7 +168,7 @@ class ForcedAlignOnScoreMatrixJob(Job):
             hdf_writer.insert_batch(alignment_[None, :, 1], seq_len=[T], seq_tag=[seq_tag])
 
             if i < 10:  # plot the first 10 for debugging
-                plot_dir = f"alignments"
+                plot_dir = Path("alignments", self).get_path()
                 os.makedirs(plot_dir, exist_ok=True)
 
                 from matplotlib import pyplot as plt
