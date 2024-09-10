@@ -47,7 +47,7 @@ class ForcedAlignOnScoreMatrixJob(Job):
         self.out_align = self.output_path("out_align")
 
     def tasks(self):
-        yield Task("run", rqmt={"cpu": 1, "mem": 4, "time": 10, "gpu": 0})
+        yield Task("run", rqmt={"cpu": 1, "mem": 4, "time": 1, "gpu": 0})
 
     def run(self):
         from typing import List, Tuple
