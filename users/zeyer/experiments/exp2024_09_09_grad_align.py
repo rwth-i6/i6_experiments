@@ -14,33 +14,37 @@ def py():
     # der job holt sich die word end positions von dem GMM alignment und rechnet die initial und final silence aus
     # * ForcedAlignOnScoreMatrixJob
     for apply_softmax_over_time in [True, False]:
-        tk.register_output(
-            f"grad-align-sm{apply_softmax_over_time}",
-            ForcedAlignOnScoreMatrixJob(
-                # example (already in logspace):
-                # score_matrix_hdf=Path(
-                #     "/u/schmitt/experiments/segmental_models_2022_23_rf/alias/models/ls_conformer/global_att/baseline_v1/baseline_rf/bpe1056/w-weight-feedback/w-att-ctx-in-state/nb-lstm/12-layer_512-dim_standard-conformer/train_from_scratch/2000-ep_bs-35000_w-sp_curric_lr-dyn_lr_piecewise_linear_epoch-wise_v2_reg-v1_filter-data-312000.0_accum-2/returnn_decoding/epoch-130-checkpoint/no-lm/beam-size-12/dev-other/analysis/analyze_gradients_ground-truth/3660-6517-0005_6467-62797-0001_6467-62797-0002_7697-105815-0015_7697-105815-0051/work/x_linear/log-prob-grads_wrt_x_linear_log-space/att_weights.hdf"
-                # ),
-                # non flipped grads
-                score_matrix_hdf=Path(
-                    "/work/asr3/zeyer/schmitt/sisyphus_work_dirs/segmental_models_2022_23_rf/i6_core/returnn/forward/ReturnnForwardJobV2.KKMedG4R3uf4/output/gradients.hdf"
-                ),
-                apply_softmax_over_time=True,
-            ).out_align,
+        name = f"grad-align-sm{apply_softmax_over_time}"
+        job = ForcedAlignOnScoreMatrixJob(
+            # example (already in logspace):
+            # score_matrix_hdf=Path(
+            #     "/u/schmitt/experiments/segmental_models_2022_23_rf/alias/models/ls_conformer/global_att/baseline_v1/baseline_rf/bpe1056/w-weight-feedback/w-att-ctx-in-state/nb-lstm/12-layer_512-dim_standard-conformer/train_from_scratch/2000-ep_bs-35000_w-sp_curric_lr-dyn_lr_piecewise_linear_epoch-wise_v2_reg-v1_filter-data-312000.0_accum-2/returnn_decoding/epoch-130-checkpoint/no-lm/beam-size-12/dev-other/analysis/analyze_gradients_ground-truth/3660-6517-0005_6467-62797-0001_6467-62797-0002_7697-105815-0015_7697-105815-0051/work/x_linear/log-prob-grads_wrt_x_linear_log-space/att_weights.hdf"
+            # ),
+            # non flipped grads
+            score_matrix_hdf=Path(
+                "/work/asr3/zeyer/schmitt/sisyphus_work_dirs/segmental_models_2022_23_rf/i6_core/returnn/forward/ReturnnForwardJobV2.KKMedG4R3uf4/output/gradients.hdf"
+            ),
+            apply_softmax_over_time=apply_softmax_over_time,
         )
+        job.add_alias(name)
+        tk.register_output(name, job.out_align)
 
 
 class ForcedAlignOnScoreMatrixJob(Job):
+    """Calculate the Viterbi alignment for a given score matrix."""
+
     def __init__(
         self,
         *,
         score_matrix_hdf: Path,
+        cut_off_eos: bool = True,
         apply_log: bool = True,
         apply_softmax_over_time: bool = False,
         num_seqs: int = -1,
         returnn_root: Optional[tk.Path] = None,
     ):
         self.score_matrix_hdf = score_matrix_hdf
+        self.cut_off_eos = cut_off_eos
         self.apply_log = apply_log
         self.apply_softmax_over_time = apply_softmax_over_time
         self.num_seqs = num_seqs
@@ -83,8 +87,9 @@ class ForcedAlignOnScoreMatrixJob(Job):
             print("seq tag:", seq_tag)
 
             score_matrix = score_matrix_data_dict[seq_tag]  # [S, T]
-            # Last row is EOS, remove it.
-            score_matrix = score_matrix[:-1]
+            if self.cut_off_eos:
+                # Last row is EOS, remove it.
+                score_matrix = score_matrix[:-1]
 
             if self.apply_log:
                 # Assuming L2 norm scores (i.e. >0).
@@ -169,9 +174,11 @@ class ForcedAlignOnScoreMatrixJob(Job):
                 from matplotlib import pyplot as plt
                 from mpl_toolkits.axes_grid1 import make_axes_locatable
 
+                label_idx = 10
+                blank_idx = 2
                 alignment_map = np.zeros([T, 2 * S + 1], dtype=np.int32)  # [T, S*2+1]
                 for t, s in alignment:
-                    alignment_map[t, s] = 2 if s % 2 == 1 else 1
+                    alignment_map[t, s] = 10 if s % 2 == 1 else 2
 
                 fig, ax = plt.subplots(nrows=4, ncols=1, figsize=(20, 10))
                 for i, (alias, mat) in enumerate(
@@ -194,7 +201,7 @@ class ForcedAlignOnScoreMatrixJob(Job):
                         cbar = fig.colorbar(mat_, cax=cax, orientation="vertical", ticks=[0, -1, -2, -3])
                         cbar.ax.set_yticklabels(["diagonal-skip", "diagonal", "left", "unreachable"])
                     elif alias == "alignment":
-                        cbar = fig.colorbar(mat_, cax=cax, orientation="vertical", ticks=[0, 1, 2])
+                        cbar = fig.colorbar(mat_, cax=cax, orientation="vertical", ticks=[0, blank_idx, label_idx])
                         cbar.ax.set_yticklabels(["", "blank", "label"])
                     else:
                         fig.colorbar(mat_, cax=cax, orientation="vertical")
