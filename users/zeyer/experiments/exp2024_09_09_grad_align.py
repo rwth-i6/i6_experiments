@@ -113,7 +113,7 @@ class ForcedAlignOnScoreMatrixJob(Job):
 
             alignment_map = np.zeros([2 * S + 1, T], dtype=np.int32)
             for s, t in alignment:
-                alignment_map[s, t] = 1
+                alignment_map[s, t] = 2 if s % 2 == 1 else 1
 
             fig, ax = plt.subplots(nrows=4, ncols=1, figsize=(20, 10))
             for i, (alias, mat) in enumerate(
@@ -129,16 +129,16 @@ class ForcedAlignOnScoreMatrixJob(Job):
                 ax[i].set_xlabel("time")
                 ax[i].set_ylabel("labels")
 
-                if alias == "alignment":
-                    pass
+                divider = make_axes_locatable(ax[i])
+                cax = divider.append_axes("right", size="5%", pad=0.05)
+                if alias == "backpointers":
+                    cbar = fig.colorbar(mat_, cax=cax, orientation="vertical", ticks=[0, -1, -2])
+                    cbar.ax.set_yticklabels(["diagonal", "left", "unreachable"])
+                elif alias == "alignment":
+                    cbar = fig.colorbar(mat_, cax=cax, orientation="vertical", ticks=[0, 1, 2])
+                    cbar.ax.set_yticklabels(["", "blank", "label"])
                 else:
-                    divider = make_axes_locatable(ax[i])
-                    cax = divider.append_axes("right", size="5%", pad=0.05)
-                    if alias == "backpointers":
-                        cbar = fig.colorbar(mat_, cax=cax, orientation="vertical", ticks=[0, -1, -2])
-                        cbar.ax.set_yticklabels(["diagonal", "left", "unreachable"])
-                    else:
-                        fig.colorbar(mat_, cax=cax, orientation="vertical")
+                    fig.colorbar(mat_, cax=cax, orientation="vertical")
 
             plt.tight_layout()
             plt.savefig(f"{plot_dir}/alignment_{seq_tag.replace('/', '_')}.png")
