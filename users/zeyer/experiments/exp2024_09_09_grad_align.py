@@ -13,19 +13,21 @@ def py():
     # * CalculateSilenceStatistics:
     # der job holt sich die word end positions von dem GMM alignment und rechnet die initial und final silence aus
     # * ForcedAlignOnScoreMatrixJob
-    tk.register_output(
-        "grad-align",
-        ForcedAlignOnScoreMatrixJob(
-            # example (already in logspace):
-            # score_matrix_hdf=Path(
-            #     "/u/schmitt/experiments/segmental_models_2022_23_rf/alias/models/ls_conformer/global_att/baseline_v1/baseline_rf/bpe1056/w-weight-feedback/w-att-ctx-in-state/nb-lstm/12-layer_512-dim_standard-conformer/train_from_scratch/2000-ep_bs-35000_w-sp_curric_lr-dyn_lr_piecewise_linear_epoch-wise_v2_reg-v1_filter-data-312000.0_accum-2/returnn_decoding/epoch-130-checkpoint/no-lm/beam-size-12/dev-other/analysis/analyze_gradients_ground-truth/3660-6517-0005_6467-62797-0001_6467-62797-0002_7697-105815-0015_7697-105815-0051/work/x_linear/log-prob-grads_wrt_x_linear_log-space/att_weights.hdf"
-            # ),
-            # non flipped grads
-            score_matrix_hdf=Path(
-                "/work/asr3/zeyer/schmitt/sisyphus_work_dirs/segmental_models_2022_23_rf/i6_core/returnn/forward/ReturnnForwardJobV2.KKMedG4R3uf4/output/gradients.hdf"
-            ),
-        ).out_align,
-    )
+    for apply_softmax_over_time in [True, False]:
+        tk.register_output(
+            f"grad-align-sm{apply_softmax_over_time}",
+            ForcedAlignOnScoreMatrixJob(
+                # example (already in logspace):
+                # score_matrix_hdf=Path(
+                #     "/u/schmitt/experiments/segmental_models_2022_23_rf/alias/models/ls_conformer/global_att/baseline_v1/baseline_rf/bpe1056/w-weight-feedback/w-att-ctx-in-state/nb-lstm/12-layer_512-dim_standard-conformer/train_from_scratch/2000-ep_bs-35000_w-sp_curric_lr-dyn_lr_piecewise_linear_epoch-wise_v2_reg-v1_filter-data-312000.0_accum-2/returnn_decoding/epoch-130-checkpoint/no-lm/beam-size-12/dev-other/analysis/analyze_gradients_ground-truth/3660-6517-0005_6467-62797-0001_6467-62797-0002_7697-105815-0015_7697-105815-0051/work/x_linear/log-prob-grads_wrt_x_linear_log-space/att_weights.hdf"
+                # ),
+                # non flipped grads
+                score_matrix_hdf=Path(
+                    "/work/asr3/zeyer/schmitt/sisyphus_work_dirs/segmental_models_2022_23_rf/i6_core/returnn/forward/ReturnnForwardJobV2.KKMedG4R3uf4/output/gradients.hdf"
+                ),
+                apply_softmax_over_time=True,
+            ).out_align,
+        )
 
 
 class ForcedAlignOnScoreMatrixJob(Job):
@@ -201,3 +203,11 @@ class ForcedAlignOnScoreMatrixJob(Job):
                 plt.savefig(f"{plot_dir}/alignment_{seq_tag.replace('/', '_')}.png")
 
         hdf_writer.close()
+
+
+class CalcAlignmentMetrics(Job):
+    """Calculate alignment metrics, e.g. time-stamp-error (TSE) for word boundaries and for word positions."""
+
+    def __init__(self):
+        super().__init__()
+        # TODO...
