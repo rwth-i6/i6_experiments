@@ -17,7 +17,9 @@ def py():
         ForcedAlignOnScoreMatrixJob(
             score_matrix_hdf=Path(
                 "/u/schmitt/experiments/segmental_models_2022_23_rf/alias/models/ls_conformer/global_att/baseline_v1/baseline_rf/bpe1056/w-weight-feedback/w-att-ctx-in-state/nb-lstm/12-layer_512-dim_standard-conformer/train_from_scratch/2000-ep_bs-35000_w-sp_curric_lr-dyn_lr_piecewise_linear_epoch-wise_v2_reg-v1_filter-data-312000.0_accum-2/returnn_decoding/epoch-130-checkpoint/no-lm/beam-size-12/dev-other/analysis/analyze_gradients_ground-truth/3660-6517-0005_6467-62797-0001_6467-62797-0002_7697-105815-0015_7697-105815-0051/work/x_linear/log-prob-grads_wrt_x_linear_log-space/att_weights.hdf"
-            )
+            ),
+            plot=True,
+            num_seqs=2,
         ).out_align,
     )
 
@@ -25,9 +27,14 @@ def py():
 class ForcedAlignOnScoreMatrixJob(Job):
     def __init__(
         self,
+        *,
         score_matrix_hdf: Path,
+        plot: bool = False,
+        num_seqs: int = -1,
     ):
         self.score_matrix_hdf = score_matrix_hdf
+        self.plot = plot
+        self.num_seqs = num_seqs
 
         self.out_align = self.output_path("out_align")
 
@@ -37,8 +44,6 @@ class ForcedAlignOnScoreMatrixJob(Job):
     def run(self):
         from typing import List, Tuple
         import numpy as np
-        from matplotlib import pyplot as plt
-        from mpl_toolkits.axes_grid1 import make_axes_locatable
         import i6_experiments
 
         recipe_dir = os.path.dirname(os.path.dirname(i6_experiments.__file__))
@@ -46,17 +51,23 @@ class ForcedAlignOnScoreMatrixJob(Job):
 
         from i6_experiments.users.schmitt.hdf import load_hdf_data
 
-        # TODO: EOS has to be removed before ?
         score_matrix_data_dict = load_hdf_data(self.score_matrix_hdf, num_dims=2)
 
-        for seq_tag in score_matrix_data_dict:
+        for i, seq_tag in enumerate(score_matrix_data_dict):
+            if 0 < self.num_seqs <= i:
+                break
+
             print("seq tag:", seq_tag)
             apply_log_softmax = False
             plot_dir = f"alignments-{'w' if apply_log_softmax else 'wo'}-softmax"
             os.makedirs(plot_dir, exist_ok=True)
 
             score_matrix = score_matrix_data_dict[seq_tag]  # [S, T]
-            # use absolute values such that smaller == better (original scores are in log-space)
+            # Last row is EOS, remove it.
+            score_matrix = score_matrix[:-1]
+
+            # Assuming log L2 norm scores.
+            # Make sure they are all negative or zero max.
             m = np.max(score_matrix)
             print("score matrix max:", m)
             score_matrix = score_matrix - m
@@ -125,36 +136,41 @@ class ForcedAlignOnScoreMatrixJob(Job):
                 else:
                     raise ValueError(f"invalid backpointer {b} at s={s}, t={t}")
 
-            alignment_map = np.zeros([T, 2 * S + 1], dtype=np.int32)  # [T, S*2+1]
-            for s, t in alignment:
-                alignment_map[t, s] = 2 if s % 2 == 1 else 1
+            # TODO store in out hdf
 
-            fig, ax = plt.subplots(nrows=4, ncols=1, figsize=(20, 10))
-            for i, (alias, mat) in enumerate(
-                [
-                    ("log(gradients) (local scores d)", score_matrix.T),
-                    ("Partial scores D", -1 * align_scores),
-                    ("backpointers", -1 * backpointers),
-                    ("alignment", alignment_map),
-                ]
-            ):
-                # mat is [T,S*2+1] or [T,S]
-                mat_ = ax[i].matshow(mat.T, cmap="Blues", aspect="auto")
-                ax[i].set_title(f"{alias} for seq {seq_tag}")
-                ax[i].set_xlabel("time")
-                ax[i].set_ylabel("labels")
+            if self.plot:
+                from matplotlib import pyplot as plt
+                from mpl_toolkits.axes_grid1 import make_axes_locatable
 
-                divider = make_axes_locatable(ax[i])
-                cax = divider.append_axes("right", size="5%", pad=0.05)
-                if alias == "backpointers":
-                    cbar = fig.colorbar(mat_, cax=cax, orientation="vertical", ticks=[0, -1, -2, -3])
-                    cbar.ax.set_yticklabels(["diagonal-skip", "diagonal", "left", "unreachable"])
-                elif alias == "alignment":
-                    cbar = fig.colorbar(mat_, cax=cax, orientation="vertical", ticks=[0, 1, 2])
-                    cbar.ax.set_yticklabels(["", "blank", "label"])
-                else:
-                    fig.colorbar(mat_, cax=cax, orientation="vertical")
+                alignment_map = np.zeros([T, 2 * S + 1], dtype=np.int32)  # [T, S*2+1]
+                for s, t in alignment:
+                    alignment_map[t, s] = 2 if s % 2 == 1 else 1
 
-            plt.tight_layout()
-            plt.savefig(f"{plot_dir}/alignment_{seq_tag.replace('/', '_')}.png")
-            exit()
+                fig, ax = plt.subplots(nrows=4, ncols=1, figsize=(20, 10))
+                for i, (alias, mat) in enumerate(
+                    [
+                        ("log(gradients) (local scores d)", score_matrix.T),
+                        ("Partial scores D", -1 * align_scores),
+                        ("backpointers", -1 * backpointers),
+                        ("alignment", alignment_map),
+                    ]
+                ):
+                    # mat is [T,S*2+1] or [T,S]
+                    mat_ = ax[i].matshow(mat.T, cmap="Blues", aspect="auto")
+                    ax[i].set_title(f"{alias} for seq {seq_tag}")
+                    ax[i].set_xlabel("time")
+                    ax[i].set_ylabel("labels")
+
+                    divider = make_axes_locatable(ax[i])
+                    cax = divider.append_axes("right", size="5%", pad=0.05)
+                    if alias == "backpointers":
+                        cbar = fig.colorbar(mat_, cax=cax, orientation="vertical", ticks=[0, -1, -2, -3])
+                        cbar.ax.set_yticklabels(["diagonal-skip", "diagonal", "left", "unreachable"])
+                    elif alias == "alignment":
+                        cbar = fig.colorbar(mat_, cax=cax, orientation="vertical", ticks=[0, 1, 2])
+                        cbar.ax.set_yticklabels(["", "blank", "label"])
+                    else:
+                        fig.colorbar(mat_, cax=cax, orientation="vertical")
+
+                plt.tight_layout()
+                plt.savefig(f"{plot_dir}/alignment_{seq_tag.replace('/', '_')}.png")
