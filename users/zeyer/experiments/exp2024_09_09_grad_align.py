@@ -168,17 +168,16 @@ class ForcedAlignOnScoreMatrixJob(Job):
             hdf_writer.insert_batch(alignment_[None, :, 1], seq_len=[T], seq_tag=[seq_tag])
 
             if i < 10:  # plot the first 10 for debugging
-                plot_dir = Path("alignments", self).get_path()
+                plot_dir = Path("alignment-plots", self).get_path()
                 os.makedirs(plot_dir, exist_ok=True)
 
                 from matplotlib import pyplot as plt
                 from mpl_toolkits.axes_grid1 import make_axes_locatable
 
-                label_idx = 10
-                blank_idx = 2
-                alignment_map = np.zeros([T, 2 * S + 1], dtype=np.int32)  # [T, S*2+1]
+                alignment_map = np.zeros([T, S], dtype=np.int32)  # [T, S]
                 for t, s in alignment:
-                    alignment_map[t, s] = 10 if s % 2 == 1 else 2
+                    if s % 2 == 1:
+                        alignment_map[t, s // 2] = 1
 
                 fig, ax = plt.subplots(nrows=4, ncols=1, figsize=(20, 10))
                 for i, (alias, mat) in enumerate(
@@ -201,8 +200,8 @@ class ForcedAlignOnScoreMatrixJob(Job):
                         cbar = fig.colorbar(mat_, cax=cax, orientation="vertical", ticks=[0, -1, -2, -3])
                         cbar.ax.set_yticklabels(["diagonal-skip", "diagonal", "left", "unreachable"])
                     elif alias == "alignment":
-                        cbar = fig.colorbar(mat_, cax=cax, orientation="vertical", ticks=[0, blank_idx, label_idx])
-                        cbar.ax.set_yticklabels(["", "blank", "label"])
+                        cbar = fig.colorbar(mat_, cax=cax, orientation="vertical", ticks=[0, 1])
+                        cbar.ax.set_yticklabels(["", "label"])
                     else:
                         fig.colorbar(mat_, cax=cax, orientation="vertical")
 
