@@ -139,7 +139,7 @@ class ForcedAlignOnScoreMatrixJob(Job):
                 ]
             ):
                 # mat is [T,S*2+1] or [T,S]
-                mat_ = ax[i].matshow(mat.T, cmap="Blues" if alias != "alignment" else "Pastel1", aspect="auto")
+                mat_ = ax[i].matshow(mat.T, cmap="Blues", aspect="auto")
                 ax[i].set_title(f"{alias} for seq {seq_tag}")
                 ax[i].set_xlabel("time")
                 ax[i].set_ylabel("labels")
