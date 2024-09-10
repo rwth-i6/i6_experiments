@@ -350,6 +350,8 @@ class LibrispeechOggZip(DatasetConfig):
         }
         if self.audio is not None:
             d["audio"] = self.audio.copy()
+        else:
+            d["audio"] = None
         if self.vocab is not None:
             vocab = self.train_vocab if training and self.train_vocab else self.vocab
             d["targets"] = vocab.get_opts().copy()
