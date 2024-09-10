@@ -3,6 +3,7 @@ Alignments
 """
 
 from __future__ import annotations
+from typing import Optional
 import os
 import sys
 from sisyphus import tk, Job, Task, Path
@@ -23,8 +24,6 @@ def py():
             score_matrix_hdf=Path(
                 "/work/asr3/zeyer/schmitt/sisyphus_work_dirs/segmental_models_2022_23_rf/i6_core/returnn/forward/ReturnnForwardJobV2.KKMedG4R3uf4/output/gradients.hdf"
             ),
-            plot=True,
-            num_seqs=10,
         ).out_align,
     )
 
@@ -35,13 +34,15 @@ class ForcedAlignOnScoreMatrixJob(Job):
         *,
         score_matrix_hdf: Path,
         apply_log: bool = True,
-        plot: bool = False,
+        apply_softmax_over_time: bool = False,
         num_seqs: int = -1,
+        returnn_root: Optional[tk.Path] = None,
     ):
         self.score_matrix_hdf = score_matrix_hdf
         self.apply_log = apply_log
-        self.plot = plot
+        self.apply_softmax_over_time = apply_softmax_over_time
         self.num_seqs = num_seqs
+        self.returnn_root = returnn_root
 
         self.out_align = self.output_path("out_align")
 
@@ -57,17 +58,27 @@ class ForcedAlignOnScoreMatrixJob(Job):
         sys.path.insert(0, recipe_dir)
 
         from i6_experiments.users.schmitt.hdf import load_hdf_data
+        import i6_core.util as util
+
+        returnn_root = util.get_returnn_root(self.returnn_root)
+
+        sys.path.insert(0, returnn_root.get_path())
+
+        from returnn.datasets.hdf import SimpleHDFWriter
 
         score_matrix_data_dict = load_hdf_data(self.score_matrix_hdf, num_dims=2)
+        hdf_writer = SimpleHDFWriter(self.out_align.get_path(), dim=None, ndim=1)
+
+        def _log_softmax(x: np.ndarray, *, axis: int) -> np.ndarray:
+            max_score = np.max(x, axis=axis, keepdims=True)
+            x = x - max_score
+            return x - np.log(np.sum(np.exp(x), axis=axis, keepdims=True))
 
         for i, seq_tag in enumerate(score_matrix_data_dict):
             if 0 < self.num_seqs <= i:
                 break
 
             print("seq tag:", seq_tag)
-            apply_log_softmax = False
-            plot_dir = f"alignments-{'w' if apply_log_softmax else 'wo'}-softmax"
-            os.makedirs(plot_dir, exist_ok=True)
 
             score_matrix = score_matrix_data_dict[seq_tag]  # [S, T]
             # Last row is EOS, remove it.
@@ -83,10 +94,8 @@ class ForcedAlignOnScoreMatrixJob(Job):
             score_matrix = score_matrix - max(m, 0.0)
             # score_matrix = -np.abs(score_matrix)
             # score_matrix = np.exp(score_matrix)
-            if apply_log_softmax:
-                max_score = np.max(score_matrix, axis=1, keepdims=True)
-                score_matrix = score_matrix - max_score
-                score_matrix = score_matrix - np.log(np.sum(np.exp(score_matrix), axis=1, keepdims=True))
+            if self.apply_softmax_over_time:
+                score_matrix = _log_softmax(score_matrix, axis=1)
             T = score_matrix.shape[1]  # noqa
             S = score_matrix.shape[0]  # noqa
 
@@ -128,10 +137,9 @@ class ForcedAlignOnScoreMatrixJob(Job):
             t = T - 1
             alignment: List[Tuple[int, int]] = []
             while True:
-                assert s >= 0 and t >= 0
-                alignment.append((s, t))
-                if t == 0:
-                    assert s <= 1  # we should have reached the start states
+                assert 0 <= s < S and 0 <= t < T
+                alignment.append((t, s))
+                if t == 0 and s <= 1:  # we reached some start state
                     break
 
                 b = backpointers[t, s]
@@ -146,14 +154,20 @@ class ForcedAlignOnScoreMatrixJob(Job):
                 else:
                     raise ValueError(f"invalid backpointer {b} at s={s}, t={t}")
 
-            # TODO store in out hdf
+            assert len(alignment) == T
+            alignment_ = np.array(alignment)  # [T, 2]
 
-            if self.plot:
+            hdf_writer.insert_batch(alignment_[None, :, 1], seq_len=[T], seq_tag=[seq_tag])
+
+            if i < 10:  # plot the first 10 for debugging
+                plot_dir = f"alignments"
+                os.makedirs(plot_dir, exist_ok=True)
+
                 from matplotlib import pyplot as plt
                 from mpl_toolkits.axes_grid1 import make_axes_locatable
 
                 alignment_map = np.zeros([T, 2 * S + 1], dtype=np.int32)  # [T, S*2+1]
-                for s, t in alignment:
+                for t, s in alignment:
                     alignment_map[t, s] = 2 if s % 2 == 1 else 1
 
                 fig, ax = plt.subplots(nrows=4, ncols=1, figsize=(20, 10))
@@ -184,3 +198,5 @@ class ForcedAlignOnScoreMatrixJob(Job):
 
                 plt.tight_layout()
                 plt.savefig(f"{plot_dir}/alignment_{seq_tag.replace('/', '_')}.png")
+
+        hdf_writer.close()
