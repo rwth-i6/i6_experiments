@@ -57,7 +57,11 @@ class ForcedAlignOnScoreMatrixJob(Job):
 
             score_matrix = score_matrix_data_dict[seq_tag]  # [S, T]
             # use absolute values such that smaller == better (original scores are in log-space)
-            score_matrix = np.abs(score_matrix)
+            m = np.max(score_matrix)
+            print("score matrix max:", m)
+            score_matrix = score_matrix - m
+            # score_matrix = -np.abs(score_matrix)
+            # score_matrix = np.exp(score_matrix)
             if apply_log_softmax:
                 max_score = np.max(score_matrix, axis=1, keepdims=True)
                 score_matrix = score_matrix - max_score
@@ -68,11 +72,14 @@ class ForcedAlignOnScoreMatrixJob(Job):
             # scores/backpointers over the states and time steps.
             # states = blank/sil + labels. whether we give scores to blank (and what score) or not is to be configured.
             # [T, S*2+1]
-            backpointers = np.full((T, S * 2 + 1), 2, dtype=np.int32)  # 0: diagonal, 1: left, 2: undefined
-            align_scores = np.full((T, S * 2 + 1), np.infty, dtype=np.float32)
+            backpointers = np.full(
+                (T, S * 2 + 1), 3, dtype=np.int32
+            )  # 0: diagonal-skip, 1: diagonal, 2: left, 3: undefined
+            align_scores = np.full((T, S * 2 + 1), -np.infty, dtype=np.float32)
 
-            score_matrix_ = np.zeros((T, S * 2 + 1), dtype=np.float32)
+            score_matrix_ = np.zeros((T, S * 2 + 1), dtype=np.float32)  # [T, S*2+1]
             score_matrix_[:, 1::2] = score_matrix.T
+            score_matrix_[:, 0::2] = 0.0  # blank score
 
             # The first two states are valid start states.
             align_scores[0, :2] = score_matrix_[0, :2]
@@ -80,23 +87,27 @@ class ForcedAlignOnScoreMatrixJob(Job):
 
             # calculate align_scores and backpointers
             for t in range(1, T):
-                scores_diagonal = np.full([2 * S + 1], np.infty)
+                scores_diagonal_skip = np.full([2 * S + 1], -np.infty)
+                scores_diagonal_skip[2:] = align_scores[t - 1, :-2] + score_matrix_[t, 2:]  # [2*S-1]
+                scores_diagonal_skip[::2] = -np.infty  # diagonal skip is not allowed in blank
+                scores_diagonal = np.full([2 * S + 1], -np.infty)
                 scores_diagonal[1:] = align_scores[t - 1, :-1] + score_matrix_[t, 1:]  # [2*S]
                 scores_horizontal = align_scores[t - 1, :] + score_matrix_[t, :]  # [2*S+1]
 
-                score_cases = np.stack([scores_diagonal, scores_horizontal], axis=0)  # [2, 2*S+1]
-                backpointers[t] = np.argmin(score_cases, axis=0)  # [2*S+1]->[0,1]
+                score_cases = np.stack([scores_diagonal_skip, scores_diagonal, scores_horizontal], axis=0)  # [3, 2*S+1]
+                backpointers[t] = np.argmax(score_cases, axis=0)  # [2*S+1]->[0,1,2]
                 align_scores[t : t + 1] = np.take_along_axis(score_cases, backpointers[t : t + 1], axis=0)  # [1,2*S+1]
 
             # All but the last two states are not valid final states.
-            align_scores[-1, :-2] = np.infty
+            align_scores[-1, :-2] = -np.infty
 
             # backtrace
-            best_final = np.argmin(align_scores[-1])  # scalar, S*2 or S*2-1
+            best_final = np.argmax(align_scores[-1])  # scalar, S*2 or S*2-1
             s = best_final
             t = T - 1
             alignment: List[Tuple[int, int]] = []
             while True:
+                assert s >= 0 and t >= 0
                 alignment.append((s, t))
                 if t == 0:
                     assert s <= 1  # we should have reached the start states
@@ -104,27 +115,31 @@ class ForcedAlignOnScoreMatrixJob(Job):
 
                 b = backpointers[t, s]
                 if b == 0:
-                    s -= 1
+                    s -= 2
                     t -= 1
                 elif b == 1:
+                    s -= 1
+                    t -= 1
+                elif b == 2:
                     t -= 1
                 else:
                     raise ValueError(f"invalid backpointer {b} at s={s}, t={t}")
 
-            alignment_map = np.zeros([2 * S + 1, T], dtype=np.int32)
+            alignment_map = np.zeros([T, 2 * S + 1], dtype=np.int32)  # [T, S*2+1]
             for s, t in alignment:
-                alignment_map[s, t] = 2 if s % 2 == 1 else 1
+                alignment_map[t, s] = 2 if s % 2 == 1 else 1
 
             fig, ax = plt.subplots(nrows=4, ncols=1, figsize=(20, 10))
             for i, (alias, mat) in enumerate(
                 [
-                    ("log(gradients) (local scores d)", -1 * score_matrix),
+                    ("log(gradients) (local scores d)", score_matrix.T),
                     ("Partial scores D", -1 * align_scores),
                     ("backpointers", -1 * backpointers),
                     ("alignment", alignment_map),
                 ]
             ):
-                mat_ = ax[i].matshow(mat, cmap="Blues", aspect="auto")
+                # mat is [T,S*2+1] or [T,S]
+                mat_ = ax[i].matshow(mat.T, cmap="Blues" if alias != "alignment" else "Pastel1", aspect="auto")
                 ax[i].set_title(f"{alias} for seq {seq_tag}")
                 ax[i].set_xlabel("time")
                 ax[i].set_ylabel("labels")
@@ -132,8 +147,8 @@ class ForcedAlignOnScoreMatrixJob(Job):
                 divider = make_axes_locatable(ax[i])
                 cax = divider.append_axes("right", size="5%", pad=0.05)
                 if alias == "backpointers":
-                    cbar = fig.colorbar(mat_, cax=cax, orientation="vertical", ticks=[0, -1, -2])
-                    cbar.ax.set_yticklabels(["diagonal", "left", "unreachable"])
+                    cbar = fig.colorbar(mat_, cax=cax, orientation="vertical", ticks=[0, -1, -2, -3])
+                    cbar.ax.set_yticklabels(["diagonal-skip", "diagonal", "left", "unreachable"])
                 elif alias == "alignment":
                     cbar = fig.colorbar(mat_, cax=cax, orientation="vertical", ticks=[0, 1, 2])
                     cbar.ax.set_yticklabels(["", "blank", "label"])
