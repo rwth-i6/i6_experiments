@@ -35,6 +35,7 @@ class ForcedAlignOnScoreMatrixJob(Job):
         yield Task("run", rqmt={"cpu": 1, "mem": 4, "time": 1, "gpu": 0})
 
     def run(self):
+        from typing import List, Tuple
         import numpy as np
         from matplotlib import pyplot as plt
         from mpl_toolkits.axes_grid1 import make_axes_locatable
@@ -45,14 +46,11 @@ class ForcedAlignOnScoreMatrixJob(Job):
 
         from i6_experiments.users.schmitt.hdf import load_hdf_data
 
-        # TODO: EOS has to be removed before
-        self.score_matrix_hdf = Path(
-            "/u/schmitt/experiments/segmental_models_2022_23_rf/alias/models/ls_conformer/global_att/baseline_v1/baseline_rf/bpe1056/w-weight-feedback/w-att-ctx-in-state/nb-lstm/12-layer_512-dim_standard-conformer/train_from_scratch/2000-ep_bs-35000_w-sp_curric_lr-dyn_lr_piecewise_linear_epoch-wise_v2_reg-v1_filter-data-312000.0_accum-2/returnn_decoding/epoch-130-checkpoint/no-lm/beam-size-12/dev-other/analysis/analyze_gradients_ground-truth/3660-6517-0005_6467-62797-0001_6467-62797-0002_7697-105815-0015_7697-105815-0051/work/x_linear/log-prob-grads_wrt_x_linear_log-space/att_weights.hdf"
-        )
-
+        # TODO: EOS has to be removed before ?
         score_matrix_data_dict = load_hdf_data(self.score_matrix_hdf, num_dims=2)
 
         for seq_tag in score_matrix_data_dict:
+            print("seq tag:", seq_tag)
             apply_log_softmax = False
             plot_dir = f"alignments-{'w' if apply_log_softmax else 'wo'}-softmax"
             os.makedirs(plot_dir, exist_ok=True)
@@ -67,54 +65,53 @@ class ForcedAlignOnScoreMatrixJob(Job):
             T = score_matrix.shape[1]  # noqa
             S = score_matrix.shape[0]  # noqa
 
-            # scales for diagonal and horizontal transitions
-            scales = [1.0, 0.0]
+            # scores/backpointers over the states and time steps.
+            # states = blank/sil + labels. whether we give scores to blank (and what score) or not is to be configured.
+            # [T, S*2+1]
+            backpointers = np.full((T, S * 2 + 1), 2, dtype=np.int32)  # 0: diagonal, 1: left, 2: undefined
+            align_scores = np.full((T, S * 2 + 1), np.infty, dtype=np.float32)
 
-            backpointers = np.zeros_like(score_matrix, dtype=np.int32) + 2  # 0: diagonal, 1: left, 2: undefined
-            align_scores = np.zeros_like(score_matrix, dtype=np.float32) + np.infty
+            score_matrix_ = np.zeros((T, S * 2 + 1), dtype=np.float32)
+            score_matrix_[:, 1::2] = score_matrix.T
 
-            # initialize first row with the cum-sum of the first row of the score matrix
-            align_scores[0, :] = np.cumsum(score_matrix[0, :]) * scales[1]
-            # in the first row, you can only go left
-            backpointers[0, :] = 1
+            # The first two states are valid start states.
+            align_scores[0, :2] = score_matrix_[0, :2]
+            backpointers[0, :] = 0  # doesn't really matter
 
             # calculate align_scores and backpointers
             for t in range(1, T):
-                for s in range(1, S):
-                    if t < s:
-                        continue
+                scores_diagonal = np.full([2 * S + 1], np.infty)
+                scores_diagonal[1:] = align_scores[t - 1, :-1] + score_matrix_[t, 1:]  # [2*S]
+                scores_horizontal = align_scores[t - 1, :] + score_matrix_[t, :]  # [2*S+1]
 
-                    predecessors = [(s - 1, t - 1), (s, t - 1)]
-                    score_cases = [
-                        align_scores[ps, pt] + scales[i] * score_matrix[ps, pt]
-                        for i, (ps, pt) in enumerate(predecessors)
-                    ]
+                score_cases = np.stack([scores_diagonal, scores_horizontal], axis=0)  # [2, 2*S+1]
+                backpointers[t] = np.argmin(score_cases, axis=0)  # [2*S+1]->[0,1]
+                align_scores[t : t + 1] = np.take_along_axis(score_cases, backpointers[t : t + 1], axis=0)  # [1,2*S+1]
 
-                    argmin_ = np.argmin(score_cases)
-                    align_scores[s, t] = score_cases[argmin_]
-                    backpointers[s, t] = argmin_
+            # All but the last two states are not valid final states.
+            align_scores[-1, :-2] = np.infty
 
             # backtrace
-            s = S - 1
+            best_final = np.argmin(align_scores[-1])  # scalar, S*2 or S*2-1
+            s = best_final
             t = T - 1
-            alignment = []
+            alignment: List[Tuple[int, int]] = []
             while True:
                 alignment.append((s, t))
-                b = backpointers[s, t]
+                if t == 0:
+                    assert s <= 1  # we should have reached the start states
+                    break
+
+                b = backpointers[t, s]
                 if b == 0:
                     s -= 1
                     t -= 1
-                else:
-                    assert b == 1
+                elif b == 1:
                     t -= 1
+                else:
+                    raise ValueError(f"invalid backpointer {b} at s={s}, t={t}")
 
-                if t == 0:
-                    assert s == 0
-                    break
-
-            alignment.append((0, 0))
-
-            alignment_map = np.zeros_like(score_matrix, dtype=np.int32)
+            alignment_map = np.zeros([2 * S + 1, T], dtype=np.int32)
             for s, t in alignment:
                 alignment_map[s, t] = 1
 
