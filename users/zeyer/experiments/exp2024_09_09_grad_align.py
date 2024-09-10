@@ -155,7 +155,8 @@ class ForcedAlignOnScoreMatrixJob(Job):
                     raise ValueError(f"invalid backpointer {b} at s={s}, t={t}")
 
             assert len(alignment) == T
-            alignment_ = np.array(reversed(alignment))  # [T, 2]
+            alignment.reverse()
+            alignment_ = np.array(alignment)  # [T, 2]
 
             hdf_writer.insert_batch(alignment_[None, :, 1], seq_len=[T], seq_tag=[seq_tag])
 
