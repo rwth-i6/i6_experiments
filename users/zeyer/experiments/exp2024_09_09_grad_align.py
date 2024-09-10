@@ -137,7 +137,7 @@ class ForcedAlignOnScoreMatrixJob(Job):
             t = T - 1
             alignment: List[Tuple[int, int]] = []
             while True:
-                assert 0 <= s < S and 0 <= t < T
+                assert 0 <= s < S * 2 + 1 and 0 <= t < T
                 alignment.append((t, s))
                 if t == 0 and s <= 1:  # we reached some start state
                     break
