@@ -14,16 +14,17 @@ def py():
 
     from i6_experiments.users.zeyer.datasets.librispeech import LibrispeechOggZip, Bpe
 
-    num_labels = 1057  # incl blank
+    num_labels_with_blank = 1057  # incl blank
     blank_idx = 1056  # at the end
+    bpe_vocab = Path(
+        "/work/asr4/zeineldeen/setups-data/librispeech/2022-11-28--conformer-att/work/i6_core/text/label/subword_nmt/train/ReturnnTrainBpeJob.qhkNn2veTWkV/output/bpe.vocab"
+    )
     returnn_dataset = LibrispeechOggZip(
         vocab=Bpe(
             codes=Path(
                 "/work/asr4/zeineldeen/setups-data/librispeech/2022-11-28--conformer-att/work/i6_core/text/label/subword_nmt/train/ReturnnTrainBpeJob.qhkNn2veTWkV/output/bpe.codes"
             ),
-            vocab=Path(
-                "/work/asr4/zeineldeen/setups-data/librispeech/2022-11-28--conformer-att/work/i6_core/text/label/subword_nmt/train/ReturnnTrainBpeJob.qhkNn2veTWkV/output/bpe.vocab"
-            ),
+            vocab=bpe_vocab,
             dim=1056,
         ),
         train_epoch_split=1,
@@ -42,7 +43,7 @@ def py():
                 "/work/asr3/zeyer/schmitt/sisyphus_work_dirs/segmental_models_2022_23_rf/i6_core/returnn/forward/ReturnnForwardJobV2.KKMedG4R3uf4/output/gradients.hdf"
             ),
             apply_softmax_over_time=apply_softmax_over_time,
-            num_labels=num_labels,
+            num_labels=num_labels_with_blank,
             blank_idx=blank_idx,
             returnn_dataset=returnn_dataset,
         )
@@ -67,6 +68,8 @@ def py():
     name = "calc-alignment-metrics"
     job = CalcAlignmentMetrics(
         alignment_hdf=alignment_hdf,
+        bpe_vocab=bpe_vocab,
+        blank_idx=blank_idx,
         features_sprint_cache=features_sprint_cache,
         ref_alignment_sprint_cache=gmm_alignment_sprint_cache,
         ref_alignment_allophones=gmm_alignment_allophones,
@@ -127,7 +130,9 @@ class ForcedAlignOnScoreMatrixJob(Job):
         from returnn.datasets.hdf import SimpleHDFWriter
 
         score_matrix_data_dict = load_hdf_data(self.score_matrix_hdf, num_dims=2)
-        hdf_writer = SimpleHDFWriter(self.out_align.get_path(), dim=self.num_labels, ndim=1)
+        hdf_writer = SimpleHDFWriter(
+            self.out_align.get_path(), dim=self.num_labels, ndim=1, extra_type={"states": (1, 1, "int32")}
+        )
         seq_list = list(score_matrix_data_dict.keys())
 
         from returnn.config import set_global_config, Config
@@ -274,7 +279,9 @@ class ForcedAlignOnScoreMatrixJob(Job):
             alignment_ = np.array(alignment_, dtype=np.int32)  # [T]
             assert len(alignment_) == T
 
-            hdf_writer.insert_batch(alignment_[None, :], seq_len=[T], seq_tag=[seq_tag])
+            hdf_writer.insert_batch(
+                alignment_[None, :], seq_len=[T], seq_tag=[seq_tag], extra={"states": np.array(alignment)[None, :, 1]}
+            )
 
             if i < 10:  # plot the first 10 for debugging
                 plot_dir = Path("alignment-plots", self).get_path()
@@ -327,6 +334,8 @@ class CalcAlignmentMetrics(Job):
         self,
         *,
         alignment_hdf: Path,
+        bpe_vocab: Path,
+        blank_idx: int,
         ref_alignment_sprint_cache: Path,
         ref_alignment_allophones: Path,
         ref_alignment_len_factor: int,
@@ -336,6 +345,8 @@ class CalcAlignmentMetrics(Job):
         super().__init__()
 
         self.alignment_hdf = alignment_hdf
+        self.bpe_vocab = bpe_vocab
+        self.blank_idx = blank_idx
         self.ref_alignment_sprint_cache = ref_alignment_sprint_cache
         self.ref_alignment_allophones = ref_alignment_allophones
         self.ref_alignment_len_factor = ref_alignment_len_factor
@@ -364,23 +375,41 @@ class CalcAlignmentMetrics(Job):
         recipe_dir = os.path.dirname(os.path.dirname(i6_experiments.__file__))
         sys.path.insert(0, recipe_dir)
 
-        from i6_experiments.users.schmitt.hdf import load_hdf_data
-
-        print("Loading alignment HDF...")
-        alignments = load_hdf_data(Path(_cf(self.alignment_hdf)))
-
         import i6_core.util as util
 
         returnn_root = util.get_returnn_root(self.returnn_root)
 
         sys.path.insert(0, returnn_root.get_path())
 
+        from returnn.datasets.hdf import HDFDataset
         from returnn.sprint.cache import open_file_archive
+        from returnn.datasets.util.vocabulary import Vocabulary
+
+        print("Loading alignment HDF...")
+        alignments_ds = HDFDataset([self.alignment_hdf.get_path()])
+        alignments_ds.initialize()
+        alignments_ds.init_seq_order(epoch=1)
+
+        print("Loading BPE vocab...")
+        vocab = Vocabulary(self.bpe_vocab.get_path(), unknown_label=None)
+
+        # noinspection PyShadowingNames
+        def _is_word_end(t: int) -> bool:
+            label_idx = alignment[t]
+            state_idx = align_states[t]
+            if label_idx == self.blank_idx:
+                return False
+            if vocab.labels[label_idx].endswith("@@"):
+                return False
+            if t == len(alignment) - 1:
+                return True
+            return state_idx != align_states[t + 1]
 
         print("Loading ref alignment Sprint cache...")
         ref_align_sprint_cache = open_file_archive(_cf(self.ref_alignment_sprint_cache))
         print("Loading ref alignment allophones...")
         ref_align_sprint_cache.set_allophones(_cf(self.ref_alignment_allophones))
+        allophones = ref_align_sprint_cache.get_allophones_list()
 
         print("Loading features Sprint cache...")
         features_sprint_cache = open_file_archive(_cf(self.features_sprint_cache))
@@ -393,6 +422,7 @@ class CalcAlignmentMetrics(Job):
 
         # noinspection PyShadowingNames
         def _start_end_time_for_align_frame_idx(t: int) -> Tuple[float, float]:
+            """in seconds"""
             # For the downsampling, assume same padding, thus pad:
             stride = win_size = self.ref_alignment_len_factor
             pad_total = win_size - 1
@@ -411,19 +441,31 @@ class CalcAlignmentMetrics(Job):
             return max(0.0, t0 / sampling_rate), t1 / sampling_rate
 
         out_scores = {
-            "per_seq": {"tse_word_boundaries": {}, "tse_word_positions": {}},
-            "avg": {"tse_word_boundaries": {}, "tse_word_positions": {}},
+            # "per_seq": {"tse_word_boundaries": {}, "tse_word_positions": {}},
+            # "total": {"tse_word_boundaries": 0.0, "tse_word_positions": 0.0},
+            "avg": {"tse_word_boundaries": -1.0, "tse_word_positions": -1.0},
             "total_num_words": 0,
+            "total_num_seqs": 0,
         }
 
-        for key, alignment in alignments.items():
+        total_tse_word_boundaries = 0.0
+        total_tse_word_positions = 0.0
+        seq_idx = 0
+        while alignments_ds.is_less_than_num_seqs(seq_idx):
+            alignments_ds.load_seqs(seq_idx, seq_idx + 1)
+            key = alignments_ds.get_tag(seq_idx)
+            alignment = alignments_ds.get_data(seq_idx, "data")
+            align_states = alignments_ds.get_data(seq_idx, "states")
+            assert len(alignment) == len(align_states)
+
             print("seq tag:", key)
             feat_times, _ = features_sprint_cache.read(key, typ="feat")
             ref_align = ref_align_sprint_cache.read(key, typ="align")
             assert len(feat_times) == len(ref_align), f"feat len {len(feat_times)} vs ref align len {len(ref_align)}"
             print(f"  start time: {feat_times[0][0]} sec")
             print(f"  end time: {feat_times[-1][1]} sec")
-            duration_sec = feat_times[-1][1] - feat_times[0][0]
+            ref_start_time = ref_align[0][0]
+            duration_sec = feat_times[-1][1] - ref_start_time
             sampling_rate = 16_000
             len_samples = round(duration_sec * sampling_rate)  # 16 kHz
             print(f"  num samples: {len_samples} (rounded from {duration_sec * sampling_rate} sec)")
@@ -443,12 +485,78 @@ class CalcAlignmentMetrics(Job):
             print(f"  align duration: {align_dur} sec")
 
             # I'm not really sure on the calculation above, and also not really sure about the limit here...
-            assert (
-                abs(align_dur - duration_sec) < 0.0301
-            ), f"align duration {align_dur} vs duration {duration_sec}, diff {abs(align_dur - duration_sec)}"
+            # assert (
+            #     abs(align_dur - duration_sec) < 0.0301
+            # ), f"align duration {align_dur} vs duration {duration_sec}, diff {abs(align_dur - duration_sec)}"
+            assert last_frame_start <= duration_sec <= align_dur + 0.0301
 
-            # TODO...
-            # out_scores["total_num_words"] +=
+            cur_word_start_frame = None
+            word_boundaries = []
+            for t, (label_idx, state_idx) in enumerate(zip(alignment, align_states)):
+                if label_idx == self.blank_idx:
+                    continue
+                if cur_word_start_frame is None:
+                    cur_word_start_frame = t  # new word starts here
+                if _is_word_end(t):
+                    assert cur_word_start_frame is not None
+                    word_frame_start, _ = _start_end_time_for_align_frame_idx(cur_word_start_frame)
+                    _, word_frame_end = _start_end_time_for_align_frame_idx(t)
+                    word_boundaries.append((word_frame_start, word_frame_end))
+                    cur_word_start_frame = None
+            assert cur_word_start_frame is None  # word should have ended
+            num_words = len(word_boundaries)
+            print("  num words:", num_words)
+
+            ref_word_boundaries = []
+            cur_word_start_frame = None
+            for t, (t_, allophone_idx, hmm_state_idx, _) in enumerate(ref_align):
+                assert t == t_
+                if "[SILENCE]" in allophones[allophone_idx]:
+                    continue
+                if cur_word_start_frame is None:
+                    cur_word_start_frame = t  # new word starts here
+                if "@f" in allophones[allophone_idx] and (
+                    t == len(ref_align) - 1 or ref_align[t + 1][1] != allophone_idx
+                ):
+                    # end of word
+                    ref_word_boundaries.append(
+                        (feat_times[cur_word_start_frame][0] - ref_start_time, feat_times[t][1] - ref_start_time)
+                    )
+                    cur_word_start_frame = None
+            assert cur_word_start_frame is None  # word should have ended
+            assert (
+                num_words == len(word_boundaries) == len(ref_word_boundaries)
+            ), f"num word mismatch: {len(word_boundaries)} vs {len(ref_word_boundaries)}"
+
+            seq_tse_word_boundaries = 0.0
+            seq_tse_word_positions = 0.0
+            for i, (word_boundary, ref_word_boundary) in enumerate(zip(word_boundaries, ref_word_boundaries)):
+                tse_bounds = (
+                    abs(word_boundary[0] - ref_word_boundary[0]) + abs(word_boundary[1] - ref_word_boundary[1])
+                ) / 2
+                # center pos of words
+                tse_pos = abs(
+                    (word_boundary[0] + word_boundary[1]) / 2 - (ref_word_boundary[0] + ref_word_boundary[1]) / 2
+                )
+                seq_tse_word_boundaries += tse_bounds
+                seq_tse_word_positions += tse_pos
+                # out_scores["per_seq"]["tse_word_boundaries"].setdefault(key, []).append(tse_bounds)
+                # out_scores["per_seq"]["tse_word_positions"].setdefault(key, []).append(tse_pos)
+                # out_scores["total"]["tse_word_boundaries"] += tse_bounds
+                # out_scores["total"]["tse_word_positions"] += tse_pos
+                total_tse_word_boundaries += tse_bounds
+                total_tse_word_positions += tse_pos
+
+            print("  TSE word boundaries:", seq_tse_word_boundaries / num_words)
+            print("  TSE word positions:", seq_tse_word_positions / num_words)
+            out_scores["total_num_words"] += num_words
+            out_scores["total_num_seqs"] += 1
+            seq_idx += 1
+
+        assert out_scores["total_num_words"] > 0, out_scores
+        out_scores["avg"]["tse_word_boundaries"] = total_tse_word_boundaries / out_scores["total_num_words"]
+        out_scores["avg"]["tse_word_positions"] = total_tse_word_positions / out_scores["total_num_words"]
+        print(out_scores)
 
         import json
 
