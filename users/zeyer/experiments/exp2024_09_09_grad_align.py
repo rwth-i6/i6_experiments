@@ -14,9 +14,9 @@ def py():
 
     from i6_experiments.users.zeyer.datasets.librispeech import LibrispeechOggZip, Bpe
 
-    num_labels_with_blank = 1057  # incl blank
-    blank_idx = 1056  # at the end
-    bpe_vocab = Path(
+    bpe1k_num_labels_with_blank = 1057  # incl blank
+    bpe1k_blank_idx = 1056  # at the end
+    bpe1k_vocab = Path(
         "/work/asr4/zeineldeen/setups-data/librispeech/2022-11-28--conformer-att/work/i6_core/text/label/subword_nmt/train/ReturnnTrainBpeJob.qhkNn2veTWkV/output/bpe.vocab"
     )
     returnn_dataset = LibrispeechOggZip(
@@ -24,7 +24,7 @@ def py():
             codes=Path(
                 "/work/asr4/zeineldeen/setups-data/librispeech/2022-11-28--conformer-att/work/i6_core/text/label/subword_nmt/train/ReturnnTrainBpeJob.qhkNn2veTWkV/output/bpe.codes"
             ),
-            vocab=bpe_vocab,
+            vocab=bpe1k_vocab,
             dim=1056,
         ),
         train_epoch_split=1,
@@ -59,8 +59,8 @@ def py():
                 "/work/asr3/zeyer/schmitt/sisyphus_work_dirs/segmental_models_2022_23_rf/i6_core/returnn/forward/ReturnnForwardJobV2.KKMedG4R3uf4/output/gradients.hdf"
             ),
             apply_softmax_over_time=apply_softmax_over_time,
-            num_labels=num_labels_with_blank,
-            blank_idx=blank_idx,
+            num_labels=bpe1k_num_labels_with_blank,
+            blank_idx=bpe1k_blank_idx,
             returnn_dataset=returnn_dataset,
         )
         job.add_alias(prefix + name + "/align")
@@ -71,8 +71,8 @@ def py():
         job = CalcAlignmentMetrics(
             seq_list=seq_list,
             alignment_hdf=alignment_hdf,
-            alignment_bpe_vocab=bpe_vocab,
-            alignment_blank_idx=blank_idx,
+            alignment_bpe_vocab=bpe1k_vocab,
+            alignment_blank_idx=bpe1k_blank_idx,
             features_sprint_cache=features_sprint_cache,
             ref_alignment_sprint_cache=gmm_alignment_sprint_cache,
             ref_alignment_allophones=gmm_alignment_allophones,
@@ -88,8 +88,8 @@ def py():
             "/u/schmitt/experiments/segmental_models_2022_23_rf/alias/models/ls_conformer/ctc/baseline_v1/baseline_rf/bpe1056/8-layer_standard-conformer/import_glob.conformer.luca.bpe1k.w-ctc/returnn_realignment/best-checkpoint/realignment_train/output/realignment.hdf"
         ),
         alignment_label_topology="ctc",
-        alignment_bpe_vocab=bpe_vocab,
-        alignment_blank_idx=blank_idx,
+        alignment_bpe_vocab=bpe1k_vocab,
+        alignment_blank_idx=bpe1k_blank_idx,
         features_sprint_cache=features_sprint_cache,
         ref_alignment_sprint_cache=gmm_alignment_sprint_cache,
         ref_alignment_allophones=gmm_alignment_allophones,
