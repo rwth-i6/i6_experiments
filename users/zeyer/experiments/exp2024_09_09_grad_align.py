@@ -66,34 +66,21 @@ def py():
         ),
     }
 
-    # Specifying the TSE metric for the word positions here in the comments (cutting off all decimals, not rounded).
+    # Specifying the TSE metric for the word bound/pos here in the comments (cutting off all decimals, not rounded).
     for opts in [
-        {"grad_name": "baseline-mid-non-flipped-60ms", "sm": True},  # 79.4ms
-        {"grad_name": "baseline-mid-non-flipped-60ms", "sm": True, "apply_log": False},  # 81.2ms
-        {"grad_name": "baseline-mid-non-flipped-60ms", "sm": True, "blank_score": -0.1},  # 79.4ms
-        {"grad_name": "baseline-mid-non-flipped-60ms", "sm": True, "blank_score": -1.0},  # 79.4ms
-        {"grad_name": "baseline-mid-non-flipped-60ms", "sm": True, "blank_score": -2},  # 79.3ms
-        {"grad_name": "baseline-mid-non-flipped-60ms", "sm": True, "blank_score": -3},  # 69.8ms
-        {"grad_name": "baseline-mid-non-flipped-60ms", "sm": True, "blank_score": -4},
-        {"grad_name": "baseline-mid-non-flipped-60ms", "sm": False},  # 79.4ms
-        {
-            "grad_name": "baseline-mid-non-flipped-60ms",
-            "sm": False,
-            "substract": None,
-            "blank_score": 1,
-        },  # 83.4ms
-        {"grad_name": "baseline-mid-non-flipped-60ms", "sm": False, "blank_score": -1.0},  # 78.8ms
-        {"grad_name": "baseline-mid-non-flipped-60ms", "sm": False, "blank_score": -2.0},  # 78.2ms
-        {"grad_name": "baseline-mid-non-flipped-60ms", "sm": False, "blank_score": -3.0},
-        {"grad_name": "baseline-mid-non-flipped-60ms", "sm": False, "apply_log": False},  # 81.2ms
-        {
-            "grad_name": "baseline-mid-non-flipped-60ms",
-            "sm": False,
-            "apply_log": False,
-            "substract": None,
-            "blank_score": 1.0,
-        },  # 79.6ms
-        {"grad_name": "baseline-mid-flipped-60ms", "sm": True},  # 85.1ms
+        {"grad_name": "baseline-mid-non-flipped-60ms", "sm": True},  # 106/79.4ms
+        {"grad_name": "baseline-mid-non-flipped-60ms", "sm": True, "apply_log": False},  # 108/81.2ms
+        {"grad_name": "baseline-mid-non-flipped-60ms", "sm": True, "blank_score": -1.0},  # 106/79.4ms
+        {"grad_name": "baseline-mid-non-flipped-60ms", "sm": True, "blank_score": -2},  # 106/79.3ms
+        {"grad_name": "baseline-mid-non-flipped-60ms", "sm": True, "blank_score": -3},  # 88/69.8ms
+        {"grad_name": "baseline-mid-non-flipped-60ms", "sm": True, "blank_score": -4},  # 65/54.4ms (!)
+        {"grad_name": "baseline-mid-non-flipped-60ms", "sm": True, "blank_score": -5},  # 68/57.0ms
+        {"grad_name": "baseline-mid-non-flipped-60ms", "sm": False},  # 106/79.4ms
+        {"grad_name": "baseline-mid-non-flipped-60ms", "sm": False, "blank_score": -1.0},  # 106/78.8ms
+        {"grad_name": "baseline-mid-non-flipped-60ms", "sm": False, "blank_score": -2.0},  # 104/78.2ms
+        {"grad_name": "baseline-mid-non-flipped-60ms", "sm": False, "blank_score": -3.0},  # 108/81.2ms
+        {"grad_name": "baseline-mid-non-flipped-60ms", "sm": False, "apply_log": False},  # 108/81.2ms
+        {"grad_name": "baseline-mid-flipped-60ms", "sm": True},  # 111/85.1ms
     ]:
         opts = opts.copy()
         apply_softmax_over_time = opts.pop("sm", False)
@@ -132,7 +119,7 @@ def py():
         job.add_alias(prefix + name)
         tk.register_output(prefix + name + ".json", job.out_scores)
 
-    name = "ctc-1k-align/metrics"  # 60.6ms
+    name = "ctc-1k-align/metrics"  # 83/60.6ms
     job = CalcAlignmentMetrics(
         seq_list=seq_list,
         alignment_hdf=Path(
@@ -149,7 +136,7 @@ def py():
     job.add_alias(prefix + name)
     tk.register_output(prefix + name + ".json", job.out_scores)
 
-    name = "ctc-10k-align/metrics"  # 306.1ms
+    name = "ctc-10k-align/metrics"  # 312/306.1ms
     job = CalcAlignmentMetrics(
         seq_list=seq_list,
         alignment_hdf=Path(
