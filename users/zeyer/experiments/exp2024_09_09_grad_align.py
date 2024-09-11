@@ -79,6 +79,20 @@ def py():
         {"grad_name": "base-mid-60ms", "sm": True, "norm_scores": True, "blank_score": -4},  # 65/54.4ms
         {"grad_name": "base-mid-60ms", "sm": True, "blank_score": "calc"},  # 107/80.2ms
         {"grad_name": "base-mid-60ms", "sm": True, "norm_scores": True, "blank_score": "calc"},  # 107/80.2ms
+        {
+            "grad_name": "base-mid-60ms",
+            "sm": True,
+            "norm_scores": True,
+            "apply_softmax_over_labels": True,
+            "blank_score": "calc",
+        },
+        {
+            "grad_name": "base-mid-60ms",
+            "sm": True,
+            "norm_scores": True,
+            "apply_softmax_over_labels": True,
+            "blank_score": -4,
+        },
         {"grad_name": "base-mid-60ms", "sm": False},  # 106/79.4ms
         {"grad_name": "base-mid-60ms", "sm": False, "blank_score": -1.0},  # 106/78.8ms
         {"grad_name": "base-mid-60ms", "sm": False, "blank_score": -2.0},  # 104/78.2ms
@@ -88,6 +102,13 @@ def py():
         {"grad_name": "base-mid-60ms", "sm": False, "norm_scores": True, "blank_score": -3},  # 106/79.4ms
         {"grad_name": "base-mid-60ms", "sm": False, "norm_scores": True, "blank_score": "calc"},  # 108/81.8ms
         {"grad_name": "base-mid-60ms", "sm": False, "blank_score": "calc"},  # 108/81.8ms
+        {"grad_name": "base-mid-60ms", "sm": False, "apply_softmax_over_labels": True},  # 106/78.4ms
+        {
+            "grad_name": "base-mid-60ms",
+            "sm": False,
+            "apply_softmax_over_labels": True,
+            "blank_score": "calc",
+        },  # 108/81.8ms
         {"grad_name": "base-flip-mid-60ms", "sm": True},  # 111/85.1ms
         {"grad_name": "base-flip-mid-60ms", "sm": True, "blank_score": -4},
     ]:
@@ -168,7 +189,12 @@ def py():
 class ForcedAlignOnScoreMatrixJob(Job):
     """Calculate the Viterbi alignment for a given score matrix."""
 
-    __sis_hash_exclude__ = {"blank_score": 0.0, "substract": "max_gt0", "norm_scores": False}
+    __sis_hash_exclude__ = {
+        "blank_score": 0.0,
+        "substract": "max_gt0",
+        "norm_scores": False,
+        "apply_softmax_over_labels": False,
+    }
 
     def __init__(
         self,
@@ -179,6 +205,7 @@ class ForcedAlignOnScoreMatrixJob(Job):
         apply_log: bool = True,
         substract: Optional[Union[str, float]] = "max_gt0",
         apply_softmax_over_time: bool = False,
+        apply_softmax_over_labels: bool = False,
         blank_score: Union[float, str] = 0.0,  # or "calc"
         num_seqs: int = -1,
         num_labels: Optional[int] = None,
@@ -193,6 +220,7 @@ class ForcedAlignOnScoreMatrixJob(Job):
         self.apply_log = apply_log
         self.substract = substract
         self.apply_softmax_over_time = apply_softmax_over_time
+        self.apply_softmax_over_labels = apply_softmax_over_labels
         self.blank_score = blank_score
         self.num_seqs = num_seqs
         self.num_labels = num_labels
@@ -319,13 +347,16 @@ class ForcedAlignOnScoreMatrixJob(Job):
                 pass
             else:
                 raise ValueError(f"invalid substract {self.substract!r}")
-            # score_matrix = -np.abs(score_matrix)
-            # score_matrix = np.exp(score_matrix)
             if self.apply_softmax_over_time:
                 score_matrix = _log_softmax(score_matrix, axis=1)
                 non_blank_score = np.max(np.exp(score_matrix), axis=0)  # [T]
                 blank_score = 1.0 - non_blank_score
                 blank_score = np.log(blank_score)
+            if self.apply_softmax_over_labels:
+                # Concat blank score to the end, to include it in the softmax.
+                score_matrix = np.concatenate([score_matrix, blank_score[None, :]], axis=0)  # [S+1, T]
+                score_matrix = _log_softmax(score_matrix, axis=0)
+                score_matrix, blank_score = score_matrix[:-1], score_matrix[-1]
 
             # scores/backpointers over the states and time steps.
             # states = blank/sil + labels. whether we give scores to blank (and what score) or not is to be configured.
