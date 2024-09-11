@@ -163,29 +163,35 @@ def py():
             "blank_score": "calc",
         },  # 108/81.8ms
         {"grad_name": "base-flip-mid-60ms", "sm": True},  # 111/85.1ms
-        {"grad_name": "base-flip-mid-60ms", "sm": True, "blank_score": -4},
-        {"grad_name": "base-flip-mid-60ms", "sm": True, "blank_score": -6},
-        {"grad_name": "base-ctc-mid919-10ms", "sm": False, "blank_score": 0},
-        {"grad_name": "base-ctc-mid919-10ms", "sm": False, "blank_score": -6},
+        {"grad_name": "base-flip-mid-60ms", "sm": True, "blank_score": -4},  # 75.0/60.8
+        {"grad_name": "base-flip-mid-60ms", "sm": True, "blank_score": -6},  # 91.0/74.7
+        {"grad_name": "base-ctc-mid919-10ms", "sm": False, "blank_score": 0},  # 102.7
+        {"grad_name": "base-ctc-mid919-10ms", "sm": False, "blank_score": -1},  # 143.2/101.6
+        {"grad_name": "base-ctc-mid919-10ms", "sm": False, "blank_score": -6},  # 1439.0
         {"grad_name": "base-ctc-mid919-10ms", "sm": True, "blank_score": 0},
         {"grad_name": "base-ctc-mid919-10ms", "sm": True, "blank_score": -2},  # 144.3/102.7
         {"grad_name": "base-ctc-mid919-10ms", "sm": True, "blank_score": -4},  # 139.7/98.4
+        {"grad_name": "base-ctc-mid919-10ms", "sm": True, "blank_score": -5},
         {"grad_name": "base-ctc-mid919-10ms", "sm": True, "blank_score": -6},  # 70.6/55.0
-        {"grad_name": "base-ctc-mid919-10ms", "sm": True, "blank_score": -8},
-        {"grad_name": "base-ctc-mid919-10ms", "sm": True, "blank_score": -10},
+        {"grad_name": "base-ctc-mid919-10ms", "sm": True, "blank_score": -7},  # 82.8/66.3
+        {"grad_name": "base-ctc-mid919-10ms", "sm": True, "blank_score": -8},  # 93.2/75.9
+        {"grad_name": "base-ctc-mid919-10ms", "sm": True, "blank_score": -10},  # 94.1/76.8
         {"grad_name": "base-ctc-mid919-60ms", "sm": True, "blank_score": -2},  # 110.4/89.8
         {"grad_name": "base-ctc-mid919-60ms", "sm": True, "blank_score": -4},  # 78.2/66.5
         {"grad_name": "base-ctc-mid919-60ms", "sm": True, "blank_score": -6},  # 96.5/82.6
         {"grad_name": "base-far1676-10ms", "sm": True, "blank_score": -4},  # 128.6/77.9
-        {"grad_name": "base-far1676-10ms", "sm": True, "blank_score": -6},
+        {"grad_name": "base-far1676-10ms", "sm": True, "blank_score": -6},  # 61.0/45.8 (!!)
+        {"grad_name": "base-far1676-10ms", "sm": True, "blank_score": -7},  # 72.4/57.3
         {"grad_name": "base-far1676-60ms", "sm": True, "blank_score": -4},  # 67.0/54.8
         {"grad_name": "base-flip-far406-10ms", "sm": True, "blank_score": -4},  # 176.3/132.5
         {"grad_name": "base-flip-far406-10ms", "sm": True, "blank_score": -6},
         {"grad_name": "base-flip-far406-60ms", "sm": True, "blank_score": -4},  # 102.2/83.2
-        {"grad_name": "base-convMask-early61-10ms", "sm": True, "blank_score": -4},
-        {"grad_name": "base-convMask-early61-60ms", "sm": True, "blank_score": -3},
+        {"grad_name": "base-convMask-early61-10ms", "sm": True, "blank_score": -4},  # 117.5/72.4
+        {"grad_name": "base-convMask-early61-10ms", "sm": True, "blank_score": -6},  # 55.7/42.5 (!!)
+        {"grad_name": "base-convMask-early61-10ms", "sm": True, "blank_score": -6.1},
+        {"grad_name": "base-convMask-early61-60ms", "sm": True, "blank_score": -3},  # 84.7/65.9
         {"grad_name": "base-convMask-early61-60ms", "sm": True, "blank_score": -4},  # 61.0/50.3 (!)
-        {"grad_name": "base-convMask-early61-60ms", "sm": True, "blank_score": -5},
+        {"grad_name": "base-convMask-early61-60ms", "sm": True, "blank_score": -5},  # 66.2/54.9
     ]:
         opts = opts.copy()
         apply_softmax_over_time = opts.pop("sm", False)
