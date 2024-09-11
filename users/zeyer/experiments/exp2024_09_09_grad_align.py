@@ -48,7 +48,7 @@ def py():
 
     grads = {
         "non-flipped-10ms": (
-            6,
+            6,  # TODO the grads were wrong, should be factor 1, wait for new grads...
             Path(
                 "/work/asr3/zeyer/schmitt/sisyphus_work_dirs/segmental_models_2022_23_rf/i6_core/returnn/forward/ReturnnForwardJobV2.AvDGrQFl4kDW/output/gradients.hdf"
             ),
