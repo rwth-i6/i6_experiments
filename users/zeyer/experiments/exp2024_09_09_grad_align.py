@@ -52,13 +52,13 @@ def py():
         #     1,
         #     Path(...),
         # ),
-        "baseline-intermediate-non-flipped-60ms": (
+        "baseline-mid-non-flipped-60ms": (
             6,
             Path(
                 "/work/asr3/zeyer/schmitt/sisyphus_work_dirs/segmental_models_2022_23_rf/i6_core/returnn/forward/ReturnnForwardJobV2.KKMedG4R3uf4/output/gradients.hdf"
             ),
         ),
-        "baseline-intermediate-flipped-60ms": (
+        "baseline-mid-flipped-60ms": (
             6,
             Path(
                 "/work/asr3/zeyer/schmitt/sisyphus_work_dirs/segmental_models_2022_23_rf/i6_core/returnn/forward/ReturnnForwardJobV2.RgWrrTtM4Ljf/output/gradients.hdf"
@@ -68,21 +68,32 @@ def py():
 
     # Specifying the TSE metric for the word positions here in the comments (cutting off all decimals, not rounded).
     for opts in [
-        {"grad_name": "baseline-intermediate-non-flipped-60ms", "sm": True},  # 79.4ms
-        {"grad_name": "baseline-intermediate-non-flipped-60ms", "sm": True, "apply_log": False},  # 81.2ms
-        {"grad_name": "baseline-intermediate-non-flipped-60ms", "sm": True, "blank_score": -1.0},  # 79.4ms
-        {"grad_name": "baseline-intermediate-non-flipped-60ms", "sm": True, "blank_score": -0.1},  # 79.4ms
-        {"grad_name": "baseline-intermediate-non-flipped-60ms", "sm": False},  # 79.4ms
-        {"grad_name": "baseline-intermediate-non-flipped-60ms", "sm": False, "substract": None, "blank_score": 1},
-        {"grad_name": "baseline-intermediate-non-flipped-60ms", "sm": False, "blank_score": -1.0},  # 78.8ms
-        {"grad_name": "baseline-intermediate-non-flipped-60ms", "sm": False, "apply_log": False},  # 81.2ms
+        {"grad_name": "baseline-mid-non-flipped-60ms", "sm": True},  # 79.4ms
+        {"grad_name": "baseline-mid-non-flipped-60ms", "sm": True, "apply_log": False},  # 81.2ms
+        {"grad_name": "baseline-mid-non-flipped-60ms", "sm": True, "blank_score": -0.1},  # 79.4ms
+        {"grad_name": "baseline-mid-non-flipped-60ms", "sm": True, "blank_score": -1.0},  # 79.4ms
+        {"grad_name": "baseline-mid-non-flipped-60ms", "sm": True, "blank_score": -2},  # 79.3ms
+        {"grad_name": "baseline-mid-non-flipped-60ms", "sm": True, "blank_score": -3},  # 69.8ms
+        {"grad_name": "baseline-mid-non-flipped-60ms", "sm": True, "blank_score": -4},
+        {"grad_name": "baseline-mid-non-flipped-60ms", "sm": False},  # 79.4ms
         {
-            "grad_name": "baseline-intermediate-non-flipped-60ms",
+            "grad_name": "baseline-mid-non-flipped-60ms",
+            "sm": False,
+            "substract": None,
+            "blank_score": 1,
+        },  # 83.4ms
+        {"grad_name": "baseline-mid-non-flipped-60ms", "sm": False, "blank_score": -1.0},  # 78.8ms
+        {"grad_name": "baseline-mid-non-flipped-60ms", "sm": False, "blank_score": -2.0},  # 78.2ms
+        {"grad_name": "baseline-mid-non-flipped-60ms", "sm": False, "blank_score": -3.0},
+        {"grad_name": "baseline-mid-non-flipped-60ms", "sm": False, "apply_log": False},  # 81.2ms
+        {
+            "grad_name": "baseline-mid-non-flipped-60ms",
             "sm": False,
             "apply_log": False,
+            "substract": None,
             "blank_score": 1.0,
-        },  # 81.2ms
-        {"grad_name": "baseline-intermediate-flipped-60ms", "sm": True},  # 85.1ms
+        },  # 79.6ms
+        {"grad_name": "baseline-mid-flipped-60ms", "sm": True},  # 85.1ms
     ]:
         opts = opts.copy()
         apply_softmax_over_time = opts.pop("sm", False)
