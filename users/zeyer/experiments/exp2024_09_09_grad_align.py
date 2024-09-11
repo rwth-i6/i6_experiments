@@ -46,40 +46,50 @@ def py():
         "/u/schmitt/experiments/segmental_models_2022_23_rf/work/i6_core/corpus/segments/SegmentCorpusJob.AmDlp1YMZF1e/output/segments.1"
     )
 
-    for apply_softmax_over_time in [True, False]:
-        # The dumped grads cover about 9.6h audio from train.
-        name = f"grad-align-sm{apply_softmax_over_time}"
-        job = ForcedAlignOnScoreMatrixJob(
-            # example (already in logspace):
-            # score_matrix_hdf=Path(
-            #     "/u/schmitt/experiments/segmental_models_2022_23_rf/alias/models/ls_conformer/global_att/baseline_v1/baseline_rf/bpe1056/w-weight-feedback/w-att-ctx-in-state/nb-lstm/12-layer_512-dim_standard-conformer/train_from_scratch/2000-ep_bs-35000_w-sp_curric_lr-dyn_lr_piecewise_linear_epoch-wise_v2_reg-v1_filter-data-312000.0_accum-2/returnn_decoding/epoch-130-checkpoint/no-lm/beam-size-12/dev-other/analysis/analyze_gradients_ground-truth/3660-6517-0005_6467-62797-0001_6467-62797-0002_7697-105815-0015_7697-105815-0051/work/x_linear/log-prob-grads_wrt_x_linear_log-space/att_weights.hdf"
-            # ),
-            # non flipped grads
-            score_matrix_hdf=Path(
+    grads = {
+        "non-flipped-10ms": (
+            6,
+            Path(
+                "/work/asr3/zeyer/schmitt/sisyphus_work_dirs/segmental_models_2022_23_rf/i6_core/returnn/forward/ReturnnForwardJobV2.AvDGrQFl4kDW/output/gradients.hdf"
+            ),
+        ),
+        "non-flipped-60ms": (
+            6,
+            Path(
                 "/work/asr3/zeyer/schmitt/sisyphus_work_dirs/segmental_models_2022_23_rf/i6_core/returnn/forward/ReturnnForwardJobV2.KKMedG4R3uf4/output/gradients.hdf"
             ),
-            apply_softmax_over_time=apply_softmax_over_time,
-            num_labels=bpe1k_num_labels_with_blank,
-            blank_idx=bpe1k_blank_idx,
-            returnn_dataset=returnn_dataset,
-        )
-        job.add_alias(prefix + name + "/align")
-        tk.register_output(prefix + name + "/align.hdf", job.out_align)
-        alignment_hdf = job.out_align
+        ),
+    }
 
-        name += "/metrics"
-        job = CalcAlignmentMetrics(
-            seq_list=seq_list,
-            alignment_hdf=alignment_hdf,
-            alignment_bpe_vocab=bpe1k_vocab,
-            alignment_blank_idx=bpe1k_blank_idx,
-            features_sprint_cache=features_sprint_cache,
-            ref_alignment_sprint_cache=gmm_alignment_sprint_cache,
-            ref_alignment_allophones=gmm_alignment_allophones,
-            ref_alignment_len_factor=6,
-        )
-        job.add_alias(prefix + name)
-        tk.register_output(prefix + name + ".json", job.out_scores)
+    for apply_softmax_over_time in [True, False]:
+        for grad_name, (factor, grad_hdf) in grads.items():
+            # The dumped grads cover about 9.6h audio from train.
+            name = f"grad-align-{grad_name}-sm{apply_softmax_over_time}"
+            job = ForcedAlignOnScoreMatrixJob(
+                # non flipped grads
+                score_matrix_hdf=grad_hdf,
+                apply_softmax_over_time=apply_softmax_over_time,
+                num_labels=bpe1k_num_labels_with_blank,
+                blank_idx=bpe1k_blank_idx,
+                returnn_dataset=returnn_dataset,
+            )
+            job.add_alias(prefix + name + "/align")
+            tk.register_output(prefix + name + "/align.hdf", job.out_align)
+            alignment_hdf = job.out_align
+
+            name += "/metrics"
+            job = CalcAlignmentMetrics(
+                seq_list=seq_list,
+                alignment_hdf=alignment_hdf,
+                alignment_bpe_vocab=bpe1k_vocab,
+                alignment_blank_idx=bpe1k_blank_idx,
+                features_sprint_cache=features_sprint_cache,
+                ref_alignment_sprint_cache=gmm_alignment_sprint_cache,
+                ref_alignment_allophones=gmm_alignment_allophones,
+                ref_alignment_len_factor=factor,
+            )
+            job.add_alias(prefix + name)
+            tk.register_output(prefix + name + ".json", job.out_scores)
 
     name = "ctc-1k-align/metrics"
     job = CalcAlignmentMetrics(
@@ -542,7 +552,7 @@ class CalcAlignmentMetrics(Job):
             window_num_frames = int(window_len * sampling_rate)
             step_num_frames = int(step_len * sampling_rate)
             len_feat = _ceil_div(len_samples - (window_num_frames - 1), step_num_frames)
-            print(f"  num features: {len_feat} (window {window_num_frames} step {step_num_frames})")
+            print(f"  num features (10ms): {len_feat} (window {window_num_frames} step {step_num_frames})")
             len_feat_downsampled = _ceil_div(len_feat, self.ref_alignment_len_factor)
             print(f"  downsampled num features: {len_feat_downsampled} (factor {self.ref_alignment_len_factor})")
             print(f"  actual align len: {len(alignment)}")
