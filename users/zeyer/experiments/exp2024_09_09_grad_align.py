@@ -113,6 +113,25 @@ def py():
     job.add_alias(prefix + name)
     tk.register_output(prefix + name + ".json", job.out_scores)
 
+    name = "ctc-10k-align/metrics"
+    job = CalcAlignmentMetrics(
+        seq_list=seq_list,
+        alignment_hdf=Path(
+            "/u/schmitt/experiments/segmental_models_2022_23_rf/alias/models/ls_conformer/global_att/baseline_v1/baseline/no-finetuning/ctc_alignments/train/output/alignments.hdf"
+        ),
+        alignment_label_topology="ctc",
+        alignment_bpe_vocab=Path(
+            "/u/zeineldeen/setups/librispeech/2022-11-28--conformer-att/work/i6_core/text/label/subword_nmt/train/ReturnnTrainBpeJob.vTq56NZ8STWt/output/bpe.vocab"
+        ),
+        alignment_blank_idx=10_025,
+        features_sprint_cache=features_sprint_cache,
+        ref_alignment_sprint_cache=gmm_alignment_sprint_cache,
+        ref_alignment_allophones=gmm_alignment_allophones,
+        ref_alignment_len_factor=6,
+    )
+    job.add_alias(prefix + name)
+    tk.register_output(prefix + name + ".json", job.out_scores)
+
 
 class ForcedAlignOnScoreMatrixJob(Job):
     """Calculate the Viterbi alignment for a given score matrix."""
