@@ -3,7 +3,7 @@ Alignments
 """
 
 from __future__ import annotations
-from typing import Optional, Any, Dict
+from typing import Optional, Union, Any, Dict
 import os
 import sys
 from sisyphus import tk, Job, Task, Path
@@ -66,19 +66,26 @@ def py():
         ),
     }
 
+    # Specifying the TSE metric for the word positions here in the comments (cutting off all decimals, not rounded).
     for opts in [
-        {"grad_name": "baseline-intermediate-non-flipped-60ms", "sm": True},
-        {"grad_name": "baseline-intermediate-non-flipped-60ms", "sm": True, "apply_log": False},
-        {"grad_name": "baseline-intermediate-non-flipped-60ms", "blank_score": -1.0},
-        {"grad_name": "baseline-intermediate-non-flipped-60ms", "blank_score": -0.1},
-        {"grad_name": "baseline-intermediate-non-flipped-60ms", "sm": False},
-        {"grad_name": "baseline-intermediate-non-flipped-60ms", "sm": False, "blank_score": -1.0},
-        {"grad_name": "baseline-intermediate-non-flipped-60ms", "sm": False, "apply_log": False},
-        {"grad_name": "baseline-intermediate-non-flipped-60ms", "sm": False, "apply_log": False, "blank_score": 1.0},
-        {"grad_name": "baseline-intermediate-flipped-60ms", "sm": True},
+        {"grad_name": "baseline-intermediate-non-flipped-60ms", "sm": True},  # 79.4ms
+        {"grad_name": "baseline-intermediate-non-flipped-60ms", "sm": True, "apply_log": False},  # 81.2ms
+        {"grad_name": "baseline-intermediate-non-flipped-60ms", "sm": True, "blank_score": -1.0},  # 79.4ms
+        {"grad_name": "baseline-intermediate-non-flipped-60ms", "sm": True, "blank_score": -0.1},  # 79.4ms
+        {"grad_name": "baseline-intermediate-non-flipped-60ms", "sm": False},  # 79.4ms
+        {"grad_name": "baseline-intermediate-non-flipped-60ms", "sm": False, "substract": None, "blank_score": 1},
+        {"grad_name": "baseline-intermediate-non-flipped-60ms", "sm": False, "blank_score": -1.0},  # 78.8ms
+        {"grad_name": "baseline-intermediate-non-flipped-60ms", "sm": False, "apply_log": False},  # 81.2ms
+        {
+            "grad_name": "baseline-intermediate-non-flipped-60ms",
+            "sm": False,
+            "apply_log": False,
+            "blank_score": 1.0,
+        },  # 81.2ms
+        {"grad_name": "baseline-intermediate-flipped-60ms", "sm": True},  # 85.1ms
     ]:
         opts = opts.copy()
-        apply_softmax_over_time = opts.pop("sm", True)
+        apply_softmax_over_time = opts.pop("sm", False)
         grad_name = opts.pop("grad_name")
         factor, grad_hdf = grads[grad_name]
 
@@ -114,7 +121,7 @@ def py():
         job.add_alias(prefix + name)
         tk.register_output(prefix + name + ".json", job.out_scores)
 
-    name = "ctc-1k-align/metrics"
+    name = "ctc-1k-align/metrics"  # 60.6ms
     job = CalcAlignmentMetrics(
         seq_list=seq_list,
         alignment_hdf=Path(
@@ -131,7 +138,7 @@ def py():
     job.add_alias(prefix + name)
     tk.register_output(prefix + name + ".json", job.out_scores)
 
-    name = "ctc-10k-align/metrics"
+    name = "ctc-10k-align/metrics"  # 306.1ms
     job = CalcAlignmentMetrics(
         seq_list=seq_list,
         alignment_hdf=Path(
@@ -154,7 +161,7 @@ def py():
 class ForcedAlignOnScoreMatrixJob(Job):
     """Calculate the Viterbi alignment for a given score matrix."""
 
-    __sis_hash_exclude__ = {"blank_score": 0.0}
+    __sis_hash_exclude__ = {"blank_score": 0.0, "substract": "max_gt0"}
 
     def __init__(
         self,
@@ -162,6 +169,7 @@ class ForcedAlignOnScoreMatrixJob(Job):
         score_matrix_hdf: Path,
         cut_off_eos: bool = True,
         apply_log: bool = True,
+        substract: Optional[Union[str, float]] = "max_gt0",
         apply_softmax_over_time: bool = False,
         blank_score: float = 0.0,
         num_seqs: int = -1,
@@ -174,6 +182,7 @@ class ForcedAlignOnScoreMatrixJob(Job):
         self.score_matrix_hdf = score_matrix_hdf
         self.cut_off_eos = cut_off_eos
         self.apply_log = apply_log
+        self.substract = substract
         self.apply_softmax_over_time = apply_softmax_over_time
         self.blank_score = blank_score
         self.num_seqs = num_seqs
@@ -282,7 +291,14 @@ class ForcedAlignOnScoreMatrixJob(Job):
             # Make sure they are all negative or zero max.
             m = np.max(score_matrix)
             print("score matrix max:", m)
-            score_matrix = score_matrix - max(m, 0.0)
+            if self.substract == "max_gt0":
+                score_matrix = score_matrix - max(m, 0.0)
+            elif isinstance(self.substract, float):
+                score_matrix = score_matrix - self.substract
+            elif not self.substract:
+                pass
+            else:
+                raise ValueError(f"invalid substract {self.substract!r}")
             # score_matrix = -np.abs(score_matrix)
             # score_matrix = np.exp(score_matrix)
             if self.apply_softmax_over_time:
