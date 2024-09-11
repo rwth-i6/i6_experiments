@@ -42,6 +42,9 @@ def py():
     features_sprint_cache = Path(  # for exact timings
         "/work/common/asr/librispeech/data/sisyphus_work_dir/i6_core/features/extraction/FeatureExtractionJob.VTLN.upmU2hTb8dNH/output/vtln.cache.bundle"
     )
+    seq_list = Path(
+        "/u/schmitt/experiments/segmental_models_2022_23_rf/work/i6_core/corpus/segments/SegmentCorpusJob.AmDlp1YMZF1e/output/segments.1"
+    )
 
     for apply_softmax_over_time in [True, False]:
         # The dumped grads cover about 9.6h audio from train.
@@ -66,6 +69,7 @@ def py():
 
         name += "/metrics"
         job = CalcAlignmentMetrics(
+            seq_list=seq_list,
             alignment_hdf=alignment_hdf,
             alignment_bpe_vocab=bpe_vocab,
             alignment_blank_idx=blank_idx,
@@ -79,6 +83,7 @@ def py():
 
     name = "ctc-1k-align/metrics"
     job = CalcAlignmentMetrics(
+        seq_list=seq_list,
         alignment_hdf=Path(
             "/u/schmitt/experiments/segmental_models_2022_23_rf/alias/models/ls_conformer/ctc/baseline_v1/baseline_rf/bpe1056/8-layer_standard-conformer/import_glob.conformer.luca.bpe1k.w-ctc/returnn_realignment/best-checkpoint/realignment_train/output/realignment.hdf"
         ),
@@ -348,6 +353,7 @@ class CalcAlignmentMetrics(Job):
     def __init__(
         self,
         *,
+        seq_list: Optional[tk.Path] = None,
         alignment_hdf: Path,
         alignment_label_topology: str = "explicit",
         alignment_bpe_vocab: Path,
@@ -360,6 +366,7 @@ class CalcAlignmentMetrics(Job):
     ):
         super().__init__()
 
+        self.seq_list = seq_list
         self.alignment_hdf = alignment_hdf
         self.alignment_label_topology = alignment_label_topology
         self.alignment_bpe_vocab = alignment_bpe_vocab
@@ -406,7 +413,10 @@ class CalcAlignmentMetrics(Job):
         print("Loading alignment HDF...")
         alignments_ds = HDFDataset([self.alignment_hdf.get_path()])
         alignments_ds.initialize()
-        alignments_ds.init_seq_order(epoch=1)
+        seq_list = None
+        if self.seq_list is not None:
+            seq_list = open(self.seq_list.get_path()).read().splitlines()
+        alignments_ds.init_seq_order(epoch=1, seq_list=seq_list)
 
         print("Loading BPE vocab...")
         bpe_vocab = Vocabulary(self.alignment_bpe_vocab.get_path(), unknown_label=None)
