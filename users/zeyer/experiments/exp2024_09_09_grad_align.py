@@ -75,18 +75,21 @@ def py():
         {"grad_name": "base-mid-60ms", "sm": True, "blank_score": -3},  # 88/69.8ms
         {"grad_name": "base-mid-60ms", "sm": True, "blank_score": -4},  # 65/54.4ms (!)
         {"grad_name": "base-mid-60ms", "sm": True, "blank_score": -5},  # 68/57.0ms
-        {"grad_name": "base-mid-60ms", "sm": True, "norm_scores": True},
-        {"grad_name": "base-mid-60ms", "sm": True, "blank_score": "calc"},
-        {"grad_name": "base-mid-60ms", "sm": True, "norm_scores": True, "blank_score": "calc"},
+        {"grad_name": "base-mid-60ms", "sm": True, "norm_scores": True},  # 106/79.4ms
+        {"grad_name": "base-mid-60ms", "sm": True, "norm_scores": True, "blank_score": -4},  # 65/54.4ms
+        {"grad_name": "base-mid-60ms", "sm": True, "blank_score": "calc"},  # 107/80.2ms
+        {"grad_name": "base-mid-60ms", "sm": True, "norm_scores": True, "blank_score": "calc"},  # 107/80.2ms
         {"grad_name": "base-mid-60ms", "sm": False},  # 106/79.4ms
         {"grad_name": "base-mid-60ms", "sm": False, "blank_score": -1.0},  # 106/78.8ms
         {"grad_name": "base-mid-60ms", "sm": False, "blank_score": -2.0},  # 104/78.2ms
         {"grad_name": "base-mid-60ms", "sm": False, "blank_score": -3.0},  # 108/81.2ms
         {"grad_name": "base-mid-60ms", "sm": False, "apply_log": False},  # 108/81.2ms
+        {"grad_name": "base-mid-60ms", "sm": False, "norm_scores": True, "blank_score": -1},  # 106/79.4ms
         {"grad_name": "base-mid-60ms", "sm": False, "norm_scores": True, "blank_score": -3},  # 106/79.4ms
-        {"grad_name": "base-mid-60ms", "sm": False, "norm_scores": True, "blank_score": "calc"},
-        {"grad_name": "base-mid-60ms", "sm": False, "blank_score": "calc"},
+        {"grad_name": "base-mid-60ms", "sm": False, "norm_scores": True, "blank_score": "calc"},  # 108/81.8ms
+        {"grad_name": "base-mid-60ms", "sm": False, "blank_score": "calc"},  # 108/81.8ms
         {"grad_name": "base-flip-mid-60ms", "sm": True},  # 111/85.1ms
+        {"grad_name": "base-flip-mid-60ms", "sm": True, "blank_score": -4},
     ]:
         opts = opts.copy()
         apply_softmax_over_time = opts.pop("sm", False)
@@ -337,7 +340,7 @@ class ForcedAlignOnScoreMatrixJob(Job):
             if isinstance(self.blank_score, (int, float)):
                 score_matrix_[:, 0::2] = self.blank_score  # blank score
             elif self.blank_score == "calc":
-                score_matrix_[:, 0::2] = blank_score
+                score_matrix_[:, 0::2] = blank_score[:, None]
             else:
                 raise ValueError(f"invalid blank_score {self.blank_score!r} setting")
 
