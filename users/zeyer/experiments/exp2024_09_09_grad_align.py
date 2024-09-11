@@ -66,35 +66,42 @@ def py():
         ),
     }
 
-    for apply_softmax_over_time in [True, False]:
-        for grad_name, (factor, grad_hdf) in grads.items():
-            # The dumped grads cover about 9.6h audio from train.
-            name = f"grad-align-{grad_name}-sm{apply_softmax_over_time}"
-            job = ForcedAlignOnScoreMatrixJob(
-                # non flipped grads
-                score_matrix_hdf=grad_hdf,
-                apply_softmax_over_time=apply_softmax_over_time,
-                num_labels=bpe1k_num_labels_with_blank,
-                blank_idx=bpe1k_blank_idx,
-                returnn_dataset=returnn_dataset,
-            )
-            job.add_alias(prefix + name + "/align")
-            tk.register_output(prefix + name + "/align.hdf", job.out_align)
-            alignment_hdf = job.out_align
+    for opts in [
+        {"grad_name": "baseline-intermediate-non-flipped-60ms", "sm": True},
+        {"grad_name": "baseline-intermediate-non-flipped-60ms", "sm": False},
+        {"grad_name": "baseline-intermediate-flipped-60ms", "sm": True},
+    ]:
+        apply_softmax_over_time = opts["sm"]
+        grad_name = opts["grad_name"]
+        factor, grad_hdf = grads[grad_name]
 
-            name += "/metrics"
-            job = CalcAlignmentMetrics(
-                seq_list=seq_list,
-                alignment_hdf=alignment_hdf,
-                alignment_bpe_vocab=bpe1k_vocab,
-                alignment_blank_idx=bpe1k_blank_idx,
-                features_sprint_cache=features_sprint_cache,
-                ref_alignment_sprint_cache=gmm_alignment_sprint_cache,
-                ref_alignment_allophones=gmm_alignment_allophones,
-                ref_alignment_len_factor=factor,
-            )
-            job.add_alias(prefix + name)
-            tk.register_output(prefix + name + ".json", job.out_scores)
+        # The dumped grads cover about 9.6h audio from train.
+        name = f"grad-align-{grad_name}-sm{apply_softmax_over_time}"
+        job = ForcedAlignOnScoreMatrixJob(
+            # non flipped grads
+            score_matrix_hdf=grad_hdf,
+            apply_softmax_over_time=apply_softmax_over_time,
+            num_labels=bpe1k_num_labels_with_blank,
+            blank_idx=bpe1k_blank_idx,
+            returnn_dataset=returnn_dataset,
+        )
+        job.add_alias(prefix + name + "/align")
+        tk.register_output(prefix + name + "/align.hdf", job.out_align)
+        alignment_hdf = job.out_align
+
+        name += "/metrics"
+        job = CalcAlignmentMetrics(
+            seq_list=seq_list,
+            alignment_hdf=alignment_hdf,
+            alignment_bpe_vocab=bpe1k_vocab,
+            alignment_blank_idx=bpe1k_blank_idx,
+            features_sprint_cache=features_sprint_cache,
+            ref_alignment_sprint_cache=gmm_alignment_sprint_cache,
+            ref_alignment_allophones=gmm_alignment_allophones,
+            ref_alignment_len_factor=factor,
+        )
+        job.add_alias(prefix + name)
+        tk.register_output(prefix + name + ".json", job.out_scores)
 
     name = "ctc-1k-align/metrics"
     job = CalcAlignmentMetrics(
