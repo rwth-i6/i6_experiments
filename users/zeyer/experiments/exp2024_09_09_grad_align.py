@@ -64,6 +64,45 @@ def py():
                 "/work/asr3/zeyer/schmitt/sisyphus_work_dirs/segmental_models_2022_23_rf/i6_core/returnn/forward/ReturnnForwardJobV2.RgWrrTtM4Ljf/output/gradients.hdf"
             ),
         ),
+        # 1k baseline mit CTC auf single-gpu (epoch 919/2000) (nicht flipped)
+        "base-ctc-mid919-60ms": (
+            6,
+            Path(
+                "/u/schmitt/experiments/segmental_models_2022_23_rf/alias/models/ls_conformer/global_att/baseline_v1/baseline_rf/bpe1056/w-weight-feedback/w-att-ctx-in-state/nb-lstm/12-layer_512-dim_standard-conformer/train_from_scratch/2000-ep_bs-35000_w-sp_curric_lr-dyn_lr_piecewise_linear_epoch-wise_v2_reg-v1_filter-data-312000.0_accum-2_ce-aux-4-8/returnn_decoding/epoch-919-checkpoint/no-lm/beam-size-12/train/analysis/dump_gradients_wrt_encoder_input/ground-truth/output/gradients.hdf"
+            ),
+        ),
+        "base-ctc-mid919-10ms": (
+            1,
+            Path(
+                "/u/schmitt/experiments/segmental_models_2022_23_rf/alias/models/ls_conformer/global_att/baseline_v1/baseline_rf/bpe1056/w-weight-feedback/w-att-ctx-in-state/nb-lstm/12-layer_512-dim_standard-conformer/train_from_scratch/2000-ep_bs-35000_w-sp_curric_lr-dyn_lr_piecewise_linear_epoch-wise_v2_reg-v1_filter-data-312000.0_accum-2_ce-aux-4-8/returnn_decoding/epoch-919-checkpoint/no-lm/beam-size-12/train/analysis/dump_gradients_wrt_frontend_input/ground-truth/output/gradients.hdf"
+            ),
+        ),
+        # 1k baseline ohne CTC auf single-gpu (epoch 1676/2000) (nicht flipped)
+        "base-far1676-60ms": (
+            6,
+            Path(
+                "/u/schmitt/experiments/segmental_models_2022_23_rf/alias/models/ls_conformer/global_att/baseline_v1/baseline_rf/bpe1056/w-weight-feedback/w-att-ctx-in-state/nb-lstm/12-layer_512-dim_standard-conformer/train_from_scratch/2000-ep_bs-35000_w-sp_curric_lr-dyn_lr_piecewise_linear_epoch-wise_v2_reg-v1_filter-data-312000.0_accum-2/returnn_decoding/epoch-1676-checkpoint/no-lm/beam-size-12/train/analysis/dump_gradients_wrt_encoder_input/ground-truth/output/gradients.hdf"
+            ),
+        ),
+        "base-far1676-10ms": (
+            1,
+            Path(
+                "/u/schmitt/experiments/segmental_models_2022_23_rf/alias/models/ls_conformer/global_att/baseline_v1/baseline_rf/bpe1056/w-weight-feedback/w-att-ctx-in-state/nb-lstm/12-layer_512-dim_standard-conformer/train_from_scratch/2000-ep_bs-35000_w-sp_curric_lr-dyn_lr_piecewise_linear_epoch-wise_v2_reg-v1_filter-data-312000.0_accum-2/returnn_decoding/epoch-1676-checkpoint/no-lm/beam-size-12/train/analysis/dump_gradients_wrt_frontend_input/ground-truth/output/gradients.hdf"
+            ),
+        ),
+        # 1k baseline ohne CTC + ohne filtering auf multi-gpu (epoch 406/500) (flipped)
+        "base-flip-far406-60ms": (
+            6,
+            Path(
+                "/u/schmitt/experiments/segmental_models_2022_23_rf/alias/models/ls_conformer/global_att/baseline_v1/baseline_rf/bpe1056/w-weight-feedback/w-att-ctx-in-state/nb-lstm/12-layer_512-dim_standard-conformer/train_from_scratch/500-ep_bs-15000_mgpu-4_w-sp_curric_lr-dyn_lr_piecewise_linear_epoch-wise_v2_reg-v1_accum-4/returnn_decoding/epoch-406-checkpoint/no-lm/beam-size-12/train/analysis/dump_gradients_wrt_encoder_input/ground-truth/output/gradients.hdf"
+            ),
+        ),
+        "base-flip-far406-10ms": (
+            1,
+            Path(
+                "/u/schmitt/experiments/segmental_models_2022_23_rf/alias/models/ls_conformer/global_att/baseline_v1/baseline_rf/bpe1056/w-weight-feedback/w-att-ctx-in-state/nb-lstm/12-layer_512-dim_standard-conformer/train_from_scratch/500-ep_bs-15000_mgpu-4_w-sp_curric_lr-dyn_lr_piecewise_linear_epoch-wise_v2_reg-v1_accum-4/returnn_decoding/epoch-406-checkpoint/no-lm/beam-size-12/train/analysis/dump_gradients_wrt_frontend_input/ground-truth/output/gradients.hdf"
+            ),
+        ),
     }
 
     # Specifying the TSE metric for the word bound/pos here in the comments (cutting off all decimals, not rounded).
@@ -73,7 +112,7 @@ def py():
         {"grad_name": "base-mid-60ms", "sm": True, "blank_score": -1.0},  # 106/79.4ms
         {"grad_name": "base-mid-60ms", "sm": True, "blank_score": -2},  # 106/79.3ms
         {"grad_name": "base-mid-60ms", "sm": True, "blank_score": -3},  # 88/69.8ms
-        {"grad_name": "base-mid-60ms", "sm": True, "blank_score": -4},  # 65/54.4ms (!)
+        {"grad_name": "base-mid-60ms", "sm": True, "blank_score": -4},  # 65.5/54.4ms (!)
         {"grad_name": "base-mid-60ms", "sm": True, "blank_score": -5},  # 68/57.0ms
         {"grad_name": "base-mid-60ms", "sm": True, "norm_scores": True},  # 106/79.4ms
         {"grad_name": "base-mid-60ms", "sm": True, "norm_scores": True, "blank_score": -4},  # 65/54.4ms
@@ -111,6 +150,14 @@ def py():
         },  # 108/81.8ms
         {"grad_name": "base-flip-mid-60ms", "sm": True},  # 111/85.1ms
         {"grad_name": "base-flip-mid-60ms", "sm": True, "blank_score": -4},
+        {"grad_name": "base-ctc-mid919-10ms", "sm": True, "blank_score": -2},
+        {"grad_name": "base-ctc-mid919-10ms", "sm": True, "blank_score": -4},
+        {"grad_name": "base-ctc-mid919-60ms", "sm": True, "blank_score": -2},
+        {"grad_name": "base-ctc-mid919-60ms", "sm": True, "blank_score": -4},
+        {"grad_name": "base-far1676-10ms", "sm": True, "blank_score": -4},
+        {"grad_name": "base-far1676-60ms", "sm": True, "blank_score": -4},
+        {"grad_name": "base-flip-far406-10ms", "sm": True, "blank_score": -4},
+        {"grad_name": "base-flip-far406-60ms", "sm": True, "blank_score": -4},
     ]:
         opts = opts.copy()
         apply_softmax_over_time = opts.pop("sm", False)
@@ -149,7 +196,7 @@ def py():
         job.add_alias(prefix + name)
         tk.register_output(prefix + name + ".json", job.out_scores)
 
-    name = "ctc-1k-align/metrics"  # 83/60.6ms
+    name = "ctc-1k-align/metrics"  # 83.0/60.6ms
     job = CalcAlignmentMetrics(
         seq_list=seq_list,
         alignment_hdf=Path(
@@ -166,7 +213,7 @@ def py():
     job.add_alias(prefix + name)
     tk.register_output(prefix + name + ".json", job.out_scores)
 
-    name = "ctc-10k-align/metrics"  # 312/306.1ms
+    name = "ctc-10k-align/metrics"  # 312.2/306.1ms
     job = CalcAlignmentMetrics(
         seq_list=seq_list,
         alignment_hdf=Path(
