@@ -44,6 +44,7 @@ def py():
     )
 
     for apply_softmax_over_time in [True, False]:
+        # The dumped grads cover about 9.6h audio from train.
         name = f"grad-align-sm{apply_softmax_over_time}"
         job = ForcedAlignOnScoreMatrixJob(
             # example (already in logspace):
@@ -60,7 +61,7 @@ def py():
             returnn_dataset=returnn_dataset,
         )
         job.add_alias(prefix + name + "/align")
-        tk.register_output(prefix + name + ".hdf", job.out_align)
+        tk.register_output(prefix + name + "/align.hdf", job.out_align)
         alignment_hdf = job.out_align
 
         name += "/metrics"
