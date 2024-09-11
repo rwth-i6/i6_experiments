@@ -3,7 +3,7 @@ Alignments
 """
 
 from __future__ import annotations
-from typing import Optional
+from typing import Optional, Any, Dict
 import os
 import sys
 from sisyphus import tk, Job, Task, Path
@@ -11,9 +11,24 @@ from sisyphus import tk, Job, Task, Path
 
 def py():
     prefix = "exp2024_09_09_grad_align/"
-    # * CalculateSilenceStatistics:
-    # der job holt sich die word end positions von dem GMM alignment und rechnet die initial und final silence aus
-    # * ForcedAlignOnScoreMatrixJob
+
+    from i6_experiments.users.zeyer.datasets.librispeech import LibrispeechOggZip, Bpe
+
+    num_labels = 1057  # incl blank
+    blank_idx = 1056  # at the end
+    returnn_dataset = LibrispeechOggZip(
+        vocab=Bpe(
+            codes=Path(
+                "/work/asr4/zeineldeen/setups-data/librispeech/2022-11-28--conformer-att/work/i6_core/text/label/subword_nmt/train/ReturnnTrainBpeJob.qhkNn2veTWkV/output/bpe.codes"
+            ),
+            vocab=Path(
+                "/work/asr4/zeineldeen/setups-data/librispeech/2022-11-28--conformer-att/work/i6_core/text/label/subword_nmt/train/ReturnnTrainBpeJob.qhkNn2veTWkV/output/bpe.vocab"
+            ),
+            dim=1056,
+        ),
+        train_epoch_split=1,
+    ).get_dataset("train")
+
     alignment_hdf = None
     for apply_softmax_over_time in [True, False]:
         name = f"grad-align-sm{apply_softmax_over_time}"
@@ -27,6 +42,9 @@ def py():
                 "/work/asr3/zeyer/schmitt/sisyphus_work_dirs/segmental_models_2022_23_rf/i6_core/returnn/forward/ReturnnForwardJobV2.KKMedG4R3uf4/output/gradients.hdf"
             ),
             apply_softmax_over_time=apply_softmax_over_time,
+            num_labels=num_labels,
+            blank_idx=blank_idx,
+            returnn_dataset=returnn_dataset,
         )
         job.add_alias(prefix + name)
         tk.register_output(prefix + name, job.out_align)
@@ -69,6 +87,10 @@ class ForcedAlignOnScoreMatrixJob(Job):
         apply_log: bool = True,
         apply_softmax_over_time: bool = False,
         num_seqs: int = -1,
+        num_labels: Optional[int] = None,
+        blank_idx: int,
+        returnn_dataset: Dict[str, Any],  # for BPE labels
+        returnn_dataset_key: str = "classes",
         returnn_root: Optional[tk.Path] = None,
     ):
         self.score_matrix_hdf = score_matrix_hdf
@@ -76,6 +98,10 @@ class ForcedAlignOnScoreMatrixJob(Job):
         self.apply_log = apply_log
         self.apply_softmax_over_time = apply_softmax_over_time
         self.num_seqs = num_seqs
+        self.num_labels = num_labels
+        self.blank_idx = blank_idx
+        self.returnn_dataset = returnn_dataset
+        self.returnn_dataset_key = returnn_dataset_key
         self.returnn_root = returnn_root
 
         self.out_align = self.output_path("out_align")
@@ -101,23 +127,71 @@ class ForcedAlignOnScoreMatrixJob(Job):
         from returnn.datasets.hdf import SimpleHDFWriter
 
         score_matrix_data_dict = load_hdf_data(self.score_matrix_hdf, num_dims=2)
-        hdf_writer = SimpleHDFWriter(self.out_align.get_path(), dim=None, ndim=1)
+        hdf_writer = SimpleHDFWriter(self.out_align.get_path(), dim=self.num_labels, ndim=1)
+        seq_list = list(score_matrix_data_dict.keys())
+
+        from returnn.config import set_global_config, Config
+        from returnn.datasets import init_dataset
+        from returnn.log import log
+
+        config = Config()
+        set_global_config(config)
+
+        if not config.has("log_verbosity"):
+            config.typed_dict["log_verbosity"] = 4
+        log.init_by_config(config)
+
+        import tree
+
+        dataset_dict = self.returnn_dataset
+        dataset_dict = tree.map_structure(lambda x: x.get_path() if isinstance(x, Path) else x, dataset_dict)
+        print("RETURNN dataset dict:", dataset_dict)
+        assert isinstance(dataset_dict, dict)
+        dataset = init_dataset(dataset_dict)
+
+        # We might want "train-other-960/1034-121119-0049/1034-121119-0049",
+        # but it's actually "train-clean-100/1034-121119-0049/1034-121119-0049" in the RETURNN dataset.
+        # Transform the seq tags for the RETURNN dataset.
+        all_tags = set(dataset.get_all_tags())
+        all_tags_wo_prefix = {}
+        for tag in all_tags:
+            tag_wo_prefix = tag.split("/", 2)[-1]
+            assert tag_wo_prefix not in all_tags_wo_prefix
+            all_tags_wo_prefix[tag_wo_prefix] = tag
+        seq_list_ = []
+        for seq_tag in seq_list:
+            tag_wo_prefix = seq_tag.split("/", 2)[-1]
+            if seq_tag in all_tags:
+                seq_list_.append(seq_tag)
+            elif tag_wo_prefix in all_tags_wo_prefix:
+                seq_list_.append(all_tags_wo_prefix[tag_wo_prefix])
+            else:
+                print(f"seq tag {seq_tag} not found in dataset")
+
+        dataset.init_seq_order(epoch=1, seq_list=seq_list_)
 
         def _log_softmax(x: np.ndarray, *, axis: int) -> np.ndarray:
             max_score = np.max(x, axis=axis, keepdims=True)
             x = x - max_score
             return x - np.log(np.sum(np.exp(x), axis=axis, keepdims=True))
 
-        for i, seq_tag in enumerate(score_matrix_data_dict):
+        for i, seq_tag in enumerate(seq_list):
             if 0 < self.num_seqs <= i:
                 break
 
             print("seq tag:", seq_tag)
 
+            dataset.load_seqs(i, i + 1)
+            assert dataset.get_tag(i) == seq_list_[i]
+            labels = dataset.get_data(i, self.returnn_dataset_key)
+            print("labels:", labels, f"(len {len(labels)})")
+
             score_matrix = score_matrix_data_dict[seq_tag]  # [S, T]
+            print("score matrix shape (S x T):", score_matrix.shape)
             if self.cut_off_eos:
                 # Last row is EOS, remove it.
                 score_matrix = score_matrix[:-1]
+            assert len(score_matrix) == len(labels)
 
             if self.apply_log:
                 # Assuming L2 norm scores (i.e. >0).
@@ -191,9 +265,16 @@ class ForcedAlignOnScoreMatrixJob(Job):
 
             assert len(alignment) == T
             alignment.reverse()
-            alignment_ = np.array(alignment)  # [T, 2]
+            alignment_ = []
+            for t, s in alignment:
+                if s % 2 == 0:
+                    alignment_.append(self.blank_idx)
+                else:
+                    alignment_.append(labels[s // 2])
+            alignment_ = np.array(alignment_, dtype=np.int32)  # [T]
+            assert len(alignment_) == T
 
-            hdf_writer.insert_batch(alignment_[None, :, 1], seq_len=[T], seq_tag=[seq_tag])
+            hdf_writer.insert_batch(alignment_[None, :], seq_len=[T], seq_tag=[seq_tag])
 
             if i < 10:  # plot the first 10 for debugging
                 plot_dir = Path("alignment-plots", self).get_path()
