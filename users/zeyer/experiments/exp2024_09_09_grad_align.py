@@ -30,9 +30,9 @@ def py():
         train_epoch_split=1,
     ).get_dataset("train")
 
-    gmm_alignment_hdf = Path(
-        "/u/schmitt/experiments/03-09-24_aed_flipped_encoder/work/i6_core/returnn/hdf/ReturnnDumpHDFJob.nQ1YkjerObMO/output/data.hdf"
-    )
+    # gmm_alignment_hdf = Path(
+    #     "/u/schmitt/experiments/03-09-24_aed_flipped_encoder/work/i6_core/returnn/hdf/ReturnnDumpHDFJob.nQ1YkjerObMO/output/data.hdf"
+    # )
     gmm_alignment_allophones = Path(
         "/work/common/asr/librispeech/data/sisyphus_export_setup/work/i6_core/lexicon/allophones/StoreAllophonesJob.bY339UmRbGhr/output/allophones"
     )
@@ -47,16 +47,21 @@ def py():
     )
 
     grads = {
-        "non-flipped-10ms": (
-            6,  # TODO the grads were wrong, should be factor 1, wait for new grads...
-            Path(
-                "/work/asr3/zeyer/schmitt/sisyphus_work_dirs/segmental_models_2022_23_rf/i6_core/returnn/forward/ReturnnForwardJobV2.AvDGrQFl4kDW/output/gradients.hdf"
-            ),
-        ),
-        "non-flipped-60ms": (
+        # TODO...
+        # "non-flipped-10ms": (
+        #     1,
+        #     Path(...),
+        # ),
+        "baseline-intermediate-non-flipped-60ms": (
             6,
             Path(
                 "/work/asr3/zeyer/schmitt/sisyphus_work_dirs/segmental_models_2022_23_rf/i6_core/returnn/forward/ReturnnForwardJobV2.KKMedG4R3uf4/output/gradients.hdf"
+            ),
+        ),
+        "baseline-intermediate-flipped-60ms": (
+            6,
+            Path(
+                "/work/asr3/zeyer/schmitt/sisyphus_work_dirs/segmental_models_2022_23_rf/i6_core/returnn/forward/ReturnnForwardJobV2.RgWrrTtM4Ljf/output/gradients.hdf"
             ),
         ),
     }
