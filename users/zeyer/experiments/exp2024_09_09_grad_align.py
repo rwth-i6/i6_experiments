@@ -30,7 +30,19 @@ def py():
         train_epoch_split=1,
     ).get_dataset("train")
 
-    alignment_hdf = None
+    gmm_alignment_hdf = Path(
+        "/u/schmitt/experiments/03-09-24_aed_flipped_encoder/work/i6_core/returnn/hdf/ReturnnDumpHDFJob.nQ1YkjerObMO/output/data.hdf"
+    )
+    gmm_alignment_allophones = Path(
+        "/work/common/asr/librispeech/data/sisyphus_export_setup/work/i6_core/lexicon/allophones/StoreAllophonesJob.bY339UmRbGhr/output/allophones"
+    )
+    gmm_alignment_sprint_cache = Path(
+        "/work/common/asr/librispeech/data/sisyphus_work_dir/i6_core/mm/alignment/AlignmentJob.oyZ7O0XJcO20/output/alignment.cache.bundle"
+    )
+    features_sprint_cache = Path(  # for exact timings
+        "/work/common/asr/librispeech/data/sisyphus_work_dir/i6_core/features/extraction/FeatureExtractionJob.VTLN.upmU2hTb8dNH/output/vtln.cache.bundle"
+    )
+
     for apply_softmax_over_time in [True, False]:
         name = f"grad-align-sm{apply_softmax_over_time}"
         job = ForcedAlignOnScoreMatrixJob(
@@ -47,27 +59,30 @@ def py():
             blank_idx=blank_idx,
             returnn_dataset=returnn_dataset,
         )
+        job.add_alias(prefix + name + "/align")
+        tk.register_output(prefix + name + ".hdf", job.out_align)
+        alignment_hdf = job.out_align
+
+        name += "/metrics"
+        job = CalcAlignmentMetrics(
+            alignment_hdf=alignment_hdf,
+            bpe_vocab=bpe_vocab,
+            blank_idx=blank_idx,
+            features_sprint_cache=features_sprint_cache,
+            ref_alignment_sprint_cache=gmm_alignment_sprint_cache,
+            ref_alignment_allophones=gmm_alignment_allophones,
+            ref_alignment_len_factor=6,
+        )
         job.add_alias(prefix + name)
-        tk.register_output(prefix + name, job.out_align)
-        if apply_softmax_over_time:
-            alignment_hdf = job.out_align
+        tk.register_output(prefix + name + ".json", job.out_scores)
 
-    gmm_alignment_hdf = Path(
-        "/u/schmitt/experiments/03-09-24_aed_flipped_encoder/work/i6_core/returnn/hdf/ReturnnDumpHDFJob.nQ1YkjerObMO/output/data.hdf"
-    )
-    gmm_alignment_allophones = Path(
-        "/work/common/asr/librispeech/data/sisyphus_export_setup/work/i6_core/lexicon/allophones/StoreAllophonesJob.bY339UmRbGhr/output/allophones"
-    )
-    gmm_alignment_sprint_cache = Path(
-        "/work/common/asr/librispeech/data/sisyphus_work_dir/i6_core/mm/alignment/AlignmentJob.oyZ7O0XJcO20/output/alignment.cache.bundle"
-    )
-    features_sprint_cache = Path(  # for exact timings
-        "/work/common/asr/librispeech/data/sisyphus_work_dir/i6_core/features/extraction/FeatureExtractionJob.VTLN.upmU2hTb8dNH/output/vtln.cache.bundle"
-    )
-
-    name = "calc-alignment-metrics"
+    name += "ctc-1k-align/metrics"
     job = CalcAlignmentMetrics(
-        alignment_hdf=alignment_hdf,
+        alignment_hdf=Path(
+            "/u/schmitt/experiments/segmental_models_2022_23_rf/alias/models/ls_conformer/ctc/baseline_v1/baseline_rf/bpe1056/8-layer_standard-conformer/import_glob.conformer.luca.bpe1k.w-ctc/returnn_realignment/best-checkpoint/realignment_train/output/realignment.hdf"
+        ),
+        # TODO this should fail because it misses the state indices.
+        #   add another flag here to tell it's an CTC alignment, then we can infer the state indices.
         bpe_vocab=bpe_vocab,
         blank_idx=blank_idx,
         features_sprint_cache=features_sprint_cache,
@@ -76,7 +91,7 @@ def py():
         ref_alignment_len_factor=6,
     )
     job.add_alias(prefix + name)
-    tk.register_output(prefix + name, job.out_scores)
+    tk.register_output(prefix + name + ".json", job.out_scores)
 
 
 class ForcedAlignOnScoreMatrixJob(Job):
@@ -446,6 +461,7 @@ class CalcAlignmentMetrics(Job):
             "avg": {"tse_word_boundaries": -1.0, "tse_word_positions": -1.0},
             "total_num_words": 0,
             "total_num_seqs": 0,
+            "total_duration": 0.0,
         }
 
         total_tse_word_boundaries = 0.0
@@ -483,6 +499,7 @@ class CalcAlignmentMetrics(Job):
             last_frame_start, align_dur = _start_end_time_for_align_frame_idx(len(alignment) - 1)
             print(f"  last frame start: {last_frame_start} sec")
             print(f"  align duration: {align_dur} sec")
+            out_scores["total_duration"] += duration_sec
 
             # I'm not really sure on the calculation above, and also not really sure about the limit here...
             # assert (
