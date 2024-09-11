@@ -68,15 +68,21 @@ def py():
 
     for opts in [
         {"grad_name": "baseline-intermediate-non-flipped-60ms", "sm": True},
+        {"grad_name": "baseline-intermediate-non-flipped-60ms", "sm": True, "apply_log": False},
+        {"grad_name": "baseline-intermediate-non-flipped-60ms", "blank_score": 1.0},
         {"grad_name": "baseline-intermediate-non-flipped-60ms", "sm": False},
         {"grad_name": "baseline-intermediate-flipped-60ms", "sm": True},
     ]:
-        apply_softmax_over_time = opts["sm"]
-        grad_name = opts["grad_name"]
+        opts = opts.copy()
+        apply_softmax_over_time = opts.pop("sm", True)
+        grad_name = opts.pop("grad_name")
         factor, grad_hdf = grads[grad_name]
 
         # The dumped grads cover about 9.6h audio from train.
         name = f"grad-align-{grad_name}-sm{apply_softmax_over_time}"
+        if opts:
+            for k, v in opts.items():
+                name += f"-{k}{v}"
         job = ForcedAlignOnScoreMatrixJob(
             # non flipped grads
             score_matrix_hdf=grad_hdf,
@@ -84,6 +90,7 @@ def py():
             num_labels=bpe1k_num_labels_with_blank,
             blank_idx=bpe1k_blank_idx,
             returnn_dataset=returnn_dataset,
+            **opts,
         )
         job.add_alias(prefix + name + "/align")
         tk.register_output(prefix + name + "/align.hdf", job.out_align)
@@ -143,6 +150,8 @@ def py():
 class ForcedAlignOnScoreMatrixJob(Job):
     """Calculate the Viterbi alignment for a given score matrix."""
 
+    __sis_hash_exclude__ = {"blank_score": 0.0}
+
     def __init__(
         self,
         *,
@@ -150,6 +159,7 @@ class ForcedAlignOnScoreMatrixJob(Job):
         cut_off_eos: bool = True,
         apply_log: bool = True,
         apply_softmax_over_time: bool = False,
+        blank_score: float = 0.0,
         num_seqs: int = -1,
         num_labels: Optional[int] = None,
         blank_idx: int,
@@ -161,6 +171,7 @@ class ForcedAlignOnScoreMatrixJob(Job):
         self.cut_off_eos = cut_off_eos
         self.apply_log = apply_log
         self.apply_softmax_over_time = apply_softmax_over_time
+        self.blank_score = blank_score
         self.num_seqs = num_seqs
         self.num_labels = num_labels
         self.blank_idx = blank_idx
@@ -259,6 +270,7 @@ class ForcedAlignOnScoreMatrixJob(Job):
                 score_matrix = score_matrix[:-1]
             assert len(score_matrix) == len(labels)
 
+            # Note: We are going to search the alignment path with the highest score.
             if self.apply_log:
                 # Assuming L2 norm scores (i.e. >0).
                 score_matrix = np.log(score_matrix)
@@ -284,7 +296,7 @@ class ForcedAlignOnScoreMatrixJob(Job):
 
             score_matrix_ = np.zeros((T, S * 2 + 1), dtype=np.float32)  # [T, S*2+1]
             score_matrix_[:, 1::2] = score_matrix.T
-            score_matrix_[:, 0::2] = 0.0  # blank score
+            score_matrix_[:, 0::2] = self.blank_score  # blank score
 
             # The first two states are valid start states.
             align_scores[0, :2] = score_matrix_[0, :2]
