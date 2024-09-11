@@ -69,8 +69,12 @@ def py():
     for opts in [
         {"grad_name": "baseline-intermediate-non-flipped-60ms", "sm": True},
         {"grad_name": "baseline-intermediate-non-flipped-60ms", "sm": True, "apply_log": False},
-        {"grad_name": "baseline-intermediate-non-flipped-60ms", "blank_score": 1.0},
+        {"grad_name": "baseline-intermediate-non-flipped-60ms", "blank_score": -1.0},
+        {"grad_name": "baseline-intermediate-non-flipped-60ms", "blank_score": -0.1},
         {"grad_name": "baseline-intermediate-non-flipped-60ms", "sm": False},
+        {"grad_name": "baseline-intermediate-non-flipped-60ms", "sm": False, "blank_score": -1.0},
+        {"grad_name": "baseline-intermediate-non-flipped-60ms", "sm": False, "apply_log": False},
+        {"grad_name": "baseline-intermediate-non-flipped-60ms", "sm": False, "apply_log": False, "blank_score": 1.0},
         {"grad_name": "baseline-intermediate-flipped-60ms", "sm": True},
     ]:
         opts = opts.copy()
