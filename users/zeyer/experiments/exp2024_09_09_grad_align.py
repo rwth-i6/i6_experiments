@@ -67,8 +67,8 @@ def py():
         name += "/metrics"
         job = CalcAlignmentMetrics(
             alignment_hdf=alignment_hdf,
-            bpe_vocab=bpe_vocab,
-            blank_idx=blank_idx,
+            alignment_bpe_vocab=bpe_vocab,
+            alignment_blank_idx=blank_idx,
             features_sprint_cache=features_sprint_cache,
             ref_alignment_sprint_cache=gmm_alignment_sprint_cache,
             ref_alignment_allophones=gmm_alignment_allophones,
@@ -77,15 +77,14 @@ def py():
         job.add_alias(prefix + name)
         tk.register_output(prefix + name + ".json", job.out_scores)
 
-    name += "ctc-1k-align/metrics"
+    name = "ctc-1k-align/metrics"
     job = CalcAlignmentMetrics(
         alignment_hdf=Path(
             "/u/schmitt/experiments/segmental_models_2022_23_rf/alias/models/ls_conformer/ctc/baseline_v1/baseline_rf/bpe1056/8-layer_standard-conformer/import_glob.conformer.luca.bpe1k.w-ctc/returnn_realignment/best-checkpoint/realignment_train/output/realignment.hdf"
         ),
-        # TODO this should fail because it misses the state indices.
-        #   add another flag here to tell it's an CTC alignment, then we can infer the state indices.
-        bpe_vocab=bpe_vocab,
-        blank_idx=blank_idx,
+        alignment_label_topology="ctc",
+        alignment_bpe_vocab=bpe_vocab,
+        alignment_blank_idx=blank_idx,
         features_sprint_cache=features_sprint_cache,
         ref_alignment_sprint_cache=gmm_alignment_sprint_cache,
         ref_alignment_allophones=gmm_alignment_allophones,
@@ -350,8 +349,9 @@ class CalcAlignmentMetrics(Job):
         self,
         *,
         alignment_hdf: Path,
-        bpe_vocab: Path,
-        blank_idx: int,
+        alignment_label_topology: str = "explicit",
+        alignment_bpe_vocab: Path,
+        alignment_blank_idx: int,
         ref_alignment_sprint_cache: Path,
         ref_alignment_allophones: Path,
         ref_alignment_len_factor: int,
@@ -361,8 +361,9 @@ class CalcAlignmentMetrics(Job):
         super().__init__()
 
         self.alignment_hdf = alignment_hdf
-        self.bpe_vocab = bpe_vocab
-        self.blank_idx = blank_idx
+        self.alignment_label_topology = alignment_label_topology
+        self.alignment_bpe_vocab = alignment_bpe_vocab
+        self.alignment_blank_idx = alignment_blank_idx
         self.ref_alignment_sprint_cache = ref_alignment_sprint_cache
         self.ref_alignment_allophones = ref_alignment_allophones
         self.ref_alignment_len_factor = ref_alignment_len_factor
@@ -378,6 +379,7 @@ class CalcAlignmentMetrics(Job):
         from typing import List, Tuple
         import numpy as np
         import subprocess
+        from itertools import zip_longest
         import i6_experiments
 
         def _cf(path: Path) -> str:
@@ -407,15 +409,16 @@ class CalcAlignmentMetrics(Job):
         alignments_ds.init_seq_order(epoch=1)
 
         print("Loading BPE vocab...")
-        vocab = Vocabulary(self.bpe_vocab.get_path(), unknown_label=None)
+        bpe_vocab = Vocabulary(self.alignment_bpe_vocab.get_path(), unknown_label=None)
+        bpe_labels_with_blank = bpe_vocab.labels + ["[BLANK]"]
 
         # noinspection PyShadowingNames
         def _is_word_end(t: int) -> bool:
             label_idx = alignment[t]
             state_idx = align_states[t]
-            if label_idx == self.blank_idx:
+            if label_idx == self.alignment_blank_idx:
                 return False
-            if vocab.labels[label_idx].endswith("@@"):
+            if bpe_vocab.labels[label_idx].endswith("@@"):
                 return False
             if t == len(alignment) - 1:
                 return True
@@ -432,9 +435,6 @@ class CalcAlignmentMetrics(Job):
 
         def _ceil_div(a: int, b: int) -> int:
             return -(-a // b)
-
-        def _floor_div(a: int, b: int) -> int:
-            return a // b
 
         # noinspection PyShadowingNames
         def _start_end_time_for_align_frame_idx(t: int) -> Tuple[float, float]:
@@ -472,7 +472,33 @@ class CalcAlignmentMetrics(Job):
             alignments_ds.load_seqs(seq_idx, seq_idx + 1)
             key = alignments_ds.get_tag(seq_idx)
             alignment = alignments_ds.get_data(seq_idx, "data")
-            align_states = alignments_ds.get_data(seq_idx, "states")
+            if self.alignment_label_topology == "explicit":
+                align_states = alignments_ds.get_data(seq_idx, "states")
+            elif self.alignment_label_topology == "ctc":
+                align_states = []
+                s = 0
+                prev_label_idx = self.alignment_blank_idx
+                for label_idx in alignment:
+                    if label_idx == prev_label_idx:
+                        align_states.append(s)
+                    elif label_idx == self.alignment_blank_idx:  # and label_idx != prev_label_idx
+                        # Was in label, went into blank.
+                        s += 1
+                        assert s % 2 == 0
+                        align_states.append(s)
+                    else:  # label_idx != blank_idx and label_idx != prev_label_idx
+                        # Went into new label.
+                        if prev_label_idx == self.alignment_blank_idx:
+                            assert s % 2 == 0
+                            s += 1
+                        else:  # was in other label before
+                            assert s % 2 == 1
+                            s += 2  # skip over blank state
+                        align_states.append(s)
+                    prev_label_idx = label_idx
+                align_states = np.array(align_states)  # [T]
+            else:
+                raise ValueError(f"alignment_label_topology {self.alignment_label_topology!r} not supported")
             assert len(alignment) == len(align_states)
 
             print("seq tag:", key)
@@ -481,11 +507,25 @@ class CalcAlignmentMetrics(Job):
             assert len(feat_times) == len(ref_align), f"feat len {len(feat_times)} vs ref align len {len(ref_align)}"
             print(f"  start time: {feat_times[0][0]} sec")
             print(f"  end time: {feat_times[-1][1]} sec")
+            if seq_idx == 0:
+                for t in [
+                    0,
+                    1,
+                    2,
+                    3,
+                    4,
+                    len(feat_times) - 4,
+                    len(feat_times) - 3,
+                    len(feat_times) - 2,
+                    len(feat_times) - 1,
+                ]:
+                    start_time, end_time = feat_times[t]
+                    print(f"  ref align frame {t}: start {start_time} sec, end {end_time} sec")
             ref_start_time = ref_align[0][0]
             duration_sec = feat_times[-1][1] - ref_start_time
             sampling_rate = 16_000
             len_samples = round(duration_sec * sampling_rate)  # 16 kHz
-            print(f"  num samples: {len_samples} (rounded from {duration_sec * sampling_rate} sec)")
+            print(f"  num samples: {len_samples} (rounded from {duration_sec * sampling_rate})")
             # RETURNN uses log mel filterbank features, 10ms frame shift, via stft (valid padding)
             window_len = 0.025  # 25 ms
             step_len = 0.010  # 10 ms
@@ -510,41 +550,61 @@ class CalcAlignmentMetrics(Job):
 
             cur_word_start_frame = None
             word_boundaries = []
+            words_bpe = []
+            prev_state_idx = 0
             for t, (label_idx, state_idx) in enumerate(zip(alignment, align_states)):
-                if label_idx == self.blank_idx:
+                if label_idx == self.alignment_blank_idx:
                     continue
                 if cur_word_start_frame is None:
                     cur_word_start_frame = t  # new word starts here
+                    words_bpe.append([])
+                if state_idx != prev_state_idx:
+                    words_bpe[-1].append(bpe_vocab.labels[label_idx])
                 if _is_word_end(t):
                     assert cur_word_start_frame is not None
                     word_frame_start, _ = _start_end_time_for_align_frame_idx(cur_word_start_frame)
                     _, word_frame_end = _start_end_time_for_align_frame_idx(t)
                     word_boundaries.append((word_frame_start, word_frame_end))
                     cur_word_start_frame = None
+                prev_state_idx = state_idx
             assert cur_word_start_frame is None  # word should have ended
             num_words = len(word_boundaries)
+            assert num_words == len(words_bpe)
             print("  num words:", num_words)
 
             ref_word_boundaries = []
             cur_word_start_frame = None
+            prev_allophone_idx = None
+            ref_words_phones = []
             for t, (t_, allophone_idx, hmm_state_idx, _) in enumerate(ref_align):
                 assert t == t_
                 if "[SILENCE]" in allophones[allophone_idx]:
                     continue
                 if cur_word_start_frame is None:
                     cur_word_start_frame = t  # new word starts here
+                    ref_words_phones.append([])
+                if prev_allophone_idx != allophone_idx:
+                    ref_words_phones[-1].append(allophones[allophone_idx])
                 if "@f" in allophones[allophone_idx] and (
-                    t == len(ref_align) - 1 or ref_align[t + 1][1] != allophone_idx
+                    t == len(ref_align) - 1
+                    or ref_align[t + 1][1] != allophone_idx
+                    or ref_align[t + 1][2] < hmm_state_idx
                 ):
                     # end of word
                     ref_word_boundaries.append(
                         (feat_times[cur_word_start_frame][0] - ref_start_time, feat_times[t][1] - ref_start_time)
                     )
                     cur_word_start_frame = None
+                prev_allophone_idx = allophone_idx
             assert cur_word_start_frame is None  # word should have ended
-            assert (
-                num_words == len(word_boundaries) == len(ref_word_boundaries)
-            ), f"num word mismatch: {len(word_boundaries)} vs {len(ref_word_boundaries)}"
+            assert len(ref_words_phones) == len(ref_word_boundaries)
+            assert num_words == len(word_boundaries) == len(ref_word_boundaries), (
+                f"seq idx {seq_idx}, tag {key},"
+                f" num word mismatch: {len(word_boundaries)} vs {len(ref_word_boundaries)},"
+                f" words (BPE vs ref phones):\n"
+                + "\n".join(f"{w1} vs {w2}" for w1, w2 in zip_longest(words_bpe, ref_words_phones))
+                + f"\nwords BPE alignment: {' '.join(bpe_labels_with_blank[i] for i in alignment)}"
+            )
 
             seq_tse_word_boundaries = 0.0
             seq_tse_word_positions = 0.0
