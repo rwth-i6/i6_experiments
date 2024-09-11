@@ -48,17 +48,17 @@ def py():
 
     grads = {
         # TODO...
-        # "non-flipped-10ms": (
+        # "base-good-10ms": (
         #     1,
         #     Path(...),
         # ),
-        "baseline-mid-non-flipped-60ms": (
+        "base-mid-60ms": (  # non-flipped
             6,
             Path(
                 "/work/asr3/zeyer/schmitt/sisyphus_work_dirs/segmental_models_2022_23_rf/i6_core/returnn/forward/ReturnnForwardJobV2.KKMedG4R3uf4/output/gradients.hdf"
             ),
         ),
-        "baseline-mid-flipped-60ms": (
+        "base-flip-mid-60ms": (
             6,
             Path(
                 "/work/asr3/zeyer/schmitt/sisyphus_work_dirs/segmental_models_2022_23_rf/i6_core/returnn/forward/ReturnnForwardJobV2.RgWrrTtM4Ljf/output/gradients.hdf"
@@ -68,19 +68,25 @@ def py():
 
     # Specifying the TSE metric for the word bound/pos here in the comments (cutting off all decimals, not rounded).
     for opts in [
-        {"grad_name": "baseline-mid-non-flipped-60ms", "sm": True},  # 106/79.4ms
-        {"grad_name": "baseline-mid-non-flipped-60ms", "sm": True, "apply_log": False},  # 108/81.2ms
-        {"grad_name": "baseline-mid-non-flipped-60ms", "sm": True, "blank_score": -1.0},  # 106/79.4ms
-        {"grad_name": "baseline-mid-non-flipped-60ms", "sm": True, "blank_score": -2},  # 106/79.3ms
-        {"grad_name": "baseline-mid-non-flipped-60ms", "sm": True, "blank_score": -3},  # 88/69.8ms
-        {"grad_name": "baseline-mid-non-flipped-60ms", "sm": True, "blank_score": -4},  # 65/54.4ms (!)
-        {"grad_name": "baseline-mid-non-flipped-60ms", "sm": True, "blank_score": -5},  # 68/57.0ms
-        {"grad_name": "baseline-mid-non-flipped-60ms", "sm": False},  # 106/79.4ms
-        {"grad_name": "baseline-mid-non-flipped-60ms", "sm": False, "blank_score": -1.0},  # 106/78.8ms
-        {"grad_name": "baseline-mid-non-flipped-60ms", "sm": False, "blank_score": -2.0},  # 104/78.2ms
-        {"grad_name": "baseline-mid-non-flipped-60ms", "sm": False, "blank_score": -3.0},  # 108/81.2ms
-        {"grad_name": "baseline-mid-non-flipped-60ms", "sm": False, "apply_log": False},  # 108/81.2ms
-        {"grad_name": "baseline-mid-flipped-60ms", "sm": True},  # 111/85.1ms
+        {"grad_name": "base-mid-60ms", "sm": True},  # 106/79.4ms
+        {"grad_name": "base-mid-60ms", "sm": True, "apply_log": False},  # 108/81.2ms
+        {"grad_name": "base-mid-60ms", "sm": True, "blank_score": -1.0},  # 106/79.4ms
+        {"grad_name": "base-mid-60ms", "sm": True, "blank_score": -2},  # 106/79.3ms
+        {"grad_name": "base-mid-60ms", "sm": True, "blank_score": -3},  # 88/69.8ms
+        {"grad_name": "base-mid-60ms", "sm": True, "blank_score": -4},  # 65/54.4ms (!)
+        {"grad_name": "base-mid-60ms", "sm": True, "blank_score": -5},  # 68/57.0ms
+        {"grad_name": "base-mid-60ms", "sm": True, "norm_scores": True},
+        {"grad_name": "base-mid-60ms", "sm": True, "blank_score": "calc"},
+        {"grad_name": "base-mid-60ms", "sm": True, "norm_scores": True, "blank_score": "calc"},
+        {"grad_name": "base-mid-60ms", "sm": False},  # 106/79.4ms
+        {"grad_name": "base-mid-60ms", "sm": False, "blank_score": -1.0},  # 106/78.8ms
+        {"grad_name": "base-mid-60ms", "sm": False, "blank_score": -2.0},  # 104/78.2ms
+        {"grad_name": "base-mid-60ms", "sm": False, "blank_score": -3.0},  # 108/81.2ms
+        {"grad_name": "base-mid-60ms", "sm": False, "apply_log": False},  # 108/81.2ms
+        {"grad_name": "base-mid-60ms", "sm": False, "norm_scores": True, "blank_score": -3},  # 106/79.4ms
+        {"grad_name": "base-mid-60ms", "sm": False, "norm_scores": True, "blank_score": "calc"},
+        {"grad_name": "base-mid-60ms", "sm": False, "blank_score": "calc"},
+        {"grad_name": "base-flip-mid-60ms", "sm": True},  # 111/85.1ms
     ]:
         opts = opts.copy()
         apply_softmax_over_time = opts.pop("sm", False)
@@ -159,17 +165,18 @@ def py():
 class ForcedAlignOnScoreMatrixJob(Job):
     """Calculate the Viterbi alignment for a given score matrix."""
 
-    __sis_hash_exclude__ = {"blank_score": 0.0, "substract": "max_gt0"}
+    __sis_hash_exclude__ = {"blank_score": 0.0, "substract": "max_gt0", "norm_scores": False}
 
     def __init__(
         self,
         *,
         score_matrix_hdf: Path,
         cut_off_eos: bool = True,
+        norm_scores: bool = False,
         apply_log: bool = True,
         substract: Optional[Union[str, float]] = "max_gt0",
         apply_softmax_over_time: bool = False,
-        blank_score: float = 0.0,
+        blank_score: Union[float, str] = 0.0,  # or "calc"
         num_seqs: int = -1,
         num_labels: Optional[int] = None,
         blank_idx: int,
@@ -179,6 +186,7 @@ class ForcedAlignOnScoreMatrixJob(Job):
     ):
         self.score_matrix_hdf = score_matrix_hdf
         self.cut_off_eos = cut_off_eos
+        self.norm_scores = norm_scores
         self.apply_log = apply_log
         self.substract = substract
         self.apply_softmax_over_time = apply_softmax_over_time
@@ -258,7 +266,7 @@ class ForcedAlignOnScoreMatrixJob(Job):
 
         dataset.init_seq_order(epoch=1, seq_list=seq_list_)
 
-        def _log_softmax(x: np.ndarray, *, axis: int) -> np.ndarray:
+        def _log_softmax(x: np.ndarray, *, axis: Optional[int]) -> np.ndarray:
             max_score = np.max(x, axis=axis, keepdims=True)
             x = x - max_score
             return x - np.log(np.sum(np.exp(x), axis=axis, keepdims=True))
@@ -280,19 +288,30 @@ class ForcedAlignOnScoreMatrixJob(Job):
                 # Last row is EOS, remove it.
                 score_matrix = score_matrix[:-1]
             assert len(score_matrix) == len(labels)
+            T = score_matrix.shape[1]  # noqa
+            S = score_matrix.shape[0]  # noqa
+
+            if self.norm_scores:  # norm such that sum over whole matrix is 1
+                score_matrix = score_matrix / np.sum(score_matrix)
+
+            non_blank_score = np.max(score_matrix, axis=0)  # [T]
+            blank_score = np.max(score_matrix) - non_blank_score
 
             # Note: We are going to search the alignment path with the highest score.
             if self.apply_log:
                 # Assuming L2 norm scores (i.e. >0).
                 score_matrix = np.log(score_matrix)
+                blank_score = np.log(blank_score)
             # Otherwise assume already in log space.
             # Make sure they are all negative or zero max.
             m = np.max(score_matrix)
             print("score matrix max:", m)
             if self.substract == "max_gt0":
                 score_matrix = score_matrix - max(m, 0.0)
+                blank_score = blank_score - max(m, 0.0)
             elif isinstance(self.substract, float):
                 score_matrix = score_matrix - self.substract
+                blank_score = blank_score - self.substract
             elif not self.substract:
                 pass
             else:
@@ -301,8 +320,9 @@ class ForcedAlignOnScoreMatrixJob(Job):
             # score_matrix = np.exp(score_matrix)
             if self.apply_softmax_over_time:
                 score_matrix = _log_softmax(score_matrix, axis=1)
-            T = score_matrix.shape[1]  # noqa
-            S = score_matrix.shape[0]  # noqa
+                non_blank_score = np.max(np.exp(score_matrix), axis=0)  # [T]
+                blank_score = 1.0 - non_blank_score
+                blank_score = np.log(blank_score)
 
             # scores/backpointers over the states and time steps.
             # states = blank/sil + labels. whether we give scores to blank (and what score) or not is to be configured.
@@ -314,7 +334,12 @@ class ForcedAlignOnScoreMatrixJob(Job):
 
             score_matrix_ = np.zeros((T, S * 2 + 1), dtype=np.float32)  # [T, S*2+1]
             score_matrix_[:, 1::2] = score_matrix.T
-            score_matrix_[:, 0::2] = self.blank_score  # blank score
+            if isinstance(self.blank_score, (int, float)):
+                score_matrix_[:, 0::2] = self.blank_score  # blank score
+            elif self.blank_score == "calc":
+                score_matrix_[:, 0::2] = blank_score
+            else:
+                raise ValueError(f"invalid blank_score {self.blank_score!r} setting")
 
             # The first two states are valid start states.
             align_scores[0, :2] = score_matrix_[0, :2]
