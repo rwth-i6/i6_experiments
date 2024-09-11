@@ -611,9 +611,13 @@ class CalcAlignmentMetrics(Job):
                     or ref_align[t + 1][2] < hmm_state_idx
                 ):
                     # end of word
-                    ref_word_boundaries.append(
-                        (feat_times[cur_word_start_frame][0] - ref_start_time, feat_times[t][1] - ref_start_time)
-                    )
+                    start_time = feat_times[cur_word_start_frame][0] - ref_start_time
+                    end_time = feat_times[t][1] - ref_start_time
+                    # take center 10ms of the 25ms window
+                    # (or not, as we also don't do for the alignment)
+                    # start_time += (window_len - step_len) / 2
+                    # end_time -= (window_len - step_len) / 2
+                    ref_word_boundaries.append((start_time, end_time))
                     cur_word_start_frame = None
                 prev_allophone_idx = allophone_idx
             assert cur_word_start_frame is None  # word should have ended
