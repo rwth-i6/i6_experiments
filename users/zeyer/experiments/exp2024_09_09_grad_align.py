@@ -103,6 +103,20 @@ def py():
                 "/u/schmitt/experiments/segmental_models_2022_23_rf/alias/models/ls_conformer/global_att/baseline_v1/baseline_rf/bpe1056/w-weight-feedback/w-att-ctx-in-state/nb-lstm/12-layer_512-dim_standard-conformer/train_from_scratch/500-ep_bs-15000_mgpu-4_w-sp_curric_lr-dyn_lr_piecewise_linear_epoch-wise_v2_reg-v1_accum-4/returnn_decoding/epoch-406-checkpoint/no-lm/beam-size-12/train/analysis/dump_gradients_wrt_frontend_input/ground-truth/output/gradients.hdf"
             ),
         ),
+        # 1k baseline ohne CTC + zero padding bei conv module im conformer und im frontend auf multi-gpu
+        # (epoch 61/500; att weights gerade konvergiert) (nicht flipped)
+        "base-convMask-early61-60ms": (
+            6,
+            Path(
+                "/u/schmitt/experiments/03-09-24_aed_flipped_encoder/alias/models/ls_conformer/global_att/baseline_v1/baseline_rf/bpe1056/w-weight-feedback/w-att-ctx-in-state/nb-lstm/12-layer_512-dim_conformer-conv-w-zero-padding-conv-frontend-w-zero-padding/train_from_scratch/500-ep_bs-15000_mgpu-4_w-sp_curric_lr-dyn_lr_piecewise_linear_epoch-wise_v2_reg-v1_filter-data-312000.0_accum-4/returnn_decoding/epoch-61-checkpoint/no-lm/beam-size-12/train/analysis/dump_gradients_wrt_encoder_input/ground-truth/output/gradients.hdf"
+            ),
+        ),
+        "base-convMask-early61-10ms": (
+            1,
+            Path(
+                "/u/schmitt/experiments/03-09-24_aed_flipped_encoder/alias/models/ls_conformer/global_att/baseline_v1/baseline_rf/bpe1056/w-weight-feedback/w-att-ctx-in-state/nb-lstm/12-layer_512-dim_conformer-conv-w-zero-padding-conv-frontend-w-zero-padding/train_from_scratch/500-ep_bs-15000_mgpu-4_w-sp_curric_lr-dyn_lr_piecewise_linear_epoch-wise_v2_reg-v1_filter-data-312000.0_accum-4/returnn_decoding/epoch-61-checkpoint/no-lm/beam-size-12/train/analysis/dump_gradients_wrt_frontend_input/ground-truth/output/gradients.hdf"
+            ),
+        ),
     }
 
     # Specifying the TSE metric for the word bound/pos here in the comments (cutting off all decimals, not rounded).
@@ -150,14 +164,28 @@ def py():
         },  # 108/81.8ms
         {"grad_name": "base-flip-mid-60ms", "sm": True},  # 111/85.1ms
         {"grad_name": "base-flip-mid-60ms", "sm": True, "blank_score": -4},
-        {"grad_name": "base-ctc-mid919-10ms", "sm": True, "blank_score": -2},
-        {"grad_name": "base-ctc-mid919-10ms", "sm": True, "blank_score": -4},
-        {"grad_name": "base-ctc-mid919-60ms", "sm": True, "blank_score": -2},
-        {"grad_name": "base-ctc-mid919-60ms", "sm": True, "blank_score": -4},
-        {"grad_name": "base-far1676-10ms", "sm": True, "blank_score": -4},
-        {"grad_name": "base-far1676-60ms", "sm": True, "blank_score": -4},
-        {"grad_name": "base-flip-far406-10ms", "sm": True, "blank_score": -4},
-        {"grad_name": "base-flip-far406-60ms", "sm": True, "blank_score": -4},
+        {"grad_name": "base-flip-mid-60ms", "sm": True, "blank_score": -6},
+        {"grad_name": "base-ctc-mid919-10ms", "sm": False, "blank_score": 0},
+        {"grad_name": "base-ctc-mid919-10ms", "sm": False, "blank_score": -6},
+        {"grad_name": "base-ctc-mid919-10ms", "sm": True, "blank_score": 0},
+        {"grad_name": "base-ctc-mid919-10ms", "sm": True, "blank_score": -2},  # 144.3/102.7
+        {"grad_name": "base-ctc-mid919-10ms", "sm": True, "blank_score": -4},  # 139.7/98.4
+        {"grad_name": "base-ctc-mid919-10ms", "sm": True, "blank_score": -6},  # 70.6/55.0
+        {"grad_name": "base-ctc-mid919-10ms", "sm": True, "blank_score": -8},
+        {"grad_name": "base-ctc-mid919-10ms", "sm": True, "blank_score": -10},
+        {"grad_name": "base-ctc-mid919-60ms", "sm": True, "blank_score": -2},  # 110.4/89.8
+        {"grad_name": "base-ctc-mid919-60ms", "sm": True, "blank_score": -4},  # 78.2/66.5
+        {"grad_name": "base-ctc-mid919-60ms", "sm": True, "blank_score": -6},  # 96.5/82.6
+        {"grad_name": "base-far1676-10ms", "sm": True, "blank_score": -4},  # 128.6/77.9
+        {"grad_name": "base-far1676-10ms", "sm": True, "blank_score": -6},
+        {"grad_name": "base-far1676-60ms", "sm": True, "blank_score": -4},  # 67.0/54.8
+        {"grad_name": "base-flip-far406-10ms", "sm": True, "blank_score": -4},  # 176.3/132.5
+        {"grad_name": "base-flip-far406-10ms", "sm": True, "blank_score": -6},
+        {"grad_name": "base-flip-far406-60ms", "sm": True, "blank_score": -4},  # 102.2/83.2
+        {"grad_name": "base-convMask-early61-10ms", "sm": True, "blank_score": -4},
+        {"grad_name": "base-convMask-early61-60ms", "sm": True, "blank_score": -3},
+        {"grad_name": "base-convMask-early61-60ms", "sm": True, "blank_score": -4},  # 61.0/50.3 (!)
+        {"grad_name": "base-convMask-early61-60ms", "sm": True, "blank_score": -5},
     ]:
         opts = opts.copy()
         apply_softmax_over_time = opts.pop("sm", False)
