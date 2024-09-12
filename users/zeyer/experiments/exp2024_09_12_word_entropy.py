@@ -63,7 +63,10 @@ def py():
 
 
 class CalcWordEntropies(Job):
-    """Calculate word entropies over dataset"""
+    """Calculate word entropies over dataset
+
+    (Sorry, wrong terminology. It's actually the self-information, not the entropy.)
+    """
 
     __sis_hash_exclude__ = {"cover_pos_only_once": True}
 
@@ -172,14 +175,14 @@ class CalcWordEntropies(Job):
 
         total_num_seqs = seq_idx
         word_probs = {word: count / total_num_words for word, count in word_counts.items()}
-        word_entropies = {word: -np.log2(prob) for word, prob in word_probs.items()}
+        label_self_info = {word: -np.log2(prob) for word, prob in word_probs.items()}
         print("Total num seqs:", total_num_seqs)
         print("Total num words:", total_num_words)
         print("Total num unique words:", len(word_counts))
         print("Top 10 words:", [(labels[w], c) for w, c in word_counts.most_common(10)])
         print(
             "Top 10 entropies:",
-            [(labels[w], ent) for w, ent in sorted(word_entropies.items(), key=lambda x: x[1], reverse=True)[:10]],
+            [(labels[w], ent) for w, ent in sorted(label_self_info.items(), key=lambda x: x[1], reverse=True)[:10]],
         )
 
         # Now reiterate through the dataset to get some stats on the word entropies per position.
@@ -205,7 +208,7 @@ class CalcWordEntropies(Job):
                     if self.cover_pos_only_once and abs_pos in covered_abs_pos:
                         continue
                     covered_abs_pos.add(abs_pos)
-                    total_entropies_per_pos[k] += word_entropies[seq[abs_pos]]
+                    total_entropies_per_pos[k] += label_self_info[seq[abs_pos]]
                 elif abs_pos.startswith("left") or abs_pos.startswith("right"):
                     ps = list(range(len(seq)))
                     if abs_pos.startswith("left"):
@@ -219,7 +222,7 @@ class CalcWordEntropies(Job):
                         if self.cover_pos_only_once and abs_pos in covered_abs_pos:
                             continue
                         covered_abs_pos.add(abs_pos)
-                        info.append(word_entropies[seq[p]])
+                        info.append(label_self_info[seq[p]])
                     if not info:
                         continue
                     if abs_pos.endswith("_max"):
