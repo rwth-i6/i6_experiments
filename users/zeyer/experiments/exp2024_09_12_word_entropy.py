@@ -3,7 +3,7 @@ Word entropy calculation
 """
 
 from sisyphus import Job, Task, Path, tk
-from typing import Dict, Any, Optional, Sequence
+from typing import Dict, Any, Optional, Sequence, Literal, Union
 import os
 import sys
 
@@ -36,13 +36,13 @@ def py():
         ),
         returnn_dataset=returnn_dataset,
         returnn_dataset_key="classes",
-        cover_pos_only_once=False,
+        pos_keys=["left", "right"],
     )
     job.add_alias(prefix + name)
     tk.register_output(prefix + name + "/per_pos.json", job.out_entropies_per_pos)
 
     name = "entropies-train-full"
-    job = CalcWordEntropies(returnn_dataset=returnn_dataset, returnn_dataset_key="classes", cover_pos_only_once=False)
+    job = CalcWordEntropies(returnn_dataset=returnn_dataset, returnn_dataset_key="classes", pos_keys=["left", "right"])
     job.add_alias(prefix + name)
     tk.register_output(prefix + name + "/per_pos.json", job.out_entropies_per_pos)
     # -> {“0”: 8.06669980946631, “-1": 9.706946132983745, “1”: 8.96126248222336, “-2": 9.243348164020174}
@@ -60,7 +60,7 @@ class CalcWordEntropies(Job):
         returnn_dataset: Dict[str, Any],  # for BPE labels
         returnn_dataset_key: str = "classes",
         returnn_root: Optional[tk.Path] = None,
-        pos_keys: Sequence[int] = (0, -1, 1, -2),
+        pos_keys: Union[Sequence[Union[int, Literal["left", "right"]]]] = (0, -1, 1, -2),
         cover_pos_only_once: bool = False,  # doesn't really make a difference. False is maybe more expected
     ):
         self.seq_list = seq_list
@@ -178,15 +178,32 @@ class CalcWordEntropies(Job):
             covered_abs_pos = set()
             for k in self.pos_keys:
                 abs_pos = k
-                if abs_pos < 0:
-                    abs_pos = len(seq) + abs_pos
-                if not 0 <= abs_pos < len(seq):
-                    continue
-                if self.cover_pos_only_once and abs_pos in covered_abs_pos:
-                    continue
-                covered_abs_pos.add(abs_pos)
-
-                total_entropies_per_pos[k] += word_entropies[seq[abs_pos]]
+                if isinstance(abs_pos, int):
+                    if abs_pos < 0:
+                        abs_pos = len(seq) + abs_pos
+                    if not 0 <= abs_pos < len(seq):
+                        continue
+                    if self.cover_pos_only_once and abs_pos in covered_abs_pos:
+                        continue
+                    covered_abs_pos.add(abs_pos)
+                    total_entropies_per_pos[k] += word_entropies[seq[abs_pos]]
+                elif abs_pos in ["left", "right"]:
+                    ps = list(range(len(seq)))
+                    if abs_pos == "left":
+                        ps = ps[: len(ps) // 2]
+                    elif abs_pos == "right":
+                        ps = list(reversed(ps))[len(ps) // 2 :]
+                    else:
+                        raise ValueError(f"invalid pos key: {k}")
+                    max_ent = 0.0
+                    for p in ps:
+                        if self.cover_pos_only_once and abs_pos in covered_abs_pos:
+                            continue
+                        covered_abs_pos.add(abs_pos)
+                        max_ent = max(max_ent, word_entropies[seq[p]])
+                    total_entropies_per_pos[k] += max_ent
+                else:
+                    raise ValueError(f"invalid pos key: {k}")
                 total_entropies_per_pos_count[k] += 1
 
             seq_idx += 1
