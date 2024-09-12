@@ -36,21 +36,21 @@ def py():
         ),
         returnn_dataset=returnn_dataset,
         returnn_dataset_key="classes",
+        cover_pos_only_once=False,
     )
     job.add_alias(prefix + name)
     tk.register_output(prefix + name + "/per_pos.json", job.out_entropies_per_pos)
 
     name = "entropies-train-full"
-    job = CalcWordEntropies(
-        returnn_dataset=returnn_dataset,
-        returnn_dataset_key="classes",
-    )
+    job = CalcWordEntropies(returnn_dataset=returnn_dataset, returnn_dataset_key="classes", cover_pos_only_once=False)
     job.add_alias(prefix + name)
     tk.register_output(prefix + name + "/per_pos.json", job.out_entropies_per_pos)
 
 
 class CalcWordEntropies(Job):
     """Calculate word entropies over dataset"""
+
+    __sis_hash_exclude__ = {"cover_pos_only_once": True}
 
     def __init__(
         self,
@@ -60,12 +60,14 @@ class CalcWordEntropies(Job):
         returnn_dataset_key: str = "classes",
         returnn_root: Optional[tk.Path] = None,
         pos_keys: Sequence[int] = (0, -1, 1, -2),
+        cover_pos_only_once: bool = True,
     ):
         self.seq_list = seq_list
         self.returnn_dataset = returnn_dataset
         self.returnn_dataset_key = returnn_dataset_key
         self.returnn_root = returnn_root
         self.pos_keys = pos_keys
+        self.cover_pos_only_once = cover_pos_only_once
 
         self.out_entropies_per_pos = self.output_path("out_entropies_per_pos.json")
 
@@ -179,7 +181,7 @@ class CalcWordEntropies(Job):
                     abs_pos = len(seq) + abs_pos
                 if not 0 <= abs_pos < len(seq):
                     continue
-                if abs_pos in covered_abs_pos:
+                if self.cover_pos_only_once and abs_pos in covered_abs_pos:
                     continue
                 covered_abs_pos.add(abs_pos)
 

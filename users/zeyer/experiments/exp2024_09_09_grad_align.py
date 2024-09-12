@@ -137,7 +137,7 @@ def py():
             ),
         ),
         # mit zero padding
-        "base-convMaskForward-far1743-60ms": (
+        "base-convMaskForward-far1743-10ms": (
             1,
             Path(
                 "/u/schmitt/experiments/segmental_models_2022_23_rf/alias/models/ls_conformer/global_att/baseline_v1/baseline_rf/bpe1056/w-weight-feedback/w-att-ctx-in-state/nb-lstm/12-layer_512-dim_conformer-conv-w-zero-padding-conv-frontend-w-zero-padding/import_1k-baseline-wo-ctc/returnn_decoding/epoch-1743-checkpoint/no-lm/beam-size-12/train/analysis/dump_gradients_wrt_frontend_input/ground-truth/output/gradients.hdf"
@@ -191,8 +191,8 @@ def py():
         {"grad_name": "base-flip-early141-60ms", "sm": True},  # 111/85.1ms
         {"grad_name": "base-flip-early141-60ms", "sm": True, "blank_score": -4},  # 75.0/60.8
         {"grad_name": "base-flip-early141-60ms", "sm": True, "blank_score": -6},  # 91.0/74.7
-        {"grad_name": "base-flip-early141-10ms", "sm": True, "blank_score": -6},
-        {"grad_name": "base-flip-mid646-10ms", "sm": True, "blank_score": -6},
+        {"grad_name": "base-flip-early141-10ms", "sm": True, "blank_score": -6},  # 72.3/53.4
+        {"grad_name": "base-flip-mid646-10ms", "sm": True, "blank_score": -6},  # 91.6/65.9
         {"grad_name": "base-ctc-mid919-10ms", "sm": False, "blank_score": 0},  # 144.3/102.7
         {"grad_name": "base-ctc-mid919-10ms", "sm": False, "blank_score": -1},  # 143.2/101.6
         {"grad_name": "base-ctc-mid919-10ms", "sm": False, "blank_score": -6},  # 1439.0
@@ -223,8 +223,8 @@ def py():
         {"grad_name": "base-convMask-early61-60ms", "sm": True, "blank_score": -3},  # 84.7/65.9
         {"grad_name": "base-convMask-early61-60ms", "sm": True, "blank_score": -4},  # 61.0/50.3 (!)
         {"grad_name": "base-convMask-early61-60ms", "sm": True, "blank_score": -5},  # 66.2/54.9
-        {"grad_name": "base-far1743-10ms", "sm": True, "blank_score": -6},
-        {"grad_name": "base-convMaskForward-far1743-60ms", "sm": True, "blank_score": -6},
+        {"grad_name": "base-far1743-10ms", "sm": True, "blank_score": -6},  # 61.6/46.3
+        {"grad_name": "base-convMaskForward-far1743-10ms", "sm": True, "blank_score": -6},  # 61.6/46.3
     ]:
         opts = opts.copy()
         apply_softmax_over_time = opts.pop("sm", False)
