@@ -199,7 +199,7 @@ class CalcWordEntropies(Job):
                     if abs_pos.startswith("left"):
                         ps = ps[: len(ps) // 2]
                     elif abs_pos.startswith("right"):
-                        ps = list(reversed(ps))[len(ps) // 2 :]
+                        ps = list(reversed(ps))[: len(ps) // 2]
                     else:
                         raise ValueError(f"invalid pos key: {k}")
                     info = []
@@ -208,6 +208,8 @@ class CalcWordEntropies(Job):
                             continue
                         covered_abs_pos.add(abs_pos)
                         info.append(word_entropies[seq[p]])
+                    if not info:
+                        continue
                     if abs_pos.endswith("_max"):
                         info = max(info)
                     elif abs_pos.endswith("_mean"):
