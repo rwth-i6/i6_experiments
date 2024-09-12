@@ -36,18 +36,30 @@ def py():
         ),
         returnn_dataset=returnn_dataset,
         returnn_dataset_key="classes",
-        pos_keys=["left_mean", "right_mean"],
+        pos_keys=["left_max", "right_max"],
     )
     job.add_alias(prefix + name)
     tk.register_output(prefix + name + "/per_pos.json", job.out_entropies_per_pos)
 
-    name = "entropies-train-full"
+    name = "entropies-train-full-pos"
+    job = CalcWordEntropies(returnn_dataset=returnn_dataset, returnn_dataset_key="classes")
+    job.add_alias(prefix + name)
+    tk.register_output(prefix + name + "/per_pos.json", job.out_entropies_per_pos)
+    # -> {“0”: 8.06669980946631, “-1": 9.706946132983745, “1”: 8.96126248222336, “-2": 9.243348164020174}
+
+    name = "entropies-train-full-lr-max"
+    job = CalcWordEntropies(
+        returnn_dataset=returnn_dataset, returnn_dataset_key="classes", pos_keys=["left_max", "right_max"]
+    )
+    job.add_alias(prefix + name)
+    tk.register_output(prefix + name + "/per_pos.json", job.out_entropies_per_pos)
+
+    name = "entropies-train-full-lr-mean"
     job = CalcWordEntropies(
         returnn_dataset=returnn_dataset, returnn_dataset_key="classes", pos_keys=["left_mean", "right_mean"]
     )
     job.add_alias(prefix + name)
     tk.register_output(prefix + name + "/per_pos.json", job.out_entropies_per_pos)
-    # -> {“0”: 8.06669980946631, “-1": 9.706946132983745, “1”: 8.96126248222336, “-2": 9.243348164020174}
 
 
 class CalcWordEntropies(Job):
