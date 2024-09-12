@@ -29,11 +29,19 @@ def py():
     ).get_dataset("train")
 
     prefix = "exp2024_09_12_word_entropy/"
-    name = "entropies"
+    name = "entropies-train10h-subset"
     job = CalcWordEntropies(
         seq_list=Path(
             "/u/schmitt/experiments/segmental_models_2022_23_rf/work/i6_core/corpus/segments/SegmentCorpusJob.AmDlp1YMZF1e/output/segments.1"
         ),
+        returnn_dataset=returnn_dataset,
+        returnn_dataset_key="classes",
+    )
+    job.add_alias(prefix + name)
+    tk.register_output(prefix + name + "/per_pos.json", job.out_entropies_per_pos)
+
+    name = "entropies-train-full"
+    job = CalcWordEntropies(
         returnn_dataset=returnn_dataset,
         returnn_dataset_key="classes",
     )
