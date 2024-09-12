@@ -36,13 +36,15 @@ def py():
         ),
         returnn_dataset=returnn_dataset,
         returnn_dataset_key="classes",
-        pos_keys=["left", "right"],
+        pos_keys=["left_mean", "right_mean"],
     )
     job.add_alias(prefix + name)
     tk.register_output(prefix + name + "/per_pos.json", job.out_entropies_per_pos)
 
     name = "entropies-train-full"
-    job = CalcWordEntropies(returnn_dataset=returnn_dataset, returnn_dataset_key="classes", pos_keys=["left", "right"])
+    job = CalcWordEntropies(
+        returnn_dataset=returnn_dataset, returnn_dataset_key="classes", pos_keys=["left_mean", "right_mean"]
+    )
     job.add_alias(prefix + name)
     tk.register_output(prefix + name + "/per_pos.json", job.out_entropies_per_pos)
     # -> {“0”: 8.06669980946631, “-1": 9.706946132983745, “1”: 8.96126248222336, “-2": 9.243348164020174}
@@ -60,7 +62,12 @@ class CalcWordEntropies(Job):
         returnn_dataset: Dict[str, Any],  # for BPE labels
         returnn_dataset_key: str = "classes",
         returnn_root: Optional[tk.Path] = None,
-        pos_keys: Union[Sequence[Union[int, Literal["left", "right"]]]] = (0, -1, 1, -2),
+        pos_keys: Union[Sequence[Union[int, Literal["left_mean", "left_max", "right_mean", "right_max"]]]] = (
+            0,
+            -1,
+            1,
+            -2,
+        ),
         cover_pos_only_once: bool = False,  # doesn't really make a difference. False is maybe more expected
     ):
         self.seq_list = seq_list
@@ -187,21 +194,27 @@ class CalcWordEntropies(Job):
                         continue
                     covered_abs_pos.add(abs_pos)
                     total_entropies_per_pos[k] += word_entropies[seq[abs_pos]]
-                elif abs_pos in ["left", "right"]:
+                elif abs_pos.startswith("left") or abs_pos.startswith("right"):
                     ps = list(range(len(seq)))
-                    if abs_pos == "left":
+                    if abs_pos.startswith("left"):
                         ps = ps[: len(ps) // 2]
-                    elif abs_pos == "right":
+                    elif abs_pos.startswith("right"):
                         ps = list(reversed(ps))[len(ps) // 2 :]
                     else:
                         raise ValueError(f"invalid pos key: {k}")
-                    max_ent = 0.0
+                    info = []
                     for p in ps:
                         if self.cover_pos_only_once and abs_pos in covered_abs_pos:
                             continue
                         covered_abs_pos.add(abs_pos)
-                        max_ent = max(max_ent, word_entropies[seq[p]])
-                    total_entropies_per_pos[k] += max_ent
+                        info.append(word_entropies[seq[p]])
+                    if abs_pos.endswith("_max"):
+                        info = max(info)
+                    elif abs_pos.endswith("_mean"):
+                        info = sum(info) / len(info)
+                    else:
+                        raise ValueError(f"invalid pos key: {k}")
+                    total_entropies_per_pos[k] += info
                 else:
                     raise ValueError(f"invalid pos key: {k}")
                 total_entropies_per_pos_count[k] += 1
