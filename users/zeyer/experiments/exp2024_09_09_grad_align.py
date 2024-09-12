@@ -193,6 +193,9 @@ def py():
         {"grad_name": "base-flip-early141-60ms", "sm": True, "blank_score": -6},  # 91.0/74.7
         {"grad_name": "base-flip-early141-10ms", "sm": True, "blank_score": -6},  # 72.3/53.4
         {"grad_name": "base-flip-mid646-10ms", "sm": True, "blank_score": -6},  # 91.6/65.9
+        {"grad_name": "base-flip-far406-10ms", "sm": True, "blank_score": -4},  # 176.3/132.5
+        {"grad_name": "base-flip-far406-10ms", "sm": True, "blank_score": -6},  # 101.3/73.7
+        {"grad_name": "base-flip-far406-60ms", "sm": True, "blank_score": -4},  # 102.2/83.2
         {"grad_name": "base-ctc-mid919-10ms", "sm": False, "blank_score": 0},  # 144.3/102.7
         {"grad_name": "base-ctc-mid919-10ms", "sm": False, "blank_score": -1},  # 143.2/101.6
         {"grad_name": "base-ctc-mid919-10ms", "sm": False, "blank_score": -6},  # 1439.0
@@ -211,9 +214,6 @@ def py():
         {"grad_name": "base-far1676-10ms", "sm": True, "blank_score": -6},  # 61.0/45.8 (!!)
         {"grad_name": "base-far1676-10ms", "sm": True, "blank_score": -7},  # 72.4/57.3
         {"grad_name": "base-far1676-60ms", "sm": True, "blank_score": -4},  # 67.0/54.8
-        {"grad_name": "base-flip-far406-10ms", "sm": True, "blank_score": -4},  # 176.3/132.5
-        {"grad_name": "base-flip-far406-10ms", "sm": True, "blank_score": -6},  # 101.3/73.7
-        {"grad_name": "base-flip-far406-60ms", "sm": True, "blank_score": -4},  # 102.2/83.2
         {"grad_name": "base-convMask-early61-10ms", "sm": True, "blank_score": -4},  # 117.5/72.4
         {"grad_name": "base-convMask-early61-10ms", "sm": True, "blank_score": -5.9},  # 56.1/42.6
         {"grad_name": "base-convMask-early61-10ms", "sm": True, "blank_score": -6},  # 55.7/42.5 (!!)
