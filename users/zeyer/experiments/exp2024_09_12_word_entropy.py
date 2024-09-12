@@ -45,6 +45,7 @@ def py():
     job = CalcWordEntropies(returnn_dataset=returnn_dataset, returnn_dataset_key="classes", cover_pos_only_once=False)
     job.add_alias(prefix + name)
     tk.register_output(prefix + name + "/per_pos.json", job.out_entropies_per_pos)
+    # -> {“0”: 8.06669980946631, “-1": 9.706946132983745, “1”: 8.96126248222336, “-2": 9.243348164020174}
 
 
 class CalcWordEntropies(Job):
@@ -60,7 +61,7 @@ class CalcWordEntropies(Job):
         returnn_dataset_key: str = "classes",
         returnn_root: Optional[tk.Path] = None,
         pos_keys: Sequence[int] = (0, -1, 1, -2),
-        cover_pos_only_once: bool = True,
+        cover_pos_only_once: bool = False,  # doesn't really make a difference. False is maybe more expected
     ):
         self.seq_list = seq_list
         self.returnn_dataset = returnn_dataset
