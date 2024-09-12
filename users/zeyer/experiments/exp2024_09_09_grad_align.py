@@ -143,6 +143,13 @@ def py():
                 "/u/schmitt/experiments/segmental_models_2022_23_rf/alias/models/ls_conformer/global_att/baseline_v1/baseline_rf/bpe1056/w-weight-feedback/w-att-ctx-in-state/nb-lstm/12-layer_512-dim_conformer-conv-w-zero-padding-conv-frontend-w-zero-padding/import_1k-baseline-wo-ctc/returnn_decoding/epoch-1743-checkpoint/no-lm/beam-size-12/train/analysis/dump_gradients_wrt_frontend_input/ground-truth/output/gradients.hdf"
             ),
         ),
+        # 1k baseline ohne CTC auf single gpu (nicht flipped) (wie davor) (epoch 141/2000)
+        "base-early141-10ms": (
+            1,
+            Path(
+                "/u/schmitt/experiments/segmental_models_2022_23_rf/alias/models/ls_conformer/global_att/baseline_v1/baseline_rf/bpe1056/w-weight-feedback/w-att-ctx-in-state/nb-lstm/12-layer_512-dim_standard-conformer/train_from_scratch/2000-ep_bs-35000_w-sp_curric_lr-dyn_lr_piecewise_linear_epoch-wise_v2_reg-v1_filter-data-312000.0_accum-2/returnn_decoding/epoch-141-checkpoint/no-lm/beam-size-12/train/analysis/dump_gradients_wrt_frontend_input/ground-truth/output/gradients.hdf"
+            ),
+        ),
     }
 
     # Specifying the TSE metric for the word bound/pos here in the comments (cutting off all decimals, not rounded).
@@ -225,6 +232,7 @@ def py():
         {"grad_name": "base-convMask-early61-60ms", "sm": True, "blank_score": -5},  # 66.2/54.9
         {"grad_name": "base-far1743-10ms", "sm": True, "blank_score": -6},  # 61.6/46.3
         {"grad_name": "base-convMaskForward-far1743-10ms", "sm": True, "blank_score": -6},  # 61.6/46.3
+        {"grad_name": "base-early141-10ms", "sm": True, "blank_score": -6},  # 59.8/45.8
     ]:
         opts = opts.copy()
         apply_softmax_over_time = opts.pop("sm", False)
