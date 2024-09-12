@@ -963,7 +963,7 @@ def py():
     )
 
     # FF dim 1024 (vs default 2048) (Baseline: 5.65)
-    train_exp(
+    train_exp(  # 6.65, i.e. very bad
         "v6-ff1024-relPosAttDef-noBias-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2"
         "-lrlin1e_5_295k-featBN-speedpertV2-spm10k-bpeSample001",
         config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
@@ -1026,7 +1026,7 @@ def py():
     )
 
     # E-Branchformer with 1024 ff dim.
-    train_exp(
+    train_exp(  # 6.08
         "v6-EBranchformer-ff1024-relPosAttDef-noBias-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2"
         "-lrlin1e_5_295k-featBN-speedpertV2-spm10k-bpeSample001",
         config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
