@@ -47,21 +47,32 @@ def py():
     )
 
     grads = {
-        # TODO...
-        # "base-good-10ms": (
-        #     1,
-        #     Path(...),
-        # ),
         "base-mid-60ms": (  # non-flipped
             6,
             Path(
                 "/work/asr3/zeyer/schmitt/sisyphus_work_dirs/segmental_models_2022_23_rf/i6_core/returnn/forward/ReturnnForwardJobV2.KKMedG4R3uf4/output/gradients.hdf"
             ),
         ),
-        "base-flip-mid-60ms": (
+        # 1k baseline ohne CTC auf single gpu mit random seed 1337 (flipped)
+        "base-flip-early141-60ms": (
             6,
             Path(
                 "/work/asr3/zeyer/schmitt/sisyphus_work_dirs/segmental_models_2022_23_rf/i6_core/returnn/forward/ReturnnForwardJobV2.RgWrrTtM4Ljf/output/gradients.hdf"
+            ),
+        ),
+        # 1k baseline ohne CTC auf single gpu mit random seed 1337 (flipped)
+        # epoch 141/2000
+        "base-flip-early141-10ms": (
+            1,
+            Path(
+                "/u/schmitt/experiments/segmental_models_2022_23_rf/alias/models/ls_conformer/global_att/baseline_v1/baseline_rf/bpe1056/w-weight-feedback/w-att-ctx-in-state/nb-lstm/12-layer_512-dim_standard-conformer/train_from_scratch/2000-ep_bs-35000_w-sp_curric_lr-dyn_lr_piecewise_linear_epoch-wise_v2_reg-v1_filter-data-312000.0_accum-2_rand-seed-1337/returnn_decoding/epoch-141-checkpoint/no-lm/beam-size-12/train/analysis/dump_gradients_wrt_frontend_input/ground-truth/output/gradients.hdf"
+            ),
+        ),
+        # epoch 646/2000
+        "base-flip-mid646-10ms": (
+            1,
+            Path(
+                "/u/schmitt/experiments/segmental_models_2022_23_rf/alias/models/ls_conformer/global_att/baseline_v1/baseline_rf/bpe1056/w-weight-feedback/w-att-ctx-in-state/nb-lstm/12-layer_512-dim_standard-conformer/train_from_scratch/2000-ep_bs-35000_w-sp_curric_lr-dyn_lr_piecewise_linear_epoch-wise_v2_reg-v1_filter-data-312000.0_accum-2_rand-seed-1337/returnn_decoding/epoch-646-checkpoint/no-lm/beam-size-12/train/analysis/dump_gradients_wrt_frontend_input/ground-truth/output/gradients.hdf"
             ),
         ),
         # 1k baseline mit CTC auf single-gpu (epoch 919/2000) (nicht flipped)
@@ -117,6 +128,21 @@ def py():
                 "/u/schmitt/experiments/03-09-24_aed_flipped_encoder/alias/models/ls_conformer/global_att/baseline_v1/baseline_rf/bpe1056/w-weight-feedback/w-att-ctx-in-state/nb-lstm/12-layer_512-dim_conformer-conv-w-zero-padding-conv-frontend-w-zero-padding/train_from_scratch/500-ep_bs-15000_mgpu-4_w-sp_curric_lr-dyn_lr_piecewise_linear_epoch-wise_v2_reg-v1_filter-data-312000.0_accum-4/returnn_decoding/epoch-61-checkpoint/no-lm/beam-size-12/train/analysis/dump_gradients_wrt_frontend_input/ground-truth/output/gradients.hdf"
             ),
         ),
+        # 1k baseline ohne CTC auf single gpu (nicht flipped) (epoch 1743/2000)
+        # ohne zero padding
+        "base-far1743-10ms": (
+            1,
+            Path(
+                "/u/schmitt/experiments/segmental_models_2022_23_rf/alias/models/ls_conformer/global_att/baseline_v1/baseline_rf/bpe1056/w-weight-feedback/w-att-ctx-in-state/nb-lstm/12-layer_512-dim_standard-conformer/train_from_scratch/2000-ep_bs-35000_w-sp_curric_lr-dyn_lr_piecewise_linear_epoch-wise_v2_reg-v1_filter-data-312000.0_accum-2/returnn_decoding/epoch-1743-checkpoint/no-lm/beam-size-12/train/analysis/dump_gradients_wrt_frontend_input/ground-truth/output/gradients.hdf"
+            ),
+        ),
+        # mit zero padding
+        "base-convMaskForward-far1743-60ms": (
+            1,
+            Path(
+                "/u/schmitt/experiments/segmental_models_2022_23_rf/alias/models/ls_conformer/global_att/baseline_v1/baseline_rf/bpe1056/w-weight-feedback/w-att-ctx-in-state/nb-lstm/12-layer_512-dim_conformer-conv-w-zero-padding-conv-frontend-w-zero-padding/import_1k-baseline-wo-ctc/returnn_decoding/epoch-1743-checkpoint/no-lm/beam-size-12/train/analysis/dump_gradients_wrt_frontend_input/ground-truth/output/gradients.hdf"
+            ),
+        ),
     }
 
     # Specifying the TSE metric for the word bound/pos here in the comments (cutting off all decimals, not rounded).
@@ -162,9 +188,11 @@ def py():
             "apply_softmax_over_labels": True,
             "blank_score": "calc",
         },  # 108/81.8ms
-        {"grad_name": "base-flip-mid-60ms", "sm": True},  # 111/85.1ms
-        {"grad_name": "base-flip-mid-60ms", "sm": True, "blank_score": -4},  # 75.0/60.8
-        {"grad_name": "base-flip-mid-60ms", "sm": True, "blank_score": -6},  # 91.0/74.7
+        {"grad_name": "base-flip-early141-60ms", "sm": True},  # 111/85.1ms
+        {"grad_name": "base-flip-early141-60ms", "sm": True, "blank_score": -4},  # 75.0/60.8
+        {"grad_name": "base-flip-early141-60ms", "sm": True, "blank_score": -6},  # 91.0/74.7
+        {"grad_name": "base-flip-early141-10ms", "sm": True, "blank_score": -6},
+        {"grad_name": "base-flip-mid646-10ms", "sm": True, "blank_score": -6},
         {"grad_name": "base-ctc-mid919-10ms", "sm": False, "blank_score": 0},  # 144.3/102.7
         {"grad_name": "base-ctc-mid919-10ms", "sm": False, "blank_score": -1},  # 143.2/101.6
         {"grad_name": "base-ctc-mid919-10ms", "sm": False, "blank_score": -6},  # 1439.0
@@ -195,6 +223,8 @@ def py():
         {"grad_name": "base-convMask-early61-60ms", "sm": True, "blank_score": -3},  # 84.7/65.9
         {"grad_name": "base-convMask-early61-60ms", "sm": True, "blank_score": -4},  # 61.0/50.3 (!)
         {"grad_name": "base-convMask-early61-60ms", "sm": True, "blank_score": -5},  # 66.2/54.9
+        {"grad_name": "base-far1743-10ms", "sm": True, "blank_score": -6},
+        {"grad_name": "base-convMaskForward-far1743-60ms", "sm": True, "blank_score": -6},
     ]:
         opts = opts.copy()
         apply_softmax_over_time = opts.pop("sm", False)
@@ -207,7 +237,6 @@ def py():
             for k, v in opts.items():
                 name += f"-{k}{v}"
         job = ForcedAlignOnScoreMatrixJob(
-            # non flipped grads
             score_matrix_hdf=grad_hdf,
             apply_softmax_over_time=apply_softmax_over_time,
             num_labels=bpe1k_num_labels_with_blank,
