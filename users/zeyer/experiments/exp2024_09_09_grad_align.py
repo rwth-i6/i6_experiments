@@ -930,3 +930,13 @@ class CalcAlignmentMetrics(Job):
         import json
 
         json.dump(out_scores, open(self.out_scores.get_path(), "w"))
+
+        with open(Path("short-report-string.txt", self).get_path(), "w") as f:
+            print(
+                "%s/%s"
+                % (
+                    round(out_scores["avg"]["tse_word_boundaries"] * 1000, 1),
+                    round(out_scores["avg"]["tse_word_positions"] * 1000, 1),
+                ),
+                file=f,
+            )
