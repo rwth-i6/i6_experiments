@@ -255,6 +255,14 @@ def py():
             "blank_score": "calc",
             "apply_softmax_over_labels": True,
         },  # 144.6/96.0
+        {
+            "grad_name": "base-convMask-early61-10ms",
+            "sm": True,
+            "blank_score": "calc",
+            "apply_softmax_over_labels": True,
+        },
+        {"grad_name": "base-convMask-early61-10ms", "sm": True, "blank_score": -6, "apply_softmax_over_labels": True},
+        {"grad_name": "base-convMask-early61-10ms", "sm": True, "blank_score": -3, "apply_softmax_over_labels": True},
     ]:
         opts = opts.copy()
         apply_softmax_over_time = opts.pop("sm", False)
@@ -387,9 +395,6 @@ def visualize_grad_scores():
 
         log_sm_over_time = _log_softmax(np.log(score_matrix), axis=1)  # [S, T]
 
-        cut_point = np.percentile(log_sm_over_time, 90, axis=1)  # [S]
-        log_sm_cut = np.where(log_sm_over_time > cut_point[:, None], log_sm_over_time, -1e10)
-
         non_blank_score = np.max(score_matrix, axis=0)  # [T]
         blank_score = np.max(score_matrix) - non_blank_score  # [T]
 
@@ -401,13 +406,9 @@ def visualize_grad_scores():
             ("log score matrix", np.log(score_matrix)),
             # ("log softmax over all", _log_softmax(np.log(score_matrix))),
             ("log softmax over time", log_sm_over_time),
-            ("log_sm_cut", log_sm_cut),
-            ("log sm log_sm_cut", _log_softmax(log_sm_cut, axis=1)),
             # ("log softmax over labels", _log_softmax(np.log(score_matrix), axis=0)),  # bad
-            # ("log softmax over time first, then labels", _log_softmax(log_sm_over_time, axis=0)),
+            ("log softmax over time first, then labels", _log_softmax(log_sm_over_time, axis=0)),
             ("label[0] log sm scores", log_sm_over_time[0]),
-            ("label[0] sm_cut", np.exp(log_sm_cut[0])),
-            ("label[0] sm log sm_cut", np.exp(_log_softmax(log_sm_cut[0]))),
             (
                 "label[0] log sm sm scores",
                 np.exp(_log_softmax(np.clip(log_sm_over_time[0] + 10, 0.01, 10))),
