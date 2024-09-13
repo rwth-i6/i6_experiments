@@ -240,6 +240,21 @@ def py():
         {"grad_name": "base-far1743-10ms", "sm": True, "blank_score": -6},  # 61.6/46.3
         {"grad_name": "base-convMaskForward-far1743-10ms", "sm": True, "blank_score": -6},  # 61.6/46.3
         {"grad_name": "base-early141-10ms", "sm": True, "blank_score": -6},  # 59.8/45.8
+        # Testing more on calculated blank.
+        # baseline: {"grad_name": "base-convMask-early61-10ms", "sm": True, "blank_score": -6},  # 55.7/42.5 (!!)
+        {
+            "grad_name": "base-convMask-early61-10ms",
+            "sm": True,
+            "apply_softmax_over_time_est_blank": False,
+            "blank_score": "calc",
+        },  # 144.6/96.0
+        {
+            "grad_name": "base-convMask-early61-10ms",
+            "sm": True,
+            "apply_softmax_over_time_est_blank": False,
+            "blank_score": "calc",
+            "apply_softmax_over_labels": True,
+        },  # 144.6/96.0
     ]:
         opts = opts.copy()
         apply_softmax_over_time = opts.pop("sm", False)
@@ -321,6 +336,7 @@ class ForcedAlignOnScoreMatrixJob(Job):
         "blank_score": 0.0,
         "substract": "max_gt0",
         "norm_scores": False,
+        "apply_softmax_over_time_est_blank": True,
         "apply_softmax_over_labels": False,
     }
 
@@ -333,6 +349,7 @@ class ForcedAlignOnScoreMatrixJob(Job):
         apply_log: bool = True,
         substract: Optional[Union[str, float]] = "max_gt0",
         apply_softmax_over_time: bool = False,
+        apply_softmax_over_time_est_blank: bool = True,
         apply_softmax_over_labels: bool = False,
         blank_score: Union[float, str] = 0.0,  # or "calc"
         num_seqs: int = -1,
@@ -348,6 +365,7 @@ class ForcedAlignOnScoreMatrixJob(Job):
         self.apply_log = apply_log
         self.substract = substract
         self.apply_softmax_over_time = apply_softmax_over_time
+        self.apply_softmax_over_time_est_blank = apply_softmax_over_time_est_blank
         self.apply_softmax_over_labels = apply_softmax_over_labels
         self.blank_score = blank_score
         self.num_seqs = num_seqs
@@ -478,8 +496,9 @@ class ForcedAlignOnScoreMatrixJob(Job):
             if self.apply_softmax_over_time:
                 score_matrix = _log_softmax(score_matrix, axis=1)
                 non_blank_score = np.max(np.exp(score_matrix), axis=0)  # [T]
-                blank_score = 1.0 - non_blank_score
-                blank_score = np.log(blank_score)
+                if self.apply_softmax_over_time_est_blank:
+                    blank_score = 1.0 - non_blank_score
+                    blank_score = np.log(blank_score)
             if self.apply_softmax_over_labels:
                 # Concat blank score to the end, to include it in the softmax.
                 score_matrix = np.concatenate([score_matrix, blank_score[None, :]], axis=0)  # [S+1, T]
