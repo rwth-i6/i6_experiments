@@ -263,6 +263,60 @@ def py():
         },
         {"grad_name": "base-convMask-early61-10ms", "sm": True, "blank_score": -6, "apply_softmax_over_labels": True},
         {"grad_name": "base-convMask-early61-10ms", "sm": True, "blank_score": -3, "apply_softmax_over_labels": True},
+        {
+            "grad_name": "base-convMask-early61-10ms",
+            "sm": True,
+            "blank_score": "calc",
+            "blank_score_est": "flipped_after_softmax_over_time",
+            "non_blank_score_reduce": "mean",
+            "blank_score_flipped_percentile": 30,
+            "apply_softmax_over_labels": True,
+        },  # 62.2/48.9
+        {
+            "grad_name": "base-convMask-early61-10ms",
+            "sm": True,
+            "blank_score": "calc",
+            "blank_score_est": "flipped_after_softmax_over_time",
+            "non_blank_score_reduce": "mean",
+            "blank_score_flipped_percentile": 40,
+            "apply_softmax_over_labels": True,
+        },  # 57.6/44.7
+        {
+            "grad_name": "base-convMask-early61-10ms",
+            "sm": True,
+            "blank_score": "calc",
+            "blank_score_est": "flipped_after_softmax_over_time",
+            "non_blank_score_reduce": "mean",
+            "blank_score_flipped_percentile": 50,
+            "apply_softmax_over_labels": True,
+        },
+        {
+            "grad_name": "base-convMask-early61-10ms",
+            "sm": True,
+            "blank_score": "calc",
+            "blank_score_est": "flipped_after_softmax_over_time",
+            "non_blank_score_reduce": "mean",
+            "blank_score_flipped_percentile": 60,
+            "apply_softmax_over_labels": True,
+        },
+        {
+            "grad_name": "base-convMask-early61-10ms",
+            "sm": True,
+            "blank_score": "calc",
+            "blank_score_est": "flipped_after_softmax_over_time",
+            "non_blank_score_reduce": "max",
+            "blank_score_flipped_percentile": 10,
+            "apply_softmax_over_labels": True,
+        },
+        {
+            "grad_name": "base-convMask-early61-10ms",
+            "sm": True,
+            "blank_score": "calc",
+            "blank_score_est": "flipped_after_softmax_over_time",
+            "non_blank_score_reduce": "max",
+            "blank_score_flipped_percentile": 20,
+            "apply_softmax_over_labels": True,
+        },
     ]:
         opts = opts.copy()
         apply_softmax_over_time = opts.pop("sm", False)
@@ -299,6 +353,7 @@ def py():
         )
         job.add_alias(prefix + name)
         tk.register_output(prefix + name + ".json", job.out_scores)
+        tk.register_output(prefix + name + "_short_report.txt", job.out_short_report_str)
 
     name = "ctc-1k-align/metrics"  # 83.0/60.6ms
     job = CalcAlignmentMetrics(
@@ -470,6 +525,9 @@ class ForcedAlignOnScoreMatrixJob(Job):
         "norm_scores": False,
         "apply_softmax_over_time_est_blank": True,
         "apply_softmax_over_labels": False,
+        "blank_score_est": "neg_prob",
+        "non_blank_score_reduce": "mean",
+        "blank_score_flipped_percentile": 0,
     }
 
     def __init__(
@@ -484,6 +542,9 @@ class ForcedAlignOnScoreMatrixJob(Job):
         apply_softmax_over_time_est_blank: bool = True,
         apply_softmax_over_labels: bool = False,
         blank_score: Union[float, str] = 0.0,  # or "calc"
+        blank_score_est: str = "neg_prob",
+        non_blank_score_reduce: str = "mean",
+        blank_score_flipped_percentile: int = 0,
         num_seqs: int = -1,
         num_labels: Optional[int] = None,
         blank_idx: int,
@@ -500,6 +561,9 @@ class ForcedAlignOnScoreMatrixJob(Job):
         self.apply_softmax_over_time_est_blank = apply_softmax_over_time_est_blank
         self.apply_softmax_over_labels = apply_softmax_over_labels
         self.blank_score = blank_score
+        self.blank_score_est = blank_score_est
+        self.non_blank_score_reduce = non_blank_score_reduce
+        self.blank_score_flipped_percentile = blank_score_flipped_percentile
         self.num_seqs = num_seqs
         self.num_labels = num_labels
         self.blank_idx = blank_idx
@@ -580,6 +644,15 @@ class ForcedAlignOnScoreMatrixJob(Job):
             x = x - max_score
             return x - np.log(np.sum(np.exp(x), axis=axis, keepdims=True))
 
+        def _y_to_mat(y, y_num_pixels=100):  # only for visualization
+            x_num_pixels = len(y)
+            y_min, y_max = np.min(y), np.max(y)
+            mat = np.full((x_num_pixels, y_num_pixels), y_min)
+            for x_, y_ in enumerate(y):
+                y__ = int((y_ - y_min) / max(y_max - y_min, 1) * (y_num_pixels - 1))
+                mat[x_, y__] = y_
+            return mat  # [T,Y]
+
         for i, seq_tag in enumerate(seq_list):
             if 0 < self.num_seqs <= i:
                 break
@@ -631,6 +704,16 @@ class ForcedAlignOnScoreMatrixJob(Job):
                 if self.apply_softmax_over_time_est_blank:
                     blank_score = 1.0 - non_blank_score
                     blank_score = np.log(blank_score)
+            if self.blank_score_est == "flipped_after_softmax_over_time":
+                # mean or max, both seem ok. optimal percentile changes.
+                log_non_blank_score = getattr(np, self.non_blank_score_reduce)(score_matrix, axis=0)  # [T]
+                # for max, 10 enough. for mean: 30 or so.
+                flip_point = np.percentile(log_non_blank_score, self.blank_score_flipped_percentile)
+                blank_score = 2 * flip_point - log_non_blank_score  # [T]
+            elif self.blank_score_est == "neg_prob":
+                pass  # that's what we did above
+            else:
+                raise ValueError(f"invalid blank_score_est {self.blank_score_est!r}")
             if self.apply_softmax_over_labels:
                 # Concat blank score to the end, to include it in the softmax.
                 score_matrix = np.concatenate([score_matrix, blank_score[None, :]], axis=0)  # [S+1, T]
@@ -712,7 +795,13 @@ class ForcedAlignOnScoreMatrixJob(Job):
                 alignment_[None, :], seq_len=[T], seq_tag=[seq_tag], extra={"states": np.array(alignment)[None, :, 1]}
             )
 
-            if i < 10:  # plot the first 10 for debugging
+            # plot only the first 10 or some selected for debugging
+            if i < 10 or seq_tag in {
+                "train-other-960/103-1240-0000/103-1240-0000",
+                "train-other-960/103-1240-0001/103-1240-0001",
+                "train-other-960/40-222-0033/40-222-0033",
+                "train-other-960/1578-6379-0013/1578-6379-0013",
+            }:
                 plot_dir = Path("alignment-plots", self).get_path()
                 os.makedirs(plot_dir, exist_ok=True)
 
@@ -724,20 +813,23 @@ class ForcedAlignOnScoreMatrixJob(Job):
                     if s % 2 == 1:
                         alignment_map[t, s // 2] = 1
 
-                fig, ax = plt.subplots(nrows=4, ncols=1, figsize=(20, 10))
-                for i, (alias, mat) in enumerate(
-                    [
-                        ("log(gradients) (local scores d)", score_matrix.T),
-                        ("Partial scores D", -1 * align_scores),
-                        ("backpointers", -1 * backpointers),
-                        ("alignment", alignment_map),
-                    ]
-                ):
+                rows = [
+                    ("log(gradients) (local scores d)", score_matrix.T),
+                    ("Partial scores D", -1 * align_scores),
+                    ("backpointers", -1 * backpointers),
+                    ("alignment", alignment_map),
+                    ("blank scores", blank_score),
+                ]
+                fig, ax = plt.subplots(nrows=len(rows), ncols=1, figsize=(20, 10 * len(rows)))
+                for i, (alias, mat) in enumerate(rows):
+                    if mat.ndim == 1:
+                        mat = _y_to_mat(mat)  # [T,Y]
                     # mat is [T,S*2+1] or [T,S]
                     mat_ = ax[i].matshow(mat.T, cmap="Blues", aspect="auto")
                     ax[i].set_title(f"{alias} for seq {seq_tag}")
                     ax[i].set_xlabel("time")
                     ax[i].set_ylabel("labels")
+                    ax[i].set_ylim(ax[i].get_ylim()[::-1])
 
                     divider = make_axes_locatable(ax[i])
                     cax = divider.append_axes("right", size="5%", pad=0.05)
@@ -751,7 +843,7 @@ class ForcedAlignOnScoreMatrixJob(Job):
                         fig.colorbar(mat_, cax=cax, orientation="vertical")
 
                 plt.tight_layout()
-                plt.savefig(f"{plot_dir}/alignment_{seq_tag.replace('/', '_')}.png")
+                plt.savefig(f"{plot_dir}/alignment_{seq_tag.replace('/', '_')}.pdf")
 
         hdf_writer.close()
 
@@ -787,6 +879,7 @@ class CalcAlignmentMetrics(Job):
         self.returnn_root = returnn_root
 
         self.out_scores = self.output_path("out_scores.json")
+        self.out_short_report_str = self.output_path("short-report-string.txt")
 
     def tasks(self):
         yield Task("run", rqmt={"cpu": 1, "mem": 4, "time": 1, "gpu": 0})
@@ -1063,7 +1156,7 @@ class CalcAlignmentMetrics(Job):
 
         json.dump(out_scores, open(self.out_scores.get_path(), "w"))
 
-        with open(Path("short-report-string.txt", self).get_path(), "w") as f:
+        with open(self.out_short_report_str.get_path(), "w") as f:
             print(
                 "%s/%s"
                 % (
