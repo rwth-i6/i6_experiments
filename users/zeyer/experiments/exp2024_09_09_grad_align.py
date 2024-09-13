@@ -358,7 +358,7 @@ def visualize_grad_scores():
 
     import numpy as np
 
-    def _log_softmax(x: np.ndarray, *, axis: Optional[int]) -> np.ndarray:
+    def _log_softmax(x: np.ndarray, *, axis: Optional[int] = None) -> np.ndarray:
         max_score = np.max(x, axis=axis, keepdims=True)
         x = x - max_score
         return x - np.log(np.sum(np.exp(x), axis=axis, keepdims=True))
@@ -372,6 +372,10 @@ def visualize_grad_scores():
             mat[x_, y__] = y_
         return mat.T
 
+    def _rescale(y, clip_min, clip_max):
+        y = np.clip(y, clip_min, clip_max)
+        return (y - clip_min) / max(clip_max - clip_min, 1)
+
     score_matrix_data_dict = load_hdf_data(score_matrix_hdf, num_dims=2)
     for i, seq_tag in enumerate(seq_list):
         if i >= 2:
@@ -380,6 +384,8 @@ def visualize_grad_scores():
         score_matrix = score_matrix_data_dict[seq_tag]  # [S, T]
         score_matrix = score_matrix[:-1]  # cut off EOS
 
+        log_sm_over_time = _log_softmax(np.log(score_matrix), axis=1)  # [S, T]
+
         non_blank_score = np.max(score_matrix, axis=0)  # [T]
         blank_score = np.max(score_matrix) - non_blank_score  # [T]
 
@@ -387,17 +393,22 @@ def visualize_grad_scores():
         from mpl_toolkits.axes_grid1 import make_axes_locatable
 
         rows = [
-            ("score matrix", score_matrix),
+            # ("score matrix", score_matrix),
             ("log score matrix", np.log(score_matrix)),
-            ("log softmax over time", _log_softmax(np.log(score_matrix), axis=1)),
+            # ("log softmax over all", _log_softmax(np.log(score_matrix))),
+            ("log softmax over time", log_sm_over_time),
             # ("log softmax over labels", _log_softmax(np.log(score_matrix), axis=0)),  # bad
-            # (
-            #    "log softmax over time first, then labels",
-            #    _log_softmax(_log_softmax(np.log(score_matrix), axis=1), axis=0),
-            # ),
-            ("log label[0] scores", _y_to_mat(np.log(score_matrix[0]))),
-            ("label[0] softmax scores", _y_to_mat(np.exp(_log_softmax(np.log(score_matrix[0]), axis=0)))),
-            ("log non blank scores", _y_to_mat(np.log(non_blank_score))),
+            # ("log softmax over time first, then labels", _log_softmax(log_sm_over_time, axis=0)),
+            ("label[0] log sm scores", _y_to_mat(log_sm_over_time[0])),
+            (
+                "label[0] log sm sm scores",
+                _y_to_mat(np.exp(_log_softmax(np.clip(log_sm_over_time[0] + 10, 0.01, 10)))),
+            ),
+            (
+                "label[0] XXX scores",
+                _y_to_mat(np.exp(_log_softmax(np.log(np.clip(log_sm_over_time[0] + 10, 0.01, 10))))),
+            ),
+            # ("log non blank scores", _y_to_mat(np.log(non_blank_score))),
         ]
         fig, ax = plt.subplots(nrows=len(rows), ncols=1, figsize=(20, 10))
         for i, (alias, mat) in enumerate(rows):
@@ -406,6 +417,7 @@ def visualize_grad_scores():
             ax[i].set_title(f"{alias} for seq {seq_tag}")
             ax[i].set_xlabel("time")
             ax[i].set_ylabel("labels")
+            ax[i].set_ylim(ax[i].get_ylim()[::-1])
 
             divider = make_axes_locatable(ax[i])
             cax = divider.append_axes("right", size="5%", pad=0.05)
