@@ -395,8 +395,27 @@ def visualize_grad_scores():
 
         log_sm_over_time = _log_softmax(np.log(score_matrix), axis=1)  # [S, T]
 
+        non_blank_score = np.max(np.exp(log_sm_over_time), axis=0)  # [T]
+        blank_score = 1.0 - non_blank_score
+        blank_score = np.log(blank_score)
+
+        # log_scores = np.log(score_matrix)
+        log_scores = log_sm_over_time
+        log_non_blank_score = np.max(log_scores, axis=0)  # [T]
+        flip_point = np.percentile(log_non_blank_score, 10)
+        blank_score___ = 2 * flip_point - log_non_blank_score  # [T]
+        # blank_score___ = np.full_like(blank_score___, -1e10)
+
+        # Concat blank score to the end, to include it in the softmax.
+        score_matrix_ = np.concatenate([log_scores, blank_score___[None, :]], axis=0)  # [S+1, T]
+        score_matrix_ = _log_softmax(score_matrix_, axis=0)
+        # score_matrix_ += np.min(score_matrix_) + 1e-10
+        # score_matrix_ /= np.sum(score_matrix_, axis=0, keepdims=True)
+        # score_matrix_ = np.log(score_matrix_)
+        log_sm_over_labels_incl_blank, blank_score_ = score_matrix_[:-1], score_matrix_[-1]
+
         non_blank_score = np.max(score_matrix, axis=0)  # [T]
-        blank_score = np.max(score_matrix) - non_blank_score  # [T]
+        blank_score__ = np.max(score_matrix) - non_blank_score  # [T]
 
         from matplotlib import pyplot as plt
         from mpl_toolkits.axes_grid1 import make_axes_locatable
@@ -406,17 +425,14 @@ def visualize_grad_scores():
             ("log score matrix", np.log(score_matrix)),
             # ("log softmax over all", _log_softmax(np.log(score_matrix))),
             ("log softmax over time", log_sm_over_time),
+            ("log blank score", blank_score),
+            ("log blank score___", blank_score___),
             # ("log softmax over labels", _log_softmax(np.log(score_matrix), axis=0)),  # bad
             ("log softmax over time first, then labels", _log_softmax(log_sm_over_time, axis=0)),
+            ("log softmax over labels incl blank", log_sm_over_labels_incl_blank),
+            ("log blank score_", blank_score_),
+            ("log blank score__", blank_score__),
             ("label[0] log sm scores", log_sm_over_time[0]),
-            (
-                "label[0] log sm sm scores",
-                np.exp(_log_softmax(np.clip(log_sm_over_time[0] + 10, 0.01, 10))),
-            ),
-            (
-                "label[0] XXX scores",
-                np.exp(_log_softmax(np.log(np.clip(log_sm_over_time[0] + 10, 0.01, 10)))),
-            ),
             # ("log non blank scores", _y_to_mat(np.log(non_blank_score))),
         ]
         fig, ax = plt.subplots(nrows=len(rows), ncols=1, figsize=(20, 5 * len(rows)))
