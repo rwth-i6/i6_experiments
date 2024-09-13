@@ -224,7 +224,7 @@ def py():
         {"grad_name": "base-ctc-mid919-60ms", "sm": True, "blank_score": -4},  # 78.2/66.5
         {"grad_name": "base-ctc-mid919-60ms", "sm": True, "blank_score": -6},  # 96.5/82.6
         {"grad_name": "base-far1676-10ms", "sm": True, "blank_score": -4},  # 128.6/77.9
-        {"grad_name": "base-far1676-10ms", "sm": True, "blank_score": -6},  # 61.0/45.8 (!!)
+        {"grad_name": "base-far1676-10ms", "sm": True, "blank_score": -6},  # 61.0/45.8
         {"grad_name": "base-far1676-10ms", "sm": True, "blank_score": -7},  # 72.4/57.3
         {"grad_name": "base-far1676-60ms", "sm": True, "blank_score": -4},  # 67.0/54.8
         {"grad_name": "base-convMask-early61-10ms", "sm": True, "blank_score": -4},  # 117.5/72.4
@@ -289,7 +289,7 @@ def py():
             "non_blank_score_reduce": "mean",
             "blank_score_flipped_percentile": 50,
             "apply_softmax_over_labels": True,
-        },
+        },  # 55.7/43.1
         {
             "grad_name": "base-convMask-early61-10ms",
             "sm": True,
@@ -298,7 +298,43 @@ def py():
             "non_blank_score_reduce": "mean",
             "blank_score_flipped_percentile": 60,
             "apply_softmax_over_labels": True,
-        },
+        },  # 55.0/42.4
+        {
+            "grad_name": "base-convMask-early61-10ms",
+            "sm": True,
+            "blank_score": "calc",
+            "blank_score_est": "flipped_after_softmax_over_time",
+            "non_blank_score_reduce": "mean",
+            "blank_score_flipped_percentile": 70,
+            "apply_softmax_over_labels": True,
+        },  # 54.5/41.9
+        {
+            "grad_name": "base-convMask-early61-10ms",
+            "sm": True,
+            "blank_score": "calc",
+            "blank_score_est": "flipped_after_softmax_over_time",
+            "non_blank_score_reduce": "mean",
+            "blank_score_flipped_percentile": 80,
+            "apply_softmax_over_labels": True,
+        },  # 54.4/41.6 (!!) (*: optimum for mean)
+        {
+            "grad_name": "base-convMask-early61-10ms",
+            "sm": True,
+            "blank_score": "calc",
+            "blank_score_est": "flipped_after_softmax_over_time",
+            "non_blank_score_reduce": "mean",
+            "blank_score_flipped_percentile": 90,
+            "apply_softmax_over_labels": True,
+        },  # 54.7/41.5
+        {
+            "grad_name": "base-convMask-early61-10ms",
+            "sm": True,
+            "blank_score": "calc",
+            "blank_score_est": "flipped_after_softmax_over_time",
+            "non_blank_score_reduce": "mean",
+            "blank_score_flipped_percentile": 100,
+            "apply_softmax_over_labels": True,
+        },  # 69.8/49.0
         {
             "grad_name": "base-convMask-early61-10ms",
             "sm": True,
@@ -307,7 +343,7 @@ def py():
             "non_blank_score_reduce": "max",
             "blank_score_flipped_percentile": 10,
             "apply_softmax_over_labels": True,
-        },
+        },  # 64.6/50.9
         {
             "grad_name": "base-convMask-early61-10ms",
             "sm": True,
@@ -315,6 +351,87 @@ def py():
             "blank_score_est": "flipped_after_softmax_over_time",
             "non_blank_score_reduce": "max",
             "blank_score_flipped_percentile": 20,
+            "apply_softmax_over_labels": True,
+        },  # 58.5/44.7 (*: opt for max)
+        {
+            "grad_name": "base-convMask-early61-10ms",
+            "sm": True,
+            "blank_score": "calc",
+            "blank_score_est": "flipped_after_softmax_over_time",
+            "non_blank_score_reduce": "max",
+            "blank_score_flipped_percentile": 30,
+            "apply_softmax_over_labels": True,
+        },  # 61.6/45.7
+        {
+            "grad_name": "base-convMask-early61-10ms",
+            "sm": True,
+            "blank_score": "calc",
+            "blank_score_est": "flipped_after_softmax_over_time",
+            "non_blank_score_reduce": "max",
+            "blank_score_flipped_percentile": 40,
+            "apply_softmax_over_labels": True,
+        },  # 68.5/49.3
+        {
+            "grad_name": "base-convMask-early61-10ms",
+            "sm": True,
+            "blank_score": "calc",
+            "blank_score_est": "flipped_after_softmax_over_time",
+            "non_blank_score_reduce": "max",
+            "blank_score_flipped_percentile": 50,
+            "apply_softmax_over_labels": True,
+        },  # 77.5/54.1
+        {
+            "grad_name": "base-convMask-early61-10ms",
+            "sm": True,
+            "blank_score": "calc",
+            "blank_score_est": "flipped_after_softmax_over_time",
+            "non_blank_score_reduce": "log_mean_exp",
+            "blank_score_flipped_percentile": 30,
+            "apply_softmax_over_labels": True,
+        },  # 58.9/45.9
+        {
+            "grad_name": "base-convMask-early61-10ms",
+            "sm": True,
+            "blank_score": "calc",
+            "blank_score_est": "flipped_after_softmax_over_time",
+            "non_blank_score_reduce": "log_mean_exp",
+            "blank_score_flipped_percentile": 40,
+            "apply_softmax_over_labels": True,
+        },  # 55.4/42.7
+        {
+            "grad_name": "base-convMask-early61-10ms",
+            "sm": True,
+            "blank_score": "calc",
+            "blank_score_est": "flipped_after_softmax_over_time",
+            "non_blank_score_reduce": "log_mean_exp",
+            "blank_score_flipped_percentile": 50,
+            "apply_softmax_over_labels": True,
+        },  # 54.6/41.8
+        {
+            "grad_name": "base-convMask-early61-10ms",
+            "sm": True,
+            "blank_score": "calc",
+            "blank_score_est": "flipped_after_softmax_over_time",
+            "non_blank_score_reduce": "log_mean_exp",
+            "blank_score_flipped_percentile": 60,
+            "apply_softmax_over_labels": True,
+        },  # 54.6/41.6 (*: opt for log_mean_exp)
+        {
+            "grad_name": "base-convMask-early61-10ms",
+            "sm": True,
+            "blank_score": "calc",
+            "blank_score_est": "flipped_after_softmax_over_time",
+            "non_blank_score_reduce": "log_mean_exp",
+            "blank_score_flipped_percentile": 70,
+            "apply_softmax_over_labels": True,
+        },  # 55.1/41.8
+        {
+            "grad_name": "base-convMask-early61-10ms",
+            "sm": True,
+            "blank_score": "calc",
+            "blank_score_est": "flipped_after_softmax_over_time",
+            "non_blank_score_reduce": "log_mean_exp",
+            "blank_score_flipped_percentile": 80,
             "apply_softmax_over_labels": True,
         },
     ]:
@@ -706,7 +823,12 @@ class ForcedAlignOnScoreMatrixJob(Job):
                     blank_score = np.log(blank_score)
             if self.blank_score_est == "flipped_after_softmax_over_time":
                 # mean or max, both seem ok. optimal percentile changes.
-                log_non_blank_score = getattr(np, self.non_blank_score_reduce)(score_matrix, axis=0)  # [T]
+                reduce_func = {
+                    "max": np.max,
+                    "mean": np.mean,
+                    "log_mean_exp": lambda x, axis: np.log(np.mean(np.exp(x), axis=axis)),
+                }
+                log_non_blank_score = reduce_func[self.non_blank_score_reduce](score_matrix, axis=0)  # [T]
                 # for max, 10 enough. for mean: 30 or so.
                 flip_point = np.percentile(log_non_blank_score, self.blank_score_flipped_percentile)
                 blank_score = 2 * flip_point - log_non_blank_score  # [T]
