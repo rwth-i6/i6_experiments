@@ -329,6 +329,78 @@ def py():
     tk.register_output(prefix + name + ".json", job.out_scores)
 
 
+def visualize_grad_scores():
+    # to run:
+    # Fish: set -x PYTHONPATH tools/espnet:tools/returnn:tools/sisyphus:recipe
+    # Bash: export PYTHONPATH="tools/espnet:tools/returnn:tools/sisyphus:recipe"
+    # Then: `python3 -c "from i6_experiments.users.zeyer.experiments.exp2024_09_09_grad_align import visualize_grad_scores as vis; vis()"`  # noqa
+    # play around here...
+
+    seq_list = Path(
+        "/u/schmitt/experiments/segmental_models_2022_23_rf/work/i6_core/corpus/segments/SegmentCorpusJob.AmDlp1YMZF1e/output/segments.1"
+    )
+    seq_list = open(seq_list.get_path()).read().splitlines()
+
+    # base-convMask-early61-10ms:
+    score_matrix_hdf = Path(
+        "/u/schmitt/experiments/03-09-24_aed_flipped_encoder/alias/models/ls_conformer/global_att/baseline_v1/baseline_rf/bpe1056/w-weight-feedback/w-att-ctx-in-state/nb-lstm/12-layer_512-dim_conformer-conv-w-zero-padding-conv-frontend-w-zero-padding/train_from_scratch/500-ep_bs-15000_mgpu-4_w-sp_curric_lr-dyn_lr_piecewise_linear_epoch-wise_v2_reg-v1_filter-data-312000.0_accum-4/returnn_decoding/epoch-61-checkpoint/no-lm/beam-size-12/train/analysis/dump_gradients_wrt_frontend_input/ground-truth/output/gradients.hdf"
+    )
+
+    plot_dir = "output/exp2024_09_09_grad_align/visualize_grad_scores"
+    os.makedirs(plot_dir, exist_ok=True)
+
+    from i6_experiments.users.schmitt.hdf import load_hdf_data
+    import i6_core.util as util
+
+    returnn_root = util.get_returnn_root(None)
+
+    sys.path.insert(0, returnn_root.get_path())
+
+    import numpy as np
+
+    def _log_softmax(x: np.ndarray, *, axis: Optional[int]) -> np.ndarray:
+        max_score = np.max(x, axis=axis, keepdims=True)
+        x = x - max_score
+        return x - np.log(np.sum(np.exp(x), axis=axis, keepdims=True))
+
+    score_matrix_data_dict = load_hdf_data(score_matrix_hdf, num_dims=2)
+    for i, seq_tag in enumerate(seq_list):
+        if i >= 5:
+            break
+
+        score_matrix = score_matrix_data_dict[seq_tag]  # [S, T]
+
+        from matplotlib import pyplot as plt
+        from mpl_toolkits.axes_grid1 import make_axes_locatable
+
+        rows = [
+            ("score matrix", score_matrix),
+            ("log score matrix", np.log(score_matrix)),
+            ("log softmax over time", _log_softmax(np.log(score_matrix), axis=1)),
+            # ("log softmax over labels", _log_softmax(np.log(score_matrix), axis=0)),  # bad
+            (
+                "log softmax over time first, then labels",
+                _log_softmax(_log_softmax(np.log(score_matrix), axis=1), axis=0),
+            ),
+        ]
+        fig, ax = plt.subplots(nrows=len(rows), ncols=1, figsize=(20, 10))
+        for i, (alias, mat) in enumerate(rows):
+            # mat is [S,T]
+            mat_ = ax[i].matshow(mat, cmap="Blues", aspect="auto")
+            ax[i].set_title(f"{alias} for seq {seq_tag}")
+            ax[i].set_xlabel("time")
+            ax[i].set_ylabel("labels")
+
+            divider = make_axes_locatable(ax[i])
+            cax = divider.append_axes("right", size="5%", pad=0.05)
+            fig.colorbar(mat_, cax=cax, orientation="vertical")
+
+        plt.tight_layout()
+        fn = f"{plot_dir}/alignment_{seq_tag.replace('/', '_')}.png"
+        print("save to:", fn)
+        plt.savefig(fn)
+
+
 class ForcedAlignOnScoreMatrixJob(Job):
     """Calculate the Viterbi alignment for a given score matrix."""
 
