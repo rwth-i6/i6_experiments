@@ -401,8 +401,10 @@ def visualize_grad_scores():
 
         # log_scores = np.log(score_matrix)
         log_scores = log_sm_over_time
-        log_non_blank_score = np.max(log_scores, axis=0)  # [T]
-        flip_point = np.percentile(log_non_blank_score, 10)
+        # mean or max, both seem ok. opt percentile changes.
+        # log_non_blank_score = np.max(log_scores, axis=0)  # [T]
+        log_non_blank_score = np.mean(log_scores, axis=0)  # [T]
+        flip_point = np.percentile(log_non_blank_score, 30)  # for max, 10 enough. for mean: 30 or so.
         blank_score___ = 2 * flip_point - log_non_blank_score  # [T]
         # blank_score___ = np.full_like(blank_score___, -1e10)
 
