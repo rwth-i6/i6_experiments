@@ -995,7 +995,8 @@ def py():
 
     # E-Branchformer. (already with our default ff and noBias)
     # Ref: https://github.com/espnet/espnet/blob/master/egs2/librispeech/asr1/conf/tuning/train_asr_e_branchformer.yaml
-    train_exp(
+    # Note that this has more params than the baseline. (Baseline: 123M, EBranchformer: 178M) (Baseline has 5.65 WER.)
+    train_exp(  # 5.54 (!!!) (but more params)
         "v6-EBranchformer-relPosAttDef-noBias-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2"
         "-lrlin1e_5_295k-featBN-speedpertV2-spm10k-bpeSample001",
         config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
