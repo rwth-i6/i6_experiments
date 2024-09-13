@@ -363,12 +363,25 @@ def visualize_grad_scores():
         x = x - max_score
         return x - np.log(np.sum(np.exp(x), axis=axis, keepdims=True))
 
+    def _y_to_mat(y, y_num_pixels=50):
+        x_num_pixels = len(y)
+        y_min, y_max = np.min(y), np.max(y)
+        mat = np.full((x_num_pixels, y_num_pixels), y_min)
+        for x_, y_ in enumerate(y):
+            y__ = int((y_ - y_min) / max(y_max - y_min, 1) * (y_num_pixels - 1))
+            mat[x_, y__] = y_
+        return mat.T
+
     score_matrix_data_dict = load_hdf_data(score_matrix_hdf, num_dims=2)
     for i, seq_tag in enumerate(seq_list):
-        if i >= 5:
+        if i >= 2:
             break
 
         score_matrix = score_matrix_data_dict[seq_tag]  # [S, T]
+        score_matrix = score_matrix[:-1]  # cut off EOS
+
+        non_blank_score = np.max(score_matrix, axis=0)  # [T]
+        blank_score = np.max(score_matrix) - non_blank_score  # [T]
 
         from matplotlib import pyplot as plt
         from mpl_toolkits.axes_grid1 import make_axes_locatable
@@ -378,14 +391,17 @@ def visualize_grad_scores():
             ("log score matrix", np.log(score_matrix)),
             ("log softmax over time", _log_softmax(np.log(score_matrix), axis=1)),
             # ("log softmax over labels", _log_softmax(np.log(score_matrix), axis=0)),  # bad
-            (
-                "log softmax over time first, then labels",
-                _log_softmax(_log_softmax(np.log(score_matrix), axis=1), axis=0),
-            ),
+            # (
+            #    "log softmax over time first, then labels",
+            #    _log_softmax(_log_softmax(np.log(score_matrix), axis=1), axis=0),
+            # ),
+            ("log label[0] scores", _y_to_mat(np.log(score_matrix[0]))),
+            ("label[0] softmax scores", _y_to_mat(np.exp(_log_softmax(np.log(score_matrix[0]), axis=0)))),
+            ("log non blank scores", _y_to_mat(np.log(non_blank_score))),
         ]
         fig, ax = plt.subplots(nrows=len(rows), ncols=1, figsize=(20, 10))
         for i, (alias, mat) in enumerate(rows):
-            # mat is [S,T]
+            # mat is [S|any,T]
             mat_ = ax[i].matshow(mat, cmap="Blues", aspect="auto")
             ax[i].set_title(f"{alias} for seq {seq_tag}")
             ax[i].set_xlabel("time")
