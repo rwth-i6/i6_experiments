@@ -128,6 +128,12 @@ def py():
                 "/u/schmitt/experiments/03-09-24_aed_flipped_encoder/alias/models/ls_conformer/global_att/baseline_v1/baseline_rf/bpe1056/w-weight-feedback/w-att-ctx-in-state/nb-lstm/12-layer_512-dim_conformer-conv-w-zero-padding-conv-frontend-w-zero-padding/train_from_scratch/500-ep_bs-15000_mgpu-4_w-sp_curric_lr-dyn_lr_piecewise_linear_epoch-wise_v2_reg-v1_filter-data-312000.0_accum-4/returnn_decoding/epoch-61-checkpoint/no-lm/beam-size-12/train/analysis/dump_gradients_wrt_frontend_input/ground-truth/output/gradients.hdf"
             ),
         ),
+        "base-convMask-mid225-10ms": (
+            1,
+            Path(
+                "/u/schmitt/experiments/03-09-24_aed_flipped_encoder/alias/models/ls_conformer/global_att/baseline_v1/baseline_rf/bpe1056/w-weight-feedback/w-att-ctx-in-state/nb-lstm/12-layer_512-dim_conformer-conv-w-zero-padding-conv-frontend-w-zero-padding/train_from_scratch/500-ep_bs-15000_mgpu-4_w-sp_curric_lr-dyn_lr_piecewise_linear_epoch-wise_v2_reg-v1_filter-data-312000.0_accum-4/returnn_decoding/epoch-225-checkpoint/no-lm/beam-size-12/train/analysis/dump_gradients_wrt_frontend_input/ground-truth/output/gradients.hdf"
+            ),
+        ),
         # 1k baseline ohne CTC auf single gpu (nicht flipped) (epoch 1743/2000)
         # ohne zero padding
         "base-far1743-10ms": (
@@ -230,6 +236,7 @@ def py():
         {"grad_name": "base-convMask-early61-60ms", "sm": True, "blank_score": -3},  # 84.7/65.9
         {"grad_name": "base-convMask-early61-60ms", "sm": True, "blank_score": -4},  # 61.0/50.3 (!)
         {"grad_name": "base-convMask-early61-60ms", "sm": True, "blank_score": -5},  # 66.2/54.9
+        {"grad_name": "base-convMask-mid225-10ms", "sm": True, "blank_score": -6},  # 65.2/50.5
         {"grad_name": "base-far1743-10ms", "sm": True, "blank_score": -6},  # 61.6/46.3
         {"grad_name": "base-convMaskForward-far1743-10ms", "sm": True, "blank_score": -6},  # 61.6/46.3
         {"grad_name": "base-early141-10ms", "sm": True, "blank_score": -6},  # 59.8/45.8
