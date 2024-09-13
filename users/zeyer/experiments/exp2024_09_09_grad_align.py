@@ -363,7 +363,7 @@ def visualize_grad_scores():
         x = x - max_score
         return x - np.log(np.sum(np.exp(x), axis=axis, keepdims=True))
 
-    def _y_to_mat(y, y_num_pixels=50):
+    def _y_to_mat(y, y_num_pixels=100):
         x_num_pixels = len(y)
         y_min, y_max = np.min(y), np.max(y)
         mat = np.full((x_num_pixels, y_num_pixels), y_min)
@@ -382,9 +382,13 @@ def visualize_grad_scores():
             break
 
         score_matrix = score_matrix_data_dict[seq_tag]  # [S, T]
+        S, T = score_matrix.shape  # noqa
         score_matrix = score_matrix[:-1]  # cut off EOS
 
         log_sm_over_time = _log_softmax(np.log(score_matrix), axis=1)  # [S, T]
+
+        cut_point = np.percentile(log_sm_over_time, 90, axis=1)  # [S]
+        log_sm_cut = np.where(log_sm_over_time > cut_point[:, None], log_sm_over_time, -1e10)
 
         non_blank_score = np.max(score_matrix, axis=0)  # [T]
         blank_score = np.max(score_matrix) - non_blank_score  # [T]
@@ -397,22 +401,31 @@ def visualize_grad_scores():
             ("log score matrix", np.log(score_matrix)),
             # ("log softmax over all", _log_softmax(np.log(score_matrix))),
             ("log softmax over time", log_sm_over_time),
+            ("log_sm_cut", log_sm_cut),
+            ("log sm log_sm_cut", _log_softmax(log_sm_cut, axis=1)),
             # ("log softmax over labels", _log_softmax(np.log(score_matrix), axis=0)),  # bad
             # ("log softmax over time first, then labels", _log_softmax(log_sm_over_time, axis=0)),
-            ("label[0] log sm scores", _y_to_mat(log_sm_over_time[0])),
+            ("label[0] log sm scores", log_sm_over_time[0]),
+            ("label[0] sm_cut", np.exp(log_sm_cut[0])),
+            ("label[0] sm log sm_cut", np.exp(_log_softmax(log_sm_cut[0]))),
             (
                 "label[0] log sm sm scores",
-                _y_to_mat(np.exp(_log_softmax(np.clip(log_sm_over_time[0] + 10, 0.01, 10)))),
+                np.exp(_log_softmax(np.clip(log_sm_over_time[0] + 10, 0.01, 10))),
             ),
             (
                 "label[0] XXX scores",
-                _y_to_mat(np.exp(_log_softmax(np.log(np.clip(log_sm_over_time[0] + 10, 0.01, 10))))),
+                np.exp(_log_softmax(np.log(np.clip(log_sm_over_time[0] + 10, 0.01, 10)))),
             ),
             # ("log non blank scores", _y_to_mat(np.log(non_blank_score))),
         ]
-        fig, ax = plt.subplots(nrows=len(rows), ncols=1, figsize=(20, 10))
+        fig, ax = plt.subplots(nrows=len(rows), ncols=1, figsize=(20, 5 * len(rows)))
         for i, (alias, mat) in enumerate(rows):
-            # mat is [S|any,T]
+            # mat is [S|Y,T] or just [T]
+            if mat.ndim == 1:
+                assert mat.shape == (T,)
+                mat = _y_to_mat(mat)  # [Y,T]
+            else:
+                assert mat.ndim == 2 and mat.shape[1] == T
             mat_ = ax[i].matshow(mat, cmap="Blues", aspect="auto")
             ax[i].set_title(f"{alias} for seq {seq_tag}")
             ax[i].set_xlabel("time")
@@ -424,7 +437,7 @@ def visualize_grad_scores():
             fig.colorbar(mat_, cax=cax, orientation="vertical")
 
         plt.tight_layout()
-        fn = f"{plot_dir}/alignment_{seq_tag.replace('/', '_')}.png"
+        fn = f"{plot_dir}/alignment_{seq_tag.replace('/', '_')}.pdf"
         print("save to:", fn)
         plt.savefig(fn)
 
