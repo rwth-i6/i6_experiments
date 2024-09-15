@@ -211,7 +211,7 @@ def py():
                 "feature_batch_norm": True,
             },
         ),
-        (
+        (  # 5.14
             "spm10k",
             "bpe",
             0.005,
