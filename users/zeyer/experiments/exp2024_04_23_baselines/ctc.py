@@ -651,7 +651,7 @@ def py():
     # TODO maybe reduce weight decay
     for wdrop in [
         # baseline: 5.77
-        0.0001,
+        0.0001,  # 5.85
         0.001,  # 5.86
         0.01,  # 5.96
         0.05,  # 7.33
@@ -1010,6 +1010,35 @@ def py():
             ),
             "feature_batch_norm": True,
             "num_enc_layers": 16,
+        },
+        config_updates={
+            **_get_cfg_lrlin_oclr_by_bs_nep(15_000, 500),
+            "optimizer.weight_decay": 1e-2,
+            "__train_audio_preprocess": speed_pert_librosa_config,
+            "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
+            "aux_attention_decoder": rf.build_dict(TransformerDecoder, num_layers=6),  # purely used for training
+        },
+        vocab="spm10k",
+        train_vocab_opts={"other_opts": {"class": "SamplingBytePairEncoding", "breadth_prob": 0.01}},
+    )
+
+    # Baseline: 5.65
+    train_exp(
+        "v6-relPosAttDef-noBias-noSelfAtt20-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2"
+        "-lrlin1e_5_295k-featBN-speedpertV2-spm10k-bpeSample001",
+        config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
+        model_config={
+            "enc_conformer_layer": rf.build_dict(
+                rf.encoder.conformer.ConformerEncoderLayer,
+                ff=rf.build_dict(
+                    rf.encoder.conformer.ConformerPositionwiseFeedForward,
+                    activation=rf.build_dict(rf.relu_square),
+                    with_bias=False,
+                ),
+                num_heads=8,
+            ),
+            "feature_batch_norm": True,
+            "disable_encoder_self_attention": {"num_epochs": 20},
         },
         config_updates={
             **_get_cfg_lrlin_oclr_by_bs_nep(15_000, 500),
@@ -1590,6 +1619,27 @@ class Model(rf.Module):
                 layer.final_layer_norm = rf.identity
         else:
             raise ValueError(f"invalid enc_conformer_final_layer_norm {enc_conformer_final_layer_norm!r}")
+
+        disable_encoder_self_attention = config.typed_value("disable_encoder_self_attention", None)
+        if disable_encoder_self_attention is not None:
+            # Disable self-attention in encoder.
+            disable_encoder_self_attention: Dict[str, Any]
+            assert isinstance(disable_encoder_self_attention, dict)
+
+            for layer in self.encoder.layers:
+                layer: ConformerEncoderLayer
+
+                class _HookedSelfAtt(rf.SelfAttention):
+                    def __call__(self, source: Tensor, **kwargs) -> Tensor:
+                        if rf.get_run_ctx().epoch <= disable_encoder_self_attention["num_epochs"]:
+                            return super().__call__(source, **kwargs)
+                        # Very simple way to disable self-attention. Only the value transformation.
+                        # We could make this more efficient here by only do the matmul for the value,
+                        # but this here is simpler now, and also more safe that we do it correctly...
+                        return self.forward_qkv(source)[-1]
+
+                _HookedSelfAtt.__bases__ = (layer.self_att.__class__,)
+                layer.self_att.__class__ = _HookedSelfAtt
 
         self.target_dim = target_dim
         self.blank_idx = blank_idx
