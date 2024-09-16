@@ -325,6 +325,8 @@ def py():
             },
         ),
         train_def=lm_train_def,
+        # got GPU OOM in some later epoch... so play around here to fix this
+        env_updates={"PYTORCH_CUDA_ALLOC_CONF": "backend:cudaMallocAsync"},
     )
 
     # Results from trafo-n24-d512-gelu-drop0-b100_6k-wrongLr (check the Git log):
