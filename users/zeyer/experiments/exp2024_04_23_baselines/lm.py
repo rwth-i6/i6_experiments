@@ -300,6 +300,33 @@ def py():
         train_def=lm_train_def,
     )
 
+    train(
+        "lm/trafo-n24-d1024-noAbsPos-rmsNorm-ffGated-rope-noBias-drop0-b100_5k-ep40",
+        config=dict_update_deep(
+            config_11gb_lm_v1,
+            **_get_cfg_lrlin_oclr_by_bs_nep(32, 2_000, 40),
+        ),
+        train_dataset=get_librispeech_lm_dataset(vocab="spm10k"),
+        model_def=ModelDefWithCfg(
+            lm_model_def,
+            {
+                "_model_def_dict": rf.build_dict(
+                    TransformerDecoder,
+                    encoder_dim=None,
+                    num_layers=24,
+                    model_dim=1024,
+                    pos_enc=None,
+                    norm=rf.build_dict(rf.RMSNorm),
+                    ff=rf.build_dict(rf.decoder.transformer.FeedForwardGated),
+                    decoder_layer_opts=dict(self_att=rf.build_dict(rf.RotaryPosCausalSelfAttention, with_bias=False)),
+                    dropout=0.0,
+                    att_dropout=0.0,
+                )
+            },
+        ),
+        train_def=lm_train_def,
+    )
+
     # Results from trafo-n24-d512-gelu-drop0-b100_6k-wrongLr (check the Git log):
     # The n24-d512 with wrongLr ("learning_rate_piecewise_steps": [561_600 // 2, 1_123_200 // 2, 1_248_000 // 2])
     # and b100_6k got surprisingly a better PPL already in subepoch 37 (end step 841_321, PPL 38.52),
