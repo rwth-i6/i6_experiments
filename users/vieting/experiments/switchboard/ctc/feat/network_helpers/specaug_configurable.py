@@ -250,14 +250,23 @@ def transform(data, network, **config):
             tf.int32,
         )
         # check for the limits
-        actual_time_mask_max_num = tf.minimum(
-            tf.maximum(
-                time_mask_max_num,
-                max_time_num_seq_len,
+        actual_time_mask_max_num = tf.cond(
+            tf.equal(time_mask_max_num, 0),
+            lambda: tf.cast(0, tf.int32),
+            lambda: tf.minimum(
+                tf.maximum(
+                    time_mask_max_num,
+                    max_time_num_seq_len,
+                ),
+                total_time_masks_max_frames // time_mask_max_size,
             ),
-            total_time_masks_max_frames // time_mask_max_size,
         )
-        actual_freq_mask_max_num = tf.minimum(freq_mask_max_num, total_freq_masks_max_size // freq_mask_max_size)
+        # check if freq mask is 0 
+        actual_freq_mask_max_num = tf.cond(
+            tf.equal(freq_mask_max_num, 0),
+            lambda: tf.cast(0, tf.int32),
+            lambda: tf.minimum(freq_mask_max_num, total_freq_masks_max_size // freq_mask_max_size),
+        )
 
         enable_logging = tf.convert_to_tensor(config["enable_logging"], dtype=tf.bool)
 
@@ -356,14 +365,23 @@ def transform_with_filter_masking(data, network, **config):
             tf.int32,
         )
         # check for the limits
-        actual_time_mask_max_num = tf.minimum(
-            tf.maximum(
-                time_mask_max_num,
-                max_time_num_seq_len,
+        actual_time_mask_max_num = tf.cond(
+            tf.equal(time_mask_max_num, 0),
+            lambda: tf.cast(0, tf.int32),
+            lambda: tf.minimum(
+                tf.maximum(
+                    time_mask_max_num,
+                    max_time_num_seq_len,
+                ),
+                total_time_masks_max_frames // time_mask_max_size,
             ),
-            total_time_masks_max_frames // time_mask_max_size,
         )
-        actual_freq_mask_max_num = tf.minimum(freq_mask_max_num, total_freq_masks_max_size // freq_mask_max_size)
+        # check if freq mask is 0 
+        actual_freq_mask_max_num = tf.cond(
+            tf.equal(freq_mask_max_num, 0),
+            lambda: tf.cast(0, tf.int32),
+            lambda: tf.minimum(freq_mask_max_num, total_freq_masks_max_size // freq_mask_max_size),
+        )
 
         if config["filter_based_masking_strategy"] == "variance":
             f_resp = get_frequency_response(filter_layer)
