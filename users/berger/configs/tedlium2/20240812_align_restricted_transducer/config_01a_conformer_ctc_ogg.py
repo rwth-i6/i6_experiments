@@ -175,7 +175,7 @@ def run_exp() -> Tuple[SummaryReport, Dict[str, AlignmentData]]:
         feature_type=FeatureType.SAMPLES,
         lexicon_type=LexiconType.FLASHLIGHT,
         lm_type=LmType.ARPA_FILE,
-        vocab_type=VocabType.RETURNN,
+        vocab_type=VocabType.LEXICON_INVENTORY,
         search_stats=True,
         ogg_dataset=True,
     )

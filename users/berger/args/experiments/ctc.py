@@ -1,11 +1,15 @@
 import copy
 from typing import Dict
 
+from sisyphus import tk
+
 from i6_experiments.users.berger.args.jobs.recognition_args import (
     get_seq2seq_lookahead_options,
     get_seq2seq_search_parameters,
 )
 from i6_experiments.users.berger.util import recursive_update
+from i6_experiments.users.berger.systems.dataclasses import FeatureType
+from i6_experiments.users.berger.systems.functors.recognition.returnn_search import LexiconType, LmType, VocabType
 
 
 ctc_loss_am_args = {
@@ -30,7 +34,8 @@ ctc_recog_am_args.update(
 def get_ctc_train_step_args(**kwargs) -> Dict:
     default_args = {
         "time_rqmt": 168,
-        "mem_rqmt": 16,
+        "mem_rqmt": 24,
+        "cpu_rqmt": 6,
         "log_verbosity": 5,
     }
     return recursive_update(default_args, kwargs)
@@ -69,6 +74,38 @@ def get_ctc_recog_step_args(num_classes: int, reduction_factor: int = 4, **kwarg
         },
         "rtf": 20,
         "mem": 8,
+    }
+
+    return recursive_update(default_args, kwargs)
+
+
+def get_ctc_flashlight_bpe_recog_step_args(**kwargs) -> Dict:
+    default_args = {
+        "epochs": ["best"],
+        "lm_scales": [2.0],
+        "prior_scales": [0.3],
+        "feature_type": FeatureType.SAMPLES,
+        "lexicon_type": LexiconType.FLASHLIGHT,
+        "lm_type": LmType.ARPA_FILE,
+        "vocab_type": VocabType.LEXICON_INVENTORY,
+        "mem_rqmt": 16,
+        "time_rqmt": 24,
+    }
+
+    return recursive_update(default_args, kwargs)
+
+
+def get_ctc_greedy_bpe_recog_step_args(**kwargs) -> Dict:
+    default_args = {
+        "epochs": ["best"],
+        "prior_scales": [0.3],
+        "feature_type": FeatureType.SAMPLES,
+        "lexicon_type": LexiconType.NONE,
+        "lm_type": LmType.NONE,
+        "vocab_type": VocabType.LEXICON_INVENTORY,
+        "convert_bpe_results": True,
+        "mem_rqmt": 16,
+        "time_rqmt": 24,
     }
 
     return recursive_update(default_args, kwargs)

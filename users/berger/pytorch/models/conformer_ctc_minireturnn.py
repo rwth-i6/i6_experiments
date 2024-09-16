@@ -1,12 +1,14 @@
 from dataclasses import dataclass
 from enum import Enum, auto
+from sisyphus import tk
+from sisyphus.delayed_ops import DelayedFormat
 
 import i6_models.assemblies.conformer as conformer_i6
 import i6_models.parts.conformer as conformer_parts_i6
 import torch
 from i6_core.returnn.config import CodeWrapper
 from i6_experiments.common.setups.returnn_pytorch.serialization import Collection
-from i6_experiments.common.setups.serialization import Import, PartialImport
+from i6_experiments.common.setups.serialization import Import, PartialImport, Call
 from i6_experiments.users.berger.pytorch.serializers.basic import (
     get_basic_pt_network_serializer,
 )
@@ -37,7 +39,7 @@ class ConformerCTCConfig(ModelConfiguration):
     dim: int
     target_size: int
     dropout: float
-    skip_specaug_epochs: int
+    specaug_start_epoch: int
 
 
 class ConformerCTCModel(torch.nn.Module):
@@ -48,7 +50,7 @@ class ConformerCTCModel(torch.nn.Module):
         self.dropout = torch.nn.Dropout(cfg.dropout)
         self.final_linear = torch.nn.Linear(cfg.dim, cfg.target_size)
         self.specaugment = cfg.specaugment()
-        self.skip_specaug_epochs = cfg.skip_specaug_epochs
+        self.skip_specaug_epochs = cfg.specaug_start_epoch
 
     def forward(self, audio_features: torch.Tensor, audio_features_len: torch.Tensor):
         with torch.no_grad():
@@ -57,7 +59,7 @@ class ConformerCTCModel(torch.nn.Module):
             sequence_mask = lengths_to_padding_mask(input_len)
 
             run_ctx = get_run_ctx()
-            if self.training and run_ctx.epoch > self.skip_specaug_epochs:
+            if self.training and run_ctx.epoch >= self.skip_specaug_epochs:
                 x = self.specaugment(x)  # [B, T, F]
 
         x, sequence_mask = self.conformer(x, sequence_mask)  # [B, T, F]
@@ -71,9 +73,14 @@ class ConformerCTCModel(torch.nn.Module):
         return log_probs, torch.sum(sequence_mask, dim=1).type(torch.int32)
 
 
-def get_train_serializer(
+class TrainType(Enum):
+    TORCH_CTC_LOSS = auto()
+    RASR_FAST_BW = auto()
+
+
+def get_torch_train_serializer(
     model_config: ConformerCTCConfig,
-    **_,
+    **kwargs,
 ) -> Collection:
     assert __package__ is not None
     pytorch_package = __package__.rpartition(".")[0]
@@ -82,8 +89,55 @@ def get_train_serializer(
         model_config=model_config,
         additional_serializer_objects=[
             Import(f"{pytorch_package}.train_steps_minireturnn.ctc.train_step"),
+            PartialImport(
+                code_object_path=f"{pytorch_package}.train_steps_minireturnn.ctc.train_step",
+                import_as="train_step",
+                hashed_arguments=kwargs,
+                unhashed_arguments={},
+                unhashed_package_root="",
+            ),
         ],
     )
+
+
+def get_rasr_train_serializer(
+    model_config: ConformerCTCConfig,
+    rasr_loss_config: tk.Path,
+    **_,
+) -> Collection:
+    assert __package__ is not None
+    pytorch_package = __package__.rpartition(".")[0]
+    return get_basic_pt_network_serializer(
+        module_import_path=f"{__name__}.{ConformerCTCModel.__name__}",
+        model_config=model_config,
+        additional_serializer_objects=[
+            Import("i6_models.parts.rasr_fsa.RasrFsaBuilder"),
+            Call(
+                "RasrFsaBuilder",
+                kwargs=[("config_path", DelayedFormat("'{}'", rasr_loss_config)), ("tdp_scale", "0.0")],
+                return_assign_variables="fsa_builder",
+            ),
+            PartialImport(
+                code_object_path=f"{pytorch_package}.train_steps_minireturnn.ctc.train_step_rasr",
+                unhashed_package_root="",
+                hashed_arguments={"rasr_fsa_builder": CodeWrapper("fsa_builder")},
+                unhashed_arguments={},
+                import_as="train_step",
+            ),
+        ],
+    )
+
+
+def get_train_serializer(
+    model_config: ConformerCTCConfig,
+    train_type: TrainType = TrainType.TORCH_CTC_LOSS,
+    **kwargs,
+) -> Collection:
+    if train_type == TrainType.TORCH_CTC_LOSS:
+        return get_torch_train_serializer(model_config, **kwargs)
+    if train_type == TrainType.RASR_FAST_BW:
+        return get_rasr_train_serializer(model_config, **kwargs)
+    raise NotImplementedError
 
 
 def get_prior_serializer(
@@ -108,6 +162,7 @@ def get_prior_serializer(
 class RecogType(Enum):
     RASR = auto()
     FLASHLIGHT = auto()
+    GREEDY = auto()
 
 
 def get_rasr_recog_serializer(
@@ -137,7 +192,6 @@ def get_flashlight_recog_serializer(
     kwargs.setdefault("prior_file", CodeWrapper("prior_file"))
     kwargs.setdefault("prior_scale", CodeWrapper("prior_scale"))
     kwargs.setdefault("lm_scale", CodeWrapper("lm_scale"))
-
     return get_basic_pt_network_serializer(
         module_import_path=f"{__name__}.{ConformerCTCModel.__name__}",
         model_config=model_config,
@@ -161,6 +215,41 @@ def get_flashlight_recog_serializer(
     )
 
 
+def get_greedy_recog_serializer(
+    model_config: ConformerCTCConfig,
+    **kwargs,
+) -> Collection:
+    assert __package__ is not None
+    pytorch_package = __package__.rpartition(".")[0]
+
+    # Try to get some values from the returnn config at runtime since they will be set in the systems recognition step
+    kwargs.setdefault("vocab_file", CodeWrapper("vocab_file"))
+    kwargs.setdefault("prior_file", CodeWrapper("prior_file"))
+    kwargs.setdefault("prior_scale", CodeWrapper("prior_scale"))
+
+    return get_basic_pt_network_serializer(
+        module_import_path=f"{__name__}.{ConformerCTCModel.__name__}",
+        model_config=model_config,
+        additional_serializer_objects=[
+            PartialImport(
+                code_object_path=f"{pytorch_package}.forward_minireturnn.ctc.greedy_ctc_decoder_init_hook",
+                import_as="forward_init_hook",
+                hashed_arguments=kwargs,
+                unhashed_arguments={},
+                unhashed_package_root="",
+            ),
+            Import(
+                f"{pytorch_package}.forward_minireturnn.ctc.greedy_ctc_decoder_forward_step",
+                import_as="forward_step",
+            ),
+            Import(
+                f"{pytorch_package}.forward_minireturnn.ctc.greedy_ctc_decoder_finish_hook",
+                import_as="forward_finish_hook",
+            ),
+        ],
+    )
+
+
 def get_recog_serializer(
     model_config: ConformerCTCConfig,
     recog_type: RecogType = RecogType.RASR,
@@ -170,6 +259,8 @@ def get_recog_serializer(
         return get_rasr_recog_serializer(model_config, **kwargs)
     if recog_type == RecogType.FLASHLIGHT:
         return get_flashlight_recog_serializer(model_config, **kwargs)
+    if recog_type == RecogType.GREEDY:
+        return get_greedy_recog_serializer(model_config, **kwargs)
     raise NotImplementedError
 
 
@@ -287,5 +378,5 @@ def get_default_config_v1(num_outputs: int) -> ConformerCTCConfig:
         dim=512,
         target_size=num_outputs,
         dropout=0.1,
-        skip_specaug_epochs=10,
+        specaug_start_epoch=10,
     )

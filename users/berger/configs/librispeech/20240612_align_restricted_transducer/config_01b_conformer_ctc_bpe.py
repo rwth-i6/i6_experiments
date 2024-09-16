@@ -1,22 +1,23 @@
 import copy
 import os
+from typing import List, Optional
 
 import i6_core.rasr as rasr
+from i6_models.parts.conformer.norm import LayerNormNC
 import torch
 from i6_core.returnn.config import CodeWrapper, ReturnnConfig
 from i6_experiments.common.setups.serialization import Import
 from i6_experiments.users.berger.args.experiments import ctc as exp_args
 from i6_experiments.users.berger.args.returnn.config import Backend, get_returnn_config
 from i6_experiments.users.berger.args.returnn.learning_rates import LearningRateSchedules, Optimizers
-from i6_experiments.users.berger.corpus.librispeech.ctc_data import get_librispeech_data_dumped_labels
+from i6_experiments.users.berger.corpus.librispeech.ctc_data import get_librispeech_data_bpe
 from i6_experiments.users.berger.pytorch.custom_parts.specaugment import (
     SpecaugmentByLengthConfigV1,
     SpecaugmentByLengthModuleV1,
 )
 from i6_experiments.users.berger.pytorch.models import conformer_ctc_minireturnn as conformer_ctc
 from i6_experiments.users.berger.recipe.summary.report import SummaryReport
-from i6_experiments.users.berger.systems.dataclasses import ConfigVariant, FeatureType, ReturnnConfigs, SummaryKey
-from i6_experiments.users.berger.systems.functors.recognition.returnn_search import LexiconType, LmType, VocabType
+from i6_experiments.users.berger.systems.dataclasses import ConfigVariant, ReturnnConfigs, SummaryKey
 from i6_experiments.users.berger.systems.returnn_native_system import ReturnnNativeSystem
 from i6_experiments.users.berger.util import default_tools_v2
 from i6_models.assemblies.conformer import (
@@ -32,21 +33,19 @@ from i6_models.parts.conformer import (
 )
 from i6_models.parts.frontend.generic_frontend import FrontendLayerType, GenericFrontendV1, GenericFrontendV1Config
 from i6_models.primitives.feature_extraction import (
+    LogMelFeatureExtractionV1,
+    LogMelFeatureExtractionV1Config,
     RasrCompatibleLogMelFeatureExtractionV1,
     RasrCompatibleLogMelFeatureExtractionV1Config,
 )
 from sisyphus import gs, tk
-from i6_experiments.users.berger.pytorch.custom_parts.sequential import SequentialModuleV1, SequentialModuleV1Config
-from i6_experiments.users.berger.pytorch.custom_parts.speed_perturbation import (
-    SpeedPerturbationModuleV1,
-    SpeedPerturbationModuleV1Config,
-)
 
 # ********** Settings **********
 
 rasr.flow.FlowNetwork.default_flags = {"cache_mode": "task_dependent"}
 
-num_outputs = 79
+bpe_size = 128
+target_size = 185
 num_subepochs = 1000
 sub_checkpoints = [100, 200, 300, 400, 500, 600, 700, 800, 900, 950, 960, 970, 980, 990, 1000]
 
@@ -60,54 +59,44 @@ tools.returnn_root = tk.Path("/u/berger/repositories/MiniReturnn")
 
 
 def returnn_config_generator(
-    variant: ConfigVariant, train_data_config: dict, dev_data_config: dict, num_subepochs: int, **kwargs
+    variant: ConfigVariant,
+    train_data_config: dict,
+    dev_data_config: dict,
+    **kwargs,
 ) -> ReturnnConfig:
-    if kwargs.get("speed_perturbation", False):
-        feature_extraction = ModuleFactoryV1(
-            module_class=SequentialModuleV1,
-            cfg=SequentialModuleV1Config(
-                submodules=[
-                    ModuleFactoryV1(
-                        module_class=SpeedPerturbationModuleV1,
-                        cfg=SpeedPerturbationModuleV1Config(
-                            min_speed_factor=0.9,
-                            max_speed_factor=1.1,
-                        ),
-                    ),
-                    ModuleFactoryV1(
-                        module_class=RasrCompatibleLogMelFeatureExtractionV1,
-                        cfg=RasrCompatibleLogMelFeatureExtractionV1Config(
-                            sample_rate=16000,
-                            win_size=0.025,
-                            hop_size=0.01,
-                            min_amp=1.175494e-38,
-                            num_filters=80,
-                            alpha=0.97 if kwargs.get("preemphasis", False) else 0.0,
-                        ),
-                    ),
-                ]
-            ),
-        )
-    else:
-        feature_extraction = ModuleFactoryV1(
-            module_class=RasrCompatibleLogMelFeatureExtractionV1,
-            cfg=RasrCompatibleLogMelFeatureExtractionV1Config(
-                sample_rate=16000,
-                win_size=0.025,
-                hop_size=0.01,
-                min_amp=1.175494e-38,
-                num_filters=80,
-                alpha=0.97 if kwargs.get("preemphasis", False) else 0.0,
-            ),
-        )
+    feature_extraction = ModuleFactoryV1(
+        module_class=RasrCompatibleLogMelFeatureExtractionV1,
+        cfg=RasrCompatibleLogMelFeatureExtractionV1Config(
+            sample_rate=16000,
+            win_size=0.025,
+            hop_size=0.01,
+            min_amp=1.175494e-38,
+            num_filters=80,
+            alpha=0.97 if kwargs.get("preemphasis", False) else 0.0,
+        ),
+    )
+    # feature_extraction = ModuleFactoryV1(
+    #     module_class=LogMelFeatureExtractionV1,
+    #     cfg=LogMelFeatureExtractionV1Config(
+    #         sample_rate=16000,
+    #         win_size=0.025,
+    #         hop_size=0.01,
+    #         f_min=60,
+    #         f_max=7600,
+    #         min_amp=1e-10,
+    #         num_filters=80,
+    #         center=False,
+    #         n_fft=400,
+    #     ),
+    # )
 
     specaugment = ModuleFactoryV1(
         module_class=SpecaugmentByLengthModuleV1,
         cfg=SpecaugmentByLengthConfigV1(
-            time_min_num_masks=1,
+            time_min_num_masks=2,
             time_max_mask_per_n_frames=25,
             time_mask_max_size=20,
-            freq_min_num_masks=1,
+            freq_min_num_masks=2,
             freq_max_num_masks=5,
             freq_mask_max_size=16,
         ),
@@ -158,7 +147,7 @@ def returnn_config_generator(
         kernel_size=31,
         dropout=0.1,
         activation=torch.nn.SiLU(),
-        norm=torch.nn.BatchNorm1d(num_features=512, affine=False),
+        norm=LayerNormNC(512),
     )
 
     block_cfg = ConformerBlockV2Config(
@@ -166,6 +155,7 @@ def returnn_config_generator(
         mhsa_cfg=mhsa_cfg,
         conv_cfg=conv_cfg,
         modules=["ff", "conv", "mhsa", "ff"],
+        scales=[0.5, 1.0, 1.0, 0.5],
     )
 
     conformer_cfg = ConformerEncoderV2Config(
@@ -179,9 +169,9 @@ def returnn_config_generator(
         specaugment=specaugment,
         conformer=ModuleFactoryV1(ConformerEncoderV2, cfg=conformer_cfg),
         dim=512,
-        target_size=num_outputs,
+        target_size=target_size,
         dropout=0.1,
-        skip_specaug_epochs=10,
+        specaug_start_epoch=11,
     )
 
     if variant == ConfigVariant.TRAIN:
@@ -196,13 +186,14 @@ def returnn_config_generator(
     if variant == ConfigVariant.PRIOR:
         extra_config: dict = {
             "forward": train_data_config,
-            "extern_data": {"forward": {"dim": 1}},
+            # "extern_data": {"forward": {"dim": 1}},
             "torch_amp_options": {"dtype": "bfloat16"},
         }
     if variant == ConfigVariant.RECOG:
-        extra_config: dict = {
-            "extern_data": {"data": {"dim": 1}},
-        }
+        # extra_config: dict = {
+        #     "extern_data": {"data": {"dim": 1}},
+        # }
+        extra_config = {}
 
     nick_model = """
 get_model = __import__("functools").partial(
@@ -248,7 +239,7 @@ get_model = __import__("functools").partial(
                 "max_dim_feat": 16,
             },
             "specauc_start_epoch": 11,
-            "label_target_size": 79,
+            "label_target_size": 184,
             "conformer_size": 512,
             "num_layers": 12,
             "num_heads": 8,
@@ -264,16 +255,31 @@ get_model = __import__("functools").partial(
 )
     """
 
+    if variant == ConfigVariant.TRAIN:
+        serializer_kwargs = {"train_type": conformer_ctc.TrainType.TORCH_CTC_LOSS, "blank_idx": target_size - 1}
+    if variant == ConfigVariant.PRIOR:
+        serializer_kwargs = {}
+    if variant == ConfigVariant.RECOG:
+        serializer_kwargs = {
+            "recog_type": conformer_ctc.RecogType.FLASHLIGHT,
+            # "recog_type": conformer_ctc.RecogType.GREEDY,
+            "beam_size": kwargs.get("beam_size", 1024),
+            "beam_threshold": kwargs.get("beam_threshold", 14.0),
+        }
+        if kwargs.get("beam_size_token", None):
+            serializer_kwargs["beam_size_token"] = kwargs.get("beam_size_token", None)
+
     return get_returnn_config(
         num_epochs=num_subepochs,
         target="classes",
         python_prolog=[
             "import sys",
             "sys.path.insert(0, '/u/berger/asr-exps/librispeech/20240612_align_restricted_transducer/recipe')",
+            "sys.path.insert(0, '/work/asr4/berger/repositories/rasr_versions/master/lib/linux-x86_64-standard')",
             Import("i6_experiments.users.berger.corpus.general.speed_perturbation.legacy_speed_perturbation"),
         ],
         extra_python=[
-            conformer_ctc.get_serializer(model_config, variant=variant, recog_type=conformer_ctc.RecogType.FLASHLIGHT)
+            conformer_ctc.get_serializer(model_config, variant=variant, **serializer_kwargs),
         ],
         # extra_python=[
         #     nick_model,
@@ -281,10 +287,13 @@ get_model = __import__("functools").partial(
         #         "i6_experiments.users.berger.pytorch.train_steps_minireturnn.ctc.train_step_nick",
         #         import_as="train_step",
         #     ),
-        # ],
+        # ]
+        # if variant == ConfigVariant.TRAIN
+        # else [conformer_ctc.get_serializer(model_config, variant=variant, **serializer_kwargs)],
         extern_data_config=False,
         backend=Backend.PYTORCH,
-        grad_noise=0.0,
+        use_lovely_tensors=False,
+        grad_noise=None,
         grad_clip=1.0,
         optimizer=Optimizers.AdamW,
         weight_decay=kwargs.get("weight_decay", 0.01),
@@ -300,39 +309,57 @@ get_model = __import__("functools").partial(
         batch_size=kwargs.get("batch_size", 36000 * 160),
         use_chunking=False,
         extra_config=extra_config,
+        use_base_config=False,
     )
 
 
 def get_returnn_config_collection(
     train_data_config: dict,
     dev_data_config: dict,
-    num_subepochs: int,
+    beam_sizes: Optional[List[int]] = None,
+    beam_thresholds: Optional[List[float]] = None,
+    beam_sizes_token: Optional[List[int]] = None,
     **kwargs,
 ) -> ReturnnConfigs[ReturnnConfig]:
+    if beam_sizes and beam_thresholds and beam_sizes_token:
+        recog_configs = {
+            f"recog_bs-{beam_size}_bt-{beam_threshold}_bst-{beam_size_token}": returnn_config_generator(
+                variant=ConfigVariant.RECOG,
+                train_data_config=train_data_config,
+                dev_data_config=dev_data_config,
+                beam_size=beam_size,
+                beam_threshold=beam_threshold,
+                beam_size_token=beam_size_token,
+                **kwargs,
+            )
+            for beam_size in beam_sizes
+            for beam_threshold in beam_thresholds
+            for beam_size_token in beam_sizes_token
+        }
+    else:
+        recog_configs = {
+            "recog": returnn_config_generator(
+                variant=ConfigVariant.RECOG,
+                train_data_config=train_data_config,
+                dev_data_config=dev_data_config,
+                **kwargs,
+            )
+        }
+
     return ReturnnConfigs(
         train_config=returnn_config_generator(
             variant=ConfigVariant.TRAIN,
             train_data_config=train_data_config,
             dev_data_config=dev_data_config,
-            num_subepochs=num_subepochs,
             **kwargs,
         ),
         prior_config=returnn_config_generator(
             variant=ConfigVariant.PRIOR,
             train_data_config=train_data_config,
             dev_data_config=dev_data_config,
-            num_subepochs=num_subepochs,
             **kwargs,
         ),
-        recog_configs={
-            "recog": returnn_config_generator(
-                variant=ConfigVariant.RECOG,
-                train_data_config=train_data_config,
-                dev_data_config=dev_data_config,
-                num_subepochs=num_subepochs,
-                **kwargs,
-            )
-        },
+        recog_configs=recog_configs,
     )
 
 
@@ -340,16 +367,13 @@ def run_exp() -> SummaryReport:
     assert tools.returnn_root
     assert tools.returnn_python_exe
     assert tools.rasr_binary_path
-    data = get_librispeech_data_dumped_labels(
-        num_classes=num_outputs,
+    data = get_librispeech_data_bpe(
+        bpe_size=bpe_size,
         returnn_root=normal_returnn,
         returnn_python_exe=tools.returnn_python_exe,
-        rasr_binary_path=tools.rasr_binary_path,
         add_unknown_phoneme_and_mapping=False,
         use_augmented_lexicon=True,
-        feature_type=FeatureType.SAMPLES,
         partition_epoch=10,
-        ogg_dataset=True,
     )
 
     for data_input in data.data_inputs.values():
@@ -358,18 +382,17 @@ def run_exp() -> SummaryReport:
     # ********** Step args **********
 
     train_args = exp_args.get_ctc_train_step_args(num_epochs=num_subepochs, gpu_mem_rqmt=24)
-    recog_args = exp_args.get_ctc_recog_step_args(
-        num_classes=num_outputs,
+    recog_args = exp_args.get_ctc_flashlight_bpe_recog_step_args(
         epochs=sub_checkpoints,
         prior_scales=[0.3],
-        lm_scales=[0.9],
-        search_stats=True,
-        feature_type=FeatureType.SAMPLES,
-        lexicon_type=LexiconType.FLASHLIGHT,
-        lm_type=LmType.ARPA_FILE,
-        vocab_type=VocabType.RETURNN,
+        lm_scales=[2.0],
         ogg_dataset=True,
     )
+    # recog_args = exp_args.get_ctc_greedy_bpe_recog_step_args(
+    #     epochs=sub_checkpoints,
+    #     prior_scales=[0.3],
+    #     ogg_dataset=True,
+    # )
 
     # ********** System **********
 
@@ -389,7 +412,7 @@ def run_exp() -> SummaryReport:
             SummaryKey.ERR,
             SummaryKey.RTF,
         ],
-        summary_sort_keys=[SummaryKey.CORPUS, SummaryKey.ERR],
+        summary_sort_keys=[SummaryKey.ERR, SummaryKey.CORPUS],
     )
 
     system.init_corpora(
@@ -409,53 +432,77 @@ def run_exp() -> SummaryReport:
     # ********** Returnn Configs **********
 
     system.add_experiment_configs(
-        "Conformer_CTC_ogg",
+        "Conformer_CTC_bpe-128",
         get_returnn_config_collection(
             train_data_config=data.train_data_config,
             dev_data_config=data.cv_data_config,
-            num_subepochs=num_subepochs,
             preemphasis=False,
-            speed_perturbation=False,
-        ),
-    )
-
-    data.train_data_config = copy.deepcopy(data.train_data_config)
-    del data.train_data_config["datasets"]["data"]["audio"]["pre_process"]
-    system.add_experiment_configs(
-        "Conformer_CTC_ogg_model-speed-perturb",
-        get_returnn_config_collection(
-            train_data_config=data.train_data_config,
-            dev_data_config=data.cv_data_config,
-            num_subepochs=num_subepochs,
-            preemphasis=False,
-            speed_perturbation=True,
         ),
     )
 
     data.train_data_config = copy.deepcopy(data.train_data_config)
     data.train_data_config["datasets"]["data"]["audio"]["preemphasis"] = 0.0
-
     data.cv_data_config = copy.deepcopy(data.cv_data_config)
     data.cv_data_config["datasets"]["data"]["audio"]["preemphasis"] = 0.0
+
     system.add_experiment_configs(
-        "Conformer_CTC_ogg_model-speed-perturb_model-preemph",
+        "Conformer_CTC_bpe-128_model-preemph",
         get_returnn_config_collection(
             train_data_config=data.train_data_config,
             dev_data_config=data.cv_data_config,
-            num_subepochs=num_subepochs,
             preemphasis=True,
-            speed_perturbation=True,
         ),
     )
 
+    data.train_data_config = copy.deepcopy(data.train_data_config)
+    data.train_data_config["datasets"]["data"]["audio"]["preemphasis"] = 0.97
+    data.cv_data_config = copy.deepcopy(data.cv_data_config)
+    data.cv_data_config["datasets"]["data"]["audio"]["preemphasis"] = 0.97
+
     system.run_train_step(**train_args)
     system.run_dev_recog_step(
-        exp_names=["Conformer_CTC_ogg", "Conformer_CTC_ogg_model-speed-perturb"],
+        exp_names=["Conformer_CTC_bpe-128"],
         extra_audio_config={"preemphasis": 0.97},
         **recog_args,
     )
     system.run_dev_recog_step(
-        exp_names=["Conformer_CTC_ogg_model-speed-perturb_model-preemph"],
+        exp_names=["Conformer_CTC_bpe-128_model-preemph"],
+        **recog_args,
+    )
+
+    recog_args["epochs"] = sub_checkpoints[-1:]
+    recog_args["lm_scales"] = [1.4, 1.6, 1.8, 2.0, 2.2]
+    system.run_dev_recog_step(
+        exp_names=["Conformer_CTC_bpe-128"],
+        extra_audio_config={"preemphasis": 0.97},
+        **recog_args,
+    )
+    recog_args["epochs"] = sub_checkpoints[-1:]
+    recog_args["prior_scales"] = [0.2, 0.3, 0.4]
+    recog_args["lm_scales"] = [1.5, 1.6, 1.7]
+    system.run_dev_recog_step(
+        exp_names=["Conformer_CTC_bpe-128"],
+        extra_audio_config={"preemphasis": 0.97},
+        **recog_args,
+    )
+
+    system.add_experiment_configs(
+        "Conformer_CTC_bpe-128",
+        get_returnn_config_collection(
+            train_data_config=data.train_data_config,
+            dev_data_config=data.cv_data_config,
+            preemphasis=False,
+            beam_sizes=[32, 128, 512, 1024, 2048],
+            beam_sizes_token=[0, 16, 32, 64, 128],
+            beam_thresholds=[10.0, 50.0, 100.0, 500.0],
+        ),
+    )
+    recog_args["epochs"] = sub_checkpoints[-1:]
+    recog_args["prior_scales"] = [0.2]
+    recog_args["lm_scales"] = [1.5]
+    system.run_dev_recog_step(
+        exp_names=["Conformer_CTC_bpe-128"],
+        extra_audio_config={"preemphasis": 0.97},
         **recog_args,
     )
 

@@ -1,7 +1,9 @@
 import copy
 from typing import Dict, List, Tuple, Optional
+from i6_experiments.common.helpers.text_labels.subword_nmt_bpe import BPESettings
 from i6_core.meta.system import CorpusObject
 import i6_experiments.common.datasets.librispeech as lbs_dataset
+from i6_experiments.common.datasets.librispeech.vocab import get_subword_nmt_bpe_v2
 from i6_experiments.common.setups.rasr import util as rasr_util
 from i6_experiments.users.berger.corpus.general.helpers import filter_unk_in_corpus_object
 from i6_experiments.users.berger.helpers.rasr import convert_legacy_corpus_object_dict_to_scorable
@@ -174,3 +176,7 @@ def get_final_gmm_output():
     output_args.add_feature_to_extract("gt")
 
     return output_args
+
+
+def get_bpe(size: int) -> BPESettings:
+    return get_subword_nmt_bpe_v2(corpus_key="train-other-960", bpe_size=size)
