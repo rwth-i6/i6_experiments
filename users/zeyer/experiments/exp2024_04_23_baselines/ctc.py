@@ -1639,11 +1639,19 @@ class Model(rf.Module):
                 class _HookedSelfAtt(rf.SelfAttention):
                     def __call__(self, source: Tensor, **kwargs) -> Tensor:
                         if rf.get_run_ctx().epoch <= disable_encoder_self_attention["num_epochs"]:
-                            return super().__call__(source, **kwargs)
-                        # Very simple way to disable self-attention. Only the value transformation.
-                        # We could make this more efficient here by only do the matmul for the value,
-                        # but this here is simpler now, and also more safe that we do it correctly...
-                        return self.forward_qkv(source)[-1]
+                            # Very simple way to disable self-attention. Only the value transformation.
+                            # We could make this more efficient here by only do the matmul for the value,
+                            # but this here is simpler now, and also more safe that we do it correctly...
+                            q, k, v = self.forward_qkv(source)
+                            output, _ = rf.merge_dims(
+                                v, dims=(self.num_heads, self.value_dim_per_head), out_dim=self.value_dim_total
+                            )
+                            if self.proj:
+                                output = self.proj(output)
+                            return output
+
+                        # Default behavior, not disabled.
+                        return super().__call__(source, **kwargs)
 
                 _HookedSelfAtt.__bases__ = (layer.self_att.__class__,)
                 layer.self_att.__class__ = _HookedSelfAtt
