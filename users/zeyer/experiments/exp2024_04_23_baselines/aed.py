@@ -177,6 +177,45 @@ def py():
     )
     for vocab, sample, alpha, max_seq_len_via_audio, model_name, model_cfg in [
         ("spm10k", "spm", 0.7, False, None, {}),  # 4.98
+        (
+            "spm10k",
+            "spm",
+            0.7,
+            False,
+            "relPosAttDef-noBias-featBN",
+            {
+                "enc_conformer_layer": rf.build_dict(
+                    rf.encoder.conformer.ConformerEncoderLayer,
+                    ff=rf.build_dict(
+                        rf.encoder.conformer.ConformerPositionwiseFeedForward,
+                        activation=rf.build_dict(rf.relu_square),
+                        with_bias=False,
+                    ),
+                    num_heads=8,
+                ),
+                "feature_batch_norm": True,
+            },
+        ),
+        (
+            "spm10k",
+            "spm",
+            0.7,
+            False,
+            "relPosAttDef-noBias-noSelfAtt20-featBN",
+            {
+                "enc_conformer_layer": rf.build_dict(
+                    rf.encoder.conformer.ConformerEncoderLayer,
+                    ff=rf.build_dict(
+                        rf.encoder.conformer.ConformerPositionwiseFeedForward,
+                        activation=rf.build_dict(rf.relu_square),
+                        with_bias=False,
+                    ),
+                    num_heads=8,
+                ),
+                "feature_batch_norm": True,
+                "disable_encoder_self_attention": {"num_epochs": 20},
+            },
+        ),
         ("spm10k", "bpe", 0.005, False, None, {}),
         ("spm10k", "bpe", 0.01, False, None, {}),  # 5.14
         # TODO ("spm10k", "bpe", 0.01, True, None, {}),
@@ -676,6 +715,13 @@ class Model(rf.Module):
             model_dim=dec_model_dim,
             sequential=dec_sequential,
         )
+
+        disable_encoder_self_attention = config.typed_value("disable_encoder_self_attention", None)
+        if disable_encoder_self_attention is not None:
+            # Disable self-attention in encoder.
+            from .model_ext.disable_self_att import apply_disable_self_attention_
+
+            apply_disable_self_attention_(self.encoder, disable_encoder_self_attention)
 
         self.target_dim = target_dim
         self.blank_idx = blank_idx
