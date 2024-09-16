@@ -50,9 +50,6 @@ from .dump_att_weights import dump_hdfs, scatter_att_weights
 
 from sisyphus import Path
 
-sys.path.append("/work/asr3/zeyer/schmitt/venvs/imageio-2.35.0")
-import imageio
-
 fontsize_axis = 16
 fontsize_ticks = 14
 

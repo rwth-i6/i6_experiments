@@ -606,7 +606,7 @@ def full_sum_training(
     for i, layer_idx in enumerate(aux_loss_layers):
       if layer_idx > len(model.encoder.layers):
         continue
-      linear = getattr(model, f"enc_aux_logits_{layer_idx}")
+      linear = getattr(model.encoder, f"enc_aux_logits_{layer_idx}")
       aux_logits = linear(collected_outputs[str(layer_idx - 1)])
       aux_loss = rf.ctc_loss(
         logits=aux_logits,
