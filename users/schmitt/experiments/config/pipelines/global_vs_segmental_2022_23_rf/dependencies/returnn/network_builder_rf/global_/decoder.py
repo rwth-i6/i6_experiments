@@ -73,6 +73,7 @@ class GlobalAttDecoder(BaseLabelDecoder):
           input_embed: rf.Tensor,
           state: Optional[rf.State] = None,
           use_mini_att: bool = False,
+          hard_att_opts: Optional[Dict] = None,
   ) -> Tuple[Dict[str, rf.Tensor], rf.State]:
     """step of the inner loop"""
     if state is None:
@@ -116,12 +117,27 @@ class GlobalAttDecoder(BaseLabelDecoder):
         else:
           weight_feedback = rf.zeros((self.enc_key_total_dim,))
 
-        s_transformed = self.s_transformed(s)
-        energy_in = enc_ctx + weight_feedback + s_transformed
+        if hard_att_opts is None or rf.get_run_ctx().epoch > hard_att_opts["until_epoch"]:
+          s_transformed = self.s_transformed(s)
+          energy_in = enc_ctx + weight_feedback + s_transformed
 
-        energy = self.energy(rf.tanh(energy_in))
-        att_weights = rf.softmax(energy, axis=enc_spatial_dim)
-        att_weights = rf.dropout(att_weights, drop_prob=self.att_weight_dropout, axis=None)
+          energy = self.energy(rf.tanh(energy_in))
+          att_weights = rf.softmax(energy, axis=enc_spatial_dim)
+          att_weights = rf.dropout(att_weights, drop_prob=self.att_weight_dropout, axis=None)
+        if hard_att_opts is not None and rf.get_run_ctx().epoch <= hard_att_opts["until_epoch"] + hard_att_opts["num_interpolation_epochs"]:
+          if hard_att_opts["frame"] == "middle":
+            frame_idx = rf.copy_to_device(enc_spatial_dim.dyn_size_ext) // 2
+          else:
+            frame_idx = rf.constant(hard_att_opts["frame"], dims=enc_spatial_dim.dyn_size_ext.dims)
+          frame_idx.sparse_dim = enc_spatial_dim
+          one_hot = rf.one_hot(frame_idx)
+          one_hot = rf.expand_dim(one_hot, dim=self.att_num_heads)
+
+          if rf.get_run_ctx().epoch <= hard_att_opts["until_epoch"] and hard_att_opts["frame"] == "middle":
+            att_weights = one_hot
+          else:
+            interpolation_factor = (rf.get_run_ctx().epoch - hard_att_opts["until_epoch"]) / hard_att_opts["num_interpolation_epochs"]
+            att_weights = (1 - interpolation_factor) * one_hot + interpolation_factor * att_weights
 
         if self.use_weight_feedback:
           state_.accum_att_weights = state.accum_att_weights + att_weights * inv_fertility * 0.5

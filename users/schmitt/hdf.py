@@ -106,7 +106,7 @@ def dump_hdf_numpy(
 def dump_hdf_rf(
         hdf_dataset: SimpleHDFWriter,
         data: Tensor,
-        batch_dim: Dim,
+        batch_dim: Optional[Dim],
         seq_tags: Union[Tensor, List[str]],
 ):
   """
@@ -117,10 +117,14 @@ def dump_hdf_rf(
   :param seq_tags: torch.Tensor of shape (batch,)
   :param dimension: int, the sparse dimension of the data
   """
-  spatial_dims = data.remaining_dims(batch_dim)
-  data_raw = data.copy_transpose(
-    [batch_dim] + spatial_dims
-  ).raw_tensor
+  if batch_dim is None:
+    spatial_dims = data.dims
+    data_raw = data.raw_tensor[None, :]
+  else:
+    spatial_dims = data.remaining_dims(batch_dim)
+    data_raw = data.copy_transpose(
+      [batch_dim] + spatial_dims
+    ).raw_tensor
 
   n_batch = data_raw.shape[0]
 
@@ -128,7 +132,13 @@ def dump_hdf_rf(
     seq_lens = {}
     for i, dim in enumerate(spatial_dims):
       if dim.is_dynamic():
-        seq_lens[i] = dim.get_size_tensor().raw_tensor.numpy()
+        size_tensor = dim.get_size_tensor().raw_tensor
+        if isinstance(size_tensor, torch.Tensor):
+          size_tensor = size_tensor.numpy()
+        else:
+          assert isinstance(size_tensor, np.ndarray)
+          size_tensor = np.array([size_tensor.item()])
+        seq_lens[i] = size_tensor
 
     batch_seq_sizes = np.zeros((n_batch, len(seq_lens)), dtype="int32")
     for i, (axis, size) in enumerate(sorted(seq_lens.items())):
@@ -139,13 +149,16 @@ def dump_hdf_rf(
 
   seq_tags = list(seq_tags.raw_tensor) if isinstance(seq_tags, Tensor) else seq_tags
 
-  if data_raw.requires_grad:
-    data_raw = data_raw.detach()  # cannot call .numpy() on a tensor that requires grad
+  if isinstance(data_raw, torch.Tensor):
+    if data_raw.requires_grad:
+      data_raw = data_raw.detach()  # cannot call .numpy() on a tensor that requires grad
+    data_raw = data_raw.cpu().numpy()
+
 
   hdf_dataset.insert_batch(
-    data_raw.cpu().numpy(),
+    data_raw,
     seq_len=seq_lens,
     seq_tag=seq_tags,
     extra={"seq_sizes": batch_seq_sizes}
   )
-  hdf_dataset.close()
+  # hdf_dataset.close()

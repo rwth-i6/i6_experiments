@@ -46,6 +46,9 @@ def model_realign_(
         non_blank_targets: rf.Tensor,
         non_blank_targets_spatial_dim: Dim,
 ):
+  from returnn.config import get_global_config
+  config = get_global_config()
+
   batch_dims = data.remaining_dims(data_spatial_dim)
   max_num_labels = rf.reduce_max(
     non_blank_targets_spatial_dim.dyn_size_ext,
@@ -57,16 +60,27 @@ def model_realign_(
   # using a beam size of max_num_labels * 2 ensures that we search the whole lattice: the recombination is done
   # after top-k, which means each node at a certain time step can have two hypotheses which lead there. at most,
   # there are max_num_labels nodes at a time step, hence the max_num_labels * 2 beam size.
-  viterbi_alignment, seq_log_prob, viterbi_alignment_spatial_dim, _, _, beam_dim = recog.model_recog(
-    model=model,
-    data=data,
-    data_spatial_dim=data_spatial_dim,
-    beam_size=max_num_labels * 2,
-    use_recombination="max",
-    cheating_targets=non_blank_targets,
-    cheating_targets_spatial_dim=non_blank_targets_spatial_dim,
-    return_non_blank_seqs=False,
-  )
+  if config.bool("debug", False):
+    viterbi_alignment, seq_log_prob, viterbi_alignment_spatial_dim, _, _, beam_dim = recog.model_recog_on_lattice(
+      model=model,
+      data=data,
+      data_spatial_dim=data_spatial_dim,
+      beam_size=max_num_labels * 2,
+      use_recombination="max",
+      cheating_targets=non_blank_targets,
+      cheating_targets_spatial_dim=non_blank_targets_spatial_dim,
+    )
+  else:
+    viterbi_alignment, seq_log_prob, viterbi_alignment_spatial_dim, _, _, beam_dim = recog.model_recog(
+      model=model,
+      data=data,
+      data_spatial_dim=data_spatial_dim,
+      beam_size=max_num_labels * 2,
+      use_recombination="max",
+      cheating_targets=non_blank_targets,
+      cheating_targets_spatial_dim=non_blank_targets_spatial_dim,
+      return_non_blank_seqs=False,
+    )
 
   # reduce to best score (remove beam dim)
   seq_log_prob = rf.reduce_max(seq_log_prob, axis=beam_dim)

@@ -23,11 +23,25 @@ def global_att_returnn_label_sync_beam_search(
         run_analysis: bool = False,
         analyze_gradients: bool = False,
         plot_att_weights: bool = True,
-        att_weight_seq_tags: Optional[List] = None,
+        att_weight_seq_tags: Optional[List] = (
+          "dev-other/3660-6517-0005/3660-6517-0005",
+          "dev-other/6467-62797-0001/6467-62797-0001",
+          "dev-other/6467-62797-0002/6467-62797-0002",
+          "dev-other/7697-105815-0015/7697-105815-0015",
+          "dev-other/7697-105815-0051/7697-105815-0051",
+        ),
         corpus_keys: Tuple[str, ...] = ("dev-other",),
         batch_size: Optional[int] = None,
         concat_num: Optional[int] = None,
         only_do_analysis: bool = False,
+        analysis_do_forced_align_on_gradients: bool = False,
+        analysis_plot_encoder_gradient_graph: bool = False,
+        analysis_dump_gradients: bool = False,
+        analysis_dump_self_att: bool = False,
+        analysis_ref_alignment_opts: Optional[Dict] = None,
+        analysis_dump_gradients_input_layer_name: str = "encoder_input",
+        analysis_analyze_gradients_plot_encoder_layers: bool = False,
+        analsis_analyze_gradients_plot_log_gradients: bool = False,
 ):
   if lm_type is not None:
     assert len(checkpoint_aliases) == 1, "Do LM recog only for the best checkpoint"
@@ -49,15 +63,29 @@ def global_att_returnn_label_sync_beam_search(
     recog_opts["batch_size"] = batch_size
 
   if run_analysis:
-    assert len(corpus_keys) == 1 and corpus_keys[0] == "dev-other", "Only dev-other supported for analysis"
-  analysis_opts = {
-    "att_weight_seq_tags": att_weight_seq_tags,
-    "analyze_gradients": analyze_gradients,
-    "plot_att_weights": plot_att_weights,
-    "ref_alignment_hdf": LibrispeechBPE10025_CTC_ALIGNMENT.alignment_paths["dev-other"],
-    "ref_alignment_blank_idx": LibrispeechBPE10025_CTC_ALIGNMENT.model_hyperparameters.blank_idx,
-    "ref_alignment_vocab_path": LibrispeechBPE10025_CTC_ALIGNMENT.vocab_path,
-  }
+    assert len(corpus_keys) == 1, "Only one corpus key is supported for analysis"
+    if analysis_ref_alignment_opts is None:
+      analysis_ref_alignment_opts = {}
+    analysis_opts = {
+      "att_weight_seq_tags": list(att_weight_seq_tags) if att_weight_seq_tags is not None else None,
+      "analyze_gradients": analyze_gradients,
+      "plot_att_weights": plot_att_weights,
+      "ref_alignment_hdf": analysis_ref_alignment_opts.get(
+        "ref_alignment_hdf", LibrispeechBPE10025_CTC_ALIGNMENT.alignment_paths[corpus_keys[0]]),
+      "ref_alignment_blank_idx": analysis_ref_alignment_opts.get(
+        "ref_alignment_blank_idx", LibrispeechBPE10025_CTC_ALIGNMENT.model_hyperparameters.blank_idx),
+      "ref_alignment_vocab_path": analysis_ref_alignment_opts.get(
+        "ref_alignment_vocab_path", LibrispeechBPE10025_CTC_ALIGNMENT.vocab_path),
+      "do_forced_align_on_gradients": analysis_do_forced_align_on_gradients,
+      "plot_encoder_gradient_graph": analysis_plot_encoder_gradient_graph,
+      "dump_gradients": analysis_dump_gradients,
+      "dump_gradients_input_layer_name": analysis_dump_gradients_input_layer_name,
+      "analyze_gradients_plot_encoder_layers": analysis_analyze_gradients_plot_encoder_layers,
+      "analyze_gradients_plot_log_gradients": analsis_analyze_gradients_plot_log_gradients,
+      "dump_self_att": analysis_dump_self_att,
+    }
+  else:
+    analysis_opts = None
 
   ReturnnGlobalAttDecodingPipeline(
     alias=alias,

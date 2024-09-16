@@ -25,7 +25,13 @@ def center_window_returnn_frame_wise_beam_search(
         beam_size_list: Tuple[int, ...] = (12,),
         checkpoint_aliases: Tuple[str, ...] = ("last", "best", "best-4-avg"),
         run_analysis: bool = False,
-        att_weight_seq_tags: Optional[List] = None,
+        att_weight_seq_tags: Optional[List] = (
+          "dev-other/3660-6517-0005/3660-6517-0005",
+          "dev-other/6467-62797-0001/6467-62797-0001",
+          "dev-other/6467-62797-0002/6467-62797-0002",
+          "dev-other/7697-105815-0015/7697-105815-0015",
+          "dev-other/7697-105815-0051/7697-105815-0051",
+        ),
         pure_torch: bool = False,
         use_recombination: Optional[str] = "sum",
         batch_size: Optional[int] = None,
@@ -33,6 +39,9 @@ def center_window_returnn_frame_wise_beam_search(
         reset_eos_params: bool = False,
         analyze_gradients: bool = False,
         concat_num: Optional[int] = None,
+        only_do_analysis: bool = False,
+        analysis_dump_gradients: bool = False,
+        analysis_ground_truth_hdf: Optional[Path] = None,
 ):
   if lm_type is not None:
     assert len(checkpoint_aliases) == 1, "Do LM recog only for the best checkpoint"
@@ -59,18 +68,23 @@ def center_window_returnn_frame_wise_beam_search(
     recog_opts["batch_size"] = batch_size
 
   if run_analysis:
-    assert len(corpus_keys) == 1 and corpus_keys[0] == "dev-other", "Only dev-other supported for analysis"
-  analysis_opts = {
-    "att_weight_seq_tags": att_weight_seq_tags,
-    "analyze_gradients": analyze_gradients,
-    "ref_alignment_hdf": LibrispeechBPE10025_CTC_ALIGNMENT.alignment_paths["dev-other"],
-    "ref_alignment_blank_idx": LibrispeechBPE10025_CTC_ALIGNMENT.model_hyperparameters.blank_idx,
-    "ref_alignment_vocab_path": LibrispeechBPE10025_CTC_ALIGNMENT.vocab_path,
-  }
-  if isinstance(config_builder.variant_params["dependencies"], LibrispeechBPE10025):
+    assert len(corpus_keys) == 1, "Only one corpus key is supported for analysis"
+    analysis_opts = {
+      "att_weight_seq_tags": list(att_weight_seq_tags) if att_weight_seq_tags is not None else None,
+      "analyze_gradients": analyze_gradients,
+      "ref_alignment_hdf": LibrispeechBPE10025_CTC_ALIGNMENT.alignment_paths[corpus_keys[0]],
+      "ref_alignment_blank_idx": LibrispeechBPE10025_CTC_ALIGNMENT.model_hyperparameters.blank_idx,
+      "ref_alignment_vocab_path": LibrispeechBPE10025_CTC_ALIGNMENT.vocab_path,
+      "dump_gradients": analysis_dump_gradients,
+    }
+    if analysis_ground_truth_hdf is None and isinstance(config_builder.variant_params["dependencies"], LibrispeechBPE10025):
+      analysis_ground_truth_hdf = LibrispeechBPE10025_CTC_ALIGNMENT.alignment_paths[corpus_keys[0]]
+
     analysis_opts.update({
-      "ground_truth_hdf": LibrispeechBPE10025_CTC_ALIGNMENT.alignment_paths["dev-other"],
+      "ground_truth_hdf": analysis_ground_truth_hdf,
     })
+  else:
+    analysis_opts = None
 
   ReturnnSegmentalAttDecodingPipeline(
     alias=alias,
@@ -87,4 +101,5 @@ def center_window_returnn_frame_wise_beam_search(
     recog_opts=recog_opts,
     search_alias=f'returnn_decoding{"_pure_torch" if pure_torch else ""}',
     corpus_keys=corpus_keys,
+    only_do_analysis=only_do_analysis,
   ).run()

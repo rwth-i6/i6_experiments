@@ -11,6 +11,7 @@ from i6_experiments.users.schmitt.returnn_frontend.model_interfaces.recog import
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.base import _batch_size_factor
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.segmental.model import SegmentalAttentionModel
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.segmental.model_new.label_model.model import SegmentalAttLabelDecoder
+from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.segmental.model_new.label_model.train import get_score_lattice
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.global_.decoder import GlobalAttDecoder
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.segmental import recombination
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.segmental import utils
@@ -787,6 +788,255 @@ def model_recog(
   )
 
   return best_alignment, seq_log_prob, enc_spatial_dim, non_blank_targets, non_blank_targets_spatial_dim, beam_dim
+
+
+def model_recog_on_lattice(
+        *,
+        model: SegmentalAttentionModel,
+        data: Tensor,
+        data_spatial_dim: Dim,
+        beam_size: int,
+        cheating_targets: Tensor,
+        cheating_targets_spatial_dim: Dim,
+        use_recombination: Optional[str] = None,
+) -> Tuple[Tensor, Tensor, Dim, Tensor, Dim, Dim]:
+  """
+  Function is run within RETURNN.
+
+  Earlier we used the generic beam_search function,
+  but now we just directly perform the search here,
+  as this is overall simpler and shorter.
+
+  :return:
+      recog results including beam {batch, beam, out_spatial},
+      log probs {batch, beam},
+      out_spatial_dim,
+      final beam_dim
+  """
+  assert any(
+    isinstance(model.blank_decoder, cls) for cls in (
+      BlankDecoderV1,
+      BlankDecoderV3,
+      BlankDecoderV4,
+      BlankDecoderV5,
+      BlankDecoderV6,
+      BlankDecoderV7,
+      BlankDecoderV8,
+      BlankDecoderV9,
+    )
+  ) or model.blank_decoder is None, "blank_decoder not supported"
+  if model.blank_decoder is None:
+    assert model.use_joint_model, "blank_decoder is None, so use_joint_model must be True"
+  assert model.label_decoder_state in {"nb-lstm", "joint-lstm", "nb-2linear-ctx1", "trafo"}
+
+  # --------------------------------- init encoder, dims, etc ---------------------------------
+
+  enc_args, enc_spatial_dim = model.encoder.encode(data, in_spatial_dim=data_spatial_dim)
+
+  max_seq_len = enc_spatial_dim.get_size_tensor()
+  max_seq_len = rf.reduce_max(max_seq_len, axis=max_seq_len.dims)
+
+  batch_dims = data.remaining_dims((data_spatial_dim, data.feature_dim))
+  beam_dim = Dim(1, name="initial-beam")
+  batch_dims_ = [beam_dim] + batch_dims
+  # backrefs = rf.zeros(batch_dims_, dtype="int32")
+
+  segment_starts, segment_lens, center_positions = utils.get_segment_starts_and_lens(
+    rf.sequence_mask(batch_dims + [enc_spatial_dim]),  # this way, every frame is interpreted as non-blank
+    enc_spatial_dim,
+    model.center_window_size,
+    batch_dims,
+    enc_spatial_dim
+  )
+
+  seq_log_prob = rf.constant(0.0, dims=batch_dims_, device="cpu")
+
+  if use_recombination:
+    assert len(batch_dims) == 1
+    assert use_recombination in {"sum", "max"}
+    seq_hash = rf.constant(0, dims=batch_dims_, dtype="int64", device="cpu")
+  else:
+    seq_hash = None
+
+  # lists of [B, beam] tensors
+  seq_targets = []
+  seq_backrefs = []
+
+  output_dim = model.target_dim if model.use_joint_model else model.align_target_dim
+
+  score_lattice, cheating_targets_padded_spatial_dim = get_score_lattice(
+    model=model,
+    enc_args=enc_args,
+    enc_spatial_dim=enc_spatial_dim,
+    non_blank_targets=cheating_targets,
+    non_blank_targets_spatial_dim=cheating_targets_spatial_dim,
+    segment_starts=segment_starts,
+    segment_lens=segment_lens,
+    center_positions=center_positions,
+    batch_dims=batch_dims,
+  )
+  log_prob_lattice = rf.log_softmax(score_lattice, axis=output_dim)
+  log_prob_lattice = rf.copy_to_device(log_prob_lattice, "cpu")
+
+  # --------------------------------- cheating targets ---------------------------------
+
+  # add blank idx on the right
+  # this way, when the label index for gathering reached the last non-blank index, it will gather blank after that
+  # which then only allows corresponding hypotheses to be extended by blank
+  cheating_targets_padded, _ = rf.pad(
+    cheating_targets,
+    axes=[cheating_targets_spatial_dim],
+    padding=[(0, 1)],
+    value=model.blank_idx,
+    out_dims=[cheating_targets_padded_spatial_dim],
+  )
+  cheating_targets_padded = rf.copy_to_device(cheating_targets_padded, "cpu")
+
+  # rf.pad falsely pads right after the padding. this means that for shorter seqs, the padding is behind the padding.
+  cheating_targets_padded = rf.where(
+    rf.range_over_dim(cheating_targets_padded_spatial_dim, device="cpu") < cheating_targets_padded_spatial_dim.dyn_size_ext - 1,
+    cheating_targets_padded,
+    model.blank_idx
+  )
+
+  cheating_targets_padded_spatial_sizes = cheating_targets_padded_spatial_dim.dyn_size_ext
+  cheating_targets_spatial_sizes = cheating_targets_spatial_dim.dyn_size_ext
+  max_num_labels = rf.reduce_max(
+    cheating_targets_spatial_sizes, axis=cheating_targets_spatial_sizes.dims
+  ).raw_tensor.item()
+  single_col_dim = Dim(dimension=max_num_labels + 1, name="max-num-labels")
+  label_indices = rf.zeros(batch_dims_, dtype="int32", sparse_dim=single_col_dim, device="cpu")
+  prev_label_indices = label_indices.copy()
+  enc_spatial_sizes = enc_spatial_dim.dyn_size_ext
+
+  vocab_range = rf.range_over_dim(output_dim, device="cpu")
+  blank_tensor = rf.convert_to_tensor(model.blank_idx, dtype=vocab_range.dtype, device="cpu")
+
+  # --------------------------------- main loop ---------------------------------
+
+  i = 0
+  while i < max_seq_len.raw_tensor:
+    output_log_prob_t = rf.gather(log_prob_lattice, indices=rf.constant(i, dims=batch_dims, device="cpu"), axis=enc_spatial_dim)
+    output_log_prob = rf.gather(output_log_prob_t, indices=label_indices, axis=cheating_targets_padded_spatial_dim)
+
+    # for shorter seqs in the batch, set the blank score to zero and the others to ~-inf
+    output_log_prob = rf.where(
+      rf.convert_to_tensor(i >= enc_spatial_sizes, device="cpu"),
+      rf.copy_to_device(rf.sparse_to_dense(
+        model.blank_idx,
+        axis=output_dim,
+        label_value=0.0,
+        other_value=-1.0e30
+      ), device="cpu"),
+      output_log_prob
+    )
+
+    label_ground_truth = rf.gather(
+      cheating_targets_padded,
+      indices=label_indices,
+      axis=cheating_targets_padded_spatial_dim,
+      clip_to_valid=True
+    )
+    # mask label log prob in order to only allow hypotheses corresponding to the ground truth:
+    # log prob needs to correspond to the next non-blank label...
+    output_log_prob_mask = vocab_range == label_ground_truth
+    rem_frames = enc_spatial_sizes - i
+    rem_labels = cheating_targets_spatial_sizes - label_indices
+    # ... or to blank if there are more frames than labels left
+    output_log_prob_mask = rf.logical_or(
+      output_log_prob_mask,
+      rf.logical_and(
+        vocab_range == blank_tensor,
+        rem_frames > rem_labels
+      )
+    )
+    output_log_prob = rf.where(
+      output_log_prob_mask,
+      output_log_prob,
+      rf.constant(-1.0e30, dims=batch_dims + [beam_dim, output_dim], device="cpu")
+    )
+
+    # ------------------- recombination -------------------
+
+    if use_recombination:
+      seq_log_prob = recombination.recombine_seqs(
+        seq_targets,
+        seq_log_prob,
+        seq_hash,
+        beam_dim,
+        batch_dims[0],
+        use_sum=use_recombination == "sum"
+      )
+
+    beam_size = min(
+      min((i + 1) * 2, rf.reduce_max(rem_frames, axis=rem_frames.dims).raw_tensor.item() * 2), max_num_labels * 2)
+
+    # ------------------- top-k -------------------
+
+    seq_log_prob = seq_log_prob + output_log_prob  # Batch, InBeam, Vocab
+    seq_log_prob, (backrefs, target), beam_dim = rf.top_k(
+      seq_log_prob,
+      k_dim=Dim(beam_size, name=f"dec-step{i}-beam"),
+      axis=[beam_dim, output_dim]
+    )
+    seq_targets.append(target)
+    seq_backrefs.append(backrefs)
+
+    prev_label_indices = rf.gather(label_indices, indices=backrefs)
+
+    # ------------------- update hash for recombination -------------------
+
+    if use_recombination:
+      seq_hash = recombination.update_seq_hash(seq_hash, target, backrefs, model.blank_idx)
+
+    # mask for updating label-sync states
+    update_state_mask = rf.convert_to_tensor(target != model.blank_idx)
+
+    label_indices = rf.where(
+      update_state_mask,
+      rf.where(
+        prev_label_indices == cheating_targets_padded_spatial_sizes - 1,
+        prev_label_indices,
+        prev_label_indices + 1
+      ),
+      prev_label_indices
+    )
+
+    i += 1
+
+  # last recombination
+  if use_recombination:
+    seq_log_prob = recombination.recombine_seqs(
+      seq_targets,
+      seq_log_prob,
+      seq_hash,
+      beam_dim,
+      batch_dims[0],
+      use_sum=use_recombination == "sum"
+    )
+
+  # Backtrack via backrefs, resolve beams.
+  seq_targets_ = []
+  indices = rf.range_over_dim(beam_dim, device="cpu")  # FinalBeam -> FinalBeam
+  for backrefs, target in zip(seq_backrefs[::-1], seq_targets[::-1]):
+    # indices: FinalBeam -> Beam
+    # backrefs: Beam -> PrevBeam
+    seq_targets_.insert(0, rf.gather(target, indices=indices))
+    indices = rf.gather(backrefs, indices=indices)  # FinalBeam -> PrevBeam
+
+  seq_targets__ = TensorArray(seq_targets_[0])
+  for target in seq_targets_:
+    seq_targets__ = seq_targets__.push_back(target)
+  seq_targets = seq_targets__.stack(axis=enc_spatial_dim)
+
+  best_hyps = rf.reduce_argmax(seq_log_prob, axis=beam_dim)
+  best_alignment = rf.gather(
+    seq_targets,
+    indices=best_hyps,
+    axis=beam_dim,
+  )
+
+  return best_alignment, seq_log_prob, enc_spatial_dim, cheating_targets, cheating_targets_spatial_dim, beam_dim
 
 
 # RecogDef API

@@ -3,8 +3,20 @@ from typing import Optional, Tuple, Dict
 from returnn.tensor import Tensor, Dim, single_step_dim
 import returnn.frontend as rf
 from returnn.frontend.decoder.transformer import TransformerDecoder, TransformerDecoderLayer
+from returnn.frontend.encoder.conformer import ConformerEncoderLayer, ConformerConvSubsample
 
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.segmental import utils
+from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.self_att import EpochConditionedRelPosSelfAttention
+from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.encoder.global_ import (
+  GlobalConformerEncoder,
+  GlobalConformerEncoderWAbsolutePos,
+  GlobalConformerEncoderWFinalLayerNorm,
+  ConformerEncoderLayerWoFinalLayerNorm,
+  ConformerEncoderLayerWoConvolution,
+  ConformerConvBlockWZeroPadding,
+  ConformerConvSubsampleWZeroPadding,
+)
+from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.encoder.ff import LinearEncoder
 
 _batch_size_factor = 160
 
@@ -309,7 +321,12 @@ class BaseLabelDecoder(rf.Module):
   ) -> rf.Tensor:
     att0 = rf.dot(att_weights, enc, reduce=reduce_dim, use_mask=False)
     att0.feature_dim = self.enc_out_dim
-    att, _ = rf.merge_dims(att0, dims=(self.att_num_heads, self.enc_out_dim))
+    if self.att_num_heads in att0.dims:
+      att, _ = rf.merge_dims(att0, dims=(self.att_num_heads, self.enc_out_dim))
+    else:
+      att = att0
+      # change feature dim to num_heads*enc_out_dim (this is what we expect)
+      att = utils.copy_tensor_replace_dim_tag(att, self.enc_out_dim, self.att_num_heads * self.enc_out_dim)
     return att
 
   def decode_logits(self, *, s: Tensor, input_embed: Tensor, att: Tensor, h_t: Optional[Tensor] = None) -> Tensor:
@@ -393,14 +410,77 @@ def get_common_config_params():
 
   use_readout = config.bool("use_readout", True)
 
-  conformer_w_abs_pos_enc = config.bool("conformer_w_abs_pos_enc", False)
-  conformer_wo_rel_pos_enc = config.bool("conformer_wo_rel_pos_enc", False)
-  disable_enc_self_att_until_epoch = config.int("disable_enc_self_att_until_epoch", 0)
+  use_feed_forward_encoder = config.bool("use_feed_forward_encoder", False)
+
+  if use_feed_forward_encoder:
+    encoder_cls = LinearEncoder
+    encoder_layer = None
+    encoder_layer_opts = None
+    conformer_num_layers = 6
+    conformer_out_dim = 512
+    enc_input_layer_cls = ConformerConvSubsample
+  else:
+    conformer_w_abs_pos_enc = config.bool("conformer_w_abs_pos_enc", False)
+    conformer_wo_rel_pos_enc = config.bool("conformer_wo_rel_pos_enc", False)
+    conformer_wo_final_layer_norm_per_layer = config.bool("conformer_wo_final_layer_norm_per_layer", False)
+    conformer_wo_convolution = config.bool("conformer_wo_convolution", False)
+    disable_enc_self_att_until_epoch = config.int("disable_enc_self_att_until_epoch", 0)
+    conformer_num_layers = config.int("conformer_num_layers", 12)
+    conformer_out_dim = config.int("conformer_out_dim", 512)
+    conformer_conv_w_zero_padding = config.bool("conformer_conv_w_zero_padding", False)
+    conv_frontend_w_zero_padding = config.bool("conv_frontend_w_zero_padding", False)
+    assert not (conformer_w_abs_pos_enc and conformer_wo_final_layer_norm_per_layer), "only one of them allowed for now"
+    assert not (conformer_wo_final_layer_norm_per_layer and conformer_wo_convolution), "only one of them allowed for now"
+
+    if conformer_wo_rel_pos_enc:
+      self_att_opts = {}
+      self_att = rf.SelfAttention
+    else:
+      self_att_opts = dict(
+        # Shawn et al 2018 style, old RETURNN way.
+        with_bias=False,
+        with_linear_pos=False,
+        with_pos_bias=False,
+        learnable_pos_emb=True,
+        separate_pos_emb_per_head=False,
+        pos_emb_dropout=pos_emb_dropout,
+      )
+      if disable_enc_self_att_until_epoch:
+        self_att_opts["enable_from_epoch"] = disable_enc_self_att_until_epoch
+        self_att = EpochConditionedRelPosSelfAttention
+      else:
+        self_att = rf.RelPosSelfAttention
+
+    encoder_layer_opts = dict(
+      conv_norm_opts=dict(use_mask=True),
+      self_att_opts=self_att_opts,
+      self_att=self_att,
+      ff_activation=lambda x: rf.relu(x) ** 2.0,
+      conv_block=ConformerConvBlockWZeroPadding if conformer_conv_w_zero_padding else None,
+    )
+
+    if conformer_wo_final_layer_norm_per_layer:
+      encoder_layer = ConformerEncoderLayerWoFinalLayerNorm
+    elif conformer_wo_convolution:
+      encoder_layer = ConformerEncoderLayerWoConvolution
+    else:
+      encoder_layer = ConformerEncoderLayer
+
+    if conformer_w_abs_pos_enc:
+      encoder_cls = GlobalConformerEncoderWAbsolutePos
+    elif conformer_wo_final_layer_norm_per_layer:
+      encoder_cls = GlobalConformerEncoderWFinalLayerNorm
+    else:
+      encoder_cls = GlobalConformerEncoder
+
+    if conv_frontend_w_zero_padding:
+      enc_input_layer_cls = ConformerConvSubsampleWZeroPadding
+    else:
+      enc_input_layer_cls = ConformerConvSubsample
 
   return dict(
     in_dim=in_dim,
     enc_aux_logits=enc_aux_logits or (),
-    pos_emb_dropout=pos_emb_dropout,
     language_model=language_model,
     use_weight_feedback=use_weight_feedback,
     use_att_ctx_in_state=use_att_ctx_in_state,
@@ -414,9 +494,12 @@ def get_common_config_params():
     ilm_dimension=ilm_dimension,
     readout_dimension=readout_dimension,
     use_readout=use_readout,
-    conformer_w_abs_pos_enc=conformer_w_abs_pos_enc,
-    conformer_wo_rel_pos_enc=conformer_wo_rel_pos_enc,
-    disable_enc_self_att_until_epoch=disable_enc_self_att_until_epoch,
+    encoder_layer=encoder_layer,
+    encoder_layer_opts=encoder_layer_opts,
+    encoder_cls=encoder_cls,
+    enc_num_layers=conformer_num_layers,
+    enc_out_dim=Dim(name="enc", dimension=conformer_out_dim, kind=Dim.Types.Feature),
+    enc_input_layer_cls=enc_input_layer_cls,
   )
 
 

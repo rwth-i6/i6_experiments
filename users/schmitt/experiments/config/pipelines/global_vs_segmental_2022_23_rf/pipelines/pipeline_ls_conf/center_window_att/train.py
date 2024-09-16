@@ -19,6 +19,8 @@ from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segment
 
 from i6_core.returnn.training import PtCheckpoint
 
+from sisyphus import Path
+
 
 def _get_optimizer_alias(optimizer_opts: Dict):
   return (
@@ -55,6 +57,7 @@ def train_center_window_att(
         filter_data_len: Optional[float] = None,
         filter_target_len: Optional[float] = None,
         accum_grad_multiple_step: int = 4,
+        hdf_targets: Optional[Dict[str, Path]] = None,
 ):
   train_opts, train_rqmt, alias_ = get_common_train_opts_rqmt(
     n_epochs=n_epochs,
@@ -75,6 +78,7 @@ def train_center_window_att(
     keep_epochs=keep_epochs,
     filter_data_len=filter_data_len,
     filter_target_len=filter_target_len,
+    accum_grad_multiple_step=accum_grad_multiple_step,
   )
 
   alias += (
@@ -99,14 +103,14 @@ def train_center_window_att(
       "seq_postfix": None,
     })
   else:
-    assert training_type == "fixed-path"
+    assert training_type == "fixed-path" and hdf_targets is not None
     train_opts.update({
       "train_def": viterbi_training,
       "train_step_func": _returnn_v2_train_step,
     })
     train_opts["train_def"] = viterbi_training
     train_opts["dataset_opts"].update({
-      "hdf_targets": LibrispeechBPE10025_CTC_ALIGNMENT.alignment_paths,
+      "hdf_targets": hdf_targets,
       "target_is_alignment": True,
       # "seq_postfix": None,
     })

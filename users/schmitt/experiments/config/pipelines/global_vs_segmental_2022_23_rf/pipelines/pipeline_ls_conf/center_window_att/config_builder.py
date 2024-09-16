@@ -34,6 +34,7 @@ def get_center_window_att_config_builder_rf(
         target_embed_dimension: int = 640,
         readout_dimension: int = 1024,
         ilm_dimension: int = 1024,
+        use_trafo_att: bool = False
 ) -> Tuple[str, LibrispeechSegmentalAttConformerConfigBuilderRF]:
   assert bpe_vocab_size in {10025, 1056, 5048, 10240}
 
@@ -93,7 +94,8 @@ def get_center_window_att_config_builder_rf(
     use_correct_dim_tags=use_correct_dim_tags,
     target_embed_dimension=target_embed_dimension,
     readout_dimension=readout_dimension,
-    ilm_dimension=ilm_dimension
+    ilm_dimension=ilm_dimension,
+    use_trafo_att=use_trafo_att,
   )
 
   alias = (
@@ -102,7 +104,7 @@ def get_center_window_att_config_builder_rf(
     f"{'w' if use_weight_feedback else 'wo'}-wf_"
     f"{'w' if use_att_ctx_in_state else 'wo'}-ctx-in-s/"
     f"bd-{blank_decoder_version}/"
-    f"{label_decoder_state}"
+    f"{label_decoder_state}{'_trafo-att' if use_trafo_att else ''}/"
     f"{'_cur_frame_in_readout' if use_current_frame_in_readout else ''}"
     f"{'_cur_frame_in_readout_w_gate' if use_current_frame_in_readout_w_gate else ''}"
     f"{'_cur_frame_in_readout_random' if use_current_frame_in_readout_random else ''}"

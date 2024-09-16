@@ -5,9 +5,9 @@ from returnn.tensor import Tensor, Dim
 import returnn.frontend as rf
 
 
-def get_non_blank_mask(x: Tensor, blank_idx: int):
-  non_blank_mask = x != rf.convert_to_tensor(blank_idx)
-  return rf.where(non_blank_mask, rf.sequence_mask(x.dims), rf.convert_to_tensor(False))
+def get_non_blank_mask(x: Tensor, blank_idx: int, device=rf.get_default_device()):
+  non_blank_mask = x != rf.convert_to_tensor(blank_idx, device=device)
+  return rf.where(non_blank_mask, rf.sequence_mask(x.dims, device=device), rf.convert_to_tensor(False, device=device))
 
 
 def get_masked(

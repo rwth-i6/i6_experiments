@@ -1,4 +1,4 @@
-from typing import Tuple, Optional, List
+from typing import Tuple, Optional, List, Dict
 import itertools
 
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.config_builder_rf.base import LibrispeechGlobalAttConformerConfigBuilderRF
@@ -34,6 +34,11 @@ def train_global_att(
         cluster_reservation_string: Optional[str] = None,
         accum_grad_multiple_step: int = 4,
         use_torch_amp: bool = False,
+        random_seed: Optional[int] = None,
+        disable_enc_self_att_until_epoch: Optional[int] = None,
+        hard_att_opts: Optional[Dict] = None,
+        cutoff_initial_silence: bool = False,
+        use_speed_pert_w_flip: bool = False,
 ):
   # alias += (
   #         f"/train_from_scratch/{n_epochs}-epochs_wo-ctc-loss"
@@ -62,9 +67,16 @@ def train_global_att(
     cluster_reservation_string=cluster_reservation_string,
     accum_grad_multiple_step=accum_grad_multiple_step,
     use_torch_amp=use_torch_amp,
+    random_seed=random_seed,
+    disable_enc_self_att_until_epoch=disable_enc_self_att_until_epoch,
+    cutoff_initial_silence=cutoff_initial_silence,
+    use_speed_pert_w_flip=use_speed_pert_w_flip,
   )
 
   alias += alias_
+
+  if hard_att_opts is not None:
+    alias += f"_hard-att-on-{hard_att_opts['frame']}-until-epoch-{hard_att_opts['until_epoch']}"
 
   train_opts.update({
     "train_step_func": _returnn_v2_train_step,

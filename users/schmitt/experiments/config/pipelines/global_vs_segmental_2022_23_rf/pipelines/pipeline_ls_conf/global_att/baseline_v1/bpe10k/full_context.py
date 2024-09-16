@@ -19,8 +19,26 @@ def run_exps():
       lr_scheduling_type="dyn_lr_piecewise_linear_epoch-wise_v2",
       filter_data_len=19.5 * 16_000,  # sample rate 16kHz
     ):
+      recog.global_att_returnn_label_sync_beam_search(
+        alias=train_alias,
+        config_builder=config_builder,
+        checkpoint=checkpoint,
+        checkpoint_aliases=("last",),
+        corpus_keys=("dev-other", "dev-clean", "test-other", "test-clean"),
+      )
+      recog.global_att_returnn_label_sync_beam_search(
+        alias=train_alias,
+        config_builder=config_builder,
+        checkpoint=checkpoint,
+        checkpoint_aliases=("last",),
+        run_analysis=True,
+        analysis_dump_gradients=True,
+        only_do_analysis=True,
+        corpus_keys=("train",),
+        att_weight_seq_tags=None,
+      )
       for epoch, chckpt in checkpoint["checkpoints"].items():
-        if epoch == 70:
+        if epoch == 70 or epoch in range(1, 60, 5):
           recog.global_att_returnn_label_sync_beam_search(
             alias=train_alias,
             config_builder=config_builder,
@@ -42,6 +60,17 @@ def run_exps():
         checkpoint_aliases=("best-4-avg",),
         run_analysis=True,
         analyze_gradients=True,
+      )
+      recog.global_att_returnn_label_sync_beam_search(
+        alias=train_alias,
+        config_builder=config_builder,
+        checkpoint=checkpoint,
+        checkpoint_aliases=("best-4-avg",),
+        run_analysis=True,
+        analysis_dump_gradients=True,
+        only_do_analysis=True,
+        corpus_keys=("train",),
+        att_weight_seq_tags=None,
       )
       for concat_num in (8,):
         recog.global_att_returnn_label_sync_beam_search(

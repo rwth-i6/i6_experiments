@@ -60,7 +60,7 @@ class TrainExperiment(ABC):
       log_verbosity=5,
       returnn_python_exe=config_builder.variant_params["returnn_python_exe"],
       returnn_root=config_builder.variant_params["returnn_root"],
-      mem_rqmt=self.train_rqmt.get("mem", 24),
+      mem_rqmt=self.train_rqmt.get("mem", 15),
       time_rqmt=self.train_rqmt.get("time", 30),
       cpu_rqmt=self.train_rqmt.get("cpu", 4),
       horovod_num_processes=self.train_rqmt.get("horovod_num_processes", None),

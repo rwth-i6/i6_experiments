@@ -54,14 +54,21 @@ def get_common_train_opts_rqmt(
         accum_grad_multiple_step: int = 4,
         cluster_reservation_string: Optional[str] = None,
         use_torch_amp: bool = False,
+        random_seed: Optional[int] = None,
+        disable_enc_self_att_until_epoch: Optional[int] = None,
+        cutoff_initial_silence: bool = False,
+        use_speed_pert_w_flip: bool = False,
 ):
   alias = (
     f"/{training_type}_from_{'scratch' if checkpoint_alias is None else checkpoint_alias}"
     f"/{n_epochs}-ep_bs-{batch_size}{'_mgpu-4' if use_mgpu else ''}_{'w' if use_speed_pert else 'wo'}-sp"
+    f"{'-w-flip' if use_speed_pert_w_flip else ''}"
     f"_{'curric' if use_curriculum_learning else 'no-curric'}_lr-{lr_scheduling_type}"
     f"_reg-{regularization_type}{'_filter-data-' + str(filter_data_len) if filter_data_len else ''}"
     f"{'_filter-target-' + str(filter_target_len) if filter_target_len else ''}"
-    f"_accum-{accum_grad_multiple_step}"
+    f"_accum-{accum_grad_multiple_step}{'_rand-seed-' + str(random_seed) if random_seed is not None else ''}"
+    f"{'_no-self-att-until-' + str(disable_enc_self_att_until_epoch) if disable_enc_self_att_until_epoch is not None else ''}"
+    f"{'_cut-init-sil' if cutoff_initial_silence else ''}"
   )
 
   if ce_aux_loss_layers:
@@ -76,6 +83,8 @@ def get_common_train_opts_rqmt(
   train_opts = {
     "dataset_opts": {
       "use_speed_pert": use_speed_pert,
+      "use_speed_pert_w_flip": use_speed_pert_w_flip,
+      "cutoff_initial_silence": cutoff_initial_silence,
     },
     # "import_model_train_epoch1": None,
     "accum_grad_multiple_step": accum_grad_multiple_step,
@@ -108,6 +117,12 @@ def get_common_train_opts_rqmt(
 
   if gpu_mem_rqmt == 24 and use_torch_amp:
     train_opts["torch_amp"] = "bfloat16"
+
+  if random_seed is not None:
+    train_opts["random_seed"] = random_seed
+
+  if disable_enc_self_att_until_epoch is not None:
+    train_opts["disable_enc_self_att_until_epoch"] = disable_enc_self_att_until_epoch
 
   if checkpoint_alias is not None:
     train_opts["preload_from_files"] = {
@@ -166,7 +181,10 @@ def get_common_train_opts_rqmt(
       "distributed_launch_cmd": "torchrun"
     })
     train_opts["torch_distributed"] = {"reduce_type": "param", "param_sync_step": 100}
+
+  train_rqmt["sbatch_args"] = []
   if cluster_reservation_string:
-    train_rqmt["sbatch_args"] = ["--reservation", cluster_reservation_string]
+    train_rqmt["sbatch_args"] += ["--reservation", cluster_reservation_string]
+  train_rqmt["sbatch_args"] += ["--exclude", "cn-260"]
 
   return train_opts, train_rqmt, alias

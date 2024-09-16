@@ -2,7 +2,7 @@ from i6_core.returnn.config import CodeWrapper
 
 from . import hdf
 
-from typing import List, Optional, Dict
+from typing import List, Optional, Dict, Union
 from sisyphus import Path
 
 
@@ -16,11 +16,12 @@ def get_dataset_dict(
         pre_process: Optional[CodeWrapper],
         seq_ordering: str,
         epoch_wise_filter: Optional[Dict],
-        hdf_targets: Optional[Path] = None,
+        hdf_targets: Optional[Union[Path, List[Path]]] = None,
         seq_postfix: Optional[int] = 0,
         use_targets: bool = True,
         peak_normalization: bool = True,
         model_file: Optional[Path] = None,
+        post_process: Optional[CodeWrapper] = None,
 ):
   # either not use targets or pass arguments for either BPE or SentencePieces
   assert not use_targets or ((bpe_file is not None and vocab_file is not None) or model_file is not None)
@@ -50,6 +51,9 @@ def get_dataset_dict(
     "seq_order_control_dataset": "zip_dataset",
   }
 
+  if post_process is not None:
+    dataset_dict["datasets"]["zip_dataset"]["audio"]["post_process"] = post_process
+
   if use_targets:
     if model_file is not None:
       dataset_dict["datasets"]["zip_dataset"]["targets"] = {
@@ -73,7 +77,7 @@ def get_dataset_dict(
 
   if hdf_targets is not None:
     dataset_dict["datasets"]["align"] = hdf.get_dataset_dict(
-      hdf_files=[hdf_targets],
+      hdf_files=hdf_targets if isinstance(hdf_targets, list) else [hdf_targets],
       partition_epoch=partition_epoch,
       segment_file=segment_file
     )

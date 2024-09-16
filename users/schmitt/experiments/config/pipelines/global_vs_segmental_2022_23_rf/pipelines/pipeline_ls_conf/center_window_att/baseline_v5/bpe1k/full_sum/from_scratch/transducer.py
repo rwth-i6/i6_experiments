@@ -30,8 +30,13 @@ def run_exps():
             time_rqmt=80,
             use_mgpu=True,
     ):
+      recog.center_window_returnn_frame_wise_beam_search(
+        alias=train_alias,
+        config_builder=config_builder,
+        checkpoint=checkpoint,
+      )
       for epoch, chckpt in checkpoint["checkpoints"].items():
-        if epoch % 20 == 0:
+        if epoch % 20 == 0 and epoch not in [260, 320, 360, 440]:
           recog.center_window_returnn_frame_wise_beam_search(
             alias=train_alias,
             config_builder=config_builder,
@@ -40,3 +45,15 @@ def run_exps():
             run_analysis=True,
             analyze_gradients=True,
           )
+
+      recog.center_window_returnn_frame_wise_beam_search(
+        alias=train_alias,
+        config_builder=config_builder,
+        checkpoint=checkpoint,
+        checkpoint_aliases=("last",),
+        run_analysis=True,
+        analysis_dump_gradients=True,
+        only_do_analysis=True,
+        corpus_keys=("train",),
+        att_weight_seq_tags=None,
+      )

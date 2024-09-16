@@ -199,6 +199,13 @@ class LibrispeechBpe1056AlignmentSepModel(LibrispeechBpe1056Alignment):
       sos_idx=0, target_num_labels=1057, sil_idx=None, blank_idx=1056, target_num_labels_wo_blank=1056)
 
 
+class LibrispeechBpe1056AlignmentCtcModel(LibrispeechBpe1056Alignment):
+  @property
+  def model_hyperparameters(self) -> SegmentalModelHyperparameters:
+    return SegmentalModelHyperparameters(
+      sos_idx=0, target_num_labels=1057, sil_idx=None, blank_idx=1056, target_num_labels_wo_blank=1056)
+
+
 class LibrispeechBpe5048Alignment(LibrispeechBPE5048, LibrispeechLabelDefinition, SegmentalLabelDefinition, ABC):
   def __init__(self):
     super().__init__()

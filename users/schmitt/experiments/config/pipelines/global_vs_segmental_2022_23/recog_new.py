@@ -60,7 +60,7 @@ class DecodingExperiment(ABC):
     if recog_opts is not None:
       self.recog_opts.update(recog_opts)
 
-    self.corpus_key = self.recog_opts["search_corpus_key"]
+    self.corpus_key = self.recog_opts["dataset_opts"]["corpus_key"]
     self.stm_corpus_key = self.corpus_key
 
     self.alias = alias
@@ -407,31 +407,8 @@ class ReturnnDecodingExperiment(DecodingExperiment, ABC):
 
     if isinstance(self.config_builder, ConfigBuilderRF):
       att_weight_seq_tags = _analysis_opts["att_weight_seq_tags"]
-      if att_weight_seq_tags is None:
-        att_weight_seq_tags = [
-          "dev-other/3660-6517-0005/3660-6517-0005",
-          "dev-other/6467-62797-0001/6467-62797-0001",
-          "dev-other/6467-62797-0002/6467-62797-0002",
-          "dev-other/7697-105815-0015/7697-105815-0015",
-          "dev-other/7697-105815-0051/7697-105815-0051",
-        ]
 
-      # if _analysis_opts.get("plot_att_weights", True):
-      #   analysis_rf.dump_att_weights(
-      #     config_builder=self.config_builder,
-      #     seq_tags=att_weight_seq_tags,
-      #     corpus_key=self.stm_corpus_key,
-      #     checkpoint=self.checkpoint,
-      #     returnn_root=self.returnn_root,
-      #     returnn_python_exe=self.returnn_python_exe,
-      #     alias=self.alias,
-      #     hdf_targets=analysis_opts.get("ground_truth_hdf"),
-      #     ref_alignment_hdf=_analysis_opts["ref_alignment_hdf"],
-      #     ref_alignment_blank_idx=_analysis_opts["ref_alignment_blank_idx"],
-      #     ref_alignment_vocab_path=_analysis_opts["ref_alignment_vocab_path"],
-      #   )
-
-      if _analysis_opts.get("analyze_gradients", True):
+      if _analysis_opts.get("analyze_gradients", False):
         analysis_rf.analyze_gradients(
           config_builder=self.config_builder,
           seq_tags=att_weight_seq_tags,
@@ -444,7 +421,11 @@ class ReturnnDecodingExperiment(DecodingExperiment, ABC):
           ref_alignment_hdf=_analysis_opts.get("ref_alignment_hdf"),
           ref_alignment_blank_idx=_analysis_opts.get("ref_alignment_blank_idx"),
           ref_alignment_vocab_path=_analysis_opts.get("ref_alignment_vocab_path"),
-          seq_alias="ground-truth"
+          seq_alias="ground-truth",
+          do_forced_align_on_gradients=_analysis_opts.get("do_forced_align_on_gradients", False),
+          plot_encoder_gradient_graph=_analysis_opts.get("plot_encoder_gradient_graph", False),
+          plot_encoder_layers=_analysis_opts.get("analyze_gradients_plot_encoder_layers", False),
+          plot_log_gradients=_analysis_opts.get("analyze_gradients_plot_log_gradients", False),
         )
         # if "global_att/baseline_v2/baseline_rf/sp10240/w-weight-feedback/w-att-ctx-in-state/trafo/import_albert-aed-trafo-decoder-bpe10k/returnn_decoding/epoch-498-checkpoint/no-lm/beam-size-12/dev-other_concat" in self.alias:
         #   analysis_rf.analyze_gradients(
@@ -461,6 +442,34 @@ class ReturnnDecodingExperiment(DecodingExperiment, ABC):
         #     ref_alignment_vocab_path=_analysis_opts["ref_alignment_vocab_path"],
         #     seq_alias="search"
         #   )
+
+      if _analysis_opts.get("dump_gradients", False):
+        analysis_rf.dump_gradients(
+          config_builder=self.config_builder,
+          seq_tags=att_weight_seq_tags,
+          corpus_key=self.stm_corpus_key,
+          checkpoint=self.checkpoint,
+          returnn_root=self.returnn_root,
+          returnn_python_exe=self.returnn_python_exe,
+          alias=self.alias,
+          hdf_targets=analysis_opts.get("ground_truth_hdf"),
+          seq_alias="ground-truth",
+          input_layer_name=_analysis_opts.get("dump_gradients_input_layer_name", "encoder_input"),
+        )
+
+      if _analysis_opts.get("dump_self_att", False):
+        analysis_rf.dump_self_att(
+          config_builder=self.config_builder,
+          seq_tags=att_weight_seq_tags,
+          corpus_key=self.stm_corpus_key,
+          checkpoint=self.checkpoint,
+          returnn_root=self.returnn_root,
+          returnn_python_exe=self.returnn_python_exe,
+          alias=self.alias,
+          hdf_targets=analysis_opts.get("ground_truth_hdf"),
+          seq_alias="ground-truth",
+        )
+
       if _analysis_opts.get("calc_search_errors", False):
         analysis_rf.calculate_search_errors(
           config_builder=self.config_builder,
@@ -882,6 +891,9 @@ class DecodingPipeline(ABC):
     for key in ("lm_opts", "ilm_correction_opts", "beam_size", "search_corpus_key"):
       assert key not in self.recog_opts, f"{key} is set by the pipeline"
 
+    if "dataset_opts" not in self.recog_opts:
+      self.recog_opts["dataset_opts"] = {}
+
     self.alias = alias
     self.config_builder = config_builder
     self.checkpoint = checkpoint
@@ -914,8 +926,10 @@ class DecodingPipeline(ABC):
                 "ilm_correction_opts": {
                   "scale": ilm_scale, **self.ilm_opts} if ilm_scale > 0 and lm_scale > 0 else None,
                 "beam_size": beam_size,
-                "search_corpus_key": corpus_key
+                # "search_corpus_key": corpus_key
               })
+              self.recog_opts["dataset_opts"]["corpus_key"] = corpus_key
+
               self.run_experiment(
                 beam_size=beam_size,
                 lm_scale=lm_scale,

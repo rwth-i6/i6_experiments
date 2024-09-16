@@ -54,7 +54,8 @@ def run_exps():
               checkpoint_alias="ctc-fixed-path-300ep",
               lr_scheduling_type="const",
               use_mgpu=False,
-              checkpoint_path=fixed_path_checkpoint_ep300
+              checkpoint_path=fixed_path_checkpoint_ep300,
+              training_type="full-sum",
       ):
         for epoch, chckpt in full_sum_checkpoint["checkpoints"].items():
           if epoch % 50 == 0 and epoch not in (50, 250):

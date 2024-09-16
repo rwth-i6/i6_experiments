@@ -42,6 +42,12 @@ def get_s_and_att(
         targets_spatial_dim: Dim,
         batch_dims: List[Dim],
 ) -> Tuple[Tensor, Tensor, rf.State]:
+
+  from returnn.config import get_global_config
+  config = get_global_config()
+
+  hard_att_opts = config.typed_value("hard_att_opts", None)
+
   def _body(input_embed: Tensor, state: rf.State):
     new_state = rf.State()
     loop_out_, new_state.decoder = model.loop_step(
@@ -50,6 +56,7 @@ def get_s_and_att(
       input_embed=input_embed,
       state=state.decoder,
       use_mini_att=model.use_mini_att,
+      hard_att_opts=hard_att_opts,
     )
     return loop_out_, new_state
 
@@ -115,7 +122,7 @@ def forward_sequence(
 ) -> Tuple[rf.Tensor, Optional[Tuple[rf.Tensor, Dim]]]:
   if type(model) is TransformerDecoder:
     logits, _, _ = model(
-      targets,
+      rf.shift_right(targets, axis=targets_spatial_dim, pad_value=0),
       spatial_dim=targets_spatial_dim,
       encoder=model.transform_encoder(enc_args["enc"], axis=enc_spatial_dim),
       state=model.default_initial_state(batch_dims=batch_dims)
