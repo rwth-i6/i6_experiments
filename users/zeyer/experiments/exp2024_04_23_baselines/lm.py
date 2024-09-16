@@ -415,10 +415,10 @@ def py():
 
     # Llama for 2 full epochs.
     train(
-        "lm/trafo-n48-d512-noAbsPos-rmsNorm-ffGated-rope-noBias-drop0-b32_2k-ep40",
+        "lm/trafo-n48-d512-noAbsPos-rmsNorm-ffGated-rope-noBias-drop0-b32_2k-ep40-lrlin1e_5_60p",
         config=dict_update_deep(
             config_11gb_lm_v1,
-            {**_get_cfg_lrlin_oclr_by_bs_nep(32, 2_000, 40)},
+            {**_get_cfg_lrlin_oclr_by_bs_nep(32, 2_000, 40, peak_percentage=0.6)},
         ),
         train_dataset=get_librispeech_lm_dataset(vocab="spm10k"),
         model_def=ModelDefWithCfg(
@@ -603,7 +603,7 @@ def _get_cfg_lrlin_oclr_incomplete(max_seqs: int, bs_feat: int, n_ep: int, *, pe
 
 
 def _get_cfg_lrlin_oclr_by_bs_nep(
-    max_seqs: int, batch_size: int, n_ep: int, *, peak_lr: float = 1e-3
+    max_seqs: int, batch_size: int, n_ep: int, *, peak_lr: float = 1e-3, peak_percentage: float = 0.45
 ) -> Dict[str, Any]:
     """
     :param max_seqs:
@@ -613,7 +613,7 @@ def _get_cfg_lrlin_oclr_by_bs_nep(
     from i6_experiments.users.zeyer.lr_schedules.piecewise_linear import dyn_lr_piecewise_linear
 
     tot_num_steps = _tot_num_steps_by_bs[(max_seqs, batch_size)] * n_ep
-    steps = [tot_num_steps * 0.45, tot_num_steps * 0.9, tot_num_steps]
+    steps = [tot_num_steps * peak_percentage, tot_num_steps * 0.9, tot_num_steps]
     steps = [int(s) for s in steps]
 
     return {
