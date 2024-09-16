@@ -1020,6 +1020,8 @@ def py():
         },
         vocab="spm10k",
         train_vocab_opts={"other_opts": {"class": "SamplingBytePairEncoding", "breadth_prob": 0.01}},
+        # got GPU OOM in some later epoch... so play around here to fix this
+        env_updates={"PYTORCH_CUDA_ALLOC_CONF": "backend:cudaMallocAsync"},
     )
 
     # Baseline: 5.65
@@ -1216,6 +1218,7 @@ def train_exp(
     gpu_mem: Optional[int] = 24,
     num_processes: Optional[int] = None,
     time_rqmt: Optional[int] = None,  # set this to 1 or below to get the fast test queue
+    env_updates: Optional[Dict[str, str]] = None,
     enabled: bool = True,
 ) -> Optional[ModelWithCheckpoints]:
     """
@@ -1260,6 +1263,10 @@ def train_exp(
         num_processes=num_processes,
         time_rqmt=time_rqmt,
     )
+    train_job = model_with_checkpoint.get_training_job()
+    if env_updates:
+        for k, v in env_updates.items():
+            train_job.set_env(k, v)
 
     recog_post_proc_funcs = []
     if config.get("use_eos_postfix", False):
