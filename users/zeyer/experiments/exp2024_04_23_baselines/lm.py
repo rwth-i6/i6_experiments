@@ -304,7 +304,7 @@ def py():
         "lm/trafo-n24-d1024-noAbsPos-rmsNorm-ffGated-rope-noBias-drop0-b100_5k-ep40",
         config=dict_update_deep(
             config_11gb_lm_v1,
-            **_get_cfg_lrlin_oclr_by_bs_nep(32, 2_000, 40),
+            {**_get_cfg_lrlin_oclr_by_bs_nep(32, 2_000, 40)},
         ),
         train_dataset=get_librispeech_lm_dataset(vocab="spm10k"),
         model_def=ModelDefWithCfg(
