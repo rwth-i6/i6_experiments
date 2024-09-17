@@ -220,7 +220,25 @@ def _returnn_forward_config(
 
     TODO should use sth like unhashed_package_root (https://github.com/rwth-i6/i6_experiments/pull/157)
     """
+    import tree
     from i6_experiments.common.setups.returnn.serialization import get_serializable_config
+    from returnn.tensor import Dim
+
+    # Need to move out any parts which have Dim in it,
+    # because the common ReturnnConfig serialization cannot handle that.
+    # Also, unify the serialization with extern_data,
+    # such that we reuse the same dim tags.
+    # E.g. if there is model_outputs here.
+    config = config.copy()
+    config_dim_items = {}
+    config_dim_items_extra_hash = {}
+    for k, v in list(config.items()):
+        if any(isinstance(v_, Dim) for v_ in tree.flatten(v)):
+            config.pop(k)
+            config_dim_items[k] = v
+            config_dim_items_extra_hash[k] = tree.map_structure(
+                lambda v_: {"dim": v_.dimension} if isinstance(v_, Dim) else v_, v
+            )
 
     returnn_recog_config_dict = dict(
         # dataset
@@ -243,6 +261,7 @@ def _returnn_forward_config(
         returnn_recog_config_dict.update(model_def.config)
 
     extern_data_raw = dataset.get_extern_data()
+    # TODO why is the instanciate_delayed needed?
     # The extern_data is anyway not hashed, so we can also instanciate any delayed objects here.
     # It's not hashed because we assume that all aspects of the dataset are already covered
     # by the datasets itself as part in the config above.
@@ -255,8 +274,11 @@ def _returnn_forward_config(
                 [
                     serialization.NonhashedCode(get_import_py_code()),
                     serialization.NonhashedCode(
-                        nn.ReturnnConfigSerializer.get_base_extern_data_py_code_str_direct(extern_data_raw)
+                        nn.ReturnnConfigSerializer.get_base_extern_data_py_code_str_direct(
+                            extern_data_raw, other=config_dim_items
+                        )
                     ),
+                    serialization.ExplicitHash(config_dim_items_extra_hash),
                     *(
                         serialize_model_def(model_def)
                         if model_def
