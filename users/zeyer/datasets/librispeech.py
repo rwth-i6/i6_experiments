@@ -256,6 +256,8 @@ class LibrispeechOggZip(DatasetConfig):
         :param with_eos_postfix: For RETURNN train/dev/eval datasets, mostly relevant for training.
             For recognition, our score function uses the Bliss corpus directly, so this has no influence.
         """
+        from returnn.tensor import Dim
+
         super(LibrispeechOggZip, self).__init__()
         self.audio = audio
         self.audio_dim = audio_dim
@@ -280,7 +282,24 @@ class LibrispeechOggZip(DatasetConfig):
         self.train_epoch_wise_filter = train_epoch_wise_filter
         self.eval_subset = eval_subset
 
+        self._time_dim = None
+        self._feature_dim = None
+        if self.audio is not None:
+            assert self.audio_dim is not None
+            self._time_dim = Dim(None, name="time", kind=Dim.Types.Spatial)
+            self._feature_dim = Dim(self.audio_dim, name="audio", kind=Dim.Types.Feature)
+
+        self._out_spatial_dim = None
+        self._classes_dim = None
+        if self.vocab is not None:
+            self._out_spatial_dim = Dim(None, name="out-spatial", kind=Dim.Types.Spatial)
+            self._classes_dim = Dim(self.vocab.get_num_classes(), name="vocab", kind=Dim.Types.Spatial)
+
     def _sis_hash(self) -> bytes:
+        # Note: Currently our GetBestRecogTrainExp job / _RecogAndScoreFunc sis hash
+        # includes this instance in the hash
+        # (unfortunately, as this is not really needed, as it is already part of the train job anyway).
+        # Thus make sure any future changes here keep the old hash consistent.
         import hashlib
         from sisyphus.hash import sis_hash_helper
 
@@ -288,6 +307,7 @@ class LibrispeechOggZip(DatasetConfig):
         state = self.__dict__.copy()
         if not self.train_vocab:
             state.pop("train_vocab")  # backward compat
+        state = {k: v for k, v in state.items() if not k.startswith("_")}
         byte_list = [b"LibrispeechOggZip", sis_hash_helper(state)]
 
         # Same as sis_hash_helper.
@@ -296,6 +316,10 @@ class LibrispeechOggZip(DatasetConfig):
             return hashlib.sha256(byte_str).digest()
         else:
             return byte_str
+
+    def __sis_state__(self):
+        # Avoid that any Dim instances are in here.
+        return {k: v for (k, v) in self.__dict__.items() if not k.startswith("_")}
 
     def get_extern_data(self) -> Dict[str, Dict[str, Any]]:
         """
@@ -307,16 +331,12 @@ class LibrispeechOggZip(DatasetConfig):
 
         if self.audio is not None:
             assert self.audio_dim is not None
-            time_dim = Dim(None, name="time", kind=Dim.Types.Spatial)
-            feature_dim = Dim(self.audio_dim, name="audio", kind=Dim.Types.Feature)
-            opts["data"] = {"dim_tags": [batch_dim, time_dim, feature_dim]}
+            opts["data"] = {"dim_tags": [batch_dim, self._time_dim, self._feature_dim]}
 
         if self.vocab is not None:
-            out_spatial_dim = Dim(None, name="out-spatial", kind=Dim.Types.Spatial)
-            classes_dim = Dim(self.vocab.get_num_classes(), name="vocab", kind=Dim.Types.Spatial)
             opts["classes"] = {
-                "dim_tags": [batch_dim, out_spatial_dim],
-                "sparse_dim": classes_dim,
+                "dim_tags": [batch_dim, self._out_spatial_dim],
+                "sparse_dim": self._classes_dim,
                 "vocab": self.vocab.get_opts(),
             }
 
