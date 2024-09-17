@@ -265,6 +265,7 @@ get_model = __import__("functools").partial(
             # "recog_type": conformer_ctc.RecogType.GREEDY,
             "beam_size": kwargs.get("beam_size", 1024),
             "beam_threshold": kwargs.get("beam_threshold", 14.0),
+            "silence_token": "<blank>",
         }
         if kwargs.get("beam_size_token", None):
             serializer_kwargs["beam_size_token"] = kwargs.get("beam_size_token", None)

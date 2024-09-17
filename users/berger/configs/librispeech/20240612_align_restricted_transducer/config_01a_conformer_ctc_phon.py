@@ -40,13 +40,12 @@ from i6_models.primitives.feature_extraction import (
     RasrCompatibleLogMelFeatureExtractionV1Config,
 )
 from sisyphus import gs, tk
-from i6_experiments.users.berger.pytorch.custom_parts.sequential import SequentialModuleV1, SequentialModuleV1Config
 
 # ********** Settings **********
 
 rasr.flow.FlowNetwork.default_flags = {"cache_mode": "task_dependent"}
 
-num_outputs = 79
+target_size = 79
 num_subepochs = 1000
 sub_checkpoints = [100, 200, 300, 400, 500, 600, 700, 800, 900, 950, 960, 970, 980, 990, 1000]
 
@@ -170,7 +169,7 @@ def returnn_config_generator(
         specaugment=specaugment,
         conformer=ModuleFactoryV1(ConformerEncoderV2, cfg=conformer_cfg),
         dim=512,
-        target_size=num_outputs,
+        target_size=target_size,
         dropout=0.1,
         specaug_start_epoch=11,
     )
@@ -265,6 +264,7 @@ get_model = __import__("functools").partial(
             "recog_type": conformer_ctc.RecogType.FLASHLIGHT,
             "beam_size": 1024,
             "beam_threshold": 14.0,
+            "silence_token": "<blank>",
         }
 
     return get_returnn_config(
@@ -343,7 +343,7 @@ def run_exp() -> SummaryReport:
     assert tools.returnn_python_exe
     assert tools.rasr_binary_path
     data = get_librispeech_data_dumped_labels(
-        num_classes=num_outputs,
+        num_classes=target_size,
         returnn_root=normal_returnn,
         returnn_python_exe=tools.returnn_python_exe,
         rasr_binary_path=tools.rasr_binary_path,

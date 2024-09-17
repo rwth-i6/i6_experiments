@@ -32,22 +32,19 @@ from i6_models.parts.conformer import (
 )
 from i6_models.parts.frontend.generic_frontend import FrontendLayerType, GenericFrontendV1, GenericFrontendV1Config
 from i6_models.primitives.feature_extraction import (
+    LogMelFeatureExtractionV1,
+    LogMelFeatureExtractionV1Config,
     RasrCompatibleLogMelFeatureExtractionV1,
     RasrCompatibleLogMelFeatureExtractionV1Config,
 )
 from sisyphus import gs, tk
-from i6_experiments.users.berger.pytorch.custom_parts.sequential import SequentialModuleV1, SequentialModuleV1Config
-from i6_experiments.users.berger.pytorch.custom_parts.speed_perturbation import (
-    SpeedPerturbationModuleV1,
-    SpeedPerturbationModuleV1Config,
-)
 from i6_experiments.users.berger.pytorch.helper_functions import make_ctc_loss_config_file
 
 # ********** Settings **********
 
 rasr.flow.FlowNetwork.default_flags = {"cache_mode": "task_dependent"}
 
-num_outputs = 79
+target_size = 79
 num_subepochs = 1000
 sub_checkpoints = [100, 200, 300, 400, 500, 600, 700, 800, 900, 950, 960, 970, 980, 990, 1000]
 
@@ -68,44 +65,31 @@ def returnn_config_generator(
     loss_corpus: tk.Path,
     **kwargs,
 ) -> ReturnnConfig:
-    if kwargs.get("speed_perturbation", False):
-        feature_extraction = ModuleFactoryV1(
-            module_class=SequentialModuleV1,
-            cfg=SequentialModuleV1Config(
-                submodules=[
-                    ModuleFactoryV1(
-                        module_class=SpeedPerturbationModuleV1,
-                        cfg=SpeedPerturbationModuleV1Config(
-                            min_speed_factor=0.9,
-                            max_speed_factor=1.1,
-                        ),
-                    ),
-                    ModuleFactoryV1(
-                        module_class=RasrCompatibleLogMelFeatureExtractionV1,
-                        cfg=RasrCompatibleLogMelFeatureExtractionV1Config(
-                            sample_rate=16000,
-                            win_size=0.025,
-                            hop_size=0.01,
-                            min_amp=1.175494e-38,
-                            num_filters=80,
-                            alpha=0.97 if kwargs.get("preemphasis", False) else 0.0,
-                        ),
-                    ),
-                ]
-            ),
-        )
-    else:
-        feature_extraction = ModuleFactoryV1(
-            module_class=RasrCompatibleLogMelFeatureExtractionV1,
-            cfg=RasrCompatibleLogMelFeatureExtractionV1Config(
-                sample_rate=16000,
-                win_size=0.025,
-                hop_size=0.01,
-                min_amp=1.175494e-38,
-                num_filters=80,
-                alpha=0.97 if kwargs.get("preemphasis", False) else 0.0,
-            ),
-        )
+    # feature_extraction = ModuleFactoryV1(
+    #     module_class=RasrCompatibleLogMelFeatureExtractionV1,
+    #     cfg=RasrCompatibleLogMelFeatureExtractionV1Config(
+    #         sample_rate=16000,
+    #         win_size=0.025,
+    #         hop_size=0.01,
+    #         min_amp=1.175494e-38,
+    #         num_filters=80,
+    #         alpha=0.97 if kwargs.get("preemphasis", False) else 0.0,
+    #     ),
+    # )
+    feature_extraction = ModuleFactoryV1(
+        module_class=LogMelFeatureExtractionV1,
+        cfg=LogMelFeatureExtractionV1Config(
+            sample_rate=16000,
+            win_size=0.025,
+            hop_size=0.01,
+            f_min=60,
+            f_max=7600,
+            min_amp=1e-10,
+            num_filters=80,
+            center=False,
+            n_fft=400,
+        ),
+    )
 
     specaugment = ModuleFactoryV1(
         module_class=SpecaugmentByLengthModuleV1,
@@ -172,6 +156,7 @@ def returnn_config_generator(
         mhsa_cfg=mhsa_cfg,
         conv_cfg=conv_cfg,
         modules=["ff", "conv", "mhsa", "ff"],
+        scales=[0.5, 1.0, 1.0, 0.5],
     )
 
     conformer_cfg = ConformerEncoderV2Config(
@@ -185,7 +170,7 @@ def returnn_config_generator(
         specaugment=specaugment,
         conformer=ModuleFactoryV1(ConformerEncoderV2, cfg=conformer_cfg),
         dim=512,
-        target_size=num_outputs,
+        target_size=target_size,
         dropout=0.1,
         specaug_start_epoch=11,
     )
@@ -295,7 +280,7 @@ get_model = __import__("functools").partial(
             "recog_type": conformer_ctc.RecogType.FLASHLIGHT,
             "beam_size": 1024,
             "beam_threshold": 14.0,
-            "rasr_loss_config": loss_config,
+            "silence_token": "<blank>",
         }
 
     return get_returnn_config(
@@ -415,7 +400,7 @@ def run_exp() -> SummaryReport:
             SummaryKey.ERR,
             SummaryKey.RTF,
         ],
-        summary_sort_keys=[SummaryKey.CORPUS, SummaryKey.ERR],
+        summary_sort_keys=[SummaryKey.ERR, SummaryKey.CORPUS],
     )
 
     system.init_corpora(
@@ -435,58 +420,21 @@ def run_exp() -> SummaryReport:
     # ********** Returnn Configs **********
 
     system.add_experiment_configs(
-        "Conformer_CTC_phon",
+        "Conformer_CTC_phon_rasr-fsa",
         get_returnn_config_collection(
             train_data_config=data.train_data_config,
             dev_data_config=data.cv_data_config,
             loss_lexicon=data.loss_lexicon,
             loss_corpus=data.loss_corpus,
             preemphasis=False,
-            speed_perturbation=False,
         ),
     )
 
-    # data.train_data_config = copy.deepcopy(data.train_data_config)
-    # del data.train_data_config["datasets"]["data"]["audio"]["pre_process"]
-    # system.add_experiment_configs(
-    #     "Conformer_CTC_ogg_model-speed-perturb",
-    #     get_returnn_config_collection(
-    #         train_data_config=data.train_data_config,
-    #         dev_data_config=data.cv_data_config,
-    #         loss_lexicon=data.loss_lexicon,
-    #         loss_corpus=data.loss_corpus,
-    #         preemphasis=False,
-    #         speed_perturbation=True,
-    #     ),
-    # )
-    #
-    # data.train_data_config = copy.deepcopy(data.train_data_config)
-    # data.train_data_config["datasets"]["data"]["audio"]["preemphasis"] = 0.0
-    #
-    # data.cv_data_config = copy.deepcopy(data.cv_data_config)
-    # data.cv_data_config["datasets"]["data"]["audio"]["preemphasis"] = 0.0
-    # system.add_experiment_configs(
-    #     "Conformer_CTC_ogg_model-speed-perturb_model-preemph",
-    #     get_returnn_config_collection(
-    #         train_data_config=data.train_data_config,
-    #         dev_data_config=data.cv_data_config,
-    #         loss_lexicon=data.loss_lexicon,
-    #         loss_corpus=data.loss_corpus,
-    #         preemphasis=True,
-    #         speed_perturbation=True,
-    #     ),
-    # )
-
     system.run_train_step(**train_args)
     system.run_dev_recog_step(
-        # exp_names=["Conformer_CTC_ogg", "Conformer_CTC_ogg_model-speed-perturb"],
         extra_audio_config={"preemphasis": 0.97},
         **recog_args,
     )
-    # system.run_dev_recog_step(
-    #     exp_names=["Conformer_CTC_ogg_model-speed-perturb_model-preemph"],
-    #     **recog_args,
-    # )
 
     assert system.summary_report
     return system.summary_report

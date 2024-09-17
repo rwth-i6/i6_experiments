@@ -3,18 +3,18 @@ from i6_experiments.users.berger.recipe.summary.report import SummaryReport
 from i6_experiments.users.berger.systems.dataclasses import SummaryKey
 from sisyphus import tk
 
-# from .config_01_conformer_ctc import py as py_01
 from .config_01a_conformer_ctc_phon import py as py_01a
 from .config_01b_conformer_ctc_bpe import py as py_01b
+from .config_01c_conformer_ctc_phon_rasrfsa import py as py_01c
 
 
 def main() -> SummaryReport:
     summary_report = SummaryReport()
 
     for subreport in [
-        # copy.deepcopy(py_01()),
         copy.deepcopy(py_01a()),
         copy.deepcopy(py_01b()),
+        copy.deepcopy(py_01c()),
     ]:
         subreport.collapse([SummaryKey.CORPUS.value], best_selector_key=SummaryKey.ERR.value)
         summary_report.merge_report(subreport, update_structure=True)

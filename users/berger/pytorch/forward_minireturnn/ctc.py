@@ -28,9 +28,6 @@ def flashlight_ctc_decoder_init_hook(
     from torchaudio.models.decoder import ctc_decoder
 
     vocab = Vocabulary.create_vocab(vocab_file=vocab_file, unknown_label=None)
-    labels = vocab.labels
-    assert isinstance(labels, list)
-
     labels = list({value: key for key, value in vocab._vocab.items()}.values())
 
     if blank_token not in labels:
