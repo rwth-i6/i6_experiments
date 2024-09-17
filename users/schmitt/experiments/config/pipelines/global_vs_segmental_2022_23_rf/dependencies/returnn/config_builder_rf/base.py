@@ -54,6 +54,7 @@ class ConfigBuilderRF(ABC):
           conv_frontend_w_zero_padding: bool = False,
           conformer_out_dim: int = 512,
           use_trafo_att: bool = False,
+          use_readout: bool = True,
   ):
     assert (use_current_frame_in_readout_random ^ use_current_frame_in_readout_w_gate) or (
                   use_current_frame_in_readout_random ^ use_current_frame_in_readout) or (
@@ -111,6 +112,8 @@ class ConfigBuilderRF(ABC):
       self.config_dict["readout_dimension"] = readout_dimension
     if ilm_dimension != 1024:
       self.config_dict["ilm_dimension"] = ilm_dimension
+    if not use_readout:
+      self.config_dict["use_readout"] = False
 
     if conformer_w_abs_pos_enc:
       self.config_dict["conformer_w_abs_pos_enc"] = True
