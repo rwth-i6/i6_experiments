@@ -395,5 +395,5 @@ def _returnn_forward_step(*, model, extern_data: TensorDict, **_kwargs_unused):
     # and we might want to have a more general interface in the future.
     out, out_spatial_dim = forward_def(data, in_spatial_dim=data_spatial_dim, model=model)
     assert isinstance(out, Tensor) and isinstance(out_spatial_dim, Dim)
-    out = out.copy_transpose([batch_dim, out_spatial_dim] + ([out.feature_dim] if out.feature_dim else []))
-    rf.get_run_ctx().mark_as_output(out, "output", dims=out.dims)
+    # rely on model_outputs being set in the config for the dim order of the output
+    rf.get_run_ctx().mark_as_output(out, "output")
