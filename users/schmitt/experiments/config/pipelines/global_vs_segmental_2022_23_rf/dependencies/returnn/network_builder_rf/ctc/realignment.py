@@ -9,23 +9,47 @@ from returnn.tensor import Dim, single_step_dim, TensorDict
 import returnn.frontend as rf
 
 
-def ctc_align_get_center_positions(ctc_alignment: torch.Tensor, blank_idx: int):
-  is_label_position = ctc_alignment[0] != blank_idx  # type: torch.Tensor
+def ctc_align_get_center_positions(ctc_alignment: torch.Tensor, blank_idx: int) -> torch.Tensor:
+  is_label_repetition = torch.logical_and(
+    ctc_alignment[0, 1:] == ctc_alignment[0, :-1],
+    ctc_alignment[0, 1:] != blank_idx
+  )
+  zeros = torch.zeros((1,), dtype=torch.bool, device=is_label_repetition.device)
+  is_label_repetition = torch.cat([is_label_repetition, zeros], dim=0)
 
-  # Find indices where the mask is True
-  true_indices = torch.where(is_label_position)[0]
+  # create new mask
+  is_center_position = torch.zeros_like(
+    ctc_alignment[0], dtype=torch.bool, device=ctc_alignment.device)
 
-  # Find differences between consecutive True indices
-  diffs = torch.diff(true_indices)
+  if is_label_repetition.any():
+    # Find indices where the mask is True
+    true_indices = torch.where(is_label_repetition)[0]
 
-  # Identify the start of each new patch
-  patch_starts = torch.cat([torch.tensor([0], device=diffs.device), torch.where(diffs > 1)[0] + 1])
+    # Find differences between consecutive True indices
+    diffs = torch.diff(true_indices)
 
-  # Identify the end of each patch
-  patch_ends = torch.cat([torch.where(diffs > 1)[0], torch.tensor([len(true_indices) - 1], device=diffs.device)])
+    # Identify the start of each new patch
+    patch_starts = torch.cat([torch.tensor([0], device=diffs.device), torch.where(diffs > 1)[0] + 1])
 
-  # Compute the center index for each patch
-  centers = (true_indices[patch_starts] + true_indices[patch_ends]) // 2
+    # Identify the end of each patch
+    patch_ends = torch.cat([torch.where(diffs > 1)[0], torch.tensor([len(true_indices) - 1], device=diffs.device)])
+
+    # Compute the center index for each patch
+    centers = (true_indices[patch_starts] + true_indices[patch_ends]) // 2
+    centers += 1  # each patch is one too small because of ctc_alignment[0, 1:] == ctc_alignment[0, :-1]
+    is_center_position[centers] = True
+
+  # now add the center positions, where the label is not repeated (not captured by the above)
+  shifted_left = torch.cat([ctc_alignment[0, 1:], torch.tensor([0], device=ctc_alignment.device)], dim=0)
+  shifted_right = torch.cat([torch.tensor([0], device=ctc_alignment.device), ctc_alignment[0, :-1]], dim=0)
+  is_no_label_repetition = torch.logical_and(
+    ctc_alignment[0] != shifted_right,
+    ctc_alignment[0] != shifted_left
+  )
+  is_no_label_repetition = torch.logical_and(is_no_label_repetition, ctc_alignment[0] != blank_idx)
+
+  is_center_position = torch.logical_or(is_center_position, is_no_label_repetition)
+  centers = torch.where(is_center_position)[0]
 
   return centers
 
@@ -63,43 +87,14 @@ def model_realign_(
       blank=model.blank_idx,
     )
 
-    # print("alignment_b", alignment_b)
-
     center_positions = ctc_align_get_center_positions(alignment_b, model.blank_idx)
-    # print("center_positions", center_positions)
-    if not center_positions.size(0) == target_len_b:
-      print("center_positions", center_positions)
-      print("target_len_b", target_len_b)
-      print("alignment_b", alignment_b)
-      exit()
-    # assert center_positions.size(0) == target_len_b, f"expected {target_len_b} center positions, but got {center_positions.size()}"
-    # exit()
+
+    assert center_positions.size(0) == target_len_b, f"expected {target_len_b} center positions, but got {center_positions.size(0)}"
 
     center_position_mask = torch.zeros_like(alignment_b, dtype=torch.bool, device=alignment_b.device)
     center_position_mask[0, center_positions] = True
     alignment_b[0, ~center_position_mask[0]] = model.blank_idx
-
-    # is_label_repetition = torch.logical_and(alignment_b[:, 1:] == alignment_b[:, :-1], alignment_b[:, 1:] != model.blank_idx)
-    # zeros = torch.zeros((alignment_b.shape[0], 1), dtype=torch.bool, device=is_label_repetition.device)
-    # is_label_repetition = torch.cat([is_label_repetition, zeros], dim=1)
-    #
-    # # switch label repetitions to blank
-    # label_rep_positions = torch.where(is_label_repetition)[1]
-    # alignment_b[:, label_rep_positions] = model.blank_idx
-
-    # ref_alignment = hdf.load_hdf_data(Path("/u/schmitt/experiments/segmental_models_2022_23_rf/alias/models/ls_conformer/global_att/baseline_v1/baseline/no-finetuning/ctc_alignments/dev-other/output/alignments.hdf"))
-    # ref_alignment = ref_alignment["dev-other/116-288045-0027/116-288045-0027"]
-    # print("ref_alignment", ref_alignment)
-    # exit()
-
-    # print("alignment_b", alignment_b)
-    # exit()
     alignment_rf.raw_tensor[b, :input_len_b] = alignment_b[0]
-
-  # non_blank_targets = non_blank_targets.copy_transpose(batch_dims + [non_blank_targets_spatial_dim])
-  # alignment_rf = non_blank_targets.copy_template_replace_dim_tag(1, enc_spatial_dim)
-  # alignment_rf.raw_tensor = alignment
-  # alignment_rf.sparse_dim = non_blank_targets.sparse_dim + 1
 
   return alignment_rf, enc_spatial_dim
 

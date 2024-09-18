@@ -30,37 +30,18 @@ def run_exps():
         plot_att_weights=False,
       )
 
-    # v1: training, where i observed the flipped encoder after about 60 sub-epochs
-    for train_alias, checkpoint in train.train_global_att(
-      alias=model_alias,
-      config_builder=config_builder,
-      n_epochs=500,
-    ):
-      for epoch, chckpt in checkpoint["checkpoints"].items():
-        if epoch % 20 == 0 or epoch in (5, 10, 20, 30) or epoch in range(1, 60, 5):
-          recog.global_att_returnn_label_sync_beam_search(
-            alias=train_alias,
-            config_builder=config_builder,
-            checkpoint=chckpt,
-            checkpoint_aliases=(f"epoch-{epoch}",),
-            run_analysis=True,
-            analyze_gradients=True,
-          )
-
     # v2: same as v1, but use epoch-wise OCLR
     for train_alias, checkpoint in train.train_global_att(
       alias=model_alias,
       config_builder=config_builder,
       n_epochs=500,
       keep_epochs=list(range(1, 240)) + [500],
-      lr_scheduling_type="dyn_lr_piecewise_linear_epoch-wise_v2",
     ):
       recog.global_att_returnn_label_sync_beam_search(
         alias=train_alias,
         config_builder=config_builder,
         checkpoint=checkpoint,
-        checkpoint_aliases=("last",),
-        corpus_keys=("dev-other", "dev-clean", "test-other", "test-clean"),
+        corpus_keys=("dev-other",),
       )
       for epoch, chckpt in checkpoint["checkpoints"].items():
         if epoch in [22, 55, 60] or epoch in range(1, 60, 5):
@@ -118,7 +99,6 @@ def run_exps():
       config_builder=config_builder,
       n_epochs=500,
       keep_epochs=list(range(1, 240)) + [500],
-      lr_scheduling_type="dyn_lr_piecewise_linear_epoch-wise_v2",
       filter_data_len=19.5 * 16_000,  # sample rate 16kHz
     ):
       recog.global_att_returnn_label_sync_beam_search(
@@ -170,7 +150,6 @@ def run_exps():
       config_builder=config_builder,
       n_epochs=500,
       keep_epochs=list(range(1, 240)) + [500],
-      lr_scheduling_type="dyn_lr_piecewise_linear_epoch-wise_v2",
       filter_target_len=75,  # sample rate 16kHz
     ):
       recog.global_att_returnn_label_sync_beam_search(
@@ -267,7 +246,6 @@ def run_exps():
               n_epochs=2_000,
               batch_size=30_000 if alias == "v9_big" else 35_000,
               keep_epochs=keep_epochs,
-              lr_scheduling_type="dyn_lr_piecewise_linear_epoch-wise_v2",
               gpu_mem_rqmt=gpu_mem_rqmt,
               accum_grad_multiple_step=accum_grad_multiple_step,
               use_mgpu=use_mgpu,
@@ -275,13 +253,15 @@ def run_exps():
               filter_data_len=19.5 * 16_000,
               random_seed=random_seed,
               disable_enc_self_att_until_epoch=disable_self_att_until_epoch,
-              ce_aux_loss_layers=ctc_aux_loss_layers,
+              ctc_aux_loss_layers=ctc_aux_loss_layers,
       ):
-        recog.global_att_returnn_label_sync_beam_search(
-          alias=train_alias,
-          config_builder=config_builder,
-          checkpoint=checkpoint,
-        )
+        if "rand" not in alias:
+          recog.global_att_returnn_label_sync_beam_search(
+            alias=train_alias,
+            config_builder=config_builder,
+            checkpoint=checkpoint,
+            corpus_keys=("dev-other", "test-other")
+          )
 
         analysis_epochs = [121, 131]
         if alias in ("v3_big",):
@@ -410,6 +390,7 @@ def run_exps():
       config_builder=config_builder,
       n_epochs=500,
       use_mgpu=False,
+      lr_scheduling_opts={"type": "dyn_lr_piecewise_linear"},
     ):
       for epoch, chckpt in checkpoint["checkpoints"].items():
         if epoch % 20 == 0 and epoch not in (160, 20, 40, 360, 400, 440, 240, 100):
@@ -432,6 +413,7 @@ def run_exps():
       config_builder=config_builder,
       n_epochs=500,
       use_mgpu=False,
+      lr_scheduling_opts={"type": "dyn_lr_piecewise_linear"},
     ):
       for epoch, chckpt in checkpoint["checkpoints"].items():
         if epoch % 20 == 0 and epoch not in (240, 360, 140, 160):

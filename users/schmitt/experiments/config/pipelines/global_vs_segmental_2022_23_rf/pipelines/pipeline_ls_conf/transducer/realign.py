@@ -83,8 +83,9 @@ def generic_returnn_realignment(
       returnn_root=RETURNN_CURRENT_ROOT,
       returnn_python_exe=RETURNN_EXE_NEW,
       output_files=output_files,
-      mem_rqmt=6,
+      mem_rqmt=10,
       time_rqmt=time_rqmt,
+      cpu_rqmt=4,
     )
     realign_job.add_alias(f"{alias}/realignment_{corpus_key}{f'_{i}' if segment_path else ''}")
     tk.register_output(realign_job.get_one_alias(), realign_job.out_files["realignment.hdf"])

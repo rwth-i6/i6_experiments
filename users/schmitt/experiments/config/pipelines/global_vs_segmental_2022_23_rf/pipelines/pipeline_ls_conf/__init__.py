@@ -21,6 +21,8 @@ from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segment
 
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.pipelines.pipeline_ls_conf.global_att import baseline_v1 as global_att_baseline_v1_no_rf
 
+from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.pipelines.pipeline_ls_conf import trafo_lm
+
 
 def run_exps():
   # run these two first since they set alignment which are later needed by the other experiments
@@ -29,6 +31,8 @@ def run_exps():
   ctc_baseline_v1.run_exps()
   setup_gmm_alignment()
 
+  trafo_lm.run_exps()
+
   global_att_baseline_v1.run_exps()
   global_att_baseline_v2.run_exps()
 
@@ -36,7 +40,7 @@ def run_exps():
   center_window_baseline_v3.run_exps()
   center_window_baseline_v4.run_exps()
   center_window_baseline_v5.run_exps()
-  # center_window_baseline_v5_small.run_exps()
+  center_window_baseline_v5_small.run_exps()
   center_window_baseline_v6.run_exps()
   center_window_baseline_v7.run_exps()
 

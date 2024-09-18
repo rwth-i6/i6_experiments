@@ -16,7 +16,6 @@ def run_exps():
       config_builder=config_builder,
       n_epochs=500,
       keep_epochs=list(range(1, 240)) + [500],
-      lr_scheduling_type="dyn_lr_piecewise_linear_epoch-wise_v2",
       filter_data_len=19.5 * 16_000,  # sample rate 16kHz
     ):
       recog.global_att_returnn_label_sync_beam_search(

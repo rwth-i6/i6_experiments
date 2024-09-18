@@ -1,6 +1,5 @@
 from . import (
   transducer,
-  transducer_w_att
 )
 
 

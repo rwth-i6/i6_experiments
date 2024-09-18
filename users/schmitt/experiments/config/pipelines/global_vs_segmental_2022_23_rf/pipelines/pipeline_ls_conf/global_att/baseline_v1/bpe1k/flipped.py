@@ -52,14 +52,13 @@ def run_exps():
     # ["v9_big", None, None, None, False, 17, 400, False, False, False, list(range(1, 240)), 24, None, None, False],  # v9_big: same as v3_big, but use 17 instead of 12 encoder layers and 400 instead of 512 output dim
     ["v9", None, None, None, False, 17, 400, False, False, False, list(range(1, 240)), 11, None, None, False, False, False, False, False], # v9: same as v3_big, but use 17 instead of 12 encoder layers and 400 instead of 512 output dim
     ["v9_rand-1234", 1234, None, None, False, 17, 400, False, False, False, list(range(1, 122)), 11, None, None, False, False, False, False, False],  # v9: same as v3_big, but use 17 instead of 12 encoder layers and 400 instead of 512 output dim
-    ["v10_big", None, None, None, False, 12, 512, True, False, False, list(range(1, 240)), 24, None, None, False, False, False, False, False],  # v10_big: same as v3_big, but without convolution module in conformer encoder layers
     ["v10", None, None, None, False, 12, 512, True, False, False, list(range(1, 240)), 11, None, None, False, False, False, False, False], # v10_big: same as v3_big, but without convolution module in conformer encoder layers
     # ["v11_big", None, None, None, False, 12, 512, False, False, False, list(range(1, 240)), 24, "encoder_input", None, False], # v11_big: same as v3_big, but use encoder input as att keys
     ["v11", None, None, None, False, 12, 512, False, False, False, list(range(1, 240)), 11, "encoder_input", None, False, False, False, False, False],  # v11_big: same as v3_big, but use encoder input as att keys
     # ["v12_big", None, None, None, False, 12, 512, False, False, False, list(range(1, 240)), 24, None, {"frame": "middle", "until_epoch": 100, "num_interpolation_epochs": 20}, False], # v12_big: same as v3_big, but use hard att on center frame until sub-epoch 100
     ["v12", None, None, None, False, 12, 512, False, False, False, list(range(1, 240)), 11, None, {"frame": "middle", "until_epoch": 100, "num_interpolation_epochs": 20}, False, False, False, False, False],  # v12_big: same as v3_big, but use hard att on center frame until sub-epoch 100
     ["v13", None, None, None, False, 12, 512, False, False, False, list(range(1, 240)), 11, None, None, True, False, False, False, False], # v13: same as v3_big, but set padding to zero before depthwise conv in conformer encoder layers
-    ["v14", None, None, None, False, 6, 512, False, False, False, list(range(1, 240)), 11, None, None, False, True, False, False, False],  # v14: same as v3_big, but use FF encoder with 6 layers
+    # ["v14", None, None, None, False, 6, 512, False, False, False, list(range(1, 240)), 11, None, None, False, True, False, False, False],  # v14: same as v3_big, but use FF encoder with 6 layers -> not converged
     ["v15", None, None, None, False, 12, 512, False, True, False, list(range(1, 240)), 11, None, None, False, False, False, False, False],  # v15: same as v3, but without pos encoding
     ["v16", None, None, None, False, 12, 512, False, False, False, list(range(1, 120)), 11, None, None, True, False, True, False, False],  # v16: same as v3, but set padding to zero before depthwise conv in conformer encoder layers and before conv in frontend
     ["v17", None, None, None, False, 12, 512, False, False, False, list(range(1, 120)), 11, None, None, False, False, False, True, False],  # v17: same as v3, but cut off initial silence
@@ -104,7 +103,6 @@ def run_exps():
               n_epochs=n_epochs,
               batch_size=batch_size,
               keep_epochs=keep_epochs,
-              lr_scheduling_type="dyn_lr_piecewise_linear_epoch-wise_v2",
               gpu_mem_rqmt=gpu_mem_rqmt,
               accum_grad_multiple_step=accum_grad_multiple_step,
               use_mgpu=use_mgpu,
@@ -112,7 +110,7 @@ def run_exps():
               filter_data_len=19.5 * 16_000,
               random_seed=random_seed,
               disable_enc_self_att_until_epoch=disable_self_att_until_epoch,
-              ce_aux_loss_layers=ctc_aux_loss_layers,
+              ctc_aux_loss_layers=ctc_aux_loss_layers,
               hard_att_opts=hard_att_opts,
               cutoff_initial_silence=cutoff_initial_silence,
               use_speed_pert_w_flip=use_speed_pert_w_flip,
@@ -121,6 +119,7 @@ def run_exps():
           alias=train_alias,
           config_builder=config_builder,
           checkpoint=checkpoint,
+          corpus_keys=("dev-other",)
         )
 
         analysis_epochs = [121, 131]
@@ -136,6 +135,8 @@ def run_exps():
           analysis_epochs += [191]
         if alias == "v10":
           analysis_epochs += [200]
+        if alias == "v7":
+          analysis_epochs += [500]
 
         only_do_analysis = True
 
@@ -289,10 +290,10 @@ def run_exps():
         #     )
         #     break  # only do this for the first existing checkpoint
 
-  plot_flipped_cross_att_weight_evolution()
-  plot_flipped_self_att_weight_evolution()
-  plot_flipped_vs_normal_cross_att_weights()
-  plot_gradients_wrt_different_layers()
+  # plot_flipped_cross_att_weight_evolution()
+  # plot_flipped_self_att_weight_evolution()
+  # plot_flipped_vs_normal_cross_att_weights()
+  # plot_gradients_wrt_different_layers()
 
 
 def plot_flipped_cross_att_weight_evolution():

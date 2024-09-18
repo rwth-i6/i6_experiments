@@ -34,7 +34,10 @@ def get_center_window_att_config_builder_rf(
         target_embed_dimension: int = 640,
         readout_dimension: int = 1024,
         ilm_dimension: int = 1024,
-        use_trafo_att: bool = False
+        use_trafo_att: bool = False,
+        behavior_version: Optional[int] = None,
+        use_readout: bool = True,
+        use_trafo_att_wo_cross_att: bool = False,
 ) -> Tuple[str, LibrispeechSegmentalAttConformerConfigBuilderRF]:
   assert bpe_vocab_size in {10025, 1056, 5048, 10240}
 
@@ -96,15 +99,19 @@ def get_center_window_att_config_builder_rf(
     readout_dimension=readout_dimension,
     ilm_dimension=ilm_dimension,
     use_trafo_att=use_trafo_att,
+    behavior_version=behavior_version,
+    use_readout=use_readout,
+    use_trafo_att_wo_cross_att=use_trafo_att_wo_cross_att
   )
 
   alias = (
+    f"behavior-{behavior_version}/"
     f"bpe-size-{bpe_vocab_size}/"
     f"win-size-{win_size}{'_gaussian-std-' + str(gaussian_att_weight_opts['std']) if gaussian_att_weight_opts else ''}/"
     f"{'w' if use_weight_feedback else 'wo'}-wf_"
     f"{'w' if use_att_ctx_in_state else 'wo'}-ctx-in-s/"
     f"bd-{blank_decoder_version}/"
-    f"{label_decoder_state}{'_trafo-att' if use_trafo_att else ''}/"
+    f"{label_decoder_state}{'_trafo-att' if use_trafo_att else ''}{'-wo-cross-att' if use_trafo_att_wo_cross_att else ''}/"
     f"{'_cur_frame_in_readout' if use_current_frame_in_readout else ''}"
     f"{'_cur_frame_in_readout_w_gate' if use_current_frame_in_readout_w_gate else ''}"
     f"{'_cur_frame_in_readout_random' if use_current_frame_in_readout_random else ''}"

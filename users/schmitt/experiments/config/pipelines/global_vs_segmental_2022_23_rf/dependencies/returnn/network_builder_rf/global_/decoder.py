@@ -109,7 +109,7 @@ class GlobalAttDecoder(BaseLabelDecoder):
           input_embed,
           state=state.trafo_att,
           spatial_dim=single_step_dim,
-          encoder=self.trafo_att.transform_encoder(enc, axis=enc_spatial_dim)
+          encoder=None if self.use_trafo_att_wo_cross_att else self.trafo_att.transform_encoder(enc, axis=enc_spatial_dim)
         )
       else:
         if self.use_weight_feedback:
@@ -192,7 +192,7 @@ class GlobalAttEfficientDecoder(GlobalAttDecoder):
         att, _ = self.trafo_att(
           input_embed,
           spatial_dim=input_embed_spatial_dim,
-          encoder=self.trafo_att.transform_encoder(enc, axis=enc_spatial_dim),
+          encoder=None if self.use_trafo_att_wo_cross_att else self.trafo_att.transform_encoder(enc, axis=enc_spatial_dim),
           state=self.trafo_att.default_initial_state(batch_dims=batch_dims)
         )
       else:

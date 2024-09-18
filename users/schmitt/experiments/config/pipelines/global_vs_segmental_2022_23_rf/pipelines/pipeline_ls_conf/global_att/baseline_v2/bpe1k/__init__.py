@@ -32,7 +32,6 @@ def run_exps():
               n_epochs=n_epochs,
               batch_size=batch_size,
               keep_epochs=list(range(240)),
-              lr_scheduling_type="dyn_lr_piecewise_linear_epoch-wise_v2",
               gpu_mem_rqmt=gpu_mem_rqmt,
               accum_grad_multiple_step=accum_grad_multiple_step,
               use_mgpu=use_mgpu,

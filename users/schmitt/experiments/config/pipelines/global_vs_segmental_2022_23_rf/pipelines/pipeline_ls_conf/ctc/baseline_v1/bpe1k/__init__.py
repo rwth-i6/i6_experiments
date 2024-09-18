@@ -26,9 +26,9 @@ def run_exps():
       n_epochs=100,
       checkpoint_path=external_checkpoints["luca-aed-bpe1k-w-ctc"],
       checkpoint_alias="luca-aed-bpe1k-w-ctc",
-      lr_scheduling_type="const_then_linear",
+      lr_scheduling_opts={"type": "const_then_linear"},
       use_mgpu=False,
-      ce_aux_loss_layers=(4, 8, 12),
+      ctc_aux_loss_layers=(4, 8, 12),
       use_curriculum_learning=False,
     ):
       pass
@@ -69,9 +69,8 @@ def train_from_scratch():
       alias=model_alias,
       config_builder=config_builder,
       n_epochs=500,
-      lr_scheduling_type="dyn_lr_piecewise_linear_epoch-wise_v2",
       use_mgpu=True,
-      ce_aux_loss_layers=(12,),
+      ctc_aux_loss_layers=(12,),
       filter_data_len=19.5 * 16_000,
       batch_size=15_000,
       accum_grad_multiple_step=4,

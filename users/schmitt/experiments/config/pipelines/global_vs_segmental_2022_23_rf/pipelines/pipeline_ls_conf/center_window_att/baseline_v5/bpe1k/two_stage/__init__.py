@@ -1,8 +1,8 @@
 from . import (
-  transducer,
+  from_scratch,
 )
 
 
 def run_exps():
   # Running
-  transducer.run_exps()
+  from_scratch.run_exps()

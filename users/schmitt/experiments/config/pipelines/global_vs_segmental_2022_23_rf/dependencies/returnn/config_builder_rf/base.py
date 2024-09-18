@@ -54,7 +54,9 @@ class ConfigBuilderRF(ABC):
           conv_frontend_w_zero_padding: bool = False,
           conformer_out_dim: int = 512,
           use_trafo_att: bool = False,
+          use_trafo_att_wo_cross_att: bool = False,
           use_readout: bool = True,
+          behavior_version: Optional[int] = None,
   ):
     assert (use_current_frame_in_readout_random ^ use_current_frame_in_readout_w_gate) or (
                   use_current_frame_in_readout_random ^ use_current_frame_in_readout) or (
@@ -84,6 +86,9 @@ class ConfigBuilderRF(ABC):
       default_input="data",
       target="targets",
     )
+
+    if behavior_version is not None:
+      self.config_dict["behavior_version"] = behavior_version
 
     self.use_att_ctx_in_state = use_att_ctx_in_state
     if not use_att_ctx_in_state:
@@ -134,6 +139,9 @@ class ConfigBuilderRF(ABC):
 
     if use_trafo_att:
       self.config_dict["use_trafo_att"] = True
+    if use_trafo_att_wo_cross_att:
+      assert use_trafo_att, "use_trafo_att_wo_cross_att can only be true if use_trafo_att is true"
+      self.config_dict["use_trafo_att_wo_cross_att"] = True
 
     self.python_prolog = []
 
@@ -648,7 +656,8 @@ class ConfigBuilderRF(ABC):
 
     return checkpoints
 
-  def get_lrlin_oclr_steps_by_bs_nep(self):
+  @staticmethod
+  def get_lrlin_oclr_steps_by_bs_nep():
     # By batch size (in k) and num (sub)epochs.
     # 500 subepochs is usually for multi-GPU with 4 GPUs,
     # i.e. the same as single-GPU 2000 subepochs.
@@ -677,7 +686,8 @@ class ConfigBuilderRF(ABC):
       (40, 2000): [450_000, 900_000, 982_000],  # total steps after 2000 epochs: 982.312
     }
 
-  def get_lr_settings(self, lr_opts, python_epilog: Optional[List] = None):
+  @staticmethod
+  def get_lr_settings(lr_opts, python_epilog: Optional[List] = None):
     lr_settings = {}
     if lr_opts["type"] == "newbob":
       lr_opts.pop("type")
@@ -691,7 +701,7 @@ class ConfigBuilderRF(ABC):
         "learning_rates": [const_lr] * int((num_epochs*const_frac)) + list(np.linspace(const_lr, final_lr, num_epochs - int((num_epochs*const_frac)))),
       })
     elif lr_opts["type"] == "dyn_lr_piecewise_linear":
-      _lrlin_oclr_steps_by_bs_nep = self.get_lrlin_oclr_steps_by_bs_nep()
+      _lrlin_oclr_steps_by_bs_nep = ConfigBuilderRF.get_lrlin_oclr_steps_by_bs_nep()
       peak_lr = lr_opts.get("peak_lr", 1e-3)
       return dict(
         dynamic_learning_rate=dynamic_lr.dyn_lr_piecewise_linear,
@@ -714,8 +724,8 @@ class ConfigBuilderRF(ABC):
       )
     elif lr_opts["type"] == "dyn_lr_piecewise_linear_epoch-wise_v2":
       peak_lr = lr_opts.get("peak_lr", 1e-3)
-      initial_lr = peak_lr * 1e-2
-      final_lr = peak_lr * 1e-3
+      initial_lr = lr_opts.get("init_lr", peak_lr * 1e-2)
+      final_lr = lr_opts.get("final_lr", peak_lr * 1e-3)
       cyc_ep = int(0.45 * lr_opts["num_epochs"])
       return dict(
         learning_rates=list(
@@ -1373,4 +1383,3 @@ class LibrispeechSegmentalAttConformerConfigBuilderRF(LibrispeechConformerConfig
 
 class LibrispeechCtcAttConformerConfigBuilderRF(LibrispeechConformerConfigBuilderRF, CtcConfigBuilderRF, ABC):
   pass
-

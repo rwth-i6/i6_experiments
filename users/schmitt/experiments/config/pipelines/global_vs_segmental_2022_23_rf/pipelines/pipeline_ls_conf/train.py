@@ -38,11 +38,11 @@ def get_common_train_opts_rqmt(
         time_rqmt: int = 80,
         batch_size: int = 15_000,
         use_mgpu: bool = True,
-        ce_aux_loss_layers: Optional[Tuple[int, ...]] = None,
-        ce_aux_loss_focal_loss_factors: Optional[Tuple[float, ...]] = None,
-        ce_aux_loss_scales: Optional[Tuple[float, ...]] = None,
+        ctc_aux_loss_layers: Optional[Tuple[int, ...]] = None,
+        ctc_aux_loss_focal_loss_factors: Optional[Tuple[float, ...]] = None,
+        ctc_aux_loss_scales: Optional[Tuple[float, ...]] = None,
         use_curriculum_learning: bool = True,
-        lr_scheduling_type: str = "dyn_lr_piecewise_linear",
+        lr_scheduling_opts: Optional[Dict] = None,
         regularization_type: str = "v1",
         use_speed_pert: bool = True,
         checkpoint_alias: Optional[str] = None,
@@ -63,7 +63,7 @@ def get_common_train_opts_rqmt(
     f"/{training_type}_from_{'scratch' if checkpoint_alias is None else checkpoint_alias}"
     f"/{n_epochs}-ep_bs-{batch_size}{'_mgpu-4' if use_mgpu else ''}_{'w' if use_speed_pert else 'wo'}-sp"
     f"{'-w-flip' if use_speed_pert_w_flip else ''}"
-    f"_{'curric' if use_curriculum_learning else 'no-curric'}_lr-{lr_scheduling_type}"
+    f"_{'curric' if use_curriculum_learning else 'no-curric'}"
     f"_reg-{regularization_type}{'_filter-data-' + str(filter_data_len) if filter_data_len else ''}"
     f"{'_filter-target-' + str(filter_target_len) if filter_target_len else ''}"
     f"_accum-{accum_grad_multiple_step}{'_rand-seed-' + str(random_seed) if random_seed is not None else ''}"
@@ -71,12 +71,20 @@ def get_common_train_opts_rqmt(
     f"{'_cut-init-sil' if cutoff_initial_silence else ''}"
   )
 
-  if ce_aux_loss_layers:
-    alias += f"_ce-aux-{'-'.join(map(str, ce_aux_loss_layers))}"
-  if ce_aux_loss_scales:
-    alias += f"_scales-{'-'.join(map(str, ce_aux_loss_scales))}"
-  if ce_aux_loss_focal_loss_factors:
-    alias += f"_aux-focal-loss-{'-'.join(map(str, ce_aux_loss_focal_loss_factors))}"
+  if lr_scheduling_opts is None:
+    lr_scheduling_opts = {"type": "dyn_lr_piecewise_linear_epoch-wise_v2", "peak_lr": 1e-3}
+    lr_scheduling_opts["init_lr"] = lr_scheduling_opts["peak_lr"] * 1e-2
+
+  alias += (
+    f"/lr_{'_'.join([f'{k}-{v}' if k != 'type' else f'{v}' for k, v in lr_scheduling_opts.items()])}"
+  )
+
+  if ctc_aux_loss_layers:
+    alias += f"_ctc-aux-{'-'.join(map(str, ctc_aux_loss_layers))}"
+  if ctc_aux_loss_scales:
+    alias += f"_scales-{'-'.join(map(str, ctc_aux_loss_scales))}"
+  if ctc_aux_loss_focal_loss_factors:
+    alias += f"_aux-focal-loss-{'-'.join(map(str, ctc_aux_loss_focal_loss_factors))}"
 
   reg_opts = copy.deepcopy(regularization_opts[regularization_type])
 
@@ -92,7 +100,7 @@ def get_common_train_opts_rqmt(
     "rf_att_dropout_broadcast": False,
     "batch_size": batch_size,
     "batching": "laplace:.1000",
-    "aux_loss_layers": ce_aux_loss_layers,
+    "aux_loss_layers": ctc_aux_loss_layers,
     "specaugment_steps": (5_000, 15_000, 25_000),
     "grad_scaler": None,
     "gradient_clip_global_norm": 5.0,
@@ -133,12 +141,13 @@ def get_common_train_opts_rqmt(
       }
     }
 
+  lr_scheduling_type = lr_scheduling_opts.pop("type")
   if lr_scheduling_type == "dyn_lr_piecewise_linear":
     train_opts["lr_opts"] = {
       "type": "dyn_lr_piecewise_linear",
       "batch_size": batch_size,
       "num_epochs": n_epochs,
-      "peak_lr": 1e-3,
+      **lr_scheduling_opts,
     }
   elif lr_scheduling_type == "const":
     train_opts["lr_opts"] = {
@@ -149,7 +158,7 @@ def get_common_train_opts_rqmt(
     train_opts["lr_opts"] = {
       "type": lr_scheduling_type,
       "num_epochs": n_epochs,
-      "peak_lr": 1e-3,
+      **lr_scheduling_opts,
     }
   else:
     assert lr_scheduling_type == "const_then_linear"
@@ -164,12 +173,12 @@ def get_common_train_opts_rqmt(
   if use_curriculum_learning:
     train_opts["dataset_opts"]["epoch_wise_filter"] = {(1, 5): {"max_mean_len": 1000}}
 
-  if ce_aux_loss_layers:
+  if ctc_aux_loss_layers:
     train_opts["aux_loss_type"] = "ce"
-  if ce_aux_loss_focal_loss_factors:
-    train_opts["aux_loss_focal_loss_factors"] = ce_aux_loss_focal_loss_factors
-  if ce_aux_loss_scales:
-    train_opts["aux_loss_scales"] = ce_aux_loss_scales
+  if ctc_aux_loss_focal_loss_factors:
+    train_opts["aux_loss_focal_loss_factors"] = ctc_aux_loss_focal_loss_factors
+  if ctc_aux_loss_scales:
+    train_opts["aux_loss_scales"] = ctc_aux_loss_scales
 
   train_rqmt = {
     "time": time_rqmt,

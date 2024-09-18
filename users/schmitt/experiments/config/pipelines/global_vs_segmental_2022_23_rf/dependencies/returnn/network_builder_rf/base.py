@@ -129,6 +129,9 @@ class BaseLabelDecoder(rf.Module):
   ):
     super(BaseLabelDecoder, self).__init__()
 
+    from returnn.config import get_global_config
+    config = get_global_config()  # noqa
+
     assert not (use_current_frame_in_readout and use_current_frame_in_readout_w_gate), "only one of them allowed"
 
     self.target_dim = target_dim
@@ -194,6 +197,8 @@ class BaseLabelDecoder(rf.Module):
           **ilm_layer_opts,
         )
 
+    self.use_trafo_att_wo_cross_att = config.bool("use_trafo_att_wo_cross_att", False)
+
     self.use_mini_att = use_mini_att
     if use_mini_att:
       if "lstm" in decoder_state:
@@ -217,7 +222,7 @@ class BaseLabelDecoder(rf.Module):
         model_dim = target_embed_dim
         self.trafo_att = TrafoAttention(
           num_layers=6,
-          encoder_dim=enc_out_dim,
+          encoder_dim=None if self.use_trafo_att_wo_cross_att else enc_out_dim,
           vocab_dim=target_dim,  # not used (embeddings are calculated before)
           model_dim=model_dim,
           sequential=rf.Sequential,

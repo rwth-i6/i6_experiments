@@ -45,6 +45,7 @@ class GlobalAttentionModel(rf.Module):
           dec_att_num_heads: Dim = Dim(name="att_num_heads", dimension=1),
           enc_dropout: float = 0.1,
           eos_idx: int,
+          bos_idx: int,
           use_weight_feedback: bool = True,
           use_att_ctx_in_state: bool = True,
           use_mini_att: bool = False,
@@ -61,7 +62,7 @@ class GlobalAttentionModel(rf.Module):
   ):
     super(GlobalAttentionModel, self).__init__()
 
-    self.bos_idx = eos_idx
+    self.bos_idx = bos_idx
     self.eos_idx = eos_idx
 
     if encoder_cls == LinearEncoder:
@@ -129,8 +130,8 @@ class GlobalAttentionModel(rf.Module):
       )
     else:
       # hard code for now
-      self.eos_idx = 0
-      self.bos_idx = 1
+      self.eos_idx = eos_idx
+      self.bos_idx = bos_idx
 
       model_dim = Dim(name="dec", dimension=512)
       self.label_decoder = TransformerDecoder(
@@ -236,6 +237,7 @@ class MakeModel:
       enc_ff_dim=Dim(name="enc-ff", dimension=2048, kind=Dim.Types.Feature),
       enc_num_heads=8,
       eos_idx=_get_eos_idx(target_dim),
+      bos_idx=_get_bos_idx(target_dim),
       target_dim=target_dim,
       blank_idx=target_dim.dimension,
       language_model=lm,
@@ -257,8 +259,6 @@ def _get_bos_idx(target_dim: Dim) -> int:
     bos_idx = target_dim.vocab.bos_label_id
   elif target_dim.vocab.eos_label_id is not None:
     bos_idx = target_dim.vocab.eos_label_id
-  elif "<sil>" in target_dim.vocab.user_defined_symbol_ids:
-    bos_idx = target_dim.vocab.user_defined_symbol_ids["<sil>"]
   else:
     raise Exception(f"cannot determine bos_idx from vocab {target_dim.vocab}")
   return bos_idx

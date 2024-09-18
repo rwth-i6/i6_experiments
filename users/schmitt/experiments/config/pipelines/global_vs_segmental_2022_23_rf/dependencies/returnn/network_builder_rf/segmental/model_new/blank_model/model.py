@@ -5,6 +5,8 @@ import functools
 from returnn.tensor import Tensor, Dim, single_step_dim
 import returnn.frontend as rf
 
+from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.segmental import utils
+
 
 class BlankDecoderBase(rf.Module, ABC):
   def __init__(self):
@@ -463,6 +465,56 @@ class BlankDecoderV10(BlankDecoderBase):
     """logits for the decoder"""
 
     s_blank = self.s(energy_in)
+    s_blank = rf.reduce_out(s_blank, mode="max", num_pieces=2, out_dim=self.emit_prob.in_dim)
+    s_blank = rf.dropout(s_blank, drop_prob=0.3, axis=rf.dropout_broadcast_default() and s_blank.feature_dim)
+    logits = self.emit_prob(s_blank)
+    return logits
+
+  def get_label_decoder_deps(self) -> Optional[List[str]]:
+    return ["s"]
+
+
+class BlankDecoderV11(BlankDecoderV4):
+  def __init__(
+          self,
+          length_model_state_dim: Dim,
+          label_state_dim: Dim,
+          encoder_out_dim: Dim,
+  ):
+    super(BlankDecoderV4, self).__init__()
+    self.length_model_state_dim = length_model_state_dim
+    self.label_state_dim = label_state_dim
+    self.encoder_out_dim = encoder_out_dim
+
+    self.s = rf.Linear(
+      encoder_out_dim,
+      self.length_model_state_dim,
+    )
+    self.emit_prob = rf.Linear(self.length_model_state_dim // 2, self.emit_prob_dim)
+
+  def decode_logits(
+          self,
+          *,
+          enc: Tensor,
+          label_model_states_unmasked: rf.Tensor,
+          allow_broadcast: bool = False,
+  ) -> Tensor:
+    """logits for the decoder"""
+
+    label_model_states_unmasked = utils.copy_tensor_replace_dim_tag(
+      label_model_states_unmasked,
+      label_model_states_unmasked.feature_dim,
+      enc.feature_dim,
+    )
+
+    s_input = enc + label_model_states_unmasked
+
+    # print("s_input", s_input)
+    # print("enc", enc)
+    # print("label_model_states_unmasked", label_model_states_unmasked)
+    # exit()
+
+    s_blank = self.s(s_input)
     s_blank = rf.reduce_out(s_blank, mode="max", num_pieces=2, out_dim=self.emit_prob.in_dim)
     s_blank = rf.dropout(s_blank, drop_prob=0.3, axis=rf.dropout_broadcast_default() and s_blank.feature_dim)
     logits = self.emit_prob(s_blank)

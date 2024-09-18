@@ -52,7 +52,7 @@ def run_exps():
               time_rqmt=80,
               gpu_mem_rqmt=24,
               checkpoint_alias="ctc-fixed-path-300ep",
-              lr_scheduling_type="const",
+              lr_scheduling_opts={"type": "const"},
               use_mgpu=False,
               checkpoint_path=fixed_path_checkpoint_ep300,
               training_type="full-sum",

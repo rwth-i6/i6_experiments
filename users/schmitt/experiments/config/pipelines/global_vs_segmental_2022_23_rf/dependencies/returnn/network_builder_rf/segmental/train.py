@@ -58,6 +58,7 @@ from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segment
   BlankDecoderV8,
   BlankDecoderV9,
   BlankDecoderV10,
+  BlankDecoderV11,
 )
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.segmental.model_new.label_model.model import (
   SegmentalAttLabelDecoder,
@@ -190,7 +191,7 @@ def viterbi_training(
   aux_loss_layers = config.typed_value("aux_loss_layers")
   aux_loss_scales = config.typed_value("aux_loss_scales", ([1.0] * len(aux_loss_layers)) if aux_loss_layers else None)
   aux_loss_focal_loss_factors = config.typed_value("aux_loss_focal_loss_factors", ([0.0] * len(aux_loss_layers)) if aux_loss_layers else None)
-  aux_loss_type = config.typed_value("aux_loss_type", "ctc")
+  aux_loss_type = "ctc"  # config.typed_value("aux_loss_type", "ctc")
   force_inefficient_loop = config.typed_value("force_inefficient_loop", False)
 
   if data.feature_dim and data.feature_dim.dimension == 1:
@@ -407,7 +408,8 @@ def viterbi_training(
         model.blank_decoder, BlankDecoderV7) or isinstance(
         model.blank_decoder, BlankDecoderV8) or isinstance(
         model.blank_decoder, BlankDecoderV9) or isinstance(
-        model.blank_decoder, BlankDecoderV10
+        model.blank_decoder, BlankDecoderV10) or isinstance(
+        model.blank_decoder, BlankDecoderV11
       )
 
       label_states_unmasked = utils.get_unmasked(
@@ -428,7 +430,7 @@ def viterbi_training(
           emit_blank_target_dim=emit_blank_target_dim,
           batch_dims=batch_dims,
         )
-      elif model.blank_decoder_version == 4:
+      elif model.blank_decoder_version in (4, 11):
         emit_log_prob, blank_log_prob = blank_model_viterbi_training_v4(
           model=model.blank_decoder,
           enc_args=enc_args,
