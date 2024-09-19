@@ -186,74 +186,10 @@ def returnn_config_generator(
     if variant == ConfigVariant.PRIOR:
         extra_config: dict = {
             "forward": train_data_config,
-            # "extern_data": {"forward": {"dim": 1}},
             "torch_amp_options": {"dtype": "bfloat16"},
         }
     if variant == ConfigVariant.RECOG:
-        # extra_config: dict = {
-        #     "extern_data": {"data": {"dim": 1}},
-        # }
         extra_config = {}
-
-    nick_model = """
-get_model = __import__("functools").partial(
-    __import__(
-        "i6_experiments.users.rossenbach.experiments.librispeech.ctc_rnnt_standalone_2024.pytorch_networks.ctc.conformer_1023.i6modelsV1_VGG4LayerActFrontendV1_v6_conv_first",
-        fromlist=["Model"],
-    ).Model,
-    **{
-        "model_config_dict": {
-            "feature_extraction_config": {
-                "sample_rate": 16000,
-                "win_size": 0.025,
-                "hop_size": 0.01,
-                "f_min": 60,
-                "f_max": 7600,
-                "min_amp": 1e-10,
-                "num_filters": 80,
-                "center": False,
-                "n_fft": 400,
-            },
-            "frontend_config": {
-                "in_features": 80,
-                "conv1_channels": 32,
-                "conv2_channels": 64,
-                "conv3_channels": 64,
-                "conv4_channels": 32,
-                "conv_kernel_size": (3, 3),
-                "conv_padding": None,
-                "pool1_kernel_size": (2, 1),
-                "pool1_stride": (2, 1),
-                "pool1_padding": None,
-                "pool2_kernel_size": (2, 1),
-                "pool2_stride": (2, 1),
-                "pool2_padding": None,
-                "activation": None,
-                "out_features": 512,
-                "activation_str": "ReLU",
-            },
-            "specaug_config": {
-                "repeat_per_n_frames": 25,
-                "max_dim_time": 20,
-                "num_repeat_feat": 5,
-                "max_dim_feat": 16,
-            },
-            "specauc_start_epoch": 11,
-            "label_target_size": 184,
-            "conformer_size": 512,
-            "num_layers": 12,
-            "num_heads": 8,
-            "ff_dim": 2048,
-            "att_weights_dropout": 0.1,
-            "conv_dropout": 0.1,
-            "ff_dropout": 0.1,
-            "mhsa_dropout": 0.1,
-            "conv_kernel_size": 31,
-            "final_dropout": 0.1,
-        }
-    }
-)
-    """
 
     if variant == ConfigVariant.TRAIN:
         serializer_kwargs = {"train_type": conformer_ctc.TrainType.TORCH_CTC_LOSS, "blank_idx": target_size - 1}
@@ -282,15 +218,6 @@ get_model = __import__("functools").partial(
         extra_python=[
             conformer_ctc.get_serializer(model_config, variant=variant, **serializer_kwargs),
         ],
-        # extra_python=[
-        #     nick_model,
-        #     Import(
-        #         "i6_experiments.users.berger.pytorch.train_steps_minireturnn.ctc.train_step_nick",
-        #         import_as="train_step",
-        #     ),
-        # ]
-        # if variant == ConfigVariant.TRAIN
-        # else [conformer_ctc.get_serializer(model_config, variant=variant, **serializer_kwargs)],
         extern_data_config=False,
         backend=Backend.PYTORCH,
         use_lovely_tensors=False,
