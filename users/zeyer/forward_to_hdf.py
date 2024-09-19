@@ -224,22 +224,6 @@ def _returnn_forward_config(
     from i6_experiments.common.setups.returnn.serialization import get_serializable_config
     from returnn.tensor import Dim
 
-    # Need to move out any parts which have Dim in it,
-    # because the common ReturnnConfig serialization cannot handle that.
-    # Also, unify the serialization with extern_data,
-    # such that we reuse the same dim tags.
-    # E.g. if there is model_outputs here.
-    config = config.copy()
-    config_dim_items = {}
-    config_dim_items_extra_hash = {}
-    for k, v in list(config.items()):
-        if any(isinstance(v_, Dim) for v_ in tree.flatten(v)):
-            config.pop(k)
-            config_dim_items[k] = v
-            config_dim_items_extra_hash[k] = tree.map_structure(
-                lambda v_: {"dim": v_.dimension} if isinstance(v_, Dim) else v_, v
-            )
-
     returnn_recog_config_dict = dict(
         # dataset
         default_input=dataset.get_default_input(),
@@ -259,6 +243,21 @@ def _returnn_forward_config(
         returnn_recog_config_dict.update(config)
     if isinstance(model_def, ModelDefWithCfg):
         returnn_recog_config_dict.update(model_def.config)
+
+    # Need to move out any parts which have Dim in it,
+    # because the common ReturnnConfig serialization cannot handle that.
+    # Also, unify the serialization with extern_data,
+    # such that we reuse the same dim tags.
+    # E.g. if there is model_outputs here.
+    config_dim_items = {}
+    config_dim_items_extra_hash = {}
+    for k, v in list(returnn_recog_config_dict.items()):
+        if any(isinstance(v_, Dim) for v_ in tree.flatten(v)):
+            returnn_recog_config_dict.pop(k)
+            config_dim_items[k] = v
+            config_dim_items_extra_hash[k] = tree.map_structure(
+                lambda v_: {"dim": v_.dimension} if isinstance(v_, Dim) else v_, v
+            )
 
     extern_data_raw = dataset.get_extern_data()
     # TODO why is the instanciate_delayed needed?
