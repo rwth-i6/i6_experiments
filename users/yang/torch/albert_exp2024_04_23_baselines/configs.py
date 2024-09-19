@@ -108,6 +108,21 @@ def _fine_tune_get_cfg_lrlin_oclr_by_bs_nep(bs_feat: int, n_ep: int, *, peak_lr:
         "learning_rate_piecewise_values": [peak_lr * 1e-1, peak_lr, peak_lr * 1e-1, peak_lr * 1e-2],
     }
 
+def _fine_tune_get_cfg_lrlin_const_lineardecay_by_bs_nep(bs_feat: int, n_ep: int, *, peak_lr: float = 1e-3) -> Dict[str, Any]:
+    """
+    :param bs_feat: batch size for features (not including _batch_size_factor)
+    :param n_ep: num epochs
+    """
+    return {
+        "__num_epochs": n_ep,
+        "batch_size": bs_feat * _batch_size_factor,
+        "learning_rate": 1.0,
+        "dynamic_learning_rate": dyn_lr_piecewise_linear,
+        # If the dict has no entry for the bs_feat,n_ep combination, see above.
+        "learning_rate_piecewise_steps": _lrlin_oclr_steps_by_bs_nep[(bs_feat // 1000, n_ep)],
+        "learning_rate_piecewise_values": [peak_lr, peak_lr, peak_lr, peak_lr * 1e-1],
+    }
+
 
 # combine this for example with _get_cfg_lrlin_oclr_by_bs_nep(15_000, 500)
 config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4 = dict_update_deep(

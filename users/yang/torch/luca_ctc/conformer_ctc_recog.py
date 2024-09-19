@@ -394,9 +394,11 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
     ### aed from scratch, ctc loss 4,8,12
     # epoch 482, layer 12
     # aed result: {"best_scores": {"dev-clean": 2.21, "dev-other": 5.15, "test-clean": 2.49, "test-other": 5.48}, "best_epoch": 482}
-    # bsf 10: ctc-12 greedy: {"dev-clean": 2.87, "dev-other": 7.42, "test-clean": 3.16, "test-other": 7.48}
-    # bsf 120 ctc-12 greedy: {"dev-clean": 2.82, "dev-other": 7.43, "test-clean": 3.13, "test-other": 7.42}, almost the same
-    # bsf 10 ctc-8 greedy: {"dev-clean": 3.59, "dev-other": 9.01, "test-clean": 3.86, "test-other": 9.14}
+    # bsf 10 ctc-12 greedy {"dev-clean": 2.57, "dev-other": 6.25, "test-clean": 2.78, "test-other": 6.52}
+    # bsf 10 ctc-8 greedy {"dev-clean": 3.22, "dev-other": 7.62, "test-clean": 3.51, "test-other": 7.97}
+
+
+    ### Note!!!! aed feature_batch_norm should be enabled, otherwise inconsistent with training, and the result is worse
 
     bsfs = [10]
     ctc_layers = [8,12]
@@ -404,32 +406,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
     model_path = "/work/asr4/zyang/rf/work/i6_core/returnn/training/ReturnnTrainingJob.V18BvuJ52QAA/output/models/epoch.482.pt"
     model_name = "v6-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100--speedpertV2-bpe10k-bpeSample001-from_scratch-ctc12"
     model_ckpt = get_model_ckpt(model_name, model_path, model_def=aed_model_def)
-    for bsf in bsfs:
-        for ctc_layer in ctc_layers:
-            search_args = {
-                "bsf": bsf,
-                #"hash_overwrite": "albert-aed-finetune-ctc1.0-12",
-                "beam_size": 1,
-                "mask_eos_output": False,
-            }
-            model_args = {
-                "ctc_output_args": {
-                    "ctc_enc_layer_id": ctc_layer,
-                }
-            }
-            name = model_name + f'-ctc-{ctc_layer}-greedy-bsf{bsf}'
-            res, _ = recog_model(
-                task,
-                model_ckpt,
-                model_recog_greedy,
-                dev_sets=["dev-clean", "dev-other", "test-clean", "test-other"],
-                model_args=model_args,
-                search_args=search_args,
-            )
-            tk.register_output(
-                _sis_prefix + '/' + name,
-                res.output,
-            )
+
     for bsf in bsfs:
         for ctc_layer in ctc_layers:
             search_args = {
@@ -458,44 +435,126 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
                 res.output,
             )
 
-    # albert's sampling 001 aed model, check if sampling influences the ctc result
-
-    # v6-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-maxSeqLenNone-wd1e_2-lrlin1e_5_295k-featBN-speedpertV2-bpe10k-bpeSample001-ctc-8-greedy-bsf10
-    # {"dev-clean": 3.42, "dev-other": 9.07, "test-clean": 3.62, "test-other": 8.71}
-    # sampling hurts ctc performance? or it's just not trained enough?
-    ctc_layers = [8]
-
+    # aed-ctc kd, check results first, maybe do all recogs for relevant models?
     bsfs = [10]
+    ctc_layers = [12]
+    # model_paths =["/work/asr4/zyang/rf/work/i6_core/returnn/training/ReturnnTrainingJob.lbx19uFpLHUl/output/models/",
+    #               "/work/asr4/zyang/rf/work/i6_core/returnn/training/ReturnnTrainingJob.qykjxjDMBsfe/output/models",
+    #
+    #
+    # ]
+    # use alias for simplicity?
+    # not using sampling makes the results much worse
+    model_base_path = "/u/zyang/setups/rf/alias/aed_new_fw_kd/"
+    model_names = [
+"debug-v6-bhv20-11gb-f32-bs15k-accgrad1-singlemgpu-speedpertV2-bpe10k-fw_only-target_detach-kd_layer-12-wm20000-aed_scale0.6-topk10-bsz15000-ep100-sampling0.01",
+"debug-v6-bhv20-11gb-f32-bs15k-accgrad1-singlemgpu-speedpertV2-bpe10k-fw_only-target_detach-kd_layer-12-wm20000-aed_scale1.0-topk10-bsz15000-ep100-sampling0.01",
+"debug-v6-bhv20-11gb-f32-bs15k-accgrad1-singlemgpu-speedpertV2-bpe10kkd_layer12-wm20000-aed_scale1.0-topk10-bsz15000-ep100-sampling0.01",
+"debug-v6-bhv20-11gb-f32-bs15k-accgrad1-singlemgpu-speedpertV2-bpe10k--target_detach-kd_layer-12-wm20000-aed_scale0.6-topk10-bsz15000-ep100-sampling0.01",
+"debug-v6-bhv20-11gb-f32-bs15k-accgrad1-singlemgpu-speedpertV2-bpe10kfw_only-kd_layer12-wm20000-aed_scale1.0-topk10-bsz15000-ep100-sampling0.01",
+"debug-v6-bhv20-11gb-f32-bs15k-accgrad1-singlemgpu-speedpertV2-bpe10kfw_only-kd_layer12-wm20000-aed_scale0.6-topk10-bsz15000-ep100-sampling0.01",
+"debug-v6-bhv20-11gb-f32-bs15k-accgrad1-singlemgpu-speedpertV2-bpe10kkd_layer12-wm20000-aed_scale0.6-topk10-bsz15000-ep100-sampling0.01",
+"debug-v6-bhv20-11gb-f32-bs15k-accgrad1-singlemgpu-speedpertV2-bpe10k--target_detach-kd_layer-12-wm20000-aed_scale1.0-topk10-bsz15000-ep100-sampling0.01",
+    ]
+    name_alias = [
+        "fw_only_target_detach_aed_logit0.6",
+        "fw_only_target_detach_aed_logit1.0",
+        "fw_bw_aed_logit1.0",
+        "fw_bw_target_detach_aed_logit0.6",
+        "fw_only_aed_logit1.0",
+        "fw_only_aed_logit0.6",
+        "fw_bw_aed_logit0.6",
+        "fw_bw_target_detach_aed_logit1.0",
 
-    model_path = "/work/asr4/zyang/torch_checkpoints/aed/albert_bpe10k_sampling001/epoch.487.pt"
-    model_name = "v6-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-maxSeqLenNone-wd1e_2-lrlin1e_5_295k-featBN-speedpertV2-bpe10k-bpeSample001"
-    model_ckpt = get_model_ckpt(model_name, model_path, model_def=aed_model_def)
-    for bsf in bsfs:
-        for ctc_layer in ctc_layers:
-            search_args = {
-                "bsf": bsf,
-                #"hash_overwrite": "albert-aed-finetune-ctc1.0-12",
-                "beam_size": 1,
-                "mask_eos_output": False,
-            }
-            model_args = {
-                "ctc_output_args": {
-                    "ctc_enc_layer_id": ctc_layer,
-                }
-            }
-            name = model_name + f'-ctc-{ctc_layer}-greedy-bsf{bsf}'
-            res, _ = recog_model(
-                task,
-                model_ckpt,
-                model_recog_greedy,
-                dev_sets=["dev-clean", "dev-other", "test-clean", "test-other"],
-                model_args=model_args,
-                search_args=search_args,
-            )
-            tk.register_output(
-                _sis_prefix + '/' + name,
-                res.output,
-            )
+
+
+
+
+    ]
+    # aed best epochs:
+    best_epochs = [91, #{"best_scores": {"dev-clean": 2.28, "dev-other": 5.24, "test-clean": 2.55, "test-other": 5.56}, "best_epoch": 91}
+                   96, #   "96": {"dev-clean": 2.22, "dev-other": 5.2, "test-clean": 2.46, "test-other": 5.51},
+                   80, #   "80": {"dev-clean": 2.2, "dev-other": 5.22, "test-clean": 2.48, "test-other": 5.52},
+                   92, # {"best_scores": {"dev-clean": 2.34, "dev-other": 5.23, "test-clean": 2.55, "test-other": 5.61}, "best_epoch": 92}
+                   99, # "99": {"dev-clean": 2.19, "dev-other": 5.27, "test-clean": 2.49, "test-other": 5.49},
+                   92, # {"best_scores": {"dev-clean": 2.23, "dev-other": 5.26, "test-clean": 2.54, "test-other": 5.56}, "best_epoch": 92}
+                   99, # {"best_scores": {"dev-clean": 2.29, "dev-other": 5.25, "test-clean": 2.53, "test-other": 5.58}, "best_epoch": 99}
+                   97, # "97": {"dev-clean": 2.19, "dev-other": 5.22, "test-clean": 2.51, "test-other": 5.51}
+    ]
+
+    assert len(model_names) == len(best_epochs) == len(name_alias)
+    bsf = 11
+    search_args = {
+        "bsf": bsf,
+        "beam_size": 1,
+        "mask_eos_output": False,
+    }
+    model_args = {
+        "ctc_output_args": {
+            "ctc_enc_layer_id": 12,
+        },
+        "feature_batch_norm": True,
+    }
+    for i in range(len(model_names)):
+        model_name = model_names[i]
+        model_path = model_base_path + model_name + f'/train/output/models/epoch.{best_epochs[i]:03}.pt'
+        model_ckpt = get_model_ckpt(model_name, model_path, model_def=aed_model_def)
+        #name = model_name + f'-ctc-{12}-greedy-bsf{bsf}-feature-batch-norm'
+        res, _ = recog_model(
+            task,
+            model_ckpt,
+            model_recog_greedy,
+            dev_sets=["dev-clean", "dev-other", "test-clean", "test-other"],
+            model_args=model_args,
+            search_args=search_args,
+        )
+        tk.register_output(
+            _sis_prefix + '/aed_kd/' + name_alias[i],
+            res.output,
+        )
+
+    # all models broken/pretty bad? the original ctc loss should always be kept?
+    #
+
+
+
+    #albert's sampling 001 aed model, check if sampling influences the ctc result
+    # ctc_layers = [8]
+    #
+    # bsfs = [10]
+    #
+    # model_path = "/work/asr4/zyang/torch_checkpoints/aed/albert_bpe10k_sampling001/epoch.487.pt"
+    # model_name = "v6-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-maxSeqLenNone-wd1e_2-lrlin1e_5_295k-featBN-speedpertV2-bpe10k-bpeSample001"
+    # model_ckpt = get_model_ckpt(model_name, model_path, model_def=aed_model_def)
+    # for bsf in bsfs:
+    #     for ctc_layer in ctc_layers:
+    #         search_args = {
+    #             "bsf": bsf,
+    #             #"hash_overwrite": "albert-aed-finetune-ctc1.0-12",
+    #             "beam_size": 1,
+    #             "mask_eos_output": False,
+    #         }
+    #         model_args = {
+    #             "ctc_output_args": {
+    #                 "ctc_enc_layer_id": ctc_layer,
+    #             },
+    #             "feature_batch_norm": True,
+    #         }
+    #         name = model_name + f'-ctc-{ctc_layer}-greedy-bsf{bsf}'
+    #         res, _ = recog_model(
+    #             task,
+    #             model_ckpt,
+    #             model_recog_greedy,
+    #             dev_sets=["dev-clean", "dev-other", "test-clean", "test-other"],
+    #             model_args=model_args,
+    #             search_args=search_args,
+    #         )
+    #         tk.register_output(
+    #             _sis_prefix + '/' + name,
+    #             res.output,
+    #         )
+
+
 
 
 
