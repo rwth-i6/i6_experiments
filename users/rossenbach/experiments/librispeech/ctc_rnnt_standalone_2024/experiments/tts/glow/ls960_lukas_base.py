@@ -8,13 +8,13 @@ from dataclasses import asdict
 
 from i6_experiments.common.setups.returnn.datastreams.audio import DBMelFilterbankOptions
 
-from i6_experiments.users.rossenbach.experiments.librispeech.ctc_rnnt_standalone_2024.data.tts.aligner import build_training_dataset
-from i6_experiments.users.rossenbach.experiments.librispeech.ctc_rnnt_standalone_2024.config import get_forward_config
-from i6_experiments.users.rossenbach.experiments.librispeech.ctc_rnnt_standalone_2024.pipeline import training, prepare_tts_model, TTSModel, tts_eval_v2
-from i6_experiments.users.rossenbach.experiments.librispeech.ctc_rnnt_standalone_2024.data.tts.tts_phon import get_tts_log_mel_datastream, build_durationtts_training_dataset
+from ....data.tts.aligner import build_training_dataset
+from ....config import get_forward_config
+from ....pipeline import training, prepare_tts_model, TTSModel, tts_eval_v2
+from ....data.tts.tts_phon import get_tts_log_mel_datastream, build_durationtts_training_dataset
 
-from i6_experiments.users.rossenbach.experiments.librispeech.ctc_rnnt_standalone_2024.default_tools import RETURNN_EXE, MINI_RETURNN_ROOT
-from i6_experiments.users.rossenbach.experiments.jaist_project.storage import vocoders
+from ....default_tools import RETURNN_EXE, MINI_RETURNN_ROOT
+from ....storage import vocoders
 
 
 def run_flow_tts_960h():
@@ -33,7 +33,7 @@ def run_flow_tts_960h():
 
     def run_exp(name, train_args, target_durations=None, num_epochs=100):
         if target_durations is not None:
-            training_datasets_ = build_durationtts_training_dataset(duration_hdf=target_durations, ls_corpus_key="train-clean-460")
+            training_datasets_ = build_durationtts_training_dataset(duration_hdf=target_durations, ls_corpus_key="train-other-960")
         else:
             training_datasets_ = training_datasets
 
@@ -84,7 +84,18 @@ def run_flow_tts_960h():
             mem_rqmt=12,
             use_gpu=True,
         )
+        forward_job.add_alias(prefix + "/" + tts_model.prefix_name + "/" + name + "/forward")
         tk.register_output(tts_model.prefix_name + name + "/audio_files", forward_job.out_files["audio_files"])
+        corpus = forward_job.out_files["out_corpus.xml.gz"]
+        from ....pipeline import evaluate_nisqa
+        evaluate_nisqa(prefix_name=prefix + "/" + tts_model.prefix_name + "/" + name, bliss_corpus=corpus)
+        from i6_experiments.users.rossenbach.experiments.jaist_project.evaluation.swer import run_evaluate_reference_swer
+        from i6_experiments.users.rossenbach.corpus.transform import MergeCorporaWithPathResolveJob, MergeStrategy
+        realpath_corpus = MergeCorporaWithPathResolveJob(bliss_corpora=[corpus],
+                                                         name="train-clean-960",  # important to keep the original sequence names for matching later
+                                                         merge_strategy=MergeStrategy.FLAT
+                                                         )
+        run_evaluate_reference_swer(prefix=prefix + "/" + tts_model.prefix_name, bliss=realpath_corpus.out_merged_corpus)
 
     log_mel_datastream = get_tts_log_mel_datastream(ls_corpus_key="train-other-960", silence_preprocessed=False)
 
@@ -120,7 +131,7 @@ def run_flow_tts_960h():
 
     net_module = "glow_tts.glow_tts_v1"
 
-    vocoder = vocoders["blstm_gl_v1"]
+    vocoder = vocoders["blstm_gl_v1_ls960"]
     decoder_options_base = {
         "norm_mean": norm[0],
         "norm_std_dev": norm[1],

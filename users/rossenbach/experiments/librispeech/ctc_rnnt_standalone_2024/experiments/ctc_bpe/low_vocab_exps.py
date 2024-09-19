@@ -625,9 +625,11 @@ def bpe_ls960_1023_low_vocab_test():
                     lm_module=neural_lm.network_module,
                     lm_args=neural_lm.net_args
                 )
-                tune_and_evaluate_helper(training_name + "_neurallm", dev_dataset_tuples, test_dataset_tuples, asr_model,
-                                         decoder_config_neural_lm, lm_scales=[1.8],
-                                         prior_scales=[0.2], decoder_module="ctc.decoder.flashlight_ctc_v2_neural_lm", debug=True)
+
+                # Did not work so far, TODO: maybe try later again
+                #tune_and_evaluate_helper(training_name + "_neurallm", dev_dataset_tuples, test_dataset_tuples, asr_model,
+                #                         decoder_config_neural_lm, lm_scales=[1.8],
+                #                         prior_scales=[0.2], decoder_module="ctc.decoder.flashlight_ctc_v2_neural_lm", debug=True)
                 
                 
                 # Neural LM rescoring test

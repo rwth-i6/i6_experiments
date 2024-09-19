@@ -188,7 +188,7 @@ def aed_bpe_ls960_1023_base():
     )
 
     decoder_attention_zeineldeen_cfg = AdditiveAttentionConfig(
-        attention_dim=1024, att_weights_dropout=0.0
+        attention_dim=1024, att_weights_dropout=0.1
     )
     decoder_zeineldeen_cfg = AttentionLSTMDecoderV1Config(
         encoder_dim=512,
@@ -202,47 +202,7 @@ def aed_bpe_ls960_1023_base():
         output_proj_dim=1024,
         output_dropout=0.3,
     )
-    model_zeineldeen_config_v2 = ModelConfigV2(
-        feature_extraction_config=fe_config,
-        frontend_config=frontend_config,
-        specaug_config=specaug_config_full,
-        decoder_config=decoder_zeineldeen_cfg,
-        label_target_size=vocab_size_without_blank,
-        conformer_size=512,
-        num_layers=12,
-        num_heads=8,
-        ff_dim=2048,
-        att_weights_dropout=0.1,
-        conv_dropout=0.1,
-        ff_dropout=0.1,
-        mhsa_dropout=0.1,
-        conv_kernel_size=31,
-        final_dropout=0.1,
-        specauc_start_epoch=21, # CTC converges < 10, but AED needs longer, so 21 is a safe choice for now
-        ctc_loss_scale=0.7,  # quite strong but needed for convergence for now (0.7 worked, 0.3 did not, TODO: test 0.5)
-    )
 
-    model_zeineldeen_config_v3 = ModelConfigV3(
-        feature_extraction_config=fe_config,
-        frontend_config=frontend_config,
-        specaug_config=specaug_config_full,
-        decoder_config=decoder_zeineldeen_cfg,
-        label_target_size=vocab_size_without_blank,
-        conformer_size=512,
-        num_layers=12,
-        num_heads=8,
-        ff_dim=2048,
-        att_weights_dropout=0.1,
-        conv_dropout=0.1,
-        ff_dropout=0.1,
-        mhsa_dropout=0.1,
-        conv_kernel_size=31,
-        final_dropout=0.1,
-        specauc_start_epoch=21,  # CTC converges < 10, but AED needs longer, so 21 is a safe choice for now
-        ctc_loss_scale=0.7,  # quite strong but needed for convergence for now (0.7 worked, 0.3 did not, TODO: test 0.5)
-        label_smoothing=0.1,
-    )
-    
     model_zeineldeen_config_v4 = ModelConfigV4(
         feature_extraction_config=fe_config,
         frontend_config=frontend_config,
@@ -269,20 +229,16 @@ def aed_bpe_ls960_1023_base():
         returnn_vocab=label_datastream_bpe5000.vocab,
     )
 
-    ctc_greedy_decoder_config = CtcGreedyDecoderConfig(
-        returnn_vocab=label_datastream_bpe5000.vocab
-    )
 
     train_config_24gbgpu_amp_july_baseline = {
         "optimizer": {"class": "radam", "epsilon": 1e-12, "weight_decay": 1e-2, "decoupled_weight_decay": True},
         "learning_rates": list(np.linspace(5e-5, 5e-5, 20)) + list(
         np.linspace(5e-4, 5e-4, 460)) + list(np.linspace(5e-4, 5e-5, 480)) + list(np.linspace(5e-5, 1e-7, 40)),
         #############
-        "batch_size": 300 * 16000,
+        "batch_size": 240 * 16000,
         "max_seq_length": {"audio_features": 35 * 16000},
         "gradient_clip_norm": 1.0,
         "torch_amp_options": {"dtype": "bfloat16"},
-        "use_speed_perturbation": True,
     }
 
     network_module = "aed.conformer_zoneout_prototype_0624.aed_prototype_v2"
@@ -291,6 +247,7 @@ def aed_bpe_ls960_1023_base():
         "network_module": network_module,
         "net_args": {"model_config_dict": asdict(model_zeineldeen_config_v2)},
         "debug": True,
+        "use_speed_perturbation": True,
     }
 
 
@@ -332,14 +289,6 @@ def aed_bpe_ls960_1023_base():
         "debug": True,
     }
 
-    # long training with v4 and attention dropout
-
-    model_zeineldeen_config_v4_attdrop = copy.deepcopy(model_zeineldeen_config_v4)
-    model_zeineldeen_config_v4_attdrop.decoder_config.attention_cfg.att_weights_dropout = 0.1
-    train_args_attdrop = copy.deepcopy(train_args)
-    train_args_attdrop["net_args"] = {"model_config_dict": asdict(model_zeineldeen_config_v4_attdrop)}
-
-    training_name = prefix_name + "/" + network_module + ".512dim_sub6_24gbgpu_100eps_new_baseline_attdrop"
     train_job = training(training_name, train_data_bpe5000, train_args_attdrop, num_epochs=1000, **default_returnn)
     train_job.rqmt["gpu_mem"] = 24
     train_job.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
@@ -377,7 +326,7 @@ def aed_bpe_ls960_1023_base():
                     beam_search_opts=BeamSearchOpts(
                         beam_size=beam_size,
                         length_normalization_exponent=1.0,
-                        length_reward=0.0,
+                       length_reward=0.0,
                         bos_label=0,
                         eos_label=0,
                         num_labels=label_datastream_bpe5000.vocab_size,
@@ -389,221 +338,3 @@ def aed_bpe_ls960_1023_base():
                 ),
                 use_gpu=True,
             )
-            
-            
-
-
-
-
-    # 11GB Runs from here
-
-    train_config_11gbgpu_short_baseline = {
-        "optimizer": {"class": "radam", "epsilon": 1e-12, "weight_decay": 1e-2, "decoupled_weight_decay": True},
-        "learning_rates": list(np.linspace(5e-5, 5e-5, 20)) + list(
-        np.linspace(5e-4, 5e-4, 110)) + list(np.linspace(5e-4, 5e-5, 110)) + list(np.linspace(5e-5, 1e-7, 10)),
-        #############
-        "batch_size": 300 * 16000,
-        "max_seq_length": {"audio_features": 35 * 16000},
-        "gradient_clip_norm": 1.0,
-        "use_speed_perturbation": True,
-    }
-
-    network_module = "aed.conformer_zoneout_prototype_0624.aed_prototype_v2"
-    train_args = {
-        "config": train_config_11gbgpu_short_baseline,
-        "network_module": network_module,
-        "net_args": {"model_config_dict": asdict(model_zeineldeen_config_v2)},
-        "debug": False,
-    }
-
-    training_name = prefix_name + "/" + network_module + ".512dim_sub6_11gbgpu_25eps_new_baseline_run2"
-    train_job = training(training_name, train_data_bpe5000, train_args, num_epochs=250, **default_returnn)
-    train_job.rqmt["gpu_mem"] = 11
-    train_job.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
-
-    asr_model = prepare_asr_model(
-        training_name, train_job, train_args, with_prior=False, datasets=train_data_bpe5000,
-        get_specific_checkpoint=250
-    )
-    greedy_search_helper(training_name, asr_model=asr_model, decoder_config=greedy_decoder_config)
-
-    beam_search_prototype(
-        training_name,
-        asr_model=asr_model,
-        decoder_config=BeamSearchDecoderConfig(
-            returnn_vocab=label_datastream_bpe5000.vocab,
-            beam_search_opts=BeamSearchOpts(
-                beam_size=12,
-                length_normalization_exponent=1.0,
-                length_reward=0,
-                bos_label=0,
-                eos_label=0,
-                num_labels=label_datastream_bpe5000.vocab_size
-            )
-        ),
-        use_gpu=True,
-    )
-
-    neural_lm = get_lm_model("bpe5k_2x2024_kazuki_lstmlm_3ep")
-    for beam_size in [12]:
-        for lm_scale in [0.26, 0.28, 0.30, 0.32, 0.34]:
-            beam_search_with_lm_prototype(
-                training_name + "/lm3ep_%.2f_bs%i" % (lm_scale, beam_size),
-                asr_model=asr_model,
-                decoder_config=BeamSearchLmDecoderConfig(
-                    returnn_vocab=label_datastream_bpe5000.vocab,
-                    beam_search_opts=BeamSearchOpts(
-                        beam_size=beam_size,
-                        length_normalization_exponent=1.0,
-                        length_reward=0.0,
-                        bos_label=0,
-                        eos_label=0,
-                        num_labels=label_datastream_bpe5000.vocab_size,
-                    ),
-                    lm_module="lm.lstm.kazuki_lstm_zijian_variant_v2",
-                    lm_args=neural_lm.net_args,
-                    lm_checkpoint=neural_lm.checkpoint,
-                    lm_scale=lm_scale,
-                ),
-                use_gpu=True,
-            )
-
-    train_args_higher_peak = copy.deepcopy(train_args)
-    train_args_higher_peak["config"]["learning_rates"] = list(np.linspace(5e-5, 5e-5, 20)) + list(
-        np.linspace(5e-4, 7e-4, 110)) + list(np.linspace(7e-4, 5e-5, 110)) + list(np.linspace(5e-5, 1e-7, 10))
-
-    training_name = prefix_name + "/" + network_module + ".512dim_sub6_11gbgpu_25eps_new_baseline_peak7e-4"
-    train_job = training(training_name, train_data_bpe5000, train_args_higher_peak, num_epochs=250, **default_returnn)
-    train_job.rqmt["gpu_mem"] = 11
-    train_job.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
-
-    asr_model = prepare_asr_model(
-        training_name, train_job, train_args, with_prior=False, datasets=train_data_bpe5000,
-        get_specific_checkpoint=250
-    )
-    greedy_search_helper(training_name, asr_model=asr_model, decoder_config=greedy_decoder_config)
-    
-    
-    network_module = "aed.conformer_zoneout_prototype_0624.aed_prototype_v3"
-    train_args = {
-        "config": train_config_11gbgpu_short_baseline,
-        "network_module": network_module,
-        "net_args": {"model_config_dict": asdict(model_zeineldeen_config_v3)},
-        "debug": False,
-    }
-
-    training_name = prefix_name + "/" + network_module + ".512dim_sub6_11gbgpu_25eps_new_baseline"
-    train_job = training(training_name, train_data_bpe5000, train_args, num_epochs=250, **default_returnn)
-    train_job.rqmt["gpu_mem"] = 11
-    train_job.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
-
-    asr_model = prepare_asr_model(
-        training_name, train_job, train_args, with_prior=False, datasets=train_data_bpe5000,
-        get_specific_checkpoint=250
-    )
-    greedy_search_helper(training_name, asr_model=asr_model, decoder_config=greedy_decoder_config)
-
-    network_module = "aed.conformer_zoneout_prototype_0624.aed_prototype_v4"
-    train_args = {
-        "config": train_config_11gbgpu_short_baseline,
-        "network_module": network_module,
-        "net_args": {"model_config_dict": asdict(model_zeineldeen_config_v4)},
-        "debug": False,
-    }
-
-    train_args_minimal_lower_bs = copy.deepcopy(train_args)
-    train_args_minimal_lower_bs["config"]["batch_size"] = 290 * 16000
-
-    # training_name = prefix_name + "/" + network_module + ".512dim_sub6_11gbgpu_25eps_new_baseline"
-    # train_job = training(training_name, train_data_bpe5000, train_args_minimal_lower_bs, num_epochs=250, **default_returnn)
-    # train_job.rqmt["gpu_mem"] = 11
-    # train_job.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
-
-    # asr_model = prepare_asr_model(
-    #     training_name, train_job, train_args, with_prior=False, datasets=train_data_bpe5000,
-    #     get_specific_checkpoint=250
-    # )
-    # greedy_search_helper(training_name, asr_model=asr_model, decoder_config=greedy_decoder_config)
-    
-    train_args_minimal_lower_bs_OCLR = copy.deepcopy(train_args_minimal_lower_bs)
-    train_args_minimal_lower_bs_OCLR["config"]["learning_rates"] = list(np.linspace(5e-5, 5e-5, 20)) + list(
-        np.linspace(5e-5, 7e-4, 100)) + list(np.linspace(7e-4, 5e-5, 120)) + list(np.linspace(5e-5, 1e-7, 10))
-
-    training_name = prefix_name + "/" + network_module + ".512dim_sub6_11gbgpu_25eps_new_baseline_oclr"
-    train_job = training(training_name, train_data_bpe5000, train_args_minimal_lower_bs_OCLR, num_epochs=250, **default_returnn)
-    train_job.rqmt["gpu_mem"] = 11
-    train_job.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
-
-    asr_model = prepare_asr_model(
-        training_name, train_job, train_args, with_prior=False, datasets=train_data_bpe5000,
-        get_specific_checkpoint=250
-    )
-    greedy_search_helper(training_name, asr_model=asr_model, decoder_config=greedy_decoder_config)
-
-    # Try again exactly like baseline, now with label smoothing 0.01
-    for label_smoothing in [0.01, 0.02, 0.05, 0.1]:
-        model_zeineldeen_config_v4_ls001 = copy.deepcopy(model_zeineldeen_config_v4)
-        model_zeineldeen_config_v4_ls001.label_smoothing = label_smoothing
-
-        train_args_labelsmoothing_001 = {
-            "config": train_config_11gbgpu_short_baseline,
-            "network_module": network_module,
-            "net_args": {"model_config_dict": asdict(model_zeineldeen_config_v4_ls001)},
-            "debug": False,
-        }
-
-        training_name = prefix_name + "/" + network_module + ".512dim_sub6_11gbgpu_25eps_new_baseline_ls%.2f" % label_smoothing
-        train_job = training(training_name, train_data_bpe5000, train_args_labelsmoothing_001, num_epochs=250, **default_returnn)
-        train_job.rqmt["gpu_mem"] = 11
-        train_job.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
-
-        asr_model = prepare_asr_model(
-            training_name, train_job, train_args_labelsmoothing_001, with_prior=False, datasets=train_data_bpe5000,
-            get_specific_checkpoint=250
-        )
-        greedy_search_helper(training_name, asr_model=asr_model, decoder_config=greedy_decoder_config)
-
-        beam_search_prototype(
-            training_name,
-            asr_model=asr_model,
-            decoder_config=BeamSearchDecoderConfig(
-                returnn_vocab=label_datastream_bpe5000.vocab,
-                beam_search_opts=BeamSearchOpts(
-                    beam_size=12,
-                    length_normalization_exponent=1.0,
-                    length_reward=0,
-                    bos_label=0,
-                    eos_label=0,
-                    num_labels=label_datastream_bpe5000.vocab_size
-                )
-            ),
-            use_gpu=True,
-        )
-
-        neural_lm = get_lm_model("bpe5k_2x2024_kazuki_lstmlm_3ep")
-        for beam_size in [12]:
-            for lm_scale in [0.26, 0.28, 0.30, 0.32, 0.34]:
-                beam_search_with_lm_prototype(
-                    training_name + "/lm3ep_%.2f_bs%i" % (lm_scale, beam_size),
-                    asr_model=asr_model,
-                    decoder_config=BeamSearchLmDecoderConfig(
-                        returnn_vocab=label_datastream_bpe5000.vocab,
-                        beam_search_opts=BeamSearchOpts(
-                            beam_size=beam_size,
-                            length_normalization_exponent=1.0,
-                            length_reward=0.0,
-                            bos_label=0,
-                            eos_label=0,
-                            num_labels=label_datastream_bpe5000.vocab_size,
-                        ),
-                        lm_module="lm.lstm.kazuki_lstm_zijian_variant_v2",
-                        lm_args=neural_lm.net_args,
-                        lm_checkpoint=neural_lm.checkpoint,
-                        lm_scale=lm_scale,
-                    ),
-                    use_gpu=True,
-                )
-
-
-
-

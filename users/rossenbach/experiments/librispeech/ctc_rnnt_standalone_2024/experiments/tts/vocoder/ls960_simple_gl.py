@@ -18,7 +18,7 @@ from ....default_tools import RETURNN_EXE, MINI_RETURNN_ROOT
 from ....storage import add_vocoder, VocoderPackage
 
 
-def train_gl_vocoder_ls460():
+def train_gl_vocoder_ls960():
     """
     Baseline for the ctc aligner in returnn_common with serialization
 
@@ -37,8 +37,8 @@ def train_gl_vocoder_ls460():
         "max_seqs": 200,
     }
 
-    prefix = "experiments/librispeech/ctc_rnnt_standalone_2024/vocoder/simple_gl_ls460/"
-    training_datasets = build_training_dataset(ls_corpus_key="train-clean-460", partition_epoch=2)
+    prefix = "experiments/librispeech/ctc_rnnt_standalone_2024/vocoder/simple_gl_ls960/"
+    training_datasets = build_training_dataset(ls_corpus_key="train-other-960", partition_epoch=4)
 
     def run_exp(name, params, net_module, config, debug=False, num_epochs=50):
         train_args = {
@@ -92,5 +92,5 @@ def train_gl_vocoder_ls460():
     train = run_exp(net_module + "_v1", params, net_module, config=local_config, debug=True)
 
     package = VocoderPackage(checkpoint=train.out_checkpoints[50], config=params["config"])
-    add_vocoder("blstm_gl_v1_ls460", vocoder=package)
+    add_vocoder("blstm_gl_v1_ls960", vocoder=package)
     ##################################

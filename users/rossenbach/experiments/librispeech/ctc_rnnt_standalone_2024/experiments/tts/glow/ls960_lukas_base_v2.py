@@ -8,16 +8,16 @@ from dataclasses import asdict
 
 from i6_experiments.common.setups.returnn.datastreams.audio import DBMelFilterbankOptions
 
-from ....data.tts.aligner import build_training_dataset
-from ....config import get_forward_config
-from ....pipeline import training, prepare_tts_model, TTSModel, tts_eval_v2
-from ....data.tts.tts_phon import get_tts_log_mel_datastream, build_durationtts_training_dataset
+from i6_experiments.users.rossenbach.experiments.librispeech.ctc_rnnt_standalone_2024.data.tts.aligner import build_training_dataset
+from i6_experiments.users.rossenbach.experiments.librispeech.ctc_rnnt_standalone_2024.config import get_forward_config
+from i6_experiments.users.rossenbach.experiments.librispeech.ctc_rnnt_standalone_2024.pipeline import training, prepare_tts_model, TTSModel, tts_eval_v2
+from i6_experiments.users.rossenbach.experiments.librispeech.ctc_rnnt_standalone_2024.data.tts.tts_phon import get_tts_log_mel_datastream, build_durationtts_training_dataset
 
-from ....default_tools import RETURNN_EXE, MINI_RETURNN_ROOT
-from ....storage import vocoders
+from i6_experiments.users.rossenbach.experiments.librispeech.ctc_rnnt_standalone_2024.default_tools import RETURNN_EXE, MINI_RETURNN_ROOT
+from i6_experiments.users.rossenbach.experiments.jaist_project.storage import vocoders
 
 
-def run_flow_tts():
+def run_flow_tts_960h_v2():
     """
     Baseline for the ctc aligner in returnn_common with serialization
 
@@ -28,13 +28,12 @@ def run_flow_tts():
 
 
 
-    prefix = "experiments/librispeech/ctc_rnnt_standalone_2024/tts/glow_tts/"
-    training_datasets = build_training_dataset(ls_corpus_key="train-clean-100", partition_epoch=1)
+    prefix = "experiments/librispeech/ctc_rnnt_standalone_2024/tts/glow_tts_960h_v2/"
+    training_datasets = build_training_dataset(ls_corpus_key="train-other-960", partition_epoch=2)
 
     def run_exp(name, train_args, target_durations=None, num_epochs=100):
         if target_durations is not None:
-            training_datasets_ = build_durationtts_training_dataset(duration_hdf=target_durations,
-                                                                    ls_corpus_key="train-clean-100")
+            training_datasets_ = build_durationtts_training_dataset(duration_hdf=target_durations, ls_corpus_key="train-other-960")
         else:
             training_datasets_ = training_datasets
 
@@ -63,7 +62,8 @@ def run_flow_tts():
         #         system=asr_recognizer_systems[evaluate_swer]
         #     )
         return train_job
-
+    
+    
     def eval_exp(name, tts_model: TTSModel, decoder, decoder_options):
         forward_config = get_forward_config(
             network_module=tts_model.network_module,
@@ -85,21 +85,12 @@ def run_flow_tts():
             use_gpu=True,
         )
         forward_job.add_alias(prefix + "/" + tts_model.prefix_name + "/" + name + "/forward")
-        tk.register_output(prefix + "/" + tts_model.prefix_name + "/" + name + "/audio_files",
-                           forward_job.out_files["audio_files"])
+        tk.register_output(tts_model.prefix_name + name + "/audio_files", forward_job.out_files["audio_files"])
         corpus = forward_job.out_files["out_corpus.xml.gz"]
         from ....pipeline import evaluate_nisqa
-        evaluate_nisqa(prefix_name=prefix + "/" + tts_model.prefix_name + "/" + name, bliss_corpus=corpus)
-        from i6_experiments.users.rossenbach.experiments.jaist_project.evaluation.swer import run_evaluate_reference_swer
-        from i6_experiments.users.rossenbach.corpus.transform import MergeCorporaWithPathResolveJob, MergeStrategy
-        realpath_corpus = MergeCorporaWithPathResolveJob(bliss_corpora=[corpus],
-                                                         name="train-clean-100",  # important to keep the original sequence names for matching later
-                                                         merge_strategy=MergeStrategy.FLAT
-                                                         )
-        run_evaluate_reference_swer(prefix=prefix + "/" + tts_model.prefix_name, bliss=realpath_corpus.out_merged_corpus)
+        evaluate_nisqa(prefix_name=prefix + name, bliss_corpus=corpus)
 
-
-    log_mel_datastream = get_tts_log_mel_datastream(ls_corpus_key="train-clean-100", silence_preprocessed=False)
+    log_mel_datastream = get_tts_log_mel_datastream(ls_corpus_key="train-other-960", silence_preprocessed=False)
 
     # verify that normalization exists
     assert "norm_mean" in log_mel_datastream.additional_options
@@ -214,7 +205,7 @@ def run_flow_tts():
         "cleanup_old_models": {
             "keep_last_n": 4,
             "keep_best_n": 1,
-            "keep": [100, 200, 300, 400]
+            "keep": [100, 200, 300, 400],
         },  # overwrite default
         "optimizer": {"class": "adam", "epsilon": 1e-9},
         "learning_rates": list(np.linspace(5e-5, 5e-4, 100)) + list(np.linspace(5e-4, 5e-7, 300)),
@@ -226,7 +217,7 @@ def run_flow_tts():
         "max_seqs": 200,
         "torch_amp_options": {"dtype": "bfloat16"},
     }
-    
+
     train_args = {
         "network_module": net_module,
         "net_args": params_base256,
@@ -238,4 +229,3 @@ def run_flow_tts():
     train_job.rqmt["gpu_mem"] = 24
     tts_model = prepare_tts_model(net_module + "_base256_400eps", train_job, train_args, get_specific_checkpoint=400)
     eval_exp("base", tts_model=tts_model, decoder="glow_tts.simple_gl_decoder", decoder_options=decoder_options)
-
