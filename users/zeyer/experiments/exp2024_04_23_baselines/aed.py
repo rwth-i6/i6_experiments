@@ -267,6 +267,27 @@ def py():
             "bpe",
             0.01,
             False,
+            "relPosAttDef-posEmbDrop01-noBias-featBN",
+            {
+                "enc_conformer_layer": rf.build_dict(
+                    rf.encoder.conformer.ConformerEncoderLayer,
+                    ff=rf.build_dict(
+                        rf.encoder.conformer.ConformerPositionwiseFeedForward,
+                        activation=rf.build_dict(rf.relu_square),
+                        with_bias=False,
+                    ),
+                    self_att=rf.build_dict(rf.RelPosSelfAttention, pos_emb_dropout=0.1),
+                    num_heads=8,
+                ),
+                "_fixed_enc_conformer_layer": True,  # just triggers new hash
+                "feature_batch_norm": True,
+            },
+        ),
+        (
+            "spm10k",
+            "bpe",
+            0.01,
+            False,
             "relPosAttDef-noBias-noSelfAtt20-featBN",
             {
                 "enc_conformer_layer": rf.build_dict(
