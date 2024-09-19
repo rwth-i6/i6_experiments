@@ -193,45 +193,37 @@ def py():
                     ),
                     num_heads=8,
                 ),
+                "_fixed_enc_conformer_layer": True,  # just triggers new hash
                 "feature_batch_norm": True,
-            },
-        ),
-        (
-            "spm10k",
-            "spm",
-            0.7,
-            False,
-            "relPosAttDef-noBias-noSelfAtt20-featBN",
-            {
-                "enc_conformer_layer": rf.build_dict(
-                    rf.encoder.conformer.ConformerEncoderLayer,
-                    ff=rf.build_dict(
-                        rf.encoder.conformer.ConformerPositionwiseFeedForward,
-                        activation=rf.build_dict(rf.relu_square),
-                        with_bias=False,
-                    ),
-                    num_heads=8,
-                ),
-                "feature_batch_norm": True,
-                "disable_encoder_self_attention": {"num_epochs": 20},
             },
         ),
         ("spm10k", "bpe", 0.005, False, None, {}),
         ("spm10k", "bpe", 0.01, False, None, {}),  # 5.14
         # TODO ("spm10k", "bpe", 0.01, True, None, {}),
-        ("spm10k", "bpe", 0.01, False, "relPosAttDef", {"enc_conformer_layer": enc_conformer_layer_default}),  # 5.12
-        (  # 5.14, seems a bit worse (also looking at test)
-            "spm10k",
-            "bpe",
-            0.01,
-            False,
-            "relPosAttDef-featBN",
-            {
-                "enc_conformer_layer": enc_conformer_layer_default,
-                "feature_batch_norm": True,
-            },
-        ),
-        (  # 5.07
+        # (
+        #     "spm10k",
+        #     "bpe",
+        #     0.01,
+        #     False,
+        #     "relPosAttDef",
+        #     {
+        #         "enc_conformer_layer": enc_conformer_layer_default,
+        #         "_fixed_enc_conformer_layer": True,  # just triggers new hash
+        #     },
+        # ),
+        # (
+        #     "spm10k",
+        #     "bpe",
+        #     0.01,
+        #     False,
+        #     "relPosAttDef-featBN",
+        #     {
+        #         "enc_conformer_layer": enc_conformer_layer_default,
+        #         "_fixed_enc_conformer_layer": True,  # just triggers new hash
+        #         "feature_batch_norm": True,
+        #     },
+        # ),
+        (
             "spm10k",
             "bpe",
             0.01,
@@ -247,15 +239,35 @@ def py():
                     ),
                     num_heads=8,
                 ),
+                "_fixed_enc_conformer_layer": True,  # just triggers new hash
                 "feature_batch_norm": True,
             },
         ),
-        (  # 5.14
+        # (
+        #     "spm10k",
+        #     "bpe",
+        #     0.005,
+        #     False,
+        #     "relPosAttDef-noBias",
+        #     {
+        #         "enc_conformer_layer": rf.build_dict(
+        #             rf.encoder.conformer.ConformerEncoderLayer,
+        #             ff=rf.build_dict(
+        #                 rf.encoder.conformer.ConformerPositionwiseFeedForward,
+        #                 activation=rf.build_dict(rf.relu_square),
+        #                 with_bias=False,
+        #             ),
+        #             num_heads=8,
+        #         ),
+        #         "_fixed_enc_conformer_layer": True,  # just triggers new hash
+        #     },
+        # ),
+        (
             "spm10k",
             "bpe",
-            0.005,
+            0.01,
             False,
-            "relPosAttDef-noBias",
+            "relPosAttDef-noBias-noSelfAtt20-featBN",
             {
                 "enc_conformer_layer": rf.build_dict(
                     rf.encoder.conformer.ConformerEncoderLayer,
@@ -266,6 +278,9 @@ def py():
                     ),
                     num_heads=8,
                 ),
+                "_fixed_enc_conformer_layer": True,  # just triggers new hash
+                "feature_batch_norm": True,
+                "disable_encoder_self_attention": {"num_epochs": 20},
             },
         ),
     ]:
@@ -388,15 +403,16 @@ def aed_model_def(*, epoch: int, in_dim: Dim, target_dim: Dim) -> Model:
     # real input is raw audio, internally it does logmel
     in_dim = Dim(name="logmel", dimension=_log_mel_feature_dim, kind=Dim.Types.Feature)
 
-    return Model(
-        in_dim,
-        num_enc_layers=num_enc_layers,
-        enc_model_dim=Dim(name="enc", dimension=512, kind=Dim.Types.Feature),
-        enc_ff_dim=Dim(name="enc-ff", dimension=2048, kind=Dim.Types.Feature),
-        enc_att_num_heads=8,
-        enc_conformer_layer_opts=dict(
-            conv_norm_opts=dict(use_mask=True),
-            self_att_opts=dict(
+    enc_conformer_layer = config.typed_value("enc_conformer_layer", None)
+    if enc_conformer_layer:
+        assert isinstance(enc_conformer_layer, dict) and "class" in enc_conformer_layer
+        assert not pos_emb_dropout
+    else:
+        enc_conformer_layer = rf.build_dict(
+            rf.encoder.conformer.ConformerEncoderLayer,
+            conv_norm=rf.build_dict(rf.BatchNorm, use_mask=True),
+            self_att=rf.build_dict(
+                rf.RelPosSelfAttention,
                 # Shawn et al 2018 style, old RETURNN way.
                 with_bias=False,
                 with_linear_pos=False,
@@ -405,8 +421,17 @@ def aed_model_def(*, epoch: int, in_dim: Dim, target_dim: Dim) -> Model:
                 separate_pos_emb_per_head=False,
                 pos_emb_dropout=pos_emb_dropout,
             ),
-            ff_activation=lambda x: rf.relu(x) ** 2.0,
-        ),
+            ff_activation=rf.build_dict(rf.relu_square),
+            num_heads=8,
+        )
+
+    return Model(
+        in_dim,
+        num_enc_layers=num_enc_layers,
+        enc_model_dim=Dim(name="enc", dimension=512, kind=Dim.Types.Feature),
+        enc_ff_dim=Dim(name="enc-ff", dimension=2048, kind=Dim.Types.Feature),
+        enc_att_num_heads=8,
+        enc_conformer_layer=enc_conformer_layer,
         target_dim=target_dim,
         blank_idx=target_dim.dimension,
         bos_idx=_get_bos_idx(target_dim),
@@ -668,7 +693,7 @@ class Model(rf.Module):
         dec_model_dim: Dim = Dim(name="dec", dimension=512),
         enc_ff_dim: Dim = Dim(name="enc-ff", dimension=2048),
         enc_att_num_heads: int = 4,
-        enc_conformer_layer_opts: Optional[Dict[str, Any]] = None,
+        enc_conformer_layer: Optional[Dict[str, Any]] = None,
         enc_dropout: float = 0.1,
         enc_att_dropout: float = 0.1,
     ):
@@ -701,7 +726,7 @@ class Model(rf.Module):
                 pool_sizes=[(1, 2)],
                 strides=[(1, 1), (3, 1), (2, 1)],
             ),
-            encoder_layer_opts=enc_conformer_layer_opts,
+            encoder_layer=enc_conformer_layer,
             num_layers=num_enc_layers,
             num_heads=enc_att_num_heads,
             dropout=enc_dropout,
