@@ -17,7 +17,7 @@ from i6_experiments.common.setups import serialization
 from i6_experiments.users.zeyer.utils.serialization import get_import_py_code
 
 from i6_experiments.users.zeyer import tools_paths
-from i6_experiments.users.zeyer.model_interfaces import ModelDef, ModelDefWithCfg, ForwardDef, serialize_model_def
+from i6_experiments.users.zeyer.model_interfaces import ModelDef, ModelDefWithCfg, ForwardRFDef, serialize_model_def
 from i6_experiments.users.zeyer.model_with_checkpoints import ModelWithCheckpoint
 
 if TYPE_CHECKING:
@@ -28,7 +28,7 @@ def forward_to_hdf(
     *,
     dataset: DatasetConfig,
     model: Optional[ModelWithCheckpoint] = None,
-    forward_def: ForwardDef,
+    forward_def: ForwardRFDef,
     config: Optional[Dict[str, Any]] = None,
     forward_post_config: Optional[Dict[str, Any]] = None,
     forward_mem_rqmt: Union[int, float] = 6,
@@ -210,7 +210,7 @@ SharedPostConfig = {
 def _returnn_forward_config(
     dataset: DatasetConfig,
     model_def: Union[None, ModelDef, ModelDefWithCfg],
-    forward_def: ForwardDef,
+    forward_def: ForwardRFDef,
     *,
     config: Optional[Dict[str, Any]] = None,
     post_config: Optional[Dict[str, Any]] = None,
@@ -388,12 +388,9 @@ def _returnn_forward_step(*, model, extern_data: TensorDict, **_kwargs_unused):
     default_input_key = config.typed_value("default_input")
     data = extern_data[default_input_key]
     data_spatial_dim = data.get_time_dim_tag()
-    forward_def: ForwardDef = config.typed_value("_forward_def")
+    forward_def: ForwardRFDef = config.typed_value("_forward_def")
     # Note: forward_def uses a well-defined interface, which we also used elsewhere already.
     # It's a bit restricted though in that it only supports a single output...
     # The other code here does not have this restriction,
     # and we might want to have a more general interface in the future.
-    out, out_spatial_dim = forward_def(data, in_spatial_dim=data_spatial_dim, model=model)
-    assert isinstance(out, Tensor) and isinstance(out_spatial_dim, Dim)
-    # rely on model_outputs being set in the config for the dim order of the output
-    rf.get_run_ctx().mark_as_output(out, "output")
+    forward_def(data, in_spatial_dim=data_spatial_dim, model=model)
