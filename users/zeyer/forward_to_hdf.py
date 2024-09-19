@@ -188,7 +188,7 @@ def _returnn_get_forward_callback():
                 out.raw_tensor[None, :],
                 seq_len={i: [out.raw_tensor.shape[i]] for i, dim in enumerate(out.dims) if dim.dyn_size_ext},
                 seq_tag=[seq_tag],
-                extra={k: v.raw_tensor[None, :] for k, v in outputs.data.items() if k != "output"},
+                extra={k: v.raw_tensor[None] for k, v in outputs.data.items() if k != "output"},
             )
 
         def finish(self):
