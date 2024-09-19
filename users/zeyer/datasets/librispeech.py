@@ -345,6 +345,9 @@ class LibrispeechOggZip(DatasetConfig):
     def get_train_dataset(self) -> Dict[str, Any]:
         return self.get_dataset("train", training=True)
 
+    def get_train_dataset_for_forward(self) -> Dict[str, Any]:
+        return self.get_dataset("train")
+
     def get_eval_datasets(self) -> Dict[str, Dict[str, Any]]:
         return {
             "dev": self.get_dataset("dev", subset=self.eval_subset),
@@ -490,6 +493,9 @@ class LibrispeechOldFlacTarZip(DatasetConfig):
 
     def get_train_dataset(self) -> Dict[str, Any]:
         return self.get_dataset("train", training=True)
+
+    def get_train_dataset_for_forward(self) -> Dict[str, Any]:
+        return self.get_dataset("train")
 
     def get_eval_datasets(self) -> Dict[str, Dict[str, Any]]:
         return {
@@ -936,6 +942,9 @@ class LibrispeechLmDataset(DatasetConfig):
 
     def get_train_dataset(self) -> Dict[str, Any]:
         return self.get_dataset("train", training=True)
+
+    def get_train_dataset_for_forward(self) -> Dict[str, Any]:
+        return self.get_dataset("train")
 
     def get_eval_datasets(self) -> Dict[str, Dict[str, Any]]:
         return {
