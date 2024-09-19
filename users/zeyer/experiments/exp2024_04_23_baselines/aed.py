@@ -406,7 +406,6 @@ def aed_model_def(*, epoch: int, in_dim: Dim, target_dim: Dim) -> Model:
     enc_conformer_layer = config.typed_value("enc_conformer_layer", None)
     if enc_conformer_layer:
         assert isinstance(enc_conformer_layer, dict) and "class" in enc_conformer_layer
-        assert not pos_emb_dropout
     else:
         enc_conformer_layer = rf.build_dict(
             rf.encoder.conformer.ConformerEncoderLayer,
