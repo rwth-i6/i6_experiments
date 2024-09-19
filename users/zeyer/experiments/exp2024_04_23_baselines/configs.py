@@ -35,7 +35,7 @@ config_24gb_v6 = dict(
     learning_rate_warmup_steps=20_000,
     learning_rate_invsqrt_norm=20_000,
     aux_loss_layers=[4, 8],
-    pos_emb_dropout=0.1,  # WARNING: when the self-att or conformer opts are custom, this is ignored!
+    pos_emb_dropout=0.1,  # WARNING: when the self-att or conformer opts are custom, this is ignored! also for CTC!
     rf_att_dropout_broadcast=False,
 )
 
