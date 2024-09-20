@@ -44,7 +44,7 @@ We have various options now:
   so any variations of ``extern_data`` should not matter.
   If ``extern_data`` is wrong, it would just crash anyway.)
 
-- :mod:`i6_experiments.common.setups.returnn.serialization.get_serializable_config`
+- :func:`i6_experiments.common.setups.returnn.serialization.get_serializable_config`
 
   Operates on an existing :class:`ReturnnConfig` instance,
   going through all the config entries, checking whether they can be serialized directly,
@@ -81,3 +81,15 @@ We have various options now:
   When a function/class is directly used in ``python_epilog`` (not via :class:`SerializerObject`),
   it uses the hash of the function/class directly.
   The hash of a function/class is defined via ``(obj.__module__, obj.__qualname__)``.
+
+- :class:`i6_experiments.common.utils.dump_py_code.PythonCodeDumper`
+
+  This serializes any Python object in the same way ``pickle`` does,
+  but instead of generating pickled raw data,
+  it creates equivalent Python code.
+  This is very generic and should always work exactly when ``pickle`` works.
+  The generated code looks very artificial, though,
+  using ``obj = object.__new__(cls)`` and ``obj.__setstate__(...)``.
+
+  This serialization is currently only used by
+  :func:`i6_experiments.common.helpers.dependency_boundary.dependency_boundary`.
