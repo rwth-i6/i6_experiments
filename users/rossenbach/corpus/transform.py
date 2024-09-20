@@ -107,6 +107,7 @@ class FakeCorpusFromLexicon(Job):
         c.dump(self.out_corpus.get())
 
 
+
 class RandomAssignSpeakersFromCorpus(Job):
     """
     Takes another bliss corpus as speaker reference and randomly distributes speaker tags
@@ -114,17 +115,24 @@ class RandomAssignSpeakersFromCorpus(Job):
     Used e.g. for synthetic TTS data
     """
 
-    def __init__(self, bliss_corpus: tk.Path, speaker_reference_bliss_corpus: tk.Path, seed: int = 42):
+
+    __sis_hash_exclude__ = {"randomize_speaker": True}
+
+    def __init__(self, bliss_corpus: tk.Path, speaker_reference_bliss_corpus: tk.Path, seed: int = 42,
+                 randomize_speaker: bool = True):
         """
 
         :param bliss_corpus: bliss corpus to assign speakers to
         :param speaker_reference_bliss_corpus: bliss corpus to take speakers from
         :param seed: random seed for deterministic behavior
+        :param randomize_speaker:
+        True: samples speakers at random
+        False: every speaker appears at least once if bliss_size > num_speakers
         """
         self.bliss_corpus = bliss_corpus
         self.speaker_reference_bliss_corpus = speaker_reference_bliss_corpus
         self.seed = seed
-
+        self.randomize_speaker = randomize_speaker
         self.out_corpus = self.output_path("corpus.xml.gz")
 
     def tasks(self) -> Iterator[Task]:
@@ -141,14 +149,26 @@ class RandomAssignSpeakersFromCorpus(Job):
         speaker_corpus.load(self.speaker_reference_bliss_corpus.get_path())
 
         out_corpus.speakers = speaker_corpus.speakers
+
+        # shuffle speaker list for randomization of sequence to speaker mapping
         speaker_name_list = list(out_corpus.speakers.keys())
+        random.shuffle(speaker_name_list)
         num_speakers = len(speaker_name_list)
 
         for recording in out_corpus.all_recordings():
             recording.speaker_name = None
             recording.default_speaker = None
             for segment in recording.segments:
-                segment.speaker_name = speaker_name_list[np.random.randint(num_speakers)]
+                if self.randomize_speaker:
+                    segment.speaker_name = speaker_name_list[np.random.randint(num_speakers)]
+                else:
+                    if len(speaker_name_list)>0:
+                        segment.speaker_name = speaker_name_list.pop()
+                    else:
+                        # re-initialize random speaker list
+                        speaker_name_list = list(out_corpus.speakers.keys())
+                        random.shuffle(speaker_name_list)
+                        segment.speaker_name = speaker_name_list.pop()
 
         out_corpus.dump(self.out_corpus.get_path())
 
