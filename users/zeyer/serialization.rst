@@ -29,20 +29,32 @@ We have various options now:
   (and more, also the RETURNN-common ``nn.Module`` instances,
   transforming those into a RETURNN TF net dict, and handling dim tag refs properly;
   but we only use it for the dim tag serialization now).
-  Specifically, we mostly just use :func:`ReturnnConfigSerializer.get_base_extern_data_py_code_str_direct`.
-  This function uses :class:`returnn_common.nn.ReturnnDimTagsProxy` internally.
+
+  Specifically, we mostly just use :func:`ReturnnConfigSerializer.get_base_extern_data_py_code_str_direct`
+  to generate the code for ``extern_data``.
+  This function :func:`get_base_extern_data_py_code_str_direct`
+  uses :class:`returnn_common.nn.ReturnnDimTagsProxy` internally.
 
   As an example, see :func:`i6_experiments.users.zeyer.train_v3.train`,
   :func:`i6_experiments.users.zeyer.recog.search_dataset`,
   :func:`i6_experiments.users.zeyer.forward_to_hdf.forward_to_hdf`.
+  (In all those example cases, the generated Python code for ``extern_data`` is wrapped in :class:`NonhashedCode`,
+  thus it does not get any hash.
+  The assumption is that the dataset is already part of the hash,
+  so any variations of ``extern_data`` should not matter.
+  If ``extern_data`` is wrong, it would just crash anyway.)
 
 - :mod:`i6_experiments.common.setups.returnn.serialization.get_serializable_config`
 
   Operates on an existing :class:`ReturnnConfig` instance,
   going through all the config entries, checking whether they can be serialized directly,
   and if not, moving them to the ``python_epilog``.
-  This handles dim tags (:class:`Dim`) directly using :class:`returnn_common.nn.ReturnnDimTagsProxy`
-  and functions (:class:`FunctionType`) by copying the function source code
+
+  This handles dim tags (:class:`Dim`) directly using :class:`returnn_common.nn.ReturnnDimTagsProxy`.
+  The hash is defined by the generated Python code,
+  thus we cannot change the Python code generation now in a way that it would change the Python code.
+
+  It also handles functions (:class:`FunctionType`) by copying the function source code
   (just as :class:`ReturnnConfig` also does).
   Functions are wrapped via :class:`CodeFromFunction`,
   and hashing can be controlled via ``hash_full_python_code``.
