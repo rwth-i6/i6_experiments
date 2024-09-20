@@ -554,9 +554,9 @@ def sis_run_with_prefix(prefix_name: str = None):
     # {"dev-clean": 1.66, "dev-other": 3.52, "test-clean": 1.85, "test-other": 3.9}
     for scales, prior_scale, lm_scale, ilm_scale, beam_size in product(
         [(0.7, 0.3)],
-        [0.0], # , 0.05, 0.07],
-        [0.65],
-        [0.4],
+        [0.0, 0.05], # , 0.05, 0.07],
+        [0.0],
+        [0.0],
         [32]
         # ilm 0.4 best TODO further tune ilm
         # lm only 0.7, 0.3, 0.0, 0.58 best
@@ -671,7 +671,7 @@ def sis_run_with_prefix(prefix_name: str = None):
         [0.0], # , 0.05, 0.07],
         [0.5],
         [0.3],
-        [12, 32, 64]
+        [12, 32]
         # ilm 0.4 best TODO further tune ilm
         # lm only 0.7, 0.3, 0.0, 0.58 best
     ):
@@ -1149,6 +1149,64 @@ def sis_run_with_prefix(prefix_name: str = None):
             name=name,
             device="gpu",
             search_rqmt={"time": 12}
+        )
+        tk.register_output(
+            name + f"/recog_results",
+            res.output,
+        )
+
+    # two pass att + ctc + trafo lm + ilm
+    for scales, prior_scale, lm_scale, ilm_scale, beam_size in product(
+        [(0.98, 0.02)], #, (0.995, 0.005), (0.998, 0.002), (0.999, 0.001)],
+        [0.0], # , 0.05, 0.07],
+        [0.0, 0.3], # 0.5
+        [0.0],
+        [32]
+        # ilm 0.4 best TODO further tune ilm
+        # lm only 0.7, 0.3, 0.0, 0.58 best
+    ):
+        att_scale, ctc_scale = scales
+        recog_name = (
+            (with_lm_name if lm_scale > 0.0 and ilm_scale ==0.0 else "") +
+            (with_lm_ilm_name if ilm_scale > 0.0 else "") +
+            f"/two_pass_att{att_scale}_ctc{ctc_scale}"
+            + (f"_prior{prior_scale}" if prior_scale > 0.0 else "")
+            + (f"_trafo_lm{lm_scale}" if lm_scale > 0.0 else "")
+            + (f"_ilm{ilm_scale}" if ilm_scale > 0.0 else "")
+            + f"_beam{beam_size}"
+        )
+        name = prefix_name + model_name + recog_name
+        search_args = {
+            "beam_size": beam_size,
+            "add_trafo_lm": True,
+            "lm_scale": lm_scale,
+            "att_scale": 1.0,
+            # "ctc_scale": ctc_scale,
+            "ilm_scale": ilm_scale,
+            # "use_ctc": True,
+            "bsf": bsf,
+            "prior_corr": prior_scale > 0.0,
+            "ctc_prior_file": "/work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/2023-08-10--rf-librispeech/work/i6_core/returnn/forward/ReturnnForwardJobV2.U1U9MgoNwGYk/output/prior.txt",
+            "prior_scale": prior_scale,
+            "is_log_prior": False,
+            "rescore_w_ctc": True,
+            "rescore_att_scale": att_scale,
+            "rescore_ctc_scale": ctc_scale,
+            "hash_overwrite": "123"
+        }
+        recog_config["search_args"] = search_args
+        res = recog_model(
+            task,
+            model_with_checkpoint,
+            model_recog,
+            # dev_sets=["dev-other"],
+            dev_sets=["dev-clean", "dev-other", "test-clean", "test-other"],
+            config=recog_config,
+            # model_args=model_args,
+            # search_args=search_args,
+            name=name,
+            device="gpu",
+            # search_mem_rqmt=15,
         )
         tk.register_output(
             name + f"/recog_results",

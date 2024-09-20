@@ -58,10 +58,10 @@ def sis_run_with_prefix(prefix_name: str = None):
     )
 
     model_args = {}
-    search_args = {"with_eos": False}
+    search_args = {"with_eos": True}
 
     # compute perplexity
-    name = prefix_name + "/ted2lm_gelu_no_pos_enc_no_eos"
+    name = prefix_name + "/ted2lm_gelu_no_pos_enc_eos_fix"
 
     dev_sets = ["dev", "test"]
 
@@ -94,10 +94,10 @@ def sis_run_with_prefix(prefix_name: str = None):
     )
 
     model_args = {"num_layers": 1, "lstm_input_dim": 128, "lstm_model_dim": 1000}
-    search_args = {"with_eos": False}
+    search_args = {"with_eos": True, "hash_overwrite": 2}
 
     # compute perplexity
-    name = prefix_name + "/ted2lm_trans_only_no_eos_ep5"
+    name = prefix_name + "/ted2lm_trans_only_single_seq"
 
     dev_sets = ["dev", "test"]
 
@@ -169,4 +169,4 @@ lm_model_def_trans_only.backend = "torch"
 lm_model_def_trans_only.batch_size_factor = (  # bsf * 20000
     20  # change batch size here - 20 for att_window - 40 for ctc_prefix
 )
-lm_model_def_trans_only.max_seqs = 200  # 1
+lm_model_def_trans_only.max_seqs = 1  # 1

@@ -40,6 +40,9 @@ from i6_experiments.users.gaudino.models.asr.rf.conformer_ctc.model_recog_ctc_gr
 from i6_experiments.users.gaudino.models.asr.rf.conformer_ctc.model_recog_ctc_ls import (
     model_recog as model_recog_ls,
 )
+from i6_experiments.users.gaudino.models.asr.rf.conformer_ctc.model_recog_ctc_ts import (
+    model_recog_time_sync as model_recog_ts,
+)
 from i6_experiments.users.gaudino.models.asr.rf.conformer_ctc.model_forward_prior import (
     model_forward_prior,
 )
@@ -145,6 +148,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
             "att_num_heads": 8,
             "use_pos_enc": True,
             "ff_activation": "relu",
+            "pos_enc_diff_pos": True,
         },
         "preload_from_files": {
             "01_trafo_lm": {
@@ -204,10 +208,16 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
     model_name = (
         "/model_recogs/bsf10/base-24gb-lrlin1e_5_600k_ctc_only_aux4_8_no_eos/ep1982/"
     )
+    model_name_ts = (
+        "/model_recogs/bsf40/base-24gb-lrlin1e_5_600k_ctc_only_aux4_8_no_eos/ep1982/"
+    )
 
-    for lm_scale, prior_scale, beam_size in product([0.65], [0.0], [32]):
+    # opls ctc  + lm
+    # lmscale 0.65 beam 32
+    for lm_scale, prior_scale, beam_size in product([0.0], [0.0, 0.05, 0.1, 0.2, 0.3, 0.4], []):
         recog_name = (
-            f"opls_ctc1.0_trafolm{lm_scale}"
+            f"opls_ctc1.0"
+            + (f"(_trafolm{lm_scale}" if lm_scale > 0.0 else "")
             + (f"_prior{prior_scale}_fix" if prior_scale > 0.0 else "")
             + f"_beam{beam_size}"
         )
@@ -239,6 +249,44 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
         )
         tk.register_output(name + "/recog_results", res.output)
 
+    # optsr ctc + trafo lm
+    for lm_scale, prior_scale, beam_size in product([0.0, 0.6, 0.65, 0.7], [0.0, 0.1, 0.2, 0.3, 0.4], [12]):
+        recog_name = (
+            f"optsr_ctc1.0_trafolm{lm_scale}_fix2"
+            + (f"_prior{prior_scale}_fix" if prior_scale > 0.0 else "")
+            + f"_beam{beam_size}"
+        )
+        # recog_name = f"ctc_greedy" + (
+        #     f"_prior{prior_scale}_fix" if prior_scale > 0.0 else ""
+        # )
+
+        name = _sis_prefix + model_name_ts + recog_name
+
+        search_args = {
+            "beam_size": beam_size,
+            "lm_scale": lm_scale,
+            "lm_skip": True,
+            "length_normalization_exponent": 1.0,
+            "ctc_prior_file": "/work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/2023-08-10--rf-librispeech/work/i6_core/returnn/forward/ReturnnForwardJobV2.OSftOYzAjRUg/output/prior.txt",
+            "prior_scale": prior_scale,
+            "ctc_log_prior": False,
+            "hash_override": 2,
+        }
+        recog_config["search_args"] = search_args
+        recog_config["batch_size"] = 5000 * 160
+
+        res = recog_model(
+            task,
+            ModelWithCheckpoint(definition=from_scratch_model_def, checkpoint=new_ckpt),
+            recog_def=model_recog_ts,
+            config=recog_config,
+            search_rqmt=None,
+            # dev_sets=None,
+            dev_sets=["dev-other"],
+            name=name,
+        )
+        tk.register_output(name + "/recog_results", res.output)
+
     # ------------------------ albert 6.3 model ------------------------------
 
     _torch_ckpt_path = "/work/asr3/zeineldeen/hiwis/luca.gaudino/checkpoints/zeyer_ctc/v6-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-speedpertV2-bpe10k-bpeSample001/epoch.491.pt"
@@ -254,7 +302,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
     model_name = "/model_recogs/bsf10/v6-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-speedpertV2-bpe10k-bpeSample001/ep491/"
 
     for lm_scale, prior_scale, beam_size in product(
-        [0.55, 0.6], [0.0, 0.05], [32]
+        [0.55, 0.6], [0.0, 0.05], []
     ):
         recog_name = (
             f"opls_ctc1.0_trafolm{lm_scale}"
