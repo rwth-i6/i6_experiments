@@ -4,7 +4,7 @@ Forward model outputs (or anything) to HDF
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Optional, Union, Any, Dict, Tuple
+from typing import TYPE_CHECKING, Optional, Union, Any, Callable, Dict, Tuple
 
 from sisyphus import tk
 from i6_core.util import instanciate_delayed
@@ -28,7 +28,8 @@ def forward_to_hdf(
     *,
     dataset: DatasetConfig,
     model: Optional[ModelWithCheckpoint] = None,
-    forward_def: ForwardRFDef,
+    forward_def: Optional[ForwardRFDef] = None,
+    forward_step: Optional[Callable] = None,
     config: Optional[Dict[str, Any]] = None,
     forward_post_config: Optional[Dict[str, Any]] = None,
     forward_mem_rqmt: Union[int, float] = 6,
@@ -38,8 +39,26 @@ def forward_to_hdf(
     """
     forward on the specific dataset
 
+    :param dataset: dataset to forward, using its get_main_dataset(),
+        and also get_default_input() to define the default output,
+        and get_extern_data().
+    :param model: optional some model to be used in the ``forward_def`` or ``forward_step``
+    :param forward_def: function (source: Tensor, /, in_spatial_dim: Dim, model: ModelT) -> None,
+        will get called with the default input, is supposed to call ``rf.get_run_ctx().mark_as_output(...)``.
+    :param forward_step: function (extern_data: TensorDict, **_kwargs_unused) -> None,
+        will get called with all inputs, is supposed to call ``rf.get_run_ctx().mark_as_output(...)``.
+        Use either ``forward_def`` or ``forward_step``.
+        If none is given, a default no-op step will be used
+        which just forwards the input to the output as-is,
+        translating the default input key (e.g. "data") to the default output key ("output").
+    :param config: additional RETURNN config opts for the forward job
+    :param forward_post_config: additional RETURNN post config (non-hashed) opts for the forward job
+    :param forward_mem_rqmt: memory requirement for the forward job (in GB)
+    :param forward_rqmt: additional rqmt opts for the forward job (e.g. "time" (in hours))
+    :param forward_alias_name: optional alias name for the forward job
     :return: HDF file path
     """
+    assert not (forward_def and forward_step), "either forward_def or forward_step, not both"
     env_updates = None
     if (config and config.get("__env_updates")) or (forward_post_config and forward_post_config.get("__env_updates")):
         env_updates = (config and config.pop("__env_updates", None)) or (
@@ -48,7 +67,12 @@ def forward_to_hdf(
     forward_job = ReturnnForwardJobV2(
         model_checkpoint=model.checkpoint if model else None,
         returnn_config=_returnn_forward_config(
-            dataset, model.definition if model else None, forward_def, config=config, post_config=forward_post_config
+            dataset=dataset,
+            model_def=model.definition if model else None,
+            forward_def=forward_def,
+            forward_step=forward_step,
+            config=config,
+            post_config=forward_post_config,
         ),
         output_files=[_hdf_out_filename],
         returnn_python_exe=tools_paths.get_returnn_python_exe(),
@@ -208,10 +232,11 @@ SharedPostConfig = {
 
 
 def _returnn_forward_config(
+    *,
     dataset: DatasetConfig,
     model_def: Union[None, ModelDef, ModelDefWithCfg],
-    forward_def: ForwardRFDef,
-    *,
+    forward_def: Optional[ForwardRFDef] = None,
+    forward_step: Optional[Callable] = None,
     config: Optional[Dict[str, Any]] = None,
     post_config: Optional[Dict[str, Any]] = None,
 ) -> ReturnnConfig:
@@ -223,6 +248,10 @@ def _returnn_forward_config(
     import tree
     from i6_experiments.common.setups.returnn.serialization import get_serializable_config
     from returnn.tensor import Dim
+
+    assert not (forward_def and forward_step), "either forward_def or forward_step, not both"
+    if not forward_def and not forward_step:
+        forward_step = _returnn_forward_noop_step
 
     returnn_recog_config_dict = dict(
         # dataset
@@ -266,6 +295,26 @@ def _returnn_forward_config(
     # by the datasets itself as part in the config above.
     extern_data_raw = instanciate_delayed(extern_data_raw)
 
+    if (
+        forward_step is _returnn_forward_noop_step
+        and "model_outputs" not in config_dim_items
+        and "model_outputs" not in returnn_recog_config_dict
+    ):
+        # Copy the extern_data to model_outputs.
+        # This only works if all dim tags are already defined.
+        # (Note, if we don't have this, we could create the dim tags now, by calling Tensor(**v),
+        #  and then using the automatically created dim tags.
+        #  We don't do this for now.)
+        model_outputs = extern_data_raw.copy()
+        assert all(v.get("dims") is not None or v.get("dim_tags") is not None for v in model_outputs.values())
+        # Map the default input key (e.g. "data") to the default RF output key (which is "output").
+        input_key = dataset.get_default_input()
+        if input_key:
+            assert input_key in model_outputs
+            assert "output" not in model_outputs
+            model_outputs["output"] = model_outputs.pop(input_key)
+        config_dim_items["model_outputs"] = model_outputs
+
     returnn_forward_config = ReturnnConfig(
         config=returnn_recog_config_dict,
         python_epilog=[
@@ -284,8 +333,14 @@ def _returnn_forward_config(
                         else [serialization.NonhashedCode("_model_def = None\n")]
                     ),
                     serialization.Import(_returnn_get_model, import_as="get_model"),
-                    serialization.Import(forward_def, import_as="_forward_def", ignore_import_as_for_hash=True),
-                    serialization.Import(_returnn_forward_step, import_as="forward_step"),
+                    *(
+                        [
+                            serialization.Import(forward_def, import_as="_forward_def", ignore_import_as_for_hash=True),
+                            serialization.Import(_returnn_forward_step, import_as="forward_step"),
+                        ]
+                        if forward_def
+                        else [serialization.Import(forward_step, import_as="forward_step")]
+                    ),
                     serialization.Import(_returnn_get_forward_callback, import_as="forward_callback"),
                     serialization.ExplicitHash(
                         {
@@ -393,3 +448,16 @@ def _returnn_forward_step(*, model, extern_data: TensorDict, **_kwargs_unused):
     # The other code here does not have this restriction,
     # and we might want to have a more general interface in the future.
     forward_def(data, in_spatial_dim=data_spatial_dim, model=model)
+
+
+def _returnn_forward_noop_step(*, extern_data: TensorDict, **_kwargs_unused):
+    import returnn.frontend as rf
+    from returnn.config import get_global_config
+
+    config = get_global_config()
+    default_input_key = config.typed_value("default_input")
+
+    for k, v in extern_data.data.items():
+        if k == default_input_key:
+            k = "output"
+        rf.get_run_ctx().mark_as_output(v, k, dims=v.dims)
