@@ -29,7 +29,7 @@ import subprocess
 
 from returnn.tensor import Dim, batch_dim, single_step_dim
 from sisyphus.hash import sis_hash_helper
-from i6_core.serialization.base import SerializerObject
+from i6_core.serialization.base import SerializerObject, Collection
 from i6_experiments.common.utils.python import is_valid_python_identifier_name
 
 
@@ -45,6 +45,10 @@ def serialize_config(config: Dict[str, Any], *, inlining: bool = True) -> Serial
 @dataclass
 class SerializedConfig:
     code_list: List[PyCode]
+
+    def as_serialization_collection(self) -> Collection:
+        """as serialization Collection"""
+        return Collection(self.code_list)
 
 
 class _Serializer:
@@ -534,6 +538,8 @@ class PyCode(SerializerObject):
         return self.py_code
 
     def _sis_hash(self) -> bytes:
+        if not self.is_direct_config_entry:
+            raise Exception(f"{self} should not be hashed. Maybe wrap this in a serialization Collection")
         return sis_hash_helper((self.py_name, self.value))
 
 
