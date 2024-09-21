@@ -52,6 +52,10 @@ class SerializedConfig:
         """as serialization Collection"""
         return Collection(self.code_list)
 
+    def as_serialized_code(self) -> str:
+        """as serialized code"""
+        return "".join(code.py_code for code in self.code_list)
+
 
 class _Serializer:
     def __init__(self, config: Dict[str, Any]):
@@ -608,19 +612,15 @@ def _get_base_sys_path_list() -> List[str]:
     return _base_sys_path_list
 
 
-def _serialize_code_list(res: SerializedConfig) -> str:
-    return "".join(code.py_code for code in res.code_list)
-
-
 def test_basic():
-    assert _serialize_code_list(serialize_config({"var1": 42, "var2": "foo"})) == "var1 = 42\nvar2 = 'foo'\n"
+    assert serialize_config({"var1": 42, "var2": "foo"}).as_serialized_code() == "var1 = 42\nvar2 = 'foo'\n"
 
 
 def test_recursive():
     d_base = {"key": 1}
     d_other = {"key": 2, "base": d_base}
     # It should serialize d_base first, even when we have d_other first here in the dict.
-    assert _serialize_code_list(serialize_config({"first": d_other, "second": d_base})) == textwrap.dedent(
+    assert serialize_config({"first": d_other, "second": d_base}).as_serialized_code() == textwrap.dedent(
         """\
         second = {'key': 1}
         first = {'key': 2, 'base': second}
@@ -630,8 +630,8 @@ def test_recursive():
 
 def test_inlining():
     d = {"d": {"k1": 1, "k2": {"k3": 3, "k4": 4}}}
-    assert _serialize_code_list(serialize_config(d)) == f"d = {d['d']!r}\n"
-    assert _serialize_code_list(serialize_config(d, inlining=False)) == textwrap.dedent(
+    assert serialize_config(d).as_serialized_code() == f"d = {d['d']!r}\n"
+    assert serialize_config(d, inlining=False).as_serialized_code() == textwrap.dedent(
         """\
         d_k2 = {'k3': 3, 'k4': 4}
         d = {'k1': 1, 'k2': d_k2}
@@ -641,17 +641,17 @@ def test_inlining():
 
 def test_builtin():
     d = {"func": sum}
-    assert _serialize_code_list(serialize_config(d)) == f"func = sum\n"
+    assert serialize_config(d).as_serialized_code() == f"func = sum\n"
 
 
 def test_builtin_as_is():
     d = {"sum": sum}
-    assert _serialize_code_list(serialize_config(d)) == f"sum = sum\n"  # might change in the future...
+    assert serialize_config(d).as_serialized_code() == f"sum = sum\n"  # might change in the future...
 
 
 def test_builtin_overwrite():
     d = {"sum": 42, "func": sum}
-    assert _serialize_code_list(serialize_config(d)) == f"sum = 42\nfrom builtins import sum as func\n"
+    assert serialize_config(d).as_serialized_code() == f"sum = 42\nfrom builtins import sum as func\n"
 
 
 def test_func():
@@ -663,7 +663,7 @@ def test_func():
     mod_path = os.path.dirname(mod_filename[: -len("/__init__.py")])
 
     config = {"get_model": _returnn_v2_get_model}
-    assert _serialize_code_list(serialize_config(config)) == textwrap.dedent(
+    assert serialize_config(config).as_serialized_code() == textwrap.dedent(
         f"""\
         sys.path.insert(0, {mod_path!r})
         from i6_experiments.users.zeyer.train_v3 import _returnn_v2_get_model as get_model
@@ -679,7 +679,7 @@ def test_batch_dim():
     mod_path = os.path.dirname(mod_filename[: -len("/__init__.py")])
 
     config = {"dim": batch_dim}
-    assert _serialize_code_list(serialize_config(config, inlining=False)) == textwrap.dedent(
+    assert serialize_config(config, inlining=False).as_serialized_code() == textwrap.dedent(
         f"""\
         sys.path.insert(0, {mod_path!r})
         from returnn.tensor import batch_dim as dim
@@ -697,7 +697,7 @@ def test_dim():
     time_dim = Dim(None, name="time")
     feat_dim = Dim(42, name="feature")
     config = {"extern_data": {"data": {"dims": [batch_dim, time_dim, feat_dim]}}}
-    assert _serialize_code_list(serialize_config(config, inlining=False)) == textwrap.dedent(
+    assert serialize_config(config, inlining=False).as_serialized_code() == textwrap.dedent(
         f"""\
         sys.path.insert(0, {mod_path!r})
         from returnn.tensor import batch_dim
@@ -709,7 +709,7 @@ def test_dim():
         extern_data = {{'data': extern_data_data}}
         """
     )
-    assert _serialize_code_list(serialize_config(config)) == textwrap.dedent(
+    assert serialize_config(config).as_serialized_code() == textwrap.dedent(
         f"""\
         sys.path.insert(0, {mod_path!r})
         from returnn.tensor import batch_dim
@@ -723,4 +723,4 @@ def test_sis_path():
     from sisyphus import Path
 
     config = {"path": Path("/foo.txt")}
-    assert _serialize_code_list(serialize_config(config)) == "path = '/foo.txt'\n"
+    assert serialize_config(config).as_serialized_code() == "path = '/foo.txt'\n"
