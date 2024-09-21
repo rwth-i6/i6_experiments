@@ -13,6 +13,27 @@ That means, e.g. functions/classes get hashed by ``(obj.__module__, obj.__qualna
 
 Note: Sisyphus Path objects are serialized directly using :func:`sisyphus.Path.get_path`.
 
+We currently don't handle any generic object,
+but only:
+- primitive types (int, float, bool, str)
+- Sisyphus Path objects
+- RETURNN Dim objects
+- dict, list, tuple
+- functions, classes, modules
+
+Note: We could handle any generic object, in the same way as pickle does it, or
+:class:`i6_experiments.common.utils.dump_py_code.PythonCodeDumper`,
+by using ``obj = object.__new__(obj_type)`` and ``obj.__setstate__(...)``.
+However, that generated code is somewhat ugly and complex.
+For all our current use cases, we don't need this,
+and we handle those cases explicitly.
+
+Note: We do not handle circular references yet.
+I think we would also need the more generic object creation for that
+(``obj = object.__new__(obj_type)`` first),
+which makes the generated code really ugly and complex.
+
+TODO support post_config as additional argument to serialize_config.
 TODO test on some real configs
 """
 
@@ -36,7 +57,7 @@ from i6_experiments.common.utils.python import is_valid_python_identifier_name
 
 
 def serialize_config(config: Dict[str, Any], *, inlining: bool = True) -> SerializedConfig:
-    """serialize config"""
+    """serialize config. see module docstring for more info."""
     serializer = _Serializer(config)
     serializer.work_queue()
     if inlining:

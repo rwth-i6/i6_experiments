@@ -93,3 +93,11 @@ We have various options now:
 
   This serialization is currently only used by
   :func:`i6_experiments.common.helpers.dependency_boundary.dependency_boundary`.
+
+- :func:`i6_experiments.users.zeyer.serialization_v2.serialize_config`
+
+  Very generic code which should handle the whole RETURNN config,
+  i.e. dim tags, functions, classes, etc.,
+  so that no other serialization code is needed in addition.
+  This is in contrast with most of the other approaches,
+  which need to be use in combination.
