@@ -11,7 +11,8 @@ Note: Sisyphus hashes are currently just defined by the config keys/values,
 using the `sis_hash_helper` function, without any special handling.
 That means, e.g. functions/classes get hashed by ``(obj.__module__, obj.__qualname__)``.
 
-TODO handle other DelayedBase in the config (e.g. tk.Path)
+Note: Sisyphus Path objects are serialized directly using :func:`sisyphus.Path.get_path`.
+
 TODO test on some real configs
 """
 
@@ -28,6 +29,7 @@ import textwrap
 import subprocess
 
 from returnn.tensor import Dim, batch_dim, single_step_dim
+from sisyphus import Path
 from sisyphus.hash import sis_hash_helper
 from i6_core.serialization.base import SerializerObject, Collection
 from i6_experiments.common.utils.python import is_valid_python_identifier_name
@@ -223,6 +225,11 @@ class _Serializer:
             return PyEvalCode("None")
         if isinstance(value, (int, float, bool, str)):
             return PyEvalCode(repr(value))
+        if isinstance(value, Path):
+            # Note: If we would want to have Sisyphus file_caching support here,
+            # we could also refer to that file_caching function,
+            # and call it here in the generated code.
+            return PyEvalCode(repr(value.get_path()))
         if getattr(value, "__module__", None) == "builtins":
             name: str = getattr(value, "__name__", None)
             if name and getattr(builtins, name, None) is value:
@@ -710,3 +717,10 @@ def test_dim():
         extern_data = {{'data': {{'dims': [batch_dim, Dim(None, name='time'), Dim(42, name='feature')]}}}}
         """
     )
+
+
+def test_sis_path():
+    from sisyphus import Path
+
+    config = {"path": Path("/foo.txt")}
+    assert _serialize_code_list(serialize_config(config)) == "path = '/foo.txt'\n"
