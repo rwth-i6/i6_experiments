@@ -4,6 +4,16 @@ See :doc:`serialization.rst` for some overview.
 
 This is conceptually similar to :class:`i6_experiments.common.utils.dump_py_code.PythonCodeDumper`
 and :func:`i6_experiments.common.setups.returnn.serialization.get_serializable_config`.
+
+See :func:`serialize_config` for the main entry point.
+
+Note: Sisyphus hashes are currently just defined by the config keys/values,
+using the `sis_hash_helper` function, without any special handling.
+That means, e.g. functions/classes get hashed by ``(obj.__module__, obj.__qualname__)``.
+
+TODO handle Dim
+TODO handle other DelayedBase in the config (e.g. tk.Path)
+TODO test on some real configs
 """
 
 from __future__ import annotations
@@ -16,17 +26,25 @@ from types import FunctionType, BuiltinFunctionType, ModuleType
 from dataclasses import dataclass
 import textwrap
 import subprocess
+
 from returnn.tensor import Dim, batch_dim, single_step_dim
+from sisyphus.hash import sis_hash_helper
+from i6_core.serialization.base import SerializerObject
 from i6_experiments.common.utils.python import is_valid_python_identifier_name
 
 
-def serialize_config(config: Dict[str, Any], *, inlining: bool = True) -> List[PyCode]:
+def serialize_config(config: Dict[str, Any], *, inlining: bool = True) -> SerializedConfig:
     """serialize config"""
     serializer = _Serializer(config)
     serializer.work_queue()
     if inlining:
         serializer.work_inlining()
-    return list(serializer.assignments_dict_by_idx.values())
+    return SerializedConfig(code_list=list(serializer.assignments_dict_by_idx.values()))
+
+
+@dataclass
+class SerializedConfig:
+    code_list: List[PyCode]
 
 
 class _Serializer:
@@ -372,7 +390,7 @@ class _AssignQueueItem:
 
 
 @dataclass
-class PyCode:
+class PyCode(SerializerObject):
     """
     The Python code will always assign some variable.
 
@@ -396,6 +414,15 @@ class PyCode:
     is_direct_config_entry: bool = False
     ref_count: int = 0  # by other statements
     idx: Optional[int] = None
+
+    def __post_init__(self):
+        self.use_for_hash = self.is_direct_config_entry
+
+    def get(self) -> str:
+        return self.py_code
+
+    def _sis_hash(self) -> bytes:
+        return sis_hash_helper((self.py_name, self.value))
 
 
 class _Ref:
@@ -440,8 +467,8 @@ def _get_base_sys_path_list() -> List[str]:
     return _base_sys_path_list
 
 
-def _serialize_code_list(codes: List[PyCode]) -> str:
-    return "".join(code.py_code for code in codes)
+def _serialize_code_list(res: SerializedConfig) -> str:
+    return "".join(code.py_code for code in res.code_list)
 
 
 def test_basic():
