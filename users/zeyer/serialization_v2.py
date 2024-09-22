@@ -10,6 +10,11 @@ See :func:`serialize_config` for the main entry point.
 Note: Sisyphus hashes are currently just defined by the config keys/values,
 using the `sis_hash_helper` function, without any special handling.
 That means, e.g. functions/classes get hashed by ``(obj.__module__, obj.__qualname__)``.
+We currently don't provide a way to customize the hashing behavior
+(except of ``post_config`` which is not hashed at all).
+This could be extended in the future by allowing more custom behavior
+e.g. for module scopes.
+Also, e.g. to specify ``unhashed_package_root`` for some of the references.
 
 Note: Sisyphus Path objects are serialized directly using :func:`sisyphus.Path.get_path`.
 
