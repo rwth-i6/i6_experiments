@@ -8,7 +8,8 @@ and :func:`i6_experiments.common.setups.returnn.serialization.get_serializable_c
 See :func:`serialize_config` for the main entry point.
 
 Note: Sisyphus hashes are currently just defined by the config keys/values,
-using the `sis_hash_helper` function, without any special handling.
+using the `sis_hash_helper` function, without any special handling,
+except for dim tags (RETURNN :class:`Dim` objects).
 That means, e.g. functions/classes get hashed by ``(obj.__module__, obj.__qualname__)``.
 We currently don't provide a way to customize the hashing behavior
 (except of ``post_config`` which is not hashed at all).
@@ -580,7 +581,14 @@ class PyCode(SerializerObject):
     def _sis_hash(self) -> bytes:
         if not self.use_for_hash:
             raise Exception(f"{self} should not be hashed. Maybe wrap this in a serialization Collection")
-        return sis_hash_helper((self.py_name, self.value))
+        value = self.value
+        if isinstance(value, Dim):
+            dim = value
+            value = {"dim": dim.dimension}
+            if dim.kind is not None:
+                value["kind"] = dim.kind.name
+            assert dim.derived_from_op is None  # not handled yet for hashing...
+        return sis_hash_helper((self.py_name, value))
 
 
 @dataclass
@@ -746,6 +754,29 @@ def test_dim():
         extern_data = {{'data': {{'dims': [batch_dim, Dim(None, name='time'), Dim(42, name='feature')]}}}}
         """
     )
+
+
+def test_dim_hash():
+    import returnn
+
+    mod_filename = returnn.__file__
+    assert mod_filename.endswith("/__init__.py")
+    mod_path = os.path.dirname(mod_filename[: -len("/__init__.py")])
+
+    beam_dim = Dim(12, name="beam")
+    config = {"beam_dim": beam_dim}
+    serialized = serialize_config(config)
+    assert serialized.as_serialized_code() == textwrap.dedent(
+        f"""\
+        sys.path.insert(0, {mod_path!r})
+        from returnn.tensor import Dim
+        beam_dim = Dim(12, name='beam')
+        """
+    )
+    coll = serialized.as_serialization_collection()
+    h = sis_hash_helper(coll)
+    href_ = sis_hash_helper({"delayed_objects": [("beam_dim", {"dim": 12})]})
+    assert h == href_
 
 
 def test_sis_path():
