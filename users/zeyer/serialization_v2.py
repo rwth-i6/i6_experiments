@@ -33,7 +33,6 @@ I think we would also need the more generic object creation for that
 (``obj = object.__new__(obj_type)`` first),
 which makes the generated code really ugly and complex.
 
-TODO support post_config as additional argument to serialize_config.
 TODO test on some real configs
 """
 
@@ -56,9 +55,11 @@ from i6_core.serialization.base import SerializerObject, Collection
 from i6_experiments.common.utils.python import is_valid_python_identifier_name
 
 
-def serialize_config(config: Dict[str, Any], *, inlining: bool = True) -> SerializedConfig:
+def serialize_config(
+    config: Dict[str, Any], post_config: Optional[Dict[str, Any]] = None, *, inlining: bool = True
+) -> SerializedConfig:
     """serialize config. see module docstring for more info."""
-    serializer = _Serializer(config)
+    serializer = _Serializer(config=config, post_config=post_config)
     serializer.work_queue()
     if inlining:
         serializer.work_inlining()
@@ -79,10 +80,11 @@ class SerializedConfig:
 
 
 class _Serializer:
-    def __init__(self, config: Dict[str, Any]):
+    def __init__(self, config: Dict[str, Any], post_config: Optional[Dict[str, Any]] = None):
         self.config = config.copy()
+        self.post_config = post_config.copy() if post_config else {}
         self.required_names_by_value_ref: Dict[_Ref, str] = {}  # value ref -> var name
-        for key, value in config.items():
+        for key, value in list(self.config.items()) + list(self.post_config.items()):
             if _Ref(value) not in self.required_names_by_value_ref:
                 self.required_names_by_value_ref[_Ref(value)] = key
         self.assignments_dict_by_value_ref: Dict[_Ref, PyCode] = {}  # value ref -> code
@@ -101,7 +103,8 @@ class _Serializer:
     def work_queue(self):
         self._inlining_stage = False
         queue: List[_AssignQueueItem] = [
-            _AssignQueueItem(required_var_name=key, value=value) for key, value in self.config.items()
+            _AssignQueueItem(required_var_name=key, value=value)
+            for key, value in list(self.config.items()) + list(self.post_config.items())
         ]
         queue.reverse()  # we will pop from the end
         while queue:
@@ -157,6 +160,8 @@ class _Serializer:
         self._next_alignment_idx += 1
         if queue_item.required_var_name:
             serialized.is_direct_config_entry = True
+            if queue_item.required_var_name in self.config:
+                serialized.use_for_hash = True
         assert serialized.py_name == name
         assert name not in self.assignments_dict_by_name  # double check
         self.assignments_dict_by_name[name] = serialized
@@ -560,17 +565,15 @@ class PyCode(SerializerObject):
     py_code: str
     py_value_repr: Optional[PyEvalCode] = None
     is_direct_config_entry: bool = False
+    use_for_hash: bool = False
     ref_count: int = 0  # by other statements
     idx: Optional[int] = None
-
-    def __post_init__(self):
-        self.use_for_hash = self.is_direct_config_entry
 
     def get(self) -> str:
         return self.py_code
 
     def _sis_hash(self) -> bytes:
-        if not self.is_direct_config_entry:
+        if not self.use_for_hash:
             raise Exception(f"{self} should not be hashed. Maybe wrap this in a serialization Collection")
         return sis_hash_helper((self.py_name, self.value))
 
@@ -745,3 +748,20 @@ def test_sis_path():
 
     config = {"path": Path("/foo.txt")}
     assert serialize_config(config).as_serialized_code() == "path = '/foo.txt'\n"
+
+
+def test_post_config():
+    config = {"learning_rate": 0.1}
+    post_config = {"log_verbosity": 5}
+    serialized = serialize_config(config, post_config)
+    assert serialized.as_serialized_code() == "learning_rate = 0.1\nlog_verbosity = 5\n"
+    assert len(serialized.code_list) == 2
+    code1, code2 = serialized.code_list
+    assert isinstance(code1, PyCode)
+    assert isinstance(code2, PyCode)
+    assert code1.py_name == "learning_rate" and code1.py_value_repr.py_value_repr == "0.1" and code1.use_for_hash
+    assert code2.py_name == "log_verbosity" and code2.py_value_repr.py_value_repr == "5" and not code2.use_for_hash
+    coll = serialized.as_serialization_collection()
+    h = sis_hash_helper(coll)
+    h_ref = sis_hash_helper({"delayed_objects": [code1]})
+    assert h == h_ref
