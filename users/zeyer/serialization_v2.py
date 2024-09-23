@@ -953,7 +953,7 @@ def test_dim_hash():
     )
     coll = serialized.as_serialization_collection()
     h = sis_hash_helper(coll)
-    href_ = sis_hash_helper({"delayed_objects": [("beam_dim", {"dim": 12})]})
+    href_ = sis_hash_helper({"delayed_objects": [("beam_dim", beam_dim)]})
     assert h == href_
 
 
