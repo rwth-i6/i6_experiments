@@ -414,20 +414,8 @@ class _Serializer:
             return PyEvalCode("None")
         if isinstance(value, (int, float, bool, str, bytes)):
             return PyEvalCode(repr(value))
-        if isinstance(value, Path):
-            if not self.sis_path_handling:
-                pass  # no special handling
-            elif self.sis_path_handling == SisPathHandling.NO_DEPS:
-                value = value.copy()
-                value.creator = None
-                # Now just treat it as a normal object.
-            elif self.sis_path_handling == SisPathHandling.AS_STRING:
-                # Note: If we would want to have Sisyphus file_caching support here,
-                # we could also refer to that file_caching function,
-                # and call it here in the generated code.
-                return PyEvalCode(repr(value.get_path()))
-            else:
-                raise ValueError(f"invalid sis_path_handling {self.sis_path_handling}")
+        if self.sis_path_handling and isinstance(value, Path):
+            return self._serialize_sis_path(value)
         if getattr(value, "__module__", None) == "builtins":
             val_name: str = getattr(value, "__name__", None)
             if val_name and getattr(builtins, val_name, None) is value:
@@ -806,6 +794,21 @@ class _Serializer:
         args_ss = "".join(f", {arg_s.py_inline()}" for arg_s in args_s)
         dictitems_ss = "".join(f", {k}={v.py_inline()}" for k, v in dictitems_s)
         return PyEvalCode(f"{mod_s.py_inline()}.partial({func_s.py_inline()}{args_ss}{dictitems_ss})")
+
+    def _serialize_sis_path(self, value: Path) -> PyEvalCode:
+        assert isinstance(value, Path)
+        assert self.sis_path_handling  # should not call this otherwise
+        if self.sis_path_handling == SisPathHandling.NO_DEPS:
+            path_type_str = self._serialize_value(type(value), prefix="Path", recursive=True)
+            assert isinstance(path_type_str, PyEvalCode)
+            return PyEvalCode(f"{path_type_str.py_inline()}({value.get_path()!r})")
+        elif self.sis_path_handling == SisPathHandling.AS_STRING:
+            # Note: If we would want to have Sisyphus file_caching support here,
+            # we could also refer to that file_caching function,
+            # and call it here in the generated code.
+            return PyEvalCode(repr(value.get_path()))
+        else:
+            raise ValueError(f"invalid sis_path_handling {self.sis_path_handling}")
 
 
 class _SerializationDependsOnNotYetSerializedOtherVarException(Exception):
