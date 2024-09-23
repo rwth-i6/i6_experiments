@@ -799,5 +799,5 @@ def test_post_config():
     assert code2.py_name == "log_verbosity" and code2.py_value_repr.py_value_repr == "5" and not code2.use_for_hash
     coll = serialized.as_serialization_collection()
     h = sis_hash_helper(coll)
-    h_ref = sis_hash_helper({"delayed_objects": [code1]})
+    h_ref = sis_hash_helper({"delayed_objects": [("learning_rate", 0.1)]})
     assert h == h_ref
