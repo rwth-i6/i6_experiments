@@ -42,7 +42,7 @@ import sys
 import os
 import re
 import builtins
-from typing import Optional, Union, Any, Sequence, Dict, List, Tuple
+from typing import Optional, Union, Any, Sequence, Collection, Dict, List, Tuple
 from types import FunctionType, BuiltinFunctionType, ModuleType
 from dataclasses import dataclass
 import textwrap
@@ -51,15 +51,19 @@ import subprocess
 from returnn.tensor import Dim, batch_dim, single_step_dim
 from sisyphus import Path
 from sisyphus.hash import sis_hash_helper
-from i6_core.serialization.base import SerializerObject, Collection
+from i6_core.serialization.base import SerializerObject, Collection as SerializerCollection
 from i6_experiments.common.utils.python import is_valid_python_identifier_name
 
 
 def serialize_config(
-    config: Dict[str, Any], post_config: Optional[Dict[str, Any]] = None, *, inlining: bool = True
+    config: Dict[str, Any],
+    post_config: Optional[Dict[str, Any]] = None,
+    *,
+    inlining: bool = True,
+    known_modules: Collection[str] = (),
 ) -> SerializedConfig:
     """serialize config. see module docstring for more info."""
-    serializer = _Serializer(config=config, post_config=post_config)
+    serializer = _Serializer(config=config, post_config=post_config, known_modules=known_modules)
     serializer.work_queue()
     if inlining:
         serializer.work_inlining()
@@ -70,9 +74,9 @@ def serialize_config(
 class SerializedConfig:
     code_list: List[PyCode]
 
-    def as_serialization_collection(self) -> Collection:
+    def as_serialization_collection(self) -> SerializerCollection:
         """as serialization Collection"""
-        return Collection(self.code_list)
+        return SerializerCollection(self.code_list)
 
     def as_serialized_code(self) -> str:
         """as serialized code"""
@@ -80,7 +84,9 @@ class SerializedConfig:
 
 
 class _Serializer:
-    def __init__(self, config: Dict[str, Any], post_config: Optional[Dict[str, Any]] = None):
+    def __init__(
+        self, config: Dict[str, Any], post_config: Optional[Dict[str, Any]] = None, known_modules: Collection[str] = ()
+    ):
         self.config = config.copy()
         self.post_config = post_config.copy() if post_config else {}
         self.required_names_by_value_ref: Dict[_Ref, str] = {}  # value ref -> var name
@@ -92,6 +98,7 @@ class _Serializer:
         self.assignments_dict_by_idx: Dict[int, PyCode] = {}  # idx -> code
         self.assignments_dict_by_value_by_type: Dict[type, Dict[Any, PyCode]] = {Dim: {}}  # type -> dict value -> code
         self.added_sys_paths = set()
+        self.known_modules = set(known_modules)
         self._cur_added_refs: List[PyCode] = []
         self._next_alignment_idx = 0
         # We first serialize everything without inlining anything.
@@ -623,6 +630,8 @@ class _Serializer:
         """make sure that the import works, by preparing ``sys.path`` if necessary"""
         if "." in mod_name:
             mod_name = mod_name.split(".", 1)[0]
+        if mod_name in self.known_modules:
+            return
         mod = sys.modules[mod_name]
         if not hasattr(mod, "__file__"):
             return  # assume builtin module or so
@@ -649,6 +658,7 @@ class _Serializer:
         self._next_alignment_idx += 1
         self.assignments_dict_by_idx[code.idx] = code
         self.added_sys_paths.add(mod_path)
+        self.known_modules.add(mod_name)
 
     def _serialize_functools_partial(self, value: functools.partial, name: str) -> PyEvalCode:
         # The generic fallback using __reduce__ would also work with this.
@@ -1013,3 +1023,14 @@ def test_functools_partial():
     assert not f.args
     assert f.keywords == {"b": 1}
     assert f(2) == 3
+
+
+def test_known_modules():
+    config = {"feat_dim": Dim(12, name="feat")}
+    serialized = serialize_config(config, known_modules={"returnn"})
+    assert serialized.as_serialized_code() == textwrap.dedent(
+        f"""\
+        from returnn.tensor import Dim
+        feat_dim = Dim(12, name='feat')
+        """
+    )
