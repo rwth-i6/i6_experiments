@@ -25,6 +25,7 @@ We handle those objects specially:
 - RETURNN Dim objects
 - dict, list, tuple
 - functions, classes, modules
+- functools.partial (just some nicer repr)
 
 All other generic objects are handled in the same way as pickle does it
 (or also :class:`i6_experiments.common.utils.dump_py_code.PythonCodeDumper`),
@@ -391,6 +392,8 @@ class _Serializer:
             return self._serialize_dim(value, prefix)
         if isinstance(value, ModuleType):
             return self._serialize_module(value, name)
+        if isinstance(value, functools.partial):
+            return self._serialize_functools_partial(value, name)
 
         if isinstance(value, (type, FunctionType, BuiltinFunctionType, ModuleType)) or (
             getattr(value, "__module__", None) and getattr(value, "__qualname__", None)
@@ -642,6 +645,26 @@ class _Serializer:
         self._next_alignment_idx += 1
         self.assignments_dict_by_idx[code.idx] = code
         self.added_sys_paths.add(mod_path)
+
+    def _serialize_functools_partial(self, value: functools.partial, name: str) -> PyEvalCode:
+        # The generic fallback using __reduce__ would also work with this.
+        # However, the following is a bit nicer in the generated code.
+        mod_s = self._serialize_value(functools, prefix="functools")
+        assert isinstance(mod_s, PyEvalCode)
+        func_s = self._serialize_value(value.func, prefix=f"{name}_func", recursive=True)
+        assert isinstance(func_s, PyEvalCode)
+        args_s = [
+            self._serialize_value(arg, prefix=f"{name}_arg{i}", recursive=True) for i, arg in enumerate(value.args)
+        ]
+        dictitems_s = []
+        for key, value_ in value.keywords.items():
+            assert isinstance(key, str) and is_valid_python_identifier_name(key)
+            serialized_value = self._serialize_value(value_, prefix=f"{name}_{key}", recursive=True)
+            assert isinstance(serialized_value, PyEvalCode)
+            dictitems_s.append((key, serialized_value))
+        args_ss = "".join(f", {arg_s.py_inline()}" for arg_s in args_s)
+        dictitems_ss = "".join(f", {k}={v.py_inline()}" for k, v in dictitems_s)
+        return PyEvalCode(f"{mod_s.py_inline()}.partial({func_s.py_inline()}{args_ss}{dictitems_ss})")
 
 
 class _SerializationDependsOnNotYetSerializedOtherVarException(Exception):
