@@ -37,6 +37,7 @@ TODO test on some real configs
 
 from __future__ import annotations
 
+import enum
 import functools
 import sys
 import os
@@ -52,6 +53,7 @@ from returnn.tensor import Dim, batch_dim, single_step_dim
 from sisyphus import Path
 from sisyphus.hash import sis_hash_helper
 from i6_core.serialization.base import SerializerObject, Collection as SerializerCollection
+from i6_core.returnn.config import ReturnnConfig
 from i6_experiments.common.utils.python import is_valid_python_identifier_name
 
 
@@ -61,13 +63,81 @@ def serialize_config(
     *,
     inlining: bool = True,
     known_modules: Collection[str] = (),
+    extra_sys_paths: Sequence[str] = (),
+    sis_path_handling: SisPathHandling = None,
 ) -> SerializedConfig:
     """serialize config. see module docstring for more info."""
-    serializer = _Serializer(config=config, post_config=post_config, known_modules=known_modules)
+    serializer = _Serializer(
+        config=config, post_config=post_config, known_modules=known_modules, sis_path_handling=sis_path_handling
+    )
+    for path in extra_sys_paths:
+        serializer.add_sys_path(path, recursive=False)
     serializer.work_queue()
     if inlining:
         serializer.work_inlining()
     return SerializedConfig(code_list=list(serializer.assignments_dict_by_idx.values()))
+
+
+class SisPathHandling(enum.Enum):
+    """
+    SisPathHandling enum.
+    """
+
+    NONE = None
+    AS_STRING = "as_string"
+    NO_DEPS = "no_deps"
+
+
+class ReturnnConfigWithNewSerialization(ReturnnConfig):
+    """
+    Overwrites the serialization behavior of ReturnnConfig
+    """
+
+    def __init__(self, config: Dict[str, Any], post_config: Optional[Dict[str, Any]] = None):
+        super().__init__(config=config, post_config=post_config, sort_config=False)
+
+    def _serialize(self) -> str:
+        # This is usually run within the worker, but it shouldn't really matter.
+        assert not self.staged_network_dict  # not supported
+        assert not self.python_prolog  # not expected/supported
+        assert not self.python_epilog  # not expected/supported
+
+        self.check_consistency()
+
+        from i6_core.util import instanciate_delayed
+
+        config = instanciate_delayed(self.config)
+        post_config = instanciate_delayed(self.post_config)
+
+        # I'm not really sure about it.
+        # Our automatic mechanism will find direct imports (e.g. i6_experiments).
+        # However, it will not find indirect imports (e.g. sisyphus),
+        # and thus the generated code might fail.
+        # So add all other paths here which we currently have.
+        # (While testing this, this was sisyphus + returnn + recipes,
+        #  but returnn is excluded below.)
+        extra_sys_paths = [p for p in sys.path if p not in _get_base_sys_path_list()]
+
+        serialized = serialize_config(
+            config,
+            post_config,
+            # Of course RETURNN knows about itself, no need to add to sys.path.
+            # Also, we don't want to force the current RETURNN here,
+            # but allow the config to be used with any other RETURNN version.
+            known_modules={"returnn"},
+            extra_sys_paths=extra_sys_paths,
+            # instanciate_delayed should already have handled it (e.g. Path),
+            # or if it has not, then we want to keep it as it is (e.g. PtCheckpoint),
+            # but without dependencies.
+            sis_path_handling=SisPathHandling.NO_DEPS,
+        )
+        return "".join(
+            [
+                "#!returnn/rnn.py\n\n",
+                serialized.as_serialized_code(),
+                "\n# -*- mode: python; tab-width: 4 -*-\n",
+            ]
+        )
 
 
 @dataclass
@@ -85,7 +155,11 @@ class SerializedConfig:
 
 class _Serializer:
     def __init__(
-        self, config: Dict[str, Any], post_config: Optional[Dict[str, Any]] = None, known_modules: Collection[str] = ()
+        self,
+        config: Dict[str, Any],
+        post_config: Optional[Dict[str, Any]] = None,
+        known_modules: Collection[str] = (),
+        sis_path_handling: SisPathHandling = None,
     ):
         self.config = config.copy()
         self.post_config = post_config.copy() if post_config else {}
@@ -97,8 +171,14 @@ class _Serializer:
         self.assignments_dict_by_name: Dict[str, PyCode] = {}  # var name -> code
         self.assignments_dict_by_idx: Dict[int, PyCode] = {}  # idx -> code
         self.assignments_dict_by_value_by_type: Dict[type, Dict[Any, PyCode]] = {Dim: {}}  # type -> dict value -> code
+        self.reduce_cache_by_value_ref: Dict[_Ref, Tuple[Any, ...]] = {}  # value ref -> (func, args, ...)
         self.added_sys_paths = set()
         self.known_modules = set(known_modules)
+        for mod_name in known_modules:
+            mod = sys.modules[mod_name]
+            # Don't add those module path to sys.path again.
+            self.added_sys_paths.add(_get_module_path_from_module(mod))
+        self.sis_path_handling = sis_path_handling
         self._cur_added_refs: List[PyCode] = []
         self._next_alignment_idx = 0
         # We first serialize everything without inlining anything.
@@ -123,6 +203,8 @@ class _Serializer:
                     deferred_state = self._handle_next_queue_item(queue_item)
                 elif isinstance(queue_item, _DeferredStateQueueItem):
                     self._handle_deferred_state_queue_item(queue_item)
+                else:
+                    raise TypeError(f"unexpected queue item type {type(queue_item).__name__}")
                 assert queue[-1] is queue_item
                 queue.pop(-1)
             except _SerializationDependsOnNotYetSerializedOtherVarException as exc:
@@ -333,10 +415,19 @@ class _Serializer:
         if isinstance(value, (int, float, bool, str, bytes)):
             return PyEvalCode(repr(value))
         if isinstance(value, Path):
-            # Note: If we would want to have Sisyphus file_caching support here,
-            # we could also refer to that file_caching function,
-            # and call it here in the generated code.
-            return PyEvalCode(repr(value.get_path()))
+            if not self.sis_path_handling:
+                pass  # no special handling
+            elif self.sis_path_handling == SisPathHandling.NO_DEPS:
+                value = value.copy()
+                value.creator = None
+                # Now just treat it as a normal object.
+            elif self.sis_path_handling == SisPathHandling.AS_STRING:
+                # Note: If we would want to have Sisyphus file_caching support here,
+                # we could also refer to that file_caching function,
+                # and call it here in the generated code.
+                return PyEvalCode(repr(value.get_path()))
+            else:
+                raise ValueError(f"invalid sis_path_handling {self.sis_path_handling}")
         if getattr(value, "__module__", None) == "builtins":
             val_name: str = getattr(value, "__name__", None)
             if val_name and getattr(builtins, val_name, None) is value:
@@ -413,29 +504,41 @@ class _Serializer:
     def _serialize_reduce(self, value: Any, name: str) -> Union[PyEvalCode, _PyCodeWithDeferredStateQueueItem]:
         # Generic fallback using __reduce__ or __reduce_ex__.
         # This is very much following the original pickle logic (slightly simplified).
-        reduce = getattr(value, "__reduce_ex__", None)
-        reduce_proto = 4  # not sure...
-        if reduce is not None:
-            rv = reduce(reduce_proto)
+        value_ref = _Ref(value)
+        if value_ref in self.reduce_cache_by_value_ref:
+            rv = self.reduce_cache_by_value_ref[value_ref]
         else:
-            reduce = getattr(value, "__reduce__", None)
+            reduce = getattr(value, "__reduce_ex__", None)
+            reduce_proto = 4  # not sure...
             if reduce is not None:
-                rv = reduce()
+                rv = reduce(reduce_proto)
             else:
-                assert not self._inlining_stage  # should really not happen in this stage
-                raise SerializationError(f"cannot handle `({name}) = {value!r}` (value type {type(value).__name__})")
+                reduce = getattr(value, "__reduce__", None)
+                if reduce is not None:
+                    rv = reduce()
+                else:
+                    assert not self._inlining_stage  # should really not happen in this stage
+                    raise SerializationError(
+                        f"cannot handle `({name}) = {value!r}` (value type {type(value).__name__})"
+                    )
 
-        # Check for string returned by reduce(), meaning "save as global"
-        if isinstance(rv, str):
-            return self._serialize_global(value, name=rv)
+            # Check for string returned by reduce(), meaning "save as global"
+            if isinstance(rv, str):
+                return self._serialize_global(value, name=rv)
 
-        # Assert that reduce() returned a tuple
-        if not isinstance(rv, tuple):
-            raise SerializationError(f"{reduce} must return string or tuple, got {rv!r} (type {type(rv).__name__})")
+            # Assert that reduce() returned a tuple
+            if not isinstance(rv, tuple):
+                raise SerializationError(f"{reduce} must return string or tuple, got {rv!r} (type {type(rv).__name__})")
 
-        # Assert that it returned an appropriately sized tuple
-        if not (2 <= len(rv) <= 6):
-            raise SerializationError(f"Tuple returned by {reduce} invalid num elements {len(rv)}: {rv!r}")
+            # Assert that it returned an appropriately sized tuple
+            if not (2 <= len(rv) <= 6):
+                raise SerializationError(f"Tuple returned by {reduce} invalid num elements {len(rv)}: {rv!r}")
+
+            # Keep it cached, such that we do not re-execute the `reduce` again,
+            # which might created new temporary objects on-the-fly,
+            # thus our recursive construction does not work.
+            self.reduce_cache_by_value_ref[value_ref] = rv
+
         # func, args, state=None, listitems=None, dictitems=None, state_setter=None
         func, args = rv[:2]
         func_s = self._serialize_value(func, prefix=f"{name}_reduce_func", recursive=True)
@@ -635,30 +738,34 @@ class _Serializer:
         mod = sys.modules[mod_name]
         if not hasattr(mod, "__file__"):
             return  # assume builtin module or so
-        mod_filename = mod.__file__
-        if mod_filename.endswith("/__init__.py"):
-            mod_path = os.path.dirname(mod_filename[: -len("/__init__.py")])
-        else:
-            mod_path = os.path.dirname(mod_filename)
-        if mod_path in self.added_sys_paths:
+        mod_path = _get_module_path_from_module(mod)
+        self.add_sys_path(mod_path)
+        self.known_modules.add(mod_name)
+
+    def add_sys_path(self, path: str, *, recursive: bool = True):
+        """
+        Add an entry to sys.path if it is not already there.
+        """
+        if path in self.added_sys_paths:
             return  # already added
-        base_sys_path = [path for path in _get_base_sys_path_list() if path]
+        base_sys_path = [path_ for path_ in _get_base_sys_path_list() if path_]
         assert base_sys_path
-        if mod_path in base_sys_path:
+        if path in base_sys_path:
             return  # already in (base) sys.path
-        assert mod_path in sys.path
+        assert path in sys.path
         assert base_sys_path[0] in sys.path
+        if not recursive:
+            self._handle_next_queue_item(_AssignQueueItem(sys))
         sys_s = self._serialize_value(sys, prefix="sys")
         assert isinstance(sys_s, PyEvalCode)
-        if sys.path.index(mod_path) < sys.path.index(base_sys_path[0]):
-            code = PyCode(py_name=None, value=None, py_code=f"{sys_s.py_inline()}.path.insert(0, {mod_path!r})\n")
+        if sys.path.index(path) < sys.path.index(base_sys_path[0]):
+            code = PyCode(py_name=None, value=None, py_code=f"{sys_s.py_inline()}.path.insert(0, {path!r})\n")
         else:
-            code = PyCode(py_name=None, value=None, py_code=f"{sys_s.py_inline()}.path.append({mod_path!r})\n")
+            code = PyCode(py_name=None, value=None, py_code=f"{sys_s.py_inline()}.path.append({path!r})\n")
         code.idx = self._next_alignment_idx
         self._next_alignment_idx += 1
         self.assignments_dict_by_idx[code.idx] = code
-        self.added_sys_paths.add(mod_path)
-        self.known_modules.add(mod_name)
+        self.added_sys_paths.add(path)
 
     def _serialize_functools_partial(self, value: functools.partial, name: str) -> PyEvalCode:
         # The generic fallback using __reduce__ would also work with this.
@@ -737,14 +844,7 @@ class PyCode(SerializerObject):
     def _sis_hash(self) -> bytes:
         if not self.use_for_hash:
             raise Exception(f"{self} should not be hashed. Maybe wrap this in a serialization Collection")
-        value = self.value
-        if isinstance(value, Dim):
-            dim = value
-            value = {"dim": dim.dimension}
-            if dim.kind is not None:
-                value["kind"] = dim.kind.name
-            assert dim.derived_from_op is None  # not handled yet for hashing...
-        return sis_hash_helper((self.py_name, value))
+        return sis_hash_helper((self.py_name, self.value))
 
 
 @dataclass
@@ -820,6 +920,15 @@ def _get_base_sys_path_list() -> List[str]:
         )
         assert isinstance(_base_sys_path_list, list) and all(isinstance(p, str) for p in _base_sys_path_list)
     return _base_sys_path_list
+
+
+def _get_module_path_from_module(mod: ModuleType) -> str:
+    mod_filename = mod.__file__
+    if mod_filename.endswith("/__init__.py"):
+        mod_path = os.path.dirname(mod_filename[: -len("/__init__.py")])
+    else:
+        mod_path = os.path.dirname(mod_filename)
+    return mod_path
 
 
 def test_basic():
@@ -961,7 +1070,10 @@ def test_sis_path():
     from sisyphus import Path
 
     config = {"path": Path("/foo.txt")}
-    assert serialize_config(config).as_serialized_code() == "path = '/foo.txt'\n"
+    assert (
+        serialize_config(config, sis_path_handling=SisPathHandling.AS_STRING).as_serialized_code()
+        == "path = '/foo.txt'\n"
+    )
 
 
 def test_post_config():
@@ -987,7 +1099,7 @@ class _CustomObj:
 
 
 def test_generic_object():
-    x_orig = _CustomObj(42)
+    x_orig = _CustomObj((42, (43, 44)))
     config = {"x": x_orig}
     serialized = serialize_config(config)
     print(serialized.as_serialized_code())
@@ -998,7 +1110,33 @@ def test_generic_object():
     assert "x" in scope
     x = scope["x"]
     assert isinstance(x, _CustomObj)
-    assert x.value == 42
+    assert x.value == (42, (43, 44))
+    assert x_orig is not x
+
+
+class _CustomObjWithReduce:
+    def __init__(self, value):
+        self.value = value
+
+    def __reduce__(self):
+        from copy import deepcopy
+
+        return self.__class__, (deepcopy(self.value),)
+
+
+def test_generic_object_with_reduce():
+    x_orig = _CustomObjWithReduce([42, [43, 44, [45, 46]]])
+    config = {"x": x_orig}
+    serialized = serialize_config(config)
+    print(serialized.as_serialized_code())
+    # Not really checking the exact serialized code here,
+    # but instead just testing to execute it.
+    scope = {}
+    exec(serialized.as_serialized_code(), scope)
+    assert "x" in scope
+    x = scope["x"]
+    assert isinstance(x, _CustomObjWithReduce)
+    assert x.value == [42, [43, 44, [45, 46]]]
     assert x_orig is not x
 
 
@@ -1034,3 +1172,12 @@ def test_known_modules():
         feat_dim = Dim(12, name='feat')
         """
     )
+
+
+def test_set():
+    config = {"tags": {"a", "b", "c"}}
+    serialized = serialize_config(config)
+    code = serialized.as_serialized_code()
+    scope = {}
+    exec(code, scope)
+    assert scope["tags"] == {"a", "b", "c"}
