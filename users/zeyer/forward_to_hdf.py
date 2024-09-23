@@ -67,7 +67,7 @@ def forward_to_hdf(
             forward_post_config and forward_post_config.pop("__env_updates", None)
         )
     forward_job = ReturnnForwardJobV2(
-        model_checkpoint=model.checkpoint if model else None,
+        model_checkpoint=model.checkpoint.path if model else None,
         returnn_config=(_returnn_forward_config_v2 if _config_v2 else _returnn_forward_config)(
             dataset=dataset,
             model_def=model.definition if model else None,
