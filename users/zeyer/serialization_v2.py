@@ -23,7 +23,7 @@ We handle those objects specially:
 - primitive types (int, float, bool, str)
 - Sisyphus Path objects
 - RETURNN Dim objects
-- dict, list, tuple
+- dict, list, tuple, set
 - functions, classes, modules
 - functools.partial (just some nicer repr)
 
@@ -486,6 +486,8 @@ class _Serializer:
             return self._serialize_list(value, prefix)
         if isinstance(value, tuple):
             return self._serialize_tuple(value, prefix)
+        if isinstance(value, set):
+            return self._serialize_set(value, prefix)
         if isinstance(value, Dim):
             return self._serialize_dim(value, prefix)
         if isinstance(value, ModuleType):
@@ -608,6 +610,24 @@ class _Serializer:
             + ", ".join(f"{key}={value}" for key, value in zip(fields, serialized_items))
             + ")"
         )
+
+    def _serialize_set(self, values: set, prefix: str) -> PyEvalCode:
+        assert type(values) is set  # nothing else expected/handled currently
+        if not values:
+            assert "set" not in self.assignments_dict_by_name  # just not yet handled...
+            return PyEvalCode("set()")
+        values = list(values)
+        # noinspection PyBroadException
+        try:
+            values.sort()
+        except Exception:
+            pass  # ignore sort errors, not critical
+        serialized_items = []
+        for idx, value in enumerate(values):
+            serialized_value = self._serialize_value(value, prefix=f"{prefix}_{idx}", recursive=True)
+            assert isinstance(serialized_value, PyEvalCode)
+            serialized_items.append(serialized_value.py_inline())
+        return PyEvalCode("{" + ", ".join(serialized_items) + "}")
 
     def _serialize_dim(self, dim: Dim, prefix: str) -> Union[PyEvalCode, PyCode]:
         assert isinstance(dim, Dim)
@@ -1178,6 +1198,7 @@ def test_set():
     config = {"tags": {"a", "b", "c"}}
     serialized = serialize_config(config)
     code = serialized.as_serialized_code()
+    assert code == "tags = {'a', 'b', 'c'}\n"
     scope = {}
     exec(code, scope)
     assert scope["tags"] == {"a", "b", "c"}
