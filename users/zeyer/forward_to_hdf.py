@@ -35,6 +35,7 @@ def forward_to_hdf(
     forward_mem_rqmt: Union[int, float] = 6,
     forward_rqmt: Optional[Dict[str, Any]] = None,
     forward_alias_name: Optional[str] = None,
+    _config_v2: bool = True,  # testing...
 ) -> tk.Path:
     """
     forward on the specific dataset
@@ -56,6 +57,7 @@ def forward_to_hdf(
     :param forward_mem_rqmt: memory requirement for the forward job (in GB)
     :param forward_rqmt: additional rqmt opts for the forward job (e.g. "time" (in hours))
     :param forward_alias_name: optional alias name for the forward job
+    :param _config_v2: new RETURNN config serialization
     :return: HDF file path
     """
     assert not (forward_def and forward_step), "either forward_def or forward_step, not both"
@@ -66,7 +68,7 @@ def forward_to_hdf(
         )
     forward_job = ReturnnForwardJobV2(
         model_checkpoint=model.checkpoint if model else None,
-        returnn_config=_returnn_forward_config(
+        returnn_config=(_returnn_forward_config_v2 if _config_v2 else _returnn_forward_config)(
             dataset=dataset,
             model_def=model.definition if model else None,
             forward_def=forward_def,
@@ -404,6 +406,106 @@ def _returnn_forward_config(
     return returnn_forward_config
 
 
+def _returnn_forward_config_v2(
+    *,
+    dataset: DatasetConfig,
+    model_def: Union[None, ModelDef, ModelDefWithCfg],
+    forward_def: Optional[ForwardRFDef] = None,
+    forward_step: Optional[Callable] = None,
+    config: Optional[Dict[str, Any]] = None,
+    post_config: Optional[Dict[str, Any]] = None,
+) -> ReturnnConfig:
+    """
+    Create config for collecting stats.
+    """
+    from i6_experiments.users.zeyer.serialization_v2 import ReturnnConfigWithNewSerialization
+
+    assert not (forward_def and forward_step), "either forward_def or forward_step, not both"
+    if not forward_def and not forward_step:
+        forward_step = _returnn_forward_noop_step
+
+    config = dict(
+        **(config or {}),
+        # dataset
+        default_input=dataset.get_default_input(),
+        target=dataset.get_default_target(),  # only for get_model with model_def
+        extern_data=dataset.get_extern_data(),
+        forward_data=dataset.get_main_dataset(),
+    )
+
+    if forward_step is _returnn_forward_noop_step and "model_outputs" not in config:
+        # Copy the extern_data to model_outputs.
+        model_outputs = config["extern_data"].copy()
+        assert all(v.get("dims") is not None or v.get("dim_tags") is not None for v in model_outputs.values())
+        # Map the default input key (e.g. "data") to the default RF output key (which is "output").
+        input_key = dataset.get_default_input()
+        if input_key:
+            assert input_key in model_outputs
+            assert "output" not in model_outputs
+            model_outputs["output"] = model_outputs.pop(input_key)
+        config["model_outputs"] = model_outputs
+
+    if model_def:
+        if "backend" not in config:
+            config["backend"] = model_def.backend
+        config["behavior_version"] = max(model_def.behavior_version, config.get("behavior_version", 0))
+    else:
+        assert config and config.get("backend") and config.get("behavior_version")
+
+    if isinstance(model_def, ModelDefWithCfg):
+        config["_model_def"] = model_def.model_def
+        config.update(model_def.config)
+    else:
+        config["_model_def"] = model_def
+    config["get_model"] = _returnn_get_model
+
+    if forward_def:
+        assert not forward_step
+        config["_forward_def"] = forward_def
+        config["forward_step"] = _returnn_forward_step
+    if forward_step:
+        assert not forward_def
+        config["forward_step"] = forward_step
+
+    config["forward_callback"] = _returnn_get_forward_callback
+
+    # post_config is not hashed
+    post_config_ = dict(
+        log_batch_size=True,
+        # debug_add_check_numerics_ops = True
+        # debug_add_check_numerics_on_output = True
+        torch_log_memory_usage=True,
+        watch_memory=True,
+        use_lovely_tensors=True,
+    )
+    if post_config:
+        post_config_.update(post_config)
+    post_config = post_config_
+
+    batch_size_dependent = False
+    if "__batch_size_dependent" in config:
+        batch_size_dependent = config.pop("__batch_size_dependent")
+    if "__batch_size_dependent" in post_config:
+        batch_size_dependent = post_config.pop("__batch_size_dependent")
+    for k, v in dict(
+        batching="sorted",
+        batch_size=(20000 * model_def.batch_size_factor) if model_def else (20000 * 160),
+        max_seqs=200,
+    ).items():
+        if k in config:
+            v = config.pop(k)
+        if k in post_config:
+            v = post_config.pop(k)
+        (config if batch_size_dependent else post_config)[k] = v
+
+    for k, v in SharedPostConfig.items():
+        if k in config or k in post_config:
+            continue
+        post_config[k] = v
+
+    return ReturnnConfigWithNewSerialization(config, post_config)
+
+
 def _returnn_get_model(*, epoch: int, **_kwargs_unused):
     from returnn.tensor import Tensor
     from returnn.config import get_global_config
@@ -429,7 +531,7 @@ def _returnn_forward_step(*, model, extern_data: TensorDict, **_kwargs_unused):
     # This whole function doesn't really do much. It just wraps the forward_def.
     # We might consider to remove this function and just use forward_def directly.
     import returnn.frontend as rf
-    from returnn.tensor import Tensor, Dim, batch_dim
+    from returnn.tensor import batch_dim
     from returnn.config import get_global_config
 
     if rf.is_executing_eagerly():
