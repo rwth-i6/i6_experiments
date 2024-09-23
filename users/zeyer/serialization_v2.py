@@ -401,6 +401,10 @@ class _Serializer:
             return self._serialize_global(value=value, name=name)
 
         # Generic fallback using __reduce__ or __reduce_ex__.
+        return self._serialize_reduce(value, name)
+
+    def _serialize_reduce(self, value: Any, name: str) -> Union[PyEvalCode, _PyCodeWithDeferredStateQueueItem]:
+        # Generic fallback using __reduce__ or __reduce_ex__.
         # This is very much following the original pickle logic (slightly simplified).
         reduce = getattr(value, "__reduce_ex__", None)
         reduce_proto = 4  # not sure...
@@ -427,11 +431,11 @@ class _Serializer:
             raise SerializationError(f"Tuple returned by {reduce} invalid num elements {len(rv)}: {rv!r}")
         # func, args, state=None, listitems=None, dictitems=None, state_setter=None
         func, args = rv[:2]
-        func_s = self._serialize_value(func, prefix=f"{prefix}_reduce_func", recursive=True)
+        func_s = self._serialize_value(func, prefix=f"{name}_reduce_func", recursive=True)
         assert isinstance(func_s, PyEvalCode)
         assert isinstance(args, (tuple, list))
         args_s = [
-            self._serialize_value(arg, prefix=f"{prefix}_reduce_arg{i}", recursive=True) for i, arg in enumerate(args)
+            self._serialize_value(arg, prefix=f"{name}_reduce_arg{i}", recursive=True) for i, arg in enumerate(args)
         ]
         assert all(isinstance(a, PyEvalCode) for a in args_s)
         code_s = func_s.py_inline() + "(" + ", ".join(arg_s.py_inline() for arg_s in args_s) + ")"
