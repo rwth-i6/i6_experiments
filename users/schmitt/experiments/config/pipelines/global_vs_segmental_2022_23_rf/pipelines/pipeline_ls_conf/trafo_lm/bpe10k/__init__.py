@@ -10,7 +10,7 @@ from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segment
 
 def run_exps():
   for model_alias, config_builder in baseline.global_att_baseline_rf(
-          label_type="bpe1056",
+          label_type="bpe10025",
   ):
     for train_alias, checkpoint in train.train_lm(
       alias=model_alias,

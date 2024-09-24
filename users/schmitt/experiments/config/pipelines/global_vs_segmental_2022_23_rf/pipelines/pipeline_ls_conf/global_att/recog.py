@@ -8,6 +8,7 @@ from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segment
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.global_.recog import model_recog, model_recog_pure_torch
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.recog_new import ReturnnGlobalAttDecodingPipeline
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.labels.v2.librispeech.label_singletons import LibrispeechBPE10025_CTC_ALIGNMENT
+from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.labels.v2.librispeech.phonemes.gmm_alignments import LIBRISPEECH_GMM_WORD_ALIGNMENT
 
 
 def global_att_returnn_label_sync_beam_search(
@@ -64,8 +65,19 @@ def global_att_returnn_label_sync_beam_search(
 
   if run_analysis:
     assert len(corpus_keys) == 1, "Only one corpus key is supported for analysis"
+
     if analysis_ref_alignment_opts is None:
+      assert corpus_keys[0] in ("train", "dev-other")
       analysis_ref_alignment_opts = {}
+      if corpus_keys[0] == "train":
+        analysis_ref_alignment_opts["ref_alignment_hdf"] = LIBRISPEECH_GMM_WORD_ALIGNMENT.alignment_paths["train"]
+        analysis_ref_alignment_opts["ref_alignment_blank_idx"] = LIBRISPEECH_GMM_WORD_ALIGNMENT.model_hyperparameters.blank_idx
+        analysis_ref_alignment_opts["ref_alignment_vocab_path"] = LIBRISPEECH_GMM_WORD_ALIGNMENT.vocab_path
+      else:
+        analysis_ref_alignment_opts["ref_alignment_hdf"] = LibrispeechBPE10025_CTC_ALIGNMENT.alignment_paths["dev-other"]
+        analysis_ref_alignment_opts["ref_alignment_blank_idx"] = LibrispeechBPE10025_CTC_ALIGNMENT.model_hyperparameters.blank_idx
+        analysis_ref_alignment_opts["ref_alignment_vocab_path"] = LibrispeechBPE10025_CTC_ALIGNMENT.vocab_path
+
     analysis_opts = {
       "att_weight_seq_tags": list(att_weight_seq_tags) if att_weight_seq_tags is not None else None,
       "analyze_gradients": analyze_gradients,

@@ -139,7 +139,7 @@ def train_center_window_att(
   checkpoint = {
     "model_dir": model_dir,
     "learning_rates": learning_rates,
-    "key": "dev_loss_non_blank_ce",
+    "key": "dev_loss_non_blank_ce" if training_type == "fixed-path" else "dev_loss_full_sum_loss",
     "checkpoints": checkpoints,
     "n_epochs": n_epochs
   }

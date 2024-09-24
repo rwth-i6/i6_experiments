@@ -269,7 +269,7 @@ def from_scratch_model_def(*, epoch: int, vocab_dim: Dim) -> TransformerDecoder:
 
   config = get_global_config()  # noqa
 
-  model_dim = config.typed_value("model_dim", Dim(1024, name="transformer-dec-model-dim"))
+  model_dim = config.typed_value("model_dim", Dim(512, name="transformer-dec-model-dim"))
   num_layers = config.typed_value("num_layers", 24)
   embed_dim = config.typed_value("embed_dim", Dim(128, name="transformer-dec-embed-dim"))
   decoder_layer_opts = {"self_att_opts": {"with_bias": False, "att_dropout_broadcast": False}}
@@ -277,17 +277,23 @@ def from_scratch_model_def(*, epoch: int, vocab_dim: Dim) -> TransformerDecoder:
   share_embedding = config.typed_value("share_embedding", False)
   logits_with_bias = config.typed_value("logits_with_bias", True)
   input_dropout = config.typed_value("input_dropout", 0.1)
+  ff_activation = config.typed_value("ff_activation", "rf.gelu")
+  dropout = config.typed_value("dropout", 0.0)
+  att_dropout = config.typed_value("att_dropout", 0.0)
 
   return MakeModel.make_model(
     vocab_dim=vocab_dim,
     model_dim=model_dim,
     num_layers=num_layers,
-    embed_dim=embed_dim,
-    decoder_layer_opts=decoder_layer_opts,
-    input_embedding_scale=input_embedding_scale,
-    share_embedding=share_embedding,
-    logits_with_bias=logits_with_bias,
-    input_dropout=input_dropout,
+    # embed_dim=embed_dim,
+    # decoder_layer_opts=decoder_layer_opts,
+    # input_embedding_scale=input_embedding_scale,
+    # share_embedding=share_embedding,
+    # logits_with_bias=logits_with_bias,
+    # input_dropout=input_dropout,
+    ff_activation=rf.build_dict(eval(ff_activation)),
+    dropout=dropout,
+    att_dropout=att_dropout,
   )
 
 

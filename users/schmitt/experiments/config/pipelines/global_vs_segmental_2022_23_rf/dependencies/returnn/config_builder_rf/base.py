@@ -725,15 +725,16 @@ class ConfigBuilderRF(ABC):
     elif lr_opts["type"] == "dyn_lr_piecewise_linear_epoch-wise_v2":
       peak_lr = lr_opts.get("peak_lr", 1e-3)
       initial_lr = lr_opts.get("init_lr", peak_lr * 1e-2)
+      lr2 = lr_opts.get("lr2", initial_lr)
       final_lr = lr_opts.get("final_lr", peak_lr * 1e-3)
       cyc_ep = int(0.45 * lr_opts["num_epochs"])
       return dict(
         learning_rates=list(
           np.linspace(initial_lr, peak_lr, cyc_ep)  # go up
         ) + list(
-            np.linspace(peak_lr, initial_lr, cyc_ep)  # go down
+            np.linspace(peak_lr, lr2, cyc_ep)  # go down
         ) + list(
-          np.linspace(initial_lr, final_lr, lr_opts["num_epochs"] - 2 * cyc_ep)  # cool down
+          np.linspace(lr2, final_lr, lr_opts["num_epochs"] - 2 * cyc_ep)  # cool down
         )
       )
     elif lr_opts["type"] == "dyn_lr_lin_warmup_invsqrt_decay":

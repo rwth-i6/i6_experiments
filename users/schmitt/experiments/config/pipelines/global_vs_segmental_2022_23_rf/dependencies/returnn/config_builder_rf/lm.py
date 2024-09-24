@@ -10,7 +10,6 @@ from i6_experiments.common.setups.returnn.serialization import get_serializable_
 from i6_core.returnn.config import ReturnnConfig, CodeWrapper
 from i6_core.returnn.training import AverageTorchCheckpointsJob, GetBestEpochJob, Checkpoint, GetBestPtCheckpointJob
 from i6_core.util import instanciate_delayed
-from returnn.tf.updater import accum_grad_multiple_step
 
 from returnn_common import nn
 
@@ -102,6 +101,13 @@ class LmConfigBuilderRF(ABC):
     ))
 
     config_dict.update(ConfigBuilderRF.get_lr_settings(lr_opts=opts.pop("lr_opts"), python_epilog=python_epilog))
+
+    remaining_opt_keys = [
+      "torch_distributed",
+    ]
+    config_dict.update(
+      {k: opts.pop(k) for k in remaining_opt_keys if k in opts}
+    )
 
     train_def = opts.pop("train_def")
     train_step_func = opts.pop("train_step_func")
@@ -255,6 +261,7 @@ class LmConfigBuilderRF(ABC):
         segment_file=self.variant_params["dependencies"].segment_paths.get("cv", None),
         bpe_file=self.variant_params["dependencies"].bpe_codes_path,
         vocab_file=self.variant_params["dependencies"].vocab_path,
+        text_only=True,
       )
 
     devtrain_data = get_oggzip_dataset_dict(
@@ -268,6 +275,7 @@ class LmConfigBuilderRF(ABC):
         segment_file=self.variant_params["dependencies"].segment_paths.get("devtrain", None),
         bpe_file=self.variant_params["dependencies"].bpe_codes_path,
         vocab_file=self.variant_params["dependencies"].vocab_path,
+        text_only=True,
       )
 
     datasets = dict(

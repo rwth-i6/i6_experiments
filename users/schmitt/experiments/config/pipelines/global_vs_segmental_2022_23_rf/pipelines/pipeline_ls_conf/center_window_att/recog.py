@@ -11,6 +11,7 @@ from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segment
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.labels.v2.librispeech.label_singletons import LibrispeechBPE10025_CTC_ALIGNMENT
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.labels.v2.librispeech.bpe.bpe import LibrispeechBPE10025
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.pipelines.pipeline_ls_conf.global_att.config_builder import get_global_att_config_builder_rf
+from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.labels.v2.librispeech.phonemes.gmm_alignments import LIBRISPEECH_GMM_WORD_ALIGNMENT
 
 
 def center_window_returnn_frame_wise_beam_search(
@@ -42,6 +43,8 @@ def center_window_returnn_frame_wise_beam_search(
         only_do_analysis: bool = False,
         analysis_dump_gradients: bool = False,
         analysis_ground_truth_hdf: Optional[Path] = None,
+        analysis_analyze_gradients_plot_encoder_layers: bool = False,
+        analsis_analyze_gradients_plot_log_gradients: bool = False,
 ):
   if lm_type is not None:
     assert len(checkpoint_aliases) == 1, "Do LM recog only for the best checkpoint"
@@ -69,13 +72,26 @@ def center_window_returnn_frame_wise_beam_search(
 
   if run_analysis:
     assert len(corpus_keys) == 1, "Only one corpus key is supported for analysis"
+    assert corpus_keys[0] in ("train", "dev-other")
+
+    if corpus_keys[0] == "train":
+      ref_alignment_hdf = LIBRISPEECH_GMM_WORD_ALIGNMENT.alignment_paths["train"]
+      ref_alignment_blank_idx = LIBRISPEECH_GMM_WORD_ALIGNMENT.model_hyperparameters.blank_idx
+      ref_alignment_vocab_path = LIBRISPEECH_GMM_WORD_ALIGNMENT.vocab_path
+    else:
+      ref_alignment_hdf = LibrispeechBPE10025_CTC_ALIGNMENT.alignment_paths["dev-other"]
+      ref_alignment_blank_idx = LibrispeechBPE10025_CTC_ALIGNMENT.model_hyperparameters.blank_idx
+      ref_alignment_vocab_path = LibrispeechBPE10025_CTC_ALIGNMENT.vocab_path
+
     analysis_opts = {
       "att_weight_seq_tags": list(att_weight_seq_tags) if att_weight_seq_tags is not None else None,
       "analyze_gradients": analyze_gradients,
-      "ref_alignment_hdf": LibrispeechBPE10025_CTC_ALIGNMENT.alignment_paths[corpus_keys[0]],
-      "ref_alignment_blank_idx": LibrispeechBPE10025_CTC_ALIGNMENT.model_hyperparameters.blank_idx,
-      "ref_alignment_vocab_path": LibrispeechBPE10025_CTC_ALIGNMENT.vocab_path,
+      "ref_alignment_hdf": ref_alignment_hdf,
+      "ref_alignment_blank_idx": ref_alignment_blank_idx,
+      "ref_alignment_vocab_path": ref_alignment_vocab_path,
       "dump_gradients": analysis_dump_gradients,
+      "analyze_gradients_plot_encoder_layers": analysis_analyze_gradients_plot_encoder_layers,
+      "analyze_gradients_plot_log_gradients": analsis_analyze_gradients_plot_log_gradients,
     }
     if analysis_ground_truth_hdf is None and isinstance(config_builder.variant_params["dependencies"], LibrispeechBPE10025):
       analysis_ground_truth_hdf = LibrispeechBPE10025_CTC_ALIGNMENT.alignment_paths[corpus_keys[0]]

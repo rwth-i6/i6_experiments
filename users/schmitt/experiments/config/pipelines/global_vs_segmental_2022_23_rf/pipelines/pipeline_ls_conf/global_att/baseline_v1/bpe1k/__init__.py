@@ -7,7 +7,6 @@ from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segment
   train, recog
 )
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.pipelines.pipeline_ls_conf.checkpoints import external_checkpoints, default_import_model_name
-from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.labels.v2.librispeech.phonemes.gmm_alignments import LIBRISPEECH_GMM_ALIGNMENT_CONVERTED
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.labels.v2.librispeech.phonemes.gmm_alignments import LIBRISPEECH_GMM_WORD_ALIGNMENT
 
 
@@ -43,6 +42,15 @@ def run_exps():
         checkpoint=checkpoint,
         corpus_keys=("dev-other",),
       )
+      recog.global_att_returnn_label_sync_beam_search(
+        alias=train_alias,
+        config_builder=config_builder,
+        checkpoint=checkpoint,
+        corpus_keys=("dev-other",),
+        run_analysis=True,
+        analyze_gradients=True,
+        checkpoint_aliases=("last",),
+      )
       for epoch, chckpt in checkpoint["checkpoints"].items():
         if epoch in [22, 55, 60] or epoch in range(1, 60, 5):
           recog.global_att_returnn_label_sync_beam_search(
@@ -70,29 +78,6 @@ def run_exps():
               analysis_dump_gradients_input_layer_name=input_layer_name,
             )
 
-      # all_epochs = range(500, 0, -1)
-      # for epoch in all_epochs:
-      #   chckpt = checkpoint["checkpoints"][epoch]
-      #
-      #   if os.path.exists(chckpt.path):
-      #     recog.global_att_returnn_label_sync_beam_search(
-      #       alias=train_alias,
-      #       config_builder=config_builder,
-      #       checkpoint=chckpt,
-      #       checkpoint_aliases=(f"epoch-{epoch}",),
-      #       corpus_keys=("train",),
-      #       run_analysis=True,
-      #       analyze_gradients=True,
-      #       only_do_analysis=True,
-      #       att_weight_seq_tags=["train-other-960/1578-6379-0013/1578-6379-0013"],
-      #       analysis_ref_alignment_opts={
-      #         "ref_alignment_hdf": LIBRISPEECH_GMM_WORD_ALIGNMENT.alignment_paths["train"],
-      #         "ref_alignment_blank_idx": LIBRISPEECH_GMM_WORD_ALIGNMENT.model_hyperparameters.blank_idx,
-      #         "ref_alignment_vocab_path": LIBRISPEECH_GMM_WORD_ALIGNMENT.vocab_path,
-      #       }
-      #     )
-      #     break  # only do this for the first existing checkpoint
-
     # v3: same as v2, but filter out data > 19.5s
     for train_alias, checkpoint in train.train_global_att(
       alias=model_alias,
@@ -108,6 +93,15 @@ def run_exps():
         checkpoint_aliases=("last",),
         corpus_keys=("dev-other", "dev-clean", "test-other", "test-clean"),
       )
+      recog.global_att_returnn_label_sync_beam_search(
+        alias=train_alias,
+        config_builder=config_builder,
+        checkpoint=checkpoint,
+        corpus_keys=("dev-other",),
+        run_analysis=True,
+        analyze_gradients=True,
+        checkpoint_aliases=("last",),
+      )
 
       for epoch, chckpt in checkpoint["checkpoints"].items():
         if epoch in [31, 55, 60] or epoch in range(32, 55) or epoch in range(1, 60, 5):
@@ -120,29 +114,6 @@ def run_exps():
             analyze_gradients=True,
             only_do_analysis=True,
           )
-
-      # all_epochs = range(500, 0, -1)
-      # for epoch in all_epochs:
-      #   chckpt = checkpoint["checkpoints"][epoch]
-      #
-      #   if os.path.exists(chckpt.path):
-      #     recog.global_att_returnn_label_sync_beam_search(
-      #       alias=train_alias,
-      #       config_builder=config_builder,
-      #       checkpoint=chckpt,
-      #       checkpoint_aliases=(f"epoch-{epoch}",),
-      #       corpus_keys=("train",),
-      #       run_analysis=True,
-      #       analyze_gradients=True,
-      #       only_do_analysis=True,
-      #       att_weight_seq_tags=["train-other-960/1578-6379-0013/1578-6379-0013"],
-      #       analysis_ref_alignment_opts={
-      #         "ref_alignment_hdf": LIBRISPEECH_GMM_WORD_ALIGNMENT.alignment_paths["train"],
-      #         "ref_alignment_blank_idx": LIBRISPEECH_GMM_WORD_ALIGNMENT.model_hyperparameters.blank_idx,
-      #         "ref_alignment_vocab_path": LIBRISPEECH_GMM_WORD_ALIGNMENT.vocab_path,
-      #       }
-      #     )
-      #     break  # only do this for the first existing checkpoint
 
     # v4: same as v2, but filter out targets > 75
     for train_alias, checkpoint in train.train_global_att(
@@ -159,6 +130,15 @@ def run_exps():
         checkpoint_aliases=("last",),
         corpus_keys=("dev-other", "dev-clean", "test-other", "test-clean"),
       )
+      recog.global_att_returnn_label_sync_beam_search(
+        alias=train_alias,
+        config_builder=config_builder,
+        checkpoint=checkpoint,
+        corpus_keys=("dev-other",),
+        run_analysis=True,
+        analyze_gradients=True,
+        checkpoint_aliases=("last",),
+      )
 
       for epoch, chckpt in checkpoint["checkpoints"].items():
         if epoch in [60, 80, 116] or epoch in range(1, 60, 5) or epoch in range(50, 70):
@@ -171,29 +151,6 @@ def run_exps():
             analyze_gradients=True,
             only_do_analysis=True,
           )
-
-      # all_epochs = range(500, 0, -1)
-      # for epoch in all_epochs:
-      #   chckpt = checkpoint["checkpoints"][epoch]
-      #
-      #   if os.path.exists(chckpt.path):
-      #     recog.global_att_returnn_label_sync_beam_search(
-      #       alias=train_alias,
-      #       config_builder=config_builder,
-      #       checkpoint=chckpt,
-      #       checkpoint_aliases=(f"epoch-{epoch}",),
-      #       corpus_keys=("train",),
-      #       run_analysis=True,
-      #       analyze_gradients=True,
-      #       only_do_analysis=True,
-      #       att_weight_seq_tags=["train-other-960/1578-6379-0013/1578-6379-0013"],
-      #       analysis_ref_alignment_opts={
-      #         "ref_alignment_hdf": LIBRISPEECH_GMM_WORD_ALIGNMENT.alignment_paths["train"],
-      #         "ref_alignment_blank_idx": LIBRISPEECH_GMM_WORD_ALIGNMENT.model_hyperparameters.blank_idx,
-      #         "ref_alignment_vocab_path": LIBRISPEECH_GMM_WORD_ALIGNMENT.vocab_path,
-      #       }
-      #     )
-      #     break  # only do this for the first existing checkpoint
 
   for (
           alias,
@@ -213,15 +170,8 @@ def run_exps():
     ["v3_big_rand-1337", 1337, None, None, False, 12, 512, False, False, False, list(range(1, 240)), 24],  # v3_big_rand-1337 - flipped
     ["v3_big_rand-8264", 8264, None, None, False, 12, 512, False, False, False, [121, 131, 141], 24],  # v3_big_rand-8264 - flipped
     ["v3_big_rand-2160", 2160, None, None, False, 12, 512, False, False, False, [121, 131, 141], 24],  # v3_big_rand-2160 - flipped
-    # ["v3_big_rand-9999", 9999, None, None, False, 12, 512, False, False, False, [121, 131, 141]],  # v3_big_rand-9999
     ["v5_big", None, 21, None, False, 12, 512, False, False, False, list(range(1, 240)), 24],  # v5_big: same as v3_big, but enable self attention only after 20 sub-epochs (1 full epoch) - not flipped
-    # ["v6_big", None, None, None, False, 12, 512, False, False, True, list(range(1, 240)), 24],  # v6_big: same as v3_big, but use both absolute and relative positional encodings
-    # ["v7_big", None, None, None, True, 12, 512, False, False, False, [121, 131, 141]],  # v7_big: same as v3_big, but do not use final layer norm in conformer encoder layers
     ["v8_big", None, None, (4, 8), False, 12, 512, False, False, False, list(range(1, 141, 10)), 24],  # v8_big: same as v3_big, but use CTC aux loss - not flipped
-    # ["v9_big", None, None, None, False, 17, 400, False, False, False, list(range(1, 240)), 24],  # v9_big: same as v3_big, but use 17 instead of 12 encoder layers and 400 instead of 512 output dim
-    # ["v9", None, None, None, False, 17, 400, False, False, False, list(range(1, 240)), 11], # v9: same as v3_big, but use 17 instead of 12 encoder layers and 400 instead of 512 output dim
-    # ["v10_big", None, None, None, False, 12, 512, True, False, False, list(range(1, 240)), 24],  # v10_big: same as v3_big, but without convolution module in conformer encoder layers
-    # ["v11_big", None, None, None, False, 12, 512, False, True, False, [121, 131, 141]],  # v11_big: same as v3_big, but without pos encoding
   ]:
     for model_alias, config_builder in baseline.global_att_baseline_rf(
             use_weight_feedback=True,
@@ -263,6 +213,16 @@ def run_exps():
             corpus_keys=("dev-other", "test-other")
           )
 
+        recog.global_att_returnn_label_sync_beam_search(
+          alias=train_alias,
+          config_builder=config_builder,
+          checkpoint=checkpoint,
+          corpus_keys=("dev-other",),
+          run_analysis=True,
+          analyze_gradients=True,
+          checkpoint_aliases=("last",),
+        )
+
         analysis_epochs = [121, 131]
         if alias in ("v3_big",):
           analysis_epochs += [1355]
@@ -302,14 +262,13 @@ def run_exps():
               analysis_plot_encoder_gradient_graph=True,
               att_weight_seq_tags=["dev-other/116-288047-0013/116-288047-0013"]
             )
-          if (alias == "v8_big" and epoch == 919) or (
-                  alias == "v3_big" and epoch == 1676) or (
-                  alias == "v3_big" and epoch == 1743) or (
+          if (
+                  alias == "v8_big" and epoch == 919) or (
                   alias == "v3_big_rand-1337" and epoch == 646) or (
                   alias == "v3_big_rand-1337" and epoch == 141) or (
                   alias == "v3_big" and epoch == 141) or (
           ):
-            if (alias == "v3_big" and epoch == 1743) or (
+            if (
                     alias == "v3_big_rand-1337" and epoch == 646) or (
                     alias == "v3_big_rand-1337" and epoch == 141) or (
                     alias == "v3_big" and epoch == 141
@@ -330,55 +289,6 @@ def run_exps():
                 att_weight_seq_tags=None,
                 analysis_dump_gradients_input_layer_name=input_layer_name,
               )
-
-        # epochs = [91, 90, 81, 80, 71, 70, 61, 60]
-        # all_epochs = range(2000, 0, -1)
-        # for epochs_ in [epochs, all_epochs]:
-        #   for epoch in epochs_:
-        #     chckpt = checkpoint["checkpoints"][epoch]
-        #
-        #     if os.path.exists(chckpt.path):
-        #       recog.global_att_returnn_label_sync_beam_search(
-        #         alias=train_alias,
-        #         config_builder=config_builder,
-        #         checkpoint=chckpt,
-        #         checkpoint_aliases=(f"epoch-{epoch}",),
-        #         corpus_keys=("train",),
-        #         run_analysis=True,
-        #         analyze_gradients=True,
-        #         only_do_analysis=True,
-        #         att_weight_seq_tags=["train-other-960/1578-6379-0013/1578-6379-0013"],
-        #         analysis_ref_alignment_opts={
-        #           "ref_alignment_hdf": LIBRISPEECH_GMM_WORD_ALIGNMENT.alignment_paths["train"],
-        #           "ref_alignment_blank_idx": LIBRISPEECH_GMM_WORD_ALIGNMENT.model_hyperparameters.blank_idx,
-        #           "ref_alignment_vocab_path": LIBRISPEECH_GMM_WORD_ALIGNMENT.vocab_path,
-        #         }
-        #       )
-        #       break  # only do this for the first existing checkpoint
-
-  from i6_core.returnn.training import PtCheckpoint
-  from sisyphus import Path
-  for model_alias, config_builder in baseline.global_att_baseline_rf(
-          use_weight_feedback=True,
-          label_type="bpe1056",
-          conformer_conv_w_zero_padding=True,
-          conv_frontend_w_zero_padding=True,
-  ):
-    for train_alias, checkpoint in (
-            (f"{model_alias}/import_1k-baseline-wo-ctc", PtCheckpoint(Path("/work/asr3/zeyer/schmitt/sisyphus_work_dirs/segmental_models_2022_23_rf/i6_core/returnn/training/ReturnnTrainingJob.eoGg1OAu9UaY/output/models/epoch.1743.pt"))),
-    ):
-      recog.global_att_returnn_label_sync_beam_search(
-        alias=train_alias,
-        config_builder=config_builder,
-        checkpoint=checkpoint,
-        checkpoint_aliases=(f"epoch-{1743}",),
-        run_analysis=True,
-        analysis_dump_gradients=True,
-        only_do_analysis=True,
-        corpus_keys=("train",),
-        att_weight_seq_tags=None,
-        analysis_dump_gradients_input_layer_name="frontend_input",
-      )
 
   for model_alias, config_builder in baseline.global_att_baseline_rf(
           use_weight_feedback=True,

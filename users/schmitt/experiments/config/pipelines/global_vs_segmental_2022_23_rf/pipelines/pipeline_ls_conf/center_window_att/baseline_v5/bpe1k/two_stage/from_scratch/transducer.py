@@ -73,12 +73,34 @@ def run_exps():
                 ctc_aux_loss_layers=(4, 8),
                 gpu_mem_rqmt=gpu_mem_rqmt,
                 accum_grad_multiple_step=accum_grad_multiple_step,
+                lr_scheduling_opts={
+                  "type": "dyn_lr_piecewise_linear_epoch-wise_v2",
+                  "init_lr": 1e-5,
+                  "peak_lr": 1e-3,
+                  "lr2": 1e-5,
+                },
         ):
           recog.center_window_returnn_frame_wise_beam_search(
             alias=fixed_path_train_alias,
             config_builder=config_builder,
             checkpoint=fixed_path_checkpoint,
           )
+          if alias == "v1" and gpu_mem_rqmt == 24:
+            for lm_scale, ilm_scale in [
+              (0.54, 0.4),
+              # (0.6, 0.4),
+              # (0.7, 0.4),
+            ]:
+              recog.center_window_returnn_frame_wise_beam_search(
+                alias=fixed_path_train_alias,
+                config_builder=config_builder,
+                checkpoint=fixed_path_checkpoint,
+                checkpoint_aliases=("last",),
+                lm_type="trafo",
+                lm_scale_list=(lm_scale,),
+                ilm_scale_list=(ilm_scale,),
+                ilm_type="mini_att",
+              )
 
           for epoch, chckpt in fixed_path_checkpoint["checkpoints"].items():
             if epoch in keep_epochs_fixed_path:
@@ -109,7 +131,8 @@ def run_exps():
                 lr_scheduling_opts={
                   "type": "dyn_lr_piecewise_linear_epoch-wise_v2",
                   "init_lr": 1e-3,
-                  "peak_lr": 1e-3 / 5,
+                  "peak_lr": 1e-3,
+                  "lr2": 1e-3 / 5,
                 },
         ):
           recog.center_window_returnn_frame_wise_beam_search(

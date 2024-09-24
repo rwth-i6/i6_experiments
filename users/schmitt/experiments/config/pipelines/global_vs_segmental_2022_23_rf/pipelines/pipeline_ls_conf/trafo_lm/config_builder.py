@@ -45,6 +45,6 @@ def get_trafo_lm_config_builder_rf(
     get_model_func=_returnn_v2_get_model,
   )
 
-  alias = ""
+  alias = f"{label_type}"
 
   return alias, config_builder

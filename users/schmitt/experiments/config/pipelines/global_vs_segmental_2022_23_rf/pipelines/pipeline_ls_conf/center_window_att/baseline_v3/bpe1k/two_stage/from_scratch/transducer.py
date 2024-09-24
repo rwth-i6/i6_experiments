@@ -67,6 +67,12 @@ def run_exps():
                 ctc_aux_loss_layers=(4, 8),
                 gpu_mem_rqmt=gpu_mem_rqmt,
                 accum_grad_multiple_step=accum_grad_multiple_step,
+                lr_scheduling_opts={
+                  "type": "dyn_lr_piecewise_linear_epoch-wise_v2",
+                  "init_lr": 1e-5,
+                  "peak_lr": 1e-3,
+                  "lr2": 1e-5,
+                },
         ):
           recog.center_window_returnn_frame_wise_beam_search(
             alias=fixed_path_train_alias,
@@ -82,6 +88,22 @@ def run_exps():
                 checkpoint=chckpt,
                 checkpoint_aliases=(f"epoch-{epoch}",),
               )
+              # recog.center_window_returnn_frame_wise_beam_search(
+              #   alias=fixed_path_train_alias,
+              #   config_builder=config_builder,
+              #   checkpoint=chckpt,
+              #   checkpoint_aliases=(f"epoch-{epoch}",),
+              #   run_analysis=True,
+              #   only_do_analysis=True,
+              #   analyze_gradients=True,
+              #   analsis_analyze_gradients_plot_log_gradients=True,
+              #   analysis_ground_truth_hdf=LibrispeechBPE1056_CTC_ALIGNMENT.alignment_paths["train"],
+              #   att_weight_seq_tags=[
+              #     "train-other-960/1246-124548-0042/1246-124548-0042",
+              #     "train-other-960/40-222-0033/40-222-0033",
+              #   ],
+              #   corpus_keys=("train",),
+              # )
 
         keep_epochs_step_full_sum = n_epochs_full_sum // 10
         keep_epochs_full_sum = list(range(keep_epochs_step_full_sum, n_epochs_full_sum, keep_epochs_step_full_sum))
@@ -103,7 +125,8 @@ def run_exps():
                 lr_scheduling_opts={
                   "type": "dyn_lr_piecewise_linear_epoch-wise_v2",
                   "init_lr": 1e-3,
-                  "peak_lr": 1e-3 / 5,
+                  "peak_lr": 1e-3,
+                  "lr2": 1e-3 / 5,
                 },
         ):
           recog.center_window_returnn_frame_wise_beam_search(

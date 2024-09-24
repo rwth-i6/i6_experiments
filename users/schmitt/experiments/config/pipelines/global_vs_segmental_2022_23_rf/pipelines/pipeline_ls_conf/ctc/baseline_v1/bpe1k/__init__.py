@@ -44,7 +44,7 @@ def register_ctc_alignments():
              external_checkpoints["luca-aed-bpe1k-w-ctc-w-aux-layers"]),
     ):
       alignments = {}
-      for corpous_key in ("train", "cv"):
+      for corpous_key in ("train", "cv", "dev-other"):
         alignments[corpous_key] = realign.ctc_returnn_realignment(
           alias=train_alias,
           config_builder=config_builder,

@@ -22,6 +22,7 @@ def get_dataset_dict(
         peak_normalization: bool = True,
         model_file: Optional[Path] = None,
         post_process: Optional[CodeWrapper] = None,
+        text_only: bool = False,
 ):
   # either not use targets or pass arguments for either BPE or SentencePieces
   assert not use_targets or ((bpe_file is not None and vocab_file is not None) or model_file is not None)
@@ -71,7 +72,10 @@ def get_dataset_dict(
         "unknown_label": None,
         "seq_postfix": [seq_postfix] if seq_postfix is not None else None,
       }
-    dataset_dict["data_map"]["targets"] = ("zip_dataset", "classes")
+    if text_only:
+      dataset_dict["data_map"]["data"] = ("zip_dataset", "classes")
+    else:
+      dataset_dict["data_map"]["targets"] = ("zip_dataset", "classes")
   else:
     dataset_dict["datasets"]["zip_dataset"]["targets"] = None
 

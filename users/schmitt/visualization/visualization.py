@@ -216,7 +216,7 @@ class PlotAttentionWeightsJobV2(Job):
     self.ref_alignment_hdf = ref_alignment_hdf
     self.json_vocab_path = json_vocab_path
     self.ctc_alignment_hdf = ctc_alignment_hdf
-    self.segment_whitelist = segment_whitelist if segment_whitelist is not None else []
+    self.segment_whitelist = segment_whitelist  # if segment_whitelist is not None else []
 
     if ref_alignment_json_vocab_path is None:
       self.ref_alignment_json_vocab_path = json_vocab_path
@@ -241,8 +241,26 @@ class PlotAttentionWeightsJobV2(Job):
     """
       Load data from the hdf files
     """
-    att_weights_dict = hdf.load_hdf_data(self.att_weight_hdf, num_dims=2, segment_list=self.segment_whitelist)
-    targets_dict = hdf.load_hdf_data(self.targets_hdf, segment_list=self.segment_whitelist)
+    if self.att_weight_hdf.get_path().split(".")[-1] == "hdf":
+      att_weights_dict = hdf.load_hdf_data(self.att_weight_hdf, num_dims=2, segment_list=self.segment_whitelist)
+      targets_dict = hdf.load_hdf_data(self.targets_hdf, segment_list=self.segment_whitelist)
+    else:
+      assert self.att_weight_hdf.get_path().split(".")[-1] == "npy"
+
+      att_weights_dict = {}
+      targets_dict = {}
+
+      numpy_object = np.load(self.att_weight_hdf.get_path(), allow_pickle=True)
+      numpy_object = numpy_object[()]
+
+      for key, object_dict in numpy_object.items():
+        seq_tag = object_dict["tag"]
+        targets = object_dict["classes"]
+        att_weights = object_dict["rec_att_weights"][:, 0, :]  # [S, T]
+
+        att_weights_dict[seq_tag] = att_weights
+        targets_dict[seq_tag] = targets
+
     if self.target_blank_idx is not None:
       seg_starts_dict = hdf.load_hdf_data(self.seg_starts_hdf, segment_list=self.segment_whitelist)
       seg_lens_dict = hdf.load_hdf_data(self.seg_lens_hdf, segment_list=self.segment_whitelist)
@@ -257,8 +275,11 @@ class PlotAttentionWeightsJobV2(Job):
       ctc_alignment_dict = hdf.load_hdf_data(self.ctc_alignment_hdf, segment_list=self.segment_whitelist)
     else:
       ctc_alignment_dict = None
-    ref_alignment_dict = hdf.load_hdf_data(self.ref_alignment_hdf, segment_list=self.segment_whitelist)
-    ref_alignment_dict = {k: v for k, v in ref_alignment_dict.items() if k in att_weights_dict}
+    if self.ref_alignment_hdf is not None:
+      ref_alignment_dict = hdf.load_hdf_data(self.ref_alignment_hdf, segment_list=self.segment_whitelist)
+      ref_alignment_dict = {k: v for k, v in ref_alignment_dict.items() if k in att_weights_dict}
+    else:
+      ref_alignment_dict = {}
 
     return (
       att_weights_dict,
@@ -285,7 +306,7 @@ class PlotAttentionWeightsJobV2(Job):
       fig_height = fig_width
     else:
       fig_width = 7 * num_frames / 80
-      fig_height = fig_width * 6/10
+      fig_height = att_weights.shape[1] * 0.1 / 7 - 1
       # if num_frames < 32:
       #   width_factor = 4
       #   height_factor = 2
@@ -304,7 +325,7 @@ class PlotAttentionWeightsJobV2(Job):
 
     figsize = [figsize[0], figsize[1] * len(att_weights_)]
     # if len(att_weights_) > 1:
-    figsize[1] *= 0.5
+    # figsize[1] *= 0.6
 
     fig, axes = plt.subplots(
       len(att_weights_),
@@ -320,11 +341,12 @@ class PlotAttentionWeightsJobV2(Job):
   @staticmethod
   def set_ticks(
           ax: plt.Axes,
-          ref_alignment: np.ndarray,
+          ref_alignment: Optional[np.ndarray],
           targets: np.ndarray,
           target_vocab: Dict[int, str],
           ref_vocab: Dict[int, str],
-          ref_alignment_blank_idx: int,
+          ref_alignment_blank_idx: Optional[int],
+          time_len: int,
           target_blank_idx: Optional[int] = None,
           draw_vertical_lines: bool = False,
           use_segment_center_as_label_position: bool = False,
@@ -338,8 +360,9 @@ class PlotAttentionWeightsJobV2(Job):
       y-axis: model output
     """
 
-    ref_label_positions = np.where(ref_alignment != ref_alignment_blank_idx)[-1] + 1
-    vertical_lines = [tick - 1.0 for tick in ref_label_positions]
+    if ref_alignment is not None:
+      ref_label_positions = np.where(ref_alignment != ref_alignment_blank_idx)[-1] + 1
+      vertical_lines = [tick - 1.0 for tick in ref_label_positions]
 
     if use_ref_axis:
       # positions of reference labels in the reference alignment
@@ -366,7 +389,7 @@ class PlotAttentionWeightsJobV2(Job):
     if use_time_axis:
       # secondary x-axis at the bottom with time stamps
       time_step_size = 50
-      time_ticks = range(0, len(ref_alignment), time_step_size)
+      time_ticks = range(0, len(ref_alignment) if ref_alignment is not None else time_len, time_step_size)
 
       # Create the secondary y-axis at the bottom
       time_axis = ax.secondary_xaxis('bottom')
@@ -393,7 +416,7 @@ class PlotAttentionWeightsJobV2(Job):
     for ytick in yticks:
       ax.axhline(y=ytick - .5, xmin=0, xmax=1, color="k", linewidth=.5)
 
-    if draw_vertical_lines or True:  # always draw
+    if (draw_vertical_lines or True) and ref_alignment is not None:  # always draw
       for xtick in vertical_lines:
         if len(ref_alignment) == len(targets):
           # this is like a square grid
@@ -498,10 +521,13 @@ class PlotAttentionWeightsJobV2(Job):
       seg_lens = seg_lens_dict[seq_tag] if self.target_blank_idx is not None else None  # [S]
       center_positions = center_positions_dict[seq_tag] if self.center_positions_hdf is not None else None  # [S]
       ctc_alignment = ctc_alignment_dict[seq_tag] if self.ctc_alignment_hdf is not None else None  # [T]
-      ref_alignment = ref_alignment_dict[seq_tag]  # [T]
+      ref_alignment = ref_alignment_dict.get(seq_tag)  # [T]
       targets = targets_dict[seq_tag]  # [S]
       att_weights = att_weights_dict[seq_tag]  # [S,T]
-      # att_weights = np.flip(att_weights, axis=0)  # flip to have the same orientation as the reference alignment
+
+      if ref_alignment is None:
+        self.ref_alignment_blank_idx = 0
+        ref_alignment = np.zeros((att_weights.shape[1] * 6,), dtype=np.int32)
 
       att_weights_list = [att_weights]
       for other_att_weight_dict in other_att_weight_dicts:
@@ -510,7 +536,10 @@ class PlotAttentionWeightsJobV2(Job):
 
       for i in range(len(att_weights_list)):
         att_weights_ = att_weights_list[i]
-        upsampling_factor = ref_alignment.shape[0] // att_weights_.shape[1]
+        if ref_alignment is None:
+          upsampling_factor = 1
+        else:
+          upsampling_factor = ref_alignment.shape[0] // att_weights_.shape[1]
         if upsampling_factor != 1:
           upsampling_factor = 6  # hard code for now
           # repeat each frame by upsample_factor times
@@ -544,17 +573,18 @@ class PlotAttentionWeightsJobV2(Job):
 
         # set y ticks and labels
         self.set_ticks(
-          ax,
-          ref_alignment,
-          targets,
-          target_vocab,
-          ref_vocab,
-          self.ref_alignment_blank_idx,
-          self.target_blank_idx,
+          ax=ax,
+          ref_alignment=ref_alignment,
+          targets=targets,
+          target_vocab=target_vocab,
+          ref_vocab=ref_vocab,
+          ref_alignment_blank_idx=self.ref_alignment_blank_idx,
+          target_blank_idx=self.target_blank_idx,
           use_segment_center_as_label_position=upsampling_factor > 1,
           upsample_factor=upsampling_factor,
           use_time_axis=i == len(axes) - 1,
-          use_ref_axis=i == 0
+          use_ref_axis=i == 0 and ref_alignment is not None,
+          time_len=att_weights.shape[1]
         )
         if self.target_blank_idx is not None:
           self._draw_segment_boundaries(ax, seg_starts, seg_lens, att_weights)
@@ -815,7 +845,16 @@ class PlotCtcProbsJob(Job):
       )
 
       # set y ticks and labels
-      PlotAttentionWeightsJobV2.set_ticks(ax, ctc_alignment, targets, vocab, vocab, self.ctc_blank_idx, None)
+      PlotAttentionWeightsJobV2.set_ticks(
+        ax,
+        ctc_alignment,
+        targets,
+        vocab,
+        vocab,
+        self.ctc_blank_idx,
+        ctc_probs.shape[1],
+        None
+      )
 
       dirname = self.out_plot_dir.get_path()
       filename = os.path.join(dirname, "plot.%s" % seq_tag.replace("/", "_"))
@@ -936,7 +975,8 @@ class PlotAlignmentJob(Job):
       ref_vocab=ref_vocab,
       ref_alignment_blank_idx=ref_alignment_blank_idx,
       target_blank_idx=blank_idx,
-      draw_vertical_lines=True
+      draw_vertical_lines=True,
+      time_len=alignment.shape[1],
     )
 
     # draw last horizontal line for trailing blanks
