@@ -161,7 +161,6 @@ def train(
     if env_updates:
         for k, v in env_updates.items():
             returnn_train_job.set_env(k, v)
-
     return ModelWithCheckpoints.from_training_job(definition=model_def, training_job=returnn_train_job)
 
 

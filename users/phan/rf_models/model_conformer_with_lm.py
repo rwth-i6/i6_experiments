@@ -10,7 +10,7 @@ import hashlib
 import contextlib
 import functools
 
-from returnn.tensor import Tensor, Dim, single_step_dim
+from returnn.tensor import Tensor, Dim, single_step_dim, batch_dim
 import returnn.frontend as rf
 from returnn.frontend.tensor_array import TensorArray
 from returnn.frontend.encoder.conformer import ConformerEncoder, ConformerConvSubsample
@@ -25,7 +25,7 @@ from i6_experiments.users.gaudino.experiments.rf_conformer_att_2023.librispeech_
 from i6_experiments.users.yang.torch.utils.tensor_ops import mask_eos_label
 from i6_experiments.users.yang.torch.utils.masking import get_seq_mask_v2
 from i6_experiments.users.yang.torch.loss.ctc_pref_scores_loss import ctc_prefix_posterior
-from i6_experiments.users.yang.torch.lm.network.lstm_lm import LSTMLM, LSTMLMConfig
+#from i6_experiments.users.yang.torch.lm.network.lstm_lm import LSTMLM, LSTMLMConfig
 
 if TYPE_CHECKING:
     from i6_experiments.users.zeyer.model_interfaces import ModelDef, RecogDef, TrainDef
@@ -36,6 +36,11 @@ if TYPE_CHECKING:
 
 _log_mel_feature_dim = 80
 
+from i6_experiments.users.phan.rf_models.lstm_lm import LSTMLMRF
+from i6_experiments.users.phan.rf_models.trafo_lm_luca import Trafo_LM_Model
+from i6_experiments.users.yang.torch.loss.ctc_forward_backward import ctc_forward
+from i6_experiments.users.yang.torch.loss.ctc_pref_scores_loss import kldiv_ctc_lm_loss, kldiv_ctc_lm_sample_batch_loss
+from i6_experiments.users.phan.utils.masking import get_seq_mask
 
 ###################################################################
 def print_gpu_memory_usage(pos='0'):
@@ -68,7 +73,7 @@ def get_lstm_default_config(**kwargs):
         init_args=init_args,
         dropout=dropout,
         trainable=False,
-        log_prob_output=kwargs.get('log_prob_output', False),
+        log_prob_output=False,
     )
     return model_config
 class MakeModel:
@@ -110,24 +115,24 @@ class MakeModel:
         *,
         num_enc_layers: int = 12,
         pos_emb_dropout: float = 0.0,
-        language_model: Optional[Dict[str, Any]] = None,
+        external_language_model: Optional[dict] = None, # for recog only
         **extra,
     ) -> Model:
         """make"""
         lm = None
-        if language_model:
-            assert isinstance(language_model, dict)
-            language_model = language_model.copy()
-            cls_name = language_model.pop("class")
-            assert cls_name == "TransformerDecoder"
-            language_model.pop("vocab_dim", None)  # will just overwrite
+        # if language_model:
+        #     assert isinstance(language_model, dict)
+        #     language_model = language_model.copy()
+        #     cls_name = language_model.pop("class")
+        #     assert cls_name == "TransformerDecoder"
+        #     language_model.pop("vocab_dim", None)  # will just overwrite
 
-            from i6_experiments.users.gaudino.experiments.rf_conformer_att_2023.librispeech_960.trafo_lm.trafo_lm import (
-                trafo_lm,
-            )
+        #     from i6_experiments.users.gaudino.experiments.rf_conformer_att_2023.librispeech_960.trafo_lm.trafo_lm import (
+        #         trafo_lm,
+        #     )
 
-            lm = trafo_lm.MakeModel(vocab_dim=target_dim, **language_model)()
-            lm = (lm, functools.partial(trafo_lm.make_label_scorer_torch, model=lm))
+        #     lm = trafo_lm.MakeModel(vocab_dim=target_dim, **language_model)()
+        #     lm = (lm, functools.partial(trafo_lm.make_label_scorer_torch, model=lm))
 
         return Model(
             in_dim,
@@ -153,6 +158,7 @@ class MakeModel:
             bos_idx=_get_bos_idx(target_dim),
             eos_idx=_get_eos_idx(target_dim),
             language_model=lm,
+            external_language_model=external_language_model,
             **extra,
         )
 
@@ -182,10 +188,9 @@ class Model(rf.Module):
         enc_att_dropout: float = 0.1,
         l2: float = 0.0001,
         language_model: Optional[RFModelWithMakeLabelScorer] = None,
-        train_extern_lm: str =None,
         joiner_dim: int = 640,
-        model_args: dict = {},
-        **kwargs,
+        freeze_encoder: bool = True,
+        external_language_model: Optional[Dict] = None, # for recog
     ):
         super(Model, self).__init__()
 
@@ -220,7 +225,7 @@ class Model(rf.Module):
         )
 
         self.target_dim = target_dim
-        self.target_dim_w_blank = wb_target_dim if wb_target_dim is not None else target_dim + 1
+        self.target_dim_w_blank = target_dim + 1
         self.blank_idx = blank_idx
         self.eos_idx = eos_idx
         self.bos_idx = bos_idx  # for non-blank labels; for with-blank labels, we use bos_idx=blank_idx
@@ -230,39 +235,23 @@ class Model(rf.Module):
         # self.att_num_heads = att_num_heads
         # self.att_dropout = att_dropout
         self.dropout_broadcast = rf.dropout_broadcast_default()
-        self.search_args= {}
 
         # https://github.com/rwth-i6/returnn-experiments/blob/master/2020-rnn-transducer/configs/base2.conv2l.specaug4a.ctc.devtrain.config
 
         for p in self.parameters():
             p.weight_decay = l2
 
+        if enc_aux_logits:
+            if not wb_target_dim:
+                wb_target_dim = target_dim + 1
         for i in enc_aux_logits:
             setattr(
                 self,
                 f"enc_aux_logits_{i}",
-                rf.Linear(self.encoder.out_dim, self.target_dim_w_blank),
+                rf.Linear(self.encoder.out_dim, wb_target_dim),
             )
 
         self.enc_aux_logits_12 = rf.Linear(self.encoder.out_dim, self.target_dim_w_blank)
-
-        if model_args is not None:
-            ctc_output_args = model_args.get("ctc_output_args", None)
-        else:
-            ctc_output_args = None
-        if ctc_output_args is not None:
-            ctc_enc_layer_id = ctc_output_args.get("ctc_enc_layer_id", 12)
-            ctc_output_layer_name = f"enc_aux_logits_{ctc_enc_layer_id}"
-            if int(ctc_enc_layer_id) not in enc_aux_logits:
-                setattr(self, ctc_output_layer_name, rf.Linear(self.encoder.out_dim, self.target_dim_w_blank))
-            self.ctc_output_layer = getattr(self, ctc_output_layer_name)
-
-            self.ctc_enc_layer_id = str(int(ctc_enc_layer_id)-1)
-        else:
-            # by default take the output of the last layer
-
-            self.ctc_output_layer = self.enc_aux_logits_12 # alias, for decoding
-            self.ctc_enc_layer_id = str(11)
 
         self._specaugment_opts = {
             "steps": config.typed_value("specaugment_steps") or (0, 1000, 2000),
@@ -302,15 +291,47 @@ class Model(rf.Module):
         if language_model:
             self.language_model, self.language_model_make_label_scorer = language_model
         #print_gpu_memory_usage(pos='before LM Load')
-        if train_extern_lm == 'lstm':
-            lstm_cfg = get_lstm_default_config()
-            self.train_extern_lm = LSTMLM(step=0, cfg=lstm_cfg)
-            lstm_path = "/work/asr4/zyang/torch/librispeech/work/i6_core/returnn/training/ReturnnTrainingJob.la2CPTQHhFyg/output/models/epoch.030.pt"
-            self.train_extern_lm.load_state_dict(torch.load(lstm_path)["model"])
-            if not lstm_cfg.trainable:
-                self.train_extern_lm._param_freeze()
-            print('*************************train extern lm loaded***********************************')
-            #print_gpu_memory_usage(pos='after LM Load')
+        
+        # Define the accompanying LM, can be ILM or extern LM used in training
+        label_target_dim = target_dim
+        self.ilm = LSTMLMRF( # better to hardcode to make sure all ILM share the same hyperparams
+            label_target_dim,
+            label_target_dim,
+            symbol_embedding_dim = 512,
+            emebdding_dropout = 0.0,
+            num_lstm_layers = 2,
+            lstm_hidden_dim = 2048,
+            lstm_dropout = 0.0,
+            use_bottleneck = False,
+            bottleneck_dim = 512,
+        )
+
+        if external_language_model is not None:
+            lm_cls = external_language_model.pop("class")
+            if lm_cls == "Trafo_LM_Model":
+                self.language_model = Trafo_LM_Model(
+                    label_target_dim,
+                    label_target_dim,
+                    **external_language_model,
+                )
+            else:
+                raise NotImplementedError("Only the Kazuki Trafo LM is supported!!!!!!!!")
+
+        # Freeze the encoder
+        for name, param in self.encoder.named_parameters():
+            param.trainable = False
+    
+    def ilm_forward(
+        self,
+        targets: Tensor,
+        out_spatial_dim: Dim,
+    ):
+        """
+        Feed the target label sequences to the LM and forward
+        Shape in: (B, S), shape out: (S, B, V)
+        """
+        ilm_out = self.ilm(targets, out_spatial_dim)
+        return ilm_out
 
     def encode(
         self,
@@ -405,9 +426,8 @@ def _get_eos_idx(target_dim: Dim) -> int:
         raise Exception(f"cannot determine eos_idx from vocab {target_dim.vocab}")
     return eos_idx
 
-
-def from_scratch_model_def(*, epoch: int, in_dim: Dim, target_dim: Dim, **kwargs) -> Model:
 # where the model is defined
+def from_scratch_model_def(*, epoch: int, in_dim: Dim, target_dim: Dim) -> Model:
     """Function is run within RETURNN."""
     from returnn.config import get_global_config
 
@@ -417,15 +437,13 @@ def from_scratch_model_def(*, epoch: int, in_dim: Dim, target_dim: Dim, **kwargs
     pos_emb_dropout = config.float("pos_emb_dropout", 0.0)
     # real input is raw audio, internally it does logmel
     in_dim = Dim(name="logmel", dimension=_log_mel_feature_dim, kind=Dim.Types.Feature)
-    lm_opts = config.typed_value("external_language_model")
+    external_language_model = config.typed_value("external_language_model")
     return MakeModel.make_model(
         in_dim,
         target_dim,
         enc_aux_logits=enc_aux_logits or (),
         pos_emb_dropout=pos_emb_dropout,
-        language_model=lm_opts,
-        train_extern_lm="lstm",
-        **kwargs,
+        external_language_model=external_language_model
     )
 
 
@@ -437,7 +455,8 @@ from_scratch_model_def.batch_size_factor = 160
 
 
 # train step
-def from_scratch_training(
+# kldiv train step, more comes later
+def from_scratch_training_kldiv(
     *,
     model: Model,
     data: rf.Tensor,
@@ -469,195 +488,124 @@ def from_scratch_training(
     )
     mask_eos = config.bool("mask_eos_output", True)
     add_eos_to_blank = config.bool("add_eos_to_blank", False)
-    kd_layer = config.typed_value("kd_layer", 12) # for now only one layer to do kd
-    kd_layer = int(kd_layer)
-    ctc_kd_logits = None
 
-
-    if aux_loss_layers:
-        for i, layer_idx in enumerate(aux_loss_layers):
-            if layer_idx > len(model.encoder.layers):
-                continue
-            linear = getattr(model, f"enc_aux_logits_{layer_idx}")
-            aux_logits = linear(collected_outputs[str(layer_idx - 1)])
-            if mask_eos:
-                mask_eos_label(aux_logits, add_to_blank=add_eos_to_blank)
-            if layer_idx == kd_layer:
-                ctc_kd_logits = aux_logits
-            aux_loss = rf.ctc_loss(
-                logits=aux_logits,
-                targets=targets,
-                input_spatial_dim=enc_spatial_dim,
-                targets_spatial_dim=targets_spatial_dim,
-                blank_index=model.blank_idx,
-            )
-            aux_loss.mark_as_loss(
-                f"ctc_{layer_idx}",
-                scale=aux_loss_scales[i],
-                custom_inv_norm_factor=targets_spatial_dim.get_size_tensor(),
-                use_normalized_loss=use_normalized_loss,
-            )
-            # Does not work yet. Was commented out before.
-            # decoded, decoded_spatial_dim = rf.ctc_greedy_decode(aux_logits, in_spatial_dim=enc_spatial_dim)
-            # error = rf.edit_distance(
-            #     a=decoded, a_spatial_dim=decoded_spatial_dim, b=targets, b_spatial_dim=targets_spatial_dim
-            # )
-            # error.mark_as_loss("label", as_error=True, custom_inv_norm_factor=targets_spatial_dim.get_size_tensor())
-
-    aux_logits_12 = model.enc_aux_logits_12(collected_outputs[str(11)])
-    if mask_eos:
-        mask_eos_label(aux_logits_12, add_to_blank=add_eos_to_blank)
-    if kd_layer == 12:
-        aux_logits = aux_logits_12
-    else:
-        assert ctc_kd_logits is not None
-        aux_logits = ctc_kd_logits
-
-
-
-
-
-
-    # pure torch LM KD loss
-    compute_lm_kd_loss = config.bool('lm_kd_loss', True)
-    # print_gpu_memory_usage(pos='before kd loss')
-    if compute_lm_kd_loss:
-        assert hasattr(model, "train_extern_lm")
-        # only makes sense when eos is set to 0
-        assert mask_eos
-        input_labels, (targets_w_eos_spatial_dim,) = rf.pad(
-            targets, axes=[targets_spatial_dim], padding=[(1, 0)], value=model.bos_idx
-        )
-        targets_w_eos, _ = rf.pad(
-            targets, axes=[targets_spatial_dim], padding=[(0, 1)], value=model.eos_idx,
-            out_dims=[targets_w_eos_spatial_dim]
-        )
-        torch_lm_input_labels = input_labels.raw_tensor # in shape (B, S+1)
-        torch_lm_target_labels = targets_w_eos.raw_tensor
-        extern_lm = model.train_extern_lm
-        cur_device = torch_lm_input_labels.device
-        if next(extern_lm.parameters()).device != cur_device:
-            print("move the LM to gpu")
-            extern_lm.to(cur_device)
-        # print_gpu_memory_usage('before compute LM')
-        # use log prob for debugging, later should be changed to logits
-        lm_output = extern_lm(torch_lm_input_labels)
-        ##### top-k applied to reduce memory usage
-        K = config.typed_value("kd_top_k", 200)
-        freeze_gamma = config.bool("freeze_gamma", False)
-        freeze_ctc_p = config.bool("freeze_ctc_p", False)
-        lm_output_top_k, top_k_list = torch.topk(lm_output, K, dim=-1)
-        torch_targets = targets.raw_tensor
-        torch_input_lengths = enc_spatial_dim.dyn_size_ext.raw_tensor
-        torch_target_lengths = targets_spatial_dim.dyn_size_ext.raw_tensor
-        torch_target_w_eos_lengths = targets_w_eos_spatial_dim.dyn_size_ext.raw_tensor
-        max_target_w_eos_length = lm_output.shape[1]
-        lm_scale = config.typed_value("train_lm_scale", 1.0)
-        lm_output_top_k = lm_scale * lm_output_top_k
-        if config.bool("eos_mask", False):
-            eos_mask = top_k_list == 0  # (B, S+1, K)
-            before_last_pos_mask = get_seq_mask_v2(seq_lens=torch_target_lengths, max_seq_len=max_target_w_eos_length, device=lm_output_top_k.device)
-            eos_mask_before_last_pos = torch.logical_and(eos_mask,  before_last_pos_mask.unsqueeze(-1))  # (B, S+1, K) only when s < S+1 the eos pos in top-k list is true
-            lm_output_top_k = torch.where(eos_mask_before_last_pos, -1e25 * torch.ones_like(lm_output_top_k), lm_output_top_k)
-        log_lm_output_top_k_renorm = torch.nn.functional.log_softmax(lm_output_top_k, dim=-1) # used for kl loss computation
-
-        # print_gpu_memory_usage('after compute LM')
-        # print_gpu_memory_usage(pos='after compute lm empty cache')
-
-        if add_eos_to_blank:
-            ctc_log_prob = aux_logits.raw_tensor # the output is already normalized by mask_eos_label func # shape (B,T,V)
-        else:
-            ctc_log_prob = nn.functional.log_softmax(aux_logits.raw_tensor, dim=-1)
-
-        # print_gpu_memory_usage(pos='before compute ctc prefix')
-        torch.cuda.empty_cache()
-        log_ctc_prefix, seq_ctc_score = ctc_prefix_posterior(ctc_log_probs=ctc_log_prob, targets=torch_targets,
-                                                             targets_w_bos=torch_lm_input_labels,
-                                                             targets_w_eos=torch_lm_target_labels,
-                                                             input_lengths=torch_input_lengths,
-                                                             target_lengths=torch_target_lengths,
-                                                             blank_index=model.blank_idx,
-                                                             eos_idx=0,
-                                                             out_no_blank=False,
-                                                             top_k_list=top_k_list,
-                                                             freeze_gamma=freeze_gamma,
-                                                             freeze_ctc=freeze_ctc_p)
-        # the computation of gamma should be correct
-        # print_gpu_memory_usage(pos='after compute ctc prefix')
-
-
-
-
-        kl_div_loss = torch.nn.functional.kl_div(input=log_ctc_prefix, target=log_lm_output_top_k_renorm, reduction='none',
-                                                 log_target=True)
-        if config.bool("target_in_top_mask", False):
-            target_mask = torch.any(torch_lm_target_labels.unsqueeze(-1) == top_k_list, dim=-1)  # (B, S+1) check if the target label is in the top-k list
-            kl_div_loss = torch.where(target_mask.unsqueeze(-1), kl_div_loss, torch.zeros_like(kl_div_loss))
-
-        # print_gpu_memory_usage(pos='after compute kl loss')
-        target_w_eos_mask = get_seq_mask_v2(seq_lens=torch_target_w_eos_lengths, max_seq_len=max_target_w_eos_length, device=log_ctc_prefix.device)
-        kl_div_loss_with_mask = kl_div_loss.where(target_w_eos_mask.unsqueeze(-1), torch.zeros_like(kl_div_loss)).sum()
-        torch.cuda.empty_cache()
-        kd_scale = config.typed_value("kd_scale", 0.2)
-        rf.get_run_ctx().mark_as_loss(
-            name="lm_kd_loss",
-            loss=kl_div_loss_with_mask,
-            scale=kd_scale,
-            custom_inv_norm_factor=targets_w_eos_spatial_dim.get_size_tensor(),
-            use_normalized_loss=use_normalized_loss,
-        )
-
-        ctc_scale = 1
-        # final layer ctc loss
-        if freeze_gamma or freeze_ctc_p:
-            aux_loss = rf.ctc_loss(
-                logits=aux_logits,
-                targets=targets,
-                input_spatial_dim=enc_spatial_dim,
-                targets_spatial_dim=targets_spatial_dim,
-                blank_index=model.blank_idx,
-            )
-            aux_loss.mark_as_loss(
-                f"ctc_12",
-                scale=ctc_scale,
-                custom_inv_norm_factor=targets_spatial_dim.get_size_tensor(),
-                use_normalized_loss=use_normalized_loss,
-            )
-        else:
-            if kd_layer == 12:
-                # use the ctc score computed by forward path
-                rf.get_run_ctx().mark_as_loss(
-                    name="debug_ctc",
-                    loss=-seq_ctc_score.sum(),
-                    scale=ctc_scale,
-                    custom_inv_norm_factor=targets_spatial_dim.get_size_tensor(),
-                    use_normalized_loss=use_normalized_loss,
-                )
-            else:
-                # the kd forward path does not compute the final score, compute the final ctc loss explicitly
+    if False: # disable ctc losses
+        if aux_loss_layers:
+            for i, layer_idx in enumerate(aux_loss_layers):
+                if layer_idx > len(model.encoder.layers):
+                    continue
+                linear = getattr(model, f"enc_aux_logits_{layer_idx}")
+                aux_logits = linear(collected_outputs[str(layer_idx - 1)])
+                if mask_eos:
+                    mask_eos_label(aux_logits, add_to_blank=add_eos_to_blank)
                 aux_loss = rf.ctc_loss(
-                    logits=aux_logits_12,
+                    logits=aux_logits,
                     targets=targets,
                     input_spatial_dim=enc_spatial_dim,
                     targets_spatial_dim=targets_spatial_dim,
                     blank_index=model.blank_idx,
                 )
                 aux_loss.mark_as_loss(
-                    f"ctc_12",
-                    scale=ctc_scale,
+                    f"ctc_{layer_idx}",
+                    scale=aux_loss_scales[i],
                     custom_inv_norm_factor=targets_spatial_dim.get_size_tensor(),
                     use_normalized_loss=use_normalized_loss,
                 )
+                # Does not work yet. Was commented out before.
+                # decoded, decoded_spatial_dim = rf.ctc_greedy_decode(aux_logits, in_spatial_dim=enc_spatial_dim)
+                # error = rf.edit_distance(
+                #     a=decoded, a_spatial_dim=decoded_spatial_dim, b=targets, b_spatial_dim=targets_spatial_dim
+                # )
+                # error.mark_as_loss("label", as_error=True, custom_inv_norm_factor=targets_spatial_dim.get_size_tensor())
+
+    # This should be the final logits of the whole encoder
+    aux_logits = model.enc_aux_logits_12(collected_outputs[str(11)])
+
+    if mask_eos:
+        mask_eos_label(aux_logits, add_to_blank=add_eos_to_blank)
+    if False: # disable ctc losses
+        aux_loss = rf.ctc_loss(
+            logits=aux_logits,
+            targets=targets,
+            input_spatial_dim=enc_spatial_dim,
+            targets_spatial_dim=targets_spatial_dim,
+            blank_index=model.blank_idx,
+        )
+        aux_loss.mark_as_loss(
+            f"ctc_12",
+            scale=1.0,
+            custom_inv_norm_factor=targets_spatial_dim.get_size_tensor(),
+            use_normalized_loss=use_normalized_loss,
+        )
+
+    ######### Needed stuffs for ILM estimation ##########
+    targets_w_bos, targets_spatial_dim_pad = rf.pad(
+        targets,
+        padding=[(1, 0)],
+        axes=[targets_spatial_dim],
+        value=model.eos_idx
+    )
+    ilm_out = model.ilm_forward(targets_w_bos, targets_spatial_dim_pad[0])
+    ilm_out_raw = ilm_out["output"].raw_tensor # (T, B, V)
+    # This is the log probs
+    aux_logits_raw = aux_logits.raw_tensor.detach() # (B, T, V + blank), good
+    targets_raw = targets.raw_tensor
+    torch_target_lengths = targets_spatial_dim.dyn_size_ext.raw_tensor
+    torch_input_lengths = enc_spatial_dim.dyn_size_ext.raw_tensor
 
 
+    ##### Debug
+    # print(targets_raw)
+    # print(lm_out_raw) # RF output is always (T, B, V + blank)
+    # print(collected_outputs["11"].raw_tensor) # This is just before the final linear, that's why it's 512
+    # print(aux_logits_raw) # this contains the EOS symbol, but should be okay, EOS probs are masked anw
+
+    ###### apply KD with top K
+    # just use the old implementation, but eventually should move to top K
+    # Swap blank to position 0 for safety
+    ####### Remeber to adjust the targets!!!!
+    # aux_logits_raw = torch.concat( 
+    #     [aux_logits_raw[:, :, -1:], aux_logits_raw[:, :, :-1]],
+    #     dim=-1,
+    # ).transpose(0, 1) # (T, B, blank + V)
+    
+    # expect the kldiv in the beginning to be near -ln(1/10026) ~ 9.x
+    log_lm_score = ilm_out_raw.transpose(0, 1).log_softmax(-1) # (B, S, V)
+    kldiv = kldiv_ctc_lm_loss(
+        aux_logits_raw.transpose(0, 1).log_softmax(-1).detach(),
+        targets_raw.clone().long(),
+        torch_input_lengths.long(),
+        torch_target_lengths.long(),
+        ilm_out_raw.transpose(0, 1).log_softmax(-1),
+        blank_idx=model.blank_idx,
+        eos_idx=model.eos_idx,
+    )
+    targets_len_rf = targets_spatial_dim_pad[0].dyn_size_ext
+    rf.get_run_ctx().mark_as_loss(
+        kldiv,
+        "kldiv",
+        custom_inv_norm_factor=rf.reduce_sum(targets_len_rf, axis=batch_dim),
+    )
+
+    # Also report PPL of the LM
+    batch_size, max_seq_len = targets_raw.shape
+    targets_eos = torch.cat(
+        [targets_raw, torch.full((batch_size, 1), fill_value=model.eos_idx, device=targets_raw.device)],
+        dim=1,
+    ).long()
+    ce = torch.nn.functional.cross_entropy(log_lm_score.transpose(1, 2), targets_eos, reduction='none')
+    seq_mask = get_seq_mask(torch_target_lengths, max_seq_len+1, targets_raw.device)
+    log_ppl = (ce*seq_mask).sum()/(targets_len_rf.raw_tensor.sum())
+    ppl = torch.exp(log_ppl)
+    rf.get_run_ctx().mark_as_loss(
+        name="student_lm_ppl", loss=ppl, as_error=True,
+    )
+    # print("blank kept")
+    # print(kldiv)
 
 
-
-
-
-
-from_scratch_training: TrainDef[Model]
-from_scratch_training.learning_rate_control_error_measure = "dev_score_full_sum"
+from_scratch_training_kldiv: TrainDef[Model]
+from_scratch_training_kldiv.learning_rate_control_error_measure = "dev_score_full_sum"
 
 
 @contextlib.contextmanager
@@ -704,3 +652,157 @@ def _opt_apply_pretrain_to_encoder(
             return
     yield
     return
+
+
+# sample from batch method
+def from_scratch_training_kldiv_sample_batch(
+    *,
+    model: Model,
+    data: rf.Tensor,
+    data_spatial_dim: Dim,
+    targets: rf.Tensor,
+    targets_spatial_dim: Dim,
+):
+    """Function is run within RETURNN."""
+    from returnn.config import get_global_config
+
+    # import for training only, will fail on CPU servers
+    # from i6_native_ops import warp_rnnt
+
+    config = get_global_config()  # noqa
+    aux_loss_layers = config.typed_value("aux_loss_layers")
+    aux_loss_scales = config.typed_value(
+        "aux_loss_scales", ([1.0] * len(aux_loss_layers)) if aux_loss_layers else None
+    )
+    # aed_loss_scale = config.float("aed_loss_scale", 1.0)
+    use_normalized_loss = config.bool("use_normalized_loss", True)
+
+    if data.feature_dim and data.feature_dim.dimension == 1:
+        data = rf.squeeze(data, axis=data.feature_dim)
+    assert not data.feature_dim  # raw audio
+
+    collected_outputs = {}
+    enc_args, enc_spatial_dim = model.encode(
+        data, in_spatial_dim=data_spatial_dim, collected_outputs=collected_outputs
+    )
+    mask_eos = config.bool("mask_eos_output", True)
+    add_eos_to_blank = config.bool("add_eos_to_blank", False)
+
+    if False: # disable ctc losses
+        if aux_loss_layers:
+            for i, layer_idx in enumerate(aux_loss_layers):
+                if layer_idx > len(model.encoder.layers):
+                    continue
+                linear = getattr(model, f"enc_aux_logits_{layer_idx}")
+                aux_logits = linear(collected_outputs[str(layer_idx - 1)])
+                if mask_eos:
+                    mask_eos_label(aux_logits, add_to_blank=add_eos_to_blank)
+                aux_loss = rf.ctc_loss(
+                    logits=aux_logits,
+                    targets=targets,
+                    input_spatial_dim=enc_spatial_dim,
+                    targets_spatial_dim=targets_spatial_dim,
+                    blank_index=model.blank_idx,
+                )
+                aux_loss.mark_as_loss(
+                    f"ctc_{layer_idx}",
+                    scale=aux_loss_scales[i],
+                    custom_inv_norm_factor=targets_spatial_dim.get_size_tensor(),
+                    use_normalized_loss=use_normalized_loss,
+                )
+                # Does not work yet. Was commented out before.
+                # decoded, decoded_spatial_dim = rf.ctc_greedy_decode(aux_logits, in_spatial_dim=enc_spatial_dim)
+                # error = rf.edit_distance(
+                #     a=decoded, a_spatial_dim=decoded_spatial_dim, b=targets, b_spatial_dim=targets_spatial_dim
+                # )
+                # error.mark_as_loss("label", as_error=True, custom_inv_norm_factor=targets_spatial_dim.get_size_tensor())
+
+    # This should be the final logits of the whole encoder
+    aux_logits = model.enc_aux_logits_12(collected_outputs[str(11)])
+
+    if mask_eos:
+        mask_eos_label(aux_logits, add_to_blank=add_eos_to_blank)
+    if False: # disable ctc losses
+        aux_loss = rf.ctc_loss(
+            logits=aux_logits,
+            targets=targets,
+            input_spatial_dim=enc_spatial_dim,
+            targets_spatial_dim=targets_spatial_dim,
+            blank_index=model.blank_idx,
+        )
+        aux_loss.mark_as_loss(
+            f"ctc_12",
+            scale=1.0,
+            custom_inv_norm_factor=targets_spatial_dim.get_size_tensor(),
+            use_normalized_loss=use_normalized_loss,
+        )
+
+    ######### Needed stuffs for ILM estimation ##########
+    targets_w_bos, targets_spatial_dim_pad = rf.pad(
+        targets,
+        padding=[(1, 0)],
+        axes=[targets_spatial_dim],
+        value=model.eos_idx
+    )
+    ilm_out = model.ilm_forward(targets_w_bos, targets_spatial_dim_pad[0])
+    ilm_out_raw = ilm_out["output"].raw_tensor # (T, B, V)
+    # This is the log probs
+    aux_logits_raw = aux_logits.raw_tensor.detach() # (B, T, V + blank), good
+    targets_raw = targets.raw_tensor
+    torch_target_lengths = targets_spatial_dim.dyn_size_ext.raw_tensor
+    torch_input_lengths = enc_spatial_dim.dyn_size_ext.raw_tensor
+
+
+    ##### Debug
+    # print(targets_raw)
+    # print(lm_out_raw) # RF output is always (T, B, V + blank)
+    # print(collected_outputs["11"].raw_tensor) # This is just before the final linear, that's why it's 512
+    # print(aux_logits_raw) # this contains the EOS symbol, but should be okay, EOS probs are masked anw
+
+    ###### apply KD with top K
+    # just use the old implementation, but eventually should move to top K
+    # Swap blank to position 0 for safety
+    ####### Remeber to adjust the targets!!!!
+    # aux_logits_raw = torch.concat( 
+    #     [aux_logits_raw[:, :, -1:], aux_logits_raw[:, :, :-1]],
+    #     dim=-1,
+    # ).transpose(0, 1) # (T, B, blank + V)
+    
+    # expect the kldiv in the beginning to be near -ln(1/10026) ~ 9.x
+    log_lm_score = ilm_out_raw.transpose(0, 1).log_softmax(-1) # (B, S, V)
+    weight = config.typed_value("kldiv_sampling_weight", None)
+    assert weight is not None, "Must provide kldiv_sampling_weight"
+    kldiv = kldiv_ctc_lm_sample_batch_loss( # it's computing some bullshit here
+        aux_logits_raw.transpose(0, 1).log_softmax(-1).detach(),
+        targets_raw.clone().long(), # +1 due to blank moved from last to 0
+        torch_input_lengths.long(),
+        torch_target_lengths.long(),
+        ilm_out_raw.transpose(0, 1).log_softmax(-1),
+        blank_idx=10025,
+        eos_idx=model.eos_idx,
+        ground_truth_weight=weight,
+    ) # no need to normalize this loss when passing to returnn!!!
+    targets_len_rf = targets_spatial_dim_pad[0].dyn_size_ext
+    rf.get_run_ctx().mark_as_loss(
+        kldiv,
+        "kldiv_sample_batch",
+    )
+
+    # Also report PPL of the LM
+    batch_size, max_seq_len = targets_raw.shape
+    targets_eos = torch.cat(
+        [targets_raw, torch.full((batch_size, 1), fill_value=model.eos_idx, device=targets_raw.device)],
+        dim=1,
+    ).long()
+    ce = torch.nn.functional.cross_entropy(log_lm_score.transpose(1, 2), targets_eos, reduction='none')
+    seq_mask = get_seq_mask(torch_target_lengths, max_seq_len+1, targets_raw.device)
+    log_ppl = (ce*seq_mask).sum()/(targets_len_rf.raw_tensor.sum())
+    ppl = torch.exp(log_ppl)
+    rf.get_run_ctx().mark_as_loss(
+        name="student_lm_ppl", loss=ppl, as_error=True,
+    )
+
+
+from_scratch_training_kldiv_sample_batch: TrainDef[Model]
+from_scratch_training_kldiv_sample_batch.learning_rate_control_error_measure = "dev_score_full_sum"
+

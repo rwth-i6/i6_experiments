@@ -1,0 +1,2 @@
+`model_conformer_with_lm.py`: First version of the conformer with an ILM attached, hardcoded ILML hyperparameters
+`model_conformer_with_ilm_v2.py`: Second version, no longer hardcode the ILM hyperparams

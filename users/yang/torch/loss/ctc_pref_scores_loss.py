@@ -5,6 +5,7 @@ the CTC prefix score p_CTC(a_1^N,...)
 import torch
 import torch.nn as nn
 from i6_experiments.users.yang.torch.utils.masking import get_seq_mask, get_seq_mask_v2
+
 def print_gpu_memory_usage(pos='0'):
     print("*********************************************************************************************************")
     unused = torch.cuda.memory_reserved(0) / 1e9 - torch.cuda.memory_allocated(0) / 1e9
@@ -12,6 +13,7 @@ def print_gpu_memory_usage(pos='0'):
     print("Pos: {} Allocated GPU Memory: {:.2f} GB".format(pos, torch.cuda.memory_allocated(0) / 1e9))
     print("Pos: {} Cached GPU Memory: {:.2f} GB".format(pos, torch.cuda.memory_reserved(0) / 1e9))
     print("Pos: {} Reserved but Unused GPU Memory: {:.2f} GB".format(pos, unused))
+
 # convention for all dim size 2: 0 is n, 1 is b
 def print_tensor_memory_with_gradient(tensor, name=''):
     # Calculate basic memory usage as before
@@ -27,12 +29,132 @@ def print_tensor_memory_with_gradient(tensor, name=''):
     print("################################################")
     print(f"Tensor {name} Memory Usage: {memory_mb:.2f} MB")
     print("################################################")
+
+# def log_ctc_pref_beam_scores(
+#     log_probs, # (T, B, F)
+#     targets, # (B, S)
+#     input_lengths, # (B,)
+#     blank_idx = 0,
+#     eos_idx = None,
+#     log_zero = -1e25, # maybe better than float min for preventing overflowing
+# ):
+#     '''
+#     Given log probs of times and ground truths,
+#     compute all ctc prefix score p_ctc(a_1^n-1, v, suffix=empty or not empty),
+#     denote this with p_ctc(a_1^n-1, v, ...)
+#     for all n from 1 to N, v in Vocab
+    
+#     Reference: prefix search decoding in alex graves' thesis
+#     Beam score is then average by lm score
+
+#     ASSUMING SEQUENCES ARE PADDED WITH BLANKS AND NO EXPLICIT EOS IN VOCAB DIM
+
+#     Note that in the vocab dimension there is also blank idx, which will be
+#     used as EOS (full forward prob of current hypothesis).
+
+#     No masking is applied here. Pay attention to this.
+
+#     T: max input time size
+
+#     F: model output feature dimension (incl. blank),
+#     regardless of whether eos is included or not
+
+#     B: batch dim
+
+#     S: max target sequence length
+
+#     :param log_probs: Log probs output by the model (T, B, F)
+#     :param targets: Target sequences (B, S) WITHOUT ANY SOS EOS SYMBOL
+#     :param input_lengths: Input lengths (B,)
+#     :param blank_idx: Blank index in F dim
+#     :param eos_idx: If not None, this is used in the case there is EOS in the vocab.
+#         Instead of having one "extra" EOS in place of the blank index, the EOS score will
+#         be moved to the eos_idx instead. The LM score is then expected to have the same dimension
+#         as the vocab, not vocab + EOS.
+#     :param log_zero: Value of log zero. Default to -1e15 to prevent overflow comparing to float32 min
+#     :return: (log_pref_scores_beams, log_gamma)
+    
+#     log_pref_scores_beams (B, S+1, F). For batch b with ground truth a_0^N-1, [b, n, v] is
+#     p_CTC(a_0^n-1, v, ...). Blank index will be reused to model full forward prob p_CTC(a_0^n-1).
+#     No masking is applied here yet.
+
+#     log_gamma (T, B, 2, S+1). [t, b, 0 or 1, s]: Forward probability of a_1^s (of batch b) until
+#     frame t such that paths end with 0 (non blank) or 1 (blank)
+#     '''
+#     device = log_probs.device
+#     input_time_size, batch_size, n_out = log_probs.shape
+#     max_seq_len = targets.shape[1]
+#     # print(f"*************input shape: ({input_time_size}, {batch_size})")
+#     # print(f"*************target shape: ({max_seq_len}, {batch_size})")
+#     # convention for all dim size 2: 0 is n, 1 is b
+#     # max_seq_len + 1 for the empty prefix
+#     log_gamma = torch.full((input_time_size, batch_size, 2, max_seq_len+1), log_zero, dtype=torch.float32, device=device) # (T, B, 2, S+1)
+#     log_gamma[:, :, 1, 0] = torch.cumsum(log_probs[:, :, blank_idx], dim=0).nan_to_num(neginf=log_zero)
+#     log_gamma[0, :, 0, 1] = log_probs[0].gather(-1, targets[:, :1].long()).view(-1)
+#     # (B, S, F), for first beam (empty prefix), all is True
+#     prev_label_all_beams = targets.unsqueeze(-1).expand(-1, -1, n_out) # (B, S, F), S here from 1 to max_seq_len, dim 2 is prev_label of all beams
+#     beams = torch.arange(n_out, device=device).unsqueeze(0).unsqueeze(0).expand(batch_size, max_seq_len, -1) # (B, S, F), S here from 0 to max_seq_len-1, dim 2 is beam
+#     prev_label_diff = beams != prev_label_all_beams # (B, S, F)
+#     prev_label_diff = torch.cat([torch.full((batch_size, 1, n_out), torch.tensor(True), device=device), prev_label_diff], dim=1)
+#     # log_pref_scores_beams (B, S+1, F) S+1 here is prefixes from empty to a_1^S
+#     log_pref_scores_beams = torch.cat(
+#         [log_probs[0].unsqueeze(1), torch.full((batch_size, max_seq_len, n_out), log_zero, device=device)],
+#         dim=1
+#     )
+#     prev_gamma_1 = log_gamma[0, :, 1, :]
+#     prev_gamma_0 = log_gamma[0, :, 0, :]
+#     torch.cuda.empty_cache()
+#     for t in range(1, input_time_size):
+#         # test not using clone. has the in-place replacement error
+#         log_probs_t_k_ground_truth = log_probs[t].gather(-1, targets.long()) # (B, S) log prob of all symbol at time frame t
+#         log_new_label_prob = torch.logaddexp( # (B, S+1, F) S here is prefixes from empty to a_1^S
+#             prev_gamma_1.unsqueeze(-1).expand(-1, -1, n_out),
+#             prev_gamma_0.unsqueeze(-1).expand(-1, -1, n_out).where(prev_label_diff,torch.tensor(log_zero, device=device))
+#             # log_gamma[t-1, :, 1, :].unsqueeze(-1).expand(-1, -1, n_out).clone(),
+#             # log_gamma[t-1, :, 0, :].unsqueeze(-1).expand(-1, -1, n_out).clone().where(prev_label_diff, torch.tensor(log_zero, device=device))
+#         )
+#         # (B, S) for both below
+
+#         #log_gamma[t, :, 0, 1:] = log_probs_t_k_ground_truth + torch.logaddexp(log_new_label_prob[:, :-1, :].gather(-1, targets.unsqueeze(-1)).squeeze(-1), log_gamma[t-1, :, 0, 1:].clone())
+#         #log_gamma[t, :, 1, 1:] = log_probs[t, :, blank_idx].unsqueeze(-1).expand((-1, max_seq_len)) + torch.logsumexp(log_gamma[t-1, :, :, 1:].clone(), dim=1)
+#         new_gamma_0_label = log_probs_t_k_ground_truth + torch.logaddexp(log_new_label_prob[:, :-1, :].gather(-1, targets.unsqueeze(-1)).squeeze(-1), prev_gamma_0[:,1:])
+#         new_gamma_1_label = log_probs[t, :, blank_idx].unsqueeze(-1).expand((-1, max_seq_len)) + torch.logaddexp(prev_gamma_0[:,1:], prev_gamma_1[:, 1:]) # notice! can be optimized
+#         new_gamma_0 = torch.cat((log_gamma[t,:,0, 0:1], new_gamma_0_label), dim=-1)
+#         new_gamma_1 = torch.cat((log_gamma[t,:,1, 0:1], new_gamma_1_label), dim=-1)
+#         # (B, F) to (B, S+1, F), probs of all possible next labels at frame t, same no matter which prefix
+#         log_probs_t_k_all_beams = log_probs[t, :, :].unsqueeze(-1).expand((-1, -1, max_seq_len+1)).transpose(1, 2)
+#         input_time_mask = (t < input_lengths).to(device).unsqueeze(-1).expand((-1, (max_seq_len+1)*n_out)).view(-1, max_seq_len+1, n_out)
+#         #print(f'current time step: {t}')
+#         torch.cuda.empty_cache()
+#         # print_gpu_memory_usage(f"in time loop, time: {t}")
+#         log_pref_scores_beams = log_pref_scores_beams.logaddexp(
+#             (log_probs_t_k_all_beams + log_new_label_prob).where(input_time_mask, torch.tensor(log_zero, device=device))
+#         ) # the score of a beam should not change if t > input length
+#         prev_gamma_0 = new_gamma_0
+#         prev_gamma_1 = new_gamma_1
+#         torch.cuda.empty_cache() ############# attention!!!!!!!!!!!!!!!!!!!! check if this influence the speed a lot
+#     # Reuse the blank idx as EOS, i.e. full forward prob of current hypothesis
+#     #log_pref_scores_beams[:, :, blank_idx] = torch.logsumexp(log_gamma[-1, :, :, :], dim=1)
+#     log_gamma_last_frame = log_gamma.gather(0, (input_lengths-1).to(device).unsqueeze(0).unsqueeze(-1).unsqueeze(-1).expand(-1, -1, 2, max_seq_len+1)).squeeze(0)
+#     log_pref_scores_beams[:, :, blank_idx] = log_gamma_last_frame.logsumexp(dim=1)
+
+#     # If there is EOS in the actual vocab, move the EOS score from blank_idx to eos_idx
+#     # and then remove eos_idx in the vocab dim
+#     if eos_idx is not None:
+#         log_pref_scores_beams[:, :, eos_idx] = log_pref_scores_beams[:, :, blank_idx].clone()
+#         out_idx = torch.arange(n_out, dtype=torch.long)
+#         out_idx_no_blank = out_idx[out_idx != blank_idx]
+#         log_pref_scores_beams = log_pref_scores_beams[:, :, out_idx_no_blank] 
+
+#     return log_pref_scores_beams, log_gamma
+
+
 def log_ctc_pref_beam_scores(
     log_probs, # (T, B, F)
     targets, # (B, S)
     input_lengths, # (B,)
     blank_idx = 0,
-    eos_idx = 0,
+    eos_idx = None,
     log_zero = -1e25, # maybe better than float min for preventing overflowing
 ):
     '''
@@ -64,6 +186,10 @@ def log_ctc_pref_beam_scores(
     :param targets: Target sequences (B, S) WITHOUT ANY SOS EOS SYMBOL
     :param input_lengths: Input lengths (B,)
     :param blank_idx: Blank index in F dim
+    :param eos_idx: If not None, this is used in the case there is EOS in the vocab.
+        Instead of having one "extra" EOS in place of the blank index, the EOS score will
+        be moved to the eos_idx instead. The LM score is then expected to have the same dimension
+        as the vocab, not vocab + EOS.
     :param log_zero: Value of log zero. Default to -1e15 to prevent overflow comparing to float32 min
     :return: (log_pref_scores_beams, log_gamma)
     
@@ -77,8 +203,6 @@ def log_ctc_pref_beam_scores(
     device = log_probs.device
     input_time_size, batch_size, n_out = log_probs.shape
     max_seq_len = targets.shape[1]
-    print(f"*************input shape: ({input_time_size}, {batch_size})")
-    print(f"*************target shape: ({max_seq_len}, {batch_size})")
     # convention for all dim size 2: 0 is n, 1 is b
     # max_seq_len + 1 for the empty prefix
     log_gamma = torch.full((input_time_size, batch_size, 2, max_seq_len+1), log_zero, dtype=torch.float32, device=device) # (T, B, 2, S+1)
@@ -88,49 +212,43 @@ def log_ctc_pref_beam_scores(
     prev_label_all_beams = targets.unsqueeze(-1).expand(-1, -1, n_out) # (B, S, F), S here from 1 to max_seq_len, dim 2 is prev_label of all beams
     beams = torch.arange(n_out, device=device).unsqueeze(0).unsqueeze(0).expand(batch_size, max_seq_len, -1) # (B, S, F), S here from 0 to max_seq_len-1, dim 2 is beam
     prev_label_diff = beams != prev_label_all_beams # (B, S, F)
-    prev_label_diff = torch.cat([torch.full((batch_size, 1, n_out), torch.tensor(True), device=device), prev_label_diff], dim=1)
+    prev_label_diff = torch.cat([torch.full((batch_size, 1, n_out), torch.tensor(True), device=device), prev_label_diff], dim=1) 
     # log_pref_scores_beams (B, S+1, F) S+1 here is prefixes from empty to a_1^S
     log_pref_scores_beams = torch.cat(
         [log_probs[0].unsqueeze(1), torch.full((batch_size, max_seq_len, n_out), log_zero, device=device)],
         dim=1
     )
-    prev_gamma_1 = log_gamma[0, :, 1, :]
-    prev_gamma_0 = log_gamma[0, :, 0, :]
-    torch.cuda.empty_cache()
     for t in range(1, input_time_size):
-        # test not using clone. has the in-place replacement error
         log_probs_t_k_ground_truth = log_probs[t].gather(-1, targets.long()) # (B, S) log prob of all symbol at time frame t
         log_new_label_prob = torch.logaddexp( # (B, S+1, F) S here is prefixes from empty to a_1^S
-            prev_gamma_1.unsqueeze(-1).expand(-1, -1, n_out),
-            prev_gamma_0.unsqueeze(-1).expand(-1, -1, n_out).where(prev_label_diff,torch.tensor(log_zero, device=device))
-            # log_gamma[t-1, :, 1, :].unsqueeze(-1).expand(-1, -1, n_out).clone(),
-            # log_gamma[t-1, :, 0, :].unsqueeze(-1).expand(-1, -1, n_out).clone().where(prev_label_diff, torch.tensor(log_zero, device=device))
+            log_gamma[t-1, :, 1, :].unsqueeze(-1).expand(-1, -1, n_out).clone(),
+            log_gamma[t-1, :, 0, :].unsqueeze(-1).expand(-1, -1, n_out).clone().where(prev_label_diff, torch.tensor(log_zero, device=device))
         )
         # (B, S) for both below
-
-        #log_gamma[t, :, 0, 1:] = log_probs_t_k_ground_truth + torch.logaddexp(log_new_label_prob[:, :-1, :].gather(-1, targets.unsqueeze(-1)).squeeze(-1), log_gamma[t-1, :, 0, 1:].clone())
-        #log_gamma[t, :, 1, 1:] = log_probs[t, :, blank_idx].unsqueeze(-1).expand((-1, max_seq_len)) + torch.logsumexp(log_gamma[t-1, :, :, 1:].clone(), dim=1)
-        new_gamma_0_label = log_probs_t_k_ground_truth + torch.logaddexp(log_new_label_prob[:, :-1, :].gather(-1, targets.unsqueeze(-1)).squeeze(-1), prev_gamma_0[:,1:])
-        new_gamma_1_label = log_probs[t, :, blank_idx].unsqueeze(-1).expand((-1, max_seq_len)) + torch.logaddexp(prev_gamma_0[:,1:], prev_gamma_1[:, 1:]) # notice! can be optimized
-        new_gamma_0 = torch.cat((log_gamma[t,:,0, 0:1], new_gamma_0_label), dim=-1)
-        new_gamma_1 = torch.cat((log_gamma[t,:,1, 0:1], new_gamma_1_label), dim=-1)
+        log_gamma[t, :, 0, 1:] = log_probs_t_k_ground_truth + torch.logaddexp(log_new_label_prob[:, :-1, :].gather(-1, targets.unsqueeze(-1)).squeeze(-1), log_gamma[t-1, :, 0, 1:].clone())
+        log_gamma[t, :, 1, 1:] = log_probs[t, :, blank_idx].unsqueeze(-1).expand((-1, max_seq_len)) + torch.logsumexp(log_gamma[t-1, :, :, 1:].clone(), dim=1)
         # (B, F) to (B, S+1, F), probs of all possible next labels at frame t, same no matter which prefix
         log_probs_t_k_all_beams = log_probs[t, :, :].unsqueeze(-1).expand((-1, -1, max_seq_len+1)).transpose(1, 2)
         input_time_mask = (t < input_lengths).to(device).unsqueeze(-1).expand((-1, (max_seq_len+1)*n_out)).view(-1, max_seq_len+1, n_out)
-        #print(f'current time step: {t}')
         torch.cuda.empty_cache()
-        print_gpu_memory_usage(f"in time loop, time: {t}")
         log_pref_scores_beams = log_pref_scores_beams.logaddexp(
             (log_probs_t_k_all_beams + log_new_label_prob).where(input_time_mask, torch.tensor(log_zero, device=device))
         ) # the score of a beam should not change if t > input length
-        prev_gamma_0 = new_gamma_0
-        prev_gamma_1 = new_gamma_1
-        torch.cuda.empty_cache() ############# attention!!!!!!!!!!!!!!!!!!!! check if this influence the speed a lot
+        torch.cuda.empty_cache()
     # Reuse the blank idx as EOS, i.e. full forward prob of current hypothesis
-    #log_pref_scores_beams[:, :, blank_idx] = torch.logsumexp(log_gamma[-1, :, :, :], dim=1)
-    log_pref_scores_beams[:,:, eos_idx] = torch.logsumexp(log_gamma[-1, :, :, :], dim=1) # bug?
-    return log_pref_scores_beams, log_gamma
+    # log_pref_scores_beams[:, :, blank_idx] = torch.logsumexp(log_gamma[-1, :, :, :], dim=1) # This is incorrect, seqs have different last frame
+    log_gamma_last_frame = log_gamma.gather(0, (input_lengths-1).to(device).unsqueeze(0).unsqueeze(-1).unsqueeze(-1).expand(-1, -1, 2, max_seq_len+1)).squeeze(0)
+    log_pref_scores_beams[:, :, blank_idx] = log_gamma_last_frame.logsumexp(dim=1)
 
+    # If there is EOS in the actual vocab, move the EOS score from blank_idx to eos_idx
+    # and then remove eos_idx in the vocab dim
+    if eos_idx is not None:
+        log_pref_scores_beams[:, :, eos_idx] = log_pref_scores_beams[:, :, blank_idx].clone()
+        out_idx = torch.arange(n_out, dtype=torch.long)
+        out_idx_no_blank = out_idx[out_idx != blank_idx]
+        log_pref_scores_beams = log_pref_scores_beams[:, :, out_idx_no_blank] 
+
+    return log_pref_scores_beams, log_gamma
 
 def log_ctc_pref_beam_scores_v2(
         log_probs,  # (T, B, F)
@@ -292,6 +410,7 @@ def log_ctc_pref_beam_scores_v2(
 
 def ctc_prefix_posterior(ctc_log_probs, targets, targets_w_bos, targets_w_eos, input_lengths, target_lengths, blank_index, eos_idx=0, out_no_blank=True, top_k_list=None, freeze_gamma=False, freeze_ctc=False):
     '''
+    it is used to compute the posterior q(w_n|w_1^n-1, x_1^T) from q(w_n,w_1^n-1, x_1^T)
     ctc_log_probs: ctc outputs with shape (B,T,V), normalized log probs
     targets: target seq without eos
     blank_index:
@@ -561,6 +680,10 @@ def kldiv_ctc_lm_loss(
     EOS of this should be blank of the CTC
     :param blank_idx: Blank index in F dim of log_probs
     :param log_zero: Value of log zero. Default to -1e15 to prevent overflow comparing to float32 min
+    :param eos_idx: If not None, this is used in the case there is EOS in the vocab.
+        Instead of having one "extra" EOS in place of the blank index, the EOS score will
+        be moved to the eos_idx instead. The LM score is then expected to have the same dimension
+        as the vocab, not vocab + EOS.
     :param target_mask: Extra label-wise masking apply to the loss (B, S+1 F)
     :return: KL Div Loss sum p_CTC*log p_LM
     '''
@@ -571,17 +694,20 @@ def kldiv_ctc_lm_loss(
         log_probs,
         targets,
         input_lengths,
-        blank_idx,
-        log_zero,
+        blank_idx=blank_idx,
+        eos_idx=eos_idx,
+        log_zero=log_zero,
     )
     # renormalize to have p_ctc(v|hypothesis) in output dim
     log_p_ctc = log_pref_scores_beams.log_softmax(dim=-1)
     kl_div = torch.nn.functional.kl_div(
         input=log_lm_score,
-        target=log_p_ctc,
+        target=log_p_ctc.detach(),
         log_target=True,
         reduction="none",
     )
+    if eos_idx is not None:
+        n_out -= 1 # Because the EOS is moved from blank_idx to eos_idx
     seq_mask = get_seq_mask(target_lengths+1, max_seq_len+1, device) # seq mask (B, S+1)
     seq_mask = seq_mask.unsqueeze(-1).expand(-1, -1, n_out) # seq mask in (B, S+1, F)
     loss = kl_div*seq_mask
@@ -601,13 +727,15 @@ def ctc_double_softmax_loss(
     log_lm_score, # (B, S, F)
     am_scale,
     lm_scale,
+    top_k= None,
+    eos_idx=None,
     blank_idx = 0,
     log_zero = -1e25, # maybe better than float min for preventing overflowing
 ):
     """
     Double softmax for CTC
 
-    ASSUMING SEQUENCES ARE PADDED WITH BLANKS AND NO EXPLICIT EOS IN VOCAB DIM
+    ASSUMING SEQUENCES ARE PADDED WITH BLANKS (is this really important?)
 
     T: max input time size
 
@@ -623,12 +751,13 @@ def ctc_double_softmax_loss(
     :param input_lengths: Input lengths (B,)
     :param target_lengths: Target lengths (B,) WITHOUT ANY EOS SOS
     :param log_lm_score: if (B, S, F), then log LM score of all possible words in vocab 
-    given ground truth context.
-    if (B, S), then log LM score of target sequences.
-    EOS idx of this should be blank idx of the CTC
+        given ground truth context.
+        if (B, S), then log LM score of target sequences. (this case not considered yet...)
+        EOS idx of this should be blank idx of the CTC
     :param blank_idx: Blank index in F dim of log_probs
     :param am_scale: AM scale for CTC score
     :param lm_scale: LM scale for LM score
+    :param top_k: In the second softmax, only take the top K score from the LM
     :param log_zero: Value of log zero. Default to -1e25 to prevent overflow comparing to float32 min
     :return: Double softmax loss with CTC as AM and LM score as training LM
     """
@@ -639,19 +768,22 @@ def ctc_double_softmax_loss(
         log_probs,
         targets,
         input_lengths,
-        blank_idx,
-        log_zero,
+        blank_idx=blank_idx,
+        eos_idx=eos_idx,
+        log_zero=log_zero,
     )
     # renormalize to have p_ctc(v|hypothesis) in output dim
     log_p_ctc = log_pref_scores_beams.log_softmax(dim=-1)
     # take out correct indices of target sequences
     targets_eos = torch.cat(
-        [targets, torch.zeros((batch_size, 1), device=targets.device)],
+        [targets, torch.full((batch_size, 1), fill_value=eos_idx, device=targets.device)],
         dim=1,
     ).long()
     # this is why it's called double softmax
     log_p_am_ref = log_p_ctc.gather(-1, targets_eos.unsqueeze(-1)).view(-1, max_seq_len+1)
     log_p_lm_ref = log_lm_score.gather(-1, targets_eos.unsqueeze(-1)).view(-1, max_seq_len+1)
+    if top_k is not None:
+        raise NotImplementedError
     log_denom_ref = (am_scale*log_p_ctc + lm_scale*log_lm_score).logsumexp(dim=-1)
     double_softmax = am_scale*log_p_am_ref + lm_scale*log_p_lm_ref - log_denom_ref
     seq_mask = get_seq_mask(target_lengths+1, max_seq_len+1, device)
@@ -734,6 +866,10 @@ def kldiv_ctc_lm_sample_batch_loss(
     EOS of this should be blank of the CTC
     :param blank_idx: Blank index in F dim of log_probs
     :param log_zero: Value of log zero. Default to -1e15 to prevent overflow comparing to float32 min
+    :param eos_idx: If not None, this is used in the case there is EOS in the vocab.
+        Instead of having one "extra" EOS in place of the blank index, the EOS score will
+        be moved to the eos_idx instead. The LM score is then expected to have the same dimension
+        as the vocab, not vocab + EOS.
     :param ground_truth_weight: Weight given to the loss of the ground truth
     :return: KL Div Loss sum p_CTC*log p_LM. Note that this loss is already averaged, be careful
     about this when passing to returnn
@@ -749,8 +885,9 @@ def kldiv_ctc_lm_sample_batch_loss(
         log_probs,
         targets,
         input_lengths,
-        blank_idx,
-        log_zero,
+        blank_idx=blank_idx,
+        eos_idx=eos_idx,
+        log_zero=log_zero,
     )
     # renormalize to have p_ctc(v|hypothesis) in output dim
     log_p_ctc = log_pref_scores_beams.log_softmax(dim=-1)
@@ -758,10 +895,12 @@ def kldiv_ctc_lm_sample_batch_loss(
     #print(torch.exp(log_p_ctc.gather(-1, targets.unsqueeze(-1).long()).view(batch_size*batch_size, max_seq_len)))
     kl_div = torch.nn.functional.kl_div(
         input=log_lm_score,
-        target=log_p_ctc,
+        target=log_p_ctc.detach(),
         log_target=True,
         reduction="none",
     )
+    if eos_idx is not None:
+        n_out -= 1 # Because the EOS is moved from blank_idx to eos_idx
     seq_mask = get_seq_mask(target_lengths+1, max_seq_len+1, device) # seq mask (B, S+1)
     seq_mask_repeat = seq_mask.unsqueeze(-1).expand(-1, -1, n_out).repeat_interleave(batch_size, 0) # seq mask in (B*B, S+1, F)
     if ground_truth_weight == "average":

@@ -29,6 +29,7 @@ def train(
     gpu_mem: Optional[int] = None,
     num_processes: Optional[int] = None,
     include_native_ops: bool = False,
+    disable_epoch_wise_filter: bool = False,
     **kwargs,
 ) -> ModelWithCheckpoints:
     """
@@ -64,6 +65,10 @@ def train(
         newbob_multi_num_epochs=task.train_epoch_split,
     )
     returnn_train_config_dict.update(config)
+
+    # Turn off epoch wise filter for epoch 1 and 5
+    if disable_epoch_wise_filter:
+        returnn_train_config_dict["train"]["dataset"].pop("epoch_wise_filter")
     if isinstance(model_def, ModelDefWithCfg):
         returnn_train_config_dict.update(model_def.config)
 

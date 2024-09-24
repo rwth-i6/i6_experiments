@@ -5,7 +5,8 @@ Generic recog, for the model interfaces defined in model_interfaces.py
 from __future__ import annotations
 
 import os
-from typing import TYPE_CHECKING, Optional, Union, Any, Dict, Sequence, Collection, Iterator, Callable
+from typing import TYPE_CHECKING, Optional, Union, Any, Dict, Sequence, Collection, Iterator, Callable, List
+import copy
 
 import sisyphus
 from sisyphus import tk
@@ -49,6 +50,10 @@ def recog_training_exp(
     search_mem_rqmt: Union[int, float] = 6,
     exclude_epochs: Collection[int] = (),
     model_avg: bool = False,
+    train_exp_name: Optional[str] = None,
+    dev_sets: Optional[List[str]] = None,
+    recompute_prior: bool = False,
+    prior_config: Optional[dict] = None,
 ):
     """recog on all relevant epochs"""
     recog_and_score_func = _RecogAndScoreFunc(
@@ -60,6 +65,10 @@ def recog_training_exp(
         search_post_config=search_post_config,
         recog_post_proc_funcs=recog_post_proc_funcs,
         search_mem_rqmt=search_mem_rqmt,
+        train_exp_name=train_exp_name,
+        dev_sets=dev_sets,
+        recompute_prior=recompute_prior,
+        prior_config=prior_config,
     )
     summarize_job = GetBestRecogTrainExp(
         exp=model,
@@ -89,6 +98,10 @@ class _RecogAndScoreFunc:
         search_post_config: Optional[Dict[str, Any]] = None,
         recog_post_proc_funcs: Sequence[Callable[[RecogOutput], RecogOutput]] = (),
         search_mem_rqmt: Union[int, float] = 6,
+        train_exp_name: Optional[str] = None,
+        dev_sets: Optional[List[str]] = None,
+        recompute_prior: bool = False,
+        prior_config: Optional[dict] = None,
     ):
         # Note: When something is added here, remember to handle it in _sis_hash.
         self.prefix_name = prefix_name
@@ -99,6 +112,10 @@ class _RecogAndScoreFunc:
         self.search_post_config = search_post_config
         self.recog_post_proc_funcs = recog_post_proc_funcs
         self.search_mem_rqmt = search_mem_rqmt
+        self.train_exp_name = train_exp_name
+        self.dev_sets = dev_sets
+        self.recompute_prior = recompute_prior
+        self.prior_config = prior_config
 
     def __call__(self, epoch_or_ckpt: Union[int, PtCheckpoint]) -> ScoreResultCollection:
         if isinstance(epoch_or_ckpt, int):
@@ -115,6 +132,11 @@ class _RecogAndScoreFunc:
             search_post_config=self.search_post_config,
             recog_post_proc_funcs=self.recog_post_proc_funcs,
             search_mem_rqmt=self.search_mem_rqmt,
+            # name=self.prefix_name,
+            train_exp_name=self.train_exp_name,
+            dev_sets=self.dev_sets,
+            recompute_prior=self.recompute_prior,
+            prior_config=self.prior_config
         )
         if isinstance(epoch_or_ckpt, int):
             tk.register_output(self.prefix_name + f"/recog_results_per_epoch/{epoch_or_ckpt:03}", res.output)
@@ -153,6 +175,9 @@ def recog_model(
     search_rqmt: Optional[Dict[str, Any]] = None,
     dev_sets: Optional[Collection[str]] = None,
     name: Optional[str] = None,
+    train_exp_name: Optional[str] = None,
+    recompute_prior: bool = False,
+    prior_config: Optional[dict] = None,
 ) -> ScoreResultCollection:
     """recog"""
     if dev_sets is not None:
@@ -162,6 +187,19 @@ def recog_model(
         if dev_sets is not None:
             if dataset_name not in dev_sets:
                 continue
+        if recompute_prior:
+            from i6_experiments.users.phan.prior.prior_config import compute_prior_job, _prior_out_filename
+            from i6_experiments.users.phan.prior.model_forward_prior import model_forward_prior
+            assert prior_config is not None
+            prior_job = compute_prior_job(
+                task=task,
+                model=model,
+                recog_def=model_forward_prior,
+                config=prior_config,
+                search_rqmt={"time": 12},
+            )
+            prior_job.set_vis_name(f"Compute prior job, {train_exp_name}, {os.path.split(model.checkpoint.__repr__())[-1][:-1]}")
+            config["search_args"]["prior_file"] = prior_job.out_files[_prior_out_filename]
         recog_out = search_dataset(
             dataset=dataset,
             model=model,
@@ -172,6 +210,8 @@ def recog_model(
             search_rqmt=search_rqmt,
             search_alias_name=f"{name}/search/{dataset_name}" if name else None,
             recog_post_proc_funcs=list(recog_post_proc_funcs) + list(task.recog_post_proc_funcs),
+            dataset_name=dataset_name,
+            train_exp_name=train_exp_name,
         )
         score_out = task.score_recog_output_func(dataset, recog_out)
         outputs[dataset_name] = score_out
@@ -189,6 +229,8 @@ def search_dataset(
     search_rqmt: Optional[Dict[str, Any]] = None,
     search_alias_name: Optional[str] = None,
     recog_post_proc_funcs: Sequence[Callable[[RecogOutput], RecogOutput]] = (),
+    dataset_name: Optional[str] = None,
+    train_exp_name: Optional[str] = None,
 ) -> RecogOutput:
     """
     recog on the specific dataset
@@ -226,6 +268,7 @@ def search_dataset(
             returnn_root=tools_paths.get_returnn_root(),
             mem_rqmt=search_mem_rqmt,
         )
+        search_job.set_vis_name(f"{train_exp_name}, {os.path.split(model.checkpoint.__repr__())[-1][:-1]}, {dataset_name}, {config.get('search_args', '') if config else ''}")
         res = search_job.out_files[_v2_forward_out_filename]
     if search_rqmt:
         search_job.rqmt.update(search_rqmt)
@@ -668,48 +711,50 @@ class GetBestRecogTrainExp(sisyphus.Job):
         exp: ModelWithCheckpoints = d["exp"]
         assert isinstance(exp, ModelWithCheckpoints)
         assert exp.fixed_epochs  # need some fixed epochs to define the hash
-        last_fixed_epoch = max(exp.fixed_epochs)
-        recog_and_score_func = d["recog_and_score_func"]
-        res = recog_and_score_func(last_fixed_epoch)
-        assert isinstance(res, ScoreResultCollection)
-        # Add this to the hash, to make sure the pipeline of the recog and scoring influences the hash.
-        d["_last_fixed_epoch_results"] = res
+
+        # ------------ avoid running recog on the last epoch
+        # last_fixed_epoch = max(exp.fixed_epochs)
+        # recog_and_score_func = d["recog_and_score_func"]
+        # res = recog_and_score_func(last_fixed_epoch)
+        # assert isinstance(res, ScoreResultCollection)
+        # # Add this to the hash, to make sure the pipeline of the recog and scoring influences the hash.
+        # d["_last_fixed_epoch_results"] = res
         return sis_tools.sis_hash(d)
 
-    def update(self):
-        """
-        This is run when all inputs have become available,
-        and we can potentially add further inputs.
-        The exp (ModelWithCheckpoints) includes a ref to scores_and_learning_rates
-        which is only available when the training job finished,
-        thus this is only run at the very end.
+    # def update(self):
+    #     """
+    #     This is run when all inputs have become available,
+    #     and we can potentially add further inputs.
+    #     The exp (ModelWithCheckpoints) includes a ref to scores_and_learning_rates
+    #     which is only available when the training job finished,
+    #     thus this is only run at the very end.
 
-        Note that this is thus called multiple times,
-        once scores_and_learning_rates becomes available,
-        and then once the further recogs become available.
-        However, only want to check for relevant checkpoints once.
-        """
-        if not self._update_checked_relevant_epochs and self.exp.scores_and_learning_rates.available():
-            from datetime import datetime
+    #     Note that this is thus called multiple times,
+    #     once scores_and_learning_rates becomes available,
+    #     and then once the further recogs become available.
+    #     However, only want to check for relevant checkpoints once.
+    #     """
+    #     if not self._update_checked_relevant_epochs and self.exp.scores_and_learning_rates.available():
+    #         from datetime import datetime
 
-            log_filename = tk.Path("update.log", self).get_path()
-            try:
-                os.makedirs(os.path.dirname(log_filename), exist_ok=True)
-                log_stream = open(log_filename, "a")
-            except PermissionError:  # maybe some other user runs this, via job import
-                log_stream = open("/dev/stdout", "w")
-            with log_stream:
-                log_stream.write(datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
-                log_stream.write(": get_relevant_epochs_from_training_learning_rate_scores\n")
-                for epoch in get_relevant_epochs_from_training_learning_rate_scores(
-                    model_dir=self.exp.model_dir,
-                    model_name=self.exp.model_name,
-                    scores_and_learning_rates=self.exp.scores_and_learning_rates,
-                    n_best=self.check_train_scores_n_best,
-                    log_stream=log_stream,
-                ):
-                    self._add_recog(epoch)
-            self._update_checked_relevant_epochs = True
+    #         log_filename = tk.Path("update.log", self).get_path()
+    #         try:
+    #             os.makedirs(os.path.dirname(log_filename), exist_ok=True)
+    #             log_stream = open(log_filename, "a")
+    #         except PermissionError:  # maybe some other user runs this, via job import
+    #             log_stream = open("/dev/stdout", "w")
+    #         with log_stream:
+    #             log_stream.write(datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+    #             log_stream.write(": get_relevant_epochs_from_training_learning_rate_scores\n")
+    #             for epoch in get_relevant_epochs_from_training_learning_rate_scores(
+    #                 model_dir=self.exp.model_dir,
+    #                 model_name=self.exp.model_name,
+    #                 scores_and_learning_rates=self.exp.scores_and_learning_rates,
+    #                 n_best=self.check_train_scores_n_best,
+    #                 log_stream=log_stream,
+    #             ):
+    #                 self._add_recog(epoch)
+    #         self._update_checked_relevant_epochs = True
 
     def _add_recog(self, epoch: int):
         if epoch in self._scores_outputs:
