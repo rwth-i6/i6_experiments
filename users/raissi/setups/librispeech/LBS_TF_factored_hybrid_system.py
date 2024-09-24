@@ -112,6 +112,24 @@ class LBSTFFactoredHybridSystem(TFFactoredHybridBaseSystem):
                             "train-other-960/6178-86034-0008/6178-86034-0008",
                             "train-other-960/5983-39669-0034/5983-39669-0034",
                         ]
+        self.ivectors_prepath = "/work/asr4/raissi/setups/librispeech/960-ls/dependencies/data/ivectors"
+
+
+    def concat_features_with_ivectors_for_feature_flow(self):
+        assert self.ivectors_prepath, "Set the ivectors prepath"
+        for k in self.feature_bundles.keys():
+            ivec_cached_bundle = Path(f'{self.ivectors_prepath}/{k}/ivec.bundle', cached=True)
+
+            ivector_cached_path = rasr.FlagDependentFlowAttribute("cache_mode",
+                                                                  {
+                                                                      "bundle":ivec_cached_bundle,
+                                                                    "task_dependent": ivec_cached_bundle
+                                                                  }
+                                                                  )
+            ft_k = self.feature_info.feature_type.get()
+            self.feature_flows[k][ft_k] = self.concat_features_with_ivec(feature_net=self.feature_flows[k][ft_k], ivec_path=ivector_cached_path)
+
+
 
     def get_recognizer_and_args(
         self,
@@ -125,6 +143,7 @@ class LBSTFFactoredHybridSystem(TFFactoredHybridBaseSystem):
         gpu=False,
         is_multi_encoder_output=False,
         set_batch_major_for_feature_scorer: bool = True,
+        joint_for_factored_loss: bool = False,
         tf_library: Union[Path, str, List[Path], List[str], None] = None,
         dummy_mixtures: Optional[Path] = None,
         lm_gc_simple_hash: Optional[bool] = None,
@@ -149,7 +168,7 @@ class LBSTFFactoredHybridSystem(TFFactoredHybridBaseSystem):
         ):
 
             self.setup_returnn_config_and_graph_for_single_softmax(
-                key=key, state_tying=self.label_info.state_tying, softmax_type=SingleSoftmaxType.DECODE
+                key=key, state_tying=self.label_info.state_tying, softmax_type=SingleSoftmaxType.DECODE, joint_for_factored_loss=joint_for_factored_loss,
             )
         else:
             crp_list = [n for n in self.crp_names if "train" not in n]
@@ -208,11 +227,18 @@ class LBSTFFactoredHybridSystem(TFFactoredHybridBaseSystem):
         num_encoder_output: int,
         recog_args: LBSSearchParameters,
         lm_scale: float,
-        tdp_scales: List = [0.1, 0.2],
+        tdp_scales: List = None,
+        transition_loop_sil: List = None,
+        transition_loop_speech: List = None,
+        transition_exit_sil: List = None,
+        transition_exit_speech: List = None,
+        extend: bool = True,
     ) -> LBSSearchParameters:
 
         assert self.experiments[key]["decode_job"]["runner"] is not None, "Please set the recognizer"
         recognizer = self.experiments[key]["decode_job"]["runner"]
+
+        tdp_scales = [0.1, 0.2] if tdp_scales is None else tdp_scales
 
         tune_args = recog_args.with_lm_scale(lm_scale)
         best_config_scales = recognizer.recognize_optimize_scales_v2(
@@ -229,8 +255,31 @@ class LBSTFFactoredHybridSystem(TFFactoredHybridBaseSystem):
 
         )
 
-        nnsp_tdp = [(l, 0.0, "infinity", e) for l in [8.0, 11.0, 13.0] for e in [10.0, 15.0, 20.0]]
-        sp_tdp = [(l, 0.0, "infinity", e) for l in [5.0, 8.0, 11.0] for e in [0.0, 5.0]]
+        sil_loop = [8.0, 11.0, 13.0]
+        if transition_loop_sil is not None:
+            if extend:
+                sil_loop.extend(transition_loop_sil)
+            else: sil_loop = transition_loop_sil
+        sil_exit = [10.0, 15.0, 20.0]
+        if transition_exit_sil is not None:
+            if extend:
+                sil_exit.extend(transition_exit_sil)
+            else: sil_exit = transition_exit_sil
+        speech_loop = [5.0, 8.0, 11.0]
+        if transition_loop_speech is not None:
+            if extend:
+                speech_loop.extend(transition_loop_speech)
+            else: speech_loop = transition_loop_speech
+        speech_exit = [0.0, 5.0]
+        if transition_exit_speech is not None:
+            if extend:
+                speech_exit.extend(transition_exit_speech)
+            else: speech_exit = transition_exit_speech
+
+
+
+        nnsp_tdp = [(l, 0.0, "infinity", e) for l in sil_loop for e in sil_exit]
+        sp_tdp = [(l, 0.0, "infinity", e) for l in speech_loop for e in speech_exit]
         best_config = recognizer.recognize_optimize_transtition_values(
             label_info=self.label_info,
             search_parameters=best_config_scales,

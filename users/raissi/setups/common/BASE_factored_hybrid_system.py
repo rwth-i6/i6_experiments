@@ -139,6 +139,10 @@ class BASEFactoredHybridSystem(NnSystem):
         self.tdp_values = get_tdp_values()
         self.segments_to_exclude = None
 
+        #since ivectors are still from old systems, they are not concatenated to feature caches
+        #If one plans to use creat_hdf function when using ivectors, then there is an assertion
+        self.extract_ivectors = False
+
         # transcription priors in pickle format
         self.priors = None  # these are for transcript priors
 
@@ -843,6 +847,45 @@ class BASEFactoredHybridSystem(NnSystem):
             experiment_key=experiment_key, returnn_config=returnn_config, on_2080=on_2080, nn_train_args=nn_train_args
         )
 
+    def concat_features_with_ivec(self, feature_net, ivec_path):
+        """
+        copy pasted from i6_core.adaptation.ivector, it cannot import at the moment due to bob module
+        Generate a new flow-network with i-vectors repeated and concatenated to original feature stream
+        :param feature_net: original flow-network
+        :param ivec_path: ivec_path from IVectorExtractionJob
+        :return:
+        """
+        # copy original net
+        net = rasr.FlowNetwork(name=feature_net.name)
+        net.add_param(["id", "start-time", "end-time"])
+        net.add_output("features")
+        mapping = net.add_net(feature_net)
+        net.interconnect_inputs(feature_net, mapping)
+
+        # load ivec cache and repeat
+        fc = net.add_node("generic-cache", "feature-cache-ivec", {"id": "$(id)", "path": ivec_path})
+        sync = net.add_node("signal-repeating-frame-prediction", "sync")
+        net.link(fc, sync)
+        for node in feature_net.get_output_links("features"):
+            net.link(node, "%s:%s" % (sync, "target"))
+
+        # concat original feature output with repeated ivecs
+        concat = net.add_node(
+            "generic-vector-f32-concat",
+            "concatenation",
+            {"check-same-length": True, "timestamp-port": "feature-1"},
+        )
+        for node in feature_net.get_output_links("features"):
+            net.link(node, "%s:%s" % (concat, "feature-1"))
+        net.link(sync, "%s:%s" % (concat, "feature-2"))
+
+        net.link(concat, "network:features")
+
+        return net
+
+    def concat_features_with_ivectors_for_feature_flow(self):
+        pass
+
     def get_feature_and_alignment_flows_for_training(self, data):
         if data.feature_flow is not None:
             feature_flow = data.feature_flow
@@ -1007,6 +1050,7 @@ class BASEFactoredHybridSystem(NnSystem):
         return self.hdfs[self.train_key]
 
     def create_hdf(self):
+        assert not self.extract_ivectors, "your system does not prepare the feature caches with the ivectors yet"
         gammatone_features_paths: MultiPath = self.feature_caches[self.train_key][self.feature_info.feature_type.get()]
         hdf_job = RasrFeaturesToHdf(
             feature_caches=gammatone_features_paths,
@@ -1019,7 +1063,7 @@ class BASEFactoredHybridSystem(NnSystem):
 
         return hdf_job
 
-    # -----------------------Decoding --------------------------
+        # -----------------------Decoding --------------------------
 
     def get_parameters_for_decoder(
         self, context_type: PhoneticContext, prior_info: PriorInfo
@@ -1085,7 +1129,12 @@ class BASEFactoredHybridSystem(NnSystem):
                         self.feature_flows[all_c] = {}
                 if step_args[self.feature_info.feature_type.get()] is not None:
                     step_args[self.feature_info.feature_type.get()]["prefix"] = "features/"
+                    self.extract_ivectors = step_args[self.feature_info.feature_type.get()].pop("extract_ivectors", False)
                     self.extract_features(step_args, corpus_list=all_corpora)
+                    if self.extract_ivectors:
+                        self.concat_features_with_ivectors_for_feature_flow()
+
+
             # -----------Set alignments if needed-------
             # here you might one to align cv with a given aligner
             if step_name.startswith("alignment"):

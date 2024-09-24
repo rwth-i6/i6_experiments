@@ -142,3 +142,9 @@ class LabelInfo:
             phoneme_state_classes=PhonemeStateClasses.word_end,
             state_tying=RasrStateTying.triphone,
         )
+
+
+
+@dataclass(eq=True, frozen=True)
+class JointSoftmaxInfo:
+    add_output: int

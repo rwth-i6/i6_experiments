@@ -278,6 +278,7 @@ class SWBTFFactoredHybridSystem(TFFactoredHybridBaseSystem):
         gpu=False,
         is_multi_encoder_output=False,
         set_batch_major_for_feature_scorer: bool = True,
+        joint_for_factored_loss: bool = False,
         tf_library: Union[Path, str, List[Path], List[str], None] = None,
         dummy_mixtures: Optional[Path] = None,
         lm_gc_simple_hash: Optional[bool] = None,
@@ -302,7 +303,7 @@ class SWBTFFactoredHybridSystem(TFFactoredHybridBaseSystem):
         ):
 
             self.setup_returnn_config_and_graph_for_single_softmax(
-                key=key, state_tying=self.label_info.state_tying, softmax_type=SingleSoftmaxType.DECODE
+                key=key, state_tying=self.label_info.state_tying, softmax_type=SingleSoftmaxType.DECODE, joint_for_factored_loss=joint_for_factored_loss,
             )
         else:
             crp_list = [n for n in self.crp_names if "train" not in n]
@@ -365,6 +366,10 @@ class SWBTFFactoredHybridSystem(TFFactoredHybridBaseSystem):
         altas_for_transition_optimization: float = 2.0,
         prior_scales: Optional[List] = None,
         tdp_scales: Optional[List] = None,
+        extend_transition_loop_sil: List = None,
+        extend_transition_loop_speech: List = None,
+        extend_transition_exit_sil: List = None,
+        extend_transition_exit_speech: List = None,
     ) -> SWBSearchParameters:
 
         assert self.experiments[key]["decode_job"]["runner"] is not None, "Please set the recognizer"
@@ -385,8 +390,21 @@ class SWBTFFactoredHybridSystem(TFFactoredHybridBaseSystem):
             tdp_scales=[0.1, 0.2] if tdp_scales is None else tdp_scales,
         )
 
-        nnsp_tdp = [(l, 0.0, "infinity", e) for l in [8.0, 11.0, 13.0] for e in [10.0, 15.0, 20.0]]
-        sp_tdp = [(l, 0.0, "infinity", e) for l in [5.0, 8.0, 11.0] for e in [0.0, 5.0]]
+        sil_loop = [8.0, 11.0, 13.0]
+        if extend_transition_loop_sil is not None:
+            sil_loop.extend(extend_transition_loop_sil)
+        sil_exit = [10.0, 15.0, 20.0]
+        if extend_transition_exit_sil is not None:
+            sil_exit.extend(extend_transition_exit_sil)
+        speech_loop = [5.0, 8.0, 11.0]
+        if extend_transition_loop_speech is not None:
+            speech_loop.extend(extend_transition_loop_speech)
+        speech_exit = [0.0, 5.0]
+        if extend_transition_exit_speech is not None:
+            speech_exit.extend(extend_transition_exit_speech)
+
+        nnsp_tdp = [(l, 0.0, "infinity", e) for l in sil_loop for e in sil_exit]
+        sp_tdp = [(l, 0.0, "infinity", e) for l in speech_loop for e in speech_exit]
         best_config = recognizer.recognize_optimize_transtition_values(
             label_info=self.label_info,
             search_parameters=best_config_scales,

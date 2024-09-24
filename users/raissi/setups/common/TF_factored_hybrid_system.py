@@ -3,7 +3,7 @@ __all__ = ["TFFactoredHybridBaseSystem"]
 import copy
 import dataclasses
 import itertools
-import sys
+import logging, sys
 from IPython import embed
 
 from enum import Enum
@@ -619,6 +619,7 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
         state_tying: RasrStateTying = RasrStateTying.monophone,
         returnn_config: Optional[returnn.ReturnnConfig] = None,
         output_layer_name: str = "output",
+        joint_for_factored_loss: bool = False,
         checkpoint: Optional[Path] = None,
         smoothen: bool = False,
         zero_weight: float = 1e-8,
@@ -638,6 +639,7 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
             returnn_config=returnn_config,
             state_tying=state_tying,
             softmax_type=SingleSoftmaxType.PRIOR,
+            joint_for_factored_loss=joint_for_factored_loss,
         )
 
         config = copy.deepcopy(self.experiments[key]["returnn_config"])
@@ -917,6 +919,7 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
         out_layer_name: str = None,
         softmax_type: SingleSoftmaxType = SingleSoftmaxType.DECODE,
         cv_corpus_key_for_train: str = None,
+        joint_for_factored_loss: bool = False,
     ):
         prepare_for_train = False
         log_softmax = False
@@ -970,12 +973,17 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
                 feature_dim_variable_name="__center_state_feature",
                 context_type="L",
             )
-            final_returnn_config = net_helpers.diphone_joint_output.augment_returnn_config_to_joint_diphone_softmax(
+
+            if joint_for_factored_loss:
+                f = net_helpers.diphone_joint_output.augment_returnn_config_to_joint_factored_monophone_softmax
+            else: f = net_helpers.diphone_joint_output.augment_returnn_config_to_joint_diphone_softmax
+            final_returnn_config = f(
                 returnn_config=clean_returnn_config,
                 label_info=self.label_info,
                 out_joint_score_layer="output",
                 log_softmax=log_softmax,
                 prepare_for_train=prepare_for_train,
+
             )
 
         elif state_tying == RasrStateTying.monophone:
@@ -1085,6 +1093,7 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
         gpu=False,
         is_multi_encoder_output=False,
         set_batch_major_for_feature_scorer: bool = True,
+        joint_for_factored_loss: bool = False,
         tf_library: Union[Path, str, List[Path], List[str], None] = None,
         dummy_mixtures: Optional[Path] = None,
         lm_gc_simple_hash: Optional[bool] = None,
@@ -1109,7 +1118,7 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
         ):
 
             self.setup_returnn_config_and_graph_for_single_softmax(
-                key=key, state_tying=self.label_info.state_tying, softmax_type=SingleSoftmaxType.DECODE
+                key=key, state_tying=self.label_info.state_tying, softmax_type=SingleSoftmaxType.DECODE, joint_for_factored_loss=joint_for_factored_loss
             )
         else:
             crp_list = [n for n in self.crp_names if "train" not in n]
@@ -1285,8 +1294,17 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
                 ref_alignment_cache=reference_alignment,
                 upsample_factor=self.frame_rate_reduction_ratio_info.factor,
             )
+            tse_job.add_alias(f"statistics/alignment/{exp_name}/tse")
+            tk.register_output(
+                f"statistics/alignment/{exp_name}/word_tse",
+                tse_job.out_tse_frames,
+            )
 
         else:
+            #seems buggy need to debug
+            #logging.warn("We do not execute time stamp error until you debugged it ;-)")
+
+
             tse_job = mm.ComputeTimeStampErrorJob(
                 hyp_alignment_cache=alignment,
                 ref_alignment_cache=reference_alignment,
@@ -1294,12 +1312,13 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
                 ref_allophone_file=reference_allophones,
                 hyp_upsample_factor=4,
             )
+            tse_job.add_alias(f"statistics/alignment/{exp_name}/tse")
+            tk.register_output(
+                f"statistics/alignment/{exp_name}/word_tse",
+                tse_job.out_tse_frames,
+            )
 
-        tse_job.add_alias(f"statistics/alignment/{exp_name}/tse")
-        tk.register_output(
-            f"statistics/alignment/{exp_name}/word_tse",
-            tse_job.out_tse_frames,
-        )
+
 
         stat_job_phoneme = ComputeAveragePhonemeLengthJob(
             allophone_file=allophones,

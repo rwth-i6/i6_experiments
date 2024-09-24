@@ -67,31 +67,26 @@ def add_mlp(
     prefix: str = "",
     l2: Optional[float] = None,
     init: str = DEFAULT_INIT,
+    n_layers: int = 2,
 ) -> str:
-    l_one_name = f"{prefix}linear1-{layer_name}"
-    l_two_name = f"{prefix}linear2-{layer_name}"
 
-    network[l_one_name] = {
-        "class": "linear",
-        "activation": "relu",
-        "from": source_layer,
-        "n_out": size,
-        "forward_weights_init": init,
-    }
+    assert n_layers > 0, "set a number of layers > 0"
 
-    network[l_two_name] = {
-        "class": "linear",
-        "activation": "relu",
-        "from": l_one_name,
-        "n_out": size,
-        "forward_weights_init": init,
-    }
+    for i in range(1, n_layers+1):
+        l_name = f"{prefix}linear{i}-{layer_name}"
+        network[l_name] = {
+            "class": "linear",
+            "activation": "relu",
+            "from": source_layer,
+            "n_out": size,
+            "forward_weights_init": init,
+        }
+        if l2 is not None:
+            network[l_name]["L2"] = l2
+        source_layer = l_name
 
-    if l2 is not None:
-        network[l_one_name]["L2"] = l2
-        network[l_two_name]["L2"] = l2
+    return l_name
 
-    return l_two_name
 
 
 def get_embedding_layer(source: Union[str, List[str]], dim: int, l2=0.01):
