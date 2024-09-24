@@ -622,6 +622,7 @@ def py():
 
     # Variational noise / weight noise (vn0025 etc).
     # TODO maybe reduce weight decay
+    # TODO longer training
     for vn in [
         # Baseline: 5.77
         0.0001,  # 5.80
@@ -650,6 +651,7 @@ def py():
 
     # Weight dropout (wdrop01 etc).
     # TODO maybe reduce weight decay
+    # TODO longer training
     for wdrop in [
         # baseline: 5.77
         0.0001,  # 5.85
@@ -748,28 +750,28 @@ def py():
     )
 
     # ffGated (and also noBias). (Baseline: 5.77)
-    train_exp(
-        "v6-relPosAttDef-ffGated-noBias-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2"
-        "-lrlin1e_5_295k-featBN-speedpertV2-spm10k-bpeSample001",
-        config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
-        model_config={
-            "enc_conformer_layer": rf.build_dict(
-                rf.encoder.conformer.ConformerEncoderLayer,
-                ff=rf.build_dict(rf.decoder.transformer.FeedForwardGated),
-                num_heads=8,
-            ),
-            "feature_batch_norm": True,
-        },
-        config_updates={
-            **_get_cfg_lrlin_oclr_by_bs_nep(15_000, 500),
-            "optimizer.weight_decay": 1e-2,
-            "__train_audio_preprocess": speed_pert_librosa_config,
-            "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
-            "aux_attention_decoder": rf.build_dict(TransformerDecoder, num_layers=6),  # purely used for training
-        },
-        vocab="spm10k",
-        train_vocab_opts={"other_opts": {"class": "SamplingBytePairEncoding", "breadth_prob": 0.01}},
-    )
+    # train_exp(  # 6.01, so worse
+    #     "v6-relPosAttDef-ffGated-noBias-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2"
+    #     "-lrlin1e_5_295k-featBN-speedpertV2-spm10k-bpeSample001",
+    #     config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
+    #     model_config={
+    #         "enc_conformer_layer": rf.build_dict(
+    #             rf.encoder.conformer.ConformerEncoderLayer,
+    #             ff=rf.build_dict(rf.decoder.transformer.FeedForwardGated),
+    #             num_heads=8,
+    #         ),
+    #         "feature_batch_norm": True,
+    #     },
+    #     config_updates={
+    #         **_get_cfg_lrlin_oclr_by_bs_nep(15_000, 500),
+    #         "optimizer.weight_decay": 1e-2,
+    #         "__train_audio_preprocess": speed_pert_librosa_config,
+    #         "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
+    #         "aux_attention_decoder": rf.build_dict(TransformerDecoder, num_layers=6),  # purely used for training
+    #     },
+    #     vocab="spm10k",
+    #     train_vocab_opts={"other_opts": {"class": "SamplingBytePairEncoding", "breadth_prob": 0.01}},
+    # )
 
     # rmsNorm. (Baseline: 5.77)
     # train_exp(  # 5.74, i.e. helps a bit
@@ -822,6 +824,71 @@ def py():
         },
         vocab="spm10k",
         train_vocab_opts={"other_opts": {"class": "SamplingBytePairEncoding", "breadth_prob": 0.01}},
+    )
+
+    # ffGated with sigmoid and relu_square (Baseline: 5.65)
+    train_exp(
+        "v6-relPosAttDef-ffGatedSigmoidReluSq-noBias-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2"
+        "-lrlin1e_5_295k-featBN-speedpertV2-spm10k-bpeSample001",
+        config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
+        model_config={
+            "enc_conformer_layer": rf.build_dict(
+                rf.encoder.conformer.ConformerEncoderLayer,
+                ff=rf.build_dict(
+                    rf.decoder.transformer.FeedForwardGated,
+                    activation=rf.build_dict(rf.relu_square),
+                    gate_activation=rf.build_dict(rf.sigmoid),
+                    with_bias=False,
+                ),
+                num_heads=8,
+            ),
+            "feature_batch_norm": True,
+        },
+        config_updates={
+            **_get_cfg_lrlin_oclr_by_bs_nep(15_000, 500),
+            "optimizer.weight_decay": 1e-2,
+            "__train_audio_preprocess": speed_pert_librosa_config,
+            "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
+            "aux_attention_decoder": rf.build_dict(TransformerDecoder, num_layers=6),  # purely used for training
+        },
+        vocab="spm10k",
+        train_vocab_opts={"other_opts": {"class": "SamplingBytePairEncoding", "breadth_prob": 0.01}},
+    )
+
+    # lpNormedGrad C05_11P1 (Baseline: 5.65)
+    train_exp(
+        "v6-relPosAttDef-noBias-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2"
+        "-lrlin1e_5_295k-featBN-speedpertV2-spm10k-bpeSample001-lpNormedGradC05_11P1",
+        config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
+        model_config={
+            "enc_conformer_layer": rf.build_dict(
+                rf.encoder.conformer.ConformerEncoderLayer,
+                ff=rf.build_dict(
+                    rf.encoder.conformer.ConformerPositionwiseFeedForward,
+                    activation=rf.build_dict(rf.relu_square),
+                    with_bias=False,
+                ),
+                num_heads=8,
+            ),
+            "feature_batch_norm": True,
+        },
+        config_updates={
+            **_get_cfg_lrlin_oclr_by_bs_nep(15_000, 500),
+            "optimizer.weight_decay": 1e-2,
+            "__train_audio_preprocess": speed_pert_librosa_config,
+            "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
+            "aux_attention_decoder": rf.build_dict(TransformerDecoder, num_layers=6),  # purely used for training
+            # See _maybe_apply_log_probs_normed_grad below.
+            # func are opts for NormedGradientFuncInvPrior, other opts are for normed_gradient.
+            "log_prob_normed_grad": {
+                "func": {"clamp_min": 0.5, "clamp_max": 1.1, "scale_type": "inv_num_labels", "prior_exp": 1.0}
+            },
+        },
+        vocab="spm10k",
+        train_vocab_opts={"other_opts": {"class": "SamplingBytePairEncoding", "breadth_prob": 0.01}},
+        epilog=[
+            serialization.NonhashedCode(f"sys.path.append({gs.BASE_DIR + '/projects/2024-alignment-analysis'!r})\n")
+        ],
     )
 
     # Testing Conformer layer without layernorm (noFinalNorm). (Baseline 5.65)
