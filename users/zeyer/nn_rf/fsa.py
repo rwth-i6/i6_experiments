@@ -455,10 +455,12 @@ def test_fsa_for_ctc():
 
 
 def test_best_path_ctc():
+    import torch
+
     batch_dim = Dim(2, name="batch")
     labels_dim = Dim(5, name="labels")
     targets_spatial_dim = Dim(rf.convert_to_tensor([4, 2], dims=[batch_dim]), name="targets_spatial")
-    targets = rf.convert_to_tensor(
+    targets: Tensor = rf.convert_to_tensor(
         [[1, 2, 3, 3], [2, 4, 0, 0]], dims=[batch_dim, targets_spatial_dim], sparse_dim=labels_dim
     )
 
@@ -475,3 +477,143 @@ def test_best_path_ctc():
     assert score.dims == (batch_dim,)
     print(best_path_.raw_tensor)
     print(score.raw_tensor)
+
+    # Mask repeated
+    mask = best_path_ != rf.shift_right(best_path_, axis=time_dim, pad_value=0)
+    targets_, time_dim_ = rf.masked_select(best_path_, mask=mask, dims=[time_dim])
+    mask: Tensor = targets_ != 0  # non-blank  # noqa
+    targets_, time_dim_ = rf.masked_select(targets_, mask=mask, dims=[time_dim_])
+    targets_ = targets_.copy_masked(0)
+    print(targets_.raw_tensor)
+    assert targets.raw_tensor.tolist() == targets_.raw_tensor.tolist()
+
+    score_ref = rf.log(rf.constant(1 / labels_dim.dimension, dims=())) * time_dim.get_size_tensor()
+    print(score_ref.raw_tensor)
+    torch.testing.assert_allclose(score.raw_tensor, score_ref.raw_tensor)
+
+
+def _ref_best_path(am_scores: Tensor, am_spatial_dim: Dim, fsa: FSA) -> Tuple[Tensor, Tensor]:
+    """
+    Reference pure Python/PyTorch Viterbi algorithm, to find the best path/alignment.
+    This is mostly intended for testing.
+
+    :param am_scores: (time, batch, dim), in +log space
+    :param am_spatial_dim:
+    :param fsa:
+    :return: (alignment, obs_scores), alignment is (time, batch), obs_scores is (batch,), in +log space
+    """
+    import torch
+    from collections import defaultdict
+
+    assert len(fsa.batch_dims) == 1
+    batch_dim = fsa.batch_dims[0]
+    am_scores = am_scores.copy_transpose([am_spatial_dim, batch_dim, am_scores.feature_dim])
+
+    n_time, n_batch, dim = am_scores.raw_tensor.shape
+    am_seq_len = am_spatial_dim.get_size_tensor().raw_tensor
+    assert am_seq_len.shape == (n_batch,)
+
+    zero_score = float("-inf")
+    alignment = torch.zeros((n_time, n_batch), dtype=torch.int32)
+    obs_scores = torch.full((n_batch,), zero_score, dtype=am_scores.raw_tensor.dtype)
+    n_edges = fsa.num_trans_dim.get_dim_value()
+
+    def search() -> List[Dict[int, Tuple[float, int]]]:
+        start_idx = fsa.start_states.raw_tensor[batch_idx].item()
+        states: Dict[int, Tuple[float, int]] = defaultdict(lambda: (zero_score, -1))  # state-idx -> score/edge
+        states[start_idx] = (0.0, -1)
+        res: List[Dict[int, Tuple[float, int]]] = []
+        for t in range(n_time):
+            if t >= am_seq_len[batch_idx]:
+                break
+            scores: Dict[int, List[Tuple[float, int]]] = defaultdict(list)  # state-idx -> list[score/edge]
+            for edge_idx in range(n_edges):
+                from_idx = fsa.trans_prev_state.raw_tensor[edge_idx].item()
+                to_idx = fsa.trans_next_state.raw_tensor[edge_idx].item()
+                emission_idx = fsa.trans_batch_label_idx.raw_tensor[edge_idx].item() % dim
+                batch_idx_ = fsa.trans_batch_label_idx.raw_tensor[edge_idx].item() // dim
+                if batch_idx_ != batch_idx:
+                    continue
+                if from_idx not in states or states[from_idx][0] == zero_score:
+                    continue
+                assert 0 <= emission_idx < dim
+                score = states[from_idx][0] + am_scores.raw_tensor[t, batch_idx, emission_idx].item()
+                scores[to_idx].append((score, edge_idx))
+            states.clear()
+            for state_idx in scores.keys():
+                states[state_idx] = max(scores[state_idx], key=lambda _item: (_item[0], -_item[1]))
+            res.append(dict(states))
+        assert len(res) == am_seq_len[batch_idx]
+        return res
+
+    def select_best():
+        """
+        :return: nothing, fill alignment and obs_scores
+        """
+        scores: Dict[int, float] = {
+            state_idx.item(): fwd_search_res[am_seq_len[batch_idx] - 1][state_idx.item()][0]
+            for i, state_idx in enumerate(fsa.final_states.raw_tensor)
+            if fsa.final_states_batch_idx.raw_tensor[i].item() == batch_idx
+        }  # final state_idx -> score
+        end_idx = max(scores, key=lambda state_idx_: scores[state_idx_])
+        state_idx = end_idx
+        for t in reversed(range(am_seq_len[batch_idx])):
+            if state_idx not in fwd_search_res[t]:  # no path?
+                alignment[t, batch_idx] = 0
+                continue
+            score, edge_idx = fwd_search_res[t][state_idx]
+            if t == am_seq_len[batch_idx] - 1:
+                obs_scores[batch_idx] = score
+            from_idx = fsa.trans_prev_state.raw_tensor[edge_idx].item()
+            emission_idx = fsa.trans_batch_label_idx.raw_tensor[edge_idx].item() % dim
+            batch_idx_ = fsa.trans_batch_label_idx.raw_tensor[edge_idx].item() // dim
+            assert batch_idx_ == batch_idx
+            alignment[t, batch_idx] = emission_idx
+            state_idx = from_idx
+
+    for batch_idx in range(n_batch):
+        fwd_search_res = search()
+        select_best()
+
+    return (
+        rf.convert_to_tensor(alignment, dims=[am_spatial_dim, batch_dim], name="path"),
+        rf.convert_to_tensor(obs_scores, dims=[batch_dim], name="scores"),
+    )
+
+
+def test_best_path_ctc_to_ref():
+    import torch
+
+    batch_dim = Dim(2, name="batch")
+    labels_dim = Dim(5, name="labels")
+    targets_spatial_dim = Dim(rf.convert_to_tensor([4, 2], dims=[batch_dim]), name="targets_spatial")
+    targets = rf.convert_to_tensor(
+        [[1, 2, 3, 3], [2, 4, 0, 0]], dims=[batch_dim, targets_spatial_dim], sparse_dim=labels_dim
+    )
+
+    time_dim = Dim(rf.convert_to_tensor([11, 7], dims=[batch_dim]), name="time")
+    logits = rf.random_normal([batch_dim, time_dim, labels_dim], stddev=2.0, feature_dim=labels_dim)
+    logits = rf.log_softmax(logits, axis=labels_dim)
+    fsa = fsa_for_ctc(targets, targets_spatial_dim, labels_with_blank_dim=labels_dim, blank_index=0)
+    print("Best path:")
+    best_path_, score = best_path(
+        logits=logits,
+        logits_normalized=True,
+        input_spatial_dim=time_dim,
+        fsa=fsa,
+    )
+    assert best_path_.dims_set == {batch_dim, time_dim}
+    assert score.dims == (batch_dim,)
+    best_path_ = best_path_.copy_masked(0)
+    print(best_path_.raw_tensor)
+    print(score.raw_tensor)
+
+    print("Best path reference:")
+    best_path_ref, score_ref = _ref_best_path(logits, time_dim, fsa)
+    print(best_path_ref.raw_tensor)
+    print(score_ref.raw_tensor)
+
+    torch.testing.assert_allclose(score.raw_tensor, score_ref.raw_tensor)
+    torch.testing.assert_allclose(
+        best_path_.copy_compatible_to_dims_raw([time_dim, batch_dim]), best_path_ref.raw_tensor
+    )
