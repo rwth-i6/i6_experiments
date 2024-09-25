@@ -119,6 +119,8 @@ def forward_sequence(
         batch_dims: List[Dim],
         return_label_model_states: bool = False,
         center_positions: Optional[rf.Tensor] = None,
+        detach_att_before_readout: bool = False,
+        detach_h_t_before_readout: bool = False,
 ) -> Tuple[rf.Tensor, Optional[Tuple[rf.Tensor, Dim]]]:
   if type(model) is TransformerDecoder:
     logits, _, _ = model(
@@ -157,7 +159,14 @@ def forward_sequence(
     else:
       h_t = None
 
-    logits = model.decode_logits(input_embed=input_embeddings, s=s, att=att, h_t=h_t)
+    logits = model.decode_logits(
+      input_embed=input_embeddings,
+      s=s,
+      att=att,
+      h_t=h_t,
+      detach_att=detach_att_before_readout,
+      detach_h_t=detach_h_t_before_readout
+    )
 
   if return_label_model_states:
     assert model is not TransformerDecoder, "not implemented yet"

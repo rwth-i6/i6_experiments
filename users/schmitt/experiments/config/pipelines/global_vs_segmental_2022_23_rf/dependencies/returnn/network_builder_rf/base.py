@@ -334,7 +334,21 @@ class BaseLabelDecoder(rf.Module):
       att = utils.copy_tensor_replace_dim_tag(att, self.enc_out_dim, self.att_num_heads * self.enc_out_dim)
     return att
 
-  def decode_logits(self, *, s: Tensor, input_embed: Tensor, att: Tensor, h_t: Optional[Tensor] = None) -> Tensor:
+  def decode_logits(
+          self,
+          *,
+          s: Tensor,
+          input_embed: Tensor,
+          att: Tensor,
+          h_t: Optional[Tensor] = None,
+          detach_att: bool = False,
+          detach_h_t: bool = False,
+  ) -> Tensor:
+    if detach_att:
+      att = rf.stop_gradient(att)
+    if detach_h_t:
+      h_t = rf.stop_gradient(h_t)
+
     input_embed = rf.dropout(input_embed, drop_prob=self.target_embed_dropout, axis=None)
 
     if self.use_current_frame_in_readout:
