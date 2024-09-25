@@ -236,7 +236,7 @@ def py():
         #         "feature_batch_norm": True,
         #     },
         # ),
-        (
+        (  # 5.54. Much worse. This is weird?
             "spm10k",
             "bpe",
             0.01,
