@@ -50,6 +50,7 @@ def add_specaug_layer(
                 max_time_num_seq_len_divisor (int):
                     The divisor for the sequence length to determine the maximum number of time masks. Default is 0.7.
                 filter_based_masking_strategy (string): Which filter strategy to use for masking. Default is None.
+                    Options are: None, "variance", "peakToAverageRatio", "peakToAverageDifference".
                 filter_factor (float): The factor that determines the probability of masking a feature based on a filter. Default is 0.5.
                 max_number_masks_for_filter_based_specaug (int): The total maximum number of masks to be applied if any filter-based masking is used. Default is 50.
                 filter_mask_schedule (Dict[int, float]):
@@ -249,14 +250,23 @@ def transform(data, network, **config):
             tf.int32,
         )
         # check for the limits
-        actual_time_mask_max_num = tf.minimum(
-            tf.maximum(
-                time_mask_max_num,
-                max_time_num_seq_len,
+        actual_time_mask_max_num = tf.cond(
+            tf.equal(time_mask_max_num, 0),
+            lambda: tf.cast(0, tf.int32),
+            lambda: tf.minimum(
+                tf.maximum(
+                    time_mask_max_num,
+                    max_time_num_seq_len,
+                ),
+                total_time_masks_max_frames // time_mask_max_size,
             ),
-            total_time_masks_max_frames // time_mask_max_size,
         )
-        actual_freq_mask_max_num = tf.minimum(freq_mask_max_num, total_freq_masks_max_size // freq_mask_max_size)
+        # check if freq mask is 0 
+        actual_freq_mask_max_num = tf.cond(
+            tf.equal(freq_mask_max_num, 0),
+            lambda: tf.cast(0, tf.int32),
+            lambda: tf.minimum(freq_mask_max_num, total_freq_masks_max_size // freq_mask_max_size),
+        )
 
         enable_logging = tf.convert_to_tensor(config["enable_logging"], dtype=tf.bool)
 
@@ -355,14 +365,23 @@ def transform_with_filter_masking(data, network, **config):
             tf.int32,
         )
         # check for the limits
-        actual_time_mask_max_num = tf.minimum(
-            tf.maximum(
-                time_mask_max_num,
-                max_time_num_seq_len,
+        actual_time_mask_max_num = tf.cond(
+            tf.equal(time_mask_max_num, 0),
+            lambda: tf.cast(0, tf.int32),
+            lambda: tf.minimum(
+                tf.maximum(
+                    time_mask_max_num,
+                    max_time_num_seq_len,
+                ),
+                total_time_masks_max_frames // time_mask_max_size,
             ),
-            total_time_masks_max_frames // time_mask_max_size,
         )
-        actual_freq_mask_max_num = tf.minimum(freq_mask_max_num, total_freq_masks_max_size // freq_mask_max_size)
+        # check if freq mask is 0 
+        actual_freq_mask_max_num = tf.cond(
+            tf.equal(freq_mask_max_num, 0),
+            lambda: tf.cast(0, tf.int32),
+            lambda: tf.minimum(freq_mask_max_num, total_freq_masks_max_size // freq_mask_max_size),
+        )
 
         if config["filter_based_masking_strategy"] == "variance":
             f_resp = get_frequency_response(filter_layer)
@@ -371,12 +390,23 @@ def transform_with_filter_masking(data, network, **config):
             probs = variance / tf.reduce_sum(variance)
             uniform_probs = tf.ones_like(probs) / tf.cast(n_features, tf.float32)
             final_probs = filter_factor * probs + (1 - filter_factor) * uniform_probs
-        elif config["filter_based_masking_strategy"] == "peakToAverage":
+        elif config["filter_based_masking_strategy"] == "peakToAverageRatio":
             # Get peak to average ratio for each filter
             f_resp = get_frequency_response(filter_layer)
             peak = tf.reduce_max(f_resp, axis=0)
             average = tf.reduce_mean(f_resp, axis=0)
             ratio = peak / average
+            n_features = tf.shape(x)[data.feature_dim_axis]
+            # Normalize the ratio to get probabilities
+            probs = ratio / tf.reduce_sum(ratio)
+            uniform_probs = tf.ones_like(probs) / tf.cast(n_features, tf.float32)
+            final_probs = filter_factor * probs + (1 - filter_factor) * uniform_probs
+        elif config["filter_based_masking_strategy"] == "peakToAverageDifference":
+            # Get peak to average ratio for each filter
+            f_resp = get_frequency_response(filter_layer)
+            peak = tf.reduce_max(f_resp, axis=0)
+            average = tf.reduce_mean(f_resp, axis=0)
+            ratio = peak - average
             n_features = tf.shape(x)[data.feature_dim_axis]
             # Normalize the ratio to get probabilities
             probs = ratio / tf.reduce_sum(ratio)
