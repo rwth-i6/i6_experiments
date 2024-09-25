@@ -193,8 +193,8 @@ def _plot_log_prob_gradient_wrt_to_input_batched(
   from returnn.config import get_global_config
   config = get_global_config()
 
-  # if os.path.exists(dirname) and not return_gradients:
-  #   return
+  if os.path.exists(dirname) and not return_gradients:
+    return
 
   input_raw = input_.raw_tensor
   log_probs_raw = log_probs.raw_tensor
@@ -233,8 +233,12 @@ def _plot_log_prob_gradient_wrt_to_input_batched(
   if return_gradients:
     return x_linear_grad_l2
   else:
+    log_x_linear_grad_l2 = rf.log(x_linear_grad_l2)
+    # normalize to [0, 1]
+    log_x_linear_grad_l2 -= rf.reduce_min(log_x_linear_grad_l2, axis=log_x_linear_grad_l2.dims)
+    log_x_linear_grad_l2 /= rf.reduce_max(log_x_linear_grad_l2, axis=log_x_linear_grad_l2.dims)
     dump_hdfs(
-      att_weights=rf.log(x_linear_grad_l2),  # use log for better visualization
+      att_weights=log_x_linear_grad_l2,  # use log for better visualization
       batch_dims=batch_dims,
       dirname=dirname,
       seq_tags=seq_tags,
@@ -1640,6 +1644,8 @@ def analyze_gradients(
           label_model_states.feature_dim = label_model_states.remaining_dims(
             batch_dims + [non_blank_targets_spatial_dim])[0]
 
+          log_probs_wo_att = None
+          log_probs_wo_h_t = None
           logits = process_captured_tensors(
             layer_mapping={"logits": (SegmentalAttLabelDecoder.decode_logits, 0, "logits", -1)}
           )
@@ -1703,6 +1709,8 @@ def analyze_gradients(
           )
           assert isinstance(label_model_states, rf.Tensor)
 
+          log_probs_wo_att = None
+          log_probs_wo_h_t = None
           logits = process_captured_tensors(
             layer_mapping={"logits": (SegmentalAttEfficientLabelDecoder.decode_logits, 0, "logits", -1)}
           )
@@ -1765,6 +1773,33 @@ def analyze_gradients(
           layer_mapping={"energy": (GlobalAttEfficientDecoder.__call__, 0, "energy", -1)},
         )
         assert isinstance(energies, rf.Tensor)
+
+        if model.label_decoder.use_current_frame_in_readout:
+          logits_wo_att, _ = forward_sequence_global(
+            model=model.label_decoder,
+            enc_args=enc_args,
+            enc_spatial_dim=enc_spatial_dim,
+            targets=non_blank_targets,
+            targets_spatial_dim=non_blank_targets_spatial_dim,
+            center_positions=center_positions,
+            batch_dims=batch_dims,
+            detach_att_before_readout=True,
+          )
+          log_probs_wo_att = rf.log_softmax(logits_wo_att, axis=model.target_dim)
+          logits_wo_h_t, _ = forward_sequence_global(
+            model=model.label_decoder,
+            enc_args=enc_args,
+            enc_spatial_dim=enc_spatial_dim,
+            targets=non_blank_targets,
+            targets_spatial_dim=non_blank_targets_spatial_dim,
+            center_positions=center_positions,
+            batch_dims=batch_dims,
+            detach_h_t_before_readout=True,
+          )
+          log_probs_wo_h_t = rf.log_softmax(logits_wo_h_t, axis=model.target_dim)
+        else:
+          log_probs_wo_att = None
+          log_probs_wo_h_t = None
         logits = process_captured_tensors(
           layer_mapping={"logits": (GlobalAttEfficientDecoder.decode_logits, 0, "logits", -1)}
         )
@@ -1835,6 +1870,9 @@ def analyze_gradients(
         label_model_states.feature_dim = label_model_states.remaining_dims(
           batch_dims + [non_blank_targets_spatial_dim])[0]
 
+        log_probs_wo_att = None
+        log_probs_wo_h_t = None
+
         logits = process_captured_tensors(
           layer_mapping={"logits": (GlobalAttDecoder.decode_logits, 0, "logits", -1)}
         )
@@ -1892,19 +1930,25 @@ def analyze_gradients(
             sys.settrace(None)
 
             _dec_layer_idx = 2 * dec_layer_idx + int(get_cross_attentions)
-            att_weights = process_captured_tensors(
-              layer_mapping={"att_weights": (rf.dot_attention, _dec_layer_idx, "att_weights", -1)}
-            )
-            assert isinstance(att_weights, rf.Tensor)
-            energies = process_captured_tensors(
-              layer_mapping={"energy": (rf.dot_attention, _dec_layer_idx, "energy", -1)}
-            )
-            assert isinstance(energies, rf.Tensor)
+            if model.label_decoder.use_trafo_att_wo_cross_att:
+              att_weights = None
+              energies = None
+            else:
+              att_weights = process_captured_tensors(
+                layer_mapping={"att_weights": (rf.dot_attention, _dec_layer_idx, "att_weights", -1)}
+              )
+              assert isinstance(att_weights, rf.Tensor)
+              energies = process_captured_tensors(
+                layer_mapping={"energy": (rf.dot_attention, _dec_layer_idx, "energy", -1)}
+              )
+              assert isinstance(energies, rf.Tensor)
 
             if isinstance(model.label_decoder, TransformerDecoder):
               logits = process_captured_tensors(
                 layer_mapping={"logits": (TransformerDecoder.__call__, 0, "logits", -1)}
               )
+              log_probs_wo_att = None
+              log_probs_wo_h_t = None
             else:
               label_model_states = process_captured_tensors(
                 layer_mapping={f"s": (get_s_and_att_efficient_global, 0, "s", -1)},
@@ -1914,6 +1958,29 @@ def analyze_gradients(
               logits = process_captured_tensors(
                 layer_mapping={"logits": (GlobalAttEfficientDecoder.decode_logits, 0, "logits", -1)}
               )
+
+              logits_wo_att, _ = forward_sequence_global(
+                model=model.label_decoder,
+                enc_args=enc_args,
+                enc_spatial_dim=enc_spatial_dim,
+                targets=non_blank_targets,
+                targets_spatial_dim=non_blank_targets_spatial_dim,
+                center_positions=center_positions,
+                batch_dims=batch_dims,
+                detach_att_before_readout=True,
+              )
+              log_probs_wo_att = rf.log_softmax(logits_wo_att, axis=model.target_dim)
+              logits_wo_h_t, _ = forward_sequence_global(
+                model=model.label_decoder,
+                enc_args=enc_args,
+                enc_spatial_dim=enc_spatial_dim,
+                targets=non_blank_targets,
+                targets_spatial_dim=non_blank_targets_spatial_dim,
+                center_positions=center_positions,
+                batch_dims=batch_dims,
+                detach_h_t_before_readout=True,
+              )
+              log_probs_wo_h_t = rf.log_softmax(logits_wo_h_t, axis=model.target_dim)
             assert isinstance(logits, rf.Tensor)
             log_probs = rf.log_softmax(logits, axis=model.target_dim)
 
@@ -2005,7 +2072,8 @@ def analyze_gradients(
                     **plot_att_weight_opts
                   )
 
-            _plot_attention_weights()
+            if not model.label_decoder.use_trafo_att_wo_cross_att:
+              _plot_attention_weights()
 
       # optionally plot energies for every s = 1...S
       # if isinstance(model.label_decoder, GlobalAttDecoder) and not model.label_decoder.trafo_att:
@@ -2064,7 +2132,7 @@ def analyze_gradients(
             ref_alignment_hdf=ref_alignment_hdf,
             ref_alignment_blank_idx=ref_alignment_blank_idx,
             ref_alignment_json_vocab_path=ref_alignment_vocab_path,
-            dirname=f"{input_name}/log-prob-grads_wrt_{input_name}_log-space"
+            dirname=f"{input_name}/log-prob-grads_wrt_{input_name}_log-space_norm_0_1"
           )
 
         if config.bool("plot_encoder_layers", False):
@@ -2077,6 +2145,28 @@ def analyze_gradients(
             spatial_dim=enc_spatial_dim,
             # non_blank_positions_dict=non_blank_positions_dict,
           )
+
+      for log_prob_name, log_probs in (
+              ("log-probs-wo-att", log_probs_wo_att),
+              ("log-probs-wo-h_t", log_probs_wo_h_t),
+      ):
+        if log_probs is None:
+          continue
+
+        _plot_log_prob_gradient_wrt_to_input_batched(
+          input_=collected_outputs["11"],
+          log_probs=log_probs,
+          targets=non_blank_targets,
+          batch_dims=batch_dims,
+          seq_tags=seq_tags,
+          enc_spatial_dim=enc_spatial_dim,
+          targets_spatial_dim=non_blank_targets_spatial_dim,
+          json_vocab_path=json_vocab_path,
+          ref_alignment_hdf=ref_alignment_hdf,
+          ref_alignment_blank_idx=ref_alignment_blank_idx,
+          ref_alignment_json_vocab_path=ref_alignment_vocab_path,
+          dirname=f"enc-11/{log_prob_name}-grads_wrt_enc-11_log-space_norm_0_1"
+        )
 
       if isinstance(model, SegmentalAttentionModel) and model.blank_decoder_version in (3, 4, 8,):
         _blank_model_analysis(
