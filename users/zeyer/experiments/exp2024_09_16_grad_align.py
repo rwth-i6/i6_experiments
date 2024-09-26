@@ -74,15 +74,13 @@ def py():
     task = get_librispeech_task_raw_v2(vocab="spm10k")
     train_dataset = task.train_dataset.copy_train_as_static()
     # train_dataset.main_dataset["fixed_random_subset"] = 1000  # for debugging...
-    # train_dataset.main_dataset["seq_list_filter_file"] = ...  # TODO
-    # TODO with seq_list...
-    # TODO probably need to translate robins seq list ... 960 to mixed 100/360/460
+    train_dataset.main_dataset["seq_list_filter_file"] = seq_list
 
     alignment = ctc_forced_align(ctc_model, train_dataset)
     alignment.creator.add_alias(f"{prefix}ctc_forced_align/align")
     tk.register_output(f"{prefix}ctc_forced_align/align.hdf", alignment)
 
-    name = "ctc_forced_align/metrics"
+    name = "ctc_forced_align/metrics"  # 110.8/43.8ms
     job = CalcAlignmentMetrics(
         seq_list=seq_list,
         seq_list_ref=seq_list_ref,
@@ -98,6 +96,7 @@ def py():
     )
     job.add_alias(prefix + name)
     tk.register_output(prefix + name + ".json", job.out_scores)
+    tk.register_output(prefix + name + ".short_report.txt", job.out_short_report_str)
 
     # TODO job to dump grads, diff variants:
     #  - x * grad
