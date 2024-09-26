@@ -479,7 +479,6 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
         key: str,
         epoch: int,
         train_corpus_key: str,
-        dev_corpus_key: str,
         returnn_config: returnn.ReturnnConfig,
         share: float,
         time_rqmt: Optional[int] = None,
@@ -496,10 +495,7 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
         )
 
         train_data = self.train_input_data[train_corpus_key]
-        dev_data = self.cv_input_data[dev_corpus_key]
-
         train_crp = train_data.get_crp()
-        dev_crp = dev_data.get_crp()
 
         if share != 1.0:
             train_crp = copy.deepcopy(train_crp)
@@ -509,10 +505,6 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
                 shuffle=True,
             )
             train_crp.segment_path = segment_job.out_segments["priors"]
-
-        # assert train_data.feature_flow == dev_data.feature_flow
-        # assert train_data.features == dev_data.features
-        # assert train_data.alignments == dev_data.alignments
 
         if train_data.feature_flow is not None:
             feature_flow = train_data.feature_flow
@@ -544,6 +536,7 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
         if "num_outputs" in returnn_config.config:
             if "classes" in returnn_config.config["num_outputs"]:
                 del returnn_config.config["num_outputs"]["classes"]
+
 
         prior_job = returnn.ReturnnRasrComputePriorJobV2(
             train_crp=train_crp,
@@ -642,14 +635,15 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
             joint_for_factored_loss=joint_for_factored_loss,
         )
 
+
         config = copy.deepcopy(self.experiments[key]["returnn_config"])
         config.config["forward_output_layer"] = output_layer_name
+
 
         job = self._compute_returnn_rasr_priors(
             key,
             epoch,
             train_corpus_key=train_corpus_key,
-            dev_corpus_key=dev_corpus_key,
             returnn_config=config,
             share=data_share,
             checkpoint=checkpoint,
@@ -720,7 +714,6 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
                 key,
                 epoch,
                 train_corpus_key=train_corpus_key,
-                dev_corpus_key=dev_corpus_key,
                 returnn_config=cfg,
                 share=data_share,
                 checkpoint=checkpoint,
@@ -838,7 +831,6 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
                 key,
                 epoch,
                 train_corpus_key=train_corpus_key,
-                dev_corpus_key=dev_corpus_key,
                 returnn_config=cfg,
                 share=data_share,
                 time_rqmt=8,
@@ -1005,6 +997,7 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
             extra_dict_key="context",
             additional_python_prolog=context_time_tag,
         )
+
         self.set_graph_for_experiment(key, graph_type_name=f"precomputed-{softmax_type}")
 
     def setup_returnn_config_and_graph_for_precomputed_decoding(
@@ -1303,8 +1296,6 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
         else:
             #seems buggy need to debug
             #logging.warn("We do not execute time stamp error until you debugged it ;-)")
-
-
             tse_job = mm.ComputeTimeStampErrorJob(
                 hyp_alignment_cache=alignment,
                 ref_alignment_cache=reference_alignment,
@@ -1312,6 +1303,12 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
                 ref_allophone_file=reference_allophones,
                 hyp_upsample_factor=4,
             )
+            tse_job.rqmt = {
+                "time": 4,
+                "cpu": 1,
+                "mem": 6,
+            }
+
             tse_job.add_alias(f"statistics/alignment/{exp_name}/tse")
             tk.register_output(
                 f"statistics/alignment/{exp_name}/word_tse",

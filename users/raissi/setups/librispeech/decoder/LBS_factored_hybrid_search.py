@@ -145,6 +145,10 @@ class LBSFactoredHybridDecoder(BASEFactoredHybridDecoder):
         trafo_config.output_map.info_0.param_name = "softmax"
         trafo_config.output_map.info_0.tensor_name = "output/output_batch_major"
 
+        embed()
+
+        return trafo_config
+
 
 
     def get_eugen_trafo_with_quant_and_compress_config(
