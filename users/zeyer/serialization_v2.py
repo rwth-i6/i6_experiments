@@ -178,6 +178,7 @@ class _Serializer:
             mod = sys.modules[mod_name]
             # Don't add those module path to sys.path again.
             self.added_sys_paths.add(_get_module_path_from_module(mod))
+        self._next_sys_path_insert_idx = 0
         self.sis_path_handling = sis_path_handling
         self._cur_added_refs: List[PyCode] = []
         self._next_alignment_idx = 0
@@ -760,14 +761,29 @@ class _Serializer:
         assert base_sys_path
         if path in base_sys_path:
             return  # already in (base) sys.path
-        assert path in sys.path
-        assert base_sys_path[0] in sys.path
+        if path in sys.path:
+            path_index = sys.path.index(path)
+            assert base_sys_path[0] in sys.path, f"sys.path {sys.path} does not contain {base_sys_path[0]!r}"
+            base_sys_path_index = sys.path.index(base_sys_path[0])
+            if path_index < base_sys_path_index:
+                insert_idx = self._next_sys_path_insert_idx
+                self._next_sys_path_insert_idx += 1
+            else:
+                insert_idx = None  # add at the end
+        else:
+            # Maybe some other import mechanism is in place (like the Sisyphus config loading mechanism),
+            # which takes precedence over sys.path.
+            # Thus put it in front of the base sys.path.
+            insert_idx = self._next_sys_path_insert_idx
+            self._next_sys_path_insert_idx += 1
         if not recursive:
             self._handle_next_queue_item(_AssignQueueItem(sys))
         sys_s = self._serialize_value(sys, prefix="sys")
         assert isinstance(sys_s, PyEvalCode)
-        if sys.path.index(path) < sys.path.index(base_sys_path[0]):
-            code = PyCode(py_name=None, value=None, py_code=f"{sys_s.py_inline()}.path.insert(0, {path!r})\n")
+        if insert_idx is not None:
+            code = PyCode(
+                py_name=None, value=None, py_code=f"{sys_s.py_inline()}.path.insert({insert_idx}, {path!r})\n"
+            )
         else:
             code = PyCode(py_name=None, value=None, py_code=f"{sys_s.py_inline()}.path.append({path!r})\n")
         code.idx = self._next_alignment_idx
