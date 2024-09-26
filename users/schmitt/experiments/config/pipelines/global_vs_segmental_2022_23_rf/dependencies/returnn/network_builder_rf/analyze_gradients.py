@@ -17,7 +17,6 @@ from returnn.frontend.encoder.conformer import ConformerEncoder, ConformerEncode
 from returnn.frontend.attention import RelPosSelfAttention, dot_attention
 from returnn.frontend.decoder.transformer import TransformerDecoder, TransformerDecoderLayer
 
-from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.encoder.ff import LinearEncoder
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.base import TrafoAttention
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.segmental import utils
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.ctc.realignment import ctc_align_get_center_positions
@@ -187,6 +186,7 @@ def _plot_log_prob_gradient_wrt_to_input_batched(
         ref_alignment_json_vocab_path: Optional[Path],
         return_gradients: bool = False,
         print_progress: bool = False,
+        dummy_singleton_dim: rf.Dim = rf.Dim(1, name="dummy"),
 ):
   print(f"Plotting log prob gradient w.r.t. input for {dirname}")
 
@@ -227,16 +227,13 @@ def _plot_log_prob_gradient_wrt_to_input_batched(
   input_spatial_dim = input_.remaining_dims(batch_dims + [input_.feature_dim])[0]
   x_linear_grad_l2 = rf.convert_to_tensor(
     x_linear_grad_l2_raw,
-    dims=batch_dims + [targets_spatial_dim, input_spatial_dim, rf.Dim(1, name="dummy")],
+    dims=batch_dims + [targets_spatial_dim, input_spatial_dim, dummy_singleton_dim],
   )
 
   if return_gradients:
     return x_linear_grad_l2
   else:
     log_x_linear_grad_l2 = rf.log(x_linear_grad_l2)
-    # normalize to [0, 1]
-    log_x_linear_grad_l2 -= rf.reduce_min(log_x_linear_grad_l2, axis=log_x_linear_grad_l2.dims)
-    log_x_linear_grad_l2 /= rf.reduce_max(log_x_linear_grad_l2, axis=log_x_linear_grad_l2.dims)
     dump_hdfs(
       att_weights=log_x_linear_grad_l2,  # use log for better visualization
       batch_dims=batch_dims,
@@ -348,12 +345,16 @@ def _plot_activation_matrix(
     # fig.tight_layout()
 
     if not return_axes:
-      cax = fig.add_axes([activation_ax.get_position().x1 + 0.01, activation_ax.get_position().y0, 0.02, activation_ax.get_position().height])
+      cax = fig.add_axes([activation_ax.get_position().x1 + 0.01, activation_ax.get_position().y0, 0.02,
+                          activation_ax.get_position().height])
       plt.colorbar(mat, cax=cax)
 
-      plot_file_path_png = os.path.join(dirname, f"{input_name}_acts_{seq_tag.replace('/', '_')}_{extra_name if extra_name else ''}.png")
-      plot_file_path_pdf = os.path.join(dirname, f"{input_name}_acts_{seq_tag.replace('/', '_')}_{extra_name if extra_name else ''}.pdf")
-      magnitude_file_path = os.path.join(dirname, f"{input_name}_acts_{seq_tag.replace('/', '_')}_{extra_name if extra_name else ''}_magnitude.txt")
+      plot_file_path_png = os.path.join(dirname,
+                                        f"{input_name}_acts_{seq_tag.replace('/', '_')}_{extra_name if extra_name else ''}.png")
+      plot_file_path_pdf = os.path.join(dirname,
+                                        f"{input_name}_acts_{seq_tag.replace('/', '_')}_{extra_name if extra_name else ''}.pdf")
+      magnitude_file_path = os.path.join(dirname,
+                                         f"{input_name}_acts_{seq_tag.replace('/', '_')}_{extra_name if extra_name else ''}_magnitude.txt")
       plt.savefig(plot_file_path_png)
       plt.savefig(plot_file_path_pdf)
       with open(activation_magnitude_file_path, "a") as f:
@@ -625,7 +626,8 @@ def _plot_pca_components(
         # if i in range(5):
         #   scat = ax.scatter(pair[0], pair[1], marker='x' if i in non_blank_positions else 'o', color="red")
         # else:
-        scat = ax.scatter(*pair, marker='x' if i in non_blank_positions else 'o', c=i, cmap="summer", vmin=0, vmax=x_pca.shape[0] - 1)
+        scat = ax.scatter(*pair, marker='x' if i in non_blank_positions else 'o', c=i, cmap="summer", vmin=0,
+                          vmax=x_pca.shape[0] - 1)
     else:
       scat = ax.scatter(x_pca[:, 0], x_pca[:, 1], c=np.arange(x_pca.shape[0]), cmap="summer")
     fig.tight_layout(pad=5)
@@ -759,11 +761,14 @@ def _plot_cosine_sim_matrix(
     fig.tight_layout()
 
     if not return_axes:
-      cax = fig.add_axes([cosine_ax.get_position().x1 + 0.01, cosine_ax.get_position().y0, 0.02, cosine_ax.get_position().height])
+      cax = fig.add_axes(
+        [cosine_ax.get_position().x1 + 0.01, cosine_ax.get_position().y0, 0.02, cosine_ax.get_position().height])
       plt.colorbar(mat, cax=cax)
 
-      plot_file_path_png = os.path.join(dirname, f"cos_sim_{seq_tag.replace('/', '_')}_{extra_name if extra_name else ''}.png")
-      plot_file_path_pdf = os.path.join(dirname, f"cos_sim_{seq_tag.replace('/', '_')}_{extra_name if extra_name else ''}.pdf")
+      plot_file_path_png = os.path.join(dirname,
+                                        f"cos_sim_{seq_tag.replace('/', '_')}_{extra_name if extra_name else ''}.png")
+      plot_file_path_pdf = os.path.join(dirname,
+                                        f"cos_sim_{seq_tag.replace('/', '_')}_{extra_name if extra_name else ''}.pdf")
       plt.savefig(plot_file_path_png)
       plt.savefig(plot_file_path_pdf)
       plot_file_paths[seq_tag] = plot_file_path_png
@@ -980,6 +985,7 @@ def _blank_model_analysis(
   #       batch_mask=non_blank_targets_spatial_dim.dyn_size_ext > s,
   #     )
 
+
 def _plot_multi_head_enc_self_att_one_fig(
         att_weights: rf.Tensor,
         energies: rf.Tensor,
@@ -990,70 +996,71 @@ def _plot_multi_head_enc_self_att_one_fig(
         dirname: str,
         seq_tags: rf.Tensor,
 ):
-    print(f"Plotting multi-head self-attention for {dirname}")
-    # Calculate grid size
-    num_heads = head_dim.dimension
-    grid_rows, grid_cols = 2, 4
+  print(f"Plotting multi-head self-attention for {dirname}")
 
-    for tensor, tensor_name in (
-            # (att_weights, "att_weights"),
-            (energies, "energies"),
-    ):
-        for b in range(tensor.raw_tensor.size(0)):
-            seq_tag = seq_tags.raw_tensor[b].item()
-            seq_len_b = enc_query_dim.dyn_size_ext.raw_tensor[b].item()
+  # Calculate grid size
+  num_heads = head_dim.dimension
+  grid_rows, grid_cols = 2, 4
 
-            # Create a figure for the 2x4 grid
-            fig, axes = plt.subplots(grid_rows, grid_cols, figsize=(20, 10))
-            # fig.suptitle(f'{tensor_name} for sequence {seq_tag}')
+  for tensor, tensor_name in (
+          # (att_weights, "att_weights"),
+          (energies, "energies"),
+  ):
+    head_dirname = os.path.join(dirname, f"{tensor_name}_grid")
+    if not os.path.exists(head_dirname):
+      os.makedirs(head_dirname)
 
-            for h in range(num_heads):
-                tensor_single_head = rf.gather(
-                    tensor,
-                    indices=rf.constant(h, dims=batch_dims),
-                    axis=head_dim,
-                )
-                dummy_att_head_dim = rf.Dim(1, name="att_head")
-                tensor_single_head = rf.expand_dim(tensor_single_head, dim=dummy_att_head_dim)
-                tensor_single_head = tensor_single_head.copy_transpose(
-                    batch_dims + [enc_query_dim, enc_kv_dim, dummy_att_head_dim])
+    for b in range(tensor.raw_tensor.size(0)):
+      seq_tag = seq_tags.raw_tensor[b].item()
+      seq_len_b = enc_query_dim.dyn_size_ext.raw_tensor[b].item()
 
-                tensor_single_head_raw = tensor_single_head.raw_tensor
-                tensor_single_head_b_raw = tensor_single_head_raw[b, :seq_len_b, :seq_len_b, 0]
-                tensor_single_head_b_raw = tensor_single_head_b_raw.cpu().detach().numpy()
+      # Create a figure for the 2x4 grid
+      fig, axes = plt.subplots(grid_rows, grid_cols, figsize=(20, 10))
+      # fig.suptitle(f'{tensor_name} for sequence {seq_tag}')
 
-                # Determine the current grid position
-                row_idx = h // grid_cols
-                col_idx = h % grid_cols
+      for h in range(num_heads):
+        tensor_single_head = rf.gather(
+          tensor,
+          indices=rf.constant(h, dims=batch_dims),
+          axis=head_dim,
+        )
+        dummy_att_head_dim = rf.Dim(1, name="att_head")
+        tensor_single_head = rf.expand_dim(tensor_single_head, dim=dummy_att_head_dim)
+        tensor_single_head = tensor_single_head.copy_transpose(
+          batch_dims + [enc_query_dim, enc_kv_dim, dummy_att_head_dim])
 
-                # Plot in the appropriate grid position
-                ax = axes[row_idx, col_idx]
-                ax.matshow(tensor_single_head_b_raw, cmap="Blues")
-                ax.set_title(f"Head {h}", fontsize=fontsize_axis, pad=10)
-                ax.set_ylabel("Queries time (s)", fontsize=fontsize_axis, labelpad=4)
-                ax.set_xlabel("Keys/Values time (s)", fontsize=fontsize_axis, labelpad=4)
+        tensor_single_head_raw = tensor_single_head.raw_tensor
+        tensor_single_head_b_raw = tensor_single_head_raw[b, :seq_len_b, :seq_len_b, 0]
+        tensor_single_head_b_raw = tensor_single_head_b_raw.cpu().detach().numpy()
 
-                time_step_size = 1 / 60 * 500
-                time_ticks = np.arange(0, seq_len_b, time_step_size)
-                ax.set_xticks(time_ticks)
-                ax.set_yticks(time_ticks)
-                tick_labels = [(time_tick * 60) / 1000 for time_tick in time_ticks]
-                ax.set_xticklabels([f"{label:.1f}" for label in tick_labels], fontsize=fontsize_ticks)
-                ax.set_yticklabels([f"{label:.1f}" for label in tick_labels], fontsize=fontsize_ticks)
-                ax.xaxis.set_ticks_position('bottom')
+        # Determine the current grid position
+        row_idx = h // grid_cols
+        col_idx = h % grid_cols
 
-                ax.invert_yaxis()
+        # Plot in the appropriate grid position
+        ax = axes[row_idx, col_idx]
+        ax.matshow(tensor_single_head_b_raw, cmap="Blues")
+        ax.set_title(f"Head {h}", fontsize=fontsize_axis, pad=10)
+        ax.set_ylabel("Queries time (s)", fontsize=fontsize_axis, labelpad=4)
+        ax.set_xlabel("Keys/Values time (s)", fontsize=fontsize_axis, labelpad=4)
 
-            # Adjust layout and save the figure
-            plt.tight_layout(rect=[0, 0.03, 1, 0.95])
-            head_dirname = os.path.join(dirname, f"{tensor_name}_grid")
-            if not os.path.exists(head_dirname):
-                os.makedirs(head_dirname)
+        time_step_size = 1 / 60 * 500
+        time_ticks = np.arange(0, seq_len_b, time_step_size)
+        ax.set_xticks(time_ticks)
+        ax.set_yticks(time_ticks)
+        tick_labels = [(time_tick * 60) / 1000 for time_tick in time_ticks]
+        ax.set_xticklabels([f"{label:.1f}" for label in tick_labels], fontsize=fontsize_ticks)
+        ax.set_yticklabels([f"{label:.1f}" for label in tick_labels], fontsize=fontsize_ticks)
+        ax.xaxis.set_ticks_position('bottom')
 
-            plt.savefig(os.path.join(head_dirname, f"{tensor_name}_{seq_tag.replace('/', '_')}.png"))
-            plt.savefig(os.path.join(head_dirname, f"{tensor_name}_{seq_tag.replace('/', '_')}.pdf"))
-            plt.close(fig)
+        ax.invert_yaxis()
 
+      # Adjust layout and save the figure
+      plt.tight_layout(rect=[0, 0.03, 1, 0.95])
+
+      plt.savefig(os.path.join(head_dirname, f"{tensor_name}_{seq_tag.replace('/', '_')}.png"))
+      plt.savefig(os.path.join(head_dirname, f"{tensor_name}_{seq_tag.replace('/', '_')}.pdf"))
+      plt.close(fig)
 
 
 def _plot_multi_head_enc_self_att(
@@ -1458,7 +1465,6 @@ def analyze_gradients(
         assert isinstance(enc_att_energies, rf.Tensor)
         assert isinstance(enc_att_weights, rf.Tensor)
 
-
         enc_att_head_dim = enc_att_weights.remaining_dims(batch_dims + enc_att_weights.get_dyn_size_tags())[0]
         enc_kv_dim = enc_att_weights.remaining_dims(batch_dims + [enc_att_head_dim, enc_spatial_dim])[0]
         _plot_multi_head_enc_self_att_one_fig(
@@ -1551,7 +1557,8 @@ def analyze_gradients(
         enc_args["enc_ctx"] = model.encoder.enc_ctx(enc)  # does not exist for transformer decoder
 
         if model.label_decoder.use_weight_feedback:
-          enc_args["inv_fertility"] = rf.sigmoid(model.encoder.inv_fertility(enc))  # does not exist for transformer decoder
+          enc_args["inv_fertility"] = rf.sigmoid(
+            model.encoder.inv_fertility(enc))  # does not exist for transformer decoder
         else:
           enc_args["inv_fertility"] = None  # dummy value, not used
 
@@ -1621,7 +1628,8 @@ def analyze_gradients(
 
           att_weights = process_captured_tensors(
             layer_mapping={
-              f"att_weight_step{i}": (SegmentalAttLabelDecoder.loop_step, i, "att_weights", -1) for i in range(max_num_labels)},
+              f"att_weight_step{i}": (SegmentalAttLabelDecoder.loop_step, i, "att_weights", -1) for i in
+              range(max_num_labels)},
             process_func=_replace_slice_dim
           )
           att_weights, _ = rf.stack(att_weights, out_dim=non_blank_targets_spatial_dim)
@@ -1629,7 +1637,8 @@ def analyze_gradients(
           if model.center_window_size != 1 and model.label_decoder.gaussian_att_weight_opts is None:
             energies = process_captured_tensors(
               layer_mapping={
-                f"energy_step{i}": (SegmentalAttLabelDecoder.loop_step, i, "energy", -1) for i in range(max_num_labels)},
+                f"energy_step{i}": (SegmentalAttLabelDecoder.loop_step, i, "energy", -1) for i in
+                range(max_num_labels)},
               process_func=_replace_slice_dim
             )
             energies, _ = rf.stack(energies, out_dim=non_blank_targets_spatial_dim)
@@ -1786,6 +1795,7 @@ def analyze_gradients(
             detach_att_before_readout=True,
           )
           log_probs_wo_att = rf.log_softmax(logits_wo_att, axis=model.target_dim)
+          log_probs_wo_att = log_probs_wo_att.copy_transpose(batch_dims + [non_blank_targets_spatial_dim, model.target_dim])
           logits_wo_h_t, _ = forward_sequence_global(
             model=model.label_decoder,
             enc_args=enc_args,
@@ -1797,6 +1807,7 @@ def analyze_gradients(
             detach_h_t_before_readout=True,
           )
           log_probs_wo_h_t = rf.log_softmax(logits_wo_h_t, axis=model.target_dim)
+          log_probs_wo_h_t = log_probs_wo_h_t.copy_transpose(batch_dims + [non_blank_targets_spatial_dim, model.target_dim])
         else:
           log_probs_wo_att = None
           log_probs_wo_h_t = None
@@ -1886,7 +1897,7 @@ def analyze_gradients(
         # print("non_blank_targets", non_blank_targets.raw_tensor[0, :])  # [B, S]
       else:
         assert isinstance(model.label_decoder, TransformerDecoder) or (
-                  type(model.label_decoder) is GlobalAttEfficientDecoder and model.label_decoder.trafo_att)
+                type(model.label_decoder) is GlobalAttEfficientDecoder and model.label_decoder.trafo_att)
 
         for get_cross_attentions in [True, False]:
           for dec_layer_idx in range(5, 6):
@@ -1970,6 +1981,7 @@ def analyze_gradients(
                 detach_att_before_readout=True,
               )
               log_probs_wo_att = rf.log_softmax(logits_wo_att, axis=model.target_dim)
+              log_probs_wo_att = log_probs_wo_att.copy_transpose(batch_dims + [non_blank_targets_spatial_dim, model.target_dim])
               logits_wo_h_t, _ = forward_sequence_global(
                 model=model.label_decoder,
                 enc_args=enc_args,
@@ -1981,6 +1993,7 @@ def analyze_gradients(
                 detach_h_t_before_readout=True,
               )
               log_probs_wo_h_t = rf.log_softmax(logits_wo_h_t, axis=model.target_dim)
+              log_probs_wo_h_t = log_probs_wo_h_t.copy_transpose(batch_dims + [non_blank_targets_spatial_dim, model.target_dim])
             assert isinstance(logits, rf.Tensor)
             log_probs = rf.log_softmax(logits, axis=model.target_dim)
 
@@ -2118,9 +2131,14 @@ def analyze_gradients(
       if "enc_ctx" in enc_args and energies is not None:
         tensors.append((f"enc_ctx-{enc_layer_idx}", enc_args["enc_ctx"]))
 
+      log_gradient_wrt_input_list = []
+      log_gradient_wrt_input_dirname_list = []
+      dummy_singleton_dim = rf.Dim(1, name="dummy")
       for input_name, input_ in tensors:
         if config.bool("plot_log_gradients", False):
-          _plot_log_prob_gradient_wrt_to_input_batched(
+          dirname = f"{input_name}/log-prob-grads_wrt_{input_name}_log-space"
+          log_gradient_wrt_input_dirname_list.append(dirname)
+          log_gradient_wrt_input_list.append(_plot_log_prob_gradient_wrt_to_input_batched(
             input_=input_,
             log_probs=log_probs,
             targets=non_blank_targets,
@@ -2132,8 +2150,10 @@ def analyze_gradients(
             ref_alignment_hdf=ref_alignment_hdf,
             ref_alignment_blank_idx=ref_alignment_blank_idx,
             ref_alignment_json_vocab_path=ref_alignment_vocab_path,
-            dirname=f"{input_name}/log-prob-grads_wrt_{input_name}_log-space_norm_0_1"
-          )
+            dirname=dirname,
+            # return_gradients=True,
+            dummy_singleton_dim=dummy_singleton_dim
+          ))
 
         if config.bool("plot_encoder_layers", False):
           _plot_cosine_sim_matrix(
@@ -2147,13 +2167,15 @@ def analyze_gradients(
           )
 
       for log_prob_name, log_probs in (
-              ("log-probs-wo-att", log_probs_wo_att),
               ("log-probs-wo-h_t", log_probs_wo_h_t),
+              ("log-probs-wo-att", log_probs_wo_att),
       ):
         if log_probs is None:
           continue
 
-        _plot_log_prob_gradient_wrt_to_input_batched(
+        dirname = f"enc-11/{log_prob_name}-grads_wrt_enc-11_log-space"
+        log_gradient_wrt_input_dirname_list.append(dirname)
+        log_gradient_wrt_input_list.append(_plot_log_prob_gradient_wrt_to_input_batched(
           input_=collected_outputs["11"],
           log_probs=log_probs,
           targets=non_blank_targets,
@@ -2165,8 +2187,51 @@ def analyze_gradients(
           ref_alignment_hdf=ref_alignment_hdf,
           ref_alignment_blank_idx=ref_alignment_blank_idx,
           ref_alignment_json_vocab_path=ref_alignment_vocab_path,
-          dirname=f"enc-11/{log_prob_name}-grads_wrt_enc-11_log-space_norm_0_1"
-        )
+          dirname=dirname,
+          # return_gradients=True,
+          dummy_singleton_dim=dummy_singleton_dim
+        ))
+
+      # for plotting normalized log gradients
+      # log_gradient_wrt_input_stacked, _ = rf.stack(log_gradient_wrt_input_list)
+      # log_gradient_wrt_input_stacked_wo_zeros = log_gradient_wrt_input_stacked.copy()
+      # log_gradient_wrt_input_stacked_wo_zeros.raw_tensor[log_gradient_wrt_input_stacked.raw_tensor == 0.0] = torch.inf
+      # log_gradient_wrt_input_stacked = rf.safe_log(log_gradient_wrt_input_stacked)
+      #
+      # min_log_gradient_wrt_input = log_gradient_wrt_input_stacked_wo_zeros.copy()
+      # max_log_gradient_wrt_input = log_gradient_wrt_input_stacked.copy()
+      # for dim in log_gradient_wrt_input_stacked.remaining_dims(batch_dims):
+      #   max_log_gradient_wrt_input = rf.reduce_max(max_log_gradient_wrt_input, axis=dim)
+      #   min_log_gradient_wrt_input = rf.reduce_min(min_log_gradient_wrt_input, axis=dim)
+      #
+      # for log_gradient_wrt_input, dirname in zip(log_gradient_wrt_input_list, log_gradient_wrt_input_dirname_list):
+      #   dump_hdfs(
+      #     att_weights=rf.log(log_gradient_wrt_input),  # use log for better visualization
+      #     batch_dims=batch_dims,
+      #     dirname=dirname,
+      #     seq_tags=seq_tags,
+      #   )
+      #
+      #   vmin = {k: v.item() for k, v in zip(seq_tags.raw_tensor, min_log_gradient_wrt_input.raw_tensor)}
+      #   vmax = {k: v.item() for k, v in zip(seq_tags.raw_tensor, max_log_gradient_wrt_input.raw_tensor)}
+      #
+      #   plot_att_weights(
+      #     att_weight_hdf=Path(os.path.join(dirname, "att_weights.hdf")),
+      #     targets_hdf=Path("targets.hdf"),
+      #     seg_starts_hdf=None,
+      #     seg_lens_hdf=None,
+      #     center_positions_hdf=None,
+      #     target_blank_idx=None,
+      #     ref_alignment_blank_idx=ref_alignment_blank_idx,
+      #     ref_alignment_hdf=ref_alignment_hdf,
+      #     ref_alignment_json_vocab_path=ref_alignment_vocab_path,
+      #     json_vocab_path=json_vocab_path,
+      #     segment_whitelist=list(seq_tags.raw_tensor),
+      #     plot_name=dirname,
+      #     plot_w_color_gradient=config.bool("debug", False),
+      #     # vmin=vmin,
+      #     # vmax=vmax,
+      #   )
 
       if isinstance(model, SegmentalAttentionModel) and model.blank_decoder_version in (3, 4, 8,):
         _blank_model_analysis(
@@ -2207,7 +2272,8 @@ def analyze_gradients(
           #   continue
 
           assert non_blank_targets_spatial_dim in tensor.dims
-          if tensor.dims != tuple(batch_dims + [non_blank_targets_spatial_dim, enc_spatial_dim, model.label_decoder.att_num_heads]):
+          if tensor.dims != tuple(
+                  batch_dims + [non_blank_targets_spatial_dim, enc_spatial_dim, model.label_decoder.att_num_heads]):
             tensor_transposed = tensor.copy_transpose(
               batch_dims + [non_blank_targets_spatial_dim, enc_spatial_dim, model.label_decoder.att_num_heads])
           else:
