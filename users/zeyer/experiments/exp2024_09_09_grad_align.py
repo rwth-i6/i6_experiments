@@ -973,13 +973,17 @@ class ForcedAlignOnScoreMatrixJob(Job):
 class CalcAlignmentMetrics(Job):
     """Calculate alignment metrics, e.g. time-stamp-error (TSE) for word boundaries and for word positions."""
 
+    __sis_hash_exclude__ = {"seq_list_ref": None, "alignment_bpe_style": "bpe"}
+
     def __init__(
         self,
         *,
         seq_list: Optional[tk.Path] = None,
+        seq_list_ref: Optional[tk.Path] = None,  # in case the ref alignments has diff seq tags
         alignment_hdf: Path,
         alignment_label_topology: str = "explicit",
         alignment_bpe_vocab: Path,
+        alignment_bpe_style: str = "bpe",  # bpe or spm
         alignment_blank_idx: int,
         ref_alignment_sprint_cache: Path,
         ref_alignment_allophones: Path,
@@ -990,9 +994,11 @@ class CalcAlignmentMetrics(Job):
         super().__init__()
 
         self.seq_list = seq_list
+        self.seq_list_ref = seq_list_ref
         self.alignment_hdf = alignment_hdf
         self.alignment_label_topology = alignment_label_topology
         self.alignment_bpe_vocab = alignment_bpe_vocab
+        self.alignment_bpe_style = alignment_bpe_style
         self.alignment_blank_idx = alignment_blank_idx
         self.ref_alignment_sprint_cache = ref_alignment_sprint_cache
         self.ref_alignment_allophones = ref_alignment_allophones
@@ -1040,6 +1046,12 @@ class CalcAlignmentMetrics(Job):
         seq_list = None
         if self.seq_list is not None:
             seq_list = open(self.seq_list.get_path()).read().splitlines()
+        if self.seq_list_ref is not None:
+            assert seq_list is not None
+            seq_list_ref = open(self.seq_list_ref.get_path()).read().splitlines()
+            assert len(seq_list_ref) == len(seq_list)
+        else:
+            seq_list_ref = seq_list
         alignments_ds.init_seq_order(epoch=1, seq_list=seq_list)
 
         print("Loading BPE vocab...")
@@ -1052,11 +1064,22 @@ class CalcAlignmentMetrics(Job):
             state_idx = align_states[t]
             if label_idx == self.alignment_blank_idx:
                 return False
-            if bpe_vocab.labels[label_idx].endswith("@@"):
+            if self.alignment_bpe_style == "bpe" and bpe_vocab.labels[label_idx].endswith("@@"):
                 return False
             if t == len(alignment) - 1:
                 return True
-            return state_idx != align_states[t + 1]
+            if state_idx == align_states[t + 1]:
+                return False
+            if self.alignment_bpe_style == "spm":
+                for t_ in range(t + 1, len(alignment)):
+                    if alignment[t_] == self.alignment_blank_idx:
+                        continue
+                    if bpe_vocab.labels[alignment[t_]].startswith("▁"):
+                        return True
+                    return False
+                return True  # reached end
+            assert self.alignment_bpe_style == "bpe"
+            return True
 
         print("Loading ref alignment Sprint cache...")
         ref_align_sprint_cache = open_file_archive(_cf(self.ref_alignment_sprint_cache))
@@ -1136,8 +1159,13 @@ class CalcAlignmentMetrics(Job):
             assert len(alignment) == len(align_states)
 
             print("seq tag:", key)
-            feat_times, _ = features_sprint_cache.read(key, typ="feat")
-            ref_align = ref_align_sprint_cache.read(key, typ="align")
+            if seq_list_ref is not None:
+                key_ref = seq_list_ref[seq_idx]
+                print("seq tag ref:", key_ref)
+            else:
+                key_ref = key
+            feat_times, _ = features_sprint_cache.read(key_ref, typ="feat")
+            ref_align = ref_align_sprint_cache.read(key_ref, typ="align")
             assert len(feat_times) == len(ref_align), f"feat len {len(feat_times)} vs ref align len {len(ref_align)}"
             print(f"  start time: {feat_times[0][0]} sec")
             print(f"  end time: {feat_times[-1][1]} sec")
@@ -1183,8 +1211,8 @@ class CalcAlignmentMetrics(Job):
             assert last_frame_start <= duration_sec <= align_dur + 0.0301
 
             cur_word_start_frame = None
-            word_boundaries = []
-            words_bpe = []
+            word_boundaries: List[Tuple[float, float]] = []
+            words_bpe: List[List[str]] = []
             prev_state_idx = 0
             for t, (label_idx, state_idx) in enumerate(zip(alignment, align_states)):
                 if label_idx == self.alignment_blank_idx:
@@ -1192,6 +1220,8 @@ class CalcAlignmentMetrics(Job):
                 if cur_word_start_frame is None:
                     cur_word_start_frame = t  # new word starts here
                     words_bpe.append([])
+                    if self.alignment_bpe_style == "spm":
+                        assert bpe_vocab.labels[label_idx].startswith("▁"), bpe_vocab.labels[label_idx]  # sanity check
                 if state_idx != prev_state_idx:
                     words_bpe[-1].append(bpe_vocab.labels[label_idx])
                 if _is_word_end(t):
