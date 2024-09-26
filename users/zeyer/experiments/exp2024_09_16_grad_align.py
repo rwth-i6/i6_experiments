@@ -30,13 +30,38 @@ from returnn.frontend.encoder.conformer import ConformerEncoder
 from returnn_common.datasets_old_2022_10.interface import DatasetConfig
 from i6_experiments.users.zeyer.model_interfaces import ForwardRFDef
 from i6_experiments.users.zeyer.utils.sis_setup import get_setup_prefix_for_module
-from sisyphus import tk
+from sisyphus import tk, Path
 
 
 def py():
-    from i6_experiments.users.zeyer.datasets.librispeech import get_librispeech_task_raw_v2
+    from i6_experiments.users.zeyer.datasets.librispeech import (
+        get_librispeech_task_raw_v2,
+        get_vocab_by_str,
+        seq_list_960_to_split_100_360_500,
+    )
+    from .exp2024_09_09_grad_align import CalcAlignmentMetrics
+    from i6_core.text.label.sentencepiece.vocab import ExtractSentencePieceVocabJob
 
     prefix = "exp2024_09_16_grad_align/"
+
+    # gmm_alignment_hdf = Path(
+    #     "/u/schmitt/experiments/03-09-24_aed_flipped_encoder/work/i6_core/returnn/hdf/ReturnnDumpHDFJob.nQ1YkjerObMO/output/data.hdf"
+    # )
+    gmm_alignment_allophones = Path(
+        "/work/common/asr/librispeech/data/sisyphus_export_setup/work/i6_core/lexicon/allophones/StoreAllophonesJob.bY339UmRbGhr/output/allophones"
+    )
+    gmm_alignment_sprint_cache = Path(
+        "/work/common/asr/librispeech/data/sisyphus_work_dir/i6_core/mm/alignment/AlignmentJob.oyZ7O0XJcO20/output/alignment.cache.bundle"
+    )
+    features_sprint_cache = Path(  # for exact timings
+        "/work/common/asr/librispeech/data/sisyphus_work_dir/i6_core/features/extraction/FeatureExtractionJob.VTLN.upmU2hTb8dNH/output/vtln.cache.bundle"
+    )
+    seq_list_ref = Path(
+        "/u/schmitt/experiments/segmental_models_2022_23_rf/work/i6_core/corpus/segments/SegmentCorpusJob.AmDlp1YMZF1e/output/segments.1"
+    )
+    seq_list = seq_list_960_to_split_100_360_500(seq_list_ref)
+    vocab = get_vocab_by_str("spm10k")
+    vocab = ExtractSentencePieceVocabJob(vocab.model_file).out_vocab
 
     ctc_model = sis_get_model(
         "v6-relPosAttDef-noBias"
@@ -49,13 +74,30 @@ def py():
     task = get_librispeech_task_raw_v2(vocab="spm10k")
     train_dataset = task.train_dataset.copy_train_as_static()
     # train_dataset.main_dataset["fixed_random_subset"] = 1000  # for debugging...
-    train_dataset.main_dataset["seq_list_filter_file"] = ...  # TODO
+    # train_dataset.main_dataset["seq_list_filter_file"] = ...  # TODO
     # TODO with seq_list...
     # TODO probably need to translate robins seq list ... 960 to mixed 100/360/460
 
     alignment = ctc_forced_align(ctc_model, train_dataset)
-    alignment.creator.add_alias(f"{prefix}ctc_forced_align")
-    tk.register_output(f"{prefix}ctc_forced_align.hdf", alignment)
+    alignment.creator.add_alias(f"{prefix}ctc_forced_align/align")
+    tk.register_output(f"{prefix}ctc_forced_align/align.hdf", alignment)
+
+    name = "ctc_forced_align/metrics"
+    job = CalcAlignmentMetrics(
+        seq_list=seq_list,
+        seq_list_ref=seq_list_ref,
+        alignment_hdf=alignment,
+        alignment_label_topology="ctc",
+        alignment_bpe_vocab=vocab,
+        alignment_bpe_style="spm",
+        alignment_blank_idx=10_240,
+        features_sprint_cache=features_sprint_cache,
+        ref_alignment_sprint_cache=gmm_alignment_sprint_cache,
+        ref_alignment_allophones=gmm_alignment_allophones,
+        ref_alignment_len_factor=6,
+    )
+    job.add_alias(prefix + name)
+    tk.register_output(prefix + name + ".json", job.out_scores)
 
     # TODO job to dump grads, diff variants:
     #  - x * grad
