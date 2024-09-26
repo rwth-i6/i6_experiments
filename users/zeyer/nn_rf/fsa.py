@@ -90,7 +90,7 @@ def best_path(
     logits, batch_label_dim = rf.merge_dims(logits, dims=batch_dims + [logits.feature_dim])  # [T,B*L]
 
     device = logits.device
-    seq_lens_ = rf.gather(input_spatial_dim.get_size_tensor(), indices=fsa.states_batch_idx)  # [S] -> T
+    seq_lens_ = rf.gather(input_spatial_dim.get_size_tensor(device=device), indices=fsa.states_batch_idx)  # [S] -> T
 
     scores = rf.scatter(
         rf.zeros(fsa.batch_dims, dtype=logits.dtype, device=device),
@@ -131,7 +131,7 @@ def best_path(
         transition_idx = rf.gather(backpointers[t], indices=state_idx)  # [B] -> A
         best_path_.append(transition_idx)
         state_idx = rf.where(
-            t < input_spatial_dim.get_size_tensor(),
+            t < input_spatial_dim.get_size_tensor(device=device),
             rf.gather(fsa.trans_prev_state, indices=transition_idx),
             state_idx,
         )  # [B] -> S
@@ -170,6 +170,7 @@ def fsa_for_ctc(
         assert blank_index == labels_with_blank_dim.dimension - 1
 
     batch_dims = targets.remaining_dims(targets_spatial_dim)
+    device = targets.device
 
     # The FSA for the CTC label topology has states [blank,label1,blank,label2,...,blank,labelN,blank],
     # i.e. T_out*2+1 states.
@@ -181,14 +182,15 @@ def fsa_for_ctc(
     # A: num total transitions (summed over all batch dims)
     num_states_dim_ext = targets_spatial_dim * 2 + 1  # [B]->S_ (S_ being the states per batch)
     states_batch_idx, num_states_dim = rf.pack_padded(
-        rf.expand_dim(rf.range_over_merged_dims(batch_dims), num_states_dim_ext), dims=batch_dims + [num_states_dim_ext]
+        rf.expand_dim(rf.range_over_merged_dims(batch_dims, device=device), num_states_dim_ext),
+        dims=batch_dims + [num_states_dim_ext],
     )  # [S]->B
     num_states_dim.name = "states"
 
     state_idx_offsets = rf.masked_scatter(
-        rf.range_over_dim(num_states_dim),
+        rf.range_over_dim(num_states_dim, device=device),
         in_dim=num_states_dim,
-        mask=rf.sequence_mask(batch_dims + [num_states_dim_ext]),
+        mask=rf.sequence_mask(batch_dims + [num_states_dim_ext], device=device),
         dims=batch_dims + [num_states_dim_ext],
     )  # [B,S_]->S
     state_idx_offsets = rf.gather(state_idx_offsets, indices=0, axis=num_states_dim_ext)  # [B]->S
@@ -204,35 +206,35 @@ def fsa_for_ctc(
 
     # So first the self-loops in blanks.
     trans_ext_dims[0] = targets_spatial_dim + 1  # T_out+1
-    trans_prev_state_ext[0] = rf.range_over_dim(trans_ext_dims[0]) * 2  # [T_out+1]->S_
+    trans_prev_state_ext[0] = rf.range_over_dim(trans_ext_dims[0], device=device) * 2  # [T_out+1]->S_
     trans_next_state_ext[0] = trans_prev_state_ext[0]  # [T_out+1]->S_
     trans_label_idx_ext[0] = rf.full(
-        fill_value=blank_index, dims=[trans_ext_dims[0]], dtype=targets.dtype, device=targets.device
+        fill_value=blank_index, dims=[trans_ext_dims[0]], dtype=targets.dtype, device=device
     )  # [T_out+1]->L
 
     # Now self-loops in labels.
     trans_ext_dims[1] = targets_spatial_dim  # T_out
-    trans_prev_state_ext[1] = rf.range_over_dim(trans_ext_dims[1]) * 2 + 1  # [T_out]->S_
+    trans_prev_state_ext[1] = rf.range_over_dim(trans_ext_dims[1], device=device) * 2 + 1  # [T_out]->S_
     trans_next_state_ext[1] = trans_prev_state_ext[1]  # [T_out]->S_
     trans_label_idx_ext[1] = targets  # [B,T_out]->L
 
     # Now transitions into blanks.
     trans_ext_dims[2] = targets_spatial_dim  # T_out
-    trans_prev_state_ext[2] = rf.range_over_dim(trans_ext_dims[2]) * 2 + 1  # [T_out]->S_
+    trans_prev_state_ext[2] = rf.range_over_dim(trans_ext_dims[2], device=device) * 2 + 1  # [T_out]->S_
     trans_next_state_ext[2] = trans_prev_state_ext[2] + 1  # [T_out]->S_
     trans_label_idx_ext[2] = rf.full(
-        fill_value=blank_index, dims=[trans_ext_dims[2]], dtype=targets.dtype, device=targets.device
+        fill_value=blank_index, dims=[trans_ext_dims[2]], dtype=targets.dtype, device=device
     )  # [T_out]->L
 
     # Now transitions into labels.
     trans_ext_dims[3] = targets_spatial_dim  # T_out
-    trans_prev_state_ext[3] = rf.range_over_dim(trans_ext_dims[3]) * 2  # [T_out]->S_
+    trans_prev_state_ext[3] = rf.range_over_dim(trans_ext_dims[3], device=device) * 2  # [T_out]->S_
     trans_next_state_ext[3] = trans_prev_state_ext[3] + 1  # [T_out]->S_
     trans_label_idx_ext[3] = targets  # [B,T_out]->L
 
     # Now possible skip transitions over blank.
     trans_ext4_dim_ = targets_spatial_dim - 1  # T_out-1
-    trans_prev_state_ext4_ = rf.range_over_dim(trans_ext4_dim_) * 2 + 1  # [T_out-1]->S_
+    trans_prev_state_ext4_ = rf.range_over_dim(trans_ext4_dim_, device=device) * 2 + 1  # [T_out-1]->S_
     trans_next_state_ext4_ = trans_prev_state_ext4_ + 2  # [T_out-1]->S_
     trans_label_idx_ext4_, _ = rf.slice(
         targets, axis=targets_spatial_dim, start=1, size=trans_ext4_dim_
@@ -305,12 +307,15 @@ def fsa_for_ctc(
 
     # Final states: T_out*2-1 and T_out*2 for CTC.
     final_states_ext, final_dim_ext = rf.stack(
-        [targets_spatial_dim.get_size_tensor() * 2 - 1, targets_spatial_dim.get_size_tensor() * 2]
+        [
+            targets_spatial_dim.get_size_tensor(device=device) * 2 - 1,
+            targets_spatial_dim.get_size_tensor(device=device) * 2,
+        ]
     )  # [B,S_F_]->S_.
     final_states_ext += state_idx_offsets  # [B,S_F_]->S
     final_states_ext.sparse_dim = num_states_dim
     final_states_batch_idx_ext = rf.expand_dims(
-        rf.range_over_merged_dims(batch_dims), final_states_ext.remaining_dims(batch_dims)
+        rf.range_over_merged_dims(batch_dims, device=device), final_states_ext.remaining_dims(batch_dims)
     )  # [B,S_F_]->B
     final_states, num_final_dim = rf.merge_dims(final_states_ext, dims=batch_dims + [final_dim_ext])  # [S_F]->S
     num_final_dim.name = "final_states"
