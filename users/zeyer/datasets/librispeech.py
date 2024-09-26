@@ -8,7 +8,7 @@ from copy import deepcopy
 import re
 from functools import cache
 
-from sisyphus import tk
+from sisyphus import tk, Task as SisTask
 from i6_core.corpus.convert import CorpusToTextDictJob
 from i6_core.text.convert import TextDictToTextLinesJob
 from i6_core.text.label.sentencepiece.train import TrainSentencePieceJob, SentencePieceType
@@ -117,7 +117,10 @@ bpe10k = Bpe(
 
 
 @cache
-def _get_vocab_by_str(vocab: str) -> Union[SentencePieceModel, Bpe]:
+def get_vocab_by_str(vocab: str) -> Union[SentencePieceModel, Bpe]:
+    """
+    Get vocab
+    """
     if re.match("^spm[0-9]+.*$", vocab):
         return _get_spm_vocab(dim=vocab[len("spm") :], model_type=SentencePieceType.UNIGRAM)
     elif re.match("^spm_bpe[0-9]+.*$", vocab):
@@ -629,7 +632,7 @@ def get_librispeech_task_raw_v2(
     """
     vocab_ = vocab
     if isinstance(vocab, str):
-        vocab = _get_vocab_by_str(vocab)
+        vocab = get_vocab_by_str(vocab)
 
     cache_key = make_hashable((dataset_cls, vocab, train_vocab_opts, audio_opts, audio_dim, dataset_train_opts))
     if cache_key in _librispeech_task_raw_v2_cache:
@@ -875,6 +878,94 @@ def _librispeech_log_mel_stats_returnn_forward(
     return source, out_spatial_dim
 
 
+def seq_list_960_to_split_100_360_500(seq_list: tk.Path) -> tk.Path:
+    """
+    :param seq_list:
+        E.g. contains (in combined 960h dataset) "train-other-960/1034-121119-0049/1034-121119-0049",
+        but it's actually "train-clean-100/1034-121119-0049/1034-121119-0049".
+    :return: correct seq tags list with split parts
+    """
+    dataset = LibrispeechOggZip(main_key="train").get_main_dataset()
+    return ConvertSeqList960ToSplit100_360_500(seq_list=seq_list, returnn_dataset=dataset).out_seq_list
+
+
+class ConvertSeqList960ToSplit100_360_500(tk.Job):
+    """
+    E.g. contains (in combined 960h dataset) "train-other-960/1034-121119-0049/1034-121119-0049",
+    but it's actually "train-clean-100/1034-121119-0049/1034-121119-0049".
+    """
+
+    def __init__(
+        self,
+        *,
+        seq_list: tk.Path,
+        returnn_dataset: Dict[str, Any],  # to get all seq tags
+        returnn_root: Optional[tk.Path] = None,
+    ):
+        self.seq_list = seq_list
+        self.returnn_dataset = returnn_dataset
+        self.returnn_root = returnn_root
+
+        self.out_seq_list = self.output_path("out_seq_list.txt")
+
+    def tasks(self):
+        yield SisTask("run", rqmt={"cpu": 1, "mem": 4, "time": 1, "gpu": 0})
+
+    def run(self):
+        import sys
+        import os
+        import i6_experiments
+
+        recipe_dir = os.path.dirname(os.path.dirname(i6_experiments.__file__))
+        sys.path.insert(0, recipe_dir)
+
+        import i6_core.util as util
+
+        returnn_root = util.get_returnn_root(self.returnn_root)
+        sys.path.insert(1, returnn_root.get_path())
+
+        seq_list = open(self.seq_list.get_path()).read().splitlines()
+
+        from returnn.config import set_global_config, Config
+        from returnn.datasets import init_dataset
+        from returnn.log import log
+
+        config = Config()
+        set_global_config(config)
+
+        if not config.has("log_verbosity"):
+            config.typed_dict["log_verbosity"] = 4
+        log.init_by_config(config)
+
+        import tree
+
+        dataset_dict = self.returnn_dataset
+        dataset_dict = tree.map_structure(lambda x: x.get_path() if isinstance(x, tk.Path) else x, dataset_dict)
+        print("RETURNN dataset dict:", dataset_dict)
+        assert isinstance(dataset_dict, dict)
+        dataset = init_dataset(dataset_dict)
+
+        all_tags = set(dataset.get_all_tags())
+        all_tags_wo_prefix = {}
+        for tag in all_tags:
+            tag_wo_prefix = tag.split("/", 2)[-1]
+            assert tag_wo_prefix not in all_tags_wo_prefix
+            all_tags_wo_prefix[tag_wo_prefix] = tag
+        seq_list_ = []
+        for seq_tag in seq_list:
+            tag_wo_prefix = seq_tag.split("/", 2)[-1]
+            if seq_tag in all_tags:
+                seq_list_.append(seq_tag)
+            elif tag_wo_prefix in all_tags_wo_prefix:
+                seq_list_.append(all_tags_wo_prefix[tag_wo_prefix])
+            else:
+                print(f"seq tag {seq_tag} not found in dataset")
+
+        with open(self.out_seq_list.get_path(), "w") as f:
+            for seq_tag in seq_list_:
+                print(seq_tag, file=f)
+
+
 class LibrispeechLmDataset(DatasetConfig):
     """
     Librispeech LM dataset
@@ -1020,7 +1111,7 @@ def get_librispeech_lm_dataset(
     """
     vocab_ = vocab
     if isinstance(vocab, str):
-        vocab = _get_vocab_by_str(vocab)
+        vocab = get_vocab_by_str(vocab)
 
     cache_key = make_hashable((vocab, train_vocab_opts, opts))
     if cache_key in _librispeech_lm_dataset_raw_cache:
