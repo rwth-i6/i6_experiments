@@ -1306,7 +1306,7 @@ class CalcAlignmentMetrics(Job):
             out_scores["total_num_seqs"] += 1
 
             out_scores["total_num_frames"] += len(alignment)
-            out_scores["total_num_blank_frames"] += np.sum(alignment == self.alignment_blank_idx)
+            out_scores["total_num_blank_frames"] += int(np.sum(alignment == self.alignment_blank_idx))
             out_scores["total_num_frames_ref"] += len(ref_align)
             out_scores["total_num_sil_frames_ref"] += num_sil_frames_ref
 
