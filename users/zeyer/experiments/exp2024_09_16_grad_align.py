@@ -231,7 +231,10 @@ def sis_get_model(name: str) -> ModelWithCheckpoint:
     global _called_ctc_py_once
 
     if not _called_ctc_py_once:
-        ctc_py()
+        from i6_experiments.users.zeyer.utils.sis_setup import disable_register_output
+
+        with disable_register_output():
+            ctc_py()
         _called_ctc_py_once = True
 
     return _train_experiments[name].get_last_fixed_epoch()
