@@ -3,7 +3,7 @@ FSAs, forward score, best path
 """
 
 from __future__ import annotations
-from typing import Sequence, Tuple, List, NamedTuple, Dict
+from typing import Optional, Sequence, Tuple, List, NamedTuple, Dict
 from returnn.tensor import Tensor, Dim
 import returnn.frontend as rf
 
@@ -32,6 +32,88 @@ class FSA(NamedTuple):
     num_final_dim: Dim  # S_F
     final_states: Tensor  # [S_F]->S
     final_states_batch_idx: Tensor  # [S_F]->B_
+
+
+def forward_score(*, logits: Tensor, logits_normalized: bool = False, input_spatial_dim: Dim, fsa: FSA):
+    """
+    Forward score using the forward algorithm,
+    via dynamic programming.
+
+    This is differentiable,
+    and calculating the gradients will result implicitly in the forward-backward algorithm.
+
+    See also :func:`best_path`.
+    """
+    assert logits.feature_dim == fsa.label_dim
+
+    if not logits_normalized:
+        logits = rf.log_softmax(logits, axis=logits.feature_dim)
+    batch_dims = logits.remaining_dims((input_spatial_dim, logits.feature_dim))
+
+    # The following condition is maybe not strictly needed, and other broadcasting might work as well,
+    # but just assume now for simplicity/sanity.
+    assert set(batch_dims) == set(fsa.batch_dims)
+
+    # This order of dims should be more efficient for the loop below.
+    logits = logits.copy_transpose([input_spatial_dim] + batch_dims + [logits.feature_dim])
+
+    # Merge dims to allow a single gather access for fsa_transitions_batch_label_idx.
+    logits, batch_label_dim = rf.merge_dims(logits, dims=batch_dims + [logits.feature_dim])  # [T,B*L]
+
+    device = logits.device
+    seq_lens_ = rf.gather(input_spatial_dim.get_size_tensor(device=device), indices=fsa.states_batch_idx)  # [S] -> T
+
+    scores = rf.scatter(
+        rf.zeros(fsa.batch_dims, dtype=logits.dtype, device=device),
+        indices=fsa.start_states,
+        indices_dim=fsa.batch_dims,
+        fill_value=float("-inf"),
+    )  # [S], per state
+
+    for t in range(input_spatial_dim.get_dim_value()):
+        scores_in = rf.gather(scores, indices=fsa.trans_prev_state)  # [A]
+        assert scores_in.dims == (fsa.num_trans_dim,)
+        logits_t = rf.gather(logits, indices=t, axis=input_spatial_dim)  # [B*L]
+        scores_in = _safe_add(scores_in, rf.gather(logits_t, indices=fsa.trans_batch_label_idx))  # [A]
+
+        scores_, _ = _scatter_safe_logsumexp(
+            scores_in,
+            indices=fsa.trans_next_state,
+            indices_dim=fsa.num_trans_dim,
+            out_dim=fsa.num_states_dim,
+        )  # [S]
+
+        scores = rf.where(t < seq_lens_, scores_, scores)  # [S]
+
+    final_scores = rf.gather(scores, indices=fsa.final_states)  # [S_F]
+    final_scores_, _ = _scatter_safe_logsumexp(
+        final_scores,
+        indices=fsa.final_states_batch_idx,
+        indices_dim=fsa.num_final_dim,
+    )  # [B]
+    # assert not final_scores_.isinf().all(), "no path to final state"
+
+    return final_scores_
+
+
+def ctc_loss(
+    *,
+    logits: Tensor,
+    logits_normalized: bool = False,
+    input_spatial_dim: Dim,
+    targets: Tensor,
+    targets_spatial_dim: Dim,
+    blank_index: int,
+) -> Tensor:
+    """
+    CTC loss
+
+    :return: loss, shape [B]
+    """
+    fsa = fsa_for_ctc(targets, targets_spatial_dim, blank_index=blank_index, labels_with_blank_dim=logits.feature_dim)
+    return -forward_score(
+        logits=logits, logits_normalized=logits_normalized, input_spatial_dim=input_spatial_dim, fsa=fsa
+    )
 
 
 def best_path(
@@ -374,6 +456,40 @@ def _safe_add(a: Tensor, b: Tensor) -> Tensor:
     return rf.where(rf.is_finite(a), a + b, a)
 
 
+def _scatter_safe_logsumexp(
+    source: Tensor, *, indices: Tensor, indices_dim: Dim, out_dim: Optional[Dim] = None
+) -> Tuple[Tensor, Dim]:
+    """
+    Like :func:`torch.scatter_reduce_` but doing safe_logsumexp as in :func:`safe_logsumpexp`.
+
+    https://pytorch.org/docs/stable/generated/torch.Tensor.scatter_reduce_.html
+
+    As we are reducing, usually D_out < D_src.
+
+    Note, there is also scatter_logsumexp
+    (https://pytorch-scatter.readthedocs.io/en/1.4.0/_modules/torch_scatter/logsumexp.html)
+    but this does not have the "safe" aspect as in :func:`safe_logsumexp`.
+
+    :param source: for each index, the value to scatter into output, e.g. [D_src,...]
+    :param indices: indices in dim in output. e.g. [D_src]->D_out
+    :param indices_dim: D_src
+    :return: tensor [D_out,...] with the scattered updates
+    """
+    import torch
+
+    with torch.no_grad():
+        max_x = rf.scatter(source, indices=indices, indices_dim=indices_dim, mode="max", out_dim=out_dim)  # [D_out,...]
+        max_x_ = rf.gather(max_x, indices=indices, axis=out_dim)  # [D_src,...]
+        max_x = rf.stop_gradient(max_x)
+        max_x_ = rf.stop_gradient(max_x_)
+    src_ = rf.exp(source - max_x_)
+    tensor = rf.scatter(src_, indices=indices, indices_dim=indices_dim, mode="sum", out_dim=out_dim)
+    tensor = rf.log(tensor)
+    tensor = rf.where(rf.is_neg_infinite(max_x), rf.zeros((), dtype=source.dtype, device=source.device), tensor)
+    tensor += max_x
+    return tensor, out_dim
+
+
 def setup_module(**_kwargs):  # run by pytest
     rf.select_backend_torch()
 
@@ -622,3 +738,45 @@ def test_best_path_ctc_to_ref():
     torch.testing.assert_allclose(
         best_path_.copy_compatible_to_dims_raw([time_dim, batch_dim]), best_path_ref.raw_tensor
     )
+
+
+def test_ctc_loss():
+    import torch
+
+    batch_dim = Dim(2, name="batch")
+    labels_dim = Dim(5, name="labels")
+    targets_spatial_dim = Dim(rf.convert_to_tensor([4, 2], dims=[batch_dim]), name="targets_spatial")
+    targets: Tensor = rf.convert_to_tensor(
+        [[1, 2, 3, 3], [2, 4, 0, 0]], dims=[batch_dim, targets_spatial_dim], sparse_dim=labels_dim
+    )
+
+    time_dim = Dim(rf.convert_to_tensor([11, 7], dims=[batch_dim]), name="time")
+    logits = rf.random_normal([batch_dim, time_dim, labels_dim], stddev=2.0, feature_dim=labels_dim)
+    log_probs = rf.log_softmax(logits, axis=labels_dim)
+
+    loss = ctc_loss(
+        logits=log_probs,
+        logits_normalized=True,
+        input_spatial_dim=time_dim,
+        targets=targets,
+        targets_spatial_dim=targets_spatial_dim,
+        blank_index=0,
+    )
+    print("CTC loss:")
+    print(loss.raw_tensor)
+
+    print("CTC loss reference:")
+    # Reference implementation.
+    # We need to convert the logits to the right format.
+    log_probs = log_probs.copy_transpose([time_dim, batch_dim, labels_dim])
+    loss_ref = torch.nn.functional.ctc_loss(
+        log_probs.raw_tensor,
+        targets.raw_tensor,
+        time_dim.get_size_tensor().raw_tensor,
+        targets_spatial_dim.get_size_tensor().raw_tensor,
+        blank=0,
+        reduction="none",
+        zero_infinity=True,
+    )
+    print(loss_ref)
+    torch.testing.assert_allclose(loss.raw_tensor, loss_ref)
