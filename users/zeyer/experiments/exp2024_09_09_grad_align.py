@@ -973,6 +973,7 @@ class ForcedAlignOnScoreMatrixJob(Job):
 class CalcAlignmentMetrics(Job):
     """Calculate alignment metrics, e.g. time-stamp-error (TSE) for word boundaries and for word positions."""
 
+    __sis_version__ = 2  # we added the sil/blank ratios
     __sis_hash_exclude__ = {"seq_list_ref": None, "alignment_bpe_style": "bpe"}
 
     def __init__(
@@ -1120,6 +1121,10 @@ class CalcAlignmentMetrics(Job):
             "total_num_words": 0,
             "total_num_seqs": 0,
             "total_duration": 0.0,
+            "total_num_frames": 0,
+            "total_num_blank_frames": 0,
+            "total_num_frames_ref": 0,
+            "total_num_sil_frames_ref": 0,
         }
 
         total_tse_word_boundaries = 0.0
@@ -1240,9 +1245,11 @@ class CalcAlignmentMetrics(Job):
             cur_word_start_frame = None
             prev_allophone_idx = None
             ref_words_phones = []
+            num_sil_frames_ref = 0
             for t, (t_, allophone_idx, hmm_state_idx, _) in enumerate(ref_align):
                 assert t == t_
                 if "[SILENCE]" in allophones[allophone_idx]:
+                    num_sil_frames_ref += 1
                     continue
                 if cur_word_start_frame is None:
                     cur_word_start_frame = t  # new word starts here
@@ -1297,23 +1304,49 @@ class CalcAlignmentMetrics(Job):
             print("  TSE word positions:", seq_tse_word_positions / num_words)
             out_scores["total_num_words"] += num_words
             out_scores["total_num_seqs"] += 1
+
+            out_scores["total_num_frames"] += len(alignment)
+            out_scores["total_num_blank_frames"] += np.sum(alignment == self.alignment_blank_idx)
+            out_scores["total_num_frames_ref"] += len(ref_align)
+            out_scores["total_num_sil_frames_ref"] += num_sil_frames_ref
+
             seq_idx += 1
 
+        assert out_scores["total_num_seqs"] > 0, out_scores
         assert out_scores["total_num_words"] > 0, out_scores
-        out_scores["avg"]["tse_word_boundaries"] = total_tse_word_boundaries / out_scores["total_num_words"]
-        out_scores["avg"]["tse_word_positions"] = total_tse_word_positions / out_scores["total_num_words"]
+        assert out_scores["total_num_frames"] > 0, out_scores
+        assert out_scores["total_num_frames_ref"] > 0, out_scores
+        out_scores["avg"] = {
+            "tse_word_boundaries": total_tse_word_boundaries / out_scores["total_num_words"],
+            "tse_word_positions": total_tse_word_positions / out_scores["total_num_words"],
+            "blank_frames_ratio": out_scores["total_num_blank_frames"] / out_scores["total_num_frames"],
+            "sil_frames_ratio_ref": out_scores["total_num_sil_frames_ref"] / out_scores["total_num_frames_ref"],
+        }
         print(out_scores)
 
         import json
 
         json.dump(out_scores, open(self.out_scores.get_path(), "w"))
 
+        # noinspection PyShadowingNames
+        def _hms(s: float) -> str:
+            """
+            :param s: seconds
+            :return: e.g. "1:23:45" (hs:ms:secs)
+            """
+            m, s = divmod(s, 60)
+            h, m = divmod(m, 60)
+            return "%d:%02d:%02d" % (h, m, s)
+
         with open(self.out_short_report_str.get_path(), "w") as f:
             print(
-                "%s/%s"
+                f"Dataset duration {_hms(out_scores['total_duration'])},",
+                "TSE LR/center %s/%s,"
                 % (
                     round(out_scores["avg"]["tse_word_boundaries"] * 1000, 1),
                     round(out_scores["avg"]["tse_word_positions"] * 1000, 1),
                 ),
+                f"blank ratio {round(out_scores['avg']['blank_frames_ratio'] * 100, 1)}%,",
+                f"sil ref ratio {round(out_scores['avg']['sil_frames_ratio_ref'] * 100, 1)}%,",
                 file=f,
             )
