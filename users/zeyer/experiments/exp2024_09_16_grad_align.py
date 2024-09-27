@@ -174,9 +174,52 @@ def py():
         tk.register_output(f"{prefix}ctc_{shortname}_input_grads/grads.hdf", grads)
         grads.creator.add_alias(f"{prefix}ctc_{shortname}_input_grads/grads")
 
-        # TODO...
+        # see also exp2024_09_09_grad_align.py
+        opts = {"grad_name": f"ctc_{shortname}_input_grads", "sm": True, "blank_score": -6}
+        opts = opts.copy()
+        apply_softmax_over_time = opts.pop("sm", False)
+        grad_name = opts.pop("grad_name")
+        # factor, grad_hdf = grads[grad_name]
+        factor = 1
+        grad_hdf = grads
 
-    # Grad align
+        # The dumped grads cover about 9.6h audio from train.
+        name = f"grad-align-{grad_name}-sm{apply_softmax_over_time}"
+        if opts:
+            for k, v in opts.items():
+                name += f"-{k}{v}"
+        job = ForcedAlignOnScoreMatrixJob(
+            score_matrix_hdf=grad_hdf,
+            cut_off_eos=False,
+            apply_softmax_over_time=apply_softmax_over_time,
+            # Need to know blank idx for the generated output alignment.
+            num_labels=vocabs[vocab][2] + 1,
+            blank_idx=vocabs[vocab][2],
+            returnn_dataset=train_dataset.get_main_dataset(),
+            **opts,
+        )
+        job.add_alias(prefix + name + "/align")
+        tk.register_output(prefix + name + "/align.hdf", job.out_align)
+        alignment_hdf = job.out_align
+
+        name += "/metrics"
+        job = CalcAlignmentMetrics(
+            seq_list=seq_list,
+            seq_list_ref=seq_list_ref,
+            alignment_hdf=alignment_hdf,
+            alignment_bpe_vocab=vocabs[vocab][1],
+            alignment_bpe_style=vocabs[vocab][0],
+            alignment_blank_idx=vocabs[vocab][2],
+            features_sprint_cache=features_sprint_cache,
+            ref_alignment_sprint_cache=gmm_alignment_sprint_cache,
+            ref_alignment_allophones=gmm_alignment_allophones,
+            ref_alignment_len_factor=factor,
+        )
+        job.add_alias(prefix + name)
+        tk.register_output(prefix + name + ".json", job.out_scores)
+        tk.register_output(prefix + name + "_short_report.txt", job.out_short_report_str)
+
+    # Grad align debug
     # base model
     ctc_model = sis_get_model(
         "v6-relPosAttDef"
@@ -223,6 +266,7 @@ def py():
     name += "/metrics"
     job = CalcAlignmentMetrics(
         seq_list=seq_list,
+        seq_list_ref=seq_list_ref,
         alignment_hdf=alignment_hdf,
         alignment_bpe_vocab=vocabs[vocab][1],
         alignment_bpe_style=vocabs[vocab][0],
