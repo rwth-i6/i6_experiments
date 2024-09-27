@@ -320,7 +320,8 @@ def get_input_grads(
                 "targets_size": {"dims": [batch_dim], "dtype": "int32"},
                 "partial_scores": {"dims": [batch_dim, out_spatial_dim], "dtype": "float32"},
             },
-            "batch_size": 15_000 * _batch_size_factor,  # grads need more mem
+            "__batch_size_dependent": True,
+            "batch_size": 10_000 * _batch_size_factor,  # grads need more mem
             **(config or {}),
         },
         forward_rqmt={"time": 24},
