@@ -889,10 +889,24 @@ def seq_list_960_to_split_100_360_500(seq_list: tk.Path) -> tk.Path:
     return ConvertSeqList960ToSplit100_360_500(seq_list=seq_list, returnn_dataset=dataset).out_seq_list
 
 
+def seq_list_split_100_360_500_to_single_960(seq_list: tk.Path) -> tk.Path:
+    """
+    :param seq_list:
+        E.g. contains (in combined 960h dataset) "train-other-960/1034-121119-0049/1034-121119-0049",
+        but it's actually "train-clean-100/1034-121119-0049/1034-121119-0049".
+    :return: correct seq tags list with split parts
+    """
+    dataset = LibrispeechOggZip(main_key="train").get_main_dataset()
+    dataset["path"] = _get_librispeech_ogg_zip_dict()["train-other-960"]
+    return ConvertSeqList960ToSplit100_360_500(seq_list=seq_list, returnn_dataset=dataset).out_seq_list
+
+
 class ConvertSeqList960ToSplit100_360_500(tk.Job):
     """
     E.g. contains (in combined 960h dataset) "train-other-960/1034-121119-0049/1034-121119-0049",
     but it's actually "train-clean-100/1034-121119-0049/1034-121119-0049".
+
+    (Note: the job name is maybe misleading, it can also do other ways. it compares based on the seq tag base name.)
     """
 
     def __init__(
