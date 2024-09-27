@@ -61,16 +61,10 @@ def py():
     )
     seq_list = seq_list_960_to_split_100_360_500(seq_list_ref)
     vocabs = {
-        "spm10k": (ExtractSentencePieceVocabJob(get_vocab_by_str("spm10k").model_file).out_vocab, 10_240),
-        "spm512": (ExtractSentencePieceVocabJob(get_vocab_by_str("spm512").model_file).out_vocab, 512),
+        "spm10k": ("spm", ExtractSentencePieceVocabJob(get_vocab_by_str("spm10k").model_file).out_vocab, 10_240),
+        "spm512": ("spm", ExtractSentencePieceVocabJob(get_vocab_by_str("spm512").model_file).out_vocab, 512),
+        "bpe10k": ("bpe", get_vocab_by_str("bpe10k").vocab, 10_025),
     }
-
-    # Note: task hardcoded... (and also not needed, I just need the train dataset...)
-    # Note: spm10k hardcoded...
-    task = get_librispeech_task_raw_v2(vocab="spm10k")
-    train_dataset = task.train_dataset.copy_train_as_static()
-    # train_dataset.main_dataset["fixed_random_subset"] = 1000  # for debugging...
-    train_dataset.main_dataset["seq_list_filter_file"] = seq_list
 
     for shortname, fullname, vocab in [
         (  # 110.7/43.7ms
@@ -118,7 +112,28 @@ def py():
             "-blankSep",
             "spm512",
         ),
+        (
+            "base-bpe10k",  # 6.18
+            "v6-relPosAttDef"
+            "-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k"
+            "-featBN-speedpertV2-bpe10k-bpeSample001",
+            "bpe10k",
+        ),
+        (
+            "base-bpe10k-blankSep",  # 5.98
+            "v6-relPosAttDef"
+            "-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k"
+            "-featBN-speedpertV2-bpe10k-bpeSample001"
+            "-blankSep",
+            "bpe10k",
+        ),
     ]:
+        # Note: task hardcoded... (and also not needed, I just need the train dataset...)
+        task = get_librispeech_task_raw_v2(vocab=vocab)
+        train_dataset = task.train_dataset.copy_train_as_static()
+        # train_dataset.main_dataset["fixed_random_subset"] = 1000  # for debugging...
+        train_dataset.main_dataset["seq_list_filter_file"] = seq_list
+
         ctc_model = sis_get_model(fullname)
 
         alignment = ctc_forced_align(ctc_model, train_dataset)
@@ -131,9 +146,9 @@ def py():
             seq_list_ref=seq_list_ref,
             alignment_hdf=alignment,
             alignment_label_topology="ctc",
-            alignment_bpe_vocab=vocabs[vocab][0],
-            alignment_bpe_style="spm",
-            alignment_blank_idx=vocabs[vocab][1],
+            alignment_bpe_vocab=vocabs[vocab][1],
+            alignment_bpe_style=vocabs[vocab][0],
+            alignment_blank_idx=vocabs[vocab][2],
             features_sprint_cache=features_sprint_cache,
             ref_alignment_sprint_cache=gmm_alignment_sprint_cache,
             ref_alignment_allophones=gmm_alignment_allophones,
