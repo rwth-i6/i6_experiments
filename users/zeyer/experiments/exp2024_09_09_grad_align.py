@@ -516,14 +516,11 @@ def visualize_grad_scores():
     # Then: `python3 -c "from i6_experiments.users.zeyer.experiments.exp2024_09_09_grad_align import visualize_grad_scores as vis; vis()"`  # noqa
     # play around here...
 
-    seq_list = Path(
-        "/u/schmitt/experiments/segmental_models_2022_23_rf/work/i6_core/corpus/segments/SegmentCorpusJob.AmDlp1YMZF1e/output/segments.1"
-    )
-    seq_list = open(seq_list.get_path()).read().splitlines()
-
     # base-convMask-early61-10ms:
     score_matrix_hdf = Path(
-        "/u/schmitt/experiments/03-09-24_aed_flipped_encoder/alias/models/ls_conformer/global_att/baseline_v1/baseline_rf/bpe1056/w-weight-feedback/w-att-ctx-in-state/nb-lstm/12-layer_512-dim_conformer-conv-w-zero-padding-conv-frontend-w-zero-padding/train_from_scratch/500-ep_bs-15000_mgpu-4_w-sp_curric_lr-dyn_lr_piecewise_linear_epoch-wise_v2_reg-v1_filter-data-312000.0_accum-4/returnn_decoding/epoch-61-checkpoint/no-lm/beam-size-12/train/analysis/dump_gradients_wrt_frontend_input/ground-truth/output/gradients.hdf"
+        # TODO put whatever you like here...
+        # "/u/schmitt/experiments/03-09-24_aed_flipped_encoder/alias/models/ls_conformer/global_att/baseline_v1/baseline_rf/bpe1056/w-weight-feedback/w-att-ctx-in-state/nb-lstm/12-layer_512-dim_conformer-conv-w-zero-padding-conv-frontend-w-zero-padding/train_from_scratch/500-ep_bs-15000_mgpu-4_w-sp_curric_lr-dyn_lr_piecewise_linear_epoch-wise_v2_reg-v1_filter-data-312000.0_accum-4/returnn_decoding/epoch-61-checkpoint/no-lm/beam-size-12/train/analysis/dump_gradients_wrt_frontend_input/ground-truth/output/gradients.hdf"
+        "/work/asr4/zeyer/setups-data/combined/2021-05-31/work/i6_core/returnn/forward/ReturnnForwardJobV2.wFuXKYCXNLLs/out.hdf"
     )
 
     plot_dir = "output/exp2024_09_09_grad_align/visualize_grad_scores"
@@ -557,6 +554,15 @@ def visualize_grad_scores():
         return (y - clip_min) / max(clip_max - clip_min, 1)
 
     score_matrix_data_dict = load_hdf_data(score_matrix_hdf, num_dims=2)
+
+    seq_list = Path(
+        "/u/schmitt/experiments/segmental_models_2022_23_rf/work/i6_core/corpus/segments/SegmentCorpusJob.AmDlp1YMZF1e/output/segments.1"
+    )
+    seq_list = open(seq_list.get_path()).read().splitlines()
+
+    # or alternatively:
+    seq_list = list(score_matrix_data_dict.keys())
+
     for i, seq_tag in enumerate(seq_list):
         if i >= 2:
             break
