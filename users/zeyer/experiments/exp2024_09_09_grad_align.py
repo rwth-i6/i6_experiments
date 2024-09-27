@@ -792,7 +792,9 @@ class ForcedAlignOnScoreMatrixJob(Job):
             if self.cut_off_eos:
                 # Last row is EOS, remove it.
                 score_matrix = score_matrix[:-1]
-            assert len(score_matrix) == len(labels)
+            assert len(score_matrix) == len(
+                labels
+            ), f"score_matrix.shape {score_matrix.shape} vs len labels {len(labels)}"
             T = score_matrix.shape[1]  # noqa
             S = score_matrix.shape[0]  # noqa
 

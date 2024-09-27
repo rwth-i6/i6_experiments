@@ -39,7 +39,7 @@ def py():
         get_vocab_by_str,
         seq_list_960_to_split_100_360_500,
     )
-    from .exp2024_09_09_grad_align import CalcAlignmentMetrics
+    from .exp2024_09_09_grad_align import CalcAlignmentMetrics, ForcedAlignOnScoreMatrixJob
     from i6_core.text.label.sentencepiece.vocab import ExtractSentencePieceVocabJob
 
     prefix = "exp2024_09_16_grad_align/"
@@ -164,11 +164,13 @@ def py():
             train_dataset,
             config={
                 **({"fixed_blank_sep_v1": True} if "blankSep" in shortname else {}),
-                # I get some strange CUDA error: an illegal memory access was encountered,
-                # maybe this fixes it:
-                **({"batch_size": 5_000 * _batch_size_factor} if shortname == "blankSep" else {}),
+                # **({"batch_size": 5_000 * _batch_size_factor} if shortname == "blankSep" else {}),
             },
         )
+        if shortname == "blankSep":
+            # I get some strange CUDA error: an illegal memory access was encountered,
+            # maybe this fixes it:
+            grads.creator.set_env("CUDA_LAUNCH_BLOCKING", "1")
         tk.register_output(f"{prefix}ctc_{shortname}_input_grads/grads.hdf", grads)
         grads.creator.add_alias(f"{prefix}ctc_{shortname}_input_grads/grads")
 
@@ -181,13 +183,58 @@ def py():
         "-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k"
         "-featBN-speedpertV2-spm10k-bpeSample001"
     )
-    task = get_librispeech_task_raw_v2(vocab="spm10k")
+    vocab = "spm10k"
+    task = get_librispeech_task_raw_v2(vocab=vocab)
     train_dataset = task.train_dataset.copy_train_as_static()
     train_dataset.main_dataset["fixed_random_subset"] = 100  # for debugging...
     # train_dataset.main_dataset["seq_list_filter_file"] = seq_list
     grads = get_input_grads(ctc_model, train_dataset)
     tk.register_output(f"{prefix}ctc_base_input_grads_debug/grads.hdf", grads)
     grads.creator.add_alias(f"{prefix}ctc_base_input_grads_debug/grads")
+
+    # see also exp2024_09_09_grad_align.py
+    opts = {"grad_name": "ctc_base_input_grads_debug", "sm": True, "blank_score": -6}
+    opts = opts.copy()
+    apply_softmax_over_time = opts.pop("sm", False)
+    grad_name = opts.pop("grad_name")
+    # factor, grad_hdf = grads[grad_name]
+    factor = 1
+    grad_hdf = grads
+
+    # The dumped grads cover about 9.6h audio from train.
+    name = f"grad-align-{grad_name}-sm{apply_softmax_over_time}"
+    if opts:
+        for k, v in opts.items():
+            name += f"-{k}{v}"
+    job = ForcedAlignOnScoreMatrixJob(
+        score_matrix_hdf=grad_hdf,
+        cut_off_eos=False,
+        apply_softmax_over_time=apply_softmax_over_time,
+        # Need to know blank idx for the generated output alignment.
+        num_labels=vocabs[vocab][2] + 1,
+        blank_idx=vocabs[vocab][2],
+        returnn_dataset=train_dataset.get_main_dataset(),
+        **opts,
+    )
+    job.add_alias(prefix + name + "/align")
+    tk.register_output(prefix + name + "/align.hdf", job.out_align)
+    alignment_hdf = job.out_align
+
+    name += "/metrics"
+    job = CalcAlignmentMetrics(
+        seq_list=seq_list,
+        alignment_hdf=alignment_hdf,
+        alignment_bpe_vocab=vocabs[vocab][1],
+        alignment_bpe_style=vocabs[vocab][0],
+        alignment_blank_idx=vocabs[vocab][2],
+        features_sprint_cache=features_sprint_cache,
+        ref_alignment_sprint_cache=gmm_alignment_sprint_cache,
+        ref_alignment_allophones=gmm_alignment_allophones,
+        ref_alignment_len_factor=factor,
+    )
+    job.add_alias(prefix + name)
+    tk.register_output(prefix + name + ".json", job.out_scores)
+    tk.register_output(prefix + name + "_short_report.txt", job.out_short_report_str)
 
     # TODO job to dump grads, diff variants:
     #  - x * grad
