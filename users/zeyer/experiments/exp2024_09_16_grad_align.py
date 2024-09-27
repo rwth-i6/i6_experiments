@@ -5,7 +5,7 @@ More on grad align
 
 from __future__ import annotations
 
-from typing import List, Sequence
+from typing import Optional, Any, List, Sequence, Dict
 from i6_experiments.users.zeyer.model_interfaces.model_with_checkpoints import ModelWithCheckpoint
 
 from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.ctc import (
@@ -158,6 +158,19 @@ def py():
         tk.register_output(prefix + name + ".json", job.out_scores)
         tk.register_output(prefix + name + ".short_report.txt", job.out_short_report_str)
 
+    # base model
+    ctc_model = sis_get_model(
+        "v6-relPosAttDef"
+        "-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k"
+        "-featBN-speedpertV2-spm10k-bpeSample001"
+    )
+    task = get_librispeech_task_raw_v2(vocab="spm10k")
+    train_dataset = task.train_dataset.copy_train_as_static()
+    train_dataset.main_dataset["seq_list_filter_file"] = seq_list
+    grads = get_input_grads(ctc_model, train_dataset)
+    tk.register_output(f"{prefix}ctc_base_input_grads/grads.hdf", grads)
+    grads.creator.add_alias(f"{prefix}ctc_base_input_grads/grads")
+
     # TODO job to dump grads, diff variants:
     #  - x * grad
     #  - using prob entropy instead of ground truth log prob
@@ -271,3 +284,107 @@ def _ctc_model_forced_align_step(*, model: Model, extern_data: TensorDict, **_kw
     out_spatial_dim.declare_same_as(enc_spatial_dim)
     path.mark_as_default_output(shape=[batch_dim, enc_spatial_dim])
     score.mark_as_output("scores", shape=[batch_dim])
+
+
+def get_input_grads(
+    model: ModelWithCheckpoint, dataset: DatasetConfig, config: Optional[Dict[str, Any]] = None
+) -> tk.Path:
+    from i6_experiments.users.zeyer.forward_to_hdf import forward_to_hdf
+
+    extern_data_dict = dataset.get_extern_data()
+    default_input_dict = extern_data_dict[dataset.get_default_input()]
+    input_dims: Sequence[Dim] = (
+        default_input_dict["dims"] if "dims" in default_input_dict else default_input_dict["dim_tags"]
+    )
+    assert isinstance(input_dims, (tuple, list)) and all(isinstance(dim, Dim) for dim in input_dims)
+    default_target_dict = extern_data_dict[dataset.get_default_target()]
+    batch_dim, out_spatial_dim = default_target_dict["dim_tags"]
+    feat_spatial_dim = Dim(None, name="feat_spatial_dim")  # it's not the input raw audio spatial dim...
+
+    return forward_to_hdf(
+        dataset=dataset,
+        model=model,
+        forward_step=_ctc_model_get_input_grads_step,
+        config={
+            "model_outputs": {
+                "output": {"dims": [batch_dim, out_spatial_dim, feat_spatial_dim], "dtype": "float32"},
+                "feat_size": {"dims": [batch_dim], "dtype": "int32"},
+                "targets_size": {"dims": [batch_dim], "dtype": "int32"},
+                "partial_scores": {"dims": [batch_dim, out_spatial_dim], "dtype": "float32"},
+            },
+            **(config or {}),
+        },
+        forward_rqmt={"time": 12},
+    )
+
+
+def _ctc_model_get_input_grads_step(*, model: Model, extern_data: TensorDict, **_kwargs):
+    import torch
+    from returnn.tensor import batch_dim
+    from returnn.config import get_global_config
+    from i6_experiments.users.zeyer.nn_rf.fsa import ctc_partial_scores
+    from returnn.frontend.tensor_array import TensorArray
+
+    config = get_global_config()
+    default_input_key = config.typed_value("default_input")
+    default_target_key = config.typed_value("target")
+    source = extern_data[default_input_key]
+    targets = extern_data[default_target_key]
+    expected_output = rf.get_run_ctx().expected_outputs["output"]
+    feat_spatial_dim_ = expected_output.dims[-1]
+
+    # Call: logits, enc, enc_spatial_dim = model(source, in_spatial_dim=source.get_time_dim_tag())
+    in_spatial_dim = source.get_time_dim_tag()
+
+    # log mel filterbank features
+    source, in_spatial_dim = rf.audio.log_mel_filterbank_from_raw(
+        source,
+        in_spatial_dim=in_spatial_dim,
+        out_dim=model.in_dim,
+        sampling_rate=16_000,
+    )
+    in_spatial_dim.get_size_tensor().mark_as_output("feat_size")
+    feat_spatial_dim_.declare_same_as(in_spatial_dim)
+    if model.feature_batch_norm:
+        source = model.feature_batch_norm(source)
+    if model.feature_norm:
+        source = rf.normalize(source, axis=in_spatial_dim)
+    if model.feature_stats:
+        source = (source - model.feature_stats.mean) / model.feature_stats.std_dev
+
+    with torch.enable_grad():
+        # Just that we have well-defined dim order, for the grad logic below.
+        source = source.copy_transpose((batch_dim, in_spatial_dim, model.in_dim))  # [B,T_in,D]
+        source.raw_tensor.requires_grad = True
+
+        # (No Mixup, no SpecAugment)
+
+        # Encoder including convolutional frontend
+        enc, enc_spatial_dim = model.encoder(source, in_spatial_dim=in_spatial_dim)
+        logits = model.enc_logits(enc)
+
+        targets_spatial_dim = targets.get_time_dim_tag()
+        targets_spatial_dim.get_size_tensor().mark_as_output("targets_size")
+        scores = ctc_partial_scores(
+            logits=logits,
+            input_spatial_dim=enc_spatial_dim,
+            targets=targets,
+            targets_spatial_dim=targets_spatial_dim,
+            blank_index=model.blank_idx,
+        )  # [B,T_out]
+        scores.mark_as_output("partial_scores")
+        scores_ta = TensorArray.unstack(scores, axis=targets_spatial_dim)
+
+        grad_norms = []
+        for t in range(targets_spatial_dim.get_dim_value()):
+            print("t:", t)
+            source.raw_tensor.grad = None
+            scores_t = scores_ta[t]  # [B], +log prob
+            partial_loss = scores_t.raw_tensor.sum()
+            partial_loss.backward(retain_graph=True)
+            grad: torch.Tensor = source.raw_tensor.grad  # [B,T_in,D]  # noqa
+            grad_norm = torch.norm(grad, p=2, dim=2)  # [B,T_in]
+            grad_norms.append(grad_norm)
+        grad_norms = torch.stack(grad_norms, dim=0)  # [T_out,B,T_in]
+        grad_norms_ = rf.convert_to_tensor(grad_norms, dims=[targets_spatial_dim, batch_dim, in_spatial_dim])
+        grad_norms_.mark_as_default_output()
