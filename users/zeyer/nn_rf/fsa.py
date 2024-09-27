@@ -18,7 +18,8 @@ class FSA(NamedTuple):
     label_dim: Dim  # L
 
     # States
-    num_states_dim: Dim  # S
+    num_states_dim_ext: Dim  # S_[B] (per batch)
+    num_states_dim: Dim  # S (flat/packed)
     start_states: Tensor  # [B...] -> S
     states_batch_idx: Tensor  # [S] -> B_
 
@@ -114,6 +115,105 @@ def ctc_loss(
     return -forward_score(
         logits=logits, logits_normalized=logits_normalized, input_spatial_dim=input_spatial_dim, fsa=fsa
     )
+
+
+def forward_partial_accum_scores(*, logits: Tensor, logits_normalized: bool = False, input_spatial_dim: Dim, fsa: FSA):
+    """
+    Forward accum partial scores: log p(s_1,...,s_n | x_1,...,x_T)
+    (for states s 1 to n).
+
+    :return partial scores, shape [B,S_]
+    """
+    assert logits.feature_dim == fsa.label_dim
+
+    if not logits_normalized:
+        logits = rf.log_softmax(logits, axis=logits.feature_dim)
+    batch_dims = logits.remaining_dims((input_spatial_dim, logits.feature_dim))
+
+    # The following condition is maybe not strictly needed, and other broadcasting might work as well,
+    # but just assume now for simplicity/sanity.
+    assert set(batch_dims) == set(fsa.batch_dims)
+
+    # This order of dims should be more efficient for the loop below.
+    logits = logits.copy_transpose([input_spatial_dim] + batch_dims + [logits.feature_dim])
+
+    # Merge dims to allow a single gather access for fsa_transitions_batch_label_idx.
+    logits, batch_label_dim = rf.merge_dims(logits, dims=batch_dims + [logits.feature_dim])  # [T,B*L]
+
+    device = logits.device
+    seq_lens_ = rf.gather(input_spatial_dim.get_size_tensor(device=device), indices=fsa.states_batch_idx)  # [S] -> T
+
+    state_idx_offsets = rf.masked_scatter(
+        rf.range_over_dim(fsa.num_states_dim, device=device),
+        in_dim=fsa.num_states_dim,
+        mask=rf.sequence_mask(batch_dims + [fsa.num_states_dim_ext], device=device),
+        dims=batch_dims + [fsa.num_states_dim_ext],
+    )  # [B,S_]->S
+
+    scores = rf.scatter(
+        rf.zeros(fsa.batch_dims, dtype=logits.dtype, device=device),
+        indices=fsa.start_states,
+        indices_dim=fsa.batch_dims,
+        fill_value=float("-inf"),
+    )  # [S], per state
+
+    partial_scores = []  # T->[B,S_]
+
+    for t in range(input_spatial_dim.get_dim_value()):
+        scores_in = rf.gather(scores, indices=fsa.trans_prev_state)  # [A]
+        assert scores_in.dims == (fsa.num_trans_dim,)
+        logits_t = rf.gather(logits, indices=t, axis=input_spatial_dim)  # [B*L]
+        scores_in = _safe_add(scores_in, rf.gather(logits_t, indices=fsa.trans_batch_label_idx))  # [A]
+
+        scores_, _ = _scatter_safe_logsumexp(
+            scores_in,
+            indices=fsa.trans_next_state,
+            indices_dim=fsa.num_trans_dim,
+            out_dim=fsa.num_states_dim,
+        )  # [S]
+
+        scores = rf.where(t < seq_lens_, scores_, scores)  # [S]
+
+        partial_scores.append(rf.gather(scores, indices=state_idx_offsets))  # [B,S_]
+
+    partial_scores_, _ = rf.stack(partial_scores, out_dim=input_spatial_dim)  # [T,B,S_]
+
+    partial_scores_ = rf.reduce_logsumexp(partial_scores_, axis=input_spatial_dim)  # [B,S_]
+    return partial_scores_
+
+
+def ctc_partial_scores(
+    *,
+    logits: Tensor,
+    logits_normalized: bool = False,
+    input_spatial_dim: Dim,
+    targets: Tensor,
+    targets_spatial_dim: Dim,
+    blank_index: int,
+) -> Tensor:
+    """
+    Forward partial scores: log p(y_n | y_1,...,y_{n-1}, x_1,...,x_T).
+    """
+    fsa = fsa_for_ctc(targets, targets_spatial_dim, blank_index=blank_index, labels_with_blank_dim=logits.feature_dim)
+    partial_accum_scores = forward_partial_accum_scores(
+        logits=logits, logits_normalized=logits_normalized, input_spatial_dim=input_spatial_dim, fsa=fsa
+    )  # [B,S_]->score
+
+    device = logits.device
+
+    label_states = rf.range_over_dim(targets_spatial_dim, device=device) * 2 + 1  # [T_out]->S_
+    label_states.sparse_dim = fsa.num_states_dim_ext
+    label_states_prev_blank = label_states - 1  # [T_out]->S_
+    label_states_next_blank = label_states + 1  # [T_out]->S_
+    label_partial_scores = rf.gather(partial_accum_scores, indices=label_states)  # [B,T_out]->score
+    label_prev_blank_partial_scores = rf.gather(
+        partial_accum_scores, indices=label_states_prev_blank
+    )  # [B,T_out]->score
+    label_next_blank_partial_scores = rf.gather(
+        partial_accum_scores, indices=label_states_next_blank
+    )  # [B,T_out]->score
+    label_partial_scores = label_partial_scores - label_prev_blank_partial_scores  # [B,T_out]->score
+    return label_partial_scores
 
 
 def best_path(
@@ -408,6 +508,7 @@ def fsa_for_ctc(
     return FSA(
         batch_dims=batch_dims,
         label_dim=labels_with_blank_dim,
+        num_states_dim_ext=num_states_dim_ext,
         num_states_dim=num_states_dim,
         start_states=start_states,
         states_batch_idx=states_batch_idx,
