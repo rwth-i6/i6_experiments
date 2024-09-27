@@ -158,6 +158,14 @@ def py():
         tk.register_output(prefix + name + ".json", job.out_scores)
         tk.register_output(prefix + name + ".short_report.txt", job.out_short_report_str)
 
+        # Now grad based align
+        grads = get_input_grads(ctc_model, train_dataset)
+        tk.register_output(f"{prefix}ctc_{shortname}_input_grads/grads.hdf", grads)
+        grads.creator.add_alias(f"{prefix}ctc_{shortname}_input_grads/grads")
+
+        # TODO...
+
+    # Grad align
     # base model
     ctc_model = sis_get_model(
         "v6-relPosAttDef"
