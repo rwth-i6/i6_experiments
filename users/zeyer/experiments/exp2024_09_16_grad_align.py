@@ -390,7 +390,6 @@ def _ctc_model_get_input_grads_step(*, model: Model, extern_data: TensorDict, **
 
         grad_norms = []
         for t in range(targets_spatial_dim.get_dim_value()):
-            print("t:", t)
             source.raw_tensor.grad = None
             scores_t = scores_ta[t]  # [B], +log prob
             partial_loss = scores_t.raw_tensor.sum()
