@@ -199,16 +199,6 @@ class BaseLabelDecoder(rf.Module):
 
     self.use_trafo_att_wo_cross_att = config.bool("use_trafo_att_wo_cross_att", False)
 
-    self.use_mini_att = use_mini_att
-    if use_mini_att:
-      if "lstm" in decoder_state:
-        self.mini_att_lstm = rf.LSTM(self.target_embed.out_dim, Dim(name="mini-att-lstm", dimension=50))
-        out_dim = self.mini_att_lstm.out_dim
-      else:
-        self.mini_att_linear = rf.Linear(self.target_embed.out_dim, Dim(name="mini-att-linear", dimension=50))
-        out_dim = self.mini_att_linear.out_dim
-      self.mini_att = rf.Linear(out_dim, self.att_num_heads * self.enc_out_dim)
-
     if use_weight_feedback:
       self.weight_feedback = rf.Linear(att_num_heads, enc_key_total_dim, with_bias=False)
 
@@ -242,6 +232,7 @@ class BaseLabelDecoder(rf.Module):
 
     readout_out_dim = Dim(name="readout", dimension=readout_dimension)
     self.use_current_frame_in_readout = use_current_frame_in_readout
+    self.use_current_frame_in_readout_w_double_gate = config.bool("use_current_frame_in_readout_w_double_gate", False)
     self.use_readout = use_readout
     if use_current_frame_in_readout:
       readout_in_dim += enc_out_dim
@@ -264,6 +255,19 @@ class BaseLabelDecoder(rf.Module):
         att_num_heads * enc_out_dim,
         Dim(name="attention_gate", dimension=1),
       )
+    if self.use_current_frame_in_readout_w_double_gate:
+      self.attention_gate = rf.Linear(
+        self.get_lstm().out_dim,
+        att_dim,
+      )
+      self.h_t_gate = rf.Linear(
+        self.get_lstm().out_dim,
+        enc_out_dim,
+      )
+      self.h_t_att_merger = rf.Linear(
+        enc_out_dim + att_dim,
+        att_dim,
+      )
 
     self.use_current_frame_in_readout_random = use_current_frame_in_readout_random
 
@@ -277,8 +281,19 @@ class BaseLabelDecoder(rf.Module):
     else:
       self.output_prob = rf.Linear(**output_prob_opts)
 
-    for p in self.parameters():
-      p.weight_decay = l2
+    self.use_mini_att = use_mini_att
+    if use_mini_att:
+      if "lstm" in decoder_state:
+        self.mini_att_lstm = rf.LSTM(self.target_embed.out_dim, Dim(name="mini-att-lstm", dimension=50))
+        out_dim = self.mini_att_lstm.out_dim
+      else:
+        self.mini_att_linear = rf.Linear(self.target_embed.out_dim, Dim(name="mini-att-linear", dimension=50))
+        out_dim = self.mini_att_linear.out_dim
+      self.mini_att = rf.Linear(out_dim, att_dim)
+
+    # currently has no effect anyway
+    # for p in self.parameters():
+    #   p.weight_decay = l2
 
     # Note: Even though we have this here, it is not used in loop_step or decode_logits.
     # Instead, it is intended to make a separate label scorer for it.
@@ -354,6 +369,18 @@ class BaseLabelDecoder(rf.Module):
     if self.use_current_frame_in_readout:
       assert h_t is not None, "Need h_t for readout!"
       readout_input = rf.concat_features(s, input_embed, att, h_t, allow_broadcast=True)
+    elif self.use_current_frame_in_readout_w_double_gate:
+      assert h_t is not None, "Need h_t for readout!"
+
+      alpha_h_t = rf.sigmoid(self.h_t_gate(s))
+      weighted_h_t = alpha_h_t * h_t
+
+      alpha_att = rf.sigmoid(self.attention_gate(s))
+      weighted_att = alpha_att * att
+
+      merged_h_t_att = self.h_t_att_merger(rf.concat_features(weighted_h_t, weighted_att))
+
+      readout_input = rf.concat_features(s, input_embed, merged_h_t_att, allow_broadcast=True)
     elif self.use_current_frame_in_readout_w_gate or self.use_current_frame_in_readout_random:
       if not (not rf.get_run_ctx().train_flag and self.use_current_frame_in_readout_random):
         assert h_t is not None, "Need h_t for readout!"

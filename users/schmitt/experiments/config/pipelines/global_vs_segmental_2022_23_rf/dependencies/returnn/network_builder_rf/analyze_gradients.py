@@ -1783,7 +1783,7 @@ def analyze_gradients(
         )
         assert isinstance(energies, rf.Tensor)
 
-        if model.label_decoder.use_current_frame_in_readout:
+        if model.label_decoder.use_current_frame_in_readout or model.label_decoder.use_current_frame_in_readout_w_double_gate:
           logits_wo_att, _ = forward_sequence_global(
             model=model.label_decoder,
             enc_args=enc_args,

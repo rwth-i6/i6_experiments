@@ -245,7 +245,8 @@ def get_score(
     if not isinstance(model.label_decoder, TransformerDecoder) and (
             model.label_decoder.use_current_frame_in_readout or
             model.label_decoder.use_current_frame_in_readout_w_gate or
-            model.label_decoder.use_current_frame_in_readout_random
+            model.label_decoder.use_current_frame_in_readout_random or
+            model.label_decoder.use_current_frame_in_readout_w_double_gate
     ):
       h_t = rf.gather(enc_args["enc"], axis=enc_spatial_dim, indices=center_positions)
     else:

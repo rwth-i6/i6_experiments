@@ -20,6 +20,7 @@ from i6_core.returnn.training import AverageTorchCheckpointsJob, GetBestEpochJob
 from i6_core.util import instanciate_delayed
 
 from returnn_common import nn
+import returnn.frontend as rf
 
 from sisyphus import Path
 
@@ -40,6 +41,7 @@ class ConfigBuilderRF(ABC):
           use_current_frame_in_readout: bool = False,
           use_current_frame_in_readout_w_gate: bool = False,
           use_current_frame_in_readout_random: bool = False,
+          use_current_frame_in_readout_w_double_gate: bool = False,
           use_correct_dim_tags: bool = False,
           num_label_decoder_layers: int = 1,
           target_embed_dimension: int = 640,
@@ -101,12 +103,12 @@ class ConfigBuilderRF(ABC):
     self.use_current_frame_in_readout = use_current_frame_in_readout
     if use_current_frame_in_readout:
       self.config_dict["use_current_frame_in_readout"] = use_current_frame_in_readout
-
     if use_current_frame_in_readout_w_gate:
       self.config_dict["use_current_frame_in_readout_w_gate"] = use_current_frame_in_readout_w_gate
-
     if use_current_frame_in_readout_random:
       self.config_dict["use_current_frame_in_readout_random"] = use_current_frame_in_readout_random
+    if use_current_frame_in_readout_w_double_gate:
+      self.config_dict["use_current_frame_in_readout_w_double_gate"] = use_current_frame_in_readout_w_double_gate
 
     if num_label_decoder_layers != 1:
       self.config_dict["num_label_decoder_layers"] = num_label_decoder_layers
@@ -311,24 +313,36 @@ class ConfigBuilderRF(ABC):
     lm_opts = opts.get("lm_opts", None)  # type: Optional[Dict]
     if lm_opts is not None:
       assert lm_opts.get("type", "trafo") == "trafo"
+      lm_alias = lm_opts.get("alias", "kazuki-10k")
 
-      config_dict["external_lm"] = {
-        "class": "TransformerDecoder",
-        "vocab_dim": 10_025,
-        "model_dim": 1024,
-        "embed_dim": 128,
-        "num_layers": 24,
-        "decoder_layer_opts": {"self_att_opts": {"with_bias": False, "att_dropout_broadcast": False}},
-        "input_embedding_scale": 1.0,
-        "share_embedding": False,
-        "logits_with_bias": True,
-        "input_dropout": 0.1,
-      }
+      if lm_alias == "kazuki-10k":
+        config_dict["external_lm"] = {
+          "class": "TransformerDecoder",
+          "vocab_dim": 10_025,
+          "model_dim": 1024,
+          "embed_dim": 128,
+          "num_layers": 24,
+          "decoder_layer_opts": {"self_att_opts": {"with_bias": False, "att_dropout_broadcast": False}},
+          "input_embedding_scale": 1.0,
+          "share_embedding": False,
+          "logits_with_bias": True,
+          "input_dropout": 0.1,
+        }
+      else:
+        config_dict["external_lm"] = {
+          "class": "TransformerDecoder",
+          "vocab_dim": self.variant_params["dependencies"].num_bpes,
+          "model_dim": 512,
+          "num_layers": 24,
+          "ff_activation": rf.build_dict(rf.gelu),
+          "dropout": 0.0,
+          "att_dropout": 0.0,
+        }
 
       if "preload_from_files" not in config_dict:
         config_dict["preload_from_files"] = {}
       config_dict["preload_from_files"]["external_lm"] = {
-        "filename": "/work/asr3/zeyer/schmitt/sisyphus_work_dirs/segmental_models_2022_23_rf/i6_experiments/users/schmitt/returnn_frontend/convert/checkpoint/ConvertTfCheckpointToRfPtJob.7haAE0Cx93dA/output/model/network.023.pt",
+        "filename": lm_opts["checkpoint"],
         "prefix": "language_model.",
         "ignore_missing": False,
       }

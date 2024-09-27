@@ -154,7 +154,12 @@ def forward_sequence(
         batch_dims=batch_dims
       )
 
-    if model.use_current_frame_in_readout or model.use_current_frame_in_readout_w_gate or model.use_current_frame_in_readout_random:
+    if (
+            model.use_current_frame_in_readout or
+            model.use_current_frame_in_readout_w_gate or
+            model.use_current_frame_in_readout_random or
+            model.use_current_frame_in_readout_w_double_gate
+    ):
       h_t = rf.gather(enc_args["enc"], axis=enc_spatial_dim, indices=center_positions)
     else:
       h_t = None
