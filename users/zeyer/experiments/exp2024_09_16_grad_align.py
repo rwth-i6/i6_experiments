@@ -159,7 +159,16 @@ def py():
         tk.register_output(prefix + name + ".short_report.txt", job.out_short_report_str)
 
         # Now grad based align
-        grads = get_input_grads(ctc_model, train_dataset)
+        grads = get_input_grads(
+            ctc_model,
+            train_dataset,
+            config={
+                **({"fixed_blank_sep_v1": True} if "blankSep" in shortname else {}),
+                # I get some strange CUDA error: an illegal memory access was encountered,
+                # maybe this fixes it:
+                **({"batch_size": 5_000 * _batch_size_factor} if shortname == "blankSep" else {}),
+            },
+        )
         tk.register_output(f"{prefix}ctc_{shortname}_input_grads/grads.hdf", grads)
         grads.creator.add_alias(f"{prefix}ctc_{shortname}_input_grads/grads")
 
@@ -174,10 +183,11 @@ def py():
     )
     task = get_librispeech_task_raw_v2(vocab="spm10k")
     train_dataset = task.train_dataset.copy_train_as_static()
-    train_dataset.main_dataset["seq_list_filter_file"] = seq_list
+    train_dataset.main_dataset["fixed_random_subset"] = 100  # for debugging...
+    # train_dataset.main_dataset["seq_list_filter_file"] = seq_list
     grads = get_input_grads(ctc_model, train_dataset)
-    tk.register_output(f"{prefix}ctc_base_input_grads/grads.hdf", grads)
-    grads.creator.add_alias(f"{prefix}ctc_base_input_grads/grads")
+    tk.register_output(f"{prefix}ctc_base_input_grads_debug/grads.hdf", grads)
+    grads.creator.add_alias(f"{prefix}ctc_base_input_grads_debug/grads")
 
     # TODO job to dump grads, diff variants:
     #  - x * grad
@@ -312,6 +322,13 @@ def get_input_grads(
     batch_dim, out_spatial_dim = default_target_dict["dim_tags"]
     feat_spatial_dim = Dim(None, name="feat_spatial_dim")  # it's not the input raw audio spatial dim...
 
+    if config:
+        config = config.copy()
+    else:
+        config = {}
+    config.setdefault("__batch_size_dependent", True)
+    config.setdefault("batch_size", 10_000 * _batch_size_factor)  # grads need more mem
+
     return forward_to_hdf(
         dataset=dataset,
         model=model,
@@ -323,9 +340,7 @@ def get_input_grads(
                 "targets_size": {"dims": [batch_dim], "dtype": "int32"},
                 "partial_scores": {"dims": [batch_dim, out_spatial_dim], "dtype": "float32"},
             },
-            "__batch_size_dependent": True,
-            "batch_size": 10_000 * _batch_size_factor,  # grads need more mem
-            **(config or {}),
+            **config,
         },
         forward_rqmt={"time": 24},
     )
@@ -375,11 +390,15 @@ def _ctc_model_get_input_grads_step(*, model: Model, extern_data: TensorDict, **
         # Encoder including convolutional frontend
         enc, enc_spatial_dim = model.encoder(source, in_spatial_dim=in_spatial_dim)
         logits = model.enc_logits(enc)
+        if model.out_blank_separated:
+            assert config.bool("fixed_blank_sep_v1", False)
+        log_probs = model.log_probs_wb_from_logits(logits)
 
         targets_spatial_dim = targets.get_time_dim_tag()
         targets_spatial_dim.get_size_tensor().mark_as_output("targets_size")
         scores = ctc_partial_scores(
-            logits=logits,
+            logits=log_probs,
+            logits_normalized=True,
             input_spatial_dim=enc_spatial_dim,
             targets=targets,
             targets_spatial_dim=targets_spatial_dim,
