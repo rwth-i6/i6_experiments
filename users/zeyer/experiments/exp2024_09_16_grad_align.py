@@ -315,7 +315,7 @@ def get_input_grads(
             "batch_size": 15_000 * _batch_size_factor,  # grads need more mem
             **(config or {}),
         },
-        forward_rqmt={"time": 12},
+        forward_rqmt={"time": 24},
     )
 
 
