@@ -89,7 +89,7 @@ def py():
             "-lpNormedGradC05_11P1",
             "spm10k",
         ),
-        (
+        (  # 98.5/77.6ms
             "blankSep",  # 5.73
             "v6-relPosAttDef"
             "-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k"
@@ -97,29 +97,29 @@ def py():
             "-blankSep",
             "spm10k",
         ),
-        (
+        (  # 75.4/42.7ms
             "base-spm512",  # 6.02
             "v6-relPosAttDef"
             "-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-maxSeqLenAudio19_5-wd1e_2-lrlin1e_5_295k"
-            "-featBN-speedpertV2-spm10k-bpeSample001",
+            "-featBN-speedpertV2-spm512-bpeSample001",
             "spm512",
         ),
-        (
+        (  # 59.6/48.5ms
             "base-spm512-blankSep",  # 6.02
             "v6-relPosAttDef"
             "-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-maxSeqLenAudio19_5-wd1e_2-lrlin1e_5_295k"
-            "-featBN-speedpertV2-spm10k-bpeSample001"
+            "-featBN-speedpertV2-spm512-bpeSample001"
             "-blankSep",
             "spm512",
         ),
-        (
+        (  # 113.9/68.1ms
             "base-bpe10k",  # 6.18
             "v6-relPosAttDef"
             "-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k"
             "-featBN-speedpertV2-bpe10k-bpeSample001",
             "bpe10k",
         ),
-        (
+        (  # 84.9/64.2ms
             "base-bpe10k-blankSep",  # 5.98
             "v6-relPosAttDef"
             "-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k"
