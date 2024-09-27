@@ -627,9 +627,9 @@ def py():
         # Baseline: 5.77
         0.0001,  # 5.80
         0.0005,  # 5.75
-        0.001,  # 5.79
-        0.0025,  # 5.91 (so worse on dev-other, but it's better on test-other)
-        0.01,  # 5.86
+        # 0.001,  # 5.79
+        # 0.0025,  # 5.91 (so worse on dev-other, but it's better on test-other)
+        # 0.01,  # 5.86
     ]:
         train_exp(
             "v6-relPosAttDef-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2"
@@ -655,10 +655,10 @@ def py():
     for wdrop in [
         # baseline: 5.77
         0.0001,  # 5.85
-        0.001,  # 5.86
-        0.01,  # 5.96
-        0.05,  # 7.33
-        0.1,  # 8.91
+        # 0.001,  # 5.86
+        # 0.01,  # 5.96
+        # 0.05,  # 7.33
+        # 0.1,  # 8.91
     ]:
         train_exp(
             f"v6-relPosAttDef-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2"
@@ -684,11 +684,11 @@ def py():
         # 5.71 (!!) (i.e. better than without)
         "C05_11P1": {"func": {"clamp_min": 0.5, "clamp_max": 1.1, "scale_type": "inv_num_labels", "prior_exp": 1.0}},
         # 5.85
-        "C05_15P1": {"func": {"clamp_min": 0.5, "clamp_max": 1.5, "scale_type": "inv_num_labels", "prior_exp": 1.0}},
+        # "C05_15P1": {"func": {"clamp_min": 0.5, "clamp_max": 1.5, "scale_type": "inv_num_labels", "prior_exp": 1.0}},
         # 6.21
-        "C01_11P1": {"func": {"clamp_min": 0.1, "clamp_max": 1.1, "scale_type": "inv_num_labels", "prior_exp": 1.0}},
+        # "C01_11P1": {"func": {"clamp_min": 0.1, "clamp_max": 1.1, "scale_type": "inv_num_labels", "prior_exp": 1.0}},
         # 5.78
-        "C08_11P1": {"func": {"clamp_min": 0.8, "clamp_max": 1.1, "scale_type": "inv_num_labels", "prior_exp": 1.0}},
+        # "C08_11P1": {"func": {"clamp_min": 0.8, "clamp_max": 1.1, "scale_type": "inv_num_labels", "prior_exp": 1.0}},
         # 5.83
         "C05_11P1Seq": {
             "prior": "seq_grad",
@@ -922,34 +922,34 @@ def py():
     )
 
     # rope+rmsNorm+noBias. (Baseline: 5.77)
-    train_exp(  # 5.87, so worse. rope makes it worse, as seen before, but rmsNorm and noBias should make it better.
-        "v6-relPosAttDef-rope-rmsNorm-noBias-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2"
-        "-lrlin1e_5_295k-featBN-speedpertV2-spm10k-bpeSample001",
-        config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
-        model_config={
-            "enc_conformer_layer": rf.build_dict(
-                rf.encoder.conformer.ConformerEncoderLayer,
-                ff=rf.build_dict(
-                    rf.encoder.conformer.ConformerPositionwiseFeedForward,
-                    activation=rf.build_dict(rf.relu_square),
-                    with_bias=False,
-                ),
-                norm=rf.build_dict(rf.RMSNorm),
-                self_att=rf.build_dict(rf.RotaryPosSelfAttention, with_bias=False),
-                num_heads=8,
-            ),
-            "feature_batch_norm": True,
-        },
-        config_updates={
-            **_get_cfg_lrlin_oclr_by_bs_nep(15_000, 500),
-            "optimizer.weight_decay": 1e-2,
-            "__train_audio_preprocess": speed_pert_librosa_config,
-            "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
-            "aux_attention_decoder": rf.build_dict(TransformerDecoder, num_layers=6),  # purely used for training
-        },
-        vocab="spm10k",
-        train_vocab_opts={"other_opts": {"class": "SamplingBytePairEncoding", "breadth_prob": 0.01}},
-    )
+    # train_exp(  # 5.87, so worse. rope makes it worse, as seen before, but rmsNorm and noBias should make it better.
+    #     "v6-relPosAttDef-rope-rmsNorm-noBias-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2"
+    #     "-lrlin1e_5_295k-featBN-speedpertV2-spm10k-bpeSample001",
+    #     config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
+    #     model_config={
+    #         "enc_conformer_layer": rf.build_dict(
+    #             rf.encoder.conformer.ConformerEncoderLayer,
+    #             ff=rf.build_dict(
+    #                 rf.encoder.conformer.ConformerPositionwiseFeedForward,
+    #                 activation=rf.build_dict(rf.relu_square),
+    #                 with_bias=False,
+    #             ),
+    #             norm=rf.build_dict(rf.RMSNorm),
+    #             self_att=rf.build_dict(rf.RotaryPosSelfAttention, with_bias=False),
+    #             num_heads=8,
+    #         ),
+    #         "feature_batch_norm": True,
+    #     },
+    #     config_updates={
+    #         **_get_cfg_lrlin_oclr_by_bs_nep(15_000, 500),
+    #         "optimizer.weight_decay": 1e-2,
+    #         "__train_audio_preprocess": speed_pert_librosa_config,
+    #         "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
+    #         "aux_attention_decoder": rf.build_dict(TransformerDecoder, num_layers=6),  # purely used for training
+    #     },
+    #     vocab="spm10k",
+    #     train_vocab_opts={"other_opts": {"class": "SamplingBytePairEncoding", "breadth_prob": 0.01}},
+    # )
 
     # rope. (Baseline: 5.77)
     # train_exp(  # 5.87, so rope is worse here.
