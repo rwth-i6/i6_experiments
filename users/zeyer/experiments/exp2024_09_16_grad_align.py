@@ -63,12 +63,6 @@ def py():
     vocab = get_vocab_by_str("spm10k")
     vocab = ExtractSentencePieceVocabJob(vocab.model_file).out_vocab
 
-    ctc_model = sis_get_model(
-        "v6-relPosAttDef-noBias"
-        "-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k"
-        "-featBN-speedpertV2-spm10k-bpeSample001"
-    )
-
     # Note: task hardcoded... (and also not needed, I just need the train dataset...)
     # Note: spm10k hardcoded...
     task = get_librispeech_task_raw_v2(vocab="spm10k")
@@ -76,27 +70,50 @@ def py():
     # train_dataset.main_dataset["fixed_random_subset"] = 1000  # for debugging...
     train_dataset.main_dataset["seq_list_filter_file"] = seq_list
 
-    alignment = ctc_forced_align(ctc_model, train_dataset)
-    alignment.creator.add_alias(f"{prefix}ctc_forced_align/align")
-    tk.register_output(f"{prefix}ctc_forced_align/align.hdf", alignment)
+    for shortname, fullname in [
+        (  # 110.7/43.7ms
+            "noBias",  # 5.65, better baseline
+            "v6-relPosAttDef-noBias"
+            "-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k"
+            "-featBN-speedpertV2-spm10k-bpeSample001",
+        ),
+        (
+            "base",  # 5.77
+            "v6-relPosAttDef"
+            "-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k"
+            "-featBN-speedpertV2-spm10k-bpeSample001",
+        ),
+        (
+            "lpNormedGradC05_11P1",  # 5.71
+            "v6-relPosAttDef"
+            "-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k"
+            "-featBN-speedpertV2-spm10k-bpeSample001"
+            "-lpNormedGradC05_11P1",
+        ),
+    ]:
+        ctc_model = sis_get_model(fullname)
 
-    name = "ctc_forced_align/metrics"  # 110.8/43.8ms
-    job = CalcAlignmentMetrics(
-        seq_list=seq_list,
-        seq_list_ref=seq_list_ref,
-        alignment_hdf=alignment,
-        alignment_label_topology="ctc",
-        alignment_bpe_vocab=vocab,
-        alignment_bpe_style="spm",
-        alignment_blank_idx=10_240,
-        features_sprint_cache=features_sprint_cache,
-        ref_alignment_sprint_cache=gmm_alignment_sprint_cache,
-        ref_alignment_allophones=gmm_alignment_allophones,
-        ref_alignment_len_factor=6,
-    )
-    job.add_alias(prefix + name)
-    tk.register_output(prefix + name + ".json", job.out_scores)
-    tk.register_output(prefix + name + ".short_report.txt", job.out_short_report_str)
+        alignment = ctc_forced_align(ctc_model, train_dataset)
+        alignment.creator.add_alias(f"{prefix}ctc_{shortname}_forced_align/align")
+        tk.register_output(f"{prefix}ctc_{shortname}_forced_align/align.hdf", alignment)
+
+        name = f"ctc_{shortname}_forced_align/metrics"
+        job = CalcAlignmentMetrics(
+            seq_list=seq_list,
+            seq_list_ref=seq_list_ref,
+            alignment_hdf=alignment,
+            alignment_label_topology="ctc",
+            alignment_bpe_vocab=vocab,
+            alignment_bpe_style="spm",
+            alignment_blank_idx=10_240,
+            features_sprint_cache=features_sprint_cache,
+            ref_alignment_sprint_cache=gmm_alignment_sprint_cache,
+            ref_alignment_allophones=gmm_alignment_allophones,
+            ref_alignment_len_factor=6,
+        )
+        job.add_alias(prefix + name)
+        tk.register_output(prefix + name + ".json", job.out_scores)
+        tk.register_output(prefix + name + ".short_report.txt", job.out_short_report_str)
 
     # TODO job to dump grads, diff variants:
     #  - x * grad
@@ -107,6 +124,9 @@ def py():
     #   any of the new variants have influence on TSE?
 
     # TODO align using att weights
+
+
+_called_ctc_py_once = False
 
 
 def sis_get_model(name: str) -> ModelWithCheckpoint:
@@ -142,7 +162,15 @@ def sis_get_model(name: str) -> ModelWithCheckpoint:
             train_vocab_opts={"other_opts": {"class": "SamplingBytePairEncoding", "breadth_prob": 0.01}},
         ).get_last_fixed_epoch()
 
-    raise ValueError(f"unknown encoder {name}")
+    from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.ctc import py as ctc_py, _train_experiments
+
+    global _called_ctc_py_once
+
+    if not _called_ctc_py_once:
+        ctc_py()
+        _called_ctc_py_once = True
+
+    return _train_experiments[name].get_last_fixed_epoch()
 
 
 def ctc_forced_align(model: ModelWithCheckpoint, dataset: DatasetConfig) -> tk.Path:
