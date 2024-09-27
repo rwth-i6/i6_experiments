@@ -60,8 +60,10 @@ def py():
         "/u/schmitt/experiments/segmental_models_2022_23_rf/work/i6_core/corpus/segments/SegmentCorpusJob.AmDlp1YMZF1e/output/segments.1"
     )
     seq_list = seq_list_960_to_split_100_360_500(seq_list_ref)
-    vocab = get_vocab_by_str("spm10k")
-    vocab = ExtractSentencePieceVocabJob(vocab.model_file).out_vocab
+    vocabs = {
+        "spm10k": (ExtractSentencePieceVocabJob(get_vocab_by_str("spm10k").model_file).out_vocab, 10_240),
+        "spm512": (ExtractSentencePieceVocabJob(get_vocab_by_str("spm512").model_file).out_vocab, 512),
+    }
 
     # Note: task hardcoded... (and also not needed, I just need the train dataset...)
     # Note: spm10k hardcoded...
@@ -70,25 +72,51 @@ def py():
     # train_dataset.main_dataset["fixed_random_subset"] = 1000  # for debugging...
     train_dataset.main_dataset["seq_list_filter_file"] = seq_list
 
-    for shortname, fullname in [
+    for shortname, fullname, vocab in [
         (  # 110.7/43.7ms
             "noBias",  # 5.65, better baseline
             "v6-relPosAttDef-noBias"
             "-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k"
             "-featBN-speedpertV2-spm10k-bpeSample001",
+            "spm10k",
         ),
-        (
+        (  # 111.5/52.9ms
             "base",  # 5.77
             "v6-relPosAttDef"
             "-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k"
             "-featBN-speedpertV2-spm10k-bpeSample001",
+            "spm10k",
         ),
-        (
+        (  # 116.8/74.4ms
             "lpNormedGradC05_11P1",  # 5.71
             "v6-relPosAttDef"
             "-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k"
             "-featBN-speedpertV2-spm10k-bpeSample001"
             "-lpNormedGradC05_11P1",
+            "spm10k",
+        ),
+        (
+            "blankSep",  # 5.73
+            "v6-relPosAttDef"
+            "-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k"
+            "-featBN-speedpertV2-spm10k-bpeSample001"
+            "-blankSep",
+            "spm10k",
+        ),
+        (
+            "base-spm512",  # 6.02
+            "v6-relPosAttDef"
+            "-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-maxSeqLenAudio19_5-wd1e_2-lrlin1e_5_295k"
+            "-featBN-speedpertV2-spm10k-bpeSample001",
+            "spm512",
+        ),
+        (
+            "base-spm512-blankSep",  # 6.02
+            "v6-relPosAttDef"
+            "-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-maxSeqLenAudio19_5-wd1e_2-lrlin1e_5_295k"
+            "-featBN-speedpertV2-spm10k-bpeSample001"
+            "-blankSep",
+            "spm512",
         ),
     ]:
         ctc_model = sis_get_model(fullname)
@@ -103,9 +131,9 @@ def py():
             seq_list_ref=seq_list_ref,
             alignment_hdf=alignment,
             alignment_label_topology="ctc",
-            alignment_bpe_vocab=vocab,
+            alignment_bpe_vocab=vocabs[vocab][0],
             alignment_bpe_style="spm",
-            alignment_blank_idx=10_240,
+            alignment_blank_idx=vocabs[vocab][1],
             features_sprint_cache=features_sprint_cache,
             ref_alignment_sprint_cache=gmm_alignment_sprint_cache,
             ref_alignment_allophones=gmm_alignment_allophones,
