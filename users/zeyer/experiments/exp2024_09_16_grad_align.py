@@ -239,14 +239,19 @@ def py():
 
         # see also exp2024_09_09_grad_align.py
         for opts in [
-            {"grad_name": f"ctc_{name}_input_grads_debug", "sm": True, "blank_score": -8},
-            {"grad_name": f"ctc_{name}_input_grads_debug", "sm": True, "blank_score": -6},
-            {"grad_name": f"ctc_{name}_input_grads_debug", "sm": True, "blank_score": -4},
-            {"grad_name": f"ctc_{name}_input_grads_debug", "sm": True, "blank_score": -2},
+            {"sm": True, "blank_score": -6},
+            {
+                "sm": True,
+                "blank_score": "calc",
+                "blank_score_est": "flipped_after_softmax_over_time",
+                "non_blank_score_reduce": "log_mean_exp",
+                "blank_score_flipped_percentile": 60,
+                "apply_softmax_over_labels": True,
+            },
         ]:
             opts = opts.copy()
             apply_softmax_over_time = opts.pop("sm", False)
-            grad_name = opts.pop("grad_name")
+            grad_name = f"ctc_{name}_input_grads_debug"
             # factor, grad_hdf = grads[grad_name]
             factor = 1
             grad_hdf = grads
