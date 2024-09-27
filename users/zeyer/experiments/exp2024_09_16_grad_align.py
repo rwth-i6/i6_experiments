@@ -221,79 +221,80 @@ def py():
         tk.register_output(prefix + name + "_short_report.txt", job.out_short_report_str)
 
     # Grad align debug
-    # base model
-    ctc_model = sis_get_model(
-        "v6-relPosAttDef"
-        "-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k"
-        "-featBN-speedpertV2-spm10k-bpeSample001"
-    )
-    vocab = "spm10k"
-    task = get_librispeech_task_raw_v2(vocab=vocab)
-    train_dataset = task.train_dataset.copy_train_as_static()
-    train_dataset.main_dataset["fixed_random_subset"] = 100  # for debugging...
-    # train_dataset.main_dataset["seq_list_filter_file"] = seq_list
-    grads = get_input_grads(ctc_model, train_dataset)
-    tk.register_output(f"{prefix}ctc_base_input_grads_debug/grads.hdf", grads)
-    grads.creator.add_alias(f"{prefix}ctc_base_input_grads_debug/grads")
-
-    # see also exp2024_09_09_grad_align.py
-    for opts in [
-        {"grad_name": "ctc_base_input_grads_debug", "sm": True, "blank_score": -8},
-        {"grad_name": "ctc_base_input_grads_debug", "sm": True, "blank_score": -6},
-        {"grad_name": "ctc_base_input_grads_debug", "sm": True, "blank_score": -4},
-        {"grad_name": "ctc_base_input_grads_debug", "sm": True, "blank_score": -2},
-    ]:
-        opts = opts.copy()
-        apply_softmax_over_time = opts.pop("sm", False)
-        grad_name = opts.pop("grad_name")
-        # factor, grad_hdf = grads[grad_name]
-        factor = 1
-        grad_hdf = grads
-
-        # The dumped grads cover about 9.6h audio from train.
-        name = f"grad-align-{grad_name}-sm{apply_softmax_over_time}"
-        if opts:
-            for k, v in opts.items():
-                name += f"-{k}{v}"
-        job = ForcedAlignOnScoreMatrixJob(
-            score_matrix_hdf=grad_hdf,
-            cut_off_eos=False,
-            apply_softmax_over_time=apply_softmax_over_time,
-            # Need to know blank idx for the generated output alignment.
-            num_labels=vocabs[vocab][2] + 1,
-            blank_idx=vocabs[vocab][2],
-            returnn_dataset=train_dataset.get_main_dataset(),
-            **opts,
+    for name, grad_opts in [("base", {}), ("base-multSource", {"source_grad_mult_with_source": True})]:
+        # base model
+        ctc_model = sis_get_model(
+            "v6-relPosAttDef"
+            "-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k"
+            "-featBN-speedpertV2-spm10k-bpeSample001"
         )
-        job.add_alias(prefix + name + "/align")
-        tk.register_output(prefix + name + "/align.hdf", job.out_align)
-        alignment_hdf = job.out_align
+        vocab = "spm10k"
+        task = get_librispeech_task_raw_v2(vocab=vocab)
+        train_dataset = task.train_dataset.copy_train_as_static()
+        train_dataset.main_dataset["fixed_random_subset"] = 100  # for debugging...
+        # train_dataset.main_dataset["seq_list_filter_file"] = seq_list
+        grads = get_input_grads(ctc_model, train_dataset, grad_opts)
+        tk.register_output(f"{prefix}ctc_{name}_input_grads_debug/grads.hdf", grads)
+        grads.creator.add_alias(f"{prefix}ctc_{name}_input_grads_debug/grads")
 
-        from i6_experiments.users.zeyer.datasets.utils.extract_seq_list import ExtractSeqListJob
+        # see also exp2024_09_09_grad_align.py
+        for opts in [
+            {"grad_name": f"ctc_{name}_input_grads_debug", "sm": True, "blank_score": -8},
+            {"grad_name": f"ctc_{name}_input_grads_debug", "sm": True, "blank_score": -6},
+            {"grad_name": f"ctc_{name}_input_grads_debug", "sm": True, "blank_score": -4},
+            {"grad_name": f"ctc_{name}_input_grads_debug", "sm": True, "blank_score": -2},
+        ]:
+            opts = opts.copy()
+            apply_softmax_over_time = opts.pop("sm", False)
+            grad_name = opts.pop("grad_name")
+            # factor, grad_hdf = grads[grad_name]
+            factor = 1
+            grad_hdf = grads
 
-        ds = train_dataset.get_main_dataset().copy()
-        ds["audio"] = None
-        ds["targets"] = None
+            # The dumped grads cover about 9.6h audio from train.
+            name = f"grad-align-{grad_name}-sm{apply_softmax_over_time}"
+            if opts:
+                for k, v in opts.items():
+                    name += f"-{k}{v}"
+            job = ForcedAlignOnScoreMatrixJob(
+                score_matrix_hdf=grad_hdf,
+                cut_off_eos=False,
+                apply_softmax_over_time=apply_softmax_over_time,
+                # Need to know blank idx for the generated output alignment.
+                num_labels=vocabs[vocab][2] + 1,
+                blank_idx=vocabs[vocab][2],
+                returnn_dataset=train_dataset.get_main_dataset(),
+                **opts,
+            )
+            job.add_alias(prefix + name + "/align")
+            tk.register_output(prefix + name + "/align.hdf", job.out_align)
+            alignment_hdf = job.out_align
 
-        seq_list_debug = ExtractSeqListJob(returnn_dataset=ds).out_seq_list
-        seq_list_debug_ref = seq_list_split_100_360_500_to_single_960(seq_list_debug)
+            from i6_experiments.users.zeyer.datasets.utils.extract_seq_list import ExtractSeqListJob
 
-        name += "/metrics"
-        job = CalcAlignmentMetrics(
-            seq_list=seq_list_debug,
-            seq_list_ref=seq_list_debug_ref,
-            alignment_hdf=alignment_hdf,
-            alignment_bpe_vocab=vocabs[vocab][1],
-            alignment_bpe_style=vocabs[vocab][0],
-            alignment_blank_idx=vocabs[vocab][2],
-            features_sprint_cache=features_sprint_cache,
-            ref_alignment_sprint_cache=gmm_alignment_sprint_cache,
-            ref_alignment_allophones=gmm_alignment_allophones,
-            ref_alignment_len_factor=factor,
-        )
-        job.add_alias(prefix + name)
-        tk.register_output(prefix + name + ".json", job.out_scores)
-        tk.register_output(prefix + name + "_short_report.txt", job.out_short_report_str)
+            ds = train_dataset.get_main_dataset().copy()
+            ds["audio"] = None
+            ds["targets"] = None
+
+            seq_list_debug = ExtractSeqListJob(returnn_dataset=ds).out_seq_list
+            seq_list_debug_ref = seq_list_split_100_360_500_to_single_960(seq_list_debug)
+
+            name += "/metrics"
+            job = CalcAlignmentMetrics(
+                seq_list=seq_list_debug,
+                seq_list_ref=seq_list_debug_ref,
+                alignment_hdf=alignment_hdf,
+                alignment_bpe_vocab=vocabs[vocab][1],
+                alignment_bpe_style=vocabs[vocab][0],
+                alignment_blank_idx=vocabs[vocab][2],
+                features_sprint_cache=features_sprint_cache,
+                ref_alignment_sprint_cache=gmm_alignment_sprint_cache,
+                ref_alignment_allophones=gmm_alignment_allophones,
+                ref_alignment_len_factor=factor,
+            )
+            job.add_alias(prefix + name)
+            tk.register_output(prefix + name + ".json", job.out_scores)
+            tk.register_output(prefix + name + "_short_report.txt", job.out_short_report_str)
 
     # TODO job to dump grads, diff variants:
     #  - x * grad
@@ -513,6 +514,8 @@ def _ctc_model_get_input_grads_step(*, model: Model, extern_data: TensorDict, **
         scores.mark_as_output("partial_scores")
         scores_ta = TensorArray.unstack(scores, axis=targets_spatial_dim)
 
+        source_grad_mult_with_source = config.bool("source_grad_mult_with_source", False)
+
         grad_norms = []
         for t in range(targets_spatial_dim.get_dim_value()):
             source.raw_tensor.grad = None
@@ -520,6 +523,8 @@ def _ctc_model_get_input_grads_step(*, model: Model, extern_data: TensorDict, **
             partial_loss = scores_t.raw_tensor.sum()
             partial_loss.backward(retain_graph=True)
             grad: torch.Tensor = source.raw_tensor.grad  # [B,T_in,D]  # noqa
+            if source_grad_mult_with_source:
+                grad = grad * source.raw_tensor
             grad_norm = torch.norm(grad, p=2, dim=2)  # [B,T_in]
             grad_norms.append(grad_norm)
         grad_norms = torch.stack(grad_norms, dim=0)  # [T_out,B,T_in]
