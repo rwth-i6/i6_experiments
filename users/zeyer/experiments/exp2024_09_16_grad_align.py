@@ -38,6 +38,7 @@ def py():
         get_librispeech_task_raw_v2,
         get_vocab_by_str,
         seq_list_960_to_split_100_360_500,
+        seq_list_split_100_360_500_to_single_960,
     )
     from .exp2024_09_09_grad_align import CalcAlignmentMetrics, ForcedAlignOnScoreMatrixJob
     from i6_core.text.label.sentencepiece.vocab import ExtractSentencePieceVocabJob
@@ -263,10 +264,19 @@ def py():
     tk.register_output(prefix + name + "/align.hdf", job.out_align)
     alignment_hdf = job.out_align
 
+    from i6_experiments.users.zeyer.datasets.utils.extract_seq_list import ExtractSeqListJob
+
+    ds = train_dataset.get_main_dataset().copy()
+    ds["audio"] = None
+    ds["targets"] = None
+
+    seq_list_debug = ExtractSeqListJob(returnn_dataset=ds).out_seq_list
+    seq_list_debug_ref = seq_list_split_100_360_500_to_single_960(seq_list_debug)
+
     name += "/metrics"
     job = CalcAlignmentMetrics(
-        seq_list=seq_list,
-        seq_list_ref=seq_list_ref,
+        seq_list=seq_list_debug,
+        seq_list_ref=seq_list_debug_ref,
         alignment_hdf=alignment_hdf,
         alignment_bpe_vocab=vocabs[vocab][1],
         alignment_bpe_style=vocabs[vocab][0],
