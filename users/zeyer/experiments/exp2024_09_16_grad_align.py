@@ -238,6 +238,7 @@ def py():
         # ("base-blankStopGrad", {"stop_grad_blank": True, "epoch": 320}),
         ("base-blankStopGrad-p1", {"stop_grad_blank": True, "grad_norm_p": 1}),
         ("base-blankStopGrad-p3", {"stop_grad_blank": True, "grad_norm_p": 3}),
+        ("base-blankStopGrad-inclBlankState", {"stop_grad_blank": True, "ctc_partial_scores_include_next_blank": True}),
     ]:
         grad_opts = grad_opts.copy()
         # base model
@@ -549,6 +550,7 @@ def _ctc_model_get_input_grads_step(*, model: Model, extern_data: TensorDict, **
             targets=targets,
             targets_spatial_dim=targets_spatial_dim,
             blank_index=model.blank_idx,
+            include_next_blank=config.bool("ctc_partial_scores_include_next_blank", False),
         )  # [B,T_out]
         scores.mark_as_output("partial_scores")
         scores_ta = TensorArray.unstack(scores, axis=targets_spatial_dim)

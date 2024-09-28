@@ -190,6 +190,7 @@ def ctc_partial_scores(
     targets: Tensor,
     targets_spatial_dim: Dim,
     blank_index: int,
+    include_next_blank: bool = False,
 ) -> Tensor:
     """
     Forward partial scores: log p(y_n | y_1,...,y_{n-1}, x_1,...,x_T).
@@ -212,7 +213,9 @@ def ctc_partial_scores(
     label_next_blank_partial_scores = rf.gather(
         partial_accum_scores, indices=label_states_next_blank
     )  # [B,T_out]->score
-    label_partial_scores = label_partial_scores - label_prev_blank_partial_scores  # [B,T_out]->score
+    label_partial_scores = (
+        label_next_blank_partial_scores if include_next_blank else label_partial_scores
+    ) - label_prev_blank_partial_scores  # [B,T_out]->score
     return label_partial_scores
 
 
