@@ -225,9 +225,12 @@ def py():
         ("base", {}),
         ("base-multSource", {"source_grad_mult_with_source": True}),
         ("base-blankStopGrad", {"stop_grad_blank": True}),
+        ("base-blankStopGrad", {"stop_grad_blank": True, "epoch": 160}),
+        ("base-blankStopGrad", {"stop_grad_blank": True, "epoch": 320}),
     ]:
+        grad_opts = grad_opts.copy()
         # base model
-        epoch = 80
+        epoch = grad_opts.pop("epoch", -1)
         ctc_model = sis_get_model(
             "v6-relPosAttDef"
             "-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k"
