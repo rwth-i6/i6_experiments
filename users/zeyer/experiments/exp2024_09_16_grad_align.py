@@ -231,14 +231,20 @@ def py():
 
     # Grad align debug
     for name, grad_opts in [
-        ("base", {}),
-        ("base-multSource", {"source_grad_mult_with_source": True}),
-        ("base-blankStopGrad", {"stop_grad_blank": True}),
-        # ("base-blankStopGrad", {"stop_grad_blank": True, "epoch": 160}),
-        # ("base-blankStopGrad", {"stop_grad_blank": True, "epoch": 320}),
-        ("base-blankStopGrad-p1", {"stop_grad_blank": True, "grad_norm_p": 1}),
-        ("base-blankStopGrad-p3", {"stop_grad_blank": True, "grad_norm_p": 3}),
-        ("base-blankStopGrad-inclBlankState", {"stop_grad_blank": True, "ctc_partial_scores_include_next_blank": True}),
+        ("base", {}),  # 98.0/74.6
+        # ("base", {"epoch": 80}),  # 113.4/93.9
+        ("base-multSource", {"source_grad_mult_with_source": True}),  # 101.2/79.8
+        ("base-blankStopGrad", {"stop_grad_blank": True}),  # 97.3/76.7
+        # ("base-blankStopGrad", {"stop_grad_blank": True, "epoch": 160}),  # 107.7/87.6
+        # ("base-blankStopGrad", {"stop_grad_blank": True, "epoch": 320}),  # 103.1/81.7
+        ("base-blankStopGrad-p0.1", {"stop_grad_blank": True, "grad_norm_p": 0.1}),
+        ("base-blankStopGrad-p0.5", {"stop_grad_blank": True, "grad_norm_p": 0.5}),  # 96.0/76.9
+        ("base-blankStopGrad-p1", {"stop_grad_blank": True, "grad_norm_p": 1}),  # 96.6/76.7. seems better than 2 or 3
+        ("base-blankStopGrad-p3", {"stop_grad_blank": True, "grad_norm_p": 3}),  # 97.9/76.9
+        (
+            "base-blankStopGrad-inclBlankState",
+            {"stop_grad_blank": True, "ctc_partial_scores_include_next_blank": True},
+        ),  # 97.3/76.7
     ]:
         grad_opts = grad_opts.copy()
         # base model
@@ -261,6 +267,7 @@ def py():
         # see also exp2024_09_09_grad_align.py
         for opts in [
             {"sm": True, "blank_score": -6},
+            # Always a bit better (e.g. 94.0/75.3 vs 97.3/76.7), but more heuristic:
             {
                 "sm": True,
                 "blank_score": "calc",
