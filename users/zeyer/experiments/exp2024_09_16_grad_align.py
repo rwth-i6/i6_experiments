@@ -234,8 +234,10 @@ def py():
         ("base", {}),
         ("base-multSource", {"source_grad_mult_with_source": True}),
         ("base-blankStopGrad", {"stop_grad_blank": True}),
-        ("base-blankStopGrad", {"stop_grad_blank": True, "epoch": 160}),
-        ("base-blankStopGrad", {"stop_grad_blank": True, "epoch": 320}),
+        # ("base-blankStopGrad", {"stop_grad_blank": True, "epoch": 160}),
+        # ("base-blankStopGrad", {"stop_grad_blank": True, "epoch": 320}),
+        ("base-blankStopGrad-p1", {"stop_grad_blank": True, "grad_norm_p": 1}),
+        ("base-blankStopGrad-p3", {"stop_grad_blank": True, "grad_norm_p": 3}),
     ]:
         grad_opts = grad_opts.copy()
         # base model
@@ -320,12 +322,8 @@ def py():
             tk.register_output(prefix + name + "_short_report.txt", job.out_short_report_str)
 
     # TODO job to dump grads, diff variants:
-    #  - x * grad
     #  - using prob entropy instead of ground truth log prob
     pass
-
-    # TODO force align CTC, calc TSE
-    #   any of the new variants have influence on TSE?
 
     # TODO align using att weights
 
@@ -556,6 +554,7 @@ def _ctc_model_get_input_grads_step(*, model: Model, extern_data: TensorDict, **
         scores_ta = TensorArray.unstack(scores, axis=targets_spatial_dim)
 
         source_grad_mult_with_source = config.bool("source_grad_mult_with_source", False)
+        grad_norm_p = config.float("grad_norm_p", 2.0)
 
         grad_norms = []
         for t in range(targets_spatial_dim.get_dim_value()):
@@ -566,7 +565,7 @@ def _ctc_model_get_input_grads_step(*, model: Model, extern_data: TensorDict, **
             grad: torch.Tensor = source.raw_tensor.grad  # [B,T_in,D]  # noqa
             if source_grad_mult_with_source:
                 grad = grad * source.raw_tensor
-            grad_norm = torch.norm(grad, p=2, dim=2)  # [B,T_in]
+            grad_norm = torch.norm(grad, p=grad_norm_p, dim=2)  # [B,T_in]
             grad_norms.append(grad_norm)
         grad_norms = torch.stack(grad_norms, dim=0)  # [T_out,B,T_in]
         grad_norms_ = rf.convert_to_tensor(grad_norms, dims=[targets_spatial_dim, batch_dim, in_spatial_dim])
