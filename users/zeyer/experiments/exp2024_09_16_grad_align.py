@@ -221,12 +221,18 @@ def py():
         tk.register_output(prefix + name + "_short_report.txt", job.out_short_report_str)
 
     # Grad align debug
-    for name, grad_opts in [("base", {}), ("base-multSource", {"source_grad_mult_with_source": True})]:
+    for name, grad_opts in [
+        ("base", {}),
+        ("base-multSource", {"source_grad_mult_with_source": True}),
+        ("base-blankStopGrad", {"stop_grad_blank": True}),
+    ]:
         # base model
+        epoch = 80
         ctc_model = sis_get_model(
             "v6-relPosAttDef"
             "-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k"
-            "-featBN-speedpertV2-spm10k-bpeSample001"
+            "-featBN-speedpertV2-spm10k-bpeSample001",
+            epoch=epoch,
         )
         vocab = "spm10k"
         task = get_librispeech_task_raw_v2(vocab=vocab)
@@ -234,8 +240,8 @@ def py():
         train_dataset.main_dataset["fixed_random_subset"] = 100  # for debugging...
         # train_dataset.main_dataset["seq_list_filter_file"] = seq_list
         grads = get_input_grads(ctc_model, train_dataset, grad_opts)
-        tk.register_output(f"{prefix}ctc_{name}_input_grads_debug/grads.hdf", grads)
-        grads.creator.add_alias(f"{prefix}ctc_{name}_input_grads_debug/grads")
+        tk.register_output(f"{prefix}ctc_{name}_input_grads_debug-ep{epoch}/grads.hdf", grads)
+        grads.creator.add_alias(f"{prefix}ctc_{name}_input_grads_debug-ep{epoch}/grads")
 
         # see also exp2024_09_09_grad_align.py
         for opts in [
@@ -251,7 +257,7 @@ def py():
         ]:
             opts = opts.copy()
             apply_softmax_over_time = opts.pop("sm", False)
-            grad_name = f"ctc_{name}_input_grads_debug"
+            grad_name = f"ctc_{name}_input_grads_debug-ep{epoch}"
             # factor, grad_hdf = grads[grad_name]
             factor = 1
             grad_hdf = grads
@@ -315,13 +321,13 @@ def py():
 _called_ctc_py_once = False
 
 
-def sis_get_model(name: str) -> ModelWithCheckpoint:
+def sis_get_model(name: str, *, epoch: int = -1) -> ModelWithCheckpoint:
     if (
         name == "v6-relPosAttDef-noBias"
         "-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k"
         "-featBN-speedpertV2-spm10k-bpeSample001"
     ):
-        return train_exp(  # 5.65 (!!!)
+        exp = train_exp(  # 5.65 (!!!)
             "v6-relPosAttDef-noBias-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2"
             "-lrlin1e_5_295k-featBN-speedpertV2-spm10k-bpeSample001",
             config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
@@ -346,20 +352,26 @@ def sis_get_model(name: str) -> ModelWithCheckpoint:
             },
             vocab="spm10k",
             train_vocab_opts={"other_opts": {"class": "SamplingBytePairEncoding", "breadth_prob": 0.01}},
-        ).get_last_fixed_epoch()
+        )
 
-    from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.ctc import py as ctc_py, _train_experiments
+    else:
 
-    global _called_ctc_py_once
+        from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.ctc import py as ctc_py, _train_experiments
 
-    if not _called_ctc_py_once:
-        from i6_experiments.users.zeyer.utils.sis_setup import disable_register_output
+        global _called_ctc_py_once
 
-        with disable_register_output():
-            ctc_py()
-        _called_ctc_py_once = True
+        if not _called_ctc_py_once:
+            from i6_experiments.users.zeyer.utils.sis_setup import disable_register_output
 
-    return _train_experiments[name].get_last_fixed_epoch()
+            with disable_register_output():
+                ctc_py()
+            _called_ctc_py_once = True
+
+        exp = _train_experiments[name]
+
+    if epoch < 0:
+        return exp.get_last_fixed_epoch()
+    return exp.get_epoch(epoch)
 
 
 def ctc_forced_align(model: ModelWithCheckpoint, dataset: DatasetConfig) -> tk.Path:
@@ -502,6 +514,18 @@ def _ctc_model_get_input_grads_step(*, model: Model, extern_data: TensorDict, **
         # Encoder including convolutional frontend
         enc, enc_spatial_dim = model.encoder(source, in_spatial_dim=in_spatial_dim)
         logits = model.enc_logits(enc)
+        if config.bool("stop_grad_blank", False):
+            # Just that we have well-defined dim order, for the grad logic.
+            logits = logits.copy_transpose((batch_dim, enc_spatial_dim, model.wb_target_dim))
+
+            # noinspection PyShadowingNames
+            def _zero_grad_blank_hook(grad):
+                grad = grad.clone()
+                grad[:, :, model.blank_idx] = 0
+                return grad
+
+            logits.raw_tensor.register_hook(_zero_grad_blank_hook)
+
         if model.out_blank_separated:
             assert config.bool("fixed_blank_sep_v1", False)
         log_probs = model.log_probs_wb_from_logits(logits)
