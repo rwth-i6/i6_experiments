@@ -233,11 +233,12 @@ def py():
     for name, grad_opts in [
         ("base", {}),  # 98.0/74.6
         # ("base", {"epoch": 80}),  # 113.4/93.9
+        ("base-p0.1", {"grad_norm_p": 0.1}),
         ("base-multSource", {"source_grad_mult_with_source": True}),  # 101.2/79.8
         ("base-blankStopGrad", {"stop_grad_blank": True}),  # 97.3/76.7
         # ("base-blankStopGrad", {"stop_grad_blank": True, "epoch": 160}),  # 107.7/87.6
         # ("base-blankStopGrad", {"stop_grad_blank": True, "epoch": 320}),  # 103.1/81.7
-        ("base-blankStopGrad-p0.1", {"stop_grad_blank": True, "grad_norm_p": 0.1}),
+        ("base-blankStopGrad-p0.1", {"stop_grad_blank": True, "grad_norm_p": 0.1}),  # 95.8/77.1
         ("base-blankStopGrad-p0.5", {"stop_grad_blank": True, "grad_norm_p": 0.5}),  # 96.0/76.9
         ("base-blankStopGrad-p1", {"stop_grad_blank": True, "grad_norm_p": 1}),  # 96.6/76.7. seems better than 2 or 3
         ("base-blankStopGrad-p3", {"stop_grad_blank": True, "grad_norm_p": 3}),  # 97.9/76.9
