@@ -1,25 +1,26 @@
 import copy
 import os
+from pathlib import Path
+from typing import List
 
 import i6_core.rasr as rasr
 from i6_models.parts.conformer.norm import LayerNormNC
+import optuna
 import torch
 from i6_core.returnn.config import CodeWrapper, ReturnnConfig
 from i6_experiments.common.setups.serialization import Import
 from i6_experiments.users.berger.args.experiments import ctc as exp_args
 from i6_experiments.users.berger.args.returnn.config import Backend, get_returnn_config
 from i6_experiments.users.berger.args.returnn.learning_rates import LearningRateSchedules, Optimizers
-from i6_experiments.users.berger.corpus.librispeech.ctc_data import (
-    get_librispeech_data_dumped_labels,
-)
+from i6_experiments.users.berger.corpus.librispeech.ctc_data import get_librispeech_data_bpe
 from i6_experiments.users.berger.pytorch.custom_parts.specaugment import (
     SpecaugmentByLengthConfigV1,
     SpecaugmentByLengthModuleV1,
 )
 from i6_experiments.users.berger.pytorch.models import conformer_ctc_minireturnn as conformer_ctc
 from i6_experiments.users.berger.recipe.summary.report import SummaryReport
-from i6_experiments.users.berger.systems.dataclasses import ConfigVariant, FeatureType, ReturnnConfigs, SummaryKey
-from i6_experiments.users.berger.systems.returnn_native_system import ReturnnNativeSystem
+from i6_experiments.users.berger.systems.dataclasses import ConfigVariant, ReturnnConfigs, SummaryKey
+from i6_experiments.users.berger.systems.optuna_returnn_native_system import OptunaReturnnNativeSystem
 from i6_experiments.users.berger.util import default_tools_v2
 from i6_models.assemblies.conformer import (
     ConformerBlockV2Config,
@@ -34,20 +35,23 @@ from i6_models.parts.conformer import (
 )
 from i6_models.parts.frontend.generic_frontend import FrontendLayerType, GenericFrontendV1, GenericFrontendV1Config
 from i6_models.primitives.feature_extraction import (
-    LogMelFeatureExtractionV1,
-    LogMelFeatureExtractionV1Config,
     RasrCompatibleLogMelFeatureExtractionV1,
     RasrCompatibleLogMelFeatureExtractionV1Config,
 )
 from sisyphus import gs, tk
+from i6_experiments.users.berger.recipe.returnn.optuna_config import OptunaReturnnConfig
 
 # ********** Settings **********
 
 rasr.flow.FlowNetwork.default_flags = {"cache_mode": "task_dependent"}
 
-target_size = 79
-num_subepochs = 1000
-sub_checkpoints = [100, 200, 300, 400, 500, 600, 700, 800, 900, 950, 960, 970, 980, 990, 1000]
+bpe_size = 128
+target_size = 185
+num_subepochs = 500
+sub_checkpoints = [100, 200, 300, 400, 420, 440, 480, 490, 500]
+
+storage_path = Path(__file__).parent.parent / "optuna_studies" / "storage.db"
+storage = f"sqlite:///{storage_path.as_posix()}"
 
 tools = copy.deepcopy(default_tools_v2)
 assert tools.returnn_root is not None
@@ -58,35 +62,70 @@ tools.returnn_root = tk.Path("/u/berger/repositories/MiniReturnn")
 # ********** Return Config generators **********
 
 
+def tune_specaugment(trial: optuna.Trial, model_config: conformer_ctc.ConformerCTCConfig) -> dict:
+    model_config.specaugment.cfg.time_max_mask_per_n_frames = trial.suggest_int(
+        "time_max_mask_per_n_frames", 15, 40, step=5
+    )
+    model_config.specaugment.cfg.time_mask_max_size = trial.suggest_int("time_mask_max_size", 10, 30, step=5)
+
+    freq_max_num_masks = trial.suggest_categorical("freq_max_num_masks", [4, 5, 8])
+    model_config.specaugment.cfg.freq_max_num_masks = freq_max_num_masks
+    model_config.specaugment.cfg.freq_mask_max_size = 80 // freq_max_num_masks
+
+    return {}
+
+
+def tune_oclr_schedule(trial: optuna.Trial, _: conformer_ctc.ConformerCTCConfig) -> dict:
+    peak_lr = trial.suggest_float("peak_lr", 1e-04, 1e-03, log=True)
+    initial_lr = peak_lr / 10
+    return {"decayed_lr": initial_lr, "peak_lr": peak_lr}
+
+
+def tune_dropout(trial: optuna.Trial, model_config: conformer_ctc.ConformerCTCConfig) -> dict:
+    dropout = trial.suggest_float("dropout", 0.0, 0.2)
+    model_config.dropout = dropout
+    model_config.conformer.cfg.block_cfg.ff_cfg.dropout = dropout
+    model_config.conformer.cfg.block_cfg.mhsa_cfg.dropout = dropout
+    model_config.conformer.cfg.block_cfg.mhsa_cfg.att_weights_dropout = dropout
+    model_config.conformer.cfg.block_cfg.conv_cfg.dropout = dropout
+
+    return {}
+
+
+def tune_grad_clip(trial: optuna.Trial, _: conformer_ctc.ConformerCTCConfig) -> dict:
+    return {"grad_clip": trial.suggest_categorical("grad_clip", [0.0, 1.0, 100.0])}
+
+
+def tune_weight_decay(trial: optuna.Trial, _: conformer_ctc.ConformerCTCConfig) -> dict:
+    return {"weight_decay": trial.suggest_float("weight_decay", 1e-04, 5e-02, log=True)}
+
+
+tuning_functions = {
+    "specaugment": tune_specaugment,
+    "oclr_schedule": tune_oclr_schedule,
+    "dropout": tune_dropout,
+    "grad_clip": tune_grad_clip,
+    "weight_decay": tune_weight_decay,
+}
+
+
 def returnn_config_generator(
+    trial: optuna.Trial,
+    tuning_names: List[str],
     variant: ConfigVariant,
     train_data_config: dict,
     dev_data_config: dict,
     **kwargs,
 ) -> ReturnnConfig:
-    # feature_extraction = ModuleFactoryV1(
-    #     module_class=RasrCompatibleLogMelFeatureExtractionV1,
-    #     cfg=RasrCompatibleLogMelFeatureExtractionV1Config(
-    #         sample_rate=16000,
-    #         win_size=0.025,
-    #         hop_size=0.01,
-    #         min_amp=1.175494e-38,
-    #         num_filters=80,
-    #         alpha=0.97 if kwargs.get("preemphasis", False) else 0.0,
-    #     ),
-    # )
     feature_extraction = ModuleFactoryV1(
-        module_class=LogMelFeatureExtractionV1,
-        cfg=LogMelFeatureExtractionV1Config(
+        module_class=RasrCompatibleLogMelFeatureExtractionV1,
+        cfg=RasrCompatibleLogMelFeatureExtractionV1Config(
             sample_rate=16000,
             win_size=0.025,
             hop_size=0.01,
-            f_min=60,
-            f_max=7600,
-            min_amp=1e-10,
+            min_amp=1.175494e-38,
             num_filters=80,
-            center=False,
-            n_fft=400,
+            alpha=0.97,
         ),
     )
 
@@ -174,6 +213,10 @@ def returnn_config_generator(
         specaug_start_epoch=11,
     )
 
+    tuning_kwargs = {}
+    for tuning_name in tuning_names:
+        tuning_kwargs.update(tuning_functions[tuning_name](trial, model_config))
+
     if variant == ConfigVariant.TRAIN:
         extra_config: dict = {
             "train": train_data_config,
@@ -186,154 +229,81 @@ def returnn_config_generator(
     if variant == ConfigVariant.PRIOR:
         extra_config: dict = {
             "forward": train_data_config,
-            # "extern_data": {"forward": {"dim": 1}},
             "torch_amp_options": {"dtype": "bfloat16"},
         }
     if variant == ConfigVariant.RECOG:
-        # extra_config: dict = {
-        #     "extern_data": {"data": {"dim": 1}},
-        # }
         extra_config = {}
 
-    nick_model = """
-get_model = __import__("functools").partial(
-    __import__(
-        "i6_experiments.users.rossenbach.experiments.librispeech.ctc_rnnt_standalone_2024.pytorch_networks.ctc.conformer_1023.i6modelsV1_VGG4LayerActFrontendV1_v6_conv_first",
-        fromlist=["Model"],
-    ).Model,
-    **{
-        "model_config_dict": {
-            "feature_extraction_config": {
-                "sample_rate": 16000,
-                "win_size": 0.025,
-                "hop_size": 0.01,
-                "f_min": 60,
-                "f_max": 7600,
-                "min_amp": 1e-10,
-                "num_filters": 80,
-                "center": False,
-                "n_fft": 400,
-            },
-            "frontend_config": {
-                "in_features": 80,
-                "conv1_channels": 32,
-                "conv2_channels": 64,
-                "conv3_channels": 64,
-                "conv4_channels": 32,
-                "conv_kernel_size": (3, 3),
-                "conv_padding": None,
-                "pool1_kernel_size": (2, 1),
-                "pool1_stride": (2, 1),
-                "pool1_padding": None,
-                "pool2_kernel_size": (2, 1),
-                "pool2_stride": (2, 1),
-                "pool2_padding": None,
-                "activation": None,
-                "out_features": 512,
-                "activation_str": "ReLU",
-            },
-            "specaug_config": {
-                "repeat_per_n_frames": 25,
-                "max_dim_time": 20,
-                "num_repeat_feat": 5,
-                "max_dim_feat": 16,
-            },
-            "specauc_start_epoch": 11,
-            "label_target_size": 79,
-            "conformer_size": 512,
-            "num_layers": 12,
-            "num_heads": 8,
-            "ff_dim": 2048,
-            "att_weights_dropout": 0.1,
-            "conv_dropout": 0.1,
-            "ff_dropout": 0.1,
-            "mhsa_dropout": 0.1,
-            "conv_kernel_size": 31,
-            "final_dropout": 0.1,
-        }
-    }
-)
-    """
-
     if variant == ConfigVariant.TRAIN:
-        serializer_kwargs = {"train_type": conformer_ctc.TrainType.TORCH_CTC_LOSS}
+        serializer_kwargs = {"train_type": conformer_ctc.TrainType.TORCH_CTC_LOSS, "blank_idx": target_size - 1}
     if variant == ConfigVariant.PRIOR:
         serializer_kwargs = {}
     if variant == ConfigVariant.RECOG:
         serializer_kwargs = {
             "recog_type": conformer_ctc.RecogType.FLASHLIGHT,
-            "beam_size": 1024,
+            "beam_size": 128,
             "beam_threshold": 14.0,
             "silence_token": "<blank>",
         }
 
-    return get_returnn_config(
-        num_epochs=num_subepochs,
-        target="classes",
-        python_prolog=[
+    kwargs = {
+        "num_epochs": num_subepochs,
+        "target": "classes",
+        "python_prolog": [
             "import sys",
             "sys.path.insert(0, '/u/berger/asr-exps/librispeech/20240612_align_restricted_transducer/recipe')",
             "sys.path.insert(0, '/work/asr4/berger/repositories/rasr_versions/master/lib/linux-x86_64-standard')",
             Import("i6_experiments.users.berger.corpus.general.speed_perturbation.legacy_speed_perturbation"),
         ],
-        extra_python=[
+        "extra_python": [
             conformer_ctc.get_serializer(model_config, variant=variant, **serializer_kwargs),
         ],
-        # extra_python=[
-        #     nick_model,
-        #     Import(
-        #         "i6_experiments.users.berger.pytorch.train_steps_minireturnn.ctc.train_step_nick",
-        #         import_as="train_step",
-        #     ),
-        # ],
-        extern_data_config=False,
-        backend=Backend.PYTORCH,
-        use_lovely_tensors=False,
-        grad_noise=None,
-        grad_clip=1.0,
-        optimizer=Optimizers.AdamW,
-        weight_decay=kwargs.get("weight_decay", 0.01),
-        schedule=LearningRateSchedules.OCLR_V2,
-        keep_last_n=1,
-        keep_best_n=0,
-        keep=sub_checkpoints,
-        inc_epochs=480,
-        initial_lr=kwargs.get("initial_lr", 7e-06),
-        peak_lr=kwargs.get("peak_lr", 5e-04),
-        decayed_lr=kwargs.get("decay_lr", 5e-05),
-        final_lr=1e-07,
-        batch_size=kwargs.get("batch_size", 36000 * 160),
-        use_chunking=False,
-        extra_config=extra_config,
-        use_base_config=False,
-    )
+        "extern_data_config": False,
+        "backend": Backend.PYTORCH,
+        "use_lovely_tensors": False,
+        "grad_noise": None,
+        "grad_clip": 1.0,
+        "optimizer": Optimizers.AdamW,
+        "weight_decay": 0.01,
+        "schedule": LearningRateSchedules.OCLR_V2,
+        "keep_last_n": 1,
+        "keep_best_n": 0,
+        "keep": sub_checkpoints,
+        "inc_epochs": 240,
+        "initial_lr": 7e-06,
+        "peak_lr": 5e-04,
+        "decayed_lr": 5e-05,
+        "final_lr": 1e-07,
+        "batch_size": 36000 * 160,
+        "use_chunking": False,
+        "extra_config": extra_config,
+        "use_base_config": False,
+    }
+    kwargs.update(tuning_kwargs)
+    return get_returnn_config(**kwargs)
 
 
 def get_returnn_config_collection(
+    tuning_names: List[str],
     train_data_config: dict,
     dev_data_config: dict,
-    **kwargs,
-) -> ReturnnConfigs[ReturnnConfig]:
+) -> ReturnnConfigs[OptunaReturnnConfig]:
+    generator_kwargs = {
+        "tuning_names": tuning_names,
+        "train_data_config": train_data_config,
+        "dev_data_config": dev_data_config,
+    }
     return ReturnnConfigs(
-        train_config=returnn_config_generator(
-            variant=ConfigVariant.TRAIN,
-            train_data_config=train_data_config,
-            dev_data_config=dev_data_config,
-            **kwargs,
+        train_config=OptunaReturnnConfig(
+            returnn_config_generator, {"variant": ConfigVariant.TRAIN, **generator_kwargs}
         ),
-        prior_config=returnn_config_generator(
-            variant=ConfigVariant.PRIOR,
-            train_data_config=train_data_config,
-            dev_data_config=dev_data_config,
-            **kwargs,
+        prior_config=OptunaReturnnConfig(
+            returnn_config_generator, {"variant": ConfigVariant.PRIOR, **generator_kwargs}
         ),
         recog_configs={
-            "recog": returnn_config_generator(
-                variant=ConfigVariant.RECOG,
-                train_data_config=train_data_config,
-                dev_data_config=dev_data_config,
-                **kwargs,
-            )
+            "recog": OptunaReturnnConfig(
+                returnn_config_generator, {"variant": ConfigVariant.RECOG, **generator_kwargs}
+            ),
         },
     )
 
@@ -342,16 +312,13 @@ def run_exp() -> SummaryReport:
     assert tools.returnn_root
     assert tools.returnn_python_exe
     assert tools.rasr_binary_path
-    data = get_librispeech_data_dumped_labels(
-        num_classes=target_size,
+    data = get_librispeech_data_bpe(
+        bpe_size=bpe_size,
         returnn_root=normal_returnn,
         returnn_python_exe=tools.returnn_python_exe,
-        rasr_binary_path=tools.rasr_binary_path,
         add_unknown_phoneme_and_mapping=False,
         use_augmented_lexicon=True,
-        feature_type=FeatureType.SAMPLES,
         partition_epoch=10,
-        ogg_dataset=True,
     )
 
     for data_input in data.data_inputs.values():
@@ -359,22 +326,31 @@ def run_exp() -> SummaryReport:
 
     # ********** Step args **********
 
-    train_args = exp_args.get_ctc_train_step_args(num_epochs=num_subepochs, gpu_mem_rqmt=24)
+    train_args = exp_args.get_ctc_train_step_args(
+        num_epochs=num_subepochs,
+        gpu_mem_rqmt=24,
+        study_storage=storage,
+        num_trials=20,
+        num_parallel=5,
+        backend=Backend.PYTORCH,
+    )
     recog_args = exp_args.get_ctc_flashlight_bpe_recog_step_args(
         epochs=sub_checkpoints,
         prior_scales=[0.3],
         lm_scales=[2.0],
+        trial_nums=list(range(20)),
         ogg_dataset=True,
     )
 
     # ********** System **********
 
-    system = ReturnnNativeSystem(
+    system = OptunaReturnnNativeSystem(
         tools,
         summary_keys=[
             SummaryKey.TRAIN_NAME,
             SummaryKey.RECOG_NAME,
             SummaryKey.CORPUS,
+            SummaryKey.TRIAL,
             SummaryKey.EPOCH,
             SummaryKey.LM,
             SummaryKey.PRIOR,
@@ -396,39 +372,21 @@ def run_exp() -> SummaryReport:
     system.setup_scoring()
 
     data.train_data_config = copy.deepcopy(data.train_data_config)
-    data.train_data_config["datasets"]["data"]["audio"]["preemphasis"] = 0.97
     data.train_data_config["datasets"]["data"]["audio"]["pre_process"] = CodeWrapper("legacy_speed_perturbation")
-
-    data.cv_data_config = copy.deepcopy(data.cv_data_config)
-    data.cv_data_config["datasets"]["data"]["audio"]["preemphasis"] = 0.97
 
     # ********** Returnn Configs **********
 
     system.add_experiment_configs(
-        "Conformer_CTC_phon",
+        "Conformer_CTC_bpe-128_tune",
         get_returnn_config_collection(
+            tuning_names=["specaugment", "oclr_schedule", "dropout", "grad_clip", "weight_decay"],
             train_data_config=data.train_data_config,
             dev_data_config=data.cv_data_config,
-            preemphasis=False,
         ),
     )
 
     system.run_train_step(**train_args)
-    system.run_dev_recog_step(
-        extra_audio_config={"preemphasis": 0.97},
-        **recog_args,
-    )
-
-    recog_args.update(
-        {
-            "lm_scales": [0.7, 1.0, 1.3, 1.7, 2.0, 2.3],
-            "epochs": [num_subepochs],
-        }
-    )
-    system.run_dev_recog_step(
-        extra_audio_config={"preemphasis": 0.97},
-        **recog_args,
-    )
+    system.run_recog_step_for_corpora(corpora=["dev-other_4gram"], **recog_args)
 
     assert system.summary_report
     return system.summary_report

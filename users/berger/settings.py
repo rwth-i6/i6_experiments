@@ -92,6 +92,7 @@ def worker_wrapper(job, task_name, call):
         "ReturnnComputePriorJob",
         "ReturnnComputePriorJobV2",
         "OptunaReturnnComputePriorJob",
+        "OptunaReturnnForwardJob",
         "ReturnnForwardJob",
         "ReturnnForwardJobV2",
         "ReturnnForwardComputePriorJob",

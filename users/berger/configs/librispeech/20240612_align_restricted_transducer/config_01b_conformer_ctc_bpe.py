@@ -398,21 +398,21 @@ def run_exp() -> SummaryReport:
         **recog_args,
     )
 
-    recog_args["epochs"] = sub_checkpoints[-1:]
-    recog_args["lm_scales"] = [1.4, 1.6, 1.8, 2.0, 2.2]
-    system.run_dev_recog_step(
-        exp_names=["Conformer_CTC_bpe-128"],
-        extra_audio_config={"preemphasis": 0.97},
-        **recog_args,
-    )
-    recog_args["epochs"] = sub_checkpoints[-1:]
-    recog_args["prior_scales"] = [0.2, 0.3, 0.4]
-    recog_args["lm_scales"] = [1.5, 1.6, 1.7]
-    system.run_dev_recog_step(
-        exp_names=["Conformer_CTC_bpe-128"],
-        extra_audio_config={"preemphasis": 0.97},
-        **recog_args,
-    )
+    # recog_args["epochs"] = sub_checkpoints[-1:]
+    # recog_args["lm_scales"] = [1.4, 1.6, 1.8, 2.0, 2.2]
+    # system.run_dev_recog_step(
+    #     exp_names=["Conformer_CTC_bpe-128"],
+    #     extra_audio_config={"preemphasis": 0.97},
+    #     **recog_args,
+    # )
+    # recog_args["epochs"] = sub_checkpoints[-1:]
+    # recog_args["prior_scales"] = [0.2, 0.3, 0.4]
+    # recog_args["lm_scales"] = [1.5, 1.6, 1.7]
+    # system.run_dev_recog_step(
+    #     exp_names=["Conformer_CTC_bpe-128"],
+    #     extra_audio_config={"preemphasis": 0.97},
+    #     **recog_args,
+    # )
 
     system.add_experiment_configs(
         "Conformer_CTC_bpe-128",
@@ -420,8 +420,8 @@ def run_exp() -> SummaryReport:
             train_data_config=data.train_data_config,
             dev_data_config=data.cv_data_config,
             preemphasis=False,
-            beam_sizes=[32, 128, 512, 1024, 2048],
-            beam_sizes_token=[0, 16, 32, 64, 128],
+            beam_sizes=[512, 1024],
+            beam_sizes_token=[0, 16, 32],
             beam_thresholds=[10.0, 50.0, 100.0, 500.0],
         ),
     )
