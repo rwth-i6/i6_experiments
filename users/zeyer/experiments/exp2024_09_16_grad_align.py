@@ -201,6 +201,7 @@ def py():
 
             # see also exp2024_09_09_grad_align.py
             for align_opts in [
+                {"apply_softmax_over_time": True, "blank_score": -4},
                 {"apply_softmax_over_time": True, "blank_score": -6},
                 {
                     "apply_softmax_over_time": True,
