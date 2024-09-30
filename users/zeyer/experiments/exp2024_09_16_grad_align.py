@@ -68,21 +68,21 @@ def py():
     }
 
     for shortname, fullname, vocab in [
-        (  # 110.7/43.7ms
+        (  # ctc forced align: 110.7/43.7ms
             "noBias",  # 5.65, better baseline
             "v6-relPosAttDef-noBias"
             "-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k"
             "-featBN-speedpertV2-spm10k-bpeSample001",
             "spm10k",
         ),
-        (  # 111.5/52.9ms
+        (  # ctc forced align: 111.5/52.9ms
             "base",  # 5.77
             "v6-relPosAttDef"
             "-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k"
             "-featBN-speedpertV2-spm10k-bpeSample001",
             "spm10k",
         ),
-        (  # 116.8/74.4ms
+        (  # ctc forced align: 116.8/74.4ms
             "lpNormedGradC05_11P1",  # 5.71
             "v6-relPosAttDef"
             "-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k"
@@ -90,7 +90,7 @@ def py():
             "-lpNormedGradC05_11P1",
             "spm10k",
         ),
-        (  # 98.5/77.6ms
+        (  # ctc forced align: 98.5/77.6ms
             "blankSep",  # 5.73
             "v6-relPosAttDef"
             "-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k"
@@ -98,14 +98,14 @@ def py():
             "-blankSep",
             "spm10k",
         ),
-        (  # 75.4/42.7ms
+        (  # ctc forced align: 75.4/42.7ms
             "base-spm512",  # 6.02
             "v6-relPosAttDef"
             "-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-maxSeqLenAudio19_5-wd1e_2-lrlin1e_5_295k"
             "-featBN-speedpertV2-spm512-bpeSample001",
             "spm512",
         ),
-        (  # 59.6/48.5ms
+        (  # ctc forced align: 59.6/48.5ms
             "base-spm512-blankSep",  # 6.02
             "v6-relPosAttDef"
             "-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-maxSeqLenAudio19_5-wd1e_2-lrlin1e_5_295k"
@@ -113,14 +113,14 @@ def py():
             "-blankSep",
             "spm512",
         ),
-        (  # 113.9/68.1ms
+        (  # ctc forced align: 113.9/68.1ms
             "base-bpe10k",  # 6.18
             "v6-relPosAttDef"
             "-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k"
             "-featBN-speedpertV2-bpe10k-bpeSample001",
             "bpe10k",
         ),
-        (  # 84.9/64.2ms
+        (  # ctc forced align: 84.9/64.2ms
             "base-bpe10k-blankSep",  # 5.98
             "v6-relPosAttDef"
             "-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k"
@@ -161,9 +161,9 @@ def py():
 
         for extra_name, grad_opts in [
             ("", {}),
-            ("-blankStopGrad", {"stop_grad_blank": True}),
-            *([("-bs1", {"max_seqs": 1})] if shortname == "base" else []),  # test influence of batching
-            ("-base-blankStopGrad-p0.1", {"stop_grad_blank": True, "grad_norm_p": 0.1}),
+            # ("-blankStopGrad", {"stop_grad_blank": True}),
+            # *([("-bs1", {"max_seqs": 1})] if shortname == "base" else []),  # test influence of batching
+            # ("-base-blankStopGrad-p0.1", {"stop_grad_blank": True, "grad_norm_p": 0.1}),
         ]:
             grad_opts = grad_opts.copy()
             # base model
@@ -247,21 +247,21 @@ def py():
 
     # Grad align debug
     for name, grad_opts in [
-        ("base", {}),  # 98.0/74.6
-        # ("base", {"epoch": 80}),  # 113.4/93.9
-        ("base-p0.1", {"grad_norm_p": 0.1}),  # 98.5/75.9
-        ("base-multSource", {"source_grad_mult_with_source": True}),  # 101.2/79.8
-        ("base-blankStopGrad", {"stop_grad_blank": True}),  # 97.3/76.7
-        # ("base-blankStopGrad", {"stop_grad_blank": True, "epoch": 160}),  # 107.7/87.6
-        # ("base-blankStopGrad", {"stop_grad_blank": True, "epoch": 320}),  # 103.1/81.7
-        ("base-blankStopGrad-p0.1", {"stop_grad_blank": True, "grad_norm_p": 0.1}),  # 95.8/77.1
-        ("base-blankStopGrad-p0.5", {"stop_grad_blank": True, "grad_norm_p": 0.5}),  # 96.0/76.9
-        ("base-blankStopGrad-p1", {"stop_grad_blank": True, "grad_norm_p": 1}),  # 96.6/76.7. seems better than 2 or 3
-        ("base-blankStopGrad-p3", {"stop_grad_blank": True, "grad_norm_p": 3}),  # 97.9/76.9
+        ("base", {}),
+        ("base", {"epoch": 80}),
+        ("base-p0.1", {"grad_norm_p": 0.1}),
+        ("base-multSource", {"source_grad_mult_with_source": True}),
+        ("base-blankStopGrad", {"stop_grad_blank": True}),
+        # ("base-blankStopGrad", {"stop_grad_blank": True, "epoch": 160}),
+        # ("base-blankStopGrad", {"stop_grad_blank": True, "epoch": 320}),
+        # ("base-blankStopGrad-p0.1", {"stop_grad_blank": True, "grad_norm_p": 0.1}),
+        # ("base-blankStopGrad-p0.5", {"stop_grad_blank": True, "grad_norm_p": 0.5}),
+        # ("base-blankStopGrad-p1", {"stop_grad_blank": True, "grad_norm_p": 1}),
+        # ("base-blankStopGrad-p3", {"stop_grad_blank": True, "grad_norm_p": 3}),
         (
             "base-blankStopGrad-inclBlankState",
             {"stop_grad_blank": True, "ctc_partial_scores_include_next_blank": True},
-        ),  # 97.3/76.7
+        ),
     ]:
         grad_opts = grad_opts.copy()
         # base model
@@ -284,7 +284,7 @@ def py():
         # see also exp2024_09_09_grad_align.py
         for opts in [
             {"sm": True, "blank_score": -6},
-            # Always a bit better (e.g. 94.0/75.3 vs 97.3/76.7), but more heuristic:
+            # Always a bit better (?), but more heuristic:
             {
                 "sm": True,
                 "blank_score": "calc",
