@@ -503,6 +503,9 @@ def _returnn_forward_config_v2(
             continue
         post_config[k] = v
 
+    # Trigger new hash because of a serious bug.
+    config["__forward_config_v2_extra_version"] = 2
+
     return ReturnnConfigWithNewSerialization(config, post_config)
 
 
