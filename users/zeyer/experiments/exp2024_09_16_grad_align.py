@@ -170,6 +170,9 @@ def py():
             epoch = grad_opts.pop("epoch", -1)
             ctc_model = sis_get_model(fullname, epoch=epoch)
 
+            if "blankSep" in shortname:
+                assert ctc_model.definition.config["out_blank_separated"]  # sanity check
+
             # Now grad based align
             grads = get_input_grads(
                 ctc_model,
