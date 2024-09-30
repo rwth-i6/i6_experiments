@@ -161,9 +161,15 @@ def py():
 
         for extra_name, grad_opts in [
             ("", {}),
-            # ("-blankStopGrad", {"stop_grad_blank": True}),
             # *([("-bs1", {"max_seqs": 1})] if shortname == "base" else []),  # test influence of batching
-            # ("-base-blankStopGrad-p0.1", {"stop_grad_blank": True, "grad_norm_p": 0.1}),
+            (
+                "-blankStopGrad-inclBlankState-p0.1",
+                {"stop_grad_blank": True, "ctc_partial_scores_include_next_blank": True, "grad_norm_p": 0.1},
+            ),
+            (
+                "-inclBlankState-p0.1",
+                {"ctc_partial_scores_include_next_blank": True, "grad_norm_p": 0.1},
+            ),
         ]:
             grad_opts = grad_opts.copy()
             # base model
@@ -248,31 +254,40 @@ def py():
     # Grad align debug
     for name, grad_opts in [
         ("base", {}),  # 98.0/74.6
-        ("base-inclBlankState", {"ctc_partial_scores_include_next_blank": True}),
+        ("base-inclBlankState", {"ctc_partial_scores_include_next_blank": True}),  # 94.4/69.6
         ("base", {"epoch": 80}),  # 113.4/93.9
-        ("base-p1", {"grad_norm_p": 1}),
+        ("base-p1", {"grad_norm_p": 1}),  # 97.4/74.5
         ("base-p0.1", {"grad_norm_p": 0.1}),  # 98.5/75.9
         ("base-multSource", {"source_grad_mult_with_source": True}),  # 102.3/77.2
         ("base-blankStopGrad", {"stop_grad_blank": True}),  # 97.9/76.2
-        (
+        (  # 87.6/65.1
             "base-blankStopGrad-inclBlankState-p0.1",
             {"stop_grad_blank": True, "ctc_partial_scores_include_next_blank": True, "grad_norm_p": 0.1},
         ),
-        (
+        (  # 87.7/64.9
             "base-blankStopGrad-inclBlankState-p0.5",
             {"stop_grad_blank": True, "ctc_partial_scores_include_next_blank": True, "grad_norm_p": 0.5},
         ),
-        (
+        (  # 88.4/65.3
             "base-blankStopGrad-inclBlankState-p1",
             {"stop_grad_blank": True, "ctc_partial_scores_include_next_blank": True, "grad_norm_p": 1},
         ),
-        (
+        (  # 91.7/67.2
             "base-blankStopGrad-inclBlankState-p3",
             {"stop_grad_blank": True, "ctc_partial_scores_include_next_blank": True, "grad_norm_p": 3},
         ),
         (  # 90.0/65.9
             "base-blankStopGrad-inclBlankState",
             {"stop_grad_blank": True, "ctc_partial_scores_include_next_blank": True},
+        ),
+        (
+            "base-blankStopGrad-inclBlankState-p0.1-multSource",
+            {
+                "stop_grad_blank": True,
+                "ctc_partial_scores_include_next_blank": True,
+                "grad_norm_p": 0.1,
+                "source_grad_mult_with_source": True,
+            },
         ),
     ]:
         grad_opts = grad_opts.copy()
@@ -296,7 +311,7 @@ def py():
         # see also exp2024_09_09_grad_align.py
         for opts in [
             {"sm": True, "blank_score": -6},
-            # Always a bit better (?), but more heuristic:
+            # Always a bit better (e.g. 84.1/63.1 vs 87.6/65.1), but more heuristic:
             {
                 "sm": True,
                 "blank_score": "calc",
@@ -312,13 +327,13 @@ def py():
             factor = 1
             grad_hdf = grads
 
-            name = f"debug/ctc_grad_align/{name}-ep{epoch}/grad-align"
+            align_name = f"debug/ctc_grad_align/{name}-ep{epoch}/grad-align"
             for k, v in opts.items():
                 # Shorten the name a bit. We also might run into `File name too long` errors otherwise.
                 if k.startswith("blank_score"):
                     k = "bScore" + k[len("blank_score") :]
                 k = {"apply_softmax_over_time": "smTime", "apply_softmax_over_labels": "smLabels"}.get(k, k)
-                name += f"-{k}{v}"
+                align_name += f"-{k}{v}"
             job = ForcedAlignOnScoreMatrixJob(
                 score_matrix_hdf=grad_hdf,
                 cut_off_eos=False,
@@ -329,8 +344,8 @@ def py():
                 returnn_dataset=train_dataset.get_main_dataset(),
                 **opts,
             )
-            job.add_alias(prefix + name + "/align")
-            tk.register_output(prefix + name + "/align.hdf", job.out_align)
+            job.add_alias(prefix + align_name + "/align")
+            tk.register_output(prefix + align_name + "/align.hdf", job.out_align)
             alignment_hdf = job.out_align
 
             from i6_experiments.users.zeyer.datasets.utils.extract_seq_list import ExtractSeqListJob
@@ -342,7 +357,7 @@ def py():
             seq_list_debug = ExtractSeqListJob(returnn_dataset=ds).out_seq_list
             seq_list_debug_ref = seq_list_split_100_360_500_to_single_960(seq_list_debug)
 
-            name += "/metrics"
+            align_name += "/metrics"
             job = CalcAlignmentMetrics(
                 seq_list=seq_list_debug,
                 seq_list_ref=seq_list_debug_ref,
@@ -355,9 +370,9 @@ def py():
                 ref_alignment_allophones=gmm_alignment_allophones,
                 ref_alignment_len_factor=factor,
             )
-            job.add_alias(prefix + name)
-            tk.register_output(prefix + name + ".json", job.out_scores)
-            tk.register_output(prefix + name + "_short_report.txt", job.out_short_report_str)
+            job.add_alias(prefix + align_name)
+            tk.register_output(prefix + align_name + ".json", job.out_scores)
+            tk.register_output(prefix + align_name + "_short_report.txt", job.out_short_report_str)
 
     # TODO job to dump grads, diff variants:
     #  - using prob entropy instead of ground truth log prob
