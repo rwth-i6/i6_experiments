@@ -290,8 +290,8 @@ def py():
         train_dataset.main_dataset["fixed_random_subset"] = 100  # for debugging...
         # train_dataset.main_dataset["seq_list_filter_file"] = seq_list
         grads = get_input_grads(ctc_model, train_dataset, grad_opts)
-        tk.register_output(f"{prefix}ctc_{name}_input_grads_debug-ep{epoch}/grads.hdf", grads)
-        grads.creator.add_alias(f"{prefix}ctc_{name}_input_grads_debug-ep{epoch}/grads")
+        tk.register_output(f"{prefix}debug/ctc_grad_align/{name}-ep{epoch}/input_grads.hdf", grads)
+        grads.creator.add_alias(f"{prefix}debug/ctc_grad_align/{name}-ep{epoch}/input_grads")
 
         # see also exp2024_09_09_grad_align.py
         for opts in [
@@ -308,16 +308,17 @@ def py():
         ]:
             opts = opts.copy()
             apply_softmax_over_time = opts.pop("sm", False)
-            grad_name = f"ctc_{name}_input_grads_debug-ep{epoch}"
             # factor, grad_hdf = grads[grad_name]
             factor = 1
             grad_hdf = grads
 
-            # The dumped grads cover about 9.6h audio from train.
-            name = f"grad-align-{grad_name}-sm{apply_softmax_over_time}"
-            if opts:
-                for k, v in opts.items():
-                    name += f"-{k}{v}"
+            name = f"debug/ctc_grad_align/{name}-ep{epoch}/grad-align"
+            for k, v in opts.items():
+                # Shorten the name a bit. We also might run into `File name too long` errors otherwise.
+                if k.startswith("blank_score"):
+                    k = "bScore" + k[len("blank_score") :]
+                k = {"apply_softmax_over_time": "smTime", "apply_softmax_over_labels": "smLabels"}.get(k, k)
+                name += f"-{k}{v}"
             job = ForcedAlignOnScoreMatrixJob(
                 score_matrix_hdf=grad_hdf,
                 cut_off_eos=False,
