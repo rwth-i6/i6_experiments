@@ -1249,6 +1249,8 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
         key,
         non_speech_labels: [str],
         name: str = None,
+        hyp_silence_phone: str = "[SILENCE]{#+#}@i@f",
+        ref_silence_phone: str = "[SILENCE]{#+#}@i@f",
         silence_label: str = "[SILENCE]{#+#}@i@f",
         reference_alignment_key: str = "GMM",
         alignment_bundle: tk.Path = None,
@@ -1257,6 +1259,7 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
         reference_allophones: tk.Path = None,
         segments: [str] = None,
         use_legacy_tse_calculation: bool = True,
+        segment_file: str = None
     ):
         assert (
             self.experiments[key]["align_job"] is not None or alignment_bundle is not None
@@ -1286,6 +1289,8 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
                 alignment_cache=alignment,
                 ref_allophone_file=reference_allophones,
                 ref_alignment_cache=reference_alignment,
+                hyp_silence_phone=hyp_silence_phone,
+                ref_silence_phone=ref_silence_phone,
                 upsample_factor=self.frame_rate_reduction_ratio_info.factor,
             )
             tse_job.add_alias(f"statistics/alignment/{exp_name}/tse")
@@ -1297,22 +1302,32 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
         else:
             #seems buggy need to debug
             #logging.warn("We do not execute time stamp error until you debugged it ;-)")
-            tse_job = mm.ComputeTimeStampErrorJob(
-                hyp_alignment_cache=alignment,
-                ref_alignment_cache=reference_alignment,
-                hyp_allophone_file=allophones,
-                ref_allophone_file=reference_allophones,
-                hyp_upsample_factor=4,
-            )
+            if segment_file is not None:
+                tse_job = mm.ComputeTimeStampErrorJobV2(
+                    hyp_alignment_cache=alignment,
+                    ref_alignment_cache=reference_alignment,
+                    hyp_allophone_file=allophones,
+                    ref_allophone_file=reference_allophones,
+                    hyp_upsample_factor=4,
+                    segment_file=segment_file,
+                )
+            else:
+                tse_job = mm.ComputeTimeStampErrorJob(
+                    hyp_alignment_cache=alignment,
+                    ref_alignment_cache=reference_alignment,
+                    hyp_allophone_file=allophones,
+                    ref_allophone_file=reference_allophones,
+                    hyp_upsample_factor=4,
+                )
             tse_job.rqmt = {
                 "time": 4,
                 "cpu": 1,
                 "mem": 6,
             }
 
-            tse_job.add_alias(f"statistics/alignment/{exp_name}/tse")
+            tse_job.add_alias(f"statistics/alignment/{exp_name}/tse{'_segment' if segment_file is not None else ''}")
             tk.register_output(
-                f"statistics/alignment/{exp_name}/word_tse",
+                f"statistics/alignment/{exp_name}/word_tse{'_segment' if segment_file is not None else ''}",
                 tse_job.out_tse_frames,
             )
 

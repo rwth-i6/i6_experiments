@@ -316,6 +316,7 @@ class AlignmentParameters:
     non_word_phonemes: str
 
     add_all_allophones: bool = False
+    add_allophones_from_file: str = None
     allow_for_silence_repetitions: bool = False
     posterior_scales: Optional[PosteriorScales] = None
     silence_penalties: Optional[Tuple[Float, Float]] = None  # loop, fwd for FH FS
@@ -324,6 +325,8 @@ class AlignmentParameters:
 
     def with_add_all_allophones(self, add_all: bool):
         return dataclasses.replace(self, add_all_allophones=add_all)
+    def with_allophone_file(self, allophone_file: str):
+        return dataclasses.replace(self, add_allophones_from_file=allophone_file)
 
     def with_allow_for_silence_repetitions(self, allow_for_silence_repetitions: bool):
         return dataclasses.replace(self, allow_for_silence_repetitions=allow_for_silence_repetitions)

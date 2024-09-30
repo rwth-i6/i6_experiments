@@ -1587,6 +1587,9 @@ class BASEFactoredHybridAligner(BASEFactoredHybridDecoder):
 
         align_crp.acoustic_model_config.allophones["add-all"] = alignment_parameters.add_all_allophones
         align_crp.acoustic_model_config.allophones["add-from-lexicon"] = not alignment_parameters.add_all_allophones
+        if alignment_parameters.add_allophones_from_file is not None:
+            align_crp.acoustic_model_config.allophones.add_from_file = alignment_parameters.add_allophones_from_file
+
 
         align_crp.acoustic_model_config["state-tying"][
             "use-boundary-classes"
