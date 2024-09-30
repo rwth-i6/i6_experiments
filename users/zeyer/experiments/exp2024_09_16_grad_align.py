@@ -67,23 +67,25 @@ def py():
         "bpe10k": ("bpe", get_vocab_by_str("bpe10k").vocab, 10_025),
     }
 
+    # WERs: dev-other/test-other
     for shortname, fullname, vocab in [
         (  # ctc forced align: 110.7/43.7ms
-            "noBias",  # 5.65, better baseline
+            "noBias",  # 5.65/5.94, better baseline
             "v6-relPosAttDef-noBias"
             "-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k"
             "-featBN-speedpertV2-spm10k-bpeSample001",
             "spm10k",
         ),
         (  # ctc forced align: 111.5/52.9ms
-            "base",  # 5.77
+            "base",  # 5.77/6.03
+            # output/ctc/v6-relPosAttDef-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-featBN-speedpertV2-spm10k-bpeSample001/recog_results_best
             "v6-relPosAttDef"
             "-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k"
             "-featBN-speedpertV2-spm10k-bpeSample001",
             "spm10k",
         ),
         (  # ctc forced align: 116.8/74.4ms
-            "lpNormedGradC05_11P1",  # 5.71
+            "lpNormedGradC05_11P1",  # 5.71/5.87
             "v6-relPosAttDef"
             "-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k"
             "-featBN-speedpertV2-spm10k-bpeSample001"
@@ -91,7 +93,7 @@ def py():
             "spm10k",
         ),
         (  # ctc forced align: 98.5/77.6ms
-            "blankSep",  # 5.73
+            "blankSep",  # 5.73/6.02
             "v6-relPosAttDef"
             "-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k"
             "-featBN-speedpertV2-spm10k-bpeSample001"
@@ -99,14 +101,14 @@ def py():
             "spm10k",
         ),
         (  # ctc forced align: 75.4/42.7ms
-            "base-spm512",  # 6.02
+            "base-spm512",  # 5.97/6.21
             "v6-relPosAttDef"
             "-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-maxSeqLenAudio19_5-wd1e_2-lrlin1e_5_295k"
             "-featBN-speedpertV2-spm512-bpeSample001",
             "spm512",
         ),
         (  # ctc forced align: 59.6/48.5ms
-            "base-spm512-blankSep",  # 6.02
+            "base-spm512-blankSep",  # 6.02/6.04
             "v6-relPosAttDef"
             "-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-maxSeqLenAudio19_5-wd1e_2-lrlin1e_5_295k"
             "-featBN-speedpertV2-spm512-bpeSample001"
@@ -114,14 +116,14 @@ def py():
             "spm512",
         ),
         (  # ctc forced align: 113.9/68.1ms
-            "base-bpe10k",  # 6.18
+            "base-bpe10k",  # 6.18/6.35
             "v6-relPosAttDef"
             "-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k"
             "-featBN-speedpertV2-bpe10k-bpeSample001",
             "bpe10k",
         ),
         (  # ctc forced align: 84.9/64.2ms
-            "base-bpe10k-blankSep",  # 5.98
+            "base-bpe10k-blankSep",  # 5.98/6.13
             "v6-relPosAttDef"
             "-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k"
             "-featBN-speedpertV2-bpe10k-bpeSample001"
