@@ -138,10 +138,10 @@ def py():
         ctc_model = sis_get_model(fullname)
 
         alignment = ctc_forced_align(ctc_model, train_dataset)
-        alignment.creator.add_alias(f"{prefix}ctc_{shortname}_forced_align/align")
-        tk.register_output(f"{prefix}ctc_{shortname}_forced_align/align.hdf", alignment)
+        alignment.creator.add_alias(f"{prefix}ctc_forced_align/{shortname}/align")
+        tk.register_output(f"{prefix}ctc_forced_align/{shortname}/align.hdf", alignment)
 
-        name = f"ctc_{shortname}_forced_align/metrics"
+        name = f"ctc_forced_align/{shortname}/align-metrics"
         job = CalcAlignmentMetrics(
             seq_list=seq_list,
             seq_list_ref=seq_list_ref,
@@ -163,7 +163,7 @@ def py():
             ("", {}),
             ("-blankStopGrad", {"stop_grad_blank": True}),
             *([("-bs1", {"max_seqs": 1})] if shortname == "base" else []),  # test influence of batching
-            ("base-blankStopGrad-p0.1", {"stop_grad_blank": True, "grad_norm_p": 0.1}),
+            ("-base-blankStopGrad-p0.1", {"stop_grad_blank": True, "grad_norm_p": 0.1}),
         ]:
             grad_opts = grad_opts.copy()
             # base model
@@ -183,11 +183,12 @@ def py():
                 # I get some strange CUDA error: an illegal memory access was encountered,
                 # maybe this fixes it:
                 grads.creator.set_env("CUDA_LAUNCH_BLOCKING", "1")
-            tk.register_output(f"{prefix}ctc_{shortname}{extra_name}_input_grads/grads.hdf", grads)
-            grads.creator.add_alias(f"{prefix}ctc_{shortname}{extra_name}_input_grads/grads")
+
+            grad_name = f"ctc-grad-align/{shortname}{extra_name}"
+            tk.register_output(f"{prefix}{grad_name}/input_grads.hdf", grads)
+            grads.creator.add_alias(f"{prefix}{grad_name}/input_grads")
 
             # see also exp2024_09_09_grad_align.py
-            grad_name = f"ctc_{shortname}{extra_name}_input_grads"
             for align_opts in [
                 {"apply_softmax_over_time": True, "blank_score": -6},
                 {
@@ -204,8 +205,12 @@ def py():
                 grad_hdf = grads
 
                 # The dumped grads cover about 9.6h audio from train.
-                name = f"grad-align-{grad_name}"
+                name = grad_name
                 for k, v in align_opts.items():
+                    # Shorten the name a bit. We also might run into `File name too long` errors otherwise.
+                    if k.startswith("blank_score"):
+                        k = "bScore" + k[len("blank_score") :]
+                    k = {"apply_softmax_over_time": "smTime", "apply_softmax_over_labels": "smLabels"}.get(k, k)
                     name += f"-{k}{v}"
                 job = ForcedAlignOnScoreMatrixJob(
                     score_matrix_hdf=grad_hdf,
@@ -220,7 +225,7 @@ def py():
                 tk.register_output(prefix + name + "/align.hdf", job.out_align)
                 alignment_hdf = job.out_align
 
-                name += "/metrics"
+                name += "/align-metrics"
                 job = CalcAlignmentMetrics(
                     seq_list=seq_list,
                     seq_list_ref=seq_list_ref,
