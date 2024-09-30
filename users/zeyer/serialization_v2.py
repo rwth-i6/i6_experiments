@@ -177,7 +177,7 @@ class _Serializer:
         self._next_sys_path_insert_idx = 0
         self.sis_path_handling = sis_path_handling
         self._cur_added_refs: List[PyCode] = []
-        self._next_alignment_idx = 0
+        self._next_assignment_idx = 0
         # We first serialize everything without inlining anything.
         # There we also count how often a value is used (ref_count).
         # Then we can inline those values which are not direct config entries
@@ -213,16 +213,16 @@ class _Serializer:
 
     def work_inlining(self):
         self._inlining_stage = True
-        self._next_alignment_idx = -1
+        self._next_assignment_idx = -1
         for assign in list(self.assignments_dict_by_idx.values()):
-            assert assign.idx > self._next_alignment_idx
-            self._next_alignment_idx = assign.idx
+            assert assign.idx > self._next_assignment_idx
+            self._next_assignment_idx = assign.idx
             if assign.py_name and not assign.has_later_state_setup:
                 new_assign = self._serialize_value_assignment(assign.value, name=assign.py_name)
                 assert isinstance(new_assign, PyCode)
                 assign.py_value_repr = new_assign.py_value_repr
                 assign.py_code = new_assign.py_code
-        self._next_alignment_idx += 1
+        self._next_assignment_idx += 1
 
     def _handle_next_queue_item(self, queue_item: _AssignQueueItem):
         value_ref = _Ref(queue_item.value)
@@ -253,8 +253,8 @@ class _Serializer:
             serialized, deferred_state = serialized.code, serialized.extra
             serialized.has_later_state_setup = True
         assert isinstance(serialized, PyCode)
-        serialized.idx = self._next_alignment_idx
-        self._next_alignment_idx += 1
+        serialized.idx = self._next_assignment_idx
+        self._next_assignment_idx += 1
         if queue_item.required_var_name:
             serialized.is_direct_config_entry = True
             if queue_item.required_var_name in self.config:
@@ -324,8 +324,8 @@ class _Serializer:
                 raise NotImplementedError  # not handled yet
 
         code = PyCode(py_name=None, value=None, py_code="".join(code_lines))
-        code.idx = self._next_alignment_idx
-        self._next_alignment_idx += 1
+        code.idx = self._next_assignment_idx
+        self._next_assignment_idx += 1
         self.assignments_dict_by_idx[code.idx] = code
 
     @staticmethod
@@ -410,7 +410,7 @@ class _Serializer:
             val_name: str = getattr(value, "__name__", None)
             if val_name and getattr(builtins, val_name, None) is value:
                 assign = self.assignments_dict_by_name.get(val_name)
-                if not assign or assign.idx >= self._next_alignment_idx:
+                if not assign or assign.idx >= self._next_assignment_idx:
                     return PyEvalCode(val_name)
                 # name was overwritten. fallback to standard module access.
         # Note that assignments_dict_by_value_ref would also contain primitive objects like True/False etc.
@@ -418,7 +418,7 @@ class _Serializer:
         if value_ref in self.assignments_dict_by_value_ref:
             assign = self.assignments_dict_by_value_ref[value_ref]
             if self._inlining_stage:
-                if assign.idx >= self._next_alignment_idx:
+                if assign.idx >= self._next_assignment_idx:
                     pass  # self, or future ref, cannot use this, proceed serializing
                 elif assign.is_direct_config_entry:
                     return PyEvalCode(assign.py_name)  # anyway need to keep this assignment, so just use it
@@ -778,8 +778,8 @@ class _Serializer:
             )
         else:
             code = PyCode(py_name=None, value=None, py_code=f"{sys_s.py_inline()}.path.append({path!r})\n")
-        code.idx = self._next_alignment_idx
-        self._next_alignment_idx += 1
+        code.idx = self._next_assignment_idx
+        self._next_assignment_idx += 1
         self.assignments_dict_by_idx[code.idx] = code
         self.added_sys_paths.add(path)
 
