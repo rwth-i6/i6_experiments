@@ -247,18 +247,30 @@ def py():
 
     # Grad align debug
     for name, grad_opts in [
-        ("base", {}),
-        ("base", {"epoch": 80}),
-        ("base-p0.1", {"grad_norm_p": 0.1}),
-        ("base-multSource", {"source_grad_mult_with_source": True}),
-        ("base-blankStopGrad", {"stop_grad_blank": True}),
-        # ("base-blankStopGrad", {"stop_grad_blank": True, "epoch": 160}),
-        # ("base-blankStopGrad", {"stop_grad_blank": True, "epoch": 320}),
-        # ("base-blankStopGrad-p0.1", {"stop_grad_blank": True, "grad_norm_p": 0.1}),
-        # ("base-blankStopGrad-p0.5", {"stop_grad_blank": True, "grad_norm_p": 0.5}),
-        # ("base-blankStopGrad-p1", {"stop_grad_blank": True, "grad_norm_p": 1}),
-        # ("base-blankStopGrad-p3", {"stop_grad_blank": True, "grad_norm_p": 3}),
+        ("base", {}),  # 98.0/74.6
+        ("base-inclBlankState", {"ctc_partial_scores_include_next_blank": True}),
+        ("base", {"epoch": 80}),  # 113.4/93.9
+        ("base-p1", {"grad_norm_p": 1}),
+        ("base-p0.1", {"grad_norm_p": 0.1}),  # 98.5/75.9
+        ("base-multSource", {"source_grad_mult_with_source": True}),  # 102.3/77.2
+        ("base-blankStopGrad", {"stop_grad_blank": True}),  # 97.9/76.2
         (
+            "base-blankStopGrad-inclBlankState-p0.1",
+            {"stop_grad_blank": True, "ctc_partial_scores_include_next_blank": True, "grad_norm_p": 0.1},
+        ),
+        (
+            "base-blankStopGrad-inclBlankState-p0.5",
+            {"stop_grad_blank": True, "ctc_partial_scores_include_next_blank": True, "grad_norm_p": 0.5},
+        ),
+        (
+            "base-blankStopGrad-inclBlankState-p1",
+            {"stop_grad_blank": True, "ctc_partial_scores_include_next_blank": True, "grad_norm_p": 1},
+        ),
+        (
+            "base-blankStopGrad-inclBlankState-p3",
+            {"stop_grad_blank": True, "ctc_partial_scores_include_next_blank": True, "grad_norm_p": 3},
+        ),
+        (  # 90.0/65.9
             "base-blankStopGrad-inclBlankState",
             {"stop_grad_blank": True, "ctc_partial_scores_include_next_blank": True},
         ),
