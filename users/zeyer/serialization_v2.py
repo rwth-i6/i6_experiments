@@ -752,6 +752,9 @@ class _Serializer:
         assert base_sys_path
         if path in base_sys_path:
             return  # already in (base) sys.path
+
+        sys_s = self._serialize_value(sys, prefix="sys")
+        assert isinstance(sys_s, PyEvalCode)
         if path in sys.path:
             path_index = sys.path.index(path)
             assert base_sys_path[0] in sys.path, f"sys.path {sys.path} does not contain {base_sys_path[0]!r}"
@@ -769,8 +772,6 @@ class _Serializer:
             self._next_sys_path_insert_idx += 1
         if not recursive:
             self._handle_next_queue_item(_AssignQueueItem(sys))
-        sys_s = self._serialize_value(sys, prefix="sys")
-        assert isinstance(sys_s, PyEvalCode)
         if insert_idx is not None:
             code = PyCode(
                 py_name=None, value=None, py_code=f"{sys_s.py_inline()}.path.insert({insert_idx}, {path!r})\n"
