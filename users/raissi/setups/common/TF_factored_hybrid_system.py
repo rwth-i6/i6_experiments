@@ -1252,6 +1252,7 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
         silence_label: str = "[SILENCE]{#+#}@i@f",
         reference_alignment_key: str = "GMM",
         alignment_bundle: tk.Path = None,
+        allophones: tk.Path = None,
         reference_alignment: tk.Path = None,
         reference_allophones: tk.Path = None,
         segments: [str] = None,
@@ -1271,8 +1272,8 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
                 reference_allophones = self.reference_alignment[reference_alignment_key].get("allophones")
             assert reference_allophones is not None, "Please provide a reference allophone file"
 
-        alignment = self.experiments[key]["align_job"].out_alignment_bundle
-        allophones = lexicon.StoreAllophonesJob(self.crp[self.crp_names["align.train"]]).out_allophone_file
+        alignment = alignment_bundle if alignment_bundle is not None else self.experiments[key]["align_job"].out_alignment_bundle
+        allophones = allophones if allophones is not None else lexicon.StoreAllophonesJob(self.crp[self.crp_names["align.train"]]).out_allophone_file
         exp_name = self.experiments[key]["name"] if name is None else name
         if not isinstance(reference_alignment, tk.Path):
             reference_alignment = tk.Path(reference_alignment, cached=True)

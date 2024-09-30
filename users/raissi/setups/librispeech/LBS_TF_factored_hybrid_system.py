@@ -4,10 +4,7 @@ import copy
 import dataclasses
 import itertools
 import numpy as np
-import sys
-from IPython import embed
 
-from enum import Enum
 from typing import Dict, List, Optional, Tuple, TypedDict, Union
 
 # -------------------- Sisyphus --------------------
@@ -227,6 +224,8 @@ class LBSTFFactoredHybridSystem(TFFactoredHybridBaseSystem):
         num_encoder_output: int,
         recog_args: LBSSearchParameters,
         lm_scale: float,
+        context_type: PhoneticContext = None,
+        feature_scorer_type: RasrFeatureScorer = None,
         tdp_scales: List = None,
         transition_loop_sil: List = None,
         transition_loop_speech: List = None,
@@ -238,7 +237,26 @@ class LBSTFFactoredHybridSystem(TFFactoredHybridBaseSystem):
         assert self.experiments[key]["decode_job"]["runner"] is not None, "Please set the recognizer"
         recognizer = self.experiments[key]["decode_job"]["runner"]
 
+        context_type = PhoneticContext.diphone if context_type is None else context_type
+        feature_scorer_type = RasrFeatureScorer.nn_precomputed if feature_scorer_type is None else feature_scorer_type
+        if context_type == PhoneticContext.triphone_forward:
+            assert feature_scorer_type == feature_scorer_type.factored, "no triphone with nn precomputed yet"
+
         tdp_scales = [0.1, 0.2] if tdp_scales is None else tdp_scales
+        if feature_scorer_type == RasrFeatureScorer.factored:
+            if context_type == PhoneticContext.triphone_forward:
+                prior_scales = list(
+                    itertools.product(
+                        [v for v in np.arange(0.1, 0.6, 0.1).round(1)],
+                        [v for v in np.arange(0.1, 0.6, 0.1).round(1)],
+                        [v for v in np.arange(0.1, 0.6, 0.1).round(1)],
+                    )
+                )
+            else:
+                raise NotImplementedError("You were not supposed to run monophone decoding with factored decoder")
+        else:
+            prior_scales = [[v] for v in np.arange(0.1, 0.8, 0.1).round(1)]
+
 
         tune_args = recog_args.with_lm_scale(lm_scale)
         best_config_scales = recognizer.recognize_optimize_scales_v2(
@@ -250,7 +268,7 @@ class LBSTFFactoredHybridSystem(TFFactoredHybridBaseSystem):
             tdp_sil=[(11.0, 0.0, "infinity", 20.0)],
             tdp_speech=[(8.0, 0.0, "infinity", 0.0)],
             tdp_nonword=[(8.0, 0.0, "infinity", 0.0)],
-            prior_scales=[[v] for v in np.arange(0.1, 0.8, 0.1).round(1)],
+            prior_scales=prior_scales,
             tdp_scales=tdp_scales,
 
         )
