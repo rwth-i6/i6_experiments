@@ -130,6 +130,13 @@ def py():
             "-blankSep",
             "bpe10k",
         ),
+        (
+            "ebranchformer",  # 5.54/5.69
+            # output/ctc/v6-EBranchformer-relPosAttDef-noBias-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-featBN-speedpertV2-spm10k-bpeSample001/recog_results_best
+            "v6-EBranchformer-relPosAttDef-noBias-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2"
+            "-lrlin1e_5_295k-featBN-speedpertV2-spm10k-bpeSample001",
+            "spm10k",
+        ),
     ]:
         # Note: task hardcoded... (and also not needed, I just need the train dataset...)
         task = get_librispeech_task_raw_v2(vocab=vocab)
@@ -188,6 +195,7 @@ def py():
                 config={
                     **({"fixed_blank_sep_v1": True} if "blankSep" in shortname else {}),
                     **grad_opts,
+                    **({"batch_size": 5_000 * _batch_size_factor} if shortname == "ebranchformer" else {}),
                 },
             )
             if shortname == "blankSep":
@@ -203,6 +211,7 @@ def py():
             for align_opts in [
                 {"apply_softmax_over_time": True, "blank_score": -4},
                 {"apply_softmax_over_time": True, "blank_score": -6},
+                {"apply_softmax_over_time": True, "blank_score": -7},
                 {
                     "apply_softmax_over_time": True,
                     "blank_score": "calc",
