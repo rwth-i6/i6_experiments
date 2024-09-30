@@ -162,6 +162,7 @@ def py():
         for extra_name, grad_opts in [
             ("", {}),
             ("-blankStopGrad", {"stop_grad_blank": True}),
+            *([("-bs1", {"max_seqs": 1})] if shortname == "base" else []),  # test influence of batching
         ]:
             grad_opts = grad_opts.copy()
             # base model
