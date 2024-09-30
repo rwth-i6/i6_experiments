@@ -44,4 +44,5 @@ def run_exps():
         checkpoint=checkpoint,
         checkpoint_aliases=("last",),
         run_analysis=True,
+        analyze_gradients=True,
       )

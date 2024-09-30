@@ -549,7 +549,7 @@ class BASEFactoredHybridDecoder:
         rtf_gpu: float = 4,
         lm_config: rasr.RasrConfig = None,
         create_lattice: bool = True,
-        remove_or_set_concurrency: Union[bool, int] = False,
+        separate_lm_image_gc_generation: bool = False,
         search_rqmt_update=None,
         adv_search_extra_config: Optional[rasr.RasrConfig] = None,
         adv_search_extra_post_config: Optional[rasr.RasrConfig] = None,
@@ -579,11 +579,11 @@ class BASEFactoredHybridDecoder:
             rtf_cpu=rtf_cpu,
             rtf_gpu=rtf_gpu,
             create_lattice=create_lattice,
-            remove_or_set_concurrency=remove_or_set_concurrency,
             search_rqmt_update=search_rqmt_update,
             adv_search_extra_config=adv_search_extra_config,
             adv_search_extra_post_config=adv_search_extra_post_config,
             cpu_omp_thread=cpu_omp_thread,
+            separate_lm_image_gc_generation=separate_lm_image_gc_generation,
         )
 
     def recognize(
@@ -617,7 +617,7 @@ class BASEFactoredHybridDecoder:
         adv_search_extra_post_config: Optional[rasr.RasrConfig] = None,
         search_rqmt_update=None,
         cpu_omp_thread=2,
-        remove_or_set_concurrency: Union[bool, int] = False,
+        separate_lm_image_gc_generation: bool = False,
     ) -> RecognitionJobs:
         if isinstance(search_parameters, SearchParameters):
             assert len(search_parameters.tdp_speech) == 4
@@ -675,7 +675,6 @@ class BASEFactoredHybridDecoder:
                 if search_parameters.tdp_nonword is not None:
                     name += f"-nwTdp-{format_tdp(search_parameters.tdp_nonword)}"
                 name += f"-spTdp-{format_tdp(search_parameters.tdp_speech)}"
-
 
             if self.feature_scorer_type.is_factored():
                 if search_parameters.transition_scales is not None:
@@ -763,8 +762,12 @@ class BASEFactoredHybridDecoder:
         )
 
         if search_parameters.word_recombination_limit is not None:
-            adv_search_extra_config.flf_lattice_tool.network.recognizer.recognizer.reduce_context_word_recombination = True
-            adv_search_extra_config.flf_lattice_tool.network.recognizer.recognizer.reduce_context_word_recombination_limit = search_parameters.word_recombination_limit
+            adv_search_extra_config.flf_lattice_tool.network.recognizer.recognizer.reduce_context_word_recombination = (
+                True
+            )
+            adv_search_extra_config.flf_lattice_tool.network.recognizer.recognizer.reduce_context_word_recombination_limit = (
+                search_parameters.word_recombination_limit
+            )
             name += f"recombLim{search_parameters.word_recombination_limit}"
 
         if search_parameters.altas is not None:
@@ -859,7 +862,7 @@ class BASEFactoredHybridDecoder:
             cpu=2 if cpu_rqmt is None else cpu_rqmt,
             lmgc_scorer=rasr.DiagonalMaximumScorer(self.mixtures) if self.lm_gc_simple_hash else None,
             create_lattice=create_lattice,
-            # separate_lm_image_gc_generation=True,
+            #separate_lm_image_gc_generation=separate_lm_image_gc_generation,
             model_combination_config=model_combination_config,
             model_combination_post_config=None,
             extra_config=adv_search_extra_config,
@@ -948,7 +951,7 @@ class BASEFactoredHybridDecoder:
                     name_after_rerun = re.sub(r"Lm[0-9]*.[0.9*]", f"Lm{rounded_lm_scale}", name)
 
                 name_prefix_len = len(f"{name_prefix}{self.name}/")
-                #in order to have access afterwards to the lm scale mainly
+                # in order to have access afterwards to the lm scale mainly
                 self.tuned_params = params
 
                 return self.recognize(
@@ -1048,7 +1051,6 @@ class BASEFactoredHybridDecoder:
                     search_parameters=dataclasses.replace(
                         recog_args, tdp_scale=tdp, tdp_silence=tdp_sl, tdp_speech=tdp_sp, pron_scale=pron
                     ).with_prior_scale(left=l, center=c, right=r, diphone=c),
-                    remove_or_set_concurrency=False,
                 )
                 for ((c, l, r), tdp, tdp_sl, tdp_sp, pron) in itertools.product(
                     prior_scales, tdp_scales, tdp_sil, tdp_speech, pron_scales
@@ -1074,7 +1076,6 @@ class BASEFactoredHybridDecoder:
                     search_parameters=dataclasses.replace(
                         recog_args, tdp_scale=tdp, tdp_silence=tdp_sl, tdp_speech=tdp_sp
                     ).with_prior_scale(left=l, center=c, right=r, diphone=c),
-                    remove_or_set_concurrency=False,
                 )
                 for ((c, l, r), tdp, tdp_sl, tdp_sp) in itertools.product(prior_scales, tdp_scales, tdp_sil, tdp_speech)
             }
@@ -1160,7 +1161,7 @@ class BASEFactoredHybridDecoder:
             left=best_left_prior,
             right=best_right_prior,
         )
-    
+
     def recognize_optimize_scales_v2(
         self,
         *,
@@ -1238,7 +1239,7 @@ class BASEFactoredHybridDecoder:
                         tdp_speech=tdp_sp,
                         pron_scale=pron,
                     ).with_prior_scale(left=l, center=c, right=r, diphone=c),
-                    remove_or_set_concurrency=False,
+
                 )
                 for ((c, l, r), tdp, tdp_sl, tdp_nw, tdp_sp, pron) in itertools.product(
                     prior_scales, tdp_scales, tdp_sil, tdp_nonword, tdp_speech, pron_scales
@@ -1263,7 +1264,6 @@ class BASEFactoredHybridDecoder:
                     search_parameters=dataclasses.replace(
                         recog_args, tdp_scale=tdp, tdp_silence=tdp_sl, tdp_nonword=tdp_nw, tdp_speech=tdp_sp
                     ).with_prior_scale(left=l, center=c, right=r, diphone=c),
-                    remove_or_set_concurrency=False,
                 )
                 for ((c, l, r), tdp, tdp_sl, tdp_nw, tdp_sp) in itertools.product(
                     prior_scales, tdp_scales, tdp_sil, tdp_nonword, tdp_speech
@@ -1361,7 +1361,6 @@ class BASEFactoredHybridDecoder:
             right=best_right_prior,
         )
 
-
     def recognize_optimize_transtition_values(
         self,
         *,
@@ -1400,14 +1399,9 @@ class BASEFactoredHybridDecoder:
                 num_encoder_output=num_encoder_output,
                 opt_lm_am=False,
                 rerun_after_opt_lm=False,
-                search_parameters=dataclasses.replace(
-                    recog_args, tdp_silence=tdp_sl, tdp_speech=tdp_sp
-                ),
-                remove_or_set_concurrency=False,
+                search_parameters=dataclasses.replace(recog_args, tdp_silence=tdp_sl, tdp_speech=tdp_sp),
             )
-            for (tdp_sl, tdp_sp) in itertools.product(
-                tdp_sil, tdp_speech
-            )
+            for (tdp_sl, tdp_sp) in itertools.product(tdp_sil, tdp_speech)
         }
         jobs_num_e = {k: v.scorer.out_num_errors for k, v in jobs.items()}
 
@@ -1415,10 +1409,7 @@ class BASEFactoredHybridDecoder:
             if cpu_slow:
                 recog_jobs.search.update_rqmt("run", {"cpu_slow": True})
 
-            pre_name = (
-                f"{pre_path}/{self.name}/"
-                f"tdpSil{format_tdp(tdp_sl)}tdpSp{format_tdp(tdp_sp)}"
-            )
+            pre_name = f"{pre_path}/{self.name}/" f"tdpSil{format_tdp(tdp_sl)}tdpSp{format_tdp(tdp_sp)}"
 
             recog_jobs.lat2ctm.set_keep_value(keep_value)
             recog_jobs.search.set_keep_value(keep_value)
@@ -1453,8 +1444,6 @@ class BASEFactoredHybridDecoder:
         )
 
         return base_cfg
-
-
 
 
 class BASEFactoredHybridAligner(BASEFactoredHybridDecoder):
@@ -1494,7 +1483,7 @@ class BASEFactoredHybridAligner(BASEFactoredHybridDecoder):
             set_batch_major_for_feature_scorer=set_batch_major_for_feature_scorer,
         )
 
-    def correct_transition_applicator(self, crp, correct_fsa_strcuture=False):
+    def correct_transition_applicator(self, crp, allow_for_silence_repetitions=False, correct_fsa_strcuture=False):
         # correct for the FSA bug
         crp.acoustic_model_config.tdp.applicator_type = "corrected"
         # The exit penalty is on the lemma level and should not be applied for alignment
@@ -1503,11 +1492,9 @@ class BASEFactoredHybridAligner(BASEFactoredHybridDecoder):
         if correct_fsa_strcuture:
             crp.acoustic_model_config["*"]["fix-allophone-context-at-word-boundaries"] = True
             crp.acoustic_model_config["*"]["transducer-builder-filter-out-invalid-allophones"] = True
-            crp.acoustic_model_config["*"]["allow-for-silence-repetitions"] = False
+            crp.acoustic_model_config["*"]["allow-for-silence-repetitions"] = allow_for_silence_repetitions
 
         return crp
-
-
 
     def get_alignment_job(
         self,
@@ -1516,6 +1503,7 @@ class BASEFactoredHybridAligner(BASEFactoredHybridDecoder):
         num_encoder_output: int,
         pre_path: Optional[str] = "alignments",
         correct_fsa_structure: bool = False,
+        allow_for_scaled_tdp: bool = False,
         is_min_duration: bool = False,
         use_estimated_tdps: bool = False,
         crp_update: Optional[Callable[[rasr.RasrConfig], Any]] = None,
@@ -1523,6 +1511,8 @@ class BASEFactoredHybridAligner(BASEFactoredHybridDecoder):
         gpu: Optional[bool] = False,
         cpu: Optional[bool] = 2,
     ) -> mm.AlignmentJob:
+
+        assert alignment_parameters.tdp_scale == 1.0 or allow_for_scaled_tdp, "Do not scale the tdp values during alignment"
 
         if isinstance(alignment_parameters, AlignmentParameters):
             assert len(alignment_parameters.tdp_speech) == 4
@@ -1562,8 +1552,6 @@ class BASEFactoredHybridAligner(BASEFactoredHybridDecoder):
                     sil_fwd_penalty = sil_loop_penalty = 0.0
         else:
             self.name += "-noTdp"
-
-
 
         state_tying = align_crp.acoustic_model_config.state_tying.type
 
@@ -1636,9 +1624,9 @@ class BASEFactoredHybridAligner(BASEFactoredHybridDecoder):
         elif self.feature_scorer_type.is_nnprecomputed():
             scale = 1.0
             if alignment_parameters.posterior_scales is not None:
-                if context_type.is_joint_diphone():
+                if self.context_type.is_joint_diphone():
                     scale = alignment_parameters.posterior_scales["joint-diphone-scale"]
-                elif context_type.is_monophone():
+                elif self.context_type.is_monophone():
                     scale = alignment_parameters.posterior_scales["center-state-scale"]
                 self.name += f"-Am{scale}"
             feature_scorer = get_nn_precomputed_feature_scorer(
@@ -1662,7 +1650,11 @@ class BASEFactoredHybridAligner(BASEFactoredHybridDecoder):
 
                 warnings.warn("you planned to use exit penalty for alignment, we set this to zero")
 
-        align_crp = self.correct_transition_applicator(align_crp, correct_fsa_strcuture=correct_fsa_structure)
+        align_crp = self.correct_transition_applicator(
+            align_crp,
+            correct_fsa_strcuture=correct_fsa_structure,
+            allow_for_silence_repetitions=alignment_parameters.allow_for_silence_repetitions,
+        )
 
         alignment = mm.AlignmentJob(
             crp=align_crp,

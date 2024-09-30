@@ -35,9 +35,4 @@ def run_exps():
         config_builder=config_builder,
         checkpoint=checkpoint,
         checkpoint_aliases=("last",),
-        run_analysis=True,
-        att_weight_seq_tags=[
-          "dev-other/116-288045-0017/116-288045-0017",
-          "dev-other/116-288045-0014/116-288045-0014",
-        ]
       )

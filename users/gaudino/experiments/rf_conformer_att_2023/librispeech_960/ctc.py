@@ -232,7 +232,6 @@ class CTCPrefixScorer:
                     phi[:, i, pos] = r_prev[:, 1, i]
         else:
             for i in range(self.batch_size * self.beam_size):
-                breakpoint()
                 phi[:, i, last_char[i]] = r_prev[:, 1, i]
 
         # Start, end frames for scoring (|g| < |h|).

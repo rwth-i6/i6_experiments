@@ -24,7 +24,7 @@ from i6_experiments.users.berger.util import default_tools_v2
 from i6_models.config import ModuleFactoryV1
 from sisyphus import gs, tk
 
-from .config_01_conformer_ctc import py as py_ctc
+from .config_01_conformer_ctc_old import py as py_ctc
 
 # ********** Settings **********
 

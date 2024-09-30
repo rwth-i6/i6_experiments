@@ -184,9 +184,9 @@ def get_pytorch_returnn_configs(
     chunk_400_200_config["chunking"] = "400:200"
 
     chunk_raw_config = copy.deepcopy(hubert_config)
-    chunk_400 = 400 * 16000
-    chunk_200 = 200 * 16000
-    chunk_raw_config["chunking"] = f"{chunk_400}:{chunk_200}"
+    chunk_400 = 4 * 16000  # in seconds
+    chunk_200 = 2 * 16000  # in seconds
+    chunk_raw_config["chunking"] = ({"data_raw": chunk_400, "classes": 400}, {"data_raw": chunk_200, "classes": 200})
 
     #if not recognition:
     #    del chunk_400_200_config['extern_data']['data_raw']

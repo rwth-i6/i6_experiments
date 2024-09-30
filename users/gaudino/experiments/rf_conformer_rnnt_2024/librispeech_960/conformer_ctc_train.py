@@ -205,6 +205,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
     #     with_eos_postfix=False,
     # )
     #
+
     # train_exp(  # dev-other
     #     "base-24gb-lrlin1e_5_600k_ctc_only_aux4_8_no_eos",
     #     config_24gb_v6,
@@ -223,30 +224,54 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
     #     with_eos_postfix=False,
     #
     # )
-    #
-    # train_exp(  # dev-other
-    #     "base-24gb-lrlin1e_5_600k_ctc_only_aux4_8_40subsample",
-    #     config_24gb_v6,
-    #     config_updates={
-    #         "batch_size": 30_000 * _batch_size_factor,
-    #         "learning_rate": 1.0,
-    #         "dynamic_learning_rate": dyn_lr_piecewise_linear,
-    #         # total steps after 2000 epochs: 982.312
-    #         "learning_rate_piecewise_steps": [600_000, 900_000, 982_000],
-    #         "learning_rate_piecewise_values": [1e-5, 1e-3, 1e-5, 1e-6],
-    #         "mel_normalization_ted2": False,
-    #         "conv_2nd_stride": 2,
-    #     },
-    #     search_config = {
-    #         "mel_normalization_ted2": False,
-    #     },
-    #     with_eos_postfix=False,
-    #
-    # )
+
+    train_exp(  # dev-other
+        "base-24gb-lrlin1e_5_600k_ctc_only_aux4_8_40subsample",
+        config_24gb_v6,
+        config_updates={
+            "batch_size": 30_000 * _batch_size_factor,
+            "learning_rate": 1.0,
+            "dynamic_learning_rate": dyn_lr_piecewise_linear,
+            # total steps after 2000 epochs: 982.312
+            "learning_rate_piecewise_steps": [600_000, 900_000, 982_000],
+            "learning_rate_piecewise_values": [1e-5, 1e-3, 1e-5, 1e-6],
+            "mel_normalization_ted2": False,
+            "conv_2nd_stride": 2,
+        },
+        search_config = {
+            "mel_normalization_ted2": False,
+        },
+        with_eos_postfix=False,
+
+    )
+
+    train_exp(  # dev-other
+        "base-24gb-lrlin1e_5_600k_ctc_only_aux4_8_gauss_win21_std1.0",
+        config_24gb_v6,
+        config_updates={
+            "learning_rate": 1.0,
+            "dynamic_learning_rate": dyn_lr_piecewise_linear,
+            # total steps after 2000 epochs: 982.312
+            "learning_rate_piecewise_steps": [600_000, 900_000, 982_000],
+            "learning_rate_piecewise_values": [1e-5, 1e-3, 1e-5, 1e-6],
+            "mel_normalization_ted2": False,
+            "hash_override": 1,
+            "gauss_window_size": 21,
+            "gauss_std": 1.0,
+        },
+        search_config = {
+            "mel_normalization_ted2": False,
+        },
+        with_eos_postfix=False,
+
+    )
 
 
+    global _ls_task
+    if _ls_task:
+        _ls_task = None
 
-    _torch_ckpt_path = "/u/luca.gaudino/setups/2023-08-10--rf-librispeech/work/i6_core/returnn/training/ReturnnTrainingJob.AWwVft0oGy8e/output/models/epoch.1981.pt"
+    _torch_ckpt_path = "/u/luca.gaudino/setups/2023-08-10--rf-librispeech/work/i6_core/returnn/training/ReturnnTrainingJob.AWwVft0oGy8e/output/models/epoch.1982.pt"
 
     new_ckpt_path = tk.Path(
         _torch_ckpt_path,
@@ -260,16 +285,16 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
         "hash_override": 3,
     }
 
-    _compute_prior(
-        "priors/base-24gb-lrlin1e_5_600k_ctc_only_aux4_8_no_mel_norm/ep1981/prior_3",
-        ModelWithCheckpoint(
-            definition=from_scratch_model_def, checkpoint=new_ckpt
-        ),
-        epoch=1981,
-        recog_def=model_forward_prior,
-        recog_config=recog_config,
-        search_rqmt={"time": 12},
-    )
+    # _compute_prior(
+    #     "priors/base-24gb-lrlin1e_5_600k_ctc_only_aux4_8_no_mel_norm/ep1982/prior",
+    #     ModelWithCheckpoint(
+    #         definition=from_scratch_model_def, checkpoint=new_ckpt
+    #     ),
+    #     epoch=1981,
+    #     recog_def=model_forward_prior,
+    #     recog_config=recog_config,
+    #     search_rqmt={"time": 12},
+    # )
 
     # no eos model
 
@@ -293,6 +318,34 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
             definition=from_scratch_model_def, checkpoint=new_ckpt
         ),
         epoch=1982,
+        recog_def=model_forward_prior,
+        recog_config=recog_config,
+        search_rqmt={"time": 12},
+    )
+
+    # albert 6.3 model
+
+    _torch_ckpt_path = "/work/asr3/zeineldeen/hiwis/luca.gaudino/checkpoints/zeyer_ctc/v6-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-speedpertV2-bpe10k-bpeSample001/epoch.491.pt"
+
+    new_ckpt_path = tk.Path(
+        _torch_ckpt_path,
+        hash_overwrite= "albert_6.3" + "_torch_ckpt",
+    )
+    new_ckpt = PtCheckpoint(new_ckpt_path)
+
+    recog_config = {
+        "batch_size": 160000 * 160,
+        "mel_normalization_ted2": False,
+        "hash_override": 1,
+        "final_ctc_name": "enc_logits",
+    }
+
+    _compute_prior(
+        "priors/v6-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-speedpertV2-bpe10k-bpeSample001/ep491/prior",
+        ModelWithCheckpoint(
+            definition=from_scratch_model_def, checkpoint=new_ckpt
+        ),
+        epoch=491,
         recog_def=model_forward_prior,
         recog_config=recog_config,
         search_rqmt={"time": 12},

@@ -158,3 +158,19 @@ def speed_pert(audio, sample_rate, random_state):
   if new_sample_rate != sample_rate:
     audio = librosa.core.resample(audio, orig_sr=sample_rate, target_sr=new_sample_rate, res_type="kaiser_fast")
   return audio
+
+
+def speed_pert_w_flip(audio, sample_rate, random_state):
+  import librosa
+
+  # flip audio in time
+  audio = audio[::-1]
+
+  new_sample_rate = int(sample_rate * (1 + random_state.randint(-1, 2) * 0.1))
+  if new_sample_rate != sample_rate:
+    audio = librosa.core.resample(audio, orig_sr=sample_rate, target_sr=new_sample_rate, res_type="kaiser_fast")
+  return audio
+
+
+def cutoff_initial_silence(audio, seq_name):
+  pass

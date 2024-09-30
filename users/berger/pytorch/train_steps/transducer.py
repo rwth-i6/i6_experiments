@@ -40,6 +40,11 @@ def train_step(
     assert target_lengths is not None
     target_lengths = target_lengths.to(device="cuda")
 
+    # print(list(extern_data.data.keys()))
+    # print("seq tags", extern_data["seq_tag"].raw_tensor)
+    # print("data lengths", source_lengths)
+    # print("target lengths", target_lengths)
+
     loss_norm_factor = rf.reduce_sum(target_lengths_rf, axis=batch_dim)
 
     model_logits, intermediate_logits, source_lengths, _, _ = model.forward(
@@ -65,8 +70,13 @@ def train_step(
     for layer_idx, scale in enc_loss_scales.items():
         logits = intermediate_logits[layer_idx]
         log_probs = torch.nn.functional.log_softmax(logits, dim=-1)  # [B, T, C]
-        log_probs = torch.transpose(log_probs, 0, 1)  # [T, B, C]
 
+        predictions = torch.argmax(log_probs, dim=-1)
+        predictions_packed = torch.nn.utils.rnn.pack_padded_sequence(
+            predictions, target_lengths.cpu(), batch_first=True, enforce_sorted=False
+        )
+
+        log_probs = torch.transpose(log_probs, 0, 1)  # [T, B, C]
         loss = torch.nn.functional.ctc_loss(
             log_probs=log_probs,
             targets=targets,
@@ -84,10 +94,6 @@ def train_step(
             custom_inv_norm_factor=loss_norm_factor,
         )
 
-        predictions = torch.argmax(log_probs, dim=-1)
-        predictions_packed = torch.nn.utils.rnn.pack_padded_sequence(
-            predictions, target_lengths.cpu(), batch_first=True, enforce_sorted=False
-        )
         num_incorrect_frames = torch.sum((targets_packed.data != predictions_packed.data))
 
         rf.get_run_ctx().mark_as_loss(

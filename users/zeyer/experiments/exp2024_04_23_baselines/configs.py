@@ -35,7 +35,7 @@ config_24gb_v6 = dict(
     learning_rate_warmup_steps=20_000,
     learning_rate_invsqrt_norm=20_000,
     aux_loss_layers=[4, 8],
-    pos_emb_dropout=0.1,
+    pos_emb_dropout=0.1,  # WARNING: when the self-att or conformer opts are custom, this is ignored! also for CTC!
     rf_att_dropout_broadcast=False,
 )
 
@@ -82,6 +82,50 @@ def _get_cfg_lrlin_oclr_by_bs_nep(bs_feat: int, n_ep: int, *, peak_lr: float = 1
         "dynamic_learning_rate": dyn_lr_piecewise_linear,
         # If the dict has no entry for the bs_feat,n_ep combination, see above.
         "learning_rate_piecewise_steps": _lrlin_oclr_steps_by_bs_nep[(bs_feat // 1000, n_ep)],
+        "learning_rate_piecewise_values": [peak_lr * 1e-2, peak_lr, peak_lr * 1e-2, peak_lr * 1e-3],
+    }
+
+
+# Just specify avg num steps per (sub)epoch (partition epoch 20) for batch_size // 1000.
+# (Assumes max_seqs 200, spm10k, max_seq_len 75, multi-GPU 4.)
+# Estimated via some existing log, or alternatively via:
+# tools/calc-avg-num-train-steps-per-ep-from-seq-lens.py \
+#   output/datasets/LibriSpeech/seq_len_audio-features=raw-sampleRate=16000-peakNormalization=True.txt \
+#   --seq_lens_file_for_max_seq_len \
+#     output/datasets/LibriSpeech/seq_len_target-spm10k-class=SamplingBytePairEncoding-breadthProb=0.001.txt \
+#   --partition_epoch 20 --seq_ordering "laplace:.1000" \
+#   --max_seq_len 75 --multi_gpu 4 --num_epochs 20 \
+#   --max_seqs 200 --batch_size (N * 1000 * 160)
+# Then using p10 (10% percentile) from the output.
+# Using some lower number than the real one should be safe.
+# It means we might reach the end of the LR schedule slightly earlier than in the real case.
+_tot_num_steps_by_bs = {
+    5: 3898,
+    8: 2485,
+    10: 1973,
+    15: 1303,
+    20: 976,
+    30: 652,
+    40: 491,
+}
+
+
+def _get_cfg_lrlin_oclr_by_bs_nep_v2(bs_feat: int, n_ep: int, *, peak_lr: float = 1e-3) -> Dict[str, Any]:
+    """
+    :param bs_feat: batch size for features (not including _batch_size_factor)
+    :param n_ep: num epochs
+    """
+    tot_num_steps = _tot_num_steps_by_bs[bs_feat // 1000] * n_ep
+    steps = [tot_num_steps * 0.45, tot_num_steps * 0.9, tot_num_steps]
+    steps = [int(s) for s in steps]
+
+    return {
+        "__num_epochs": n_ep,
+        "batch_size": bs_feat * _batch_size_factor,
+        "learning_rate": 1.0,
+        "dynamic_learning_rate": dyn_lr_piecewise_linear,
+        # If the dict has no entry for the bs_feat,n_ep combination, see above.
+        "learning_rate_piecewise_steps": steps,
         "learning_rate_piecewise_values": [peak_lr * 1e-2, peak_lr, peak_lr * 1e-2, peak_lr * 1e-3],
     }
 

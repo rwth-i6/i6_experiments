@@ -38,8 +38,12 @@ if TYPE_CHECKING:
 # The model gets raw features (16khz) and does feature extraction internally.
 _log_mel_feature_dim = 80
 
+_raw_sample_rate = _batch_size_factor * 100  # bs factor is from 10ms frames to raw samples
+
 
 def py():
+    # TODO test with additional abs pos enc
+
     train_exp(  # 5.32, but should give 5.11?
         "v6-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-speedpertV2",
         config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
@@ -69,7 +73,7 @@ def py():
             },
         )
 
-    # Comparing vocabs.
+    # Comparing vocabs. WARNING: max_seq_len is not adapted here.
     for vocab in [
         "spm20k",  # 5.14 (but test-other is 6.18!)
         "bpe10k",  # 5.32
@@ -130,7 +134,7 @@ def py():
         # The lower the alpha, the more aggressive the sampling.
         # See archive/returnn-spm10-sample.config for playing around with alpha and checking avg seq len.
         # spm10k without sampling: 5.24 dev-other
-        ("spm10k", 1.0),  # 5.35. sanity check, should be like baseline (5.16), could be attributed to randomness?
+        ("spm10k", 1.0),  # 5.35. As we see from CTC exps, this is not exactly the same as no sampling.
         ("spm10k", 0.9),  # 5.18
         ("spm10k", 0.8),  # 5.14
         ("spm10k", 0.7),  # 4.98 (!!)
@@ -163,6 +167,188 @@ def py():
                     else {"class": "SamplingBytePairEncoding", "breadth_prob": alpha}
                 )
             },
+        )
+
+    train_exp(  # 4.98 (!!)
+        f"v6-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-speedpertV2-spm10k-spmSample07",
+        config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
+        config_updates={
+            **_get_cfg_lrlin_oclr_by_bs_nep(15_000, 500),
+            "optimizer.weight_decay": 1e-2,
+            "__train_audio_preprocess": speed_pert_librosa_config,
+            "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
+        },
+        vocab="spm10k",
+        train_vocab_opts={"other_opts": {"enable_sampling": True, "alpha": 0.7}},
+    )
+
+    # relPosAttDef: Use the default RelPosSelfAttention instead of the Shawn et al 2018 style, old RETURNN way.
+    enc_conformer_layer_default = rf.build_dict(
+        rf.encoder.conformer.ConformerEncoderLayer,
+        ff_activation=rf.build_dict(rf.relu_square),
+        num_heads=8,
+    )
+    for vocab, sample, alpha, max_seq_len_via_audio, model_name, model_cfg in [
+        ("spm10k", "spm", 0.7, False, None, {}),  # 4.98
+        (
+            "spm10k",
+            "spm",
+            0.7,
+            False,
+            "relPosAttDef-noBias-featBN",
+            {
+                "enc_conformer_layer": rf.build_dict(
+                    rf.encoder.conformer.ConformerEncoderLayer,
+                    ff=rf.build_dict(
+                        rf.encoder.conformer.ConformerPositionwiseFeedForward,
+                        activation=rf.build_dict(rf.relu_square),
+                        with_bias=False,
+                    ),
+                    num_heads=8,
+                ),
+                "_fixed_enc_conformer_layer": True,  # just triggers new hash
+                "feature_batch_norm": True,
+            },
+        ),
+        ("spm10k", "bpe", 0.005, False, None, {}),  # 5.14
+        ("spm10k", "bpe", 0.01, False, None, {}),  # 5.14
+        # TODO ("spm10k", "bpe", 0.01, True, None, {}),
+        # (
+        #     "spm10k",
+        #     "bpe",
+        #     0.01,
+        #     False,
+        #     "relPosAttDef",
+        #     {
+        #         "enc_conformer_layer": enc_conformer_layer_default,
+        #         "_fixed_enc_conformer_layer": True,  # just triggers new hash
+        #     },
+        # ),
+        # (
+        #     "spm10k",
+        #     "bpe",
+        #     0.01,
+        #     False,
+        #     "relPosAttDef-featBN",
+        #     {
+        #         "enc_conformer_layer": enc_conformer_layer_default,
+        #         "_fixed_enc_conformer_layer": True,  # just triggers new hash
+        #         "feature_batch_norm": True,
+        #     },
+        # ),
+        (  # 5.54. Much worse. This is weird?
+            "spm10k",
+            "bpe",
+            0.01,
+            False,
+            "relPosAttDef-noBias-featBN",
+            {
+                "enc_conformer_layer": rf.build_dict(
+                    rf.encoder.conformer.ConformerEncoderLayer,
+                    ff=rf.build_dict(
+                        rf.encoder.conformer.ConformerPositionwiseFeedForward,
+                        activation=rf.build_dict(rf.relu_square),
+                        with_bias=False,
+                    ),
+                    num_heads=8,
+                ),
+                "_fixed_enc_conformer_layer": True,  # just triggers new hash
+                "feature_batch_norm": True,
+            },
+        ),
+        # (
+        #     "spm10k",
+        #     "bpe",
+        #     0.005,
+        #     False,
+        #     "relPosAttDef-noBias",
+        #     {
+        #         "enc_conformer_layer": rf.build_dict(
+        #             rf.encoder.conformer.ConformerEncoderLayer,
+        #             ff=rf.build_dict(
+        #                 rf.encoder.conformer.ConformerPositionwiseFeedForward,
+        #                 activation=rf.build_dict(rf.relu_square),
+        #                 with_bias=False,
+        #             ),
+        #             num_heads=8,
+        #         ),
+        #         "_fixed_enc_conformer_layer": True,  # just triggers new hash
+        #     },
+        # ),
+        (
+            "spm10k",
+            "bpe",
+            0.01,
+            False,
+            "relPosAttDef-posEmbDrop01-noBias-featBN",
+            {
+                "enc_conformer_layer": rf.build_dict(
+                    rf.encoder.conformer.ConformerEncoderLayer,
+                    ff=rf.build_dict(
+                        rf.encoder.conformer.ConformerPositionwiseFeedForward,
+                        activation=rf.build_dict(rf.relu_square),
+                        with_bias=False,
+                    ),
+                    self_att=rf.build_dict(rf.RelPosSelfAttention, pos_emb_dropout=0.1),
+                    num_heads=8,
+                ),
+                "_fixed_enc_conformer_layer": True,  # just triggers new hash
+                "feature_batch_norm": True,
+            },
+        ),
+        (
+            "spm10k",
+            "bpe",
+            0.01,
+            False,
+            "relPosAttDef-noBias-noSelfAtt20-featBN",
+            {
+                "enc_conformer_layer": rf.build_dict(
+                    rf.encoder.conformer.ConformerEncoderLayer,
+                    ff=rf.build_dict(
+                        rf.encoder.conformer.ConformerPositionwiseFeedForward,
+                        activation=rf.build_dict(rf.relu_square),
+                        with_bias=False,
+                    ),
+                    num_heads=8,
+                ),
+                "_fixed_enc_conformer_layer": True,  # just triggers new hash
+                "feature_batch_norm": True,
+                "disable_encoder_self_attention": {"num_epochs": 20},
+            },
+        ),
+    ]:
+        train_exp(
+            f"v6" + (f"-{model_name}" if model_name else "") + f"-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100"
+            f"{'-maxSeqLenAudio19_5' if max_seq_len_via_audio else ''}"
+            f"-wd1e_2-lrlin1e_5_295k-speedpertV2"
+            f"-{vocab}" + (f"-{sample}Sample{str(alpha).replace('.', '').replace('-','_')}" if sample else ""),
+            config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
+            model_config=model_cfg,
+            config_updates={
+                **_get_cfg_lrlin_oclr_by_bs_nep(15_000, 500),
+                "optimizer.weight_decay": 1e-2,
+                "__train_audio_preprocess": speed_pert_librosa_config,
+                "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
+                **(
+                    {"max_seq_length_default_target": None, "max_seq_length_default_input": 19.5 * _raw_sample_rate}
+                    if max_seq_len_via_audio
+                    else {}
+                ),
+            },
+            vocab=vocab,
+            train_vocab_opts=(
+                {
+                    "other_opts": (
+                        {
+                            "spm": {"enable_sampling": True, "alpha": alpha},
+                            "bpe": {"class": "SamplingBytePairEncoding", "breadth_prob": alpha},
+                        }[sample]
+                    )
+                }
+                if sample
+                else None
+            ),
         )
 
 
@@ -198,12 +384,7 @@ def train_exp(
     task = get_librispeech_task_raw_v2(vocab=vocab, train_vocab_opts=train_vocab_opts)
     config = config.copy()
     config = dict_update_deep(config, config_updates, config_deletes)
-    if "__num_epochs" in config:
-        num_epochs = config.pop("__num_epochs")
-    if "__gpu_mem" in config:
-        gpu_mem = config.pop("__gpu_mem")
-    if "__num_processes" in config:
-        num_processes = config.pop("__num_processes")
+    # This logic is also in train(), but keep it here because it would break the hash because of _RecogAndScoreFunc...
     if "__train_audio_preprocess" in config:
         task: Task = copy.copy(task)
         task.train_dataset = copy.copy(task.train_dataset)
@@ -225,7 +406,6 @@ def train_exp(
         num_epochs=num_epochs,
         gpu_mem=gpu_mem,
         num_processes=num_processes,
-        distributed_launch_cmd="torchrun" if num_processes else "mpirun",
         time_rqmt=time_rqmt,
     )
     recog_training_exp(prefix, task, model_with_checkpoint, recog_def=model_recog)
@@ -257,15 +437,15 @@ def aed_model_def(*, epoch: int, in_dim: Dim, target_dim: Dim) -> Model:
     # real input is raw audio, internally it does logmel
     in_dim = Dim(name="logmel", dimension=_log_mel_feature_dim, kind=Dim.Types.Feature)
 
-    return Model(
-        in_dim,
-        num_enc_layers=num_enc_layers,
-        enc_model_dim=Dim(name="enc", dimension=512, kind=Dim.Types.Feature),
-        enc_ff_dim=Dim(name="enc-ff", dimension=2048, kind=Dim.Types.Feature),
-        enc_att_num_heads=8,
-        enc_conformer_layer_opts=dict(
-            conv_norm_opts=dict(use_mask=True),
-            self_att_opts=dict(
+    enc_conformer_layer = config.typed_value("enc_conformer_layer", None)
+    if enc_conformer_layer:
+        assert isinstance(enc_conformer_layer, dict) and "class" in enc_conformer_layer
+    else:
+        enc_conformer_layer = rf.build_dict(
+            rf.encoder.conformer.ConformerEncoderLayer,
+            conv_norm=rf.build_dict(rf.BatchNorm, use_mask=True),
+            self_att=rf.build_dict(
+                rf.RelPosSelfAttention,
                 # Shawn et al 2018 style, old RETURNN way.
                 with_bias=False,
                 with_linear_pos=False,
@@ -274,8 +454,17 @@ def aed_model_def(*, epoch: int, in_dim: Dim, target_dim: Dim) -> Model:
                 separate_pos_emb_per_head=False,
                 pos_emb_dropout=pos_emb_dropout,
             ),
-            ff_activation=lambda x: rf.relu(x) ** 2.0,
-        ),
+            ff_activation=rf.build_dict(rf.relu_square),
+            num_heads=8,
+        )
+
+    return Model(
+        in_dim,
+        num_enc_layers=num_enc_layers,
+        enc_model_dim=Dim(name="enc", dimension=512, kind=Dim.Types.Feature),
+        enc_ff_dim=Dim(name="enc-ff", dimension=2048, kind=Dim.Types.Feature),
+        enc_att_num_heads=8,
+        enc_conformer_layer=enc_conformer_layer,
         target_dim=target_dim,
         blank_idx=target_dim.dimension,
         bos_idx=_get_bos_idx(target_dim),
@@ -478,6 +667,8 @@ def model_recog(
             )
 
     if i > 0 and length_normalization_exponent != 0:
+        # WARNING: small error here, should be (1/(i-1))^(length_normalization_exponent).
+        #  But not changing this now to not change behavior.
         seq_log_prob *= (1 / i) ** length_normalization_exponent
 
     # Backtrack via backrefs, resolve beams.
@@ -535,7 +726,7 @@ class Model(rf.Module):
         dec_model_dim: Dim = Dim(name="dec", dimension=512),
         enc_ff_dim: Dim = Dim(name="enc-ff", dimension=2048),
         enc_att_num_heads: int = 4,
-        enc_conformer_layer_opts: Optional[Dict[str, Any]] = None,
+        enc_conformer_layer: Optional[Dict[str, Any]] = None,
         enc_dropout: float = 0.1,
         enc_att_dropout: float = 0.1,
     ):
@@ -568,7 +759,7 @@ class Model(rf.Module):
                 pool_sizes=[(1, 2)],
                 strides=[(1, 1), (3, 1), (2, 1)],
             ),
-            encoder_layer_opts=enc_conformer_layer_opts,
+            encoder_layer=enc_conformer_layer,
             num_layers=num_enc_layers,
             num_heads=enc_att_num_heads,
             dropout=enc_dropout,
@@ -582,6 +773,13 @@ class Model(rf.Module):
             model_dim=dec_model_dim,
             sequential=dec_sequential,
         )
+
+        disable_encoder_self_attention = config.typed_value("disable_encoder_self_attention", None)
+        if disable_encoder_self_attention is not None:
+            # Disable self-attention in encoder.
+            from .model_ext.disable_self_att import apply_disable_self_attention_
+
+            apply_disable_self_attention_(self.encoder, disable_encoder_self_attention)
 
         self.target_dim = target_dim
         self.blank_idx = blank_idx

@@ -32,7 +32,7 @@ class PreemphasisNetwork(NetworkDict):
         "set_axes": {"T": "time"},
         "size_base": "shift_0",
       },
-      output_name: {"class": "combine", "from": ["shift_1", "shift_0"], "kind": "sub"},
+      output_name: {"class": "combine", "from": ["shift_1", "shift_0_mul"], "kind": "sub"},
     }
 
 
@@ -184,7 +184,8 @@ class GammatoneNetwork(NetworkDict):
 class ScfNetwork(NetworkDict):
   def __init__(
     self, num_tf=150, size_tf=256, stride_tf=10, activation_tf=None, num_env=5, size_env=40, stride_env=16,
-    activation_env=None, normalization_env="layer", padding="valid", wave_norm=False, **kwargs
+    activation_env=None, normalization_env="layer", padding="valid", convs=None, init_convs="ones", wave_norm=False,
+    **kwargs
   ):
     """
     Network which applies conv layers to the raw waveform and pools using multi resolutional learned filters similar to
@@ -208,7 +209,10 @@ class ScfNetwork(NetworkDict):
     :param int stride_env: stride of filters for envelope extraction (160t'' = 10t' = t in paper)
     :param dict[str, dict] activation_env: activation after envelope extraction (f_2 in paper)
     :param Optional[str] normalization_env: normalization applied after envelope extraction, e.g. 'batch' or 'layer'
-    :param str padding: padding to use for convolutions ('valid' (default) or 'same')
+    :param str padding: padding to use for tf and env convolutions ('valid' (default) or 'same')
+    :param List[Tuple[int, int, int]] convs: size, channels and groups for subsequent convolutions used to reduce
+      feature dimension
+    :param Optional[str] init_convs: initialization for pooling conv layers, e.g. None or "ones"
     :param kwargs: arguments passed to parent class `NetworkDict`
     """
     activation_tf = activation_tf or {"abs": {}}
@@ -249,6 +253,23 @@ class ScfNetwork(NetworkDict):
         "from": "conv_l"},
       "output": {"class": "copy", "from": "conv_l_act"}
     })
+    if convs is not None:
+      source_layer = self._network["output"]["from"]
+      for idx, conv in enumerate(convs, start=1):
+        self._network[f"convred{idx}"] = {
+          "class": "conv",
+          "n_out": conv[1],
+          "filter_size": (conv[0],),
+          "groups": conv[2],
+          "activation": None,
+          "with_bias": False,
+          "padding": "same",
+          "from": source_layer,
+        }
+        if init_convs is not None:
+          self._network[f"convred{idx}"]["forward_weights_init"] = init_convs
+        source_layer = f"convred{idx}"
+      self._network["output"]["from"] = source_layer
 
     self.add_activation_layer("conv_h_act", "conv_h", activation_tf)
     self.add_activation_layer("conv_l_act", ["conv_l_merge"], activation_env)

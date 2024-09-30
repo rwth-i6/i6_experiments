@@ -81,8 +81,8 @@ class Model(nn.Module):
             c0 = torch.zeros_like(h0, device=x.device).detach()
         else:
             _h0, _c0 = states
-            h0 = torch.transpose(_h0, 0, 1)  # reshape to [#layers, batch, F]
-            c0 = torch.transpose(_c0, 0, 1)
+            h0 = torch.transpose(_h0, 0, 1).contiguous()  # reshape to [#layers, batch, F]
+            c0 = torch.transpose(_c0, 0, 1).contiguous()
 
         # This is a uni-directional LSTM, so sequence masking is not necessary
         x, (h, c) = self.lstm(x, (h0, c0))

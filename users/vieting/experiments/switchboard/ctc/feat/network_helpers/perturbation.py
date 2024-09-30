@@ -6,10 +6,11 @@ class PerturbationFactor:
     Class to wrap perturbation factors, e.g. for speed or tempo perturbation.
     """
 
-    def __init__(self, prob, minimum, maximum):
+    def __init__(self, prob, minimum, maximum, default=None):
         self.prob = prob
         self.min = minimum
         self.max = maximum
+        self.default = default
 
 
 class WaveformPerturbation:
@@ -24,6 +25,7 @@ class WaveformPerturbation:
         self,
         speed: Optional[Dict[str, Any]] = None,
         tempo: Optional[Dict[str, Any]] = None,
+        pitch: Optional[Dict[str, Any]] = None,
         sox_effects: Optional[List[List[str]]] = None,
         codecs: Optional[List[Dict[str, Any]]] = None,
         preemphasis: Optional[Dict[str, Any]] = None,
@@ -35,13 +37,22 @@ class WaveformPerturbation:
             - 'prob' (float): The probability of applying speed perturbation.
             - 'minimum' (float): The minimum factor by which the audio speed will be decreased.
             - 'maximum' (float): The maximum factor by which the audio speed will be increased.
+            - 'default' (float): The default speed factor.
             Example: {"prob": 0.6, "minimum": 0.88, "maximum": 1.12}
 
         :param tempo: A dictionary specifying the parameters for tempo perturbation.
             - 'prob' (float): The probability of applying tempo perturbation.
             - 'minimum' (float): The minimum factor by which the audio tempo will be decreased.
             - 'maximum' (float): The maximum factor by which the audio tempo will be increased.
+            - 'default' (float): The default tempo factor.
             Example: {"prob": 0.6, "minimum": 0.83, "maximum": 1.17}
+
+        :param pitch: A dictionary specifying the parameters for pitch perturbation.
+            - 'prob' (float): The probability of applying pitch perturbation.
+            - 'minimum' (float): The minimum number of semitones to shift.
+            - 'maximum' (float): The maximum number of semitones to shift.
+            - 'default' (float): The default pitch semitones to shift.
+            Example: {"prob": 0.6, "minimum": -3, "maximum": 3, "default": 0}
 
         :param sox_effects: A list of Lists, each dictionary representing a SoX effect.
 
@@ -49,13 +60,18 @@ class WaveformPerturbation:
             - 'format' (str): The audio format such as 'wav', 'vorbis' etc.
             - 'encoding' or 'compression' (str/float): The encoding or compression technique and its level to be used.
             - 'prob' (float): The probability of applying this specific codec.
+            - 'minimum' (int): Minimum value for codec if needed (default 255).
+            - 'maximum' (int): Maximum value for codec if needed (default 255).
+            - 'default' (int): Default value to use when codec is not applied.
+                If None, the input does not get changed if the codec is not applied.
             Example: [{"format": "wav", "encoding": "ULAW", "prob": 0.4}]
 
         :param preemphasis: A dictionary containing parameters for the preemphasis filter.
             - 'prob' (float): The probability of applying the preemphasis filter.
             - 'minimum' (float): The minimum preemphasis factor.
             - 'maximum' (float): The maximum preemphasis factor.
-            Example: {"prob": 0.9, "minimum": 0.9, "maximum": 1.0}
+            - 'default' (float): The default preemphasis factor.
+            Example: {"prob": 0.9, "minimum": 0.9, "maximum": 1.0, "default": 0.97}
         :param non_linearity: A dictionary containing parameters for the non-linearity filter.
             - 'prob' (float): The probability of applying the non-linearity filter.
             - 'minimum' (float): The minimum non-linearity exponent.
@@ -65,6 +81,7 @@ class WaveformPerturbation:
 
         self._speed = PerturbationFactor(**speed) if speed else None
         self._tempo = PerturbationFactor(**tempo) if tempo else None
+        self.pitch = PerturbationFactor(**pitch) if pitch else None
         self._sox_effects = sox_effects or []
         self._perturbations = []
         self.non_linearity = non_linearity
@@ -100,6 +117,9 @@ class WaveformPerturbation:
         if self._tempo is not None and random_state.random() < self._tempo.prob and not speed:
             factor = random_state.random() * (self._tempo.max - self._tempo.min) + self._tempo.min
             tfm.stretch(factor)
+        if self.pitch is not None and random_state.random() < self.pitch.prob:
+            factor = random_state.random() * (self.pitch.max - self.pitch.min) + self.pitch.min
+            tfm.pitch(factor)
         for effect in self._sox_effects:
             effect_name, *params = effect
             getattr(tfm, effect_name)(*params)
@@ -110,32 +130,39 @@ class WaveformPerturbation:
     def preemphasis(audio, sample_rate, random_state, factor):
         import numpy as np
 
-        def preemphasis_numpy(waveform, coeff=0.97):
+        def preemphasis_numpy(waveform, coeff):
             waveform = np.copy(waveform)
             waveform[..., 1:] -= coeff * waveform[..., :-1]
             return waveform
 
         if random_state.random() < factor.prob:
             preemphasis_coefficient = random_state.random() * (factor.max - factor.min) + factor.min
-            audio = preemphasis_numpy(audio, coeff=preemphasis_coefficient)
-
-        return audio
+            return preemphasis_numpy(audio, coeff=preemphasis_coefficient)
+        else:
+            return preemphasis_numpy(audio, coeff=factor.default)
 
     @staticmethod
     def apply_codecs(audio, sample_rate, random_state, codecs):
+        import numpy as np
         for codec in codecs:
-            prob = codec.pop("prob", 1.0)
-            if random_state.random() < prob:
-                if codec.get("encoding") == "ULAW":
-                    # check if audio is in the right range for mu-law encoding
-                    if np.max(np.abs(audio)) > 1.0:
-                        raise ValueError("Audio must be in the range [-1, 1] for mu-law encoding.")
-                    # standard value for mu-law encoding
-                    mu = 255.0
-                    # mu-law encoding formula
-                    audio = np.sign(audio) * np.log1p(mu * np.abs(audio)) / np.log1p(mu)
+            if codec.get("encoding") == "ULAW":
+                prob = codec.pop("prob", 1.0)
+                min_value = codec.pop("minimum", 255)
+                max_value = codec.pop("maximum", 255)
+                # check if audio is in the right range for mu-law encoding
+                if np.max(np.abs(audio)) > 1.0:
+                    raise ValueError("Audio must be in the range [-1, 1] for mu-law encoding.")
+                if random_state.random() < prob:
+                    mu = random_state.random() * (max_value - min_value) + min_value
                 else:
-                    raise NotImplementedError(f"Codec {codec} not implemented.")
+                    # standard value for mu-law encoding
+                    mu = codec.get("default")
+                    if mu is None:
+                       continue
+                # mu-law encoding formula
+                audio = np.sign(audio) * np.log1p(mu * np.abs(audio)) / np.log1p(mu)
+            else:
+                raise NotImplementedError(f"Codec {codec} not implemented.")
         return audio
 
     @staticmethod

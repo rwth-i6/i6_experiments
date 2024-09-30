@@ -48,7 +48,6 @@ class CTCPrefixScoreTH(object):
                 x[i, l:, :] = self.logzero
                 x[i, l:, blank] = 0
 
-        breakpoint()
         # Reshape input x
         xn = x.transpose(0, 1)  # (B, T, O) -> (T, B, O)
         xb = xn[:, :, self.blank].unsqueeze(2).expand(-1, -1, self.odim)
@@ -127,7 +126,6 @@ class CTCPrefixScoreTH(object):
             dtype=self.dtype,
             device=self.device,
         )
-        breakpoint()
         if output_length == 0:
             r[0, 0] = x_[0, 0]
 

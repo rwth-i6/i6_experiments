@@ -109,6 +109,10 @@ class RNNDecoderArgs(DecoderArgs):
     embed_dropout: float = 0.1
     rec_weight_dropout: float = 0.0
 
+    ff_weight_dropout: Optional[float] = None
+
+    ff_weight_noise: Optional[float] = None
+
     # other regularization
     l2: float = 0.0001
     zoneout: bool = True

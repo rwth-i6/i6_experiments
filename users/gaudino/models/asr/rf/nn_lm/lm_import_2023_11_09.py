@@ -9,6 +9,8 @@ from typing import Optional, Union, Any, Tuple, List, Dict, Callable
 import copy as _copy
 from returnn.util.basic import NotSpecified
 
+from i6_experiments.users.gaudino.models.asr.rf.nn_lm.attention_modified import sinusoidal_positional_encoding_v2, CausalSelfAttention
+
 import functools
 
 # from .base import ISeqDownsamplingEncoder
@@ -75,7 +77,7 @@ class TrafoLMLayer(rf.Module):
         if self_att_opts:
             self_att_opts_.update(self_att_opts)
 
-        self.self_att = rf.CausalSelfAttention(**self_att_opts_)
+        self.self_att = CausalSelfAttention(**self_att_opts_)
 
         self.self_att_lin = rf.Linear(out_dim, out_dim, with_bias=False)
         self.self_att_layer_norm = rf.LayerNorm(out_dim)
@@ -124,6 +126,7 @@ class Trafo_LM_Model(rf.Module):
         att_num_heads: int = 12,
         ff_activation: str = "gelu",
         use_pos_enc: bool = False, # False for Tedlium2 LM
+        pos_enc_diff_pos: bool = False,
         search_args: Optional[Dict[str, Any]] = None,
     ):
         super(Trafo_LM_Model, self).__init__()
@@ -136,11 +139,12 @@ class Trafo_LM_Model(rf.Module):
         self.num_layers = num_layers
 
         self.use_pos_enc = use_pos_enc
+        self.pos_enc_diff_pos = pos_enc_diff_pos
 
         self.target_embed_raw = rf.Embedding(self.in_dim, self.embed_dim)
         if self.use_pos_enc:
             self.pos_enc = functools.partial(
-                rf.sinusoidal_positional_encoding, feat_dim=self.embed_dim, dtype=self.target_embed_raw.weight.dtype
+                sinusoidal_positional_encoding_v2, feat_dim=self.embed_dim, dtype=self.target_embed_raw.weight.dtype, out_with_dims=self.pos_enc_diff_pos
             )
 
         self.target_embed_lin = rf.Linear(
@@ -176,9 +180,9 @@ class Trafo_LM_Model(rf.Module):
             state.pos = rf.zeros((), dtype="int32", device="cpu")
         return state
 
-    def select_state(self, state: rf.State, backrefs) -> rf.State:
-        pos = state["pos"]
-        state.pop("pos")
+    def select_state(self, state: rf.State, backrefs, use_batch_dims_for_pos:bool=False) -> rf.State:
+        if not use_batch_dims_for_pos:
+            pos = state.pop("pos")
         def trafo_lm_state_func(s):
             if type(s) == Dim:
                 return s
@@ -187,7 +191,8 @@ class Trafo_LM_Model(rf.Module):
         state = tree.map_structure(
             trafo_lm_state_func, state
         )
-        state["pos"] = pos
+        if not use_batch_dims_for_pos:
+            state["pos"] = pos
 
         return state
 
@@ -204,9 +209,7 @@ class Trafo_LM_Model(rf.Module):
         new_state = rf.State()
 
         target_embed_raw = self.target_embed_raw(prev_target)
-        # target_embed_with_pos, pos_emb_spatial_dim = self.target_embed_with_pos(
-        #     target_embed_raw
-        # )
+
         if self.use_pos_enc:
             target_embed_with_pos = target_embed_raw + self.pos_enc(spatial_dim=spatial_dim, offset=state.pos)
         else:
@@ -221,11 +224,11 @@ class Trafo_LM_Model(rf.Module):
         new_state.pos = state.pos + (1 if spatial_dim == single_step_dim else spatial_dim.get_size_tensor())
         for layer_name, layer in self.layers.items():
             layer: TrafoLMLayer  # or similar
-            # if layer_name in ["0"]: # "0"
-            #     breakpoint()
             decoded, new_state[layer_name] = layer(
                 decoded, spatial_dim=spatial_dim, state=state[layer_name]
             )
+            # if layer_name in ["0"]: # "0"
+            #     breakpoint()
             if collected_outputs is not None:
                 collected_outputs[layer_name] = decoded
 

@@ -724,7 +724,7 @@ def run_ctc_att_search():
         )
 
     # optsr max att + ctc w prior + trafo lm
-    for scales, lm_scale, prior_scale, beam_size in product([(0.6, 0.4)], [0.6, 0.64, 0.68, 0.7], [0.15, 0.3, 0.45], [32]):
+    for scales, lm_scale, prior_scale, beam_size in product([(0.6, 0.4)], [0.7], [0.3], [32]):
         search_args = copy.deepcopy(oclr_args)
         search_args["beam_size"] = beam_size
         search_args["ctc_log_prior_file"] = new_prior_file
@@ -774,8 +774,8 @@ def run_ctc_att_search():
             search_args=search_args,
             feature_extraction_net=log10_net_10ms,
             bpe_size=BPE_10K,
-            test_sets=["dev-other"],
             # test_sets=["dev-other"],
+            test_sets=["dev-clean", "dev-other", "test-clean", "test-other"],
             remove_label={
                 "<s>",
                 "<blank>",

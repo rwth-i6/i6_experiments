@@ -8,19 +8,23 @@ Note, changes from the earlier v2, as it was in experiments/exp2023_04_25_rf/tra
 
 from __future__ import annotations
 from typing import TYPE_CHECKING, Optional, Union, Dict, Any, Sequence
+import copy
 from i6_experiments.users.zeyer.model_interfaces import ModelT, ModelDef, ModelDefWithCfg, TrainDef, serialize_model_def
+from i6_experiments.users.zeyer.utils.dict_update import dict_update_deep
 
 if TYPE_CHECKING:
     from returnn.tensor import TensorDict
     from i6_experiments.common.setups import serialization
-    from i6_experiments.users.zeyer.datasets.task import Task
+    from i6_experiments.users.zeyer.datasets.task import Task, DatasetConfig
     from i6_experiments.users.zeyer.model_with_checkpoints import ModelWithCheckpoints, Checkpoint
 
 
 def train(
     prefix_name: str,
     *,
-    task: Task,
+    task: Optional[Task] = None,
+    train_dataset: Optional[DatasetConfig] = None,
+    train_epoch_split: Optional[int] = None,
     config: Dict[str, Any],
     post_config: Optional[Dict[str, Any]] = None,
     env_updates: Optional[Dict[str, str]] = None,
@@ -45,6 +49,7 @@ def train(
     :func:`i6_experiments.users.zeyer.utils.sis_setup.get_base_module`
     from train_def.
     """
+    from sisyphus import tk
     from i6_core.util import instanciate_delayed
     from i6_core.returnn.training import ReturnnTrainingJob
     from i6_core.returnn.config import ReturnnConfig
@@ -59,36 +64,73 @@ def train(
 
     unhashed_package_root, setup_base_name = get_base_module(train_def)
 
+    if train_dataset is None:
+        assert task
+        train_dataset = task.train_dataset
+    train_dataset_dict = train_dataset.get_train_dataset()
+    if train_epoch_split is None:
+        if task:
+            train_epoch_split = task.train_epoch_split
+        elif "partition_epoch" in train_dataset_dict:
+            train_epoch_split = train_dataset_dict["partition_epoch"]
+    # Usually always apply MultiProcDataset. But some exceptions for now:
+    apply_multi_proc = train_dataset_dict["class"] != "LmDataset"
+    del train_dataset_dict
+    del task
+
+    config = config.copy()
+    kwargs = kwargs.copy()
+    if "__num_epochs" in config:
+        kwargs["num_epochs"] = config.pop("__num_epochs")
+    if "__gpu_mem" in config:
+        gpu_mem = config.pop("__gpu_mem")
+    if "__num_processes" in config:
+        num_processes = config.pop("__num_processes")
+    if not kwargs.get("distributed_launch_cmd"):
+        kwargs["distributed_launch_cmd"] = "torchrun" if num_processes else "mpirun"
+    if "__train_audio_preprocess" in config:
+        train_dataset = copy.copy(train_dataset)
+        assert hasattr(train_dataset, "train_audio_preprocess")
+        train_dataset.train_audio_preprocess = config.pop("__train_audio_preprocess")
+
     returnn_train_config_dict: Dict[str, Any] = dict(
         backend=model_def.backend,
         behavior_version=model_def.behavior_version,
         # dataset
-        default_input=task.train_dataset.get_default_input(),
-        target=task.train_dataset.get_default_target(),
-        train=mp_ds_utils.multi_proc_dataset_opts(task.train_dataset.get_train_dataset()),
-        eval_datasets=mp_ds_utils.multi_proc_eval_datasets_opts(task.train_dataset.get_eval_datasets()),
+        default_input=train_dataset.get_default_input(),
+        target=train_dataset.get_default_target(),
+        train=(
+            mp_ds_utils.multi_proc_dataset_opts(train_dataset.get_train_dataset())
+            if apply_multi_proc
+            else train_dataset.get_train_dataset()
+        ),
+        eval_datasets=(
+            mp_ds_utils.multi_proc_eval_datasets_opts(train_dataset.get_eval_datasets())
+            if apply_multi_proc
+            else train_dataset.get_eval_datasets()
+        ),
         learning_rate_control_error_measure=train_def.learning_rate_control_error_measure,
-        newbob_multi_num_epochs=task.train_epoch_split,
+        newbob_multi_num_epochs=train_epoch_split or 1,
     )
-    returnn_train_config_dict.update(config)
+    returnn_train_config_dict = dict_update_deep(returnn_train_config_dict, config)
     if isinstance(model_def, ModelDefWithCfg):
-        returnn_train_config_dict.update(model_def.config)
+        returnn_train_config_dict = dict_update_deep(returnn_train_config_dict, model_def.config)
 
     max_seq_length_default_target = returnn_train_config_dict.pop("max_seq_length_default_target", None)
     if max_seq_length_default_target is not None:
         max_seq_length = returnn_train_config_dict.setdefault("max_seq_length", {})
         assert isinstance(max_seq_length, dict)
-        max_seq_length[task.train_dataset.get_default_target()] = max_seq_length_default_target
+        max_seq_length[train_dataset.get_default_target()] = max_seq_length_default_target
     max_seq_length_default_input = returnn_train_config_dict.pop("max_seq_length_default_input", None)
     if max_seq_length_default_input is not None:
         max_seq_length = returnn_train_config_dict.setdefault("max_seq_length", {})
         assert isinstance(max_seq_length, dict)
-        max_seq_length[task.train_dataset.get_default_input()] = max_seq_length_default_input
+        max_seq_length[train_dataset.get_default_input()] = max_seq_length_default_input
 
     if init_params:
         returnn_train_config_dict["import_model_train_epoch1"] = init_params
 
-    extern_data_raw = task.train_dataset.get_extern_data()
+    extern_data_raw = train_dataset.get_extern_data()
     # The extern_data is anyway not hashed, so we can also instanciate any delayed objects here.
     # It's not hashed because we assume that all aspects of the dataset are already covered
     # by the datasets itself as part in the config above.
@@ -142,7 +184,7 @@ def train(
         sort_config=False,
     )
     if post_config:
-        returnn_train_config.post_config.update(post_config)
+        returnn_train_config.post_config = dict_update_deep(returnn_train_config.post_config, post_config)
 
     for k, v in SharedPostConfig.items():
         if k in returnn_train_config.config or k in returnn_train_config.post_config:
@@ -159,7 +201,6 @@ def train(
         serialize_dim_tags=False,
     )
 
-    kwargs = kwargs.copy()
     for k, v in dict(
         log_verbosity=5,
         num_epochs=150,
@@ -177,6 +218,7 @@ def train(
     if env_updates:
         for k, v in env_updates.items():
             returnn_train_job.set_env(k, v)
+    tk.register_output(prefix_name + "/train_scores", returnn_train_job.out_learning_rates)
 
     return ModelWithCheckpoints.from_training_job(definition=model_def, training_job=returnn_train_job)
 

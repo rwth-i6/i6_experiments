@@ -1,3 +1,6 @@
+from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.segmental.model import SegmentalAttentionModel
+from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.global_.model import GlobalAttentionModel
+
 from typing import Optional, Dict
 
 from returnn.tensor import TensorDict
@@ -29,6 +32,8 @@ def _returnn_v2_forward_step(*, model, extern_data: TensorDict, **_kwargs_unused
   extra.update(beam_search_opts)
 
   recog_out = recog_def(model=model, data=data, data_spatial_dim=data_spatial_dim, **extra)
+  hdf_targets = None
+  hdf_targets_spatial_dim = None
   if len(recog_out) == 5:
     # recog results including beam {batch, beam, out_spatial},
     # log probs {batch, beam},
@@ -42,6 +47,10 @@ def _returnn_v2_forward_step(*, model, extern_data: TensorDict, **_kwargs_unused
     assert len(recog_out) == 4, f"mismatch, got {len(recog_out)} outputs recog_def_ext=False"
     hyps, scores, out_spatial_dim, beam_dim = recog_out
     extra = {}
+  elif len(recog_out) == 6:
+    # same as with 4, but additionally alignment and alignment_spatial_dim
+    hdf_targets, scores, hdf_targets_spatial_dim, hyps, out_spatial_dim, beam_dim = recog_out
+    extra = {}
   else:
     raise ValueError(f"unexpected num outputs {len(recog_out)} from recog_def")
   assert isinstance(hyps, Tensor) and isinstance(scores, Tensor)
@@ -54,6 +63,10 @@ def _returnn_v2_forward_step(*, model, extern_data: TensorDict, **_kwargs_unused
     assert v.dims[:2] == (batch_dim, beam_dim)
     rf.get_run_ctx().mark_as_output(v, k, dims=v.dims)
 
+  if hdf_targets is not None:
+    assert isinstance(hdf_targets, Tensor) and isinstance(hdf_targets_spatial_dim, Dim)
+    rf.get_run_ctx().mark_as_output(hdf_targets, "hdf_targets", dims=[batch_dim, hdf_targets_spatial_dim])
+
 
 _v2_forward_out_filename = "output.py.gz"
 _v2_forward_ext_out_filename = "output_ext.py.gz"
@@ -64,6 +77,9 @@ def _returnn_v2_get_forward_callback():
   from returnn.tensor import Tensor, TensorDict
   from returnn.forward_iface import ForwardCallbackIface
   from returnn.config import get_global_config
+  from returnn.datasets.hdf import SimpleHDFWriter
+  from i6_experiments.users.schmitt import hdf
+  import numpy as np
 
   config = get_global_config()
   recog_def_ext = config.bool("__recog_def_ext", False)
@@ -72,6 +88,7 @@ def _returnn_v2_get_forward_callback():
     def __init__(self):
       self.out_file: Optional[TextIO] = None
       self.out_ext_file: Optional[TextIO] = None
+      self.hdf_file: Optional[SimpleHDFWriter] = None
 
     def init(self, *, model):
       import gzip
@@ -83,7 +100,18 @@ def _returnn_v2_get_forward_callback():
         self.out_ext_file = gzip.open(_v2_forward_ext_out_filename, "wt")
         self.out_ext_file.write("{\n")
 
+      if isinstance(model, SegmentalAttentionModel):
+        hdf_target_dim = model.align_target_dim.dimension
+      else:
+        assert isinstance(model, GlobalAttentionModel)
+        hdf_target_dim = model.target_dim.dimension
+
+      self.hdf_file = SimpleHDFWriter(
+        filename="best_hyp.hdf", dim=hdf_target_dim, ndim=1
+      )
+
     def process_seq(self, *, seq_tag: str, outputs: TensorDict):
+      hdf_targets: Tensor = outputs["hdf_targets"]  # [T]
       hyps: Tensor = outputs["hyps"]  # [beam, out_spatial]
       scores: Tensor = outputs["scores"]  # [beam]
       assert hyps.sparse_dim and hyps.sparse_dim.vocab  # should come from the model
@@ -114,11 +142,25 @@ def _returnn_v2_get_forward_callback():
           self.out_ext_file.write(f"  {d!r},\n")
         self.out_ext_file.write("],\n")
 
+      if self.hdf_file:
+        seq_len = hdf_targets.dims[0].dyn_size_ext.raw_tensor.item()
+        hdf_targets_raw = hdf_targets.raw_tensor[:seq_len]
+
+        if seq_len > 0:
+          hdf.dump_hdf_numpy(
+            hdf_dataset=self.hdf_file,
+            data=hdf_targets_raw[None],  # [1, T]
+            seq_lens=np.array([seq_len]),  # [1]
+            seq_tags=[seq_tag],
+          )
+
     def finish(self):
       self.out_file.write("}\n")
       self.out_file.close()
       if self.out_ext_file:
         self.out_ext_file.write("}\n")
         self.out_ext_file.close()
+      if self.hdf_file:
+        self.hdf_file.close()
 
   return _ReturnnRecogV2ForwardCallbackIface()

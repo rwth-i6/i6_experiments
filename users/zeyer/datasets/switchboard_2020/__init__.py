@@ -229,6 +229,9 @@ class SwitchboardExternSprintOld(DatasetConfig):
         """
         Get train dataset
         """
+        return self.get_dataset("train", train=True)
+
+    def get_train_dataset_for_forward(self) -> Dict[str, Any]:
         return self.get_dataset("train")
 
     def get_eval_datasets(self) -> Dict[str, Dict[str, Any]]:
@@ -242,17 +245,17 @@ class SwitchboardExternSprintOld(DatasetConfig):
         assert self.main_key, "main key not defined"
         return self.main_key
 
-    def get_main_dataset(self) -> Dict[str]:
+    def get_main_dataset(self) -> Dict[str, Any]:
         """main dataset"""
         assert self.main_key, "main key not defined"
         return self.get_dataset(self.main_key)
 
-    def get_dataset(self, data: str) -> Dict[str, Any]:
+    def get_dataset(self, data: str, *, train: bool = False) -> Dict[str, Any]:
         """
         Get dataset
         """
         assert data in {"train", "devtrain", "cv", "dev", "hub5e_01", "rt03s"}
-        epoch_split = {"train": self.train_epoch_split}.get(data, 1)
+        epoch_split = self.train_epoch_split if train else 1
         corpus_name = {"cv": "train", "devtrain": "train"}.get(data, data)  # train, dev, hub5e_01, rt03s
 
         files = {
@@ -294,7 +297,7 @@ class SwitchboardExternSprintOld(DatasetConfig):
         args += [
             "--*.corpus.segment-order-shuffle=true",
             "--*.segment-order-sort-by-time-length=true",
-            "--*.segment-order-sort-by-time-length-chunk-size=%i" % {"train": epoch_split * 1000}.get(data, -1),
+            "--*.segment-order-sort-by-time-length-chunk-size=%i" % (epoch_split * 1000 if train else -1),
         ]
         d = {
             "class": "ExternSprintDataset",

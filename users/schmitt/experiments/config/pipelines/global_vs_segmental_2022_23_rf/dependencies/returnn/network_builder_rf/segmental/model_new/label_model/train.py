@@ -1,18 +1,31 @@
-from typing import Optional, Dict, Any, Sequence, Tuple, List
+from typing import Optional, Dict, Any, Sequence, Tuple, List, Union
 import tree
 
 import torch
 
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.segmental import utils
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.segmental import recombination
+from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.segmental.model import SegmentalAttentionModel
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.segmental.model_new.label_model.model import (
   SegmentalAttLabelDecoder,
   SegmentalAttEfficientLabelDecoder
+)
+from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.global_.decoder import (
+  GlobalAttDecoder,
+  GlobalAttEfficientDecoder
+)
+from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.global_.train import (
+  forward_sequence as forward_sequence_global_att,
+)
+
+from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.segmental.model_new.blank_model.model import (
+  BlankDecoderV4
 )
 
 from returnn.tensor import Dim, single_step_dim
 import returnn.frontend as rf
 from returnn.frontend.tensor_array import TensorArray
+from returnn.frontend.decoder.transformer import TransformerDecoder
 
 from i6_experiments.users.schmitt.returnn_frontend.model_interfaces.training import TrainDef
 
@@ -131,6 +144,7 @@ def forward_sequence(
   non_blank_input_embeddings = model.target_embed(non_blank_targets)
   non_blank_input_embeddings_shifted = rf.shift_right(
     non_blank_input_embeddings, axis=non_blank_targets_spatial_dim, pad_value=0.0)
+  non_blank_input_embeddings = rf.dropout(non_blank_input_embeddings, drop_prob=model.target_embed_dropout, axis=None)
 
   # ------------------- label loop -------------------
 
@@ -167,7 +181,7 @@ def forward_sequence(
     body=_label_loop_body,
   )
 
-  if model.use_current_frame_in_readout:
+  if model.use_current_frame_in_readout or model.use_current_frame_in_readout_w_gate or model.use_current_frame_in_readout_random:
     h_t = rf.gather(enc_args["enc"], axis=enc_spatial_dim, indices=center_positions)
   else:
     h_t = None
@@ -207,7 +221,7 @@ def forward_sequence(
 
 def viterbi_training(
         *,
-        model: SegmentalAttLabelDecoder,
+        model: Union[SegmentalAttLabelDecoder, GlobalAttDecoder],
         enc_args: Dict,
         enc_spatial_dim: Dim,
         non_blank_targets: rf.Tensor,
@@ -221,18 +235,30 @@ def viterbi_training(
         beam_dim: Optional[Dim] = None,
 ) -> Tuple[rf.Tensor, Optional[Tuple[rf.Tensor, Dim]]]:
 
-  logits, label_model_states = forward_sequence(
-    model=model,
-    enc_args=enc_args,
-    enc_spatial_dim=enc_spatial_dim,
-    non_blank_targets=non_blank_targets,
-    non_blank_targets_spatial_dim=non_blank_targets_spatial_dim,
-    segment_starts=segment_starts,
-    segment_lens=segment_lens,
-    center_positions=center_positions,
-    batch_dims=batch_dims,
-    return_label_model_states=return_label_model_states,
-  )
+  if isinstance(model, SegmentalAttLabelDecoder):
+    logits, label_model_states = forward_sequence(
+      model=model,
+      enc_args=enc_args,
+      enc_spatial_dim=enc_spatial_dim,
+      non_blank_targets=non_blank_targets,
+      non_blank_targets_spatial_dim=non_blank_targets_spatial_dim,
+      segment_starts=segment_starts,
+      segment_lens=segment_lens,
+      center_positions=center_positions,
+      batch_dims=batch_dims,
+      return_label_model_states=return_label_model_states,
+    )
+  else:
+    logits, label_model_states = forward_sequence_global_att(
+      model=model,
+      targets=non_blank_targets,
+      targets_spatial_dim=non_blank_targets_spatial_dim,
+      enc_args=enc_args,
+      enc_spatial_dim=enc_spatial_dim,
+      batch_dims=batch_dims,
+      return_label_model_states=return_label_model_states,
+      center_positions=center_positions,
+    )
 
   _calc_ce_loss_and_fer(
     logits,
@@ -299,9 +325,10 @@ def forward_sequence_efficient(
   targets_spatial_dim.dyn_size_ext = rf.copy_to_device(targets_spatial_dim.dyn_size_ext, s_out.device)
   if non_blank_mask_spatial_dim is not None:
     non_blank_mask_spatial_dim.dyn_size_ext = rf.copy_to_device(non_blank_mask_spatial_dim.dyn_size_ext, s_out.device)
+
   att = model(
     enc=enc_args["enc"],
-    enc_ctx=enc_args["enc_ctx"],
+    enc_ctx=enc_args.get("enc_ctx"),
     enc_spatial_dim=enc_spatial_dim,
     s=s_out,
     segment_starts=segment_starts,
@@ -312,7 +339,7 @@ def forward_sequence_efficient(
   if non_blank_mask_spatial_dim is not None:
     non_blank_mask_spatial_dim.dyn_size_ext = rf.copy_to_device(non_blank_mask_spatial_dim.dyn_size_ext, "cpu")
 
-  if model.use_current_frame_in_readout:
+  if model.use_current_frame_in_readout or model.use_current_frame_in_readout_w_gate or model.use_current_frame_in_readout_random:
     h_t = rf.gather(enc_args["enc"], axis=enc_spatial_dim, indices=center_positions)
   else:
     h_t = None
@@ -353,7 +380,7 @@ def forward_sequence_efficient(
 
 def viterbi_training_efficient(
         *,
-        model: SegmentalAttEfficientLabelDecoder,
+        model: Union[SegmentalAttEfficientLabelDecoder, GlobalAttEfficientDecoder],
         enc_args: Dict,
         enc_spatial_dim: Dim,
         targets: rf.Tensor,
@@ -371,20 +398,32 @@ def viterbi_training_efficient(
         separate_blank_loss: bool = False,
 ) -> Tuple[rf.Tensor, Optional[Tuple[rf.Tensor, Dim]]]:
 
-  logits, label_model_states = forward_sequence_efficient(
-    model=model,
-    enc_args=enc_args,
-    enc_spatial_dim=enc_spatial_dim,
-    targets=targets,
-    targets_spatial_dim=targets_spatial_dim,
-    segment_starts=segment_starts,
-    segment_lens=segment_lens,
-    center_positions=center_positions,
-    batch_dims=batch_dims,
-    non_blank_mask=non_blank_mask,
-    non_blank_mask_spatial_dim=non_blank_mask_spatial_dim,
-    return_label_model_states=return_label_model_states,
-  )
+  if isinstance(model, SegmentalAttEfficientLabelDecoder):
+    logits, label_model_states = forward_sequence_efficient(
+      model=model,
+      enc_args=enc_args,
+      enc_spatial_dim=enc_spatial_dim,
+      targets=targets,
+      targets_spatial_dim=targets_spatial_dim,
+      segment_starts=segment_starts,
+      segment_lens=segment_lens,
+      center_positions=center_positions,
+      batch_dims=batch_dims,
+      non_blank_mask=non_blank_mask,
+      non_blank_mask_spatial_dim=non_blank_mask_spatial_dim,
+      return_label_model_states=return_label_model_states,
+    )
+  else:
+    logits, label_model_states = forward_sequence_global_att(
+      model=model,
+      targets=targets,
+      targets_spatial_dim=targets_spatial_dim,
+      enc_args=enc_args,
+      enc_spatial_dim=enc_spatial_dim,
+      batch_dims=batch_dims,
+      return_label_model_states=return_label_model_states,
+      center_positions=center_positions,
+    )
 
   _calc_ce_loss_and_fer(
     logits,
@@ -403,7 +442,7 @@ def viterbi_training_efficient(
 
 def full_sum_training(
         *,
-        model: SegmentalAttEfficientLabelDecoder,
+        model: SegmentalAttentionModel,
         enc_args: Dict,
         enc_spatial_dim: Dim,
         non_blank_targets: rf.Tensor,  # [B, S, V]
@@ -413,46 +452,179 @@ def full_sum_training(
         center_positions: rf.Tensor,  # [B, T]
         batch_dims: List[Dim],
 ) -> Optional[Dict[str, Tuple[rf.Tensor, Dim]]]:
-  non_blank_input_embeddings = model.target_embed(non_blank_targets)  # [B, S, D]
-  singleton_dim = Dim(name="singleton", dimension=1)
-  singleton_zeros = rf.zeros(batch_dims + [singleton_dim, model.target_embed.out_dim])
-  non_blank_input_embeddings_shifted, non_blank_targets_spatial_dim_ext = rf.concat(
-    (singleton_zeros, singleton_dim),
-    (non_blank_input_embeddings, non_blank_targets_spatial_dim),
-    allow_broadcast=True
-  )  # [B, S+1, D]
-  non_blank_input_embeddings_shifted.feature_dim = non_blank_input_embeddings.feature_dim
+  assert isinstance(
+    model.label_decoder, SegmentalAttEfficientLabelDecoder) or isinstance(
+    model.label_decoder, GlobalAttEfficientDecoder) or isinstance(
+    model.label_decoder, TransformerDecoder) or isinstance(
+    model.label_decoder, GlobalAttDecoder
+  )
 
-  if "lstm" in model.decoder_state:
-    s_out, _ = model.s_wo_att(
-      non_blank_input_embeddings_shifted,
-      state=model.s_wo_att.default_initial_state(batch_dims=batch_dims),
+  from returnn.config import get_global_config
+  config = get_global_config()  # noqa
+
+  if model.label_decoder_state == "trafo":
+    enc_transformed = model.label_decoder.transform_encoder(enc_args["enc"], axis=enc_spatial_dim)
+
+    non_blank_targets_ext, non_blank_targets_spatial_dim_ext = rf.pad(
+      non_blank_targets,
+      axes=[non_blank_targets_spatial_dim],
+      padding=[(1, 0)],
+      value=model.bos_idx
+    )
+    non_blank_targets_spatial_dim_ext = non_blank_targets_spatial_dim_ext[0]
+    logits, _, s_out = model.label_decoder(
+      non_blank_targets_ext,
       spatial_dim=non_blank_targets_spatial_dim_ext,
-    )  # [B, S+1, D]
+      encoder=enc_transformed,
+      state=model.label_decoder.default_initial_state(batch_dims=batch_dims),
+    )
   else:
-    s_out = model.s_wo_att_linear(non_blank_input_embeddings_shifted)  # [B, S+1, D]
+    non_blank_input_embeddings = model.label_decoder.target_embed(non_blank_targets)  # [B, S, D]
+    singleton_dim = Dim(name="singleton", dimension=1)
+    singleton_zeros = rf.zeros(batch_dims + [singleton_dim, model.label_decoder.target_embed.out_dim])
+    non_blank_input_embeddings_shifted, non_blank_targets_spatial_dim_ext = rf.concat(
+      (singleton_zeros, singleton_dim),
+      (non_blank_input_embeddings, non_blank_targets_spatial_dim),
+      allow_broadcast=True
+    )  # [B, S+1, D]
+    non_blank_input_embeddings_shifted.feature_dim = non_blank_input_embeddings.feature_dim
 
-  att = model(
-    enc=enc_args["enc"],
-    enc_ctx=enc_args["enc_ctx"],
-    enc_spatial_dim=enc_spatial_dim,
-    s=s_out,
-    segment_starts=segment_starts,
-    segment_lens=segment_lens,
-    center_positions=center_positions,
-  )  # [B, S+1, T, D]
+    if "lstm" in model.label_decoder.decoder_state:
+      if type(model.label_decoder) is GlobalAttDecoder:
+        def _body(input_embed: rf.Tensor, state: rf.State):
+          new_state = rf.State()
+          loop_out_, new_state.decoder = model.label_decoder.loop_step(
+            **enc_args,
+            enc_spatial_dim=enc_spatial_dim,
+            input_embed=input_embed,
+            state=state.decoder,
+          )
+          return loop_out_, new_state
 
-  logits = model.decode_logits(
-    input_embed=non_blank_input_embeddings_shifted,
-    att=att,
-    s=s_out,
-  )  # [B, S+1, T, D]
+        loop_out, _, _ = rf.scan(
+          spatial_dim=non_blank_targets_spatial_dim_ext,
+          xs=non_blank_input_embeddings_shifted,
+          ys=model.label_decoder.loop_step_output_templates(batch_dims=batch_dims),
+          initial=rf.State(
+            decoder=model.label_decoder.decoder_default_initial_state(
+              batch_dims=batch_dims,
+              enc_spatial_dim=enc_spatial_dim,
+            ),
+          ),
+          body=_body,
+        )
+        s_out = loop_out["s"]
+      else:
+        s_out, _ = model.label_decoder.s_wo_att(
+          non_blank_input_embeddings_shifted,
+          state=model.label_decoder.s_wo_att.default_initial_state(batch_dims=batch_dims),
+          spatial_dim=non_blank_targets_spatial_dim_ext,
+        )  # [B, S+1, D]
+    else:
+      if type(model.label_decoder) is GlobalAttDecoder:
+        def _body(input_embed: rf.Tensor, state: rf.State):
+          new_state = rf.State()
+          loop_out_, new_state.decoder = model.label_decoder.loop_step(
+            **enc_args,
+            enc_spatial_dim=enc_spatial_dim,
+            input_embed=input_embed,
+            state=state.decoder,
+          )
+          return loop_out_, new_state
+
+        loop_out, _, _ = rf.scan(
+          spatial_dim=non_blank_targets_spatial_dim_ext,
+          xs=non_blank_input_embeddings_shifted,
+          ys=model.label_decoder.loop_step_output_templates(batch_dims=batch_dims),
+          initial=rf.State(
+            decoder=model.label_decoder.decoder_default_initial_state(
+              batch_dims=batch_dims,
+              enc_spatial_dim=enc_spatial_dim,
+            ),
+          ),
+          body=_body,
+        )
+        s_out = loop_out["s"]
+      else:
+        s_out = model.label_decoder.s_wo_att_linear(non_blank_input_embeddings_shifted)  # [B, S+1, D]
+
+    if isinstance(model.label_decoder, GlobalAttEfficientDecoder):
+      att = model.label_decoder(
+        enc=enc_args["enc"],
+        enc_ctx=enc_args["enc_ctx"],
+        enc_spatial_dim=enc_spatial_dim,
+        s=s_out,
+        input_embed=non_blank_input_embeddings_shifted,
+        input_embed_spatial_dim=non_blank_targets_spatial_dim_ext,
+      )
+    elif type(model.label_decoder) is GlobalAttDecoder:
+      att = loop_out["att"]
+    else:
+      assert isinstance(model.label_decoder, SegmentalAttEfficientLabelDecoder)
+      if model.center_window_size == 1:
+        att = enc_args["enc"]
+      else:
+        att = model.label_decoder(
+          enc=enc_args["enc"],
+          enc_ctx=enc_args["enc_ctx"],
+          enc_spatial_dim=enc_spatial_dim,
+          s=s_out,
+          segment_starts=segment_starts,
+          segment_lens=segment_lens,
+          center_positions=center_positions,
+        )  # [B, S+1, T, D]
+
+    if (
+            model.label_decoder.use_current_frame_in_readout or
+            model.label_decoder.use_current_frame_in_readout_w_gate or
+            model.label_decoder.use_current_frame_in_readout_random
+    ):
+      h_t = rf.gather(enc_args["enc"], axis=enc_spatial_dim, indices=center_positions)
+    else:
+      h_t = None
+
+    logits = model.label_decoder.decode_logits(
+      input_embed=non_blank_input_embeddings_shifted,
+      att=att,
+      s=s_out,
+      h_t=h_t,
+    )  # [B, S+1, T, D]
+
+  if model.blank_decoder is not None:
+    assert isinstance(model.blank_decoder, BlankDecoderV4)
+    blank_logits = model.blank_decoder.decode_logits(
+      enc=enc_args["enc"], label_model_states_unmasked=s_out, allow_broadcast=True
+    )  # [B, T, S, 1]
+
+    if model.label_decoder_state == "trafo":
+      label_decoder_target_dim = model.label_decoder.vocab_dim
+    else:
+      label_decoder_target_dim = model.label_decoder.target_dim
+
+    # normally, we combine the labels with blank in log space: label_log_prob = log(softmax(label_logits)) + log(sigmoid(blank_logits))
+    # However, Simon's full-sum loss implementation expects logits as input. Therefore, we need to do the combination
+    # in logit space
+    blank_log_prob = rf.safe_log(rf.sigmoid(-blank_logits))
+    log_alt_norm = -blank_logits - blank_log_prob
+    max_logit = rf.reduce_max(logits, axis=label_decoder_target_dim)
+    # subtract max_logit to avoid infinities in softmax
+    log_softmax = logits - rf.safe_log(
+      rf.reduce_sum(rf.exp(logits - max_logit), axis=label_decoder_target_dim)) - max_logit
+    logits = log_softmax + rf.safe_log(rf.sigmoid(blank_logits)) + log_alt_norm
+    logits, _ = rf.concat(
+      (logits, label_decoder_target_dim),
+      (-blank_logits, model.blank_decoder.emit_prob_dim),
+      out_dim=model.align_target_dim,
+      allow_broadcast=True
+    )
+    logits = rf.squeeze(logits, axis=model.blank_decoder.emit_prob_dim)
 
   def _get_packed_logits_v1():
-    logits_raw = logits.copy_transpose(batch_dims + [enc_spatial_dim, non_blank_targets_spatial_dim_ext, model.target_dim]).raw_tensor
+    # manually pack logits by looping over batch dim
+    logits_raw = logits.copy_transpose(batch_dims + [enc_spatial_dim, non_blank_targets_spatial_dim_ext, model.align_target_dim]).raw_tensor
     enc_lens = enc_spatial_dim.dyn_size_ext.raw_tensor
     non_blank_lens = non_blank_targets_spatial_dim_ext.dyn_size_ext.raw_tensor
-    vocab_len = model.target_dim.dimension
+    vocab_len = model.align_target_dim.dimension
 
     batch_tensors = []
 
@@ -467,6 +639,7 @@ def full_sum_training(
     return torch.cat(batch_tensors, dim=0)
 
   def _get_packed_logits_v2():
+    # use built-in pack_padded (now efficient, since Albert improved it)
     logits_packed, pack_dim = rf.pack_padded(
       logits,
       dims=batch_dims + [enc_spatial_dim, non_blank_targets_spatial_dim_ext],
@@ -474,9 +647,9 @@ def full_sum_training(
     )  # [B * T * (S+1), D]
     logits_packed_raw = logits_packed.raw_tensor
 
-    return logits_packed_raw
+    return logits_packed_raw, logits_packed
 
-  logits_packed_raw = _get_packed_logits_v1()
+  logits_packed_raw, logits_packed = _get_packed_logits_v2()
 
   from returnn.extern_private.BergerMonotonicRNNT.monotonic_rnnt.pytorch_binding import monotonic_rnnt_loss
 
@@ -492,3 +665,185 @@ def full_sum_training(
   loss.mark_as_loss("full_sum_loss", scale=1.0, use_normalized_loss=True)
 
   return None
+
+
+def get_score_lattice(
+        *,
+        model: SegmentalAttentionModel,
+        enc_args: Dict,
+        enc_spatial_dim: Dim,
+        non_blank_targets: rf.Tensor,  # [B, S, V]
+        non_blank_targets_spatial_dim: Dim,
+        segment_starts: rf.Tensor,  # [B, T]
+        segment_lens: rf.Tensor,  # [B, T]
+        center_positions: rf.Tensor,  # [B, T]
+        batch_dims: List[Dim],
+) -> Tuple[rf.Tensor, rf.Dim]:
+  assert isinstance(
+    model.label_decoder, SegmentalAttEfficientLabelDecoder) or isinstance(
+    model.label_decoder, GlobalAttEfficientDecoder) or isinstance(
+    model.label_decoder, TransformerDecoder) or isinstance(
+    model.label_decoder, GlobalAttDecoder
+  )
+
+  from returnn.config import get_global_config
+  config = get_global_config()  # noqa
+
+  if model.label_decoder_state == "trafo":
+    enc_transformed = model.label_decoder.transform_encoder(enc_args["enc"], axis=enc_spatial_dim)
+
+    non_blank_targets_ext, non_blank_targets_spatial_dim_ext = rf.pad(
+      non_blank_targets,
+      axes=[non_blank_targets_spatial_dim],
+      padding=[(1, 0)],
+      value=model.bos_idx
+    )
+    non_blank_targets_spatial_dim_ext = non_blank_targets_spatial_dim_ext[0]
+    logits, _, s_out = model.label_decoder(
+      non_blank_targets_ext,
+      spatial_dim=non_blank_targets_spatial_dim_ext,
+      encoder=enc_transformed,
+      state=model.label_decoder.default_initial_state(batch_dims=batch_dims),
+    )
+  else:
+    non_blank_input_embeddings = model.label_decoder.target_embed(non_blank_targets)  # [B, S, D]
+    singleton_dim = Dim(name="singleton", dimension=1)
+    singleton_zeros = rf.zeros(batch_dims + [singleton_dim, model.label_decoder.target_embed.out_dim])
+    non_blank_input_embeddings_shifted, non_blank_targets_spatial_dim_ext = rf.concat(
+      (singleton_zeros, singleton_dim),
+      (non_blank_input_embeddings, non_blank_targets_spatial_dim),
+      allow_broadcast=True
+    )  # [B, S+1, D]
+    non_blank_input_embeddings_shifted.feature_dim = non_blank_input_embeddings.feature_dim
+
+    if "lstm" in model.label_decoder.decoder_state:
+      if type(model.label_decoder) is GlobalAttDecoder:
+        def _body(input_embed: rf.Tensor, state: rf.State):
+          new_state = rf.State()
+          loop_out_, new_state.decoder = model.label_decoder.loop_step(
+            **enc_args,
+            enc_spatial_dim=enc_spatial_dim,
+            input_embed=input_embed,
+            state=state.decoder,
+          )
+          return loop_out_, new_state
+
+        loop_out, _, _ = rf.scan(
+          spatial_dim=non_blank_targets_spatial_dim_ext,
+          xs=non_blank_input_embeddings_shifted,
+          ys=model.label_decoder.loop_step_output_templates(batch_dims=batch_dims),
+          initial=rf.State(
+            decoder=model.label_decoder.decoder_default_initial_state(
+              batch_dims=batch_dims,
+              enc_spatial_dim=enc_spatial_dim,
+            ),
+          ),
+          body=_body,
+        )
+        s_out = loop_out["s"]
+      else:
+        s_out, _ = model.label_decoder.s_wo_att(
+          non_blank_input_embeddings_shifted,
+          state=model.label_decoder.s_wo_att.default_initial_state(batch_dims=batch_dims),
+          spatial_dim=non_blank_targets_spatial_dim_ext,
+        )  # [B, S+1, D]
+    else:
+      if type(model.label_decoder) is GlobalAttDecoder:
+        def _body(input_embed: rf.Tensor, state: rf.State):
+          new_state = rf.State()
+          loop_out_, new_state.decoder = model.label_decoder.loop_step(
+            **enc_args,
+            enc_spatial_dim=enc_spatial_dim,
+            input_embed=input_embed,
+            state=state.decoder,
+          )
+          return loop_out_, new_state
+
+        loop_out, _, _ = rf.scan(
+          spatial_dim=non_blank_targets_spatial_dim_ext,
+          xs=non_blank_input_embeddings_shifted,
+          ys=model.label_decoder.loop_step_output_templates(batch_dims=batch_dims),
+          initial=rf.State(
+            decoder=model.label_decoder.decoder_default_initial_state(
+              batch_dims=batch_dims,
+              enc_spatial_dim=enc_spatial_dim,
+            ),
+          ),
+          body=_body,
+        )
+        s_out = loop_out["s"]
+      else:
+        s_out = model.label_decoder.s_wo_att_linear(non_blank_input_embeddings_shifted)  # [B, S+1, D]
+
+    if isinstance(model.label_decoder, GlobalAttEfficientDecoder):
+      att = model.label_decoder(
+        enc=enc_args["enc"],
+        enc_ctx=enc_args["enc_ctx"],
+        enc_spatial_dim=enc_spatial_dim,
+        s=s_out,
+        input_embed=non_blank_input_embeddings_shifted,
+        input_embed_spatial_dim=non_blank_targets_spatial_dim_ext,
+      )
+    elif type(model.label_decoder) is GlobalAttDecoder:
+      att = loop_out["att"]
+    else:
+      assert isinstance(model.label_decoder, SegmentalAttEfficientLabelDecoder)
+      if model.center_window_size == 1:
+        att = enc_args["enc"]
+      else:
+        att = model.label_decoder(
+          enc=enc_args["enc"],
+          enc_ctx=enc_args["enc_ctx"],
+          enc_spatial_dim=enc_spatial_dim,
+          s=s_out,
+          segment_starts=segment_starts,
+          segment_lens=segment_lens,
+          center_positions=center_positions,
+        )  # [B, S+1, T, D]
+
+    if (
+            model.label_decoder.use_current_frame_in_readout or
+            model.label_decoder.use_current_frame_in_readout_w_gate or
+            model.label_decoder.use_current_frame_in_readout_random
+    ):
+      h_t = rf.gather(enc_args["enc"], axis=enc_spatial_dim, indices=center_positions)
+    else:
+      h_t = None
+
+    logits = model.label_decoder.decode_logits(
+      input_embed=non_blank_input_embeddings_shifted,
+      att=att,
+      s=s_out,
+      h_t=h_t,
+    )  # [B, S+1, T, D]
+
+  if model.blank_decoder is not None:
+    assert isinstance(model.blank_decoder, BlankDecoderV4)
+    blank_logits = model.blank_decoder.decode_logits(
+      enc=enc_args["enc"], label_model_states_unmasked=s_out, allow_broadcast=True
+    )  # [B, T, S, 1]
+
+    if model.label_decoder_state == "trafo":
+      label_decoder_target_dim = model.label_decoder.vocab_dim
+    else:
+      label_decoder_target_dim = model.label_decoder.target_dim
+
+    # normally, we combine the labels with blank in log space: label_log_prob = log(softmax(label_logits)) + log(sigmoid(blank_logits))
+    # However, Simon's full-sum loss implementation expects logits as input. Therefore, we need to do the combination
+    # in logit space
+    blank_log_prob = rf.safe_log(rf.sigmoid(-blank_logits))
+    log_alt_norm = -blank_logits - blank_log_prob
+    max_logit = rf.reduce_max(logits, axis=label_decoder_target_dim)
+    # subtract max_logit to avoid infinities in softmax
+    log_softmax = logits - rf.safe_log(
+      rf.reduce_sum(rf.exp(logits - max_logit), axis=label_decoder_target_dim)) - max_logit
+    logits = log_softmax + rf.safe_log(rf.sigmoid(blank_logits)) + log_alt_norm
+    logits, _ = rf.concat(
+      (logits, label_decoder_target_dim),
+      (-blank_logits, model.blank_decoder.emit_prob_dim),
+      out_dim=model.align_target_dim,
+      allow_broadcast=True
+    )
+    logits = rf.squeeze(logits, axis=model.blank_decoder.emit_prob_dim)
+
+  return logits, non_blank_targets_spatial_dim_ext

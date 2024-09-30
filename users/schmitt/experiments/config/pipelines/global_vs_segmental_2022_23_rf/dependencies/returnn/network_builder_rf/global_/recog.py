@@ -1,5 +1,6 @@
 from typing import Optional, Dict, Any, Tuple
 import tree
+import functools
 
 from returnn.tensor import Tensor, Dim, single_step_dim
 import returnn.frontend as rf
@@ -8,6 +9,18 @@ from returnn.frontend.tensor_array import TensorArray
 from i6_experiments.users.schmitt.returnn_frontend.model_interfaces.recog import RecogDef
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.base import _batch_size_factor
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.global_.model import GlobalAttentionModel
+from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.segmental import utils
+
+
+def _trafo_gather_backrefs(s, *, backrefs: Tensor):
+  if isinstance(s, Tensor):
+    if backrefs.sparse_dim in s.dims:
+      return rf.gather(s, indices=backrefs)  # really the default case
+    return s  # e.g. scalar or so, independent from beam
+  if isinstance(s, Dim):
+    assert s.dimension or backrefs not in s.dyn_size_ext.dims  # currently not supported, also not expected
+    return s
+  raise TypeError(f"_gather_backrefs: unexpected type ({type(s)})")
 
 
 def model_recog(
@@ -20,7 +33,9 @@ def model_recog(
         external_lm_scale: Optional[float] = None,
         ilm_type: Optional[str] = None,
         ilm_correction_scale: Optional[float] = None,
-) -> Tuple[Tensor, Tensor, Dim, Dim]:
+        cheating_targets: Optional[Tensor] = None,
+        cheating_targets_spatial_dim: Optional[Dim] = None,
+) -> Tuple[Tensor, Tensor, Dim, Tensor, Dim, Dim]:
   """
   Function is run within RETURNN.
 
@@ -34,6 +49,7 @@ def model_recog(
       out_spatial_dim,
       final beam_dim
   """
+  assert (cheating_targets is None) == (cheating_targets_spatial_dim is None)
 
   if ilm_type is not None:
     assert ilm_type in ("mini_att",)
@@ -42,6 +58,8 @@ def model_recog(
   # --------------------------------- init encoder, dims, etc ---------------------------------
 
   enc_args, enc_spatial_dim = model.encoder.encode(data, in_spatial_dim=data_spatial_dim)
+  if model.decoder_state == "trafo":
+    enc_args["enc"] = model.label_decoder.transform_encoder(enc_args["enc"], axis=enc_spatial_dim)
 
   if max_seq_len is None:
     max_seq_len = enc_spatial_dim.get_size_tensor()
@@ -63,9 +81,11 @@ def model_recog(
   seq_backrefs = []
 
   # --------------------------------- init states ---------------------------------
-
-  decoder_state = model.label_decoder.decoder_default_initial_state(
-    batch_dims=batch_dims_, enc_spatial_dim=enc_spatial_dim)
+  if model.decoder_state != "trafo":
+    decoder_state = model.label_decoder.decoder_default_initial_state(
+      batch_dims=batch_dims_, enc_spatial_dim=enc_spatial_dim)
+  else:
+    decoder_state = model.label_decoder.default_initial_state(batch_dims=batch_dims_)
 
   # external LM
   if model.language_model:
@@ -82,35 +102,48 @@ def model_recog(
 
   # --------------------------------- init targets ---------------------------------
 
-  target = rf.constant(model.label_decoder.bos_idx, dims=batch_dims_, sparse_dim=model.target_dim)
+  target = rf.constant(model.bos_idx, dims=batch_dims_, sparse_dim=model.target_dim)
+
+  # ------------------------------- cheating targets ---------------------------------
+  if cheating_targets is not None:
+    vocab_range = rf.range_over_dim(model.target_dim)
 
   # --------------------------------- main loop ---------------------------------
 
   i = 0
   while True:
-    # --------------------------------- get embeddings ---------------------------------
+    if model.decoder_state != "trafo":
+      # --------------------------------- get embeddings ---------------------------------
+      if i == 0:
+        input_embed = rf.zeros(
+          batch_dims_ + [model.label_decoder.target_embed.out_dim],
+          feature_dim=model.label_decoder.target_embed.out_dim)
+      else:
+        input_embed = model.label_decoder.target_embed(target)
 
-    if i == 0:
-      input_embed = rf.zeros(
-        batch_dims_ + [model.label_decoder.target_embed.out_dim], feature_dim=model.label_decoder.target_embed.out_dim)
+      # --------------------------------- decoder step ---------------------------------
+
+      step_out, decoder_state = model.label_decoder.loop_step(
+        **enc_args,
+        enc_spatial_dim=enc_spatial_dim,
+        input_embed=input_embed,
+        state=decoder_state,
+      )
+      logits = model.label_decoder.decode_logits(input_embed=input_embed, **step_out)
     else:
-      input_embed = model.label_decoder.target_embed(target)
+      logits, decoder_state, _ = model.label_decoder(
+        target,
+        spatial_dim=single_step_dim,
+        encoder=enc_args["enc"],
+        state=decoder_state,
+      )
 
-    # --------------------------------- decoder step ---------------------------------
-
-    step_out, decoder_state = model.label_decoder.loop_step(
-      **enc_args,
-      enc_spatial_dim=enc_spatial_dim,
-      input_embed=input_embed,
-      state=decoder_state,
-    )
-    logits = model.label_decoder.decode_logits(input_embed=input_embed, **step_out)
     label_log_prob = rf.log_softmax(logits, axis=model.target_dim)
 
     # --------------------------------- external LM step ---------------------------------
 
     if lm_state is not None:
-      lm_logits, lm_state = model.language_model(
+      lm_logits, lm_state, _ = model.language_model(
         target,
         spatial_dim=single_step_dim,
         state=lm_state,
@@ -121,6 +154,8 @@ def model_recog(
     # --------------------------------- ILM step ---------------------------------
 
     if ilm_state is not None:
+      assert model.decoder_state != "trafo", "not implemented yet"
+
       ilm_step_out, ilm_state = model.label_decoder.loop_step(
         **enc_args,
         enc_spatial_dim=enc_spatial_dim,
@@ -132,12 +167,29 @@ def model_recog(
       ilm_label_log_prob = rf.log_softmax(ilm_logits, axis=model.target_dim)
       label_log_prob -= ilm_correction_scale * ilm_label_log_prob
 
+    if cheating_targets is not None:
+      label_ground_truth = rf.gather(
+        cheating_targets,
+        indices=rf.constant(i, dims=batch_dims),
+        axis=cheating_targets_spatial_dim,
+      )
+      label_log_prob_mask = vocab_range == label_ground_truth
+      # label_log_prob_mask = rf.logical_or(
+      #   label_log_prob_mask,
+      #   i > cheating_targets_spatial_dim.get_size_tensor()
+      # )
+      label_log_prob = rf.where(
+        label_log_prob_mask,
+        label_log_prob,
+        rf.constant(-1.0e30, dims=batch_dims + [beam_dim, model.target_dim])
+      )
+
     # --------------------------------- filter finished beams, pick top-k ---------------------------------
 
     # Filter out finished beams
     label_log_prob = rf.where(
       ended,
-      rf.sparse_to_dense(model.label_decoder.eos_idx, axis=model.target_dim, label_value=0.0, other_value=-1.0e30),
+      rf.sparse_to_dense(model.eos_idx, axis=model.target_dim, label_value=0.0, other_value=-1.0e30),
       label_log_prob,
     )
 
@@ -151,7 +203,11 @@ def model_recog(
     # --------------------------------- update states ---------------------------------
 
     # decoder
-    decoder_state = tree.map_structure(lambda s: rf.gather(s, indices=backrefs), decoder_state)
+    if model.decoder_state != "trafo":
+      decoder_state = tree.map_structure(lambda s: rf.gather(s, indices=backrefs), decoder_state)
+    else:
+      decoder_state = tree.map_structure(
+        functools.partial(_trafo_gather_backrefs, backrefs=backrefs), decoder_state)
 
     # external LM
     if lm_state is not None:
@@ -175,7 +231,7 @@ def model_recog(
     out_seq_len = rf.gather(out_seq_len, indices=backrefs)
     i += 1
 
-    ended = rf.logical_or(ended, rf.convert_to_tensor(target == model.label_decoder.eos_idx))
+    ended = rf.logical_or(ended, rf.convert_to_tensor(target == model.eos_idx))
     ended = rf.logical_or(ended, rf.copy_to_device(i >= max_seq_len))
     if bool(rf.reduce_all(ended, axis=ended.dims).raw_tensor):
       break
@@ -209,7 +265,28 @@ def model_recog(
   out_spatial_dim = Dim(out_seq_len, name="out-spatial")
   seq_targets = seq_targets__.stack(axis=out_spatial_dim)
 
-  return seq_targets, seq_log_prob, out_spatial_dim, beam_dim
+  best_hyps = rf.reduce_argmax(seq_log_prob, axis=beam_dim)
+  best_seq_targets = rf.gather(
+    seq_targets,
+    indices=best_hyps,
+    axis=beam_dim,
+  )
+
+  # out_spatial_dim has 2 dims (batch, beam) since seqs can have different lengths for global AED
+  # just gather the best seq lengths (same as for the seqs themselves)
+  best_seq_targets_spatial_dim = out_spatial_dim.copy()
+  best_seq_targets_spatial_dim.dyn_size_ext = rf.gather(
+    out_spatial_dim.dyn_size_ext,
+    indices=best_hyps,
+    axis=beam_dim,
+  )
+
+  # replace the old dim with the new one
+  best_seq_targets = utils.copy_tensor_replace_dim_tag(
+    best_seq_targets, out_spatial_dim, best_seq_targets_spatial_dim
+  )
+
+  return best_seq_targets, seq_log_prob, best_seq_targets_spatial_dim, seq_targets, out_spatial_dim, beam_dim
 
 
 # RecogDef API

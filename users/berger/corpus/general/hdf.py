@@ -1,4 +1,4 @@
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 from i6_core.corpus import SegmentCorpusJob
 from i6_core.returnn.hdf import BlissToPcmHDFJob
@@ -11,7 +11,7 @@ from i6_experiments.users.berger.args.jobs.rasr_init_args import (
 from i6_experiments.users.berger.args.returnn.dataset import MetaDatasetBuilder, hdf_config_dict_for_files
 from i6_experiments.users.berger.helpers import RasrDataInput, SeparatedCorpusObject, build_rasr_feature_hdfs
 from i6_experiments.users.berger.recipe.corpus.transform import ReplaceUnknownWordsJob
-from i6_experiments.users.berger.recipe.returnn.hdf import BlissCorpusToTargetHdfJob
+from i6_experiments.users.berger.recipe.returnn.hdf import BlissCorpusToTargetHdfJob, RemoveBlanksFromAlignmentHdfJob
 from i6_experiments.users.berger.systems.dataclasses import AlignmentData, FeatureType
 
 
@@ -109,6 +109,7 @@ def build_feature_alignment_meta_dataset_config(
     dc_detection: bool = False,
     single_hdf: bool = False,
     extra_config: Optional[dict] = None,
+    remove_blank_idx: Optional[int] = None,
 ) -> dict:
     feature_hdf_config = build_feature_hdf_dataset_config(
         data_inputs=data_inputs,
@@ -129,6 +130,10 @@ def build_feature_alignment_meta_dataset_config(
     alignment_hdf_files = [
         alignment.get_hdf(returnn_python_exe=returnn_python_exe, returnn_root=returnn_root) for alignment in alignments
     ]
+    if remove_blank_idx is not None:
+        alignment_hdf_files = [
+            RemoveBlanksFromAlignmentHdfJob(hdf_file, remove_blank_idx).out_hdf for hdf_file in alignment_hdf_files
+        ]
     alignment_hdf_config = hdf_config_dict_for_files(files=alignment_hdf_files, extra_config=extra_config)
     dataset_builder.add_dataset(
         name="classes", dataset_config=alignment_hdf_config, key_mapping={"data": "classes"}, control=True
@@ -200,6 +205,7 @@ def build_feature_label_meta_dataset_config(
     dc_detection: bool = False,
     single_hdf: bool = False,
     extra_config: Optional[dict] = None,
+    segment_files: Optional[Dict[int, tk.Path]] = None,
 ) -> dict:
     feature_hdf_config = build_feature_hdf_dataset_config(
         data_inputs=data_inputs,

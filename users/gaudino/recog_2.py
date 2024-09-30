@@ -170,7 +170,7 @@ def recog_model(
     search_rqmt: Optional[Dict[str, Any]] = None,
     dev_sets: Optional[Collection[str]] = None,
     name: Optional[str] = None,
-    device: Optional[str] = None,
+    device: Optional[str] = "gpu",
 ) -> ScoreResultCollection:
     """recog"""
     if dev_sets is not None:
@@ -208,7 +208,7 @@ def search_dataset(
     search_rqmt: Optional[Dict[str, Any]] = None,
     search_alias_name: Optional[str] = None,
     recog_post_proc_funcs: Sequence[Callable[[RecogOutput], RecogOutput]] = (),
-    device: Optional[str] = None,
+    device: Optional[str] = "gpu",
 ) -> RecogOutput:
     """
     recog on the specific dataset
@@ -518,7 +518,7 @@ def _returnn_v2_get_model(*, epoch: int, **_kwargs_unused):
     model_def = config.typed_value("_model_def")
     model_args = config.typed_value("model_args")
     search_args = config.typed_value("search_args")
-    if model_args or search_args:
+    if model_args:
         model = model_def(epoch=epoch, in_dim=data.feature_dim, target_dim=targets.sparse_dim, model_args=model_args, search_args=search_args)
     else:
         model = model_def(epoch=epoch, in_dim=data.feature_dim, target_dim=targets.sparse_dim)
@@ -542,6 +542,11 @@ def _returnn_v2_forward_step(*, model, extern_data: TensorDict, **_kwargs_unused
     data_spatial_dim = data.get_time_dim_tag()
     recog_def = config.typed_value("_recog_def")
     extra = {}
+
+    search_args = config.typed_value("search_args")
+    if search_args:
+        extra["search_args"] = search_args
+
     if config.bool("cheating", False):
         default_target_key = config.typed_value("target")
         targets = extern_data[default_target_key]

@@ -91,6 +91,7 @@ trafo_10k_lm_opts = {
     "name": "trafo",
 }
 
+
 # bpe5k_lm = get_lm("ls960_trafo24_bs3000_5ep_5kbpe")  # type: ZeineldeenLM
 # trafo_5k_lm_opts = {
 #     "lm_subnet": bpe5k_lm.combination_network,
@@ -105,6 +106,17 @@ trafo_10k_lm_opts = {
 trafo_lm_opts_map = {
     BPE_10K: trafo_10k_lm_opts,
     # BPE_5K: trafo_5k_lm_opts,
+}
+
+mini_att_ilm_preload_from_files = {
+    "prior_lm": {
+        "filename": "/u/luca.gaudino/setups/2023-02-22--conformer-swb/work/i6_core/returnn/training/AverageTFCheckpointsJob.BxqgICRSGkgb/output/model/average",
+        "prefix": "prior_",
+    },
+    "mini_lstm": {
+        "filename": "/u/zeineldeen/setups/ubuntu_22_setups/2023-04-17--conformer-att/work/i6_core/returnn/training/GetBestTFCheckpointJob.JLwxrydala1K/output/model/checkpoint",
+        "prefix": "mini_",
+    },
 }
 
 new_prior_file = "/work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/2023-02-22--conformer-swb/work/i6_core/returnn/extract_prior/ReturnnComputePriorJobV2.ZeflcEHlQTjn/output/prior.txt"

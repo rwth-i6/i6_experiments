@@ -9,9 +9,10 @@ import tempfile
 import shutil
 import os
 import re
+import numpy as np
 from sisyphus.toolkit import Variable
 
-from typing import Iterator, Optional
+from typing import Iterator, Optional, List
 
 import recipe.i6_experiments.users.schmitt.tools as tools_mod
 tools_dir = os.path.dirname(tools_mod.__file__)
@@ -70,3 +71,34 @@ class GetLearningRateFromFileJob(Job):
     learning_rate = float(learning_rates[self.epoch - 1 if type(self.epoch) == int else -1])
 
     self.out_last_lr.set(learning_rate)
+
+
+class CombineNpyFilesJob(Job):
+  def __init__(
+          self,
+          npy_files: List[Path],
+          epoch: Optional[int] = None
+  ):
+    """
+
+    :param lr_file_path:
+    :param epoch: epoch for which to get the lr from the lr file. If `None`, use last epoch.
+    """
+    self.npy_files = npy_files
+
+    self.out_file = self.output_path("combined.npy")
+
+  def tasks(self) -> Iterator[Task]:
+    yield Task("run", rqmt={"cpu": 1}, mini_task=True)
+
+  def run(self):
+    result = {}
+
+    for i, npy_file_path in enumerate(self.npy_files):
+      npy_object = np.load(npy_file_path.get_path(), allow_pickle=True)[()][0]
+
+      result[i] = npy_object
+
+    result = np.array(result)
+
+    np.save(self.out_file.get_path(), result)

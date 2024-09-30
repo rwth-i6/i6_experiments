@@ -530,6 +530,8 @@ class CTCDecoderArgs(DecoderArgs):
     renorm_after_remove_blank: bool = True
     recombine: bool = False
     max_approx: bool = False
+    add_mini_att_ilm: bool = False
+    ilm_scale: float = 0.0
 
 
 def create_config(

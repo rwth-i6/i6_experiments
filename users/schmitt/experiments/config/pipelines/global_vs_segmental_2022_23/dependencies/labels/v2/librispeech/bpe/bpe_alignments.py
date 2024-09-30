@@ -20,6 +20,7 @@ from i6_core.lm.lm_image import CreateLmImageJob
 
 from typing import Dict
 import copy
+from abc import ABC
 
 from sisyphus import *
 
@@ -153,7 +154,7 @@ class LibrispeechBpe10025CtcAlignmentEos(LibrispeechBpe10025CtcAlignment):
     return self._alignment_paths
 
 
-class LibrispeechBpe1056Alignment(LibrispeechBPE1056, LibrispeechLabelDefinition, SegmentalLabelDefinition):
+class LibrispeechBpe1056Alignment(LibrispeechBPE1056, LibrispeechLabelDefinition, SegmentalLabelDefinition, ABC):
   """
     This is a forced alignment from the auxiliary CTC model in Mohammad's global AED setup (5.6% WER).
   """
@@ -163,11 +164,6 @@ class LibrispeechBpe1056Alignment(LibrispeechBPE1056, LibrispeechLabelDefinition
     self._alignment_paths = None
 
   @property
-  def model_hyperparameters(self) -> SegmentalModelHyperparameters:
-    return SegmentalModelHyperparameters(
-      sos_idx=0, target_num_labels=1057, sil_idx=None, blank_idx=0, target_num_labels_wo_blank=1056)
-
-  @property
   def rasr_format_paths(self) -> RasrFormats:
     raise NotImplementedError
 
@@ -189,18 +185,34 @@ class LibrispeechBpe1056Alignment(LibrispeechBPE1056, LibrispeechLabelDefinition
     self._alignment_paths = value
 
 
-class LibrispeechBpe5048Alignment(LibrispeechBPE5048, LibrispeechLabelDefinition, SegmentalLabelDefinition):
+class LibrispeechBpe1056AlignmentJointModel(LibrispeechBpe1056Alignment):
+  @property
+  def model_hyperparameters(self) -> SegmentalModelHyperparameters:
+    return SegmentalModelHyperparameters(
+      sos_idx=0, target_num_labels=1057, sil_idx=None, blank_idx=0, target_num_labels_wo_blank=1056)
+
+
+class LibrispeechBpe1056AlignmentSepModel(LibrispeechBpe1056Alignment):
+  @property
+  def model_hyperparameters(self) -> SegmentalModelHyperparameters:
+    return SegmentalModelHyperparameters(
+      sos_idx=0, target_num_labels=1057, sil_idx=None, blank_idx=1056, target_num_labels_wo_blank=1056)
+
+
+class LibrispeechBpe1056AlignmentCtcModel(LibrispeechBpe1056Alignment):
+  @property
+  def model_hyperparameters(self) -> SegmentalModelHyperparameters:
+    return SegmentalModelHyperparameters(
+      sos_idx=0, target_num_labels=1057, sil_idx=None, blank_idx=1056, target_num_labels_wo_blank=1056)
+
+
+class LibrispeechBpe5048Alignment(LibrispeechBPE5048, LibrispeechLabelDefinition, SegmentalLabelDefinition, ABC):
   def __init__(self):
     super().__init__()
 
     self._alignment_paths = None
 
   @property
-  def model_hyperparameters(self) -> SegmentalModelHyperparameters:
-    return SegmentalModelHyperparameters(
-      sos_idx=0, target_num_labels=5049, sil_idx=None, blank_idx=0, target_num_labels_wo_blank=5048)
-
-  @property
   def rasr_format_paths(self) -> RasrFormats:
     raise NotImplementedError
 
@@ -221,3 +233,16 @@ class LibrispeechBpe5048Alignment(LibrispeechBPE5048, LibrispeechLabelDefinition
     assert "train" in value and "cv" in value and "devtrain" in value
     self._alignment_paths = value
 
+
+class LibrispeechBpe5048AlignmentJointModel(LibrispeechBpe5048Alignment):
+  @property
+  def model_hyperparameters(self) -> SegmentalModelHyperparameters:
+    return SegmentalModelHyperparameters(
+      sos_idx=0, target_num_labels=5049, sil_idx=None, blank_idx=0, target_num_labels_wo_blank=5048)
+
+
+class LibrispeechBpe5048AlignmentSepModel(LibrispeechBpe5048Alignment):
+  @property
+  def model_hyperparameters(self) -> SegmentalModelHyperparameters:
+    return SegmentalModelHyperparameters(
+      sos_idx=0, target_num_labels=5049, sil_idx=None, blank_idx=5048, target_num_labels_wo_blank=5048)

@@ -6,6 +6,7 @@ from i6_experiments.users.schmitt.returnn_frontend.model_interfaces.training imp
 
 from returnn.tensor import TensorDict
 from returnn.datasets.hdf import SimpleHDFWriter
+from returnn.frontend.decoder.transformer import TransformerDecoder
 
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.segmental import utils
 from i6_experiments.users.schmitt import hdf
@@ -41,6 +42,12 @@ from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segment
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.segmental.model_new.blank_model.train import (
   viterbi_training_v7 as blank_model_viterbi_training_v7
 )
+from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.segmental.model_new.blank_model.train import (
+  viterbi_training_v8 as blank_model_viterbi_training_v8
+)
+from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.segmental.model_new.blank_model.train import (
+  viterbi_training_v9 as blank_model_viterbi_training_v9
+)
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.segmental.model_new.blank_model.model import (
   BlankDecoderV1,
   BlankDecoderV3,
@@ -48,10 +55,18 @@ from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segment
   BlankDecoderV5,
   BlankDecoderV6,
   BlankDecoderV7,
+  BlankDecoderV8,
+  BlankDecoderV9,
+  BlankDecoderV10,
+  BlankDecoderV11,
 )
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.segmental.model_new.label_model.model import (
   SegmentalAttLabelDecoder,
   SegmentalAttEfficientLabelDecoder
+)
+from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.global_.decoder import (
+  GlobalAttDecoder,
+  GlobalAttEfficientDecoder,
 )
 
 from returnn.tensor import Dim
@@ -123,7 +138,7 @@ def get_alignment_args(
     segment_starts, segment_lens, center_positions = utils.get_segment_starts_and_lens(
       non_blank_mask=rf.sequence_mask(align_targets.dims),  # this way, every frame is interpreted as non-blank
       align_targets_spatial_dim=align_targets_spatial_dim,
-      model=model,
+      center_window_size=model.center_window_size,
       batch_dims=batch_dims,
       out_spatial_dim=align_targets_spatial_dim
     )
@@ -146,7 +161,7 @@ def get_alignment_args(
     segment_starts, segment_lens, center_positions = utils.get_segment_starts_and_lens(
       non_blank_mask,
       align_targets_spatial_dim,
-      model,
+      model.center_window_size,
       batch_dims,
       non_blank_targets_spatial_dim
     )
@@ -176,7 +191,7 @@ def viterbi_training(
   aux_loss_layers = config.typed_value("aux_loss_layers")
   aux_loss_scales = config.typed_value("aux_loss_scales", ([1.0] * len(aux_loss_layers)) if aux_loss_layers else None)
   aux_loss_focal_loss_factors = config.typed_value("aux_loss_focal_loss_factors", ([0.0] * len(aux_loss_layers)) if aux_loss_layers else None)
-  aux_loss_type = config.typed_value("aux_loss_type", "ctc")
+  aux_loss_type = "ctc"  # config.typed_value("aux_loss_type", "ctc")
   force_inefficient_loop = config.typed_value("force_inefficient_loop", False)
 
   if data.feature_dim and data.feature_dim.dimension == 1:
@@ -237,7 +252,7 @@ def viterbi_training(
           align_targets_packed, _ = rf.pack_padded(
             align_targets, dims=batch_dims + [align_targets_spatial_dim], enforce_sorted=False, out_dim=pack_dim)
 
-          enc_log_probs = rf.log_softmax(aux_logits_packed, axis=model.target_dim)
+          enc_log_probs = rf.log_softmax(aux_logits_packed, axis=model.align_target_dim)
           # enc_log_probs = utils.copy_tensor_replace_dim_tag(enc_log_probs, enc_spatial_dim, align_targets_spatial_dim)
           aux_loss = rf.cross_entropy(
             target=align_targets_packed,
@@ -330,7 +345,11 @@ def viterbi_training(
 
     # ------------------- label loop -------------------
 
-    if type(model.label_decoder) is SegmentalAttLabelDecoder or force_inefficient_loop:
+    if (
+            type(model.label_decoder) is SegmentalAttLabelDecoder or
+            type(model.label_decoder) is GlobalAttDecoder or
+            force_inefficient_loop
+    ):
       label_logits, label_decoder_outputs = label_model_viterbi_training(
         model=model.label_decoder,
         enc_args=enc_args,
@@ -345,7 +364,10 @@ def viterbi_training(
         separate_blank_loss=model.use_joint_model,
       )
     else:
-      assert type(model.label_decoder) is SegmentalAttEfficientLabelDecoder
+      assert (
+                     type(model.label_decoder) is SegmentalAttEfficientLabelDecoder or
+                      type(model.label_decoder) is GlobalAttEfficientDecoder
+      )
       label_logits, label_decoder_outputs = label_model_viterbi_training_efficient(
         model=model.label_decoder,
         enc_args=enc_args,
@@ -377,13 +399,17 @@ def viterbi_training(
         batch_dims=batch_dims,
         beam_dim=beam_dim,
       )
-    elif model.blank_decoder_version in (3, 4, 5, 6, 7):
+    elif model.blank_decoder_version in (3, 4, 5, 6, 7, 8, 9):
       assert isinstance(
         model.blank_decoder, BlankDecoderV3) or isinstance(
         model.blank_decoder, BlankDecoderV4) or isinstance(
         model.blank_decoder, BlankDecoderV5) or isinstance(
         model.blank_decoder, BlankDecoderV6) or isinstance(
-        model.blank_decoder, BlankDecoderV7
+        model.blank_decoder, BlankDecoderV7) or isinstance(
+        model.blank_decoder, BlankDecoderV8) or isinstance(
+        model.blank_decoder, BlankDecoderV9) or isinstance(
+        model.blank_decoder, BlankDecoderV10) or isinstance(
+        model.blank_decoder, BlankDecoderV11
       )
 
       label_states_unmasked = utils.get_unmasked(
@@ -404,7 +430,7 @@ def viterbi_training(
           emit_blank_target_dim=emit_blank_target_dim,
           batch_dims=batch_dims,
         )
-      elif model.blank_decoder_version == 4:
+      elif model.blank_decoder_version in (4, 11):
         emit_log_prob, blank_log_prob = blank_model_viterbi_training_v4(
           model=model.blank_decoder,
           enc_args=enc_args,
@@ -437,7 +463,7 @@ def viterbi_training(
           emit_blank_target_dim=emit_blank_target_dim,
           batch_dims=batch_dims,
         )
-      else:  # BlankDecoderV7
+      elif model.blank_decoder_version == 7:
         # pad center positions to account for virtual label at position -1 to correctly calculate emit distances
         emit_positions, emit_positions_spatial_dim = rf.pad(
           center_positions,
@@ -458,6 +484,26 @@ def viterbi_training(
           label_states_unmasked=label_states_unmasked,
           label_states_unmasked_spatial_dim=align_targets_spatial_dim,
           emit_positions_unmasked=emit_positions_unmasked,
+          emit_ground_truth=emit_ground_truth,
+          emit_blank_target_dim=emit_blank_target_dim,
+          batch_dims=batch_dims,
+        )
+      elif model.blank_decoder_version == 8:
+        emit_log_prob, blank_log_prob = blank_model_viterbi_training_v8(
+          model=model.blank_decoder,
+          enc_args=enc_args,
+          enc_spatial_dim=enc_spatial_dim,
+          emit_ground_truth=emit_ground_truth,
+          emit_blank_target_dim=emit_blank_target_dim,
+          batch_dims=batch_dims,
+        )
+      else:  # BlankDecoderV9 or V10
+        emit_log_prob, blank_log_prob = blank_model_viterbi_training_v9(
+          model=model.blank_decoder,
+          energy_in=energy_in[0],  # Tuple[Tensor, Dim] -> Tensor
+          energy_in_spatial_dim=energy_in[1],  # Tuple[Tensor, Dim] -> Dim
+          enc_spatial_dim=enc_spatial_dim,
+          non_blank_mask=non_blank_mask,
           emit_ground_truth=emit_ground_truth,
           emit_blank_target_dim=emit_blank_target_dim,
           batch_dims=batch_dims,
@@ -555,11 +601,14 @@ def full_sum_training(
   enc_args, enc_spatial_dim = model.encoder.encode(
     data, in_spatial_dim=data_spatial_dim, collected_outputs=collected_outputs)
 
+  # if config.bool("debug", False):
+  #   print("\n\nseq_tags", seq_tags.raw_tensor)
+
   if aux_loss_layers:
     for i, layer_idx in enumerate(aux_loss_layers):
       if layer_idx > len(model.encoder.layers):
         continue
-      linear = getattr(model, f"enc_aux_logits_{layer_idx}")
+      linear = getattr(model.encoder, f"enc_aux_logits_{layer_idx}")
       aux_logits = linear(collected_outputs[str(layer_idx - 1)])
       aux_loss = rf.ctc_loss(
         logits=aux_logits,
@@ -580,7 +629,7 @@ def full_sum_training(
   segment_starts, segment_lens, center_positions = utils.get_segment_starts_and_lens(
     rf.sequence_mask(batch_dims + [enc_spatial_dim]),  # this way, every frame is interpreted as non-blank
     enc_spatial_dim,
-    model,
+    model.center_window_size,
     batch_dims,
     enc_spatial_dim
   )
@@ -755,7 +804,7 @@ def full_sum_training(
           )
   else:
     label_model_full_sum_training(
-      model=model.label_decoder,
+      model=model,
       enc_args=enc_args,
       enc_spatial_dim=enc_spatial_dim,
       non_blank_targets=non_blank_targets,

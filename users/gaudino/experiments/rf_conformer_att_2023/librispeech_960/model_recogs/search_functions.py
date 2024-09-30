@@ -51,7 +51,7 @@ def remove_blank_and_eos(hyps: Tensor, max_out_len, batch_dims, beam_dim, target
         name="out_seq_lens",
         dims=[beam_dim, batch_dims[0]],
         dtype="int32",
-        raw_tensor=torch.tensor(out_seq_lens, dtype=torch.int32),
+        raw_tensor=out_seq_lens.to(torch.int32),
     )
 
     seq_targets = seq_targets_.stack(axis=batch_dims[0])

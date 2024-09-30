@@ -383,6 +383,113 @@ def add_transducer_fullsum_output_layer(
     return name
 
 
+def add_transducer_mbr_layers(
+    network: Dict,
+    from_list: Union[str, List[str]],
+):
+    network.update({
+        "nbest_classes_size_dense": {
+            "class": "reinterpret_data",
+            "from": "data:nbest_classes_size",
+            "set_sparse": False,
+        },
+        "nbest_classes_size_int32": {
+            "class": "cast",
+            "dtype": "int32",
+            "from": "nbest_classes_size_dense",
+        },
+        "nbest_risk_dense": {
+            "class": "reinterpret_data",
+            "from": "data:nbest_risk",
+            "set_sparse": False,
+        },
+        "nbest_risk_float32": {
+            "class": "cast",
+            "dtype": "float32",
+            "from": "nbest_risk_dense",
+        },
+        "nbest_score_float32": {
+            "class": "cast",
+            "dtype": "float32",
+            "from": "data:nbest_score",
+        },
+        "nbest_classes_int32": {
+            "class": "cast",
+            "dtype": "int32",
+            "from": "data:nbest_classes",
+        },
+        "nbest_classes_sparse": {
+            "class": "reinterpret_data",
+            "set_sparse": True,
+            "set_sparse_dim": 88,
+            "from": "nbest_classes_int32",
+        },
+        "nbest_embedding": {
+            "L2": 5e-06,
+            "activation": None,
+            "class": "linear",
+            "from": "nbest_classes_sparse",
+            "n_out": 128,
+            "reuse_params": "output/rec/embedding",
+            "with_bias": False,
+        },
+        "nbest_mask_embedding": {
+            "axes": "T",
+            "class": "pad",
+            "from": "nbest_embedding",
+            "mode": "constant",
+            "padding": (1, 0),
+            "value": 0,
+        },
+        "nbest_label_lm_1": {
+            "L2": 5e-06,
+            "activation": "tanh",
+            "class": "linear",
+            "dropout": 0.25,
+            "from": "nbest_mask_embedding",
+            "n_out": 640,
+            "reuse_params": "output/rec/label_lm_1",
+        },
+        "nbest_label_lm_2": {
+            "L2": 5e-06,
+            "activation": "tanh",
+            "class": "linear",
+            "dropout": 0.25,
+            "from": "nbest_label_lm_1",
+            "n_out": 640,
+            "reuse_params": "output/rec/label_lm_2",
+        },
+        "nbest_MBR_loss": {
+            "L2": 5e-06,
+            "blank_label": 0,
+            "class": "iterative_nbest_mbr",
+            "dropout": 0.25,
+            "from": from_list + [
+                "nbest_label_lm_2",
+                "nbest_classes_sparse",
+                "nbest_score_float32",
+                "nbest_risk_float32",
+                "nbest_classes_size_int32",
+            ],
+            "loss": "as_is",
+            "nbest": 4,
+            "renorm_scale": 2.5,
+            "reuse_joint": ("_joint", 1024, "tanh"),
+            "reuse_output": ("_output", 88),
+            "reuse_params": {
+                "map": {
+                    "W_joint": "output/rec/joint_encoding",
+                    "W_output": "output/rec/output",
+                    "b_joint": "output/rec/joint_encoding",
+                    "b_output": "output/rec/output",
+                }
+            },
+            "rnnt_loss_scale": 0.05,
+            "use_nbest_score": True,
+        },
+    })
+
+
 def make_conformer_transducer_model(
     num_outputs: int,
     conformer_args: Optional[Dict] = None,
@@ -397,7 +504,11 @@ def make_conformer_transducer_model(
     if recognition:
         python_code = []
     else:
-        if specaug_old is not None:
+        if specaug_old is None:
+            from_list, python_code = add_specaug_layer_v2(network, from_list=from_list)
+        elif specaug_old is False:
+            python_code = []  # no specaugment
+        else:
             sort_layer2 = specaug_old.pop("sort_layer2", False)
             specaug_func = add_specaug_layer_sort_layer2 if sort_layer2 else add_specaug_layer
             specaug_old_args = {
@@ -408,8 +519,6 @@ def make_conformer_transducer_model(
                 **specaug_old,
             }
             from_list, python_code = specaug_func(network, from_list=from_list, **specaug_old_args)
-        else:
-            from_list, python_code = add_specaug_layer_v2(network, from_list=from_list)
 
     if conformer_type == "wei":
         network, from_list = add_vgg_stack_wei(network, from_list)
@@ -459,11 +568,29 @@ def make_conformer_transducer_model(
         if recognition:
             python_code.append(subtract_ilm)
         else:
-            with open(os.path.join(os.path.dirname(__file__), "returnn_layers.py")) as f:
+            with open(os.path.join(os.path.dirname(__file__), "returnn_layers_compressed_concat.py")) as f:
                 compressed_concat_layer_str = f.read()
             python_code += [
                 compressed_concat_layer_str,
                 rnnt_loss_compressed,
+            ]
+    elif output_args.get("transducer_training_stage", "viterbi") == "mbr":
+        add_transducer_fullsum_output_layer(  # TODO: needs changes for mbr?
+            network, from_list="encoder", num_outputs=num_outputs, recognition=recognition,
+            **{**conformer_args_full, **(output_args or {})}
+        )
+        if recognition:
+            python_code.append(subtract_ilm)
+        else:
+            add_transducer_mbr_layers(network, from_list=["encoder"])
+            with open(os.path.join(os.path.dirname(__file__), "returnn_layers_compressed_concat.py")) as f:
+                compressed_concat_layer_str = f.read()
+            with open(os.path.join(os.path.dirname(__file__), "returnn_layers_nbest_mbr_loss.py")) as f:
+                nbest_mbr_loss_layer_str = f.read()
+            python_code += [
+                compressed_concat_layer_str,
+                rnnt_loss_compressed,
+                nbest_mbr_loss_layer_str,
             ]
     if not recognition:
         network.update({

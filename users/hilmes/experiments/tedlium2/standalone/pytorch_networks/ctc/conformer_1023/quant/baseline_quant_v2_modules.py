@@ -344,7 +344,7 @@ class QuantizedMultiheadAttention(nn.Module):
             mask = mask.view(batch_dim, 1, 1, mask.size(1))
             dot = dot.masked_fill(mask, -float('inf'))
         alpha = self.softmax(dot)
-        alpha = self.dropout(alpha)
+        #alpha = self.dropout(alpha)
 
         if self.bit_prec_Av < 16:
             alpha = self.a_quantizer(alpha)

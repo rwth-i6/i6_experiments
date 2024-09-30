@@ -76,17 +76,14 @@ class Transcriber(nn.Module):
         """
 
         squeezed_features = torch.squeeze(input)
-        breakpoint()
         with torch.no_grad():
             audio_features, audio_features_len = self.feature_extraction(squeezed_features, lengths)
 
         mask = mask_tensor(audio_features, audio_features_len)
 
-        breakpoint()
 
         encoder_out, out_mask = self.encoder(audio_features, mask)
 
-        breakpoint()
 
         encoder_out = self.mapping(encoder_out)
         encoder_out_lengths = torch.sum(out_mask, dim=1)  # [B, T] -> [B]

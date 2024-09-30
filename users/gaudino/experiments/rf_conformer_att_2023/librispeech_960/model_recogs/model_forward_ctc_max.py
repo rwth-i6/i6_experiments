@@ -220,7 +220,6 @@ def model_forward_ctc_max(
     if i > 0 and length_normalization_exponent != 0:
         seq_log_prob *= (1 / i) ** length_normalization_exponent
 
-    breakpoint()
     seq_log_prob = seq_log_prob * model.search_args.get("att_scale", 1.0) + ctc_scores * model.search_args.get("ctc_scale", 0.0)
 
     out_spatial_dim = ground_truth.dims[1]

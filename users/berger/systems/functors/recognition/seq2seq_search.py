@@ -33,6 +33,7 @@ class Seq2SeqSearchFunctor(
         lm_scales: Optional[List[float]] = None,
         prior_scales: Optional[List[float]] = None,
         prior_args: Optional[Dict] = None,
+        prior_epoch: Optional[int] = None,
         lattice_to_ctm_kwargs: Optional[Dict] = None,
         label_unit: str = "phoneme",
         label_tree_args: Optional[Dict] = None,
@@ -45,6 +46,7 @@ class Seq2SeqSearchFunctor(
         rqmt_update: Optional[dict] = None,
         search_stats: bool = False,
         seq2seq_v2: bool = False,
+        mini_returnn: bool = False,
         **kwargs,
     ) -> List[Dict]:
         if am_args is None:
@@ -102,7 +104,15 @@ class Seq2SeqSearchFunctor(
             crp.language_model_config.scale = lm_scale  # type: ignore
 
             if label_scorer_args.get("use_prior", False):
-                prior_file = self._get_prior_file(prior_config=prior_config, checkpoint=checkpoint, **prior_args)
+                if prior_epoch is None:
+                    prior_checkpoint = checkpoint
+                else:
+                    prior_checkpoint = self._get_checkpoint(train_job.job, prior_epoch)
+                prior_file = self._get_prior_file(
+                    prior_config=prior_config,
+                    checkpoint=prior_checkpoint,
+                    **prior_args,
+                )
                 mod_label_scorer_args["prior_file"] = prior_file
             else:
                 mod_label_scorer_args.pop("prior_file", None)
@@ -134,6 +144,7 @@ class Seq2SeqSearchFunctor(
                     onnx_model = self._make_onnx_model(
                         returnn_config=recog_config.config,
                         checkpoint=checkpoint,
+                        mini_returnn=mini_returnn,
                     )
                     feature_flow = self._get_onnx_feature_flow_for_label_scorer(
                         label_scorer=label_scorer,
@@ -146,10 +157,12 @@ class Seq2SeqSearchFunctor(
                     enc_model = self._make_onnx_model(
                         returnn_config=recog_config.config.encoder_config,
                         checkpoint=checkpoint,
+                        mini_returnn=mini_returnn,
                     )
                     dec_model = self._make_onnx_model(
                         returnn_config=recog_config.config.decoder_config,
                         checkpoint=checkpoint,
+                        mini_returnn=mini_returnn,
                     )
                     feature_flow = self._get_onnx_feature_flow_for_label_scorer(
                         label_scorer=label_scorer,

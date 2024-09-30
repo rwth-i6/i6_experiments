@@ -9,12 +9,17 @@ from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segment
   viterbi_training,
   full_sum_training,
 )
+from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.pipelines.pipeline_ls_conf.train import get_common_train_opts_rqmt
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.pipelines.pipeline_ls_conf.checkpoints import (
   external_checkpoints,
   default_import_model_name,
 )
 from i6_experiments.users.schmitt.custom_load_params import load_missing_params
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.labels.v2.librispeech.label_singletons import LibrispeechBPE10025_CTC_ALIGNMENT
+
+from i6_core.returnn.training import PtCheckpoint
+
+from sisyphus import Path
 
 
 def _get_optimizer_alias(optimizer_opts: Dict):
@@ -27,37 +32,154 @@ def _get_reduced_input_len(input_len: int, config_builder: LibrispeechSegmentalA
   return int(input_len - config_builder.red_subtrahend + config_builder.red_factor - 1) // config_builder.red_factor
 
 
+def train_center_window_att(
+        alias: str,
+        config_builder: LibrispeechSegmentalAttConformerConfigBuilderRF,
+        n_epochs: int,
+        time_rqmt: int = 168,
+        batch_size: int = 15_000,
+        use_mgpu: bool = True,
+        chunked_data_len: Optional[int] = None,
+        nb_loss_scale: float = 1.0,
+        b_loss_scale: float = 1.0,
+        ctc_aux_loss_layers: Optional[Tuple[int, ...]] = None,
+        ctc_aux_loss_focal_loss_factors: Optional[Tuple[float, ...]] = None,
+        ctc_aux_loss_scales: Optional[Tuple[float, ...]] = None,
+        use_curriculum_learning: bool = True,
+        lr_scheduling_opts: Optional[Dict] = None,
+        training_type: str = "fixed-path",
+        regularization_type: str = "v1",
+        checkpoint_alias: Optional[str] = None,
+        checkpoint_path: Optional[PtCheckpoint] = None,
+        use_speed_pert: bool = True,
+        gpu_mem_rqmt: int = 11,
+        keep_epochs: Optional[List[int]] = None,
+        filter_data_len: Optional[float] = None,
+        filter_target_len: Optional[float] = None,
+        accum_grad_multiple_step: int = 4,
+        hdf_targets: Optional[Dict[str, Path]] = None,
+):
+  train_opts, train_rqmt, alias_ = get_common_train_opts_rqmt(
+    n_epochs=n_epochs,
+    time_rqmt=time_rqmt,
+    batch_size=batch_size,
+    use_mgpu=use_mgpu,
+    ctc_aux_loss_layers=ctc_aux_loss_layers,
+    ctc_aux_loss_focal_loss_factors=ctc_aux_loss_focal_loss_factors,
+    ctc_aux_loss_scales=ctc_aux_loss_scales,
+    use_curriculum_learning=use_curriculum_learning,
+    lr_scheduling_opts=lr_scheduling_opts,
+    regularization_type=regularization_type,
+    use_speed_pert=use_speed_pert,
+    checkpoint_alias=checkpoint_alias,
+    checkpoint_path=checkpoint_path,
+    training_type=training_type,
+    gpu_mem_rqmt=gpu_mem_rqmt,
+    keep_epochs=keep_epochs,
+    filter_data_len=filter_data_len,
+    filter_target_len=filter_target_len,
+    accum_grad_multiple_step=accum_grad_multiple_step,
+  )
+
+  alias += (
+    f"{alias_}"
+    f"_{'chunked-data-len-' + str(chunked_data_len) if chunked_data_len else 'no-chunking'}"
+    f"{'_nb-loss-x' + str(nb_loss_scale) if nb_loss_scale != 1.0 else ''}"
+    f"{'_b-loss-x' + str(b_loss_scale) if b_loss_scale != 1.0 else ''}"
+  )
+
+  train_opts.update({
+    "nb_loss_scale": nb_loss_scale,
+    "b_loss_scale": b_loss_scale,
+  })
+
+  if training_type == "full-sum":
+    train_opts.update({
+      "train_def": full_sum_training,
+      "train_step_func": _returnn_v2_full_sum_train_step,
+    })
+    train_opts["dataset_opts"].update({
+      "target_is_alignment": False,
+      "seq_postfix": None,
+    })
+  else:
+    assert training_type == "fixed-path" and hdf_targets is not None
+    train_opts.update({
+      "train_def": viterbi_training,
+      "train_step_func": _returnn_v2_train_step,
+    })
+    train_opts["train_def"] = viterbi_training
+    train_opts["dataset_opts"].update({
+      "hdf_targets": hdf_targets,
+      "target_is_alignment": True,
+      # "seq_postfix": None,
+    })
+
+  if chunked_data_len:
+    train_opts.update({
+      "chunking": (
+        {
+          "data": chunked_data_len + config_builder.red_subtrahend,
+          "targets": _get_reduced_input_len(chunked_data_len, config_builder)
+        },
+        {"data": chunked_data_len // 2, "targets": _get_reduced_input_len(chunked_data_len // 2, config_builder)},
+      ),
+      "min_chunk_size": {"data": config_builder.red_subtrahend + 1, "targets": 1}
+    })
+
+  train_exp = SegmentalTrainExperiment(
+    config_builder=config_builder,
+    alias=alias,
+    num_epochs=n_epochs,
+    train_rqmt=train_rqmt,
+    train_opts=train_opts
+  )
+  checkpoints, model_dir, learning_rates = train_exp.run_train()
+
+  checkpoint = {
+    "model_dir": model_dir,
+    "learning_rates": learning_rates,
+    "key": "dev_loss_non_blank_ce" if training_type == "fixed-path" else "dev_loss_full_sum_loss",
+    "checkpoints": checkpoints,
+    "n_epochs": n_epochs
+  }
+  yield alias, checkpoint
+
+
 def train_center_window_att_viterbi_from_scratch(
         alias: str,
         config_builder: LibrispeechSegmentalAttConformerConfigBuilderRF,
         n_epochs_list: Tuple[int, ...],
         time_rqmt: int = 80,
-        use_speed_pert: bool = False,
         batch_size: int = 15_000,
         use_mgpu: bool = True,
         chunked_data_len: Optional[int] = None,
         nb_loss_scale: float = 1.0,
         b_loss_scale: float = 1.0,
         do_realignments: bool = False,
-        ce_aux_loss_layers: Optional[Tuple[int, ...]] = None,
-        ce_aux_loss_focal_loss_factors: Optional[Tuple[float, ...]] = None,
-        ce_aux_loss_scales: Optional[Tuple[float, ...]] = None,
+        ctc_aux_loss_layers: Optional[Tuple[int, ...]] = None,
+        ctc_aux_loss_focal_loss_factors: Optional[Tuple[float, ...]] = None,
+        ctc_aux_loss_scales: Optional[Tuple[float, ...]] = None,
+        use_curriculum_learning: bool = True,
+        lr_scheduling_type: str = "dyn_lr_piecewise_linear",
 ):
   for n_epochs in n_epochs_list:
     alias += (
       f"/{'viterbi' if do_realignments else 'fixed-path'}-train_from_scratch/{n_epochs}-ep_bs-{batch_size}"
-      f"{'_mgpu-4' if use_mgpu else ''}_{'w' if use_speed_pert else 'wo'}-speed-pert"
+      f"{'_mgpu-4' if use_mgpu else ''}_wo-speed-pert"
       f"_{'chunked-data-len-' + str(chunked_data_len) if chunked_data_len else 'no-chunking'}/"
       f"_nb-loss-x{nb_loss_scale}_b-loss-x{b_loss_scale}"
-      f"_ce-aux-{'-'.join(map(str, ce_aux_loss_layers)) if ce_aux_loss_layers else 'None'}"
-      f"_scales-{'-'.join(map(str, ce_aux_loss_scales)) if ce_aux_loss_scales else 'None'}"
-      f"_aux-focal-loss-{'-'.join(map(str, ce_aux_loss_focal_loss_factors)) if ce_aux_loss_focal_loss_factors else 'None'}"
+      f"_ctc-aux-{'-'.join(map(str, ctc_aux_loss_layers)) if ctc_aux_loss_layers else 'None'}"
+      f"_scales-{'-'.join(map(str, ctc_aux_loss_scales)) if ctc_aux_loss_scales else 'None'}"
+      f"_aux-focal-loss-{'-'.join(map(str, ctc_aux_loss_focal_loss_factors)) if ctc_aux_loss_focal_loss_factors else 'None'}"
+      f"_{'curriculum' if use_curriculum_learning else 'no-curriculum'}"
+      f"_lr-{lr_scheduling_type}"
     )
 
     train_opts = {
       "dataset_opts": {
-        "use_speed_pert": use_speed_pert,
-        "epoch_wise_filter": {(1, 5): {"max_mean_len": 1000}},
+        "use_speed_pert": False,  # not implemented yet for fixed-path training
+        # "epoch_wise_filter": {(1, 5): {"max_mean_len": 1000}},
         "hdf_targets": LibrispeechBPE10025_CTC_ALIGNMENT.alignment_paths,
       },
       # "import_model_train_epoch1": None,
@@ -66,13 +188,7 @@ def train_center_window_att_viterbi_from_scratch(
       "rf_att_dropout_broadcast": False,
       "batch_size": batch_size,
       "batching": "laplace:.1000",
-      "lr_opts": {
-        "type": "dyn_lr_piecewise_linear",
-        "batch_size": batch_size,
-        "num_epochs": n_epochs,
-        "learning_rate": 1e-3,
-      },
-      "aux_loss_layers": ce_aux_loss_layers,
+      "aux_loss_layers": ctc_aux_loss_layers,
       "specaugment_steps": (5_000, 15_000, 25_000),
       "grad_scaler": None,
       "gradient_clip_global_norm": 5.0,
@@ -92,12 +208,32 @@ def train_center_window_att_viterbi_from_scratch(
       "training_do_realignments": do_realignments,
     }
 
-    if ce_aux_loss_layers:
+    if lr_scheduling_type == "dyn_lr_piecewise_linear":
+      train_opts["lr_opts"] = {
+        "type": "dyn_lr_piecewise_linear",
+        "batch_size": batch_size,
+        "num_epochs": n_epochs,
+        "learning_rate": 1e-3,
+      }
+    else:
+      assert lr_scheduling_type == "const_then_linear"
+      train_opts["lr_opts"] = {
+        "type": "const_then_linear",
+        "const_lr": 1e-4,
+        "const_frac": 1 / 3,
+        "final_lr": 1e-6,
+        "num_epochs": n_epochs
+      }
+
+    if use_curriculum_learning:
+      train_opts["dataset_opts"]["epoch_wise_filter"] = {(1, 5): {"max_mean_len": 1000}}
+
+    if ctc_aux_loss_layers:
       train_opts["aux_loss_type"] = "ce"
-    if ce_aux_loss_focal_loss_factors:
-      train_opts["aux_loss_focal_loss_factors"] = ce_aux_loss_focal_loss_factors
-    if ce_aux_loss_scales:
-      train_opts["aux_loss_scales"] = ce_aux_loss_scales
+    if ctc_aux_loss_focal_loss_factors:
+      train_opts["aux_loss_focal_loss_factors"] = ctc_aux_loss_focal_loss_factors
+    if ctc_aux_loss_scales:
+      train_opts["aux_loss_scales"] = ctc_aux_loss_scales
 
     if chunked_data_len:
       train_opts.update({
@@ -110,15 +246,6 @@ def train_center_window_att_viterbi_from_scratch(
         ),
         "min_chunk_size": {"data": config_builder.red_subtrahend + 1, "targets": 1}
       })
-
-    if use_speed_pert:
-      train_opts["preload_from_files"] = {
-        "pretrained_ctc_weights": {
-          "filename": external_checkpoints[default_import_model_name + "_w_ctc"],
-          "init_for_train": True,
-          "ignore_missing": False,
-        }
-      }
 
     train_rqmt = {
       "time": time_rqmt,
@@ -154,6 +281,7 @@ def train_center_window_att_full_sum_from_scratch(
         config_builder: LibrispeechSegmentalAttConformerConfigBuilderRF,
         n_epochs_list: Tuple[int, ...],
         time_rqmt: int = 80,
+        gpu_mem_rqmt: int = 11,
         use_speed_pert: bool = False,
         batch_size: int = 15_000,
         use_mgpu: bool = True,
@@ -162,24 +290,24 @@ def train_center_window_att_full_sum_from_scratch(
         alignment_interpolation_factor: float = 0.5,
         train_on_viterbi_paths: bool = False,
         only_use_blank_model: bool = False,
+        checkpoint_alias: Optional[str] = None,
+        lr_scheduling_type: str = "dyn_lr_piecewise_linear",
+        checkpoint_path: Optional[PtCheckpoint] = None,
 ):
-  # # TODO: do this in a nicer way
-  # config_builder = copy.deepcopy(config_builder)
-  # config_builder.get_model_func = _returnn_v2_get_model_for_full_sum_training
   for n_epochs in n_epochs_list:
     alias += (
-      f"/full-sum-train_from_scratch/{n_epochs}-epochs_bs-{batch_size}"
+      f"/full-sum-train_from_{'scratch' if checkpoint_alias is None else checkpoint_alias}/{n_epochs}-epochs_bs-{batch_size}"
       f"{'_mgpu-4' if use_mgpu else ''}_{'w' if use_speed_pert else 'wo'}-sp"
       f"_beams-{beam_size}_lat-down-{lattice_downsampling}_{alignment_interpolation_factor}-interp"
-      f"_{'ce' if train_on_viterbi_paths else 'sum'}-loss"
+      f"_{'ce' if train_on_viterbi_paths else 'sum'}-loss_lr-{lr_scheduling_type}"
     )
 
     train_opts = {
       "dataset_opts": {
         "use_speed_pert": use_speed_pert,
-        "epoch_wise_filter": {(1, 5): {"max_mean_len": 1000}},
         "hdf_targets": {},  # do not use alignment for full sum training
         "seq_postfix": None,
+        "target_is_alignment": False,
       },
       # "import_model_train_epoch1": None,
       "accum_grad_multiple_step": 4,
@@ -187,12 +315,6 @@ def train_center_window_att_full_sum_from_scratch(
       "rf_att_dropout_broadcast": False,
       "batch_size": batch_size,
       "batching": "laplace:.1000",
-      "lr_opts": {
-        "type": "dyn_lr_piecewise_linear",
-        "batch_size": batch_size,
-        "num_epochs": n_epochs,
-        "learning_rate": 1e-3,
-      },
       "aux_loss_layers": None,
       "specaugment_steps": (5_000, 15_000, 25_000),
       "grad_scaler": None,
@@ -211,6 +333,34 @@ def train_center_window_att_full_sum_from_scratch(
       "train_step_func": _returnn_v2_full_sum_train_step,
     }
 
+    if checkpoint_alias is not None:
+      train_opts["preload_from_files"] = {
+        "pretrained_global_att_params": {
+          "filename": external_checkpoints[checkpoint_alias] if checkpoint_path is None else checkpoint_path,
+          "init_for_train": True,
+          "ignore_missing": True,  # because of length model params
+        }
+      }
+    else:
+      train_opts["dataset_opts"]["epoch_wise_filter"] = {(1, 5): {"max_mean_len": 1000}}
+
+    if lr_scheduling_type == "dyn_lr_piecewise_linear":
+      train_opts["lr_opts"] = {
+        "type": "dyn_lr_piecewise_linear",
+        "batch_size": batch_size,
+        "num_epochs": n_epochs,
+        "peak_lr": 1e-3,
+      }
+    else:
+      assert lr_scheduling_type == "const_then_linear"
+      train_opts["lr_opts"] = {
+        "type": "const_then_linear",
+        "const_lr": 1e-4,
+        "const_frac": 1 / 3,
+        "final_lr": 1e-6,
+        "num_epochs": n_epochs
+      }
+
     full_sum_training_opts = {
       "alignment_interpolation_factor": alignment_interpolation_factor,
       "lattice_downsampling": lattice_downsampling,
@@ -223,6 +373,7 @@ def train_center_window_att_full_sum_from_scratch(
 
     train_rqmt = {
       "time": time_rqmt,
+      "gpu_mem": gpu_mem_rqmt,
     }
     if use_mgpu:
       train_rqmt.update({
@@ -243,7 +394,7 @@ def train_center_window_att_full_sum_from_scratch(
     checkpoint = {
       "model_dir": model_dir,
       "learning_rates": learning_rates,
-      "key": "dev_loss_non_blank_ce",
+      "key": "dev_loss_full_sum_loss",
       "checkpoints": checkpoints,
       "n_epochs": n_epochs
     }
@@ -264,6 +415,11 @@ def train_center_window_att_viterbi_import_global_tf(
         optimizer_opts: Optional[Dict] = None,
         reset_eos_params: bool = False,
         batch_size: int = 15_000,
+        accum_grad_multiple_step: int = 2,
+        specaugment_steps: Tuple[int, ...] = (0, 1000, 2000),
+        gradient_clip_global_norm: float = 0.0,
+        rf_att_dropout_broadcast: bool = False,
+        pos_emb_dropout: float = 0.1,
 ):
   if not config_builder.use_att_ctx_in_state and "lstm" in config_builder.label_decoder_state:
     # only randomly init FF weights, since only the input dim of the lstm layer is different

@@ -42,6 +42,8 @@ from i6_experiments.users.zeineldeen.models.lm.transformer_lm import Transformer
 
 from i6_core.returnn.training import Checkpoint
 
+from i6_experiments.users.gaudino.experiments.conformer_att_2023.tedlium2.model_ckpt_info import models
+
 
 train_jobs_map = {}  # dict[str, ReturnnTrainJob]
 train_job_avg_ckpt = {}
@@ -321,17 +323,9 @@ def ted2_recogs_lm():
     base_v1_args, exp_name = get_base_v1_args(lr, ep, enc_drop=enc_drop)
     args = copy.deepcopy(base_v1_args)
 
-    from i6_experiments.users.gaudino.experiments.conformer_att_2023.tedlium2.model_ckpt_info import (
-        models,
+    from i6_experiments.users.gaudino.experiments.conformer_att_2023.tedlium2.configs.ted2_recogs import (
+        adjust_enc_args_to_model_name,
     )
-
-    def adjust_enc_args_to_model_name(enc_args, model_name):
-        new_enc_args = copy.deepcopy(enc_args)
-        if "enc_layer_w_ctc" in models[model_name].keys():
-            new_enc_args.enc_layer_w_ctc = models[model_name]["enc_layer_w_ctc"]
-        if "no_ctc" in models[model_name].keys():
-            new_enc_args.with_ctc = not models[model_name]["no_ctc"]
-        return new_enc_args
 
     def get_train_data(**kwargs):
         train_data = build_training_datasets(
@@ -459,20 +453,85 @@ def ted2_recogs_lm():
             "prior_scale": [0.17],  # dev/test 9.27/8.46 -> 9.23/8.37
             "lm_scale": [0.4],
         },
+        "model_ctc_only_gauss1.0_win5": {
+            "prior_scale": [0.15],
+            "lm_scale": [0.55],
+        },
+        "model_ctc_only_gauss1.0_win5_noEnc": {
+            "prior_scale": [0.15],
+            "lm_scale": [0.35],
+        },
+        "model_ctc_only_win1": {
+            "prior_scale": [0.2],  # big jump ?
+            "lm_scale": [0.55],
+        },
+        "model_ctc_only_gauss0.1_win5": {
+            "prior_scale": [0.13],  # no improvement
+            "lm_scale": [0.35],
+        },
+        "model_ctc_only_gauss0.5_win5": {
+            "prior_scale": [0.2],
+            "lm_scale": [0.45],
+        },
+        "model_ctc_only_gauss2.0_win5": {
+            "prior_scale": [0.2],
+            "lm_scale": [0.5],
+        },
+        "model_ctc_only_gauss10.0_win5": {
+            "prior_scale": [0.17],
+            "lm_scale": [0.6],
+        },
+        "model_ctc_only_gauss1.0_win10": {
+            "prior_scale": [0.17],
+            "lm_scale": [0.6],
+        },
+        "model_ctc_only_gauss1.0_win20": {
+            "prior_scale": [0.15],
+            "lm_scale": [0.45],
+        },
+        "model_ctc_only_gauss1.0_win50": {
+            "prior_scale": [0.2],
+            "lm_scale": [0.55],
+        },
+        "model_ctc_only_win1_noEnc": {
+            "prior_scale": [0.17],
+            "lm_scale": [0.5],
+        },
+        "model_ctc_only_gauss0.1_win5_noEnc": {
+            "prior_scale": [0.17],
+            "lm_scale": [0.55],
+        },
+        "model_ctc_only_gauss0.5_win5_noEnc": {
+            "prior_scale": [0.15],
+            "lm_scale": [0.55],
+        },
+        "model_ctc_only_gauss2.0_win5_noEnc": {
+            "prior_scale": [0.15],
+            "lm_scale": [0.5],
+        },
+        "model_ctc_only_gauss10.0_win5_noEnc": {
+            "prior_scale": [0.17],
+            "lm_scale": [0.55],
+        },
+        "model_ctc_only_gauss1.0_win10_noEnc": {
+            "prior_scale": [0.17],
+            "lm_scale": [0.55],
+        },
+        "model_ctc_only_gauss1.0_win20_noEnc": {
+            "prior_scale": [0.15],
+            "lm_scale": [0.45],
+        },
+        "model_ctc_only_gauss1.0_win50_noEnc": {
+            "prior_scale": [0.15],
+            "lm_scale": [0.55],
+        },
     }
 
-    for model_name in [
-        "model_baseline",
-        "model_ctc0.5_att0.5",
-        "model_ctc0.4_att0.6",
-        "model_ctc0.3_att0.7",
-        "model_ctc0.2_att0.8",
-        "model_ctc0.1_att0.9",
-        "model_ctc_only",
-    ]:
+    for model_name in list(ctc_prior_model_names.keys())[-16:]:
         # for model_name in ctc_prior_model_names.keys():
         for prior_scale, lm_scale, beam_size in product(
             ctc_prior_model_names[model_name]["prior_scale"],
+            # [0.35, 0.4, 0.45, 0.5, 0.55, 0.6],
             ctc_prior_model_names[model_name]["lm_scale"],
             [32],
         ):
@@ -616,7 +675,7 @@ def ted2_recogs_lm():
     ]:
         for scales, beam_size in product(
             joint_training_model_names[model_name]["scales"],
-            [32],
+            [], # 32
         ):
             # for scales in joint_training_model_names[model_name]["scales"]:
             search_args = copy.deepcopy(args)

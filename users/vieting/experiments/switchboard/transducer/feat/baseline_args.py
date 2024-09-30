@@ -29,7 +29,8 @@ def get_nn_args(nn_base_args, num_epochs, evaluation_epochs=None, prefix="", tra
 
     for name, args in nn_base_args.items():
         returnn_config, returnn_recog_config, report_args = get_nn_args_single(
-            num_epochs=num_epochs, evaluation_epochs=evaluation_epochs, **copy.deepcopy(args))
+            num_epochs=num_epochs, evaluation_epochs=evaluation_epochs, **copy.deepcopy(args)
+        )
         returnn_configs[prefix + name] = returnn_config
         returnn_recog_configs[prefix + name] = returnn_recog_config
         report_args_collection[prefix + name] = report_args
@@ -58,8 +59,14 @@ def get_nn_args(nn_base_args, num_epochs, evaluation_epochs=None, prefix="", tra
 
 
 def get_nn_args_single(
-    num_outputs: int = 88, num_inputs: int = 1, num_epochs: int = 500, evaluation_epochs: Optional[List[int]] = None,
-    lr_args=None, feature_args=None, returnn_args=None, report_args=None,
+    num_outputs: int = 88,
+    num_inputs: int = 1,
+    num_epochs: int = 500,
+    evaluation_epochs: Optional[List[int]] = None,
+    lr_args=None,
+    feature_args=None,
+    returnn_args=None,
+    report_args=None,
 ):
     if feature_args is not None:
         preemphasis = feature_args.pop("preemphasis", None)
@@ -85,11 +92,12 @@ def get_nn_args_single(
             feature_net["subnetwork"]["wave_norm"] = {"axes": "T", "class": "norm", "from": source_layer}
             source_layer = "wave_norm"
         if preemphasis:
-            assert source_layer == "data", "not yet implemented, needs to be fixed in PreemphasisNetwork"
             for layer in feature_net["subnetwork"]:
                 if feature_net["subnetwork"][layer].get("from", "data") == source_layer:
                     feature_net["subnetwork"][layer]["from"] = "preemphasis"
-            feature_net["subnetwork"]["preemphasis"] = PreemphasisNetwork(alpha=preemphasis).get_as_subnetwork()
+            feature_net["subnetwork"]["preemphasis"] = PreemphasisNetwork(alpha=preemphasis).get_as_subnetwork(
+                source=source_layer
+            )
             source_layer = "preemphasis"
     else:
         feature_net = None
@@ -115,13 +123,17 @@ def get_nn_args_single(
     )
 
     report_args = {
-        **({
-            "features": feature_network_class.__name__,
-            "preemphasis": preemphasis,
-            "wave_norm": wave_norm,
-        } if feature_args is not None else {
-            "features": "RasrFeatureCaches",
-        }),
+        **(
+            {
+                "features": feature_network_class.__name__,
+                "preemphasis": preemphasis,
+                "wave_norm": wave_norm,
+            }
+            if feature_args is not None
+            else {
+                "features": "RasrFeatureCaches",
+            }
+        ),
         **(report_args or {}),
     }
 
@@ -147,7 +159,16 @@ def get_returnn_config(
     extra_args: Optional[Dict[str, Any]] = None,
     staged_opts: Optional[Dict[int, Any]] = None,
     audio_perturbation: bool = False,
+    preload_checkpoint: Optional[tk.Path] = None,
 ):
+    if preload_checkpoint is not None and not recognition:
+        extra_args["preload_from_files"] = {
+            "checkpoint": {
+                "filename": preload_checkpoint,
+                "ignore_missing": True,
+                "init_for_train": True,
+            },
+        }
     base_config = {
         "extern_data": {
             "data": {"dim": num_inputs},
@@ -181,11 +202,11 @@ def get_returnn_config(
         "phon_future_length": 0,
         "allophone_file": tk.Path(
             "/u/vieting/setups/swb/20230406_feat/dependencies/allophones_blank",
-            hash_overwrite="SWB_ALLOPHONE_FILE_WEI_BLANK"
+            hash_overwrite="SWB_ALLOPHONE_FILE_WEI_BLANK",
         ),
         "state_tying_file": tk.Path(
             "/u/vieting/setups/swb/20230406_feat/dependencies/state-tying_blank",
-            hash_overwrite="SWB_STATE_TYING_FILE_WEI_BLANK"
+            hash_overwrite="SWB_STATE_TYING_FILE_WEI_BLANK",
         ),
     }
     lr_args = lr_args or {}
@@ -236,7 +257,11 @@ def get_returnn_config(
             "min_learning_rate": 1e-6,
         }
     )
-    conformer_base_config.update(extra_args or {})
+    conformer_base_config.update(copy.deepcopy(extra_args) or {})
+    if recognition:
+        if "dtype" in conformer_base_config["extern_data"]["data"]:
+            conformer_base_config["extern_data"]["data"]["dtype"] = "float32"
+        conformer_base_config["extern_data"]["classes"]["dtype"] = "int32"
 
     staged_network_dict = None
     if staged_opts is not None and not recognition:

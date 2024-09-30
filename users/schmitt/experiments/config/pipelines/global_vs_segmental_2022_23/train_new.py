@@ -9,6 +9,7 @@ from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segment
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.returnn.config_builder.segmental import SegmentalConfigBuilder
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.returnn.config_builder.global_ import GlobalConfigBuilder
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.config_builder_rf.base import GlobalAttConfigBuilderRF, SegmentalAttConfigBuilderRF, ConfigBuilderRF
+from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.config_builder_rf.lm import LibrispeechLstmLmConfigBuilderRF, LibrispeechTrafoLmConfigBuilderRF
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.returnn.config_builder.ctc import CtcConfigBuilder
 
 
@@ -37,10 +38,6 @@ class TrainExperiment(ABC):
     self.alias = self.alias + "/train"
     if self.train_opts.get("train_mini_lstm_opts") is not None:  # need to check for None because it can be {}
       self.alias += "_mini_lstm"
-      if self.train_opts["train_mini_lstm_opts"].get("use_eos", False):
-        self.alias += "/w_eos"
-      else:
-        self.alias += "/wo_eos"
 
       if self.train_opts["train_mini_lstm_opts"].get("use_se_loss", False):
         self.alias += "/w_se_loss"
@@ -64,12 +61,17 @@ class TrainExperiment(ABC):
       log_verbosity=5,
       returnn_python_exe=config_builder.variant_params["returnn_python_exe"],
       returnn_root=config_builder.variant_params["returnn_root"],
-      mem_rqmt=self.train_rqmt.get("mem", 24),
+      mem_rqmt=self.train_rqmt.get("mem", 15),
       time_rqmt=self.train_rqmt.get("time", 30),
       cpu_rqmt=self.train_rqmt.get("cpu", 4),
       horovod_num_processes=self.train_rqmt.get("horovod_num_processes", None),
       distributed_launch_cmd=self.train_rqmt.get("distributed_launch_cmd", "mpirun"),
     )
+    if self.train_rqmt.get("gpu_mem", 11) > 11:
+      train_job.rqmt["gpu_mem"] = self.train_rqmt["gpu_mem"]
+    if "sbatch_args" in self.train_rqmt:
+      train_job.rqmt["sbatch_args"] = self.train_rqmt["sbatch_args"]
+
     train_job.add_alias(self.alias)
     tk.register_output(train_job.get_one_alias() + "/models", train_job.out_model_dir)
     tk.register_output(train_job.get_one_alias() + "/plot_lr", train_job.out_plot_lr)
@@ -115,7 +117,7 @@ class GlobalTrainExperiment(TrainExperiment):
         "num_epochs": self.num_epochs
       },
       "tf_session_opts": {"gpu_options": {"per_process_gpu_memory_fraction": 0.95}},
-      "max_seq_length": {"targets": 75},
+      # "max_seq_length": {"targets": 75},  # disable
       "train_mini_lstm_opts": None,
     }
 
@@ -143,3 +145,12 @@ class CtcTrainExperiment(TrainExperiment):
       # "tf_session_opts": {"gpu_options": {"per_process_gpu_memory_fraction": 0.95}},
       # "max_seq_length": {"targets": 75},
     }
+
+
+class LmTrainExperiment(TrainExperiment):
+  def __init__(self, config_builder: Union[LibrispeechLstmLmConfigBuilderRF, LibrispeechTrafoLmConfigBuilderRF], **kwargs):
+    super().__init__(config_builder=config_builder, **kwargs)
+
+  @property
+  def default_train_opts(self) -> Dict:
+    return {}

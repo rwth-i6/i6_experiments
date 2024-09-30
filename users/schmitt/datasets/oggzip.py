@@ -2,7 +2,7 @@ from i6_core.returnn.config import CodeWrapper
 
 from . import hdf
 
-from typing import List, Optional, Dict
+from typing import List, Optional, Dict, Union
 from sisyphus import Path
 
 
@@ -16,12 +16,16 @@ def get_dataset_dict(
         pre_process: Optional[CodeWrapper],
         seq_ordering: str,
         epoch_wise_filter: Optional[Dict],
-        hdf_targets: Optional[Path] = None,
+        hdf_targets: Optional[Union[Path, List[Path]]] = None,
         seq_postfix: Optional[int] = 0,
         use_targets: bool = True,
         peak_normalization: bool = True,
+        model_file: Optional[Path] = None,
+        post_process: Optional[CodeWrapper] = None,
+        text_only: bool = False,
 ):
-  assert not use_targets or (bpe_file is not None and vocab_file is not None)
+  # either not use targets or pass arguments for either BPE or SentencePieces
+  assert not use_targets or ((bpe_file is not None and vocab_file is not None) or model_file is not None)
   dataset_dict = {
     "class": "MetaDataset",
     "data_map": {
@@ -48,21 +52,36 @@ def get_dataset_dict(
     "seq_order_control_dataset": "zip_dataset",
   }
 
+  if post_process is not None:
+    dataset_dict["datasets"]["zip_dataset"]["audio"]["post_process"] = post_process
+
   if use_targets:
-    dataset_dict["datasets"]["zip_dataset"]["targets"] = {
-      "class": "BytePairEncoding",
-      "bpe_file": bpe_file,
-      "vocab_file": vocab_file,
-      "unknown_label": None,
-      "seq_postfix": [seq_postfix] if seq_postfix is not None else None,
-    }
-    dataset_dict["data_map"]["targets"] = ("zip_dataset", "classes")
+    if model_file is not None:
+      dataset_dict["datasets"]["zip_dataset"]["targets"] = {
+        "class": "SentencePieces",
+        "alpha": 0.7,  # hard coded for now (Albert's best setting)
+        "enable_sampling": True,
+        "model_file": model_file,
+        # "seq_postfix": [seq_postfix] if seq_postfix is not None else None,  # does not work for sentencepiece?
+      }
+    else:
+      dataset_dict["datasets"]["zip_dataset"]["targets"] = {
+        "class": "BytePairEncoding",
+        "bpe_file": bpe_file,
+        "vocab_file": vocab_file,
+        "unknown_label": None,
+        "seq_postfix": [seq_postfix] if seq_postfix is not None else None,
+      }
+    if text_only:
+      dataset_dict["data_map"]["data"] = ("zip_dataset", "classes")
+    else:
+      dataset_dict["data_map"]["targets"] = ("zip_dataset", "classes")
   else:
     dataset_dict["datasets"]["zip_dataset"]["targets"] = None
 
   if hdf_targets is not None:
     dataset_dict["datasets"]["align"] = hdf.get_dataset_dict(
-      hdf_files=[hdf_targets],
+      hdf_files=hdf_targets if isinstance(hdf_targets, list) else [hdf_targets],
       partition_epoch=partition_epoch,
       segment_file=segment_file
     )

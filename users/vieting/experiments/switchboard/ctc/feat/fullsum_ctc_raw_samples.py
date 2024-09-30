@@ -7,6 +7,7 @@ from i6_core.am.config import acoustic_model_config
 from i6_core.returnn import CodeWrapper
 from i6_experiments.users.berger.network.helpers.conformer import add_conformer_stack as add_conformer_stack_simon
 from .network_helpers.specaug import add_specaug_layer, add_specaug_layer_v2
+from .network_helpers.specaug_configurable import add_specaug_layer as add_specaug_layer_configurable
 from .network_helpers.specaug_sort_layer2 import add_specaug_layer as add_specaug_layer_sort_layer2
 from .network_helpers.conformer_wei import add_conformer_stack as add_conformer_stack_wei
 from .network_helpers.conformer_wei import add_vgg_stack as add_vgg_stack_wei
@@ -92,7 +93,11 @@ def format_func(s, *args, **kwargs):
 
 
 def make_rasr_ctc_loss_opts(
-    rasr_binary_path: tk.Path, rasr_arch: str = "linux-x86_64-standard", v2: bool = True, num_instances: int = 2, **kwargs
+    rasr_binary_path: tk.Path,
+    rasr_arch: str = "linux-x86_64-standard",
+    v2: bool = True,
+    num_instances: int = 2,
+    **kwargs,
 ):
     trainer_exe = rasr_binary_path.join_right(f"nn-trainer.{rasr_arch}")
 
@@ -144,7 +149,9 @@ def make_conformer_fullsum_ctc_model(
     output_args: Optional[Dict] = None,
     conformer_type: str = "wei",
     specaug_old: Optional[Dict[str, Any]] = None,
+    specaug_config: Optional[Dict[str, Any]] = None,
     recognition: bool = False,
+    num_epochs: Optional[int] = None,
 ) -> Tuple[Dict, Union[str, List[str]]]:
     network = {}
     from_list = ["data"]
@@ -153,6 +160,7 @@ def make_conformer_fullsum_ctc_model(
         python_code = []
     else:
         if specaug_old is not None:
+            assert specaug_config is None
             sort_layer2 = specaug_old.pop("sort_layer2", False)
             specaug_func = add_specaug_layer_sort_layer2 if sort_layer2 else add_specaug_layer
             specaug_old_args = {
@@ -163,6 +171,9 @@ def make_conformer_fullsum_ctc_model(
                 **specaug_old,
             }
             from_list, python_code = specaug_func(network, from_list=from_list, **specaug_old_args)
+        elif specaug_config is not None:
+            assert specaug_old is None
+            from_list, python_code = add_specaug_layer_configurable(network, from_list=from_list, num_epochs=num_epochs, config=specaug_config)
         else:
             from_list, python_code = add_specaug_layer_v2(network, from_list=from_list)
 

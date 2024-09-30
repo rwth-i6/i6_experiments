@@ -10,7 +10,7 @@ from sisyphus import Path
 
 
 def run_exps():
-  # Done
+  # ------------------------- Blank Decoder 7 (Done) -----------------------
   for model_alias, config_builder in get_config_builder.center_window_att_baseline_rf(
           win_size_list=(5,),
           blank_decoder_version=7,
@@ -28,7 +28,35 @@ def run_exps():
         checkpoint=checkpoint,
       )
 
-  # ------------------- test blank decoder v4 (full label ctx) ---------------------
+  # ------------------------- Blank Decoder 9 -----------------------
+  # Running
+  for model_alias, config_builder in get_config_builder.center_window_att_baseline_rf(
+          win_size_list=(None,),
+          blank_decoder_version=9,
+  ):
+    for train_alias, checkpoint in train.train_center_window_att_viterbi_import_global_tf(
+            alias=model_alias,
+            config_builder=config_builder,
+            n_epochs_list=(300,),
+            const_lr_list=(1e-4,),
+            batch_size=10_000,
+    ):
+      recog.center_window_returnn_frame_wise_beam_search(
+        alias=train_alias,
+        config_builder=config_builder,
+        checkpoint=checkpoint,
+      )
+      recog.center_window_returnn_frame_wise_beam_search(
+        alias=train_alias,
+        config_builder=config_builder,
+        checkpoint=checkpoint,
+        checkpoint_aliases=("last",),
+        run_analysis=True,
+        analyze_gradients=True,
+      )
+
+
+  # ------------------- blank decoder v4 ---------------------
   # Done
   for model_alias, config_builder in get_config_builder.center_window_att_baseline_rf(
           win_size_list=(1, 5,),
@@ -82,8 +110,5 @@ def run_exps():
         checkpoint=checkpoint,
         checkpoint_aliases=("last",),
         run_analysis=True,
-        att_weight_seq_tags=[
-          "dev-other/116-288045-0017/116-288045-0017",
-          "dev-other/116-288045-0014/116-288045-0014",
-        ]
+        analyze_gradients=True,
       )

@@ -1,14 +1,8 @@
-from . import (
-  baseline,
-  blank_decoder_variants,
-  label_decoder_variants,
-)
+from . import bpe10k, bpe5k, bpe1k
 
 
 def run_exps():
-  # Done
-  baseline.run_exps()
-  # Done
-  blank_decoder_variants.run_exps()
   # Running
-  label_decoder_variants.run_exps()
+  bpe10k.run_exps()
+  # Running
+  bpe1k.run_exps()

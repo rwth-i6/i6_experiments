@@ -47,5 +47,4 @@ def generic_job_output(filename: str) -> tk.Path:
     )
     assert parts[basename_idx + 1] == "output"
     path = tk.Path("/".join(parts[basename_idx + 2 :]), creator=fake_job)
-    assert os.path.exists(path.get_path()), f"file {path.get_path()} does not exist"
     return path

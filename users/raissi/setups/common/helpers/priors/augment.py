@@ -86,17 +86,11 @@ def augment_for_center_state(
     network["pastEmbed"]["in_dim"] = range_dim
     network["pastEmbed"]["from"] = "pastLabel"
 
-    network[f"{out_center_state_layer}_merged"] = {
+    network[out_center_state_layer] = {
         "class": "merge_dims",
         "axes": [spatial_dim, "F"],
         "keep_order": True,
         "from": center_state_softmax_layer,
-    }
-    # Ensure priors sum to one
-    network[out_center_state_layer] = {
-        "class": "eval",
-        "eval": f"tf.math.divide(source(0), {num_ctx}.0)",
-        "from": f"{out_center_state_layer}_merged",
         "register_as_extern_data": out_center_state_layer,
     }
 
@@ -158,20 +152,13 @@ def augment_for_right_context(
     network["currentState"]["in_dim"] = right_context_range_dim
     network["currentState"]["from"] = "centerState"
 
-    network[f"{out_right_context_layer}_merged"] = {
+    network[out_right_context_layer] = {
         "class": "merge_dims",
         "axes": [center_state_spatial_dim, right_context_spatial_dim, "F"],
         "keep_order": True,
         "from": right_context_softmax_layer,
-    }
-
-    # Ensure priors sum to one
-    total_num_contexts_scored = label_info.n_contexts * label_info.get_n_state_classes()
-    network[out_right_context_layer] = {
-        "class": "eval",
-        "eval": f"tf.math.divide(source(0), {total_num_contexts_scored}.0)",
-        "from": f"{out_right_context_layer}_merged",
         "register_as_extern_data": out_right_context_layer,
+
     }
 
     update_cfg = returnn.ReturnnConfig({}, python_prolog=dim_prolog)

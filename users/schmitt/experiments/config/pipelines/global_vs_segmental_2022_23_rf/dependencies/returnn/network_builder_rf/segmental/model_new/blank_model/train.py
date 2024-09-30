@@ -1,4 +1,4 @@
-from typing import Optional, Dict, Any, Sequence, Tuple, List
+from typing import Optional, Dict, Any, Sequence, Tuple, List, Union
 
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.segmental.model_new.blank_model.model import (
   BlankDecoderV1,
@@ -7,6 +7,9 @@ from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segment
   BlankDecoderV5,
   BlankDecoderV6,
   BlankDecoderV7,
+  BlankDecoderV8,
+  BlankDecoderV9,
+  BlankDecoderV11,
 )
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.segmental import utils
 
@@ -140,7 +143,7 @@ def viterbi_training_v3(
 
 def viterbi_training_v4(
         *,
-        model: BlankDecoderV4,
+        model: Union[BlankDecoderV4, BlankDecoderV11],
         enc_args: Dict,
         enc_spatial_dim: Dim,
         label_states_unmasked: rf.Tensor,
@@ -270,6 +273,88 @@ def viterbi_training_v7(
   blank_logits_packed, pack_dim, emit_ground_truth_packed = get_packed_logits_and_emit_ground_truth(
     blank_logits=blank_logits,
     align_targets_spatial_dim=label_states_unmasked_spatial_dim,
+    emit_ground_truth=emit_ground_truth,
+    emit_prob_dim=model.emit_prob.out_dim,
+    batch_dims=batch_dims
+  )
+
+  return calc_loss(
+    blank_logits_packed=blank_logits_packed,
+    emit_ground_truth_packed=emit_ground_truth_packed,
+    emit_blank_target_dim=emit_blank_target_dim,
+    blank_logit_dim=model.emit_prob.out_dim
+  )
+
+
+def viterbi_training_v8(
+        *,
+        model: BlankDecoderV8,
+        enc_args: Dict,
+        enc_spatial_dim: Dim,
+        emit_ground_truth: rf.Tensor,
+        emit_blank_target_dim: Dim,
+        batch_dims: List[Dim],
+) -> Tuple[rf.Tensor, rf.Tensor]:
+  emit_ground_truth_spatial_dim = emit_ground_truth.remaining_dims(batch_dims)[0]
+
+  # using dim.declare_same_as() leads to an error after an epoch is finished (see viterbi_training_v4)
+  enc = enc_args["enc"]  # type: rf.Tensor
+  enc = utils.copy_tensor_replace_dim_tag(enc, enc_spatial_dim, emit_ground_truth_spatial_dim)
+
+  blank_logits = model.decode_logits(enc=enc)
+  blank_logits_packed, pack_dim, emit_ground_truth_packed = get_packed_logits_and_emit_ground_truth(
+    blank_logits=blank_logits,
+    align_targets_spatial_dim=emit_ground_truth_spatial_dim,
+    emit_ground_truth=emit_ground_truth,
+    emit_prob_dim=model.emit_prob.out_dim,
+    batch_dims=batch_dims
+  )
+
+  return calc_loss(
+    blank_logits_packed=blank_logits_packed,
+    emit_ground_truth_packed=emit_ground_truth_packed,
+    emit_blank_target_dim=emit_blank_target_dim,
+    blank_logit_dim=model.emit_prob.out_dim
+  )
+
+
+def viterbi_training_v9(
+        *,
+        model: BlankDecoderV9,
+        energy_in: rf.Tensor,
+        energy_in_spatial_dim: Dim,
+        non_blank_mask: rf.Tensor,
+        enc_spatial_dim: Dim,
+        emit_ground_truth: rf.Tensor,
+        emit_blank_target_dim: Dim,
+        batch_dims: List[Dim],
+) -> Tuple[rf.Tensor, rf.Tensor]:
+  blank_logits = model.decode_logits(energy_in=energy_in)
+
+  emit_ground_truth_spatial_dim = emit_ground_truth.remaining_dims(batch_dims)[0]
+  blank_logits_unmasked = utils.get_unmasked(
+    input=blank_logits,
+    input_spatial_dim=energy_in_spatial_dim,
+    mask=non_blank_mask,
+    mask_spatial_dim=emit_ground_truth_spatial_dim
+  )
+
+  indices = rf.ones(dims=batch_dims + [emit_ground_truth_spatial_dim], dtype="int32")
+  indices = utils.cumsum(indices, dim=emit_ground_truth_spatial_dim) - 1
+  # singleton_dim = rf.Dim(name="singleton", dimension=1)
+  # indices = rf.expand_dim(indices, singleton_dim) - 1  # minus 1 because zero-based
+  indices.sparse_dim = enc_spatial_dim
+
+  blank_logits = rf.gather(
+    blank_logits_unmasked,
+    indices=indices,
+    axis=enc_spatial_dim,
+    clip_to_valid=True,
+  )
+
+  blank_logits_packed, pack_dim, emit_ground_truth_packed = get_packed_logits_and_emit_ground_truth(
+    blank_logits=blank_logits,
+    align_targets_spatial_dim=emit_ground_truth_spatial_dim,
     emit_ground_truth=emit_ground_truth,
     emit_prob_dim=model.emit_prob.out_dim,
     batch_dims=batch_dims

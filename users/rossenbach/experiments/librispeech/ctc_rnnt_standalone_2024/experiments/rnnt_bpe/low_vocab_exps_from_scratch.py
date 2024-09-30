@@ -129,6 +129,9 @@ def rnnt_bpe_ls960_1023_low_bpe_from_scratch():
         out_features=512,
         activation=None,
     )
+    frontend_config_sub4 = copy.deepcopy(frontend_config)
+    frontend_config_sub4.pool1_stride = (2, 1)
+
     predictor_config = PredictorConfig(
         symbol_embedding_dim=256,
         emebdding_dropout=0.2,
@@ -136,8 +139,8 @@ def rnnt_bpe_ls960_1023_low_bpe_from_scratch():
         lstm_hidden_dim=512,
         lstm_dropout=0.1,
     )
-    # for BPE_SIZE in [128, 256, 512, 1024]:
-    for BPE_SIZE in [128,]:
+    # for BPE_SIZE in [work/i6_core/returnn/training/ReturnnTrainingJob.epVcVJcAJ90R128, 256, 512, 1024]:
+    for BPE_SIZE in [128, 1024]:
         # build the training datasets object containing train, cv, dev-train and the extern_data dict
         train_data_bpe = build_bpe_training_datasets(
             prefix=prefix_name,
@@ -154,7 +157,7 @@ def rnnt_bpe_ls960_1023_low_bpe_from_scratch():
             returnn_vocab=label_datastream_bpe.vocab
         )
 
-        model_config_v5_sub4_512lstm = ModelConfig(
+        model_config_v5_sub6_512lstm = ModelConfig(
             feature_extraction_config=fe_config,
             frontend_config=frontend_config,
             specaug_config=specaug_config_full,
@@ -176,6 +179,10 @@ def rnnt_bpe_ls960_1023_low_bpe_from_scratch():
             joiner_dropout=0.1,
             ctc_output_loss=0.3
         )
+        
+        model_config_v5_sub4_512lstm = copy.deepcopy(model_config_v5_sub6_512lstm)
+        model_config_v5_sub4_512lstm.frontend_config = frontend_config_sub4
+
 
         # Default configs for continued training
         KEEP = [160, 200, 220, 240]
@@ -199,63 +206,146 @@ def rnnt_bpe_ls960_1023_low_bpe_from_scratch():
         train_args_11gb = {
             "config": train_config_11gbgpu,
             "network_module": network_module,
-            "net_args": {"model_config_dict": asdict(model_config_v5_sub4_512lstm)},
+            "net_args": {"model_config_dict": asdict(model_config_v5_sub6_512lstm)},
             "include_native_ops": True,
             "debug": False,
         }
 
-
-        training_name = prefix_name + "/" + str(
-            BPE_SIZE) + "/" + network_module + ".512dim_sub4_11gbgpu_25eps_from_scratch_radamv1"
-        train_job = training(training_name, train_data_bpe, train_args_11gb,
-                             num_epochs=250, **default_returnn)
-        train_job.rqmt["gpu_mem"] = 11
-        train_job.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
-        for keep in KEEP:
+        if BPE_SIZE == 128:
+            training_name = prefix_name + "/" + str(
+                BPE_SIZE) + "/" + network_module + ".512dim_sub6_11gbgpu_25eps_from_scratch_radamv1"
+            train_job = training(training_name, train_data_bpe, train_args_11gb,
+                                 num_epochs=250, **default_returnn)
+            train_job.rqmt["gpu_mem"] = 11
+            train_job.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+            for keep in KEEP:
+                asr_model = prepare_asr_model(
+                    training_name, train_job, train_args_11gb, with_prior=False,
+                    datasets=train_data_bpe, get_specific_checkpoint=keep
+                )
+                evaluate_helper(
+                    training_name + "/keep_%i" % keep,
+                    asr_model,
+                    decoder_config,
+                    use_gpu=True
+                )
             asr_model = prepare_asr_model(
                 training_name, train_job, train_args_11gb, with_prior=False,
-                datasets=train_data_bpe, get_specific_checkpoint=keep
+                datasets=train_data_bpe, get_specific_checkpoint=250
             )
             evaluate_helper(
-                training_name + "/keep_%i" % keep,
+                training_name + "/keep_%i" % 250,
                 asr_model,
                 decoder_config,
-                use_gpu=True
+                use_gpu=True,
             )
-        asr_model = prepare_asr_model(
-            training_name, train_job, train_args_11gb, with_prior=False,
-            datasets=train_data_bpe, get_specific_checkpoint=250
-        )
-        evaluate_helper(
-            training_name + "/keep_%i" % 250,
-            asr_model,
-            decoder_config,
-            use_gpu=True,
-        )
 
 
-        train_args_11gb_no_accum = copy.deepcopy(train_args_11gb)
-        train_args_11gb_no_accum["config"]["accum_grad_multiple_step"] = 1
-        train_args_11gb_no_accum["config"]["batch_size"] = 160 * 16000
-        train_args_11gb_no_accum["config"]["learning_rates"] =  [5e-5] + list(np.linspace(1e-4, 5e-4, 119)) + list(
-                np.linspace(5e-4, 5e-5, 120)) + list(np.linspace(5e-5, 1e-7, 10))
 
-        training_name = prefix_name + "/" + str(
-            BPE_SIZE) + "/" + network_module + ".512dim_sub4_11gbgpu_25eps_no_accum_from_scratch_radamv1"
-        train_job = training(training_name, train_data_bpe, train_args_11gb_no_accum,
-                             num_epochs=250, **default_returnn)
-        train_job.rqmt["gpu_mem"] = 11
-        train_job.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
-        for keep in KEEP:
+        if BPE_SIZE == 128 or BPE_SIZE == 1024:
+            # Better and more efficient
+            train_args_11gb_no_accum = copy.deepcopy(train_args_11gb)
+            train_args_11gb_no_accum["config"]["accum_grad_multiple_step"] = 1
+            train_args_11gb_no_accum["config"]["batch_size"] = 160 * 16000
+            train_args_11gb_no_accum["config"]["learning_rates"] =  [5e-5] + list(np.linspace(1e-4, 5e-4, 119)) + list(
+                    np.linspace(5e-4, 5e-5, 120)) + list(np.linspace(5e-5, 1e-7, 10))
+
+            training_name = prefix_name + "/" + str(
+                BPE_SIZE) + "/" + network_module + ".512dim_sub6_11gbgpu_25eps_no_accum_from_scratch_radamv1"
+            train_job = training(training_name, train_data_bpe, train_args_11gb_no_accum,
+                                 num_epochs=250, **default_returnn)
+            train_job.rqmt["gpu_mem"] = 11
+            train_job.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+            for keep in KEEP:
+                asr_model = prepare_asr_model(
+                    training_name, train_job, train_args_11gb_no_accum, with_prior=False, datasets=train_data_bpe, get_specific_checkpoint=keep
+                )
+                evaluate_helper(
+                    training_name + "/keep_%i" % keep, asr_model, decoder_config, use_gpu=True
+                )
             asr_model = prepare_asr_model(
-                training_name, train_job, train_args_11gb_no_accum, with_prior=False, datasets=train_data_bpe, get_specific_checkpoint=keep
+                training_name, train_job, train_args_11gb_no_accum, with_prior=False, datasets=train_data_bpe, get_specific_checkpoint=250
             )
             evaluate_helper(
-                training_name + "/keep_%i" % keep, asr_model, decoder_config, use_gpu=True
+                training_name + "/keep_%i" % 250, asr_model, decoder_config,use_gpu=True,
             )
-        asr_model = prepare_asr_model(
-            training_name, train_job, train_args_11gb_no_accum, with_prior=False, datasets=train_data_bpe, get_specific_checkpoint=250
-        )
-        evaluate_helper(
-            training_name + "/keep_%i" % 250, asr_model, decoder_config,use_gpu=True,
-        )
+
+        if BPE_SIZE == 128:
+            # test new specaugment v2
+            network_module_specaugv2 = "rnnt.conformer_1023.i6modelsV1_VGG4LayerActFrontendV1_v9_i6_native_conv_first_mean_specaug"
+            train_args_11gb_no_accum_meanspec = copy.deepcopy(train_args_11gb_no_accum)
+            train_args_11gb_no_accum_meanspec["network_module"] = network_module_specaugv2
+
+            training_name = prefix_name + "/" + str(
+                BPE_SIZE) + "/" + network_module_specaugv2 + ".512dim_sub6_11gbgpu_25eps_no_accum_from_scratch_radamv1"
+            train_job = training(training_name, train_data_bpe, train_args_11gb_no_accum_meanspec,
+                                 num_epochs=250, **default_returnn)
+            train_job.rqmt["gpu_mem"] = 11
+            train_job.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+            for keep in KEEP:
+                asr_model = prepare_asr_model(
+                    training_name, train_job, train_args_11gb_no_accum_meanspec, with_prior=False, datasets=train_data_bpe,
+                    get_specific_checkpoint=keep
+                )
+                evaluate_helper(
+                    training_name + "/keep_%i" % keep, asr_model, decoder_config, use_gpu=True
+                )
+            asr_model = prepare_asr_model(
+                training_name, train_job, train_args_11gb_no_accum_meanspec, with_prior=False, datasets=train_data_bpe,
+                get_specific_checkpoint=250
+            )
+            evaluate_helper(
+                training_name + "/keep_%i" % 250, asr_model, decoder_config, use_gpu=True,
+            )
+
+
+
+            # Sub4, has to be from accum because of memory issues
+            # Diverged
+            train_args_11gb_sub4 = copy.deepcopy(train_args_11gb)
+            train_args_11gb_sub4["net_args"] = {"model_config_dict": asdict(model_config_v5_sub4_512lstm)}
+
+            # training_name = prefix_name + "/" + str(
+            #     BPE_SIZE) + "/" + network_module + ".512dim_sub4_11gbgpu_25eps_from_scratch_radamv1"
+            # train_job = training(training_name, train_data_bpe, train_args_11gb_sub4,
+            #                      num_epochs=250, **default_returnn)
+            # train_job.rqmt["gpu_mem"] = 11
+            # train_job.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+            # for keep in KEEP:
+            #     asr_model = prepare_asr_model(
+            #         training_name, train_job, train_args_11gb_sub4, with_prior=False, datasets=train_data_bpe, get_specific_checkpoint=keep
+            #     )
+            #     evaluate_helper(
+            #         training_name + "/keep_%i" % keep, asr_model, decoder_config, use_gpu=True
+            #     )
+            # asr_model = prepare_asr_model(
+            #     training_name, train_job, train_args_11gb_sub4, with_prior=False, datasets=train_data_bpe, get_specific_checkpoint=250
+            # )
+            # evaluate_helper(
+            #     training_name + "/keep_%i" % 250, asr_model, decoder_config,use_gpu=True,
+            # )
+
+            # Try with lower LR
+            train_args_11gb_sub4_newlr = copy.deepcopy(train_args_11gb_sub4)
+            train_args_11gb_sub4_newlr["config"]["learning_rates"] = list(np.linspace(5e-5, 5e-4, 120)) + list(
+                    np.linspace(5e-4, 5e-5, 120)) + list(np.linspace(5e-5, 1e-7, 10))
+
+            training_name = prefix_name + "/" + str(
+                BPE_SIZE) + "/" + network_module + ".512dim_sub4_11gbgpu_25eps_no_accum_from_scratch_radamv1_newlr"
+            train_job = training(training_name, train_data_bpe, train_args_11gb_sub4_newlr,
+                                 num_epochs=250, **default_returnn)
+            train_job.rqmt["gpu_mem"] = 11
+            train_job.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+            for keep in KEEP:
+                asr_model = prepare_asr_model(
+                    training_name, train_job, train_args_11gb_sub4_newlr, with_prior=False, datasets=train_data_bpe, get_specific_checkpoint=keep
+                )
+                evaluate_helper(
+                    training_name + "/keep_%i" % keep, asr_model, decoder_config, use_gpu=True
+                )
+            asr_model = prepare_asr_model(
+                training_name, train_job, train_args_11gb_sub4_newlr, with_prior=False, datasets=train_data_bpe, get_specific_checkpoint=250
+            )
+            evaluate_helper(
+                training_name + "/keep_%i" % 250, asr_model, decoder_config,use_gpu=True,
+            )

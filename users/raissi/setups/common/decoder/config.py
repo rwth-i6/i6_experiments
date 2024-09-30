@@ -193,8 +193,6 @@ class SearchParameters:
     def with_word_recombination_limit(self, word_recombination_limit: Int) -> "SearchParameters":
         return dataclasses.replace(self, word_recombination_limit=word_recombination_limit)
 
-
-
     def with_prior_scale(
         self,
         center: Optional[Float] = None,
@@ -318,6 +316,7 @@ class AlignmentParameters:
     non_word_phonemes: str
 
     add_all_allophones: bool = False
+    allow_for_silence_repetitions: bool = False
     posterior_scales: Optional[PosteriorScales] = None
     silence_penalties: Optional[Tuple[Float, Float]] = None  # loop, fwd for FH FS
     state_dependent_tdps: Optional[Union[str, tk.Path]] = None
@@ -325,6 +324,9 @@ class AlignmentParameters:
 
     def with_add_all_allophones(self, add_all: bool):
         return dataclasses.replace(self, add_all_allophones=add_all)
+
+    def with_allow_for_silence_repetitions(self, allow_for_silence_repetitions: bool):
+        return dataclasses.replace(self, allow_for_silence_repetitions=allow_for_silence_repetitions)
 
     def with_prior_scale(
         self,

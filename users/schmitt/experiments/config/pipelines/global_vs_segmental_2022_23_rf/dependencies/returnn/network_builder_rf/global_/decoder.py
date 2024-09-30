@@ -11,8 +11,6 @@ class GlobalAttDecoder(BaseLabelDecoder):
   def __init__(self, eos_idx: int, **kwargs):
     super(GlobalAttDecoder, self).__init__(**kwargs)
 
-    assert not self.use_current_frame_in_readout, "Not supported yet"
-
     self.eos_idx = eos_idx
     self.bos_idx = eos_idx
 
@@ -24,9 +22,15 @@ class GlobalAttDecoder(BaseLabelDecoder):
           use_mini_att: bool = False,
   ) -> rf.State:
     """Default initial state"""
-    state = rf.State(
-      att=rf.zeros(list(batch_dims) + [self.att_num_heads * self.enc_out_dim]),
-    )
+    state = rf.State()
+
+    if self.trafo_att:
+      state.trafo_att = self.trafo_att.default_initial_state(batch_dims=batch_dims)
+      att_dim = self.trafo_att.model_dim
+    else:
+      att_dim = self.att_num_heads * self.enc_out_dim
+
+    state.att = rf.zeros(list(batch_dims) + [att_dim])
     state.att.feature_dim_axis = len(state.att.dims) - 1
 
     if "lstm" in self.decoder_state:
@@ -41,9 +45,12 @@ class GlobalAttDecoder(BaseLabelDecoder):
 
     return state
 
-  def loop_step_output_templates(self, batch_dims: List[Dim]) -> Dict[str, Tensor]:
+  def loop_step_output_templates(
+          self,
+          batch_dims: List[Dim],
+  ) -> Dict[str, Tensor]:
     """loop step out"""
-    return {
+    output_templates = {
       "s": Tensor(
         "s", dims=batch_dims + [self.get_lstm().out_dim], dtype=rf.get_default_float_dtype(), feature_dim_axis=-1
       ),
@@ -54,6 +61,7 @@ class GlobalAttDecoder(BaseLabelDecoder):
         feature_dim_axis=-1,
       ),
     }
+    return output_templates
 
   def loop_step(
           self,
@@ -65,6 +73,7 @@ class GlobalAttDecoder(BaseLabelDecoder):
           input_embed: rf.Tensor,
           state: Optional[rf.State] = None,
           use_mini_att: bool = False,
+          hard_att_opts: Optional[Dict] = None,
   ) -> Tuple[Dict[str, rf.Tensor], rf.State]:
     """step of the inner loop"""
     if state is None:
@@ -74,11 +83,14 @@ class GlobalAttDecoder(BaseLabelDecoder):
       state = self.decoder_default_initial_state(batch_dims=batch_dims, enc_spatial_dim=enc_spatial_dim)
     state_ = rf.State()
 
+    output_dict = {}
+
     prev_att = state.att
     prev_s_state = state.s if "lstm" in self.decoder_state else None
 
-    # s, state_.s = self.s(rf.concat_features(input_embed, prev_att), state=state.s, spatial_dim=single_step_dim)
+    input_embed = rf.dropout(input_embed, drop_prob=self.target_embed_dropout, axis=None)
     s, s_state = self._update_state(input_embed, prev_att, prev_s_state)
+    output_dict["s"] = s
     if "lstm" in self.decoder_state:
       state_.s = s_state
 
@@ -92,32 +104,50 @@ class GlobalAttDecoder(BaseLabelDecoder):
         pre_mini_att = att_linear
       att = self.mini_att(pre_mini_att)
     else:
-      if self.use_weight_feedback:
-        weight_feedback = self.weight_feedback(state.accum_att_weights)
+      if self.trafo_att:
+        att, state_.trafo_att = self.trafo_att(
+          input_embed,
+          state=state.trafo_att,
+          spatial_dim=single_step_dim,
+          encoder=None if self.use_trafo_att_wo_cross_att else self.trafo_att.transform_encoder(enc, axis=enc_spatial_dim)
+        )
       else:
-        weight_feedback = rf.zeros((self.enc_key_total_dim,))
+        if self.use_weight_feedback:
+          weight_feedback = self.weight_feedback(state.accum_att_weights)
+        else:
+          weight_feedback = rf.zeros((self.enc_key_total_dim,))
 
-      s_transformed = self.s_transformed(s)
-      energy_in = enc_ctx + weight_feedback + s_transformed
-      energy = self.energy(rf.tanh(energy_in))
-      att_weights = rf.softmax(energy, axis=enc_spatial_dim)
+        if hard_att_opts is None or rf.get_run_ctx().epoch > hard_att_opts["until_epoch"]:
+          s_transformed = self.s_transformed(s)
+          energy_in = enc_ctx + weight_feedback + s_transformed
 
-      if self.use_weight_feedback:
-        state_.accum_att_weights = state.accum_att_weights + att_weights * inv_fertility * 0.5
+          energy = self.energy(rf.tanh(energy_in))
+          att_weights = rf.softmax(energy, axis=enc_spatial_dim)
+          att_weights = rf.dropout(att_weights, drop_prob=self.att_weight_dropout, axis=None)
+        if hard_att_opts is not None and rf.get_run_ctx().epoch <= hard_att_opts["until_epoch"] + hard_att_opts["num_interpolation_epochs"]:
+          if hard_att_opts["frame"] == "middle":
+            frame_idx = rf.copy_to_device(enc_spatial_dim.dyn_size_ext) // 2
+          else:
+            frame_idx = rf.constant(hard_att_opts["frame"], dims=enc_spatial_dim.dyn_size_ext.dims)
+          frame_idx.sparse_dim = enc_spatial_dim
+          one_hot = rf.one_hot(frame_idx)
+          one_hot = rf.expand_dim(one_hot, dim=self.att_num_heads)
 
-      att = self.get_att(att_weights, enc, enc_spatial_dim)
+          if rf.get_run_ctx().epoch <= hard_att_opts["until_epoch"] and hard_att_opts["frame"] == "middle":
+            att_weights = one_hot
+          else:
+            interpolation_factor = (rf.get_run_ctx().epoch - hard_att_opts["until_epoch"]) / hard_att_opts["num_interpolation_epochs"]
+            att_weights = (1 - interpolation_factor) * one_hot + interpolation_factor * att_weights
+
+        if self.use_weight_feedback:
+          state_.accum_att_weights = state.accum_att_weights + att_weights * inv_fertility * 0.5
+
+        att = self.get_att(att_weights, enc, enc_spatial_dim)
 
     state_.att = att
+    output_dict["att"] = att
 
-    return {"s": s, "att": att}, state_
-
-  def decode_logits(self, *, s: Tensor, input_embed: Tensor, att: Tensor) -> Tensor:
-    """logits for the decoder"""
-    readout_in = self.readout_in(rf.concat_features(s, input_embed, att))
-    readout = rf.reduce_out(readout_in, mode="max", num_pieces=2, out_dim=self.output_prob.in_dim)
-    readout = rf.dropout(readout, drop_prob=0.3, axis=self.dropout_broadcast and readout.feature_dim)
-    logits = self.output_prob(readout)
-    return logits
+    return output_dict, state_
 
 
 class GlobalAttEfficientDecoder(GlobalAttDecoder):
@@ -132,15 +162,17 @@ class GlobalAttEfficientDecoder(GlobalAttDecoder):
           self,
           *,
           enc: rf.Tensor,
-          enc_ctx: rf.Tensor,
+          enc_ctx: Optional[rf.Tensor],  # not needed in case of trafo_att
           enc_spatial_dim: Dim,
           s: rf.Tensor,
-          input_embed: rf.Tensor,
-          input_embed_spatial_dim: Dim,
+          input_embed: Optional[rf.Tensor] = None,
+          input_embed_spatial_dim: Optional[Dim] = None,
           use_mini_att: bool = False,
   ) -> rf.Tensor:
     if use_mini_att:
+      assert input_embed is not None
       if "lstm" in self.decoder_state:
+        assert input_embed_spatial_dim is not None
         att_lstm, _ = self.mini_att_lstm(
           input_embed,
           state=self.mini_att_lstm.default_initial_state(
@@ -153,22 +185,25 @@ class GlobalAttEfficientDecoder(GlobalAttDecoder):
         pre_mini_att = att_linear
       att = self.mini_att(pre_mini_att)
     else:
-      s_transformed = self.s_transformed(s)
+      if self.trafo_att:
+        batch_dims = enc.remaining_dims(
+          remove=(enc.feature_dim, enc_spatial_dim) if enc_spatial_dim != single_step_dim else (enc.feature_dim,)
+        )
+        att, _ = self.trafo_att(
+          input_embed,
+          spatial_dim=input_embed_spatial_dim,
+          encoder=None if self.use_trafo_att_wo_cross_att else self.trafo_att.transform_encoder(enc, axis=enc_spatial_dim),
+          state=self.trafo_att.default_initial_state(batch_dims=batch_dims)
+        )
+      else:
+        s_transformed = self.s_transformed(s)
 
-      weight_feedback = rf.zeros((self.enc_key_total_dim,))
+        weight_feedback = rf.zeros((self.enc_key_total_dim,))
 
-      energy_in = enc_ctx + weight_feedback + s_transformed
-      energy = self.energy(rf.tanh(energy_in))
-      att_weights = rf.softmax(energy, axis=enc_spatial_dim)
-      # we do not need use_mask because the softmax output is already padded with zeros
-      att = self.get_att(att_weights, enc, enc_spatial_dim)
+        energy_in = enc_ctx + weight_feedback + s_transformed
+        energy = self.energy(rf.tanh(energy_in))
+        att_weights = rf.softmax(energy, axis=enc_spatial_dim)
+        # we do not need use_mask because the softmax output is already padded with zeros
+        att = self.get_att(att_weights, enc, enc_spatial_dim)
 
     return att
-
-  def decode_logits(self, *, s: Tensor, input_embed: Tensor, att: Tensor) -> Tensor:
-    """logits for the decoder"""
-    readout_in = self.readout_in(rf.concat_features(s, input_embed, att, allow_broadcast=True))
-    readout = rf.reduce_out(readout_in, mode="max", num_pieces=2, out_dim=self.output_prob.in_dim)
-    readout = rf.dropout(readout, drop_prob=0.3, axis=self.dropout_broadcast and readout.feature_dim)
-    logits = self.output_prob(readout)
-    return logits

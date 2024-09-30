@@ -3,7 +3,7 @@ __all__ = ["TFFactoredHybridBaseSystem"]
 import copy
 import dataclasses
 import itertools
-import sys
+import logging, sys
 from IPython import embed
 
 from enum import Enum
@@ -19,6 +19,7 @@ from sisyphus.delayed_ops import DelayedFormat
 # -------------------- Recipes --------------------
 import i6_core.corpus as corpus_recipe
 import i6_core.features as features
+import i6_core.lexicon as lexicon
 import i6_core.mm as mm
 import i6_core.rasr as rasr
 import i6_core.recognition as recog
@@ -34,6 +35,12 @@ from i6_experiments.common.setups.rasr.util import (
     RasrDataInput,
 )
 
+from i6_experiments.users.raissi.setups.common.analysis import (
+    ComputeAveragePhonemeLengthJob,
+    ComputeSilenceRatioJob,
+    ComputeTSEJob,
+    PlotViterbiAlignmentsJob,
+)
 
 from i6_experiments.users.raissi.setups.common.BASE_factored_hybrid_system import (
     BASEFactoredHybridSystem,
@@ -459,13 +466,19 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
         self.experiments[key]["extra_returnn_code"]["prolog"] = returnn_config.python_prolog
         self.experiments[key]["extra_returnn_code"]["epilog"] = returnn_config.python_epilog
 
+    def set_staging_info(
+        self, checkpoint: returnn.Checkpoint, copy_param_mode: train_helpers.CopyParamMode.subset, stage_epochs: List
+    ) -> Dict:
+        self.staging_info = dataclasses.replace(
+            self.staging_info, checkpoint=checkpoint, copy_param_mode=copy_param_mode, stage_epochs=stage_epochs
+        )
+
     # -------------------- Decoding --------------------
     def _compute_returnn_rasr_priors(
         self,
         key: str,
         epoch: int,
         train_corpus_key: str,
-        dev_corpus_key: str,
         returnn_config: returnn.ReturnnConfig,
         share: float,
         time_rqmt: Optional[int] = None,
@@ -482,10 +495,7 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
         )
 
         train_data = self.train_input_data[train_corpus_key]
-        dev_data = self.cv_input_data[dev_corpus_key]
-
         train_crp = train_data.get_crp()
-        dev_crp = dev_data.get_crp()
 
         if share != 1.0:
             train_crp = copy.deepcopy(train_crp)
@@ -495,10 +505,6 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
                 shuffle=True,
             )
             train_crp.segment_path = segment_job.out_segments["priors"]
-
-        # assert train_data.feature_flow == dev_data.feature_flow
-        # assert train_data.features == dev_data.features
-        # assert train_data.alignments == dev_data.alignments
 
         if train_data.feature_flow is not None:
             feature_flow = train_data.feature_flow
@@ -530,6 +536,7 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
         if "num_outputs" in returnn_config.config:
             if "classes" in returnn_config.config["num_outputs"]:
                 del returnn_config.config["num_outputs"]["classes"]
+
 
         prior_job = returnn.ReturnnRasrComputePriorJobV2(
             train_crp=train_crp,
@@ -605,6 +612,7 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
         state_tying: RasrStateTying = RasrStateTying.monophone,
         returnn_config: Optional[returnn.ReturnnConfig] = None,
         output_layer_name: str = "output",
+        joint_for_factored_loss: bool = False,
         checkpoint: Optional[Path] = None,
         smoothen: bool = False,
         zero_weight: float = 1e-8,
@@ -624,16 +632,18 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
             returnn_config=returnn_config,
             state_tying=state_tying,
             softmax_type=SingleSoftmaxType.PRIOR,
+            joint_for_factored_loss=joint_for_factored_loss,
         )
+
 
         config = copy.deepcopy(self.experiments[key]["returnn_config"])
         config.config["forward_output_layer"] = output_layer_name
+
 
         job = self._compute_returnn_rasr_priors(
             key,
             epoch,
             train_corpus_key=train_corpus_key,
-            dev_corpus_key=dev_corpus_key,
             returnn_config=config,
             share=data_share,
             checkpoint=checkpoint,
@@ -704,7 +714,6 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
                 key,
                 epoch,
                 train_corpus_key=train_corpus_key,
-                dev_corpus_key=dev_corpus_key,
                 returnn_config=cfg,
                 share=data_share,
                 checkpoint=checkpoint,
@@ -822,7 +831,6 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
                 key,
                 epoch,
                 train_corpus_key=train_corpus_key,
-                dev_corpus_key=dev_corpus_key,
                 returnn_config=cfg,
                 share=data_share,
                 time_rqmt=8,
@@ -903,6 +911,7 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
         out_layer_name: str = None,
         softmax_type: SingleSoftmaxType = SingleSoftmaxType.DECODE,
         cv_corpus_key_for_train: str = None,
+        joint_for_factored_loss: bool = False,
     ):
         prepare_for_train = False
         log_softmax = False
@@ -956,12 +965,17 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
                 feature_dim_variable_name="__center_state_feature",
                 context_type="L",
             )
-            final_returnn_config = net_helpers.diphone_joint_output.augment_returnn_config_to_joint_diphone_softmax(
+
+            if joint_for_factored_loss:
+                f = net_helpers.diphone_joint_output.augment_returnn_config_to_joint_factored_monophone_softmax
+            else: f = net_helpers.diphone_joint_output.augment_returnn_config_to_joint_diphone_softmax
+            final_returnn_config = f(
                 returnn_config=clean_returnn_config,
                 label_info=self.label_info,
                 out_joint_score_layer="output",
                 log_softmax=log_softmax,
                 prepare_for_train=prepare_for_train,
+
             )
 
         elif state_tying == RasrStateTying.monophone:
@@ -983,6 +997,7 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
             extra_dict_key="context",
             additional_python_prolog=context_time_tag,
         )
+
         self.set_graph_for_experiment(key, graph_type_name=f"precomputed-{softmax_type}")
 
     def setup_returnn_config_and_graph_for_precomputed_decoding(
@@ -1071,6 +1086,7 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
         gpu=False,
         is_multi_encoder_output=False,
         set_batch_major_for_feature_scorer: bool = True,
+        joint_for_factored_loss: bool = False,
         tf_library: Union[Path, str, List[Path], List[str], None] = None,
         dummy_mixtures: Optional[Path] = None,
         lm_gc_simple_hash: Optional[bool] = None,
@@ -1095,7 +1111,7 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
         ):
 
             self.setup_returnn_config_and_graph_for_single_softmax(
-                key=key, state_tying=self.label_info.state_tying, softmax_type=SingleSoftmaxType.DECODE
+                key=key, state_tying=self.label_info.state_tying, softmax_type=SingleSoftmaxType.DECODE, joint_for_factored_loss=joint_for_factored_loss
             )
         else:
             crp_list = [n for n in self.crp_names if "train" not in n]
@@ -1227,3 +1243,111 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
         )
 
         return aligner, align_args
+
+    def calculate_alignment_statistics(
+        self,
+        key,
+        non_speech_labels: [str],
+        name: str = None,
+        silence_label: str = "[SILENCE]{#+#}@i@f",
+        reference_alignment_key: str = "GMM",
+        alignment_bundle: tk.Path = None,
+        allophones: tk.Path = None,
+        reference_alignment: tk.Path = None,
+        reference_allophones: tk.Path = None,
+        segments: [str] = None,
+        use_legacy_tse_calculation: bool = True,
+    ):
+        assert (
+            self.experiments[key]["align_job"] is not None or alignment_bundle is not None
+        ), "Please set either the alignment job or provide a bundle"
+
+        if reference_alignment is None:
+            if reference_alignment_key in self.reference_alignment:
+                reference_alignment = self.reference_alignment[reference_alignment_key].get("alignment")
+            assert reference_alignment is not None, "Please provide a reference alignment"
+
+        if reference_allophones is None:
+            if reference_alignment_key in self.reference_alignment:
+                reference_allophones = self.reference_alignment[reference_alignment_key].get("allophones")
+            assert reference_allophones is not None, "Please provide a reference allophone file"
+
+        alignment = alignment_bundle if alignment_bundle is not None else self.experiments[key]["align_job"].out_alignment_bundle
+        allophones = allophones if allophones is not None else lexicon.StoreAllophonesJob(self.crp[self.crp_names["align.train"]]).out_allophone_file
+        exp_name = self.experiments[key]["name"] if name is None else name
+        if not isinstance(reference_alignment, tk.Path):
+            reference_alignment = tk.Path(reference_alignment, cached=True)
+        if not isinstance(reference_allophones, tk.Path):
+            reference_allophones = tk.Path(reference_allophones, cached=True)
+
+        if use_legacy_tse_calculation:
+            tse_job = ComputeTSEJob(
+                allophone_file=allophones,
+                alignment_cache=alignment,
+                ref_allophone_file=reference_allophones,
+                ref_alignment_cache=reference_alignment,
+                upsample_factor=self.frame_rate_reduction_ratio_info.factor,
+            )
+            tse_job.add_alias(f"statistics/alignment/{exp_name}/tse")
+            tk.register_output(
+                f"statistics/alignment/{exp_name}/word_tse",
+                tse_job.out_tse_frames,
+            )
+
+        else:
+            #seems buggy need to debug
+            #logging.warn("We do not execute time stamp error until you debugged it ;-)")
+            tse_job = mm.ComputeTimeStampErrorJob(
+                hyp_alignment_cache=alignment,
+                ref_alignment_cache=reference_alignment,
+                hyp_allophone_file=allophones,
+                ref_allophone_file=reference_allophones,
+                hyp_upsample_factor=4,
+            )
+            tse_job.rqmt = {
+                "time": 4,
+                "cpu": 1,
+                "mem": 6,
+            }
+
+            tse_job.add_alias(f"statistics/alignment/{exp_name}/tse")
+            tk.register_output(
+                f"statistics/alignment/{exp_name}/word_tse",
+                tse_job.out_tse_frames,
+            )
+
+
+
+        stat_job_phoneme = ComputeAveragePhonemeLengthJob(
+            allophone_file=allophones,
+            alignment_files=alignment,
+            silence_label=silence_label,
+            non_speech_labels=non_speech_labels,
+        )
+        stat_job_phoneme.add_alias(f"statistics/alignment/{exp_name}/average_phoneme_job")
+        tk.register_output(
+            f"statistics/alignment/{exp_name}/out_average_phoneme_length.txt",
+            stat_job_phoneme.out_average_phoneme_length,
+        )
+
+        stat_job_sil = ComputeSilenceRatioJob(
+            allophone_file=allophones,
+            alignment_files=alignment,
+            silence_label=silence_label,
+        )
+        stat_job_sil.add_alias(f"statistics/alignment/{exp_name}/silence_ratio_job")
+        tk.register_output(
+            f"statistics/alignment/{exp_name}/silence_ratio_silence_ratio.txt",
+            stat_job_sil.out_silence_ratio,
+        )
+
+        if segments is not None:
+            plots = PlotViterbiAlignmentsJob(
+                alignment_bundle_path=alignment,
+                allophones_path=allophones,
+                segments=segments,
+                font_size=8,
+                show_labels=True,
+                monophone=True,
+            )
+            tk.register_output(f"alignments/plots/{exp_name}", plots.out_plot_folder)

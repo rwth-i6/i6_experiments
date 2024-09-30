@@ -1,4 +1,4 @@
-from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.labels.v2.librispeech.bpe.bpe import LibrispeechBPE10025, LibrispeechBPE1056
+from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.labels.v2.librispeech.bpe.bpe import LibrispeechBPE10025, LibrispeechBPE1056, LibrispeechBPE5048
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.labels.v2.librispeech.general import LibrispeechLabelDefinition
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.labels.v2.general import GlobalLabelDefinition
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.labels.v2.librispeech.phonemes.gmm_alignments import LIBRISPEECH_GMM_ALIGNMENT
@@ -109,3 +109,20 @@ class LibrispeechBPE1056Labels(LibrispeechBPE1056, LibrispeechLabelDefinition, G
   def model_hyperparameters(self) -> GlobalModelHyperparameters:
     return GlobalModelHyperparameters(
       sos_idx=0, target_num_labels=1056, sil_idx=None, target_num_labels_wo_blank=1056)
+
+
+class LibrispeechBPE5048Labels(LibrispeechBPE5048, LibrispeechLabelDefinition, GlobalLabelDefinition):
+  """
+  These are the BPE labels of the Librispeech corpus.
+  """
+  def __init__(self):
+    super().__init__()
+
+  @property
+  def alias(self) -> str:
+    return "bpe"
+
+  @property
+  def model_hyperparameters(self) -> GlobalModelHyperparameters:
+    return GlobalModelHyperparameters(
+      sos_idx=0, target_num_labels=5048, sil_idx=None, target_num_labels_wo_blank=5048)

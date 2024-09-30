@@ -1,5 +1,5 @@
 import re
-from typing import Dict
+from typing import Dict, Optional
 
 from sisyphus import Job, Path, Task
 
@@ -156,10 +156,24 @@ class WordsToCTMJobV2(Job):
       target_filename=self.out_ctm_file.get_path())
 
 
-def get_concat_dataset_dict(original_dataset_dict: Dict, seq_list_file: Path, seq_len_file: Path):
-  return {
+def get_concat_dataset_dict(
+        original_dataset_dict: Dict,
+        seq_list_file: Path,
+        seq_len_file: Path,
+        remove_in_between_postfix: Optional[Dict[str, int]] = None,
+        repeat_in_between_last_frame_up_to_multiple_of: Optional[Dict[str, int]] = None,
+):
+  dataset_dict = {
     "class": "ConcatSeqsDataset",
     "dataset": original_dataset_dict,
     "seq_list_file": seq_list_file,
-    "seq_len_file": seq_len_file
+    "seq_len_file": seq_len_file,
   }
+
+  if remove_in_between_postfix is not None:
+    dataset_dict["remove_in_between_postfix"] = remove_in_between_postfix
+
+  if repeat_in_between_last_frame_up_to_multiple_of is not None:
+    dataset_dict["repeat_in_between_last_frame_up_to_multiple_of"] = repeat_in_between_last_frame_up_to_multiple_of
+
+  return dataset_dict

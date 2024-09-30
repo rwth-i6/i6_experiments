@@ -8,6 +8,7 @@ import torch
 from i6_core.returnn.config import CodeWrapper
 from i6_experiments.common.setups.returnn_pytorch.serialization import Collection
 from i6_experiments.common.setups.serialization import Import, PartialImport
+from i6_experiments.users.berger.pytorch.custom_parts.identity import IdentityConfig, IdentityModule
 from i6_experiments.users.berger.pytorch.serializers.basic import (
     get_basic_pt_network_serializer,
 )
@@ -20,15 +21,15 @@ from i6_models.primitives.feature_extraction import (
     RasrCompatibleLogMelFeatureExtractionV1Config,
 )
 
+from ..custom_parts.sequential import SequentialModuleV1, SequentialModuleV1Config
 from ..custom_parts.specaugment import (
     SpecaugmentByLengthConfigV1,
     SpecaugmentByLengthModuleV1,
     SpecaugmentConfigV1,
     SpecaugmentModuleV1,
 )
-from ..custom_parts.vgg_frontend import VGG4LayerActFrontendCeilPoolV1, VGG4LayerActFrontendCeilPoolV1Config
-from ..custom_parts.sequential import SequentialModuleV1Config, SequentialModuleV1
 from ..custom_parts.speed_perturbation import SpeedPerturbationModuleV1, SpeedPerturbationModuleV1Config
+from ..custom_parts.vgg_frontend import VGG4LayerActFrontendCeilPoolV1, VGG4LayerActFrontendCeilPoolV1Config
 from .util import lengths_to_padding_mask
 
 
@@ -46,10 +47,10 @@ class ConformerCTCModel(torch.nn.Module):
     def __init__(self, cfg: ConformerCTCConfig, **_):
         super().__init__()
         self.feature_extraction = cfg.feature_extraction()
-        self.specaugment = cfg.specaugment()
         self.conformer = cfg.conformer()
         self.dropout = torch.nn.Dropout(cfg.dropout)
         self.final_linear = torch.nn.Linear(cfg.dim, cfg.target_size)
+        self.specaugment = cfg.specaugment()
 
     def forward(self, audio_features: torch.Tensor, audio_features_len: torch.Tensor):
         with torch.no_grad():
@@ -59,7 +60,8 @@ class ConformerCTCModel(torch.nn.Module):
             x = self.specaugment(x)  # [B, T, F]
 
         x, sequence_mask = self.conformer(x, sequence_mask)  # [B, T, F]
-        x = x[-1]
+        if isinstance(x, list):  # e.g. for return value of ConformerEncoderV2
+            x = x[-1]
         x = self.dropout(x)
         logits = self.final_linear(x)  # [B, T, F]
         log_probs = torch.log_softmax(logits, dim=2)

@@ -84,10 +84,11 @@ class AEDLabelScorer(LabelScorerIntf):
             lstm_state_1, lstm_state_2, att_context, accum_att_weights, lm_h, lm_c = tuple([state.squeeze(0) for state in prev_state])
             # pack lstm state
             decoder_state = (lstm_state_1, lstm_state_2), att_context, accum_att_weights
-            lm_in_state = lm_h, lm_c
+            lm_in_state = lm_h.contiguous(), lm_c.contiguous()
         else:
             # initialize LM state
             _, lm_in_state = self.lm_model(torch.zeros_like(prev_label, device=prev_label.device), None)
+            decoder_state = None
 
 
         # just treat batch_axis which is forced 1 as time axis forced 1
@@ -102,7 +103,7 @@ class AEDLabelScorer(LabelScorerIntf):
             audio_features_len = self.audio_features_len
 
         decoder_logits, states = self.model.decoder(
-            encoder_outputs, single_labels, audio_features_len, shift_embeddings=prev_state is None, state=prev_state
+            encoder_outputs, single_labels, audio_features_len, shift_embeddings=prev_state is None, state=decoder_state
         )  # [B,1,Vocab] and state of [B, *]
         decoder_log_softmax = torch.nn.functional.log_softmax(decoder_logits, dim=-1)  # [beam, 1, #vocab]
         decoder_log_softmax = torch.transpose(decoder_log_softmax, 0, 1)  # [1, beam, #vocab]
@@ -152,7 +153,7 @@ def forward_init_hook(run_ctx, **kwargs):
     epoch = checkpoint_state["epoch"]
 
     lm_module = importlib.import_module(
-        "..." + config.lm_module, package="pytorch_networks.decoder"
+        "..." + config.lm_module, package=__package__,
     )
     run_ctx.language_model = lm_module.Model(epoch=epoch, step=step, **config.lm_args)
     run_ctx.lm_scale = config.lm_scale
@@ -174,7 +175,7 @@ def forward_init_hook(run_ctx, **kwargs):
             f"Note: While loading {config.lm_checkpoint}, unexpected key(s) in state_dict: "
             + ", ".join(map(repr, unexpected_keys)),
         )
-
+    run_ctx.language_model.to(device=run_ctx.device)
 
 def forward_finish_hook(run_ctx, **kwargs):
     run_ctx.recognition_file.write("}\n")

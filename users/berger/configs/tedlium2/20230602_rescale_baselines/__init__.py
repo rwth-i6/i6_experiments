@@ -3,13 +3,16 @@ import copy
 from i6_experiments.users.berger.recipe.summary.report import SummaryReport
 from i6_experiments.users.berger.systems.dataclasses import SummaryKey
 from sisyphus import tk, gs
+from .config_01_conformer_ctc_old import py as py_01_old
 from .config_01_conformer_ctc import py as py_01
 
-# from .config_02_conformer_transducer_phon_viterbi import py as py_02
+from .config_02_conformer_transducer_phon_viterbi import py as py_02
+
 # from .config_02a_conformer_transducer_phon_viterbi_tuning import py as py_02a
 # from .config_03_conformer_transducer_phon_fullsum import py as py_03
-# from .config_05_conformer_transducer_phon_align_restrict import py as py_05
-from .config_05a_conformer_transducer_phon_align_restrict_tuning import py as py_05a
+from .config_03b_conformer_transducer_phon_fullsum_scratch import py as py_03b
+from .config_05_conformer_transducer_phon_align_restrict import py as py_05
+# from .config_05a_conformer_transducer_phon_align_restrict_tuning import py as py_05a
 
 # from .config_04a_conformer_transducer_bpe import py as py_04a
 # from .config_04a_conformer_transducer_bpe_rasr import py as py_04a_rasr
@@ -100,12 +103,14 @@ def main() -> SummaryReport:
     summary_report = SummaryReport()
 
     for subreport in [
+        copy.deepcopy(py_01_old()[0]),
         copy.deepcopy(py_01()[0]),
-        # copy.deepcopy(py_02()[0]),
+        copy.deepcopy(py_02()[0]),
         # copy.deepcopy(py_02a()),
         # copy.deepcopy(py_03()),
+        # copy.deepcopy(py_03b()),
         # copy.deepcopy(py_05()),
-        copy.deepcopy(py_05a()),
+        # copy.deepcopy(py_05a()),
     ]:
         subreport.collapse([SummaryKey.CORPUS.value], best_selector_key=SummaryKey.ERR.value)
         summary_report.merge_report(subreport, update_structure=True)

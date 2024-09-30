@@ -20,3 +20,17 @@ class ForwardDef(Protocol[ModelT]):
         :param model:
         :return: output tensor and output spatial dimension (can be same as in_spatial_dim)
         """
+
+
+class ForwardRFDef(Protocol[ModelT]):
+    """
+    Expects that the code internally calls rf.get_run_ctx().mark_as_output(...),
+    thus we do not have to return the output tensors explicitly.
+    """
+
+    def __call__(self, source: Tensor, /, in_spatial_dim: Dim, model: ModelT):
+        """
+        :param source: input tensor
+        :param in_spatial_dim: input spatial dimension
+        :param model:
+        """

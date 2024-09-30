@@ -24,11 +24,4 @@ def run_exps():
       train_on_viterbi_paths=True,
       only_use_blank_model=True,
     ):
-      for epoch, chckpt in checkpoint["checkpoints"].items():
-        realign.center_window_returnn_realignment(
-          alias=train_alias,
-          config_builder=config_builder,
-          checkpoint=chckpt,
-          checkpoint_alias=f"epoch-{epoch}",
-          plot=True,
-        )
+      pass

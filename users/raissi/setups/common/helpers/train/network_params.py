@@ -32,7 +32,9 @@ class GeneralNetworkParams:
     def __post_init__(self):
         if self.frame_rate_reduction_ratio_factor > 1 and self.chunking is not None:
             if not isinstance(self.chunking, tuple):
-                self.chunking = train_helpers.chunking_with_nfactor(self.chunking, self.frame_rate_reduction_ratio_factor)
+                self.chunking = train_helpers.chunking_with_nfactor(
+                    self.chunking, self.frame_rate_reduction_ratio_factor
+                )
 
     def get_sa_name(self):
         return f'T{self.specaug_args["min_reps_time"]}.{self.specaug_args["max_reps_time"]}x{self.specaug_args["max_len_time"]}FT{self.specaug_args["min_reps_feature"]}.{self.specaug_args["max_reps_feature"]}x{self.specaug_args["max_len_feature"]}'
@@ -82,7 +84,7 @@ frameshift40_conformer_viterbi_mix_base = GeneralNetworkParams(
 )
 
 
-#Conformer from-scratch
+# Conformer from-scratch
 frameshift40_conformer_fullsum_from_scratch_mlp = GeneralNetworkParams(
     l2=5e-6,
     use_multi_task=False,
@@ -109,7 +111,7 @@ frameshift40_conformer_fullsum_from_scratch_multi_mlp = GeneralNetworkParams(
     auxilary_loss_layers=[],
 )
 
-frameshift40_conformer_fullsum_from_scratch= GeneralNetworkParams(
+frameshift40_conformer_fullsum_from_scratch = GeneralNetworkParams(
     l2=5e-6,
     use_multi_task=False,
     add_mlps=False,

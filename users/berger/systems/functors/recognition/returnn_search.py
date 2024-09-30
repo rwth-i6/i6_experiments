@@ -1,6 +1,6 @@
 import copy
 from enum import Enum, auto
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from i6_core import returnn
 from i6_core.lexicon.modification import itertools
@@ -15,6 +15,8 @@ from i6_experiments.users.berger.recipe.returnn.training import (
     GetBestEpochJob,
     get_backend,
 )
+from i6_experiments.users.berger.corpus.general.hdf import build_feature_hdf_dataset_config
+from i6_experiments.users.berger.corpus.general.ogg import build_oggzip_dataset_config
 
 from ... import dataclasses, types
 from ..base import RecognitionFunctor
@@ -28,7 +30,7 @@ class LexiconType(Enum):
 
 class VocabType(Enum):
     NONE = auto()
-    RETURNN = auto()
+    LEXICON_INVENTORY = auto()
 
 
 class LmType(Enum):
@@ -41,9 +43,11 @@ class ReturnnSearchFunctor(RecognitionFunctor[returnn.ReturnnTrainingJob, return
         self,
         returnn_root: tk.Path,
         returnn_python_exe: tk.Path,
+        rasr_binary_path: tk.Path,
     ) -> None:
         self.returnn_root = returnn_root
         self.returnn_python_exe = returnn_python_exe
+        self.rasr_binary_path = rasr_binary_path
 
     def __call__(
         self,
@@ -51,6 +55,7 @@ class ReturnnSearchFunctor(RecognitionFunctor[returnn.ReturnnTrainingJob, return
         prior_config: returnn.ReturnnConfig,
         recog_config: dataclasses.NamedConfig[returnn.ReturnnConfig],
         recog_corpus: dataclasses.NamedRasrDataInput,
+        feature_type: dataclasses.FeatureType,
         epochs: List[types.EpochType],
         lm_scales: List[float] = [0.0],
         prior_scales: List[float] = [0.0],
@@ -58,13 +63,57 @@ class ReturnnSearchFunctor(RecognitionFunctor[returnn.ReturnnTrainingJob, return
         vocab_type: VocabType = VocabType.NONE,
         lm_type: LmType = LmType.NONE,
         convert_bpe_results: bool = False,
-        **_,
+        ogg_dataset: bool = False,
+        extra_audio_config: Optional[dict] = None,
+        **kwargs,
     ) -> List[Dict]:
         assert recog_corpus.data.scorer is not None
 
         recog_results = []
 
         backend = get_backend(recog_config.config)
+
+        updated_recog_config = copy.deepcopy(recog_config.config)
+        if ogg_dataset:
+            updated_recog_config.update(
+                returnn.ReturnnConfig(
+                    config={
+                        "forward": build_oggzip_dataset_config(
+                            data_inputs=[recog_corpus.data],
+                            returnn_root=self.returnn_root,
+                            returnn_python_exe=self.returnn_python_exe,
+                            audio_config={
+                                "features": "raw",
+                                "peak_normalization": True,
+                                **(extra_audio_config or {}),
+                            },
+                            extra_config={
+                                "partition_epoch": 1,
+                                "seq_ordering": "sorted",
+                            },
+                        )
+                    }
+                )
+            )
+        else:
+            updated_recog_config.update(
+                returnn.ReturnnConfig(
+                    config={
+                        "forward": build_feature_hdf_dataset_config(
+                            data_inputs=[recog_corpus.data],
+                            feature_type=feature_type,
+                            returnn_root=self.returnn_root,
+                            returnn_python_exe=self.returnn_python_exe,
+                            rasr_binary_path=self.rasr_binary_path,
+                            single_hdf=True,
+                            extra_config={
+                                "partition_epoch": 1,
+                                "seq_ordering": "sorted",
+                            },
+                        )
+                    }
+                )
+            )
 
         for lm_scale, prior_scale, epoch in itertools.product(lm_scales, prior_scales, epochs):
             if epoch == "best":
@@ -108,7 +157,7 @@ class ReturnnSearchFunctor(RecognitionFunctor[returnn.ReturnnTrainingJob, return
 
             if vocab_type == VocabType.NONE:
                 vocab_file = None
-            elif vocab_type == VocabType.RETURNN:
+            elif vocab_type == VocabType.LEXICON_INVENTORY:
                 vocab_file = ReturnnVocabFromPhonemeInventory(recog_corpus.data.lexicon.filename).out_vocab
             else:
                 raise NotImplementedError
@@ -125,7 +174,6 @@ class ReturnnSearchFunctor(RecognitionFunctor[returnn.ReturnnTrainingJob, return
 
             config_update["lm_file"] = lm_file
 
-            updated_recog_config = copy.deepcopy(recog_config.config)
             updated_recog_config.update(returnn.ReturnnConfig(config=config_update))
 
             forward_job = returnn.ReturnnForwardJobV2(
@@ -134,7 +182,7 @@ class ReturnnSearchFunctor(RecognitionFunctor[returnn.ReturnnTrainingJob, return
                 returnn_root=self.returnn_root,
                 returnn_python_exe=self.returnn_python_exe,
                 output_files=["search_out.py"],
-                mem_rqmt=8,
+                **kwargs,
             )
 
             if isinstance(epoch, str):

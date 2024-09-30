@@ -1,2 +1,2 @@
-from .config import *
+from .config import LBSSearchParameters
 from .LBS_factored_hybrid_search import LBSFactoredHybridDecoder

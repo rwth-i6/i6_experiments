@@ -118,7 +118,7 @@ class Model(torch.nn.Module):
 
 
         return_layers = self.cfg.aux_ctc_loss_layers or [self.cfg.num_layers - 1]
-        print(return_layers)
+
         conformer_out_layers, out_mask = self.conformer(conformer_in, mask, return_layers=return_layers)
         log_probs_list = []
         for i, (out_layer, scale) in enumerate(zip(conformer_out_layers, self.cfg.aux_ctc_loss_scales)):
@@ -147,6 +147,8 @@ def train_step(*, model: Model, data, run_ctx, **kwargs):
         raw_audio=raw_audio,
         raw_audio_len=raw_audio_len,
     )
+    if not isinstance(logprobs_list, list):
+        logprobs_list = [logprobs_list]
     for logprobs, layer_index, scale in zip(logprobs_list, model.cfg.aux_ctc_loss_layers, model.cfg.aux_ctc_loss_scales):
         transposed_logprobs = torch.permute(logprobs, (1, 0, 2))  # CTC needs [T, B, F]
         ctc_loss = nn.functional.ctc_loss(

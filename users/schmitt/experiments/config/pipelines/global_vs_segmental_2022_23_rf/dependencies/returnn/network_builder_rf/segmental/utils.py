@@ -1,15 +1,13 @@
-from typing import Optional, Sequence, Tuple
+from typing import Optional, Sequence, Tuple, List
 import torch
 
 from returnn.tensor import Tensor, Dim
 import returnn.frontend as rf
 
-from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.segmental.model import SegmentalAttentionModel
 
-
-def get_non_blank_mask(x: Tensor, blank_idx: int):
-  non_blank_mask = x != rf.convert_to_tensor(blank_idx)
-  return rf.where(non_blank_mask, rf.sequence_mask(x.dims), rf.convert_to_tensor(False))
+def get_non_blank_mask(x: Tensor, blank_idx: int, device=rf.get_default_device()):
+  non_blank_mask = x != rf.convert_to_tensor(blank_idx, device=device)
+  return rf.where(non_blank_mask, rf.sequence_mask(x.dims, device=device), rf.convert_to_tensor(False, device=device))
 
 
 def get_masked(
@@ -69,7 +67,7 @@ def get_unmasked(
 def get_segment_starts_and_lens(
         non_blank_mask: Tensor,
         align_targets_spatial_dim: Dim,
-        model: SegmentalAttentionModel,
+        center_window_size: Optional[int],
         batch_dims: Sequence[Dim],
         out_spatial_dim: Dim
 ):
@@ -79,13 +77,17 @@ def get_segment_starts_and_lens(
   non_blank_positions, _ = get_masked(
     targets_range, non_blank_mask, align_targets_spatial_dim, batch_dims, out_spatial_dim
   )
-  starts = rf.maximum(
-    rf.convert_to_tensor(0, dtype="int32"), non_blank_positions - model.center_window_size // 2)
-  ends = rf.minimum(
-    rf.copy_to_device(align_targets_spatial_dim.get_size_tensor() - 1, non_blank_positions.device),
-    non_blank_positions + model.center_window_size // 2
-  )
-  lens = ends - starts + 1
+  if center_window_size is None:
+    starts = None
+    lens = None
+  else:
+    starts = rf.maximum(
+      rf.convert_to_tensor(0, dtype="int32"), non_blank_positions - center_window_size // 2)
+    ends = rf.minimum(
+      rf.copy_to_device(align_targets_spatial_dim.get_size_tensor() - 1, non_blank_positions.device),
+      non_blank_positions + center_window_size // 2
+    )
+    lens = ends - starts + 1
 
   return starts, lens, non_blank_positions
 
@@ -189,3 +191,44 @@ def log_softmax_sep_blank(
   log_prob, _ = rf.concat((blank_log_prob, blank_dim), (label_log_prob, non_blank_dim), out_dim=target_dim)
 
   return log_prob
+
+
+def cumsum(x: Tensor, dim: Dim):
+  orig_dims = x.dims
+  x = x.copy_transpose([dim] + x.remaining_dims([dim]))
+  x_raw = x.raw_tensor
+  x = x.copy_template()
+  x.raw_tensor = torch.cumsum(x_raw, dim=x.get_axis_from_description(dim), dtype=x_raw.dtype)
+  x = x.copy_transpose(orig_dims)
+  return x
+
+
+def scatter_w_masked_indices(
+        x: Tensor,
+        mask: Tensor,
+        scatter_indices: Tensor,
+        result_spatial_dim: Dim,
+        indices_dim: Dim,
+        batch_dims: List[Dim],
+):
+  scatter_spatial_dim_sizes = rf.copy_to_device(result_spatial_dim.get_size_tensor())
+  scatter_spatial_dim_sizes_max = rf.cast(rf.reduce_max(scatter_spatial_dim_sizes, axis=scatter_spatial_dim_sizes.dims), "int32")
+  # scatter out-of-bounds indices to extended last position
+  indices = rf.where(
+    mask,
+    scatter_indices,
+    scatter_spatial_dim_sizes_max
+  )
+  # scatter according to indices into extended dim
+  result_spatial_dim_temp = result_spatial_dim + 1
+  result = rf.scatter(
+    x, indices=indices, indices_dim=indices_dim, out_dim=result_spatial_dim_temp)
+  # remove accumulated results at the last position
+  rem_dims = result.remaining_dims([result_spatial_dim_temp] + batch_dims)
+  result = result.copy_transpose([result_spatial_dim_temp] + batch_dims + rem_dims)
+  result_raw_tensor = result.raw_tensor
+  result = result.copy_template_replace_dim_tag(0, result_spatial_dim)
+  result.raw_tensor = result_raw_tensor[:-1]
+  result = result.copy_transpose(batch_dims + [result_spatial_dim] + rem_dims)
+
+  return result

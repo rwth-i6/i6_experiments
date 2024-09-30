@@ -97,7 +97,10 @@ def build_data_input(
                 },
                 "ogg": {
                     "class": "OggZipDataset",
-                    "audio": {"features": "raw", "peak_normalization": True, "sample_rate": 16000},
+                    "audio": {
+                        "features": "raw",
+                        "peak_normalization": True,
+                        "sample_rate": 16000},
                     "partition_epoch": partition_epoch,
                     "path": [raw_features],
                     "seq_ordering": seq_ordering,
@@ -296,7 +299,6 @@ def get_corpus_data_inputs(
     nn_cv_data_inputs = {
         "dev.cv": nn_cv_data,
     }
-
     nn_dev_data_inputs = {
         "dev": gmm_system.outputs["dev"]["final"].as_returnn_rasr_data_input(),
     }

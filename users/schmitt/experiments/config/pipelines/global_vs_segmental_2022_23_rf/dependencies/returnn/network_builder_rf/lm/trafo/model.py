@@ -261,3 +261,59 @@ def make_time_sync_label_scorer_torch(
         raise TypeError(f"_map_tensor_to_raw: unexpected {v} ({type(v).__name__})")
 
   return LabelScorer()
+
+
+def from_scratch_model_def(*, epoch: int, vocab_dim: Dim) -> TransformerDecoder:
+  """Function is run within RETURNN."""
+  from returnn.config import get_global_config
+
+  config = get_global_config()  # noqa
+
+  model_dim = config.typed_value("model_dim", Dim(512, name="transformer-dec-model-dim"))
+  num_layers = config.typed_value("num_layers", 24)
+  embed_dim = config.typed_value("embed_dim", Dim(128, name="transformer-dec-embed-dim"))
+  decoder_layer_opts = {"self_att_opts": {"with_bias": False, "att_dropout_broadcast": False}}
+  input_embedding_scale = config.typed_value("input_embedding_scale", 1.0)
+  share_embedding = config.typed_value("share_embedding", False)
+  logits_with_bias = config.typed_value("logits_with_bias", True)
+  input_dropout = config.typed_value("input_dropout", 0.1)
+  ff_activation = config.typed_value("ff_activation", "rf.gelu")
+  dropout = config.typed_value("dropout", 0.0)
+  att_dropout = config.typed_value("att_dropout", 0.0)
+
+  return MakeModel.make_model(
+    vocab_dim=vocab_dim,
+    model_dim=model_dim,
+    num_layers=num_layers,
+    # embed_dim=embed_dim,
+    # decoder_layer_opts=decoder_layer_opts,
+    # input_embedding_scale=input_embedding_scale,
+    # share_embedding=share_embedding,
+    # logits_with_bias=logits_with_bias,
+    # input_dropout=input_dropout,
+    ff_activation=rf.build_dict(eval(ff_activation)),
+    dropout=dropout,
+    att_dropout=att_dropout,
+  )
+
+
+def _returnn_v2_get_model(*, epoch: int, **_kwargs_unused):
+  from returnn.tensor import Tensor
+  from returnn.config import get_global_config
+
+  config = get_global_config()
+  default_target_key = config.typed_value("target")
+  extern_data_dict = config.typed_value("extern_data")
+
+  if default_target_key in extern_data_dict:
+    targets = Tensor(name=default_target_key, **extern_data_dict[default_target_key])
+  else:
+    non_blank_target_dimension = config.typed_value("non_blank_target_dimension", None)
+    vocab = config.typed_value("vocab", None)
+    assert non_blank_target_dimension and vocab
+    target_dim = Dim(description="non_blank_target_dim", dimension=non_blank_target_dimension, kind=Dim.Types.Spatial)
+    targets = Tensor(name=default_target_key, sparse_dim=target_dim, vocab=vocab)
+
+  model_def = config.typed_value("_model_def")
+  model = model_def(epoch=epoch, vocab_dim=targets.sparse_dim)
+  return model

@@ -18,9 +18,10 @@ from i6_core.returnn.training import ReturnnTrainingJob, AverageTorchCheckpoints
 from i6_core.returnn.forward import ReturnnForwardJobV2
 
 from i6_experiments.common.setups.returnn.datasets import Dataset
+from i6_experiments.users.rossenbach.tts.evaluation.nisqa import NISQAMosPredictionJob
 
 from .config import get_forward_config, get_training_config, get_prior_config, TrainingDatasets
-from .default_tools import SCTK_BINARY_PATH, RETURNN_EXE, MINI_RETURNN_ROOT
+from .default_tools import SCTK_BINARY_PATH, RETURNN_EXE, MINI_RETURNN_ROOT, NISQA_REPO
 
 
 @dataclass
@@ -33,6 +34,15 @@ class ASRModel:
 
 @dataclass
 class NeuralLM:
+    checkpoint: tk.Path
+    net_args: Dict[str, Any]
+    network_module: str
+    prefix_name: Optional[str]
+    bpe_vocab: Optional[tk.Path] = None
+    bpe_codes: Optional[tk.Path] = None
+
+@dataclass
+class TTSModel:
     checkpoint: tk.Path
     net_args: Dict[str, Any]
     network_module: str
@@ -69,7 +79,7 @@ def search_single(
         returnn_config=returnn_config,
         log_verbosity=5,
         mem_rqmt=mem_rqmt,
-        time_rqmt=24,
+        time_rqmt=0.5 if use_gpu else 12,
         device="gpu" if use_gpu else "cpu",
         cpu_rqmt=2,
         returnn_python_exe=returnn_exe,
@@ -196,7 +206,7 @@ def training(training_name, datasets, train_args, num_epochs, returnn_exe, retur
     """
     returnn_config = get_training_config(training_datasets=datasets, **train_args)
     default_rqmt = {
-        "mem_rqmt": 24,
+        "mem_rqmt": 20,
         "time_rqmt": 168,
         "cpu_rqmt": 6,
         "log_verbosity": 5,
@@ -208,6 +218,66 @@ def training(training_name, datasets, train_args, num_epochs, returnn_exe, retur
     train_job.add_alias(training_name + "/training")
     tk.register_output(training_name + "/learning_rates", train_job.out_learning_rates)
     return train_job
+
+def tts_eval_v2(
+        prefix_name,
+        returnn_config,
+        checkpoint,
+        returnn_exe,
+        returnn_root,
+        mem_rqmt=8,
+        use_gpu=False,
+        store_log_mels=False,
+):
+    """
+    Run search for a specific test dataset
+
+    :param prefix_name: prefix folder path for alias and output files
+    :param returnn_config: the RETURNN config to be used for forwarding
+    :param Checkpoint checkpoint: path to RETURNN PyTorch model checkpoint
+    :param returnn_exe: The python executable to run the job with (when using container just "python3")
+    :param returnn_root: Path to a checked out RETURNN repository
+    :param mem_rqmt: override the default memory requirement
+    """
+
+    output_files = ["audio_files", "out_corpus.xml.gz"]
+    if store_log_mels:
+        output_files += ["log_mels.hdf"]
+    forward_job = ReturnnForwardJobV2(
+        model_checkpoint=checkpoint,
+        returnn_config=returnn_config,
+        log_verbosity=5,
+        mem_rqmt=mem_rqmt,
+        time_rqmt=24,
+        device="gpu" if use_gpu else "cpu",
+        cpu_rqmt=4,
+        returnn_python_exe=returnn_exe,
+        returnn_root=returnn_root,
+        output_files=output_files,
+    )
+    forward_job.add_alias(prefix_name + "/tts_eval_job")
+    # evaluate_nisqa(prefix_name, forward_job.out_files["out_corpus.xml.gz"], with_bootstrap=True)
+    return forward_job
+
+
+def evaluate_nisqa(
+        prefix_name: str,
+        bliss_corpus: tk.Path,
+        with_bootstrap = False,
+):
+    predict_mos_job = NISQAMosPredictionJob(bliss_corpus, nisqa_repo=NISQA_REPO)
+    predict_mos_job.add_alias(prefix_name + "/nisqa_mos")
+    tk.register_output(os.path.join(prefix_name, "nisqa_mos/average"), predict_mos_job.out_mos_average)
+    tk.register_output(os.path.join(prefix_name, "nisqa_mos/min"), predict_mos_job.out_mos_min)
+    tk.register_output(os.path.join(prefix_name, "nisqa_mos/max"), predict_mos_job.out_mos_max)
+    tk.register_output(os.path.join(prefix_name, "nisqa_mos/std_dev"), predict_mos_job.out_mos_std_dev)
+
+    if with_bootstrap:
+        from i6_experiments.users.rossenbach.tts.evaluation.nisqa import NISQAConfidenceJob
+        nisqa_confidence_job = NISQAConfidenceJob(predict_mos_job.output_dir, bliss_corpus)
+        nisqa_confidence_job.add_alias(prefix_name + "/nisqa_mos_confidence")
+        tk.register_output(os.path.join(prefix_name, "nisqa_mos/confidence_max_interval"), nisqa_confidence_job.out_max_interval_bound)
+
 
 
 @dataclass
@@ -345,6 +415,32 @@ def prepare_asr_model(
         )
 
     return asr_model
+
+def prepare_tts_model(
+    training_name,
+    train_job,
+    train_args,
+    get_specific_checkpoint: int,
+):
+    """
+    For now basically do nothing except for creating the dataclass
+
+    :param training_name:
+    :param train_job:
+    :param train_args:
+    :param get_specific_checkpoint:
+    :return:
+    """
+    checkpoint = train_job.out_checkpoints[get_specific_checkpoint]
+    training_name = training_name + "/ep_%i_cpkt" % get_specific_checkpoint
+
+    tts_model = TTSModel(
+        checkpoint=checkpoint,
+        network_module=train_args["network_module"],
+        net_args=train_args["net_args"],
+        prefix_name=training_name,
+    )
+    return tts_model
 
 
 @tk.block()

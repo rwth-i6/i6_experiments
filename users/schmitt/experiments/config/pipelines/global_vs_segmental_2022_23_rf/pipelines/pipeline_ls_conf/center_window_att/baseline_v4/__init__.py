@@ -20,7 +20,7 @@ def run_exps():
   att_weight_feedback.run_exps()
   # Done
   full_label_context.run_exps()
-  # Done
+  # Running
   label_context1.run_exps()
 
   # --------------------------- full-sum training exps ---------------------------

@@ -14,7 +14,7 @@ from ...data.phon import build_eow_phon_training_datasets, get_text_lexicon
 from ...default_tools import RETURNN_EXE, MINI_RETURNN_ROOT
 from ...lm import get_4gram_binary_lm
 from ...pipeline import training, prepare_asr_model, search
-
+from ...report import tune_and_evalue_report
 
 
 def eow_phon_ls960_1023_base():
@@ -78,6 +78,7 @@ def eow_phon_ls960_1023_base():
         tune_parameters = []
         tune_values_clean = []
         tune_values_other = []
+        report_values = {}
         for lm_weight in lm_scales:
             for prior_scale in prior_scales:
                 decoder_config = copy.deepcopy(base_decoder_config)
@@ -108,6 +109,16 @@ def eow_phon_ls960_1023_base():
                 decoder_args={"config": asdict(decoder_config)}, test_dataset_tuples={key: test_dataset_tuples[key]},
                 **default_returnn
             )
+            report_values[key] = wers[training_name + "/" + key]
+
+        tune_and_evalue_report(
+            training_name=training_name,
+            tune_parameters=tune_parameters,
+            tuning_names=["LM", "Prior"],
+            tune_values_clean=tune_values_clean,
+            tune_values_other=tune_values_other,
+            report_values=report_values
+        )
 
 
     from ...pytorch_networks.ctc.decoder.flashlight_ctc_v1 import DecoderConfig
@@ -292,18 +303,19 @@ def eow_phon_ls960_1023_base():
     debug_decoder_config.prior_scale = 0.3
 
 
-    decoder_config = copy.deepcopy(debug_decoder_config)
-    search_name = training_name + "/search_onnx_test"
-    search_jobs, wers = search(
-        search_name,
-        forward_config={},
-        asr_model=asr_model,
-        decoder_module="ctc.decoder.flashlight_ctc_v1_onnx",
-        decoder_args={"config": asdict(decoder_config)},
-        test_dataset_tuples={"dev-other": dev_dataset_tuples["dev-other"]},
-        **default_returnn,
-        debug=True,
-    )
+    # TODO: Wait for Kaloyan to fix
+    # decoder_config = copy.deepcopy(debug_decoder_config)
+    # search_name = training_name + "/search_onnx_test"
+    # search_jobs, wers = search(
+    #     search_name,
+    #     forward_config={},
+    #     asr_model=asr_model,
+    #     decoder_module="ctc.decoder.flashlight_ctc_v1_onnx",
+    #     decoder_args={"config": asdict(decoder_config)},
+    #     test_dataset_tuples={"dev-other": dev_dataset_tuples["dev-other"]},
+    #     **default_returnn,
+    #     debug=True,
+    # )
 
 
     # extra dropout test
@@ -395,6 +407,9 @@ def eow_phon_ls960_1023_base():
         training_name, train_job, train_args_eff_tune, with_prior=True, datasets=train_data, get_specific_checkpoint=560
     )
     tune_and_evaluate_helper(training_name, asr_model, default_decoder_config, lm_scales=[2.3, 2.5, 2.7], prior_scales=[0.2, 0.3, 0.4])
+
+
+
 
 
 

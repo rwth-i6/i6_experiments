@@ -33,6 +33,7 @@ Path = tk.setup_path(__package__)
 # Either returnn config or a function that creates a config out of an optuna trial object
 ReturnnConfigType = Union[returnn.ReturnnConfig, custom_returnn.OptunaReturnnConfig]
 TrainJobType = Union[returnn.ReturnnTrainingJob, custom_returnn.OptunaReturnnTrainingJob]
+RecogJobType = Union[recognition.AdvancedTreeSearchJob, custom_recognition.GenericSeq2SeqSearchJob]
 ScoreJobType = Union[Type[recognition.ScliteJob], Type[recognition.Hub5ScoreJob]]
 ScoreJob = Union[recognition.ScliteJob, recognition.Hub5ScoreJob]
 EpochType = Union[int, Literal["best"]]
@@ -121,8 +122,9 @@ class TransducerSystem:
         # exp-name mapped to ReturnnConfigs collection
         self.returnn_configs: Dict[str, ReturnnConfigs] = {}
 
-        # exp-name mapped to train job
+        # exp-name mapped to train/recog job
         self.train_jobs: Dict[str, TrainJobType] = {}
+        self.recog_jobs: Dict[str, RecogJobType] = {}
 
         # exp-name mapped to Checkpoint object
         self.best_checkpoints: Dict[str, returnn.Checkpoint] = {}
@@ -540,7 +542,7 @@ class TransducerSystem:
         base_feature_flow: rasr.FlowNetwork,
         tf_graph: tk.Path,
         checkpoint: returnn.Checkpoint,
-        **kwargs
+        **kwargs,
     ) -> rasr.FlowNetwork:
         if custom_rasr.LabelScorer.need_tf_flow(label_scorer.scorer_type):
             feature_flow = self._make_tf_feature_flow(base_feature_flow, tf_graph, checkpoint, **kwargs)
@@ -644,32 +646,34 @@ class TransducerSystem:
 
             rec.set_vis_name(f"Recog {path}")
             rec.add_alias(path)
+            self.recog_jobs[path] = rec
 
-            scorer_job = self._lattice_scoring(
-                filename=path,
-                recognition_corpus_key=recognition_corpus_key,
-                recognition_job=rec,
-                **lattice_to_ctm_kwargs,
-            )
-
-            if self._report:
-                report_args = report_args or {}
-                self._report.add(
-                    {
-                        "train_name": train_exp_name,
-                        "recog_name": recog_exp_name,
-                        "corpus": recognition_corpus_key,
-                        "trial": self._get_trial_value(train_exp_name, trial_num),
-                        "epoch": self._get_epoch_value(train_exp_name, epoch, trial_num),
-                        "prior_scale": prior_scale,
-                        "lm_scale": lm_scale,
-                        "wer": scorer_job.out_wer,
-                        "sub": scorer_job.out_percent_substitution,
-                        "del": scorer_job.out_percent_deletions,
-                        "ins": scorer_job.out_percent_insertions,
-                        **report_args.get(train_exp_name, {}),
-                    }
+            if recognition_corpus_key in self.scorers:
+                scorer_job = self._lattice_scoring(
+                    filename=path,
+                    recognition_corpus_key=recognition_corpus_key,
+                    recognition_job=rec,
+                    **lattice_to_ctm_kwargs,
                 )
+
+                if self._report:
+                    report_args = report_args or {}
+                    self._report.add(
+                        {
+                            "train_name": train_exp_name,
+                            "recog_name": recog_exp_name,
+                            "corpus": recognition_corpus_key,
+                            "trial": self._get_trial_value(train_exp_name, trial_num),
+                            "epoch": self._get_epoch_value(train_exp_name, epoch, trial_num),
+                            "prior_scale": prior_scale,
+                            "lm_scale": lm_scale,
+                            "wer": scorer_job.out_wer,
+                            "sub": scorer_job.out_percent_substitution,
+                            "del": scorer_job.out_percent_deletions,
+                            "ins": scorer_job.out_percent_insertions,
+                            **report_args.get(train_exp_name, {}),
+                        }
+                    )
 
     def _atr_nn_recognition(
         self,
@@ -857,7 +861,9 @@ class TransducerSystem:
                 f"{path}.alignment.cache.bundle",
                 align.out_alignment_bundle,
             )
-            self.alignments[align_corpus_key] = rasr.FlagDependentFlowAttribute(
+            if align_corpus_key not in self.alignments:
+                self.alignments[align_corpus_key] = {}
+            self.alignments[align_corpus_key][train_exp_name] = rasr.FlagDependentFlowAttribute(
                 "cache_mode",
                 {
                     "task_dependent": align.out_alignment_path,
@@ -919,10 +925,8 @@ class TransducerSystem:
             )
 
     def run_align_step(self, align_args: Optional[Dict] = None) -> None:
-        for train_exp_name in self.returnn_configs.keys():
-            for al_c in self.align_corpora:
-                self._nn_alignment(
-                    train_exp_name,
-                    align_corpus_key=al_c,
-                    **(align_args or {}),
-                )
+        for al_c in self.align_corpora:
+            self._nn_alignment(
+                align_corpus_key=al_c,
+                **(align_args or {}),
+            )

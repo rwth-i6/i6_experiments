@@ -9,6 +9,7 @@ class LearningRateSchedules(Enum):
     Newbob = auto()
     NewbobAbs = auto()
     OCLR = auto()
+    OCLR_V2 = auto()
     OCLR_STEP = auto()
     OCLR_STEP_TORCH = auto()
     CONST_DECAY = auto()
@@ -37,6 +38,8 @@ def get_learning_rate_config(
         config.update(get_newbob_abs_config(**kwargs))
     elif schedule == LearningRateSchedules.OCLR:
         config.update(get_oclr_config(**kwargs))
+    elif schedule == LearningRateSchedules.OCLR_V2:
+        config.update(get_oclr_v2_config(**kwargs))
     elif schedule == LearningRateSchedules.OCLR_STEP:
         extra_python.append(get_oclr_function(**kwargs))
     elif schedule == LearningRateSchedules.OCLR_STEP_TORCH:
@@ -139,6 +142,33 @@ def get_oclr_config(
         list(np.linspace(initial_lr, peak_lr, cycle_epoch, endpoint=False))[1:]
         + list(np.linspace(peak_lr, decayed_lr, cycle_epoch, endpoint=False))
         + list(np.linspace(decayed_lr, final_lr, num_epochs - 2 * cycle_epoch + 1, endpoint=True))
+    )
+
+    return {
+        "learning_rates": lr_list,
+    }
+
+
+def get_oclr_v2_config(
+    num_epochs: int,
+    peak_lr: float = 1e-03,
+    inc_epochs: Optional[int] = None,
+    dec_epochs: Optional[int] = None,
+    initial_lr: Optional[float] = None,
+    decayed_lr: Optional[float] = None,
+    final_lr: Optional[float] = None,
+    **kwargs,
+) -> dict:
+    initial_lr = initial_lr or peak_lr / 10
+    decayed_lr = decayed_lr or initial_lr
+    final_lr = final_lr or initial_lr / 5
+    inc_epochs = inc_epochs or (num_epochs * 9) // 20  # 45% of the training
+    dec_epochs = dec_epochs or inc_epochs
+
+    lr_list = (
+        list(np.linspace(initial_lr, peak_lr, inc_epochs))
+        + list(np.linspace(peak_lr, decayed_lr, dec_epochs))
+        + list(np.linspace(decayed_lr, final_lr, num_epochs - inc_epochs - dec_epochs))
     )
 
     return {
