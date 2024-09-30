@@ -144,7 +144,7 @@ def py():
         # train_dataset.main_dataset["fixed_random_subset"] = 1000  # for debugging...
         train_dataset.main_dataset["seq_list_filter_file"] = seq_list
 
-        ctc_model = sis_get_model(fullname)
+        ctc_model = sis_get_ctc_model(fullname)
 
         alignment = ctc_forced_align(ctc_model, train_dataset)
         alignment.creator.add_alias(f"{prefix}ctc_forced_align/{shortname}/align")
@@ -183,13 +183,13 @@ def py():
             grad_opts = grad_opts.copy()
             # base model
             epoch = grad_opts.pop("epoch", -1)
-            ctc_model = sis_get_model(fullname, epoch=epoch)
+            ctc_model = sis_get_ctc_model(fullname, epoch=epoch)
 
             if "blankSep" in shortname:
                 assert ctc_model.definition.config["out_blank_separated"]  # sanity check
 
             # Now grad based align
-            grads = get_input_grads(
+            grads = get_ctc_input_grads(
                 ctc_model,
                 train_dataset,
                 config={
@@ -313,7 +313,7 @@ def py():
         grad_opts = grad_opts.copy()
         # base model
         epoch = grad_opts.pop("epoch", -1)
-        ctc_model = sis_get_model(
+        ctc_model = sis_get_ctc_model(
             "v6-relPosAttDef"
             "-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k"
             "-featBN-speedpertV2-spm10k-bpeSample001",
@@ -324,7 +324,7 @@ def py():
         train_dataset = task.train_dataset.copy_train_as_static()
         train_dataset.main_dataset["fixed_random_subset"] = 100  # for debugging...
         # train_dataset.main_dataset["seq_list_filter_file"] = seq_list
-        grads = get_input_grads(ctc_model, train_dataset, grad_opts)
+        grads = get_ctc_input_grads(ctc_model, train_dataset, grad_opts)
         tk.register_output(f"{prefix}debug/ctc_grad_align/{name}-ep{epoch}/input_grads.hdf", grads)
         grads.creator.add_alias(f"{prefix}debug/ctc_grad_align/{name}-ep{epoch}/input_grads")
 
@@ -404,7 +404,7 @@ def py():
 _called_ctc_py_once = False
 
 
-def sis_get_model(name: str, *, epoch: int = -1) -> ModelWithCheckpoint:
+def sis_get_ctc_model(name: str, *, epoch: int = -1) -> ModelWithCheckpoint:
     if (
         name == "v6-relPosAttDef-noBias"
         "-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k"
@@ -514,7 +514,7 @@ def _ctc_model_forced_align_step(*, model: Model, extern_data: TensorDict, **_kw
     score.mark_as_output("scores", shape=[batch_dim])
 
 
-def get_input_grads(
+def get_ctc_input_grads(
     model: ModelWithCheckpoint, dataset: DatasetConfig, config: Optional[Dict[str, Any]] = None
 ) -> tk.Path:
     from i6_experiments.users.zeyer.forward_to_hdf import forward_to_hdf
