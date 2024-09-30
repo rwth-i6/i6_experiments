@@ -1249,8 +1249,8 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
         key,
         non_speech_labels: [str],
         name: str = None,
-        hyp_silence_phone: str = "[SILENCE]{#+#}@i@f",
-        ref_silence_phone: str = "[SILENCE]{#+#}@i@f",
+        hyp_silence_phone: str = "[SILENCE]",
+        ref_silence_phone: str = "[SILENCE]",
         silence_label: str = "[SILENCE]{#+#}@i@f",
         reference_alignment_key: str = "GMM",
         alignment_bundle: tk.Path = None,
@@ -1308,6 +1308,8 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
                     ref_alignment_cache=reference_alignment,
                     hyp_allophone_file=allophones,
                     ref_allophone_file=reference_allophones,
+                    hyp_silence_phone=hyp_silence_phone,
+                    ref_silence_phone=ref_silence_phone,
                     hyp_upsample_factor=4,
                     segment_file=segment_file,
                 )
@@ -1317,6 +1319,8 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
                     ref_alignment_cache=reference_alignment,
                     hyp_allophone_file=allophones,
                     ref_allophone_file=reference_allophones,
+                    hyp_silence_phone=hyp_silence_phone,
+                    ref_silence_phone=ref_silence_phone,
                     hyp_upsample_factor=4,
                 )
             tse_job.rqmt = {
