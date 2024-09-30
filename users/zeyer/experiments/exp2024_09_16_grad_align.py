@@ -771,7 +771,7 @@ def _ctc_model_get_input_grads_step(*, model: CtcModel, extern_data: TensorDict,
             targets=targets,
             targets_spatial_dim=targets_spatial_dim,
             blank_index=model.blank_idx,
-            include_next_blank=config.bool("ctc_partial_scores_include_next_blank", False),
+            include_next_blank=config.typed_value("ctc_partial_scores_include_next_blank", False),
         )  # [B,T_out]
         scores.mark_as_output("partial_scores")
         scores_ta = TensorArray.unstack(scores, axis=targets_spatial_dim)
