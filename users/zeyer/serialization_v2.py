@@ -753,6 +753,8 @@ class _Serializer:
         if path in base_sys_path:
             return  # already in (base) sys.path
 
+        if not recursive:
+            self._handle_next_queue_item(_AssignQueueItem(sys))
         sys_s = self._serialize_value(sys, prefix="sys")
         assert isinstance(sys_s, PyEvalCode)
         if path in sys.path:
@@ -770,8 +772,6 @@ class _Serializer:
             # Thus put it in front of the base sys.path.
             insert_idx = self._next_sys_path_insert_idx
             self._next_sys_path_insert_idx += 1
-        if not recursive:
-            self._handle_next_queue_item(_AssignQueueItem(sys))
         if insert_idx is not None:
             code = PyCode(
                 py_name=None, value=None, py_code=f"{sys_s.py_inline()}.path.insert({insert_idx}, {path!r})\n"
@@ -1019,6 +1019,23 @@ def test_func():
         import sys
         sys.path.insert(0, {mod_path!r})
         from i6_experiments.users.zeyer.train_v3 import _returnn_v2_get_model as get_model
+        """
+    )
+
+
+def test_extra_sys_paths():
+    import i6_experiments
+
+    mod_filename = i6_experiments.__file__
+    assert mod_filename.endswith("/__init__.py")
+    mod_path = os.path.dirname(mod_filename[: -len("/__init__.py")])
+
+    config = {"num": 42}
+    assert serialize_config(config, extra_sys_paths=[mod_path]).as_serialized_code() == textwrap.dedent(
+        f"""\
+        import sys
+        sys.path.insert(0, {mod_path!r})
+        num = 42
         """
     )
 
