@@ -163,6 +163,7 @@ def py():
             ("", {}),
             ("-blankStopGrad", {"stop_grad_blank": True}),
             *([("-bs1", {"max_seqs": 1})] if shortname == "base" else []),  # test influence of batching
+            ("base-blankStopGrad-p0.1", {"stop_grad_blank": True, "grad_norm_p": 0.1}),
         ]:
             grad_opts = grad_opts.copy()
             # base model
@@ -186,55 +187,61 @@ def py():
             grads.creator.add_alias(f"{prefix}ctc_{shortname}{extra_name}_input_grads/grads")
 
             # see also exp2024_09_09_grad_align.py
-            opts = {"grad_name": f"ctc_{shortname}{extra_name}_input_grads", "sm": True, "blank_score": -6}
-            opts = opts.copy()
-            apply_softmax_over_time = opts.pop("sm", False)
-            grad_name = opts.pop("grad_name")
-            # factor, grad_hdf = grads[grad_name]
-            factor = 1
-            grad_hdf = grads
+            grad_name = f"ctc_{shortname}{extra_name}_input_grads"
+            for align_opts in [
+                {"apply_softmax_over_time": True, "blank_score": -6},
+                {
+                    "apply_softmax_over_time": True,
+                    "blank_score": "calc",
+                    "blank_score_est": "flipped_after_softmax_over_time",
+                    "non_blank_score_reduce": "log_mean_exp",
+                    "blank_score_flipped_percentile": 60,
+                    "apply_softmax_over_labels": True,
+                },
+            ]:
+                # factor, grad_hdf = grads[grad_name]
+                factor = 1
+                grad_hdf = grads
 
-            # The dumped grads cover about 9.6h audio from train.
-            name = f"grad-align-{grad_name}-sm{apply_softmax_over_time}"
-            if opts:
-                for k, v in opts.items():
+                # The dumped grads cover about 9.6h audio from train.
+                name = f"grad-align-{grad_name}"
+                for k, v in align_opts.items():
                     name += f"-{k}{v}"
-            job = ForcedAlignOnScoreMatrixJob(
-                score_matrix_hdf=grad_hdf,
-                cut_off_eos=False,
-                apply_softmax_over_time=apply_softmax_over_time,
-                # Need to know blank idx for the generated output alignment.
-                num_labels=vocabs[vocab][2] + 1,
-                blank_idx=vocabs[vocab][2],
-                returnn_dataset=train_dataset.get_main_dataset(),
-                **opts,
-            )
-            job.add_alias(prefix + name + "/align")
-            tk.register_output(prefix + name + "/align.hdf", job.out_align)
-            alignment_hdf = job.out_align
+                job = ForcedAlignOnScoreMatrixJob(
+                    score_matrix_hdf=grad_hdf,
+                    cut_off_eos=False,
+                    # Need to know blank idx for the generated output alignment.
+                    num_labels=vocabs[vocab][2] + 1,
+                    blank_idx=vocabs[vocab][2],
+                    returnn_dataset=train_dataset.get_main_dataset(),
+                    **align_opts,
+                )
+                job.add_alias(prefix + name + "/align")
+                tk.register_output(prefix + name + "/align.hdf", job.out_align)
+                alignment_hdf = job.out_align
 
-            name += "/metrics"
-            job = CalcAlignmentMetrics(
-                seq_list=seq_list,
-                seq_list_ref=seq_list_ref,
-                alignment_hdf=alignment_hdf,
-                alignment_bpe_vocab=vocabs[vocab][1],
-                alignment_bpe_style=vocabs[vocab][0],
-                alignment_blank_idx=vocabs[vocab][2],
-                features_sprint_cache=features_sprint_cache,
-                ref_alignment_sprint_cache=gmm_alignment_sprint_cache,
-                ref_alignment_allophones=gmm_alignment_allophones,
-                ref_alignment_len_factor=factor,
-            )
-            job.add_alias(prefix + name)
-            tk.register_output(prefix + name + ".json", job.out_scores)
-            tk.register_output(prefix + name + "_short_report.txt", job.out_short_report_str)
+                name += "/metrics"
+                job = CalcAlignmentMetrics(
+                    seq_list=seq_list,
+                    seq_list_ref=seq_list_ref,
+                    alignment_hdf=alignment_hdf,
+                    alignment_bpe_vocab=vocabs[vocab][1],
+                    alignment_bpe_style=vocabs[vocab][0],
+                    alignment_blank_idx=vocabs[vocab][2],
+                    features_sprint_cache=features_sprint_cache,
+                    ref_alignment_sprint_cache=gmm_alignment_sprint_cache,
+                    ref_alignment_allophones=gmm_alignment_allophones,
+                    ref_alignment_len_factor=factor,
+                )
+                job.add_alias(prefix + name)
+                tk.register_output(prefix + name + ".json", job.out_scores)
+                tk.register_output(prefix + name + "_short_report.txt", job.out_short_report_str)
 
     # Grad align debug
     for name, grad_opts in [
         ("base", {}),  # 98.0/74.6
         # ("base", {"epoch": 80}),  # 113.4/93.9
-        ("base-p0.1", {"grad_norm_p": 0.1}),
+        ("base-p0.1", {"grad_norm_p": 0.1}),  # 98.5/75.9
         ("base-multSource", {"source_grad_mult_with_source": True}),  # 101.2/79.8
         ("base-blankStopGrad", {"stop_grad_blank": True}),  # 97.3/76.7
         # ("base-blankStopGrad", {"stop_grad_blank": True, "epoch": 160}),  # 107.7/87.6
