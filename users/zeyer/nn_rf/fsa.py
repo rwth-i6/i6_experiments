@@ -3,7 +3,7 @@ FSAs, forward score, best path
 """
 
 from __future__ import annotations
-from typing import Optional, Sequence, Tuple, List, NamedTuple, Dict
+from typing import Optional, Union, Sequence, Tuple, List, NamedTuple, Dict
 from returnn.tensor import Tensor, Dim
 import returnn.frontend as rf
 
@@ -190,7 +190,7 @@ def ctc_partial_scores(
     targets: Tensor,
     targets_spatial_dim: Dim,
     blank_index: int,
-    include_next_blank: bool = False,
+    include_next_blank: Union[bool, str] = False,
 ) -> Tensor:
     """
     Forward partial scores: log p(y_n | y_1,...,y_{n-1}, x_1,...,x_T).
@@ -213,9 +213,15 @@ def ctc_partial_scores(
     label_next_blank_partial_scores = rf.gather(
         partial_accum_scores, indices=label_states_next_blank
     )  # [B,T_out]->score
-    label_partial_scores = (
-        label_next_blank_partial_scores if include_next_blank else label_partial_scores
-    ) - label_prev_blank_partial_scores  # [B,T_out]->score
+    if not include_next_blank:
+        pass
+    elif isinstance(include_next_blank, bool) and include_next_blank:
+        label_partial_scores = label_next_blank_partial_scores
+    elif include_next_blank == "both":
+        label_partial_scores = _logaddexp(label_partial_scores, label_next_blank_partial_scores)
+    else:
+        raise ValueError(f"invalid include_next_blank: {include_next_blank!r}")
+    label_partial_scores = label_partial_scores - label_prev_blank_partial_scores  # [B,T_out]->score
     return label_partial_scores
 
 
@@ -558,6 +564,15 @@ def best_path_ctc(
 def _safe_add(a: Tensor, b: Tensor) -> Tensor:
     """safe add, handles the case of -inf values."""
     return rf.where(rf.is_finite(a), a + b, a)
+
+
+def _logaddexp(a: Tensor, b: Tensor) -> Tensor:
+    import torch
+
+    with torch.no_grad():
+        max_x = rf.maximum(a, b)
+
+    return max_x + rf.log(rf.exp(a - max_x) + rf.exp(b - max_x))
 
 
 def _scatter_safe_logsumexp(
