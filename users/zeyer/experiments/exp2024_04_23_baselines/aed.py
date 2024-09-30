@@ -352,6 +352,9 @@ def py():
         )
 
 
+_train_experiments: Dict[str, ModelWithCheckpoints] = {}
+
+
 # noinspection PyShadowingNames
 def train_exp(
     name: str,
@@ -410,6 +413,7 @@ def train_exp(
     )
     recog_training_exp(prefix, task, model_with_checkpoint, recog_def=model_recog)
 
+    _train_experiments[name] = model_with_checkpoint
     return model_with_checkpoint
 
 

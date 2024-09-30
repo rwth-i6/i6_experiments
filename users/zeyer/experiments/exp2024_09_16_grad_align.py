@@ -23,6 +23,11 @@ from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.ctc import (
     _get_bos_idx,
     _get_eos_idx,
 )
+from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.aed import (
+    train_exp as aed_train_exp,
+    Model as AedModel,
+    aed_training,
+)
 import returnn.frontend as rf
 from returnn.tensor import Tensor, Dim, TensorDict
 from returnn.frontend.decoder.transformer import TransformerDecoder
@@ -394,6 +399,108 @@ def py():
             tk.register_output(prefix + align_name + ".json", job.out_scores)
             tk.register_output(prefix + align_name + "_short_report.txt", job.out_short_report_str)
 
+    # ---- AED models ----
+    # WERs: dev-other/test-other
+    for shortname, fullname, vocab in [
+        (
+            "base",
+            "v6-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-speedpertV2-spm10k-spmSample07",
+            "spm10k",
+        )
+    ]:
+        # Note: task hardcoded... (and also not needed, I just need the train dataset...)
+        task = get_librispeech_task_raw_v2(vocab=vocab)
+        train_dataset = task.train_dataset.copy_train_as_static()
+        # train_dataset.main_dataset["fixed_random_subset"] = 1000  # for debugging...
+        train_dataset.main_dataset["seq_list_filter_file"] = seq_list
+
+        for extra_name, grad_opts in [
+            ("", {}),
+            # *([("-bs1", {"max_seqs": 1})] if shortname == "base" else []),  # test influence of batching
+            ("-p1", {"grad_norm_p": 1}),
+            ("-p0.1", {"grad_norm_p": 0.1}),
+        ]:
+            grad_opts = grad_opts.copy()
+            # base model
+            epoch = grad_opts.pop("epoch", -1)
+            aed_model = sis_get_aed_model(fullname, epoch=epoch)
+
+            # Now grad based align
+            grads = get_aed_input_grads(
+                aed_model,
+                train_dataset,
+                config={
+                    **grad_opts,
+                    **({"batch_size": 5_000 * _batch_size_factor} if shortname == "ebranchformer" else {}),
+                },
+            )
+
+            grad_name = f"aed-grad-align/{shortname}{extra_name}"
+            tk.register_output(f"{prefix}{grad_name}/input_grads.hdf", grads)
+            grads.creator.add_alias(f"{prefix}{grad_name}/input_grads")
+
+            # see also exp2024_09_09_grad_align.py
+            for align_opts in [
+                {"apply_softmax_over_time": True, "blank_score": -6},
+                {
+                    "apply_softmax_over_time": True,
+                    "blank_score": "calc",
+                    "blank_score_est": "flipped_after_softmax_over_time",
+                    "non_blank_score_reduce": "log_mean_exp",
+                    "blank_score_flipped_percentile": 60,
+                    "apply_softmax_over_labels": True,
+                },
+                {
+                    "apply_softmax_over_time": True,
+                    "blank_score": "calc",
+                    "blank_score_est": "flipped_after_softmax_over_time",
+                    "non_blank_score_reduce": "log_mean_exp",
+                    "blank_score_flipped_percentile": 40,
+                    "apply_softmax_over_labels": True,
+                },
+            ]:
+                # factor, grad_hdf = grads[grad_name]
+                factor = 1
+                grad_hdf = grads
+
+                # The dumped grads cover about 9.6h audio from train.
+                name = grad_name
+                for k, v in align_opts.items():
+                    # Shorten the name a bit. We also might run into `File name too long` errors otherwise.
+                    if k.startswith("blank_score"):
+                        k = "bScore" + k[len("blank_score") :]
+                    k = {"apply_softmax_over_time": "smTime", "apply_softmax_over_labels": "smLabels"}.get(k, k)
+                    name += f"-{k}{v}"
+                job = ForcedAlignOnScoreMatrixJob(
+                    score_matrix_hdf=grad_hdf,
+                    cut_off_eos=False,
+                    # Need to know blank idx for the generated output alignment.
+                    num_labels=vocabs[vocab][2] + 1,
+                    blank_idx=vocabs[vocab][2],
+                    returnn_dataset=train_dataset.get_main_dataset(),
+                    **align_opts,
+                )
+                job.add_alias(prefix + name + "/align")
+                tk.register_output(prefix + name + "/align.hdf", job.out_align)
+                alignment_hdf = job.out_align
+
+                name += "/align-metrics"
+                job = CalcAlignmentMetrics(
+                    seq_list=seq_list,
+                    seq_list_ref=seq_list_ref,
+                    alignment_hdf=alignment_hdf,
+                    alignment_bpe_vocab=vocabs[vocab][1],
+                    alignment_bpe_style=vocabs[vocab][0],
+                    alignment_blank_idx=vocabs[vocab][2],
+                    features_sprint_cache=features_sprint_cache,
+                    ref_alignment_sprint_cache=gmm_alignment_sprint_cache,
+                    ref_alignment_allophones=gmm_alignment_allophones,
+                    ref_alignment_len_factor=factor,
+                )
+                job.add_alias(prefix + name)
+                tk.register_output(prefix + name + ".json", job.out_scores)
+                tk.register_output(prefix + name + "_short_report.txt", job.out_short_report_str)
+
     # TODO job to dump grads, diff variants:
     #  - using prob entropy instead of ground truth log prob
     pass
@@ -451,6 +558,28 @@ def sis_get_ctc_model(name: str, *, epoch: int = -1) -> ModelWithCheckpoint:
             _called_ctc_py_once = True
 
         exp = _train_experiments[name]
+
+    if epoch < 0:
+        return exp.get_last_fixed_epoch()
+    return exp.get_epoch(epoch)
+
+
+_called_aed_py_once = False
+
+
+def sis_get_aed_model(name: str, *, epoch: int = -1) -> ModelWithCheckpoint:
+    from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.aed import py as aed_py, _train_experiments
+
+    global _called_aed_py_once
+
+    if not _called_aed_py_once:
+        from i6_experiments.users.zeyer.utils.sis_setup import disable_register_output
+
+        with disable_register_output():
+            aed_py()
+        _called_aed_py_once = True
+
+    exp = _train_experiments[name]
 
     if epoch < 0:
         return exp.get_last_fixed_epoch()
@@ -624,6 +753,130 @@ def _ctc_model_get_input_grads_step(*, model: CtcModel, extern_data: TensorDict,
             blank_index=model.blank_idx,
             include_next_blank=config.bool("ctc_partial_scores_include_next_blank", False),
         )  # [B,T_out]
+        scores.mark_as_output("partial_scores")
+        scores_ta = TensorArray.unstack(scores, axis=targets_spatial_dim)
+
+        source_grad_mult_with_source = config.bool("source_grad_mult_with_source", False)
+        grad_norm_p = config.float("grad_norm_p", 2.0)
+
+        grad_norms = []
+        for t in range(targets_spatial_dim.get_dim_value()):
+            source.raw_tensor.grad = None
+            scores_t = scores_ta[t]  # [B], +log prob
+            partial_loss = scores_t.raw_tensor.sum()
+            partial_loss.backward(retain_graph=True)
+            grad: torch.Tensor = source.raw_tensor.grad  # [B,T_in,D]  # noqa
+            if source_grad_mult_with_source:
+                grad = grad * source.raw_tensor
+            grad_norm = torch.norm(grad, p=grad_norm_p, dim=2)  # [B,T_in]
+            grad_norms.append(grad_norm)
+        grad_norms = torch.stack(grad_norms, dim=0)  # [T_out,B,T_in]
+        grad_norms_ = rf.convert_to_tensor(grad_norms, dims=[targets_spatial_dim, batch_dim, in_spatial_dim])
+        grad_norms_.mark_as_default_output()
+
+
+def get_aed_input_grads(
+    model: ModelWithCheckpoint, dataset: DatasetConfig, config: Optional[Dict[str, Any]] = None
+) -> tk.Path:
+    from i6_experiments.users.zeyer.forward_to_hdf import forward_to_hdf
+
+    extern_data_dict = dataset.get_extern_data()
+    default_input_dict = extern_data_dict[dataset.get_default_input()]
+    input_dims: Sequence[Dim] = (
+        default_input_dict["dims"] if "dims" in default_input_dict else default_input_dict["dim_tags"]
+    )
+    assert isinstance(input_dims, (tuple, list)) and all(isinstance(dim, Dim) for dim in input_dims)
+    default_target_dict = extern_data_dict[dataset.get_default_target()]
+    batch_dim, out_spatial_dim = default_target_dict["dim_tags"]
+    feat_spatial_dim = Dim(None, name="feat_spatial_dim")  # it's not the input raw audio spatial dim...
+
+    if config:
+        config = config.copy()
+    else:
+        config = {}
+    config.setdefault("__batch_size_dependent", True)
+    config.setdefault("batch_size", 10_000 * _batch_size_factor)  # grads need more mem
+
+    return forward_to_hdf(
+        dataset=dataset,
+        model=model,
+        forward_step=_aed_model_get_input_grads_step,
+        config={
+            "model_outputs": {
+                "output": {"dims": [batch_dim, out_spatial_dim, feat_spatial_dim], "dtype": "float32"},
+                "feat_size": {"dims": [batch_dim], "dtype": "int32"},
+                "targets_size": {"dims": [batch_dim], "dtype": "int32"},
+                "partial_scores": {"dims": [batch_dim, out_spatial_dim], "dtype": "float32"},
+            },
+            **config,
+        },
+        forward_rqmt={"time": 24},
+    )
+
+
+def _aed_model_get_input_grads_step(*, model: AedModel, extern_data: TensorDict, **_kwargs):
+    import torch
+    from returnn.tensor import batch_dim
+    from returnn.config import get_global_config
+    from returnn.frontend.tensor_array import TensorArray
+
+    config = get_global_config()
+    default_input_key = config.typed_value("default_input")
+    default_target_key = config.typed_value("target")
+    source = extern_data[default_input_key]
+    targets = extern_data[default_target_key]
+    expected_output = rf.get_run_ctx().expected_outputs["output"]
+    feat_spatial_dim_ = expected_output.dims[-1]
+
+    # Call: logits, enc, enc_spatial_dim = model(source, in_spatial_dim=source.get_time_dim_tag())
+    in_spatial_dim = source.get_time_dim_tag()
+
+    # log mel filterbank features
+    source, in_spatial_dim = rf.audio.log_mel_filterbank_from_raw(
+        source,
+        in_spatial_dim=in_spatial_dim,
+        out_dim=model.in_dim,
+        sampling_rate=16_000,
+    )
+    in_spatial_dim.get_size_tensor().mark_as_output("feat_size")
+    feat_spatial_dim_.declare_same_as(in_spatial_dim)
+    if model.feature_batch_norm:
+        source = model.feature_batch_norm(source)
+    if model.feature_norm:
+        source = rf.normalize(source, axis=in_spatial_dim)
+    if model.feature_stats:
+        source = (source - model.feature_stats.mean) / model.feature_stats.std_dev
+
+    with torch.enable_grad():
+        # Just that we have well-defined dim order, for the grad logic below.
+        source = source.copy_transpose((batch_dim, in_spatial_dim, model.in_dim))  # [B,T_in,D]
+        source.raw_tensor.requires_grad = True
+
+        # (No Mixup, no SpecAugment)
+
+        # Encoder including convolutional frontend
+        enc, enc_spatial_dim = model.encoder(source, in_spatial_dim=in_spatial_dim)
+        enc = model.decoder.transform_encoder(enc, axis=enc_spatial_dim)
+
+        targets_spatial_dim = targets.get_time_dim_tag()
+        targets_spatial_dim.get_size_tensor().mark_as_output("targets_size")
+
+        batch_dims = targets.remaining_dims(targets_spatial_dim)
+        # Just shift right, i.e. add BOS, cut off the last,
+        # because we do not need the EOS log prob.
+        input_labels = rf.shift_right(targets, axis=targets_spatial_dim, pad_value=model.bos_idx)
+
+        logits, _ = model.decoder(
+            input_labels,
+            spatial_dim=targets_spatial_dim,
+            encoder=enc,
+            state=model.decoder.default_initial_state(batch_dims=batch_dims),
+        )
+        log_prob = rf.log_softmax(logits, axis=model.target_dim)  # [B,T_out,D]
+        scores = rf.cross_entropy(
+            target=targets, estimated=log_prob, estimated_type="log-probs", axis=model.target_dim
+        )  # [B,T_out]
+
         scores.mark_as_output("partial_scores")
         scores_ta = TensorArray.unstack(scores, axis=targets_spatial_dim)
 
