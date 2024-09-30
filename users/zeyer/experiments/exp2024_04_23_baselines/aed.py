@@ -79,10 +79,10 @@ def py():
         "bpe10k",  # 5.32
         "spm10k",  # 5.16
         "spm_bpe10k",  # 5.21
-        "spm4k",
-        "spm1k",
+        "spm4k",  # 5.42
+        "spm1k",  # 7.23
     ]:
-        train_exp(  # 5.16
+        train_exp(
             f"v6-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-speedpertV2-{vocab}",
             config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
             config_updates={
