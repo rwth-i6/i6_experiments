@@ -210,6 +210,14 @@ def py():
                     "blank_score_flipped_percentile": 60,
                     "apply_softmax_over_labels": True,
                 },
+                {
+                    "apply_softmax_over_time": True,
+                    "blank_score": "calc",
+                    "blank_score_est": "flipped_after_softmax_over_time",
+                    "non_blank_score_reduce": "log_mean_exp",
+                    "blank_score_flipped_percentile": 40,
+                    "apply_softmax_over_labels": True,
+                },
             ]:
                 # factor, grad_hdf = grads[grad_name]
                 factor = 1
