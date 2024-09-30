@@ -9,10 +9,10 @@ from typing import Optional, Any, List, Sequence, Dict
 from i6_experiments.users.zeyer.model_interfaces.model_with_checkpoints import ModelWithCheckpoint
 
 from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.ctc import (
-    train_exp,
+    train_exp as ctc_train_exp,
     config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
     speed_pert_librosa_config,
-    Model,
+    Model as CtcModel,
     ctc_model_def,
 )
 from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.ctc import (
@@ -410,7 +410,7 @@ def sis_get_ctc_model(name: str, *, epoch: int = -1) -> ModelWithCheckpoint:
         "-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k"
         "-featBN-speedpertV2-spm10k-bpeSample001"
     ):
-        exp = train_exp(  # 5.65 (!!!)
+        exp = ctc_train_exp(  # 5.65 (!!!)
             "v6-relPosAttDef-noBias-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2"
             "-lrlin1e_5_295k-featBN-speedpertV2-spm10k-bpeSample001",
             config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
@@ -485,7 +485,7 @@ def ctc_forced_align(model: ModelWithCheckpoint, dataset: DatasetConfig) -> tk.P
     )
 
 
-def _ctc_model_forced_align_step(*, model: Model, extern_data: TensorDict, **_kwargs):
+def _ctc_model_forced_align_step(*, model: CtcModel, extern_data: TensorDict, **_kwargs):
     """
     :param model: model with batch size 1
     """
@@ -553,7 +553,7 @@ def get_ctc_input_grads(
     )
 
 
-def _ctc_model_get_input_grads_step(*, model: Model, extern_data: TensorDict, **_kwargs):
+def _ctc_model_get_input_grads_step(*, model: CtcModel, extern_data: TensorDict, **_kwargs):
     import torch
     from returnn.tensor import batch_dim
     from returnn.config import get_global_config
