@@ -163,10 +163,6 @@ class _Serializer:
     ):
         self.config = config.copy()
         self.post_config = post_config.copy() if post_config else {}
-        self.required_names_by_value_ref: Dict[_Ref, str] = {}  # value ref -> var name
-        for key, value in list(self.config.items()) + list(self.post_config.items()):
-            if _Ref(value) not in self.required_names_by_value_ref:
-                self.required_names_by_value_ref[_Ref(value)] = key
         self.assignments_dict_by_value_ref: Dict[_Ref, PyCode] = {}  # value ref -> code
         self.assignments_dict_by_name: Dict[str, PyCode] = {}  # var name -> code
         self.assignments_dict_by_idx: Dict[int, PyCode] = {}  # idx -> code
@@ -230,12 +226,11 @@ class _Serializer:
 
     def _handle_next_queue_item(self, queue_item: _AssignQueueItem):
         value_ref = _Ref(queue_item.value)
-        if value_ref in self.assignments_dict_by_value_ref:
-            # Maybe it was already assigned before.
+        if queue_item.required_var_name:
+            assert queue_item.required_var_name not in self.assignments_dict_by_name
+        if not queue_item.required_var_name and value_ref in self.assignments_dict_by_value_ref:
+            # No need to assign it again.
             return
-        if queue_item.required_var_name is None:
-            # Maybe the object got queued, and we wanted to assign it to a specific name.
-            queue_item.required_var_name = self.required_names_by_value_ref.get(value_ref)
         name = queue_item.required_var_name
         if not name and value_ref in _InternalReservedNamesByValueRef:
             name = self._get_unique_suggested_name(
@@ -267,13 +262,7 @@ class _Serializer:
         assert serialized.py_name == name
         assert name not in self.assignments_dict_by_name  # double check
         self.assignments_dict_by_name[name] = serialized
-        if value_ref in self.assignments_dict_by_value_ref:
-            if serialized.is_direct_config_entry:
-                # It should not happen that the previous entry was not a direct config entry,
-                # it should have used some config key name
-                # -- see the code above with required_names_by_value_ref.
-                assert self.assignments_dict_by_value_ref[value_ref].is_direct_config_entry
-        else:
+        if value_ref not in self.assignments_dict_by_value_ref:
             self.assignments_dict_by_value_ref[value_ref] = serialized
         value_dict = self.assignments_dict_by_value_by_type.get(type(queue_item.value))
         if value_dict is not None:
@@ -424,6 +413,8 @@ class _Serializer:
                 if not assign or assign.idx >= self._next_alignment_idx:
                     return PyEvalCode(val_name)
                 # name was overwritten. fallback to standard module access.
+        # Note that assignments_dict_by_value_ref would also contain primitive objects like True/False etc.
+        # But most of those are handled above already, so we would not reuse them here.
         if value_ref in self.assignments_dict_by_value_ref:
             assign = self.assignments_dict_by_value_ref[value_ref]
             if self._inlining_stage:
@@ -980,8 +971,9 @@ def test_recursive():
     # It should serialize d_base first, even when we have d_other first here in the dict.
     assert serialize_config({"first": d_other, "second": d_base}).as_serialized_code() == textwrap.dedent(
         """\
-        second = {'key': 1}
-        first = {'key': 2, 'base': second}
+        first_base = {'key': 1}
+        first = {'key': 2, 'base': first_base}
+        second = first_base
         """
     )
 
@@ -1221,3 +1213,14 @@ def test_set():
     scope = {}
     exec(code, scope)
     assert scope["tags"] == {"a", "b", "c"}
+
+
+def test_mult_value_refs():
+    config = {"a": True, "b": True}
+    serialized = serialize_config(config)
+    assert serialized.as_serialized_code() == textwrap.dedent(
+        f"""\
+        a = True
+        b = True
+        """
+    )
