@@ -222,6 +222,14 @@ def py():
                     "blank_score": "calc",
                     "blank_score_est": "flipped_after_softmax_over_time",
                     "non_blank_score_reduce": "log_mean_exp",
+                    "blank_score_flipped_percentile": 80,
+                    "apply_softmax_over_labels": True,
+                },
+                {
+                    "apply_softmax_over_time": True,
+                    "blank_score": "calc",
+                    "blank_score_est": "flipped_after_softmax_over_time",
+                    "non_blank_score_reduce": "log_mean_exp",
                     "blank_score_flipped_percentile": 60,
                     "apply_softmax_over_labels": True,
                 },
@@ -442,6 +450,14 @@ def py():
             # see also exp2024_09_09_grad_align.py
             for align_opts in [
                 {"apply_softmax_over_time": True, "blank_score": -6},
+                {
+                    "apply_softmax_over_time": True,
+                    "blank_score": "calc",
+                    "blank_score_est": "flipped_after_softmax_over_time",
+                    "non_blank_score_reduce": "log_mean_exp",
+                    "blank_score_flipped_percentile": 80,
+                    "apply_softmax_over_labels": True,
+                },
                 {
                     "apply_softmax_over_time": True,
                     "blank_score": "calc",
