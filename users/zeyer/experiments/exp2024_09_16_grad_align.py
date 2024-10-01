@@ -419,7 +419,7 @@ def py():
     # WERs: dev-other/test-other
     for shortname, fullname, vocab in [
         (
-            "base",
+            "base",  # 4.98/5.49
             "v6-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-speedpertV2-spm10k-spmSample07",
             "spm10k",
         )
