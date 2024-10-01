@@ -679,22 +679,22 @@ def py():
         )
 
     # Log prob normed gradient (lpNormedGrad)
-    # Baseline without lpNormedGrad: 5.77
+    # Baseline without lpNormedGrad: 5.77/6.03
     for name, opts in {
-        # 5.71 (!!) (i.e. better than without)
+        # 5.71/5.87 (!!) (i.e. better than without)
         "C05_11P1": {"func": {"clamp_min": 0.5, "clamp_max": 1.1, "scale_type": "inv_num_labels", "prior_exp": 1.0}},
-        # 5.85
+        # 5.85/6.10
         # "C05_15P1": {"func": {"clamp_min": 0.5, "clamp_max": 1.5, "scale_type": "inv_num_labels", "prior_exp": 1.0}},
-        # 6.21
+        # 6.21/6.55
         # "C01_11P1": {"func": {"clamp_min": 0.1, "clamp_max": 1.1, "scale_type": "inv_num_labels", "prior_exp": 1.0}},
-        # 5.78
+        # 5.78/5.96
         # "C08_11P1": {"func": {"clamp_min": 0.8, "clamp_max": 1.1, "scale_type": "inv_num_labels", "prior_exp": 1.0}},
-        # 5.83
+        # 5.83/5.91
         "C05_11P1Seq": {
             "prior": "seq_grad",
             "func": {"clamp_min": 0.5, "clamp_max": 1.1, "scale_type": "inv_num_labels", "prior_exp": 1.0},
         },
-        # 5.75
+        # 5.75/6.03 (TODO: we should renorm the prior though; the clamp values are probably bad now)
         "C05_11P07": {"func": {"clamp_min": 0.5, "clamp_max": 1.1, "scale_type": "inv_num_labels", "prior_exp": 0.7}},
     }.items():
         train_exp(
