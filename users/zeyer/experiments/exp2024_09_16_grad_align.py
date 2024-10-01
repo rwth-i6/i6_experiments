@@ -948,7 +948,7 @@ def visualize_grad_scores():
     # to run:
     # Fish: set -x PYTHONPATH tools/espnet:tools/returnn:tools/sisyphus:recipe
     # Bash: export PYTHONPATH="tools/espnet:tools/returnn:tools/sisyphus:recipe"
-    # Then: `python3 -c "from i6_experiments.users.zeyer.experiments.exp2024_09_09_grad_align import visualize_grad_scores as vis; vis()"`  # noqa
+    # Then: `python3 -c "from i6_experiments.users.zeyer.experiments.exp2024_09_16_grad_align import visualize_grad_scores as vis; vis()"`  # noqa
     # play around here...
 
     import os
@@ -1042,3 +1042,130 @@ def visualize_grad_scores():
             fn = f"{plot_dir}/alignment_{seq_tag.replace('/', '_')}.pdf"
             print("save to:", fn)
             plt.savefig(fn)
+
+
+def visualize_train_scores():
+    # to run:
+    # Fish: set -x PYTHONPATH tools/espnet:tools/returnn:tools/sisyphus:recipe
+    # Bash: export PYTHONPATH="tools/espnet:tools/returnn:tools/sisyphus:recipe"
+    # Then: `python3 -c "from i6_experiments.users.zeyer.experiments.exp2024_09_16_grad_align import visualize_train_scores as vis; vis()"`  # noqa
+    # play around here...
+
+    import os
+    import sys
+    import i6_core.util as util
+    import numpy as np
+
+    returnn_root = util.get_returnn_root(None)
+
+    sys.path.insert(0, returnn_root.get_path())
+
+    from matplotlib import pyplot as plt
+
+    prefix = "output/exp2024_09_16_grad_align/visualize_train_scores/"
+    fig, ax = plt.subplots()
+
+    for shortname, fullname in [
+        # (  # ctc forced align: 110.7/43.7ms
+        #     "noBias",  # 5.65/5.94, better baseline
+        #     "v6-relPosAttDef-noBias"
+        #     "-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k"
+        #     "-featBN-speedpertV2-spm10k-bpeSample001",
+        #     "spm10k",
+        # ),
+        (  # ctc forced align: 111.5/52.9ms
+            "baseline",  # 5.77/6.03
+            # output/ctc/v6-relPosAttDef-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-featBN-speedpertV2-spm10k-bpeSample001/recog_results_best
+            "v6-relPosAttDef"
+            "-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k"
+            "-featBN-speedpertV2-spm10k-bpeSample001",
+        ),
+        (  # ctc forced align: 116.8/74.4ms
+            "normed grad (0.5, 1.1, batch est)",  # 5.71/5.87
+            "v6-relPosAttDef"
+            "-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k"
+            "-featBN-speedpertV2-spm10k-bpeSample001"
+            "-lpNormedGradC05_11P1",
+        ),
+        (
+            "normed grad (0.5, 1.1, seq est)",  # 5.83/5.91
+            "v6-relPosAttDef"
+            "-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k"
+            "-featBN-speedpertV2-spm10k-bpeSample001"
+            "-lpNormedGradC05_11P1Seq",
+        ),
+        # (
+        #     "lpNormedGradC01_11P1",  # 6.21/6.55
+        #     "v6-relPosAttDef"
+        #     "-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k"
+        #     "-featBN-speedpertV2-spm10k-bpeSample001"
+        #     "-lpNormedGradC01_11P1",
+        #     "spm10k",
+        # ),
+        (  # ctc forced align: 98.5/77.6ms
+            "separated blank",  # 5.73/6.02
+            "v6-relPosAttDef"
+            "-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k"
+            "-featBN-speedpertV2-spm10k-bpeSample001"
+            "-blankSep",
+        ),
+        # (  # ctc forced align: 75.4/42.7ms
+        #     "base-spm512",  # 5.97/6.21
+        #     "v6-relPosAttDef"
+        #     "-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-maxSeqLenAudio19_5-wd1e_2-lrlin1e_5_295k"
+        #     "-featBN-speedpertV2-spm512-bpeSample001",
+        #     "spm512",
+        # ),
+        # (  # ctc forced align: 59.6/48.5ms
+        #     "base-spm512-blankSep",  # 6.02/6.04
+        #     "v6-relPosAttDef"
+        #     "-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-maxSeqLenAudio19_5-wd1e_2-lrlin1e_5_295k"
+        #     "-featBN-speedpertV2-spm512-bpeSample001"
+        #     "-blankSep",
+        #     "spm512",
+        # ),
+        # (  # ctc forced align: 113.9/68.1ms
+        #     "base-bpe10k",  # 6.18/6.35
+        #     "v6-relPosAttDef"
+        #     "-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k"
+        #     "-featBN-speedpertV2-bpe10k-bpeSample001",
+        #     "bpe10k",
+        # ),
+        # (  # ctc forced align: 84.9/64.2ms
+        #     "base-bpe10k-blankSep",  # 5.98/6.13
+        #     "v6-relPosAttDef"
+        #     "-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k"
+        #     "-featBN-speedpertV2-bpe10k-bpeSample001"
+        #     "-blankSep",
+        #     "bpe10k",
+        # ),
+        # (
+        #     "ebranchformer",  # 5.54/5.69
+        #     # output/ctc/v6-EBranchformer-relPosAttDef-noBias-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-featBN-speedpertV2-spm10k-bpeSample001/recog_results_best
+        #     "v6-EBranchformer-relPosAttDef-noBias-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2"
+        #     "-lrlin1e_5_295k-featBN-speedpertV2-spm10k-bpeSample001",
+        #     "spm10k",
+        # ),
+    ]:
+        scores = eval(
+            open(f"alias/ctc/{fullname}/train/output/learning_rates").read(),
+            {"EpochData": dict, "nan": float("nan"), "inf": float("inf")},
+        )
+
+        partition_epoch = 20
+        multi_gpu = 4
+        x = np.array(list(scores.keys())) / partition_epoch * multi_gpu
+        y = np.array([v["error"]["dev_loss_ctc"] for v in scores.values()])
+        ax.plot(x, y, label=shortname)
+        # ax.set_title(f"CTC training")
+        ax.set_xlabel("epoch")
+        ax.set_ylabel("CTC dev loss")
+        ax.legend()
+        # ax.set_ylim(ax.get_ylim()[::-1])
+
+    plt.tight_layout()
+    plot_dir = prefix
+    os.makedirs(plot_dir, exist_ok=True)
+    fn = f"{plot_dir}/train_scores_all.pdf"
+    print("save to:", fn)
+    plt.savefig(fn)
