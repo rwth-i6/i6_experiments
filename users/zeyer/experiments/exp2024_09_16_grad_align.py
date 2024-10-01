@@ -185,6 +185,10 @@ def py():
                 {"ctc_partial_scores_include_next_blank": True, "grad_norm_p": 0.1},
             ),
             (
+                "-inclBlankStateBoth-p0.1",
+                {"ctc_partial_scores_include_next_blank": "both", "grad_norm_p": 0.1},
+            ),
+            (
                 "-blankStopGrad-inclBlankStateBoth-p0.1",
                 {"stop_grad_blank": True, "ctc_partial_scores_include_next_blank": "both", "grad_norm_p": 0.1},
             ),
