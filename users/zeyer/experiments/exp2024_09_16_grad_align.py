@@ -105,6 +105,14 @@ def py():
             "-lpNormedGradC05_11P1Seq",
             "spm10k",
         ),
+        (
+            "lpNormedGradC01_11P1",  # 6.21/6.55
+            "v6-relPosAttDef"
+            "-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k"
+            "-featBN-speedpertV2-spm10k-bpeSample001"
+            "-lpNormedGradC01_11P1",
+            "spm10k",
+        ),
         (  # ctc forced align: 98.5/77.6ms
             "blankSep",  # 5.73/6.02
             "v6-relPosAttDef"
