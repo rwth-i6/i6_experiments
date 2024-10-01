@@ -917,3 +917,103 @@ def _aed_model_get_input_grads_step(*, model: AedModel, extern_data: TensorDict,
         grad_norms = torch.stack(grad_norms, dim=0)  # [T_out,B,T_in]
         grad_norms_ = rf.convert_to_tensor(grad_norms, dims=[targets_spatial_dim, batch_dim, in_spatial_dim])
         grad_norms_.mark_as_default_output()
+
+
+def visualize_grad_scores():
+    # to run:
+    # Fish: set -x PYTHONPATH tools/espnet:tools/returnn:tools/sisyphus:recipe
+    # Bash: export PYTHONPATH="tools/espnet:tools/returnn:tools/sisyphus:recipe"
+    # Then: `python3 -c "from i6_experiments.users.zeyer.experiments.exp2024_09_09_grad_align import visualize_grad_scores as vis; vis()"`  # noqa
+    # play around here...
+
+    import os
+    import sys
+    from i6_experiments.users.schmitt.hdf import load_hdf_data
+    import i6_core.util as util
+    import numpy as np
+
+    returnn_root = util.get_returnn_root(None)
+
+    sys.path.insert(0, returnn_root.get_path())
+
+    def _log_softmax(x: np.ndarray, *, axis: Optional[int] = None) -> np.ndarray:
+        max_score = np.max(x, axis=axis, keepdims=True)
+        x = x - max_score
+        return x - np.log(np.sum(np.exp(x), axis=axis, keepdims=True))
+
+    def _y_to_mat(y, y_num_pixels=100):
+        x_num_pixels = len(y)
+        y_min, y_max = np.min(y), np.max(y)
+        mat = np.full((x_num_pixels, y_num_pixels), y_min)
+        for x_, y_ in enumerate(y):
+            y__ = int((y_ - y_min) / max(y_max - y_min, 1) * (y_num_pixels - 1))
+            mat[x_, y__] = y_
+        return mat.T
+
+    def _rescale(y, clip_min, clip_max):
+        y = np.clip(y, clip_min, clip_max)
+        return (y - clip_min) / max(clip_max - clip_min, 1)
+
+    for name in [
+        "ctc-grad-align/base-bpe10k",
+        "ctc-grad-align/base-bpe10k-blankSep",
+        "ctc-grad-align/base-bpe10k-blankSep-blankStopGrad-inclBlankState-p0.1",
+        "ctc-grad-align/base-bpe10k-inclBlankState-p0.1",
+        "ctc-grad-align/base-spm512-blankSep-blankStopGrad-inclBlankState-p0.1",
+        "aed-grad-align/base-p0.1",
+    ]:
+
+        score_matrix_hdf = Path(f"output/exp2024_09_16_grad_align/{name}/input_grads.hdf")
+        score_matrix_data_dict = load_hdf_data(score_matrix_hdf, num_dims=2)
+        basename_tags = {os.path.basename(tag): tag for tag in score_matrix_data_dict.keys()}
+
+        plot_dir = "output/exp2024_09_16_grad_align/visualize_grad_scores/" + name
+        os.makedirs(plot_dir, exist_ok=True)
+
+        seq_list = Path(
+            "/u/schmitt/experiments/segmental_models_2022_23_rf/work/i6_core/corpus/segments/SegmentCorpusJob.AmDlp1YMZF1e/output/segments.1"
+        )
+        seq_list = open(seq_list.get_path()).read().splitlines()
+
+        # or alternatively:
+        # seq_list = list(score_matrix_data_dict.keys())
+
+        for i, seq_tag in enumerate(seq_list):
+            if i >= 2:
+                break
+
+            if seq_tag not in score_matrix_data_dict:
+                if os.path.basename(seq_tag) in basename_tags:
+                    seq_tag = basename_tags[os.path.basename(seq_tag)]
+
+            score_matrix = score_matrix_data_dict[seq_tag]  # [S, T]
+            S, T = score_matrix.shape  # noqa
+
+            score_matrix = _log_softmax(np.log(score_matrix), axis=1)  # [S, T]
+
+            from matplotlib import pyplot as plt
+            from mpl_toolkits.axes_grid1 import make_axes_locatable
+
+            alias = "log softmax"
+            mat = score_matrix
+            fig, ax = plt.subplots(nrows=1, ncols=1, figsize=(20, 5))
+            # mat is [S|Y,T] or just [T]
+            if mat.ndim == 1:
+                assert mat.shape == (T,)
+                mat = _y_to_mat(mat)  # [Y,T]
+            else:
+                assert mat.ndim == 2 and mat.shape[1] == T
+            mat_ = ax.matshow(mat, cmap="Blues", aspect="auto")
+            ax.set_title(f"{alias} for seq {seq_tag}")
+            ax.set_xlabel("time")
+            ax.set_ylabel("labels")
+            ax.set_ylim(ax.get_ylim()[::-1])
+
+            divider = make_axes_locatable(ax)
+            cax = divider.append_axes("right", size="5%", pad=0.05)
+            fig.colorbar(mat_, cax=cax, orientation="vertical")
+
+            plt.tight_layout()
+            fn = f"{plot_dir}/alignment_{seq_tag.replace('/', '_')}.pdf"
+            print("save to:", fn)
+            plt.savefig(fn)
