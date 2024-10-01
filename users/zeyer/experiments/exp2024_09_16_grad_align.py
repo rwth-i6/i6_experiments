@@ -165,29 +165,30 @@ def py():
         # train_dataset.main_dataset["fixed_random_subset"] = 1000  # for debugging...
         train_dataset.main_dataset["seq_list_filter_file"] = seq_list
 
-        ctc_model = sis_get_ctc_model(fullname)
+        for epoch in [20, 40, 80, 160, 320, 500, -1]:
+            ctc_model = sis_get_ctc_model(fullname, epoch=epoch)
 
-        alignment = ctc_forced_align(ctc_model, train_dataset)
-        alignment.creator.add_alias(f"{prefix}ctc_forced_align/{shortname}/align")
-        tk.register_output(f"{prefix}ctc_forced_align/{shortname}/align.hdf", alignment)
+            alignment = ctc_forced_align(ctc_model, train_dataset)
+            alignment.creator.add_alias(f"{prefix}ctc_forced_align/{shortname}-ep{epoch}/align")
+            tk.register_output(f"{prefix}ctc_forced_align/{shortname}-ep{epoch}/align.hdf", alignment)
 
-        name = f"ctc_forced_align/{shortname}/align-metrics"
-        job = CalcAlignmentMetrics(
-            seq_list=seq_list,
-            seq_list_ref=seq_list_ref,
-            alignment_hdf=alignment,
-            alignment_label_topology="ctc",
-            alignment_bpe_vocab=vocabs[vocab][1],
-            alignment_bpe_style=vocabs[vocab][0],
-            alignment_blank_idx=vocabs[vocab][2],
-            features_sprint_cache=features_sprint_cache,
-            ref_alignment_sprint_cache=gmm_alignment_sprint_cache,
-            ref_alignment_allophones=gmm_alignment_allophones,
-            ref_alignment_len_factor=6,
-        )
-        job.add_alias(prefix + name)
-        tk.register_output(prefix + name + ".json", job.out_scores)
-        tk.register_output(prefix + name + ".short_report.txt", job.out_short_report_str)
+            name = f"ctc_forced_align/{shortname}-ep{epoch}/align-metrics"
+            job = CalcAlignmentMetrics(
+                seq_list=seq_list,
+                seq_list_ref=seq_list_ref,
+                alignment_hdf=alignment,
+                alignment_label_topology="ctc",
+                alignment_bpe_vocab=vocabs[vocab][1],
+                alignment_bpe_style=vocabs[vocab][0],
+                alignment_blank_idx=vocabs[vocab][2],
+                features_sprint_cache=features_sprint_cache,
+                ref_alignment_sprint_cache=gmm_alignment_sprint_cache,
+                ref_alignment_allophones=gmm_alignment_allophones,
+                ref_alignment_len_factor=6,
+            )
+            job.add_alias(prefix + name)
+            tk.register_output(prefix + name + ".json", job.out_scores)
+            tk.register_output(prefix + name + ".short_report.txt", job.out_short_report_str)
 
         for extra_name, grad_opts in [
             ("", {}),
