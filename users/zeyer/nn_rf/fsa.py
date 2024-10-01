@@ -205,23 +205,34 @@ def ctc_partial_scores(
     label_states = rf.range_over_dim(targets_spatial_dim, device=device) * 2 + 1  # [T_out]->S_
     label_states.sparse_dim = fsa.num_states_dim_ext
     label_states_prev_blank = label_states - 1  # [T_out]->S_
+    label_states_prev_label = label_states - 2  # [T_out]->S_. but might be invalid!
     label_states_next_blank = label_states + 1  # [T_out]->S_
     label_partial_scores = rf.gather(partial_accum_scores, indices=label_states)  # [B,T_out]->score
     label_prev_blank_partial_scores = rf.gather(
         partial_accum_scores, indices=label_states_prev_blank
     )  # [B,T_out]->score
+    label_prev_label_partial_scores = rf.gather(
+        partial_accum_scores, indices=label_states_prev_label, clip_to_valid=True
+    )  # [B,T_out]->score
+    label_prev_label_partial_scores = rf.where(
+        label_states_prev_label >= 0, label_prev_label_partial_scores, float("-inf")
+    )
     label_next_blank_partial_scores = rf.gather(
         partial_accum_scores, indices=label_states_next_blank
     )  # [B,T_out]->score
+    label_prev_partial_scores = label_prev_blank_partial_scores
     if not include_next_blank:
         pass
     elif isinstance(include_next_blank, bool) and include_next_blank:
         label_partial_scores = label_next_blank_partial_scores
     elif include_next_blank == "both":
         label_partial_scores = _logaddexp(label_partial_scores, label_next_blank_partial_scores)
+    elif include_next_blank == "both_prev":
+        label_partial_scores = _logaddexp(label_partial_scores, label_next_blank_partial_scores)
+        label_prev_partial_scores = _logaddexp(label_prev_blank_partial_scores, label_prev_label_partial_scores)
     else:
         raise ValueError(f"invalid include_next_blank: {include_next_blank!r}")
-    label_partial_scores = label_partial_scores - label_prev_blank_partial_scores  # [B,T_out]->score
+    label_partial_scores = label_partial_scores - label_prev_partial_scores  # [B,T_out]->score
     return label_partial_scores
 
 

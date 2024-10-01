@@ -192,6 +192,10 @@ def py():
                 "-blankStopGrad-inclBlankStateBoth-p0.1",
                 {"stop_grad_blank": True, "ctc_partial_scores_include_next_blank": "both", "grad_norm_p": 0.1},
             ),
+            (
+                "-blankStopGrad-inclBlankStateBothPrev-p0.1",
+                {"stop_grad_blank": True, "ctc_partial_scores_include_next_blank": "both_prev", "grad_norm_p": 0.1},
+            ),
         ]:
             grad_opts = grad_opts.copy()
             # base model
@@ -222,17 +226,17 @@ def py():
 
             # see also exp2024_09_09_grad_align.py
             for align_opts in [
-                {"apply_softmax_over_time": True, "blank_score": -4},
+                # {"apply_softmax_over_time": True, "blank_score": -4},
                 {"apply_softmax_over_time": True, "blank_score": -6},
-                {"apply_softmax_over_time": True, "blank_score": -7},
-                {
-                    "apply_softmax_over_time": True,
-                    "blank_score": "calc",
-                    "blank_score_est": "flipped_after_softmax_over_time",
-                    "non_blank_score_reduce": "log_mean_exp",
-                    "blank_score_flipped_percentile": 80,
-                    "apply_softmax_over_labels": True,
-                },
+                # {"apply_softmax_over_time": True, "blank_score": -7},
+                # {
+                #     "apply_softmax_over_time": True,
+                #     "blank_score": "calc",
+                #     "blank_score_est": "flipped_after_softmax_over_time",
+                #     "non_blank_score_reduce": "log_mean_exp",
+                #     "blank_score_flipped_percentile": 80,
+                #     "apply_softmax_over_labels": True,
+                # },
                 {
                     "apply_softmax_over_time": True,
                     "blank_score": "calc",
@@ -241,14 +245,14 @@ def py():
                     "blank_score_flipped_percentile": 60,
                     "apply_softmax_over_labels": True,
                 },
-                {
-                    "apply_softmax_over_time": True,
-                    "blank_score": "calc",
-                    "blank_score_est": "flipped_after_softmax_over_time",
-                    "non_blank_score_reduce": "log_mean_exp",
-                    "blank_score_flipped_percentile": 40,
-                    "apply_softmax_over_labels": True,
-                },
+                # {
+                #     "apply_softmax_over_time": True,
+                #     "blank_score": "calc",
+                #     "blank_score_est": "flipped_after_softmax_over_time",
+                #     "non_blank_score_reduce": "log_mean_exp",
+                #     "blank_score_flipped_percentile": 40,
+                #     "apply_softmax_over_labels": True,
+                # },
             ]:
                 # factor, grad_hdf = grads[grad_name]
                 factor = 1
