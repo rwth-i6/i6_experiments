@@ -1036,10 +1036,12 @@ def visualize_grad_scores():
                 assert mat.ndim == 2 and mat.shape[1] == T
             mat_ = ax.matshow(mat, cmap="Blues", aspect="auto")
             ax.tick_params(direction="out", length=20, width=2)
-            ax.set_title(f"{alias} for seq {seq_tag}")
+            # ax.set_title(f"{alias} for seq {seq_tag}")
+            print(f"{alias} for seq {seq_tag}")
             ax.set_xlabel("time")
             ax.set_ylabel("labels")
             ax.set_ylim(ax.get_ylim()[::-1])
+            plt.gca().xaxis.tick_bottom()
 
             divider = make_axes_locatable(ax)
             cax = divider.append_axes("right", size="5%", pad=0.05)
