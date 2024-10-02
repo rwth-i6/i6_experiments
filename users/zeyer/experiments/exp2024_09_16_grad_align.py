@@ -961,6 +961,15 @@ def visualize_grad_scores():
 
     sys.path.insert(0, returnn_root.get_path())
 
+    from matplotlib import pyplot as plt
+    from mpl_toolkits.axes_grid1 import make_axes_locatable
+    import matplotlib
+
+    font_size = 22
+    matplotlib.rcParams.update(
+        {"font.size": font_size, "xtick.labelsize": font_size * 0.8, "ytick.labelsize": font_size * 0.8}
+    )
+
     def _log_softmax(x: np.ndarray, *, axis: Optional[int] = None) -> np.ndarray:
         max_score = np.max(x, axis=axis, keepdims=True)
         x = x - max_score
@@ -1016,9 +1025,6 @@ def visualize_grad_scores():
 
             score_matrix = _log_softmax(np.log(score_matrix), axis=1)  # [S, T]
 
-            from matplotlib import pyplot as plt
-            from mpl_toolkits.axes_grid1 import make_axes_locatable
-
             alias = "log softmax"
             mat = score_matrix
             fig, ax = plt.subplots(nrows=1, ncols=1, figsize=(20, 5))
@@ -1029,6 +1035,7 @@ def visualize_grad_scores():
             else:
                 assert mat.ndim == 2 and mat.shape[1] == T
             mat_ = ax.matshow(mat, cmap="Blues", aspect="auto")
+            ax.tick_params(direction="out", length=20, width=2)
             ax.set_title(f"{alias} for seq {seq_tag}")
             ax.set_xlabel("time")
             ax.set_ylabel("labels")
