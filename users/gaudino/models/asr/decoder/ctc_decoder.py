@@ -1,3 +1,7 @@
+"""
+This file includes the logic for adding the network dictionary for joint one-pass time-synchronous attention and CTC recognition.
+"""
+
 from i6_core.returnn.config import CodeWrapper
 from i6_experiments.users.zeineldeen.modules.network import ReturnnNetwork
 from i6_experiments.users.zeineldeen.modules.attention import AttentionMechanism
@@ -15,6 +19,9 @@ from i6_experiments.users.gaudino.models.asr.decoder.recombine_functions_max imp
 def get_attention_decoder_dict_with_fix(
     label_dim=10025, target_embed_dim=640, use_zoneout_output=False
 ):
+    """
+    Adds the layers for the attention decoder with masking applied correctly.
+    """
     attention_decoder_dict_with_fix = {
         # reinterpreted for target_embed
         "output_reinterpret": {
@@ -193,9 +200,6 @@ def get_attention_decoder_dict_with_fix(
             "num_pieces": 2,
             "mode": "max",
         },
-        # TODO: maybe adjust this
-        # dropout = 0.3
-        # L2 = 0.0001
         "output_prob": {
             "class": "softmax",
             "from": "readout",
@@ -214,6 +218,10 @@ def get_attention_decoder_dict_with_fix(
 
 
 def get_ilm_dict():
+    """
+    Here the same masking is applied as above. Still somehow the ILM integration did not really work out for time-synchronous search.
+    Maybe use carefully because there might be a bug.
+    """
     ilm_dict = {
         # "mini_att_lstm": {
         #     "class": "rec",
@@ -325,7 +333,8 @@ def get_ilm_dict():
     }
     return ilm_dict
 
-
+# this can be used to use the native implementation for CTC beam search from Tensorflow for recognition
+# only works with small beam sizes
 ctc_beam_search_tf_string = """
 def ctc_beam_search_decoder_tf(source, **kwargs):
     # import beam_search_decoder from tensorflow
@@ -590,6 +599,9 @@ class CTCDecoder:
         return f"{name}_renorm"
 
     def add_masks(self, subnet_unit: ReturnnNetwork):
+        """
+        Add masks for the current and the previous time frame whether the output is blank or repeated.
+        """
         subnet_unit.update(
             {
                 "not_repeat_mask": {
@@ -703,6 +715,10 @@ class CTCDecoder:
         lm_layer: str = None,
         ilm_layer: str = None,
     ):
+        """
+        Add the score combination logic for the CTC, attention, and external LM scores.
+        This has many options to include different normalization and scales but none of them really helped in addition to the ctc prior.
+        """
         one_minus_term_scale_old = 1
         combine_list = []
         if self.ctc_scale > 0:
@@ -1220,6 +1236,9 @@ class CTCDecoder:
         self.network["output"].pop("max_seq_len", None)
 
     def add_greedy_decoder(self, subnet_unit: ReturnnNetwork):
+        """
+        Adds the layers for CTC greedy search.
+        """
         choice_layer_source = "data:source"
         input_type = None
         if self.blank_prob_scale != 1.0:
@@ -1364,6 +1383,10 @@ class CTCDecoder:
         self.add_output_layer(subnet_unit)
 
     def add_ctc_beam_search_decoder_tf(self):
+        """
+        Adds the layers that use the native CTC beam search of Tensorflow.
+        Only works with very small beam sizes.
+        """
         dec_output = self.network.update(
             {
                 "ctc_log": {
@@ -1432,7 +1455,10 @@ class CTCDecoder:
 
         return lm_net_out.get_net()["lm_output"]
 
-    def add_greedy_with_ext_lm_decoder(self, subnet_unit: ReturnnNetwork):
+    def add_ctc_with_ext_lm_decoder(self, subnet_unit: ReturnnNetwork):
+        """
+        Adds the combined search of CTC and LM.
+        """
         self.add_ctc_scores(subnet_unit)
         # add masks
         self.add_masks(subnet_unit)
@@ -1465,7 +1491,10 @@ class CTCDecoder:
 
         self.add_output_layer(subnet_unit)
 
-    def add_greedy_decoder_with_att(self, subnet_unit: ReturnnNetwork):
+    def add_ctc_decoder_with_att(self, subnet_unit: ReturnnNetwork):
+        """
+        Adds the combined search of CTC and attention.
+        """
         self.add_ctc_scores(subnet_unit)
         # add masks
         self.add_masks(subnet_unit)
@@ -1483,7 +1512,10 @@ class CTCDecoder:
 
         self.add_output_layer(subnet_unit)
 
-    def add_greedy_decoder_with_lm_and_att(self, subnet_unit):
+    def add_ctc_decoder_with_lm_and_att(self, subnet_unit):
+        """
+        Adds the combined search of CTC and att and LM.
+        """
         self.add_ctc_scores(subnet_unit)
         # add masks
         self.add_masks(subnet_unit)
@@ -1600,7 +1632,7 @@ class CTCDecoder:
             self.ctc_source = "ctc_no_eos_postfix_in_time"
 
     def add_blank_collapse(self):
-        """Collpase blanks in ctc logits and set ctc_source to the new logits."""
+        """Collpase blanks in ctc logits and set ctc_source to the new logits. Code from Atanas Gruev."""
         from i6_experiments.users.gruev.implementations.returnn.blank_collapse import (
             blank_collapse,
         )
@@ -1751,13 +1783,13 @@ class CTCDecoder:
 
         if self.add_ext_lm and not self.add_att_dec:
             self.network.add_length_layer("enc_seq_len", self.ctc_source, sparse=False)
-            self.add_greedy_with_ext_lm_decoder(self.subnet_unit)
+            self.add_ctc_with_ext_lm_decoder(self.subnet_unit)
         elif self.add_att_dec and not self.add_ext_lm:
             self.add_enc_output_for_att()
-            self.add_greedy_decoder_with_att(self.subnet_unit)
+            self.add_ctc_decoder_with_att(self.subnet_unit)
         elif self.add_att_dec and self.add_ext_lm:
             self.add_enc_output_for_att()
-            self.add_greedy_decoder_with_lm_and_att(self.subnet_unit)
+            self.add_ctc_decoder_with_lm_and_att(self.subnet_unit)
         elif self.ctc_beam_search_tf:
             self.add_ctc_beam_search_decoder_tf()
             self.decision_layer_name = "ctc_decoder_output"

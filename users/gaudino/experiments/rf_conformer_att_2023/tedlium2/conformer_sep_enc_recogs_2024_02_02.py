@@ -1,4 +1,9 @@
-"""Param Import
+"""
+Combining two models in recognition (system combination).
+
+We use again all different models and combine with the standalone CTC system.
+Uses slightly different code than the system combination on Librispeech 960h. The code for Librispeech 960h is more flexible.
+
 """
 
 from __future__ import annotations

@@ -1,3 +1,11 @@
+"""
+Script for debugging the imported model. It basically does the same as RETURNN does with the config.
+At some point I stoped using such scripts because it was easier to just run the actual config in an interactive session on the cluster.
+
+The original script is from Albert. It can also compare the scores of the models in an automatic way.
+Be careful how the threshold is set, I discussed this with Albert and I think he used to use a too large threshold for the exact comparison.
+
+"""
 from __future__ import annotations
 
 from typing import Dict

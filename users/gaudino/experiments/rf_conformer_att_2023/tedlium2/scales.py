@@ -1,4 +1,4 @@
-"""All scales for tedlium2 experiments."""
+"""All scales and results for tedlium2 experiments."""
 
 model_names = [
     "model_baseline",

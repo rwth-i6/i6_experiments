@@ -1,4 +1,14 @@
-"""Param Import
+"""
+Experiments with the imported baseline 5.6 model trained with tensorflow.
+
+All kind of experiments are included:
+- one-pass time-synchronous espnet variant (Approch 1)
+- one-pass time-synchronous our variant (Approach 2)
+- one-pass label-synchronous
+- two-pass rescoring
+- with Trafo LM
+- with LSTM LM
+- with ILM substrction
 """
 
 from __future__ import annotations

@@ -1,20 +1,18 @@
 from __future__ import annotations
 
-from typing import Optional, Any, Tuple, Dict, Sequence, List
-import tree
+from typing import Optional, Any, Tuple, Dict
 
-
-from returnn.tensor import Tensor, Dim, single_step_dim
+from returnn.tensor import Tensor, Dim
 import returnn.frontend as rf
 from returnn.frontend.tensor_array import TensorArray
 
 
 # from i6_experiments.users.gaudino.experiments.rf_conformer_att_2023.librispeech_960.conformer_import_moh_att_2023_06_30 import Model
-from i6_experiments.users.zeyer.model_interfaces import ModelDef, RecogDef, TrainDef
+from i6_experiments.users.zeyer.model_interfaces import RecogDef
 
 from i6_experiments.users.gaudino.experiments.rf_conformer_att_2023.librispeech_960.espnet_ctc.beam_search_timesync_espnet import BeamSearchTimeSync
 
-from i6_experiments.users.gaudino.models.asr.decoder.att_decoder_rf import ATTDecoder
+from i6_experiments.users.gaudino.models.asr.rf.att_decoder_rf import ATTDecoder
 from i6_experiments.users.gaudino.models.asr.rf.scorers_rf_espnet.lm_ilm_scorer import LM_ILM_Scorer
 
 from i6_experiments.users.gaudino.experiments.rf_conformer_att_2023.librispeech_960.model_recogs.search_functions import remove_eos_from_start_and_end

@@ -1,11 +1,13 @@
 """Decoders and output normalization for CTC.
+copied from speechbrain but never used
 
 Authors
  * Mirco Ravanelli 2020
  * Aku Rouhe 2020
  * Sung-Lin Yeh 2020
 """
-# copied from speechbrain
+
+
 
 import torch
 from itertools import groupby

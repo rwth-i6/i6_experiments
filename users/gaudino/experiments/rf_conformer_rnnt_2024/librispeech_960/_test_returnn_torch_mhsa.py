@@ -1,3 +1,6 @@
+"""
+import an RNN-T model from Nick Rossenbach into our model definition of RETURNN frontend
+"""
 # test whether the torch and returnn implementation of the mhsa layer are equivalent
 
 import torch
