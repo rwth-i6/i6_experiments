@@ -62,7 +62,7 @@ https://github.com/rwth-i6/i6_experiments/blob/b1cc67532e319317d062c8dd8b224eb5c
 ## ILM training (WIP)
 
 Entry point in this file: 
-https://github.com/rwth-i6/i6_experiments/blob/main/users/gaudino/experiments/rf_conformer_att_2023/librispeech_960/conformer_import_moh_att_train.py#L640
+https://github.com/rwth-i6/i6_experiments/blob/d26413dd4f0ca91a998d7b509b1e6e689d234248/users/gaudino/experiments/rf_conformer_att_2023/librispeech_960/conformer_import_moh_att_train.py#L405
 
 
 
