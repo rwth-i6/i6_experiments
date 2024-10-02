@@ -250,7 +250,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
         tk.register_output(name + "/recog_results", res.output)
 
     # optsr ctc + trafo lm
-    for lm_scale, prior_scale, beam_size in product([0.0, 0.6, 0.65, 0.7], [0.0, 0.1, 0.2, 0.3, 0.4], [12]):
+    for lm_scale, prior_scale, beam_size in product([0.65, 0.7, 0.75, 0.8], [0.8, 0.9], [12, 32]):
         recog_name = (
             f"optsr_ctc1.0_trafolm{lm_scale}_fix2"
             + (f"_prior{prior_scale}_fix" if prior_scale > 0.0 else "")
@@ -281,8 +281,8 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
             recog_def=model_recog_ts,
             config=recog_config,
             search_rqmt=None,
-            # dev_sets=None,
-            dev_sets=["dev-other"],
+            dev_sets=None,
+            # dev_sets=["dev-other"],
             name=name,
         )
         tk.register_output(name + "/recog_results", res.output)
