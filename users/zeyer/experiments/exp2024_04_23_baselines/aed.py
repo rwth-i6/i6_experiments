@@ -137,7 +137,7 @@ def py():
         ("spm10k", 1.0),  # 5.35. As we see from CTC exps, this is not exactly the same as no sampling.
         ("spm10k", 0.9),  # 5.18
         ("spm10k", 0.8),  # 5.14
-        ("spm10k", 0.7),  # 4.98 (!!)
+        ("spm10k", 0.7),  # 4.98 (!!) (but it might be a lucky outlier...)
         ("spm10k", 0.6),  # 5.13
         ("spm10k", 0.5),  # 5.13
         ("spm10k", 0.3),  # 5.26
@@ -190,7 +190,7 @@ def py():
     )
     for vocab, sample, alpha, max_seq_len_via_audio, model_name, model_cfg in [
         ("spm10k", "spm", 0.7, False, None, {}),  # 4.98
-        (
+        (  # 5.56. Much worse?
             "spm10k",
             "spm",
             0.7,
@@ -213,6 +213,17 @@ def py():
         ("spm10k", "bpe", 0.005, False, None, {}),  # 5.14
         ("spm10k", "bpe", 0.01, False, None, {}),  # 5.14
         # TODO ("spm10k", "bpe", 0.01, True, None, {}),
+        (
+            "spm10k",
+            "spm",
+            0.7,
+            False,
+            "relPosAttDef",
+            {
+                "enc_conformer_layer": enc_conformer_layer_default,
+                "_fixed_enc_conformer_layer": True,  # just triggers new hash
+            },
+        ),
         # (
         #     "spm10k",
         #     "bpe",
@@ -275,7 +286,7 @@ def py():
         #         "_fixed_enc_conformer_layer": True,  # just triggers new hash
         #     },
         # ),
-        (
+        (  # 5.41. posEmbDrop01 seems to help a lot. But still worse than baseline.
             "spm10k",
             "bpe",
             0.01,
@@ -296,7 +307,7 @@ def py():
                 "feature_batch_norm": True,
             },
         ),
-        (
+        (  # 5.59. So noSelfAtt20 did not help. (Even made it slightly worse?)
             "spm10k",
             "bpe",
             0.01,
