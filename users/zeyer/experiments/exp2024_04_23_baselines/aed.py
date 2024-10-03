@@ -190,6 +190,32 @@ def py():
     )
     for vocab, sample, alpha, max_seq_len_via_audio, model_name, model_cfg in [
         ("spm10k", "spm", 0.7, False, None, {}),  # 4.98
+        (
+            "spm10k",
+            "spm",
+            0.7,
+            False,
+            "baseV2",  # should be no change, only copied code explicitly
+            {
+                "enc_conformer_layer": rf.build_dict(
+                    rf.encoder.conformer.ConformerEncoderLayer,
+                    conv_norm=rf.build_dict(rf.BatchNorm, use_mask=True),
+                    self_att=rf.build_dict(
+                        rf.RelPosSelfAttention,
+                        # Shawn et al 2018 style, old RETURNN way.
+                        with_bias=False,
+                        with_linear_pos=False,
+                        with_pos_bias=False,
+                        learnable_pos_emb=True,
+                        separate_pos_emb_per_head=False,
+                        pos_emb_dropout=0.1,
+                    ),
+                    ff_activation=rf.build_dict(rf.relu_square),
+                    num_heads=8,
+                )
+            },
+        ),
+        ("spm10k", "spm", 0.7, False, "featBN", {"feature_batch_norm": True}),
         (  # 5.56. Much worse?
             "spm10k",
             "spm",
