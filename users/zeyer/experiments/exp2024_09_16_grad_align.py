@@ -976,10 +976,10 @@ def visualize_grad_scores():
         return x - np.log(np.sum(np.exp(x), axis=axis, keepdims=True))
 
     for name in [
-        "ctc-grad-align/base-bpe10k",
-        "ctc-grad-align/base-bpe10k-blankSep",
-        "ctc-grad-align/base-bpe10k-blankSep-blankStopGrad-inclBlankState-p0.1",
-        "ctc-grad-align/base-bpe10k-inclBlankState-p0.1",
+        "ctc-grad-align/base",
+        "ctc-grad-align/blankSep",
+        "ctc-grad-align/blankSep-blankStopGrad-inclBlankState-p0.1",
+        "ctc-grad-align/base-inclBlankState-p0.1",
         "ctc-grad-align/base-spm512-blankSep-blankStopGrad-inclBlankState-p0.1",
         "aed-grad-align/base-p0.1",
     ]:
