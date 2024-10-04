@@ -149,7 +149,7 @@ def mask_audio_features_exact_label_pos_single_seq(
     alignment_mask Masking for audio features. 1 = no mask, 0 = mask
     """
     n_pos = len(mask)
-    s_idx = torch.arange(n_pos)
+    s_idx = torch.arange(n_pos, device=mask.device)
     device = alignment.device
     masked_pos = s_idx[mask.bool()] # index of masked positions
     unique, counts = alignment.unique_consecutive(return_counts=True)

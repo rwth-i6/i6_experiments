@@ -47,6 +47,13 @@ def get_model_ckpt(model_name, model_path, model_def=from_scratch_model_def):
 # from i6_experiments.users.phan.configs.bilstm_encoder_6_layers import sis_run_with_prefix as blstm_checkpoints
 
 def sis_run_with_prefix(prefix_name: Optional[str] = None):
+    for dataset_key in ["train", "dev", "devtrain"]:
+        get_alignment(prefix_name, dataset_key=dataset_key)
+
+def get_alignment(
+    prefix_name: Optional[str] = None,
+    dataset_key: str = "train",
+):
 
     from i6_experiments.users.zeyer.datasets.librispeech import get_librispeech_task_raw_v2
     task = get_librispeech_task_raw_v2(vocab="bpe10k", main_key="train")
@@ -78,9 +85,16 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
             "ctc_enc_layer_id": 12,
         }
     }
-    name = model_name + '_alignment_train_lbs960.hdf'
-    # dataset = task.eval_datasets["dev-other"] # change to train
-    dataset = task.train_dataset
+    name = model_name + f"_alignment_lbs960_{dataset_key}.hdf"
+    # dataset = task.eval_datasets["dev-other"] # change to train\
+    if dataset_key == "train":
+        dataset = task.train_dataset
+    elif dataset_key == "dev":
+        dataset = task.dev_dataset
+    elif dataset_key == "devtrain":
+        dataset = task.train_dataset
+    else:
+        raise NotImplementedError("dataset_key must be \"train\", \"dev\", or \"devtrain\"")
     align_result = align_forward(
         dataset=dataset,
         model=ctc_model_ckpt,
@@ -89,13 +103,16 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
         search_args=search_args,
         align_post_config={
             "torch_log_memory_usage": True,
-        }
+        },
+        dataset_key=dataset_key,
     )
 
     tk.register_output(
         _sis_prefix + '/' + name,
         align_result,
     )
+
+    return align_result
 
 py = sis_run_with_prefix
 

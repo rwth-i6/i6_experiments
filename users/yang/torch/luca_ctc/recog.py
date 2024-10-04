@@ -713,12 +713,12 @@ class GetBestRecogTrainExp(sisyphus.Job):
         assert exp.fixed_epochs  # need some fixed epochs to define the hash
 
         # ------------ avoid running recog on the last epoch
-        # last_fixed_epoch = max(exp.fixed_epochs)
-        # recog_and_score_func = d["recog_and_score_func"]
-        # res = recog_and_score_func(last_fixed_epoch)
-        # assert isinstance(res, ScoreResultCollection)
-        # # Add this to the hash, to make sure the pipeline of the recog and scoring influences the hash.
-        # d["_last_fixed_epoch_results"] = res
+        last_fixed_epoch = max(exp.fixed_epochs)
+        recog_and_score_func = d["recog_and_score_func"]
+        res = recog_and_score_func(last_fixed_epoch)
+        assert isinstance(res, ScoreResultCollection)
+        # Add this to the hash, to make sure the pipeline of the recog and scoring influences the hash.
+        d["_last_fixed_epoch_results"] = res
         return sis_tools.sis_hash(d)
 
     # def update(self):

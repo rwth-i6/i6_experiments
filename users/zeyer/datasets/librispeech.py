@@ -187,7 +187,7 @@ spm_espnet_5k = CustomVocab(
 
 
 _Parts = ["train-clean-100", "train-clean-360", "train-other-500", "dev-clean", "dev-other", "test-clean", "test-other"]
-
+# _Parts = ["train-other-960", "dev-clean", "dev-other", "test-clean", "test-other"]
 
 # https://github.com/rwth-i6/returnn-experiments/blob/master/2020-librispeech-data-prepare/returnn.config
 def _get_dataset(key: str, *, subset=None, train_partition_epoch=None, training: bool = False, targets, audio):
@@ -251,6 +251,7 @@ class LibrispeechOggZip(DatasetConfig):
         train_audio_preprocess: Optional[Any] = NotSpecified,
         train_audio_random_permute: Union[bool, Dict[str, Any]] = False,
         eval_subset: Optional[int] = 3000,
+        alignments: Optional[Dict[str, List[tk.Path]]] = None,
     ):
         """
         :param with_eos_postfix: For RETURNN train/dev/eval datasets, mostly relevant for training.
@@ -279,6 +280,7 @@ class LibrispeechOggZip(DatasetConfig):
         self.train_audio_random_permute = train_audio_random_permute
         self.train_epoch_wise_filter = train_epoch_wise_filter
         self.eval_subset = eval_subset
+        self.alignments = alignments
 
     def _sis_hash(self) -> bytes:
         import hashlib
@@ -320,16 +322,28 @@ class LibrispeechOggZip(DatasetConfig):
                 "vocab": self.vocab.get_opts(),
             }
 
+        if self.alignments is not None:
+            opts["align"] = {
+                "dim_tags": [batch_dim, time_dim],
+                "sparse_dim": classes_dim + 1,
+            }
+
         return opts
 
     def get_train_dataset(self) -> Dict[str, Any]:
         return self.get_dataset("train", training=True)
 
-    def get_eval_datasets(self) -> Dict[str, Dict[str, Any]]:
-        return {
-            "dev": self.get_dataset("dev", subset=self.eval_subset),
-            "devtrain": self.get_dataset("train", subset=self.eval_subset),
-        }
+    def get_eval_datasets(self, train_key=None) -> Dict[str, Dict[str, Any]]:
+        if train_key == "train-other-960":
+            return {
+                "dev": self.get_dataset("dev", subset=self.eval_subset),
+                "devtrain": self.get_dataset("train-other-960", subset=self.eval_subset),
+            }
+        else:
+            return {
+                "dev": self.get_dataset("dev", subset=self.eval_subset),
+                "devtrain": self.get_dataset("train", subset=self.eval_subset),
+            }
 
     def get_main_name(self) -> str:
         return self.main_key
@@ -339,7 +353,10 @@ class LibrispeechOggZip(DatasetConfig):
 
     def get_dataset(self, key: str, *, training: bool = False, subset: Optional[int] = None) -> Dict[str, Any]:
         files = []
-        parts = [part for part in _Parts if part.startswith(key)]
+        if key == "train-other-960":
+            parts = ["train-other-960"]
+        else:
+            parts = [part for part in _Parts if part.startswith(key)]
         assert parts, f"invalid key {key!r}"
         for part in parts:
             files += [_get_librispeech_ogg_zip_dict()[part]]
@@ -376,6 +393,25 @@ class LibrispeechOggZip(DatasetConfig):
             d["seq_ordering"] = "sorted_reverse"
         if subset:
             d["fixed_random_subset"] = subset  # faster
+
+        if key == "train-other-960" and subset is None and self.alignments is not None and key in self.alignments:
+            d = {
+                "class": "MetaDataset",
+                "datasets": {
+                    "oggzip": d,
+                    "align": {
+                        "class": "HDFDataset",
+                        "files": self.alignments[key],
+                        "use_cache_manager": True,
+                    },
+                },
+                "data_map": {
+                    self.get_default_input(): ("oggzip", "data"),
+                    self.get_default_target(): ("oggzip", "classes"),
+                    "align": ("align", "data"),
+                },
+                "seq_order_control_dataset": "oggzip",
+            }
         return d
 
 

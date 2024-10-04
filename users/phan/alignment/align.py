@@ -29,6 +29,7 @@ def align_forward(
   device: Optional[str] = "gpu",
   model_args: Optional[Dict[str, Any]] = None,
   search_args: Optional[Dict[str, Any]] = None,
+  dataset_key: str = "train",
 ):
   forward_job = ReturnnForwardJobV2(
             model_checkpoint=model.checkpoint,
@@ -39,7 +40,8 @@ def align_forward(
                 post_config=align_post_config,
                 model_args=model_args,
                 search_args=search_args,
-                device=device
+                device=device,
+                dataset_key=dataset_key,
             ),
             output_files=[_v2_forward_out_filename],
             returnn_python_exe=tools_paths.get_returnn_python_exe(),
@@ -47,7 +49,7 @@ def align_forward(
             mem_rqmt=align_mem_rqmt,
             device=device,
         )
-  forward_job.set_vis_name(f"CTC forced alignment job {model.checkpoint}")
+  forward_job.set_vis_name(f"CTC forced alignment job, {dataset_key}, {model.checkpoint}")
   align_results = forward_job.out_files[_v2_forward_out_filename] # output path
 
   return align_results
@@ -64,15 +66,20 @@ def align_config(
   post_config: Optional[Dict[str, Any]] = None,
   search_args: Optional[Dict[str, Any]] = None,
   model_args: Optional[Dict[str, Any]] = None,
-  device: Optional[str] = "gpu"
+  device: Optional[str] = "gpu",
+  dataset_key: str = "train",
 ) -> ReturnnConfig:
+  if dataset_key == "devtrain":
+    forward_data = dataset.get_eval_datasets()["devtrain"]
+  else:
+    forward_data = dataset.get_main_dataset()
   returnn_align_config_dict = dict(
     backend=model_def.backend,
     behavior_version=model_def.behavior_version,
     # dataset
     default_input=dataset.get_default_input(),
     target=dataset.get_default_target(),
-    forward_data=dataset.get_main_dataset(),
+    forward_data=forward_data,
   )
   extern_data_raw = dataset.get_extern_data()
 

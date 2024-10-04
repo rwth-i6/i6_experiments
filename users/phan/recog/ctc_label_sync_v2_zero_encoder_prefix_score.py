@@ -1,6 +1,6 @@
 """
-Copied from https://github.com/rwth-i6/i6_experiments/blob/27c060868d4e3babaa5ad3d0da971d56576e5191/users/gaudino/models/asr/rf/conformer_ctc/model_recog_ctc_ls.py
-Minimal modification to work with ILM. This should be treated as default
+Instead of estimating the ILM, here we calculate the prefix score 
+of zero encoder directly
 """
 
 from __future__ import annotations
@@ -75,8 +75,8 @@ def model_recog(
     # Init LM and ILM state
     if search_args.get("lm_scale", 0.0) > 0:
         lm_state = model.language_model.default_initial_state(batch_dims=batch_dims_)
-    if search_args.get("ilm_scale", 0.0) > 0:
-        ilm_state = model.ilm.default_initial_state(batch_dims=batch_dims_)
+    # if search_args.get("ilm_scale", 0.0) > 0:
+    #     ilm_state = model.ilm.default_initial_state(batch_dims=batch_dims_)
 
 
     target = rf.constant(model.bos_idx, dims=batch_dims_, sparse_dim=model.target_dim)
@@ -129,6 +129,7 @@ def model_recog(
             )
             ctc_out = ctc_out - torch.logsumexp(ctc_out, dim=2, keepdim=True)
         elif prior_type == "zero_encoder": # it only makes sense to mask everything
+            # !!!!!!!!!!!!!!!! This should not be used in this setup !!!!!!!!!!!!!!!!!
             # print("Zero encoder")
             prior_args, prior_spatial_dim = model.encode(
                 data,
@@ -171,6 +172,47 @@ def model_recog(
 
     enc_args.pop("ctc", None)
 
+    # ------- Calculate prefix score for zero encoder -------
+    # !!!!!!!!!!!!!!!! OOM ISSUES, beam 16 is good !!!!!!!!!!!!!!!
+    prior_args, prior_spatial_dim = model.encode(
+        data,
+        in_spatial_dim=data_spatial_dim,
+        audio_features_mask=torch.zeros(ctc_out.shape[:2], device=data.raw_tensor.device),
+        )
+    enc_prior = model.enc_aux_logits_12(prior_args["enc"])
+    enc_prior = rf.log_softmax(enc_prior, axis=model.target_dim_w_blank)
+    enc_prior_raw = (
+        enc_prior
+        .copy_transpose((batch_size_dim, prior_spatial_dim, model.target_dim_w_blank))
+        .raw_tensor
+    ) # [B,T,V+1]
+
+    
+    # print(enc_prior_raw)
+    # # --------- Check if in zero encoder, frames are similar ------------
+    # Only the middle frames are similar ...
+    # B, T, V = enc_prior_raw.shape
+    # for b in range(B):
+    #     frame_start = 0
+    #     frame_end = 100
+    #     n_frames = frame_end - frame_start + 1
+    #     kldiv_mat = torch.empty(n_frames, n_frames)
+    #     for t in range(frame_start, frame_end+1):
+    #         for ts in range (frame_start, frame_end+1):
+    #             kldiv_mat[t-frame_start, ts-frame_start] = torch.nn.functional.kl_div(enc_prior_raw[b, ts, :-1].log_softmax(-1), enc_prior_raw[b, t, :-1].log_softmax(-1), log_target=True, reduction="sum")
+    #     print(kldiv_mat)
+    # # -------------------------------------------------------------------
+
+    zero_encoder_ctc_prefix_scorer = CTCPrefixScoreTH(
+        enc_prior_raw,
+        hlens,
+        blank_index,
+        0,
+        search_args.get("window_margin", 0),
+        search_args.get("mask_eos", True),
+    )
+    zero_encoder_ctc_state = None
+
     i = 0
     seq_targets = []
     seq_backrefs = []
@@ -188,12 +230,24 @@ def model_recog(
         else:
             ctc_prefix_scores = ctc_prefix_scores.view(batch_size, beam_size, -1)
 
+        zero_encoder_ctc_prefix_scores, zero_encoder_ctc_state = zero_encoder_ctc_prefix_scorer(
+            output_length=i,
+            last_ids=target_ctc,
+            state=zero_encoder_ctc_state,
+            att_w=att_weights if (search_args.get("window_margin", 0) > 0 and att_weights) else None,
+        )
+
+        if i == 0:
+            zero_encoder_ctc_prefix_scores = zero_encoder_ctc_prefix_scores.view(batch_size, beam_size, -1)[:, 0, :].unsqueeze(1)
+        else:
+            zero_encoder_ctc_prefix_scores = zero_encoder_ctc_prefix_scores.view(batch_size, beam_size, -1)
+
         ctc_prefix_scores = rf.Tensor(
             name="ctc_prefix_scores",
             # dims=batch_dims_ + [model.target_dim],
             dims=[batch_size_dim, beam_dim, model.target_dim],
             dtype="float32",
-            raw_tensor=ctc_prefix_scores[:, :, :blank_index],
+            raw_tensor=ctc_prefix_scores[:, :, :blank_index] - zero_encoder_ctc_prefix_scores[:, :, :blank_index] * search_args.get("ilm_scale", 0.0),
         )
         label_log_prob = ctc_prefix_scores
 
@@ -207,15 +261,15 @@ def model_recog(
                     label_log_prob + search_args["lm_scale"] * lm_log_prob
                 )
 
-        if search_args.get("ilm_scale", 0.0) > 0:
-            ilm_out = model.ilm(target, state=ilm_state, spatial_dim=single_step_dim)
-            ilm_state = ilm_out["state"]
-            ilm_log_prob = rf.log_softmax(ilm_out["output"], axis=model.target_dim)
+        # if search_args.get("ilm_scale", 0.0) > 0:
+        #     ilm_out = model.ilm(target, state=ilm_state, spatial_dim=single_step_dim)
+        #     ilm_state = ilm_out["state"]
+        #     ilm_log_prob = rf.log_softmax(ilm_out["output"], axis=model.target_dim)
 
-            if search_args.get("use_lm_first_label", True) or i > 0:
-                label_log_prob = (
-                    label_log_prob - search_args["ilm_scale"] * ilm_log_prob
-                )
+        #     if search_args.get("use_lm_first_label", True) or i > 0:
+        #         label_log_prob = (
+        #             label_log_prob - search_args["ilm_scale"] * ilm_log_prob
+        #         )
 
         # Filter out finished beams
         label_log_prob = rf.where(
@@ -240,8 +294,8 @@ def model_recog(
         # update LM and ILM states
         if search_args.get("lm_scale", 0.0) > 0:
             lm_state = model.language_model.select_state(lm_state, backrefs)
-        if search_args.get("ilm_scale", 0.0) > 0:
-            ilm_state = model.ilm.select_state(ilm_state, backrefs)
+        # if search_args.get("ilm_scale", 0.0) > 0:
+        #     ilm_state = model.ilm.select_state(ilm_state, backrefs)
 
         ended = rf.gather(ended, indices=backrefs)
         out_seq_len = rf.gather(out_seq_len, indices=backrefs)
@@ -256,6 +310,9 @@ def model_recog(
         # ctc state selection
         ctc_state = ctc_prefix_scorer.index_select_state(
             ctc_state, best_ids.raw_tensor
+        )
+        zero_encoder_ctc_state = zero_encoder_ctc_prefix_scorer.index_select_state(
+            zero_encoder_ctc_state, best_ids.raw_tensor
         )
         target_ctc = torch.flatten(target.raw_tensor)
 

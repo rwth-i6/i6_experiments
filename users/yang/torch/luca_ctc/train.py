@@ -30,6 +30,8 @@ def train(
     num_processes: Optional[int] = None,
     include_native_ops: bool = False,
     disable_epoch_wise_filter: bool = False,
+    use_multiproc_dataset: bool = True,
+    train_dataset_key: Optional[str] = None,
     **kwargs,
 ) -> ModelWithCheckpoints:
     """
@@ -53,22 +55,35 @@ def train(
     from i6_experiments.users.gaudino.recog_2 import SharedPostConfig
     from returnn_common import nn
 
+    if train_dataset_key is not None:
+        train = task.train_dataset.get_dataset(key=train_dataset_key, training=True)
+        eval_datasets = task.train_dataset.get_eval_datasets(train_key=train_dataset_key)
+    else:
+        train = task.train_dataset.get_train_dataset()
+        eval_datasets = task.train_dataset.get_eval_datasets()
+
+    if use_multiproc_dataset: # should always be True. This was for testing
+        train = mp_ds_utils.multi_proc_dataset_opts(train)
+        eval_datasets = mp_ds_utils.multi_proc_eval_datasets_opts(eval_datasets)
+
     returnn_train_config_dict: Dict[str, Any] = dict(
         backend=model_def.backend,
         behavior_version=model_def.behavior_version,
         # dataset
         default_input=task.train_dataset.get_default_input(),
         target=task.train_dataset.get_default_target(),
-        train=mp_ds_utils.multi_proc_dataset_opts(task.train_dataset.get_train_dataset()),
-        eval_datasets=mp_ds_utils.multi_proc_eval_datasets_opts(task.train_dataset.get_eval_datasets()),
+        train=train,
+        eval_datasets=eval_datasets,
         learning_rate_control_error_measure=train_def.learning_rate_control_error_measure,
         newbob_multi_num_epochs=task.train_epoch_split,
     )
     returnn_train_config_dict.update(config)
 
     # Turn off epoch wise filter for epoch 1 and 5
+    # will only work for multi proc dataset
     if disable_epoch_wise_filter:
-        returnn_train_config_dict["train"]["dataset"].pop("epoch_wise_filter")
+        returnn_train_config_dict["train"]["dataset"].pop("epoch_wise_filter", None)
+    
     if isinstance(model_def, ModelDefWithCfg):
         returnn_train_config_dict.update(model_def.config)
 
@@ -202,10 +217,21 @@ def _returnn_v2_train_step(*, model, extern_data: TensorDict, **_kwargs_unused):
     targets = extern_data[default_target_key]
     targets_spatial_dim = targets.get_time_dim_tag()
     train_def: TrainDef = config.typed_value("_train_def")
-    train_def(
-        model=model,
-        data=data,
-        data_spatial_dim=data_spatial_dim,
-        targets=targets,
-        targets_spatial_dim=targets_spatial_dim,
-    )
+    if "align" in extern_data.data:
+        align = extern_data["align"]
+        train_def(
+            model=model,
+            data=data,
+            data_spatial_dim=data_spatial_dim,
+            targets=targets,
+            targets_spatial_dim=targets_spatial_dim,
+            align=align,
+        )
+    else:
+        train_def(
+            model=model,
+            data=data,
+            data_spatial_dim=data_spatial_dim,
+            targets=targets,
+            targets_spatial_dim=targets_spatial_dim,
+        )

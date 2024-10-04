@@ -70,9 +70,12 @@ def model_recog_time_sync(
     enc_ctc = rf.softmax(enc_ctc, axis=model.target_dim_w_blank)
 
     beam_size = search_args.get("beam_size", 32)
-    length_normalization_exponent = search_args.get(
-        "length_normalization_exponent", 1.0
-    )
+    if "length_normalization_exponent" in search_args:
+        length_normalization_exponent = search_args.get("length_normalization_exponent")
+    elif "length_norm_scale" in search_args:
+        length_normalization_exponent = search_args.get("length_norm_scale")
+    else:
+        raise RuntimeError("search_args must contain either length_normalization_exponent or length_norm_scale")
     if max_seq_len is None:
         max_seq_len = enc_spatial_dim.get_size_tensor()
     else:
@@ -237,9 +240,9 @@ def model_recog_time_sync(
             #     decoder_state_1,
             # )
 
-            # if search_args.get("ilm_scale", 0.0) > 0:  # TODO
-            #     ilm_state = model.ilm.select_state(ilm_state, backrefs)
-            #     prev_ilm_state = model.ilm.select_state(ilm_state_1, backrefs)
+            if search_args.get("ilm_scale", 0.0) > 0:  # TODO
+                ilm_state = model.ilm.select_state(ilm_state, backrefs)
+                prev_ilm_state = model.ilm.select_state(ilm_state_1, backrefs)
 
         mask_not_blank = rf.compare(target, "not_equal", model.blank_idx)
         mask_not_repeat = rf.compare(target, "not_equal", prev_target)
@@ -279,25 +282,7 @@ def model_recog_time_sync(
             if not torch.any(mask_combined.raw_tensor) or i == 0: # no recombination
                 # select state happens to "synchronize" the beam dim (dec-step{n}-beam to dec-step{n+1}-beam)
                 ilm_state_1 = prev_ilm_state
-                if i > 0:
-                    # print("No recombination")
-                    # print("ilm_state_1 before selection: ", ilm_state_1)
-                    # print("prev_ilm_state before selection: ", prev_ilm_state)
-                    ilm_state_1 = model.ilm.select_state(prev_ilm_state, backrefs=backrefs)
-                    prev_ilm_state = model.ilm.select_state(prev_ilm_state, backrefs=backrefs)
-                    # print("ilm_state_1 after selection: ", ilm_state_1)
-                    # print("prev_ilm_state after selection: ", prev_ilm_state)
             else:
-                # if recombination, update the LM state only where recombination happens
-                # print("Recombination ILM states:")
-                # print(f"prev_ilm_state: {prev_ilm_state}")
-                # print(f"ilm_state", ilm_state)
-                # print(f"backrefs", backrefs)
-                ilm_state = model.ilm.select_state(ilm_state, backrefs=backrefs)
-                prev_ilm_state = model.ilm.select_state(prev_ilm_state, backrefs=backrefs)
-                # print("After state selection:")
-                # print(f"prev_ilm_state: {prev_ilm_state}")
-                # print(f"ilm_state", ilm_state)
                 ilm_state_1 = tree.map_structure(
                     lambda s, prev_s: partial_mask_function(s, prev_s),
                     ilm_state,
