@@ -73,7 +73,9 @@ def _get_spm_vocab(
     dim_str = str(dim)
     if isinstance(dim, str):
         # Not sure if power-of-two or just multiple-of-64, but 10240 has more 2s in it (2048*5) than 10048.
-        dim = {"20k": 20_480, "10k": 10_240, "5k": 5_120, "4k": 4_096, "1k": 1_024, "512": 512, "128": 128}[dim]
+        dim = {"20k": 20_480, "10k": 10_240, "5k": 5_120, "4k": 4_096, "1k": 1_024, "512": 512, "128": 128, "64": 64}[
+            dim
+        ]
     assert isinstance(dim, int) and dim >= 10
 
     # https://github.com/google/sentencepiece/blob/master/doc/options.md
