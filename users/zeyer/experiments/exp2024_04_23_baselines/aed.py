@@ -189,6 +189,10 @@ def py():
         num_heads=8,
     )
     for vocab, sample, alpha, max_seq_len_via_audio, model_name, model_cfg in [
+        ("spm64", None, 0, False, None, {}),
+        ("spm128", None, 0, False, None, {}),
+        ("spm512", None, 0, False, None, {}),
+        ("spm1k", None, 0, False, None, {}),
         ("spm10k", "spm", 0.7, False, None, {}),  # 4.98
         (
             "spm10k",
