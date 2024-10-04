@@ -975,15 +975,6 @@ def visualize_grad_scores():
         x = x - max_score
         return x - np.log(np.sum(np.exp(x), axis=axis, keepdims=True))
 
-    def _y_to_mat(y, y_num_pixels=100):
-        x_num_pixels = len(y)
-        y_min, y_max = np.min(y), np.max(y)
-        mat = np.full((x_num_pixels, y_num_pixels), y_min)
-        for x_, y_ in enumerate(y):
-            y__ = int((y_ - y_min) / max(y_max - y_min, 1) * (y_num_pixels - 1))
-            mat[x_, y__] = y_
-        return mat.T
-
     for name in [
         "ctc-grad-align/base-bpe10k",
         "ctc-grad-align/base-bpe10k-blankSep",
