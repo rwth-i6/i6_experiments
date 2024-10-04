@@ -984,10 +984,6 @@ def visualize_grad_scores():
             mat[x_, y__] = y_
         return mat.T
 
-    def _rescale(y, clip_min, clip_max):
-        y = np.clip(y, clip_min, clip_max)
-        return (y - clip_min) / max(clip_max - clip_min, 1)
-
     for name in [
         "ctc-grad-align/base-bpe10k",
         "ctc-grad-align/base-bpe10k-blankSep",
@@ -1022,19 +1018,14 @@ def visualize_grad_scores():
 
             score_matrix = score_matrix_data_dict[seq_tag]  # [S, T]
             S, T = score_matrix.shape  # noqa
+            print(f"{name}, seq {seq_tag}, shape (SxT) {score_matrix.shape}")
 
             score_matrix = _log_softmax(np.log(score_matrix), axis=1)  # [S, T]
 
             alias = "log softmax"
-            mat = score_matrix
             fig, ax = plt.subplots(nrows=1, ncols=1, figsize=(20, 5))
-            # mat is [S|Y,T] or just [T]
-            if mat.ndim == 1:
-                assert mat.shape == (T,)
-                mat = _y_to_mat(mat)  # [Y,T]
-            else:
-                assert mat.ndim == 2 and mat.shape[1] == T
-            mat_ = ax.matshow(mat, cmap="Blues", aspect="auto")
+            # score_matrix is [S,T]
+            mat_ = ax.matshow(score_matrix, cmap="Blues", aspect="auto")
             ax.tick_params(direction="out", length=20, width=2)
             # ax.set_title(f"{alias} for seq {seq_tag}")
             print(f"{alias} for seq {seq_tag}")
