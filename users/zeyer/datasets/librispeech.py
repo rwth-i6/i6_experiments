@@ -9,12 +9,14 @@ import re
 from functools import cache
 
 from sisyphus import tk, Task as SisTask
+from sisyphus.delayed_ops import DelayedBase
+from i6_core.util import instanciate_delayed
 from i6_core.corpus.convert import CorpusToTextDictJob
 from i6_core.text.convert import TextDictToTextLinesJob
 from i6_core.text.label.sentencepiece.train import TrainSentencePieceJob, SentencePieceType
 from i6_core.text.label.sentencepiece.vocab import ExtractSentencePieceVocabJob
 from returnn.util.basic import NotSpecified
-from returnn_common.datasets_old_2022_10.interface import DatasetConfig, VocabConfig
+from returnn_common.datasets_old_2022_10.interface import DatasetConfig, VocabConfig, VocabConfigStatic
 from i6_experiments.common.datasets import librispeech
 from i6_experiments.users.zeyer.utils.generic_job_output import generic_job_output
 from i6_experiments.users.zeyer import tools_paths
@@ -25,6 +27,8 @@ from i6_experiments.users.zeyer.speed_pert.librosa_09_10_11_kaiser_fast import (
 from .task import Task, MeasureType, RecogOutput, ScoreResult
 from .utils.bpe import Bpe
 from .utils.spm import SentencePieceModel
+from .utils.bytes import Utf8BytesVocab
+from .utils.char import get_char_vocab
 
 if TYPE_CHECKING:
     from returnn.tensor import Tensor, Dim
@@ -68,7 +72,7 @@ def _get_train_corpus_text() -> tk.Path:
 
 @cache
 def _get_spm_vocab(
-    *, dim: Union[int, str], model_type: SentencePieceType = SentencePieceType.UNIGRAM
+    *, dim: Union[int, str], model_type: SentencePieceType = SentencePieceType.UNIGRAM, train_full: bool = False
 ) -> SentencePieceModel:
     dim_str = str(dim)
     if isinstance(dim, str):
@@ -80,7 +84,7 @@ def _get_spm_vocab(
 
     # https://github.com/google/sentencepiece/blob/master/doc/options.md
     _spm_train_job = TrainSentencePieceJob(
-        training_text=_get_train_corpus_text(),
+        training_text=get_librispeech_lm_combined_txt() if train_full else _get_train_corpus_text(),
         vocab_size=dim,
         model_type=model_type,
         additional_options={
@@ -88,12 +92,26 @@ def _get_spm_vocab(
             "unk_id": 2,  # default is 0
             "bos_id": 1,  # default is 1
             "eos_id": 0,  # default is 2
+            **(
+                {
+                    "train_extremely_large_corpus": True,
+                    "shuffle_input_sentence": True,
+                    "input_sentence_size": 10_000_000,  # oom otherwise, with full (40M), it takes more than 126GB
+                }
+                if train_full
+                else {}
+            ),
         },
     )
-    _spm_train_job.add_alias(_alias_prefix + f"vocab/spm_{model_type.value}_{dim_str}_train")
-    tk.register_output(_alias_prefix + f"vocab/spm_{model_type.value}_{dim_str}_train.model", _spm_train_job.out_model)
+    name_postfix = "_full" if train_full else ""
+    if train_full:
+        _spm_train_job.rqmt.update({"time": 12, "mem": 126})  # needs much more mem, maybe little longer
+    _spm_train_job.add_alias(f"{_alias_prefix}vocab/spm_{model_type.value}_{dim_str}_train{name_postfix}")
     tk.register_output(
-        _alias_prefix + f"vocab/spm_{model_type.value}_{dim_str}_train.vocab",
+        f"{_alias_prefix}vocab/spm_{model_type.value}_{dim_str}_train{name_postfix}.model", _spm_train_job.out_model
+    )
+    tk.register_output(
+        f"{_alias_prefix}vocab/spm_{model_type.value}_{dim_str}_train{name_postfix}.vocab",
         ExtractSentencePieceVocabJob(_spm_train_job.out_model).out_vocab,
     )
     spm = SentencePieceModel(
@@ -119,16 +137,24 @@ bpe10k = Bpe(
 
 
 @cache
-def get_vocab_by_str(vocab: str) -> Union[SentencePieceModel, Bpe]:
+def get_vocab_by_str(vocab: str) -> Union[SentencePieceModel, Bpe, VocabConfigStatic, Utf8BytesVocab]:
     """
     Get vocab
     """
     if re.match("^spm[0-9]+.*$", vocab):
         return _get_spm_vocab(dim=vocab[len("spm") :], model_type=SentencePieceType.UNIGRAM)
+    elif re.match("^spmLm[0-9]+.*$", vocab):
+        return _get_spm_vocab(dim=vocab[len("spmLm") :], model_type=SentencePieceType.UNIGRAM, train_full=True)
     elif re.match("^spm_bpe[0-9]+.*$", vocab):
         return _get_spm_vocab(dim=vocab[len("spm_bpe") :], model_type=SentencePieceType.BPE)
     elif vocab == "bpe10k":  # predefined
         return bpe10k
+    elif vocab == "char":
+        return get_char_vocab(
+            get_librispeech_lm_combined_txt(), num_classes=29, extra_labels=("\x00",), eos_label="\x00"
+        )
+    elif vocab == "utf8":
+        return Utf8BytesVocab(eos_label=0)
     else:
         raise ValueError(f"invalid vocab {vocab!r}")
 
@@ -298,7 +324,9 @@ class LibrispeechOggZip(DatasetConfig):
         self._classes_dim = None
         if self.vocab is not None:
             self._out_spatial_dim = Dim(None, name="out-spatial", kind=Dim.Types.Spatial)
-            self._classes_dim = Dim(self.vocab.get_num_classes(), name="vocab", kind=Dim.Types.Spatial)
+            num_classes = self.vocab.get_num_classes()
+            assert isinstance(num_classes, int)
+            self._classes_dim = Dim(num_classes, name="vocab", kind=Dim.Types.Spatial)
 
     def _sis_hash(self) -> bytes:
         # Note: Currently our GetBestRecogTrainExp job / _RecogAndScoreFunc sis hash
@@ -407,6 +435,31 @@ class LibrispeechOggZip(DatasetConfig):
         if subset:
             d["fixed_random_subset"] = subset  # faster
         return d
+
+
+class _DelayedDim(DelayedBase):
+    """
+    TODO this is currently planned but not yet used...
+    """
+
+    def __init__(self, dimension: tk.Variable, **opts):
+        # suppress init warning
+        super().__init__(None)
+        assert isinstance(dimension, DelayedBase)
+        self.dimension = dimension
+        self.opts = opts
+
+    def get(self):
+        from sisyphus.toolkit import running_in_worker
+        from returnn.tensor import Dim
+
+        assert running_in_worker(), "_DelayedDim: get() should only be called in worker"
+        assert self.dimension.is_set(), f"_DelayedDim: dimension not set: {self.dimension}"
+        dimension = instanciate_delayed(self.dimension)
+        assert isinstance(
+            dimension, int
+        ), f"unexpected type {type(dimension)} for {dimension}, {self.dimension}, {self.dimension.get_path()}"
+        return Dim(dimension, **instanciate_delayed(self.opts))
 
 
 class LibrispeechOldFlacTarZip(DatasetConfig):
@@ -641,9 +694,11 @@ def get_librispeech_task_raw_v2(
         return _librispeech_task_raw_v2_cache[cache_key]
 
     if isinstance(vocab, Bpe):
-        vocab_to_words = _bpe_to_words_v2
+        vocab_to_words = [_bpe_to_words_v2]
     elif isinstance(vocab, SentencePieceModel):
-        vocab_to_words = _spm_to_words
+        vocab_to_words = [_spm_to_words]
+    elif isinstance(vocab, (Utf8BytesVocab, VocabConfigStatic)):
+        vocab_to_words = []  # assume it can just stay that way
     else:
         raise TypeError(f"unhandled vocab type {type(vocab)}")
 
@@ -674,7 +729,7 @@ def get_librispeech_task_raw_v2(
         main_measure_type=MeasureType(short_name="WER%"),
         main_measure_name="dev-other",
         score_recog_output_func=_score_recog_out_v2,
-        recog_post_proc_funcs=[vocab_to_words],
+        recog_post_proc_funcs=vocab_to_words,
     )
     _librispeech_task_raw_v2_cache[cache_key] = task
     return task
@@ -1143,13 +1198,18 @@ def get_librispeech_lm_dataset(
 
     global _librispeech_lm_raw_seq_lens
     if not _librispeech_lm_raw_seq_lens:
-        from i6_experiments.users.zeyer.datasets.utils.bytes import Utf8BytesVocab
-
         _librispeech_lm_raw_seq_lens = True
         _extract_text_seq_len_file(LibrispeechLmDataset(vocab=Utf8BytesVocab()), vocab_cfg="utf8bytes", name="lm_text")
 
     _librispeech_lm_dataset_raw_cache[cache_key] = train_dataset
     return train_dataset
+
+
+def get_librispeech_lm_combined_txt() -> tk.Path:
+    from i6_core.text.processing import ConcatenateJob
+    from i6_experiments.common.datasets.librispeech.language_model import get_librispeech_normalized_lm_data
+
+    return ConcatenateJob([get_librispeech_normalized_lm_data(), _get_train_corpus_text()]).out
 
 
 def tests():

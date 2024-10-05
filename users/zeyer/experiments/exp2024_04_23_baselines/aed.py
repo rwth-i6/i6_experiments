@@ -195,6 +195,7 @@ def py():
         ("spm1k", None, 0, True, None, {}),
         ("spm10k", None, 0, True, None, {}),
         ("spm10k", "spm", 0.7, True, None, {}),
+        ("spmLm10k", "spm", 0.7, False, None, {}),
         ("spm10k", "spm", 0.7, False, None, {}),  # 4.98
         (
             "spm10k",

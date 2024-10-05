@@ -17,8 +17,9 @@ class Utf8BytesVocab(VocabConfig):
     i.e. basically the same as :class:`sentencepiece.SentencePieceProcessor` opts.
     """
 
-    def __init__(self):
+    def __init__(self, **opts):
         self.dim = 256
+        self.opts = opts
 
     def get_num_classes(self) -> int:
         """
@@ -30,7 +31,7 @@ class Utf8BytesVocab(VocabConfig):
         """
         Get opts
         """
-        return {"class": "Utf8ByteTargets"}
+        return {"class": "Utf8ByteTargets", **self.opts}
 
     def get_eos_idx(self) -> Optional[int]:
         """EOS"""
