@@ -697,8 +697,17 @@ def py():
             "prior": "seq_grad",
             "func": {"clamp_min": 0.5, "clamp_max": 1.1, "scale_type": "inv_num_labels", "prior_exp": 1.0},
         },
-        # 5.75/6.03 (TODO: we should renorm the prior though; the clamp values are probably bad now)
+        # 5.75/6.03 (Note: missing renorm, clamp values suboptimal)
         "C05_11P07": {"func": {"clamp_min": 0.5, "clamp_max": 1.1, "scale_type": "inv_num_labels", "prior_exp": 0.7}},
+        "C05_11P07N": {
+            "func": {
+                "clamp_min": 0.5,
+                "clamp_max": 1.1,
+                "scale_type": "inv_num_labels",
+                "prior_exp": 0.7,
+                "prior_renorm": True,
+            }
+        },
     }.items():
         train_exp(
             "v6-relPosAttDef-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-featBN"
