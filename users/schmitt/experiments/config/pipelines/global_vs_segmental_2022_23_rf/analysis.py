@@ -228,12 +228,15 @@ def analyze_gradients(
     analyze_gradients_config.config["forward_data"]["dataset"]["datasets"]["zip_dataset"]["files"] = [concat_samples_hdf]
     analyze_gradients_config.config["forward_data"] = analyze_gradients_config.config["forward_data"]["dataset"]
 
+  output_files = ["targets.hdf"] + [f"enc-{n}" for n in range(config_builder.conformer_num_layers)]
+  if not analyze_gradients_config.config.get("use_trafo_att_wo_cross_att", False):
+    output_files += ["cross-att"]
   analyze_gradients_job = ReturnnForwardJobV2(
     model_checkpoint=checkpoint,
     returnn_config=analyze_gradients_config,
     returnn_root=returnn_root,
     returnn_python_exe=returnn_python_exe,
-    output_files=["targets.hdf"],
+    output_files=output_files,
     mem_rqmt=12,
     time_rqmt=2,
     device="cpu",
@@ -249,6 +252,8 @@ def analyze_gradients(
     )
     forced_align_job.add_alias(f"{alias}/analysis/gradient_forced_align_{seq_alias}")
     tk.register_output(forced_align_job.get_one_alias(), forced_align_job.out_align)
+
+  return analyze_gradients_job
 
 def calculate_search_errors(
         config_builder: ConfigBuilderRF,

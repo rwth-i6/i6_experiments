@@ -83,6 +83,7 @@ class DecodingExperiment(ABC):
         )
 
     self.score_job = None
+    self.analyze_gradients_job = None
 
   def get_ilm_correction_alias(self, alias: str):
     if self.ilm_correction_opts is not None:
@@ -409,7 +410,7 @@ class ReturnnDecodingExperiment(DecodingExperiment, ABC):
       att_weight_seq_tags = _analysis_opts["att_weight_seq_tags"]
 
       if _analysis_opts.get("analyze_gradients", False):
-        analysis_rf.analyze_gradients(
+        self.analyze_gradients_job = analysis_rf.analyze_gradients(
           config_builder=self.config_builder,
           seq_tags=att_weight_seq_tags,
           corpus_key=self.stm_corpus_key,
@@ -910,6 +911,8 @@ class DecodingPipeline(ABC):
     self.corpus_keys = corpus_keys
     self.only_do_analysis = only_do_analysis
 
+    self.decoding_exps = []
+
   @abstractmethod
   def run_experiment(
           self, beam_size: int, lm_scale: float, ilm_scale: float, checkpoint_alias: str):
@@ -930,12 +933,13 @@ class DecodingPipeline(ABC):
               })
               self.recog_opts["dataset_opts"]["corpus_key"] = corpus_key
 
-              self.run_experiment(
+              exp = self.run_experiment(
                 beam_size=beam_size,
                 lm_scale=lm_scale,
                 ilm_scale=ilm_scale,
                 checkpoint_alias=checkpoint_alias
               )
+              self.decoding_exps.append(exp)
 
 
 class ReturnnGlobalAttDecodingPipeline(DecodingPipeline):
@@ -967,6 +971,8 @@ class ReturnnGlobalAttDecodingPipeline(DecodingPipeline):
       exp.run_eval()
     if self.run_analysis:
       exp.run_analysis(self.analysis_opts)
+
+    return exp
 
 
 class ReturnnSegmentalAttDecodingPipeline(DecodingPipeline):
@@ -1026,3 +1032,5 @@ class ReturnnSegmentalAttDecodingPipeline(DecodingPipeline):
       exp.run_eval()
     if self.run_analysis:
       exp.run_analysis(self.analysis_opts)
+
+    return exp
