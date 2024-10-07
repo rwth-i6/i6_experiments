@@ -198,6 +198,7 @@ def py():
         ("spm10k", "spm", 0.7, True, None, {}),
         ("spmLm10k", "spm", 0.7, False, None, {}),
         ("spm10k", "spm", 0.7, False, None, {}),  # 4.98
+        ("spm10k", "spm", 0.7, False, "eosSep", {"out_eos_separated": True}),
         (
             "spm10k",
             "spm",
