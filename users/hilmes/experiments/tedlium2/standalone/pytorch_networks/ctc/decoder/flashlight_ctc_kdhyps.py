@@ -39,6 +39,8 @@ class DecoderConfig:
     torch_compile_options: Optional[Dict[str, Any]] = None
 
     n_best_probs: Optional[int] = None
+    add_reference: bool = False
+    length_norm: bool = False
 
 
 @dataclass
@@ -82,13 +84,13 @@ def forward_init_hook(run_ctx, **kwargs):
 
     run_ctx.ctc_decoder = ctc_decoder(
         lexicon=config.lexicon,
-        lm=None, #lm,
-        lm_weight=0.0, #config.lm_weight,
+        lm=lm,
+        lm_weight=config.lm_weight,
         tokens=labels + ["[blank]"],
         blank_token="[blank]",
         sil_token="[blank]",
         unk_word="[unknown]",
-        nbest=1 if config.n_best_probs is None else config.n_best_probs,
+        nbest=1 if config.n_best_probs is None else config.n_best_probs * 10,
         beam_size=config.beam_size,
         beam_size_token=config.beam_size_token,
         beam_threshold=config.beam_threshold,
@@ -108,7 +110,6 @@ def forward_init_hook(run_ctx, **kwargs):
     else:
         run_ctx.prior = None
 
-    run_ctx.prior = None
 
     if config.use_torch_compile:
         options = config.torch_compile_options or {}
@@ -121,6 +122,8 @@ def forward_init_hook(run_ctx, **kwargs):
         run_ctx.total_search_time = 0
 
     run_ctx.print_hypothesis = extra_config.print_hypothesis
+    run_ctx.add_reference = config.add_reference
+    run_ctx.length_norm = config.length_norm
 
 
 def forward_finish_hook(run_ctx, **kwargs):
@@ -150,6 +153,9 @@ def forward_step(*, model, data, run_ctx, **kwargs):
     raw_audio = data["raw_audio"]  # [B, T', F]
     raw_audio_len = data["raw_audio:size1"]  # [B]
 
+    targets = data['labels']
+    targets_len = data['labels:size1']
+
     if run_ctx.print_rtf:
         audio_len_batch = torch.sum(raw_audio_len).detach().cpu().numpy() / 16000
         run_ctx.running_audio_len_s += audio_len_batch
@@ -169,33 +175,76 @@ def forward_step(*, model, data, run_ctx, **kwargs):
     if run_ctx.prior is not None:
         logprobs_cpu -= run_ctx.prior_scale * run_ctx.prior
 
-    am_time = time.time() - am_start
-    run_ctx.total_am_time += am_time
+
 
     search_start = time.time()
     hypothesis = run_ctx.ctc_decoder(logprobs_cpu, audio_features_len.cpu())
     search_time = time.time() - search_start
-    run_ctx.total_search_time += search_time
+
 
     if run_ctx.print_rtf:
+        run_ctx.total_search_time += search_time
+        am_time = time.time() - am_start
+        run_ctx.total_am_time += am_time
         print("Batch-AM-Time: %.2fs, AM-RTF: %.3f" % (am_time, am_time / audio_len_batch))
         print("Batch-Search-Time: %.2fs, Search-RTF: %.3f" % (search_time, search_time / audio_len_batch))
         print("Batch-time: %.2f, Batch-RTF: %.3f" % (am_time + search_time, (am_time + search_time) / audio_len_batch))
 
-    for hyp, tag in zip(hypothesis, tags):
+    from torch import nn
+    for hyp, tag, length, logprobs, target, target_len in zip(hypothesis, tags, audio_features_len, logprobs, targets, targets_len):
         words = hyp[0].words
         sequence = " ".join([word for word in words if not word.startswith("[")])
         if run_ctx.print_hypothesis:
             print(sequence)
         run_ctx.recognition_file.write("%s: %s,\n" % (repr(tag), repr(sequence)))
         if run_ctx.n_best_probs is not None:
-            ls = []
+            dc = {}
+            sm = 0
             for seq in hyp:
-                ls.append(seq)
-            for seq in ls[1:]:
-                print(np.exp(seq.score))
-            #assert False
-            #for seq in ls:
-            #    seq.score = np.exp(seq.score) / sum
-            run_ctx.n_best_probs_file.write("%s: %s,\n" % (repr(tag), repr(ls)))
-            assert False, (repr(tag), len(ls), ls, data["labels:size1"][0], data["labels"][1], audio_features_len[1])
+                ctc_loss = nn.functional.ctc_loss(
+                    logprobs,
+                    seq.tokens,
+                    input_lengths=length,
+                    target_lengths=torch.LongTensor([len(seq.tokens)]).to(device="cpu"),
+                    blank=model.cfg.label_target_size,
+                    reduction="sum",
+                    zero_infinity=True,
+                )
+                if repr(seq.tokens) not in dc.keys():
+                    if run_ctx.length_norm is True:
+                         ctc_loss = ctc_loss / target_len
+                    ctc_loss = ctc_loss.cpu()
+                    score = np.exp(-1 * ctc_loss)
+                    sm += score
+                    assert not score == float('nan')
+                    dc[repr(seq.tokens)] = score
+                if len(dc) == run_ctx.n_best_probs:
+                    break
+            #if not len(dc) >= run_ctx.n_best_probs / 2:
+                #tmp = {}
+                #for seq in dc:
+                #    if dc[seq] > 0.01:
+                #        tmp[seq] = dc[seq]
+                #assert len(dc) >= run_ctx.n_best_probs / 2, (len(hyp), len(dc), len(tmp), dc)
+                #f"Not enough unique sequences {len(dc)}, try rerunning with different params {len(hyp)}"
+            if run_ctx.add_reference is True:
+                if repr(target) not in dc:
+                    ctc_loss = nn.functional.ctc_loss(
+                        logprobs,
+                        target[:target_len],
+                        input_lengths=length,
+                        target_lengths=target_len,
+                        blank=model.cfg.label_target_size,
+                        reduction="sum",
+                        zero_infinity=True,
+                    )
+                    if run_ctx.length_norm is True:
+                        ctc_loss = ctc_loss / target_len
+                    ctc_loss = ctc_loss.cpu()
+                    score = np.exp(-1 * ctc_loss)
+                    sm += score
+                    dc[repr(target)] = score
+            for seq in dc:
+                assert not dc[seq] / sm == torch.tensor(float('nan'))
+                dc[seq] = dc[seq] / sm  # normalize
+            run_ctx.n_best_probs_file.write("%s: %s,\n" % (repr(tag), repr(dc)))

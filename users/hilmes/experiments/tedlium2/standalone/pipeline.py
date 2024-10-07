@@ -5,7 +5,7 @@ import copy
 import enum
 from dataclasses import dataclass, asdict
 import os.path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 from sisyphus import tk
 
@@ -179,7 +179,7 @@ def compute_prior(
         returnn_root=returnn_root,
         output_files=["prior.txt"],
     )
-    if "hubert_tune_v1_xlarge" in prefix_name:
+    if "hubert_tune_v1_xlarge" in prefix_name or "hubert_tune_v2_xlarge" in prefix_name:
         search_job.rqmt['time'] += 12
     search_job.add_alias(prefix_name + "/prior_job")
     return search_job.out_files["prior.txt"]
@@ -324,9 +324,9 @@ def prepare_asr_model(
             unhashed_net_args=train_args.get("unhashed_net_args", None),
             debug=train_args.get("debug", False),
         )
-        if "hubert_tune_v1_large" in training_name:
+        if "hubert_tune_v1_large" in training_name or "hubert_tune_v2_large" in training_name:
             returnn_config.config['max_seqs'] = 20
-        elif "hubert_tune_v1_xlarge" in training_name:
+        elif "hubert_tune_v1_xlarge" in training_name or "hubert_tune_v2_xlarge" in training_name:
             returnn_config.config['max_seqs'] = 15
         prior_file = compute_prior(
             training_name,
@@ -356,21 +356,28 @@ def generate_kd_hypothesis(
         train_job: ReturnnTrainingJob,
         train_args,
         train_data: TrainingDatasets,
-        checkpoint: int,
+        checkpoint: Union[int, str],
         decoder_config,
         prior_scale: float,
         lm_scale: float,
         train_referece: Optional[tk.Path] = None,
-        decoder: str = "ctc.decoder.flashlight_ctc_v2"
+        decoder: str = "ctc.decoder.flashlight_ctc_kdhyps",
+        debug=False,
 ):
     decoder_config = copy.deepcopy(decoder_config)
     decoder_config.lm_weight = lm_scale
     decoder_config.prior_scale = prior_scale
-    asr_model = prepare_asr_model(
+    if checkpoint == "best4":
+        asr_model = prepare_asr_model(
+            prefix_name, train_job, train_args, with_prior=True, datasets=train_data,
+            get_best_averaged_checkpoint=(4, "dev_loss_ctc")
+        )
+    else:
+        asr_model = prepare_asr_model(
         prefix_name, train_job, train_args, with_prior=True, datasets=train_data,
         get_specific_checkpoint=checkpoint
-    )
-    decoder_args = {"config": asdict(decoder_config)}
+        )
+    decoder_args = {"config": asdict(decoder_config), "extra_config": {'print_rtf': False, 'print_hypothesis': False}}
     decoder_args["config"]["prior_file"] = asr_model.prior_file
     returnn_search_config = get_forward_config(
         network_module=asr_model.network_module,
@@ -378,16 +385,19 @@ def generate_kd_hypothesis(
         net_args=asr_model.net_args,
         decoder_args=decoder_args,
         decoder=decoder,
-        debug=True,
+        debug=debug,
     )
     returnn_config = copy.deepcopy(returnn_search_config)
-    returnn_config.config["forward"] = train_data.train.as_returnn_opts()
+    returnn_config.config["forward"] = copy.deepcopy(train_data.train.as_returnn_opts())
+    del returnn_config.config["forward"]['datasets']['zip_dataset']['partition_epoch']
+    returnn_config.config["forward"]['datasets']['zip_dataset']['seq_ordering'] = "sorted"
+    returnn_config.config['batch_size'] = 250 * 16000
     search_job = ReturnnForwardJobV2(
         model_checkpoint=asr_model.checkpoint,
         returnn_config=returnn_config,
         log_verbosity=5,
         mem_rqmt=10,
-        time_rqmt=24,
+        time_rqmt=168,
         device="gpu",
         cpu_rqmt=2,
         returnn_python_exe=RETURNN_EXE,
@@ -413,4 +423,4 @@ def generate_kd_hypothesis(
         tk.register_output(prefix_name + "/sclite/wer", sclite_job.out_wer)
         tk.register_output(prefix_name + "/sclite/report", sclite_job.out_report_dir)
 
-    return search_job.out_files['n_best_probs.py']
+    return search_job.out_files['n_best_probs.py'], asr_model.prior_file, asr_model.checkpoint
