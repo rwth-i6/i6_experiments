@@ -540,7 +540,7 @@ def py():
         train_vocab_opts={"other_opts": {"class": "SamplingBytePairEncoding", "breadth_prob": 0.01}},
     )
 
-    # CTC label smoothing excluding blank (ctcLS01xB).
+    # CTC label smoothing excluding blank (ctcLS01xB). (baseline: 5.77)
     train_exp(  # 5.78 (but dev-clean, test-clean, test-other are better than without ctcLS01xB!)
         "v6-relPosAttDef-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-featBN"
         "-speedpertV2-spm10k-bpeSample001-ctcLS01xB",
@@ -601,7 +601,7 @@ def py():
                 train_vocab_opts={"other_opts": {"class": "SamplingBytePairEncoding", "breadth_prob": alpha}},
             )
 
-    # Blank separated (blankSep) with CTC label smoothing excluding blank (ctcLS01xB).
+    # Blank separated (blankSep) with CTC label smoothing excluding blank (ctcLS01xB). (baseline: 5.77)
     train_exp(  # 6.14. A bit unclear why so much worse, maybe some bug?
         "v6-relPosAttDef-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-featBN"
         "-speedpertV2-spm10k-bpeSample001-blankSep-ctcLS01xB",
@@ -618,6 +618,29 @@ def py():
             "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
             "aux_attention_decoder": rf.build_dict(TransformerDecoder, num_layers=6),  # purely used for training
             "ctc_label_smoothing": 0.1,
+        },
+        vocab="spm10k",
+        train_vocab_opts={"other_opts": {"class": "SamplingBytePairEncoding", "breadth_prob": 0.01}},
+    )
+
+    # Blank separated (blankSep) with CTC label smoothing (including blank) (ctcLS01). (baseline: 5.77)
+    train_exp(
+        "v6-relPosAttDef-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-featBN"
+        "-speedpertV2-spm10k-bpeSample001-blankSep-ctcLS01",
+        config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
+        model_config={
+            "enc_conformer_layer": enc_conformer_layer_default,
+            "feature_batch_norm": True,
+            "out_blank_separated": True,
+        },
+        config_updates={
+            **_get_cfg_lrlin_oclr_by_bs_nep(15_000, 500),
+            "optimizer.weight_decay": 1e-2,
+            "__train_audio_preprocess": speed_pert_librosa_config,
+            "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
+            "aux_attention_decoder": rf.build_dict(TransformerDecoder, num_layers=6),  # purely used for training
+            "ctc_label_smoothing": 0.1,
+            "ctc_label_smoothing_exclude_blank": False,
         },
         vocab="spm10k",
         train_vocab_opts={"other_opts": {"class": "SamplingBytePairEncoding", "breadth_prob": 0.01}},
@@ -1804,6 +1827,7 @@ class Model(rf.Module):
 
         ctc_label_smoothing = config.float("ctc_label_smoothing", 0.0)
         ctc_label_smoothing_exclude_blank = config.bool("ctc_label_smoothing_exclude_blank", self.out_blank_separated)
+        self.ctc_label_smoothing_exclude_blank = ctc_label_smoothing_exclude_blank
         if not self.out_blank_separated:
             self.ctc_label_smoothing_opts = {
                 "smoothing": ctc_label_smoothing,
@@ -1811,12 +1835,14 @@ class Model(rf.Module):
                 "exclude_labels": [self.blank_idx] if ctc_label_smoothing_exclude_blank else None,
             }
         else:  # separate blank
-            assert ctc_label_smoothing_exclude_blank  # required with separate blank
             self.ctc_label_smoothing_opts = {
                 "smoothing": ctc_label_smoothing,
                 "axis": self.target_dim,
             }
         self.log_prob_normed_grad_opts = config.typed_value("log_prob_normed_grad", None)
+        self.log_prob_normed_grad_exclude_blank = config.bool(
+            "log_prob_normed_grad_exclude_blank", self.out_blank_separated
+        )
 
         self.feature_batch_norm = None
         if config.bool("feature_batch_norm", False):
@@ -1933,10 +1959,8 @@ class Model(rf.Module):
         :return: log probs with blank from logits (wb_target_dim)
             If out_blank_separated, we use a separate sigmoid for the blank.
         """
-        if not self.out_blank_separated:
+        if not self.out_blank_separated:  # standard case, joint distrib incl blank
             log_probs = rf.log_softmax(logits, axis=self.wb_target_dim)
-            log_probs = self._maybe_apply_on_log_probs(log_probs)
-            return log_probs
         else:  # separate blank
             assert self.blank_idx == self.target_dim.dimension  # not implemented otherwise
             dummy_blank_feat_dim = Dim(1, name="blank_feat")
@@ -1953,16 +1977,48 @@ class Model(rf.Module):
                 out_dim=self.wb_target_dim,
             )
             log_probs.feature_dim = self.wb_target_dim
-            return log_probs
+        log_probs = self._maybe_apply_on_log_probs(log_probs)
+        return log_probs
 
     def _maybe_apply_on_log_probs(self, log_probs: Tensor) -> Tensor:
+        """
+        :param log_probs: either with blank or without blank
+        :return: log probs, maybe some smoothing applied (all on gradients so far, not on log probs itself)
+        """
+        assert log_probs.feature_dim in (self.wb_target_dim, self.target_dim)
+        if not self.out_blank_separated:
+            assert log_probs.feature_dim == self.wb_target_dim
+
         log_probs = self._maybe_apply_log_probs_normed_grad(log_probs)
-        log_probs = rf.label_smoothed_log_prob_gradient(log_probs, **self.ctc_label_smoothing_opts)
+
+        if self.ctc_label_smoothing_exclude_blank:
+            if self.out_blank_separated:
+                if log_probs.feature_dim == self.target_dim:
+                    log_probs = rf.label_smoothed_log_prob_gradient(log_probs, **self.ctc_label_smoothing_opts)
+            else:
+                assert log_probs.feature_dim == self.wb_target_dim
+                assert self.ctc_label_smoothing_opts["exclude_labels"] == [self.blank_idx]
+                log_probs = rf.label_smoothed_log_prob_gradient(log_probs, **self.ctc_label_smoothing_opts)
+        else:
+            if log_probs.feature_dim == self.wb_target_dim:
+                log_probs = rf.label_smoothed_log_prob_gradient(log_probs, **self.ctc_label_smoothing_opts)
+
         return log_probs
 
     def _maybe_apply_log_probs_normed_grad(self, log_probs: Tensor) -> Tensor:
         if not self.log_prob_normed_grad_opts:
             return log_probs
+
+        assert log_probs.feature_dim in (self.wb_target_dim, self.target_dim)
+        if not self.out_blank_separated:
+            assert log_probs.feature_dim == self.wb_target_dim
+        if self.log_prob_normed_grad_exclude_blank:
+            assert self.out_blank_separated
+            if log_probs.feature_dim == self.wb_target_dim:
+                return log_probs
+        else:  # not excluded blank
+            if log_probs.feature_dim == self.target_dim:
+                return log_probs
 
         from alignments.util import normed_gradient, NormedGradientFuncInvPrior
 
