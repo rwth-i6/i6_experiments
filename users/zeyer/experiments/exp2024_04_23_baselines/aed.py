@@ -615,7 +615,10 @@ def aed_training(*, model: Model, data: rf.Tensor, data_spatial_dim: Dim, target
         targets_w_eos, dims=batch_dims + [targets_w_eos_spatial_dim], enforce_sorted=False, out_dim=pack_dim
     )
 
-    log_prob = rf.log_softmax(logits_packed, axis=model.target_dim)
+    if not model.out_eos_separated:  # joint distrib, std case
+        log_prob = rf.log_softmax(logits_packed, axis=model.target_dim)
+    else:  # eos separated
+        log_prob = log_probs_with_eos_separated(logits_packed, target_dim=model.target_dim, eos_idx=model.eos_idx)
     log_prob = rf.label_smoothed_log_prob_gradient(log_prob, 0.1, axis=model.target_dim)
     loss = rf.cross_entropy(
         target=targets_packed, estimated=log_prob, estimated_type="log-probs", axis=model.target_dim
@@ -681,7 +684,10 @@ def model_recog(
             encoder=enc,
             state=decoder_state,
         )
-        label_log_prob = rf.log_softmax(logits, axis=model.target_dim)
+        if not model.out_eos_separated:  # joint distrib, std case
+            label_log_prob = rf.log_softmax(logits, axis=model.target_dim)
+        else:  # eos separated
+            label_log_prob = log_probs_with_eos_separated(logits, target_dim=model.target_dim, eos_idx=model.eos_idx)
         # Filter out finished beams
         label_log_prob = rf.where(
             ended,
@@ -834,6 +840,7 @@ class Model(rf.Module):
         self.blank_idx = blank_idx
         self.eos_idx = eos_idx
         self.bos_idx = bos_idx  # for non-blank labels; for with-blank labels, we use bos_idx=blank_idx
+        self.out_eos_separated = config.bool("out_eos_separated", False)
 
         if enc_aux_logits:
             if not wb_target_dim:
@@ -906,3 +913,22 @@ class Model(rf.Module):
         # Encoder including convolutional frontend
         enc, enc_spatial_dim = self.encoder(source, in_spatial_dim=in_spatial_dim, collected_outputs=collected_outputs)
         return self.decoder.transform_encoder(enc, axis=enc_spatial_dim), enc_spatial_dim
+
+
+def log_probs_with_eos_separated(logits: Tensor, *, target_dim: Dim, eos_idx: int) -> Tensor:
+    assert not logits.feature_dim or logits.feature_dim == target_dim
+    assert eos_idx == 0  # not implemented otherwise
+    dummy_eos_feat_dim = Dim(1, name="eos_feat")
+    target_dim_wo_eos = target_dim.sub_left(1)
+    logits_wo_eos, logits_eos = rf.split(logits, axis=target_dim, out_dims=[dummy_eos_feat_dim, target_dim_wo_eos])
+    log_probs_wo_eos = rf.log_softmax(logits_wo_eos, axis=target_dim_wo_eos)
+    # log_probs_wo_eos = self._maybe_apply_on_log_probs(log_probs_wo_eos)  # label smoothing maybe on labels only
+    log_probs_eos = rf.log_sigmoid(logits_eos)
+    log_probs_not_eos = rf.squeeze(rf.log_sigmoid(-logits_eos), axis=dummy_eos_feat_dim)
+    log_probs, _ = rf.concat(
+        (log_probs_wo_eos + log_probs_not_eos, target_dim_wo_eos),
+        (log_probs_eos, dummy_eos_feat_dim),
+        out_dim=target_dim,
+    )
+    log_probs.feature_dim = target_dim
+    return log_probs
