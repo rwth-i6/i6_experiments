@@ -1929,6 +1929,7 @@ class Model(rf.Module):
 
     def log_probs_wb_from_logits(self, logits: Tensor) -> Tensor:
         """
+        :param logits: incl blank
         :return: log probs with blank from logits (wb_target_dim)
             If out_blank_separated, we use a separate sigmoid for the blank.
         """
