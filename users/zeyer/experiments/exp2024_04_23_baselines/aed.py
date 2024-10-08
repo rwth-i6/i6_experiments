@@ -921,7 +921,7 @@ def log_probs_with_eos_separated(logits: Tensor, *, target_dim: Dim, eos_idx: in
     assert eos_idx == 0  # not implemented otherwise
     dummy_eos_feat_dim = Dim(1, name="eos_feat")
     target_dim_wo_eos = target_dim.sub_left(1)
-    logits_wo_eos, logits_eos = rf.split(logits, axis=target_dim, out_dims=[dummy_eos_feat_dim, target_dim_wo_eos])
+    logits_eos, logits_wo_eos = rf.split(logits, axis=target_dim, out_dims=[dummy_eos_feat_dim, target_dim_wo_eos])
     log_probs_wo_eos = rf.log_softmax(logits_wo_eos, axis=target_dim_wo_eos)
     # log_probs_wo_eos = self._maybe_apply_on_log_probs(log_probs_wo_eos)  # label smoothing maybe on labels only
     log_probs_eos = rf.log_sigmoid(logits_eos)
