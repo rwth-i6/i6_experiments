@@ -1869,7 +1869,7 @@ class Model(rf.Module):
         else:  # separate blank
             self.ctc_label_smoothing_opts = {
                 "smoothing": ctc_label_smoothing,
-                "axis": self.target_dim,
+                "axis": self.target_dim if ctc_label_smoothing_exclude_blank else self.wb_target_dim,
             }
         self.log_prob_normed_grad_opts = config.typed_value("log_prob_normed_grad", None)
         self.log_prob_normed_grad_exclude_blank = config.bool(
