@@ -145,6 +145,3 @@ class LabelInfo:
 
 
 
-@dataclass(eq=True, frozen=True)
-class JointSoftmaxInfo:
-    add_output: int

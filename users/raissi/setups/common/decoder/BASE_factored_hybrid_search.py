@@ -76,6 +76,16 @@ class RasrFeatureScorer(Enum):
     def is_nnprecomputed(self):
         return self == self.nn_precomputed
 
+class RasrShortestPathAlgorithm(Enum):
+    """A class that returns a speific fetaure scorer"""
+
+    dijkstra = "Dijkstra"
+    bellman_ford = "bellman-ford"
+    projecting_bellman_ford = "projecting-bellman-ford"
+
+    def __str__(self):
+        return self.value
+
 
 @dataclass(eq=True, frozen=True)
 class DecodingTensorMap:
@@ -271,6 +281,7 @@ class BASEFactoredHybridDecoder:
         set_batch_major_for_feature_scorer: bool = True,
         lm_gc_simple_hash=False,
         tf_library: Optional[Union[str, Path]] = None,
+        shortest_path_algo: RasrShortestPathAlgorithm =  RasrShortestPathAlgorithm.bellman_ford,
         gpu=False,
     ):
 
@@ -297,7 +308,7 @@ class BASEFactoredHybridDecoder:
 
         self.eval_args = eval_args  # ctm file as ref
 
-        self.bellman_post_config = False
+        self.shortest_path_algo = shortest_path_algo
         self.gpu = gpu
         self.library_path = DelayedJoin(tf_library, ":") if isinstance(tf_library, list) else tf_library
         self.scorer = scorer if scorer is not None else recog.ScliteJob
@@ -341,8 +352,8 @@ class BASEFactoredHybridDecoder:
         if nn_lm:
             rtf += 20
             mem = 16.0
-            if "eval" in self.name:
-                rtf *= 2
+            if beam > 16.0:
+                rtf*=2
         else:
             mem = 6
 
@@ -907,7 +918,7 @@ class BASEFactoredHybridDecoder:
             crp=search_crp,
             lattice_cache=search.out_lattice_bundle,
             parallelize=True,
-            best_path_algo="bellman-ford",
+            best_path_algo=self.shortest_path_algo.value,
             extra_config=lat2ctm_extra_config,
             fill_empty_segments=True,
         )
@@ -915,8 +926,9 @@ class BASEFactoredHybridDecoder:
         s_kwrgs = copy.copy(self.eval_args)
         s_kwrgs["hyp"] = lat2ctm.out_ctm_file
         scorer = self.scorer(**s_kwrgs)
+        add_prepath = f'{self.shortest_path_algo.value}/' if self.shortest_path_algo != RasrShortestPathAlgorithm.bellman_ford else ''
         if add_sis_alias_and_output:
-            tk.register_output(f"{pre_path}/{name}.wer", scorer.out_report_dir)
+            tk.register_output(f"{pre_path}/{add_prepath}{name}.wer", scorer.out_report_dir)
 
         if opt_lm_am and (search_parameters.altas is None or search_parameters.altas < 3.0):
             assert search_parameters.beam >= 15.0
@@ -935,7 +947,7 @@ class BASEFactoredHybridDecoder:
 
             if add_sis_alias_and_output:
                 tk.register_output(
-                    f"{pre_path}/{name}/onlyLmOpt{only_lm_opt}.optlm.txt",
+                    f"{pre_path}/{add_prepath}{name}/onlyLmOpt{only_lm_opt}.optlm.txt",
                     opt.out_log_file,
                 )
 
