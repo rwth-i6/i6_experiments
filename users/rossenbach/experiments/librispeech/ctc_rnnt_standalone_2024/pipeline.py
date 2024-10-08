@@ -56,7 +56,7 @@ def search_single(
     recognition_bliss_corpus: tk.Path,
     returnn_exe: tk.Path,
     returnn_root: tk.Path,
-    mem_rqmt: float = 10,
+    mem_rqmt: float = 12,
     use_gpu: bool = False,
 ):
     """

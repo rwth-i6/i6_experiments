@@ -233,6 +233,10 @@ def bpe_ls960_0924_relposencoder():
             arpa_lm=arpa_4gram_lm,
             beam_threshold=14,
         )
+
+        greedy_decoder_config = GreedyDecoderConfig(
+            returnn_vocab=label_datastream_bpe.vocab,
+        )
         
         train_args = copy.deepcopy(global_train_args)
         train_args["net_args"] = {"model_config_dict": asdict(model_config)}
@@ -247,6 +251,7 @@ def bpe_ls960_0924_relposencoder():
             training_name, train_job, train_args_decoding, with_prior=True, datasets=train_data_bpe, get_specific_checkpoint=1000
         )
         tune_and_evaluate_helper(training_name, dev_dataset_tuples, test_dataset_tuples, asr_model, default_decoder_config_bpe, lm_scales=[1.6, 1.8, 2.0], prior_scales=[0.2, 0.3, 0.4])
+        greedy_search_helper(training_name, asr_model=asr_model, decoder_config=greedy_decoder_config)
 
 
 
@@ -263,3 +268,4 @@ def bpe_ls960_0924_relposencoder():
             training_name, train_job, train_args_dropbt_decoding, with_prior=True, datasets=train_data_bpe, get_specific_checkpoint=1000
         )
         tune_and_evaluate_helper(training_name, dev_dataset_tuples, test_dataset_tuples, asr_model, default_decoder_config_bpe, lm_scales=[1.6, 1.8, 2.0], prior_scales=[0.2, 0.3, 0.4])
+        greedy_search_helper(training_name, asr_model=asr_model, decoder_config=greedy_decoder_config)
