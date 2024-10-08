@@ -735,6 +735,66 @@ def get_librispeech_task_raw_v2(
     return task
 
 
+_librispeech_task_text_only_cache = {}
+
+
+def get_librispeech_task_text_only(
+    *,
+    vocab: Union[VocabConfig, str],
+    train_vocab_opts: Optional[Dict[str, Any]] = None,
+    **dataset_train_opts,
+) -> Task:
+    """
+    Librispeech.
+    """
+    vocab_ = vocab
+    if isinstance(vocab, str):
+        vocab = get_vocab_by_str(vocab)
+
+    dataset_cls = LibrispeechOggZip
+    cache_key = make_hashable((dataset_cls, vocab, train_vocab_opts, dataset_train_opts))
+    if cache_key in _librispeech_task_text_only_cache:
+        return _librispeech_task_text_only_cache[cache_key]
+
+    if isinstance(vocab, Bpe):
+        vocab_to_words = [_bpe_to_words_v2]
+    elif isinstance(vocab, SentencePieceModel):
+        vocab_to_words = [_spm_to_words]
+    elif isinstance(vocab, (Utf8BytesVocab, VocabConfigStatic)):
+        vocab_to_words = []  # assume it can just stay that way
+    else:
+        raise TypeError(f"unhandled vocab type {type(vocab)}")
+
+    dataset_common_opts = dict(vocab=vocab)
+    if train_vocab_opts:
+        dataset_common_opts["train_vocab"] = vocab.copy(**train_vocab_opts)
+    # We expect that all kwargs are only relevant for the training, thus we only pass them here.
+    train_dataset = dataset_cls(**dataset_common_opts, **dataset_train_opts)
+    _extract_audio_seq_len_file(train_dataset)
+    _extract_text_seq_len_file(train_dataset, vocab_, name="target")
+    eval_datasets = {
+        "dev-clean": dataset_cls(**dataset_common_opts, main_key="dev-clean"),
+        "dev-other": dataset_cls(**dataset_common_opts, main_key="dev-other"),
+        "test-clean": dataset_cls(**dataset_common_opts, main_key="test-clean"),
+        "test-other": dataset_cls(**dataset_common_opts, main_key="test-other"),
+    }
+    dev_dataset = eval_datasets["dev-other"]
+
+    task = Task(
+        name="librispeech",
+        train_dataset=train_dataset,
+        train_epoch_split=train_dataset.train_epoch_split,
+        dev_dataset=dev_dataset,
+        eval_datasets=eval_datasets,
+        main_measure_type=MeasureType(short_name="WER%"),
+        main_measure_name="dev-other",
+        score_recog_output_func=_score_recog_out_v2,
+        recog_post_proc_funcs=vocab_to_words,
+    )
+    _librispeech_task_raw_v2_cache[cache_key] = task
+    return task
+
+
 def _extract_audio_seq_len_file(train_dataset: DatasetConfig):
     """
     Extract audio seq len file
