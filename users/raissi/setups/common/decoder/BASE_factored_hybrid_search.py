@@ -263,7 +263,7 @@ class BASEFactoredHybridDecoder:
         model_path: Path,
         graph: Path,
         mixtures: Path,
-        eval_files,
+        eval_args,
         scorer: Optional[Union[recog.ScliteJob, recog.Hub5ScoreJob, recog.Hub5ScoreJob]] = None,
         tensor_map: Optional[Union[dict, DecodingTensorMap]] = None,
         is_multi_encoder_output: bool = False,
@@ -295,7 +295,7 @@ class BASEFactoredHybridDecoder:
             else DecodingTensorMap.default()
         )
 
-        self.eval_files = eval_files  # ctm file as ref
+        self.eval_args = eval_args  # ctm file as ref
 
         self.bellman_post_config = False
         self.gpu = gpu
@@ -658,8 +658,7 @@ class BASEFactoredHybridDecoder:
                 name += f"-prJ-C{search_parameters.prior_info.diphone_prior.scale}"
             if search_parameters.we_pruning > 0.5:
                 name += f"-wep{search_parameters.we_pruning}"
-            if search_parameters.we_pruning_limit < 5000 or search_parameters.we_pruning_limit > 10000:
-                # condition for rtf
+            if search_parameters.we_pruning_limit < 6000 or search_parameters.we_pruning_limit > 10000:
                 name += f"-wepLim{search_parameters.we_pruning_limit}"
             if search_parameters.altas is not None:
                 name += f"-ALTAS{search_parameters.altas}"
@@ -913,7 +912,7 @@ class BASEFactoredHybridDecoder:
             fill_empty_segments=True,
         )
 
-        s_kwrgs = copy.copy(self.eval_files)
+        s_kwrgs = copy.copy(self.eval_args)
         s_kwrgs["hyp"] = lat2ctm.out_ctm_file
         scorer = self.scorer(**s_kwrgs)
         if add_sis_alias_and_output:
@@ -1474,7 +1473,7 @@ class BASEFactoredHybridAligner(BASEFactoredHybridDecoder):
             model_path=model_path,
             graph=graph,
             mixtures=mixtures,
-            eval_files=None,
+            eval_args=None,
             tf_library=tf_library,
             gpu=gpu,
             tensor_map=tensor_map,
