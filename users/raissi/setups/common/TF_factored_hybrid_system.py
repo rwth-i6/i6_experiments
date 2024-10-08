@@ -2,17 +2,14 @@ __all__ = ["TFFactoredHybridBaseSystem"]
 
 import copy
 import dataclasses
-import itertools
-import logging, sys
 from IPython import embed
 
-from enum import Enum
+
 from typing import Dict, List, Optional, Tuple, TypedDict, Union
 
 # -------------------- Sisyphus --------------------
 
 import sisyphus.toolkit as tk
-import sisyphus.global_settings as gs
 
 from sisyphus.delayed_ops import DelayedFormat
 
@@ -22,9 +19,7 @@ import i6_core.features as features
 import i6_core.lexicon as lexicon
 import i6_core.mm as mm
 import i6_core.rasr as rasr
-import i6_core.recognition as recog
 import i6_core.returnn as returnn
-import i6_core.text as text
 
 from i6_core.util import MultiPath, MultiOutputPath
 

@@ -170,7 +170,7 @@ class TEDTFFactoredHybridSystem(TFFactoredHybridBaseSystem):
             model_path=model_path,
             graph=graph,
             mixtures=dummy_mixtures,
-            eval_files=self.scorer_args[crp_corpus],
+            eval_args=self.scorer_args[crp_corpus],
             scorer=self.scorers[crp_corpus],
             tf_library=tf_library,
             is_multi_encoder_output=is_multi_encoder_output,
