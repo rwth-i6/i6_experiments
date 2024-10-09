@@ -40,7 +40,7 @@ def run_exps():
     ("v8", None, False, False, False, 1, True, False, True),  # transducer with LSTM attention w/ att ctx in state w/ sep h_t readout
   ]:
     gpu_mem_rqmts = [24]
-    if alias == "v1":
+    if alias in ("v1", "v2", "v3"):
       gpu_mem_rqmts.append(11)
     if alias in ("v4", "v5", "v6", "v7", "v8"):
       gpu_mem_rqmts = [11]
@@ -165,7 +165,7 @@ def run_exps():
                   checkpoint_aliases=(f"epoch-{epoch}",),
                   separate_readout_alpha=separate_readout_alpha,
                 )
-              if win_size is None and epoch in [45, 60, 150, 180, 240, 600]:
+              if win_size is None and epoch in [30, 45, 60, 150, 180, 240, 600]:
                 recog.center_window_returnn_frame_wise_beam_search(
                   alias=fixed_path_train_alias,
                   config_builder=config_builder,
@@ -190,7 +190,7 @@ def run_exps():
         keep_epochs_step_full_sum = n_epochs_full_sum // 10
         keep_epochs_full_sum = list(range(keep_epochs_step_full_sum, n_epochs_full_sum, keep_epochs_step_full_sum))
         peak_lrs = []
-        if gpu_mem_rqmt == 24 and alias == "v1":
+        if gpu_mem_rqmt == 24 and alias in ("v1", "v2", "v3"):
           peak_lrs.append(3e-4)
         for peak_lr in peak_lrs:
           for full_sum_train_alias, full_sum_checkpoint in train.train_center_window_att(

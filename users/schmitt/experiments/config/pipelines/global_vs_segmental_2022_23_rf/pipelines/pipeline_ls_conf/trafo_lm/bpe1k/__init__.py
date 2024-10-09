@@ -15,14 +15,24 @@ def run_exps():
   for max_seq_len in (75, 112):
     model_kwargs_list = [{"num_layers": 24, "model_dim": 512}]
     if max_seq_len == 112:
-      model_kwargs_list += [{
-        "num_layers": 24,
-        "model_dim": 1024,
-        "pos_enc": None,
-        "norm": "rf.RMSNorm",
-        "ff": "rf.decoder.transformer.FeedForwardGated",
-        "decoder_layer_opts": dict(self_att=rf.build_dict(rf.RotaryPosCausalSelfAttention, with_bias=False))
-      }]
+      model_kwargs_list += [
+        {
+          "num_layers": 24,
+          "model_dim": 1024,
+          "pos_enc": None,
+          "norm": "rf.RMSNorm",
+          "ff": "rf.decoder.transformer.FeedForwardGated",
+          "decoder_layer_opts": dict(self_att=rf.build_dict(rf.RotaryPosCausalSelfAttention, with_bias=False))
+        },
+        {
+          "num_layers": 32,
+          "model_dim": 1024,
+          "pos_enc": None,
+          "norm": "rf.RMSNorm",
+          "ff": "rf.decoder.transformer.FeedForwardGated",
+          "decoder_layer_opts": dict(self_att=rf.build_dict(rf.RotaryPosCausalSelfAttention, with_bias=False))
+        },
+      ]
 
     for model_kwargs in model_kwargs_list:
       if model_kwargs["model_dim"] == 512:

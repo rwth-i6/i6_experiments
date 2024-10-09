@@ -142,6 +142,8 @@ def forward_sequence(
         center_positions: rf.Tensor,
         batch_dims: List[Dim],
         return_label_model_states: bool = False,
+        detach_att: bool = False,
+        detach_h_t: bool = False,
 ) -> Tuple[rf.Tensor, Optional[Tuple[rf.Tensor, Dim]]]:
   non_blank_input_embeddings = model.target_embed(non_blank_targets)
   non_blank_input_embeddings_shifted = rf.shift_right(
@@ -160,6 +162,7 @@ def forward_sequence(
       segment_lens=xs["segment_lens"],
       center_positions=xs["center_positions"],
       state=state.decoder,
+      detach_prev_att=detach_att,
     )
     return loop_out_, new_state
 
@@ -187,7 +190,13 @@ def forward_sequence(
     h_t = rf.gather(enc_args["enc"], axis=enc_spatial_dim, indices=center_positions)
   else:
     h_t = None
-  logits = model.decode_logits(input_embed=non_blank_input_embeddings_shifted, **label_loop_out, h_t=h_t)
+  logits, _ = model.decode_logits(
+    input_embed=non_blank_input_embeddings_shifted,
+    **label_loop_out,
+    h_t=h_t,
+    detach_att=detach_att,
+    detach_h_t=detach_h_t,
+  )
 
   if return_label_model_states:
     # need to run the loop one more time to get the last output (which is not needed for the loss computation)
@@ -308,6 +317,8 @@ def forward_sequence_efficient(
         non_blank_mask: Optional[rf.Tensor] = None,
         non_blank_mask_spatial_dim: Optional[Dim] = None,
         return_label_model_states: bool = False,
+        detach_att: bool = False,
+        detach_h_t: bool = False,
 ) -> Tuple[rf.Tensor, Optional[Tuple[rf.Tensor, Dim]]]:
 
   input_embeddings = model.target_embed(targets)
@@ -363,11 +374,13 @@ def forward_sequence_efficient(
   else:
     h_t = None
 
-  logits = model.decode_logits(
+  logits, _ = model.decode_logits(
     input_embed=input_embeddings_shifted,
     att=att,
     s=s_out,
     h_t=h_t,
+    detach_att=detach_att,
+    detach_h_t=detach_h_t,
   )
 
   if return_label_model_states:
@@ -602,7 +615,7 @@ def full_sum_training(
     else:
       h_t = None
 
-    logits = model.label_decoder.decode_logits(
+    logits, _ = model.label_decoder.decode_logits(
       input_embed=non_blank_input_embeddings_shifted,
       att=att,
       s=s_out,
@@ -829,7 +842,7 @@ def get_score_lattice(
     else:
       h_t = None
 
-    logits = model.label_decoder.decode_logits(
+    logits, _ = model.label_decoder.decode_logits(
       input_embed=non_blank_input_embeddings_shifted,
       att=att,
       s=s_out,

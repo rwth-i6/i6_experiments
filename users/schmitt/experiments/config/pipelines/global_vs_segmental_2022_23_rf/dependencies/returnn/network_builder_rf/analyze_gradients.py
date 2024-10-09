@@ -1008,7 +1008,8 @@ def _plot_multi_head_enc_self_att_one_fig(
         dirname: str,
         seq_tags: rf.Tensor,
 ):
-  print(f"Plotting multi-head self-attention for {dirname}")
+  if os.path.exists(dirname):
+    return
 
   # Calculate grid size
   num_heads = head_dim.dimension
@@ -1338,11 +1339,38 @@ def analyze_gradients(
       ]
     )
 
-    collected_outputs = {}
+    # ----------------------------------- run encoder ---------------------------------------
     sys.settrace(_trace_func)
-    enc_args, enc_spatial_dim = model.encoder.encode(
-      data, in_spatial_dim=data_spatial_dim, collected_outputs=collected_outputs)
+
+    encoders = [model.encoder]
+    if model.att_encoder:
+      encoders.append(model.att_encoder)
+
+    enc_args_list = []
+    enc_spatial_dim_list = []
+    collected_outputs_list = []
+    for encoder in encoders:
+      collected_outputs = {}
+      enc_args, enc_spatial_dim = encoder.encode(
+        data, in_spatial_dim=data_spatial_dim, collected_outputs=collected_outputs)
+      enc_args_list.append(enc_args)
+      enc_spatial_dim_list.append(enc_spatial_dim)
+      collected_outputs_list.append(collected_outputs)
     sys.settrace(None)
+
+    enc_spatial_dim = enc_spatial_dim_list[0]
+    enc_args = enc_args_list[0]
+    if model.att_encoder:
+      att_enc_args = enc_args_list[1]
+
+      att_enc_args["enc"] = utils.copy_tensor_replace_dim_tag(
+        att_enc_args["enc"], enc_spatial_dim_list[1], enc_spatial_dim)
+      att_enc_args["enc_ctx"] = utils.copy_tensor_replace_dim_tag(
+        att_enc_args["enc_ctx"], enc_spatial_dim_list[1], enc_spatial_dim)
+    else:
+      att_enc_args = enc_args
+
+    collected_outputs = collected_outputs_list[0]
 
     x_linear = process_captured_tensors(
       layer_mapping={"x_linear": (type(model.encoder).__call__, 0, "x_linear", -1)},
@@ -1667,6 +1695,38 @@ def analyze_gradients(
 
           log_probs_wo_att = None
           log_probs_wo_h_t = None
+          if model.label_decoder.use_current_frame_in_readout or model.label_decoder.use_current_frame_in_readout_w_double_gate:
+            logits_wo_att, _ = forward_sequence_segmental(
+              model=model.label_decoder,
+              enc_args=enc_args,
+              enc_spatial_dim=enc_spatial_dim,
+              non_blank_targets=non_blank_targets,
+              non_blank_targets_spatial_dim=non_blank_targets_spatial_dim,
+              segment_starts=segment_starts,
+              segment_lens=segment_lens,
+              center_positions=center_positions,
+              batch_dims=batch_dims,
+              detach_att=True,
+            )
+            log_probs_wo_att = rf.log_softmax(logits_wo_att, axis=model.target_dim)
+            log_probs_wo_att = log_probs_wo_att.copy_transpose(
+              batch_dims + [non_blank_targets_spatial_dim, model.target_dim])
+            logits_wo_h_t, _ = forward_sequence_segmental(
+              model=model.label_decoder,
+              enc_args=enc_args,
+              enc_spatial_dim=enc_spatial_dim,
+              non_blank_targets=non_blank_targets,
+              non_blank_targets_spatial_dim=non_blank_targets_spatial_dim,
+              segment_starts=segment_starts,
+              segment_lens=segment_lens,
+              center_positions=center_positions,
+              batch_dims=batch_dims,
+              detach_h_t=True,
+            )
+            log_probs_wo_h_t = rf.log_softmax(logits_wo_h_t, axis=model.target_dim)
+            log_probs_wo_h_t = log_probs_wo_h_t.copy_transpose(
+              batch_dims + [non_blank_targets_spatial_dim, model.target_dim])
+
           logits = process_captured_tensors(
             layer_mapping={"logits": (SegmentalAttLabelDecoder.decode_logits, 0, "logits", -1)}
           )
@@ -1732,6 +1792,38 @@ def analyze_gradients(
 
           log_probs_wo_att = None
           log_probs_wo_h_t = None
+          if model.label_decoder.use_current_frame_in_readout or model.label_decoder.use_current_frame_in_readout_w_double_gate:
+            logits_wo_att, _ = forward_sequence_efficient_segmental(
+              model=model.label_decoder,
+              enc_args=enc_args,
+              enc_spatial_dim=enc_spatial_dim,
+              targets=non_blank_targets,
+              targets_spatial_dim=non_blank_targets_spatial_dim,
+              segment_starts=segment_starts,
+              segment_lens=segment_lens,
+              center_positions=center_positions,
+              batch_dims=batch_dims,
+              detach_att=True,
+            )
+            log_probs_wo_att = rf.log_softmax(logits_wo_att, axis=model.target_dim)
+            log_probs_wo_att = log_probs_wo_att.copy_transpose(
+              batch_dims + [non_blank_targets_spatial_dim, model.target_dim])
+            logits_wo_h_t, _ = forward_sequence_efficient_segmental(
+              model=model.label_decoder,
+              enc_args=enc_args,
+              enc_spatial_dim=enc_spatial_dim,
+              targets=non_blank_targets,
+              targets_spatial_dim=non_blank_targets_spatial_dim,
+              segment_starts=segment_starts,
+              segment_lens=segment_lens,
+              center_positions=center_positions,
+              batch_dims=batch_dims,
+              detach_h_t=True,
+            )
+            log_probs_wo_h_t = rf.log_softmax(logits_wo_h_t, axis=model.target_dim)
+            log_probs_wo_h_t = log_probs_wo_h_t.copy_transpose(
+              batch_dims + [non_blank_targets_spatial_dim, model.target_dim])
+
           logits = process_captured_tensors(
             layer_mapping={"logits": (SegmentalAttEfficientLabelDecoder.decode_logits, 0, "logits", -1)}
           )
@@ -1774,7 +1866,7 @@ def analyze_gradients(
         forward_sequence_global(
           model=model.label_decoder,
           enc_args=enc_args,
-          att_enc_args=enc_args,
+          att_enc_args=att_enc_args,
           enc_spatial_dim=enc_spatial_dim,
           targets=non_blank_targets,
           targets_spatial_dim=non_blank_targets_spatial_dim,
@@ -1800,7 +1892,7 @@ def analyze_gradients(
           logits_wo_att, _, _ = forward_sequence_global(
             model=model.label_decoder,
             enc_args=enc_args,
-            att_enc_args=enc_args,
+            att_enc_args=att_enc_args,
             enc_spatial_dim=enc_spatial_dim,
             targets=non_blank_targets,
             targets_spatial_dim=non_blank_targets_spatial_dim,
@@ -1813,7 +1905,7 @@ def analyze_gradients(
           logits_wo_h_t, _, _ = forward_sequence_global(
             model=model.label_decoder,
             enc_args=enc_args,
-            att_enc_args=enc_args,
+            att_enc_args=att_enc_args,
             enc_spatial_dim=enc_spatial_dim,
             targets=non_blank_targets,
             targets_spatial_dim=non_blank_targets_spatial_dim,
@@ -1882,7 +1974,7 @@ def analyze_gradients(
         forward_sequence_global(
           model=model.label_decoder,
           enc_args=enc_args,
-          att_enc_args=enc_args,
+          att_enc_args=att_enc_args,
           enc_spatial_dim=enc_spatial_dim,
           targets=non_blank_targets,
           targets_spatial_dim=non_blank_targets_spatial_dim,
@@ -1929,7 +2021,7 @@ def analyze_gradients(
           logits_wo_att, _, _ = forward_sequence_global(
             model=model.label_decoder,
             enc_args=enc_args,
-            att_enc_args=enc_args,
+            att_enc_args=att_enc_args,
             enc_spatial_dim=enc_spatial_dim,
             targets=non_blank_targets,
             targets_spatial_dim=non_blank_targets_spatial_dim,
@@ -1942,7 +2034,7 @@ def analyze_gradients(
           logits_wo_h_t, _, _ = forward_sequence_global(
             model=model.label_decoder,
             enc_args=enc_args,
-            att_enc_args=enc_args,
+            att_enc_args=att_enc_args,
             enc_spatial_dim=enc_spatial_dim,
             targets=non_blank_targets,
             targets_spatial_dim=non_blank_targets_spatial_dim,
@@ -2001,7 +2093,7 @@ def analyze_gradients(
               forward_sequence_global(
                 model=model.label_decoder,
                 enc_args=enc_args,
-                att_enc_args=enc_args,
+                att_enc_args=att_enc_args,
                 enc_spatial_dim=enc_spatial_dim,
                 targets=non_blank_targets,
                 targets_spatial_dim=non_blank_targets_spatial_dim,
@@ -2043,7 +2135,7 @@ def analyze_gradients(
               logits_wo_att, _, _ = forward_sequence_global(
                 model=model.label_decoder,
                 enc_args=enc_args,
-                att_enc_args=enc_args,
+                att_enc_args=att_enc_args,
                 enc_spatial_dim=enc_spatial_dim,
                 targets=non_blank_targets,
                 targets_spatial_dim=non_blank_targets_spatial_dim,
@@ -2056,7 +2148,7 @@ def analyze_gradients(
               logits_wo_h_t, _, _ = forward_sequence_global(
                 model=model.label_decoder,
                 enc_args=enc_args,
-                att_enc_args=enc_args,
+                att_enc_args=att_enc_args,
                 enc_spatial_dim=enc_spatial_dim,
                 targets=non_blank_targets,
                 targets_spatial_dim=non_blank_targets_spatial_dim,
@@ -2200,11 +2292,14 @@ def analyze_gradients(
       #     imageio.mimsave(f'energy_in_analysis/{tag.replace("/", "_")}.gif', images, fps=2, loop=0)
 
       tensors = [
+        *[(f"enc-{i}", collected_outputs[str(i)]) for i in range(len(model.encoder.layers) - 1, -1, -1)],
         ("x_linear", x_linear),
-        *[(f"enc-{i}", collected_outputs[str(i)]) for i in range(len(model.encoder.layers))],
       ]
       if "enc_ctx" in enc_args and energies is not None:
         tensors.append((f"enc_ctx-{enc_layer_idx}", enc_args["enc_ctx"]))
+
+      if model.att_encoder:
+        tensors.insert(0, ("att_enc-11", att_enc_args["enc"]))
 
       log_gradient_wrt_input_list = []
       log_gradient_wrt_input_dirname_list = []

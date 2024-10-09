@@ -178,7 +178,7 @@ def run_exps():
         keep_epochs_step_full_sum = n_epochs_full_sum // 10
         keep_epochs_full_sum = list(range(keep_epochs_step_full_sum, n_epochs_full_sum, keep_epochs_step_full_sum))
         peak_lrs = []
-        if gpu_mem_rqmt == 24 and alias == "v1":
+        if gpu_mem_rqmt == 24 and alias in ("v1", "v2", "v4"):
           peak_lrs += [3e-4, 1e-4]
         for peak_lr in peak_lrs:
           for full_sum_train_alias, full_sum_checkpoint in train.train_center_window_att(

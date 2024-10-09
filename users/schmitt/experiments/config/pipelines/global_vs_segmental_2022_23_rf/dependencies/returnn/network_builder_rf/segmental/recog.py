@@ -190,6 +190,7 @@ def get_score(
         lm_state: Optional[State],
         ilm_state: Optional[State],
         enc_args: Dict[str, Tensor],
+        att_enc_args: Dict[str, Tensor],
         enc_spatial_dim: Dim,
         beam_dim: Dim,
         batch_dims: Sequence[Dim],
@@ -220,20 +221,20 @@ def get_score(
     label_logits, label_decoder_state, label_step_s_out = model.label_decoder(
       nb_target,
       spatial_dim=single_step_dim,
-      encoder=enc_args["enc_transformed"],
+      encoder=att_enc_args["enc_transformed"],
       state=label_decoder_state,
     )
   else:
     if model.center_window_size is None:
       label_step_out, label_decoder_state = model.label_decoder.loop_step(
-        **enc_args,
+        **att_enc_args,
         enc_spatial_dim=enc_spatial_dim,
         input_embed=input_embed_label_model,
         state=label_decoder_state,
       )
     else:
       label_step_out, label_decoder_state = model.label_decoder.loop_step(
-        **enc_args,
+        **att_enc_args,
         enc_spatial_dim=enc_spatial_dim,
         input_embed=input_embed_label_model,
         segment_lens=segment_lens,
@@ -314,7 +315,7 @@ def get_score(
   ilm_eos_log_prob = rf.zeros(batch_dims, dtype="float32")
   if ilm_state is not None:
     ilm_step_out, ilm_state = model.label_decoder.loop_step(
-      **enc_args,
+      **att_enc_args,
       enc_spatial_dim=enc_spatial_dim,
       input_embed=input_embed_label_model,
       segment_lens=segment_lens,
@@ -479,10 +480,31 @@ def model_recog(
   assert (cheating_targets is None) == (cheating_targets_spatial_dim is None)
 
   # --------------------------------- init encoder, dims, etc ---------------------------------
+  encoders = [model.encoder]
+  if model.att_encoder:
+    encoders.append(model.att_encoder)
 
-  enc_args, enc_spatial_dim = model.encoder.encode(data, in_spatial_dim=data_spatial_dim)
-  if model.label_decoder_state == "trafo":
-    enc_args["enc_transformed"] = model.label_decoder.transform_encoder(enc_args["enc"], axis=enc_spatial_dim)
+  enc_args_list = []
+  enc_spatial_dim_list = []
+  for encoder in encoders:
+    enc_args, enc_spatial_dim = encoder.encode(data, in_spatial_dim=data_spatial_dim)
+    if model.label_decoder_state == "trafo":
+      enc_args["enc_transformed"] = model.label_decoder.transform_encoder(enc_args["enc"], axis=enc_spatial_dim)
+
+    enc_args_list.append(enc_args)
+    enc_spatial_dim_list.append(enc_spatial_dim)
+
+  enc_spatial_dim = enc_spatial_dim_list[0]
+  enc_args = enc_args_list[0]
+  if model.att_encoder:
+    att_enc_args = enc_args_list[1]
+
+    att_enc_args["enc"] = utils.copy_tensor_replace_dim_tag(
+      att_enc_args["enc"], enc_spatial_dim_list[1], enc_spatial_dim)
+    att_enc_args["enc_ctx"] = utils.copy_tensor_replace_dim_tag(
+      att_enc_args["enc_ctx"], enc_spatial_dim_list[1], enc_spatial_dim)
+  else:
+    att_enc_args = enc_args
 
   max_seq_len = enc_spatial_dim.get_size_tensor()
   max_seq_len = rf.reduce_max(max_seq_len, axis=max_seq_len.dims)
@@ -661,6 +683,7 @@ def model_recog(
       lm_state=lm_state,
       ilm_state=ilm_state,
       enc_args=enc_args,
+      att_enc_args=att_enc_args,
       enc_spatial_dim=enc_spatial_dim,
       beam_dim=beam_dim,
       batch_dims=batch_dims,

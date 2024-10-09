@@ -319,9 +319,6 @@ class ReturnnDecodingExperiment(DecodingExperiment, ABC):
 
     self.alias += "/returnn_decoding" if search_alias is None else f"/{search_alias}"
 
-    if self.separate_readout_alpha is not None:
-      self.alias = f"{self.alias}/sep-read-alpha-{self.separate_readout_alpha:.2f}"
-
     use_recombination = self.recog_opts.get("use_recombination")
     if use_recombination is not None:
       assert use_recombination in {"sum", "max"}
@@ -332,6 +329,9 @@ class ReturnnDecodingExperiment(DecodingExperiment, ABC):
       if length_scale != 1.0:
         self.alias += f"_length-scale-{length_scale:.2f}"
     self.alias += "/%s-checkpoint" % self.checkpoint_alias
+
+    if self.separate_readout_alpha is not None:
+      self.alias = f"{self.alias}/sep-read-alpha-{self.separate_readout_alpha:.2f}"
 
     lm_opts = self.recog_opts.get("lm_opts")
     if lm_opts is not None:

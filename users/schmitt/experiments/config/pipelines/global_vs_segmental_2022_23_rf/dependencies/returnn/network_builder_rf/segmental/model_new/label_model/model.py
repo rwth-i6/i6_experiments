@@ -153,10 +153,14 @@ class SegmentalAttLabelDecoder(BaseLabelDecoder):
           center_positions: rf.Tensor,
           state: rf.State,
           use_mini_att: bool = False,
+          detach_prev_att: bool = False,
   ) -> Tuple[Dict[str, rf.Tensor], rf.State]:
     state_ = rf.State()
 
     prev_att = state.att
+    if detach_prev_att:
+      prev_att = rf.stop_gradient(prev_att)
+
     prev_s_state = state.s if "lstm" in self.decoder_state else None
 
     input_embed = rf.dropout(input_embed, drop_prob=self.target_embed_dropout, axis=None)
