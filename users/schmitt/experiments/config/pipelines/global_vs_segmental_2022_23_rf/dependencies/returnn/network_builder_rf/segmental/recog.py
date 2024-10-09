@@ -195,7 +195,8 @@ def get_score(
         batch_dims: Sequence[Dim],
         external_lm_scale: Optional[float] = None,
         ilm_correction_scale: Optional[float] = None,
-        subtract_ilm_eos_score: bool = False
+        subtract_ilm_eos_score: bool = False,
+        separate_readout_alpha: Optional[float] = None,
 ) -> Tuple[Tensor, State, Optional[State], Optional[State], Optional[State]]:
   # ------------------- label step -------------------
 
@@ -246,13 +247,14 @@ def get_score(
             model.label_decoder.use_current_frame_in_readout or
             model.label_decoder.use_current_frame_in_readout_w_gate or
             model.label_decoder.use_current_frame_in_readout_random or
-            model.label_decoder.use_current_frame_in_readout_w_double_gate
+            model.label_decoder.use_current_frame_in_readout_w_double_gate or
+            model.label_decoder.use_sep_h_t_readout
     ):
       h_t = rf.gather(enc_args["enc"], axis=enc_spatial_dim, indices=center_positions)
     else:
       h_t = None
 
-    label_logits = model.label_decoder.decode_logits(input_embed=input_embed_label_model, **label_step_out, h_t=h_t)
+    label_logits, h_t_logits = model.label_decoder.decode_logits(input_embed=input_embed_label_model, **label_step_out, h_t=h_t)
 
   if model.label_decoder_state != "trafo" and model.label_decoder.separate_blank_from_softmax:
     label_log_prob = utils.log_softmax_sep_blank(
@@ -260,11 +262,18 @@ def get_score(
   else:
     label_log_prob = rf.log_softmax(label_logits, axis=model.target_dim)
 
+  # combine two softmaxes in case of the random readout
   if not isinstance(model.label_decoder, TransformerDecoder) and model.label_decoder.use_current_frame_in_readout_random:
     label_logits2 = model.label_decoder.decode_logits(input_embed=input_embed_label_model, **label_step_out)
     label_log_prob2 = rf.log_softmax(label_logits2, axis=model.target_dim)
-    alpha = 0.6
+    alpha = separate_readout_alpha
     label_log_prob = alpha * label_log_prob + (1 - alpha) * label_log_prob2
+
+  # combine two softmaxes in case of two separate readouts
+  if not isinstance(model.label_decoder, TransformerDecoder) and model.label_decoder.use_sep_h_t_readout:
+    h_t_label_log_prob = rf.log_softmax(h_t_logits, axis=model.target_dim)
+    alpha = separate_readout_alpha
+    label_log_prob = alpha * label_log_prob + (1 - alpha) * h_t_label_log_prob
 
   # ------------------- external LM step -------------------
 
@@ -314,7 +323,7 @@ def get_score(
       state=ilm_state,
       use_mini_att=True
     )
-    ilm_logits = model.label_decoder.decode_logits(input_embed=input_embed_label_model, **ilm_step_out, h_t=h_t)
+    ilm_logits, _ = model.label_decoder.decode_logits(input_embed=input_embed_label_model, **ilm_step_out, h_t=h_t)
     ilm_label_log_prob = rf.log_softmax(ilm_logits, axis=model.target_dim)
 
     # do not apply ILM correction to blank
@@ -434,6 +443,7 @@ def model_recog(
         cheating_targets: Optional[Tensor] = None,
         cheating_targets_spatial_dim: Optional[Dim] = None,
         return_non_blank_seqs: bool = True,
+        separate_readout_alpha: Optional[float] = None,
 ) -> Tuple[Tensor, Tensor, Dim, Tensor, Dim, Dim]:
   """
   Function is run within RETURNN.
@@ -656,7 +666,8 @@ def model_recog(
       batch_dims=batch_dims,
       external_lm_scale=external_lm_scale,
       ilm_correction_scale=ilm_correction_scale,
-      subtract_ilm_eos_score=subtract_ilm_eos_score
+      subtract_ilm_eos_score=subtract_ilm_eos_score,
+      separate_readout_alpha=separate_readout_alpha,
     )
 
     # for shorter seqs in the batch, set the blank score to zero and the others to ~-inf

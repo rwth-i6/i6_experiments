@@ -194,6 +194,11 @@ def viterbi_training(
   aux_loss_type = "ctc"  # config.typed_value("aux_loss_type", "ctc")
   force_inefficient_loop = config.typed_value("force_inefficient_loop", False)
 
+  if model.label_decoder.use_current_frame_in_readout_random:
+    if rf.get_run_ctx().epoch > config.int("use_current_frame_in_readout_random_until_epoch", 1_000_000):
+      model.label_decoder.use_current_frame_in_readout_random = False
+      model.label_decoder.use_current_frame_in_readout = True
+
   if data.feature_dim and data.feature_dim.dimension == 1:
     data = rf.squeeze(data, axis=data.feature_dim)
   assert not data.feature_dim  # raw audio
@@ -224,56 +229,86 @@ def viterbi_training(
   if enc_args is None:
     # ------------------- encoder aux loss -------------------
 
-    collected_outputs = {}
-    enc_args, enc_spatial_dim = model.encoder.encode(
-      data, in_spatial_dim=data_spatial_dim, collected_outputs=collected_outputs)
+    encoders = [model.encoder]
+    if model.att_encoder:
+      encoders.append(model.att_encoder)
 
-    if aux_loss_layers:
-      for i, layer_idx in enumerate(aux_loss_layers):
-        if layer_idx > len(model.encoder.layers):
-          continue
-        linear = getattr(model.encoder, f"enc_aux_logits_{layer_idx}")
-        aux_logits = linear(collected_outputs[str(layer_idx - 1)])
+    enc_args_list = []
+    enc_spatial_dim_list = []
+    for encoder in encoders:
+      collected_outputs = {}
+      enc_args, enc_spatial_dim = encoder.encode(
+        data, in_spatial_dim=data_spatial_dim, collected_outputs=collected_outputs)
 
-        if aux_loss_type == "ctc":
-          aux_loss = rf.ctc_loss(
-            logits=aux_logits,
-            targets=non_blank_targets,
-            input_spatial_dim=enc_spatial_dim,
-            targets_spatial_dim=non_blank_targets_spatial_dim,
-            blank_index=model.blank_idx,
+      enc_args_list.append(enc_args)
+      enc_spatial_dim_list.append(enc_spatial_dim)
+
+      if aux_loss_layers:
+        for i, layer_idx in enumerate(aux_loss_layers):
+          if layer_idx > len(encoder.layers):
+            continue
+          linear = getattr(encoder, f"enc_aux_logits_{layer_idx}")
+          aux_logits = linear(collected_outputs[str(layer_idx - 1)])
+
+          if aux_loss_type == "ctc":
+            aux_loss = rf.ctc_loss(
+              logits=aux_logits,
+              targets=non_blank_targets,
+              input_spatial_dim=enc_spatial_dim,
+              targets_spatial_dim=non_blank_targets_spatial_dim,
+              blank_index=model.blank_idx,
+            )
+            loss_name = f"ctc_{layer_idx}"
+            if encoder == model.encoder:
+              loss_name = f"enc_{loss_name}"
+            else:
+              loss_name = f"att_enc_{loss_name}"
+          else:
+            assert aux_loss_type == "ce"
+
+            aux_logits_packed, pack_dim = rf.pack_padded(
+              aux_logits, dims=batch_dims + [enc_spatial_dim], enforce_sorted=False)
+            align_targets_packed, _ = rf.pack_padded(
+              align_targets, dims=batch_dims + [align_targets_spatial_dim], enforce_sorted=False, out_dim=pack_dim)
+
+            enc_log_probs = rf.log_softmax(aux_logits_packed, axis=model.align_target_dim)
+            # enc_log_probs = utils.copy_tensor_replace_dim_tag(enc_log_probs, enc_spatial_dim, align_targets_spatial_dim)
+            aux_loss = rf.cross_entropy(
+              target=align_targets_packed,
+              estimated=enc_log_probs,
+              axis=model.align_target_dim,
+              estimated_type="log-probs",
+            )
+            loss_name = f"enc_ce_{layer_idx}"
+
+            best = rf.reduce_argmax(aux_logits_packed, axis=model.align_target_dim)
+            frame_error = best != align_targets_packed
+            frame_error.mark_as_loss(name=f"{loss_name}_fer", as_error=True)
+
+          if aux_loss_focal_loss_factors[i] > 0:
+            aux_loss *= (1.0 - rf.exp(-aux_loss)) ** aux_loss_focal_loss_factors[i]
+          aux_loss.mark_as_loss(
+            loss_name,
+            scale=aux_loss_scales[i],
+            custom_inv_norm_factor=align_targets_spatial_dim.get_size_tensor(),
+            use_normalized_loss=True,
           )
-          loss_name = f"ctc_{layer_idx}"
-        else:
-          assert aux_loss_type == "ce"
 
-          aux_logits_packed, pack_dim = rf.pack_padded(
-            aux_logits, dims=batch_dims + [enc_spatial_dim], enforce_sorted=False)
-          align_targets_packed, _ = rf.pack_padded(
-            align_targets, dims=batch_dims + [align_targets_spatial_dim], enforce_sorted=False, out_dim=pack_dim)
+    enc_spatial_dim = enc_spatial_dim_list[0]
+    enc_args = enc_args_list[0]
+    if model.att_encoder:
+      att_enc_args = enc_args_list[1]
 
-          enc_log_probs = rf.log_softmax(aux_logits_packed, axis=model.align_target_dim)
-          # enc_log_probs = utils.copy_tensor_replace_dim_tag(enc_log_probs, enc_spatial_dim, align_targets_spatial_dim)
-          aux_loss = rf.cross_entropy(
-            target=align_targets_packed,
-            estimated=enc_log_probs,
-            axis=model.align_target_dim,
-            estimated_type="log-probs",
-          )
-          loss_name = f"enc_ce_{layer_idx}"
+      att_enc_args["enc"] = utils.copy_tensor_replace_dim_tag(
+        att_enc_args["enc"], enc_spatial_dim_list[1], enc_spatial_dim)
+      att_enc_args["enc_ctx"] = utils.copy_tensor_replace_dim_tag(
+        att_enc_args["enc_ctx"], enc_spatial_dim_list[1], enc_spatial_dim)
+    else:
+      att_enc_args = enc_args
 
-          best = rf.reduce_argmax(aux_logits_packed, axis=model.align_target_dim)
-          frame_error = best != align_targets_packed
-          frame_error.mark_as_loss(name=f"{loss_name}_fer", as_error=True)
-
-        if aux_loss_focal_loss_factors[i] > 0:
-          aux_loss *= (1.0 - rf.exp(-aux_loss)) ** aux_loss_focal_loss_factors[i]
-        aux_loss.mark_as_loss(
-          loss_name,
-          scale=aux_loss_scales[i],
-          custom_inv_norm_factor=align_targets_spatial_dim.get_size_tensor(),
-          use_normalized_loss=True,
-        )
+  else:
+    assert not model.att_encoder
+    att_enc_args = enc_args
 
   chunking = config.typed_value("chunking", None)
 
@@ -295,6 +330,7 @@ def viterbi_training(
       label_logits, _ = label_model_viterbi_training(
         model=model.label_decoder,
         enc_args=enc_args,
+        att_enc_args=att_enc_args,
         enc_spatial_dim=enc_spatial_dim,
         non_blank_targets=targets,
         non_blank_targets_spatial_dim=targets_spatial_dim,
@@ -353,6 +389,7 @@ def viterbi_training(
       label_logits, label_decoder_outputs = label_model_viterbi_training(
         model=model.label_decoder,
         enc_args=enc_args,
+        att_enc_args=att_enc_args,
         enc_spatial_dim=enc_spatial_dim,
         non_blank_targets=non_blank_targets,
         non_blank_targets_spatial_dim=non_blank_targets_spatial_dim,

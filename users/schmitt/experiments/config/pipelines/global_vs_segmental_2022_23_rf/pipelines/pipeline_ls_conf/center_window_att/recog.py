@@ -12,6 +12,7 @@ from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segment
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.labels.v2.librispeech.bpe.bpe import LibrispeechBPE10025
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.pipelines.pipeline_ls_conf.global_att.config_builder import get_global_att_config_builder_rf
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.labels.v2.librispeech.phonemes.gmm_alignments import LIBRISPEECH_GMM_WORD_ALIGNMENT
+from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.pipelines.pipeline_ls_conf.checkpoints import lm_checkpoints
 
 
 def center_window_returnn_frame_wise_beam_search(
@@ -22,6 +23,8 @@ def center_window_returnn_frame_wise_beam_search(
         lm_type: Optional[str] = None,
         ilm_scale_list: Tuple[float, ...] = (0.0,),
         ilm_type: Optional[str] = None,
+        lm_alias: Optional[str] = "kazuki-10k",
+        lm_checkpoint: Optional[Checkpoint] = lm_checkpoints["kazuki-10k"],
         subtract_ilm_eos_score: bool = False,
         beam_size_list: Tuple[int, ...] = (12,),
         checkpoint_aliases: Tuple[str, ...] = ("last", "best", "best-4-avg"),
@@ -45,6 +48,7 @@ def center_window_returnn_frame_wise_beam_search(
         analysis_ground_truth_hdf: Optional[Path] = None,
         analysis_analyze_gradients_plot_encoder_layers: bool = False,
         analsis_analyze_gradients_plot_log_gradients: bool = False,
+        separate_readout_alpha: Optional[float] = None,
 ):
   if lm_type is not None:
     assert len(checkpoint_aliases) == 1, "Do LM recog only for the best checkpoint"
@@ -62,6 +66,7 @@ def center_window_returnn_frame_wise_beam_search(
     "forward_callback": _returnn_v2_get_forward_callback,
     "use_recombination": use_recombination,
     "reset_eos_params": reset_eos_params,
+    "separate_readout_alpha": separate_readout_alpha,
     "dataset_opts": {"target_is_alignment": True}
   }
   if concat_num is not None:
@@ -102,14 +107,14 @@ def center_window_returnn_frame_wise_beam_search(
   else:
     analysis_opts = None
 
-  ReturnnSegmentalAttDecodingPipeline(
+  pipeline = ReturnnSegmentalAttDecodingPipeline(
     alias=alias,
     config_builder=config_builder,
     checkpoint=checkpoint,
     checkpoint_aliases=checkpoint_aliases,
     beam_sizes=beam_size_list,
     lm_scales=lm_scale_list,
-    lm_opts={"type": lm_type, "add_lm_eos_last_frame": True},
+    lm_opts={"type": lm_type, "add_lm_eos_last_frame": True, "alias": lm_alias, "checkpoint": lm_checkpoint},
     ilm_scales=ilm_scale_list,
     ilm_opts=ilm_opts,
     run_analysis=run_analysis,
@@ -118,4 +123,7 @@ def center_window_returnn_frame_wise_beam_search(
     search_alias=f'returnn_decoding{"_pure_torch" if pure_torch else ""}',
     corpus_keys=corpus_keys,
     only_do_analysis=only_do_analysis,
-  ).run()
+  )
+  pipeline.run()
+
+  return pipeline

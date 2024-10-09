@@ -40,6 +40,7 @@ class ConfigBuilderRF(ABC):
           label_decoder_state: str = "nb-lstm",
           use_current_frame_in_readout: bool = False,
           use_current_frame_in_readout_w_gate: bool = False,
+          use_current_frame_in_readout_w_gate_v: int = 1,
           use_current_frame_in_readout_random: bool = False,
           use_current_frame_in_readout_w_double_gate: bool = False,
           use_correct_dim_tags: bool = False,
@@ -59,6 +60,8 @@ class ConfigBuilderRF(ABC):
           use_trafo_att_wo_cross_att: bool = False,
           use_readout: bool = True,
           behavior_version: Optional[int] = None,
+          use_sep_att_encoder: bool = False,
+          use_sep_h_t_readout: bool = False,
   ):
     assert (use_current_frame_in_readout_random ^ use_current_frame_in_readout_w_gate) or (
                   use_current_frame_in_readout_random ^ use_current_frame_in_readout) or (
@@ -105,8 +108,11 @@ class ConfigBuilderRF(ABC):
       self.config_dict["use_current_frame_in_readout"] = use_current_frame_in_readout
     if use_current_frame_in_readout_w_gate:
       self.config_dict["use_current_frame_in_readout_w_gate"] = use_current_frame_in_readout_w_gate
+      if use_current_frame_in_readout_w_gate_v != 1:
+        self.config_dict["use_current_frame_in_readout_w_gate_v"] = use_current_frame_in_readout_w_gate_v
     if use_current_frame_in_readout_random:
       self.config_dict["use_current_frame_in_readout_random"] = use_current_frame_in_readout_random
+      self.config_dict["use_current_frame_in_readout_random_until_epoch"] = 140
     if use_current_frame_in_readout_w_double_gate:
       self.config_dict["use_current_frame_in_readout_w_double_gate"] = use_current_frame_in_readout_w_double_gate
 
@@ -128,6 +134,7 @@ class ConfigBuilderRF(ABC):
       self.config_dict["conformer_wo_rel_pos_enc"] = True
     if conformer_wo_final_layer_norm_per_layer:
       self.config_dict["conformer_wo_final_layer_norm_per_layer"] = True
+    self.conformer_num_layers = conformer_num_layers
     if conformer_num_layers != 12:
       self.config_dict["conformer_num_layers"] = conformer_num_layers
     if conformer_wo_convolution:
@@ -144,6 +151,11 @@ class ConfigBuilderRF(ABC):
     if use_trafo_att_wo_cross_att:
       assert use_trafo_att, "use_trafo_att_wo_cross_att can only be true if use_trafo_att is true"
       self.config_dict["use_trafo_att_wo_cross_att"] = True
+
+    if use_sep_att_encoder:
+      self.config_dict["use_sep_att_encoder"] = True
+    if use_sep_h_t_readout:
+      self.config_dict["use_sep_h_t_readout"] = True
 
     self.python_prolog = []
 
@@ -227,6 +239,7 @@ class ConfigBuilderRF(ABC):
       "target_embed_dropout",
       "disable_enc_self_att_until_epoch",
       "random_seed",
+      "att_h_t_dropout",
     ]
     config_dict.update(
       {k: opts.pop(k) for k in remaining_opt_keys if k in opts}
@@ -309,6 +322,10 @@ class ConfigBuilderRF(ABC):
     config_dict["beam_search_opts"] = {
       "beam_size": opts.get("beam_size", 12),
     }
+
+    separate_readout_alpha = opts.get("separate_readout_alpha")
+    if separate_readout_alpha is not None:
+      config_dict["beam_search_opts"]["separate_readout_alpha"] = separate_readout_alpha
 
     lm_opts = opts.get("lm_opts", None)  # type: Optional[Dict]
     if lm_opts is not None:

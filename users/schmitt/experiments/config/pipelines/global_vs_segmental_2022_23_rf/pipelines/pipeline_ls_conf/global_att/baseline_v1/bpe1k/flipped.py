@@ -7,12 +7,16 @@ from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segment
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.pipelines.pipeline_ls_conf.checkpoints import external_checkpoints, default_import_model_name
 import os
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.labels.v2.librispeech.phonemes.gmm_alignments import LIBRISPEECH_GMM_WORD_ALIGNMENT
+from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.labels.v2.librispeech.label_singletons import LibrispeechBPE1056_LABELS
 from i6_experiments.users.schmitt.visualization.visualization import PlotAttentionWeightsJobV2, PlotSelfAttentionWeightsOverEpochsJob
 
 from sisyphus import Path, tk
+from sisyphus.delayed_ops import DelayedFormat
 
 
 def run_exps():
+  flipped_att_weights_evolution = []
+  flipped_att_weights_evolution_epochs = [374, 484, 490, 500]
   for (
           alias,
           random_seed,
@@ -33,36 +37,45 @@ def run_exps():
           conv_frontend_w_zero_padding,
           cutoff_initial_silence,
           use_speed_pert_w_flip,
+          regularization_type,
+          accum_grad_multiple_step_,
   ) in [
     # ["v3_big", None, None, None, False, 12, 512, False, False, False, list(range(1, 240)), 24], # v3_big: same as v2, but on 24gb GPU with batch size 40k
-    ["v3_rand-9999", 9999, None, None, False, 12, 512, False, False, False, list(range(1, 240)), 11, None, None, False, False, False, False, False],  # v3_big_rand - flipped
-    ["v3_rand-1234", 1234, None, None, False, 12, 512, False, False, False, list(range(1, 240)), 11, None, None, False, False, False, False, False],  # v3_big_rand -
-    ["v3_rand-1111", 1111, None, None, False, 12, 512, False, False, False, list(range(1, 240)), 11, None, None, False, False, False, False, False],  # v3_big_rand
-    ["v3_rand-4321", 4321, None, None, False, 12, 512, False, False, False, list(range(1, 240)), 11, None, None, False, False, False, False, False],  # v3_big_rand
-    ["v3_rand-5678", 5678, None, None, False, 12, 512, False, False, False, list(range(10, 80, 10)), 11, None, None, False, False, False, False, False],  # v3_big_rand
-    ["v3_rand-8765", 8765, None, None, False, 12, 512, False, False, False, list(range(10, 80, 10)), 11, None, None, False, False, False, False, False],  # v3_big_rand
-    ["v3_rand-2222", 2222, None, None, False, 12, 512, False, False, False, list(range(10, 80, 10)), 11, None, None, False, False, False, False, False],  # v3_big_rand
-    ["v3_rand-3333", 3333, None, None, False, 12, 512, False, False, False, list(range(10, 80, 10)), 11, None, None, False, False, False, False, False],  # v3_big_rand
-    ["v5", None, 21, None, False, 12, 512, False, False, False, list(range(1, 240)), 11, None, None, False, False, False, False, False],  # v5_big: same as v3_big, but enable self attention only after 20 sub-epochs (1 full epoch)
-    ["v6_big", None, None, None, False, 12, 512, False, False, True, list(range(1, 240)), 24, None, None, False, False, False, False, False],  # v6_big: same as v3_big, but use both absolute and relative positional encodings
-    ["v6", None, None, None, False, 12, 512, False, False, True, list(range(1, 240)), 11, None, None, False, False, False, False, False], # v6_big: same as v3_big, but use both absolute and relative positional encodings
+    ["v3_rand-9999", 9999, None, None, False, 12, 512, False, False, False, list(range(1, 240)), 11, None, None, False, False, False, False, False, "v1", None],  # v3_big_rand - flipped
+    ["v3_rand-1234", 1234, None, None, False, 12, 512, False, False, False, list(range(1, 240)), 11, None, None, False, False, False, False, False, "v1", None],  # v3_big_rand -
+    ["v3_rand-1111", 1111, None, None, False, 12, 512, False, False, False, list(range(1, 240)), 11, None, None, False, False, False, False, False, "v1", None],  # v3_big_rand
+    ["v3_rand-4321", 4321, None, None, False, 12, 512, False, False, False, list(range(1, 240)), 11, None, None, False, False, False, False, False, "v1", None],  # v3_big_rand
+    ["v3_rand-5678", 5678, None, None, False, 12, 512, False, False, False, list(range(10, 80, 10)), 11, None, None, False, False, False, False, False, "v1", None],  # v3_big_rand
+    ["v3_big_rand-5678", 5678, None, None, False, 12, 512, False, False, False, list(range(20, 200, 20)), 24, None, None, False, False, False, False, False, "v1", None],  # v3_big_rand
+    ["v3_rand-8765", 8765, None, None, False, 12, 512, False, False, False, list(range(10, 80, 10)), 11, None, None, False, False, False, False, False, "v1", None],  # v3_big_rand
+    ["v3_rand-2222", 2222, None, None, False, 12, 512, False, False, False, list(range(10, 80, 10)), 11, None, None, False, False, False, False, False, "v1", None],  # v3_big_rand
+    ["v3_big_rand-2222", 2222, None, None, False, 12, 512, False, False, False, list(range(20, 200, 20)), 24, None, None, False, False, False, False, False, "v1", None],  # v3_big_rand
+    ["v3_rand-3333", 3333, None, None, False, 12, 512, False, False, False, list(range(10, 80, 10)), 11, None, None, False, False, False, False, False, "v1", None],  # v3_big_rand
+    ["v5", None, 21, None, False, 12, 512, False, False, False, list(range(61)), 11, None, None, False, False, False, False, False, "v1", None],  # v5_big: same as v3_big, but enable self attention only after 20 sub-epochs (1 full epoch)
+    ["v5_rand-1234", 1234, 21, None, False, 12, 512, False, False, False, list(range(61)), 11, None, None, False, False, False, False, False, "v1", None],  # v5_big: same as v3_big, but enable self attention only after 20 sub-epochs (1 full epoch)
+    ["v5_big_rand-1234", 1234, 21, None, False, 12, 512, False, False, False, list(range(20, 200, 20)), 24, None, None, False, False, False, False, False, "v1", None],  # v5_big: same as v3_big, but enable self attention only after 20 sub-epochs (1 full epoch)
+    ["v6_big", None, None, None, False, 12, 512, False, False, True, list(range(1, 240)), 24, None, None, False, False, False, False, False, "v1", None],  # v6_big: same as v3_big, but use both absolute and relative positional encodings
+    ["v6", None, None, None, False, 12, 512, False, False, True, list(range(1, 240)), 11, None, None, False, False, False, False, False, "v1", None], # v6_big: same as v3_big, but use both absolute and relative positional encodings
     # ["v7_big", None, None, None, True, 12, 512, False, False, False, [121, 131, 141], 24, None, None, False],  # v7_big: same as v3_big, but do not use final layer norm in conformer encoder layers
-    ["v7", None, None, None, True, 12, 512, False, False, False, [121, 131, 141], 11, None, None, False, False, False, False, False],  # v7: same as v3_big, but do not use final layer norm in conformer encoder layers
-    ["v8", None, None, (4, 8), False, 12, 512, False, False, False, list(range(1, 141, 10)), 11, None, None, False, False, False, False, False],  # v8_big: same as v3_big, but use CTC aux loss
+    ["v7", None, None, None, True, 12, 512, False, False, False, [121, 131, 141], 11, None, None, False, False, False, False, False, "v1", None],  # v7: same as v3_big, but do not use final layer norm in conformer encoder layers
+    ["v8", None, None, (4, 8), False, 12, 512, False, False, False, list(range(51)), 11, None, None, False, False, False, False, False, "v1", None],  # v8_big: same as v3_big, but use CTC aux loss
+    ["v8_big", None, None, (4, 8), False, 12, 512, False, False, False, list(range(20, 200, 20)), 24, None, None, False, False, False, False, False, "v1", None],  # v8_big: same as v3_big, but use CTC aux loss
+    ["v85_big", None, 21, (4, 8), False, 12, 512, False, False, False, list(range(20, 200, 20)), 24, None, None, False, False, False, False, False, "v1", None],  # v8_big: same as v3_big, but use CTC aux loss
     # ["v9_big", None, None, None, False, 17, 400, False, False, False, list(range(1, 240)), 24, None, None, False],  # v9_big: same as v3_big, but use 17 instead of 12 encoder layers and 400 instead of 512 output dim
-    ["v9", None, None, None, False, 17, 400, False, False, False, list(range(1, 240)), 11, None, None, False, False, False, False, False], # v9: same as v3_big, but use 17 instead of 12 encoder layers and 400 instead of 512 output dim
-    ["v9_rand-1234", 1234, None, None, False, 17, 400, False, False, False, list(range(1, 122)), 11, None, None, False, False, False, False, False],  # v9: same as v3_big, but use 17 instead of 12 encoder layers and 400 instead of 512 output dim
-    ["v10", None, None, None, False, 12, 512, True, False, False, list(range(1, 240)), 11, None, None, False, False, False, False, False], # v10_big: same as v3_big, but without convolution module in conformer encoder layers
+    ["v9", None, None, None, False, 17, 400, False, False, False, list(range(1, 240)), 11, None, None, False, False, False, False, False, "v1", None], # v9: same as v3_big, but use 17 instead of 12 encoder layers and 400 instead of 512 output dim
+    ["v9_rand-1234", 1234, None, None, False, 17, 400, False, False, False, list(range(1, 122)), 11, None, None, False, False, False, False, False, "v1", None],  # v9: same as v3_big, but use 17 instead of 12 encoder layers and 400 instead of 512 output dim
+    # ["v10", None, None, None, False, 12, 512, True, False, False, list(range(1, 240)), 11, None, None, False, False, False, False, False], # v10_big: same as v3_big, but without convolution module in conformer encoder layers
     # ["v11_big", None, None, None, False, 12, 512, False, False, False, list(range(1, 240)), 24, "encoder_input", None, False], # v11_big: same as v3_big, but use encoder input as att keys
-    ["v11", None, None, None, False, 12, 512, False, False, False, list(range(1, 240)), 11, "encoder_input", None, False, False, False, False, False],  # v11_big: same as v3_big, but use encoder input as att keys
+    ["v11", None, None, None, False, 12, 512, False, False, False, list(range(1, 240)), 11, "encoder_input", None, False, False, False, False, False, "v1", None],  # v11_big: same as v3_big, but use encoder input as att keys
     # ["v12_big", None, None, None, False, 12, 512, False, False, False, list(range(1, 240)), 24, None, {"frame": "middle", "until_epoch": 100, "num_interpolation_epochs": 20}, False], # v12_big: same as v3_big, but use hard att on center frame until sub-epoch 100
-    ["v12", None, None, None, False, 12, 512, False, False, False, list(range(1, 240)), 11, None, {"frame": "middle", "until_epoch": 100, "num_interpolation_epochs": 20}, False, False, False, False, False],  # v12_big: same as v3_big, but use hard att on center frame until sub-epoch 100
-    ["v13", None, None, None, False, 12, 512, False, False, False, list(range(1, 240)), 11, None, None, True, False, False, False, False], # v13: same as v3_big, but set padding to zero before depthwise conv in conformer encoder layers
+    ["v12", None, None, None, False, 12, 512, False, False, False, list(range(1, 240)), 11, None, {"frame": "middle", "until_epoch": 100, "num_interpolation_epochs": 20}, False, False, False, False, False, "v1", None],  # v12_big: same as v3_big, but use hard att on center frame until sub-epoch 100
+    ["v13", None, None, None, False, 12, 512, False, False, False, list(range(1, 240)), 11, None, None, True, False, False, False, False, "v1", None], # v13: same as v3_big, but set padding to zero before depthwise conv in conformer encoder layers
     # ["v14", None, None, None, False, 6, 512, False, False, False, list(range(1, 240)), 11, None, None, False, True, False, False, False],  # v14: same as v3_big, but use FF encoder with 6 layers -> not converged
-    ["v15", None, None, None, False, 12, 512, False, True, False, list(range(1, 240)), 11, None, None, False, False, False, False, False],  # v15: same as v3, but without pos encoding
-    ["v16", None, None, None, False, 12, 512, False, False, False, list(range(1, 120)), 11, None, None, True, False, True, False, False],  # v16: same as v3, but set padding to zero before depthwise conv in conformer encoder layers and before conv in frontend
-    ["v17", None, None, None, False, 12, 512, False, False, False, list(range(1, 120)), 11, None, None, False, False, False, True, False],  # v17: same as v3, but cut off initial silence
-    ["v19", None, None, None, False, 12, 512, False, False, False, list(range(1, 240)), 11, None, None, False, False, False, False, True],  # v19: same as v3 but reverse audio
+    ["v15", None, None, None, False, 12, 512, False, True, False, list(range(1, 240)), 11, None, None, False, False, False, False, False, "v1", None],  # v15: same as v3, but without pos encoding
+    ["v16", None, None, None, False, 12, 512, False, False, False, list(range(1, 120)), 11, None, None, True, False, True, False, False, "v1", None],  # v16: same as v3, but set padding to zero before depthwise conv in conformer encoder layers and before conv in frontend
+    ["v17", None, None, None, False, 12, 512, False, False, False, list(range(1, 120)), 11, None, None, False, False, False, True, False, "v1", None],  # v17: same as v3, but cut off initial silence
+    ["v19", None, None, None, False, 12, 512, False, False, False, list(range(1, 240)), 11, None, None, False, False, False, False, True, "v1", None],  # v19: same as v3 but reverse audio
+    ["v20", None, None, None, False, 12, 512, False, False, False, list(range(10, 100, 10)), 11, None, None, False, False, False, False, False, "v3", 1],  # v3_big_rand - flipped
   ]:
     for model_alias, config_builder in baseline.global_att_baseline_rf(
             use_weight_feedback=True,
@@ -96,6 +109,9 @@ def run_exps():
           batch_size = 12_000 if alias == "v9" else 15_000
           n_epochs = 500
 
+      if accum_grad_multiple_step_ is not None:
+        accum_grad_multiple_step = accum_grad_multiple_step_
+
       for train_alias, checkpoint in train.train_global_att(
               alias=model_alias,
               config_builder=config_builder,
@@ -113,6 +129,7 @@ def run_exps():
               hard_att_opts=hard_att_opts,
               cutoff_initial_silence=cutoff_initial_silence,
               use_speed_pert_w_flip=use_speed_pert_w_flip,
+              regularization_type=regularization_type,
       ):
         recog.global_att_returnn_label_sync_beam_search(
           alias=train_alias,
@@ -136,7 +153,7 @@ def run_exps():
           corpus_keys=("train",),
         )
 
-        # for epoch, chckpt in checkpoint["checkpoints"].items():
+        for epoch, chckpt in checkpoint["checkpoints"].items():
         #   if epoch in [61, 225] and alias == "v16":
         #     if epoch == 61:
         #       input_layer_names = ["encoder_input", "frontend_input"]
@@ -187,67 +204,119 @@ def run_exps():
         #       analsis_analyze_gradients_plot_log_gradients=True,
         #     )
         #
-        #   if (alias == "v6" and epoch in [10, 20, 30, 40, 50, 60] + list(range(20, 51))):
-        #     seq_tags_list = [["train-other-960/40-222-0033/40-222-0033"]]
-        #     if epoch in [40, 45]:
-        #       seq_tags_list += [
-        #         [
-        #           "train-other-960/103-1240-0038/103-1240-0038",
-        #           "train-other-960/103-1240-0057/103-1240-0057",
-        #           "train-other-960/103-1241-0019/103-1241-0019",
-        #           "train-other-960/103-1241-0025/103-1241-0025",
-        #           "train-other-960/103-1241-0043/103-1241-0043",
-        #           "train-other-960/1034-121119-0013/1034-121119-0013",
-        #         ]
-        #       ]
-        #     if epoch in [60]:
-        #       seq_tags_list += [["train-other-960/1246-124548-0042/1246-124548-0042"]]
-        #     for seq_tags in seq_tags_list:
-        #       recog.global_att_returnn_label_sync_beam_search(
-        #         alias=train_alias,
-        #         config_builder=config_builder,
-        #         checkpoint=chckpt,
-        #         checkpoint_aliases=(f"epoch-{epoch}",),
-        #         corpus_keys=("train",),
-        #         run_analysis=True,
-        #         analyze_gradients=True,
-        #         only_do_analysis=True,
-        #         att_weight_seq_tags=seq_tags,
-        #         analysis_ref_alignment_opts={
-        #           "ref_alignment_hdf": LIBRISPEECH_GMM_WORD_ALIGNMENT.alignment_paths["train"],
-        #           "ref_alignment_blank_idx": LIBRISPEECH_GMM_WORD_ALIGNMENT.model_hyperparameters.blank_idx,
-        #           "ref_alignment_vocab_path": LIBRISPEECH_GMM_WORD_ALIGNMENT.vocab_path,
-        #         },
-        #         analysis_analyze_gradients_plot_encoder_layers=True,
-        #         analsis_analyze_gradients_plot_log_gradients=epoch in [10, 60],
-        #         analysis_dump_self_att=epoch in [10, 20, 30, 40, 50, 60],
-        #       )
-        #
-        #   if (alias == "v8" and epoch in [11, 21, 31, 41, 51]):
-        #     for seq_tags in [["train-other-960/40-222-0033/40-222-0033"]]:
-        #       recog.global_att_returnn_label_sync_beam_search(
-        #         alias=train_alias,
-        #         config_builder=config_builder,
-        #         checkpoint=chckpt,
-        #         checkpoint_aliases=(f"epoch-{epoch}",),
-        #         corpus_keys=("train",),
-        #         run_analysis=True,
-        #         analyze_gradients=True,
-        #         only_do_analysis=True,
-        #         att_weight_seq_tags=seq_tags,
-        #         analysis_ref_alignment_opts={
-        #           "ref_alignment_hdf": LIBRISPEECH_GMM_WORD_ALIGNMENT.alignment_paths["train"],
-        #           "ref_alignment_blank_idx": LIBRISPEECH_GMM_WORD_ALIGNMENT.model_hyperparameters.blank_idx,
-        #           "ref_alignment_vocab_path": LIBRISPEECH_GMM_WORD_ALIGNMENT.vocab_path,
-        #         },
-        #         analysis_analyze_gradients_plot_encoder_layers=True,
-        #         analsis_analyze_gradients_plot_log_gradients=False,
-        #       )
+          if (alias == "v6" and epoch in flipped_att_weights_evolution_epochs):
+            seq_tags = ["train-other-960/40-222-0033/40-222-0033"]
 
-  # plot_flipped_cross_att_weight_evolution()
+            pipeline = recog.global_att_returnn_label_sync_beam_search(
+              alias=train_alias,
+              config_builder=config_builder,
+              checkpoint=chckpt,
+              checkpoint_aliases=(f"epoch-{epoch}",),
+              corpus_keys=("train",),
+              run_analysis=True,
+              analyze_gradients=True,
+              only_do_analysis=True,
+              att_weight_seq_tags=seq_tags,
+              analysis_ref_alignment_opts={
+                "ref_alignment_hdf": LIBRISPEECH_GMM_WORD_ALIGNMENT.alignment_paths["train"],
+                "ref_alignment_blank_idx": LIBRISPEECH_GMM_WORD_ALIGNMENT.model_hyperparameters.blank_idx,
+                "ref_alignment_vocab_path": LIBRISPEECH_GMM_WORD_ALIGNMENT.vocab_path,
+              },
+            )
+            flipped_att_weights_evolution.append(pipeline.decoding_exps[0].analyze_gradients_job)
+
+          if (alias == "v6" and epoch in [10, 20, 30, 40, 50, 60] + list(range(20, 51))):
+            seq_tags_list = [["train-other-960/40-222-0033/40-222-0033"]]
+            if epoch in [40, 45]:
+              seq_tags_list += [
+                [
+                  "train-other-960/103-1240-0038/103-1240-0038",
+                  "train-other-960/103-1240-0057/103-1240-0057",
+                  "train-other-960/103-1241-0019/103-1241-0019",
+                  "train-other-960/103-1241-0025/103-1241-0025",
+                  "train-other-960/103-1241-0043/103-1241-0043",
+                  "train-other-960/1034-121119-0013/1034-121119-0013",
+                ]
+              ]
+            if epoch in [60]:
+              seq_tags_list += [["train-other-960/1246-124548-0042/1246-124548-0042"]]
+            for seq_tags in seq_tags_list:
+              recog.global_att_returnn_label_sync_beam_search(
+                alias=train_alias,
+                config_builder=config_builder,
+                checkpoint=chckpt,
+                checkpoint_aliases=(f"epoch-{epoch}",),
+                corpus_keys=("train",),
+                run_analysis=True,
+                analyze_gradients=True,
+                only_do_analysis=True,
+                att_weight_seq_tags=seq_tags,
+                analysis_ref_alignment_opts={
+                  "ref_alignment_hdf": LIBRISPEECH_GMM_WORD_ALIGNMENT.alignment_paths["train"],
+                  "ref_alignment_blank_idx": LIBRISPEECH_GMM_WORD_ALIGNMENT.model_hyperparameters.blank_idx,
+                  "ref_alignment_vocab_path": LIBRISPEECH_GMM_WORD_ALIGNMENT.vocab_path,
+                },
+                analysis_analyze_gradients_plot_encoder_layers=True,
+                analsis_analyze_gradients_plot_log_gradients=epoch in [10, 60],
+                analysis_dump_self_att=epoch in [10, 20, 30, 40, 50, 60],
+              )
+
+          if (alias == "v8" and epoch in [11, 21, 31, 41, 51] + list(range(20, 31))):
+            for seq_tags in [["train-other-960/40-222-0033/40-222-0033"]]:
+              recog.global_att_returnn_label_sync_beam_search(
+                alias=train_alias,
+                config_builder=config_builder,
+                checkpoint=chckpt,
+                checkpoint_aliases=(f"epoch-{epoch}",),
+                corpus_keys=("train",),
+                run_analysis=True,
+                analyze_gradients=True,
+                only_do_analysis=True,
+                att_weight_seq_tags=seq_tags,
+                analysis_ref_alignment_opts={
+                  "ref_alignment_hdf": LIBRISPEECH_GMM_WORD_ALIGNMENT.alignment_paths["train"],
+                  "ref_alignment_blank_idx": LIBRISPEECH_GMM_WORD_ALIGNMENT.model_hyperparameters.blank_idx,
+                  "ref_alignment_vocab_path": LIBRISPEECH_GMM_WORD_ALIGNMENT.vocab_path,
+                },
+                analysis_analyze_gradients_plot_encoder_layers=True,
+                analsis_analyze_gradients_plot_log_gradients=False,
+              )
+
+  plot_flipped_cross_att_weight_evolution_v2(flipped_att_weights_evolution_epochs, flipped_att_weights_evolution)
   # plot_flipped_self_att_weight_evolution()
   # plot_flipped_vs_normal_cross_att_weights()
   # plot_gradients_wrt_different_layers()
+
+
+def plot_flipped_cross_att_weight_evolution_v2(epochs, analyze_gradients_jobs_list):
+  cross_att_hdfs = [
+    Path(DelayedFormat(
+      "{}/enc-layer-12/att_weights/att_weights.hdf",
+      analyze_gradients_job.out_files["cross-att"]
+    ).get()) for analyze_gradients_job in analyze_gradients_jobs_list
+  ]
+  targets_hdf = analyze_gradients_jobs_list[0].out_files["targets.hdf"]
+
+  plot_att_weights_job = PlotAttentionWeightsJobV2(
+    att_weight_hdf=cross_att_hdfs,
+    targets_hdf=targets_hdf,
+    seg_starts_hdf=None,
+    seg_lens_hdf=None,
+    center_positions_hdf=None,
+    target_blank_idx=None,
+    ref_alignment_blank_idx=LIBRISPEECH_GMM_WORD_ALIGNMENT.model_hyperparameters.blank_idx,
+    ref_alignment_hdf=LIBRISPEECH_GMM_WORD_ALIGNMENT.alignment_paths["train"],
+    json_vocab_path=LibrispeechBPE1056_LABELS.vocab_path,
+    ctc_alignment_hdf=None,
+    ref_alignment_json_vocab_path=LIBRISPEECH_GMM_WORD_ALIGNMENT.vocab_path,
+    plot_w_cog=False,
+    titles=[f"Epoch {epoch * 4 / 20}" for epoch in epochs],
+    vmin=0.0,
+    vmax=1.0,
+    # titles=[f"Epoch {epoch * 4 // 20 if (epoch * 4 / 20).is_integer() else epoch * 4 / 20}" for epoch in epochs],
+  )
+  plot_att_weights_job.add_alias(f"flipped_cross_att_evolution_v2")
+  tk.register_output(plot_att_weights_job.get_one_alias(), plot_att_weights_job.out_plot_dir)
 
 
 def plot_flipped_cross_att_weight_evolution():

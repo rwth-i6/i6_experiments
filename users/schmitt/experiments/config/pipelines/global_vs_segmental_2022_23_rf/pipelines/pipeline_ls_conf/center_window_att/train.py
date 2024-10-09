@@ -58,6 +58,7 @@ def train_center_window_att(
         filter_target_len: Optional[float] = None,
         accum_grad_multiple_step: int = 4,
         hdf_targets: Optional[Dict[str, Path]] = None,
+        att_h_t_dropout: float = 0.0,
 ):
   train_opts, train_rqmt, alias_ = get_common_train_opts_rqmt(
     n_epochs=n_epochs,
@@ -86,12 +87,16 @@ def train_center_window_att(
     f"_{'chunked-data-len-' + str(chunked_data_len) if chunked_data_len else 'no-chunking'}"
     f"{'_nb-loss-x' + str(nb_loss_scale) if nb_loss_scale != 1.0 else ''}"
     f"{'_b-loss-x' + str(b_loss_scale) if b_loss_scale != 1.0 else ''}"
+    f"{f'_att-h-t-drop-{att_h_t_dropout}' if att_h_t_dropout > 0.0 else ''}"
   )
 
   train_opts.update({
     "nb_loss_scale": nb_loss_scale,
     "b_loss_scale": b_loss_scale,
   })
+
+  if att_h_t_dropout > 0.0:
+    train_opts["att_h_t_dropout"] = att_h_t_dropout
 
   if training_type == "full-sum":
     train_opts.update({

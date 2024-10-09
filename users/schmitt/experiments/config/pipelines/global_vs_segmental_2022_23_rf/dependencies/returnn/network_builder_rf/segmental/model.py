@@ -1,5 +1,6 @@
 from typing import Optional, Dict, Any, Sequence, Tuple, List, Union
 import functools
+import copy
 
 from returnn.tensor import Tensor, Dim, single_step_dim
 import returnn.frontend as rf
@@ -86,6 +87,9 @@ class SegmentalAttentionModel(rf.Module):
   ):
     super(SegmentalAttentionModel, self).__init__()
 
+    from returnn.config import get_global_config
+    config = get_global_config()
+
     self.encoder = encoder_cls(
       enc_in_dim,
       enc_out_dim,
@@ -108,6 +112,11 @@ class SegmentalAttentionModel(rf.Module):
       need_enc_ctx=center_window_size != 1 and not use_trafo_att,  # win size 1 means hard att, so no enc ctx needed
       input_layer_cls=enc_input_layer_cls,
     )
+
+    if config.bool("use_sep_att_encoder", False):
+      self.att_encoder = copy.deepcopy(self.encoder)
+    else:
+      self.att_encoder = None
 
     assert blank_decoder_version in {1, 3, 4, 5, 6, 7, 8, 9, 10, 11}
     assert label_decoder_state in {"nb-lstm", "joint-lstm", "nb-2linear-ctx1", "trafo"}

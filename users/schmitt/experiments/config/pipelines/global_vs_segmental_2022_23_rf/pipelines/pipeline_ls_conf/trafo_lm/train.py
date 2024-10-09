@@ -1,6 +1,3 @@
-from typing import Tuple, Optional, List, Dict
-import itertools
-
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.config_builder_rf.lm import LibrispeechTrafoLmConfigBuilderRF
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.train_new import LmTrainExperiment
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.lm.trafo.train import _returnn_v2_train_step, from_scratch_training
@@ -14,10 +11,14 @@ def train_lm(
         time_rqmt: int = 168,
         gpu_mem_rqmt: int = 11,
         use_mgpu: bool = True,
+        max_seq_length: int = 75,
+        accum_grad_multiple_step: int = 2,
+        max_seqs: int = 100,
 ):
   alias += (
-          f"train_from_scratch/{n_epochs}-epochs"
+          f"/train_from_scratch/{n_epochs}-epochs"
           f"{'_mgpu-4' if use_mgpu else ''}_bs-{batch_size}"
+          f"_max-seq-len-{max_seq_length}_accum-grad-{accum_grad_multiple_step}_max-seqs-{max_seqs}"
   )
 
   train_opts = {
@@ -28,7 +29,11 @@ def train_lm(
       "init_lr": 1e-5,
       "peak_lr": 1e-3,
       "num_epochs": n_epochs,
-    }
+    },
+    "max_seq_length": {"data": max_seq_length},
+    "batch_size": batch_size,
+    "accum_grad_multiple_step": accum_grad_multiple_step,
+    "max_seqs": max_seqs,
   }
 
   train_rqmt = {

@@ -40,6 +40,10 @@ external_checkpoints.update({
   "luca-aed-bpe1k-wo-ctc": PtCheckpoint(Path("/work/asr3/zeyer/schmitt/model_checkpoints/segmental_models_2022_23_rf/luca-global-aed-no-ctc-bpe1k-100ep_converted.pt")),
 })
 
+lm_checkpoints = {
+  "kazuki-10k": "/work/asr3/zeyer/schmitt/sisyphus_work_dirs/segmental_models_2022_23_rf/i6_experiments/users/schmitt/returnn_frontend/convert/checkpoint/ConvertTfCheckpointToRfPtJob.7haAE0Cx93dA/output/model/network.023.pt",
+}
+
 # global_att_checkpoint_w_ctc = ConvertTfCheckpointToRfPtJob(
 #   checkpoint=external_checkpoints_tf[default_import_model_name],
 #   make_model_func=MakeModelGlobal(

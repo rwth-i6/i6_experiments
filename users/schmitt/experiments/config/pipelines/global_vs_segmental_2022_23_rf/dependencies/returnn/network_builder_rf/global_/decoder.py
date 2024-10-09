@@ -74,6 +74,7 @@ class GlobalAttDecoder(BaseLabelDecoder):
           state: Optional[rf.State] = None,
           use_mini_att: bool = False,
           hard_att_opts: Optional[Dict] = None,
+          detach_att: bool = False,
   ) -> Tuple[Dict[str, rf.Tensor], rf.State]:
     """step of the inner loop"""
     if state is None:
@@ -86,6 +87,8 @@ class GlobalAttDecoder(BaseLabelDecoder):
     output_dict = {}
 
     prev_att = state.att
+    if detach_att:
+      prev_att = rf.stop_gradient(prev_att)
     prev_s_state = state.s if "lstm" in self.decoder_state else None
 
     input_embed = rf.dropout(input_embed, drop_prob=self.target_embed_dropout, axis=None)

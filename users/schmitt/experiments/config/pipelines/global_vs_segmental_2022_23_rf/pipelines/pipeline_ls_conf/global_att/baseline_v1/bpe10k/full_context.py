@@ -11,42 +11,63 @@ from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segment
 def run_exps():
   for model_alias, config_builder in baseline.global_att_baseline_rf(use_weight_feedback=True):
     # v5: same as v3, but use bpe size 10k
-    for train_alias, checkpoint in train.train_global_att(
-      alias=model_alias,
-      config_builder=config_builder,
-      n_epochs=500,
-      keep_epochs=list(range(1, 240)) + [500],
-      filter_data_len=19.5 * 16_000,  # sample rate 16kHz
-    ):
-      recog.global_att_returnn_label_sync_beam_search(
-        alias=train_alias,
+    for random_seed in [None, 1234]:
+      for train_alias, checkpoint in train.train_global_att(
+        alias=model_alias,
         config_builder=config_builder,
-        checkpoint=checkpoint,
-        checkpoint_aliases=("last",),
-        corpus_keys=("dev-other", "dev-clean", "test-other", "test-clean"),
-      )
-      recog.global_att_returnn_label_sync_beam_search(
-        alias=train_alias,
-        config_builder=config_builder,
-        checkpoint=checkpoint,
-        checkpoint_aliases=("last",),
-        run_analysis=True,
-        analysis_dump_gradients=True,
-        only_do_analysis=True,
-        corpus_keys=("train",),
-        att_weight_seq_tags=None,
-      )
-      for epoch, chckpt in checkpoint["checkpoints"].items():
-        if epoch == 70 or epoch in range(1, 60, 5):
+        n_epochs=500,
+        keep_epochs=[10, 20, 30] + list(range(30, 50, 1)),
+        filter_data_len=19.5 * 16_000,  # sample rate 16kHz
+        random_seed=random_seed,
+      ):
+        if random_seed != 1234:
           recog.global_att_returnn_label_sync_beam_search(
             alias=train_alias,
             config_builder=config_builder,
-            checkpoint=chckpt,
-            checkpoint_aliases=(f"epoch-{epoch}",),
-            run_analysis=True,
-            analyze_gradients=True,
-            only_do_analysis=True,
+            checkpoint=checkpoint,
+            checkpoint_aliases=("last",),
+            corpus_keys=("dev-other", "dev-clean", "test-other", "test-clean"),
           )
+          recog.global_att_returnn_label_sync_beam_search(
+            alias=train_alias,
+            config_builder=config_builder,
+            checkpoint=checkpoint,
+            checkpoint_aliases=("last",),
+            run_analysis=True,
+            analysis_dump_gradients=True,
+            only_do_analysis=True,
+            corpus_keys=("train",),
+            att_weight_seq_tags=None,
+          )
+        for epoch, chckpt in checkpoint["checkpoints"].items():
+          if epoch == 70 or epoch in range(1, 60, 5):
+            recog.global_att_returnn_label_sync_beam_search(
+              alias=train_alias,
+              config_builder=config_builder,
+              checkpoint=chckpt,
+              checkpoint_aliases=(f"epoch-{epoch}",),
+              run_analysis=True,
+              analyze_gradients=True,
+              only_do_analysis=True,
+            )
+          if epoch in range(10, 70, 10):
+            recog.global_att_returnn_label_sync_beam_search(
+              alias=train_alias,
+              config_builder=config_builder,
+              checkpoint=chckpt,
+              checkpoint_aliases=(f"epoch-{epoch}",),
+              run_analysis=True,
+              only_do_analysis=True,
+              analyze_gradients=True,
+              analsis_analyze_gradients_plot_log_gradients=False,
+              analysis_analyze_gradients_plot_encoder_layers=True,
+              att_weight_seq_tags=[
+                "train-other-960/1246-124548-0042/1246-124548-0042",
+                "train-other-960/40-222-0033/40-222-0033",
+                "train-other-960/103-1240-0038/103-1240-0038",
+              ],
+              corpus_keys=("train",),
+            )
 
     for train_alias, checkpoint in (
             (f"{model_alias}/import_{default_import_model_name}", external_checkpoints[default_import_model_name]),

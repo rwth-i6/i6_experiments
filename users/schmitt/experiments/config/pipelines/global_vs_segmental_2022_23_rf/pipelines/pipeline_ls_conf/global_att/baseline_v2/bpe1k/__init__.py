@@ -44,6 +44,24 @@ def run_exps():
           checkpoint=checkpoint,
         )
 
+        recog.global_att_returnn_label_sync_beam_search(
+          alias=train_alias,
+          config_builder=config_builder,
+          checkpoint=checkpoint,
+          checkpoint_aliases=("last",),
+          run_analysis=True,
+          only_do_analysis=True,
+          analyze_gradients=True,
+          analsis_analyze_gradients_plot_log_gradients=True,
+          analysis_analyze_gradients_plot_encoder_layers=True,
+          att_weight_seq_tags=[
+            "train-other-960/1246-124548-0042/1246-124548-0042",
+            "train-other-960/40-222-0033/40-222-0033",
+            "train-other-960/103-1240-0038/103-1240-0038",
+          ],
+          corpus_keys=("train",),
+        )
+
         analysis_epochs = range(10, 240, 10)
 
         for epoch, chckpt in checkpoint["checkpoints"].items():

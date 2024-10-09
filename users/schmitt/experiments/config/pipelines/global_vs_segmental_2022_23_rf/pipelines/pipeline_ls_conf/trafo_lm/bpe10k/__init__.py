@@ -9,14 +9,20 @@ from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segment
 
 
 def run_exps():
-  for model_alias, config_builder in baseline.global_att_baseline_rf(
-          label_type="bpe10025",
-  ):
-    for train_alias, checkpoint in train.train_lm(
-      alias=model_alias,
-      config_builder=config_builder,
-      n_epochs=40,
-      use_mgpu=True,
-      batch_size=5_000,
+  model_kwargs_list = [
+    {"num_layers": 24, "model_dim": 512},
+    {"num_layers": 32, "model_dim": 1024},
+  ]
+  for model_kwargs in model_kwargs_list:
+    for model_alias, config_builder in baseline.global_att_baseline_rf(
+            label_type="bpe10025",
+            **model_kwargs,
     ):
-      pass
+      for train_alias, checkpoint in train.train_lm(
+        alias=model_alias,
+        config_builder=config_builder,
+        n_epochs=40,
+        use_mgpu=True,
+        batch_size=5_000,
+      ):
+        pass

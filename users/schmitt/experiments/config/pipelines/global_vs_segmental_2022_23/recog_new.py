@@ -65,6 +65,8 @@ class DecodingExperiment(ABC):
 
     self.alias = alias
 
+    self.separate_readout_alpha = self.recog_opts.get("separate_readout_alpha")
+
     self.returnn_python_exe = self.config_builder.variant_params["returnn_python_exe"]
     self.returnn_root = self.config_builder.variant_params["returnn_root"]
 
@@ -317,6 +319,9 @@ class ReturnnDecodingExperiment(DecodingExperiment, ABC):
 
     self.alias += "/returnn_decoding" if search_alias is None else f"/{search_alias}"
 
+    if self.separate_readout_alpha is not None:
+      self.alias = f"{self.alias}/sep-read-alpha-{self.separate_readout_alpha:.2f}"
+
     use_recombination = self.recog_opts.get("use_recombination")
     if use_recombination is not None:
       assert use_recombination in {"sum", "max"}
@@ -330,7 +335,7 @@ class ReturnnDecodingExperiment(DecodingExperiment, ABC):
 
     lm_opts = self.recog_opts.get("lm_opts")
     if lm_opts is not None:
-      self.alias += "/bpe-%s-lm-scale-%f" % (lm_opts["type"], lm_opts["scale"],)
+      self.alias += f"/bpe-{lm_opts['type']}-{lm_opts['alias']}-lm-scale-{lm_opts['scale']}"
       if "add_lm_eos_last_frame" in lm_opts:
         self.alias += "_add-lm-eos-%s" % lm_opts["add_lm_eos_last_frame"]
       self.alias = self.get_ilm_correction_alias(self.alias)
@@ -375,6 +380,7 @@ class ReturnnDecodingExperiment(DecodingExperiment, ABC):
         mem_rqmt=self.search_rqmt.get("mem", 6),
         time_rqmt=self.search_rqmt.get("time", 1),
       )
+      search_job.rqmt["sbatch_args"] = ["--exclude", "cn-257"]
       search_job.add_alias(f"{self.alias}/search")
       self.search_hyps_file = search_job.out_files["output.py.gz"]
       self.best_search_hyps_hdf = search_job.out_files["best_hyp.hdf"]

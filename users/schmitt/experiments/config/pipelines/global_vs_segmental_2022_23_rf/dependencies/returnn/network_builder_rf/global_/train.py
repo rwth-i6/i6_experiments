@@ -41,6 +41,7 @@ def get_s_and_att(
         enc_spatial_dim: Dim,
         targets_spatial_dim: Dim,
         batch_dims: List[Dim],
+        detach_att: bool = False,
 ) -> Tuple[Tensor, Tensor, rf.State]:
 
   from returnn.config import get_global_config
@@ -57,6 +58,7 @@ def get_s_and_att(
       state=state.decoder,
       use_mini_att=model.use_mini_att,
       hard_att_opts=hard_att_opts,
+      detach_att=detach_att,
     )
     return loop_out_, new_state
 
@@ -115,20 +117,22 @@ def forward_sequence(
         targets: rf.Tensor,
         targets_spatial_dim: Dim,
         enc_args: Dict[str, rf.Tensor],
+        att_enc_args: Dict[str, rf.Tensor],
         enc_spatial_dim: Dim,
         batch_dims: List[Dim],
         return_label_model_states: bool = False,
         center_positions: Optional[rf.Tensor] = None,
         detach_att_before_readout: bool = False,
         detach_h_t_before_readout: bool = False,
-) -> Tuple[rf.Tensor, Optional[Tuple[rf.Tensor, Dim]]]:
+) -> Tuple[rf.Tensor, Optional[Tuple[rf.Tensor, Dim]], Optional[Tensor]]:
   if type(model) is TransformerDecoder:
     logits, _, _ = model(
       rf.shift_right(targets, axis=targets_spatial_dim, pad_value=0),
       spatial_dim=targets_spatial_dim,
-      encoder=model.transform_encoder(enc_args["enc"], axis=enc_spatial_dim),
+      encoder=model.transform_encoder(att_enc_args["enc"], axis=enc_spatial_dim),
       state=model.default_initial_state(batch_dims=batch_dims)
     )
+    h_t_logits = None
   else:
     input_embeddings = model.target_embed(targets)
     input_embeddings = rf.shift_right(input_embeddings, axis=targets_spatial_dim, pad_value=0.0)
@@ -137,17 +141,18 @@ def forward_sequence(
     if type(model) is GlobalAttDecoder:
       s, att, final_state = get_s_and_att(
         model=model,
-        enc_args=enc_args,
+        enc_args=att_enc_args,
         input_embeddings=input_embeddings,
         enc_spatial_dim=enc_spatial_dim,
         targets_spatial_dim=targets_spatial_dim,
-        batch_dims=batch_dims
+        batch_dims=batch_dims,
+        detach_att=detach_att_before_readout,
       )
     else:
       assert type(model) is GlobalAttEfficientDecoder
       s, att, final_state = get_s_and_att_efficient(
         model=model,
-        enc_args=enc_args,
+        enc_args=att_enc_args,
         input_embeddings=input_embeddings,
         enc_spatial_dim=enc_spatial_dim,
         targets_spatial_dim=targets_spatial_dim,
@@ -158,13 +163,14 @@ def forward_sequence(
             model.use_current_frame_in_readout or
             model.use_current_frame_in_readout_w_gate or
             model.use_current_frame_in_readout_random or
-            model.use_current_frame_in_readout_w_double_gate
+            model.use_current_frame_in_readout_w_double_gate or
+            model.use_sep_h_t_readout
     ):
       h_t = rf.gather(enc_args["enc"], axis=enc_spatial_dim, indices=center_positions)
     else:
       h_t = None
 
-    logits = model.decode_logits(
+    logits, h_t_logits = model.decode_logits(
       input_embed=input_embeddings,
       s=s,
       att=att,
@@ -183,7 +189,7 @@ def forward_sequence(
     )
     if type(model) is GlobalAttDecoder:
       last_loop_out, _ = model.loop_step(
-        **enc_args,
+        **att_enc_args,
         enc_spatial_dim=enc_spatial_dim,
         input_embed=last_embedding,
         state=final_state.decoder,
@@ -206,9 +212,9 @@ def forward_sequence(
       (rf.expand_dim(last_s_out, singleton_dim), singleton_dim),
     )
 
-    return logits, s_concat
+    return logits, s_concat, h_t_logits
 
-  return logits, None
+  return logits, None, h_t_logits
 
 
 def from_scratch_training(
@@ -256,11 +262,12 @@ def from_scratch_training(
 
   batch_dims = data.remaining_dims(data_spatial_dim)
 
-  logits, _ = forward_sequence(
+  logits, _, _ = forward_sequence(
     model=model.label_decoder,
     targets=targets,
     targets_spatial_dim=targets_spatial_dim,
     enc_args=enc_args,
+    att_enc_args=enc_args,
     enc_spatial_dim=enc_spatial_dim,
     batch_dims=batch_dims
   )

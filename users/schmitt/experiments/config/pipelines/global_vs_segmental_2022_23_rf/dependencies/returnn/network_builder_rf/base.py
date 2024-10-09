@@ -1,4 +1,5 @@
 from typing import Optional, Tuple, Dict
+import copy
 
 from returnn.tensor import Tensor, Dim, single_step_dim
 import returnn.frontend as rf
@@ -232,6 +233,7 @@ class BaseLabelDecoder(rf.Module):
 
     readout_out_dim = Dim(name="readout", dimension=readout_dimension)
     self.use_current_frame_in_readout = use_current_frame_in_readout
+    self.att_h_t_dropout = config.float("att_h_t_dropout", 0.0)
     self.use_current_frame_in_readout_w_double_gate = config.bool("use_current_frame_in_readout_w_double_gate", False)
     self.use_readout = use_readout
     if use_current_frame_in_readout:
@@ -250,23 +252,27 @@ class BaseLabelDecoder(rf.Module):
         )
 
     self.use_current_frame_in_readout_w_gate = use_current_frame_in_readout_w_gate
-    if use_current_frame_in_readout_w_gate:
+    self.use_current_frame_in_readout_w_gate_v = config.int("use_current_frame_in_readout_w_gate_v", 1)
+    if use_current_frame_in_readout_w_gate and self.use_current_frame_in_readout_w_gate_v == 1:
       self.attention_gate = rf.Linear(
         att_num_heads * enc_out_dim,
         Dim(name="attention_gate", dimension=1),
       )
-    if self.use_current_frame_in_readout_w_double_gate:
+    elif self.use_current_frame_in_readout_w_double_gate or (
+            use_current_frame_in_readout_w_gate and self.use_current_frame_in_readout_w_gate_v == 2
+    ):
       self.attention_gate = rf.Linear(
         self.get_lstm().out_dim,
         att_dim,
       )
-      self.h_t_gate = rf.Linear(
-        self.get_lstm().out_dim,
-        enc_out_dim,
-      )
       self.h_t_att_merger = rf.Linear(
         enc_out_dim + att_dim,
         att_dim,
+      )
+    if self.use_current_frame_in_readout_w_double_gate:
+      self.h_t_gate = rf.Linear(
+        self.get_lstm().out_dim,
+        enc_out_dim,
       )
 
     self.use_current_frame_in_readout_random = use_current_frame_in_readout_random
@@ -280,6 +286,18 @@ class BaseLabelDecoder(rf.Module):
       self.output_prob = self.output_prob_reset_eos
     else:
       self.output_prob = rf.Linear(**output_prob_opts)
+
+    self.use_sep_h_t_readout = config.bool("use_sep_h_t_readout", False)
+    if self.use_sep_h_t_readout:
+      h_t_readout_in_dim = self.get_lstm().out_dim
+      h_t_readout_in_dim += self.target_embed.out_dim
+      h_t_readout_in_dim += enc_out_dim
+      self.h_t_readout_in = rf.Linear(
+        h_t_readout_in_dim,
+        readout_out_dim,
+      )
+
+      self.h_t_output_prob = copy.deepcopy(self.output_prob)
 
     self.use_mini_att = use_mini_att
     if use_mini_att:
@@ -358,7 +376,7 @@ class BaseLabelDecoder(rf.Module):
           h_t: Optional[Tensor] = None,
           detach_att: bool = False,
           detach_h_t: bool = False,
-  ) -> Tensor:
+  ) -> Tuple[Tensor, Optional[Tensor]]:
     if detach_att:
       att = rf.stop_gradient(att)
     if detach_h_t:
@@ -366,9 +384,14 @@ class BaseLabelDecoder(rf.Module):
 
     input_embed = rf.dropout(input_embed, drop_prob=self.target_embed_dropout, axis=None)
 
+    h_t_logits = None
     if self.use_current_frame_in_readout:
       assert h_t is not None, "Need h_t for readout!"
-      readout_input = rf.concat_features(s, input_embed, att, h_t, allow_broadcast=True)
+      att_h_t = rf.concat_features(att, h_t, allow_broadcast=True)
+      att_h_t = rf.dropout(att_h_t, drop_prob=self.att_h_t_dropout, axis=None)
+      if self.att_h_t_dropout > 0.0:
+        print("att_h_t", att_h_t.raw_tensor)
+      readout_input = rf.concat_features(s, input_embed, att_h_t, allow_broadcast=True)
     elif self.use_current_frame_in_readout_w_double_gate:
       assert h_t is not None, "Need h_t for readout!"
 
@@ -377,6 +400,17 @@ class BaseLabelDecoder(rf.Module):
 
       alpha_att = rf.sigmoid(self.attention_gate(s))
       weighted_att = alpha_att * att
+
+      merged_h_t_att = self.h_t_att_merger(rf.concat_features(weighted_h_t, weighted_att))
+
+      readout_input = rf.concat_features(s, input_embed, merged_h_t_att, allow_broadcast=True)
+    elif self.use_current_frame_in_readout_w_gate and self.use_current_frame_in_readout_w_gate_v == 2:
+      assert h_t is not None, "Need h_t for readout!"
+
+      alphas = rf.sigmoid(self.attention_gate(s))
+      weighted_att = alphas * att
+      alphas = utils.copy_tensor_replace_dim_tag(alphas, alphas.feature_dim, h_t.feature_dim)
+      weighted_h_t = (1 - alphas) * h_t
 
       merged_h_t_att = self.h_t_att_merger(rf.concat_features(weighted_h_t, weighted_att))
 
@@ -416,6 +450,13 @@ class BaseLabelDecoder(rf.Module):
       else:
         readout_input = att + utils.copy_tensor_replace_dim_tag(s, self.get_lstm().out_dim, att.feature_dim)
 
+      if self.use_sep_h_t_readout:
+        h_t_readout_input = rf.concat_features(s, input_embed, h_t, allow_broadcast=True)
+        h_t_readout_in = self.h_t_readout_in(h_t_readout_input)
+        h_t_readout = rf.reduce_out(h_t_readout_in, mode="max", num_pieces=2, out_dim=self.h_t_output_prob.in_dim)
+        h_t_readout = rf.dropout(h_t_readout, drop_prob=0.3, axis=self.dropout_broadcast and h_t_readout.feature_dim)
+        h_t_logits = self.h_t_output_prob(h_t_readout)
+
     if self.use_readout:
       readout_in = self.readout_in(readout_input)
       readout = rf.reduce_out(readout_in, mode="max", num_pieces=2, out_dim=self.output_prob.in_dim)
@@ -426,7 +467,7 @@ class BaseLabelDecoder(rf.Module):
       logits = rf.dropout(logits, drop_prob=0.1, axis=self.dropout_broadcast and logits.feature_dim)
       logits = rf.relu(logits)
 
-    return logits
+    return logits, h_t_logits
 
 
 def get_common_config_params():

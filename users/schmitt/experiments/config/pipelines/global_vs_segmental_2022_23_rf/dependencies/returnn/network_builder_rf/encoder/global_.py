@@ -82,8 +82,9 @@ class GlobalConformerEncoder(ConformerEncoder):
       if use_weight_feedback:
         self.inv_fertility = rf.Linear(self.out_dim, dec_att_num_heads, with_bias=False)
 
-    for p in self.parameters():
-      p.weight_decay = l2
+    # currently has no effect anyway
+    # for p in self.parameters():
+    #   p.weight_decay = l2
 
     if aux_logits:
       if not wb_target_dim:

@@ -13,6 +13,9 @@ from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segment
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.pipelines.pipeline_ls_conf.center_window_att import baseline_v5_small as center_window_baseline_v5_small
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.pipelines.pipeline_ls_conf.center_window_att import baseline_v6 as center_window_baseline_v6
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.pipelines.pipeline_ls_conf.center_window_att import baseline_v7 as center_window_baseline_v7
+from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.pipelines.pipeline_ls_conf.center_window_att import data as center_window_att_data
+from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.pipelines.pipeline_ls_conf.center_window_att import plot_gradient_wrt_enc11, plot_diff_models
+from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.pipelines.pipeline_ls_conf.center_window_att.alias import alias as center_window_base_alias
 
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.pipelines.pipeline_ls_conf.global_att import baseline_v1 as global_att_baseline_v1
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.pipelines.pipeline_ls_conf.global_att import baseline_v2 as global_att_baseline_v2
@@ -42,7 +45,37 @@ def run_exps():
   center_window_baseline_v5.run_exps()
   center_window_baseline_v5_small.run_exps()
   center_window_baseline_v6.run_exps()
-  center_window_baseline_v7.run_exps()
+  # center_window_baseline_v7.run_exps()
+
+  for folder_name in [
+    "log-prob-grads_wrt_enc-11_log-space",
+    "log-probs-wo-h_t-grads_wrt_enc-11_log-space",
+  ]:
+    analyze_gradients_jobs = [
+      center_window_att_data.analyze_gradients_jobs["baseline_v3_full-sum"]["v2"][f"epoch-360"],
+      center_window_att_data.analyze_gradients_jobs["baseline_v3_two-stage"]["fixed-path"]["v2"],
+      center_window_att_data.analyze_gradients_jobs["baseline_v5_full-sum"]["v1"][f"epoch-720"],
+      center_window_att_data.analyze_gradients_jobs["baseline_v5_two-stage"]["fixed-path"]["v2"],
+      center_window_att_data.analyze_gradients_jobs["baseline_v5_two-stage"]["fixed-path"]["v4"],
+    ]
+    titles = [
+      "Full ctx transducer w/ global RNN attention full-sum (epoch 450/900)",
+      "Full ctx transducer w/ global RNN attention fixed-path (epoch 600/600)",
+      "Full ctx transducer w/ global Trafo attention full-sum (epoch 720/900)",
+      "Full ctx transducer w/ global Trafo attention fixed-path (epoch 600/600)",
+      "Ctx-1 transducer w/ global 'Linear' attention fixed-path (epoch 600/600)",
+    ]
+
+    if folder_name == "log-prob-grads_wrt_enc-11_log-space":
+      analyze_gradients_jobs.insert(0, center_window_att_data.analyze_gradients_jobs["baseline_v3_full-sum"]["v1"][f"epoch-450"])
+      titles.insert(0, "Full ctx transducer w/o attention full-sum (epoch 450/900)")
+
+    plot_diff_models(
+      analyze_gradients_jobs,
+      alias=f"{center_window_base_alias}/{folder_name}_different_models",
+      titles=titles,
+      folder_name=folder_name,
+    )
 
 
 def setup_gmm_alignment():

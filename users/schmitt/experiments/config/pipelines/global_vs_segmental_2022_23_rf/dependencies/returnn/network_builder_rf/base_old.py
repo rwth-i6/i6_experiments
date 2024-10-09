@@ -98,8 +98,9 @@ class BaseModel(rf.Module):
     )
     self.output_prob = rf.Linear(self.readout_in.out_dim // 2, target_dim)
 
-    for p in self.parameters():
-      p.weight_decay = l2
+    # currently has no effect anyway
+    # for p in self.parameters():
+    #   p.weight_decay = l2
 
     if enc_aux_logits:
       if not wb_target_dim:

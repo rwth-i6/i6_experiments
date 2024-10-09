@@ -272,7 +272,8 @@ def from_scratch_model_def(*, epoch: int, vocab_dim: Dim) -> TransformerDecoder:
   model_dim = config.typed_value("model_dim", Dim(512, name="transformer-dec-model-dim"))
   num_layers = config.typed_value("num_layers", 24)
   embed_dim = config.typed_value("embed_dim", Dim(128, name="transformer-dec-embed-dim"))
-  decoder_layer_opts = {"self_att_opts": {"with_bias": False, "att_dropout_broadcast": False}}
+  decoder_layer_opts = config.typed_value("decoder_layer_opts", None)
+  norm = config.typed_value("norm", "rf.LayerNorm")
   input_embedding_scale = config.typed_value("input_embedding_scale", 1.0)
   share_embedding = config.typed_value("share_embedding", False)
   logits_with_bias = config.typed_value("logits_with_bias", True)
@@ -280,13 +281,15 @@ def from_scratch_model_def(*, epoch: int, vocab_dim: Dim) -> TransformerDecoder:
   ff_activation = config.typed_value("ff_activation", "rf.gelu")
   dropout = config.typed_value("dropout", 0.0)
   att_dropout = config.typed_value("att_dropout", 0.0)
+  ff = config.typed_value("ff", "returnn.util.basic.NotSpecified")
+  pos_enc = config.typed_value("pos_enc", "rf.sinusoidal_positional_encoding")
 
   return MakeModel.make_model(
     vocab_dim=vocab_dim,
     model_dim=model_dim,
     num_layers=num_layers,
     # embed_dim=embed_dim,
-    # decoder_layer_opts=decoder_layer_opts,
+    decoder_layer_opts=decoder_layer_opts,
     # input_embedding_scale=input_embedding_scale,
     # share_embedding=share_embedding,
     # logits_with_bias=logits_with_bias,
@@ -294,6 +297,9 @@ def from_scratch_model_def(*, epoch: int, vocab_dim: Dim) -> TransformerDecoder:
     ff_activation=rf.build_dict(eval(ff_activation)),
     dropout=dropout,
     att_dropout=att_dropout,
+    norm=rf.build_dict(eval(norm)),
+    ff=rf.build_dict(eval(ff)),
+    pos_enc=None if pos_enc is None else eval(pos_enc),
   )
 
 

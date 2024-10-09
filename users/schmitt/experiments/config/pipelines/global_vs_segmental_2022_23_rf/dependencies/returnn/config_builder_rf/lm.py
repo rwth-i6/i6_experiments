@@ -27,6 +27,12 @@ class LmConfigBuilderRF(ABC):
           variant_params: Dict,
           model_def: ModelDef,
           get_model_func: Callable,
+          num_layers: int,
+          model_dim: int,
+          pos_enc: Optional[str] = "rf.sinusoidal_positional_encoding",
+          ff: str = "returnn.util.basic.NotSpecified",
+          norm: str = "rf.LayerNorm",
+          decoder_layer_opts: Optional[Dict] = None,
   ):
     self.variant_params = variant_params
     self.model_def = model_def
@@ -48,6 +54,20 @@ class LmConfigBuilderRF(ABC):
       target="data",
       behavior_version=21,
     )
+
+    if num_layers != 24:
+      self.config_dict["num_layers"] = num_layers
+    if model_dim != 512:
+      self.config_dict["model_dim"] = model_dim
+    if pos_enc != "rf.sinusoidal_positional_encoding":
+      self.config_dict["pos_enc"] = pos_enc
+    if ff != "returnn.util.basic.NotSpecified":
+      self.config_dict["ff"] = ff
+    if norm != "rf.LayerNorm":
+      self.config_dict["norm"] = norm
+    if decoder_layer_opts is not None:
+      self.config_dict["decoder_layer_opts"] = decoder_layer_opts
+
 
     self.python_prolog = []
 
@@ -104,6 +124,9 @@ class LmConfigBuilderRF(ABC):
 
     remaining_opt_keys = [
       "torch_distributed",
+      "max_seq_length",
+      "accum_grad_multiple_step",
+      "max_seqs",
     ]
     config_dict.update(
       {k: opts.pop(k) for k in remaining_opt_keys if k in opts}
@@ -243,7 +266,7 @@ class LmConfigBuilderRF(ABC):
     train_data = build_lm_training_datasets(
       prefix="lm_train_data",
       librispeech_key="train-other-960",
-      bpe_size=1000,
+      bpe_size=self.variant_params["dependencies"].num_bpes // 1000 * 1000,
       settings=LMDatasetSettings(
         train_partition_epoch=20,
         train_seq_ordering="laplace:.1000",

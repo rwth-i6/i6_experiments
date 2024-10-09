@@ -197,6 +197,8 @@ class PlotAttentionWeightsJobV2(Job):
           ref_alignment_json_vocab_path: Optional[Path] = None,
           plot_w_cog: bool = True,
           titles: Optional[List[str]] = None,
+          vmin: Optional[Union[Dict, int, float]] = None,
+          vmax: Optional[Union[Dict, int, float]] = None,
   ):
     assert target_blank_idx is None or (seg_lens_hdf is not None and seg_starts_hdf is not None)
     self.seg_lens_hdf = seg_lens_hdf
@@ -204,6 +206,8 @@ class PlotAttentionWeightsJobV2(Job):
     self.center_positions_hdf = center_positions_hdf
     self.targets_hdf = targets_hdf
     self.titles = titles
+    self.vmin = vmin
+    self.vmax = vmax
 
     if isinstance(att_weight_hdf, list):
       self.att_weight_hdf = att_weight_hdf[0]
@@ -306,7 +310,7 @@ class PlotAttentionWeightsJobV2(Job):
       fig_height = fig_width
     else:
       fig_width = 7 * num_frames / 80
-      fig_height = att_weights.shape[1] * 0.1 / 7 - 1
+      fig_height = att_weights.shape[1] * 0.1 / 7 #  - 1 (-1 can be too large, leading to negative values)
       # if num_frames < 32:
       #   width_factor = 4
       #   height_factor = 2
@@ -554,12 +558,24 @@ class PlotAttentionWeightsJobV2(Job):
 
       fig, axes = self._get_fig_ax(att_weights_list, upsampling_factor=(upsampling_factor // 2) if upsampling_factor > 1 else 1)
 
+      # vmin = None if self.vmin is None else self.vmin[seq_tag]
+      vmin = self.vmin
+      if isinstance(vmin, dict):
+        vmin = vmin[seq_tag]
+
+      # vmax = None if self.vmax is None else self.vmax[seq_tag]
+      vmax = self.vmax
+      if isinstance(vmax, dict):
+        vmax = vmax[seq_tag]
+
       for i, ax in enumerate(axes):
         att_weights = att_weights_list[i]
-        ax.matshow(
+        mat = ax.matshow(
           att_weights,
           cmap=plt.cm.get_cmap("Greys") if self.plot_w_color_gradient else plt.cm.get_cmap("Blues"),
-          aspect="auto"
+          aspect="auto",
+          vmin=vmin,
+          vmax=vmax,
         )
 
         if self.titles is not None:
@@ -592,6 +608,19 @@ class PlotAttentionWeightsJobV2(Job):
           self._draw_center_positions(ax, center_positions)
 
         ax.invert_yaxis()
+
+        # use individual colorbars if vmin and vmax are not set
+        if self.vmin is None or self.vmax is None:
+          cax = fig.add_axes([ax.get_position().x1 + 0.01, ax.get_position().y0, 0.02, ax.get_position().height])
+          cbar = plt.colorbar(mat, cax=cax)
+          cbar.ax.tick_params(labelsize=16)
+
+      # use single colorbar if vmin and vmax are set
+      if self.vmin is not None and self.vmax is not None:
+        fig.subplots_adjust(right=0.9)
+        cbar_ax = fig.add_axes([0.91, 0.15, 0.02, 0.7])
+        cbar = fig.colorbar(mat, cax=cbar_ax)
+        cbar.ax.tick_params(labelsize=16)
 
       fig.text(0.01, 0.5, 'Output Labels ($\\rightarrow$)', va='center', rotation='vertical', fontsize=26)
 
@@ -647,6 +676,10 @@ class PlotAttentionWeightsJobV2(Job):
       d.pop("plot_w_cog")
     if d["titles"] is None:
       d.pop("titles")
+    if d["vmin"] is None:
+      d.pop("vmin")
+    if d["vmax"] is None:
+      d.pop("vmax")
 
     return super().hash(d)
 
@@ -1064,6 +1097,8 @@ def plot_att_weights(
         ref_alignment_json_vocab_path: Optional[Path] = None,
         plot_name: str = "plots",
         plot_w_color_gradient: bool = False,
+        vmin: Optional[Dict] = None,
+        vmax: Optional[Dict] = None,
 ):
   plot_att_weights_job = PlotAttentionWeightsJobV2(
     att_weight_hdf=att_weight_hdf,
@@ -1079,6 +1114,8 @@ def plot_att_weights(
     segment_whitelist=segment_whitelist,
     ref_alignment_json_vocab_path=ref_alignment_json_vocab_path,
     plot_w_cog=False,
+    vmin=vmin,
+    vmax=vmax,
   )
 
   if plot_w_color_gradient:

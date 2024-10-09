@@ -63,3 +63,88 @@ class GetSeqLenFileJob(Job):
     }
 
     return super().hash(d)
+
+
+class GetCorrectDataFilteringJob(Job):
+  def __init__(
+          self,
+          seq_len_file1: Path,
+          seq_len_file2: Path,
+          max_seq_len1: int,
+  ):
+    self.seq_len_file1 = seq_len_file1
+    self.seq_len_file2 = seq_len_file2
+    self.max_seq_len1 = max_seq_len1
+
+    self.out_threshold = self.output_path("threshold")
+
+  def tasks(self):
+    yield Task("run", mini_task=True)
+
+  def run(self):
+    seq_lens = {1: [], 2: []}
+    for i, seq_len_file in enumerate([self.seq_len_file1, self.seq_len_file2]):
+      print(f"Reading sequence lengths {i + 1}")
+      with open(seq_len_file.get_path(), "r") as f:
+        for n, line in enumerate(f):
+          if n % 1_000_000 == 0:
+            print(f"Reading line {n}")
+          if line.strip() in ["{", "}"]:
+            continue
+          _, seq_len = line.strip().split(":")
+          seq_len = seq_len.split(",")[0]
+          seq_lens[i + 1].append(int(seq_len))
+
+    seq_lens1 = seq_lens[1]
+    seq_lens2 = seq_lens[2]
+    # filter first list
+    print("Filtering first list")
+    filtered_seq_lens1 = [l for l in seq_lens1 if l <= self.max_seq_len1]
+    print(f"Original number of sequences: {len(seq_lens1)}")
+    print(f"Number of filtered sequences 1: {len(filtered_seq_lens1)}")
+    num1 = len(seq_lens1)
+    num_filtered1 = len(filtered_seq_lens1)
+    prop1 = num_filtered1 / num1
+
+    # apply same proportion to second list
+    num2 = len(seq_lens2)
+    num_filtered2 = int(num2 * prop1)
+
+    # sort second list and get threshold length to achieve same amount of filtered data
+    print("Filtering second list")
+    seq_lens2_sorted = sorted(seq_lens2)
+    threshold_length = seq_lens2_sorted[num_filtered2]
+    filtered_seq_lens2 = [l for l in seq_lens2 if l <= threshold_length]
+    num_actually_filtered2 = len(filtered_seq_lens2)
+    print(f"Number of filtered sequences 2: {num_actually_filtered2}")
+    if num_actually_filtered2 > num_filtered2:
+      print(
+          f"Warning: Actually filtered more data than expected: "
+          f"{num_actually_filtered2} > {num_filtered2} ({num_actually_filtered2 / num_filtered2})"
+      )
+      assert num_actually_filtered2 / num_filtered2 < 1.001
+    else:
+      print(
+          f"Actually filtered less data than expected: "
+          f"{num_actually_filtered2} < {num_filtered2} ({num_actually_filtered2 / num_filtered2})"
+      )
+      assert num_actually_filtered2 / num_filtered2 > 0.999
+
+    wrongly_filtered2 = [l for l in seq_lens2 if l <= self.max_seq_len1]
+    num_wrongly_filtered2 = len(wrongly_filtered2)
+    print(
+      f"Number of wrongly filtered sequences 2 with max_seq_length {self.max_seq_len1}: "
+      f"{num_wrongly_filtered2} ({num_wrongly_filtered2 / num2 * 100:.2f}% of original data)"
+    )
+    print(
+      f"Number of correctly filtered sequences 2 with threshold length {threshold_length}: "
+      f"{num_actually_filtered2} ({num_actually_filtered2 / num2 * 100:.2f}% of original data)"
+    )
+    print(
+      f"Number of correctly filtered sequences 1 with max_seq_length {self.max_seq_len1}: "
+      f"{num_filtered1} ({num_filtered1 / num1 * 100:.2f}% of original data)"
+    )
+
+    with open(self.out_threshold.get_path(), "w+") as f:
+      f.write(str(threshold_length))
+

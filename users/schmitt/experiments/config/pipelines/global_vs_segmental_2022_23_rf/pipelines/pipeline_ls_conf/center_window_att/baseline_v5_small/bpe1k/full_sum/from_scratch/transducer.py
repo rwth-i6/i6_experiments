@@ -14,7 +14,8 @@ from sisyphus import Path
 def run_exps():
   # ------------------------------ Transducer ------------------------------
 
-  n_full_epochs = 30
+  n_full_epochs = 45
+  regularization_type = "v3"
   for (
     win_size,
     use_trafo_att,
@@ -31,7 +32,7 @@ def run_exps():
         n_epochs = n_full_epochs * 20
       else:
         use_mgpu = True
-        accum_grad_multiple_step = 4
+        accum_grad_multiple_step = 1
         batch_size = 12_000
         n_epochs = n_full_epochs * 20 // 4
 
@@ -61,6 +62,7 @@ def run_exps():
                 ctc_aux_loss_layers=(4, 8),
                 gpu_mem_rqmt=gpu_mem_rqmt,
                 accum_grad_multiple_step=accum_grad_multiple_step,
+                regularization_type=regularization_type,
         ):
           recog.center_window_returnn_frame_wise_beam_search(
             alias=train_alias,

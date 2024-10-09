@@ -115,6 +115,36 @@ def run_exps():
             only_do_analysis=True,
           )
 
+    # v3, 900 epochs
+    keep_epochs = list(range(90, 900, 90))
+    for train_alias, checkpoint in train.train_global_att(
+      alias=model_alias,
+      config_builder=config_builder,
+      n_epochs=900,
+      keep_epochs=keep_epochs,
+      filter_data_len=19.5 * 16_000,  # sample rate 16kHz
+      gpu_mem_rqmt=24,
+      use_mgpu=False,
+      ctc_aux_loss_layers=(4, 8),
+      accum_grad_multiple_step=2,
+      batch_size=35_000,
+    ):
+      recog.global_att_returnn_label_sync_beam_search(
+        alias=train_alias,
+        config_builder=config_builder,
+        checkpoint=checkpoint,
+        corpus_keys=("dev-other",),
+      )
+
+      for epoch, chckpt in checkpoint["checkpoints"].items():
+        if epoch in keep_epochs:
+          recog.global_att_returnn_label_sync_beam_search(
+            alias=train_alias,
+            config_builder=config_builder,
+            checkpoint=chckpt,
+            checkpoint_aliases=(f"epoch-{epoch}",),
+          )
+
     # v4: same as v2, but filter out targets > 75
     for train_alias, checkpoint in train.train_global_att(
       alias=model_alias,
@@ -222,6 +252,25 @@ def run_exps():
           analyze_gradients=True,
           checkpoint_aliases=("last",),
         )
+
+        if alias == "v8_big":
+          recog.global_att_returnn_label_sync_beam_search(
+            alias=train_alias,
+            config_builder=config_builder,
+            checkpoint=checkpoint,
+            checkpoint_aliases=("last",),
+            run_analysis=True,
+            only_do_analysis=True,
+            analyze_gradients=True,
+            analsis_analyze_gradients_plot_log_gradients=True,
+            analysis_analyze_gradients_plot_encoder_layers=True,
+            att_weight_seq_tags=[
+              "train-other-960/1246-124548-0042/1246-124548-0042",
+              "train-other-960/40-222-0033/40-222-0033",
+              "train-other-960/103-1240-0038/103-1240-0038",
+            ],
+            corpus_keys=("train",),
+          )
 
         analysis_epochs = [121, 131]
         if alias in ("v3_big",):

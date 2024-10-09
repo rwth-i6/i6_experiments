@@ -1,5 +1,5 @@
 import os.path
-from typing import Optional, Dict, List, Callable
+from typing import Optional, Dict, List, Callable, Union
 import sys
 import ast
 
@@ -17,7 +17,7 @@ from returnn.frontend.encoder.conformer import ConformerEncoder, ConformerEncode
 from returnn.frontend.attention import RelPosSelfAttention, dot_attention
 from returnn.frontend.decoder.transformer import TransformerDecoder, TransformerDecoderLayer
 
-from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.base import TrafoAttention
+from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.base import TrafoAttention, BaseLabelDecoder
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.segmental import utils
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.ctc.realignment import ctc_align_get_center_positions
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.ctc.model import CtcModel
@@ -265,9 +265,9 @@ def _plot_activation_matrix(
         seq_tags: rf.Tensor,
         batch_dim: rf.Dim,
         spatial_dim: rf.Dim,
-        max_values: rf.Tensor,
-        min_values: rf.Tensor,
-        activation_magnitude_file_path,
+        max_values: Optional[Union[rf.Tensor, float]] = None,
+        min_values: Optional[Union[rf.Tensor, float]] = None,
+        activation_magnitude_file_path: Optional[str] = None,
         extra_name: Optional[str] = None,
         batch_mask: Optional[rf.Tensor] = None,
         non_blank_positions_dict: Optional[Dict] = None,
@@ -307,11 +307,23 @@ def _plot_activation_matrix(
 
     fig = plt.figure(figsize=(10, 5))
     activation_ax = plt.axes()
+
+    vmin = None
+    if isinstance(min_values, rf.Tensor):
+      vmin = min_values.raw_tensor[b].item()
+    elif isinstance(min_values, float):
+      vmin = min_values
+    vmax = None
+    if isinstance(max_values, rf.Tensor):
+      vmax = max_values.raw_tensor[b].item()
+    elif isinstance(max_values, float):
+      vmax = max_values
+
     mat = activation_ax.matshow(
       x_raw_b,
       cmap="Reds",
-      vmin=min_values.raw_tensor[b].item(),
-      vmax=max_values.raw_tensor[b].item(),
+      vmin=vmin,
+      vmax=vmax,
       aspect="auto",
     )
     # activation_ax.set_title(f"{input_name} Activation matrix for \n {seq_tag}", fontsize=12, pad=20)
@@ -353,13 +365,13 @@ def _plot_activation_matrix(
                                         f"{input_name}_acts_{seq_tag.replace('/', '_')}_{extra_name if extra_name else ''}.png")
       plot_file_path_pdf = os.path.join(dirname,
                                         f"{input_name}_acts_{seq_tag.replace('/', '_')}_{extra_name if extra_name else ''}.pdf")
-      magnitude_file_path = os.path.join(dirname,
-                                         f"{input_name}_acts_{seq_tag.replace('/', '_')}_{extra_name if extra_name else ''}_magnitude.txt")
+
       plt.savefig(plot_file_path_png)
       plt.savefig(plot_file_path_pdf)
-      with open(activation_magnitude_file_path, "a") as f:
-        f.write(f"{input_name} mean over norm of abs: {np.mean(np.linalg.norm(x_raw_b, axis=0))}\n")
-        f.write(f"{input_name} norm over time and feature: {np.linalg.norm(x_raw_b)}\n\n")
+      if activation_magnitude_file_path is not None:
+        with open(activation_magnitude_file_path, "a") as f:
+          f.write(f"{input_name} mean over norm of abs: {np.mean(np.linalg.norm(x_raw_b, axis=0))}\n")
+          f.write(f"{input_name} norm over time and feature: {np.linalg.norm(x_raw_b)}\n\n")
 
       plot_file_paths[seq_tag] = plot_file_path_png
     else:
@@ -1762,6 +1774,7 @@ def analyze_gradients(
         forward_sequence_global(
           model=model.label_decoder,
           enc_args=enc_args,
+          att_enc_args=enc_args,
           enc_spatial_dim=enc_spatial_dim,
           targets=non_blank_targets,
           targets_spatial_dim=non_blank_targets_spatial_dim,
@@ -1784,9 +1797,10 @@ def analyze_gradients(
         assert isinstance(energies, rf.Tensor)
 
         if model.label_decoder.use_current_frame_in_readout or model.label_decoder.use_current_frame_in_readout_w_double_gate:
-          logits_wo_att, _ = forward_sequence_global(
+          logits_wo_att, _, _ = forward_sequence_global(
             model=model.label_decoder,
             enc_args=enc_args,
+            att_enc_args=enc_args,
             enc_spatial_dim=enc_spatial_dim,
             targets=non_blank_targets,
             targets_spatial_dim=non_blank_targets_spatial_dim,
@@ -1796,9 +1810,10 @@ def analyze_gradients(
           )
           log_probs_wo_att = rf.log_softmax(logits_wo_att, axis=model.target_dim)
           log_probs_wo_att = log_probs_wo_att.copy_transpose(batch_dims + [non_blank_targets_spatial_dim, model.target_dim])
-          logits_wo_h_t, _ = forward_sequence_global(
+          logits_wo_h_t, _, _ = forward_sequence_global(
             model=model.label_decoder,
             enc_args=enc_args,
+            att_enc_args=enc_args,
             enc_spatial_dim=enc_spatial_dim,
             targets=non_blank_targets,
             targets_spatial_dim=non_blank_targets_spatial_dim,
@@ -1808,6 +1823,32 @@ def analyze_gradients(
           )
           log_probs_wo_h_t = rf.log_softmax(logits_wo_h_t, axis=model.target_dim)
           log_probs_wo_h_t = log_probs_wo_h_t.copy_transpose(batch_dims + [non_blank_targets_spatial_dim, model.target_dim])
+
+          if model.label_decoder.use_current_frame_in_readout_w_double_gate:
+            alpha_h_t = process_captured_tensors(
+              layer_mapping={"alpha_h_t": (GlobalAttEfficientDecoder.decode_logits, 0, "alpha_h_t", -1)},
+            )
+            assert isinstance(alpha_h_t, rf.Tensor)
+            alpha_att = process_captured_tensors(
+              layer_mapping={"alpha_att": (GlobalAttEfficientDecoder.decode_logits, 0, "alpha_att", -1)},
+            )
+            assert isinstance(alpha_att, rf.Tensor)
+
+            for tensor_name, tensor in [
+              ("alpha_h_t", alpha_h_t),
+              ("alpha_att", alpha_att),
+            ]:
+              _plot_activation_matrix(
+                x=tensor,
+                input_name=tensor_name,
+                dirname=f"{tensor_name}/layer_activations",
+                seq_tags=seq_tags,
+                batch_dim=batch_dims[0],
+                spatial_dim=non_blank_targets_spatial_dim,
+                non_blank_targets_dict=ref_non_blank_targets_dict,
+                min_values=0.0,
+                max_values=1.0,
+              )
         else:
           log_probs_wo_att = None
           log_probs_wo_h_t = None
@@ -1841,6 +1882,7 @@ def analyze_gradients(
         forward_sequence_global(
           model=model.label_decoder,
           enc_args=enc_args,
+          att_enc_args=enc_args,
           enc_spatial_dim=enc_spatial_dim,
           targets=non_blank_targets,
           targets_spatial_dim=non_blank_targets_spatial_dim,
@@ -1883,6 +1925,33 @@ def analyze_gradients(
 
         log_probs_wo_att = None
         log_probs_wo_h_t = None
+        if model.label_decoder.use_current_frame_in_readout or model.label_decoder.use_current_frame_in_readout_w_double_gate:
+          logits_wo_att, _, _ = forward_sequence_global(
+            model=model.label_decoder,
+            enc_args=enc_args,
+            att_enc_args=enc_args,
+            enc_spatial_dim=enc_spatial_dim,
+            targets=non_blank_targets,
+            targets_spatial_dim=non_blank_targets_spatial_dim,
+            center_positions=center_positions,
+            batch_dims=batch_dims,
+            detach_att_before_readout=True,
+          )
+          log_probs_wo_att = rf.log_softmax(logits_wo_att, axis=model.target_dim)
+          log_probs_wo_att = log_probs_wo_att.copy_transpose(batch_dims + [non_blank_targets_spatial_dim, model.target_dim])
+          logits_wo_h_t, _, _ = forward_sequence_global(
+            model=model.label_decoder,
+            enc_args=enc_args,
+            att_enc_args=enc_args,
+            enc_spatial_dim=enc_spatial_dim,
+            targets=non_blank_targets,
+            targets_spatial_dim=non_blank_targets_spatial_dim,
+            center_positions=center_positions,
+            batch_dims=batch_dims,
+            detach_h_t_before_readout=True,
+          )
+          log_probs_wo_h_t = rf.log_softmax(logits_wo_h_t, axis=model.target_dim)
+          log_probs_wo_h_t = log_probs_wo_h_t.copy_transpose(batch_dims + [non_blank_targets_spatial_dim, model.target_dim])
 
         logits = process_captured_tensors(
           layer_mapping={"logits": (GlobalAttDecoder.decode_logits, 0, "logits", -1)}
@@ -1932,6 +2001,7 @@ def analyze_gradients(
               forward_sequence_global(
                 model=model.label_decoder,
                 enc_args=enc_args,
+                att_enc_args=enc_args,
                 enc_spatial_dim=enc_spatial_dim,
                 targets=non_blank_targets,
                 targets_spatial_dim=non_blank_targets_spatial_dim,
@@ -1941,7 +2011,7 @@ def analyze_gradients(
             sys.settrace(None)
 
             _dec_layer_idx = 2 * dec_layer_idx + int(get_cross_attentions)
-            if model.label_decoder.use_trafo_att_wo_cross_att:
+            if isinstance(model.label_decoder, BaseLabelDecoder) and model.label_decoder.use_trafo_att_wo_cross_att:
               att_weights = None
               energies = None
             else:
@@ -1970,9 +2040,10 @@ def analyze_gradients(
                 layer_mapping={"logits": (GlobalAttEfficientDecoder.decode_logits, 0, "logits", -1)}
               )
 
-              logits_wo_att, _ = forward_sequence_global(
+              logits_wo_att, _, _ = forward_sequence_global(
                 model=model.label_decoder,
                 enc_args=enc_args,
+                att_enc_args=enc_args,
                 enc_spatial_dim=enc_spatial_dim,
                 targets=non_blank_targets,
                 targets_spatial_dim=non_blank_targets_spatial_dim,
@@ -1982,9 +2053,10 @@ def analyze_gradients(
               )
               log_probs_wo_att = rf.log_softmax(logits_wo_att, axis=model.target_dim)
               log_probs_wo_att = log_probs_wo_att.copy_transpose(batch_dims + [non_blank_targets_spatial_dim, model.target_dim])
-              logits_wo_h_t, _ = forward_sequence_global(
+              logits_wo_h_t, _, _ = forward_sequence_global(
                 model=model.label_decoder,
                 enc_args=enc_args,
+                att_enc_args=enc_args,
                 enc_spatial_dim=enc_spatial_dim,
                 targets=non_blank_targets,
                 targets_spatial_dim=non_blank_targets_spatial_dim,
@@ -2085,7 +2157,10 @@ def analyze_gradients(
                     **plot_att_weight_opts
                   )
 
-            if not model.label_decoder.use_trafo_att_wo_cross_att:
+            if (
+                    isinstance(model.label_decoder, BaseLabelDecoder) and
+                    not model.label_decoder.use_trafo_att_wo_cross_att
+            ) or isinstance(model.label_decoder, TransformerDecoder):
               _plot_attention_weights()
 
       # optionally plot energies for every s = 1...S

@@ -40,6 +40,7 @@ def _calc_ce_loss_and_fer(
         separate_blank_loss: bool = False,
         beam_dim: Optional[Dim] = None,
         separate_blank_from_softmax: bool = False,
+        loss_alias: Optional[str] = None,
 ):
   from returnn.config import get_global_config
   config = get_global_config()  # noqa
@@ -121,11 +122,12 @@ def _calc_ce_loss_and_fer(
   else:
     loss_prefix = "non_blank"
 
-  loss.mark_as_loss(f"{loss_prefix}_ce", scale=1.0, use_normalized_loss=True)
+  loss_name = f"{loss_alias}_{loss_prefix}" if loss_alias else loss_prefix
+  loss.mark_as_loss(f"{loss_name}_ce", scale=1.0, use_normalized_loss=True)
 
   best = rf.reduce_argmax(logits_packed, axis=target_dim)
   frame_error = best != non_blank_targets_packed
-  frame_error.mark_as_loss(name=f"{loss_prefix}_fer", as_error=True)
+  frame_error.mark_as_loss(name=f"{loss_name}_fer", as_error=True)
 
 
 def forward_sequence(
@@ -223,6 +225,7 @@ def viterbi_training(
         *,
         model: Union[SegmentalAttLabelDecoder, GlobalAttDecoder],
         enc_args: Dict,
+        att_enc_args: Dict,
         enc_spatial_dim: Dim,
         non_blank_targets: rf.Tensor,
         non_blank_targets_spatial_dim: Dim,
@@ -248,12 +251,14 @@ def viterbi_training(
       batch_dims=batch_dims,
       return_label_model_states=return_label_model_states,
     )
+    h_t_logits = None
   else:
-    logits, label_model_states = forward_sequence_global_att(
+    logits, label_model_states, h_t_logits = forward_sequence_global_att(
       model=model,
       targets=non_blank_targets,
       targets_spatial_dim=non_blank_targets_spatial_dim,
       enc_args=enc_args,
+      att_enc_args=att_enc_args,
       enc_spatial_dim=enc_spatial_dim,
       batch_dims=batch_dims,
       return_label_model_states=return_label_model_states,
@@ -271,6 +276,20 @@ def viterbi_training(
     beam_dim=beam_dim,
     separate_blank_from_softmax=model.separate_blank_from_softmax,
   )
+
+  if h_t_logits:
+    _calc_ce_loss_and_fer(
+      h_t_logits,
+      non_blank_targets,
+      batch_dims,
+      non_blank_targets_spatial_dim,
+      model.target_dim,
+      blank_idx=model.blank_idx,
+      separate_blank_loss=separate_blank_loss,
+      beam_dim=beam_dim,
+      separate_blank_from_softmax=model.separate_blank_from_softmax,
+      loss_alias="sep-h_t"
+    )
 
   return logits, label_model_states
 

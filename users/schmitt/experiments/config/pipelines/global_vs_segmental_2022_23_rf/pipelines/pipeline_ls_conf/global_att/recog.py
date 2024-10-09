@@ -9,6 +9,7 @@ from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segment
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.recog_new import ReturnnGlobalAttDecodingPipeline
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.labels.v2.librispeech.label_singletons import LibrispeechBPE10025_CTC_ALIGNMENT
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.labels.v2.librispeech.phonemes.gmm_alignments import LIBRISPEECH_GMM_WORD_ALIGNMENT
+from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.pipelines.pipeline_ls_conf.checkpoints import lm_checkpoints
 
 
 def global_att_returnn_label_sync_beam_search(
@@ -19,6 +20,8 @@ def global_att_returnn_label_sync_beam_search(
         lm_type: Optional[str] = None,
         ilm_scale_list: Tuple[float, ...] = (0.0,),
         ilm_type: Optional[str] = None,
+        lm_alias: Optional[str] = "kazuki-10k",
+        lm_checkpoint: Optional[Checkpoint] = lm_checkpoints["kazuki-10k"],
         beam_size_list: Tuple[int, ...] = (12,),
         checkpoint_aliases: Tuple[str, ...] = ("last", "best", "best-4-avg"),
         run_analysis: bool = False,
@@ -99,14 +102,14 @@ def global_att_returnn_label_sync_beam_search(
   else:
     analysis_opts = None
 
-  ReturnnGlobalAttDecodingPipeline(
+  pipeline = ReturnnGlobalAttDecodingPipeline(
     alias=alias,
     config_builder=config_builder,
     checkpoint=checkpoint,
     checkpoint_aliases=checkpoint_aliases,
     beam_sizes=beam_size_list,
     lm_scales=lm_scale_list,
-    lm_opts={"type": lm_type, "add_lm_eos_last_frame": True},
+    lm_opts={"type": lm_type, "add_lm_eos_last_frame": True, "alias": lm_alias, "checkpoint": lm_checkpoint},
     ilm_scales=ilm_scale_list,
     ilm_opts=ilm_opts,
     run_analysis=run_analysis,
@@ -115,4 +118,7 @@ def global_att_returnn_label_sync_beam_search(
     search_alias=f'returnn_decoding',
     corpus_keys=corpus_keys,
     only_do_analysis=only_do_analysis
-  ).run()
+  )
+  pipeline.run()
+
+  return pipeline

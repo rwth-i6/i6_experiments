@@ -29,7 +29,7 @@ class SegmentalAttLabelDecoder(BaseLabelDecoder):
     if self.center_window_size == 1:
       att_dim = self.enc_out_dim
     else:
-      att_dim = self.enc_out_dim * self.att_num_heads
+      att_dim = self.att_num_heads * self.enc_out_dim
     state = rf.State(
       att=rf.zeros(list(batch_dims) + [att_dim]),
       segment_starts=rf.zeros(batch_dims, sparse_dim=segment_starts_sparse_dim, dtype="int32"),

@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import Optional, Dict
 
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.config_builder_rf.lm import LibrispeechLstmLmConfigBuilderRF
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.lm.trafo.model import from_scratch_model_def, _returnn_v2_get_model
@@ -13,7 +13,13 @@ from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segment
 
 
 def get_trafo_lm_config_builder_rf(
-        label_type: str = "bpe10025",
+        label_type: str,
+        num_layers: int,
+        model_dim: int,
+        pos_enc: Optional[str],
+        ff: str,
+        norm: str,
+        decoder_layer_opts: Optional[Dict],
 ):
   if label_type == "bpe10025":
     dependencies = LibrispeechBPE10025_LABELS
@@ -43,8 +49,17 @@ def get_trafo_lm_config_builder_rf(
     variant_params=variant_params,
     model_def=from_scratch_model_def,
     get_model_func=_returnn_v2_get_model,
+    num_layers=num_layers,
+    model_dim=model_dim,
+    pos_enc=pos_enc,
+    ff=ff,
+    norm=norm,
+    decoder_layer_opts=decoder_layer_opts,
   )
 
-  alias = f"{label_type}"
+  alias = (
+    f"{label_type}_{num_layers}-layers_{model_dim}-dim_pos-enc-{pos_enc}_ff-{ff}_norm-{norm}"
+    # f"{'' if decoder_layer_opts is None else '_'.join(f'{k}-{v}' for k, v in decoder_layer_opts.items())}"
+  )
 
   return alias, config_builder
