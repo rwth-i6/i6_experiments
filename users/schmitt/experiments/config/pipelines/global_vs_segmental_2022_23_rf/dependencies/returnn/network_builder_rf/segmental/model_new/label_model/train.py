@@ -622,6 +622,30 @@ def full_sum_training(
       h_t=h_t,
     )  # [B, S+1, T, D]
 
+    if config.bool("use_sep_ce_loss", False):
+      ce_logits, _ = model.label_decoder.decode_logits(
+        input_embed=rf.shift_right(non_blank_input_embeddings, axis=non_blank_targets_spatial_dim, pad_value=0.0),
+        att=att,
+        s=s_out,
+        h_t=None,
+      )
+      ce_logits_packed, pack_dim = rf.pack_padded(
+        ce_logits, dims=batch_dims + [non_blank_targets_spatial_dim], enforce_sorted=False)
+      non_blank_targets_packed, _ = rf.pack_padded(
+        non_blank_targets, dims=batch_dims + [non_blank_targets_spatial_dim], enforce_sorted=False, out_dim=pack_dim
+      )
+
+      ce_log_prob = rf.log_softmax(ce_logits_packed, axis=model.target_dim)
+      ce_log_prob = rf.label_smoothed_log_prob_gradient(ce_log_prob, 0.1, axis=model.target_dim)
+      ce_loss = rf.cross_entropy(
+        target=non_blank_targets_packed, estimated=ce_log_prob, estimated_type="log-probs", axis=model.target_dim
+      )
+      ce_loss.mark_as_loss("aed_ce", scale=1.0, use_normalized_loss=True)
+
+      best = rf.reduce_argmax(ce_logits_packed, axis=model.target_dim)
+      ce_frame_error = best != non_blank_targets_packed
+      ce_frame_error.mark_as_loss(name="fer", as_error=True)
+
   if model.blank_decoder is not None:
     assert isinstance(model.blank_decoder, BlankDecoderV4)
     blank_logits = model.blank_decoder.decode_logits(

@@ -240,6 +240,7 @@ class ConfigBuilderRF(ABC):
       "disable_enc_self_att_until_epoch",
       "random_seed",
       "att_h_t_dropout",
+      "use_sep_ce_loss",
     ]
     config_dict.update(
       {k: opts.pop(k) for k in remaining_opt_keys if k in opts}

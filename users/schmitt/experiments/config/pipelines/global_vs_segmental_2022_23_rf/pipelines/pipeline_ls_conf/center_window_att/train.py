@@ -59,6 +59,7 @@ def train_center_window_att(
         accum_grad_multiple_step: int = 4,
         hdf_targets: Optional[Dict[str, Path]] = None,
         att_h_t_dropout: float = 0.0,
+        use_sep_ce_loss: bool = False,
 ):
   train_opts, train_rqmt, alias_ = get_common_train_opts_rqmt(
     n_epochs=n_epochs,
@@ -88,12 +89,16 @@ def train_center_window_att(
     f"{'_nb-loss-x' + str(nb_loss_scale) if nb_loss_scale != 1.0 else ''}"
     f"{'_b-loss-x' + str(b_loss_scale) if b_loss_scale != 1.0 else ''}"
     f"{f'_att-h-t-drop-{att_h_t_dropout}' if att_h_t_dropout > 0.0 else ''}"
+    f"{'_sep-ce-loss' if use_sep_ce_loss else ''}"
   )
 
   train_opts.update({
     "nb_loss_scale": nb_loss_scale,
     "b_loss_scale": b_loss_scale,
   })
+
+  if use_sep_ce_loss:
+    train_opts["use_sep_ce_loss"] = True
 
   if att_h_t_dropout > 0.0:
     train_opts["att_h_t_dropout"] = att_h_t_dropout

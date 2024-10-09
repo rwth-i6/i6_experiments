@@ -20,9 +20,11 @@ def run_exps():
   for (
     alias,
     win_size,
+    use_sep_ce_loss,
   ) in [
-    ("v1", 1),  # standard transducer
-    ("v2", None),  # standard transducer
+    ("v1", 1, False),  # standard transducer
+    ("v2", None, False),  # standard transducer + global att w/o att ctx in state
+    ("v3", None, True),  # standard transducer + global att w/o att ctx in state + sep ce loss
   ]:
     data.analyze_gradients_jobs["baseline_v3_full-sum"][alias] = {}
 
@@ -65,6 +67,7 @@ def run_exps():
                 ctc_aux_loss_layers=(4, 8),
                 gpu_mem_rqmt=gpu_mem_rqmt,
                 accum_grad_multiple_step=accum_grad_multiple_step,
+                use_sep_ce_loss=use_sep_ce_loss,
         ):
 
           recog.center_window_returnn_frame_wise_beam_search(
