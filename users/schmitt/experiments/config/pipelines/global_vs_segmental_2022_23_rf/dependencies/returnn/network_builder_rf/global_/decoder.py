@@ -131,15 +131,30 @@ class GlobalAttDecoder(BaseLabelDecoder):
           # e.g. we use this to mask the frames around h_t when we have h_t in the readout in order to force
           # the attention to focus on the other frames
           if mask_att_opts is not None:
+            enc_spatial_sizes = rf.copy_to_device(enc_spatial_dim.dyn_size_ext)
             mask_frame_idx = mask_att_opts["frame_idx"]  # [B]
-            mask_dim = Dim(dimension=5, name="att_mask")  # [5]
-            mask = rf.full(dims=mask_frame_idx.dims + (mask_dim,), fill_value=float("-inf"))  # [B, 5]
-            mask_indices = rf.range_over_dim(mask_dim) + mask_frame_idx - 2  # [B, 5]
+            # just some heuristic
+            # i.e. we mask:
+            # 1 frame, if there are less than 6 frames
+            # 3 frames, if there are less than 9 frames
+            # 5 frames, otherwise
+            mask_dimension = (enc_spatial_sizes // 3) * 2 - 1
+            mask_dimension = rf.clip_by_value(mask_dimension, 1, 5)
+            mask_dim = Dim(dimension=mask_dimension, name="att_mask")  # [5]
+            # example mask: [-inf, -inf, -inf, 0, 0]
+            mask_range = rf.range_over_dim(mask_dim)
+            mask = rf.where(
+              mask_range < mask_dimension,
+              float("-inf"),
+              0.0
+            )
+            # move mask to correct position along the time axis
+            mask_indices = mask_range + mask_frame_idx - (mask_dimension // 2)  # [B, 5]
             mask_indices.sparse_dim = enc_spatial_dim
             mask_indices = rf.clip_by_value(
               mask_indices,
               0,
-              rf.copy_to_device(enc_spatial_dim.dyn_size_ext) - 1
+              enc_spatial_sizes - 1
             )
             mask = rf.scatter(
               mask,
