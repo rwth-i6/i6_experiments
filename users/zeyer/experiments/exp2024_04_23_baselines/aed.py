@@ -626,7 +626,7 @@ def aed_training(*, model: Model, data: rf.Tensor, data_spatial_dim: Dim, target
     )
     loss.mark_as_loss("ce", scale=aed_loss_scale, use_normalized_loss=use_normalized_loss)
 
-    best = rf.reduce_argmax(logits_packed, axis=model.target_dim)
+    best = rf.reduce_argmax(log_prob, axis=model.target_dim)
     frame_error = best != targets_packed
     frame_error.mark_as_loss(name="fer", as_error=True)
 
