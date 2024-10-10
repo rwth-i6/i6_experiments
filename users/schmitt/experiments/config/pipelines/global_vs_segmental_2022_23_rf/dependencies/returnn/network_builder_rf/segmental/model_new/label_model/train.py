@@ -624,11 +624,13 @@ def full_sum_training(
     )  # [B, S+1, T, D]
 
     if config.bool("use_sep_ce_loss", False):
+      att_sliced = rf.slice(att, axis=non_blank_targets_spatial_dim_ext, start=0, size=non_blank_targets_spatial_dim)[0]
+      s_out_sliced = rf.slice(s_out, axis=non_blank_targets_spatial_dim_ext, start=0, size=non_blank_targets_spatial_dim)[0]
       ce_logits, _ = model.label_decoder.decode_logits(
         input_embed=rf.shift_right(non_blank_input_embeddings, axis=non_blank_targets_spatial_dim, pad_value=0.0),
-        att=att,
-        s=s_out,
-        h_t=None,
+        att=att_sliced,
+        s=s_out_sliced,
+        h_t=utils.copy_tensor_replace_dim_tag(rf.zeros_like(att_sliced), att.feature_dim, enc_args["enc"].feature_dim),
       )
       ce_logits_packed, pack_dim = rf.pack_padded(
         ce_logits, dims=batch_dims + [non_blank_targets_spatial_dim], enforce_sorted=False)
@@ -645,7 +647,7 @@ def full_sum_training(
 
       best = rf.reduce_argmax(ce_logits_packed, axis=model.target_dim)
       ce_frame_error = best != non_blank_targets_packed
-      ce_frame_error.mark_as_loss(name="fer", as_error=True)
+      ce_frame_error.mark_as_loss(name="aed_fer", as_error=True)
 
   if model.blank_decoder is not None:
     assert isinstance(model.blank_decoder, BlankDecoderV4)
