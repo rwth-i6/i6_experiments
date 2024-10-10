@@ -74,6 +74,7 @@ class GlobalAttDecoder(BaseLabelDecoder):
           state: Optional[rf.State] = None,
           use_mini_att: bool = False,
           hard_att_opts: Optional[Dict] = None,
+          mask_att_opts: Optional[Dict] = None,
           detach_att: bool = False,
   ) -> Tuple[Dict[str, rf.Tensor], rf.State]:
     """step of the inner loop"""
@@ -125,6 +126,24 @@ class GlobalAttDecoder(BaseLabelDecoder):
           energy_in = enc_ctx + weight_feedback + s_transformed
 
           energy = self.energy(rf.tanh(energy_in))
+
+          # set energies to -inf for the given frame indices
+          # e.g. we use this to mask the frames around h_t when we have h_t in the readout in order to force
+          # the attention to focus on the other frames
+          if mask_att_opts is not None:
+            mask_frame_idx = mask_att_opts["frame_idx"]  # [B]
+            mask_dim = Dim(dimension=5, name="att_mask")  # [5]
+            mask = rf.full(dims=mask_frame_idx.dims + (mask_dim,), fill_value=float("-inf"))  # [B, 5]
+            mask_indices = rf.range_over_dim(mask_dim) + mask_frame_idx - 2  # [B, 5]
+            mask_indices.sparse_dim = enc_spatial_dim
+            mask_indices = rf.clip_by_value(mask_indices, 0, enc_spatial_dim.dyn_size_ext - 1)
+            mask = rf.scatter(
+              mask,
+              indices=mask_indices,
+              indices_dim=mask_dim,
+            )  # [B, T]
+            energy = energy + mask
+
           att_weights = rf.softmax(energy, axis=enc_spatial_dim)
           att_weights = rf.dropout(att_weights, drop_prob=self.att_weight_dropout, axis=None)
         if hard_att_opts is not None and rf.get_run_ctx().epoch <= hard_att_opts["until_epoch"] + hard_att_opts["num_interpolation_epochs"]:

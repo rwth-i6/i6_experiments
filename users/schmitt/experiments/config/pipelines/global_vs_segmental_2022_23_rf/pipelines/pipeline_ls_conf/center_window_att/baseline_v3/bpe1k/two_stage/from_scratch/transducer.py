@@ -29,20 +29,24 @@ def run_exps():
     use_att_ctx_in_state,
     use_sep_att_encoder,
     use_sep_h_t_readout,
+    use_weight_feedback,
+    mask_att_around_h_t,
   ) in [
-    ("v1", 1, False, True, False, 1, False, False, False),  # standard transducer
-    ("v2", None, False, True, False, 1, False, False, False),  # transducer with LSTM attention w/o att ctx in state
-    ("v3", None, False, False, False, 1, True, False, False),  # transducer with LSTM attention w/ att ctx in state
-    ("v4", None, True, False, False, 1, False, False, False),  # transducer with LSTM attention and double gate
-    ("v5", None, True, False, False, 1, True, False, False),  # transducer with LSTM attention and double gate and att ctx in state
-    ("v6", None, False, False, True, 2, False, False, False),  # transducer with LSTM attention and single gate
-    ("v7", None, False, False, False, 1, True, True, False),  # transducer with LSTM attention w/ att ctx in state w/ sep att encoder
-    ("v8", None, False, False, False, 1, True, False, True),  # transducer with LSTM attention w/ att ctx in state w/ sep h_t readout
+    ("v1", 1, False, True, False, 1, False, False, False, False, False),  # standard transducer
+    ("v2", None, False, True, False, 1, False, False, False, False, False),  # transducer with LSTM attention w/o att ctx in state
+    ("v3", None, False, False, False, 1, True, False, False, False, False),  # transducer with LSTM attention w/ att ctx in state
+    ("v4", None, True, False, False, 1, False, False, False, False, False),  # transducer with LSTM attention and double gate
+    ("v5", None, True, False, False, 1, True, False, False, False, False),  # transducer with LSTM attention and double gate and att ctx in state
+    ("v6", None, False, False, True, 2, False, False, False, False, False),  # transducer with LSTM attention and single gate
+    ("v7", None, False, False, False, 1, True, True, False, False, False),  # transducer with LSTM attention w/ att ctx in state w/ sep att encoder
+    ("v8", None, False, False, False, 1, True, False, True, False, False),  # transducer with LSTM attention w/ att ctx in state w/ sep h_t readout
+    ("v9", None, False, False, False, 1, True, False, False, True, False),  # transducer with LSTM attention w/ att ctx in state
+    ("v10", None, False, False, False, 1, True, False, False, False, True), # transducer with LSTM attention w/ att ctx in state
   ]:
     gpu_mem_rqmts = [24]
     if alias in ("v1", "v2", "v3"):
       gpu_mem_rqmts.append(11)
-    if alias in ("v4", "v5", "v6", "v7", "v8"):
+    if alias in ("v4", "v5", "v6", "v7", "v8", "v9", "v10"):
       gpu_mem_rqmts = [11]
 
     for gpu_mem_rqmt in gpu_mem_rqmts:
@@ -70,7 +74,7 @@ def run_exps():
               win_size_list=(win_size,),
               blank_decoder_version=4,
               use_att_ctx_in_state=use_att_ctx_in_state,
-              use_weight_feedback=False,
+              use_weight_feedback=use_weight_feedback,
               bpe_vocab_size=1056,
               use_correct_dim_tags=True,
               behavior_version=21,
@@ -103,12 +107,26 @@ def run_exps():
                   "peak_lr": 1e-3,
                   "lr2": 1e-5,
                 },
+                mask_att_around_h_t=mask_att_around_h_t,
         ):
           recog.center_window_returnn_frame_wise_beam_search(
             alias=fixed_path_train_alias,
             config_builder=config_builder,
             checkpoint=fixed_path_checkpoint,
+            separate_readout_alpha=None if alias != "v8" else 0.5,
           )
+
+          separate_readout_alphas = [None]
+          if alias == "v8":
+            separate_readout_alphas = [0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0]
+          for separate_readout_alpha in separate_readout_alphas:
+            recog.center_window_returnn_frame_wise_beam_search(
+              alias=fixed_path_train_alias,
+              config_builder=config_builder,
+              checkpoint=fixed_path_checkpoint,
+              checkpoint_aliases=("last",),
+              separate_readout_alpha=separate_readout_alpha,
+            )
 
           if alias == "v1" and gpu_mem_rqmt == 24:
             for lm_scale, ilm_scale in [
@@ -154,17 +172,13 @@ def run_exps():
 
           for epoch, chckpt in fixed_path_checkpoint["checkpoints"].items():
             if epoch in keep_epochs_fixed_path:
-              separate_readout_alphas = [None]
-              if alias == "v8":
-                separate_readout_alphas = [0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0]
-              for separate_readout_alpha in separate_readout_alphas:
-                recog.center_window_returnn_frame_wise_beam_search(
-                  alias=fixed_path_train_alias,
-                  config_builder=config_builder,
-                  checkpoint=chckpt,
-                  checkpoint_aliases=(f"epoch-{epoch}",),
-                  separate_readout_alpha=separate_readout_alpha,
-                )
+              recog.center_window_returnn_frame_wise_beam_search(
+                alias=fixed_path_train_alias,
+                config_builder=config_builder,
+                checkpoint=chckpt,
+                checkpoint_aliases=(f"epoch-{epoch}",),
+                separate_readout_alpha=separate_readout_alpha,
+              )
               if win_size is None and epoch in [30, 45, 60, 150, 180, 240, 600]:
                 recog.center_window_returnn_frame_wise_beam_search(
                   alias=fixed_path_train_alias,

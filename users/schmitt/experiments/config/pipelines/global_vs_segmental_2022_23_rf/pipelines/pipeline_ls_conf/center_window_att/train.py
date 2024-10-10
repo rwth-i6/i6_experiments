@@ -60,6 +60,7 @@ def train_center_window_att(
         hdf_targets: Optional[Dict[str, Path]] = None,
         att_h_t_dropout: float = 0.0,
         use_sep_ce_loss: bool = False,
+        mask_att_around_h_t: bool = False,
 ):
   train_opts, train_rqmt, alias_ = get_common_train_opts_rqmt(
     n_epochs=n_epochs,
@@ -90,12 +91,16 @@ def train_center_window_att(
     f"{'_b-loss-x' + str(b_loss_scale) if b_loss_scale != 1.0 else ''}"
     f"{f'_att-h-t-drop-{att_h_t_dropout}' if att_h_t_dropout > 0.0 else ''}"
     f"{'_sep-ce-loss' if use_sep_ce_loss else ''}"
+    f"{'_mask-att-around-h-t' if mask_att_around_h_t else ''}"
   )
 
   train_opts.update({
     "nb_loss_scale": nb_loss_scale,
     "b_loss_scale": b_loss_scale,
   })
+
+  if mask_att_around_h_t:
+    train_opts["mask_att_around_h_t"] = True
 
   if use_sep_ce_loss:
     train_opts["use_sep_ce_loss"] = True

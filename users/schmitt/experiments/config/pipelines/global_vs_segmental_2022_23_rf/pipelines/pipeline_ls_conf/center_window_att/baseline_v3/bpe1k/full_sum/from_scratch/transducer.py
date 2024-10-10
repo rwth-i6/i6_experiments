@@ -24,7 +24,7 @@ def run_exps():
   ) in [
     ("v1", 1, False),  # standard transducer
     ("v2", None, False),  # standard transducer + global att w/o att ctx in state
-    ("v3", None, True),  # standard transducer + global att w/o att ctx in state + sep ce loss
+    # ("v3", None, True),  # standard transducer + global att w/o att ctx in state + sep ce loss
   ]:
     data.analyze_gradients_jobs["baseline_v3_full-sum"][alias] = {}
 

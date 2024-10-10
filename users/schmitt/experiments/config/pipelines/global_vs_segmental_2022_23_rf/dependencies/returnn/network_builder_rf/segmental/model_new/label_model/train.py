@@ -446,11 +446,12 @@ def viterbi_training_efficient(
       return_label_model_states=return_label_model_states,
     )
   else:
-    logits, label_model_states = forward_sequence_global_att(
+    logits, label_model_states, _ = forward_sequence_global_att(
       model=model,
       targets=targets,
       targets_spatial_dim=targets_spatial_dim,
       enc_args=enc_args,
+      att_enc_args=enc_args,
       enc_spatial_dim=enc_spatial_dim,
       batch_dims=batch_dims,
       return_label_model_states=return_label_model_states,

@@ -241,6 +241,7 @@ class ConfigBuilderRF(ABC):
       "random_seed",
       "att_h_t_dropout",
       "use_sep_ce_loss",
+      "mask_att_around_h_t",
     ]
     config_dict.update(
       {k: opts.pop(k) for k in remaining_opt_keys if k in opts}

@@ -1,5 +1,6 @@
 from typing import Dict, List, Tuple, Optional, Union
 
+from returnn.datasets.lm import convert_to_ascii
 from returnn.tensor import TensorDict
 from returnn.tensor import Tensor, Dim, single_step_dim
 import returnn.frontend as rf
@@ -42,6 +43,7 @@ def get_s_and_att(
         targets_spatial_dim: Dim,
         batch_dims: List[Dim],
         detach_att: bool = False,
+        mask_att_opts: Optional[Dict] = None,
 ) -> Tuple[Tensor, Tensor, rf.State]:
 
   from returnn.config import get_global_config
@@ -49,22 +51,26 @@ def get_s_and_att(
 
   hard_att_opts = config.typed_value("hard_att_opts", None)
 
-  def _body(input_embed: Tensor, state: rf.State):
+  def _body(xs, state: rf.State):
     new_state = rf.State()
     loop_out_, new_state.decoder = model.loop_step(
       **enc_args,
       enc_spatial_dim=enc_spatial_dim,
-      input_embed=input_embed,
+      input_embed=xs["input_embed"],
       state=state.decoder,
       use_mini_att=model.use_mini_att,
       hard_att_opts=hard_att_opts,
+      mask_att_opts={"frame_idx": xs.get("h_t")},
       detach_att=detach_att,
     )
     return loop_out_, new_state
 
+  xs = {"input_embed": input_embeddings}
+  if mask_att_opts:
+    xs["h_t"] = mask_att_opts["frame_idx"]
   loop_out, final_state, _ = rf.scan(
     spatial_dim=targets_spatial_dim,
-    xs=input_embeddings,
+    xs=xs,
     ys=model.loop_step_output_templates(
       batch_dims=batch_dims),
     initial=rf.State(
@@ -125,6 +131,9 @@ def forward_sequence(
         detach_att_before_readout: bool = False,
         detach_h_t_before_readout: bool = False,
 ) -> Tuple[rf.Tensor, Optional[Tuple[rf.Tensor, Dim]], Optional[Tensor]]:
+  from returnn.config import get_global_config
+  config = get_global_config()
+
   if type(model) is TransformerDecoder:
     logits, _, _ = model(
       rf.shift_right(targets, axis=targets_spatial_dim, pad_value=0),
@@ -139,6 +148,9 @@ def forward_sequence(
     input_embeddings = rf.dropout(input_embeddings, drop_prob=model.target_embed_dropout, axis=None)
 
     if type(model) is GlobalAttDecoder:
+      mask_att_opts = None
+      if config.bool("mask_att_around_h_t", False):
+        mask_att_opts = {"frame_idx": center_positions}
       s, att, final_state = get_s_and_att(
         model=model,
         enc_args=att_enc_args,
@@ -147,6 +159,7 @@ def forward_sequence(
         targets_spatial_dim=targets_spatial_dim,
         batch_dims=batch_dims,
         detach_att=detach_att_before_readout,
+        mask_att_opts=mask_att_opts,
       )
     else:
       assert type(model) is GlobalAttEfficientDecoder
