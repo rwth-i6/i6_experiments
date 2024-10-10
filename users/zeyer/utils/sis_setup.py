@@ -36,7 +36,9 @@ def get_base_module_from_module(module_name: str) -> Tuple[str, str]:
         setup_base_name = getattr(mod, "__setup_base_name__", None)
         if setup_base_name:
             return module_name[:pos], setup_base_name
-    raise ValueError(f"Could not find base module name for {module_name}")
+    raise ValueError(
+        f"Could not find base module name for {module_name}. Set __setup_base_name__ in the module or any parents."
+    )
 
 
 def get_setup_prefix_for_module(module_name: str) -> str:
