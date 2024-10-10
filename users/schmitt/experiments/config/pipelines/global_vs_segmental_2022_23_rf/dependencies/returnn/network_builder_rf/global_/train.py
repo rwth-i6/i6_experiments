@@ -60,7 +60,7 @@ def get_s_and_att(
       state=state.decoder,
       use_mini_att=model.use_mini_att,
       hard_att_opts=hard_att_opts,
-      mask_att_opts={"frame_idx": xs.get("h_t")},
+      mask_att_opts={"frame_idx": xs.get("h_t")} if xs.get("h_t") is not None else None,
       detach_att=detach_att,
     )
     return loop_out_, new_state

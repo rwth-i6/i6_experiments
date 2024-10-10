@@ -136,7 +136,11 @@ class GlobalAttDecoder(BaseLabelDecoder):
             mask = rf.full(dims=mask_frame_idx.dims + (mask_dim,), fill_value=float("-inf"))  # [B, 5]
             mask_indices = rf.range_over_dim(mask_dim) + mask_frame_idx - 2  # [B, 5]
             mask_indices.sparse_dim = enc_spatial_dim
-            mask_indices = rf.clip_by_value(mask_indices, 0, enc_spatial_dim.dyn_size_ext - 1)
+            mask_indices = rf.clip_by_value(
+              mask_indices,
+              0,
+              rf.copy_to_device(enc_spatial_dim.dyn_size_ext) - 1
+            )
             mask = rf.scatter(
               mask,
               indices=mask_indices,
