@@ -182,7 +182,7 @@ def _returnn_get_model(*, epoch: int, model_def: ModelT, **_kwargs_unused):
     targets = Tensor(name=default_target_key, **extern_data_dict[default_target_key])
     assert targets.sparse_dim and targets.sparse_dim.vocab, f"no vocab for {targets}"
 
-    model = model_def(epoch=epoch, in_dim=data.feature_dim, target_dim=targets.sparse_dim)
+    model = model_def(epoch=epoch, in_dim=data.feature_dim_or_sparse_dim, target_dim=targets.sparse_dim)
     return model
 
 
