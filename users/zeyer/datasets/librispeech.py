@@ -393,6 +393,7 @@ class LibrispeechOggZip(DatasetConfig):
         return self.main_key
 
     def get_main_dataset(self) -> Dict[str, Any]:
+        assert self.main_key is not None, f"{self}: main_dataset not defined, main_key is None"
         return self.get_dataset(self.main_key)
 
     def get_dataset(self, key: str, *, training: bool = False, subset: Optional[int] = None) -> Dict[str, Any]:
