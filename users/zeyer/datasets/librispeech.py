@@ -805,6 +805,8 @@ def _extract_audio_seq_len_file(train_dataset: DatasetConfig):
     ds_dict = train_dataset.get_train_dataset()
     # The code is semi-generic. But anyway double check for now. Later to be extended...
     assert ds_dict["class"] in {"OggZipDataset", "LibriSpeechCorpus"}
+    if ds_dict["audio"] is None:
+        return None
     ds_dict.pop("partition_epoch")
     ds_dict["targets"] = None
     ds_dict.pop("epoch_wise_filter", None)
