@@ -839,7 +839,7 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
         }
 
         for (ctx, job) in prior_jobs.items():
-            job.add_alias(f"priors/{name}/{ctx}")
+            job.add_alias(f"priors/{name}/{data_share}data/{ctx}")
 
         center_priors = ReshapeCenterStatePriorsJob(prior_jobs["c"].out_prior_txt_file, label_info=self.label_info)
         center_priors_xml = center_priors.out_prior_xml

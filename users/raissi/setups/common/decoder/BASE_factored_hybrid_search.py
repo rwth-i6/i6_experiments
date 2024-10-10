@@ -79,7 +79,7 @@ class RasrFeatureScorer(Enum):
 class RasrShortestPathAlgorithm(Enum):
     """A class that returns a speific fetaure scorer"""
 
-    dijkstra = "Dijkstra"
+    dijkstra = "dijkstra"
     bellman_ford = "bellman-ford"
     projecting_bellman_ford = "projecting-bellman-ford"
 
@@ -162,7 +162,7 @@ class RecognitionJobs:
     lat2ctm: Optional[recog.LatticeToCtmJob]
     scorer: Optional[recog.ScliteJob]
     search: recog.AdvancedTreeSearchJob
-    search_crp: rasr.RasrConfig
+    search_crp: rasr.CommonRasrParameters
     search_feature_scorer: rasr.FeatureScorer
     search_stats: Optional[ExtractSearchStatisticsJob]
 
@@ -359,6 +359,14 @@ class BASEFactoredHybridDecoder:
 
         return {"rtf": rtf, "mem": mem}
 
+    def get_cheating_lm_config(self, scale, infinity_score=1000.0):
+        cfg = rasr.RasrConfig()
+        cfg.type = "cheating-segment"
+        cfg.scale = scale
+        cfg.infinity_score = infinity_score
+
+        return cfg
+
     def get_lookahead_options(self, scale=1.0, hlimit=1, clow=2000, chigh=3000):
         lmla_options = {
             "scale": scale,
@@ -545,6 +553,7 @@ class BASEFactoredHybridDecoder:
         is_min_duration=False,
         opt_lm_am=True,
         only_lm_opt=True,
+        cn_decoding: bool = False,
         keep_value=12,
         use_estimated_tdps=False,
         add_sis_alias_and_output=True,
@@ -577,6 +586,7 @@ class BASEFactoredHybridDecoder:
             is_min_duration=is_min_duration,
             opt_lm_am=opt_lm_am,
             only_lm_opt=only_lm_opt,
+            cn_decoding=cn_decoding,
             keep_value=keep_value,
             use_estimated_tdps=use_estimated_tdps,
             add_sis_alias_and_output=add_sis_alias_and_output,
@@ -606,8 +616,9 @@ class BASEFactoredHybridDecoder:
         calculate_stats=False,
         lm_config: Optional[rasr.RasrConfig] = None,
         is_nn_lm: bool = False,
-        only_lm_opt=True,
-        opt_lm_am=True,
+        only_lm_opt: bool =True,
+        opt_lm_am: bool =True,
+        cn_decoding: bool = False,
         pre_path: Optional[str] = None,
         rerun_after_opt_lm=False,
         name_override: Union[str, None] = None,
@@ -747,67 +758,6 @@ class BASEFactoredHybridDecoder:
                 "use-word-end-classes"
             ] = label_info.phoneme_state_classes.use_word_end()
 
-        # lm config update
-        original_lm_config = search_crp.language_model_config
-        if lm_config is not None:
-            search_crp.language_model_config = lm_config
-        search_crp.language_model_config.scale = search_parameters.lm_scale
-
-        if crp_update is not None:
-            crp_update(search_crp)
-
-        rqms = self.get_requirements(beam=search_parameters.beam, nn_lm=is_nn_lm)
-        sp = self.get_search_params(
-            search_parameters.beam,
-            search_parameters.beam_limit,
-            search_parameters.we_pruning,
-            search_parameters.we_pruning_limit,
-            is_count_based=True,
-        )
-
-        la_options = self.get_lookahead_options()
-
-        adv_search_extra_config = (
-            copy.deepcopy(adv_search_extra_config) if adv_search_extra_config is not None else rasr.RasrConfig()
-        )
-
-        if search_parameters.word_recombination_limit is not None:
-            adv_search_extra_config.flf_lattice_tool.network.recognizer.recognizer.reduce_context_word_recombination = (
-                True
-            )
-            adv_search_extra_config.flf_lattice_tool.network.recognizer.recognizer.reduce_context_word_recombination_limit = (
-                search_parameters.word_recombination_limit
-            )
-            name += f"recombLim{search_parameters.word_recombination_limit}"
-
-        if search_parameters.altas is not None:
-            adv_search_extra_config.flf_lattice_tool.network.recognizer.recognizer.acoustic_lookahead_temporal_approximation_scale = (
-                search_parameters.altas
-            )
-        if search_parameters.lm_lookahead_scale is not None:
-            name += f"-lh{search_parameters.lm_lookahead_scale}"
-            # Use 4gram for lookahead. The lookahead LM must not be too good.
-            #
-            # Half the normal LM scale is a good starting value.
-
-            # To validate the assumption the original LM is a 4gram
-            assert original_lm_config.type.lower() == "arpa"
-
-            adv_search_extra_config.flf_lattice_tool.network.recognizer.recognizer.separate_lookahead_lm = True
-            adv_search_extra_config.flf_lattice_tool.network.recognizer.recognizer.lm_lookahead.lm_lookahead_scale = (
-                search_parameters.lm_lookahead_scale
-            )
-            adv_search_extra_config.flf_lattice_tool.network.recognizer.recognizer.lookahead_lm.file = (
-                original_lm_config.file
-            )
-            # TODO(future): Add LM image instead of file here.
-            adv_search_extra_config.flf_lattice_tool.network.recognizer.recognizer.lookahead_lm.scale = 1.0
-            adv_search_extra_config.flf_lattice_tool.network.recognizer.recognizer.lookahead_lm.type = "ARPA"
-
-        if search_parameters.lm_lookahead_history_limit > 1:
-            la_options["history_limit"] = search_parameters.lm_lookahead_history_limit
-            name += f"-lhHisLim{search_parameters.lm_lookahead_history_limit}"
-
         if self.feature_scorer_type.is_factored():
             feature_scorer = get_factored_feature_scorer(
                 context_type=self.context_type,
@@ -849,6 +799,68 @@ class BASEFactoredHybridDecoder:
             )
         else:
             raise NotImplementedError
+
+        # lm config update
+        original_lm_config = search_crp.language_model_config
+        if lm_config is not None:
+            search_crp.language_model_config = lm_config
+        search_crp.language_model_config.scale = search_parameters.lm_scale
+
+        if crp_update is not None:
+            crp_update(search_crp)
+
+        rqms = self.get_requirements(beam=search_parameters.beam, nn_lm=is_nn_lm)
+        sp = self.get_search_params(
+            search_parameters.beam,
+            search_parameters.beam_limit,
+            search_parameters.we_pruning,
+            search_parameters.we_pruning_limit,
+            is_count_based=True,
+        )
+
+        adv_search_extra_config = (
+            copy.deepcopy(adv_search_extra_config) if adv_search_extra_config is not None else rasr.RasrConfig()
+        )
+        #Set ALTAS
+        if search_parameters.altas is not None:
+            adv_search_extra_config.flf_lattice_tool.network.recognizer.recognizer.acoustic_lookahead_temporal_approximation_scale = (
+                search_parameters.altas
+            )
+        #Limit the history for neural decoding
+        if search_parameters.word_recombination_limit is not None:
+            adv_search_extra_config.flf_lattice_tool.network.recognizer.recognizer.reduce_context_word_recombination = (
+                True
+            )
+            adv_search_extra_config.flf_lattice_tool.network.recognizer.recognizer.reduce_context_word_recombination_limit = (
+                search_parameters.word_recombination_limit
+            )
+            name += f"recombLim{search_parameters.word_recombination_limit}"
+
+        la_options = self.get_lookahead_options()
+        if search_parameters.lm_lookahead_scale is not None:
+            name += f"-lh{search_parameters.lm_lookahead_scale}"
+            # Use 4gram for lookahead. The lookahead LM must not be too good.
+            # Half the normal LM scale is a good starting value.
+            # To validate the assumption the original LM is a 4gram
+            assert original_lm_config.type.lower() == "arpa"
+
+            adv_search_extra_config.flf_lattice_tool.network.recognizer.recognizer.separate_lookahead_lm = True
+            adv_search_extra_config.flf_lattice_tool.network.recognizer.recognizer.lm_lookahead.lm_lookahead_scale = (
+                search_parameters.lm_lookahead_scale
+            )
+            adv_search_extra_config.flf_lattice_tool.network.recognizer.recognizer.lookahead_lm.file = (
+                original_lm_config.file
+            )
+            # TODO(future): Add LM image instead of file here.
+            adv_search_extra_config.flf_lattice_tool.network.recognizer.recognizer.lookahead_lm.scale = 1.0
+            adv_search_extra_config.flf_lattice_tool.network.recognizer.recognizer.lookahead_lm.type = "ARPA"
+
+
+            if search_parameters.lm_lookahead_history_limit > 1:
+                la_options["history_limit"] = search_parameters.lm_lookahead_history_limit
+                name += f"-lhHisLim{search_parameters.lm_lookahead_history_limit}"
+
+
 
         pre_path = (
             pre_path
@@ -907,7 +919,7 @@ class BASEFactoredHybridDecoder:
                 lat2ctm=None,
                 scorer=None,
                 search=search,
-                search_crp=crp,
+                search_crp=search_crp,
                 search_feature_scorer=feature_scorer,
                 search_stats=stat,
             )
@@ -922,26 +934,47 @@ class BASEFactoredHybridDecoder:
             extra_config=lat2ctm_extra_config,
             fill_empty_segments=True,
         )
+        ctm = lat2ctm.out_ctm_file
 
-        s_kwrgs = copy.copy(self.eval_args)
-        s_kwrgs["hyp"] = lat2ctm.out_ctm_file
-        scorer = self.scorer(**s_kwrgs)
+        if cn_decoding:
+
+            cn_config = rasr.RasrConfig()
+            cn_config.flf_lattice_tool.lexicon.normalize_pronunciation = True
+            assert search_parameters.pron_scale is not None, "set a pronunciation scale for CN decoding"
+            cn_config.flf_lattice_tool.network.scale_pronunciation = search_parameters.pron_scale
+            cn_config.flf_lattice_tool.network.dump_ctm.ctm.fill_empty_segments = True
+            cn_config.flf_lattice_tool.network.dump_ctm.ctm.non_word_symbol = '[empty]'
+            decode = recog.CNDecodingJob(
+                crp=search_crp,
+                lattice_path=search.out_lattice_bundle,
+                lm_scale=search_parameters.lm_scale,
+                extra_config=cn_config,
+            )
+            ctm=decode.out_ctm_file
+            name += f"-Pron{search_parameters.pron_scale}"
+
+        scorer = self.scorer(hyp=ctm, **self.eval_args)
         add_prepath = f'{self.shortest_path_algo.value}/' if self.shortest_path_algo != RasrShortestPathAlgorithm.bellman_ford else ''
         if add_sis_alias_and_output:
-            tk.register_output(f"{pre_path}/{add_prepath}{name}.wer", scorer.out_report_dir)
+            tk.register_output(f"{pre_path}/{'cn/' if cn_decoding else ''}{add_prepath}{name}.wer", scorer.out_report_dir)
+
+
 
         if opt_lm_am and (search_parameters.altas is None or search_parameters.altas < 3.0):
             assert search_parameters.beam >= 15.0
             if pron_scale is not None:
                 if isinstance(pron_scale, DelayedBase) and pron_scale.is_set():
                     pron_scale = pron_scale.get()
+            s_kwrgs_opt = copy.copy(self.eval_args)
+            s_kwrgs_opt["hyp"] = lat2ctm.out_ctm_file
+
             opt = recog.OptimizeAMandLMScaleJob(
                 crp=search_crp,
                 lattice_cache=search.out_lattice_bundle,
                 initial_am_scale=pron_scale,
                 initial_lm_scale=search_parameters.lm_scale,
                 scorer_cls=self.scorer,
-                scorer_kwargs=s_kwrgs,
+                scorer_kwargs=s_kwrgs_opt,
                 opt_only_lm_scale=only_lm_opt,
             )
 

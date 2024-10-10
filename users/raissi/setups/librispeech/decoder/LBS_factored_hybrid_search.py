@@ -13,10 +13,6 @@ from sisyphus.delayed_ops import DelayedBase, Delayed
 
 Path = tk.Path
 
-import i6_core.am as am
-import i6_core.corpus as corpus_recipes
-import i6_core.lm as lm
-import i6_core.mm as mm
 import i6_core.rasr as rasr
 import i6_core.recognition as recog
 import i6_core.returnn as returnn
@@ -25,36 +21,17 @@ import i6_core.returnn as returnn
 from i6_experiments.users.raissi.setups.common.data.factored_label import (
     LabelInfo,
     PhoneticContext,
-    RasrStateTying,
 )
 
 from i6_experiments.users.raissi.setups.common.decoder.config import (
-    default_posterior_scales,
-    PriorInfo,
-    PosteriorScales,
     SearchParameters,
-    AlignmentParameters,
 )
 from i6_experiments.users.raissi.setups.common.decoder.BASE_factored_hybrid_search import (
     BASEFactoredHybridDecoder,
-    round2,
     RasrFeatureScorer,
     DecodingTensorMap,
     RecognitionJobs,
-    check_prior_info,
-    get_factored_feature_scorer,
-    get_nn_precomputed_feature_scorer,
-)
-from i6_experiments.users.raissi.setups.common.decoder.factored_hybrid_feature_scorer import (
-    FactoredHybridFeatureScorer,
-)
 
-from i6_experiments.users.raissi.setups.common.decoder.statistics import ExtractSearchStatisticsJob
-from i6_experiments.users.raissi.setups.common.util.tdp import format_tdp_val, format_tdp
-from i6_experiments.users.raissi.setups.common.util.argmin import ComputeArgminJob
-from i6_experiments.users.raissi.setups.common.data.typings import (
-    TDP,
-    Float,
 )
 
 
@@ -329,6 +306,7 @@ class LBSFactoredHybridDecoder(BASEFactoredHybridDecoder):
         is_min_duration=False,
         opt_lm_am=True,
         only_lm_opt=True,
+        cn_decoding: bool = False,
         keep_value=12,
         use_estimated_tdps=False,
         add_sis_alias_and_output=True,
@@ -361,6 +339,7 @@ class LBSFactoredHybridDecoder(BASEFactoredHybridDecoder):
             num_encoder_output=num_encoder_output,
             only_lm_opt=only_lm_opt,
             opt_lm_am=opt_lm_am,
+            cn_decoding=cn_decoding,
             pre_path="decoding-trafo-lm",
             rerun_after_opt_lm=rerun_after_opt_lm,
             search_parameters=search_parameters,
