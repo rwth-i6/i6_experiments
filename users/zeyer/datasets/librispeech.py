@@ -301,7 +301,9 @@ class LibrispeechOggZip(DatasetConfig):
         if train_epoch_wise_filter is NotSpecified:
             train_epoch_wise_filter = deepcopy(_default_train_epoch_wise_filter)
         if train_audio_preprocess is NotSpecified:
-            if train_audio_random_permute:
+            if not audio:
+                train_audio_preprocess = None
+            elif train_audio_random_permute:
                 train_audio_preprocess = None
             else:
                 train_audio_preprocess = _default_train_audio_preprocess
