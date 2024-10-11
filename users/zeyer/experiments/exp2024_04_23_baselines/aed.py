@@ -245,10 +245,31 @@ def py():
                 "feature_batch_norm": True,
             },
         ),
+        (
+            "spm10k",
+            "spm",
+            0.7,
+            False,
+            # Note on name: as without relPosAttDef, we always have convMask.
+            "relPosAttDefConvMask-posEmbDrop01-noBias",
+            {
+                "enc_conformer_layer": rf.build_dict(
+                    rf.encoder.conformer.ConformerEncoderLayer,
+                    conv_norm=rf.build_dict(rf.BatchNorm, use_mask=True),
+                    ff=rf.build_dict(
+                        rf.encoder.conformer.ConformerPositionwiseFeedForward,
+                        activation=rf.build_dict(rf.relu_square),
+                        with_bias=False,
+                    ),
+                    self_att=rf.build_dict(rf.RelPosSelfAttention, pos_emb_dropout=0.1),
+                    num_heads=8,
+                ),
+            },
+        ),
         ("spm10k", "bpe", 0.005, False, None, {}),  # 5.14
         ("spm10k", "bpe", 0.01, False, None, {}),  # 5.14
         # TODO ("spm10k", "bpe", 0.01, True, None, {}),
-        (
+        (  # 5.49. also dev-clean is strangely quite bad (4.36)?
             "spm10k",
             "spm",
             0.7,
