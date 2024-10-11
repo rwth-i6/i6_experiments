@@ -192,7 +192,7 @@ def py():
         ("char", None, 0, True, None, {}),
         ("spm64", None, 0, True, None, {}),
         ("spm128", None, 0, True, None, {}),
-        ("spm512", None, 0, True, None, {}),
+        ("spm512", None, 0, True, None, {}),  # 5.62
         ("spm1k", None, 0, True, None, {}),
         ("spm10k", None, 0, True, None, {}),
         ("spm10k", "spm", 0.7, True, None, {}),
