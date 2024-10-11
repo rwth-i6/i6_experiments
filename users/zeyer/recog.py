@@ -520,7 +520,7 @@ def _returnn_v2_get_model(*, epoch: int, **_kwargs_unused):
     assert targets.sparse_dim and targets.sparse_dim.vocab, f"no vocab for {targets}"
 
     model_def = config.typed_value("_model_def")
-    model = model_def(epoch=epoch, in_dim=data.feature_dim, target_dim=targets.sparse_dim)
+    model = model_def(epoch=epoch, in_dim=data.feature_dim_or_sparse_dim, target_dim=targets.sparse_dim)
     return model
 
 
