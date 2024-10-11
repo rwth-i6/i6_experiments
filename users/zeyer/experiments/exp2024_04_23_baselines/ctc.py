@@ -1256,8 +1256,8 @@ def py():
         train_vocab_opts={"other_opts": {"class": "SamplingBytePairEncoding", "breadth_prob": 0.01}},
     )
 
-    # EBranchformer, smaller cgmlp_ff_dim
-    train_exp(
+    # EBranchformer, smaller cgmlp_ff_dim (139M params, ~1050 sec/subep)
+    train_exp(  # 5.61
         "v6-EBranchformer-cgmlpDim1024-relPosAttDef-noBias-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2"
         "-lrlin1e_5_295k-featBN-speedpertV2-spm10k-bpeSample001",
         config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,

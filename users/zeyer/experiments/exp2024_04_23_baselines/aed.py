@@ -224,7 +224,7 @@ def py():
                 )
             },
         ),
-        ("spm10k", "spm", 0.7, False, "featBN", {"feature_batch_norm": True}),
+        ("spm10k", "spm", 0.7, False, "featBN", {"feature_batch_norm": True}),  # 5.29, so also worse
         (  # 5.56. Much worse?
             "spm10k",
             "spm",
