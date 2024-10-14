@@ -131,6 +131,12 @@ def _get_bpe_vocab(*, bpe_size: Union[int, str]) -> Bpe:
     if isinstance(bpe_size, str):
         bpe_size = {"128": 128, "64": 64, "0": 0}[bpe_size]
     assert isinstance(bpe_size, int)
+    # Note: Once we need another size, put some dummy value here first,
+    # then run the BPE training, then get the real vocab size, then update this.
+    # We need to do it this manual way until we properly handle _DelayedDim,
+    # but for _DelayedDim, we also need the new serialization_v2,
+    # and update the whole train/recog pipeline...
+    dim = {"128": 184, "64": 120, "0": 56}[bpe_size]
 
     from i6_core.tools.git import CloneGitRepositoryJob
 
@@ -153,10 +159,11 @@ def _get_bpe_vocab(*, bpe_size: Union[int, str]) -> Bpe:
     tk.register_output(f"{_alias_prefix}vocab/bpe_{bpe_size_str}_train.codes", _bpe_train_job.out_bpe_codes)
     tk.register_output(f"{_alias_prefix}vocab/bpe_{bpe_size_str}_train.vocab_size", _bpe_train_job.out_vocab_size)
     bpe = Bpe(
-        dim=_bpe_train_job.out_vocab_size,  # TODO...
+        dim=dim,
         codes=_bpe_train_job.out_bpe_codes,
         vocab=_bpe_train_job.out_bpe_vocab,
-        unknown_label="<unk>",
+        # unknown_label="<unk>",
+        unknown_label=None,
         bos_idx=0,
         eos_idx=0,
     )
@@ -500,9 +507,6 @@ class _DelayedDim(DelayedBase):
     def get(self):
         from sisyphus.toolkit import running_in_worker
         from returnn.tensor import Dim
-
-        # TODO fix this...
-        return Dim(None, **instanciate_delayed(self.opts))
 
         assert running_in_worker(), "_DelayedDim: get() should only be called in worker"
         assert self.dimension.is_set(), f"_DelayedDim: dimension not set: {self.dimension}"
