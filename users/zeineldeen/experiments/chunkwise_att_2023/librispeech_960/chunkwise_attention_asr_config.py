@@ -9,6 +9,23 @@ import copy
 from typing import Any, Dict, Optional
 from dataclasses import dataclass, asdict
 
+
+from i6_experiments.users.zeineldeen.models.asr.encoder.args import (
+    ConformerEncoderCommonArgs,
+    EncoderArgs,
+    ConformerEncoderArgs,
+    ConformerEncoderV2Args,
+    EBranchformerEncoderArgs,
+)
+
+from i6_experiments.users.zeineldeen.models.asr.decoder.args import (
+    DecoderArgs,
+    TransformerDecoderArgs,
+    RNNDecoderArgs,
+    ChunkwiseRNNDecoderArgs,
+    ConformerDecoderArgs,
+)
+
 from i6_experiments.users.zeineldeen.models.asr.encoder.conformer_encoder import (
     ConformerEncoder,
     ConformerMemoryVariantOpts,
@@ -387,194 +404,6 @@ def pretrain_layers_and_dims(
 # -------------------------------------------------------------------- #
 
 
-class EncoderArgs:
-    pass
-
-
-@dataclass
-class ConformerEncoderArgs(EncoderArgs):
-    num_blocks: int = 12
-    enc_key_dim: int = 512
-    att_num_heads: int = 8
-    ff_dim: int = 2048
-    conv_kernel_size: int = 32
-    input_layer: str = "lstm-6"
-    input_layer_conv_act: str = "relu"
-    pos_enc: str = "rel"
-
-    sandwich_conv: bool = False
-    subsample: Optional[str] = None
-    conv_alternative_name: Optional[str] = None
-    use_causal_layers: bool = False
-    use_causal_conv: Optional[bool] = None
-
-    # ctc
-    with_ctc: bool = True
-    native_ctc: bool = True
-    ctc_loss_scale: Optional[float] = None
-    ctc_self_align_delay: Optional[int] = None
-    ctc_self_align_scale: float = 0.5
-
-    # param init
-    ff_init: Optional[str] = None
-    mhsa_init: Optional[str] = None
-    mhsa_out_init: Optional[str] = None
-    conv_module_init: Optional[str] = None
-    start_conv_init: Optional[str] = None
-
-    # dropout
-    dropout: float = 0.1
-    dropout_in: float = 0.1
-    att_dropout: float = 0.1
-    lstm_dropout: float = 0.1
-
-    # weight dropout
-    ff_weight_dropout: Optional[float] = None
-    mhsa_weight_dropout: Optional[float] = None
-    conv_weight_dropout: Optional[float] = None
-
-    # norms
-    batch_norm_opts: Optional[Dict[str, Any]] = None
-    use_ln: bool = False
-
-    # other regularization
-    l2: float = 0.0001
-    self_att_l2: float = 0.0
-    rel_pos_clipping: int = 16
-    frontend_conv_l2: float = 0.0001
-
-    use_sqrd_relu: bool = False
-
-    output_layer_name: str = "encoder"
-
-    memory_variant_opts: Optional[ConformerMemoryVariantOpts] = None
-
-
-class DecoderArgs:
-    pass
-
-
-@dataclass
-class TransformerDecoderArgs(DecoderArgs):
-    num_layers: int = 6
-    att_num_heads: int = 8
-    ff_dim: int = 2048
-    ff_act: str = "relu"
-    pos_enc: Optional[str] = None
-    embed_pos_enc: bool = False
-
-    # param init
-    ff_init: Optional[str] = None
-    mhsa_init: Optional[str] = None
-    mhsa_out_init: Optional[str] = None
-
-    # dropout
-    dropout: float = 0.1
-    att_dropout: float = 0.1
-    embed_dropout: float = 0.1
-    softmax_dropout: float = 0.0
-
-    # other regularization
-    l2: float = 0.0
-    rel_pos_clipping: int = 16
-    label_smoothing: float = 0.1
-    apply_embed_weight: bool = False
-
-    length_normalization: bool = True
-
-    # ILM
-    replace_cross_att_w_masked_self_att: bool = False
-    create_ilm_decoder: bool = False
-    ilm_type: bool = None
-    ilm_args: Optional[dict] = None
-
-
-@dataclass
-class ConformerDecoderArgs(DecoderArgs):
-    num_layers: int = 6
-    att_num_heads: int = 8
-    ff_dim: int = 2048
-    pos_enc: Optional[str] = "rel"
-
-    # conv module
-    conv_kernel_size: int = 32
-
-    # param init
-    ff_init: Optional[str] = None
-    mhsa_init: Optional[str] = None
-    mhsa_out_init: Optional[str] = None
-    conv_module_init: Optional[str] = None
-
-    # dropout
-    dropout: float = 0.1
-    att_dropout: float = 0.1
-    embed_dropout: float = 0.1
-    softmax_dropout: float = 0.1
-
-    # other regularization
-    l2: float = 0.0001
-    rel_pos_clipping: int = 16
-    label_smoothing: float = 0.1
-    apply_embed_weight: bool = False
-
-    length_normalization: bool = True
-
-    use_sqrd_relu: bool = False
-
-    # ILM
-    replace_cross_att_w_masked_self_att: bool = False
-    create_ilm_decoder: bool = False
-    ilm_type: bool = None
-    ilm_args: Optional[dict] = None
-
-
-@dataclass
-class RNNDecoderArgs(DecoderArgs):
-    att_num_heads: int = 1
-    lstm_num_units: int = 1024
-    output_num_units: int = 1024
-    embed_dim: int = 640
-    enc_key_dim: int = 1024  # also attention dim  # also attention dim
-    masked_computation_blank_idx: Optional[int] = None
-    prev_target_embed_direct: bool = False
-    full_sum_simple_approx: bool = False
-
-    # location feedback
-    loc_conv_att_num_channels: Optional[int] = None
-    loc_conv_att_filter_size: Optional[int] = None
-
-    # param init
-    lstm_weights_init: Optional[str] = None
-    embed_weight_init: Optional[str] = None
-
-    # dropout
-    dropout: float = 0.0
-    softmax_dropout: float = 0.3
-    att_dropout: float = 0.0
-    embed_dropout: float = 0.1
-    rec_weight_dropout: float = 0.0
-
-    # other regularization
-    l2: float = 0.0001
-    zoneout: bool = True
-    reduceout: bool = True
-
-    # lstm lm
-    lstm_lm_proj_dim: int = 1024
-    lstm_lm_dim: int = 1024
-    add_lstm_lm: bool = False
-
-    length_normalization: bool = True
-
-    coverage_scale: float = None
-    coverage_threshold: float = None
-
-    use_zoneout_output: bool = False
-
-    ff_weight_dropout: Optional[float] = None
-    ff_weight_noise: Optional[float] = None
-
-
 def create_config(
     training_datasets,
     encoder_args: EncoderArgs,
@@ -764,10 +593,10 @@ def create_config(
         exp_config["newbob_learning_rate_decay"] = lr_decay
 
     # -------------------------- network -------------------------- #
-    assert isinstance(encoder_args, ConformerEncoderArgs)
+    assert isinstance(encoder_args, ConformerEncoderArgs) or isinstance(encoder_args, ConformerEncoderV2Args)
     encoder_type = ConformerEncoder
 
-    assert isinstance(decoder_args, RNNDecoderArgs)
+    assert isinstance(decoder_args, ChunkwiseRNNDecoderArgs)
     decoder_type = ChunkwiseRNNDecoder
     dec_type = "lstm"
 
