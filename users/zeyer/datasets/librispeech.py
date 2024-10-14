@@ -136,7 +136,7 @@ def _get_bpe_vocab(*, bpe_size: Union[int, str]) -> Bpe:
     # We need to do it this manual way until we properly handle _DelayedDim,
     # but for _DelayedDim, we also need the new serialization_v2,
     # and update the whole train/recog pipeline...
-    dim = {"128": 184, "64": 120, "0": 56}[bpe_size]
+    dim = {128: 184, 64: 120, 0: 56}[bpe_size]
 
     from i6_core.tools.git import CloneGitRepositoryJob
 
