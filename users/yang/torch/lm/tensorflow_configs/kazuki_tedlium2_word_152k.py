@@ -1,23 +1,13 @@
 #!crnn/rnn.py
-
-# model path :/work/asr4/irie/experiments/lm/librispeech/2018-03-05--lmbpe-zeyer/data-train/transfo_24_d00.4096_1024.sgd.lr1.8_heads
-# dev ppl: epoch 23: 35.8
 # kate: syntax python;
 # multisetup: finished True; finished_reason 'unstable';
+# Kauzki fine-tuned model, path /work/asr4/irie/experiments/lm/tedlium2/2019-07-28--word-152k/data-train/fine.cc_train.nopos_trafo_v2_1sa_4ff_4096_768_12heads.d01.sgd.lr1.cl1
+import_model_train_epoch1 = "/work/asr4/irie/experiments/lm/tedlium2/2019-07-28--word-152k/data-train/nopos_trafo_v2_1sa_4ff_4096_768_12heads.d01.sgd.lr1.cl1/net-model/network.040"
 
 import os
 from subprocess import check_output
 from Util import cleanup_env_var_path
 cleanup_env_var_path("LD_LIBRARY_PATH", "/u/zeyer/tools/glibc217")
-
-tf_session_opts = {'allow_soft_placement': True, 'log_device_placement': False}
-
-# flag for sampled softmax
-if config.has("use_full_softmax"):
-   use_full_softmax = config.bool("use_full_softmax", True)
-   print("** use_full_softmax %s" % use_full_softmax)
-else:
-   use_full_softmax = False
 
 # task
 use_tensorflow = True
@@ -41,34 +31,39 @@ def cf(filename):
     return cached_fn
 
 data_files = {
-    "train": "/work/asr3/irie/data/librispeech/lm_bpe/librispeech-lm-norm.bpe.txt.gz",
-    "cv": "/work/asr3/irie/data/librispeech/lm_bpe/dev.clean.other.bpe.txt.gz",
-    "test": "/work/asr3/irie/data/librispeech/lm_bpe/test.clean.other.txt.gz"}
-vocab_file = "/work/asr3/irie/data/librispeech/lm_bpe/trans.bpe.vocab.lm.txt"
+    "train": ["/work/asr3/irie/data/tedlium2/word_150k/data/train.en.gz",
+              "/work/asr3/irie/data/tedlium2/word_150k/data/commoncrawl-9pc.en.gz"],
+    "cv": ["/work/asr3/irie/data/tedlium2/word_150k/data/dev.en.gz"],
+    "test": ["/work/asr3/irie/data/tedlium2/word_150k/data/eval.en.gz"]}
+vocab_file = "/work/asr3/irie/data/tedlium2/word_150k/data/vocab.returnn.txt"
 
 orth_replace_map_file = ""
-num_inputs = 10025
 
-train_num_seqs = 40418260
-train_epoch_split = 4
+num_inputs = 152267
+
+# train dataset len: LmDataset, sequences: 2392275, frames: NumbersDict(numbers_dict={'data': 26700802}, broadcast_value=0)
+#train_num_seqs = 40699501
+#train_num_seqs = 40418260
+seq_order_bin_size = 100
+train_epoch_split = 10
 
 epoch_split = {"train": train_epoch_split, "cv": 1, "test": 1}
 seq_order = {
     "train": "random",
     "cv": "sorted",
-    "test": "default"}
+    "test": "sorted"}
 
 def get_dataset(data):
     assert data in ["train", "cv", "test"]
     return {
         "class": "LmDataset",
-        "corpus_file": lambda: cf(data_files[data]),
+        "corpus_file": lambda: list(map(cf, data_files[data])),
         "orth_symbols_map_file": lambda: cf(vocab_file),
         "orth_replace_map_file": orth_replace_map_file,
         "word_based": True,
         "seq_end_symbol": "<sb>",
-        "auto_replace_unknown_symbol": False,
-        "unknown_symbol": "<UNK>",
+        "auto_replace_unknown_symbol": True,
+        "unknown_symbol": "<unk>",
         "add_delayed_seq_data": True,
         "delayed_seq_data_start_symbol": "<sb>",
         "seq_ordering": seq_order[data],
@@ -77,39 +72,45 @@ def get_dataset(data):
 
 train = get_dataset("train")
 dev = get_dataset("cv")
+eval = get_dataset("test")
 cache_size = "0"
 window = 1
 
-# --------------------
-tf_session_opts = {'allow_soft_placement': True, 'log_device_placement': False}
-
+# network
+# (also defined by num_inputs & num_outputs)
 num_outputs = {"data": {"dim": num_inputs, "sparse": True, "dtype": "int32"}}  # sparse data
 num_outputs["delayed"] = num_outputs["data"]
+target = "data"
+
+tf_session_opts = {'allow_soft_placement': True, 'log_device_placement': False}
+
 # Transformer params.
-num_layers = 24 
+num_layers = 8 
+num_ff_per_block = 3
 ff_dim = 4096
-num_heads = 8
+num_heads = 12
 emb_dim = 128
-qk_dim = 1024
+qk_dim = 768
 v_dim = qk_dim
-trans_out_dim = 1024
-dropout = 0.0
+trans_out_dim = qk_dim
+dropout = 0.1
+att_dropout = 0.1
+act_func = "relu"
 
 # Universal.
 tied_params = False
 
 # Output layer.
-bottleneck_dim = 0
 output_sampling_loss = False
-output_num_sampled = 16384
+output_num_sampled = 4096
 output_use_full_softmax = False
-place_output_param_on_cpu = False
 
 # Input embedding.
-place_emb_on_cpu = True  # E.g. for adagrad.
+place_emb_on_cpu = False  # E.g. for adagrad.
 
 # Initializer.
 forward_weights_initializer = "variance_scaling_initializer(mode='fan_in', distribution='uniform', scale=1.0)"
+
 network = {
 'output': {'class': 'rec',
   'from': ['data:delayed'],
@@ -122,8 +123,7 @@ network = {
                                  'from': ['data:source'],
                                  'n_out': emb_dim,
                                  'with_bias': False},
-           'target_embed_with_pos': {'add_to_input': True, 'class': 'positional_encoding', 'from': ['target_embed_raw']},
-           'target_embed': {'class': 'dropout', 'dropout': dropout, 'from': ['target_embed_with_pos']},
+           'target_embed': {'class': 'dropout', 'dropout': dropout, 'from': ['target_embed_raw']},
            'target_embed_lin': { 'activation': None,
                                   'class': 'linear',
                                   'forward_weights_init': forward_weights_initializer,
@@ -153,7 +153,7 @@ network = {
                                'n_out': trans_out_dim,
                                'trainable': True},
            'dec_0_ff_laynorm': {'class': 'layer_norm', 'from': ['dec_0_att_out']},
-           'dec_0_ff_conv1': { 'activation': 'relu',
+           'dec_0_ff_conv1': { 'activation': act_func,
                                 'class': 'linear',
                                 'forward_weights_init': forward_weights_initializer,
                                 'from': ['dec_0_ff_laynorm'],
@@ -170,11 +170,13 @@ network = {
            'dec_0_ff_out': {'class': 'combine', 'from': ['dec_0_att_out', 'dec_0_ff_drop'], 'kind': 'add', 'n_out': trans_out_dim},}}}
 
 
-def add_layer(cur_lay_id, prev_lay_id):
+def add_trafo_layer(cur_lay_id, prev_lay_id, name_input):
   network['output']['unit']['dec_%(cur_lay_id)s' % {'cur_lay_id': cur_lay_id} ] = {
-    'class': 'copy', 'from': ['dec_%(cur_lay_id)s_ff_out' % {'cur_lay_id': cur_lay_id} ]}
+    'class': 'copy', 'from': ['dec_%(cur_lay_id)s_ff_out' % {'cur_lay_id': cur_lay_id} ]}  # Just renaming the block output to dec_N.
+
   network['output']['unit']['dec_%(cur_lay_id)s_self_att_laynorm' % {'cur_lay_id': cur_lay_id} ] = {
-    'class': 'layer_norm', 'from': ['dec_%(prev_lay_id)s' % {'prev_lay_id': prev_lay_id}]}
+    'class': 'layer_norm', 'from': [name_input]}  # Actual input layer of the block.
+
   network['output']['unit']['dec_%(cur_lay_id)s_self_att_att' % {'cur_lay_id': cur_lay_id} ] = {
     'attention_dropout': dropout,
     'attention_left_only': True,
@@ -197,7 +199,7 @@ def add_layer(cur_lay_id, prev_lay_id):
     'class': 'dropout', 'dropout': dropout, 'from': ['dec_%(cur_lay_id)s_self_att_lin' % {'cur_lay_id': cur_lay_id}]}
   network['output']['unit']['dec_%(cur_lay_id)s_att_out' % {'cur_lay_id': cur_lay_id} ] = {
     'class': 'combine',
-    'from': ['dec_%(prev_lay_id)s' % {'prev_lay_id': prev_lay_id}, 'dec_%(cur_lay_id)s_self_att_drop' % {'cur_lay_id': cur_lay_id}],
+    'from': [name_input, 'dec_%(cur_lay_id)s_self_att_drop' % {'cur_lay_id': cur_lay_id}],
     'kind': 'add',
     'n_out': trans_out_dim,
     'trainable': True}
@@ -205,7 +207,7 @@ def add_layer(cur_lay_id, prev_lay_id):
     'class': 'layer_norm', 'from': ['dec_%(cur_lay_id)s_att_out' % {'cur_lay_id': cur_lay_id}]}
   network['output']['unit']['dec_%(cur_lay_id)s_ff_conv1' % {'cur_lay_id': cur_lay_id}] = {
                        'class': 'linear',
-                       'activation': 'relu',
+                       'activation': act_func,
                        'forward_weights_init': forward_weights_initializer,
                        'reuse_params': 'dec_0_ff_conv1' if tied_params else None,
                        'from': ['dec_%(cur_lay_id)s_ff_laynorm' % {'cur_lay_id': cur_lay_id}],
@@ -226,27 +228,65 @@ def add_layer(cur_lay_id, prev_lay_id):
     'class': 'combine', 'from': ['dec_%(cur_lay_id)s_att_out' % {'cur_lay_id': cur_lay_id}, 'dec_%(cur_lay_id)s_ff_drop' % {'cur_lay_id': cur_lay_id}],
     'kind': 'add', 'n_out': trans_out_dim}
 
+  return 'dec_%(cur_lay_id)s' % {'cur_lay_id': cur_lay_id}
+
+
+
+def add_dnn_layer(cur_lay_id, prev_lay_id, dnn_id, name_input):
+  network['output']['unit']['dec_%(cur_lay_id)s_dnn_%(dnn_id)s' % {'cur_lay_id': cur_lay_id, 'dnn_id': dnn_id} ] = {
+    'class': 'copy', 'from': ['dec_%(cur_lay_id)s_dnn_%(dnn_id)s_ff_out' % {'cur_lay_id': cur_lay_id, 'dnn_id': dnn_id} ]}  # Just renaming the block output to dec_N.
+
+  network['output']['unit']['dec_%(cur_lay_id)s_dnn_%(dnn_id)s_ff_laynorm' % {'cur_lay_id': cur_lay_id, 'dnn_id': dnn_id}] = {
+    'class': 'layer_norm', 'from': [name_input]}
+
+  network['output']['unit']['dec_%(cur_lay_id)s_dnn_%(dnn_id)s_ff_conv1' % {'cur_lay_id': cur_lay_id, 'dnn_id': dnn_id}] = {
+                       'class': 'linear',
+                       'activation': 'relu',
+                       'forward_weights_init': forward_weights_initializer,
+                       'reuse_params': 'dec_0_ff_conv1' if tied_params else None,
+                       'from': ['dec_%(cur_lay_id)s_dnn_%(dnn_id)s_ff_laynorm' % {'cur_lay_id': cur_lay_id, 'dnn_id': dnn_id}],
+                       'n_out': ff_dim,
+                       'with_bias': True}
+
+  network['output']['unit']['dec_%(cur_lay_id)s_dnn_%(dnn_id)s_ff_conv2' % {'cur_lay_id': cur_lay_id, 'dnn_id': dnn_id} ] = {
+                       'class': 'linear',
+                       'activation': None,
+                       'dropout': dropout,
+                       'reuse_params': 'dec_0_ff_conv2' if tied_params else None,
+                       'forward_weights_init': forward_weights_initializer,
+                       'from': ['dec_%(cur_lay_id)s_dnn_%(dnn_id)s_ff_conv1' % {'cur_lay_id': cur_lay_id, 'dnn_id': dnn_id}],
+                       'n_out': trans_out_dim,
+                       'with_bias': True}
+
+  network['output']['unit']['dec_%(cur_lay_id)s_dnn_%(dnn_id)s_ff_drop' % {'cur_lay_id': cur_lay_id, 'dnn_id': dnn_id}] = {
+    'class': 'dropout', 'dropout': dropout, 'from': ['dec_%(cur_lay_id)s_dnn_%(dnn_id)s_ff_conv2' % {'cur_lay_id': cur_lay_id, 'dnn_id': dnn_id}]}
+
+  network['output']['unit']['dec_%(cur_lay_id)s_dnn_%(dnn_id)s_ff_out' % {'cur_lay_id': cur_lay_id, 'dnn_id': dnn_id}] = {
+    'class': 'combine', 'from': [name_input, 'dec_%(cur_lay_id)s_dnn_%(dnn_id)s_ff_drop' % {'cur_lay_id': cur_lay_id, 'dnn_id': dnn_id}],
+    'kind': 'add', 'n_out': trans_out_dim}
+
+  return 'dec_%(cur_lay_id)s_dnn_%(dnn_id)s' % {'cur_lay_id': cur_lay_id, 'dnn_id': dnn_id}
+
+
+
 # Stack layers.
 cur_lay_id = 1
 prev_lay_id = 0
+name_input = "dec_0"
 for i in range(num_layers-1):
-  add_layer(cur_lay_id, prev_lay_id)
+  name_input = add_trafo_layer(cur_lay_id, prev_lay_id, name_input)
+  for j in range(num_ff_per_block):
+    name_input = add_dnn_layer(cur_lay_id, prev_lay_id, j, name_input)
   cur_lay_id += 1
   prev_lay_id += 1
 
-# Add the final layer.
-if bottleneck_dim > 0:
-  network['output']['unit']['bottleneck'] = {'class': 'linear', 'activation': 'relu', 'forward_weights_init': forward_weights_initializer,
-                                             'n_out': bottleneck_dim, 'dropout': dropout, 'from': ['dec_%s' % prev_lay_id]}
-  network['output']['unit']['decoder'] = {'class': 'layer_norm', 'from': ['bottleneck']}
-else:
-  network['output']['unit']['decoder'] = {'class': 'layer_norm', 'from': ['dec_%s' % prev_lay_id]}
+# Add the final layer norm.
+network['output']['unit']['decoder'] = {'class': 'layer_norm', 'from': [name_input]}
 
 # Add output layer and loss.
 if output_sampling_loss:
   network['output']['unit']['output'] = {
     'class': 'softmax', 'dropout': dropout, 'use_transposed_weights': True,
-    'param_device': "CPU" if place_output_param_on_cpu else None,
     'loss_opts': {'num_sampled': output_num_sampled, 'use_full_softmax': output_use_full_softmax, 'nce_loss': False},
     'forward_weights_init': forward_weights_initializer,
     'loss': 'sampling_loss', 'target': 'data', 'from': ['decoder']}
@@ -260,32 +300,42 @@ else:
     'target': 'data',
     'with_bias': True}
 
-# --------------------
-
+############
+# Training hyper-params.
 batching = "random"
-batch_size = 1350
-max_seq_length = 1350
-max_seqs = 32
+batch_size = 900
+max_seq_length = 602
+max_seqs = 64
 chunking = "0"
-num_epochs = 50
+#truncation = 15
+num_epochs = 60
+#pretrain = "default"
+#pretrain_construction_algo = "from_input"
+#gradient_clip = 1.
 gradient_clip_global_norm = 1.
+#gradient_clip = 0
+#adam = True
+#optimizer = {'beta1': 0.9, 'beta2': 0.999, 'class': 'Adam', 'epsilon': 1e-08}
 gradient_noise = 0.
-learning_rate = 1.
-learning_rate_control = "newbob_abs"
-learning_rate_control_relative_error_relative_lr = True
+#learning_rate = 0.1
+#learning_rate = 1.
+learning_rate = 0.2
+learning_rate_control = "newbob_rel"
+learning_rate_control_relative_error_relative_lr = False
 newbob_multi_num_epochs = train_epoch_split
+#newbob_multi_update_interval = 1
+newbob_relative_error_div_by_old = True
 
-newbob_learning_rate_decay = 0.8
-newbob_relative_error_threshold = 0
+newbob_learning_rate_decay = 0.95
+newbob_relative_error_threshold = -0.007
 newbob_multi_update_interval = 1
 learning_rate_control_error_measure = "dev_score_output:exp"
-
 
 learning_rate_file = "newbob.data"
 model = "net-model/network"
 
 calculate_exp_loss = True
-cleanup_old_models = True
+cleanup_old_models = {"keep_best_n": 1, "keep_last_n": 2}
 
 # log
 log = "log/crnn.%s.log" % task

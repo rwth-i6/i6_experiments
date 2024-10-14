@@ -19,6 +19,7 @@ class LearningRateSchedules(Enum):
 class Optimizers(Enum):
     Nadam = auto()
     AdamW = auto()
+    RAdam = auto()
     SGD = auto()
 
 
@@ -46,6 +47,10 @@ def get_learning_rate_config(
         config.update(get_const_lr_config(**kwargs))
     elif schedule == LearningRateSchedules.CONST_DECAY_STEP:
         extra_python.append(get_const_decay_function(**kwargs))
+    elif schedule == LearningRateSchedules.Custom:
+        custom_learning_rates = kwargs.get('learning_rates', None)
+        assert custom_learning_rates is not None
+        config.update({"learning_rates": custom_learning_rates})
     else:
         raise NotImplementedError
 
@@ -55,6 +60,8 @@ def get_learning_rate_config(
         config.update(get_adamw_config(**kwargs))
     elif optimizer == Optimizers.SGD:
         config.update(get_sgd_config(**kwargs))
+    elif optimizer == Optimizers.RAdam:
+        config.update(get_radam_config(**kwargs))
     else:
         raise NotImplementedError
 
@@ -81,6 +88,9 @@ def get_sgd_config(
     **kwargs,
 ) -> Dict[str, Dict]:
     return {"optimizer": {"class": "sgd", "weight_decay": weight_decay}}
+
+def get_radam_config(**kwargs) -> Dict[str, Dict]:
+    return {"optimizer": {"class": "RAdam"}}
 
 def get_const_lr_config(
     learning_rate: float = 1e-4,
@@ -288,3 +298,8 @@ def get_const_decay_function(
                            tf.where(global_train_step <= 2*steps, const_lr - step_size * (n - steps), 
                                tf.maximum(decay_lr - step_size_final * (n - 2*steps), final_lr)))"""
     )
+
+
+def get_custom_lr(custom_learning_rates:List
+                  ) -> Dict:
+    return {"learning_rates": custom_learning_rates}
