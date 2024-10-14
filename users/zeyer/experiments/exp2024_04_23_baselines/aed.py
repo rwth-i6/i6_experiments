@@ -190,10 +190,10 @@ def py():
     )
     for vocab, sample, alpha, max_seq_len_via_audio, model_name, model_cfg in [
         ("char", None, 0, True, None, {}),
-        ("spm64", None, 0, True, None, {}),
+        ("spm64", None, 0, True, None, {}),  # 6.17
         ("spm128", None, 0, True, None, {}),
         ("spm512", None, 0, True, None, {}),  # 5.62
-        ("spm1k", None, 0, True, None, {}),
+        ("spm1k", None, 0, True, None, {}),  # 5.30
         ("spm10k", None, 0, True, None, {}),
         ("spm10k", "spm", 0.7, True, None, {}),  # 5.23
         ("spmLm10k", "spm", 0.7, False, None, {}),
