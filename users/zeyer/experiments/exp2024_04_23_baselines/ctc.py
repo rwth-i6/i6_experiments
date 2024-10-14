@@ -422,9 +422,12 @@ def py():
         # TODO ("spm128", "bpe", 0.001),
         ("spm128", "bpe", 0.01),  # 6.40
         # TODO ("spm128", "bpe", 0.005),
+        ("bpe128", None, None),
         ("spm64", None, None),
+        ("bpe64", None, None),
         ("utf8", None, None),
         ("char", None, None),
+        ("bpe0", None, None),
     ]:
         train_exp(
             f"v6-relPosAttDef-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100"

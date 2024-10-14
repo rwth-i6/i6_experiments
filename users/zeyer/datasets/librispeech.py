@@ -13,6 +13,7 @@ from sisyphus.delayed_ops import DelayedBase
 from i6_core.util import instanciate_delayed
 from i6_core.corpus.convert import CorpusToTextDictJob
 from i6_core.text.convert import TextDictToTextLinesJob
+from i6_core.text.label.subword_nmt.train import ReturnnTrainBpeJob
 from i6_core.text.label.sentencepiece.train import TrainSentencePieceJob, SentencePieceType
 from i6_core.text.label.sentencepiece.vocab import ExtractSentencePieceVocabJob
 from returnn.util.basic import NotSpecified
@@ -124,6 +125,42 @@ def _get_spm_vocab(
     return spm
 
 
+@cache
+def _get_bpe_vocab(*, bpe_size: Union[int, str]) -> Bpe:
+    bpe_size_str = str(bpe_size)
+    if isinstance(bpe_size, str):
+        bpe_size = {"128": 128, "64": 64, "0": 0}[bpe_size]
+    assert isinstance(bpe_size, int)
+
+    from i6_core.tools.git import CloneGitRepositoryJob
+
+    subword_nmt_job = CloneGitRepositoryJob(
+        url="https://github.com/albertz/subword-nmt",
+        commit="5015a45e28a958f800ef1c50e7880c0c9ef414cf",
+        checkout_folder_name="subword-nmt",
+    )
+
+    _bpe_train_job = ReturnnTrainBpeJob(
+        text_file=_get_train_corpus_text(),
+        bpe_size=bpe_size,
+        unk_label="<unk>",
+        subword_nmt_repo=subword_nmt_job.out_repository,
+    )
+    _bpe_train_job.add_alias(f"{_alias_prefix}vocab/bpe_{bpe_size_str}_train")
+    tk.register_output(f"{_alias_prefix}vocab/bpe_{bpe_size_str}_train.vocab", _bpe_train_job.out_bpe_vocab)
+    tk.register_output(f"{_alias_prefix}vocab/bpe_{bpe_size_str}_train.codes", _bpe_train_job.out_bpe_codes)
+    tk.register_output(f"{_alias_prefix}vocab/bpe_{bpe_size_str}_train.vocab_size", _bpe_train_job.out_vocab_size)
+    bpe = Bpe(
+        dim=_bpe_train_job.out_vocab_size,  # TODO...
+        codes=_bpe_train_job.out_bpe_codes,
+        vocab=_bpe_train_job.out_bpe_vocab,
+        unknown_label="<unk>",
+        bos_idx=0,
+        eos_idx=0,
+    )
+    return bpe
+
+
 # common, this is the BPE10k that many of us use
 bpe10k = Bpe(
     dim=10_025,
@@ -149,6 +186,8 @@ def get_vocab_by_str(vocab: str) -> Union[SentencePieceModel, Bpe, VocabConfigSt
         return _get_spm_vocab(dim=vocab[len("spm_bpe") :], model_type=SentencePieceType.BPE)
     elif vocab == "bpe10k":  # predefined
         return bpe10k
+    elif re.match("^bpe[0-9]+.*$", vocab):
+        return _get_bpe_vocab(bpe_size=vocab[len("bpe") :])
     elif vocab == "char":
         return get_char_vocab(
             get_librispeech_lm_combined_txt(), num_classes=29, extra_labels=("\x00",), eos_label="\x00"
@@ -327,8 +366,12 @@ class LibrispeechOggZip(DatasetConfig):
         if self.vocab is not None:
             self._out_spatial_dim = Dim(None, name="out-spatial", kind=Dim.Types.Spatial)
             num_classes = self.vocab.get_num_classes()
-            assert isinstance(num_classes, int)
-            self._classes_dim = Dim(num_classes, name="vocab", kind=Dim.Types.Spatial)
+            if isinstance(num_classes, int):
+                self._classes_dim = Dim(num_classes, name="vocab", kind=Dim.Types.Feature)
+            elif isinstance(num_classes, tk.Variable):
+                self._classes_dim = _DelayedDim(num_classes, name="vocab", kind=Dim.Types.Feature)
+            else:
+                raise TypeError(f"unexpected type {type(num_classes)} for {num_classes}")
 
     def _sis_hash(self) -> bytes:
         # Note: Currently our GetBestRecogTrainExp job / _RecogAndScoreFunc sis hash
@@ -455,6 +498,9 @@ class _DelayedDim(DelayedBase):
     def get(self):
         from sisyphus.toolkit import running_in_worker
         from returnn.tensor import Dim
+
+        # TODO fix this...
+        return Dim(None, **instanciate_delayed(self.opts))
 
         assert running_in_worker(), "_DelayedDim: get() should only be called in worker"
         assert self.dimension.is_set(), f"_DelayedDim: dimension not set: {self.dimension}"
