@@ -95,3 +95,6 @@ def test_Dim():
         sis_hash_helper(obj)
         == b"(Dim, (dict, (tuple, (str, 'dim'), (NoneType)), (tuple, (str, 'kind'), (str, 'spatial'))))"
     )
+
+    obj = Dim(42, name="vocab")
+    assert sis_hash_helper(obj) == b"(Dim, (dict, (tuple, (str, 'dim'), (int, 42))))"
