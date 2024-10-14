@@ -82,3 +82,16 @@ def test_functools_partial():
         b" (tuple, (str, 'builtins'), (str, 'int')))),"
         b" (tuple, (str, 'keywords'), (dict))))"
     )
+
+
+def test_Dim():
+    from returnn.tensor import Dim
+
+    obj = Dim(None, name="time")
+    assert sis_hash_helper(obj) == b"(Dim, (dict, (tuple, (str, 'dim'), (NoneType))))"
+
+    obj = Dim(None, name="time", kind=Dim.Types.Spatial)
+    assert (
+        sis_hash_helper(obj)
+        == b"(Dim, (dict, (tuple, (str, 'dim'), (NoneType)), (tuple, (str, 'kind'), (str, 'spatial'))))"
+    )
