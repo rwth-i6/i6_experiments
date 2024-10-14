@@ -135,16 +135,18 @@ def _get_bpe_vocab(*, bpe_size: Union[int, str]) -> Bpe:
     from i6_core.tools.git import CloneGitRepositoryJob
 
     subword_nmt_job = CloneGitRepositoryJob(
-        url="https://github.com/albertz/subword-nmt",
+        url="https://github.com/rwth-i6/subword-nmt",
         commit="5015a45e28a958f800ef1c50e7880c0c9ef414cf",
         checkout_folder_name="subword-nmt",
     )
+    subword_nmt_repo = subword_nmt_job.out_repository
+    subword_nmt_repo.hash_overwrite = "I6_SUBWORD_NMT_V2"  # this is what most other people use as well
 
     _bpe_train_job = ReturnnTrainBpeJob(
         text_file=_get_train_corpus_text(),
         bpe_size=bpe_size,
         unk_label="<unk>",
-        subword_nmt_repo=subword_nmt_job.out_repository,
+        subword_nmt_repo=subword_nmt_repo,
     )
     _bpe_train_job.add_alias(f"{_alias_prefix}vocab/bpe_{bpe_size_str}_train")
     tk.register_output(f"{_alias_prefix}vocab/bpe_{bpe_size_str}_train.vocab", _bpe_train_job.out_bpe_vocab)
