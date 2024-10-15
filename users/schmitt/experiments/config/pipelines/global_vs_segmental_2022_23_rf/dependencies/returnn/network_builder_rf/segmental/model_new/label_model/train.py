@@ -721,6 +721,10 @@ def full_sum_training(
   )
 
   loss = rf.convert_to_tensor(loss, name="full_sum_loss")
+
+  if config.bool("use_normalized_loss", False):
+    loss /= rf.copy_to_device(non_blank_targets_spatial_dim.dyn_size_ext)
+
   loss.mark_as_loss("full_sum_loss", scale=1.0, use_normalized_loss=True)
 
   return None
