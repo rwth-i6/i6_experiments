@@ -9,7 +9,9 @@ from .aed import train_exp, dict_update_deep, speed_pert_librosa_config, _batch_
 
 
 def py():
-    train_exp(  # 4.98 (!!)
+    # TODO fix LR schedule
+    # TODO only 50% compute time... need to increase multiproc dataset workers
+    train_exp(
         f"96gb-bf16-bs200k-accgrad1-wd1e_4-lrlin1e_5_295kWrong-speedpertV2-spm10k-spmSample07",
         config_96gb_bf16_accgrad1,
         config_updates={
@@ -23,11 +25,14 @@ def py():
     )
 
 
+# https://help.itc.rwth-aachen.de/service/rhr4fjjutttf/article/9108f4a6f43c40a3a168919afd36839d/
 # TODO check weight decay...
 config_96gb_bf16_accgrad1 = dict_update_deep(
     config_24gb_v6,
     {
         "__gpu_mem": 96,
+        "__cpu_rqmt": 24,  # the whole c23g node has 96 CPUs, and 4 GPUs
+        "__mem_rqmt": 100,  # the whole node should have more than 500GB
         "accum_grad_multiple_step": 1,  # per single GPU
     },
 )
