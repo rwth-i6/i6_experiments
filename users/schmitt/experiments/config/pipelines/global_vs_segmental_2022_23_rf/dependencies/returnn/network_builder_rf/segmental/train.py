@@ -134,6 +134,11 @@ def get_alignment_args(
         batch_dims: List[Dim],
 ):
   if model.use_joint_model:
+    # set blank indices in alignment to 0 (= EOS index of imported global att model which is not used otherwise)
+    align_targets.raw_tensor[align_targets.raw_tensor == model.target_dim.dimension] = 0
+    align_targets.sparse_dim = model.target_dim
+
+  if model.use_joint_model and model.window_step_size == 1:
     # TODO: use rf.window() instead
     segment_starts, segment_lens, center_positions = utils.get_segment_starts_and_lens(
       non_blank_mask=rf.sequence_mask(align_targets.dims),  # this way, every frame is interpreted as non-blank
@@ -142,9 +147,6 @@ def get_alignment_args(
       batch_dims=batch_dims,
       out_spatial_dim=align_targets_spatial_dim
     )
-    # set blank indices in alignment to 0 (= EOS index of imported global att model which is not used otherwise)
-    align_targets.raw_tensor[align_targets.raw_tensor == model.target_dim.dimension] = 0
-    align_targets.sparse_dim = model.target_dim
 
     non_blank_mask = utils.get_non_blank_mask(align_targets, model.blank_idx)
     non_blank_targets, non_blank_targets_spatial_dim = utils.get_masked(
@@ -158,15 +160,48 @@ def get_alignment_args(
     )
     non_blank_targets.sparse_dim = model.target_dim
 
-    segment_starts, segment_lens, center_positions = utils.get_segment_starts_and_lens(
-      non_blank_mask,
-      align_targets_spatial_dim,
-      model.center_window_size,
-      batch_dims,
-      non_blank_targets_spatial_dim
-    )
+    if model.window_step_size == 1:
+      segment_starts, segment_lens, center_positions = utils.get_segment_starts_and_lens(
+        non_blank_mask,
+        align_targets_spatial_dim,
+        model.center_window_size,
+        batch_dims,
+        non_blank_targets_spatial_dim
+      )
+    else:
+      (
+        segment_starts,
+        segment_lens,
+        center_positions,
+        align_targets,
+        align_targets_spatial_dim,
+      ) = utils.get_chunked_segment_starts_and_lens(
+        non_blank_mask=non_blank_mask,
+        align_targets_spatial_dim=align_targets_spatial_dim,
+        non_blank_targets_spatial_dim=non_blank_targets_spatial_dim,
+        window_size=model.center_window_size,
+        step_size=model.window_step_size,
+        batch_dims=batch_dims,
+        align_targets=align_targets,
+        blank_idx=model.blank_idx,
+        use_joint_model=model.use_joint_model,
+      )
+      non_blank_mask = utils.get_non_blank_mask(align_targets, model.blank_idx)
+      non_blank_targets, non_blank_targets_spatial_dim = utils.get_masked(
+        align_targets, non_blank_mask, align_targets_spatial_dim, batch_dims
+      )
+      non_blank_targets.sparse_dim = model.target_dim
 
-  return segment_starts, segment_lens, center_positions, non_blank_targets, non_blank_targets_spatial_dim, non_blank_mask
+  return (
+    segment_starts,
+    segment_lens,
+    center_positions,
+    non_blank_targets,
+    non_blank_targets_spatial_dim,
+    non_blank_mask,
+    align_targets,
+    align_targets_spatial_dim,
+  )
 
 
 def viterbi_training(
@@ -218,13 +253,30 @@ def viterbi_training(
       )
 
   (
-    segment_starts, segment_lens, center_positions, non_blank_targets, non_blank_targets_spatial_dim, non_blank_mask
+    segment_starts,
+    segment_lens,
+    center_positions,
+    non_blank_targets,
+    non_blank_targets_spatial_dim,
+    non_blank_mask,
+    align_targets,
+    align_targets_spatial_dim,
   ) = get_alignment_args(
     model=model,
     align_targets=align_targets,
     align_targets_spatial_dim=align_targets_spatial_dim,
     batch_dims=batch_dims,
   )
+
+  # if model.window_step_size != 1:
+  #   print("blank_idx", model.blank_idx)
+  #   print("align_targets", align_targets.raw_tensor)
+  #   print("non_blank_targets", non_blank_targets.raw_tensor)
+  #   print("segment_starts", segment_starts.raw_tensor)
+  #   print("segment_lens", segment_lens.raw_tensor)
+  #   print("center_positions", center_positions.raw_tensor)
+  #   print("\n\n")
+  #   exit()
 
   if enc_args is None:
     # ------------------- encoder aux loss -------------------
@@ -424,6 +476,12 @@ def viterbi_training(
     # ------------------- blank loop -------------------
 
     emit_ground_truth, emit_blank_target_dim = utils.get_emit_ground_truth(align_targets, model.blank_idx)
+
+    # if model.window_step_size != 1:
+    #   print("align_targets", align_targets.raw_tensor)
+    #   print("emit_ground_truth", emit_ground_truth.raw_tensor)
+    #   exit()
+
     if isinstance(model.blank_decoder, BlankDecoderV1):
       emit_log_prob, blank_log_prob = blank_model_viterbi_training(
         model=model.blank_decoder,
@@ -436,7 +494,7 @@ def viterbi_training(
         batch_dims=batch_dims,
         beam_dim=beam_dim,
       )
-    elif model.blank_decoder_version in (3, 4, 5, 6, 7, 8, 9):
+    elif model.blank_decoder_version in (3, 4, 5, 6, 7, 8, 9, 11):
       assert isinstance(
         model.blank_decoder, BlankDecoderV3) or isinstance(
         model.blank_decoder, BlankDecoderV4) or isinstance(

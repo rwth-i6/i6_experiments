@@ -26,20 +26,30 @@ def run_exps():
     use_att_ctx_in_state,
     att_h_t_dropout,
     regularization_type,
+    blank_decoder_version,
+    blank_decoder_opts,
+    n_full_epochs_fixed_path,
+    n_full_epochs_full_sum,
   ) in [
-    ("v1", 1, False, False, None, False, 0.0, "v1"),  # standard transducer
-    ("v1_accum1", 1, False, False, 1, False, 0.0, "v1"),  # standard transducer
-    ("v1_accum1_reg_v3", 1, False, False, 1, False, 0.0, "v3"),  # standard transducer
-    ("v2", None, True, False, None, False, 0.0, "v1"),  # transducer with transformer attention
-    ("v3", None, True, True, None, False, 0.0, "v1"),  # transducer with transformer w/o cross attention
-    ("v4", None, False, False, None, True, 0.0, "v1"),  # standard transducer with global LSTM att and att ctx in state
-    ("v5", None, True, False, None, False, 0.3, "v1"),  # transducer with transformer attention with random gate
-    ("v5_drop0.5", None, True, False, None, False, 0.5, "v1"),  # transducer with transformer attention with random gate
+    ("v1", 1, False, False, None, False, 0.0, "v1", 4, None, 30, 15),  # standard transducer
+    ("v1_long", 1, False, False, None, False, 0.0, "v1", 4, None, 70, 30),  # standard transducer, longer training
+    ("v1_accum1", 1, False, False, 1, False, 0.0, "v1", 4, None, 30, 15),  # standard transducer, accum 1
+    ("v1_accum1_reg_v3", 1, False, False, 1, False, 0.0, "v3", 4, None, 30, 15),  # standard transducer, accum 1, v3 regularization
+    ("v1_accum1_reg_v3", 1, False, False, 1, False, 0.0, "v4", 4, None, 30, 15),  # standard transducer, accum 1, v4 regularization
+    ("v1_accum1_reg_v3", 1, False, False, 1, False, 0.0, "v5", 4, None, 30, 15),  # standard transducer, accum 1, v5 regularization
+    ("v1_accum1_reg_v3_blank-drop-0.3", 1, False, False, 1, False, 0.0, "v3", 4, {"dropout": 0.3}, 30, 15),  # standard transducer, accum 1, v3 regularization, blank dropout
+    ("v1_accum1_reg_v3_blank-v11", 1, False, False, 1, False, 0.0, "v3", 11, None, 30, 15),  # standard transducer, accum 1, v3 regularization, blank v11
+    ("v2", None, True, False, None, False, 0.0, "v1", 4, None, 30, 15),  # transducer with transformer attention
+    ("v3", None, True, True, None, False, 0.0, "v1", 4, None, 30, 15),  # transducer with transformer w/o cross attention
+    ("v4", None, False, False, None, True, 0.0, "v1", 4, None, 30, 15),  # standard transducer with global LSTM att and att ctx in state
+    ("v5", None, True, False, None, False, 0.3, "v1", 4, None, 30, 15),  # transducer with transformer attention with random gate
+    ("v5_drop0.5", None, True, False, None, False, 0.5, "v1", 4, None, 30, 15),  # transducer with transformer attention with random gate
   ]:
     gpu_mem_rqmts = [24]
     if alias == "v1":
       gpu_mem_rqmts.append(11)
-    if alias in ["v1_accum1", "v4", "v1_accum1_reg_v3"]:
+    if alias in [
+      "v1_accum1", "v4", "v1_accum1_reg_v3", "v1_accum1_reg_v3_blank-drop-0.3", "v1_accum1_reg_v3_blank-v11"]:
       gpu_mem_rqmts = [11]
 
     for gpu_mem_rqmt in gpu_mem_rqmts:
@@ -61,7 +71,7 @@ def run_exps():
 
       for model_alias, config_builder in get_config_builder.center_window_att_baseline_rf(
               win_size_list=(win_size,),
-              blank_decoder_version=4,
+              blank_decoder_version=blank_decoder_version,
               use_att_ctx_in_state=use_att_ctx_in_state,
               use_weight_feedback=False,
               bpe_vocab_size=1056,
@@ -70,6 +80,7 @@ def run_exps():
               use_trafo_att=use_trafo_att,
               use_current_frame_in_readout=win_size is None,
               use_trafo_att_wo_cross_att=use_trafo_att_wo_cross_att,
+              blank_decoder_opts=blank_decoder_opts,
       ):
         keep_epochs_step_fixed_path = n_epochs_fixed_path // 10
         keep_epochs_fixed_path = list(range(keep_epochs_step_fixed_path, n_epochs_fixed_path, keep_epochs_step_fixed_path))
@@ -96,10 +107,15 @@ def run_exps():
                 att_h_t_dropout=att_h_t_dropout,
                 regularization_type=regularization_type,
         ):
+          checkpoint_aliases = ("last",)
+          if alias in ("v1_accum1_reg_v3_blank-drop-0.3", "v1_accum1_reg_v3_blank-v11"):
+            checkpoint_aliases = ("last", "best", "best-4-avg")
+
           recog.center_window_returnn_frame_wise_beam_search(
             alias=fixed_path_train_alias,
             config_builder=config_builder,
             checkpoint=fixed_path_checkpoint,
+            checkpoint_aliases=checkpoint_aliases,
           )
           if win_size is None:
             pipeline = recog.center_window_returnn_frame_wise_beam_search(
@@ -177,10 +193,12 @@ def run_exps():
 
         keep_epochs_step_full_sum = n_epochs_full_sum // 10
         keep_epochs_full_sum = list(range(keep_epochs_step_full_sum, n_epochs_full_sum, keep_epochs_step_full_sum))
-        peak_lrs = []
+        params = []
         if gpu_mem_rqmt == 24 and alias in ("v1", "v2", "v4"):
-          peak_lrs += [3e-4, 1e-4]
-        for peak_lr in peak_lrs:
+          params += [(3e-4, False), (1e-4, False)]
+          if alias == "v1":
+            params += [(3e-4, True)]
+        for peak_lr, use_normalized_loss in params:
           for full_sum_train_alias, full_sum_checkpoint in train.train_center_window_att(
                   alias=model_alias,
                   config_builder=config_builder,
@@ -203,6 +221,7 @@ def run_exps():
                     "peak_lr": peak_lr,
                     "lr2": peak_lr / 5,
                   },
+                  use_normalized_loss=use_normalized_loss,
           ):
             recog.center_window_returnn_frame_wise_beam_search(
               alias=full_sum_train_alias,

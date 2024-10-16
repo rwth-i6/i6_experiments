@@ -92,9 +92,137 @@ def get_segment_starts_and_lens(
   return starts, lens, non_blank_positions
 
 
+def get_chunked_segment_starts_and_lens(
+        non_blank_mask: Tensor,
+        align_targets_spatial_dim: Dim,
+        non_blank_targets_spatial_dim: Dim,
+        window_size: int,
+        step_size: int,
+        batch_dims: Sequence[Dim],
+        align_targets: Tensor,
+        blank_idx: int,
+        use_joint_model: bool,
+):
+  assert len(batch_dims) == 1, "Only one batch dim supported"
+
+  # get non-blank positions
+  targets_range = rf.range_over_dim(align_targets_spatial_dim, dtype="int32")
+  for batch_dim in batch_dims:
+    targets_range = rf.expand_dim(targets_range, batch_dim)
+  non_blank_positions, _ = get_masked(
+    targets_range, non_blank_mask, align_targets_spatial_dim, batch_dims, non_blank_targets_spatial_dim
+  )
+
+  # get window information
+  align_lens = rf.copy_to_device(align_targets_spatial_dim.dyn_size_ext)
+  max_align_len = rf.reduce_max(align_targets_spatial_dim.dyn_size_ext, axis=batch_dims[0]).raw_tensor.item()
+  num_windows = max_align_len // step_size
+  num_windows += int(max_align_len % step_size > 0)
+  num_windows_dim = Dim(name="num_windows", dimension=num_windows)
+  num_windows_range = rf.range_over_dim(num_windows_dim)
+  window_starts = num_windows_range * step_size
+  window_ends = window_starts + window_size
+  window_ends = rf.clip_by_value(window_ends, 0, align_lens, allow_broadcast_all_sources=True)
+  window_lens = window_ends - window_starts
+  window_dim = Dim(name="window", dimension=window_lens)
+
+  # for the joint model, we use the align_targets as target
+  # however, the code below calculates the segment starts, ends etc based on the non-blank targets and positions
+  # therefore, we here add the EOC token positions to the non-blank positions
+  # the resulting segment starts, ends calculations then also include the EOC tokens
+  if use_joint_model:
+    # set the padding to a very high number, so that it is at the end after sorting
+    non_blank_positions.raw_tensor[~rf.sequence_mask(non_blank_positions.dims).raw_tensor] = 1_000_000
+    # append the window ends to the non-blank positions
+    # these new positions represent the positions of the EOC tokens
+    non_blank_positions, align_targets_spatial_dim_new = rf.concat(
+      (non_blank_positions, non_blank_targets_spatial_dim),
+      (window_ends - 1, num_windows_dim),
+    )
+    # sort the non-blank positions to move the EOC positions to the correct locations
+    non_blank_positions.raw_tensor, _ = torch.sort(
+      non_blank_positions.raw_tensor,
+      dim=non_blank_positions.get_axes_from_description(non_blank_targets_spatial_dim)[0],
+    )
+    # replace the padding again with zeros
+    non_blank_positions = rf.where(
+      rf.range_over_dim(non_blank_targets_spatial_dim) >= non_blank_targets_spatial_dim.get_size_tensor(),
+      rf.zeros_like(non_blank_positions),
+      non_blank_positions
+    )
+
+  # for each label, get the window index it is in
+  in_window_mask = rf.logical_and(
+    non_blank_positions >= window_starts,
+    non_blank_positions < window_ends
+  )
+  window_indices = rf.where(
+    in_window_mask,
+    num_windows_range,
+    rf.zeros_like(in_window_mask)
+  )
+  window_indices = rf.reduce_sum(window_indices, axis=num_windows_dim)
+
+  # segment starts and lens are just gathered according to the window indices
+  segment_starts = rf.gather(
+    window_starts,
+    indices=window_indices,
+  )
+  segment_lens = rf.gather(
+    window_lens,
+    indices=window_indices,
+  )
+  center_positions = segment_starts + segment_lens // 2
+
+  # slice align_targets in to windows
+  slice_range = rf.range_over_dim(window_dim)
+  slice_indices = slice_range + window_starts
+  slice_indices = rf.clip_by_value(slice_indices, 0, align_lens - 1, allow_broadcast_all_sources=True)
+  windows = rf.gather(
+    align_targets,
+    axis=align_targets_spatial_dim,
+    indices=slice_indices,
+    # clip_to_valid=True
+  )
+
+  # add a -1 index to the end of each window (this will become the EOC later)
+  windows, window_dim_ext = rf.pad(windows, axes=[window_dim], padding=[(0, 1)], value=-1)
+  window_dim_ext = window_dim_ext[0]
+
+  # concatenate the windows [B, N, W] -> [B, T + N] (N = num_windows, T = align_targets_spatial_dim)
+  align_targets_spatial_dim_ext = align_targets_spatial_dim + num_windows
+  align_range = rf.range_over_dim(align_targets_spatial_dim_ext)
+  align_targets, align_targets_spatial_dim = rf.merge_dims(windows, dims=[num_windows_dim, window_dim_ext])
+  align_targets = rf.gather(
+    align_targets,
+    axis=align_targets_spatial_dim,
+    indices=align_range,
+  )
+
+  # remove the previous blank indices
+  align_targets, align_targets_spatial_dim = get_masked(
+    align_targets,
+    get_non_blank_mask(align_targets, blank_idx),
+    align_targets_spatial_dim_ext,
+    batch_dims,
+    # if we use a joint model, the result dimension will be the same as the dimension of the augmented
+    # non-blank positions
+    result_spatial_dim=align_targets_spatial_dim_new if use_joint_model else None
+  )
+
+  # replace the -1 indices with the blank index (= EOC index)
+  align_targets = rf.where(
+    align_targets == -1,
+    blank_idx,
+    align_targets
+  )
+
+  return segment_starts, segment_lens, center_positions, align_targets, align_targets_spatial_dim
+
+
 def get_emit_ground_truth(
         align_targets: Tensor,
-        blank_idx: int
+        blank_idx: int,
 ):
   non_blank_mask = get_non_blank_mask(align_targets, blank_idx)
   result = rf.where(non_blank_mask, rf.convert_to_tensor(1), rf.convert_to_tensor(0))

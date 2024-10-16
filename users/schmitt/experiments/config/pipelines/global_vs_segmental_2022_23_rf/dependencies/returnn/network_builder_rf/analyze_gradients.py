@@ -2295,8 +2295,8 @@ def analyze_gradients(
         *[(f"enc-{i}", collected_outputs[str(i)]) for i in range(len(model.encoder.layers) - 1, -1, -1)],
         ("x_linear", x_linear),
       ]
-      if "enc_ctx" in enc_args and energies is not None and not model.att_encoder:
-        tensors.append((f"enc_ctx-{enc_layer_idx}", enc_args["enc_ctx"]))
+      if "enc_ctx" in att_enc_args and energies is not None and not model.att_encoder:
+        tensors.append((f"enc_ctx-{enc_layer_idx}", att_enc_args["enc_ctx"]))
 
       if model.att_encoder:
         tensors.insert(0, ("att_enc-11", att_enc_args["enc"]))

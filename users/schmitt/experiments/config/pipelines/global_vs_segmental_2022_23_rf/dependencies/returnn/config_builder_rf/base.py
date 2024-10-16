@@ -330,6 +330,23 @@ class ConfigBuilderRF(ABC):
     if separate_readout_alpha is not None:
       config_dict["beam_search_opts"]["separate_readout_alpha"] = separate_readout_alpha
 
+    base_model_scale = opts.get("base_model_scale", 1.0)
+    if base_model_scale != 1.0:
+      config_dict["beam_search_opts"]["base_model_scale"] = base_model_scale
+
+    external_aed_opts = opts.get("external_aed_opts", None)
+    if external_aed_opts is not None:
+      config_dict["external_aed_kwargs"] = {"test": "test"}
+      if "preload_from_files" not in config_dict:
+        config_dict["preload_from_files"] = {}
+      config_dict["preload_from_files"]["external_aed"] = {
+        "filename": external_aed_opts["checkpoint"],
+        "prefix": "aed_model.",
+        "ignore_missing": False,
+      }
+      config_dict["beam_search_opts"]["external_aed_scale"] = external_aed_opts["scale"]
+
+
     lm_opts = opts.get("lm_opts", None)  # type: Optional[Dict]
     if lm_opts is not None:
       assert lm_opts.get("type", "trafo") == "trafo"
@@ -1297,6 +1314,7 @@ class SegmentalAttConfigBuilderRF(TransducerConfigBuilderRF, ABC):
           gaussian_att_weight_opts: Optional[Dict] = None,
           separate_blank_from_softmax: bool = False,
           blank_decoder_opts: Optional[Dict] = None,
+          window_step_size: int = 1,
           **kwargs
   ):
     if use_joint_model:
@@ -1304,7 +1322,6 @@ class SegmentalAttConfigBuilderRF(TransducerConfigBuilderRF, ABC):
 
     if blank_decoder_opts is not None:
       assert blank_decoder_version is not None
-      assert blank_decoder_opts["version"] == blank_decoder_version
 
     super(SegmentalAttConfigBuilderRF, self).__init__(**kwargs)
 
@@ -1328,6 +1345,9 @@ class SegmentalAttConfigBuilderRF(TransducerConfigBuilderRF, ABC):
 
     if blank_decoder_opts is not None:
       self.config_dict["blank_decoder_opts"] = blank_decoder_opts
+
+    if window_step_size != 1:
+      self.config_dict["window_step_size"] = window_step_size
 
     self.reset_eos_params = False
 

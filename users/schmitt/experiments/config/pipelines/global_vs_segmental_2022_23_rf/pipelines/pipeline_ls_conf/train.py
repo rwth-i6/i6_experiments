@@ -32,6 +32,12 @@ regularization_opts = {
   "v3": {
     "weight_decay": 0.01,
   },
+  "v4": {
+    "weight_decay": 2e-2,
+  },
+  "v5": {
+    "weight_decay": 4e-2,
+  },
 }
 
 
@@ -197,6 +203,6 @@ def get_common_train_opts_rqmt(
   train_rqmt["sbatch_args"] = []
   if cluster_reservation_string:
     train_rqmt["sbatch_args"] += ["--reservation", cluster_reservation_string]
-  # train_rqmt["sbatch_args"] += ["--exclude", "cn-260"]
+  train_rqmt["sbatch_args"] += ["--exclude", "cn-222"]
 
   return train_opts, train_rqmt, alias

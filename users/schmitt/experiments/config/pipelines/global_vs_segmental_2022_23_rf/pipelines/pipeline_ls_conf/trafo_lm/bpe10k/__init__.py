@@ -36,6 +36,10 @@ def run_exps():
       batch_size = 5_000
       accum_grad_multiple_step = 2
       max_seqs = 100
+    elif model_kwargs["num_layers"] == 32:
+      batch_size = 1_300
+      accum_grad_multiple_step = 1
+      max_seqs = 32
     else:
       batch_size = 2_000
       accum_grad_multiple_step = 1

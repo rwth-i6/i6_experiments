@@ -53,7 +53,7 @@ def run_exps():
   ]:
     analyze_gradients_jobs = [
       center_window_att_data.analyze_gradients_jobs["baseline_v3_full-sum"]["v2"][f"epoch-360"],
-      center_window_att_data.analyze_gradients_jobs["baseline_v3_two-stage"]["fixed-path"]["v2"],
+      center_window_att_data.analyze_gradients_jobs["baseline_v3_two-stage"]["fixed-path"]["v2"]["24gb-gpu"],
       center_window_att_data.analyze_gradients_jobs["baseline_v5_full-sum"]["v1"][f"epoch-720"],
       center_window_att_data.analyze_gradients_jobs["baseline_v5_two-stage"]["fixed-path"]["v2"],
       center_window_att_data.analyze_gradients_jobs["baseline_v5_two-stage"]["fixed-path"]["v4"],

@@ -19,6 +19,7 @@ def center_window_att_baseline_rf(
         bpe_vocab_size: int = 10025,
         use_sep_att_encoder: bool = False,
         use_sep_h_t_readout: bool = False,
+        window_step_size: int = 1,
 ):
   for win_size in win_size_list:
     alias, config_builder = get_center_window_att_config_builder_rf(
@@ -38,6 +39,7 @@ def center_window_att_baseline_rf(
       bpe_vocab_size=bpe_vocab_size,
       use_sep_att_encoder=use_sep_att_encoder,
       use_sep_h_t_readout=use_sep_h_t_readout,
+      window_step_size=window_step_size,
     )
     alias = f"{base_alias}/baseline_rf/{alias}"
     yield alias, config_builder

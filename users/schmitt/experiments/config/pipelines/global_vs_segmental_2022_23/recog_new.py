@@ -333,6 +333,13 @@ class ReturnnDecodingExperiment(DecodingExperiment, ABC):
     if self.separate_readout_alpha is not None:
       self.alias = f"{self.alias}/sep-read-alpha-{self.separate_readout_alpha:.2f}"
 
+    base_model_scale = self.recog_opts.get("base_model_scale", 1.0)
+    self.alias += f"/scale-{base_model_scale:.2f}"
+
+    external_aed_opts = self.recog_opts.get("external_aed_opts")
+    if external_aed_opts is not None:
+      self.alias = f"{self.alias}_w-ext-aed-scale-{external_aed_opts['scale']}"
+
     lm_opts = self.recog_opts.get("lm_opts")
     if lm_opts is not None:
       self.alias += f"/bpe-{lm_opts['type']}-{lm_opts['alias']}-lm-scale-{lm_opts['scale']}"

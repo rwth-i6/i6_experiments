@@ -9,6 +9,7 @@ from returnn.frontend.decoder.transformer import TransformerDecoder
 
 from i6_experiments.users.schmitt.returnn_frontend.model_interfaces.recog import RecogDef
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.base import _batch_size_factor
+from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.global_.model import GlobalAttentionModel
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.segmental.model import SegmentalAttentionModel
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.segmental.model_new.label_model.model import SegmentalAttLabelDecoder
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.segmental.model_new.label_model.train import get_score_lattice
@@ -112,7 +113,9 @@ def update_state(
         lm_state_updated: Optional[State],
         ilm_state: Optional[State],
         ilm_state_updated: Optional[State],
-) -> Tuple[State, Optional[State], Optional[State], Optional[State]]:
+        aed_decoder_state: Optional[State],
+        aed_decoder_state_updated: Optional[State],
+) -> Tuple[State, Optional[State], Optional[State], Optional[State], Optional[State]]:
 
   # ------------------- update blank decoder state -------------------
 
@@ -165,6 +168,14 @@ def update_state(
       ilm_state, ilm_state_updated
     )
 
+  # ------------------- update external AED state -------------------
+
+  if aed_decoder_state is not None:
+    aed_decoder_state = tree.map_structure(
+      lambda old_state, new_state: _get_masked_state(old_state, new_state, update_state_mask),
+      aed_decoder_state, aed_decoder_state_updated
+    )
+
   # ------------------- update external LM state -------------------
 
   if lm_state is not None:
@@ -175,7 +186,7 @@ def update_state(
       backrefs=backrefs
     )
 
-  return label_decoder_state, blank_decoder_state, lm_state, ilm_state
+  return label_decoder_state, blank_decoder_state, lm_state, ilm_state, aed_decoder_state
 
 
 def get_score(
@@ -183,22 +194,27 @@ def get_score(
         i: int,
         input_embed_label_model: Optional[Tensor],
         input_embed_blank_model: Optional[Tensor],
+        input_embed_aed_model: Optional[Tensor],
         nb_target: Tensor,
         emit_positions: Tensor,
         label_decoder_state: State,
         blank_decoder_state: Optional[State],
         lm_state: Optional[State],
         ilm_state: Optional[State],
+        aed_decoder_state: Optional[State],
         enc_args: Dict[str, Tensor],
         att_enc_args: Dict[str, Tensor],
+        aed_enc_args: Dict[str, Tensor],
         enc_spatial_dim: Dim,
         beam_dim: Dim,
         batch_dims: Sequence[Dim],
+        base_model_scale: float,
         external_lm_scale: Optional[float] = None,
         ilm_correction_scale: Optional[float] = None,
+        external_aed_scale: Optional[float] = None,
         subtract_ilm_eos_score: bool = False,
         separate_readout_alpha: Optional[float] = None,
-) -> Tuple[Tensor, State, Optional[State], Optional[State], Optional[State]]:
+) -> Tuple[Tensor, State, Optional[State], Optional[State], Optional[State], Optional[State]]:
   # ------------------- label step -------------------
 
   center_positions = rf.minimum(
@@ -275,6 +291,45 @@ def get_score(
     h_t_label_log_prob = rf.log_softmax(h_t_logits, axis=model.target_dim)
     alpha = separate_readout_alpha
     label_log_prob = alpha * label_log_prob + (1 - alpha) * h_t_label_log_prob
+
+  label_log_prob *= base_model_scale
+
+  # ------------------- external AED step -------------------
+  aed_eos_log_prob = rf.zeros(batch_dims, dtype="float32")
+  if aed_decoder_state is not None:
+    aed_step_out, aed_decoder_state = model.aed_model.label_decoder.loop_step(
+      **aed_enc_args,
+      enc_spatial_dim=enc_spatial_dim,
+      input_embed=input_embed_aed_model,
+      state=aed_decoder_state,
+    )
+    aed_logits, _ = model.aed_model.label_decoder.decode_logits(input_embed=input_embed_aed_model, **aed_step_out)
+    aed_label_log_prob = rf.log_softmax(aed_logits, axis=model.target_dim)
+
+    # do not apply LM scores to blank
+    if model.use_joint_model:
+      aed_label_log_prob_ = rf.where(
+        rf.range_over_dim(model.target_dim) == model.blank_idx,
+        rf.zeros(batch_dims, dtype="float32"),
+        aed_label_log_prob
+      )
+      aed_label_log_prob = rf.where(
+        rf.convert_to_tensor(i == rf.copy_to_device(enc_spatial_dim.get_size_tensor()) - 1),
+        aed_label_log_prob,
+        aed_label_log_prob_
+      )
+    else:
+      aed_eos_log_prob = rf.where(
+        rf.convert_to_tensor(
+          i == rf.copy_to_device(enc_spatial_dim.get_size_tensor()) - 1),
+        rf.gather(
+          aed_label_log_prob,
+          indices=rf.constant(model.aed_model.eos_idx, dtype="int32", dims=batch_dims, sparse_dim=nb_target.sparse_dim)
+        ),
+        aed_eos_log_prob
+      )
+
+    label_log_prob += external_aed_scale * aed_label_log_prob
 
   # ------------------- external LM step -------------------
 
@@ -413,7 +468,7 @@ def get_score(
     emit_log_prob = rf.log(rf.sigmoid(blank_logits))
     emit_log_prob = rf.squeeze(emit_log_prob, axis=emit_log_prob.feature_dim)
     blank_log_prob = rf.log(rf.sigmoid(-blank_logits))
-    blank_log_prob += lm_eos_log_prob
+    blank_log_prob += lm_eos_log_prob + aed_eos_log_prob
     if subtract_ilm_eos_score:
       blank_log_prob -= ilm_eos_log_prob
 
@@ -427,7 +482,7 @@ def get_score(
   else:
     output_log_prob = label_log_prob
 
-  return output_log_prob, label_decoder_state, blank_decoder_state, lm_state, ilm_state
+  return output_log_prob, label_decoder_state, blank_decoder_state, lm_state, ilm_state, aed_decoder_state
 
 
 def model_recog(
@@ -437,7 +492,9 @@ def model_recog(
         data_spatial_dim: Dim,
         beam_size: int,
         use_recombination: Optional[str] = None,
+        base_model_scale: float = 1.0,
         external_lm_scale: Optional[float] = None,
+        external_aed_scale: Optional[float] = None,
         ilm_type: Optional[str] = None,
         ilm_correction_scale: Optional[float] = None,
         subtract_ilm_eos_score: bool = False,
@@ -574,6 +631,24 @@ def model_recog(
   else:
     ilm_state = None
 
+  # external aed model
+  if model.aed_model:
+    aed_enc_args, aed_enc_spatial_dim = model.aed_model.encoder.encode(data, in_spatial_dim=data_spatial_dim)
+    aed_enc_args["enc"] = utils.copy_tensor_replace_dim_tag(aed_enc_args["enc"], aed_enc_spatial_dim, enc_spatial_dim)
+    aed_enc_args["enc_ctx"] = utils.copy_tensor_replace_dim_tag(
+      aed_enc_args["enc_ctx"], aed_enc_spatial_dim, enc_spatial_dim)
+    aed_decoder_state = model.aed_model.label_decoder.decoder_default_initial_state(
+      batch_dims=batch_dims_, enc_spatial_dim=enc_spatial_dim)
+    input_embed_aed = rf.zeros(
+      batch_dims_ + [model.aed_model.label_decoder.target_embed.out_dim],
+      feature_dim=model.aed_model.label_decoder.target_embed.out_dim,
+      dtype="float32"
+    )
+  else:
+    aed_decoder_state = None
+    input_embed_aed = None
+    aed_enc_args = None
+
   # --------------------------------- init targets, embeddings ---------------------------------
 
   if model.use_joint_model:
@@ -649,6 +724,12 @@ def model_recog(
             model.label_decoder.target_embed(target_non_blank),
             rf.gather(input_embed, indices=backrefs)
           )
+      if model.aed_model:
+        input_embed_aed = rf.where(
+          update_state_mask,
+          model.aed_model.label_decoder.target_embed(target_non_blank),
+          rf.gather(input_embed_aed, indices=backrefs)
+        )
       if isinstance(model.blank_decoder, BlankDecoderV1):
         input_embed_length_model = model.blank_decoder.target_embed(target)
 
@@ -670,25 +751,35 @@ def model_recog(
         )
 
     (
-      output_log_prob, label_decoder_state_updated, blank_decoder_state_updated, lm_state_updated, ilm_state_updated
+      output_log_prob,
+      label_decoder_state_updated,
+      blank_decoder_state_updated,
+      lm_state_updated,
+      ilm_state_updated,
+      aed_decoder_state_updated
     ) = get_score(
       model=model,
       i=i,
       input_embed_label_model=input_embed,
       input_embed_blank_model=input_embed_length_model,
+      input_embed_aed_model=input_embed_aed,
       nb_target=target_non_blank,
       emit_positions=emit_positions,
       label_decoder_state=label_decoder_state,
       blank_decoder_state=blank_decoder_state,
       lm_state=lm_state,
       ilm_state=ilm_state,
+      aed_decoder_state=aed_decoder_state,
       enc_args=enc_args,
       att_enc_args=att_enc_args,
+      aed_enc_args=aed_enc_args,
       enc_spatial_dim=enc_spatial_dim,
       beam_dim=beam_dim,
       batch_dims=batch_dims,
+      base_model_scale=base_model_scale,
       external_lm_scale=external_lm_scale,
       ilm_correction_scale=ilm_correction_scale,
+      external_aed_scale=external_aed_scale,
       subtract_ilm_eos_score=subtract_ilm_eos_score,
       separate_readout_alpha=separate_readout_alpha,
     )
@@ -765,7 +856,7 @@ def model_recog(
     # mask for updating label-sync states
     update_state_mask = rf.convert_to_tensor(target != model.blank_idx)
 
-    label_decoder_state, blank_decoder_state, lm_state, ilm_state = update_state(
+    label_decoder_state, blank_decoder_state, lm_state, ilm_state, aed_decoder_state = update_state(
       model=model,
       update_state_mask=update_state_mask,
       backrefs=backrefs,
@@ -777,6 +868,8 @@ def model_recog(
       lm_state_updated=lm_state_updated,
       ilm_state=ilm_state,
       ilm_state_updated=ilm_state_updated,
+      aed_decoder_state=aed_decoder_state,
+      aed_decoder_state_updated=aed_decoder_state_updated
     )
 
     i += 1

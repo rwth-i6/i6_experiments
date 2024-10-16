@@ -25,6 +25,7 @@ from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segment
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.segmental.model_new.label_model.model import (
   SegmentalAttLabelDecoder, SegmentalAttEfficientLabelDecoder
 )
+from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.global_.model import GlobalAttentionModel
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.global_.decoder import (
   GlobalAttDecoder, GlobalAttEfficientDecoder
 )
@@ -43,6 +44,7 @@ class SegmentalAttentionModel(rf.Module):
           length_model_state_dim: Dim,
           length_model_embed_dim: Dim,
           center_window_size: int,
+          window_step_size: int,
           align_target_dim: Dim,
           target_dim: Dim,
           blank_idx: int,
@@ -50,6 +52,7 @@ class SegmentalAttentionModel(rf.Module):
           att_dropout: float = 0.1,
           l2: float = 0.0001,
           language_model: Optional[RFModelWithMakeLabelScorer] = None,
+          aed_model: Optional[GlobalAttentionModel] = None,
           enc_in_dim: Dim,
           enc_out_dim: Dim = Dim(name="enc", dimension=512),
           enc_num_layers: int = 12,
@@ -118,7 +121,8 @@ class SegmentalAttentionModel(rf.Module):
     else:
       self.att_encoder = None
 
-    assert blank_decoder_version in {1, 3, 4, 5, 6, 7, 8, 9, 10, 11}
+    assert blank_decoder_version in {1, 3, 4, 5, 6, 7, 8, 9, 10, 11} or (
+            blank_decoder_version is None and use_joint_model)
     assert label_decoder_state in {"nb-lstm", "joint-lstm", "nb-2linear-ctx1", "trafo"}
     if not use_joint_model:
       assert label_decoder_state in ("nb-lstm", "nb-2linear-ctx1", "trafo")
@@ -245,6 +249,7 @@ class SegmentalAttentionModel(rf.Module):
       else:
         label_state_dim = self.label_decoder.get_lstm().out_dim
 
+      # this is just to keep the hash of one exp the same
       blank_decoder_opts.pop("version", None)
       if blank_decoder_version == 1:
         self.blank_decoder = BlankDecoderV1(
@@ -264,6 +269,7 @@ class SegmentalAttentionModel(rf.Module):
           length_model_state_dim=length_model_state_dim,
           label_state_dim=label_state_dim,
           encoder_out_dim=self.encoder.out_dim,
+          **blank_decoder_opts,
         )
       elif blank_decoder_version == 5:
         self.blank_decoder = BlankDecoderV5(
@@ -298,7 +304,6 @@ class SegmentalAttentionModel(rf.Module):
         )
       else:
         self.blank_decoder = BlankDecoderV11(
-          length_model_state_dim=length_model_state_dim,
           label_state_dim=label_state_dim,
           encoder_out_dim=self.encoder.out_dim,
         )
@@ -311,8 +316,11 @@ class SegmentalAttentionModel(rf.Module):
       self.language_model = None
       self.language_model_make_label_scorer = None
 
+    self.aed_model = aed_model
+
     self.blank_idx = blank_idx
     self.center_window_size = center_window_size
+    self.window_step_size = window_step_size
     if label_decoder_state == "trafo":
       self.target_dim = self.label_decoder.vocab_dim
     else:
@@ -357,6 +365,7 @@ class MakeModel:
           *,
           center_window_size: int,
           language_model: Optional[Dict[str, Any]] = None,
+          aed_model_kwargs: Optional[Dict[str, Any]] = None,
           use_att_ctx_in_state: bool,
           blank_decoder_version: int,
           blank_decoder_opts: Optional[Dict[str, Any]] = None,
@@ -388,6 +397,23 @@ class MakeModel:
       lm = trafo_lm.MakeModel(vocab_dim=target_dim, **language_model)()
       lm = (lm, functools.partial(trafo_lm.make_time_sync_label_scorer_torch, model=lm, align_target_dim=align_target_dim))
 
+    if aed_model_kwargs:
+      aed_model = GlobalAttentionModel(
+        enc_in_dim=in_dim,
+        enc_ff_dim=Dim(name="enc-ff", dimension=enc_ff_dim, kind=Dim.Types.Feature),
+        enc_key_total_dim=Dim(name="enc_key_total_dim", dimension=enc_key_total_dim),
+        enc_num_heads=8,
+        target_dim=target_dim,
+        blank_idx=target_dim.dimension,
+        feature_extraction_opts=feature_extraction_opts,
+        eos_idx=0,
+        bos_idx=0,
+        enc_aux_logits=(),
+        encoder_layer_opts=extra["encoder_layer_opts"],
+      )
+    else:
+      aed_model = None
+
     return SegmentalAttentionModel(
       enc_in_dim=in_dim,
       enc_ff_dim=Dim(name="enc-ff", dimension=enc_ff_dim, kind=Dim.Types.Feature),
@@ -397,6 +423,7 @@ class MakeModel:
       align_target_dim=align_target_dim,
       blank_idx=0 if use_joint_model else target_dim.dimension,
       language_model=lm,
+      aed_model=aed_model,
       length_model_state_dim=Dim(name="length_model_state", dimension=128, kind=Dim.Types.Feature),
       length_model_embed_dim=Dim(name="length_model_embed", dimension=128, kind=Dim.Types.Feature),
       center_window_size=center_window_size,
@@ -426,6 +453,7 @@ def from_scratch_model_def(
   config = get_global_config()  # noqa
 
   center_window_size = config.typed_value("center_window_size")
+  window_step_size = config.int("window_step_size", 1)
 
   blank_decoder_version = config.int("blank_decoder_version", 1)
   blank_decoder_opts = config.typed_value("blank_decoder_opts", {})
@@ -443,6 +471,8 @@ def from_scratch_model_def(
   trafo_decoder_opts = config.typed_value("trafo_decoder_opts", None)
   use_trafo_att = config.bool("use_trafo_att", False)
 
+  aed_model_kwargs = config.typed_value("external_aed_kwargs", None)
+
   common_config_params = get_common_config_params()
   in_dim = common_config_params.pop("in_dim")
 
@@ -451,6 +481,7 @@ def from_scratch_model_def(
     align_target_dim,
     target_dim,
     center_window_size=center_window_size,
+    window_step_size=window_step_size,
     blank_decoder_version=blank_decoder_version,
     blank_decoder_opts=blank_decoder_opts,
     use_joint_model=use_joint_model,
@@ -464,6 +495,7 @@ def from_scratch_model_def(
     use_current_frame_in_readout_random=use_current_frame_in_readout_random,
     trafo_decoder_opts=trafo_decoder_opts,
     use_trafo_att=use_trafo_att,
+    aed_model_kwargs=aed_model_kwargs,
     **common_config_params,
   )
 

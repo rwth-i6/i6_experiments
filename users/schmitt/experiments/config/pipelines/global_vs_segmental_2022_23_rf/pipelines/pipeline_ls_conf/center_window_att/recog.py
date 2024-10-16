@@ -1,5 +1,6 @@
 from typing import Tuple, Optional, List, Union, Dict
 
+from i6_core.returnn import PtCheckpoint
 from i6_core.returnn.training import Checkpoint
 from sisyphus import Path
 
@@ -19,6 +20,7 @@ def center_window_returnn_frame_wise_beam_search(
         alias: str,
         config_builder: LibrispeechConformerSegmentalAttentionConfigBuilder,
         checkpoint: Union[Checkpoint, Dict],
+        base_model_scale: float = 1.0,
         lm_scale_list: Tuple[float, ...] = (0.0,),
         lm_type: Optional[str] = None,
         ilm_scale_list: Tuple[float, ...] = (0.0,),
@@ -49,6 +51,7 @@ def center_window_returnn_frame_wise_beam_search(
         analysis_analyze_gradients_plot_encoder_layers: bool = False,
         analsis_analyze_gradients_plot_log_gradients: bool = False,
         separate_readout_alpha: Optional[float] = None,
+        external_aed_opts: Optional[Dict] = None,
 ):
   if lm_type is not None:
     assert len(checkpoint_aliases) == 1, "Do LM recog only for the best checkpoint"
@@ -67,7 +70,9 @@ def center_window_returnn_frame_wise_beam_search(
     "use_recombination": use_recombination,
     "reset_eos_params": reset_eos_params,
     "separate_readout_alpha": separate_readout_alpha,
-    "dataset_opts": {"target_is_alignment": True}
+    "dataset_opts": {"target_is_alignment": True},
+    "external_aed_opts": external_aed_opts,
+    "base_model_scale": base_model_scale,
   }
   if concat_num is not None:
     recog_opts["dataset_opts"]["concat_num"] = concat_num

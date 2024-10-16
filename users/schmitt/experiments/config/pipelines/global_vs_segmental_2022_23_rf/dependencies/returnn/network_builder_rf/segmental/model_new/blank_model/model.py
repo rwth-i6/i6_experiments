@@ -219,9 +219,11 @@ class BlankDecoderV4(BlankDecoderBase):
           length_model_state_dim: Dim,
           label_state_dim: Dim,
           encoder_out_dim: Dim,
+          dropout: float = 0.0,
   ):
     super(BlankDecoderV4, self).__init__()
     self.length_model_state_dim = length_model_state_dim
+    self.dropout = dropout
 
     self.s = rf.Linear(
       encoder_out_dim + label_state_dim,
@@ -248,6 +250,8 @@ class BlankDecoderV4(BlankDecoderBase):
     """logits for the decoder"""
 
     s_input = rf.concat_features(enc, label_model_states_unmasked, allow_broadcast=allow_broadcast)
+    s_input = rf.dropout(s_input, drop_prob=self.dropout, axis=s_input.feature_dim)
+
     s_blank = self.s(s_input)
     s_blank = rf.reduce_out(s_blank, mode="max", num_pieces=2, out_dim=self.emit_prob.in_dim)
     s_blank = rf.dropout(s_blank, drop_prob=0.3, axis=rf.dropout_broadcast_default() and s_blank.feature_dim)
@@ -477,20 +481,17 @@ class BlankDecoderV10(BlankDecoderBase):
 class BlankDecoderV11(BlankDecoderV4):
   def __init__(
           self,
-          length_model_state_dim: Dim,
           label_state_dim: Dim,
           encoder_out_dim: Dim,
   ):
     super(BlankDecoderV4, self).__init__()
-    self.length_model_state_dim = length_model_state_dim
-    self.label_state_dim = label_state_dim
-    self.encoder_out_dim = encoder_out_dim
+    self.length_model_state_dim = Dim(name="length_model_state", dimension=32, kind=Dim.Types.Feature)
 
     self.s = rf.Linear(
-      encoder_out_dim,
+      encoder_out_dim + label_state_dim,
       self.length_model_state_dim,
     )
-    self.emit_prob = rf.Linear(self.length_model_state_dim // 2, self.emit_prob_dim)
+    self.emit_prob = rf.Linear(self.length_model_state_dim, self.emit_prob_dim)
 
   def decode_logits(
           self,
@@ -500,23 +501,10 @@ class BlankDecoderV11(BlankDecoderV4):
           allow_broadcast: bool = False,
   ) -> Tensor:
     """logits for the decoder"""
-
-    label_model_states_unmasked = utils.copy_tensor_replace_dim_tag(
-      label_model_states_unmasked,
-      label_model_states_unmasked.feature_dim,
-      enc.feature_dim,
-    )
-
-    s_input = enc + label_model_states_unmasked
-
-    # print("s_input", s_input)
-    # print("enc", enc)
-    # print("label_model_states_unmasked", label_model_states_unmasked)
-    # exit()
+    s_input = rf.concat_features(enc, label_model_states_unmasked, allow_broadcast=allow_broadcast)
 
     s_blank = self.s(s_input)
-    s_blank = rf.reduce_out(s_blank, mode="max", num_pieces=2, out_dim=self.emit_prob.in_dim)
-    s_blank = rf.dropout(s_blank, drop_prob=0.3, axis=rf.dropout_broadcast_default() and s_blank.feature_dim)
+    s_blank = rf.relu(s_blank)
     logits = self.emit_prob(s_blank)
     return logits
 

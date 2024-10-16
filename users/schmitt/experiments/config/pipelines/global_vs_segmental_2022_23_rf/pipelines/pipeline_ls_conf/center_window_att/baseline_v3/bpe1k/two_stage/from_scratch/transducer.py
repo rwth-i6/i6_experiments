@@ -1,3 +1,4 @@
+from i6_core.returnn import PtCheckpoint
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.pipelines.pipeline_ls_conf.center_window_att.baseline_v3 import (
   get_config_builder,
 )
@@ -11,6 +12,7 @@ from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segment
 
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.labels.v2.librispeech.label_singletons import LibrispeechBPE1056_CTC_ALIGNMENT
 
+from sisyphus import Path
 
 def run_exps():
   # ------------------------------ Transducer ------------------------------
@@ -31,18 +33,26 @@ def run_exps():
     use_sep_h_t_readout,
     use_weight_feedback,
     mask_att_around_h_t,
+    n_full_epochs_fixed_path,
+    n_full_epochs_full_sum,
+    batch_size11,
+    batch_size24,
+    window_step_size,
   ) in [
-    ("v1", 1, False, True, False, 1, False, False, False, False, False),  # standard transducer
-    ("v2", None, False, True, False, 1, False, False, False, False, False),  # transducer with LSTM attention w/o att ctx in state
-    ("v3", None, False, False, False, 1, True, False, False, False, False),  # transducer with LSTM attention w/ att ctx in state
-    ("v4", None, True, False, False, 1, False, False, False, False, False),  # transducer with LSTM attention and double gate
-    ("v5", None, True, False, False, 1, True, False, False, False, False),  # transducer with LSTM attention and double gate and att ctx in state
-    ("v6", None, False, False, True, 2, False, False, False, False, False),  # transducer with LSTM attention and single gate
-    ("v7", None, False, False, False, 1, True, True, False, False, False),  # transducer with LSTM attention w/ att ctx in state w/ sep att encoder
-    ("v8", None, False, False, False, 1, True, False, True, False, False),  # transducer with LSTM attention w/ att ctx in state w/ sep h_t readout
-    ("v9", None, False, False, False, 1, True, False, False, True, False),  # transducer with LSTM attention w/ att ctx in state
-    ("v10", None, False, False, False, 1, True, False, False, False, True), # transducer with LSTM attention w/ att ctx in state
+    ("v1", 1, False, True, False, 1, False, False, False, False, False, 30, 15, 15_000, 30_000, 1),  # standard transducer
+    ("v1_long", 1, False, True, False, 1, False, False, False, False, False, 70, 30, 15_000, 30_000, 1),  # standard transducer
+    ("v2", None, False, True, False, 1, False, False, False, False, False, 30, 15, 12_000, 30_000, 1),  # transducer with LSTM attention w/o att ctx in state
+    ("v3", None, False, False, False, 1, True, False, False, False, False, 30, 15, 15_000, 30_000, 1),  # transducer with LSTM attention w/ att ctx in state
+    ("v4", None, True, False, False, 1, False, False, False, False, False, 30, 15, 12_000, 30_000, 1),  # transducer with LSTM attention and double gate
+    ("v5", None, True, False, False, 1, True, False, False, False, False, 30, 15, 12_000, 30_000, 1),  # transducer with LSTM attention and double gate and att ctx in state
+    ("v6", None, False, False, True, 2, False, False, False, False, False, 30, 15, 10_000, 30_000, 1),  # transducer with LSTM attention and single gate
+    ("v7", None, False, False, False, 1, True, True, False, False, False, 30, 15, 8_000, 30_000, 1),  # transducer with LSTM attention w/ att ctx in state w/ sep att encoder
+    ("v8", None, False, False, False, 1, True, False, True, False, False, 30, 15, 15_000, 30_000, 1),  # transducer with LSTM attention w/ att ctx in state w/ sep h_t readout
+    ("v9", None, False, False, False, 1, True, False, False, True, False, 30, 15, 15_000, 30_000, 1),  # transducer with LSTM attention w/ att ctx in state and w/ weight feedback
+    ("v10", 25, False, False, False, 1, True, False, False, True, False, 30, 15, 15_000, 30_000, 25),  # chunked AED with window size 25
   ]:
+    data.analyze_gradients_jobs["baseline_v3_two-stage"]["fixed-path"][alias] = {}
+
     gpu_mem_rqmts = [24]
     if alias in ("v1", "v2", "v3"):
       gpu_mem_rqmts.append(11)
@@ -53,20 +63,21 @@ def run_exps():
       if gpu_mem_rqmt == 24:
         use_mgpu = False
         accum_grad_multiple_step = 2
-        batch_size = 30_000
+        batch_size = batch_size24
         n_epochs_fixed_path = n_full_epochs_fixed_path * 20
         n_epochs_full_sum = n_full_epochs_full_sum * 20
       else:
         use_mgpu = True
         accum_grad_multiple_step = 4
-        if alias in ("v4", "v5"):
-          batch_size = 12_000
-        elif alias in ("v6",):
-          batch_size = 10_000
-        elif alias in ("v7",):
-          batch_size = 8_000
-        else:
-          batch_size = 15_000
+        batch_size = batch_size11
+        # if alias in ("v4", "v5"):
+        #   batch_size = 12_000
+        # elif alias in ("v6",):
+        #   batch_size = 10_000
+        # elif alias in ("v7",):
+        #   batch_size = 8_000
+        # else:
+        #   batch_size = 15_000
         n_epochs_fixed_path = n_full_epochs_fixed_path * 20 // 4
         n_epochs_full_sum = n_full_epochs_full_sum * 20 // 4
 
@@ -84,6 +95,7 @@ def run_exps():
               use_current_frame_in_readout_w_gate_v=use_current_frame_in_readout_w_gate_v,
               use_sep_att_encoder=use_sep_att_encoder,
               use_sep_h_t_readout=use_sep_h_t_readout,
+              window_step_size=window_step_size,
       ):
         keep_epochs_step_fixed_path = n_epochs_fixed_path // 10
         keep_epochs_fixed_path = list(range(keep_epochs_step_fixed_path, n_epochs_fixed_path, keep_epochs_step_fixed_path))
@@ -109,11 +121,16 @@ def run_exps():
                 },
                 mask_att_around_h_t=mask_att_around_h_t,
         ):
+          checkpoint_aliases = ("last",)
+          if alias in ("v4",):
+            checkpoint_aliases = ("last", "best", "best-4-avg")
+
           recog.center_window_returnn_frame_wise_beam_search(
             alias=fixed_path_train_alias,
             config_builder=config_builder,
             checkpoint=fixed_path_checkpoint,
             separate_readout_alpha=None if alias != "v8" else 0.5,
+            checkpoint_aliases=checkpoint_aliases,
           )
 
           separate_readout_alphas = [None]
@@ -168,7 +185,7 @@ def run_exps():
             ],
             corpus_keys=("train",),
           )
-          data.analyze_gradients_jobs["baseline_v3_two-stage"]["fixed-path"][alias] = pipeline.decoding_exps[0].analyze_gradients_job
+          data.analyze_gradients_jobs["baseline_v3_two-stage"]["fixed-path"][alias][f"{gpu_mem_rqmt}gb-gpu"] = pipeline.decoding_exps[0].analyze_gradients_job
 
           for epoch, chckpt in fixed_path_checkpoint["checkpoints"].items():
             if epoch in keep_epochs_fixed_path:
@@ -235,6 +252,57 @@ def run_exps():
               checkpoint=full_sum_checkpoint,
             )
 
+            for base_scale, aed_scale in [
+              (1.0, 0.2),
+              (1.0, 0.4),
+              (1.0, 0.6),
+              (1.0, 0.8),
+              (1.0, 0.9),
+              (1.0, 1.0),
+              (0.5, 0.5),
+              (0.3, 0.7),
+              (0.1, 0.9),
+              (0.7, 0.3),
+              (0.9, 0.1),
+              (0.2, 1.0),
+              (0.4, 1.0),
+              (0.6, 1.0),
+              (0.8, 1.0),
+            ]:
+              recog.center_window_returnn_frame_wise_beam_search(
+                alias=full_sum_train_alias,
+                config_builder=config_builder,
+                checkpoint=full_sum_checkpoint,
+                checkpoint_aliases=("last",),
+                base_model_scale=base_scale,
+                external_aed_opts={
+                  "checkpoint": PtCheckpoint(Path("/u/schmitt/experiments/segmental_models_2022_23_rf/work/i6_core/returnn/training/ReturnnTrainingJob.VNhMCmbnAUcd/output/models/epoch.2000.pt")),
+                  "scale": aed_scale,
+                },
+              )
+
+            if alias == "v1" and gpu_mem_rqmt == 24:
+              for lm_scale, ilm_scale in [
+                (0.54, 0.4),
+                (0.6, 0.4),
+                (0.7, 0.4),
+                (0.7, 0.3),
+                (0.8, 0.4),
+              ]:
+                lm_alias = "1k_max-seq-length-112_24-layers_512-dim"
+                recog.center_window_returnn_frame_wise_beam_search(
+                  alias=full_sum_train_alias,
+                  config_builder=config_builder,
+                  checkpoint=full_sum_checkpoint,
+                  checkpoint_aliases=("last",),
+                  lm_type="trafo",
+                  lm_scale_list=(lm_scale,),
+                  ilm_scale_list=(ilm_scale,),
+                  ilm_type="mini_att",
+                  lm_alias=lm_alias,
+                  lm_checkpoint=lm_checkpoints[lm_alias],
+                )
+
             for epoch, chckpt in full_sum_checkpoint["checkpoints"].items():
               if epoch in keep_epochs_full_sum:
                 recog.center_window_returnn_frame_wise_beam_search(
@@ -245,6 +313,6 @@ def run_exps():
                 )
 
   plot_gradient_wrt_enc11(
-    data.analyze_gradients_jobs["baseline_v3_two-stage"]["fixed-path"]["v2"],
+    data.analyze_gradients_jobs["baseline_v3_two-stage"]["fixed-path"]["v2"]["24gb-gpu"],
     alias=f"{base_alias}/gradients_lstm-att_wo-att-ctx-in-state_fixed-path_epoch-600"
   )

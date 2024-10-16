@@ -1,4 +1,4 @@
-from typing import Tuple, Optional
+from typing import Tuple, Optional, Dict
 
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.pipelines.pipeline_ls_conf.center_window_att.baseline_v5.alias import alias as base_alias
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.pipelines.pipeline_ls_conf.center_window_att.config_builder import get_center_window_att_config_builder_rf
@@ -9,6 +9,7 @@ def center_window_att_baseline_rf(
         use_att_ctx_in_state: bool = True,
         use_weight_feedback: bool = True,
         blank_decoder_version: int = 3,
+        blank_decoder_opts: Optional[Dict] = None,
         bpe_vocab_size: int = 10025,
         use_current_frame_in_readout: bool = False,
         use_current_frame_in_readout_w_gate: bool = False,
@@ -23,6 +24,7 @@ def center_window_att_baseline_rf(
       win_size=win_size,
       use_att_ctx_in_state=use_att_ctx_in_state,
       blank_decoder_version=blank_decoder_version,
+      blank_decoder_opts=blank_decoder_opts,
       use_joint_model=False,
       use_weight_feedback=use_weight_feedback,
       label_decoder_state="nb-2linear-ctx1",
