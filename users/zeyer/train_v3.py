@@ -62,7 +62,10 @@ def train(
     from i6_experiments.users.zeyer.utils.sis_setup import get_base_module
     from returnn_common import nn
 
-    unhashed_package_root, setup_base_name = get_base_module(train_def)
+    unhashed_package_root_train_def, setup_base_name_train_def = get_base_module(train_def)
+    unhashed_package_root_model_def, setup_base_name_model_def = get_base_module(
+        model_def.model_def if isinstance(model_def, ModelDefWithCfg) else model_def
+    )
 
     if train_dataset is None:
         assert task
@@ -145,9 +148,9 @@ def train(
                     serialization.NonhashedCode(
                         nn.ReturnnConfigSerializer.get_base_extern_data_py_code_str_direct(extern_data_raw)
                     ),
-                    *serialize_model_def(model_def, unhashed_package_root=unhashed_package_root),
+                    *serialize_model_def(model_def, unhashed_package_root=unhashed_package_root_model_def),
                     serialization.Import(
-                        train_def, import_as="_train_def", unhashed_package_root=unhashed_package_root
+                        train_def, import_as="_train_def", unhashed_package_root=unhashed_package_root_train_def
                     ),
                     # Consider the imports as non-hashed. We handle any logic changes via the explicit hash below.
                     serialization.Import(_returnn_v2_get_model, import_as="get_model", use_for_hash=False),
@@ -160,7 +163,14 @@ def train(
                             # Whatever the caller provides. This could also include another version,
                             # but this is up to the caller.
                             "extra": extra_hash,
-                            "setup_base_name": setup_base_name,
+                            **(
+                                {"setup_base_name": setup_base_name_train_def}
+                                if setup_base_name_train_def == setup_base_name_model_def
+                                else {
+                                    "setup_base_name_train_def": setup_base_name_train_def,
+                                    "setup_base_name_model_def": setup_base_name_model_def,
+                                }
+                            ),
                         }
                     ),
                     serialization.PythonEnlargeStackWorkaroundNonhashedCode,
