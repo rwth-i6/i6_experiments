@@ -189,22 +189,13 @@ def cr_ctc_training(*, model: Model, data: Tensor, data_spatial_dim: Dim, target
             state=model.decoder.default_initial_state(batch_dims=batch_dims),
         )
 
-        logits_packed, pack_dim = rf.pack_padded(
-            logits, dims=batch_dims + [targets_w_eos_spatial_dim], enforce_sorted=False
-        )
-        targets_packed, _ = rf.pack_padded(
-            targets_w_eos, dims=batch_dims + [targets_w_eos_spatial_dim], enforce_sorted=False, out_dim=pack_dim
-        )
-
-        log_prob = rf.log_softmax(logits_packed, axis=model.target_dim)
+        log_prob = rf.log_softmax(logits, axis=model.target_dim)
         log_prob = rf.label_smoothed_log_prob_gradient(log_prob, 0.1, axis=model.target_dim)
-        loss = rf.cross_entropy(
-            target=targets_packed, estimated=log_prob, estimated_type="log-probs", axis=model.target_dim
-        )
+        loss = rf.cross_entropy(target=targets, estimated=log_prob, estimated_type="log-probs", axis=model.target_dim)
         loss.mark_as_loss("aed_ce", scale=aed_loss_scale * 0.5, use_normalized_loss=use_normalized_loss)
 
         best = rf.reduce_argmax(log_prob, axis=model.target_dim)
-        frame_error = best != targets_packed
+        frame_error = best != targets
         frame_error.mark_as_loss(name="aed_fer", as_error=True)
 
 
