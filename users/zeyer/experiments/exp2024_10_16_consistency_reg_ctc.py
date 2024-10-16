@@ -23,6 +23,7 @@ from .exp2024_04_23_baselines.configs import _get_cfg_lrlin_oclr_by_bs_nep_v2
 
 
 __setup_base_name__ = "exp2024_10_16_consistency_reg_ctc"
+# __setup_root_prefix__ = __setup_base_name__  # ...
 
 
 def py():
