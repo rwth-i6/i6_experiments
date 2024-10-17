@@ -754,7 +754,6 @@ def get_librispeech_task_raw_v2(
     vocab_ = vocab
     if isinstance(vocab, str):
         if "train_small" in dataset_train_opts:
-            print("USE SMALL DATASET")
             vocab = get_vocab_by_str(vocab, train_small=dataset_train_opts["train_small"])
         else:
             vocab = get_vocab_by_str(vocab)

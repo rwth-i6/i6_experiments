@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import copy
 import functools
-from typing import TYPE_CHECKING, Optional, Union, Tuple, Sequence
+from typing import TYPE_CHECKING, Optional, Union, Tuple, Sequence, Callable
 
 from returnn.tensor import Tensor, Dim
 import returnn.frontend as rf
@@ -17,6 +17,9 @@ from returnn.frontend.decoder.transformer import TransformerDecoder
 from i6_experiments.users.zeyer.model_interfaces import ModelDef, ModelDefWithCfg, RecogDef, TrainDef
 from i6_experiments.users.zeyer.returnn.models.rf_layerdrop import SequentialLayerDrop
 from i6_experiments.users.zeyer.speed_pert.librosa_config import speed_pert_librosa_config
+
+from i6_experiments.example_setups.librispeech.ctc_rnnt_standalone_2024.lm import get_4gram_binary_lm
+from i6_experiments.example_setups.librispeech.ctc_rnnt_standalone_2024.pytorch_networks.ctc.decoder.flashlight_ctc_v1 import DecoderConfig
 
 from .configs import *
 from .configs import _get_cfg_lrlin_oclr_by_bs_nep, _batch_size_factor
@@ -58,8 +61,9 @@ def py():
     train_exp(
         f"v6-relPosAttDef-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100"
         f"-maxSeqLenAudio19_5-wd1e_2-lrlin1e_5_295k-featBN-speedpertV2"
-        f"-{vocab}",
+        f"-{vocab}-recog_lm",
         config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
+        model_recog_lm,
         model_config={"enc_conformer_layer": enc_conformer_layer_default, "feature_batch_norm": True},
         config_updates={
             **_get_cfg_lrlin_oclr_by_bs_nep(15_000, 500),
@@ -76,8 +80,9 @@ def py():
     # train_exp(
     #     f"semi-supervised-v6-relPosAttDef-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100"
     #     f"-maxSeqLenAudio19_5-wd1e_2-lrlin1e_5_295k-featBN-speedpertV2"
-    #     f"-{vocab}",
+    #     f"-{vocab}-recog_lm",
     #     config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
+    #     model_recog_lm,
     #     model_config={"enc_conformer_layer": enc_conformer_layer_default, "feature_batch_norm": True},
     #     config_updates={
     #         **_get_cfg_lrlin_oclr_by_bs_nep(15_000, 500),
@@ -98,6 +103,7 @@ _train_experiments: Dict[str, ModelWithCheckpoints] = {}
 def train_exp(
     name: str,
     config: Dict[str, Any],
+    decoder_def: Callable,
     *,
     model_def: Optional[Union[ModelDefWithCfg, ModelDef[Model]]] = None,
     vocab: str = "bpe10k",
@@ -114,7 +120,7 @@ def train_exp(
     time_rqmt: Optional[int] = None,  # set this to 1 or below to get the fast test queue
     env_updates: Optional[Dict[str, str]] = None,
     enabled: bool = True,
-    train_small: bool = False
+    train_small: bool = False,
 ) -> Optional[ModelWithCheckpoints]:
     """
     Train experiment
@@ -130,6 +136,14 @@ def train_exp(
         _sis_setup_global_prefix()
 
     prefix = _sis_prefix + "/" + name
+    
+    # Set prefix for decoder and decoder_def
+    if decoder_def is model_recog_lm:
+        model_recog_lm.prefix = prefix
+    ctc_model_def.decoder_def = decoder_def
+    
+    print("INFO: New decoder def: ", ctc_model_def.decoder_def)
+    
     task = get_librispeech_task_raw_v2(vocab=vocab, train_vocab_opts=train_vocab_opts, train_small = train_small)
     config = config.copy()
     config = dict_update_deep(config, config_updates, config_deletes)
@@ -167,7 +181,7 @@ def train_exp(
     if config.get("use_eos_postfix", False):
         recog_post_proc_funcs.append(_remove_eos_label_v2)
     recog_training_exp(
-        prefix, task, model_with_checkpoint, recog_def=model_recog, recog_post_proc_funcs=recog_post_proc_funcs
+        prefix, task, model_with_checkpoint, recog_def=decoder_def, recog_post_proc_funcs=recog_post_proc_funcs
     )
 
     _train_experiments[name] = model_with_checkpoint
@@ -196,6 +210,10 @@ def _sis_setup_global_prefix(prefix_name: Optional[str] = None):
 def ctc_model_def(*, epoch: int, in_dim: Dim, target_dim: Dim) -> Model:
     """Function is run within RETURNN."""
     from returnn.config import get_global_config
+    
+    if ctc_model_def.decoder_def is None:
+        print("ERROR: No decoder supplied!!!")
+        return None
 
     in_dim, epoch  # noqa
     config = get_global_config()  # noqa
@@ -229,6 +247,7 @@ def ctc_model_def(*, epoch: int, in_dim: Dim, target_dim: Dim) -> Model:
 
     return Model(
         in_dim,
+        ctc_model_def.decoder_def, # TODO
         num_enc_layers=num_enc_layers,
         enc_model_dim=Dim(name="enc", dimension=512, kind=Dim.Types.Feature),
         enc_conformer_layer=enc_conformer_layer,
@@ -245,6 +264,7 @@ ctc_model_def: ModelDef[Model]
 ctc_model_def.behavior_version = 21
 ctc_model_def.backend = "torch"
 ctc_model_def.batch_size_factor = _batch_size_factor
+ctc_model_def.decoder_def = None
 
 
 def _get_bos_idx(target_dim: Dim) -> int:
@@ -461,6 +481,70 @@ model_recog.output_with_beam = True
 model_recog.output_blank_label = "<blank>"
 model_recog.batch_size_dependent = False  # not totally correct, but we treat it as such...
 
+def model_recog_lm(
+    *,
+    model: Model,
+    data: Tensor,
+    data_spatial_dim: Dim,
+) -> Tuple[Tensor, Tensor, Dim, Dim]:
+    """
+    Function is run within RETURNN.
+    
+    Uses a 4gram LM and beam search.
+
+    :return:
+        recog results including beam {batch, beam, out_spatial},
+        log probs {batch, beam},
+        out_spatial_dim,
+        final beam_dim
+    """
+    from torchaudio.models.decoder import ctc_decoder
+    
+    
+    if model_recog_lm.prefix is None:
+        print("ERROR: No prefix found!!!")
+        return None
+    # Get LM
+    arpa_4gram_lm = get_4gram_binary_lm(prefix_name=model_recog_lm.prefix)
+    
+    logits, enc, enc_spatial_dim = model(data, in_spatial_dim=data_spatial_dim)
+    decoder = ctc_decoder(
+        lm=arpa_4gram_lm,
+        lm_weight=1.8,
+        tokens=list(model.wb_target_dim.vocab.labels),
+        blank_token=model_recog_lm.output_blank_label,
+        sil_token=model_recog_lm.output_blank_label,
+        unk_word="[unknown]",
+        nbest=1,
+        beam_size=16,
+        beam_size_token=16,
+        beam_threshold=14,
+    )
+    decoder_results = decoder(logits.cpu(), enc_spatial_dim.cpu())
+    
+    import pdb
+    pdb.set_trace()
+    
+    print(f"Decoder Tokens Len1 (batch_dim): {len(decoder_results)}")
+    print(f"Decoder Tokens Len2 (beam_dim): {len(decoder_results[0])}")
+    print(f"Decoder Tokens Shape: {decoder_results[0][0].tokens.shape}, should be same as spatial_dim: {enc_spatial_dim}, Type: {type(enc_spatial_dim)}")
+    print(f"Enc_Spatial_dim: {enc_spatial_dim}, data_spatial_dim: {data_spatial_dim}")
+    
+    # hyps = decoder_results.tokens
+    hyps = Tensor()
+    # scores = decoder_results.score
+    scores = Tensor()
+    beam_dim = Dim(len(decoder_results[0]))
+    
+    return hyps, scores, enc_spatial_dim, beam_dim
+
+# RecogDef API
+model_recog_lm: RecogDef[Model]
+model_recog_lm.output_with_beam = True
+model_recog_lm.output_blank_label = "[blank]"
+model_recog_lm.batch_size_dependent = False  # not totally correct, but we treat it as such...
+model_recog_lm.prefix = None
+
 
 class Model(rf.Module):
     """Model definition"""
@@ -468,6 +552,7 @@ class Model(rf.Module):
     def __init__(
         self,
         in_dim: Dim,
+        decoder_def: Callable,
         *,
         num_enc_layers: int = 12,
         target_dim: Dim,
@@ -547,9 +632,9 @@ class Model(rf.Module):
 
             # Just assumption for code now, might extend this later.
             assert wb_target_dim.dimension == target_dim.dimension + 1 and blank_idx == target_dim.dimension
-            vocab_labels = list(target_dim.vocab.labels) + [model_recog.output_blank_label]
+            vocab_labels = list(target_dim.vocab.labels) + [decoder_def.output_blank_label]
             wb_target_dim.vocab = Vocabulary.create_vocab_from_labels(
-                vocab_labels, user_defined_symbols={model_recog.output_blank_label: blank_idx}
+                vocab_labels, user_defined_symbols={decoder_def.output_blank_label: blank_idx}
             )
 
         ctc_label_smoothing = config.float("ctc_label_smoothing", 0.0)
