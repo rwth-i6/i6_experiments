@@ -51,88 +51,45 @@ def py():
         num_heads=8,
     )
 
-    # Testing different vocabs together with sampling. Again. Now again with newer settings:
-    # - relPosAttDef
-    # - featBN
-    # - maxSeqLenAudio19_5: Most importantly, this refers to audio len, thus it is independent of targets.
-    for vocab, sample, alpha in [
-        ("spm20k", None, None),  # 5.96
-        # ("spm20k", "spm", 0.7),  # 6.14
-        # # TODO ("spm20k", "bpe", 0.005),
-        # ("spm20k", "bpe", 0.01),  # 6.13
-        # ("spm20k", "bpe", 0.02),  # 6.21
-        # ("bpe10k", None, None),  # 6.49
-        # ("bpe10k", "bpe", 0.005),  # 6.48
-        # ("bpe10k", "bpe", 0.01),  # 6.40
-        # ("spm10k", None, None),  # 6.00
-        # # TODO ("spm10k", "spm", 0.8),
-        # ("spm10k", "spm", 0.7),  # 6.20
-        # ("spm10k", "bpe", 0.001),  # 5.93
-        # ("spm10k", "bpe", 0.005),  # 5.89 (!!)
-        # ("spm10k", "bpe", 0.01),  # 5.93
-        # ("spm_bpe10k", None, None),  # 6.33
-        # ("spm_bpe10k", "spm", 1e-4),  # 6.26
-        # # TODO ("spm_bpe10k", "bpe", 0.005),
-        # ("spm_bpe10k", "bpe", 0.01),  # 6.21
-        # ("spm4k", None, None),  # 6.07 (but test-other even better: 5.94?)
-        # ("spm4k", "spm", 0.7),  # 6.42
-        # # TODO ("spm4k", "bpe", 0.005),
-        # ("spm4k", "bpe", 0.01),  # 6.05
-        # ("spm1k", None, None),  # 6.07
-        # ("spm1k", "spm", 1.0),  # 6.73
-        # ("spm1k", "spm", 0.99),  # 6.93
-        # ("spm1k", "spm", 0.9),  # 7.04
-        # ("spm1k", "spm", 0.7),  # 7.33
-        # ("spm1k", "bpe", 0.0),  # 6.07
-        # # TODO ("spm1k", "bpe", 0.0005),
-        # ("spm1k", "bpe", 0.001),  # 6.15
-        # ("spm1k", "bpe", 0.005),  # 6.25
-        # ("spm1k", "bpe", 0.01),  # 6.13 (but dev-clean,test-* are better than no sampling)
-        # ("spm_bpe1k", None, None),  # 6.03
-        # ("spm_bpe1k", "bpe", 0.01),  # 6.05
-        # ("spm512", None, None),  # 6.08
-        # ("spm512", "bpe", 0.001),  # 6.05
-        # ("spm512", "bpe", 0.005),  # 6.01
-        # ("spm512", "bpe", 0.01),  # 6.08 (but test-* is better than spm512 without sampling)
-        # ("spm128", None, None),  # 6.37
-        # # TODO ("spm128", "bpe", 0.001),
-        # ("spm128", "bpe", 0.01),  # 6.40
-        # # TODO ("spm128", "bpe", 0.005),
-        # ("spm64", None, None),
-        # ("utf8", None, None),
-        # ("char", None, None),
-    ]:
-        train_exp(
-            f"v6-relPosAttDef-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100"
-            f"-maxSeqLenAudio19_5-wd1e_2-lrlin1e_5_295k-featBN-speedpertV2"
-            f"-{vocab}" + (f"-{sample}Sample{str(alpha).replace('.', '').replace('-','_')}" if sample else ""),
-            config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
-            model_config={"enc_conformer_layer": enc_conformer_layer_default, "feature_batch_norm": True},
-            config_updates={
-                **_get_cfg_lrlin_oclr_by_bs_nep(15_000, 500),
-                "optimizer.weight_decay": 1e-2,
-                "__train_audio_preprocess": speed_pert_librosa_config,
-                "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
-                "max_seq_length_default_target": None,
-                # Note on max seq len stats: Before, when we used max_seq_length_default_target=75 with bpe10k,
-                # out of 281241 seqs in train, we removed only 71 seqs.
-                # With max seq len 19.5 secs on the audio, we also remove exactly 71 seqs.
-                "max_seq_length_default_input": 19.5 * _raw_sample_rate,
-            },
-            vocab=vocab,
-            train_vocab_opts=(
-                {
-                    "other_opts": (
-                        {
-                            "spm": {"enable_sampling": True, "alpha": alpha},
-                            "bpe": {"class": "SamplingBytePairEncoding", "breadth_prob": alpha},
-                        }[sample]
-                    )
-                }
-                if sample
-                else None
-            ),
-        )
+    # Supervised CTC-baseline
+    # vocab = "spm20k"
+    # vocab = "char" # We need to use a vocabulary where we don't have a problem with unknowns
+    vocab = "bpe128"
+    train_exp(
+        f"v6-relPosAttDef-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100"
+        f"-maxSeqLenAudio19_5-wd1e_2-lrlin1e_5_295k-featBN-speedpertV2"
+        f"-{vocab}",
+        config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
+        model_config={"enc_conformer_layer": enc_conformer_layer_default, "feature_batch_norm": True},
+        config_updates={
+            **_get_cfg_lrlin_oclr_by_bs_nep(15_000, 500),
+            "optimizer.weight_decay": 1e-2,
+            "__train_audio_preprocess": speed_pert_librosa_config,
+            "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
+            "max_seq_length_default_target": None,
+            "max_seq_length_default_input": 19.5 * _raw_sample_rate,
+        },
+        vocab=vocab,
+    )
+    
+    # CTC-baseline with self-training
+    # train_exp(
+    #     f"semi-supervised-v6-relPosAttDef-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100"
+    #     f"-maxSeqLenAudio19_5-wd1e_2-lrlin1e_5_295k-featBN-speedpertV2"
+    #     f"-{vocab}",
+    #     config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
+    #     model_config={"enc_conformer_layer": enc_conformer_layer_default, "feature_batch_norm": True},
+    #     config_updates={
+    #         **_get_cfg_lrlin_oclr_by_bs_nep(15_000, 500),
+    #         "optimizer.weight_decay": 1e-2,
+    #         "__train_audio_preprocess": speed_pert_librosa_config,
+    #         "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
+    #         "max_seq_length_default_target": None,
+    #         "max_seq_length_default_input": 19.5 * _raw_sample_rate,
+    #     },
+    #     vocab=vocab,
+    #     train_small=True # Here we only select the train-clean-100 dataset for training
+    # )
 
 _train_experiments: Dict[str, ModelWithCheckpoints] = {}
 
@@ -157,6 +114,7 @@ def train_exp(
     time_rqmt: Optional[int] = None,  # set this to 1 or below to get the fast test queue
     env_updates: Optional[Dict[str, str]] = None,
     enabled: bool = True,
+    train_small: bool = False
 ) -> Optional[ModelWithCheckpoints]:
     """
     Train experiment
@@ -172,7 +130,7 @@ def train_exp(
         _sis_setup_global_prefix()
 
     prefix = _sis_prefix + "/" + name
-    task = get_librispeech_task_raw_v2(vocab=vocab, train_vocab_opts=train_vocab_opts)
+    task = get_librispeech_task_raw_v2(vocab=vocab, train_vocab_opts=train_vocab_opts, train_small = train_small)
     config = config.copy()
     config = dict_update_deep(config, config_updates, config_deletes)
     # This logic is also in train(), but keep it here because it would break the hash because of _RecogAndScoreFunc...

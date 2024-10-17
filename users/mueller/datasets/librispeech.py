@@ -25,11 +25,11 @@ from i6_experiments.users.zeyer.utils.basic import make_hashable
 from i6_experiments.users.zeyer.speed_pert.librosa_09_10_11_kaiser_fast import (
     speed_pert_librosa_09_10_11_kaiser_fast as _default_train_audio_preprocess,
 )
-from .task import Task, MeasureType, RecogOutput, ScoreResult
-from .utils.bpe import Bpe
-from .utils.spm import SentencePieceModel
-from .utils.bytes import Utf8BytesVocab
-from .utils.char import get_char_vocab
+from i6_experiments.users.zeyer.datasets.task import Task, MeasureType, RecogOutput, ScoreResult
+from i6_experiments.users.zeyer.datasets.utils.bpe import Bpe
+from i6_experiments.users.zeyer.datasets.utils.spm import SentencePieceModel
+from i6_experiments.users.zeyer.datasets.utils.bytes import Utf8BytesVocab
+from i6_experiments.users.zeyer.datasets.utils.char import get_char_vocab
 
 if TYPE_CHECKING:
     from returnn.tensor import Tensor, Dim
@@ -62,8 +62,11 @@ def _get_corpus_text_dict(key: str) -> tk.Path:
 
 
 @cache
-def _get_train_corpus_text() -> tk.Path:
-    key = "train-other-960"
+def _get_train_corpus_text(train_small: bool = False) -> tk.Path:
+    if train_small:
+        key = "train-clean-100"
+    else:
+        key = "train-other-960"
     train_corpus_text_dict = _get_corpus_text_dict(key)
     job = TextDictToTextLinesJob(train_corpus_text_dict, gzip=True)
     job.add_alias(_alias_prefix + f"{key.replace('-', '_')}_corpus_text_lines")
@@ -73,7 +76,7 @@ def _get_train_corpus_text() -> tk.Path:
 
 @cache
 def _get_spm_vocab(
-    *, dim: Union[int, str], model_type: SentencePieceType = SentencePieceType.UNIGRAM, train_full: bool = False
+    *, dim: Union[int, str], model_type: SentencePieceType = SentencePieceType.UNIGRAM, train_full: bool = False, train_small: bool = False
 ) -> SentencePieceModel:
     dim_str = str(dim)
     if isinstance(dim, str):
@@ -85,7 +88,7 @@ def _get_spm_vocab(
 
     # https://github.com/google/sentencepiece/blob/master/doc/options.md
     _spm_train_job = TrainSentencePieceJob(
-        training_text=get_librispeech_lm_combined_txt() if train_full else _get_train_corpus_text(),
+        training_text=get_librispeech_lm_combined_txt(train_small) if train_full else _get_train_corpus_text(train_small),
         vocab_size=dim,
         model_type=model_type,
         additional_options={
@@ -126,7 +129,7 @@ def _get_spm_vocab(
 
 
 @cache
-def _get_bpe_vocab(*, bpe_size: Union[int, str]) -> Bpe:
+def _get_bpe_vocab(*, bpe_size: Union[int, str], train_small: bool = False) -> Bpe:
     bpe_size_str = str(bpe_size)
     if isinstance(bpe_size, str):
         bpe_size = {"128": 128, "64": 64, "0": 0}[bpe_size]
@@ -149,7 +152,7 @@ def _get_bpe_vocab(*, bpe_size: Union[int, str]) -> Bpe:
     subword_nmt_repo.hash_overwrite = "I6_SUBWORD_NMT_V2"  # this is what most other people use as well
 
     _bpe_train_job = ReturnnTrainBpeJob(
-        text_file=_get_train_corpus_text(),
+        text_file=_get_train_corpus_text(train_small),
         bpe_size=bpe_size,
         unk_label="<unk>",
         subword_nmt_repo=subword_nmt_repo,
@@ -183,23 +186,23 @@ bpe10k = Bpe(
 
 
 @cache
-def get_vocab_by_str(vocab: str) -> Union[SentencePieceModel, Bpe, VocabConfigStatic, Utf8BytesVocab]:
+def get_vocab_by_str(vocab: str, train_small: bool = False) -> Union[SentencePieceModel, Bpe, VocabConfigStatic, Utf8BytesVocab]:
     """
     Get vocab
     """
     if re.match("^spm[0-9]+.*$", vocab):
-        return _get_spm_vocab(dim=vocab[len("spm") :], model_type=SentencePieceType.UNIGRAM)
+        return _get_spm_vocab(dim=vocab[len("spm") :], model_type=SentencePieceType.UNIGRAM, train_small=train_small)
     elif re.match("^spmLm[0-9]+.*$", vocab):
-        return _get_spm_vocab(dim=vocab[len("spmLm") :], model_type=SentencePieceType.UNIGRAM, train_full=True)
+        return _get_spm_vocab(dim=vocab[len("spmLm") :], model_type=SentencePieceType.UNIGRAM, train_full=True, train_small=train_small)
     elif re.match("^spm_bpe[0-9]+.*$", vocab):
-        return _get_spm_vocab(dim=vocab[len("spm_bpe") :], model_type=SentencePieceType.BPE)
+        return _get_spm_vocab(dim=vocab[len("spm_bpe") :], model_type=SentencePieceType.BPE, train_small=train_small)
     elif vocab == "bpe10k":  # predefined
         return bpe10k
     elif re.match("^bpe[0-9]+.*$", vocab):
-        return _get_bpe_vocab(bpe_size=vocab[len("bpe") :])
+        return _get_bpe_vocab(bpe_size=vocab[len("bpe") :], train_small=train_small)
     elif vocab == "char":
         return get_char_vocab(
-            get_librispeech_lm_combined_txt(), num_classes=29, extra_labels=("\x00",), eos_label="\x00"
+            get_librispeech_lm_combined_txt(train_small=train_small), num_classes=29, extra_labels=("\x00",), eos_label="\x00"
         )
     elif vocab == "utf8":
         return Utf8BytesVocab(eos_label=0)
@@ -330,6 +333,7 @@ class LibrispeechOggZip(DatasetConfig):
         train_audio_preprocess: Optional[Any] = NotSpecified,
         train_audio_random_permute: Union[bool, Dict[str, Any]] = False,
         eval_subset: Optional[int] = 3000,
+        train_small: bool = False
     ):
         """
         :param with_eos_postfix: For RETURNN train/dev/eval datasets, mostly relevant for training.
@@ -346,6 +350,7 @@ class LibrispeechOggZip(DatasetConfig):
         self.main_key = main_key
         self.train_epoch_split = train_epoch_split
         self.train_sort_laplace_num_seqs = train_sort_laplace_num_seqs
+        self.train_small = train_small
         if train_epoch_wise_filter is NotSpecified:
             train_epoch_wise_filter = deepcopy(_default_train_epoch_wise_filter)
         if train_audio_preprocess is NotSpecified:
@@ -430,11 +435,17 @@ class LibrispeechOggZip(DatasetConfig):
         return opts
 
     def get_train_dataset(self) -> Dict[str, Any]:
-        return self.get_dataset("train", training=True)
+        if self.train_small:
+            return self.get_dataset("train-clean-100", training=True)
+        else:
+            return self.get_dataset("train", training=True)
 
     def get_train_dataset_for_forward(self) -> Dict[str, Any]:
-        return self.get_dataset("train")
-
+        if self.train_small:
+            return self.get_dataset("train-clean-100")
+        else:
+            return self.get_dataset("train")
+    
     def get_eval_datasets(self) -> Dict[str, Dict[str, Any]]:
         return {
             "dev": self.get_dataset("dev", subset=self.eval_subset),
@@ -742,7 +753,11 @@ def get_librispeech_task_raw_v2(
     """
     vocab_ = vocab
     if isinstance(vocab, str):
-        vocab = get_vocab_by_str(vocab)
+        if "train_small" in dataset_train_opts:
+            print("USE SMALL DATASET")
+            vocab = get_vocab_by_str(vocab, train_small=dataset_train_opts["train_small"])
+        else:
+            vocab = get_vocab_by_str(vocab)
 
     cache_key = make_hashable((dataset_cls, vocab, train_vocab_opts, audio_opts, audio_dim, dataset_train_opts))
     if cache_key in _librispeech_task_raw_v2_cache:
@@ -1322,11 +1337,11 @@ def get_librispeech_lm_dataset(
     return train_dataset
 
 
-def get_librispeech_lm_combined_txt() -> tk.Path:
+def get_librispeech_lm_combined_txt(train_small: bool = False) -> tk.Path:
     from i6_core.text.processing import ConcatenateJob
     from i6_experiments.common.datasets.librispeech.language_model import get_librispeech_normalized_lm_data
 
-    return ConcatenateJob([get_librispeech_normalized_lm_data(), _get_train_corpus_text()]).out
+    return ConcatenateJob([get_librispeech_normalized_lm_data(), _get_train_corpus_text(train_small)]).out
 
 
 def tests():
