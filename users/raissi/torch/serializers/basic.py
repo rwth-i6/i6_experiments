@@ -1,4 +1,4 @@
-#This code is copied from Simon Berger 
+# This code is copied from Simon Berger
 from typing import List, Optional
 from enum import Enum, auto
 
@@ -14,11 +14,13 @@ from i6_experiements.users.raissi.torch.args import SerializationAndHashArgs
 
 from i6_models.config import ModelConfiguration
 
+
 class SerialConfigVariant(Enum):
     TRAIN = auto()
     PRIOR = auto()
     ALIGN = auto()
     RECOG = auto()
+
 
 def get_basic_pt_network_serializer(
     module_import_path: str,
@@ -52,5 +54,3 @@ def get_basic_pt_network_serializer(
     )
 
     return serializer
-
-

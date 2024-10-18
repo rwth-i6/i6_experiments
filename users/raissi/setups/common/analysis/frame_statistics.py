@@ -19,8 +19,8 @@ def load_alignment(allophones_path, alignments_path):
     f.setAllophones(allophones_path)
     for i, k in enumerate(f.ft):
         finfo = f.ft[k]
-        if 'attrib' not in finfo.name:
-            alignment = [(f.allophones[mix], state) for time, mix, state, _ in f.read(finfo.name, 'align')]
+        if "attrib" not in finfo.name:
+            alignment = [(f.allophones[mix], state) for time, mix, state, _ in f.read(finfo.name, "align")]
             alignments.append(alignment)
     return alignments
 
@@ -34,7 +34,7 @@ def count_hmm_states(alignment):
 
 def count_merge_hmm_states(alignment):
     label_lengths = list()
-    for cur_label, val in it.groupby(alignment, key=lambda t : t[0]):
+    for cur_label, val in it.groupby(alignment, key=lambda t: t[0]):
         label_lengths.append(tuple([cur_label, len(list(val))]))
     return label_lengths
 
@@ -86,10 +86,10 @@ def main(allophones_path, alignments_path, output_dir, silence_symbol, non_speec
     assert isinstance(silence_symbol, str), (silence_symbol, "is not str type")
     pickle_path = f"{output_dir}/data.pickle"
 
-    alignments       = collections.defaultdict(list)  # dict(int:list)
+    alignments = collections.defaultdict(list)  # dict(int:list)
     alignments_merge = collections.defaultdict(list)
     silence_begin = list()
-    silence_end   = list()
+    silence_end = list()
     silence_intra = list()
     phoneme_total_lengths = list()
     cart_total_lengths = list()
@@ -97,7 +97,7 @@ def main(allophones_path, alignments_path, output_dir, silence_symbol, non_speec
     hmm1_total_lengths = list()
     hmm2_total_lengths = list()
     sil_hist_begin = collections.defaultdict(int)
-    sil_hist_end   = collections.defaultdict(int)
+    sil_hist_end = collections.defaultdict(int)
     sil_hist_intra = collections.defaultdict(int)
     cart_hist = collections.defaultdict(int)
     hmm0_hist = collections.defaultdict(int)
@@ -148,7 +148,26 @@ def main(allophones_path, alignments_path, output_dir, silence_symbol, non_speec
 
                 idx += 1
 
-        results = [alignments, alignments_merge, silence_begin, silence_intra, silence_end, sil_hist_begin, sil_hist_intra, sil_hist_end, cart_total_lengths, hmm0_total_lengths, hmm1_total_lengths, hmm2_total_lengths, phoneme_total_lengths, cart_hist, hmm0_hist, hmm1_hist, hmm2_hist, phon_hist]
+        results = [
+            alignments,
+            alignments_merge,
+            silence_begin,
+            silence_intra,
+            silence_end,
+            sil_hist_begin,
+            sil_hist_intra,
+            sil_hist_end,
+            cart_total_lengths,
+            hmm0_total_lengths,
+            hmm1_total_lengths,
+            hmm2_total_lengths,
+            phoneme_total_lengths,
+            cart_hist,
+            hmm0_hist,
+            hmm1_hist,
+            hmm2_hist,
+            phon_hist,
+        ]
 
         with open(pickle_path, "wb") as out_pickle:
             data_dump = tuple(results)
@@ -192,7 +211,26 @@ def hist_data_to_dataframe(x_label, y_label, data_dict):
 
 def plot(output_dir, plot_dir, inputs):
     print("calculating averages")
-    alignments, alignments_merge, silence_begin, silence_intra, silence_end, sil_hist_begin, sil_hist_intra, sil_hist_end, cart_lengths, hmm0_lengths, hmm1_lengths, hmm2_lengths, phon_lengths, cart_hist, hmm0_hist, hmm1_hist, hmm2_hist, phon_hist = inputs
+    (
+        alignments,
+        alignments_merge,
+        silence_begin,
+        silence_intra,
+        silence_end,
+        sil_hist_begin,
+        sil_hist_intra,
+        sil_hist_end,
+        cart_lengths,
+        hmm0_lengths,
+        hmm1_lengths,
+        hmm2_lengths,
+        phon_lengths,
+        cart_hist,
+        hmm0_hist,
+        hmm1_hist,
+        hmm2_hist,
+        phon_hist,
+    ) = inputs
     # *** stat calculation ***
     num_seqs = len(alignments.keys())
     assert num_seqs == len(silence_begin)
@@ -212,7 +250,6 @@ def plot(output_dir, plot_dir, inputs):
         for label, length in v:
             total_num_frames += int(length)
 
-
     with open(f"{output_dir}/statistics.txt", "wt") as out_stats:
         out_stats.write(f"average silence length at sequence begin: {avg_sil_begin:.2f}\n")
         out_stats.write(f"average silence length intra sequence   : {avg_sil_intra:.2f}\n")
@@ -227,7 +264,6 @@ def plot(output_dir, plot_dir, inputs):
         out_stats.write(f"total number of frames                  : {total_num_frames:.0f}\n")
         out_stats.write(f"number of sequences                     : {num_seqs:.0f}\n")
 
-
     print("creating plots")
     # *** data to pandas dataframe ***
     sil_begin_dataframe = hist_data_to_dataframe("begin silence lengths", "occurences", sil_hist_begin)
@@ -240,14 +276,30 @@ def plot(output_dir, plot_dir, inputs):
     phon_dataframe = hist_data_to_dataframe("phon lengths", "occurences", phon_hist)
 
     # *** plot histogram ***
-    sil_begin_dataframe.plot(x="begin silence lengths", y="occurences", logy=True).get_figure().savefig(f"{plot_dir}/silence_begin_histogram.png")
-    sil_intra_dataframe.plot(x="intra silence lengths", y="occurences", logy=True).get_figure().savefig(f"{plot_dir}/silence_intra_histogram.png")
-    sil_end_dataframe.plot(x="end silence lengths", y="occurences", logy=True).get_figure().savefig(f"{plot_dir}/silence_end_histogram.png")
-    cart_dataframe.plot(x="cart lengths", y="occurences", logy=True).get_figure().savefig(f"{plot_dir}/cart_label_histogram.png")
-    hmm0_dataframe.plot(x="hmm 0 lengths", y="occurences", logy=True).get_figure().savefig(f"{plot_dir}/hmm0_histogram.png")
-    hmm1_dataframe.plot(x="hmm 1 lengths", y="occurences", logy=True).get_figure().savefig(f"{plot_dir}/hmm1_histogram.png")
-    hmm2_dataframe.plot(x="hmm 2 lengths", y="occurences", logy=True).get_figure().savefig(f"{plot_dir}/hmm2_histogram.png")
-    phon_dataframe.plot(x="phon lengths", y="occurences", logy=True).get_figure().savefig(f"{plot_dir}/phon_label_histogram.png")
+    sil_begin_dataframe.plot(x="begin silence lengths", y="occurences", logy=True).get_figure().savefig(
+        f"{plot_dir}/silence_begin_histogram.png"
+    )
+    sil_intra_dataframe.plot(x="intra silence lengths", y="occurences", logy=True).get_figure().savefig(
+        f"{plot_dir}/silence_intra_histogram.png"
+    )
+    sil_end_dataframe.plot(x="end silence lengths", y="occurences", logy=True).get_figure().savefig(
+        f"{plot_dir}/silence_end_histogram.png"
+    )
+    cart_dataframe.plot(x="cart lengths", y="occurences", logy=True).get_figure().savefig(
+        f"{plot_dir}/cart_label_histogram.png"
+    )
+    hmm0_dataframe.plot(x="hmm 0 lengths", y="occurences", logy=True).get_figure().savefig(
+        f"{plot_dir}/hmm0_histogram.png"
+    )
+    hmm1_dataframe.plot(x="hmm 1 lengths", y="occurences", logy=True).get_figure().savefig(
+        f"{plot_dir}/hmm1_histogram.png"
+    )
+    hmm2_dataframe.plot(x="hmm 2 lengths", y="occurences", logy=True).get_figure().savefig(
+        f"{plot_dir}/hmm2_histogram.png"
+    )
+    phon_dataframe.plot(x="phon lengths", y="occurences", logy=True).get_figure().savefig(
+        f"{plot_dir}/phon_label_histogram.png"
+    )
 
 
 if __name__ == "__main__":
@@ -256,7 +308,9 @@ if __name__ == "__main__":
     parser.add_argument("alignments", nargs="*", type=str, help="alignment file paths")
     parser.add_argument("--root_dir", nargs=1, type=str, help="output directory path")
     parser.add_argument("--sub_dir", nargs=1, type=str, help="plot directory path")
-    parser.add_argument("--silence_symbol", nargs=1, type=str, help="which silence symbol to use", default=["[SILENCE]{#+#}@i@f"])
+    parser.add_argument(
+        "--silence_symbol", nargs=1, type=str, help="which silence symbol to use", default=["[SILENCE]{#+#}@i@f"]
+    )
     parser.add_argument("--non_speech_symbol", nargs=1, type=str, help="which non speech symbol to use", default=["["])
     args = parser.parse_args()
 
@@ -286,4 +340,3 @@ if __name__ == "__main__":
     intermediate = main(allophones_path, alignments_path, output_dir, silence_symbol, non_speech_symbol)
 
     plot(output_dir, plot_dir, intermediate)
-

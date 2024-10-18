@@ -19,7 +19,9 @@ def output(name, value):
         return
     tk.register_report(opath, SimpleValueReport(value))
 
+
 from sisyphus.delayed_ops import DelayedBase
+
 
 class DelayedGetDefault(DelayedBase):
     def __init__(self, a, b, default=None):
@@ -39,18 +41,16 @@ def get_prior_from_transcription(
     average_phoneme_frames,
     epsilon=1e-12,
     lemma_end_probability=0.0,
-
 ):
 
     lexicon_w_we = AddEowPhonemesToLexiconJob(
         crp.lexicon_config.file,
-        boundary_marker=" #", # the prepended space is important
+        boundary_marker=" #",  # the prepended space is important
     )
 
     corpus = crp.corpus_config.file
     if not isinstance(crp.corpus_config.file, tk.Path):
         corpus = tk.Path(crp.corpus_config.file)
-
 
     transcribe_job = ApplyLexiconToCorpusJob(
         corpus,
@@ -64,8 +64,6 @@ def get_prior_from_transcription(
 
     state_tying_file = DumpStateTyingJob(crp).out_state_tying
 
-
-
     prior_job = PriorFromTranscriptionCounts(
         allophone_counts=count_phonemes.counts,
         total_count=count_phonemes.total,
@@ -78,5 +76,5 @@ def get_prior_from_transcription(
     return {
         "txt": prior_job.out_prior_txt_file,
         "xml": prior_job.out_prior_xml_file,
-        "png": prior_job.out_prior_png_file
+        "png": prior_job.out_prior_png_file,
     }

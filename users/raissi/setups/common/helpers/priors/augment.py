@@ -158,7 +158,6 @@ def augment_for_right_context(
         "keep_order": True,
         "from": right_context_softmax_layer,
         "register_as_extern_data": out_right_context_layer,
-
     }
 
     update_cfg = returnn.ReturnnConfig({}, python_prolog=dim_prolog)

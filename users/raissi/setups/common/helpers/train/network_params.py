@@ -119,3 +119,12 @@ frameshift40_conformer_fullsum_from_scratch = GeneralNetworkParams(
     frame_rate_reduction_ratio_factor=4,
     auxilary_loss_layers=[],
 )
+
+frameshift40_conformer_smbr = GeneralNetworkParams(
+    l2=5e-6,
+    use_multi_task=True,
+    add_mlps=True,
+    specaug_args=asdict(default_sa_args),
+    frame_rate_reduction_ratio_factor=4,
+    auxilary_loss_layers=[],
+)

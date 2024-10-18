@@ -30,9 +30,15 @@ u16_rasr_path_tf1 = tk.Path(
 u16_rasr_path_tf2 = tk.Path(
     get_rasr_binary_path("/u/raissi/dev/rasr_github/rasr_tf2"), hash_overwrite="CONFORMER_DEFAULT_RASR_BINARY_PATH_TF2"
 )
-#keeping same hash as u16_rasr_path_tf2
+
+u16_rasr_path_tf2_lm_librasr = tk.Path(
+    get_rasr_binary_path("/u/raissi/dev/rasr_github/rasr_tf2"),
+    hash_overwrite="CONFORMER_DEFAULT_RASR_BINARY_PATH_TF2",
+)
+# keeping same hash as u16_rasr_path_tf2
 u16_rasr_path_tf2_barcelona = tk.Path(
-    get_rasr_binary_path("/work/tools/users/raissi/rasr/rasr_tf2"), hash_overwrite="CONFORMER_DEFAULT_RASR_BINARY_PATH_TF2"
+    get_rasr_binary_path("/work/tools/users/raissi/rasr/rasr_tf2"),
+    hash_overwrite="CONFORMER_DEFAULT_RASR_BINARY_PATH_TF2",
 )
 
 u16_rasr_path_ted_common = tk.Path(
@@ -45,8 +51,14 @@ u16_moritz_path = tk.Path(
     hash_overwrite="CONFORMER_DEFAULT_RASR_BINARY_PATH_TF2",
 )
 
-U16_RASR_GENERIC_SEQ2SEQ = tk.Path("/work/tools/users/raissi/rasr/generic-seq2seq-dev/arch/linux-x86_64-standard", hash_overwrite="u16")
-U16_RASR_BINARY_PATHS = {"TF1": u16_rasr_path_tf2, "TF2": u16_rasr_path_tf2_barcelona, "TED_COMMON": u16_rasr_path_ted_common}
+U16_RASR_GENERIC_SEQ2SEQ = tk.Path(
+    "/work/tools/users/raissi/rasr/generic-seq2seq-dev/arch/linux-x86_64-standard", hash_overwrite="u16"
+)
+U16_RASR_BINARY_PATHS = {
+    "TF1": u16_rasr_path_tf2,
+    "TF2": u16_rasr_path_tf2_barcelona,
+    "TED_COMMON": u16_rasr_path_ted_common,
+}
 u16_returnn_launcher_tf2 = tk.Path(
     "/u/raissi/bin/apptainer-launchers/u16/returnn_tf2.3_apptainer_u16_launcher.sh",
     hash_overwrite="GENERIC_RETURNN_LAUNCHER_TF2",
@@ -94,7 +106,9 @@ RETURNN_ROOT_MORITZ = tk.Path(
     hash_overwrite="CONFORMER_RETURNN_Len_FIX",
 )
 RETURNN_ROOT_TORCH = tk.Path("/work/tools/users/raissi/returnn_versions/torch", hash_overwrite="TORCH_RETURNN_ROOT")
-RETURNN_ROOT_BW_FACTORED = tk.Path("/work/tools/users/raissi/returnn_versions/bw-factored", hash_overwrite="BW_RETURNN_ROOT")
+RETURNN_ROOT_BW_FACTORED = tk.Path(
+    "/work/tools/users/raissi/returnn_versions/bw-factored", hash_overwrite="BW_RETURNN_ROOT"
+)
 
 SCTK_BINARY_PATH = compile_sctk(branch="v2.4.12")  # use last published version
 SCTK_BINARY_PATH.hash_overwrite = "DEFAULT_SCTK_BINARY_PATH"
@@ -142,7 +156,7 @@ u16_default_tools_ted = ToolPaths(
 u16_tools_factored = ToolPaths(
     returnn_root=RETURNN_ROOT_BW_FACTORED,
     returnn_python_exe=U16_RETURNN_LAUNCHERS["TF2"],
-    rasr_binary_path=U16_RASR_GENERIC_SEQ2SEQ
+    rasr_binary_path=U16_RASR_GENERIC_SEQ2SEQ,
 )
 
 

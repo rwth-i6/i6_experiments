@@ -25,7 +25,6 @@ for i in range(1, 50):
 """
 
 
-
 def transform_ivec(ivec_source_path: str, ivec_dets_path: str, prename: str, cache_n: int):
     """
     This function follows the naming scheme in the new recipes
@@ -56,7 +55,3 @@ def transform_ivec(ivec_source_path: str, ivec_dets_path: str, prename: str, cac
     out.finalize()
     del out
     shutil.move(tmp_ivec_file.format(), f"{ivec_dets_path}/{ivec_filename}")
-
-
-
-

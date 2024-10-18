@@ -183,8 +183,5 @@ def get_init_args(
 
     # ToDo check feature extraction
     return rasr_util.RasrInitArgs(
-        costa_args=costa_args,
-        am_args=am_args,
-        feature_extraction_args=feature_extraction_args,
-        scorer="hub5"
+        costa_args=costa_args, am_args=am_args, feature_extraction_args=feature_extraction_args, scorer="hub5"
     )

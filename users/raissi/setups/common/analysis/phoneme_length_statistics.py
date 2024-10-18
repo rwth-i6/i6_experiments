@@ -21,7 +21,7 @@ def get_phoneme(label):
 
 def main(allophones_path, alignments_path, output_dir):
     pickle_path = f"{output_dir}/data2.pickle"
-    
+
     single_phoneme_lengths = collections.defaultdict(list)
     long_sequences = list()
 
@@ -33,7 +33,7 @@ def main(allophones_path, alignments_path, output_dir):
             assert os.path.isfile(ap), ap
             alignment = load_alignment(allophones_path, ap)
             for align in alignment:
-                for cur_label, val in it.groupby(align, key=lambda t : t[0]):
+                for cur_label, val in it.groupby(align, key=lambda t: t[0]):
                     single_phon = get_phoneme(cur_label)
                     label_length = len(list(val))
                     single_phoneme_lengths[single_phon].append(label_length)
@@ -76,9 +76,8 @@ def plot(output_dir, plot_dir, inputs):
     with open(f"{output_dir}/phoneme_lengths.txt", "wt") as out_stats:
         out_stats.write("average phoneme length")
         for k, v in sorted(single_phoneme_lengths.items()):
-            avg = sum(v)/len(v)
+            avg = sum(v) / len(v)
             out_stats.write(f"{k}: {avg:.2f}\n")
-
 
     print("creating plots")
     # *** data to pandas dataframe ***
@@ -90,7 +89,9 @@ def plot(output_dir, plot_dir, inputs):
         phon_df = hist_data_to_dataframe(f"phoneme label lengths {label}", "occurences", hist)
 
         # *** plot histogram ***
-        phon_df.plot(x=f"phoneme label lengths {label}", y="occurences", logy=True).get_figure().savefig(f"{plot_dir}/phoneme_{label}.png")
+        phon_df.plot(x=f"phoneme label lengths {label}", y="occurences", logy=True).get_figure().savefig(
+            f"{plot_dir}/phoneme_{label}.png"
+        )
 
 
 if __name__ == "__main__":
@@ -121,4 +122,3 @@ if __name__ == "__main__":
     intermediate = main(allophones_path, alignments_path, output_dir)
 
     plot(output_dir, plot_dir, intermediate)
-

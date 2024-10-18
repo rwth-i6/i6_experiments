@@ -142,6 +142,3 @@ class LabelInfo:
             phoneme_state_classes=PhonemeStateClasses.word_end,
             state_tying=RasrStateTying.triphone,
         )
-
-
-

@@ -30,7 +30,7 @@ from i6_experiments.users.raissi.setups.common.decoder.BASE_factored_hybrid_sear
     BASEFactoredHybridDecoder,
     RasrFeatureScorer,
     DecodingTensorMap,
-    RecognitionJobs,
+    DecodingJobs,
 
 )
 
@@ -322,7 +322,7 @@ class LBSFactoredHybridDecoder(BASEFactoredHybridDecoder):
         create_lattice: bool = True,
         adv_search_extra_config: Optional[rasr.RasrConfig] = None,
         adv_search_extra_post_config: Optional[rasr.RasrConfig] = None,
-    ) -> RecognitionJobs:
+    ) -> DecodingJobs:
         return self.recognize(
             add_sis_alias_and_output=add_sis_alias_and_output,
             calculate_stats=calculate_stats,

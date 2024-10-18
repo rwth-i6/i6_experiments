@@ -325,6 +325,7 @@ class AlignmentParameters:
 
     def with_add_all_allophones(self, add_all: bool):
         return dataclasses.replace(self, add_all_allophones=add_all)
+
     def with_allophone_file(self, allophone_file: str):
         return dataclasses.replace(self, add_allophones_from_file=allophone_file)
 

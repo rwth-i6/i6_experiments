@@ -8,11 +8,11 @@ from i6_models.assemblies.conformer import (
 )
 from i6_models.config import ModelConfiguration
 
+
 @dataclass
-class MultiTaskConfig():
+class MultiTaskConfig:
     scale: int
     combination_strategy: [np.sum, np.average]
-
 
 
 @dataclass
@@ -30,5 +30,3 @@ class ConformerFactoredHybridConfig(ModelConfiguration):
     specaugment_cfg: SpecaugmentConfigV1
     conformer_cfg: ConformerEncoderV1Config
     label_info: LabelInfo
-
-

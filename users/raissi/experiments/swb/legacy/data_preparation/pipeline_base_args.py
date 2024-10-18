@@ -103,9 +103,10 @@ def get_data_inputs_with_paths(
         test_data=test_data_inputs,
     )
 
-from i6_experiments.users.raissi.setups.common.data.pipeline_helpers import (
-    InputKey
-)
+
+from i6_experiments.users.raissi.setups.common.data.pipeline_helpers import InputKey
+
+
 def get_final_output(name=InputKey.BASE):
     output_args = rasr_util.OutputArgs(name)
 

@@ -2,6 +2,7 @@ from dataclasses import dataclass
 
 from sisyphus import tk
 
+
 @dataclass
 class SerializationAndHashArgs:
     package: str

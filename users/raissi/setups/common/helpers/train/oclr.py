@@ -13,7 +13,6 @@ def get_oclr_function(
     cycle_epoch: Optional[int] = None,
     initial_lr: Optional[float] = None,
     final_lr: Optional[float] = None,
-    **kwargs,
 ) -> str:
     initial_lr = initial_lr or peak_lr / 10
     final_lr = final_lr or initial_lr / 5
@@ -44,6 +43,80 @@ def get_oclr_function(
             return tf.where(global_train_step <= steps, initial_lr + step_size * n,
                        tf.where(global_train_step <= 2*steps, peak_lr - step_size * (n - steps), 
                            tf.maximum(initial_lr - step_size_final * (n - 2*steps), final_lr)))"""
+    )
+
+
+def get_onecycle_for_fintune_function(
+    num_epochs: int,
+    n_steps_per_epoch: int = 8250,
+    const_lr: float = 8e-5,
+    decay_lr: float = 1e-5,
+    final_lr: float = 1e-6,
+    cycle_epoch: int = 135,
+) -> str:
+    return dedent(
+        f"""def dynamic_learning_rate(*, network, global_train_step, learning_rate, **kwargs):
+               constLR    = {const_lr}
+               decayLR    = {decay_lr}
+               finalLR    = {final_lr}
+               cycleEpoch = {cycle_epoch}
+               totalEpoch = {num_epochs}
+               nStep      = {n_steps_per_epoch} # steps/epoch depending on batch_size
+        
+               # -- derived -- #
+               steps     = cycleEpoch * nStep
+               stepSize  = (constLR - decayLR) / steps
+               steps2    = (totalEpoch - 2 * cycleEpoch) * nStep
+               stepSize2 = (decayLR - finalLR) / steps2
+        
+               import tensorflow as tf
+               n = tf.cast(global_train_step, tf.float32)
+               return tf.where(global_train_step <= steps, constLR,
+                          tf.where(global_train_step <= 2*steps, constLR - stepSize * (n - steps),
+                              tf.maximum(decayLR - stepSize2 * (n - 2*steps), finalLR)))"""
+    )
+
+
+def get_const_with_decay_function(
+    num_epochs: int,
+    n_steps_per_epoch: int = 2440,
+    peak_lr: float = 4e-4,
+    decay_lr: float = 1e-5,
+    final_lr: float = 1e-6,
+    const_epoch: Optional[int] = 40,
+    decay_epoch: Optional[float] = 140,
+    **kwargs,
+) -> str:
+
+    return dedent(
+        f"""def dynamic_learning_rate(*, network, global_train_step, learning_rate, **kwargs):
+              peakLR     = {peak_lr}
+              decayLR    = {decay_lr}
+              finalLR    = {final_lr}
+              constEpoch = {const_epoch}
+              decayEpoch = {decay_epoch}
+              totalEpoch = {num_epochs}
+              nStep      = {n_steps_per_epoch} # steps/epoch depending on batch_size
+            
+              # -- derived -- #
+              assert constEpoch + decayEpoch <= totalEpoch
+              steps1 = constEpoch * nStep
+              if steps1 == 0:
+                steps1 == 1
+              steps2 = decayEpoch * nStep
+              stepSize2 = (peakLR - decayLR) / steps2
+              steps2 = steps1 + steps2
+              steps3 = (totalEpoch - constEpoch - decayEpoch) * nStep
+              if steps3 == 0:
+                stepSize3 = 0
+              else:
+                stepSize3 = (decayLR - finalLR) / steps3
+            
+              import tensorflow as tf
+              n = tf.cast(global_train_step, tf.float32)
+              return tf.where(global_train_step <= steps1, peakLR,
+                         tf.where(global_train_step <= steps2, peakLR - stepSize2 * (n - steps1),
+                             tf.maximum(decayLR - stepSize3 * (n - steps2), finalLR)))"""
     )
 
 

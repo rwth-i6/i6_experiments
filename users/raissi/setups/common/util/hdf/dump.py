@@ -1,8 +1,9 @@
-__all__ = ["build_hdf_from_alignment",
-           "build_rasr_feature_hdfs"
-           "RasrFeaturesToHdf",
-           "RasrAlignmentToHDF",
-           "RasrForcedTriphoneAlignmentToHDF"]
+__all__ = [
+    "build_hdf_from_alignment",
+    "build_rasr_feature_hdfs" "RasrFeaturesToHdf",
+    "RasrAlignmentToHDF",
+    "RasrForcedTriphoneAlignmentToHDF",
+]
 
 from sisyphus import gs, Job, Path, Task, tk
 
@@ -29,15 +30,12 @@ import time
 from typing import Any, Dict, List, Optional, Union
 
 from i6_experiments.users.raissi.setups.common.util.cache_manager import cache_file
-from i6_experiments.common.setups.rasr.util import (
-    ReturnnRasrDataInput
-)
-
+from i6_experiments.common.setups.rasr.util import ReturnnRasrDataInput
 
 
 #### Using ReturnnHDFDump #######
 
-#copied from simon
+# copied from simon
 def build_hdf_from_alignment(
     alignment_cache: tk.Path,
     allophone_file: tk.Path,
@@ -67,12 +65,12 @@ def build_hdf_from_alignment(
 
     return hdf_file
 
-#copied from simon
+
+# copied from simon
 def build_rasr_feature_hdfs(
     data_input: ReturnnRasrDataInput,
     feature_name: str,
     feature_extraction_args: Dict[str, Any],
-
     returnn_python_exe: tk.Path,
     returnn_root: tk.Path,
     single_hdf: bool = False,
@@ -81,10 +79,12 @@ def build_rasr_feature_hdfs(
     hdf_files = []
 
     if single_hdf or data_input.features is None:
-        feature_job = {"mfcc": features.MfccJob, "gt": features.GammatoneJob, "energy": features.EnergyJob,
-                       "fb": features.FilterbankJob}[feature_name](
-            crp=data_input.crp, **feature_extraction_args
-        )
+        feature_job = {
+            "mfcc": features.MfccJob,
+            "gt": features.GammatoneJob,
+            "energy": features.EnergyJob,
+            "fb": features.FilterbankJob,
+        }[feature_name](crp=data_input.crp, **feature_extraction_args)
         feature_job.set_keep_value(gs.JOB_DEFAULT_KEEP_VALUE - 20)
         dataset_config = {
             "class": "SprintCacheDataset",
@@ -118,10 +118,10 @@ def build_rasr_feature_hdfs(
 
     return hdf_files
 
-#### NextGenDataset#####
-#From old recipes
-class RasrFeaturesToHdf(Job):
 
+#### NextGenDataset#####
+# From old recipes
+class RasrFeaturesToHdf(Job):
     def __init__(self, feature_caches: Union[MultiPath, List[Path]]):
         self.feature_caches = (
             list(feature_caches.hidden_paths.values()) if isinstance(feature_caches, MultiPath) else feature_caches
@@ -261,9 +261,7 @@ class RasrAlignmentToHDF(Job):
         with open(self.out_segments, "wt") as file:
             file.writelines((f"{seq_name.strip()}\n" for seq_name in seq_names))
 
-    def compute_targets(
-        self, alignment_states: List[str], state_tying: Dict[str, int]
-    ) -> List[int]:
+    def compute_targets(self, alignment_states: List[str], state_tying: Dict[str, int]) -> List[int]:
         targets = [state_tying[allophone] for allophone in alignment_states]
         return targets
 
@@ -282,9 +280,7 @@ class AllophoneState:
     def __str__(self):
         return f"{self.ph}{{{self.ctx_l}+{self.ctx_r}}}{self.rest}"
 
-    def in_context(
-        self, left: Optional["AllophoneState"], right: Optional["AllophoneState"]
-    ) -> "AllophoneState":
+    def in_context(self, left: Optional["AllophoneState"], right: Optional["AllophoneState"]) -> "AllophoneState":
         if self.ph == "[SILENCE]":
             # Silence does not have context.
 
@@ -306,9 +302,7 @@ class AllophoneState:
 
 
 class RasrForcedTriphoneAlignmentToHDF(RasrAlignmentToHDF):
-    def compute_targets(
-        self, alignment_states: List[str], state_tying: Dict[str, int]
-    ) -> List[int]:
+    def compute_targets(self, alignment_states: List[str], state_tying: Dict[str, int]) -> List[int]:
         decomposed_alignment = [AllophoneState.from_alignment_state(s) for s in alignment_states]
         in_context = zip((None, *decomposed_alignment[:-1]), decomposed_alignment, (*decomposed_alignment[1:], None))
         forced_triphone_alignment = [str(cur.in_context(prv, nxt)) for prv, cur, nxt in in_context]

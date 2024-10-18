@@ -14,6 +14,8 @@ import sisyphus.global_settings as gs
 
 from sisyphus.delayed_ops import DelayedFormat
 
+from i6_experiments.users.raissi.args.system import get_tdp_values
+
 Path = tk.setup_path(__package__)
 
 # -------------------- Recipes --------------------
@@ -21,6 +23,7 @@ import i6_core.mm as mm
 import i6_core.rasr as rasr
 import i6_core.recognition as recog
 
+import i6_experiments.users.raissi.experiments.librispeech.data_preparation.common.base_args as lbs_data_setups
 import i6_experiments.users.raissi.setups.librispeech.decoder as lbs_decoder
 
 # --------------------------------------------------------------------------------
@@ -218,96 +221,6 @@ class LBSTFFactoredHybridSystem(TFFactoredHybridBaseSystem):
 
         return recognizer, recog_args
 
-    def get_best_recog_scales_and_transition_values(
-        self,
-        key: str,
-        num_encoder_output: int,
-        recog_args: LBSSearchParameters,
-        lm_scale: float,
-        context_type: PhoneticContext = None,
-        feature_scorer_type: RasrFeatureScorer = None,
-        tdp_scales: List = None,
-        transition_loop_sil: List = None,
-        transition_loop_speech: List = None,
-        transition_exit_sil: List = None,
-        transition_exit_speech: List = None,
-        extend: bool = True,
-    ) -> LBSSearchParameters:
-
-        assert self.experiments[key]["decode_job"]["runner"] is not None, "Please set the recognizer"
-        recognizer = self.experiments[key]["decode_job"]["runner"]
-
-        context_type = PhoneticContext.diphone if context_type is None else context_type
-        feature_scorer_type = RasrFeatureScorer.nn_precomputed if feature_scorer_type is None else feature_scorer_type
-        if context_type == PhoneticContext.triphone_forward:
-            assert feature_scorer_type == feature_scorer_type.factored, "no triphone with nn precomputed yet"
-
-        tdp_scales = [0.1, 0.2] if tdp_scales is None else tdp_scales
-        if feature_scorer_type == RasrFeatureScorer.factored:
-            if context_type == PhoneticContext.triphone_forward:
-                prior_scales = list(
-                    itertools.product(
-                        [v for v in np.arange(0.1, 0.6, 0.1).round(1)],
-                        [v for v in np.arange(0.1, 0.6, 0.1).round(1)],
-                        [v for v in np.arange(0.1, 0.6, 0.1).round(1)],
-                    )
-                )
-            else:
-                raise NotImplementedError("You were not supposed to run monophone decoding with factored decoder")
-        else:
-            prior_scales = [[v] for v in np.arange(0.1, 0.8, 0.1).round(1)]
-
-
-        tune_args = recog_args.with_lm_scale(lm_scale)
-        best_config_scales = recognizer.recognize_optimize_scales_v2(
-            label_info=self.label_info,
-            search_parameters=tune_args,
-            num_encoder_output=num_encoder_output,
-            altas_value=2.0,
-            altas_beam=16.0,
-            tdp_sil=[(11.0, 0.0, "infinity", 20.0)],
-            tdp_speech=[(8.0, 0.0, "infinity", 0.0)],
-            tdp_nonword=[(8.0, 0.0, "infinity", 0.0)],
-            prior_scales=prior_scales,
-            tdp_scales=tdp_scales,
-
-        )
-
-        sil_loop = [8.0, 11.0, 13.0]
-        if transition_loop_sil is not None:
-            if extend:
-                sil_loop.extend(transition_loop_sil)
-            else: sil_loop = transition_loop_sil
-        sil_exit = [10.0, 15.0, 20.0]
-        if transition_exit_sil is not None:
-            if extend:
-                sil_exit.extend(transition_exit_sil)
-            else: sil_exit = transition_exit_sil
-        speech_loop = [5.0, 8.0, 11.0]
-        if transition_loop_speech is not None:
-            if extend:
-                speech_loop.extend(transition_loop_speech)
-            else: speech_loop = transition_loop_speech
-        speech_exit = [0.0, 5.0]
-        if transition_exit_speech is not None:
-            if extend:
-                speech_exit.extend(transition_exit_speech)
-            else: speech_exit = transition_exit_speech
-
-
-
-        nnsp_tdp = [(l, 0.0, "infinity", e) for l in sil_loop for e in sil_exit]
-        sp_tdp = [(l, 0.0, "infinity", e) for l in speech_loop for e in speech_exit]
-        best_config = recognizer.recognize_optimize_transtition_values(
-            label_info=self.label_info,
-            search_parameters=best_config_scales,
-            num_encoder_output=num_encoder_output,
-            altas_beam=16.0,
-            tdp_sil=nnsp_tdp,
-            tdp_speech=sp_tdp,
-        )
-
-        return best_config
 
     def get_aligner_and_args(
         self,

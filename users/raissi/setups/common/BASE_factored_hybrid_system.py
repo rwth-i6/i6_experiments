@@ -77,6 +77,7 @@ from i6_experiments.users.raissi.setups.common.data.pipeline_helpers import (
 from i6_experiments.users.raissi.setups.common.decoder.BASE_factored_hybrid_search import (
     BASEFactoredHybridDecoder,
     BASEFactoredHybridAligner,
+    BASEFactoredHybridLatticeGenerator,
 )
 
 from i6_experiments.users.raissi.setups.common.decoder.config import (
@@ -139,8 +140,8 @@ class BASEFactoredHybridSystem(NnSystem):
         self.tdp_values = get_tdp_values()
         self.segments_to_exclude = None
 
-        #since ivectors are still from old systems, they are not concatenated to feature caches
-        #If one plans to use creat_hdf function when using ivectors, then there is an assertion
+        # since ivectors are still from old systems, they are not concatenated to feature caches
+        # If one plans to use creat_hdf function when using ivectors, then there is an assertion
         self.extract_ivectors = False
 
         # transcription priors in pickle format
@@ -195,6 +196,7 @@ class BASEFactoredHybridSystem(NnSystem):
         }
         self.recognizers = {"base": BASEFactoredHybridDecoder}
         self.aligners = {"base": BASEFactoredHybridAligner}
+        self.lattice_generators = {"base": BASEFactoredHybridLatticeGenerator}
         self.returnn_configs = {}
         self.graphs = {}
 
@@ -627,7 +629,7 @@ class BASEFactoredHybridSystem(NnSystem):
         feature_name = self.feature_info.feature_type.get()
 
         configure_automata = False
-        if self.training_criterion == TrainingCriterion.FULLSUM:
+        if self.training_criterion in [TrainingCriterion.FULLSUM, TrainingCriterion.sMBR]:
             configure_automata = True
         # get the train data for alignment before you changed any setting
         nn_train_align_data = copy.deepcopy(
@@ -1129,11 +1131,12 @@ class BASEFactoredHybridSystem(NnSystem):
                         self.feature_flows[all_c] = {}
                 if step_args[self.feature_info.feature_type.get()] is not None:
                     step_args[self.feature_info.feature_type.get()]["prefix"] = "features/"
-                    self.extract_ivectors = step_args[self.feature_info.feature_type.get()].pop("extract_ivectors", False)
+                    self.extract_ivectors = step_args[self.feature_info.feature_type.get()].pop(
+                        "extract_ivectors", False
+                    )
                     self.extract_features(step_args, corpus_list=all_corpora)
                     if self.extract_ivectors:
                         self.concat_features_with_ivectors_for_feature_flow()
-
 
             # -----------Set alignments if needed-------
             # here you might one to align cv with a given aligner

@@ -10,6 +10,7 @@ from i6_experiments.users.raissi.setups.common.helpers.network.augment import Ne
 
 from i6_experiments.users.raissi.setups.common.helpers.train.returnn_time_tag import get_context_dim_tag_prolog
 
+
 def get_prolog_augment_network_to_joint_diphone_softmax(
     network: Network,
     label_info: LabelInfo,
@@ -254,7 +255,6 @@ def get_prolog_augment_network_to_joint_factored_monophone_softmax(
     return dim_prolog, network
 
 
-
 def augment_returnn_config_to_joint_factored_monophone_softmax(
     returnn_config: returnn.ReturnnConfig,
     label_info: LabelInfo,
@@ -264,7 +264,7 @@ def augment_returnn_config_to_joint_factored_monophone_softmax(
     left_context_softmax_layer: str = "left-output",
     encoder_output_layer: str = "encoder-output",
     keep_right_context: bool = False,
-    prepare_for_train: bool = False
+    prepare_for_train: bool = False,
 ) -> returnn.ReturnnConfig:
     """
     Assumes a monophone fattored model and expands the model to calculate the scores for the joint

@@ -39,7 +39,7 @@ from i6_experiments.users.raissi.setups.common.decoder.BASE_factored_hybrid_sear
     round2,
     RasrFeatureScorer,
     DecodingTensorMap,
-    RecognitionJobs,
+    DecodingJobs,
     check_prior_info,
     get_factored_feature_scorer,
     get_nn_precomputed_feature_scorer,

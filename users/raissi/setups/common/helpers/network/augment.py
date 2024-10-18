@@ -15,9 +15,7 @@ from i6_experiments.users.raissi.setups.common.data.factored_label import (
     RasrStateTying,
 )
 
-from i6_experiments.users.raissi.setups.common.data.pipeline_helpers import (
-    PriorType
-)
+from i6_experiments.users.raissi.setups.common.data.pipeline_helpers import PriorType
 
 from i6_experiments.users.raissi.setups.common.helpers.network.frame_rate import FrameRateReductionRatioinfo
 from i6_experiments.users.raissi.setups.common.helpers.align.FSA import correct_rasr_FSA_bug
@@ -34,24 +32,26 @@ class LogLinearScales:
 
     @classmethod
     def default(cls) -> "LogLinearScales":
-        return cls(label_posterior_scale=0.3, transition_scale=0.3, label_prior_scale=None, context_label_posterior_scale=1.0)
+        return cls(
+            label_posterior_scale=0.3, transition_scale=0.3, label_prior_scale=None, context_label_posterior_scale=1.0
+        )
+
 
 @dataclass(frozen=True, eq=True)
 class LossScales:
-    center_scale:int = 1.0
+    center_scale: int = 1.0
     right_scale: int = 1.0
     left_scale: int = 1.0
 
     def get_scale(self, label_name: str):
-        if 'center' in label_name:
+        if "center" in label_name:
             return self.center_scale
-        elif 'right' in label_name:
+        elif "right" in label_name:
             return self.right_scale
-        elif 'left' in label_name:
+        elif "left" in label_name:
             return self.left_scale
         else:
             raise NotImplemented("Not recognized label name for output loss scale")
-
 
 
 Layer = Dict[str, Any]
@@ -72,7 +72,7 @@ def add_mlp(
 
     assert n_layers > 0, "set a number of layers > 0"
 
-    for i in range(1, n_layers+1):
+    for i in range(1, n_layers + 1):
         l_name = f"{prefix}linear{i}-{layer_name}"
         network[l_name] = {
             "class": "linear",
@@ -86,7 +86,6 @@ def add_mlp(
         source_layer = l_name
 
     return l_name
-
 
 
 def get_embedding_layer(source: Union[str, List[str]], dim: int, l2=0.01):
@@ -654,7 +653,6 @@ def augment_with_triphone_embeds(
     return network
 
 
-
 def augment_net_with_triphone_outputs(
     shared_network: Network,
     variant: PhoneticContext,
@@ -750,7 +748,9 @@ def add_fast_bw_layer_to_network(
     crp = correct_rasr_FSA_bug(crp)
 
     if label_prior_type is not None:
-        assert log_linear_scales.label_prior_scale is not None, "If you plan to use the prior, please set the scale for it"
+        assert (
+            log_linear_scales.label_prior_scale is not None
+        ), "If you plan to use the prior, please set the scale for it"
         if label_prior_type == PriorType.TRANSCRIPT:
             assert label_prior is not None, "You forgot to set the label prior file"
 
@@ -777,13 +777,15 @@ def add_fast_bw_layer_to_network(
                 "is_prob_distribution": True,
             }
         elif label_prior_type == PriorType.ONTHEFLY:
-            assert label_prior_estimation_axes is not None, "You forgot to set one which axis you want to average the prior, eg. bt"
+            assert (
+                label_prior_estimation_axes is not None
+            ), "You forgot to set one which axis you want to average the prior, eg. bt"
             network[prior_name] = {
-                    "class": "reduce",
-                    "mode": "mean",
-                    "from": reference_layer,
-                    "axis": label_prior_estimation_axes,
-                }
+                "class": "reduce",
+                "mode": "mean",
+                "from": reference_layer,
+                "axis": label_prior_estimation_axes,
+            }
             prior_eval_string = "tf.stop_gradient((safe_log(source(1)) * prior_scale))"
         else:
             raise NotImplementedError("Unknown PriorType")
@@ -903,6 +905,7 @@ def add_fast_bw_layer_to_returnn_config(
 
     return returnn_config
 
+
 def add_fast_bw_factored_layer_to_network(
     crp: rasr.CommonRasrParameters,
     network: Network,
@@ -920,7 +923,9 @@ def add_fast_bw_factored_layer_to_network(
     crp = correct_rasr_FSA_bug(crp)
 
     if label_prior_type is not None:
-        assert log_linear_scales.label_prior_scale is not None, "If you plan to use the prior, please set the scale for it"
+        assert (
+            log_linear_scales.label_prior_scale is not None
+        ), "If you plan to use the prior, please set the scale for it"
         if label_prior_type == PriorType.TRANSCRIPT:
             assert label_prior is not None, "You forgot to set the label prior file"
 
@@ -931,7 +936,11 @@ def add_fast_bw_factored_layer_to_network(
                 network[reference_layer].pop(attribute, None)
 
         out_denot = reference_layer.split("-")[0]
-        am_scale = log_linear_scales.label_posterior_scale if "center" in reference_layer else log_linear_scales.context_label_posterior_scale
+        am_scale = (
+            log_linear_scales.label_posterior_scale
+            if "center" in reference_layer
+            else log_linear_scales.context_label_posterior_scale
+        )
         # prior calculation
         if label_prior_type is not None:
             prior_name = ("_").join(["label_prior", out_denot])
@@ -948,13 +957,15 @@ def add_fast_bw_factored_layer_to_network(
                     "is_prob_distribution": True,
                 }
             elif label_prior_type == PriorType.ONTHEFLY:
-                assert label_prior_estimation_axes is not None, "You forgot to set one which axis you want to average the prior, eg. bt"
+                assert (
+                    label_prior_estimation_axes is not None
+                ), "You forgot to set one which axis you want to average the prior, eg. bt"
                 network[prior_name] = {
-                        "class": "reduce",
-                        "mode": "mean",
-                        "from": reference_layer,
-                        "axis": label_prior_estimation_axes,
-                    }
+                    "class": "reduce",
+                    "mode": "mean",
+                    "from": reference_layer,
+                    "axis": label_prior_estimation_axes,
+                }
                 prior_eval_string = "tf.stop_gradient((safe_log(source(1)) * prior_scale))"
             else:
                 raise NotImplementedError("Unknown PriorType")
@@ -999,7 +1010,7 @@ def add_fast_bw_factored_layer_to_network(
         "hmm_opts": {"num_contexts": label_info.n_contexts},
         "from": inputs,
         "tdp_scale": log_linear_scales.transition_scale,
-        "n_out": label_info.n_contexts*2 + label_info.get_n_state_classes()
+        "n_out": label_info.n_contexts * 2 + label_info.get_n_state_classes(),
     }
 
     # Create additional Rasr config file for the automaton
@@ -1081,4 +1092,3 @@ def add_fast_bw_factored_layer_to_returnn_config(
         del returnn_config.config["pretrain"]
 
     return returnn_config
-
