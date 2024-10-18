@@ -137,12 +137,12 @@ def train_exp(
 
     prefix = _sis_prefix + "/" + name
     
-    # Set prefix for decoder and decoder_def
+    # Wrap the decoder_def so it has access to the prefix
     if decoder_def is model_recog_lm:
-        model_recog_lm.prefix = prefix
-    ctc_model_def.decoder_def = decoder_def
-    
-    print("INFO: New decoder def: ", ctc_model_def.decoder_def)
+        print("CUSTOM INFO we are executin the function make")
+        # decoder_def = make_recog_lm_func(decoder_def, prefix)
+        # decoder_def = partial(decoder_def, prefix=prefix)
+        decoder_def.prefix = prefix
     
     task = get_librispeech_task_raw_v2(vocab=vocab, train_vocab_opts=train_vocab_opts, train_small = train_small)
     config = config.copy()
@@ -210,10 +210,6 @@ def _sis_setup_global_prefix(prefix_name: Optional[str] = None):
 def ctc_model_def(*, epoch: int, in_dim: Dim, target_dim: Dim) -> Model:
     """Function is run within RETURNN."""
     from returnn.config import get_global_config
-    
-    if ctc_model_def.decoder_def is None:
-        print("ERROR: No decoder supplied!!!")
-        return None
 
     in_dim, epoch  # noqa
     config = get_global_config()  # noqa
@@ -247,7 +243,6 @@ def ctc_model_def(*, epoch: int, in_dim: Dim, target_dim: Dim) -> Model:
 
     return Model(
         in_dim,
-        ctc_model_def.decoder_def, # TODO
         num_enc_layers=num_enc_layers,
         enc_model_dim=Dim(name="enc", dimension=512, kind=Dim.Types.Feature),
         enc_conformer_layer=enc_conformer_layer,
@@ -264,7 +259,6 @@ ctc_model_def: ModelDef[Model]
 ctc_model_def.behavior_version = 21
 ctc_model_def.backend = "torch"
 ctc_model_def.batch_size_factor = _batch_size_factor
-ctc_model_def.decoder_def = None
 
 
 def _get_bos_idx(target_dim: Dim) -> int:
@@ -478,7 +472,7 @@ def model_recog(
 # RecogDef API
 model_recog: RecogDef[Model]
 model_recog.output_with_beam = True
-model_recog.output_blank_label = "<blank>"
+model_recog.output_blank_label = "[blank]"
 model_recog.batch_size_dependent = False  # not totally correct, but we treat it as such...
 
 def model_recog_lm(
@@ -500,20 +494,23 @@ def model_recog_lm(
     """
     from torchaudio.models.decoder import ctc_decoder
     
+    if not hasattr(model_recog_lm, "prefix"):
+        print("CUSTOM ERROR we dont have a prefix set")
+    train_job = model.get_training_job()
+    alias = train_job.get_aliases().pop()
+    print(f"CUSTOM INFO prefix: {alias}")
+    print(f"CUSTOM INFO prefix: {alias[:-6]}")
     
-    if model_recog_lm.prefix is None:
-        print("ERROR: No prefix found!!!")
-        return None
     # Get LM
-    arpa_4gram_lm = get_4gram_binary_lm(prefix_name=model_recog_lm.prefix)
+    arpa_4gram_lm = get_4gram_binary_lm(prefix_name=alias[:-6])
     
     logits, enc, enc_spatial_dim = model(data, in_spatial_dim=data_spatial_dim)
     decoder = ctc_decoder(
         lm=arpa_4gram_lm,
         lm_weight=1.8,
         tokens=list(model.wb_target_dim.vocab.labels),
-        blank_token=model_recog_lm.output_blank_label,
-        sil_token=model_recog_lm.output_blank_label,
+        blank_token="[blank]",
+        sil_token="[blank]",
         unk_word="[unknown]",
         nbest=1,
         beam_size=16,
@@ -525,10 +522,10 @@ def model_recog_lm(
     import pdb
     pdb.set_trace()
     
-    print(f"Decoder Tokens Len1 (batch_dim): {len(decoder_results)}")
-    print(f"Decoder Tokens Len2 (beam_dim): {len(decoder_results[0])}")
-    print(f"Decoder Tokens Shape: {decoder_results[0][0].tokens.shape}, should be same as spatial_dim: {enc_spatial_dim}, Type: {type(enc_spatial_dim)}")
-    print(f"Enc_Spatial_dim: {enc_spatial_dim}, data_spatial_dim: {data_spatial_dim}")
+    print(f"CUSTOM Decoder Tokens Len1 (batch_dim): {len(decoder_results)}")
+    print(f"CUSTOM Decoder Tokens Len2 (beam_dim): {len(decoder_results[0])}")
+    print(f"CUSTOM Decoder Tokens Shape: {decoder_results[0][0].tokens.shape}, should be same as spatial_dim: {enc_spatial_dim}, Type: {type(enc_spatial_dim)}")
+    print(f"CUSTOM Enc_Spatial_dim: {enc_spatial_dim}, data_spatial_dim: {data_spatial_dim}")
     
     # hyps = decoder_results.tokens
     hyps = Tensor()
@@ -543,7 +540,6 @@ model_recog_lm: RecogDef[Model]
 model_recog_lm.output_with_beam = True
 model_recog_lm.output_blank_label = "[blank]"
 model_recog_lm.batch_size_dependent = False  # not totally correct, but we treat it as such...
-model_recog_lm.prefix = None
 
 
 class Model(rf.Module):
@@ -552,7 +548,6 @@ class Model(rf.Module):
     def __init__(
         self,
         in_dim: Dim,
-        decoder_def: Callable,
         *,
         num_enc_layers: int = 12,
         target_dim: Dim,
@@ -632,9 +627,9 @@ class Model(rf.Module):
 
             # Just assumption for code now, might extend this later.
             assert wb_target_dim.dimension == target_dim.dimension + 1 and blank_idx == target_dim.dimension
-            vocab_labels = list(target_dim.vocab.labels) + [decoder_def.output_blank_label]
+            vocab_labels = list(target_dim.vocab.labels) + [model_recog.output_blank_label]
             wb_target_dim.vocab = Vocabulary.create_vocab_from_labels(
-                vocab_labels, user_defined_symbols={decoder_def.output_blank_label: blank_idx}
+                vocab_labels, user_defined_symbols={model_recog.output_blank_label: blank_idx}
             )
 
         ctc_label_smoothing = config.float("ctc_label_smoothing", 0.0)
