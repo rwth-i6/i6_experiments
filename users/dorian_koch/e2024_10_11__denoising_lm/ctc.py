@@ -37,7 +37,9 @@ _raw_sample_rate = _batch_size_factor * 100  # bs factor is from 10ms frames to 
 
 def py():
     """Sisyphus entry point"""
-    
+    from i6_experiments.users.zeyer import tools_paths
+
+    tools_paths.monkey_patch_i6_core()
 
     # 11gb
     '''train_exp( 
@@ -85,7 +87,7 @@ def py():
             "feature_batch_norm": True,
         },
         config_updates={
-            **_get_cfg_lrlin_oclr_by_bs_nep(40_000, 500),
+            **_get_cfg_lrlin_oclr_by_bs_nep(40_000, 2000),
             # "optimizer.weight_decay": 1e-2, # removed for 24gb
             "__train_audio_preprocess": speed_pert_librosa_config,
             "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
