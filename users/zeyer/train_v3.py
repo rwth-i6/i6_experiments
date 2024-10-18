@@ -99,6 +99,7 @@ def train(
         train_dataset = copy.copy(train_dataset)
         assert hasattr(train_dataset, "train_audio_preprocess")
         train_dataset.train_audio_preprocess = config.pop("__train_audio_preprocess")
+    multi_proc_opts = (post_config.pop("__multi_proc_dataset_opts", None) or {}) if post_config else {}
 
     returnn_train_config_dict: Dict[str, Any] = dict(
         backend=model_def.backend,
@@ -107,12 +108,12 @@ def train(
         default_input=train_dataset.get_default_input(),
         target=train_dataset.get_default_target(),
         train=(
-            mp_ds_utils.multi_proc_dataset_opts(train_dataset.get_train_dataset())
+            mp_ds_utils.multi_proc_dataset_opts(train_dataset.get_train_dataset(), **multi_proc_opts)
             if apply_multi_proc
             else train_dataset.get_train_dataset()
         ),
         eval_datasets=(
-            mp_ds_utils.multi_proc_eval_datasets_opts(train_dataset.get_eval_datasets())
+            mp_ds_utils.multi_proc_eval_datasets_opts(train_dataset.get_eval_datasets(), **multi_proc_opts)
             if apply_multi_proc
             else train_dataset.get_eval_datasets()
         ),
