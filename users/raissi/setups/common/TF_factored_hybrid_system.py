@@ -93,6 +93,7 @@ from i6_experiments.users.raissi.setups.common.decoder.config import (
     AlignmentParameters,
     default_posterior_scales,
 )
+from i6_experiments.users.raissi.setups.common.util.tdp import to_tuple
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.returnn.network_builder.network_dicts.zeineldeen_ted2_global_att_w_ctc_mon import (
     network,
 )
@@ -1295,6 +1296,8 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
             PhoneticContext.joint_diphone,
         ], "only non-autoregressive models are allowed for now"
 
+        lattice_generator_crp = rasr.CommonRasrParameters(self.crp[crp_corpus]) if crp is None else crp
+
         recog_args = self.get_parameters_for_decoder(context_type=context_type, prior_info=decoding_input.get_prior())
         posterior_scales = default_posterior_scales()
         if context_type == PhoneticContext.monophone:
@@ -1304,9 +1307,15 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
             posterior_scales["joint-diphone-scale"] = log_linear_scales.label_posterior_scale
             prior_cfg = recog_args.with_prior_scale(diphone=log_linear_scales.label_prior_scale)
 
-        lattice_generator_cfg = prior_cfg.with_tdp_scale(log_linear_scales.transition_scale).with_posterior_scales(
-            posterior_scales
+        lattice_generator_cfg = (
+            prior_cfg
+            .with_tdp_scale(log_linear_scales.transition_scale)
+            .with_posterior_scales(posterior_scales)
+            .with_tdp_silence(to_tuple(lattice_generator_crp.acoustic_model_config.tdp["silence"]))
+            .with_tdp_nonword(to_tuple(lattice_generator_crp.acoustic_model_config.tdp["*"]))
+            .with_tdp_speech(to_tuple(lattice_generator_crp.acoustic_model_config.tdp["*"]))
         )
+
 
         if dummy_mixtures is None:
             n_labels = (
@@ -1319,9 +1328,7 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
                 self.initial_nn_args["num_input"],
             ).out_mixtures
 
-        lattice_generator_crp = BASEFactoredHybridAligner.correct_transition_applicator(
-            rasr.CommonRasrParameters(self.crp[crp_corpus]) if crp is None else crp
-        )
+
 
         lattice_generator = self.lattice_generators[lattice_generator_key](
             name=self.experiments[key]["name"],

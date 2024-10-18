@@ -1842,3 +1842,67 @@ class BASEFactoredHybridLatticeGenerator(BASEFactoredHybridDecoder):
             raise NotImplementedError
 
         return feature_scorer
+
+
+    def get_crp(self, label_info: LabelInfo, lattice_parameters: SearchParameters, crp_update: Optional[Callable[[rasr.RasrConfig], Any]] = None):
+
+        if isinstance(lattice_parameters, SearchParameters):
+            assert len(lattice_parameters.tdp_speech) == 4
+            assert len(lattice_parameters.tdp_silence) == 4
+            assert not lattice_parameters.silence_penalties or len(lattice_parameters.silence_penalties) == 2
+            assert not lattice_parameters.transition_scales or len(lattice_parameters.transition_scales) == 2
+
+        # align_crp = copy.deepcopy(self.crp)
+        lattice_crp = rasr.CommonRasrParameters(self.crp)
+
+        state_tying = lattice_crp.acoustic_model_config.state_tying.type
+
+        tdp_transition = (
+            lattice_parameters.tdp_speech
+            if lattice_parameters.tdp_scale is not None
+            else (0.0, 0.0, "infinity", 0.0)
+        )
+        tdp_silence = (
+            lattice_parameters.tdp_silence
+            if lattice_parameters.tdp_scale is not None
+            else (0.0, 0.0, "infinity", 0.0)
+        )
+        tdp_nonword = (
+            lattice_parameters.tdp_nonword
+            if lattice_parameters.tdp_nonword is not None
+            else (0.0, 0.0, "infinity", 0.0)
+        )
+
+        lattice_crp.acoustic_model_config = am.acoustic_model_config(
+            state_tying=state_tying,
+            states_per_phone=label_info.n_states_per_phone,
+            state_repetitions=1,
+            across_word_model=True,
+            early_recombination=False,
+            tdp_scale=lattice_parameters.tdp_scale,
+            tdp_transition=tdp_transition,
+            tdp_silence=tdp_silence,
+            tdp_nonword=tdp_nonword,
+            nonword_phones=lattice_parameters.non_word_phonemes,
+            tying_type="global-and-nonword",
+        )
+
+        lattice_crp.acoustic_model_config.allophones["add-all"] = lattice_parameters.add_all_allophones
+        lattice_crp.acoustic_model_config.allophones["add-from-lexicon"] = not lattice_parameters.add_all_allophones
+
+        lattice_crp.acoustic_model_config["state-tying"][
+            "use-boundary-classes"
+        ] = label_info.phoneme_state_classes.use_boundary()
+        lattice_crp.acoustic_model_config["state-tying"][
+            "use-word-end-classes"
+        ] = label_info.phoneme_state_classes.use_word_end()
+
+        if crp_update is not None:
+            crp_update(lattice_crp)
+
+        lattice_crp = BASEFactoredHybridAligner.correct_transition_applicator(
+            lattice_crp,
+            correct_fsa_strcuture=True,
+        )
+
+        return lattice_crp

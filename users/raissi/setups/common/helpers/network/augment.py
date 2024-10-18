@@ -29,6 +29,7 @@ class LogLinearScales:
     transition_scale: float
     context_label_posterior_scale: float = 1.0
     label_prior_scale: Optional[float] = None
+    lm_scale: Optional[float] = None
 
     @classmethod
     def default(cls) -> "LogLinearScales":

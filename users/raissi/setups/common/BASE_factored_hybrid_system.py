@@ -1069,7 +1069,7 @@ class BASEFactoredHybridSystem(NnSystem):
 
     def get_parameters_for_decoder(
         self, context_type: PhoneticContext, prior_info: PriorInfo
-    ) -> Union[SearchParameters, AlignmentParameters]:
+    ) -> SearchParameters:
         parameters = SearchParameters.default_for_ctx(context_type, priors=prior_info)
         if self.frame_rate_reduction_ratio_info.factor > 2:
             sp_tdp = (10.0, 0.0, "infinity", 0.0)
@@ -1080,7 +1080,7 @@ class BASEFactoredHybridSystem(NnSystem):
 
     def get_parameters_for_aligner(
         self, context_type: PhoneticContext, prior_info: PriorInfo
-    ) -> Union[SearchParameters, AlignmentParameters]:
+    ) -> AlignmentParameters:
         parameters = AlignmentParameters.default_for_ctx(context_type, priors=prior_info)
         if self.frame_rate_reduction_ratio_info.factor > 2:
             sp_tdp = (0.0, 3.0, "infinity", 0.0)
@@ -1088,6 +1088,8 @@ class BASEFactoredHybridSystem(NnSystem):
             parameters = parameters.with_tdp_speech(sp_tdp).with_tdp_silence(sil_tdp)
 
         return parameters
+
+
 
     # -------------------- run setup  --------------------
 

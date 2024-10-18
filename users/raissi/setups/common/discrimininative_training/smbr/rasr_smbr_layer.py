@@ -74,6 +74,21 @@ def _get_smbr_crp(
     config, post_config = rasr.build_config_from_mapping(crp, mapping)
     post_config["*"].output_channel.file = "seq-train.log"
 
+
+    #fixes for FSA and current alignment
+    config.lattice_processor.rescoring.segmentwise_alignment.allophone_state_graph_builder.orthographic_parser.allow_for_silence_repetitions = (
+        False
+    )
+    config.lattice_processor.rescoring.segmentwise_alignment.allophone_state_graph_builder.orthographic_parser.normalize_lemma_sequence_scores = (
+        False
+    )
+    config.lattice_processor.rescoring.segmentwise_alignment.model_combination.acoustic_model.fix_allophone_context_at_word_boundaries = (
+        True
+    )
+    config.lattice_processor.rescoring.segmentwise_alignment.model_combination.acoustic_model.transducer_builder_filter_out_invalid_allophones = (
+        True
+    )
+
     # Define and name actions
     config.lattice_processor.actions = "read,rescore,linear-combination,accumulate-discriminatively"
     config.lattice_processor.selections = "topology-reader,rescoring,linear-combination,accumulation"
@@ -173,21 +188,19 @@ def _generate_lattices(
     feature_flow: rasr.FlowNetwork,
     feature_scorer: rasr.FeatureScorer,
     search_parameters: SearchParameters,
-    concurrency: int = 300,
 ) -> StateAccuracyLatticeAndAlignment:
     assert search_parameters.lm_scale > 0
 
     crp = copy.deepcopy(crp)
     assert crp.acoustic_model_config.tdp.applicator_type == "corrected", "you are using the buggy FSA for alignment"
 
-    crp.concurrent = concurrency
-    crp.segment_path = corpus.SegmentCorpusJob(crp.corpus_config.file, concurrency).out_segment_path
 
     if crp.lexicon_config.normalize_pronunciation and search_parameters.pron_scale is not None:
         model_combination_cfg = rasr.RasrConfig()
         model_combination_cfg.pronunciation_scale = search_parameters.pron_scale
     else:
         model_combination_cfg = None
+
 
     num_lattice = discriminative_training.NumeratorLatticeJob(
         crp=crp,
@@ -202,9 +215,9 @@ def _generate_lattices(
         feature_scorer=feature_scorer,
         model_combination_config=model_combination_cfg,
         search_parameters={"beam-pruning": search_parameters.beam_limit},
-        rtf=2,
+        rtf=10,
     )
-    raw_den_lattice.rqmt["cpu"] = 1
+    raw_den_lattice.rqmt["cpu"] = 4
     den_lattice = discriminative_training.DenominatorLatticeJob(
         crp=crp,
         numerator_path=num_lattice.lattice_path,
@@ -248,10 +261,8 @@ def augment_for_smbr(
     fs_ce_smoothing: float = 0.0,
     extra_rasr_config: Optional[rasr.RasrConfig] = None,
     extra_rasr_post_config: Optional[rasr.RasrConfig] = None,
-    concurrency: int = 300,
     num_rasr_instances: int = 1,
 ) -> returnn.ReturnnConfig:
-    assert concurrency > 0
     assert 0.0 <= fw_ce_smoothing + fs_ce_smoothing < 0.2
     assert num_rasr_instances > 0
 
@@ -266,9 +277,9 @@ def augment_for_smbr(
         scale=lattice_search_parameters.lm_scale,
     ).get()
 
+
     lattice_data = _generate_lattices(
         crp=lattice_crp,
-        concurrency=concurrency,
         feature_flow=feature_flow_lattice,
         feature_scorer=feature_scorer,
         search_parameters=lattice_search_parameters,
@@ -279,6 +290,9 @@ def augment_for_smbr(
         lm_path=(Path(training_lm, cached=True) if isinstance(training_lm, str) else training_lm),
         scale=training_search_parameters.lm_scale,
     ).get()
+
+    embed()
+
 
     config, post_config = _get_smbr_crp(
         alignment_and_lattices=lattice_data,
