@@ -200,6 +200,7 @@ def cr_ctc_training(*, model: Model, data: Tensor, data_spatial_dim: Dim, target
             loss.verify_out_shape(set(batch_dims) | {branch_dim, targets_w_eos_spatial_dim})
         else:
             # Note: this is wrong. targets does not have the correct spatial dim. We get shape [B,branch,S,S+1] here.
+            # Also see: https://github.com/rwth-i6/returnn/issues/1636
             loss = rf.cross_entropy(
                 target=targets, estimated=log_prob, estimated_type="log-probs", axis=model.target_dim
             )
