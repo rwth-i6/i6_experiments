@@ -40,7 +40,7 @@ def py():
         # v6-n16-relPosAttDef-noBias-aedLoss-bhv20-11gb-f32-bs10k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-featBN-speedpertV2-spm10k-bpeSample001
         # {"num_enc_layers": 16, "batch_size": 10_000},
     ]:
-        for cr_ctc in [None, {"cr_loss_scale": 0.2}]:
+        for cr_ctc in [None, {"cr_loss_scale": 0.2}, {"cr_loss_scale": 0.2, "aed_loss_bug_fix": True}]:
             # TODO also adapt specaug for CR...
             use_cr_ctc = cr_ctc is not None
             use_cr_ctc_str = f"-crLoss{cr_ctc['cr_loss_scale']}" if use_cr_ctc else ""
@@ -90,6 +90,7 @@ def cr_ctc_training(*, model: Model, data: Tensor, data_spatial_dim: Dim, target
     aed_loss_scale = config.float("aed_loss_scale", 1.0)
     use_normalized_loss = config.bool("use_normalized_loss", True)
     cr_loss_scale = config.float("cr_loss_scale", 0.2)
+    aed_loss_bug_fix = config.bool("aed_loss_bug_fix", False)
 
     if data.feature_dim and data.feature_dim.dimension == 1:
         data = rf.squeeze(data, axis=data.feature_dim)
@@ -192,7 +193,16 @@ def cr_ctc_training(*, model: Model, data: Tensor, data_spatial_dim: Dim, target
 
         log_prob = rf.log_softmax(logits, axis=model.target_dim)
         log_prob = rf.label_smoothed_log_prob_gradient(log_prob, 0.1, axis=model.target_dim)
-        loss = rf.cross_entropy(target=targets, estimated=log_prob, estimated_type="log-probs", axis=model.target_dim)
+        if aed_loss_bug_fix:
+            loss = rf.cross_entropy(
+                target=targets_w_eos, estimated=log_prob, estimated_type="log-probs", axis=model.target_dim
+            )
+            loss.verify_out_shape(set(batch_dims) | {branch_dim, targets_w_eos_spatial_dim})
+        else:
+            # Note: this is wrong. targets does not have the correct spatial dim. We get shape [B,branch,S,S+1] here.
+            loss = rf.cross_entropy(
+                target=targets, estimated=log_prob, estimated_type="log-probs", axis=model.target_dim
+            )
         loss.mark_as_loss("aed_ce", scale=aed_loss_scale * 0.5, use_normalized_loss=use_normalized_loss)
 
         best = rf.reduce_argmax(log_prob, axis=model.target_dim)
