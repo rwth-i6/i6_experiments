@@ -43,9 +43,14 @@ def py():
         for cr_ctc in [None, {"cr_loss_scale": 0.2}, {"cr_loss_scale": 0.2, "aed_loss_bug_fix": True}]:
             # TODO also adapt specaug for CR...
             use_cr_ctc = cr_ctc is not None
-            use_cr_ctc_str = f"-crLoss{cr_ctc['cr_loss_scale']}" if use_cr_ctc else ""
+            if use_cr_ctc:
+                name = f"n{opts['num_enc_layers']}"
+                name += f"-crLoss{cr_ctc['cr_loss_scale']}"
+                name += "-aedLossBug" if not cr_ctc.get("aed_loss_bug_fix") else ""
+            else:
+                name = opts["name"]
             train_exp(
-                f"n{opts['num_enc_layers']}{use_cr_ctc_str}" if use_cr_ctc else opts["name"],
+                name,
                 config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
                 train_def=cr_ctc_training if use_cr_ctc else None,
                 model_config={
