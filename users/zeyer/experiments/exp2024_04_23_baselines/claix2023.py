@@ -3,11 +3,9 @@ Config for RWTH IPC CLAIX-2023 cluster experiments.
 """
 
 from __future__ import annotations
-from typing import Dict, Any
 from i6_experiments.users.zeyer.utils.dict_update import dict_update_deep
 from i6_experiments.users.zeyer.speed_pert.librosa_config import speed_pert_librosa_config
-from i6_experiments.users.zeyer.lr_schedules.piecewise_linear import dyn_lr_piecewise_linear
-from .configs import config_24gb_v6, _get_cfg_lrlin_oclr_by_bs_nep_v3, _batch_size_factor
+from .configs import config_24gb_v6, _get_cfg_lrlin_oclr_by_bs_nep_v3
 from .aed import train_exp as aed_train_exp
 
 
