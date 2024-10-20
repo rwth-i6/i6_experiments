@@ -212,7 +212,7 @@ def cr_ctc_training(*, model: Model, data: Tensor, data_spatial_dim: Dim, target
         loss.mark_as_loss("aed_ce", scale=aed_loss_scale * 0.5, use_normalized_loss=use_normalized_loss)
 
         best = rf.reduce_argmax(log_prob, axis=model.target_dim)
-        frame_error = best != targets
+        frame_error = best != targets_w_eos
         frame_error.mark_as_loss(name="aed_fer", as_error=True)
 
 
