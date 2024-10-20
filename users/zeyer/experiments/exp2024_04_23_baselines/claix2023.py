@@ -9,6 +9,20 @@ from .aed import train_exp, dict_update_deep, speed_pert_librosa_config, _batch_
 
 
 def py():
+    # Note: From the baseline experiment (optimized for 4x11GB GPUs with float32),
+    # we made the following changes (partly taking our 1x24GB GPU settings into account)
+    # for the H100 GPU with 96GB memory (nodes c23g in the CLAIX-2023 cluster):
+    # - __gpu_mem = 96
+    # - batch size was increased to 200k
+    # - bf16 again
+    # - grad accum 1 (obviously, batch size is already large enough...)
+    # - LR scheduling now based on seq_idx (this is not really related to the new GPU, but just simplifies things)
+    # - partition epoch to 1 (dataset_train_opts.train_epoch_split=1)
+    #   (because the GPU is so fast that it trains a single epoch in 20mins)
+    # - more workers for data loading (__multi_proc_dataset_opts.num_workers=25)
+    # - __cpu_rqmt = 24 (the whole c23g node has 96 CPUs, and 4 GPUs)
+    # - __mem_rqmt = 100 (the whole node should have more than 500GB)
+
     # TODO epoch filtering is wrong, should not do that for 5 full epochs...
     train_exp(
         f"96gb-bf16-bs200k-accgrad1-wd1e_2-lrlinEpCont-speedpertV2-spm10k-spmSample07",
