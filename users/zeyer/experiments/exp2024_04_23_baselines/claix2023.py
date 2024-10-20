@@ -93,23 +93,3 @@ config_96gb_bf16_accgrad1 = dict_update_deep(
         "accum_grad_multiple_step": 1,  # per single GPU
     },
 )
-
-
-def _get_cfg_lrlin_oclr_by_bs_nep_dummy(bs_feat: int, n_ep: int, *, peak_lr: float = 1e-3) -> Dict[str, Any]:
-    """
-    :param bs_feat: batch size for features (not including _batch_size_factor)
-    :param n_ep: num epochs
-    """
-    tot_num_steps = 1_000_000  # dummy value
-    steps = [tot_num_steps * 0.45, tot_num_steps * 0.9, tot_num_steps]
-    steps = [int(s) for s in steps]
-
-    return {
-        "__num_epochs": n_ep,
-        "batch_size": bs_feat * _batch_size_factor,
-        "learning_rate": 1.0,
-        "dynamic_learning_rate": dyn_lr_piecewise_linear,
-        # If the dict has no entry for the bs_feat,n_ep combination, see above.
-        "learning_rate_piecewise_steps": steps,
-        "learning_rate_piecewise_values": [peak_lr * 1e-2, peak_lr, peak_lr * 1e-2, peak_lr * 1e-3],
-    }
