@@ -9,6 +9,7 @@ from .aed import train_exp, dict_update_deep, speed_pert_librosa_config, _batch_
 
 
 def py():
+    # TODO epoch filtering is wrong, should not do that for 5 full epochs...
     train_exp(
         f"96gb-bf16-bs200k-accgrad1-wd1e_2-lrlinEpCont-speedpertV2-spm10k-spmSample07",
         config_96gb_bf16_accgrad1,
