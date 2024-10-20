@@ -18,7 +18,6 @@ from i6_experiments.users.zeyer.model_interfaces import ModelDef, ModelDefWithCf
 from i6_experiments.users.zeyer.returnn.models.rf_layerdrop import SequentialLayerDrop
 from i6_experiments.users.zeyer.speed_pert.librosa_config import speed_pert_librosa_config
 
-from i6_experiments.example_setups.librispeech.ctc_rnnt_standalone_2024.lm import get_4gram_binary_lm
 from i6_experiments.example_setups.librispeech.ctc_rnnt_standalone_2024.pytorch_networks.ctc.decoder.flashlight_ctc_v1 import DecoderConfig
 
 from .configs import *
@@ -126,7 +125,7 @@ def train_exp(
     Train experiment
     """
     from i6_experiments.users.zeyer.train_v3 import train
-    from i6_experiments.users.zeyer.recog import recog_training_exp
+    from i6_experiments.users.mueller.recog import recog_training_exp
     from i6_experiments.users.mueller.datasets.librispeech import get_librispeech_task_raw_v2
 
     if not enabled:
@@ -136,13 +135,6 @@ def train_exp(
         _sis_setup_global_prefix()
 
     prefix = _sis_prefix + "/" + name
-    
-    # Wrap the decoder_def so it has access to the prefix
-    if decoder_def is model_recog_lm:
-        print("CUSTOM INFO we are executin the function make")
-        # decoder_def = make_recog_lm_func(decoder_def, prefix)
-        # decoder_def = partial(decoder_def, prefix=prefix)
-        decoder_def.prefix = prefix
     
     task = get_librispeech_task_raw_v2(vocab=vocab, train_vocab_opts=train_vocab_opts, train_small = train_small)
     config = config.copy()
@@ -480,6 +472,7 @@ def model_recog_lm(
     model: Model,
     data: Tensor,
     data_spatial_dim: Dim,
+    arpa_4gram_lm: str,
 ) -> Tuple[Tensor, Tensor, Dim, Dim]:
     """
     Function is run within RETURNN.
@@ -493,44 +486,71 @@ def model_recog_lm(
         final beam_dim
     """
     from torchaudio.models.decoder import ctc_decoder
-    
-    if not hasattr(model_recog_lm, "prefix"):
-        print("CUSTOM ERROR we dont have a prefix set")
-    train_job = model.get_training_job()
-    alias = train_job.get_aliases().pop()
-    print(f"CUSTOM INFO prefix: {alias}")
-    print(f"CUSTOM INFO prefix: {alias[:-6]}")
-    
-    # Get LM
-    arpa_4gram_lm = get_4gram_binary_lm(prefix_name=alias[:-6])
+    import torch
+    from returnn.util.basic import cf
     
     logits, enc, enc_spatial_dim = model(data, in_spatial_dim=data_spatial_dim)
-    decoder = ctc_decoder(
-        lm=arpa_4gram_lm,
-        lm_weight=1.8,
-        tokens=list(model.wb_target_dim.vocab.labels),
-        blank_token="[blank]",
-        sil_token="[blank]",
-        unk_word="[unknown]",
-        nbest=1,
-        beam_size=16,
-        beam_size_token=16,
-        beam_threshold=14,
-    )
-    decoder_results = decoder(logits.cpu(), enc_spatial_dim.cpu())
+    arpa_4gram_lm = str(cf(arpa_4gram_lm))
+    print(f"CUSTOM got lm: {arpa_4gram_lm}")
     
-    import pdb
-    pdb.set_trace()
+    try:
+        decoder = ctc_decoder(
+            lexicon=None,
+            lm=arpa_4gram_lm,
+            lm_weight=1.8,
+            tokens=list(model.wb_target_dim.vocab.labels),
+            blank_token="[blank]",
+            sil_token="[blank]",
+            unk_word="[unknown]",
+            nbest=1,
+            beam_size=16,
+            beam_size_token=16,
+            beam_threshold=14,
+        )
+    except Exception as e:
+        print(f"Error: {e}")
+        decoder = ctc_decoder(
+            lexicon=None,
+            lm=None,
+            lm_weight=1.8,
+            tokens=list(model.wb_target_dim.vocab.labels),
+            blank_token="[blank]",
+            sil_token="[blank]",
+            unk_word="[unknown]",
+            nbest=1,
+            beam_size=16,
+            beam_size_token=16,
+            beam_threshold=14,
+        )
+    # print("CUSTOM logits: ", logits)
+    # print("CUSTOM logits raw: ", logits.raw_tensor)
+    # print("CUSTOM logits raw shape: ", logits.raw_tensor.shape)
+    # print("CUSTOM logits raw type: ", type(logits.raw_tensor))
+    # print("CUSTOM enc_spatial_dim: ", enc_spatial_dim)
+    # print("CUSTOM enc_spatial_dim raw: ", enc_spatial_dim.dyn_size_ext.raw_tensor)
+    # print("CUSTOM enc_spatial_dim raw2: ", enc_spatial_dim.size)
+    # print("CUSTOM enc_spatial_dim raw3: ", enc_spatial_dim.capacity)
+    decoder_results = decoder(logits.raw_tensor.cpu(), enc_spatial_dim.dyn_size_ext.raw_tensor.cpu())
     
-    print(f"CUSTOM Decoder Tokens Len1 (batch_dim): {len(decoder_results)}")
-    print(f"CUSTOM Decoder Tokens Len2 (beam_dim): {len(decoder_results[0])}")
-    print(f"CUSTOM Decoder Tokens Shape: {decoder_results[0][0].tokens.shape}, should be same as spatial_dim: {enc_spatial_dim}, Type: {type(enc_spatial_dim)}")
-    print(f"CUSTOM Enc_Spatial_dim: {enc_spatial_dim}, data_spatial_dim: {data_spatial_dim}")
+    # print(f"CUSTOM Decoder Tokens Len1 (batch_dim): {len(decoder_results)}")
+    # print(f"CUSTOM Decoder Tokens Len2 (beam_dim): {len(decoder_results[1])}")
+    # print(f"CUSTOM Decoder Tokens Shape: {decoder_results[1][0].tokens.shape}, should be same as spatial_dim: {enc_spatial_dim.dyn_size_ext.raw_tensor.cpu()}")
+    # print(f"CUSTOM Enc_Spatial_dim: {enc_spatial_dim.dyn_size_ext.raw_tensor.cpu()}, data_spatial_dim: {data_spatial_dim.dyn_size_ext.raw_tensor.cpu()}")
+    # print(f"CUSTOM Decoder score: {decoder_results[1][0].score}")
+    # print(f"CUSTOM Decoder tokens: {decoder_results[1][0].tokens}")
+    # print(f"CUSTOM Decoder timesteps: {decoder_results[1][0].timesteps}")
     
-    # hyps = decoder_results.tokens
-    hyps = Tensor()
-    # scores = decoder_results.score
-    scores = Tensor()
+    scores = [[l2.score for l2 in l1] for l1 in decoder_results]
+    scores = torch.tensor(scores)
+    dims = [Dim(d) for d in scores.shape]
+    scores = Tensor("scores", dims = dims, dtype = "float32", raw_tensor = scores)
+    hyps = [[l2.tokens for l2 in l1] for l1 in decoder_results]
+    # hyps = [[[0] for l2 in l1] for l1 in decoder_results]
+    print(f"CUSTOM hyps: {hyps}")
+    hyps = torch.tensor(hyps)
+    print(f"CUSTOM hyps2: {hyps}, shape: {hyps.shape}")
+    dims = [Dim(d) for d in hyps.shape]
+    hyps = Tensor("hyps", dims = dims, dtype = "int64", raw_tensor = hyps)
     beam_dim = Dim(len(decoder_results[0]))
     
     return hyps, scores, enc_spatial_dim, beam_dim
