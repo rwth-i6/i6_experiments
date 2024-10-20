@@ -3,10 +3,19 @@ Config for RWTH IPC CLAIX-2023 cluster experiments.
 """
 
 from __future__ import annotations
+
 from i6_experiments.users.zeyer.utils.dict_update import dict_update_deep
 from i6_experiments.users.zeyer.speed_pert.librosa_config import speed_pert_librosa_config
+
 from .configs import config_24gb_v6, _get_cfg_lrlin_oclr_by_bs_nep_v3
 from .aed import train_exp as aed_train_exp
+from .ctc import train_exp as ctc_train_exp
+
+from i6_experiments.users.zeyer.experiments.exp2024_10_16_consistency_reg_ctc import cr_ctc_training
+
+import returnn.frontend as rf
+from returnn.frontend.decoder.transformer import TransformerDecoder
+from returnn.frontend.encoder.conformer import ConformerEncoderLayer, ConformerPositionwiseFeedForward
 
 
 def py():
@@ -16,7 +25,7 @@ def py():
     # - __gpu_mem = 96
     # - batch size was increased to 200k
     # - bf16 again
-    # - grad accum 1 (obviously, batch size is already large enough...)
+    # - (grad accum 1 (no change actually; and obviously, batch size is already large enough...))
     # - LR scheduling now based on seq_idx (this is not really related to the new GPU, but just simplifies things)
     # - partition epoch to 1 (dataset_train_opts.train_epoch_split=1)
     #   (because the GPU is so fast that it trains a single epoch in 20mins)
@@ -78,6 +87,60 @@ def py():
         train_vocab_opts={"other_opts": {"enable_sampling": True, "alpha": 0.7}},
         dataset_train_opts={"train_epoch_split": 1, "train_epoch_wise_filter": None},
     )
+
+    for opts in [
+        # Baseline (n12) has {"dev-clean": 2.35, "dev-other": 5.65, "test-clean": 2.66, "test-other": 5.94}.
+        # v6-relPosAttDef-noBias-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-featBN-speedpertV2-spm10k-bpeSample001
+        {
+            "name": "v6-relPosAttDef-noBias-aedLoss-bhv20-96gb-bf16-bs200k-accgrad1-wd1e_2"
+            "-lrlinEpCont-featBN-speedpertV2-spm10k-bpeSample001",
+            "num_enc_layers": 12,
+            "batch_size": 200_000,
+        },
+        # Baseline (n16) has {"dev-clean": 2.26, "dev-other": 5.44, "test-clean": 2.5, "test-other": 5.62}.
+        # v6-n16-relPosAttDef-noBias-aedLoss-bhv20-11gb-f32-bs10k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-featBN-speedpertV2-spm10k-bpeSample001
+        # {"num_enc_layers": 16, "batch_size": 10_000},
+    ]:
+        for cr_ctc in [None, {"cr_loss_scale": 0.2}]:
+            # TODO also adapt specaug for CR...
+            use_cr_ctc = cr_ctc is not None
+            if use_cr_ctc:
+                name = f"n{opts['num_enc_layers']}"
+                name += f"-crLoss{cr_ctc['cr_loss_scale']}"
+            else:
+                name = opts["name"]
+            ctc_train_exp(
+                name,
+                config_96gb_bf16_accgrad1,
+                train_def=cr_ctc_training if use_cr_ctc else None,
+                model_config={
+                    "enc_conformer_layer": rf.build_dict(
+                        ConformerEncoderLayer,
+                        ff=rf.build_dict(
+                            ConformerPositionwiseFeedForward, activation=rf.build_dict(rf.relu_square), with_bias=False
+                        ),
+                        num_heads=8,
+                    ),
+                    "feature_batch_norm": True,
+                    "num_enc_layers": opts["num_enc_layers"],
+                },
+                config_updates={
+                    **_get_cfg_lrlin_oclr_by_bs_nep_v3(
+                        opts["batch_size"] // (2 if use_cr_ctc else 1), 100 // (2 if use_cr_ctc else 1)
+                    ),
+                    "optimizer.weight_decay": 1e-2,
+                    "__train_audio_preprocess": speed_pert_librosa_config,
+                    "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
+                    # purely used for training
+                    "aux_attention_decoder": rf.build_dict(TransformerDecoder, num_layers=6),
+                    **(cr_ctc if use_cr_ctc else {}),
+                    **({"aed_loss_bug_fix": True} if use_cr_ctc else {}),
+                },
+                vocab="spm10k",
+                train_vocab_opts={"other_opts": {"class": "SamplingBytePairEncoding", "breadth_prob": 0.01}},
+                # avoid OOM
+                # env_updates={"PYTORCH_CUDA_ALLOC_CONF": "backend:cudaMallocAsync,expandable_segments:True"},
+            )
 
 
 # https://help.itc.rwth-aachen.de/service/rhr4fjjutttf/article/9108f4a6f43c40a3a168919afd36839d/
