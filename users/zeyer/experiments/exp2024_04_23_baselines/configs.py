@@ -130,7 +130,9 @@ def _get_cfg_lrlin_oclr_by_bs_nep_v2(bs_feat: int, n_ep: int, *, peak_lr: float 
     }
 
 
-def _get_cfg_lrlin_oclr_by_bs_nep_v3(bs_feat: int, n_ep: int, *, peak_lr: float = 1e-3) -> Dict[str, Any]:
+def _get_cfg_lrlin_oclr_by_bs_nep_v3(
+    bs_feat: int, n_ep: int, *, peak_lr: float = 1e-3, low_lr: float = 1e-5, lowest_lr: float = 1e-6
+) -> Dict[str, Any]:
     """
     :param bs_feat: batch size for features (not including _batch_size_factor)
     :param n_ep: num epochs
@@ -142,7 +144,7 @@ def _get_cfg_lrlin_oclr_by_bs_nep_v3(bs_feat: int, n_ep: int, *, peak_lr: float 
         "dynamic_learning_rate": dyn_lr_piecewise_linear,
         "learning_rate_piecewise_by_epoch_continuous": True,
         "learning_rate_piecewise_steps": [0.45 * n_ep, 0.9 * n_ep, n_ep],
-        "learning_rate_piecewise_values": [peak_lr * 1e-2, peak_lr, peak_lr * 1e-2, peak_lr * 1e-3],
+        "learning_rate_piecewise_values": [low_lr, peak_lr, low_lr, lowest_lr],
     }
 
 
