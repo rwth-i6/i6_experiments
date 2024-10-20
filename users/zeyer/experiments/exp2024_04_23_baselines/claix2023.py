@@ -4,8 +4,11 @@ Config for RWTH IPC CLAIX-2023 cluster experiments.
 
 from __future__ import annotations
 from typing import Dict, Any
-from .configs import config_24gb_v6, _get_cfg_lrlin_oclr_by_bs_nep_v3
-from .aed import train_exp, dict_update_deep, speed_pert_librosa_config, _batch_size_factor, dyn_lr_piecewise_linear
+from i6_experiments.users.zeyer.utils.dict_update import dict_update_deep
+from i6_experiments.users.zeyer.speed_pert.librosa_config import speed_pert_librosa_config
+from i6_experiments.users.zeyer.lr_schedules.piecewise_linear import dyn_lr_piecewise_linear
+from .configs import config_24gb_v6, _get_cfg_lrlin_oclr_by_bs_nep_v3, _batch_size_factor
+from .aed import train_exp as aed_train_exp
 
 
 def py():
@@ -31,7 +34,7 @@ def py():
     # Note: epoch filtering is wrong, should not do that for 5 full epochs...
     # {"dev-clean": 2.36, "dev-other": 5.35, "test-clean": 2.4, "test-other": 5.72}
     # Final 'devtrain_loss_ce': 0.11504180265534825, 'devtrain_loss_fer': 0.005836691916394713,
-    train_exp(
+    aed_train_exp(
         f"96gb-bf16-bs200k-accgrad1-wd1e_2-lrlinEpCont-speedpertV2-spm10k-spmSample07",
         config_96gb_bf16_accgrad1,
         config_updates={
@@ -47,7 +50,7 @@ def py():
     )
 
     # No curriculum learning (epoch filtering) (-> train_epoch_wise_filter=None)
-    train_exp(
+    aed_train_exp(
         f"96gb-bf16-bs200k-accgrad1-wd1e_2-lrlinEpCont-noCrl-speedpertV2-spm10k-spmSample07",
         config_96gb_bf16_accgrad1,
         config_updates={
@@ -63,7 +66,7 @@ def py():
     )
 
     # Higher peak LR
-    train_exp(
+    aed_train_exp(
         f"96gb-bf16-bs200k-accgrad1-wd1e_2-lrlinEpCont-lr1e_2-noCrl-speedpertV2-spm10k-spmSample07",
         config_96gb_bf16_accgrad1,
         config_updates={
