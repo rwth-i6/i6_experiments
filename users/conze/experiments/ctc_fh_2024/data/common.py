@@ -103,6 +103,7 @@ def build_training_datasets(
     dev_other_ogg: tk.Path,
     label_datastream: LabelDatastream,
     settings: DatasetSettings,
+    use_tags: bool = False,
 ) -> TrainingDatasets:
     """
     generic dataset construction helper to be used by the phon/bpe specific variants
@@ -120,7 +121,15 @@ def build_training_datasets(
         "labels": label_datastream,
     }
 
-    data_map = {"raw_audio": ("zip_dataset", "data"), "labels": ("zip_dataset", "classes")}
+    if use_tags:
+        data_map = {
+            "raw_audio": ("zip_dataset", "data"),
+        }
+    else:
+        data_map = {
+            "raw_audio": ("zip_dataset", "data"),
+            "labels": ("zip_dataset", "classes"),
+        }
 
     training_audio_opts = audio_datastream.as_returnn_audio_opts()
 

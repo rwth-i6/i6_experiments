@@ -21,9 +21,11 @@ from i6_experiments.common.setups.returnn.datastreams.vocabulary import LabelDat
 from .common import get_zip, build_training_datasets, TrainingDatasets, DatasetSettings
 
 
-def get_eow_lexicon(g2p_librispeech_key: Optional[str], with_g2p: bool) -> tk.Path:
+def get_lexicon(
+    g2p_librispeech_key: Optional[str], with_g2p: bool, add_eow_phonemes: bool, add_silence: bool
+) -> tk.Path:
     """
-    get the g2p bliss lexicon with EOW tokens added
+    get the g2p bliss lexicon (optionally with EOW tokens added)
 
     :param g2p_librispeech_key: which librispeech to use as baseline data
     :param with_g2p:
@@ -31,16 +33,23 @@ def get_eow_lexicon(g2p_librispeech_key: Optional[str], with_g2p: bool) -> tk.Pa
     """
     if with_g2p:
         assert g2p_librispeech_key is not None
-        lex = get_g2p_augmented_bliss_lexicon_dict(use_stress_marker=False, add_silence=False)[g2p_librispeech_key]
+        lex = get_g2p_augmented_bliss_lexicon_dict(use_stress_marker=False, add_silence=add_silence)[
+            g2p_librispeech_key
+        ]
     else:
-        lex = get_bliss_lexicon(use_stress_marker=False, add_silence=False)
+        lex = get_bliss_lexicon(use_stress_marker=False, add_silence=add_silence)
 
-    return AddEowPhonemesToLexiconJob(lex).out_lexicon
+    if add_eow_phonemes:
+        return AddEowPhonemesToLexiconJob(lex).out_lexicon
+    else:
+        return lex
 
 
-def get_eow_bliss(librispeech_key: str, g2p_librispeech_key: str, remove_unk_seqs=False) -> tk.Path:
+def get_bliss(
+    librispeech_key: str, g2p_librispeech_key: str, add_eow_phonemes: bool, add_silence: bool, remove_unk_seqs=False
+) -> tk.Path:
     """
-    get an EOW modified corpus with optional unknown removed for cross validation
+    get an optionally EOW modified corpus with optional unknown removed for cross validation
 
     :param librispeech_key: which bliss dataset to "get"
     :param g2p_librispeech_key: baseline librispeech dataset that is used for g2p
@@ -49,24 +58,37 @@ def get_eow_bliss(librispeech_key: str, g2p_librispeech_key: str, remove_unk_seq
     :return:
     """
     bliss = get_bliss_corpus_dict(audio_format="ogg")[librispeech_key]
+
     if remove_unk_seqs:
         from i6_core.corpus.filter import FilterCorpusRemoveUnknownWordSegmentsJob
 
         bliss = FilterCorpusRemoveUnknownWordSegmentsJob(
             bliss_corpus=bliss,
             # cv may include words from g2p
-            bliss_lexicon=get_eow_lexicon(g2p_librispeech_key=g2p_librispeech_key, with_g2p=True),
+            bliss_lexicon=get_lexicon(
+                g2p_librispeech_key=g2p_librispeech_key,
+                with_g2p=True,
+                add_eow_phonemes=add_eow_phonemes,
+                add_silence=add_silence,
+            ),
             all_unknown=False,
         ).out_corpus
 
     # default train lexicon
-    lexicon = get_eow_lexicon(g2p_librispeech_key=g2p_librispeech_key, with_g2p=True)
+    lexicon = get_lexicon(
+        g2p_librispeech_key=g2p_librispeech_key,
+        with_g2p=True,
+        add_eow_phonemes=add_eow_phonemes,
+        add_silence=add_silence,
+    )
     converted_bliss_corpus = ApplyLexiconToCorpusJob(bliss, lexicon, word_separation_orth=None).out_corpus
 
     return converted_bliss_corpus
 
 
-def get_eow_bliss_and_zip(librispeech_key: str, g2p_librispeech_key: str, remove_unk_seqs=False):
+def get_bliss_and_zip(
+    librispeech_key: str, g2p_librispeech_key: str, add_eow_phonemes: bool, add_silence: bool, remove_unk_seqs=False
+):
     """
     :param librispeech_key: which bliss dataset to "get"
     :param g2p_librispeech_key: baseline librispeech dataset that is used for g2p
@@ -75,22 +97,33 @@ def get_eow_bliss_and_zip(librispeech_key: str, g2p_librispeech_key: str, remove
     :return: tuple of bliss and zip
     """
 
-    bliss_dataset = get_eow_bliss(
-        librispeech_key=librispeech_key, g2p_librispeech_key=g2p_librispeech_key, remove_unk_seqs=remove_unk_seqs
+    bliss_dataset = get_bliss(
+        librispeech_key=librispeech_key,
+        g2p_librispeech_key=g2p_librispeech_key,
+        add_eow_phonemes=add_eow_phonemes,
+        add_silence=add_silence,
+        remove_unk_seqs=remove_unk_seqs,
     )
     zip_dataset = get_zip(f"{g2p_librispeech_key}_{librispeech_key}_filtered_eow", bliss_dataset=bliss_dataset)
 
     return bliss_dataset, zip_dataset
 
 
-def get_eow_vocab_datastream(prefix: str, g2p_librispeech_key: str) -> LabelDatastream:
+def get_vocab_datastream(
+    prefix: str, g2p_librispeech_key: str, add_eow_phonemes: bool, add_silence: bool
+) -> LabelDatastream:
     """
-    Phoneme with EOW LabelDatastream
+    Phoneme with(out) EOW LabelDatastream
 
     :param prefix:
     :param g2p_librispeech_key: baseline librispeech dataset that is used for g2p
     """
-    lexicon = get_eow_lexicon(g2p_librispeech_key=g2p_librispeech_key, with_g2p=True)
+    lexicon = get_lexicon(
+        g2p_librispeech_key=g2p_librispeech_key,
+        with_g2p=True,
+        add_eow_phonemes=add_eow_phonemes,
+        add_silence=add_silence,
+    )
     returnn_vocab_job = ReturnnVocabFromPhonemeInventory(lexicon)
     returnn_vocab_job.add_alias(os.path.join(prefix, f"{g2p_librispeech_key}", "eow_returnn_vocab_job"))
 
@@ -105,7 +138,7 @@ def get_text_lexicon() -> tk.Path:
     """
     :return: Text lexicon for the Flashlight decoder
     """
-    bliss_lex = get_eow_lexicon(g2p_librispeech_key=None, with_g2p=False)
+    bliss_lex = get_lexicon(g2p_librispeech_key=None, with_g2p=False, add_eow_phonemes=True, add_silence=False)
     word_lexicon = BlissLexiconToG2PLexiconJob(
         bliss_lex,
         include_pronunciation_variants=True,
@@ -114,30 +147,49 @@ def get_text_lexicon() -> tk.Path:
     return word_lexicon
 
 
-def build_eow_phon_training_datasets(
+def build_phon_training_datasets(
     prefix: str,
     librispeech_key: str,
     settings: DatasetSettings,
+    add_eow_phonemes: bool,
+    add_silence: bool,
     lexicon_librispeech_key: Optional[str] = None,
+    use_tags: bool = False,
 ) -> TrainingDatasets:
     """
     :param prefix:
     :param librispeech_key: which librispeech corpus to use
     :param settings: configuration object for the dataset pipeline
     :param lexicon_librispeech_key: if we are using extra synthetic data, we might want a lexicon with the OOV coverage of that data as well
+    :param use_tags: Use sequence tag instead of labels in training
     """
-    label_datastream = get_eow_vocab_datastream(
-        prefix=prefix, g2p_librispeech_key=lexicon_librispeech_key or librispeech_key
+    label_datastream = get_vocab_datastream(
+        prefix=prefix,
+        g2p_librispeech_key=lexicon_librispeech_key or librispeech_key,
+        add_eow_phonemes=add_eow_phonemes,
+        add_silence=add_silence,
     )
 
-    _, train_ogg = get_eow_bliss_and_zip(
-        librispeech_key=librispeech_key, g2p_librispeech_key=librispeech_key, remove_unk_seqs=False
+    _, train_ogg = get_bliss_and_zip(
+        librispeech_key=librispeech_key,
+        g2p_librispeech_key=librispeech_key,
+        add_eow_phonemes=add_eow_phonemes,
+        add_silence=add_silence,
+        remove_unk_seqs=False,
     )
-    _, dev_clean_ogg = get_eow_bliss_and_zip(
-        librispeech_key="dev-clean", g2p_librispeech_key=librispeech_key, remove_unk_seqs=True
+    _, dev_clean_ogg = get_bliss_and_zip(
+        librispeech_key="dev-clean",
+        g2p_librispeech_key=librispeech_key,
+        add_eow_phonemes=add_eow_phonemes,
+        add_silence=add_silence,
+        remove_unk_seqs=True,
     )
-    _, dev_other_ogg = get_eow_bliss_and_zip(
-        librispeech_key="dev-other", g2p_librispeech_key=librispeech_key, remove_unk_seqs=True
+    _, dev_other_ogg = get_bliss_and_zip(
+        librispeech_key="dev-other",
+        g2p_librispeech_key=librispeech_key,
+        add_eow_phonemes=add_eow_phonemes,
+        add_silence=add_silence,
+        remove_unk_seqs=True,
     )
 
     return build_training_datasets(
@@ -146,4 +198,5 @@ def build_eow_phon_training_datasets(
         dev_other_ogg=dev_other_ogg,
         settings=settings,
         label_datastream=label_datastream,
+        use_tags=use_tags,
     )

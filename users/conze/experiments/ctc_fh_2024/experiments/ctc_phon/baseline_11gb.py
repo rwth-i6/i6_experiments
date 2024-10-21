@@ -182,51 +182,49 @@ def eow_phon_ls960_1023_base():
         specauc_start_epoch=1,
     )
 
-    train_config_24gbgpu_amp = {
+    train_config_11gbgpu_amp = {
         "optimizer": {"class": "adamw", "epsilon": 1e-16, "weight_decay": 1e-2},
-        "learning_rates": list(np.linspace(7e-6, 5e-4, 480)) + list(
-            np.linspace(5e-4, 5e-5, 480)) + list(np.linspace(5e-5, 1e-7, 40)),
+        "learning_rates": list(np.linspace(7e-6, 5e-4, 120)) + list(
+            np.linspace(5e-4, 5e-5, 120)) + list(np.linspace(5e-5, 1e-7, 10)),
         #############
-        "batch_size": 240 * 16000,
+        "batch_size": 180 * 16000,
         "max_seq_length": {"audio_features": 35 * 16000},
         "accum_grad_multiple_step": 1,
-        "torch_amp_options": {"dtype": "bfloat16"},
-        "use_speed_perturbation": True,  # this is wrong, remove when copying
+        # "torch_amp_options": {"dtype": "bfloat16"},  # No mixed-precision training on 11GB-GPUs
         "gradient_clip_norm": 1.0,
     }
-    train_config_24gbgpu_amp_sp = copy.deepcopy(train_config_24gbgpu_amp)
-    train_config_24gbgpu_amp_sp.pop("use_speed_perturbation")
+    train_config_11gbgpu_amp_sp = copy.deepcopy(train_config_11gbgpu_amp)
 
     # Same with conv first
     network_module_conv_first = "ctc.conformer_1023.i6modelsV1_VGG4LayerActFrontendV1_v6_conv_first"
     train_args_conv_first = {
-        "config": train_config_24gbgpu_amp,
+        "config": train_config_11gbgpu_amp,
         "network_module": network_module_conv_first,
         "net_args": {"model_config_dict": asdict(model_config)},
         "debug": False,
     }
     train_args_conv_first_sp = copy.deepcopy(train_args_conv_first)
-    train_args_conv_first_sp["config"] = train_config_24gbgpu_amp_sp
-    train_args_conv_first_sp["use_speed_perturbation"] = True  # here speed perturbation is correctly set
+    train_args_conv_first_sp["config"] = train_config_11gbgpu_amp_sp
+    train_args_conv_first_sp["use_speed_perturbation"] = True
 
-    name = ".512dim_sub4_24gbgpu_100eps_lp_fullspec_gradnorm_smallbatch"
+    name = ".512dim_sub4_11gbgpu_100eps_lp_fullspec_gradnorm_smallbatch_v2"
     training_name = prefix_name + "/" + network_module_conv_first + name
-    train_job = training(training_name, train_data, train_args_conv_first, num_epochs=1000, **default_returnn)
-    train_job.rqmt["gpu_mem"] = 24
+    train_job = training(training_name, train_data, train_args_conv_first, num_epochs=250, **default_returnn)
+    train_job.rqmt["gpu_mem"] = 11
     asr_model = prepare_asr_model(
         training_name, train_job, train_args_conv_first, with_prior=True, datasets=train_data,
-        get_specific_checkpoint=1000
+        get_specific_checkpoint=250
     )
     tune_and_evaluate_helper(training_name, asr_model, default_decoder_config, lm_scales=[1.6, 1.8, 2.0],
                              prior_scales=[0.2, 0.3, 0.4])
 
-    name = ".512dim_sub4_24gbgpu_100eps_lp_fullspec_gradnorm_smallbatch_sp"
+    name = ".512dim_sub4_11gbgpu_100eps_lp_fullspec_gradnorm_smallbatch_sp_v2"
     training_name = prefix_name + "/" + network_module_conv_first + name
-    train_job = training(training_name, train_data, train_args_conv_first_sp, num_epochs=1000, **default_returnn)
-    train_job.rqmt["gpu_mem"] = 24
+    train_job = training(training_name, train_data, train_args_conv_first_sp, num_epochs=250, **default_returnn)
+    train_job.rqmt["gpu_mem"] = 11
     asr_model = prepare_asr_model(
         training_name, train_job, train_args_conv_first_sp, with_prior=True, datasets=train_data,
-        get_specific_checkpoint=1000
+        get_specific_checkpoint=250
     )
     tune_and_evaluate_helper(training_name, asr_model, default_decoder_config, lm_scales=[1.6, 1.8, 2.0],
                              prior_scales=[0.2, 0.3, 0.4])
