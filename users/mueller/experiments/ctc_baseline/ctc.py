@@ -75,6 +75,7 @@ def py():
         vocab=vocab,
     )
     
+    # TODO how do I have to adapt the epoch config?
     # CTC-baseline with self-training
     # train_exp(
     #     f"semi-supervised-v6-relPosAttDef-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100"
@@ -92,7 +93,7 @@ def py():
     #         "max_seq_length_default_input": 19.5 * _raw_sample_rate,
     #     },
     #     vocab=vocab,
-    #     train_small=True # Here we only select the train-clean-100 dataset for training
+    #     self_training_rounds=1 # Here we only select the train-clean-100 dataset for training
     # )
 
 _train_experiments: Dict[str, ModelWithCheckpoints] = {}
@@ -119,7 +120,7 @@ def train_exp(
     time_rqmt: Optional[int] = None,  # set this to 1 or below to get the fast test queue
     env_updates: Optional[Dict[str, str]] = None,
     enabled: bool = True,
-    train_small: bool = False,
+    self_training_rounds: int = 0,
 ) -> Optional[ModelWithCheckpoints]:
     """
     Train experiment
@@ -136,7 +137,7 @@ def train_exp(
 
     prefix = _sis_prefix + "/" + name
     
-    task = get_librispeech_task_raw_v2(vocab=vocab, train_vocab_opts=train_vocab_opts, train_small = train_small)
+    task = get_librispeech_task_raw_v2(vocab=vocab, train_vocab_opts=train_vocab_opts, train_small = self_training_rounds > 0)
     config = config.copy()
     config = dict_update_deep(config, config_updates, config_deletes)
     # This logic is also in train(), but keep it here because it would break the hash because of _RecogAndScoreFunc...
@@ -175,6 +176,45 @@ def train_exp(
     recog_training_exp(
         prefix, task, model_with_checkpoint, recog_def=decoder_def, recog_post_proc_funcs=recog_post_proc_funcs
     )
+    
+    # Do self training on pseude labels
+    for i in range(self_training_rounds):
+        # TODO dump pseudo labels
+        
+        # TODO adapt this so pseud labels are loaded
+        task = get_librispeech_task_raw_v2(vocab=vocab, train_vocab_opts=train_vocab_opts, train_small = False)
+        # This logic is also in train(), but keep it here because it would break the hash because of _RecogAndScoreFunc...
+        if "__train_audio_preprocess" in config:
+            task: Task = copy.copy(task)
+            task.train_dataset = copy.copy(task.train_dataset)
+            task.train_dataset.train_audio_preprocess = config.pop("__train_audio_preprocess")
+
+        model_with_checkpoint = train(
+            prefix,
+            task=task,
+            config=config,
+            post_config=dict_update_deep(post_config, post_config_updates),
+            epilog=epilog,
+            model_def=model_def,
+            train_def=train_def,
+            init_params=model_with_checkpoint.get_last_fixed_epoch().checkpoint, # TODO select the best epoch
+            num_epochs=num_epochs,
+            gpu_mem=gpu_mem,
+            num_processes=num_processes,
+            time_rqmt=time_rqmt,
+        )
+        train_job = model_with_checkpoint.get_training_job()
+        if env_updates:
+            for k, v in env_updates.items():
+                train_job.set_env(k, v)
+        
+        recog_training_exp(
+            prefix + f"/self-training-{i}",
+            task,
+            model_with_checkpoint,
+            recog_def=decoder_def,
+            recog_post_proc_funcs=recog_post_proc_funcs,
+        )
 
     _train_experiments[name] = model_with_checkpoint
     return model_with_checkpoint
@@ -458,6 +498,12 @@ def model_recog(
     out_spatial_dim = enc_spatial_dim
     seq_targets = seq_targets__.stack(axis=out_spatial_dim)
 
+    # [583, 5, 12], [5, 12], [583, 565, 548, 546, 528], 12
+    # [527, 6, 12], [6, 12], [527, 514, 510, 501, 493, 486], 12
+    # [459, 7, 12], [7, 12], [459, 453, 452, 436, 436, 435, 433], 12
+    # out_spatial_dim, batch_dim, beam_dim
+    print(f"CUSTOM seq_targets: {seq_targets.raw_tensor.cpu()}, seq_log_prob: {seq_log_prob.raw_tensor.cpu()}, should be same as spatial_dim: {out_spatial_dim.dyn_size_ext.raw_tensor.cpu()}, beam_size: {beam_dim}")
+
     return seq_targets, seq_log_prob, out_spatial_dim, beam_dim
 
 
@@ -473,6 +519,7 @@ def model_recog_lm(
     data: Tensor,
     data_spatial_dim: Dim,
     arpa_4gram_lm: str,
+    dump_pseudo_labels: bool,
 ) -> Tuple[Tensor, Tensor, Dim, Dim]:
     """
     Function is run within RETURNN.
@@ -488,48 +535,24 @@ def model_recog_lm(
     from torchaudio.models.decoder import ctc_decoder
     import torch
     from returnn.util.basic import cf
+    from i6_core.returnn.hdf import ReturnnDumpHDFJob
     
     logits, enc, enc_spatial_dim = model(data, in_spatial_dim=data_spatial_dim)
     arpa_4gram_lm = str(cf(arpa_4gram_lm))
-    print(f"CUSTOM got lm: {arpa_4gram_lm}")
     
-    try:
-        decoder = ctc_decoder(
-            lexicon=None,
-            lm=arpa_4gram_lm,
-            lm_weight=1.8,
-            tokens=list(model.wb_target_dim.vocab.labels),
-            blank_token="[blank]",
-            sil_token="[blank]",
-            unk_word="[unknown]",
-            nbest=1,
-            beam_size=16,
-            beam_size_token=16,
-            beam_threshold=14,
-        )
-    except Exception as e:
-        print(f"Error: {e}")
-        decoder = ctc_decoder(
-            lexicon=None,
-            lm=None,
-            lm_weight=1.8,
-            tokens=list(model.wb_target_dim.vocab.labels),
-            blank_token="[blank]",
-            sil_token="[blank]",
-            unk_word="[unknown]",
-            nbest=1,
-            beam_size=16,
-            beam_size_token=16,
-            beam_threshold=14,
-        )
-    # print("CUSTOM logits: ", logits)
-    # print("CUSTOM logits raw: ", logits.raw_tensor)
-    # print("CUSTOM logits raw shape: ", logits.raw_tensor.shape)
-    # print("CUSTOM logits raw type: ", type(logits.raw_tensor))
-    # print("CUSTOM enc_spatial_dim: ", enc_spatial_dim)
-    # print("CUSTOM enc_spatial_dim raw: ", enc_spatial_dim.dyn_size_ext.raw_tensor)
-    # print("CUSTOM enc_spatial_dim raw2: ", enc_spatial_dim.size)
-    # print("CUSTOM enc_spatial_dim raw3: ", enc_spatial_dim.capacity)
+    decoder = ctc_decoder(
+        lexicon=None,
+        lm=arpa_4gram_lm,
+        lm_weight=1.8,
+        tokens=list(model.wb_target_dim.vocab.labels),
+        blank_token="[blank]",
+        sil_token="[blank]",
+        unk_word="[unknown]",
+        nbest=1,
+        beam_size=16,
+        beam_size_token=16,
+        beam_threshold=14,
+    )
     decoder_results = decoder(logits.raw_tensor.cpu(), enc_spatial_dim.dyn_size_ext.raw_tensor.cpu())
     
     # print(f"CUSTOM Decoder Tokens Len1 (batch_dim): {len(decoder_results)}")
@@ -542,16 +565,27 @@ def model_recog_lm(
     
     scores = [[l2.score for l2 in l1] for l1 in decoder_results]
     scores = torch.tensor(scores)
+    # print(f"CUSTOM scores: {scores}, shape: {scores.shape}")
     dims = [Dim(d) for d in scores.shape]
     scores = Tensor("scores", dims = dims, dtype = "float32", raw_tensor = scores)
     hyps = [[l2.tokens for l2 in l1] for l1 in decoder_results]
     # hyps = [[[0] for l2 in l1] for l1 in decoder_results]
-    print(f"CUSTOM hyps: {hyps}")
+    # print(f"CUSTOM hyps: {hyps}")
     hyps = torch.tensor(hyps)
-    print(f"CUSTOM hyps2: {hyps}, shape: {hyps.shape}")
+    # print(f"CUSTOM hyps2: {hyps}, shape: {hyps.shape}")
     dims = [Dim(d) for d in hyps.shape]
     hyps = Tensor("hyps", dims = dims, dtype = "int64", raw_tensor = hyps)
     beam_dim = Dim(len(decoder_results[0]))
+    
+    
+    # [5, 1], [5, 1], [583, 565, 548, 546, 528], -1
+    # len(decoder_results), len(decoder_results[0])
+    # TODO increase beams to 12
+    # TODO why is output not 583?
+    print(f"CUSTOM seq_targets: {hyps.raw_tensor.cpu()}, seq_log_prob: {scores.raw_tensor.cpu()}, should be same as spatial_dim: {enc_spatial_dim.dyn_size_ext.raw_tensor.cpu()}, beam_size: {beam_dim}")
+    
+    if dump_pseudo_labels:
+        ReturnnDumpHDFJob() # TODO
     
     return hyps, scores, enc_spatial_dim, beam_dim
 

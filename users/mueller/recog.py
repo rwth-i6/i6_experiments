@@ -33,8 +33,6 @@ from i6_experiments.users.zeyer.model_interfaces import ModelDef, ModelDefWithCf
 from i6_experiments.users.zeyer.model_with_checkpoints import ModelWithCheckpoint, ModelWithCheckpoints
 from i6_experiments.users.zeyer.returnn.training import get_relevant_epochs_from_training_learning_rate_scores
 
-from .experiments.ctc_baseline.ctc import model_recog_lm
-
 if TYPE_CHECKING:
     from returnn.tensor import TensorDict
 
@@ -113,6 +111,7 @@ class _RecogAndScoreFunc:
             self.task,
             model_with_checkpoint,
             self.recog_def,
+            self.prefix_name,
             config=self.search_config,
             search_post_config=self.search_post_config,
             recog_post_proc_funcs=self.recog_post_proc_funcs,
@@ -150,6 +149,7 @@ def recog_model(
     task: Task,
     model: ModelWithCheckpoint,
     recog_def: RecogDef,
+    prefix_name: str,
     *,
     config: Optional[Dict[str, Any]] = None,
     search_post_config: Optional[Dict[str, Any]] = None,
@@ -168,6 +168,7 @@ def recog_model(
             if dataset_name not in dev_sets:
                 continue
         recog_out = search_dataset(
+            prefix_name=prefix_name,
             dataset=dataset,
             model=model,
             recog_def=recog_def,
@@ -185,6 +186,7 @@ def recog_model(
 
 def search_dataset(
     *,
+    prefix_name: str,
     dataset: DatasetConfig,
     model: ModelWithCheckpoint,
     recog_def: RecogDef,
@@ -246,7 +248,7 @@ def search_dataset(
         search_job = ReturnnForwardJobV2(
             model_checkpoint=model.checkpoint,
             returnn_config=search_config_v2(
-                dataset, model.definition, recog_def, config=config, post_config=search_post_config
+                dataset, model.definition, recog_def, prefix_name, config=config, post_config=search_post_config
             ),
             output_files=out_files,
             returnn_python_exe=tools_paths.get_returnn_python_exe(),
@@ -375,6 +377,7 @@ def search_config_v2(
     dataset: DatasetConfig,
     model_def: Union[ModelDef, ModelDefWithCfg],
     recog_def: RecogDef,
+    prefix_name: str,
     *,
     config: Optional[Dict[str, Any]] = None,
     post_config: Optional[Dict[str, Any]] = None,
@@ -389,6 +392,7 @@ def search_config_v2(
     from i6_experiments.common.setups.returnn.serialization import get_serializable_config
     
     from i6_experiments.example_setups.librispeech.ctc_rnnt_standalone_2024.lm import get_4gram_binary_lm
+    from .experiments.ctc_baseline.ctc import model_recog_lm
 
     returnn_recog_config_dict = dict(
         backend=model_def.backend,
@@ -410,9 +414,8 @@ def search_config_v2(
     extern_data_raw = instanciate_delayed(extern_data_raw)
     
     if recog_def is model_recog_lm:
-        lm = get_4gram_binary_lm(prefix_name="ctc/get_4gram_binary_lm")
-        print("CUSTOM INFO lm: ", lm)
-        lm = {"lm": lm}
+        lm = get_4gram_binary_lm(prefix_name=prefix_name)
+        lm = {"arpa_4gram_lm": lm}
     else:
         lm = {}
 
@@ -541,7 +544,7 @@ def _returnn_v2_get_model(*, epoch: int, **_kwargs_unused):
     return model
 
 
-def _returnn_v2_forward_step(*, model, extern_data: TensorDict, **_kwargs):
+def _returnn_v2_forward_step(*, model, extern_data: TensorDict, **_kwargs_unused):
     import returnn.frontend as rf
     from returnn.tensor import Tensor, Dim, batch_dim
     from returnn.config import get_global_config
@@ -562,12 +565,7 @@ def _returnn_v2_forward_step(*, model, extern_data: TensorDict, **_kwargs):
         default_target_key = config.typed_value("target")
         targets = extern_data[default_target_key]
         extra.update(dict(targets=targets, targets_spatial_dim=targets.get_time_dim_tag()))
-    if recog_def is model_recog_lm:
-        print("CUSTOM INFO found kwargs:", _kwargs)
-        lm = _kwargs["lm"]
-        recog_out = recog_def(model=model, data=data, data_spatial_dim=data_spatial_dim, arpa_4gram_lm=lm, **extra)
-    else:
-        recog_out = recog_def(model=model, data=data, data_spatial_dim=data_spatial_dim, **extra)
+    recog_out = recog_def(model=model, data=data, data_spatial_dim=data_spatial_dim, **extra)
     if len(recog_out) == 5:
         # recog results including beam {batch, beam, out_spatial},
         # log probs {batch, beam},
