@@ -23,13 +23,14 @@ def py():
     # we made the following changes (partly taking our 1x24GB GPU settings into account)
     # for the H100 GPU with 96GB memory (nodes c23g in the CLAIX-2023 cluster):
     # - __gpu_mem = 96
-    # - batch size was increased to 200k
-    # - bf16 again
+    # - batch size was increased to 200k (takes about 60-70GB of GPU memory)
+    # - bf16 again (AMP)
     # - (grad accum 1 (no change actually; and obviously, batch size is already large enough...))
-    # - LR scheduling now based on seq_idx (this is not really related to the new GPU, but just simplifies things)
+    # - (LR scheduling now based on seq_idx (this is not really related to the new GPU, but just simplifies things))
     # - partition epoch to 1 (dataset_train_opts.train_epoch_split=1)
-    #   (because the GPU is so fast that it trains a single epoch in 20mins)
-    # - more workers for data loading (__multi_proc_dataset_opts.num_workers=25)
+    #   (because the GPU is so fast that it trains a single epoch in 20mins;
+    #    otherwise, eval is just too often, takes too much time)
+    # - more workers for data loading (__multi_proc_dataset_opts.num_workers=25) (check computation time in log!)
     # - __cpu_rqmt = 24 (the whole c23g node has 96 CPUs, and 4 GPUs)
     # - __mem_rqmt = 100 (the whole node should have more than 500GB)
 
