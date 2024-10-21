@@ -120,3 +120,22 @@ def export_all(output_prefix):
     _export_lm_data(output_prefix)
     _export_lexicon_and_vocab(output_prefix)
     _export_legacy_bpe(output_prefix)
+
+
+def export_minimal(output_prefix):
+    """
+    Registers only the typically required data as output
+
+    Can be used to generate data explicitly in setups, but not strictly required
+
+    :param str output_prefix:
+    """
+    bliss_corpus_dict = get_bliss_corpus_dict(audio_format="ogg", output_prefix=output_prefix)
+    for name, bliss_corpus in bliss_corpus_dict.items():
+        tk.register_output(
+            os.path.join(output_prefix, "LibriSpeech", "%s-%s.xml.gz" % (name, audio_format)),
+            bliss_corpus,
+        )
+    _export_lm_data(output_prefix)
+    _export_lexicon_and_vocab(output_prefix)
+    _export_legacy_bpe(output_prefix)
