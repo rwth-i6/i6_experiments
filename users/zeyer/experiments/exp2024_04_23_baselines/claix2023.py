@@ -77,6 +77,7 @@ def py():
     )
 
     # SpecAugment adapted
+    # TODO instead of having this step-based, we can also make this dependent on the continuous epoch
     aed_train_exp(
         f"96gb-bf16-bs200k-accgrad1-wd1e_2-lrlinEpCont-noCrl-specAug2k-speedpertV2-spm10k-spmSample07",
         config_96gb_bf16_accgrad1,
