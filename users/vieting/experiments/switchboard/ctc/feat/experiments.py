@@ -286,6 +286,12 @@ def run_scf_baseline():
                 lr_args=lr_args,
                 report_args={"batch_size": "2x5k"},
             ),
+            "bs2x5k_scf_baseline_preemphasis1_wn": dict(
+                returnn_args=returnn_args,
+                feature_args={**feature_args, "preemphasis": 1.0, "wave_norm": True},
+                lr_args=lr_args,
+                report_args={"batch_size": "2x5k"},
+            ),
             "bs2x5k_scf_baseline_preemphasis97": dict(
                 returnn_args=returnn_args,
                 feature_args={**feature_args, "preemphasis": 0.97},
