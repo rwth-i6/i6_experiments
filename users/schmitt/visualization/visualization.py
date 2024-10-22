@@ -265,7 +265,7 @@ class PlotAttentionWeightsJobV2(Job):
         att_weights_dict[seq_tag] = att_weights
         targets_dict[seq_tag] = targets
 
-    if self.target_blank_idx is not None:
+    if self.seg_starts_hdf is not None:
       seg_starts_dict = hdf.load_hdf_data(self.seg_starts_hdf, segment_list=self.segment_whitelist)
       seg_lens_dict = hdf.load_hdf_data(self.seg_lens_hdf, segment_list=self.segment_whitelist)
     else:
@@ -309,8 +309,8 @@ class PlotAttentionWeightsJobV2(Job):
       fig_width = num_frames / 4
       fig_height = fig_width
     else:
-      fig_width = 7 * num_frames / 80
-      fig_height = att_weights.shape[1] * 0.1 / 7 #  - 1 (-1 can be too large, leading to negative values)
+      fig_width = 7 * num_frames / 50
+      fig_height = num_labels * 0.18 + 2.0 #  - 1 (-1 can be too large, leading to negative values)
       # if num_frames < 32:
       #   width_factor = 4
       #   height_factor = 2
@@ -447,8 +447,8 @@ class PlotAttentionWeightsJobV2(Job):
     """
     num_labels = att_weights.shape[0]
     for i, (seg_start, seg_len) in enumerate(zip(seg_starts, seg_lens)):
-      ymin = (num_labels - i) / num_labels
-      ymax = (num_labels - i - 1) / num_labels
+      ymin = i / num_labels
+      ymax = (i + 1) / num_labels
       ax.axvline(x=seg_start - 0.5, ymin=ymin, ymax=ymax, color="r")
       ax.axvline(x=min(seg_start + seg_len - .5, att_weights.shape[1] - .5), ymin=ymin, ymax=ymax, color="r")
 
@@ -462,8 +462,8 @@ class PlotAttentionWeightsJobV2(Job):
     """
     num_labels = center_positions.shape[0]
     for i, center_position in enumerate(center_positions):
-      ymin = (num_labels - i) / num_labels
-      ymax = (num_labels - i - 1) / num_labels
+      ymin = i / num_labels
+      ymax = (i + 1) / num_labels
       ax.axvline(x=center_position - .5, ymin=ymin, ymax=ymax, color="lime")
       ax.axvline(x=center_position + .5, ymin=ymin, ymax=ymax, color="lime")
 
@@ -521,8 +521,8 @@ class PlotAttentionWeightsJobV2(Job):
 
     # for each seq tag, plot the corresponding att weights
     for seq_tag in att_weights_dict.keys():
-      seg_starts = seg_starts_dict[seq_tag] if self.target_blank_idx is not None else None  # [S]
-      seg_lens = seg_lens_dict[seq_tag] if self.target_blank_idx is not None else None  # [S]
+      seg_starts = seg_starts_dict[seq_tag] if self.seg_starts_hdf is not None else None  # [S]
+      seg_lens = seg_lens_dict[seq_tag] if self.seg_lens_hdf is not None else None  # [S]
       center_positions = center_positions_dict[seq_tag] if self.center_positions_hdf is not None else None  # [S]
       ctc_alignment = ctc_alignment_dict[seq_tag] if self.ctc_alignment_hdf is not None else None  # [T]
       ref_alignment = ref_alignment_dict.get(seq_tag)  # [T]
@@ -539,22 +539,52 @@ class PlotAttentionWeightsJobV2(Job):
         att_weights_list.append(other_att_weights)
 
       for i in range(len(att_weights_list)):
+        # upsample attention weights by factor of six to get to 10ms frames
+        upsampling_factor = 6  # hard code for now
         att_weights_ = att_weights_list[i]
-        if ref_alignment is None:
-          upsampling_factor = 1
-        else:
-          upsampling_factor = ref_alignment.shape[0] // att_weights_.shape[1]
-        if upsampling_factor != 1:
-          upsampling_factor = 6  # hard code for now
-          # repeat each frame by upsample_factor times
-          att_weights_ = np.repeat(att_weights_, upsampling_factor, axis=1)
-          if att_weights_.shape[1] < ref_alignment.shape[0]:
-            assert ref_alignment.shape[0] - att_weights_.shape[1] < upsampling_factor
-            att_weights_ = np.concatenate([att_weights_, np.zeros((att_weights_.shape[0], ref_alignment.shape[0] - att_weights_.shape[1])) + np.min(att_weights_)], axis=1)
-          # cut off the last frames if necessary
-          att_weights_ = att_weights_[:, :ref_alignment.shape[0]]
 
-          att_weights_list[i] = att_weights_
+        if ref_alignment is not None:
+          # if ref alignment is given and has the same length as the att weights, we need to upsample it as well
+          # otherwise, we assume the ref alignment comes from a HMM and already has the correct length (10ms frames)
+          ref_align_att_weight_ratio = ref_alignment.shape[0] // att_weights_.shape[1]
+          if ref_align_att_weight_ratio == 1:
+            ref_alignment = ref_alignment[:, None]
+            blanks = np.full(
+              list(ref_alignment.shape) + [upsampling_factor - 1], dtype=np.int32, fill_value=self.ref_alignment_blank_idx)
+            ref_alignment = np.dstack((ref_alignment, blanks)).reshape(-1)
+
+        # repeat each attention weight by upsample_factor times
+        att_weights_ = np.repeat(att_weights_, upsampling_factor, axis=1)
+        if att_weights_.shape[1] < ref_alignment.shape[0]:
+          assert ref_alignment.shape[0] - att_weights_.shape[1] < upsampling_factor
+          att_weights_ = np.concatenate([att_weights_, np.zeros(
+            (att_weights_.shape[0], ref_alignment.shape[0] - att_weights_.shape[1])) + np.min(att_weights_)], axis=1)
+        # cut off the last frames if necessary
+        att_weights_ = att_weights_[:, :ref_alignment.shape[0]]
+
+        # apply upsampling to segment starts, segment lengths and center positions
+        if seg_lens is not None:
+          seg_lens = seg_lens * upsampling_factor
+        if seg_starts is not None:
+          seg_starts = seg_starts * upsampling_factor
+        if center_positions is not None:
+          center_positions = center_positions * upsampling_factor
+
+        # if ref_alignment is None:
+        #   upsampling_factor = 1
+        # else:
+        #   upsampling_factor = ref_alignment.shape[0] // att_weights_.shape[1]
+        # if upsampling_factor != 1:
+        #   upsampling_factor = 6  # hard code for now
+        #   # repeat each frame by upsample_factor times
+        #   att_weights_ = np.repeat(att_weights_, upsampling_factor, axis=1)
+        #   if att_weights_.shape[1] < ref_alignment.shape[0]:
+        #     assert ref_alignment.shape[0] - att_weights_.shape[1] < upsampling_factor
+        #     att_weights_ = np.concatenate([att_weights_, np.zeros((att_weights_.shape[0], ref_alignment.shape[0] - att_weights_.shape[1])) + np.min(att_weights_)], axis=1)
+        #   # cut off the last frames if necessary
+        #   att_weights_ = att_weights_[:, :ref_alignment.shape[0]]
+
+        att_weights_list[i] = att_weights_
 
       fig, axes = self._get_fig_ax(att_weights_list, upsampling_factor=(upsampling_factor // 2) if upsampling_factor > 1 else 1)
 
@@ -602,7 +632,7 @@ class PlotAttentionWeightsJobV2(Job):
           use_ref_axis=i == 0 and ref_alignment is not None,
           time_len=att_weights.shape[1]
         )
-        if self.target_blank_idx is not None:
+        if seg_starts is not None:
           self._draw_segment_boundaries(ax, seg_starts, seg_lens, att_weights)
         if center_positions is not None:
           self._draw_center_positions(ax, center_positions)

@@ -132,13 +132,14 @@ def get_alignment_args(
         align_targets: rf.Tensor,
         align_targets_spatial_dim: Dim,
         batch_dims: List[Dim],
+        use_vertical_transitions: bool = False,
 ):
   if model.use_joint_model:
     # set blank indices in alignment to 0 (= EOS index of imported global att model which is not used otherwise)
     align_targets.raw_tensor[align_targets.raw_tensor == model.target_dim.dimension] = 0
     align_targets.sparse_dim = model.target_dim
 
-  if model.use_joint_model and model.window_step_size == 1:
+  if model.use_joint_model and model.window_step_size == 1 and not use_vertical_transitions:
     # TODO: use rf.window() instead
     segment_starts, segment_lens, center_positions = utils.get_segment_starts_and_lens(
       non_blank_mask=rf.sequence_mask(align_targets.dims),  # this way, every frame is interpreted as non-blank
@@ -160,7 +161,7 @@ def get_alignment_args(
     )
     non_blank_targets.sparse_dim = model.target_dim
 
-    if model.window_step_size == 1:
+    if model.window_step_size == 1 and not use_vertical_transitions:
       segment_starts, segment_lens, center_positions = utils.get_segment_starts_and_lens(
         non_blank_mask,
         align_targets_spatial_dim,
@@ -266,17 +267,8 @@ def viterbi_training(
     align_targets=align_targets,
     align_targets_spatial_dim=align_targets_spatial_dim,
     batch_dims=batch_dims,
+    use_vertical_transitions=config.bool("use_vertical_transitions", False),
   )
-
-  # if model.window_step_size != 1:
-  #   print("blank_idx", model.blank_idx)
-  #   print("align_targets", align_targets.raw_tensor)
-  #   print("non_blank_targets", non_blank_targets.raw_tensor)
-  #   print("segment_starts", segment_starts.raw_tensor)
-  #   print("segment_lens", segment_lens.raw_tensor)
-  #   print("center_positions", center_positions.raw_tensor)
-  #   print("\n\n")
-  #   exit()
 
   if enc_args is None:
     # ------------------- encoder aux loss -------------------
@@ -476,11 +468,6 @@ def viterbi_training(
     # ------------------- blank loop -------------------
 
     emit_ground_truth, emit_blank_target_dim = utils.get_emit_ground_truth(align_targets, model.blank_idx)
-
-    # if model.window_step_size != 1:
-    #   print("align_targets", align_targets.raw_tensor)
-    #   print("emit_ground_truth", emit_ground_truth.raw_tensor)
-    #   exit()
 
     if isinstance(model.blank_decoder, BlankDecoderV1):
       emit_log_prob, blank_log_prob = blank_model_viterbi_training(

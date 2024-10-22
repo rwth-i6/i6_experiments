@@ -158,54 +158,8 @@ class BaseLabelDecoder(rf.Module):
     self.use_weight_feedback = use_weight_feedback
     self.separate_blank_from_softmax = separate_blank_from_softmax
 
-    self.decoder_state = decoder_state
-    if "lstm" in decoder_state:
-      ilm_layer_class = rf.ZoneoutLSTM
-      ilm_layer_opts = dict(
-        out_dim=Dim(name="lstm", dimension=ilm_dimension),
-        zoneout_factor_cell=0.15,
-        zoneout_factor_output=0.05,
-        use_zoneout_output=False,  # like RETURNN/TF ZoneoutLSTM old default
-        # parts_order="icfo",  # like RETURNN/TF ZoneoutLSTM
-        # parts_order="ifco",
-        parts_order="jifo",  # NativeLSTM (the code above converts it...)
-        forget_bias=0.0,  # the code above already adds it during conversion
-      )
-      if use_att_ctx_in_state:
-        self.s = ilm_layer_class(
-          self.target_embed.out_dim + att_num_heads * enc_out_dim,
-          **ilm_layer_opts,
-        )
-      else:
-        self.s_wo_att = ilm_layer_class(
-          self.target_embed.out_dim,
-          **ilm_layer_opts,
-        )
-    else:
-      assert decoder_state == "nb-2linear-ctx1"
-      ilm_layer_class = LinearDecoder
-      ilm_layer_opts = dict(
-        out_dim=ilm_dimension,
-      )
-      if use_att_ctx_in_state:
-        self.s_linear = ilm_layer_class(
-          self.target_embed.out_dim + att_num_heads * enc_out_dim,
-          **ilm_layer_opts,
-        )
-      else:
-        self.s_wo_att_linear = ilm_layer_class(
-          self.target_embed.out_dim,
-          **ilm_layer_opts,
-        )
-
     self.use_trafo_att_wo_cross_att = config.bool("use_trafo_att_wo_cross_att", False)
-
-    if use_weight_feedback:
-      self.weight_feedback = rf.Linear(att_num_heads, enc_key_total_dim, with_bias=False)
-
     if not use_hard_attention and not use_trafo_attention:
-      self.s_transformed = rf.Linear(self.get_lstm().out_dim, enc_key_total_dim, with_bias=False)
-      self.energy = rf.Linear(enc_key_total_dim, att_num_heads, with_bias=False)
       att_dim = att_num_heads * enc_out_dim
       self.trafo_att = None
     else:
@@ -225,6 +179,53 @@ class BaseLabelDecoder(rf.Module):
         self.trafo_att = None
         # att_dim = att_num_heads * enc_out_dim
         att_dim = enc_out_dim
+
+    self.decoder_state = decoder_state
+    if "lstm" in decoder_state:
+      ilm_layer_class = rf.ZoneoutLSTM
+      ilm_layer_opts = dict(
+        out_dim=Dim(name="lstm", dimension=ilm_dimension),
+        zoneout_factor_cell=0.15,
+        zoneout_factor_output=0.05,
+        use_zoneout_output=False,  # like RETURNN/TF ZoneoutLSTM old default
+        # parts_order="icfo",  # like RETURNN/TF ZoneoutLSTM
+        # parts_order="ifco",
+        parts_order="jifo",  # NativeLSTM (the code above converts it...)
+        forget_bias=0.0,  # the code above already adds it during conversion
+      )
+      if use_att_ctx_in_state:
+        self.s = ilm_layer_class(
+          self.target_embed.out_dim + att_dim,
+          **ilm_layer_opts,
+        )
+      else:
+        self.s_wo_att = ilm_layer_class(
+          self.target_embed.out_dim,
+          **ilm_layer_opts,
+        )
+    else:
+      assert decoder_state == "nb-2linear-ctx1"
+      ilm_layer_class = LinearDecoder
+      ilm_layer_opts = dict(
+        out_dim=ilm_dimension,
+      )
+      if use_att_ctx_in_state:
+        self.s_linear = ilm_layer_class(
+          self.target_embed.out_dim + att_dim
+          **ilm_layer_opts,
+        )
+      else:
+        self.s_wo_att_linear = ilm_layer_class(
+          self.target_embed.out_dim,
+          **ilm_layer_opts,
+        )
+
+    if use_weight_feedback:
+      self.weight_feedback = rf.Linear(att_num_heads, enc_key_total_dim, with_bias=False)
+
+    if not use_hard_attention and not use_trafo_attention:
+      self.s_transformed = rf.Linear(self.get_lstm().out_dim, enc_key_total_dim, with_bias=False)
+      self.energy = rf.Linear(enc_key_total_dim, att_num_heads, with_bias=False)
 
     readout_in_dim = self.get_lstm().out_dim
     if use_readout:

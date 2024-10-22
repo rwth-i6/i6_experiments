@@ -45,6 +45,7 @@ class SegmentalAttentionModel(rf.Module):
           length_model_embed_dim: Dim,
           center_window_size: int,
           window_step_size: int,
+          use_vertical_transitions: bool,
           align_target_dim: Dim,
           target_dim: Dim,
           blank_idx: int,
@@ -321,6 +322,7 @@ class SegmentalAttentionModel(rf.Module):
     self.blank_idx = blank_idx
     self.center_window_size = center_window_size
     self.window_step_size = window_step_size
+    self.use_vertical_transitions = use_vertical_transitions
     if label_decoder_state == "trafo":
       self.target_dim = self.label_decoder.vocab_dim
     else:
@@ -454,6 +456,7 @@ def from_scratch_model_def(
 
   center_window_size = config.typed_value("center_window_size")
   window_step_size = config.int("window_step_size", 1)
+  use_vertical_transitions = config.bool("use_vertical_transitions", False)
 
   blank_decoder_version = config.int("blank_decoder_version", 1)
   blank_decoder_opts = config.typed_value("blank_decoder_opts", {})
@@ -482,6 +485,7 @@ def from_scratch_model_def(
     target_dim,
     center_window_size=center_window_size,
     window_step_size=window_step_size,
+    use_vertical_transitions=use_vertical_transitions,
     blank_decoder_version=blank_decoder_version,
     blank_decoder_opts=blank_decoder_opts,
     use_joint_model=use_joint_model,

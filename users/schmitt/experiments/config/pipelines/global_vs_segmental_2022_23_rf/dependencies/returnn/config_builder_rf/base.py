@@ -1315,6 +1315,7 @@ class SegmentalAttConfigBuilderRF(TransducerConfigBuilderRF, ABC):
           separate_blank_from_softmax: bool = False,
           blank_decoder_opts: Optional[Dict] = None,
           window_step_size: int = 1,
+          use_vertical_transitions: bool = False,
           **kwargs
   ):
     if use_joint_model:
@@ -1346,8 +1347,12 @@ class SegmentalAttConfigBuilderRF(TransducerConfigBuilderRF, ABC):
     if blank_decoder_opts is not None:
       self.config_dict["blank_decoder_opts"] = blank_decoder_opts
 
+    self.window_step_size = window_step_size
     if window_step_size != 1:
       self.config_dict["window_step_size"] = window_step_size
+
+    if use_vertical_transitions:
+      self.config_dict["use_vertical_transitions"] = use_vertical_transitions
 
     self.reset_eos_params = False
 

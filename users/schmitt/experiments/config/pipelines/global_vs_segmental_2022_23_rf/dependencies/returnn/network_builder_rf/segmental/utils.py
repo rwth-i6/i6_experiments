@@ -135,7 +135,7 @@ def get_chunked_segment_starts_and_lens(
     non_blank_positions.raw_tensor[~rf.sequence_mask(non_blank_positions.dims).raw_tensor] = 1_000_000
     # append the window ends to the non-blank positions
     # these new positions represent the positions of the EOC tokens
-    non_blank_positions, align_targets_spatial_dim_new = rf.concat(
+    non_blank_positions, non_blank_targets_spatial_dim = rf.concat(
       (non_blank_positions, non_blank_targets_spatial_dim),
       (window_ends - 1, num_windows_dim),
     )
@@ -146,10 +146,12 @@ def get_chunked_segment_starts_and_lens(
     )
     # replace the padding again with zeros
     non_blank_positions = rf.where(
-      rf.range_over_dim(non_blank_targets_spatial_dim) >= non_blank_targets_spatial_dim.get_size_tensor(),
+      rf.range_over_dim(non_blank_targets_spatial_dim) >= rf.copy_to_device(non_blank_targets_spatial_dim.get_size_tensor()),
       rf.zeros_like(non_blank_positions),
       non_blank_positions
     )
+
+    align_targets_spatial_dim_new = non_blank_targets_spatial_dim
 
   # for each label, get the window index it is in
   in_window_mask = rf.logical_and(
@@ -349,6 +351,7 @@ def scatter_w_masked_indices(
   )
   # scatter according to indices into extended dim
   result_spatial_dim_temp = result_spatial_dim + 1
+
   result = rf.scatter(
     x, indices=indices, indices_dim=indices_dim, out_dim=result_spatial_dim_temp)
   # remove accumulated results at the last position

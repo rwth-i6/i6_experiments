@@ -51,13 +51,18 @@ class SegmentalAttLabelDecoder(BaseLabelDecoder):
 
   def loop_step_output_templates(self, batch_dims: List[Dim]) -> Dict[str, Tensor]:
     """loop step out"""
+    if self.center_window_size == 1:
+      att_dim = self.enc_out_dim
+    else:
+      att_dim = self.att_num_heads * self.enc_out_dim
+
     return {
       "s": Tensor(
         "s", dims=batch_dims + [self.get_lstm().out_dim], dtype=rf.get_default_float_dtype(), feature_dim_axis=-1
       ),
       "att": Tensor(
         "att",
-        dims=batch_dims + [self.att_num_heads * self.enc_out_dim],
+        dims=batch_dims + [att_dim],
         dtype=rf.get_default_float_dtype(),
         feature_dim_axis=-1,
       ),
