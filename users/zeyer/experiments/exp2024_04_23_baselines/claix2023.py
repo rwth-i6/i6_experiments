@@ -118,6 +118,7 @@ def py():
                 low_lr=1e-5 * lion_lr_factor,
                 lowest_lr=1e-6 * lion_lr_factor,
             ),
+            "optimizer.class": "returnn.torch.optim.lion.Lion",
             "optimizer.weight_decay": 1e-2 / lion_lr_factor,
             "__train_audio_preprocess": speed_pert_librosa_config,
             "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
