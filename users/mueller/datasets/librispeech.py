@@ -6,6 +6,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Optional, Any, Union, Tuple, Dict
 from copy import deepcopy
 import re
+import os
 from functools import cache
 
 from sisyphus import tk, Task as SisTask
@@ -34,7 +35,8 @@ from i6_experiments.users.zeyer.datasets.utils.char import get_char_vocab
 if TYPE_CHECKING:
     from returnn.tensor import Tensor, Dim
     from i6_experiments.users.zeyer.collect_model_dataset_stats import StatisticsOutput
-
+    
+from .utils import CorpusReplaceOrthFromHDFJob, get_ogg_zip_dict_pseude_labels
 
 _alias_prefix = "datasets/LibriSpeech/"
 
@@ -51,6 +53,20 @@ def _get_bliss_corpus_dict() -> Dict[str, tk.Path]:
     # However, these are used later in the scoring, so when changing them, make sure it's optional,
     # to not break hashes of old setups.
     return librispeech.get_bliss_corpus_dict(audio_format="ogg")
+
+
+@cache
+def _get_librispeech_ogg_zip_dict_pseudo_labels(pseudo_labels_path: tk.Path) -> Dict[str, tk.Path]:
+    bliss_corpus_dict = librispeech.get_bliss_corpus_dict(audio_format="ogg")
+    
+    # load pseude labels and replace here
+    for name in ['train-clean-100', 'train-clean-360', 'train-clean-460', 'train-other-500', 'train-other-960']: # TODO do we have to do it for all datasets?
+        bliss_corpus = bliss_corpus_dict[name]
+        replace_job = CorpusReplaceOrthFromHDFJob(bliss_corpus, pseudo_labels_path)
+        replace_job.add_alias(os.path.join("datasets", "LibriSpeech-PseudoLabels", "%s_replace_orth" % name.replace('-', '_')))
+        bliss_corpus_dict[name] = replace_job.out_corpus
+
+    return get_ogg_zip_dict_pseude_labels(bliss_corpus_dict)
 
 
 @cache

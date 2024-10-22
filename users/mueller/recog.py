@@ -392,6 +392,7 @@ def search_config_v2(
     from i6_experiments.common.setups.returnn.serialization import get_serializable_config
     
     from i6_experiments.example_setups.librispeech.ctc_rnnt_standalone_2024.lm import get_4gram_binary_lm
+    from i6_experiments.example_setups.librispeech.ctc_rnnt_standalone_2024.data.bpe import get_text_lexicon
     from .experiments.ctc_baseline.ctc import model_recog_lm
 
     returnn_recog_config_dict = dict(
@@ -415,9 +416,11 @@ def search_config_v2(
     
     if recog_def is model_recog_lm:
         lm = get_4gram_binary_lm(prefix_name=prefix_name)
-        lm = {"arpa_4gram_lm": lm}
+        lexicon = get_text_lexicon(prefix=prefix_name, librispeech_key="train-other-960", bpe_size=128) # TODO add args for key and bpe size here, also support other than bpe
+    
+        args = {"arpa_4gram_lm": lm, "lexicon": lexicon}
     else:
-        lm = {}
+        args = {}
 
     returnn_recog_config = ReturnnConfig(
         config=returnn_recog_config_dict,
@@ -433,7 +436,7 @@ def search_config_v2(
                     serialization.PartialImport(
                         code_object_path=recog_def,
                         unhashed_package_root=None,
-                        hashed_arguments=lm,
+                        hashed_arguments=args,
                         unhashed_arguments={},
                         import_as="_recog_def",
                         ignore_import_as_for_hash=True),

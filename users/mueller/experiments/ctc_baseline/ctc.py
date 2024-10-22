@@ -498,6 +498,9 @@ def model_recog(
     out_spatial_dim = enc_spatial_dim
     seq_targets = seq_targets__.stack(axis=out_spatial_dim)
 
+    print("CUSTOm seq_targets:", seq_targets.raw_tensor.cpu()[:, 1, 0], seq_targets.raw_tensor.cpu()[1, 1, 0], seq_targets.raw_tensor.cpu()[5, 1, 0])
+    print(f"Type: {type(seq_targets.raw_tensor.cpu()[1, 1, 0])}, value: {seq_targets.raw_tensor.cpu()[1, 1, 0].tolist()}")
+    print("CUSTOm seq_targets:", seq_targets.raw_tensor.cpu()[:, 1, 1], seq_targets.raw_tensor.cpu()[1, 1, 0], seq_targets.raw_tensor.cpu()[5, 1, 0])
     # [583, 5, 12], [5, 12], [583, 565, 548, 546, 528], 12
     # [527, 6, 12], [6, 12], [527, 514, 510, 501, 493, 486], 12
     # [459, 7, 12], [7, 12], [459, 453, 452, 436, 436, 435, 433], 12
@@ -519,7 +522,9 @@ def model_recog_lm(
     data: Tensor,
     data_spatial_dim: Dim,
     arpa_4gram_lm: str,
-    dump_pseudo_labels: bool,
+    lexicon: str,
+    dump_pseudo_labels: bool = False,
+    prefix: str = None,
 ) -> Tuple[Tensor, Tensor, Dim, Dim]:
     """
     Function is run within RETURNN.
@@ -539,40 +544,53 @@ def model_recog_lm(
     
     logits, enc, enc_spatial_dim = model(data, in_spatial_dim=data_spatial_dim)
     arpa_4gram_lm = str(cf(arpa_4gram_lm))
-    
+    # label_log_prob = model.log_probs_wb_from_logits(logits)
+    # print("CUSTOM log probs", label_log_prob.raw_tensor.cpu())
+    # print("CUSTOm label 20:", model.wb_target_dim.vocab.labels[20])
     decoder = ctc_decoder(
-        lexicon=None,
-        lm=arpa_4gram_lm,
+        lexicon=lexicon,
+        lm=arpa_4gram_lm, # TODO is it correct to use lanuage model trained on full librispeech if we do self-training? same for lexicon
         lm_weight=1.8,
         tokens=list(model.wb_target_dim.vocab.labels),
         blank_token="[blank]",
         sil_token="[blank]",
         unk_word="[unknown]",
-        nbest=1,
-        beam_size=16,
-        beam_size_token=16,
+        nbest=4,
+        beam_size=4,
+        beam_size_token=None,
         beam_threshold=14,
     )
-    decoder_results = decoder(logits.raw_tensor.cpu(), enc_spatial_dim.dyn_size_ext.raw_tensor.cpu())
+    # TODO Should it be softmax?
+    # logits: [5, 583, 185]
+    enc_spatial_dim_torch = enc_spatial_dim.dyn_size_ext.raw_tensor.cpu()
+    decoder_results = decoder(logits.raw_tensor.cpu(), enc_spatial_dim_torch)
     
-    # print(f"CUSTOM Decoder Tokens Len1 (batch_dim): {len(decoder_results)}")
-    # print(f"CUSTOM Decoder Tokens Len2 (beam_dim): {len(decoder_results[1])}")
+    print(f"CUSTOM Decoder Tokens Len1 (batch_dim): {len(decoder_results)}")
+    print(f"CUSTOM Decoder Tokens Len2 (beam_dim): {len(decoder_results[1])}")
     # print(f"CUSTOM Decoder Tokens Shape: {decoder_results[1][0].tokens.shape}, should be same as spatial_dim: {enc_spatial_dim.dyn_size_ext.raw_tensor.cpu()}")
     # print(f"CUSTOM Enc_Spatial_dim: {enc_spatial_dim.dyn_size_ext.raw_tensor.cpu()}, data_spatial_dim: {data_spatial_dim.dyn_size_ext.raw_tensor.cpu()}")
-    # print(f"CUSTOM Decoder score: {decoder_results[1][0].score}")
-    # print(f"CUSTOM Decoder tokens: {decoder_results[1][0].tokens}")
-    # print(f"CUSTOM Decoder timesteps: {decoder_results[1][0].timesteps}")
+    print(f"CUSTOM Decoder score: {decoder_results[1][0].score}")
+    print(f"CUSTOM Decoder tokens: {decoder_results[1][0].tokens}")
+    print(f"CUSTOM Decoder tokens: {decoder_results[1][1].tokens}")
+    print(f"CUSTOM Decoder timesteps: {decoder_results[1][0].timesteps}")
+    print(f"CUSTOM Decoder words: {decoder_results[1][0].words}")
     
     scores = [[l2.score for l2 in l1] for l1 in decoder_results]
     scores = torch.tensor(scores)
     # print(f"CUSTOM scores: {scores}, shape: {scores.shape}")
     dims = [Dim(d) for d in scores.shape]
     scores = Tensor("scores", dims = dims, dtype = "float32", raw_tensor = scores)
-    hyps = [[l2.tokens for l2 in l1] for l1 in decoder_results]
-    # hyps = [[[0] for l2 in l1] for l1 in decoder_results]
-    # print(f"CUSTOM hyps: {hyps}")
+    
+    def _pad_blanks(tokens, max_len):
+        if len(tokens) < max_len:
+            tokens = tokens + [model.blank_idx] * (max_len - len(tokens))
+        return tokens
+    
+    max_length = enc_spatial_dim_torch.max
+    hyps = [[_pad_blanks(l2.tokens, max_length) for l2 in l1] for l1 in decoder_results]
+    print(f"CUSTOM hyps: {hyps}")
     hyps = torch.tensor(hyps)
-    # print(f"CUSTOM hyps2: {hyps}, shape: {hyps.shape}")
+    print(f"CUSTOM hyps2: {hyps}, shape: {hyps.shape}")
     dims = [Dim(d) for d in hyps.shape]
     hyps = Tensor("hyps", dims = dims, dtype = "int64", raw_tensor = hyps)
     beam_dim = Dim(len(decoder_results[0]))
@@ -580,12 +598,15 @@ def model_recog_lm(
     
     # [5, 1], [5, 1], [583, 565, 548, 546, 528], -1
     # len(decoder_results), len(decoder_results[0])
-    # TODO increase beams to 12
-    # TODO why is output not 583?
+    # TODO increase beams to 12 via nbest
+    # TODO why is output not 583? (seems like the previous model mainly output blanks)
     print(f"CUSTOM seq_targets: {hyps.raw_tensor.cpu()}, seq_log_prob: {scores.raw_tensor.cpu()}, should be same as spatial_dim: {enc_spatial_dim.dyn_size_ext.raw_tensor.cpu()}, beam_size: {beam_dim}")
     
     if dump_pseudo_labels:
-        ReturnnDumpHDFJob() # TODO
+        from sisyphus import tk
+        
+        job = ReturnnDumpHDFJob() # TODO
+        tk.register_output(prefix + "/pseudo_labels", job.out_hdf)
     
     return hyps, scores, enc_spatial_dim, beam_dim
 
