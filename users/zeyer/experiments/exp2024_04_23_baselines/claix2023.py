@@ -89,6 +89,22 @@ def py():
         dataset_train_opts={"train_epoch_split": 1, "train_epoch_wise_filter": None},
     )
 
+    # More weight decay
+    aed_train_exp(
+        f"96gb-bf16-bs200k-accgrad1-wd5e_2-lrlinEpCont-noCrl-speedpertV2-spm10k-spmSample07",
+        config_96gb_bf16_accgrad1,
+        config_updates={
+            **_get_cfg_lrlin_oclr_by_bs_nep_v3(200_000, 100),
+            "optimizer.weight_decay": 5e-2,
+            "__train_audio_preprocess": speed_pert_librosa_config,
+            "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
+        },
+        post_config_updates={"__multi_proc_dataset_opts": {"num_workers": 25}},
+        vocab="spm10k",
+        train_vocab_opts={"other_opts": {"enable_sampling": True, "alpha": 0.7}},
+        dataset_train_opts={"train_epoch_split": 1, "train_epoch_wise_filter": None},
+    )
+
     for opts in [
         # Baseline (n12) has {"dev-clean": 2.35, "dev-other": 5.65, "test-clean": 2.66, "test-other": 5.94}.
         # CLAIX baseline: {"dev-clean": 2.54, "dev-other": 5.93, "test-clean": 2.68, "test-other": 6.27}
