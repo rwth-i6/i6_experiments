@@ -131,6 +131,14 @@ def py():
         vocab="spm10k",
         train_vocab_opts={"other_opts": {"enable_sampling": True, "alpha": 0.7}},
         dataset_train_opts={"train_epoch_split": 1, "train_epoch_wise_filter": None},
+        # OutOfMemoryError: CUDA out of memory.
+        #   Tried to allocate 2.46 GiB. GPU 0 has a total capacity of 93.00 GiB of which 1021.00 MiB is free.
+        #   Including non-PyTorch memory, this process has 92.00 GiB memory in use.
+        #   Of the allocated memory 79.83 GiB is allocated by PyTorch,
+        #   and 11.41 GiB is reserved by PyTorch but unallocated.
+        #   If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+        #   to avoid fragmentation.
+        env_updates={"PYTORCH_CUDA_ALLOC_CONF": "backend:cudaMallocAsync,expandable_segments:True"},
     )
 
     # Higher peak LR

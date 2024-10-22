@@ -1497,11 +1497,8 @@ def train_exp(
         gpu_mem=gpu_mem,
         num_processes=num_processes,
         time_rqmt=time_rqmt,
+        env_updates=env_updates,
     )
-    train_job = model_with_checkpoint.get_training_job()
-    if env_updates:
-        for k, v in env_updates.items():
-            train_job.set_env(k, v)
 
     recog_post_proc_funcs = []
     if config.get("use_eos_postfix", False):

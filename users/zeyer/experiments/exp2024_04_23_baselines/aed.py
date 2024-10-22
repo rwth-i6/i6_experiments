@@ -440,6 +440,7 @@ def train_exp(
     gpu_mem: Optional[int] = 24,
     num_processes: Optional[int] = None,
     time_rqmt: Optional[int] = None,  # set this to 1 or below to get the fast test queue
+    env_updates: Optional[Dict[str, str]] = None,
 ) -> ModelWithCheckpoints:
     """
     Train experiment
@@ -478,6 +479,7 @@ def train_exp(
         gpu_mem=gpu_mem,
         num_processes=num_processes,
         time_rqmt=time_rqmt,
+        env_updates=env_updates,
     )
     recog_training_exp(prefix, task, model_with_checkpoint, recog_def=model_recog)
 
