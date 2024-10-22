@@ -141,15 +141,15 @@ def py():
         env_updates={"PYTORCH_CUDA_ALLOC_CONF": "backend:cudaMallocAsync,expandable_segments:True"},
     )
 
-    # bfloat16A with larger batch and max_seqs=500.
+    # bfloat16A with larger batch V2.
     aed_train_exp(
-        f"96gb-bf16A-bs400k-bsSeq500-accgrad1-wd1e_2-lrlinEpCont-noCrl-specAug2k-speedpertV2-spm10k-spmSample07",
+        f"96gb-bf16A-bs300k-bsSeq400-accgrad1-wd1e_2-lrlinEpCont-noCrl-specAug2k-speedpertV2-spm10k-spmSample07",
         config_96gb_bf16_accgrad1,
         config_updates={
             "torch_amp": None,
             "default_float_dtype": "bfloat16",
-            **_get_cfg_lrlin_oclr_by_bs_nep_v3(400_000, 100),
-            "max_seqs": 500,
+            **_get_cfg_lrlin_oclr_by_bs_nep_v3(300_000, 100),
+            "max_seqs": 400,
             "optimizer.weight_decay": 1e-2,
             "__train_audio_preprocess": speed_pert_librosa_config,
             "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
