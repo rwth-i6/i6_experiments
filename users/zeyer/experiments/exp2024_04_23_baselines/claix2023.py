@@ -123,6 +123,7 @@ def py():
             "__train_audio_preprocess": speed_pert_librosa_config,
             "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
         },
+        config_deletes=["optimizer.epsilon"],  # no eps in Lion
         post_config_updates={"__multi_proc_dataset_opts": {"num_workers": 25}},
         vocab="spm10k",
         train_vocab_opts={"other_opts": {"enable_sampling": True, "alpha": 0.7}},
