@@ -289,12 +289,12 @@ def py():
     )
 
     train(
-        "lm/trafo-n96-d512-gelu-drop0-b500_250k-spm10k",
+        "lm/trafo-n96-d512-gelu-drop0-b400_200k-spm10k",
         config=dict_update_deep(
             config_96gb_bf16_accgrad1,
             {
-                **_get_cfg_lrlin_oclr_by_bs_nep_v3(250_000, 100),
-                "max_seqs": 500,
+                **_get_cfg_lrlin_oclr_by_bs_nep_v3(200_000, 100),
+                "max_seqs": 400,
                 "optimizer.weight_decay": 1e-2,
                 "calculate_exp_loss": True,
             },
