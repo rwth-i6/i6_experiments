@@ -259,6 +259,9 @@ def py():
 
     # ----- LM experiments -----
 
+    # TODO all the batch_size are wrong (with batch size factor).
+    #  i think 20k without factor is reasonable with bf16 AMP.
+    #  with pure bf16, 30k seems to be fine.
     train(
         "lm/trafo-n96-d512-gelu-drop0-epSplit4-b200_200k-spm10k",
         config=dict_update_deep(
