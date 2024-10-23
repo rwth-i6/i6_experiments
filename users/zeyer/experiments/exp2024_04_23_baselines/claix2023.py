@@ -259,7 +259,7 @@ def py():
     # ----- LM experiments -----
 
     train(
-        "lm/trafo-n96-d512-gelu-drop0-b200_200k",
+        "lm/trafo-n96-d512-gelu-drop0-b200_200k-spm10k",
         config=dict_update_deep(
             config_96gb_bf16_accgrad1,
             {
