@@ -115,32 +115,7 @@ def py():
     )
 
     # bfloat16A with larger batch.
-    aed_train_exp(
-        f"96gb-bf16A-bs400k-accgrad1-wd1e_2-lrlinEpCont-noCrl-specAug2k-speedpertV2-spm10k-spmSample07",
-        config_96gb_bf16_accgrad1,
-        config_updates={
-            "torch_amp": None,
-            "default_float_dtype": "bfloat16",
-            **_get_cfg_lrlin_oclr_by_bs_nep_v3(400_000, 100),
-            "optimizer.weight_decay": 1e-2,
-            "__train_audio_preprocess": speed_pert_librosa_config,
-            "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
-            "specaugment_steps": (500, 1_000, 2_000),
-        },
-        post_config_updates={"__multi_proc_dataset_opts": {"num_workers": 25}},
-        vocab="spm10k",
-        train_vocab_opts={"other_opts": {"enable_sampling": True, "alpha": 0.7}},
-        dataset_train_opts={"train_epoch_split": 1, "train_epoch_wise_filter": None},
-        # OutOfMemoryError: CUDA out of memory.
-        #   Tried to allocate 2.46 GiB. GPU 0 has a total capacity of 93.00 GiB of which 1021.00 MiB is free.
-        #   Including non-PyTorch memory, this process has 92.00 GiB memory in use.
-        #   Of the allocated memory 79.83 GiB is allocated by PyTorch,
-        #   and 11.41 GiB is reserved by PyTorch but unallocated.
-        #   If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
-        #   to avoid fragmentation.
-        env_updates={"PYTORCH_CUDA_ALLOC_CONF": "backend:cudaMallocAsync,expandable_segments:True"},
-    )
-
+    # Batch size 400k: OOM after some epochs.
     # bfloat16A with larger batch V2.
     aed_train_exp(
         f"96gb-bf16A-bs300k-bsSeq400-accgrad1-wd1e_2-lrlinEpCont-noCrl-specAug2k-speedpertV2-spm10k-spmSample07",
