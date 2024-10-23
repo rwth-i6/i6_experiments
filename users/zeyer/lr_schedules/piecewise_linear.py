@@ -28,6 +28,7 @@ def dyn_lr_piecewise_linear(
         f = PiecewiseLinear(dict(zip([0] + list(steps), lrs)))
         config.typed_dict["_learning_rate_piecewise_cache"] = f
     if config.bool("learning_rate_piecewise_by_epoch_continuous", False):
+        assert epoch_continuous is not None
         return f(epoch_continuous) * learning_rate
     return f(global_train_step + 1) * learning_rate
 
