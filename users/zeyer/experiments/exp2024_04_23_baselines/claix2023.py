@@ -10,8 +10,11 @@ from i6_experiments.users.zeyer.speed_pert.librosa_config import speed_pert_libr
 from .configs import config_24gb_v6, _get_cfg_lrlin_oclr_by_bs_nep_v3
 from .aed import train_exp as aed_train_exp
 from .ctc import train_exp as ctc_train_exp
+from .lm import lm_train_def, lm_model_def
 
 from i6_experiments.users.zeyer.experiments.exp2024_10_16_consistency_reg_ctc import cr_ctc_training
+from i6_experiments.users.zeyer.datasets.librispeech import get_librispeech_lm_dataset
+from i6_experiments.users.zeyer.train_v4 import train, ModelDefWithCfg
 
 import returnn.frontend as rf
 from returnn.frontend.decoder.transformer import TransformerDecoder
@@ -252,6 +255,37 @@ def py():
                 # avoid OOM
                 # env_updates={"PYTORCH_CUDA_ALLOC_CONF": "backend:cudaMallocAsync,expandable_segments:True"},
             )
+
+    # ----- LM experiments -----
+
+    train(
+        "lm/trafo-n96-d512-gelu-drop0-b200_200k",
+        config=dict_update_deep(
+            config_96gb_bf16_accgrad1,
+            {
+                **_get_cfg_lrlin_oclr_by_bs_nep_v3(200_000, 20),
+                "max_seqs": 200,
+                "optimizer.weight_decay": 1e-2,
+                "calculate_exp_loss": True,
+            },
+        ),
+        train_dataset=get_librispeech_lm_dataset(vocab="spm10k", train_epoch_split=4),
+        model_def=ModelDefWithCfg(
+            lm_model_def,
+            {
+                "_model_def_dict": rf.build_dict(
+                    TransformerDecoder,
+                    encoder_dim=None,
+                    num_layers=96,
+                    model_dim=512,
+                    ff_activation=rf.build_dict(rf.gelu),
+                    dropout=0.0,
+                    att_dropout=0.0,
+                )
+            },
+        ),
+        train_def=lm_train_def,
+    )
 
 
 # https://help.itc.rwth-aachen.de/service/rhr4fjjutttf/article/9108f4a6f43c40a3a168919afd36839d/
