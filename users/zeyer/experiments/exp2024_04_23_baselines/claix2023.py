@@ -260,7 +260,7 @@ def py():
     # ----- LM experiments -----
 
     train(
-        "lm/trafo-n96-d512-gelu-drop0-b200_200k-spm10k",
+        "lm/trafo-n96-d512-gelu-drop0-epSplit4-b200_200k-spm10k",
         config=dict_update_deep(
             config_96gb_bf16_accgrad1,
             {
@@ -271,6 +271,35 @@ def py():
             },
         ),
         train_dataset=get_librispeech_lm_dataset(vocab="spm10k", train_epoch_split=4),
+        model_def=ModelDefWithCfg(
+            lm_model_def,
+            {
+                "_model_def_dict": rf.build_dict(
+                    TransformerDecoder,
+                    encoder_dim=None,
+                    num_layers=96,
+                    model_dim=512,
+                    ff_activation=rf.build_dict(rf.gelu),
+                    dropout=0.0,
+                    att_dropout=0.0,
+                )
+            },
+        ),
+        train_def=lm_train_def,
+    )
+
+    train(
+        "lm/trafo-n96-d512-gelu-drop0-b500_250k-spm10k",
+        config=dict_update_deep(
+            config_96gb_bf16_accgrad1,
+            {
+                **_get_cfg_lrlin_oclr_by_bs_nep_v3(250_000, 100),
+                "max_seqs": 500,
+                "optimizer.weight_decay": 1e-2,
+                "calculate_exp_loss": True,
+            },
+        ),
+        train_dataset=get_librispeech_lm_dataset(vocab="spm10k", train_epoch_split=20),
         model_def=ModelDefWithCfg(
             lm_model_def,
             {
