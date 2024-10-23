@@ -317,6 +317,38 @@ def py():
         train_def=lm_train_def,
     )
 
+    # bf16A
+    train(
+        "lm/trafo-n96-d512-gelu-bf16A-drop0-b400_200k-spm10k",
+        config=dict_update_deep(
+            config_96gb_bf16_accgrad1,
+            {
+                "torch_amp": None,
+                "default_float_dtype": "bfloat16",
+                **_get_cfg_lrlin_oclr_by_bs_nep_v3(200_000, 100),
+                "max_seqs": 400,
+                "optimizer.weight_decay": 1e-2,
+                "calculate_exp_loss": True,
+            },
+        ),
+        train_dataset=get_librispeech_lm_dataset(vocab="spm10k", train_epoch_split=20),
+        model_def=ModelDefWithCfg(
+            lm_model_def,
+            {
+                "_model_def_dict": rf.build_dict(
+                    TransformerDecoder,
+                    encoder_dim=None,
+                    num_layers=96,
+                    model_dim=512,
+                    ff_activation=rf.build_dict(rf.gelu),
+                    dropout=0.0,
+                    att_dropout=0.0,
+                )
+            },
+        ),
+        train_def=lm_train_def,
+    )
+
 
 # https://help.itc.rwth-aachen.de/service/rhr4fjjutttf/article/9108f4a6f43c40a3a168919afd36839d/
 # TODO check weight decay...
