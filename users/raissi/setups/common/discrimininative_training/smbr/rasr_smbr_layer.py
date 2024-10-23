@@ -9,7 +9,6 @@ from sisyphus import Path
 from sisyphus.delayed_ops import DelayedFormat
 
 from i6_experiments.common.setups.rasr.config.lm_config import ArpaLmRasrConfig
-from i6_experiments.users.raissi.setups.common.decoder.BASE_factored_hybrid_search import BASEFactoredHybridAligner
 from i6_experiments.users.raissi.setups.common.decoder.config import SearchParameters
 from i6_experiments.users.raissi.setups.common.discrimininative_training.config import BIGRAM_LM
 from i6_experiments.users.raissi.setups.common.helpers.network import (
@@ -121,6 +120,8 @@ def _get_smbr_crp(
     config.lattice_processor.rescoring.combined_lm_rescorers = "lm-rescorer"
     config.lattice_processor.rescoring.lm_rescorer.fall_back_value = 10000
     config.lattice_processor.rescoring.pass_extractors = "tdps,accuracy"
+    config.lattice_processor.rescoring.segmentwise_feature_extraction.feature_extraction.file = "train.feature.flow"
+
 
     # Parameters for Am::ClassicAcousticModel
     # Feature-scorer not used, place dummy here
@@ -146,15 +147,6 @@ def _get_smbr_crp(
     config.lattice_processor.rescoring.segmentwise_alignment.alignment_cache.read_only = True
     post_config.lattice_processor.rescoring.segmentwise_alignment.model_acceptor_cache.log.channel = "nil"
     post_config.lattice_processor.rescoring.segmentwise_alignment.aligner.statistics.channel = "nil"
-
-    feature_flow.apply_config(
-        "lattice-processor.rescoring.segmentwise-feature-extraction.feature-extraction", config, post_config
-    )
-
-    written_flow_file = rasr.WriteFlowNetworkJob(feature_flow)
-    config.lattice_processor.rescoring.segmentwise_feature_extraction.feature_extraction.file = (
-        written_flow_file.out_flow_file
-    )
 
     # linear-combination
     if params.arc_scale is None:
@@ -214,15 +206,20 @@ def _generate_lattices(
         feature_flow=feature_flow,
         feature_scorer=feature_scorer,
         model_combination_config=model_combination_cfg,
-        search_parameters={"beam-pruning": search_parameters.beam_limit},
+        search_parameters={
+            "beam-pruning": search_parameters.beam,
+            "beam-pruning-limit": search_parameters.beam_limit,
+            "word-end-pruning": search_parameters.we_pruning,
+            "word-end-pruning-limit": search_parameters.we_pruning_limit,
+        },
         rtf=10,
     )
-    raw_den_lattice.rqmt["cpu"] = 4
+    raw_den_lattice.rqmt["cpu"] = 1
     den_lattice = discriminative_training.DenominatorLatticeJob(
         crp=crp,
         numerator_path=num_lattice.lattice_path,
         raw_denominator_path=raw_den_lattice.lattice_path,
-        search_options={"pruning-threshold": search_parameters.beam_limit},
+        search_options={"pruning-threshold": search_parameters.beam},
     )
 
     den_lattice.rqmt["cpu"] = 1
@@ -286,12 +283,11 @@ def augment_for_smbr(
     )
 
     smbr_crp = rasr.CommonRasrParameters(lattice_crp)
-    smbr_crp.language_model_config.file = ArpaLmRasrConfig(
+    smbr_crp.language_model_config = ArpaLmRasrConfig(
         lm_path=(Path(training_lm, cached=True) if isinstance(training_lm, str) else training_lm),
         scale=training_search_parameters.lm_scale,
     ).get()
 
-    embed()
 
 
     config, post_config = _get_smbr_crp(

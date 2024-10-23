@@ -1314,6 +1314,8 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
             .with_tdp_silence(to_tuple(lattice_generator_crp.acoustic_model_config.tdp["silence"]))
             .with_tdp_nonword(to_tuple(lattice_generator_crp.acoustic_model_config.tdp["*"]))
             .with_tdp_speech(to_tuple(lattice_generator_crp.acoustic_model_config.tdp["*"]))
+            .with_lm_scale(log_linear_scales.lm_scale)
+            .with_add_all_allophones(False)
         )
 
 
