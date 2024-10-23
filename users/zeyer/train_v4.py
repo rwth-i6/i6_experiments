@@ -77,6 +77,10 @@ def train(
         gpu_mem = config.pop("__gpu_mem")
     if "__num_processes" in config:
         num_processes = config.pop("__num_processes")
+    if "__mem_rqmt" in config:
+        kwargs["mem_rqmt"] = config.pop("__mem_rqmt")
+    if "__cpu_rqmt" in config:
+        kwargs["cpu_rqmt"] = config.pop("__cpu_rqmt")
     if not kwargs.get("distributed_launch_cmd"):
         kwargs["distributed_launch_cmd"] = "torchrun" if num_processes else "mpirun"
     if "__train_audio_preprocess" in config:
