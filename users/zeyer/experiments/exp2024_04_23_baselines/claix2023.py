@@ -27,9 +27,10 @@ def py():
     # for the H100 GPU with 96GB memory (nodes c23g in the CLAIX-2023 cluster):
     # - __gpu_mem = 96
     # - batch size was increased to 200k (takes about 60-70GB of GPU memory)
-    # - bf16 again (AMP)
+    # - bf16 again (AMP) (also checking pure bf16 now...)
     # - (grad accum 1 (no change actually; and obviously, batch size is already large enough...))
     # - (LR scheduling now based on seq_idx (this is not really related to the new GPU, but just simplifies things))
+    # - (weight decay = 1e-2 still, no change so far, but checking now...)
     # - partition epoch to 1 (dataset_train_opts.train_epoch_split=1)
     #   (because the GPU is so fast that it trains a single epoch in 20mins;
     #    otherwise, eval is just too often, takes too much time)
