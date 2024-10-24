@@ -33,7 +33,7 @@ def eow_phon_ls960_1023_base():
         settings=train_settings,
         add_eow_phonemes=True,
         add_silence=False,
-    )
+    )[0]
 
     label_datastream = cast(LabelDatastream, train_data.datastreams["labels"])
     vocab_size_without_blank = label_datastream.vocab_size

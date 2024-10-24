@@ -4,8 +4,11 @@ import numpy as np
 from typing import cast, List
 import textwrap
 
+from sisyphus.delayed_ops import DelayedFormat
+
 from i6_core.tools.parameter_tuning import GetOptimalParametersAsVariableJob
 from i6_core.text.processing import WriteToTextFileJob
+from i6_core.corpus.transform import MergeCorporaJob
 
 from i6_experiments.common.setups.returnn.datastreams.vocabulary import LabelDatastream
 
@@ -29,14 +32,14 @@ def ls960_hmm_base():
     )
 
     # build the training datasets object containing train, cv, dev-train and the extern_data dict
-    # TODO RETURNN vocabulary and ogg-zip creation is not correct (shouldn't use eow phonemes)
-    train_data = build_phon_training_datasets(
+    train_data, bliss_corpora = build_phon_training_datasets(
         prefix=prefix_name,
         librispeech_key="train-other-960",
         settings=train_settings,
-        add_eow_phonemes=True,
-        add_silence=False,
+        add_eow_phonemes=False,
+        add_silence=True,
         use_tags=True,
+        apply_lexicon=False,
     )
 
     label_datastream = cast(LabelDatastream, train_data.datastreams["labels"])
@@ -180,7 +183,7 @@ def ls960_hmm_base():
         activation=None,
     )
 
-    rasr_config_str = textwrap.dedent(
+    rasr_config_template = textwrap.dedent(
         """\
         [*]
         configuration.channel    = output-channel
@@ -245,17 +248,38 @@ def ls960_hmm_base():
         skip    = infinity
 
         [*.model-combination.lexicon]
-        file                    = `cf /work/asr4/raissi/setups/librispeech/960-ls/2023-01--system_paper/work/i6_core/g2p/convert/G2POutputToBlissLexiconJob.JOqKFQpjp04H/output/oov.lexicon.gz`
+        file                    = `cf {lexicon}`
         normalize-pronunciation = no
 
         [*.corpus]
         capitalize-transcriptions      = no
-        file                           = /work/asr4/raissi/setups/librispeech/960-ls/2023-01--system_paper/work/i6_core/corpus/transform/MergeCorporaJob.NfLcagrBAxK1/output/merged.xml.gz
+        file                           = {corpus}
         progress-indication            = global
         remove-corpus-name-prefix      = loss-corpus/
-        segments.file                  = /work/asr4/raissi/setups/librispeech/960-ls/2023-01--system_paper/work/i6_experiments/users/raissi/costum/corpus/segments/SegmentCorpusNoPrefixJob.ChFdZOwydN9d/output/segments.1
         warn-about-unexpected-elements = yes
         """
+    )
+    lexicon = get_lexicon(
+        g2p_librispeech_key="train-other-960",
+        with_g2p=True,
+        add_eow_phonemes=False,
+        add_silence=True,
+    )
+    merged_corpus = MergeCorporaJob(
+        [
+            bliss_corpora["train-other-960"],
+            bliss_corpora["dev-clean"],
+            bliss_corpora["dev-other"],
+        ],
+        "loss-corpus",
+    )
+
+    rasr_config_str = DelayedFormat(
+        rasr_config_template,
+        **{
+            "lexicon": lexicon.get_path(),
+            "corpus": merged_corpus.out_merged_corpus,
+        },
     )
     create_rasr_config_file_job = WriteToTextFileJob(content=rasr_config_str, out_name=f"rasr.config")
                     
@@ -266,7 +290,7 @@ def ls960_hmm_base():
         feature_extraction_config=fe_config,
         frontend_config=frontend_config,
         specaug_config=specaug_config_full,
-        label_target_size=41,  # TODO vocab_size; note: no +1 here in the model!
+        label_target_size=vocab_size, # TODO note: no +1 here in the model!
         conformer_size=512,
         num_layers=12,
         num_heads=8,

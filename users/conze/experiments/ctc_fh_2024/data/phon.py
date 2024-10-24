@@ -4,7 +4,7 @@ Dataset helpers for the EOW-augmented phoneme training
 from sisyphus import tk
 
 import os
-from typing import Optional
+from typing import Optional, Tuple
 
 from i6_core.corpus.transform import ApplyLexiconToCorpusJob
 from i6_core.g2p.convert import BlissLexiconToG2PLexiconJob
@@ -46,7 +46,12 @@ def get_lexicon(
 
 
 def get_bliss(
-    librispeech_key: str, g2p_librispeech_key: str, add_eow_phonemes: bool, add_silence: bool, remove_unk_seqs=False
+    librispeech_key: str,
+    g2p_librispeech_key: str,
+    add_eow_phonemes: bool,
+    add_silence: bool,
+    remove_unk_seqs: bool = False,
+    apply_lexicon: bool = True,
 ) -> tk.Path:
     """
     get an optionally EOW modified corpus with optional unknown removed for cross validation
@@ -74,20 +79,26 @@ def get_bliss(
             all_unknown=False,
         ).out_corpus
 
-    # default train lexicon
-    lexicon = get_lexicon(
-        g2p_librispeech_key=g2p_librispeech_key,
-        with_g2p=True,
-        add_eow_phonemes=add_eow_phonemes,
-        add_silence=add_silence,
-    )
-    converted_bliss_corpus = ApplyLexiconToCorpusJob(bliss, lexicon, word_separation_orth=None).out_corpus
+    if apply_lexicon:
+        # default train lexicon
+        lexicon = get_lexicon(
+            g2p_librispeech_key=g2p_librispeech_key,
+            with_g2p=True,
+            add_eow_phonemes=add_eow_phonemes,
+            add_silence=add_silence,
+        )
+        bliss = ApplyLexiconToCorpusJob(bliss, lexicon, word_separation_orth=None).out_corpus
 
-    return converted_bliss_corpus
+    return bliss
 
 
 def get_bliss_and_zip(
-    librispeech_key: str, g2p_librispeech_key: str, add_eow_phonemes: bool, add_silence: bool, remove_unk_seqs=False
+    librispeech_key: str,
+    g2p_librispeech_key: str,
+    add_eow_phonemes: bool,
+    add_silence: bool,
+    remove_unk_seqs: bool = False,
+    apply_lexicon: bool = True,
 ):
     """
     :param librispeech_key: which bliss dataset to "get"
@@ -103,6 +114,7 @@ def get_bliss_and_zip(
         add_eow_phonemes=add_eow_phonemes,
         add_silence=add_silence,
         remove_unk_seqs=remove_unk_seqs,
+        apply_lexicon=apply_lexicon,
     )
     zip_dataset = get_zip(f"{g2p_librispeech_key}_{librispeech_key}_filtered_eow", bliss_dataset=bliss_dataset)
 
@@ -155,7 +167,8 @@ def build_phon_training_datasets(
     add_silence: bool,
     lexicon_librispeech_key: Optional[str] = None,
     use_tags: bool = False,
-) -> TrainingDatasets:
+    apply_lexicon: bool = True,
+) -> Tuple[TrainingDatasets, dict[str, tk.Path]]:
     """
     :param prefix:
     :param librispeech_key: which librispeech corpus to use
@@ -170,26 +183,29 @@ def build_phon_training_datasets(
         add_silence=add_silence,
     )
 
-    _, train_ogg = get_bliss_and_zip(
+    train_bliss, train_ogg = get_bliss_and_zip(
         librispeech_key=librispeech_key,
         g2p_librispeech_key=librispeech_key,
         add_eow_phonemes=add_eow_phonemes,
         add_silence=add_silence,
         remove_unk_seqs=False,
+        apply_lexicon=apply_lexicon,
     )
-    _, dev_clean_ogg = get_bliss_and_zip(
+    dev_clean_bliss, dev_clean_ogg = get_bliss_and_zip(
         librispeech_key="dev-clean",
         g2p_librispeech_key=librispeech_key,
         add_eow_phonemes=add_eow_phonemes,
         add_silence=add_silence,
         remove_unk_seqs=True,
+        apply_lexicon=apply_lexicon,
     )
-    _, dev_other_ogg = get_bliss_and_zip(
+    dev_other_bliss, dev_other_ogg = get_bliss_and_zip(
         librispeech_key="dev-other",
         g2p_librispeech_key=librispeech_key,
         add_eow_phonemes=add_eow_phonemes,
         add_silence=add_silence,
         remove_unk_seqs=True,
+        apply_lexicon=apply_lexicon,
     )
 
     return build_training_datasets(
@@ -199,4 +215,4 @@ def build_phon_training_datasets(
         settings=settings,
         label_datastream=label_datastream,
         use_tags=use_tags,
-    )
+    ), {librispeech_key: train_bliss, "dev-clean": dev_clean_bliss, "dev-other": dev_other_bliss}

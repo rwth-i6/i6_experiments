@@ -42,7 +42,7 @@ def ls960_fullsum_base():
         add_eow_phonemes=True,
         add_silence=False,
         use_tags=True,
-    )
+    )[0]
 
     label_datastream = cast(LabelDatastream, train_data.datastreams["labels"])
     vocab_size_without_blank = label_datastream.vocab_size
