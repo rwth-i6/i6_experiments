@@ -40,6 +40,7 @@ def ls960_hmm_base():
         add_silence=True,
         use_tags=True,
         apply_lexicon=False,
+        set_target_opts=False,
     )
 
     label_datastream = cast(LabelDatastream, train_data.datastreams["labels"])
@@ -132,7 +133,7 @@ def ls960_hmm_base():
 
     default_decoder_config = DecoderConfig(
         lexicon=get_text_lexicon(),
-        returnn_vocab=label_datastream.vocab, # TODO vocab
+        returnn_vocab=label_datastream.vocab,
         beam_size=1024,  # beam-pruning-limit in RASR
         beam_size_token=12,  # similar to ALTAS, considers that many labels per frame, makes it much faster
         arpa_lm=arpa_4gram_lm,
@@ -290,7 +291,7 @@ def ls960_hmm_base():
         feature_extraction_config=fe_config,
         frontend_config=frontend_config,
         specaug_config=specaug_config_full,
-        label_target_size=vocab_size, # TODO note: no +1 here in the model!
+        label_target_size=84,  # TODO use LabelInfo from i6_experiments/users/raissi/setups/common/data/factored_label.py
         conformer_size=512,
         num_layers=12,
         num_heads=8,
@@ -308,16 +309,21 @@ def ls960_hmm_base():
     )
 
     train_config_11gbgpu_amp = {
+        #"optimizer": {"class": "nadam", "epsilon": 1e-8},
+        #"learning_rates": list(np.linspace(1.5051851851851853e-5, 4e-4, 225)) +
+        #                  list(np.linspace(0.0003982814814814815, 1.333333333333335e-05, 225)) +
+        #                  list(np.linspace(1.333333333333335e-05, 1e-6, 50)),  todo: only use 250 epochs
         "optimizer": {"class": "adamw", "epsilon": 1e-16, "weight_decay": 1e-2},
-        "learning_rates": list(np.linspace(7e-6, 5e-4, 120))
-        + list(np.linspace(5e-4, 5e-5, 120))
-        + list(np.linspace(5e-5, 1e-7, 10)),
+        "learning_rates": list(np.linspace(7e-6, 5e-4, 120)) + list(
+            np.linspace(5e-4, 5e-5, 120)) + list(np.linspace(5e-5, 1e-7, 10)),
         #############
         "batch_size": 120 * 16000,
         "max_seq_length": {"audio_features": 35 * 16000},
         "accum_grad_multiple_step": 1,
         # "torch_amp_options": {"dtype": "bfloat16"},  # No mixed-precision training on 11GB-GPUs
-        "gradient_clip_norm": 1.0,
+        #"gradient_clip_norm": 1.0,
+        "gradient_clip": 20.0,
+        "gradient_noise": 0.0,
     }
     train_config_11gbgpu_amp_sp = copy.deepcopy(train_config_11gbgpu_amp)
 

@@ -140,7 +140,10 @@ def get_vocab_datastream(
     returnn_vocab_job.add_alias(os.path.join(prefix, f"{g2p_librispeech_key}", "eow_returnn_vocab_job"))
 
     vocab_datastream = LabelDatastream(
-        available_for_inference=True, vocab=returnn_vocab_job.out_vocab, vocab_size=returnn_vocab_job.out_vocab_size
+        available_for_inference=True,
+        vocab=returnn_vocab_job.out_vocab,
+        vocab_size=returnn_vocab_job.out_vocab_size,
+        unk_label="[UNKNOWN]",
     )
 
     return vocab_datastream
@@ -168,6 +171,7 @@ def build_phon_training_datasets(
     lexicon_librispeech_key: Optional[str] = None,
     use_tags: bool = False,
     apply_lexicon: bool = True,
+    set_target_opts: bool = True,
 ) -> Tuple[TrainingDatasets, dict[str, tk.Path]]:
     """
     :param prefix:
@@ -215,4 +219,5 @@ def build_phon_training_datasets(
         settings=settings,
         label_datastream=label_datastream,
         use_tags=use_tags,
+        set_target_opts=set_target_opts,
     ), {librispeech_key: train_bliss, "dev-clean": dev_clean_bliss, "dev-other": dev_other_bliss}

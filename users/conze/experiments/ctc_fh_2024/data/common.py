@@ -104,6 +104,7 @@ def build_training_datasets(
     label_datastream: LabelDatastream,
     settings: DatasetSettings,
     use_tags: bool = False,
+    set_target_opts: bool = True,
 ) -> TrainingDatasets:
     """
     generic dataset construction helper to be used by the phon/bpe specific variants
@@ -141,7 +142,7 @@ def build_training_datasets(
     train_zip_dataset = OggZipDataset(
         files=train_ogg,
         audio_options=training_audio_opts,
-        target_options=label_datastream.as_returnn_targets_opts(),
+        target_options=label_datastream.as_returnn_targets_opts() if set_target_opts else None,
         partition_epoch=settings.train_partition_epoch,
         seq_ordering=settings.train_seq_ordering,
         additional_options=settings.train_additional_options,
@@ -151,7 +152,7 @@ def build_training_datasets(
     cv_zip_dataset = OggZipDataset(
         files=[dev_clean_ogg, dev_other_ogg],
         audio_options=audio_datastream.as_returnn_audio_opts(),
-        target_options=label_datastream.as_returnn_targets_opts(),
+        target_options=label_datastream.as_returnn_targets_opts() if set_target_opts else None,
         segment_file=get_mixed_cv_segments(),
         seq_ordering="sorted_reverse",
     )
@@ -160,7 +161,7 @@ def build_training_datasets(
     devtrain_zip_dataset = OggZipDataset(
         files=train_ogg,
         audio_options=audio_datastream.as_returnn_audio_opts(),
-        target_options=label_datastream.as_returnn_targets_opts(),
+        target_options=label_datastream.as_returnn_targets_opts() if set_target_opts else None,
         seq_ordering="sorted_reverse",
         random_subset=3000,
     )
@@ -169,7 +170,7 @@ def build_training_datasets(
     prior_zip_dataset = OggZipDataset(
         files=train_ogg,
         audio_options=training_audio_opts,
-        target_options=label_datastream.as_returnn_targets_opts(),
+        target_options=label_datastream.as_returnn_targets_opts() if set_target_opts else None,
         partition_epoch=1,
         seq_ordering="sorted_reverse",
         additional_options=None,

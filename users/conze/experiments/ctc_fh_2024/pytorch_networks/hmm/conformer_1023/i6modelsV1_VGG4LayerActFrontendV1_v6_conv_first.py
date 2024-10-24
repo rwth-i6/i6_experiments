@@ -159,7 +159,7 @@ class Model(torch.nn.Module):
         """
         :param raw_audio: Audio samples as [B, T, 1]
         :param raw_audio_len: length of T as [B]
-        :return: logprobs [B, T, #labels + blank]
+        :return: logprobs [B, T, #labels]
         """
         
         squeezed_features = torch.squeeze(raw_audio, dim=-1)
@@ -211,7 +211,7 @@ def train_step(*, model: Model, data, run_ctx, **kwargs):
     fbw_loss = fbw_loss(logprobs, weighted_fsa, audio_features_len)
 
     num_output_frames = torch.sum(audio_features_len)
-    run_ctx.mark_as_loss(name="hmm-fbw", loss=fbw_loss.sum(), inv_norm_factor=num_output_frames)
+    run_ctx.mark_as_loss(name="hmm-fbw", loss=fbw_loss)#.sum(), inv_norm_factor=num_output_frames)
 
 
 def prior_init_hook(run_ctx, **kwargs):
