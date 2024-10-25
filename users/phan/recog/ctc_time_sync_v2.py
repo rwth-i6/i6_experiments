@@ -68,6 +68,7 @@ def model_recog_time_sync(
     enc_ctc = model.enc_aux_logits_12(enc_args["enc"])
 
     enc_ctc = rf.softmax(enc_ctc, axis=model.target_dim_w_blank)
+    print(enc_ctc.raw_tensor[:, :, 1])
 
     beam_size = search_args.get("beam_size", 32)
     if "length_normalization_exponent" in search_args:
@@ -172,6 +173,10 @@ def model_recog_time_sync(
             raise NotImplementedError(f"Prior type {prior_type} not implemented")
         # better do this in log space
         ctc_out_log_raw = torch.log(ctc_out_raw)
+
+        if search_args.get("renormalize_prior", False):
+            ctc_log_prior[:, :, blank_index] = 0.0
+            ctc_log_prior[:, :, :blank_index] = ctc_log_prior[:, :, :blank_index].log_softmax(-1)
 
         ctc_out_log_raw = ctc_out_log_raw - (
             ctc_log_prior * search_args.get("prior_scale", 0.1)

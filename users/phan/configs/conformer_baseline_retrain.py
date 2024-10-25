@@ -32,7 +32,7 @@ from i6_experiments.users.yang.torch.luca_ctc.configs import (
 linear_const_linear_learning_rates,
 )
 
-from i6_experiments.users.phan.rf_models.model_conformer_with_ilm_v2 import from_scratch_model_def, from_scratch_training_double_softmax
+from i6_experiments.users.phan.rf_models.model_conformer_with_ilm_v2 import from_scratch_model_def, from_scratch_training
 from i6_experiments.users.yang.torch.luca_ctc.model_recog_ctc_greedy import model_recog
 
 from i6_experiments.users.phan.rf_models.default_model_configs import default_ilm_config, default_extern_lm_config
@@ -62,43 +62,40 @@ _log_mel_feature_dim = 80
 # simple linear lr function for fine-tuning
 
 
-config_24gb = copy.deepcopy(config_24gb)
-config_24gb.pop("dynamic_learning_rate", None)
-config_24gb.pop("learning_rate_piecewise_steps", None)
-config_24gb.pop("learning_rate_piecewise_values", None)
-config_24gb.pop("learning_rate_invsqrt_norm", None)
-config_24gb.pop("learning_rate_warmup_steps", None)
-config_24gb.pop("specaugment_steps", None)
-config_24gb.pop("torch_amp", None)
+config_11gb = copy.deepcopy(config_11gb)
+config_11gb.pop("dynamic_learning_rate", None)
+config_11gb.pop("learning_rate_piecewise_steps", None)
+config_11gb.pop("learning_rate_piecewise_values", None)
+config_11gb.pop("learning_rate_invsqrt_norm", None)
+config_11gb.pop("learning_rate_warmup_steps", None)
+config_11gb.pop("specaugment_steps", None)
+config_11gb.pop("torch_amp", None)
 
 # set the ILM hyperparams for all experiments
 # hyperparams referrence /u/michel/setups/language_modelling/librispeech/neurallm/decoder_sized_transcripts_only_newrun
-config_24gb.update({"internal_language_model": default_ilm_config})
+# config_11gb.update({"internal_language_model": default_ilm_config})
 
 
 def sis_run_with_prefix(prefix_name: Optional[str] = None):
     """run the exp"""
     lr_list = [(1e-5, 1e-6)]
     ep_list = [(40, 60)]
-    recog_epoch = [20, 40] # [20, 40, 80, 100]
-    # ---------- double softmax experiments ---------
-    am_scales = [1.0, 1.5] 
-    rel_scales = [0.35] # just start with this
-    for lrs, epochs, am_scale, rel_scale in itertools.product(lr_list, ep_list, am_scales, rel_scales):
-        lm_scale = round(am_scale*rel_scale, 2)
+    recog_epoch = [20, 40, 100] # [20, 40, 80, 100]
+    # ---------- retrain the baseline without aux losses ---------
+    for lrs, epochs in itertools.product(lr_list, ep_list):
         lr_1, lr_2 = lrs
         ep1, ep2 = epochs
         lrs = const_linear_learning_rates(lr_1,lr_2,ep1,ep2)
         train_exp( 
-            f"conformer_double_softmax_am-{am_scale}_lm-{lm_scale}_lr1_{lr_1}_lr2_{lr_2}_ep1_{ep1}_ep2_{ep2}",
-            config_24gb,
-            from_scratch_training_double_softmax,
-            gpu_mem=24,
+            f"conformer_baseline_retrain_noAuxLosses_lr1_{lr_1}_lr2_{lr_2}_ep1_{ep1}_ep2_{ep2}",
+            config_11gb,
+            from_scratch_training,
+            gpu_mem=11,
             config_updates={
-                "batch_size": 1000000,
+                "batch_size": 2400000,
                 "learning_rate": lrs[-1],
                 "learning_rates": lrs,
-                "__num_epochs": 40,
+                "__num_epochs": ep1+ep2,
                 "mask_eos_output": True,
                 "add_eos_to_blank": True,
                 "preload_from_files": {
@@ -107,17 +104,12 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
                         "ignore_missing": True,
                         "filename": "/work/asr4/zyang/torch_checkpoints/ctc/luca_20240617_noeos/epoch.1982.pt",
                     },
-                    "train_extern_lm": { # import transcription lm
-                        "init_for_train": True,
-                        "prefix": "ilm.",
-                        "filename": "/work/asr3/zyang/share/mnphan/work_rf_ctc/work/i6_core/returnn/training/ReturnnTrainingJob.3uMurj5onrWB/output/models/epoch.005.pt",
-                    }
                 },
                 "mel_normalization_ted2": False,
-                "am_scale": am_scale,
-                "lm_scale": lm_scale,
                 "freeze_encoder": False,
-                "freeze_ilm": True,
+                # "freeze_ilm": True,
+                "aux_loss_layers": [], # be verbose
+                "use_specaugment": True, # be verbose
             },
             post_config_updates={
                 "cleanup_old_models": {"keep": recog_epoch},
@@ -223,7 +215,6 @@ def train_exp(
                 "filename": "/work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/2023-08-10--rf-librispeech/work/i6_experiments/users/gaudino/returnn/convert_ckpt_rf/librispeech/trafo_lm_only_24_02_06/network.023.pt",
             },
         },
-        "internal_language_model": default_ilm_config,
         "external_language_model": default_extern_lm_config, # this to load the external LM only in recog
     }
     # from i6_experiments.users.yang.torch.decoding.ctc_aed_joint_simple_version import model_recog
@@ -235,12 +226,10 @@ def train_exp(
     ilm_scales = [0.0]
     length_norm_scales = [1.0, 0.0]
     # prior_scales = [0.0, 0.1]
-    prior_scales = [0.0, 0.1, 0.2, 0.4, 0.6]
+    prior_scales = [0.0, 0.1]
     for beam_size, lm_scale, ilm_scale, length_norm_scale, prior_scale in itertools.product(beam_sizes, lm_scales, ilm_scales, length_norm_scales, prior_scales):
         if ilm_scale >= lm_scale:
             continue                
-        if prior_scale > 0.1 and length_norm_scale != 0.0:
-            continue
         search_args = {
             "beam_size": beam_size,
             "lm_scale": lm_scale,
@@ -270,14 +259,13 @@ def train_exp(
             search_config=recog_config_update_extra,
             recog_def=model_recog,
             model_avg=False,
-            exclude_epochs=[100],
+            exclude_epochs=[],
             train_exp_name=name,
             dev_sets=["dev-other", "test-other"],
             recompute_prior=recompute_prior,
             prior_config=prior_config,
         )
-
-
+    
     # --------------- time-synchronous search -----------------
     from i6_experiments.users.phan.recog.ctc_time_sync_v2 import model_recog_time_sync
     beam_sizes = [32] # to be consistent
@@ -323,9 +311,6 @@ def train_exp(
             recompute_prior=recompute_prior,
             prior_config=prior_config,
         )
-
-
-    
 
 
     if fine_tune:

@@ -80,7 +80,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
     """run the exp"""
     lr_list = [(1e-5, 1e-6)]
     ep_list = [(40, 60)]
-    recog_epoch = [20, 40, 80, 100]
+    recog_epoch = [20, 40] # [20, 40, 80, 100]
     # ---------- lf mmi experiments ---------
     am_scales = [1.0] # 1.5, 0.1 will diverge
     rel_scales = [0.35, 0.5] # 0.35 from Willi's paper
@@ -99,7 +99,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
                 "batch_size": 1000000,
                 "learning_rate": lrs[-1],
                 "learning_rates": lrs,
-                "__num_epochs": ep1+ep2,
+                "__num_epochs": 40, # 100
                 "mask_eos_output": True,
                 "add_eos_to_blank": True,
                 "preload_from_files": {
@@ -235,12 +235,14 @@ def train_exp(
     beam_sizes = [32] # to be consistent
     lm_scales = [0.45, 0.55, 0.65, 0.75, 0.85, 0.95]
     ilm_scales = [0.0]
-    length_norm_scales = [1.0]
+    length_norm_scales = [1.0, 0.0]
     # prior_scales = [0.0, 0.1]
-    prior_scales = [0.0, 0.1]
+    prior_scales = [0.0, 0.1, 0.2, 0.4, 0.6]
     for beam_size, lm_scale, ilm_scale, length_norm_scale, prior_scale in itertools.product(beam_sizes, lm_scales, ilm_scales, length_norm_scales, prior_scales):
         if ilm_scale >= lm_scale:
-            continue                
+            continue        
+        if prior_scale > 0.1 and length_norm_scale != 0.0:
+            continue        
         search_args = {
             "beam_size": beam_size,
             "lm_scale": lm_scale,
@@ -277,7 +279,51 @@ def train_exp(
             prior_config=prior_config,
         )
     
-
+    # --------------- time-synchronous search -----------------
+    from i6_experiments.users.phan.recog.ctc_time_sync_v2 import model_recog_time_sync
+    beam_sizes = [32] # to be consistent
+    lm_scales = [0.8, 0.9, 1.0, 1.1]
+    ilm_scales = [0.0]
+    length_norm_scales = [0.0]
+    prior_scales = [0.0, 0.3, 0.4, 0.5]
+    for beam_size, lm_scale, ilm_scale, length_norm_scale, prior_scale in itertools.product(beam_sizes, lm_scales, ilm_scales, length_norm_scales, prior_scales):                
+        if ilm_scale >= lm_scale:
+            continue
+        search_args = {
+            "beam_size": beam_size,
+            "lm_scale": lm_scale,
+            "ilm_scale": ilm_scale,
+            "length_norm_scale": length_norm_scale, # by default len norm
+            "prior_scale": prior_scale,
+            "prior_file": "/work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/2023-08-10--rf-librispeech/work/i6_core/returnn/forward/ReturnnForwardJobV2.OSftOYzAjRUg/output/prior.txt",
+            "ctc_log_prior": False,
+        }
+        recog_config_update_extra = copy.deepcopy(recog_config_update)
+        recog_config_update_extra.update({
+            "search_args": search_args,
+        })
+        recompute_prior = True if prior_scale > 0.0 else False
+        prior_config = None
+        if recompute_prior:
+            prior_config = copy.deepcopy(recog_config_update_extra)
+            prior_config.pop("external_language_model", None)
+            prior_config.pop("search_args", None)
+            # prior_config.pop("internal_language_model", None)
+            prior_config["batch_size"] = int(25600000)
+            prior_config["batching"] = "sorted_reverse"
+        recog_training_exp(
+            prefix + f"_timeSync_beam-{beam_size}_lm-{lm_scale}_ilm-{ilm_scale}_lenNorm-{length_norm_scale}_prior-{prior_scale}",
+            task,
+            model_with_checkpoint,
+            search_config=recog_config_update_extra,
+            recog_def=model_recog_time_sync,
+            model_avg=False,
+            exclude_epochs=[],
+            train_exp_name=name,
+            dev_sets=["dev-other", "test-other"],
+            recompute_prior=recompute_prior,
+            prior_config=prior_config,
+        )
 
     if fine_tune:
         if isinstance(fine_tune, int):

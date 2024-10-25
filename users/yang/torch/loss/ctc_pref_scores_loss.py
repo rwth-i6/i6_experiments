@@ -656,6 +656,7 @@ def kldiv_ctc_lm_loss(
     log_zero = -1e25, # maybe better than float min for preventing overflowing
     eos_idx = None,
     target_mask = None,
+    return_unsummed_loss = False,
 ):
     '''
     Compute the KL div from p_CTC to p_LM. The blank in output dim of CTC will be
@@ -685,6 +686,8 @@ def kldiv_ctc_lm_loss(
         be moved to the eos_idx instead. The LM score is then expected to have the same dimension
         as the vocab, not vocab + EOS.
     :param target_mask: Extra label-wise masking apply to the loss (B, S+1 F)
+    :param returnn_unsummed_loss: If True, return the KL Div per position (B, S+1, F).
+        If False, return the loss summed over all positions and the whole batch.
     :return: KL Div Loss sum p_CTC*log p_LM
     '''
     device = log_probs.device
@@ -715,7 +718,8 @@ def kldiv_ctc_lm_loss(
         if len(target_mask.shape) == 2: # (B, S+1), cast to (B, S+1, F)
             target_mask = target_mask.unsqueeze(-1).expand(-1, -1, n_out)
         loss = loss*target_mask
-    loss = loss.sum()
+    if not return_unsummed_loss:
+        loss = loss.sum()
     return loss
 
 

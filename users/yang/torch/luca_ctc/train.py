@@ -62,9 +62,9 @@ def train(
         train = task.train_dataset.get_train_dataset()
         eval_datasets = task.train_dataset.get_eval_datasets()
 
-    if use_multiproc_dataset: # should always be True. This was for testing
-        train = mp_ds_utils.multi_proc_dataset_opts(train)
-        eval_datasets = mp_ds_utils.multi_proc_eval_datasets_opts(eval_datasets)
+    #if use_multiproc_dataset: # should always be True. This was for testing
+    train = mp_ds_utils.multi_proc_dataset_opts(train)
+    eval_datasets = mp_ds_utils.multi_proc_eval_datasets_opts(eval_datasets)
 
     returnn_train_config_dict: Dict[str, Any] = dict(
         backend=model_def.backend,

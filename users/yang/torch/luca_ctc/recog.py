@@ -136,7 +136,9 @@ class _RecogAndScoreFunc:
             train_exp_name=self.train_exp_name,
             dev_sets=self.dev_sets,
             recompute_prior=self.recompute_prior,
-            prior_config=self.prior_config
+            prior_config=self.prior_config,
+            name=self.prefix_name,
+            epoch=epoch_or_ckpt,
         )
         if isinstance(epoch_or_ckpt, int):
             tk.register_output(self.prefix_name + f"/recog_results_per_epoch/{epoch_or_ckpt:03}", res.output)
@@ -178,6 +180,7 @@ def recog_model(
     train_exp_name: Optional[str] = None,
     recompute_prior: bool = False,
     prior_config: Optional[dict] = None,
+    epoch: Optional[int] = None,
 ) -> ScoreResultCollection:
     """recog"""
     if dev_sets is not None:
@@ -200,6 +203,11 @@ def recog_model(
             )
             prior_job.set_vis_name(f"Compute prior job, {train_exp_name}, {os.path.split(model.checkpoint.__repr__())[-1][:-1]}")
             config["search_args"]["prior_file"] = prior_job.out_files[_prior_out_filename]
+        search_alias_name = None
+        if name:
+            search_alias_name = f"{name}/search/{dataset_name}"
+            if epoch:
+                search_alias_name += f"/{epoch}"
         recog_out = search_dataset(
             dataset=dataset,
             model=model,
@@ -208,7 +216,7 @@ def recog_model(
             search_post_config=search_post_config,
             search_mem_rqmt=search_mem_rqmt,
             search_rqmt=search_rqmt,
-            search_alias_name=f"{name}/search/{dataset_name}" if name else None,
+            search_alias_name=search_alias_name,
             recog_post_proc_funcs=list(recog_post_proc_funcs) + list(task.recog_post_proc_funcs),
             dataset_name=dataset_name,
             train_exp_name=train_exp_name,
