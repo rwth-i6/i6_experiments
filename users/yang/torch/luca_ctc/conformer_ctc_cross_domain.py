@@ -122,7 +122,9 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
         _sis_prefix + '/' + name,
         res.output,
     )
-    # Luca ctc layer 12, no feature norm
+    # Luca ctc layer 12, no feature norm better, do not use norm
+    # {"dev": 17.36, "test": 18.73}
+    # but maybe we should make the feature to have same mean and std as on librispeech
     model_args = {
         "ctc_output_args":{
             "ctc_enc_layer_id": 12,
