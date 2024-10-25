@@ -49,8 +49,13 @@ def train(
     from i6_experiments.users.gaudino.utils.serialization import get_import_py_code, get_import_native_ops_code
     from i6_experiments.users.gaudino.datasets.utils import multi_proc as mp_ds_utils
     from i6_experiments.users.zeyer.model_with_checkpoints import ModelWithCheckpoints
-    from i6_experiments.users.gaudino.recog_2 import SharedPostConfig
     from returnn_common import nn
+
+    SharedPostConfig = {
+        # In case pretraining overwrites some of these, they need a default.
+        "accum_grad_multiple_step": None,
+        "use_last_best_model": None,
+    }
 
     returnn_train_config_dict: Dict[str, Any] = dict(
         backend=model_def.backend,

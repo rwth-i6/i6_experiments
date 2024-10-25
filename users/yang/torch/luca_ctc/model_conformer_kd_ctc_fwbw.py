@@ -193,8 +193,19 @@ class Model(rf.Module):
         from returnn.config import get_global_config
 
         config = get_global_config(return_empty_if_none=True)
+        if 'use_tedlium_mel_norm' in model_args:
+            use_tedlium_mel_norm = model_args['use_tedlium_mel_norm']
+        else:
+            use_tedlium_mel_norm = False
+        self.mel_normalization = use_tedlium_mel_norm
+        if 'use_librispeech_mel' in model_args:
+            # scale the features to librispeech
+            self.scale_to_librispeech = model_args['use_librispeech_mel']
+        else:
+            self.scale_to_librispeech = False
 
-        self.mel_normalization = config.typed_value("mel_normalization_ted2", False)
+        #self.mel_normalization = config.typed_value("mel_normalization_ted2", False)
+
         self.use_specaugment = config.typed_value("use_specaugment", True)
 
         self.in_dim = in_dim
@@ -418,13 +429,14 @@ def from_scratch_model_def(*, epoch: int, in_dim: Dim, target_dim: Dim, **kwargs
     # real input is raw audio, internally it does logmel
     in_dim = Dim(name="logmel", dimension=_log_mel_feature_dim, kind=Dim.Types.Feature)
     lm_opts = config.typed_value("external_language_model")
+    train_extern_lm = config.typed_value("train_load_extern_lm", "lstm")
     return MakeModel.make_model(
         in_dim,
         target_dim,
         enc_aux_logits=enc_aux_logits or (),
         pos_emb_dropout=pos_emb_dropout,
         language_model=lm_opts,
-        train_extern_lm="lstm",
+        train_extern_lm=train_extern_lm,
         **kwargs,
     )
 
@@ -513,11 +525,7 @@ def from_scratch_training(
         assert ctc_kd_logits is not None
         aux_logits = ctc_kd_logits
 
-
-
-
-
-
+    ctc_scale = config.typed_value("ctc_scale", 1.0)
     # pure torch LM KD loss
     compute_lm_kd_loss = config.bool('lm_kd_loss', True)
     # print_gpu_memory_usage(pos='before kd loss')
@@ -649,7 +657,7 @@ def from_scratch_training(
             use_normalized_loss=use_normalized_loss,
         )
 
-        ctc_scale = config.typed_value("ctc_scale", 1.0)
+
         # final layer ctc loss
         if freeze_gamma or freeze_ctc_p:
             assert False
@@ -690,6 +698,21 @@ def from_scratch_training(
                     custom_inv_norm_factor=targets_spatial_dim.get_size_tensor(),
                     use_normalized_loss=use_normalized_loss,
                 )
+    else:
+        # only standard ctc loss
+        aux_loss = rf.ctc_loss(
+            logits=aux_logits_12,
+            targets=targets,
+            input_spatial_dim=enc_spatial_dim,
+            targets_spatial_dim=targets_spatial_dim,
+            blank_index=model.blank_idx,
+        )
+        aux_loss.mark_as_loss(
+            f"ctc_12",
+            scale=ctc_scale,
+            custom_inv_norm_factor=targets_spatial_dim.get_size_tensor(),
+            use_normalized_loss=use_normalized_loss,
+        )
 
 
 

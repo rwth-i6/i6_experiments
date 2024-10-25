@@ -48,99 +48,7 @@ _log_mel_feature_dim = 80
 
 
 def py():
-    # train_exp(  # 5.32, but should give 5.11?
-    #     "v6-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-speedpertV2",
-    #     config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
-    #     config_updates={
-    #         **_get_cfg_lrlin_oclr_by_bs_nep(15_000, 500),
-    #         "optimizer.weight_decay": 1e-2,
-    #         "__train_audio_preprocess": speed_pert_librosa_config,
-    #         "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
-    #     },
-    # )
 
-    # for max_seq_len in [
-    #     60,  # 5.39
-    #     74,  # now EOS is not counted, so this is same as before
-    #     75,  # 5.32?
-    #     None,  # 5.17
-    # ]:
-    #     train_exp(
-    #         f"v6-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-maxSeqLen{max_seq_len}-pavg100-wd1e_2-lrlin1e_5_295k-speedpertV2",
-    #         config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
-    #         config_updates={
-    #             **_get_cfg_lrlin_oclr_by_bs_nep(15_000, 500),
-    #             "optimizer.weight_decay": 1e-2,
-    #             "__train_audio_preprocess": speed_pert_librosa_config,
-    #             "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
-    #             "max_seq_length_default_target": max_seq_len,
-    #         },
-    #     )
-
-    # Comparing vocabs.
-    # for vocab in [
-    #     "spm20k",  # 5.14 (but test-other is 6.18!)
-    #     "bpe10k",  # 5.32
-    #     "spm10k",  # 5.16
-    #     "spm_bpe10k",  # 5.21
-    #     "spm4k",
-    #     "spm1k",
-    # ]:
-    #     train_exp(  # 5.16
-    #         f"v6-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-speedpertV2-{vocab}",
-    #         config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
-    #         config_updates={
-    #             **_get_cfg_lrlin_oclr_by_bs_nep(15_000, 500),
-    #             "optimizer.weight_decay": 1e-2,
-    #             "__train_audio_preprocess": speed_pert_librosa_config,
-    #             "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
-    #         },
-    #         vocab=vocab,
-    #     )
-
-    # Comparing vocabs with better settings: feature norm, sampling, no max seq len.
-    # maxSeqLenNone might not be actually better though...
-    base_checkpoint_path = "/work/asr4/zyang/torch_checkpoints/aed/albert_bpe10k_sampling001/epoch.487.pt"
-    # baseline wer: aed "best_scores": {"dev-clean": 2.23, "dev-other": 5.23, "test-clean": 2.42, "test-other": 5.47}, "best_epoch": 487}
-    # for vocab, alpha in [
-    #     # ("spm20k", 0.7),
-    #     ("bpe10k", 0.01),  # 5.23
-    #     # ("spm10k", 0.7),  # 5.12, slightly worse than before...
-    #     # ("spm_bpe10k", ...),  # unclear what sampling scheme...
-    #     # ("spm4k", 0.7),
-    #     # ("spm1k", 0.7),
-    #     # ("spm_bpe1k", ...)
-    # ]:
-    #     config_finetune_ctc12 = copy.deepcopy(config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4)
-    #     #config_finetune_ctc12 = copy.deepcopy(config_11gb_v6_f32_accgrad1_gpu1_wd1e_4)
-    #     config_finetune_ctc12.update(aux_loss_layers=[4,8,12])
-    #     train_exp(  # 5.16
-    #         f"v6-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-"
-    #         f"-speedpertV2-{vocab}"
-    #         f"-{'spmSample' if vocab.startswith('spm') else 'bpeSample'}{str(alpha).replace('.', '')}-finetune-ctc12-scale1.0-others0.1",
-    #         config_finetune_ctc12,
-    #         model_config={"feature_batch_norm": True},
-    #         config_updates={
-    #             **_get_cfg_lrlin_oclr_by_bs_nep(15_000, 100, peak_lr=1e-3),
-    #             "optimizer.weight_decay": 1e-2,
-    #             "__train_audio_preprocess": speed_pert_librosa_config,
-    #             "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
-    #             "max_seq_length_default_target": None,
-    #             "preload_from_files": {
-    #             "base": {"init_for_train": True, "ignore_missing": True, "filename": base_checkpoint_path}},
-    #             "aux_loss_scales": [0.1,0.1,1],
-    #             "aed_loss_scale": 0.1,
-    #
-    #         },
-    #         vocab=vocab,
-    #         train_vocab_opts={
-    #             "other_opts": (
-    #                 {"enable_sampling": True, "alpha": alpha}
-    #                 if vocab.startswith("spm")
-    #                 else {"class": "SamplingBytePairEncoding", "breadth_prob": alpha}
-    #             )
-    #         },
-    #     )
 
     # baseline {"best_scores": {"dev-clean": 2.21, "dev-other": 5.15, "test-clean": 2.49, "test-other": 5.48}, "best_epoch": 482}
     base_checkpoint_path = "/work/asr4/zyang/rf/work/i6_core/returnn/training/ReturnnTrainingJob.V18BvuJ52QAA/output/models/epoch.482.pt"
@@ -369,124 +277,9 @@ def py():
                                     )
                                 },
                     )
-#   constant learning rate, longer training
-#   different aed loss scales
-    bszs = [(15_000, 100)]
-    aed_logit_scales = [1.0, 0.6, 0.8]
-    #aed_logit_scales = [1.0]
-    epoch = 200
-    for kd_scale in [0.2,0.6,1.0]:
-        for learning_rate in [1e-6,5e-7]:
-            for kd_w_bw in [False]:
-                for aed_logit_scale in aed_logit_scales:
-                    for bsz in bszs:
-                        for vocab, alpha in [
-                            # ("spm20k", 0.7),
-                            ("bpe10k", 0.01),
-                        ]:
-                            #config_finetune_ctc12 = copy.deepcopy(config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4)
-                            config_finetune_ctc12 = copy.deepcopy(config_11gb_v6_f32_accgrad1_gpu1_wd1e_4)
-                            config_finetune_ctc12.update(aux_loss_layers=[4, 8, 12])
-
-                            aed_ctc_kd_loss = True
-                            ctc_kd_layer = 12
-                            kd_warmup_steps = 20000
-                            #kd_scale = 1.0
-                            top_k = 10
-                            if kd_w_bw:
-                                subname = 'fw_bw'
-                            else:
-                                subname = 'fw_only'
-
-                            train_exp(
-                                f"fine-tune-accgrad1-singlemgpu"
-                                f"-speedpertV2-{vocab}"
-                                f"-{subname}-target_detach-kd_layer-{ctc_kd_layer}-wm{kd_warmup_steps}-kd_scale{kd_scale}-aed_logit_scale{aed_logit_scale}-topk{top_k}-bsz{bsz[0]}-ep{epoch}-constlr-{learning_rate}-sampling{alpha}",
-                                config_finetune_ctc12,
-                                model_config={"feature_batch_norm": True},
-                                config_updates={
-                                    #**_fine_tune_get_cfg_lrlin_oclr_by_bs_nep(bsz[0], bsz[1], peak_lr=1e-5),
-                                    "batch_size": bsz[0] * 160,
-                                    "__num_epochs": 200,
-                                    "learning_rate": learning_rate,
-                                    "optimizer.weight_decay": 1e-2,
-                                    "__train_audio_preprocess": speed_pert_librosa_config,
-                                    "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
-                                    "max_seq_length_default_target": None,
-                                    "preload_from_files": {
-                                    "base": {"init_for_train": True, "ignore_missing": True, "filename": base_checkpoint_path}},
-                                    "aed_ctc_kd_loss": aed_ctc_kd_loss,
-                                    "ctc_kd_layer": ctc_kd_layer,
-                                    "kd_warmup_steps": kd_warmup_steps,
-                                    "kd_scale": kd_scale,
-                                    "top_k": top_k,
-                                    "aed_logit_scale": aed_logit_scale,
-                                    "kd_w_bw": kd_w_bw,
-                                    "kd_target_detach": True,
-                                },
-                                vocab=vocab,
-                                mem_rqmt=20,
-                                train_vocab_opts={
-                                            "other_opts": (
-                                                {"enable_sampling": True, "alpha": alpha}
-                                                if vocab.startswith("spm")
-                                                else {"class": "SamplingBytePairEncoding", "breadth_prob": alpha}
-                                            )
-                                        },
-                                ctc_greedy_layer=12,
-                            )
 
 
 
-    # bszs = [(10_000, 100)]
-    # aed_logit_scales = [1.0]
-    # for aed_logit_scale in aed_logit_scales:
-    #     for bsz in bszs:
-    #         for vocab, alpha in [
-    #             # ("spm20k", 0.7),
-    #             ("bpe10k", 0.01),  # 5.23
-    #             #("bpe10k", 0.001),
-    #             # ("spm10k", 0.7),  # 5.12, slightly worse than before...
-    #             # ("spm_bpe10k", ...),  # unclear what sampling scheme...
-    #             # ("spm4k", 0.7),
-    #             # ("spm1k", 0.7),
-    #             # ("spm_bpe1k", ...)
-    #         ]:
-    #             config_finetune_ctc12 = copy.deepcopy(config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4)
-    #             #config_finetune_ctc12 = copy.deepcopy(config_11gb_v6_f32_accgrad1_gpu1_wd1e_4)
-    #             config_finetune_ctc12.update(aux_loss_layers=[4, 8, 12])
-    #
-    #             aed_ctc_kd_loss = True
-    #             ctc_kd_layer = 12
-    #             kd_warmup_steps = 50000
-    #             kd_scale = 1.0
-    #             top_k = 10
-    #
-    #             train_exp(
-    #                 f"debug-v6-bhv20-11gb-f32-bs15k-accgrad1-gpu4"
-    #                 f"-speedpertV2-{vocab}"
-    #                 f"kd_layer{ctc_kd_layer}-wm{kd_warmup_steps}-aed_scale{aed_logit_scale}-topk{top_k}-bsz{bsz[0]}-ep{bsz[1]}",
-    #                 config_finetune_ctc12,
-    #                 model_config={"feature_batch_norm": True},
-    #                 config_updates={
-    #                     **_fine_tune_get_cfg_lrlin_oclr_by_bs_nep(bsz[0], bsz[1], peak_lr=1e-5),
-    #                     "optimizer.weight_decay": 1e-2,
-    #                     "__train_audio_preprocess": speed_pert_librosa_config,
-    #                     "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
-    #                     "max_seq_length_default_target": None,
-    #                     "preload_from_files": {
-    #                     "base": {"init_for_train": True, "ignore_missing": True, "filename": base_checkpoint_path}},
-    #                     "aed_ctc_kd_loss": aed_ctc_kd_loss,
-    #                     "ctc_kd_layer": ctc_kd_layer,
-    #                     "kd_warmup_steps": kd_warmup_steps,
-    #                     "kd_scale": kd_scale,
-    #                     "top_k": top_k,
-    #                     "aed_logit_scale": aed_logit_scale,
-    #                 },
-    #                 vocab=vocab,
-    #                 #mem_rqmt=15,
-    #                 #reserve_code="hlt_11",
-    #             )
 
 
 
@@ -956,16 +749,25 @@ def model_recog(
     seq_targets_ = []
     indices = rf.range_over_dim(beam_dim)  # FinalBeam -> FinalBeam
     for backrefs, target in zip(seq_backrefs[::-1], seq_targets[::-1]):
+        # # backrefs, target: Batch, Beam
         # indices: FinalBeam -> Beam
         # backrefs: Beam -> PrevBeam
         seq_targets_.insert(0, rf.gather(target, indices=indices))
         indices = rf.gather(backrefs, indices=indices)  # FinalBeam -> PrevBeam
 
-    seq_targets__ = TensorArray(seq_targets_[0])
+    seq_targets__ = TensorArray(seq_targets_[0]) # also in shape batch, Beam?
     for target in seq_targets_:
         seq_targets__ = seq_targets__.push_back(target)
     out_spatial_dim = Dim(out_seq_len, name="out-spatial")
     seq_targets = seq_targets__.stack(axis=out_spatial_dim)
+
+    # check the shape of the output
+    # out_spatial_dim should be in shape [batch, beam]
+    # nothing to do here? only mark the outputs
+    rf.get_run_ctx().mark_as_output(seq_targets, "output") # main result
+    rf.get_run_ctx().mark_as_loss(seq_log_prob, "log_probs")
+    rf.get_run_ctx().mark_as_loss(out_spatial_dim, "seq_lens")
+
 
     return seq_targets, seq_log_prob, out_spatial_dim, beam_dim
 

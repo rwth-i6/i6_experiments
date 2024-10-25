@@ -24,6 +24,7 @@ from i6_experiments.users.zeyer.datasets.task import Task
 from i6_experiments.users.zeyer.datasets.score_results import RecogOutput, ScoreResultCollection
 from i6_experiments.users.gaudino.model_interfaces.model_interfaces import ModelDef, RecogDef, ModelWithCheckpoint, ModelWithCheckpoints
 from i6_experiments.users.zeyer.returnn.training import get_relevant_epochs_from_training_learning_rate_scores
+from i6_experiments.users.zeyer.model_interfaces.model import ModelDefWithCfg
 
 if TYPE_CHECKING:
     from returnn.tensor import TensorDict
@@ -302,6 +303,7 @@ def search_config_v2(
     post_config: Optional[Dict[str, Any]] = None,
     search_args: Optional[Dict[str, Any]] = None,
     model_args: Optional[Dict[str, Any]] = None,
+    extra_config: Optional[Dict[str, Any]] = None,
     device: Optional[str] = "gpu"
 ) -> ReturnnConfig:
     returnn_recog_config_dict = dict(
@@ -328,6 +330,11 @@ def search_config_v2(
         "search_args": search_args,
         "model_args": model_args,
     })
+    if extra_config is not None:
+        returnn_recog_config_dict.update(extra_config)
+    if isinstance(model_def, ModelDefWithCfg):
+        returnn_recog_config_dict.update(model_def.config)
+
 
     returnn_recog_config = ReturnnConfig(
         config=returnn_recog_config_dict,
@@ -337,7 +344,7 @@ def search_config_v2(
                     serialization.NonhashedCode(
                         nn.ReturnnConfigSerializer.get_base_extern_data_py_code_str_direct(extern_data_raw)
                     ),
-                    serialization.Import(model_def, import_as="_model_def", ignore_import_as_for_hash=True),
+                    serialization.Import(model_def.model_def if isinstance(model_def, ModelDefWithCfg) else model_def, import_as="_model_def", ignore_import_as_for_hash=True),
                     serialization.Import(_returnn_v2_get_model, import_as="get_model"),
                     serialization.Import(recog_def, import_as="_recog_def", ignore_import_as_for_hash=True),
                     serialization.Import(_returnn_v2_forward_step, import_as="forward_step"),

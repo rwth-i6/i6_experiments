@@ -630,13 +630,6 @@ def _sis_setup_global_prefix(prefix_name: Optional[str] = None):
         prefix_name = get_setup_prefix_for_module(__name__)
     global _sis_prefix
     _sis_prefix = prefix_name
-# def _sis_setup_global_prefix(prefix_name: Optional[str] = None):
-#     if not prefix_name:
-#         from .sis_setup import get_prefix_for_config
-#
-#         prefix_name = get_prefix_for_config(__file__)
-#     global _sis_prefix
-#     _sis_prefix = prefix_name
 
 
 

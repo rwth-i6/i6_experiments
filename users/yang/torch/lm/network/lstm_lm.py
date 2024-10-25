@@ -4,9 +4,7 @@ from dataclasses import dataclass
 
 from i6_models.config import ModelConfiguration
 from i6_experiments.common.setups.returnn_pytorch.serialization import Collection
-from i6_experiments.users.berger.pytorch.serializers.basic import (
-    get_basic_pt_network_serializer,
-)
+
 from i6_experiments.common.setups.serialization import Import
 
 
@@ -127,6 +125,9 @@ def get_train_serializer(
     model_config: LSTMLMConfig,
     train_step_package: str
 ) -> Collection:
+    from i6_experiments.users.berger.pytorch.serializers.basic import (
+        get_basic_pt_network_serializer,
+    )
     # pytorch_package = __package__.rpartition(".")[0]
     return get_basic_pt_network_serializer(
         module_import_path=f"{__name__}.{LSTMLM.__name__}",
