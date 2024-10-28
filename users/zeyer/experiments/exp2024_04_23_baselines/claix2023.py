@@ -7,7 +7,7 @@ from __future__ import annotations
 from i6_experiments.users.zeyer.utils.dict_update import dict_update_deep
 from i6_experiments.users.zeyer.speed_pert.librosa_config import speed_pert_librosa_config
 
-from .configs import config_24gb_v6, _get_cfg_lrlin_oclr_by_bs_nep_v3
+from .configs import config_24gb_v6, _get_cfg_lrlin_oclr_by_bs_nep_v3, _batch_size_factor
 from .aed import train_exp as aed_train_exp
 from .ctc import train_exp as ctc_train_exp
 from .lm import lm_train_def, lm_model_def
@@ -53,7 +53,7 @@ def py():
         f"96gb-bf16-bs200k-accgrad1-wd1e_2-lrlinEpCont-speedpertV2-spm10k-spmSample07",
         config_96gb_bf16_accgrad1,
         config_updates={
-            **_get_cfg_lrlin_oclr_by_bs_nep_v3(200_000, 100),
+            **_get_cfg_lrlin_oclr_by_bs_nep_v3(200_000, 100, batch_size_factor=_batch_size_factor),
             "optimizer.weight_decay": 1e-2,
             "__train_audio_preprocess": speed_pert_librosa_config,
             "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
@@ -69,7 +69,7 @@ def py():
         f"96gb-bf16-bs200k-accgrad1-wd1e_2-lrlinEpCont-noCrl-speedpertV2-spm10k-spmSample07",
         config_96gb_bf16_accgrad1,
         config_updates={
-            **_get_cfg_lrlin_oclr_by_bs_nep_v3(200_000, 100),
+            **_get_cfg_lrlin_oclr_by_bs_nep_v3(200_000, 100, batch_size_factor=_batch_size_factor),
             "optimizer.weight_decay": 1e-2,
             "__train_audio_preprocess": speed_pert_librosa_config,
             "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
@@ -86,7 +86,7 @@ def py():
         f"96gb-bf16-bs200k-accgrad1-wd1e_2-lrlinEpCont-noCrl-specAug2k-speedpertV2-spm10k-spmSample07",
         config_96gb_bf16_accgrad1,
         config_updates={
-            **_get_cfg_lrlin_oclr_by_bs_nep_v3(200_000, 100),
+            **_get_cfg_lrlin_oclr_by_bs_nep_v3(200_000, 100, batch_size_factor=_batch_size_factor),
             "optimizer.weight_decay": 1e-2,
             "__train_audio_preprocess": speed_pert_librosa_config,
             "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
@@ -106,7 +106,7 @@ def py():
         config_updates={
             "torch_amp": None,
             "default_float_dtype": "bfloat16",
-            **_get_cfg_lrlin_oclr_by_bs_nep_v3(200_000, 100),
+            **_get_cfg_lrlin_oclr_by_bs_nep_v3(200_000, 100, batch_size_factor=_batch_size_factor),
             "optimizer.weight_decay": 1e-2,
             "__train_audio_preprocess": speed_pert_librosa_config,
             "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
@@ -127,7 +127,7 @@ def py():
         config_updates={
             "torch_amp": None,
             "default_float_dtype": "bfloat16",
-            **_get_cfg_lrlin_oclr_by_bs_nep_v3(300_000, 100),
+            **_get_cfg_lrlin_oclr_by_bs_nep_v3(300_000, 100, batch_size_factor=_batch_size_factor),
             "max_seqs": 400,
             "optimizer.weight_decay": 1e-2,
             "__train_audio_preprocess": speed_pert_librosa_config,
@@ -147,7 +147,7 @@ def py():
         f"96gb-bf16-bs200k-accgrad1-wd1e_2-lrlinEpCont-lr1e_2-noCrl-speedpertV2-spm10k-spmSample07",
         config_96gb_bf16_accgrad1,
         config_updates={
-            **_get_cfg_lrlin_oclr_by_bs_nep_v3(200_000, 100, peak_lr=1e-2),
+            **_get_cfg_lrlin_oclr_by_bs_nep_v3(200_000, 100, peak_lr=1e-2, batch_size_factor=_batch_size_factor),
             "optimizer.weight_decay": 1e-2,
             "__train_audio_preprocess": speed_pert_librosa_config,
             "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
@@ -163,7 +163,7 @@ def py():
         f"96gb-bf16-bs200k-accgrad1-wd5e_2-lrlinEpCont-noCrl-speedpertV2-spm10k-spmSample07",
         config_96gb_bf16_accgrad1,
         config_updates={
-            **_get_cfg_lrlin_oclr_by_bs_nep_v3(200_000, 100),
+            **_get_cfg_lrlin_oclr_by_bs_nep_v3(200_000, 100, batch_size_factor=_batch_size_factor),
             "optimizer.weight_decay": 5e-2,
             "__train_audio_preprocess": speed_pert_librosa_config,
             "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
@@ -186,6 +186,7 @@ def py():
                 peak_lr=1e-3 * lion_lr_factor,
                 low_lr=1e-5 * lion_lr_factor,
                 lowest_lr=1e-6 * lion_lr_factor,
+                batch_size_factor=_batch_size_factor,
             ),
             "optimizer.class": "returnn.torch.optim.lion.Lion",
             "optimizer.weight_decay": 1e-2 / lion_lr_factor,
@@ -209,19 +210,21 @@ def py():
             "-lrlinEpCont-featBN-speedpertV2-spm10k-bpeSample001",
             "num_enc_layers": 12,
             "batch_size": 200_000,
+            "vocab": "spm10k",
         },
-        # Baseline (n16) has {"dev-clean": 2.26, "dev-other": 5.44, "test-clean": 2.5, "test-other": 5.62}.
+        # Baseline (n16, spm10k) has {"dev-clean": 2.26, "dev-other": 5.44, "test-clean": 2.5, "test-other": 5.62}.
         # v6-n16-relPosAttDef-noBias-aedLoss-bhv20-11gb-f32-bs10k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-featBN-speedpertV2-spm10k-bpeSample001
-        # {"num_enc_layers": 16, "batch_size": 10_000},
+        # This here is now spm512 though.
+        # Note: In the original CR paper, they don't have time-downsampling!
+        {"num_enc_layers": 16, "batch_size": 10_000, "vocab": "spm512"},
     ]:
         for cr_ctc in [None, {"cr_loss_scale": 0.2}]:
             # TODO also adapt specaug for CR...
             use_cr_ctc = cr_ctc is not None
+            name = f"cr{use_cr_ctc}"
             if use_cr_ctc:
-                name = f"n{opts['num_enc_layers']}"
                 name += f"-crLoss{cr_ctc['cr_loss_scale']}"
-            else:
-                name = opts["name"]
+            name += f"-n{opts['num_enc_layers']}-{opts['vocab']}"
             ctc_train_exp(
                 name,
                 config_96gb_bf16_accgrad1,
@@ -239,7 +242,9 @@ def py():
                 },
                 config_updates={
                     **_get_cfg_lrlin_oclr_by_bs_nep_v3(
-                        opts["batch_size"] // (2 if use_cr_ctc else 1), 100 // (2 if use_cr_ctc else 1)
+                        opts["batch_size"] // (2 if use_cr_ctc else 1),
+                        100 // (2 if use_cr_ctc else 1),
+                        batch_size_factor=_batch_size_factor,
                     ),
                     "optimizer.weight_decay": 1e-2,
                     "__train_audio_preprocess": speed_pert_librosa_config,
@@ -250,7 +255,7 @@ def py():
                     **({"aed_loss_bug_fix": True} if use_cr_ctc else {}),
                 },
                 post_config_updates={"__multi_proc_dataset_opts": {"num_workers": 25}},
-                vocab="spm10k",
+                vocab=opts["vocab"],
                 train_vocab_opts={"other_opts": {"class": "SamplingBytePairEncoding", "breadth_prob": 0.01}},
                 dataset_train_opts={"train_epoch_split": 1, "train_epoch_wise_filter": None},
                 # avoid OOM
@@ -259,15 +264,18 @@ def py():
 
     # ----- LM experiments -----
 
-    # TODO all the batch_size are wrong (with batch size factor).
-    #  i think 20k without factor is reasonable with bf16 AMP.
-    #  with pure bf16, 30k seems to be fine.
+    # Note: We had the batch_size wrong initially with batch size factor.
+    # I think 20k without factor is reasonable with bf16 AMP.
+    # with pure bf16, 30k seems to be fine.
+
+    # TODO clean this up once we have a better fixed setup.
     train(
         "lm/trafo-n96-d512-gelu-drop0-epSplit4-b200_200k-spm10k",
         config=dict_update_deep(
             config_96gb_bf16_accgrad1,
             {
-                **_get_cfg_lrlin_oclr_by_bs_nep_v3(200_000, 20),
+                # NOTE: wrong batch size factor
+                **_get_cfg_lrlin_oclr_by_bs_nep_v3(200_000, 20, batch_size_factor=_batch_size_factor),
                 "max_seqs": 200,
                 "optimizer.weight_decay": 1e-2,
                 "calculate_exp_loss": True,
@@ -296,7 +304,7 @@ def py():
         config=dict_update_deep(
             config_96gb_bf16_accgrad1,
             {
-                **_get_cfg_lrlin_oclr_by_bs_nep_v3(20_000, 100),
+                **_get_cfg_lrlin_oclr_by_bs_nep_v3(20_000, 100, batch_size_factor=1),
                 "max_seqs": 400,
                 "optimizer.weight_decay": 1e-2,
                 "calculate_exp_loss": True,
@@ -328,7 +336,8 @@ def py():
             {
                 "torch_amp": None,
                 "default_float_dtype": "bfloat16",
-                **_get_cfg_lrlin_oclr_by_bs_nep_v3(20_000, 100),
+                # NOTE: wrong batch size factor
+                **_get_cfg_lrlin_oclr_by_bs_nep_v3(20_000, 100, batch_size_factor=_batch_size_factor),
                 "max_seqs": 400,
                 "optimizer.weight_decay": 1e-2,
                 "calculate_exp_loss": True,
