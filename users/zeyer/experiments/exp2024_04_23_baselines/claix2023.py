@@ -65,6 +65,7 @@ def py():
     )
 
     # No curriculum learning (epoch filtering) (-> train_epoch_wise_filter=None)
+    # {"dev-clean": 2.4, "dev-other": 5.22, "test-clean": 2.5, "test-other": 5.55}
     aed_train_exp(
         f"96gb-bf16-bs200k-accgrad1-wd1e_2-lrlinEpCont-noCrl-speedpertV2-spm10k-spmSample07",
         config_96gb_bf16_accgrad1,
@@ -176,6 +177,9 @@ def py():
     )
 
     # Lion optimizer (https://arxiv.org/abs/2302.06675, https://github.com/lucidrains/lion-pytorch/)
+    # {"dev-clean": 2.37, "dev-other": 5.52, "test-clean": 2.5, "test-other": 5.68}
+    # (Baseline with Adam: "dev-other": 5.22)
+    # TODO maybe needs more tuning? different wd, lr
     lion_lr_factor = 0.3
     aed_train_exp(
         f"96gb-bf16-bs200k-accgrad1-wd0.0333-lrlinEpCont-lr3e_4-optLion-noCrl-speedpertV2-spm10k-spmSample07",
@@ -429,6 +433,52 @@ def py():
         env_updates={"PYTORCH_CUDA_ALLOC_CONF": "backend:cudaMallocAsync,expandable_segments:True"},
     )
 
+    # Try Lion.
+    train(
+        "lm/trafo-n24-d512-gelu-drop0-b2k_80k-laplace100k-spm10k-lossNoNorm",
+        config=dict_update_deep(
+            config_96gb_bf16_accgrad1,
+            {
+                "calculate_exp_loss": True,
+                "use_normalized_loss": False,
+                **_get_cfg_lrlin_oclr_by_bs_nep_v3(
+                    80_000,
+                    100,
+                    batch_size_factor=1,
+                    peak_lr=1e-3 * lion_lr_factor,
+                    low_lr=1e-5 * lion_lr_factor,
+                    lowest_lr=1e-6 * lion_lr_factor,
+                ),
+                "max_seqs": 2_000,
+                "optimizer.class": "returnn.torch.optim.lion.Lion",
+                "optimizer.weight_decay": 1e-2 / lion_lr_factor,
+                "__train_audio_preprocess": speed_pert_librosa_config,
+                "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
+            },
+            ["optimizer.epsilon"],  # no eps in Lion
+        ),
+        train_dataset=get_librispeech_lm_dataset(
+            vocab="spm10k", train_epoch_split=20, train_sort_laplace_num_seqs=100_000
+        ),
+        model_def=ModelDefWithCfg(
+            lm_model_def,
+            {
+                "_model_def_dict": rf.build_dict(
+                    TransformerDecoder,
+                    encoder_dim=None,
+                    num_layers=24,
+                    model_dim=512,
+                    ff_activation=rf.build_dict(rf.gelu),
+                    dropout=0.0,
+                    att_dropout=0.0,
+                )
+            },
+        ),
+        train_def=lm_train_def,
+        # avoid oom
+        env_updates={"PYTORCH_CUDA_ALLOC_CONF": "backend:cudaMallocAsync,expandable_segments:True"},
+    )
+
     # bf16A
     # Very bad. Stable training but just bad: 49.38 final PPL
     # train(
@@ -495,6 +545,8 @@ def py():
         ),
         train_def=lm_train_def,
     )
+
+    # TODO we could very systematically go through the whole net/model and leave some parts as float32
 
 
 # https://help.itc.rwth-aachen.de/service/rhr4fjjutttf/article/9108f4a6f43c40a3a168919afd36839d/
