@@ -575,6 +575,7 @@ def lm_train_def(
 
     config = get_global_config()  # noqa
     use_normalized_loss = config.bool("use_normalized_loss", True)
+    loss_dtype = config.typed_value("loss_dtype", None)
 
     # potentially also other types but just assume
     # noinspection PyTypeChecker
@@ -607,6 +608,8 @@ def lm_train_def(
     targets_packed, _ = rf.pack_padded(
         targets_w_eos, dims=batch_dims + [targets_w_eos_spatial_dim], enforce_sorted=False, out_dim=pack_dim
     )
+    if loss_dtype:
+        logits_packed = rf.cast(logits_packed, loss_dtype)
 
     log_prob = rf.log_softmax(logits_packed, axis=model.vocab_dim)
     # log_prob = rf.label_smoothed_log_prob_gradient(log_prob, 0.1, axis=model.target_dim)
