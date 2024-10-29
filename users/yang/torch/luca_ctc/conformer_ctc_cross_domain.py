@@ -151,6 +151,37 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
         res.output,
     )
 
+    # luca ctc layer 12, librispeech mean and std
+    # {"dev": 17.52, "test": 18.75} worse than do nothing
+
+
+    model_args = {
+        "ctc_output_args":{
+            "ctc_enc_layer_id": 12,
+        },
+        "use_tedlium_mel_norm": True,
+        "use_librispeech_mel": True,
+    }
+    search_args = {
+        "bsf": bsf,
+        "hash_overwrite": "debug_ctc_layer8",
+        "beam_size": 1,
+        "mask_eos_output": False,
+    }
+    name = _sis_prefix + '/' + f"luca_noeos_ctc_layer12_greedy_tedlium_libri_stats_no_eos_mask_bsf{bsf}"
+    res, _ = recog_model(
+        task,
+        ctc_model_ckpt,
+        recog_def=model_recog_greedy,
+        dev_sets=['dev','test'],  # set to None for all
+        model_args=model_args,
+        search_args=search_args,
+    )
+    tk.register_output(
+        _sis_prefix + '/' + name,
+        res.output,
+    )
+
 
 
 

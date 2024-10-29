@@ -14,17 +14,17 @@ from sisyphus import tk
 #     ConvertTfCheckpointToRfPtJob,
 # )
 
-from i6_experiments.users.gaudino.experiments.rf_conformer_att_2023.librispeech_960.conformer_import_moh_att_2023_06_30 import (
-    MakeModel,
-)
+# from i6_experiments.users.gaudino.experiments.rf_conformer_att_2023.librispeech_960.conformer_import_moh_att_2023_06_30 import (
+#     MakeModel,
+# )
 
-from i6_experiments.users.gaudino.models.asr.rf.conformer_ctc.model_conformer_ctc import (
-    MakeModel as MakeModelCTC,
-)
+# from i6_experiments.users.gaudino.models.asr.rf.conformer_ctc.model_conformer_ctc import (
+#     MakeModel as MakeModelCTC,
+# )
 
-from i6_experiments.users.gaudino.models.asr.rf.joint_model_att_ctc.model_conformer_joint import (
-    MakeModel as MakeModelJoint,
-)
+# from i6_experiments.users.gaudino.models.asr.rf.joint_model_att_ctc.model_conformer_joint import (
+#     MakeModel as MakeModelJoint,
+# )
 
 from i6_experiments.users.gaudino.models.asr.rf.nn_lm.lm_import_2023_11_09 import (
     MakeModel as MakeModelLM,
@@ -211,7 +211,7 @@ def convert_lm(ckpt_path_lm, out_dir, model_target_dim, print_params=False, mode
         )
 
 
-def convert_lstm_lm(ckpt_path_lm, out_dir, model_target_dim, print_params=False, model_args=None):
+def convert_lstm_lm(ckpt_path_lm, out_dir, model_target_dim, print_params=False, model_args=None, output_transpose=False):
     from tensorflow.python.training.py_checkpoint_reader import CheckpointReader
     from returnn.torch.frontend.bridge import rf_module_to_pt_module
 
@@ -240,7 +240,7 @@ def convert_lstm_lm(ckpt_path_lm, out_dir, model_target_dim, print_params=False,
     for name, param in model.named_parameters():
         assert isinstance(name, str)
         assert isinstance(param, rf.Parameter)
-        value = map_param_func_lstm(reader_lm, name, param, param_mapping)
+        value = map_param_func_lstm(reader_lm, name, param, param_mapping, output_transpose=output_transpose)
 
         assert isinstance(value, numpy.ndarray)
         # noinspection PyProtectedMember
@@ -615,7 +615,7 @@ def map_param_func_trafo_lm(
 
 
 def map_param_func_lstm(
-    reader, name: str, var: rf.Parameter, param_mapping: Dict[str, str]
+    reader, name: str, var: rf.Parameter, param_mapping: Dict[str, str], output_transpose= False
 ) -> numpy.ndarray:
     """map params, TF to RF"""
     from tensorflow.python.training.py_checkpoint_reader import CheckpointReader
@@ -649,9 +649,10 @@ def map_param_func_lstm(
         if "lstm" in name and name.endswith(".bias"):
             value = convert_params.convert_tf_lstm_to_torch_lstm_bias(value)
 
-        # if name == "output.weight":
-        #     # value = convert_params_np.convert_tf_lstm_to_native_lstm_ff(value)
-        #     value = value.transpose()
+        if output_transpose:
+            if name == "output.weight":
+                #value = convert_params_np.convert_tf_lstm_to_native_lstm_ff(value)
+                value = value.transpose()
 
         assert (
             value.shape == var.batch_shape
@@ -929,7 +930,7 @@ if __name__ == "__main__":
 
     # Ted2
     convert_lstm_lm(
-        "/work/asr4/michel/setups-data/language_modelling/tedlium/neurallm/decoder_sized_transcripts_only/net-model/network.005",
+        "/work/asr4/michel/setups-data/lm_training/data-train/tedlium_re_i128_m2048_m2048_m2048_m2048.sgd_b32_lr0_cl2.newbobabs.d0.0.1350/net-model/network.020",
         "/work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/2023-08-10--rf-librispeech/work/i6_experiments/users/gaudino/returnn/convert_ckpt_rf/tedlium2/trafo_lm_trans_24_09_04",
         10025,
         print_params=True,

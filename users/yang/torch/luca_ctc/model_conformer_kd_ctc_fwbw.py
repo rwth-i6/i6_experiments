@@ -200,9 +200,9 @@ class Model(rf.Module):
         self.mel_normalization = use_tedlium_mel_norm
         if 'use_librispeech_mel' in model_args:
             # scale the features to librispeech
-            self.scale_to_librispeech = model_args['use_librispeech_mel']
+            self.transfer_to_librispeech = model_args['use_librispeech_mel']
         else:
-            self.scale_to_librispeech = False
+            self.transfer_to_librispeech = False
 
         #self.mel_normalization = config.typed_value("mel_normalization_ted2", False)
 
@@ -368,6 +368,32 @@ class Model(rf.Module):
             source = (source - rf.copy_to_device(ted2_global_mean)) / rf.copy_to_device(
                 ted2_global_stddev
             )
+        if self.transfer_to_librispeech:
+            assert self.mel_normalization, "feature should be normalized first"
+
+            librispeech_gloabl_mean = rf.Tensor(
+                name="libri_global_mean",
+                dims=[source.feature_dim],
+                dtype=source.dtype,
+                raw_tensor=torch.tensor(
+                    np.loadtxt(
+                        "/work/asr3/zyang/share/mnphan/work_rf_ctc/work/i6_core/returnn/forward/ReturnnForwardJobV2.hZgirhXSIs6U/work/stats.mean.txt",
+                        dtype="float32",
+                    )
+                ),
+            )
+            librispeech_gloabl_std = rf.Tensor(
+                name="ted2_global_stddev",
+                dims=[source.feature_dim],
+                dtype=source.dtype,
+                raw_tensor=torch.tensor(
+                    np.loadtxt(
+                        "/work/asr3/zyang/share/mnphan/work_rf_ctc/work/i6_core/returnn/forward/ReturnnForwardJobV2.hZgirhXSIs6U/work/stats.std_dev.txt",
+                        dtype="float32",
+                    )
+                ),
+            )
+            source = source * rf.copy_to_device(librispeech_gloabl_std) + rf.copy_to_device(librispeech_gloabl_mean)
 
         if self._mixup:
             source = self._mixup(source, spatial_dim=in_spatial_dim)
