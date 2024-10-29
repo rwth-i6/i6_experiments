@@ -48,6 +48,7 @@ from i6_experiments.users.schmitt.visualization.visualization import plot_att_we
 from .dump_att_weights import dump_hdfs, scatter_att_weights
 
 from sisyphus import Path
+from .global_.model import GlobalAttentionModel
 
 fontsize_axis = 16
 fontsize_ticks = 14
@@ -1272,8 +1273,14 @@ def analyze_gradients(
 
   if isinstance(model, SegmentalAttentionModel):
     (
-      segment_starts, segment_lens, center_positions, non_blank_targets, non_blank_targets_spatial_dim,
-      non_blank_mask
+      segment_starts,
+      segment_lens,
+      center_positions,
+      non_blank_targets,
+      non_blank_targets_spatial_dim,
+      non_blank_mask,
+      _,
+      _
     ) = get_alignment_args(
       model=model,
       align_targets=targets,
@@ -1343,7 +1350,7 @@ def analyze_gradients(
     sys.settrace(_trace_func)
 
     encoders = [model.encoder]
-    if model.att_encoder:
+    if isinstance(model, SegmentalAttentionModel) and model.att_encoder:
       encoders.append(model.att_encoder)
 
     enc_args_list = []
@@ -1360,7 +1367,7 @@ def analyze_gradients(
 
     enc_spatial_dim = enc_spatial_dim_list[0]
     enc_args = enc_args_list[0]
-    if model.att_encoder:
+    if isinstance(model, SegmentalAttentionModel) and model.att_encoder:
       att_enc_args = enc_args_list[1]
 
       att_enc_args["enc"] = utils.copy_tensor_replace_dim_tag(
@@ -2295,10 +2302,12 @@ def analyze_gradients(
         *[(f"enc-{i}", collected_outputs[str(i)]) for i in range(len(model.encoder.layers) - 1, -1, -1)],
         ("x_linear", x_linear),
       ]
-      if "enc_ctx" in att_enc_args and energies is not None and not model.att_encoder:
+      if isinstance(model, GlobalAttentionModel):
+        tensors.append((f"enc_ctx-{enc_layer_idx}", enc_args["enc_ctx"]))
+      elif "enc_ctx" in att_enc_args and energies is not None and not model.att_encoder:
         tensors.append((f"enc_ctx-{enc_layer_idx}", att_enc_args["enc_ctx"]))
 
-      if model.att_encoder:
+      if isinstance(model, SegmentalAttentionModel) and model.att_encoder:
         tensors.insert(0, ("att_enc-11", att_enc_args["enc"]))
 
       log_gradient_wrt_input_list = []

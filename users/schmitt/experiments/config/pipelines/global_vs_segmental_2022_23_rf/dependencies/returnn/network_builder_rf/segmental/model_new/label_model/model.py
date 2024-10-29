@@ -158,6 +158,7 @@ class SegmentalAttLabelDecoder(BaseLabelDecoder):
           center_positions: rf.Tensor,
           state: rf.State,
           use_mini_att: bool = False,
+          use_zero_att: bool = False,
           detach_prev_att: bool = False,
   ) -> Tuple[Dict[str, rf.Tensor], rf.State]:
     state_ = rf.State()
@@ -182,6 +183,8 @@ class SegmentalAttLabelDecoder(BaseLabelDecoder):
         att_linear = self.mini_att_linear(input_embed)
         pre_mini_att = att_linear
       att = self.mini_att(pre_mini_att)
+    elif use_zero_att:
+      att = rf.zeros_like(prev_att)
     else:
       slice_dim = Dim(name="slice", dimension=segment_lens)
       gather_positions = rf.range_over_dim(slice_dim)

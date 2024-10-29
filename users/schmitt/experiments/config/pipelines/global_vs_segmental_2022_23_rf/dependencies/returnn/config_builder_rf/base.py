@@ -326,6 +326,10 @@ class ConfigBuilderRF(ABC):
       "beam_size": opts.get("beam_size", 12),
     }
 
+    behavior_version = opts.get("behavior_version")
+    if behavior_version is not None:
+      config_dict["behavior_version"] = behavior_version
+
     separate_readout_alpha = opts.get("separate_readout_alpha")
     if separate_readout_alpha is not None:
       config_dict["beam_search_opts"]["separate_readout_alpha"] = separate_readout_alpha
@@ -385,37 +389,45 @@ class ConfigBuilderRF(ABC):
       }
 
       config_dict["beam_search_opts"]["external_lm_scale"] = lm_opts["scale"]
+      lm_eos_scale = lm_opts.get("eos_scale", 1.0)
+      if lm_eos_scale != 1.0:
+        config_dict["beam_search_opts"]["external_lm_eos_scale"] = lm_eos_scale
 
-    ilm_correction_opts = opts.get("ilm_correction_opts", None)
+      add_lm_eos_to_non_blank_end_hyps = lm_opts.get("add_lm_eos_to_non_blank_end_hyps", False)
+      if add_lm_eos_to_non_blank_end_hyps:
+        config_dict["beam_search_opts"]["add_lm_eos_to_non_blank_end_hyps"] = True
+
+    ilm_correction_opts = opts.get("ilm_correction_opts", None)  # type: Optional[Dict]
     if ilm_correction_opts is not None:
-      assert ilm_correction_opts["type"] == "mini_att"
+      ilm_type = ilm_correction_opts["type"]
+      assert ilm_type in ("mini_att", "zero_att")
 
-      config_dict["use_mini_att"] = True
-
-      if "preload_from_files" not in config_dict:
-        config_dict["preload_from_files"] = {}
-      config_dict["preload_from_files"]["mini_lstm"] = {
-        "filename": ilm_correction_opts["mini_att_checkpoint"],
-        "prefix": "do_not_load_",
-        "var_name_mapping": {
-          layer: f"do_not_load_{layer}" for layer in (
-            "label_decoder.mini_att.bias",
-            "label_decoder.mini_att.weight",
-            "label_decoder.mini_att_lstm.bias",
-            "label_decoder.mini_att_lstm.rec_weight",
-            "label_decoder.mini_att_lstm.ff_weight",
-          )} if "lstm" in self.label_decoder_state else {
-          layer: f"do_not_load_{layer}" for layer in (
-            "label_decoder.mini_att.bias",
-            "label_decoder.mini_att.weight",
-            "label_decoder.mini_att_linear.bias",
-            "label_decoder.mini_att_linear.weight",
-          )
+      if ilm_type == "mini_att":
+        config_dict["use_mini_att"] = True
+        if "preload_from_files" not in config_dict:
+          config_dict["preload_from_files"] = {}
+        config_dict["preload_from_files"]["mini_lstm"] = {
+          "filename": ilm_correction_opts["mini_att_checkpoint"],
+          "prefix": "do_not_load_",
+          "var_name_mapping": {
+            layer: f"do_not_load_{layer}" for layer in (
+              "label_decoder.mini_att.bias",
+              "label_decoder.mini_att.weight",
+              "label_decoder.mini_att_lstm.bias",
+              "label_decoder.mini_att_lstm.rec_weight",
+              "label_decoder.mini_att_lstm.ff_weight",
+            )} if "lstm" in self.label_decoder_state else {
+            layer: f"do_not_load_{layer}" for layer in (
+              "label_decoder.mini_att.bias",
+              "label_decoder.mini_att.weight",
+              "label_decoder.mini_att_linear.bias",
+              "label_decoder.mini_att_linear.weight",
+            )
+          }
         }
-      }
 
       config_dict["beam_search_opts"].update({
-        "ilm_type": "mini_att",
+        "ilm_type": ilm_type,
         "ilm_correction_scale": ilm_correction_opts["scale"],
       })
 
@@ -680,6 +692,56 @@ class ConfigBuilderRF(ABC):
     # serialize remaining functions, e.g. dynamic learning rate
     return get_serializable_config(returnn_self_att_config, serialize_dim_tags=False)
 
+  def get_forward_config(self, opts: Dict):
+    config_dict = copy.deepcopy(self.config_dict)
+    post_config_dict = copy.deepcopy(self.post_config_dict)
+    python_prolog = copy.deepcopy(self.python_prolog)
+    python_epilog = copy.deepcopy(self.python_epilog)
+
+    dataset_opts = opts.get("dataset_opts", {})
+    config_dict.update(dict(
+      task="forward",
+      batching=opts.get("batching", "random")
+    ))
+
+    config_dict.update(
+      self.get_search_dataset(
+        dataset_opts=dataset_opts
+      ))
+    extern_data_raw = self.get_extern_data_dict(dataset_opts, config_dict)
+    extern_data_raw = instanciate_delayed(extern_data_raw)
+
+    config_dict["batch_size"] = opts.get("batch_size", 15_000) * self.batch_size_factor
+
+    python_epilog.append(
+      serialization.Collection(
+        [
+          serialization.NonhashedCode(get_import_py_code()),
+          serialization.NonhashedCode(
+            nn.ReturnnConfigSerializer.get_base_extern_data_py_code_str_direct(extern_data_raw)
+          ),
+          *serialize_model_def(self.model_def),
+          serialization.Import(self.get_model_func, import_as="get_model"),
+          serialization.Import(opts["forward_def"], import_as="_forward_def", ignore_import_as_for_hash=True),
+          serialization.Import(opts["forward_step_func"], import_as="forward_step"),
+          serialization.Import(opts["forward_callback"], import_as="forward_callback"),
+          serialization.PythonEnlargeStackWorkaroundNonhashedCode,
+          serialization.PythonCacheManagerFunctionNonhashedCode,
+          serialization.PythonModelineNonhashedCode
+        ]
+      )
+    )
+
+    returnn_forward_config = ReturnnConfig(
+      config=config_dict,
+      post_config=post_config_dict,
+      python_prolog=python_prolog,
+      python_epilog=python_epilog,
+    )
+
+    # serialize remaining functions, e.g. dynamic learning rate
+    return get_serializable_config(returnn_forward_config, serialize_dim_tags=False)
+
   def get_recog_checkpoints(
           self, model_dir: Path, learning_rates: Path, key: str, checkpoints: Dict[int, Checkpoint], n_epochs: int):
     # last checkpoint
@@ -694,9 +756,16 @@ class ConfigBuilderRF(ABC):
     best_n = 4
     best_checkpoints = []
     for i in range(best_n):
-      best_checkpoints.append(GetBestPtCheckpointJob(
+      best_nth_chckpointjob = GetBestPtCheckpointJob(
         model_dir=model_dir, learning_rates=learning_rates, key=key, index=i
-      ).out_checkpoint)
+      )
+      best_checkpoints.append(best_nth_chckpointjob.out_checkpoint)
+      # # remove 2nd-4th best checkpoints to save space
+      # if i != 0:
+      #   import shutil, os
+      #   job_path = best_nth_chckpointjob._sis_path()
+      #   if os.path.exists(job_path):
+      #     shutil.rmtree(job_path)
     best_avg_checkpoint = AverageTorchCheckpointsJob(
       checkpoints=best_checkpoints,
       returnn_python_exe=self.variant_params["returnn_python_exe"],
@@ -1197,56 +1266,6 @@ class GlobalAttConfigBuilderRF(ConfigBuilderRF, ABC):
 
     return super(GlobalAttConfigBuilderRF, self).get_dump_att_weight_config(opts)
 
-  def get_forward_config(self, opts: Dict):
-    config_dict = copy.deepcopy(self.config_dict)
-    post_config_dict = copy.deepcopy(self.post_config_dict)
-    python_prolog = copy.deepcopy(self.python_prolog)
-    python_epilog = copy.deepcopy(self.python_epilog)
-
-    dataset_opts = opts.get("dataset_opts", {})
-    config_dict.update(dict(
-      task="forward",
-      batching=opts.get("batching", "random")
-    ))
-
-    config_dict.update(
-      self.get_search_dataset(
-        dataset_opts=dataset_opts
-      ))
-    extern_data_raw = self.get_extern_data_dict(dataset_opts, config_dict)
-    extern_data_raw = instanciate_delayed(extern_data_raw)
-
-    config_dict["batch_size"] = opts.get("batch_size", 15_000) * self.batch_size_factor
-
-    python_epilog.append(
-      serialization.Collection(
-        [
-          serialization.NonhashedCode(get_import_py_code()),
-          serialization.NonhashedCode(
-            nn.ReturnnConfigSerializer.get_base_extern_data_py_code_str_direct(extern_data_raw)
-          ),
-          *serialize_model_def(self.model_def),
-          serialization.Import(self.get_model_func, import_as="get_model"),
-          serialization.Import(opts["forward_def"], import_as="_forward_def", ignore_import_as_for_hash=True),
-          serialization.Import(opts["forward_step_func"], import_as="forward_step"),
-          serialization.Import(opts["forward_callback"], import_as="forward_callback"),
-          serialization.PythonEnlargeStackWorkaroundNonhashedCode,
-          serialization.PythonCacheManagerFunctionNonhashedCode,
-          serialization.PythonModelineNonhashedCode
-        ]
-      )
-    )
-
-    returnn_forward_config = ReturnnConfig(
-      config=config_dict,
-      post_config=post_config_dict,
-      python_prolog=python_prolog,
-      python_epilog=python_epilog,
-    )
-
-    # serialize remaining functions, e.g. dynamic learning rate
-    return get_serializable_config(returnn_forward_config, serialize_dim_tags=False)
-
 
 class TransducerConfigBuilderRF(ConfigBuilderRF, ABC):
   def get_realign_config(self, opts: Dict):
@@ -1264,6 +1283,10 @@ class TransducerConfigBuilderRF(ConfigBuilderRF, ABC):
 
     if "preload_from_files" in opts:
       config_dict["preload_from_files"] = opts["preload_from_files"]
+
+    use_recombination = opts.get("use_recombination", "max")
+    if use_recombination != "max":
+      config_dict["beam_search_opts"] = {"use_recombination": use_recombination}
 
     config_dict.update(
       self.get_search_dataset(
@@ -1400,7 +1423,7 @@ class SegmentalAttConfigBuilderRF(TransducerConfigBuilderRF, ABC):
     ilm_correction_opts = opts.get("ilm_correction_opts")  # type: Dict
     if ilm_correction_opts:
       recog_config.config["beam_search_opts"].update({
-        "subtract_ilm_eos_score": True,
+        "subtract_ilm_eos_score": ilm_correction_opts.get("correct_eos", True),
       })
 
     if opts.pop("reset_eos_params", False):

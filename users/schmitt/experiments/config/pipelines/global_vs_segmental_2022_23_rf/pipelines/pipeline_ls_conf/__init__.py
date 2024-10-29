@@ -13,6 +13,7 @@ from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segment
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.pipelines.pipeline_ls_conf.center_window_att import baseline_v5_small as center_window_baseline_v5_small
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.pipelines.pipeline_ls_conf.center_window_att import baseline_v6 as center_window_baseline_v6
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.pipelines.pipeline_ls_conf.center_window_att import baseline_v7 as center_window_baseline_v7
+from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.pipelines.pipeline_ls_conf.center_window_att import baseline_v8 as center_window_baseline_v8
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.pipelines.pipeline_ls_conf.center_window_att import data as center_window_att_data
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.pipelines.pipeline_ls_conf.center_window_att import plot_gradient_wrt_enc11, plot_diff_models
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.pipelines.pipeline_ls_conf.center_window_att.alias import alias as center_window_base_alias
@@ -43,9 +44,10 @@ def run_exps():
   center_window_baseline_v3.run_exps()
   center_window_baseline_v4.run_exps()
   center_window_baseline_v5.run_exps()
-  center_window_baseline_v5_small.run_exps()
+  # center_window_baseline_v5_small.run_exps()
   center_window_baseline_v6.run_exps()
   # center_window_baseline_v7.run_exps()
+  center_window_baseline_v8.run_exps()
 
   for folder_name in [
     "log-prob-grads_wrt_enc-11_log-space",

@@ -51,6 +51,12 @@ def _returnn_v2_forward_step(*, model, extern_data: TensorDict, **_kwargs_unused
     # same as with 4, but additionally alignment and alignment_spatial_dim
     hdf_targets, scores, hdf_targets_spatial_dim, hyps, out_spatial_dim, beam_dim = recog_out
     extra = {}
+  elif len(recog_out) == 7:
+    # same as with 4, but additionally alignment and alignment_spatial_dim
+    hdf_targets, scores, hdf_targets_spatial_dim, hyps, out_spatial_dim, beam_dim, ratio_recomb_paths = recog_out
+    extra = {}
+    rf.get_run_ctx().mark_as_output(
+      ratio_recomb_paths, "ratio_recomb_paths", dims=[batch_dim])
   else:
     raise ValueError(f"unexpected num outputs {len(recog_out)} from recog_def")
   assert isinstance(hyps, Tensor) and isinstance(scores, Tensor)
@@ -89,12 +95,17 @@ def _returnn_v2_get_forward_callback():
       self.out_file: Optional[TextIO] = None
       self.out_ext_file: Optional[TextIO] = None
       self.hdf_file: Optional[SimpleHDFWriter] = None
+      self.out_recomb_path_ratio_file: Optional[TextIO] = None
 
     def init(self, *, model):
       import gzip
 
       self.out_file = gzip.open(_v2_forward_out_filename, "wt")
       self.out_file.write("{\n")
+
+      if isinstance(model, SegmentalAttentionModel):
+        self.out_recomb_path_ratio_file = gzip.open("recomb_path_ratio.py.gz", "wt")
+        self.out_recomb_path_ratio_file.write("{\n")
 
       if recog_def_ext:
         self.out_ext_file = gzip.open(_v2_forward_ext_out_filename, "wt")
@@ -114,6 +125,7 @@ def _returnn_v2_get_forward_callback():
       hdf_targets: Tensor = outputs["hdf_targets"]  # [T]
       hyps: Tensor = outputs["hyps"]  # [beam, out_spatial]
       scores: Tensor = outputs["scores"]  # [beam]
+      ratio_recomb_paths: Optional[Tensor] = outputs.data.get("ratio_recomb_paths")
       assert hyps.sparse_dim and hyps.sparse_dim.vocab  # should come from the model
       assert hyps.dims[1].dyn_size_ext, f"hyps {hyps} do not define seq lengths"
       # AED/Transducer etc will have hyps len depending on beam -- however, CTC will not.
@@ -124,12 +136,19 @@ def _returnn_v2_get_forward_callback():
       num_beam = hyps.raw_tensor.shape[0]
       # Consistent to old search task, list[(float,str)].
       self.out_file.write(f"{seq_tag!r}: [\n")
+      if ratio_recomb_paths is not None:
+        self.out_recomb_path_ratio_file.write(f"{seq_tag!r}: {float(ratio_recomb_paths.raw_tensor)},\n")
       for i in range(num_beam):
         score = float(scores.raw_tensor[i])
         hyp_ids = hyps.raw_tensor[
                   i, : hyps_len.raw_tensor[i] if hyps_len.raw_tensor.shape else hyps_len.raw_tensor
                   ]
-        hyp_serialized = hyps.sparse_dim.vocab.get_seq_labels(hyp_ids)
+        try:
+          hyp_serialized = hyps.sparse_dim.vocab.get_seq_labels(hyp_ids)
+        except Exception as e:
+          print(f"Error in get_seq_labels: {e!r}")
+          print(f"hyp_ids: {hyp_ids!r}")
+          exit()
         self.out_file.write(f"  ({score!r}, {hyp_serialized!r}),\n")
       self.out_file.write("],\n")
 
@@ -162,5 +181,8 @@ def _returnn_v2_get_forward_callback():
         self.out_ext_file.close()
       if self.hdf_file:
         self.hdf_file.close()
+      if self.out_recomb_path_ratio_file:
+        self.out_recomb_path_ratio_file.write("}\n")
+        self.out_recomb_path_ratio_file.close()
 
   return _ReturnnRecogV2ForwardCallbackIface()

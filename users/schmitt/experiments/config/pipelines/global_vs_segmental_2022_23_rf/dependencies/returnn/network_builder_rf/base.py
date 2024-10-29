@@ -180,6 +180,8 @@ class BaseLabelDecoder(rf.Module):
         # att_dim = att_num_heads * enc_out_dim
         att_dim = enc_out_dim
 
+    self.att_dim = att_dim
+
     self.decoder_state = decoder_state
     if "lstm" in decoder_state:
       ilm_layer_class = rf.ZoneoutLSTM
@@ -211,7 +213,7 @@ class BaseLabelDecoder(rf.Module):
       )
       if use_att_ctx_in_state:
         self.s_linear = ilm_layer_class(
-          self.target_embed.out_dim + att_dim
+          self.target_embed.out_dim + att_dim,
           **ilm_layer_opts,
         )
       else:

@@ -49,6 +49,9 @@ def model_realign_(
   from returnn.config import get_global_config
   config = get_global_config()
 
+  beam_search_opts = config.typed_value("beam_search_opts", {})
+  use_recombination = beam_search_opts.get("use_recombination", "max")
+
   batch_dims = data.remaining_dims(data_spatial_dim)
   max_num_labels = rf.reduce_max(
     non_blank_targets_spatial_dim.dyn_size_ext,
@@ -60,30 +63,31 @@ def model_realign_(
   # using a beam size of max_num_labels * 2 ensures that we search the whole lattice: the recombination is done
   # after top-k, which means each node at a certain time step can have two hypotheses which lead there. at most,
   # there are max_num_labels nodes at a time step, hence the max_num_labels * 2 beam size.
-  if config.bool("debug", False):
-    viterbi_alignment, seq_log_prob, viterbi_alignment_spatial_dim, _, _, beam_dim = recog.model_recog_on_lattice(
-      model=model,
-      data=data,
-      data_spatial_dim=data_spatial_dim,
-      beam_size=max_num_labels * 2,
-      use_recombination="max",
-      cheating_targets=non_blank_targets,
-      cheating_targets_spatial_dim=non_blank_targets_spatial_dim,
-    )
-  else:
-    viterbi_alignment, seq_log_prob, viterbi_alignment_spatial_dim, _, _, beam_dim = recog.model_recog(
-      model=model,
-      data=data,
-      data_spatial_dim=data_spatial_dim,
-      beam_size=max_num_labels * 2,
-      use_recombination="max",
-      cheating_targets=non_blank_targets,
-      cheating_targets_spatial_dim=non_blank_targets_spatial_dim,
-      return_non_blank_seqs=False,
-    )
+  # if config.bool("debug", False):
+  #   viterbi_alignment, seq_log_prob, viterbi_alignment_spatial_dim, _, _, beam_dim = recog.model_recog_on_lattice(
+  #     model=model,
+  #     data=data,
+  #     data_spatial_dim=data_spatial_dim,
+  #     beam_size=max_num_labels * 2,
+  #     use_recombination=use_recombination,
+  #     cheating_targets=non_blank_targets,
+  #     cheating_targets_spatial_dim=non_blank_targets_spatial_dim,
+  #   )
+  # else:
+  viterbi_alignment, seq_log_prob, viterbi_alignment_spatial_dim, _, _, beam_dim, recomb_path_counter = recog.model_recog(
+    model=model,
+    data=data,
+    data_spatial_dim=data_spatial_dim,
+    beam_size=max_num_labels * 2,
+    use_recombination=use_recombination,
+    cheating_targets=non_blank_targets,
+    cheating_targets_spatial_dim=non_blank_targets_spatial_dim,
+  )
 
   # reduce to best score (remove beam dim)
+  best_hyp = rf.reduce_argmax(seq_log_prob, axis=beam_dim)
   seq_log_prob = rf.reduce_max(seq_log_prob, axis=beam_dim)
+  best_recomb_path_counter = rf.gather(recomb_path_counter, indices=best_hyp, axis=beam_dim)
 
   # if data.feature_dim and data.feature_dim.dimension == 1:
   #   data = rf.squeeze(data, axis=data.feature_dim)
@@ -102,7 +106,7 @@ def model_realign_(
   #   use_recombination="max",
   # )
 
-  return viterbi_alignment, seq_log_prob, viterbi_alignment_spatial_dim
+  return viterbi_alignment, seq_log_prob, viterbi_alignment_spatial_dim, best_recomb_path_counter
 
 
 # def model_realign(
@@ -1288,20 +1292,22 @@ def _returnn_v2_forward_step(*, model, extern_data: TensorDict, **_kwargs_unused
     non_blank_targets_spatial_dim=targets_spatial_dim,
   )
 
-  if len(realign_out) == 3:
+  if len(realign_out) == 4:
     # realign results including viterbi_align,
     # log probs {batch,},
     # out_spatial_dim,
-    viterbi_align, scores, out_spatial_dim = realign_out
+    viterbi_align, scores, out_spatial_dim, recomb_path_counter = realign_out
   else:
     raise ValueError(f"unexpected num outputs {len(realign_out)} from recog_def")
   assert isinstance(viterbi_align, Tensor) and isinstance(scores, Tensor)
   assert isinstance(out_spatial_dim, Dim)
   rf.get_run_ctx().mark_as_output(viterbi_align, "viterbi_align", dims=[batch_dim, out_spatial_dim])
   rf.get_run_ctx().mark_as_output(scores, "scores", dims=[batch_dim,])
+  rf.get_run_ctx().mark_as_output(recomb_path_counter, "recomb_path_counter", dims=[batch_dim, ])
 
 
 _v2_forward_out_scores_filename = "scores.py.gz"
+_v2_forward_out_recomb_path_counter_filename = "recomb_path_counter.py.gz"
 _v2_forward_out_alignment_filename = "realignment.hdf"
 
 
@@ -1316,6 +1322,7 @@ def _returnn_v2_get_forward_callback():
   class _ReturnnRecogV2ForwardCallbackIface(ForwardCallbackIface):
     def __init__(self):
       self.score_file: Optional[TextIO] = None
+      self.recomb_path_counter_file: Optional[TextIO] = None
       self.alignment_file: Optional[SimpleHDFWriter] = None
 
     def init(self, *, model):
@@ -1324,6 +1331,9 @@ def _returnn_v2_get_forward_callback():
       self.score_file = gzip.open(_v2_forward_out_scores_filename, "wt")
       self.score_file.write("{\n")
 
+      self.recomb_path_counter_file = gzip.open(_v2_forward_out_recomb_path_counter_filename, "wt")
+      self.recomb_path_counter_file.write("{\n")
+
       self.alignment_file = SimpleHDFWriter(
         filename=_v2_forward_out_alignment_filename, dim=model.target_dim.dimension, ndim=1
       )
@@ -1331,11 +1341,13 @@ def _returnn_v2_get_forward_callback():
     def process_seq(self, *, seq_tag: str, outputs: TensorDict):
       viterbi_align: Tensor = outputs["viterbi_align"]  # [T]
       scores: Tensor = outputs["scores"]  # []
+      recomb_path_counter: Tensor = outputs["recomb_path_counter"]
       assert len(viterbi_align.dims) == 1, f"expected hyps to be 1D, but got {viterbi_align.dims}"
       assert viterbi_align.dims[0].dyn_size_ext, f"viterbi_align {viterbi_align} does not define seq lengths"
-      self.score_file.write(f"{seq_tag!r}: ")
       score = float(scores.raw_tensor)
-      self.score_file.write(f"{score!r},\n")
+      self.score_file.write(f"{seq_tag!r}: {score!r},\n")
+
+      self.recomb_path_counter_file.write(f"{seq_tag!r}: {int(recomb_path_counter.raw_tensor)},\n")
 
       seq_len = viterbi_align.dims[0].dyn_size_ext.raw_tensor.item()
       viterbi_align_raw = viterbi_align.raw_tensor[:seq_len]
@@ -1350,6 +1362,8 @@ def _returnn_v2_get_forward_callback():
     def finish(self):
       self.score_file.write("}\n")
       self.score_file.close()
+      self.recomb_path_counter_file.write("}\n")
+      self.recomb_path_counter_file.close()
       self.alignment_file.close()
 
   return _ReturnnRecogV2ForwardCallbackIface()

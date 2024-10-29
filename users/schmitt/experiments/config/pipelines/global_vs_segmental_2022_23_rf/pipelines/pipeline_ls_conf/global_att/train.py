@@ -39,6 +39,7 @@ def train_global_att(
         hard_att_opts: Optional[Dict] = None,
         cutoff_initial_silence: bool = False,
         use_speed_pert_w_flip: bool = False,
+        weight_decay: float = 1e-6,
 ):
   # alias += (
   #         f"/train_from_scratch/{n_epochs}-epochs_wo-ctc-loss"

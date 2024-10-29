@@ -25,32 +25,48 @@ def run_exps():
     accum_grad_multiple_step_,
     use_att_ctx_in_state,
     att_h_t_dropout,
-    regularization_type,
+    weight_decay,
     blank_decoder_version,
     blank_decoder_opts,
     n_full_epochs_fixed_path,
     n_full_epochs_full_sum,
+    lr_scale,
   ) in [
-    ("v1", 1, False, False, None, False, 0.0, "v1", 4, None, 30, 15),  # standard transducer
-    ("v1_long", 1, False, False, None, False, 0.0, "v1", 4, None, 70, 30),  # standard transducer, longer training
-    ("v1_accum1", 1, False, False, 1, False, 0.0, "v1", 4, None, 30, 15),  # standard transducer, accum 1
-    ("v1_accum1_reg_v3", 1, False, False, 1, False, 0.0, "v3", 4, None, 30, 15),  # standard transducer, accum 1, v3 regularization
-    ("v1_accum1_reg_v3", 1, False, False, 1, False, 0.0, "v4", 4, None, 30, 15),  # standard transducer, accum 1, v4 regularization
-    ("v1_accum1_reg_v3", 1, False, False, 1, False, 0.0, "v5", 4, None, 30, 15),  # standard transducer, accum 1, v5 regularization
-    ("v1_accum1_reg_v3_blank-drop-0.3", 1, False, False, 1, False, 0.0, "v3", 4, {"dropout": 0.3}, 30, 15),  # standard transducer, accum 1, v3 regularization, blank dropout
-    ("v1_accum1_reg_v3_blank-v11", 1, False, False, 1, False, 0.0, "v3", 11, None, 30, 15),  # standard transducer, accum 1, v3 regularization, blank v11
-    ("v2", None, True, False, None, False, 0.0, "v1", 4, None, 30, 15),  # transducer with transformer attention
-    ("v3", None, True, True, None, False, 0.0, "v1", 4, None, 30, 15),  # transducer with transformer w/o cross attention
-    ("v4", None, False, False, None, True, 0.0, "v1", 4, None, 30, 15),  # standard transducer with global LSTM att and att ctx in state
-    ("v5", None, True, False, None, False, 0.3, "v1", 4, None, 30, 15),  # transducer with transformer attention with random gate
-    ("v5_drop0.5", None, True, False, None, False, 0.5, "v1", 4, None, 30, 15),  # transducer with transformer attention with random gate
+    ("v1", 1, False, False, None, False, 0.0, 1e-6, 4, None, 30, 15, 1.0),  # standard transducer
+    ("v1_long_two-stage", 1, False, False, None, False, 0.0, 1e-6, 4, None, 60, 40, 1.0),  # standard transducer, longer training
+    ("v1_accum1", 1, False, False, 1, False, 0.0, 1e-6, 4, None, 30, 15, 1.0),  # standard transducer, accum 1
+    ("v1_accum1_reg_v3", 1, False, False, 1, False, 0.0, 0.01, 4, None, 30, 15, 1.0),  # standard transducer, accum 1, v3 regularization
+    ("v1_accum1_reg_v3_lr-scale-2.0", 1, False, False, 1, False, 0.0, 0.01, 4, None, 30, 15, 2.0),  # standard transducer, accum 1, v3 regularization, lr scale 2.0
+    ("v1_accum1_reg_v4_lr-scale-2.0", 1, False, False, 1, False, 0.0, 2e-2, 4, None, 30, 15, 2.0),  # standard transducer, accum 1, v3 regularization, lr scale 2.0
+    ("v1_accum1_reg_v4", 1, False, False, 1, False, 0.0, 2e-2, 4, None, 30, 15, 1.0),  # standard transducer, accum 1, v4 regularization
+    ("v1_accum1_reg_v5", 1, False, False, 1, False, 0.0, 4e-2, 4, None, 30, 15, 1.0),  # standard transducer, accum 1, v5 regularization
+    ("v1_accum1_reg_v3_blank-drop-0.3", 1, False, False, 1, False, 0.0, 0.01, 4, {"dropout": 0.3}, 30, 15, 1.0),  # standard transducer, accum 1, v3 regularization, blank dropout
+    ("v1_accum1_reg_v3_blank-v11", 1, False, False, 1, False, 0.0, 0.01, 11, None, 30, 15, 1.0),  # standard transducer, accum 1, v3 regularization, blank v11
+    ("v2", None, True, False, None, False, 0.0, 1e-6, 4, None, 30, 15, 1.0),  # transducer with transformer attention
+    ("v3", None, True, True, None, False, 0.0, 1e-6, 4, None, 30, 15, 1.0),  # transducer with transformer w/o cross attention
+    ("v4", None, False, False, None, True, 0.0, 1e-6, 4, None, 30, 15, 1.0),  # standard transducer with global LSTM att and att ctx in state
+    ("v4_long_two-stage", None, False, False, None, True, 0.0, 1e-6, 4, None, 60, 40, 1.0),  # standard transducer with global LSTM att and att ctx in state
+    ("v5", None, True, False, None, False, 0.3, 1e-6, 4, None, 30, 15, 1.0),  # transducer with transformer attention with random gate
+    ("v5_drop0.5", None, True, False, None, False, 0.5, 1e-6, 4, None, 30, 15, 1.0),  # transducer with transformer attention with random gate
   ]:
     gpu_mem_rqmts = [24]
     if alias == "v1":
       gpu_mem_rqmts.append(11)
     if alias in [
-      "v1_accum1", "v4", "v1_accum1_reg_v3", "v1_accum1_reg_v3_blank-drop-0.3", "v1_accum1_reg_v3_blank-v11"]:
+      "v1_accum1",
+      "v4",
+      "v1_accum1_reg_v3",
+      "v1_accum1_reg_v4",
+      "v1_accum1_reg_v5",
+      "v1_accum1_reg_v3_blank-drop-0.3",
+      "v1_accum1_reg_v3_blank-v11",
+      "v1_accum1_reg_v3_lr-scale-2.0",
+      "v1_accum1_reg_v4_lr-scale-2.0"
+    ]:
       gpu_mem_rqmts = [11]
+
+    if "long" in alias:
+      gpu_mem_rqmts = [24]
 
     for gpu_mem_rqmt in gpu_mem_rqmts:
       if gpu_mem_rqmt == 24:
@@ -100,15 +116,22 @@ def run_exps():
                 accum_grad_multiple_step=accum_grad_multiple_step,
                 lr_scheduling_opts={
                   "type": "dyn_lr_piecewise_linear_epoch-wise_v2",
-                  "init_lr": 1e-5,
-                  "peak_lr": 1e-3,
-                  "lr2": 1e-5,
+                  "init_lr": 1e-5 * lr_scale,
+                  "peak_lr": 1e-3 * lr_scale,
+                  "lr2": 1e-5 * lr_scale,
                 },
                 att_h_t_dropout=att_h_t_dropout,
-                regularization_type=regularization_type,
+                weight_decay=weight_decay,
         ):
           checkpoint_aliases = ("last",)
-          if alias in ("v1_accum1_reg_v3_blank-drop-0.3", "v1_accum1_reg_v3_blank-v11"):
+          if alias in (
+                  "v1_accum1_reg_v4",
+                  "v1_accum1_reg_v5",
+                  "v1_accum1_reg_v3_lr-scale-2.0",
+                  "v1_accum1_reg_v4_lr-scale-2.0"
+          ):
+            checkpoint_aliases = ("last", "best", "best-4-avg")
+          if "long" in alias:
             checkpoint_aliases = ("last", "best", "best-4-avg")
 
           recog.center_window_returnn_frame_wise_beam_search(
@@ -198,6 +221,9 @@ def run_exps():
           params += [(3e-4, False), (1e-4, False)]
           if alias == "v1":
             params += [(3e-4, True)]
+
+        if "long" in alias:
+          params += [(1e-4, True)]
         for peak_lr, use_normalized_loss in params:
           for full_sum_train_alias, full_sum_checkpoint in train.train_center_window_att(
                   alias=model_alias,
@@ -212,7 +238,7 @@ def run_exps():
                   ctc_aux_loss_layers=(4, 8),
                   gpu_mem_rqmt=gpu_mem_rqmt,
                   accum_grad_multiple_step=accum_grad_multiple_step * 3,
-                  regularization_type=regularization_type,
+                  weight_decay=weight_decay,
                   checkpoint_path=fixed_path_checkpoint["checkpoints"][n_epochs_fixed_path],
                   checkpoint_alias="fixed-path_30-full-epochs",
                   lr_scheduling_opts={

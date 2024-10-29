@@ -43,6 +43,7 @@ def get_center_window_att_config_builder_rf(
         use_sep_att_encoder: bool = False,
         use_sep_h_t_readout: bool = False,
         window_step_size: int = 1,
+        use_vertical_transitions: bool = False,
 ) -> Tuple[str, LibrispeechSegmentalAttConformerConfigBuilderRF]:
   assert bpe_vocab_size in {10025, 1056, 5048, 10240}
 
@@ -111,13 +112,14 @@ def get_center_window_att_config_builder_rf(
     use_trafo_att_wo_cross_att=use_trafo_att_wo_cross_att,
     use_sep_att_encoder=use_sep_att_encoder,
     use_sep_h_t_readout=use_sep_h_t_readout,
-    window_step_size=window_step_size
+    window_step_size=window_step_size,
+    use_vertical_transitions=use_vertical_transitions
   )
 
   alias = (
     f"behavior-{behavior_version}/"
     f"bpe-size-{bpe_vocab_size}/"
-    f"win-size-{win_size}-step{window_step_size}"
+    f"win-size-{win_size}-step{window_step_size}{'-vert' if use_vertical_transitions else ''}"
     f"{'_gaussian-std-' + str(gaussian_att_weight_opts['std']) if gaussian_att_weight_opts else ''}/"
     f"{'w' if use_weight_feedback else 'wo'}-wf_"
     f"{'w' if use_att_ctx_in_state else 'wo'}-ctx-in-s/"

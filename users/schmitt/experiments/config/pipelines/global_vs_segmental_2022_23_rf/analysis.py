@@ -19,6 +19,7 @@ from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segment
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf import dump_self_att as dump_self_att_forward_funcs
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.segmental import realignment as realignment_forward_funcs
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.global_ import forward as global_att_forward_funcs
+from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.segmental import forward as center_window_forward_funcs
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.labels.v2.librispeech.phonemes.gmm_alignments import LIBRISPEECH_GMM_ALIGNMENT
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.labels.v2.librispeech.label_singletons import LIBRISPEECH_CORPUS
 
@@ -228,7 +229,9 @@ def analyze_gradients(
     analyze_gradients_config.config["forward_data"]["dataset"]["datasets"]["zip_dataset"]["files"] = [concat_samples_hdf]
     analyze_gradients_config.config["forward_data"] = analyze_gradients_config.config["forward_data"]["dataset"]
 
-  output_files = ["targets.hdf"] + [f"enc-{n}" for n in range(config_builder.conformer_num_layers)]
+  output_files = ["targets.hdf"]
+  if plot_encoder_layers or plot_log_gradients:
+    output_files += [f"enc-{n}" for n in range(config_builder.conformer_num_layers)]
   if not analyze_gradients_config.config.get("use_trafo_att_wo_cross_att", False):
     output_files += ["cross-att"]
   analyze_gradients_job = ReturnnForwardJobV2(
@@ -264,7 +267,10 @@ def calculate_search_errors(
         best_search_hyp_hdf: Path,
         alias: str,
         corpus_key: str,
+        realignment_use_recombination: Optional[bool] = None,
 ):
+  realignment_use_recombination = "max"  # set fixed for now
+
   if "concat" in corpus_key:
     corpus_key_ = corpus_key
     corpus_key = corpus_key_.split("_")[0]
@@ -280,8 +286,9 @@ def calculate_search_errors(
         "realign_def": realignment_forward_funcs.model_realign_,
         "forward_step_func": realignment_forward_funcs._returnn_v2_forward_step,
         "forward_callback": realignment_forward_funcs._returnn_v2_get_forward_callback,
-        "dataset_opts": {"target_is_alignment": False, "concat_num": concat_num},
+        "dataset_opts": {"target_is_alignment": False, "concat_num": concat_num, "corpus_key": corpus_key},
         "batch_size": 15_000,
+        "use_recombination": realignment_use_recombination,
       })
     realign_job = ReturnnForwardJobV2(
       model_checkpoint=checkpoint,
@@ -292,8 +299,45 @@ def calculate_search_errors(
       mem_rqmt=6,
       time_rqmt=1,
     )
-    ground_truth_scores_file = realign_job.out_files["scores.py.gz"]
+    realign_job.add_alias(f"{alias}/analysis/realign")
     ground_truth_seqs_hdf = realign_job.out_files["realignment.hdf"]
+
+    if realignment_use_recombination == "sum" and False:  # ignore for now
+      for alignment_hdf in (ground_truth_seqs_hdf, best_search_hyp_hdf):
+        forward_config = config_builder.get_forward_config(
+          opts={
+            "corpus_key": corpus_key,
+            "forward_def": center_window_forward_funcs.model_forward,
+            "forward_step_func": center_window_forward_funcs._returnn_v2_forward_step,
+            "forward_callback": center_window_forward_funcs._returnn_v2_get_forward_callback,
+            "dataset_opts": {
+              "target_is_alignment": True,
+              "concat_num": concat_num,
+              "corpus_key": corpus_key,
+              "hdf_targets": {corpus_key: alignment_hdf}
+            },
+            "batch_size": 15_000,
+          }
+        )
+        forward_job = ReturnnForwardJobV2(
+          model_checkpoint=checkpoint,
+          returnn_config=forward_config,
+          returnn_root=returnn_root,
+          returnn_python_exe=returnn_python_exe,
+          output_files=["scores.py.gz"],
+          mem_rqmt=6,
+          time_rqmt=1,
+        )
+        forward_job.add_alias(f"{alias}/analysis/forward")
+
+        if alignment_hdf == ground_truth_seqs_hdf:
+          ground_truth_scores_file = forward_job.out_files["scores.py.gz"]
+        else:
+          search_hyps_scores_file = forward_job.out_files["scores.py.gz"]
+      search_hyps_file = None
+    else:
+      ground_truth_scores_file = realign_job.out_files["scores.py.gz"]
+      search_hyps_scores_file = None
 
     target_blank_idx = config_builder.variant_params["dependencies"].model_hyperparameters.blank_idx
   else:
@@ -304,7 +348,7 @@ def calculate_search_errors(
         "forward_def": global_att_forward_funcs.model_forward,
         "forward_step_func": global_att_forward_funcs._returnn_v2_forward_step,
         "forward_callback": global_att_forward_funcs._returnn_v2_get_forward_callback,
-        "dataset_opts": {"target_is_alignment": False, "concat_num": concat_num},
+        "dataset_opts": {"target_is_alignment": False, "concat_num": concat_num, "corpus_key": corpus_key},
         "batch_size": 15_000,
       }
     )
@@ -317,6 +361,7 @@ def calculate_search_errors(
       mem_rqmt=6,
       time_rqmt=1,
     )
+    forward_job.add_alias(f"{alias}/analysis/forward")
     ground_truth_scores_file = forward_job.out_files["scores.py.gz"]
 
     forward_dataset = forward_config.config["forward_data"]
@@ -333,6 +378,7 @@ def calculate_search_errors(
   calc_search_errors_job = CalcSearchErrorJobRF(
     ground_truth_scores_file=ground_truth_scores_file,
     search_hyps_file=search_hyps_file,
+    search_hyps_scores_file=search_hyps_scores_file,
     search_seqs_hdf=best_search_hyp_hdf,
     ground_truth_hdf=ground_truth_seqs_hdf,
     target_blank_idx=target_blank_idx,

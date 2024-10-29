@@ -1,0 +1,2 @@
+Baseline label model (full explicit label ctx + implicit align ctx (ctx vector in state))
+Blank decoder V3 (full alignment ctx)

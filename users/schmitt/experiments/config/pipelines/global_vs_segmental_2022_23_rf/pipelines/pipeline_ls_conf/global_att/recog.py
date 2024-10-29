@@ -46,6 +46,7 @@ def global_att_returnn_label_sync_beam_search(
         analysis_dump_gradients_input_layer_name: str = "encoder_input",
         analysis_analyze_gradients_plot_encoder_layers: bool = False,
         analsis_analyze_gradients_plot_log_gradients: bool = False,
+        behavior_version: Optional[int] = None,
 ):
   if lm_type is not None:
     assert len(checkpoint_aliases) == 1, "Do LM recog only for the best checkpoint"
@@ -60,6 +61,7 @@ def global_att_returnn_label_sync_beam_search(
     "recog_def": model_recog,
     "forward_step_func": _returnn_v2_forward_step,
     "forward_callback": _returnn_v2_get_forward_callback,
+    "behavior_version": behavior_version,
   }
   if concat_num is not None:
     recog_opts["dataset_opts"] = {"concat_num": concat_num}

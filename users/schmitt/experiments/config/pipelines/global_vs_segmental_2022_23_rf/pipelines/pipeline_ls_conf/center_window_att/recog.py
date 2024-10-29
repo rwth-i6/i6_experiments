@@ -27,7 +27,7 @@ def center_window_returnn_frame_wise_beam_search(
         ilm_type: Optional[str] = None,
         lm_alias: Optional[str] = "kazuki-10k",
         lm_checkpoint: Optional[Checkpoint] = lm_checkpoints["kazuki-10k"],
-        subtract_ilm_eos_score: bool = False,
+        subtract_ilm_eos_score: bool = True,
         beam_size_list: Tuple[int, ...] = (12,),
         checkpoint_aliases: Tuple[str, ...] = ("last", "best", "best-4-avg"),
         run_analysis: bool = False,
@@ -52,11 +52,14 @@ def center_window_returnn_frame_wise_beam_search(
         analsis_analyze_gradients_plot_log_gradients: bool = False,
         separate_readout_alpha: Optional[float] = None,
         external_aed_opts: Optional[Dict] = None,
+        calc_search_errors: bool = False,
+        add_lm_eos_to_non_blank_end_hyps: bool = False,
+        lm_eos_scale: float = 1.0,
 ):
   if lm_type is not None:
     assert len(checkpoint_aliases) == 1, "Do LM recog only for the best checkpoint"
 
-  ilm_opts = {"type": ilm_type}
+  ilm_opts = {"type": ilm_type, "correct_eos": subtract_ilm_eos_score}
   if ilm_type == "mini_att":
     ilm_opts.update({
       "use_se_loss": False,
@@ -102,6 +105,7 @@ def center_window_returnn_frame_wise_beam_search(
       "dump_gradients": analysis_dump_gradients,
       "analyze_gradients_plot_encoder_layers": analysis_analyze_gradients_plot_encoder_layers,
       "analyze_gradients_plot_log_gradients": analsis_analyze_gradients_plot_log_gradients,
+      "calc_search_errors": calc_search_errors,
     }
     if analysis_ground_truth_hdf is None and isinstance(config_builder.variant_params["dependencies"], LibrispeechBPE10025):
       analysis_ground_truth_hdf = LibrispeechBPE10025_CTC_ALIGNMENT.alignment_paths[corpus_keys[0]]
@@ -119,7 +123,14 @@ def center_window_returnn_frame_wise_beam_search(
     checkpoint_aliases=checkpoint_aliases,
     beam_sizes=beam_size_list,
     lm_scales=lm_scale_list,
-    lm_opts={"type": lm_type, "add_lm_eos_last_frame": True, "alias": lm_alias, "checkpoint": lm_checkpoint},
+    lm_opts={
+      "type": lm_type,
+      "add_lm_eos_last_frame": True,
+      "add_lm_eos_to_non_blank_end_hyps": add_lm_eos_to_non_blank_end_hyps,
+      "eos_scale": lm_eos_scale,
+      "alias": lm_alias,
+      "checkpoint": lm_checkpoint
+    },
     ilm_scales=ilm_scale_list,
     ilm_opts=ilm_opts,
     run_analysis=run_analysis,

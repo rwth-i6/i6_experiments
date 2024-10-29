@@ -20,24 +20,25 @@ def _get_reduced_input_len(input_len: int, config_builder: LibrispeechSegmentalA
 
 
 regularization_opts = {
-  "v1": {
-    "weight_decay": 1e-6,
-  },
+  "v1": {},
   "v2": {
     "weight_dropout": 0.1,
-    "weight_decay": 1e-2,
+    # "weight_decay": 1e-2,
     "att_dropout": 0.2,
     "target_embed_dropout": 0.1,
   },
-  "v3": {
-    "weight_decay": 0.01,
-  },
-  "v4": {
-    "weight_decay": 2e-2,
-  },
-  "v5": {
-    "weight_decay": 4e-2,
-  },
+  # "v3": {
+  #   "weight_decay": 0.01,
+  # },
+  # "v4": {
+  #   "weight_decay": 2e-2,
+  # },
+  # "v5": {
+  #   "weight_decay": 4e-2,
+  # },
+  # "v6": {
+  #   "weight_decay": 5e-3,
+  # },
 }
 
 
@@ -67,13 +68,14 @@ def get_common_train_opts_rqmt(
         disable_enc_self_att_until_epoch: Optional[int] = None,
         cutoff_initial_silence: bool = False,
         use_speed_pert_w_flip: bool = False,
+        weight_decay: float = 1e-6,
 ):
   alias = (
     f"/{training_type}_from_{'scratch' if checkpoint_alias is None else checkpoint_alias}"
     f"/{n_epochs}-ep_bs-{batch_size}{'_mgpu-4' if use_mgpu else ''}_{'w' if use_speed_pert else 'wo'}-sp"
     f"{'-w-flip' if use_speed_pert_w_flip else ''}"
     f"_{'curric' if use_curriculum_learning else 'no-curric'}"
-    f"_reg-{regularization_type}{'_filter-data-' + str(filter_data_len) if filter_data_len else ''}"
+    f"_wd-{weight_decay}_reg-{regularization_type}{'_filter-data-' + str(filter_data_len) if filter_data_len else ''}"
     f"{'_filter-target-' + str(filter_target_len) if filter_target_len else ''}"
     f"_accum-{accum_grad_multiple_step}{'_rand-seed-' + str(random_seed) if random_seed is not None else ''}"
     f"{'_no-self-att-until-' + str(disable_enc_self_att_until_epoch) if disable_enc_self_att_until_epoch is not None else ''}"
@@ -120,7 +122,7 @@ def get_common_train_opts_rqmt(
         "rf.LearnedRelativePositionalEncoding",
       ],
       "epsilon": 1e-16,
-      "weight_decay": reg_opts.pop("weight_decay"),
+      "weight_decay": weight_decay,
     },
     "cleanup_old_models": {"keep": keep_epochs if keep_epochs else [n_epochs], "keep_best_n": 4, "keep_last_n": 1},
     **reg_opts,

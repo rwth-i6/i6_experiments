@@ -92,11 +92,6 @@ class DecodingExperiment(ABC):
       alias += "/ilm_correction_scale-%f" % self.ilm_correction_opts["scale"]
       if self.ilm_correction_opts.get("type", "mini_att") == "mini_att":
         alias += "/mini_att"
-        if "correct_eos" in self.ilm_correction_opts:
-          if self.ilm_correction_opts["correct_eos"]:
-            alias += "/correct_eos"
-          else:
-            alias += "/wo_correct_eos"
         if self.ilm_correction_opts.get("use_se_loss", False):
           alias += "/w_se_loss"
         else:
@@ -105,6 +100,13 @@ class DecodingExperiment(ABC):
           alias += "/mini_att_train_num_epochs-%d" % self.ilm_correction_opts["mini_att_train_num_epochs"]
       elif self.ilm_correction_opts["type"] == "zero_att":
         alias += "/zero_att"
+
+      alias += f"/{'wo_' if not self.ilm_correction_opts.get('correct_eos', True) else ''}correct-eos"
+      # if "correct_eos" in self.ilm_correction_opts:
+      #   if self.ilm_correction_opts["correct_eos"]:
+      #     alias += "/correct_eos"
+      #   else:
+      #     alias += "/wo_correct_eos"
     else:
       alias += "/wo_ilm_correction"
 
@@ -319,10 +321,10 @@ class ReturnnDecodingExperiment(DecodingExperiment, ABC):
 
     self.alias += "/returnn_decoding" if search_alias is None else f"/{search_alias}"
 
-    use_recombination = self.recog_opts.get("use_recombination")
-    if use_recombination is not None:
-      assert use_recombination in {"sum", "max"}
-      self.alias += f"_w-{use_recombination}-recomb"
+    self.use_recombination = self.recog_opts.get("use_recombination")
+    if self.use_recombination is not None:
+      assert self.use_recombination in {"sum", "max"}
+      self.alias += f"_w-{self.use_recombination}-recomb"
 
     if isinstance(self, ReturnnSegmentalAttDecodingExperiment):
       length_scale = self.config_builder.variant_params["network"]["length_scale"]
@@ -342,9 +344,10 @@ class ReturnnDecodingExperiment(DecodingExperiment, ABC):
 
     lm_opts = self.recog_opts.get("lm_opts")
     if lm_opts is not None:
-      self.alias += f"/bpe-{lm_opts['type']}-{lm_opts['alias']}-lm-scale-{lm_opts['scale']}"
+      self.alias += f"/bpe-{lm_opts['type']}-{lm_opts['alias']}-lm-scale-{lm_opts['scale']}-lm-eos-scale-{lm_opts.get('eos_scale', 1.0)}"
       if "add_lm_eos_last_frame" in lm_opts:
-        self.alias += "_add-lm-eos-%s" % lm_opts["add_lm_eos_last_frame"]
+        self.alias += f"_add-lm-eos-to-b-hyps-{lm_opts['add_lm_eos_last_frame']}"
+      self.alias += f"_add-lm-eos-to-nb-hyps-{lm_opts.get('add_lm_eos_to_non_blank_end_hyps', False)}"
       self.alias = self.get_ilm_correction_alias(self.alias)
     else:
       self.alias += "/no-lm"
@@ -494,6 +497,7 @@ class ReturnnDecodingExperiment(DecodingExperiment, ABC):
           best_search_hyp_hdf=self.best_search_hyps_hdf,
           alias=self.alias,
           corpus_key=self.stm_corpus_key,
+          realignment_use_recombination=self.use_recombination,
         )
     else:
       forward_recog_config = self.config_builder.get_recog_config_for_forward_job(opts=self.recog_opts)

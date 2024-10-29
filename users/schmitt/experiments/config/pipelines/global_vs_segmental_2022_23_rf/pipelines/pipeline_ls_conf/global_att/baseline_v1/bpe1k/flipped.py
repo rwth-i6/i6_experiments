@@ -9,6 +9,7 @@ import os
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.labels.v2.librispeech.phonemes.gmm_alignments import LIBRISPEECH_GMM_WORD_ALIGNMENT
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.labels.v2.librispeech.label_singletons import LibrispeechBPE1056_LABELS
 from i6_experiments.users.schmitt.visualization.visualization import PlotAttentionWeightsJobV2, PlotSelfAttentionWeightsOverEpochsJob
+from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.pipelines.pipeline_ls_conf.checkpoints import lm_checkpoints
 
 from sisyphus import Path, tk
 from sisyphus.delayed_ops import DelayedFormat
@@ -37,45 +38,45 @@ def run_exps():
           conv_frontend_w_zero_padding,
           cutoff_initial_silence,
           use_speed_pert_w_flip,
-          regularization_type,
+          weight_decay,
           accum_grad_multiple_step_,
   ) in [
     # ["v3_big", None, None, None, False, 12, 512, False, False, False, list(range(1, 240)), 24], # v3_big: same as v2, but on 24gb GPU with batch size 40k
-    ["v3_rand-9999", 9999, None, None, False, 12, 512, False, False, False, list(range(1, 240)), 11, None, None, False, False, False, False, False, "v1", None],  # v3_big_rand - flipped
-    ["v3_rand-1234", 1234, None, None, False, 12, 512, False, False, False, list(range(1, 240)), 11, None, None, False, False, False, False, False, "v1", None],  # v3_big_rand -
-    ["v3_rand-1111", 1111, None, None, False, 12, 512, False, False, False, list(range(1, 240)), 11, None, None, False, False, False, False, False, "v1", None],  # v3_big_rand
-    ["v3_rand-4321", 4321, None, None, False, 12, 512, False, False, False, list(range(1, 240)), 11, None, None, False, False, False, False, False, "v1", None],  # v3_big_rand
-    ["v3_rand-5678", 5678, None, None, False, 12, 512, False, False, False, list(range(10, 80, 10)), 11, None, None, False, False, False, False, False, "v1", None],  # v3_big_rand
-    ["v3_big_rand-5678", 5678, None, None, False, 12, 512, False, False, False, list(range(20, 200, 20)), 24, None, None, False, False, False, False, False, "v1", None],  # v3_big_rand
-    ["v3_rand-8765", 8765, None, None, False, 12, 512, False, False, False, list(range(10, 80, 10)), 11, None, None, False, False, False, False, False, "v1", None],  # v3_big_rand
-    ["v3_rand-2222", 2222, None, None, False, 12, 512, False, False, False, list(range(10, 80, 10)), 11, None, None, False, False, False, False, False, "v1", None],  # v3_big_rand
-    ["v3_big_rand-2222", 2222, None, None, False, 12, 512, False, False, False, list(range(20, 200, 20)), 24, None, None, False, False, False, False, False, "v1", None],  # v3_big_rand
-    ["v3_rand-3333", 3333, None, None, False, 12, 512, False, False, False, list(range(10, 80, 10)), 11, None, None, False, False, False, False, False, "v1", None],  # v3_big_rand
-    ["v5", None, 21, None, False, 12, 512, False, False, False, list(range(61)), 11, None, None, False, False, False, False, False, "v1", None],  # v5_big: same as v3_big, but enable self attention only after 20 sub-epochs (1 full epoch)
-    ["v5_rand-1234", 1234, 21, None, False, 12, 512, False, False, False, list(range(61)), 11, None, None, False, False, False, False, False, "v1", None],  # v5_big: same as v3_big, but enable self attention only after 20 sub-epochs (1 full epoch)
-    ["v5_big_rand-1234", 1234, 21, None, False, 12, 512, False, False, False, list(range(20, 200, 20)), 24, None, None, False, False, False, False, False, "v1", None],  # v5_big: same as v3_big, but enable self attention only after 20 sub-epochs (1 full epoch)
-    ["v6_big", None, None, None, False, 12, 512, False, False, True, list(range(1, 240)), 24, None, None, False, False, False, False, False, "v1", None],  # v6_big: same as v3_big, but use both absolute and relative positional encodings
-    ["v6", None, None, None, False, 12, 512, False, False, True, list(range(1, 240)), 11, None, None, False, False, False, False, False, "v1", None], # v6_big: same as v3_big, but use both absolute and relative positional encodings
+    ["v3_rand-9999", 9999, None, None, False, 12, 512, False, False, False, list(range(1, 240)), 11, None, None, False, False, False, False, False, 1e-6, None],  # v3_big_rand - flipped
+    ["v3_rand-1234", 1234, None, None, False, 12, 512, False, False, False, list(range(1, 240)), 11, None, None, False, False, False, False, False, 1e-6, None],  # v3_big_rand -
+    ["v3_rand-1111", 1111, None, None, False, 12, 512, False, False, False, list(range(1, 240)), 11, None, None, False, False, False, False, False, 1e-6, None],  # v3_big_rand
+    ["v3_rand-4321", 4321, None, None, False, 12, 512, False, False, False, list(range(1, 240)), 11, None, None, False, False, False, False, False, 1e-6, None],  # v3_big_rand
+    ["v3_rand-5678", 5678, None, None, False, 12, 512, False, False, False, list(range(10, 80, 10)), 11, None, None, False, False, False, False, False, 1e-6, None],  # v3_big_rand
+    ["v3_big_rand-5678", 5678, None, None, False, 12, 512, False, False, False, list(range(20, 200, 20)), 24, None, None, False, False, False, False, False, 1e-6, None],  # v3_big_rand
+    ["v3_rand-8765", 8765, None, None, False, 12, 512, False, False, False, list(range(10, 80, 10)), 11, None, None, False, False, False, False, False, 1e-6, None],  # v3_big_rand
+    ["v3_rand-2222", 2222, None, None, False, 12, 512, False, False, False, list(range(10, 80, 10)), 11, None, None, False, False, False, False, False, 1e-6, None],  # v3_big_rand
+    ["v3_big_rand-2222", 2222, None, None, False, 12, 512, False, False, False, list(range(20, 200, 20)), 24, None, None, False, False, False, False, False, 1e-6, None],  # v3_big_rand
+    ["v3_rand-3333", 3333, None, None, False, 12, 512, False, False, False, list(range(10, 80, 10)), 11, None, None, False, False, False, False, False, 1e-6, None],  # v3_big_rand
+    ["v5", None, 21, None, False, 12, 512, False, False, False, list(range(61)), 11, None, None, False, False, False, False, False, 1e-6, None],  # v5_big: same as v3_big, but enable self attention only after 20 sub-epochs (1 full epoch)
+    ["v5_rand-1234", 1234, 21, None, False, 12, 512, False, False, False, list(range(61)), 11, None, None, False, False, False, False, False, 1e-6, None],  # v5_big: same as v3_big, but enable self attention only after 20 sub-epochs (1 full epoch)
+    ["v5_big_rand-1234", 1234, 21, None, False, 12, 512, False, False, False, list(range(20, 200, 20)), 24, None, None, False, False, False, False, False, 1e-6, None],  # v5_big: same as v3_big, but enable self attention only after 20 sub-epochs (1 full epoch)
+    ["v6_big", None, None, None, False, 12, 512, False, False, True, list(range(1, 240)), 24, None, None, False, False, False, False, False, 1e-6, None],  # v6_big: same as v3_big, but use both absolute and relative positional encodings
+    ["v6", None, None, None, False, 12, 512, False, False, True, list(range(1, 240)), 11, None, None, False, False, False, False, False, 1e-6, None], # v6_big: same as v3_big, but use both absolute and relative positional encodings
     # ["v7_big", None, None, None, True, 12, 512, False, False, False, [121, 131, 141], 24, None, None, False],  # v7_big: same as v3_big, but do not use final layer norm in conformer encoder layers
-    ["v7", None, None, None, True, 12, 512, False, False, False, [121, 131, 141], 11, None, None, False, False, False, False, False, "v1", None],  # v7: same as v3_big, but do not use final layer norm in conformer encoder layers
-    ["v8", None, None, (4, 8), False, 12, 512, False, False, False, list(range(51)), 11, None, None, False, False, False, False, False, "v1", None],  # v8_big: same as v3_big, but use CTC aux loss
-    ["v8_big", None, None, (4, 8), False, 12, 512, False, False, False, list(range(20, 200, 20)), 24, None, None, False, False, False, False, False, "v1", None],  # v8_big: same as v3_big, but use CTC aux loss
-    ["v85_big", None, 21, (4, 8), False, 12, 512, False, False, False, list(range(20, 200, 20)), 24, None, None, False, False, False, False, False, "v1", None],  # v8_big: same as v3_big, but use CTC aux loss
+    ["v7", None, None, None, True, 12, 512, False, False, False, [121, 131, 141], 11, None, None, False, False, False, False, False, 1e-6, None],  # v7: same as v3_big, but do not use final layer norm in conformer encoder layers
+    ["v8", None, None, (4, 8), False, 12, 512, False, False, False, list(range(51)), 11, None, None, False, False, False, False, False, 1e-6, None],  # v8_big: same as v3_big, but use CTC aux loss
+    ["v8_big", None, None, (4, 8), False, 12, 512, False, False, False, list(range(20, 200, 20)), 24, None, None, False, False, False, False, False, 1e-6, None],  # v8_big: same as v3_big, but use CTC aux loss
+    ["v85_big", None, 21, (4, 8), False, 12, 512, False, False, False, list(range(20, 200, 20)), 24, None, None, False, False, False, False, False, 1e-6, None],  # v8_big: same as v3_big, but use CTC aux loss
     # ["v9_big", None, None, None, False, 17, 400, False, False, False, list(range(1, 240)), 24, None, None, False],  # v9_big: same as v3_big, but use 17 instead of 12 encoder layers and 400 instead of 512 output dim
-    ["v9", None, None, None, False, 17, 400, False, False, False, list(range(1, 240)), 11, None, None, False, False, False, False, False, "v1", None], # v9: same as v3_big, but use 17 instead of 12 encoder layers and 400 instead of 512 output dim
-    ["v9_rand-1234", 1234, None, None, False, 17, 400, False, False, False, list(range(1, 122)), 11, None, None, False, False, False, False, False, "v1", None],  # v9: same as v3_big, but use 17 instead of 12 encoder layers and 400 instead of 512 output dim
+    ["v9", None, None, None, False, 17, 400, False, False, False, list(range(1, 240)), 11, None, None, False, False, False, False, False, 1e-6, None], # v9: same as v3_big, but use 17 instead of 12 encoder layers and 400 instead of 512 output dim
+    ["v9_rand-1234", 1234, None, None, False, 17, 400, False, False, False, list(range(1, 122)), 11, None, None, False, False, False, False, False, 1e-6, None],  # v9: same as v3_big, but use 17 instead of 12 encoder layers and 400 instead of 512 output dim
     # ["v10", None, None, None, False, 12, 512, True, False, False, list(range(1, 240)), 11, None, None, False, False, False, False, False], # v10_big: same as v3_big, but without convolution module in conformer encoder layers
     # ["v11_big", None, None, None, False, 12, 512, False, False, False, list(range(1, 240)), 24, "encoder_input", None, False], # v11_big: same as v3_big, but use encoder input as att keys
-    ["v11", None, None, None, False, 12, 512, False, False, False, list(range(1, 240)), 11, "encoder_input", None, False, False, False, False, False, "v1", None],  # v11_big: same as v3_big, but use encoder input as att keys
+    ["v11", None, None, None, False, 12, 512, False, False, False, list(range(1, 240)), 11, "encoder_input", None, False, False, False, False, False, 1e-6, None],  # v11_big: same as v3_big, but use encoder input as att keys
     # ["v12_big", None, None, None, False, 12, 512, False, False, False, list(range(1, 240)), 24, None, {"frame": "middle", "until_epoch": 100, "num_interpolation_epochs": 20}, False], # v12_big: same as v3_big, but use hard att on center frame until sub-epoch 100
-    ["v12", None, None, None, False, 12, 512, False, False, False, list(range(1, 240)), 11, None, {"frame": "middle", "until_epoch": 100, "num_interpolation_epochs": 20}, False, False, False, False, False, "v1", None],  # v12_big: same as v3_big, but use hard att on center frame until sub-epoch 100
-    ["v13", None, None, None, False, 12, 512, False, False, False, list(range(1, 240)), 11, None, None, True, False, False, False, False, "v1", None], # v13: same as v3_big, but set padding to zero before depthwise conv in conformer encoder layers
+    ["v12", None, None, None, False, 12, 512, False, False, False, list(range(1, 240)), 11, None, {"frame": "middle", "until_epoch": 100, "num_interpolation_epochs": 20}, False, False, False, False, False, 1e-6, None],  # v12_big: same as v3_big, but use hard att on center frame until sub-epoch 100
+    ["v13", None, None, None, False, 12, 512, False, False, False, list(range(1, 240)), 11, None, None, True, False, False, False, False, 1e-6, None], # v13: same as v3_big, but set padding to zero before depthwise conv in conformer encoder layers
     # ["v14", None, None, None, False, 6, 512, False, False, False, list(range(1, 240)), 11, None, None, False, True, False, False, False],  # v14: same as v3_big, but use FF encoder with 6 layers -> not converged
-    ["v15", None, None, None, False, 12, 512, False, True, False, list(range(1, 240)), 11, None, None, False, False, False, False, False, "v1", None],  # v15: same as v3, but without pos encoding
-    ["v16", None, None, None, False, 12, 512, False, False, False, list(range(1, 120)), 11, None, None, True, False, True, False, False, "v1", None],  # v16: same as v3, but set padding to zero before depthwise conv in conformer encoder layers and before conv in frontend
-    ["v17", None, None, None, False, 12, 512, False, False, False, list(range(1, 120)), 11, None, None, False, False, False, True, False, "v1", None],  # v17: same as v3, but cut off initial silence
-    ["v19", None, None, None, False, 12, 512, False, False, False, list(range(1, 240)), 11, None, None, False, False, False, False, True, "v1", None],  # v19: same as v3 but reverse audio
-    ["v20", None, None, None, False, 12, 512, False, False, False, list(range(10, 100, 10)), 11, None, None, False, False, False, False, False, "v3", 1],  # v3_big_rand - flipped
+    ["v15", None, None, None, False, 12, 512, False, True, False, list(range(1, 240)), 11, None, None, False, False, False, False, False, 1e-6, None],  # v15: same as v3, but without pos encoding
+    ["v16", None, None, None, False, 12, 512, False, False, False, list(range(1, 120)), 11, None, None, True, False, True, False, False, 1e-6, None],  # v16: same as v3, but set padding to zero before depthwise conv in conformer encoder layers and before conv in frontend
+    ["v17", None, None, None, False, 12, 512, False, False, False, list(range(1, 120)), 11, None, None, False, False, False, True, False, 1e-6, None],  # v17: same as v3, but cut off initial silence
+    ["v19", None, None, None, False, 12, 512, False, False, False, list(range(1, 240)), 11, None, None, False, False, False, False, True, 1e-6, None],  # v19: same as v3 but reverse audio
+    ["v20", None, None, None, False, 12, 512, False, False, False, list(range(10, 100, 10)), 11, None, None, False, False, False, False, False, 0.01, 1],  # v20: same as v3 but with weight decay 1e-2 and grad accum 1
   ]:
     for model_alias, config_builder in baseline.global_att_baseline_rf(
             use_weight_feedback=True,
@@ -129,7 +130,7 @@ def run_exps():
               hard_att_opts=hard_att_opts,
               cutoff_initial_silence=cutoff_initial_silence,
               use_speed_pert_w_flip=use_speed_pert_w_flip,
-              regularization_type=regularization_type,
+              weight_decay=weight_decay,
       ):
         recog.global_att_returnn_label_sync_beam_search(
           alias=train_alias,
@@ -152,6 +153,28 @@ def run_exps():
           ],
           corpus_keys=("train",),
         )
+
+        if alias == "v20":
+          for lm_scale, ilm_scale in [
+            (0.54, 0.4),
+            (0.5, 0.4),
+            (0.6, 0.4),
+          ]:
+            lm_alias = "1k_max-seq-length-112_24-layers_512-dim"
+            recog.global_att_returnn_label_sync_beam_search(
+              alias=train_alias,
+              config_builder=config_builder,
+              checkpoint=checkpoint,
+              corpus_keys=("dev-other",),
+              checkpoint_aliases=("last",),
+              lm_type="trafo",
+              lm_scale_list=(lm_scale,),
+              ilm_scale_list=(ilm_scale,),
+              ilm_type="mini_att",
+              lm_alias=lm_alias,
+              lm_checkpoint=lm_checkpoints[lm_alias],
+              behavior_version=21,  # otherwise trafo lm logits weight dims are flipped apparently
+            )
 
         for epoch, chckpt in checkpoint["checkpoints"].items():
         #   if epoch in [61, 225] and alias == "v16":
