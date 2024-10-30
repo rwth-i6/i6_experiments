@@ -420,6 +420,7 @@ def py():
         (0.3, 1e-3),
     ]:
         wd = wd / lion_lr_factor
+        wd = round(wd, 6)
         train(
             f"lm/trafo-n24-d512-gelu-drop0"
             f"-wd{wd}-lr{str(1e-3 * lion_lr_factor).replace('-', '_')}-optLion"
