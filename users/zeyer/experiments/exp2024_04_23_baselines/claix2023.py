@@ -274,6 +274,7 @@ def py():
     # with pure bf16, 30k seems to be fine.
 
     # TODO clean this up once we have a better fixed setup.
+    # PPL 35.58 (!!!)
     train(
         "lm/trafo-n96-d512-gelu-drop0-epSplit4-b200_200k-spm10k",
         config=dict_update_deep(
@@ -467,7 +468,7 @@ def py():
         )
 
     # bf16A
-    # Very bad. Stable training but just bad: 49.38 final PPL
+    # Very bad. Stable training but just bad: 49.38 final PPL (compared to 35.58 PPL)
     # train(
     #     "lm/trafo-n96-d512-gelu-bf16A-drop0-b400_20k-spm10k",
     #     config=dict_update_deep(
@@ -501,37 +502,7 @@ def py():
     # )
 
     # bf16A, loss_dtype="float32"
-    train(
-        "lm/trafo-n24-d512-gelu-bf16A-lossF32-drop0-b2k_80k-spm10k",
-        config=dict_update_deep(
-            config_96gb_bf16_accgrad1,
-            {
-                "torch_amp": None,
-                "default_float_dtype": "bfloat16",
-                "loss_dtype": "float32",
-                **_get_cfg_lrlin_oclr_by_bs_nep_v3(80_000, 100, batch_size_factor=1),
-                "max_seqs": 2_000,
-                "optimizer.weight_decay": 1e-2,
-                "calculate_exp_loss": True,
-            },
-        ),
-        train_dataset=get_librispeech_lm_dataset(vocab="spm10k", train_epoch_split=20),
-        model_def=ModelDefWithCfg(
-            lm_model_def,
-            {
-                "_model_def_dict": rf.build_dict(
-                    TransformerDecoder,
-                    encoder_dim=None,
-                    num_layers=24,
-                    model_dim=512,
-                    ff_activation=rf.build_dict(rf.gelu),
-                    dropout=0.0,
-                    att_dropout=0.0,
-                )
-            },
-        ),
-        train_def=lm_train_def,
-    )
+    #   50.38 PPL, even worse with loss_dtype float32 (49.39 PPL, which is much worse than baseline 35.58 PPL)?
 
     # TODO we could very systematically go through the whole net/model and leave some parts as float32
 
