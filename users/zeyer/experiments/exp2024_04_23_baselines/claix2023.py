@@ -505,7 +505,7 @@ def py():
 
     # laplace100k is maybe too much. Try laplace10k.
     train(
-        f"lm/trafo-n24-d512-gelu-drop0-b2k_80k-laplace10k-spm10k-lossNoNorm",
+        f"lm/trafo-n24-d512-gelu-drop0-b2k_80k-accgrad2-laplace10k-spm10k-lossNoNorm",
         config=dict_update_deep(
             config_96gb_bf16_accgrad1,
             {
