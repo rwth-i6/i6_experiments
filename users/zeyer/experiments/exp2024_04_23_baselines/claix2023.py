@@ -561,27 +561,13 @@ def py():
 
     # TODO we could very systematically go through the whole net/model and leave some parts as float32
 
-    # TODO robin bpe1k...
-
-    robin_bpe1k_vocab = generic_job_output(
-        "i6_core/text/label/subword_nmt/train/ReturnnTrainBpeJob.qhkNn2veTWkV/output/bpe.vocab"
-    )
-    robin_bpe1k_codes = generic_job_output(
-        "i6_core/text/label/subword_nmt/train/ReturnnTrainBpeJob.qhkNn2veTWkV/output/bpe.codes"
-    )
-
-    # from i6_experiments.common.datasets.librispeech.vocab import get_subword_nmt_bpe_v2
-    #
-    # robin_bpe1k = get_subword_nmt_bpe_v2(corpus_key="train-other-960", bpe_size=1000)
-    # assert (
-    #     robin_bpe1k.bpe_vocab.creator.job_id() == "i6_core/text/label/subword_nmt/train/ReturnnTrainBpeJob.qhkNn2veTWkV"
-    # )
-
+    from i6_experiments.common.datasets.librispeech.vocab import get_subword_nmt_bpe
     from i6_experiments.users.zeyer.datasets.utils.bpe import Bpe
 
-    robin_bpe1k = Bpe(
-        dim=1056, codes=robin_bpe1k_codes, vocab=robin_bpe1k_vocab, eos_idx=0, bos_idx=0, unknown_label="<unk>"
-    )
+    # Get the bpe1k vocab exactly as some others from our group (Mohammad, Robin, ...).
+    bpe1k = get_subword_nmt_bpe(corpus_key="train-other-960", bpe_size=1000)
+    bpe1k = Bpe(dim=1056, codes=bpe1k.bpe_codes, vocab=bpe1k.bpe_vocab, eos_idx=0, bos_idx=0, unknown_label="<unk>")
+    assert bpe1k.codes.creator.job_id() == "i6_core/text/label/subword_nmt/train/ReturnnTrainBpeJob.qhkNn2veTWkV"
     train(
         "lm/trafo-n32-d1024-gelu-drop0-b400_20k-bpe1k",
         config=dict_update_deep(
@@ -593,7 +579,7 @@ def py():
                 "calculate_exp_loss": True,
             },
         ),
-        train_dataset=get_librispeech_lm_dataset(vocab=robin_bpe1k, train_epoch_split=20),
+        train_dataset=get_librispeech_lm_dataset(vocab=bpe1k, train_epoch_split=20),
         model_def=ModelDefWithCfg(
             lm_model_def,
             {
