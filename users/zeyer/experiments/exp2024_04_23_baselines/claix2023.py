@@ -20,6 +20,7 @@ from i6_experiments.users.zeyer.train_v4 import train, ModelDefWithCfg
 import returnn.frontend as rf
 from returnn.frontend.decoder.transformer import TransformerDecoder
 from returnn.frontend.encoder.conformer import ConformerEncoderLayer, ConformerPositionwiseFeedForward
+from ...utils.generic_job_output import generic_job_output
 
 
 def py():
@@ -274,38 +275,7 @@ def py():
     # I think 20k without factor is reasonable with bf16 AMP.
     # with pure bf16, 30k seems to be fine.
 
-    # TODO clean this up once we have a better fixed setup.
-    # PPL 35.58 (!!!)
-    train(
-        "lm/trafo-n96-d512-gelu-drop0-epSplit4-b200_200k-spm10k",
-        config=dict_update_deep(
-            config_96gb_bf16_accgrad1,
-            {
-                # NOTE: wrong batch size factor
-                **_get_cfg_lrlin_oclr_by_bs_nep_v3(200_000, 20, batch_size_factor=_batch_size_factor),
-                "max_seqs": 200,
-                "optimizer.weight_decay": 1e-2,
-                "calculate_exp_loss": True,
-            },
-        ),
-        train_dataset=get_librispeech_lm_dataset(vocab="spm10k", train_epoch_split=4),
-        model_def=ModelDefWithCfg(
-            lm_model_def,
-            {
-                "_model_def_dict": rf.build_dict(
-                    TransformerDecoder,
-                    encoder_dim=None,
-                    num_layers=96,
-                    model_dim=512,
-                    ff_activation=rf.build_dict(rf.gelu),
-                    dropout=0.0,
-                    att_dropout=0.0,
-                )
-            },
-        ),
-        train_def=lm_train_def,
-    )
-
+    # 35.3 PPL (!!!)
     train(
         "lm/trafo-n96-d512-gelu-drop0-b400_20k-spm10k",
         config=dict_update_deep(
@@ -590,6 +560,56 @@ def py():
     #   50.38 PPL, even worse with loss_dtype float32 (49.39 PPL, which is much worse than baseline 35.58 PPL)?
 
     # TODO we could very systematically go through the whole net/model and leave some parts as float32
+
+    # TODO robin bpe1k...
+
+    robin_bpe1k_vocab = generic_job_output(
+        "i6_core/text/label/subword_nmt/train/ReturnnTrainBpeJob.qhkNn2veTWkV/output/bpe.vocab"
+    )
+    robin_bpe1k_codes = generic_job_output(
+        "i6_core/text/label/subword_nmt/train/ReturnnTrainBpeJob.qhkNn2veTWkV/output/bpe.codes"
+    )
+
+    # from i6_experiments.common.datasets.librispeech.vocab import get_subword_nmt_bpe_v2
+    #
+    # robin_bpe1k = get_subword_nmt_bpe_v2(corpus_key="train-other-960", bpe_size=1000)
+    # assert (
+    #     robin_bpe1k.bpe_vocab.creator.job_id() == "i6_core/text/label/subword_nmt/train/ReturnnTrainBpeJob.qhkNn2veTWkV"
+    # )
+
+    from i6_experiments.users.zeyer.datasets.utils.bpe import Bpe
+
+    robin_bpe1k = Bpe(
+        dim=1056, codes=robin_bpe1k_codes, vocab=robin_bpe1k_vocab, eos_idx=0, bos_idx=0, unknown_label="<unk>"
+    )
+    train(
+        "lm/trafo-n32-d1024-gelu-drop0-b400_20k-bpe1k",
+        config=dict_update_deep(
+            config_96gb_bf16_accgrad1,
+            {
+                **_get_cfg_lrlin_oclr_by_bs_nep_v3(20_000, 100, batch_size_factor=1),
+                "max_seqs": 400,
+                "optimizer.weight_decay": 1e-2,
+                "calculate_exp_loss": True,
+            },
+        ),
+        train_dataset=get_librispeech_lm_dataset(vocab=robin_bpe1k, train_epoch_split=20),
+        model_def=ModelDefWithCfg(
+            lm_model_def,
+            {
+                "_model_def_dict": rf.build_dict(
+                    TransformerDecoder,
+                    encoder_dim=None,
+                    num_layers=32,
+                    model_dim=1024,
+                    ff_activation=rf.build_dict(rf.gelu),
+                    dropout=0.0,
+                    att_dropout=0.0,
+                )
+            },
+        ),
+        train_def=lm_train_def,
+    )
 
 
 # https://help.itc.rwth-aachen.de/service/rhr4fjjutttf/article/9108f4a6f43c40a3a168919afd36839d/
