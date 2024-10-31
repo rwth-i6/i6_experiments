@@ -6,6 +6,7 @@ from __future__ import annotations
 
 from i6_experiments.users.zeyer.utils.dict_update import dict_update_deep
 from i6_experiments.users.zeyer.speed_pert.librosa_config import speed_pert_librosa_config
+from i6_experiments.users.zeyer.lr_schedules.piecewise_linear import dyn_lr_piecewise_linear
 
 from .configs import config_24gb_v6, _get_cfg_lrlin_oclr_by_bs_nep_v3, _batch_size_factor
 from .aed import train_exp as aed_train_exp
@@ -447,6 +448,49 @@ def py():
             # avoid oom
             env_updates={"PYTORCH_CUDA_ALLOC_CONF": "backend:cudaMallocAsync,expandable_segments:True"},
         )
+
+    # Maybe more, or slower warmup? Or smaller batch size initially?
+    n_ep = 100
+    peak_lr, low_lr, lowest_lr = 1e-3, 1e-5, 1e-6
+    train(
+        f"lm/trafo-n24-d512-gelu-drop0-b2k_80k-laplace100k-lrLowWarm-spm10k-lossNoNorm",
+        config=dict_update_deep(
+            config_96gb_bf16_accgrad1,
+            {
+                "__num_epochs": n_ep,
+                "batch_size": 80_000,
+                "max_seqs": 2_000,
+                "learning_rate": 1.0,
+                "dynamic_learning_rate": dyn_lr_piecewise_linear,
+                "learning_rate_piecewise_by_epoch_continuous": True,
+                "learning_rate_piecewise_steps": [0.05 * n_ep, 0.5 * n_ep, 0.9 * n_ep, n_ep],
+                "learning_rate_piecewise_values": [lowest_lr, low_lr, peak_lr, low_lr, lowest_lr],
+                "optimizer.weight_decay": 1e-2,
+                "calculate_exp_loss": True,
+                "use_normalized_loss": False,
+            },
+        ),
+        train_dataset=get_librispeech_lm_dataset(
+            vocab="spm10k", train_epoch_split=20, train_sort_laplace_num_seqs=100_000
+        ),
+        model_def=ModelDefWithCfg(
+            lm_model_def,
+            {
+                "_model_def_dict": rf.build_dict(
+                    TransformerDecoder,
+                    encoder_dim=None,
+                    num_layers=24,
+                    model_dim=512,
+                    ff_activation=rf.build_dict(rf.gelu),
+                    dropout=0.0,
+                    att_dropout=0.0,
+                )
+            },
+        ),
+        train_def=lm_train_def,
+        # avoid oom
+        env_updates={"PYTORCH_CUDA_ALLOC_CONF": "backend:cudaMallocAsync,expandable_segments:True"},
+    )
 
     # trafo-n24-d512-gelu-drop0-wd1e_3-b2k_80k-laplace100k-spm10k-lossNoNorm:
     #   Less weight decay wd=1e-3. 41.0 PPL, unstable training.
