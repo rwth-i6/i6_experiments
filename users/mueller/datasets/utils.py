@@ -6,19 +6,19 @@ from i6_core.lib import corpus
 from sisyphus import Job, Task as SisTask, tk
 from i6_core.util import uopen
 
-class CorpusReplaceOrthFromHDFJob(Job):
+class CorpusReplaceOrthFromPyDictJob(Job):
     """
     Merge HDF pseude labels back into a bliss corpus
     """
 
-    def __init__(self, bliss_corpus, hdf_file, segment_file=None):
+    def __init__(self, bliss_corpus, recog_words_file, segment_file=None):
         """
         :param Path bliss_corpus: Bliss corpus
-        :param Path hdf_file: a hdf file
+        :param Path recog_words_file: a recog_words file
         :param Path|None segment_file: only replace the segments as specified in the segment file
         """
         self.bliss_corpus = bliss_corpus
-        self.hdf_file = hdf_file
+        self.recog_words_file = recog_words_file
         self.segment_file = segment_file
 
         self.out_corpus = self.output_path("corpus.xml.gz")
@@ -36,13 +36,17 @@ class CorpusReplaceOrthFromHDFJob(Job):
             segment_iterator = filter(lambda s: s.fullname() in segments_whitelist, c.segments())
         else:
             segment_iterator = c.segments()
+            
+        d = eval(uopen(self.recog_words_file, "rt").read(), {"nan": float("nan"), "inf": float("inf")})
+        assert isinstance(d, dict), "only search output file with dict format is supported"
+        
+        # TODO look at returnn/search.py SearchWordsDummyTimesToCTMJob
 
-        with uopen(self.hdf_file.get_path(), "rt") as f: # TODO open hdf file
-            for segment, line in itertools.zip_longest(segment_iterator, f):
-                assert segment is not None, "there were more text file lines than segments"
-                assert line is not None, "there were less text file lines than segments"
-                assert len(line) > 0
-                segment.orth = line.strip()
+        for segment, line in itertools.zip_longest(segment_iterator, d):
+            assert segment is not None, "there were more text file lines than segments"
+            assert line is not None, "there were less text file lines than segments"
+            assert len(line) > 0
+            segment.orth = line.strip()
 
         c.dump(self.out_corpus.get_path())
         

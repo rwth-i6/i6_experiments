@@ -36,7 +36,7 @@ if TYPE_CHECKING:
     from returnn.tensor import Tensor, Dim
     from i6_experiments.users.zeyer.collect_model_dataset_stats import StatisticsOutput
     
-from .utils import CorpusReplaceOrthFromHDFJob, get_ogg_zip_dict_pseude_labels
+from .utils import CorpusReplaceOrthFromPyDictJob, get_ogg_zip_dict_pseude_labels
 
 _alias_prefix = "datasets/LibriSpeech/"
 
@@ -52,7 +52,7 @@ def _get_bliss_corpus_dict() -> Dict[str, tk.Path]:
     # WARNING: Do not use these directly... It will keep another ogg copy of the audio...
     # However, these are used later in the scoring, so when changing them, make sure it's optional,
     # to not break hashes of old setups.
-    return librispeech.get_bliss_corpus_dict(audio_format="ogg")
+    return librispeech.get_bliss_corpus_dict(audio_format="ogg") # TODO check when this is used as it might lead to not using pseudo labels in the scoring
 
 
 @cache
@@ -62,7 +62,7 @@ def _get_librispeech_ogg_zip_dict_pseudo_labels(pseudo_labels_path: tk.Path) -> 
     # load pseude labels and replace here
     for name in ['train-clean-100', 'train-clean-360', 'train-clean-460', 'train-other-500', 'train-other-960']: # TODO do we have to do it for all datasets?
         bliss_corpus = bliss_corpus_dict[name]
-        replace_job = CorpusReplaceOrthFromHDFJob(bliss_corpus, pseudo_labels_path)
+        replace_job = CorpusReplaceOrthFromPyDictJob(bliss_corpus, pseudo_labels_path)
         replace_job.add_alias(os.path.join("datasets", "LibriSpeech-PseudoLabels", "%s_replace_orth" % name.replace('-', '_')))
         bliss_corpus_dict[name] = replace_job.out_corpus
 

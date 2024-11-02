@@ -8,8 +8,9 @@ import copy
 import functools
 from typing import TYPE_CHECKING, Optional, Union, Tuple, Sequence, Callable
 
-from returnn.tensor import Tensor, Dim
+from returnn.tensor import Tensor, Dim, batch_dim
 import returnn.frontend as rf
+import returnn.torch.frontend as rtf
 from returnn.frontend.tensor_array import TensorArray
 from returnn.frontend.encoder.conformer import ConformerEncoder, ConformerEncoderLayer, ConformerConvSubsample
 from returnn.frontend.decoder.transformer import TransformerDecoder
@@ -55,17 +56,22 @@ def py():
 
     # Supervised CTC-baseline
     # vocab = "spm20k"
-    # vocab = "char" # We need to use a vocabulary where we don't have a problem with unknowns
+    # vocab = "char"
     vocab = "bpe128"
+    # vocab = "bpe10k"
+    use_lm = True
+    use_sum_decoder = True
+    epochs = 500 # original 500
     train_exp(
         f"v6-relPosAttDef-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100"
         f"-maxSeqLenAudio19_5-wd1e_2-lrlin1e_5_295k-featBN-speedpertV2"
-        f"-{vocab}-recog_lm",
+        f"-{vocab}" + (("-recog_lm" + ("_sum" if use_sum_decoder else "_max")) if use_lm else ""),
         config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
-        model_recog_lm,
+        model_recog_lm if use_lm else model_recog,
+        use_sum_decoder,
         model_config={"enc_conformer_layer": enc_conformer_layer_default, "feature_batch_norm": True},
         config_updates={
-            **_get_cfg_lrlin_oclr_by_bs_nep(15_000, 500),
+            **_get_cfg_lrlin_oclr_by_bs_nep(15_000, epochs),
             "optimizer.weight_decay": 1e-2,
             "__train_audio_preprocess": speed_pert_librosa_config,
             "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
@@ -104,6 +110,7 @@ def train_exp(
     name: str,
     config: Dict[str, Any],
     decoder_def: Callable,
+    use_sum_decoder: bool,
     *,
     model_def: Optional[Union[ModelDefWithCfg, ModelDef[Model]]] = None,
     vocab: str = "bpe10k",
@@ -136,8 +143,9 @@ def train_exp(
         _sis_setup_global_prefix()
 
     prefix = _sis_prefix + "/" + name
+    use_self_training = self_training_rounds > 0
     
-    task = get_librispeech_task_raw_v2(vocab=vocab, train_vocab_opts=train_vocab_opts, train_small = self_training_rounds > 0)
+    task = get_librispeech_task_raw_v2(vocab=vocab, train_vocab_opts=train_vocab_opts, train_small = use_self_training)
     config = config.copy()
     config = dict_update_deep(config, config_updates, config_deletes)
     # This logic is also in train(), but keep it here because it would break the hash because of _RecogAndScoreFunc...
@@ -174,12 +182,18 @@ def train_exp(
     if config.get("use_eos_postfix", False):
         recog_post_proc_funcs.append(_remove_eos_label_v2)
     recog_training_exp(
-        prefix, task, model_with_checkpoint, recog_def=decoder_def, recog_post_proc_funcs=recog_post_proc_funcs
+        prefix,
+        task,
+        model_with_checkpoint,
+        recog_def=decoder_def,
+        use_sum_decoder=use_sum_decoder,
+        save_pseude_labels=use_self_training,
+        recog_post_proc_funcs=recog_post_proc_funcs
     )
     
     # Do self training on pseude labels
     for i in range(self_training_rounds):
-        # TODO dump pseudo labels
+        # TODO dump pseudo labels 
         
         # TODO adapt this so pseud labels are loaded
         task = get_librispeech_task_raw_v2(vocab=vocab, train_vocab_opts=train_vocab_opts, train_small = False)
@@ -213,6 +227,8 @@ def train_exp(
             task,
             model_with_checkpoint,
             recog_def=decoder_def,
+            use_sum_decoder=use_sum_decoder,
+            save_pseude_labels=use_self_training,
             recog_post_proc_funcs=recog_post_proc_funcs,
         )
 
@@ -498,15 +514,6 @@ def model_recog(
     out_spatial_dim = enc_spatial_dim
     seq_targets = seq_targets__.stack(axis=out_spatial_dim)
 
-    print("CUSTOm seq_targets:", seq_targets.raw_tensor.cpu()[:, 1, 0], seq_targets.raw_tensor.cpu()[1, 1, 0], seq_targets.raw_tensor.cpu()[5, 1, 0])
-    print(f"Type: {type(seq_targets.raw_tensor.cpu()[1, 1, 0])}, value: {seq_targets.raw_tensor.cpu()[1, 1, 0].tolist()}")
-    print("CUSTOm seq_targets:", seq_targets.raw_tensor.cpu()[:, 1, 1], seq_targets.raw_tensor.cpu()[1, 1, 0], seq_targets.raw_tensor.cpu()[5, 1, 0])
-    # [583, 5, 12], [5, 12], [583, 565, 548, 546, 528], 12
-    # [527, 6, 12], [6, 12], [527, 514, 510, 501, 493, 486], 12
-    # [459, 7, 12], [7, 12], [459, 453, 452, 436, 436, 435, 433], 12
-    # out_spatial_dim, batch_dim, beam_dim
-    print(f"CUSTOM seq_targets: {seq_targets.raw_tensor.cpu()}, seq_log_prob: {seq_log_prob.raw_tensor.cpu()}, should be same as spatial_dim: {out_spatial_dim.dyn_size_ext.raw_tensor.cpu()}, beam_size: {beam_dim}")
-
     return seq_targets, seq_log_prob, out_spatial_dim, beam_dim
 
 
@@ -522,9 +529,8 @@ def model_recog_lm(
     data: Tensor,
     data_spatial_dim: Dim,
     arpa_4gram_lm: str,
+    use_sum_decoder: bool,
     lexicon: str,
-    dump_pseudo_labels: bool = False,
-    prefix: str = None,
 ) -> Tuple[Tensor, Tensor, Dim, Dim]:
     """
     Function is run within RETURNN.
@@ -544,9 +550,11 @@ def model_recog_lm(
     
     logits, enc, enc_spatial_dim = model(data, in_spatial_dim=data_spatial_dim)
     arpa_4gram_lm = str(cf(arpa_4gram_lm))
+    # TODO Should it be softmax?
     # label_log_prob = model.log_probs_wb_from_logits(logits)
     # print("CUSTOM log probs", label_log_prob.raw_tensor.cpu())
-    # print("CUSTOm label 20:", model.wb_target_dim.vocab.labels[20])
+    
+    # TODO add hyperparameter config
     decoder = ctc_decoder(
         lexicon=lexicon,
         lm=arpa_4gram_lm, # TODO is it correct to use lanuage model trained on full librispeech if we do self-training? same for lexicon
@@ -555,58 +563,55 @@ def model_recog_lm(
         blank_token="[blank]",
         sil_token="[blank]",
         unk_word="[unknown]",
-        nbest=4,
-        beam_size=4,
+        nbest=6,
+        beam_size=18,
         beam_size_token=None,
-        beam_threshold=14,
+        beam_threshold=18,
+        log_add=use_sum_decoder
     )
-    # TODO Should it be softmax?
-    # logits: [5, 583, 185]
     enc_spatial_dim_torch = enc_spatial_dim.dyn_size_ext.raw_tensor.cpu()
     decoder_results = decoder(logits.raw_tensor.cpu(), enc_spatial_dim_torch)
     
-    print(f"CUSTOM Decoder Tokens Len1 (batch_dim): {len(decoder_results)}")
-    print(f"CUSTOM Decoder Tokens Len2 (beam_dim): {len(decoder_results[1])}")
-    # print(f"CUSTOM Decoder Tokens Shape: {decoder_results[1][0].tokens.shape}, should be same as spatial_dim: {enc_spatial_dim.dyn_size_ext.raw_tensor.cpu()}")
-    # print(f"CUSTOM Enc_Spatial_dim: {enc_spatial_dim.dyn_size_ext.raw_tensor.cpu()}, data_spatial_dim: {data_spatial_dim.dyn_size_ext.raw_tensor.cpu()}")
-    print(f"CUSTOM Decoder score: {decoder_results[1][0].score}")
-    print(f"CUSTOM Decoder tokens: {decoder_results[1][0].tokens}")
-    print(f"CUSTOM Decoder tokens: {decoder_results[1][1].tokens}")
-    print(f"CUSTOM Decoder timesteps: {decoder_results[1][0].timesteps}")
-    print(f"CUSTOM Decoder words: {decoder_results[1][0].words}")
-    
-    scores = [[l2.score for l2 in l1] for l1 in decoder_results]
-    scores = torch.tensor(scores)
-    # print(f"CUSTOM scores: {scores}, shape: {scores.shape}")
-    dims = [Dim(d) for d in scores.shape]
-    scores = Tensor("scores", dims = dims, dtype = "float32", raw_tensor = scores)
+    # print(f"CUSTOM Decoder Tokens Len1 (batch_dim): {len(decoder_results)}")
+    # print(f"CUSTOM Decoder Tokens Len2 (beam_dim): {len(decoder_results[1])}")
+    # print(f"CUSTOM decoder 0 0: {decoder_results[0][0].tokens}, {decoder_results[0][0].score}, {decoder_results[0][0].timesteps}, {decoder_results[0][0].words}")
+    # print(f"CUSTOM decoder 0 1: {decoder_results[0][1].tokens}, {decoder_results[0][1].score}, {decoder_results[0][1].timesteps}, {decoder_results[0][1].words}")
+    # print(f"CUSTOM decoder 1 0: {decoder_results[1][0].tokens}, {decoder_results[1][0].score}, {decoder_results[1][0].timesteps}, {decoder_results[1][0].words}")
+    # print(f"CUSTOM decoder 1 1: {decoder_results[1][1].tokens}, {decoder_results[1][1].score}, {decoder_results[1][1].timesteps}, {decoder_results[1][1].words}")
     
     def _pad_blanks(tokens, max_len):
         if len(tokens) < max_len:
-            tokens = tokens + [model.blank_idx] * (max_len - len(tokens))
+            tokens = torch.cat([tokens, torch.tensor([model.blank_idx] * (max_len - len(tokens)))])
         return tokens
     
-    max_length = enc_spatial_dim_torch.max
-    hyps = [[_pad_blanks(l2.tokens, max_length) for l2 in l1] for l1 in decoder_results]
-    print(f"CUSTOM hyps: {hyps}")
-    hyps = torch.tensor(hyps)
-    print(f"CUSTOM hyps2: {hyps}, shape: {hyps.shape}")
-    dims = [Dim(d) for d in hyps.shape]
-    hyps = Tensor("hyps", dims = dims, dtype = "int64", raw_tensor = hyps)
-    beam_dim = Dim(len(decoder_results[0]))
+    def _pad_lists(t, max_len, max_len2):
+        if t.shape[0] < max_len2:
+            print("We had to pad the list")
+            t = torch.cat([t, torch.tensor([[model.blank_idx] * max_len] * (max_len2 - t.shape[0]))])
+        return t
     
+    def _pad_scores(l, max_len):
+        l = torch.tensor(l)
+        if len(l) < max_len:
+            l = torch.cat([l, torch.tensor([100.0] * (max_len - len(l)))])
+        return l
     
-    # [5, 1], [5, 1], [583, 565, 548, 546, 528], -1
-    # len(decoder_results), len(decoder_results[0])
-    # TODO increase beams to 12 via nbest
-    # TODO why is output not 583? (seems like the previous model mainly output blanks)
-    print(f"CUSTOM seq_targets: {hyps.raw_tensor.cpu()}, seq_log_prob: {scores.raw_tensor.cpu()}, should be same as spatial_dim: {enc_spatial_dim.dyn_size_ext.raw_tensor.cpu()}, beam_size: {beam_dim}")
+    max_length = int(enc_spatial_dim_torch.max())
+    hyps = [torch.stack([_pad_blanks(l2.tokens, max_length) for l2 in l1]) for l1 in decoder_results]
+    max_length_2 = max([l.shape[0] for l in hyps])
+    hyps = [_pad_lists(t, max_length, max_length_2) for t in hyps]
+    hyps = torch.stack(hyps)
+    beam_dim = rtf.TorchBackend.get_new_dim_raw(hyps, 1, name="beam_dim")
+    dims = [batch_dim, beam_dim, enc_spatial_dim]
+    hyps = rtf.TorchBackend.convert_to_tensor(hyps, dims = dims, sparse_dim=model.wb_target_dim, dtype = "int64", name="hyps")
     
-    if dump_pseudo_labels:
-        from sisyphus import tk
-        
-        job = ReturnnDumpHDFJob() # TODO
-        tk.register_output(prefix + "/pseudo_labels", job.out_hdf)
+    scores = [[l2.score for l2 in l1] for l1 in decoder_results]
+    max_length_3 = max([len(l) for l in scores])
+    scores = torch.stack([_pad_scores(l, max_length_3) for l in scores])
+    dims = [batch_dim, beam_dim]
+    scores = Tensor("scores", dims = dims, dtype = "float32", raw_tensor = scores)
+    
+    # print(f"CUSTOM seq_targets: {hyps} {hyps.raw_tensor.cpu()}, spatial_dim: {enc_spatial_dim.dyn_size_ext.raw_tensor.cpu()}, beam_size: {beam_dim}")
     
     return hyps, scores, enc_spatial_dim, beam_dim
 

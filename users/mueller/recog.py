@@ -42,6 +42,8 @@ def recog_training_exp(
     task: Task,
     model: ModelWithCheckpoints,
     recog_def: RecogDef,
+    use_sum_decoder: bool,
+    save_pseude_labels: bool,
     *,
     search_config: Dict[str, Any] = None,
     search_post_config: Optional[Dict[str, Any]] = None,
@@ -53,6 +55,8 @@ def recog_training_exp(
     """recog on all relevant epochs"""
     recog_and_score_func = _RecogAndScoreFunc(
         prefix_name,
+        use_sum_decoder,
+        save_pseude_labels,
         task,
         model,
         recog_def,
@@ -81,6 +85,8 @@ class _RecogAndScoreFunc:
     def __init__(
         self,
         prefix_name: str,
+        use_sum_decoder: bool,
+        save_pseude_labels: bool,
         task: Task,
         model: ModelWithCheckpoints,
         recog_def: RecogDef,
@@ -92,6 +98,8 @@ class _RecogAndScoreFunc:
     ):
         # Note: When something is added here, remember to handle it in _sis_hash.
         self.prefix_name = prefix_name
+        self.use_sum_decoder = use_sum_decoder
+        self.save_pseude_labels = save_pseude_labels
         self.task = task
         self.model = model
         self.recog_def = recog_def
@@ -112,6 +120,9 @@ class _RecogAndScoreFunc:
             model_with_checkpoint,
             self.recog_def,
             self.prefix_name,
+            self.use_sum_decoder,
+            self.save_pseude_labels,
+            epoch_or_ckpt,
             config=self.search_config,
             search_post_config=self.search_post_config,
             recog_post_proc_funcs=self.recog_post_proc_funcs,
@@ -150,6 +161,9 @@ def recog_model(
     model: ModelWithCheckpoint,
     recog_def: RecogDef,
     prefix_name: str,
+    use_sum_decoder: bool,
+    save_pseude_labels: bool,
+    epoch_or_ckpt: Union[int, PtCheckpoint],
     *,
     config: Optional[Dict[str, Any]] = None,
     search_post_config: Optional[Dict[str, Any]] = None,
@@ -169,6 +183,7 @@ def recog_model(
                 continue
         recog_out = search_dataset(
             prefix_name=prefix_name,
+            use_sum_decoder=use_sum_decoder,
             dataset=dataset,
             model=model,
             recog_def=recog_def,
@@ -179,6 +194,8 @@ def recog_model(
             search_alias_name=f"{name}/search/{dataset_name}" if name else None,
             recog_post_proc_funcs=list(recog_post_proc_funcs) + list(task.recog_post_proc_funcs),
         )
+        if save_pseude_labels and isinstance(epoch_or_ckpt, int):
+            tk.register_output(prefix_name +  + f"/recog_pseudo_labels_per_epoch/{epoch_or_ckpt:03}", recog_out.output)
         score_out = task.score_recog_output_func(dataset, recog_out)
         outputs[dataset_name] = score_out
     return task.collect_score_results_func(outputs)
@@ -187,6 +204,7 @@ def recog_model(
 def search_dataset(
     *,
     prefix_name: str,
+    use_sum_decoder: bool,
     dataset: DatasetConfig,
     model: ModelWithCheckpoint,
     recog_def: RecogDef,
@@ -248,7 +266,7 @@ def search_dataset(
         search_job = ReturnnForwardJobV2(
             model_checkpoint=model.checkpoint,
             returnn_config=search_config_v2(
-                dataset, model.definition, recog_def, prefix_name, config=config, post_config=search_post_config
+                dataset, model.definition, recog_def, prefix_name, use_sum_decoder, config=config, post_config=search_post_config
             ),
             output_files=out_files,
             returnn_python_exe=tools_paths.get_returnn_python_exe(),
@@ -378,6 +396,7 @@ def search_config_v2(
     model_def: Union[ModelDef, ModelDefWithCfg],
     recog_def: RecogDef,
     prefix_name: str,
+    use_sum_decoder: bool,
     *,
     config: Optional[Dict[str, Any]] = None,
     post_config: Optional[Dict[str, Any]] = None,
@@ -418,7 +437,7 @@ def search_config_v2(
         lm = get_4gram_binary_lm(prefix_name=prefix_name)
         lexicon = get_text_lexicon(prefix=prefix_name, librispeech_key="train-other-960", bpe_size=128) # TODO add args for key and bpe size here, also support other than bpe
     
-        args = {"arpa_4gram_lm": lm, "lexicon": lexicon}
+        args = {"arpa_4gram_lm": lm, "lexicon": lexicon, "use_sum_decoder": use_sum_decoder}
     else:
         args = {}
 
