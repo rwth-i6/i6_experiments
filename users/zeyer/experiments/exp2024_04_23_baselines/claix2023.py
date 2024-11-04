@@ -324,6 +324,20 @@ def py():
     #     total num steps 166,408, 974 sec / subep
     #   TODO why unstable training and bad? loss reduce type? weight decay too much?
 
+    # For grad accum dtype, in RETURNN, create returnn/torch/optim/accum_grads_f32.py with:
+    """    
+    https://github.com/epfLLM/Megatron-LLM/blob/806a83302cbf4f7d6e147fe34bad5885cf745709/megatron/model/distributed.py#L159-L171
+
+    TODO ...
+      unclear:
+      - optimizer state is also in bfloat16?
+      - without grad accum / distributed training, does this has any effect?
+      - the grad_accum, why exactly do we need to keep the reference?
+      - is it always the same grad_accum for every train step? so internally it keeps the ref? or because we keep it?
+      - so, if grad accum is not relevant, what is actually relevant to make bf16 training work well?
+    """
+    # TODO ...
+
     # Try not-normalized (use_normalized_loss=False): 40.6 PPL, unstable training.
     # Baseline without lossNoNorm: 41.9 PPL, unstable training.
     # Baseline without laplace100k, without lossNoNorm: 38.69 PPL, stable (first subep already 213.2)
