@@ -339,6 +339,7 @@ def py():
     # TODO ...
 
     # Try not-normalized (use_normalized_loss=False): 40.6 PPL, unstable training.
+    # Note that the grad norm should be much larger, and thus grad clip is quite different...
     # Baseline without lossNoNorm: 41.9 PPL, unstable training.
     # Baseline without laplace100k, without lossNoNorm: 38.69 PPL, stable (first subep already 213.2)
     train(
