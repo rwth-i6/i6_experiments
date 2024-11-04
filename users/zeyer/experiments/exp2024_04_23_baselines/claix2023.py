@@ -451,11 +451,12 @@ def py():
             env_updates={"PYTORCH_CUDA_ALLOC_CONF": "backend:cudaMallocAsync,expandable_segments:True"},
         )
 
-    # Maybe more, or slower warmup? Or smaller batch size initially?
+    # Maybe more, or slower warmup (lrLowWarm)? Or smaller batch size initially?
+    # -> 40.437 PPL with wd:1e-1
     n_ep = 100
     peak_lr, low_lr, lowest_lr = 1e-3, 1e-5, 1e-6
     train(
-        f"lm/trafo-n24-d512-gelu-drop0-wd1e_1-b2k_80k-laplace100k-lrLowWarm-spm10k-lossNoNorm",
+        f"lm/trafo-n24-d512-gelu-drop0-b2k_80k-laplace100k-lrLowWarm-spm10k-lossNoNorm",
         config=dict_update_deep(
             config_96gb_bf16_accgrad1,
             {
@@ -467,7 +468,7 @@ def py():
                 "learning_rate_piecewise_by_epoch_continuous": True,
                 "learning_rate_piecewise_steps": [0.01 * n_ep, 0.05 * n_ep, 0.5 * n_ep, 0.9 * n_ep, n_ep],
                 "learning_rate_piecewise_values": [0.0, lowest_lr, low_lr, peak_lr, low_lr, lowest_lr],
-                "optimizer.weight_decay": 1e-1,
+                "optimizer.weight_decay": 1e-2,
                 "calculate_exp_loss": True,
                 "use_normalized_loss": False,
             },
