@@ -536,7 +536,7 @@ def py():
         ),
         train_def=lm_train_def,
         # avoid oom
-        env_updates={"PYTORCH_CUDA_ALLOC_CONF": "backend:cudaMallocAsync,expandable_segments:True"},
+        env_updates={"PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"},
     )
 
     # Try Lion.
