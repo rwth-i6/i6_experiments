@@ -501,84 +501,21 @@ def py():
     #   Baseline with wd=1e-2, without laplace100k, without lossNoNorm: 38.69 PPL, stable (first subep already 213.2)
 
     # Try grad accum (accgrad2) (maybe it's bad if there are sometimes big batches with only short seqs).
-    train(
-        f"lm/trafo-n24-d512-gelu-drop0-b2k_80k-accgrad2-laplace100k-spm10k-lossNoNorm",
-        config=dict_update_deep(
-            config_96gb_bf16_accgrad1,
-            {
-                **_get_cfg_lrlin_oclr_by_bs_nep_v3(80_000, 100, batch_size_factor=1),
-                "max_seqs": 2_000,
-                "accum_grad_multiple_step": 2,
-                "optimizer.weight_decay": 1e-2,
-                "calculate_exp_loss": True,
-                "use_normalized_loss": False,
-            },
-        ),
-        train_dataset=get_librispeech_lm_dataset(
-            vocab="spm10k", train_epoch_split=20, train_sort_laplace_num_seqs=100_000
-        ),
-        model_def=ModelDefWithCfg(
-            lm_model_def,
-            {
-                "_model_def_dict": rf.build_dict(
-                    TransformerDecoder,
-                    encoder_dim=None,
-                    num_layers=24,
-                    model_dim=512,
-                    ff_activation=rf.build_dict(rf.gelu),
-                    dropout=0.0,
-                    att_dropout=0.0,
-                )
-            },
-        ),
-        train_def=lm_train_def,
-        # avoid oom. backend:cudaMallocAsync ?
-        env_updates={"PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"},
-    )
+    # (accum_grad_multiple_step=2)
+    # -> 41.30, i.e. slightly worse.
 
-    # laplace100k is maybe too much. Try laplace10k.
-    train(
-        f"lm/trafo-n24-d512-gelu-drop0-b2k_80k-accgrad2-laplace10k-spm10k-lossNoNorm",
-        config=dict_update_deep(
-            config_96gb_bf16_accgrad1,
-            {
-                **_get_cfg_lrlin_oclr_by_bs_nep_v3(80_000, 100, batch_size_factor=1),
-                "max_seqs": 2_000,
-                "accum_grad_multiple_step": 2,
-                "optimizer.weight_decay": 1e-2,
-                "calculate_exp_loss": True,
-                "use_normalized_loss": False,
-            },
-        ),
-        train_dataset=get_librispeech_lm_dataset(
-            vocab="spm10k", train_epoch_split=20, train_sort_laplace_num_seqs=10_000
-        ),
-        model_def=ModelDefWithCfg(
-            lm_model_def,
-            {
-                "_model_def_dict": rf.build_dict(
-                    TransformerDecoder,
-                    encoder_dim=None,
-                    num_layers=24,
-                    model_dim=512,
-                    ff_activation=rf.build_dict(rf.gelu),
-                    dropout=0.0,
-                    att_dropout=0.0,
-                )
-            },
-        ),
-        train_def=lm_train_def,
-        # avoid oom
-        env_updates={"PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"},
-    )
+    # laplace100k is maybe too much. Try laplace10k (train_sort_laplace_num_seqs=10_000).
+    # (trafo-n24-d512-gelu-drop0-b2k_80k-accgrad2-laplace10k-spm10k-lossNoNorm)
+    # -> 39.42, i.e. much better than laplace100k. (suboptimal here due to accgrad2).
 
     # Try Lion.
     # Baseline without Lion: 40.6 PPL, also unstable (due to large batch & laplace100k).
     # Baseline without Lion, without laplace100k, without lossNoNorm: 38.69 PPL, stable (first subep already 213.2)
     for lion_lr_factor, wd in [
+        (0.05, 1e-2),
+        (0.1, 1e-2),  # 41.2 PPL. Unstable training.
         # (0.3, 1e-2),  # 43.7 PPL. Unstable training.
-        (0.1, 1e-2),
-        (0.3, 1e-3),
+        # (0.3, 1e-3),  # 43.9 PPL. Unstable training.
     ]:
         wd = wd / lion_lr_factor
         wd = round(wd, 6)
