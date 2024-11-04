@@ -239,7 +239,7 @@ def py():
                     **(cr_ctc if use_cr_ctc else {}),
                     **({"aed_loss_bug_fix": True} if use_cr_ctc else {}),
                 },
-                post_config_updates={"__multi_proc_dataset_opts": {"num_workers": 25}},
+                post_config_updates={"log_grad_norm": True, "__multi_proc_dataset_opts": {"num_workers": 25}},
                 vocab=opts["vocab"],
                 train_vocab_opts={"other_opts": {"class": "SamplingBytePairEncoding", "breadth_prob": 0.01}},
                 dataset_train_opts={"train_epoch_split": 1, "train_epoch_wise_filter": None},
@@ -379,7 +379,7 @@ def py():
 
     # Less grad clip.
     train(
-        "lm/trafo-n24-d512-gelu-drop0-b2k_80k-laplace100k-spm10k-lossNoNorm",
+        "lm/trafo-n24-d512-gelu-drop0-gradClip10-b2k_80k-laplace100k-spm10k-lossNoNorm",
         config=dict_update_deep(
             config_96gb_bf16_accgrad1,
             {
