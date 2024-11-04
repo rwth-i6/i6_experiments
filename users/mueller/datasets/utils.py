@@ -8,7 +8,7 @@ from i6_core.util import uopen
 
 class CorpusReplaceOrthFromPyDictJob(Job):
     """
-    Merge HDF pseude labels back into a bliss corpus
+    Merge HDF pseudo labels back into a bliss corpus
     """
 
     def __init__(self, bliss_corpus, recog_words_file, segment_file=None):
@@ -37,20 +37,29 @@ class CorpusReplaceOrthFromPyDictJob(Job):
         else:
             segment_iterator = c.segments()
             
-        d = eval(uopen(self.recog_words_file, "rt").read(), {"nan": float("nan"), "inf": float("inf")})
-        assert isinstance(d, dict), "only search output file with dict format is supported"
-        
         # TODO look at returnn/search.py SearchWordsDummyTimesToCTMJob
-
-        for segment, line in itertools.zip_longest(segment_iterator, d):
-            assert segment is not None, "there were more text file lines than segments"
-            assert line is not None, "there were less text file lines than segments"
+        d = eval(uopen(self.recog_words_file, "rt").read(), {"nan": float("nan"), "inf": float("inf")})
+        assert isinstance(d, dict), "Has to be a dict containing the path to the search output file"
+        
+        assert c.fullname() in d["path"], "Corpus not in search output"
+        
+        d = eval(uopen(d["path"][c.fullname()], "rt").read(), {"nan": float("nan"), "inf": float("inf")})
+        assert isinstance(d, dict), "only search output file with dict format is supported"
+        print(f"Words:\n {d}\n\n\n")
+        
+        i = 0
+        for segment in segment_iterator:
+            i += 1
+            assert segment.fullname() in d, f"Segment {segment.fullname()} not in search output"
+            line = d[segment.fullname()]
+            print(f"Segment Orth: {segment.orth}\nNew Orth: {line}")
             assert len(line) > 0
             segment.orth = line.strip()
+        assert len(d) == i, f"Number of segments in corpus ({i}) does not match number of segments in search output ({len(d)})"
 
         c.dump(self.out_corpus.get_path())
         
-def get_ogg_zip_dict_pseude_labels(bliss_corpus_dict: Dict[str, tk.Path]) -> Dict[str, tk.Path]:
+def get_ogg_zip_dict_pseudo_labels(bliss_corpus_dict: Dict[str, tk.Path]) -> Dict[str, tk.Path]:
     from i6_core.returnn.oggzip import BlissToOggZipJob
     import os
 
@@ -58,7 +67,7 @@ def get_ogg_zip_dict_pseude_labels(bliss_corpus_dict: Dict[str, tk.Path]) -> Dic
     for name, bliss_corpus in bliss_corpus_dict.items():
         ogg_zip_job = BlissToOggZipJob(
             bliss_corpus,
-            no_conversion=True,
+            no_audio=True,
             returnn_python_exe=None,
             returnn_root=None,
         )

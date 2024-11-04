@@ -5,12 +5,13 @@ Generic recog, for the model interfaces defined in model_interfaces.py
 from __future__ import annotations
 
 import os
+import copy
 from typing import TYPE_CHECKING, Optional, Union, Any, Dict, Sequence, Collection, Iterator, Callable
 
 import sisyphus
 from sisyphus import tk
 from sisyphus import tools as sis_tools
-from i6_core.util import instanciate_delayed
+from i6_core.util import instanciate_delayed, uopen
 
 from i6_core.returnn import ReturnnConfig
 from i6_core.returnn.training import ReturnnTrainingJob, PtCheckpoint, AverageTorchCheckpointsJob
@@ -42,21 +43,20 @@ def recog_training_exp(
     task: Task,
     model: ModelWithCheckpoints,
     recog_def: RecogDef,
-    use_sum_decoder: bool,
-    save_pseude_labels: bool,
     *,
+    decoder_hyperparameters: Optional[dict] = None,
+    save_pseudo_labels: Optional[dict] = None,
     search_config: Dict[str, Any] = None,
     search_post_config: Optional[Dict[str, Any]] = None,
     recog_post_proc_funcs: Sequence[Callable[[RecogOutput], RecogOutput]] = (),
     search_mem_rqmt: Union[int, float] = 6,
     exclude_epochs: Collection[int] = (),
     model_avg: bool = False,
-):
+) -> Optional[tk.Path]:
     """recog on all relevant epochs"""
     recog_and_score_func = _RecogAndScoreFunc(
         prefix_name,
-        use_sum_decoder,
-        save_pseude_labels,
+        decoder_hyperparameters,
         task,
         model,
         recog_def,
@@ -79,18 +79,56 @@ def recog_training_exp(
             exp=model, recog_and_score_func=recog_and_score_func, exclude_epochs=exclude_epochs
         )
         tk.register_output(prefix_name + "/recog_results_model_avg", model_avg_res_job.out_results)
+    
+    # Create pseudo labels
+    if save_pseudo_labels:
+        dev_dataset = next(iter(save_pseudo_labels.values()))
+        task_pseudo_labels = Task(
+            name="librispeech_pseudo_labels",
+            train_dataset=task.train_dataset,
+            train_epoch_split=task.train_epoch_split,
+            dev_dataset=dev_dataset,
+            eval_datasets=save_pseudo_labels,
+            main_measure_type=task.main_measure_type,
+            main_measure_name=dev_dataset.get_main_name(),
+            score_recog_output_func=task.score_recog_output_func,
+            recog_post_proc_funcs=task.recog_post_proc_funcs,
+        )
+        
+        pseudo_label_recog_func = _RecogAndScoreFunc(
+            prefix_name + "/pseudo_labels",
+            decoder_hyperparameters,
+            task_pseudo_labels,
+            model,
+            recog_def,
+            save_pseudo_labels=save_pseudo_labels,
+            search_config=search_config,
+            search_post_config=search_post_config,
+            recog_post_proc_funcs=recog_post_proc_funcs,
+            search_mem_rqmt=search_mem_rqmt,
+        )
+        
+        extract_pseudo_labels_job = ExtractPseudoLabels(
+            exp=model,
+            pseudo_recog_func=pseudo_label_recog_func,
+            recog_input=summarize_job.out_summary_json,
+        )
+        extract_pseudo_labels_job.add_alias(prefix_name + "/extract_pseudo_labels")
+    
+        return extract_pseudo_labels_job.out_best_labels_path
+    return None
 
 
 class _RecogAndScoreFunc:
     def __init__(
         self,
         prefix_name: str,
-        use_sum_decoder: bool,
-        save_pseude_labels: bool,
+        decoder_hyperparameters: dict,
         task: Task,
         model: ModelWithCheckpoints,
         recog_def: RecogDef,
         *,
+        save_pseudo_labels: Optional[dict] = None,
         search_config: Optional[Dict[str, Any]] = None,
         search_post_config: Optional[Dict[str, Any]] = None,
         recog_post_proc_funcs: Sequence[Callable[[RecogOutput], RecogOutput]] = (),
@@ -98,8 +136,7 @@ class _RecogAndScoreFunc:
     ):
         # Note: When something is added here, remember to handle it in _sis_hash.
         self.prefix_name = prefix_name
-        self.use_sum_decoder = use_sum_decoder
-        self.save_pseude_labels = save_pseude_labels
+        self.decoder_hyperparameters = decoder_hyperparameters
         self.task = task
         self.model = model
         self.recog_def = recog_def
@@ -107,22 +144,22 @@ class _RecogAndScoreFunc:
         self.search_post_config = search_post_config
         self.recog_post_proc_funcs = recog_post_proc_funcs
         self.search_mem_rqmt = search_mem_rqmt
+        self.save_pseudo_labels = save_pseudo_labels
 
-    def __call__(self, epoch_or_ckpt: Union[int, PtCheckpoint]) -> ScoreResultCollection:
+    def __call__(self, epoch_or_ckpt: Union[int, PtCheckpoint]) -> tuple[ScoreResultCollection, tk.Path]:
         if isinstance(epoch_or_ckpt, int):
             model_with_checkpoint = self.model.get_epoch(epoch_or_ckpt)
         elif isinstance(epoch_or_ckpt, PtCheckpoint):
             model_with_checkpoint = ModelWithCheckpoint(definition=self.model.definition, checkpoint=epoch_or_ckpt)
         else:
             raise TypeError(f"{self} unexpected type {type(epoch_or_ckpt)}")
-        res = recog_model(
+        res, label_paths = recog_model(
             self.task,
             model_with_checkpoint,
             self.recog_def,
             self.prefix_name,
-            self.use_sum_decoder,
-            self.save_pseude_labels,
-            epoch_or_ckpt,
+            self.decoder_hyperparameters,
+            save_pseudo_labels=True if self.save_pseudo_labels else False,
             config=self.search_config,
             search_post_config=self.search_post_config,
             recog_post_proc_funcs=self.recog_post_proc_funcs,
@@ -130,7 +167,7 @@ class _RecogAndScoreFunc:
         )
         if isinstance(epoch_or_ckpt, int):
             tk.register_output(self.prefix_name + f"/recog_results_per_epoch/{epoch_or_ckpt:03}", res.output)
-        return res
+        return res, label_paths
 
     def _sis_hash(self) -> bytes:
         from sisyphus.hash import sis_hash_helper
@@ -161,10 +198,9 @@ def recog_model(
     model: ModelWithCheckpoint,
     recog_def: RecogDef,
     prefix_name: str,
-    use_sum_decoder: bool,
-    save_pseude_labels: bool,
-    epoch_or_ckpt: Union[int, PtCheckpoint],
+    decoder_hyperparameters: dict,
     *,
+    save_pseudo_labels: bool = False,
     config: Optional[Dict[str, Any]] = None,
     search_post_config: Optional[Dict[str, Any]] = None,
     recog_post_proc_funcs: Sequence[Callable[[RecogOutput], RecogOutput]] = (),
@@ -172,18 +208,19 @@ def recog_model(
     search_rqmt: Optional[Dict[str, Any]] = None,
     dev_sets: Optional[Collection[str]] = None,
     name: Optional[str] = None,
-) -> ScoreResultCollection:
+) -> tuple[ScoreResultCollection, tk.Path]:
     """recog"""
     if dev_sets is not None:
         assert all(k in task.eval_datasets for k in dev_sets)
     outputs = {}
+    recog_paths = {}
     for dataset_name, dataset in task.eval_datasets.items():
         if dev_sets is not None:
             if dataset_name not in dev_sets:
                 continue
         recog_out = search_dataset(
             prefix_name=prefix_name,
-            use_sum_decoder=use_sum_decoder,
+            decoder_hyperparameters=decoder_hyperparameters,
             dataset=dataset,
             model=model,
             recog_def=recog_def,
@@ -194,17 +231,19 @@ def recog_model(
             search_alias_name=f"{name}/search/{dataset_name}" if name else None,
             recog_post_proc_funcs=list(recog_post_proc_funcs) + list(task.recog_post_proc_funcs),
         )
-        if save_pseude_labels and isinstance(epoch_or_ckpt, int):
-            tk.register_output(prefix_name +  + f"/recog_pseudo_labels_per_epoch/{epoch_or_ckpt:03}", recog_out.output)
         score_out = task.score_recog_output_func(dataset, recog_out)
         outputs[dataset_name] = score_out
-    return task.collect_score_results_func(outputs)
+        recog_paths[dataset_name] = recog_out.output
+    if save_pseudo_labels:
+        return task.collect_score_results_func(outputs), recog_paths
+    else:
+        return task.collect_score_results_func(outputs), None
 
 
 def search_dataset(
     *,
     prefix_name: str,
-    use_sum_decoder: bool,
+    decoder_hyperparameters: dict,
     dataset: DatasetConfig,
     model: ModelWithCheckpoint,
     recog_def: RecogDef,
@@ -266,7 +305,7 @@ def search_dataset(
         search_job = ReturnnForwardJobV2(
             model_checkpoint=model.checkpoint,
             returnn_config=search_config_v2(
-                dataset, model.definition, recog_def, prefix_name, use_sum_decoder, config=config, post_config=search_post_config
+                dataset, model.definition, recog_def, prefix_name, decoder_hyperparameters, config=config, post_config=search_post_config
             ),
             output_files=out_files,
             returnn_python_exe=tools_paths.get_returnn_python_exe(),
@@ -396,7 +435,7 @@ def search_config_v2(
     model_def: Union[ModelDef, ModelDefWithCfg],
     recog_def: RecogDef,
     prefix_name: str,
-    use_sum_decoder: bool,
+    decoder_hyperparameters: dict,
     *,
     config: Optional[Dict[str, Any]] = None,
     post_config: Optional[Dict[str, Any]] = None,
@@ -437,7 +476,7 @@ def search_config_v2(
         lm = get_4gram_binary_lm(prefix_name=prefix_name)
         lexicon = get_text_lexicon(prefix=prefix_name, librispeech_key="train-other-960", bpe_size=128) # TODO add args for key and bpe size here, also support other than bpe
     
-        args = {"arpa_4gram_lm": lm, "lexicon": lexicon, "use_sum_decoder": use_sum_decoder}
+        args = {"arpa_4gram_lm": lm, "lexicon": lexicon, "hyperparameters": decoder_hyperparameters}
     else:
         args = {}
 
@@ -737,7 +776,7 @@ class GetBestRecogTrainExp(sisyphus.Job):
         assert exp.fixed_epochs  # need some fixed epochs to define the hash
         last_fixed_epoch = max(exp.fixed_epochs)
         recog_and_score_func = d["recog_and_score_func"]
-        res = recog_and_score_func(last_fixed_epoch)
+        res, _ = recog_and_score_func(last_fixed_epoch)
         assert isinstance(res, ScoreResultCollection)
         # Add this to the hash, to make sure the pipeline of the recog and scoring influences the hash.
         d["_last_fixed_epoch_results"] = res
@@ -783,7 +822,7 @@ class GetBestRecogTrainExp(sisyphus.Job):
             return
         if epoch in self.exclude_epochs:
             return
-        res = self.recog_and_score_func(epoch)
+        res, _ = self.recog_and_score_func(epoch)
         assert isinstance(res, ScoreResultCollection)
         self.add_input(res.main_measure_value)
         self.add_input(res.output)
@@ -823,6 +862,54 @@ class GetBestRecogTrainExp(sisyphus.Job):
                 f.write(f'  "{epoch}": {json.dumps(res)}')
                 count += 1
             f.write("\n}\n")
+                
+class ExtractPseudoLabels(sisyphus.Job):
+    def __init__(
+        self,
+        exp: ModelWithCheckpoints,
+        pseudo_recog_func: Optional[Callable[[int], ScoreResultCollection]],
+        recog_input: tk.Path,
+    ):
+        super(ExtractPseudoLabels, self).__init__()
+        self.exp = exp
+        self.pseudo_recog_func = pseudo_recog_func
+        self.recog_input = recog_input
+        self.out_best_labels_path = self.output_path("best_labels_path.json")
+        self._recog_score = None
+        self._recog_label_paths = None
+
+    def update(self):
+        d = eval(uopen(self.recog_input, "rt").read(), {"nan": float("nan"), "inf": float("inf")})
+        assert isinstance(d, dict), "Has to be a dict containing the best epoch during scoring."
+        
+        self.best_epoch = d["best_epoch"]
+        
+        res, label_paths = self.pseudo_recog_func(self.best_epoch)
+        assert isinstance(res, ScoreResultCollection)
+        assert isinstance(label_paths, dict)
+        self.add_input(res.output)
+        for k in label_paths.keys():
+            self.add_input(label_paths[k])
+        self._recog_score = res.output
+        self._recog_label_paths = label_paths
+
+    def tasks(self) -> Iterator[sisyphus.Task]:
+        """tasks"""
+        yield sisyphus.Task("run", mini_task=True)
+
+    def run(self):
+        """run"""
+        import json
+        
+        score = json.load(open(self._recog_score.get_path()))
+
+        for k in self._recog_label_paths.keys():
+            self._recog_label_paths[k] = self._recog_label_paths[k].get_path()
+        
+        label_path_dict = {"path": self._recog_label_paths, "score": score, "epoch": self.best_epoch}
+        with open(self.out_best_labels_path.get_path(), "w") as f:
+            f.write(json.dumps(label_path_dict))
+            f.write("\n")
 
 
 class GetTorchAvgModelResult(sisyphus.Job):
@@ -961,7 +1048,7 @@ class GetTorchAvgModelResult(sisyphus.Job):
         ).out_checkpoint
         self._in_avg_checkpoint = in_avg_checkpoint
         self.add_input(in_avg_checkpoint.path)
-        res = self.recog_and_score_func(in_avg_checkpoint)
+        res, _ = self.recog_and_score_func(in_avg_checkpoint)
         assert isinstance(res, ScoreResultCollection)
         self.add_input(res.main_measure_value)
         self.add_input(res.output)

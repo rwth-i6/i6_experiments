@@ -39,14 +39,6 @@ _raw_sample_rate = _batch_size_factor * 100  # bs factor is from 10ms frames to 
 
 def py():
     """Sisyphus entry point"""
-    from sisyphus import gs
-    from i6_experiments.common.setups import serialization
-    # from i6_experiments.users.mueller.datasets.librispeech import get_librispeech_log_mel_stats
-
-    # feature_stats = get_librispeech_log_mel_stats(_log_mel_feature_dim)
-
-    from i6_experiments.users.zeyer.nn_rf.batchnorm import BatchRenorm
-
     # relPosAttDef: Use the default RelPosSelfAttention instead of the Shawn et al 2018 style, old RETURNN way.
     enc_conformer_layer_default = rf.build_dict(
         rf.encoder.conformer.ConformerEncoderLayer,
@@ -60,15 +52,36 @@ def py():
     vocab = "bpe128"
     # vocab = "bpe10k"
     use_lm = True
-    use_sum_decoder = True
     epochs = 500 # original 500
+    self_training_rounds = 0
+    train_small = False # TODO how do I have to adapt the epoch config for training on the smaller dataset?
+    
+    # ctc-baseline-bpe128-recog_lm_sum_n1_b12_w18: {"best_scores": {"dev-clean": 4.7, "dev-other": 7.43, "test-clean": 4.82, "test-other": 7.84}, "best_epoch": 500}
+    
+    decoder_hyperparameters = None
+    if use_lm:
+        decoder_hyperparameters = {
+            "log_add": True,
+            "nbest": 1,
+            "beam_size": 12,
+            "lm_weight": 1.8,
+            "use_logsoftmax": False
+        }
+        p1 = "sum" if decoder_hyperparameters['log_add'] else "max"
+        p2 = f"n{decoder_hyperparameters['nbest']}"
+        p3 = f"b{decoder_hyperparameters['beam_size']}"
+        p4 = f"w{str(decoder_hyperparameters['lm_weight']).replace('.', '')}"
+        p5 = "_logsoftmax" if decoder_hyperparameters['use_logsoftmax'] else ""
+        lm_hyperparamters_str = f"_{p1}_{p2}_{p3}_{p4}{p5}"
+        
     train_exp(
-        f"v6-relPosAttDef-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100"
-        f"-maxSeqLenAudio19_5-wd1e_2-lrlin1e_5_295k-featBN-speedpertV2"
-        f"-{vocab}" + (("-recog_lm" + ("_sum" if use_sum_decoder else "_max")) if use_lm else ""),
+        f"ctc-baseline" +
+        (f"-self_training_{self_training_rounds}" if self_training_rounds > 0 else "") +
+        (f"-small_dataset" if train_small else "") +
+        f"-{vocab}" + (("-recog_lm" + lm_hyperparamters_str) if use_lm else "-recog_albert"),
         config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
         model_recog_lm if use_lm else model_recog,
-        use_sum_decoder,
+        decoder_hyperparameters=decoder_hyperparameters,
         model_config={"enc_conformer_layer": enc_conformer_layer_default, "feature_batch_norm": True},
         config_updates={
             **_get_cfg_lrlin_oclr_by_bs_nep(15_000, epochs),
@@ -79,28 +92,10 @@ def py():
             "max_seq_length_default_input": 19.5 * _raw_sample_rate,
         },
         vocab=vocab,
+        self_training_rounds=self_training_rounds,
+        train_small=train_small
     )
     
-    # TODO how do I have to adapt the epoch config?
-    # CTC-baseline with self-training
-    # train_exp(
-    #     f"semi-supervised-v6-relPosAttDef-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100"
-    #     f"-maxSeqLenAudio19_5-wd1e_2-lrlin1e_5_295k-featBN-speedpertV2"
-    #     f"-{vocab}-recog_lm",
-    #     config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
-    #     model_recog_lm,
-    #     model_config={"enc_conformer_layer": enc_conformer_layer_default, "feature_batch_norm": True},
-    #     config_updates={
-    #         **_get_cfg_lrlin_oclr_by_bs_nep(15_000, 500),
-    #         "optimizer.weight_decay": 1e-2,
-    #         "__train_audio_preprocess": speed_pert_librosa_config,
-    #         "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
-    #         "max_seq_length_default_target": None,
-    #         "max_seq_length_default_input": 19.5 * _raw_sample_rate,
-    #     },
-    #     vocab=vocab,
-    #     self_training_rounds=1 # Here we only select the train-clean-100 dataset for training
-    # )
 
 _train_experiments: Dict[str, ModelWithCheckpoints] = {}
 
@@ -110,8 +105,8 @@ def train_exp(
     name: str,
     config: Dict[str, Any],
     decoder_def: Callable,
-    use_sum_decoder: bool,
     *,
+    decoder_hyperparameters: dict = None,
     model_def: Optional[Union[ModelDefWithCfg, ModelDef[Model]]] = None,
     vocab: str = "bpe10k",
     train_vocab_opts: Optional[Dict[str, Any]] = None,
@@ -128,6 +123,7 @@ def train_exp(
     env_updates: Optional[Dict[str, str]] = None,
     enabled: bool = True,
     self_training_rounds: int = 0,
+    train_small: bool = False,
 ) -> Optional[ModelWithCheckpoints]:
     """
     Train experiment
@@ -136,6 +132,7 @@ def train_exp(
     from i6_experiments.users.mueller.recog import recog_training_exp
     from i6_experiments.users.mueller.datasets.librispeech import get_librispeech_task_raw_v2
 
+    print("Job Name:", name)
     if not enabled:
         return None
 
@@ -145,7 +142,9 @@ def train_exp(
     prefix = _sis_prefix + "/" + name
     use_self_training = self_training_rounds > 0
     
-    task = get_librispeech_task_raw_v2(vocab=vocab, train_vocab_opts=train_vocab_opts, train_small = use_self_training)
+    ds_to_save_pseudo_labels_for = ["train-clean-100"] if use_self_training else None
+    
+    task, pseudo_labels_ds = get_librispeech_task_raw_v2(vocab=vocab, train_vocab_opts=train_vocab_opts, save_pseudo_labels = ds_to_save_pseudo_labels_for, train_small = train_small)
     config = config.copy()
     config = dict_update_deep(config, config_updates, config_deletes)
     # This logic is also in train(), but keep it here because it would break the hash because of _RecogAndScoreFunc...
@@ -181,22 +180,21 @@ def train_exp(
     recog_post_proc_funcs = []
     if config.get("use_eos_postfix", False):
         recog_post_proc_funcs.append(_remove_eos_label_v2)
-    recog_training_exp(
+    pseudo_label_path_dict = recog_training_exp(
         prefix,
         task,
         model_with_checkpoint,
         recog_def=decoder_def,
-        use_sum_decoder=use_sum_decoder,
-        save_pseude_labels=use_self_training,
+        decoder_hyperparameters=decoder_hyperparameters,
+        save_pseudo_labels=pseudo_labels_ds,
         recog_post_proc_funcs=recog_post_proc_funcs
     )
     
-    # Do self training on pseude labels
+    # Do self training on pseudo labels
     for i in range(self_training_rounds):
-        # TODO dump pseudo labels 
-        
-        # TODO adapt this so pseud labels are loaded
-        task = get_librispeech_task_raw_v2(vocab=vocab, train_vocab_opts=train_vocab_opts, train_small = False)
+        assert pseudo_label_path_dict is not None, "Pseudo label path is not set"
+        prefix_self_training = prefix + f"/self-training-{i}"
+        task, _ = get_librispeech_task_raw_v2(vocab=vocab, train_vocab_opts=train_vocab_opts, train_small = False, pseudo_label_path = pseudo_label_path_dict)
         # This logic is also in train(), but keep it here because it would break the hash because of _RecogAndScoreFunc...
         if "__train_audio_preprocess" in config:
             task: Task = copy.copy(task)
@@ -204,7 +202,7 @@ def train_exp(
             task.train_dataset.train_audio_preprocess = config.pop("__train_audio_preprocess")
 
         model_with_checkpoint = train(
-            prefix,
+            prefix_self_training,
             task=task,
             config=config,
             post_config=dict_update_deep(post_config, post_config_updates),
@@ -222,13 +220,13 @@ def train_exp(
             for k, v in env_updates.items():
                 train_job.set_env(k, v)
         
-        recog_training_exp(
-            prefix + f"/self-training-{i}",
+        pseudo_label_path_dict = recog_training_exp(
+            prefix_self_training,
             task,
             model_with_checkpoint,
             recog_def=decoder_def,
-            use_sum_decoder=use_sum_decoder,
-            save_pseude_labels=use_self_training,
+            decoder_hyperparameters=decoder_hyperparameters,
+            save_pseudo_labels=pseudo_labels_ds,
             recog_post_proc_funcs=recog_post_proc_funcs,
         )
 
@@ -529,8 +527,8 @@ def model_recog_lm(
     data: Tensor,
     data_spatial_dim: Dim,
     arpa_4gram_lm: str,
-    use_sum_decoder: bool,
     lexicon: str,
+    hyperparameters: dict,
 ) -> Tuple[Tensor, Tensor, Dim, Dim]:
     """
     Function is run within RETURNN.
@@ -550,27 +548,29 @@ def model_recog_lm(
     
     logits, enc, enc_spatial_dim = model(data, in_spatial_dim=data_spatial_dim)
     arpa_4gram_lm = str(cf(arpa_4gram_lm))
-    # TODO Should it be softmax?
-    # label_log_prob = model.log_probs_wb_from_logits(logits)
-    # print("CUSTOM log probs", label_log_prob.raw_tensor.cpu())
+    use_logsoftmax = hyperparameters.pop("use_logsoftmax", False)
+    if use_logsoftmax:
+        label_log_prob = model.log_probs_wb_from_logits(logits)
+        
+    configs = {
+        "lexicon": lexicon,
+        "lm": arpa_4gram_lm, # TODO is it correct to use lanuage model trained on full librispeech if we do self-training? same for lexicon
+        "tokens": list(model.wb_target_dim.vocab.labels),
+        "blank_token": "[blank]",
+        "sil_token": "[blank]",
+        "unk_word": "[unknown]",
+        "beam_size_token": None,
+        "beam_threshold": 1000000,
+    }
     
-    # TODO add hyperparameter config
-    decoder = ctc_decoder(
-        lexicon=lexicon,
-        lm=arpa_4gram_lm, # TODO is it correct to use lanuage model trained on full librispeech if we do self-training? same for lexicon
-        lm_weight=1.8,
-        tokens=list(model.wb_target_dim.vocab.labels),
-        blank_token="[blank]",
-        sil_token="[blank]",
-        unk_word="[unknown]",
-        nbest=6,
-        beam_size=18,
-        beam_size_token=None,
-        beam_threshold=18,
-        log_add=use_sum_decoder
-    )
+    configs.update(hyperparameters)
+    
+    decoder = ctc_decoder(**configs)
     enc_spatial_dim_torch = enc_spatial_dim.dyn_size_ext.raw_tensor.cpu()
-    decoder_results = decoder(logits.raw_tensor.cpu(), enc_spatial_dim_torch)
+    if use_logsoftmax:
+        decoder_results = decoder(label_log_prob.raw_tensor.cpu(), enc_spatial_dim_torch)
+    else:
+        decoder_results = decoder(logits.raw_tensor.cpu(), enc_spatial_dim_torch)
     
     # print(f"CUSTOM Decoder Tokens Len1 (batch_dim): {len(decoder_results)}")
     # print(f"CUSTOM Decoder Tokens Len2 (beam_dim): {len(decoder_results[1])}")
