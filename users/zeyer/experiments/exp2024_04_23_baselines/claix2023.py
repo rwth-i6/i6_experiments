@@ -415,7 +415,8 @@ def py():
     )
 
     # Try longer training.
-    for n_full_ep in [5, 6, 7]:
+    # 5: 40.639, 6: 40.289, 7: 39.967
+    for n_full_ep in [5, 7, 8]:
         train(
             f"lm/trafo-n24-d512-gelu-drop0-b2k_80k-laplace100k-nEp{n_full_ep}-spm10k-lossNoNorm",
             config=dict_update_deep(
