@@ -345,7 +345,7 @@ def py():
     for lr, wd in [(1e-3, 1e-1), (1e-3, 1e-2), (1e-3, 1e-3), (5e-4, 1e-2)]:
         train(
             f"lm/trafo-n24-d512-gelu-drop0"
-            f"-wd{str(wd).replace('-', '_')}-lr{str(lr).replace('-', '_')}"
+            f"-lr{str(lr).replace('-', '_')}-wd{str(wd).replace('-', '_')}"
             f"-b2k_80k-laplace100k-spm10k",
             config=dict_update_deep(
                 config_96gb_bf16_accgrad1,
