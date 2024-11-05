@@ -20,7 +20,6 @@ from i6_experiments.users.zeyer.train_v4 import train, ModelDefWithCfg
 import returnn.frontend as rf
 from returnn.frontend.decoder.transformer import TransformerDecoder
 from returnn.frontend.encoder.conformer import ConformerEncoderLayer, ConformerPositionwiseFeedForward
-from ...utils.generic_job_output import generic_job_output
 
 
 def py():
