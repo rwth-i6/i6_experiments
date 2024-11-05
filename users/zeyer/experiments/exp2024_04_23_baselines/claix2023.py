@@ -391,13 +391,14 @@ def py():
             {
                 **_get_cfg_lrlin_oclr_by_bs_nep_v4(100),
                 "batch_size": PiecewiseLinear(
-                    {0: 1_000, 1: 80_000}, kw_name="epoch_continuous", ignore_other_kwargs=True
+                    {0: 1_000, 5: 80_000}, kw_name="epoch_continuous", ignore_other_kwargs=True
                 ),
                 "max_seqs": 2_000,
                 "optimizer.weight_decay": 1e-2,
                 "calculate_exp_loss": True,
             },
         ),
+        post_config={"log_grad_norm": True},
         train_dataset=get_librispeech_lm_dataset(
             vocab="spm10k", train_epoch_split=20, train_sort_laplace_num_seqs=100_000
         ),
