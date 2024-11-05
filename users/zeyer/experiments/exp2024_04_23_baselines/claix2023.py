@@ -460,42 +460,43 @@ def py():
         env_updates={"PYTORCH_CUDA_ALLOC_CONF": "backend:cudaMallocAsync,expandable_segments:True"},
     )
 
-    # Less grad clip, no lossNoNorm.
-    # 20 -> unstable... (and avg grad norm way lower, starts at 1.5, goes fastly down to 0.3, so rarely has an effect)
-    train(
-        "lm/trafo-n24-d512-gelu-drop0-gradClip20-b2k_80k-laplace100k-spm10k",
-        config=dict_update_deep(
-            config_96gb_bf16_accgrad1,
-            {
-                **_get_cfg_lrlin_oclr_by_bs_nep_v3(80_000, 100, batch_size_factor=1),
-                "max_seqs": 2_000,
-                "gradient_clip_global_norm": 20.0,
-                "optimizer.weight_decay": 1e-2,
-                "calculate_exp_loss": True,
-            },
-        ),
-        post_config={"log_grad_norm": True},
-        train_dataset=get_librispeech_lm_dataset(
-            vocab="spm10k", train_epoch_split=20, train_sort_laplace_num_seqs=100_000
-        ),
-        model_def=ModelDefWithCfg(
-            lm_model_def,
-            {
-                "_model_def_dict": rf.build_dict(
-                    TransformerDecoder,
-                    encoder_dim=None,
-                    num_layers=24,
-                    model_dim=512,
-                    ff_activation=rf.build_dict(rf.gelu),
-                    dropout=0.0,
-                    att_dropout=0.0,
-                )
-            },
-        ),
-        train_def=lm_train_def,
-        # avoid oom
-        env_updates={"PYTORCH_CUDA_ALLOC_CONF": "backend:cudaMallocAsync,expandable_segments:True"},
-    )
+    # Different/Less/More grad clip, no lossNoNorm.
+    # 20 -> unstable... (and avg grad norm way lower, starts at 1.5, goes fast down to 0.3, so rarely has an effect)
+    for grad_clip in [1.0, 5.0, 20.0]:
+        train(
+            f"lm/trafo-n24-d512-gelu-drop0-gradClip{grad_clip}-b2k_80k-laplace100k-spm10k",
+            config=dict_update_deep(
+                config_96gb_bf16_accgrad1,
+                {
+                    **_get_cfg_lrlin_oclr_by_bs_nep_v3(80_000, 100, batch_size_factor=1),
+                    "max_seqs": 2_000,
+                    "gradient_clip_global_norm": grad_clip,
+                    "optimizer.weight_decay": 1e-2,
+                    "calculate_exp_loss": True,
+                },
+            ),
+            post_config={"log_grad_norm": True},
+            train_dataset=get_librispeech_lm_dataset(
+                vocab="spm10k", train_epoch_split=20, train_sort_laplace_num_seqs=100_000
+            ),
+            model_def=ModelDefWithCfg(
+                lm_model_def,
+                {
+                    "_model_def_dict": rf.build_dict(
+                        TransformerDecoder,
+                        encoder_dim=None,
+                        num_layers=24,
+                        model_dim=512,
+                        ff_activation=rf.build_dict(rf.gelu),
+                        dropout=0.0,
+                        att_dropout=0.0,
+                    )
+                },
+            ),
+            train_def=lm_train_def,
+            # avoid oom
+            env_updates={"PYTORCH_CUDA_ALLOC_CONF": "backend:cudaMallocAsync,expandable_segments:True"},
+        )
 
     # Try longer training.
     # 5: 40.639, 6: 40.289, 7: 39.967
