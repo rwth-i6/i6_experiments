@@ -200,8 +200,8 @@ def py():
         # v6-n16-relPosAttDef-noBias-aedLoss-bhv20-11gb-f32-bs10k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-featBN-speedpertV2-spm10k-bpeSample001
         # This here is now spm512 though.
         # Note: In the original CR paper, they don't have time-downsampling!
-        {"num_enc_layers": 16, "batch_size": 10_000, "vocab": "spm512"},
-        {"num_enc_layers": 12, "batch_size": 200_000, "vocab": "spm512"},
+        {"num_enc_layers": 16, "batch_size": 10_000, "vocab": "spm512"},  # TODO bad?
+        {"num_enc_layers": 12, "batch_size": 200_000, "vocab": "spm512"},  # with CR: 7.82
     ]:
         for cr_ctc in [None, {"cr_loss_scale": 0.2}]:
             # TODO also adapt specaug for CR...
@@ -378,6 +378,8 @@ def py():
     )
 
     # Less grad clip.
+    # 5 -> 40.64 PPL, unstable training (baseline)
+    # 10 -> 40.51 PPL, unstable training
     train(
         "lm/trafo-n24-d512-gelu-drop0-gradClip10-b2k_80k-laplace100k-spm10k-lossNoNorm",
         config=dict_update_deep(
@@ -452,7 +454,8 @@ def py():
         )
 
     # Maybe more, or slower warmup (lrLowWarm)? Or smaller batch size initially?
-    # -> 40.437 PPL with wd:1e-1
+    # -> 40.437 PPL with wd:1e-1. unstable
+    # -> 40.61 PPL with wd:1e-2. unstable
     n_ep = 100
     peak_lr, low_lr, lowest_lr = 1e-3, 1e-5, 1e-6
     train(
@@ -512,7 +515,7 @@ def py():
     # Baseline without Lion: 40.6 PPL, also unstable (due to large batch & laplace100k).
     # Baseline without Lion, without laplace100k, without lossNoNorm: 38.69 PPL, stable (first subep already 213.2)
     for lion_lr_factor, wd in [
-        (0.05, 1e-2),
+        (0.05, 1e-2),  # 42.2 PPL. Unstable training.
         (0.1, 1e-2),  # 41.2 PPL. Unstable training.
         # (0.3, 1e-2),  # 43.7 PPL. Unstable training.
         # (0.3, 1e-3),  # 43.9 PPL. Unstable training.
