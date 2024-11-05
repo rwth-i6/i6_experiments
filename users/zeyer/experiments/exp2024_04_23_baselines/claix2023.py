@@ -8,7 +8,12 @@ from i6_experiments.users.zeyer.utils.dict_update import dict_update_deep
 from i6_experiments.users.zeyer.speed_pert.librosa_config import speed_pert_librosa_config
 from i6_experiments.users.zeyer.lr_schedules.piecewise_linear import dyn_lr_piecewise_linear
 
-from .configs import config_24gb_v6, _get_cfg_lrlin_oclr_by_bs_nep_v3, _batch_size_factor
+from .configs import (
+    config_24gb_v6,
+    _get_cfg_lrlin_oclr_by_bs_nep_v3,
+    _get_cfg_lrlin_oclr_by_bs_nep_v4,
+    _batch_size_factor,
+)
 from .aed import train_exp as aed_train_exp
 from .ctc import train_exp as ctc_train_exp
 from .lm import lm_train_def, lm_model_def
@@ -200,7 +205,7 @@ def py():
         # This here is now spm512 though.
         # Note: In the original CR paper, they don't have time-downsampling!
         {"num_enc_layers": 16, "batch_size": 10_000, "vocab": "spm512"},  # TODO bad?
-        {"num_enc_layers": 12, "batch_size": 200_000, "vocab": "spm512"},  # with CR: 7.82
+        {"num_enc_layers": 12, "batch_size": 200_000, "vocab": "spm512"},  # with CR: 7.82, without: 7.85
     ]:
         for cr_ctc in [None, {"cr_loss_scale": 0.2}]:
             # TODO also adapt specaug for CR...
@@ -352,6 +357,45 @@ def py():
                 "optimizer.weight_decay": 1e-2,
                 "calculate_exp_loss": True,
                 "use_normalized_loss": False,
+            },
+        ),
+        train_dataset=get_librispeech_lm_dataset(
+            vocab="spm10k", train_epoch_split=20, train_sort_laplace_num_seqs=100_000
+        ),
+        model_def=ModelDefWithCfg(
+            lm_model_def,
+            {
+                "_model_def_dict": rf.build_dict(
+                    TransformerDecoder,
+                    encoder_dim=None,
+                    num_layers=24,
+                    model_dim=512,
+                    ff_activation=rf.build_dict(rf.gelu),
+                    dropout=0.0,
+                    att_dropout=0.0,
+                )
+            },
+        ),
+        train_def=lm_train_def,
+        # avoid oom
+        env_updates={"PYTORCH_CUDA_ALLOC_CONF": "backend:cudaMallocAsync,expandable_segments:True"},
+    )
+
+    from returnn.util.math import PiecewiseLinear
+
+    # Try warmup of batch size (warmupBs).
+    train(
+        "lm/trafo-n24-d512-gelu-drop0-b2k_80k-warmupBs-laplace100k-spm10k",
+        config=dict_update_deep(
+            config_96gb_bf16_accgrad1,
+            {
+                **_get_cfg_lrlin_oclr_by_bs_nep_v4(100),
+                "batch_size": PiecewiseLinear(
+                    {0: 1_000, 1: 80_000}, kw_name="epoch_continuous", ignore_other_kwargs=True
+                ),
+                "max_seqs": 2_000,
+                "optimizer.weight_decay": 1e-2,
+                "calculate_exp_loss": True,
             },
         ),
         train_dataset=get_librispeech_lm_dataset(
