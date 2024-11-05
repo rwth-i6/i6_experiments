@@ -499,7 +499,7 @@ def py():
         )
 
     # Try longer training.
-    # 5: 40.639, 6: 40.289, 7: 39.967
+    # 5: 40.639, 6: 40.289, 7: 39.967, 8: 39.783. All still unstable.
     for n_full_ep in [5, 7, 8]:
         train(
             f"lm/trafo-n24-d512-gelu-drop0-b2k_80k-laplace100k-nEp{n_full_ep}-spm10k-lossNoNorm",
@@ -588,6 +588,42 @@ def py():
     # Try grad accum (accgrad2) (maybe it's bad if there are sometimes big batches with only short seqs).
     # (accum_grad_multiple_step=2)
     # -> 41.30, i.e. slightly worse.
+
+    # Even more grad accum (accgrad100) such that we cover the laplace100k.
+    train(
+        f"lm/trafo-n24-d512-gelu-drop0-accgrad100-b2k_80k-laplace100k-spm10k",
+        config=dict_update_deep(
+            config_96gb_bf16_accgrad1,
+            {
+                **_get_cfg_lrlin_oclr_by_bs_nep_v3(80_000, 100, batch_size_factor=1),
+                "max_seqs": 2_000,
+                "accum_grad_multiple_step": 100,
+                "optimizer.weight_decay": 1e-2,
+                "calculate_exp_loss": True,
+            },
+        ),
+        post_config={"log_grad_norm": True},
+        train_dataset=get_librispeech_lm_dataset(
+            vocab="spm10k", train_epoch_split=20, train_sort_laplace_num_seqs=100_000
+        ),
+        model_def=ModelDefWithCfg(
+            lm_model_def,
+            {
+                "_model_def_dict": rf.build_dict(
+                    TransformerDecoder,
+                    encoder_dim=None,
+                    num_layers=24,
+                    model_dim=512,
+                    ff_activation=rf.build_dict(rf.gelu),
+                    dropout=0.0,
+                    att_dropout=0.0,
+                )
+            },
+        ),
+        train_def=lm_train_def,
+        # avoid oom
+        env_updates={"PYTORCH_CUDA_ALLOC_CONF": "backend:cudaMallocAsync,expandable_segments:True"},
+    )
 
     # laplace100k is maybe too much. Try laplace10k (train_sort_laplace_num_seqs=10_000).
     # (trafo-n24-d512-gelu-drop0-b2k_80k-accgrad2-laplace10k-spm10k-lossNoNorm)
