@@ -98,3 +98,14 @@ def test_Dim():
 
     obj = Dim(42, name="vocab")
     assert sis_hash_helper(obj) == b"(Dim, (dict, (tuple, (str, 'dim'), (int, 42))))"
+
+
+def test_PiecewiseLinear():
+    from returnn.util.math import PiecewiseLinear
+
+    obj = PiecewiseLinear({1: 1.5, 5: 2.5})
+    assert str(obj) == "PiecewiseLinear({1: 1.5, 5: 2.5})"
+    assert sis_hash_helper(obj) == (
+        b"(PiecewiseLinear, (dict,"
+        b" (tuple, (str, 'values'), (dict, (tuple, (int, 1), (float, 1.5)), (tuple, (int, 5), (float, 2.5))))))"
+    )
