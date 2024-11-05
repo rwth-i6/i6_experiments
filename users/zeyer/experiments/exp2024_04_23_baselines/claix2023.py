@@ -635,6 +635,7 @@ def py():
     for lion_lr_factor, wd in [
         (0.05, 1e-2),  # 42.2 PPL. Unstable training.
         (0.1, 1e-2),  # 41.2 PPL. Unstable training.
+        (1.0, 1e-2),
         # (0.3, 1e-2),  # 43.7 PPL. Unstable training.
         # (0.3, 1e-3),  # 43.9 PPL. Unstable training.
     ]:
