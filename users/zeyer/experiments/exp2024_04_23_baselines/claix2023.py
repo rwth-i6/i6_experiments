@@ -461,6 +461,7 @@ def py():
     )
 
     # Less grad clip, no lossNoNorm.
+    # 20 -> unstable... (and avg grad norm way lower, starts at 1.5, goes fastly down to 0.3, so rarely has an effect)
     train(
         "lm/trafo-n24-d512-gelu-drop0-gradClip20-b2k_80k-laplace100k-spm10k",
         config=dict_update_deep(
