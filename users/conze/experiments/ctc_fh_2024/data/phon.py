@@ -60,6 +60,7 @@ def get_bliss(
     :param g2p_librispeech_key: baseline librispeech dataset that is used for g2p
     :param remove_unk_seqs: remove all sequences with unknowns, used for dev-clean and dev-other
         in case of using them for cross validation
+    :param apply_lexicon: convert corpus word sequences to phoneme sequences
     :return:
     """
     bliss = get_bliss_corpus_dict(audio_format="ogg")[librispeech_key]
@@ -93,6 +94,7 @@ def get_bliss(
 
 
 def get_bliss_and_zip(
+    prefix: str,
     librispeech_key: str,
     g2p_librispeech_key: str,
     add_eow_phonemes: bool,
@@ -105,6 +107,7 @@ def get_bliss_and_zip(
     :param g2p_librispeech_key: baseline librispeech dataset that is used for g2p
     :param remove_unk_seqs: remove all sequences with unknowns, used for dev-clean and dev-other
         in case of using them for cross validation
+    :param apply_lexicon: convert corpus word sequences to phoneme sequences
     :return: tuple of bliss and zip
     """
 
@@ -116,7 +119,11 @@ def get_bliss_and_zip(
         remove_unk_seqs=remove_unk_seqs,
         apply_lexicon=apply_lexicon,
     )
-    zip_dataset = get_zip(f"{g2p_librispeech_key}_{librispeech_key}_filtered_eow", bliss_dataset=bliss_dataset)
+    zip_dataset = get_zip(
+        prefix,
+        f"{g2p_librispeech_key}_{librispeech_key}{'_filtered' if remove_unk_seqs else ''}{'_eow' if add_eow_phonemes else ''}{'_sil' if add_silence else ''}{'_lexapplied' if apply_lexicon else ''}",
+        bliss_dataset=bliss_dataset,
+    )
 
     return bliss_dataset, zip_dataset
 
@@ -137,7 +144,13 @@ def get_vocab_datastream(
         add_silence=add_silence,
     )
     returnn_vocab_job = ReturnnVocabFromPhonemeInventory(lexicon)
-    returnn_vocab_job.add_alias(os.path.join(prefix, f"{g2p_librispeech_key}", "eow_returnn_vocab_job"))
+    returnn_vocab_job.add_alias(
+        os.path.join(
+            prefix,
+            f"{g2p_librispeech_key}",
+            f"{'eow_' if add_eow_phonemes else ''}{'sil_' if add_silence else ''}returnn_vocab_job",
+        )
+    )
 
     vocab_datastream = LabelDatastream(
         available_for_inference=True,
@@ -179,6 +192,7 @@ def build_phon_training_datasets(
     :param settings: configuration object for the dataset pipeline
     :param lexicon_librispeech_key: if we are using extra synthetic data, we might want a lexicon with the OOV coverage of that data as well
     :param use_tags: Use sequence tag instead of labels in training
+    :param apply_lexicon: convert corpus word sequences to phoneme sequences
     """
     label_datastream = get_vocab_datastream(
         prefix=prefix,
@@ -188,6 +202,7 @@ def build_phon_training_datasets(
     )
 
     train_bliss, train_ogg = get_bliss_and_zip(
+        prefix=prefix,
         librispeech_key=librispeech_key,
         g2p_librispeech_key=librispeech_key,
         add_eow_phonemes=add_eow_phonemes,
@@ -196,6 +211,7 @@ def build_phon_training_datasets(
         apply_lexicon=apply_lexicon,
     )
     dev_clean_bliss, dev_clean_ogg = get_bliss_and_zip(
+        prefix=prefix,
         librispeech_key="dev-clean",
         g2p_librispeech_key=librispeech_key,
         add_eow_phonemes=add_eow_phonemes,
@@ -204,6 +220,7 @@ def build_phon_training_datasets(
         apply_lexicon=apply_lexicon,
     )
     dev_other_bliss, dev_other_ogg = get_bliss_and_zip(
+        prefix=prefix,
         librispeech_key="dev-other",
         g2p_librispeech_key=librispeech_key,
         add_eow_phonemes=add_eow_phonemes,

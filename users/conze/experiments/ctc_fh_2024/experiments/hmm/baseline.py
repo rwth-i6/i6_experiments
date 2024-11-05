@@ -3,14 +3,22 @@ from dataclasses import asdict
 import numpy as np
 from typing import cast, List
 import textwrap
+from functools import partial
 
 from sisyphus.delayed_ops import DelayedFormat
 
 from i6_core.tools.parameter_tuning import GetOptimalParametersAsVariableJob
 from i6_core.text.processing import WriteToTextFileJob
 from i6_core.corpus.transform import MergeCorporaJob
+from i6_core.rasr.config import build_config_from_mapping
 
 from i6_experiments.common.setups.returnn.datastreams.vocabulary import LabelDatastream
+from i6_experiments.users.raissi.setups.common.helpers.train.oclr import get_oclr_config
+from i6_experiments.users.raissi.setups.common.data.factored_label import (
+    LabelInfo,
+    PhonemeStateClasses,
+    RasrStateTying,
+)
 
 from ...data.common import DatasetSettings, build_test_dataset
 from ...data.phon import build_phon_training_datasets, get_text_lexicon, get_lexicon
@@ -260,6 +268,7 @@ def ls960_hmm_base():
         warn-about-unexpected-elements = yes
         """
     )
+
     lexicon = get_lexicon(
         g2p_librispeech_key="train-other-960",
         with_g2p=True,
@@ -283,15 +292,28 @@ def ls960_hmm_base():
         },
     )
     create_rasr_config_file_job = WriteToTextFileJob(content=rasr_config_str, out_name=f"rasr.config")
-                    
+
+    label_info = LabelInfo(
+        n_contexts=label_datastream.vocab_size + 1,  # + empty context
+        n_states_per_phone=1,
+        phoneme_state_classes=PhonemeStateClasses.word_end,
+        ph_emb_size=0,
+        st_emb_size=0,
+        state_tying=RasrStateTying.monophone,
+        add_unknown_phoneme=True,  # Setting this to true means the n_contexts already includes the unknown phoneme
+    )
+
+    train_configs = {}
+    am_scales = [0.3, 0.5]  #, 0.7]
 
     # TDP scale and fsa config adapted from:
     # /work/asr4/raissi/setups/librispeech/960-ls/2023-01--system_paper/work/i6_experiments/users/raissi/costum/returnn/rasr_returnn_bw/ReturnnRasrTrainingBWJob.j0QluKd9vhJ8
-    model_config = ModelConfig(
+    # Create multiple configs with different AM scales
+    ModelConfigTemplate = partial(ModelConfig,
         feature_extraction_config=fe_config,
         frontend_config=frontend_config,
         specaug_config=specaug_config_full,
-        label_target_size=84,  # TODO use LabelInfo from i6_experiments/users/raissi/setups/common/data/factored_label.py
+        label_target_size=label_info.get_n_of_dense_classes(),
         conformer_size=512,
         num_layers=12,
         num_heads=8,
@@ -303,55 +325,63 @@ def ls960_hmm_base():
         conv_kernel_size=31,
         final_dropout=0.1,
         specauc_start_epoch=1,
-        tdp_scale=0.3,
-        am_scale=0.7,
+        tdp_scale=0.1,
         fsa_config_path=create_rasr_config_file_job.out_file,
     )
 
-    train_config_11gbgpu_amp = {
-        #"optimizer": {"class": "nadam", "epsilon": 1e-8},
-        #"learning_rates": list(np.linspace(1.5051851851851853e-5, 4e-4, 225)) +
-        #                  list(np.linspace(0.0003982814814814815, 1.333333333333335e-05, 225)) +
-        #                  list(np.linspace(1.333333333333335e-05, 1e-6, 50)),  todo: only use 250 epochs
+    def get_tina_oclr_config(num_epochs, lrate):
+        lrs = get_oclr_config(num_epochs, lrate)
+        lrs["optimizer"] = {"class": "nadam", "epsilon": 1e-8}
+        return lrs
+
+    nick_lr_config = {
         "optimizer": {"class": "adamw", "epsilon": 1e-16, "weight_decay": 1e-2},
+        "learning_rate_file": "lr.log",
         "learning_rates": list(np.linspace(7e-6, 5e-4, 120)) + list(
             np.linspace(5e-4, 5e-5, 120)) + list(np.linspace(5e-5, 1e-7, 10)),
-        #############
-        "batch_size": 120 * 16000,
-        "max_seq_length": {"audio_features": 35 * 16000},
-        "accum_grad_multiple_step": 1,
-        # "torch_amp_options": {"dtype": "bfloat16"},  # No mixed-precision training on 11GB-GPUs
-        #"gradient_clip_norm": 1.0,
-        "gradient_clip": 20.0,
-        "gradient_noise": 0.0,
     }
-    train_config_11gbgpu_amp_sp = copy.deepcopy(train_config_11gbgpu_amp)
 
-    # Same with conv first
-    network_module_conv_first = "hmm.conformer_1023.i6modelsV1_VGG4LayerActFrontendV1_v6_conv_first"
-    train_args_conv_first = {
-        "config": train_config_11gbgpu_amp,
-        "network_module": network_module_conv_first,
-        "net_args": {"model_config_dict": asdict(model_config)},
-        "debug": False,
-        "include_native_ops": True,
-    }
-    train_args_conv_first_sp = copy.deepcopy(train_args_conv_first)
-    train_args_conv_first_sp["config"] = train_config_11gbgpu_amp_sp
-    train_args_conv_first_sp["use_speed_perturbation"] = True
+    for am_scale in am_scales:
+        train_configs[f"nick_AM{am_scale}"] = (nick_lr_config, ModelConfigTemplate(am_scale=am_scale))
+        for div_by_am in [True, False]:
+            divisor = am_scale if div_by_am else 1.0
+            for peak_lr in [4e-4, 1e-3]:
+                train_configs[f"tina_AM{am_scale}_LR{peak_lr:.0e}{'_div' if div_by_am else ''}"] = (get_tina_oclr_config(250, peak_lr / divisor), ModelConfigTemplate(am_scale=am_scale))
 
-    name = ".512dim_sub4_11gbgpu_100eps_lp_fullspec_gradnorm_smallbatch_hmm"
-    training_name = prefix_name + "/" + network_module_conv_first + name
-    train_job = training(training_name, train_data, train_args_conv_first, num_epochs=250, **default_returnn)
-    train_job.rqmt["gpu_mem"] = 11
-    asr_model = prepare_asr_model(
-        training_name,
-        train_job,
-        train_args_conv_first,
-        with_prior=True,
-        datasets=train_data,
-        get_specific_checkpoint=250,
-    )
+    for config_name, (lr_config, model_config) in train_configs.items():
+        train_config_11gbgpu_amp = {
+            "batch_size": 150 * 16000,
+            "max_seq_length": {"audio_features": 35 * 16000},
+            "accum_grad_multiple_step": 1,
+            # "torch_amp_options": {"dtype": "bfloat16"},  # No mixed-precision training on 11GB-GPUs
+            #"gradient_clip_norm": 1.0,
+            "gradient_clip": 20.0,
+            "gradient_noise": 0.0,
+        }
+        train_config_11gbgpu_amp.update(lr_config)
+
+        # Same with conv first
+        network_module_conv_first = "hmm.conformer_1023.i6modelsV1_VGG4LayerActFrontendV1_v6_conv_first"
+        train_args_conv_first = {
+            "config": train_config_11gbgpu_amp,
+            "network_module": network_module_conv_first,
+            "net_args": {"model_config_dict": asdict(model_config)},
+            "debug": False,
+            "include_native_ops": True,
+        }
+
+        name = f".512dim_sub4_11gbgpu_100eps_lp_fullspec_gradnorm_smallbatch_hmm_{config_name}"
+        training_name = prefix_name + "/" + network_module_conv_first + name
+        train_job = training(training_name, train_data, train_args_conv_first, num_epochs=250, **default_returnn)
+        train_job.rqmt["gpu_mem"] = 11
+        asr_model = prepare_asr_model(
+            training_name,
+            train_job,
+            train_args_conv_first,
+            with_prior=True,
+            datasets=train_data,
+            get_specific_checkpoint=250,
+        )
     # TODO: re-enable tune_and_evaluate_helper with an HMM decoder
     #tune_and_evaluate_helper(
     #    training_name, asr_model, default_decoder_config, lm_scales=[1.6, 1.8, 2.0], prior_scales=[0.2, 0.3, 0.4]

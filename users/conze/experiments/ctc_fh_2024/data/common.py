@@ -5,6 +5,7 @@ from sisyphus import tk
 from dataclasses import dataclass
 from functools import lru_cache
 from typing import Any, Dict, List, Optional, Tuple, Union
+import os
 
 from i6_core.returnn.oggzip import BlissToOggZipJob
 
@@ -75,7 +76,7 @@ def get_audio_raw_datastream(
     return audio_datastream
 
 
-def get_zip(alias_name: str, bliss_dataset: tk.Path) -> tk.Path:
+def get_zip(prefix: str, alias_name: str, bliss_dataset: tk.Path) -> tk.Path:
     """
     Helper function to generate an ogg-zips from a bliss corpus already containing ogg files
 
@@ -89,7 +90,7 @@ def get_zip(alias_name: str, bliss_dataset: tk.Path) -> tk.Path:
         returnn_python_exe=RETURNN_EXE,
         returnn_root=MINI_RETURNN_ROOT,
     )
-    zip_dataset_job.add_alias(alias_name)
+    zip_dataset_job.add_alias(os.path.join(prefix, alias_name))
 
     return zip_dataset_job.out_ogg_zip
 

@@ -190,9 +190,7 @@ class Model(torch.nn.Module):
 
         log_probs = torch.log_softmax(logits, dim=2)
 
-        am_scaled_log_probs = self.cfg.am_scale * log_probs
-
-        return am_scaled_log_probs, torch.sum(out_mask, dim=1)
+        return log_probs, torch.sum(out_mask, dim=1, dtype=torch.int32)
 
 
 def train_step(*, model: Model, data, run_ctx, **kwargs):
@@ -205,13 +203,17 @@ def train_step(*, model: Model, data, run_ctx, **kwargs):
         raw_audio_len=raw_audio_len,
     )
 
-    weighted_fsa = model.builder.build_batch(data["seq_tag"]).to(run_ctx.device)
-    
-    from i6_native_ops.fbw import fbw_loss
-    fbw_loss = fbw_loss(logprobs, weighted_fsa, audio_features_len)
+    am_scaled_logprobs = logprobs.mul(model.cfg.am_scale)
 
+    weighted_fsa = model.builder.build_batch(data["seq_tag"]).to(run_ctx.device)
+
+    from i6_native_ops.fbw import fbw_loss
+    fbw_loss = fbw_loss(am_scaled_logprobs, weighted_fsa, audio_features_len)
+
+    # Normalization
     num_output_frames = torch.sum(audio_features_len)
-    run_ctx.mark_as_loss(name="hmm-fbw", loss=fbw_loss)#.sum(), inv_norm_factor=num_output_frames)
+
+    run_ctx.mark_as_loss(name="hmm-fbw", loss=fbw_loss.sum(), inv_norm_factor=num_output_frames)
 
 
 def prior_init_hook(run_ctx, **kwargs):

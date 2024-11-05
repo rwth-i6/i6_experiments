@@ -24,12 +24,13 @@ I6_MODELS_REPO_PATH = CloneGitRepositoryJob(
 ).out_repository.copy()
 I6_MODELS_REPO_PATH.hash_overwrite = "LIBRISPEECH_DEFAULT_I6_MODELS"
 
-I6_NATIVE_OPS_REPO_PATH = CloneGitRepositoryJob(
-    url="https://github.com/rwth-i6/i6_native_ops",
-    commit="200c6bbb91631661a7ee724fb3667ae7770d7b8f",
-    checkout_folder_name="i6_native_ops",
-).out_repository.copy()
-I6_NATIVE_OPS_REPO_PATH.hash_overwrite = "LIBRISPEECH_DEFAULT_I6_NATIVE_OPS"
+#I6_NATIVE_OPS_REPO_PATH = CloneGitRepositoryJob(
+#    url="https://github.com/rwth-i6/i6_native_ops",
+#    commit="200c6bbb91631661a7ee724fb3667ae7770d7b8f",
+#    checkout_folder_name="i6_native_ops",
+#).out_repository.copy()
+#I6_NATIVE_OPS_REPO_PATH.hash_overwrite = "LIBRISPEECH_DEFAULT_I6_NATIVE_OPS"
+I6_NATIVE_OPS_REPO_PATH = tk.Path("/u/benedikt.conze/github/i6/i6_native_ops", hash_overwrite="LIBRISPEECH_DEFAULT_I6_NATIVE_OPS")
 
 SCTK_BINARY_PATH = compile_sctk(branch="v2.4.12").copy()  # use last published version
 SCTK_BINARY_PATH.hash_overwrite = "LIBRISPEECH_DEFAULT_SCTK_BINARY_PATH"
