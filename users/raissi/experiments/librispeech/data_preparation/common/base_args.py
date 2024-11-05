@@ -153,6 +153,7 @@ def get_corpus_data_inputs(
 
 def get_number_of_segments():
     num_segments = constants.num_segments
-    for subset in ["clean-360", "other-500"]:
-        del num_segments[f"train-{subset}"]
+    num_segments[f"train-other-960"] = 0
+    for subset in ["clean-100", "clean-360", "other-500"]:
+        num_segments[f"train-other-960"]+= num_segments[f"train-{subset}"]
     return num_segments

@@ -105,6 +105,8 @@ RETURNN_ROOT_MORITZ = tk.Path(
     "/work/asr3/raissi/shared_workspaces/gunz/2023-05--thesis-baselines-tf2/i6_core/tools/git/CloneGitRepositoryJob.0TxYoqLkxbuC/output/returnn",
     hash_overwrite="CONFORMER_RETURNN_Len_FIX",
 )
+
+#hash: 870826b907e82b030e343b9170a3e23bdf7e92c1
 RETURNN_ROOT_TORCH = tk.Path("/work/tools/users/raissi/returnn_versions/torch", hash_overwrite="TORCH_RETURNN_ROOT")
 RETURNN_ROOT_BW_FACTORED = tk.Path(
     "/work/tools/users/raissi/returnn_versions/bw-factored", hash_overwrite="BW_RETURNN_ROOT"

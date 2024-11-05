@@ -100,6 +100,7 @@ class LBSTFFactoredHybridSystem(TFFactoredHybridBaseSystem):
         )
         self.recognizers = {"base": lbs_decoder.LBSFactoredHybridDecoder}
         self.cv_info = {"segment_list": CV_SEGMENTS, "alignment": {"dev-other_dev-clean": P_HMM_AM7T1_ALIGNMENT_40ms}}
+        self.num_segments = lbs_data_setups.get_number_of_segments()
         self.reference_alignment = {
             "GMM": {
                 "alignment": ALIGN_GMM_TRI_10MS,

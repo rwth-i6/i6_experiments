@@ -952,17 +952,21 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
 
         if softmax_type == SingleSoftmaxType.TRAIN:
             assert cv_corpus_key_for_train is not None, "you need to specify the cv corpus for fullsum training"
+            """
             assert self.training_criterion in [
                 TrainingCriterion.FULLSUM,
                 TrainingCriterion.sMBR,
             ], "you forgot to set the correct training criterion"
+            """
             self.label_info = dataclasses.replace(self.label_info, state_tying=state_tying)
             self.lexicon_args["norm_pronunciation"] = False
-            self.set_rasr_returnn_input_datas(
-                input_key=InputKey.BASE,
-                is_cv_separate_from_train=True,
-                cv_corpus_key=cv_corpus_key_for_train,
-            )
+            if self.training_criterion == TrainingCriterion.FULLSUM:
+                self.set_rasr_returnn_input_datas(
+                    input_key=InputKey.BASE,
+                    is_cv_separate_from_train=True,
+                    cv_corpus_key=cv_corpus_key_for_train,
+                )
+
             # update all transition models and data
             shift_factor = self.frame_rate_reduction_ratio_info.factor
             tdp_type = "heuristic" if shift_factor == 1 else f"heuristic-{shift_factor}0ms"
@@ -982,7 +986,7 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
             returnn_config = self.experiments[key]["returnn_config"]
 
         if state_tying == RasrStateTying.diphone:
-            clean_returnn_config = net_helpers.augment.remove_label_pops_and_losses_from_returnn_config(returnn_config)
+            clean_returnn_config = net_helpers.augment.remove_label_pops_and_losses_from_returnn_config(returnn_config, modify_chunking=self.training_criterion == TrainingCriterion.FULLSUM)
             context_size = self.label_info.n_contexts
             context_time_tag, _, _ = train_helpers.returnn_time_tag.get_context_dim_tag_prolog(
                 spatial_size=context_size,
@@ -1017,12 +1021,14 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
         else:
             assert False, "Only monophone and diphone state tying are supported for single softmax"
 
+
         self.reset_returnn_config_for_experiment(
             key=key,
             config_dict=final_returnn_config.config,
             extra_dict_key="context",
             additional_python_prolog=context_time_tag,
         )
+
 
         self.set_graph_for_experiment(key, graph_type_name=f"precomputed-{softmax_type}")
 
@@ -1329,8 +1335,6 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
                 n_labels,
                 self.initial_nn_args["num_input"],
             ).out_mixtures
-
-
 
         lattice_generator = self.lattice_generators[lattice_generator_key](
             name=self.experiments[key]["name"],

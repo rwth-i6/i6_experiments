@@ -718,7 +718,7 @@ def remove_label_pops_and_losses(network: Network, except_layers: Optional[Itera
 
 
 def remove_label_pops_and_losses_from_returnn_config(
-    cfg: returnn.ReturnnConfig, except_layers: Optional[Iterable[str]] = None
+    cfg: returnn.ReturnnConfig, except_layers: Optional[Iterable[str]] = None, modify_chunking: bool = True
 ) -> returnn.ReturnnConfig:
     cfg = copy.deepcopy(cfg)
     cfg.config["network"] = remove_label_pops_and_losses(cfg.config["network"], except_layers)
@@ -727,9 +727,11 @@ def remove_label_pops_and_losses_from_returnn_config(
         if k in cfg.config["extern_data"]:
             cfg.config["extern_data"].pop(k, None)
 
+
     chk_cfg = cfg.config.get("chunking", None)
-    if isinstance(chk_cfg, tuple):
-        cfg.config["chunking"] = f"{chk_cfg[0]['data']}:{chk_cfg[1]['data']}"
+    if modify_chunking:
+        if isinstance(chk_cfg, tuple):
+            cfg.config["chunking"] = f"{chk_cfg[0]['data']}:{chk_cfg[1]['data']}"
 
     return cfg
 

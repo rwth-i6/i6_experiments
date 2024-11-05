@@ -628,9 +628,7 @@ class BASEFactoredHybridSystem(NnSystem):
 
         feature_name = self.feature_info.feature_type.get()
 
-        configure_automata = False
-        if self.training_criterion in [TrainingCriterion.FULLSUM, TrainingCriterion.sMBR]:
-            configure_automata = True
+        configure_automata = True if self.training_criterion in [TrainingCriterion.FULLSUM] else False
         # get the train data for alignment before you changed any setting
         nn_train_align_data = copy.deepcopy(
             self.inputs[self.train_key][input_key].as_returnn_rasr_data_input(feature_flow_key=feature_name)
@@ -683,6 +681,7 @@ class BASEFactoredHybridSystem(NnSystem):
     ):
 
         assert self.train_key is not None, "You did not specify the train_key"
+        assert not len(self.cv_corpora), "You should not set any cv corpora if you want to take the cv from train"
         train_corpus_path = self.corpora[self.train_key].corpus_file
 
         all_segments = self._get_segment_file(corpus_path=train_corpus_path)

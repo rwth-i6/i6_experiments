@@ -120,7 +120,7 @@ def _get_smbr_crp(
     config.lattice_processor.rescoring.combined_lm_rescorers = "lm-rescorer"
     config.lattice_processor.rescoring.lm_rescorer.fall_back_value = 10000
     config.lattice_processor.rescoring.pass_extractors = "tdps,accuracy"
-    config.lattice_processor.rescoring.segmentwise_feature_extraction.feature_extraction.file = "train.feature.flow"
+    config.lattice_processor.rescoring.segmentwise_feature_extraction.feature_extraction.file = "/work/asr4/raissi/setups/librispeech/960-ls/dependencies/data/train.ss.feature.flow"
 
 
     # Parameters for Am::ClassicAcousticModel
@@ -260,7 +260,7 @@ def augment_for_smbr(
     extra_rasr_post_config: Optional[rasr.RasrConfig] = None,
     num_rasr_instances: int = 1,
 ) -> returnn.ReturnnConfig:
-    assert 0.0 <= fw_ce_smoothing + fs_ce_smoothing < 0.2
+    assert 0.0 <= fw_ce_smoothing + fs_ce_smoothing < 0.5
     assert num_rasr_instances > 0
 
     lattice_crp = rasr.CommonRasrParameters(crp)

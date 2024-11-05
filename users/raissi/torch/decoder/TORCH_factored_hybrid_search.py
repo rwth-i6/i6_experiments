@@ -1,4 +1,4 @@
-__all__ = ["BASEFactoredHybridDecoder", "BASEFactoredHybridAligner"]
+__all__ = ["TORCHFactoredHybridDecoder", "TORCHFactoredHybridAligner"]
 
 import copy
 import dataclasses
@@ -14,11 +14,14 @@ from IPython import embed
 from sisyphus import tk
 from sisyphus.delayed_ops import Delayed, DelayedBase, DelayedFormat
 
+from i6_experiments.users.raissi.setups.common.decoder import RasrFeatureScorer
+from i6_experiments.users.raissi.setups.common.decoder.BASE_factored_hybrid_search import check_prior_info, \
+    get_factored_feature_scorer, RasrShortestPathAlgorithm, DecodingJobs, round2
 
 Path = tk.Path
 
 import i6_core.am as am
-import i6_core.corpus as corpus_recipes
+import i6_core.features as features
 import i6_core.lm as lm
 import i6_core.mm as mm
 import i6_core.rasr as rasr
@@ -38,256 +41,20 @@ from i6_experiments.users.raissi.setups.common.decoder.config import (
     SearchParameters,
     AlignmentParameters,
 )
-from i6_experiments.users.raissi.setups.common.decoder.factored_hybrid_feature_scorer import (
-    FactoredHybridFeatureScorer,
-)
+
 from i6_experiments.users.raissi.setups.common.decoder.statistics import ExtractSearchStatisticsJob
 from i6_experiments.users.raissi.setups.common.util.tdp import format_tdp_val, format_tdp
 from i6_experiments.users.raissi.setups.common.util.argmin import ComputeArgminJob
 from i6_experiments.users.raissi.setups.common.data.typings import (
     TDP,
-    Float,
 )
 
 
-def round2(num: float):
-    return round(num, 2)
 
 
-class RasrFeatureScorer(Enum):
-    """A class that returns a speific fetaure scorer"""
+#remember you might need to scale to 2-15 the input of the feature flow
 
-    factored = "factored"
-    nn_precomputed = "nn-precomputed"
-    onnx = "onnx-feature-scorer"
-
-    def __str__(self):
-        return self.value
-
-    def get_fs_class(self):
-        if self == self.factored:
-            return FactoredHybridFeatureScorer
-        elif self == self.nn_precomputed:
-            return rasr.PrecomputedHybridFeatureScorer
-        elif self == self.onnx:
-            return rasr.OnnxFeatureScorer
-        else:
-            raise ValueError("Unknown type of Feature Scorer")
-
-    def is_factored(self):
-        return self == self.factored
-
-    def is_nnprecomputed(self):
-        return self == self.nn_precomputed
-
-    def is_onnx(self):
-        return self == self.onnx
-
-
-class RasrShortestPathAlgorithm(Enum):
-    """A class that returns a speific fetaure scorer"""
-
-    dijkstra = "dijkstra"
-    bellman_ford = "bellman-ford"
-    projecting_bellman_ford = "projecting-bellman-ford"
-
-    def __str__(self):
-        return self.value
-
-
-@dataclass(eq=True, frozen=True)
-class DecodingTensorMap:
-    """Map of tensor names used during decoding."""
-
-    in_classes: str
-    """Name of the input tensor carrying the classes."""
-
-    in_encoder_output: str
-    """
-    Name of input tensor for feeding in the previously obtained encoder output while
-    processing the state posteriors.
-
-    This can be different from `out_encoder_output` because the tensor name for feeding
-    in the intermediate data for computing the output softmaxes can be different from
-    the tensor name where the encoder-output is provided.
-    """
-
-    in_delta_encoder_output: str
-    """
-    Name of input tensor for feeding in the previously obtained delta encoder output.
-
-    See `in_encoder_output` for further explanation and why this can be different
-    from `out_delta_encoder_output`.
-    """
-
-    in_data: str
-    """Name of the input tensor carrying the audio features."""
-
-    in_seq_length: str
-    """Tensor name of the tensor where the feature length is fed in (as a dimension)."""
-
-    out_encoder_output: str
-    """Name of output tensor carrying the raw encoder output (before any softmax)."""
-
-    out_delta_encoder_output: str
-    """Name of the output tensor carrying the raw delta encoder output (before any softmax)."""
-
-    out_left_context: str
-    """Tensor name of the softmax for the left context."""
-
-    out_right_context: str
-    """Tensor name of the softmax for the right context."""
-
-    out_center_state: str
-    """Tensor name of the softmax for the center state."""
-
-    out_joint_diphone: str
-    """Tensor name of the softmax for the joint center state and legt context."""
-
-    out_delta: str
-    """Tensor name of the softmax for the delta output."""
-
-    @classmethod
-    def default(cls) -> "DecodingTensorMap":
-        return DecodingTensorMap(
-            in_classes="extern_data/placeholders/classes/classes",
-            in_data="extern_data/placeholders/data/data",
-            in_seq_length="extern_data/placeholders/data/data_dim0_size",
-            in_delta_encoder_output="delta-ce/output_batch_major",
-            in_encoder_output="encoder-output/output_batch_major",
-            out_encoder_output="encoder-output/output_batch_major",
-            out_delta_encoder_output="deltaEncoder-output/output_batch_major",
-            out_left_context="left-output/output_batch_major",
-            out_right_context="right-output/output_batch_major",
-            out_center_state="center-output/output_batch_major",
-            out_joint_diphone="output/output_batch_major",
-            out_delta="delta-ce/output_batch_major",
-        )
-
-
-@dataclass
-class DecodingJobs:
-    lat2ctm: Optional[recog.LatticeToCtmJob]
-    scorer: Optional[recog.ScliteJob]
-    search: recog.AdvancedTreeSearchJob
-    search_crp: rasr.CommonRasrParameters
-    search_feature_scorer: rasr.FeatureScorer
-    search_stats: Optional[ExtractSearchStatisticsJob]
-
-@dataclass
-class DecodingInput:
-    model_path: Union[DelayedBase, tk.Path]
-    graph_path: tk.Path
-    prior: Union[PriorInfo, tk.Path]
-    prior_scale: float
-    context_type: PhoneticContext
-    """
-    The prior is a string only in case of monophone and joint diphone
-    """
-
-    def get_graph(self):
-        assert isinstance(self.graph_path, tk.Path), "Graph should be a Path"
-        return self.graph_path
-
-    def get_model(self):
-        if isinstance(self.model_path, tk.Path):
-            return DelayedFormat(
-                self.model_path.get_path(),
-                cached=True
-            )
-        elif isinstance(self.model_path, DelayedBase):
-            return self.model_path
-        else:
-            raise NotImplementedError("Model should be either a Path or DelayedBase/Format")
-
-
-    def get_prior(self):
-        if isinstance(self.prior, PriorInfo):
-            check_prior_info(prior_info=self.prior, context_type=self.context_type)
-            return self.prior
-        else:
-            assert self.context_type in [PhoneticContext.monophone, PhoneticContext.joint_diphone]
-            if self.context_type == PhoneticContext.monophone:
-                return PriorInfo(
-                    center_state_prior=PriorConfig(file=self.prior, scale=self.prior_scale),
-                )
-            else: return PriorInfo(
-                    diphone_prior=PriorConfig(file=self.prior, scale=self.prior_scale),
-                )
-
-
-
-
-def check_prior_info(prior_info: PriorInfo, context_type: PhoneticContext):
-    if context_type.is_joint_diphone():
-        assert prior_info.diphone_prior is not None and prior_info.diphone_prior.file is not None
-        if prior_info.diphone_prior.scale is None:
-            print(f"center state prior scale is unset, are you sure?")
-        return
-    # in case of factored model we always have center state
-    assert prior_info.center_state_prior is not None and prior_info.center_state_prior.file is not None
-    if prior_info.center_state_prior.scale is None:
-        print(f"center state prior scale is unset, are you sure?")
-    if context_type.is_diphone():
-        assert prior_info.left_context_prior is not None and prior_info.left_context_prior.file is not None
-        if prior_info.left_context_prior.scale is None:
-            print(f"left context prior scale is unset, are you sure?")
-    if context_type.is_triphone():
-        assert prior_info.right_context_prior is not None and prior_info.right_context_prior.file is not None
-        if prior_info.right_context_prior.scale is None:
-            print(f"right context prior scale is unset, are you sure?")
-
-
-def get_factored_feature_scorer(
-    context_type: PhoneticContext,
-    feature_scorer_type: RasrFeatureScorer,
-    label_info: LabelInfo,
-    feature_scorer_config: rasr.RasrConfig,
-    mixtures: Path,
-    silence_id: int,
-    prior_info: Union[PriorInfo, tk.Variable, DelayedBase],
-    num_label_contexts: int,
-    num_states_per_phone: int,
-    num_encoder_output: int,
-    loop_scale: float = 1.0,
-    forward_scale: float = 1.0,
-    silence_loop_penalty: float = 0.0,
-    silence_forward_penalty: float = 0.0,
-    posterior_scales: Optional[PosteriorScales] = None,
-    use_estimated_tdps: bool = False,
-    state_dependent_tdp_file: Optional[Union[str, Path]] = None,
-    is_min_duration: bool = False,
-    is_multi_encoder_output: bool = False,
-    is_batch_major: bool = True,
-):
-    if isinstance(prior_info, PriorInfo):
-        check_prior_info(context_type=context_type, prior_info=prior_info)
-
-    return feature_scorer_type.get_fs_class()(
-        feature_scorer_config,
-        prior_mixtures=mixtures,
-        context_type=context_type.value,
-        prior_info=prior_info,
-        num_states_per_phone=num_states_per_phone,
-        num_label_contexts=num_label_contexts,
-        silence_id=silence_id,
-        num_encoder_output=num_encoder_output,
-        posterior_scales=posterior_scales,
-        is_multi_encoder_output=is_multi_encoder_output,
-        loop_scale=loop_scale,
-        forward_scale=forward_scale,
-        silence_loop_penalty=silence_loop_penalty,
-        silence_forward_penalty=silence_forward_penalty,
-        use_estimated_tdps=use_estimated_tdps,
-        state_dependent_tdp_file=state_dependent_tdp_file,
-        is_min_duration=is_min_duration,
-        use_word_end_classes=label_info.phoneme_state_classes.use_word_end(),
-        use_boundary_classes=label_info.phoneme_state_classes.use_boundary(),
-        is_batch_major=is_batch_major,
-    )
-
-
-def get_nn_precomputed_feature_scorer(
+def get_onnx_feature_scorer(
     context_type: PhoneticContext,
     feature_scorer_type: RasrFeatureScorer,
     mixtures: tk.Path,
@@ -313,7 +80,7 @@ def get_nn_precomputed_feature_scorer(
     )
 
 
-class BASEFactoredHybridDecoder:
+class TORCHFactoredHybridDecoder:
     def __init__(
         self,
         name: str,
@@ -326,13 +93,10 @@ class BASEFactoredHybridDecoder:
         mixtures: Path,
         eval_args,
         scorer: Optional[Union[recog.ScliteJob, recog.Hub5ScoreJob, recog.Hub5ScoreJob]] = None,
-        tensor_map: Optional[Union[dict, DecodingTensorMap]] = None,
         is_multi_encoder_output: bool = False,
         silence_id: int = 40,
         set_batch_major_for_feature_scorer: bool = True,
         lm_gc_simple_hash=False,
-        tf_library: Optional[Union[str, Path]] = None,
-        shortest_path_algo: RasrShortestPathAlgorithm = RasrShortestPathAlgorithm.bellman_ford,
         gpu=False,
     ):
 
@@ -349,251 +113,28 @@ class BASEFactoredHybridDecoder:
         self.set_batch_major_for_feature_scorer = set_batch_major_for_feature_scorer
         self.lm_gc_simple_hash = lm_gc_simple_hash
 
-        self.tensor_map = (
-            dataclasses.replace(DecodingTensorMap.default(), **tensor_map)
-            if isinstance(tensor_map, dict)
-            else tensor_map
-            if isinstance(tensor_map, DecodingTensorMap)
-            else DecodingTensorMap.default()
-        )
+        #ToDo introduce the ONNX mapping
+        self.tensor_map = ()
 
         self.eval_args = eval_args  # ctm file as ref
 
-        self.shortest_path_algo = shortest_path_algo
         self.gpu = gpu
-        self.library_path = DelayedJoin(tf_library, ":") if isinstance(tf_library, list) else tf_library
         self.scorer = scorer if scorer is not None else recog.ScliteJob
 
-        # setting other attributes
-        self.set_tf_fs_flow()
-        self.fs_config = self.get_fs_tf_config()
 
-    def get_search_params(
-        self,
-        beam: float,
-        beam_limit: int,
-        we_pruning=0.5,
-        we_pruning_limit=10000,
-        lm_state_pruning=None,
-        is_count_based=False,
+    def get_base_sample_feature_flow(
+        self, audio_format: str, dc_detection: bool = False, **kwargs
     ):
-        sp = {
-            "beam-pruning": beam,
-            "beam-pruning-limit": beam_limit,
-            "word-end-pruning": we_pruning,
-            "word-end-pruning-limit": we_pruning_limit,
+        args = {
+            "audio_format": audio_format,
+            "dc_detection": dc_detection,
+            "input_options": {"block-size": 1},
+            "scale_input": 2**-15,
         }
-        if is_count_based:
-            return sp
-        if lm_state_pruning is not None:
-            sp["lm-state-pruning"] = lm_state_pruning
-        return sp
+        args.update(kwargs)
+        return features.samples_flow(**args)
 
-    def get_requirements(self, beam: float, nn_lm=False):
-        rtf = 4
-        if not self.gpu:
-            rtf *= 4
 
-        if self.context_type not in [
-            PhoneticContext.monophone,
-            PhoneticContext.diphone,
-        ]:
-            rtf *= 4
-
-        if nn_lm:
-            rtf += 20
-            mem = 16.0
-            if beam > 16.0:
-                rtf *= 2
-        else:
-            mem = 6
-
-        return {"rtf": rtf, "mem": mem}
-
-    @staticmethod
-    def get_cheating_lm_config(scale, infinity_score=1000.0):
-        cfg = rasr.RasrConfig()
-        cfg.type = "cheating-segment"
-        cfg.scale = scale
-        cfg.infinity_score = infinity_score
-
-        return cfg
-
-    def get_lookahead_options(self, scale=1.0, hlimit=1, clow=2000, chigh=3000):
-        lmla_options = {
-            "scale": scale,
-            "history_limit": hlimit,
-            "cache_low": clow,
-            "cache_high": chigh,
-        }
-        return lmla_options
-
-    def get_tf_flow(self):
-        if self.feature_scorer_type.is_factored():
-            output_string = "encoder-output"
-            output_tensor = self.tensor_map.out_encoder_output
-        elif self.feature_scorer_type.is_nnprecomputed():
-            output_string = "posteriors"
-            if self.context_type.is_monophone():
-                output_tensor = self.tensor_map.out_center_state
-            elif self.context_type.is_joint_diphone():
-                output_tensor = self.tensor_map.out_joint_diphone
-            else:
-                raise ValueError("You can use nn precomputed only with monophone or joint diphone")
-        else:
-            raise NotImplementedError("Unknown feature scorer type")
-
-        tf_flow = rasr.FlowNetwork()
-        tf_flow.add_input("input-features")
-        tf_flow.add_output("features")
-        tf_flow.add_param("id")
-        tf_fwd = tf_flow.add_node("tensorflow-forward", "tf-fwd", {"id": "$(id)"})
-        tf_flow.link("network:input-features", tf_fwd + ":features")
-        if not self.is_multi_encoder_output:
-            tf_flow.link(tf_fwd + f":{output_string}", "network:features")
-        else:
-            concat = tf_flow.add_node(
-                "generic-vector-f32-concat",
-                "concatenation",
-                {"check-same-length": True, "timestamp-port": "feature-1"},
-            )
-
-            tf_flow.link(tf_fwd + output_string, "%s:%s" % (concat, "feature-1"))
-            tf_flow.link(tf_fwd + ":deltaEncoder-output", "%s:%s" % (concat, "feature-2"))
-
-            tf_flow.link(concat, "network:features")
-
-        tf_flow.config = rasr.RasrConfig()
-
-        tf_flow.config[tf_fwd].input_map.info_0.param_name = "features"
-        tf_flow.config[tf_fwd].input_map.info_0.tensor_name = self.tensor_map.in_data
-        tf_flow.config[tf_fwd].input_map.info_0.seq_length_tensor_name = self.tensor_map.in_seq_length
-
-        tf_flow.config[tf_fwd].output_map.info_0.param_name = output_string
-        tf_flow.config[tf_fwd].output_map.info_0.tensor_name = output_tensor
-
-        if self.is_multi_encoder_output:
-            tf_flow.config[tf_fwd].output_map.info_1.param_name = "deltaEncoder-output"
-            tf_flow.config[tf_fwd].output_map.info_1.tensor_name = self.tensor_map.out_delta_encoder_output
-
-        tf_flow.config[tf_fwd].loader.type = "meta"
-        tf_flow.config[tf_fwd].loader.meta_graph_file = self.graph
-        tf_flow.config[tf_fwd].loader.saved_model_file = self.model_path
-        if self.library_path is not None:
-            if isinstance(self.library_path, list):
-                tf_flow.config[tf_fwd].loader.required_libraries = DelayedJoin(self.library_path, ";")
-            else:
-                tf_flow.config[tf_fwd].loader.required_libraries = self.library_path
-
-        return tf_flow
-
-    def set_tf_fs_flow(self):
-        tf_feature_flow = rasr.FlowNetwork()
-        base_mapping = tf_feature_flow.add_net(self.feature_path)
-        tf_flow = self.get_tf_flow()
-
-        tf_mapping = tf_feature_flow.add_net(tf_flow)
-
-        tf_feature_flow.interconnect_inputs(self.feature_path, base_mapping)
-        tf_feature_flow.interconnect(
-            self.feature_path,
-            base_mapping,
-            tf_flow,
-            tf_mapping,
-            {"features": "input-features"},
-        )
-        tf_feature_flow.interconnect_outputs(tf_flow, tf_mapping)
-
-        self.feature_scorer_flow = tf_feature_flow
-
-    def get_fs_tf_config(self):
-        fs_tf_config = rasr.RasrConfig()
-        if self.feature_scorer_type == RasrFeatureScorer.nn_precomputed:
-            return fs_tf_config
-        elif self.feature_scorer_type == RasrFeatureScorer.factored:
-            fs_tf_config.loader = self.feature_scorer_flow.config["tf-fwd"]["loader"]
-            del fs_tf_config.input_map
-
-            # input is the same for each model, since the label embeddings are calculated from the dense label identity
-            fs_tf_config.input_map.info_0.param_name = "encoder-output"
-            fs_tf_config.input_map.info_0.tensor_name = self.tensor_map.in_encoder_output
-
-            # monophone does not have any context
-            if self.context_type != PhoneticContext.monophone:
-                fs_tf_config.input_map.info_1.param_name = "dense-classes"
-                fs_tf_config.input_map.info_1.tensor_name = self.tensor_map.in_classes
-
-            if self.context_type in [
-                PhoneticContext.monophone,
-                PhoneticContext.mono_state_transition,
-            ]:
-                fs_tf_config.output_map.info_0.param_name = "center-state-posteriors"
-                fs_tf_config.output_map.info_0.tensor_name = self.tensor_map.out_center_state
-                if self.context_type == PhoneticContext.mono_state_transition:
-                    # add the delta outputs
-                    fs_tf_config.output_map.info_1.param_name = "delta-posteriors"
-                    fs_tf_config.output_map.info_1.tensor_name = self.tensor_map.out_delta
-
-            if self.context_type in [
-                PhoneticContext.diphone,
-                PhoneticContext.diphone_state_transition,
-            ]:
-                fs_tf_config.output_map.info_0.param_name = "center-state-posteriors"
-                fs_tf_config.output_map.info_0.tensor_name = self.tensor_map.out_center_state
-                fs_tf_config.output_map.info_1.param_name = "left-context-posteriors"
-                fs_tf_config.output_map.info_1.tensor_name = self.tensor_map.out_left_context
-                if self.context_type == PhoneticContext.diphone_state_transition:
-                    fs_tf_config.output_map.info_2.param_name = "delta-posteriors"
-                    fs_tf_config.output_map.info_2.tensor_name = self.tensor_map.out_delta
-
-            if self.context_type == PhoneticContext.triphone_symmetric:
-                fs_tf_config.output_map.info_0.param_name = "center-state-posteriors"
-                fs_tf_config.output_map.info_0.tensor_name = self.tensor_map.out_center_state
-                fs_tf_config.output_map.info_1.param_name = "left-context-posteriors"
-                fs_tf_config.output_map.info_1.tensor_name = self.tensor_map.out_left_context
-                fs_tf_config.output_map.info_2.param_name = "right-context-posteriors"
-                fs_tf_config.output_map.info_2.tensor_name = self.tensor_map.out_right_context
-
-            if self.context_type in [
-                PhoneticContext.triphone_forward,
-                PhoneticContext.tri_state_transition,
-            ]:
-                # outputs
-                fs_tf_config.output_map.info_0.param_name = "right-context-posteriors"
-                fs_tf_config.output_map.info_0.tensor_name = self.tensor_map.out_right_context
-                fs_tf_config.output_map.info_1.param_name = "center-state-posteriors"
-                fs_tf_config.output_map.info_1.tensor_name = self.tensor_map.out_center_state
-                fs_tf_config.output_map.info_2.param_name = "left-context-posteriors"
-                fs_tf_config.output_map.info_2.tensor_name = self.tensor_map.out_left_context
-
-                if self.context_type == PhoneticContext.tri_state_transition:
-                    fs_tf_config.output_map.info_3.param_name = "delta-posteriors"
-                    fs_tf_config.output_map.info_3.tensor_name = self.tensor_map.out_delta
-
-            elif self.context_type == PhoneticContext.triphone_backward:
-                # outputs
-                fs_tf_config.output_map.info_0.param_name = "left-context-posteriors"
-                fs_tf_config.output_map.info_0.tensor_name = self.tensor_map.out_left_context
-                fs_tf_config.output_map.info_1.param_name = "right-context-posteriors"
-                fs_tf_config.output_map.info_1.tensor_name = self.tensor_map.out_right_context
-                fs_tf_config.output_map.info_2.param_name = "center-state-posteriors"
-                fs_tf_config.output_map.info_2.tensor_name = self.tensor_map.out_center_state
-
-            if self.is_multi_encoder_output:
-                if self.context_type in [
-                    PhoneticContext.monophone,
-                    PhoneticContext.mono_state_transition,
-                ]:
-                    fs_tf_config.input_map.info_1.param_name = "deltaEncoder-output"
-                    fs_tf_config.input_map.info_1.tensor_name = self.tensor_map.in_delta_encoder_output
-                else:
-                    fs_tf_config.input_map.info_2.param_name = "deltaEncoder-output"
-                    fs_tf_config.input_map.info_2.tensor_name = self.tensor_map.in_delta_encoder_output
-
-        else:
-            raise ValueError("Unknown feature scorer type")
-
-        return fs_tf_config
 
     def recognize_count_lm(
         self,
@@ -810,47 +351,8 @@ class BASEFactoredHybridDecoder:
                 "use-word-end-classes"
             ] = label_info.phoneme_state_classes.use_word_end()
 
-        if self.feature_scorer_type.is_factored():
-            feature_scorer = get_factored_feature_scorer(
-                context_type=self.context_type,
-                feature_scorer_type=self.feature_scorer_type,
-                label_info=label_info,
-                feature_scorer_config=self.fs_config,
-                mixtures=self.mixtures,
-                silence_id=self.silence_id,
-                prior_info=search_parameters.prior_info,
-                posterior_scales=search_parameters.posterior_scales,
-                num_label_contexts=label_info.n_contexts,
-                num_states_per_phone=label_info.n_states_per_phone,
-                num_encoder_output=num_encoder_output,
-                loop_scale=loop_scale,
-                forward_scale=forward_scale,
-                silence_loop_penalty=sil_loop_penalty,
-                silence_forward_penalty=sil_fwd_penalty,
-                use_estimated_tdps=use_estimated_tdps,
-                state_dependent_tdp_file=search_parameters.state_dependent_tdps,
-                is_min_duration=is_min_duration,
-                is_multi_encoder_output=self.is_multi_encoder_output,
-                is_batch_major=self.set_batch_major_for_feature_scorer,
-            )
-        elif self.feature_scorer_type.is_nnprecomputed():
-            scale = 1.0
-            if search_parameters.posterior_scales is not None:
-                if self.context_type.is_joint_diphone():
-                    scale = search_parameters.posterior_scales["joint-diphone-scale"]
-                elif self.context_type.is_monophone():
-                    scale = search_parameters.posterior_scales["center-state-scale"]
-
-                name += f"-Am{scale}"
-            feature_scorer = get_nn_precomputed_feature_scorer(
-                posterior_scale=scale,
-                context_type=self.context_type,
-                feature_scorer_type=self.feature_scorer_type,
-                mixtures=self.mixtures,
-                prior_info=search_parameters.prior_info,
-            )
-        else:
-            raise NotImplementedError
+        #toDo add feature scorer
+        feature_scorer = None
 
         if lm_config is not None:
             search_crp.language_model_config = lm_config
@@ -962,9 +464,6 @@ class BASEFactoredHybridDecoder:
                 pre = f"{pre_path}-" if pre_path != "decoding" and pre_path != "decoding-gridsearch" else ""
                 stat.add_alias(f"{pre}statistics/{name}")
                 tk.register_output(f"{pre}statistics/rtf/{name}.rtf", stat.overall_rtf)
-                # tk.register_output(f"{pre}statistics/rtf/{name}.rtf", stat.decoding_rtf)
-                # tk.register_output(f"{pre}statistics/rtf/{name}.recognizer.rtf", stat.recognizer_rtf)
-                # tk.register_output(f"{pre}statistics/rtf/{name}.stats", stat.ss_statistics)
         else:
             stat = None
 
@@ -1547,7 +1046,7 @@ class BASEFactoredHybridDecoder:
         return base_cfg
 
 
-class BASEFactoredHybridAligner(BASEFactoredHybridDecoder):
+class TORCHFactoredHybridAligner(TORCHFactoredHybridDecoder):
     def __init__(
         self,
         name: str,
@@ -1560,7 +1059,6 @@ class BASEFactoredHybridAligner(BASEFactoredHybridDecoder):
         mixtures: Path,
         tf_library: Optional[Union[str, Path]] = None,
         gpu=False,
-        tensor_map: Optional[Union[dict, DecodingTensorMap]] = None,
         is_multi_encoder_output=False,
         silence_id=40,
         set_batch_major_for_feature_scorer: bool = True,
@@ -1576,9 +1074,7 @@ class BASEFactoredHybridAligner(BASEFactoredHybridDecoder):
             graph=graph,
             mixtures=mixtures,
             eval_args=None,
-            tf_library=tf_library,
             gpu=gpu,
-            tensor_map=tensor_map,
             is_multi_encoder_output=is_multi_encoder_output,
             silence_id=silence_id,
             set_batch_major_for_feature_scorer=set_batch_major_for_feature_scorer,
@@ -1705,46 +1201,7 @@ class BASEFactoredHybridAligner(BASEFactoredHybridDecoder):
         if crp_update is not None:
             crp_update(align_crp)
 
-        if self.feature_scorer_type.is_factored():
-            feature_scorer = get_factored_feature_scorer(
-                context_type=self.context_type,
-                feature_scorer_type=self.feature_scorer_type,
-                label_info=label_info,
-                feature_scorer_config=self.fs_config,
-                mixtures=self.mixtures,
-                silence_id=self.silence_id,
-                prior_info=alignment_parameters.prior_info,
-                posterior_scales=alignment_parameters.posterior_scales,
-                num_label_contexts=label_info.n_contexts,
-                num_states_per_phone=label_info.n_states_per_phone,
-                num_encoder_output=num_encoder_output,
-                loop_scale=loop_scale,
-                forward_scale=forward_scale,
-                silence_loop_penalty=sil_loop_penalty,
-                silence_forward_penalty=sil_fwd_penalty,
-                use_estimated_tdps=use_estimated_tdps,
-                state_dependent_tdp_file=alignment_parameters.state_dependent_tdps,
-                is_min_duration=is_min_duration,
-                is_multi_encoder_output=self.is_multi_encoder_output,
-                is_batch_major=self.set_batch_major_for_feature_scorer,
-            )
-        elif self.feature_scorer_type.is_nnprecomputed():
-            scale = 1.0
-            if alignment_parameters.posterior_scales is not None:
-                if self.context_type.is_joint_diphone():
-                    scale = alignment_parameters.posterior_scales["joint-diphone-scale"]
-                elif self.context_type.is_monophone():
-                    scale = alignment_parameters.posterior_scales["center-state-scale"]
-                self.name += f"-Am{scale}"
-            feature_scorer = get_nn_precomputed_feature_scorer(
-                posterior_scale=scale,
-                context_type=self.context_type,
-                feature_scorer_type=self.feature_scorer_type,
-                mixtures=self.mixtures,
-                prior_info=alignment_parameters.prior_info,
-            )
-        else:
-            raise NotImplementedError
+        #ToDo add the feature scorer
 
         if alignment_parameters.tdp_scale is not None:
             if (
@@ -1766,7 +1223,7 @@ class BASEFactoredHybridAligner(BASEFactoredHybridDecoder):
         alignment = mm.AlignmentJob(
             crp=align_crp,
             feature_flow=self.feature_scorer_flow,
-            feature_scorer=feature_scorer,
+            feature_scorer=None,#feature_scorer,
             use_gpu=gpu,
             rtf=10,
         )
@@ -1778,137 +1235,3 @@ class BASEFactoredHybridAligner(BASEFactoredHybridDecoder):
 
         return alignment
 
-
-class BASEFactoredHybridLatticeGenerator(BASEFactoredHybridDecoder):
-    def __init__(
-        self,
-        name: str,
-        crp,
-        context_type: PhoneticContext,
-        feature_scorer_type: RasrFeatureScorer,
-        feature_path: Path,
-        model_path: Path,
-        graph: Path,
-        mixtures: Path,
-        tf_library: Optional[Union[str, Path]] = None,
-        gpu=False,
-        tensor_map: Optional[Union[dict, DecodingTensorMap]] = None,
-        set_batch_major_for_feature_scorer: bool = True,
-    ):
-
-        super().__init__(
-            name=name,
-            crp=crp,
-            context_type=context_type,
-            feature_scorer_type=feature_scorer_type,
-            feature_path=feature_path,
-            model_path=model_path,
-            graph=graph,
-            mixtures=mixtures,
-            eval_args=None,
-            tf_library=tf_library,
-            gpu=gpu,
-            tensor_map=tensor_map,
-            set_batch_major_for_feature_scorer=set_batch_major_for_feature_scorer,
-        )
-
-    def get_feature_scorer(self, label_info: LabelInfo, search_parameters: SearchParameters, num_encoder_output: int):
-        if self.feature_scorer_type.is_factored():
-            feature_scorer = get_factored_feature_scorer(
-                context_type=self.context_type,
-                feature_scorer_type=self.feature_scorer_type,
-                label_info=label_info,
-                feature_scorer_config=self.fs_config,
-                mixtures=self.mixtures,
-                silence_id=self.silence_id,
-                prior_info=search_parameters.prior_info,
-                posterior_scales=search_parameters.posterior_scales,
-                num_label_contexts=label_info.n_contexts,
-                num_states_per_phone=label_info.n_states_per_phone,
-                num_encoder_output=num_encoder_output,
-                state_dependent_tdp_file=search_parameters.state_dependent_tdps,
-                is_multi_encoder_output=self.is_multi_encoder_output,
-                is_batch_major=self.set_batch_major_for_feature_scorer,
-            )
-        elif self.feature_scorer_type.is_nnprecomputed():
-            scale = 1.0
-            if search_parameters.posterior_scales is not None:
-                if self.context_type.is_joint_diphone():
-                    scale = search_parameters.posterior_scales["joint-diphone-scale"]
-                elif self.context_type.is_monophone():
-                    scale = search_parameters.posterior_scales["center-state-scale"]
-            feature_scorer = get_nn_precomputed_feature_scorer(
-                posterior_scale=scale,
-                context_type=self.context_type,
-                feature_scorer_type=self.feature_scorer_type,
-                mixtures=self.mixtures,
-                prior_info=search_parameters.prior_info,
-            )
-        else:
-            raise NotImplementedError
-
-        return feature_scorer
-
-
-    def get_crp(self, label_info: LabelInfo, lattice_parameters: SearchParameters, crp_update: Optional[Callable[[rasr.RasrConfig], Any]] = None):
-
-        if isinstance(lattice_parameters, SearchParameters):
-            assert len(lattice_parameters.tdp_speech) == 4
-            assert len(lattice_parameters.tdp_silence) == 4
-            assert not lattice_parameters.silence_penalties or len(lattice_parameters.silence_penalties) == 2
-            assert not lattice_parameters.transition_scales or len(lattice_parameters.transition_scales) == 2
-
-        # align_crp = copy.deepcopy(self.crp)
-        lattice_crp = rasr.CommonRasrParameters(self.crp)
-
-        state_tying = lattice_crp.acoustic_model_config.state_tying.type
-
-        tdp_transition = (
-            lattice_parameters.tdp_speech
-            if lattice_parameters.tdp_scale is not None
-            else (0.0, 0.0, "infinity", 0.0)
-        )
-        tdp_silence = (
-            lattice_parameters.tdp_silence
-            if lattice_parameters.tdp_scale is not None
-            else (0.0, 0.0, "infinity", 0.0)
-        )
-        tdp_nonword = (
-            lattice_parameters.tdp_nonword
-            if lattice_parameters.tdp_nonword is not None
-            else (0.0, 0.0, "infinity", 0.0)
-        )
-
-        lattice_crp.acoustic_model_config = am.acoustic_model_config(
-            state_tying=state_tying,
-            states_per_phone=label_info.n_states_per_phone,
-            state_repetitions=1,
-            across_word_model=True,
-            early_recombination=False,
-            tdp_scale=lattice_parameters.tdp_scale,
-            tdp_transition=tdp_transition,
-            tdp_silence=tdp_silence,
-            tdp_nonword=tdp_nonword,
-            nonword_phones=lattice_parameters.non_word_phonemes,
-            tying_type="global-and-nonword",
-        )
-
-        lattice_crp.acoustic_model_config.allophones["add-all"] = lattice_parameters.add_all_allophones
-        lattice_crp.acoustic_model_config.allophones["add-from-lexicon"] = not lattice_parameters.add_all_allophones
-
-        lattice_crp.acoustic_model_config["state-tying"][
-            "use-boundary-classes"
-        ] = label_info.phoneme_state_classes.use_boundary()
-        lattice_crp.acoustic_model_config["state-tying"][
-            "use-word-end-classes"
-        ] = label_info.phoneme_state_classes.use_word_end()
-
-        if crp_update is not None:
-            crp_update(lattice_crp)
-
-        lattice_crp = BASEFactoredHybridAligner.correct_transition_applicator(
-            lattice_crp,
-            correct_fsa_strcuture=True,
-        )
-
-        return lattice_crp
