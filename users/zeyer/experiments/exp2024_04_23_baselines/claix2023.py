@@ -343,10 +343,10 @@ def py():
     # TODO ...
 
     for lr, wd in [
-        (1e-3, 1e-1),  # 42.43 PPL, unstable
+        # (1e-3, 1e-1),  # 42.43 PPL, unstable
         (1e-3, 1e-2),  # 41.91 PPL, unstable
-        (1e-3, 1e-3),  # 42.19 PPL, unstable
-        (5e-4, 1e-2),  # 42.55 PPL, unstable
+        # (1e-3, 1e-3),  # 42.19 PPL, unstable
+        # (5e-4, 1e-2),  # 42.55 PPL, unstable
     ]:
         train(
             f"lm/trafo-n24-d512-gelu-drop0"
