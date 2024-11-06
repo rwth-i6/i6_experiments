@@ -464,6 +464,7 @@ def py():
     )
 
     # Shuffle batches.
+    # -> solves the stability issues!
     train(
         "lm/trafo-n24-d512-gelu-drop0-b2k_80k-laplace100k-shuffleBatch100-spm10k",
         config=dict_update_deep(
