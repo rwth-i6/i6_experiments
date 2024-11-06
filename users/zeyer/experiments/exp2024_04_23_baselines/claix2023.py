@@ -500,7 +500,9 @@ def py():
     )
 
     # Different/Less/More grad clip, no lossNoNorm.
-    # 20 -> unstable... (and avg grad norm way lower, starts at 1.5, goes fast down to 0.3, so rarely has an effect)
+    # 5 -> 41.91 PPL, unstable training
+    # 20 -> 42.05 PPL, very unstable...
+    #   (and avg grad norm way lower, starts at 1.5, goes fast down to 0.3, so rarely has an effect)
     for grad_clip in [1.0, 5.0, 20.0]:
         train(
             f"lm/trafo-n24-d512-gelu-drop0-gradClip{grad_clip}-b2k_80k-laplace100k-spm10k",
