@@ -342,7 +342,12 @@ def py():
     """
     # TODO ...
 
-    for lr, wd in [(1e-3, 1e-1), (1e-3, 1e-2), (1e-3, 1e-3), (5e-4, 1e-2)]:
+    for lr, wd in [
+        (1e-3, 1e-1),  # 42.43 PPL, unstable
+        (1e-3, 1e-2),  # 41.91 PPL, unstable
+        (1e-3, 1e-3),  # 42.19 PPL, unstable
+        (5e-4, 1e-2),  # 42.55 PPL, unstable
+    ]:
         train(
             f"lm/trafo-n24-d512-gelu-drop0"
             f"-lr{str(lr).replace('-', '_')}-wd{str(wd).replace('-', '_')}"
@@ -573,10 +578,11 @@ def py():
     )
 
     # Different/Less/More grad clip, no lossNoNorm.
+    # 1 -> 41.62 PPL, unstable training
     # 5 -> 41.91 PPL, unstable training
     # 20 -> 42.05 PPL, very unstable...
     #   (and avg grad norm way lower, starts at 1.5, goes fast down to 0.3, so rarely has an effect)
-    for grad_clip in [1.0, 5.0, 20.0]:
+    for grad_clip in [0.1, 1.0, 5.0, 20.0]:
         train(
             f"lm/trafo-n24-d512-gelu-drop0-gradClip{grad_clip}-b2k_80k-laplace100k-spm10k",
             config=dict_update_deep(
@@ -703,41 +709,9 @@ def py():
     # (accum_grad_multiple_step=2)
     # -> 41.30, i.e. slightly worse.
 
-    # Even more grad accum (accgrad100) such that we cover the laplace100k.
-    train(
-        f"lm/trafo-n24-d512-gelu-drop0-accgrad100-b2k_80k-laplace100k-spm10k",
-        config=dict_update_deep(
-            config_96gb_bf16_accgrad1,
-            {
-                **_get_cfg_lrlin_oclr_by_bs_nep_v3(80_000, 100, batch_size_factor=1),
-                "max_seqs": 2_000,
-                "accum_grad_multiple_step": 100,
-                "optimizer.weight_decay": 1e-2,
-                "calculate_exp_loss": True,
-            },
-        ),
-        post_config={"log_grad_norm": True},
-        train_dataset=get_librispeech_lm_dataset(
-            vocab="spm10k", train_epoch_split=20, train_sort_laplace_num_seqs=100_000
-        ),
-        model_def=ModelDefWithCfg(
-            lm_model_def,
-            {
-                "_model_def_dict": rf.build_dict(
-                    TransformerDecoder,
-                    encoder_dim=None,
-                    num_layers=24,
-                    model_dim=512,
-                    ff_activation=rf.build_dict(rf.gelu),
-                    dropout=0.0,
-                    att_dropout=0.0,
-                )
-            },
-        ),
-        train_def=lm_train_def,
-        # avoid oom
-        env_updates={"PYTORCH_CUDA_ALLOC_CONF": "backend:cudaMallocAsync,expandable_segments:True"},
-    )
+    # Even more grad accum (accgrad100) (no lossNoNorm) such that we cover the laplace100k.
+    # (trafo-n24-d512-gelu-drop0-accgrad100-b2k_80k-laplace100k-spm10k)
+    # -> 56.60 PPL, but very stable.
 
     # laplace100k is maybe too much. Try laplace10k (train_sort_laplace_num_seqs=10_000).
     # (trafo-n24-d512-gelu-drop0-b2k_80k-accgrad2-laplace10k-spm10k-lossNoNorm)
@@ -749,7 +723,7 @@ def py():
     for lion_lr_factor, wd in [
         (0.05, 1e-2),  # 42.2 PPL. Unstable training.
         (0.1, 1e-2),  # 41.2 PPL. Unstable training.
-        (1.0, 1e-2),
+        (1.0, 1e-2),  # broken
         # (0.3, 1e-2),  # 43.7 PPL. Unstable training.
         # (0.3, 1e-3),  # 43.9 PPL. Unstable training.
     ]:
