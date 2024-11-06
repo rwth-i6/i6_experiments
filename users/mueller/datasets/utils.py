@@ -1,6 +1,6 @@
 import itertools
 
-from typing import Dict
+from typing import Dict, Tuple, Union, Any, Optional
 
 from i6_core.lib import corpus
 from sisyphus import Job, Task as SisTask, tk
@@ -75,3 +75,39 @@ def get_ogg_zip_dict_pseudo_labels(bliss_corpus_dict: Dict[str, tk.Path]) -> Dic
         ogg_zip_dict[name] = ogg_zip_job.out_ogg_zip
 
     return ogg_zip_dict
+
+class MetaDataset():
+    """
+    Represents :class:`MetaDataset` in RETURNN
+
+    Only allows the MetaDataset to be used with an explicit control dataset.
+    """
+
+    def __init__(self,
+                 data_map: Dict[str, Tuple[str, str]],
+                 datasets: Dict[str, Dict],
+                 seq_order_control_dataset: str,
+                 other_opts: Optional[Dict[str, Any]] = None):
+        """
+        :param data_map:
+        :param datasets:
+        :param seq_order_control_dataset:
+        :param dict other_opts:
+        """
+        self.data_map = data_map
+        self.datasets = datasets
+        assert seq_order_control_dataset in datasets
+        self.seq_order_control_dataset = seq_order_control_dataset
+        if other_opts is None:
+            other_opts = {}
+        self.other_opts = other_opts
+
+    def as_returnn_opts(self):
+        d = {
+            'class': 'MetaDataset',
+            'data_map': self.data_map,
+            'datasets': self.datasets,
+            'seq_order_control_dataset': self.seq_order_control_dataset
+        }
+        d.update(self.other_opts)
+        return d

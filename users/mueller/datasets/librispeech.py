@@ -4,7 +4,7 @@ Librispeech dataset
 
 from __future__ import annotations
 from typing import TYPE_CHECKING, Optional, Any, Union, Tuple, Dict
-from copy import deepcopy
+from copy import deepcopy, copy
 import re
 import os
 from functools import cache
@@ -36,7 +36,7 @@ if TYPE_CHECKING:
     from returnn.tensor import Tensor, Dim
     from i6_experiments.users.zeyer.collect_model_dataset_stats import StatisticsOutput
     
-from .utils import CorpusReplaceOrthFromPyDictJob, get_ogg_zip_dict_pseudo_labels
+from .utils import CorpusReplaceOrthFromPyDictJob, get_ogg_zip_dict_pseudo_labels, MetaDataset
 
 _alias_prefix = "datasets/LibriSpeech/"
 
@@ -47,37 +47,37 @@ def _get_librispeech_ogg_zip_dict() -> Dict[str, tk.Path]:
 
 
 @cache
-def _get_bliss_corpus_dict(pseudo_labels_path: tk.Path) -> Dict[str, tk.Path]:
+def _get_bliss_corpus_dict(pseudo_labels_path: tk.Path, part: str) -> Dict[str, tk.Path]:
     # Get Bliss corpus. Same audio format as in ogg_zip, so already there anyway due to how we created the ogg_zip.
     # WARNING: Do not use these directly... It will keep another ogg copy of the audio...
     # However, these are used later in the scoring, so when changing them, make sure it's optional,
     # to not break hashes of old setups.
     if pseudo_labels_path:
+        assert part is not None
         print("Made it to pseudo label combination", pseudo_labels_path)
         bliss_corpus_dict = librispeech.get_bliss_corpus_dict(audio_format="ogg")
         # load pseudo labels and replace here
-        for name in ['train-clean-100', 'train-clean-360', 'train-clean-460', 'train-other-500', 'train-other-960']: # TODO do we have to do it for all datasets?
-            bliss_corpus = bliss_corpus_dict[name]
-            replace_job = CorpusReplaceOrthFromPyDictJob(bliss_corpus, pseudo_labels_path)
-            replace_job.add_alias(os.path.join("datasets", "LibriSpeech-PseudoLabels", "%s_replace_orth" % name.replace('-', '_')))
-            bliss_corpus_dict[name] = replace_job.out_corpus
-        return bliss_corpus_dict
+        bliss_corpus = bliss_corpus_dict[part]
+        replace_job = CorpusReplaceOrthFromPyDictJob(bliss_corpus, pseudo_labels_path)
+        replace_job.add_alias(os.path.join("datasets", "LibriSpeech-PseudoLabels", "%s_replace_orth" % part.replace('-', '_')))
+        bliss_corpus = replace_job.out_corpus
+        return {part: bliss_corpus}
     else:
         return librispeech.get_bliss_corpus_dict(audio_format="ogg")
 
 
 @cache
-def _get_librispeech_ogg_zip_dict_pseudo_labels(pseudo_labels_path: tk.Path) -> Dict[str, tk.Path]:
+def _get_librispeech_ogg_zip_dict_pseudo_labels(pseudo_labels_path: tk.Path, part: str) -> Dict[str, tk.Path]:
     print("Convert pseudo labels to ogg")
     
-    bliss_corpus_dict = _get_bliss_corpus_dict(pseudo_labels_path)
+    bliss_corpus_dict = _get_bliss_corpus_dict(pseudo_labels_path, part)
 
     return get_ogg_zip_dict_pseudo_labels(bliss_corpus_dict) # TODO add meta dataset combining both pseudo labels and audio files
 
 
 @cache
 def _get_corpus_text_dict(key: str, pseudo_labels_path: tk.Path) -> tk.Path:
-    job = CorpusToTextDictJob(_get_bliss_corpus_dict(pseudo_labels_path)[key], gzip=True)
+    job = CorpusToTextDictJob(_get_bliss_corpus_dict(pseudo_labels_path, key)[key], gzip=True)
     job.add_alias(_alias_prefix + f"{key.replace('-', '_')}_corpus_text_dict")
     tk.register_output(_alias_prefix + f"{key.replace('-', '_')}_corpus_text_dict.py.gz", job.out_dictionary)
     return job.out_dictionary
@@ -488,10 +488,7 @@ class LibrispeechOggZip(DatasetConfig):
         parts = [part for part in _Parts if part.startswith(key)]
         assert parts, f"invalid key {key!r}"
         for part in parts:
-            if self.pseudo_label_path:
-                files += [_get_librispeech_ogg_zip_dict_pseudo_labels(self.pseudo_label_path)[part]]
-            else:
-                files += [_get_librispeech_ogg_zip_dict()[part]]
+            files += [_get_librispeech_ogg_zip_dict()[part]]
         d: Dict[str, Any] = {
             "class": "OggZipDataset",
             "path": files,
@@ -527,6 +524,22 @@ class LibrispeechOggZip(DatasetConfig):
             d["seq_ordering"] = "sorted_reverse"
         if subset:
             d["fixed_random_subset"] = subset  # faster
+        
+        # Combine pseudo labels into MetaDataset
+        if self.pseudo_label_path:
+            for part in parts:
+                files += [_get_librispeech_ogg_zip_dict_pseudo_labels(self.pseudo_label_path, part)[part]]
+            d_pseudo = copy(d)
+            d_pseudo["path"] = files
+            print("Old d", d.path)
+            print("New d", d.path)
+            d_comb = {"zip_dataset": d, "pseudo_labels_dataset": d_pseudo}
+            data_map = {
+                "audio_features": ("zip_dataset", "data"),
+                "bpe_labels": ("pseudo_labels_dataset", "classes"),
+            }
+            d = MetaDataset(data_map, d_comb, "zip_dataset").as_returnn_opts()
+            
         return d
 
 
@@ -1019,7 +1032,7 @@ def _score_recog_out_v1(dataset: DatasetConfig, recog_output: RecogOutput) -> Sc
     hyp_words = recog_output.output
     corpus_name = dataset.get_main_name()
 
-    bliss_corpus = _get_bliss_corpus_dict(None)[corpus_name]
+    bliss_corpus = _get_bliss_corpus_dict(None, corpus_name)[corpus_name]
     search_ctm = SearchWordsToCTMJob(recog_words_file=hyp_words, bliss_corpus=bliss_corpus).out_ctm_file
     stm_file = CorpusToStmJob(bliss_corpus=bliss_corpus).out_stm_path
 

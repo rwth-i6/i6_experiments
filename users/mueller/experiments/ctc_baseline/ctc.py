@@ -56,23 +56,29 @@ def py():
     self_training_rounds = 0
     train_small = False # TODO how do I have to adapt the epoch config for training on the smaller dataset?
     
-    # ctc-baseline-bpe128-recog_lm_sum_n1_b12_w18: {"best_scores": {"dev-clean": 4.7, "dev-other": 7.43, "test-clean": 4.82, "test-other": 7.84}, "best_epoch": 500}
-    
     decoder_hyperparameters = None
     if use_lm:
         decoder_hyperparameters = {
             "log_add": True,
             "nbest": 1,
-            "beam_size": 12,
-            "lm_weight": 1.8,
-            "use_logsoftmax": False
+            "beam_size": 12, # 1024
+            "lm_weight": 1.0,
+            "use_logsoftmax": False,
+            "use_lm": True,
+            "use_lexicon": True,
         }
+            # "unk_word": "<unk>",
+            # "blank_token": "<blank>", # TODO change attribute of function to <blank>
+            # "sil_token": "<blank>"
         p1 = "sum" if decoder_hyperparameters['log_add'] else "max"
         p2 = f"n{decoder_hyperparameters['nbest']}"
         p3 = f"b{decoder_hyperparameters['beam_size']}"
         p4 = f"w{str(decoder_hyperparameters['lm_weight']).replace('.', '')}"
         p5 = "_logsoftmax" if decoder_hyperparameters['use_logsoftmax'] else ""
-        lm_hyperparamters_str = f"_{p1}_{p2}_{p3}_{p4}{p5}"
+        p6 = "_noLM" if not decoder_hyperparameters['use_lm'] else ""
+        p7 = "_noLEX" if not decoder_hyperparameters['use_lexicon'] else ""
+        # p8 = "_<unk>"
+        lm_hyperparamters_str = f"_{p1}_{p2}_{p3}_{p4}{p5}{p6}{p7}" # {p8}
         
     train_exp(
         f"ctc-baseline" +
@@ -548,22 +554,27 @@ def model_recog_lm(
     
     logits, enc, enc_spatial_dim = model(data, in_spatial_dim=data_spatial_dim)
     arpa_4gram_lm = str(cf(arpa_4gram_lm))
-    use_logsoftmax = hyperparameters.pop("use_logsoftmax", False)
+    
+    hyp = copy.copy(hyperparameters)
+    use_logsoftmax = hyp.pop("use_logsoftmax", False)
+    use_lm = hyp.pop("use_lm", True)
+    use_lexicon = hyp.pop("use_lexicon", True)
     if use_logsoftmax:
         label_log_prob = model.log_probs_wb_from_logits(logits)
-        
-    configs = {
-        "lexicon": lexicon,
-        "lm": arpa_4gram_lm, # TODO is it correct to use lanuage model trained on full librispeech if we do self-training? same for lexicon
-        "tokens": list(model.wb_target_dim.vocab.labels),
-        "blank_token": "[blank]",
-        "sil_token": "[blank]",
-        "unk_word": "[unknown]",
-        "beam_size_token": None,
-        "beam_threshold": 1000000,
-    }
     
-    configs.update(hyperparameters)
+    print("Tokens:", list(model.wb_target_dim.vocab.labels))
+    configs = {
+        "tokens": list(model.wb_target_dim.vocab.labels), # TODO unknown in vocab?
+        "blank_token": "[blank]", # "<blank>"
+        "sil_token": "[blank]", # [SILENCE], <sil>
+        "unk_word": "[unknown]", # "<unk>" in vocab
+        "beam_size_token": None, # 16
+        "beam_threshold": 1000000, # 14
+    }
+    configs["lexicon"] = lexicon if use_lexicon else None
+    configs["lm"] = arpa_4gram_lm if use_lm else None # TODO is it correct to use lanuage model trained on full librispeech if we do self-training? same for lexicon
+    
+    configs.update(hyp)
     
     decoder = ctc_decoder(**configs)
     enc_spatial_dim_torch = enc_spatial_dim.dyn_size_ext.raw_tensor.cpu()
