@@ -574,7 +574,10 @@ def lm_train_def(
     from returnn.config import get_global_config
 
     config = get_global_config()  # noqa
-    use_normalized_loss = config.bool("use_normalized_loss", True)
+    use_normalized_loss = config.typed_value("use_normalized_loss", True)
+    if isinstance(use_normalized_loss, bool):
+        use_normalized_loss = "frames" if use_normalized_loss else "none"
+    assert isinstance(use_normalized_loss, str) and use_normalized_loss in ("none", "frames", "seqs")
     loss_dtype = config.typed_value("loss_dtype", None)
 
     # potentially also other types but just assume
@@ -614,7 +617,17 @@ def lm_train_def(
     log_prob = rf.log_softmax(logits_packed, axis=model.vocab_dim)
     # log_prob = rf.label_smoothed_log_prob_gradient(log_prob, 0.1, axis=model.target_dim)
     loss = rf.cross_entropy(target=targets_packed, estimated=log_prob, estimated_type="log-probs", axis=model.vocab_dim)
-    loss.mark_as_loss("ce", use_normalized_loss=use_normalized_loss)
+    if use_normalized_loss == "frames":
+        loss.mark_as_loss("ce", use_normalized_loss=True)
+    elif use_normalized_loss == "none":
+        loss.mark_as_loss("ce", use_normalized_loss=False)
+    elif use_normalized_loss == "seqs":
+        loss.mark_as_loss("ce", as_error=True)  # don't use this for training directly, just for reporting
+        loss_ = rf.pad_packed(loss, dims=batch_dims + [targets_w_eos_spatial_dim], in_dim=pack_dim)
+        seq_loss = rf.reduce_sum(loss_, axis=targets_w_eos_spatial_dim)
+        seq_loss.mark_as_loss("seq_ce", use_normalized_loss=True)
+    else:
+        raise ValueError(f"invalid use_normalized_loss {use_normalized_loss!r}")
 
     best = rf.reduce_argmax(logits_packed, axis=model.vocab_dim)
     frame_error = best != targets_packed
