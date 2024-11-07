@@ -16,7 +16,7 @@ from returnn_common import nn
 from sisyphus import Path
 
 from abc import ABC
-from typing import Dict, Optional, List, Callable
+from typing import Dict, Optional, List, Callable, Any
 import copy
 import numpy as np
 
@@ -162,8 +162,8 @@ class LmConfigBuilderRF(ABC):
     # serialize remaining functions, e.g. dynamic learning rate
     return get_serializable_config(returnn_train_config, serialize_dim_tags=False)
 
-  def get_recog_config(self, opts: Dict):
-    config_dict = copy.deepcopy(self.config_dict)
+  def get_forward_config(self, opts: Dict):
+    config_dict = copy.deepcopy(self.config_dict)  # type: Dict[Any, Any]
     post_config_dict = copy.deepcopy(self.post_config_dict)
     python_prolog = copy.deepcopy(self.python_prolog)
     python_epilog = copy.deepcopy(self.python_epilog)
@@ -171,22 +171,14 @@ class LmConfigBuilderRF(ABC):
     dataset_opts = opts.get("dataset_opts", {})
     config_dict.update(dict(
       task="forward",
-      search_output_layer="decision",
       batching=opts.get("batching", "random")
     ))
 
-    config_dict.update(
-      self.get_search_dataset(
-        dataset_opts=dataset_opts
-      ))
-    extern_data_raw = self.get_extern_data_dict(dataset_opts, config_dict)
+    config_dict["forward_data"] = self.get_forward_dataset(dataset_opts=dataset_opts)
+    extern_data_raw = self.get_extern_data_dict()
     extern_data_raw = instanciate_delayed(extern_data_raw)
 
-    config_dict["batch_size"] = opts.get("batch_size", 15_000) * self.batch_size_factor
-
-    config_dict["beam_search_opts"] = {
-      "beam_size": opts.get("beam_size", 12),
-    }
+    config_dict["batch_size"] = opts.get("batch_size", 5_000)
 
     python_epilog.append(
       serialization.Collection(
@@ -197,7 +189,7 @@ class LmConfigBuilderRF(ABC):
           ),
           *serialize_model_def(self.model_def),
           serialization.Import(self.get_model_func, import_as="get_model"),
-          serialization.Import(opts["recog_def"], import_as="_recog_def", ignore_import_as_for_hash=True),
+          serialization.Import(opts["forward_def"], import_as="_forward_def", ignore_import_as_for_hash=True),
           serialization.Import(opts["forward_step_func"], import_as="forward_step"),
           serialization.Import(opts["forward_callback"], import_as="forward_callback"),
           serialization.PythonEnlargeStackWorkaroundNonhashedCode,
@@ -207,7 +199,7 @@ class LmConfigBuilderRF(ABC):
       )
     )
 
-    returnn_train_config = ReturnnConfig(
+    returnn_forward_config = ReturnnConfig(
       config=config_dict,
       post_config=post_config_dict,
       python_prolog=python_prolog,
@@ -215,34 +207,7 @@ class LmConfigBuilderRF(ABC):
     )
 
     # serialize remaining functions, e.g. dynamic learning rate
-    return get_serializable_config(returnn_train_config, serialize_dim_tags=False)
-
-  def get_recog_checkpoints(
-          self, model_dir: Path, learning_rates: Path, key: str, checkpoints: Dict[int, Checkpoint], n_epochs: int):
-    # last checkpoint
-    last_checkpoint = checkpoints[n_epochs]
-
-    # best checkpoint
-    best_checkpoint = GetBestPtCheckpointJob(
-      model_dir=model_dir, learning_rates=learning_rates, key=key, index=0
-    ).out_checkpoint
-
-    # avg checkpoint
-    best_n = 4
-    best_checkpoints = []
-    for i in range(best_n):
-      best_checkpoints.append(GetBestPtCheckpointJob(
-        model_dir=model_dir, learning_rates=learning_rates, key=key, index=i
-      ).out_checkpoint)
-    best_avg_checkpoint = AverageTorchCheckpointsJob(
-      checkpoints=best_checkpoints,
-      returnn_python_exe=self.variant_params["returnn_python_exe"],
-      returnn_root=self.variant_params["returnn_root"]
-    ).out_checkpoint
-
-    checkpoints = {"last": last_checkpoint, "best": best_checkpoint, "best-4-avg": best_avg_checkpoint}
-
-    return checkpoints
+    return get_serializable_config(returnn_forward_config, serialize_dim_tags=False)
 
   def get_search_dataset_dict(self, corpus_key: str, dataset_opts: Dict):
     raise NotImplementedError
@@ -259,6 +224,9 @@ class LmConfigBuilderRF(ABC):
     non_blank_target_dimension = self.variant_params["dependencies"].model_hyperparameters.target_num_labels_wo_blank
     non_blank_target_dim = Dim(description="non_blank_target_dim", dimension=non_blank_target_dimension, kind=Dim.Types.Spatial)
     extern_data_dict["data"]["sparse_dim"] = non_blank_target_dim
+
+    vocab = ConfigBuilderRF.get_vocab_dict_for_tensor(self.variant_params)
+    extern_data_dict["data"]["vocab"] = vocab
 
     return extern_data_dict
 
@@ -311,8 +279,30 @@ class LmConfigBuilderRF(ABC):
 
     return datasets
 
-  def get_search_dataset(self, dataset_opts: Dict):
-    raise NotImplementedError
+  def get_forward_dataset(self, dataset_opts: Dict):
+    datasets = []
+    for corpus_key in dataset_opts.get("corpus_keys", ["dev-clean", "dev-other"]):
+      dataset = get_oggzip_dataset_dict(
+          fixed_random_subset=None,
+          partition_epoch=1,
+          pre_process=None,
+          seq_ordering="sorted_reverse",
+          epoch_wise_filter=None,
+          seq_postfix=dataset_opts.get("seq_postfix", self.variant_params["dependencies"].model_hyperparameters.sos_idx),
+          oggzip_path_list=self.variant_params["dataset"]["corpus"].oggzip_paths[corpus_key],
+          segment_file=self.variant_params["dependencies"].segment_paths.get(corpus_key, None),
+          bpe_file=self.variant_params["dependencies"].bpe_codes_path,
+          vocab_file=self.variant_params["dependencies"].vocab_path,
+          text_only=True,
+        )
+      datasets.append(dataset)
+
+    dataset = {
+      "class": "ConcatDataset",
+      "datasets": datasets,
+    }
+
+    return dataset
 
 
   def get_vocab_dict_for_tensor(self):
