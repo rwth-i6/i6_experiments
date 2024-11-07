@@ -68,11 +68,11 @@ def _get_bliss_corpus_dict(pseudo_labels_path: tk.Path, part: str) -> Dict[str, 
 
 @cache
 def _get_librispeech_ogg_zip_dict_pseudo_labels(pseudo_labels_path: tk.Path, part: str) -> Dict[str, tk.Path]:
-    print("Convert pseudo labels to ogg")
+    # print("Convert pseudo labels to ogg")
     
     bliss_corpus_dict = _get_bliss_corpus_dict(pseudo_labels_path, part)
 
-    return get_ogg_zip_dict_pseudo_labels(bliss_corpus_dict) # TODO add meta dataset combining both pseudo labels and audio files
+    return get_ogg_zip_dict_pseudo_labels(bliss_corpus_dict)
 
 
 @cache
@@ -527,12 +527,11 @@ class LibrispeechOggZip(DatasetConfig):
         
         # Combine pseudo labels into MetaDataset
         if self.pseudo_label_path:
+            files_new = []
             for part in parts:
-                files += [_get_librispeech_ogg_zip_dict_pseudo_labels(self.pseudo_label_path, part)[part]]
+                files_new += [_get_librispeech_ogg_zip_dict_pseudo_labels(self.pseudo_label_path, part)[part]]
             d_pseudo = copy(d)
-            d_pseudo["path"] = files
-            print("Old d", d.path)
-            print("New d", d.path)
+            d_pseudo["path"] = files_new
             d_comb = {"zip_dataset": d, "pseudo_labels_dataset": d_pseudo}
             data_map = {
                 "audio_features": ("zip_dataset", "data"),
@@ -920,6 +919,8 @@ def _extract_audio_seq_len_file(train_dataset: DatasetConfig):
 
     ds_dict = train_dataset.get_train_dataset()
     # The code is semi-generic. But anyway double check for now. Later to be extended...
+    if ds_dict["class"] == "MetaDataset":
+        ds_dict = ds_dict["datasets"]["zip_dataset"]
     assert ds_dict["class"] in {"OggZipDataset", "LibriSpeechCorpus"}
     if ds_dict["audio"] is None:
         return None
@@ -965,6 +966,8 @@ def _extract_text_seq_len_file(train_dataset: DatasetConfig, vocab_cfg: Union[st
         raise TypeError(f"invalid vocab_cfg {vocab_cfg!r} type {type(vocab_cfg)}")
 
     ds_dict = train_dataset.get_train_dataset()
+    if ds_dict["class"] == "MetaDataset":
+        ds_dict = ds_dict["datasets"]["pseudo_labels_dataset"]
     # The code is semi-generic. But anyway double check for now. Later to be extended...
     assert ds_dict["class"] in {"OggZipDataset", "LibriSpeechCorpus", "LmDataset"}
     vocab_key = "targets" if ds_dict["class"] in {"OggZipDataset", "LibriSpeechCorpus"} else "orth_vocab"

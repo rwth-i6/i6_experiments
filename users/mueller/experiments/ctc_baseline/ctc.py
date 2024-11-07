@@ -52,24 +52,31 @@ def py():
     vocab = "bpe128"
     # vocab = "bpe10k"
     use_lm = True
-    epochs = 500 # original 500
+    epochs = 500 # original 500, 50 for smaller dataset
     self_training_rounds = 0
     train_small = False # TODO how do I have to adapt the epoch config for training on the smaller dataset?
     
+    use_greedy = True
+    
     decoder_hyperparameters = None
-    if use_lm:
+    if use_greedy:
         decoder_hyperparameters = {
-            "log_add": True,
+            "greedy": True
+        }
+        greedy_str = "-recog_greedy"
+    elif use_lm:
+        decoder_hyperparameters = {
+            "log_add": False,
             "nbest": 1,
             "beam_size": 12, # 1024
             "lm_weight": 1.0,
             "use_logsoftmax": False,
             "use_lm": True,
             "use_lexicon": True,
+            "unk_word": "<unk>",
+            "blank_token": "<blank>", # TODO change attribute of function to <blank>
+            "sil_token": "<blank>",
         }
-            # "unk_word": "<unk>",
-            # "blank_token": "<blank>", # TODO change attribute of function to <blank>
-            # "sil_token": "<blank>"
         p1 = "sum" if decoder_hyperparameters['log_add'] else "max"
         p2 = f"n{decoder_hyperparameters['nbest']}"
         p3 = f"b{decoder_hyperparameters['beam_size']}"
@@ -77,14 +84,14 @@ def py():
         p5 = "_logsoftmax" if decoder_hyperparameters['use_logsoftmax'] else ""
         p6 = "_noLM" if not decoder_hyperparameters['use_lm'] else ""
         p7 = "_noLEX" if not decoder_hyperparameters['use_lexicon'] else ""
-        # p8 = "_<unk>"
-        lm_hyperparamters_str = f"_{p1}_{p2}_{p3}_{p4}{p5}{p6}{p7}" # {p8}
+        p8 = "_<unk>_<blank>"
+        lm_hyperparamters_str = f"_{p1}_{p2}_{p3}_{p4}{p5}{p6}{p7}{p8}" # {p8}
         
     train_exp(
         f"ctc-baseline" +
         (f"-self_training_{self_training_rounds}" if self_training_rounds > 0 else "") +
         (f"-small_dataset" if train_small else "") +
-        f"-{vocab}" + (("-recog_lm" + lm_hyperparamters_str) if use_lm else "-recog_albert"),
+        f"-{vocab}" + (greedy_str if use_greedy else (("-recog_lm" + lm_hyperparamters_str) if use_lm else "-recog_albert")),
         config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
         model_recog_lm if use_lm else model_recog,
         decoder_hyperparameters=decoder_hyperparameters,
@@ -524,7 +531,7 @@ def model_recog(
 # RecogDef API
 model_recog: RecogDef[Model]
 model_recog.output_with_beam = True
-model_recog.output_blank_label = "[blank]"
+model_recog.output_blank_label = "<blank>"
 model_recog.batch_size_dependent = False  # not totally correct, but we treat it as such...
 
 def model_recog_lm(
@@ -556,15 +563,39 @@ def model_recog_lm(
     arpa_4gram_lm = str(cf(arpa_4gram_lm))
     
     hyp = copy.copy(hyperparameters)
+    greedy = hyp.pop("greedy", False)
+    
+    if greedy:
+        print("Greedy decoding")
+        
+        label_log_prob = model.log_probs_wb_from_logits(logits)
+        label_log_prob = label_log_prob.raw_tensor.cpu()
+        probs, greedy_res = torch.max(label_log_prob, dim=-1)
+        greedy_res = greedy_res.unsqueeze(1)
+        
+        scores = torch.sum(probs, dim=-1)
+        scores = scores.unsqueeze(1)
+        
+        beam_dim = rtf.TorchBackend.get_new_dim_raw(greedy_res, 1, name="beam_dim")
+        dims = [batch_dim, beam_dim, enc_spatial_dim]
+        hyps = rtf.TorchBackend.convert_to_tensor(greedy_res, dims = dims, sparse_dim=model.wb_target_dim, dtype = "int64", name="hyps")
+        
+        dims = [batch_dim, beam_dim]
+        scores = Tensor("scores", dims = dims, dtype = "float32", raw_tensor = scores)
+        
+        # print(f"CUSTOM seq_targets: {hyps} \n{hyps.raw_tensor.cpu()},\nscores: {scores} \n{scores.raw_tensor.cpu()},\nspatial_dim: {enc_spatial_dim.dyn_size_ext.raw_tensor.cpu()},\n beam_size: {beam_dim}")
+        
+        return hyps, scores, enc_spatial_dim, beam_dim
+    
+    
     use_logsoftmax = hyp.pop("use_logsoftmax", False)
     use_lm = hyp.pop("use_lm", True)
     use_lexicon = hyp.pop("use_lexicon", True)
     if use_logsoftmax:
         label_log_prob = model.log_probs_wb_from_logits(logits)
     
-    print("Tokens:", list(model.wb_target_dim.vocab.labels))
     configs = {
-        "tokens": list(model.wb_target_dim.vocab.labels), # TODO unknown in vocab?
+        "tokens": list(model.wb_target_dim.vocab.labels),
         "blank_token": "[blank]", # "<blank>"
         "sil_token": "[blank]", # [SILENCE], <sil>
         "unk_word": "[unknown]", # "<unk>" in vocab
@@ -629,7 +660,7 @@ def model_recog_lm(
 # RecogDef API
 model_recog_lm: RecogDef[Model]
 model_recog_lm.output_with_beam = True
-model_recog_lm.output_blank_label = "[blank]"
+model_recog_lm.output_blank_label = "<blank>"
 model_recog_lm.batch_size_dependent = False  # not totally correct, but we treat it as such...
 
 
