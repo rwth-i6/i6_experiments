@@ -51,12 +51,15 @@ def py():
     # vocab = "char"
     vocab = "bpe128"
     # vocab = "bpe10k"
-    use_lm = True
-    epochs = 500 # original 500, 50 for smaller dataset
+    use_flashlight = True
+    use_greedy = False
+    epochs = 500
     self_training_rounds = 0
-    train_small = False # TODO how do I have to adapt the epoch config for training on the smaller dataset?
+    train_small = False
+    test_self_training_on_small_dataset = 0
     
-    use_greedy = True
+    if train_small:
+        epochs = 50
     
     decoder_hyperparameters = None
     if use_greedy:
@@ -64,18 +67,15 @@ def py():
             "greedy": True
         }
         greedy_str = "-recog_greedy"
-    elif use_lm:
+    elif use_flashlight:
         decoder_hyperparameters = {
             "log_add": False,
             "nbest": 1,
             "beam_size": 12, # 1024
-            "lm_weight": 1.0,
-            "use_logsoftmax": False,
-            "use_lm": True,
-            "use_lexicon": True,
-            "unk_word": "<unk>",
-            "blank_token": "<blank>", # TODO change attribute of function to <blank>
-            "sil_token": "<blank>",
+            "lm_weight": 0.0,
+            "use_logsoftmax": True,
+            "use_lm": False,
+            "use_lexicon": False,
         }
         p1 = "sum" if decoder_hyperparameters['log_add'] else "max"
         p2 = f"n{decoder_hyperparameters['nbest']}"
@@ -84,16 +84,15 @@ def py():
         p5 = "_logsoftmax" if decoder_hyperparameters['use_logsoftmax'] else ""
         p6 = "_noLM" if not decoder_hyperparameters['use_lm'] else ""
         p7 = "_noLEX" if not decoder_hyperparameters['use_lexicon'] else ""
-        p8 = "_<unk>_<blank>"
-        lm_hyperparamters_str = f"_{p1}_{p2}_{p3}_{p4}{p5}{p6}{p7}{p8}" # {p8}
+        lm_hyperparamters_str = f"_{p1}_{p2}_{p3}_{p4}{p5}{p6}{p7}"
         
     train_exp(
         f"ctc-baseline" +
-        (f"-self_training_{self_training_rounds}" if self_training_rounds > 0 else "") +
+        (f"-self_training_{self_training_rounds}" if self_training_rounds > 0 else "") + (f"-dataset_size_{test_self_training_on_small_dataset}" if test_self_training_on_small_dataset > 0 else "") +
         (f"-small_dataset" if train_small else "") +
-        f"-{vocab}" + (greedy_str if use_greedy else (("-recog_lm" + lm_hyperparamters_str) if use_lm else "-recog_albert")),
+        f"-{vocab}" + (greedy_str if use_greedy else (("-recog_lm" + lm_hyperparamters_str) if use_flashlight else "-recog_albert")),
         config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
-        model_recog_lm if use_lm else model_recog,
+        model_recog_lm if (use_flashlight or use_greedy) else model_recog,
         decoder_hyperparameters=decoder_hyperparameters,
         model_config={"enc_conformer_layer": enc_conformer_layer_default, "feature_batch_norm": True},
         config_updates={
@@ -106,7 +105,8 @@ def py():
         },
         vocab=vocab,
         self_training_rounds=self_training_rounds,
-        train_small=train_small
+        train_small=train_small,
+        test_self_training_on_small_dataset=test_self_training_on_small_dataset
     )
     
 
@@ -137,6 +137,7 @@ def train_exp(
     enabled: bool = True,
     self_training_rounds: int = 0,
     train_small: bool = False,
+    test_self_training_on_small_dataset: int = 0
 ) -> Optional[ModelWithCheckpoints]:
     """
     Train experiment
@@ -157,7 +158,7 @@ def train_exp(
     
     ds_to_save_pseudo_labels_for = ["train-clean-100"] if use_self_training else None
     
-    task, pseudo_labels_ds = get_librispeech_task_raw_v2(vocab=vocab, train_vocab_opts=train_vocab_opts, save_pseudo_labels = ds_to_save_pseudo_labels_for, train_small = train_small)
+    task, pseudo_labels_ds = get_librispeech_task_raw_v2(vocab=vocab, train_vocab_opts=train_vocab_opts, save_pseudo_labels = ds_to_save_pseudo_labels_for, test_self_training_on_small_dataset = test_self_training_on_small_dataset, train_small = train_small)
     config = config.copy()
     config = dict_update_deep(config, config_updates, config_deletes)
     # This logic is also in train(), but keep it here because it would break the hash because of _RecogAndScoreFunc...
@@ -562,12 +563,10 @@ def model_recog_lm(
     logits, enc, enc_spatial_dim = model(data, in_spatial_dim=data_spatial_dim)
     arpa_4gram_lm = str(cf(arpa_4gram_lm))
     
-    hyp = copy.copy(hyperparameters)
-    greedy = hyp.pop("greedy", False)
+    hyp_params = copy.copy(hyperparameters)
+    greedy = hyp_params.pop("greedy", False)
     
     if greedy:
-        print("Greedy decoding")
-        
         label_log_prob = model.log_probs_wb_from_logits(logits)
         label_log_prob = label_log_prob.raw_tensor.cpu()
         probs, greedy_res = torch.max(label_log_prob, dim=-1)
@@ -583,29 +582,29 @@ def model_recog_lm(
         dims = [batch_dim, beam_dim]
         scores = Tensor("scores", dims = dims, dtype = "float32", raw_tensor = scores)
         
-        # print(f"CUSTOM seq_targets: {hyps} \n{hyps.raw_tensor.cpu()},\nscores: {scores} \n{scores.raw_tensor.cpu()},\nspatial_dim: {enc_spatial_dim.dyn_size_ext.raw_tensor.cpu()},\n beam_size: {beam_dim}")
-        
         return hyps, scores, enc_spatial_dim, beam_dim
     
     
-    use_logsoftmax = hyp.pop("use_logsoftmax", False)
-    use_lm = hyp.pop("use_lm", True)
-    use_lexicon = hyp.pop("use_lexicon", True)
+    use_logsoftmax = hyp_params.pop("use_logsoftmax", False)
+    use_lm = hyp_params.pop("use_lm", True)
+    use_lexicon = hyp_params.pop("use_lexicon", True)
     if use_logsoftmax:
         label_log_prob = model.log_probs_wb_from_logits(logits)
+        # print("Log softmax:", label_log_prob.raw_tensor.cpu().shape)
+        # print("Log softmax example:", label_log_prob.raw_tensor.cpu()[0][0][0])
     
     configs = {
         "tokens": list(model.wb_target_dim.vocab.labels),
-        "blank_token": "[blank]", # "<blank>"
-        "sil_token": "[blank]", # [SILENCE], <sil>
-        "unk_word": "[unknown]", # "<unk>" in vocab
+        "blank_token": "<blank>",
+        "sil_token": "<blank>",
+        "unk_word": "<unk>",
         "beam_size_token": None, # 16
         "beam_threshold": 1000000, # 14
     }
     configs["lexicon"] = lexicon if use_lexicon else None
     configs["lm"] = arpa_4gram_lm if use_lm else None # TODO is it correct to use lanuage model trained on full librispeech if we do self-training? same for lexicon
     
-    configs.update(hyp)
+    configs.update(hyp_params)
     
     decoder = ctc_decoder(**configs)
     enc_spatial_dim_torch = enc_spatial_dim.dyn_size_ext.raw_tensor.cpu()
@@ -623,6 +622,7 @@ def model_recog_lm(
     
     def _pad_blanks(tokens, max_len):
         if len(tokens) < max_len:
+            # print("We had to pad blanks")
             tokens = torch.cat([tokens, torch.tensor([model.blank_idx] * (max_len - len(tokens)))])
         return tokens
     
@@ -635,7 +635,8 @@ def model_recog_lm(
     def _pad_scores(l, max_len):
         l = torch.tensor(l)
         if len(l) < max_len:
-            l = torch.cat([l, torch.tensor([100.0] * (max_len - len(l)))])
+            print("We had to pad scores")
+            l = torch.cat([l, torch.tensor([-1000000.0] * (max_len - len(l)))])
         return l
     
     max_length = int(enc_spatial_dim_torch.max())
@@ -653,7 +654,7 @@ def model_recog_lm(
     dims = [batch_dim, beam_dim]
     scores = Tensor("scores", dims = dims, dtype = "float32", raw_tensor = scores)
     
-    # print(f"CUSTOM seq_targets: {hyps} {hyps.raw_tensor.cpu()}, spatial_dim: {enc_spatial_dim.dyn_size_ext.raw_tensor.cpu()}, beam_size: {beam_dim}")
+    # print(f"CUSTOM seq_targets: {hyps} \n{hyps.raw_tensor.cpu()},\nscores: {scores} \n{scores.raw_tensor.cpu()}n {scores.raw_tensor.cpu()[0][0]},\nspatial_dim: {enc_spatial_dim.dyn_size_ext.raw_tensor.cpu()},\n beam_size: {beam_dim}")
     
     return hyps, scores, enc_spatial_dim, beam_dim
 

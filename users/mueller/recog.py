@@ -34,6 +34,8 @@ from i6_experiments.users.zeyer.model_interfaces import ModelDef, ModelDefWithCf
 from i6_experiments.users.zeyer.model_with_checkpoints import ModelWithCheckpoint, ModelWithCheckpoints
 from i6_experiments.users.zeyer.returnn.training import get_relevant_epochs_from_training_learning_rate_scores
 
+from .experiments.ctc_baseline.ctc import model_recog_lm
+
 if TYPE_CHECKING:
     from returnn.tensor import TensorDict
 
@@ -321,8 +323,9 @@ def search_dataset(
     if search_alias_name:
         search_job.add_alias(search_alias_name)
     if recog_def.output_blank_label:
-        # Also assume we should collapse repeated labels first.
-        res = SearchCollapseRepeatedLabelsJob(res, output_gzip=True).out_search_results
+        if recog_def is not model_recog_lm or "greedy" in decoder_hyperparameters:
+            # Also assume we should collapse repeated labels first.
+            res = SearchCollapseRepeatedLabelsJob(res, output_gzip=True).out_search_results
         res = SearchRemoveLabelJob(res, remove_label=recog_def.output_blank_label, output_gzip=True).out_search_results
     for f in recog_post_proc_funcs:  # for example BPE to words
         res = f(RecogOutput(output=res)).output
@@ -451,7 +454,6 @@ def search_config_v2(
     
     from i6_experiments.example_setups.librispeech.ctc_rnnt_standalone_2024.lm import get_4gram_binary_lm
     from i6_experiments.example_setups.librispeech.ctc_rnnt_standalone_2024.data.bpe import get_text_lexicon
-    from .experiments.ctc_baseline.ctc import model_recog_lm
 
     returnn_recog_config_dict = dict(
         backend=model_def.backend,
@@ -504,7 +506,7 @@ def search_config_v2(
                         {
                             # Increase the version whenever some incompatible change is made in this recog() function,
                             # which influences the outcome, but would otherwise not influence the hash.
-                            "version": 3,
+                            "version": 10,
                         }
                     ),
                     serialization.PythonEnlargeStackWorkaroundNonhashedCode,

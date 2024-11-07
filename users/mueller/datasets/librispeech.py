@@ -357,6 +357,7 @@ class LibrispeechOggZip(DatasetConfig):
         eval_subset: Optional[int] = 3000,
         train_small: bool = False,
         pseudo_label_path: tk.Path = None,
+        test_self_training_on_small_dataset: int = 0
     ):
         """
         :param with_eos_postfix: For RETURNN train/dev/eval datasets, mostly relevant for training.
@@ -375,6 +376,7 @@ class LibrispeechOggZip(DatasetConfig):
         self.train_sort_laplace_num_seqs = train_sort_laplace_num_seqs
         self.train_small = train_small
         self.pseudo_label_path = pseudo_label_path
+        self.test_self_training_on_small_dataset = test_self_training_on_small_dataset
         if train_epoch_wise_filter is NotSpecified:
             train_epoch_wise_filter = deepcopy(_default_train_epoch_wise_filter)
         if train_audio_preprocess is NotSpecified:
@@ -509,7 +511,10 @@ class LibrispeechOggZip(DatasetConfig):
         else:
             d["targets"] = None
         if training:
-            d["partition_epoch"] = self.train_epoch_split
+            if self.train_small:
+                d["partition_epoch"] = 2
+            else:
+                d["partition_epoch"] = self.train_epoch_split
             if self.train_epoch_wise_filter is not None:
                 d["epoch_wise_filter"] = self.train_epoch_wise_filter
             if self.train_audio_preprocess is not None:
@@ -522,7 +527,10 @@ class LibrispeechOggZip(DatasetConfig):
         else:
             d["fixed_random_seed"] = 1
             d["seq_ordering"] = "sorted_reverse"
+        # if not training and self.test_self_training_on_small_dataset > 0:
+        #     d["fixed_random_subset"] = self.test_self_training_on_small_dataset
         if subset:
+            # print("Use subset:", subset, key)
             d["fixed_random_subset"] = subset  # faster
         
         # Combine pseudo labels into MetaDataset
@@ -534,8 +542,8 @@ class LibrispeechOggZip(DatasetConfig):
             d_pseudo["path"] = files_new
             d_comb = {"zip_dataset": d, "pseudo_labels_dataset": d_pseudo}
             data_map = {
-                "audio_features": ("zip_dataset", "data"),
-                "bpe_labels": ("pseudo_labels_dataset", "classes"),
+                "data": ("zip_dataset", "data"),
+                "classes": ("pseudo_labels_dataset", "classes"),
             }
             d = MetaDataset(data_map, d_comb, "zip_dataset").as_returnn_opts()
             
@@ -782,6 +790,7 @@ def get_librispeech_task_raw_v2(
     audio_opts: Optional[Dict[str, Any]] = None,
     audio_dim: int = 1,
     save_pseudo_labels: Optional[list[str]] = None,
+    test_self_training_on_small_dataset: int = 0,
     **dataset_train_opts,
 ) -> tuple[Task, dict]:
     """
@@ -832,7 +841,7 @@ def get_librispeech_task_raw_v2(
     pseudo_labels_ds = {}
     if save_pseudo_labels:
         for ds_name in save_pseudo_labels:
-            pseudo_labels_ds[ds_name] = dataset_cls(**dataset_common_opts, main_key=ds_name)
+            pseudo_labels_ds[ds_name] = dataset_cls(**dataset_common_opts, main_key=ds_name, test_self_training_on_small_dataset=test_self_training_on_small_dataset)
 
     task = Task(
         name="librispeech",
