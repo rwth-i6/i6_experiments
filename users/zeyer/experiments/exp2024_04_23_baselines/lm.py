@@ -622,7 +622,7 @@ def lm_train_def(
     elif use_normalized_loss == "none":
         loss.mark_as_loss("ce", use_normalized_loss=False)
     elif use_normalized_loss == "seqs":
-        loss.mark_as_loss("ce", as_error=True)  # don't use this for training directly, just for reporting
+        loss.mark_as_loss("ce", scale=0)  # don't use this for training directly, just for reporting
         loss_ = rf.pad_packed(loss, dims=batch_dims + [targets_w_eos_spatial_dim], in_dim=pack_dim)
         seq_loss = rf.reduce_sum(loss_, axis=targets_w_eos_spatial_dim)
         seq_loss.mark_as_loss("seq_ce", use_normalized_loss=True)
