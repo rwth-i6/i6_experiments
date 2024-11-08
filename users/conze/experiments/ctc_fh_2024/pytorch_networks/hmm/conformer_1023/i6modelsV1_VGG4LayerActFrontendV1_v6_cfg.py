@@ -77,6 +77,7 @@ class ModelConfig:
     fsa_config_path: str
     tdp_scale: float
     am_scale: float
+    normalization: int  # unused
 
     @classmethod
     def from_dict(cls, d):

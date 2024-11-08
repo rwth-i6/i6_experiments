@@ -327,6 +327,7 @@ def ls960_hmm_base():
         specauc_start_epoch=1,
         tdp_scale=0.1,
         fsa_config_path=create_rasr_config_file_job.out_file,
+        normalization=1,  # unused
     )
 
     def get_tina_oclr_config(num_epochs, lrate):
