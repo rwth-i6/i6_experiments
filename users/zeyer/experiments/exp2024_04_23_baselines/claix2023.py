@@ -426,8 +426,12 @@ def py():
     )
 
     # Normalize by num seqs, sum over frames.
+    # (trafo-n24-d512-gelu-drop0-b2k_80k-laplace100k-spm10k-lossSeqNorm)
+    # ("use_normalized_loss": "seqs")
     # (Note: small bug, now the exp loss is not correctly calculated...)
-    # -> unstable
+    # -> CE 3.693, 40.16 PPL, unstable (vs baseline use_normalized_loss:True, CE 3.735, 41.91 PPL, unstable)
+    # TODO fix exp loss...
+    # TODO use shuffleBatch100
     train(
         "lm/trafo-n24-d512-gelu-drop0-b2k_80k-laplace100k-spm10k-lossSeqNorm",
         config=dict_update_deep(
@@ -509,9 +513,9 @@ def py():
     from returnn.util.math import PiecewiseLinear
 
     # Try warmup of batch size (warmupBs).
-    # -> 43.05 PPL. unstable. (vs 41.91 PPL without warmupBs, also unstable.)
+    # shuffleBatch1 -> 43.05 PPL. unstable. (vs 41.91 PPL without warmupBs, also unstable.)
     train(
-        "lm/trafo-n24-d512-gelu-drop0-b2k_80k-warmupBs-laplace100k-spm10k",
+        "lm/trafo-n24-d512-gelu-drop0-b2k_80k-warmupBs-laplace100k-shuffleBatch100-spm10k",
         config=dict_update_deep(
             config_96gb_bf16_accgrad1,
             {
@@ -522,6 +526,7 @@ def py():
                 "max_seqs": 2_000,
                 "optimizer.weight_decay": 1e-2,
                 "calculate_exp_loss": True,
+                "online_shuffle_batches": 100,
             },
         ),
         post_config={"log_grad_norm": True},
@@ -548,52 +553,21 @@ def py():
     )
 
     # Less grad clip.
+    # (trafo-n24-d512-gelu-drop0-gradClip10-b2k_80k-laplace100k-spm10k-lossNoNorm)
+    # (But values are way off with this lossNoNorm...)
     # 5 -> 40.64 PPL, unstable training (baseline)
     # 10 -> 40.51 PPL, unstable training
-    train(
-        "lm/trafo-n24-d512-gelu-drop0-gradClip10-b2k_80k-laplace100k-spm10k-lossNoNorm",
-        config=dict_update_deep(
-            config_96gb_bf16_accgrad1,
-            {
-                **_get_cfg_lrlin_oclr_by_bs_nep_v3(80_000, 100, batch_size_factor=1),
-                "max_seqs": 2_000,
-                "gradient_clip_global_norm": 10.0,
-                "optimizer.weight_decay": 1e-2,
-                "calculate_exp_loss": True,
-                "use_normalized_loss": False,
-            },
-        ),
-        post_config={"log_grad_norm": True},
-        train_dataset=get_librispeech_lm_dataset(
-            vocab="spm10k", train_epoch_split=20, train_sort_laplace_num_seqs=100_000
-        ),
-        model_def=ModelDefWithCfg(
-            lm_model_def,
-            {
-                "_model_def_dict": rf.build_dict(
-                    TransformerDecoder,
-                    encoder_dim=None,
-                    num_layers=24,
-                    model_dim=512,
-                    ff_activation=rf.build_dict(rf.gelu),
-                    dropout=0.0,
-                    att_dropout=0.0,
-                )
-            },
-        ),
-        train_def=lm_train_def,
-        # avoid oom
-        env_updates={"PYTORCH_CUDA_ALLOC_CONF": "backend:cudaMallocAsync,expandable_segments:True"},
-    )
 
     # Different/Less/More grad clip, no lossNoNorm.
+    # 0.1 -> 40.76 PPL, unstable training
     # 1 -> 41.62 PPL, unstable training
     # 5 -> 41.91 PPL, unstable training
     # 20 -> 42.05 PPL, very unstable...
     #   (and avg grad norm way lower, starts at 1.5, goes fast down to 0.3, so rarely has an effect)
-    for grad_clip in [0.1, 1.0, 5.0, 20.0]:
+    # Now same with shuffleBatch100.
+    for grad_clip in [0.1, 1.0, 5.0]:
         train(
-            f"lm/trafo-n24-d512-gelu-drop0-gradClip{grad_clip}-b2k_80k-laplace100k-spm10k",
+            f"lm/trafo-n24-d512-gelu-drop0-gradClip{grad_clip}-b2k_80k-laplace100k-shuffleBatch100-spm10k",
             config=dict_update_deep(
                 config_96gb_bf16_accgrad1,
                 {
@@ -602,6 +576,7 @@ def py():
                     "gradient_clip_global_norm": grad_clip,
                     "optimizer.weight_decay": 1e-2,
                     "calculate_exp_loss": True,
+                    "online_shuffle_batches": 100,
                 },
             ),
             post_config={"log_grad_norm": True},
@@ -628,10 +603,12 @@ def py():
         )
 
     # Try longer training.
+    # (trafo-n24-d512-gelu-drop0-b2k_80k-laplace100k-nEp{n_full_ep}-spm10k-lossNoNorm)
     # 5: 40.639, 6: 40.289, 7: 39.967, 8: 39.783. All still unstable.
-    for n_full_ep in [5, 7, 8]:
+    # Now with shuffleBatch100, without lossNoNorm.
+    for n_full_ep in [5, 6, 7]:
         train(
-            f"lm/trafo-n24-d512-gelu-drop0-b2k_80k-laplace100k-nEp{n_full_ep}-spm10k-lossNoNorm",
+            f"lm/trafo-n24-d512-gelu-drop0-b2k_80k-laplace100k-shuffleBatch100-nEp{n_full_ep}-spm10k",
             config=dict_update_deep(
                 config_96gb_bf16_accgrad1,
                 {
@@ -639,9 +616,10 @@ def py():
                     "max_seqs": 2_000,
                     "optimizer.weight_decay": 1e-2,
                     "calculate_exp_loss": True,
-                    "use_normalized_loss": False,
+                    "online_shuffle_batches": 100,
                 },
             ),
+            post_config={"log_grad_norm": True},
             train_dataset=get_librispeech_lm_dataset(
                 vocab="spm10k", train_epoch_split=20, train_sort_laplace_num_seqs=100_000
             ),
@@ -665,49 +643,9 @@ def py():
         )
 
     # Maybe more, or slower warmup (lrLowWarm)? Or smaller batch size initially?
+    # (trafo-n24-d512-gelu-drop0-b2k_80k-laplace100k-lrLowWarm-spm10k-lossNoNorm)
     # -> 40.437 PPL with wd:1e-1. unstable
     # -> 40.61 PPL with wd:1e-2. unstable
-    n_ep = 100
-    peak_lr, low_lr, lowest_lr = 1e-3, 1e-5, 1e-6
-    train(
-        f"lm/trafo-n24-d512-gelu-drop0-b2k_80k-laplace100k-lrLowWarm-spm10k-lossNoNorm",
-        config=dict_update_deep(
-            config_96gb_bf16_accgrad1,
-            {
-                "__num_epochs": n_ep,
-                "batch_size": 80_000,
-                "max_seqs": 2_000,
-                "learning_rate": 1.0,
-                "dynamic_learning_rate": dyn_lr_piecewise_linear,
-                "learning_rate_piecewise_by_epoch_continuous": True,
-                "learning_rate_piecewise_steps": [0.01 * n_ep, 0.05 * n_ep, 0.5 * n_ep, 0.9 * n_ep, n_ep],
-                "learning_rate_piecewise_values": [0.0, lowest_lr, low_lr, peak_lr, low_lr, lowest_lr],
-                "optimizer.weight_decay": 1e-2,
-                "calculate_exp_loss": True,
-                "use_normalized_loss": False,
-            },
-        ),
-        train_dataset=get_librispeech_lm_dataset(
-            vocab="spm10k", train_epoch_split=20, train_sort_laplace_num_seqs=100_000
-        ),
-        model_def=ModelDefWithCfg(
-            lm_model_def,
-            {
-                "_model_def_dict": rf.build_dict(
-                    TransformerDecoder,
-                    encoder_dim=None,
-                    num_layers=24,
-                    model_dim=512,
-                    ff_activation=rf.build_dict(rf.gelu),
-                    dropout=0.0,
-                    att_dropout=0.0,
-                )
-            },
-        ),
-        train_def=lm_train_def,
-        # avoid oom
-        env_updates={"PYTORCH_CUDA_ALLOC_CONF": "backend:cudaMallocAsync,expandable_segments:True"},
-    )
 
     # trafo-n24-d512-gelu-drop0-wd1e_3-b2k_80k-laplace100k-spm10k-lossNoNorm:
     #   Less weight decay wd=1e-3. 41.0 PPL, unstable training.
@@ -729,6 +667,8 @@ def py():
     # Try Lion.
     # Baseline without Lion: 40.6 PPL, also unstable (due to large batch & laplace100k).
     # Baseline without Lion, without laplace100k, without lossNoNorm: 38.69 PPL, stable (first subep already 213.2)
+    # TODO shuffleBatch100
+    # TODO what else here?
     for lion_lr_factor, wd in [
         (0.05, 1e-2),  # 42.2 PPL. Unstable training.
         (0.1, 1e-2),  # 41.2 PPL. Unstable training.
@@ -786,6 +726,51 @@ def py():
     # Try RAdam. -> 42.10 PPL, unstable. (vs 41.91 PPL with AdamW)
     # (trafo-n24-d512-gelu-drop0-optRAdam-b2k_80k-laplace100k-spm10k)
     # (..., "optimizer.class": "RAdam", "optimizer.decoupled_weight_decay": True, ...)
+    # Now again, with shuffleBatch100, lrNoWarmup.
+    n_ep = 100
+    peak_lr, low_lr, lowest_lr = 1e-3, 1e-5, 1e-6
+    train(
+        f"lm/trafo-n24-d512-gelu-drop0-b2k_80k-laplace100k-optRAdam-lrNoWarmup-shuffleBatch100-spm10k",
+        config=dict_update_deep(
+            config_96gb_bf16_accgrad1,
+            {
+                "__num_epochs": n_ep,
+                "batch_size": 80_000,
+                "max_seqs": 2_000,
+                "learning_rate": 1.0,
+                "dynamic_learning_rate": dyn_lr_piecewise_linear,
+                "learning_rate_piecewise_by_epoch_continuous": True,
+                "learning_rate_piecewise_steps": [0.45 * n_ep, 0.9 * n_ep, n_ep],
+                "learning_rate_piecewise_values": [peak_lr, peak_lr, low_lr, lowest_lr],
+                "optimizer.class": "RAdam",
+                "optimizer.decoupled_weight_decay": True,
+                "optimizer.weight_decay": 1e-2,
+                "calculate_exp_loss": True,
+                "online_shuffle_batches": 100,
+            },
+        ),
+        post_config={"log_grad_norm": True},
+        train_dataset=get_librispeech_lm_dataset(
+            vocab="spm10k", train_epoch_split=20, train_sort_laplace_num_seqs=100_000
+        ),
+        model_def=ModelDefWithCfg(
+            lm_model_def,
+            {
+                "_model_def_dict": rf.build_dict(
+                    TransformerDecoder,
+                    encoder_dim=None,
+                    num_layers=24,
+                    model_dim=512,
+                    ff_activation=rf.build_dict(rf.gelu),
+                    dropout=0.0,
+                    att_dropout=0.0,
+                )
+            },
+        ),
+        train_def=lm_train_def,
+        # avoid oom
+        env_updates={"PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"},
+    )
 
     # bf16A
     # Very bad. Stable training but just bad: 49.38 final PPL (compared to 35.58 PPL)
