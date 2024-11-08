@@ -324,9 +324,9 @@ def py():
     #   -> total num steps: 117,362
     #   -> 560 sec / subep
     #   -> unstable training, 41.91 PPL (bad).
+    #   -> see shuffleBatch100 below
     #   baseline without laplace100k: 38.69 PPL, stable (first subep already 213.2),
     #     total num steps 166,408, 974 sec / subep
-    #   TODO why unstable training and bad? loss reduce type? weight decay too much?
 
     # For grad accum dtype, in RETURNN, create returnn/torch/optim/accum_grads_f32.py with:
     """    
