@@ -465,6 +465,11 @@ def py():
 
     # Shuffle batches.
     # -> solves the stability issues!
+    # Small laplace1k baseline: 38.69 PPL, stable, 975 sec / subep
+    # 1 (no shuffling, baseline): 41.91 PPL, unstable, 563 sec / subep
+    # 2: 41.66 PPL, unstable, 572 sec / subep
+    # 10: 40.27 PPL, mostly stable, 581 sec / subep
+    # 100: 39.85 PPL, stable, 580 sec / subep
     for shuffle_batches in [2, 10, 100]:
         train(
             f"lm/trafo-n24-d512-gelu-drop0-b2k_80k-laplace100k-shuffleBatch{shuffle_batches}-spm10k",
