@@ -527,10 +527,9 @@ class LibrispeechOggZip(DatasetConfig):
         else:
             d["fixed_random_seed"] = 1
             d["seq_ordering"] = "sorted_reverse"
-        # if not training and self.test_self_training_on_small_dataset > 0:
-        #     d["fixed_random_subset"] = self.test_self_training_on_small_dataset
-        if subset:
-            # print("Use subset:", subset, key)
+        if not training and self.test_self_training_on_small_dataset > 0:
+            d["fixed_random_subset"] = self.test_self_training_on_small_dataset
+        elif subset:
             d["fixed_random_subset"] = subset  # faster
         
         # Combine pseudo labels into MetaDataset
@@ -1068,8 +1067,10 @@ def _score_recog_out_v2(dataset: DatasetConfig, recog_output: RecogOutput) -> Sc
     
     if isinstance(dataset, LibrispeechOggZip):
         pseudo_labels_path = dataset.pseudo_label_path
+        use_seq_order = dataset.test_self_training_on_small_dataset == 0
     else:
         pseudo_labels_path = None
+        use_seq_order = True
 
     corpus_text_dict = _get_corpus_text_dict(corpus_name, pseudo_labels_path)
     # Arbitrary seg length time. The jobs SearchWordsDummyTimesToCTMJob and TextDictToStmJob
@@ -1077,12 +1078,12 @@ def _score_recog_out_v2(dataset: DatasetConfig, recog_output: RecogOutput) -> Sc
     # and no reason not to just use a high value here to avoid this problem whenever we get to it.
     seg_length_time = 1000.0
     search_ctm = SearchWordsDummyTimesToCTMJob(
-        recog_words_file=hyp_words, seq_order_file=corpus_text_dict, seg_length_time=seg_length_time
+        recog_words_file=hyp_words, seq_order_file=corpus_text_dict if use_seq_order else None, seg_length_time=seg_length_time
     ).out_ctm_file
     stm_file = TextDictToStmJob(text_dict=corpus_text_dict, seg_length_time=seg_length_time).out_stm_path
 
     score_job = ScliteJob(
-        ref=stm_file, hyp=search_ctm, sctk_binary_path=tools_paths.get_sctk_binary_path(), precision_ndigit=2
+        ref=stm_file, hyp=search_ctm, sort_files=False if use_seq_order else True, sctk_binary_path=tools_paths.get_sctk_binary_path(), precision_ndigit=2
     )
 
     return ScoreResult(dataset_name=corpus_name, main_measure_value=score_job.out_wer, report=score_job.out_report_dir)

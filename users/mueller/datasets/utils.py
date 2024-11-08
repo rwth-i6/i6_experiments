@@ -42,17 +42,20 @@ class CorpusReplaceOrthFromPyDictJob(Job):
         assert isinstance(d, dict), "Has to be a dict containing the path to the search output file"
         
         assert c.fullname() in d["path"], "Corpus not in search output"
+        # if c.fullname() not in d["path"]:
+        #     c.dump(self.out_corpus.get_path())
+        #     return
         
         d = eval(uopen(d["path"][c.fullname()], "rt").read(), {"nan": float("nan"), "inf": float("inf")})
         assert isinstance(d, dict), "only search output file with dict format is supported"
-        print(f"Words:\n {d}\n\n\n")
         
         i = 0
         for segment in segment_iterator:
             i += 1
+            # if segment.fullname() not in d:
+            #     continue
             assert segment.fullname() in d, f"Segment {segment.fullname()} not in search output"
             line = d[segment.fullname()]
-            print(f"Segment Orth: {segment.orth}\nNew Orth: {line}")
             assert len(line) > 0
             segment.orth = line.strip()
         assert len(d) == i, f"Number of segments in corpus ({i}) does not match number of segments in search output ({len(d)})"

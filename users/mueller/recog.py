@@ -111,11 +111,10 @@ def recog_training_exp(
         )
         
         extract_pseudo_labels_job = ExtractPseudoLabels(
-            exp=model,
             pseudo_recog_func=pseudo_label_recog_func,
             recog_input=summarize_job.out_summary_json,
         )
-        extract_pseudo_labels_job.add_alias(prefix_name + "/extract_pseudo_labels")
+        extract_pseudo_labels_job.add_alias(prefix_name + "/pseudo_labels/extract")
     
         return extract_pseudo_labels_job.out_best_labels_path
     return None
@@ -166,6 +165,7 @@ class _RecogAndScoreFunc:
             search_post_config=self.search_post_config,
             recog_post_proc_funcs=self.recog_post_proc_funcs,
             search_mem_rqmt=self.search_mem_rqmt,
+            name=self.prefix_name if self.save_pseudo_labels else None,
         )
         if isinstance(epoch_or_ckpt, int):
             tk.register_output(self.prefix_name + f"/recog_results_per_epoch/{epoch_or_ckpt:03}", res.output)
@@ -868,12 +868,10 @@ class GetBestRecogTrainExp(sisyphus.Job):
 class ExtractPseudoLabels(sisyphus.Job):
     def __init__(
         self,
-        exp: ModelWithCheckpoints,
         pseudo_recog_func: Optional[Callable[[int], ScoreResultCollection]],
         recog_input: tk.Path,
     ):
         super(ExtractPseudoLabels, self).__init__()
-        self.exp = exp
         self.pseudo_recog_func = pseudo_recog_func
         self.recog_input = recog_input
         self.out_best_labels_path = self.output_path("best_labels_path.json")
@@ -881,6 +879,9 @@ class ExtractPseudoLabels(sisyphus.Job):
         self._recog_label_paths = None
 
     def update(self):
+        if self._recog_score:
+            return
+        
         d = eval(uopen(self.recog_input, "rt").read(), {"nan": float("nan"), "inf": float("inf")})
         assert isinstance(d, dict), "Has to be a dict containing the best epoch during scoring."
         
@@ -892,7 +893,7 @@ class ExtractPseudoLabels(sisyphus.Job):
         self.add_input(res.output)
         for k in label_paths.keys():
             self.add_input(label_paths[k])
-        self._recog_score = res.output
+        self._recog_score = res
         self._recog_label_paths = label_paths
 
     def tasks(self) -> Iterator[sisyphus.Task]:
@@ -903,8 +904,7 @@ class ExtractPseudoLabels(sisyphus.Job):
         """run"""
         import json
         
-        score = json.load(open(self._recog_score.get_path()))
-
+        score = json.load(open(self._recog_score.output.get_path()))
         for k in self._recog_label_paths.keys():
             self._recog_label_paths[k] = self._recog_label_paths[k].get_path()
         
@@ -912,6 +912,19 @@ class ExtractPseudoLabels(sisyphus.Job):
         with open(self.out_best_labels_path.get_path(), "w") as f:
             f.write(json.dumps(label_path_dict))
             f.write("\n")
+            
+    @classmethod
+    def hash(cls, parsed_args: Dict[str, Any]) -> str:
+        """
+        :param parsed_args:
+        :return: hash for job given the arguments
+        """
+        # Extend the default hash() function.
+        d = parsed_args.copy()
+        
+        # Add this to the hash to change the hash.
+        d["_nr"] = 1
+        return sis_tools.sis_hash(d)
 
 
 class GetTorchAvgModelResult(sisyphus.Job):

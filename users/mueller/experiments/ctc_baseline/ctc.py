@@ -55,8 +55,8 @@ def py():
     use_greedy = False
     epochs = 500
     self_training_rounds = 0
-    train_small = False
     test_self_training_on_small_dataset = 0
+    train_small = False
     
     if train_small:
         epochs = 50
@@ -71,11 +71,11 @@ def py():
         decoder_hyperparameters = {
             "log_add": False,
             "nbest": 1,
-            "beam_size": 12, # 1024
-            "lm_weight": 0.0,
+            "beam_size": 12,
+            "lm_weight": 1.25,
             "use_logsoftmax": True,
-            "use_lm": False,
-            "use_lexicon": False,
+            "use_lm": True,
+            "use_lexicon": True,
         }
         p1 = "sum" if decoder_hyperparameters['log_add'] else "max"
         p2 = f"n{decoder_hyperparameters['nbest']}"
@@ -207,8 +207,8 @@ def train_exp(
     # Do self training on pseudo labels
     for i in range(self_training_rounds):
         assert pseudo_label_path_dict is not None, "Pseudo label path is not set"
-        prefix_self_training = prefix + f"/self-training-{i}"
-        task, _ = get_librispeech_task_raw_v2(vocab=vocab, train_vocab_opts=train_vocab_opts, train_small = False, pseudo_label_path = pseudo_label_path_dict)
+        prefix_self_training = prefix + f"/self-training-{i+1}"
+        task, _ = get_librispeech_task_raw_v2(vocab=vocab, train_vocab_opts=train_vocab_opts, train_small = False, pseudo_label_path = pseudo_label_path_dict) # TODO adapt for multiple training rounds
         # This logic is also in train(), but keep it here because it would break the hash because of _RecogAndScoreFunc...
         if "__train_audio_preprocess" in config:
             task: Task = copy.copy(task)
