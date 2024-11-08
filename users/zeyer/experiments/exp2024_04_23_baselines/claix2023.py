@@ -430,10 +430,9 @@ def py():
     # ("use_normalized_loss": "seqs")
     # (Note: small bug, now the exp loss is not correctly calculated...)
     # -> CE 3.693, 40.16 PPL, unstable (vs baseline use_normalized_loss:True, CE 3.735, 41.91 PPL, unstable)
-    # TODO fix exp loss...
-    # TODO use shuffleBatch100
+    # Same with shuffleBatch100: ...
     train(
-        "lm/trafo-n24-d512-gelu-drop0-b2k_80k-laplace100k-spm10k-lossSeqNorm",
+        "lm/trafo-n24-d512-gelu-drop0-b2k_80k-laplace100k-shuffleBatch100-spm10k-lossSeqNorm",
         config=dict_update_deep(
             config_96gb_bf16_accgrad1,
             {
@@ -442,6 +441,7 @@ def py():
                 "optimizer.weight_decay": 1e-2,
                 "calculate_exp_loss": True,
                 "use_normalized_loss": "seqs",
+                "online_shuffle_batches": 100,
             },
         ),
         post_config={"log_grad_norm": True},
