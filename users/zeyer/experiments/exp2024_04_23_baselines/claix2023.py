@@ -726,7 +726,8 @@ def py():
     # Try RAdam. -> 42.10 PPL, unstable. (vs 41.91 PPL with AdamW)
     # (trafo-n24-d512-gelu-drop0-optRAdam-b2k_80k-laplace100k-spm10k)
     # (..., "optimizer.class": "RAdam", "optimizer.decoupled_weight_decay": True, ...)
-    # Now again, with shuffleBatch100, lrNoWarmup.
+    # Now again, with shuffleBatch100, lrNoWarmup. -> 39.62 PPL, stable (vs 39.85 PPL with AdamW, LR warmup, stable)
+    # TODO is this now the shorter (no) LR warmup? AdamW with shorter LR warmup?
     n_ep = 100
     peak_lr, low_lr, lowest_lr = 1e-3, 1e-5, 1e-6
     train(
