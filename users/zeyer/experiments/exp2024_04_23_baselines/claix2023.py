@@ -274,6 +274,7 @@ def py():
     # TODO loss Seq norm
     # TODO log_grad_norm
     # TODO better grad clip?
+    # TODO init out layer to all zeros
 
     # ----- LM experiments -----
 
@@ -581,6 +582,7 @@ def py():
 
     # Llama (noAbsPos-rmsNorm-ffGated-rope-noBias) + optRAdam + lrNoWarmup + warmupBs + lossSeqNorm
     # TODO also add better grad clip. or fix grad clip, it's wrong here now?
+    # TODO init out layer to all zeros
     n_ep = 100
     peak_lr, low_lr, lowest_lr = 1e-3, 1e-5, 1e-6
     train(
