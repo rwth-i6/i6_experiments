@@ -312,6 +312,11 @@ def py():
         env_updates={"PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"},
     )
 
+    # TODO ctc without aux
+    # TODO ctc with different sampling
+    # TODO for smaller vocabs, less downsampling
+    # TODO zipformer...
+
     # lossSeqNorm.
     # Baseline: {"dev-clean": 2.4, "dev-other": 5.22, "test-clean": 2.5, "test-other": 5.55}
     aed_train_exp(
