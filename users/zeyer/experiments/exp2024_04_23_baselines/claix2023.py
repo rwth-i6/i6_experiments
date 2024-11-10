@@ -252,7 +252,7 @@ def py():
             )
 
     ctc_train_exp(
-        "n12-b100_200k-spm10k",
+        "n12-b200k-spm10k",
         config_96gb_bf16_accgrad1,
         train_def=cr_ctc_training if use_cr_ctc else None,
         model_config={
@@ -273,8 +273,6 @@ def py():
             "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
             # purely used for training
             "aux_attention_decoder": rf.build_dict(TransformerDecoder, num_layers=6),
-            **(cr_ctc if use_cr_ctc else {}),
-            **({"aed_loss_bug_fix": True} if use_cr_ctc else {}),
         },
         post_config_updates={"log_grad_norm": True, "__multi_proc_dataset_opts": {"num_workers": 25}},
         vocab=opts["vocab"],
