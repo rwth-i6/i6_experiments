@@ -946,6 +946,7 @@ def py():
     # TODO we could very systematically go through the whole net/model and leave some parts as float32
 
     # Try new model (Llama) (noAbsPos-rmsNorm-ffGated-rope-noBias instead of gelu).
+    # 38.71 PPL (vs 39.85 PPL)
     train(
         f"lm/trafo-n24-d512-noAbsPos-rmsNorm-ffGated-rope-noBias-drop0-b2k_80k-laplace100k-shuffleBatch100-spm10k",
         config=dict_update_deep(
