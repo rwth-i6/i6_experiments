@@ -550,19 +550,34 @@ def py():
     from returnn.util.math import PiecewiseLinear
 
     # Try warmup of batch size (warmupBs).
+    # "batch_size": PiecewiseLinear({0: 1_000, 5: 80_000}, kw_name="epoch_continuous", ignore_other_kwargs=True)
     # shuffleBatch1 -> 43.05 PPL. unstable. (vs 41.91 PPL without warmupBs, also unstable.)
+    # shuffleBatch100 -> 39.87 PPL, stable (vs 39.85 PPL without warmupBs, stable), initial convergence faster
+
+    # Llama (noAbsPos-rmsNorm-ffGated-rope-noBias) + optRAdam + lrNoWarmup + warmupBs + lossSeqNorm
+    n_ep = 100
+    peak_lr, low_lr, lowest_lr = 1e-3, 1e-5, 1e-6
     train(
-        "lm/trafo-n24-d512-gelu-drop0-b2k_80k-warmupBs-laplace100k-shuffleBatch100-spm10k",
+        "lm/trafo-n24-d512-noAbsPos-rmsNorm-ffGated-rope-noBias-drop0-b2k_80k"
+        "-warmupBs-laplace100k-optRAdam-lrNoWarmup-shuffleBatch100-spm10k-lossSeqNorm",
         config=dict_update_deep(
             config_96gb_bf16_accgrad1,
             {
-                **_get_cfg_lrlin_oclr_by_bs_nep_v4(100),
+                "__num_epochs": n_ep,
                 "batch_size": PiecewiseLinear(
                     {0: 1_000, 5: 80_000}, kw_name="epoch_continuous", ignore_other_kwargs=True
                 ),
                 "max_seqs": 2_000,
+                "learning_rate": 1.0,
+                "dynamic_learning_rate": dyn_lr_piecewise_linear,
+                "learning_rate_piecewise_by_epoch_continuous": True,
+                "learning_rate_piecewise_steps": [0.45 * n_ep, 0.9 * n_ep, n_ep],
+                "learning_rate_piecewise_values": [peak_lr, peak_lr, low_lr, lowest_lr],
+                "optimizer.class": "RAdam",
+                "optimizer.decoupled_weight_decay": True,
                 "optimizer.weight_decay": 1e-2,
                 "calculate_exp_loss": True,
+                "use_normalized_loss": "seqs",
                 "online_shuffle_batches": 100,
             },
         ),
@@ -578,7 +593,10 @@ def py():
                     encoder_dim=None,
                     num_layers=24,
                     model_dim=512,
-                    ff_activation=rf.build_dict(rf.gelu),
+                    pos_enc=None,
+                    norm=rf.build_dict(rf.RMSNorm),
+                    ff=rf.build_dict(rf.decoder.transformer.FeedForwardGated),
+                    decoder_layer_opts=dict(self_att=rf.build_dict(rf.RotaryPosCausalSelfAttention, with_bias=False)),
                     dropout=0.0,
                     att_dropout=0.0,
                 )
