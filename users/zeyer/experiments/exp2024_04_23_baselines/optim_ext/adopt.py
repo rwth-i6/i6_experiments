@@ -12,31 +12,25 @@ https://github.com/iShohei220/adopt/blob/main/adopt.py
 Apache 2 licence
 """
 
-# mypy: allow-untyped-decorators
-# mypy: allow-untyped-defs
-from typing import cast, List, Optional, Tuple, Union
+from __future__ import annotations
+from typing import cast, List, Optional, Tuple, Union, TypeAlias, Iterable, Dict, Any
 
 import torch
 from torch import Tensor
+from torch.optim.optimizer import Optimizer
 
+ParamsT: TypeAlias = Union[Iterable[torch.Tensor], Iterable[Dict[str, Any]]]
+
+# noinspection PyProtectedMember
 from torch.optim.optimizer import (
-    _capturable_doc,
     _default_to_fused_or_foreach,
     _device_dtype_check_for_fused,
-    _differentiable_doc,
     _disable_dynamo_if_unsupported,
-    _foreach_doc,
-    _fused_doc,
     _get_capturable_supported_devices,
     _get_scalar_dtype,
     _get_value,
-    _maximize_doc,
-    _stack_if_compiling,
     _use_grad_for_differentiable,
     _view_as_real,
-    DeviceDict,
-    Optimizer,
-    ParamsT,
 )
 
 
@@ -455,12 +449,10 @@ def adopt(
 
     if foreach and torch.jit.is_scripting():
         raise RuntimeError("torch.jit.script not supported with foreach optimizers")
-    if fused and torch.jit.is_scripting():
-        raise RuntimeError("torch.jit.script not supported with fused optimizers")
+    if fused:
+        raise RuntimeError("fused adopt optimizer not supported")
 
-    if fused and not torch.jit.is_scripting():
-        func = _fused_adopt
-    elif foreach and not torch.jit.is_scripting():
+    if foreach and not torch.jit.is_scripting():
         func = _multi_tensor_adopt
     else:
         func = _single_tensor_adopt
