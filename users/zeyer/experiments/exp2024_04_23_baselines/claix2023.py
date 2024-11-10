@@ -251,6 +251,39 @@ def py():
                 # env_updates={"PYTORCH_CUDA_ALLOC_CONF": "backend:cudaMallocAsync,expandable_segments:True"},
             )
 
+    ctc_train_exp(
+        "n12-b100_200k-spm10k",
+        config_96gb_bf16_accgrad1,
+        train_def=cr_ctc_training if use_cr_ctc else None,
+        model_config={
+            "enc_conformer_layer": rf.build_dict(
+                ConformerEncoderLayer,
+                ff=rf.build_dict(
+                    ConformerPositionwiseFeedForward, activation=rf.build_dict(rf.relu_square), with_bias=False
+                ),
+                num_heads=8,
+            ),
+            "feature_batch_norm": True,
+            "num_enc_layers": 12,
+        },
+        config_updates={
+            **_get_cfg_lrlin_oclr_by_bs_nep_v3(200_000, 100, batch_size_factor=_batch_size_factor),
+            "optimizer.weight_decay": 1e-2,
+            "__train_audio_preprocess": speed_pert_librosa_config,
+            "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
+            # purely used for training
+            "aux_attention_decoder": rf.build_dict(TransformerDecoder, num_layers=6),
+            **(cr_ctc if use_cr_ctc else {}),
+            **({"aed_loss_bug_fix": True} if use_cr_ctc else {}),
+        },
+        post_config_updates={"log_grad_norm": True, "__multi_proc_dataset_opts": {"num_workers": 25}},
+        vocab=opts["vocab"],
+        train_vocab_opts={"other_opts": {"class": "SamplingBytePairEncoding", "breadth_prob": 0.01}},
+        dataset_train_opts={"train_epoch_split": 1, "train_epoch_wise_filter": None},
+        # avoid OOM
+        # env_updates={"PYTORCH_CUDA_ALLOC_CONF": "backend:cudaMallocAsync,expandable_segments:True"},
+    )
+
     # lossSeqNorm.
     # Baseline: {"dev-clean": 2.4, "dev-other": 5.22, "test-clean": 2.5, "test-other": 5.55}
     aed_train_exp(
