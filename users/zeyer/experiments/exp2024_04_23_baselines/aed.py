@@ -585,7 +585,10 @@ def aed_training(*, model: Model, data: rf.Tensor, data_spatial_dim: Dim, target
     aux_loss_layers = config.typed_value("aux_loss_layers")
     aux_loss_scales = config.typed_value("aux_loss_scales", ([1.0] * len(aux_loss_layers)) if aux_loss_layers else None)
     aed_loss_scale = config.float("aed_loss_scale", 1.0)
-    use_normalized_loss = config.bool("use_normalized_loss", True)
+    use_normalized_loss = config.typed_value("use_normalized_loss", True)
+    if isinstance(use_normalized_loss, bool):
+        use_normalized_loss = "frames" if use_normalized_loss else "none"
+    assert isinstance(use_normalized_loss, str) and use_normalized_loss in ("none", "frames", "seqs")
 
     if data.feature_dim and data.feature_dim.dimension == 1:
         data = rf.squeeze(data, axis=data.feature_dim)
@@ -606,12 +609,21 @@ def aed_training(*, model: Model, data: rf.Tensor, data_spatial_dim: Dim, target
                 targets_spatial_dim=targets_spatial_dim,
                 blank_index=model.blank_idx,
             )
-            aux_loss.mark_as_loss(
-                f"ctc_{layer_idx}",
-                scale=aux_loss_scales[i],
-                custom_inv_norm_factor=targets_spatial_dim.get_size_tensor(),
-                use_normalized_loss=use_normalized_loss,
-            )
+            if use_normalized_loss in ("none", "frames"):
+                aux_loss.mark_as_loss(
+                    f"ctc_{layer_idx}",
+                    scale=aux_loss_scales[i],
+                    custom_inv_norm_factor=targets_spatial_dim.get_size_tensor(),
+                    use_normalized_loss={"none": False, "frames": True}[use_normalized_loss],
+                )
+            elif use_normalized_loss == "seqs":
+                aux_loss.mark_as_loss(
+                    f"ctc_{layer_idx}", scale=0, custom_inv_norm_factor=targets_spatial_dim.get_size_tensor()
+                )
+                aux_loss.mark_as_loss(f"seq_ctc_{layer_idx}", scale=aux_loss_scales[i], use_normalized_loss=True)
+            else:
+                raise ValueError(f"invalid use_normalized_loss {use_normalized_loss!r}")
+
             # decoded, decoded_spatial_dim = rf.ctc_greedy_decode(aux_logits, in_spatial_dim=enc_spatial_dim)
             # error = rf.edit_distance(
             #     a=decoded, a_spatial_dim=decoded_spatial_dim, b=targets, b_spatial_dim=targets_spatial_dim
@@ -648,7 +660,17 @@ def aed_training(*, model: Model, data: rf.Tensor, data_spatial_dim: Dim, target
     loss = rf.cross_entropy(
         target=targets_packed, estimated=log_prob, estimated_type="log-probs", axis=model.target_dim
     )
-    loss.mark_as_loss("ce", scale=aed_loss_scale, use_normalized_loss=use_normalized_loss)
+    if use_normalized_loss in ("none", "frames"):
+        loss.mark_as_loss(
+            "ce", scale=aed_loss_scale, use_normalized_loss={"none": False, "frames": True}[use_normalized_loss]
+        )
+    elif use_normalized_loss == "seqs":
+        loss.mark_as_loss("ce", scale=0)  # don't use this for training directly, just for reporting
+        loss_ = rf.pad_packed(loss, dims=batch_dims + [targets_w_eos_spatial_dim], in_dim=pack_dim)
+        seq_loss = rf.reduce_sum(loss_, axis=targets_w_eos_spatial_dim)
+        seq_loss.mark_as_loss("seq_ce", use_normalized_loss=True)
+    else:
+        raise ValueError(f"invalid use_normalized_loss {use_normalized_loss!r}")
 
     best = rf.reduce_argmax(log_prob, axis=model.target_dim)
     frame_error = best != targets_packed

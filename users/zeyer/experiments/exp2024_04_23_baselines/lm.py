@@ -617,10 +617,8 @@ def lm_train_def(
     log_prob = rf.log_softmax(logits_packed, axis=model.vocab_dim)
     # log_prob = rf.label_smoothed_log_prob_gradient(log_prob, 0.1, axis=model.target_dim)
     loss = rf.cross_entropy(target=targets_packed, estimated=log_prob, estimated_type="log-probs", axis=model.vocab_dim)
-    if use_normalized_loss == "frames":
-        loss.mark_as_loss("ce", use_normalized_loss=True)
-    elif use_normalized_loss == "none":
-        loss.mark_as_loss("ce", use_normalized_loss=False)
+    if use_normalized_loss in ("none", "frames"):
+        loss.mark_as_loss("ce", use_normalized_loss={"none": False, "frames": True}[use_normalized_loss])
     elif use_normalized_loss == "seqs":
         loss.mark_as_loss("ce", scale=0)  # don't use this for training directly, just for reporting
         loss_ = rf.pad_packed(loss, dims=batch_dims + [targets_w_eos_spatial_dim], in_dim=pack_dim)
