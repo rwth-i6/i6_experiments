@@ -693,7 +693,8 @@ def py():
     # (trafo-n24-d512-gelu-drop0-b2k_80k-laplace100k-nEp{n_full_ep}-spm10k-lossNoNorm)
     # 5: 40.639, 6: 40.289, 7: 39.967, 8: 39.783. All still unstable.
     # Now with shuffleBatch100, without lossNoNorm.
-    for n_full_ep in [5, 6, 7]:
+    # 5: 39.85, 6: 39.43, 7: 39.15
+    for n_full_ep in [5, 10]:
         train(
             f"lm/trafo-n24-d512-gelu-drop0-b2k_80k-laplace100k-shuffleBatch100-nEp{n_full_ep}-spm10k",
             config=dict_update_deep(
