@@ -250,11 +250,11 @@ def py():
                 # avoid OOM
                 # env_updates={"PYTORCH_CUDA_ALLOC_CONF": "backend:cudaMallocAsync,expandable_segments:True"},
             )
+        del opts, use_cr_ctc, name
 
     ctc_train_exp(
         "n12-b200k-spm10k",
         config_96gb_bf16_accgrad1,
-        train_def=cr_ctc_training if use_cr_ctc else None,
         model_config={
             "enc_conformer_layer": rf.build_dict(
                 ConformerEncoderLayer,
@@ -275,11 +275,41 @@ def py():
             "aux_attention_decoder": rf.build_dict(TransformerDecoder, num_layers=6),
         },
         post_config_updates={"log_grad_norm": True, "__multi_proc_dataset_opts": {"num_workers": 25}},
-        vocab=opts["vocab"],
+        vocab="spm10k",
         train_vocab_opts={"other_opts": {"class": "SamplingBytePairEncoding", "breadth_prob": 0.01}},
         dataset_train_opts={"train_epoch_split": 1, "train_epoch_wise_filter": None},
         # avoid OOM
         # env_updates={"PYTORCH_CUDA_ALLOC_CONF": "backend:cudaMallocAsync,expandable_segments:True"},
+    )
+
+    ctc_train_exp(
+        "n12-b250k-shuffleBatch100-spm10k",
+        config_96gb_bf16_accgrad1,
+        model_config={
+            "enc_conformer_layer": rf.build_dict(
+                ConformerEncoderLayer,
+                ff=rf.build_dict(
+                    ConformerPositionwiseFeedForward, activation=rf.build_dict(rf.relu_square), with_bias=False
+                ),
+                num_heads=8,
+            ),
+            "feature_batch_norm": True,
+            "num_enc_layers": 12,
+        },
+        config_updates={
+            **_get_cfg_lrlin_oclr_by_bs_nep_v3(250_000, 100, batch_size_factor=_batch_size_factor),
+            "optimizer.weight_decay": 1e-2,
+            "__train_audio_preprocess": speed_pert_librosa_config,
+            "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
+            "aux_attention_decoder": rf.build_dict(TransformerDecoder, num_layers=6),  # purely used for training
+            "online_shuffle_batches": 100,
+        },
+        post_config_updates={"log_grad_norm": True, "__multi_proc_dataset_opts": {"num_workers": 25}},
+        vocab="spm10k",
+        train_vocab_opts={"other_opts": {"class": "SamplingBytePairEncoding", "breadth_prob": 0.01}},
+        dataset_train_opts={"train_epoch_split": 1, "train_epoch_wise_filter": None},
+        # avoid OOM
+        env_updates={"PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"},
     )
 
     # lossSeqNorm.
