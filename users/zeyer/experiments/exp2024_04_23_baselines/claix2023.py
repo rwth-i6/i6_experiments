@@ -1121,7 +1121,7 @@ def py():
     # Try AdEMAMix.
     peak_lr, low_lr, lowest_lr = 1e-3, 1e-5, 1e-6
     train(
-        f"lm/trafo-n24-d512-gelu-drop0-b2k_80k-laplace100k-optShampoo-shuffleBatch100-spm10k",
+        f"lm/trafo-n24-d512-gelu-drop0-b2k_80k-laplace100k-optAdEMAMix-shuffleBatch100-spm10k",
         config=dict_update_deep(
             config_96gb_bf16_accgrad1,
             {
