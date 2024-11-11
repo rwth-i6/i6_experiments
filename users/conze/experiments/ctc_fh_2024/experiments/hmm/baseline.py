@@ -5,14 +5,15 @@ from typing import cast, List
 import textwrap
 from functools import partial
 
-from sisyphus.delayed_ops import DelayedFormat
-
 from i6_core.tools.parameter_tuning import GetOptimalParametersAsVariableJob
 from i6_core.text.processing import WriteToTextFileJob
 from i6_core.corpus.transform import MergeCorporaJob
-from i6_core.rasr.config import build_config_from_mapping
+import i6_core.rasr as rasr
+from i6_core.am.config import acoustic_model_config
+from i6_core.meta.system import CorpusObject
 
 from i6_experiments.common.setups.returnn.datastreams.vocabulary import LabelDatastream
+import i6_experiments.common.setups.rasr.config.lex_config as exp_rasr
 from i6_experiments.users.raissi.setups.common.helpers.train.oclr import get_oclr_config
 from i6_experiments.users.raissi.setups.common.data.factored_label import (
     LabelInfo,
@@ -192,83 +193,6 @@ def ls960_hmm_base():
         activation=None,
     )
 
-    rasr_config_template = textwrap.dedent(
-        """\
-        [*]
-        configuration.channel    = output-channel
-        dot.channel              = nil
-        encoding                 = UTF-8
-        error.channel            = output-channel, stderr
-        log.channel              = output-channel
-        progress.channel         = output-channel
-        real-time-factor.channel = output-channel
-        statistics.channel       = output-channel
-        system-info.channel      = output-channel
-        time.channel             = output-channel
-        version.channel          = output-channel
-        warning.channel          = output-channel, stderr
-        action                   = python-control
-
-        [*.output-channel]
-        append     = no
-        compressed = no
-        file       = fastbw.log
-        unbuffered = no
-
-        [*.allophone-state-graph-builder.orthographic-parser]
-        allow-for-silence-repetitions   = no
-        normalize-lemma-sequence-scores = no
-
-        [*.model-combination.acoustic-model]
-        fix-allophone-context-at-word-boundaries         = yes
-        transducer-builder-filter-out-invalid-allophones = yes
-
-        [*.model-combination.acoustic-model.allophones]
-        add-all          = no
-        add-from-lexicon = yes
-
-        [*.model-combination.acoustic-model.hmm]
-        across-word-model   = yes
-        early-recombination = no
-        state-repetitions   = 1
-        states-per-phone    = 1
-
-        [*.model-combination.acoustic-model.state-tying]
-        type                 = monophone-dense
-        use-boundary-classes = no
-        use-word-end-classes = yes
-
-        [*.model-combination.acoustic-model.tdp]
-        applicator-type = corrected
-        entry-m1.loop   = infinity
-        entry-m2.loop   = infinity
-        scale           = 1.0
-
-        [*.model-combination.acoustic-model.tdp.*]
-        exit    = 0.0
-        forward = 0.6931471805599453
-        loop    = 0.6931471805599453
-        skip    = infinity
-
-        [*.model-combination.acoustic-model.tdp.silence]
-        exit    = 0.0
-        forward = 1.8325814637483102
-        loop    = 0.1743533871447778
-        skip    = infinity
-
-        [*.model-combination.lexicon]
-        file                    = `cf {lexicon}`
-        normalize-pronunciation = no
-
-        [*.corpus]
-        capitalize-transcriptions      = no
-        file                           = {corpus}
-        progress-indication            = global
-        remove-corpus-name-prefix      = loss-corpus/
-        warn-about-unexpected-elements = yes
-        """
-    )
-
     lexicon = get_lexicon(
         g2p_librispeech_key="train-other-960",
         with_g2p=True,
@@ -284,15 +208,56 @@ def ls960_hmm_base():
         "loss-corpus",
     )
 
-    rasr_config_str = DelayedFormat(
-        rasr_config_template,
-        **{
-            "lexicon": lexicon.get_path(),
-            "corpus": merged_corpus.out_merged_corpus,
-        },
-    )
-    create_rasr_config_file_job = WriteToTextFileJob(content=rasr_config_str, out_name=f"rasr.config")
+    # Create RASR config
+    crp = rasr.CommonRasrParameters()
+    rasr.crp_add_default_output(crp)
 
+    corpus_data = CorpusObject(
+        corpus_file=merged_corpus.out_merged_corpus,
+    )
+    rasr.crp_set_corpus(crp, corpus_data)
+    crp.corpus_config.remove_corpus_name_prefix = "loss-corpus/"
+
+    lexicon_config = exp_rasr.LexiconRasrConfig(
+        lex_path = lexicon.get_path(),
+        normalize_pronunciation=False,
+    )
+    crp.lexicon_config = lexicon_config.get()
+
+    crp.acoustic_model_config = acoustic_model_config(
+        state_tying="monophone-dense",
+        states_per_phone=1,
+        state_repetitions=1,
+        across_word_model=True,
+        early_recombination=False,
+        tdp_scale=1.0,
+        tdp_transition=(0.6931471805599453, 0.6931471805599453, "infinity", 0.0),
+        tdp_silence=(0.1743533871447778, 1.8325814637483102, "infinity", 0.0),
+    )
+    crp.acoustic_model_config.state_tying.use_boundary_classes = False
+    crp.acoustic_model_config.state_tying.use_word_end_classes = True
+
+    crp.acoustic_model_config.tdp.applicator_type = "corrected"
+
+    crp.acoustic_model_config.fix_allophone_context_at_word_boundaries = True
+    crp.acoustic_model_config.transducer_builder_filter_out_invalid_allophones = True
+
+    mapping = {
+        "acoustic_model": "*.model-combination.acoustic-model",
+        "corpus": "*.corpus",
+        "lexicon": "*.model-combination.lexicon",
+    }
+    config, post_config = rasr.build_config_from_mapping(
+        crp,
+        mapping,
+    )
+    config["*"].action = "python-control"
+    config["*.allophone-state-graph-builder.orthographic-parser"].allow_for_silence_repetitions = False
+    config["*.allophone-state-graph-builder.orthographic-parser"].normalize_lemma_sequence_scores = False
+
+    create_rasr_config_job = rasr.WriteRasrConfigJob(config=config, post_config=post_config)
+
+    # Get label info
     label_info = LabelInfo(
         n_contexts=label_datastream.vocab_size + 1,  # + empty context
         n_states_per_phone=1,
@@ -326,7 +291,7 @@ def ls960_hmm_base():
         final_dropout=0.1,
         specauc_start_epoch=1,
         tdp_scale=0.1,
-        fsa_config_path=create_rasr_config_file_job.out_file,
+        fsa_config_path=create_rasr_config_job.out_config,
         normalization=1,  # unused
     )
 
