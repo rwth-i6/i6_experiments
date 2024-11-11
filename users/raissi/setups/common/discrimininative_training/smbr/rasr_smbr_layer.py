@@ -327,16 +327,20 @@ def augment_for_smbr(
         returnn_config.config["network"][output_layer].update(**loss_info)
 
 
+
     if fs_ce_smoothing > 0:
         returnn_config = add_fast_bw_layer_to_returnn_config(
             crp=smbr_crp,
             returnn_config=returnn_config,
-            reference_layer="output",
+            reference_layer=output_layer,
             log_linear_scales=LogLinearScales(
                 transition_scale=smbr_crp.acoustic_model_config.tdp.scale,
                 label_posterior_scale=feature_scorer.config.scale,
             ),
         )
+
+        returnn_config.config["network"]["output_bw"]["loss_scale"] = fs_ce_smoothing
+
 
 
     return returnn_config

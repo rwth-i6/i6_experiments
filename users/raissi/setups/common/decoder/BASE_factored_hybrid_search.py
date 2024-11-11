@@ -365,8 +365,9 @@ class BASEFactoredHybridDecoder:
         self.scorer = scorer if scorer is not None else recog.ScliteJob
 
         # setting other attributes
-        self.set_tf_fs_flow()
-        self.fs_config = self.get_fs_tf_config()
+        if not feature_scorer_type.is_onnx():
+            self.set_tf_fs_flow()
+            self.fs_config = self.get_fs_tf_config()
 
     def get_search_params(
         self,
@@ -851,6 +852,7 @@ class BASEFactoredHybridDecoder:
             )
         else:
             raise NotImplementedError
+        original_lm_config = search_crp.language_model_config
 
         if lm_config is not None:
             search_crp.language_model_config = lm_config
@@ -898,14 +900,15 @@ class BASEFactoredHybridDecoder:
                 # Use 4gram for lookahead. The lookahead LM must not be too good.
                 # Half the normal LM scale is a good starting value.
                 # To validate the assumption the original LM is a 4gram
-                assert search_crp.language_model_config.type.lower() == "arpa"
+                print(search_crp.language_model_config.type.lower())
+                assert original_lm_config.type.lower() == "arpa"
 
                 adv_search_extra_config.flf_lattice_tool.network.recognizer.recognizer.separate_lookahead_lm = True
                 adv_search_extra_config.flf_lattice_tool.network.recognizer.recognizer.lm_lookahead.lm_lookahead_scale = (
                     search_parameters.lm_lookahead_scale
                 )
                 adv_search_extra_config.flf_lattice_tool.network.recognizer.recognizer.lookahead_lm.file = (
-                    search_crp.language_model_config.file
+                    original_lm_config.file
                 )
                 # TODO(future): Add LM image instead of file here.
                 adv_search_extra_config.flf_lattice_tool.network.recognizer.recognizer.lookahead_lm.scale = 1.0

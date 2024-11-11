@@ -184,7 +184,6 @@ class BASEFactoredHybridSystem(NnSystem):
             "shuffle_data": True,
             "segment_order_sort_by_time_length_chunk_size": 348,
         }
-        self.fullsum_log_linear_scales = {"label_posterior_scale": 0.3, "transition_scale": 0.3}
 
         # extern classes and objects
         self.training_criterion: TrainingCriterion = TrainingCriterion.FULLSUM
