@@ -1,8 +1,6 @@
 """
 Copied from: https://github.com/nikhilvyas/SOAP/blob/main/soap.py
-
-ff192da, 2024-11-11
-
+(MIT licence, ff192da, 2024-11-11)
 """
 
 from itertools import chain
