@@ -1129,6 +1129,7 @@ def py():
                 "learning_rate_piecewise_steps": [0.45 * n_ep, 0.9 * n_ep, n_ep],
                 "learning_rate_piecewise_values": [low_lr, peak_lr, low_lr, lowest_lr],
                 "optimizer.class": "pytorch_optimizer.Shampoo",  # pip install pytorch-optimizer
+                "optimizer.preconditioning_compute_steps": 100,  # takes approx 70 secs!
                 "optimizer.weight_decouple": True,
                 "optimizer.weight_decay": 1e-2,
                 "calculate_exp_loss": True,
