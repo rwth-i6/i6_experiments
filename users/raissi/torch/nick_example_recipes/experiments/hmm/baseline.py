@@ -234,7 +234,7 @@ def ls960_hmm_conformer_monophone():
     )
 
     train_configs = {}
-    am_scales = [0.3, 0.4, 0.6]  #, 0.7]
+    am_scales = [0.3] #, 0.4, 0.6]  #, 0.7]
 
     # TDP scale and fsa config adapted from:
     # /work/asr4/raissi/setups/librispeech/960-ls/2023-01--system_paper/work/i6_experiments/users/raissi/costum/returnn/rasr_returnn_bw/ReturnnRasrTrainingBWJob.j0QluKd9vhJ8

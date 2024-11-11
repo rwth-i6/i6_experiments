@@ -107,19 +107,21 @@ def get_prior_config(
         "num_workers_per_gpu": 2,
     }
 
+    from .data.prior_segments import get_prior_segments
+    prior_segment_list = get_prior_segments(data_share=data_share)
+    dataset_config = copy.deepcopy(training_datasets.prior.as_returnn_opts())
+    dataset_config["datasets"]["zip_dataset"]["segment_file"] = prior_segment_list
+
     base_config = {
         #############
         "batch_size": 500 * 16000,
         "max_seqs": 240,
         #############
-        "forward": copy.deepcopy(training_datasets.prior.as_returnn_opts()),
+        "forward": dataset_config,
     }
     config = {**base_config, **copy.deepcopy(config)}
     post_config["backend"] = "torch"
 
-    from .data.prior_segments import get_prior_segments
-    prior_segment_list = get_prior_segments(data_share=data_share)
-    config["forward"]["datasets"]["zip_dataset"]["segment_file"] = prior_segment_list
 
     serializer = serialize_forward(
         network_module=network_module,
