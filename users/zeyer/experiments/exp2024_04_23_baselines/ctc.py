@@ -1541,6 +1541,7 @@ def ctc_model_def(*, epoch: int, in_dim: Dim, target_dim: Dim) -> Model:
     # real input is raw audio, internally it does logmel
     in_dim = Dim(name="logmel", dimension=_log_mel_feature_dim, kind=Dim.Types.Feature)
 
+    enc_input_layer = config.typed_value("enc_input_layer", None)
     conv_norm = config.typed_value("conv_norm", None)
     enc_conformer_layer = config.typed_value("enc_conformer_layer", None)
     if enc_conformer_layer:
@@ -1568,6 +1569,7 @@ def ctc_model_def(*, epoch: int, in_dim: Dim, target_dim: Dim) -> Model:
         in_dim,
         num_enc_layers=num_enc_layers,
         enc_model_dim=Dim(name="enc", dimension=512, kind=Dim.Types.Feature),
+        enc_input_layer=enc_input_layer,
         enc_conformer_layer=enc_conformer_layer,
         enc_other_opts=enc_other_opts,
         target_dim=target_dim,
@@ -1814,6 +1816,7 @@ class Model(rf.Module):
         bos_idx: int,
         enc_aux_logits: Sequence[int] = (),  # layers
         enc_model_dim: Dim = Dim(name="enc", dimension=512),
+        enc_input_layer: Optional[Dict[str, Any]] = None,
         enc_conformer_layer: Optional[Dict[str, Any]] = None,
         enc_other_opts: Optional[Dict[str, Any]] = None,
     ):
@@ -1834,7 +1837,8 @@ class Model(rf.Module):
         self.encoder = ConformerEncoder(
             in_dim,
             enc_model_dim,
-            input_layer=ConformerConvSubsample(
+            input_layer=enc_input_layer
+            or ConformerConvSubsample(
                 in_dim,
                 out_dims=[Dim(32, name="conv1"), Dim(64, name="conv2"), Dim(64, name="conv3")],
                 filter_sizes=[(3, 3), (3, 3), (3, 3)],
