@@ -482,39 +482,6 @@ def py():
     # (Use post_config log_grad_norm:True to check. Should not be much overhead, so can be used in general.)
     # Baseline without lossNoNorm: 41.9 PPL, unstable training.
     # Baseline without laplace100k, without lossNoNorm: 38.69 PPL, stable (first subep already 213.2)
-    train(
-        "lm/trafo-n24-d512-gelu-drop0-b2k_80k-laplace100k-spm10k-lossNoNorm",
-        config=dict_update_deep(
-            config_96gb_bf16_accgrad1,
-            {
-                **_get_cfg_lrlin_oclr_by_bs_nep_v3(80_000, 100, batch_size_factor=1),
-                "max_seqs": 2_000,
-                "optimizer.weight_decay": 1e-2,
-                "calculate_exp_loss": True,
-                "use_normalized_loss": False,
-            },
-        ),
-        train_dataset=get_librispeech_lm_dataset(
-            vocab="spm10k", train_epoch_split=20, train_sort_laplace_num_seqs=100_000
-        ),
-        model_def=ModelDefWithCfg(
-            lm_model_def,
-            {
-                "_model_def_dict": rf.build_dict(
-                    TransformerDecoder,
-                    encoder_dim=None,
-                    num_layers=24,
-                    model_dim=512,
-                    ff_activation=rf.build_dict(rf.gelu),
-                    dropout=0.0,
-                    att_dropout=0.0,
-                )
-            },
-        ),
-        train_def=lm_train_def,
-        # avoid oom
-        env_updates={"PYTORCH_CUDA_ALLOC_CONF": "backend:cudaMallocAsync,expandable_segments:True"},
-    )
 
     # Normalize by num seqs, sum over frames.
     # (trafo-n24-d512-gelu-drop0-b2k_80k-laplace100k-spm10k-lossSeqNorm)
@@ -522,7 +489,7 @@ def py():
     # (Note: small bug, now the exp loss is not correctly calculated...)
     # -> CE 3.693, 40.16 PPL, unstable (vs baseline use_normalized_loss:True, CE 3.735, 41.91 PPL, unstable)
     # Same with shuffleBatch100: -> 38.85 PPL, stable (vs 39.85 PPL, stable) (!)
-    # TODO but grad clip wrong here?
+    # Note: grad clip not adapted here! Grad norm ep1: 43.63, final: 4.63
     train(
         "lm/trafo-n24-d512-gelu-drop0-b2k_80k-laplace100k-shuffleBatch100-spm10k-lossSeqNorm",
         config=dict_update_deep(
@@ -659,10 +626,10 @@ def py():
     # 20 -> 42.05 PPL, very unstable...
     #   (and avg grad norm way lower, starts at 1.5, goes fast down to 0.3, so rarely has an effect)
     # Now same with shuffleBatch100 (all are stable unless otherwise noted).
-    # 0.01 -> 39.01 PPL
-    # 0.1 -> 39.32 PPL, faster convergence than grad clip 5
-    # 1 -> 39.77 PPL
-    # 5 -> 39.85 PPL
+    # 0.01 -> 39.01 PPL (grad norm ep1: 1.984)
+    # 0.1 -> 39.32 PPL, faster convergence than grad clip 5, (grad norm ep1: 1.984)
+    # 1 -> 39.77 PPL (grad norm ep1: 1.976)
+    # 5 -> 39.85 PPL (grad norm ep1: 1.805)
     for grad_clip in [1e-4, 1e-3, 0.01, 0.1, 1.0, 5.0]:
         train(
             f"lm/trafo-n24-d512-gelu-drop0-gradClip{grad_clip}-b2k_80k-laplace100k-shuffleBatch100-spm10k",
@@ -704,7 +671,11 @@ def py():
     # (trafo-n24-d512-gelu-drop0-b2k_80k-laplace100k-nEp{n_full_ep}-spm10k-lossNoNorm)
     # 5: 40.639, 6: 40.289, 7: 39.967, 8: 39.783. All still unstable.
     # Now with shuffleBatch100, without lossNoNorm.
-    # 5: 39.85, 6: 39.43, 7: 39.15
+    # Note, grad clip not consistent in comparison to baseline due to different batch size.
+    # Note, baseline without laplace100k, without shuffleBatch100, with nEp5: 38.69 PPL, 166_408 steps, 27.1h
+    # 5: 39.85 PPL, 117_362 steps, 16.1h
+    # 6: 39.43
+    # 7: 39.15 PPL, 164_306 steps, 23.3h
     for n_full_ep in [5, 10]:
         train(
             f"lm/trafo-n24-d512-gelu-drop0-b2k_80k-laplace100k-shuffleBatch100-nEp{n_full_ep}-spm10k",
@@ -1061,7 +1032,7 @@ def py():
     bpe1k = get_subword_nmt_bpe(corpus_key="train-other-960", bpe_size=1000)
     bpe1k = Bpe(dim=1056, codes=bpe1k.bpe_codes, vocab=bpe1k.bpe_vocab, eos_idx=0, bos_idx=0, unknown_label="<unk>")
     assert bpe1k.codes.creator.job_id() == "i6_core/text/label/subword_nmt/train/ReturnnTrainBpeJob.qhkNn2veTWkV"
-    train(
+    train(  # 12.79
         "lm/trafo-n32-d1024-gelu-drop0-b400_20k-bpe1k",
         config=dict_update_deep(
             config_96gb_bf16_accgrad1,
@@ -1091,7 +1062,7 @@ def py():
         train_def=lm_train_def,
     )
 
-    train(
+    train(  # 12.64
         "lm/trafo-n32-d1024-noAbsPos-rmsNorm-ffGated-rope-noBias-drop0-b2k_30k-laplace100k-shuffleBatch100-bpe1k",
         config=dict_update_deep(
             config_96gb_bf16_accgrad1,
@@ -1101,6 +1072,47 @@ def py():
                 "max_seqs": 2000,
                 "optimizer.weight_decay": 1e-2,
                 "calculate_exp_loss": True,
+                "online_shuffle_batches": 100,
+            },
+        ),
+        post_config={"log_grad_norm": True},
+        train_dataset=get_librispeech_lm_dataset(
+            vocab=bpe1k, train_epoch_split=20, train_sort_laplace_num_seqs=100_000
+        ),
+        model_def=ModelDefWithCfg(
+            lm_model_def,
+            {
+                "_model_def_dict": rf.build_dict(
+                    TransformerDecoder,
+                    encoder_dim=None,
+                    num_layers=32,
+                    model_dim=1024,
+                    pos_enc=None,
+                    norm=rf.build_dict(rf.RMSNorm),
+                    ff=rf.build_dict(rf.decoder.transformer.FeedForwardGated),
+                    decoder_layer_opts=dict(self_att=rf.build_dict(rf.RotaryPosCausalSelfAttention, with_bias=False)),
+                    dropout=0.0,
+                    att_dropout=0.0,
+                )
+            },
+        ),
+        train_def=lm_train_def,
+        # avoid oom
+        env_updates={"PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"},
+    )
+
+    train(
+        "lm/trafo-n32-d1024-noAbsPos-rmsNorm-ffGated-rope-noBias-drop0-gradClip0.01"
+        "-b2k_30k-laplace100k-shuffleBatch100-bpe1k",
+        config=dict_update_deep(
+            config_96gb_bf16_accgrad1,
+            {
+                **_get_cfg_lrlin_oclr_by_bs_nep_v4(100),
+                "batch_size": 30_000,
+                "max_seqs": 2000,
+                "optimizer.weight_decay": 1e-2,
+                "calculate_exp_loss": True,
+                "gradient_clip_global_norm": 0.01,
                 "online_shuffle_batches": 100,
             },
         ),
