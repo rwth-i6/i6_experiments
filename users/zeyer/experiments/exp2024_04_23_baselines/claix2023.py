@@ -1160,7 +1160,8 @@ def py():
     )
 
     # Try AdEMAMix.
-    peak_lr, low_lr, lowest_lr = 1e-3, 1e-5, 1e-6
+    # The alpha (default 5) means that the update is 6 times larger than the normal update, thus divide LR by 6.
+    peak_lr, low_lr, lowest_lr = (round(lr / 6, 6) for lr in (1e-3, 1e-5, 1e-6))
     train(
         f"lm/trafo-n24-d512-gelu-drop0-b2k_80k-laplace100k-optAdEMAMix-shuffleBatch100-spm10k",
         config=dict_update_deep(
