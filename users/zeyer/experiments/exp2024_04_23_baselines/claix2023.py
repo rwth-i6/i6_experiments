@@ -929,6 +929,9 @@ def py():
 
     from .optim_ext.adopt import ADOPT
 
+    # ADOPT optimizer (optAdopt).
+    # 40.89 PPL (vs AdamW 39.85) (but different betas=(0.9, 0.9999))
+    # Now again with same betas as our AdamW setup.
     peak_lr, low_lr, lowest_lr = 1e-3, 1e-5, 1e-6
     train(
         f"lm/trafo-n24-d512-gelu-drop0-b2k_80k-laplace100k-optAdopt-shuffleBatch100-spm10k",
@@ -946,6 +949,10 @@ def py():
                 "optimizer.class": rf.build_dict(ADOPT)["class"],
                 "optimizer.decoupled": True,
                 "optimizer.weight_decay": 1e-2,
+                # Adopt defaults: betas: Tuple[float, float] = (0.9, 0.9999), eps: float = 1e-6,
+                # AdamW defaults: betas: Tuple[float, float] = (0.9, 0.999),, eps: float = 1e-8,
+                # But we anyway overwrite epsilon as 1e-16.
+                "optimizer.betas": (0.9, 0.999),
                 "calculate_exp_loss": True,
                 "online_shuffle_batches": 100,
             },
