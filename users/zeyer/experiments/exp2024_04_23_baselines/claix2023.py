@@ -1128,8 +1128,8 @@ def py():
                 "learning_rate_piecewise_by_epoch_continuous": True,
                 "learning_rate_piecewise_steps": [0.45 * n_ep, 0.9 * n_ep, n_ep],
                 "learning_rate_piecewise_values": [low_lr, peak_lr, low_lr, lowest_lr],
-                "optimizer.class": "torch_optimizer.Shampoo",  # pip install torch_optimizer
-                "optimizer.epsilon": 1e-4,
+                "optimizer.class": "pytorch_optimizer.Shampoo",  # pip install pytorch-optimizer
+                "optimizer.weight_decouple": True,
                 "optimizer.weight_decay": 1e-2,
                 "calculate_exp_loss": True,
                 "online_shuffle_batches": 100,
