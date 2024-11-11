@@ -1,6 +1,11 @@
 """
 Copied from: https://github.com/nikhilvyas/SOAP/blob/main/soap.py
 (MIT licence, ff192da, 2024-11-11)
+
+Also check:
+https://github.com/ClashLuke/HeavyBall/tree/main/heavyball
+https://github.com/facebookresearch/optimizers/ (via https://x.com/runame_/status/1854242159483867518)
+Schedule-free SOAP: https://x.com/_clashluke/status/1854262084374315015
 """
 
 from itertools import chain
