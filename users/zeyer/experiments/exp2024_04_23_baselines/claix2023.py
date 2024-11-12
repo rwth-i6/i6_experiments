@@ -674,7 +674,8 @@ def py():
     # 5 -> 39.85 PPL (grad norm ep1: 1.805)
     for grad_clip in [1e-5, 1e-4, 1e-3, 0.01, 0.1, 1.0, 5.0]:
         train(
-            f"lm/trafo-n24-d512-gelu-drop0-gradClip{grad_clip}-b2k_80k-laplace100k-shuffleBatch100-spm10k",
+            f"lm/trafo-n24-d512-gelu-drop0-gradClip{str(grad_clip).replace('-', '_')}"
+            f"-b2k_80k-laplace100k-shuffleBatch100-spm10k",
             config=dict_update_deep(
                 config_96gb_bf16_accgrad1,
                 {
