@@ -747,7 +747,7 @@ def py():
 
     # accgrad2 again, now with shuffleBatch100 and gradClip0.01.
     train(
-        f"lm/trafo-n24-d512-gelu-drop0-gradClip0.01-b2k_80k-laplace100k-shuffleBatch100-spm10k",
+        f"lm/trafo-n24-d512-gelu-drop0-accgrad2-gradClip0.01-b2k_80k-laplace100k-shuffleBatch100-spm10k",
         config=dict_update_deep(
             config_96gb_bf16_accgrad1,
             {
