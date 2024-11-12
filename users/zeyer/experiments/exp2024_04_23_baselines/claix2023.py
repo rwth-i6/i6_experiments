@@ -252,7 +252,7 @@ def py():
             )
         del opts, use_cr_ctc, name
 
-    ctc_train_exp(
+    ctc_train_exp(  # 5.93
         "n12-b200k-spm10k",
         config_96gb_bf16_accgrad1,
         model_config={
@@ -283,7 +283,7 @@ def py():
     )
 
     # shuffleBatch100. But not so relevant here? No large laplace, also max 200 seqs in batch.
-    ctc_train_exp(
+    ctc_train_exp(  # 6.15
         "n12-b250k-shuffleBatch100-spm10k",
         config_96gb_bf16_accgrad1,
         model_config={
@@ -709,42 +709,9 @@ def py():
             env_updates={"PYTORCH_CUDA_ALLOC_CONF": "backend:cudaMallocAsync,expandable_segments:True"},
         )
 
-    # Try less seqs in batch.
-    train(
-        f"lm/trafo-n24-d512-gelu-drop0-gradClip0.01-b1k_80k-laplace100k-shuffleBatch100-spm10k",
-        config=dict_update_deep(
-            config_96gb_bf16_accgrad1,
-            {
-                **_get_cfg_lrlin_oclr_by_bs_nep_v3(80_000, 100, batch_size_factor=1),
-                "max_seqs": 1_000,
-                "gradient_clip_global_norm": 0.01,
-                "optimizer.weight_decay": 1e-2,
-                "calculate_exp_loss": True,
-                "online_shuffle_batches": 100,
-            },
-        ),
-        post_config={"log_grad_norm": True},
-        train_dataset=get_librispeech_lm_dataset(
-            vocab="spm10k", train_epoch_split=20, train_sort_laplace_num_seqs=100_000
-        ),
-        model_def=ModelDefWithCfg(
-            lm_model_def,
-            {
-                "_model_def_dict": rf.build_dict(
-                    TransformerDecoder,
-                    encoder_dim=None,
-                    num_layers=24,
-                    model_dim=512,
-                    ff_activation=rf.build_dict(rf.gelu),
-                    dropout=0.0,
-                    att_dropout=0.0,
-                )
-            },
-        ),
-        train_def=lm_train_def,
-        # avoid oom
-        env_updates={"PYTORCH_CUDA_ALLOC_CONF": "backend:cudaMallocAsync,expandable_segments:True"},
-    )
+    # Try less seqs in batch, b1k_80k (max_seqs=1_000) instead of b2k_80k. Baseline (b2k_80k) has 39.01 PPL.
+    # (lm/trafo-n24-d512-gelu-drop0-gradClip0.01-b1k_80k-laplace100k-shuffleBatch100-spm10k)
+    # -> 39.36 PPL.
 
     # Try longer training.
     # (trafo-n24-d512-gelu-drop0-b2k_80k-laplace100k-nEp{n_full_ep}-spm10k-lossNoNorm)
@@ -789,7 +756,9 @@ def py():
     #         (1.0, 1e-2),  # broken
     #         # (0.3, 1e-2),  # 43.7 PPL. Unstable training.
     #         # (0.3, 1e-3),  # 43.9 PPL. Unstable training.
-    # Now shuffleBatch100, gradClip0.01, no lossNoNorm:
+    # Now shuffleBatch100, gradClip0.01, no lossNoNorm: baseline (no optLion): 39.01 PPL
+    #   lion_lr_factor, wd:
+    #     (0.1, 1e-2) -> 39.89 PPL
     for lion_lr_factor, wd in [
         (0.1, 1e-2),
     ]:
@@ -892,6 +861,7 @@ def py():
     )
 
     # RAdam, gradClip0.01.
+    # 39.39
     train(
         f"lm/trafo-n24-d512-gelu-drop0-gradClip0.01-b2k_80k-laplace100k-optRAdam-lrNoWarmup-shuffleBatch100-spm10k",
         config=dict_update_deep(
