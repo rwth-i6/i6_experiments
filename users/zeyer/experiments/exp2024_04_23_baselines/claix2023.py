@@ -666,11 +666,13 @@ def py():
     # 20 -> 42.05 PPL, very unstable...
     #   (and avg grad norm way lower, starts at 1.5, goes fast down to 0.3, so rarely has an effect)
     # Now same with shuffleBatch100 (all are stable unless otherwise noted).
+    # 1e-4 -> 39.00 PPL (grad norm ep1: 1.983)
+    # 1e-3 -> 39.30 PPL (grad norm ep1: 1.98997)
     # 0.01 -> 39.01 PPL (grad norm ep1: 1.984)
     # 0.1 -> 39.32 PPL, faster convergence than grad clip 5, (grad norm ep1: 1.984)
     # 1 -> 39.77 PPL (grad norm ep1: 1.976)
     # 5 -> 39.85 PPL (grad norm ep1: 1.805)
-    for grad_clip in [1e-4, 1e-3, 0.01, 0.1, 1.0, 5.0]:
+    for grad_clip in [1e-5, 1e-4, 1e-3, 0.01, 0.1, 1.0, 5.0]:
         train(
             f"lm/trafo-n24-d512-gelu-drop0-gradClip{grad_clip}-b2k_80k-laplace100k-shuffleBatch100-spm10k",
             config=dict_update_deep(
