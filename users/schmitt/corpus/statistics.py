@@ -11,10 +11,18 @@ from i6_core import util
 
 
 class GetSeqLenFileJob(Job):
-  def __init__(self, returnn_config: ReturnnConfig, returnn_root: Path, returnn_python_exe: Path, time_rqmt: int = 1):
+  def __init__(
+          self,
+          returnn_config: ReturnnConfig,
+          returnn_root: Path,
+          returnn_python_exe: Path,
+          time_rqmt: int = 1,
+          downsampling_factor: float = 1
+  ):
     self.returnn_config = returnn_config
     self.returnn_root = returnn_root
     self.returnn_python_exe = returnn_python_exe
+    self.downsampling_factor = downsampling_factor
 
     self.time_rqmt = time_rqmt
 
@@ -47,10 +55,13 @@ class GetSeqLenFileJob(Job):
         seq_lens = list(eval(f.read()).values())
         assert type(seq_lens) == list
 
-        stat_file.write("Max len: " + str(np.max(seq_lens)) + "\n")
-        stat_file.write("Min len: " + str(np.min(seq_lens)) + "\n")
-        stat_file.write("Mean len: " + str(np.mean(seq_lens)) + "\n")
-        stat_file.write("Std len: " + str(np.std(seq_lens)) + "\n")
+        stat_file.write("Statistics (in seconds)\n")
+        stat_file.write("Max len: " + str(np.max(seq_lens) * self.downsampling_factor) + "\n")
+        stat_file.write("Min len: " + str(np.min(seq_lens) * self.downsampling_factor) + "\n")
+        stat_file.write("Mean len: " + str(np.mean(seq_lens) * self.downsampling_factor) + "\n")
+        stat_file.write("Std len: " + str(np.std(seq_lens) * self.downsampling_factor) + "\n")
+        stat_file.write("Sum len: " + str(np.sum(seq_lens) * self.downsampling_factor) + "\n")
+        stat_file.write("Number of sequences: " + str(len(seq_lens)) + "\n")
 
     shutil.move(seq_len_file, self.out_seq_len_file.get_path())
 

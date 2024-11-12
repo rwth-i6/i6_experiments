@@ -81,16 +81,23 @@ class LibrispeechCorpora:
     }
 
     self.seq_len_files = {
-      "dev-other": self.get_seq_lens_file(
-        dataset_dict=self.get_oggzip_dataset_dict("dev-other"),
-        concat_num=None,
-        corpus_key="dev-other"
-      ),
-      "train": self.get_seq_lens_file(
-        dataset_dict=self.get_oggzip_dataset_dict("train"),
-        concat_num=None,
-        corpus_key="train"
-      ),
+      # "dev-other": self.get_seq_lens_file(
+      #   dataset_dict=self.get_oggzip_dataset_dict("dev-other"),
+      #   concat_num=None,
+      #   corpus_key="dev-other"
+      # ),
+      # "train": self.get_seq_lens_file(
+      #   dataset_dict=self.get_oggzip_dataset_dict("train"),
+      #   concat_num=None,
+      #   corpus_key="train"
+      # ),
+      **{
+        corpus_key: self.get_seq_lens_file(
+          dataset_dict=self.get_oggzip_dataset_dict(corpus_key),
+          concat_num=None,
+          corpus_key=corpus_key
+        ) for corpus_key in ["train", "dev-other", "dev-clean", "test-clean", "test-other"]
+      },
       **{
         f"train_lm_{n}k": self.get_seq_lens_file(
           dataset_dict=build_lm_training_datasets(
@@ -117,7 +124,7 @@ class LibrispeechCorpora:
     )
 
     # update self.segment_paths, self.stm_paths and self.seq_len_files
-    self.get_concatenated_seqs("dev-other", concat_nums=[1, 2, 4, 8, 10, 20])
+    self.get_concatenated_seqs("dev-other", concat_nums=[1, 2, 4, 8, 10, 20, 30, 100])
 
     self.corpus_keys = ("train", "cv", "devtrain")
     self.train_corpus_keys = ("train", "cv", "devtrain")
@@ -184,7 +191,8 @@ class LibrispeechCorpora:
       returnn_config=dump_dataset_returnn_config,
       returnn_root=RETURNN_CURRENT_ROOT,
       returnn_python_exe=RETURNN_EXE_NEW,
-      time_rqmt=8 if "train" in corpus_key else 1
+      time_rqmt=8 if "train" in corpus_key else 1,
+      downsampling_factor=1 / 16_000
     )
     get_seq_len_file_job.add_alias("datasets/LibriSpeech/seq_lens/%s" % (
       concat_dataset_name if concat_num else corpus_key
