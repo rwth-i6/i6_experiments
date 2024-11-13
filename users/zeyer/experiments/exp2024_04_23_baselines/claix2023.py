@@ -15,7 +15,7 @@ from .configs import (
     _batch_size_factor,
 )
 from .aed import train_exp as aed_train_exp
-from .ctc import train_exp as ctc_train_exp
+from .ctc import train_exp as ctc_train_exp, _raw_sample_rate
 from .lm import lm_train_def, lm_model_def
 
 from i6_experiments.users.zeyer.experiments.exp2024_10_16_consistency_reg_ctc import cr_ctc_training
@@ -193,19 +193,13 @@ def py():
         # CLAIX baseline: {"dev-clean": 2.54, "dev-other": 5.93, "test-clean": 2.68, "test-other": 6.27}
         # CLAIX CR: {"dev-clean": 2.49, "dev-other": 5.99, "test-clean": 2.68, "test-other": 6.05}
         # v6-relPosAttDef-noBias-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-featBN-speedpertV2-spm10k-bpeSample001
-        {
-            "name": "v6-relPosAttDef-noBias-aedLoss-bhv20-96gb-bf16-bs200k-accgrad1-wd1e_2"
-            "-lrlinEpCont-featBN-speedpertV2-spm10k-bpeSample001",
-            "num_enc_layers": 12,
-            "batch_size": 200_000,
-            "vocab": "spm10k",
-        },
+        # {"num_enc_layers": 12, "batch_size": 200_000, "vocab": "spm10k"},
         # Baseline (n16, spm10k) has {"dev-clean": 2.26, "dev-other": 5.44, "test-clean": 2.5, "test-other": 5.62}.
         # v6-n16-relPosAttDef-noBias-aedLoss-bhv20-11gb-f32-bs10k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-featBN-speedpertV2-spm10k-bpeSample001
         # This here is now spm512 though.
         # Note: In the original CR paper, they don't have time-downsampling!
-        {"num_enc_layers": 16, "batch_size": 10_000, "vocab": "spm512"},  # TODO bad?
-        {"num_enc_layers": 12, "batch_size": 200_000, "vocab": "spm512"},  # with CR: 7.82, without: 7.85
+        # {"num_enc_layers": 16, "batch_size": 10_000, "vocab": "spm512"},
+        {"num_enc_layers": 12, "batch_size": 200_000, "vocab": "spm512"},
     ]:
         for cr_ctc in [None, {"cr_loss_scale": 0.2}]:
             # TODO also adapt specaug for CR...
@@ -242,6 +236,11 @@ def py():
                     "aux_attention_decoder": rf.build_dict(TransformerDecoder, num_layers=6),
                     **(cr_ctc if use_cr_ctc else {}),
                     **({"aed_loss_bug_fix": True} if use_cr_ctc else {}),
+                    "max_seq_length_default_target": None,
+                    # Note on max seq len stats: Before, when we used max_seq_length_default_target=75 with bpe10k,
+                    # out of 281241 seqs in train, we removed only 71 seqs.
+                    # With max seq len 19.5 secs on the audio, we also remove exactly 71 seqs.
+                    "max_seq_length_default_input": 19.5 * _raw_sample_rate,
                 },
                 post_config_updates={"log_grad_norm": True, "__multi_proc_dataset_opts": {"num_workers": 25}},
                 vocab=opts["vocab"],
@@ -252,72 +251,14 @@ def py():
             )
         del opts, use_cr_ctc, name
 
-    ctc_train_exp(  # 5.93
-        "n12-b200k-spm10k",
-        config_96gb_bf16_accgrad1,
-        model_config={
-            "enc_conformer_layer": rf.build_dict(
-                ConformerEncoderLayer,
-                ff=rf.build_dict(
-                    ConformerPositionwiseFeedForward, activation=rf.build_dict(rf.relu_square), with_bias=False
-                ),
-                num_heads=8,
-            ),
-            "feature_batch_norm": True,
-            "num_enc_layers": 12,
-        },
-        config_updates={
-            **_get_cfg_lrlin_oclr_by_bs_nep_v3(200_000, 100, batch_size_factor=_batch_size_factor),
-            "optimizer.weight_decay": 1e-2,
-            "__train_audio_preprocess": speed_pert_librosa_config,
-            "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
-            # purely used for training
-            "aux_attention_decoder": rf.build_dict(TransformerDecoder, num_layers=6),
-        },
-        post_config_updates={"log_grad_norm": True, "__multi_proc_dataset_opts": {"num_workers": 25}},
-        vocab="spm10k",
-        train_vocab_opts={"other_opts": {"class": "SamplingBytePairEncoding", "breadth_prob": 0.01}},
-        dataset_train_opts={"train_epoch_split": 1, "train_epoch_wise_filter": None},
-        # avoid OOM
-        # env_updates={"PYTORCH_CUDA_ALLOC_CONF": "backend:cudaMallocAsync,expandable_segments:True"},
-    )
-
     # shuffleBatch100. But not so relevant here? No large laplace, also max 200 seqs in batch.
-    ctc_train_exp(  # 6.15
-        "n12-b250k-shuffleBatch100-spm10k",
-        config_96gb_bf16_accgrad1,
-        model_config={
-            "enc_conformer_layer": rf.build_dict(
-                ConformerEncoderLayer,
-                ff=rf.build_dict(
-                    ConformerPositionwiseFeedForward, activation=rf.build_dict(rf.relu_square), with_bias=False
-                ),
-                num_heads=8,
-            ),
-            "feature_batch_norm": True,
-            "num_enc_layers": 12,
-        },
-        config_updates={
-            **_get_cfg_lrlin_oclr_by_bs_nep_v3(250_000, 100, batch_size_factor=_batch_size_factor),
-            "optimizer.weight_decay": 1e-2,
-            "__train_audio_preprocess": speed_pert_librosa_config,
-            "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
-            "aux_attention_decoder": rf.build_dict(TransformerDecoder, num_layers=6),  # purely used for training
-            "online_shuffle_batches": 100,
-        },
-        post_config_updates={"log_grad_norm": True, "__multi_proc_dataset_opts": {"num_workers": 25}},
-        vocab="spm10k",
-        train_vocab_opts={"other_opts": {"class": "SamplingBytePairEncoding", "breadth_prob": 0.01}},
-        dataset_train_opts={"train_epoch_split": 1, "train_epoch_wise_filter": None},
-        # avoid OOM
-        env_updates={"PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"},
-    )
+    # (n12-b250k-shuffleBatch100-spm10k) 6.15
 
     from returnn.frontend.encoder.conformer import ConformerConvSubsample
 
     # Small vocab, now time downsampling 4.
     ctc_train_exp(
-        "n12-time4-b200k-spm512",
+        "n12-time4-auxAED-b200k-spm512",
         config_96gb_bf16_accgrad1,
         model_config={
             "enc_input_layer": rf.build_dict(
@@ -336,6 +277,11 @@ def py():
             ),
             "feature_batch_norm": True,
             "num_enc_layers": 12,
+            "max_seq_length_default_target": None,
+            # Note on max seq len stats: Before, when we used max_seq_length_default_target=75 with bpe10k,
+            # out of 281241 seqs in train, we removed only 71 seqs.
+            # With max seq len 19.5 secs on the audio, we also remove exactly 71 seqs.
+            "max_seq_length_default_input": 19.5 * _raw_sample_rate,
         },
         config_updates={
             **_get_cfg_lrlin_oclr_by_bs_nep_v3(200_000, 100, batch_size_factor=_batch_size_factor),
@@ -351,6 +297,70 @@ def py():
         # avoid OOM
         env_updates={"PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"},
     )
+
+    for vocab, sample, alpha in [
+        ("spm10k", "bpe", 0.01),  # (5.93 without max seq len on audio)
+        # ("spm512", None, None),  # 6.08 (11gb)
+        # ("spm512", "bpe", 0.001),  # 6.05 (11gb)
+        # ("spm512", "bpe", 0.005),  # 6.01 (11gb)
+        # ("spm512", "bpe", 0.01),  # 6.08 (but test-* is better than spm512 without sampling) (11gb)
+        ("spm512", "bpe", None),
+        # ("spm128", None, None),  # 6.37 (11gb)
+        # TODO ("spm128", "bpe", 0.001),
+        # ("spm128", "bpe", 0.01),  # 6.40 (11gb)
+        # TODO ("spm128", "bpe", 0.005),
+        # ("bpe128", None, None),
+        # ("spm64", None, None),
+        # ("bpe64", None, None),
+        # ("utf8", None, None),
+        # ("char", None, None),
+        # ("bpe0", None, None),
+    ]:
+        ctc_train_exp(
+            f"n12-auxAED-b200k"
+            f"-{vocab}" + (f"-{sample}Sample{str(alpha).replace('.', '').replace('-','_')}" if sample else ""),
+            config_96gb_bf16_accgrad1,
+            model_config={
+                "enc_conformer_layer": rf.build_dict(
+                    rf.encoder.conformer.ConformerEncoderLayer,
+                    ff=rf.build_dict(
+                        ConformerPositionwiseFeedForward, activation=rf.build_dict(rf.relu_square), with_bias=False
+                    ),
+                    num_heads=8,
+                ),
+                "feature_batch_norm": True,
+                "num_enc_layers": 12,
+            },
+            config_updates={
+                **_get_cfg_lrlin_oclr_by_bs_nep_v3(200_000, 100, batch_size_factor=_batch_size_factor),
+                "optimizer.weight_decay": 1e-2,
+                "__train_audio_preprocess": speed_pert_librosa_config,
+                "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
+                "max_seq_length_default_target": None,
+                # Note on max seq len stats: Before, when we used max_seq_length_default_target=75 with bpe10k,
+                # out of 281241 seqs in train, we removed only 71 seqs.
+                # With max seq len 19.5 secs on the audio, we also remove exactly 71 seqs.
+                "max_seq_length_default_input": 19.5 * _raw_sample_rate,
+                "aux_attention_decoder": rf.build_dict(TransformerDecoder, num_layers=6),  # purely used for training
+            },
+            post_config_updates={"log_grad_norm": True, "__multi_proc_dataset_opts": {"num_workers": 25}},
+            vocab=vocab,
+            train_vocab_opts=(
+                {
+                    "other_opts": (
+                        {
+                            "spm": {"enable_sampling": True, "alpha": alpha},
+                            "bpe": {"class": "SamplingBytePairEncoding", "breadth_prob": alpha},
+                        }[sample]
+                    )
+                }
+                if sample
+                else None
+            ),
+            dataset_train_opts={"train_epoch_split": 1, "train_epoch_wise_filter": None},
+            # avoid OOM
+            env_updates={"PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"},
+        )
 
     # TODO ctc without aux
     # TODO ctc with different sampling
