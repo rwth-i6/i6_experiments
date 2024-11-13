@@ -210,8 +210,8 @@ def py():
             use_cr_ctc = cr_ctc is not None
             name = f"crLoss{cr_ctc['cr_loss_scale']}-" if use_cr_ctc else ""
             if opts.get("time_downsampling"):
-                name += f"-time{opts['time_downsampling']}"
-            name += f"n{opts['num_enc_layers']}-{opts['vocab']}"
+                name += f"time{opts['time_downsampling']}-"
+            name += f"n{opts['num_enc_layers']}-{opts['vocab']}-auxAED"
             ctc_train_exp(
                 name,
                 config_96gb_bf16_accgrad1,
@@ -281,7 +281,7 @@ def py():
 
     # Small vocab, now time downsampling 4.
     ctc_train_exp(
-        "n12-time4-auxAED-b150k-spm512",
+        "time4-n12-spm512-auxAED-b150k",
         config_96gb_bf16_accgrad1,
         model_config={
             "enc_input_layer": rf.build_dict(
