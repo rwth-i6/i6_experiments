@@ -276,7 +276,7 @@ def py():
         train_def=lm_train_def,
     )
 
-    train(
+    train(  # 38.66
         "lm/trafo-n24-d512-gelu-drop0-b100_5k",
         config=dict_update_deep(
             config_11gb_lm_v1,
