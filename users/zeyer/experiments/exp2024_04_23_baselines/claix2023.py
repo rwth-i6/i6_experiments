@@ -1547,7 +1547,7 @@ def py():
         env_updates={"PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"},
     )
 
-    train(
+    train(  # 12.71
         "lm/trafo-n32-d1024-noAbsPos-rmsNorm-ffGated-rope-noBias-drop0-gradClip0.01"
         "-b2k_30k-laplace100k-shuffleBatch100-bpe1k",
         config=dict_update_deep(
