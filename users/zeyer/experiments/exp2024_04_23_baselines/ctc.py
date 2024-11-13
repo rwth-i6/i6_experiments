@@ -1827,29 +1827,32 @@ class Model(rf.Module):
 
         config = get_global_config(return_empty_if_none=True)
 
-        enc_layer_drop = config.float("enc_layer_drop", 0.0)
-        if enc_layer_drop:
-            enc_sequential = functools.partial(SequentialLayerDrop, layer_drop=enc_layer_drop)
-        else:
-            enc_sequential = rf.Sequential
-
-        self.in_dim = in_dim
-        self.encoder = ConformerEncoder(
-            in_dim,
-            enc_model_dim,
-            input_layer=enc_input_layer
-            or ConformerConvSubsample(
+        if not enc_input_layer:
+            enc_input_layer = ConformerConvSubsample(
                 in_dim,
                 out_dims=[Dim(32, name="conv1"), Dim(64, name="conv2"), Dim(64, name="conv3")],
                 filter_sizes=[(3, 3), (3, 3), (3, 3)],
                 pool_sizes=[(1, 2)],
                 strides=[(1, 1), (3, 1), (2, 1)],
-            ),
-            encoder_layer=enc_conformer_layer,
-            num_layers=num_enc_layers,
-            sequential=enc_sequential,
-            **(enc_other_opts or {}),
-        )
+            )
+
+        enc_opts = {"input_layer": enc_input_layer, "num_layers": num_enc_layers}
+
+        if enc_conformer_layer:
+            enc_opts["encoder_layer"] = enc_conformer_layer
+
+        enc_layer_drop = config.float("enc_layer_drop", 0.0)
+        if enc_layer_drop:
+            assert "sequential" not in enc_opts
+            enc_opts["sequential"] = functools.partial(SequentialLayerDrop, layer_drop=enc_layer_drop)
+
+        if enc_other_opts:
+            for k, v in enc_other_opts.items():
+                assert k not in enc_opts, f"enc_other_opts key {k!r} already in enc_opts {enc_opts}"
+                enc_opts[k] = v
+
+        self.in_dim = in_dim
+        self.encoder = ConformerEncoder(in_dim, enc_model_dim, **enc_opts)
 
         # Experiments without final layer norm. (We might clean this up when this is not successful.)
         # Just patch the encoder here.
