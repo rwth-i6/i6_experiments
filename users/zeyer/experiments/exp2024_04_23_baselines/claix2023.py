@@ -212,6 +212,8 @@ def py():
             if use_cr_ctc:
                 name += f"-crLoss{cr_ctc['cr_loss_scale']}"
             name += f"-n{opts['num_enc_layers']}-{opts['vocab']}"
+            if opts.get("time_downsampling"):
+                name += f"-time{opts['time_downsampling']}"
             ctc_train_exp(
                 name,
                 config_96gb_bf16_accgrad1,
