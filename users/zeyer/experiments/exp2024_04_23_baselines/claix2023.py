@@ -258,7 +258,7 @@ def py():
 
     # Small vocab, now time downsampling 4.
     ctc_train_exp(
-        "n12-time4-auxAED-b200k-spm512",
+        "n12-time4-auxAED-b150k-spm512",
         config_96gb_bf16_accgrad1,
         model_config={
             "enc_input_layer": rf.build_dict(
@@ -284,7 +284,7 @@ def py():
             "max_seq_length_default_input": 19.5 * _raw_sample_rate,
         },
         config_updates={
-            **_get_cfg_lrlin_oclr_by_bs_nep_v3(200_000, 100, batch_size_factor=_batch_size_factor),
+            **_get_cfg_lrlin_oclr_by_bs_nep_v3(150_000, 100, batch_size_factor=_batch_size_factor),
             "optimizer.weight_decay": 1e-2,
             "__train_audio_preprocess": speed_pert_librosa_config,
             "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
