@@ -188,6 +188,8 @@ def py():
         dataset_train_opts={"train_epoch_split": 1, "train_epoch_wise_filter": None},
     )
 
+    from returnn.frontend.encoder.conformer import ConformerConvSubsample
+
     for opts in [
         # Baseline (n12) has {"dev-clean": 2.35, "dev-other": 5.65, "test-clean": 2.66, "test-other": 5.94}.
         # CLAIX baseline: {"dev-clean": 2.54, "dev-other": 5.93, "test-clean": 2.68, "test-other": 6.27}
@@ -200,6 +202,8 @@ def py():
         # Note: In the original CR paper, they don't have time-downsampling!
         # {"num_enc_layers": 16, "batch_size": 10_000, "vocab": "spm512"},
         {"num_enc_layers": 12, "batch_size": 200_000, "vocab": "spm512"},
+        {"num_enc_layers": 12, "batch_size": 150_000, "vocab": "spm512", "time_downsampling": 4},
+        {"num_enc_layers": 12, "batch_size": 100_000, "vocab": "spm512", "time_downsampling": 2},
     ]:
         for cr_ctc in [None, {"cr_loss_scale": 0.2}]:
             # TODO also adapt specaug for CR...
@@ -213,6 +217,27 @@ def py():
                 config_96gb_bf16_accgrad1,
                 train_def=cr_ctc_training if use_cr_ctc else None,
                 model_config={
+                    **{
+                        2: {
+                            "enc_input_layer": rf.build_dict(
+                                ConformerConvSubsample,
+                                out_dims=[32, 64, 64],
+                                filter_sizes=[(3, 3), (3, 3), (3, 3)],
+                                pool_sizes=[(1, 2)],
+                                strides=[(1, 1), (2, 1), (1, 1)],
+                            ),
+                        },
+                        4: {
+                            "enc_input_layer": rf.build_dict(
+                                ConformerConvSubsample,
+                                out_dims=[32, 64, 64],
+                                filter_sizes=[(3, 3), (3, 3), (3, 3)],
+                                pool_sizes=[(1, 2)],
+                                strides=[(1, 1), (2, 1), (2, 1)],
+                            ),
+                        },
+                        None: {},
+                    }[opts.get("time_downsampling")],
                     "enc_conformer_layer": rf.build_dict(
                         ConformerEncoderLayer,
                         ff=rf.build_dict(
@@ -253,8 +278,6 @@ def py():
 
     # shuffleBatch100. But not so relevant here? No large laplace, also max 200 seqs in batch.
     # (n12-b250k-shuffleBatch100-spm10k) 6.15
-
-    from returnn.frontend.encoder.conformer import ConformerConvSubsample
 
     # Small vocab, now time downsampling 4.
     ctc_train_exp(
