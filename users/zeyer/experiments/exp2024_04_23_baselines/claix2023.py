@@ -362,6 +362,80 @@ def py():
             env_updates={"PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"},
         )
 
+    # Another baseline.
+    ctc_train_exp(
+        f"n12-auxAED-b200k-spm512-bpeSample0005",
+        config_96gb_bf16_accgrad1,
+        model_config={
+            "enc_conformer_layer": rf.build_dict(
+                rf.encoder.conformer.ConformerEncoderLayer,
+                ff=rf.build_dict(
+                    ConformerPositionwiseFeedForward, activation=rf.build_dict(rf.relu_square), with_bias=False
+                ),
+                num_heads=8,
+            ),
+            "feature_batch_norm": True,
+            "num_enc_layers": 12,
+        },
+        config_updates={
+            **_get_cfg_lrlin_oclr_by_bs_nep_v3(200_000, 100, batch_size_factor=_batch_size_factor),
+            "optimizer.weight_decay": 1e-2,
+            "__train_audio_preprocess": speed_pert_librosa_config,
+            "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
+            "max_seq_length_default_target": None,
+            # Note on max seq len stats: Before, when we used max_seq_length_default_target=75 with bpe10k,
+            # out of 281241 seqs in train, we removed only 71 seqs.
+            # With max seq len 19.5 secs on the audio, we also remove exactly 71 seqs.
+            "max_seq_length_default_input": 19.5 * _raw_sample_rate,
+            "aux_attention_decoder": rf.build_dict(TransformerDecoder, num_layers=6),  # purely used for training
+        },
+        post_config_updates={"log_grad_norm": True, "__multi_proc_dataset_opts": {"num_workers": 25}},
+        vocab="spm512",
+        train_vocab_opts={"other_opts": {"class": "SamplingBytePairEncoding", "breadth_prob": 0.005}},
+        dataset_train_opts={"train_epoch_split": 1, "train_epoch_wise_filter": None},
+        # avoid OOM
+        env_updates={"PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"},
+    )
+
+    from .optim_ext.zipformer_scaled_adam import ScaledAdam
+
+    # ScaledAdam.
+    ctc_train_exp(
+        f"n12-auxAED-b200k-optScaledAdam-spm512-bpeSample0005",
+        config_96gb_bf16_accgrad1,
+        model_config={
+            "enc_conformer_layer": rf.build_dict(
+                rf.encoder.conformer.ConformerEncoderLayer,
+                ff=rf.build_dict(
+                    ConformerPositionwiseFeedForward, activation=rf.build_dict(rf.relu_square), with_bias=False
+                ),
+                num_heads=8,
+            ),
+            "feature_batch_norm": True,
+            "num_enc_layers": 12,
+        },
+        config_updates={
+            **_get_cfg_lrlin_oclr_by_bs_nep_v3(200_000, 100, batch_size_factor=_batch_size_factor),
+            "optimizer.class": rf.build_dict(ScaledAdam)["class"],
+            "optimizer.clipping_scale": 2.0,
+            "__train_audio_preprocess": speed_pert_librosa_config,
+            "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
+            "max_seq_length_default_target": None,
+            # Note on max seq len stats: Before, when we used max_seq_length_default_target=75 with bpe10k,
+            # out of 281241 seqs in train, we removed only 71 seqs.
+            # With max seq len 19.5 secs on the audio, we also remove exactly 71 seqs.
+            "max_seq_length_default_input": 19.5 * _raw_sample_rate,
+            "aux_attention_decoder": rf.build_dict(TransformerDecoder, num_layers=6),  # purely used for training
+        },
+        config_deletes=["optimizer.weight_decay"],  # no weight decay in ScaledAdam... (??)
+        post_config_updates={"log_grad_norm": True, "__multi_proc_dataset_opts": {"num_workers": 25}},
+        vocab="spm512",
+        train_vocab_opts={"other_opts": {"class": "SamplingBytePairEncoding", "breadth_prob": 0.005}},
+        dataset_train_opts={"train_epoch_split": 1, "train_epoch_wise_filter": None},
+        # avoid OOM
+        env_updates={"PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"},
+    )
+
     # TODO ctc without aux
     # TODO ctc with different sampling
     # TODO for smaller vocabs, less downsampling
@@ -950,6 +1024,44 @@ def py():
                 "calculate_exp_loss": True,
                 "online_shuffle_batches": 10,
             },
+        ),
+        post_config={"log_grad_norm": True},
+        train_dataset=get_librispeech_lm_dataset(
+            vocab="spm10k", train_epoch_split=20, train_sort_laplace_num_seqs=10_000
+        ),
+        model_def=ModelDefWithCfg(
+            lm_model_def,
+            {
+                "_model_def_dict": rf.build_dict(
+                    TransformerDecoder,
+                    encoder_dim=None,
+                    num_layers=24,
+                    model_dim=512,
+                    ff_activation=rf.build_dict(rf.gelu),
+                    dropout=0.0,
+                    att_dropout=0.0,
+                )
+            },
+        ),
+        train_def=lm_train_def,
+        # avoid oom
+        env_updates={"PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"},
+    )
+
+    # ScaledAdam (optScaledAdam).
+    train(
+        "lm/trafo-n24-d512-gelu-drop0-b2k_80k-optScaledAdam-laplace10k-shuffleBatch10-spm10k",
+        config=dict_update_deep(
+            config_96gb_bf16_accgrad1,
+            {
+                **_get_cfg_lrlin_oclr_by_bs_nep_v3(80_000, 100, batch_size_factor=1),
+                "max_seqs": 2_000,
+                "optimizer.class": rf.build_dict(ScaledAdam)["class"],
+                "optimizer.clipping_scale": 2.0,
+                "calculate_exp_loss": True,
+                "online_shuffle_batches": 10,
+            },
+            ["optimizer.weight_decay"],  # ScaledAdam does not have weight decay (??) (TODO...)
         ),
         post_config={"log_grad_norm": True},
         train_dataset=get_librispeech_lm_dataset(
