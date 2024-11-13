@@ -208,12 +208,10 @@ def py():
         for cr_ctc in [None, {"cr_loss_scale": 0.2}]:
             # TODO also adapt specaug for CR...
             use_cr_ctc = cr_ctc is not None
-            name = f"cr{use_cr_ctc}"
-            if use_cr_ctc:
-                name += f"-crLoss{cr_ctc['cr_loss_scale']}"
-            name += f"-n{opts['num_enc_layers']}-{opts['vocab']}"
+            name = f"crLoss{cr_ctc['cr_loss_scale']}-" if use_cr_ctc else ""
             if opts.get("time_downsampling"):
                 name += f"-time{opts['time_downsampling']}"
+            name += f"n{opts['num_enc_layers']}-{opts['vocab']}"
             ctc_train_exp(
                 name,
                 config_96gb_bf16_accgrad1,
