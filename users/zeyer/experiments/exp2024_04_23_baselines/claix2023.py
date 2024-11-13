@@ -427,7 +427,11 @@ def py():
             "max_seq_length_default_input": 19.5 * _raw_sample_rate,
             "aux_attention_decoder": rf.build_dict(TransformerDecoder, num_layers=6),  # purely used for training
         },
-        config_deletes=["optimizer.weight_decay"],  # no weight decay in ScaledAdam... (??)
+        config_deletes=[
+            # ScaledAdam does not have weight decay (??) (TODO...)
+            "optimizer.weight_decay",
+            "optimizer.weight_decay_modules_blacklist",
+        ],
         post_config_updates={"log_grad_norm": True, "__multi_proc_dataset_opts": {"num_workers": 25}},
         vocab="spm512",
         train_vocab_opts={"other_opts": {"class": "SamplingBytePairEncoding", "breadth_prob": 0.005}},
@@ -1061,7 +1065,11 @@ def py():
                 "calculate_exp_loss": True,
                 "online_shuffle_batches": 10,
             },
-            ["optimizer.weight_decay"],  # ScaledAdam does not have weight decay (??) (TODO...)
+            [
+                # ScaledAdam does not have weight decay (??) (TODO...)
+                "optimizer.weight_decay",
+                "optimizer.weight_decay_modules_blacklist",
+            ],
         ),
         post_config={"log_grad_norm": True},
         train_dataset=get_librispeech_lm_dataset(
