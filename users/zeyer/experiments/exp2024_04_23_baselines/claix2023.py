@@ -203,7 +203,7 @@ def py():
         # {"num_enc_layers": 16, "batch_size": 10_000, "vocab": "spm512"},
         {"num_enc_layers": 12, "batch_size": 200_000, "vocab": "spm512"},
         {"num_enc_layers": 12, "batch_size": 150_000, "vocab": "spm512", "time_downsampling": 4},
-        {"num_enc_layers": 12, "batch_size": 100_000, "vocab": "spm512", "time_downsampling": 2},
+        {"num_enc_layers": 12, "batch_size": 75_000, "vocab": "spm512", "time_downsampling": 2},
     ]:
         for cr_ctc in [None, {"cr_loss_scale": 0.2}]:
             # TODO also adapt specaug for CR...
