@@ -667,11 +667,16 @@ def py():
         train_def=lm_train_def,
     )
 
-    # Prepare some small baseline setup. 38.69 PPL.
+    # Prepare some small baseline setup. 38.69 PPL, 166_408 steps, 27.1h
     # (trafo-n24-d512-gelu-drop0-b2k_80k-spm10k)
     # (trafo-n24-d512-gelu-drop0-b100_5k on older GPUs with smaller batch size and float32 results in 38.66 PPL)
-    # Note: Batch size very large, GPU not used optimally due to laplace too small.
+    # Note: Batch size very large, GPU not used optimally due to laplace too small, lots of padding.
     # However, larger laplace (see below laplace100k) is unstable...
+    # (trafo-n24-d512-gelu-drop0-b2k_80k-laplace100k-shuffleBatch100-nEp{n_full_ep}-spm10k)
+    # 5: 39.85 PPL, 117_362 steps, 16.1h
+    # 6: 39.43
+    # 7: 39.15 PPL, 164_306 steps, 23.3h
+    # 10: 38.88 PPL, 234_732 steps, 33.1h
     train(
         "lm/trafo-n24-d512-gelu-drop0-b2k_80k-spm10k",
         config=dict_update_deep(
@@ -707,7 +712,7 @@ def py():
     # - it trains 100 sub-epochs, epoch split 20, but that is on 4 GPUs, so effectively 5*4=20 full epochs (!)
     # - float32
     # -> 38.66 PPL
-    # Here with 5 full epochs, we get 39.24 PPL.
+    # (trafo-n24-d512-gelu-drop0-b100_5k-spm10k) Here with 5 full epochs, we get 39.24 PPL.
     train(
         "lm/trafo-n24-d512-gelu-drop0-b100_5k-nEp20-spm10k",
         config=dict_update_deep(
