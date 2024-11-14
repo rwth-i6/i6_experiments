@@ -259,6 +259,8 @@ class AttributeDict(dict):
         raise AttributeError(f"No such attribute '{key}'")
 
     def __setattr__(self, key, value):
+        if key in ("got_items",):
+            return super().__setattr__(key, value)
         self[key] = value
 
     def __delattr__(self, key):
