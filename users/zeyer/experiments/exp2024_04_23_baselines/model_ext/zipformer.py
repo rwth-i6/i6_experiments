@@ -143,6 +143,7 @@ class RFZipFormerEncoder(ISeqDownsamplingEncoder):
         x_ = x.copy_compatible_to_dims_raw((out_spatial_dim, batch_dim, self.enc_in_dim))  # (T, N, C)
 
         src_key_padding_mask = make_pad_mask(x_lens)
+        src_key_padding_mask = src_key_padding_mask.to(x_.device)
 
         encoder_out, encoder_out_lens = self._encoder_pt(x_, x_lens, src_key_padding_mask)
         # encoder_out: (T, N, C)
