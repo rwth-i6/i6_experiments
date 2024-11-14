@@ -1167,7 +1167,7 @@ class LibrispeechLmDataset(DatasetConfig):
         train_vocab: Optional[VocabConfig] = None,
         main_key: Optional[str] = None,
         train_epoch_split: int = default_train_epoch_split,
-        train_sort_laplace_num_seqs: int = 1000,
+        train_sort_laplace_num_seqs: Optional[int] = 1000,
         eval_subset: Optional[int] = 3000,
     ):
         super().__init__()
@@ -1268,7 +1268,10 @@ class LibrispeechLmDataset(DatasetConfig):
             raise ValueError(f"invalid key {key!r}")
         if training:
             d["partition_epoch"] = self.train_epoch_split
-            d["seq_ordering"] = f"laplace:.{self.train_sort_laplace_num_seqs}"
+            if self.train_sort_laplace_num_seqs is not None:
+                d["seq_ordering"] = f"laplace:.{self.train_sort_laplace_num_seqs}"
+            else:
+                d["seq_ordering"] = "random"
         else:
             if d["class"] == "OggZipDataset":
                 d["fixed_random_seed"] = 1
