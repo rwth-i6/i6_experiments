@@ -109,7 +109,7 @@ def cr_ctc_training(*, model: Model, data: Tensor, data_spatial_dim: Dim, target
     branch_dim = Dim(2, name="branch")
     data = rf.expand_dim(data, dim=branch_dim)
 
-    collected_outputs = {}
+    collected_outputs = {} if aux_loss_layers else None
     logits, enc, enc_spatial_dim = model(data, in_spatial_dim=data_spatial_dim, collected_outputs=collected_outputs)
     if aux_loss_layers:
         for i, layer_idx in enumerate(aux_loss_layers):
