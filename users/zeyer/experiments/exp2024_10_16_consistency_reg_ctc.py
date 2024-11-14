@@ -111,6 +111,9 @@ def cr_ctc_training(*, model: Model, data: Tensor, data_spatial_dim: Dim, target
 
     collected_outputs = {} if aux_loss_layers else None
     logits, enc, enc_spatial_dim = model(data, in_spatial_dim=data_spatial_dim, collected_outputs=collected_outputs)
+    for dim in enc_spatial_dim.dyn_size_ext.dims:
+        if dim not in data_spatial_dim.dyn_size_ext.dims:
+            enc_spatial_dim.dyn_size_ext = rf.gather(enc_spatial_dim.dyn_size_ext, axis=dim, indices=0)
     if aux_loss_layers:
         for i, layer_idx in enumerate(aux_loss_layers):
             if layer_idx > len(model.encoder.layers):
