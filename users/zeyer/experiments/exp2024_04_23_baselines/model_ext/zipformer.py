@@ -160,11 +160,12 @@ class RFZipFormerEncoder(ISeqDownsamplingEncoder):
         assert encoder_out_lens.shape == x_lens.shape
         assert torch.all(encoder_out_lens > 0), (x_lens, encoder_out_lens)
         out_size = rf.convert_to_tensor(encoder_out_lens, dims=[batch_dim])
+        if len(batch_dims) > 1:
+            out_size = rf.split_dims(out_size, axis=batch_dim, dims=batch_dims)
+        out_spatial_dim = Dim(out_size, name="zip_out_spatial")
         encoder_out_ = rf.convert_to_tensor(encoder_out, dims=[out_spatial_dim, batch_dim, self.out_dim])
         if len(batch_dims) > 1:
             encoder_out_ = rf.split_dims(encoder_out_, axis=batch_dim, dims=batch_dims)
-            out_size = rf.split_dims(out_size, axis=batch_dim, dims=batch_dims)
-        out_spatial_dim = Dim(out_size, name="zip_out_spatial")
         return encoder_out_, out_spatial_dim
 
 
