@@ -1167,6 +1167,7 @@ class LibrispeechLmDataset(DatasetConfig):
         train_vocab: Optional[VocabConfig] = None,
         main_key: Optional[str] = None,
         train_epoch_split: int = default_train_epoch_split,
+        train_sort_order: Optional[Any] = "laplace",
         train_sort_laplace_num_seqs: Optional[int] = 1000,
         eval_subset: Optional[int] = 3000,
     ):
@@ -1175,6 +1176,7 @@ class LibrispeechLmDataset(DatasetConfig):
         self.train_vocab = train_vocab
         self.main_key = main_key
         self.train_epoch_split = train_epoch_split
+        self.train_sort_order = train_sort_order
         self.train_sort_laplace_num_seqs = train_sort_laplace_num_seqs
         self.eval_subset = eval_subset
 
@@ -1186,6 +1188,8 @@ class LibrispeechLmDataset(DatasetConfig):
         state = self.__dict__.copy()
         if not self.train_vocab:
             state.pop("train_vocab")  # backward compat
+        if self.train_sort_order == "laplace":
+            state.pop("train_sort_order")  # backward compat
         byte_list = [b"LibrispeechLmDataset", sis_hash_helper(state)]
 
         # Same as sis_hash_helper.
@@ -1268,10 +1272,13 @@ class LibrispeechLmDataset(DatasetConfig):
             raise ValueError(f"invalid key {key!r}")
         if training:
             d["partition_epoch"] = self.train_epoch_split
-            if self.train_sort_laplace_num_seqs is not None:
-                d["seq_ordering"] = f"laplace:.{self.train_sort_laplace_num_seqs}"
+            if self.train_sort_order == "laplace":
+                if self.train_sort_laplace_num_seqs is not None:
+                    d["seq_ordering"] = f"laplace:.{self.train_sort_laplace_num_seqs}"
+                else:
+                    d["seq_ordering"] = "random"
             else:
-                d["seq_ordering"] = "random"
+                d["seq_ordering"] = self.train_sort_order
         else:
             if d["class"] == "OggZipDataset":
                 d["fixed_random_seed"] = 1
