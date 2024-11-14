@@ -92,6 +92,8 @@ class RFZipFormerEncoder(ISeqDownsamplingEncoder):
         params_ = get_params()
         params_.update(params)
         self._encoder_pt = get_encoder_model(params_)
+        unused_opts = set(params.keys()) - set(params_.got_items)
+        assert not unused_opts, f"options not used: {unused_opts}. used options: {params_.got_items}"
         self.encoder = pt_module_to_rf_module(self._encoder_pt)
 
         self.enc_in_dim = Dim(self._encoder_pt.encoder_dim[0], name="zip_in")
@@ -218,12 +220,39 @@ def make_pad_mask(lengths: torch.Tensor, max_len: int = 0) -> torch.Tensor:
     return expaned_lengths >= lengths.unsqueeze(-1)
 
 
-def _to_int_tuple(s: str):
-    return tuple(map(int, s.split(",")))
+def _to_int_tuple(s: Union[str, Tuple[int, ...]]) -> Tuple[int, ...]:
+    if isinstance(s, str):
+        return tuple(map(int, s.split(",")))
+    else:
+        assert isinstance(s, tuple)
+        assert all(isinstance(i, int) for i in s)
+        return s
 
 
 # From icefall/utils.py
 class AttributeDict(dict):
+    __slots__ = ("got_items",)
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.got_items = set()
+
+    def __getitem__(self, item):
+        res = super().__getitem__(item)
+        self.got_items.add(item)
+        return res
+
+    def get(self, item, default=None):
+        """
+        :param str item:
+        :param T default:
+        :rtype: T|typing.Any|None
+        """
+        try:
+            return self[item]
+        except KeyError:
+            return default
+
     def __getattr__(self, key):
         if key in self:
             return self[key]
@@ -2314,31 +2343,31 @@ class Zipformer2(EncoderInterface):
     """
     Args:
 
-    Note: all "int or Tuple[int]" arguments below will be treated as lists of the same length
+    Note: all "int or Tuple[int, ...]" arguments below will be treated as lists of the same length
     as downsampling_factor if they are single ints or one-element tuples.  The length of
     downsampling_factor defines the number of stacks.
 
         output_downsampling_factor (int): how much to downsample at the output.  Note:
             we also downsample by a factor of 2 in the Conv2dSubsampling encoder.
             You should probably leave this at 2.
-        downsampling_factor (Tuple[int]): downsampling factor for each encoder stack.
+        downsampling_factor (Tuple[int, ...]): downsampling factor for each encoder stack.
            Note: this is in addition to the downsampling factor of 2 that is applied in
            the frontend (self.encoder_embed).
-        encoder_dim (Tuple[int]): embedding dimension of each of the encoder stacks, one per
+        encoder_dim (Tuple[int, ...]): embedding dimension of each of the encoder stacks, one per
            encoder stack.
-        num_encoder_layers (int or Tuple[int])): number of encoder layers for each stack
-        encoder_unmasked_dim (int or Tuple[int]): unmasked dimension in each of
+        num_encoder_layers (int or Tuple[int, ...])): number of encoder layers for each stack
+        encoder_unmasked_dim (int or Tuple[int, ...]): unmasked dimension in each of
             the encoder stacks for purposes of per-frame dropout (recommend 256 for
             now).
-        query_head_dim (int or Tuple[int]): dimension of query and key per attention
+        query_head_dim (int or Tuple[int, ...]): dimension of query and key per attention
            head: per stack, if a tuple..
-        pos_head_dim (int or Tuple[int]): dimension of positional-encoding projection per
+        pos_head_dim (int or Tuple[int, ...]): dimension of positional-encoding projection per
            attention head
-        value_head_dim (int or Tuple[int]): dimension of value in each attention head
-        num_heads: (int or Tuple[int]): number of heads in the self-attention mechanism.
+        value_head_dim (int or Tuple[int, ...]): dimension of value in each attention head
+        num_heads: (int or Tuple[int, ...]): number of heads in the self-attention mechanism.
               Must be at least 4.
-        feedforward_dim (int or Tuple[int]): hidden dimension in feedforward modules
-        cnn_module_kernel (int or Tuple[int])): Kernel size of convolution module
+        feedforward_dim (int or Tuple[int, ...]): hidden dimension in feedforward modules
+        cnn_module_kernel (int or Tuple[int, ...])): Kernel size of convolution module
 
         pos_dim (int): the dimension of each positional-encoding vector prior to projection,
             e.g. 128.
@@ -2362,22 +2391,22 @@ class Zipformer2(EncoderInterface):
     def __init__(
         self,
         output_downsampling_factor: int = 2,
-        downsampling_factor: Tuple[int] = (2, 4),
-        encoder_dim: Union[int, Tuple[int]] = 384,
-        num_encoder_layers: Union[int, Tuple[int]] = 4,
-        encoder_unmasked_dim: Union[int, Tuple[int]] = 256,
-        query_head_dim: Union[int, Tuple[int]] = 24,
-        pos_head_dim: Union[int, Tuple[int]] = 4,
-        value_head_dim: Union[int, Tuple[int]] = 12,
-        num_heads: Union[int, Tuple[int]] = 8,
-        feedforward_dim: Union[int, Tuple[int]] = 1536,
-        cnn_module_kernel: Union[int, Tuple[int]] = 31,
+        downsampling_factor: Tuple[int, ...] = (2, 4),
+        encoder_dim: Union[int, Tuple[int, ...]] = 384,
+        num_encoder_layers: Union[int, Tuple[int, ...]] = 4,
+        encoder_unmasked_dim: Union[int, Tuple[int, ...]] = 256,
+        query_head_dim: Union[int, Tuple[int, ...]] = 24,
+        pos_head_dim: Union[int, Tuple[int, ...]] = 4,
+        value_head_dim: Union[int, Tuple[int, ...]] = 12,
+        num_heads: Union[int, Tuple[int, ...]] = 8,
+        feedforward_dim: Union[int, Tuple[int, ...]] = 1536,
+        cnn_module_kernel: Union[int, Tuple[int, ...]] = 31,
         pos_dim: int = 192,
         dropout: FloatLike = None,  # see code below for default
         warmup_batches: float = 4000.0,
         causal: bool = False,
-        chunk_size: Tuple[int] = [-1],
-        left_context_frames: Tuple[int] = [-1],
+        chunk_size: Tuple[int, ...] = (-1,),
+        left_context_frames: Tuple[int, ...] = (-1,),
     ) -> None:
         super(Zipformer2, self).__init__()
 
