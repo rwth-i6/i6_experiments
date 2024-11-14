@@ -467,7 +467,7 @@ def py():
 
     # ZipFormer
     ctc_train_exp(
-        "zipformer-large-spm512-auxAED-b150k",
+        "zipformer-large-spm512-auxAED-b300k",
         config_96gb_bf16_accgrad1,
         model_config={
             "enc_build_dict": rf.build_dict(
@@ -490,7 +490,7 @@ def py():
             "feature_batch_norm": True,
         },
         config_updates={
-            **_get_cfg_lrlin_oclr_by_bs_nep_v3(150_000, 100, batch_size_factor=_batch_size_factor),
+            **_get_cfg_lrlin_oclr_by_bs_nep_v3(300_000, 100, batch_size_factor=_batch_size_factor),
             "optimizer.weight_decay": 1e-2,
             "max_seq_length_default_target": None,
             # Note on max seq len stats: Before, when we used max_seq_length_default_target=75 with bpe10k,
