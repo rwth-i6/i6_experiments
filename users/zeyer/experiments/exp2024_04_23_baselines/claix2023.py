@@ -1082,7 +1082,7 @@ def py():
 
     # laplace100k in the first 90% epochs, then disable laplace for remaining 10%.
     train(
-        "lm/trafo-n24-d512-gelu-drop0-b2k_80k-laplace100k-shuffleBatch100-spm10k",
+        "lm/trafo-n24-d512-gelu-drop0-b2k_80k-laplace100k_10None-shuffleBatch100-spm10k",
         config=dict_update_deep(
             config_96gb_bf16_accgrad1,
             {
