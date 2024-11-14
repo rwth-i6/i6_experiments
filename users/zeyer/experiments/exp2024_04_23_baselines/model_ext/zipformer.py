@@ -149,7 +149,7 @@ class RFZipFormerEncoder(ISeqDownsamplingEncoder):
             assert len(batch_dims) == 1  # just not implemented otherwise
             batch_dim = batch_dims[0]
         assert out_size.dims == (batch_dim,), f"x {x}"
-        x_lens = out_spatial_dim.dyn_size  # (N,)
+        x_lens = out_size.raw_tensor  # (N,)
         x_ = x.copy_compatible_to_dims_raw((out_spatial_dim, batch_dim, self.enc_in_dim))  # (T, N, C)
 
         src_key_padding_mask = make_pad_mask(x_lens)
