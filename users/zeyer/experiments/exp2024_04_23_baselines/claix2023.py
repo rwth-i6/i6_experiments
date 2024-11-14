@@ -702,12 +702,18 @@ def py():
     )
 
     # Use small batch size (b100_5k), just for reference (will be slow, totally underutilizing the GPU...).
+    # Note, in lm.py, there is "trafo-n24-d512-gelu-drop0-b100_5k", with the differences:
+    # - multi GPU (4 GPUs), param sync after 100 steps
+    # - it trains 100 sub-epochs, epoch split 20, but that is on 4 GPUs, so effectively 5*4=20 full epochs (!)
+    # - float32
+    # -> 38.66 PPL
+    # Here with 5 full epochs, we get 39.24 PPL.
     train(
-        "lm/trafo-n24-d512-gelu-drop0-b100_5k-spm10k",
+        "lm/trafo-n24-d512-gelu-drop0-b100_5k-nEp20-spm10k",
         config=dict_update_deep(
             config_96gb_bf16_accgrad1,
             {
-                **_get_cfg_lrlin_oclr_by_bs_nep_v3(5_000, 100, batch_size_factor=1),
+                **_get_cfg_lrlin_oclr_by_bs_nep_v3(5_000, 400, batch_size_factor=1),
                 "max_seqs": 100,
                 "optimizer.weight_decay": 1e-2,
                 "calculate_exp_loss": True,
@@ -787,49 +793,13 @@ def py():
     """
     # TODO ...
 
-    for lr, wd in [
-        # (1e-3, 1e-1),  # 42.43 PPL, unstable
-        (1e-3, 1e-2),  # 41.91 PPL, unstable
-        # (1e-3, 1e-3),  # 42.19 PPL, unstable
-        # (5e-4, 1e-2),  # 42.55 PPL, unstable
-    ]:
-        train(
-            f"lm/trafo-n24-d512-gelu-drop0"
-            f"-lr{str(lr).replace('-', '_')}-wd{str(wd).replace('-', '_')}"
-            f"-b2k_80k-laplace100k-spm10k",
-            config=dict_update_deep(
-                config_96gb_bf16_accgrad1,
-                {
-                    "calculate_exp_loss": True,
-                    **_get_cfg_lrlin_oclr_by_bs_nep_v3(
-                        80_000, 100, batch_size_factor=1, peak_lr=lr, low_lr=1e-5, lowest_lr=1e-6
-                    ),
-                    "max_seqs": 2_000,
-                    "optimizer.weight_decay": wd,
-                },
-            ),
-            post_config={"log_grad_norm": True},
-            train_dataset=get_librispeech_lm_dataset(
-                vocab="spm10k", train_epoch_split=20, train_sort_laplace_num_seqs=100_000
-            ),
-            model_def=ModelDefWithCfg(
-                lm_model_def,
-                {
-                    "_model_def_dict": rf.build_dict(
-                        TransformerDecoder,
-                        encoder_dim=None,
-                        num_layers=24,
-                        model_dim=512,
-                        ff_activation=rf.build_dict(rf.gelu),
-                        dropout=0.0,
-                        att_dropout=0.0,
-                    )
-                },
-            ),
-            train_def=lm_train_def,
-            # avoid oom
-            env_updates={"PYTORCH_CUDA_ALLOC_CONF": "backend:cudaMallocAsync,expandable_segments:True"},
-        )
+    # Different lr, wd
+    # (trafo-n24-d512-gelu-drop0-lr{...}-wd{...}-b2k_80k-laplace100k-spm10k)
+    # lr, wd:
+    # (1e-3, 1e-1),  # 42.43 PPL, unstable
+    # (1e-3, 1e-2),  # 41.91 PPL, unstable
+    # (1e-3, 1e-3),  # 42.19 PPL, unstable
+    # (5e-4, 1e-2),  # 42.55 PPL, unstable
 
     # Try not-normalized (use_normalized_loss=False): 40.6 PPL, unstable training.
     # Note that the grad norm should be much larger, and thus grad clip is quite different...
