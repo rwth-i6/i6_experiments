@@ -37,7 +37,6 @@ class CorpusReplaceOrthFromPyDictJob(Job):
         else:
             segment_iterator = c.segments()
             
-        # TODO look at returnn/search.py SearchWordsDummyTimesToCTMJob
         d = eval(uopen(self.recog_words_file, "rt").read(), {"nan": float("nan"), "inf": float("inf")})
         assert isinstance(d, dict), "Has to be a dict containing the path to the search output file"
         

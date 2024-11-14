@@ -15,6 +15,8 @@ from returnn.frontend.tensor_array import TensorArray
 from returnn.frontend.encoder.conformer import ConformerEncoder, ConformerEncoderLayer, ConformerConvSubsample
 from returnn.frontend.decoder.transformer import TransformerDecoder
 
+from sisyphus import tk
+
 from i6_experiments.users.zeyer.model_interfaces import ModelDef, ModelDefWithCfg, RecogDef, TrainDef
 from i6_experiments.users.zeyer.returnn.models.rf_layerdrop import SequentialLayerDrop
 from i6_experiments.users.zeyer.speed_pert.librosa_config import speed_pert_librosa_config
@@ -27,7 +29,7 @@ from .configs import _get_cfg_lrlin_oclr_by_bs_nep, _batch_size_factor
 if TYPE_CHECKING:
     from i6_experiments.common.setups import serialization
     from i6_experiments.users.zeyer.model_with_checkpoints import ModelWithCheckpoints
-    from i6_experiments.users.zeyer.datasets.task import Task
+    from i6_experiments.users.mueller.datasets.task import Task
     from i6_experiments.users.zeyer.datasets.score_results import RecogOutput
 
 
@@ -55,8 +57,9 @@ def py():
     use_greedy = False
     epochs = 500
     self_training_rounds = 0
-    test_self_training_on_small_dataset = 0
-    train_small = False
+    test_self_training_on_small_dataset = 0 # TODO remove this parameter
+    train_small = True
+    with_prior = True
     
     if train_small:
         epochs = 50
@@ -67,16 +70,22 @@ def py():
             "greedy": True
         }
         greedy_str = "-recog_greedy"
+        if with_prior:
+            decoder_hyperparameters["prior_weight"] = 0.1
+            greedy_str += f"_p{str(decoder_hyperparameters['prior_weight']).replace('.', '')}"
     elif use_flashlight:
         decoder_hyperparameters = {
             "log_add": False,
             "nbest": 1,
-            "beam_size": 12,
+            "beam_size": 13,
             "lm_weight": 1.25,
             "use_logsoftmax": True,
             "use_lm": True,
             "use_lexicon": True,
         }
+        if with_prior:
+            decoder_hyperparameters["prior_weight"] = 0.1 # 0.2, 0.3, 0.4
+        p0 = f"_p{str(decoder_hyperparameters['prior_weight']).replace('.', '')}" if with_prior else ""
         p1 = "sum" if decoder_hyperparameters['log_add'] else "max"
         p2 = f"n{decoder_hyperparameters['nbest']}"
         p3 = f"b{decoder_hyperparameters['beam_size']}"
@@ -84,12 +93,12 @@ def py():
         p5 = "_logsoftmax" if decoder_hyperparameters['use_logsoftmax'] else ""
         p6 = "_noLM" if not decoder_hyperparameters['use_lm'] else ""
         p7 = "_noLEX" if not decoder_hyperparameters['use_lexicon'] else ""
-        lm_hyperparamters_str = f"_{p1}_{p2}_{p3}_{p4}{p5}{p6}{p7}"
+        lm_hyperparamters_str = f"{p0}_{p1}_{p2}_{p3}_{p4}{p5}{p6}{p7}"
         
     train_exp(
         f"ctc-baseline" +
         (f"-self_training_{self_training_rounds}" if self_training_rounds > 0 else "") + (f"-dataset_size_{test_self_training_on_small_dataset}" if test_self_training_on_small_dataset > 0 else "") +
-        (f"-small_dataset" if train_small else "") +
+        (f"-ds100h" if train_small else "") +
         f"-{vocab}" + (greedy_str if use_greedy else (("-recog_lm" + lm_hyperparamters_str) if use_flashlight else "-recog_albert")),
         config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
         model_recog_lm if (use_flashlight or use_greedy) else model_recog,
@@ -106,7 +115,8 @@ def py():
         vocab=vocab,
         self_training_rounds=self_training_rounds,
         train_small=train_small,
-        test_self_training_on_small_dataset=test_self_training_on_small_dataset
+        test_self_training_on_small_dataset=test_self_training_on_small_dataset,
+        with_prior=with_prior,
     )
     
 
@@ -137,14 +147,15 @@ def train_exp(
     enabled: bool = True,
     self_training_rounds: int = 0,
     train_small: bool = False,
-    test_self_training_on_small_dataset: int = 0
+    test_self_training_on_small_dataset: int = 0,
+    with_prior: bool = False,
 ) -> Optional[ModelWithCheckpoints]:
     """
     Train experiment
     """
-    from i6_experiments.users.zeyer.train_v3 import train
+    from i6_experiments.users.mueller.train import train
     from i6_experiments.users.mueller.recog import recog_training_exp
-    from i6_experiments.users.mueller.datasets.librispeech import get_librispeech_task_raw_v2
+    from i6_experiments.users.mueller.datasets.librispeech import get_librispeech_task_raw_v2, TrainDatasetSel
 
     print("Job Name:", name)
     if not enabled:
@@ -154,11 +165,15 @@ def train_exp(
         _sis_setup_global_prefix()
 
     prefix = _sis_prefix + "/" + name
-    use_self_training = self_training_rounds > 0
     
-    ds_to_save_pseudo_labels_for = ["train-clean-100"] if use_self_training else None
-    
-    task, pseudo_labels_ds = get_librispeech_task_raw_v2(vocab=vocab, train_vocab_opts=train_vocab_opts, save_pseudo_labels = ds_to_save_pseudo_labels_for, test_self_training_on_small_dataset = test_self_training_on_small_dataset, train_small = train_small)
+    task, pseudo_labels_ds = get_librispeech_task_raw_v2(
+        vocab=vocab,
+        train_vocab_opts=train_vocab_opts,
+        save_pseudo_labels = self_training_rounds > 0,
+        test_self_training_on_small_dataset = test_self_training_on_small_dataset,
+        ds_sel = TrainDatasetSel.train_100h if train_small else TrainDatasetSel.train_960h,
+        with_prior=with_prior
+    )
     config = config.copy()
     config = dict_update_deep(config, config_updates, config_deletes)
     # This logic is also in train(), but keep it here because it would break the hash because of _RecogAndScoreFunc...
@@ -208,13 +223,22 @@ def train_exp(
     for i in range(self_training_rounds):
         assert pseudo_label_path_dict is not None, "Pseudo label path is not set"
         prefix_self_training = prefix + f"/self-training-{i+1}"
-        task, _ = get_librispeech_task_raw_v2(vocab=vocab, train_vocab_opts=train_vocab_opts, train_small = False, pseudo_label_path = pseudo_label_path_dict) # TODO adapt for multiple training rounds
+        task, _ = get_librispeech_task_raw_v2(
+            vocab=vocab,
+            train_vocab_opts=train_vocab_opts,
+            ds_sel = TrainDatasetSel.train_860h if train_small else TrainDatasetSel.train_960h,
+            with_prior=with_prior,
+            pseudo_label_path = pseudo_label_path_dict
+        )
+        
         # This logic is also in train(), but keep it here because it would break the hash because of _RecogAndScoreFunc...
         if "__train_audio_preprocess" in config:
             task: Task = copy.copy(task)
             task.train_dataset = copy.copy(task.train_dataset)
             task.train_dataset.train_audio_preprocess = config.pop("__train_audio_preprocess")
 
+        # TODO config has to be adapted, e.g. epoch
+        # TODO whole training has to be adapted for sum criterion
         model_with_checkpoint = train(
             prefix_self_training,
             task=task,
@@ -240,7 +264,7 @@ def train_exp(
             model_with_checkpoint,
             recog_def=decoder_def,
             decoder_hyperparameters=decoder_hyperparameters,
-            save_pseudo_labels=pseudo_labels_ds,
+            save_pseudo_labels=None if i+1 == self_training_rounds else pseudo_labels_ds,
             recog_post_proc_funcs=recog_post_proc_funcs,
         )
 
@@ -543,6 +567,7 @@ def model_recog_lm(
     arpa_4gram_lm: str,
     lexicon: str,
     hyperparameters: dict,
+    prior_file: tk.Path = None
 ) -> Tuple[Tensor, Tensor, Dim, Dim]:
     """
     Function is run within RETURNN.
@@ -559,16 +584,33 @@ def model_recog_lm(
     import torch
     from returnn.util.basic import cf
     from i6_core.returnn.hdf import ReturnnDumpHDFJob
+    import numpy as np
     
+    # Get the logits from the model
     logits, enc, enc_spatial_dim = model(data, in_spatial_dim=data_spatial_dim)
-    arpa_4gram_lm = str(cf(arpa_4gram_lm))
     
     hyp_params = copy.copy(hyperparameters)
     greedy = hyp_params.pop("greedy", False)
+    prior_weight = hyp_params.pop("prior_weight", 0.0)
+    use_logsoftmax = hyp_params.pop("use_logsoftmax", False)
     
     if greedy:
+        use_logsoftmax = True
+    
+    if use_logsoftmax:
         label_log_prob = model.log_probs_wb_from_logits(logits)
         label_log_prob = label_log_prob.raw_tensor.cpu()
+    
+        # Subtract prior of labels if available
+        if prior_file and prior_weight > 0.0:
+            prior = np.loadtxt(prior_file, dtype="float32")
+            label_log_prob -= prior_weight * prior
+            print("We subtracted the prior!")
+    elif prior_file and prior_weight > 0.0:
+        print("Cannot subtract prior without running log softmax")
+        return None
+    
+    if greedy:
         probs, greedy_res = torch.max(label_log_prob, dim=-1)
         greedy_res = greedy_res.unsqueeze(1)
         
@@ -584,14 +626,10 @@ def model_recog_lm(
         
         return hyps, scores, enc_spatial_dim, beam_dim
     
+    arpa_4gram_lm = str(cf(arpa_4gram_lm))
     
-    use_logsoftmax = hyp_params.pop("use_logsoftmax", False)
     use_lm = hyp_params.pop("use_lm", True)
     use_lexicon = hyp_params.pop("use_lexicon", True)
-    if use_logsoftmax:
-        label_log_prob = model.log_probs_wb_from_logits(logits)
-        # print("Log softmax:", label_log_prob.raw_tensor.cpu().shape)
-        # print("Log softmax example:", label_log_prob.raw_tensor.cpu()[0][0][0])
     
     configs = {
         "tokens": list(model.wb_target_dim.vocab.labels),
@@ -602,14 +640,14 @@ def model_recog_lm(
         "beam_threshold": 1000000, # 14
     }
     configs["lexicon"] = lexicon if use_lexicon else None
-    configs["lm"] = arpa_4gram_lm if use_lm else None # TODO is it correct to use lanuage model trained on full librispeech if we do self-training? same for lexicon
+    configs["lm"] = arpa_4gram_lm if use_lm else None
     
     configs.update(hyp_params)
     
     decoder = ctc_decoder(**configs)
     enc_spatial_dim_torch = enc_spatial_dim.dyn_size_ext.raw_tensor.cpu()
     if use_logsoftmax:
-        decoder_results = decoder(label_log_prob.raw_tensor.cpu(), enc_spatial_dim_torch)
+        decoder_results = decoder(label_log_prob, enc_spatial_dim_torch)
     else:
         decoder_results = decoder(logits.raw_tensor.cpu(), enc_spatial_dim_torch)
     
