@@ -135,9 +135,20 @@ class RFZipFormerEncoder(ISeqDownsamplingEncoder):
         x = rf.dropout(x, self.input_dropout, axis=self.dropout_broadcast and self.enc_in_dim)
 
         batch_dims = x.remaining_dims((out_spatial_dim, self.enc_in_dim))
-        assert len(batch_dims) == 1  # just not implemented otherwise
-        batch_dim = batch_dims[0]
-        assert out_spatial_dim.dyn_size_ext.dims == (batch_dim,)
+        out_size = out_spatial_dim.dyn_size_ext
+        if len(batch_dims) > 1:
+            x, batch_dim = rf.merge_dims(x, dims=batch_dims)
+            out_size = out_size.copy_compatible_to(
+                rf.Tensor("size_ex", dims=batch_dims, dtype="int32"),
+                unbroadcast=True,
+                check_sparse=False,
+                check_dtype=False,
+            )
+            out_size, _ = rf.merge_dims(out_size, dims=batch_dims, out_dim=batch_dim)
+        else:
+            assert len(batch_dims) == 1  # just not implemented otherwise
+            batch_dim = batch_dims[0]
+        assert out_size.dims == (batch_dim,), f"x {x}"
         x_lens = out_spatial_dim.dyn_size  # (N,)
         x_ = x.copy_compatible_to_dims_raw((out_spatial_dim, batch_dim, self.enc_in_dim))  # (T, N, C)
 
@@ -148,8 +159,12 @@ class RFZipFormerEncoder(ISeqDownsamplingEncoder):
         # encoder_out: (T, N, C)
         assert encoder_out_lens.shape == x_lens.shape
         assert torch.all(encoder_out_lens > 0), (x_lens, encoder_out_lens)
-        out_spatial_dim = Dim(rf.convert_to_tensor(encoder_out_lens, dims=[batch_dim]), name="zip_out_spatial")
+        out_size = rf.convert_to_tensor(encoder_out_lens, dims=[batch_dim])
         encoder_out_ = rf.convert_to_tensor(encoder_out, dims=[out_spatial_dim, batch_dim, self.out_dim])
+        if len(batch_dims) > 1:
+            encoder_out_ = rf.split_dims(encoder_out_, axis=batch_dim, dims=batch_dims)
+            out_size = rf.split_dims(out_size, axis=batch_dim, dims=batch_dims)
+        out_spatial_dim = Dim(out_size, name="zip_out_spatial")
         return encoder_out_, out_spatial_dim
 
 
