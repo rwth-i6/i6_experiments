@@ -1629,7 +1629,7 @@ def ctc_training(*, model: Model, data: rf.Tensor, data_spatial_dim: Dim, target
             targets, axes=[targets_spatial_dim], padding=[(0, 1)], value=model.eos_idx
         )
 
-    collected_outputs = {}
+    collected_outputs = {} if aux_loss_layers else None
     logits, enc, enc_spatial_dim = model(data, in_spatial_dim=data_spatial_dim, collected_outputs=collected_outputs)
     if aux_loss_layers:
         for i, layer_idx in enumerate(aux_loss_layers):
@@ -1814,6 +1814,7 @@ class Model(rf.Module):
         blank_idx: int,
         eos_idx: int,
         bos_idx: int,
+        enc_build_dict: Optional[Dict[str, Any]] = None,
         enc_aux_logits: Sequence[int] = (),  # layers
         enc_model_dim: Dim = Dim(name="enc", dimension=512),
         enc_input_layer: Optional[Dict[str, Any]] = None,
@@ -1822,37 +1823,44 @@ class Model(rf.Module):
     ):
         super(Model, self).__init__()
 
+        self.in_dim = in_dim
+
         import numpy
         from returnn.config import get_global_config
 
         config = get_global_config(return_empty_if_none=True)
 
-        if not enc_input_layer:
-            enc_input_layer = ConformerConvSubsample(
-                in_dim,
-                out_dims=[Dim(32, name="conv1"), Dim(64, name="conv2"), Dim(64, name="conv3")],
-                filter_sizes=[(3, 3), (3, 3), (3, 3)],
-                pool_sizes=[(1, 2)],
-                strides=[(1, 1), (3, 1), (2, 1)],
-            )
+        if enc_build_dict:
+            # Warning: We ignore the other args (num_enc_layers, enc_model_dim, enc_other_opts, etc).
+            self.encoder = rf.build_from_dict(enc_build_dict, in_dim)
+            self.encoder: ConformerEncoder  # might not be true, but assume similar/same interface
 
-        enc_opts = {"input_layer": enc_input_layer, "num_layers": num_enc_layers}
+        else:
+            if not enc_input_layer:
+                enc_input_layer = ConformerConvSubsample(
+                    in_dim,
+                    out_dims=[Dim(32, name="conv1"), Dim(64, name="conv2"), Dim(64, name="conv3")],
+                    filter_sizes=[(3, 3), (3, 3), (3, 3)],
+                    pool_sizes=[(1, 2)],
+                    strides=[(1, 1), (3, 1), (2, 1)],
+                )
 
-        if enc_conformer_layer:
-            enc_opts["encoder_layer"] = enc_conformer_layer
+            enc_opts = {"input_layer": enc_input_layer, "num_layers": num_enc_layers}
 
-        enc_layer_drop = config.float("enc_layer_drop", 0.0)
-        if enc_layer_drop:
-            assert "sequential" not in enc_opts
-            enc_opts["sequential"] = functools.partial(SequentialLayerDrop, layer_drop=enc_layer_drop)
+            if enc_conformer_layer:
+                enc_opts["encoder_layer"] = enc_conformer_layer
 
-        if enc_other_opts:
-            for k, v in enc_other_opts.items():
-                assert k not in enc_opts, f"enc_other_opts key {k!r} already in enc_opts {enc_opts}"
-                enc_opts[k] = v
+            enc_layer_drop = config.float("enc_layer_drop", 0.0)
+            if enc_layer_drop:
+                assert "sequential" not in enc_opts
+                enc_opts["sequential"] = functools.partial(SequentialLayerDrop, layer_drop=enc_layer_drop)
 
-        self.in_dim = in_dim
-        self.encoder = ConformerEncoder(in_dim, enc_model_dim, **enc_opts)
+            if enc_other_opts:
+                for k, v in enc_other_opts.items():
+                    assert k not in enc_opts, f"enc_other_opts key {k!r} already in enc_opts {enc_opts}"
+                    enc_opts[k] = v
+
+            self.encoder = ConformerEncoder(in_dim, enc_model_dim, **enc_opts)
 
         # Experiments without final layer norm. (We might clean this up when this is not successful.)
         # Just patch the encoder here.
@@ -1955,7 +1963,9 @@ class Model(rf.Module):
             aux_attention_decoder.setdefault("class", "returnn.frontend.decoder.transformer.TransformerDecoder")
             if isinstance(aux_attention_decoder.get("model_dim", None), int):
                 aux_attention_decoder["model_dim"] = Dim(aux_attention_decoder["model_dim"], name="dec_model")
-            self.decoder = rf.build_from_dict(aux_attention_decoder, encoder_dim=enc_model_dim, vocab_dim=target_dim)
+            self.decoder = rf.build_from_dict(
+                aux_attention_decoder, encoder_dim=self.encoder.out_dim, vocab_dim=target_dim
+            )
 
         vn = config.typed_value("variational_noise", None)
         if vn:

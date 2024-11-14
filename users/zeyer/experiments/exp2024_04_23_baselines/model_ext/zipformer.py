@@ -24,12 +24,17 @@ slightly adopted (also copied funcs/classes from other files)
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from __future__ import annotations
+
 import copy
 import logging
 import math
 import random
 import warnings
-from typing import List, Optional, Tuple, Union
+from typing import Optional, Union, Any, List, Tuple, Dict
+import pathlib
+import json
+import argparse
 
 import torch
 from torch import Tensor, nn
@@ -40,6 +45,451 @@ from torch.cuda.amp import custom_bwd, custom_fwd
 # Note, I made the import local in the functions that use it.
 # TODO we could also remove this and replace it by pure PT implementations.
 # import k2
+
+# To provide a RF compatible encoder interface.
+import returnn.frontend as rf
+from returnn.frontend.encoder.base import ISeqDownsamplingEncoder
+from returnn.tensor import Dim  # access Tensor via rf.Tensor, to not confuse with torch.Tensor
+from returnn.torch.frontend.bridge import pt_module_to_rf_module
+
+
+class RFZipFormerEncoder(ISeqDownsamplingEncoder):
+    """
+    The original icefall :class:`Zipformer2` wrapped in a RF module.
+
+    This does not contain the original convolutional frontend.
+    Instead, we currently follow the same configurable frontend
+    as in :class:`returnn.frontend.encoder.conformer.ConformerEncoder`.
+
+    In general, this API here is very similar (mostly compatible)
+    to :class:`returnn.frontend.encoder.conformer.ConformerEncoder`.
+
+    The main configuration of :class:`Zipformer2` happens via the ``params`` dict
+    and :func:`get_encoder_model`.
+    """
+
+    def __init__(
+        self,
+        in_dim: Dim,
+        *,
+        input_layer: Optional[Union[ISeqDownsamplingEncoder, rf.Module, Any]],
+        input_embedding_scale: float = 1.0,
+        input_dropout: float = 0.1,
+        params: Union[AttributeDict, Dict[str, Any]],
+    ):
+        """
+        :param in_dim: input dim (for what comes into this module, then usually into the frontend)
+        :param input_layer: usually the convolutional frontend
+        :param input_embedding_scale: for the input projection
+        :param input_dropout: for the input projection
+        :param params: all the params for the :class:`Zipformer2`, via :func:`get_encoder_model`.
+            We first get the default params via :func:`get_params` and then update it with this.
+        """
+        super().__init__()
+
+        self.in_dim = in_dim
+
+        params_ = get_params()
+        params_.update(params)
+        self._encoder_pt = get_encoder_model(params_)
+        self.encoder = pt_module_to_rf_module(self._encoder_pt)
+
+        self.enc_in_dim = Dim(self._encoder_pt.encoder_dim[0], name="zip_in")
+        self.out_dim = Dim(max(self._encoder_pt.encoder_dim), name="zip_out")
+
+        if callable(input_layer) or input_layer is None:
+            pass  # leave it as is
+        elif isinstance(input_layer, dict):
+            input_layer = rf.build_from_dict(input_layer, in_dim)
+            input_layer: ISeqDownsamplingEncoder  # for attrib access
+        else:
+            raise TypeError(f"unexpected input_layer {input_layer!r}")
+        self.input_layer = input_layer
+        self.input_projection = (
+            rf.Linear(self.input_layer.out_dim if self.input_layer else self.in_dim, self.enc_in_dim, with_bias=False)
+            if input_layer
+            else None
+        )
+        self.input_embedding_scale = input_embedding_scale
+        self.input_dropout = input_dropout
+        self.dropout_broadcast = rf.dropout_broadcast_default()
+
+    def __call__(
+        self, source: rf.Tensor, *, in_spatial_dim: Dim, collected_outputs: Optional[Dict[str, Tensor]] = None
+    ) -> Tuple[rf.Tensor, Dim]:
+        assert collected_outputs is None  # currently not supported
+
+        # see train.py
+        if rf.get_run_ctx().step % 10 == 0:
+            set_batch_count(self._encoder_pt, rf.get_run_ctx().step)
+
+        # see model.py forward_encoder
+        if self.input_layer:
+            x_subsample, out_spatial_dim = self.input_layer(source, in_spatial_dim=in_spatial_dim)
+        else:
+            x_subsample, out_spatial_dim = source, in_spatial_dim
+        x = self.input_projection(x_subsample) if self.input_projection else x_subsample
+        if self.input_embedding_scale != 1.0:
+            x = x * self.input_embedding_scale
+        x = rf.dropout(x, self.input_dropout, axis=self.dropout_broadcast and self.enc_in_dim)
+
+        batch_dims = x.remaining_dims((out_spatial_dim, self.enc_in_dim))
+        assert len(batch_dims) == 1  # just not implemented otherwise
+        batch_dim = batch_dims[0]
+        assert out_spatial_dim.dyn_size_ext.dims == (batch_dim,)
+        x_lens = out_spatial_dim.dyn_size  # (N,)
+        x_ = x.copy_compatible_to_dims_raw((out_spatial_dim, batch_dim, self.enc_in_dim))  # (T, N, C)
+
+        src_key_padding_mask = make_pad_mask(x_lens)
+
+        encoder_out, encoder_out_lens = self._encoder_pt(x_, x_lens, src_key_padding_mask)
+        # encoder_out: (T, N, C)
+        assert encoder_out_lens.shape == x_lens.shape
+        assert torch.all(encoder_out_lens > 0), (x_lens, encoder_out_lens)
+        out_spatial_dim = Dim(rf.convert_to_tensor(encoder_out_lens, dims=[batch_dim]), name="zip_out_spatial")
+        encoder_out_ = rf.convert_to_tensor(encoder_out, dims=[out_spatial_dim, batch_dim, self.out_dim])
+        return encoder_out_, out_spatial_dim
+
+
+# From train.py
+def get_encoder_model(params: AttributeDict) -> Zipformer2:
+    encoder = Zipformer2(
+        output_downsampling_factor=2,
+        downsampling_factor=_to_int_tuple(params.downsampling_factor),
+        num_encoder_layers=_to_int_tuple(params.num_encoder_layers),
+        encoder_dim=_to_int_tuple(params.encoder_dim),
+        encoder_unmasked_dim=_to_int_tuple(params.encoder_unmasked_dim),
+        query_head_dim=_to_int_tuple(params.query_head_dim),
+        pos_head_dim=_to_int_tuple(params.pos_head_dim),
+        value_head_dim=_to_int_tuple(params.value_head_dim),
+        pos_dim=params.pos_dim,
+        num_heads=_to_int_tuple(params.num_heads),
+        feedforward_dim=_to_int_tuple(params.feedforward_dim),
+        cnn_module_kernel=_to_int_tuple(params.cnn_module_kernel),
+        dropout=ScheduledFloat((0.0, 0.3), (20000.0, 0.1)),
+        warmup_batches=4000.0,
+        causal=params.causal,
+        chunk_size=_to_int_tuple(params.chunk_size),
+        left_context_frames=_to_int_tuple(params.left_context_frames),
+    )
+    return encoder
+
+
+def set_batch_count(model: nn.Module, batch_count: float) -> None:
+    for name, module in model.named_modules():
+        if hasattr(module, "batch_count"):
+            module.batch_count = batch_count
+        if hasattr(module, "name"):
+            module.name = name
+
+
+def get_adjusted_batch_count(params: AttributeDict) -> float:
+    # returns the number of batches we would have used so far if we had used the reference
+    # duration.  This is for purposes of set_batch_count().
+    # ref_duration = 600  # default
+    return params.batch_idx_train * (params.max_duration * params.world_size) / params.ref_duration
+
+
+def make_pad_mask(lengths: torch.Tensor, max_len: int = 0) -> torch.Tensor:
+    """
+    Args:
+      lengths:
+        A 1-D tensor containing sentence lengths.
+      max_len:
+        The length of masks.
+    Returns:
+      Return a 2-D bool tensor, where masked positions
+      are filled with `True` and non-masked positions are
+      filled with `False`.
+
+    >>> lengths = torch.tensor([1, 3, 2, 5])
+    >>> make_pad_mask(lengths)
+    tensor([[False,  True,  True,  True,  True],
+            [False, False, False,  True,  True],
+            [False, False,  True,  True,  True],
+            [False, False, False, False, False]])
+    """
+    assert lengths.ndim == 1, lengths.ndim
+    max_len = max(max_len, lengths.max())
+    n = lengths.size(0)
+    seq_range = torch.arange(0, max_len, device=lengths.device)
+    expaned_lengths = seq_range.unsqueeze(0).expand(n, max_len)
+
+    return expaned_lengths >= lengths.unsqueeze(-1)
+
+
+def _to_int_tuple(s: str):
+    return tuple(map(int, s.split(",")))
+
+
+# From icefall/utils.py
+class AttributeDict(dict):
+    def __getattr__(self, key):
+        if key in self:
+            return self[key]
+        raise AttributeError(f"No such attribute '{key}'")
+
+    def __setattr__(self, key, value):
+        self[key] = value
+
+    def __delattr__(self, key):
+        if key in self:
+            del self[key]
+            return
+        raise AttributeError(f"No such attribute '{key}'")
+
+    def __str__(self, indent: int = 2):
+        tmp = {}
+        for k, v in self.items():
+            # PosixPath is ont JSON serializable
+            if isinstance(v, pathlib.Path) or isinstance(v, torch.device):
+                v = str(v)
+            tmp[k] = v
+        return json.dumps(tmp, indent=indent, sort_keys=True)
+
+
+# From train.py, stripped down, extended by parser defaults.
+def get_params() -> AttributeDict:
+    """Return a dict containing training parameters.
+
+    All training related parameters that are not passed from the commandline
+    are saved in the variable `params`.
+
+    We extend this by all the defaults from the parser (:func:`get_parser`).
+
+    Explanation of options saved in `params`:
+
+        - feature_dim: The model input dim. It has to match the one used
+                       in computing features.
+
+        - subsampling_factor:  The subsampling factor for the model.
+
+    """
+    params = AttributeDict(
+        {
+            # parameters for zipformer
+            "feature_dim": 80,
+            "subsampling_factor": 4,  # not passed in, this is fixed.
+        }
+    )
+
+    parser = get_parser()
+    args = parser.parse_args([])
+    params.update(vars(args))
+
+    return params
+
+
+def get_parser():
+    parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+
+    add_model_arguments(parser)
+
+    return parser
+
+
+def add_model_arguments(parser: argparse.ArgumentParser):
+    parser.add_argument(
+        "--num-encoder-layers",
+        type=str,
+        default="2,2,3,4,3,2",
+        help="Number of zipformer encoder layers per stack, comma separated.",
+    )
+
+    parser.add_argument(
+        "--downsampling-factor",
+        type=str,
+        default="1,2,4,8,4,2",
+        help="Downsampling factor for each stack of encoder layers.",
+    )
+
+    parser.add_argument(
+        "--feedforward-dim",
+        type=str,
+        default="512,768,1024,1536,1024,768",
+        help="Feedforward dimension of the zipformer encoder layers, per stack, comma separated.",
+    )
+
+    parser.add_argument(
+        "--num-heads",
+        type=str,
+        default="4,4,4,8,4,4",
+        help="Number of attention heads in the zipformer encoder layers: a single int or comma-separated list.",
+    )
+
+    parser.add_argument(
+        "--encoder-dim",
+        type=str,
+        default="192,256,384,512,384,256",
+        help="Embedding dimension in encoder stacks: a single int or comma-separated list.",
+    )
+
+    parser.add_argument(
+        "--query-head-dim",
+        type=str,
+        default="32",
+        help="Query/key dimension per head in encoder stacks: a single int or comma-separated list.",
+    )
+
+    parser.add_argument(
+        "--value-head-dim",
+        type=str,
+        default="12",
+        help="Value dimension per head in encoder stacks: a single int or comma-separated list.",
+    )
+
+    parser.add_argument(
+        "--pos-head-dim",
+        type=str,
+        default="4",
+        help="Positional-encoding dimension per head in encoder stacks: a single int or comma-separated list.",
+    )
+
+    parser.add_argument(
+        "--pos-dim",
+        type=int,
+        default="48",
+        help="Positional-encoding embedding dimension",
+    )
+
+    parser.add_argument(
+        "--encoder-unmasked-dim",
+        type=str,
+        default="192,192,256,256,256,192",
+        help="Unmasked dimensions in the encoders, relates to augmentation during training.  "
+        "A single int or comma-separated list.  Must be <= each corresponding encoder_dim.",
+    )
+
+    parser.add_argument(
+        "--cnn-module-kernel",
+        type=str,
+        default="31,31,15,15,15,31",
+        help="Sizes of convolutional kernels in convolution modules in each encoder stack: "
+        "a single int or comma-separated list.",
+    )
+
+    parser.add_argument(
+        "--decoder-dim",
+        type=int,
+        default=512,
+        help="Embedding dimension in the decoder model.",
+    )
+
+    parser.add_argument(
+        "--joiner-dim",
+        type=int,
+        default=512,
+        help="""Dimension used in the joiner model.
+        Outputs from the encoder and decoder model are projected
+        to this dimension before adding.
+        """,
+    )
+
+    parser.add_argument(
+        "--attention-decoder-dim",
+        type=int,
+        default=512,
+        help="""Dimension used in the attention decoder""",
+    )
+
+    parser.add_argument(
+        "--attention-decoder-num-layers",
+        type=int,
+        default=6,
+        help="""Number of transformer layers used in attention decoder""",
+    )
+
+    parser.add_argument(
+        "--attention-decoder-attention-dim",
+        type=int,
+        default=512,
+        help="""Attention dimension used in attention decoder""",
+    )
+
+    parser.add_argument(
+        "--attention-decoder-num-heads",
+        type=int,
+        default=8,
+        help="""Number of attention heads used in attention decoder""",
+    )
+
+    parser.add_argument(
+        "--attention-decoder-feedforward-dim",
+        type=int,
+        default=2048,
+        help="""Feedforward dimension used in attention decoder""",
+    )
+
+    parser.add_argument(
+        "--causal",
+        type=str2bool,
+        default=False,
+        help="If True, use causal version of model.",
+    )
+
+    parser.add_argument(
+        "--chunk-size",
+        type=str,
+        default="16,32,64,-1",
+        help="Chunk sizes (at 50Hz frame rate) will be chosen randomly from this list during training. "
+        " Must be just -1 if --causal=False",
+    )
+
+    parser.add_argument(
+        "--left-context-frames",
+        type=str,
+        default="64,128,256,-1",
+        help="Maximum left-contexts for causal training, measured in frames which will "
+        "be converted to a number of chunks.  If splitting into chunks, "
+        "chunk left-context frames will be chosen randomly from this list; else not relevant.",
+    )
+
+    parser.add_argument(
+        "--use-transducer",
+        type=str2bool,
+        default=True,
+        help="If True, use Transducer head.",
+    )
+
+    parser.add_argument(
+        "--use-ctc",
+        type=str2bool,
+        default=False,
+        help="If True, use CTC head.",
+    )
+
+    parser.add_argument(
+        "--use-attention-decoder",
+        type=str2bool,
+        default=False,
+        help="If True, use attention-decoder head.",
+    )
+
+    parser.add_argument(
+        "--use-cr-ctc",
+        type=str2bool,
+        default=False,
+        help="If True, use consistency-regularized CTC.",
+    )
+
+
+def str2bool(v):
+    """Used in argparse.ArgumentParser.add_argument to indicate
+    that a type is a bool type and user can enter
+
+        - yes, true, t, y, 1, to represent True
+        - no, false, f, n, 0, to represent False
+
+    See https://stackoverflow.com/questions/15008758/parsing-boolean-values-with-argparse  # noqa
+    """
+    if isinstance(v, bool):
+        return v
+    if v.lower() in ("yes", "true", "t", "y", "1"):
+        return True
+    elif v.lower() in ("no", "false", "f", "n", "0"):
+        return False
+    else:
+        raise argparse.ArgumentTypeError("Boolean value expected.")
 
 
 class EncoderInterface(nn.Module):
