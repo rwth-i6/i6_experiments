@@ -465,7 +465,48 @@ def py():
 
     from .model_ext.zipformer import RFZipFormerEncoder
 
-    # ZipFormer
+    # ZipFormer medium
+    ctc_train_exp(
+        "zipformer-medium-spm512-auxAED-b500k",
+        config_96gb_bf16_accgrad1,
+        model_config={
+            "enc_build_dict": rf.build_dict(
+                RFZipFormerEncoder,
+                input_layer=rf.build_dict(
+                    ConformerConvSubsample,
+                    out_dims=[32, 64, 64],
+                    filter_sizes=[(3, 3), (3, 3), (3, 3)],
+                    pool_sizes=[(1, 2)],
+                    strides=[(1, 1), (2, 1), (1, 1)],
+                ),
+                # https://github.com/k2-fsa/icefall/blob/master/egs/librispeech/ASR/RESULTS.md#medium-scale-model-number-of-model-parameters-89987295-ie-900-m
+                # As I see it, it just uses the defaults, so no params.
+                params=dict(),
+            ),
+            "feature_batch_norm": True,
+        },
+        config_updates={
+            **_get_cfg_lrlin_oclr_by_bs_nep_v3(500_000, 100, batch_size_factor=_batch_size_factor),
+            "optimizer.weight_decay": 1e-2,
+            "max_seq_length_default_target": None,
+            # Note on max seq len stats: Before, when we used max_seq_length_default_target=75 with bpe10k,
+            # out of 281241 seqs in train, we removed only 71 seqs.
+            # With max seq len 19.5 secs on the audio, we also remove exactly 71 seqs.
+            "max_seq_length_default_input": 19.5 * _raw_sample_rate,
+            "__train_audio_preprocess": speed_pert_librosa_config,
+            "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
+            "aux_attention_decoder": rf.build_dict(TransformerDecoder, num_layers=6),  # purely used for training
+        },
+        config_deletes=["aux_loss_layers"],
+        post_config_updates={"log_grad_norm": True, "__multi_proc_dataset_opts": {"num_workers": 25}},
+        vocab="spm512",
+        train_vocab_opts={"other_opts": {"class": "SamplingBytePairEncoding", "breadth_prob": 0.01}},
+        dataset_train_opts={"train_epoch_split": 1, "train_epoch_wise_filter": None},
+        # avoid OOM
+        env_updates={"PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"},
+    )
+
+    # ZipFormer large
     ctc_train_exp(
         "zipformer-large-spm512-auxAED-b300k",
         config_96gb_bf16_accgrad1,
