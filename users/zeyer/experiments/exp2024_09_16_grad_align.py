@@ -74,13 +74,13 @@ def py():
 
     # WERs: dev-other/test-other
     for shortname, fullname, vocab in [
-        (  # ctc forced align: 110.7/43.7ms
-            "noBias",  # 5.65/5.94, better baseline
-            "v6-relPosAttDef-noBias"
-            "-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k"
-            "-featBN-speedpertV2-spm10k-bpeSample001",
-            "spm10k",
-        ),
+        # (  # ctc forced align: 110.7/43.7ms
+        #     "noBias",  # 5.65/5.94, better baseline
+        #     "v6-relPosAttDef-noBias"
+        #     "-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k"
+        #     "-featBN-speedpertV2-spm10k-bpeSample001",
+        #     "spm10k",
+        # ),
         (  # ctc forced align: 111.5/52.9ms
             "base",  # 5.77/6.03
             # output/ctc/v6-relPosAttDef-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-featBN-speedpertV2-spm10k-bpeSample001/recog_results_best
@@ -89,75 +89,75 @@ def py():
             "-featBN-speedpertV2-spm10k-bpeSample001",
             "spm10k",
         ),
-        (  # ctc forced align: 116.8/74.4ms
-            "lpNormedGradC05_11P1",  # 5.71/5.87
-            "v6-relPosAttDef"
-            "-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k"
-            "-featBN-speedpertV2-spm10k-bpeSample001"
-            "-lpNormedGradC05_11P1",
-            "spm10k",
-        ),
-        (
-            "lpNormedGradC05_11P1Seq",  # 5.83/5.91
-            "v6-relPosAttDef"
-            "-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k"
-            "-featBN-speedpertV2-spm10k-bpeSample001"
-            "-lpNormedGradC05_11P1Seq",
-            "spm10k",
-        ),
-        (
-            "lpNormedGradC01_11P1",  # 6.21/6.55
-            "v6-relPosAttDef"
-            "-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k"
-            "-featBN-speedpertV2-spm10k-bpeSample001"
-            "-lpNormedGradC01_11P1",
-            "spm10k",
-        ),
-        (  # ctc forced align: 98.5/77.6ms
-            "blankSep",  # 5.73/6.02
-            "v6-relPosAttDef"
-            "-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k"
-            "-featBN-speedpertV2-spm10k-bpeSample001"
-            "-blankSep",
-            "spm10k",
-        ),
-        (  # ctc forced align: 75.4/42.7ms
-            "base-spm512",  # 5.97/6.21
-            "v6-relPosAttDef"
-            "-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-maxSeqLenAudio19_5-wd1e_2-lrlin1e_5_295k"
-            "-featBN-speedpertV2-spm512-bpeSample001",
-            "spm512",
-        ),
-        (  # ctc forced align: 59.6/48.5ms
-            "base-spm512-blankSep",  # 6.02/6.04
-            "v6-relPosAttDef"
-            "-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-maxSeqLenAudio19_5-wd1e_2-lrlin1e_5_295k"
-            "-featBN-speedpertV2-spm512-bpeSample001"
-            "-blankSep",
-            "spm512",
-        ),
-        (  # ctc forced align: 113.9/68.1ms
-            "base-bpe10k",  # 6.18/6.35
-            "v6-relPosAttDef"
-            "-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k"
-            "-featBN-speedpertV2-bpe10k-bpeSample001",
-            "bpe10k",
-        ),
-        (  # ctc forced align: 84.9/64.2ms
-            "base-bpe10k-blankSep",  # 5.98/6.13
-            "v6-relPosAttDef"
-            "-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k"
-            "-featBN-speedpertV2-bpe10k-bpeSample001"
-            "-blankSep",
-            "bpe10k",
-        ),
-        (
-            "ebranchformer",  # 5.54/5.69
-            # output/ctc/v6-EBranchformer-relPosAttDef-noBias-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-featBN-speedpertV2-spm10k-bpeSample001/recog_results_best
-            "v6-EBranchformer-relPosAttDef-noBias-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2"
-            "-lrlin1e_5_295k-featBN-speedpertV2-spm10k-bpeSample001",
-            "spm10k",
-        ),
+        # (  # ctc forced align: 116.8/74.4ms
+        #     "lpNormedGradC05_11P1",  # 5.71/5.87
+        #     "v6-relPosAttDef"
+        #     "-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k"
+        #     "-featBN-speedpertV2-spm10k-bpeSample001"
+        #     "-lpNormedGradC05_11P1",
+        #     "spm10k",
+        # ),
+        # (
+        #     "lpNormedGradC05_11P1Seq",  # 5.83/5.91
+        #     "v6-relPosAttDef"
+        #     "-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k"
+        #     "-featBN-speedpertV2-spm10k-bpeSample001"
+        #     "-lpNormedGradC05_11P1Seq",
+        #     "spm10k",
+        # ),
+        # (
+        #     "lpNormedGradC01_11P1",  # 6.21/6.55
+        #     "v6-relPosAttDef"
+        #     "-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k"
+        #     "-featBN-speedpertV2-spm10k-bpeSample001"
+        #     "-lpNormedGradC01_11P1",
+        #     "spm10k",
+        # ),
+        # (  # ctc forced align: 98.5/77.6ms
+        #     "blankSep",  # 5.73/6.02
+        #     "v6-relPosAttDef"
+        #     "-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k"
+        #     "-featBN-speedpertV2-spm10k-bpeSample001"
+        #     "-blankSep",
+        #     "spm10k",
+        # ),
+        # (  # ctc forced align: 75.4/42.7ms
+        #     "base-spm512",  # 5.97/6.21
+        #     "v6-relPosAttDef"
+        #     "-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-maxSeqLenAudio19_5-wd1e_2-lrlin1e_5_295k"
+        #     "-featBN-speedpertV2-spm512-bpeSample001",
+        #     "spm512",
+        # ),
+        # (  # ctc forced align: 59.6/48.5ms
+        #     "base-spm512-blankSep",  # 6.02/6.04
+        #     "v6-relPosAttDef"
+        #     "-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-maxSeqLenAudio19_5-wd1e_2-lrlin1e_5_295k"
+        #     "-featBN-speedpertV2-spm512-bpeSample001"
+        #     "-blankSep",
+        #     "spm512",
+        # ),
+        # (  # ctc forced align: 113.9/68.1ms
+        #     "base-bpe10k",  # 6.18/6.35
+        #     "v6-relPosAttDef"
+        #     "-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k"
+        #     "-featBN-speedpertV2-bpe10k-bpeSample001",
+        #     "bpe10k",
+        # ),
+        # (  # ctc forced align: 84.9/64.2ms
+        #     "base-bpe10k-blankSep",  # 5.98/6.13
+        #     "v6-relPosAttDef"
+        #     "-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k"
+        #     "-featBN-speedpertV2-bpe10k-bpeSample001"
+        #     "-blankSep",
+        #     "bpe10k",
+        # ),
+        # (
+        #     "ebranchformer",  # 5.54/5.69
+        #     # output/ctc/v6-EBranchformer-relPosAttDef-noBias-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-featBN-speedpertV2-spm10k-bpeSample001/recog_results_best
+        #     "v6-EBranchformer-relPosAttDef-noBias-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2"
+        #     "-lrlin1e_5_295k-featBN-speedpertV2-spm10k-bpeSample001",
+        #     "spm10k",
+        # ),
     ]:
         # Note: task hardcoded... (and also not needed, I just need the train dataset...)
         task = get_librispeech_task_raw_v2(vocab=vocab)
@@ -165,7 +165,7 @@ def py():
         # train_dataset.main_dataset["fixed_random_subset"] = 1000  # for debugging...
         train_dataset.main_dataset["seq_list_filter_file"] = seq_list
 
-        for epoch in [20, 40, 80, 160, 320, 500, -1]:
+        for epoch in [-1]:  # [20, 40, 80, 160, 320, 500, -1]:
             ctc_model = sis_get_ctc_model(fullname, epoch=epoch)
 
             alignment = ctc_forced_align(ctc_model, train_dataset)
@@ -191,28 +191,28 @@ def py():
             tk.register_output(prefix + name + ".short_report.txt", job.out_short_report_str)
 
         for extra_name, grad_opts in [
-            ("", {}),
+            # ("", {}),
             # *([("-bs1", {"max_seqs": 1})] if shortname == "base" else []),  # test influence of batching
             (
                 "-blankStopGrad-inclBlankState-p0.1",
                 {"stop_grad_blank": True, "ctc_partial_scores_include_next_blank": True, "grad_norm_p": 0.1},
             ),
-            (
-                "-inclBlankState-p0.1",
-                {"ctc_partial_scores_include_next_blank": True, "grad_norm_p": 0.1},
-            ),
-            (
-                "-inclBlankStateBoth-p0.1",
-                {"ctc_partial_scores_include_next_blank": "both", "grad_norm_p": 0.1},
-            ),
-            (
-                "-blankStopGrad-inclBlankStateBoth-p0.1",
-                {"stop_grad_blank": True, "ctc_partial_scores_include_next_blank": "both", "grad_norm_p": 0.1},
-            ),
-            (
-                "-blankStopGrad-inclBlankStateBothPrev-p0.1",
-                {"stop_grad_blank": True, "ctc_partial_scores_include_next_blank": "both_prev", "grad_norm_p": 0.1},
-            ),
+            # (
+            #     "-inclBlankState-p0.1",
+            #     {"ctc_partial_scores_include_next_blank": True, "grad_norm_p": 0.1},
+            # ),
+            # (
+            #     "-inclBlankStateBoth-p0.1",
+            #     {"ctc_partial_scores_include_next_blank": "both", "grad_norm_p": 0.1},
+            # ),
+            # (
+            #     "-blankStopGrad-inclBlankStateBoth-p0.1",
+            #     {"stop_grad_blank": True, "ctc_partial_scores_include_next_blank": "both", "grad_norm_p": 0.1},
+            # ),
+            # (
+            #     "-blankStopGrad-inclBlankStateBothPrev-p0.1",
+            #     {"stop_grad_blank": True, "ctc_partial_scores_include_next_blank": "both_prev", "grad_norm_p": 0.1},
+            # ),
         ]:
             grad_opts = grad_opts.copy()
             # base model
@@ -315,42 +315,42 @@ def py():
 
     # Grad align debug
     for name, grad_opts in [
-        ("base", {}),  # 98.0/74.6
-        ("base-inclBlankState", {"ctc_partial_scores_include_next_blank": True}),  # 94.4/69.6
-        ("base", {"epoch": 80}),  # 113.4/93.9
-        ("base-p1", {"grad_norm_p": 1}),  # 97.4/74.5
-        ("base-p0.1", {"grad_norm_p": 0.1}),  # 98.5/75.9
-        ("base-multSource", {"source_grad_mult_with_source": True}),  # 102.3/77.2
-        ("base-blankStopGrad", {"stop_grad_blank": True}),  # 97.9/76.2
+        # ("base", {}),  # 98.0/74.6
+        # ("base-inclBlankState", {"ctc_partial_scores_include_next_blank": True}),  # 94.4/69.6
+        # ("base", {"epoch": 80}),  # 113.4/93.9
+        # ("base-p1", {"grad_norm_p": 1}),  # 97.4/74.5
+        # ("base-p0.1", {"grad_norm_p": 0.1}),  # 98.5/75.9
+        # ("base-multSource", {"source_grad_mult_with_source": True}),  # 102.3/77.2
+        # ("base-blankStopGrad", {"stop_grad_blank": True}),  # 97.9/76.2
         (  # 87.6/65.1
             "base-blankStopGrad-inclBlankState-p0.1",
             {"stop_grad_blank": True, "ctc_partial_scores_include_next_blank": True, "grad_norm_p": 0.1},
         ),
-        (  # 87.7/64.9
-            "base-blankStopGrad-inclBlankState-p0.5",
-            {"stop_grad_blank": True, "ctc_partial_scores_include_next_blank": True, "grad_norm_p": 0.5},
-        ),
-        (  # 88.4/65.3
-            "base-blankStopGrad-inclBlankState-p1",
-            {"stop_grad_blank": True, "ctc_partial_scores_include_next_blank": True, "grad_norm_p": 1},
-        ),
-        (  # 91.7/67.2
-            "base-blankStopGrad-inclBlankState-p3",
-            {"stop_grad_blank": True, "ctc_partial_scores_include_next_blank": True, "grad_norm_p": 3},
-        ),
-        (  # 90.0/65.9
-            "base-blankStopGrad-inclBlankState",
-            {"stop_grad_blank": True, "ctc_partial_scores_include_next_blank": True},
-        ),
-        (
-            "base-blankStopGrad-inclBlankState-p0.1-multSource",
-            {
-                "stop_grad_blank": True,
-                "ctc_partial_scores_include_next_blank": True,
-                "grad_norm_p": 0.1,
-                "source_grad_mult_with_source": True,
-            },
-        ),
+        # (  # 87.7/64.9
+        #     "base-blankStopGrad-inclBlankState-p0.5",
+        #     {"stop_grad_blank": True, "ctc_partial_scores_include_next_blank": True, "grad_norm_p": 0.5},
+        # ),
+        # (  # 88.4/65.3
+        #     "base-blankStopGrad-inclBlankState-p1",
+        #     {"stop_grad_blank": True, "ctc_partial_scores_include_next_blank": True, "grad_norm_p": 1},
+        # ),
+        # (  # 91.7/67.2
+        #     "base-blankStopGrad-inclBlankState-p3",
+        #     {"stop_grad_blank": True, "ctc_partial_scores_include_next_blank": True, "grad_norm_p": 3},
+        # ),
+        # (  # 90.0/65.9
+        #     "base-blankStopGrad-inclBlankState",
+        #     {"stop_grad_blank": True, "ctc_partial_scores_include_next_blank": True},
+        # ),
+        # (
+        #     "base-blankStopGrad-inclBlankState-p0.1-multSource",
+        #     {
+        #         "stop_grad_blank": True,
+        #         "ctc_partial_scores_include_next_blank": True,
+        #         "grad_norm_p": 0.1,
+        #         "source_grad_mult_with_source": True,
+        #     },
+        # ),
     ]:
         grad_opts = grad_opts.copy()
         # base model
@@ -452,9 +452,9 @@ def py():
         train_dataset.main_dataset["seq_list_filter_file"] = seq_list
 
         for extra_name, grad_opts in [
-            ("", {}),
+            # ("", {}),
             # *([("-bs1", {"max_seqs": 1})] if shortname == "base" else []),  # test influence of batching
-            ("-p1", {"grad_norm_p": 1}),
+            # ("-p1", {"grad_norm_p": 1}),
             ("-p0.1", {"grad_norm_p": 0.1}),
         ]:
             grad_opts = grad_opts.copy()
