@@ -40,7 +40,7 @@ class BlstmPoolingEncoder(nn.Module):
             ))
 
             # Add final dropout
-            self.blstm_stack.append(nn.Dropout1d(
+            self.blstm_stack.append(nn.Dropout(
                 p=self.dropout,
             ))
             self.blstm_stack.append(nn.MaxPool1d(
@@ -56,6 +56,11 @@ class BlstmPoolingEncoder(nn.Module):
                 config.pooling_layer_positions[-1] if len(config.pooling_layer_positions) > 0 else 0),
             batch_first=True,
             dropout=self.dropout,
+        ))
+
+        # Dropout after last BLSTM layer, before final_linear
+        self.blstm_stack.append(nn.Dropout(
+            p=self.dropout,
         ))
 
     def forward(self, x: torch.Tensor, seq_len: torch.Tensor):
@@ -75,11 +80,11 @@ class BlstmPoolingEncoder(nn.Module):
         for module in self.blstm_stack:
             if isinstance(module, nn.LSTM):
                 blstm_packed_in, _ = module(blstm_packed_in)
-            elif isinstance(module, nn.Dropout1d):
-                # Assumes that this is preceded by a BLSTM layer and followed by a MaxPool1d layer
+            elif isinstance(module, nn.Dropout):
+                # Assumes that this is preceded by a BLSTM layer and followed by a MaxPool1d layer or the end of the stack
                 blstm_padded, seq_lens_before_pooling = nn.utils.rnn.pad_packed_sequence(blstm_packed_in, padding_value=0.0, batch_first=True)
                 blstm_padded = module(blstm_padded)
-                # Not re-packed here, because MaxPool1d is following
+                # Not re-packed here, because MaxPool1d or the end of the stack is following
             elif isinstance(module, nn.MaxPool1d):
                 blstm_padded = blstm_padded.permute(0, 2, 1)  # Pool along sequence length
                 blstm_pooled = module(blstm_padded)
@@ -94,8 +99,9 @@ class BlstmPoolingEncoder(nn.Module):
             else:
                 raise NotImplementedError
 
-
-        blstm_out, subsampled_seq_len = nn.utils.rnn.pad_packed_sequence(blstm_packed_in, padding_value=0.0, batch_first=True)
+        # Final layer was dropout
+        blstm_out = blstm_padded
+        subsampled_seq_len = seq_lens_before_pooling
 
         return blstm_out, subsampled_seq_len
 
