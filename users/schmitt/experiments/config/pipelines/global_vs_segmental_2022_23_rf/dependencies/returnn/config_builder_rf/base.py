@@ -338,6 +338,14 @@ class ConfigBuilderRF(ABC):
     if base_model_scale != 1.0:
       config_dict["beam_search_opts"]["base_model_scale"] = base_model_scale
 
+    blank_penalty = opts.get("blank_penalty")
+    if blank_penalty:
+      config_dict["beam_search_opts"]["blank_penalty"] = blank_penalty
+
+    blank_scale = opts.get("blank_scale")
+    if blank_scale and blank_scale != 1.0:
+      config_dict["beam_search_opts"]["blank_scale"] = blank_scale
+
     external_aed_opts = opts.get("external_aed_opts", None)
     if external_aed_opts is not None:
       config_dict["external_aed_kwargs"] = {"test": "test"}

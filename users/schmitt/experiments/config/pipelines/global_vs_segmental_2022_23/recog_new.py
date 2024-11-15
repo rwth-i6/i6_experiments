@@ -338,6 +338,14 @@ class ReturnnDecodingExperiment(DecodingExperiment, ABC):
     base_model_scale = self.recog_opts.get("base_model_scale", 1.0)
     self.alias += f"/scale-{base_model_scale:.2f}"
 
+    blank_penalty = self.recog_opts.get("blank_penalty")
+    if blank_penalty:
+      self.alias += f"_b-pen-{blank_penalty:.1f}"
+
+    blank_scale = self.recog_opts.get("blank_scale")
+    if blank_scale:
+      self.alias += f"_b-scale-{blank_scale:.1f}"
+
     external_aed_opts = self.recog_opts.get("external_aed_opts")
     if external_aed_opts is not None:
       self.alias = f"{self.alias}_w-ext-aed-scale-{external_aed_opts['scale']}"

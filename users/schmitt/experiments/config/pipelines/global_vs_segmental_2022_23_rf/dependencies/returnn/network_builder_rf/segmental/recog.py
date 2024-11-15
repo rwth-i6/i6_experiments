@@ -244,6 +244,8 @@ def get_score(
         subtract_ilm_eos_score: bool = False,
         separate_readout_alpha: Optional[float] = None,
 ) -> Tuple[Tensor, State, Optional[State], Optional[State], Optional[State], Optional[State], Tensor]:
+        blank_penalty: Optional[float] = None,
+        blank_scale: Optional[float] = None,
   # ------------------- label step -------------------
 
   center_positions = rf.minimum(
@@ -498,6 +500,10 @@ def get_score(
     emit_log_prob = rf.log(rf.sigmoid(blank_logits))
     emit_log_prob = rf.squeeze(emit_log_prob, axis=emit_log_prob.feature_dim)
     blank_log_prob = rf.log(rf.sigmoid(-blank_logits))
+    if blank_penalty:
+      blank_log_prob -= blank_penalty
+    if blank_scale:
+      blank_log_prob *= blank_scale
 
     blank_log_prob += external_lm_eos_scale * lm_eos_log_prob + aed_eos_log_prob
     if subtract_ilm_eos_score:
@@ -533,6 +539,8 @@ def model_recog(
         cheating_targets: Optional[Tensor] = None,
         cheating_targets_spatial_dim: Optional[Dim] = None,
         separate_readout_alpha: Optional[float] = None,
+        blank_penalty: Optional[float] = None,
+        blank_scale: Optional[float] = None,
         add_lm_eos_to_non_blank_end_hyps: bool = False,
         cheating_target_is_alignment: bool = False,
 ) -> Tuple[Tensor, Tensor, Dim, Tensor, Dim, Dim, Tensor]:
@@ -833,6 +841,8 @@ def model_recog(
       external_aed_scale=external_aed_scale,
       subtract_ilm_eos_score=subtract_ilm_eos_score,
       separate_readout_alpha=separate_readout_alpha,
+      blank_penalty=blank_penalty,
+      blank_scale=blank_scale,
     )
 
     if i == T:
