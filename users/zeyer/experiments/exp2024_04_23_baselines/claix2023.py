@@ -322,7 +322,7 @@ def py():
     )
 
     for vocab, sample, alpha in [
-        ("spm10k", "bpe", 0.01),  # (5.93 without max seq len on audio)
+        ("spm10k", "bpe", 0.01),  # 6.01 (5.93 without max seq len on audio)
         # ("spm512", None, None),  # 6.08 (11gb)
         # ("spm512", "bpe", 0.001),  # 6.05 (11gb)
         # ("spm512", "bpe", 0.005),  # 6.01 (11gb)
@@ -386,7 +386,7 @@ def py():
         )
 
     # Another baseline.
-    ctc_train_exp(
+    ctc_train_exp(  # {"dev-clean": 2.36, "dev-other": 6.14, "test-clean": 2.56, "test-other": 6.15}
         f"n12-auxAED-b200k-spm512-bpeSample0005",
         config_96gb_bf16_accgrad1,
         model_config={
@@ -423,8 +423,11 @@ def py():
     from .optim_ext.zipformer_scaled_adam import ScaledAdam
 
     # ScaledAdam.
+    # n12-auxAED-b200k-optScaledAdam-spm512-bpeSample0005: 13.89
+    # TODO what now? (see also below the LM exp) maybe also impl weight decay?
+    # Try higher lr.
     ctc_train_exp(
-        f"n12-auxAED-b200k-optScaledAdam-spm512-bpeSample0005",
+        f"n12-auxAED-b200k-optScaledAdam-lr1e_2-spm512-bpeSample0005",
         config_96gb_bf16_accgrad1,
         model_config={
             "enc_conformer_layer": rf.build_dict(
@@ -438,7 +441,7 @@ def py():
             "num_enc_layers": 12,
         },
         config_updates={
-            **_get_cfg_lrlin_oclr_by_bs_nep_v3(200_000, 100, batch_size_factor=_batch_size_factor),
+            **_get_cfg_lrlin_oclr_by_bs_nep_v3(200_000, 100, batch_size_factor=_batch_size_factor, peak_lr=1e-2),
             "optimizer.class": rf.build_dict(ScaledAdam)["class"],
             "optimizer.clipping_scale": 2.0,
             "__train_audio_preprocess": speed_pert_librosa_config,
@@ -1214,45 +1217,14 @@ def py():
 
     # laplace10k with shuffling batches.
     # online_shuffle_batches=10: 39.55 PPL
-    # Now try 100.
-    train(
-        "lm/trafo-n24-d512-gelu-drop0-b2k_80k-laplace10k-shuffleBatch100-spm10k",
-        config=dict_update_deep(
-            config_96gb_bf16_accgrad1,
-            {
-                **_get_cfg_lrlin_oclr_by_bs_nep_v3(80_000, 100, batch_size_factor=1),
-                "max_seqs": 2_000,
-                "optimizer.weight_decay": 1e-2,
-                "calculate_exp_loss": True,
-                "online_shuffle_batches": 100,
-            },
-        ),
-        post_config={"log_grad_norm": True},
-        train_dataset=get_librispeech_lm_dataset(
-            vocab="spm10k", train_epoch_split=20, train_sort_laplace_num_seqs=10_000
-        ),
-        model_def=ModelDefWithCfg(
-            lm_model_def,
-            {
-                "_model_def_dict": rf.build_dict(
-                    TransformerDecoder,
-                    encoder_dim=None,
-                    num_layers=24,
-                    model_dim=512,
-                    ff_activation=rf.build_dict(rf.gelu),
-                    dropout=0.0,
-                    att_dropout=0.0,
-                )
-            },
-        ),
-        train_def=lm_train_def,
-        # avoid oom
-        env_updates={"PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"},
-    )
+    # Now try 100 (trafo-n24-d512-gelu-drop0-b2k_80k-laplace10k-shuffleBatch100-spm10k): 39.41 PPL
 
     # laplace100k in the first 90% epochs, then disable laplace for remaining 10%.
+    # (baseline, 100% laplace100k: 39.85 PPL)
+    # (trafo-n24-d512-gelu-drop0-b2k_80k-laplace100k_10None-shuffleBatch100-spm10k) 39.55
+    # Try beginning and end of the training.
     train(
-        "lm/trafo-n24-d512-gelu-drop0-b2k_80k-laplace100k_10None-shuffleBatch100-spm10k",
+        "lm/trafo-n24-d512-gelu-drop0-b2k_80k-laplace100k_be10None-shuffleBatch100-spm10k",
         config=dict_update_deep(
             config_96gb_bf16_accgrad1,
             {
@@ -1268,7 +1240,9 @@ def py():
             vocab="spm10k",
             train_epoch_split=20,
             train_sort_order=StepFunction(
-                {90: "laplace:.100000", 91: "random"}, kw_name="epoch", ignore_other_kwargs=True
+                {9: "random", 10: "laplace:.100000", 90: "laplace:.100000", 91: "random"},
+                kw_name="epoch",
+                ignore_other_kwargs=True,
             ),
         ),
         model_def=ModelDefWithCfg(
@@ -1296,12 +1270,17 @@ def py():
     # Scaled Adam with higher LR (lr1e_2).
     # trafo-n24-d512-gelu-drop0-b2k_80k-optScaledAdam-lr1e_2-laplace10k-shuffleBatch10-spm10k: 40.23
     # Even higher, default from Icefall (0.045).
+    # trafo-n24-d512-gelu-drop0-b2k_80k-optScaledAdam-lr0.045-laplace10k-shuffleBatch10-spm10k: 40.38 PPL
+    # TODO what now? tune LR further? tune LR schedule? some of the other hyper params?
+    # Try scaling also low, lowest LR.
     train(
-        "lm/trafo-n24-d512-gelu-drop0-b2k_80k-optScaledAdam-lr0.045-laplace10k-shuffleBatch10-spm10k",
+        "lm/trafo-n24-d512-gelu-drop0-b2k_80k-optScaledAdam-lr1e_2a-laplace10k-shuffleBatch10-spm10k",
         config=dict_update_deep(
             config_96gb_bf16_accgrad1,
             {
-                **_get_cfg_lrlin_oclr_by_bs_nep_v3(80_000, 100, batch_size_factor=1, peak_lr=0.045),
+                **_get_cfg_lrlin_oclr_by_bs_nep_v3(
+                    80_000, 100, batch_size_factor=1, peak_lr=1e-2, low_lr=1e-4, lowest_lr=1e-5
+                ),
                 "max_seqs": 2_000,
                 "optimizer.class": rf.build_dict(ScaledAdam)["class"],
                 "optimizer.clipping_scale": 2.0,
