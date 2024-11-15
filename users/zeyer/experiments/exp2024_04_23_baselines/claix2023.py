@@ -1180,7 +1180,8 @@ def py():
     # laplace10k again, no shuffling, no accgrad. (But note: accgrad2 was slightly better here than accgrad1.)
     # (trafo-n24-d512-gelu-drop0-b2k_80k-laplace10k-spm10k) -> 39.52
     # laplace1k: 38.69, laplace10k: 39.52, laplace100k: 41.91
-    # Now without laplace at all.
+    # Now without laplace at all (laplaceNone):
+    # (trafo-n24-d512-gelu-drop0-b2k_80k-laplaceNone-spm10k) -> 38.45 PPL.
     train(
         "lm/trafo-n24-d512-gelu-drop0-b2k_80k-laplaceNone-spm10k",
         config=dict_update_deep(
