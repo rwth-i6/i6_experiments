@@ -143,14 +143,14 @@ def py():
         #     "-featBN-speedpertV2-bpe10k-bpeSample001",
         #     "bpe10k",
         # ),
-        # (  # ctc forced align: 84.9/64.2ms
-        #     "base-bpe10k-blankSep",  # 5.98/6.13
-        #     "v6-relPosAttDef"
-        #     "-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k"
-        #     "-featBN-speedpertV2-bpe10k-bpeSample001"
-        #     "-blankSep",
-        #     "bpe10k",
-        # ),
+        (  # ctc forced align: 84.9/64.2ms
+            "base-bpe10k-blankSep",  # 5.98/6.13
+            "v6-relPosAttDef"
+            "-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k"
+            "-featBN-speedpertV2-bpe10k-bpeSample001"
+            "-blankSep",
+            "bpe10k",
+        ),
         # (
         #     "ebranchformer",  # 5.54/5.69
         #     # output/ctc/v6-EBranchformer-relPosAttDef-noBias-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-featBN-speedpertV2-spm10k-bpeSample001/recog_results_best
