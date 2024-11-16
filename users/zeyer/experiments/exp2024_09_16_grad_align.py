@@ -229,7 +229,7 @@ def py():
             ],
             *[
                 (
-                    f"-blankStopGrad-inclBlankState-aed{1 - ctc_scale}-ctc{ctc_scale}-p0.1",
+                    f"-blankStopGrad-inclBlankState-aed{round(1 - ctc_scale, 5)}-ctc{ctc_scale}-p0.1",
                     {
                         "stop_grad_blank": True,
                         "ctc_partial_scores_include_next_blank": True,
