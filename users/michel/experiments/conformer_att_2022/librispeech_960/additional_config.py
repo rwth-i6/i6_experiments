@@ -1,4 +1,4 @@
-from i6_experiments.users.zeineldeen.models.lm.transformer_lm import TransformerLM
+from i6_experiments.users.michel.models.lm.transformer_lm import TransformerLM
 from .attention_asr_config import ConformerEncoderArgs, TransformerDecoderArgs, ConformerDecoderArgs
 
 

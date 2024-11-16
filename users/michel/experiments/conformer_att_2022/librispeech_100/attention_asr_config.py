@@ -3,14 +3,14 @@ import copy
 from typing import Any, Dict, Optional
 from dataclasses import dataclass, asdict
 
-from i6_experiments.users.zeineldeen.models.asr.encoder.conformer_encoder import (
+from i6_experiments.users.michel.models.asr.encoder.conformer_encoder import (
     ConformerEncoder,
 )
-from i6_experiments.users.zeineldeen.models.asr.decoder.transformer_decoder import (
+from i6_experiments.users.michel.models.asr.decoder.transformer_decoder import (
     TransformerDecoder,
 )
-from i6_experiments.users.zeineldeen.models.asr.decoder.rnn_decoder import RNNDecoder
-from i6_experiments.users.zeineldeen.models.lm.external_lm_decoder import (
+from i6_experiments.users.michel.models.asr.decoder.rnn_decoder import RNNDecoder
+from i6_experiments.users.michel.models.lm.external_lm_decoder import (
     ExternalLMDecoder,
 )
 

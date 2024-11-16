@@ -4,41 +4,41 @@ import numpy
 
 from i6_core.returnn.training import Checkpoint
 
-from i6_experiments.users.zeineldeen.experiments.conformer_att_2022.librispeech_960.attention_asr_config import (
+from i6_experiments.users.michel.experiments.conformer_att_2022.librispeech_960.attention_asr_config import (
     create_config,
     ConformerEncoderArgs,
     TransformerDecoderArgs,
     RNNDecoderArgs,
     ConformerDecoderArgs,
 )
-from i6_experiments.users.zeineldeen.experiments.conformer_att_2022.librispeech_960.additional_config import (
+from i6_experiments.users.michel.experiments.conformer_att_2022.librispeech_960.additional_config import (
     apply_fairseq_init_to_conformer,
     apply_fairseq_init_to_transformer_decoder,
     reset_params_init,
 )
-from i6_experiments.users.zeineldeen.experiments.conformer_att_2022.librispeech_960.data import (
+from i6_experiments.users.michel.experiments.conformer_att_2022.librispeech_960.data import (
     build_training_datasets,
     build_test_dataset,
 )
-from i6_experiments.users.zeineldeen.experiments.conformer_att_2022.librispeech_960.default_tools import (
+from i6_experiments.users.michel.experiments.conformer_att_2022.librispeech_960.default_tools import (
     RETURNN_EXE,
     RETURNN_ROOT,
     RETURNN_CPU_EXE,
 )
-from i6_experiments.users.zeineldeen.experiments.conformer_att_2022.librispeech_960.feature_extraction_net import (
+from i6_experiments.users.michel.experiments.conformer_att_2022.librispeech_960.feature_extraction_net import (
     log10_net_10ms,
     log10_net_10ms_long_bn,
 )
-from i6_experiments.users.zeineldeen.experiments.conformer_att_2022.librispeech_960.pipeline import (
+from i6_experiments.users.michel.experiments.conformer_att_2022.librispeech_960.pipeline import (
     training,
     search,
     get_average_checkpoint,
     get_best_checkpoint,
     search_single,
 )
-from i6_experiments.users.zeineldeen.models.lm import generic_lm
-from i6_experiments.users.zeineldeen.models.lm.transformer_lm import TransformerLM
-from i6_experiments.users.zeineldeen.experiments.conformer_att_2022.librispeech_960 import (
+from i6_experiments.users.michel.models.lm import generic_lm
+from i6_experiments.users.michel.models.lm.transformer_lm import TransformerLM
+from i6_experiments.users.michel.experiments.conformer_att_2022.librispeech_960 import (
     ilm_helpers,
 )
 from i6_experiments.users.rossenbach.experiments.librispeech.kazuki_lm.experiment import (
@@ -46,7 +46,7 @@ from i6_experiments.users.rossenbach.experiments.librispeech.kazuki_lm.experimen
     ZeineldeenLM,
 )
 
-from i6_experiments.users.zeineldeen.experiments.conformer_att_2022.librispeech_960.search_helpers import (
+from i6_experiments.users.michel.experiments.conformer_att_2022.librispeech_960.search_helpers import (
     rescore_att_ctc_search,
 )
 

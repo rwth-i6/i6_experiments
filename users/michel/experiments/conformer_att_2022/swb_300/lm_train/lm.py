@@ -5,12 +5,12 @@ from typing import Any, Dict
 
 from i6_core.returnn.training import ReturnnTrainingJob
 
-from i6_experiments.users.zeineldeen.experiments.conformer_att_2022.swb_300.default_tools import (
+from i6_experiments.users.michel.experiments.conformer_att_2022.swb_300.default_tools import (
     RETURNN_EXE,
     RETURNN_ROOT,
 )
-from i6_experiments.users.zeineldeen.experiments.conformer_att_2022.swb_300.lm_train.lm_data import build_training_data
-from i6_experiments.users.zeineldeen.experiments.conformer_att_2022.swb_300.lm_train.lm_config import (
+from i6_experiments.users.michel.experiments.conformer_att_2022.swb_300.lm_train.lm_data import build_training_data
+from i6_experiments.users.michel.experiments.conformer_att_2022.swb_300.lm_train.lm_config import (
     get_training_config,
 )
 

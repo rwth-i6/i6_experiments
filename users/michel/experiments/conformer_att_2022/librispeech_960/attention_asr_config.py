@@ -5,12 +5,12 @@ import copy
 from typing import Any, Dict, Optional, List
 from dataclasses import dataclass, asdict
 
-from i6_experiments.users.zeineldeen.models.asr.encoder.conformer_encoder import ConformerEncoder
-from i6_experiments.users.zeineldeen.models.asr.decoder.transformer_decoder import TransformerDecoder
-from i6_experiments.users.zeineldeen.models.asr.decoder.conformer_decoder import ConformerDecoder
-from i6_experiments.users.zeineldeen.models.asr.decoder.rnn_decoder import RNNDecoder
-from i6_experiments.users.zeineldeen.models.lm.external_lm_decoder import ExternalLMDecoder
-from i6_experiments.users.zeineldeen.experiments.conformer_att_2022.librispeech_960.search_helpers import (
+from i6_experiments.users.michel.models.asr.encoder.conformer_encoder import ConformerEncoder
+from i6_experiments.users.michel.models.asr.decoder.transformer_decoder import TransformerDecoder
+from i6_experiments.users.michel.models.asr.decoder.conformer_decoder import ConformerDecoder
+from i6_experiments.users.michel.models.asr.decoder.rnn_decoder import RNNDecoder
+from i6_experiments.users.michel.models.lm.external_lm_decoder import ExternalLMDecoder
+from i6_experiments.users.michel.experiments.conformer_att_2022.librispeech_960.search_helpers import (
     add_joint_ctc_att_subnet,
     add_filter_blank_and_merge_labels_layers,
     create_ctc_greedy_decoder,
@@ -913,7 +913,7 @@ def create_config(
             staged_network_dict[ep] = base_net
 
     if seq_train_opts:
-        from i6_experiments.users.zeineldeen.experiments.conformer_att_2022.librispeech_960.seq_train_helpers import (
+        from i6_experiments.users.michel.experiments.conformer_att_2022.librispeech_960.seq_train_helpers import (
             add_double_softmax,
             add_min_wer,
             add_mmi,

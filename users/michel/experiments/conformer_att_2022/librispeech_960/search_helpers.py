@@ -609,7 +609,7 @@ def rescore_att_ctc_search(
         ReturnnComputeWERJob,
     )
     from i6_core.returnn.forward import ReturnnForwardJob
-    from i6_experiments.users.zeineldeen.experiments.conformer_att_2022.librispeech_960.helper_jobs.search import (
+    from i6_experiments.users.michel.experiments.conformer_att_2022.librispeech_960.helper_jobs.search import (
         SearchTakeBestRescore,
     )
 

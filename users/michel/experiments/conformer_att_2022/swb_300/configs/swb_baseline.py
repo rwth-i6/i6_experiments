@@ -3,38 +3,38 @@ import copy, os
 from sisyphus import *
 import numpy
 
-from i6_experiments.users.zeineldeen.experiments.conformer_att_2022.librispeech_960.attention_asr_config import (
+from i6_experiments.users.michel.experiments.conformer_att_2022.librispeech_960.attention_asr_config import (
     create_config,
     ConformerEncoderArgs,
     TransformerDecoderArgs,
     RNNDecoderArgs,
     ConformerDecoderArgs,
 )
-from i6_experiments.users.zeineldeen.experiments.conformer_att_2022.librispeech_960.additional_config import (
+from i6_experiments.users.michel.experiments.conformer_att_2022.librispeech_960.additional_config import (
     apply_fairseq_init_to_conformer,
     apply_fairseq_init_to_transformer_decoder,
 )
-from i6_experiments.users.zeineldeen.experiments.conformer_att_2022.swb_300.data import (
+from i6_experiments.users.michel.experiments.conformer_att_2022.swb_300.data import (
     build_training_datasets,
     build_test_dataset,
 )
-from i6_experiments.users.zeineldeen.experiments.conformer_att_2022.swb_300.default_tools import (
+from i6_experiments.users.michel.experiments.conformer_att_2022.swb_300.default_tools import (
     RETURNN_ROOT,
     RETURNN_CPU_EXE,
 )
-from i6_experiments.users.zeineldeen.experiments.conformer_att_2022.swb_300.feature_extraction_net import (
+from i6_experiments.users.michel.experiments.conformer_att_2022.swb_300.feature_extraction_net import (
     log10_net_10ms,
 )
-from i6_experiments.users.zeineldeen.experiments.conformer_att_2022.swb_300.pipeline import (
+from i6_experiments.users.michel.experiments.conformer_att_2022.swb_300.pipeline import (
     training,
     search,
     get_average_checkpoint,
     get_best_checkpoint,
     search_single,
 )
-from i6_experiments.users.zeineldeen.models.lm import generic_lm
-from i6_experiments.users.zeineldeen.models.lm.transformer_lm import TransformerLM
-from i6_experiments.users.zeineldeen.experiments.conformer_att_2022.librispeech_960 import ilm_helpers
+from i6_experiments.users.michel.models.lm import generic_lm
+from i6_experiments.users.michel.models.lm.transformer_lm import TransformerLM
+from i6_experiments.users.michel.experiments.conformer_att_2022.librispeech_960 import ilm_helpers
 from i6_experiments.users.rossenbach.experiments.librispeech.kazuki_lm.experiment import get_lm, ZeineldeenLM
 
 train_jobs_map = {}  # dict[str, ReturnnTrainJob]

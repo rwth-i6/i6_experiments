@@ -4,10 +4,10 @@ from typing import Dict, Any
 
 from i6_core.returnn import CodeWrapper
 from i6_experiments.common.datasets.switchboard.bpe import get_subword_nmt_bpe
-from i6_experiments.users.zeineldeen.experiments.conformer_att_2022.swb_300.common.switchboard.corpus_train import (
+from i6_experiments.users.michel.experiments.conformer_att_2022.swb_300.common.switchboard.corpus_train import (
     get_spoken_form_train_bliss_corpus_ldc_ogg,
 )
-from i6_experiments.users.zeineldeen.experiments.conformer_att_2022.swb_300.common.switchboard.corpus_eval import (
+from i6_experiments.users.michel.experiments.conformer_att_2022.swb_300.common.switchboard.corpus_eval import (
     get_test_data_dict,
     get_test_data_ogg_dict,
     get_hub5e00_cv_ogg,

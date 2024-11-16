@@ -1,7 +1,7 @@
 from i6_core.returnn.config import ReturnnConfig
 
-from i6_experiments.users.zeineldeen.models.lm.transformer_lm import TransformerLM
-from i6_experiments.users.zeineldeen.experiments.conformer_att_2022.swb_300.lm_train.lm_data import (
+from i6_experiments.users.michel.models.lm.transformer_lm import TransformerLM
+from i6_experiments.users.michel.experiments.conformer_att_2022.swb_300.lm_train.lm_data import (
     TrainingDatasets,
     SOURCE_DATASTREAM_KEY,
     TARGET_DATASTREAN_KEY,
