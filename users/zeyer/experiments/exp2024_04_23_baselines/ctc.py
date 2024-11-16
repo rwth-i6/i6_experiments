@@ -817,7 +817,31 @@ def py():
         ],
     )
 
-    # TODO with prior... as alternative to lpNormedGrad
+    for am_scale, prior_scale in [(0.5, 0.2)]:
+        train_exp(
+            "v6-relPosAttDef-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-featBN"
+            f"-speedpertV2-spm10k-bpeSample001-am{am_scale}-prior{prior_scale}",
+            config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
+            model_config={
+                "enc_conformer_layer": enc_conformer_layer_default,
+                "feature_batch_norm": True,
+                "ctc_am_scale": am_scale,
+                "ctc_prior_scale": prior_scale,
+                "ctc_prior_type": "batch",
+            },
+            config_updates={
+                **_get_cfg_lrlin_oclr_by_bs_nep(15_000, 500),
+                "optimizer.weight_decay": 1e-2,
+                "__train_audio_preprocess": speed_pert_librosa_config,
+                "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
+                "aux_attention_decoder": rf.build_dict(TransformerDecoder, num_layers=6),  # purely used for training
+            },
+            vocab="spm10k",
+            train_vocab_opts={"other_opts": {"class": "SamplingBytePairEncoding", "breadth_prob": 0.01}},
+            epilog=[
+                serialization.NonhashedCode(f"sys.path.append({gs.BASE_DIR + '/projects/2024-alignment-analysis'!r})\n")
+            ],
+        )
 
     # ffGated (and also noBias). (Baseline: 5.77)
     # train_exp(  # 6.01, so worse
