@@ -213,6 +213,17 @@ def py():
             #     "-blankStopGrad-inclBlankStateBothPrev-p0.1",
             #     {"stop_grad_blank": True, "ctc_partial_scores_include_next_blank": "both_prev", "grad_norm_p": 0.1},
             # ),
+            (
+                "-blankStopGrad-inclBlankState-aed0.1-ctc0.3-p0.1",
+                {
+                    "stop_grad_blank": True,
+                    "ctc_partial_scores_include_next_blank": True,
+                    "grad_norm_p": 0.1,
+                    "aed_scale": 0.1,
+                    "ctc_scale": 0.3,
+                    "aux_attention_decoder": rf.build_dict(TransformerDecoder, num_layers=6),  # match the model...
+                },
+            ),
         ]:
             grad_opts = grad_opts.copy()
             # base model
@@ -798,6 +809,29 @@ def _ctc_model_get_input_grads_step(*, model: CtcModel, extern_data: TensorDict,
             blank_index=model.blank_idx,
             include_next_blank=config.typed_value("ctc_partial_scores_include_next_blank", False),
         )  # [B,T_out]
+
+        if config.typed_value("ctc_scale", 1.0) != 1.0:
+            scores = scores * config.typed_value("ctc_scale")
+
+        if config.typed_value("aed_scale", 0.0) != 0.0:
+            assert model.decoder
+            batch_dims = targets.remaining_dims(targets_spatial_dim)
+            # Just shift right, i.e. add BOS, cut off the last,
+            # because we do not need the EOS log prob.
+            aed_input_labels = rf.shift_right(targets, axis=targets_spatial_dim, pad_value=model.bos_idx)
+
+            aed_logits, _ = model.decoder(
+                aed_input_labels,
+                spatial_dim=targets_spatial_dim,
+                encoder=model.decoder.transform_encoder(enc, axis=enc_spatial_dim),
+                state=model.decoder.default_initial_state(batch_dims=batch_dims),
+            )
+            aed_log_prob = rf.log_softmax(aed_logits, axis=model.target_dim)  # [B,T_out,D]
+            aed_scores = rf.cross_entropy(
+                target=targets, estimated=aed_log_prob, estimated_type="log-probs", axis=model.target_dim
+            )  # [B,T_out]
+            scores += aed_scores * config.typed_value("aed_scale")
+
         scores.mark_as_output("partial_scores")
         scores_ta = TensorArray.unstack(scores, axis=targets_spatial_dim)
 
