@@ -215,20 +215,6 @@ def py():
             # ),
             *[
                 (
-                    f"-blankStopGrad-inclBlankState-aed1-ctc{ctc_scale}-p0.1",
-                    {
-                        "stop_grad_blank": True,
-                        "ctc_partial_scores_include_next_blank": True,
-                        "grad_norm_p": 0.1,
-                        "aed_scale": 1,
-                        "ctc_scale": ctc_scale,
-                        "aux_attention_decoder": rf.build_dict(TransformerDecoder, num_layers=6),  # match the model...
-                    },
-                )
-                for ctc_scale in [0, 0.1, 0.2, 0.3, 0.4, 0.5, 1]
-            ],
-            *[
-                (
                     f"-blankStopGrad-inclBlankState-aed{round(1 - ctc_scale, 5)}-ctc{ctc_scale}-p0.1",
                     {
                         "stop_grad_blank": True,
@@ -240,7 +226,7 @@ def py():
                         # match the model...
                     },
                 )
-                for ctc_scale in [0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0]
+                for ctc_scale in [0, 0.1, 0.2, 0.3, 1.0]
             ],
         ]:
             grad_opts = grad_opts.copy()
