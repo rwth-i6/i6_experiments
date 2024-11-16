@@ -1313,46 +1313,10 @@ def py():
     # (baseline, 100% laplace100k: 39.85 PPL)
     # (trafo-n24-d512-gelu-drop0-b2k_80k-laplace100k_10None-shuffleBatch100-spm10k) 39.55
     # Try beginning and end of the training.
-    train(
-        "lm/trafo-n24-d512-gelu-drop0-b2k_80k-laplace100k_be10None-shuffleBatch100-spm10k",
-        config=dict_update_deep(
-            config_96gb_bf16_accgrad1,
-            {
-                **_get_cfg_lrlin_oclr_by_bs_nep_v3(80_000, 100, batch_size_factor=1),
-                "max_seqs": 2_000,
-                "optimizer.weight_decay": 1e-2,
-                "calculate_exp_loss": True,
-                "online_shuffle_batches": 100,
-            },
-        ),
-        post_config={"log_grad_norm": True},
-        train_dataset=get_librispeech_lm_dataset(
-            vocab="spm10k",
-            train_epoch_split=20,
-            train_sort_order=StepFunction(
-                {9: "random", 10: "laplace:.100000", 90: "laplace:.100000", 91: "random"},
-                kw_name="epoch",
-                ignore_other_kwargs=True,
-            ),
-        ),
-        model_def=ModelDefWithCfg(
-            lm_model_def,
-            {
-                "_model_def_dict": rf.build_dict(
-                    TransformerDecoder,
-                    encoder_dim=None,
-                    num_layers=24,
-                    model_dim=512,
-                    ff_activation=rf.build_dict(rf.gelu),
-                    dropout=0.0,
-                    att_dropout=0.0,
-                )
-            },
-        ),
-        train_def=lm_train_def,
-        # avoid oom
-        env_updates={"PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"},
-    )
+    # train_sort_order=StepFunction(
+    #   {9: "random", 10: "laplace:.100000", 90: "laplace:.100000", 91: "random"},
+    #   kw_name="epoch", ignore_other_kwargs=True)
+    # -> 39.9 PPL
 
     # Alternate laplace and random...
     train(
