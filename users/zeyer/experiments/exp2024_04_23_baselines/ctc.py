@@ -1895,6 +1895,10 @@ class Model(rf.Module):
         self.wb_target_dim = wb_target_dim
         self.out_blank_separated = config.bool("out_blank_separated", False)
 
+        self.ctc_am_scale = config.float("ctc_am_scale", 1.0)
+        self.ctc_prior_scale = config.float("ctc_prior_scale", 0.0)
+        self.ctc_prior_type = config.value("ctc_prior_type", "batch")
+
         if target_dim.vocab and not wb_target_dim.vocab:
             from returnn.datasets.util.vocabulary import Vocabulary
 
@@ -2060,6 +2064,19 @@ class Model(rf.Module):
             )
             log_probs.feature_dim = self.wb_target_dim
         log_probs = self._maybe_apply_on_log_probs(log_probs)
+        if self.ctc_am_scale == 1 and self.ctc_prior_scale == 0:  # fast path
+            return log_probs
+        log_probs_am = log_probs
+        log_probs = log_probs_am * self.ctc_am_scale
+        if self.ctc_prior_scale:
+            if self.ctc_prior_type == "batch":
+                log_prob_prior = rf.reduce_logsumexp(
+                    log_probs_am, axis=[dim for dim in log_probs_am.dims if dim != self.wb_target_dim]
+                )
+                assert log_prob_prior.dims == (self.wb_target_dim,)
+            else:
+                raise ValueError(f"invalid ctc_prior_type {self.ctc_prior_type!r}")
+            log_probs -= log_prob_prior * self.ctc_prior_scale
         return log_probs
 
     def _maybe_apply_on_log_probs(self, log_probs: Tensor) -> Tensor:
