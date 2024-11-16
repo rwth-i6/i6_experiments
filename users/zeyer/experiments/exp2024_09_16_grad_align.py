@@ -227,17 +227,20 @@ def py():
                 )
                 for aed_scale in [0, 0.1, 0.3, 0.5, 1, 2]
             ],
-            (
-                "-blankStopGrad-inclBlankState-aed1-ctc0-p0.1",
-                {
-                    "stop_grad_blank": True,
-                    "ctc_partial_scores_include_next_blank": True,
-                    "grad_norm_p": 0.1,
-                    "aed_scale": 1,
-                    "ctc_scale": 0,
-                    "aux_attention_decoder": rf.build_dict(TransformerDecoder, num_layers=6),  # match the model...
-                },
-            ),
+            *[
+                (
+                    f"-blankStopGrad-inclBlankState-aed1-ctc{ctc_model}-p0.1",
+                    {
+                        "stop_grad_blank": True,
+                        "ctc_partial_scores_include_next_blank": True,
+                        "grad_norm_p": 0.1,
+                        "aed_scale": 1,
+                        "ctc_scale": ctc_scale,
+                        "aux_attention_decoder": rf.build_dict(TransformerDecoder, num_layers=6),  # match the model...
+                    },
+                )
+                for ctc_scale in [0, 0.1, 0.2, 0.3, 0.4, 0.5, 1]
+            ],
         ]:
             grad_opts = grad_opts.copy()
             # base model
