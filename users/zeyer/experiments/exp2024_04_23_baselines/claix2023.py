@@ -1368,30 +1368,26 @@ def py():
     #   {9: "random", 10: "laplace:.100000", 90: "laplace:.100000", 91: "random"},
     #   kw_name="epoch", ignore_other_kwargs=True)
     # -> 39.9 PPL
-
-    # Alternate laplace and random...
+    # Alternate laplace and random (laplace100k_altNone).
+    # (trafo-n24-d512-gelu-drop0-b2k_80k-laplace100k_altNone-shuffleBatch100-spm10k)
+    # train_sort_order=StepFunction(
+    #   {i: {0: "laplace:.100000", 1: "random"}[i % 2] for i in range(1, 101)},
+    #   kw_name="epoch", ignore_other_kwargs=True)
+    # -> 39.11 PPL, weirdly PPL always goes slightly up every second epoch, but not much.
+    # But what about just training half the epochs with random sorting then?
     train(
-        "lm/trafo-n24-d512-gelu-drop0-b2k_80k-laplace100k_altNone-shuffleBatch100-spm10k",
+        "lm/trafo-n24-d512-gelu-drop0-b2k_80k-random-nEp2.5-spm10k",
         config=dict_update_deep(
             config_96gb_bf16_accgrad1,
             {
-                **_get_cfg_lrlin_oclr_by_bs_nep_v3(80_000, 100, batch_size_factor=1),
+                **_get_cfg_lrlin_oclr_by_bs_nep_v3(80_000, 50, batch_size_factor=1),
                 "max_seqs": 2_000,
                 "optimizer.weight_decay": 1e-2,
                 "calculate_exp_loss": True,
-                "online_shuffle_batches": 100,
             },
         ),
         post_config={"log_grad_norm": True},
-        train_dataset=get_librispeech_lm_dataset(
-            vocab="spm10k",
-            train_epoch_split=20,
-            train_sort_order=StepFunction(
-                {i: {0: "laplace:.100000", 1: "random"}[i % 2] for i in range(1, 101)},
-                kw_name="epoch",
-                ignore_other_kwargs=True,
-            ),
-        ),
+        train_dataset=get_librispeech_lm_dataset(vocab="spm10k", train_epoch_split=20, train_sort_order="random"),
         model_def=ModelDefWithCfg(
             lm_model_def,
             {
