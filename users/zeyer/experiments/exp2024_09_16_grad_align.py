@@ -213,14 +213,28 @@ def py():
             #     "-blankStopGrad-inclBlankStateBothPrev-p0.1",
             #     {"stop_grad_blank": True, "ctc_partial_scores_include_next_blank": "both_prev", "grad_norm_p": 0.1},
             # ),
+            *[
+                (
+                    f"-blankStopGrad-inclBlankState-aed{aed_scale}-ctc1-p0.1",
+                    {
+                        "stop_grad_blank": True,
+                        "ctc_partial_scores_include_next_blank": True,
+                        "grad_norm_p": 0.1,
+                        "aed_scale": aed_scale,
+                        "ctc_scale": 1,
+                        "aux_attention_decoder": rf.build_dict(TransformerDecoder, num_layers=6),  # match the model...
+                    },
+                )
+                for aed_scale in [0, 0.1, 0.3, 0.5, 1, 2]
+            ],
             (
-                "-blankStopGrad-inclBlankState-aed0.1-ctc0.3-p0.1",
+                "-blankStopGrad-inclBlankState-aed1-ctc0-p0.1",
                 {
                     "stop_grad_blank": True,
                     "ctc_partial_scores_include_next_blank": True,
                     "grad_norm_p": 0.1,
-                    "aed_scale": 0.1,
-                    "ctc_scale": 0.3,
+                    "aed_scale": 1,
+                    "ctc_scale": 0,
                     "aux_attention_decoder": rf.build_dict(TransformerDecoder, num_layers=6),  # match the model...
                 },
             ),
