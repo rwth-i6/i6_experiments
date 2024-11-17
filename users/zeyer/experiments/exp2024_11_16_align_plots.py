@@ -40,16 +40,58 @@ out_prefix = "output/exp2024_11_16_grad_align/"
 
 
 def all():
+    plot_audio_features()
     plot_grad_scores()
 
 
+def plot_audio_features():
+    out_fn = out_prefix + seq_tag + "/audio_features.pdf"
+    if os.path.exists(out_fn):
+        print(f"Already exists: {out_fn}")
+        return
+
+    from returnn.datasets.audio import OggZipDataset
+
+    dataset = OggZipDataset(
+        os.readlink("output/librispeech/dataset/train-clean-100"),
+        targets=None,
+        audio={"features": "log_mel_filterbank", "num_feature_filters": 120},
+        # audio={"features": "mfcc", "num_feature_filters": 80},
+    )
+    dataset.init_seq_order(epoch=1, seq_list=[seq_tag])
+    dataset.load_seqs(0, 1)
+    audio_features = dataset.get_data(0, "data")  # [T, D]
+
+    fig, ax = plt.subplots(nrows=1, ncols=1, figsize=(20, 5))
+    # audio_features is [T,D]
+    mat_ = ax.matshow(audio_features.T, cmap="Blues", aspect="auto")
+    ax.tick_params(direction="out", length=20, width=2)
+    # ax.set_title(f"{alias} for seq {seq_tag}")
+    print(f"for seq {seq_tag}")
+    ax.set_xlabel("time")
+    ax.set_ylabel("labels")
+    ax.set_ylim(ax.get_ylim()[::-1])
+    plt.gca().xaxis.tick_bottom()
+
+    divider = make_axes_locatable(ax)
+    cax = divider.append_axes("right", size="5%", pad=0.05)
+    fig.colorbar(mat_, cax=cax, orientation="vertical")
+    plt.tight_layout()
+
+    os.makedirs(os.path.dirname(out_fn), exist_ok=True)
+    print("save to:", out_fn)
+    plt.savefig(out_fn)
+
+
 def plot_grad_scores():
+    out_fn = out_prefix + seq_tag + "/visualize_grad_scores/" + input_grad_name + "/grads.pdf"
+    if os.path.exists(out_fn):
+        print(f"Already exists: {out_fn}")
+        return
+
     score_matrix_hdf = Path(f"output/exp2024_09_16_grad_align/{input_grad_name}/input_grads.hdf")
     score_matrix_data_dict = load_hdf_data(score_matrix_hdf, num_dims=2)
     basename_tags = {os.path.basename(tag): tag for tag in score_matrix_data_dict.keys()}
-
-    plot_dir = out_prefix + seq_tag + "/visualize_grad_scores/" + input_grad_name
-    os.makedirs(plot_dir, exist_ok=True)
 
     seq_tag_ = seq_tag
     if seq_tag_ not in score_matrix_data_dict:
@@ -77,11 +119,11 @@ def plot_grad_scores():
     divider = make_axes_locatable(ax)
     cax = divider.append_axes("right", size="5%", pad=0.05)
     fig.colorbar(mat_, cax=cax, orientation="vertical")
-
     plt.tight_layout()
-    fn = f"{plot_dir}/grads.pdf"
-    print("save to:", fn)
-    plt.savefig(fn)
+
+    os.makedirs(os.path.dirname(out_fn), exist_ok=True)
+    print("save to:", out_fn)
+    plt.savefig(out_fn)
 
 
 def _log_softmax(x: np.ndarray, *, axis: Optional[int] = None) -> np.ndarray:
