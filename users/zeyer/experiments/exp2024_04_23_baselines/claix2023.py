@@ -597,6 +597,8 @@ def py():
             env_updates={"PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"},
         )
 
+    # TODO normed grad...
+
     for vocab, sample, alpha in [
         ("spm10k", "bpe", 0.01),  # 6.01 (5.93 without max seq len on audio)
         # ("spm512", None, None),  # 6.08 (11gb)
