@@ -9,13 +9,14 @@ Fish: set -x PYTHONPATH tools/espnet:tools/returnn:tools/sisyphus:recipe
 Bash: export PYTHONPATH="tools/espnet:tools/returnn:tools/sisyphus:recipe"
 
 Then: python3 -c "from i6_experiments.users.zeyer.experiments.exp2024_11_16_align_plots import ... as f; f()"
-For example: python3 -c "from i6_experiments.users.zeyer.experiments.exp2024_11_16_align_plots import all; all()"
+For example:
+    python3 -c "from i6_experiments.users.zeyer.experiments.exp2024_11_16_align_plots import plot_all as f; f()"
 
 Similar as :func:`i6_experiments.users.zeyer.experiments.exp2024_09_16_grad_align.visualize_grad_scores`.
 """
 
 from __future__ import annotations
-from typing import Optional
+from typing import Optional, Callable
 import os
 import sys
 import numpy as np
@@ -39,97 +40,172 @@ input_grad_name = "ctc-grad-align/base"
 out_prefix = "output/exp2024_11_16_grad_align/"
 
 
-def all():
-    plot_audio_features()
-    plot_grad_scores()
+def plot_all():
+    plotter = Plotter(out_filename=out_prefix + seq_tag + "/combined.pdf")
+    plot_audio_features(plotter=plotter)
+    plot_grad_scores(plotter=plotter)
+    plotter.make()
 
 
-def plot_audio_features():
-    out_fn = out_prefix + seq_tag + "/audio_features.pdf"
-    if os.path.exists(out_fn):
-        print(f"Already exists: {out_fn}")
-        return
+def plot_audio_features(*, plotter: Optional[Plotter] = None):
+    out_fn_npz = out_prefix + seq_tag + "/audio_features.npz"
+    out_fn_pdf = out_prefix + seq_tag + "/audio_features.pdf"
+    if os.path.exists(out_fn_npz):
+        print(f"Already exists: {out_fn_npz}")
+        audio_features = np.load(out_fn_npz)["audio_features"]
 
-    from returnn.datasets.audio import OggZipDataset
+    else:
+        from returnn.datasets.audio import OggZipDataset
 
-    dataset = OggZipDataset(
-        os.readlink("output/librispeech/dataset/train-clean-100"),
-        targets=None,
-        audio={"features": "log_mel_filterbank", "num_feature_filters": 120},
-        # audio={"features": "mfcc", "num_feature_filters": 80},
-    )
-    dataset.init_seq_order(epoch=1, seq_list=[seq_tag])
-    dataset.load_seqs(0, 1)
-    audio_features = dataset.get_data(0, "data")  # [T, D]
+        dataset = OggZipDataset(
+            os.readlink("output/librispeech/dataset/train-clean-100"),
+            targets=None,
+            audio={"features": "log_mel_filterbank", "num_feature_filters": 120},
+            # audio={"features": "mfcc", "num_feature_filters": 80},
+        )
+        dataset.init_seq_order(epoch=1, seq_list=[seq_tag])
+        dataset.load_seqs(0, 1)
+        audio_features = dataset.get_data(0, "data")  # [T, D]
+        print(f"audio_features.shape: {audio_features.shape}")
 
-    fig, ax = plt.subplots(nrows=1, ncols=1, figsize=(20, 5))
-    # audio_features is [T,D]
-    mat_ = ax.matshow(audio_features.T, cmap="Blues", aspect="auto")
-    ax.tick_params(direction="out", length=20, width=2)
-    # ax.set_title(f"{alias} for seq {seq_tag}")
-    print(f"for seq {seq_tag}")
-    ax.set_xlabel("time")
-    ax.set_ylabel("labels")
-    ax.set_ylim(ax.get_ylim()[::-1])
-    plt.gca().xaxis.tick_bottom()
+        print("save to:", out_fn_npz)
+        np.savez(out_fn_npz, audio_features=audio_features)
 
-    divider = make_axes_locatable(ax)
-    cax = divider.append_axes("right", size="5%", pad=0.05)
-    fig.colorbar(mat_, cax=cax, orientation="vertical")
-    plt.tight_layout()
+    if not plotter:
+        plotter = Plotter(plot_at_del=True, out_filename=out_fn_pdf)
 
-    os.makedirs(os.path.dirname(out_fn), exist_ok=True)
-    print("save to:", out_fn)
-    plt.savefig(out_fn)
+    def _plot(ax):
+        # audio_features is [T,D]
+        mat_ = ax.matshow(audio_features.T, cmap="Blues", aspect="auto")
+        ax.tick_params(direction="out", length=20, width=2)
+        # ax.set_title(f"{alias} for seq {seq_tag}")
+        print(f"for seq {seq_tag}")
+
+        ax.set_ylabel("feature")
+        ax.set_ylim(ax.get_ylim()[::-1])
+        # plt.gca().xaxis.tick_bottom()
+
+        divider = make_axes_locatable(ax)
+        cax = divider.append_axes("right", size="5%", pad=0.05)
+        plotter.fig.colorbar(mat_, cax=cax, orientation="vertical")
+
+    plotter.add_plot("audio", _plot, rate=100)
 
 
-def plot_grad_scores():
-    out_fn = out_prefix + seq_tag + "/visualize_grad_scores/" + input_grad_name + "/grads.pdf"
-    if os.path.exists(out_fn):
-        print(f"Already exists: {out_fn}")
-        return
+def plot_grad_scores(*, plotter: Optional[Plotter] = None):
+    out_fn_npz = out_prefix + seq_tag + "/visualize_grad_scores/" + input_grad_name + "/grads.npz"
+    out_fn_pdf = out_prefix + seq_tag + "/visualize_grad_scores/" + input_grad_name + "/grads.pdf"
+    if os.path.exists(out_fn_npz):
+        print(f"Already exists: {out_fn_npz}")
+        data = np.load(out_fn_npz)
+        score_matrix = data["score_matrix"]
+        seq_tag_ = data["seq_tag"]
 
-    score_matrix_hdf = Path(f"output/exp2024_09_16_grad_align/{input_grad_name}/input_grads.hdf")
-    score_matrix_data_dict = load_hdf_data(score_matrix_hdf, num_dims=2)
-    basename_tags = {os.path.basename(tag): tag for tag in score_matrix_data_dict.keys()}
+    else:
+        score_matrix_hdf = Path(f"output/exp2024_09_16_grad_align/{input_grad_name}/input_grads.hdf")
+        score_matrix_data_dict = load_hdf_data(score_matrix_hdf, num_dims=2)
+        basename_tags = {os.path.basename(tag): tag for tag in score_matrix_data_dict.keys()}
 
-    seq_tag_ = seq_tag
-    if seq_tag_ not in score_matrix_data_dict:
-        if os.path.basename(seq_tag_) in basename_tags:
-            seq_tag_ = basename_tags[os.path.basename(seq_tag_)]
+        seq_tag_ = seq_tag
+        if seq_tag_ not in score_matrix_data_dict:
+            if os.path.basename(seq_tag_) in basename_tags:
+                seq_tag_ = basename_tags[os.path.basename(seq_tag_)]
 
-    score_matrix = score_matrix_data_dict[seq_tag_]  # [S, T]
+        score_matrix = score_matrix_data_dict[seq_tag_]  # [S, T]
+        print(f"load {score_matrix_hdf}: {seq_tag_}, shape {score_matrix.shape}")
+        print(f"save to:", out_fn_npz)
+        np.savez(out_fn_npz, seq_tag=seq_tag_, score_matrix=score_matrix)
+
     S, T = score_matrix.shape  # noqa
     print(f"{input_grad_name}, seq {seq_tag_}, shape (SxT) {score_matrix.shape}")
 
     score_matrix = _log_softmax(np.log(score_matrix), axis=1)  # [S, T]
 
-    alias = "log softmax"
-    fig, ax = plt.subplots(nrows=1, ncols=1, figsize=(20, 5))
-    # score_matrix is [S,T]
-    mat_ = ax.matshow(score_matrix, cmap="Blues", aspect="auto")
-    ax.tick_params(direction="out", length=20, width=2)
-    # ax.set_title(f"{alias} for seq {seq_tag}")
-    print(f"{alias} for seq {seq_tag_}")
-    ax.set_xlabel("time")
-    ax.set_ylabel("labels")
-    ax.set_ylim(ax.get_ylim()[::-1])
-    plt.gca().xaxis.tick_bottom()
+    if not plotter:
+        plotter = Plotter(plot_at_del=True, out_filename=out_fn_pdf)
 
-    divider = make_axes_locatable(ax)
-    cax = divider.append_axes("right", size="5%", pad=0.05)
-    fig.colorbar(mat_, cax=cax, orientation="vertical")
-    plt.tight_layout()
+    def _plot(ax):
+        alias = "log softmax"
+        # score_matrix is [S,T]
+        mat_ = ax.matshow(score_matrix, cmap="Blues", aspect="auto")
+        ax.tick_params(direction="out", length=20, width=2)
+        # ax.set_title(f"{alias} for seq {seq_tag}")
+        print(f"{alias} for seq {seq_tag_}")
+        ax.set_ylabel("labels")
+        ax.set_ylim(ax.get_ylim()[::-1])
+        # plt.gca().xaxis.tick_bottom()
 
-    os.makedirs(os.path.dirname(out_fn), exist_ok=True)
-    print("save to:", out_fn)
-    plt.savefig(out_fn)
+        divider = make_axes_locatable(ax)
+        cax = divider.append_axes("right", size="5%", pad=0.05)
+        plotter.fig.colorbar(mat_, cax=cax, orientation="vertical")
+
+    plotter.add_plot("grad", _plot, rate=100)
 
 
 def _log_softmax(x: np.ndarray, *, axis: Optional[int] = None) -> np.ndarray:
     max_score = np.max(x, axis=axis, keepdims=True)
     x = x - max_score
     return x - np.log(np.sum(np.exp(x), axis=axis, keepdims=True))
+
+
+class Plotter:
+    def __init__(self, *, plot_at_del: bool = False, out_filename: str):
+        self.plot_at_del = plot_at_del
+        assert out_filename.endswith(".pdf")
+        self.out_filename = out_filename
+
+        self.num_figs = 0
+        self.plot_titles = []
+        self.plot_callbacks = []
+        self.plot_rates = []
+
+        self.fig = None
+        self.ax = None
+
+    def add_plot(self, title: str, callback: Callable, *, rate: int):
+        self.plot_titles.append(title)
+        self.plot_callbacks.append(callback)
+        self.plot_rates.append(rate)
+        self.num_figs += 1
+
+    def make(self):
+        self.fig, self.ax = plt.subplots(nrows=self.num_figs, ncols=1, figsize=(20, 5 * self.num_figs))
+        if self.num_figs == 1:
+            self.ax = [self.ax]
+
+        for i, (title, callback, rate) in enumerate(zip(self.plot_titles, self.plot_callbacks, self.plot_rates)):
+            ax = self.ax[i]
+
+            callback(ax)
+
+            ax.set_xlabel("time (sec)")
+            ticks = ax.get_xticks() / rate
+            ax.set_xticklabels(ticks)
+
+            if i == self.num_figs - 1:
+                ax.tick_params(top=False, labeltop=False, bottom=True, labelbottom=True)
+                ax.xaxis.set_label_position("bottom")
+            elif i == 0:
+                ax.tick_params(top=True, labeltop=True, bottom=False, labelbottom=False)
+                ax.xaxis.set_label_position("top")
+            else:
+                ax.tick_params(top=False, labeltop=False, bottom=False, labelbottom=False)
+
+            if self.num_figs > 1:
+                # ax.set_title(title, fontweight="bold", x=0, y=1)
+                ax.set_title(title)
+                # ax.set_title(title, x=1.025, y=-0.48, fontsize=18, fontweight="bold")
+
+        # plt.gca().xaxis.tick_bottom()
+        plt.tight_layout()
+
+        os.makedirs(os.path.dirname(self.out_filename), exist_ok=True)
+        print("save to:", self.out_filename)
+        plt.savefig(self.out_filename)
+
+    def __del__(self):
+        if self.plot_at_del:
+            self.make()
 
 
 def _setup():
