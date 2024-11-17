@@ -13,11 +13,12 @@ from i6_experiments.users.berger.recipe.corpus.transform import ReplaceUnknownWo
 from i6_experiments.users.berger.recipe.returnn.hdf import BlissCorpusToTargetHdfJob
 
 
-def build_oggzip_datset_config(
+def build_oggzip_dataset_config(
     data_inputs: List[RasrDataInput],
     returnn_root: tk.Path,
     returnn_python_exe: tk.Path,
     audio_config: Optional[dict] = None,
+    target_config: Optional[dict] = None,
     extra_config: Optional[dict] = None,
     segment_files: Optional[Dict[int, tk.Path]] = None,
 ) -> dict:
@@ -34,7 +35,9 @@ def build_oggzip_datset_config(
         job.rqmt = {"cpu": 1, "mem": 4, "time": 24}
 
     oggzip_files = [job.out_ogg_zip for job in oggzip_jobs]
-    return oggzip_config_dict_for_files(oggzip_files, audio_config=audio_config, extra_config=extra_config)
+    return oggzip_config_dict_for_files(
+        oggzip_files, audio_config=audio_config, target_config=target_config, extra_config=extra_config
+    )
 
 
 def build_oggzip_label_meta_dataset_config(
@@ -49,7 +52,7 @@ def build_oggzip_label_meta_dataset_config(
 ) -> dict:
     dataset_builder = MetaDatasetBuilder()
 
-    feature_oggzip_config = build_oggzip_datset_config(
+    feature_oggzip_config = build_oggzip_dataset_config(
         data_inputs=data_inputs,
         returnn_root=returnn_root,
         returnn_python_exe=returnn_python_exe,
@@ -75,3 +78,29 @@ def build_oggzip_label_meta_dataset_config(
         name="classes", dataset_config=label_hdf_config, key_mapping={"data": "classes"}, control=False
     )
     return dataset_builder.get_dict()
+
+
+def build_oggzip_bpe_dataset_config(
+    data_inputs: List[RasrDataInput],
+    bpe_codes: tk.Path,
+    bpe_vocab: tk.Path,
+    returnn_root: tk.Path,
+    returnn_python_exe: tk.Path,
+    audio_config: Optional[dict] = None,
+    extra_config: Optional[dict] = None,
+    segment_files: Optional[Dict[int, tk.Path]] = None,
+) -> dict:
+    return build_oggzip_dataset_config(
+        data_inputs=data_inputs,
+        returnn_root=returnn_root,
+        returnn_python_exe=returnn_python_exe,
+        audio_config=audio_config,
+        target_config={
+            "class": "BytePairEncoding",
+            "unknown_label": None,
+            "bpe_file": bpe_codes,
+            "vocab_file": bpe_vocab,
+        },
+        extra_config=extra_config,
+        segment_files=segment_files,
+    )

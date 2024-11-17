@@ -1,3 +1,6 @@
+"""
+Additional functions that are added to the config to handle maximum recombination.
+"""
 
 def get_vocab_tf():
     from returnn.datasets.util.vocabulary import Vocabulary

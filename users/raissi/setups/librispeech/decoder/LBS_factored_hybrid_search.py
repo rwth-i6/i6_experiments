@@ -13,47 +13,25 @@ from sisyphus.delayed_ops import DelayedBase, Delayed
 
 Path = tk.Path
 
-import i6_core.am as am
-import i6_core.corpus as corpus_recipes
-import i6_core.lm as lm
-import i6_core.mm as mm
 import i6_core.rasr as rasr
 import i6_core.recognition as recog
+import i6_core.returnn as returnn
 
 
 from i6_experiments.users.raissi.setups.common.data.factored_label import (
     LabelInfo,
     PhoneticContext,
-    RasrStateTying,
 )
 
 from i6_experiments.users.raissi.setups.common.decoder.config import (
-    default_posterior_scales,
-    PriorInfo,
-    PosteriorScales,
     SearchParameters,
-    AlignmentParameters,
 )
 from i6_experiments.users.raissi.setups.common.decoder.BASE_factored_hybrid_search import (
     BASEFactoredHybridDecoder,
-    round2,
     RasrFeatureScorer,
     DecodingTensorMap,
-    RecognitionJobs,
-    check_prior_info,
-    get_factored_feature_scorer,
-    get_nn_precomputed_feature_scorer,
-)
-from i6_experiments.users.raissi.setups.common.decoder.factored_hybrid_feature_scorer import (
-    FactoredHybridFeatureScorer,
-)
+    DecodingJobs,
 
-from i6_experiments.users.raissi.setups.common.decoder.statistics import ExtractSearchStatisticsJob
-from i6_experiments.users.raissi.setups.common.util.tdp import format_tdp_val, format_tdp
-from i6_experiments.users.raissi.setups.common.util.argmin import ComputeArgminJob
-from i6_experiments.users.raissi.setups.common.data.typings import (
-    TDP,
-    Float,
 )
 
 
@@ -68,7 +46,7 @@ class LBSFactoredHybridDecoder(BASEFactoredHybridDecoder):
         model_path: Path,
         graph: Path,
         mixtures: Path,
-        eval_files,
+        eval_args,
         scorer: Optional[Union[recog.ScliteJob, recog.Hub5ScoreJob, recog.Hub5ScoreJob]] = None,
         tensor_map: Optional[Union[dict, DecodingTensorMap]] = None,
         is_multi_encoder_output=False,
@@ -87,7 +65,7 @@ class LBSFactoredHybridDecoder(BASEFactoredHybridDecoder):
             model_path=model_path,
             graph=graph,
             mixtures=mixtures,
-            eval_files=eval_files,
+            eval_args=eval_args,
             scorer=scorer,
             tensor_map=tensor_map,
             is_multi_encoder_output=is_multi_encoder_output,
@@ -99,22 +77,54 @@ class LBSFactoredHybridDecoder(BASEFactoredHybridDecoder):
         )
         self.trafo_lm_config = self.get_eugen_trafo_with_quant_and_compress_config()
 
-    def get_ls_kazuki_lstm_lm_config(
+    def get_kazuki_trafo_config(
         self,
+        min_batch_size: int = 0,
+        opt_batch_size: int = 64,
+        max_batch_size: int = 64,
         scale: Optional[float] = None,
     ) -> rasr.RasrConfig:
+
         assert self.library_path is not None
+        if "generic-seq2seq-dev" not in self.crp.flf_tool_exe.get_path().split('arch')[0]:
+            from i6_experiments.users.raissi.utils.default_tools import U16_RASR_GENERIC_SEQ2SEQ
+            self.crp.flf_tool_exe = U16_RASR_GENERIC_SEQ2SEQ.join_right("flf-tool.linux-x86_64-standard")
 
-        lm_model_dir = Path("/u/mgunz/gunz/dependencies/kazuki_lstmlm_20190627")
+        dependency_path = Path("/work/asr4/raissi/setups/librispeech/960-ls/dependencies/trafo-lm_kazuki/IS2019", hash_overwrite="LBS_LM_KAZUKI")
 
-        return TfRnnLmRasrConfig(
-            vocab_path=lm_model_dir.join_right("vocabulary"),
-            meta_graph_path=lm_model_dir.join_right("network.040.meta"),
-            returnn_checkpoint=returnn.Checkpoint(lm_model_dir.join_right("network.040.index")),
-            scale=scale,
-            libraries=self.library_path,
-            state_manager="lstm",
-        ).get()
+        trafo_config = rasr.RasrConfig()
+
+        #model and graph info
+        trafo_config.loader.type = "meta"
+        trafo_config.loader.meta_graph_file = dependency_path.join_right("inference.graph")
+        trafo_config.loader.saved_model_file = returnn.Checkpoint(
+            index_path=dependency_path.join_right("network.030.index"))
+        trafo_config.loader.required_libraries = self.library_path
+
+        trafo_config.type = "simple-transformer"
+        trafo_config.vocab_file = "/work/asr4/raissi/setups/librispeech/960-ls/dependencies/trafo-lm_kazuki/IS2019/vocabulary"
+        trafo_config.transform_output_negate = True
+        trafo_config.vocab_unknown_word = "<UNK>"
+
+        trafo_config.min_batch_size = min_batch_size
+        trafo_config.opt_batch_size = opt_batch_size
+        trafo_config.max_batch_size = max_batch_size
+        trafo_config.allow_reduced_history = True
+        if scale is not None:
+            trafo_config.scale = scale
+
+        #Tensor names
+        #in
+        trafo_config.input_map.info_0.param_name = "word"
+        trafo_config.input_map.info_0.tensor_name = "extern_data/placeholders/delayed/delayed"
+        trafo_config.input_map.info_0.seq_length_tensor_name = "extern_data/placeholders/delayed/delayed_dim0_size"
+        #out
+        trafo_config.output_map.info_0.param_name = "softmax"
+        trafo_config.output_map.info_0.tensor_name = "output/output_batch_major"
+
+        return trafo_config
+
+
 
     def get_eugen_trafo_with_quant_and_compress_config(
         self,
@@ -296,6 +306,7 @@ class LBSFactoredHybridDecoder(BASEFactoredHybridDecoder):
         is_min_duration=False,
         opt_lm_am=True,
         only_lm_opt=True,
+        cn_decoding: bool = False,
         keep_value=12,
         use_estimated_tdps=False,
         add_sis_alias_and_output=True,
@@ -311,7 +322,7 @@ class LBSFactoredHybridDecoder(BASEFactoredHybridDecoder):
         create_lattice: bool = True,
         adv_search_extra_config: Optional[rasr.RasrConfig] = None,
         adv_search_extra_post_config: Optional[rasr.RasrConfig] = None,
-    ) -> RecognitionJobs:
+    ) -> DecodingJobs:
         return self.recognize(
             add_sis_alias_and_output=add_sis_alias_and_output,
             calculate_stats=calculate_stats,
@@ -328,7 +339,8 @@ class LBSFactoredHybridDecoder(BASEFactoredHybridDecoder):
             num_encoder_output=num_encoder_output,
             only_lm_opt=only_lm_opt,
             opt_lm_am=opt_lm_am,
-            pre_path="decoding-eugen-trafo-lm",
+            cn_decoding=cn_decoding,
+            pre_path="decoding-trafo-lm",
             rerun_after_opt_lm=rerun_after_opt_lm,
             search_parameters=search_parameters,
             use_estimated_tdps=use_estimated_tdps,

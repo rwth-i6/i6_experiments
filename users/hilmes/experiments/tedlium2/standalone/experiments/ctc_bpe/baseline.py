@@ -294,9 +294,8 @@ def bpe_ted_1023_base():
         default_decoder_config_bpe = DecoderConfig(
             lexicon=get_text_lexicon(prefix=prefix_name_bpe, bpe_size=bpe),
             returnn_vocab=label_datastream_bpe.vocab,
-            beam_size=bpe,  # Untuned
-            beam_size_token=16,
-            # makes it much faster (0.3 search RTF -> 0.04 search RTF), but looses 0.1% WER over 128
+            beam_size=1024,  # Untuned
+            beam_size_token=16,  # makes it much faster (0.3 search RTF -> 0.04 search RTF), but looses 0.1% WER over 128
             arpa_lm=arpa_4gram_lm,
             beam_threshold=14,  # Untuned
         )
@@ -368,9 +367,8 @@ def bpe_ted_1023_base():
     default_decoder_config_bpe = DecoderConfig(
         lexicon=get_text_lexicon(prefix=prefix_name_bpe, bpe_size=bpe),
         returnn_vocab=label_datastream_bpe.vocab,
-        beam_size=bpe,  # Untuned
-        beam_size_token=16,
-        # makes it much faster (0.3 search RTF -> 0.04 search RTF), but looses 0.1% WER over 128
+        beam_size=1024,  # Untuned
+        beam_size_token=16,  # makes it much faster (0.3 search RTF -> 0.04 search RTF), but looses 0.1% WER over 128
         arpa_lm=arpa_4gram_lm,
         beam_threshold=14,  # Untuned
     )

@@ -55,7 +55,6 @@ from i6_experiments.users.raissi.setups.common.decoder.BASE_factored_hybrid_sear
 from i6_experiments.users.raissi.setups.common.features.taxonomy import FeatureType
 
 
-
 class TEDTORCHFactoredHybridSystem(TORCHFactoredHybridSystem):
     """
     this class supports both cart and factored hybrid
@@ -86,4 +85,3 @@ class TEDTORCHFactoredHybridSystem(TORCHFactoredHybridSystem):
         )
         self.recognizers = {"base": ted_decoder.TEDFactoredHybridDecoder}
         self.feature_info = dataclasses.replace(self.feature_info, feature_type=FeatureType.filterbanks)
-

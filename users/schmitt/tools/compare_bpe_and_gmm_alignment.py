@@ -4,7 +4,6 @@ import json
 import sys
 import numpy as np
 import os
-import tensorflow as tf
 import time
 import h5py
 from collections import Counter
@@ -300,6 +299,7 @@ def main():
   arg_parser.add_argument("--returnn_root", type=str)
   args = arg_parser.parse_args()
   sys.path.insert(0, args.returnn_root)
+  import tensorflow as tf
   global rnn_main
   import returnn as rnn
   import returnn.__main__ as rnn_main

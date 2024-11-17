@@ -73,6 +73,9 @@ class GlobalAttDecoder(BaseLabelDecoder):
           input_embed: rf.Tensor,
           state: Optional[rf.State] = None,
           use_mini_att: bool = False,
+          hard_att_opts: Optional[Dict] = None,
+          mask_att_opts: Optional[Dict] = None,
+          detach_att: bool = False,
   ) -> Tuple[Dict[str, rf.Tensor], rf.State]:
     """step of the inner loop"""
     if state is None:
@@ -85,6 +88,8 @@ class GlobalAttDecoder(BaseLabelDecoder):
     output_dict = {}
 
     prev_att = state.att
+    if detach_att:
+      prev_att = rf.stop_gradient(prev_att)
     prev_s_state = state.s if "lstm" in self.decoder_state else None
 
     input_embed = rf.dropout(input_embed, drop_prob=self.target_embed_dropout, axis=None)
@@ -108,7 +113,7 @@ class GlobalAttDecoder(BaseLabelDecoder):
           input_embed,
           state=state.trafo_att,
           spatial_dim=single_step_dim,
-          encoder=self.trafo_att.transform_encoder(enc, axis=enc_spatial_dim)
+          encoder=None if self.use_trafo_att_wo_cross_att else self.trafo_att.transform_encoder(enc, axis=enc_spatial_dim)
         )
       else:
         if self.use_weight_feedback:
@@ -116,12 +121,64 @@ class GlobalAttDecoder(BaseLabelDecoder):
         else:
           weight_feedback = rf.zeros((self.enc_key_total_dim,))
 
-        s_transformed = self.s_transformed(s)
-        energy_in = enc_ctx + weight_feedback + s_transformed
+        if hard_att_opts is None or rf.get_run_ctx().epoch > hard_att_opts["until_epoch"]:
+          s_transformed = self.s_transformed(s)
+          energy_in = enc_ctx + weight_feedback + s_transformed
 
-        energy = self.energy(rf.tanh(energy_in))
-        att_weights = rf.softmax(energy, axis=enc_spatial_dim)
-        att_weights = rf.dropout(att_weights, drop_prob=self.att_weight_dropout, axis=None)
+          energy = self.energy(rf.tanh(energy_in))
+
+          # set energies to -inf for the given frame indices
+          # e.g. we use this to mask the frames around h_t when we have h_t in the readout in order to force
+          # the attention to focus on the other frames
+          if mask_att_opts is not None:
+            enc_spatial_sizes = rf.copy_to_device(enc_spatial_dim.dyn_size_ext)
+            mask_frame_idx = mask_att_opts["frame_idx"]  # [B]
+            # just some heuristic
+            # i.e. we mask:
+            # 1 frame, if there are less than 6 frames
+            # 3 frames, if there are less than 9 frames
+            # 5 frames, otherwise
+            mask_dimension = (enc_spatial_sizes // 3) * 2 - 1
+            mask_dimension = rf.clip_by_value(mask_dimension, 1, 5)
+            mask_dim = Dim(dimension=mask_dimension, name="att_mask")  # [5]
+            # example mask: [-inf, -inf, -inf, 0, 0]
+            mask_range = rf.range_over_dim(mask_dim)
+            mask = rf.where(
+              mask_range < mask_dimension,
+              float("-inf"),
+              0.0
+            )
+            # move mask to correct position along the time axis
+            mask_indices = mask_range + mask_frame_idx - (mask_dimension // 2)  # [B, 5]
+            mask_indices.sparse_dim = enc_spatial_dim
+            mask_indices = rf.clip_by_value(
+              mask_indices,
+              0,
+              enc_spatial_sizes - 1
+            )
+            mask = rf.scatter(
+              mask,
+              indices=mask_indices,
+              indices_dim=mask_dim,
+            )  # [B, T]
+            energy = energy + mask
+
+          att_weights = rf.softmax(energy, axis=enc_spatial_dim)
+          att_weights = rf.dropout(att_weights, drop_prob=self.att_weight_dropout, axis=None)
+        if hard_att_opts is not None and rf.get_run_ctx().epoch <= hard_att_opts["until_epoch"] + hard_att_opts["num_interpolation_epochs"]:
+          if hard_att_opts["frame"] == "middle":
+            frame_idx = rf.copy_to_device(enc_spatial_dim.dyn_size_ext) // 2
+          else:
+            frame_idx = rf.constant(hard_att_opts["frame"], dims=enc_spatial_dim.dyn_size_ext.dims)
+          frame_idx.sparse_dim = enc_spatial_dim
+          one_hot = rf.one_hot(frame_idx)
+          one_hot = rf.expand_dim(one_hot, dim=self.att_num_heads)
+
+          if rf.get_run_ctx().epoch <= hard_att_opts["until_epoch"] and hard_att_opts["frame"] == "middle":
+            att_weights = one_hot
+          else:
+            interpolation_factor = (rf.get_run_ctx().epoch - hard_att_opts["until_epoch"]) / hard_att_opts["num_interpolation_epochs"]
+            att_weights = (1 - interpolation_factor) * one_hot + interpolation_factor * att_weights
 
         if self.use_weight_feedback:
           state_.accum_att_weights = state.accum_att_weights + att_weights * inv_fertility * 0.5
@@ -176,7 +233,7 @@ class GlobalAttEfficientDecoder(GlobalAttDecoder):
         att, _ = self.trafo_att(
           input_embed,
           spatial_dim=input_embed_spatial_dim,
-          encoder=self.trafo_att.transform_encoder(enc, axis=enc_spatial_dim),
+          encoder=None if self.use_trafo_att_wo_cross_att else self.trafo_att.transform_encoder(enc, axis=enc_spatial_dim),
           state=self.trafo_att.default_initial_state(batch_dims=batch_dims)
         )
       else:

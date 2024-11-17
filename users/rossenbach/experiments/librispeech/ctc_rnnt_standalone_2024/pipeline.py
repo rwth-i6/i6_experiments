@@ -18,9 +18,10 @@ from i6_core.returnn.training import ReturnnTrainingJob, AverageTorchCheckpoints
 from i6_core.returnn.forward import ReturnnForwardJobV2
 
 from i6_experiments.common.setups.returnn.datasets import Dataset
+from i6_experiments.users.rossenbach.tts.evaluation.nisqa import NISQAMosPredictionJob
 
 from .config import get_forward_config, get_training_config, get_prior_config, TrainingDatasets
-from .default_tools import SCTK_BINARY_PATH, RETURNN_EXE, MINI_RETURNN_ROOT
+from .default_tools import SCTK_BINARY_PATH, RETURNN_EXE, MINI_RETURNN_ROOT, NISQA_REPO
 
 
 @dataclass
@@ -55,7 +56,7 @@ def search_single(
     recognition_bliss_corpus: tk.Path,
     returnn_exe: tk.Path,
     returnn_root: tk.Path,
-    mem_rqmt: float = 10,
+    mem_rqmt: float = 12,
     use_gpu: bool = False,
 ):
     """
@@ -257,6 +258,26 @@ def tts_eval_v2(
     forward_job.add_alias(prefix_name + "/tts_eval_job")
     # evaluate_nisqa(prefix_name, forward_job.out_files["out_corpus.xml.gz"], with_bootstrap=True)
     return forward_job
+
+
+def evaluate_nisqa(
+        prefix_name: str,
+        bliss_corpus: tk.Path,
+        with_bootstrap = False,
+):
+    predict_mos_job = NISQAMosPredictionJob(bliss_corpus, nisqa_repo=NISQA_REPO)
+    predict_mos_job.add_alias(prefix_name + "/nisqa_mos")
+    tk.register_output(os.path.join(prefix_name, "nisqa_mos/average"), predict_mos_job.out_mos_average)
+    tk.register_output(os.path.join(prefix_name, "nisqa_mos/min"), predict_mos_job.out_mos_min)
+    tk.register_output(os.path.join(prefix_name, "nisqa_mos/max"), predict_mos_job.out_mos_max)
+    tk.register_output(os.path.join(prefix_name, "nisqa_mos/std_dev"), predict_mos_job.out_mos_std_dev)
+
+    if with_bootstrap:
+        from i6_experiments.users.rossenbach.tts.evaluation.nisqa import NISQAConfidenceJob
+        nisqa_confidence_job = NISQAConfidenceJob(predict_mos_job.output_dir, bliss_corpus)
+        nisqa_confidence_job.add_alias(prefix_name + "/nisqa_mos_confidence")
+        tk.register_output(os.path.join(prefix_name, "nisqa_mos/confidence_max_interval"), nisqa_confidence_job.out_max_interval_bound)
+
 
 
 @dataclass

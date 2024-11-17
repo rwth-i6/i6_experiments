@@ -26,9 +26,9 @@ def run_exps():
             n_epochs_list=(537,),
             nb_loss_scale=6.0,
             use_mgpu=True,
-            ce_aux_loss_layers=(6, 12),
-            ce_aux_loss_focal_loss_factors=(1.0, 1.0),
-            ce_aux_loss_scales=(0.3, 1.0)
+            ctc_aux_loss_layers=(6, 12),
+            ctc_aux_loss_focal_loss_factors=(1.0, 1.0),
+            ctc_aux_loss_scales=(0.3, 1.0)
     ):
       recog.center_window_returnn_frame_wise_beam_search(
         alias=train_alias,
@@ -78,9 +78,9 @@ def run_exps():
             n_epochs_list=(500,),
             nb_loss_scale=6.0,
             use_mgpu=True,
-            ce_aux_loss_layers=(6, 12),
-            ce_aux_loss_focal_loss_factors=(1.0, 1.0),
-            ce_aux_loss_scales=(0.3, 1.0),
+            ctc_aux_loss_layers=(6, 12),
+            ctc_aux_loss_focal_loss_factors=(1.0, 1.0),
+            ctc_aux_loss_scales=(0.3, 1.0),
             batch_size=10_000,
     ):
       recog.center_window_returnn_frame_wise_beam_search(

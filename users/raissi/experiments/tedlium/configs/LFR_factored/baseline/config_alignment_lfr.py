@@ -15,12 +15,14 @@ import i6_core.returnn as returnn
 import i6_core.lexicon as lexicon
 
 
-
 import i6_experiments.common.setups.rasr.util as rasr_util
 import i6_experiments.users.raissi.utils.default_tools as run_tools
 import i6_experiments.users.raissi.setups.common.helpers.train as train_helpers
 
-from i6_experiments.users.raissi.setups.common.analysis import PlotViterbiAlignmentsJob, ComputeWordLevelTimestampErrorJob
+from i6_experiments.users.raissi.setups.common.analysis import (
+    PlotViterbiAlignmentsJob,
+    ComputeWordLevelTimestampErrorJob,
+)
 
 from i6_experiments.users.raissi.setups.common.data.factored_label import RasrStateTying
 
@@ -42,7 +44,7 @@ from i6_experiments.users.raissi.utils.general_helpers import load_pickle
 from i6_experiments.users.raissi.setups.common.helpers.network.augment import (
     add_fast_bw_layer_to_returnn_config,
     augment_net_with_monophone_outputs,
-    LogLinearScales
+    LogLinearScales,
 )
 
 from i6_experiments.users.raissi.setups.tedlium.train.parameters import (
@@ -56,15 +58,12 @@ from i6_experiments.users.raissi.experiments.librispeech.configs.LFR_factored.ba
 import i6_experiments.users.raissi.experiments.tedlium.data_preparation.pipeline_base_args as ted_setups
 
 
-#ALIGNMENT
+# ALIGNMENT
 from i6_experiments.users.berger.recipe.mm.alignment import ComputeTSEJob
-from i6_experiments.users.raissi.setups.tedlium.config import (
-    TRI_GMM_ALIGNMENT,
-    GMM_ALLOPHONES
-)
+from i6_experiments.users.raissi.setups.tedlium.config import TRI_GMM_ALIGNMENT, GMM_ALLOPHONES
 
-def run(key, lr=4e-4, am_scale=0.7, tdp_scale=0.1, align=False, tune=False,
-        decode=False, decode_corpus="dev"):
+
+def run(key, lr=4e-4, am_scale=0.7, tdp_scale=0.1, align=False, tune=False, decode=False, decode_corpus="dev"):
     # ******************** Settings ********************
 
     gs.ALIAS_AND_OUTPUT_SUBDIR = os.path.splitext(os.path.basename(__file__))[0][7:]
@@ -118,17 +117,10 @@ def run(key, lr=4e-4, am_scale=0.7, tdp_scale=0.1, align=False, tune=False,
 
     s.run(steps)
     s.set_crp_pairings(dev_key="dev", test_key="test")
-    s.set_rasr_returnn_input_datas(
-        input_key="data_preparation",
-        is_cv_separate_from_train=True,
-        cv_corpus_key="dev"
-    )
-    s.update_am_setting_for_all_crps(
-        train_tdp_type="heuristic-40ms", eval_tdp_type="heuristic-40ms"
-    )
-    exp_name = f'lr{lr}-am{am_scale}-t{tdp_scale}'
+    s.set_rasr_returnn_input_datas(input_key="data_preparation", is_cv_separate_from_train=True, cv_corpus_key="dev")
+    s.update_am_setting_for_all_crps(train_tdp_type="heuristic-40ms", eval_tdp_type="heuristic-40ms")
+    exp_name = f"lr{lr}-am{am_scale}-t{tdp_scale}"
     s.set_experiment_dict(key=key, alignment="scratch", context="mono", postfix_name=exp_name)
-
 
     # ----------------------------- train -----------------------------------------------------
     blstm_args = {"spec_aug_as_data": True, "l2": hyper_params.l2}
@@ -189,13 +181,11 @@ def run(key, lr=4e-4, am_scale=0.7, tdp_scale=0.1, align=False, tune=False,
             ),
             add_extern_data_for_fullsum=True,
         )
-        s.set_returnn_config_for_experiment(
-            key=key, config_dict=return_config_dict_infer
-        )
+        s.set_returnn_config_for_experiment(key=key, config_dict=return_config_dict_infer)
 
         s.set_single_prior_returnn_rasr(
             key=key,
-            epoch=s.initial_nn_args["keep_epochs"][0] if tune else 100, 
+            epoch=s.initial_nn_args["keep_epochs"][0] if tune else 100,
             train_corpus_key=s.crp_names["train"],
             dev_corpus_key=s.crp_names["cvtrain"],
             data_share=0.3 if tune else 0.1,
@@ -215,11 +205,7 @@ def run(key, lr=4e-4, am_scale=0.7, tdp_scale=0.1, align=False, tune=False,
                 lm_gc_simple_hash=True,
                 tf_library=s.native_lstm2_path,
             )
-            cfg = (
-                recog_args.with_prior_scale(center=prior)
-                .with_tdp_scale(0.1)
-                .with_lm_scale(1.14)
-            )
+            cfg = recog_args.with_prior_scale(center=prior).with_tdp_scale(0.1).with_lm_scale(1.14)
 
             recognizer.recognize_count_lm(
                 label_info=s.label_info,
@@ -242,9 +228,7 @@ def run(key, lr=4e-4, am_scale=0.7, tdp_scale=0.1, align=False, tune=False,
                 )
                 recognizer.recognize_count_lm(
                     label_info=s.label_info,
-                    search_parameters=dataclasses.replace(
-                        best_config, we_pruning=0.6, beam=22.0, altas=None
-                    ),
+                    search_parameters=dataclasses.replace(best_config, we_pruning=0.6, beam=22.0, altas=None),
                     num_encoder_output=hyper_params.encoder_out_len,
                     rerun_after_opt_lm=True,
                     calculate_stats=False,
@@ -267,16 +251,12 @@ def run(key, lr=4e-4, am_scale=0.7, tdp_scale=0.1, align=False, tune=False,
                     prior_scale = best_config.prior_info.center_state_prior.scale
                     # the exit penalty is corrected in the get_alignment_job below
                     sp_tdp = (0.0, 3.0, "infinity", 0.0)
-                    sil_tdp = (best_config.tdp_silence[0]+3.0, 0.0, "infinity", 0.0)
+                    sil_tdp = (best_config.tdp_silence[0] + 3.0, 0.0, "infinity", 0.0)
 
                     align_cfg = (
-                        cfg.with_prior_scale(center=prior_scale)
-                        .with_tdp_speech(sp_tdp)
-                        .with_tdp_silence(sil_tdp)
+                        cfg.with_prior_scale(center=prior_scale).with_tdp_speech(sp_tdp).with_tdp_silence(sil_tdp)
                     )
-                    assert (
-                        align_cfg.tdp_scale == 1.0
-                    ), "Do not scale the tdp values during alignment"
+                    assert align_cfg.tdp_scale == 1.0, "Do not scale the tdp values during alignment"
 
                     alignment_j = aligner.get_alignment_job(
                         label_info=s.label_info,
@@ -284,17 +264,16 @@ def run(key, lr=4e-4, am_scale=0.7, tdp_scale=0.1, align=False, tune=False,
                         num_encoder_output=hyper_params.encoder_out_len,
                     )
 
-                    allophones = lexicon.StoreAllophonesJob(
-                        s.crp[s.crp_names["align.train"]]
-                    )
+                    allophones = lexicon.StoreAllophonesJob(s.crp[s.crp_names["align.train"]])
 
-                    tse_job =  ComputeTSEJob(
-                        alignment_cache=alignment_j.out_alignment_bundle ,
+                    tse_job = ComputeTSEJob(
+                        alignment_cache=alignment_j.out_alignment_bundle,
                         ref_alignment_cache=TRI_GMM_ALIGNMENT,
                         allophone_file=allophones.out_allophone_file,
                         ref_allophone_file=GMM_ALLOPHONES,
-                        upsample_factor = 4,
+                        upsample_factor=4,
                     )
                     tk.register_output("statistics/alignment/tse_out", tse_job.out_tse_frames)
+
 
 run(key="exp1", lr=4e-4, decode=True, align=True, tune=True)

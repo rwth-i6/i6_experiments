@@ -10,6 +10,7 @@ from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segment
   LibrispeechBpe10025CtcAlignmentEos,
   LibrispeechBpe1056AlignmentJointModel,
   LibrispeechBpe1056AlignmentSepModel,
+  LibrispeechBpe1056AlignmentCtcModel,
   LibrispeechBpe5048AlignmentJointModel,
   LibrispeechBpe5048AlignmentSepModel,
 )
@@ -35,6 +36,7 @@ LibrispeechBPE5048_LABELS = LibrispeechBPE5048Labels()
 # BPE alignments
 LibrispeechBPE1056_ALIGNMENT_JOINT_MODEL = LibrispeechBpe1056AlignmentJointModel()
 LibrispeechBPE1056_ALIGNMENT_SEP_MODEL = LibrispeechBpe1056AlignmentSepModel()
+LibrispeechBPE1056_CTC_ALIGNMENT = LibrispeechBpe1056AlignmentCtcModel()
 
 LibrispeechBPE5048_ALIGNMENT_JOINT_MODEL = LibrispeechBpe5048AlignmentJointModel()
 LibrispeechBPE5048_ALIGNMENT_SEP_MODEL = LibrispeechBpe5048AlignmentSepModel()

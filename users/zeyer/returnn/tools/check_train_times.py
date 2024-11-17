@@ -76,7 +76,7 @@ def _read_scores_and_learning_rates(filename: str) -> Dict[int, Dict[str, Union[
     inf = float("inf")
 
     scores_str = open(filename).read()
-    scores = eval(scores_str, {"EpochData": EpochData, "nan": nan, "inf": inf})
+    scores = eval(scores_str, {"EpochData": EpochData, "nan": nan, "inf": inf, "np": np})
     assert isinstance(scores, dict)
     return scores
 

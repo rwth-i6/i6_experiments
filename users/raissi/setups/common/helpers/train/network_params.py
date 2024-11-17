@@ -58,6 +58,7 @@ frameshift40_conformer_viterbi = GeneralNetworkParams(
     l2=1e-6, chunking="400:200", specaug_args=asdict(default_sa_args), frame_rate_reduction_ratio_factor=4
 )
 
+
 frameshift40_conformer_fullsum_mix = GeneralNetworkParams(
     l2=5e-6, specaug_args=asdict(default_sa_args), frame_rate_reduction_ratio_factor=4
 )
@@ -115,6 +116,15 @@ frameshift40_conformer_fullsum_from_scratch = GeneralNetworkParams(
     l2=5e-6,
     use_multi_task=False,
     add_mlps=False,
+    specaug_args=asdict(default_sa_args),
+    frame_rate_reduction_ratio_factor=4,
+    auxilary_loss_layers=[],
+)
+
+frameshift40_conformer_smbr = GeneralNetworkParams(
+    l2=5e-6,
+    use_multi_task=True,
+    add_mlps=True,
     specaug_args=asdict(default_sa_args),
     frame_rate_reduction_ratio_factor=4,
     auxilary_loss_layers=[],

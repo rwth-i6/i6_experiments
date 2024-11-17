@@ -8,9 +8,18 @@ from i6_core.features.common import basic_cache_flow, add_linear_transform
 from i6_core.features.extraction import FeatureExtractionJob
 from i6_core.mm.alignment import AlignmentJob
 
-from typing import Optional
+from typing import Dict
 
+from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.general.rasr.formats import \
+  RasrFormats
+from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.labels.v2.librispeech.phonemes.phonemes import LibrispeechPhonemes41, LibrispeechWords
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.labels.v2.librispeech.general import LIBRISPEECH_CORPUS
+from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.labels.v2.general import \
+  SegmentalLabelDefinition
+from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.labels.v2.librispeech.general import \
+  LibrispeechLabelDefinition
+from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.general.hyperparameters import \
+  SegmentalModelHyperparameters
 
 
 class LibrispeechGmmAlignment:
@@ -45,9 +54,7 @@ class LibrispeechGmmAlignment:
 
     self.alignment_caches = {
       "train": Path("/work/common/asr/librispeech/data/sisyphus_work_dir/i6_core/mm/alignment/AlignmentJob.oyZ7O0XJcO20/output/alignment.cache.bundle"),
-      "dev-clean": self._get_alignment_cache_bundle("dev-clean")
     }
-    # tk.register_output("ls_dev-clean_mfcc-alignment-cache", self.alignment_caches["dev-clean"])
 
   def _get_vtln_feature_cache_path(self, corpus_key: str):
     return FeatureExtractionJob(
@@ -245,4 +252,80 @@ class LibrispeechGmmAlignment:
     return net
 
 
+class LibrispeechGmmAlignmentConverted(LibrispeechPhonemes41, LibrispeechLabelDefinition, SegmentalLabelDefinition):
+  def __init__(self):
+    super().__init__()
+
+    self._alignment_paths = None
+
+  @property
+  def model_hyperparameters(self) -> SegmentalModelHyperparameters:
+    return SegmentalModelHyperparameters(
+      sos_idx=-1, target_num_labels=41, sil_idx=1, blank_idx=0, target_num_labels_wo_blank=40)
+
+  @property
+  def rasr_format_paths(self) -> RasrFormats:
+    raise NotImplementedError
+
+  @property
+  def bpe_codes_path(self) -> Path:
+    raise NotImplementedError
+
+  @property
+  def alias(self) -> str:
+    return "att-transducer-alignment"
+
+  @property
+  def alignment_paths(self) -> Dict[str, Path]:
+    if self._alignment_paths is None:
+      raise ValueError("Alignments first need to be set externally!")
+    return self._alignment_paths
+
+  @alignment_paths.setter
+  def alignment_paths(self, value):
+    assert isinstance(value, dict)
+    assert self._alignment_paths is None, "Alignment paths are already set!"
+    assert "train" in value
+    self._alignment_paths = value
+
+
+class LibrispeechGmmWordAlignment(LibrispeechWords, LibrispeechLabelDefinition, SegmentalLabelDefinition):
+  def __init__(self):
+    super().__init__()
+
+    self._alignment_paths = None
+
+  @property
+  def model_hyperparameters(self) -> SegmentalModelHyperparameters:
+    return SegmentalModelHyperparameters(
+      sos_idx=-1, target_num_labels=89116, sil_idx=1, blank_idx=0, target_num_labels_wo_blank=89115)
+
+  @property
+  def rasr_format_paths(self) -> RasrFormats:
+    raise NotImplementedError
+
+  @property
+  def bpe_codes_path(self) -> Path:
+    raise NotImplementedError
+
+  @property
+  def alias(self) -> str:
+    return "att-transducer-alignment"
+
+  @property
+  def alignment_paths(self) -> Dict[str, Path]:
+    if self._alignment_paths is None:
+      raise ValueError("Alignments first need to be set externally!")
+    return self._alignment_paths
+
+  @alignment_paths.setter
+  def alignment_paths(self, value):
+    assert isinstance(value, dict)
+    assert self._alignment_paths is None, "Alignment paths are already set!"
+    assert "train" in value
+    self._alignment_paths = value
+
+
 LIBRISPEECH_GMM_ALIGNMENT = LibrispeechGmmAlignment()
+LIBRISPEECH_GMM_ALIGNMENT_CONVERTED = LibrispeechGmmAlignmentConverted()
+LIBRISPEECH_GMM_WORD_ALIGNMENT = LibrispeechGmmWordAlignment()

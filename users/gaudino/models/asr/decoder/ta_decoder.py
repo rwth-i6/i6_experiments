@@ -1,3 +1,7 @@
+"""
+I think I tried to implement the triggered attention decoder in this file, but did not finish it and it was never used.
+"""
+
 from i6_experiments.users.zeineldeen.modules.network import ReturnnNetwork
 from i6_experiments.users.zeineldeen.modules.attention import AttentionMechanism
 

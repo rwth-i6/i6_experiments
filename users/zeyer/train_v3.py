@@ -62,7 +62,10 @@ def train(
     from i6_experiments.users.zeyer.utils.sis_setup import get_base_module
     from returnn_common import nn
 
-    unhashed_package_root, setup_base_name = get_base_module(train_def)
+    unhashed_package_root_train_def, setup_base_name_train_def = get_base_module(train_def)
+    unhashed_package_root_model_def, setup_base_name_model_def = get_base_module(
+        model_def.model_def if isinstance(model_def, ModelDefWithCfg) else model_def
+    )
 
     if train_dataset is None:
         assert task
@@ -86,12 +89,17 @@ def train(
         gpu_mem = config.pop("__gpu_mem")
     if "__num_processes" in config:
         num_processes = config.pop("__num_processes")
+    if "__mem_rqmt" in config:
+        kwargs["mem_rqmt"] = config.pop("__mem_rqmt")
+    if "__cpu_rqmt" in config:
+        kwargs["cpu_rqmt"] = config.pop("__cpu_rqmt")
     if not kwargs.get("distributed_launch_cmd"):
         kwargs["distributed_launch_cmd"] = "torchrun" if num_processes else "mpirun"
     if "__train_audio_preprocess" in config:
         train_dataset = copy.copy(train_dataset)
         assert hasattr(train_dataset, "train_audio_preprocess")
         train_dataset.train_audio_preprocess = config.pop("__train_audio_preprocess")
+    multi_proc_opts = (post_config.pop("__multi_proc_dataset_opts", None) or {}) if post_config else {}
 
     returnn_train_config_dict: Dict[str, Any] = dict(
         backend=model_def.backend,
@@ -100,12 +108,12 @@ def train(
         default_input=train_dataset.get_default_input(),
         target=train_dataset.get_default_target(),
         train=(
-            mp_ds_utils.multi_proc_dataset_opts(train_dataset.get_train_dataset())
+            mp_ds_utils.multi_proc_dataset_opts(train_dataset.get_train_dataset(), **multi_proc_opts)
             if apply_multi_proc
             else train_dataset.get_train_dataset()
         ),
         eval_datasets=(
-            mp_ds_utils.multi_proc_eval_datasets_opts(train_dataset.get_eval_datasets())
+            mp_ds_utils.multi_proc_eval_datasets_opts(train_dataset.get_eval_datasets(), **multi_proc_opts)
             if apply_multi_proc
             else train_dataset.get_eval_datasets()
         ),
@@ -145,9 +153,9 @@ def train(
                     serialization.NonhashedCode(
                         nn.ReturnnConfigSerializer.get_base_extern_data_py_code_str_direct(extern_data_raw)
                     ),
-                    *serialize_model_def(model_def, unhashed_package_root=unhashed_package_root),
+                    *serialize_model_def(model_def, unhashed_package_root=unhashed_package_root_model_def),
                     serialization.Import(
-                        train_def, import_as="_train_def", unhashed_package_root=unhashed_package_root
+                        train_def, import_as="_train_def", unhashed_package_root=unhashed_package_root_train_def
                     ),
                     # Consider the imports as non-hashed. We handle any logic changes via the explicit hash below.
                     serialization.Import(_returnn_v2_get_model, import_as="get_model", use_for_hash=False),
@@ -160,7 +168,14 @@ def train(
                             # Whatever the caller provides. This could also include another version,
                             # but this is up to the caller.
                             "extra": extra_hash,
-                            "setup_base_name": setup_base_name,
+                            **(
+                                {"setup_base_name": setup_base_name_train_def}
+                                if setup_base_name_train_def == setup_base_name_model_def
+                                else {
+                                    "setup_base_name_train_def": setup_base_name_train_def,
+                                    "setup_base_name_model_def": setup_base_name_model_def,
+                                }
+                            ),
                         }
                     ),
                     serialization.PythonEnlargeStackWorkaroundNonhashedCode,

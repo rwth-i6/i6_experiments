@@ -36,8 +36,13 @@ external_checkpoints.update({
   "luca-aed-bpe5k": PtCheckpoint(Path("/work/asr3/zeyer/schmitt/model_checkpoints/segmental_models_2022_23_rf/luca-global-aed-no-ctc-bpe5k-100ep_converted.pt")),
   "luca-aed-bpe5k-w-ctc": PtCheckpoint(Path("/work/asr3/zeyer/schmitt/model_checkpoints/segmental_models_2022_23_rf/luca-global-aed-w-ctc-bpe5k-100ep_converted.pt")),
   "luca-aed-bpe1k-w-ctc": PtCheckpoint(Path("/work/asr3/zeyer/schmitt/model_checkpoints/segmental_models_2022_23_rf/luca-global-aed-w-ctc-bpe1k-100ep_converted.pt")),
+  "luca-aed-bpe1k-w-ctc-w-aux-layers": PtCheckpoint(Path("/work/asr3/zeyer/schmitt/model_checkpoints/segmental_models_2022_23_rf/luca-global-aed-w-ctc-bpe1k-100ep_converted_w_aux_layers.pt")),
   "luca-aed-bpe1k-wo-ctc": PtCheckpoint(Path("/work/asr3/zeyer/schmitt/model_checkpoints/segmental_models_2022_23_rf/luca-global-aed-no-ctc-bpe1k-100ep_converted.pt")),
 })
+
+lm_checkpoints = {
+  "kazuki-10k": "/work/asr3/zeyer/schmitt/sisyphus_work_dirs/segmental_models_2022_23_rf/i6_experiments/users/schmitt/returnn_frontend/convert/checkpoint/ConvertTfCheckpointToRfPtJob.7haAE0Cx93dA/output/model/network.023.pt",
+}
 
 # global_att_checkpoint_w_ctc = ConvertTfCheckpointToRfPtJob(
 #   checkpoint=external_checkpoints_tf[default_import_model_name],

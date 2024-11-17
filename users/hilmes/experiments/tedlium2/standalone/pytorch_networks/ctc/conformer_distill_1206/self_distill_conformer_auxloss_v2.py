@@ -5,6 +5,7 @@ Like v1 but with the option to calculate KD only for non blank positions
 import numpy as np
 import torch
 from torch import nn
+from typing import Optional
 
 from i6_models.parts.conformer.norm import LayerNormNC
 from i6_models.assemblies.conformer.conformer_v2 import ConformerEncoderV2, ConformerEncoderV2Config, ConformerBlockV2Config
@@ -47,7 +48,7 @@ class Teacher(torch.nn.Module):
 
 
 class Model(torch.nn.Module):
-    def __init__(self, model_config_dict, distill_config_dict, **kwargs):
+    def __init__(self, model_config_dict, distill_config_dict: Optional, **kwargs):
         super().__init__()
         self.cfg = ModelConfig.from_dict(model_config_dict)
         frontend_config = self.cfg.frontend_config
@@ -82,45 +83,47 @@ class Model(torch.nn.Module):
             nn.Linear(conformer_size, self.cfg.label_target_size + 1)  # + CTC blank
             for _ in range(self.num_output_linears)
         ])
-        self.distill_config = DistillConfig.from_dict(distill_config_dict)
-        distill_frontend_config = self.distill_config.frontend_config
-        distill_conformer_size = self.distill_config.conformer_size
-        distill_conformer_config = ConformerEncoderV2Config(
-            num_layers=self.distill_config.num_layers,
-            frontend=ModuleFactoryV1(module_class=VGG4LayerActFrontendV1, cfg=distill_frontend_config),
-            block_cfg=ConformerBlockV2Config(
-                ff_cfg=ConformerPositionwiseFeedForwardV1Config(
-                    input_dim=distill_conformer_size,
-                    hidden_dim=self.distill_config.ff_dim,
-                    dropout=self.distill_config.ff_dropout,
-                    activation=nn.functional.silu,
+
+        if self.training and distill_config_dict is not None:
+            self.distill_config: DistillConfig = DistillConfig.from_dict(distill_config_dict)
+            distill_frontend_config = self.distill_config.frontend_config
+            distill_conformer_size = self.distill_config.conformer_size
+            distill_conformer_config = ConformerEncoderV2Config(
+                num_layers=self.distill_config.num_layers,
+                frontend=ModuleFactoryV1(module_class=VGG4LayerActFrontendV1, cfg=distill_frontend_config),
+                block_cfg=ConformerBlockV2Config(
+                    ff_cfg=ConformerPositionwiseFeedForwardV1Config(
+                        input_dim=distill_conformer_size,
+                        hidden_dim=self.distill_config.ff_dim,
+                        dropout=self.distill_config.ff_dropout,
+                        activation=nn.functional.silu,
+                    ),
+                    mhsa_cfg=ConformerMHSAV1Config(
+                        input_dim=distill_conformer_size,
+                        num_att_heads=self.distill_config.num_heads,
+                        att_weights_dropout=self.distill_config.att_weights_dropout,
+                        dropout=self.distill_config.mhsa_dropout,
+                    ),
+                    conv_cfg=ConformerConvolutionV1Config(
+                        channels=distill_conformer_size,
+                        kernel_size=self.distill_config.conv_kernel_size,
+                        dropout=self.distill_config.conv_dropout,
+                        activation=nn.functional.silu,
+                        norm=LayerNormNC(distill_conformer_size),
+                    ),
+                    modules=self.cfg.module_list,
+                    scales=self.cfg.module_scales,
                 ),
-                mhsa_cfg=ConformerMHSAV1Config(
-                    input_dim=distill_conformer_size,
-                    num_att_heads=self.distill_config.num_heads,
-                    att_weights_dropout=self.distill_config.att_weights_dropout,
-                    dropout=self.distill_config.mhsa_dropout,
-                ),
-                conv_cfg=ConformerConvolutionV1Config(
-                    channels=distill_conformer_size,
-                    kernel_size=self.distill_config.conv_kernel_size,
-                    dropout=self.distill_config.conv_dropout,
-                    activation=nn.functional.silu,
-                    norm=LayerNormNC(distill_conformer_size),
-                ),
-                modules=self.cfg.module_list,
-                scales=self.cfg.module_scales,
-            ),
-        )
-        if self.training:
+            )
             teacher_conformer = ConformerEncoderV2(cfg=distill_conformer_config)
-            self.teacher_num_output_linears = 1 if self.distill_config.aux_ctc_loss_layers is None else len(self.distill_config.aux_ctc_loss_layers)
+            self.teacher_num_output_linears = 1 if self.distill_config.aux_kd_loss_layers is None else len(self.distill_config.aux_kd_loss_layers)
             output_linears = nn.ModuleList([
                 nn.Linear(distill_conformer_size, self.cfg.label_target_size + 1)  # + CTC blank
                 for _ in range(self.teacher_num_output_linears)
             ])
             self.teacher = Teacher(teacher_conformer, output_linears)
             self.teacher_dropout = nn.Dropout(p=self.distill_config.final_dropout)
+            print(self.teacher)
 
         self.feature_extraction = LogMelFeatureExtractionV1(cfg=self.cfg.feature_extraction_config)
         self.output_dropout = nn.Dropout(p=self.cfg.final_dropout)
@@ -184,15 +187,13 @@ class Model(torch.nn.Module):
         teacher_logit_ls = None
         if self.training or run_ctx.stage == "train_step":
             with torch.no_grad():
-                teacher_out_layers, teacher_out_mask = self.teacher.conformer(audio_features, mask)
+                return_layers = self.cfg.aux_ctc_loss_layers or [self.cfg.num_layers - 1]
+                teacher_out_layers, teacher_out_mask = self.teacher.conformer(audio_features, mask, return_layers=return_layers)
                 teacher_logit_ls = []
-                for i, (out_layer, scale) in enumerate(zip(teacher_out_layers, self.distill_config.aux_ctc_loss_scales)):
+                for i, (out_layer, scale) in enumerate(zip(teacher_out_layers, self.distill_config.aux_kd_loss_scales)):
                     teacher_out = self.teacher_dropout(out_layer)
                     teacher_logits = self.teacher.output_linears[i](teacher_out)
                     teacher_logit_ls.append(teacher_logits)
-
-            if len(teacher_logit_ls) == 1:
-                teacher_logit_ls = teacher_logit_ls[0]
 
         return log_probs_list, torch.sum(out_mask, dim=1), logit_ls, teacher_logit_ls
 
@@ -229,23 +230,36 @@ def train_step(*, model: Model, data, run_ctx, **kwargs):
     T = model.distill_config.t
     for teacher_logit, student_logit, layer_index, scale in zip(teacher_logits, student_logits, model.distill_config.aux_kd_loss_layers, model.distill_config.aux_kd_loss_scales):
         if model.distill_config.eliminate_blanks is True:
-            print(teacher_logit[0][:2][:])
-            pos = torch.argmax(teacher_logit, dim=-1)
-            print(pos[0][:2], pos.shape)
-            pos_blank = pos == model.cfg.label_target_size
-            pos_non_blank = ~pos_blank
-            print(pos_non_blank[0][:2], pos_non_blank.shape)
-            teacher_logit = torch.masked_select(teacher_logit, pos_non_blank)
-            student_logit = torch.masked_select(student_logit, pos_non_blank)
-            print(teacher_logit.shape, student_logit.shape)
-
-        soft_targets = nn.functional.softmax(teacher_logit / T, dim=-1)
-        soft_prob = nn.functional.log_softmax(student_logit / T, dim=-1)
-        if model.distill_config.exp_targets is True:
-            soft_targets = soft_targets.exp()
-        soft_targets_loss = torch.sum(soft_targets * (soft_targets.log() - soft_prob)) / soft_prob.size()[0] * (
-                    T ** 2)
-        num_phonemes = torch.sum(labels_len)
+            soft_targets_loss = 0
+            num_phonemes = 0
+            for teacher_seq, student_seq in zip(teacher_logit, student_logit):
+                #print(teacher_seq[:2][:])
+                pos = torch.argmax(teacher_seq, dim=-1)
+                #print(pos[:2], pos.shape)
+                pos_blank: torch.Tensor = pos == model.cfg.label_target_size
+                pos_non_blank: torch.Tensor = ~pos_blank
+                #print(pos_non_blank[:], pos_non_blank.shape)
+                #print(torch.sum(pos_non_blank, dim=-1))
+                pos_non_blank = pos_non_blank.unsqueeze(dim=-1)
+                #print(pos_non_blank[:], pos_non_blank.shape)
+                teacher_seq = torch.masked_select(teacher_seq, pos_non_blank)
+                student_seq = torch.masked_select(student_seq, pos_non_blank)
+                teacher_seq = teacher_seq.view(-1, model.cfg.label_target_size + 1)
+                student_seq = student_seq.view(-1, model.cfg.label_target_size + 1)
+                #print(teacher_seq.shape, student_seq.shape)
+                soft_targets = nn.functional.softmax(teacher_seq / T, dim=-1)
+                soft_prob = nn.functional.log_softmax(student_seq / T, dim=-1)
+                soft_targets_loss += torch.sum(soft_targets * (soft_targets.log() - soft_prob)) * (T ** 2)
+                num_phonemes += soft_targets.shape[0]
+            num_phonemes = torch.tensor(num_phonemes)
+        else:
+            soft_targets = nn.functional.softmax(teacher_logit / T, dim=-1)
+            soft_prob = nn.functional.log_softmax(student_logit / T, dim=-1)
+            if model.distill_config.exp_targets is True:
+                soft_targets = soft_targets.exp()
+            soft_targets_loss = torch.sum(soft_targets * (soft_targets.log() - soft_prob)) / soft_prob.size()[0] * (
+                        T ** 2)
+            num_phonemes = torch.sum(labels_len)
         run_ctx.mark_as_loss(name=f"KL_{layer_index + 1}", loss=soft_targets_loss, scale=scale*model.distill_config.distill_scale,
                              inv_norm_factor=num_phonemes)
 
@@ -273,7 +287,7 @@ def prior_step(*, model: Model, data, run_ctx, **kwargs):
     raw_audio = data["raw_audio"]  # [B, T', F]
     raw_audio_len = data["raw_audio:size1"]  # [B]
 
-    logprobs, audio_features_len = model(
+    logprobs, audio_features_len, _, _ = model(
         raw_audio=raw_audio,
         raw_audio_len=raw_audio_len,
     )

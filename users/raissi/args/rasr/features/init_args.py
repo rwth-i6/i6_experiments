@@ -125,7 +125,7 @@ def get_feature_extraction_args_16kHz(
                 "minfreq": 100,
                 "maxfreq": 7500,
                 "channels": 50,
-                #"warp_freqbreak": 6600, this is rasr's default
+                # "warp_freqbreak": 6600, this is rasr's default
                 "tempint_type": "hanning",
                 "tempint_shift": 0.01,
                 "tempint_length": 0.025,

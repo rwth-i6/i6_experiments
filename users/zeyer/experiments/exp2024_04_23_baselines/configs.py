@@ -35,7 +35,7 @@ config_24gb_v6 = dict(
     learning_rate_warmup_steps=20_000,
     learning_rate_invsqrt_norm=20_000,
     aux_loss_layers=[4, 8],
-    pos_emb_dropout=0.1,
+    pos_emb_dropout=0.1,  # WARNING: when the self-att or conformer opts are custom, this is ignored! also for CTC!
     rf_att_dropout_broadcast=False,
 )
 
@@ -127,6 +127,50 @@ def _get_cfg_lrlin_oclr_by_bs_nep_v2(bs_feat: int, n_ep: int, *, peak_lr: float 
         # If the dict has no entry for the bs_feat,n_ep combination, see above.
         "learning_rate_piecewise_steps": steps,
         "learning_rate_piecewise_values": [peak_lr * 1e-2, peak_lr, peak_lr * 1e-2, peak_lr * 1e-3],
+    }
+
+
+def _get_cfg_lrlin_oclr_by_bs_nep_v3(
+    bs_feat: int,
+    n_ep: int,
+    *,
+    peak_lr: float = 1e-3,
+    low_lr: float = 1e-5,
+    lowest_lr: float = 1e-6,
+    batch_size_factor: int,
+) -> Dict[str, Any]:
+    """
+    :param bs_feat: batch size for features (not including _batch_size_factor)
+    :param n_ep: num epochs
+    """
+    return {
+        "__num_epochs": n_ep,
+        "batch_size": bs_feat * batch_size_factor,
+        "learning_rate": 1.0,
+        "dynamic_learning_rate": dyn_lr_piecewise_linear,
+        "learning_rate_piecewise_by_epoch_continuous": True,
+        "learning_rate_piecewise_steps": [0.45 * n_ep, 0.9 * n_ep, n_ep],
+        "learning_rate_piecewise_values": [low_lr, peak_lr, low_lr, lowest_lr],
+    }
+
+
+def _get_cfg_lrlin_oclr_by_bs_nep_v4(
+    n_ep: int,
+    *,
+    peak_lr: float = 1e-3,
+    low_lr: float = 1e-5,
+    lowest_lr: float = 1e-6,
+) -> Dict[str, Any]:
+    """
+    :param n_ep: num epochs
+    """
+    return {
+        "__num_epochs": n_ep,
+        "learning_rate": 1.0,
+        "dynamic_learning_rate": dyn_lr_piecewise_linear,
+        "learning_rate_piecewise_by_epoch_continuous": True,
+        "learning_rate_piecewise_steps": [0.45 * n_ep, 0.9 * n_ep, n_ep],
+        "learning_rate_piecewise_values": [low_lr, peak_lr, low_lr, lowest_lr],
     }
 
 

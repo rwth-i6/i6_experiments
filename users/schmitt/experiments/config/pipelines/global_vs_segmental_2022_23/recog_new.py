@@ -60,10 +60,12 @@ class DecodingExperiment(ABC):
     if recog_opts is not None:
       self.recog_opts.update(recog_opts)
 
-    self.corpus_key = self.recog_opts["search_corpus_key"]
+    self.corpus_key = self.recog_opts["dataset_opts"]["corpus_key"]
     self.stm_corpus_key = self.corpus_key
 
     self.alias = alias
+
+    self.separate_readout_alpha = self.recog_opts.get("separate_readout_alpha")
 
     self.returnn_python_exe = self.config_builder.variant_params["returnn_python_exe"]
     self.returnn_root = self.config_builder.variant_params["returnn_root"]
@@ -83,17 +85,13 @@ class DecodingExperiment(ABC):
         )
 
     self.score_job = None
+    self.analyze_gradients_job = None
 
   def get_ilm_correction_alias(self, alias: str):
     if self.ilm_correction_opts is not None:
       alias += "/ilm_correction_scale-%f" % self.ilm_correction_opts["scale"]
       if self.ilm_correction_opts.get("type", "mini_att") == "mini_att":
         alias += "/mini_att"
-        if "correct_eos" in self.ilm_correction_opts:
-          if self.ilm_correction_opts["correct_eos"]:
-            alias += "/correct_eos"
-          else:
-            alias += "/wo_correct_eos"
         if self.ilm_correction_opts.get("use_se_loss", False):
           alias += "/w_se_loss"
         else:
@@ -102,6 +100,13 @@ class DecodingExperiment(ABC):
           alias += "/mini_att_train_num_epochs-%d" % self.ilm_correction_opts["mini_att_train_num_epochs"]
       elif self.ilm_correction_opts["type"] == "zero_att":
         alias += "/zero_att"
+
+      alias += f"/{'wo_' if not self.ilm_correction_opts.get('correct_eos', True) else ''}correct-eos"
+      # if "correct_eos" in self.ilm_correction_opts:
+      #   if self.ilm_correction_opts["correct_eos"]:
+      #     alias += "/correct_eos"
+      #   else:
+      #     alias += "/wo_correct_eos"
     else:
       alias += "/wo_ilm_correction"
 
@@ -316,10 +321,10 @@ class ReturnnDecodingExperiment(DecodingExperiment, ABC):
 
     self.alias += "/returnn_decoding" if search_alias is None else f"/{search_alias}"
 
-    use_recombination = self.recog_opts.get("use_recombination")
-    if use_recombination is not None:
-      assert use_recombination in {"sum", "max"}
-      self.alias += f"_w-{use_recombination}-recomb"
+    self.use_recombination = self.recog_opts.get("use_recombination")
+    if self.use_recombination is not None:
+      assert self.use_recombination in {"sum", "max"}
+      self.alias += f"_w-{self.use_recombination}-recomb"
 
     if isinstance(self, ReturnnSegmentalAttDecodingExperiment):
       length_scale = self.config_builder.variant_params["network"]["length_scale"]
@@ -327,11 +332,30 @@ class ReturnnDecodingExperiment(DecodingExperiment, ABC):
         self.alias += f"_length-scale-{length_scale:.2f}"
     self.alias += "/%s-checkpoint" % self.checkpoint_alias
 
+    if self.separate_readout_alpha is not None:
+      self.alias = f"{self.alias}/sep-read-alpha-{self.separate_readout_alpha:.2f}"
+
+    base_model_scale = self.recog_opts.get("base_model_scale", 1.0)
+    self.alias += f"/scale-{base_model_scale:.2f}"
+
+    blank_penalty = self.recog_opts.get("blank_penalty")
+    if blank_penalty:
+      self.alias += f"_b-pen-{blank_penalty:.1f}"
+
+    blank_scale = self.recog_opts.get("blank_scale")
+    if blank_scale:
+      self.alias += f"_b-scale-{blank_scale:.1f}"
+
+    external_aed_opts = self.recog_opts.get("external_aed_opts")
+    if external_aed_opts is not None:
+      self.alias = f"{self.alias}_w-ext-aed-scale-{external_aed_opts['scale']}"
+
     lm_opts = self.recog_opts.get("lm_opts")
     if lm_opts is not None:
-      self.alias += "/bpe-%s-lm-scale-%f" % (lm_opts["type"], lm_opts["scale"],)
+      self.alias += f"/bpe-{lm_opts['type']}-{lm_opts['alias']}-lm-scale-{lm_opts['scale']}-lm-eos-scale-{lm_opts.get('eos_scale', 1.0)}"
       if "add_lm_eos_last_frame" in lm_opts:
-        self.alias += "_add-lm-eos-%s" % lm_opts["add_lm_eos_last_frame"]
+        self.alias += f"_add-lm-eos-to-b-hyps-{lm_opts['add_lm_eos_last_frame']}"
+      self.alias += f"_add-lm-eos-to-nb-hyps-{lm_opts.get('add_lm_eos_to_non_blank_end_hyps', False)}"
       self.alias = self.get_ilm_correction_alias(self.alias)
     else:
       self.alias += "/no-lm"
@@ -374,6 +398,7 @@ class ReturnnDecodingExperiment(DecodingExperiment, ABC):
         mem_rqmt=self.search_rqmt.get("mem", 6),
         time_rqmt=self.search_rqmt.get("time", 1),
       )
+      search_job.rqmt["sbatch_args"] = ["--exclude", "cn-257"]
       search_job.add_alias(f"{self.alias}/search")
       self.search_hyps_file = search_job.out_files["output.py.gz"]
       self.best_search_hyps_hdf = search_job.out_files["best_hyp.hdf"]
@@ -407,32 +432,9 @@ class ReturnnDecodingExperiment(DecodingExperiment, ABC):
 
     if isinstance(self.config_builder, ConfigBuilderRF):
       att_weight_seq_tags = _analysis_opts["att_weight_seq_tags"]
-      if att_weight_seq_tags is None:
-        att_weight_seq_tags = [
-          "dev-other/3660-6517-0005/3660-6517-0005",
-          "dev-other/6467-62797-0001/6467-62797-0001",
-          "dev-other/6467-62797-0002/6467-62797-0002",
-          "dev-other/7697-105815-0015/7697-105815-0015",
-          "dev-other/7697-105815-0051/7697-105815-0051",
-        ]
 
-      # if _analysis_opts.get("plot_att_weights", True):
-      #   analysis_rf.dump_att_weights(
-      #     config_builder=self.config_builder,
-      #     seq_tags=att_weight_seq_tags,
-      #     corpus_key=self.stm_corpus_key,
-      #     checkpoint=self.checkpoint,
-      #     returnn_root=self.returnn_root,
-      #     returnn_python_exe=self.returnn_python_exe,
-      #     alias=self.alias,
-      #     hdf_targets=analysis_opts.get("ground_truth_hdf"),
-      #     ref_alignment_hdf=_analysis_opts["ref_alignment_hdf"],
-      #     ref_alignment_blank_idx=_analysis_opts["ref_alignment_blank_idx"],
-      #     ref_alignment_vocab_path=_analysis_opts["ref_alignment_vocab_path"],
-      #   )
-
-      if _analysis_opts.get("analyze_gradients", True):
-        analysis_rf.analyze_gradients(
+      if _analysis_opts.get("analyze_gradients", False):
+        self.analyze_gradients_job = analysis_rf.analyze_gradients(
           config_builder=self.config_builder,
           seq_tags=att_weight_seq_tags,
           corpus_key=self.stm_corpus_key,
@@ -444,7 +446,11 @@ class ReturnnDecodingExperiment(DecodingExperiment, ABC):
           ref_alignment_hdf=_analysis_opts.get("ref_alignment_hdf"),
           ref_alignment_blank_idx=_analysis_opts.get("ref_alignment_blank_idx"),
           ref_alignment_vocab_path=_analysis_opts.get("ref_alignment_vocab_path"),
-          seq_alias="ground-truth"
+          seq_alias="ground-truth",
+          do_forced_align_on_gradients=_analysis_opts.get("do_forced_align_on_gradients", False),
+          plot_encoder_gradient_graph=_analysis_opts.get("plot_encoder_gradient_graph", False),
+          plot_encoder_layers=_analysis_opts.get("analyze_gradients_plot_encoder_layers", False),
+          plot_log_gradients=_analysis_opts.get("analyze_gradients_plot_log_gradients", False),
         )
         # if "global_att/baseline_v2/baseline_rf/sp10240/w-weight-feedback/w-att-ctx-in-state/trafo/import_albert-aed-trafo-decoder-bpe10k/returnn_decoding/epoch-498-checkpoint/no-lm/beam-size-12/dev-other_concat" in self.alias:
         #   analysis_rf.analyze_gradients(
@@ -461,6 +467,34 @@ class ReturnnDecodingExperiment(DecodingExperiment, ABC):
         #     ref_alignment_vocab_path=_analysis_opts["ref_alignment_vocab_path"],
         #     seq_alias="search"
         #   )
+
+      if _analysis_opts.get("dump_gradients", False):
+        analysis_rf.dump_gradients(
+          config_builder=self.config_builder,
+          seq_tags=att_weight_seq_tags,
+          corpus_key=self.stm_corpus_key,
+          checkpoint=self.checkpoint,
+          returnn_root=self.returnn_root,
+          returnn_python_exe=self.returnn_python_exe,
+          alias=self.alias,
+          hdf_targets=analysis_opts.get("ground_truth_hdf"),
+          seq_alias="ground-truth",
+          input_layer_name=_analysis_opts.get("dump_gradients_input_layer_name", "encoder_input"),
+        )
+
+      if _analysis_opts.get("dump_self_att", False):
+        analysis_rf.dump_self_att(
+          config_builder=self.config_builder,
+          seq_tags=att_weight_seq_tags,
+          corpus_key=self.stm_corpus_key,
+          checkpoint=self.checkpoint,
+          returnn_root=self.returnn_root,
+          returnn_python_exe=self.returnn_python_exe,
+          alias=self.alias,
+          hdf_targets=analysis_opts.get("ground_truth_hdf"),
+          seq_alias="ground-truth",
+        )
+
       if _analysis_opts.get("calc_search_errors", False):
         analysis_rf.calculate_search_errors(
           config_builder=self.config_builder,
@@ -471,6 +505,7 @@ class ReturnnDecodingExperiment(DecodingExperiment, ABC):
           best_search_hyp_hdf=self.best_search_hyps_hdf,
           alias=self.alias,
           corpus_key=self.stm_corpus_key,
+          realignment_use_recombination=self.use_recombination,
         )
     else:
       forward_recog_config = self.config_builder.get_recog_config_for_forward_job(opts=self.recog_opts)
@@ -882,6 +917,9 @@ class DecodingPipeline(ABC):
     for key in ("lm_opts", "ilm_correction_opts", "beam_size", "search_corpus_key"):
       assert key not in self.recog_opts, f"{key} is set by the pipeline"
 
+    if "dataset_opts" not in self.recog_opts:
+      self.recog_opts["dataset_opts"] = {}
+
     self.alias = alias
     self.config_builder = config_builder
     self.checkpoint = checkpoint
@@ -897,6 +935,8 @@ class DecodingPipeline(ABC):
     self.search_alias = search_alias
     self.corpus_keys = corpus_keys
     self.only_do_analysis = only_do_analysis
+
+    self.decoding_exps = []
 
   @abstractmethod
   def run_experiment(
@@ -914,14 +954,17 @@ class DecodingPipeline(ABC):
                 "ilm_correction_opts": {
                   "scale": ilm_scale, **self.ilm_opts} if ilm_scale > 0 and lm_scale > 0 else None,
                 "beam_size": beam_size,
-                "search_corpus_key": corpus_key
+                # "search_corpus_key": corpus_key
               })
-              self.run_experiment(
+              self.recog_opts["dataset_opts"]["corpus_key"] = corpus_key
+
+              exp = self.run_experiment(
                 beam_size=beam_size,
                 lm_scale=lm_scale,
                 ilm_scale=ilm_scale,
                 checkpoint_alias=checkpoint_alias
               )
+              self.decoding_exps.append(exp)
 
 
 class ReturnnGlobalAttDecodingPipeline(DecodingPipeline):
@@ -953,6 +996,8 @@ class ReturnnGlobalAttDecodingPipeline(DecodingPipeline):
       exp.run_eval()
     if self.run_analysis:
       exp.run_analysis(self.analysis_opts)
+
+    return exp
 
 
 class ReturnnSegmentalAttDecodingPipeline(DecodingPipeline):
@@ -1012,3 +1057,5 @@ class ReturnnSegmentalAttDecodingPipeline(DecodingPipeline):
       exp.run_eval()
     if self.run_analysis:
       exp.run_analysis(self.analysis_opts)
+
+    return exp

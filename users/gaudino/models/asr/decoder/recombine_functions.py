@@ -1,3 +1,7 @@
+"""
+Additional functions that are added to the config to handle sum recombination.
+"""
+
 def get_vocab_tf():
     from returnn.datasets.util.vocabulary import Vocabulary
     import TFUtil

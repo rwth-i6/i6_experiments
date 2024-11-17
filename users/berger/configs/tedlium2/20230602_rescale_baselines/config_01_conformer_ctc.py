@@ -49,7 +49,7 @@ rasr.flow.FlowNetwork.default_flags = {"cache_mode": "task_dependent"}
 
 num_outputs = 79
 num_subepochs = 500
-sub_checkpoints = [50, 100, 200, 300, 400, 450, 475, 490, 500]
+sub_checkpoints = [100, 200, 300, 400, 450, 460, 470, 480, 490, 500]
 
 tools = copy.deepcopy(default_tools_v2)
 tools.rasr_binary_path = tk.Path("/u/berger/repositories/rasr_versions/gen_seq2seq_dev/arch/linux-x86_64-standard")
@@ -61,6 +61,11 @@ tools.rasr_binary_path = tk.Path("/u/berger/repositories/rasr_versions/gen_seq2s
 def returnn_config_generator(
     variant: ConfigVariant, train_data_config: dict, dev_data_config: dict, **kwargs
 ) -> ReturnnConfig:
+    num_heads = kwargs.get("num_heads", 4)
+    dim_per_head = kwargs.get("dim_per_head", 96)
+    total_size = num_heads * dim_per_head
+    dropout = kwargs.get("dropout", 0.2)
+
     if kwargs.get("speed_perturbation", False):
         feature_extraction = ModuleFactoryV1(
             module_class=SequentialModuleV1,
@@ -103,10 +108,10 @@ def returnn_config_generator(
     specaugment = ModuleFactoryV1(
         module_class=SpecaugmentByLengthModuleV1,
         cfg=SpecaugmentByLengthConfigV1(
-            time_min_num_masks=1,
+            time_min_num_masks=2,
             time_max_mask_per_n_frames=25,
             time_mask_max_size=20,
-            freq_min_num_masks=1,
+            freq_min_num_masks=2,
             freq_max_num_masks=5,
             freq_mask_max_size=16,
         ),
@@ -134,7 +139,7 @@ def returnn_config_generator(
                 pool_strides=None,
                 pool_paddings=None,
                 activations=[torch.nn.SiLU(), torch.nn.SiLU(), torch.nn.SiLU()],
-                out_features=512,
+                out_features=total_size,
             ),
         )
     else:
@@ -155,30 +160,30 @@ def returnn_config_generator(
                 pool2_stride=(2, 1),
                 pool2_padding=None,
                 activation=torch.nn.ReLU(),
-                out_features=512,
+                out_features=total_size,
             ),
         )
 
     ff_cfg = ConformerPositionwiseFeedForwardV1Config(
-        input_dim=512,
-        hidden_dim=2048,
-        dropout=0.1,
+        input_dim=total_size,
+        hidden_dim=4 * total_size,
+        dropout=dropout,
         activation=torch.nn.SiLU(),
     )
 
     mhsa_cfg = ConformerMHSAV1Config(
-        input_dim=512,
-        num_att_heads=8,
-        att_weights_dropout=0.1,
-        dropout=0.1,
+        input_dim=total_size,
+        num_att_heads=num_heads,
+        att_weights_dropout=dropout,
+        dropout=dropout,
     )
 
     conv_cfg = ConformerConvolutionV1Config(
-        channels=512,
+        channels=total_size,
         kernel_size=31,
-        dropout=0.1,
+        dropout=dropout,
         activation=torch.nn.SiLU(),
-        norm=LayerNormNC(512),
+        norm=LayerNormNC(total_size),
     )
 
     block_cfg = ConformerBlockV2Config(
@@ -198,18 +203,19 @@ def returnn_config_generator(
         feature_extraction=feature_extraction,
         specaugment=specaugment,
         conformer=ModuleFactoryV1(ConformerEncoderV2, cfg=conformer_cfg),
-        dim=512,
+        dim=total_size,
         target_size=num_outputs,
-        dropout=0.1,
+        dropout=dropout,
     )
 
-    extra_config = {
+    extra_config: dict = {
         "train": train_data_config,
         "dev": dev_data_config,
     }
     if variant == ConfigVariant.TRAIN:
-        extra_config["max_seq_length"] = {"audio_features": 560000}
+        extra_config["max_seq_length"] = {"data": 560000}
         extra_config["torch_amp"] = {"dtype": "bfloat16"}
+        # extra_config["num_workers_per_gpu"] = 0
     if variant == ConfigVariant.RECOG:
         extra_config["extern_data"] = {
             "data": {"dim": 80, "dtype": "float32"},
@@ -230,17 +236,20 @@ def returnn_config_generator(
         extern_data_config=True,
         backend=Backend.PYTORCH,
         grad_noise=0.0,
-        grad_clip_global_norm=10.0,
+        grad_clip=kwargs.get("grad_clip", 0.0),
         optimizer=Optimizers.AdamW,
-        weight_decay=0.01,
-        schedule=LearningRateSchedules.OCLR_V2,
+        weight_decay=kwargs.get("weight_decay", 0.001),
+        schedule=LearningRateSchedules.OCLR_STEP_TORCH
+        if kwargs.get("stepwise_oclr", True)
+        else LearningRateSchedules.OCLR_V2,
         inc_epochs=240,
         dec_epochs=240,
-        max_seqs=60,
+        # max_seqs=60,
+        n_steps_per_epoch=480,
         initial_lr=7e-06,
-        peak_lr=kwargs.get("peak_lr", 5e-04),
-        decayed_lr=5e-05,
-        final_lr=1e-08,
+        peak_lr=kwargs.get("peak_lr", 7e-04),
+        decayed_lr=kwargs.get("decayed_lr", 7e-05),
+        final_lr=1e-07,
         keep_last_n=1,
         keep_best_n=0,
         keep=sub_checkpoints,
@@ -333,9 +342,10 @@ def run_exp(alignments: Optional[Dict[str, AlignmentData]] = None) -> Tuple[Summ
 
     # ********** Returnn Configs **********
 
-    # for wei_frontend in [True, False]:
-    for wei_frontend in [False]:
+    for wei_frontend in [True, False]:
+        # for wei_frontend in [False]:
         for speed_perturbation in [True, False]:
+            # for speed_perturbation in [False]:
             name_suffix = ""
             if wei_frontend:
                 name_suffix += "_wei-frontend"
@@ -349,6 +359,113 @@ def run_exp(alignments: Optional[Dict[str, AlignmentData]] = None) -> Tuple[Summ
                     num_subepochs=num_subepochs,
                     wei_frontend=wei_frontend,
                     speed_perturbation=speed_perturbation,
+                ),
+            )
+
+    for num_heads, dim_per_head in [(8, 64), (4, 96)]:
+        for dropout in [0.1, 0.2]:
+            name_suffix = ""
+            name_suffix += f"_dim-{num_heads * dim_per_head}_drop-{dropout}"
+            system.add_experiment_configs(
+                f"Conformer_CTC{name_suffix}",
+                get_returnn_config_collection(
+                    train_data_config=data.train_data_config,
+                    dev_data_config=data.cv_data_config,
+                    num_subepochs=num_subepochs,
+                    wei_frontend=False,
+                    speed_perturbation=False,
+                    num_heads=num_heads,
+                    dim_per_head=dim_per_head,
+                    dropout=dropout,
+                ),
+            )
+
+        system.add_experiment_configs(
+            "Conformer_CTC_epoch-oclr",
+            get_returnn_config_collection(
+                train_data_config=data.train_data_config,
+                dev_data_config=data.cv_data_config,
+                num_subepochs=num_subepochs,
+                wei_frontend=False,
+                speed_perturbation=False,
+                num_heads=8,
+                dim_per_head=64,
+                dropout=0.1,
+                stepwise_oclr=False,
+            ),
+        )
+
+        system.add_experiment_configs(
+            "Conformer_CTC_peak-lr-5e-04",
+            get_returnn_config_collection(
+                train_data_config=data.train_data_config,
+                dev_data_config=data.cv_data_config,
+                num_subepochs=num_subepochs,
+                wei_frontend=False,
+                speed_perturbation=False,
+                num_heads=8,
+                dim_per_head=64,
+                dropout=0.1,
+                stepwise_oclr=False,
+                peak_lr=5e-04,
+                decayed_lr=5e-05,
+            ),
+        )
+
+        system.add_experiment_configs(
+            "Conformer_CTC_grad-clip",
+            get_returnn_config_collection(
+                train_data_config=data.train_data_config,
+                dev_data_config=data.cv_data_config,
+                num_subepochs=num_subepochs,
+                wei_frontend=False,
+                speed_perturbation=False,
+                num_heads=8,
+                dim_per_head=64,
+                dropout=0.1,
+                stepwise_oclr=False,
+                peak_lr=5e-04,
+                decayed_lr=5e-05,
+                grad_clip=1.0,
+            ),
+        )
+
+        system.add_experiment_configs(
+            "Conformer_CTC_l2-0.01_grad-clip",
+            get_returnn_config_collection(
+                train_data_config=data.train_data_config,
+                dev_data_config=data.cv_data_config,
+                num_subepochs=num_subepochs,
+                wei_frontend=False,
+                speed_perturbation=False,
+                num_heads=8,
+                dim_per_head=64,
+                dropout=0.1,
+                stepwise_oclr=False,
+                grad_clip=1.0,
+                weight_decay=1e-02,
+                peak_lr=5e-04,
+                decayed_lr=5e-05,
+            ),
+        )
+
+        for l2 in [1e-04, 2e-04, 5e-04, 1e-03, 2e-03, 5e-03, 1e-02]:
+            system.add_experiment_configs(
+                f"Conformer_CTC_l2-{l2}",
+                get_returnn_config_collection(
+                    train_data_config=data.train_data_config,
+                    dev_data_config=data.cv_data_config,
+                    num_subepochs=num_subepochs,
+                    wei_frontend=False,
+                    speed_perturbation=False,
+                    num_heads=8,
+                    dim_per_head=64,
+                    dropout=0.1,
+                    stepwise_oclr=False,
+                    grad_clip=0.0,
+                    weight_decay=l2,
+                    peak_lr=5e-04,
+                    decayed_lr=5e-05,
                 ),
             )
 

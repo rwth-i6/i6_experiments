@@ -1,5 +1,6 @@
 """
 Generic recog, for the model interfaces defined in model_interfaces.py
+updated version
 """
 
 from __future__ import annotations

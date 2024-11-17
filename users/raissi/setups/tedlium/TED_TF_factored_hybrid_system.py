@@ -55,7 +55,6 @@ from i6_experiments.users.raissi.setups.common.decoder.BASE_factored_hybrid_sear
 from i6_experiments.users.raissi.setups.common.features.taxonomy import FeatureType
 
 
-
 class TEDTFFactoredHybridSystem(TFFactoredHybridBaseSystem):
     """
     this class supports both cart and factored hybrid
@@ -90,7 +89,7 @@ class TEDTFFactoredHybridSystem(TFFactoredHybridBaseSystem):
     def _get_merged_corpus_for_corpora(
         self, corpora, name="TED-LIUM-realease2", strategy=corpus_recipe.MergeStrategy.FLAT
     ):
-        #due to current bug in the i6_core I need to hack the name as it is
+        # due to current bug in the i6_core I need to hack the name as it is
         merged_corpus_job = corpus_recipe.MergeCorporaJob(corpora, name="TED-LIUM-realease2", merge_strategy=strategy)
         return merged_corpus_job.out_merged_corpus
 
@@ -170,7 +169,7 @@ class TEDTFFactoredHybridSystem(TFFactoredHybridBaseSystem):
             model_path=model_path,
             graph=graph,
             mixtures=dummy_mixtures,
-            eval_files=self.scorer_args[crp_corpus],
+            eval_args=self.scorer_args[crp_corpus],
             scorer=self.scorers[crp_corpus],
             tf_library=tf_library,
             is_multi_encoder_output=is_multi_encoder_output,

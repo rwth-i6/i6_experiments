@@ -244,7 +244,7 @@ def build_distill_report(report: Dict):
         instanciate_delayed(dic)
         if all(dic.values()):
             best = min(dic, key=dic.get)
-            best_baselines[' '.join(exp.split('/')[4:])] = dic[best]
+            best_baselines[' '.join(exp.split('/')[4:])] = '{:.1f}'.format(float(dic[best]))
         else:
             best_baselines[' '.join(exp.split('/')[4:])] = "None"
     best_dc = {}
@@ -252,7 +252,7 @@ def build_distill_report(report: Dict):
         instanciate_delayed(dic)
         if all(dic.values()):
             best = min(dic, key=dic.get)
-            best_dc[' '.join(exp.split('/')[4:])] = dic[best]
+            best_dc[' '.join(exp.split('/')[4:])] = '{:.1f}'.format(float(dic[best]))
         else:
             best_dc[' '.join(exp.split('/')[4:])] = "None"
     line = []
@@ -294,13 +294,68 @@ def build_hubert_report(report: Dict):
         instanciate_delayed(dic)
         if all(dic.values()):
             best = min(dic, key=dic.get)
-            best_dc[' '.join(exp.split('/')[5:])] = (dic[best], best)
+            best_dc[' '.join(exp.split('/')[5:])] = ('{:.1f}'.format(float(dic[best])), best)
         else:
             best_dc[' '.join(exp.split('/')[5:])] = ("None", "")
     line = []
     for exp, value in best_dc.items():
         line.append(f"{' '.join(exp.split('.')[2:])}: {value[0]}   {' '.join(value[1].split('/')[6:])}")
     return "\n".join(line)
+
+
+def build_hubert_distill_report(report: Dict):
+    report = copy.deepcopy(report)
+    baselines = report.pop("baselines")
+    best_baselines = {}
+    for exp, dic in baselines.items():
+        instanciate_delayed(dic)
+        if all(dic.values()):
+            best = min(dic, key=dic.get)
+            best_baselines[' '.join(exp.split('/')[4:])] = (dic[best], best)
+        else:
+            best_baselines[' '.join(exp.split('/')[4:])] = ("None", "")
+    best_dc = {}
+    for exp, best in best_baselines.items():
+        best_dc[exp] = best
+    for exp, dic in report.items():
+        instanciate_delayed(dic)
+        if all(dic.values()):
+            best = min(dic, key=dic.get)
+            best_dc[' '.join(exp.split('/')[5:])] = ('{:.1f}'.format(float(dic[best])), best)
+        else:
+            best_dc[' '.join(exp.split('/')[5:])] = ("None", "")
+    line = []
+
+    line.append("Small")
+    for exp, value in best_dc.items():
+        if "128" in exp:
+            line.append(f"{' '.join(exp.split('.')[2:])}: {value[0]}   {' '.join(value[1].split('/')[6:])}")
+    best_dc = {exp: value for exp, value in best_dc.items() if "128" not in exp}
+    line.append("")
+
+    exps = ['more_loss', 'maskpad', "elim_blank", "elim_blank_prior", "kdhyps"]
+    line.append("Baselines")
+    for exp, value in best_dc.items():
+        if not any(exp.endswith(name) for name in exps+["True","False"]):
+            line.append(f"{' '.join(exp.split('.')[2:])}: {value[0]}   {' '.join(value[1].split('/')[6:])}")
+    best_dc = {exp: value for exp, value in best_dc.items() if any(exp.endswith(name) for name in exps+["True","False"])}
+    line.append("")
+    for name in exps:
+        line.append(name)
+        for exp, value in best_dc.items():
+            if exp.endswith(name):
+                line.append(f"{' '.join(exp.split('.')[2:])}: {value[0]}   {' '.join(value[1].split('/')[6:])}")
+        line.append("")
+        best_dc = {exp: value for exp, value in best_dc.items() if not exp.endswith(name)}
+    line.append("Warmup")
+    for exp, value in best_dc.items():
+        if exp.endswith("True") or exp.endswith("False"):
+            line.append(f"{' '.join(exp.split('.')[2:])}: {value[0]}   {' '.join(value[1].split('/')[6:])}")
+    line.append("")
+    best_dc = {exp: value for exp, value in best_dc.items() if not any(exp.endswith(name) for name in ["True","False"])}
+    assert len(best_dc) == 0, best_dc
+    return "\n".join(line)
+
 
 def build_qat_report(report: Dict):
 
@@ -309,7 +364,7 @@ def build_qat_report(report: Dict):
         instanciate_delayed(dic)
         if all(dic.values()):
             best = min(dic, key=dic.get)
-            best_dc[' '.join(exp.split('/')[5:])] = dic[best]
+            best_dc[' '.join(exp.split('/')[5:])] = '{:.1f}'.format(float(dic[best]))
         else:
             print(dic.values())
             best_dc[' '.join(exp.split('/')[5:])] = "None"

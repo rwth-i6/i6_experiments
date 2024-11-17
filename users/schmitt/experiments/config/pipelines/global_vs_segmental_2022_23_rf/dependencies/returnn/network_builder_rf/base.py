@@ -1,10 +1,23 @@
 from typing import Optional, Tuple, Dict
+import copy
 
 from returnn.tensor import Tensor, Dim, single_step_dim
 import returnn.frontend as rf
 from returnn.frontend.decoder.transformer import TransformerDecoder, TransformerDecoderLayer
+from returnn.frontend.encoder.conformer import ConformerEncoderLayer, ConformerConvSubsample
 
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.segmental import utils
+from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.self_att import EpochConditionedRelPosSelfAttention
+from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.encoder.global_ import (
+  GlobalConformerEncoder,
+  GlobalConformerEncoderWAbsolutePos,
+  GlobalConformerEncoderWFinalLayerNorm,
+  ConformerEncoderLayerWoFinalLayerNorm,
+  ConformerEncoderLayerWoConvolution,
+  ConformerConvBlockWZeroPadding,
+  ConformerConvSubsampleWZeroPadding,
+)
+from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.encoder.ff import LinearEncoder
 
 _batch_size_factor = 160
 
@@ -117,6 +130,9 @@ class BaseLabelDecoder(rf.Module):
   ):
     super(BaseLabelDecoder, self).__init__()
 
+    from returnn.config import get_global_config
+    config = get_global_config()  # noqa
+
     assert not (use_current_frame_in_readout and use_current_frame_in_readout_w_gate), "only one of them allowed"
 
     self.target_dim = target_dim
@@ -142,6 +158,30 @@ class BaseLabelDecoder(rf.Module):
     self.use_weight_feedback = use_weight_feedback
     self.separate_blank_from_softmax = separate_blank_from_softmax
 
+    self.use_trafo_att_wo_cross_att = config.bool("use_trafo_att_wo_cross_att", False)
+    if not use_hard_attention and not use_trafo_attention:
+      att_dim = att_num_heads * enc_out_dim
+      self.trafo_att = None
+    else:
+      if use_trafo_attention:
+        model_dim = target_embed_dim
+        self.trafo_att = TrafoAttention(
+          num_layers=6,
+          encoder_dim=None if self.use_trafo_att_wo_cross_att else enc_out_dim,
+          vocab_dim=target_dim,  # not used (embeddings are calculated before)
+          model_dim=model_dim,
+          sequential=rf.Sequential,
+          share_embedding=True,  # not used
+          input_embedding_scale=model_dim.dimension ** 0.5  # not used
+        )
+        att_dim = model_dim
+      else:
+        self.trafo_att = None
+        # att_dim = att_num_heads * enc_out_dim
+        att_dim = enc_out_dim
+
+    self.att_dim = att_dim
+
     self.decoder_state = decoder_state
     if "lstm" in decoder_state:
       ilm_layer_class = rf.ZoneoutLSTM
@@ -157,7 +197,7 @@ class BaseLabelDecoder(rf.Module):
       )
       if use_att_ctx_in_state:
         self.s = ilm_layer_class(
-          self.target_embed.out_dim + att_num_heads * enc_out_dim,
+          self.target_embed.out_dim + att_dim,
           **ilm_layer_opts,
         )
       else:
@@ -173,7 +213,7 @@ class BaseLabelDecoder(rf.Module):
       )
       if use_att_ctx_in_state:
         self.s_linear = ilm_layer_class(
-          self.target_embed.out_dim + att_num_heads * enc_out_dim,
+          self.target_embed.out_dim + att_dim,
           **ilm_layer_opts,
         )
       else:
@@ -182,41 +222,12 @@ class BaseLabelDecoder(rf.Module):
           **ilm_layer_opts,
         )
 
-    self.use_mini_att = use_mini_att
-    if use_mini_att:
-      if "lstm" in decoder_state:
-        self.mini_att_lstm = rf.LSTM(self.target_embed.out_dim, Dim(name="mini-att-lstm", dimension=50))
-        out_dim = self.mini_att_lstm.out_dim
-      else:
-        self.mini_att_linear = rf.Linear(self.target_embed.out_dim, Dim(name="mini-att-linear", dimension=50))
-        out_dim = self.mini_att_linear.out_dim
-      self.mini_att = rf.Linear(out_dim, self.att_num_heads * self.enc_out_dim)
-
     if use_weight_feedback:
       self.weight_feedback = rf.Linear(att_num_heads, enc_key_total_dim, with_bias=False)
 
     if not use_hard_attention and not use_trafo_attention:
       self.s_transformed = rf.Linear(self.get_lstm().out_dim, enc_key_total_dim, with_bias=False)
       self.energy = rf.Linear(enc_key_total_dim, att_num_heads, with_bias=False)
-      att_dim = att_num_heads * enc_out_dim
-      self.trafo_att = None
-    else:
-      if use_trafo_attention:
-        model_dim = target_embed_dim
-        self.trafo_att = TrafoAttention(
-          num_layers=6,
-          encoder_dim=enc_out_dim,
-          vocab_dim=target_dim,  # not used (embeddings are calculated before)
-          model_dim=model_dim,
-          sequential=rf.Sequential,
-          share_embedding=True,  # not used
-          input_embedding_scale=model_dim.dimension ** 0.5  # not used
-        )
-        att_dim = model_dim
-      else:
-        self.trafo_att = None
-        # att_dim = att_num_heads * enc_out_dim
-        att_dim = enc_out_dim
 
     readout_in_dim = self.get_lstm().out_dim
     if use_readout:
@@ -225,6 +236,8 @@ class BaseLabelDecoder(rf.Module):
 
     readout_out_dim = Dim(name="readout", dimension=readout_dimension)
     self.use_current_frame_in_readout = use_current_frame_in_readout
+    self.att_h_t_dropout = config.float("att_h_t_dropout", 0.0)
+    self.use_current_frame_in_readout_w_double_gate = config.bool("use_current_frame_in_readout_w_double_gate", False)
     self.use_readout = use_readout
     if use_current_frame_in_readout:
       readout_in_dim += enc_out_dim
@@ -242,10 +255,27 @@ class BaseLabelDecoder(rf.Module):
         )
 
     self.use_current_frame_in_readout_w_gate = use_current_frame_in_readout_w_gate
-    if use_current_frame_in_readout_w_gate:
+    self.use_current_frame_in_readout_w_gate_v = config.int("use_current_frame_in_readout_w_gate_v", 1)
+    if use_current_frame_in_readout_w_gate and self.use_current_frame_in_readout_w_gate_v == 1:
       self.attention_gate = rf.Linear(
         att_num_heads * enc_out_dim,
         Dim(name="attention_gate", dimension=1),
+      )
+    elif self.use_current_frame_in_readout_w_double_gate or (
+            use_current_frame_in_readout_w_gate and self.use_current_frame_in_readout_w_gate_v == 2
+    ):
+      self.attention_gate = rf.Linear(
+        self.get_lstm().out_dim,
+        att_dim,
+      )
+      self.h_t_att_merger = rf.Linear(
+        enc_out_dim + att_dim,
+        att_dim,
+      )
+    if self.use_current_frame_in_readout_w_double_gate:
+      self.h_t_gate = rf.Linear(
+        self.get_lstm().out_dim,
+        enc_out_dim,
       )
 
     self.use_current_frame_in_readout_random = use_current_frame_in_readout_random
@@ -260,8 +290,31 @@ class BaseLabelDecoder(rf.Module):
     else:
       self.output_prob = rf.Linear(**output_prob_opts)
 
-    for p in self.parameters():
-      p.weight_decay = l2
+    self.use_sep_h_t_readout = config.bool("use_sep_h_t_readout", False)
+    if self.use_sep_h_t_readout:
+      h_t_readout_in_dim = self.get_lstm().out_dim
+      h_t_readout_in_dim += self.target_embed.out_dim
+      h_t_readout_in_dim += enc_out_dim
+      self.h_t_readout_in = rf.Linear(
+        h_t_readout_in_dim,
+        readout_out_dim,
+      )
+
+      self.h_t_output_prob = copy.deepcopy(self.output_prob)
+
+    self.use_mini_att = use_mini_att
+    if use_mini_att:
+      if "lstm" in decoder_state:
+        self.mini_att_lstm = rf.LSTM(self.target_embed.out_dim, Dim(name="mini-att-lstm", dimension=50))
+        out_dim = self.mini_att_lstm.out_dim
+      else:
+        self.mini_att_linear = rf.Linear(self.target_embed.out_dim, Dim(name="mini-att-linear", dimension=50))
+        out_dim = self.mini_att_linear.out_dim
+      self.mini_att = rf.Linear(out_dim, att_dim)
+
+    # currently has no effect anyway
+    # for p in self.parameters():
+    #   p.weight_decay = l2
 
     # Note: Even though we have this here, it is not used in loop_step or decode_logits.
     # Instead, it is intended to make a separate label scorer for it.
@@ -309,15 +362,62 @@ class BaseLabelDecoder(rf.Module):
   ) -> rf.Tensor:
     att0 = rf.dot(att_weights, enc, reduce=reduce_dim, use_mask=False)
     att0.feature_dim = self.enc_out_dim
-    att, _ = rf.merge_dims(att0, dims=(self.att_num_heads, self.enc_out_dim))
+    if self.att_num_heads in att0.dims:
+      att, _ = rf.merge_dims(att0, dims=(self.att_num_heads, self.enc_out_dim))
+    else:
+      att = att0
+      # change feature dim to num_heads*enc_out_dim (this is what we expect)
+      att = utils.copy_tensor_replace_dim_tag(att, self.enc_out_dim, self.att_num_heads * self.enc_out_dim)
     return att
 
-  def decode_logits(self, *, s: Tensor, input_embed: Tensor, att: Tensor, h_t: Optional[Tensor] = None) -> Tensor:
+  def decode_logits(
+          self,
+          *,
+          s: Tensor,
+          input_embed: Tensor,
+          att: Tensor,
+          h_t: Optional[Tensor] = None,
+          detach_att: bool = False,
+          detach_h_t: bool = False,
+  ) -> Tuple[Tensor, Optional[Tensor]]:
+    if detach_att:
+      att = rf.stop_gradient(att)
+    if detach_h_t:
+      h_t = rf.stop_gradient(h_t)
+
     input_embed = rf.dropout(input_embed, drop_prob=self.target_embed_dropout, axis=None)
 
+    h_t_logits = None
     if self.use_current_frame_in_readout:
       assert h_t is not None, "Need h_t for readout!"
-      readout_input = rf.concat_features(s, input_embed, att, h_t, allow_broadcast=True)
+      att_h_t = rf.concat_features(att, h_t, allow_broadcast=True)
+      att_h_t = rf.dropout(att_h_t, drop_prob=self.att_h_t_dropout, axis=None)
+      if self.att_h_t_dropout > 0.0:
+        print("att_h_t", att_h_t.raw_tensor)
+      readout_input = rf.concat_features(s, input_embed, att_h_t, allow_broadcast=True)
+    elif self.use_current_frame_in_readout_w_double_gate:
+      assert h_t is not None, "Need h_t for readout!"
+
+      alpha_h_t = rf.sigmoid(self.h_t_gate(s))
+      weighted_h_t = alpha_h_t * h_t
+
+      alpha_att = rf.sigmoid(self.attention_gate(s))
+      weighted_att = alpha_att * att
+
+      merged_h_t_att = self.h_t_att_merger(rf.concat_features(weighted_h_t, weighted_att))
+
+      readout_input = rf.concat_features(s, input_embed, merged_h_t_att, allow_broadcast=True)
+    elif self.use_current_frame_in_readout_w_gate and self.use_current_frame_in_readout_w_gate_v == 2:
+      assert h_t is not None, "Need h_t for readout!"
+
+      alphas = rf.sigmoid(self.attention_gate(s))
+      weighted_att = alphas * att
+      alphas = utils.copy_tensor_replace_dim_tag(alphas, alphas.feature_dim, h_t.feature_dim)
+      weighted_h_t = (1 - alphas) * h_t
+
+      merged_h_t_att = self.h_t_att_merger(rf.concat_features(weighted_h_t, weighted_att))
+
+      readout_input = rf.concat_features(s, input_embed, merged_h_t_att, allow_broadcast=True)
     elif self.use_current_frame_in_readout_w_gate or self.use_current_frame_in_readout_random:
       if not (not rf.get_run_ctx().train_flag and self.use_current_frame_in_readout_random):
         assert h_t is not None, "Need h_t for readout!"
@@ -353,6 +453,13 @@ class BaseLabelDecoder(rf.Module):
       else:
         readout_input = att + utils.copy_tensor_replace_dim_tag(s, self.get_lstm().out_dim, att.feature_dim)
 
+      if self.use_sep_h_t_readout:
+        h_t_readout_input = rf.concat_features(s, input_embed, h_t, allow_broadcast=True)
+        h_t_readout_in = self.h_t_readout_in(h_t_readout_input)
+        h_t_readout = rf.reduce_out(h_t_readout_in, mode="max", num_pieces=2, out_dim=self.h_t_output_prob.in_dim)
+        h_t_readout = rf.dropout(h_t_readout, drop_prob=0.3, axis=self.dropout_broadcast and h_t_readout.feature_dim)
+        h_t_logits = self.h_t_output_prob(h_t_readout)
+
     if self.use_readout:
       readout_in = self.readout_in(readout_input)
       readout = rf.reduce_out(readout_in, mode="max", num_pieces=2, out_dim=self.output_prob.in_dim)
@@ -363,7 +470,7 @@ class BaseLabelDecoder(rf.Module):
       logits = rf.dropout(logits, drop_prob=0.1, axis=self.dropout_broadcast and logits.feature_dim)
       logits = rf.relu(logits)
 
-    return logits
+    return logits, h_t_logits
 
 
 def get_common_config_params():
@@ -393,14 +500,77 @@ def get_common_config_params():
 
   use_readout = config.bool("use_readout", True)
 
-  conformer_w_abs_pos_enc = config.bool("conformer_w_abs_pos_enc", False)
-  conformer_wo_rel_pos_enc = config.bool("conformer_wo_rel_pos_enc", False)
-  disable_enc_self_att_until_epoch = config.int("disable_enc_self_att_until_epoch", 0)
+  use_feed_forward_encoder = config.bool("use_feed_forward_encoder", False)
+
+  if use_feed_forward_encoder:
+    encoder_cls = LinearEncoder
+    encoder_layer = None
+    encoder_layer_opts = None
+    conformer_num_layers = 6
+    conformer_out_dim = 512
+    enc_input_layer_cls = ConformerConvSubsample
+  else:
+    conformer_w_abs_pos_enc = config.bool("conformer_w_abs_pos_enc", False)
+    conformer_wo_rel_pos_enc = config.bool("conformer_wo_rel_pos_enc", False)
+    conformer_wo_final_layer_norm_per_layer = config.bool("conformer_wo_final_layer_norm_per_layer", False)
+    conformer_wo_convolution = config.bool("conformer_wo_convolution", False)
+    disable_enc_self_att_until_epoch = config.int("disable_enc_self_att_until_epoch", 0)
+    conformer_num_layers = config.int("conformer_num_layers", 12)
+    conformer_out_dim = config.int("conformer_out_dim", 512)
+    conformer_conv_w_zero_padding = config.bool("conformer_conv_w_zero_padding", False)
+    conv_frontend_w_zero_padding = config.bool("conv_frontend_w_zero_padding", False)
+    assert not (conformer_w_abs_pos_enc and conformer_wo_final_layer_norm_per_layer), "only one of them allowed for now"
+    assert not (conformer_wo_final_layer_norm_per_layer and conformer_wo_convolution), "only one of them allowed for now"
+
+    if conformer_wo_rel_pos_enc:
+      self_att_opts = {}
+      self_att = rf.SelfAttention
+    else:
+      self_att_opts = dict(
+        # Shawn et al 2018 style, old RETURNN way.
+        with_bias=False,
+        with_linear_pos=False,
+        with_pos_bias=False,
+        learnable_pos_emb=True,
+        separate_pos_emb_per_head=False,
+        pos_emb_dropout=pos_emb_dropout,
+      )
+      if disable_enc_self_att_until_epoch:
+        self_att_opts["enable_from_epoch"] = disable_enc_self_att_until_epoch
+        self_att = EpochConditionedRelPosSelfAttention
+      else:
+        self_att = rf.RelPosSelfAttention
+
+    encoder_layer_opts = dict(
+      conv_norm_opts=dict(use_mask=True),
+      self_att_opts=self_att_opts,
+      self_att=self_att,
+      ff_activation=lambda x: rf.relu(x) ** 2.0,
+      conv_block=ConformerConvBlockWZeroPadding if conformer_conv_w_zero_padding else None,
+    )
+
+    if conformer_wo_final_layer_norm_per_layer:
+      encoder_layer = ConformerEncoderLayerWoFinalLayerNorm
+    elif conformer_wo_convolution:
+      encoder_layer = ConformerEncoderLayerWoConvolution
+    else:
+      encoder_layer = ConformerEncoderLayer
+
+    if conformer_w_abs_pos_enc:
+      encoder_cls = GlobalConformerEncoderWAbsolutePos
+    elif conformer_wo_final_layer_norm_per_layer:
+      encoder_cls = GlobalConformerEncoderWFinalLayerNorm
+    else:
+      encoder_cls = GlobalConformerEncoder
+
+    if conv_frontend_w_zero_padding:
+      enc_input_layer_cls = ConformerConvSubsampleWZeroPadding
+    else:
+      enc_input_layer_cls = ConformerConvSubsample
 
   return dict(
     in_dim=in_dim,
     enc_aux_logits=enc_aux_logits or (),
-    pos_emb_dropout=pos_emb_dropout,
     language_model=language_model,
     use_weight_feedback=use_weight_feedback,
     use_att_ctx_in_state=use_att_ctx_in_state,
@@ -414,9 +584,12 @@ def get_common_config_params():
     ilm_dimension=ilm_dimension,
     readout_dimension=readout_dimension,
     use_readout=use_readout,
-    conformer_w_abs_pos_enc=conformer_w_abs_pos_enc,
-    conformer_wo_rel_pos_enc=conformer_wo_rel_pos_enc,
-    disable_enc_self_att_until_epoch=disable_enc_self_att_until_epoch,
+    encoder_layer=encoder_layer,
+    encoder_layer_opts=encoder_layer_opts,
+    encoder_cls=encoder_cls,
+    enc_num_layers=conformer_num_layers,
+    enc_out_dim=Dim(name="enc", dimension=conformer_out_dim, kind=Dim.Types.Feature),
+    enc_input_layer_cls=enc_input_layer_cls,
   )
 
 

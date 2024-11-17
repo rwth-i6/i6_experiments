@@ -194,7 +194,29 @@ def search_dataset(
     recog_post_proc_funcs: Sequence[Callable[[RecogOutput], RecogOutput]] = (),
 ) -> RecogOutput:
     """
-    recog on the specific dataset
+    Recog on the specific dataset using RETURNN.
+
+    The core API which is supposed to perform the search inside RETURNN
+    is via ``recog_def``.
+
+    This function already performs a couple of post-processing steps
+    such as collapsing repeated labels, removing blank labels,
+    others specified in ``recog_post_proc_funcs`` (e.g. BPE to words),
+    and finally taking the best hyp from a beam of hyps.
+
+    This function is usually used as part of :func:`recog_model`.
+
+    :param dataset: dataset config
+    :param model: model def with checkpoint
+    :param recog_def: recog def, which defines how to get the search output from the model and input data
+    :param config: any additional search config for RETURNN
+    :param search_post_config: any additional search post config (non-hashed settings) for RETURNN
+    :param search_mem_rqmt: memory requirement for the search job
+    :param search_rqmt: any additional requirements for the search job
+    :param search_alias_name: alias name for the search job
+    :param recog_post_proc_funcs: post processing functions for the recog output
+    :return: :class:`RecogOutput`, single best hyp (if there was a beam, we already took the best one)
+        over the dataset
     """
     env_updates = None
     if (config and config.get("__env_updates")) or (search_post_config and search_post_config.get("__env_updates")):
@@ -498,7 +520,7 @@ def _returnn_v2_get_model(*, epoch: int, **_kwargs_unused):
     assert targets.sparse_dim and targets.sparse_dim.vocab, f"no vocab for {targets}"
 
     model_def = config.typed_value("_model_def")
-    model = model_def(epoch=epoch, in_dim=data.feature_dim, target_dim=targets.sparse_dim)
+    model = model_def(epoch=epoch, in_dim=data.feature_dim_or_sparse_dim, target_dim=targets.sparse_dim)
     return model
 
 

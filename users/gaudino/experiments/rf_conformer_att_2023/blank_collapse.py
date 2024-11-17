@@ -1,3 +1,6 @@
+"""
+Code by Atanas Gruev.
+"""
 import torch
 
 

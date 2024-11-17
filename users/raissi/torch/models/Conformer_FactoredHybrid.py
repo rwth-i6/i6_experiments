@@ -11,10 +11,7 @@ from i6_experiments.users.raissi.torch.serializers import (
     SerialConfigVariant,
     get_basic_pt_network_serializer,
 )
-from i6_experiments.users.raissi.torch.dataclasses.train import (
-    ConformerFactoredHybridConfig,
-    MultiTaskConfig
-)
+from i6_experiments.users.raissi.torch.dataclasses.train import ConformerFactoredHybridConfig, MultiTaskConfig
 
 from i6_models.parts.frontend.vgg_act import VGG4LayerActFrontendV1, VGG4LayerActFrontendV1Config
 from i6_models.parts.conformer.convolution import ConformerConvolutionV1Config
@@ -37,12 +34,12 @@ class ConformerBaseFactoredHybridModel(torch.nn.Module):
         self.multi_task_config: MultiTaskConfig = kwargs.pop("multi_task_config", None)
 
 
-
 class ConformerMonophoneModel(ConformerBaseFactoredHybridModel):
-
     def __init__(self, step: int, cfg: ConformerFactoredHybridConfig, **kwargs):
         super().__init__(step=step, cfg=cfg)
-        self.final_linear_center = torch.nn.Linear(cfg.conformer_cfg.block_cfg.ff_cfg.input_dim, cfg.label_info.get_n_state_classes())
+        self.final_linear_center = torch.nn.Linear(
+            cfg.conformer_cfg.block_cfg.ff_cfg.input_dim, cfg.label_info.get_n_state_classes()
+        )
         if self.multi_task_config is not None:
             raise NotImplementedError("multi-tasking still not supported")
             """
@@ -50,7 +47,6 @@ class ConformerMonophoneModel(ConformerBaseFactoredHybridModel):
                                                        cfg.label_info.n_contexts)
             self.final_linear_right = torch.nn.Linear(cfg.conformer_cfg.block_cfg.ff_cfg.input_dim,
                                                        cfg.label_info.n_contexts)"""
-
 
     def forward(
         self,
@@ -67,18 +63,12 @@ class ConformerMonophoneModel(ConformerBaseFactoredHybridModel):
             return log_probs, torch.sum(sequence_mask, dim=1).type(torch.int32)
 
         else:
-            #toDo
+            # toDo
             logits_left = self.final_linear_left(x)
             logits_right = self.final_linear_right(x)
 
 
-
-
-
-def get_train_serializer(
-    model_config: ConformerFactoredHybridConfig,
-    train_step_path: str
-) -> Collection:
+def get_train_serializer(model_config: ConformerFactoredHybridConfig, train_step_path: str) -> Collection:
     pytorch_package = __package__.rpartition(".")[0]
     return get_basic_pt_network_serializer(
         module_import_path=f"{__name__}.{ConformerHybridModel.__name__}",

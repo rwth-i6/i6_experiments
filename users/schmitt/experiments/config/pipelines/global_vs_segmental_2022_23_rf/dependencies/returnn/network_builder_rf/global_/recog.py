@@ -129,7 +129,7 @@ def model_recog(
         input_embed=input_embed,
         state=decoder_state,
       )
-      logits = model.label_decoder.decode_logits(input_embed=input_embed, **step_out)
+      logits, h_t_logits = model.label_decoder.decode_logits(input_embed=input_embed, **step_out)
     else:
       logits, decoder_state, _ = model.label_decoder(
         target,
@@ -163,7 +163,7 @@ def model_recog(
         state=ilm_state,
         use_mini_att=True
       )
-      ilm_logits = model.label_decoder.decode_logits(input_embed=input_embed, **ilm_step_out)
+      ilm_logits, _ = model.label_decoder.decode_logits(input_embed=input_embed, **ilm_step_out)
       ilm_label_log_prob = rf.log_softmax(ilm_logits, axis=model.target_dim)
       label_log_prob -= ilm_correction_scale * ilm_label_log_prob
 

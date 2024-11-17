@@ -59,7 +59,7 @@ def model_forward_lm(
     assert len(batch_dims) == 1
 
     # add eos to ground truth
-    with_eos = False
+    with_eos = True
     if with_eos:
         ground_truth_pad = rf.pad(ground_truth, axes=ground_truth.dims, padding=[(0, 0), (0, 1)], out_dims=ground_truth.dims, value=0)[0]
         S = torch.max(seq_len.raw_tensor)+1
@@ -67,7 +67,9 @@ def model_forward_lm(
         ground_truth_pad = ground_truth
         S = torch.max(seq_len.raw_tensor)
 
+
     for i in range(S):
+        breakpoint()
         lm_out = model(target, state=trafo_lm_state, spatial_dim=single_step_dim)
         label_log_prob = rf.log_softmax(lm_out["output"], axis=model.target_dim)
         trafo_lm_state = lm_out["state"]
@@ -92,10 +94,13 @@ def model_forward_lm(
 
         # ended = rf.logical_or(ended, target == model.eos_idx)
         ended = rf.logical_or(ended, rf.copy_to_device(i >= seq_len))
-        if bool(rf.reduce_all(ended, axis=ended.dims).raw_tensor):
-            break
+        # if bool(rf.reduce_all(ended, axis=ended.dims).raw_tensor):
+        #     break
 
-    return ground_truth, seq_log_prob
+    if with_eos:
+        ground_truth_pad.dims[1].dyn_size_ext = seq_len + 1
+
+    return ground_truth_pad, seq_log_prob
 
 
 # RecogDef API

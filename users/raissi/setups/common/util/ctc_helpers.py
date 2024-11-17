@@ -62,7 +62,6 @@ def get_switchboard_data(
         "sprintTrainerExecPath": rasr_binary_path.join_right(f"nn-trainer.{rasr_arch}"),
     }
 
-
     # ********** CV data **********
     config_file = tk.Path("/work/asr4/raissi/ms-thesis-setups/lm-sa-swb/dependencies/ctc_data/rasr.dev.config")
     feature_flow_file = tk.Path("/work/asr4/berger/dependencies/switchboard/data/wei_train_ctc/dev.feature.flow")
@@ -74,7 +73,6 @@ def get_switchboard_data(
         f"--*.segment-order-sort-by-time-length-chunk-size=50 --feature-extraction.file={feature_flow_file}",
         "sprintTrainerExecPath": rasr_binary_path.join_right(f"nn-trainer.{rasr_arch}"),
     }
-
 
     # ********** Loss corpus **********
 
@@ -122,9 +120,10 @@ def get_switchboard_data(
     )
 
 
-
 def format_func(s, *args):
     return s % args
+
+
 def get_loss_opts_ctc_rasr_loss_config_dense(
     rasr_binary_path: tk.Path,
     loss_corpus_path: tk.Path,
@@ -136,7 +135,6 @@ def get_loss_opts_ctc_rasr_loss_config_dense(
     extra_config: Optional[rasr.RasrConfig] = None,
     extra_post_config: Optional[rasr.RasrConfig] = None,
     remove_prefix: str = "loss-corpus/",
-
 ):
     # Make crp and set loss_corpus and lexicon
     loss_crp = rasr.CommonRasrParameters()
@@ -156,18 +154,17 @@ def get_loss_opts_ctc_rasr_loss_config_dense(
     loss_crp.acoustic_model_config.state_tying.use_boundary_classes = False
     loss_crp.acoustic_model_config.state_tying.use_word_end_classes = True
 
-    #Leave consistent HCLG
+    # Leave consistent HCLG
     del loss_crp.acoustic_model_config.phonology
 
-
-    loss_crp.allophone_tool_exe = tk.Path("/work/tools/users/raissi/rasr/rasr_tf2/arch/linux-x86_64-standard/allophone-tool.linux-x86_64-standard")
+    loss_crp.allophone_tool_exe = tk.Path(
+        "/work/tools/users/raissi/rasr/rasr_tf2/arch/linux-x86_64-standard/allophone-tool.linux-x86_64-standard"
+    )
 
     from i6_core.lexicon import DumpStateTyingJob
+
     st = DumpStateTyingJob(loss_crp).out_state_tying
     tk.register_output("dense_ctc.state_tying", st)
-
-
-
 
     # Make config from crp
     mapping = {

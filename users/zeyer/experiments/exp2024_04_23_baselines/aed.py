@@ -79,10 +79,10 @@ def py():
         "bpe10k",  # 5.32
         "spm10k",  # 5.16
         "spm_bpe10k",  # 5.21
-        "spm4k",
-        "spm1k",
+        "spm4k",  # 5.42
+        "spm1k",  # 7.23
     ]:
-        train_exp(  # 5.16
+        train_exp(
             f"v6-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-speedpertV2-{vocab}",
             config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
             config_updates={
@@ -137,7 +137,7 @@ def py():
         ("spm10k", 1.0),  # 5.35. As we see from CTC exps, this is not exactly the same as no sampling.
         ("spm10k", 0.9),  # 5.18
         ("spm10k", 0.8),  # 5.14
-        ("spm10k", 0.7),  # 4.98 (!!)
+        ("spm10k", 0.7),  # 4.98 (!!) (but it might be a lucky outlier...)
         ("spm10k", 0.6),  # 5.13
         ("spm10k", 0.5),  # 5.13
         ("spm10k", 0.3),  # 5.26
@@ -169,6 +169,19 @@ def py():
             },
         )
 
+    train_exp(  # 4.98 (!!)
+        f"v6-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-speedpertV2-spm10k-spmSample07",
+        config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
+        config_updates={
+            **_get_cfg_lrlin_oclr_by_bs_nep(15_000, 500),
+            "optimizer.weight_decay": 1e-2,
+            "__train_audio_preprocess": speed_pert_librosa_config,
+            "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
+        },
+        vocab="spm10k",
+        train_vocab_opts={"other_opts": {"enable_sampling": True, "alpha": 0.7}},
+    )
+
     # relPosAttDef: Use the default RelPosSelfAttention instead of the Shawn et al 2018 style, old RETURNN way.
     enc_conformer_layer_default = rf.build_dict(
         rf.encoder.conformer.ConformerEncoderLayer,
@@ -176,23 +189,121 @@ def py():
         num_heads=8,
     )
     for vocab, sample, alpha, max_seq_len_via_audio, model_name, model_cfg in [
+        ("char", None, 0, True, None, {}),
+        ("spm64", None, 0, True, None, {}),  # 6.17
+        ("spm128", None, 0, True, None, {}),
+        ("spm512", None, 0, True, None, {}),  # 5.62
+        ("spm1k", None, 0, True, None, {}),  # 5.30
+        ("spm10k", None, 0, True, None, {}),
+        ("spm10k", "spm", 0.7, True, None, {}),  # 5.23
+        ("spmLm10k", "spm", 0.7, False, None, {}),
         ("spm10k", "spm", 0.7, False, None, {}),  # 4.98
-        ("spm10k", "bpe", 0.005, False, None, {}),
-        ("spm10k", "bpe", 0.01, False, None, {}),  # 5.14
-        # TODO ("spm10k", "bpe", 0.01, True, None, {}),
-        ("spm10k", "bpe", 0.01, False, "relPosAttDef", {"enc_conformer_layer": enc_conformer_layer_default}),  # 5.12
-        (  # 5.14, seems a bit worse (also looking at test)
+        ("spm10k", "spm", 0.7, False, "eosSep", {"out_eos_separated": True}),
+        (
             "spm10k",
-            "bpe",
-            0.01,
+            "spm",
+            0.7,
             False,
-            "relPosAttDef-featBN",
+            "baseV2",  # should be no change, only copied code explicitly
             {
-                "enc_conformer_layer": enc_conformer_layer_default,
+                "enc_conformer_layer": rf.build_dict(
+                    rf.encoder.conformer.ConformerEncoderLayer,
+                    conv_norm=rf.build_dict(rf.BatchNorm, use_mask=True),
+                    self_att=rf.build_dict(
+                        rf.RelPosSelfAttention,
+                        # Shawn et al 2018 style, old RETURNN way.
+                        with_bias=False,
+                        with_linear_pos=False,
+                        with_pos_bias=False,
+                        learnable_pos_emb=True,
+                        separate_pos_emb_per_head=False,
+                        pos_emb_dropout=0.1,
+                    ),
+                    ff_activation=rf.build_dict(rf.relu_square),
+                    num_heads=8,
+                )
+            },
+        ),
+        ("spm10k", "spm", 0.7, False, "featBN", {"feature_batch_norm": True}),  # 5.29, so also worse
+        (  # 5.56. Much worse?
+            "spm10k",
+            "spm",
+            0.7,
+            False,
+            "relPosAttDef-noBias-featBN",
+            {
+                "enc_conformer_layer": rf.build_dict(
+                    rf.encoder.conformer.ConformerEncoderLayer,
+                    ff=rf.build_dict(
+                        rf.encoder.conformer.ConformerPositionwiseFeedForward,
+                        activation=rf.build_dict(rf.relu_square),
+                        with_bias=False,
+                    ),
+                    num_heads=8,
+                ),
+                "_fixed_enc_conformer_layer": True,  # just triggers new hash
                 "feature_batch_norm": True,
             },
         ),
-        (  # 5.07
+        (
+            "spm10k",
+            "spm",
+            0.7,
+            False,
+            # Note on name: as without relPosAttDef, we always have convMask.
+            "relPosAttDefConvMask-posEmbDrop01-noBias",
+            {
+                "enc_conformer_layer": rf.build_dict(
+                    rf.encoder.conformer.ConformerEncoderLayer,
+                    conv_norm=rf.build_dict(rf.BatchNorm, use_mask=True),
+                    ff=rf.build_dict(
+                        rf.encoder.conformer.ConformerPositionwiseFeedForward,
+                        activation=rf.build_dict(rf.relu_square),
+                        with_bias=False,
+                    ),
+                    self_att=rf.build_dict(rf.RelPosSelfAttention, pos_emb_dropout=0.1),
+                    num_heads=8,
+                ),
+            },
+        ),
+        ("spm10k", "bpe", 0.005, False, None, {}),  # 5.14
+        ("spm10k", "bpe", 0.01, False, None, {}),  # 5.14
+        # TODO ("spm10k", "bpe", 0.01, True, None, {}),
+        (  # 5.49. also dev-clean is strangely quite bad (4.36)?
+            "spm10k",
+            "spm",
+            0.7,
+            False,
+            "relPosAttDef",
+            {
+                "enc_conformer_layer": enc_conformer_layer_default,
+                "_fixed_enc_conformer_layer": True,  # just triggers new hash
+            },
+        ),
+        # (
+        #     "spm10k",
+        #     "bpe",
+        #     0.01,
+        #     False,
+        #     "relPosAttDef",
+        #     {
+        #         "enc_conformer_layer": enc_conformer_layer_default,
+        #         "_fixed_enc_conformer_layer": True,  # just triggers new hash
+        #     },
+        # ),
+        # (
+        #     "spm10k",
+        #     "bpe",
+        #     0.01,
+        #     False,
+        #     "relPosAttDef-featBN",
+        #     {
+        #         "enc_conformer_layer": enc_conformer_layer_default,
+        #         "_fixed_enc_conformer_layer": True,  # just triggers new hash
+        #         "feature_batch_norm": True,
+        #     },
+        # ),
+        (  # 5.54. Much worse. This is weird?
             "spm10k",
             "bpe",
             0.01,
@@ -208,15 +319,56 @@ def py():
                     ),
                     num_heads=8,
                 ),
+                "_fixed_enc_conformer_layer": True,  # just triggers new hash
                 "feature_batch_norm": True,
             },
         ),
-        (
+        # (
+        #     "spm10k",
+        #     "bpe",
+        #     0.005,
+        #     False,
+        #     "relPosAttDef-noBias",
+        #     {
+        #         "enc_conformer_layer": rf.build_dict(
+        #             rf.encoder.conformer.ConformerEncoderLayer,
+        #             ff=rf.build_dict(
+        #                 rf.encoder.conformer.ConformerPositionwiseFeedForward,
+        #                 activation=rf.build_dict(rf.relu_square),
+        #                 with_bias=False,
+        #             ),
+        #             num_heads=8,
+        #         ),
+        #         "_fixed_enc_conformer_layer": True,  # just triggers new hash
+        #     },
+        # ),
+        (  # 5.41. posEmbDrop01 seems to help a lot. But still worse than baseline.
             "spm10k",
             "bpe",
-            0.005,
+            0.01,
             False,
-            "relPosAttDef-noBias",
+            "relPosAttDef-posEmbDrop01-noBias-featBN",
+            {
+                "enc_conformer_layer": rf.build_dict(
+                    rf.encoder.conformer.ConformerEncoderLayer,
+                    ff=rf.build_dict(
+                        rf.encoder.conformer.ConformerPositionwiseFeedForward,
+                        activation=rf.build_dict(rf.relu_square),
+                        with_bias=False,
+                    ),
+                    self_att=rf.build_dict(rf.RelPosSelfAttention, pos_emb_dropout=0.1),
+                    num_heads=8,
+                ),
+                "_fixed_enc_conformer_layer": True,  # just triggers new hash
+                "feature_batch_norm": True,
+            },
+        ),
+        (  # 5.59. So noSelfAtt20 did not help. (Even made it slightly worse?)
+            "spm10k",
+            "bpe",
+            0.01,
+            False,
+            "relPosAttDef-noBias-noSelfAtt20-featBN",
             {
                 "enc_conformer_layer": rf.build_dict(
                     rf.encoder.conformer.ConformerEncoderLayer,
@@ -227,6 +379,9 @@ def py():
                     ),
                     num_heads=8,
                 ),
+                "_fixed_enc_conformer_layer": True,  # just triggers new hash
+                "feature_batch_norm": True,
+                "disable_encoder_self_attention": {"num_epochs": 20},
             },
         ),
     ]:
@@ -264,6 +419,9 @@ def py():
         )
 
 
+_train_experiments: Dict[str, ModelWithCheckpoints] = {}
+
+
 # noinspection PyShadowingNames
 def train_exp(
     name: str,
@@ -272,6 +430,7 @@ def train_exp(
     model_def: Optional[Union[ModelDefWithCfg, ModelDef[Model]]] = None,
     vocab: str = "bpe10k",
     train_vocab_opts: Optional[Dict[str, Any]] = None,
+    dataset_train_opts: Optional[Dict[str, Any]] = None,
     train_def: Optional[TrainDef[Model]] = None,
     model_config: Optional[Dict[str, Any]] = None,
     config_updates: Optional[Dict[str, Any]] = None,
@@ -281,6 +440,7 @@ def train_exp(
     gpu_mem: Optional[int] = 24,
     num_processes: Optional[int] = None,
     time_rqmt: Optional[int] = None,  # set this to 1 or below to get the fast test queue
+    env_updates: Optional[Dict[str, str]] = None,
 ) -> ModelWithCheckpoints:
     """
     Train experiment
@@ -293,7 +453,7 @@ def train_exp(
         _sis_setup_global_prefix()
 
     prefix = _sis_prefix + "/" + name
-    task = get_librispeech_task_raw_v2(vocab=vocab, train_vocab_opts=train_vocab_opts)
+    task = get_librispeech_task_raw_v2(vocab=vocab, train_vocab_opts=train_vocab_opts, **(dataset_train_opts or {}))
     config = config.copy()
     config = dict_update_deep(config, config_updates, config_deletes)
     # This logic is also in train(), but keep it here because it would break the hash because of _RecogAndScoreFunc...
@@ -319,9 +479,11 @@ def train_exp(
         gpu_mem=gpu_mem,
         num_processes=num_processes,
         time_rqmt=time_rqmt,
+        env_updates=env_updates,
     )
     recog_training_exp(prefix, task, model_with_checkpoint, recog_def=model_recog)
 
+    _train_experiments[name] = model_with_checkpoint
     return model_with_checkpoint
 
 
@@ -349,15 +511,15 @@ def aed_model_def(*, epoch: int, in_dim: Dim, target_dim: Dim) -> Model:
     # real input is raw audio, internally it does logmel
     in_dim = Dim(name="logmel", dimension=_log_mel_feature_dim, kind=Dim.Types.Feature)
 
-    return Model(
-        in_dim,
-        num_enc_layers=num_enc_layers,
-        enc_model_dim=Dim(name="enc", dimension=512, kind=Dim.Types.Feature),
-        enc_ff_dim=Dim(name="enc-ff", dimension=2048, kind=Dim.Types.Feature),
-        enc_att_num_heads=8,
-        enc_conformer_layer_opts=dict(
-            conv_norm_opts=dict(use_mask=True),
-            self_att_opts=dict(
+    enc_conformer_layer = config.typed_value("enc_conformer_layer", None)
+    if enc_conformer_layer:
+        assert isinstance(enc_conformer_layer, dict) and "class" in enc_conformer_layer
+    else:
+        enc_conformer_layer = rf.build_dict(
+            rf.encoder.conformer.ConformerEncoderLayer,
+            conv_norm=rf.build_dict(rf.BatchNorm, use_mask=True),
+            self_att=rf.build_dict(
+                rf.RelPosSelfAttention,
                 # Shawn et al 2018 style, old RETURNN way.
                 with_bias=False,
                 with_linear_pos=False,
@@ -366,8 +528,17 @@ def aed_model_def(*, epoch: int, in_dim: Dim, target_dim: Dim) -> Model:
                 separate_pos_emb_per_head=False,
                 pos_emb_dropout=pos_emb_dropout,
             ),
-            ff_activation=lambda x: rf.relu(x) ** 2.0,
-        ),
+            ff_activation=rf.build_dict(rf.relu_square),
+            num_heads=8,
+        )
+
+    return Model(
+        in_dim,
+        num_enc_layers=num_enc_layers,
+        enc_model_dim=Dim(name="enc", dimension=512, kind=Dim.Types.Feature),
+        enc_ff_dim=Dim(name="enc-ff", dimension=2048, kind=Dim.Types.Feature),
+        enc_att_num_heads=8,
+        enc_conformer_layer=enc_conformer_layer,
         target_dim=target_dim,
         blank_idx=target_dim.dimension,
         bos_idx=_get_bos_idx(target_dim),
@@ -414,7 +585,10 @@ def aed_training(*, model: Model, data: rf.Tensor, data_spatial_dim: Dim, target
     aux_loss_layers = config.typed_value("aux_loss_layers")
     aux_loss_scales = config.typed_value("aux_loss_scales", ([1.0] * len(aux_loss_layers)) if aux_loss_layers else None)
     aed_loss_scale = config.float("aed_loss_scale", 1.0)
-    use_normalized_loss = config.bool("use_normalized_loss", True)
+    use_normalized_loss = config.typed_value("use_normalized_loss", True)
+    if isinstance(use_normalized_loss, bool):
+        use_normalized_loss = "frames" if use_normalized_loss else "none"
+    assert isinstance(use_normalized_loss, str) and use_normalized_loss in ("none", "frames", "seqs")
 
     if data.feature_dim and data.feature_dim.dimension == 1:
         data = rf.squeeze(data, axis=data.feature_dim)
@@ -435,12 +609,21 @@ def aed_training(*, model: Model, data: rf.Tensor, data_spatial_dim: Dim, target
                 targets_spatial_dim=targets_spatial_dim,
                 blank_index=model.blank_idx,
             )
-            aux_loss.mark_as_loss(
-                f"ctc_{layer_idx}",
-                scale=aux_loss_scales[i],
-                custom_inv_norm_factor=targets_spatial_dim.get_size_tensor(),
-                use_normalized_loss=use_normalized_loss,
-            )
+            if use_normalized_loss in ("none", "frames"):
+                aux_loss.mark_as_loss(
+                    f"ctc_{layer_idx}",
+                    scale=aux_loss_scales[i],
+                    custom_inv_norm_factor=targets_spatial_dim.get_size_tensor(),
+                    use_normalized_loss={"none": False, "frames": True}[use_normalized_loss],
+                )
+            elif use_normalized_loss == "seqs":
+                aux_loss.mark_as_loss(
+                    f"ctc_{layer_idx}", scale=0, custom_inv_norm_factor=targets_spatial_dim.get_size_tensor()
+                )
+                aux_loss.mark_as_loss(f"seq_ctc_{layer_idx}", scale=aux_loss_scales[i], use_normalized_loss=True)
+            else:
+                raise ValueError(f"invalid use_normalized_loss {use_normalized_loss!r}")
+
             # decoded, decoded_spatial_dim = rf.ctc_greedy_decode(aux_logits, in_spatial_dim=enc_spatial_dim)
             # error = rf.edit_distance(
             #     a=decoded, a_spatial_dim=decoded_spatial_dim, b=targets, b_spatial_dim=targets_spatial_dim
@@ -469,14 +652,27 @@ def aed_training(*, model: Model, data: rf.Tensor, data_spatial_dim: Dim, target
         targets_w_eos, dims=batch_dims + [targets_w_eos_spatial_dim], enforce_sorted=False, out_dim=pack_dim
     )
 
-    log_prob = rf.log_softmax(logits_packed, axis=model.target_dim)
+    if not model.out_eos_separated:  # joint distrib, std case
+        log_prob = rf.log_softmax(logits_packed, axis=model.target_dim)
+    else:  # eos separated
+        log_prob = log_probs_with_eos_separated(logits_packed, target_dim=model.target_dim, eos_idx=model.eos_idx)
     log_prob = rf.label_smoothed_log_prob_gradient(log_prob, 0.1, axis=model.target_dim)
     loss = rf.cross_entropy(
         target=targets_packed, estimated=log_prob, estimated_type="log-probs", axis=model.target_dim
     )
-    loss.mark_as_loss("ce", scale=aed_loss_scale, use_normalized_loss=use_normalized_loss)
+    if use_normalized_loss in ("none", "frames"):
+        loss.mark_as_loss(
+            "ce", scale=aed_loss_scale, use_normalized_loss={"none": False, "frames": True}[use_normalized_loss]
+        )
+    elif use_normalized_loss == "seqs":
+        loss.mark_as_loss("ce", scale=0)  # don't use this for training directly, just for reporting
+        loss_ = rf.pad_packed(loss, dims=batch_dims + [targets_w_eos_spatial_dim], in_dim=pack_dim)
+        seq_loss = rf.reduce_sum(loss_, axis=targets_w_eos_spatial_dim)
+        seq_loss.mark_as_loss("seq_ce", use_normalized_loss=True)
+    else:
+        raise ValueError(f"invalid use_normalized_loss {use_normalized_loss!r}")
 
-    best = rf.reduce_argmax(logits_packed, axis=model.target_dim)
+    best = rf.reduce_argmax(log_prob, axis=model.target_dim)
     frame_error = best != targets_packed
     frame_error.mark_as_loss(name="fer", as_error=True)
 
@@ -535,7 +731,10 @@ def model_recog(
             encoder=enc,
             state=decoder_state,
         )
-        label_log_prob = rf.log_softmax(logits, axis=model.target_dim)
+        if not model.out_eos_separated:  # joint distrib, std case
+            label_log_prob = rf.log_softmax(logits, axis=model.target_dim)
+        else:  # eos separated
+            label_log_prob = log_probs_with_eos_separated(logits, target_dim=model.target_dim, eos_idx=model.eos_idx)
         # Filter out finished beams
         label_log_prob = rf.where(
             ended,
@@ -629,7 +828,7 @@ class Model(rf.Module):
         dec_model_dim: Dim = Dim(name="dec", dimension=512),
         enc_ff_dim: Dim = Dim(name="enc-ff", dimension=2048),
         enc_att_num_heads: int = 4,
-        enc_conformer_layer_opts: Optional[Dict[str, Any]] = None,
+        enc_conformer_layer: Optional[Dict[str, Any]] = None,
         enc_dropout: float = 0.1,
         enc_att_dropout: float = 0.1,
     ):
@@ -662,7 +861,7 @@ class Model(rf.Module):
                 pool_sizes=[(1, 2)],
                 strides=[(1, 1), (3, 1), (2, 1)],
             ),
-            encoder_layer_opts=enc_conformer_layer_opts,
+            encoder_layer=enc_conformer_layer,
             num_layers=num_enc_layers,
             num_heads=enc_att_num_heads,
             dropout=enc_dropout,
@@ -677,10 +876,18 @@ class Model(rf.Module):
             sequential=dec_sequential,
         )
 
+        disable_encoder_self_attention = config.typed_value("disable_encoder_self_attention", None)
+        if disable_encoder_self_attention is not None:
+            # Disable self-attention in encoder.
+            from .model_ext.disable_self_att import apply_disable_self_attention_
+
+            apply_disable_self_attention_(self.encoder, disable_encoder_self_attention)
+
         self.target_dim = target_dim
         self.blank_idx = blank_idx
         self.eos_idx = eos_idx
         self.bos_idx = bos_idx  # for non-blank labels; for with-blank labels, we use bos_idx=blank_idx
+        self.out_eos_separated = config.bool("out_eos_separated", False)
 
         if enc_aux_logits:
             if not wb_target_dim:
@@ -753,3 +960,22 @@ class Model(rf.Module):
         # Encoder including convolutional frontend
         enc, enc_spatial_dim = self.encoder(source, in_spatial_dim=in_spatial_dim, collected_outputs=collected_outputs)
         return self.decoder.transform_encoder(enc, axis=enc_spatial_dim), enc_spatial_dim
+
+
+def log_probs_with_eos_separated(logits: Tensor, *, target_dim: Dim, eos_idx: int) -> Tensor:
+    assert not logits.feature_dim or logits.feature_dim == target_dim
+    assert eos_idx == 0  # not implemented otherwise
+    dummy_eos_feat_dim = Dim(1, name="eos_feat")
+    target_dim_wo_eos = target_dim.sub_left(1)
+    logits_eos, logits_wo_eos = rf.split(logits, axis=target_dim, out_dims=[dummy_eos_feat_dim, target_dim_wo_eos])
+    log_probs_wo_eos = rf.log_softmax(logits_wo_eos, axis=target_dim_wo_eos)
+    # log_probs_wo_eos = self._maybe_apply_on_log_probs(log_probs_wo_eos)  # label smoothing maybe on labels only
+    log_probs_eos = rf.log_sigmoid(logits_eos)
+    log_probs_not_eos = rf.squeeze(rf.log_sigmoid(-logits_eos), axis=dummy_eos_feat_dim)
+    log_probs, _ = rf.concat(
+        (log_probs_wo_eos + log_probs_not_eos, target_dim_wo_eos),
+        (log_probs_eos, dummy_eos_feat_dim),
+        out_dim=target_dim,
+    )
+    log_probs.feature_dim = target_dim
+    return log_probs

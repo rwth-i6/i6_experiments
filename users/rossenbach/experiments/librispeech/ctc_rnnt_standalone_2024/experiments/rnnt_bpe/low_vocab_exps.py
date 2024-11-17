@@ -560,3 +560,60 @@ def rnnt_bpe_ls960_1023_low_bpe():
 
 
 
+            model_config_v5_sub6_512lstm_start11_full_spec_bpe512_larger = copy.deepcopy(model_config_v5_sub6_512lstm_start11_full_spec_bpe512)
+            model_config_v5_sub6_512lstm_start11_full_spec_bpe512_larger.predictor_config.lstm_hidden_dim = 768
+            model_config_v5_sub6_512lstm_start11_full_spec_bpe512_larger.predictor_config.lstm_dropout = 0.2
+            model_config_v5_sub6_512lstm_start11_full_spec_bpe512_larger.predictor_config.symbol_embedding_dim = 512
+            model_config_v5_sub6_512lstm_start11_full_spec_bpe512_larger.predictor_config.emebdding_dropout = 0.2
+            model_config_v5_sub6_512lstm_start11_full_spec_bpe512_larger.joiner_dim = 1024
+            model_config_v5_sub6_512lstm_start11_full_spec_bpe512_larger.joiner_dropout = 0.3
+
+            train_args_radam_largedec = {
+                "config": train_config_24gbgpu_amp_radam,
+                "network_module": network_module,
+                "net_args": {"model_config_dict": asdict(model_config_v5_sub6_512lstm_start11_full_spec_bpe512_larger)},
+                "include_native_ops": True,
+                "use_speed_perturbation": True,
+                "debug": False,
+            }
+
+            training_name = prefix_name + "/" + str(
+                BPE_SIZE) + "/" + network_module + ".512dim_sub6_24gbgpu_100eps_accum1_gradclip_fullspec11_sp_morel2_from_scratch_largedec"
+            train_job = training(training_name, train_data_bpe,
+                                 train_args_radam_largedec,
+                                 num_epochs=1000, **default_returnn)
+            train_job.rqmt["gpu_mem"] = 24
+            train_job.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+            for keep in KEEP:
+                asr_model = prepare_asr_model(
+                    training_name, train_job, train_args_radam_largedec,
+                    with_prior=False,
+                    datasets=train_data_bpe, get_specific_checkpoint=keep
+                )
+                evaluate_helper(
+                    training_name + "/keep_%i" % keep,
+                    asr_model,
+                    decoder_config_bpeany_greedy,
+                    use_gpu=True
+                )
+            asr_model = prepare_asr_model(
+                training_name, train_job, train_args_radam_largedec,
+                with_prior=False,
+                datasets=train_data_bpe, get_specific_checkpoint=1000
+            )
+            evaluate_helper(
+                training_name + "/keep_%i" % 1000,
+                asr_model,
+                decoder_config_bpeany_greedy,
+                use_gpu=True,
+            )
+            evaluate_helper(
+                training_name + "/keep_%i" % 1000,
+                asr_model,
+                decoder_config_bpeany_greedy,
+                beam_size=10,
+                use_gpu=True,
+            )
+
+
+

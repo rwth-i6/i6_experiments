@@ -26,8 +26,12 @@ class SegmentalAttLabelDecoder(BaseLabelDecoder):
           use_mini_att: bool = False,
   ) -> rf.State:
     """Default initial state"""
+    if self.center_window_size == 1:
+      att_dim = self.enc_out_dim
+    else:
+      att_dim = self.att_num_heads * self.enc_out_dim
     state = rf.State(
-      att=rf.zeros(list(batch_dims) + [self.att_num_heads * self.enc_out_dim]),
+      att=rf.zeros(list(batch_dims) + [att_dim]),
       segment_starts=rf.zeros(batch_dims, sparse_dim=segment_starts_sparse_dim, dtype="int32"),
       segment_lens=rf.zeros(batch_dims, sparse_dim=segment_lens_sparse_dim, dtype="int32"),
     )
@@ -47,13 +51,18 @@ class SegmentalAttLabelDecoder(BaseLabelDecoder):
 
   def loop_step_output_templates(self, batch_dims: List[Dim]) -> Dict[str, Tensor]:
     """loop step out"""
+    if self.center_window_size == 1:
+      att_dim = self.enc_out_dim
+    else:
+      att_dim = self.att_num_heads * self.enc_out_dim
+
     return {
       "s": Tensor(
         "s", dims=batch_dims + [self.get_lstm().out_dim], dtype=rf.get_default_float_dtype(), feature_dim_axis=-1
       ),
       "att": Tensor(
         "att",
-        dims=batch_dims + [self.att_num_heads * self.enc_out_dim],
+        dims=batch_dims + [att_dim],
         dtype=rf.get_default_float_dtype(),
         feature_dim_axis=-1,
       ),
@@ -149,10 +158,15 @@ class SegmentalAttLabelDecoder(BaseLabelDecoder):
           center_positions: rf.Tensor,
           state: rf.State,
           use_mini_att: bool = False,
+          use_zero_att: bool = False,
+          detach_prev_att: bool = False,
   ) -> Tuple[Dict[str, rf.Tensor], rf.State]:
     state_ = rf.State()
 
     prev_att = state.att
+    if detach_prev_att:
+      prev_att = rf.stop_gradient(prev_att)
+
     prev_s_state = state.s if "lstm" in self.decoder_state else None
 
     input_embed = rf.dropout(input_embed, drop_prob=self.target_embed_dropout, axis=None)
@@ -169,6 +183,8 @@ class SegmentalAttLabelDecoder(BaseLabelDecoder):
         att_linear = self.mini_att_linear(input_embed)
         pre_mini_att = att_linear
       att = self.mini_att(pre_mini_att)
+    elif use_zero_att:
+      att = rf.zeros_like(prev_att)
     else:
       slice_dim = Dim(name="slice", dimension=segment_lens)
       gather_positions = rf.range_over_dim(slice_dim)
@@ -195,34 +211,35 @@ class SegmentalAttLabelDecoder(BaseLabelDecoder):
         weight_feedback = rf.zeros((self.enc_key_total_dim,))
 
       if self.center_window_size == 1:
-        att_weights = rf.ones(enc_sliced.remaining_dims(self.enc_out_dim) + [self.att_num_heads], dtype="float32")
-      elif self.gaussian_att_weight_opts:
-        att_weights = -0.5 * ((gather_positions - center_positions) / self.gaussian_att_weight_opts["std"]) ** 2
-        att_weights = rf.softmax(att_weights, axis=slice_dim, use_mask=True)
-        att_weights = rf.expand_dim(att_weights, dim=self.att_num_heads)
+        att = rf.gather(enc, axis=enc_spatial_dim, indices=center_positions, clip_to_valid=True)
       else:
-        enc_ctx_sliced = rf.gather(enc_ctx, axis=enc_spatial_dim, indices=gather_positions, clip_to_valid=True)
-        s_transformed = self.s_transformed(s)
-        energy_in = enc_ctx_sliced + weight_feedback + s_transformed
-        energy = self.energy(rf.tanh(energy_in))
-        att_weights = rf.softmax(energy, axis=slice_dim)
-        # axis = None is equivalent to settings dropout_noise_shape in old RETURNN
-        att_weights = rf.dropout(att_weights, drop_prob=self.att_weight_dropout, axis=None)
+        if self.gaussian_att_weight_opts:
+          att_weights = -0.5 * ((gather_positions - center_positions) / self.gaussian_att_weight_opts["std"]) ** 2
+          att_weights = rf.softmax(att_weights, axis=slice_dim, use_mask=True)
+          att_weights = rf.expand_dim(att_weights, dim=self.att_num_heads)
+        else:
+          enc_ctx_sliced = rf.gather(enc_ctx, axis=enc_spatial_dim, indices=gather_positions, clip_to_valid=True)
+          s_transformed = self.s_transformed(s)
+          energy_in = enc_ctx_sliced + weight_feedback + s_transformed
+          energy = self.energy(rf.tanh(energy_in))
+          att_weights = rf.softmax(energy, axis=slice_dim)
+          # axis = None is equivalent to settings dropout_noise_shape in old RETURNN
+          att_weights = rf.dropout(att_weights, drop_prob=self.att_weight_dropout, axis=None)
 
-      # we do not need use_mask because the softmax output is already padded with zeros
-      att = self.get_att(att_weights, enc_sliced, reduce_dim=slice_dim)
+        # we do not need use_mask because the softmax output is already padded with zeros
+        att = self.get_att(att_weights, enc_sliced, reduce_dim=slice_dim)
 
-      if self.use_weight_feedback:
-        accum_att_weights = self._get_accum_att_weights(
-          att_t_dim=slice_dim,
-          enc_spatial_dim=enc_spatial_dim,
-          inv_fertility=inv_fertility,
-          att_weights=att_weights,
-          prev_accum_att_weights_scattered=prev_accum_att_weights_scattered,
-          gather_positions=gather_positions,
-        )
-        accum_att_weights.feature_dim = self.att_num_heads
-        state_.accum_att_weights = accum_att_weights
+        if self.use_weight_feedback:
+          accum_att_weights = self._get_accum_att_weights(
+            att_t_dim=slice_dim,
+            enc_spatial_dim=enc_spatial_dim,
+            inv_fertility=inv_fertility,
+            att_weights=att_weights,
+            prev_accum_att_weights_scattered=prev_accum_att_weights_scattered,
+            gather_positions=gather_positions,
+          )
+          accum_att_weights.feature_dim = self.att_num_heads
+          state_.accum_att_weights = accum_att_weights
 
     state_.att = att
     state_.segment_starts = segment_starts
@@ -263,23 +280,25 @@ class SegmentalAttEfficientLabelDecoder(SegmentalAttLabelDecoder):
 
     if self.center_window_size == 1:
       att_weights = rf.ones(enc_sliced.remaining_dims(self.enc_out_dim) + [self.att_num_heads], dtype="float32")
-    elif self.gaussian_att_weight_opts:
-      att_weights = -0.5 * ((gather_positions - center_positions) / self.gaussian_att_weight_opts["std"]) ** 2
-      att_weights = rf.softmax(att_weights, axis=slice_dim, use_mask=True)
-      att_weights = rf.expand_dim(att_weights, dim=self.att_num_heads)
+      att = rf.gather(enc, axis=enc_spatial_dim, indices=center_positions, clip_to_valid=True)
     else:
-      s_transformed = self.s_transformed(s)
-      enc_ctx_sliced = rf.gather(enc_ctx, axis=enc_spatial_dim, indices=gather_positions, clip_to_valid=True)
-      weight_feedback = rf.zeros((self.enc_key_total_dim,))
-      energy_in = enc_ctx_sliced + weight_feedback + s_transformed
-      energy = self.energy(rf.tanh(energy_in))
-      att_weights = rf.softmax(energy, axis=slice_dim)
-      att_weights = rf.dropout(att_weights, drop_prob=self.att_weight_dropout, axis=None)
+      if self.gaussian_att_weight_opts:
+        att_weights = -0.5 * ((gather_positions - center_positions) / self.gaussian_att_weight_opts["std"]) ** 2
+        att_weights = rf.softmax(att_weights, axis=slice_dim, use_mask=True)
+        att_weights = rf.expand_dim(att_weights, dim=self.att_num_heads)
+      else:
+        s_transformed = self.s_transformed(s)
+        enc_ctx_sliced = rf.gather(enc_ctx, axis=enc_spatial_dim, indices=gather_positions, clip_to_valid=True)
+        weight_feedback = rf.zeros((self.enc_key_total_dim,))
+        energy_in = enc_ctx_sliced + weight_feedback + s_transformed
+        energy = self.energy(rf.tanh(energy_in))
+        att_weights = rf.softmax(energy, axis=slice_dim)
+        att_weights = rf.dropout(att_weights, drop_prob=self.att_weight_dropout, axis=None)
 
-    # we do not need use_mask because the softmax output is already padded with zeros
-    att0 = rf.dot(att_weights, enc_sliced, reduce=slice_dim, use_mask=False)
-    att0.feature_dim = self.enc_out_dim
-    att, _ = rf.merge_dims(att0, dims=(self.att_num_heads, self.enc_out_dim))
+      # we do not need use_mask because the softmax output is already padded with zeros
+      att0 = rf.dot(att_weights, enc_sliced, reduce=slice_dim, use_mask=False)
+      att0.feature_dim = self.enc_out_dim
+      att, _ = rf.merge_dims(att0, dims=(self.att_num_heads, self.enc_out_dim))
 
     # move enc size tensor back to CPU
     enc_spatial_dim.dyn_size_ext = rf.copy_to_device(enc_spatial_dim.dyn_size_ext, "cpu")

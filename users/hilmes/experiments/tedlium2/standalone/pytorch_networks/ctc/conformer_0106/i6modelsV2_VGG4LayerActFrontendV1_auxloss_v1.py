@@ -93,7 +93,7 @@ class Model(torch.nn.Module):
         :param raw_audio_len: length of T as [B]
         :return: list of logprobs [B, T, #labels + blank], mask [B, T]
         """
-        
+
         squeezed_features = torch.squeeze(raw_audio, dim=-1)
         with torch.no_grad():
             audio_features, audio_features_len = self.feature_extraction(squeezed_features, raw_audio_len)

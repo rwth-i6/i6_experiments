@@ -276,7 +276,7 @@ def py():
         train_def=lm_train_def,
     )
 
-    train(
+    train(  # 38.66
         "lm/trafo-n24-d512-gelu-drop0-b100_5k",
         config=dict_update_deep(
             config_11gb_lm_v1,
@@ -298,6 +298,63 @@ def py():
             },
         ),
         train_def=lm_train_def,
+    )
+
+    train(
+        "lm/trafo-n24-d1024-noAbsPos-rmsNorm-ffGated-rope-noBias-drop0-b100_5k-ep40",
+        config=dict_update_deep(
+            config_11gb_lm_v1,
+            {**_get_cfg_lrlin_oclr_by_bs_nep(32, 2_000, 40)},
+        ),
+        train_dataset=get_librispeech_lm_dataset(vocab="spm10k"),
+        model_def=ModelDefWithCfg(
+            lm_model_def,
+            {
+                "_model_def_dict": rf.build_dict(
+                    TransformerDecoder,
+                    encoder_dim=None,
+                    num_layers=24,
+                    model_dim=1024,
+                    pos_enc=None,
+                    norm=rf.build_dict(rf.RMSNorm),
+                    ff=rf.build_dict(rf.decoder.transformer.FeedForwardGated),
+                    decoder_layer_opts=dict(self_att=rf.build_dict(rf.RotaryPosCausalSelfAttention, with_bias=False)),
+                    dropout=0.0,
+                    att_dropout=0.0,
+                )
+            },
+        ),
+        train_def=lm_train_def,
+        # got GPU OOM in some later epoch... so play around here to fix this
+        env_updates={"PYTORCH_CUDA_ALLOC_CONF": "backend:cudaMallocAsync"},
+    )
+
+    train(
+        "lm/trafo-n32-d1024-noAbsPos-rmsNorm-ffGated-rope-noBias-drop0-b32_1k",
+        config=dict_update_deep(
+            config_11gb_lm_v1,
+            {**_get_cfg_lrlin_oclr_by_bs_nep(32, 1_000, 100)},
+        ),
+        train_dataset=get_librispeech_lm_dataset(vocab="spm10k"),
+        model_def=ModelDefWithCfg(
+            lm_model_def,
+            {
+                "_model_def_dict": rf.build_dict(
+                    TransformerDecoder,
+                    encoder_dim=None,
+                    num_layers=32,
+                    model_dim=1024,
+                    pos_enc=None,
+                    norm=rf.build_dict(rf.RMSNorm),
+                    ff=rf.build_dict(rf.decoder.transformer.FeedForwardGated),
+                    decoder_layer_opts=dict(self_att=rf.build_dict(rf.RotaryPosCausalSelfAttention, with_bias=False)),
+                    dropout=0.0,
+                    att_dropout=0.0,
+                )
+            },
+        ),
+        train_def=lm_train_def,
+        env_updates={"PYTORCH_CUDA_ALLOC_CONF": "backend:cudaMallocAsync"},
     )
 
     # Results from trafo-n24-d512-gelu-drop0-b100_6k-wrongLr (check the Git log):
@@ -415,10 +472,10 @@ def py():
 
     # Llama for 2 full epochs.
     train(
-        "lm/trafo-n48-d512-noAbsPos-rmsNorm-ffGated-rope-noBias-drop0-b32_2k-ep40",
+        "lm/trafo-n48-d512-noAbsPos-rmsNorm-ffGated-rope-noBias-drop0-b32_2k-ep40-lrlin1e_5_60p",
         config=dict_update_deep(
             config_11gb_lm_v1,
-            {**_get_cfg_lrlin_oclr_by_bs_nep(32, 2_000, 40)},
+            {**_get_cfg_lrlin_oclr_by_bs_nep(32, 2_000, 40, peak_percentage=0.6)},
         ),
         train_dataset=get_librispeech_lm_dataset(vocab="spm10k"),
         model_def=ModelDefWithCfg(
@@ -517,7 +574,11 @@ def lm_train_def(
     from returnn.config import get_global_config
 
     config = get_global_config()  # noqa
-    use_normalized_loss = config.bool("use_normalized_loss", True)
+    use_normalized_loss = config.typed_value("use_normalized_loss", True)
+    if isinstance(use_normalized_loss, bool):
+        use_normalized_loss = "frames" if use_normalized_loss else "none"
+    assert isinstance(use_normalized_loss, str) and use_normalized_loss in ("none", "frames", "seqs")
+    loss_dtype = config.typed_value("loss_dtype", None)
 
     # potentially also other types but just assume
     # noinspection PyTypeChecker
@@ -550,11 +611,21 @@ def lm_train_def(
     targets_packed, _ = rf.pack_padded(
         targets_w_eos, dims=batch_dims + [targets_w_eos_spatial_dim], enforce_sorted=False, out_dim=pack_dim
     )
+    if loss_dtype:
+        logits_packed = rf.cast(logits_packed, loss_dtype)
 
     log_prob = rf.log_softmax(logits_packed, axis=model.vocab_dim)
     # log_prob = rf.label_smoothed_log_prob_gradient(log_prob, 0.1, axis=model.target_dim)
     loss = rf.cross_entropy(target=targets_packed, estimated=log_prob, estimated_type="log-probs", axis=model.vocab_dim)
-    loss.mark_as_loss("ce", use_normalized_loss=use_normalized_loss)
+    if use_normalized_loss in ("none", "frames"):
+        loss.mark_as_loss("ce", use_normalized_loss={"none": False, "frames": True}[use_normalized_loss])
+    elif use_normalized_loss == "seqs":
+        loss.mark_as_loss("ce", scale=0)  # don't use this for training directly, just for reporting
+        loss_ = rf.pad_packed(loss, dims=batch_dims + [targets_w_eos_spatial_dim], in_dim=pack_dim)
+        seq_loss = rf.reduce_sum(loss_, axis=targets_w_eos_spatial_dim)
+        seq_loss.mark_as_loss("seq_ce", use_normalized_loss=True)
+    else:
+        raise ValueError(f"invalid use_normalized_loss {use_normalized_loss!r}")
 
     best = rf.reduce_argmax(logits_packed, axis=model.vocab_dim)
     frame_error = best != targets_packed
@@ -603,7 +674,7 @@ def _get_cfg_lrlin_oclr_incomplete(max_seqs: int, bs_feat: int, n_ep: int, *, pe
 
 
 def _get_cfg_lrlin_oclr_by_bs_nep(
-    max_seqs: int, batch_size: int, n_ep: int, *, peak_lr: float = 1e-3
+    max_seqs: int, batch_size: int, n_ep: int, *, peak_lr: float = 1e-3, peak_percentage: float = 0.45
 ) -> Dict[str, Any]:
     """
     :param max_seqs:
@@ -613,7 +684,7 @@ def _get_cfg_lrlin_oclr_by_bs_nep(
     from i6_experiments.users.zeyer.lr_schedules.piecewise_linear import dyn_lr_piecewise_linear
 
     tot_num_steps = _tot_num_steps_by_bs[(max_seqs, batch_size)] * n_ep
-    steps = [tot_num_steps * 0.45, tot_num_steps * 0.9, tot_num_steps]
+    steps = [tot_num_steps * peak_percentage, tot_num_steps * 0.9, tot_num_steps]
     steps = [int(s) for s in steps]
 
     return {

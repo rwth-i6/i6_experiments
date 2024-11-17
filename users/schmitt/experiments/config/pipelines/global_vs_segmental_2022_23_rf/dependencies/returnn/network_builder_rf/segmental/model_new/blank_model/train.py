@@ -1,4 +1,4 @@
-from typing import Optional, Dict, Any, Sequence, Tuple, List
+from typing import Optional, Dict, Any, Sequence, Tuple, List, Union
 
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.segmental.model_new.blank_model.model import (
   BlankDecoderV1,
@@ -9,6 +9,7 @@ from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segment
   BlankDecoderV7,
   BlankDecoderV8,
   BlankDecoderV9,
+  BlankDecoderV11,
 )
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.segmental import utils
 
@@ -142,7 +143,7 @@ def viterbi_training_v3(
 
 def viterbi_training_v4(
         *,
-        model: BlankDecoderV4,
+        model: Union[BlankDecoderV4, BlankDecoderV11],
         enc_args: Dict,
         enc_spatial_dim: Dim,
         label_states_unmasked: rf.Tensor,

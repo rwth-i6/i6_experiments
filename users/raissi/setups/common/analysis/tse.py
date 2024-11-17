@@ -19,6 +19,7 @@ NUM_TASKS = 16
 
 T = TypeVar("T")
 
+
 def cache(path: Path) -> str:
     return subprocess.check_output(["cf", path.get_path()]).decode(sys.stdout.encoding).strip()
 
@@ -436,7 +437,8 @@ class ComputeTSEJob(Job):
 
             import matplotlib.pyplot as plt
             import matplotlib
-            matplotlib.use('Agg')
+
+            matplotlib.use("Agg")
 
             plt.figure(figsize=(10, 6))
             plt.bar(range_strings, range_counts, color="skyblue")

@@ -122,7 +122,7 @@ def aed_bpe_ls960_1023_base():
         asr_model = copy.deepcopy(asr_model)
         asr_model.prior_file = None
 
-        search_name = training_name + "/search_bs"
+        search_name = training_name + "/search_bs_%i" % decoder_config.beam_search_opts.beam_size
         search_jobs, wers = search(
             search_name,
             forward_config={"max_seqs": 20} if seed is None else {"max_seqs": 20, "seed": seed},
@@ -504,6 +504,23 @@ def aed_bpe_ls960_1023_base():
         get_specific_checkpoint=1000
     )
     greedy_search_helper(training_name, asr_model=asr_model, decoder_config=greedy_decoder_config)
+    for beam_size in [8,12,24,48]:
+        beam_search_prototype(
+            training_name,
+            asr_model=asr_model,
+            decoder_config=BeamSearchDecoderConfig(
+                returnn_vocab=label_datastream_bpe5000.vocab,
+                beam_search_opts=BeamSearchOpts(
+                    beam_size=beam_size,
+                    length_normalization_exponent=1.0,
+                    length_reward=0,
+                    bos_label=0,
+                    eos_label=0,
+                    num_labels=label_datastream_bpe5000.vocab_size
+                )
+            ),
+            use_gpu=True,
+        )
 
     # 11GB Runs from here
 

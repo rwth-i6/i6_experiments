@@ -2,6 +2,7 @@ from dataclasses import dataclass
 
 from sisyphus import tk
 
+
 @dataclass
 class HDFBuilderArgs:
     returnn_root: tk.Path

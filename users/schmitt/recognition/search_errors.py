@@ -270,13 +270,21 @@ class CalcSearchErrorJobRF(Job):
           self,
           ground_truth_scores_file: Path,
           ground_truth_hdf: Path,
-          search_hyps_file: Path,
+          search_hyps_file: Optional[Path],
           search_seqs_hdf: Path,
           target_blank_idx: int,
+          search_hyps_scores_file: Optional[Path] = None,
   ):
+    assert not (
+      search_hyps_scores_file is None and search_hyps_file is None
+    ) and not (
+      search_hyps_scores_file is not None and search_hyps_file is not None
+    )
+
     self.ground_truth_scores_file = ground_truth_scores_file
     self.ground_truth_hdf = ground_truth_hdf
     self.search_hyps_file = search_hyps_file
+    self.search_hyps_scores_file = search_hyps_scores_file
     self.search_seqs_hdf = search_seqs_hdf
     self.target_blank_idx = target_blank_idx
 
@@ -290,11 +298,15 @@ class CalcSearchErrorJobRF(Job):
     with util.uopen(self.ground_truth_scores_file.get_path(), "r") as f:
       ground_truth_scores = eval(f.read())  # Dict[tag, score]
 
-    with util.uopen(self.search_hyps_file.get_path(), "r") as f:
-      search_hyps = eval(f.read())  # Dict[tag, List[Tuple[score, hyp]]]
-      best_search_scores = {
-        tag: max(hyp, key=lambda x: x[0])[0] for tag, hyp in search_hyps.items()
-      }
+    if self.search_hyps_file is not None:
+      with util.uopen(self.search_hyps_file.get_path(), "r") as f:
+        search_hyps = eval(f.read())  # Dict[tag, List[Tuple[score, hyp]]]
+        best_search_scores = {
+          tag: max(hyp, key=lambda x: x[0])[0] for tag, hyp in search_hyps.items()
+        }
+    else:
+      with util.uopen(self.search_hyps_scores_file.get_path(), "r") as f:
+        best_search_scores = eval(f.read())  # Dict[tag, score]
 
     ground_truth_data_dict = hdf.load_hdf_data(hdf_path=self.ground_truth_hdf)  # type: Dict[str, np.ndarray]
     search_data_dict = hdf.load_hdf_data(hdf_path=self.search_seqs_hdf)  # type: Dict[str, np.ndarray]
@@ -309,24 +321,31 @@ class CalcSearchErrorJobRF(Job):
         ground_truth_seq = ground_truth_seq[ground_truth_seq != self.target_blank_idx]
         search_seq = search_seq[search_seq != self.target_blank_idx]
 
+      ground_truth_score = ground_truth_scores[tag]
+      best_search_score = best_search_scores[tag]
+
       if list(ground_truth_seq) != list(search_seq):
-
-        ground_truth_score = ground_truth_scores[tag]
-        best_search_score = best_search_scores[tag]
-
         print("Output mismatch for tag %s" % tag)
-        print("Ground truth: %s" % ground_truth_seq)
-        print("Ground truth score: %s" % ground_truth_score)
-        print("Search: %s" % search_seq)
-        print("Search score: %s" % best_search_score)
+      else:
+        print("Output match for tag %s" % tag)
+      print("Ground truth: %s" % ground_truth_seq)
+      print("Ground truth score: %s" % ground_truth_score)
+      print("Search: %s" % search_seq)
+      print("Search score: %s" % best_search_score)
 
-        if ground_truth_scores[tag] > best_search_score:
-          print("Search error!")
-          num_search_errors += 1
-        else:
-          print("No search error!")
+      if ground_truth_scores[tag] > best_search_score:
+        print("Search error!")
+        num_search_errors += 1
+      else:
+        print("No search error!")
 
-        print("\n ------------------------------------ \n")
+      print("\n ------------------------------------ \n")
 
     with open(self.out_search_errors.get_path(), "w+") as f:
       f.write("Search errors: %f%%" % ((num_search_errors / num_seqs) * 100))
+
+  @classmethod
+  def hash(cls, kwargs):
+    if kwargs["search_hyps_scores_file"] is None:
+      kwargs.pop("search_hyps_scores_file")
+    return super().hash(kwargs)

@@ -37,8 +37,8 @@ def train_gl_vocoder_ls460():
         "max_seqs": 200,
     }
 
-    prefix = "experiments/librispeech/ctc_rnnt_standalone_2024/vocoder/simple_gl/"
-    training_datasets = build_training_dataset(ls_corpus_key="train-clean-100", partition_epoch=2)
+    prefix = "experiments/librispeech/ctc_rnnt_standalone_2024/vocoder/simple_gl_ls460/"
+    training_datasets = build_training_dataset(ls_corpus_key="train-clean-460", partition_epoch=2)
 
     def run_exp(name, params, net_module, config, debug=False, num_epochs=50):
         train_args = {

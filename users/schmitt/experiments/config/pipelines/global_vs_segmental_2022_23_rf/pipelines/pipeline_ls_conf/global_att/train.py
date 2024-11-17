@@ -1,4 +1,4 @@
-from typing import Tuple, Optional, List
+from typing import Tuple, Optional, List, Dict
 import itertools
 
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.config_builder_rf.base import LibrispeechGlobalAttConformerConfigBuilderRF
@@ -19,11 +19,11 @@ def train_global_att(
         time_rqmt: int = 168,
         gpu_mem_rqmt: int = 11,
         use_mgpu: bool = True,
-        ce_aux_loss_layers: Optional[Tuple[int, ...]] = None,
-        ce_aux_loss_focal_loss_factors: Optional[Tuple[float, ...]] = None,
-        ce_aux_loss_scales: Optional[Tuple[float, ...]] = None,
+        ctc_aux_loss_layers: Optional[Tuple[int, ...]] = None,
+        ctc_aux_loss_focal_loss_factors: Optional[Tuple[float, ...]] = None,
+        ctc_aux_loss_scales: Optional[Tuple[float, ...]] = None,
         use_curriculum_learning: bool = True,
-        lr_scheduling_type: str = "dyn_lr_piecewise_linear",
+        lr_scheduling_opts: Optional[Dict] = None,
         regularization_type: str = "v1",
         checkpoint_alias: Optional[str] = None,
         checkpoint_path: Optional[PtCheckpoint] = None,
@@ -34,6 +34,12 @@ def train_global_att(
         cluster_reservation_string: Optional[str] = None,
         accum_grad_multiple_step: int = 4,
         use_torch_amp: bool = False,
+        random_seed: Optional[int] = None,
+        disable_enc_self_att_until_epoch: Optional[int] = None,
+        hard_att_opts: Optional[Dict] = None,
+        cutoff_initial_silence: bool = False,
+        use_speed_pert_w_flip: bool = False,
+        weight_decay: float = 1e-6,
 ):
   # alias += (
   #         f"/train_from_scratch/{n_epochs}-epochs_wo-ctc-loss"
@@ -45,11 +51,11 @@ def train_global_att(
     time_rqmt=time_rqmt,
     batch_size=batch_size,
     use_mgpu=use_mgpu,
-    ce_aux_loss_layers=ce_aux_loss_layers,
-    ce_aux_loss_focal_loss_factors=ce_aux_loss_focal_loss_factors,
-    ce_aux_loss_scales=ce_aux_loss_scales,
+    ctc_aux_loss_layers=ctc_aux_loss_layers,
+    ctc_aux_loss_focal_loss_factors=ctc_aux_loss_focal_loss_factors,
+    ctc_aux_loss_scales=ctc_aux_loss_scales,
     use_curriculum_learning=use_curriculum_learning,
-    lr_scheduling_type=lr_scheduling_type,
+    lr_scheduling_opts=lr_scheduling_opts,
     regularization_type=regularization_type,
     use_speed_pert=use_speed_pert,
     training_type="train",
@@ -62,9 +68,16 @@ def train_global_att(
     cluster_reservation_string=cluster_reservation_string,
     accum_grad_multiple_step=accum_grad_multiple_step,
     use_torch_amp=use_torch_amp,
+    random_seed=random_seed,
+    disable_enc_self_att_until_epoch=disable_enc_self_att_until_epoch,
+    cutoff_initial_silence=cutoff_initial_silence,
+    use_speed_pert_w_flip=use_speed_pert_w_flip,
   )
 
   alias += alias_
+
+  if hard_att_opts is not None:
+    alias += f"_hard-att-on-{hard_att_opts['frame']}-until-epoch-{hard_att_opts['until_epoch']}"
 
   train_opts.update({
     "train_step_func": _returnn_v2_train_step,

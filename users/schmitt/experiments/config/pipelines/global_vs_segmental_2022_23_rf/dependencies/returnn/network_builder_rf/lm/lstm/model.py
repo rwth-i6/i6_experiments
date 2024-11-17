@@ -82,13 +82,11 @@ class MakeModel:
         target_dim: int,
         *,
         eos_label: int = 0,
-        # num_enc_layers: int = 12,
     ):
         self.in_dim = in_dim
         self.target_dim = target_dim
 
         self.eos_label = eos_label
-
 
     def __call__(self) -> LSTM_LM_Model:
         from returnn.datasets.util.vocabulary import Vocabulary
@@ -108,9 +106,6 @@ class MakeModel:
         cls,
         in_dim: Dim,
         target_dim: Dim,
-        # *,
-        # search_args: Optional[Dict[str, Any]],
-        # num_enc_layers: int = 12,
     ) -> LSTM_LM_Model:
         """make"""
         return LSTM_LM_Model(
@@ -118,3 +113,40 @@ class MakeModel:
             # num_enc_layers=num_enc_layers,
             target_dim=target_dim,
         )
+
+
+def from_scratch_model_def(*, epoch: int, in_dim: Dim, target_dim: Dim) -> LSTM_LM_Model:
+  """Function is run within RETURNN."""
+  from returnn.config import get_global_config
+
+  in_dim, epoch  # noqa
+  config = get_global_config()  # noqa
+
+  return MakeModel.make_model(
+    in_dim,
+    target_dim,
+  )
+
+
+def _returnn_v2_get_model(*, epoch: int, **_kwargs_unused):
+  from returnn.tensor import Tensor
+  from returnn.config import get_global_config
+
+  config = get_global_config()
+  default_input_key = config.typed_value("default_input")
+  default_target_key = config.typed_value("target")
+  extern_data_dict = config.typed_value("extern_data")
+  data = Tensor(name=default_input_key, **extern_data_dict[default_input_key])
+
+  if default_target_key in extern_data_dict:
+    targets = Tensor(name=default_target_key, **extern_data_dict[default_target_key])
+  else:
+    non_blank_target_dimension = config.typed_value("non_blank_target_dimension", None)
+    vocab = config.typed_value("vocab", None)
+    assert non_blank_target_dimension and vocab
+    target_dim = Dim(description="non_blank_target_dim", dimension=non_blank_target_dimension, kind=Dim.Types.Spatial)
+    targets = Tensor(name=default_target_key, sparse_dim=target_dim, vocab=vocab)
+
+  model_def = config.typed_value("_model_def")
+  model = model_def(epoch=epoch, in_dim=data.feature_dim, target_dim=targets.sparse_dim)
+  return model

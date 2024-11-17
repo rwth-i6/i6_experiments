@@ -55,3 +55,13 @@ def get_base_returnn_dict_zhou_v2(debug=False):
     params["batching"] = "random"
 
     return params
+
+
+def get_base_returnn_dict_smbr(debug=False):
+
+    params = get_base_returnn_dict(debug=debug)
+    params["optimizer"] = {"class": "nadam", "epsilon": 1e-08}
+    params["gradient_clip"] = 20.0
+    params["batching"] = "random"
+
+    return params

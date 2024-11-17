@@ -40,7 +40,7 @@ from i6_experiments.users.raissi.setups.common.decoder.BASE_factored_hybrid_sear
     round2,
     RasrFeatureScorer,
     DecodingTensorMap,
-    RecognitionJobs,
+    DecodingJobs,
     check_prior_info,
     get_factored_feature_scorer,
     get_nn_precomputed_feature_scorer,
@@ -69,7 +69,7 @@ class SWBFactoredHybridDecoder(BASEFactoredHybridDecoder):
         model_path: Path,
         graph: Path,
         mixtures: Path,
-        eval_files,
+        eval_args,
         scorer: Optional[Union[recog.ScliteJob, recog.Hub5ScoreJob, recog.KaldiScorerJob]] = None,
         tensor_map: Optional[Union[dict, DecodingTensorMap]] = None,
         is_multi_encoder_output=False,
@@ -88,7 +88,7 @@ class SWBFactoredHybridDecoder(BASEFactoredHybridDecoder):
             model_path=model_path,
             graph=graph,
             mixtures=mixtures,
-            eval_files=eval_files,
+            eval_args=eval_args,
             scorer=scorer,
             tensor_map=tensor_map,
             is_multi_encoder_output=is_multi_encoder_output,
@@ -245,7 +245,7 @@ class SWBFactoredHybridDecoder(BASEFactoredHybridDecoder):
         create_lattice: bool = True,
         adv_search_extra_config: Optional[rasr.RasrConfig] = None,
         adv_search_extra_post_config: Optional[rasr.RasrConfig] = None,
-    ) -> RecognitionJobs:
+    ) -> DecodingJobs:
         return self.recognize(
             add_sis_alias_and_output=add_sis_alias_and_output,
             calculate_stats=calculate_stats,

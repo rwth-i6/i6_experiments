@@ -1,10 +1,13 @@
 from sisyphus import *
 
+from returnn.datasets.hdf import SimpleHDFWriter
+
 from recipe.i6_core.util import create_executable
 from recipe.i6_core.rasr.config import build_config_from_mapping
 from recipe.i6_core.rasr.command import RasrCommand
 from i6_core.returnn.config import ReturnnConfig
 from i6_core.returnn.forward import ReturnnForwardJob
+from i6_core.lib import corpus
 
 from sisyphus import Path
 
@@ -19,7 +22,7 @@ import numpy as np
 from matplotlib import pyplot as plt
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 
-from i6_experiments.users.schmitt.hdf import load_hdf_data
+from i6_experiments.users.schmitt import hdf
 import recipe.i6_experiments.users.schmitt.tools as tools_mod
 tools_dir = os.path.dirname(tools_mod.__file__)
 
@@ -849,7 +852,7 @@ class CalculateSilenceStatistics(Job):
     yield Task("run", rqmt={"cpu": 1, "mem": 4, "time": 1, "gpu": 0})
 
   def run(self):
-    gmm_alignment_dict = load_hdf_data(self.gmm_alignment_hdf)
+    gmm_alignment_dict = hdf.load_hdf_data(self.gmm_alignment_hdf)
 
     state_tying_path, state_tying_vocab, phoneme_silence_idx, phoneme_non_final_idx = write_state_tying(
       self.allophone_path.get_path()
@@ -857,8 +860,10 @@ class CalculateSilenceStatistics(Job):
 
     num_initial_silence_frames = 0
     initial_silence_frames_per_seq = {}
+    num_initial_silence_frames_list = []
     num_final_silence_frames = 0
     final_silence_frames_per_seq = {}
+    num_final_silence_frames_list = []
     num_seqs = 0
 
     for i, seq_tag in enumerate(gmm_alignment_dict):
@@ -882,16 +887,32 @@ class CalculateSilenceStatistics(Job):
       if gmm_labels[0] == phoneme_silence_idx:
         num_initial_silence_frames += first_word_end
         initial_silence_frames_per_seq[seq_tag] = first_word_end
+        num_initial_silence_frames_list.append(first_word_end)
       if gmm_labels[-1] == phoneme_silence_idx:
         final_silence_frames = len(gmm_alignment) - second_last_word_end - 1
         num_final_silence_frames += final_silence_frames
         final_silence_frames_per_seq[seq_tag] = final_silence_frames
+        num_final_silence_frames_list.append(final_silence_frames)
 
       num_seqs += 1
 
+    # calculate histogram of initial and final silence frames
+    initial_silence_hist = np.histogram(num_initial_silence_frames_list, bins=10)
+    final_silence_hist = np.histogram(num_final_silence_frames_list, bins=10)
+    # plot histograms on top of each other
+    plt.bar(initial_silence_hist[1][:-1], initial_silence_hist[0], width=initial_silence_hist[1][1] - initial_silence_hist[1][0], color='b', alpha=0.5, label='initial silence')
+    plt.bar(final_silence_hist[1][:-1], final_silence_hist[0], width=final_silence_hist[1][1] - final_silence_hist[1][0], color='r', alpha=0.5, label='final silence')
+    plt.legend()
+    plt.xlabel("Number of silence frames")
+    plt.ylabel("Number of sequences")
+    plt.savefig("histograms.png")
+
+
     with open(self.out_statistics.get_path(), "w") as f:
       f.write(f"Mean initial silence frames: {num_initial_silence_frames / num_seqs}\n")
+      f.write(f"Median initial silence frames: {np.median(num_initial_silence_frames_list)}\n")
       f.write(f"Mean final silence frames: {num_final_silence_frames / num_seqs}\n")
+      f.write(f"Median final silence frames: {np.median(num_final_silence_frames_list)}\n")
 
     for file_path, dict_ in [
       [self.out_initial_silence_frames.get_path(), initial_silence_frames_per_seq],
@@ -902,3 +923,177 @@ class CalculateSilenceStatistics(Job):
         for seq_tag, frames in dict_.items():
           f.write(f"  '{seq_tag}': {frames},\n")
         f.write("}\n")
+
+
+class ConvertGmmAlignmentJob(Job):
+  def __init__(
+          self,
+          gmm_alignment_hdf: Path,
+          allophone_path: Path,
+          state_tying_path: Path,
+  ):
+    self.gmm_alignment_hdf = gmm_alignment_hdf
+    self.allophone_path = allophone_path
+    self.state_tying_path = state_tying_path
+
+    self.out_hdf_align = self.output_path("out_hdf_align.hdf")
+    self.out_vocab = self.output_path("out_vocab")
+
+  def tasks(self):
+    yield Task("run", rqmt={"cpu": 1, "mem": 4, "time": 1, "gpu": 0})
+
+  @staticmethod
+  def load_state_tying(state_tying_file):
+    with open(state_tying_file, "r") as f:
+      state_tying = {}
+      for line in f:
+        allophone, idx = line.strip().split()
+        state_tying[int(idx)] = allophone
+
+    return state_tying
+
+  def run(self):
+    gmm_alignment_dict = hdf.load_hdf_data(self.gmm_alignment_hdf)
+    state_tying = self.load_state_tying(self.state_tying_path.get_path())
+    blank_idx = 0
+    new_vocab = {"[blank]": blank_idx, "[SILENCE]": blank_idx + 1}
+    num_phonemes = 41  # including blank and silence
+
+    new_alignment_file = SimpleHDFWriter(
+      filename=self.out_hdf_align.get_path(), dim=num_phonemes, ndim=1
+    )
+
+    for i, seq_tag in enumerate(gmm_alignment_dict):
+      if i % 1000 == 0:
+        print(f"Processing seq {i}")
+
+      gmm_alignment = gmm_alignment_dict[seq_tag]
+      allophone_alignment = [state_tying[idx] for idx in gmm_alignment]
+
+      new_alignment = []
+      prev_phoneme = allophone_alignment[0].split("{")[0]
+      prev_state = allophone_alignment[0].split(".")[1]
+      for allophone in allophone_alignment[1:]:
+        phoneme = allophone.split("{")[0]
+        state = allophone.split(".")[1]
+
+        if phoneme != prev_phoneme and prev_phoneme == "[SILENCE]":
+          new_alignment.append(new_vocab[f"{prev_phoneme}"])
+        else:
+          if state < prev_state:
+            if prev_phoneme not in new_vocab:
+              new_vocab[prev_phoneme] = len(new_vocab)
+            new_alignment.append(new_vocab[f"{prev_phoneme}"])
+          else:
+            new_alignment.append(blank_idx)
+        prev_phoneme = phoneme
+        prev_state = state
+
+      new_alignment.append(new_vocab[f"{prev_phoneme}"])
+      new_alignment = np.array(new_alignment)
+
+      hdf.dump_hdf_numpy(
+        hdf_dataset=new_alignment_file,
+        data=new_alignment[None],  # [1, T]
+        seq_lens=np.array([new_alignment.shape[0]]),
+        seq_tags=[seq_tag],
+      )
+
+      if len(new_vocab) == num_phonemes:
+        break
+
+    new_alignment_file.close()
+
+    with open(self.out_vocab.get_path(), "w+") as f:
+      f.write("{\n")
+      for phoneme, idx in new_vocab.items():
+        f.write(f"'{phoneme}': {idx},\n")
+      f.write("}\n")
+
+
+class GmmAlignmentToWordBoundariesJob(Job):
+  def __init__(
+          self,
+          gmm_alignment_hdf: Path,
+          bliss_corpus: Path,
+          allophone_path: Path,
+  ):
+    self.gmm_alignment_hdf = gmm_alignment_hdf
+    self.bliss_corpus = bliss_corpus
+    self.allophone_path = allophone_path
+
+    self.out_hdf_align = self.output_path("out_hdf_align.hdf")
+    self.out_vocab = self.output_path("out_vocab")
+
+  def tasks(self):
+    yield Task("run", rqmt={"cpu": 3, "mem": 4, "time": 4, "gpu": 0})
+
+  def run(self):
+    gmm_alignment_dict = hdf.load_hdf_data(self.gmm_alignment_hdf)
+    _, state_tying_vocab, phoneme_silence_idx, phoneme_non_final_idx = write_state_tying(
+      self.allophone_path.get_path()
+    )
+    ref_corpus = corpus.Corpus()
+    ref_corpus.load(self.bliss_corpus.get_path())
+    
+    blank_idx = 0
+    new_vocab = {"[blank]": blank_idx, "[SILENCE]": blank_idx + 1}
+    vocab_idx_counter = 2
+
+    new_alignment_file = SimpleHDFWriter(
+      filename=self.out_hdf_align.get_path(), dim=10_000, ndim=1
+    )
+
+    for i, segment in enumerate(ref_corpus.segments()):
+      if i % 1000 == 0:
+        print(f"Processing seq {i}")
+        
+      seq_tag = segment.fullname()
+      if seq_tag not in gmm_alignment_dict:
+        continue
+
+      gmm_alignment = gmm_alignment_dict[seq_tag]
+      gmm_word_end_positions = get_allophone_word_end_positions(
+        gmm_alignment,
+        state_tying_vocab,
+        phoneme_silence_idx,
+        phoneme_non_final_idx,
+        count_silence=True,
+      )
+      
+      orth = segment.orth.strip().split()
+      gmm_labels = [idx for i, idx in enumerate(gmm_alignment) if i in gmm_word_end_positions]
+      gmm_labels_wo_sil = [idx for idx in gmm_labels if idx != phoneme_silence_idx]
+
+      assert len(gmm_labels_wo_sil) == len(orth)
+
+      for word in orth:
+        if word not in new_vocab:
+          new_vocab[word] = vocab_idx_counter
+          vocab_idx_counter += 1
+
+      new_alignment = [blank_idx] * len(gmm_alignment)
+      for j, word_end_pos in enumerate(gmm_word_end_positions):
+        if gmm_labels[j] == phoneme_silence_idx:
+          new_alignment[word_end_pos] = new_vocab["[SILENCE]"]
+        else:
+          new_alignment[word_end_pos] = new_vocab[orth[0]]
+          orth = orth[1:]
+
+      new_alignment = np.array(new_alignment)
+
+      hdf.dump_hdf_numpy(
+        hdf_dataset=new_alignment_file,
+        data=new_alignment[None],  # [1, T]
+        seq_lens=np.array([new_alignment.shape[0]]),
+        seq_tags=[seq_tag],
+      )
+
+    new_alignment_file.close()
+
+    with open(self.out_vocab.get_path(), "w+") as f:
+      f.write("{\n")
+      for word, idx in new_vocab.items():
+        word_ = word.replace("'", "$")
+        f.write(f"'{word_}': {idx},\n")
+      f.write("}\n")

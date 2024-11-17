@@ -10,6 +10,10 @@ from sisyphus import *
 
 
 class LibrispeechBPE10025(LabelDefinition, ABC):
+  def __init__(self):
+    super().__init__()
+    self.num_bpes = 10025
+
   @property
   def vocab_path(self) -> Path:
     return Path("/u/zeineldeen/setups/librispeech/2022-11-28--conformer-att/work/i6_core/text/label/subword_nmt/train/ReturnnTrainBpeJob.vTq56NZ8STWt/output/bpe.vocab")
@@ -20,6 +24,10 @@ class LibrispeechBPE10025(LabelDefinition, ABC):
 
 
 class LibrispeechBPE1056(LabelDefinition, ABC):
+  def __init__(self):
+    super().__init__()
+    self.num_bpes = 1056
+
   @property
   def vocab_path(self) -> Path:
     return Path("/work/asr4/zeineldeen/setups-data/librispeech/2022-11-28--conformer-att/work/i6_core/text/label/subword_nmt/train/ReturnnTrainBpeJob.qhkNn2veTWkV/output/bpe.vocab")
@@ -32,6 +40,8 @@ class LibrispeechBPE1056(LabelDefinition, ABC):
 class LibrispeechBPE5048(LabelDefinition, ABC):
   def __init__(self):
     super().__init__()
+
+    self.num_bpes = 5048
 
     subword_nmt_repo = CloneGitRepositoryJob(
       url="https://github.com/rwth-i6/subword-nmt",

@@ -1,4 +1,12 @@
-"""Param Import
+"""
+Experiments with all the imported models from tensorflow.
+
+baseline
+model with varying trainin scale
+model with ctc on different layers
+
+results are collected in scales.py
+
 """
 
 from __future__ import annotations
@@ -380,7 +388,7 @@ def sis_run_with_prefix(prefix_name: str = None):
             )
 
 
-    # ----------------- With Trafo LM ----------------- TODO: scales
+    # ----------------- With Trafo LM -----------------
 
     for model_name in model_names:
         model_args = {
@@ -441,7 +449,7 @@ def sis_run_with_prefix(prefix_name: str = None):
             )
 
     # optsr ctc + trafo lm
-    # TODO: why do models break?
+    # TODO: why do layer 6,8,10 models break?
     for model_name in [name for name in ctc_model_names]:
         prior_scale = [0.0]
         lm_scale = [0.05, 0.1, 0.2, 0.3, 0.4, 0.5]

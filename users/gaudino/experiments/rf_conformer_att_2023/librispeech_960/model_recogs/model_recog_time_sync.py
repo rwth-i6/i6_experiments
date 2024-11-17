@@ -361,7 +361,7 @@ def model_recog_time_sync(
             if search_args.get("add_eos_to_end", False) and is_last_step:
                 eos_log_prob.raw_tensor = eos_log_prob.raw_tensor - ilm_log_prob.raw_tensor[
                     :, :, model.eos_idx
-                ] * search_args.get("lm_scale", 0.0)
+                ] * search_args.get("ilm_scale", 0.0)
 
             label_log_prob_non_blank = (
                 label_log_prob_non_blank - search_args.get("ilm_scale", 0.0) * ilm_log_prob.raw_tensor

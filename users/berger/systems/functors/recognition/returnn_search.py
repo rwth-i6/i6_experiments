@@ -16,7 +16,7 @@ from i6_experiments.users.berger.recipe.returnn.training import (
     get_backend,
 )
 from i6_experiments.users.berger.corpus.general.hdf import build_feature_hdf_dataset_config
-from i6_experiments.users.berger.corpus.general.ogg import build_oggzip_datset_config
+from i6_experiments.users.berger.corpus.general.ogg import build_oggzip_dataset_config
 
 from ... import dataclasses, types
 from ..base import RecognitionFunctor
@@ -30,7 +30,7 @@ class LexiconType(Enum):
 
 class VocabType(Enum):
     NONE = auto()
-    RETURNN = auto()
+    LEXICON_INVENTORY = auto()
 
 
 class LmType(Enum):
@@ -65,7 +65,7 @@ class ReturnnSearchFunctor(RecognitionFunctor[returnn.ReturnnTrainingJob, return
         convert_bpe_results: bool = False,
         ogg_dataset: bool = False,
         extra_audio_config: Optional[dict] = None,
-        **_,
+        **kwargs,
     ) -> List[Dict]:
         assert recog_corpus.data.scorer is not None
 
@@ -78,7 +78,7 @@ class ReturnnSearchFunctor(RecognitionFunctor[returnn.ReturnnTrainingJob, return
             updated_recog_config.update(
                 returnn.ReturnnConfig(
                     config={
-                        "forward": build_oggzip_datset_config(
+                        "forward": build_oggzip_dataset_config(
                             data_inputs=[recog_corpus.data],
                             returnn_root=self.returnn_root,
                             returnn_python_exe=self.returnn_python_exe,
@@ -157,7 +157,7 @@ class ReturnnSearchFunctor(RecognitionFunctor[returnn.ReturnnTrainingJob, return
 
             if vocab_type == VocabType.NONE:
                 vocab_file = None
-            elif vocab_type == VocabType.RETURNN:
+            elif vocab_type == VocabType.LEXICON_INVENTORY:
                 vocab_file = ReturnnVocabFromPhonemeInventory(recog_corpus.data.lexicon.filename).out_vocab
             else:
                 raise NotImplementedError
@@ -182,7 +182,7 @@ class ReturnnSearchFunctor(RecognitionFunctor[returnn.ReturnnTrainingJob, return
                 returnn_root=self.returnn_root,
                 returnn_python_exe=self.returnn_python_exe,
                 output_files=["search_out.py"],
-                mem_rqmt=8,
+                **kwargs,
             )
 
             if isinstance(epoch, str):

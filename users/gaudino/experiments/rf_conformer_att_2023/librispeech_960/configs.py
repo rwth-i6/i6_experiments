@@ -1,6 +1,9 @@
 """
 Configurations, i.e. RETURNN settings,
 shared across several setups here in this directory.
+
+For training the models on LibriSpeech 960h.
+Copied from Albert and mostly kept the same.
 """
 
 from __future__ import annotations

@@ -12,6 +12,7 @@ from ...data.phon import build_eow_phon_training_datasets, get_text_lexicon
 from ...default_tools import RETURNN_EXE, MINI_RETURNN_ROOT
 from ...lm import get_4gram_binary_lm
 from ...pipeline import training, prepare_asr_model, search, ASRModel
+from ...report import tune_and_evalue_report
 
 
 def eow_phon_ls960_1023_base():
@@ -31,6 +32,7 @@ def eow_phon_ls960_1023_base():
         librispeech_key="train-other-960",
         settings=train_settings,
     )
+
     label_datastream = cast(LabelDatastream, train_data.datastreams["labels"])
     vocab_size_without_blank = label_datastream.vocab_size
 
@@ -55,30 +57,18 @@ def eow_phon_ls960_1023_base():
         "returnn_root": MINI_RETURNN_ROOT,
     }
 
-    from ...pytorch_networks.ctc.decoder.flashlight_ctc_v1 import DecoderConfig
-
     def tune_and_evaluate_helper(
-        training_name: str,
-        asr_model: ASRModel,
-        base_decoder_config: DecoderConfig,
-        lm_scales: List[float],
-        prior_scales: List[float],
+        training_name,
+        asr_model,
+        base_decoder_config,
+        lm_scales,
+        prior_scales,
+        decoder_module="ctc.decoder.flashlight_ctc_v1",
     ):
-        """
-        Example helper to execute tuning over lm_scales and prior scales.
-        With the best values runs test-clean and test-other.
-
-        This is just a reference helper and can (should) be freely changed, copied, modified etc...
-
-        :param training_name: for alias and output names
-        :param asr_model: ASR model to use
-        :param base_decoder_config: any decoder config dataclass
-        :param lm_scales: lm scales for tuning
-        :param prior_scales: prior scales for tuning, same length as lm scales
-        """
         tune_parameters = []
         tune_values_clean = []
         tune_values_other = []
+        report_values = {}
         for lm_weight in lm_scales:
             for prior_scale in prior_scales:
                 decoder_config = copy.deepcopy(base_decoder_config)
@@ -89,7 +79,7 @@ def eow_phon_ls960_1023_base():
                     search_name,
                     forward_config={},
                     asr_model=asr_model,
-                    decoder_module="ctc.decoder.flashlight_ctc_v1",
+                    decoder_module=decoder_module,
                     decoder_args={"config": asdict(decoder_config)},
                     test_dataset_tuples=dev_dataset_tuples,
                     **default_returnn,
@@ -110,11 +100,23 @@ def eow_phon_ls960_1023_base():
                 training_name,
                 forward_config={},
                 asr_model=asr_model,
-                decoder_module="ctc.decoder.flashlight_ctc_v1",
+                decoder_module=decoder_module,
                 decoder_args={"config": asdict(decoder_config)},
                 test_dataset_tuples={key: test_dataset_tuples[key]},
                 **default_returnn,
             )
+            report_values[key] = wers[training_name + "/" + key]
+
+        tune_and_evalue_report(
+            training_name=training_name,
+            tune_parameters=tune_parameters,
+            tuning_names=["LM", "Prior"],
+            tune_values_clean=tune_values_clean,
+            tune_values_other=tune_values_other,
+            report_values=report_values,
+        )
+
+    from ...pytorch_networks.ctc.decoder.flashlight_ctc_v1 import DecoderConfig
 
     default_decoder_config = DecoderConfig(
         lexicon=get_text_lexicon(),
@@ -142,10 +144,11 @@ def eow_phon_ls960_1023_base():
         num_filters=80,
         center=False,
     )
-    specaug_config = SpecaugConfig(
+
+    specaug_config_full = SpecaugConfig(
         repeat_per_n_frames=25,
         max_dim_time=20,
-        max_dim_feat=8,  # Jingjing style
+        max_dim_feat=16,  # Normal Style
         num_repeat_feat=5,
     )
     frontend_config = VGG4LayerActFrontendV1Config_mod(
@@ -170,7 +173,7 @@ def eow_phon_ls960_1023_base():
     model_config = ModelConfig(
         feature_extraction_config=fe_config,
         frontend_config=frontend_config,
-        specaug_config=specaug_config,
+        specaug_config=specaug_config_full,
         label_target_size=vocab_size_without_blank,
         conformer_size=512,
         num_layers=12,
@@ -186,34 +189,63 @@ def eow_phon_ls960_1023_base():
     )
 
     train_config_24gbgpu_amp = {
-        "optimizer": {"class": "adamw", "epsilon": 1e-16, "weight_decay": 1e-3},
-        "learning_rates": list(np.linspace(7e-6, 5e-4, 240))
-        + list(np.linspace(5e-4, 5e-5, 240))
-        + list(np.linspace(5e-5, 1e-7, 20)),
+        "optimizer": {"class": "adamw", "epsilon": 1e-16, "weight_decay": 1e-2},
+        "learning_rates": list(np.linspace(7e-6, 5e-4, 480))
+        + list(np.linspace(5e-4, 5e-5, 480))
+        + list(np.linspace(5e-5, 1e-7, 40)),
         #############
-        "batch_size": 360 * 16000,
+        "batch_size": 240 * 16000,
         "max_seq_length": {"audio_features": 35 * 16000},
         "accum_grad_multiple_step": 1,
         "torch_amp_options": {"dtype": "bfloat16"},
-        "gradient_clip": 1.0,
+        "use_speed_perturbation": True,
+        "gradient_clip_norm": 1.0,
     }
+    train_config_24gbgpu_amp_sp = copy.deepcopy(train_config_24gbgpu_amp)
+    train_config_24gbgpu_amp_sp.pop("use_speed_perturbation")
 
-    network_module = "ctc.conformer_1023.i6modelsV1_VGG4LayerActFrontendV1_v6"
-    train_args = {
+    # Same with conv first
+    network_module_conv_first = "ctc.conformer_1023.i6modelsV1_VGG4LayerActFrontendV1_v6_conv_first"
+    train_args_conv_first = {
         "config": train_config_24gbgpu_amp,
-        "network_module": network_module,
+        "network_module": network_module_conv_first,
         "net_args": {"model_config_dict": asdict(model_config)},
         "debug": False,
     }
+    train_args_conv_first_sp = copy.deepcopy(train_args_conv_first)
+    train_args_conv_first_sp["config"] = train_config_24gbgpu_amp_sp
+    train_args_conv_first_sp["use_speed_perturbation"] = True
 
-    training_name = prefix_name + "/" + network_module + ".512dim_sub4_24gbgpu_50eps"
-    train_job = training(training_name, train_data, train_args, num_epochs=500, **default_returnn)
+    name = ".512dim_sub4_24gbgpu_100eps_lp_fullspec_gradnorm_smallbatch"
+    training_name = prefix_name + "/" + network_module_conv_first + name
+    train_job = training(training_name, train_data, train_args_conv_first, num_epochs=1000, **default_returnn)
     train_job.rqmt["gpu_mem"] = 24
     asr_model = prepare_asr_model(
-        training_name, train_job, train_args, with_prior=True, datasets=train_data, get_specific_checkpoint=500
+        training_name,
+        train_job,
+        train_args_conv_first,
+        with_prior=True,
+        datasets=train_data,
+        get_specific_checkpoint=1000,
     )
     tune_and_evaluate_helper(
-        training_name, asr_model, default_decoder_config, lm_scales=[2.3, 2.5, 2.7], prior_scales=[0.2, 0.3, 0.4]
+        training_name, asr_model, default_decoder_config, lm_scales=[1.6, 1.8, 2.0], prior_scales=[0.2, 0.3, 0.4]
+    )
+
+    name = ".512dim_sub4_24gbgpu_100eps_lp_fullspec_gradnorm_smallbatch_sp"
+    training_name = prefix_name + "/" + network_module_conv_first + name
+    train_job = training(training_name, train_data, train_args_conv_first_sp, num_epochs=1000, **default_returnn)
+    train_job.rqmt["gpu_mem"] = 24
+    asr_model = prepare_asr_model(
+        training_name,
+        train_job,
+        train_args_conv_first_sp,
+        with_prior=True,
+        datasets=train_data,
+        get_specific_checkpoint=1000,
+    )
+    tune_and_evaluate_helper(
+        training_name, asr_model, default_decoder_config, lm_scales=[1.6, 1.8, 2.0], prior_scales=[0.2, 0.3, 0.4]
     )
 
     # No improvement, just as example

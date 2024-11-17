@@ -175,6 +175,7 @@ class EstimateFactoredTriphonePriorsJob(Job):
 
     def run(self, task_id):
         import tensorflow as tf
+
         if self.tf_library_path is not None:
             tf.load_op_library(self.tf_library_path)
         mg = tf.compat.v1.MetaGraphDef()
@@ -336,7 +337,9 @@ class DumpXmlForTriphoneForwardJob(Job):
                     for i, s in enumerate(self.triphone_means[context_id][center_stateId]):
                         if s == 0:
                             self.triphone_means[context_id][center_stateId][i] += 1e-5
-                    f.write(" ".join("%.20e" % math.log(s) for s in self.triphone_means[context_id][center_stateId]) + "\n")
+                    f.write(
+                        " ".join("%.20e" % math.log(s) for s in self.triphone_means[context_id][center_stateId]) + "\n"
+                    )
             f.write("</matrix-f32>")
         with open(self.diphone_xml.get_path(), "wt") as f:
             f.write(
@@ -474,6 +477,7 @@ class EstimateRasrDiphoneAndContextPriors(Job):
 
     def run(self, task_id):
         import tensorflow as tf
+
         if self.tf_library_path is not None:
             tf.load_op_library(self.tf_library_path)
         mg = tf.MetaGraphDef()

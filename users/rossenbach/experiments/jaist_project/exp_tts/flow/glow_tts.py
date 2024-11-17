@@ -41,7 +41,7 @@ def run_flow_tts():
     prefix = "experiments/jaist_project/tts/glow_tts/"
     training_datasets = build_training_dataset(ls_corpus_key="train-clean-100", partition_epoch=1)
 
-    def run_exp(name, params, net_module, config, decoder_options, extra_decoder=None, use_custom_engine=False, target_durations=None, debug=False, num_epochs=100, evaluate_swer=None):
+    def run_exp(name, params, net_module, config, decoder_options, extra_decoder=None, use_custom_engine=False, target_durations=None, debug=False, num_epochs=100, evaluate_swer=None, hash_debug=False):
         if target_durations is not None:
             training_datasets_ = build_durationtts_training_dataset(duration_hdf=target_durations, ls_corpus_key="train-clean-100")
         else:
@@ -320,7 +320,7 @@ def run_flow_tts():
     decoder_options = copy.deepcopy(decoder_options_base)
     decoder_options["glowtts_noise_scale"] = 0.7
     train = run_exp(net_module + "_bs600_v2_base256_newgl_noise0.7", params_base256, net_module, local_config, extra_decoder="glow_tts.simple_gl_decoder", decoder_options=decoder_options,
-                    debug=True, num_epochs=200)
+                    debug=True, num_epochs=200, hash_debug=True)
     # train.hold()
     durations = local_extract_durations(net_module + "_bs600_v2_base256", train.out_checkpoints[200], params_base256, net_module, debug=True)
 
@@ -357,6 +357,15 @@ def run_flow_tts():
                                               train.out_checkpoints[200], params_base256, net_module,
                                               extra_decoder="glow_tts.simple_gl_decoder",
                                               decoder_options=decoder_options_synthetic_noise, debug=True)
+
+        # perform NISQA also for synthesis condition
+        decoder_options_synthetic_noise_gl32 = copy.deepcopy(decoder_options_synthetic_noise)
+        decoder_options_synthetic_noise_gl32["gl_momentum"] = 0.99
+        decoder_options_synthetic_noise_gl32["gl_iter"] = 32
+
+        cross_validation_nisqa(prefix, net_module + "_bs600_v2_base256_newgl_extdur_noise%.1f_gl32nisqa" % noise, params_base256,
+                               net_module_extdur, checkpoint=train.out_checkpoints[200],
+                               decoder_options=decoder_options_synthetic_noise_gl32, extra_decoder="glow_tts.simple_gl_decoder")
 
         if noise == 0.7:
             # fixed speaker
@@ -559,6 +568,13 @@ def run_flow_tts():
                                           extra_decoder="glow_tts.simple_gl_decoder",
                                           decoder_options=decoder_options_gl32, debug=True)
 
+    synthetic_corpus = generate_synthetic(prefix,
+                                          net_module + "_glow256align_400eps_oclr_nodrop_gl32_noise0.7_syn",
+                                          "train-clean-360",
+                                          train.out_checkpoints[400], params_base256, net_module,
+                                          extra_decoder="glow_tts.simple_gl_decoder",
+                                          decoder_options=decoder_options_gl32, debug=True, use_subset=True)
+
     # larger
     model_config_base320 = copy.deepcopy(model_config_base256)
     model_config_base320.encoder_config.basic_dim = 320
@@ -590,3 +606,9 @@ def run_flow_tts():
                                           train.out_checkpoints[800], params_base256, net_module,
                                           extra_decoder="glow_tts.simple_gl_decoder",
                                           decoder_options=decoder_options_gl32, debug=True)
+
+    synthetic_corpus = generate_synthetic(prefix, net_module + "_bs600_v2_800eps_base256_newgl_extdur_noise0.7_syn",
+                                          "train-clean-360",
+                                          train.out_checkpoints[800], params_base256, net_module,
+                                          extra_decoder="glow_tts.simple_gl_decoder",
+                                          decoder_options=decoder_options_gl32, debug=True, use_subset=True)

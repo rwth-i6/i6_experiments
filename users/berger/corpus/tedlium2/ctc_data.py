@@ -18,7 +18,7 @@ from i6_experiments.users.berger.corpus.general.hdf import (
     build_feature_hdf_dataset_config,
 )
 from i6_experiments.users.berger.corpus.general.ogg import (
-    build_oggzip_datset_config,
+    build_oggzip_dataset_config,
     build_oggzip_label_meta_dataset_config,
 )
 
@@ -178,7 +178,7 @@ def get_tedlium2_data_dumped_labels(
 
     if ogg_dataset:
         forward_data_config = {
-            key: build_oggzip_datset_config(
+            key: build_oggzip_dataset_config(
                 data_inputs=[data_input],
                 returnn_root=returnn_root,
                 returnn_python_exe=returnn_python_exe,

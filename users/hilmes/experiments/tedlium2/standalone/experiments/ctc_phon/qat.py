@@ -244,4 +244,4 @@ def eow_phon_ted_1023_qat():
     generate_report(results=results, exp_name=noquant_name)
     qat_report[noquant_name] = results
     del results
-    tk.register_report("reports/qat_report", partial(build_qat_report, qat_report))
+    tk.register_report("reports/qat_report", partial(build_qat_report, qat_report), required=qat_report)

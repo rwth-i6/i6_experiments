@@ -61,6 +61,7 @@ def get_returnn_config(
     *,
     use_base_config: bool = True,
     backend: Backend = Backend.TENSORFLOW,
+    use_lovely_tensors: bool = True,
     target: Optional[str] = "classes",
     num_inputs: Optional[int] = None,
     num_outputs: Optional[int] = None,
@@ -90,7 +91,8 @@ def get_returnn_config(
         config_dict["use_tensorflow"] = True
     elif backend == Backend.PYTORCH:
         config_dict["backend"] = "torch"
-        config_dict["use_lovely_tensors"] = True
+        if use_lovely_tensors:
+            config_dict["use_lovely_tensors"] = True
     else:
         raise NotImplementedError
     if network:

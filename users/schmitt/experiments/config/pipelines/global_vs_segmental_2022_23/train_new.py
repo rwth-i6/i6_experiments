@@ -9,6 +9,7 @@ from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segment
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.returnn.config_builder.segmental import SegmentalConfigBuilder
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.returnn.config_builder.global_ import GlobalConfigBuilder
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.config_builder_rf.base import GlobalAttConfigBuilderRF, SegmentalAttConfigBuilderRF, ConfigBuilderRF
+from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.config_builder_rf.lm import LibrispeechLstmLmConfigBuilderRF, LibrispeechTrafoLmConfigBuilderRF
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.returnn.config_builder.ctc import CtcConfigBuilder
 
 
@@ -60,7 +61,7 @@ class TrainExperiment(ABC):
       log_verbosity=5,
       returnn_python_exe=config_builder.variant_params["returnn_python_exe"],
       returnn_root=config_builder.variant_params["returnn_root"],
-      mem_rqmt=self.train_rqmt.get("mem", 24),
+      mem_rqmt=self.train_rqmt.get("mem", 15),
       time_rqmt=self.train_rqmt.get("time", 30),
       cpu_rqmt=self.train_rqmt.get("cpu", 4),
       horovod_num_processes=self.train_rqmt.get("horovod_num_processes", None),
@@ -144,3 +145,12 @@ class CtcTrainExperiment(TrainExperiment):
       # "tf_session_opts": {"gpu_options": {"per_process_gpu_memory_fraction": 0.95}},
       # "max_seq_length": {"targets": 75},
     }
+
+
+class LmTrainExperiment(TrainExperiment):
+  def __init__(self, config_builder: Union[LibrispeechLstmLmConfigBuilderRF, LibrispeechTrafoLmConfigBuilderRF], **kwargs):
+    super().__init__(config_builder=config_builder, **kwargs)
+
+  @property
+  def default_train_opts(self) -> Dict:
+    return {}

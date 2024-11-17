@@ -92,6 +92,7 @@ def worker_wrapper(job, task_name, call):
         "ReturnnComputePriorJob",
         "ReturnnComputePriorJobV2",
         "OptunaReturnnComputePriorJob",
+        "OptunaReturnnForwardJob",
         "ReturnnForwardJob",
         "ReturnnForwardJobV2",
         "ReturnnForwardComputePriorJob",
@@ -119,18 +120,14 @@ def worker_wrapper(job, task_name, call):
         return call
 
     binds = ["/work/asr4", "/work/common", "/work/tools/", "/work/asr4/rossenbach"]
-    ts = {t.name(): t for t in job.tasks()}
-    t = ts[task_name]
 
     app_call = [
         "apptainer",
         "exec",
+        "--env",
+        f"NUMBA_CACHE_DIR=/var/tmp/numba_cache_{getpass.getuser()}",
+        "--nv",
     ]
-
-    app_call += ["--env", f"NUMBA_CACHE_DIR=/var/tmp/numba_cache_{getpass.getuser()}"]
-
-    if t._rqmt.get("gpu", 0) > 0:
-        app_call += ["--nv"]
 
     for path in binds:
         app_call += ["-B", path]
@@ -188,5 +185,7 @@ DEFAULT_ENVIRONMENT_SET.update(
         "TMP": TMP_PREFIX,
         "NUMBA_CACHE_DIR": f"{TMP_PREFIX}/numba_cache_{getpass.getuser()}",  # used for librosa
         "PYTORCH_KERNEL_CACHE_PATH": f"{TMP_PREFIX}/pt_kernel_cache_{getpass.getuser()}",  # used for cuda pytorch
+        "OMP_NUM_THREADS": 2,
+        "MKL_NUM_THREADS": 2,
     }
 )

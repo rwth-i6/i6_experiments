@@ -19,7 +19,7 @@ MINI_RETURNN_ROOT.hash_overwrite = "TEDLIUM_STANDALONE_DEFAULT_RETURNN_ROOT"
 
 I6_MODELS_REPO_PATH = CloneGitRepositoryJob(
     url="https://github.com/rwth-i6/i6_models",
-    commit="645d4e1a00349ed46593ab2c82dc373db353c33f",
+    commit="5aa74f878cc0d8d7bbc623a3ced681dcb31955ec",
     checkout_folder_name="i6_models",
 ).out_repository.copy()
 I6_MODELS_REPO_PATH.hash_overwrite = "TEDLIUM_STANDALONE_DEFAULT_I6_MODELS"

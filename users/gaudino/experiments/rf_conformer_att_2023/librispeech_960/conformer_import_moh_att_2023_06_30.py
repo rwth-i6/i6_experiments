@@ -1,4 +1,14 @@
-"""Param Import
+"""
+Experiments with the imported baseline 5.6 model trained with tensorflow.
+
+All kind of experiments are included:
+- one-pass time-synchronous espnet variant (Approch 1)
+- one-pass time-synchronous our variant (Approach 2)
+- one-pass label-synchronous
+- two-pass rescoring
+- with Trafo LM
+- with LSTM LM
+- with ILM substrction
 """
 
 from __future__ import annotations
@@ -785,7 +795,7 @@ def sis_run_with_prefix(prefix_name: str = None):
     # two pass rescoring att + ctc + trafo lm + ilm
     for scales, prior_scale, lm_scale, ilm_scale, beam_size in product(
         [(1.0, 0.0009), (1.0 ,0.001)],
-        [0.0], [0.42], [0.0], [12, 32, 40]
+        [0.0], [0.54], [0.4], [12, 32, 40, 64, 80]
     ):
         att_scale, ctc_scale = scales
         recog_name = (

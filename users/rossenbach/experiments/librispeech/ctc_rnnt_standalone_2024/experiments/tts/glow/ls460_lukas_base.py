@@ -86,6 +86,16 @@ def run_flow_tts_460h():
         )
         forward_job.add_alias(prefix + "/" + tts_model.prefix_name + "/" + name + "/forward")
         tk.register_output(prefix + "/" + tts_model.prefix_name + "/" + name + "/audio_files", forward_job.out_files["audio_files"])
+        corpus = forward_job.out_files["out_corpus.xml.gz"]
+        from ....pipeline import evaluate_nisqa
+        evaluate_nisqa(prefix_name=prefix + "/" + tts_model.prefix_name + "/" + name, bliss_corpus=corpus)
+        from i6_experiments.users.rossenbach.experiments.jaist_project.evaluation.swer import run_evaluate_reference_swer
+        from i6_experiments.users.rossenbach.corpus.transform import MergeCorporaWithPathResolveJob, MergeStrategy
+        realpath_corpus = MergeCorporaWithPathResolveJob(bliss_corpora=[corpus],
+                                                         name="train-clean-460",  # important to keep the original sequence names for matching later
+                                                         merge_strategy=MergeStrategy.FLAT
+                                                         )
+        run_evaluate_reference_swer(prefix=prefix + "/" + tts_model.prefix_name + "/" + name, bliss=realpath_corpus.out_merged_corpus)
 
     log_mel_datastream = get_tts_log_mel_datastream(ls_corpus_key="train-clean-460", silence_preprocessed=False)
 
@@ -226,3 +236,10 @@ def run_flow_tts_460h():
     train_job.rqmt["gpu_mem"] = 24
     tts_model = prepare_tts_model(net_module + "_base256_400eps", train_job, train_args, get_specific_checkpoint=400)
     eval_exp("base", tts_model=tts_model, decoder="glow_tts.simple_gl_decoder", decoder_options=decoder_options)
+
+    for noise_scale in [0.3, 0.5, 0.7, 0.9]:
+        decoder_options_noised = copy.deepcopy(decoder_options)
+        decoder_options_noised["glowtts_noise_scale"] = noise_scale
+        eval_exp("noise_%.1f" % noise_scale, tts_model=tts_model, decoder="glow_tts.simple_gl_decoder", decoder_options=decoder_options_noised)
+
+

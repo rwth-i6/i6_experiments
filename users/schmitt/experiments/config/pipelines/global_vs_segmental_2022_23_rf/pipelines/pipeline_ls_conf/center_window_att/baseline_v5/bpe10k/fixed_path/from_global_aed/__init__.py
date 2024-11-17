@@ -18,6 +18,6 @@ def run_exps():
   # Done
   transducer_w_att_gate.run_exps()
   # Done
-  transducer_w_att_random.run_exps()
+  # transducer_w_att_random.run_exps()
   # Done
   transducer_w_att.run_exps()

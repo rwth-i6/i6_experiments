@@ -14,6 +14,8 @@ def center_window_att_baseline_rf(
         use_current_frame_in_readout_w_gate: bool = False,
         use_current_frame_in_readout_random: bool = False,
         use_correct_dim_tags: bool = False,
+        behavior_version: Optional[int] = None,
+        use_trafo_att: bool = False,
 ):
   for win_size in win_size_list:
     alias, config_builder = get_center_window_att_config_builder_rf(
@@ -31,6 +33,9 @@ def center_window_att_baseline_rf(
       target_embed_dimension=256,
       readout_dimension=640,
       ilm_dimension=512,
+      behavior_version=behavior_version,
+      use_trafo_att=use_trafo_att,
+      use_readout=False,
     )
     alias = f"{base_alias}/baseline_rf/{alias}"
     yield alias, config_builder

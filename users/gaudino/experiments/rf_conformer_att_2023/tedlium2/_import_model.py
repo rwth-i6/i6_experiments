@@ -1,3 +1,6 @@
+"""
+Import various models from tensorflow to pytorch and store the checkpoint in a folder.
+"""
 from __future__ import annotations
 
 from typing import Dict, Optional

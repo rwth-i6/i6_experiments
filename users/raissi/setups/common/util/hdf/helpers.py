@@ -12,16 +12,11 @@ from i6_experiments.users.raissi.args.rasr.features.init_args import (
     get_feature_extraction_args_8kHz,
 )
 
-from i6_experiments.common.setups.rasr.util import (
-    RasrDataInput,
-    ReturnnRasrDataInput
-)
+from i6_experiments.common.setups.rasr.util import RasrDataInput, ReturnnRasrDataInput
 
 from i6_experiments.users.raissi.setups.common.features.taxonomy import FeatureInfo, FeatureType
-from i6_experiments.users.raissi.setups.common.util.hdf.dump import (
-    build_rasr_feature_hdfs,
-    build_hdf_from_alignment
-)
+from i6_experiments.users.raissi.setups.common.util.hdf.dump import build_rasr_feature_hdfs, build_hdf_from_alignment
+
 
 @dataclass
 class HDFAlignmentData:
@@ -78,6 +73,7 @@ class MetaDatasetBuilder:
             "data_map": self.data_map,
             "seq_order_control_dataset": self.control_dataset,
         }
+
 
 def build_feature_hdf_dataset_config(
     data_inputs: List[ReturnnRasrDataInput],
@@ -211,4 +207,3 @@ def build_feature_label_meta_dataset_config(
         name="classes", dataset_config=label_hdf_config, key_mapping={"data": "classes"}, control=False
     )
     return dataset_builder.get_dict()
-

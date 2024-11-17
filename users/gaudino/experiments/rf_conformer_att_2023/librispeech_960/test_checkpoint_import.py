@@ -1,3 +1,6 @@
+"""
+Debug checkpoint import
+"""
 from sisyphus import tk
 from i6_core.returnn.training import PtCheckpoint
 

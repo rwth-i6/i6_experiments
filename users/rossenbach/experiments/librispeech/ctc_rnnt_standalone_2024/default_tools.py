@@ -19,7 +19,8 @@ MINI_RETURNN_ROOT.hash_overwrite = "LIBRISPEECH_DEFAULT_RETURNN_ROOT"
 
 I6_MODELS_REPO_PATH = CloneGitRepositoryJob(
     url="https://github.com/rwth-i6/i6_models",
-    commit="918143c1011fe5a19c5fcfb61fe05050a8d58a2b",
+    # commit="918143c1011fe5a19c5fcfb61fe05050a8d58a2b",
+    commit="5aa74f878cc0d8d7bbc623a3ced681dcb31955ec",
     checkout_folder_name="i6_models",
 ).out_repository.copy()
 I6_MODELS_REPO_PATH.hash_overwrite = "LIBRISPEECH_DEFAULT_I6_MODELS"
@@ -42,3 +43,7 @@ SUBWORD_NMT_REPO = get_returnn_subword_nmt(
     commit_hash="5015a45e28a958f800ef1c50e7880c0c9ef414cf",
 ).copy()
 SUBWORD_NMT_REPO.hash_overwrite = "I6_SUBWORD_NMT_V2"
+
+NISQA_REPO = CloneGitRepositoryJob("https://github.com/gabrielmittag/NISQA").out_repository.copy()
+NISQA_REPO.hash_overwrite = "LIBRISPEECH_DEFAULT_NISQA_REPO"
+

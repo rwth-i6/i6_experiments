@@ -7,20 +7,32 @@ from returnn.tensor import Tensor, Dim
 import returnn.frontend as rf
 
 
+def logsumexp(a, b):
+  if a == -np.inf and b == -np.inf:
+    return -np.inf
+  if a == -np.inf:
+    return b
+  if b == -np.inf:
+    return a
+  return a + np.log1p(np.exp(b - a))
+
+
 def recombine_seqs(
         seq_targets: list,
         seq_log_prob: Tensor,
         seq_hash: Tensor,
         beam_dim: Dim,
         batch_dim: Dim,
+        recomb_path_counter: Tensor,
         use_sum: bool = True,
-) -> Tensor:
+) -> Tuple[Tensor, Tensor]:
   if len(seq_targets) in (0, 1):
-    return seq_log_prob
+    return seq_log_prob, recomb_path_counter
 
   seq_hash_cpu = rf.copy_to_device(seq_hash.copy_transpose([batch_dim, beam_dim]), device="cpu")
   # convert from neg log prob to log prob
   seq_log_prob_cpu = rf.copy_to_device(seq_log_prob.copy_transpose([batch_dim, beam_dim]), device="cpu")
+  seq_path_counter_cpu = rf.copy_to_device(recomb_path_counter.copy_transpose([batch_dim, beam_dim]), device="cpu")
 
   for b in range(batch_dim.dyn_size_ext.raw_tensor.item()):
     # for each batch dim, we need to find the seqs that have the same hash value
@@ -39,11 +51,18 @@ def recombine_seqs(
         continue
       best_score = -1.0e30
       best_idx = -1
+      num_paths_sum = float("-inf")
       # find the hypothesis with the highest log prob
       for idx in seq_set:
         if seq_log_prob_cpu.raw_tensor[b, idx] > best_score:
           best_score = seq_log_prob_cpu.raw_tensor[b, idx]
           best_idx = idx
+
+        # seqs, in the seq_set will be recombined, so we need to sum their corresponding number of paths
+        num_paths_sum = logsumexp(
+          num_paths_sum,
+          seq_path_counter_cpu.raw_tensor[b, idx]
+        )
 
       if use_sum:
         sum_score = torch.zeros(1, device="cpu")
@@ -60,7 +79,10 @@ def recombine_seqs(
         else:
           seq_log_prob_cpu.raw_tensor[b, idx] = recomb_score
 
-  return rf.copy_to_device(seq_log_prob_cpu, device=seq_log_prob.device)
+        # set the number of paths to the sum of the number of paths of the recombined seqs
+        seq_path_counter_cpu.raw_tensor[b, idx] = num_paths_sum
+
+  return rf.copy_to_device(seq_log_prob_cpu), rf.copy_to_device(seq_path_counter_cpu)
 
 
 def recombine_seqs_train(

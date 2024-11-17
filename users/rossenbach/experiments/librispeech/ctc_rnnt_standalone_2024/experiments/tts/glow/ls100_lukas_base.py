@@ -8,13 +8,13 @@ from dataclasses import asdict
 
 from i6_experiments.common.setups.returnn.datastreams.audio import DBMelFilterbankOptions
 
-from i6_experiments.users.rossenbach.experiments.librispeech.ctc_rnnt_standalone_2024.data.tts.aligner import build_training_dataset
-from i6_experiments.users.rossenbach.experiments.librispeech.ctc_rnnt_standalone_2024.config import get_forward_config
-from i6_experiments.users.rossenbach.experiments.librispeech.ctc_rnnt_standalone_2024.pipeline import training
-from i6_experiments.users.rossenbach.experiments.librispeech.ctc_rnnt_standalone_2024.data.tts.tts_phon import get_tts_log_mel_datastream, build_durationtts_training_dataset
+from ....data.tts.aligner import build_training_dataset
+from ....config import get_forward_config
+from ....pipeline import training, prepare_tts_model, TTSModel, tts_eval_v2
+from ....data.tts.tts_phon import get_tts_log_mel_datastream, build_durationtts_training_dataset
 
-from i6_experiments.users.rossenbach.experiments.librispeech.ctc_rnnt_standalone_2024.default_tools import RETURNN_EXE, MINI_RETURNN_ROOT
-from i6_experiments.users.rossenbach.experiments.jaist_project.storage import vocoders
+from ....default_tools import RETURNN_EXE, MINI_RETURNN_ROOT
+from ....storage import vocoders
 
 
 def run_flow_tts():
@@ -31,17 +31,13 @@ def run_flow_tts():
     prefix = "experiments/librispeech/ctc_rnnt_standalone_2024/tts/glow_tts/"
     training_datasets = build_training_dataset(ls_corpus_key="train-clean-100", partition_epoch=1)
 
-    def run_exp(name, params, net_module, config, decoder_options, extra_decoder=None, target_durations=None, debug=False, num_epochs=100, evaluate_swer=None):
+    def run_exp(name, train_args, target_durations=None, num_epochs=100):
         if target_durations is not None:
-            training_datasets_ = build_durationtts_training_dataset(duration_hdf=target_durations, ls_corpus_key="train-clean-100")
+            training_datasets_ = build_durationtts_training_dataset(duration_hdf=target_durations,
+                                                                    ls_corpus_key="train-clean-100")
         else:
             training_datasets_ = training_datasets
-        train_args = {
-            "network_module": net_module,
-            "net_args": params,
-            "config": config,
-            "debug": debug,
-        }
+
         train_job = training(
             training_name=prefix + name,
             datasets=training_datasets_,
@@ -50,23 +46,7 @@ def run_flow_tts():
             returnn_root=MINI_RETURNN_ROOT,
             num_epochs=num_epochs,
         )
-        forward_config = get_forward_config(
-            network_module=net_module,
-            net_args=params,
-            decoder=extra_decoder or net_module,
-            decoder_args=decoder_options,
-            config={
-                "forward": training_datasets.cv.as_returnn_opts()
-            },
-            debug=debug,
-        )
-        # forward_job = tts_eval_v2(
-        #     prefix_name=prefix + name,
-        #     returnn_config=forward_config,
-        #     checkpoint=train_job.out_checkpoints[num_epochs],
-        #     returnn_exe=RETURNN_EXE,
-        #     returnn_root=MINI_RETURNN_ROOT,
-        # )
+
         # tk.register_output(prefix + name + "/audio_files", forward_job.out_files["audio_files"])
         # if evaluate_swer is not None:
         #     from ...storage import asr_recognizer_systems
@@ -83,6 +63,41 @@ def run_flow_tts():
         #         system=asr_recognizer_systems[evaluate_swer]
         #     )
         return train_job
+
+    def eval_exp(name, tts_model: TTSModel, decoder, decoder_options):
+        forward_config = get_forward_config(
+            network_module=tts_model.network_module,
+            net_args=tts_model.net_args,
+            decoder=decoder,
+            decoder_args=decoder_options,
+            config={
+                "forward": training_datasets.cv.as_returnn_opts()
+            },
+            debug=False,
+        )
+        forward_job = tts_eval_v2(
+            prefix_name=prefix + name,
+            returnn_config=forward_config,
+            checkpoint=tts_model.checkpoint,
+            returnn_exe=RETURNN_EXE,
+            returnn_root=MINI_RETURNN_ROOT,
+            mem_rqmt=12,
+            use_gpu=True,
+        )
+        forward_job.add_alias(prefix + "/" + tts_model.prefix_name + "/" + name + "/forward")
+        tk.register_output(prefix + "/" + tts_model.prefix_name + "/" + name + "/audio_files",
+                           forward_job.out_files["audio_files"])
+        corpus = forward_job.out_files["out_corpus.xml.gz"]
+        from ....pipeline import evaluate_nisqa
+        evaluate_nisqa(prefix_name=prefix + "/" + tts_model.prefix_name + "/" + name, bliss_corpus=corpus)
+        from i6_experiments.users.rossenbach.experiments.jaist_project.evaluation.swer import run_evaluate_reference_swer
+        from i6_experiments.users.rossenbach.corpus.transform import MergeCorporaWithPathResolveJob, MergeStrategy
+        realpath_corpus = MergeCorporaWithPathResolveJob(bliss_corpora=[corpus],
+                                                         name="train-clean-100",  # important to keep the original sequence names for matching later
+                                                         merge_strategy=MergeStrategy.FLAT
+                                                         )
+        run_evaluate_reference_swer(prefix=prefix + "/" + tts_model.prefix_name, bliss=realpath_corpus.out_merged_corpus)
+
 
     log_mel_datastream = get_tts_log_mel_datastream(ls_corpus_key="train-clean-100", silence_preprocessed=False)
 
@@ -211,7 +226,16 @@ def run_flow_tts():
         "max_seqs": 200,
         "torch_amp_options": {"dtype": "bfloat16"},
     }
+    
+    train_args = {
+        "network_module": net_module,
+        "net_args": params_base256,
+        "config": config,
+        "debug": True,
+    }
 
-    train_job = run_exp(net_module + "_base256_400eps", params_base256, net_module, config, extra_decoder="glow_tts.simple_gl_decoder", decoder_options=decoder_options,
-                    debug=True, num_epochs=400)
+    train_job = run_exp(net_module + "_base256_400eps", train_args=train_args, num_epochs=400)
     train_job.rqmt["gpu_mem"] = 24
+    tts_model = prepare_tts_model(net_module + "_base256_400eps", train_job, train_args, get_specific_checkpoint=400)
+    eval_exp("base", tts_model=tts_model, decoder="glow_tts.simple_gl_decoder", decoder_options=decoder_options)
+

@@ -39,7 +39,9 @@ def get_triphone_priors(
     num_segments = []
 
     np.random.seed(RANDOM_SEED)
-    for i in np.random.choice(range(len(data_paths)//partition_data_setup.data_offset), partition_data_setup.n_data_indices, replace=False):
+    for i in np.random.choice(
+        range(len(data_paths) // partition_data_setup.data_offset), partition_data_setup.n_data_indices, replace=False
+    ):
         start_ind = i * partition_data_setup.data_offset
         end_ind = (i + 1) * partition_data_setup.data_offset
         for j in range(partition_data_setup.n_segment_indices):
@@ -92,7 +94,7 @@ def get_triphone_priors(
         diphone_files=comb_diphone_files,
         context_files=comb_context_files,
         num_segment_files=comb_num_segs,
-        label_info=label_info
+        label_info=label_info,
     )
 
     prior_files_triphone = [xmlJob.triphone_xml, xmlJob.diphone_xml, xmlJob.context_xml]

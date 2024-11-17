@@ -29,11 +29,21 @@ def get_center_window_att_config_builder_rf(
         blank_decoder_opts: Optional[Dict] = None,
         use_current_frame_in_readout: bool = False,
         use_current_frame_in_readout_w_gate: bool = False,
+        use_current_frame_in_readout_w_gate_v: int = 1,
         use_current_frame_in_readout_random: bool = False,
+        use_current_frame_in_readout_w_double_gate: bool = False,
         use_correct_dim_tags: bool = False,
         target_embed_dimension: int = 640,
         readout_dimension: int = 1024,
         ilm_dimension: int = 1024,
+        use_trafo_att: bool = False,
+        behavior_version: Optional[int] = None,
+        use_readout: bool = True,
+        use_trafo_att_wo_cross_att: bool = False,
+        use_sep_att_encoder: bool = False,
+        use_sep_h_t_readout: bool = False,
+        window_step_size: int = 1,
+        use_vertical_transitions: bool = False,
 ) -> Tuple[str, LibrispeechSegmentalAttConformerConfigBuilderRF]:
   assert bpe_vocab_size in {10025, 1056, 5048, 10240}
 
@@ -89,23 +99,37 @@ def get_center_window_att_config_builder_rf(
     blank_decoder_opts=blank_decoder_opts,
     use_current_frame_in_readout=use_current_frame_in_readout,
     use_current_frame_in_readout_w_gate=use_current_frame_in_readout_w_gate,
+    use_current_frame_in_readout_w_gate_v=use_current_frame_in_readout_w_gate_v,
     use_current_frame_in_readout_random=use_current_frame_in_readout_random,
+    use_current_frame_in_readout_w_double_gate=use_current_frame_in_readout_w_double_gate,
     use_correct_dim_tags=use_correct_dim_tags,
     target_embed_dimension=target_embed_dimension,
     readout_dimension=readout_dimension,
-    ilm_dimension=ilm_dimension
+    ilm_dimension=ilm_dimension,
+    use_trafo_att=use_trafo_att,
+    behavior_version=behavior_version,
+    use_readout=use_readout,
+    use_trafo_att_wo_cross_att=use_trafo_att_wo_cross_att,
+    use_sep_att_encoder=use_sep_att_encoder,
+    use_sep_h_t_readout=use_sep_h_t_readout,
+    window_step_size=window_step_size,
+    use_vertical_transitions=use_vertical_transitions
   )
 
   alias = (
+    f"behavior-{behavior_version}/"
     f"bpe-size-{bpe_vocab_size}/"
-    f"win-size-{win_size}{'_gaussian-std-' + str(gaussian_att_weight_opts['std']) if gaussian_att_weight_opts else ''}/"
+    f"win-size-{win_size}-step{window_step_size}{'-vert' if use_vertical_transitions else ''}"
+    f"{'_gaussian-std-' + str(gaussian_att_weight_opts['std']) if gaussian_att_weight_opts else ''}/"
     f"{'w' if use_weight_feedback else 'wo'}-wf_"
     f"{'w' if use_att_ctx_in_state else 'wo'}-ctx-in-s/"
-    f"bd-{blank_decoder_version}/"
-    f"{label_decoder_state}"
+    f"bd-{blank_decoder_version}{'_' + '_'.join([f'{k}-{v}' for k, v in blank_decoder_opts.items()]) if blank_decoder_opts else ''}/"
+    f"{label_decoder_state}{'_trafo-att' if use_trafo_att else ''}{'-wo-cross-att' if use_trafo_att_wo_cross_att else ''}/"
     f"{'_cur_frame_in_readout' if use_current_frame_in_readout else ''}"
-    f"{'_cur_frame_in_readout_w_gate' if use_current_frame_in_readout_w_gate else ''}"
+    f"{'_cur_frame_in_readout_w_gate_v-' + str(use_current_frame_in_readout_w_gate_v) if use_current_frame_in_readout_w_gate else ''}"
     f"{'_cur_frame_in_readout_random' if use_current_frame_in_readout_random else ''}"
+    f"{'_cur_frame_in_readout_w_double_gate' if use_current_frame_in_readout_w_double_gate else ''}"
+    f"{'_sep-att-enc' if use_sep_att_encoder else ''}{'_sep-h_t-readout' if use_sep_h_t_readout else ''}/"
     f"/{'sep-blank-sigmoid' if separate_blank_from_softmax or blank_decoder_version is not None else 'blank-in-softmax'}"
   )
 

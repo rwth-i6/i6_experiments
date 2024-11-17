@@ -330,7 +330,7 @@ def conformer_baseline():
     ):
         exp_prefix = os.path.join(prefix_name, exp_name)
 
-        search_args = search_args if search_args is not None else train_args
+        search_args = search_args if search_args is not None else train_args.copy()
 
         search_preemphasis = search_args.pop("preemphasis", None)
 
@@ -420,6 +420,8 @@ def conformer_baseline():
             if "allow_lr_scheduling" not in train_args:
                 train_args["allow_lr_scheduling"] = False  # force it
 
+        preemphasis_val = kwargs.get("preemphasis", None)
+
         train_data = build_training_datasets(
             bpe_size=bpe_size,
             use_raw_features=True,
@@ -427,12 +429,18 @@ def conformer_baseline():
             epoch_wise_filter=kwargs.get("epoch_wise_filter", None),
             link_speed_perturbation=train_args.get("speed_pert", False),
             seq_ordering=kwargs.get("seq_ordering", "laplace:.1000"),
+            preemphasis=preemphasis_val,
         )
 
         train_job = run_train(
             exp_name, train_args, train_data, feature_extraction_net, num_epochs, recog_epochs, **kwargs
         )
         train_jobs_map[exp_name] = train_job
+
+        if preemphasis_val:
+            if search_args is None:
+                search_args = train_args.copy()
+            search_args["preemphasis"] = preemphasis_val
 
         run_search(
             exp_name,
@@ -889,7 +897,7 @@ def conformer_baseline():
             base_v2_args["learning_rates_list"] = (
                 list(numpy.linspace(initial_lr, lr, cyc_ep))
                 + list(numpy.linspace(lr, initial_lr, cyc_ep))
-                + list(numpy.linspace(initial_lr, 1e-6, ep - 2 * cyc_ep))
+                + list(numpy.linspace(initial_lr, 1e-6, num_epochs - 2 * cyc_ep))
             )
             assert len(base_v2_args["learning_rates_list"]) == num_epochs
             exp_name += f"_epochOCLR-{initial_lr}-{lr}"
@@ -1005,16 +1013,22 @@ def conformer_baseline():
     #                         horovod_num_processes=4,
     #                     )
 
-    # conf_8l_dimF1.0_bpe500_drop0.1_selfAttDrop0.15_decDrop0.2_embedDrop0.05_wd0.0_ep300_epocOCLR-0.0001-0.001_embed256_specaug1
-    # 12.4       11.1     13    avg
+    # conf12l_lstm1l_dimRed1.0_encD0.1_encAttD0.2_encWd0.1_decD0.1_attD0.15_embDim256_embD0.1_decWd0.1_softmaxD0.3_ctcD0.1_ep600_epochOCLR-0.0001-0.001_bpeMaxSeq100
+    # 11.8       10.2     11.9  best
 
-    # conf_8l_dimF1.0_bpe500_drop0.2_selfAttDrop0.2_decDrop0.2_embedDrop0.1_wd0.1_ep900_epocOCLR-0.0001-0.001_embedDim256_mixup-3-0.3-nopre_specaug3
-    # 11.6       10.4     12.1  best
+    # conf12l_lstm1l_dimRed1.0_encD0.1_encAttD0.2_encWd0.1_decD0.1_attD0.15_embDim256_embD0.1_decWd0.0_softmaxD0.3_ctcD0.1_ep600_epochOCLR-0.0001-0.001
+    # 11.7       10.2     11.9  avg
 
-    # conf_12l_dimF0.75_bpe500_drop0.1_selfAttDrop0.15_decDrop0.2_embedDrop0.05_wd0.1_ep600_epocOCLR-0.0001-0.001_embedDim256
-    # 11.6       10.5     12.4  avg
+    # conf12l_lstm1l_dimRed1.0_encD0.1_encAttD0.2_encWd0.1_decD0.1_attD0.15_embDim256_embD0.1_decWd0.1_softmaxD0.3_ctcD0.1_ep1200_epochOCLR-0.0001-0.001
+    # 11.3        9.9     11.4  avg
 
-    for ep in [100 * 6, 200 * 6]:
+    # conf12l_lstm1l_dimRed1.0_encD0.1_encAttD0.2_encWd0.1_decD0.1_attD0.15_embDim256_embD0.1_decWd0.0_softmaxD0.3_ctcD0.1_ep1200_epochOCLR-0.0001-0.001_bpeMaxSeq100
+    # 11.1        9.8     11.4  avg
+
+    # conf12l_lstm1l_dimRed1.0_encD0.1_encAttD0.2_encWd0.1_decD0.1_attD0.15_embDim256_embD0.1_decWd0.0_softmaxD0.3_ctcD0.1_ep1500_epochOCLR-0.0001-0.001_bpeMaxSeq100
+    # 10.9        9.9     11.6  avg
+
+    for ep in [200 * 6, 250 * 6]:
         for num_blocks, reduce_factor in [(12, 1.0)]:
             args, exp_name = get_base_v2_args(
                 num_epochs=ep,
@@ -1022,161 +1036,123 @@ def conformer_baseline():
                 enc_reduce_factor=reduce_factor,
                 lr_type="epoch-oclr",
                 lr_opts={"lr": 1e-3},
+                dec_weight_drop=0.0,
             )
             args["accum_grad"] = 2
             args["batch_size"] = 15_000 * 80
+            args["max_seq_length"] = {"bpe_labels": 100}
 
-            run_default_exp(exp_name, train_args=args, num_epochs=ep, partition_epoch=6, gpu_mem=11, bpe_size=BPE_500)
+            run_default_exp(
+                exp_name + "_bpeMaxSeq100",
+                train_args=args,
+                num_epochs=ep,
+                partition_epoch=6,
+                gpu_mem=11,
+                bpe_size=BPE_500,
+            )
 
-            if ep == 100 * 6:
-                args_ = args.copy()
-                for grad_clip in [2, 5, 10, 20]:
-                    args_["gradient_clip_global_norm"] = grad_clip
+            if ep == 1200:
+                for premphasis_val in [0.9, 0.95, 0.97, 1.0]:
                     run_default_exp(
-                        exp_name + f"_gradClip{grad_clip}",
-                        train_args=args_,
+                        exp_name + f"_bpeMaxSeq100_premph{premphasis_val}",
+                        train_args=args,
                         num_epochs=ep,
                         partition_epoch=6,
                         gpu_mem=11,
-                        bpe_size=BPE_500
+                        bpe_size=BPE_500,
+                        preemphasis=premphasis_val,
                     )
 
-                args_ = args.copy()
-                args_["accum_grad"] = 1
+                # TODO: no ctc
+                no_ctc_args = copy.deepcopy(args)
+                no_ctc_args["encoder_args"].with_ctc = False
                 run_default_exp(
-                    exp_name + f"_accum1",
-                    train_args=args_,
+                    exp_name + f"_bpeMaxSeq100_noCTC",
+                    train_args=no_ctc_args,
                     num_epochs=ep,
                     partition_epoch=6,
                     gpu_mem=11,
-                    bpe_size=BPE_500
+                    bpe_size=BPE_500,
+                    avg_key="dev_score",
                 )
 
-                for bpe_max_seq_len in [85, 90, 100]:
-                    args_ = args.copy()
-                    args_["max_seq_length"] = {"bpe_labels": bpe_max_seq_len}
+                for with_ctc in [True, False]:
+                    mgpu_args = copy.deepcopy(args)  # TODO: uses wrong LR!
+                    mgpu_args["encoder_args"].with_ctc = with_ctc
+                    mgpu_args["horovod_params"] = {
+                        "horovod_reduce_type": "param",
+                        "horovod_param_sync_step": 100,
+                        "horovod_dataset_distribution": "random_seed_offset",
+                    }
                     run_default_exp(
-                        exp_name + f"_bpeMaxSeq{bpe_max_seq_len}",
-                        train_args=args_,
-                        num_epochs=ep,
+                        exp_name + f"_bpeMaxSeq100_mgpu4_11g_paramSync_step100" + ("_noCTC" if not with_ctc else ""),
+                        train_args=mgpu_args,
+                        num_epochs=300,
                         partition_epoch=6,
                         gpu_mem=11,
-                        bpe_size=BPE_500
+                        bpe_size=BPE_500,
+                        horovod_num_processes=4,
+                        avg_key="dev_score_output/output_prob" if with_ctc else "dev_score",
                     )
 
-                # TODO: no decoder att dropout
-                args_no_dec_att_drop, exp_name = get_base_v2_args(
-                    num_epochs=ep,
-                    enc_num_blocks=num_blocks,
-                    enc_reduce_factor=reduce_factor,
-                    lr_type="epoch-oclr",
-                    lr_opts={"lr": 1e-3},
-                    dec_att_drop=0.0,
-                )
-                args_no_dec_att_drop["accum_grad"] = 2
-                args_no_dec_att_drop["batch_size"] = 15_000 * 80
-                run_default_exp(
-                    exp_name,
-                    train_args=args_no_dec_att_drop,
-                    num_epochs=ep,
-                    partition_epoch=6,
-                    gpu_mem=11,
-                    bpe_size=BPE_500
-                )
+    # single gpu 200 epochs:
+    # conf12l_lstm1l_dimRed1.0_encD0.1_encAttD0.2_encWd0.1_decD0.1_attD0.15_embDim256_embD0.1_decWd0.0_softmaxD0.3_ctcD0.1_ep1200_epochOCLR-0.0001-0.001_bpeMaxSeq100
+    # 11.1        9.8     11.4  avg
 
-                # TODO: less self-att drop
-                args_less_self_att_drop, exp_name = get_base_v2_args(
-                    num_epochs=ep,
-                    enc_num_blocks=num_blocks,
-                    enc_reduce_factor=reduce_factor,
-                    lr_type="epoch-oclr",
-                    lr_opts={"lr": 1e-3},
-                    enc_self_att_drop=0.1,
-                )
-                args_less_self_att_drop["accum_grad"] = 2
-                args_less_self_att_drop["batch_size"] = 15_000 * 80
-                run_default_exp(
-                    exp_name,
-                    train_args=args_less_self_att_drop,
-                    num_epochs=ep,
-                    partition_epoch=6,
-                    gpu_mem=11,
-                    bpe_size=BPE_500
-                )
+    # first try by only changing the num of epochs:
+    #
+    # conf12l_lstm1l_dimRed1.0_encD0.1_encAttD0.2_encWd0.1_decD0.1_attD0.15_embDim256_embD0.1_decWd0.0_softmaxD0.3_ctcD0.1_ep300_epochOCLR-0.0001-0.001_bpeMaxSeq100_mgpu4_11g_paramSync_step100
+    # 12.1       10.7     12.3  avg
 
-                # TODO: no dec weight drop
-                args_no_dec_weight_drop, exp_name = get_base_v2_args(
-                    num_epochs=ep,
-                    enc_num_blocks=num_blocks,
-                    enc_reduce_factor=reduce_factor,
-                    lr_type="epoch-oclr",
-                    lr_opts={"lr": 1e-3},
-                    dec_weight_drop=0.0,
-                )
-                args_no_dec_weight_drop["accum_grad"] = 2
-                args_no_dec_weight_drop["batch_size"] = 15_000 * 80
-                run_default_exp(
-                    exp_name,
-                    train_args=args_no_dec_weight_drop,
-                    num_epochs=ep,
-                    partition_epoch=6,
-                    gpu_mem=11,
-                    bpe_size=BPE_500
-                )
+    mgpu_args, exp_name = get_base_v2_args(
+        num_epochs=300,
+        enc_num_blocks=12,
+        enc_reduce_factor=1.0,
+        lr_type="epoch-oclr",
+        lr_opts={"lr": 1e-3},
+        dec_weight_drop=0.0,
+    )
+    mgpu_args["batch_size"] = 15_000 * 80
+    mgpu_args["max_seq_length"] = {"bpe_labels": 100}
+    mgpu_args["horovod_params"] = {
+        "horovod_reduce_type": "param",
+        "horovod_param_sync_step": 100,
+        "horovod_dataset_distribution": "random_seed_offset",
+    }
+    mgpu_args["accum_grad"] = 2
+    run_default_exp(
+        exp_name + f"_bpeMaxSeq100_mgpu4_11g_paramSync_step100",
+        train_args=mgpu_args,
+        num_epochs=300,
+        partition_epoch=6,
+        gpu_mem=11,
+        bpe_size=BPE_500,
+        horovod_num_processes=4,
+    )
 
-                # TODO: lr
-                for lr_ in [9e-4, 1.5e-3, 2e-3]:
-                    args_lr, exp_name = get_base_v2_args(
-                        num_epochs=ep,
-                        enc_num_blocks=num_blocks,
-                        enc_reduce_factor=reduce_factor,
-                        lr_type="epoch-oclr",
-                        lr_opts={"lr": lr_},
-                    )
-                    args_lr["accum_grad"] = 2
-                    args_lr["batch_size"] = 15_000 * 80
-                    run_default_exp(
-                        exp_name,
-                        train_args=args_lr,
-                        num_epochs=ep,
-                        partition_epoch=6,
-                        gpu_mem=11,
-                        bpe_size=BPE_500
-                    )
+    # TODO: reduce grad accum
+    mgpu_args_accum1 = copy.deepcopy(mgpu_args)
+    mgpu_args_accum1["accum_grad"] = 1
+    run_default_exp(
+        exp_name + f"_bpeMaxSeq100_mgpu4_11g_paramSync_step100_accum1",
+        train_args=mgpu_args_accum1,
+        num_epochs=300,
+        partition_epoch=6,
+        gpu_mem=11,
+        bpe_size=BPE_500,
+        horovod_num_processes=4,
+    )
 
-                # TODO: step-based LR
-                args_step_oclr, exp_name = get_base_v2_args(
-                    num_epochs=ep,
-                    enc_num_blocks=num_blocks,
-                    enc_reduce_factor=reduce_factor,
-                    lr_type="step-oclr",
-                    lr_opts={"lr": 1e-3, "n_step": 1440},
-                )
-                args_step_oclr["accum_grad"] = 2
-                args_step_oclr["batch_size"] = 15_000 * 80
-                run_default_exp(
-                    exp_name,
-                    train_args=args_step_oclr,
-                    num_epochs=ep,
-                    partition_epoch=6,
-                    gpu_mem=11,
-                    bpe_size=BPE_500
-                )
-
-                # TODO: higher label smoothing
-                args_higher_ls = copy.deepcopy(args)
-                args_higher_ls["decoder_args"].label_smoothing = 0.2
-                run_default_exp(
-                    exp_name + "_lbs0.2",
-                    train_args=args_higher_ls,
-                    num_epochs=ep,
-                    partition_epoch=6,
-                    gpu_mem=11,
-                    bpe_size=BPE_500
-                )
-
-
-
-
-
-
+    # TODO: add grad clip
+    for grad_clip in [1.0, 5.0, 10.0, 20.0]:
+        mgpu_args_clip = copy.deepcopy(mgpu_args)
+        mgpu_args_clip["gradient_clip_global_norm"] = grad_clip
+        run_default_exp(
+            exp_name + f"_bpeMaxSeq100_mgpu4_11g_paramSync_step100_gradClipNorm{grad_clip}",
+            train_args=mgpu_args_clip,
+            num_epochs=300,
+            partition_epoch=6,
+            gpu_mem=11,
+            bpe_size=BPE_500,
+            horovod_num_processes=4,
+        )

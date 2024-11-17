@@ -1,3 +1,7 @@
+"""
+Script for debugging the search error computation. It basically does the same as RETURNN does with the config.
+At some point I stopped using such scripts because it was easier to just run the actual config in an interactive session on the cluster.
+"""
 from __future__ import annotations
 
 from typing import Dict

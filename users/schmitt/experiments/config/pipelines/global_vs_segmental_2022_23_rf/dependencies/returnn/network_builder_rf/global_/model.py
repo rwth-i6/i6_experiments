@@ -1,9 +1,10 @@
-from typing import Optional, Dict, Any, Sequence, Tuple, List
+from typing import Optional, Dict, Any, Sequence, Tuple, List, Union
 import functools
 
 from returnn.tensor import Tensor, Dim, single_step_dim
 import returnn.frontend as rf
 from returnn.frontend.decoder.transformer import TransformerDecoder
+from returnn.frontend.encoder.conformer import ConformerEncoderLayer, ConformerConvSubsample
 
 from i6_experiments.users.schmitt.returnn_frontend.model_interfaces.model import ModelDef
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.global_.decoder import (
@@ -12,14 +13,13 @@ from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segment
 )
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.encoder.global_ import (
   GlobalConformerEncoder,
-  GlobalConformerEncoderWAbsolutePos,
 )
+from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.encoder.ff import LinearEncoder
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.base import (
   _batch_size_factor,
   get_common_config_params,
   apply_weight_dropout,
 )
-from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.self_att import EpochConditionedRelPosSelfAttention
 
 
 class GlobalAttentionModel(rf.Module):
@@ -39,9 +39,13 @@ class GlobalAttentionModel(rf.Module):
           enc_ff_dim: Dim = Dim(name="enc-ff", dimension=2048),
           enc_num_heads: int = 4,
           encoder_layer_opts: Optional[Dict[str, Any]] = None,
+          encoder_layer: Optional[Union[ConformerEncoderLayer, rf.Module, type, Dict[str, Any], Any]] = None,
+          encoder_cls: rf.Module = GlobalConformerEncoder,
+          enc_input_layer_cls: rf.Module = ConformerConvSubsample,
           dec_att_num_heads: Dim = Dim(name="att_num_heads", dimension=1),
           enc_dropout: float = 0.1,
           eos_idx: int,
+          bos_idx: int,
           use_weight_feedback: bool = True,
           use_att_ctx_in_state: bool = True,
           use_mini_att: bool = False,
@@ -54,36 +58,46 @@ class GlobalAttentionModel(rf.Module):
           target_embed_dropout: float = 0.0,
           att_weight_dropout: float = 0.0,
           use_readout: bool = True,
-          conformer_w_abs_pos_enc: bool = False,
+          enc_ctx_layer: Optional[str] = None,
   ):
     super(GlobalAttentionModel, self).__init__()
 
-    self.bos_idx = eos_idx
+    self.bos_idx = bos_idx
     self.eos_idx = eos_idx
 
-    if conformer_w_abs_pos_enc:
-      enc_cls = GlobalConformerEncoderWAbsolutePos
+    if encoder_cls == LinearEncoder:
+      self.encoder = encoder_cls(
+        enc_in_dim,
+        enc_out_dim,
+        num_layers=enc_num_layers,
+        enc_key_total_dim=enc_key_total_dim,
+        dec_att_num_heads=dec_att_num_heads,
+        decoder_type="trafo" if label_decoder_state == "trafo" else "lstm",
+        feature_extraction_opts=feature_extraction_opts,
+        enc_ctx_layer=enc_ctx_layer,
+      )
     else:
-      enc_cls = GlobalConformerEncoder
-
-    self.encoder = enc_cls(
-      enc_in_dim,
-      enc_out_dim,
-      num_layers=enc_num_layers,
-      target_dim=target_dim,
-      wb_target_dim=None,
-      aux_logits=enc_aux_logits,
-      ff_dim=enc_ff_dim,
-      num_heads=enc_num_heads,
-      encoder_layer_opts=encoder_layer_opts,
-      enc_key_total_dim=enc_key_total_dim,
-      dec_att_num_heads=dec_att_num_heads,
-      dropout=enc_dropout,
-      att_dropout=att_dropout,
-      l2=l2,
-      decoder_type="trafo" if label_decoder_state == "trafo" else "lstm",
-      feature_extraction_opts=feature_extraction_opts,
-    )
+      self.encoder = encoder_cls(
+        enc_in_dim,
+        enc_out_dim,
+        num_layers=enc_num_layers,
+        target_dim=target_dim,
+        wb_target_dim=None,
+        aux_logits=enc_aux_logits,
+        ff_dim=enc_ff_dim,
+        num_heads=enc_num_heads,
+        encoder_layer_opts=encoder_layer_opts,
+        enc_key_total_dim=enc_key_total_dim,
+        dec_att_num_heads=dec_att_num_heads,
+        dropout=enc_dropout,
+        att_dropout=att_dropout,
+        l2=l2,
+        decoder_type="trafo" if label_decoder_state == "trafo" else "lstm",
+        feature_extraction_opts=feature_extraction_opts,
+        encoder_layer=encoder_layer,
+        input_layer_cls=enc_input_layer_cls,
+        enc_ctx_layer=enc_ctx_layer,
+      )
 
     self.decoder_state = label_decoder_state
     if label_decoder_state != "trafo":
@@ -116,8 +130,8 @@ class GlobalAttentionModel(rf.Module):
       )
     else:
       # hard code for now
-      self.eos_idx = 0
-      self.bos_idx = 1
+      self.eos_idx = eos_idx
+      self.bos_idx = bos_idx
 
       model_dim = Dim(name="dec", dimension=512)
       self.label_decoder = TransformerDecoder(
@@ -195,8 +209,6 @@ class MakeModel:
           in_dim: Dim,
           target_dim: Dim,
           *,
-          num_enc_layers: int = 12,
-          pos_emb_dropout: float = 0.0,
           language_model: Optional[Dict[str, Any]] = None,
           use_weight_feedback: bool = True,
           use_att_ctx_in_state: bool = True,
@@ -205,8 +217,6 @@ class MakeModel:
           num_dec_layers: int = 1,
           target_embed_dim: int = 640,
           feature_extraction_opts: Optional[Dict[str, Any]] = None,
-          conformer_wo_rel_pos_enc: bool = False,
-          disable_enc_self_att_until_epoch: Optional[int] = None,
           **extra,
   ) -> GlobalAttentionModel:
     """make"""
@@ -222,38 +232,12 @@ class MakeModel:
 
       lm = trafo_lm.MakeModel(vocab_dim=target_dim, **language_model)()
 
-    if conformer_wo_rel_pos_enc:
-      self_att_opts = {}
-      self_att = rf.SelfAttention
-    else:
-      self_att_opts = dict(
-        # Shawn et al 2018 style, old RETURNN way.
-        with_bias=False,
-        with_linear_pos=False,
-        with_pos_bias=False,
-        learnable_pos_emb=True,
-        separate_pos_emb_per_head=False,
-        pos_emb_dropout=pos_emb_dropout,
-      )
-      if disable_enc_self_att_until_epoch:
-        self_att_opts["enable_from_epoch"] = disable_enc_self_att_until_epoch
-        self_att = EpochConditionedRelPosSelfAttention
-      else:
-        self_att = rf.RelPosSelfAttention
-
     return GlobalAttentionModel(
       enc_in_dim=in_dim,
-      enc_num_layers=num_enc_layers,
-      enc_out_dim=Dim(name="enc", dimension=512, kind=Dim.Types.Feature),
       enc_ff_dim=Dim(name="enc-ff", dimension=2048, kind=Dim.Types.Feature),
       enc_num_heads=8,
-      encoder_layer_opts=dict(
-        conv_norm_opts=dict(use_mask=True),
-        self_att_opts=self_att_opts,
-        self_att=self_att,
-        ff_activation=lambda x: rf.relu(x) ** 2.0,
-      ),
       eos_idx=_get_eos_idx(target_dim),
+      bos_idx=_get_bos_idx(target_dim),
       target_dim=target_dim,
       blank_idx=target_dim.dimension,
       language_model=lm,
@@ -275,8 +259,6 @@ def _get_bos_idx(target_dim: Dim) -> int:
     bos_idx = target_dim.vocab.bos_label_id
   elif target_dim.vocab.eos_label_id is not None:
     bos_idx = target_dim.vocab.eos_label_id
-  elif "<sil>" in target_dim.vocab.user_defined_symbol_ids:
-    bos_idx = target_dim.vocab.user_defined_symbol_ids["<sil>"]
   else:
     raise Exception(f"cannot determine bos_idx from vocab {target_dim.vocab}")
   return bos_idx
@@ -299,6 +281,7 @@ def from_scratch_model_def(*, epoch: int, in_dim: Dim, target_dim: Dim) -> Globa
   in_dim, epoch  # noqa
   config = get_global_config()  # noqa
   num_dec_layers = config.int("num_label_decoder_layers", 1)
+  enc_ctx_layer = config.typed_value("enc_ctx_layer", None)
 
   common_config_params = get_common_config_params()
   in_dim = common_config_params.pop("in_dim")
@@ -307,6 +290,7 @@ def from_scratch_model_def(*, epoch: int, in_dim: Dim, target_dim: Dim) -> Globa
     in_dim,
     target_dim,
     num_dec_layers=num_dec_layers,
+    enc_ctx_layer=enc_ctx_layer,
     **common_config_params,
   )
 

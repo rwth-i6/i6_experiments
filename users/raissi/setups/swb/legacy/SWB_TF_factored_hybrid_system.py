@@ -278,6 +278,7 @@ class SWBTFFactoredHybridSystem(TFFactoredHybridBaseSystem):
         gpu=False,
         is_multi_encoder_output=False,
         set_batch_major_for_feature_scorer: bool = True,
+        joint_for_factored_loss: bool = False,
         tf_library: Union[Path, str, List[Path], List[str], None] = None,
         dummy_mixtures: Optional[Path] = None,
         lm_gc_simple_hash: Optional[bool] = None,
@@ -302,7 +303,10 @@ class SWBTFFactoredHybridSystem(TFFactoredHybridBaseSystem):
         ):
 
             self.setup_returnn_config_and_graph_for_single_softmax(
-                key=key, state_tying=self.label_info.state_tying, softmax_type=SingleSoftmaxType.DECODE
+                key=key,
+                state_tying=self.label_info.state_tying,
+                softmax_type=SingleSoftmaxType.DECODE,
+                joint_for_factored_loss=joint_for_factored_loss,
             )
         else:
             crp_list = [n for n in self.crp_names if "train" not in n]
@@ -342,7 +346,7 @@ class SWBTFFactoredHybridSystem(TFFactoredHybridBaseSystem):
             model_path=model_path,
             graph=graph,
             mixtures=dummy_mixtures,
-            eval_files=self.scorer_args[crp_corpus],
+            eval_args=self.scorer_args[crp_corpus],
             scorer=self.scorers[crp_corpus],
             tf_library=tf_library,
             is_multi_encoder_output=is_multi_encoder_output,
@@ -355,49 +359,6 @@ class SWBTFFactoredHybridSystem(TFFactoredHybridBaseSystem):
         self.experiments[key]["decode_job"]["runner"] = recognizer
 
         return recognizer, recog_args
-
-    def get_best_recog_scales_and_transition_values(
-        self,
-        key: str,
-        num_encoder_output: int,
-        recog_args: SWBSearchParameters,
-        lm_scale: float,
-        altas_for_transition_optimization: float = 2.0,
-        prior_scales: Optional[List] = None,
-        tdp_scales: Optional[List] = None,
-    ) -> SWBSearchParameters:
-
-        assert self.experiments[key]["decode_job"]["runner"] is not None, "Please set the recognizer"
-        recognizer = self.experiments[key]["decode_job"]["runner"]
-
-
-        tune_args = recog_args.with_lm_scale(lm_scale)
-        best_config_scales = recognizer.recognize_optimize_scales_v2(
-            label_info=self.label_info,
-            search_parameters=tune_args,
-            num_encoder_output=num_encoder_output,
-            altas_value=2.0,
-            altas_beam=16.0,
-            tdp_sil=[(11.0, 0.0, "infinity", 20.0)],
-            tdp_speech=[(8.0, 0.0, "infinity", 0.0)],
-            tdp_nonword=[(8.0, 0.0, "infinity", 0.0)],
-            prior_scales=[[v] for v in np.arange(0.1, 0.8, 0.1).round(1)] if prior_scales is None else prior_scales,
-            tdp_scales=[0.1, 0.2] if tdp_scales is None else tdp_scales,
-        )
-
-        nnsp_tdp = [(l, 0.0, "infinity", e) for l in [8.0, 11.0, 13.0] for e in [10.0, 15.0, 20.0]]
-        sp_tdp = [(l, 0.0, "infinity", e) for l in [5.0, 8.0, 11.0] for e in [0.0, 5.0]]
-        best_config = recognizer.recognize_optimize_transtition_values(
-            label_info=self.label_info,
-            search_parameters=best_config_scales,
-            num_encoder_output=num_encoder_output,
-            altas_value=altas_for_transition_optimization,
-            altas_beam=16.0,
-            tdp_sil=nnsp_tdp,
-            tdp_speech=sp_tdp,
-        )
-
-        return best_config
 
     def get_aligner_and_args(
         self,

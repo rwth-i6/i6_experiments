@@ -19,6 +19,8 @@ from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segment
 
 from i6_core.returnn.training import PtCheckpoint
 
+from sisyphus import Path
+
 
 def _get_optimizer_alias(optimizer_opts: Dict):
   return (
@@ -40,11 +42,11 @@ def train_center_window_att(
         chunked_data_len: Optional[int] = None,
         nb_loss_scale: float = 1.0,
         b_loss_scale: float = 1.0,
-        ce_aux_loss_layers: Optional[Tuple[int, ...]] = None,
-        ce_aux_loss_focal_loss_factors: Optional[Tuple[float, ...]] = None,
-        ce_aux_loss_scales: Optional[Tuple[float, ...]] = None,
+        ctc_aux_loss_layers: Optional[Tuple[int, ...]] = None,
+        ctc_aux_loss_focal_loss_factors: Optional[Tuple[float, ...]] = None,
+        ctc_aux_loss_scales: Optional[Tuple[float, ...]] = None,
         use_curriculum_learning: bool = True,
-        lr_scheduling_type: str = "dyn_lr_piecewise_linear",
+        lr_scheduling_opts: Optional[Dict] = None,
         training_type: str = "fixed-path",
         regularization_type: str = "v1",
         checkpoint_alias: Optional[str] = None,
@@ -55,17 +57,23 @@ def train_center_window_att(
         filter_data_len: Optional[float] = None,
         filter_target_len: Optional[float] = None,
         accum_grad_multiple_step: int = 4,
+        hdf_targets: Optional[Dict[str, Path]] = None,
+        att_h_t_dropout: float = 0.0,
+        use_sep_ce_loss: bool = False,
+        mask_att_around_h_t: bool = False,
+        use_normalized_loss: bool = False,
+        weight_decay: float = 1e-6,
 ):
   train_opts, train_rqmt, alias_ = get_common_train_opts_rqmt(
     n_epochs=n_epochs,
     time_rqmt=time_rqmt,
     batch_size=batch_size,
     use_mgpu=use_mgpu,
-    ce_aux_loss_layers=ce_aux_loss_layers,
-    ce_aux_loss_focal_loss_factors=ce_aux_loss_focal_loss_factors,
-    ce_aux_loss_scales=ce_aux_loss_scales,
+    ctc_aux_loss_layers=ctc_aux_loss_layers,
+    ctc_aux_loss_focal_loss_factors=ctc_aux_loss_focal_loss_factors,
+    ctc_aux_loss_scales=ctc_aux_loss_scales,
     use_curriculum_learning=use_curriculum_learning,
-    lr_scheduling_type=lr_scheduling_type,
+    lr_scheduling_opts=lr_scheduling_opts,
     regularization_type=regularization_type,
     use_speed_pert=use_speed_pert,
     checkpoint_alias=checkpoint_alias,
@@ -75,6 +83,8 @@ def train_center_window_att(
     keep_epochs=keep_epochs,
     filter_data_len=filter_data_len,
     filter_target_len=filter_target_len,
+    accum_grad_multiple_step=accum_grad_multiple_step,
+    weight_decay=weight_decay,
   )
 
   alias += (
@@ -82,12 +92,28 @@ def train_center_window_att(
     f"_{'chunked-data-len-' + str(chunked_data_len) if chunked_data_len else 'no-chunking'}"
     f"{'_nb-loss-x' + str(nb_loss_scale) if nb_loss_scale != 1.0 else ''}"
     f"{'_b-loss-x' + str(b_loss_scale) if b_loss_scale != 1.0 else ''}"
+    f"{f'_att-h-t-drop-{att_h_t_dropout}' if att_h_t_dropout > 0.0 else ''}"
+    f"{'_sep-ce-loss' if use_sep_ce_loss else ''}"
+    f"{'_mask-att-around-h-t' if mask_att_around_h_t else ''}"
+    f"{'_normalized-loss' if use_normalized_loss else ''}"
   )
 
   train_opts.update({
     "nb_loss_scale": nb_loss_scale,
     "b_loss_scale": b_loss_scale,
   })
+
+  if use_normalized_loss:
+    train_opts["use_normalized_loss"] = True
+
+  if mask_att_around_h_t:
+    train_opts["mask_att_around_h_t"] = True
+
+  if use_sep_ce_loss:
+    train_opts["use_sep_ce_loss"] = True
+
+  if att_h_t_dropout > 0.0:
+    train_opts["att_h_t_dropout"] = att_h_t_dropout
 
   if training_type == "full-sum":
     train_opts.update({
@@ -99,14 +125,14 @@ def train_center_window_att(
       "seq_postfix": None,
     })
   else:
-    assert training_type == "fixed-path"
+    assert training_type == "fixed-path" and hdf_targets is not None
     train_opts.update({
       "train_def": viterbi_training,
       "train_step_func": _returnn_v2_train_step,
     })
     train_opts["train_def"] = viterbi_training
     train_opts["dataset_opts"].update({
-      "hdf_targets": LibrispeechBPE10025_CTC_ALIGNMENT.alignment_paths,
+      "hdf_targets": hdf_targets,
       "target_is_alignment": True,
       # "seq_postfix": None,
     })
@@ -135,7 +161,7 @@ def train_center_window_att(
   checkpoint = {
     "model_dir": model_dir,
     "learning_rates": learning_rates,
-    "key": "dev_loss_non_blank_ce",
+    "key": "dev_loss_non_blank_ce" if training_type == "fixed-path" else "dev_loss_full_sum_loss",
     "checkpoints": checkpoints,
     "n_epochs": n_epochs
   }
@@ -153,9 +179,9 @@ def train_center_window_att_viterbi_from_scratch(
         nb_loss_scale: float = 1.0,
         b_loss_scale: float = 1.0,
         do_realignments: bool = False,
-        ce_aux_loss_layers: Optional[Tuple[int, ...]] = None,
-        ce_aux_loss_focal_loss_factors: Optional[Tuple[float, ...]] = None,
-        ce_aux_loss_scales: Optional[Tuple[float, ...]] = None,
+        ctc_aux_loss_layers: Optional[Tuple[int, ...]] = None,
+        ctc_aux_loss_focal_loss_factors: Optional[Tuple[float, ...]] = None,
+        ctc_aux_loss_scales: Optional[Tuple[float, ...]] = None,
         use_curriculum_learning: bool = True,
         lr_scheduling_type: str = "dyn_lr_piecewise_linear",
 ):
@@ -165,9 +191,9 @@ def train_center_window_att_viterbi_from_scratch(
       f"{'_mgpu-4' if use_mgpu else ''}_wo-speed-pert"
       f"_{'chunked-data-len-' + str(chunked_data_len) if chunked_data_len else 'no-chunking'}/"
       f"_nb-loss-x{nb_loss_scale}_b-loss-x{b_loss_scale}"
-      f"_ce-aux-{'-'.join(map(str, ce_aux_loss_layers)) if ce_aux_loss_layers else 'None'}"
-      f"_scales-{'-'.join(map(str, ce_aux_loss_scales)) if ce_aux_loss_scales else 'None'}"
-      f"_aux-focal-loss-{'-'.join(map(str, ce_aux_loss_focal_loss_factors)) if ce_aux_loss_focal_loss_factors else 'None'}"
+      f"_ctc-aux-{'-'.join(map(str, ctc_aux_loss_layers)) if ctc_aux_loss_layers else 'None'}"
+      f"_scales-{'-'.join(map(str, ctc_aux_loss_scales)) if ctc_aux_loss_scales else 'None'}"
+      f"_aux-focal-loss-{'-'.join(map(str, ctc_aux_loss_focal_loss_factors)) if ctc_aux_loss_focal_loss_factors else 'None'}"
       f"_{'curriculum' if use_curriculum_learning else 'no-curriculum'}"
       f"_lr-{lr_scheduling_type}"
     )
@@ -184,7 +210,7 @@ def train_center_window_att_viterbi_from_scratch(
       "rf_att_dropout_broadcast": False,
       "batch_size": batch_size,
       "batching": "laplace:.1000",
-      "aux_loss_layers": ce_aux_loss_layers,
+      "aux_loss_layers": ctc_aux_loss_layers,
       "specaugment_steps": (5_000, 15_000, 25_000),
       "grad_scaler": None,
       "gradient_clip_global_norm": 5.0,
@@ -224,12 +250,12 @@ def train_center_window_att_viterbi_from_scratch(
     if use_curriculum_learning:
       train_opts["dataset_opts"]["epoch_wise_filter"] = {(1, 5): {"max_mean_len": 1000}}
 
-    if ce_aux_loss_layers:
+    if ctc_aux_loss_layers:
       train_opts["aux_loss_type"] = "ce"
-    if ce_aux_loss_focal_loss_factors:
-      train_opts["aux_loss_focal_loss_factors"] = ce_aux_loss_focal_loss_factors
-    if ce_aux_loss_scales:
-      train_opts["aux_loss_scales"] = ce_aux_loss_scales
+    if ctc_aux_loss_focal_loss_factors:
+      train_opts["aux_loss_focal_loss_factors"] = ctc_aux_loss_focal_loss_factors
+    if ctc_aux_loss_scales:
+      train_opts["aux_loss_scales"] = ctc_aux_loss_scales
 
     if chunked_data_len:
       train_opts.update({

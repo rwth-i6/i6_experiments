@@ -66,6 +66,9 @@ def forward_step(*, model, data, run_ctx, **kwargs):
         raw_audio=raw_audio,
         raw_audio_len=raw_audio_len,
     )
+    if isinstance(logprobs, list):
+        logprobs = logprobs[-1]
+
     batch_indices = []
     for lp, l in zip(logprobs, audio_features_len):
         batch_indices.append(torch.unique_consecutive(torch.argmax(lp[:l], dim=-1), dim=0).detach().cpu().numpy())

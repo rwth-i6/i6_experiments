@@ -1,3 +1,8 @@
+"""
+Script for debugging the computation of search erros. It basically does the same as RETURNN does with the config.
+At some point I stoped using such scripts because it was easier to just run the actual config in an interactive session on the cluster.
+"""
+
 from __future__ import annotations
 
 import math

@@ -343,8 +343,7 @@ class OptunaReturnnTrainingJob(Job):
     @classmethod
     def hash(cls, kwargs):
         d = {
-            "returnn_config_generator": inspect.getsource(kwargs["optuna_returnn_config"].config_generator),
-            "returnn_config_generator_kwargs": list(sorted(kwargs["optuna_returnn_config"].config_kwargs)),
+            "optuna_returnn_config": kwargs["optuna_returnn_config"],
             "sampler_seed": kwargs["sampler_seed"],
             "num_trials": kwargs["num_trials"],
             "num_parallel": kwargs["num_parallel"],
