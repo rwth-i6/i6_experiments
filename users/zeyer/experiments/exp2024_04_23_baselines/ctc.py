@@ -817,7 +817,7 @@ def py():
         ],
     )
 
-    for am_scale, prior_scale in [(0.5, 0.2)]:
+    for am_scale, prior_scale in [(0.5, 0.0), (0.5, 0.2), (0.5, 0.5)]:
         train_exp(
             "v6-relPosAttDef-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-featBN"
             f"-speedpertV2-spm10k-bpeSample001-am{am_scale}-prior{prior_scale}",
