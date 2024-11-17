@@ -390,9 +390,6 @@ def py():
                 "feature_batch_norm": True,
                 "num_enc_layers": 12,
                 "out_blank_separated": True,
-                "ctc_am_scale": am_scale,
-                "ctc_prior_scale": prior_scale,
-                "ctc_prior_type": prior_type,
             },
             config_updates={
                 **_get_cfg_lrlin_oclr_by_bs_nep_v3(150_000, 100, batch_size_factor=_batch_size_factor),
@@ -405,6 +402,10 @@ def py():
                 "__train_audio_preprocess": speed_pert_librosa_config,
                 "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
                 "aux_attention_decoder": rf.build_dict(TransformerDecoder, num_layers=6),  # purely used for training
+                # Only for training:
+                "ctc_am_scale": am_scale,
+                "ctc_prior_scale": prior_scale,
+                "ctc_prior_type": prior_type,
             },
             post_config_updates={"log_grad_norm": True, "__multi_proc_dataset_opts": {"num_workers": 25}},
             vocab="spm512",
@@ -440,9 +441,6 @@ def py():
                 ),
                 "feature_batch_norm": True,
                 "num_enc_layers": 12,
-                "ctc_am_scale": am_scale,
-                "ctc_prior_scale": prior_scale,
-                "ctc_prior_type": prior_type,
             },
             config_updates={
                 **_get_cfg_lrlin_oclr_by_bs_nep_v3(150_000, 100, batch_size_factor=_batch_size_factor),
@@ -455,6 +453,10 @@ def py():
                 "__train_audio_preprocess": speed_pert_librosa_config,
                 "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
                 "aux_attention_decoder": rf.build_dict(TransformerDecoder, num_layers=6),  # purely used for training
+                # Only for training:
+                "ctc_am_scale": am_scale,
+                "ctc_prior_scale": prior_scale,
+                "ctc_prior_type": prior_type,
             },
             post_config_updates={"log_grad_norm": True, "__multi_proc_dataset_opts": {"num_workers": 25}},
             vocab="spm512",
@@ -573,9 +575,6 @@ def py():
                 ),
                 "feature_batch_norm": True,
                 "num_enc_layers": 12,
-                "ctc_am_scale": am_scale,
-                "ctc_prior_scale": prior_scale,
-                "ctc_prior_type": prior_type,
             },
             config_updates={
                 **_get_cfg_lrlin_oclr_by_bs_nep_v3(150_000, 100, batch_size_factor=_batch_size_factor),
@@ -588,6 +587,10 @@ def py():
                 "__train_audio_preprocess": speed_pert_librosa_config,
                 "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
                 "aux_attention_decoder": rf.build_dict(TransformerDecoder, num_layers=6),  # purely used for training
+                # Only for training:
+                "ctc_am_scale": am_scale,
+                "ctc_prior_scale": prior_scale,
+                "ctc_prior_type": prior_type,
             },
             post_config_updates={"log_grad_norm": True, "__multi_proc_dataset_opts": {"num_workers": 25}},
             vocab="spm512",
