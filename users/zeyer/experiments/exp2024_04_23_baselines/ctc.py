@@ -825,9 +825,6 @@ def py():
             model_config={
                 "enc_conformer_layer": enc_conformer_layer_default,
                 "feature_batch_norm": True,
-                "ctc_am_scale": am_scale,
-                "ctc_prior_scale": prior_scale,
-                "ctc_prior_type": "batch",
             },
             config_updates={
                 **_get_cfg_lrlin_oclr_by_bs_nep(15_000, 500),
@@ -835,6 +832,10 @@ def py():
                 "__train_audio_preprocess": speed_pert_librosa_config,
                 "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
                 "aux_attention_decoder": rf.build_dict(TransformerDecoder, num_layers=6),  # purely used for training
+                # Only in training:
+                "ctc_am_scale": am_scale,
+                "ctc_prior_scale": prior_scale,
+                "ctc_prior_type": "batch",
             },
             vocab="spm10k",
             train_vocab_opts={"other_opts": {"class": "SamplingBytePairEncoding", "breadth_prob": 0.01}},
