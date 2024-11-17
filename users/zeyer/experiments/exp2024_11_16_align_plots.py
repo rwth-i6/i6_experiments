@@ -47,9 +47,8 @@ def plot_all():
     plotter.make()
 
 
-def plot_audio_features(*, plotter: Optional[Plotter] = None):
+def get_audio_features():
     out_fn_npz = out_prefix + seq_tag + "/audio_features.npz"
-    out_fn_pdf = out_prefix + seq_tag + "/audio_features.pdf"
     if os.path.exists(out_fn_npz):
         print(f"Already exists: {out_fn_npz}")
         audio_features = np.load(out_fn_npz)["audio_features"]
@@ -70,6 +69,12 @@ def plot_audio_features(*, plotter: Optional[Plotter] = None):
 
         print("save to:", out_fn_npz)
         np.savez(out_fn_npz, audio_features=audio_features)
+    return audio_features
+
+
+def plot_audio_features(*, plotter: Optional[Plotter] = None):
+    out_fn_pdf = out_prefix + seq_tag + "/audio_features.pdf"
+    audio_features = get_audio_features()
 
     if not plotter:
         plotter = Plotter(plot_at_del=True, out_filename=out_fn_pdf)
@@ -92,14 +97,13 @@ def plot_audio_features(*, plotter: Optional[Plotter] = None):
     plotter.add_plot("audio", _plot, rate=100)
 
 
-def plot_grad_scores(*, plotter: Optional[Plotter] = None):
+def get_grad_scores():
     out_fn_npz = out_prefix + seq_tag + "/visualize_grad_scores/" + input_grad_name + "/grads.npz"
-    out_fn_pdf = out_prefix + seq_tag + "/visualize_grad_scores/" + input_grad_name + "/grads.pdf"
+
     if os.path.exists(out_fn_npz):
         print(f"Already exists: {out_fn_npz}")
         data = np.load(out_fn_npz)
         score_matrix = data["score_matrix"]
-        seq_tag_ = data["seq_tag"]
 
     else:
         score_matrix_hdf = Path(f"output/exp2024_09_16_grad_align/{input_grad_name}/input_grads.hdf")
@@ -115,9 +119,15 @@ def plot_grad_scores(*, plotter: Optional[Plotter] = None):
         print(f"load {score_matrix_hdf}: {seq_tag_}, shape {score_matrix.shape}")
         print(f"save to:", out_fn_npz)
         np.savez(out_fn_npz, seq_tag=seq_tag_, score_matrix=score_matrix)
+    return score_matrix
 
+
+def plot_grad_scores(*, plotter: Optional[Plotter] = None):
+    out_fn_pdf = out_prefix + seq_tag + "/visualize_grad_scores/" + input_grad_name + "/grads.pdf"
+
+    score_matrix = get_grad_scores()
     S, T = score_matrix.shape  # noqa
-    print(f"{input_grad_name}, seq {seq_tag_}, shape (SxT) {score_matrix.shape}")
+    print(f"{input_grad_name}, seq {seq_tag}, shape (SxT) {score_matrix.shape}")
 
     score_matrix = _log_softmax(np.log(score_matrix), axis=1)  # [S, T]
 
@@ -130,7 +140,7 @@ def plot_grad_scores(*, plotter: Optional[Plotter] = None):
         mat_ = ax.matshow(score_matrix, cmap="Blues", aspect="auto")
         ax.tick_params(direction="out", length=20, width=2)
         # ax.set_title(f"{alias} for seq {seq_tag}")
-        print(f"{alias} for seq {seq_tag_}")
+        print(f"{alias} for seq {seq_tag}")
         ax.set_ylabel("labels")
         ax.set_ylim(ax.get_ylim()[::-1])
         # plt.gca().xaxis.tick_bottom()
