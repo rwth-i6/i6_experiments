@@ -72,31 +72,6 @@ def get_audio_features():
     return audio_features
 
 
-def plot_audio_features(*, plotter: Optional[Plotter] = None):
-    out_fn_pdf = out_prefix + seq_tag + "/audio_features.pdf"
-    audio_features = get_audio_features()
-
-    if not plotter:
-        plotter = Plotter(plot_at_del=True, out_filename=out_fn_pdf)
-
-    def _plot(ax):
-        # audio_features is [T,D]
-        mat_ = ax.matshow(audio_features.T, cmap="Blues", aspect="auto")
-        ax.tick_params(direction="out", length=20, width=2)
-        # ax.set_title(f"{alias} for seq {seq_tag}")
-        print(f"for seq {seq_tag}")
-
-        ax.set_ylabel("feature")
-        ax.set_ylim(ax.get_ylim()[::-1])
-        # plt.gca().xaxis.tick_bottom()
-
-        divider = make_axes_locatable(ax)
-        cax = divider.append_axes("right", size="5%", pad=0.05)
-        plotter.fig.colorbar(mat_, cax=cax, orientation="vertical")
-
-    plotter.add_plot("audio", _plot, rate=100)
-
-
 def get_grad_scores():
     out_fn_npz = out_prefix + seq_tag + "/visualize_grad_scores/" + input_grad_name + "/grads.npz"
 
@@ -120,6 +95,31 @@ def get_grad_scores():
         print(f"save to:", out_fn_npz)
         np.savez(out_fn_npz, seq_tag=seq_tag_, score_matrix=score_matrix)
     return score_matrix
+
+
+def plot_audio_features(*, plotter: Optional[Plotter] = None):
+    out_fn_pdf = out_prefix + seq_tag + "/audio_features.pdf"
+    audio_features = get_audio_features()
+
+    if not plotter:
+        plotter = Plotter(plot_at_del=True, out_filename=out_fn_pdf)
+
+    def _plot(ax):
+        # audio_features is [T,D]
+        mat_ = ax.matshow(audio_features.T, cmap="Blues", aspect="auto")
+        ax.tick_params(direction="out", length=20, width=2)
+        # ax.set_title(f"{alias} for seq {seq_tag}")
+        print(f"for seq {seq_tag}")
+
+        ax.set_ylabel("feature")
+        ax.set_ylim(ax.get_ylim()[::-1])
+        # plt.gca().xaxis.tick_bottom()
+
+        divider = make_axes_locatable(ax)
+        cax = divider.append_axes("right", size="5%", pad=0.05)
+        plotter.fig.colorbar(mat_, cax=cax, orientation="vertical")
+
+    plotter.add_plot("audio", _plot, rate=100)
 
 
 def plot_grad_scores(*, plotter: Optional[Plotter] = None):
