@@ -47,6 +47,7 @@ model_name = (
     "-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k"
     "-featBN-speedpertV2-spm10k-bpeSample001"
 )
+model_title = "CTC baseline"
 vocab = "spm10k"
 
 # These are globals, not changed.
@@ -65,6 +66,7 @@ models = [
     "-featBN-speedpertV2-spm10k-bpeSample001"
     "-lpNormedGradC05_11P1",
 ]
+model_titles = ["CTC baseline", "CTC blank sep", "CTC normed grad"]
 out_prefix = "output/exp2024_11_16_grad_align/"
 
 
@@ -430,18 +432,15 @@ def plot_audio_features(*, plotter: Optional[Plotter] = None):
         # audio_features is [T,D]
         mat_ = ax.matshow(audio_features.T, cmap="Blues", aspect="auto")
         ax.tick_params(direction="out", length=20, width=2)
-        # ax.set_title(f"{alias} for seq {seq_tag}")
-        print(f"for seq {seq_tag}")
 
-        ax.set_ylabel("feature")
+        ax.set_ylabel("Features")
         ax.set_ylim(ax.get_ylim()[::-1])
-        # plt.gca().xaxis.tick_bottom()
 
         divider = make_axes_locatable(ax)
         cax = divider.append_axes("right", size="5%", pad=0.05)
         plotter.fig.colorbar(mat_, cax=cax, orientation="vertical")
 
-    plotter.add_plot("audio", _plot, ref_word_boundaries, rate=100)
+    plotter.add_plot("Audio", _plot, ref_word_boundaries, rate=100)
 
 
 def plot_grad_scores(*, plotter: Optional[Plotter] = None):
@@ -459,21 +458,17 @@ def plot_grad_scores(*, plotter: Optional[Plotter] = None):
         plotter = Plotter(plot_at_del=True, out_filename=out_fn_pdf)
 
     def _plot(ax):
-        alias = "log softmax"
         # score_matrix is [S,T]
         mat_ = ax.matshow(score_matrix, cmap="Blues", aspect="auto")
         ax.tick_params(direction="out", length=20, width=2)
-        # ax.set_title(f"{alias} for seq {seq_tag}")
-        print(f"{alias} for seq {seq_tag}")
-        ax.set_ylabel("labels")
+        ax.set_ylabel("Labels")
         ax.set_ylim(ax.get_ylim()[::-1])
-        # plt.gca().xaxis.tick_bottom()
 
         divider = make_axes_locatable(ax)
         cax = divider.append_axes("right", size="5%", pad=0.05)
         plotter.fig.colorbar(mat_, cax=cax, orientation="vertical")
 
-    plotter.add_plot("grad", _plot, rate=100)
+    plotter.add_plot(f"{model_title}, input grads", _plot, rate=100)
 
 
 def plot_model_probs(*, plotter: Optional[Plotter] = None):
@@ -493,14 +488,14 @@ def plot_model_probs(*, plotter: Optional[Plotter] = None):
         # score_matrix is [T,S+1]
         mat_ = ax.matshow(score_matrix.T, cmap="Blues", aspect="auto")
         ax.tick_params(direction="out", length=20, width=2)
-        ax.set_ylabel("blank+labels")
+        ax.set_ylabel("Blank+labels")
         ax.set_ylim(ax.get_ylim()[::-1])
 
         divider = make_axes_locatable(ax)
         cax = divider.append_axes("right", size="5%", pad=0.05)
         plotter.fig.colorbar(mat_, cax=cax, orientation="vertical")
 
-    plotter.add_plot("model probs", _plot, rate=100)
+    plotter.add_plot(f"{model_title}, model ref label probs", _plot, rate=100)
 
 
 def _log_softmax(x: np.ndarray, *, axis: Optional[int] = None) -> np.ndarray:
