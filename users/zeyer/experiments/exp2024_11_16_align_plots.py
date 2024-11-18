@@ -16,7 +16,7 @@ Similar as :func:`i6_experiments.users.zeyer.experiments.exp2024_09_16_grad_alig
 """
 
 from __future__ import annotations
-from typing import Optional, Callable, Tuple, List
+from typing import Optional, Union, Callable, Tuple, List
 import os
 import sys
 import numpy as np
@@ -48,7 +48,8 @@ model_name = (
     "-featBN-speedpertV2-spm10k-bpeSample001"
 )
 model_title = "CTC baseline"
-vocab = "spm10k"
+vocab = "spm10k"  # currently never changed
+model_time_downsampling = 6  # currently never changed
 
 # These are globals, not changed.
 # See i6_experiments.users.zeyer.experiments.exp2024_09_16_grad_align.py for names.
@@ -440,7 +441,7 @@ def plot_audio_features(*, plotter: Optional[Plotter] = None):
         cax = divider.append_axes("right", size="5%", pad=0.05)
         plotter.fig.colorbar(mat_, cax=cax, orientation="vertical")
 
-    plotter.add_plot("Audio", _plot, ref_word_boundaries, rate=100)
+    plotter.add_plot("Audio log mel filterbank features", _plot, ref_word_boundaries, rate=100)
 
 
 def plot_grad_scores(*, plotter: Optional[Plotter] = None):
@@ -495,7 +496,7 @@ def plot_model_probs(*, plotter: Optional[Plotter] = None):
         cax = divider.append_axes("right", size="5%", pad=0.05)
         plotter.fig.colorbar(mat_, cax=cax, orientation="vertical")
 
-    plotter.add_plot(f"{model_title}, model ref label probs", _plot, rate=100)
+    plotter.add_plot(f"{model_title}, model ref label probs", _plot, rate=100 / model_time_downsampling)
 
 
 def _log_softmax(x: np.ndarray, *, axis: Optional[int] = None) -> np.ndarray:
@@ -514,7 +515,7 @@ class Plotter:
         self.plot_titles: List[str] = []
         self.plot_callbacks: List[Callable] = []
         self.plot_word_boundaries: List[Optional[List[Tuple[float, float, str]]]] = []
-        self.plot_rates: List[int] = []
+        self.plot_rates: List[Union[int, float]] = []
 
         self.fig = None
         self.ax = None
@@ -525,7 +526,7 @@ class Plotter:
         callback: Callable,
         word_boundaries: Optional[List[Tuple[float, float, str]]] = None,
         *,
-        rate: int,
+        rate: Union[int, float],
     ):
         self.plot_titles.append(title)
         self.plot_callbacks.append(callback)
@@ -545,7 +546,8 @@ class Plotter:
 
             callback(ax)
 
-            ax.set_xlabel("time [sec]")
+            if i in (0, self.num_figs - 1):
+                ax.set_xlabel("time [sec]")
             ticks = np.arange(0, int(ax.get_xlim()[1] / rate) + 1, 1)
             # ticks = ax.get_xticks() / rate
             # ticks = [round(t, 2) for t in ticks]
@@ -557,10 +559,10 @@ class Plotter:
                 ax.tick_params(top=False, labeltop=False, bottom=True, labelbottom=True)
                 ax.xaxis.set_label_position("bottom")
             elif i == 0:
-                ax.tick_params(top=True, labeltop=True, bottom=False, labelbottom=False)
+                ax.tick_params(top=True, labeltop=True, bottom=True, labelbottom=False)
                 ax.xaxis.set_label_position("top")
             else:
-                ax.tick_params(top=False, labeltop=False, bottom=False, labelbottom=False)
+                ax.tick_params(top=False, labeltop=False, bottom=True, labelbottom=False)
 
             if word_boundaries:
                 for start, end, word in word_boundaries:
