@@ -53,21 +53,31 @@ model_time_downsampling = 6  # currently never changed
 
 # These are globals, not changed.
 # See i6_experiments.users.zeyer.experiments.exp2024_09_16_grad_align.py for names.
-models_name_short = ["base", "blankSep", "lpNormedGradC05_11P1"]
 models = [
-    "v6-relPosAttDef"
-    "-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k"
-    "-featBN-speedpertV2-spm10k-bpeSample001",
-    "v6-relPosAttDef"
-    "-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k"
-    "-featBN-speedpertV2-spm10k-bpeSample001"
-    "-blankSep",
-    "v6-relPosAttDef"
-    "-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k"
-    "-featBN-speedpertV2-spm10k-bpeSample001"
-    "-lpNormedGradC05_11P1",
+    (
+        "CTC baseline",
+        "base",
+        "v6-relPosAttDef"
+        "-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k"
+        "-featBN-speedpertV2-spm10k-bpeSample001",
+    ),
+    (
+        "CTC blank sep",
+        "blankSep",
+        "v6-relPosAttDef"
+        "-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k"
+        "-featBN-speedpertV2-spm10k-bpeSample001"
+        "-blankSep",
+    ),
+    (
+        "CTC normed grad",
+        "lpNormedGradC05_11P1",
+        "v6-relPosAttDef"
+        "-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k"
+        "-featBN-speedpertV2-spm10k-bpeSample001"
+        "-lpNormedGradC05_11P1",
+    ),
 ]
-model_titles = ["CTC baseline", "CTC blank sep", "CTC normed grad"]
 grad_type = (
     "blankStopGrad-inclBlankState-p0.1"
     "-smTimeTrue-bScorecalc-bScore_estflipped_after_softmax_over_time"
@@ -78,15 +88,12 @@ out_prefix = "output/exp2024_11_16_grad_align/"
 
 
 def plot_all():
-    global seq_tag, model_name, model_name_short, model_title
+    global seq_tag, model_title, model_name_short, model_name
     print("seq_tag:", seq_tag)
     print("ref:", get_ref_words())
     plotter = Plotter(out_filename=out_prefix + seq_tag + "/combined.pdf")
     plot_audio_features(plotter=plotter)
-    for i in range(len(models)):
-        model_name_short = models_name_short[i]
-        model_name = models[i]
-        model_title = model_titles[i]
+    for model_title, model_name_short, model_name in models:
         plot_model_probs(plotter=plotter)
         plot_grad_scores(plotter=plotter)
     plotter.make()
@@ -192,7 +199,7 @@ def get_ref_word_boundaries() -> List[Tuple[float, float, str]]:
     print(f"  start time: {feat_times[0][0]} sec")
     print(f"  end time: {feat_times[-1][1]} sec")
 
-    ref_start_time = feat_times[-1][0]  # should be 0.0
+    ref_start_time = feat_times[0][0]  # should be 0.0
     print("ref start time:", ref_start_time)
     duration_sec = feat_times[-1][1] - ref_start_time
     sampling_rate = 16_000
@@ -741,6 +748,7 @@ class Plotter:
                 ax.tick_params(top=False, labeltop=False, bottom=True, labelbottom=False)
 
             if word_boundaries:
+                # print(f"{title} word boundaries:", word_boundaries)
                 for start, end, word in word_boundaries:
                     # ax.axvline(start * rate, color="black", linestyle="--")
                     # ax.axvline(end * rate, color="black", linestyle="--")
