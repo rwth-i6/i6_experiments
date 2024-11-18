@@ -41,7 +41,7 @@ from i6_experiments.users.schmitt.hdf import load_hdf_data
 seq_tag = "train-clean-100/103-1240-0000/103-1240-0000"
 
 # See i6_experiments.users.zeyer.experiments.exp2024_09_16_grad_align.py for names.
-input_grad_name = "ctc-grad-align/base"
+model_name_short = "base"
 model_name = (
     "v6-relPosAttDef"
     "-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k"
@@ -53,7 +53,7 @@ model_time_downsampling = 6  # currently never changed
 
 # These are globals, not changed.
 # See i6_experiments.users.zeyer.experiments.exp2024_09_16_grad_align.py for names.
-input_grad_names = ["ctc-grad-align/base", "ctc-grad-align/blankSep", "ctc-grad-align/lpNormedGradC05_11P1"]
+models_name_short = ["base", "blankSep", "lpNormedGradC05_11P1"]
 models = [
     "v6-relPosAttDef"
     "-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k"
@@ -68,11 +68,16 @@ models = [
     "-lpNormedGradC05_11P1",
 ]
 model_titles = ["CTC baseline", "CTC blank sep", "CTC normed grad"]
+grad_type = (
+    "blankStopGrad-inclBlankState-p0.1"
+    "-smTimeTrue-bScorecalc-bScore_estflipped_after_softmax_over_time"
+    "-non_blank_score_reducelog_mean_exp-bScore_flipped_percentile60-smLabelsTrue"
+)
 out_prefix = "output/exp2024_11_16_grad_align/"
 
 
 def plot_all():
-    global seq_tag, input_grad_name, model_name
+    global seq_tag, model_name
     print("seq_tag:", seq_tag)
     print("ref:", get_ref_words())
     plotter = Plotter(out_filename=out_prefix + seq_tag + "/combined.pdf")
@@ -109,14 +114,14 @@ def get_audio_features():
 
 
 def get_grad_scores():
-    out_fn_npz = out_prefix + seq_tag + "/visualize_grad_scores/" + input_grad_name + "/grads.npz"
+    out_fn_npz = out_prefix + seq_tag + f"/visualize_grad_scores/{model_name_short}/grads.npz"
 
     if os.path.exists(out_fn_npz):
         print(f"Already exists: {out_fn_npz}")
         data = np.load(out_fn_npz)
         return data["score_matrix"]
 
-    score_matrix_hdf = Path(f"output/exp2024_09_16_grad_align/{input_grad_name}/input_grads.hdf")
+    score_matrix_hdf = Path(f"output/exp2024_09_16_grad_align/ctc-grad-align/{model_name_short}/input_grads.hdf")
     score_matrix_data_dict = load_hdf_data(score_matrix_hdf, num_dims=2)
     basename_tags = {os.path.basename(tag): tag for tag in score_matrix_data_dict.keys()}
 
@@ -274,11 +279,6 @@ def get_ref_words() -> List[str]:
     return ref_words
 
 
-def get_word_boundaries_from_hdf_alignment(hdf_name: str) -> List[Tuple[float, float, str]]:
-    # TODO...
-    return []
-
-
 def get_ref_label_seq() -> List[Tuple[int, str]]:
     out_fn_pkl = out_prefix + seq_tag + f"/ref_label_seq_{vocab}.pkl"
     if os.path.exists(out_fn_pkl):
@@ -332,14 +332,14 @@ def get_model_log_prob_ref_label_seq_incl_blank() -> np.array:
     :return: [T,S+1] log probs, S is the target length, first entry is blank (thus +1)
     """
     # We want to load the model, and then forward the seq, and get the log probs for the ref label seq.
-    out_fn_npz = out_prefix + seq_tag + f"/model_log_probs_ref_label_seq_incl_blank_{input_grad_name}.npz"
+    out_fn_npz = out_prefix + seq_tag + f"/model_log_probs_ref_label_seq_incl_blank_{model_name_short}.npz"
     if os.path.exists(out_fn_npz):
         print(f"Already exists: {out_fn_npz}")
         return np.load(out_fn_npz)["model_log_probs_ref_label_seq_incl_blank"]
 
     # To find the right model, we can reuse the RETURNN config from the input grads,
     # which has everything already well prepared (model def, forward dataset).
-    input_grads_hdf = f"output/exp2024_09_16_grad_align/{input_grad_name}/input_grads.hdf"
+    input_grads_hdf = f"output/exp2024_09_16_grad_align/ctc-grad-align/{model_name_short}/input_grads.hdf"
     input_grads_hdf_ = os.readlink(input_grads_hdf)
     work_out_dir = os.path.dirname(input_grads_hdf_)
     returnn_config_fn = f"{work_out_dir}/returnn.config"
@@ -421,6 +421,155 @@ def get_model_log_prob_ref_label_seq_incl_blank() -> np.array:
     return out.raw_tensor  # [T,S+1]
 
 
+def get_word_boundaries_from_hdf_alignment(*, align_type: str = "probs_best_path") -> List[Tuple[float, float, str]]:
+    out_fn_pickle = out_prefix + seq_tag + f"/word_boundaries_{model_name_short}_{align_type}.pkl"
+    if os.path.exists(out_fn_pickle):
+        print(f"Already exists: {out_fn_pickle}")
+        return pickle.load(open(out_fn_pickle, "rb"))
+
+    # Copied and adapted from i6_experiments.users.zeyer.experiments.exp2024_09_09_grad_align.CalcAlignmentMetrics.
+
+    ref_words = get_ref_words()
+
+    if align_type == "probs_best_path":  # aka forced align, using the model probs
+        alignment_label_topology = "ctc"
+        ref_alignment_len_factor = model_time_downsampling
+        hdf_fn = f"output/exp2024_09_16_grad_align/ctc_forced_align/{model_name_short}-ep-1/align.hdf"
+    elif align_type == "grad":
+        alignment_label_topology = "explicit"
+        ref_alignment_len_factor = 1
+        hdf_fn = f"output/exp2024_09_16_grad_align/ctc-grad-align/{model_name_short}-{grad_type}/align.hdf"
+    else:
+        raise ValueError(f"align_type {align_type!r} not supported")
+    assert os.path.exists(hdf_fn), f"alignment HDF not found: {hdf_fn}"
+
+    from returnn.datasets.hdf import HDFDataset
+    from i6_experiments.users.zeyer.datasets.librispeech import get_vocab_by_str
+    from i6_core.text.label.sentencepiece.vocab import ExtractSentencePieceVocabJob
+    from returnn.datasets.util.vocabulary import Vocabulary
+
+    vocabs = {
+        "spm10k": ("spm", ExtractSentencePieceVocabJob(get_vocab_by_str("spm10k").model_file).out_vocab, 10_240),
+        "spm512": ("spm", ExtractSentencePieceVocabJob(get_vocab_by_str("spm512").model_file).out_vocab, 512),
+        "bpe10k": ("bpe", get_vocab_by_str("bpe10k").vocab, 10_025),
+    }
+    alignment_bpe_style, vocab_file, vocab_size = vocabs[vocab]
+    alignment_blank_idx = vocab_size  # assumption...
+    bpe_vocab = Vocabulary(vocab_file.get_path(), unknown_label=None)  # note: without blank
+
+    alignments_ds = HDFDataset([hdf_fn])
+    alignments_ds.initialize()
+    alignments_ds.init_seq_order(epoch=1, seq_list=[seq_tag])
+
+    alignment = alignments_ds.get_data(0, "data")
+    if alignment_label_topology == "explicit":
+        align_states = alignments_ds.get_data(0, "states")
+    elif alignment_label_topology == "ctc":
+        align_states = []
+        s = 0
+        prev_label_idx = alignment_blank_idx
+        for label_idx in alignment:
+            if label_idx == prev_label_idx:
+                align_states.append(s)
+            elif label_idx == alignment_blank_idx:  # and label_idx != prev_label_idx
+                # Was in label, went into blank.
+                s += 1
+                assert s % 2 == 0
+                align_states.append(s)
+            else:  # label_idx != blank_idx and label_idx != prev_label_idx
+                # Went into new label.
+                if prev_label_idx == alignment_blank_idx:
+                    assert s % 2 == 0
+                    s += 1
+                else:  # was in other label before
+                    assert s % 2 == 1
+                    s += 2  # skip over blank state
+                align_states.append(s)
+            prev_label_idx = label_idx
+        align_states = np.array(align_states)  # [T]
+    else:
+        raise ValueError(f"alignment_label_topology {alignment_label_topology!r} not supported")
+    print(f"  actual align len: {len(alignment)}")
+    assert len(alignment) == len(align_states)
+
+    # noinspection PyShadowingNames
+    def _start_end_time_for_align_frame_idx(t: int) -> Tuple[float, float]:
+        """in seconds"""
+        # For the downsampling, assume same padding, thus pad:
+        stride = win_size = ref_alignment_len_factor
+        pad_total = win_size - 1
+        pad_left = pad_total // 2
+        t0 = t * stride - pad_left  # inclusive
+        t1 = t0 + win_size - 1  # inclusive
+        # Now about the log mel features.
+        window_len = 0.025  # 25 ms
+        step_len = 0.010  # 10 ms
+        sampling_rate = 16_000
+        window_num_frames = int(window_len * sampling_rate)
+        step_num_frames = int(step_len * sampling_rate)
+        t0 *= step_num_frames
+        t1 *= step_num_frames
+        t1 += window_num_frames  # exclusive
+        return max(0.0, t0 / sampling_rate), t1 / sampling_rate
+
+    # noinspection PyShadowingNames
+    def _is_word_end(t: int) -> bool:
+        label_idx = alignment[t]
+        state_idx = align_states[t]
+        if label_idx == alignment_blank_idx:
+            return False
+        if alignment_bpe_style == "bpe" and bpe_vocab.labels[label_idx].endswith("@@"):
+            return False
+        if t == len(alignment) - 1:
+            return True
+        if state_idx == align_states[t + 1]:
+            return False
+        if alignment_bpe_style == "spm":
+            for t_ in range(t + 1, len(alignment)):
+                if alignment[t_] == alignment_blank_idx:
+                    continue
+                if bpe_vocab.labels[alignment[t_]].startswith("▁"):
+                    return True
+                return False
+            return True  # reached end
+        assert alignment_bpe_style == "bpe"
+        return True
+
+    cur_word_start_frame = None
+    word_boundaries: List[Tuple[float, float]] = []
+    words_bpe: List[List[str]] = []
+    prev_state_idx = 0
+    for t, (label_idx, state_idx) in enumerate(zip(alignment, align_states)):
+        if label_idx == alignment_blank_idx:
+            continue
+        if cur_word_start_frame is None:
+            cur_word_start_frame = t  # new word starts here
+            words_bpe.append([])
+            if alignment_bpe_style == "spm":
+                assert bpe_vocab.labels[label_idx].startswith("▁"), bpe_vocab.labels[label_idx]  # sanity check
+        if state_idx != prev_state_idx:
+            words_bpe[-1].append(bpe_vocab.labels[label_idx])
+        if _is_word_end(t):
+            assert cur_word_start_frame is not None
+            word_frame_start, _ = _start_end_time_for_align_frame_idx(cur_word_start_frame)
+            _, word_frame_end = _start_end_time_for_align_frame_idx(t)
+            word_boundaries.append((word_frame_start, word_frame_end))
+            cur_word_start_frame = None
+        prev_state_idx = state_idx
+    assert cur_word_start_frame is None  # word should have ended
+    num_words = len(word_boundaries)
+    print("  num words:", num_words)
+    assert num_words == len(word_boundaries) == len(words_bpe) == len(ref_words)
+    res = [
+        (float(start_time), float(end_time), word) for (start_time, end_time), word in zip(word_boundaries, ref_words)
+    ]
+    print("result:", res)
+    print("save to:", out_fn_pickle)
+    os.makedirs(os.path.dirname(out_fn_pickle), exist_ok=True)
+    pickle.dump(res, open(out_fn_pickle, "wb"))
+    return res
+
+
 def plot_audio_features(*, plotter: Optional[Plotter] = None):
     out_fn_pdf = out_prefix + seq_tag + "/audio_features.pdf"
     audio_features = get_audio_features()
@@ -445,17 +594,16 @@ def plot_audio_features(*, plotter: Optional[Plotter] = None):
 
 
 def plot_grad_scores(*, plotter: Optional[Plotter] = None):
-    out_fn_pdf = out_prefix + seq_tag + "/visualize_grad_scores/" + input_grad_name + "/grads.pdf"
+    out_fn_pdf = out_prefix + seq_tag + f"/visualize_grad_scores/{model_name_short}/grads.pdf"
 
     ref_labels = get_ref_label_seq()
 
     score_matrix = get_grad_scores()
-    print(f"{input_grad_name}, seq {seq_tag}, shape (SxT) {score_matrix.shape}")
+    print(f"{model_name_short}, seq {seq_tag}, shape (SxT) {score_matrix.shape}")
     assert score_matrix.shape[0] == len(ref_labels)
     score_matrix = _log_softmax(np.log(score_matrix), axis=1)  # [S, T]
 
-    # TODO get grad align word boundaries
-    get_word_boundaries_from_hdf_alignment(...)
+    word_boundaries = get_word_boundaries_from_hdf_alignment(align_type="grad")
 
     if not plotter:
         plotter = Plotter(plot_at_del=True, out_filename=out_fn_pdf)
@@ -472,21 +620,20 @@ def plot_grad_scores(*, plotter: Optional[Plotter] = None):
         cax = divider.append_axes("right", size="5%", pad=0.05)
         plotter.fig.colorbar(mat_, cax=cax, orientation="vertical")
 
-    plotter.add_plot(f"{model_title}, input grads", _plot, rate=100)
+    plotter.add_plot(f"{model_title}, input grads", _plot, word_boundaries, rate=100)
 
 
 def plot_model_probs(*, plotter: Optional[Plotter] = None):
-    out_fn_pdf = out_prefix + seq_tag + "/visualize_model_probs/" + input_grad_name + "/probs.pdf"
+    out_fn_pdf = out_prefix + seq_tag + f"/visualize_model_probs/{model_name_short}/probs.pdf"
 
     ref_labels = get_ref_label_seq()
 
     score_matrix = get_model_log_prob_ref_label_seq_incl_blank()
-    print(f"{input_grad_name}, seq {seq_tag}, shape (Tx(S+1)) {score_matrix.shape}")
+    print(f"{model_name_short}, seq {seq_tag}, shape (Tx(S+1)) {score_matrix.shape}")
     assert score_matrix.shape[1] == len(ref_labels) + 1  # blank + labels
     score_matrix = np.exp(score_matrix)
 
-    # TODO get grad align word boundaries
-    get_word_boundaries_from_hdf_alignment(...)
+    word_boundaries = get_word_boundaries_from_hdf_alignment(align_type="probs_best_path")
 
     if not plotter:
         plotter = Plotter(plot_at_del=True, out_filename=out_fn_pdf)
@@ -503,7 +650,9 @@ def plot_model_probs(*, plotter: Optional[Plotter] = None):
         cax = divider.append_axes("right", size="5%", pad=0.05)
         plotter.fig.colorbar(mat_, cax=cax, orientation="vertical")
 
-    plotter.add_plot(f"{model_title}, model ref label probs", _plot, rate=100 / model_time_downsampling)
+    plotter.add_plot(
+        f"{model_title}, model ref label probs", _plot, word_boundaries, rate=100 / model_time_downsampling
+    )
 
 
 def _log_softmax(x: np.ndarray, *, axis: Optional[int] = None) -> np.ndarray:
