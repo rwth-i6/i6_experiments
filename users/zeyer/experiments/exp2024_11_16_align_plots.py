@@ -75,6 +75,7 @@ def plot_all():
     plotter = Plotter(out_filename=out_prefix + seq_tag + "/combined.pdf")
     plot_audio_features(plotter=plotter)
     # for input_grad_name in input_grad_names:
+    plot_model_probs(plotter=plotter)
     plot_grad_scores(plotter=plotter)
     plotter.make()
 
@@ -99,6 +100,7 @@ def get_audio_features():
     print(f"audio_features.shape: {audio_features.shape}")
 
     print("save to:", out_fn_npz)
+    os.makedirs(os.path.dirname(out_fn_npz), exist_ok=True)
     np.savez(out_fn_npz, audio_features=audio_features)
     return audio_features
 
@@ -123,6 +125,7 @@ def get_grad_scores():
     score_matrix = score_matrix_data_dict[seq_tag_]  # [S, T]
     print(f"load {score_matrix_hdf}: {seq_tag_}, shape {score_matrix.shape}")
     print(f"save to:", out_fn_npz)
+    os.makedirs(os.path.dirname(out_fn_npz), exist_ok=True)
     np.savez(out_fn_npz, seq_tag=seq_tag_, score_matrix=score_matrix)
     return score_matrix
 
@@ -230,6 +233,7 @@ def get_ref_word_boundaries() -> List[Tuple[float, float, str]]:
     print(f"  num words: {len(ref_word_boundaries)}")
     print(f"  num silence frames: {num_sil_frames_ref}")
     print("save to:", out_fn_pickle)
+    os.makedirs(os.path.dirname(out_fn_pickle), exist_ok=True)
     pickle.dump(ref_word_boundaries_, open(out_fn_pickle, "wb"))
 
     return ref_word_boundaries_
@@ -262,6 +266,7 @@ def get_ref_words() -> List[str]:
     print(f"ref_words: {ref_words}")
 
     print("save to:", out_fn_pkl)
+    os.makedirs(os.path.dirname(out_fn_pkl), exist_ok=True)
     pickle.dump(ref_words, open(out_fn_pkl, "wb"))
     return ref_words
 
@@ -272,10 +277,10 @@ def get_word_boundaries_from_hdf_alignment(hdf_name: str) -> List[Tuple[float, f
 
 
 def get_ref_label_seq() -> List[Tuple[int, str]]:
-    out_fn_pdf = out_prefix + seq_tag + f"/ref_label_seq_{vocab}.pkl"
-    if os.path.exists(out_fn_pdf):
-        print(f"Already exists: {out_fn_pdf}")
-        return pickle.load(open(out_fn_pdf, "rb"))
+    out_fn_pkl = out_prefix + seq_tag + f"/ref_label_seq_{vocab}.pkl"
+    if os.path.exists(out_fn_pkl):
+        print(f"Already exists: {out_fn_pkl}")
+        return pickle.load(open(out_fn_pkl, "rb"))
 
     from returnn.config import Config
     from returnn.datasets.basic import init_dataset
@@ -313,8 +318,9 @@ def get_ref_label_seq() -> List[Tuple[int, str]]:
     print("seq labels:", seq_labels)
     seq_ = list(zip(seq, seq_labels))
 
-    print("save to:", out_fn_pdf)
-    pickle.dump(seq_, open(out_fn_pdf, "wb"))
+    print("save to:", out_fn_pkl)
+    os.makedirs(os.path.dirname(out_fn_pkl), exist_ok=True)
+    pickle.dump(seq_, open(out_fn_pkl, "wb"))
     return seq_
 
 
@@ -407,6 +413,7 @@ def get_model_log_prob_ref_label_seq_incl_blank() -> np.array:
     engine.forward_with_callback(dataset=ds, callback=callback, dataset_init_epoch=False)
 
     print("got output:", out, out.raw_tensor.shape)
+    os.makedirs(os.path.dirname(out_fn_npz), exist_ok=True)
     np.savez(out_fn_npz, model_log_probs_ref_label_seq_incl_blank=out.raw_tensor)
     return out.raw_tensor  # [T,S+1]
 
@@ -467,6 +474,33 @@ def plot_grad_scores(*, plotter: Optional[Plotter] = None):
         plotter.fig.colorbar(mat_, cax=cax, orientation="vertical")
 
     plotter.add_plot("grad", _plot, rate=100)
+
+
+def plot_model_probs(*, plotter: Optional[Plotter] = None):
+    out_fn_pdf = out_prefix + seq_tag + "/visualize_model_probs/" + input_grad_name + "/probs.pdf"
+
+    score_matrix = get_model_log_prob_ref_label_seq_incl_blank()
+    print(f"{input_grad_name}, seq {seq_tag}, shape (Tx(S+1)) {score_matrix.shape}")
+    score_matrix = np.exp(score_matrix)
+
+    # TODO get grad align word boundaries
+    get_word_boundaries_from_hdf_alignment(...)
+
+    if not plotter:
+        plotter = Plotter(plot_at_del=True, out_filename=out_fn_pdf)
+
+    def _plot(ax):
+        # score_matrix is [T,S+1]
+        mat_ = ax.matshow(score_matrix.T, cmap="Blues", aspect="auto")
+        ax.tick_params(direction="out", length=20, width=2)
+        ax.set_ylabel("blank+labels")
+        ax.set_ylim(ax.get_ylim()[::-1])
+
+        divider = make_axes_locatable(ax)
+        cax = divider.append_axes("right", size="5%", pad=0.05)
+        plotter.fig.colorbar(mat_, cax=cax, orientation="vertical")
+
+    plotter.add_plot("model probs", _plot, rate=100)
 
 
 def _log_softmax(x: np.ndarray, *, axis: Optional[int] = None) -> np.ndarray:
