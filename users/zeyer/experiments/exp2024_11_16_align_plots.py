@@ -73,6 +73,7 @@ grad_type = (
     "-smTimeTrue-bScorecalc-bScore_estflipped_after_softmax_over_time"
     "-non_blank_score_reducelog_mean_exp-bScore_flipped_percentile60-smLabelsTrue"
 )
+include_overlap_win_in_word_boundaries = False
 out_prefix = "output/exp2024_11_16_grad_align/"
 
 
@@ -125,6 +126,7 @@ def get_grad_scores():
         return data["score_matrix"]
 
     score_matrix_hdf = Path(f"output/exp2024_09_16_grad_align/ctc-grad-align/{model_name_short}/input_grads.hdf")
+    print("load grad scores HDF:", score_matrix_hdf)
     score_matrix_data_dict = load_hdf_data(score_matrix_hdf, num_dims=2)
     basename_tags = {os.path.basename(tag): tag for tag in score_matrix_data_dict.keys()}
 
@@ -142,7 +144,7 @@ def get_grad_scores():
 
 
 def get_ref_word_boundaries() -> List[Tuple[float, float, str]]:
-    out_fn_pickle = out_prefix + seq_tag + "/ref_word_boundaries.pkl"
+    out_fn_pickle = out_prefix + seq_tag + f"/ref_word_boundaries_overlap{include_overlap_win_in_word_boundaries}.pkl"
     if os.path.exists(out_fn_pickle):
         print(f"Already exists: {out_fn_pickle}")
         return pickle.load(open(out_fn_pickle, "rb"))
@@ -181,13 +183,17 @@ def get_ref_word_boundaries() -> List[Tuple[float, float, str]]:
     key_ref = "train-other-960/" + "/".join(seq_tag.split("/")[1:])
 
     print("seq tag:", key)
-    feat_times, _ = features_sprint_cache.read(key_ref, typ="feat")
-    ref_align = ref_align_sprint_cache.read(key_ref, typ="align")
+    feat_times, _ = features_sprint_cache.read(key_ref, typ="feat")  # list of (start_time: float, end_time: float) (s)
+    # Note: Sprint does not add padding. The first feature frame covers (0., 0.025).
+    print("feat times:", feat_times)
+    ref_align = ref_align_sprint_cache.read(key_ref, typ="align")  # list of (time_index: int, allophone, state, weight)
+    print("ref align:", ref_align)
     assert len(feat_times) == len(ref_align), f"feat len {len(feat_times)} vs ref align len {len(ref_align)}"
     print(f"  start time: {feat_times[0][0]} sec")
     print(f"  end time: {feat_times[-1][1]} sec")
 
-    ref_start_time = ref_align[0][0]
+    ref_start_time = feat_times[-1][0]  # should be 0.0
+    print("ref start time:", ref_start_time)
     duration_sec = feat_times[-1][1] - ref_start_time
     sampling_rate = 16_000
     len_samples = round(duration_sec * sampling_rate)  # 16 kHz
@@ -226,8 +232,9 @@ def get_ref_word_boundaries() -> List[Tuple[float, float, str]]:
             end_time = feat_times[t][1] - ref_start_time
             # take center 10ms of the 25ms window
             # (or not, as we also don't do for the alignment)
-            # start_time += (window_len - step_len) / 2
-            # end_time -= (window_len - step_len) / 2
+            if not include_overlap_win_in_word_boundaries:
+                start_time += (window_len - step_len) / 2
+                end_time -= (window_len - step_len) / 2
             ref_word_boundaries.append((start_time, end_time))
             cur_word_start_frame = None
         prev_allophone_idx = allophone_idx
@@ -425,7 +432,11 @@ def get_model_log_prob_ref_label_seq_incl_blank() -> np.array:
 
 
 def get_word_boundaries_from_hdf_alignment(*, align_type: str = "probs_best_path") -> List[Tuple[float, float, str]]:
-    out_fn_pickle = out_prefix + seq_tag + f"/word_boundaries_{model_name_short}_{align_type}.pkl"
+    out_fn_pickle = (
+        out_prefix
+        + seq_tag
+        + f"/word_boundaries_{model_name_short}_{align_type}_overlap{include_overlap_win_in_word_boundaries}.pkl"
+    )
     if os.path.exists(out_fn_pickle):
         print(f"Already exists: {out_fn_pickle}")
         return pickle.load(open(out_fn_pickle, "rb"))
@@ -510,9 +521,15 @@ def get_word_boundaries_from_hdf_alignment(*, align_type: str = "probs_best_path
         sampling_rate = 16_000
         window_num_frames = int(window_len * sampling_rate)
         step_num_frames = int(step_len * sampling_rate)
+        # Note: The feature extraction (e.g. RF log_mel_filterbank_from_raw) does not add padding,
+        # thus starts at raw sample frame 0.
         t0 *= step_num_frames
         t1 *= step_num_frames
         t1 += window_num_frames  # exclusive
+        if not include_overlap_win_in_word_boundaries:
+            # take center 10ms of the 25ms window
+            t0 += (window_len - step_len) / 2
+            t1 -= (window_len - step_len) / 2
         return max(0.0, t0 / sampling_rate), t1 / sampling_rate
 
     # noinspection PyShadowingNames
