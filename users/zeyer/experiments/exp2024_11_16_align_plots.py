@@ -54,24 +54,23 @@ def get_audio_features():
     out_fn_npz = out_prefix + seq_tag + "/audio_features.npz"
     if os.path.exists(out_fn_npz):
         print(f"Already exists: {out_fn_npz}")
-        audio_features = np.load(out_fn_npz)["audio_features"]
+        return np.load(out_fn_npz)["audio_features"]
 
-    else:
-        from returnn.datasets.audio import OggZipDataset
+    from returnn.datasets.audio import OggZipDataset
 
-        dataset = OggZipDataset(
-            os.readlink("output/librispeech/dataset/train-clean-100"),
-            targets=None,
-            audio={"features": "log_mel_filterbank", "num_feature_filters": 120},
-            # audio={"features": "mfcc", "num_feature_filters": 80},
-        )
-        dataset.init_seq_order(epoch=1, seq_list=[seq_tag])
-        dataset.load_seqs(0, 1)
-        audio_features = dataset.get_data(0, "data")  # [T, D]
-        print(f"audio_features.shape: {audio_features.shape}")
+    dataset = OggZipDataset(
+        os.readlink("output/librispeech/dataset/train-clean-100"),
+        targets=None,
+        audio={"features": "log_mel_filterbank", "num_feature_filters": 120},
+        # audio={"features": "mfcc", "num_feature_filters": 80},
+    )
+    dataset.init_seq_order(epoch=1, seq_list=[seq_tag])
+    dataset.load_seqs(0, 1)
+    audio_features = dataset.get_data(0, "data")  # [T, D]
+    print(f"audio_features.shape: {audio_features.shape}")
 
-        print("save to:", out_fn_npz)
-        np.savez(out_fn_npz, audio_features=audio_features)
+    print("save to:", out_fn_npz)
+    np.savez(out_fn_npz, audio_features=audio_features)
     return audio_features
 
 
@@ -81,22 +80,21 @@ def get_grad_scores():
     if os.path.exists(out_fn_npz):
         print(f"Already exists: {out_fn_npz}")
         data = np.load(out_fn_npz)
-        score_matrix = data["score_matrix"]
+        return data["score_matrix"]
 
-    else:
-        score_matrix_hdf = Path(f"output/exp2024_09_16_grad_align/{input_grad_name}/input_grads.hdf")
-        score_matrix_data_dict = load_hdf_data(score_matrix_hdf, num_dims=2)
-        basename_tags = {os.path.basename(tag): tag for tag in score_matrix_data_dict.keys()}
+    score_matrix_hdf = Path(f"output/exp2024_09_16_grad_align/{input_grad_name}/input_grads.hdf")
+    score_matrix_data_dict = load_hdf_data(score_matrix_hdf, num_dims=2)
+    basename_tags = {os.path.basename(tag): tag for tag in score_matrix_data_dict.keys()}
 
-        seq_tag_ = seq_tag
-        if seq_tag_ not in score_matrix_data_dict:
-            if os.path.basename(seq_tag_) in basename_tags:
-                seq_tag_ = basename_tags[os.path.basename(seq_tag_)]
+    seq_tag_ = seq_tag
+    if seq_tag_ not in score_matrix_data_dict:
+        if os.path.basename(seq_tag_) in basename_tags:
+            seq_tag_ = basename_tags[os.path.basename(seq_tag_)]
 
-        score_matrix = score_matrix_data_dict[seq_tag_]  # [S, T]
-        print(f"load {score_matrix_hdf}: {seq_tag_}, shape {score_matrix.shape}")
-        print(f"save to:", out_fn_npz)
-        np.savez(out_fn_npz, seq_tag=seq_tag_, score_matrix=score_matrix)
+    score_matrix = score_matrix_data_dict[seq_tag_]  # [S, T]
+    print(f"load {score_matrix_hdf}: {seq_tag_}, shape {score_matrix.shape}")
+    print(f"save to:", out_fn_npz)
+    np.savez(out_fn_npz, seq_tag=seq_tag_, score_matrix=score_matrix)
     return score_matrix
 
 
