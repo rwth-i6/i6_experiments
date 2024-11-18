@@ -99,8 +99,14 @@ def plot_all():
     plotter.make()
 
 
-def get_audio_features():
-    out_fn_npz = out_prefix + seq_tag + "/audio_features.npz"
+def get_audio_features() -> np.array:
+    """
+    :return: log mel filterbank features, [T, D].
+    """
+    feat_type = "log_mel_filterbank"
+    # dim = 120  # D=120 here, but that's arbitrary, just what looks nice.
+    dim = 80
+    out_fn_npz = out_prefix + seq_tag + f"/audio_features_{feat_type}_{dim}.npz"
     if os.path.exists(out_fn_npz):
         print(f"Already exists: {out_fn_npz}")
         return np.load(out_fn_npz)["audio_features"]
@@ -110,7 +116,7 @@ def get_audio_features():
     dataset = OggZipDataset(
         os.readlink("output/librispeech/dataset/train-clean-100"),
         targets=None,
-        audio={"features": "log_mel_filterbank", "num_feature_filters": 120},
+        audio={"features": feat_type, "num_feature_filters": dim},
         # audio={"features": "mfcc", "num_feature_filters": 80},
     )
     dataset.init_seq_order(epoch=1, seq_list=[seq_tag])
@@ -655,10 +661,24 @@ def plot_model_probs(*, plotter: Optional[Plotter] = None):
 
     ref_labels = get_ref_label_seq()
 
-    score_matrix = get_model_log_prob_ref_label_seq_incl_blank()
+    score_matrix = get_model_log_prob_ref_label_seq_incl_blank()  # [T,S+1]
     print(f"{model_name_short}, seq {seq_tag}, shape (Tx(S+1)) {score_matrix.shape}")
     assert score_matrix.shape[1] == len(ref_labels) + 1  # blank + labels
     score_matrix = np.exp(score_matrix)
+
+    if model_time_downsampling > 1:
+        # Transform the score matrix into time downsampling 1 (i.e. 100 Hz),
+        # such that we match the features directly in the plot.
+        score_matrix = np.repeat(score_matrix, model_time_downsampling, axis=0)
+
+        # Also see get_word_boundaries_from_hdf_alignment._start_end_time_for_align_frame_idx()
+        win_size = model_time_downsampling
+        pad_total = win_size - 1
+        pad_left = pad_total // 2
+        score_matrix = score_matrix[pad_left::]  # cut off the padded frames
+
+        ref_audio = get_audio_features()  # [T,D]
+        score_matrix = score_matrix[: ref_audio.shape[0]]  # cut off the end
 
     word_boundaries = get_word_boundaries_from_hdf_alignment(align_type="probs_best_path")
 
@@ -677,9 +697,8 @@ def plot_model_probs(*, plotter: Optional[Plotter] = None):
         cax = divider.append_axes("right", size="5%", pad=0.05)
         plotter.fig.colorbar(mat_, cax=cax, orientation="vertical")
 
-    plotter.add_plot(
-        f"{model_title}, model ref label probs", _plot, word_boundaries, rate=100 / model_time_downsampling
-    )
+    # Note: rate=100 here because we transformed the score matrix to 100 Hz above.
+    plotter.add_plot(f"{model_title}, model ref label probs", _plot, word_boundaries, rate=100)
 
 
 def _log_softmax(x: np.ndarray, *, axis: Optional[int] = None) -> np.ndarray:
