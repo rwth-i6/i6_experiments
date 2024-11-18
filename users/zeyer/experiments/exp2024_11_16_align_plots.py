@@ -42,6 +42,8 @@ out_prefix = "output/exp2024_11_16_grad_align/"
 
 
 def plot_all():
+    print("seq_tag:", seq_tag)
+    print("ref:", get_ref_words())
     plotter = Plotter(out_filename=out_prefix + seq_tag + "/combined.pdf")
     plot_audio_features(plotter=plotter)
     plot_grad_scores(plotter=plotter)
@@ -103,6 +105,8 @@ def get_ref_word_boundaries() -> List[Tuple[float, float, str]]:
     if os.path.exists(out_fn_pickle):
         print(f"Already exists: {out_fn_pickle}")
         return pickle.load(open(out_fn_pickle, "rb"))
+
+    ref_words = get_ref_words()
 
     # adopted from i6_experiments.users.zeyer.experiments.exp2024_09_09_grad_align.CalcAlignmentMetrics
     from returnn.sprint.cache import open_file_archive
@@ -187,11 +191,13 @@ def get_ref_word_boundaries() -> List[Tuple[float, float, str]]:
             cur_word_start_frame = None
         prev_allophone_idx = allophone_idx
     assert cur_word_start_frame is None  # word should have ended
-    assert len(ref_words_phones) == len(ref_word_boundaries)
+    assert len(ref_words_phones) == len(ref_word_boundaries) == len(ref_words)
 
+    # If we would want the phones: " ".join(p[: p.index("{")] for p in phones)
+    # But we use the words.
     ref_word_boundaries_ = [
-        (float(start_time), float(end_time), " ".join(p[: p.index("{")] for p in phones))
-        for (start_time, end_time), phones in zip(ref_word_boundaries, ref_words_phones)
+        (float(start_time), float(end_time), word)
+        for (start_time, end_time), word in zip(ref_word_boundaries, ref_words)
     ]
 
     print(f"  num words: {len(ref_word_boundaries)}")
@@ -200,6 +206,42 @@ def get_ref_word_boundaries() -> List[Tuple[float, float, str]]:
     pickle.dump(ref_word_boundaries_, open(out_fn_pickle, "wb"))
 
     return ref_word_boundaries_
+
+
+def get_ref_words() -> List[str]:
+    out_fn_pkl = out_prefix + seq_tag + "/ref_words.pkl"
+    if os.path.exists(out_fn_pkl):
+        print(f"Already exists: {out_fn_pkl}")
+        return pickle.load(open(out_fn_pkl, "rb"))
+
+    from returnn.datasets.audio import OggZipDataset
+
+    dataset = OggZipDataset(
+        os.readlink("output/librispeech/dataset/train-clean-100"), targets={"class": "Utf8ByteTargets"}, audio=None
+    )
+    dataset.init_seq_order(epoch=1, seq_list=[seq_tag])
+    dataset.load_seqs(0, 1)
+    ref_bytes = dataset.get_data(0, "classes")  # [T, D]
+    print(f"ref_bytes.shape: {ref_bytes.shape}")
+    print(f"ref_bytes: {ref_bytes!r}")
+
+    ref_str = dataset.targets.get_seq_labels(ref_bytes)
+    print(f"ref_str: {ref_str}")
+    print(f"ref_str repr: {ref_str!r} type {type(ref_str).__name__}")
+
+    # Split by space.
+    # Lowercase all, as Librispeech does not have casing.
+    ref_words = [w.lower() for w in ref_str.split()]
+    print(f"ref_words: {ref_words}")
+
+    print("save to:", out_fn_pkl)
+    pickle.dump(ref_words, open(out_fn_pkl, "wb"))
+    return ref_words
+
+
+def get_word_boundaries_from_hdf_alignment(hdf_name: str) -> List[Tuple[float, float, str]]:
+    # TODO...
+    return []
 
 
 def plot_audio_features(*, plotter: Optional[Plotter] = None):
@@ -234,8 +276,10 @@ def plot_grad_scores(*, plotter: Optional[Plotter] = None):
     score_matrix = get_grad_scores()
     S, T = score_matrix.shape  # noqa
     print(f"{input_grad_name}, seq {seq_tag}, shape (SxT) {score_matrix.shape}")
-
     score_matrix = _log_softmax(np.log(score_matrix), axis=1)  # [S, T]
+
+    # TODO get grad align word boundaries
+    get_word_boundaries_from_hdf_alignment(...)
 
     if not plotter:
         plotter = Plotter(plot_at_del=True, out_filename=out_fn_pdf)
@@ -305,24 +349,13 @@ class Plotter:
 
             callback(ax)
 
-            if word_boundaries:
-                for start, end, word in word_boundaries:
-                    # ax.axvline(start * rate, color="black", linestyle="--")
-                    # ax.axvline(end * rate, color="black", linestyle="--")
-                    ax.axvspan(start * rate, end * rate, color="gray", alpha=0.2)
-                    ax.text(
-                        (start + end) * rate / 2,
-                        ax.get_ylim()[1],
-                        word,
-                        rotation=90,
-                        verticalalignment="bottom",
-                        horizontalalignment="center",
-                        fontsize=12,
-                    )
-
-            ax.set_xlabel("time (sec)")
-            ticks = ax.get_xticks() / rate
-            ax.set_xticklabels(ticks)
+            ax.set_xlabel("time [sec]")
+            ticks = np.arange(0, int(ax.get_xlim()[1] / rate) + 1, 1)
+            # ticks = ax.get_xticks() / rate
+            # ticks = [round(t, 2) for t in ticks]
+            # ticks = [int(t) if t == int(t) else t for t in ticks]
+            # ax.set_xticklabels(ticks)
+            ax.set_xticks(ticks * rate, ticks)
 
             if i == self.num_figs - 1:
                 ax.tick_params(top=False, labeltop=False, bottom=True, labelbottom=True)
@@ -332,6 +365,21 @@ class Plotter:
                 ax.xaxis.set_label_position("top")
             else:
                 ax.tick_params(top=False, labeltop=False, bottom=False, labelbottom=False)
+
+            if word_boundaries:
+                for start, end, word in word_boundaries:
+                    # ax.axvline(start * rate, color="black", linestyle="--")
+                    # ax.axvline(end * rate, color="black", linestyle="--")
+                    ax.axvspan(start * rate, end * rate, color="gray", alpha=0.2)
+                    ax.text(
+                        (start + end) * rate / 2,
+                        ax.get_ylim()[1] - 0.01 * (ax.get_ylim()[1] - ax.get_ylim()[0]),  # Add padding
+                        word,
+                        rotation=90,
+                        verticalalignment="top",
+                        horizontalalignment="center",
+                        fontsize=12,
+                    )
 
             if self.num_figs > 1:
                 # ax.set_title(title, fontweight="bold", x=0, y=1)
