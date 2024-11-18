@@ -30,22 +30,51 @@ from i6_experiments.users.schmitt.hdf import load_hdf_data
 
 # See i6_experiments.users.zeyer.experiments.exp2024_09_16_grad_align.visualize_grad_scores
 
+# The funcs depend on these global vars,
+# which are then being changed to iterate through different seqs / models.
+# Not so nice, but I want to be pragmatic here.
+
 # seq_list = Path(
 #     "/u/schmitt/experiments/segmental_models_2022_23_rf/work/i6_core/corpus/segments/SegmentCorpusJob.AmDlp1YMZF1e/output/segments.1"
 # )
 # seq_list = open(seq_list.get_path()).read().splitlines()
 seq_tag = "train-clean-100/103-1240-0000/103-1240-0000"
 
+# See i6_experiments.users.zeyer.experiments.exp2024_09_16_grad_align.py for names.
 input_grad_name = "ctc-grad-align/base"
+model_name = (
+    "v6-relPosAttDef"
+    "-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k"
+    "-featBN-speedpertV2-spm10k-bpeSample001"
+)
+vocab = "spm10k"
 
+# These are globals, not changed.
+# See i6_experiments.users.zeyer.experiments.exp2024_09_16_grad_align.py for names.
+input_grad_names = ["ctc-grad-align/base", "ctc-grad-align/blankSep", "ctc-grad-align/lpNormedGradC05_11P1"]
+models = [
+    "v6-relPosAttDef"
+    "-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k"
+    "-featBN-speedpertV2-spm10k-bpeSample001",
+    "v6-relPosAttDef"
+    "-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k"
+    "-featBN-speedpertV2-spm10k-bpeSample001"
+    "-blankSep",
+    "v6-relPosAttDef"
+    "-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k"
+    "-featBN-speedpertV2-spm10k-bpeSample001"
+    "-lpNormedGradC05_11P1",
+]
 out_prefix = "output/exp2024_11_16_grad_align/"
 
 
 def plot_all():
+    global seq_tag, input_grad_name, model_name
     print("seq_tag:", seq_tag)
     print("ref:", get_ref_words())
     plotter = Plotter(out_filename=out_prefix + seq_tag + "/combined.pdf")
     plot_audio_features(plotter=plotter)
+    # for input_grad_name in input_grad_names:
     plot_grad_scores(plotter=plotter)
     plotter.make()
 
@@ -240,6 +269,146 @@ def get_ref_words() -> List[str]:
 def get_word_boundaries_from_hdf_alignment(hdf_name: str) -> List[Tuple[float, float, str]]:
     # TODO...
     return []
+
+
+def get_ref_label_seq() -> List[Tuple[int, str]]:
+    out_fn_pdf = out_prefix + seq_tag + f"/ref_label_seq_{vocab}.pkl"
+    if os.path.exists(out_fn_pdf):
+        print(f"Already exists: {out_fn_pdf}")
+        return pickle.load(open(out_fn_pdf, "rb"))
+
+    from returnn.config import Config
+    from returnn.datasets.basic import init_dataset
+    from returnn.datasets.audio import OggZipDataset
+
+    config = Config()
+    train_config_fn = f"alias/ctc/{model_name}/train/output/returnn.config"
+    print("load RETURNN config:", train_config_fn)
+    config.load_file(train_config_fn)
+
+    # Take the eval dataset dict as base, to get targets without augmentation.
+    ds_dict = config.typed_dict["eval_datasets"]["dev"].copy()
+    if ds_dict["class"] == "MultiProcDataset":
+        ds_dict = ds_dict["dataset"]
+    assert ds_dict["class"] == "OggZipDataset", f"dataset dict: {ds_dict}"
+    train_ds_dict = config.typed_dict["train"]
+    if train_ds_dict["class"] == "MultiProcDataset":
+        train_ds_dict = train_ds_dict["dataset"]
+    assert train_ds_dict["class"] == "OggZipDataset", f"train dataset dict: {train_ds_dict}"
+    ds_dict["path"] = train_ds_dict["path"]  # get train data
+    del ds_dict["fixed_random_subset"]
+    ds_dict["audio"] = None
+    print("dataset dict:", ds_dict)
+
+    ds = init_dataset(ds_dict)
+    print("dataset:", ds)
+    assert isinstance(ds, OggZipDataset)
+    ds.init_seq_order(epoch=1, seq_list=[seq_tag])
+    ds.load_seqs(0, 1)
+    seq = ds.get_data(0, "classes")  # [T]
+    print(f"seq.shape: {seq.shape}")
+    print("seq:", seq)
+    print("seq str:", ds.targets.get_seq_labels(seq))
+    seq_labels = [ds.targets.labels[i] for i in seq]
+    print("seq labels:", seq_labels)
+    seq_ = list(zip(seq, seq_labels))
+
+    print("save to:", out_fn_pdf)
+    pickle.dump(seq_, open(out_fn_pdf, "wb"))
+    return seq_
+
+
+def get_model_log_prob_ref_label_seq_incl_blank() -> np.array:
+    """
+    :return: [T,S+1] log probs, S is the target length, first entry is blank (thus +1)
+    """
+    # We want to load the model, and then forward the seq, and get the log probs for the ref label seq.
+    out_fn_npz = out_prefix + seq_tag + f"/model_log_probs_ref_label_seq_incl_blank_{input_grad_name}.npz"
+    if os.path.exists(out_fn_npz):
+        print(f"Already exists: {out_fn_npz}")
+        return np.load(out_fn_npz)["model_log_probs_ref_label_seq_incl_blank"]
+
+    # To find the right model, we can reuse the RETURNN config from the input grads,
+    # which has everything already well prepared (model def, forward dataset).
+    input_grads_hdf = f"output/exp2024_09_16_grad_align/{input_grad_name}/input_grads.hdf"
+    input_grads_hdf_ = os.readlink(input_grads_hdf)
+    work_out_dir = os.path.dirname(input_grads_hdf_)
+    returnn_config_fn = f"{work_out_dir}/returnn.config"
+    assert work_out_dir.endswith("/output") and os.path.exists(returnn_config_fn)
+
+    from returnn.config import Config, global_config_ctx
+    from returnn.torch.engine import Engine, ForwardCallbackIface
+    from returnn.datasets.basic import init_dataset
+    from returnn.tensor import batch_dim, Tensor, TensorDict
+    import returnn.frontend as rf
+    from .exp2024_04_23_baselines.ctc import Model
+
+    config = Config()
+    print("load RETURNN config:", returnn_config_fn)
+    config.load_file(returnn_config_fn)
+
+    # We could also more directly load the model, via get_model, then torch.load, etc.
+    # But using the engine does all that work for us.
+
+    def _forward_step(*, model: Model, extern_data: TensorDict, **_kwargs):
+        print("forward_step", model, extern_data)
+
+        default_input_key = config.typed_value("default_input")
+        default_target_key = config.typed_value("target")
+        data = extern_data[default_input_key]
+        targets = extern_data[default_target_key]
+        assert model.blank_idx == targets.sparse_dim.dimension  # blank idx at end. not implemented otherwise
+        # Add blank as first ref label for plotting.
+        targets_, (target_ext_spatial_dim,) = rf.pad(
+            targets, axes=[targets.get_time_dim_tag()], padding=[(1, 0)], value=model.blank_idx
+        )
+        targets_.sparse_dim = model.wb_target_dim
+
+        # Call: logits, enc, enc_spatial_dim = model(source, in_spatial_dim=source.get_time_dim_tag())
+        in_spatial_dim = data.get_time_dim_tag()
+
+        if data.feature_dim and data.feature_dim.dimension == 1:
+            data = rf.squeeze(data, axis=data.feature_dim)
+        assert not data.feature_dim  # raw audio
+        logits, enc, enc_spatial_dim = model(data, in_spatial_dim=in_spatial_dim)
+        log_probs_wb = model.log_probs_wb_from_logits(logits)
+        log_probs_ref_seq = rf.gather(log_probs_wb, indices=targets_, axis=model.wb_target_dim)  # [B,T,S+1]
+        log_probs_ref_seq.mark_as_default_output(shape=[batch_dim, enc_spatial_dim, target_ext_spatial_dim])
+
+    config.typed_dict["forward_step"] = _forward_step
+    config.typed_dict["device"] = None  # allow any, also CPU
+    del config.typed_dict["model_outputs"]  # not the same here
+    # We specifically don't want multi-processing for the dataloader:
+    # - It's unnecessary overhead here.
+    # - It breaks our custom init_seq_order.
+    config.typed_dict["torch_dataloader_opts"] = {"num_workers": 0}
+
+    engine = Engine(config)
+    with global_config_ctx(config):  # the forward get_model needs a global config
+        engine.init_network_from_config(config)
+
+    ds = init_dataset(config.typed_dict["forward_data"])
+    ds.init_seq_order(epoch=1, seq_list=[seq_tag])
+
+    out: Optional[Tensor] = None
+
+    class _ForwardCallback(ForwardCallbackIface):
+        seq_tag = seq_tag  # keep a ref
+
+        # noinspection PyShadowingNames
+        def process_seq(self, *, seq_tag: str, outputs: TensorDict):
+            print("process_seq", seq_tag, outputs)
+            assert self.seq_tag == seq_tag
+            nonlocal out
+            assert out is None  # not called multiple times
+            out = outputs["output"]
+
+    callback = _ForwardCallback()
+    engine.forward_with_callback(dataset=ds, callback=callback, dataset_init_epoch=False)
+
+    print("got output:", out, out.raw_tensor.shape)
+    np.savez(out_fn_npz, model_log_probs_ref_label_seq_incl_blank=out.raw_tensor)
+    return out.raw_tensor  # [T,S+1]
 
 
 def plot_audio_features(*, plotter: Optional[Plotter] = None):

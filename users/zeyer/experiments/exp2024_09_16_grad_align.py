@@ -89,14 +89,14 @@ def py():
             "-featBN-speedpertV2-spm10k-bpeSample001",
             "spm10k",
         ),
-        # (  # ctc forced align: 116.8/74.4ms
-        #     "lpNormedGradC05_11P1",  # 5.71/5.87
-        #     "v6-relPosAttDef"
-        #     "-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k"
-        #     "-featBN-speedpertV2-spm10k-bpeSample001"
-        #     "-lpNormedGradC05_11P1",
-        #     "spm10k",
-        # ),
+        (  # ctc forced align: 116.8/74.4ms
+            "lpNormedGradC05_11P1",  # 5.71/5.87
+            "v6-relPosAttDef"
+            "-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k"
+            "-featBN-speedpertV2-spm10k-bpeSample001"
+            "-lpNormedGradC05_11P1",
+            "spm10k",
+        ),
         # (
         #     "lpNormedGradC05_11P1Seq",  # 5.83/5.91
         #     "v6-relPosAttDef"
@@ -113,14 +113,14 @@ def py():
         #     "-lpNormedGradC01_11P1",
         #     "spm10k",
         # ),
-        # (  # ctc forced align: 98.5/77.6ms
-        #     "blankSep",  # 5.73/6.02
-        #     "v6-relPosAttDef"
-        #     "-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k"
-        #     "-featBN-speedpertV2-spm10k-bpeSample001"
-        #     "-blankSep",
-        #     "spm10k",
-        # ),
+        (  # ctc forced align: 98.5/77.6ms
+            "blankSep",  # 5.73/6.02
+            "v6-relPosAttDef"
+            "-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k"
+            "-featBN-speedpertV2-spm10k-bpeSample001"
+            "-blankSep",
+            "spm10k",
+        ),
         # (  # ctc forced align: 75.4/42.7ms
         #     "base-spm512",  # 5.97/6.21
         #     "v6-relPosAttDef"
@@ -226,7 +226,7 @@ def py():
                         # match the model...
                     },
                 )
-                for ctc_scale in [0, 0.1, 0.2, 0.3, 1.0]
+                for ctc_scale in [0, 1]  # [0, 0.1, 0.2, 0.3, 1.0]
             ],
         ]:
             grad_opts = grad_opts.copy()
