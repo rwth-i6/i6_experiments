@@ -130,6 +130,51 @@ def get_audio_features() -> np.array:
     return audio_features
 
 
+def get_audio_features_rf() -> np.array:
+    """
+    :return: log mel filterbank features, [T, D].
+    """
+    dim = 80
+    out_fn_npz = out_prefix + seq_tag + f"/rf_audio_log_mel_filterbank_from_raw_{dim}.npz"
+    if os.path.exists(out_fn_npz):
+        print(f"Already exists: {out_fn_npz}")
+        return np.load(out_fn_npz)["audio_features"]
+
+    from returnn.datasets.audio import OggZipDataset
+
+    dataset = OggZipDataset(
+        os.readlink("output/librispeech/dataset/train-clean-100"),
+        targets=None,
+        audio={"features": "raw", "num_feature_filters": 1},
+    )
+    dataset.init_seq_order(epoch=1, seq_list=[seq_tag])
+    dataset.load_seqs(0, 1)
+    samples_np = dataset.get_data(0, "data")  # [T, 1]
+    print(f"samples_np.shape: {samples_np.shape}")
+    assert samples_np.shape[1] == 1
+    samples_np = samples_np[:, 0]  # [T]
+
+    import torch
+    import returnn.frontend as rf
+    from returnn.tensor import Dim
+
+    time_dim = Dim(rf.convert_to_tensor(torch.tensor(len(samples_np))), name="time")
+    samples = rf.convert_to_tensor(torch.tensor(samples_np), dims=[time_dim])
+    feat_dim = Dim(dim, name="feature")
+    audio_features, feat_spatial_dim = rf.audio.log_mel_filterbank_from_raw(
+        samples,
+        in_spatial_dim=time_dim,
+        out_dim=feat_dim,
+        sampling_rate=16_000,
+    )
+    audio_features_np = audio_features.copy_compatible_to_dims_raw([feat_spatial_dim, feat_dim]).numpy()
+
+    print("save to:", out_fn_npz)
+    os.makedirs(os.path.dirname(out_fn_npz), exist_ok=True)
+    np.savez(out_fn_npz, audio_features=audio_features_np)
+    return audio_features_np
+
+
 def get_grad_scores():
     out_fn_npz = out_prefix + seq_tag + f"/visualize_grad_scores/{model_name_short}/grads.npz"
 
@@ -605,7 +650,7 @@ def get_word_boundaries_from_hdf_alignment(*, align_type: str = "probs_best_path
 
 def plot_audio_features(*, plotter: Optional[Plotter] = None):
     out_fn_pdf = out_prefix + seq_tag + "/audio_features.pdf"
-    audio_features = get_audio_features()
+    audio_features = get_audio_features_rf()
     ref_word_boundaries = get_ref_word_boundaries()
 
     if not plotter:
@@ -613,7 +658,13 @@ def plot_audio_features(*, plotter: Optional[Plotter] = None):
 
     def _plot(ax):
         # audio_features is [T,D]
-        mat_ = ax.matshow(audio_features.T, cmap="Blues", aspect="auto")
+        # Define a custom colormap, based on Blues
+        color_white = np.array((0.96862745098039216, 0.98431372549019602, 1.0))
+        color_blue = np.array((0.03137254901960784, 0.18823529411764706, 0.41960784313725491))
+        i = np.linspace(0.0, 1.0, 100)[:, np.newaxis] ** 4.0  # not linear, keep more white
+        colors = i * color_blue[None, :] + (1 - i) * color_white[None, :]
+        custom_cmap = matplotlib.colors.LinearSegmentedColormap.from_list("custom_blues", colors, N=100)
+        mat_ = ax.matshow(audio_features.T, cmap=custom_cmap, aspect="auto")
         ax.tick_params(direction="out", length=20, width=2)
 
         ax.set_ylabel("Features")
@@ -666,7 +717,7 @@ def plot_model_probs(*, plotter: Optional[Plotter] = None):
     assert score_matrix.shape[1] == len(ref_labels) + 1  # blank + labels
     score_matrix = np.exp(score_matrix)
 
-    ref_audio = get_audio_features()  # [T,D]
+    ref_audio = get_audio_features_rf()  # [T,D]
     if model_time_downsampling > 1:
         # Transform the score matrix into time downsampling 1 (i.e. 100 Hz),
         # such that we match the features directly in the plot.
