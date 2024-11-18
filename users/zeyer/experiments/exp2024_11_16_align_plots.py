@@ -674,7 +674,7 @@ def plot_audio_features(*, plotter: Optional[Plotter] = None):
         cax = divider.append_axes("right", size="5%", pad=0.05)
         plotter.fig.colorbar(mat_, cax=cax, orientation="vertical")
 
-    plotter.add_plot("Audio log mel filterbank features", _plot, ref_word_boundaries, rate=100)
+    plotter.add_plot("Audio log mel filterbank features", _plot, ref_word_boundaries, rate=100, rate_rounding=None)
 
 
 def plot_grad_scores(*, plotter: Optional[Plotter] = None):
@@ -704,10 +704,11 @@ def plot_grad_scores(*, plotter: Optional[Plotter] = None):
         cax = divider.append_axes("right", size="5%", pad=0.05)
         plotter.fig.colorbar(mat_, cax=cax, orientation="vertical")
 
-    plotter.add_plot(f"{model_title}, input grads", _plot, word_boundaries, rate=100)
+    plotter.add_plot(f"{model_title}, input grads", _plot, word_boundaries, rate=100, rate_rounding=1)
 
 
 def plot_model_probs(*, plotter: Optional[Plotter] = None):
+    print("model probs:", model_name_short, model_name)
     out_fn_pdf = out_prefix + seq_tag + f"/visualize_model_probs/{model_name_short}/probs.pdf"
 
     ref_labels = get_ref_label_seq()
@@ -753,7 +754,9 @@ def plot_model_probs(*, plotter: Optional[Plotter] = None):
         plotter.fig.colorbar(mat_, cax=cax, orientation="vertical")
 
     # Note: rate=100 here because we transformed the score matrix to 100 Hz above.
-    plotter.add_plot(f"{model_title}, model ref label probs", _plot, word_boundaries, rate=100)
+    plotter.add_plot(
+        f"{model_title}, model ref label probs", _plot, word_boundaries, rate=100, rate_rounding=model_time_downsampling
+    )
 
 
 def _log_softmax(x: np.ndarray, *, axis: Optional[int] = None) -> np.ndarray:
@@ -773,6 +776,7 @@ class Plotter:
         self.plot_callbacks: List[Callable] = []
         self.plot_word_boundaries: List[Optional[List[Tuple[float, float, str]]]] = []
         self.plot_rates: List[Union[int, float]] = []
+        self.plot_rate_rounding = []
 
         self.fig = None
         self.ax = None
@@ -784,11 +788,13 @@ class Plotter:
         word_boundaries: Optional[List[Tuple[float, float, str]]] = None,
         *,
         rate: Union[int, float],
+        rate_rounding: Optional[int] = None,
     ):
         self.plot_titles.append(title)
         self.plot_callbacks.append(callback)
         self.plot_word_boundaries.append(word_boundaries)
         self.plot_rates.append(rate)
+        self.plot_rate_rounding.append(rate_rounding)
         self.num_figs += 1
 
     def make(self):
@@ -796,8 +802,14 @@ class Plotter:
         if self.num_figs == 1:
             self.ax = [self.ax]
 
-        for i, (title, callback, word_boundaries, rate) in enumerate(
-            zip(self.plot_titles, self.plot_callbacks, self.plot_word_boundaries, self.plot_rates)
+        for i, (title, callback, word_boundaries, rate, rate_rounding) in enumerate(
+            zip(
+                self.plot_titles,
+                self.plot_callbacks,
+                self.plot_word_boundaries,
+                self.plot_rates,
+                self.plot_rate_rounding,
+            )
         ):
             ax = self.ax[i]
 
@@ -824,11 +836,19 @@ class Plotter:
             if word_boundaries:
                 # print(f"{title} word boundaries:", word_boundaries)
                 for start, end, word in word_boundaries:
-                    # ax.axvline(start * rate, color="black", linestyle="--")
-                    # ax.axvline(end * rate, color="black", linestyle="--")
-                    ax.axvspan(start * rate, end * rate, color="gray", alpha=0.2)
+                    start *= rate
+                    end *= rate
+                    if rate_rounding:
+                        win_size = rate_rounding
+                        pad_total = win_size - 1
+                        pad_left = pad_total // 2
+                        start = round((start + pad_left) / rate_rounding) * rate_rounding - pad_left
+                        end = round((end + pad_left - win_size) / rate_rounding) * rate_rounding - pad_left + win_size
+                    # ax.axvline(start, color="black", linestyle="--")
+                    # ax.axvline(end, color="black", linestyle="--")
+                    ax.axvspan(start, end, color="gray", alpha=0.2)
                     ax.text(
-                        (start + end) * rate / 2,
+                        (start + end) / 2,
                         ax.get_ylim()[1] - 0.01 * (ax.get_ylim()[1] - ax.get_ylim()[0]),  # Add padding
                         word,
                         rotation=90,
