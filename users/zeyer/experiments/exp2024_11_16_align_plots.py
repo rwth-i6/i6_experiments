@@ -77,14 +77,17 @@ out_prefix = "output/exp2024_11_16_grad_align/"
 
 
 def plot_all():
-    global seq_tag, model_name
+    global seq_tag, model_name, model_name_short, model_title
     print("seq_tag:", seq_tag)
     print("ref:", get_ref_words())
     plotter = Plotter(out_filename=out_prefix + seq_tag + "/combined.pdf")
     plot_audio_features(plotter=plotter)
-    # for input_grad_name in input_grad_names:
-    plot_model_probs(plotter=plotter)
-    plot_grad_scores(plotter=plotter)
+    for i in range(len(models)):
+        model_name_short = models_name_short[i]
+        model_name = models[i]
+        model_title = model_titles[i]
+        plot_model_probs(plotter=plotter)
+        plot_grad_scores(plotter=plotter)
     plotter.make()
 
 
