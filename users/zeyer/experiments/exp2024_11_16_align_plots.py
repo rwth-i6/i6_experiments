@@ -666,6 +666,7 @@ def plot_model_probs(*, plotter: Optional[Plotter] = None):
     assert score_matrix.shape[1] == len(ref_labels) + 1  # blank + labels
     score_matrix = np.exp(score_matrix)
 
+    ref_audio = get_audio_features()  # [T,D]
     if model_time_downsampling > 1:
         # Transform the score matrix into time downsampling 1 (i.e. 100 Hz),
         # such that we match the features directly in the plot.
@@ -675,10 +676,13 @@ def plot_model_probs(*, plotter: Optional[Plotter] = None):
         win_size = model_time_downsampling
         pad_total = win_size - 1
         pad_left = pad_total // 2
-        score_matrix = score_matrix[pad_left::]  # cut off the padded frames
+        score_matrix = score_matrix[pad_left:]  # cut off the padded frames
 
-        ref_audio = get_audio_features()  # [T,D]
         score_matrix = score_matrix[: ref_audio.shape[0]]  # cut off the end
+    assert score_matrix.shape[0] == ref_audio.shape[0], (
+        f"probs {score_matrix.shape} vs audio {ref_audio.shape},"
+        f" tag {seq_tag}, downsampling {model_time_downsampling} undone"
+    )
 
     word_boundaries = get_word_boundaries_from_hdf_alignment(align_type="probs_best_path")
 
