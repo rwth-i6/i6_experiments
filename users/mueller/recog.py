@@ -59,7 +59,7 @@ def recog_training_exp(
     search_mem_rqmt: Union[int, float] = 6,
     exclude_epochs: Collection[int] = (),
     model_avg: bool = False,
-) -> Optional[tk.Path]:
+) -> tuple[Optional[tk.Path], Optional[tk.Path]]:
     """recog on all relevant epochs"""
     recog_and_score_func = _RecogAndScoreFunc(
         prefix_name,
@@ -123,8 +123,8 @@ def recog_training_exp(
         )
         extract_pseudo_labels_job.add_alias(prefix_name + "/pseudo_labels/extract")
     
-        return extract_pseudo_labels_job.out_best_labels_path
-    return None
+        return extract_pseudo_labels_job.out_best_labels_path, summarize_job.out_summary_json
+    return None, None
 
 
 class _RecogAndScoreFunc:
@@ -281,7 +281,8 @@ def compute_prior(
         output_files=["prior.txt"],
         returnn_python_exe=tools_paths.get_returnn_python_exe(),
         returnn_root=tools_paths.get_returnn_root(),
-        time_rqmt=2,
+        device="cpu",
+        time_rqmt=4,
         mem_rqmt=mem_rqmt,
         cpu_rqmt=8,
     )
@@ -299,7 +300,7 @@ def search_dataset(
     save_pseudo_labels: bool = False,
     config: Optional[Dict[str, Any]] = None,
     search_post_config: Optional[Dict[str, Any]] = None,
-    search_mem_rqmt: Union[int, float] = 6,
+    search_mem_rqmt: Union[int, float] = 8,
     search_rqmt: Optional[Dict[str, Any]] = None,
     search_alias_name: Optional[str] = None,
     recog_post_proc_funcs: Sequence[Callable[[RecogOutput], RecogOutput]] = (),
@@ -335,13 +336,15 @@ def search_dataset(
             search_post_config and search_post_config.pop("__env_updates", None)
         )
     if save_pseudo_labels:
-        time_rqmt = 24.0
+        time_rqmt = 60.0
         cpu_rqmt = 8
-        if search_mem_rqmt < 15:
-            search_mem_rqmt = 15
+        if search_mem_rqmt < 16:
+            search_mem_rqmt = 16
     else:
         time_rqmt = 4.0
-        cpu_rqmt = 2
+        cpu_rqmt = 4
+        if search_mem_rqmt < 8:
+            search_mem_rqmt = 8
     if getattr(model.definition, "backend", None) is None:
         search_job = ReturnnSearchJobV2(
             search_data=dataset.get_main_dataset(),
@@ -353,6 +356,7 @@ def search_dataset(
             returnn_root=tools_paths.get_returnn_root(),
             output_gzip=True,
             log_verbosity=5,
+            device="cpu",
             time_rqmt=time_rqmt,
             mem_rqmt=search_mem_rqmt,
             cpu_rqmt=cpu_rqmt,
@@ -370,6 +374,7 @@ def search_dataset(
             output_files=out_files,
             returnn_python_exe=tools_paths.get_returnn_python_exe(),
             returnn_root=tools_paths.get_returnn_root(),
+            device="cpu",
             time_rqmt=time_rqmt,
             mem_rqmt=search_mem_rqmt,
             cpu_rqmt=cpu_rqmt,
@@ -583,6 +588,8 @@ def _returnn_get_prior_forward_callback():
             probs: Tensor = outputs["probs"]
             lengths: Tensor = outputs["lengths"]
             
+            assert lengths.raw_tensor == probs.raw_tensor.shape[0], "Prior calculation lengths are not the same!"
+            
             self.sum_frames += np.sum(lengths.raw_tensor)
             if self.sum_probs is None:
                 self.sum_probs = np.sum(probs.raw_tensor, axis=0)
@@ -626,7 +633,7 @@ def search_config_v2(
         # dataset
         default_input=dataset.get_default_input(),
         target=dataset.get_default_target(),
-        forward_data=dataset.get_main_dataset(),
+        forward_data=dataset.get_main_dataset(), # TODO evtl MultiProcDataset
     )
     if config:
         returnn_recog_config_dict.update(config)
