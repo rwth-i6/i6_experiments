@@ -447,9 +447,11 @@ def plot_audio_features(*, plotter: Optional[Plotter] = None):
 def plot_grad_scores(*, plotter: Optional[Plotter] = None):
     out_fn_pdf = out_prefix + seq_tag + "/visualize_grad_scores/" + input_grad_name + "/grads.pdf"
 
+    ref_labels = get_ref_label_seq()
+
     score_matrix = get_grad_scores()
-    S, T = score_matrix.shape  # noqa
     print(f"{input_grad_name}, seq {seq_tag}, shape (SxT) {score_matrix.shape}")
+    assert score_matrix.shape[0] == len(ref_labels)
     score_matrix = _log_softmax(np.log(score_matrix), axis=1)  # [S, T]
 
     # TODO get grad align word boundaries
@@ -464,6 +466,7 @@ def plot_grad_scores(*, plotter: Optional[Plotter] = None):
         ax.tick_params(direction="out", length=20, width=2)
         ax.set_ylabel("Labels")
         ax.set_ylim(ax.get_ylim()[::-1])
+        ax.set_yticks(range(len(ref_labels)), [l.lower() for _, l in ref_labels], fontsize=6)
 
         divider = make_axes_locatable(ax)
         cax = divider.append_axes("right", size="5%", pad=0.05)
@@ -475,8 +478,11 @@ def plot_grad_scores(*, plotter: Optional[Plotter] = None):
 def plot_model_probs(*, plotter: Optional[Plotter] = None):
     out_fn_pdf = out_prefix + seq_tag + "/visualize_model_probs/" + input_grad_name + "/probs.pdf"
 
+    ref_labels = get_ref_label_seq()
+
     score_matrix = get_model_log_prob_ref_label_seq_incl_blank()
     print(f"{input_grad_name}, seq {seq_tag}, shape (Tx(S+1)) {score_matrix.shape}")
+    assert score_matrix.shape[1] == len(ref_labels) + 1  # blank + labels
     score_matrix = np.exp(score_matrix)
 
     # TODO get grad align word boundaries
@@ -491,6 +497,7 @@ def plot_model_probs(*, plotter: Optional[Plotter] = None):
         ax.tick_params(direction="out", length=20, width=2)
         ax.set_ylabel("Blank+labels")
         ax.set_ylim(ax.get_ylim()[::-1])
+        ax.set_yticks(range(len(ref_labels) + 1), ["<blank>"] + [l.lower() for _, l in ref_labels], fontsize=6)
 
         divider = make_axes_locatable(ax)
         cax = divider.append_axes("right", size="5%", pad=0.05)
