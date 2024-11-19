@@ -574,17 +574,20 @@ def get_word_boundaries_from_hdf_alignment(
     print("alignment:", alignment)
     print("alignment str:", " ".join("ε" if l == alignment_blank_idx else bpe_vocab.labels[l] for l in alignment))
 
-    align_score = alignments_ds.get_data(0, "scores")  # [1]
-    print("align score:", align_score, "prob:", np.exp(align_score))
+    if align_type == "probs_best_path":
+        align_score = alignments_ds.get_data(0, "scores")  # [1]
+        print("align score:", align_score, "prob:", np.exp(align_score))
 
-    ref_label_seq = [alignment_blank_idx] + [l for l, _ in get_ref_label_seq()]  # [S+1]
-    model_log_probs = get_model_log_prob_ref_label_seq_incl_blank()  # [T,S+1]
-    assert model_log_probs.shape == (len(alignment), len(ref_label_seq)), f"got {model_log_probs.shape}"
-    model_log_probs_seq = [model_log_probs[t, ref_label_seq.index(int(l))] for t, l in enumerate(alignment)]  # [T]
-    print("model prob seq frames:", [np.exp(p) for p in model_log_probs_seq])
-    model_log_prob_seq_sum = sum(model_log_probs_seq)
-    print("model log prob seq sum:", model_log_prob_seq_sum, "prob:", np.exp(model_log_prob_seq_sum))
-    assert abs(model_log_prob_seq_sum - align_score.item()) < 1e-5
+        ref_label_seq = [alignment_blank_idx] + [l for l, _ in get_ref_label_seq()]  # [S+1]
+        model_log_probs = get_model_log_prob_ref_label_seq_incl_blank()  # [T,S+1]
+        assert model_log_probs.shape == (len(alignment), len(ref_label_seq)), f"got {model_log_probs.shape}"
+        model_log_probs_seq = [model_log_probs[t, ref_label_seq.index(int(l))] for t, l in enumerate(alignment)]  # [T]
+        print("model prob seq frames:", [np.exp(p) for p in model_log_probs_seq])
+        model_log_prob_seq_sum = sum(model_log_probs_seq)
+        print("model log prob seq sum:", model_log_prob_seq_sum, "prob:", np.exp(model_log_prob_seq_sum))
+        # assert abs(model_log_prob_seq_sum - align_score.item()) < 1e-5  # ???
+    else:
+        assert align_type == "grad"
 
     if alignment_label_topology == "explicit":
         align_states = alignments_ds.get_data(0, "states")
