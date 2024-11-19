@@ -395,13 +395,13 @@ def get_ref_label_seq() -> List[Tuple[int, str]]:
     return seq_
 
 
-def get_model_log_prob_ref_label_seq_incl_blank() -> np.array:
+def get_model_log_prob_ref_label_seq_incl_blank(*, force: bool = False) -> np.array:
     """
     :return: [T,S+1] log probs, S is the target length, first entry is blank (thus +1)
     """
     # We want to load the model, and then forward the seq, and get the log probs for the ref label seq.
     out_fn_npz = out_prefix + seq_tag + f"/model_log_probs_ref_label_seq_incl_blank_{model_name_short}.npz"
-    if os.path.exists(out_fn_npz):
+    if not force and os.path.exists(out_fn_npz):
         print(f"Already exists: {out_fn_npz}")
         return np.load(out_fn_npz)["model_log_probs_ref_label_seq_incl_blank"]
 
@@ -413,6 +413,7 @@ def get_model_log_prob_ref_label_seq_incl_blank() -> np.array:
     returnn_config_fn = f"{work_out_dir}/returnn.config"
     assert work_out_dir.endswith("/output") and os.path.exists(returnn_config_fn)
 
+    from returnn.util import BehaviorVersion
     from returnn.config import Config, global_config_ctx
     from returnn.torch.engine import Engine, ForwardCallbackIface
     from returnn.datasets.basic import init_dataset
@@ -429,6 +430,7 @@ def get_model_log_prob_ref_label_seq_incl_blank() -> np.array:
 
     def _forward_step(*, model: Model, extern_data: TensorDict, **_kwargs):
         print("forward_step", model, extern_data)
+        print("Behavior version:", BehaviorVersion.get_if_set(), BehaviorVersion.get())
 
         default_input_key = config.typed_value("default_input")
         default_target_key = config.typed_value("target")
@@ -489,13 +491,15 @@ def get_model_log_prob_ref_label_seq_incl_blank() -> np.array:
     return out.raw_tensor  # [T,S+1]
 
 
-def get_word_boundaries_from_hdf_alignment(*, align_type: str = "probs_best_path") -> List[Tuple[float, float, str]]:
+def get_word_boundaries_from_hdf_alignment(
+    *, align_type: str = "probs_best_path", force: bool = False
+) -> List[Tuple[float, float, str]]:
     out_fn_pickle = (
         out_prefix
         + seq_tag
         + f"/word_boundaries_{model_name_short}_{align_type}_overlap{include_overlap_win_in_word_boundaries}.pkl"
     )
-    if os.path.exists(out_fn_pickle):
+    if not force and os.path.exists(out_fn_pickle):
         print(f"Already exists: {out_fn_pickle}")
         return pickle.load(open(out_fn_pickle, "rb"))
 
@@ -503,6 +507,7 @@ def get_word_boundaries_from_hdf_alignment(*, align_type: str = "probs_best_path
 
     ref_words = get_ref_words()
 
+    print("align type:", align_type)
     if align_type == "probs_best_path":  # aka forced align, using the model probs
         alignment_label_topology = "ctc"
         ref_alignment_len_factor = model_time_downsampling
@@ -513,6 +518,9 @@ def get_word_boundaries_from_hdf_alignment(*, align_type: str = "probs_best_path
         hdf_fn = f"output/exp2024_09_16_grad_align/ctc-grad-align/{model_name_short}-{grad_type}/align.hdf"
     else:
         raise ValueError(f"align_type {align_type!r} not supported")
+    print("alignment label topology:", alignment_label_topology)
+    print("ref alignment len factor:", ref_alignment_len_factor)
+    print("hdf filename:", hdf_fn)
     assert os.path.exists(hdf_fn), f"alignment HDF not found: {hdf_fn}"
 
     from returnn.datasets.hdf import HDFDataset
@@ -533,7 +541,20 @@ def get_word_boundaries_from_hdf_alignment(*, align_type: str = "probs_best_path
     alignments_ds.initialize()
     alignments_ds.init_seq_order(epoch=1, seq_list=[seq_tag])
 
-    alignment = alignments_ds.get_data(0, "data")
+    alignment = alignments_ds.get_data(0, "data")  # [T]
+    print("alignment:", alignment)
+    print("alignment str:", " ".join("ε" if l == alignment_blank_idx else bpe_vocab.labels[l] for l in alignment))
+
+    align_score = alignments_ds.get_data(0, "scores")  # [1]
+    print("align score:", align_score, "prob:", np.exp(align_score))
+
+    ref_label_seq = [alignment_blank_idx] + [l for l, _ in get_ref_label_seq()]  # [S+1]
+    model_log_probs = get_model_log_prob_ref_label_seq_incl_blank()  # [T,S+1]
+    assert model_log_probs.shape == (len(alignment), len(ref_label_seq)), f"got {model_log_probs.shape}"
+    model_log_probs_seq = [model_log_probs[t, ref_label_seq.index(int(l))] for t, l in enumerate(alignment)]  # [T]
+    print("model prob seq frames:", [np.exp(p) for p in model_log_probs_seq])
+    print("model log prob seq sum:", sum(model_log_probs_seq), "prob:", np.exp(sum(model_log_probs_seq)))
+
     if alignment_label_topology == "explicit":
         align_states = alignments_ds.get_data(0, "states")
     elif alignment_label_topology == "ctc":
