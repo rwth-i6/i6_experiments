@@ -498,14 +498,22 @@ def get_model_log_prob_ref_label_seq_incl_blank(*, force: bool = False) -> np.ar
     :return: [T,S+1] log probs, S is the target length, first entry is blank (thus +1)
     """
     # We want to load the model, and then forward the seq, and get the log probs for the ref label seq.
-    out_fn_npz = out_prefix + seq_tag + f"/model_log_probs_ref_label_seq_incl_blank_{model_name_short}_via_hdf.npz"
+
+    model_name_ext = ""
+    if "blankSep" in model_name:
+        model_name_ext = "-bug"
+    out_fn_npz = (
+        out_prefix
+        + seq_tag
+        + f"/model_log_probs_ref_label_seq_incl_blank_{model_name_short}{model_name_ext}_via_hdf.npz"
+    )
     if not force and os.path.exists(out_fn_npz):
         print(f"Already exists: {out_fn_npz}")
         return np.load(out_fn_npz)["model_log_probs_ref_label_seq_incl_blank"]
 
     from returnn.datasets.hdf import HDFDataset
 
-    hdf_fn = f"output/exp2024_09_16_grad_align/ctc_ref_log_probs/{model_name_short}-ep-1/log_probs.hdf"
+    hdf_fn = f"output/exp2024_09_16_grad_align/ctc_ref_log_probs/{model_name_short}-ep-1{model_name_ext}/log_probs.hdf"
     print("load HDF:", hdf_fn)
     dataset = HDFDataset([hdf_fn])
     dataset.initialize()
