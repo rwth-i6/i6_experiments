@@ -172,6 +172,10 @@ def py():
             alignment.creator.add_alias(f"{prefix}ctc_forced_align/{shortname}-ep{epoch}/align")
             tk.register_output(f"{prefix}ctc_forced_align/{shortname}-ep{epoch}/align.hdf", alignment)
 
+            ref_log_probs = get_ctc_ref_label_log_probs(ctc_model, train_dataset)
+            ref_log_probs.creator.add_alias(f"{prefix}ctc_ref_log_probs/{shortname}-ep{epoch}/log_probs")
+            tk.register_output(f"{prefix}ctc_ref_log_probs/{shortname}-ep{epoch}/log_probs.hdf", ref_log_probs)
+
             name = f"ctc_forced_align/{shortname}-ep{epoch}/align-metrics"
             job = CalcAlignmentMetrics(
                 seq_list=seq_list,
@@ -980,6 +984,74 @@ def _aed_model_get_input_grads_step(*, model: AedModel, extern_data: TensorDict,
         grad_norms = torch.stack(grad_norms, dim=0)  # [T_out,B,T_in]
         grad_norms_ = rf.convert_to_tensor(grad_norms, dims=[targets_spatial_dim, batch_dim, in_spatial_dim])
         grad_norms_.mark_as_default_output()
+
+
+def get_ctc_ref_label_log_probs(
+    model: ModelWithCheckpoint, dataset: DatasetConfig, config: Optional[Dict[str, Any]] = None
+) -> tk.Path:
+    from i6_experiments.users.zeyer.forward_to_hdf import forward_to_hdf
+    from returnn.tensor import batch_dim
+
+    extern_data_dict = dataset.get_extern_data()
+    default_input_dict = extern_data_dict[dataset.get_default_input()]
+    input_dims: Sequence[Dim] = (
+        default_input_dict["dims"] if "dims" in default_input_dict else default_input_dict["dim_tags"]
+    )
+    assert isinstance(input_dims, (tuple, list)) and all(isinstance(dim, Dim) for dim in input_dims)
+    enc_spatial_dim = Dim(None, name="enc_spatial_dim")
+    target_ext_spatial_dim = Dim(None, name="target_ext_spatial_dim")
+
+    return forward_to_hdf(
+        dataset=dataset,
+        model=model,
+        forward_step=_ctc_model_get_ref_label_log_probs_step,
+        config={
+            "model_outputs": {
+                "output": {"dims": [batch_dim, enc_spatial_dim, target_ext_spatial_dim], "dtype": "float32"},
+                "enc_size": {"dims": [batch_dim], "dtype": "int32"},
+                "targets_ext_size": {"dims": [batch_dim], "dtype": "int32"},
+            },
+            **(config or {}),
+        },
+        forward_rqmt={"time": 24},
+    )
+
+
+def _ctc_model_get_ref_label_log_probs_step(*, model: CtcModel, extern_data: TensorDict, **_kwargs):
+    from returnn.tensor import batch_dim
+    from returnn.config import get_global_config
+
+    config = get_global_config()
+    default_input_key = config.typed_value("default_input")
+    default_target_key = config.typed_value("target")
+    data = extern_data[default_input_key]
+    targets = extern_data[default_target_key]
+    expected_output = rf.get_run_ctx().expected_outputs["output"]
+    batch_dim_, enc_spatial_dim_, target_ext_spatial_dim_ = expected_output.dims[-1]
+    assert batch_dim_ == batch_dim
+
+    assert model.blank_idx == targets.sparse_dim.dimension  # blank idx at end. not implemented otherwise
+    # Add blank as first ref label for plotting.
+    targets_, (target_ext_spatial_dim,) = rf.pad(
+        targets, axes=[targets.get_time_dim_tag()], padding=[(1, 0)], value=model.blank_idx
+    )
+    targets_.sparse_dim = model.wb_target_dim
+    target_ext_spatial_dim: Dim
+    target_ext_spatial_dim_.declare_same_as(target_ext_spatial_dim)
+    target_ext_spatial_dim.dyn_size_ext.mark_as_output("targets_ext_size", shape=[batch_dim])
+
+    # Call: logits, enc, enc_spatial_dim = model(source, in_spatial_dim=source.get_time_dim_tag())
+    in_spatial_dim = data.get_time_dim_tag()
+
+    if data.feature_dim and data.feature_dim.dimension == 1:
+        data = rf.squeeze(data, axis=data.feature_dim)
+    assert not data.feature_dim  # raw audio
+    logits, enc, enc_spatial_dim = model(data, in_spatial_dim=in_spatial_dim)
+    enc_spatial_dim_.declare_same_as(enc_spatial_dim)
+    enc_spatial_dim.dyn_size_ext.mark_as_output("enc_size", shape=[batch_dim])
+    log_probs_wb = model.log_probs_wb_from_logits(logits)
+    log_probs_ref_seq = rf.gather(log_probs_wb, indices=targets_, axis=model.wb_target_dim)  # [B,T,S+1]
+    log_probs_ref_seq.mark_as_default_output(shape=[batch_dim, enc_spatial_dim, target_ext_spatial_dim])
 
 
 def visualize_grad_scores():
