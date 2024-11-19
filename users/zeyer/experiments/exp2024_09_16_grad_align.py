@@ -201,27 +201,34 @@ def py():
                     f"{prefix}ctc_ref_log_probs/{shortname}-ep{epoch}-bug/log_probs.hdf", ref_log_probs_bug
                 )
 
-                alignment = ctc_forced_align(ctc_model, train_dataset, {"fix_log_probs": True})
-                alignment.creator.add_alias(f"{prefix}ctc_forced_align/{shortname}-ep{epoch}-fix/align")
-                tk.register_output(f"{prefix}ctc_forced_align/{shortname}-ep{epoch}-fix/align.hdf", alignment)
+                for shift in [-1, -2, -3, -5, -7, -10]:
+                    alignment = ctc_forced_align(
+                        ctc_model, train_dataset, {"fix_log_probs": True, "blank_logit_shift": shift}
+                    )
+                    alignment.creator.add_alias(
+                        f"{prefix}ctc_forced_align/{shortname}-ep{epoch}-fix-shift{shift}/align"
+                    )
+                    tk.register_output(
+                        f"{prefix}ctc_forced_align/{shortname}-ep{epoch}-fix-shift{shift}/align.hdf", alignment
+                    )
 
-                name = f"ctc_forced_align/{shortname}-ep{epoch}-fix/align-metrics"
-                job = CalcAlignmentMetrics(
-                    seq_list=seq_list,
-                    seq_list_ref=seq_list_ref,
-                    alignment_hdf=alignment,
-                    alignment_label_topology="ctc",
-                    alignment_bpe_vocab=vocabs[vocab][1],
-                    alignment_bpe_style=vocabs[vocab][0],
-                    alignment_blank_idx=vocabs[vocab][2],
-                    features_sprint_cache=features_sprint_cache,
-                    ref_alignment_sprint_cache=gmm_alignment_sprint_cache,
-                    ref_alignment_allophones=gmm_alignment_allophones,
-                    ref_alignment_len_factor=6,
-                )
-                job.add_alias(prefix + name)
-                tk.register_output(prefix + name + ".json", job.out_scores)
-                tk.register_output(prefix + name + ".short_report.txt", job.out_short_report_str)
+                    name = f"ctc_forced_align/{shortname}-ep{epoch}-fix-shift{shift}/align-metrics"
+                    job = CalcAlignmentMetrics(
+                        seq_list=seq_list,
+                        seq_list_ref=seq_list_ref,
+                        alignment_hdf=alignment,
+                        alignment_label_topology="ctc",
+                        alignment_bpe_vocab=vocabs[vocab][1],
+                        alignment_bpe_style=vocabs[vocab][0],
+                        alignment_blank_idx=vocabs[vocab][2],
+                        features_sprint_cache=features_sprint_cache,
+                        ref_alignment_sprint_cache=gmm_alignment_sprint_cache,
+                        ref_alignment_allophones=gmm_alignment_allophones,
+                        ref_alignment_len_factor=6,
+                    )
+                    job.add_alias(prefix + name)
+                    tk.register_output(prefix + name + ".json", job.out_scores)
+                    tk.register_output(prefix + name + ".short_report.txt", job.out_short_report_str)
 
         for extra_name, grad_opts in [
             # ("", {}),

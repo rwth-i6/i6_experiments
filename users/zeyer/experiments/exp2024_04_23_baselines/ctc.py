@@ -1919,6 +1919,7 @@ class Model(rf.Module):
         self.enc_logits = rf.Linear(self.encoder.out_dim, wb_target_dim)
         self.wb_target_dim = wb_target_dim
         self.out_blank_separated = config.bool("out_blank_separated", False)
+        self.blank_logit_shift = config.float("blank_logit_shift", 0.0)
 
         self.ctc_am_scale = config.float("ctc_am_scale", 1.0)
         self.ctc_prior_scale = config.float("ctc_prior_scale", 0.0)
@@ -2071,6 +2072,8 @@ class Model(rf.Module):
             If out_blank_separated, we use a separate sigmoid for the blank.
         """
         if not self.out_blank_separated:  # standard case, joint distrib incl blank
+            if self.blank_logit_shift:
+                logits += rf.sparse_to_dense(self.blank_idx, label_value=self.blank_logit_shift, other_value=0)
             log_probs = rf.log_softmax(logits, axis=self.wb_target_dim)
         else:  # separate blank
             assert self.blank_idx == self.target_dim.dimension  # not implemented otherwise
@@ -2080,6 +2083,8 @@ class Model(rf.Module):
             )
             log_probs_wo_blank = rf.log_softmax(logits_wo_blank, axis=self.target_dim)
             log_probs_wo_blank = self._maybe_apply_on_log_probs(log_probs_wo_blank)
+            if self.blank_logit_shift:
+                logits_blank += self.blank_logit_shift
             log_probs_blank = rf.log_sigmoid(logits_blank)
             log_probs_emit = rf.squeeze(rf.log_sigmoid(-logits_blank), axis=dummy_blank_feat_dim)
             log_probs, _ = rf.concat(
