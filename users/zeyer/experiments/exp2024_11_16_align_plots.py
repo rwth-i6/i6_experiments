@@ -909,8 +909,8 @@ class Plotter:
                         pad_left = pad_total // 2
                         start = round((start + pad_left) / rate_rounding) * rate_rounding - pad_left
                         end = round((end + pad_left - win_size) / rate_rounding) * rate_rounding - pad_left + win_size
-                    # ax.axvline(start, color="black", linestyle="--")
-                    # ax.axvline(end, color="black", linestyle="--")
+                    ax.axvline(start, color="black", linestyle="--", alpha=0.4)
+                    ax.axvline(end, color="black", linestyle="--", alpha=0.4)
                     ax.axvspan(start, end, color="gray", alpha=0.2)
                     ax.text(
                         (start + end) / 2,
