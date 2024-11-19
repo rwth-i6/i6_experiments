@@ -201,7 +201,7 @@ def py():
                     f"{prefix}ctc_ref_log_probs/{shortname}-ep{epoch}-bug/log_probs.hdf", ref_log_probs_bug
                 )
 
-                for shift in [-1, -2, -3, -5, -7, -10]:
+                for shift in [0, -1, -2, -3, -5, -7, -10, -20, -30, -40]:
                     alignment = ctc_forced_align(
                         ctc_model, train_dataset, {"fix_log_probs": True, "blank_logit_shift": shift}
                     )

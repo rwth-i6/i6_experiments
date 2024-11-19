@@ -1,7 +1,8 @@
 """
 Calculate statistics over any dataset, e.g. feature statistics.
 Can also perform any computation on the dataset, e.g. forward pass through a model.
-Thus, this can also be used to calculate prior statistics for a model.
+Thus, this can also be used to calculate prior statistics for a model,
+such as the average softmax output, the model softmax prior.
 """
 
 from __future__ import annotations

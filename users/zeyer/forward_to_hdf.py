@@ -1,5 +1,9 @@
 """
 Forward model outputs (or anything) to HDF
+
+Related:
+Also see :mod:`collect_model_dataset_stats` for collecting stats on the dataset and/or model,
+e.g. like getting the average model softmax output, i.e. the model softmax prior.
 """
 
 from __future__ import annotations
