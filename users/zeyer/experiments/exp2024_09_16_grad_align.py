@@ -1027,7 +1027,7 @@ def _ctc_model_get_ref_label_log_probs_step(*, model: CtcModel, extern_data: Ten
     data = extern_data[default_input_key]
     targets = extern_data[default_target_key]
     expected_output = rf.get_run_ctx().expected_outputs["output"]
-    batch_dim_, enc_spatial_dim_, target_ext_spatial_dim_ = expected_output.dims[-1]
+    batch_dim_, enc_spatial_dim_, target_ext_spatial_dim_ = expected_output.dims
     assert batch_dim_ == batch_dim
 
     assert model.blank_idx == targets.sparse_dim.dimension  # blank idx at end. not implemented otherwise
