@@ -395,7 +395,7 @@ def get_ref_label_seq() -> List[Tuple[int, str]]:
     return seq_
 
 
-def get_model_log_prob_ref_label_seq_incl_blank(*, force: bool = False) -> np.array:
+def get_model_log_prob_ref_label_seq_incl_blank_direct(*, force: bool = False) -> np.array:
     """
     :return: [T,S+1] log probs, S is the target length, first entry is blank (thus +1)
     """
@@ -491,6 +491,35 @@ def get_model_log_prob_ref_label_seq_incl_blank(*, force: bool = False) -> np.ar
     return out.raw_tensor  # [T,S+1]
 
 
+def get_model_log_prob_ref_label_seq_incl_blank(*, force: bool = False) -> np.array:
+    """
+    :return: [T,S+1] log probs, S is the target length, first entry is blank (thus +1)
+    """
+    # We want to load the model, and then forward the seq, and get the log probs for the ref label seq.
+    out_fn_npz = out_prefix + seq_tag + f"/model_log_probs_ref_label_seq_incl_blank_{model_name_short}_via_hdf.npz"
+    if not force and os.path.exists(out_fn_npz):
+        print(f"Already exists: {out_fn_npz}")
+        return np.load(out_fn_npz)["model_log_probs_ref_label_seq_incl_blank"]
+
+    from returnn.datasets.hdf import HDFDataset
+
+    hdf_fn = f"output/exp2024_09_16_grad_align/ctc_ref_log_probs/{model_name_short}-ep-1/log_probs.hdf"
+    print("load HDF:", hdf_fn)
+    dataset = HDFDataset([hdf_fn])
+    dataset.initialize()
+    dataset.init_seq_order(epoch=1, seq_list=[seq_tag])
+
+    model_log_probs = dataset.get_data(0, "data")  # [T * (S+1)]
+    sizes = dataset.get_data(0, "sizes")  # [2] (T, S+1)
+    size_time, size_targets_ext = sizes
+    assert size_time * size_targets_ext == model_log_probs.shape[0], f"sizes {sizes}, shape {model_log_probs.shape}"
+    model_log_probs = model_log_probs.reshape(size_time, size_targets_ext)  # [T, S+1]
+    print("got output:", model_log_probs.shape)
+    os.makedirs(os.path.dirname(out_fn_npz), exist_ok=True)
+    np.savez(out_fn_npz, model_log_probs_ref_label_seq_incl_blank=model_log_probs)
+    return model_log_probs  # [T,S+1]
+
+
 def get_word_boundaries_from_hdf_alignment(
     *, align_type: str = "probs_best_path", force: bool = False
 ) -> List[Tuple[float, float, str]]:
@@ -553,7 +582,9 @@ def get_word_boundaries_from_hdf_alignment(
     assert model_log_probs.shape == (len(alignment), len(ref_label_seq)), f"got {model_log_probs.shape}"
     model_log_probs_seq = [model_log_probs[t, ref_label_seq.index(int(l))] for t, l in enumerate(alignment)]  # [T]
     print("model prob seq frames:", [np.exp(p) for p in model_log_probs_seq])
-    print("model log prob seq sum:", sum(model_log_probs_seq), "prob:", np.exp(sum(model_log_probs_seq)))
+    model_log_prob_seq_sum = sum(model_log_probs_seq)
+    print("model log prob seq sum:", model_log_prob_seq_sum, "prob:", np.exp(model_log_prob_seq_sum))
+    assert abs(model_log_prob_seq_sum - align_score.item()) < 1e-5
 
     if alignment_label_topology == "explicit":
         align_states = alignments_ds.get_data(0, "states")
