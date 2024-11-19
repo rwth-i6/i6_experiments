@@ -1,6 +1,6 @@
-import itertools
+import os
 
-from typing import Dict, Tuple, Union, Any, Optional
+from typing import Dict, Tuple, Union, Any, Optional, Sequence
 
 from i6_core.lib import corpus
 from sisyphus import Job, Task as SisTask, tk
@@ -41,24 +41,27 @@ class CorpusReplaceOrthFromPyDictJob(Job):
         assert isinstance(d, dict), "Has to be a dict containing the path to the search output file"
         
         assert c.fullname() in d["path"], "Corpus not in search output"
-        # if c.fullname() not in d["path"]:
-        #     c.dump(self.out_corpus.get_path())
-        #     return
         
         d = eval(uopen(d["path"][c.fullname()], "rt").read(), {"nan": float("nan"), "inf": float("inf")})
         assert isinstance(d, dict), "only search output file with dict format is supported"
         
-        i = 0
+        j = 0
         for segment in segment_iterator:
-            i += 1
-            # if segment.fullname() not in d:
-            #     continue
             assert segment.fullname() in d, f"Segment {segment.fullname()} not in search output"
             line = d[segment.fullname()]
-            assert len(line) > 0
-            segment.orth = line.strip()
-        assert len(d) == i, f"Number of segments in corpus ({i}) does not match number of segments in search output ({len(d)})"
-
+            if len(line) == 0:
+                assert segment.recording is not None, f"Segment {segment.fullname()} has no recording"
+                assert len(segment.recording.segments) == 1, f"Recording {segment.recording.fullname()} has more than one segment ({segment.recording.segments})"
+                print(f"Segment {segment.fullname()} has empty pseudo label. It should be {segment.orth}")
+                c.remove_recording(segment.recording)
+                j += 1
+            else:
+                segment.orth = line.strip()
+        n = len(c.recordings)
+        m = len(d)
+        assert m == n + j, f"Number of segments in corpus ({n+j}) does not match number of segments in search output ({m})"
+        
+        print(f"Number of segments with empty pseudo label: {j} out of {m}, Percentage: {j/m}")
         c.dump(self.out_corpus.get_path())
         
 def get_ogg_zip_dict_pseudo_labels(bliss_corpus_dict: Dict[str, tk.Path]) -> Dict[str, tk.Path]:

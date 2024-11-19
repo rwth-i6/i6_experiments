@@ -505,8 +505,7 @@ class LibrispeechOggZip(DatasetConfig):
                 "data": ("zip_dataset", "data"),
                 "classes": ("pseudo_labels_dataset", "classes"),
             }
-            d = MetaDataset(data_map, d_comb, "zip_dataset").as_returnn_opts()
-            
+            d = MetaDataset(data_map, d_comb, "pseudo_labels_dataset").as_returnn_opts()
         return d
 
 
@@ -574,6 +573,12 @@ def get_librispeech_task_raw_v2(
     vocab_ = vocab
     if isinstance(vocab, str):
         vocab = get_vocab_by_str(vocab, train_small=True if (ds_sel == TrainDatasetSel.train_100h or ds_sel == TrainDatasetSel.train_860h) else False)
+        
+    if ds_sel == TrainDatasetSel.train_860h:
+        if dataset_train_opts:
+            dataset_train_opts["train_epoch_wise_filter"] = None
+        else:
+            dataset_train_opts = dict(train_epoch_wise_filter=None)
 
     cache_key = make_hashable((LibrispeechOggZip, vocab, train_vocab_opts, audio_opts, audio_dim, save_pseudo_labels, ds_sel, with_prior, dataset_train_opts))
     if cache_key in _librispeech_task_raw_v2_cache:

@@ -6,7 +6,8 @@ from __future__ import annotations
 
 import copy
 import functools
-from typing import TYPE_CHECKING, Optional, Union, Tuple, Sequence, Callable, Dict, Any
+from typing import TYPE_CHECKING, Optional, Union, Tuple, Sequence, Callable, Dict, Any, List
+import numpy as np
 
 import returnn.frontend as rf
 import returnn.torch.frontend as rtf
@@ -33,7 +34,11 @@ if TYPE_CHECKING:
 
 
 OUT_BLANK_LABEL = "<blank>"
+CHECK_DECODER_CONSISTENCY = False
 _raw_sample_rate = _batch_size_factor * 100  # bs factor is from 10ms frames to raw samples
+
+
+# 'train-clean-360/4837-302000-0048/4837-302000-0048'
 
 
 def py():
@@ -53,7 +58,7 @@ def py():
     use_flashlight = True
     use_greedy = False
     epochs = 500
-    self_training_rounds = 1
+    self_training_rounds = 0
     test_self_training_on_small_dataset = 0 # TODO remove this parameter
     train_small = True
     with_prior = True
@@ -95,7 +100,7 @@ def py():
         lm_hyperparamters_str = f"{p0}_{p1}_{p2}_{p3}_{p4}{p5}{p6}{p7}"
         
     train_exp(
-        f"ctc-baseline" +
+        f"test_ctc-baseline" +
         (f"-self_training_{self_training_rounds}" if self_training_rounds > 0 else "") + (f"-dataset_size_{test_self_training_on_small_dataset}" if test_self_training_on_small_dataset > 0 else "") +
         (f"-ds100h" if train_small else "") +
         f"-{vocab}" + (greedy_str if use_greedy else (("-recog_lm" + lm_hyperparamters_str) if use_flashlight else "-recog_albert")),
@@ -224,6 +229,7 @@ def train_exp(
         recog_def=decoder_def,
         decoder_hyperparameters=decoder_hyperparameters,
         save_pseudo_labels=pseudo_labels_ds,
+        calculate_pseudo_label_scores=False,
         recog_post_proc_funcs=recog_post_proc_funcs
     )
     
@@ -916,8 +922,6 @@ def model_recog_lm(
     from torchaudio.models.decoder import ctc_decoder
     import torch
     from returnn.util.basic import cf
-    from i6_core.returnn.hdf import ReturnnDumpHDFJob
-    import numpy as np
     
     # Get the logits from the model
     logits, enc, enc_spatial_dim = model(data, in_spatial_dim=data_spatial_dim)
@@ -984,50 +988,66 @@ def model_recog_lm(
     else:
         decoder_results = decoder(logits.raw_tensor.cpu(), enc_spatial_dim_torch)
     
-    # print(f"CUSTOM Decoder Tokens Len1 (batch_dim): {len(decoder_results)}")
-    # print(f"CUSTOM Decoder Tokens Len2 (beam_dim): {len(decoder_results[1])}")
-    # print(f"CUSTOM decoder 0 0: {decoder_results[0][0].tokens}, {decoder_results[0][0].score}, {decoder_results[0][0].timesteps}, {decoder_results[0][0].words}")
-    # print(f"CUSTOM decoder 0 1: {decoder_results[0][1].tokens}, {decoder_results[0][1].score}, {decoder_results[0][1].timesteps}, {decoder_results[0][1].words}")
-    # print(f"CUSTOM decoder 1 0: {decoder_results[1][0].tokens}, {decoder_results[1][0].score}, {decoder_results[1][0].timesteps}, {decoder_results[1][0].words}")
-    # print(f"CUSTOM decoder 1 1: {decoder_results[1][1].tokens}, {decoder_results[1][1].score}, {decoder_results[1][1].timesteps}, {decoder_results[1][1].words}")
-    
-    def _pad_blanks(tokens, max_len):
-        if len(tokens) < max_len:
-            # print("We had to pad blanks")
-            tokens = torch.cat([tokens, torch.tensor([model.blank_idx] * (max_len - len(tokens)))])
-        return tokens
-    
-    def _pad_lists(t, max_len, max_len2):
-        if t.shape[0] < max_len2:
-            print("We had to pad the list")
-            t = torch.cat([t, torch.tensor([[model.blank_idx] * max_len] * (max_len2 - t.shape[0]))])
-        return t
-    
-    def _pad_scores(l, max_len):
-        l = torch.tensor(l)
-        if len(l) < max_len:
-            print("We had to pad scores")
-            l = torch.cat([l, torch.tensor([-1000000.0] * (max_len - len(l)))])
-        return l
-    
-    max_length = int(enc_spatial_dim_torch.max())
-    hyps = [torch.stack([_pad_blanks(l2.tokens, max_length) for l2 in l1]) for l1 in decoder_results]
-    max_length_2 = max([l.shape[0] for l in hyps])
-    hyps = [_pad_lists(t, max_length, max_length_2) for t in hyps]
-    hyps = torch.stack(hyps)
-    beam_dim = rtf.TorchBackend.get_new_dim_raw(hyps, 1, name="beam_dim")
-    dims = [batch_dim, beam_dim, enc_spatial_dim]
-    hyps = rtf.TorchBackend.convert_to_tensor(hyps, dims = dims, sparse_dim=model.wb_target_dim, dtype = "int64", name="hyps")
-    
-    scores = [[l2.score for l2 in l1] for l1 in decoder_results]
-    max_length_3 = max([len(l) for l in scores])
-    scores = torch.stack([_pad_scores(l, max_length_3) for l in scores])
-    dims = [batch_dim, beam_dim]
-    scores = Tensor("scores", dims = dims, dtype = "float32", raw_tensor = scores)
-    
-    # print(f"CUSTOM seq_targets: {hyps} \n{hyps.raw_tensor.cpu()},\nscores: {scores} \n{scores.raw_tensor.cpu()}n {scores.raw_tensor.cpu()[0][0]},\nspatial_dim: {enc_spatial_dim.dyn_size_ext.raw_tensor.cpu()},\n beam_size: {beam_dim}")
-    
-    return hyps, scores, enc_spatial_dim, beam_dim
+    if use_lexicon:
+        if CHECK_DECODER_CONSISTENCY:
+            for l1 in decoder_results:
+                for l2 in l1:
+                    lexicon_words = " ".join(l2.words)
+                    token_words = " ".join([configs["tokens"][t] for t in l2.tokens])
+                    assert not token_words.endswith("@@"), f"Token words ends with @@: {token_words}, Lexicon words: {lexicon_words}"
+                    token_words = token_words.replace("@@ ", "")
+                    assert lexicon_words == token_words, f"Words don't match: Lexicon words: {lexicon_words}, Token words: {token_words}"
+        
+        words = [[" ".join(l2.words) for l2 in l1] for l1 in decoder_results]
+        words = np.array(words)
+        words = np.expand_dims(words, axis=2)
+        scores = [[l2.score for l2 in l1] for l1 in decoder_results]
+        scores = torch.tensor(scores)
+        
+        beam_dim = Dim(words.shape[1], name="beam_dim")
+        enc_spatial_dim = Dim(1, name="spatial_dim")
+        words = rf._numpy_backend.NumpyBackend.convert_to_tensor(words, dims = [batch_dim, beam_dim, enc_spatial_dim], dtype = "string", name="hyps")
+        scores = Tensor("scores", dims = [batch_dim, beam_dim], dtype = "float32", raw_tensor = scores)
+        
+        return words, scores, enc_spatial_dim, beam_dim
+    else:
+        def _pad_blanks(tokens, max_len):
+            if len(tokens) < max_len:
+                # print("We had to pad blanks")
+                tokens = torch.cat([tokens, torch.tensor([model.blank_idx] * (max_len - len(tokens)))])
+            return tokens
+        
+        def _pad_lists(t, max_len, max_len2):
+            if t.shape[0] < max_len2:
+                print("We had to pad the list")
+                t = torch.cat([t, torch.tensor([[model.blank_idx] * max_len] * (max_len2 - t.shape[0]))])
+            return t
+        
+        def _pad_scores(l, max_len):
+            l = torch.tensor(l)
+            if len(l) < max_len:
+                print("We had to pad scores")
+                l = torch.cat([l, torch.tensor([-1000000.0] * (max_len - len(l)))])
+            return l
+            
+        max_length = int(enc_spatial_dim_torch.max())
+        hyps = [torch.stack([_pad_blanks(l2.tokens, max_length) for l2 in l1]) for l1 in decoder_results]
+        max_length_2 = max([l.shape[0] for l in hyps])
+        hyps = [_pad_lists(t, max_length, max_length_2) for t in hyps]
+        hyps = torch.stack(hyps)
+        beam_dim = rtf.TorchBackend.get_new_dim_raw(hyps, 1, name="beam_dim")
+        dims = [batch_dim, beam_dim, enc_spatial_dim]
+        hyps = rtf.TorchBackend.convert_to_tensor(hyps, dims = dims, sparse_dim=model.wb_target_dim, dtype = "int64", name="hyps")
+        
+        scores = [[l2.score for l2 in l1] for l1 in decoder_results]
+        max_length_3 = max([len(l) for l in scores])
+        scores = torch.stack([_pad_scores(l, max_length_3) for l in scores])
+        dims = [batch_dim, beam_dim]
+        scores = Tensor("scores", dims = dims, dtype = "float32", raw_tensor = scores)
+        
+        # print(f"CUSTOM seq_targets: {hyps} \n{hyps.raw_tensor.cpu()},\nscores: {scores} \n{scores.raw_tensor.cpu()}n {scores.raw_tensor.cpu()[0][0]},\nspatial_dim: {enc_spatial_dim.dyn_size_ext.raw_tensor.cpu()},\n beam_size: {beam_dim}")
+        
+        return hyps, scores, enc_spatial_dim, beam_dim
 
 # RecogDef API
 model_recog_lm: RecogDef[Model]

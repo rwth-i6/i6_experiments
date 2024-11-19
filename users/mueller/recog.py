@@ -120,6 +120,7 @@ def recog_training_exp(
         extract_pseudo_labels_job = ExtractPseudoLabels(
             pseudo_recog_func=pseudo_label_recog_func,
             recog_input=summarize_job.out_summary_json,
+            calculate_score=calculate_pseudo_label_scores,
         )
         extract_pseudo_labels_job.add_alias(prefix_name + "/pseudo_labels/extract")
     
@@ -387,13 +388,16 @@ def search_dataset(
             search_job.set_env(k, v)
     if search_alias_name:
         search_job.add_alias(search_alias_name)
-    if recog_def.output_blank_label:
-        if recog_def is not model_recog_lm or "greedy" in decoder_hyperparameters:
-            # Also assume we should collapse repeated labels first.
-            res = SearchCollapseRepeatedLabelsJob(res, output_gzip=True).out_search_results
-        res = SearchRemoveLabelJob(res, remove_label=recog_def.output_blank_label, output_gzip=True).out_search_results
-    for f in recog_post_proc_funcs:  # for example BPE to words
-        res = f(RecogOutput(output=res)).output
+        
+    use_lexicon = decoder_hyperparameters.pop("use_lexicon", False) # if we have lexicon we already have the full words
+    if not use_lexicon:
+        if recog_def.output_blank_label:
+            if recog_def is not model_recog_lm or "greedy" in decoder_hyperparameters:
+                # Also assume we should collapse repeated labels first.
+                res = SearchCollapseRepeatedLabelsJob(res, output_gzip=True).out_search_results
+            res = SearchRemoveLabelJob(res, remove_label=recog_def.output_blank_label, output_gzip=True).out_search_results
+        for f in recog_post_proc_funcs:  # for example BPE to words
+            res = f(RecogOutput(output=res)).output
     if recog_def.output_with_beam:
         # Don't join scores here (SearchBeamJoinScoresJob).
         #   It's not clear whether this is helpful in general.
@@ -693,7 +697,7 @@ def search_config_v2(
                         {
                             # Increase the version whenever some incompatible change is made in this recog() function,
                             # which influences the outcome, but would otherwise not influence the hash.
-                            "version": 10,
+                            "version": 12,
                         }
                     ),
                     serialization.PythonEnlargeStackWorkaroundNonhashedCode,
@@ -873,33 +877,46 @@ def _returnn_v2_get_forward_callback():
         def process_seq(self, *, seq_tag: str, outputs: TensorDict):
             hyps: Tensor = outputs["hyps"]  # [beam, out_spatial]
             scores: Tensor = outputs["scores"]  # [beam]
-            assert hyps.sparse_dim and hyps.sparse_dim.vocab  # should come from the model
-            assert hyps.dims[1].dyn_size_ext, f"hyps {hyps} do not define seq lengths"
-            # AED/Transducer etc will have hyps len depending on beam -- however, CTC will not.
-            hyps_len = hyps.dims[1].dyn_size_ext  # [beam] or []
-            assert hyps.raw_tensor.shape[:1] == scores.raw_tensor.shape  # (beam,)
-            if hyps_len.raw_tensor.shape:
-                assert scores.raw_tensor.shape == hyps_len.raw_tensor.shape  # (beam,)
-            num_beam = hyps.raw_tensor.shape[0]
-            # Consistent to old search task, list[(float,str)].
-            self.out_file.write(f"{seq_tag!r}: [\n")
-            for i in range(num_beam):
-                score = float(scores.raw_tensor[i])
-                hyp_ids = hyps.raw_tensor[
-                    i, : hyps_len.raw_tensor[i] if hyps_len.raw_tensor.shape else hyps_len.raw_tensor
-                ]
-                hyp_serialized = hyps.sparse_dim.vocab.get_seq_labels(hyp_ids)
-                self.out_file.write(f"  ({score!r}, {hyp_serialized!r}),\n")
-            self.out_file.write("],\n")
-
-            if self.out_ext_file:
-                self.out_ext_file.write(f"{seq_tag!r}: [\n")
-                for v in outputs.data.values():
-                    assert v.dims[0].dimension == num_beam
+            if hyps.sparse_dim and hyps.sparse_dim.vocab: # a bit hacky but works
+                assert hyps.sparse_dim and hyps.sparse_dim.vocab  # should come from the model
+                assert hyps.dims[1].dyn_size_ext, f"hyps {hyps} do not define seq lengths"
+                # AED/Transducer etc will have hyps len depending on beam -- however, CTC will not.
+                hyps_len = hyps.dims[1].dyn_size_ext  # [beam] or []
+                assert hyps.raw_tensor.shape[:1] == scores.raw_tensor.shape  # (beam,)
+                if hyps_len.raw_tensor.shape:
+                    assert scores.raw_tensor.shape == hyps_len.raw_tensor.shape  # (beam,)
+                num_beam = hyps.raw_tensor.shape[0]
+                # Consistent to old search task, list[(float,str)].
+                self.out_file.write(f"{seq_tag!r}: [\n")
                 for i in range(num_beam):
-                    d = {k: v.raw_tensor[i].tolist() for k, v in outputs.data.items() if k not in {"hyps", "scores"}}
-                    self.out_ext_file.write(f"  {d!r},\n")
-                self.out_ext_file.write("],\n")
+                    score = float(scores.raw_tensor[i])
+                    hyp_ids = hyps.raw_tensor[
+                        i, : hyps_len.raw_tensor[i] if hyps_len.raw_tensor.shape else hyps_len.raw_tensor
+                    ]
+                    hyp_serialized = hyps.sparse_dim.vocab.get_seq_labels(hyp_ids)
+                    self.out_file.write(f"  ({score!r}, {hyp_serialized!r}),\n")
+                self.out_file.write("],\n")
+
+                if self.out_ext_file:
+                    self.out_ext_file.write(f"{seq_tag!r}: [\n")
+                    for v in outputs.data.values():
+                        assert v.dims[0].dimension == num_beam
+                    for i in range(num_beam):
+                        d = {k: v.raw_tensor[i].tolist() for k, v in outputs.data.items() if k not in {"hyps", "scores"}}
+                        self.out_ext_file.write(f"  {d!r},\n")
+                    self.out_ext_file.write("],\n")
+            else: # We are already having the words at hand
+                assert hyps.raw_tensor.shape[:1] == scores.raw_tensor.shape  # (beam,)
+                num_beam = hyps.raw_tensor.shape[0]
+                # Consistent to old search task, list[(float,str)].
+                self.out_file.write(f"{seq_tag!r}: [\n")
+                for i in range(num_beam):
+                    score = float(scores.raw_tensor[i])
+                    words = hyps.raw_tensor[i][0]
+                    self.out_file.write(f"  ({score!r}, {words!r}),\n")
+                self.out_file.write("],\n")
+
+                assert not self.out_ext_file, "not implemented"
 
         def finish(self):
             self.out_file.write("}\n")
@@ -1057,7 +1074,7 @@ class ExtractPseudoLabels(sisyphus.Job):
         self,
         pseudo_recog_func: Optional[Callable[[int], ScoreResultCollection]],
         recog_input: tk.Path,
-        calculate_score: bool = True,
+        calculate_score: bool,
     ):
         super(ExtractPseudoLabels, self).__init__()
         self.pseudo_recog_func = pseudo_recog_func
