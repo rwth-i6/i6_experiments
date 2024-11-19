@@ -194,6 +194,35 @@ def py():
             tk.register_output(prefix + name + ".json", job.out_scores)
             tk.register_output(prefix + name + ".short_report.txt", job.out_short_report_str)
 
+            if "blankSep" in shortname:
+                ref_log_probs_bug = get_ctc_ref_label_log_probs(ctc_model, train_dataset, {"bug_log_probs": True})
+                ref_log_probs_bug.creator.add_alias(f"{prefix}ctc_ref_log_probs/{shortname}-ep{epoch}-bug/log_probs")
+                tk.register_output(
+                    f"{prefix}ctc_ref_log_probs/{shortname}-ep{epoch}-bug/log_probs.hdf", ref_log_probs_bug
+                )
+
+                alignment = ctc_forced_align(ctc_model, train_dataset, {"fix_log_probs": True})
+                alignment.creator.add_alias(f"{prefix}ctc_forced_align/{shortname}-ep{epoch}-fix/align")
+                tk.register_output(f"{prefix}ctc_forced_align/{shortname}-ep{epoch}-fix/align.hdf", alignment)
+
+                name = f"ctc_forced_align/{shortname}-ep{epoch}-fix/align-metrics"
+                job = CalcAlignmentMetrics(
+                    seq_list=seq_list,
+                    seq_list_ref=seq_list_ref,
+                    alignment_hdf=alignment,
+                    alignment_label_topology="ctc",
+                    alignment_bpe_vocab=vocabs[vocab][1],
+                    alignment_bpe_style=vocabs[vocab][0],
+                    alignment_blank_idx=vocabs[vocab][2],
+                    features_sprint_cache=features_sprint_cache,
+                    ref_alignment_sprint_cache=gmm_alignment_sprint_cache,
+                    ref_alignment_allophones=gmm_alignment_allophones,
+                    ref_alignment_len_factor=6,
+                )
+                job.add_alias(prefix + name)
+                tk.register_output(prefix + name + ".json", job.out_scores)
+                tk.register_output(prefix + name + ".short_report.txt", job.out_short_report_str)
+
         for extra_name, grad_opts in [
             # ("", {}),
             # *([("-bs1", {"max_seqs": 1})] if shortname == "base" else []),  # test influence of batching
@@ -650,7 +679,9 @@ def sis_get_aed_model(name: str, *, epoch: int = -1) -> ModelWithCheckpoint:
     return exp.get_epoch(epoch)
 
 
-def ctc_forced_align(model: ModelWithCheckpoint, dataset: DatasetConfig) -> tk.Path:
+def ctc_forced_align(
+    model: ModelWithCheckpoint, dataset: DatasetConfig, config: Optional[Dict[str, Any]] = None
+) -> tk.Path:
     from i6_experiments.users.zeyer.forward_to_hdf import forward_to_hdf
 
     extern_data_dict = dataset.get_extern_data()
@@ -672,7 +703,8 @@ def ctc_forced_align(model: ModelWithCheckpoint, dataset: DatasetConfig) -> tk.P
             "model_outputs": {
                 "output": {"shape": (None,), "sparse_dim": classes_with_blank_dim},
                 "scores": {"shape": ()},
-            }
+            },
+            **(config or {}),
         },
         forward_rqmt={"time": 12},
     )
@@ -695,8 +727,13 @@ def _ctc_model_forced_align_step(*, model: CtcModel, extern_data: TensorDict, **
     out_spatial_dim = expected_output.dims[-1]
 
     logits, enc, enc_spatial_dim = model(source, in_spatial_dim=source.get_time_dim_tag())
+    if config.bool("fix_log_probs", False):
+        log_probs = model.log_probs_wb_from_logits(logits)
+    else:
+        log_probs = rf.log_softmax(logits, axis=logits.feature_dim)
     path, score = best_path_ctc(
-        logits=logits,
+        logits=log_probs,
+        logits_normalized=True,
         input_spatial_dim=enc_spatial_dim,
         targets=targets,
         targets_spatial_dim=targets.get_time_dim_tag(),
@@ -1049,7 +1086,10 @@ def _ctc_model_get_ref_label_log_probs_step(*, model: CtcModel, extern_data: Ten
     logits, enc, enc_spatial_dim = model(data, in_spatial_dim=in_spatial_dim)
     enc_spatial_dim_.declare_same_as(enc_spatial_dim)
     enc_spatial_dim.dyn_size_ext.mark_as_output("enc_size", shape=[batch_dim])
-    log_probs_wb = model.log_probs_wb_from_logits(logits)
+    if config.bool("bug_log_probs", False):
+        log_probs_wb = rf.log_softmax(logits, axis=logits.feature_dim)
+    else:
+        log_probs_wb = model.log_probs_wb_from_logits(logits)
     log_probs_ref_seq = rf.gather(log_probs_wb, indices=targets_, axis=model.wb_target_dim)  # [B,T,S+1]
     log_probs_ref_seq.mark_as_default_output(shape=[batch_dim, enc_spatial_dim, target_ext_spatial_dim])
 
