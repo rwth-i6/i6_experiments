@@ -78,9 +78,9 @@ models = [
         "-lpNormedGradC05_11P1",
     ),
 ]
+grad_type_base = "blankStopGrad-inclBlankState-p0.1"
 grad_type = (
-    "blankStopGrad-inclBlankState-p0.1"
-    "-smTimeTrue-bScorecalc-bScore_estflipped_after_softmax_over_time"
+    grad_type_base + "-smTimeTrue-bScorecalc-bScore_estflipped_after_softmax_over_time"
     "-non_blank_score_reducelog_mean_exp-bScore_flipped_percentile60-smLabelsTrue"
 )
 include_overlap_win_in_word_boundaries = False
@@ -176,14 +176,16 @@ def get_audio_features_rf() -> np.array:
 
 
 def get_grad_scores():
-    out_fn_npz = out_prefix + seq_tag + f"/visualize_grad_scores/{model_name_short}/grads.npz"
+    out_fn_npz = out_prefix + seq_tag + f"/visualize_grad_scores/{model_name_short}-{grad_type_base}/grads.npz"
 
     if os.path.exists(out_fn_npz):
         print(f"Already exists: {out_fn_npz}")
         data = np.load(out_fn_npz)
         return data["score_matrix"]
 
-    score_matrix_hdf = Path(f"output/exp2024_09_16_grad_align/ctc-grad-align/{model_name_short}/input_grads.hdf")
+    score_matrix_hdf = Path(
+        f"output/exp2024_09_16_grad_align/ctc-grad-align/{model_name_short}-{grad_type_base}/input_grads.hdf"
+    )
     print("load grad scores HDF:", score_matrix_hdf)
     score_matrix_data_dict = load_hdf_data(score_matrix_hdf, num_dims=2)
     basename_tags = {os.path.basename(tag): tag for tag in score_matrix_data_dict.keys()}
