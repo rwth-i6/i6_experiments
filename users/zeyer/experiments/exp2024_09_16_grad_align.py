@@ -170,6 +170,11 @@ def py():
         for epoch in [-1]:  # [20, 40, 80, 160, 320, 500, -1]:
             ctc_model = sis_get_ctc_model(fullname, epoch=epoch)
 
+            # Priors, using full train dataset.
+            prior_stats = get_ctc_prior(ctc_model, task.train_dataset.copy_train_as_static(), {"fix_log_probs": True})
+            prior_stats.mean.creator.add_alias(f"{prefix}ctc_prior/{shortname}-ep{epoch}/prior_stats_full")
+            tk.register_output(f"{prefix}ctc_prior/{shortname}-ep{epoch}/prior_stats_full.mean.txt", prior_stats.mean)
+
             ref_log_probs = get_ctc_ref_label_log_probs(ctc_model, train_dataset)
             ref_log_probs.creator.add_alias(f"{prefix}ctc_ref_log_probs/{shortname}-ep{epoch}/log_probs")
             tk.register_output(f"{prefix}ctc_ref_log_probs/{shortname}-ep{epoch}/log_probs.hdf", ref_log_probs)
@@ -183,32 +188,22 @@ def py():
                     f"{prefix}ctc_ref_log_probs/{shortname}-ep{epoch}-bug/log_probs.hdf", ref_log_probs_bug
                 )
 
-                for shift in [0, -5, -10, -15, -18, -20, -25, -30]:
-                    opts_variants.append({"fix_log_probs": True, "blank_logit_shift": shift})
+            for shift in [0, -5, -10, -15, -18, -20, -25]:
+                opts_variants.append({"fix_log_probs": True, "blank_logit_shift": shift})
 
-                # Priors, using full train dataset.
-                prior_stats = get_ctc_prior(
-                    ctc_model, task.train_dataset.copy_train_as_static(), {"fix_log_probs": True}
+            # prior_stats = get_ctc_prior(ctc_model, train_dataset, {"fix_log_probs": True})
+            # prior_stats.mean.creator.add_alias(f"{prefix}ctc_prior/{shortname}-ep{epoch}/prior_stats")
+            # tk.register_output(f"{prefix}ctc_prior/{shortname}-ep{epoch}/prior_stats.mean.txt", prior_stats.mean)
+            for am_scale, prior_scale in [(1.0, 1.0), (1.0, 1.5), (1.0, 2.0), (1.0, 3.0)]:
+                opts_variants.append(
+                    {
+                        "fix_log_probs": True,
+                        "ctc_prior_type": "static",
+                        "static_prior": {"type": "prob", "file": prior_stats.mean},
+                        "ctc_am_scale": am_scale,
+                        "ctc_prior_scale": prior_scale,
+                    }
                 )
-                prior_stats.mean.creator.add_alias(f"{prefix}ctc_prior/{shortname}-ep{epoch}/prior_stats_full")
-                tk.register_output(
-                    f"{prefix}ctc_prior/{shortname}-ep{epoch}/prior_stats_full.mean.txt", prior_stats.mean
-                )
-
-                # TODO remove this once we have the full prior...
-                prior_stats = get_ctc_prior(ctc_model, train_dataset, {"fix_log_probs": True})
-                prior_stats.mean.creator.add_alias(f"{prefix}ctc_prior/{shortname}-ep{epoch}/prior_stats")
-                tk.register_output(f"{prefix}ctc_prior/{shortname}-ep{epoch}/prior_stats.mean.txt", prior_stats.mean)
-                for am_scale, prior_scale in [(1.0, 1.0), (1.0, 1.5)]:
-                    opts_variants.append(
-                        {
-                            "fix_log_probs": True,
-                            "ctc_prior_type": "static",
-                            "static_prior": {"type": "prob", "file": prior_stats.mean},
-                            "ctc_am_scale": am_scale,
-                            "ctc_prior_scale": prior_scale,
-                        }
-                    )
 
             for opts in opts_variants:
                 prefix_ = f"{prefix}ctc_forced_align/{shortname}-ep{epoch}"
