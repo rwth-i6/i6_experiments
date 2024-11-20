@@ -7,6 +7,7 @@ and with the proper feature extraction from i6-models
 import numpy as np
 import torch
 from torch import nn
+from torch.onnx import export as onnx_export
 from typing import Tuple
 
 from i6_models.parts.conformer.norm import LayerNormNC
@@ -249,3 +250,52 @@ def prior_step(*, model: Model, data, run_ctx, **kwargs):
         run_ctx.sum_probs = torch.sum(probs, dim=(0, 1))
     else:
         run_ctx.sum_probs += torch.sum(probs, dim=(0, 1))
+
+
+def export_trace(*, model: Model, model_filename: str):
+    model.conformer.export_mode = True
+    dummy_data = torch.randn(1, 30, 50, device="cpu")
+    # dummy_data_len, _ = torch.sort(torch.randint(low=10, high=30, size=(1,), device="cpu", dtype=torch.int32), descending=True)
+    dummy_data_len = torch.ones((1,)) * 30
+    scripted_model = torch.jit.optimize_for_inference(
+        torch.jit.trace(model.eval(), example_inputs=(dummy_data, dummy_data_len)))
+    onnx_export(
+        scripted_model,
+        (dummy_data, dummy_data_len),
+        f=model_filename,
+        verbose=True,
+        input_names=["data", "data_len"],
+        output_names=["classes"],
+        opset_version=14,
+        dynamic_axes={
+            # dict value: manually named axes
+            "data": {0: "batch", 1: "time"},
+            "data_len": {0: "batch"},
+            "classes": {0: "batch", 1: "time"}
+        }
+    )
+
+
+def export_returnn(*, model: Model, args: Any, f: str):
+    model.conformer.export_mode = True
+    dummy_data = torch.randn(1, 30, 50, device="cpu")
+    # dummy_data_len, _ = torch.sort(torch.randint(low=10, high=30, size=(1,), device="cpu", dtype=torch.int32), descending=True)
+    dummy_data_len = torch.ones((1,)) * 30
+    scripted_model = torch.jit.optimize_for_inference(
+        torch.jit.trace(model.eval(), example_inputs=(dummy_data, dummy_data_len)))
+    onnx_export(
+        scripted_model,
+        (dummy_data, dummy_data_len),
+        f=f,
+        verbose=True,
+        input_names=["data", "data_len"],
+        output_names=["classes"],
+        opset_version=14,
+        dynamic_axes={
+            # dict value: manually named axes
+            "data": {0: "batch", 1: "time"},
+            "data_len": {0: "batch"},
+            "classes": {0: "batch", 1: "time"}
+        }
+    )
+

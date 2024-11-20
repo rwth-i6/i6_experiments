@@ -17,6 +17,7 @@ def serialize_training(
     unhashed_net_args: Optional[Dict[str, Any]] = None,
     include_native_ops=False,
     debug: bool = False,
+    do_export=False,
 ) -> Collection:
     """
     Helper function to create the serialization collection
@@ -37,15 +38,21 @@ def serialize_training(
         unhashed_arguments=unhashed_net_args or {},
         import_as="get_model",
     )
-    pytorch_train_step = Import(
-        code_object_path=package + ".%s.train_step" % network_module, unhashed_package_root=PACKAGE
-    )
+    if not do_export:
+        pytorch_step = Import(
+            code_object_path=package + ".%s.train_step" % network_module, unhashed_package_root=PACKAGE
+        )
+    else:
+        pytorch_step = Import(
+            code_object_path=package + ".%s.export" % network_module, unhashed_package_root=PACKAGE
+        )
+
     i6_models = ExternalImport(import_path=I6_MODELS_REPO_PATH)
 
     serializer_objects = [
         i6_models,
         pytorch_model_import,
-        pytorch_train_step,
+        pytorch_step,
     ]
 
     if include_native_ops:

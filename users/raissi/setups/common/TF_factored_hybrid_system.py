@@ -951,7 +951,8 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
         ], "triphone state tying not possible in precomputed feature scorer due to memory constraint"
 
         if softmax_type == SingleSoftmaxType.TRAIN:
-            assert cv_corpus_key_for_train is not None, "you need to specify the cv corpus for fullsum training"
+            if self.training_criterion == TrainingCriterion.FULLSUM:
+                assert cv_corpus_key_for_train is not None, "you need to specify the cv corpus for fullsum training"
             """
             assert self.training_criterion in [
                 TrainingCriterion.FULLSUM,
@@ -1174,6 +1175,8 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
 
         if model_path is None:
             model_path = self.get_model_checkpoint(self.experiments[key]["train_job"], epoch)
+
+
 
         recognizer = self.recognizers[recognizer_key](
             name=name,
@@ -1498,6 +1501,7 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
         feature_scorer_type: RasrFeatureScorer = None,
         tdp_scales: List = None,
         prior_scales: List = None,
+        pron_scales: List = None,
         transition_loop_sil: List = None,
         transition_loop_speech: List = None,
         transition_exit_sil: List = None,
@@ -1556,6 +1560,7 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
             tdp_nonword=[sp_tdp],
             prior_scales=prior_scales,
             tdp_scales=tdp_scales,
+            pron_scales=pron_scales,
         )
 
         if use_heuristic_tdp:

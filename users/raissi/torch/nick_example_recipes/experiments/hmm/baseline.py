@@ -14,18 +14,22 @@ from i6_core.corpus.transform import MergeCorporaJob
 from i6_core.rasr.config import build_config_from_mapping
 
 from i6_experiments.common.setups.returnn.datastreams.vocabulary import LabelDatastream
+from i6_experiments.users.raissi.setups.common.decoder import RasrFeatureScorer
 from i6_experiments.users.raissi.setups.common.helpers.train.oclr import get_oclr_config
 from i6_experiments.users.raissi.setups.common.data.factored_label import (
     LabelInfo,
     PhonemeStateClasses,
-    RasrStateTying,
+    RasrStateTying, PhoneticContext,
 )
+from i6_experiments.users.raissi.torch.decoder.TORCH_factored_hybrid_search import FeatureFlowType, ONNXDecodeIOMap
+from ...config import get_decoding_config
+#from recipe.returnn import ExportPyTorchModelToOnnxJobV2
 
 from ...data.common import DatasetSettings, build_test_dataset
 from ...data.phon import build_phon_training_datasets, get_text_lexicon, get_lexicon
 from ...default_tools import RETURNN_EXE, MINI_RETURNN_ROOT
 from ...lm import get_4gram_binary_lm
-from ...pipeline import training, prepare_asr_model, search, ASRModel
+from ...pipeline import training, prepare_asr_model, search, ASRModel, export_model_for_rasr_decoding
 from ...report import tune_and_evalue_report
 
 
@@ -312,18 +316,59 @@ def ls960_hmm_conformer_monophone():
             train_args_conv_first,
             with_prior=True,
             datasets=train_data,
-            get_specific_checkpoint=150,
-            prior_kwargs={"device": "cpu"}
+            get_specific_checkpoint=250,
+            #prior_kwargs={"device": "cpu"}
         )
 
-        """"
-        Decoding
-        """
+
+
+
+        
+        import i6_core.mm as mm
         import i6_experiments.users.raissi.experiments.librispeech.data_preparation.common.base_args as lbs_data_setups
+        from i6_experiments.users.raissi.torch.decoder.TORCH_factored_hybrid_search import TORCHFactoredHybridDecoder
+        from i6_experiments.users.raissi.utils.default_tools import u22_rasr_path_onnxtorch
+
+        train_job = training(training_name, train_data, train_args_conv_first, num_epochs=250, **default_returnn)
+
+
+
+        decoding_returnn_config = get_decoding_config(training_datasets=train_data, **train_args_conv_first)
+
+
+        
+
+        onnx_model = export_model_for_rasr_decoding(
+            checkpoint=asr_model.checkpoint,
+            returnn_config=decoding_returnn_config,
+            returnn_root=
+
+        )
+
+        dummy_mixtures = mm.CreateDummyMixturesJob(
+            label_info.get_n_of_dense_classes(),
+            50,
+        ).out_mixtures
         corpus_data = lbs_data_setups.get_corpus_data_inputs(corpus_key="train-other-960")
         rasr_init_args = lbs_data_setups.get_init_args()
 
+
+        decoder = TORCHFactoredHybridDecoder(
+
+        name=f"{training_name}_decode",
+        rasr_binary_path=u22_rasr_path_onnxtorch,
+        rasr_input_mapping=corpus_data.dev_data,
+        rasr_init_args=rasr_init_args,
+        context_type=PhoneticContext.monophone,
+        feature_scorer_type=RasrFeatureScorer.onnx,
+        feature_flow_type=FeatureFlowType.SAMPLE,
+        #feature_path=None, #toDo
+        model_path=None, #toDo
+        io_map=ONNXDecodeIOMap.default(),
+        mixtures=dummy_mixtures)
+
         #embed()
+        """
 
 
     # TODO: re-enable tune_and_evaluate_helper with an HMM decoder
@@ -355,7 +400,7 @@ def ls960_hmm_conformer_monophone():
 
 
 
-    """
+
         def tune_and_evaluate_helper(
         training_name,
         asr_model,

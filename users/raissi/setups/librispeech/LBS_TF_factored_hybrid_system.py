@@ -200,6 +200,7 @@ class LBSTFFactoredHybridSystem(TFFactoredHybridBaseSystem):
         if model_path is None:
             model_path = self.get_model_checkpoint(self.experiments[key]["train_job"], epoch)
 
+
         recognizer = self.recognizers[recognizer_key](
             name=name,
             crp=self.crp[crp_corpus] if crp is None else crp,
