@@ -1925,6 +1925,24 @@ class Model(rf.Module):
         self.ctc_prior_scale = config.float("ctc_prior_scale", 0.0)
         self.ctc_prior_type = config.value("ctc_prior_type", "batch")
 
+        static_prior = config.typed_value("static_prior")
+        self.static_prior = None
+        if static_prior:
+            assert isinstance(static_prior, dict)
+            assert set(static_prior.keys()) == {"file", "type"}
+            v = numpy.loadtxt(static_prior["file"])
+            if static_prior["type"] == "log_prob":
+                pass  # already log prob
+            elif static_prior["type"] == "prob":
+                v = numpy.log(v)
+            else:
+                raise ValueError(f"invalid static_prior type {static_prior['type']!r}")
+            self.static_prior = rf.Parameter(
+                rf.convert_to_tensor(v, dims=[self.wb_target_dim], dtype=rf.get_default_float_dtype()),
+                auxiliary=True,
+                non_critical_for_restore=True,
+            )
+
         if target_dim.vocab and not wb_target_dim.vocab:
             from returnn.datasets.util.vocabulary import Vocabulary
 
@@ -1967,6 +1985,7 @@ class Model(rf.Module):
                     k: rf.Parameter(
                         rf.convert_to_tensor(numpy.loadtxt(v), dims=[self.in_dim], dtype=rf.get_default_float_dtype()),
                         auxiliary=True,
+                        non_critical_for_restore=True,
                     )
                     for k, v in feature_stats.items()
                 }
@@ -2103,6 +2122,9 @@ class Model(rf.Module):
                 log_prob_prior = rf.reduce_logsumexp(
                     log_probs_am, axis=[dim for dim in log_probs_am.dims if dim != self.wb_target_dim]
                 )
+                assert log_prob_prior.dims == (self.wb_target_dim,)
+            elif self.ctc_prior_type == "static":
+                log_prob_prior = self.static_prior
                 assert log_prob_prior.dims == (self.wb_target_dim,)
             else:
                 raise ValueError(f"invalid ctc_prior_type {self.ctc_prior_type!r}")

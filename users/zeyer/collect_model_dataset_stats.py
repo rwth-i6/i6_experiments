@@ -30,7 +30,7 @@ if TYPE_CHECKING:
 
 @dataclass
 class StatisticsOutput:
-    """statistics"""
+    """statistics, as txt files. numpy.loadtxt can be used to read them."""
 
     mean: tk.Path
     std_dev: tk.Path
@@ -121,6 +121,8 @@ def collect_statistics(
     recog on the specific dataset
     """
     env_updates = None
+    config = config.copy() if config else {}
+    forward_post_config = forward_post_config.copy() if forward_post_config else {}
     if (config and config.get("__env_updates")) or (forward_post_config and forward_post_config.get("__env_updates")):
         env_updates = (config and config.pop("__env_updates", None)) or (
             forward_post_config and forward_post_config.pop("__env_updates", None)
@@ -273,7 +275,10 @@ def _collect_stats_returnn_forward_config(
     if isinstance(model_def, ModelDefWithCfg):
         returnn_recog_config_dict.update(model_def.config)
 
+    from copy import deepcopy
+
     extern_data_raw = dataset.get_extern_data()
+    extern_data_raw = deepcopy(extern_data_raw)  # instanciate_delayed can modify it inplace...
     # The extern_data is anyway not hashed, so we can also instanciate any delayed objects here.
     # It's not hashed because we assume that all aspects of the dataset are already covered
     # by the datasets itself as part in the config above.

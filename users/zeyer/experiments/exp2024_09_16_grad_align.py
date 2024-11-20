@@ -5,7 +5,7 @@ More on grad align
 
 from __future__ import annotations
 
-from typing import Optional, Any, List, Sequence, Dict
+from typing import Optional, Any, List, Sequence, Dict, Tuple
 from i6_experiments.users.zeyer.model_interfaces.model_with_checkpoints import ModelWithCheckpoint
 
 from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.ctc import (
@@ -28,6 +28,8 @@ from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.aed import (
     Model as AedModel,
     aed_training,
 )
+from ..collect_model_dataset_stats import collect_statistics, StatisticsOutput
+
 import returnn.frontend as rf
 from returnn.tensor import Tensor, Dim, TensorDict
 from returnn.frontend.decoder.transformer import TransformerDecoder
@@ -168,31 +170,11 @@ def py():
         for epoch in [-1]:  # [20, 40, 80, 160, 320, 500, -1]:
             ctc_model = sis_get_ctc_model(fullname, epoch=epoch)
 
-            alignment = ctc_forced_align(ctc_model, train_dataset)
-            alignment.creator.add_alias(f"{prefix}ctc_forced_align/{shortname}-ep{epoch}/align")
-            tk.register_output(f"{prefix}ctc_forced_align/{shortname}-ep{epoch}/align.hdf", alignment)
-
             ref_log_probs = get_ctc_ref_label_log_probs(ctc_model, train_dataset)
             ref_log_probs.creator.add_alias(f"{prefix}ctc_ref_log_probs/{shortname}-ep{epoch}/log_probs")
             tk.register_output(f"{prefix}ctc_ref_log_probs/{shortname}-ep{epoch}/log_probs.hdf", ref_log_probs)
 
-            name = f"ctc_forced_align/{shortname}-ep{epoch}/align-metrics"
-            job = CalcAlignmentMetrics(
-                seq_list=seq_list,
-                seq_list_ref=seq_list_ref,
-                alignment_hdf=alignment,
-                alignment_label_topology="ctc",
-                alignment_bpe_vocab=vocabs[vocab][1],
-                alignment_bpe_style=vocabs[vocab][0],
-                alignment_blank_idx=vocabs[vocab][2],
-                features_sprint_cache=features_sprint_cache,
-                ref_alignment_sprint_cache=gmm_alignment_sprint_cache,
-                ref_alignment_allophones=gmm_alignment_allophones,
-                ref_alignment_len_factor=6,
-            )
-            job.add_alias(prefix + name)
-            tk.register_output(prefix + name + ".json", job.out_scores)
-            tk.register_output(prefix + name + ".short_report.txt", job.out_short_report_str)
+            opts_variants = [{}]
 
             if "blankSep" in shortname:
                 ref_log_probs_bug = get_ctc_ref_label_log_probs(ctc_model, train_dataset, {"bug_log_probs": True})
@@ -201,34 +183,63 @@ def py():
                     f"{prefix}ctc_ref_log_probs/{shortname}-ep{epoch}-bug/log_probs.hdf", ref_log_probs_bug
                 )
 
-                for shift in [0, -1, -2, -3, -5, -7, -10, -20, -30, -40]:
-                    alignment = ctc_forced_align(
-                        ctc_model, train_dataset, {"fix_log_probs": True, "blank_logit_shift": shift}
-                    )
-                    alignment.creator.add_alias(
-                        f"{prefix}ctc_forced_align/{shortname}-ep{epoch}-fix-shift{shift}/align"
-                    )
-                    tk.register_output(
-                        f"{prefix}ctc_forced_align/{shortname}-ep{epoch}-fix-shift{shift}/align.hdf", alignment
-                    )
+                for shift in [0, -5, -10, -15, -18, -20, -25, -30]:
+                    opts_variants.append({"fix_log_probs": True, "blank_logit_shift": shift})
 
-                    name = f"ctc_forced_align/{shortname}-ep{epoch}-fix-shift{shift}/align-metrics"
-                    job = CalcAlignmentMetrics(
-                        seq_list=seq_list,
-                        seq_list_ref=seq_list_ref,
-                        alignment_hdf=alignment,
-                        alignment_label_topology="ctc",
-                        alignment_bpe_vocab=vocabs[vocab][1],
-                        alignment_bpe_style=vocabs[vocab][0],
-                        alignment_blank_idx=vocabs[vocab][2],
-                        features_sprint_cache=features_sprint_cache,
-                        ref_alignment_sprint_cache=gmm_alignment_sprint_cache,
-                        ref_alignment_allophones=gmm_alignment_allophones,
-                        ref_alignment_len_factor=6,
-                    )
-                    job.add_alias(prefix + name)
-                    tk.register_output(prefix + name + ".json", job.out_scores)
-                    tk.register_output(prefix + name + ".short_report.txt", job.out_short_report_str)
+                # Priors, using full train dataset.
+                prior_stats = get_ctc_prior(
+                    ctc_model, task.train_dataset.copy_train_as_static(), {"fix_log_probs": True}
+                )
+                prior_stats.mean.creator.add_alias(f"{prefix}ctc_prior/{shortname}-ep{epoch}/prior_stats_full")
+                tk.register_output(
+                    f"{prefix}ctc_prior/{shortname}-ep{epoch}/prior_stats_full.mean.txt", prior_stats.mean
+                )
+
+                # TODO remove this once we have the full prior...
+                prior_stats = get_ctc_prior(ctc_model, train_dataset, {"fix_log_probs": True})
+                prior_stats.mean.creator.add_alias(f"{prefix}ctc_prior/{shortname}-ep{epoch}/prior_stats")
+                tk.register_output(f"{prefix}ctc_prior/{shortname}-ep{epoch}/prior_stats.mean.txt", prior_stats.mean)
+                opts_variants.append(
+                    {
+                        "fix_log_probs": True,
+                        "ctc_prior_type": "static",
+                        "static_prior": {"type": "prob", "file": prior_stats.mean},
+                        "ctc_am_scale": 0.7,
+                        "ctc_prior_scale": 0.3,
+                    }
+                )
+
+            for opts in opts_variants:
+                prefix_ = f"{prefix}ctc_forced_align/{shortname}-ep{epoch}"
+                for k, v in opts.items():
+                    if k == "fix_log_probs" and v:
+                        prefix_ += "-fix"
+                        continue
+                    if k == "static_prior":
+                        continue
+                    prefix_ += f"-{k}{v}"
+                prefix_ += "/"
+
+                alignment = ctc_forced_align(ctc_model, train_dataset, opts)
+                alignment.creator.add_alias(f"{prefix_}align")
+                tk.register_output(f"{prefix_}align.hdf", alignment)
+
+                job = CalcAlignmentMetrics(
+                    seq_list=seq_list,
+                    seq_list_ref=seq_list_ref,
+                    alignment_hdf=alignment,
+                    alignment_label_topology="ctc",
+                    alignment_bpe_vocab=vocabs[vocab][1],
+                    alignment_bpe_style=vocabs[vocab][0],
+                    alignment_blank_idx=vocabs[vocab][2],
+                    features_sprint_cache=features_sprint_cache,
+                    ref_alignment_sprint_cache=gmm_alignment_sprint_cache,
+                    ref_alignment_allophones=gmm_alignment_allophones,
+                    ref_alignment_len_factor=6,
+                )
+                job.add_alias(f"{prefix_}align-metrics")
+                tk.register_output(f"{prefix_}align-metrics.json", job.out_scores)
+                tk.register_output(f"{prefix_}align-metrics.short_report.txt", job.out_short_report_str)
 
         for extra_name, grad_opts in [
             # ("", {}),
@@ -1099,6 +1110,35 @@ def _ctc_model_get_ref_label_log_probs_step(*, model: CtcModel, extern_data: Ten
         log_probs_wb = model.log_probs_wb_from_logits(logits)
     log_probs_ref_seq = rf.gather(log_probs_wb, indices=targets_, axis=model.wb_target_dim)  # [B,T,S+1]
     log_probs_ref_seq.mark_as_default_output(shape=[batch_dim, enc_spatial_dim, target_ext_spatial_dim])
+
+
+def get_ctc_prior(
+    model: ModelWithCheckpoint, dataset: DatasetConfig, config: Optional[Dict[str, Any]] = None
+) -> StatisticsOutput:
+    """
+    :return: CTC prior, in prob space (not log prob)
+    """
+    return collect_statistics(
+        model=model, dataset=dataset, forward_def=_ctc_model_softmax_prior_returnn_forward, config=config
+    )
+
+
+def _ctc_model_softmax_prior_returnn_forward(
+    source: Tensor, /, in_spatial_dim: Dim, model: CtcModel
+) -> Tuple[Tensor, Dim]:
+    """ForwardDef API"""
+    from returnn.config import get_global_config
+    import returnn.frontend as rf
+    from returnn.tensor import Tensor, Dim
+
+    logits, enc, enc_spatial_dim = model(source, in_spatial_dim=in_spatial_dim)
+    assert isinstance(logits, Tensor) and isinstance(enc_spatial_dim, Dim)
+    assert logits.feature_dim  # we expect a feature dim
+    assert enc_spatial_dim in logits.dims
+    log_probs = model.log_probs_wb_from_logits(logits)
+    assert isinstance(log_probs, Tensor)
+    probs = rf.exp(log_probs)  # the statistics take the average over this, thus prob space, not log prob
+    return probs, enc_spatial_dim
 
 
 def visualize_grad_scores():
