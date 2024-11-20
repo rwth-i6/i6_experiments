@@ -1,6 +1,9 @@
 from dataclasses import asdict
 import numpy as np
 from typing import cast, Dict
+
+from neural_compressor.conf.pythonic_config import weight
+
 from sisyphus import tk
 
 from i6_experiments.common.setups.returnn.datastreams.vocabulary import LabelDatastream
@@ -13,6 +16,7 @@ from ...pipeline import training, prepare_asr_model
 from ...report import generate_report
 from .tune_eval import tune_and_evaluate_helper, eval_model, build_report, build_qat_report
 from functools import partial
+
 
 def eow_phon_ted_1023_qat():
     prefix_name = "experiments/tedlium2/ctc_rnnt_standalone_2024/ctc_eow_phon/qat"
@@ -30,6 +34,21 @@ def eow_phon_ted_1023_qat():
         prefix=prefix_name,
         settings=train_settings,
     )
+
+    train_settings_4k = DatasetSettings(
+        preemphasis=0.97,
+        peak_normalization=True,
+        # training
+        train_partition_epoch=5,
+        train_seq_ordering="laplace:.4000",
+    )
+
+    # build the training datasets object containing train, cv, dev-train and the extern_data dict
+    train_data_4k = build_eow_phon_training_datasets(
+        prefix=prefix_name,
+        settings=train_settings_4k,
+    )
+
     label_datastream = cast(LabelDatastream, train_data.datastreams["labels"])
     vocab_size_without_blank = label_datastream.vocab_size
 
@@ -71,6 +90,7 @@ def eow_phon_ted_1023_qat():
         QuantModelTrainConfigV1,
         LogMelFeatureExtractionV1Config,
     )
+
     fe_config = LogMelFeatureExtractionV1Config(
         sample_rate=16000,
         win_size=0.025,
@@ -133,15 +153,15 @@ def eow_phon_ted_1023_qat():
         moving_average=0.01,
         weight_bit_prec=8,
         activation_bit_prec=8,
-        extra_act_quant=True
+        extra_act_quant=True,
     )
     qat_report = {}
     network_module = "ctc.qat_0711.baseline_qat_v1"
     train_config = {
         "optimizer": {"class": "radam", "epsilon": 1e-16, "weight_decay": 1e-2, "decoupled_weight_decay": True},
         "learning_rates": list(np.linspace(7e-6, 5e-4, 110))
-                          + list(np.linspace(5e-4, 5e-5, 110))
-                          + list(np.linspace(5e-5, 1e-7, 30)),
+        + list(np.linspace(5e-4, 5e-5, 110))
+        + list(np.linspace(5e-5, 1e-7, 30)),
         #############
         "batch_size": 180 * 16000,
         "max_seq_length": {"audio_features": 35 * 16000},
@@ -164,7 +184,9 @@ def eow_phon_ted_1023_qat():
         decoder_config=default_decoder_config,
         dev_dataset_tuples=dev_dataset_tuples,
         result_dict=results,
-        decoder_module="ctc.decoder.flashlight_qat_phoneme_ctc"
+        decoder_module="ctc.decoder.flashlight_qat_phoneme_ctc",
+        prior_scales=[0.1, 0.3, 0.5, 0.7, 0.9],
+        lm_scales=[1.8, 2.0, 2.2, 2.4, 2.6, 2.8],
     )
     generate_report(results=results, exp_name=training_name)
     qat_report[training_name] = results
@@ -196,7 +218,7 @@ def eow_phon_ted_1023_qat():
         moving_average=0.01,
         weight_bit_prec=8,
         activation_bit_prec=8,
-        extra_act_quant=False
+        extra_act_quant=False,
     )
     train_args = {
         "config": train_config,
@@ -214,7 +236,9 @@ def eow_phon_ted_1023_qat():
         decoder_config=default_decoder_config,
         dev_dataset_tuples=dev_dataset_tuples,
         result_dict=results,
-        decoder_module="ctc.decoder.flashlight_qat_phoneme_ctc"
+        decoder_module="ctc.decoder.flashlight_qat_phoneme_ctc",
+        prior_scales=[0.1, 0.3, 0.5, 0.7, 0.9],
+        lm_scales=[1.8, 2.0, 2.2, 2.4, 2.6, 2.8],
     )
     generate_report(results=results, exp_name=training_name)
     qat_report[training_name] = results
@@ -227,7 +251,7 @@ def eow_phon_ted_1023_qat():
         beam_size_token=12,  # makes it much faster
         arpa_lm=arpa_4gram_lm,
         beam_threshold=14,
-        turn_off_quant=True
+        turn_off_quant=True,
     )
     results = {}
     noquant_name = prefix_name + "/" + network_module + "_noquant"
@@ -239,9 +263,137 @@ def eow_phon_ted_1023_qat():
         decoder_config=noquant_decoder_config,
         dev_dataset_tuples=dev_dataset_tuples,
         result_dict=results,
-        decoder_module="ctc.decoder.flashlight_qat_phoneme_ctc"
+        decoder_module="ctc.decoder.flashlight_qat_phoneme_ctc",
+        prior_scales=[0.1, 0.3, 0.5, 0.7, 0.9],
+        lm_scales=[1.8, 2.0, 2.2, 2.4, 2.6, 2.8],
     )
     generate_report(results=results, exp_name=noquant_name)
     qat_report[noquant_name] = results
     del results
+
+    # try out lower bits
+    lower_bit_decoder_config = DecoderConfig(
+        lexicon=get_text_lexicon(),
+        returnn_vocab=label_datastream.vocab,
+        beam_size=1024,
+        beam_size_token=12,  # makes it much faster
+        arpa_lm=arpa_4gram_lm,
+        beam_threshold=14,
+        turn_off_quant="leave_as_is_",
+    )
+    real_lower_bit_decoder_config = DecoderConfig(
+        lexicon=get_text_lexicon(),
+        returnn_vocab=label_datastream.vocab,
+        beam_size=1024,
+        beam_size_token=12,  # makes it much faster
+        arpa_lm=arpa_4gram_lm,
+        beam_threshold=14,
+        turn_off_quant="decompose",
+    )
+    qat_report = {}
+    for activation_bit in [8, 6]:
+        for weight_bit in [4, 3, 2]:
+            model_config = QuantModelTrainConfigV1(
+                feature_extraction_config=fe_config,
+                frontend_config=default_frontend_config,
+                specaug_config=specaug_config,
+                label_target_size=vocab_size_without_blank,
+                conformer_size=384,
+                num_layers=12,
+                num_heads=4,
+                ff_dim=1536,
+                att_weights_dropout=0.2,
+                conv_dropout=0.2,
+                ff_dropout=0.2,
+                mhsa_dropout=0.2,
+                conv_kernel_size=31,
+                final_dropout=0.2,
+                specauc_start_epoch=1,
+                weight_quant_dtype="qint8",
+                weight_quant_method="per_tensor",
+                activation_quant_dtype="qint8",
+                activation_quant_method="per_tensor",
+                dot_quant_dtype="qint8",
+                dot_quant_method="per_tensor",
+                Av_quant_dtype="qint8",
+                Av_quant_method="per_tensor",
+                moving_average=0.01,
+                weight_bit_prec=weight_bit,
+                activation_bit_prec=activation_bit,
+                extra_act_quant=True,
+            )
+
+            network_module = "ctc.qat_0711.baseline_qat_v1"
+            train_config = {
+                "optimizer": {"class": "radam", "epsilon": 1e-16, "weight_decay": 1e-2, "decoupled_weight_decay": True},
+                "learning_rates": list(np.linspace(7e-6, 5e-4, 110))
+                + list(np.linspace(5e-4, 5e-5, 110))
+                + list(np.linspace(5e-5, 1e-7, 30)),
+                #############
+                "batch_size": 300 * 16000,
+                "max_seq_length": {"audio_features": 35 * 16000},
+                "accum_grad_multiple_step": 1,
+                "gradient_clip_norm": 1.0,
+            }
+            train_args = {
+                "config": train_config,
+                "network_module": network_module,
+                "net_args": {"model_config_dict": asdict(model_config)},
+                "debug": True,
+                "post_config": {"num_workers_per_gpu": 8},
+                "use_speed_perturbation": True,
+            }
+
+            training_name = prefix_name + "/" + network_module + f"_{weight_bit}_{activation_bit}"
+            train_job = training(training_name, train_data_4k, train_args, num_epochs=250, **default_returnn)
+            train_job.rqmt["gpu_mem"] = 48
+            results = {}
+            results = eval_model(
+                training_name=training_name,
+                train_job=train_job,
+                train_args=train_args,
+                train_data=train_data_4k,
+                decoder_config=lower_bit_decoder_config,
+                dev_dataset_tuples=dev_dataset_tuples,
+                result_dict=results,
+                decoder_module="ctc.decoder.flashlight_qat_phoneme_ctc",
+                prior_scales=[0.1, 0.3, 0.5, 0.7, 0.9],
+                lm_scales=[1.8, 2.0, 2.2, 2.4, 2.6, 2.8],
+            )
+            generate_report(results=results, exp_name=training_name)
+            qat_report[training_name] = results
+
+            training_name = prefix_name + "/" + network_module + f"_{weight_bit}_{activation_bit}_real_lower"
+            results = {}
+            results = eval_model(
+                training_name=training_name,
+                train_job=train_job,
+                train_args=train_args,
+                train_data=train_data_4k,
+                decoder_config=real_lower_bit_decoder_config,
+                dev_dataset_tuples=dev_dataset_tuples,
+                result_dict=results,
+                decoder_module="ctc.decoder.flashlight_qat_phoneme_ctc",
+                prior_scales=[0.1, 0.3, 0.5, 0.7, 0.9],
+                lm_scales=[1.8, 2.0, 2.2, 2.4, 2.6, 2.8],
+            )
+            generate_report(results=results, exp_name=training_name)
+            qat_report[training_name] = results
+
+            training_name = prefix_name + "/" + network_module + f"_{weight_bit}_{activation_bit}_real_quant"
+            results = {}
+            results = eval_model(
+                training_name=training_name,
+                train_job=train_job,
+                train_args=train_args,
+                train_data=train_data_4k,
+                decoder_config=default_decoder_config,
+                dev_dataset_tuples=dev_dataset_tuples,
+                result_dict=results,
+                decoder_module="ctc.decoder.flashlight_qat_phoneme_ctc",
+                prior_scales=[0.1, 0.3, 0.5, 0.7, 0.9],
+                lm_scales=[1.8, 2.0, 2.2, 2.4, 2.6, 2.8],
+            )
+            generate_report(results=results, exp_name=training_name)
+            qat_report[training_name] = results
     tk.register_report("reports/qat_report", partial(build_qat_report, qat_report), required=qat_report)

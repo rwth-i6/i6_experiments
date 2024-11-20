@@ -13,12 +13,20 @@ from ...pipeline import training, prepare_asr_model, get_forward_config, generat
 from ...report import generate_report
 from functools import partial
 from sisyphus import tk
-from .tune_eval import build_report, eval_model, build_distill_report, tune_and_evaluate_helper, search
+from .tune_eval import (
+    build_report,
+    eval_model,
+    build_distill_report,
+    tune_and_evaluate_helper,
+    search,
+    build_base_report,
+)
 from i6_core.returnn.forward import ReturnnForwardJobV2
 
 from i6_core.corpus.convert import CorpusToStmJob
 from i6_core.recognition.scoring import ScliteJob
 from i6_core.returnn.search import SearchWordsToCTMJob
+
 
 def eow_phon_ted_auxloss_distill(get_report=False):
     prefix_name = "experiments/tedlium2/ctc_rnnt_standalone_2024/ctc_eow_phon/distill_auxloss"
@@ -97,13 +105,14 @@ def eow_phon_ted_auxloss_distill(get_report=False):
     specaug_config = SpecaugConfig(
         repeat_per_n_frames=25,
         max_dim_time=20,
-        max_dim_feat=8,  # Jingjing style
-        num_repeat_feat=5,
+        max_dim_feat=8,
+        num_repeat_feat=5,  # Jingjing style
     )
     report = {}
-    #for dim in [64, 128, 256, 384, 512, 768, 1024]:
+    chkpts = {}
+    # for dim in [64, 128, 256, 384, 512, 768, 1024]:
     for dim in [128, 384, 768]:  # keep 128 for baseline
-        #for layer_count in [4, 6, 9, 12, 16, 20]:
+        # for layer_count in [4, 6, 9, 12, 16, 20]:
         for layer_count in [12]:
             loss_mapping = {
                 4: [1, 2, 3],
@@ -149,7 +158,7 @@ def eow_phon_ted_auxloss_distill(get_report=False):
                 conformer_size=dim,
                 num_layers=layer_count,
                 num_heads=4,
-                ff_dim=4*dim,
+                ff_dim=4 * dim,
                 att_weights_dropout=0.2,
                 conv_dropout=0.2,
                 ff_dropout=0.2,
@@ -160,7 +169,7 @@ def eow_phon_ted_auxloss_distill(get_report=False):
                 module_list=["ff", "conv", "mhsa", "ff"],
                 module_scales=[0.5, 1.0, 1.0, 0.5],
                 aux_ctc_loss_layers=loss_mapping[layer_count],  # 4, 8, 12 when counting from 1
-                aux_ctc_loss_scales=(len(loss_mapping[layer_count])-1) * [0.3] + [1.0],
+                aux_ctc_loss_scales=(len(loss_mapping[layer_count]) - 1) * [0.3] + [1.0],
             )
             model_config_decoding = copy.deepcopy(model_config)
             model_config_decoding.aux_ctc_loss_scales = [0.0, 0.0, 1.0]  # for decoding use result only of last layer
@@ -170,8 +179,8 @@ def eow_phon_ted_auxloss_distill(get_report=False):
             train_config = {
                 "optimizer": {"class": "radam", "epsilon": 1e-16, "weight_decay": 1e-2, "decoupled_weight_decay": True},
                 "learning_rates": list(np.linspace(7e-6, 5e-4, 110))
-                                  + list(np.linspace(5e-4, 5e-5, 110))
-                                  + list(np.linspace(5e-5, 1e-7, 30)),
+                + list(np.linspace(5e-4, 5e-5, 110))
+                + list(np.linspace(5e-5, 1e-7, 30)),
                 #############
                 "batch_size": 180 * 16000 if not small else 90 * 16000,
                 "max_seq_length": {"audio_features": 35 * 16000},
@@ -227,7 +236,7 @@ def eow_phon_ted_auxloss_distill(get_report=False):
                 decoder_config=default_decoder_config,
                 dev_dataset_tuples=dev_dataset_tuples,
                 result_dict=results,
-                loss_name=f"ctc_loss_layer{layer_count}"
+                loss_name=f"ctc_loss_layer{layer_count}",
             )
             generate_report(results=results, exp_name=training_name)
             report[training_name] = results
@@ -236,15 +245,16 @@ def eow_phon_ted_auxloss_distill(get_report=False):
 
     from ...pytorch_networks.ctc.conformer_0106.i6modelsRelPosEncV1_VGG4LayerActFrontendV1_v1_cfg import (
         ModelConfig as RelPosModelConfig,
-        ConformerPosEmbConfig
+        ConformerPosEmbConfig,
     )
-    for dim in [384, 512]:
+
+    new_rep = {}
+    # Best: 384, 1, 500, 16, 8
+    for dim in [384]:
         for spec_start in [1, 11]:
             for epochs in [250, 500]:
                 for spec in [8, 16]:
-                    for num_heads in [4, 8, 12]:
-                        if dim == 512 and num_heads == 12:
-                            continue
+                    for num_heads in [4, 8]:
                         frontend_config = VGG4LayerActFrontendV1Config_mod(
                             in_features=80,
                             conv1_channels=32,
@@ -275,7 +285,7 @@ def eow_phon_ted_auxloss_distill(get_report=False):
                             with_linear_pos=True,
                             with_pos_bias=True,
                             separate_pos_emb_per_head=True,
-                            pos_emb_dropout=0.0
+                            pos_emb_dropout=0.0,
                         )
                         model_config_pos_enc = RelPosModelConfig(
                             feature_extraction_config=fe_config,
@@ -303,10 +313,15 @@ def eow_phon_ted_auxloss_distill(get_report=False):
                         )
                         network_module_pos_enc = "ctc.conformer_0106.i6modelsRelPosEncV1_VGG4LayerActFrontendV1_v1"
                         train_config = {
-                            "optimizer": {"class": "radam", "epsilon": 1e-16, "weight_decay": 1e-2, "decoupled_weight_decay": True},
-                            "learning_rates": list(np.linspace(7e-6, 5e-4, (epochs - 30 ) // 2))
-                                              + list(np.linspace(5e-4, 5e-5, (epochs - 30 ) // 2))
-                                              + list(np.linspace(5e-5, 1e-7, 30)),
+                            "optimizer": {
+                                "class": "radam",
+                                "epsilon": 1e-16,
+                                "weight_decay": 1e-2,
+                                "decoupled_weight_decay": True,
+                            },
+                            "learning_rates": list(np.linspace(7e-6, 5e-4, (epochs - 30) // 2))
+                            + list(np.linspace(5e-4, 5e-5, (epochs - 30) // 2))
+                            + list(np.linspace(5e-5, 1e-7, 30)),
                             #############
                             "batch_size": 180 * 16000,
                             "max_seq_length": {"audio_features": 35 * 16000},
@@ -319,8 +334,15 @@ def eow_phon_ted_auxloss_distill(get_report=False):
                             "debug": True,
                         }
                         results = {}
-                        training_name = prefix_name + "/" + network_module_pos_enc + f"_{epochs}_{dim}_{num_heads}_{spec}_{spec_start}"
-                        train_job = training(training_name, train_data, train_args, num_epochs=epochs, **default_returnn)
+                        training_name = (
+                            prefix_name
+                            + "/"
+                            + network_module_pos_enc
+                            + f"_{epochs}_{dim}_{num_heads}_{spec}_{spec_start}"
+                        )
+                        train_job = training(
+                            training_name, train_data, train_args, num_epochs=epochs, **default_returnn
+                        )
 
                         results = eval_model(
                             training_name=training_name,
@@ -330,28 +352,87 @@ def eow_phon_ted_auxloss_distill(get_report=False):
                             decoder_config=default_decoder_config,
                             dev_dataset_tuples=dev_dataset_tuples,
                             result_dict=results,
-                            loss_name=f"ctc_loss_layer{layer_count}",
+                            loss_name=f"ctc_loss_layer12",
                             specific_epoch=epochs,
+                            prior_scales=[0.0, 0.1, 0.2, 0.3, 0.5, 0.7, 0.9],
+                            lm_scales=[1.2, 1.3, 1.4, 1.6, 1.8, 2.0, 2.2, 2.4, 2.6, 2.8],
                         )
                         generate_report(results=results, exp_name=training_name)
-                        #report[training_name] = results
+                        new_rep[training_name] = results
+                        chkpts[training_name] = train_job.out_checkpoints[250]
                         del results
+                        if dim == 384 and spec_start == 1 and spec == 16 and num_heads == 8:
+                            train_config = {
+                                "optimizer": {
+                                    "class": "adamw",
+                                    "epsilon": 1e-16,
+                                    "weight_decay": 1e-2,
+                                },
+                                "learning_rates": list(np.linspace(7e-6, 5e-4, (epochs - 30) // 2))
+                                + list(np.linspace(5e-4, 5e-5, (epochs - 30) // 2))
+                                + list(np.linspace(5e-5, 1e-7, 30)),
+                                #############
+                                "batch_size": 180 * 16000,
+                                "max_seq_length": {"audio_features": 35 * 16000},
+                                "accum_grad_multiple_step": 1,
+                                "gradient_clip_norm": 1.0,
+                            }
+                            train_args = {
+                                "config": train_config,
+                                "network_module": network_module_pos_enc,
+                                "net_args": {"model_config_dict": asdict(model_config_pos_enc)},
+                                "debug": True,
+                                "use_speed_perturbation": True,
+                            }
+                            results = {}
+                            training_name = (
+                                prefix_name
+                                + "/"
+                                + network_module_pos_enc
+                                + f"_better_params_{epochs}_{dim}_{num_heads}_{spec}_{spec_start}"
+                            )
+                            train_job = training(
+                                training_name, train_data, train_args, num_epochs=epochs, **default_returnn
+                            )
+
+                            results = eval_model(
+                                training_name=training_name,
+                                train_job=train_job,
+                                train_args=train_args,
+                                train_data=train_data,
+                                decoder_config=default_decoder_config,
+                                dev_dataset_tuples=dev_dataset_tuples,
+                                result_dict=results,
+                                loss_name=f"ctc_loss_layer12",
+                                specific_epoch=epochs,
+                                prior_scales=[0.0, 0.1, 0.2, 0.3, 0.5, 0.7, 0.9],
+                                lm_scales=[1.2, 1.3, 1.4, 1.6, 1.8, 2.0, 2.2, 2.4, 2.6, 2.8],
+                            )
+                            generate_report(results=results, exp_name=training_name)
+                            new_rep[training_name] = results
+                            del results
+
+    tk.register_report("reports/pos_enc_report", partial(build_base_report, new_rep), required=new_rep)
     if get_report is True:
-        return report
+        rep = {}
+        rep.update(new_rep)
+        rep.update(report)
+        return rep, chkpts
     from ...pytorch_networks.ctc.conformer_distill_1206.self_distill_conformer_auxloss_v2_cfg import (
         ModelConfig as StudentConfigV2,
-        DistillConfig as TeacherConfigV2
+        DistillConfig as TeacherConfigV2,
     )
+
     distill_module_v2 = "ctc.conformer_distill_1206.self_distill_conformer_auxloss_v2"
     distill_report = {}
-    distill_report['baselines'] = {}
+    distill_report["baselines"] = {}
     for dim in [128]:
         for layer_count in [12]:
             for distill_scale in [0.25]:
                 for T in [2]:
-                    distill_report["baselines"][
-                        prefix_name + "/" + network_module + f"_{layer_count}_{dim}"] = report[
-                        prefix_name + "/" + network_module + f"_{layer_count}_{dim}"]
+                    distill_report["baselines"][prefix_name + "/" + network_module + f"_{layer_count}_{dim}"] = report[
+                        prefix_name + "/" + network_module + f"_{layer_count}_{dim}"
+                    ]
                     frontend_config_teacher = VGG4LayerActFrontendV1Config_mod(
                         in_features=80,
                         conv1_channels=32,
@@ -436,10 +517,15 @@ def eow_phon_ted_auxloss_distill(get_report=False):
                     )
 
                     train_config_distill = {
-                        "optimizer": {"class": "radam", "epsilon": 1e-16, "weight_decay": 1e-2, "decoupled_weight_decay": True},
+                        "optimizer": {
+                            "class": "radam",
+                            "epsilon": 1e-16,
+                            "weight_decay": 1e-2,
+                            "decoupled_weight_decay": True,
+                        },
                         "learning_rates": list(np.linspace(7e-6, 5e-4, 110))
-                                          + list(np.linspace(5e-4, 5e-5, 110))
-                                          + list(np.linspace(5e-5, 1e-7, 30)),
+                        + list(np.linspace(5e-4, 5e-5, 110))
+                        + list(np.linspace(5e-5, 1e-7, 30)),
                         #############
                         "batch_size": 180 * 16000,
                         "max_seq_length": {"audio_features": 35 * 16000},
@@ -450,29 +536,38 @@ def eow_phon_ted_auxloss_distill(get_report=False):
                         "network_module": distill_module_v2,
                         "net_args": {
                             "model_config_dict": asdict(student_config),
-                            "distill_config_dict": asdict(teacher_config)
+                            "distill_config_dict": asdict(teacher_config),
                         },
                         "debug": False,
                     }
-                    train_args_distill['config']['preload_from_files'] = {
+                    train_args_distill["config"]["preload_from_files"] = {
                         "teacher": {
                             "filename": PRETRAIN_CHECKPOINT_DISTILL_V1,
                             "init_for_train": True,
                             "ignore_missing": False,
-                            "prefix": 'teacher.',
+                            "prefix": "teacher.",
                             "ignore_params_prefixes": ["teacher.feature_extraction"],
                         }
                     }
                     model_config_decoding = copy.deepcopy(student_config)
-                    model_config_decoding.aux_ctc_loss_scales = [0.0, 0.0, 1.0]  # for decoding use result only of last layer
+                    model_config_decoding.aux_ctc_loss_scales = [
+                        0.0,
+                        0.0,
+                        1.0,
+                    ]  # for decoding use result only of last layer
                     train_args_distill_decoding = copy.deepcopy(train_args_distill)
-                    train_args_distill_decoding["net_args"] = {"model_config_dict": asdict(model_config_decoding), "distill_config_dict": None}
-                    del train_args_distill_decoding['config']['preload_from_files']
+                    train_args_distill_decoding["net_args"] = {
+                        "model_config_dict": asdict(model_config_decoding),
+                        "distill_config_dict": None,
+                    }
+                    del train_args_distill_decoding["config"]["preload_from_files"]
 
                     decoder_module = "ctc.decoder.flashlight_ctc_distill_v1"
 
                     training_name = prefix_name + "/" + distill_module_v2 + f"_{layer_count}_{dim}_{distill_scale}_{T}"
-                    train_job = training(training_name, train_data, train_args_distill, num_epochs=250, **default_returnn)
+                    train_job = training(
+                        training_name, train_data, train_args_distill, num_epochs=250, **default_returnn
+                    )
                     results = eval_model(
                         training_name=training_name,
                         train_job=train_job,
@@ -482,7 +577,7 @@ def eow_phon_ted_auxloss_distill(get_report=False):
                         dev_dataset_tuples=dev_dataset_tuples,
                         specific_epoch=250,
                         decoder_module=decoder_module,
-                        loss_name=f"ctc_loss_layer{layer_count}"
+                        loss_name=f"ctc_loss_layer{layer_count}",
                     )
                     generate_report(results=results, exp_name=training_name)
                     distill_report[training_name] = results
@@ -513,10 +608,15 @@ def eow_phon_ted_auxloss_distill(get_report=False):
                         eliminate_blanks=True,
                     )
                     train_config_distill_v2 = {
-                        "optimizer": {"class": "radam", "epsilon": 1e-16, "weight_decay": 1e-2, "decoupled_weight_decay": True},
+                        "optimizer": {
+                            "class": "radam",
+                            "epsilon": 1e-16,
+                            "weight_decay": 1e-2,
+                            "decoupled_weight_decay": True,
+                        },
                         "learning_rates": list(np.linspace(7e-6, 5e-4, 110))
-                                          + list(np.linspace(5e-4, 5e-5, 110))
-                                          + list(np.linspace(5e-5, 1e-7, 30)),
+                        + list(np.linspace(5e-4, 5e-5, 110))
+                        + list(np.linspace(5e-5, 1e-7, 30)),
                         #############
                         "batch_size": 180 * 16000,
                         "max_seq_length": {"audio_features": 35 * 16000},
@@ -527,29 +627,38 @@ def eow_phon_ted_auxloss_distill(get_report=False):
                         "network_module": distill_module_v2,
                         "net_args": {
                             "model_config_dict": asdict(student_config),
-                            "distill_config_dict": asdict(teacher_config_v2)
+                            "distill_config_dict": asdict(teacher_config_v2),
                         },
                         "debug": True,
                     }
-                    train_args_distill_v2['config']['preload_from_files'] = {
+                    train_args_distill_v2["config"]["preload_from_files"] = {
                         "teacher": {
                             "filename": PRETRAIN_CHECKPOINT_DISTILL_V1,
                             "init_for_train": True,
                             "ignore_missing": False,
-                            "prefix": 'teacher.',
+                            "prefix": "teacher.",
                             "ignore_params_prefixes": ["teacher.feature_extraction"],
                         }
                     }
                     model_config_decoding_v2 = copy.deepcopy(student_config)
-                    model_config_decoding_v2.aux_ctc_loss_scales = [0.0, 0.0,
-                                                                 1.0]  # for decoding use result only of last layer
+                    model_config_decoding_v2.aux_ctc_loss_scales = [
+                        0.0,
+                        0.0,
+                        1.0,
+                    ]  # for decoding use result only of last layer
                     train_args_distill_v2_decoding = copy.deepcopy(train_args_distill_v2)
-                    train_args_distill_v2_decoding["net_args"] = {"model_config_dict": asdict(model_config_decoding_v2), "distill_config_dict": None}
-                    del train_args_distill_v2_decoding['config']['preload_from_files']
+                    train_args_distill_v2_decoding["net_args"] = {
+                        "model_config_dict": asdict(model_config_decoding_v2),
+                        "distill_config_dict": None,
+                    }
+                    del train_args_distill_v2_decoding["config"]["preload_from_files"]
 
-                    training_name = prefix_name + "/" + distill_module_v2 + f"_{layer_count}_{dim}_{distill_scale}_{T}_elim_blanks"
-                    train_job = training(training_name, train_data, train_args_distill_v2, num_epochs=250,
-                                         **default_returnn)
+                    training_name = (
+                        prefix_name + "/" + distill_module_v2 + f"_{layer_count}_{dim}_{distill_scale}_{T}_elim_blanks"
+                    )
+                    train_job = training(
+                        training_name, train_data, train_args_distill_v2, num_epochs=250, **default_returnn
+                    )
                     results = eval_model(
                         training_name=training_name,
                         train_job=train_job,
@@ -559,10 +668,12 @@ def eow_phon_ted_auxloss_distill(get_report=False):
                         dev_dataset_tuples=dev_dataset_tuples,
                         specific_epoch=250,
                         decoder_module=decoder_module,
-                        loss_name=f"ctc_loss_layer{layer_count}"
+                        loss_name=f"ctc_loss_layer{layer_count}",
                     )
                     generate_report(results=results, exp_name=training_name)
-                    #distill_report[training_name] = results
+                    # distill_report[training_name] = results
                     del results
 
-    tk.register_report("reports/aux_distill_report", partial(build_distill_report, distill_report), required=distill_report)
+    tk.register_report(
+        "reports/aux_distill_report", partial(build_distill_report, distill_report), required=distill_report
+    )

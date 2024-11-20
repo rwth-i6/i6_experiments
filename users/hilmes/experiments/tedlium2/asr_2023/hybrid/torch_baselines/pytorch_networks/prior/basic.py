@@ -13,8 +13,10 @@ def forward_step(*, model: torch.nn.Module, extern_data: TensorDict, **kwargs):
 
     log_probs, _ = model(
         audio_features=audio_features,
-        audio_features_len=audio_features_len.to("cuda"),
+        audio_features_len=audio_features_len.to(audio_features.device),
     )  # [B, T, F]
+    features_len = audio_features_len.to(dtype=torch.int32)
+    rf.get_run_ctx().expected_outputs["log_probs"].dims[1].dyn_size_ext.raw_tensor = features_len
 
     rf.get_run_ctx().mark_as_output(log_probs, name="log_probs")
 

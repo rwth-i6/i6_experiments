@@ -798,9 +798,7 @@ class HybridSystem(NnSystem):
             name_list = [pairing[2]] if len(pairing) >= 3 else list(step_args.returnn_training_configs.keys())
             dvtr_c_list = [pairing[3]] if len(pairing) >= 4 else self.devtrain_corpora
             dvtr_c_list = [None] if len(dvtr_c_list) == 0 else dvtr_c_list
-            import time
             for name, dvtr_c in itertools.product(name_list, dvtr_c_list):
-                start = time.time()
                 if isinstance(self.train_input_data[trn_c], ReturnnRasrDataInput):
                     returnn_train_job = self.returnn_rasr_training(
                         name=name,
@@ -824,8 +822,6 @@ class HybridSystem(NnSystem):
                 returnn_recog_config = step_args.returnn_recognition_configs.get(
                     name, step_args.returnn_training_configs[name]
                 )
-                print(f"NN Train Iteration {time.time() - start}")
-                start = time.time()
                 self.nn_recog(
                     train_name=name,
                     train_corpus_key=trn_c,
@@ -834,7 +830,6 @@ class HybridSystem(NnSystem):
                     step_args=step_args,
                     train_job=returnn_train_job,
                 )
-                print(f"NN Recog Iteration {time.time() - start}")
                 for recog_name, _ in step_args.recognition_args.items():
                     results = {}
                     from i6_core.report import GenerateReportStringJob, MailJob
@@ -945,10 +940,7 @@ class HybridSystem(NnSystem):
 
             # ---------- NN Training ----------
             if step_name.startswith("nn"):
-                import time
-                start = time.time()
                 self.run_nn_step(step_name, step_args)
-                print(f"NN Time {time.time() - start}")
 
             if step_name.startswith("recog"):
                 self.run_nn_recog_step(step_args)

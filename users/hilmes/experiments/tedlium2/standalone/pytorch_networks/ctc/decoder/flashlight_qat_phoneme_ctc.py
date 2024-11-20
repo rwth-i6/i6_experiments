@@ -8,6 +8,7 @@ import time
 import numpy as np
 from typing import Any, Dict, Optional, Union
 
+
 @dataclass
 class DecoderConfig:
     # search related options:
@@ -31,7 +32,10 @@ class DecoderConfig:
 
     arpa_lm: Optional[Union[str, tk.Path]] = None
 
-    turn_off_quant: bool = False  # parameter for sanity checks, call self.prep_dequant instead of self.prep_quant
+    turn_off_quant: Union[
+        bool, str
+    ] = False  # parameter for sanity checks, call self.prep_dequant instead of self.prep_quant
+
 
 @dataclass
 class ExtraConfig:
@@ -98,6 +102,13 @@ def forward_init_hook(run_ctx, **kwargs):
     run_ctx.print_hypothesis = extra_config.print_hypothesis
     if config.turn_off_quant is False:
         run_ctx.engine._model.prep_quant()
+    elif config.turn_off_quant == "decompose":
+        run_ctx.engine._model.prep_quant(decompose=True)
+        print("Use decomposed version, should match training")
+    elif config.turn_off_quant == "leave_as_is":
+        print("Use same version as in training")
+    elif config.turn_off_quant == "leave_as_is_":
+        print("Use same version as in training")
     else:
         run_ctx.engine._model.prep_dequant()
 

@@ -65,7 +65,7 @@ def search_single(
         mem_rqmt=mem_rqmt,
         time_rqmt=24,
         device="gpu" if use_gpu else "cpu",
-        cpu_rqmt=2,
+        cpu_rqmt=8 if mem_rqmt < 30 else 16,
         returnn_python_exe=returnn_exe,
         returnn_root=returnn_root,
         output_files=["search_out.py"],
@@ -132,6 +132,12 @@ def search(
     search_jobs = []
     for key, (test_dataset, test_dataset_reference) in test_dataset_tuples.items():
         search_name = prefix_name + "/%s" % key
+        if "hubert_tune" in search_name:
+            mem = 30
+        elif "RelPosEnc" in search_name:
+            mem = 16
+        else:
+            mem = 10
         wers[search_name], search_job = search_single(
             search_name,
             returnn_search_config,
@@ -140,7 +146,7 @@ def search(
             test_dataset_reference,
             returnn_exe,
             returnn_root,
-            mem_rqmt=30 if "hubert_tune" in search_name else 10,
+            mem_rqmt=mem,
             use_gpu=use_gpu,
         )
         search_jobs.append(search_job)

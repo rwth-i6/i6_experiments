@@ -155,7 +155,7 @@ def eow_phon_ted_1023_base(full=False):
         train_data=train_data,
         decoder_config=default_decoder_config,
         dev_dataset_tuples=dev_dataset_tuples,
-        result_dict=results
+        result_dict=results,
     )
     generate_report(results=results, exp_name=training_name)
     del results
@@ -163,8 +163,8 @@ def eow_phon_ted_1023_base(full=False):
     train_config_24gbgpu_amp_sb = {
         "optimizer": {"class": "adamw", "epsilon": 1e-16, "weight_decay": 1e-3},
         "learning_rates": list(np.linspace(7e-6, 5e-4, 110))
-                          + list(np.linspace(5e-4, 5e-5, 110))
-                          + list(np.linspace(5e-5, 1e-7, 30)),
+        + list(np.linspace(5e-4, 5e-5, 110))
+        + list(np.linspace(5e-5, 1e-7, 30)),
         #############
         "batch_size": 240 * 16000,
         "max_seq_length": {"audio_features": 35 * 16000},
@@ -190,7 +190,7 @@ def eow_phon_ted_1023_base(full=False):
         train_data=train_data,
         decoder_config=default_decoder_config,
         dev_dataset_tuples=dev_dataset_tuples,
-        result_dict=results
+        result_dict=results,
     )
     generate_report(results=results, exp_name=training_name)
     del results
@@ -198,8 +198,8 @@ def eow_phon_ted_1023_base(full=False):
     train_config = {
         "optimizer": {"class": "adamw", "epsilon": 1e-16, "weight_decay": 1e-3},
         "learning_rates": list(np.linspace(7e-6, 5e-4, 110))
-                          + list(np.linspace(5e-4, 5e-5, 110))
-                          + list(np.linspace(5e-5, 1e-7, 30)),
+        + list(np.linspace(5e-4, 5e-5, 110))
+        + list(np.linspace(5e-5, 1e-7, 30)),
         #############
         "batch_size": 180 * 16000,
         "max_seq_length": {"audio_features": 35 * 16000},
@@ -221,70 +221,100 @@ def eow_phon_ted_1023_base(full=False):
     lm_scales = [2.0, 2.2, 2.4, 2.6, 2.8]
     prior_scales = [0.7, 0.9]
     res, _ = tune_and_evaluate_helper(
-        training_name, asr_model, default_decoder_config, lm_scales=lm_scales,
-        prior_scales=prior_scales, dev_dataset_tuples=dev_dataset_tuples
+        training_name,
+        asr_model,
+        default_decoder_config,
+        lm_scales=lm_scales,
+        prior_scales=prior_scales,
+        dev_dataset_tuples=dev_dataset_tuples,
     )
     results.update(res)
     asr_model_best4 = prepare_asr_model(
-        training_name + "/best4", train_job, train_args, with_prior=True, datasets=train_data,
-        get_best_averaged_checkpoint=(4, "dev_loss_ctc")
+        training_name + "/best4",
+        train_job,
+        train_args,
+        with_prior=True,
+        datasets=train_data,
+        get_best_averaged_checkpoint=(4, "dev_loss_ctc"),
     )
-    res, _ = tune_and_evaluate_helper(training_name + "/best4", asr_model_best4, default_decoder_config,
-                                   lm_scales=lm_scales, prior_scales=prior_scales, dev_dataset_tuples=dev_dataset_tuples)
+    res, _ = tune_and_evaluate_helper(
+        training_name + "/best4",
+        asr_model_best4,
+        default_decoder_config,
+        lm_scales=lm_scales,
+        prior_scales=prior_scales,
+        dev_dataset_tuples=dev_dataset_tuples,
+    )
     results.update(res)
     asr_model_best = prepare_asr_model(
-        training_name + "/best", train_job, train_args, with_prior=True, datasets=train_data,
-        get_best_averaged_checkpoint=(1, "dev_loss_ctc")
+        training_name + "/best",
+        train_job,
+        train_args,
+        with_prior=True,
+        datasets=train_data,
+        get_best_averaged_checkpoint=(1, "dev_loss_ctc"),
     )
-    res, _ = tune_and_evaluate_helper(training_name + "/best", asr_model_best, default_decoder_config,
-                                   lm_scales=lm_scales, prior_scales=prior_scales, dev_dataset_tuples=dev_dataset_tuples)
+    res, _ = tune_and_evaluate_helper(
+        training_name + "/best",
+        asr_model_best,
+        default_decoder_config,
+        lm_scales=lm_scales,
+        prior_scales=prior_scales,
+        dev_dataset_tuples=dev_dataset_tuples,
+    )
     results.update(res)
     generate_report(results=results, exp_name=training_name)  # TODO current best with 7.083
     del results
     from ...pytorch_networks.ctc.conformer_1023.quant.baseline_quant_v1_cfg import QuantModelConfigV1
+
     num_iterations = 1
-    for activation_bit, weight_bit in [(8, 8)]:
-            results = {}
-            model_config_quant_v1 = QuantModelConfigV1(
-                weight_quant_dtype="qint8",
-                weight_quant_method="per_tensor",
-                activation_quant_dtype="qint8",
-                activation_quant_method="per_tensor",
-                dot_quant_dtype="qint8",
-                dot_quant_method="per_tensor",
-                Av_quant_dtype="qint8",
-                Av_quant_method="per_tensor",
-                moving_average=0.01,
-                weight_bit_prec=weight_bit,
-                activation_bit_prec=activation_bit,
-                linear_quant_output=True,
-            )
-            quant_args = QuantArgs(
-                sample_ls=[100] if weight_bit < 8 or activation_bit < 8 else [10, 100, 1000, 10000],
-                quant_config_dict={"quant_config_dict": asdict(model_config_quant_v1)},
-                decoder="ctc.decoder.flashlight_quant_stat_phoneme_ctc",
-                num_iterations=num_iterations,
-                datasets=train_data,
-                network_module="ctc.conformer_1023.quant.baseline_quant_v2",
-            )
-            quant_str = f"/quantize/weight_{weight_bit}_act_{activation_bit}"
-            asr_model = prepare_asr_model(
-                training_name+quant_str,
-                train_job,
-                train_args,
-                with_prior=True,
-                datasets=train_data,
-                get_specific_checkpoint=250,
-            )
-            res, _ = tune_and_evaluate_helper(  # only take best for now, since otherwise too many searches
-                training_name, asr_model, default_decoder_config, lm_scales=[2.8],
-                prior_scales=[0.7], quant_args=quant_args, quant_str=quant_str,
-                dev_dataset_tuples=dev_dataset_tuples,
-                test_dataset_tuples=None
-            )
-            results.update(res)
-            generate_report(results=results, exp_name=training_name + f"_quantize/weight_{weight_bit}_act_{activation_bit}")
-            del results
+    for activation_bit, weight_bit in [(8, 8), (8, 4), (8, 3), (4, 4)]:
+        results = {}
+        model_config_quant_v1 = QuantModelConfigV1(
+            weight_quant_dtype="qint8",
+            weight_quant_method="per_tensor",
+            activation_quant_dtype="qint8",
+            activation_quant_method="per_tensor",
+            dot_quant_dtype="qint8",
+            dot_quant_method="per_tensor",
+            Av_quant_dtype="qint8",
+            Av_quant_method="per_tensor",
+            moving_average=0.01,
+            weight_bit_prec=weight_bit,
+            activation_bit_prec=activation_bit,
+            linear_quant_output=True,
+        )
+        quant_args = QuantArgs(
+            sample_ls=[100] if weight_bit < 8 or activation_bit < 8 else [100],
+            quant_config_dict={"quant_config_dict": asdict(model_config_quant_v1)},
+            decoder="ctc.decoder.flashlight_quant_stat_phoneme_ctc",
+            num_iterations=num_iterations,
+            datasets=train_data,
+            network_module="ctc.conformer_1023.quant.baseline_quant_v2",
+        )
+        quant_str = f"/quantize/weight_{weight_bit}_act_{activation_bit}"
+        asr_model = prepare_asr_model(
+            training_name + quant_str,
+            train_job,
+            train_args,
+            with_prior=True,
+            datasets=train_data,
+            get_specific_checkpoint=250,
+        )
+        res, _ = tune_and_evaluate_helper(  # only take best for now, since otherwise too many searches
+            training_name,
+            asr_model,
+            default_decoder_config,
+            lm_scales=[2.8],
+            prior_scales=[0.7],
+            quant_args=quant_args,
+            quant_str=quant_str,
+            dev_dataset_tuples=dev_dataset_tuples,
+            test_dataset_tuples=None,
+        )
+        results.update(res)
+        generate_report(results=results, exp_name=training_name + f"_quantize/weight_{weight_bit}_act_{activation_bit}")
+        del results
 
     report = {}
     if full is True:
@@ -314,7 +344,7 @@ def eow_phon_ted_1023_base(full=False):
                 # 12:   10.6  8.5
                 # 16:   9.9   8.3
 
-                dropout = 0.2 # if dim > 128 else 0.0
+                dropout = 0.2  # if dim > 128 else 0.0
                 frontend_config_dims = VGG4LayerActFrontendV1Config_mod(
                     in_features=80,
                     conv1_channels=32,
@@ -342,7 +372,7 @@ def eow_phon_ted_1023_base(full=False):
                     conformer_size=dim,
                     num_layers=layer_count,
                     num_heads=4,
-                    ff_dim=4*dim,
+                    ff_dim=4 * dim,
                     att_weights_dropout=dropout,
                     conv_dropout=dropout,
                     ff_dropout=dropout,
@@ -353,10 +383,15 @@ def eow_phon_ted_1023_base(full=False):
                 )
                 small = layer_count > 16 and dim > 768
                 train_config = {
-                    "optimizer": {"class": "radam", "epsilon": 1e-16, "weight_decay": 1e-2, "decoupled_weight_decay": True},
+                    "optimizer": {
+                        "class": "radam",
+                        "epsilon": 1e-16,
+                        "weight_decay": 1e-2,
+                        "decoupled_weight_decay": True,
+                    },
                     "learning_rates": list(np.linspace(7e-6, 5e-4, 110))
-                                      + list(np.linspace(5e-4, 5e-5, 110))
-                                      + list(np.linspace(5e-5, 1e-7, 30)),
+                    + list(np.linspace(5e-4, 5e-5, 110))
+                    + list(np.linspace(5e-5, 1e-7, 30)),
                     #############
                     "batch_size": 180 * 16000 if not small else 90 * 16000,
                     "max_seq_length": {"audio_features": 35 * 16000},
@@ -382,7 +417,7 @@ def eow_phon_ted_1023_base(full=False):
                     train_data=train_data,
                     decoder_config=default_decoder_config,
                     dev_dataset_tuples=dev_dataset_tuples,
-                    result_dict=results
+                    result_dict=results,
                 )
                 generate_report(results=results, exp_name=training_name)
                 report[training_name] = results
@@ -390,11 +425,15 @@ def eow_phon_ted_1023_base(full=False):
 
                 if dim == 384 and layer_count == 16:
                     train_config = {
-                        "optimizer": {"class": "radam", "epsilon": 1e-16, "weight_decay": 1e-2,
-                                      "decoupled_weight_decay": True},
+                        "optimizer": {
+                            "class": "radam",
+                            "epsilon": 1e-16,
+                            "weight_decay": 1e-2,
+                            "decoupled_weight_decay": True,
+                        },
                         "learning_rates": list(np.linspace(7e-6, 5e-4, 220))
-                                          + list(np.linspace(5e-4, 5e-5, 220))
-                                          + list(np.linspace(5e-5, 1e-7, 60)),
+                        + list(np.linspace(5e-4, 5e-5, 220))
+                        + list(np.linspace(5e-5, 1e-7, 60)),
                         #############
                         "batch_size": 180 * 16000,
                         "max_seq_length": {"audio_features": 35 * 16000},
@@ -417,38 +456,42 @@ def eow_phon_ted_1023_base(full=False):
                         train_data=train_data,
                         decoder_config=default_decoder_config,
                         dev_dataset_tuples=dev_dataset_tuples,
-                        specific_epoch=500
+                        specific_epoch=500,
                     )
                     generate_report(results=results, exp_name=training_name)
                     report[training_name] = results
                     del results
 
         from functools import partial
+
         tk.register_report("reports/size_report", partial(build_report, report), required=report)
 
         from ...pytorch_networks.ctc.conformer_distill_1206.self_distill_conformer_v1_cfg import (
             ModelConfig as StudentConfig,
-            DistillConfig as TeacherConfig
+            DistillConfig as TeacherConfig,
         )
+
         distill_report = {}
-        distill_report['baselines'] = {}
+        distill_report["baselines"] = {}
         no_drop_stud_report = {}
-        no_drop_stud_report['baselines'] = {}
+        no_drop_stud_report["baselines"] = {}
         larger_distill_report = {}
-        larger_distill_report['baselines'] = {}
+        larger_distill_report["baselines"] = {}
         for dim in [64, 128, 256]:
             for layer_count in [4, 8, 12]:
-                #for distill_scale in [0.35, 0.25, 1.0]:
+                # for distill_scale in [0.35, 0.25, 1.0]:
                 for distill_scale in [0.25]:
-                    #for T in [1, 2, 3]:
+                    # for T in [1, 2, 3]:
                     for T in [2]:
-                        distill_report["baselines"][prefix_name + "/" + network_module + f"_{layer_count}_{dim}_sub4_50eps"] = report[prefix_name + "/" + network_module + f"_{layer_count}_{dim}_sub4_50eps"]
+                        distill_report["baselines"][
+                            prefix_name + "/" + network_module + f"_{layer_count}_{dim}_sub4_50eps"
+                        ] = report[prefix_name + "/" + network_module + f"_{layer_count}_{dim}_sub4_50eps"]
                         no_drop_stud_report["baselines"][
-                            prefix_name + "/" + network_module + f"_{layer_count}_{dim}_sub4_50eps"] = report[
-                            prefix_name + "/" + network_module + f"_{layer_count}_{dim}_sub4_50eps"]
+                            prefix_name + "/" + network_module + f"_{layer_count}_{dim}_sub4_50eps"
+                        ] = report[prefix_name + "/" + network_module + f"_{layer_count}_{dim}_sub4_50eps"]
                         larger_distill_report["baselines"][
-                            prefix_name + "/" + network_module + f"_{layer_count}_{dim}_sub4_50eps"] = report[
-                            prefix_name + "/" + network_module + f"_{layer_count}_{dim}_sub4_50eps"]
+                            prefix_name + "/" + network_module + f"_{layer_count}_{dim}_sub4_50eps"
+                        ] = report[prefix_name + "/" + network_module + f"_{layer_count}_{dim}_sub4_50eps"]
 
                         distill_module = "ctc.conformer_distill_1206.self_distill_conformer_v4"
                         teacher_config = TeacherConfig(
@@ -504,11 +547,15 @@ def eow_phon_ted_1023_base(full=False):
                             specauc_start_epoch=1,
                         )
                         train_config_distill = {
-                            "optimizer": {"class": "radam", "epsilon": 1e-16, "weight_decay": 1e-2,
-                                          "decoupled_weight_decay": True},
+                            "optimizer": {
+                                "class": "radam",
+                                "epsilon": 1e-16,
+                                "weight_decay": 1e-2,
+                                "decoupled_weight_decay": True,
+                            },
                             "learning_rates": list(np.linspace(7e-6, 5e-4, 110))
-                                              + list(np.linspace(5e-4, 5e-5, 110))
-                                              + list(np.linspace(5e-5, 1e-7, 30)),
+                            + list(np.linspace(5e-4, 5e-5, 110))
+                            + list(np.linspace(5e-5, 1e-7, 30)),
                             #############
                             "batch_size": 180 * 16000,
                             "max_seq_length": {"audio_features": 35 * 16000},
@@ -519,23 +566,24 @@ def eow_phon_ted_1023_base(full=False):
                             "network_module": distill_module,
                             "net_args": {
                                 "model_config_dict": asdict(student_config),
-                                "distill_config_dict": asdict(teacher_config)
+                                "distill_config_dict": asdict(teacher_config),
                             },
                             "debug": False,
                         }
-                        train_args_distill['config']['preload_from_files'] = {
+                        train_args_distill["config"]["preload_from_files"] = {
                             "teacher": {
                                 "filename": PRETRAIN_CHECKPOINT_DISTILL_V1,
                                 "init_for_train": True,
                                 "ignore_missing": False,
-                                "prefix": 'teacher.',
+                                "prefix": "teacher.",
                                 "ignore_params_prefixes": ["teacher.feature_extraction"],
                             }
                         }
                         decoder_module = "ctc.decoder.flashlight_ctc_distill_v1"
                         training_name = prefix_name + "/" + distill_module + f"_{layer_count}_{dim}_{distill_scale}_{T}"
-                        train_job = training(training_name, train_data, train_args_distill, num_epochs=250,
-                                             **default_returnn)
+                        train_job = training(
+                            training_name, train_data, train_args_distill, num_epochs=250, **default_returnn
+                        )
                         results = eval_model(
                             training_name=training_name,
                             train_job=train_job,
@@ -544,7 +592,7 @@ def eow_phon_ted_1023_base(full=False):
                             decoder_config=default_decoder_config,
                             dev_dataset_tuples=dev_dataset_tuples,
                             specific_epoch=250,
-                            decoder_module=decoder_module
+                            decoder_module=decoder_module,
                         )
                         generate_report(results=results, exp_name=training_name)
                         distill_report[training_name] = results
@@ -603,11 +651,15 @@ def eow_phon_ted_1023_base(full=False):
                             specauc_start_epoch=1,
                         )
                         train_config_distill = {
-                            "optimizer": {"class": "radam", "epsilon": 1e-16, "weight_decay": 1e-2,
-                                          "decoupled_weight_decay": True},
+                            "optimizer": {
+                                "class": "radam",
+                                "epsilon": 1e-16,
+                                "weight_decay": 1e-2,
+                                "decoupled_weight_decay": True,
+                            },
                             "learning_rates": list(np.linspace(7e-6, 5e-4, 110))
-                                              + list(np.linspace(5e-4, 5e-5, 110))
-                                              + list(np.linspace(5e-5, 1e-7, 30)),
+                            + list(np.linspace(5e-4, 5e-5, 110))
+                            + list(np.linspace(5e-5, 1e-7, 30)),
                             #############
                             "batch_size": 180 * 16000,
                             "max_seq_length": {"audio_features": 35 * 16000},
@@ -618,23 +670,29 @@ def eow_phon_ted_1023_base(full=False):
                             "network_module": distill_module,
                             "net_args": {
                                 "model_config_dict": asdict(student_config),
-                                "distill_config_dict": asdict(teacher_config)
+                                "distill_config_dict": asdict(teacher_config),
                             },
                             "debug": False,
                         }
-                        train_args_distill['config']['preload_from_files'] = {
+                        train_args_distill["config"]["preload_from_files"] = {
                             "teacher": {
                                 "filename": PRETRAIN_CHECKPOINT_DISTILL_V1,
                                 "init_for_train": True,
                                 "ignore_missing": False,
-                                "prefix": 'teacher.',
+                                "prefix": "teacher.",
                                 "ignore_params_prefixes": ["teacher.feature_extraction"],
                             }
                         }
                         decoder_module = "ctc.decoder.flashlight_ctc_distill_v1"
-                        training_name = prefix_name + "/" + distill_module + f"_{layer_count}_{dim}_{distill_scale}_{T}_no_stud_drop"
-                        train_job = training(training_name, train_data, train_args_distill, num_epochs=250,
-                                             **default_returnn)
+                        training_name = (
+                            prefix_name
+                            + "/"
+                            + distill_module
+                            + f"_{layer_count}_{dim}_{distill_scale}_{T}_no_stud_drop"
+                        )
+                        train_job = training(
+                            training_name, train_data, train_args_distill, num_epochs=250, **default_returnn
+                        )
                         results = eval_model(
                             training_name=training_name,
                             train_job=train_job,
@@ -643,10 +701,12 @@ def eow_phon_ted_1023_base(full=False):
                             decoder_config=default_decoder_config,
                             dev_dataset_tuples=dev_dataset_tuples,
                             specific_epoch=250,
-                            decoder_module=decoder_module
+                            decoder_module=decoder_module,
                         )
                         generate_report(results=results, exp_name=training_name)
-                        no_drop_stud_report[prefix_name + "/" + distill_module + f"_{layer_count}_{dim}_{distill_scale}_{T}"] = results
+                        no_drop_stud_report[
+                            prefix_name + "/" + distill_module + f"_{layer_count}_{dim}_{distill_scale}_{T}"
+                        ] = results
                         del results
 
                         teacher_config = TeacherConfig(
@@ -702,11 +762,15 @@ def eow_phon_ted_1023_base(full=False):
                             specauc_start_epoch=1,
                         )
                         train_config_distill = {
-                            "optimizer": {"class": "radam", "epsilon": 1e-16, "weight_decay": 1e-2,
-                                          "decoupled_weight_decay": True},
+                            "optimizer": {
+                                "class": "radam",
+                                "epsilon": 1e-16,
+                                "weight_decay": 1e-2,
+                                "decoupled_weight_decay": True,
+                            },
                             "learning_rates": list(np.linspace(7e-6, 5e-4, 110))
-                                              + list(np.linspace(5e-4, 5e-5, 110))
-                                              + list(np.linspace(5e-5, 1e-7, 30)),
+                            + list(np.linspace(5e-4, 5e-5, 110))
+                            + list(np.linspace(5e-5, 1e-7, 30)),
                             #############
                             "batch_size": 180 * 16000,
                             "max_seq_length": {"audio_features": 35 * 16000},
@@ -717,23 +781,29 @@ def eow_phon_ted_1023_base(full=False):
                             "network_module": distill_module,
                             "net_args": {
                                 "model_config_dict": asdict(student_config),
-                                "distill_config_dict": asdict(teacher_config)
+                                "distill_config_dict": asdict(teacher_config),
                             },
                             "debug": False,
                         }
-                        train_args_distill['config']['preload_from_files'] = {
+                        train_args_distill["config"]["preload_from_files"] = {
                             "teacher": {
                                 "filename": PRETRAIN_CHECKPOINT_DISTILL_V2,
                                 "init_for_train": True,
                                 "ignore_missing": False,
-                                "prefix": 'teacher.',
+                                "prefix": "teacher.",
                                 "ignore_params_prefixes": ["teacher.feature_extraction"],
                             }
                         }
                         decoder_module = "ctc.decoder.flashlight_ctc_distill_v1"
-                        training_name = prefix_name + "/" + distill_module + f"_{layer_count}_{dim}_{distill_scale}_{T}_larger_teacher"
-                        train_job = training(training_name, train_data, train_args_distill, num_epochs=250,
-                                             **default_returnn)
+                        training_name = (
+                            prefix_name
+                            + "/"
+                            + distill_module
+                            + f"_{layer_count}_{dim}_{distill_scale}_{T}_larger_teacher"
+                        )
+                        train_job = training(
+                            training_name, train_data, train_args_distill, num_epochs=250, **default_returnn
+                        )
                         results = eval_model(
                             training_name=training_name,
                             train_job=train_job,
@@ -742,20 +812,32 @@ def eow_phon_ted_1023_base(full=False):
                             decoder_config=default_decoder_config,
                             dev_dataset_tuples=dev_dataset_tuples,
                             specific_epoch=250,
-                            decoder_module=decoder_module
+                            decoder_module=decoder_module,
                         )
                         generate_report(results=results, exp_name=training_name)
-                        larger_distill_report[prefix_name + "/" + distill_module + f"_{layer_count}_{dim}_{distill_scale}_{T}"] = results
+                        larger_distill_report[
+                            prefix_name + "/" + distill_module + f"_{layer_count}_{dim}_{distill_scale}_{T}"
+                        ] = results
                         del results
 
-        tk.register_report("reports/distill_report", partial(build_distill_report, distill_report), required=distill_report)
-        tk.register_report("reports/distill_no_drop_stud_report", partial(build_distill_report, no_drop_stud_report), required=no_drop_stud_report)
-        tk.register_report("reports/distill_larger_report", partial(build_distill_report, larger_distill_report), required=larger_distill_report)
+        tk.register_report(
+            "reports/distill_report", partial(build_distill_report, distill_report), required=distill_report
+        )
+        tk.register_report(
+            "reports/distill_no_drop_stud_report",
+            partial(build_distill_report, no_drop_stud_report),
+            required=no_drop_stud_report,
+        )
+        tk.register_report(
+            "reports/distill_larger_report",
+            partial(build_distill_report, larger_distill_report),
+            required=larger_distill_report,
+        )
     train_config = {
         "optimizer": {"class": "adamw", "epsilon": 1e-16, "weight_decay": 1e-3},
         "learning_rates": list(np.linspace(7e-6, 5e-4, 110))
-                          + list(np.linspace(5e-4, 5e-5, 110))
-                          + list(np.linspace(5e-5, 1e-7, 30)),
+        + list(np.linspace(5e-4, 5e-5, 110))
+        + list(np.linspace(5e-5, 1e-7, 30)),
         #############
         "batch_size": 180 * 16000,
         "max_seq_length": {"audio_features": 35 * 16000},
@@ -819,8 +901,8 @@ def eow_phon_ted_1023_base(full=False):
     train_config = {
         "optimizer": {"class": "adamw", "epsilon": 1e-16, "weight_decay": 1e-3},
         "learning_rates": list(np.linspace(7e-6, 5e-4, 110))
-                          + list(np.linspace(5e-4, 5e-5, 110))
-                          + list(np.linspace(5e-5, 1e-7, 30)),
+        + list(np.linspace(5e-4, 5e-5, 110))
+        + list(np.linspace(5e-5, 1e-7, 30)),
         #############
         "batch_size": 90 * 16000,
         "max_seq_length": {"audio_features": 35 * 16000},
@@ -852,7 +934,7 @@ def eow_phon_ted_1023_base(full=False):
         conformer_size=768,
         num_layers=12,
         num_heads=4,
-        ff_dim=768*4,
+        ff_dim=768 * 4,
         att_weights_dropout=0.2,
         conv_dropout=0.2,
         ff_dropout=0.2,
@@ -876,25 +958,47 @@ def eow_phon_ted_1023_base(full=False):
     lm_scales = [2.0, 2.2, 2.4, 2.6, 2.8]
     prior_scales = [0.7, 0.9]
     res, _ = tune_and_evaluate_helper(
-        training_name, asr_model, default_decoder_config, lm_scales=lm_scales,
-        prior_scales=prior_scales, dev_dataset_tuples=dev_dataset_tuples
+        training_name,
+        asr_model,
+        default_decoder_config,
+        lm_scales=lm_scales,
+        prior_scales=prior_scales,
+        dev_dataset_tuples=dev_dataset_tuples,
     )
     results.update(res)
     asr_model_best4 = prepare_asr_model(
-        training_name + "/best4", train_job, train_args, with_prior=True, datasets=train_data,
-        get_best_averaged_checkpoint=(4, "dev_loss_ctc")
+        training_name + "/best4",
+        train_job,
+        train_args,
+        with_prior=True,
+        datasets=train_data,
+        get_best_averaged_checkpoint=(4, "dev_loss_ctc"),
     )
-    res, _ = tune_and_evaluate_helper(training_name + "/best4", asr_model_best4, default_decoder_config,
-                                      lm_scales=lm_scales, prior_scales=prior_scales,
-                                      dev_dataset_tuples=dev_dataset_tuples)
+    res, _ = tune_and_evaluate_helper(
+        training_name + "/best4",
+        asr_model_best4,
+        default_decoder_config,
+        lm_scales=lm_scales,
+        prior_scales=prior_scales,
+        dev_dataset_tuples=dev_dataset_tuples,
+    )
     results.update(res)
     asr_model_best = prepare_asr_model(
-        training_name + "/best", train_job, train_args, with_prior=True, datasets=train_data,
-        get_best_averaged_checkpoint=(1, "dev_loss_ctc")
+        training_name + "/best",
+        train_job,
+        train_args,
+        with_prior=True,
+        datasets=train_data,
+        get_best_averaged_checkpoint=(1, "dev_loss_ctc"),
     )
-    res, _ = tune_and_evaluate_helper(training_name + "/best", asr_model_best, default_decoder_config,
-                                      lm_scales=lm_scales, prior_scales=prior_scales,
-                                      dev_dataset_tuples=dev_dataset_tuples)
+    res, _ = tune_and_evaluate_helper(
+        training_name + "/best",
+        asr_model_best,
+        default_decoder_config,
+        lm_scales=lm_scales,
+        prior_scales=prior_scales,
+        dev_dataset_tuples=dev_dataset_tuples,
+    )
     results.update(res)  # 7.3
     generate_report(results=results, exp_name=training_name)
 
@@ -903,8 +1007,8 @@ def eow_phon_ted_1023_base(full=False):
     train_config = {
         "optimizer": {"class": "adamw", "epsilon": 1e-16, "weight_decay": 1e-3},
         "learning_rates": list(np.linspace(7e-6, 5e-4, 110))
-                          + list(np.linspace(5e-4, 5e-5, 110))
-                          + list(np.linspace(5e-5, 1e-7, 30)),
+        + list(np.linspace(5e-4, 5e-5, 110))
+        + list(np.linspace(5e-5, 1e-7, 30)),
         #############
         "batch_size": 180 * 16000,
         "max_seq_length": {"audio_features": 35 * 16000},
@@ -925,23 +1029,47 @@ def eow_phon_ted_1023_base(full=False):
     lm_scales = [2.0, 2.2, 2.4, 2.6, 2.8]
     prior_scales = [0.7, 0.9]
     res, _ = tune_and_evaluate_helper(
-        training_name, asr_model, default_decoder_config, lm_scales=lm_scales,
-        prior_scales=prior_scales, dev_dataset_tuples=dev_dataset_tuples
+        training_name,
+        asr_model,
+        default_decoder_config,
+        lm_scales=lm_scales,
+        prior_scales=prior_scales,
+        dev_dataset_tuples=dev_dataset_tuples,
     )
     results.update(res)
     asr_model_best4 = prepare_asr_model(
-        training_name + "/best4", train_job, train_args, with_prior=True, datasets=train_data,
-        get_best_averaged_checkpoint=(4, "dev_loss_ctc")
+        training_name + "/best4",
+        train_job,
+        train_args,
+        with_prior=True,
+        datasets=train_data,
+        get_best_averaged_checkpoint=(4, "dev_loss_ctc"),
     )
-    res, _ = tune_and_evaluate_helper(training_name + "/best4", asr_model_best4, default_decoder_config,
-                                      lm_scales=lm_scales, prior_scales=prior_scales, dev_dataset_tuples=dev_dataset_tuples)
+    res, _ = tune_and_evaluate_helper(
+        training_name + "/best4",
+        asr_model_best4,
+        default_decoder_config,
+        lm_scales=lm_scales,
+        prior_scales=prior_scales,
+        dev_dataset_tuples=dev_dataset_tuples,
+    )
     results.update(res)
     asr_model_best = prepare_asr_model(
-        training_name + "/best", train_job, train_args, with_prior=True, datasets=train_data,
-        get_best_averaged_checkpoint=(1, "dev_loss_ctc")
+        training_name + "/best",
+        train_job,
+        train_args,
+        with_prior=True,
+        datasets=train_data,
+        get_best_averaged_checkpoint=(1, "dev_loss_ctc"),
     )
-    res, _ = tune_and_evaluate_helper(training_name + "/best", asr_model_best, default_decoder_config,
-                                      lm_scales=lm_scales, prior_scales=prior_scales, dev_dataset_tuples=dev_dataset_tuples)
+    res, _ = tune_and_evaluate_helper(
+        training_name + "/best",
+        asr_model_best,
+        default_decoder_config,
+        lm_scales=lm_scales,
+        prior_scales=prior_scales,
+        dev_dataset_tuples=dev_dataset_tuples,
+    )
     results.update(res)
     generate_report(results=results, exp_name=training_name)  # TODO current best with 6.99
     del results
