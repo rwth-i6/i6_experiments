@@ -355,6 +355,22 @@ def py():
                             "grad_norm_p": 0.1,
                         },
                     ),
+                    (
+                        "-lpNormedGradUsed-shift0-am1.0-prior1.0-blankStopGrad-inclBlankState-p0.1",
+                        {
+                            "blank_logit_shift": 0,
+                            "ctc_prior_type": "static",
+                            "static_prior": {"type": "prob", "file": prior_stats.mean},
+                            "ctc_am_scale": 1.0,
+                            "ctc_prior_scale": 1.0,
+                            "log_prob_normed_grad": log_prob_normed_grad_opts_by_shortname[shortname],
+                            "_log_prob_normed_grad_mod_import_hack": _HackImportAlignmentModule(),
+                            "_log_prob_normed_grad_version": 2,
+                            "stop_grad_blank": True,
+                            "ctc_partial_scores_include_next_blank": True,
+                            "grad_norm_p": 0.1,
+                        },
+                    ),
                 ]
                 if "lpNormedGrad" in shortname
                 else []
