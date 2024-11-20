@@ -205,6 +205,18 @@ def py():
                     }
                 )
 
+            for shift in [-5, -10, -15, -20]:
+                opts_variants.append(
+                    {
+                        "fix_log_probs": True,
+                        "blank_logit_shift": shift,
+                        "ctc_prior_type": "static",
+                        "static_prior": {"type": "prob", "file": prior_stats.mean},
+                        "ctc_am_scale": am_scale,
+                        "ctc_prior_scale": prior_scale,
+                    }
+                )
+
             for opts in opts_variants:
                 prefix_ = f"{prefix}ctc_forced_align/{shortname}-ep{epoch}"
                 for k, v in opts.items():
