@@ -6,8 +6,14 @@ More on grad align
 from __future__ import annotations
 
 from typing import Optional, Any, List, Sequence, Dict, Tuple
-from i6_experiments.users.zeyer.model_interfaces.model_with_checkpoints import ModelWithCheckpoint
+import sys
 
+from sisyphus import tk, Path, gs
+
+from returnn_common.datasets_old_2022_10.interface import DatasetConfig
+from i6_experiments.users.zeyer.model_interfaces import ForwardRFDef
+from i6_experiments.users.zeyer.utils.sis_setup import get_setup_prefix_for_module
+from i6_experiments.users.zeyer.model_interfaces.model_with_checkpoints import ModelWithCheckpoint
 from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.ctc import (
     train_exp as ctc_train_exp,
     config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
@@ -34,10 +40,6 @@ import returnn.frontend as rf
 from returnn.tensor import Tensor, Dim, TensorDict
 from returnn.frontend.decoder.transformer import TransformerDecoder
 from returnn.frontend.encoder.conformer import ConformerEncoder
-from returnn_common.datasets_old_2022_10.interface import DatasetConfig
-from i6_experiments.users.zeyer.model_interfaces import ForwardRFDef
-from i6_experiments.users.zeyer.utils.sis_setup import get_setup_prefix_for_module
-from sisyphus import tk, Path
 
 
 def py():
@@ -175,18 +177,7 @@ def py():
             prior_stats.mean.creator.add_alias(f"{prefix}ctc_prior/{shortname}-ep{epoch}/prior_stats_full")
             tk.register_output(f"{prefix}ctc_prior/{shortname}-ep{epoch}/prior_stats_full.mean.txt", prior_stats.mean)
 
-            ref_log_probs = get_ctc_ref_label_log_probs(ctc_model, train_dataset)
-            ref_log_probs.creator.add_alias(f"{prefix}ctc_ref_log_probs/{shortname}-ep{epoch}/log_probs")
-            tk.register_output(f"{prefix}ctc_ref_log_probs/{shortname}-ep{epoch}/log_probs.hdf", ref_log_probs)
-
             opts_variants = [{}]
-
-            if "blankSep" in shortname:
-                ref_log_probs_bug = get_ctc_ref_label_log_probs(ctc_model, train_dataset, {"bug_log_probs": True})
-                ref_log_probs_bug.creator.add_alias(f"{prefix}ctc_ref_log_probs/{shortname}-ep{epoch}-bug/log_probs")
-                tk.register_output(
-                    f"{prefix}ctc_ref_log_probs/{shortname}-ep{epoch}-bug/log_probs.hdf", ref_log_probs_bug
-                )
 
             for shift in [0, -5, -10, -15, -18, -20, -25]:
                 opts_variants.append({"fix_log_probs": True, "blank_logit_shift": shift})
@@ -218,16 +209,29 @@ def py():
                 )
 
             for opts in opts_variants:
-                prefix_ = f"{prefix}ctc_forced_align/{shortname}-ep{epoch}"
+                name = f"{shortname}-ep{epoch}"
                 for k, v in opts.items():
                     if k == "fix_log_probs" and v:
-                        prefix_ += "-fix"
+                        name += "-fix"
                         continue
                     if k == "static_prior":
                         continue
-                    prefix_ += f"-{k}{v}"
-                prefix_ += "/"
+                    name += f"-{k}{v}"
 
+                ref_log_probs = get_ctc_ref_label_log_probs(ctc_model, train_dataset, opts)
+                ref_log_probs.creator.add_alias(f"{prefix}ctc_ref_log_probs/{name}/log_probs")
+                tk.register_output(f"{prefix}ctc_ref_log_probs/{name}/log_probs.hdf", ref_log_probs)
+
+                if "blankSep" in shortname and not opts:
+                    ref_log_probs_bug = get_ctc_ref_label_log_probs(ctc_model, train_dataset, {"bug_log_probs": True})
+                    ref_log_probs_bug.creator.add_alias(
+                        f"{prefix}ctc_ref_log_probs/{shortname}-ep{epoch}-bug/log_probs"
+                    )
+                    tk.register_output(
+                        f"{prefix}ctc_ref_log_probs/{shortname}-ep{epoch}-bug/log_probs.hdf", ref_log_probs_bug
+                    )
+
+                prefix_ = f"{prefix}ctc_forced_align/{name}/"
                 alignment = ctc_forced_align(ctc_model, train_dataset, opts)
                 alignment.creator.add_alias(f"{prefix_}align")
                 tk.register_output(f"{prefix_}align.hdf", alignment)
@@ -285,7 +289,7 @@ def py():
                         # match the model...
                     },
                 )
-                for ctc_scale in [0, 1]  # [0, 0.1, 0.2, 0.3, 1.0]
+                for ctc_scale in [0]  # [0, 0.1, 0.2, 0.3, 1.0]
             ],
         ]:
             grad_opts = grad_opts.copy()
@@ -304,6 +308,23 @@ def py():
                     **({"fixed_blank_sep_v1": True} if "blankSep" in shortname else {}),
                     **grad_opts,
                     **({"batch_size": 5_000 * _batch_size_factor} if shortname == "ebranchformer" else {}),
+                    **(
+                        {
+                            "log_prob_normed_grad": {
+                                "lpNormedGradC05_11P1": {
+                                    "func": {
+                                        "clamp_min": 0.5,
+                                        "clamp_max": 1.1,
+                                        "scale_type": "inv_num_labels",
+                                        "prior_exp": 1.0,
+                                    }
+                                }
+                            }[shortname],
+                            "_log_prob_normed_grad_mod_import_hack": _HackImportAlignmentModule(),
+                        }
+                        if "lpNormedGrad" in shortname
+                        else {}
+                    ),
                 },
             )
             if shortname == "blankSep":
@@ -1147,6 +1168,18 @@ def _ctc_model_softmax_prior_returnn_forward(
     assert isinstance(log_probs, Tensor)
     probs = rf.exp(log_probs)  # the statistics take the average over this, thus prob space, not log prob
     return probs, enc_spatial_dim
+
+
+class _HackImportAlignmentModule:
+    def _sis_hash(self):
+        return b"(_HackImportAlignmentModule)"
+
+    def __getstate__(self):
+        return {"path": gs.BASE_DIR + "/projects/2024-alignment-analysis"}
+
+    def __setstate__(self, state):
+        # Wanted side effect: Prepare alignment import.
+        sys.path.insert(0, state["path"])
 
 
 def visualize_grad_scores():
