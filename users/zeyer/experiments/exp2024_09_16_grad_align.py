@@ -253,6 +253,25 @@ def py():
                 tk.register_output(f"{prefix_}align-metrics.json", job.out_scores)
                 tk.register_output(f"{prefix_}align-metrics.short_report.txt", job.out_short_report_str)
 
+        log_prob_normed_grad_opts_by_shortname = {
+            # 5.71/5.87 (!!) (i.e. better than without)
+            "C05_11P1": {
+                "func": {"clamp_min": 0.5, "clamp_max": 1.1, "scale_type": "inv_num_labels", "prior_exp": 1.0}
+            },
+            # 6.21/6.55
+            "C01_11P1": {
+                "func": {"clamp_min": 0.1, "clamp_max": 1.1, "scale_type": "inv_num_labels", "prior_exp": 1.0}
+            },
+            # 5.83/5.91
+            "C05_11P1Seq": {
+                "prior": "seq_grad",
+                "func": {"clamp_min": 0.5, "clamp_max": 1.1, "scale_type": "inv_num_labels", "prior_exp": 1.0},
+            },
+        }
+        log_prob_normed_grad_opts_by_shortname = {
+            "lpNormedGrad" + k: v for k, v in log_prob_normed_grad_opts_by_shortname.items()
+        }
+
         for extra_name, grad_opts in [
             # ("", {}),
             # *([("-bs1", {"max_seqs": 1})] if shortname == "base" else []),  # test influence of batching
@@ -312,16 +331,7 @@ def py():
                     (
                         "-lpNormedGradUsed-blankStopGrad-inclBlankState-p0.1",
                         {
-                            "log_prob_normed_grad": {
-                                "lpNormedGradC05_11P1": {
-                                    "func": {
-                                        "clamp_min": 0.5,
-                                        "clamp_max": 1.1,
-                                        "scale_type": "inv_num_labels",
-                                        "prior_exp": 1.0,
-                                    }
-                                }
-                            }[shortname],
+                            "log_prob_normed_grad": log_prob_normed_grad_opts_by_shortname[shortname],
                             "_log_prob_normed_grad_mod_import_hack": _HackImportAlignmentModule(),
                             "_log_prob_normed_grad_version": 2,
                             "stop_grad_blank": True,
@@ -337,16 +347,7 @@ def py():
                             "static_prior": {"type": "prob", "file": prior_stats.mean},
                             "ctc_am_scale": 1.0,
                             "ctc_prior_scale": 1.0,
-                            "log_prob_normed_grad": {
-                                "lpNormedGradC05_11P1": {
-                                    "func": {
-                                        "clamp_min": 0.5,
-                                        "clamp_max": 1.1,
-                                        "scale_type": "inv_num_labels",
-                                        "prior_exp": 1.0,
-                                    }
-                                }
-                            }[shortname],
+                            "log_prob_normed_grad": log_prob_normed_grad_opts_by_shortname[shortname],
                             "_log_prob_normed_grad_mod_import_hack": _HackImportAlignmentModule(),
                             "_log_prob_normed_grad_version": 2,
                             "stop_grad_blank": True,
