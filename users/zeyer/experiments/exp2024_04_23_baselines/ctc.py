@@ -2092,7 +2092,9 @@ class Model(rf.Module):
         """
         if not self.out_blank_separated:  # standard case, joint distrib incl blank
             if self.blank_logit_shift:
-                logits += rf.sparse_to_dense(self.blank_idx, label_value=self.blank_logit_shift, other_value=0)
+                logits += rf.sparse_to_dense(
+                    self.blank_idx, label_value=self.blank_logit_shift, other_value=0, axis=self.wb_target_dim
+                )
             log_probs = rf.log_softmax(logits, axis=self.wb_target_dim)
         else:  # separate blank
             assert self.blank_idx == self.target_dim.dimension  # not implemented otherwise
