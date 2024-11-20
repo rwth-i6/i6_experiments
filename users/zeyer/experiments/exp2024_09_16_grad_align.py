@@ -212,8 +212,8 @@ def py():
                         "blank_logit_shift": shift,
                         "ctc_prior_type": "static",
                         "static_prior": {"type": "prob", "file": prior_stats.mean},
-                        "ctc_am_scale": am_scale,
-                        "ctc_prior_scale": prior_scale,
+                        "ctc_am_scale": 1.0,
+                        "ctc_prior_scale": 1.0,
                     }
                 )
 
