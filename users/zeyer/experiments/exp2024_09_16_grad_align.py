@@ -291,6 +291,19 @@ def py():
                 )
                 for ctc_scale in [0]  # [0, 0.1, 0.2, 0.3, 1.0]
             ],
+            (
+                "-blankStopGrad-inclBlankState-p0.1-shift-10-am1.0-prior1.0",
+                {
+                    "stop_grad_blank": True,
+                    "ctc_partial_scores_include_next_blank": True,
+                    "grad_norm_p": 0.1,
+                    "blank_logit_shift": -10,
+                    "ctc_prior_type": "static",
+                    "static_prior": {"type": "prob", "file": prior_stats.mean},
+                    "ctc_am_scale": 1.0,
+                    "ctc_prior_scale": 1.0,
+                },
+            ),
         ]:
             grad_opts = grad_opts.copy()
             # base model
