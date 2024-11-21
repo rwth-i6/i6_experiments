@@ -99,6 +99,119 @@ def plot_all():
     plotter.make()
 
 
+def report_relevant():
+    from glob import glob
+
+    _cat_remove_prefixes = [
+        "output/exp2024_09_16_grad_align/ctc_forced_align/",
+        "output/exp2024_09_16_grad_align/ctc-grad-align/",
+    ]
+    _cat_remove_postfixes = [
+        "-blankStopGrad-inclBlankState-p0.1"
+        "-smTimeTrue-bScorecalc-bScore_estflipped_after_softmax_over_time"
+        "-non_blank_score_reducelog_mean_exp-bScore_flipped_percentile60-smLabelsTrue"
+        "/align-metrics_short_report.txt",
+        "/align-metrics.short_report.txt",
+    ]
+
+    # noinspection PyShadowingNames
+    def _cat(fn: str):
+        fn_ = fn
+        for prefix in _cat_remove_prefixes:
+            if fn.startswith(prefix):
+                fn = fn[len(prefix) :]
+        for postfix in _cat_remove_postfixes:
+            if fn.endswith(postfix):
+                fn = fn[: -len(postfix)]
+        print(f"File: {fn}")
+        with open(fn_, "r") as f:
+            print(f.read().strip())
+
+    base_models = [
+        "base-spm512",
+        "base-spm512-blankSep",
+        "base",
+        "blankSep",
+        "lpNormedGradC05_11P1",
+        "base-bpe10k",
+        "base-bpe10k-blankSep",
+    ]
+
+    forced_align_prefix = "output/exp2024_09_16_grad_align/ctc_forced_align/"
+    # TSE align with forced align, multiple variants:
+    # without
+    # with prior and shift
+    print(f"\n* Forced align, variants for shift/prior")
+    forced_align_postfix = "/align-metrics.short_report.txt"
+    for base in base_models:
+        print(f"\n** Base models {base}")
+        for fn in sorted(glob(f"{forced_align_prefix}{base}-ep-1-fix*{forced_align_postfix}")):
+            _cat(fn)
+        print("--")
+    # -> I think always shift-10-ctc_prior_typestatic-ctc_am_scale1.0-ctc_prior_scale1.0?
+    # is always reasonably good.
+    forced_align_sel_set = "blank_logit_shift-10-ctc_prior_typestatic-ctc_am_scale1.0-ctc_prior_scale1.0"
+
+    print(f"\n* Forced align, selected {forced_align_sel_set}")
+    for base in base_models:
+        _cat(f"{forced_align_prefix}{base}-ep-1-fix-{forced_align_sel_set}{forced_align_postfix}")
+    print("--")
+
+    # TSE blank sep wrong
+    print(f"\n* Forced align, blankSep wrong vs fix")
+    for base in base_models:
+        if "blankSep" not in base:
+            continue
+        _cat(f"{forced_align_prefix}{base}-ep-1{forced_align_postfix}")
+        _cat(f"{forced_align_prefix}{base}-ep-1-fix-blank_logit_shift0{forced_align_postfix}")
+        _cat(f"{forced_align_prefix}{base}-ep-1-fix-{forced_align_sel_set}{forced_align_postfix}")
+    print("--")
+
+    # TSE align with grad align, multiple variants:
+    grad_align_prefix = "output/exp2024_09_16_grad_align/ctc-grad-align/"
+    # GradScore vs GradScoreExt
+    # without prior
+    # with prior
+
+    grad_align_grad_score_variant_fn = (  # GradScore
+        "-blankStopGrad-inclBlankState-p0.1-smTimeTrue-bScore-6/align-metrics_short_report.txt"
+    )
+
+    grad_align_grad_score_ext_variant_fn = (  # GradScoreExt
+        "-blankStopGrad-inclBlankState-p0.1"
+        "-smTimeTrue-bScorecalc-bScore_estflipped_after_softmax_over_time"
+        "-non_blank_score_reducelog_mean_exp-bScore_flipped_percentile60-smLabelsTrue"
+        "/align-metrics_short_report.txt"
+    )
+
+    print(f"\n* Grad align, variants for shift/prior")
+    for base in base_models:
+        print(f"\n** Base models {base}")
+        _cat(f"{grad_align_prefix}{base}{grad_align_grad_score_ext_variant_fn}")
+        for fn in sorted(glob(f"{grad_align_prefix}{base}-shift*-am*-prior*{grad_align_grad_score_ext_variant_fn}")):
+            _cat(fn)
+        print("--")
+    # -> shift0, am1, prior1 seems best for most cases, except for all blankSep, where prior0 is better.
+    sel = "-shift0-am1.0-prior1.0"
+    print(f"\n* Grad align, selected {sel}, except blankSep, where we take baselines")
+    for base in base_models:
+        if "blankSep" in base:
+            _cat(f"{grad_align_prefix}{base}{grad_align_grad_score_ext_variant_fn}")
+        else:
+            _cat(f"{grad_align_prefix}{base}{sel}{grad_align_grad_score_ext_variant_fn}")
+    print("--")
+
+    # TSE normed grad, with normed grad in grad align
+    print("\n*** Grad align, effect of lpNormedGradUsed")
+    for fn in sorted(glob(f"{grad_align_prefix}*lpNormedGradUsed*{grad_align_grad_score_ext_variant_fn}")):
+        assert "lpNormedGradUsed-" in fn
+        fn_ = fn.replace("lpNormedGradUsed-", "")
+        _cat(fn_)
+        _cat(fn)
+        print("--")
+    # -> almost no effect at all?
+
+
 def get_audio_features() -> np.array:
     """
     :return: log mel filterbank features, [T, D].
