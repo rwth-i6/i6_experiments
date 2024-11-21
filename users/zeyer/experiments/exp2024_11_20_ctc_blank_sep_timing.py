@@ -73,6 +73,7 @@ class _Model:
             (self.batch_dim, self.seq_len_dim, self.model_dim), minval=-1, maxval=1, dtype="float32"
         )
         self.weights = rf.random_uniform((self.wb_target_dim, self.model_dim), minval=-0.1, maxval=0.1, dtype="float32")
+        self.bias = rf.random_uniform((self.wb_target_dim,), minval=-0.1, maxval=0.1, dtype="float32")
 
         # First fill target labels with all blank, then below set some to non-blank.
         self.target_labels = rf.fill(
@@ -97,6 +98,7 @@ class _Model:
 
         if not out_blank_separated:  # standard case, joint distrib incl blank
             logits = rf.dot(self.x, self.weights, reduce=self.model_dim)  # [B, T, V+1]
+            logits += self.bias
 
             if case == "greedy_decode_only_labels":
                 return [rf.reduce_argmax(logits, axis=self.wb_target_dim)]  # [B, T]
@@ -114,6 +116,7 @@ class _Model:
 
         elif out_blank_separated == "simple":
             logits = rf.dot(self.x, self.weights, reduce=self.model_dim)
+            logits += self.bias
 
             logits_wo_blank, logits_blank = rf.split(
                 logits, axis=self.wb_target_dim, out_dims=[self.target_dim, self.dummy_blank_feat_dim]
@@ -146,8 +149,11 @@ class _Model:
             weights_non_blank = rf.convert_to_tensor(
                 self.weights.raw_tensor[: self.blank_idx], dims=[self.target_dim, self.model_dim]
             )
+            bias_blank = rf.convert_to_tensor(self.bias.raw_tensor[self.blank_idx], dims=[])
+            bias_non_blank = rf.convert_to_tensor(self.bias.raw_tensor[: self.blank_idx], dims=[self.target_dim])
 
             logits_blank = rf.dot(self.x, weights_blank, reduce=self.model_dim)  # [B, T]
+            logits_blank += bias_blank  # [B, T]
 
             if case.startswith("greedy_decode_"):
                 # It's not necessarily blank, but anyway we need to check it.
@@ -161,6 +167,7 @@ class _Model:
                 self.x, mask=non_blank_mask, dims=[self.batch_dim, self.seq_len_dim]
             )  # [B_T', D]
             non_blank_frames_logits = rf.dot(non_blank_frames_x, weights_non_blank, reduce=self.model_dim)  # [B_T', V]
+            non_blank_frames_logits += bias_non_blank  # [B_T', V]
             nb_denom = rf.reduce_logsumexp(non_blank_frames_logits, axis=self.target_dim)  # [B_T']
 
             nb_logits_blank, _ = rf.masked_select(
