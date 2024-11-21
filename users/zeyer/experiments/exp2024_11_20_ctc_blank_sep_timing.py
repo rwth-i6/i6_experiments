@@ -16,7 +16,7 @@ Similar as :func:`i6_experiments.users.zeyer.experiments.exp2024_09_16_grad_alig
 """
 
 from __future__ import annotations
-from typing import TYPE_CHECKING, Union, List
+from typing import TYPE_CHECKING, Optional, Union, List
 import sys
 
 
@@ -30,22 +30,24 @@ def timings(
     import torch
     import torch.utils.benchmark as benchmark
 
-    model = _Model(n_batch=n_batch, n_seq_len=n_seq_len, n_model=n_model, n_vocab=n_vocab)
+    model_std = _Model(n_batch=n_batch, n_seq_len=n_seq_len, n_model=n_model, n_vocab=n_vocab)
+    model_sep = _Model(n_batch=n_batch, n_seq_len=n_seq_len, n_model=n_model, n_vocab=n_vocab, out_blank_separated=True)
 
     for case in ["greedy_decode_only_labels", "greedy_decode_with_probs", "train"]:
         print("* Profiling case:", case)
-        out1_ = model(case=case, out_blank_separated="simple")
-        out2_ = model(case=case, out_blank_separated="efficient")
+        out1_ = model_sep(case=case, out_blank_separated="simple")
+        out2_ = model_sep(case=case, out_blank_separated="efficient")
         assert len(out1_) == len(out2_)
         for out1, out2 in zip(out1_, out2_):
             assert out1.dims == out2.dims and out1.sparse_dim == out2.sparse_dim and out1.dtype == out2.dtype
-            torch.testing.assert_allclose(out1.raw_tensor, out2.raw_tensor)
+            torch.testing.assert_allclose(out1.raw_tensor, out2.raw_tensor, rtol=1e-3, atol=1e-4)
 
         baseline = None
         for out_blank_separated in [False, "simple", "efficient"]:
             print(f"** Profiling case {case} with out_blank_separated={out_blank_separated}")
             timer = benchmark.Timer(
-                stmt=f"model(case={case!r}, out_blank_separated={out_blank_separated!r})", globals={"model": model}
+                stmt=f"model(case={case!r}, out_blank_separated={out_blank_separated!r})",
+                globals={"model": model_sep if out_blank_separated else model_std},
             )
             measurement = timer.timeit(n_trials)
             print(measurement)
@@ -56,7 +58,16 @@ def timings(
 
 
 class _Model:
-    def __init__(self, *, n_batch: int = 100, n_seq_len: int = 1000, n_model: int = 512, n_vocab: int = 10_000):
+    def __init__(
+        self,
+        *,
+        n_batch: int = 100,
+        n_seq_len: int = 1000,
+        n_model: int = 512,
+        n_vocab: int = 10_000,
+        amount_blank_frac: float = 0.9,
+        out_blank_separated: bool = False,
+    ):
         import torch
         import returnn.frontend as rf
         from returnn.tensor import Dim
@@ -68,6 +79,7 @@ class _Model:
         self.dummy_blank_feat_dim = Dim(1, name="blank_feat")
         self.wb_target_dim = self.target_dim + self.dummy_blank_feat_dim  # with blank
         self.blank_idx = self.target_dim.dimension
+        self.out_blank_separated = out_blank_separated
 
         self.x = rf.random_uniform(
             (self.batch_dim, self.seq_len_dim, self.model_dim), minval=-1, maxval=1, dtype="float32"
@@ -80,23 +92,138 @@ class _Model:
             dims=[self.batch_dim, self.seq_len_dim], sparse_dim=self.wb_target_dim, fill_value=self.blank_idx
         )
 
-        # Exactly set 10% to non-blank.
-        for b in range(self.batch_dim.dimension):
-            for i in range(self.seq_len_dim.dimension // 10):
-                while True:
-                    t = torch.randint(0, self.seq_len_dim.dimension, (1,)).item()
-                    if self.target_labels.raw_tensor[b, t] == self.blank_idx:
-                        break
-                self.target_labels.raw_tensor[b, t] = torch.randint(0, self.target_dim.dimension, (1,)).item()
+        # Set X% (1-amount_blank_frac) to non-blank of target labels.
+        for i in range(round(self.batch_dim.dimension * self.seq_len_dim.dimension * (1 - amount_blank_frac))):
+            while True:
+                b = torch.randint(0, self.batch_dim.dimension, (1,)).item()
+                t = torch.randint(0, self.seq_len_dim.dimension, (1,)).item()
+                if self.target_labels.raw_tensor[b, t] == self.blank_idx:
+                    break
+            self.target_labels.raw_tensor[b, t] = torch.randint(0, self.target_dim.dimension, (1,)).item()
 
-    def __call__(self, *, case: str, out_blank_separated: Union[bool, str]) -> List[Tensor]:
+        self._tune_params_for_amount_blank(amount_blank_frac, max_iters=100)
+
+    def _tune_params_for_amount_blank(self, amount_blank_frac_wanted: float, *, max_iters: int = 100):
+        import torch
+
+        num_frames = self.batch_dim.dimension * self.seq_len_dim.dimension
+        amount_blank_wanted = round(num_frames * amount_blank_frac_wanted)
+        print(
+            f"Wanted amount of blank: {amount_blank_frac_wanted * 100.:.1f}%,"
+            f" {amount_blank_wanted}/{num_frames} frames"
+        )
+        opt = torch.optim.Adam([self.weights.raw_tensor, self.bias.raw_tensor], lr=0.1)
+        for i in range(max_iters):
+            (log_probs, *_grads) = self(case="train")
+            loss = -log_probs.raw_tensor.sum()
+            print(f"Loss {i}: {loss.item() / num_frames:.3f}")
+            # loss.backward already called, as the func already calculated the grads.
+            opt.step()
+            opt.zero_grad()
+            amount_blank = self._get_amount_blank()
+            print(f"Amount blank: {amount_blank}")
+            self._maybe_report_non_blank_mask_count()
+            # Do not break early. We want that the distrib over the other labels is realistic (peaky).
+        # Now do the final fine-tuning.
+        self._tune_bias_for_amount_blank(amount_blank_frac_wanted)
+
+    def _maybe_report_non_blank_mask_count(self):
+        import returnn.frontend as rf
+
+        if self.out_blank_separated:
+            weights_blank = rf.convert_to_tensor(self.weights.raw_tensor[self.blank_idx], dims=[self.model_dim])
+            bias_blank = rf.convert_to_tensor(self.bias.raw_tensor[self.blank_idx], dims=[])
+            logits_blank = rf.dot(self.x, weights_blank, reduce=self.model_dim)  # [B, T]
+            logits_blank += bias_blank  # [B, T]
+            non_blank_mask = logits_blank < 0.0  # [B, T]
+            print(
+                "Potential non blank count (potential speedup in efficient sep-blank calc):",
+                non_blank_mask.raw_tensor.sum().cpu().item(),
+                "/",
+                non_blank_mask.raw_tensor.numel(),
+            )
+
+    def _tune_bias_for_amount_blank(self, amount_blank_frac_wanted: float):
+        """
+        This just changes the blank bias to get the wanted amount of blank.
+        Note that this does not change anything else.
+        The distribution over the other labels will be quite random (uniform).
+        Thus, the amount of potential non-blank frames via the ``non_blank_mask = logits_blank < 0.0`` mask
+        used for the efficient blank separated case, will be very high, often 100%,
+        so then we will not get any speedup!
+        However, this is an unrealistic case anyway.
+        Usually the distribution over the other labels is very peaky.
+        Thus, see :func:`_tune_params_for_amount_blank` for a better tuning.
+        """
+        num_frames = self.batch_dim.dimension * self.seq_len_dim.dimension
+        amount_blank_wanted = round(num_frames * amount_blank_frac_wanted)
+        bias_blank = 0.0
+        self.bias.raw_tensor[self.blank_idx] = bias_blank
+        print(
+            f"Wanted amount of blank: {amount_blank_frac_wanted * 100.:.1f}%,"
+            f" {amount_blank_wanted}/{num_frames} frames"
+        )
+        while True:
+            amount_blank = self._get_amount_blank()
+            print(f"Have amount of blank: {amount_blank}/{num_frames}, bias {bias_blank}")
+            if amount_blank == amount_blank_wanted:
+                self._maybe_report_non_blank_mask_count()
+                print(f"Reached wanted amount of blank. (First loop, bias {bias_blank})")
+                return
+            if amount_blank < amount_blank_wanted:
+                break
+            bias_blank -= 1.0
+            self.bias.raw_tensor[self.blank_idx] = bias_blank
+        # Now amount blank frac < amount blank frac wanted.
+        while True:
+            lower_bound = bias_blank
+            bias_blank += 1.0
+            self.bias.raw_tensor[self.blank_idx] = bias_blank
+            amount_blank = self._get_amount_blank()
+            print(f"Have amount of blank: {amount_blank}/{num_frames}, bias {bias_blank}")
+            if amount_blank == amount_blank_wanted:
+                self._maybe_report_non_blank_mask_count()
+                print(f"Reached wanted amount of blank. (Second loop, bias {bias_blank})")
+                return
+            if amount_blank >= amount_blank_wanted:
+                break
+        # Now amount blank frac for lower_bound <= amount blank frac wanted
+        # and amount blank frac for lower_bound + 1 > amount blank frac wanted.
+        upper_bound = bias_blank
+        # Now do binary search.
+        # No early break needed: It's an integer, we should reach it exactly.
+        while True:
+            bias_blank = (lower_bound + upper_bound) / 2
+            self.bias.raw_tensor[self.blank_idx] = bias_blank
+            amount_blank = self._get_amount_blank()
+            print(f"Have amount of blank: {amount_blank}/{num_frames}, bias {bias_blank}")
+            self._maybe_report_non_blank_mask_count()
+            if amount_blank == amount_blank_wanted:
+                print(f"Reached wanted amount of blank. (Binary search, bias {bias_blank})")
+                return
+            if amount_blank < amount_blank_wanted:
+                lower_bound = bias_blank
+            else:
+                upper_bound = bias_blank
+
+    def _get_amount_blank(self) -> int:
+        (labels,) = self(case="greedy_decode_only_labels")
+        labels: Tensor
+        c = (labels.raw_tensor == self.blank_idx).sum().cpu().item()
+        return c
+
+    def __call__(self, *, case: str, out_blank_separated: Optional[Union[bool, str]] = None) -> List[Tensor]:
         import returnn.frontend as rf
 
         for x in [self.x, self.weights]:
             x.raw_tensor.grad = None
             x.raw_tensor.requires_grad = case == "train"
 
-        if not out_blank_separated:  # standard case, joint distrib incl blank
+        if out_blank_separated is None and self.out_blank_separated:
+            out_blank_separated = "efficient"
+
+        if not self.out_blank_separated:  # standard case, joint distrib incl blank
+            assert not out_blank_separated
             logits = rf.dot(self.x, self.weights, reduce=self.model_dim)  # [B, T, V+1]
             logits += self.bias
 
@@ -115,6 +242,7 @@ class _Model:
             log_probs = rf.gather(logits, indices=labels) - denom  # [B, T]
 
         elif out_blank_separated == "simple":
+            assert self.out_blank_separated
             logits = rf.dot(self.x, self.weights, reduce=self.model_dim)
             logits += self.bias
 
@@ -144,6 +272,7 @@ class _Model:
             log_probs = rf.gather(log_probs, indices=labels)  # [B, T]
 
         elif out_blank_separated == "efficient":
+            assert self.out_blank_separated
 
             weights_blank = rf.convert_to_tensor(self.weights.raw_tensor[self.blank_idx], dims=[self.model_dim])
             weights_non_blank = rf.convert_to_tensor(
@@ -224,7 +353,7 @@ class _Model:
             log_probs = rf.where(non_blank_mask, log_probs, log_probs_blank)  # [B, T]
 
         else:
-            assert False, f"invalid out_blank_separated {out_blank_separated!r}"
+            assert False, f"invalid out_blank_separated {out_blank_separated!r}, {self.out_blank_separated!r}"
 
         if case == "greedy_decode_with_probs":
             return [labels, log_probs]  # [B, T]
