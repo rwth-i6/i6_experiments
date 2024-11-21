@@ -24,11 +24,11 @@ if TYPE_CHECKING:
     from returnn.tensor import Tensor
 
 
-def timings(*, n_batch: int = 100, n_seq_len: int = 1000, n_model: int = 512, n_vocab: int = 10_000):
+def timings(
+    *, n_batch: int = 100, n_seq_len: int = 1000, n_model: int = 512, n_vocab: int = 10_000, n_trials: int = 10
+):
     import torch
-    from torch.profiler import profile, ProfilerActivity
-    import returnn.frontend as rf
-    from returnn.tensor import Dim
+    import torch.utils.benchmark as benchmark
 
     model = _Model(n_batch=n_batch, n_seq_len=n_seq_len, n_model=n_model, n_vocab=n_vocab)
 
@@ -53,13 +53,10 @@ def timings(*, n_batch: int = 100, n_seq_len: int = 1000, n_model: int = 512, n_
 
         for out_blank_separated in [False, "simple", "efficient"]:
             print(f"** Profiling case {case} with out_blank_separated={out_blank_separated}")
-            with profile(
-                activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA],
-                schedule=torch.profiler.schedule(skip_first=5, wait=5, warmup=2, active=10),
-            ) as prof:
-                for idx in range(100):
-                    model(case=case, out_blank_separated=out_blank_separated)
-                    prof.step()
+            timer = benchmark.Timer(
+                stmt=f"model(case={case!r}, out_blank_separated={out_blank_separated!r})", globals={"model": model}
+            )
+            print(timer.timeit(n_trials))
 
 
 class _Model:
@@ -230,8 +227,8 @@ class _Model:
             return [labels, log_probs]  # [B, T]
 
         (-log_probs.raw_tensor.sum()).backward()
-        x_grad = rf.convert_to_tensor(self.x.grad, dims=[self.batch_dim, self.seq_len_dim, self.model_dim])
-        weights_grad = rf.convert_to_tensor(self.weights.grad, dims=[self.wb_target_dim, self.model_dim])
+        x_grad = rf.convert_to_tensor(self.x.raw_tensor.grad, dims=[self.batch_dim, self.seq_len_dim, self.model_dim])
+        weights_grad = rf.convert_to_tensor(self.weights.raw_tensor.grad, dims=[self.wb_target_dim, self.model_dim])
         return [log_probs, x_grad, weights_grad]
 
 
