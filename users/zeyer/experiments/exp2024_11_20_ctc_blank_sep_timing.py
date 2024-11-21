@@ -25,13 +25,25 @@ if TYPE_CHECKING:
 
 
 def timings(
-    *, n_batch: int = 100, n_seq_len: int = 1000, n_model: int = 512, n_vocab: int = 10_000, n_trials: int = 10
+    *,
+    n_batch: int = 100,
+    n_seq_len: int = 1000,
+    n_model: int = 512,
+    n_vocab: int = 10_000,
+    n_trials: int = 10,
+    device: Optional[str] = None,
 ):
     import torch
     import torch.utils.benchmark as benchmark
 
+    if not device:
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+    print("Device:", device)
+    torch.set_default_device(device)
+
     model_std = _Model(n_batch=n_batch, n_seq_len=n_seq_len, n_model=n_model, n_vocab=n_vocab)
     model_sep = _Model(n_batch=n_batch, n_seq_len=n_seq_len, n_model=n_model, n_vocab=n_vocab, out_blank_separated=True)
+    assert model_std.weights.raw_tensor.device.type == device  # sanity check
 
     for case in ["greedy_decode_only_labels", "greedy_decode_with_probs", "train"]:
         print("* Profiling case:", case)
@@ -116,13 +128,14 @@ class _Model:
         for i in range(max_iters):
             (log_probs, *_grads) = self(case="train")
             loss = -log_probs.raw_tensor.sum()
-            print(f"Loss {i}: {loss.item() / num_frames:.3f}")
             # loss.backward already called, as the func already calculated the grads.
             opt.step()
             opt.zero_grad()
-            amount_blank = self._get_amount_blank()
-            print(f"Amount blank: {amount_blank}")
-            self._maybe_report_non_blank_mask_count()
+            if i % 10 == 0:
+                print(f"Loss {i}: {loss.item() / num_frames:.3f}")
+                amount_blank = self._get_amount_blank()
+                print(f"Amount blank: {amount_blank}")
+                self._maybe_report_non_blank_mask_count()
             # Do not break early. We want that the distrib over the other labels is realistic (peaky).
         # Now do the final fine-tuning.
         self._tune_bias_for_amount_blank(amount_blank_frac_wanted)
