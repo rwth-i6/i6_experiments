@@ -1,0 +1,255 @@
+"""
+Do some timings on CTC with separated blank.
+
+Actually currently not really for Sisyphus, but standalone script...
+
+To run many of the things here:
+
+Fish: set -x PYTHONPATH tools/espnet:tools/returnn:tools/sisyphus:recipe
+Bash: export PYTHONPATH="tools/espnet:tools/returnn:tools/sisyphus:recipe"
+
+Then: python3 -c "from i6_experiments.users.zeyer.experiments.exp2024_11_20_ctc_blank_sep_timing import ... as f; f()"
+For example:
+  python3 -c "from i6_experiments.users.zeyer.experiments.exp2024_11_20_ctc_blank_sep_timing import plot_all as f; f()"
+
+Similar as :func:`i6_experiments.users.zeyer.experiments.exp2024_09_16_grad_align.visualize_grad_scores`.
+"""
+
+from __future__ import annotations
+from typing import TYPE_CHECKING, Union, List
+import sys
+
+
+if TYPE_CHECKING:
+    from returnn.tensor import Tensor
+
+
+def timings(*, n_batch: int = 100, n_seq_len: int = 1000, n_model: int = 512, n_vocab: int = 10_000):
+    import torch
+    from torch.profiler import profile, ProfilerActivity
+    import returnn.frontend as rf
+    from returnn.tensor import Dim
+
+    model = _Model(n_batch=n_batch, n_seq_len=n_seq_len, n_model=n_model, n_vocab=n_vocab)
+
+    for case in ["greedy_decode_only_labels", "greedy_decode_with_probs", "train"]:
+        print("* Profiling case:", case)
+        out1_ = model(case=case, out_blank_separated="simple")
+        out2_ = model(case=case, out_blank_separated="efficient")
+        assert len(out1_) == len(out2_)
+        diff_count = 0
+        diff_mask = None
+        for out1, out2 in zip(out1_, out2_):
+            assert out1.dims == out2.dims and out1.sparse_dim == out2.sparse_dim and out1.dtype == out2.dtype
+            if out1.dtype.startswith("int"):
+                diff_mask = out1.raw_tensor != out2.raw_tensor
+                diff_count = diff_mask.sum().cpu().item()
+                assert diff_count <= 0, f"case {case}: {diff_count} diffs"
+            else:
+                if diff_count > 0:
+                    out1.raw_tensor[diff_mask] = float("nan")
+                    out2.raw_tensor[diff_mask] = float("nan")
+                torch.testing.assert_allclose(out1.raw_tensor, out2.raw_tensor)
+
+        for out_blank_separated in [False, "simple", "efficient"]:
+            print(f"** Profiling case {case} with out_blank_separated={out_blank_separated}")
+            with profile(
+                activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA],
+                schedule=torch.profiler.schedule(skip_first=5, wait=5, warmup=2, active=10),
+            ) as prof:
+                for idx in range(100):
+                    model(case=case, out_blank_separated=out_blank_separated)
+                    prof.step()
+
+
+class _Model:
+    def __init__(self, *, n_batch: int = 100, n_seq_len: int = 1000, n_model: int = 512, n_vocab: int = 10_000):
+        import torch
+        import returnn.frontend as rf
+        from returnn.tensor import Dim
+
+        self.batch_dim = Dim(n_batch, name="batch")
+        self.seq_len_dim = Dim(n_seq_len, name="seq_len")
+        self.model_dim = Dim(n_model, name="model")
+        self.target_dim = Dim(n_vocab, name="vocab")
+        self.dummy_blank_feat_dim = Dim(1, name="blank_feat")
+        self.wb_target_dim = self.target_dim + self.dummy_blank_feat_dim  # with blank
+        self.blank_idx = self.target_dim.dimension
+
+        self.x = rf.random_uniform(
+            (self.batch_dim, self.seq_len_dim, self.model_dim), minval=-1, maxval=1, dtype="float32"
+        )
+        self.weights = rf.random_uniform((self.wb_target_dim, self.model_dim), minval=-0.1, maxval=0.1, dtype="float32")
+
+        # First fill target labels with all blank, then below set some to non-blank.
+        self.target_labels = rf.fill(
+            dims=[self.batch_dim, self.seq_len_dim], sparse_dim=self.wb_target_dim, fill_value=self.blank_idx
+        )
+
+        # Exactly set 10% to non-blank.
+        for b in range(self.batch_dim.dimension):
+            for i in range(self.seq_len_dim.dimension // 10):
+                while True:
+                    t = torch.randint(0, self.seq_len_dim.dimension, (1,)).item()
+                    if self.target_labels.raw_tensor[b, t] == self.blank_idx:
+                        break
+                self.target_labels.raw_tensor[b, t] = torch.randint(0, self.target_dim.dimension, (1,)).item()
+
+    def __call__(self, *, case: str, out_blank_separated: Union[bool, str]) -> List[Tensor]:
+        import returnn.frontend as rf
+
+        for x in [self.x, self.weights]:
+            x.raw_tensor.grad = None
+            x.raw_tensor.requires_grad = case == "train"
+
+        if not out_blank_separated:  # standard case, joint distrib incl blank
+            logits = rf.dot(self.x, self.weights, reduce=self.model_dim)  # [B, T, V+1]
+
+            if case == "greedy_decode_only_labels":
+                return [rf.reduce_argmax(logits, axis=self.wb_target_dim)]  # [B, T]
+
+            denom = rf.reduce_logsumexp(logits, axis=self.wb_target_dim)  # [B, T]
+
+            if case == "greedy_decode_with_probs":
+                labels = rf.reduce_argmax(logits, axis=self.wb_target_dim)  # [B, T]
+            elif case == "train":
+                labels = self.target_labels
+            else:
+                assert False, f"invalid case {case!r}"
+
+            log_probs = rf.gather(logits, indices=labels) - denom  # [B, T]
+
+        elif out_blank_separated == "simple":
+            logits = rf.dot(self.x, self.weights, reduce=self.model_dim)
+
+            logits_wo_blank, logits_blank = rf.split(
+                logits, axis=self.wb_target_dim, out_dims=[self.target_dim, self.dummy_blank_feat_dim]
+            )
+            log_probs_wo_blank = rf.log_softmax(logits_wo_blank, axis=self.target_dim)
+            log_probs_blank = rf.log_sigmoid(logits_blank)
+            log_probs_emit = rf.squeeze(rf.log_sigmoid(-logits_blank), axis=self.dummy_blank_feat_dim)
+            log_probs, _ = rf.concat(
+                (log_probs_wo_blank + log_probs_emit, self.target_dim),
+                (log_probs_blank, self.dummy_blank_feat_dim),
+                out_dim=self.wb_target_dim,
+            )  # [B, T, V+1]
+            log_probs.feature_dim = self.wb_target_dim
+
+            if case == "greedy_decode_only_labels":
+                return [rf.reduce_argmax(log_probs, axis=self.wb_target_dim)]  # [B, T]
+
+            if case == "greedy_decode_with_probs":
+                labels = rf.reduce_argmax(log_probs, axis=self.wb_target_dim)  # [B, T]
+            elif case == "train":
+                labels = self.target_labels
+            else:
+                assert False, f"invalid case {case!r}"
+
+            log_probs = rf.gather(log_probs, indices=labels)  # [B, T]
+
+        elif out_blank_separated == "efficient":
+
+            weights_blank = rf.convert_to_tensor(self.weights.raw_tensor[self.blank_idx], dims=[self.model_dim])
+            weights_non_blank = rf.convert_to_tensor(
+                self.weights.raw_tensor[: self.blank_idx], dims=[self.target_dim, self.model_dim]
+            )
+
+            logits_blank = rf.dot(self.x, weights_blank, reduce=self.model_dim)  # [B, T]
+
+            if case.startswith("greedy_decode_"):
+                # It's not necessarily blank, but anyway we need to check it.
+                non_blank_mask = logits_blank < 0.0  # [B, T]
+            elif case == "train":
+                non_blank_mask = self.target_labels != self.blank_idx  # [B, T]
+            else:
+                assert False, f"invalid case {case!r}"
+
+            non_blank_frames_x, non_blank_dim = rf.masked_select(
+                self.x, mask=non_blank_mask, dims=[self.batch_dim, self.seq_len_dim]
+            )  # [B_T', D]
+            non_blank_frames_logits = rf.dot(non_blank_frames_x, weights_non_blank, reduce=self.model_dim)  # [B_T', V]
+            nb_denom = rf.reduce_logsumexp(non_blank_frames_logits, axis=self.target_dim)  # [B_T']
+
+            nb_logits_blank, _ = rf.masked_select(
+                logits_blank,
+                mask=non_blank_mask,
+                dims=[self.batch_dim, self.seq_len_dim],
+                out_dim=non_blank_dim,
+            )  # [B_T']
+
+            nb_log_probs_emit = rf.log_sigmoid(-nb_logits_blank)  # [B_T']
+
+            if case == "train":
+                # Here we know what labels to look at. This makes it simper.
+                non_blank_labels, _ = rf.masked_select(
+                    self.target_labels,
+                    mask=non_blank_mask,
+                    dims=[self.batch_dim, self.seq_len_dim],
+                    out_dim=non_blank_dim,
+                )  # [B_T']
+                non_blank_labels.sparse_dim = self.target_dim
+                labels = self.target_labels  # [B, T]
+                nb_log_probs = rf.gather(non_blank_frames_logits, indices=non_blank_labels) - nb_denom  # [B_T']
+                nb_log_probs = nb_log_probs + nb_log_probs_emit  # [B_T']
+
+            else:  # not train, i.e. greedy decoding
+                # We don't know the labels.
+                # Non-blank is only potentially non-blank but might turn out to be blank.
+                non_blank_frames_log_probs = non_blank_frames_logits - nb_denom + nb_log_probs_emit  # [B_T', V]
+                nb_log_probs_blank = rf.log_sigmoid(nb_logits_blank)  # [B_T']
+                nb_log_probs, _ = rf.concat(
+                    (non_blank_frames_log_probs, self.target_dim),
+                    (rf.expand_dim(nb_log_probs_blank, self.dummy_blank_feat_dim), self.dummy_blank_feat_dim),
+                    out_dim=self.wb_target_dim,
+                )  # [B_T', V+1]
+                non_blank_labels = rf.reduce_argmax(nb_log_probs, axis=self.wb_target_dim)  # [B_T']->V+1
+                labels = rf.masked_scatter(
+                    non_blank_labels,
+                    mask=non_blank_mask,
+                    dims=[self.batch_dim, self.seq_len_dim],
+                    in_dim=non_blank_dim,
+                )  # [B, T]
+                labels = rf.where(non_blank_mask, labels, self.blank_idx)  # [B, T]
+                if case == "greedy_decode_only_labels":
+                    return [labels]
+                nb_log_probs = rf.gather(nb_log_probs, indices=non_blank_labels)  # [B_T']
+
+            log_probs = rf.masked_scatter(
+                nb_log_probs,
+                mask=non_blank_mask,
+                dims=[self.batch_dim, self.seq_len_dim],
+                in_dim=non_blank_dim,
+            )  # [B, T]
+            log_probs_blank = rf.log_sigmoid(logits_blank)  # [B, T]
+            log_probs = rf.where(non_blank_mask, log_probs, log_probs_blank)  # [B, T]
+
+        else:
+            assert False, f"invalid out_blank_separated {out_blank_separated!r}"
+
+        if case == "greedy_decode_with_probs":
+            return [labels, log_probs]  # [B, T]
+
+        (-log_probs.raw_tensor.sum()).backward()
+        x_grad = rf.convert_to_tensor(self.x.grad, dims=[self.batch_dim, self.seq_len_dim, self.model_dim])
+        weights_grad = rf.convert_to_tensor(self.weights.grad, dims=[self.wb_target_dim, self.model_dim])
+        return [log_probs, x_grad, weights_grad]
+
+
+def _setup():
+    import i6_core.util as util
+
+    returnn_root = util.get_returnn_root(None)
+
+    sys.path.insert(0, returnn_root.get_path())
+
+    from returnn.util import better_exchook
+
+    better_exchook.setup_all()
+
+    import returnn.frontend as rf
+
+    rf.select_backend_torch()
+    rf.set_random_seed(42)
+
+
+_setup()
