@@ -37,19 +37,9 @@ def timings(
         out1_ = model(case=case, out_blank_separated="simple")
         out2_ = model(case=case, out_blank_separated="efficient")
         assert len(out1_) == len(out2_)
-        diff_count = 0
-        diff_mask = None
         for out1, out2 in zip(out1_, out2_):
             assert out1.dims == out2.dims and out1.sparse_dim == out2.sparse_dim and out1.dtype == out2.dtype
-            if out1.dtype.startswith("int"):
-                diff_mask = out1.raw_tensor != out2.raw_tensor
-                diff_count = diff_mask.sum().cpu().item()
-                assert diff_count <= 0, f"case {case}: {diff_count} diffs"
-            else:
-                if diff_count > 0:
-                    out1.raw_tensor[diff_mask] = float("nan")
-                    out2.raw_tensor[diff_mask] = float("nan")
-                torch.testing.assert_allclose(out1.raw_tensor, out2.raw_tensor)
+            torch.testing.assert_allclose(out1.raw_tensor, out2.raw_tensor)
 
         baseline = None
         for out_blank_separated in [False, "simple", "efficient"]:
