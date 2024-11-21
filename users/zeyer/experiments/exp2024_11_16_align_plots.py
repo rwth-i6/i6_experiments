@@ -991,7 +991,7 @@ def plot_model_probs(*, plotter: Optional[Plotter] = None):
     score_matrix = get_model_log_prob_ref_label_seq_incl_blank()  # [T,S+1]
     print(f"{model_name_short}{model_name_short_ext}, seq {seq_tag}, shape (Tx(S+1)) {score_matrix.shape}")
     assert score_matrix.shape[1] == len(ref_labels) + 1  # blank + labels
-    score_matrix = np.exp(score_matrix)
+    # score_matrix = np.exp(score_matrix)
 
     ref_audio = get_audio_features_rf()  # [T,D]
     if model_time_downsampling > 1:
