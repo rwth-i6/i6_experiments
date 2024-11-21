@@ -42,6 +42,7 @@ seq_tag = "train-clean-100/103-1240-0000/103-1240-0000"
 
 # See i6_experiments.users.zeyer.experiments.exp2024_09_16_grad_align.py for names.
 model_name_short = "base"
+model_name_short_ext = ""
 model_name = (
     "v6-relPosAttDef"
     "-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k"
@@ -53,29 +54,107 @@ model_time_downsampling = 6  # currently never changed
 
 # These are globals, not changed.
 # See i6_experiments.users.zeyer.experiments.exp2024_09_16_grad_align.py for names.
+#
+# * Forced align, selected blank_logit_shift-10-ctc_prior_typestatic-ctc_am_scale1.0-ctc_prior_scale1.0
+# File: base-spm512-ep-1-fix-blank_logit_shift-10-ctc_prior_typestatic-ctc_am_scale1.0-ctc_prior_scale1.0
+# Dataset duration 9:36:16, TSE LR/center 58.2/47.8, blank ratio 13.5%, sil ref ratio 18.0%,
+# File: base-spm512-blankSep-ep-1-fix-blank_logit_shift-10-ctc_prior_typestatic-ctc_am_scale1.0-ctc_prior_scale1.0
+# Dataset duration 9:36:16, TSE LR/center 58.7/50.5, blank ratio 16.8%, sil ref ratio 18.0%,
+# File: base-ep-1-fix-blank_logit_shift-10-ctc_prior_typestatic-ctc_am_scale1.0-ctc_prior_scale1.0
+# Dataset duration 9:36:16, TSE LR/center 68.2/52.0, blank ratio 21.8%, sil ref ratio 18.0%,
+# File: blankSep-ep-1-fix-blank_logit_shift-10-ctc_prior_typestatic-ctc_am_scale1.0-ctc_prior_scale1.0
+# Dataset duration 9:36:16, TSE LR/center 84.4/75.4, blank ratio 26.6%, sil ref ratio 18.0%,
+# File: lpNormedGradC05_11P1-ep-1-fix-blank_logit_shift-10-ctc_prior_typestatic-ctc_am_scale1.0-ctc_prior_scale1.0
+# Dataset duration 9:36:16, TSE LR/center 78.9/66.7, blank ratio 22.7%, sil ref ratio 18.0%,
+# File: base-bpe10k-ep-1-fix-blank_logit_shift-10-ctc_prior_typestatic-ctc_am_scale1.0-ctc_prior_scale1.0
+# Dataset duration 9:36:16, TSE LR/center 66.2/56.3, blank ratio 22.5%, sil ref ratio 18.0%,
+# File: base-bpe10k-blankSep-ep-1-fix-blank_logit_shift-10-ctc_prior_typestatic-ctc_am_scale1.0-ctc_prior_scale1.0
+# Dataset duration 9:36:16, TSE LR/center 72.5/65.3, blank ratio 26.7%, sil ref ratio 18.0%,
+#
+# * Grad align, selected -shift0-am1.0-prior1.0, except blankSep, where we take baselines
+# File: base-spm512-shift0-am1.0-prior1.0
+# Dataset duration 9:36:16, TSE LR/center 77.6/61.0, blank ratio 14.0%, sil ref ratio 18.0%,
+# File: base-spm512-blankSep
+# Dataset duration 9:36:16, TSE LR/center 75.9/60.5, blank ratio 13.6%, sil ref ratio 18.0%,
+# File: base-shift0-am1.0-prior1.0
+# Dataset duration 9:36:16, TSE LR/center 67.9/50.2, blank ratio 15.9%, sil ref ratio 18.0%,
+# File: blankSep
+# Dataset duration 9:36:16, TSE LR/center 72.5/55.7, blank ratio 15.3%, sil ref ratio 18.0%,
+# File: lpNormedGradC05_11P1-shift0-am1.0-prior1.0
+# Dataset duration 9:36:16, TSE LR/center 70.1/54.1, blank ratio 15.5%, sil ref ratio 18.0%,
+# File: base-bpe10k-shift0-am1.0-prior1.0
+# Dataset duration 9:36:16, TSE LR/center 71.3/54.7, blank ratio 16.2%, sil ref ratio 18.0%,
+# File: base-bpe10k-blankSep
+# Dataset duration 9:36:16, TSE LR/center 67.3/51.1, blank ratio 15.2%, sil ref ratio 18.0%,
+#
 models = [
+    # model_title, model_name_short, model_name_short_ext, model_name, use_for_part
     (
-        "CTC baseline",
+        "CTC baseline, no blank penalty, no prior",
         "base",
+        "",
         "v6-relPosAttDef"
         "-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k"
         "-featBN-speedpertV2-spm10k-bpeSample001",
+        {"model_probs", "grad_scores"},
     ),
     (
-        "CTC blank sep",
+        "CTC baseline, with blank penalty and prior",
+        "base",
+        "-fix-blank_logit_shift-10-ctc_prior_typestatic-ctc_am_scale1.0-ctc_prior_scale1.0",
+        "v6-relPosAttDef"
+        "-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k"
+        "-featBN-speedpertV2-spm10k-bpeSample001",
+        {"model_probs"},
+    ),
+    (
+        "CTC baseline, no blank penalty and with prior",
+        "base",
+        "-shift0-am1.0-prior1.0",
+        "v6-relPosAttDef"
+        "-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k"
+        "-featBN-speedpertV2-spm10k-bpeSample001",
+        {"grad_scores"},
+    ),
+    (
+        "CTC blank sep, no blank penalty, no prior",
         "blankSep",
+        "-fix-blank_logit_shift0",
         "v6-relPosAttDef"
         "-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k"
         "-featBN-speedpertV2-spm10k-bpeSample001"
         "-blankSep",
+        {"model_probs"},
     ),
     (
-        "CTC normed grad",
+        "CTC blank sep, no blank penalty, no prior",
+        "blankSep",
+        "",
+        "v6-relPosAttDef"
+        "-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k"
+        "-featBN-speedpertV2-spm10k-bpeSample001"
+        "-blankSep",
+        {"grad_scores"},
+    ),
+    (
+        "CTC blank sep, with blank penalty and prior",
+        "blankSep",
+        "-fix-blank_logit_shift-10-ctc_prior_typestatic-ctc_am_scale1.0-ctc_prior_scale1.0",
+        "v6-relPosAttDef"
+        "-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k"
+        "-featBN-speedpertV2-spm10k-bpeSample001"
+        "-blankSep",
+        {"model_probs"},
+    ),
+    (
+        "CTC normed grad, with blank penalty and prior",
         "lpNormedGradC05_11P1",
+        "-fix-blank_logit_shift-10-ctc_prior_typestatic-ctc_am_scale1.0-ctc_prior_scale1.0",
         "v6-relPosAttDef"
         "-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k"
         "-featBN-speedpertV2-spm10k-bpeSample001"
         "-lpNormedGradC05_11P1",
+        {"model_probs"},
     ),
 ]
 grad_type_base = "blankStopGrad-inclBlankState-p0.1"
@@ -88,14 +167,19 @@ out_prefix = "output/exp2024_11_16_grad_align/"
 
 
 def plot_all():
-    global seq_tag, model_title, model_name_short, model_name
+    global seq_tag, model_title, model_name_short, model_name_short_ext, model_name
     print("seq_tag:", seq_tag)
     print("ref:", get_ref_words())
     plotter = Plotter(out_filename=out_prefix + seq_tag + "/combined.pdf")
     plot_audio_features(plotter=plotter)
-    for model_title, model_name_short, model_name in models:
-        plot_model_probs(plotter=plotter)
-        plot_grad_scores(plotter=plotter)
+    for model_title, model_name_short, model_name_short_ext, model_name, use_for_part in models:
+        if use_for_part is None:
+            use_for_part = {"model_probs", "grad_scores"}
+        assert use_for_part.issubset({"model_probs", "grad_scores"})
+        if "model_probs" in use_for_part:
+            plot_model_probs(plotter=plotter)
+        if "grad_scores" in use_for_part:
+            plot_grad_scores(plotter=plotter)
     plotter.make()
 
 
@@ -289,7 +373,12 @@ def get_audio_features_rf() -> np.array:
 
 
 def get_grad_scores():
-    out_fn_npz = out_prefix + seq_tag + f"/visualize_grad_scores/{model_name_short}-{grad_type_base}/grads.npz"
+    out_fn_npz = (
+        out_prefix
+        + seq_tag
+        + f"/visualize_grad_scores/"
+        + f"{model_name_short}{model_name_short_ext}-{grad_type_base}/grads.npz"
+    )
 
     if os.path.exists(out_fn_npz):
         print(f"Already exists: {out_fn_npz}")
@@ -297,7 +386,8 @@ def get_grad_scores():
         return data["score_matrix"]
 
     score_matrix_hdf = Path(
-        f"output/exp2024_09_16_grad_align/ctc-grad-align/{model_name_short}-{grad_type_base}/input_grads.hdf"
+        f"output/exp2024_09_16_grad_align/ctc-grad-align/"
+        f"{model_name_short}{model_name_short_ext}-{grad_type_base}/input_grads.hdf"
     )
     print("load grad scores HDF:", score_matrix_hdf)
     score_matrix_data_dict = load_hdf_data(score_matrix_hdf, num_dims=2)
@@ -612,13 +702,10 @@ def get_model_log_prob_ref_label_seq_incl_blank(*, force: bool = False) -> np.ar
     """
     # We want to load the model, and then forward the seq, and get the log probs for the ref label seq.
 
-    model_name_ext = ""
-    if "blankSep" in model_name:
-        model_name_ext = "-bug"
     out_fn_npz = (
         out_prefix
         + seq_tag
-        + f"/model_log_probs_ref_label_seq_incl_blank_{model_name_short}{model_name_ext}_via_hdf.npz"
+        + f"/model_log_probs_ref_label_seq_incl_blank_{model_name_short}{model_name_short_ext}_via_hdf.npz"
     )
     if not force and os.path.exists(out_fn_npz):
         print(f"Already exists: {out_fn_npz}")
@@ -626,7 +713,10 @@ def get_model_log_prob_ref_label_seq_incl_blank(*, force: bool = False) -> np.ar
 
     from returnn.datasets.hdf import HDFDataset
 
-    hdf_fn = f"output/exp2024_09_16_grad_align/ctc_ref_log_probs/{model_name_short}-ep-1{model_name_ext}/log_probs.hdf"
+    hdf_fn = (
+        f"output/exp2024_09_16_grad_align/ctc_ref_log_probs/"
+        f"{model_name_short}-ep-1{model_name_short_ext}/log_probs.hdf"
+    )
     print("load HDF:", hdf_fn)
     dataset = HDFDataset([hdf_fn])
     dataset.initialize()
@@ -649,7 +739,8 @@ def get_word_boundaries_from_hdf_alignment(
     out_fn_pickle = (
         out_prefix
         + seq_tag
-        + f"/word_boundaries_{model_name_short}_{align_type}_overlap{include_overlap_win_in_word_boundaries}.pkl"
+        + f"/word_boundaries_{model_name_short}{model_name_short_ext}"
+        + f"_{align_type}_overlap{include_overlap_win_in_word_boundaries}.pkl"
     )
     if not force and os.path.exists(out_fn_pickle):
         print(f"Already exists: {out_fn_pickle}")
@@ -663,11 +754,17 @@ def get_word_boundaries_from_hdf_alignment(
     if align_type == "probs_best_path":  # aka forced align, using the model probs
         alignment_label_topology = "ctc"
         ref_alignment_len_factor = model_time_downsampling
-        hdf_fn = f"output/exp2024_09_16_grad_align/ctc_forced_align/{model_name_short}-ep-1/align.hdf"
+        hdf_fn = (
+            f"output/exp2024_09_16_grad_align/ctc_forced_align/"
+            f"{model_name_short}-ep-1{model_name_short_ext}/align.hdf"
+        )
     elif align_type == "grad":
         alignment_label_topology = "explicit"
         ref_alignment_len_factor = 1
-        hdf_fn = f"output/exp2024_09_16_grad_align/ctc-grad-align/{model_name_short}-{grad_type}/align.hdf"
+        hdf_fn = (
+            f"output/exp2024_09_16_grad_align/ctc-grad-align/"
+            f"{model_name_short}{model_name_short_ext}-{grad_type}/align.hdf"
+        )
     else:
         raise ValueError(f"align_type {align_type!r} not supported")
     print("alignment label topology:", alignment_label_topology)
@@ -856,12 +953,12 @@ def plot_audio_features(*, plotter: Optional[Plotter] = None):
 
 
 def plot_grad_scores(*, plotter: Optional[Plotter] = None):
-    out_fn_pdf = out_prefix + seq_tag + f"/visualize_grad_scores/{model_name_short}/grads.pdf"
+    out_fn_pdf = out_prefix + seq_tag + f"/visualize_grad_scores/{model_name_short}{model_name_short_ext}/grads.pdf"
 
     ref_labels = get_ref_label_seq()
 
     score_matrix = get_grad_scores()
-    print(f"{model_name_short}, seq {seq_tag}, shape (SxT) {score_matrix.shape}")
+    print(f"{model_name_short}{model_name_short_ext}, seq {seq_tag}, shape (SxT) {score_matrix.shape}")
     assert score_matrix.shape[0] == len(ref_labels)
     score_matrix = _log_softmax(np.log(score_matrix), axis=1)  # [S, T]
 
@@ -886,13 +983,13 @@ def plot_grad_scores(*, plotter: Optional[Plotter] = None):
 
 
 def plot_model_probs(*, plotter: Optional[Plotter] = None):
-    print("model probs:", model_name_short, model_name)
-    out_fn_pdf = out_prefix + seq_tag + f"/visualize_model_probs/{model_name_short}/probs.pdf"
+    print("model probs:", model_name_short, model_name_short_ext, model_name)
+    out_fn_pdf = out_prefix + seq_tag + f"/visualize_model_probs/{model_name_short}{model_name_short_ext}/probs.pdf"
 
     ref_labels = get_ref_label_seq()
 
     score_matrix = get_model_log_prob_ref_label_seq_incl_blank()  # [T,S+1]
-    print(f"{model_name_short}, seq {seq_tag}, shape (Tx(S+1)) {score_matrix.shape}")
+    print(f"{model_name_short}{model_name_short_ext}, seq {seq_tag}, shape (Tx(S+1)) {score_matrix.shape}")
     assert score_matrix.shape[1] == len(ref_labels) + 1  # blank + labels
     score_matrix = np.exp(score_matrix)
 
