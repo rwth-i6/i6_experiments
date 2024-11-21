@@ -51,12 +51,18 @@ def timings(
                     out2.raw_tensor[diff_mask] = float("nan")
                 torch.testing.assert_allclose(out1.raw_tensor, out2.raw_tensor)
 
+        baseline = None
         for out_blank_separated in [False, "simple", "efficient"]:
             print(f"** Profiling case {case} with out_blank_separated={out_blank_separated}")
             timer = benchmark.Timer(
                 stmt=f"model(case={case!r}, out_blank_separated={out_blank_separated!r})", globals={"model": model}
             )
-            print(timer.timeit(n_trials))
+            measurement = timer.timeit(n_trials)
+            print(measurement)
+            if not baseline:
+                baseline = measurement
+            else:
+                print(f"Speedup: {(baseline.median / measurement.median - 1.) * 100.:.2f}%")
 
 
 class _Model:
