@@ -66,7 +66,7 @@ def timings(
             if not baseline:
                 baseline = measurement
             else:
-                print(f"Speedup: {(baseline.median / measurement.median - 1.) * 100.:.2f}%")
+                print(f"Speedup: {(baseline.median / measurement.median):.2f}x")
 
 
 class _Model:
