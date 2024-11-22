@@ -188,11 +188,9 @@ def py():
             for shift in [0, -5, -10, -15, -18, -20, -25]:
                 opts_variants.append({"fix_log_probs": True, "blank_logit_shift": shift})
 
-            # TODO remove this...
-            if shortname == "lpNormedGradC05_11P1+blankSep":
-                prior_stats = get_ctc_prior(ctc_model, train_dataset, {"fix_log_probs": True})
-                prior_stats.mean.creator.add_alias(f"{prefix}ctc_prior/{shortname}-ep{epoch}/prior_stats")
-                tk.register_output(f"{prefix}ctc_prior/{shortname}-ep{epoch}/prior_stats.mean.txt", prior_stats.mean)
+            # prior_stats = get_ctc_prior(ctc_model, train_dataset, {"fix_log_probs": True})
+            # prior_stats.mean.creator.add_alias(f"{prefix}ctc_prior/{shortname}-ep{epoch}/prior_stats")
+            # tk.register_output(f"{prefix}ctc_prior/{shortname}-ep{epoch}/prior_stats.mean.txt", prior_stats.mean)
 
             for am_scale, prior_scale in [(1.0, 1.0), (1.0, 1.5), (1.0, 2.0), (1.0, 3.0)]:
                 opts_variants.append(
