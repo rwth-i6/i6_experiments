@@ -88,7 +88,7 @@ model_time_downsampling = 6  # currently never changed
 # Dataset duration 9:36:16, TSE LR/center 67.3/51.1, blank ratio 15.2%, sil ref ratio 18.0%,
 #
 models = [
-    # model_title, model_name_short, model_name_short_ext, model_name, use_for_part
+    # model_title, model_name_short, model_name_short_ext, model_name, use_for_part, use_for_fig
     (
         "CTC baseline, no blank penalty, no prior",
         "base",
@@ -97,6 +97,7 @@ models = [
         "-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k"
         "-featBN-speedpertV2-spm10k-bpeSample001",
         {"model_probs", "grad_scores"},
+        {"prior"},
     ),
     (
         "CTC baseline, with blank penalty and prior",
@@ -106,6 +107,7 @@ models = [
         "-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k"
         "-featBN-speedpertV2-spm10k-bpeSample001",
         {"model_probs"},
+        {"overview", "prior"},
     ),
     (
         "CTC baseline, no blank penalty and with prior",
@@ -115,6 +117,7 @@ models = [
         "-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k"
         "-featBN-speedpertV2-spm10k-bpeSample001",
         {"grad_scores"},
+        {"overview"},
     ),
     (
         "CTC blank sep, no blank penalty, no prior",
@@ -125,6 +128,7 @@ models = [
         "-featBN-speedpertV2-spm10k-bpeSample001"
         "-blankSep",
         {"model_probs"},
+        {"prior"},
     ),
     (
         "CTC blank sep, no blank penalty, no prior",
@@ -135,6 +139,7 @@ models = [
         "-featBN-speedpertV2-spm10k-bpeSample001"
         "-blankSep",
         {"grad_scores"},
+        set(),  # currently not used...
     ),
     (
         "CTC blank sep, with blank penalty and prior",
@@ -145,16 +150,18 @@ models = [
         "-featBN-speedpertV2-spm10k-bpeSample001"
         "-blankSep",
         {"model_probs"},
+        {"overview", "prior"},
     ),
     (
         "CTC normed grad, with blank penalty and prior",
-        "lpNormedGradC05_11P1",
+        "lpNormedGradC05_11P1Seq",
         "-fix-blank_logit_shift-10-ctc_prior_typestatic-ctc_am_scale1.0-ctc_prior_scale1.0",
         "v6-relPosAttDef"
         "-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k"
         "-featBN-speedpertV2-spm10k-bpeSample001"
         "-lpNormedGradC05_11P1",
         {"model_probs"},
+        {"overview"},
     ),
 ]
 grad_type_base = "blankStopGrad-inclBlankState-p0.1"
@@ -170,17 +177,19 @@ def plot_all():
     global seq_tag, model_title, model_name_short, model_name_short_ext, model_name
     print("seq_tag:", seq_tag)
     print("ref:", get_ref_words())
-    plotter = Plotter(out_filename=out_prefix + seq_tag + "/combined.pdf")
-    plot_audio_features(plotter=plotter)
-    for model_title, model_name_short, model_name_short_ext, model_name, use_for_part in models:
-        if use_for_part is None:
-            use_for_part = {"model_probs", "grad_scores"}
-        assert use_for_part.issubset({"model_probs", "grad_scores"})
-        if "model_probs" in use_for_part:
-            plot_model_probs(plotter=plotter)
-        if "grad_scores" in use_for_part:
-            plot_grad_scores(plotter=plotter)
-    plotter.make()
+    for fig in ["overview", "prior"]:
+        plotter = Plotter(out_filename=f"{out_prefix}combined/{seq_tag}/{fig}.pdf")
+        plot_audio_features(plotter=plotter)
+        for model_title, model_name_short, model_name_short_ext, model_name, use_for_part, use_for_fig in models:
+            assert use_for_fig.issubset({"overview", "prior"})
+            if fig not in use_for_fig:
+                continue
+            assert use_for_part.issubset({"model_probs", "grad_scores"})
+            if "model_probs" in use_for_part:
+                plot_model_probs(plotter=plotter)
+            if "grad_scores" in use_for_part:
+                plot_grad_scores(plotter=plotter)
+        plotter.make()
 
 
 def report_relevant():
