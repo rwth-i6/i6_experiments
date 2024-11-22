@@ -1019,7 +1019,7 @@ class CalcAlignmentMetrics(Job):
         self.out_short_report_str = self.output_path("short-report-string.txt")
 
     def tasks(self):
-        yield Task("run", rqmt={"cpu": 1, "mem": 4, "time": 1, "gpu": 0})
+        yield Task("run", rqmt={"cpu": 1, "mem": 6, "time": 1, "gpu": 0})
 
     def run(self):
         from typing import List, Tuple
