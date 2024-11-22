@@ -26,6 +26,7 @@ def model_recog(
     data_spatial_dim: Dim,
     max_seq_len: Optional[int] = None,
     search_args: Optional[Dict[str, Any]] = None,
+    ground_truth: Optional[Tensor] = None,
 ) -> Tuple[Tensor, Tensor, Dim, Dim]:
     """
     Function is run within RETURNN.
@@ -48,7 +49,10 @@ def model_recog(
     if search_args.get("encoder_ctc", False):
         enc_args_ctc, enc_spatial_dim_ctc = model.encode_ctc(data, in_spatial_dim=data_spatial_dim)
 
-    beam_size = search_args.get("beam_size", 12)
+    if search_args.get("forward_ground_truth", False):
+        beam_size = 1
+    else:
+        beam_size = search_args.get("beam_size", 12)
     length_normalization_exponent = search_args.get("length_normalization_exponent", 1.0)
     if max_seq_len is None:
         max_seq_len = enc_spatial_dim.get_size_tensor()
@@ -59,7 +63,7 @@ def model_recog(
     # Eager-mode implementation of beam search.
     # Initial state.
     beam_dim = Dim(1, name="initial-beam")
-    batch_dims_ = [beam_dim] + batch_dims
+    batch_dims_ =  batch_dims + [beam_dim]
     decoder_state = model.decoder_default_initial_state(
         batch_dims=batch_dims_, enc_spatial_dim=enc_spatial_dim
     )
@@ -140,6 +144,13 @@ def model_recog(
         ctc_state = None
 
     enc_args.pop("ctc", None)
+    enc_args.pop("collected_outputs", None)
+
+    if search_args.get("forward_ground_truth", False):
+        # add eos to end of ground truth
+        ground_truth_pad = \
+            rf.pad(ground_truth, axes=ground_truth.dims, padding=[(0, 0), (0, 1)], out_dims=ground_truth.dims, value=model.eos_idx)[
+                0]
 
     i = 0
     seq_targets = []
@@ -228,26 +239,33 @@ def model_recog(
             label_log_prob,
         )
         seq_log_prob = seq_log_prob + label_log_prob  # Batch, InBeam, Vocab
-        seq_log_prob, (backrefs, target), beam_dim = rf.top_k(
-            seq_log_prob,
-            k_dim=Dim(beam_size, name=f"dec-step{i}-beam"),
-            axis=[beam_dim, model.target_dim],
-        )  # seq_log_prob, backrefs, target: Batch, Beam
-        seq_targets.append(target)
-        seq_backrefs.append(backrefs)
-        decoder_state = tree.map_structure(
-            lambda s: rf.gather(s, indices=backrefs), decoder_state
-        )
+        if search_args.get("forward_ground_truth", False):
+            gt_slice, slice_out_dim = rf.slice(ground_truth_pad, axis=ground_truth_pad.dims[1], start=i, end=i + 1)
+            gt_slice = rf.copy_to_device(rf.squeeze(gt_slice, slice_out_dim))
+            seq_log_prob = rf.gather(seq_log_prob, indices=gt_slice, axis=seq_log_prob.dims[2])
+            target = rf.reshape(gt_slice, gt_slice.dims, target.dims)
+            backrefs = rf.zeros_like(target)
+        else:
+            seq_log_prob, (backrefs, target), beam_dim = rf.top_k(
+                seq_log_prob,
+                k_dim=Dim(beam_size, name=f"dec-step{i}-beam"),
+                axis=[beam_dim, model.target_dim],
+            )  # seq_log_prob, backrefs, target: Batch, Beam
+            seq_targets.append(target)
+            seq_backrefs.append(backrefs)
+            decoder_state = tree.map_structure(
+                lambda s: rf.gather(s, indices=backrefs), decoder_state
+            )
 
-        if search_args.get("lm_scale", 0.0) > 0:
-            lm_state = model.language_model.select_state(lm_state, backrefs)
+            if search_args.get("lm_scale", 0.0) > 0:
+                lm_state = model.language_model.select_state(lm_state, backrefs)
 
-        if search_args.get("ilm_scale", 0.0) > 0:
-            ilm_state = model.ilm.select_state(ilm_state, backrefs)
+            if search_args.get("ilm_scale", 0.0) > 0:
+                ilm_state = model.ilm.select_state(ilm_state, backrefs)
 
 
-        ended = rf.gather(ended, indices=backrefs)
-        out_seq_len = rf.gather(out_seq_len, indices=backrefs)
+            ended = rf.gather(ended, indices=backrefs)
+            out_seq_len = rf.gather(out_seq_len, indices=backrefs)
         i += 1
 
         if search_args.get("ctc_scale", 0.0) > 0.0:
@@ -283,21 +301,25 @@ def model_recog(
         seq_log_prob *= (1 / i) ** length_normalization_exponent
 
     # Backtrack via backrefs, resolve beams.
-    seq_targets_ = []
-    indices = rf.range_over_dim(beam_dim)  # FinalBeam -> FinalBeam
-    for backrefs, target in zip(
-        seq_backrefs[::-1], seq_targets[::-1]
-    ):  # [::-1] reverse
-        # indices: FinalBeam -> Beam
-        # backrefs: Beam -> PrevBeam
-        seq_targets_.insert(0, rf.gather(target, indices=indices))
-        indices = rf.gather(backrefs, indices=indices)  # FinalBeam -> PrevBeam
+    if search_args.get("forward_ground_truth", False):
+        out_spatial_dim = ground_truth.dims[1]
+        seq_targets = rf.reshape(ground_truth, ground_truth.dims, batch_dims_ + [out_spatial_dim])
+    else:
+        seq_targets_ = []
+        indices = rf.range_over_dim(beam_dim)  # FinalBeam -> FinalBeam
+        for backrefs, target in zip(
+            seq_backrefs[::-1], seq_targets[::-1]
+        ):  # [::-1] reverse
+            # indices: FinalBeam -> Beam
+            # backrefs: Beam -> PrevBeam
+            seq_targets_.insert(0, rf.gather(target, indices=indices))
+            indices = rf.gather(backrefs, indices=indices)  # FinalBeam -> PrevBeam
 
-    seq_targets__ = TensorArray(seq_targets_[0])
-    for target in seq_targets_:
-        seq_targets__ = seq_targets__.push_back(target)
-    out_spatial_dim = Dim(out_seq_len, name="out-spatial")
-    seq_targets = seq_targets__.stack(axis=out_spatial_dim)
+        seq_targets__ = TensorArray(seq_targets_[0])
+        for target in seq_targets_:
+            seq_targets__ = seq_targets__.push_back(target)
+        out_spatial_dim = Dim(out_seq_len, name="out-spatial")
+        seq_targets = seq_targets__.stack(axis=out_spatial_dim)
 
     if search_args.get("rescore_w_ctc",False):
         from .two_pass import rescore_w_ctc

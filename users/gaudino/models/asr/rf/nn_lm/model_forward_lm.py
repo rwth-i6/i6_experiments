@@ -69,7 +69,7 @@ def model_forward_lm(
 
 
     for i in range(S):
-        breakpoint()
+        # breakpoint()
         lm_out = model(target, state=trafo_lm_state, spatial_dim=single_step_dim)
         label_log_prob = rf.log_softmax(lm_out["output"], axis=model.target_dim)
         trafo_lm_state = lm_out["state"]
