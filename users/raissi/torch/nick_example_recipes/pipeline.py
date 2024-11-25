@@ -6,11 +6,11 @@ import enum
 from dataclasses import dataclass, asdict
 import os.path
 from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Tuple, Union
 
 from sisyphus import tk
 
-from i6_core.returnn import PtCheckpoint
-from returnn import ExportPyTorchModelToOnnxJobV2
+from i6_core.returnn import PtCheckpoint, ReturnnConfig
 
 from i6_core.corpus.convert import CorpusToStmJob
 from i6_core.recognition.scoring import ScliteJob
@@ -25,6 +25,7 @@ from i6_experiments.common.setups.returnn.datasets import Dataset
 
 from .config import get_forward_config, get_training_config, get_prior_config, TrainingDatasets
 from .default_tools import SCTK_BINARY_PATH, RETURNN_EXE, MINI_RETURNN_ROOT
+from .onnx import ExportPyTorchModelToOnnxJobV2
 
 
 @dataclass
@@ -310,6 +311,7 @@ def prepare_asr_model(
 
     return asr_model
 
+
 def export_model_for_rasr_decoding(checkpoint: Union[tk.Path, PtCheckpoint],
                                    returnn_config: ReturnnConfig,
                                    returnn_python_exe: tk.Path,
@@ -324,4 +326,5 @@ def export_model_for_rasr_decoding(checkpoint: Union[tk.Path, PtCheckpoint],
     )
 
     return onnx_export_job.out_onnx_model
+
 

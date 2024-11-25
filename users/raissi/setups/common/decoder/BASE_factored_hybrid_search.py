@@ -1297,6 +1297,7 @@ class BASEFactoredHybridDecoder:
         assert len(prior_scales) > 0
         assert len(tdp_scales) > 0
 
+
         recog_args = dataclasses.replace(search_parameters, altas=altas_value, beam=altas_beam)
 
         if isinstance(prior_scales, np.ndarray):

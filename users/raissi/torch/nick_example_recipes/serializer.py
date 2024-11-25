@@ -44,7 +44,7 @@ def serialize_training(
         )
     else:
         pytorch_step = Import(
-            code_object_path=package + ".%s.export" % network_module, unhashed_package_root=PACKAGE
+            code_object_path=package + ".%s.export_returnn" % network_module, unhashed_package_root=PACKAGE
         )
 
     i6_models = ExternalImport(import_path=I6_MODELS_REPO_PATH)

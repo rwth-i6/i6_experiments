@@ -1497,6 +1497,7 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
         num_encoder_output: int,
         recog_args: SearchParameters,
         lm_scale: float,
+        altas_transition:float = 2.0,
         context_type: PhoneticContext = None,
         feature_scorer_type: RasrFeatureScorer = None,
         tdp_scales: List = None,
@@ -1508,6 +1509,7 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
         transition_exit_speech: List = None,
         use_heuristic_tdp: bool = False,
         extend: bool = True,
+        use_speech_tdp_for_nonword: bool = True,
     ) -> SearchParameters:
 
         assert self.experiments[key]["decode_job"]["runner"] is not None, "Please set the recognizer"
@@ -1557,7 +1559,7 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
             altas_beam=16.0,
             tdp_sil=[sil_tdp],
             tdp_speech=[sp_tdp],
-            tdp_nonword=[sp_tdp],
+            tdp_nonword=[sp_tdp if use_speech_tdp_for_nonword else sil_tdp],
             prior_scales=prior_scales,
             tdp_scales=tdp_scales,
             pron_scales=pron_scales,
@@ -1597,6 +1599,7 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
             label_info=self.label_info,
             search_parameters=best_config_scales,
             num_encoder_output=num_encoder_output,
+            altas_value=altas_transition,
             altas_beam=16.0,
             tdp_sil=nnsp_tdp,
             tdp_speech=sp_tdp,

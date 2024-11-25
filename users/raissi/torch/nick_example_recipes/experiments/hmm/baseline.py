@@ -329,8 +329,6 @@ def ls960_hmm_conformer_monophone():
         from i6_experiments.users.raissi.torch.decoder.TORCH_factored_hybrid_search import TORCHFactoredHybridDecoder
         from i6_experiments.users.raissi.utils.default_tools import u22_rasr_path_onnxtorch
 
-        train_job = training(training_name, train_data, train_args_conv_first, num_epochs=250, **default_returnn)
-
 
 
         decoding_returnn_config = get_decoding_config(training_datasets=train_data, **train_args_conv_first)
@@ -341,9 +339,14 @@ def ls960_hmm_conformer_monophone():
         onnx_model = export_model_for_rasr_decoding(
             checkpoint=asr_model.checkpoint,
             returnn_config=decoding_returnn_config,
-            returnn_root=
+            returnn_root=MINI_RETURNN_ROOT,
+            returnn_python_exe=RETURNN_EXE
 
         )
+
+        from sisyphus import tk
+
+        tk.register_output("onnx/model", onnx_model)
 
         dummy_mixtures = mm.CreateDummyMixturesJob(
             label_info.get_n_of_dense_classes(),
@@ -362,13 +365,15 @@ def ls960_hmm_conformer_monophone():
         context_type=PhoneticContext.monophone,
         feature_scorer_type=RasrFeatureScorer.onnx,
         feature_flow_type=FeatureFlowType.SAMPLE,
-        #feature_path=None, #toDo
-        model_path=None, #toDo
+        feature_path=None, #toDo
+        model_path=onnx_model, #toDo
         io_map=ONNXDecodeIOMap.default(),
         mixtures=dummy_mixtures)
 
         #embed()
+
         """
+        
 
 
     # TODO: re-enable tune_and_evaluate_helper with an HMM decoder

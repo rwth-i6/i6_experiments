@@ -8,7 +8,7 @@ import numpy as np
 import torch
 from torch import nn
 from torch.onnx import export as onnx_export
-from typing import Tuple
+from typing import Tuple, Any
 
 from i6_models.parts.conformer.norm import LayerNormNC
 from i6_models.assemblies.conformer.conformer_v1 import ConformerEncoderV1Config
@@ -297,5 +297,7 @@ def export_returnn(*, model: Model, args: Any, f: str):
             "data_len": {0: "batch"},
             "classes": {0: "batch", 1: "time"}
         }
+
+
     )
 
