@@ -35,10 +35,6 @@ from .pytorch_models.transducer import (
 from .steps.transducer import SearchCallback, rasr_recog_step, scorer_forward_step, train_step
 from .tools import rasr_binary_path, returnn_python_exe, returnn_root, sctk_binary_path
 
-print(__package__)
-print(__file__)
-print(__name__)
-
 
 def py() -> None:
     filename_handle = os.path.splitext(os.path.basename(__file__))[0][len("config_") :]

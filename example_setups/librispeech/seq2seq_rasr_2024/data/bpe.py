@@ -33,7 +33,7 @@ class TrainData:
         default_factory=lambda: Collection(
             [
                 Import(
-                    "i6_experiments.users.berger.configs.librispeech.config_20241106_seq2seq_template_setups.data.bpe.speed_perturbation",
+                    f"{__package__}.bpe.speed_perturbation",
                     use_for_hash=False,
                 )
             ]
