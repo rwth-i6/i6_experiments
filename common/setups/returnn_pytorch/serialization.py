@@ -394,6 +394,8 @@ def build_config_constructor_serializers_v2(
                 dict_items += [key, val_serialized]
                 dict_imports += item_imports
             return DelayedFormat(f"{{{', '.join(['{}: {}'] * len(dict_items))}}}", *dict_items), dict_imports
+        elif isinstance(value, tk.Path):
+            return DelayedFormat('tk.Path("{}")', value), [Import("sisyphus.tk")]
         elif isinstance(value, DelayedBase):
             # sisyphus variables are just given as-is and will be instanciated only when calling "get".
             return value, []
