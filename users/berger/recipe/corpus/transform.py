@@ -1,4 +1,5 @@
 from enum import Enum, auto
+from typing import List
 import xml.etree.ElementTree as ET
 
 from sisyphus import tk, Job, Task
@@ -74,5 +75,35 @@ class TransformTranscriptionsJob(Job):
                 replace_func(ssc)
 
         replace_func(corpus)
+
+        corpus.dump(self.out_corpus_file.get_path())
+
+
+class RemoveTokensFromTranscriptionsJob(Job):
+    def __init__(self, corpus_file: tk.Path, removed_tokens: List[str]):
+        self.corpus_file = corpus_file
+        self.removed_tokens = removed_tokens
+
+        self.out_corpus_file = self.output_path("corpus.xml.gz", cached=True)
+
+    def tasks(self):
+        yield Task("run", resume="run", mini_task=True)
+
+    def run(self):
+        corpus = Corpus()
+        corpus.load(self.corpus_file.get_path())
+
+        for rec in corpus.all_recordings():
+            remaining_segments = []
+            for segment in rec.segments:
+                if not segment.orth:
+                    remaining_segments.append(segment)
+                    continue
+                for token in self.removed_tokens:
+                    segment.orth = segment.orth.replace(token, "")
+                segment.orth = " ".join(segment.orth.split())
+                if segment.orth:
+                    remaining_segments.append(segment)
+            rec.segments = remaining_segments
 
         corpus.dump(self.out_corpus_file.get_path())

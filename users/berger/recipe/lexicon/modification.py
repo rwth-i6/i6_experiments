@@ -131,6 +131,27 @@ class DeleteLemmataFromLexiconJob(Job):
         write_xml(self.out_lexicon.get_path(), out_lexicon.to_xml())
 
 
+class AddLemmasToLexiconJob(Job):
+    def __init__(self, bliss_lexicon: tk.Path, new_lemmas: List[Lemma]):
+        self.bliss_lexicon = bliss_lexicon
+        self.new_lemmas = new_lemmas
+
+        self.out_lexicon = self.output_path("lexicon.xml")
+
+    def tasks(self):
+        yield Task("run", mini_task=True)
+
+    def run(self):
+        lex = Lexicon()
+        lex.load(self.bliss_lexicon.get_path())
+
+        for lemma in self.new_lemmas:
+            lex.add_lemma(lemma)
+
+        # Write resulting lexicon to file
+        write_xml(self.out_lexicon.get_path(), lex.to_xml())
+
+
 class EnsureSilenceFirstJob(Job):
     """
     Moves the silence phoneme (defined via lemma) to the beginning in the inventory for RASR CTC/Transducer compatibility
