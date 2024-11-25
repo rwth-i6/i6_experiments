@@ -297,13 +297,19 @@ def build_config_constructor_serializers_v2(
             subimports.append(
                 Import(
                     code_object_path=f"{value.module_class.__module__}.{value.module_class.__name__}",
-                    unhashed_package_root=unhashed_package_root,
+                    unhashed_package_root=unhashed_package_root
+                    if unhashed_package_root is not None
+                    and value.module_class.__module__.startswith(unhashed_package_root)
+                    else None,
                 )
             )
             subimports.append(
                 Import(
                     code_object_path=f"{ModuleFactoryV1.__module__}.{ModuleFactoryV1.__name__}",
-                    unhashed_package_root=unhashed_package_root,
+                    unhashed_package_root=unhashed_package_root
+                    if unhashed_package_root is not None
+                    and ModuleFactoryV1.__module__.startswith(unhashed_package_root)
+                    else None,
                 )
             )
             return (
@@ -325,7 +331,9 @@ def build_config_constructor_serializers_v2(
             return str(value), [
                 Import(
                     code_object_path=f"{value.__module__}.{type(value).__name__}",
-                    unhashed_package_root=unhashed_package_root,
+                    unhashed_package_root=unhashed_package_root
+                    if unhashed_package_root is not None and value.__module__.startswith(unhashed_package_root)
+                    else None,
                 )
             ]
         elif isfunction(value):
@@ -337,7 +345,9 @@ def build_config_constructor_serializers_v2(
                 subimports = [
                     Import(
                         code_object_path=f"{value.__module__}.{value.__name__}",
-                        unhashed_package_root=unhashed_package_root,
+                        unhashed_package_root=unhashed_package_root
+                        if unhashed_package_root is not None and value.__module__.startswith(unhashed_package_root)
+                        else None,
                     )
                 ]
             else:
@@ -350,7 +360,10 @@ def build_config_constructor_serializers_v2(
             subimports = [
                 Import(
                     code_object_path=f"{value.__class__.__module__}.{value.__class__.__name__}",
-                    unhashed_package_root=unhashed_package_root,
+                    unhashed_package_root=unhashed_package_root
+                    if unhashed_package_root is not None
+                    and value.__class__.__module__.startswith(unhashed_package_root)
+                    else None,
                 )
             ]
             return f"{value.__class__.__name__}.{value.name}", subimports
@@ -395,7 +408,9 @@ def build_config_constructor_serializers_v2(
     imports = [
         Import(
             code_object_path=f"{type(cfg).__module__}.{type(cfg).__name__}",
-            unhashed_package_root=unhashed_package_root,
+            unhashed_package_root=unhashed_package_root
+            if unhashed_package_root is not None and type(cfg).__module__.startswith(unhashed_package_root)
+            else None,
         )
     ]
 
