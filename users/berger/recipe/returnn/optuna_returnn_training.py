@@ -321,20 +321,26 @@ class OptunaReturnnTrainingJob(Job):
 
         if trial_pruned:
             logging.info("Pruned trial run")
-            os.link(
-                f"trial-{trial_num:03d}/learning_rates",
-                self.out_trial_learning_rates[trial_num].get_path(),
-            )
+            try:
+                os.link(
+                    f"trial-{trial_num:03d}/learning_rates",
+                    self.out_trial_learning_rates[trial_num].get_path(),
+                )
+            except FileExistsError:
+                pass
 
         lr_data = self.parse_lr_file(trial_num)
         max_epoch = max([ep for ep, ep_data in lr_data.items() if ep_data["error"] != {}])
 
         if not trial_pruned and max_epoch == self.num_epochs:
             logging.info("Finished trial run normally")
-            os.link(
-                f"trial-{trial_num:03d}/learning_rates",
-                self.out_trial_learning_rates[trial_num].get_path(),
-            )
+            try:
+                os.link(
+                    f"trial-{trial_num:03d}/learning_rates",
+                    self.out_trial_learning_rates[trial_num].get_path(),
+                )
+            except FileExistsError:
+                pass
 
         if not trial_pruned and max_epoch != self.num_epochs:
             logging.info("Training had an error")

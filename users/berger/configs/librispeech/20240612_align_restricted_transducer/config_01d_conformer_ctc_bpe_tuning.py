@@ -75,10 +75,16 @@ def tune_specaugment(trial: optuna.Trial, model_config: conformer_ctc.ConformerC
     return {}
 
 
-def tune_oclr_schedule(trial: optuna.Trial, _: conformer_ctc.ConformerCTCConfig) -> dict:
+def tune_oclr_schedule(trial: optuna.Trial, model_config: conformer_ctc.ConformerCTCConfig) -> dict:
     peak_lr = trial.suggest_float("peak_lr", 1e-04, 1e-03, log=True)
     initial_lr = peak_lr / 10
     return {"decayed_lr": initial_lr, "peak_lr": peak_lr}
+
+
+def tune_oclr_schedule_v2(trial: optuna.Trial, model_config: conformer_ctc.ConformerCTCConfig) -> dict:
+    peak_lr = trial.suggest_float("peak_lr", 2e-04, 6e-04, log=True)
+    decayed_lr = peak_lr / 10
+    return {"decayed_lr": decayed_lr, "peak_lr": peak_lr}
 
 
 def tune_dropout(trial: optuna.Trial, model_config: conformer_ctc.ConformerCTCConfig) -> dict:
@@ -92,20 +98,81 @@ def tune_dropout(trial: optuna.Trial, model_config: conformer_ctc.ConformerCTCCo
     return {}
 
 
-def tune_grad_clip(trial: optuna.Trial, _: conformer_ctc.ConformerCTCConfig) -> dict:
-    return {"grad_clip": trial.suggest_categorical("grad_clip", [0.0, 1.0, 100.0])}
+def tune_grad_clip(trial: optuna.Trial, model_config: conformer_ctc.ConformerCTCConfig) -> dict:
+    return {"grad_clip": trial.suggest_categorical("grad_clip", [1.0, 100.0])}
 
 
-def tune_weight_decay(trial: optuna.Trial, _: conformer_ctc.ConformerCTCConfig) -> dict:
+def tune_weight_decay(trial: optuna.Trial, model_config: conformer_ctc.ConformerCTCConfig) -> dict:
     return {"weight_decay": trial.suggest_float("weight_decay", 1e-04, 5e-02, log=True)}
+
+
+def tune_weight_decay_v2(trial: optuna.Trial, model_config: conformer_ctc.ConformerCTCConfig) -> dict:
+    return {"weight_decay": trial.suggest_float("weight_decay", 5e-03, 3e-02, log=True)}
+
+
+def tune_batch_size(trial: optuna.Trial, model_config: conformer_ctc.ConformerCTCConfig) -> dict:
+    return {"batch_size": trial.suggest_int("batch_frames", 10000, 40000, step=2000) * 160}
+
+
+def tuned_specaugment(trial: optuna.Trial, model_config: conformer_ctc.ConformerCTCConfig) -> dict:
+    model_config.specaugment.cfg.time_max_mask_per_n_frames = 30
+    model_config.specaugment.cfg.time_mask_max_size = 20
+    model_config.specaugment.cfg.freq_max_num_masks = 5
+    model_config.specaugment.cfg.freq_mask_max_size = 16
+
+    return {}
+
+
+def tuned_oclr_schedule(trial: optuna.Trial, model_config: conformer_ctc.ConformerCTCConfig) -> dict:
+    return {"decayed_lr": 2.6e-05, "peak_lr": 2.6e-04}
+
+
+def tuned_dropout(trial: optuna.Trial, model_config: conformer_ctc.ConformerCTCConfig) -> dict:
+    model_config.dropout = 0.02
+    model_config.conformer.cfg.block_cfg.ff_cfg.dropout = 0.02
+    model_config.conformer.cfg.block_cfg.mhsa_cfg.dropout = 0.02
+    model_config.conformer.cfg.block_cfg.mhsa_cfg.att_weights_dropout = 0.02
+    model_config.conformer.cfg.block_cfg.conv_cfg.dropout = 0.02
+
+    return {}
+
+
+def tuned_grad_clip(trial: optuna.Trial, model_config: conformer_ctc.ConformerCTCConfig) -> dict:
+    return {"grad_clip": 100.0}
+
+
+def tuned_weight_decay(trial: optuna.Trial, model_config: conformer_ctc.ConformerCTCConfig) -> dict:
+    return {"weight_decay": 0.025}
+
+
+def tuned_batch_size(trial: optuna.Trial, model_config: conformer_ctc.ConformerCTCConfig) -> dict:
+    return {"batch_size": 22000}
+
+
+def increased_epochs(trial: optuna.Trial, model_config: conformer_ctc.ConformerCTCConfig) -> dict:
+    return {
+        "num_epochs": 1000,
+        "inc_epochs": 480,
+        "keep": [100, 200, 300, 400, 500, 600, 700, 800, 900, 1000],
+    }
 
 
 tuning_functions = {
     "specaugment": tune_specaugment,
     "oclr_schedule": tune_oclr_schedule,
+    "oclr_schedule_v2": tune_oclr_schedule_v2,
     "dropout": tune_dropout,
     "grad_clip": tune_grad_clip,
     "weight_decay": tune_weight_decay,
+    "weight_decay_v2": tune_weight_decay_v2,
+    "batch_size": tune_batch_size,
+    "tuned_specaugment": tuned_specaugment,
+    "tuned_oclr_schedule": tuned_oclr_schedule,
+    "tuned_dropout": tuned_dropout,
+    "tuned_grad_clip": tuned_grad_clip,
+    "tuned_weight_decay": tuned_weight_decay,
+    "tuned_batch_size": tuned_batch_size,
+    "increased_epochs": increased_epochs,
 }
 
 
@@ -330,15 +397,12 @@ def run_exp() -> SummaryReport:
         num_epochs=num_subepochs,
         gpu_mem_rqmt=24,
         study_storage=storage,
-        num_trials=20,
-        num_parallel=5,
         backend=Backend.PYTORCH,
     )
     recog_args = exp_args.get_ctc_flashlight_bpe_recog_step_args(
         epochs=sub_checkpoints,
         prior_scales=[0.3],
         lm_scales=[2.0],
-        trial_nums=list(range(20)),
         ogg_dataset=True,
     )
 
@@ -379,14 +443,38 @@ def run_exp() -> SummaryReport:
     system.add_experiment_configs(
         "Conformer_CTC_bpe-128_tune",
         get_returnn_config_collection(
-            tuning_names=["specaugment", "oclr_schedule", "dropout", "grad_clip", "weight_decay"],
+            tuning_names=["specaugment", "oclr_schedule", "dropout", "grad_clip", "weight_decay", "batch_size"],
             train_data_config=data.train_data_config,
             dev_data_config=data.cv_data_config,
         ),
     )
 
-    system.run_train_step(**train_args)
-    system.run_recog_step_for_corpora(corpora=["dev-other_4gram"], **recog_args)
+    system.run_train_step(**train_args, num_trials=15, num_parallel=3)
+    system.run_recog_step_for_corpora(corpora=["dev-other_4gram"], **recog_args, trial_nums=list(range(15)))
+
+    system.cleanup_experiments()
+
+    system.add_experiment_configs(
+        "Conformer_CTC_bpe-128_tune-v2",
+        get_returnn_config_collection(
+            tuning_names=[
+                "increased_epochs",
+                "tuned_specaugment",
+                "oclr_schedule_v2",
+                "dropout",
+                "tuned_grad_clip",
+                "weight_decay_v2",
+                "tuned_batch_size",
+            ],
+            train_data_config=data.train_data_config,
+            dev_data_config=data.cv_data_config,
+        ),
+    )
+    train_args["num_epochs"] = 1000
+    recog_args["epochs"] = [100, 200, 300, 400, 500, 600, 700, 800, 900, 1000]
+
+    system.run_train_step(**train_args, num_trials=10, num_parallel=5)
+    system.run_recog_step_for_corpora(corpora=["dev-other_4gram"], **recog_args, trial_nums=list(range(10)))
 
     assert system.summary_report
     return system.summary_report
