@@ -2048,6 +2048,8 @@ def py():
         env_updates={"PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"},
     )
 
+    # TODO try timm.optim.adafactor_bv.AdafactorBigVision
+
     # bf16A
     # Very bad. Stable training but just bad: 49.38 final PPL (compared to 35.58 PPL)
     # train(
