@@ -58,7 +58,7 @@ def py() -> None:
 
     recipe_import = ExternalImport(
         import_path=tk.Path(
-            __file__.split("recipe")[0],
+            f"{__file__.split('recipe')[0]}/recipe/",
             hash_overwrite="RECIPE_ROOT",
         )
     )
