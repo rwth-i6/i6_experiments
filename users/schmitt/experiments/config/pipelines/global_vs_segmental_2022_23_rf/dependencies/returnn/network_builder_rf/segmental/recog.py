@@ -142,7 +142,9 @@ def update_state(
         ilm_state_updated: Optional[State],
         aed_decoder_state: Optional[State],
         aed_decoder_state_updated: Optional[State],
-) -> Tuple[State, Optional[State], Optional[State], Optional[State], Optional[State]]:
+        aed_ilm_state: Optional[State],
+        aed_ilm_state_updated: Optional[State],
+) -> Tuple[State, Optional[State], Optional[State], Optional[State], Optional[State], Optional[State]]:
 
   # ------------------- update blank decoder state -------------------
 
@@ -198,9 +200,23 @@ def update_state(
   # ------------------- update external AED state -------------------
 
   if aed_decoder_state is not None:
-    aed_decoder_state = tree.map_structure(
+    if model.aed_model.decoder_state != "trafo":
+      aed_decoder_state = tree.map_structure(
+        lambda old_state, new_state: _get_masked_state(old_state, new_state, update_state_mask),
+        aed_decoder_state, aed_decoder_state_updated
+      )
+    else:
+      aed_decoder_state = _get_masked_trafo_state(
+        trafo_state=aed_decoder_state,
+        trafo_state_updated=aed_decoder_state_updated,
+        update_state_mask=update_state_mask,
+        backrefs=backrefs
+      )
+
+  if aed_ilm_state is not None:
+    aed_ilm_state = tree.map_structure(
       lambda old_state, new_state: _get_masked_state(old_state, new_state, update_state_mask),
-      aed_decoder_state, aed_decoder_state_updated
+      aed_ilm_state, aed_ilm_state_updated
     )
 
   # ------------------- update external LM state -------------------
@@ -213,7 +229,7 @@ def update_state(
       backrefs=backrefs
     )
 
-  return label_decoder_state, blank_decoder_state, lm_state, ilm_state, aed_decoder_state
+  return label_decoder_state, blank_decoder_state, lm_state, ilm_state, aed_decoder_state, aed_ilm_state
 
 
 def get_score(
@@ -230,6 +246,7 @@ def get_score(
         ilm_state: Optional[State],
         ilm_type: Optional[str],
         aed_decoder_state: Optional[State],
+        aed_ilm_state: Optional[State],
         enc_args: Dict[str, Tensor],
         att_enc_args: Dict[str, Tensor],
         aed_enc_args: Dict[str, Tensor],
@@ -243,9 +260,9 @@ def get_score(
         external_aed_scale: Optional[float] = None,
         subtract_ilm_eos_score: bool = False,
         separate_readout_alpha: Optional[float] = None,
-) -> Tuple[Tensor, State, Optional[State], Optional[State], Optional[State], Optional[State], Tensor]:
         blank_penalty: Optional[float] = None,
         blank_scale: Optional[float] = None,
+) -> Tuple[Tensor, State, Optional[State], Optional[State], Optional[State], Optional[State], Optional[State], Tensor]:
   # ------------------- label step -------------------
 
   center_positions = rf.minimum(
@@ -302,7 +319,12 @@ def get_score(
     else:
       h_t = None
 
-    label_logits, h_t_logits = model.label_decoder.decode_logits(input_embed=input_embed_label_model, **label_step_out, h_t=h_t)
+    label_logits, h_t_logits = model.label_decoder.decode_logits(
+      input_embed=input_embed_label_model,
+      s=label_step_out["s"],
+      att=label_step_out["att"],
+      h_t=h_t
+    )
 
   if model.label_decoder_state != "trafo" and model.label_decoder.separate_blank_from_softmax:
     label_log_prob = utils.log_softmax_sep_blank(
@@ -312,7 +334,11 @@ def get_score(
 
   # combine two softmaxes in case of the random readout
   if not isinstance(model.label_decoder, TransformerDecoder) and model.label_decoder.use_current_frame_in_readout_random:
-    label_logits2 = model.label_decoder.decode_logits(input_embed=input_embed_label_model, **label_step_out)
+    label_logits2 = model.label_decoder.decode_logits(
+      input_embed=input_embed_label_model,
+      s=label_step_out["s"],
+      att=label_step_out["att"],
+    )
     label_log_prob2 = rf.log_softmax(label_logits2, axis=model.target_dim)
     alpha = separate_readout_alpha
     label_log_prob = alpha * label_log_prob + (1 - alpha) * label_log_prob2
@@ -328,13 +354,25 @@ def get_score(
   # ------------------- external AED step -------------------
   aed_eos_log_prob = rf.zeros(batch_dims, dtype="float32")
   if aed_decoder_state is not None:
-    aed_step_out, aed_decoder_state = model.aed_model.label_decoder.loop_step(
-      **aed_enc_args,
-      enc_spatial_dim=enc_spatial_dim,
-      input_embed=input_embed_aed_model,
-      state=aed_decoder_state,
-    )
-    aed_logits, _ = model.aed_model.label_decoder.decode_logits(input_embed=input_embed_aed_model, **aed_step_out)
+    if model.aed_model.decoder_state != "trafo":
+      aed_step_out, aed_decoder_state = model.aed_model.label_decoder.loop_step(
+        **aed_enc_args,
+        enc_spatial_dim=enc_spatial_dim,
+        input_embed=input_embed_aed_model,
+        state=aed_decoder_state,
+      )
+      aed_logits, _ = model.aed_model.label_decoder.decode_logits(
+        input_embed=input_embed_aed_model,
+        att=aed_step_out["att"],
+        s=aed_step_out["s"],
+      )
+    else:
+      aed_logits, aed_decoder_state = model.aed_model.label_decoder(
+        nb_target,
+        spatial_dim=single_step_dim,
+        encoder=aed_enc_args["enc"],
+        state=aed_decoder_state,
+      )
     aed_label_log_prob = rf.log_softmax(aed_logits, axis=model.target_dim)
 
     # do not apply LM scores to blank
@@ -366,7 +404,7 @@ def get_score(
 
   lm_eos_log_prob = rf.zeros(batch_dims, dtype="float32")
   if lm_state is not None:
-    lm_logits, lm_state, _ = model.language_model(
+    lm_logits, lm_state = model.language_model(
       nb_target,
       spatial_dim=single_step_dim,
       state=lm_state,
@@ -411,7 +449,12 @@ def get_score(
       use_mini_att=ilm_type == "mini_att",
       use_zero_att=ilm_type == "zero_att",
     )
-    ilm_logits, _ = model.label_decoder.decode_logits(input_embed=input_embed_label_model, **ilm_step_out, h_t=h_t)
+    ilm_logits, _ = model.label_decoder.decode_logits(
+      input_embed=input_embed_label_model,
+      s=ilm_step_out["s"],
+      att=ilm_step_out["att"],
+      h_t=h_t
+    )
     ilm_label_log_prob = rf.log_softmax(ilm_logits, axis=model.target_dim)
 
     # do not apply ILM correction to blank
@@ -440,6 +483,49 @@ def get_score(
       )
 
     label_log_prob -= ilm_correction_scale * ilm_label_log_prob
+
+  # --------------------------------- AED ILM step ---------------------------------
+
+  aed_ilm_eos_log_prob = rf.zeros(batch_dims, dtype="float32")
+  if aed_ilm_state is not None:
+    aed_ilm_step_out, aed_ilm_state = model.aed_model.label_decoder.loop_step(
+      **aed_enc_args,
+      enc_spatial_dim=enc_spatial_dim,
+      input_embed=input_embed_aed_model,
+      state=aed_ilm_state,
+      use_mini_att=ilm_type == "mini_att",
+      use_zero_att=ilm_type == "zero_att",
+    )
+    aed_ilm_logits, _ = model.aed_model.label_decoder.decode_logits(
+      input_embed=input_embed_aed_model,
+      s=aed_ilm_step_out["s"],
+      att=aed_ilm_step_out["att"],
+    )
+    aed_ilm_label_log_prob = rf.log_softmax(aed_ilm_logits, axis=model.target_dim)
+
+    # do not apply ILM correction to blank
+    if model.use_joint_model:
+      aed_ilm_label_log_prob_ = rf.where(
+        rf.range_over_dim(model.target_dim) == model.blank_idx,
+        rf.zeros(batch_dims, dtype="float32"),
+        aed_ilm_label_log_prob
+      )
+      aed_ilm_label_log_prob = rf.where(
+        rf.convert_to_tensor(i == rf.copy_to_device(enc_spatial_dim.get_size_tensor()) - 1),
+        aed_ilm_label_log_prob,
+        aed_ilm_label_log_prob_
+      )
+    else:
+      aed_ilm_eos_log_prob = rf.where(
+        rf.convert_to_tensor(
+          i == rf.copy_to_device(enc_spatial_dim.get_size_tensor()) - 1),
+        # TODO: change to non hard-coded BOS index
+        rf.gather(aed_ilm_label_log_prob,
+                  indices=rf.constant(0, dtype="int32", dims=batch_dims, sparse_dim=nb_target.sparse_dim)),
+        aed_ilm_eos_log_prob
+      )
+
+    label_log_prob -= ilm_correction_scale * aed_ilm_label_log_prob
 
   # ------------------- blank step -------------------
 
@@ -509,6 +595,10 @@ def get_score(
     if subtract_ilm_eos_score:
       blank_log_prob -= ilm_eos_log_prob
 
+    # always subtract the AED ILM EOS score from blank
+    if aed_ilm_state is not None:
+      blank_log_prob -= aed_ilm_eos_log_prob
+
     # ------------------- combination -------------------
 
     label_log_prob += emit_log_prob
@@ -519,7 +609,16 @@ def get_score(
   else:
     output_log_prob = label_log_prob
 
-  return output_log_prob, label_decoder_state, blank_decoder_state, lm_state, ilm_state, aed_decoder_state, lm_eos_log_prob
+  return (
+    output_log_prob,
+    label_decoder_state,
+    blank_decoder_state,
+    lm_state,
+    ilm_state,
+    aed_decoder_state,
+    aed_ilm_state,
+    lm_eos_log_prob
+  )
 
 
 def model_recog(
@@ -681,17 +780,34 @@ def model_recog(
   if model.aed_model:
     aed_enc_args, aed_enc_spatial_dim = model.aed_model.encoder.encode(data, in_spatial_dim=data_spatial_dim)
     aed_enc_args["enc"] = utils.copy_tensor_replace_dim_tag(aed_enc_args["enc"], aed_enc_spatial_dim, enc_spatial_dim)
-    aed_enc_args["enc_ctx"] = utils.copy_tensor_replace_dim_tag(
-      aed_enc_args["enc_ctx"], aed_enc_spatial_dim, enc_spatial_dim)
-    aed_decoder_state = model.aed_model.label_decoder.decoder_default_initial_state(
-      batch_dims=batch_dims_, enc_spatial_dim=enc_spatial_dim)
-    input_embed_aed = rf.zeros(
-      batch_dims_ + [model.aed_model.label_decoder.target_embed.out_dim],
-      feature_dim=model.aed_model.label_decoder.target_embed.out_dim,
-      dtype="float32"
-    )
+
+    if model.aed_model.decoder_state == "trafo":
+      aed_enc_args["enc"] = model.aed_model.label_decoder.transform_encoder(aed_enc_args["enc"], axis=enc_spatial_dim)
+      aed_decoder_state = _get_init_trafo_state(model.aed_model.label_decoder, batch_dims_)
+      input_embed_aed = None
+    else:
+      aed_enc_args["enc_ctx"] = utils.copy_tensor_replace_dim_tag(
+        aed_enc_args["enc_ctx"], aed_enc_spatial_dim, enc_spatial_dim)
+      aed_decoder_state = model.aed_model.label_decoder.decoder_default_initial_state(
+        batch_dims=batch_dims_, enc_spatial_dim=enc_spatial_dim)
+      input_embed_aed = rf.zeros(
+        batch_dims_ + [model.aed_model.label_decoder.target_embed.out_dim],
+        feature_dim=model.aed_model.label_decoder.target_embed.out_dim,
+        dtype="float32"
+      )
+
+    if ilm_type is not None:
+      aed_ilm_state = model.aed_model.label_decoder.decoder_default_initial_state(
+        batch_dims=batch_dims_,
+        use_mini_att=ilm_type == "mini_att",
+        use_zero_att=ilm_type == "zero_att",
+        enc_spatial_dim=enc_spatial_dim
+      )
+    else:
+      aed_ilm_state = None
   else:
     aed_decoder_state = None
+    aed_ilm_state = None
     input_embed_aed = None
     aed_enc_args = None
 
@@ -780,7 +896,7 @@ def model_recog(
             model.label_decoder.target_embed(target_non_blank),
             rf.gather(input_embed, indices=backrefs)
           )
-      if model.aed_model:
+      if model.aed_model and model.aed_model.decoder_state != "trafo":
         input_embed_aed = rf.where(
           update_state_mask,
           model.aed_model.label_decoder.target_embed(target_non_blank),
@@ -813,6 +929,7 @@ def model_recog(
       lm_state_updated,
       ilm_state_updated,
       aed_decoder_state_updated,
+      aed_ilm_state_updated,
       lm_eos_log_prob,
     ) = get_score(
       model=model,
@@ -828,6 +945,7 @@ def model_recog(
       ilm_state=ilm_state,
       ilm_type=ilm_type,
       aed_decoder_state=aed_decoder_state,
+      aed_ilm_state=aed_ilm_state,
       enc_args=enc_args,
       att_enc_args=att_enc_args,
       aed_enc_args=aed_enc_args,
@@ -941,7 +1059,7 @@ def model_recog(
     # mask for updating label-sync states
     update_state_mask = rf.convert_to_tensor(target != model.blank_idx)
 
-    label_decoder_state, blank_decoder_state, lm_state, ilm_state, aed_decoder_state = update_state(
+    label_decoder_state, blank_decoder_state, lm_state, ilm_state, aed_decoder_state, aed_ilm_state = update_state(
       model=model,
       update_state_mask=update_state_mask,
       backrefs=backrefs,
@@ -954,7 +1072,9 @@ def model_recog(
       ilm_state=ilm_state,
       ilm_state_updated=ilm_state_updated,
       aed_decoder_state=aed_decoder_state,
-      aed_decoder_state_updated=aed_decoder_state_updated
+      aed_decoder_state_updated=aed_decoder_state_updated,
+      aed_ilm_state=aed_ilm_state,
+      aed_ilm_state_updated=aed_ilm_state_updated,
     )
 
     recomb_path_counter = rf.gather(recomb_path_counter, indices=backrefs)

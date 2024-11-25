@@ -20,6 +20,7 @@ class GlobalAttDecoder(BaseLabelDecoder):
           batch_dims: Sequence[Dim],
           enc_spatial_dim: Dim,
           use_mini_att: bool = False,
+          use_zero_att: bool = False,
   ) -> rf.State:
     """Default initial state"""
     state = rf.State()
@@ -38,7 +39,7 @@ class GlobalAttDecoder(BaseLabelDecoder):
       if self.use_mini_att and "lstm":
         state.mini_att_lstm = self.mini_att_lstm.default_initial_state(batch_dims=batch_dims)
 
-    if self.use_weight_feedback and not use_mini_att:
+    if self.use_weight_feedback and not use_mini_att and not use_zero_att:
       state.accum_att_weights = rf.zeros(
         list(batch_dims) + [enc_spatial_dim, self.att_num_heads], feature_dim=self.att_num_heads
       )
@@ -73,6 +74,7 @@ class GlobalAttDecoder(BaseLabelDecoder):
           input_embed: rf.Tensor,
           state: Optional[rf.State] = None,
           use_mini_att: bool = False,
+          use_zero_att: bool = False,
           hard_att_opts: Optional[Dict] = None,
           mask_att_opts: Optional[Dict] = None,
           detach_att: bool = False,
@@ -107,6 +109,8 @@ class GlobalAttDecoder(BaseLabelDecoder):
         att_linear = self.mini_att_linear(input_embed)
         pre_mini_att = att_linear
       att = self.mini_att(pre_mini_att)
+    elif use_zero_att:
+      att = rf.zeros_like(prev_att)
     else:
       if self.trafo_att:
         att, state_.trafo_att = self.trafo_att(

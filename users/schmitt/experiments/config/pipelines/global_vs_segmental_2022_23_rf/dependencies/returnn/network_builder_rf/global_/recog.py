@@ -52,13 +52,18 @@ def model_recog(
   assert (cheating_targets is None) == (cheating_targets_spatial_dim is None)
 
   if ilm_type is not None:
-    assert ilm_type in ("mini_att",)
+    assert ilm_type in ("mini_att", "zero_att")
     assert ilm_correction_scale is not None
 
   # --------------------------------- init encoder, dims, etc ---------------------------------
 
   enc_args, enc_spatial_dim = model.encoder.encode(data, in_spatial_dim=data_spatial_dim)
   if model.decoder_state == "trafo":
+    if ilm_type == "zero_att":
+      zero_enc = rf.zeros_like(enc_args["enc"])
+      zero_enc = model.label_decoder.transform_encoder(zero_enc, axis=enc_spatial_dim)
+    else:
+      zero_enc = None
     enc_args["enc"] = model.label_decoder.transform_encoder(enc_args["enc"], axis=enc_spatial_dim)
 
   if max_seq_len is None:
@@ -95,8 +100,12 @@ def model_recog(
 
   # ILM
   if ilm_type is not None:
-    ilm_state = model.label_decoder.decoder_default_initial_state(
-      batch_dims=batch_dims_, enc_spatial_dim=enc_spatial_dim)
+    if model.decoder_state != "trafo":
+      ilm_state = model.label_decoder.decoder_default_initial_state(
+        batch_dims=batch_dims_, enc_spatial_dim=enc_spatial_dim)
+    else:
+      assert ilm_type == "zero_att"
+      ilm_state = model.label_decoder.default_initial_state(batch_dims=batch_dims_)
   else:
     ilm_state = None
 
@@ -129,9 +138,13 @@ def model_recog(
         input_embed=input_embed,
         state=decoder_state,
       )
-      logits, h_t_logits = model.label_decoder.decode_logits(input_embed=input_embed, **step_out)
+      logits, h_t_logits = model.label_decoder.decode_logits(
+        input_embed=input_embed,
+        s=step_out["s"],
+        att=step_out["att"],
+      )
     else:
-      logits, decoder_state, _ = model.label_decoder(
+      logits, decoder_state  = model.label_decoder(
         target,
         spatial_dim=single_step_dim,
         encoder=enc_args["enc"],
@@ -143,7 +156,7 @@ def model_recog(
     # --------------------------------- external LM step ---------------------------------
 
     if lm_state is not None:
-      lm_logits, lm_state, _ = model.language_model(
+      lm_logits, lm_state = model.language_model(
         target,
         spatial_dim=single_step_dim,
         state=lm_state,
@@ -154,16 +167,27 @@ def model_recog(
     # --------------------------------- ILM step ---------------------------------
 
     if ilm_state is not None:
-      assert model.decoder_state != "trafo", "not implemented yet"
-
-      ilm_step_out, ilm_state = model.label_decoder.loop_step(
-        **enc_args,
-        enc_spatial_dim=enc_spatial_dim,
-        input_embed=input_embed,
-        state=ilm_state,
-        use_mini_att=True
-      )
-      ilm_logits, _ = model.label_decoder.decode_logits(input_embed=input_embed, **ilm_step_out)
+      if model.decoder_state != "trafo":
+        ilm_step_out, ilm_state = model.label_decoder.loop_step(
+          **enc_args,
+          enc_spatial_dim=enc_spatial_dim,
+          input_embed=input_embed,
+          state=ilm_state,
+          use_mini_att=ilm_type=="mini_att",
+          use_zero_att=ilm_type=="zero_att",
+        )
+        ilm_logits, _ = model.label_decoder.decode_logits(
+          input_embed=input_embed,
+          att=ilm_step_out["att"],
+          s=ilm_step_out["s"],
+        )
+      else:
+        ilm_logits, ilm_state = model.label_decoder(
+          target,
+          spatial_dim=single_step_dim,
+          encoder=zero_enc,
+          state=ilm_state,
+        )
       ilm_label_log_prob = rf.log_softmax(ilm_logits, axis=model.target_dim)
       label_log_prob -= ilm_correction_scale * ilm_label_log_prob
 
@@ -225,7 +249,11 @@ def model_recog(
 
     # ILM
     if ilm_state is not None:
-      ilm_state = tree.map_structure(lambda s: rf.gather(s, indices=backrefs), ilm_state)
+      if model.decoder_state != "trafo":
+        ilm_state = tree.map_structure(lambda s: rf.gather(s, indices=backrefs), ilm_state)
+      else:
+        ilm_state = tree.map_structure(
+          functools.partial(_trafo_gather_backrefs, backrefs=backrefs), ilm_state)
 
     ended = rf.gather(ended, indices=backrefs)
     out_seq_len = rf.gather(out_seq_len, indices=backrefs)
