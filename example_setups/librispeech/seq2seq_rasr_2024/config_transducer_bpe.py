@@ -417,3 +417,5 @@ def py() -> None:
                     tk.register_output(f"{recog_corpus_name}.{suffix}.reports", score_job.out_report_dir)
 
                     wers[(recog_corpus_name, epoch, ilm_scale, blank_penalty)] = score_job.out_wer
+
+        tk.register_report("results.txt", values=wers, required=True)
