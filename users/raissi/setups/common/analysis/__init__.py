@@ -1,4 +1,3 @@
-from .plot import PlotPhonemeDurationsJob, PlotViterbiAlignmentsJob
-from .sample_alignment import ComputeAlignmentSamplingStatisticsJob
-from .statistics import ComputeSilencePercentageJob
-from .tse import ComputeTimestampErrorJob, ComputeWordLevelTimestampErrorJob
+from .labels import ComputeSilenceRatioJob, ComputeAveragePhonemeLengthJob
+from .plot import PlotViterbiAlignmentsJob
+from .tse import ComputeWordLevelTimestampErrorJob, ComputeTSEJob

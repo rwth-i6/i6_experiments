@@ -1,5 +1,5 @@
-from sisyphus import Job, Task
-from typing import List, Tuple, Iterator
+from sisyphus import Job, Task, tk
+from typing import Any, List, Tuple
 
 import numpy as np
 
@@ -7,17 +7,21 @@ from i6_core.util import instanciate_delayed
 
 
 class PickOptimalParametersJob(Job):
+    """
+    Pick a set of optimal parameters based on their assigned score value.
+    """
 
 
-    def __init__(self, parameters: List[Tuple], values: List, mode="minimize"):
+    def __init__(self, parameters: List[Tuple[Any]], values: List[tk.Variable], mode="minimize"):
         """
-        :param parameters:
-        :param values:
-        :param mode:
+        :param parameters: list of tuples of parameters, must be pickleable
+        :param values: list of tk.Variables containing int or float, used to determine the best
+            set of parameters. Some calculations might be done using DelayedOps math.
+        :param mode: "minimize" or "maximize"
         """
         assert len(parameters) == len(values)
         for param in parameters[1:]:
-            assert len(param) == len(parameters[0])
+            assert len(param) == len(parameters[0]), "all entries should have the same number of parameters"
         assert mode in ["minimize", "maximize"]
         self.parameters = parameters
         self.values = values
@@ -25,10 +29,10 @@ class PickOptimalParametersJob(Job):
         self.num_values = len(values)
         self.num_parameters = len(parameters[0])
 
-        self.out_optimal_parameters = [self.output_var("param_%i" % i) for i in range(self.num_parameters)]
+        self.out_optimal_parameters = [self.output_var("param_%i" % i, pickle=True) for i in range(self.num_parameters)]
 
 
-    def tasks(self) -> Iterator[Task]:
+    def tasks(self):
         yield Task("run", mini_task=True)
 
     def run(self):
@@ -42,5 +46,4 @@ class PickOptimalParametersJob(Job):
         best_parameters = self.parameters[index]
 
         for i, param in enumerate(best_parameters):
-            self.optimal_parameters[i].set(param)
-
+            self.out_optimal_parameters[i].set(param)

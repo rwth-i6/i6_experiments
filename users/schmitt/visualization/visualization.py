@@ -16,12 +16,13 @@ from matplotlib import ticker
 import ast
 import numpy as np
 import h5py
-from typing import Optional, Any, Dict, Tuple, List
+from typing import Optional, Any, Dict, Tuple, List, Union
+import scipy
 
-import recipe.i6_experiments.users.schmitt.tools as tools_mod
+import i6_experiments.users.schmitt.tools as tools_mod
 tools_dir = os.path.dirname(tools_mod.__file__)
 
-from recipe.i6_experiments.users.schmitt import hdf
+from i6_experiments.users.schmitt import hdf
 
 
 class PlotAttentionWeightsJob(Job):
@@ -182,7 +183,7 @@ class PlotAttentionWeightsJob(Job):
 class PlotAttentionWeightsJobV2(Job):
   def __init__(
           self,
-          att_weight_hdf: Path,
+          att_weight_hdf: Union[Path, List[Path]],
           targets_hdf: Path,
           seg_starts_hdf: Optional[Path],
           seg_lens_hdf: Optional[Path],
@@ -193,23 +194,47 @@ class PlotAttentionWeightsJobV2(Job):
           json_vocab_path: Path,
           ctc_alignment_hdf: Optional[Path] = None,
           segment_whitelist: Optional[List[str]] = None,
+          ref_alignment_json_vocab_path: Optional[Path] = None,
+          plot_w_cog: bool = True,
+          titles: Optional[List[str]] = None,
+          vmin: Optional[Union[Dict, int, float]] = None,
+          vmax: Optional[Union[Dict, int, float]] = None,
   ):
     assert target_blank_idx is None or (seg_lens_hdf is not None and seg_starts_hdf is not None)
     self.seg_lens_hdf = seg_lens_hdf
     self.seg_starts_hdf = seg_starts_hdf
     self.center_positions_hdf = center_positions_hdf
     self.targets_hdf = targets_hdf
-    self.att_weight_hdf = att_weight_hdf
+    self.titles = titles
+    self.vmin = vmin
+    self.vmax = vmax
+
+    if isinstance(att_weight_hdf, list):
+      self.att_weight_hdf = att_weight_hdf[0]
+      self.other_att_weights = att_weight_hdf[1:]
+    else:
+      self.att_weight_hdf = att_weight_hdf
+      self.other_att_weights = None
     self.target_blank_idx = target_blank_idx
     self.ref_alignment_blank_idx = ref_alignment_blank_idx
     self.ref_alignment_hdf = ref_alignment_hdf
     self.json_vocab_path = json_vocab_path
     self.ctc_alignment_hdf = ctc_alignment_hdf
-    self.segment_whitelist = segment_whitelist if segment_whitelist is not None else []
+    self.segment_whitelist = segment_whitelist  # if segment_whitelist is not None else []
+
+    if ref_alignment_json_vocab_path is None:
+      self.ref_alignment_json_vocab_path = json_vocab_path
+    else:
+      self.ref_alignment_json_vocab_path = ref_alignment_json_vocab_path
+
+    self.plot_w_color_gradient = False
 
     self.out_plot_dir = self.output_path("plots", True)
     self.out_plot_w_ctc_dir = self.output_path("plots_w_ctc", True)
-    self.out_plot_w_cog_dir = self.output_path("plots_w_cog", True)
+
+    self.plot_w_cog = plot_w_cog
+    if plot_w_cog:
+      self.out_plot_w_cog_dir = self.output_path("plots_w_cog", True)
     self.out_plot_path = MultiOutputPath(self, "plots/plots.$(TASK)", self.out_plot_dir)
 
   def tasks(self):
@@ -220,9 +245,27 @@ class PlotAttentionWeightsJobV2(Job):
     """
       Load data from the hdf files
     """
-    att_weights_dict = hdf.load_hdf_data(self.att_weight_hdf, num_dims=2, segment_list=self.segment_whitelist)
-    targets_dict = hdf.load_hdf_data(self.targets_hdf, segment_list=self.segment_whitelist)
-    if self.target_blank_idx is not None:
+    if self.att_weight_hdf.get_path().split(".")[-1] == "hdf":
+      att_weights_dict = hdf.load_hdf_data(self.att_weight_hdf, num_dims=2, segment_list=self.segment_whitelist)
+      targets_dict = hdf.load_hdf_data(self.targets_hdf, segment_list=self.segment_whitelist)
+    else:
+      assert self.att_weight_hdf.get_path().split(".")[-1] == "npy"
+
+      att_weights_dict = {}
+      targets_dict = {}
+
+      numpy_object = np.load(self.att_weight_hdf.get_path(), allow_pickle=True)
+      numpy_object = numpy_object[()]
+
+      for key, object_dict in numpy_object.items():
+        seq_tag = object_dict["tag"]
+        targets = object_dict["classes"]
+        att_weights = object_dict["rec_att_weights"][:, 0, :]  # [S, T]
+
+        att_weights_dict[seq_tag] = att_weights
+        targets_dict[seq_tag] = targets
+
+    if self.seg_starts_hdf is not None:
       seg_starts_dict = hdf.load_hdf_data(self.seg_starts_hdf, segment_list=self.segment_whitelist)
       seg_lens_dict = hdf.load_hdf_data(self.seg_lens_hdf, segment_list=self.segment_whitelist)
     else:
@@ -236,8 +279,11 @@ class PlotAttentionWeightsJobV2(Job):
       ctc_alignment_dict = hdf.load_hdf_data(self.ctc_alignment_hdf, segment_list=self.segment_whitelist)
     else:
       ctc_alignment_dict = None
-    ref_alignment_dict = hdf.load_hdf_data(self.ref_alignment_hdf, segment_list=self.segment_whitelist)
-    ref_alignment_dict = {k: v for k, v in ref_alignment_dict.items() if k in att_weights_dict}
+    if self.ref_alignment_hdf is not None:
+      ref_alignment_dict = hdf.load_hdf_data(self.ref_alignment_hdf, segment_list=self.segment_whitelist)
+      ref_alignment_dict = {k: v for k, v in ref_alignment_dict.items() if k in att_weights_dict}
+    else:
+      ref_alignment_dict = {}
 
     return (
       att_weights_dict,
@@ -250,52 +296,144 @@ class PlotAttentionWeightsJobV2(Job):
     )
 
   @staticmethod
-  def _get_fig_ax(att_weights: np.ndarray):
+  def _get_fig_ax(att_weights_: List[np.ndarray], upsampling_factor: int = 1):
     """
       Initialize the figure and axis for the plot.
     """
+    att_weights = att_weights_[0]
+
     num_labels = att_weights.shape[0]
-    num_frames = att_weights.shape[1]
-    fig_width = num_frames / 8
-    fig_height = num_labels / 4
-    figsize = (fig_width, fig_height)
-    return plt.subplots(figsize=figsize, constrained_layout=True)
+    num_frames = att_weights.shape[1] // upsampling_factor
+    # change figsize depending on number of frames and labels
+    if num_frames == num_labels:
+      fig_width = num_frames / 4
+      fig_height = fig_width
+    else:
+      fig_width = 7 * num_frames / 50
+      fig_height = num_labels * 0.18 + 2.0 #  - 1 (-1 can be too large, leading to negative values)
+      # if num_frames < 32:
+      #   width_factor = 4
+      #   height_factor = 2
+      # else:
+      #   width_factor = 8
+      #   height_factor = 2
+      # fig_width = num_frames / width_factor
+      # fig_height = num_labels / height_factor
+
+    if any([size < 2.0 for size in (fig_width, fig_height)]):
+      factor = 2
+    else:
+      factor = 1
+
+    figsize = (fig_width * factor, fig_height * factor)
+
+    figsize = [figsize[0], figsize[1] * len(att_weights_)]
+    # if len(att_weights_) > 1:
+    # figsize[1] *= 0.6
+
+    fig, axes = plt.subplots(
+      len(att_weights_),
+      figsize=figsize,
+      # constrained_layout=True
+    )
+
+    if len(att_weights_) == 1:
+      axes = [axes]
+
+    return fig, axes
 
   @staticmethod
   def set_ticks(
           ax: plt.Axes,
-          ref_alignment: np.ndarray,
+          ref_alignment: Optional[np.ndarray],
           targets: np.ndarray,
-          vocab: Dict[int, str],
-          ref_alignment_blank_idx: int,
+          target_vocab: Dict[int, str],
+          ref_vocab: Dict[int, str],
+          ref_alignment_blank_idx: Optional[int],
+          time_len: int,
           target_blank_idx: Optional[int] = None,
+          draw_vertical_lines: bool = False,
+          use_segment_center_as_label_position: bool = False,
+          upsample_factor: int = 1,
+          use_time_axis: bool = True,
+          use_ref_axis: bool = True,
   ):
     """
       Set the ticks and labels for the x and y axis.
       x-axis: reference alignment
       y-axis: model output
     """
-    # positions of reference labels in the reference alignment
-    # +1 bc plt starts at 1, not at 0
-    ref_label_positions = np.where(ref_alignment != ref_alignment_blank_idx)[-1] + 1
-    ref_labels = ref_alignment[ref_alignment != ref_alignment_blank_idx]
-    ref_labels = [vocab[idx] for idx in ref_labels]
-    # x axis
-    ax.set_xticks([tick - 1.0 for tick in ref_label_positions])
-    ax.set_xticklabels(ref_labels, rotation=90)
+
+    if ref_alignment is not None:
+      ref_label_positions = np.where(ref_alignment != ref_alignment_blank_idx)[-1] + 1
+      vertical_lines = [tick - 1.0 for tick in ref_label_positions]
+
+    if use_ref_axis:
+      # positions of reference labels in the reference alignment
+      # +1 bc plt starts at 1, not at 0
+      ref_labels = ref_alignment[ref_alignment != ref_alignment_blank_idx]
+      ref_labels = [ref_vocab[idx] for idx in ref_labels]
+      # x axis
+      if use_segment_center_as_label_position:
+        ref_label_positions -= 1
+        ref_label_positions = np.concatenate([[0], ref_label_positions])
+        ref_segment_sizes = ref_label_positions[1:] - ref_label_positions[:-1]
+        xticks = ref_label_positions[:-1] + ref_segment_sizes / 2
+      else:
+        xticks = vertical_lines
+      ax.set_xticks(xticks)
+      ax.set_xticklabels(ref_labels, rotation=90, fontsize=16)
+      ax.tick_params(axis="x", bottom=False, top=True, labelbottom=False, labeltop=True)
+
+      # ax.set_xlabel("Reference Alignment", fontsize=14)
+      # ax.xaxis.set_label_position('top')
+    else:
+      ax.set_xticks([])
+
+    if use_time_axis:
+      # secondary x-axis at the bottom with time stamps
+      time_step_size = 50
+      time_ticks = range(0, len(ref_alignment) if ref_alignment is not None else time_len, time_step_size)
+
+      # Create the secondary y-axis at the bottom
+      time_axis = ax.secondary_xaxis('bottom')
+
+      # Set the ticks and labels for the secondary y-axis
+      time_axis.set_xticks(time_ticks)
+      xtick_labels = [(time_tick * 60 / upsample_factor) / 1000 for time_tick in time_ticks]
+      time_axis.set_xticklabels([f"{label:.1f}" for label in xtick_labels], fontsize=16)
+      # time_axis.set_xticks([])  # no time ticks
+
+      time_axis.set_xlabel("Time (s) ($\\rightarrow$)", fontsize=26)
+      # ----
 
     # output labels of the model
     # in case of alignment: filter for non-blank targets. otherwise, just leave the targets array as is
     labels = targets[targets != target_blank_idx] if target_blank_idx is not None else targets
-    labels = [vocab[idx] for idx in labels]
+    labels = [target_vocab[idx] for idx in labels]
     # y axis
     yticks = [tick for tick in range(len(labels))]
     ax.set_yticks(yticks)
-    ax.set_yticklabels(labels)
+    ax.set_yticklabels(labels, fontsize=13)
 
     # horizontal lines to separate labels on y axis
     for ytick in yticks:
       ax.axhline(y=ytick - .5, xmin=0, xmax=1, color="k", linewidth=.5)
+
+    if (draw_vertical_lines or True) and ref_alignment is not None:  # always draw
+      for xtick in vertical_lines:
+        if len(ref_alignment) == len(targets):
+          # this is like a square grid
+          x = xtick + 0.5
+          linestyle = "-"
+        else:
+          # here, the vertical lines are at the center of the reference labels
+          x = xtick
+          linestyle = "--"
+        ax.axvline(x=x, ymin=0, ymax=1, color="k", linewidth=.5, linestyle=linestyle, alpha=0.8)
+
+    # axis labels
+    # ax.set_ylabel("Output Labels ($\\rightarrow$)", fontsize=14)
 
   @staticmethod
   def _draw_segment_boundaries(
@@ -309,8 +447,8 @@ class PlotAttentionWeightsJobV2(Job):
     """
     num_labels = att_weights.shape[0]
     for i, (seg_start, seg_len) in enumerate(zip(seg_starts, seg_lens)):
-      ymin = (num_labels - i) / num_labels
-      ymax = (num_labels - i - 1) / num_labels
+      ymin = i / num_labels
+      ymax = (i + 1) / num_labels
       ax.axvline(x=seg_start - 0.5, ymin=ymin, ymax=ymax, color="r")
       ax.axvline(x=min(seg_start + seg_len - .5, att_weights.shape[1] - .5), ymin=ymin, ymax=ymax, color="r")
 
@@ -324,13 +462,19 @@ class PlotAttentionWeightsJobV2(Job):
     """
     num_labels = center_positions.shape[0]
     for i, center_position in enumerate(center_positions):
-      ymin = (num_labels - i) / num_labels
-      ymax = (num_labels - i - 1) / num_labels
+      ymin = i / num_labels
+      ymax = (i + 1) / num_labels
       ax.axvline(x=center_position - .5, ymin=ymin, ymax=ymax, color="lime")
       ax.axvline(x=center_position + .5, ymin=ymin, ymax=ymax, color="lime")
 
   @staticmethod
-  def plot_ctc_alignment(ax: plt.Axes, ctc_alignment: np.ndarray, num_labels: int, ctc_blank_idx: int):
+  def plot_ctc_alignment(
+          ax: plt.Axes,
+          ctc_alignment: np.ndarray,
+          num_labels: int,
+          ctc_blank_idx: int,
+          plot_trailing_blanks: bool = False
+  ):
     label_idx = 0
     # store alignment like: 000011112222223333, where the number is the label index (~ height in the plot)
     ctc_alignment_plot_data = []
@@ -339,7 +483,7 @@ class PlotAttentionWeightsJobV2(Job):
       if ctc_label != ctc_blank_idx:
         label_idx += 1
       # stop if we reached the last label, the rest of the ctc alignment are blanks
-      if label_idx == num_labels:
+      if label_idx == num_labels and not plot_trailing_blanks:
         break
     ax.plot(ctc_alignment_plot_data, "o", color="black", alpha=.4)
 
@@ -352,59 +496,200 @@ class PlotAttentionWeightsJobV2(Job):
     # load data from hdfs
     att_weights_dict, targets_dict, seg_starts_dict, seg_lens_dict, center_positions_dict, ctc_alignment_dict, ref_alignment_dict = self.load_data()
 
+    if self.other_att_weights is not None:
+      other_att_weight_dicts = [hdf.load_hdf_data(att_weight_hdf, num_dims=2, segment_list=self.segment_whitelist) for att_weight_hdf in self.other_att_weights]
+    else:
+      other_att_weight_dicts = []
+
     # load vocabulary as dictionary
-    with open(self.json_vocab_path.get_path(), "r") as f:
+    with open(self.json_vocab_path.get_path(), "r", encoding="utf-8") as f:
       json_data = f.read()
-      vocab = ast.literal_eval(json_data)  # label -> idx
-      vocab = {v: k for k, v in vocab.items()}  # idx -> label
+      target_vocab = ast.literal_eval(json_data)  # label -> idx
+      target_vocab = {v: k for k, v in target_vocab.items()}  # idx -> label
+      # if we have a target blank idx, we replace the EOS symbol in the vocab with "<b>"
+      if self.target_blank_idx is not None:
+        target_vocab[self.target_blank_idx] = "<b>"
+
+    # load reference alignment vocabulary as dictionary
+    if self.ref_alignment_json_vocab_path != self.json_vocab_path:
+      with open(self.ref_alignment_json_vocab_path.get_path(), "r") as f:
+        json_data = f.read()
+        ref_vocab = ast.literal_eval(json_data)
+        ref_vocab = {v: k for k, v in ref_vocab.items()}
+    else:
+      ref_vocab = target_vocab
 
     # for each seq tag, plot the corresponding att weights
     for seq_tag in att_weights_dict.keys():
-      seg_starts = seg_starts_dict[seq_tag] if self.target_blank_idx is not None else None  # [S]
-      seg_lens = seg_lens_dict[seq_tag] if self.target_blank_idx is not None else None  # [S]
+      seg_starts = seg_starts_dict[seq_tag] if self.seg_starts_hdf is not None else None  # [S]
+      seg_lens = seg_lens_dict[seq_tag] if self.seg_lens_hdf is not None else None  # [S]
       center_positions = center_positions_dict[seq_tag] if self.center_positions_hdf is not None else None  # [S]
       ctc_alignment = ctc_alignment_dict[seq_tag] if self.ctc_alignment_hdf is not None else None  # [T]
-      ref_alignment = ref_alignment_dict[seq_tag]  # [T]
+      ref_alignment = ref_alignment_dict.get(seq_tag)  # [T]
       targets = targets_dict[seq_tag]  # [S]
       att_weights = att_weights_dict[seq_tag]  # [S,T]
 
-      fig, ax = self._get_fig_ax(att_weights)
-      ax.matshow(
-        att_weights,
-        cmap=plt.cm.get_cmap("Blues"),
-        aspect="auto"
-      )
+      if ref_alignment is None:
+        self.ref_alignment_blank_idx = 0
+        ref_alignment = np.zeros((att_weights.shape[1] * 6,), dtype=np.int32)
 
-      # set y ticks and labels
-      self.set_ticks(ax, ref_alignment, targets, vocab, self.ref_alignment_blank_idx, self.target_blank_idx)
-      if self.target_blank_idx is not None:
-        self._draw_segment_boundaries(ax, seg_starts, seg_lens, att_weights)
-      if center_positions is not None:
-        self._draw_center_positions(ax, center_positions)
+      att_weights_list = [att_weights]
+      for other_att_weight_dict in other_att_weight_dicts:
+        other_att_weights = other_att_weight_dict[seq_tag]
+        att_weights_list.append(other_att_weights)
+
+      for i in range(len(att_weights_list)):
+        # upsample attention weights by factor of six to get to 10ms frames
+        upsampling_factor = 6  # hard code for now
+        att_weights_ = att_weights_list[i]
+
+        if ref_alignment is not None:
+          # if ref alignment is given and has the same length as the att weights, we need to upsample it as well
+          # otherwise, we assume the ref alignment comes from a HMM and already has the correct length (10ms frames)
+          ref_align_att_weight_ratio = ref_alignment.shape[0] // att_weights_.shape[1]
+          if ref_align_att_weight_ratio == 1:
+            ref_alignment = ref_alignment[:, None]
+            blanks = np.full(
+              list(ref_alignment.shape) + [upsampling_factor - 1], dtype=np.int32, fill_value=self.ref_alignment_blank_idx)
+            ref_alignment = np.dstack((ref_alignment, blanks)).reshape(-1)
+
+        # repeat each attention weight by upsample_factor times
+        att_weights_ = np.repeat(att_weights_, upsampling_factor, axis=1)
+        if att_weights_.shape[1] < ref_alignment.shape[0]:
+          assert ref_alignment.shape[0] - att_weights_.shape[1] < upsampling_factor
+          att_weights_ = np.concatenate([att_weights_, np.zeros(
+            (att_weights_.shape[0], ref_alignment.shape[0] - att_weights_.shape[1])) + np.min(att_weights_)], axis=1)
+        # cut off the last frames if necessary
+        att_weights_ = att_weights_[:, :ref_alignment.shape[0]]
+
+        # apply upsampling to segment starts, segment lengths and center positions
+        if seg_lens is not None:
+          seg_lens = seg_lens * upsampling_factor
+        if seg_starts is not None:
+          seg_starts = seg_starts * upsampling_factor
+        if center_positions is not None:
+          center_positions = center_positions * upsampling_factor
+
+        # if ref_alignment is None:
+        #   upsampling_factor = 1
+        # else:
+        #   upsampling_factor = ref_alignment.shape[0] // att_weights_.shape[1]
+        # if upsampling_factor != 1:
+        #   upsampling_factor = 6  # hard code for now
+        #   # repeat each frame by upsample_factor times
+        #   att_weights_ = np.repeat(att_weights_, upsampling_factor, axis=1)
+        #   if att_weights_.shape[1] < ref_alignment.shape[0]:
+        #     assert ref_alignment.shape[0] - att_weights_.shape[1] < upsampling_factor
+        #     att_weights_ = np.concatenate([att_weights_, np.zeros((att_weights_.shape[0], ref_alignment.shape[0] - att_weights_.shape[1])) + np.min(att_weights_)], axis=1)
+        #   # cut off the last frames if necessary
+        #   att_weights_ = att_weights_[:, :ref_alignment.shape[0]]
+
+        att_weights_list[i] = att_weights_
+
+      fig, axes = self._get_fig_ax(att_weights_list, upsampling_factor=(upsampling_factor // 2) if upsampling_factor > 1 else 1)
+
+      # vmin = None if self.vmin is None else self.vmin[seq_tag]
+      vmin = self.vmin
+      if isinstance(vmin, dict):
+        vmin = vmin[seq_tag]
+
+      # vmax = None if self.vmax is None else self.vmax[seq_tag]
+      vmax = self.vmax
+      if isinstance(vmax, dict):
+        vmax = vmax[seq_tag]
+
+      for i, ax in enumerate(axes):
+        att_weights = att_weights_list[i]
+        mat = ax.matshow(
+          att_weights,
+          cmap=plt.cm.get_cmap("Greys") if self.plot_w_color_gradient else plt.cm.get_cmap("Blues"),
+          aspect="auto",
+          vmin=vmin,
+          vmax=vmax,
+        )
+
+        if self.titles is not None:
+          assert len(self.titles) == len(axes)
+          ax.set_title(self.titles[i], fontsize=20)
+
+        if self.plot_w_color_gradient:
+          gradient = np.linspace(0, 1, att_weights.shape[1])
+          gradient = np.repeat(gradient[None, :], att_weights.shape[0], axis=0)
+          ax.imshow(gradient, aspect="auto", cmap="hsv", alpha=0.5, interpolation=None)
+
+        # set y ticks and labels
+        self.set_ticks(
+          ax=ax,
+          ref_alignment=ref_alignment,
+          targets=targets,
+          target_vocab=target_vocab,
+          ref_vocab=ref_vocab,
+          ref_alignment_blank_idx=self.ref_alignment_blank_idx,
+          target_blank_idx=self.target_blank_idx,
+          use_segment_center_as_label_position=upsampling_factor > 1,
+          upsample_factor=upsampling_factor,
+          use_time_axis=i == len(axes) - 1,
+          use_ref_axis=i == 0 and ref_alignment is not None,
+          time_len=att_weights.shape[1]
+        )
+        if seg_starts is not None:
+          self._draw_segment_boundaries(ax, seg_starts, seg_lens, att_weights)
+        if center_positions is not None:
+          self._draw_center_positions(ax, center_positions)
+
+        ax.invert_yaxis()
+
+        # use individual colorbars if vmin and vmax are not set
+        if self.vmin is None or self.vmax is None:
+          cax = fig.add_axes([ax.get_position().x1 + 0.01, ax.get_position().y0, 0.02, ax.get_position().height])
+          cbar = plt.colorbar(mat, cax=cax)
+          cbar.ax.tick_params(labelsize=16)
+
+      # use single colorbar if vmin and vmax are set
+      if self.vmin is not None and self.vmax is not None:
+        fig.subplots_adjust(right=0.9)
+        cbar_ax = fig.add_axes([0.91, 0.15, 0.02, 0.7])
+        cbar = fig.colorbar(mat, cax=cbar_ax)
+        cbar.ax.tick_params(labelsize=16)
+
+      fig.text(0.01, 0.5, 'Output Labels ($\\rightarrow$)', va='center', rotation='vertical', fontsize=26)
 
       dirname = self.out_plot_dir.get_path()
-      filename = os.path.join(dirname, "plot.%s" % seq_tag.replace("/", "_"))
-      plt.savefig(filename + ".png")
-      plt.savefig(filename + ".pdf")
+      if seq_tag.startswith("dev-other"):
+        concat_num = len(seq_tag.split(";"))
+        if concat_num > 1:
+          filename = os.path.join(dirname, f"plot.{seq_tag.split(';')[0].replace('/', '_')}.+{concat_num - 1}")
+        else:
+          filename = os.path.join(dirname, "plot.%s" % seq_tag.replace("/", "_"))
+      else:
+        filename = os.path.join(dirname, "plot.%s" % seq_tag.replace("/", "_"))
+
+      plt.savefig(filename + ".png", bbox_inches='tight')
+      plt.savefig(filename + ".pdf", bbox_inches='tight')
 
       # plot ctc alignment if available
       if ctc_alignment is not None:
-        self.plot_ctc_alignment(
-          ax,
-          ctc_alignment,
-          num_labels=att_weights.shape[0],
-          ctc_blank_idx=self.ref_alignment_blank_idx  # works for us but better to add separate attribute for ctc
-        )
+        for i, ax in enumerate(axes):
+          self.plot_ctc_alignment(
+            ax,
+            ctc_alignment,
+            num_labels=att_weights.shape[0],
+            ctc_blank_idx=self.ref_alignment_blank_idx  # works for us but better to add separate attribute for ctc
+          )
         filename = os.path.join(self.out_plot_w_ctc_dir.get_path(), "plot.%s" % seq_tag.replace("/", "_"))
         plt.savefig(filename + ".png")
         plt.savefig(filename + ".pdf")
 
       # plot center of gravity
-      ax.lines[-1].remove()  # remove ctc alignment plot
-      self.plot_center_of_gravity(ax, att_weights)
-      filename = os.path.join(self.out_plot_w_cog_dir.get_path(), "plot.%s" % seq_tag.replace("/", "_"))
-      plt.savefig(filename + ".png")
-      plt.savefig(filename + ".pdf")
+      if self.plot_w_cog:
+        for i, ax in enumerate(axes):
+          ax.lines[-1].remove()  # remove ctc alignment plot
+          self.plot_center_of_gravity(ax, att_weights)
+        filename = os.path.join(self.out_plot_w_cog_dir.get_path(), "plot.%s" % seq_tag.replace("/", "_"))
+        plt.savefig(filename + ".png")
+        plt.savefig(filename + ".pdf")
+
+      plt.close()
 
 
   @classmethod
@@ -415,8 +700,134 @@ class PlotAttentionWeightsJobV2(Job):
       d.pop("center_positions_hdf")
     if d["ctc_alignment_hdf"] is None:
       d.pop("ctc_alignment_hdf")
+    if d["ref_alignment_json_vocab_path"] is None:
+      d.pop("ref_alignment_json_vocab_path")
+    if d["plot_w_cog"] is True:
+      d.pop("plot_w_cog")
+    if d["titles"] is None:
+      d.pop("titles")
+    if d["vmin"] is None:
+      d.pop("vmin")
+    if d["vmax"] is None:
+      d.pop("vmax")
 
     return super().hash(d)
+
+
+class PlotAveragedSelfAttentionWeightsJob(Job):
+  def __init__(
+          self,
+          att_weight_hdf: Path,
+  ):
+    self.att_weight_hdf = att_weight_hdf
+
+    self.out_plot_dir = self.output_path("plots", True)
+
+  def tasks(self):
+    yield Task(
+      "run", rqmt={"cpu": 1, "mem": 4, "time": 1, "gpu": 0}, mini_task=True)
+
+  def run(self):
+    att_weights_dict = hdf.load_hdf_data(self.att_weight_hdf, num_dims=2)
+
+    att_weights_resampled_list = []
+    num_resampled_frames = 70
+
+    for i, seq_tag in enumerate(att_weights_dict):
+      att_weights = att_weights_dict[seq_tag]
+      att_weights_resampled = scipy.signal.resample(att_weights, num_resampled_frames, axis=0)
+      att_weights_resampled = scipy.signal.resample(att_weights_resampled, num_resampled_frames, axis=1)
+      att_weights_resampled_list.append(att_weights_resampled)
+
+    att_weights_resampled = np.stack(att_weights_resampled_list, axis=0)
+    num_stacked = att_weights_resampled.shape[0]
+    att_weights_resampled = np.mean(att_weights_resampled, axis=0)
+
+    plt.matshow(att_weights_resampled, cmap=plt.cm.get_cmap("Blues"), aspect="auto")
+    plt.gca().invert_yaxis()
+    plt.savefig("att_weights_resampled.png")
+    plt.close()
+
+    print("Stacked: ", num_stacked)
+
+
+class PlotSelfAttentionWeightsOverEpochsJob(Job):
+  def __init__(
+          self,
+          att_weight_hdfs: List[Path],
+          epochs: List[int],
+  ):
+    self.att_weight_hdfs = att_weight_hdfs
+    self.epochs = epochs
+
+    self.out_plot_dir = self.output_path("plots", True)
+
+  def tasks(self):
+    yield Task(
+      "run", rqmt={"cpu": 1, "mem": 4, "time": 1, "gpu": 0}, mini_task=True)
+
+  def run(self):
+    att_weights_dicts = [hdf.load_hdf_data(att_weight_hdf, num_dims=2) for att_weight_hdf in self.att_weight_hdfs]
+    num_plots = len(att_weights_dicts)
+
+    if num_plots % 2 == 0:
+      num_rows = 2
+      num_cols = num_plots // 2
+    else:
+      num_rows = 1
+      num_cols = num_plots
+
+    title_fontsize = 38
+    ticklabel_fontsize = 28
+    axlabel_fontsize = 34
+
+    for seq_tag in att_weights_dicts[0]:
+      # fig, axes = plt.subplots(
+      #   nrows=num_rows, ncols=num_cols, figsize=(5 * num_cols, 5 * num_rows))
+      fig, axes = plt.subplots(
+        nrows=num_rows, ncols=num_cols, figsize=(5 * num_cols, 5 * num_rows))
+
+      for i, att_weights_dict in enumerate(att_weights_dicts):
+        row = i // num_cols
+        col = i % num_cols
+
+        att_weights = att_weights_dict[seq_tag]  # [query, key]
+        epoch = self.epochs[i]
+        time_len = att_weights.shape[0]
+
+        ax = axes[row, col]
+        ax.matshow(att_weights, cmap=plt.cm.get_cmap("Blues"), aspect="auto")
+
+        ax.set_title(f"Epoch {epoch * 4 / 20}", fontsize=title_fontsize, pad=7)
+
+        time_step_size = 1 / 60 * 1000
+        time_ticks = np.arange(0, time_len, time_step_size)
+        tick_labels = [(time_tick * 60) / 1000 for time_tick in time_ticks]
+
+        if row == 0:
+          ax.set_xticks([])
+        else:
+          ax.set_xticks(time_ticks)
+          ax.set_xticklabels([f"{label:.1f}" for label in tick_labels], fontsize=ticklabel_fontsize)
+          ax.xaxis.set_ticks_position('bottom')
+          # ax.set_xlabel("Keys/Values time (s)", fontsize=axlabel_fontsize, labelpad=6)
+
+        if col == 0:
+          ax.set_yticks(time_ticks)
+          ax.set_yticklabels([f"{label:.1f}" for label in tick_labels], fontsize=ticklabel_fontsize)
+          # ax.set_ylabel("Queries time (s)", fontsize=axlabel_fontsize, labelpad=6)
+        else:
+          ax.set_yticks([])
+
+        ax.invert_yaxis()
+
+      fig.text(0.5, 0.01, 'Keys/Values time (s)', ha='center', fontsize=axlabel_fontsize)
+      fig.text(0.06, 0.5, 'Queries time (s)', va='center', rotation='vertical', fontsize=axlabel_fontsize)
+      # fig.tight_layout()
+
+      plt.savefig(os.path.join(self.out_plot_dir.get_path(), f"plot.{seq_tag.replace('/', '_')}.png"), bbox_inches='tight')
+      plt.savefig(os.path.join(self.out_plot_dir.get_path(), f"plot.{seq_tag.replace('/', '_')}.pdf"), bbox_inches='tight')
+      plt.close()
 
 
 class PlotCtcProbsJob(Job):
@@ -497,7 +908,16 @@ class PlotCtcProbsJob(Job):
       )
 
       # set y ticks and labels
-      PlotAttentionWeightsJobV2.set_ticks(ax, ctc_alignment, targets, vocab, self.ctc_blank_idx, None)
+      PlotAttentionWeightsJobV2.set_ticks(
+        ax,
+        ctc_alignment,
+        targets,
+        vocab,
+        vocab,
+        self.ctc_blank_idx,
+        ctc_probs.shape[1],
+        None
+      )
 
       dirname = self.out_plot_dir.get_path()
       filename = os.path.join(dirname, "plot.%s" % seq_tag.replace("/", "_"))
@@ -530,13 +950,26 @@ class PlotAlignmentJob(Job):
           json_vocab_path: Path,
           target_blank_idx: int,
           segment_list: List[str],
+          ref_alignment_hdf: Optional[Path] = None,
+          ref_alignment_blank_idx: Optional[int] = None,
           silence_idx: Optional[int] = None,
+          ref_alignment_json_vocab_path: Optional[Path] = None,
   ):
+    if ref_alignment_hdf is not None:
+      assert ref_alignment_blank_idx is not None
+
     self.alignment_hdf = alignment_hdf
     self.json_vocab_path = json_vocab_path
     self.target_blank_idx = target_blank_idx
     self.segment_list = segment_list
     self.silence_idx = silence_idx
+    self.ref_alignment_hdf = ref_alignment_hdf if ref_alignment_hdf is not None else alignment_hdf
+    self.ref_alignment_blank_idx = ref_alignment_blank_idx if ref_alignment_blank_idx is not None else target_blank_idx
+
+    if ref_alignment_json_vocab_path is None:
+      self.ref_alignment_json_vocab_path = json_vocab_path
+    else:
+      self.ref_alignment_json_vocab_path = ref_alignment_json_vocab_path
 
     self.out_plot_dir = self.output_path("plots", True)
 
@@ -582,28 +1015,145 @@ class PlotAlignmentJob(Job):
     for i, position in enumerate(label_positions):
       ax.axvline(x=position - 1.0, ymin=ymin, ymax=ymax, color=color)
 
+  @staticmethod
+  def _set_ticks_alt(
+          ax: plt.Axes,
+          alignment: np.ndarray,
+          ref_alignment: np.ndarray,
+          target_vocab: Dict[int, str],
+          ref_vocab: Dict[int, str],
+          blank_idx: int,
+          ref_alignment_blank_idx: int,
+  ):
+    """
+      Set the ticks and labels for the x and y axis.
+      x-axis: reference alignment
+      y-axis: model output
+    """
+    PlotAttentionWeightsJobV2.set_ticks(
+      ax,
+      ref_alignment=ref_alignment,
+      targets=alignment,
+      target_vocab=target_vocab,
+      ref_vocab=ref_vocab,
+      ref_alignment_blank_idx=ref_alignment_blank_idx,
+      target_blank_idx=blank_idx,
+      draw_vertical_lines=True,
+      time_len=alignment.shape[1],
+    )
+
+    # draw last horizontal line for trailing blanks
+    labels = alignment[alignment != blank_idx]
+    ax.axhline(y=len(labels) - .5, xmin=0, xmax=1, color="k", linewidth=.5)
+
   def run(self):
     # load data from hdf
     alignment_dict = hdf.load_hdf_data(self.alignment_hdf, segment_list=self.segment_list)
+    ref_alignment_dict = hdf.load_hdf_data(self.ref_alignment_hdf, segment_list=self.segment_list)
 
-    # load vocabulary as dictionary
+    # load target vocabulary as dictionary
     with open(self.json_vocab_path.get_path(), "r") as f:
       json_data = f.read()
-      vocab = ast.literal_eval(json_data)  # label -> idx
-      vocab = {v: k for k, v in vocab.items()}  # idx -> label
+      target_vocab = ast.literal_eval(json_data)  # label -> idx
+      target_vocab = {v: k for k, v in target_vocab.items()}  # idx -> label
       if self.silence_idx is not None:
-        vocab[self.silence_idx] = "[Silence]"
+        target_vocab[self.silence_idx] = "[Silence]"
+
+    if self.ref_alignment_json_vocab_path != self.json_vocab_path:
+      with open(self.ref_alignment_json_vocab_path.get_path(), "r") as f:
+        json_data = f.read()
+        ref_vocab = ast.literal_eval(json_data)
+        ref_vocab = {v: k for k, v in ref_vocab.items()}
+    else:
+      ref_vocab = target_vocab
 
     # for each seq tag, plot the corresponding att weights
     for seq_tag in alignment_dict.keys():
       alignment = alignment_dict[seq_tag]
+      ref_alignment = ref_alignment_dict[seq_tag]
       labels = alignment[alignment != self.target_blank_idx]
 
-      fig, ax = self._get_fig_ax(alignment)
+      dummy_matrix = np.zeros((len(labels) + 1, len(alignment)))
+      fig, ax = PlotAttentionWeightsJobV2._get_fig_ax(att_weights=dummy_matrix)
+      ax.matshow(dummy_matrix, aspect="auto", alpha=0.0)
       # set y ticks and labels
-      self._set_ticks(ax, alignment, labels, vocab, self.target_blank_idx)
+      self._set_ticks_alt(
+        ax,
+        alignment,
+        ref_alignment,
+        target_vocab,
+        ref_vocab,
+        self.target_blank_idx,
+        ref_alignment_blank_idx=self.ref_alignment_blank_idx
+      )
+      PlotAttentionWeightsJobV2.plot_ctc_alignment(
+        ax,
+        alignment,
+        num_labels=labels.shape[0],
+        ctc_blank_idx=self.target_blank_idx,
+        plot_trailing_blanks=True
+      )
+      # plt.gca().invert_yaxis()
 
       dirname = self.out_plot_dir.get_path()
       filename = os.path.join(dirname, "plot.%s" % seq_tag.replace("/", "_"))
       plt.savefig(filename + ".png")
       plt.savefig(filename + ".pdf")
+
+  @classmethod
+  def hash(cls, kwargs):
+    if kwargs["ref_alignment_hdf"] is None:
+      kwargs.pop("ref_alignment_hdf")
+      kwargs.pop("ref_alignment_blank_idx")
+
+    if kwargs["ref_alignment_json_vocab_path"] is None:
+      kwargs.pop("ref_alignment_json_vocab_path")
+
+    return super().hash(kwargs)
+
+
+def plot_att_weights(
+        att_weight_hdf: Path,
+        targets_hdf: Path,
+        seg_starts_hdf: Optional[Path],
+        seg_lens_hdf: Optional[Path],
+        center_positions_hdf: Optional[Path],
+        target_blank_idx: Optional[int],
+        ref_alignment_blank_idx: int,
+        ref_alignment_hdf: Path,
+        json_vocab_path: Path,
+        ctc_alignment_hdf: Optional[Path] = None,
+        segment_whitelist: Optional[List[str]] = None,
+        ref_alignment_json_vocab_path: Optional[Path] = None,
+        plot_name: str = "plots",
+        plot_w_color_gradient: bool = False,
+        vmin: Optional[Dict] = None,
+        vmax: Optional[Dict] = None,
+):
+  plot_att_weights_job = PlotAttentionWeightsJobV2(
+    att_weight_hdf=att_weight_hdf,
+    targets_hdf=targets_hdf,
+    seg_starts_hdf=seg_starts_hdf,
+    seg_lens_hdf=seg_lens_hdf,
+    center_positions_hdf=center_positions_hdf,
+    target_blank_idx=target_blank_idx,
+    ref_alignment_blank_idx=ref_alignment_blank_idx,
+    ref_alignment_hdf=ref_alignment_hdf,
+    json_vocab_path=json_vocab_path,
+    ctc_alignment_hdf=ctc_alignment_hdf,
+    segment_whitelist=segment_whitelist,
+    ref_alignment_json_vocab_path=ref_alignment_json_vocab_path,
+    plot_w_cog=False,
+    vmin=vmin,
+    vmax=vmax,
+  )
+
+  if plot_w_color_gradient:
+    plot_att_weights_job.plot_w_color_gradient = True
+
+  # overwrite the output paths to paths in the cwd
+  plot_att_weights_job.out_plot_dir = Path(f"{plot_name}/plots", )
+  if not os.path.exists(plot_att_weights_job.out_plot_dir.get_path()):
+    os.makedirs(plot_att_weights_job.out_plot_dir.get_path())
+
+  plot_att_weights_job.run()

@@ -20,7 +20,7 @@ class RecognitionFunctor(Generic[types.TrainJobType, types.ConfigType]):
         train_job: dataclasses.NamedTrainJob[types.TrainJobType],
         prior_config: types.ConfigType,
         recog_config: dataclasses.NamedConfig[Union[types.ConfigType, dataclasses.EncDecConfig[types.ConfigType]]],
-        recog_corpus: dataclasses.NamedCorpusInfo,
+        recog_corpus: dataclasses.NamedRasrDataInput,
         **kwargs,
     ) -> List[Dict]:
         pass
@@ -33,7 +33,7 @@ class AlignmentFunctor(Generic[types.TrainJobType, types.ConfigType]):
         train_job: dataclasses.NamedTrainJob[types.TrainJobType],
         prior_config: types.ConfigType,
         align_config: Union[types.ConfigType, dataclasses.EncDecConfig[types.ConfigType]],
-        align_corpus: dataclasses.NamedCorpusInfo,
+        align_corpus: dataclasses.NamedRasrDataInput,
         **kwargs,
     ) -> AlignmentData:
         pass

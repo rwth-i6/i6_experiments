@@ -303,10 +303,12 @@ class ConcatSeqsDataset(Dataset):
         dataset: Union[str, Dict[str, Any]],
         seq_tags: str,
         seq_lens_py: str,
+        seq_ordering: str,
         additional_options: Optional[Dict[str, Any]] = None,
     ):
         super().__init__(additional_options=additional_options)
         self.dataset = dataset
+        self.seq_ordering = seq_ordering
         self.seq_tags = seq_tags
         self.seq_len_py = seq_lens_py
 
@@ -314,7 +316,7 @@ class ConcatSeqsDataset(Dataset):
         return {
             "class": "ConcatSeqsDataset",
             "dataset": self.dataset,
-            "seq_ordering": "sorted_reverse",
+            "seq_ordering": self.seq_ordering,
             "seq_list_file": self.seq_tags,
             "seq_len_file": self.seq_len_py,
         }

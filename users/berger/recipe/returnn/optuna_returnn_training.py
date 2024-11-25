@@ -1,6 +1,5 @@
-__all__ = ["OptunaReturnnTrainingJob"]
+__all__ = ["OptunaReturnnTrainingJob", "OptunaReportIntermediateScoreJob", "OptunaReportFinalScoreJob"]
 
-import glob
 import inspect
 import logging
 import os
@@ -28,7 +27,6 @@ class OptunaReturnnTrainingJob(Job):
         study_name: Optional[str] = None,
         study_storage: Optional[str] = None,
         sampler_seed: int = 42,
-        score_key: str = "dev_score",
         num_trials: int = 15,
         num_parallel: int = 3,
         *,
@@ -41,6 +39,7 @@ class OptunaReturnnTrainingJob(Job):
         time_rqmt: int = 4,
         mem_rqmt: int = 4,
         cpu_rqmt: int = 2,
+        gpu_mem_rqmt: int = 11,
         horovod_num_processes: Optional[int] = None,
         multi_node_slots: Optional[int] = None,
         returnn_python_exe: Optional[tk.Path] = None,
@@ -52,9 +51,8 @@ class OptunaReturnnTrainingJob(Job):
         self.optuna_returnn_config = optuna_returnn_config
 
         self.study_name = study_name or "optuna_study"
-        self.study_storage = study_storage or f"sqlite:///study_storage.db"
+        self.study_storage = study_storage or "sqlite:///study_storage.db"
         self.sampler_seed = sampler_seed
-        self.score_key = score_key
         self.num_trials = num_trials
         self.num_parallel = num_parallel
 
@@ -93,11 +91,6 @@ class OptunaReturnnTrainingJob(Job):
                 }
                 for i in range(self.num_trials)
             }
-            self.out_checkpoints = {
-                k: Checkpoint(self.output_path(f"models/epoch.{k:03d}.index"))
-                for k in stored_epochs
-                if k in self.keep_epochs
-            }
         elif backend == Backend.PYTORCH:
             self.out_trial_checkpoints = {
                 i: {
@@ -107,31 +100,19 @@ class OptunaReturnnTrainingJob(Job):
                 }
                 for i in range(self.num_trials)
             }
-            self.out_checkpoints = {
-                k: PtCheckpoint(self.output_path(f"models/epoch.{k:03d}.pt"))
-                for k in stored_epochs
-                if k in self.keep_epochs
-            }
         else:
             raise NotImplementedError
 
-        self.out_trial_nums = {i: self.output_var(f"trial-{i:03d}/trial_num") for i in range(self.num_trials)}
+        self.out_task_id_to_trial_num = {i: self.output_var(f"task-{i:03d}-trial") for i in range(self.num_trials)}
         self.out_trials = {i: self.output_var(f"trial-{i:03d}/trial", pickle=True) for i in range(self.num_trials)}
         self.out_trial_params = {i: self.output_var(f"trial-{i:03d}/params") for i in range(self.num_trials)}
-        self.out_trial_scores = {i: self.output_var(f"trial-{i:03d}/score") for i in range(self.num_trials)}
-        self.out_best_trial_num = self.output_var("best_trial_num")
-        self.out_best_trial = self.output_var("best_trial", pickle=True)
-        self.out_best_params = self.output_var("best_params")
-        self.out_best_score = self.output_var("best_score")
-
-        self.out_plot_se = self.output_path(f"score_and_error.png")
-        self.out_plot_lr = self.output_path(f"learning_rate.png")
 
         self.rqmt = {
             "gpu": 1 if device == "gpu" else 0,
             "cpu": cpu_rqmt,
             "mem": mem_rqmt,
             "time": time_rqmt,
+            "gpu_mem": gpu_mem_rqmt,
         }
 
         if self.multi_node_slots:
@@ -203,33 +184,25 @@ class OptunaReturnnTrainingJob(Job):
 
         return False
 
-    def get_returnn_config(self, trial: "optuna.Trial", task_id: int) -> ReturnnConfig:
+    def get_returnn_config(self, trial: "optuna.Trial") -> ReturnnConfig:
         returnn_config = self.optuna_returnn_config.generate_config(trial)
-        returnn_config.post_config["model"] = os.path.join(self.out_trial_model_dir[task_id].get_path(), "epoch")
+        trial_num = trial.number
+        returnn_config.post_config["model"] = os.path.join(self.out_trial_model_dir[trial_num].get_path(), "epoch")
         returnn_config.post_config.pop("learning_rate_file", None)
-        returnn_config.config["learning_rate_file"] = f"trial-{task_id:03d}/learning_rates"
+        returnn_config.config["learning_rate_file"] = f"trial-{trial_num:03d}/learning_rates"
 
-        returnn_config.post_config["log"] = f"./trial-{task_id:03d}/returnn.log"
+        returnn_config.post_config["log"] = f"./trial-{trial_num:03d}/returnn.log"
 
         ReturnnTrainingJob.check_blacklisted_parameters(returnn_config)
         returnn_config = ReturnnTrainingJob.create_returnn_config(returnn_config, **self.kwargs)
 
         return returnn_config
 
-    def prepare_trial_files(self, returnn_config: ReturnnConfig, task_id: int) -> None:
-        config_file = self.out_trial_returnn_config_files[task_id]
+    def prepare_trial_files(self, returnn_config: ReturnnConfig, trial_num: int) -> None:
+        config_file = self.out_trial_returnn_config_files[trial_num]
         returnn_config.write(config_file.get_path())
-        os.mkdir(f"trial-{task_id:03d}")
-        util.create_executable(f"trial-{task_id:03d}/rnn.sh", self._get_run_cmd(config_file))
-
-        # Additional import packages that are created by returnn common
-        for f in glob.glob("../output/*"):
-            f_name = os.path.basename(f)
-            if f_name.startswith("trial-"):
-                continue
-            if f_name == "models":
-                continue
-            os.symlink(f"../{f_name}", f"../output/trial-{task_id:03d}/{f_name}")
+        os.mkdir(f"trial-{trial_num:03d}")
+        util.create_executable(f"trial-{trial_num:03d}/rnn.sh", self._get_run_cmd(config_file))
 
     def prepare_env(self) -> None:
         if not self.multi_node_slots:
@@ -246,30 +219,14 @@ class OptunaReturnnTrainingJob(Job):
                     print("Cannot read:", exc)
         sys.stdout.flush()
 
-    def parse_lr_file(self, task_id: Optional[int] = None) -> dict:
+    def parse_lr_file(self, trial_num: int) -> dict:
         def EpochData(learningRate, error):
             return {"learning_rate": learningRate, "error": error}
 
-        if task_id is None:
-            filename = self.out_learning_rates
-        else:
-            filename = f"trial-{task_id:03d}/learning_rates"
+        filename = f"trial-{trial_num:03d}/learning_rates"
         with open(filename, "rt") as f:
             lr_text = f.read()
         return eval(lr_text)
-
-    def link_to_final_output(self, task_id: int) -> None:
-        os.link(
-            self.out_trial_returnn_config_files[task_id],
-            self.out_returnn_config_file,
-        )
-        os.link(self.out_trial_learning_rates[task_id], self.out_learning_rates)
-        for k in self.out_checkpoints:
-            for suffix in ["index", "meta", "data-00000-of-00001", "pt"]:
-                orig_file = f"{self.out_trial_checkpoints[task_id][k]}.{suffix}"
-                if not os.path.exists(orig_file):
-                    continue
-                os.link(orig_file, f"{self.out_checkpoints[k]}.{suffix}")
 
     # ------------------ Tasks ------------------
 
@@ -282,8 +239,6 @@ class OptunaReturnnTrainingJob(Job):
             parallel=self.num_parallel,
             args=range(self.num_trials),
         )
-        yield Task("select_best_trial", mini_task=True)
-        yield Task("plot", resume="plot", mini_task=True)
 
     def create_study(self) -> None:
         import optuna
@@ -320,17 +275,14 @@ class OptunaReturnnTrainingJob(Job):
         study = optuna.load_study(
             study_name=self.study_name,
             storage=storage,
-            pruner=optuna.pruners.PatientPruner(
-                wrapped_pruner=optuna.pruners.MedianPruner(
-                    n_startup_trials=max(5, self.num_parallel),
-                ),
-                patience=10,
-                min_delta=0.1,
+            pruner=optuna.pruners.MedianPruner(
+                n_startup_trials=max(5, self.num_parallel),
+                n_warmup_steps=self.num_epochs // 2,
             ),
         )
 
-        if self.out_trials[task_id].is_set():
-            trial_num = int(self.out_trial_nums[task_id].get())
+        if self.out_task_id_to_trial_num[task_id].is_set():
+            trial_num = int(self.out_task_id_to_trial_num[task_id].get())
             logging.info(f"Found existing trial with number {trial_num}")
 
             if self._check_trial_finished(study, trial_num):
@@ -345,141 +297,54 @@ class OptunaReturnnTrainingJob(Job):
         else:
             trial = study.ask()
             trial_num = trial.number
+            self.out_task_id_to_trial_num[task_id].set(trial_num)
             logging.info(f"Start new trial with number {trial_num}")
-            returnn_config = self.get_returnn_config(trial, task_id)
-            self.prepare_trial_files(returnn_config, task_id)
-            self.out_trial_nums[task_id].set(trial_num)
-            self.out_trial_params[task_id].set(trial.params)
-            self.out_trials[task_id].set(optuna.trial.FixedTrial(trial.params, trial_num))
+            returnn_config = self.get_returnn_config(trial)
+            self.prepare_trial_files(returnn_config, trial_num)
+            self.out_trial_params[trial_num].set(trial.params)
+            self.out_trials[trial_num].set(optuna.trial.FixedTrial(trial.params, trial_num))
 
-        config_file = self.out_trial_returnn_config_files[task_id]
+        config_file = self.out_trial_returnn_config_files[trial_num]
 
         run_cmd = self._get_run_cmd(config_file)
         training_process = sp.Popen(run_cmd)
 
-        max_epoch = 0
-        best_score = float("inf")
         trial_pruned = False
         while training_process.poll() is None:
             time.sleep(30)
-            try:
-                lr_data = self.parse_lr_file(task_id)
-            except (FileNotFoundError, SyntaxError):
-                continue
-            epochs = list(sorted(lr_data.keys()))
-            new_epochs = [e for e in epochs if e > max_epoch]
-            for e in new_epochs:
-                if self.score_key not in lr_data[e]["error"]:
-                    continue
-                max_epoch = e
-                score = lr_data[e]["error"][self.score_key]
-                if score < best_score:
-                    best_score = score
-
-                trial.report(score, e)
 
             if trial.should_prune():
                 trial_pruned = True
                 training_process.terminate()
-                study.tell(trial_num, state=optuna.trial.TrialState.PRUNED)
+                study.tell(trial, state=optuna.trial.TrialState.PRUNED)
                 break
 
         if trial_pruned:
             logging.info("Pruned trial run")
-            self.out_trial_scores[task_id].set(best_score)
             os.link(
-                f"trial-{task_id:03d}/learning_rates",
-                self.out_trial_learning_rates[task_id].get_path(),
+                f"trial-{trial_num:03d}/learning_rates",
+                self.out_trial_learning_rates[trial_num].get_path(),
             )
+
+        lr_data = self.parse_lr_file(trial_num)
+        max_epoch = max([ep for ep, ep_data in lr_data.items() if ep_data["error"] != {}])
 
         if not trial_pruned and max_epoch == self.num_epochs:
             logging.info("Finished trial run normally")
-            study.tell(trial_num, best_score, state=optuna.trial.TrialState.COMPLETE)
             os.link(
-                f"trial-{task_id:03d}/learning_rates",
-                self.out_trial_learning_rates[task_id].get_path(),
+                f"trial-{trial_num:03d}/learning_rates",
+                self.out_trial_learning_rates[trial_num].get_path(),
             )
 
         if not trial_pruned and max_epoch != self.num_epochs:
             logging.info("Training had an error")
             raise sp.CalledProcessError(-1, cmd=run_cmd)
 
-    def select_best_trial(self) -> None:
-        import optuna
-
-        study = optuna.load_study(study_name=self.study_name, storage=self.study_storage)
-        self.out_best_params.set(study.best_params)
-        self.out_best_trial.set(study.best_trial)
-        self.out_best_score.set(study.best_value)
-        for task_id, trial_num in self.out_trial_nums.items():
-            if trial_num.get() == study.best_trial.number:
-                self.out_best_trial_num.set(task_id)
-                self.link_to_final_output(task_id=task_id)
-                break
-
-    def plot(self):
-        data = self.parse_lr_file()
-
-        epochs = list(sorted(data.keys()))
-        train_score_keys = [k for k in data[epochs[0]]["error"] if k.startswith("train_score")]
-        dev_score_keys = [k for k in data[epochs[0]]["error"] if k.startswith("dev_score")]
-        dev_error_keys = [k for k in data[epochs[0]]["error"] if k.startswith("dev_error")]
-
-        train_scores = [
-            [(epoch, data[epoch]["error"][tsk]) for epoch in epochs if tsk in data[epoch]["error"]]
-            for tsk in train_score_keys
-        ]
-        dev_scores = [
-            [(epoch, data[epoch]["error"][dsk]) for epoch in epochs if dsk in data[epoch]["error"]]
-            for dsk in dev_score_keys
-        ]
-        dev_errors = [
-            [(epoch, data[epoch]["error"][dek]) for epoch in epochs if dek in data[epoch]["error"]]
-            for dek in dev_error_keys
-        ]
-        learing_rates = [data[epoch]["learning_rate"] for epoch in epochs]
-
-        colors = ["#2A4D6E", "#AA3C39", "#93A537"]  # blue red yellowgreen
-
-        import matplotlib
-
-        matplotlib.use("Agg")
-        import matplotlib.pyplot as plt
-
-        fig, ax1 = plt.subplots()
-        for ts in train_scores:
-            ax1.plot([d[0] for d in ts], [d[1] for d in ts], "o-", color=colors[0])
-        for ds in dev_scores:
-            ax1.plot([d[0] for d in ds], [d[1] for d in ds], "o-", color=colors[1])
-        ax1.set_xlabel("epoch")
-        ax1.set_ylabel("scores", color=colors[0])
-        for tl in ax1.get_yticklabels():
-            tl.set_color(colors[0])
-
-        if len(dev_errors) > 0 and any(len(de) > 0 for de in dev_errors):
-            ax2 = ax1.twinx()
-            ax2.set_ylabel("dev error", color=colors[2])
-            for de in dev_errors:
-                ax2.plot([d[0] for d in de], [d[1] for d in de], "o-", color=colors[2])
-            for tl in ax2.get_yticklabels():
-                tl.set_color(colors[2])
-
-        fig.savefig(fname=self.out_plot_se.get_path())
-
-        fig, ax1 = plt.subplots()
-        ax1.semilogy(epochs, learing_rates, "ro-")
-        ax1.set_xlabel("epoch")
-        ax1.set_ylabel("learning_rate")
-
-        fig.savefig(fname=self.out_plot_lr.get_path())
-
     @classmethod
     def hash(cls, kwargs):
         d = {
-            "returnn_config_generator": inspect.getsource(kwargs["optuna_returnn_config"].config_generator),
-            "returnn_config_generator_kwargs": list(sorted(kwargs["optuna_returnn_config"].config_kwargs)),
+            "optuna_returnn_config": kwargs["optuna_returnn_config"],
             "sampler_seed": kwargs["sampler_seed"],
-            "score_key": kwargs["score_key"],
             "num_trials": kwargs["num_trials"],
             "num_parallel": kwargs["num_parallel"],
             "returnn_python_exe": kwargs["returnn_python_exe"],
@@ -494,5 +359,127 @@ class OptunaReturnnTrainingJob(Job):
             d["horovod_num_processes"] = kwargs["horovod_num_processes"]
         if kwargs["multi_node_slots"] is not None:
             d["multi_node_slots"] = kwargs["multi_node_slots"]
+
+        return super().hash(d)
+
+
+class OptunaReportIntermediateScoreJob(Job):
+    def __init__(
+        self,
+        trial_num: int,
+        step: int,
+        score: tk.Variable,
+        study_name: Optional[str] = None,
+        study_storage: Optional[str] = None,
+    ) -> None:
+        self.study_name = study_name or "optuna_study"
+        self.study_storage = study_storage or "sqlite:///study_storage.db"
+        self.trial_num = trial_num
+        self.step = step
+        self.score = score
+
+        self.out_reported_score = self.output_var("reported_score")
+
+    def tasks(self) -> Generator[Task, None, None]:
+        yield Task("run", mini_task=True)
+
+    def run(self) -> None:
+        import optuna
+
+        storage = optuna.storages.get_storage(self.study_storage)
+        study = optuna.load_study(
+            study_name=self.study_name,
+            storage=storage,
+        )
+
+        study_id = storage.get_study_id_from_name(self.study_name)
+        trial_id = storage.get_trial_id_from_study_id_trial_number(study_id, self.trial_num)
+        trial = optuna.Trial(study, trial_id)
+
+        self.out_reported_score.set(self.score.get())
+
+        for frozen_trial in study.get_trials(
+            states=[
+                optuna.trial.TrialState.COMPLETE,
+                optuna.trial.TrialState.FAIL,
+                optuna.trial.TrialState.PRUNED,
+            ]
+        ):
+            if frozen_trial.number == self.trial_num:
+                logging.info(f"Trial has already finished with state {frozen_trial.state}")
+                return
+
+        trial.report(value=self.score.get(), step=self.step)
+
+    @classmethod
+    def hash(cls, kwargs):
+        d = {
+            "trial_num": kwargs["trial_num"],
+            "step": kwargs["step"],
+            "score": kwargs["score"],
+        }
+
+        if kwargs["study_name"] is not None:
+            d["study_name"] = kwargs["study_name"]
+        if kwargs["study_storage"] is not None:
+            d["study_storage"] = kwargs["study_storage"]
+
+        return super().hash(d)
+
+
+class OptunaReportFinalScoreJob(Job):
+    def __init__(
+        self,
+        trial_num: int,
+        scores: List[tk.Variable],
+        study_name: Optional[str] = None,
+        study_storage: Optional[str] = None,
+    ) -> None:
+        self.study_name = study_name or "optuna_study"
+        self.study_storage = study_storage or "sqlite:///study_storage.db"
+        self.trial_num = trial_num
+        self.scores = scores
+
+        self.out_reported_score = self.output_var("reported_score")
+
+    def tasks(self) -> Generator[Task, None, None]:
+        yield Task("run", mini_task=True)
+
+    def run(self) -> None:
+        import optuna
+
+        storage = optuna.storages.get_storage(self.study_storage)
+        study = optuna.load_study(
+            study_name=self.study_name,
+            storage=storage,
+        )
+
+        best_score = min([score.get() for score in self.scores])
+        self.out_reported_score.set(best_score)
+
+        for frozen_trial in study.get_trials(
+            states=[
+                optuna.trial.TrialState.COMPLETE,
+                optuna.trial.TrialState.FAIL,
+                optuna.trial.TrialState.PRUNED,
+            ]
+        ):
+            if frozen_trial.number == self.trial_num:
+                logging.info(f"Trial has already finished with state {frozen_trial.state}")
+                return
+
+        study.tell(trial=self.trial_num, values=best_score, state=optuna.trial.TrialState.COMPLETE)
+
+    @classmethod
+    def hash(cls, kwargs):
+        d = {
+            "trial_num": kwargs["trial_num"],
+            "scores": kwargs["scores"],
+        }
+
+        if kwargs["study_name"] is not None:
+            d["study_name"] = kwargs["study_name"]
+        if kwargs["study_storage"] is not None:
+            d["study_storage"] = kwargs["study_storage"]
 
         return super().hash(d)

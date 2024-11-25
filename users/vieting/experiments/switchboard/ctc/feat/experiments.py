@@ -1,7 +1,7 @@
 import copy
 import os.path
 from sisyphus import tk, gs
-from typing import Any, Dict
+from typing import Any, Dict, Tuple
 
 from i6_core.returnn.config import CodeWrapper
 from i6_core.recognition import Hub5ScoreJob
@@ -30,487 +30,36 @@ def get_datasets(**kwargs):
     return returnn_datasets, rasr_loss_corpus, rasr_loss_segments, rasr_loss_lexicon, dev_corpora["ctc"]
 
 
-def run_test_mel():
-    gs.ALIAS_AND_OUTPUT_SUBDIR = "experiments/switchboard/ctc/feat/"
+def args_to_key_and_report_strings(args: Dict[str, Any]) -> Tuple[str, str]:
+    """
+    Process the argument dictionary to generate a key string and a report string.
 
-    (
-        returnn_datasets,
-        rasr_loss_corpus_path,
-        rasr_loss_corpus_segments,
-        rasr_loss_lexicon_path,
-        dev_corpora,
-    ) = get_datasets()
-    returnn_args = {
-        "batch_size": 10000,
-        "rasr_binary_path": RASR_BINARY_PATH,
-        "rasr_loss_corpus_path": rasr_loss_corpus_path,
-        "rasr_loss_corpus_segments": rasr_loss_corpus_segments,
-        "rasr_loss_lexicon_path": rasr_loss_lexicon_path,
-        "datasets": returnn_datasets,
-    }
-    feature_args = {"class": "LogMelNetwork", "wavenorm": True, "frame_size": 200, "frame_shift": 80, "fft_size": 256}
-    returnn_datasets_laplace25 = copy.deepcopy(returnn_datasets)
-    returnn_datasets_laplace25["train"]["seq_ordering"] = "laplace:.25"
+    Returns:
+        tuple: A tuple containing the key string and the report string.
+    """
 
-    nn_args, report_args_collection = get_nn_args_baseline(
-        nn_base_args={
-            # "lgm80_conf-simon": dict(
-            #     returnn_args={"conformer_type": "simon", **returnn_args},
-            #     feature_args=feature_args,
-            # ),
-            "lgm80_conf-wei_old-lr": dict(
-                returnn_args={"conformer_type": "wei", **returnn_args},
-                feature_args=feature_args,
-                report_args={"architecture": "conf-wei", "lr": "default"},
-            ),
-            "lgm80_conf-wei_old-lr-4e-4": dict(
-                returnn_args={"conformer_type": "wei", **returnn_args},
-                feature_args=feature_args,
-                lr_args={"peak_lr": 4e-4},
-                report_args={"architecture": "conf-wei", "lr": "default_peak_4e-4"},
-            ),
-            "lgm80_conf-wei": dict(  # matches original lr schedule from wei
-                returnn_args={"conformer_type": "wei", **returnn_args},
-                feature_args=feature_args,
-                lr_args={
-                    "peak_lr": 4e-4,
-                    "start_lr": 1.325e-05,
-                    "end_lr": 1e-5,
-                    "increase_epochs": 119,
-                    "peak_epochs": 1,
-                    "decrease_epochs": 120,
-                    "final_epochs": 0,
-                },
-                report_args={"architecture": "conf-wei", "lr": "wei_peak_4e-4"},
-            ),
-            "lgm80_conf-wei2": dict(  # almost matches original lr schedule from wei
-                returnn_args={"conformer_type": "wei", **returnn_args},
-                feature_args=feature_args,
-                lr_args={
-                    "peak_lr": 4e-4,
-                    "start_lr": 1.325e-05,
-                    "end_lr": 1e-5,
-                    "increase_epochs": 119,
-                    "peak_epochs": 2,
-                    "decrease_epochs": 119,
-                    "final_epochs": 0,
-                },
-                report_args={"architecture": "conf-wei", "lr": "wei_peak_4e-4"},
-            ),
-            "lgm80_conf-wei-oldspecaug": dict(  # specaugment as in wei's setup
-                returnn_args={"conformer_type": "wei", "specaug_old": {}, **returnn_args},
-                feature_args=feature_args,
-                lr_args={
-                    "peak_lr": 4e-4,
-                    "start_lr": 1.325e-05,
-                    "end_lr": 1e-5,
-                    "increase_epochs": 119,
-                    "peak_epochs": 2,
-                    "decrease_epochs": 119,
-                    "final_epochs": 0,
-                },
-                report_args={"architecture": "conf-wei", "lr": "wei_peak_4e-4", "specaug": "wei"},
-            ),
-            "lgm80_conf-wei-oldspecaug2": dict(  # specaugment as in wei's setup but double feature dim due to log Mel
-                returnn_args={"conformer_type": "wei", "specaug_old": {"max_feature": 8}, **returnn_args},
-                feature_args=feature_args,
-                lr_args={
-                    "peak_lr": 4e-4,
-                    "start_lr": 1.325e-05,
-                    "end_lr": 1e-5,
-                    "increase_epochs": 119,
-                    "peak_epochs": 2,
-                    "decrease_epochs": 119,
-                    "final_epochs": 0,
-                },
-                report_args={"architecture": "conf-wei", "lr": "wei_peak_4e-4", "specaug": "wei_adapt_80dim"},
-            ),
-            "lgm80_conf-wei-oldspecaug-bs3200step": dict(
-                returnn_args={
-                    "conformer_type": "wei",
-                    "specaug_old": {},
-                    **returnn_args,
-                    "batch_size": {"data": 514635},
-                },
-                feature_args=feature_args,
-                lr_args={
-                    "peak_lr": 4e-4,
-                    "start_lr": 1.325e-05,
-                    "end_lr": 1e-5,
-                    "increase_epochs": 119,
-                    "peak_epochs": 2,
-                    "decrease_epochs": 119,
-                    "final_epochs": 0,
-                },
-                report_args={"architecture": "conf-wei", "lr": "wei_peak_4e-4", "specaug": "wei"},
-            ),
-            "lgm80_conf-wei-oldspecaug2-bs3200step": dict(
-                returnn_args={
-                    "conformer_type": "wei",
-                    "specaug_old": {"max_feature": 8},
-                    **returnn_args,
-                    "batch_size": {"data": 514635},
-                },
-                feature_args=feature_args,
-                lr_args={
-                    "peak_lr": 4e-4,
-                    "start_lr": 1.325e-05,
-                    "end_lr": 1e-5,
-                    "increase_epochs": 119,
-                    "peak_epochs": 2,
-                    "decrease_epochs": 119,
-                    "final_epochs": 0,
-                },
-                report_args={"architecture": "conf-wei", "lr": "wei_peak_4e-4", "specaug": "wei_adapt_80dim"},
-            ),
-            "lgm80_conf-wei-oldspecaug-laplace25": dict(
-                returnn_args={
-                    "conformer_type": "wei",
-                    "specaug_old": {},
-                    **returnn_args,
-                    "datasets": returnn_datasets_laplace25,
-                },
-                feature_args=feature_args,
-                lr_args={
-                    "peak_lr": 4e-4,
-                    "start_lr": 1.325e-05,
-                    "end_lr": 1e-5,
-                    "increase_epochs": 119,
-                    "peak_epochs": 2,
-                    "decrease_epochs": 119,
-                    "final_epochs": 0,
-                },
-                report_args={"architecture": "conf-wei", "lr": "wei_peak_4e-4", "specaug": "wei"},
-            ),
-            "lgm80_conf-wei-oldspecaug2-lrv1": dict(
-                returnn_args={"conformer_type": "wei", "specaug_old": {"max_feature": 8}, **returnn_args},
-                feature_args=feature_args,
-                lr_args={
-                    "peak_lr": 2 * 4e-4,
-                    "start_lr": 2 * 1.325e-05,
-                    "end_lr": 2 * 1e-5,
-                    "increase_epochs": 119,
-                    "peak_epochs": 2,
-                    "decrease_epochs": 119,
-                    "final_epochs": 0,
-                },
-                report_args={"architecture": "conf-wei", "lr": "wei_peak_8e-4", "specaug": "wei_adapt_80dim"},
-            ),
-            # "lgm80_conf-wei2-nadam": dict(  # does not work well
-            #     returnn_args={
-            #         "conformer_type": "wei",
-            #         "extra_args": {"optimizer": None, "optimizer_epsilon": 1e-8, "nadam": True},
-            #         **returnn_args,
-            #     },
-            #     feature_args=feature_args,
-            #     lr_args={
-            #         "peak_lr": 4e-4, "start_lr": 1.325e-05, "end_lr": 1e-5,
-            #         "increase_epochs": 119, "peak_epochs": 2, "decrease_epochs": 119, "final_epochs": 0,
-            #     },
-            # ),
-            # "gt40_pe_conf-wei_old-lr": dict(  # does not converge
-            #     returnn_args={"conformer_type": "wei", **returnn_args},
-            #     feature_args={
-            #         "class": "GammatoneNetwork", "sample_rate": 8000, "freq_max": 3800., "output_dim": 40,
-            #         "preemphasis": 1.0,
-            #     },
-            # ),
-            # "acc2_scf750_conf-wei_old-lr": dict(  # does not converge
-            #     returnn_args={
-            #     "conformer_type": "wei",
-            #     **returnn_args,
-            #     "batch_size": 5000,
-            #     "extra_args": {"accum_grad_multiple_step": 2},
-            #     },
-            #     feature_args={"class": "ScfNetwork", "size_tf": 256 // 2, "stride_tf": 10 // 2},
-            # ),
-        },
-        num_epochs=300,
-        prefix="conformer_bs10k_",
-    )
+    key_string = ""
+    report_dict = {}
 
-    returnn_configs = {}
-    for exp in nn_args.returnn_training_configs:
-        prior_config = copy.deepcopy(nn_args.returnn_training_configs[exp])
-        prior_config.config["batch_size"] = prior_config.config["batch_size"]["data"]
-        assert isinstance(prior_config.config["batch_size"], int)
-        returnn_configs[exp] = ReturnnConfigs(
-            train_config=nn_args.returnn_training_configs[exp],
-            prior_config=prior_config,
-            recog_configs={"recog": nn_args.returnn_recognition_configs[exp]},
-        )
+    for key, value in args.items():
+        if key in ["speed", "tempo", "pitch", "preemphasis", "non_linearity"]:
+            key_component = f"{key}_{value['prob']}_{value['minimum']}_{value['maximum']}"
+            if "default" in value:
+                key_component += f"_{value['default']}"
+            key_string += key_component
+            report_dict[key] = f"{value['prob']}_{value['minimum']}_{value['maximum']}"
+        elif key == "codecs":
+            codecs_str_list = []
+            for codec in value:
+                codec_str = f"{codec['encoding']}_{codec['prob']}_{codec['minimum']}_{codec['maximum']}"
+                codecs_str_list.append(codec_str)
+            codecs_str = "_".join(codecs_str_list)
+            key_string += f"{key}_{codecs_str}_"
+            report_dict[key] = codecs_str
+        else:
+            raise ValueError(f"Unknown argument name: {key}")
 
-    recog_args = {
-        "lm_scales": [0.7],
-        "prior_scales": [0.3, 0.5],
-        "epochs": [300],
-        "lookahead_options": {"lm_lookahead_scale": 0.7},
-        "label_scorer_args": {
-            "use_prior": True,
-            "extra_args": {"blank_label_index": 0},
-        },
-        "label_tree_args": {"skip_silence": True},
-        "search_parameters": {
-            "allow-blank-label": True,
-            "allow-label-loop": True,
-            "allow-label-recombination": True,
-            "allow-word-end-recombination": True,
-            "create-lattice": True,
-            "label-pruning": 11.2,
-            "label-pruning-limit": 100000,
-            "word-end-pruning": 0.5,
-            "word-end-pruning-limit": 10000,
-        },
-    }
-    score_info = ScorerInfo()
-    score_info.ref_file = dev_corpora["hub5e00"].stm
-    score_info.job_type = Hub5ScoreJob
-    score_info.score_kwargs = {"glm": dev_corpora["hub5e00"].glm, "sctk_binary_path": SCTK_BINARY_PATH}
-
-    ctc_nn_system = TransducerSystem(
-        returnn_root=RETURNN_ROOT,
-        returnn_python_exe=RETURNN_EXE,
-        rasr_binary_path=RASR_BINARY_PATH,
-        require_native_lstm=False,
-    )
-    ctc_nn_system.init_system(
-        returnn_configs=returnn_configs,
-        dev_keys=["hub5e00"],
-        corpus_data=dev_corpora,
-        am_args={
-            "state_tying": "monophone",
-            "states_per_phone": 1,
-            "tdp_transition": (0, 0, 0, 0),
-            "tdp_silence": (0, 0, 0, 0),
-            "phon_history_length": 0,
-            "phon_future_length": 0,
-        },
-        scorer_info=score_info,
-        report=Report(
-            columns_start=["train_name"],
-            columns_end=["lm_scale", "prior_scale", "sub", "del", "ins", "wer"],
-        ),
-    )
-    ctc_nn_system.crp["hub5e00"].acoustic_model_config.allophones.add_from_lexicon = False
-    ctc_nn_system.crp["hub5e00"].acoustic_model_config.allophones.add_all = True
-    ctc_nn_system.crp["hub5e00"].acoustic_model_config.allophones.add_from_file = tk.Path(
-        "/u/vieting/setups/swb/20230406_feat/dependencies/allophones_blank",
-        hash_overwrite="SWB_ALLOPHONE_FILE_WEI_BLANK",
-        cached=True,
-    )
-    ctc_nn_system.run_train_step(nn_args.training_args)
-    ctc_nn_system.run_dev_recog_step(recog_args=recog_args, report_args=report_args_collection)
-    ctc_nn_system.run_recogs_for_corpora(  # test for single model with larger prior_scales
-        ["hub5e00"],
-        "conformer_bs10k_lgm80_conf-wei_old-lr-4e-4",
-        search_type=SearchTypes.GenericSeq2SeqSearchJob,
-        report_args=report_args_collection,
-        **{**recog_args, "prior_scales": [0.4, 0.6, 0.7, 0.9]},
-    )
-    ctc_nn_system.run_recogs_for_corpora(  # test for single model with larger prior_scales
-        ["hub5e00"],
-        "conformer_bs10k_lgm80_conf-wei_old-lr",
-        search_type=SearchTypes.GenericSeq2SeqSearchJob,
-        report_args=report_args_collection,
-        **{**recog_args, "prior_scales": [0.5], "epochs": [260]},
-    )
-
-    # test blank penalty as we have more deletions than insertions
-    ctc_nn_system_blank_penalty = copy.deepcopy(ctc_nn_system)
-    exp_name = "conformer_bs10k_lgm80_conf-wei_old-lr-4e-4"
-    recog_config = ctc_nn_system_blank_penalty.returnn_configs[exp_name].recog_configs.pop("recog")
-    for blank_penalty in [0.2, 0.3, 0.5, 0.8]:
-        config = copy.deepcopy(recog_config)
-        blank_index = 0
-        num_outputs = 88
-        config.config["network"]["output_blank_penalty"] = {
-            "class": "eval",
-            "from": "output",
-            "is_output_layer": True,
-            "eval": f"source(0) - tf.expand_dims("
-            f"tf.one_hot([{blank_index}], {num_outputs}, on_value={blank_penalty}, dtype=tf.float32), axis=0)",
-        }
-        ctc_nn_system_blank_penalty.returnn_configs[exp_name].recog_configs[
-            f"recog_blank-penalty-{blank_penalty}"
-        ] = config
-    ctc_nn_system_blank_penalty.run_recogs_for_corpora(
-        ["hub5e00"],
-        exp_name,
-        search_type=SearchTypes.GenericSeq2SeqSearchJob,
-        report_args=report_args_collection,
-        extra_name=f"_blank-pen-{blank_penalty}",
-        tf_flow_args={"output_layer_name": "output_blank_penalty"},
-        **{**recog_args, "prior_scales": [0.5]},
-    )
-
-    # same lm as in wei's setup, results indicate that this is not better (if any, slightly worse)
-    ctc_nn_system_wei_lm = copy.deepcopy(ctc_nn_system)
-    for train_name in list(ctc_nn_system_wei_lm.returnn_configs.keys()):
-        if train_name not in ["conformer_bs10k_lgm80_conf-wei2", "conformer_bs10k_lgm80_conf-wei_old-lr-4e-4"]:
-            # only use some trainings
-            ctc_nn_system_wei_lm.returnn_configs.pop(train_name)
-    report_args_wei_lm = copy.deepcopy(report_args_collection)
-    for name in report_args_wei_lm:
-        report_args_wei_lm[name]["lm"] = "wei"
-    wei_lm = tk.Path(
-        "/u/vieting/setups/swb/20230406_feat/dependencies/zoltan_4gram.gz",
-        hash_overwrite="ZOLTAN_SWB_LM_4GRAM",
-        cached=True,
-    )
-    ctc_nn_system_wei_lm.corpus_data["hub5e00"].lm["filename"] = wei_lm
-    ctc_nn_system_wei_lm.crp["hub5e00"].language_model_config.file = wei_lm
-    ctc_nn_system_wei_lm.run_dev_recog_step(recog_args=recog_args, extra_name="_lm-wei", report_args=report_args_wei_lm)
-
-    # same lexicon as in wei's setup, results indicate that this is not better (less del, but overall slightly worse)
-    ctc_nn_system_wei_lex = copy.deepcopy(ctc_nn_system)
-    for train_name in list(ctc_nn_system_wei_lex.returnn_configs.keys()):
-        if train_name not in ["conformer_bs10k_lgm80_conf-wei2", "conformer_bs10k_lgm80_conf-wei_old-lr-4e-4"]:
-            # only use some trainings
-            ctc_nn_system_wei_lex.returnn_configs.pop(train_name)
-    report_args_wei_lex = copy.deepcopy(report_args_collection)
-    for name in report_args_wei_lex:
-        report_args_wei_lex[name]["lex"] = "wei"
-    wei_lex = tk.Path(
-        "/u/vieting/setups/swb/20230406_feat/dependencies/lexicon_wei_blank.xml",
-        hash_overwrite="WEI_SWB_LEX",
-        cached=True,
-    )
-    ctc_nn_system_wei_lex.corpus_data["hub5e00"].lexicon["filename"] = wei_lex
-    ctc_nn_system_wei_lex.run_dev_recog_step(
-        recog_args=recog_args, extra_name="_lex-wei", report_args=report_args_wei_lex
-    )
-
-    # longer training to compensate for fewer steps per epoch
-    feature_args_wave_norm = {
-        "class": "LogMelNetwork",
-        "wave_norm": True,
-        "frame_size": 200,
-        "frame_shift": 80,
-        "fft_size": 256,
-    }
-    nn_args, report_args_collection = get_nn_args_baseline(
-        nn_base_args={
-            "lgm80_conf-wei-oldspecaug-e450v1": dict(
-                returnn_args={"conformer_type": "wei", "specaug_old": {}, **returnn_args},
-                feature_args=feature_args,
-                lr_args={
-                    "peak_lr": 4e-4,
-                    "start_lr": 1.325e-05,
-                    "end_lr": 1e-5,
-                    "increase_epochs": 180,
-                    "decrease_epochs": 180,
-                    "final_epochs": 0,
-                },
-                report_args={"architecture": "conf-wei", "lr": "wei_peak_4e-4_e450_cycle360", "specaug": "wei"},
-            ),
-            "lgm80_conf-wei-oldspecaug2-e450v1": dict(
-                returnn_args={"conformer_type": "wei", "specaug_old": {"max_feature": 8}, **returnn_args},
-                feature_args=feature_args,
-                lr_args={
-                    "peak_lr": 4e-4,
-                    "start_lr": 1.325e-05,
-                    "end_lr": 1e-5,
-                    "increase_epochs": 180,
-                    "decrease_epochs": 180,
-                    "final_epochs": 0,
-                },
-                report_args={
-                    "architecture": "conf-wei",
-                    "lr": "wei_peak_4e-4_e450_cycle360",
-                    "specaug": "wei_adapt_80dim",
-                },
-            ),
-            "lgm80_conf-wei-oldspecaug2-e450v2": dict(
-                returnn_args={"conformer_type": "wei", "specaug_old": {"max_feature": 8}, **returnn_args},
-                feature_args=feature_args,
-                lr_args={
-                    "peak_lr": 4e-4,
-                    "start_lr": 1.325e-05,
-                    "end_lr": 1e-5,
-                    "increase_epochs": 160,
-                    "decrease_epochs": 160,
-                    "final_epochs": 0,
-                },
-                report_args={
-                    "architecture": "conf-wei",
-                    "lr": "wei_peak_4e-4_e450_320cycle",
-                    "specaug": "wei_adapt_80dim",
-                },
-            ),
-            "lgm80_conf-wei-oldspecaug2-e450v3": dict(
-                returnn_args={"conformer_type": "wei", "specaug_old": {"max_feature": 8}, **returnn_args},
-                feature_args=feature_args,
-                lr_args={
-                    "peak_lr": 4e-4,
-                    "start_lr": 1.325e-05,
-                    "end_lr": 1e-5,
-                    "increase_epochs": 200,
-                    "decrease_epochs": 200,
-                    "final_epochs": 0,
-                },
-                report_args={
-                    "architecture": "conf-wei",
-                    "lr": "wei_peak_4e-4_e450_400_cycle",
-                    "specaug": "wei_adapt_80dim",
-                },
-            ),
-            "lgm80_conf-wei-oldspecaug2-e450v1-wavenorm": dict(
-                returnn_args={"conformer_type": "wei", "specaug_old": {"max_feature": 8}, **returnn_args},
-                feature_args=feature_args_wave_norm,
-                lr_args={
-                    "peak_lr": 4e-4,
-                    "start_lr": 1.325e-05,
-                    "end_lr": 1e-5,
-                    "increase_epochs": 180,
-                    "decrease_epochs": 180,
-                    "final_epochs": 0,
-                },
-                report_args={
-                    "architecture": "conf-wei",
-                    "lr": "wei_peak_4e-4_e450_cycle360",
-                    "specaug": "wei_adapt_80dim",
-                    "wave_norm": "True",
-                },
-            ),
-        },
-        num_epochs=450,
-        prefix="conformer_bs10k_",
-    )
-
-    returnn_configs = {}
-    for exp in nn_args.returnn_training_configs:
-        prior_config = copy.deepcopy(nn_args.returnn_training_configs[exp])
-        prior_config.config["batch_size"] = prior_config.config["batch_size"]["data"]
-        assert isinstance(prior_config.config["batch_size"], int)
-        returnn_configs[exp] = ReturnnConfigs(
-            train_config=nn_args.returnn_training_configs[exp],
-            prior_config=prior_config,
-            recog_configs={"recog": nn_args.returnn_recognition_configs[exp]},
-        )
-
-    recog_args_e450 = copy.deepcopy(recog_args)
-    recog_args_e450["epochs"] = [300, 400, 450, "best"]
-    ctc_nn_system_e450 = copy.deepcopy(ctc_nn_system)
-    ctc_nn_system_e450.returnn_configs = returnn_configs
-    ctc_nn_system_e450.run_train_step(nn_args.training_args)
-    ctc_nn_system_e450.run_dev_recog_step(recog_args=recog_args_e450, report_args=report_args_collection)
-
-    report = Report.merge_reports(
-        [
-            ctc_nn_system.report,
-            ctc_nn_system_e450.report,
-            ctc_nn_system_blank_penalty.report,
-            ctc_nn_system_wei_lm.report,
-            ctc_nn_system_wei_lex.report,
-        ]
-    )
-    report.delete_redundant_columns()
-    report.delete_redundant_rows()
-    tk.register_report(
-        os.path.join(gs.ALIAS_AND_OUTPUT_SUBDIR, "report_test_mel.csv"),
-        values=report.get_values(),
-        template=report.get_template(),
-    )
+    return key_string, report_dict
 
 
 def run_nn_args(nn_args, report_args_collection, dev_corpora, report_name="", returnn_root=None, recog_args=None):
@@ -619,34 +168,66 @@ def run_mel_baseline():
         "rasr_loss_corpus_segments": rasr_loss_corpus_segments,
         "rasr_loss_lexicon_path": rasr_loss_lexicon_path,
         "datasets": returnn_datasets,
+        "conformer_type": "wei",
+        "specaug_old": {"max_feature": 8},
     }
     feature_args = {"class": "LogMelNetwork", "wave_norm": True, "frame_size": 200, "frame_shift": 80, "fft_size": 256}
+    lr_args = {
+        "peak_lr": 4e-4,
+        "start_lr": 1.325e-05,
+        "end_lr": 1e-5,
+        "increase_epochs": 180,
+        "decrease_epochs": 180,
+        "final_epochs": 0,
+    }
+    recog_args = {"epochs": [350, 390, 400, 410, 450]}
 
     nn_args, report_args_collection = get_nn_args_baseline(
         nn_base_args={
-            "lgm80_baseline": dict(
-                returnn_args={"conformer_type": "wei", "specaug_old": {"max_feature": 8}, **returnn_args},
+            "bs10k_lgm80_baseline": dict(
+                returnn_args=returnn_args,
                 feature_args=feature_args,
-                lr_args={
-                    "peak_lr": 4e-4,
-                    "start_lr": 1.325e-05,
-                    "end_lr": 1e-5,
-                    "increase_epochs": 180,
-                    "decrease_epochs": 180,
-                    "final_epochs": 0,
+                lr_args=lr_args,
+                report_args={"batch_size": "10k"},
+            ),
+            "bs5k_lgm80_baseline": dict(
+                returnn_args={**returnn_args, "batch_size": 5000},
+                feature_args=feature_args,
+                lr_args=lr_args,
+                report_args={"batch_size": "5k"},
+            ),
+            "bs2x5k_lgm80_baseline": dict(
+                returnn_args={
+                    **returnn_args,
+                    "batch_size": 5000,
+                    "extra_args": {
+                        "accum_grad_multiple_step": 2,
+                        "watch_memory": True,
+                    },
                 },
-                report_args={
-                    "architecture": "conf-wei",
-                    "lr": "wei_peak_4e-4_e450_cycle360",
-                    "specaug": "wei_adapt_80dim",
-                    "wave_norm": "True",
+                feature_args=feature_args,
+                lr_args=lr_args,
+                report_args={"batch_size": "2x5k"},
+            ),
+            "bs2x5k_lgm80_baseline_preemphasis97": dict(
+                returnn_args={
+                    **returnn_args,
+                    "batch_size": 5000,
+                    "extra_args": {
+                        "accum_grad_multiple_step": 2,
+                        "watch_memory": True,
+                    },
                 },
+                feature_args={**feature_args, "preemphasis": 0.97},
+                lr_args=lr_args,
+                report_args={"batch_size": "2x5k"},
             ),
         },
         num_epochs=450,
-        prefix="conformer_bs10k_",
+        evaluation_epochs=[6, 12, 24, 350, 390, 400, 410, 450],
+        prefix="conformer_",
     )
-    report, ctc_nn_system = run_nn_args(nn_args, report_args_collection, dev_corpora)
+    report, ctc_nn_system = run_nn_args(nn_args, report_args_collection, dev_corpora, recog_args=recog_args)
     return report, ctc_nn_system
 
 
@@ -693,6 +274,24 @@ def run_scf_baseline():
                 lr_args=lr_args,
                 report_args={"batch_size": "2x5k"},
             ),
+            "bs2x5k_scf_baseline_wn": dict(
+                returnn_args=returnn_args,
+                feature_args={**feature_args, "wave_norm": True},
+                lr_args=lr_args,
+                report_args={"batch_size": "2x5k"},
+            ),
+            "bs2x5k_scf_baseline_preemphasis97_wn": dict(
+                returnn_args=returnn_args,
+                feature_args={**feature_args, "preemphasis": 0.97, "wave_norm": True},
+                lr_args=lr_args,
+                report_args={"batch_size": "2x5k"},
+            ),
+            "bs2x5k_scf_baseline_preemphasis97": dict(
+                returnn_args=returnn_args,
+                feature_args={**feature_args, "preemphasis": 0.97},
+                lr_args=lr_args,
+                report_args={"batch_size": "2x5k"},
+            ),
             "bs7k_scf_baseline": dict(
                 returnn_args={
                     **returnn_args,
@@ -705,7 +304,7 @@ def run_scf_baseline():
             ),
         },
         num_epochs=450,
-        evaluation_epochs=[350, 400, 450],
+        evaluation_epochs=[6, 12, 24, 350, 390, 400, 410, 450],
         prefix="conformer_",
     )
 
@@ -719,139 +318,14 @@ def run_scf_baseline():
         report_args_collection,
         dev_corpora,
         returnn_root=returnn_root,
-        recog_args={"epochs": [350, 400, 450, "best"]},
+        recog_args={"epochs": [350, 390, 400, 410, 450]},
     )
-    return report
+    return report, ctc_nn_system
 
 
-def run_scf_audio_perturbation():
+def run_scf_baseline_lr_reset():
     gs.ALIAS_AND_OUTPUT_SUBDIR = "experiments/switchboard/ctc/feat/"
-
-    (
-        returnn_datasets,
-        rasr_loss_corpus_path,
-        rasr_loss_corpus_segments,
-        rasr_loss_lexicon_path,
-        dev_corpora,
-    ) = get_datasets(use_multi_proc_dataset=True, pre_process=CodeWrapper("audio_perturb_runner.run"))
-    returnn_args = {
-        "batch_size": 5000,
-        "rasr_binary_path": RASR_BINARY_PATH,
-        "rasr_loss_corpus_path": rasr_loss_corpus_path,
-        "rasr_loss_corpus_segments": rasr_loss_corpus_segments,
-        "rasr_loss_lexicon_path": rasr_loss_lexicon_path,
-        "datasets": returnn_datasets,
-        "conformer_type": "wei",
-        "specaug_old": {"max_feature": 15},
-        "audio_perturbation": True,
-        "use_multi_proc_dataset": True,
-    }
-    feature_args = {"class": "ScfNetwork", "size_tf": 256 // 2, "stride_tf": 10 // 2}
-    lr_args = {
-        "peak_lr": 4e-4,
-        "start_lr": 1.325e-05,
-        "end_lr": 1e-5,
-        "increase_epochs": 180,
-        "decrease_epochs": 180,
-        "final_epochs": 0,
-    }
-
-    perturbation_args = [
-        {"speed": {"prob": 0.6, "minimum": 0.88, "maximum": 1.12}},
-        {"speed": {"prob": 0.6, "minimum": 0.8, "maximum": 1.2}},
-        {"speed": {"prob": 0.6, "minimum": 0.9, "maximum": 1.1}},
-        {"speed": {"prob": 0.5, "minimum": 0.88, "maximum": 1.12}},
-        {"speed": {"prob": 0.4, "minimum": 0.88, "maximum": 1.12}},
-        {"tempo": {"prob": 0.4, "minimum": 0.83, "maximum": 1.17}},
-        {"tempo": {"prob": 0.5, "minimum": 0.83, "maximum": 1.17}},
-        {"tempo": {"prob": 0.6, "minimum": 0.83, "maximum": 1.17}},
-        {"tempo": {"prob": 0.6, "minimum": 0.9, "maximum": 1.1}},
-        {"tempo": {"prob": 0.6, "minimum": 0.8, "maximum": 1.2}},
-        {"preemphasis": {"prob": 0.9, "minimum": 0.9, "maximum": 1.0}},
-        {"preemphasis": {"prob": 1.0, "minimum": 1.0, "maximum": 1.0}},
-        {"codecs": [{"encoding": "ULAW", "prob": 0.4}]},
-        {"codecs": [{"encoding": "ULAW", "prob": 0.6}]},
-        {"non_linearity": {"prob": 0.4, "minimum": 0.9, "maximum": 1.1}},
-        {"non_linearity": {"prob": 0.4, "minimum": 0.8, "maximum": 1.2}},
-        {"non_linearity": {"prob": 0.6, "minimum": 0.9, "maximum": 1.1}},
-        {"non_linearity": {"prob": 0.6, "minimum": 0.8, "maximum": 1.2}},
-    ]
-
-    def process_args(args: Dict[str, Any]):
-        """
-        Process the argument dictionary to generate a key string and a report string.
-
-        Returns:
-            tuple: A tuple containing the key string and the report string.
-        """
-
-        key_string = ""
-        report_dict = {}
-
-        for key, value in args.items():
-
-            if key in ["speed", "tempo", "preemphasis", "non_linearity"]:
-                key_component = f"{key}_{value['prob']}_{value['minimum']}_{value['maximum']}"
-                key_string += key_component
-                report_dict[key] = f"{value['prob']}_{value['minimum']}_{value['maximum']}"
-            elif key == "codecs":
-                codecs_str = "_".join([f"{codec['encoding']}_{codec['prob']}" for codec in value])
-                key_string += f"{key}_{codecs_str}_"
-                report_dict[key] = codecs_str
-            else:
-                raise ValueError(f"Unknown argument name: {key}")
-
-        return key_string, report_dict
-
-    nn_base_args = {}
-
-    for args in perturbation_args:
-        exp_name_suffix, report_dict = process_args(args)
-
-        # Construct the exp_name and report_args
-        exp_name = f"scf_bs2x5k_perturb_{exp_name_suffix}"
-        report_args = report_dict
-        nn_base_args[exp_name] = dict(
-            returnn_args={
-                "extra_args": {
-                    "audio_perturb_args": args,
-                    "audio_perturb_runner": CodeWrapper("WaveformPerturbation(**audio_perturb_args)"),
-                    "conv_pad_seq_len_to_power": 1.5,
-                    "watch_memory": True,
-                    "accum_grad_multiple_step": 2,
-                },
-                **returnn_args,
-            },
-            feature_args=feature_args,
-            lr_args=lr_args,
-            report_args=report_args,
-        )
-
-    nn_args, report_args_collection = get_nn_args_baseline(
-        nn_base_args=nn_base_args,
-        num_epochs=450,
-        evaluation_epochs=[350, 400, 450],
-        prefix="conformer_",
-    )
-
-    returnn_root = CloneGitRepositoryJob(
-        "https://github.com/rwth-i6/returnn",
-        commit="c4d36d06f6465e82a50d400d114259e07b8b0709",
-    ).out_repository
-    returnn_root.hash_overwrite = "returnn_conv_padding"
-    report, ctc_nn_system = run_nn_args(
-        nn_args,
-        report_args_collection,
-        dev_corpora,
-        returnn_root=returnn_root,
-        recog_args={"epochs": [350, 400, 450, "best"]},
-    )
-    return report
-
-
-def run_scf_specaug_sort():
-    gs.ALIAS_AND_OUTPUT_SUBDIR = "experiments/switchboard/ctc/feat/"
-
+    _, nn_system = run_scf_baseline()
     (
         returnn_datasets,
         rasr_loss_corpus_path,
@@ -870,11 +344,25 @@ def run_scf_specaug_sort():
             "accum_grad_multiple_step": 2,
             "watch_memory": True,
             "conv_pad_seq_len_to_power": 1.5,
+            "preload_from_files": {
+                "existing-model": {
+                    "filename": nn_system.train_jobs["conformer_bs2x5k_scf_baseline_preemphasis97_wn"].out_checkpoints[
+                        24
+                    ],
+                    "init_for_train": True,
+                },
+            },
         },
         "conformer_type": "wei",
         "specaug_old": {"max_feature": 15},
     }
-    feature_args = {"class": "ScfNetwork", "size_tf": 256 // 2, "stride_tf": 10 // 2}
+    feature_args = {
+        "class": "ScfNetwork",
+        "size_tf": 256 // 2,
+        "stride_tf": 10 // 2,
+        "preemphasis": 0.97,
+        "wave_norm": True,
+    }
     lr_args = {
         "peak_lr": 4e-4,
         "start_lr": 1.325e-05,
@@ -886,38 +374,192 @@ def run_scf_specaug_sort():
 
     nn_args, report_args_collection = get_nn_args_baseline(
         nn_base_args={
-            "bs2x5k_scf_specaugsortlayer2": dict(
-                returnn_args={**returnn_args, "specaug_old": {"max_feature": 15, "sort_layer2": True}},
+            "bs2x5k_scf_baseline_preemphasis97_wn_lr_reset": dict(
+                returnn_args=returnn_args,
                 feature_args=feature_args,
                 lr_args=lr_args,
                 report_args={"batch_size": "2x5k"},
             ),
-            "bs2x5k_scf_specaugsortlayer2frome210": dict(
-                returnn_args={
-                    **returnn_args,
-                    "specaug_old": {"max_feature": 15, "sort_layer2": True},
+        },
+        num_epochs=426,
+        evaluation_epochs=[326, 376, 386, 396, 406, 426],
+        prefix="conformer_",
+    )
+    returnn_root = CloneGitRepositoryJob(
+        "https://github.com/rwth-i6/returnn",
+        commit="c4d36d06f6465e82a50d400d114259e07b8b0709",
+    ).out_repository
+    returnn_root.hash_overwrite = "returnn_conv_padding"
+    report, ctc_nn_system = run_nn_args(
+        nn_args,
+        report_args_collection,
+        dev_corpora,
+        returnn_root=returnn_root,
+        recog_args={"epochs": [326, 376, 386, 396, 406, 426]},
+    )
+    return report, ctc_nn_system
+
+
+def run_mel_baseline_lr_reset():
+    gs.ALIAS_AND_OUTPUT_SUBDIR = "experiments/switchboard/ctc/feat/"
+    _, nn_system = run_mel_baseline()
+    (
+        returnn_datasets,
+        rasr_loss_corpus_path,
+        rasr_loss_corpus_segments,
+        rasr_loss_lexicon_path,
+        dev_corpora,
+    ) = get_datasets()
+    returnn_args = {
+        "batch_size": 5000,
+        "rasr_binary_path": RASR_BINARY_PATH,
+        "rasr_loss_corpus_path": rasr_loss_corpus_path,
+        "rasr_loss_corpus_segments": rasr_loss_corpus_segments,
+        "rasr_loss_lexicon_path": rasr_loss_lexicon_path,
+        "datasets": returnn_datasets,
+        "extra_args": {
+            "accum_grad_multiple_step": 2,
+            "watch_memory": True,
+            "preload_from_files": {
+                "existing-model": {
+                    "filename": nn_system.train_jobs["conformer_bs2x5k_lgm80_baseline"].out_checkpoints[24],
+                    "init_for_train": True,
+                },
+            },
+        },
+        "conformer_type": "wei",
+        "specaug_old": {"max_feature": 8},
+    }
+    feature_args = {"class": "LogMelNetwork", "wave_norm": True, "frame_size": 200, "frame_shift": 80, "fft_size": 256}
+    lr_args = {
+        "peak_lr": 4e-4,
+        "start_lr": 1.325e-05,
+        "end_lr": 1e-5,
+        "increase_epochs": 180,
+        "decrease_epochs": 180,
+        "final_epochs": 0,
+    }
+
+    nn_args, report_args_collection = get_nn_args_baseline(
+        nn_base_args={
+            "bs2x5k_lgm80_baseline_lr_reset": dict(
+                returnn_args=returnn_args,
+                feature_args=feature_args,
+                lr_args=lr_args,
+                report_args={"batch_size": "2x5k"},
+            ),
+        },
+        num_epochs=426,
+        evaluation_epochs=[326, 376, 386, 396, 406, 426],
+        prefix="conformer_",
+    )
+    report, ctc_nn_system = run_nn_args(
+        nn_args,
+        report_args_collection,
+        dev_corpora,
+        recog_args={"epochs": [326, 376, 386, 396, 406, 426]},
+    )
+    return report, ctc_nn_system
+
+
+def run_scf_frozen_features():
+    gs.ALIAS_AND_OUTPUT_SUBDIR = "experiments/switchboard/ctc/feat/"
+
+    _, nn_system = run_scf_baseline()
+
+    (
+        returnn_datasets,
+        rasr_loss_corpus_path,
+        rasr_loss_corpus_segments,
+        rasr_loss_lexicon_path,
+        dev_corpora,
+    ) = get_datasets()
+
+    # Common configurations
+    common_returnn_args = {
+        "batch_size": 5000,
+        "rasr_binary_path": RASR_BINARY_PATH,
+        "rasr_loss_corpus_path": rasr_loss_corpus_path,
+        "rasr_loss_corpus_segments": rasr_loss_corpus_segments,
+        "rasr_loss_lexicon_path": rasr_loss_lexicon_path,
+        "datasets": returnn_datasets,
+        "conformer_type": "wei",
+        "specaug_old": {"max_feature": 15},
+        "extra_args": {
+            "accum_grad_multiple_step": 2,
+            "conv_pad_seq_len_to_power": 1.5,
+        },
+    }
+
+    common_feature_args = {
+        "class": "ScfNetwork",
+        "size_tf": 256 // 2,
+        "stride_tf": 10 // 2,
+        "preemphasis": 0.97,
+        "wave_norm": True,
+    }
+
+    common_lr_args = {
+        "peak_lr": 4e-4,
+        "start_lr": 1.325e-05,
+        "end_lr": 1e-5,
+        "increase_epochs": 180,
+        "decrease_epochs": 180,
+        "final_epochs": 0,
+    }
+
+    common_report_args = {
+        "batch_size": "2x5k",
+    }
+
+    nn_args, report_args_collection = get_nn_args_baseline(
+        nn_base_args={
+            "epoch_256_freezing": {
+                "returnn_args": {
+                    "staged_opts": {
+                        256: "freeze_features",
+                    },
+                    **common_returnn_args,
+                },
+                "feature_args": common_feature_args,
+                "lr_args": common_lr_args,
+                "report_args": common_report_args,
+            },
+            "fixed_features": {
+                "returnn_args": {
+                    **common_returnn_args,
+                    "staged_opts": {
+                        1: "freeze_features",
+                    },
                     "extra_args": {
-                        "watch_memory": True,
-                        "conv_pad_seq_len_to_power": 1.5,
+                        **common_returnn_args["extra_args"],
                         "preload_from_files": {
                             "existing-model": {
-                                "filename": (
-                                    "/work/asr4/vieting/setups/swb/work/20230406_feat/i6_core/returnn/training/"
-                                    "ReturnnTrainingJob.y9otnVMrBAWw/output/models/backup.epoch.210"
-                                ),
+                                "filename": nn_system.train_jobs[
+                                    "conformer_bs2x5k_scf_baseline_preemphasis97_wn"
+                                ].out_checkpoints[400],
                                 "init_for_train": True,
+                                "prefix": "features",
+                                "var_name_mapping": {
+                                    "/conv_h_filter/conv_h_filter": "features/conv_h_filter/conv_h_filter",
+                                    "/conv_l/W": "features/conv_l/W",
+                                    "/conv_l_act/bias": "features/conv_l_act/bias",
+                                    "/conv_l_act/scale": "features/conv_l_act/scale",
+                                    "/wave_norm/bias": "features/wave_norm/bias",
+                                    "/wave_norm/scale": "features/wave_norm/scale",
+                                },
                             },
                         },
                     },
                 },
-                feature_args=feature_args,
-                lr_args={**lr_args, "peak_lr": 3.35e-4, "increase_epochs": 0, "decrease_epochs": 150},
-                report_args={"batch_size": "2x5k"},
-            ),
+                "feature_args": common_feature_args,
+                "lr_args": common_lr_args,
+                "report_args": common_report_args,
+            },
         },
         num_epochs=450,
-        evaluation_epochs=[350, 400, 450],
-        prefix="conformer_",
+        evaluation_epochs=[350, 390, 400, 410, 450],
+        prefix="conformer_bs2x5k_frozen_features_",
     )
 
     returnn_root = CloneGitRepositoryJob(
@@ -925,14 +567,210 @@ def run_scf_specaug_sort():
         commit="c4d36d06f6465e82a50d400d114259e07b8b0709",
     ).out_repository
     returnn_root.hash_overwrite = "returnn_conv_padding"
-    report, ctc_nn_system = run_nn_args(
-        nn_args, report_args_collection, dev_corpora, returnn_root=returnn_root,
-        recog_args={"epochs": [350, 400, 450, "best"]},
+    report, _ = run_nn_args(
+        nn_args,
+        report_args_collection,
+        dev_corpora,
+        "report_scf_frozen_features.csv",
+        returnn_root=returnn_root,
+        recog_args={"epochs": [350, 390, 400, 410, 450]},
     )
     return report
 
 
-def run_mel_audio_perturbation():
+def run_scf_audio_perturbation_from_checkpoint():
+    gs.ALIAS_AND_OUTPUT_SUBDIR = "experiments/switchboard/ctc/feat/"
+
+    _, nn_system = run_scf_baseline()
+
+    (
+        returnn_datasets,
+        rasr_loss_corpus_path,
+        rasr_loss_corpus_segments,
+        rasr_loss_lexicon_path,
+        dev_corpora,
+    ) = get_datasets(use_multi_proc_dataset=True, pre_process=CodeWrapper("audio_perturb_runner.run"))
+    returnn_args = {
+        "batch_size": 5000,
+        "rasr_binary_path": RASR_BINARY_PATH,
+        "rasr_loss_corpus_path": rasr_loss_corpus_path,
+        "rasr_loss_corpus_segments": rasr_loss_corpus_segments,
+        "rasr_loss_lexicon_path": rasr_loss_lexicon_path,
+        "datasets": returnn_datasets,
+        "conformer_type": "wei",
+        "audio_perturbation": True,
+        "use_multi_proc_dataset": True,
+        "specaug_old": {"max_feature": 15},
+        "extra_args": {
+            "accum_grad_multiple_step": 2,
+            "watch_memory": True,
+            "conv_pad_seq_len_to_power": 1.5,
+            "audio_perturb_runner": CodeWrapper("WaveformPerturbation(**audio_perturb_args)"),
+        },
+    }
+
+    # usually the lr args would need to be adapted to fit with the checkpoint,
+    # but experiments showed that restarting the scheduling is better
+    lr_args = {
+        "peak_lr": 4e-4,
+        "start_lr": 1.325e-05,
+        "end_lr": 1e-5,
+        "increase_epochs": 180,
+        "decrease_epochs": 180,
+        "final_epochs": 0,
+    }
+
+    perturbation_args = [
+        {"codecs": [{"encoding": "ULAW", "prob": 0.3, "minimum": 1, "maximum": 10, "default": None}]},
+        {"codecs": [{"encoding": "ULAW", "prob": 0.7, "minimum": 1, "maximum": 10, "default": None}]},
+        {"codecs": [{"encoding": "ULAW", "prob": 0.7, "minimum": 1, "maximum": 20, "default": None}]},
+        {"codecs": [{"encoding": "ULAW", "prob": 1, "minimum": 1, "maximum": 10, "default": None}]},
+        {"tempo": {"prob": 0.3, "minimum": 0.83, "maximum": 1.17}},
+        {"tempo": {"prob": 0.8, "minimum": 0.83, "maximum": 1.17}},
+        {"tempo": {"prob": 0.3, "minimum": 0.7, "maximum": 1.3}},
+        {"tempo": {"prob": 0.8, "minimum": 0.7, "maximum": 1.3}},
+        {"tempo": {"prob": 1, "minimum": 0.83, "maximum": 1.17}},
+        {"tempo": {"prob": 1, "minimum": 0.7, "maximum": 1.3}},
+        {"pitch": {"prob": 0.3, "minimum": -2, "maximum": 2}},
+        {"pitch": {"prob": 0.3, "minimum": -3, "maximum": 3}},
+        {"pitch": {"prob": 0.7, "minimum": -2, "maximum": 2}},
+        {"pitch": {"prob": 0.7, "minimum": -3, "maximum": 3}},
+        {"speed": {"prob": 0.5, "minimum": 0.88, "maximum": 1.12}},
+        {"speed": {"prob": 0.3, "minimum": 0.88, "maximum": 1.12}},
+        {"speed": {"prob": 0.7, "minimum": 0.88, "maximum": 1.12}},
+        {"speed": {"prob": 0.6, "minimum": 0.8, "maximum": 1.2}},
+        {"speed": {"prob": 0.6, "minimum": 0.9, "maximum": 1.1}},
+        {"speed": {"prob": 1, "minimum": 0.9, "maximum": 1.1}},
+        {"speed": {"prob": 1, "minimum": 0.8, "maximum": 1.2}},
+        {"non_linearity": {"prob": 0.7, "minimum": 0.9, "maximum": 1.1}},
+        {"non_linearity": {"prob": 0.3, "minimum": 0.9, "maximum": 1.1}},
+        {"non_linearity": {"prob": 1, "minimum": 0.9, "maximum": 1.1}},
+        # v2
+        {"tempo": {"prob": 0.8, "minimum": 0.65, "maximum": 1.35}},
+        {
+            "tempo": {"prob": 0.8, "minimum": 0.7, "maximum": 1.3},
+            "non_linearity": {"prob": 0.3, "minimum": 0.9, "maximum": 1.1},
+        },
+        {
+            "tempo": {"prob": 0.3, "minimum": 0.7, "maximum": 1.3},
+            "non_linearity": {"prob": 0.3, "minimum": 0.9, "maximum": 1.1},
+        },
+        {"non_linearity": {"prob": 0.3, "minimum": 0.85, "maximum": 1.15}},
+    ]
+
+    # seperated because the training needs a different network without preemphasis
+    perturbation_args_preemphasis = [
+        {"preemphasis": {"prob": 0.3, "minimum": 0.94, "maximum": 1.0, "default": 0.97}},
+        {"preemphasis": {"prob": 0.7, "minimum": 0.94, "maximum": 1.0, "default": 0.97}},
+        {"preemphasis": {"prob": 0.7, "minimum": 0.90, "maximum": 1.0, "default": 0.97}},
+        {"preemphasis": {"prob": 0.7, "minimum": 0.90, "maximum": 1.0, "default": 0.95}},
+        {"preemphasis": {"prob": 1.0, "minimum": 0.94, "maximum": 1.0, "default": 0.97}},
+    ]
+
+    nn_base_args = {}
+
+    for args in perturbation_args:
+        exp_name_suffix, report_args = args_to_key_and_report_strings(args)
+
+        # Construct the exp_name and report_args
+        exp_name = f"scf_bs2x5k_perturb_from_checkpoint_24_{exp_name_suffix}"
+        nn_base_args[exp_name] = dict(
+            returnn_args={
+                **returnn_args,
+                "extra_args": {
+                    **returnn_args["extra_args"],
+                    "audio_perturb_args": args,
+                    "preload_from_files": {
+                        "existing-model": {
+                            "filename": nn_system.train_jobs[
+                                "conformer_bs2x5k_scf_baseline_preemphasis97_wn"
+                            ].out_checkpoints[24],
+                            "init_for_train": True,
+                        }
+                    },
+                },
+            },
+            feature_args={
+                "class": "ScfNetwork",
+                "size_tf": 256 // 2,
+                "stride_tf": 10 // 2,
+                "preemphasis": 0.97,
+                "wave_norm": True,
+            },
+            lr_args=lr_args,
+            report_args=report_args,
+        )
+    for args in perturbation_args_preemphasis:
+        exp_name_suffix, report_args = args_to_key_and_report_strings(args)
+
+        # Construct the exp_name and report_args
+        exp_name = f"scf_bs2x5k_perturb_from_checkpoint_24_{exp_name_suffix}"
+        nn_base_args[exp_name] = dict(
+            returnn_args={
+                **returnn_args,
+                "extra_args": {
+                    **returnn_args["extra_args"],
+                    "audio_perturb_args": args,
+                    "preload_from_files": {
+                        "existing-model": {
+                            "filename": nn_system.train_jobs["conformer_bs2x5k_scf_baseline"].out_checkpoints[24],
+                            "init_for_train": True,
+                        }
+                    },
+                },
+            },
+            feature_args={"class": "ScfNetwork", "size_tf": 256 // 2, "stride_tf": 10 // 2},
+            lr_args=lr_args,
+            report_args=report_args,
+        )
+    # comparison with wave norm
+    for args in perturbation_args_preemphasis:
+        exp_name_suffix, report_args = args_to_key_and_report_strings(args)
+
+        # Construct the exp_name and report_args
+        exp_name = f"scf_bs2x5k_perturb_from_checkpoint_24_wn_{exp_name_suffix}"
+        nn_base_args[exp_name] = dict(
+            returnn_args={
+                **returnn_args,
+                "extra_args": {
+                    **returnn_args["extra_args"],
+                    "audio_perturb_args": args,
+                    "preload_from_files": {
+                        "existing-model": {
+                            "filename": nn_system.train_jobs["conformer_bs2x5k_scf_baseline_wn"].out_checkpoints[24],
+                            "init_for_train": True,
+                        }
+                    },
+                },
+            },
+            feature_args={"class": "ScfNetwork", "size_tf": 256 // 2, "stride_tf": 10 // 2, "wave_norm": True},
+            lr_args=lr_args,
+            report_args=report_args,
+        )
+
+    nn_args, report_args_collection = get_nn_args_baseline(
+        nn_base_args=nn_base_args,
+        num_epochs=426,
+        evaluation_epochs=[376, 386, 396, 406, 426],
+        prefix="conformer_",
+    )
+    returnn_root = CloneGitRepositoryJob(
+        "https://github.com/rwth-i6/returnn",
+        commit="c4d36d06f6465e82a50d400d114259e07b8b0709",
+    ).out_repository
+    returnn_root.hash_overwrite = "returnn_conv_padding"
+    report, _ = run_nn_args(
+        nn_args,
+        report_args_collection,
+        dev_corpora,
+        "report_scf_audio_perturbation_from_checkpoint24.csv",
+        returnn_root=returnn_root,
+        recog_args={"epochs": [376, 386, 396, 406, 426]},
+    )
+    return report
+
+
+def run_scf_specaug():
     gs.ALIAS_AND_OUTPUT_SUBDIR = "experiments/switchboard/ctc/feat/"
 
     (
@@ -941,126 +779,347 @@ def run_mel_audio_perturbation():
         rasr_loss_corpus_segments,
         rasr_loss_lexicon_path,
         dev_corpora,
-    ) = get_datasets(pre_process=CodeWrapper("audio_perturb_runner.run"))
-    returnn_args = {
-        "batch_size": 10000,
+    ) = get_datasets()
+    base_returnn_args = {
+        "batch_size": 5000,
         "rasr_binary_path": RASR_BINARY_PATH,
         "rasr_loss_corpus_path": rasr_loss_corpus_path,
         "rasr_loss_corpus_segments": rasr_loss_corpus_segments,
         "rasr_loss_lexicon_path": rasr_loss_lexicon_path,
         "datasets": returnn_datasets,
+        "extra_args": {
+            "accum_grad_multiple_step": 2,
+            "watch_memory": True,
+            "conv_pad_seq_len_to_power": 1.5,
+        },
+        "conformer_type": "wei",
     }
-    feature_args = {"class": "LogMelNetwork", "wave_norm": True, "frame_size": 200, "frame_shift": 80, "fft_size": 256}
+    feature_args = {
+        "class": "ScfNetwork",
+        "size_tf": 256 // 2,
+        "stride_tf": 10 // 2,
+        "wave_norm": True,
+        "preemphasis": 0.97,
+    }
+    lr_args = {
+        "peak_lr": 4e-4,
+        "start_lr": 1.325e-05,
+        "end_lr": 1e-5,
+        "increase_epochs": 180,
+        "decrease_epochs": 180,
+        "final_epochs": 0,
+    }
 
     nn_args, report_args_collection = get_nn_args_baseline(
         nn_base_args={
-            "lgm80_conf-wei-oldspecaug-audio_perturbation": dict(
+            "baseline": dict(
                 returnn_args={
-                    "conformer_type": "wei",
-                    "specaug_old": {"max_feature": 8},
-                    "audio_perturbation": True,
-                    "extra_args": {
-                        "audio_perturb_args": {
-                            "speed": {"prob": 0.6, "minimum": 0.88, "maximum": 1.12},
-                            "tempo": {"prob": 0.6, "minimum": 0.83, "maximum": 1.17},
-                        },
-                        "audio_perturb_runner": CodeWrapper("WaveformPerturbation(**audio_perturb_args)"),
-                    },
-                    **returnn_args,
+                    **base_returnn_args,
+                    "specaug_config": {"enable_sorting": False, "max_feature": 15, "steps_per_epoch": 4100},
                 },
                 feature_args=feature_args,
-                lr_args={
-                    "peak_lr": 4e-4,
-                    "start_lr": 1.325e-05,
-                    "end_lr": 1e-5,
-                    "increase_epochs": 180,
-                    "decrease_epochs": 180,
-                    "final_epochs": 0,
+                lr_args=lr_args,
+                report_args={"batch_size": "2x5k", "enable_sorting": False, "max_feature": 15},
+            ),
+            # note this only reduces the masking in frequency dimension, not in time.
+            "baseline_increase_flag": dict(
+                returnn_args={
+                    **base_returnn_args,
+                    "specaug_config": {
+                        "enable_sorting": False,
+                        "max_feature": 15,
+                        "max_feature_num": 2,
+                        "steps_per_epoch": 4100,
+                        "freq_mask_num_schedule": {0: 1, 1: 2.5},
+                    },
                 },
+                feature_args=feature_args,
+                lr_args=lr_args,
+                report_args={"batch_size": "2x5k", "enable_sorting": False, "max_feature": 15},
+            ),
+            "variance_based_specaug": dict(
+                returnn_args={
+                    **base_returnn_args,
+                    "specaug_config": {
+                        "steps_per_epoch": 4100,
+                        "enable_sorting": False,
+                        "filter_based_masking_strategy": "variance",
+                        "enable_logging": True,
+                        "filter_factor": 0.5,
+                        "max_number_masks_for_filter_based_specaug": 75,
+                    },
+                },
+                feature_args=feature_args,
+                lr_args=lr_args,
                 report_args={
-                    "architecture": "conf-wei",
-                    "lr": "wei_peak_4e-4_e450_cycle360",
-                    "speed": "0.6_0.88_1.12",
-                    "tempo": "0.6_0.83_1.17",
-                    "specaug": "wei_adapt_80dim",
-                    "wave_norm": "True",
+                    "batch_size": "2x5k",
+                    "filter_based_masking_strategy": "variance",
+                    "filter_factor": 0.5,
+                    "max_number_masks_for_filter_based_specaug": 75,
                 },
             ),
-            "lgm80_conf-wei-oldspecaug-audio_perturbation_v1": dict(
+            "peakToAverage_based_specaug": dict(
                 returnn_args={
-                    "conformer_type": "wei",
-                    "specaug_old": {"max_feature": 8},
-                    "audio_perturbation": True,
-                    "extra_args": {
-                        "audio_perturb_args": {  # v1
-                            "speed": {"prob": 0.6, "minimum": 0.88, "maximum": 1.12},
-                            "tempo": {"prob": 0.6, "minimum": 0.83, "maximum": 1.17},
-                            "preemphasis": {"prob": 0.9, "minimum": 0.9, "maximum": 1.0},
-                        },
-                        "audio_perturb_runner": CodeWrapper("WaveformPerturbation(**audio_perturb_args)"),
+                    **base_returnn_args,
+                    "specaug_config": {
+                        "steps_per_epoch": 4100,
+                        "enable_sorting": False,
+                        "filter_based_masking_strategy": "peakToAverage",
+                        "enable_logging": True,
+                        "filter_factor": 0.5,
+                        "max_number_masks_for_filter_based_specaug": 75,
                     },
-                    **returnn_args,
                 },
                 feature_args=feature_args,
-                lr_args={
-                    "peak_lr": 4e-4,
-                    "start_lr": 1.325e-05,
-                    "end_lr": 1e-5,
-                    "increase_epochs": 180,
-                    "decrease_epochs": 180,
-                    "final_epochs": 0,
-                },
+                lr_args=lr_args,
                 report_args={
-                    "architecture": "conf-wei",
-                    "lr": "wei_peak_4e-4_e450_cycle360",
-                    "speed": "0.6_0.88_1.12",
-                    "tempo": "0.6_0.83_1.17",
-                    "specaug": "wei_adapt_80dim",
-                    "wave_norm": "True",
-                    "preemphasis": "0.9_0.9_1.0",
-                },
-            ),
-            "lgm80_conf-wei-oldspecaug-audio_perturbation_v2": dict(
-                returnn_args={
-                    "conformer_type": "wei",
-                    "specaug_old": {"max_feature": 8},
-                    "audio_perturbation": True,
-                    "extra_args": {
-                        "audio_perturb_args": {  # v2
-                            "speed": {"prob": 0.6, "minimum": 0.88, "maximum": 1.12},
-                            "tempo": {"prob": 0.6, "minimum": 0.83, "maximum": 1.17},
-                            "preemphasis": {"prob": 0.9, "minimum": 0.9, "maximum": 1.0},
-                            "codecs": [{"encoding": "ULAW", "prob": 0.4}],
-                        },
-                        "audio_perturb_runner": CodeWrapper("WaveformPerturbation(**audio_perturb_args)"),
-                    },
-                    **returnn_args,
-                },
-                feature_args=feature_args,
-                lr_args={
-                    "peak_lr": 4e-4,
-                    "start_lr": 1.325e-05,
-                    "end_lr": 1e-5,
-                    "increase_epochs": 180,
-                    "decrease_epochs": 180,
-                    "final_epochs": 0,
-                },
-                report_args={
-                    "architecture": "conf-wei",
-                    "lr": "wei_peak_4e-4_e450_cycle360",
-                    "speed": "0.6_0.88_1.12",
-                    "tempo": "0.6_0.83_1.17",
-                    "specaug": "wei_adapt_80dim",
-                    "wave_norm": "True",
-                    "preemphasis": "0.9_0.9_1.0",
-                    "codec": "wav_ulaw_0.4",
+                    "batch_size": "2x5k",
+                    "filter_based_masking_strategy": "peakToAverage",
+                    "filter_factor": 0.5,
+                    "max_number_masks_for_filter_based_specaug": 75,
                 },
             ),
         },
         num_epochs=450,
-        prefix="conformer_bs10k_",
+        evaluation_epochs=[350, 390, 400, 410, 450],
+        prefix="conformer_bs2x5k_scf_specaug_",
     )
-    run_nn_args(nn_args, report_args_collection, dev_corpora, "report_mel_audio_perturbation.csv")
+
+    returnn_root = CloneGitRepositoryJob(
+        "https://github.com/rwth-i6/returnn",
+        commit="c4d36d06f6465e82a50d400d114259e07b8b0709",
+    ).out_repository
+    returnn_root.hash_overwrite = "returnn_conv_padding"
+    report, ctc_nn_system = run_nn_args(
+        nn_args,
+        report_args_collection,
+        dev_corpora,
+        "report_scf_specaug.csv",
+        returnn_root=returnn_root,
+        recog_args={"epochs": [350, 390, 400, 410, 450]},
+    )
+    return report
+
+
+def run_scf_baseline_decaying_batchsize():
+    gs.ALIAS_AND_OUTPUT_SUBDIR = "experiments/switchboard/ctc/feat/"
+
+    _, nn_system = run_scf_baseline()
+
+    (
+        returnn_datasets,
+        rasr_loss_corpus_path,
+        rasr_loss_corpus_segments,
+        rasr_loss_lexicon_path,
+        dev_corpora,
+    ) = get_datasets()
+    returnn_args = {
+        "batch_size": 5000,
+        "rasr_binary_path": RASR_BINARY_PATH,
+        "rasr_loss_corpus_path": rasr_loss_corpus_path,
+        "rasr_loss_corpus_segments": rasr_loss_corpus_segments,
+        "rasr_loss_lexicon_path": rasr_loss_lexicon_path,
+        "datasets": returnn_datasets,
+        "extra_args": {
+            "conv_pad_seq_len_to_power": 1.5,
+            "preload_from_files": {
+                "existing-model": {
+                    "filename": nn_system.train_jobs["conformer_bs2x5k_scf_baseline_preemphasis97_wn"].out_checkpoints[
+                        24
+                    ],
+                    "init_for_train": True,
+                }
+            },
+        },
+        "conformer_type": "wei",
+        "specaug_old": {"max_feature": 15},
+    }
+    feature_args = {
+        "class": "ScfNetwork",
+        "size_tf": 256 // 2,
+        "stride_tf": 10 // 2,
+        "preemphasis": 0.97,
+        "wave_norm": True,
+    }
+
+    nn_args, report_args_collection = get_nn_args_baseline(
+        nn_base_args={
+            "scf_baseline": dict(
+                returnn_args=returnn_args,
+                feature_args=feature_args,
+                lr_args={
+                    "peak_lr": 4e-4,
+                    "start_lr": 6.2668056e-05,
+                    "end_lr": 1e-5,
+                    "increase_epochs": 156,
+                    "decrease_epochs": 180,
+                    "final_epochs": 0,
+                },
+                report_args={
+                    "batch_size_decay_epoch": 24,
+                    "batch_size_start": 5000,
+                    "batch_size_end": 10000,
+                },
+            ),
+        },
+        num_epochs=426,
+        evaluation_epochs=[366, 376, 386, 426],
+        prefix="conformer_bs5k_decay_",
+    )
+
+    returnn_root = CloneGitRepositoryJob(
+        "https://github.com/rwth-i6/returnn",
+        commit="c4d36d06f6465e82a50d400d114259e07b8b0709",
+    ).out_repository
+    returnn_root.hash_overwrite = "returnn_conv_padding"
+    report, _ = run_nn_args(
+        nn_args,
+        report_args_collection,
+        dev_corpora,
+        "report_scf_baseline_bs_decay.csv",
+        returnn_root=returnn_root,
+        recog_args={"epochs": [366, 376, 386, 426]},
+    )
+    return report
+
+
+def run_mel_audio_perturbation_from_checkpoint():
+    gs.ALIAS_AND_OUTPUT_SUBDIR = "experiments/switchboard/ctc/feat/"
+
+    _, nn_system = run_mel_baseline()
+
+    (
+        returnn_datasets,
+        rasr_loss_corpus_path,
+        rasr_loss_corpus_segments,
+        rasr_loss_lexicon_path,
+        dev_corpora,
+    ) = get_datasets(use_multi_proc_dataset=True, pre_process=CodeWrapper("audio_perturb_runner.run"))
+    returnn_args = {
+        "batch_size": 5000,
+        "rasr_binary_path": RASR_BINARY_PATH,
+        "rasr_loss_corpus_path": rasr_loss_corpus_path,
+        "rasr_loss_corpus_segments": rasr_loss_corpus_segments,
+        "rasr_loss_lexicon_path": rasr_loss_lexicon_path,
+        "datasets": returnn_datasets,
+        "conformer_type": "wei",
+        "audio_perturbation": True,
+        "use_multi_proc_dataset": True,
+        "specaug_old": {"max_feature": 8},
+        "extra_args": {
+            "audio_perturb_runner": CodeWrapper("WaveformPerturbation(**audio_perturb_args)"),
+            "accum_grad_multiple_step": 2,
+        },
+    }
+    # usually the lr args would need to be adapted to fit with the checkpoint,
+    # but experiments showed that restarting the scheduling is better
+    lr_args = {
+        "peak_lr": 4e-4,
+        "start_lr": 1.325e-05,
+        "end_lr": 1e-5,
+        "increase_epochs": 180,
+        "decrease_epochs": 180,
+        "final_epochs": 0,
+    }
+
+    feature_args = {"class": "LogMelNetwork", "wave_norm": True, "frame_size": 200, "frame_shift": 80, "fft_size": 256}
+
+    perturbation_args = [
+        {"tempo": {"prob": 0.3, "minimum": 0.83, "maximum": 1.17}},
+        {"tempo": {"prob": 0.8, "minimum": 0.83, "maximum": 1.17}},
+        {"tempo": {"prob": 0.3, "minimum": 0.7, "maximum": 1.3}},
+        {"tempo": {"prob": 0.8, "minimum": 0.7, "maximum": 1.3}},
+        {"tempo": {"prob": 1, "minimum": 0.83, "maximum": 1.17}},
+        {"tempo": {"prob": 1, "minimum": 0.7, "maximum": 1.3}},
+        {"pitch": {"prob": 0.3, "minimum": -2, "maximum": 2}},
+        {"pitch": {"prob": 0.3, "minimum": -3, "maximum": 3}},
+        {"pitch": {"prob": 0.7, "minimum": -2, "maximum": 2}},
+        {"pitch": {"prob": 0.7, "minimum": -3, "maximum": 3}},
+        {"speed": {"prob": 0.5, "minimum": 0.88, "maximum": 1.12}},
+        {"speed": {"prob": 0.3, "minimum": 0.88, "maximum": 1.12}},
+        {"speed": {"prob": 0.7, "minimum": 0.88, "maximum": 1.12}},
+        {"speed": {"prob": 0.6, "minimum": 0.8, "maximum": 1.2}},
+        {"speed": {"prob": 0.6, "minimum": 0.9, "maximum": 1.1}},
+        {"speed": {"prob": 1, "minimum": 0.9, "maximum": 1.1}},
+        {"speed": {"prob": 1, "minimum": 0.8, "maximum": 1.2}},
+        {"non_linearity": {"prob": 0.7, "minimum": 0.9, "maximum": 1.1}},
+        {"non_linearity": {"prob": 0.3, "minimum": 0.9, "maximum": 1.1}},
+        {"non_linearity": {"prob": 1, "minimum": 0.9, "maximum": 1.1}},
+    ]
+
+    # seperated because the training needs a different network without preemphasis
+    perturbation_args_preemphasis = [
+        {"preemphasis": {"prob": 0.3, "minimum": 0.94, "maximum": 1.0, "default": 0.97}},
+        {"preemphasis": {"prob": 0.7, "minimum": 0.94, "maximum": 1.0, "default": 0.97}},
+        {"preemphasis": {"prob": 0.7, "minimum": 0.90, "maximum": 1.0, "default": 0.97}},
+        {"preemphasis": {"prob": 0.7, "minimum": 0.90, "maximum": 1.0, "default": 0.95}},
+        {"preemphasis": {"prob": 1.0, "minimum": 0.94, "maximum": 1.0, "default": 0.97}},
+    ]
+
+    nn_base_args = {}
+
+    for args in perturbation_args:
+        exp_name_suffix, report_args = args_to_key_and_report_strings(args)
+
+        # Construct the exp_name and report_args
+        exp_name = f"mel_bs2x5k_perturb_from_checkpoint_24_{exp_name_suffix}"
+        nn_base_args[exp_name] = dict(
+            returnn_args={
+                "extra_args": {
+                    **returnn_args["extra_args"],
+                    "audio_perturb_args": args,
+                    "preload_from_files": {
+                        "existing-model": {
+                            "filename": nn_system.train_jobs["conformer_bs2x5k_lgm80_baseline"].out_checkpoints[24],
+                            "init_for_train": True,
+                        }
+                    },
+                },
+                **returnn_args,
+            },
+            feature_args=feature_args,
+            lr_args=lr_args,
+            report_args=report_args,
+        )
+
+    for args in perturbation_args_preemphasis:
+        exp_name_suffix, report_args = args_to_key_and_report_strings(args)
+
+        # Construct the exp_name and report_args
+        exp_name = f"mel_bs2x5k_perturb_from_checkpoint_24_{exp_name_suffix}"
+        nn_base_args[exp_name] = dict(
+            returnn_args={
+                "extra_args": {
+                    **returnn_args["extra_args"],
+                    "audio_perturb_args": args,
+                    "preload_from_files": {
+                        "existing-model": {
+                            "filename": nn_system.train_jobs["bs2x5k_lgm80_baseline_preemphasis97"].out_checkpoints[24],
+                            "init_for_train": True,
+                        }
+                    },
+                },
+                **returnn_args,
+            },
+            feature_args=feature_args,
+            lr_args=lr_args,
+            report_args=report_args,
+        )
+
+    nn_args, report_args_collection = get_nn_args_baseline(
+        nn_base_args=nn_base_args,
+        num_epochs=426,
+        evaluation_epochs=[376, 386, 396, 406, 426],
+        prefix="conformer_",
+    )
+    report, _ = run_nn_args(
+        nn_args,
+        report_args_collection,
+        dev_corpora,
+        "report_mel_audio_perturbation_from_checkpoint24.csv",
+        recog_args={"epochs": [376, 386, 396, 406, 426]},
+    )
+    return report
 
 
 def py():
@@ -1068,12 +1127,14 @@ def py():
     called if the file is passed to sis manager, used to run all experiments (replacement for main)
     """
     report_mel, _ = run_mel_baseline()
-    report_scf = run_scf_baseline()
+    report_scf, _ = run_scf_baseline()
     report_scf_specaug_sort = run_scf_specaug_sort()
+    report_scf_audio_perturbation_from_checkpoint = run_scf_audio_perturbation_from_checkpoint()
+    report_mel_audio_perturbation_from_checkpoint = run_mel_audio_perturbation_from_checkpoint()
 
     report_base = Report(
-        columns_start=["train_name", "wave_norm", "specaug", "lr", "batch_size"],
-        columns_end=["epoch", "recog_name", "lm", "optlm", "lm_scale", "prior_scale"],
+        columns_start=["train_name", "batch_size"],
+        columns_end=["epoch", "lm_scale", "prior_scale"],
     )
     report = Report.merge_reports(
         [
@@ -1081,6 +1142,8 @@ def py():
             report_mel,
             report_scf,
             report_scf_specaug_sort,
+            report_scf_audio_perturbation_from_checkpoint,
+            report_mel_audio_perturbation_from_checkpoint,
         ]
     )
     tk.register_report(

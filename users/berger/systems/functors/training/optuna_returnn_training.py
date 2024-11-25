@@ -28,6 +28,7 @@ class OptunaReturnnTrainFunctor(TrainFunctor[returnn.OptunaReturnnTrainingJob, r
         )
 
         train_job.add_alias(f"train_nn/{train_config.name}")
-        tk.register_output(f"train_nn/{train_config.name}/learning_rate.png", train_job.out_plot_lr)
+        for trial_num, learning_rate_file in train_job.out_trial_learning_rates.items():
+            tk.register_output(f"train_nn/{train_config.name}/trial-{trial_num:03d}/learning_rates", learning_rate_file)
 
         return train_job

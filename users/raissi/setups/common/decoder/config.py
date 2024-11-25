@@ -157,6 +157,7 @@ class SearchParameters:
     altas: Optional[float] = None
     lm_lookahead_scale: Optional[float] = None
     lm_lookahead_history_limit: Int = 1
+    word_recombination_limit: Optional[Int] = None
     posterior_scales: Optional[PosteriorScales] = None
     silence_penalties: Optional[Tuple[Float, Float]] = None  # loop, fwd
     state_dependent_tdps: Optional[Union[str, tk.Path]] = None
@@ -188,6 +189,9 @@ class SearchParameters:
 
     def with_lm_lookahead_history_limit(self, history_limit: Int) -> "SearchParameters":
         return dataclasses.replace(self, lm_lookahead_history_limit=history_limit)
+
+    def with_word_recombination_limit(self, word_recombination_limit: Int) -> "SearchParameters":
+        return dataclasses.replace(self, word_recombination_limit=word_recombination_limit)
 
     def with_prior_scale(
         self,
@@ -304,7 +308,6 @@ class SearchParameters:
 @dataclass(eq=True, frozen=True)
 class AlignmentParameters:
     prior_info: PriorInfo
-    pron_scale: Float
     tdp_scale: Optional[Float]
     tdp_silence: Tuple[TDP, TDP, TDP, TDP]  # loop, fwd, skip, exit
     tdp_speech: Tuple[TDP, TDP, TDP, TDP]  # loop, fwd, skip, exit
@@ -312,6 +315,8 @@ class AlignmentParameters:
     non_word_phonemes: str
 
     add_all_allophones: bool = False
+    add_allophones_from_file: str = None
+    allow_for_silence_repetitions: bool = False
     posterior_scales: Optional[PosteriorScales] = None
     silence_penalties: Optional[Tuple[Float, Float]] = None  # loop, fwd for FH FS
     state_dependent_tdps: Optional[Union[str, tk.Path]] = None
@@ -319,6 +324,12 @@ class AlignmentParameters:
 
     def with_add_all_allophones(self, add_all: bool):
         return dataclasses.replace(self, add_all_allophones=add_all)
+
+    def with_allophone_file(self, allophone_file: str):
+        return dataclasses.replace(self, add_allophones_from_file=allophone_file)
+
+    def with_allow_for_silence_repetitions(self, allow_for_silence_repetitions: bool):
+        return dataclasses.replace(self, allow_for_silence_repetitions=allow_for_silence_repetitions)
 
     def with_prior_scale(
         self,
@@ -353,7 +364,6 @@ class AlignmentParameters:
     def default_monophone(cls, *, priors: PriorInfo, frame_rate: int = 1) -> "AlignmentParameters":
         return cls(
             tdp_scale=1.0,
-            pron_scale=2.0,
             prior_info=priors.with_scale(0.2),
             tdp_speech=(3.0, 0.0, "infinity", 0.0),
             tdp_silence=(10.0, 0.0, "infinity", 0.0) if frame_rate > 1 else (0.0, 3.0, "infinity", 0.0),
@@ -365,7 +375,6 @@ class AlignmentParameters:
     def default_diphone(cls, *, priors: PriorInfo, frame_rate: int = 1) -> "AlignmentParameters":
         return cls(
             tdp_scale=1.0,
-            pron_scale=2.0,
             prior_info=priors.with_scale(center=0.2, left=0.1),
             tdp_speech=(3.0, 0.0, "infinity", 0.0),
             tdp_silence=(10.0, 0.0, "infinity", 0.0) if frame_rate > 1 else (0.0, 3.0, "infinity", 0.0),
@@ -377,7 +386,6 @@ class AlignmentParameters:
     def default_triphone(cls, *, priors: PriorInfo, frame_rate: int = 1) -> "AlignmentParameters":
         return cls(
             tdp_scale=1.0,
-            pron_scale=2.0,
             prior_info=priors.with_scale(center=0.2, left=0.1, right=0.1),
             tdp_speech=(3.0, 0.0, "infinity", 0.0),
             tdp_silence=(10.0, 0.0, "infinity", 0.0) if frame_rate > 1 else (0.0, 3.0, "infinity", 0.0),
@@ -389,7 +397,6 @@ class AlignmentParameters:
     def default_joint_diphone(cls, *, priors: PriorInfo, frame_rate: int = 1) -> "AlignmentParameters":
         return cls(
             tdp_scale=1.0,
-            pron_scale=2.0,
             prior_info=priors.with_scale(diphone=0.4),
             tdp_speech=(3.0, 0.0, "infinity", 0.0),
             tdp_silence=(10.0, 0.0, "infinity", 0.0) if frame_rate > 1 else (0.0, 3.0, "infinity", 0.0),
@@ -410,3 +417,4 @@ class AlignmentParameters:
 
         else:
             raise NotImplementedError(f"unimplemented context {context}")
+

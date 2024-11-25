@@ -10,7 +10,9 @@ import numpy as np
 import hashlib
 import contextlib
 import functools
+from itertools import product
 
+from sisyphus import tk
 from returnn.tensor import Tensor, Dim, single_step_dim
 import returnn.frontend as rf
 from returnn.frontend.tensor_array import TensorArray
@@ -27,12 +29,24 @@ from .configs import (
 )
 from .trafo_lm import trafo_lm_kazuki_import
 
-if TYPE_CHECKING:
-    from i6_experiments.users.zeyer.model_interfaces import ModelDef, RecogDef, TrainDef
-    from i6_experiments.users.zeyer.model_with_checkpoints import (
-        ModelWithCheckpoints,
-        ModelWithCheckpoint,
-    )
+# if TYPE_CHECKING:
+from i6_experiments.users.zeyer.model_interfaces import ModelDef, RecogDef, TrainDef
+from i6_experiments.users.zeyer.model_with_checkpoints import (
+    ModelWithCheckpoints,
+    ModelWithCheckpoint,
+)
+
+from i6_experiments.users.gaudino.models.asr.rf.nn_lm.lm_import_2023_11_09 import (
+    Trafo_LM_Model,
+)
+
+from i6_experiments.users.gaudino.models.asr.rf.ilm_import_2024_04_17 import (
+    MiniAtt_ILM_Model_V2, MiniAtt_ILM_Model
+)
+
+from i6_experiments.users.gaudino.experiments.rf_conformer_att_2023.librispeech_960.model_recogs.model_recog import model_recog as model_recog_extended
+from i6_experiments.users.gaudino.experiments.rf_conformer_att_2023.librispeech_960.model_recogs.model_recog_ctc_greedy import model_recog_ctc
+from i6_experiments.users.gaudino.experiments.rf_conformer_att_2023.librispeech_960.model_recogs.model_recog_time_sync import model_recog_time_sync
 
 # From Mohammad, 2023-06-29
 # dev-clean  2.27
@@ -96,13 +110,17 @@ _log_mel_feature_dim = 80
 
 def sis_run_with_prefix(prefix_name: Optional[str] = None):
     """run the exp"""
+
+    from i6_core.returnn.training import PtCheckpoint
+
     _sis_setup_global_prefix(prefix_name)
+
 
     # Moh:      dev-clean  2.27, dev-other  5.39, test-clean  2.41,  test-other  5.51
     # RF recog: {"dev-clean": 2.25, "dev-other": 5.34, "test-clean": 2.42, "test-other": 5.56}
     # _recog_imported()
 
-    train_exp("from-scratch-train", config_11gb, gpu_mem=11)
+    # train_exp("from-scratch-train", config_11gb, gpu_mem=11)
 
     # train_exp(  # dev-other 7.6
     #     "base-24gb-bs30k-f32",
@@ -323,6 +341,338 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
     #     # OOM in ep 889
     #     post_config_updates={"PYTORCH_CUDA_ALLOC_CONF": "backend:cudaMallocAsync"},
     # )
+
+    # bpe 10k ATT/CTC model
+
+    _torch_ckpt_path = "/work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/2023-08-10--rf-librispeech/work/i6_core/returnn/training/ReturnnTrainingJob.CMIQklG8vBT6/output/models/epoch.2000.pt"
+
+    new_ckpt_path = tk.Path(
+        _torch_ckpt_path,
+        hash_overwrite= "att" + "_torch_ckpt",
+    )
+    new_ckpt = PtCheckpoint(new_ckpt_path)
+
+    recog_config = {
+        "batch_size": 1250 * _batch_size_factor,
+        "external_language_model": {
+            "class": "Trafo_LM_Model",
+            "num_layers": 24,
+            "layer_out_dim": 1024,
+            "att_num_heads": 8,
+            "use_pos_enc": True,
+            "ff_activation": "relu",
+        },
+        "preload_from_files": {
+            "01_trafo_lm": {
+                "prefix": "language_model.",
+                "filename": "/work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/2023-08-10--rf-librispeech/work/i6_experiments/users/gaudino/returnn/convert_ckpt_rf/librispeech/trafo_lm_only_24_02_06/network.023.pt",
+            },
+        },
+        "aux_loss_layers": [4,8],
+    }
+
+    for lm_scale, beam_size in product([0.25], []):
+        recog_config["search_args"] = {
+                "beam_size": beam_size,
+                "lm_scale": lm_scale,
+            },
+
+        _recog(
+            "base-24gb-v6-lrlin1e_5_600k" + "/bsf10" + f"/att_trafo_lm{lm_scale}_beam{beam_size}",
+            ModelWithCheckpoint(
+                definition=from_scratch_model_def, checkpoint=new_ckpt
+            ),
+            recog_def=model_recog_extended,
+            recog_config=recog_config,
+            # dev_sets=["dev-other"],
+            dev_sets=None,
+            device="gpu",
+        )
+
+    model_name = "/base-24gb-v6-lrlin1e_5_600k-ep2000"
+
+    # ctc greedy
+    name = "bsf10" + model_name + "/ctc_greedy"
+    search_args = {
+        "bsf": 10,
+        "ctc_prior_file": "",
+        "prior_scale": 0.0,
+    }
+    recog_config["search_args"] = search_args
+
+    _recog(
+        name,
+        ModelWithCheckpoint(
+            definition=from_scratch_model_def, checkpoint=new_ckpt
+        ),
+        recog_def=model_recog_ctc,
+        recog_config=recog_config,
+        # dev_sets=["dev-other"],
+        dev_sets=None,
+        device="gpu",
+    )
+
+    # opls ctc + lm
+    # opls_ctc_trafo_lm0.7_beam32/recog_results
+    # {"dev-clean": 2.14, "dev-other": 4.74, "test-clean": 2.4, "test-other": 5.07}
+    for prior_scale, lm_scale, beam_size in product(
+        [0.0], [0.0, 0.6, 0.7], []
+    ):
+        recog_name = (
+            f"/opls_ctc"
+            + (f"_prior{prior_scale}" if prior_scale > 0.0 else "")
+            + (f"_trafo_lm{lm_scale}" if lm_scale > 0.0 else "")
+            + f"_beam{beam_size}"
+        )
+        name = "/bsf10" + model_name + ("/with_lm" if lm_scale > 0.0 else "") + recog_name
+        search_args = {
+            "beam_size": beam_size,
+            "add_trafo_lm": lm_scale > 0.0,
+            "lm_scale": lm_scale,
+            "att_scale": 0.0,
+            "ctc_scale": 1.0,
+            "bsf": 10,
+            "ctc_prior_file": "",
+            "prior_scale": prior_scale,
+            "use_lm_first_label": True,
+        }
+
+        recog_config["search_args"] = search_args
+
+        _recog(
+            name,
+            ModelWithCheckpoint(
+                definition=from_scratch_model_def, checkpoint=new_ckpt
+            ),
+            recog_def=model_recog_extended,
+            recog_config=recog_config,
+            # dev_sets=["dev-other"],
+            dev_sets=None,
+            device="gpu",
+        )
+
+    # opls att + ctc
+    for scales, prior_scale, lm_scale, beam_size in product(
+        [(0.9, 0.1)], [0.0], [0.0, 0.5], []
+    ):
+        att_scale, ctc_scale = scales
+        recog_name = (
+            f"/opls_att{att_scale}_ctc{ctc_scale}"
+            + (f"_prior{prior_scale}" if prior_scale > 0.0 else "")
+            + (f"_trafo_lm{lm_scale}" if lm_scale > 0.0 else "")
+            + f"_beam{beam_size}"
+        )
+        name = "bsf10" + model_name + ("/with_lm" if lm_scale > 0.0 else "") + recog_name
+        search_args = {
+            "beam_size": beam_size,
+            "add_trafo_lm": lm_scale > 0.0,
+            "lm_scale": lm_scale,
+            "att_scale": att_scale,
+            "ctc_scale": ctc_scale,
+            "bsf": 10,
+            "ctc_prior_file": "",
+            "prior_scale": prior_scale,
+            "use_lm_first_label": True,
+        }
+
+        recog_config["search_args"] = search_args
+
+        _recog(
+            name,
+            ModelWithCheckpoint(
+                definition=from_scratch_model_def, checkpoint=new_ckpt
+            ),
+            recog_def=model_recog_extended,
+            recog_config=recog_config,
+            # dev_sets=["dev-other"],
+            dev_sets=None,
+            device="gpu",
+        )
+
+    # optsr ctc + lm
+    for prior_scale, lm_scale, beam_size in product(
+        [0.0], [0.5, 0.55, 0.6, 0.65], [12]
+    ):
+        recog_name = (
+            f"/optsr_ctc"
+            + (f"_prior{prior_scale}" if prior_scale > 0.0 else "")
+            + (f"_trafo_lm{lm_scale}" if lm_scale > 0.0 else "")
+            + f"_beam{beam_size}"
+        )
+        name = "bsf40" + model_name + ("/with_lm" if lm_scale > 0.0 else "") + recog_name
+        search_args = {
+            "beam_size": beam_size,
+            "add_trafo_lm": lm_scale > 0.0,
+            "lm_scale": lm_scale,
+            "att_scale": 0.0,
+            "ctc_scale": 1.0,
+            "bsf": 40,
+            "ctc_prior_file": "",
+            "prior_scale": prior_scale,
+            "use_lm_first_label": True,
+            "lm_skip": True,
+        }
+
+        recog_config["search_args"] = search_args
+        recog_config["batch_size"] = 4*1250*_batch_size_factor
+        recog_config["external_language_model"]["pos_enc_diff_pos"] = True
+
+        _recog(
+            name,
+            ModelWithCheckpoint(
+                definition=from_scratch_model_def, checkpoint=new_ckpt
+            ),
+            recog_def=model_recog_time_sync,
+            recog_config=recog_config,
+            dev_sets=["dev-other"],
+            # dev_sets=None,
+            device="gpu",
+        )
+
+    # optsr att + ctc
+    # optsr_att0.9_ctc0.1_beam32/recog_results
+    # {"dev-clean": 2.28, "dev-other": 5.5, "test-clean": 2.5, "test-other": 5.63}
+    # optsr_att0.9_ctc0.1_trafo_lm0.3_beam32/recog_results
+    # {"dev-clean": 1.97, "dev-other": 4.72, "test-clean": 2.17, "test-other": 4.85}
+    for scales, prior_scale, lm_scale, beam_size in product(
+        [(0.9, 0.1)], [0.0], [0.0, 0.3], [12, 32] # TODO: run tst for lm 0.0
+    ):
+        att_scale, ctc_scale = scales
+        recog_name = (
+            f"/optsr_att{att_scale}_ctc{ctc_scale}"
+            + (f"_prior{prior_scale}" if prior_scale > 0.0 else "")
+            + (f"_trafo_lm{lm_scale}" if lm_scale > 0.0 else "")
+            + f"_beam{beam_size}"
+        )
+        name = "bsf40" + model_name + ("/with_lm" if lm_scale > 0.0 else "") + recog_name
+        search_args = {
+            "beam_size": beam_size,
+            "add_trafo_lm": lm_scale > 0.0,
+            "lm_scale": lm_scale,
+            "att_scale": att_scale,
+            "ctc_scale": ctc_scale,
+            "bsf": 40,
+            "ctc_prior_file": "",
+            "prior_scale": prior_scale,
+            "use_lm_first_label": True,
+            "lm_skip": True,
+        }
+
+        recog_config["search_args"] = search_args
+        recog_config["batch_size"] = 4*1250*_batch_size_factor
+        recog_config["external_language_model"]["pos_enc_diff_pos"] = True
+
+        _recog(
+            name,
+            ModelWithCheckpoint(
+                definition=from_scratch_model_def, checkpoint=new_ckpt
+            ),
+            recog_def=model_recog_time_sync,
+            recog_config=recog_config,
+            # dev_sets=["dev-other"],
+            dev_sets=None,
+            device="gpu",
+        )
+
+    # bpe 10k noCTC model
+
+    _torch_ckpt_path = "/work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/2023-08-10--rf-librispeech/work/i6_core/returnn/training/ReturnnTrainingJob.Kh5PT8N397Fe/output/models/epoch.2000.pt"
+
+    new_ckpt_path = tk.Path(
+        _torch_ckpt_path,
+        hash_overwrite= "att" + "_torch_ckpt",
+    )
+    new_ckpt = PtCheckpoint(new_ckpt_path)
+
+    for lm_scale, beam_size in product([0.25], [40, 48]):
+        recog_config={
+            "batch_size": 1250 * _batch_size_factor,
+            "search_args": {
+                "beam_size": beam_size,
+                "lm_scale": lm_scale,
+            },
+            "external_language_model": {
+                "class": "Trafo_LM_Model",
+                "num_layers": 24,
+                "layer_out_dim": 1024,
+                "att_num_heads": 8,
+                "use_pos_enc": True,
+                "ff_activation": "relu",
+            },
+            "preload_from_files": {
+                "01_trafo_lm": {
+                    "prefix": "language_model.",
+                    "filename": "/work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/2023-08-10--rf-librispeech/work/i6_experiments/users/gaudino/returnn/convert_ckpt_rf/librispeech/trafo_lm_only_24_02_06/network.023.pt",
+                },
+            },
+        }
+
+        _recog(
+            "base-24gb-v6-lrlin1e_5_600k_noCTC" + "/bsf10" + f"/att_trafo_lm{lm_scale}_beam{beam_size}",
+            ModelWithCheckpoint(
+                definition=from_scratch_model_def, checkpoint=new_ckpt
+            ),
+            recog_def=model_recog_extended,
+            recog_config=recog_config,
+            dev_sets=None,
+            # dev_sets=["dev-other"],
+            device="gpu",
+        )
+
+    config_11gb_ilm = dict(
+        batching="laplace:.1000",
+        batch_size=15_000 * _batch_size_factor,
+        max_seqs=200,
+        max_seq_length_default_target=75,
+        specaugment_steps=(10_000, 20_000, 40_000), # TODO
+        # gradient_clip=0,
+        # gradient_clip_global_norm = 1.0
+        optimizer={
+            "class": "adamw",
+            "epsilon": 1e-8,
+            "weight_decay": 1e-2, # 1e-6,
+        },
+        accum_grad_multiple_step=4,
+        # gradient_noise=0.0,
+        learning_rate=8e-4,
+        # dynamic_learning_rate=dyn_lr_lin_warmup_invsqrt_decay,
+        # learning_rate_warmup_steps=40_000,
+        # learning_rate_invsqrt_norm=40_000,
+        # aux_loss_layers=[4, 8],
+    )
+
+    # train_mini_att_ilm(
+    #     "base-24gb-v6-lrlin1e_5_600k",
+    #     ModelWithCheckpoint(model_def_mini_att_ilm, new_ckpt),
+    #     "my-ilm-11gb-noCurrL",
+    #     config_11gb_ilm,
+    #     gpu_mem=11,
+    #     data_opts=dict(
+    #         bpe_size="BPE10k",
+    #         train_epoch_wise_filter={},
+    #     ),
+    #     num_epochs=40,
+    # )
+
+    # train_mini_att_ilm(
+    #     "base-24gb-v6-lrlin1e_5_600k",
+    #     ModelWithCheckpoint(model_def_mini_att_ilm, new_ckpt),
+    #     "my-ilm-11gb-v2",
+    #     config_11gb_ilm,
+    #     config_updates={
+    #         "use_specaugment": False,
+    #         "hash_overwrite": "60eps"
+    #     },
+    #     gpu_mem=11,
+    #     data_opts=dict(
+    #         bpe_size="BPE10k",
+    #         train_epoch_wise_filter={},
+    #     ),
+    #     num_epochs=60,
+    # )
+
+
+
     model = train_exp(  # 5.41
         "base-24gb-v6-lrlin1e_5_600k",
         config_24gb_v6,
@@ -334,6 +684,81 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
             "learning_rate_piecewise_values": [1e-5, 1e-3, 1e-5, 1e-6],
         },
     )
+    # model = train_exp( # 5.42
+    #     "base-24gb-v6-lrlin1e_5_600k_noCTC",
+    #     config_24gb_v6,
+    #     config_updates={
+    #         "learning_rate": 1.0,
+    #         "dynamic_learning_rate": dyn_lr_piecewise_linear,
+    #         # total steps after 2000 epochs: 982.312
+    #         "learning_rate_piecewise_steps": [600_000, 900_000, 982_000],
+    #         "learning_rate_piecewise_values": [1e-5, 1e-3, 1e-5, 1e-6],
+    #         "aux_loss_layers": [],
+    #     },
+    # )
+
+    # # train with bpe5k vocab
+    # model = train_exp(  # "2000": {"dev-clean": 2.21, "dev-other": 5.64, "test-clean": 2.43, "test-other": 5.65}
+    #     "base-24gb-v6-lrlin1e_5_600k-bpe5k",
+    #     config_24gb_v6,
+    #     config_updates={
+    #         "learning_rate": 1.0,
+    #         "dynamic_learning_rate": dyn_lr_piecewise_linear,
+    #         # total steps after 2000 epochs: 982.312
+    #         "learning_rate_piecewise_steps": [600_000, 900_000, 982_000],
+    #         "learning_rate_piecewise_values": [1e-5, 1e-3, 1e-5, 1e-6],
+    #         "bpe_size": "BPE5k",
+    #     },
+    #     bpe_size="BPE5k",
+    # )
+    # model = train_exp(  # "2000": {"dev-clean": 2.35, "dev-other": 5.47, "test-clean": 2.64, "test-other": 5.79}
+    #     "base-24gb-v6-lrlin1e_5_600k_noCTC-bpe5k",
+    #     config_24gb_v6,
+    #     config_updates={
+    #         "learning_rate": 1.0,
+    #         "dynamic_learning_rate": dyn_lr_piecewise_linear,
+    #         # total steps after 2000 epochs: 982.312
+    #         "learning_rate_piecewise_steps": [600_000, 900_000, 982_000],
+    #         "learning_rate_piecewise_values": [1e-5, 1e-3, 1e-5, 1e-6],
+    #         "aux_loss_layers": [],
+    #         "bpe_size": "BPE5k",
+    #     },
+    #     bpe_size="BPE5k",
+    # )
+
+    # train with bpe1k vocab
+    model = train_exp(
+        "base-24gb-v6-lrlin1e_5_600k-bpe1k_real",
+        config_24gb_v6,
+        config_updates={
+            "learning_rate": 1.0,
+            "dynamic_learning_rate": dyn_lr_piecewise_linear,
+            # total steps after 2000 epochs: 982.312
+            "learning_rate_piecewise_steps": [600_000, 900_000, 982_000],
+            "learning_rate_piecewise_values": [1e-5, 1e-3, 1e-5, 1e-6],
+            "hash_overwrite": "bpe1k",
+        },
+        data_opts={
+            "bpe_size": "BPE1k",
+        },
+    )
+    model = train_exp(
+        "base-24gb-v6-lrlin1e_5_600k_noCTC-bpe1k_real",
+        config_24gb_v6,
+        config_updates={
+            "learning_rate": 1.0,
+            "dynamic_learning_rate": dyn_lr_piecewise_linear,
+            # total steps after 2000 epochs: 982.312
+            "learning_rate_piecewise_steps": [600_000, 900_000, 982_000],
+            "learning_rate_piecewise_values": [1e-5, 1e-3, 1e-5, 1e-6],
+            "aux_loss_layers": [],
+            "hash_overwrite": "bpe1k",
+        },
+        data_opts={
+            "bpe_size": "BPE1k",
+        },
+    )
+
     # All beam search experiments using model_recog_pure_torch, beam_search_sep_ended_keep_v6.
     # for name, recog_config in {
     #     "beam12-batch200-lenReward01": {
@@ -981,14 +1406,16 @@ def _recog(
     *,
     search_rqmt: Optional[Dict[str, Any]] = None,
     dev_sets: Optional[Collection[str]] = None,
+    bpe_size: str = "BPE10k",
+    device: str = "cpu",
 ):
     from sisyphus import tk
-    from i6_experiments.users.zeyer.recog import recog_model
+    from i6_experiments.users.gaudino.recog_2 import recog_model
 
     if recog_def is None:
         recog_def = model_recog
 
-    task = _get_ls_task()
+    task = _get_ls_task(bpe_size)
 
     res = recog_model(
         task,
@@ -997,8 +1424,10 @@ def _recog(
         config=recog_config,
         search_rqmt=search_rqmt,
         dev_sets=dev_sets,
+        device=device,
+        name=_sis_prefix + "/" + name,
     )
-    tk.register_output(_sis_prefix + "/" + name, res.output)
+    tk.register_output(_sis_prefix + "/" + name + "/recog_results", res.output)
 
 
 # noinspection PyShadowingNames
@@ -1015,6 +1444,7 @@ def train_exp(
     fine_tune: Optional[Union[int, List[Tuple[int, Dict[str, Any]]]]] = None,
     time_rqmt: Optional[int] = None,
     model_avg: bool = False,
+    data_opts: Optional[Dict[str, Any]] = None,
 ) -> ModelWithCheckpoints:
     """
     Train experiment
@@ -1022,13 +1452,13 @@ def train_exp(
     from i6_experiments.users.gaudino.experiments.rf_conformer_att_2023.train import (
         train,
     )
-    from i6_experiments.users.zeyer.recog import recog_training_exp
+    from i6_experiments.users.gaudino.recog_2 import recog_training_exp
 
     if _sis_prefix is None:
         _sis_setup_global_prefix()
 
     prefix = _sis_prefix + "/" + name
-    task = _get_ls_task()
+    task = _get_ls_task(**data_opts)
     config = config.copy()
     config = dict_update_deep(config, config_updates, config_deletes)
     if "__num_epochs" in config:
@@ -1111,20 +1541,150 @@ def train_exp(
 
     return model_with_checkpoint
 
+# noinspection PyShadowingNames
+def train_mini_att_ilm(
+    name: str,
+    model_with_checkpoint: ModelWithCheckpoint,
+    ilm_name: str,
+    config: Dict[str, Any],
+    *,
+    config_updates: Optional[Dict[str, Any]] = None,
+    config_deletes: Optional[Sequence[str]] = None,
+    post_config_updates: Optional[Dict[str, Any]] = None,
+    num_epochs: int = 20,
+    gpu_mem: Optional[int] = 24,
+    num_processes: Optional[int] = None,
+    time_rqmt: Optional[int] = None,
+    model_avg: bool = False,
+    data_opts: Optional[Dict[str, Any]] = None,
+) -> ModelWithCheckpoints:
+    """
+    Train experiment
+    """
+    from i6_experiments.users.gaudino.experiments.rf_conformer_att_2023.train import (
+        train,
+    )
+    from i6_experiments.users.gaudino.recog_2 import recog_training_exp
+
+    if _sis_prefix is None:
+        _sis_setup_global_prefix()
+
+    model_name = name + "/ilm/" + ilm_name
+    prefix = _sis_prefix+ "/" + model_name
+    task = _get_ls_task(**data_opts)
+    config = config.copy()
+    config = dict_update_deep(config, config_updates, config_deletes)
+    if "__num_epochs" in config:
+        num_epochs = config.pop("__num_epochs")
+    if "__gpu_mem" in config:
+        gpu_mem = config.pop("__gpu_mem")
+    if "__num_processes" in config:
+        num_processes = config.pop("__num_processes")
+
+    config["preload_from_files"] = {
+        "import": {
+            "init_for_train": True,
+            "ignore_missing": True,
+            "filename": model_with_checkpoint.checkpoint,
+        }
+    }
+
+    config["internal_language_model"] =  {
+            "class": "MiniAtt_ILM_Model_V2",
+            "s_use_zoneout_output": False,
+        }
+
+    model_with_checkpoints = train(
+        prefix,
+        task=task,
+        config=config,
+        post_config=dict_update_deep(post_config, post_config_updates),
+        model_def=model_def_mini_att_ilm,
+        train_def=training_ilm,
+        num_epochs=num_epochs,
+        gpu_mem=gpu_mem,
+        num_processes=num_processes,
+        distributed_launch_cmd="torchrun" if num_processes else "mpirun",
+        time_rqmt=time_rqmt,
+    )
+
+
+    beam_size = 20
+    lm_scale = 0.5
+    ilm_scale = 0.4
+
+    recog_config={
+        "batch_size": 1250 * _batch_size_factor,
+        "search_args": {
+            "beam_size": beam_size,
+            "lm_scale": lm_scale,
+            "ilm_scale": ilm_scale,
+        },
+        "external_language_model": {
+            "class": "Trafo_LM_Model",
+            "num_layers": 24,
+            "layer_out_dim": 1024,
+            "att_num_heads": 8,
+            "use_pos_enc": True,
+            "ff_activation": "relu",
+        },
+        "internal_language_model": {
+            "class": "MiniAtt_ILM_Model",
+            "s_use_zoneout_output": False,
+        },
+        "preload_from_files": {
+            "01_trafo_lm": {
+                "prefix": "language_model.",
+                "filename": "/work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/2023-08-10--rf-librispeech/work/i6_experiments/users/gaudino/returnn/convert_ckpt_rf/librispeech/trafo_lm_only_24_02_06/network.023.pt",
+            },
+            "01_mini_att_ilm": {
+                "prefix": "ilm.prior_",
+                "filename": model_with_checkpoints.get_epoch(num_epochs).checkpoint,
+            },
+        },
+        "hash_overwrite": "1",
+    }
+
+    _recog(
+        model_name + f"/att_trafo_lm{lm_scale}_ilm{ilm_scale}_beam{beam_size}" + "/recog_results",
+        model_with_checkpoints.get_epoch(num_epochs),
+        recog_def=model_recog_extended,
+        recog_config=recog_config,
+        device="gpu",
+        search_rqmt={"time": 8},
+    )
+
+
+    # recog_training_exp(
+    #     prefix, task, model_with_checkpoint, recog_def=model_recog, model_avg=model_avg
+    # )
+
+    return model_with_checkpoint
+
 
 _ls_task = None
 
 
-def _get_ls_task():
-    global _ls_task
-    if _ls_task:
-        return _ls_task
+def _get_ls_task(bpe_size="BPE10k", **data_opts):
+    # global _ls_task
+    # if _ls_task:
+    #     return _ls_task
 
-    from i6_experiments.users.zeyer.datasets.librispeech import (
-        get_librispeech_task_bpe10k_raw,
+    from i6_experiments.users.gaudino.datasets.librispeech import (
+        get_librispeech_task_bpe10k_raw, get_librispeech_task_bpe5k_raw, get_librispeech_task_bpe1k_raw
     )
 
-    _ls_task = get_librispeech_task_bpe10k_raw(with_eos_postfix=True)
+    _ls_task = None
+
+    if bpe_size == "BPE10k":
+        _ls_task = get_librispeech_task_bpe10k_raw(with_eos_postfix=True, **data_opts)
+
+    if bpe_size == "BPE5k":
+        _ls_task = get_librispeech_task_bpe5k_raw(with_eos_postfix=True, **data_opts)
+
+    if bpe_size == "BPE1k":
+        _ls_task = get_librispeech_task_bpe1k_raw(with_eos_postfix=True, **data_opts)
+
     return _ls_task
 
 
@@ -1169,21 +1729,40 @@ class MakeModel:
         num_enc_layers: int = 12,
         pos_emb_dropout: float = 0.0,
         language_model: Optional[Dict[str, Any]] = None,
+        internal_language_model: Optional[Dict[str, Any]] = None,
         **extra,
     ) -> Model:
         """make"""
         lm = None
+        ilm = None
+        target_embed_dim = Dim(name="target_embed", dimension=640) # TODO
+
         if language_model:
+
+            # from .trafo_lm import trafo_lm
+            #
+            # lm = trafo_lm.MakeModel(vocab_dim=target_dim, **language_model)()
+            # lm = (lm, functools.partial(trafo_lm.make_label_scorer_torch, model=lm))
+
             assert isinstance(language_model, dict)
             language_model = language_model.copy()
             cls_name = language_model.pop("class")
-            assert cls_name == "TransformerDecoder"
+            assert cls_name == "Trafo_LM_Model" or cls_name == "LSTM_LM_Model"
             language_model.pop("vocab_dim", None)  # will just overwrite
 
-            from .trafo_lm import trafo_lm
+            if cls_name == "Trafo_LM_Model":
+                lm = Trafo_LM_Model(target_dim, target_dim, **language_model)
 
-            lm = trafo_lm.MakeModel(vocab_dim=target_dim, **language_model)()
-            lm = (lm, functools.partial(trafo_lm.make_label_scorer_torch, model=lm))
+        if internal_language_model:
+            assert isinstance(internal_language_model, dict)
+            internal_language_model = internal_language_model.copy()
+            cls_name = internal_language_model.pop("class")
+            assert cls_name == "MiniAtt_ILM_Model_V2" or cls_name == "MiniAtt_ILM_Model"
+
+            if cls_name == "MiniAtt_ILM_Model":
+                ilm = MiniAtt_ILM_Model(target_embed_dim, target_dim, **internal_language_model)
+            elif cls_name == "MiniAtt_ILM_Model_V2":
+                ilm = MiniAtt_ILM_Model_V2(target_embed_dim, target_dim, **internal_language_model)
 
         return Model(
             in_dim,
@@ -1205,10 +1784,12 @@ class MakeModel:
                 ff_activation=lambda x: rf.relu(x) ** 2.0,
             ),
             target_dim=target_dim,
+            target_embed_dim=target_embed_dim,
             blank_idx=target_dim.dimension,
             bos_idx=_get_bos_idx(target_dim),
             eos_idx=_get_eos_idx(target_dim),
             language_model=lm,
+            internal_language_model=ilm,
             **extra,
         )
 
@@ -1222,7 +1803,8 @@ class Model(rf.Module):
         *,
         num_enc_layers: int = 12,
         target_dim: Dim,
-        wb_target_dim: Optional[Dim] = None,
+        target_embed_dim: Dim,
+        target_dim_w_blank: Optional[Dim] = None,
         blank_idx: int,
         eos_idx: int,
         bos_idx: int,
@@ -1238,12 +1820,15 @@ class Model(rf.Module):
         enc_att_dropout: float = 0.1,
         l2: float = 0.0001,
         language_model: Optional[RFModelWithMakeLabelScorer] = None,
+        internal_language_model: Optional[RFModelWithMakeLabelScorer] = None,
     ):
         super(Model, self).__init__()
 
         from returnn.config import get_global_config
 
         config = get_global_config(return_empty_if_none=True)
+        self.use_specaugment = config.typed_value("use_specaugment", True)
+
 
         self.in_dim = in_dim
         self.encoder = ConformerEncoder(
@@ -1269,6 +1854,7 @@ class Model(rf.Module):
         )
 
         self.target_dim = target_dim
+        self.target_embed_dim = target_embed_dim
         self.blank_idx = blank_idx
         self.eos_idx = eos_idx
         self.bos_idx = bos_idx  # for non-blank labels; for with-blank labels, we use bos_idx=blank_idx
@@ -1290,7 +1876,7 @@ class Model(rf.Module):
         )
 
         self.target_embed = rf.Embedding(
-            target_dim, Dim(name="target_embed", dimension=640)
+            target_dim, self.target_embed_dim
         )
         if config.float("embed_init_stddev", None):
             self.target_embed.weight.initial = rf.init.Normal(
@@ -1327,14 +1913,16 @@ class Model(rf.Module):
         for p in self.parameters():
             p.weight_decay = l2
 
+        self.enc_aux_logits = enc_aux_logits
         if enc_aux_logits:
-            if not wb_target_dim:
-                wb_target_dim = target_dim + 1
+            if not target_dim_w_blank:
+                target_dim_w_blank = target_dim + 1
+                self.target_dim_w_blank = target_dim_w_blank
         for i in enc_aux_logits:
             setattr(
                 self,
                 f"enc_aux_logits_{i}",
-                rf.Linear(self.encoder.out_dim, wb_target_dim),
+                rf.Linear(self.encoder.out_dim, target_dim_w_blank),
             )
 
         self._specaugment_opts = {
@@ -1373,7 +1961,12 @@ class Model(rf.Module):
         self.language_model = None
         self.language_model_make_label_scorer = None
         if language_model:
-            self.language_model, self.language_model_make_label_scorer = language_model
+            self.language_model = language_model
+            # self.language_model, self.language_model_make_label_scorer = language_model
+
+        self.ilm = None
+        if internal_language_model:
+            self.ilm = internal_language_model
 
     def encode(
         self,
@@ -1393,13 +1986,18 @@ class Model(rf.Module):
         )
         if self._mixup:
             source = self._mixup(source, spatial_dim=in_spatial_dim)
-        # SpecAugment
-        source = rf.audio.specaugment(
-            source,
-            spatial_dim=in_spatial_dim,
-            feature_dim=self.in_dim,
-            **self._specaugment_opts,
-        )
+
+        if self.use_specaugment:
+            # SpecAugment
+            source = rf.audio.specaugment(
+                source,
+                spatial_dim=in_spatial_dim,
+                feature_dim=self.in_dim,
+                **self._specaugment_opts,
+            )
+
+        if len(self.enc_aux_logits) > 0 and not collected_outputs:
+            collected_outputs = {}
         # Encoder including convolutional frontend
         with _opt_apply_pretrain_to_encoder(
             self.encoder, collected_outputs, self._pretrain_opts
@@ -1411,8 +2009,13 @@ class Model(rf.Module):
             )
         enc_ctx = self.enc_ctx(enc)
         inv_fertility = rf.sigmoid(self.inv_fertility(enc))
+        ctc = None
+        if len(self.enc_aux_logits) > 0:
+            idx = max(self.enc_aux_logits)
+            ctc_layer = getattr(self, f"enc_aux_logits_{idx}", None)
+            ctc=rf.softmax(ctc_layer(collected_outputs[str(idx-1)]), axis=self.target_dim_w_blank)
         return (
-            dict(enc=enc, enc_ctx=enc_ctx, inv_fertility=inv_fertility),
+            dict(enc=enc, enc_ctx=enc_ctx, inv_fertility=inv_fertility, ctc=ctc),
             enc_spatial_dim,
         )
 
@@ -1433,6 +2036,27 @@ class Model(rf.Module):
         state.att.feature_dim_axis = len(state.att.dims) - 1
         return state
 
+    def ilm_default_initial_state(
+        self, *, batch_dims: Sequence[Dim]  # , enc_spatial_dim: Dim
+    ) -> rf.State:
+        """Default initial state"""
+        state = rf.State(
+            s=self.s.default_initial_state(batch_dims=batch_dims),
+            att=rf.zeros(
+                # list(batch_dims) + [self.ilm.mini_att_out_dim]
+                list(batch_dims) + [self.att_num_heads * self.encoder.out_dim]
+            ),
+            # accum_att_weights=rf.zeros(
+            #     list(batch_dims) + [enc_spatial_dim, self.att_num_heads],
+            #     feature_dim=self.att_num_heads,
+            # ),
+            ilm_mini_att_lstm=self.ilm.mini_att_lstm.default_initial_state(
+                batch_dims=batch_dims
+            ),
+        )
+        state.att.feature_dim_axis = len(state.att.dims) - 1
+        return state
+
     def loop_step_output_templates(self, batch_dims: List[Dim]) -> Dict[str, Tensor]:
         """loop step out"""
         return {
@@ -1448,6 +2072,30 @@ class Model(rf.Module):
                 dtype=rf.get_default_float_dtype(),
                 feature_dim_axis=-1,
             ),
+        }
+
+    def ilm_loop_step_output_templates(self, batch_dims: List[Dim]) -> Dict[str, Tensor]:
+        """loop step out"""
+        return {
+            "s": Tensor(
+                "s",
+                dims=batch_dims + [self.s.out_dim],
+                dtype=rf.get_default_float_dtype(),
+                feature_dim_axis=-1,
+            ),
+            "att": Tensor(
+                "att",
+                # dims=batch_dims + [self.ilm.mini_att_out_dim],
+                dims=batch_dims + [self.att_num_heads * self.encoder.out_dim],
+                dtype=rf.get_default_float_dtype(),
+                feature_dim_axis=-1,
+            ),
+            # "ilm_mini_att_lstm": Tensor(
+            #     "mini_att_lstm",
+            #     dims=batch_dims + [self.ilm.mini_att_lstm_dim],
+            #     dtype=rf.get_default_float_dtype(),
+            #     feature_dim_axis=-1,
+            # ),
         }
 
     def loop_step(
@@ -1492,6 +2140,66 @@ class Model(rf.Module):
         att0.feature_dim = self.encoder.out_dim
         att, _ = rf.merge_dims(att0, dims=(self.att_num_heads, self.encoder.out_dim))
         state_.att = att
+
+        return {"s": s, "att": att}, state_
+
+    def loop_step_ilm(
+        self,
+        *,
+        # enc: rf.Tensor,
+        # enc_ctx: rf.Tensor,
+        # inv_fertility: rf.Tensor,
+        # enc_spatial_dim: Dim,
+        batch_dims: List[Dim],
+        input_embed: rf.Tensor,
+        state: Optional[rf.State] = None,
+    ) -> Tuple[Dict[str, rf.Tensor], rf.State]:
+        """step of the inner loop"""
+        if state is None:
+            # batch_dims = enc.remaining_dims(
+            #     remove=(enc.feature_dim, enc_spatial_dim)
+            #     if enc_spatial_dim != single_step_dim
+            #     else (enc.feature_dim,)
+            # )
+            state = self.ilm_default_initial_state(
+                batch_dims=batch_dims
+            )
+        state_ = rf.State()
+
+        prev_att = state.att
+
+        s, state_.s = self.s(
+            rf.concat_features(input_embed, prev_att),
+            state=state.s,
+            spatial_dim=single_step_dim,
+        )
+
+        state_ilm = rf.State()
+        state_ilm.mini_att_lstm = state.ilm_mini_att_lstm
+
+        ilm_output = self.ilm(input_embed, state=state_ilm)
+
+        mini_att = ilm_output["output"]
+
+        att = state.att
+        att.raw_tensor = mini_att.raw_tensor
+
+        state_.att = att
+
+        state_.ilm_mini_att_lstm = ilm_output["state"].mini_att_lstm
+
+        # weight_feedback = self.weight_feedback(state.accum_att_weights)
+        # s_transformed = self.s_transformed(s)
+        # energy_in = enc_ctx + weight_feedback + s_transformed
+        # energy = self.energy(rf.tanh(energy_in))
+        # att_weights = rf.softmax(energy, axis=enc_spatial_dim)
+        # state_.accum_att_weights = (
+        #     state.accum_att_weights + att_weights * inv_fertility * 0.5
+        # )
+        # att0 = rf.dot(att_weights, enc, reduce=enc_spatial_dim, use_mask=False)
+        # att0.feature_dim = self.encoder.out_dim
+        # att, _ = rf.merge_dims(att0, dims=(self.att_num_heads, self.encoder.out_dim))
+        # state_.att = att
 
         return {"s": s, "att": att}, state_
 
@@ -1543,19 +2251,55 @@ def from_scratch_model_def(*, epoch: int, in_dim: Dim, target_dim: Dim) -> Model
     # real input is raw audio, internally it does logmel
     in_dim = Dim(name="logmel", dimension=_log_mel_feature_dim, kind=Dim.Types.Feature)
     lm_opts = config.typed_value("external_language_model")
+    ilm_opts = config.typed_value("internal_language_model")
     return MakeModel.make_model(
         in_dim,
         target_dim,
         enc_aux_logits=enc_aux_logits or (),
         pos_emb_dropout=pos_emb_dropout,
         language_model=lm_opts,
+        internal_language_model=ilm_opts,
     )
-
 
 from_scratch_model_def: ModelDef[Model]
 from_scratch_model_def.behavior_version = 16
 from_scratch_model_def.backend = "torch"
 from_scratch_model_def.batch_size_factor = _batch_size_factor
+
+def model_def_mini_att_ilm(*, epoch: int, in_dim: Dim, target_dim: Dim) -> Model:
+    """Function is run within RETURNN."""
+    from returnn.config import get_global_config
+
+    in_dim, epoch  # noqa
+    config = get_global_config()  # noqa
+    enc_aux_logits = config.typed_value("aux_loss_layers")
+    pos_emb_dropout = config.float("pos_emb_dropout", 0.0)
+    # real input is raw audio, internally it does logmel
+    in_dim = Dim(name="logmel", dimension=_log_mel_feature_dim, kind=Dim.Types.Feature)
+    lm_opts = config.typed_value("external_language_model")
+    ilm_opts = config.typed_value("internal_language_model")
+    model =  MakeModel.make_model(
+        in_dim,
+        target_dim,
+        enc_aux_logits=enc_aux_logits or (),
+        pos_emb_dropout=pos_emb_dropout,
+        language_model=lm_opts,
+        internal_language_model=ilm_opts,
+    )
+
+
+    for param in model.parameters():
+        param.trainable = False
+
+    for param in model.ilm.parameters():
+        param.trainable = True
+
+    return model
+
+model_def_mini_att_ilm: ModelDef[Model]
+model_def_mini_att_ilm.behavior_version = 16
+model_def_mini_att_ilm.backend = "torch"
+model_def_mini_att_ilm.batch_size_factor = _batch_size_factor
 
 
 def from_scratch_training(
@@ -1592,7 +2336,7 @@ def from_scratch_training(
             linear = getattr(model, f"enc_aux_logits_{layer_idx}")
             aux_logits = linear(collected_outputs[str(layer_idx - 1)])
             aux_loss = rf.ctc_loss(
-                logits=aux_logits,
+                    logits=aux_logits,
                 targets=targets,
                 input_spatial_dim=enc_spatial_dim,
                 targets_spatial_dim=targets_spatial_dim,
@@ -1668,6 +2412,94 @@ def from_scratch_training(
 
 from_scratch_training: TrainDef[Model]
 from_scratch_training.learning_rate_control_error_measure = "dev_score_full_sum"
+
+def training_ilm(
+    *,
+    model: Model,
+    data: rf.Tensor,
+    data_spatial_dim: Dim,
+    targets: rf.Tensor,
+    targets_spatial_dim: Dim,
+):
+    """Function is run within RETURNN."""
+    from returnn.config import get_global_config
+
+    config = get_global_config()  # noqa
+    aux_loss_layers = config.typed_value("aux_loss_layers")
+    aux_loss_scales = config.typed_value(
+        "aux_loss_scales", ([1.0] * len(aux_loss_layers)) if aux_loss_layers else None
+    )
+    aed_loss_scale = config.float("aed_loss_scale", 1.0)
+    use_normalized_loss = config.bool("use_normalized_loss", True)
+
+    if data.feature_dim and data.feature_dim.dimension == 1:
+        data = rf.squeeze(data, axis=data.feature_dim)
+    assert not data.feature_dim  # raw audio
+
+    # collected_outputs = {}
+    # enc_args, enc_spatial_dim = model.encode(
+    #     data, in_spatial_dim=data_spatial_dim, collected_outputs=collected_outputs
+    # )
+
+    batch_dims = data.remaining_dims(data_spatial_dim)
+    input_embeddings = model.target_embed(targets)
+    input_embeddings = rf.shift_right(
+        input_embeddings, axis=targets_spatial_dim, pad_value=0.0
+    )
+
+    def _body(input_embed: Tensor, state: rf.State):
+        new_state = rf.State()
+        loop_out_, new_state.decoder = model.loop_step_ilm(
+            # **enc_args,
+            # enc_spatial_dim=enc_spatial_dim,
+            batch_dims=batch_dims,
+            input_embed=input_embed,
+            state=state.decoder,
+        )
+        return loop_out_, new_state
+
+    loop_out, _, _ = rf.scan(
+        spatial_dim=targets_spatial_dim,
+        xs=input_embeddings,
+        ys=model.ilm_loop_step_output_templates(batch_dims=batch_dims),
+        initial=rf.State(
+            decoder=model.ilm_default_initial_state(
+                batch_dims=batch_dims
+            ),
+        ),
+        body=_body,
+    )
+
+    logits = model.decode_logits(input_embed=input_embeddings, **loop_out)
+    logits_packed, pack_dim = rf.pack_padded(
+        logits, dims=batch_dims + [targets_spatial_dim], enforce_sorted=False
+    )
+    targets_packed, _ = rf.pack_padded(
+        targets,
+        dims=batch_dims + [targets_spatial_dim],
+        enforce_sorted=False,
+        out_dim=pack_dim,
+    )
+
+    log_prob = rf.log_softmax(logits_packed, axis=model.target_dim)
+    log_prob = rf.label_smoothed_log_prob_gradient(log_prob, 0.1, axis=model.target_dim)
+    loss = rf.cross_entropy(
+        target=targets_packed,
+        estimated=log_prob,
+        estimated_type="log-probs",
+        axis=model.target_dim,
+    )
+    loss.mark_as_loss(
+        "ce", scale=aed_loss_scale, use_normalized_loss=use_normalized_loss
+    )
+
+    best = rf.reduce_argmax(logits_packed, axis=model.target_dim)
+    frame_error = best != targets_packed
+    frame_error.mark_as_loss(name="fer", as_error=True)
+
+
+training_ilm: TrainDef[Model]
+training_ilm.learning_rate_control_error_measure = "dev_score_full_sum"
 
 
 @contextlib.contextmanager

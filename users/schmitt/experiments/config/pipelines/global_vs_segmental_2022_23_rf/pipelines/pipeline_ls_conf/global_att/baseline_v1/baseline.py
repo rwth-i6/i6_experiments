@@ -1,55 +1,42 @@
-import copy
-from typing import Dict, List, Any, Optional, Tuple
+from typing import Optional, Dict
 
-from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.config_builder_rf.base import GlobalAttConfigBuilderRF
-from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.global_.model import from_scratch_model_def, _returnn_v2_get_model
-from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.model_variants.model_variants_ls_conf import models
-from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.pipelines.pipeline_ls_conf.global_att.baseline_v1.alias import alias as base_alias
-from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.labels.v2.librispeech.label_singletons import (
-  LibrispeechBPE10025_LABELS,
-LIBRISPEECH_CORPUS
-)
-from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.general.returnn.exes import RETURNN_EXE_NEW, RETURNN_CURRENT_ROOT
+from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.pipelines.pipeline_ls_conf.global_att.baseline_v1.alias import alias as base_alias
+from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.pipelines.pipeline_ls_conf.global_att.config_builder import get_global_att_config_builder_rf
 
 
-def get_global_att_config_builder_rf(
+def global_att_baseline_rf(
         use_weight_feedback: bool = True,
         use_att_ctx_in_state: bool = True,
+        decoder_state: str = "nb-lstm",
+        label_type: str = "bpe10025",
+        conformer_w_abs_pos_enc: bool = False,
+        conformer_wo_rel_pos_enc: bool = False,
+        conformer_wo_final_layer_norm_per_layer: bool = False,
+        conformer_num_layers: int = 12,
+        conformer_wo_convolution: bool = False,
+        conformer_out_dim: int = 512,
+        enc_ctx_layer: Optional["str"] = None,
+        conformer_conv_w_zero_padding: bool = False,
+        use_feed_forward_encoder: bool = False,
+        hard_att_opts: Optional[Dict] = None,
+        conv_frontend_w_zero_padding: bool = False,
 ):
-  variant_params = {
-    "dependencies": LibrispeechBPE10025_LABELS,
-    "dataset": {
-      "feature_type": "raw",
-      "corpus": LIBRISPEECH_CORPUS
-    },
-    "config": {
-      "train_seq_ordering": "laplace:.1000"
-    },
-    "network": {"length_scale": 1.0},
-    "returnn_python_exe": RETURNN_EXE_NEW,
-    "returnn_root": RETURNN_CURRENT_ROOT
-  }
-
-  config_builder = GlobalAttConfigBuilderRF(
-    variant_params=variant_params,
-    model_def=from_scratch_model_def,
-    get_model_func=_returnn_v2_get_model,
-    use_weight_feedback=use_weight_feedback,
-    use_att_ctx_in_state=use_att_ctx_in_state,
-  )
-
-  alias = (
-    f"{'w' if use_weight_feedback else 'wo'}-weight-feedback/"
-    f"{'w' if use_att_ctx_in_state else 'wo'}-att-ctx-in-state"
-  )
-
-  return alias, config_builder
-
-
-def global_att_baseline_rf(use_weight_feedback: bool = True, use_att_ctx_in_state: bool = True):
   alias, config_builder = get_global_att_config_builder_rf(
     use_weight_feedback=use_weight_feedback,
     use_att_ctx_in_state=use_att_ctx_in_state,
+    decoder_state=decoder_state,
+    label_type=label_type,
+    conformer_w_abs_pos_enc=conformer_w_abs_pos_enc,
+    conformer_wo_rel_pos_enc=conformer_wo_rel_pos_enc,
+    conformer_wo_final_layer_norm_per_layer=conformer_wo_final_layer_norm_per_layer,
+    conformer_num_layers=conformer_num_layers,
+    conformer_wo_convolution=conformer_wo_convolution,
+    conformer_out_dim=conformer_out_dim,
+    enc_ctx_layer=enc_ctx_layer,
+    conformer_conv_w_zero_padding=conformer_conv_w_zero_padding,
+    use_feed_forward_encoder=use_feed_forward_encoder,
+    hard_att_opts=hard_att_opts,
+    conv_frontend_w_zero_padding=conv_frontend_w_zero_padding
   )
   alias = f"{base_alias}/baseline_rf/{alias}"
   yield alias, config_builder

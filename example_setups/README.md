@@ -10,3 +10,9 @@ Always make a full copy for yourself when using an example setup.
 
 A setup needs to be self-containing with all code except code in i6_core or i6_experiments/common.
 Example setups should not import from other setups, and use only relative imports for modules within the baseline.
+
+
+## Changelog
+
+On 23.07.2024:
+ - marked ctc_bpe November 2023 5k baseline as deprecated

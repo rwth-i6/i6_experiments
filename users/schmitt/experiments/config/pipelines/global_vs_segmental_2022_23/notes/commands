@@ -1,4 +1,5 @@
-apptainer shell --nv -B /work/asr4 -B /work/asr3 -B /work/common -B /work/tools -B /u/berger -B /u/zeineldeen -B /u/rossenbach -B /u/beck -B /work/speech/tuske -B /u/zeyer -B /u/schmitt -B /u/atanas.gruev -B /u/zhou
+apptainer shell --nv -B /work/asr4 -B /work/asr3 -B /work/common -B /work/tools -B /u/berger -B /u/zeineldeen -B /u/rossenbach -B /u/beck -B /work/speech/tuske -B /u/zeyer -B /u/schmitt -B /u/atanas.gruev -B /u/zhou -B /work/smt4 /work/tools22/users/schmitt/apptainer/images/i6_torch-2.2_onnx-1.16.sif
 /work/asr4/berger/apptainer/images/i6_tensorflow-2.8_onnx-1.15.sif
 /work/asr4/berger/apptainer/images/i6_torch-2.2_onnx-1.16.sif
 export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/usr/local/lib/python3.8/dist-packages/scipy/.libs
+export NUMBA_CACHE_DIR=/var/tmp/numba_cache_schmitt/  # librosa

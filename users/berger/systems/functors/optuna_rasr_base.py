@@ -17,15 +17,12 @@ class OptunaRasrFunctor(RasrFunctor, ABC):
         self,
         train_job: returnn.OptunaReturnnTrainingJob,
         epoch: types.EpochType,
-        trial_num: types.TrialType,
+        trial_num: int,
     ) -> Union[int, tk.Variable]:
         if epoch != "best":
             return epoch
 
-        if trial_num == "best":
-            lr = train_job.out_learning_rates
-        else:
-            lr = train_job.out_trial_learning_rates[trial_num]
+        lr = train_job.out_trial_learning_rates[trial_num]
         return returnn.GetBestEpochJob(lr).out_epoch
 
     def _make_tf_graph(
@@ -33,13 +30,10 @@ class OptunaRasrFunctor(RasrFunctor, ABC):
         train_job: returnn.OptunaReturnnTrainingJob,
         returnn_config: returnn.OptunaReturnnConfig,
         epoch: types.EpochType,
+        trial_num: int,
         label_scorer_type: str = "precomputed-log-posterior",
-        trial_num: types.TrialType = "best",
     ) -> tk.Path:
-        if trial_num == "best":
-            trial = train_job.out_best_trial
-        else:
-            trial = train_job.out_trials[trial_num]
+        trial = train_job.out_trials[trial_num]
         rec_step_by_step = "output" if self._is_autoregressive_decoding(label_scorer_type) else None
         graph_compile_job = returnn.OptunaCompileTFGraphJob(
             returnn_config,
@@ -57,17 +51,15 @@ class OptunaRasrFunctor(RasrFunctor, ABC):
         train_job: returnn.OptunaReturnnTrainingJob,
         returnn_config: returnn.OptunaReturnnConfig,
         checkpoint: returnn.PtCheckpoint,
-        trial_num: types.TrialType = "best",
+        trial_num: int,
     ) -> tk.Path:
-        if trial_num == "best":
-            trial = train_job.out_best_trial
-        else:
-            trial = train_job.out_trials[trial_num]
+        trial = train_job.out_trials[trial_num]
 
-        onnx_export_job = returnn.OptunaExportPyTorchModelToOnnxJob(
-            pytorch_checkpoint=checkpoint,
+        onnx_export_job = returnn.OptunaTorchOnnxExportJob(
             returnn_config=returnn_config,
+            checkpoint=checkpoint,
             trial=trial,
+            returnn_python_exe=self.returnn_python_exe,
             returnn_root=self.returnn_root,
         )
         return onnx_export_job.out_onnx_model
@@ -77,18 +69,9 @@ class OptunaRasrFunctor(RasrFunctor, ABC):
         self,
         train_job: returnn.OptunaReturnnTrainingJob,
         epoch: types.EpochType,
-        trial_num: types.TrialType = "best",
+        trial_num: int,
         backend: Backend = Backend.TENSORFLOW,
     ) -> Checkpoint:
-        if trial_num == "best":
-            if epoch == "best":
-                return returnn.GetBestCheckpointJob(
-                    model_dir=train_job.out_model_dir,
-                    learning_rates=train_job.out_learning_rates,
-                    backend=backend,
-                ).out_checkpoint
-            return train_job.out_checkpoints[epoch]
-
         if epoch == "best":
             return returnn.GetBestCheckpointJob(
                 model_dir=train_job.out_trial_model_dir[trial_num],
@@ -102,14 +85,11 @@ class OptunaRasrFunctor(RasrFunctor, ABC):
         train_job: returnn.OptunaReturnnTrainingJob,
         prior_config: returnn.OptunaReturnnConfig,
         checkpoint: Checkpoint,
-        trial_num: types.TrialType = "best",
+        trial_num: int,
         backend: Backend = Backend.TENSORFLOW,
         **kwargs,
     ) -> tk.Path:
-        if trial_num == "best":
-            trial = train_job.out_best_trial
-        else:
-            trial = train_job.out_trials[trial_num]
+        trial = train_job.out_trials[trial_num]
         if backend == backend.TENSORFLOW:
             prior_job = returnn.OptunaReturnnComputePriorJob(
                 model_checkpoint=checkpoint,
@@ -134,14 +114,3 @@ class OptunaRasrFunctor(RasrFunctor, ABC):
             return forward_job.out_prior_xml_file
         else:
             raise NotImplementedError
-
-    @lru_cache_with_signature
-    def _get_trial_value(
-        self,
-        train_job: returnn.OptunaReturnnTrainingJob,
-        trial_num: types.TrialType = "best",
-    ) -> Union[int, tk.Variable]:
-        if trial_num != "best":
-            return trial_num
-
-        return train_job.out_best_trial_num

@@ -229,63 +229,65 @@ def rnnt_bpe_ls960_1023_base():
         decoder_config_bpe5000,
     )
 
+    # NO longer needed
     # Debug warprnnt
-    network_module = "rnnt.conformer_1023.i6modelsV1_VGG4LayerActFrontendV1_v9_warp"
-    train_args_warprnnt = copy.deepcopy(train_args)
-    train_args_warprnnt["network_module"] = network_module
-    train_args_warprnnt["debug"] = True
-    training_name = prefix_name + "/" + network_module + ".512dim_sub6_24gbgpu_50eps_from_scratch"
-    train_job = training(training_name, train_data_bpe5000, train_args_warprnnt, num_epochs=500, **default_returnn)
-    train_job.rqmt["gpu_mem"] = 24
-    train_job.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
-    asr_model = prepare_asr_model(
-        training_name, train_job, train_args, with_prior=False, datasets=train_data_bpe5000, get_specific_checkpoint=500
-    )
-    evaluate_helper(
-        training_name,
-        asr_model,
-        decoder_config_bpe5000,
-    )
+    # network_module = "rnnt.conformer_1023.i6modelsV1_VGG4LayerActFrontendV1_v9_warp"
+    # train_args_warprnnt = copy.deepcopy(train_args)
+    # train_args_warprnnt["network_module"] = network_module
+    # train_args_warprnnt["debug"] = True
+    # training_name = prefix_name + "/" + network_module + ".512dim_sub6_24gbgpu_50eps_from_scratch"
+    # train_job = training(training_name, train_data_bpe5000, train_args_warprnnt, num_epochs=500, **default_returnn)
+    # train_job.rqmt["gpu_mem"] = 24
+    # train_job.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+    # asr_model = prepare_asr_model(
+    #     training_name, train_job, train_args, with_prior=False, datasets=train_data_bpe5000, get_specific_checkpoint=500
+    # )
+    # evaluate_helper(
+    #     training_name,
+    #     asr_model,
+    #     decoder_config_bpe5000,
+    # )
 
-    
+
+    # No longer needed
     # Debug warprnnt
-    network_module = "rnnt.conformer_1023.i6modelsV1_VGG4LayerActFrontendV1_v9_warp_gather"
-    train_args_warprnnt = copy.deepcopy(train_args)
-    train_args_warprnnt["network_module"] = network_module
-    train_args_warprnnt["debug"] = True
-    training_name = prefix_name + "/" + network_module + ".512dim_sub6_24gbgpu_50eps_from_scratch"
-    train_job = training(training_name, train_data_bpe5000, train_args_warprnnt, num_epochs=500, **default_returnn)
-    train_job.rqmt["gpu_mem"] = 24
-    train_job.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
-    asr_model = prepare_asr_model(
-        training_name, train_job, train_args, with_prior=False, datasets=train_data_bpe5000, get_specific_checkpoint=500
-    )
-    evaluate_helper(
-        training_name,
-        asr_model,
-        decoder_config_bpe5000,
-    )
-    
-    # Debug warprnnt + CTC
-    model_config_v5_sub6_512lstm_ctc02 = copy.deepcopy(model_config_v5_sub6_512lstm)
-    model_config_v5_sub6_512lstm_ctc02.ctc_output_loss = 0.2
-    network_module = "rnnt.conformer_1023.i6modelsV1_VGG4LayerActFrontendV1_v9_warp_gather"
-    train_args_warprnnt = copy.deepcopy(train_args)
-    train_args_warprnnt["network_module"] = network_module
-    train_args_warprnnt["debug"] = True
-    train_args_warprnnt["net_args"] = {"model_config_dict": asdict(model_config_v5_sub6_512lstm_ctc02)}
-    training_name = prefix_name + "/" + network_module + ".512dim_sub6_24gbgpu_50eps_from_scratch_ctc0.2"
-    train_job = training(training_name, train_data_bpe5000, train_args_warprnnt, num_epochs=500, **default_returnn)
-    train_job.rqmt["gpu_mem"] = 24
-    train_job.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
-    asr_model = prepare_asr_model(
-        training_name, train_job, train_args, with_prior=False, datasets=train_data_bpe5000, get_specific_checkpoint=500
-    )
-    evaluate_helper(
-        training_name,
-        asr_model,
-        decoder_config_bpe5000,
-    )
+    # network_module = "rnnt.conformer_1023.i6modelsV1_VGG4LayerActFrontendV1_v9_warp_gather"
+    # train_args_warprnnt = copy.deepcopy(train_args)
+    # train_args_warprnnt["network_module"] = network_module
+    # train_args_warprnnt["debug"] = True
+    # training_name = prefix_name + "/" + network_module + ".512dim_sub6_24gbgpu_50eps_from_scratch"
+    # train_job = training(training_name, train_data_bpe5000, train_args_warprnnt, num_epochs=500, **default_returnn)
+    # train_job.rqmt["gpu_mem"] = 24
+    # train_job.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+    # asr_model = prepare_asr_model(
+    #     training_name, train_job, train_args, with_prior=False, datasets=train_data_bpe5000, get_specific_checkpoint=500
+    # )
+    # evaluate_helper(
+    #     training_name,
+    #     asr_model,
+    #     decoder_config_bpe5000,
+    # )
+    #
+    # # Debug warprnnt + CTC
+    # model_config_v5_sub6_512lstm_ctc02 = copy.deepcopy(model_config_v5_sub6_512lstm)
+    # model_config_v5_sub6_512lstm_ctc02.ctc_output_loss = 0.2
+    # network_module = "rnnt.conformer_1023.i6modelsV1_VGG4LayerActFrontendV1_v9_warp_gather"
+    # train_args_warprnnt = copy.deepcopy(train_args)
+    # train_args_warprnnt["network_module"] = network_module
+    # train_args_warprnnt["debug"] = True
+    # train_args_warprnnt["net_args"] = {"model_config_dict": asdict(model_config_v5_sub6_512lstm_ctc02)}
+    # training_name = prefix_name + "/" + network_module + ".512dim_sub6_24gbgpu_50eps_from_scratch_ctc0.2"
+    # train_job = training(training_name, train_data_bpe5000, train_args_warprnnt, num_epochs=500, **default_returnn)
+    # train_job.rqmt["gpu_mem"] = 24
+    # train_job.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+    # asr_model = prepare_asr_model(
+    #     training_name, train_job, train_args, with_prior=False, datasets=train_data_bpe5000, get_specific_checkpoint=500
+    # )
+    # evaluate_helper(
+    #     training_name,
+    #     asr_model,
+    #     decoder_config_bpe5000,
+    # )
 
     # Debug warprnnt with CTC init
     network_module = "rnnt.conformer_1023.i6modelsV1_VGG4LayerActFrontendV1_v9_warp_gather"

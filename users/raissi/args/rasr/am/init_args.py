@@ -1,4 +1,5 @@
-__all__=["get_init_am_args"]
+__all__ = ["get_init_am_args"]
+
 
 def get_init_am_args():
     return {

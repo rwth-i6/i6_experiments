@@ -8,7 +8,7 @@ def calc_stat(ls):
     max = np.max([float(x[1]) for x in ls])
     median = np.median([float(x[1]) for x in ls])
     std = np.std([float(x[1]) for x in ls])
-    ex_str = f"Avrg: {avrg}, Min {min}, Max {max}, Median {median}, Std {std},    ({avrg},{min},{max},{median},{std})"
+    ex_str = f"Avrg: {avrg}, Min {min}, Max {max}, Median {median}, Std {std},    ({avrg},{min},{max},{median},{std}) Num Values: {len(ls)}"
     return ex_str
 
 def baseline_report_format(report: _Report_Type) -> str:
@@ -18,34 +18,40 @@ def baseline_report_format(report: _Report_Type) -> str:
     :return:
     """
     extra_ls = ["quantize_static"]
+    sets = set()
+    for recog in report:
+        sets.add(recog.split("/")[-1])
     out = [(" ".join(recog.split("/")[3:]), str(report[recog])) for recog in report if not any(extra in recog for extra in extra_ls)]
     out = sorted(out, key=lambda x: float(x[1]))
     best_ls = [out[0]]
-    for extra in extra_ls:
-        if extra == "quantize_static":
-            tmp = {recog: report[recog] for recog in report if extra in recog}
-            iters = set()
-            for recog in tmp:
-                x = recog.split("/")
-                for sub in x:
-                    if "samples" in sub:
-                        iters.add(sub[len("samples_"):])
-            for samples in iters:
-                out2 = [(" ".join(recog.split("/")[3:]), str(report[recog])) for recog in report if f"samples_{samples}/" in recog]
+    for dataset in sets:
+        for extra in extra_ls:
+            if extra == "quantize_static":
+                tmp = {recog: report[recog] for recog in report if extra in recog and dataset in recog}
+                iters = set()
+                for recog in tmp:
+                    x = recog.split("/")
+                    for sub in x:
+                        if "samples" in sub:
+                            iters.add(sub[len("samples_"):])
+                for samples in iters:
+                    out2 = [(" ".join(recog.split("/")[3:]), str(report[recog])) for recog in report if f"samples_{samples}/" in recog  and dataset in recog]
+                    out2 = sorted(out2, key=lambda x: float(x[1]))
+                    if len(out2) > 0:
+                        ex_str = calc_stat(out2)
+                        out.append(('', ''))
+                        out.append((dataset + " " + extra + f"_samples_{samples}", ex_str))
+                        out.extend(out2[:3])
+                        out.extend(out2[-3:])
+                        best_ls.append(out2[0])
+            else:
+                out2 = [(" ".join(recog.split("/")[3:]), str(report[recog])) for recog in report if extra in recog  and dataset in recog]
                 out2 = sorted(out2, key=lambda x: float(x[1]))
                 if len(out2) > 0:
-                    ex_str = calc_stat(out2)
-                    out.append((extra + f"_samples_{samples}", ex_str))
-                    out.extend(out2[:3])
-                    out.extend(out2[-3:])
+                    out.append(('', ''))
+                    out.append((dataset + " " + extra, ""))
+                    out.extend(out2)
                     best_ls.append(out2[0])
-        else:
-            out2 = [(" ".join(recog.split("/")[3:]), str(report[recog])) for recog in report if extra in recog]
-            out2 = sorted(out2, key=lambda x: float(x[1]))
-            if len(out2) > 0:
-                out.append((extra, ""))
-                out.extend(out2)
-                best_ls.append(out2[0])
     best_ls = sorted(best_ls, key=lambda x: float(x[1]))
     best_ls += [("Base Results", "")]
     out = best_ls + out

@@ -1,4 +1,4 @@
-"""Param Import
+"""Sisyphus entry point to compute the search errors
 """
 
 from __future__ import annotations

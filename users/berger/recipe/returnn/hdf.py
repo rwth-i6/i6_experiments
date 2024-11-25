@@ -5,15 +5,14 @@ __all__ = [
 
 from functools import lru_cache
 from typing import Callable, Dict, List, Optional, Set
-from i6_core.lib import corpus, lexicon
-from i6_core.util import uopen
-
-from sisyphus import *
 
 import numpy as np
-
+from i6_core.lib import corpus, lexicon
 from i6_core.lib.hdf import get_returnn_simple_hdf_writer
+from i6_core.util import uopen
+from sisyphus import Job, Task, setup_path, tk
 
+assert __package__ is not None
 Path = setup_path(__package__)
 
 
@@ -79,7 +78,7 @@ class BlissCorpusToTargetHdfJob(Job):
         if self.segment_file is None:
             return None
         with uopen(self.segment_file, "rt") as f:
-            segments_whitelist = set(l.strip() for l in f.readlines() if len(l.strip()) > 0)
+            segments_whitelist = set(line.strip() for line in f.readlines() if len(line.strip()) > 0)
         return segments_whitelist
 
     def _segment_allowed(self, segment_name: str) -> bool:
@@ -137,6 +136,76 @@ class BlissCorpusToTargetHdfJob(Job):
                 seq_tag=[segment.fullname()],
             )
         out_hdf_writer.close()
+
+
+class RemoveBlanksFromAlignmentHdfJob(Job):
+    """
+    Take an alignment and remove all blank labels such that only the non-blanks are left
+    """
+
+    def __init__(
+        self,
+        alignment_hdf: tk.Path,
+        blank_label_idx: int,
+    ) -> None:
+        self.alignment_hdf = alignment_hdf
+        self.blank_label_idx = blank_label_idx
+
+        self.out_hdf = self.output_path("data.hdf")
+
+    def tasks(self):
+        yield Task("run", resume="run", mini_task=True)
+
+    def run(self) -> None:
+        import h5py
+        import numpy as np
+
+        hdf_file = h5py.File(self.alignment_hdf)
+
+        def copy_data_group(src, key, dest):
+            src_data = src[key]
+            if isinstance(src_data, h5py.Dataset):
+                dest.create_dataset(key, data=src_data[:])
+                for attr_key, attr_val in src_data.attrs.items():
+                    dest[key].attrs[attr_key] = attr_val
+            if isinstance(src_data, h5py.Group):
+                dest.create_group(key)
+                for attr_key, attr_val in src_data.attrs.items():
+                    dest[key].attrs[attr_key] = attr_val
+                for sub_key in src_data:
+                    copy_data_group(src_data, sub_key, dest[key])
+
+        out_hdf = h5py.File(self.out_hdf, "w")
+        for attr_key, attr_val in hdf_file.attrs.items():
+            out_hdf.attrs[attr_key] = attr_val
+
+        new_inputs = []
+        new_lengths = []
+        current_begin_pos = 0
+        for tag, length in zip(hdf_file["seqTags"], [length[0] for length in hdf_file["seqLengths"]]):
+            full_alignment = hdf_file["inputs"][current_begin_pos : current_begin_pos + length]
+            non_blank_labels = full_alignment[full_alignment != self.blank_label_idx]
+
+            new_inputs.extend(non_blank_labels)
+            new_length = len(non_blank_labels)
+            new_lengths.append([new_length])
+
+            print(f"Reduced alignment of length {length} for sequence {tag} to {new_length} non-blank labels.")
+            current_begin_pos += length
+
+        print("Finished processing.")
+
+        matched_inputs = np.array(new_inputs, dtype=hdf_file["inputs"].dtype)
+        matched_lengths = np.array(new_lengths, dtype=hdf_file["seqLengths"].dtype)
+
+        out_hdf.create_dataset("inputs", data=matched_inputs)
+        for attr_key, attr_val in hdf_file["inputs"].attrs.items():
+            out_hdf["inputs"].attrs[attr_key] = attr_val
+        copy_data_group(hdf_file, "seqTags", out_hdf)
+        out_hdf.create_dataset("seqLengths", data=matched_lengths)
+        for attr_key, attr_val in hdf_file["seqLengths"].attrs.items():
+            out_hdf["seqLengths"].attrs[attr_key] = attr_val
+        copy_data_group(hdf_file, "targets", out_hdf)
 
 
 def _identity(x):

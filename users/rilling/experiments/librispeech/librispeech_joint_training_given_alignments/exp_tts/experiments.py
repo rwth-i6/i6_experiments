@@ -43,7 +43,7 @@ def get_glow_tts(x_vector_exp, joint_exps, tts_exps, gl_checkpoint):
     but in a cleaner setup similar to the setup used for joint training and joint training with external alignments
     """
 
-    prefix = "experiments/librispeech/joint_training/given_alignments/raw_audio/TTS_models/"
+    prefix = "experiments/librispeech/TTS_only/v2/raw_audio/"
 
     def run_exp(
         name,

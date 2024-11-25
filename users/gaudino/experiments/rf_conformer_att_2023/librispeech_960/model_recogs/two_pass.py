@@ -3,22 +3,26 @@ import returnn.frontend as rf
 
 
 def rescore_w_ctc(
-    model, seq_targets, seq_log_prob, ctc_logits, batch_size, beam_size, blank_idx=10025
+    search_args, seq_targets, seq_log_prob, ctc_logits, batch_size, beam_size, blank_idx=10025
 ):
     """rescore hyps with ctc"""
 
+    ctc_logits = ctc_logits.to("cpu")
     ctc_scores = torch.zeros_like(seq_log_prob.raw_tensor)
-    seq_targets_raw = torch.clone(seq_targets.raw_tensor)  # [T, Batch, Beam]
+    seq_targets_raw = torch.clone(seq_targets.raw_tensor).to("cpu")  # [T, Batch, Beam]
     for i in range(batch_size):
         for j in range(beam_size):
             seq = seq_targets_raw[:, i, j]
             seq = seq[seq != 0]
-            ctc_scores[i, j] = ctc_forward_algorithm(ctc_logits[i], seq, blank_idx)
+            if seq.numel():
+                ctc_scores[i, j] = ctc_forward_algorithm(ctc_logits[i], seq, blank_idx)
+            else:
+                ctc_scores[i, j] = torch.sum(ctc_logits[i,:, blank_idx])
 
     ctc_scores = rf.Tensor('ctc_re_scores', seq_log_prob.dims, dtype=seq_log_prob.dtype, raw_tensor=ctc_scores)
     seq_log_prob = (
-        model.search_args["att_scale"] * seq_log_prob
-        + model.search_args["ctc_scale"] * ctc_scores
+        search_args["rescore_att_scale"] * seq_log_prob
+        + search_args["rescore_ctc_scale"] * ctc_scores
     )
 
     return seq_targets, seq_log_prob

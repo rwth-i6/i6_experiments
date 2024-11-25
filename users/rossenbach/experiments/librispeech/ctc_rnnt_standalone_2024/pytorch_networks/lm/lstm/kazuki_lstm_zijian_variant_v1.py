@@ -44,17 +44,13 @@ class Model(nn.Module):
             self.final_linear = nn.Linear(self.cfg.bottle_neck_dim, self.cfg.vocab_dim, bias=True)
         else:
             self.final_linear = nn.Linear(self.cfg.hidden_dim, self.cfg.vocab_dim, bias=True)
-        self._param_init(**self.cfg.init_args)
+
+        if self.cfg.init_args is not None:
+            self._param_init(**self.cfg.init_args)
 
 
     def _param_init(self, init_args_w=None, init_args_b=None):
-        if init_args_w is None:
-            init_args_w = {'func': 'normal', 'arg': {'mean': 0.0, 'std': 0.1}}
-        if init_args_b is None:
-            init_args_b = {'func': 'normal', 'arg': {'mean': 0.0, 'std': 0.1}}
-
         for m in self.modules():
-
             for name, param in m.named_parameters():
                 if 'bias' in name:
                     if init_args_b['func'] == 'normal':
@@ -94,13 +90,13 @@ class Model(nn.Module):
     
     
 def train_step(*, model: Model, data, run_ctx, **kwargs):
-    labels = data["ldata"]
+    labels = data["data"]
     labels_len = data["data:size1"]
     delayed_labels = data["delayed"]
 
     lm_logits = model(delayed_labels)  # (B, S, F)
 
-    ce_loss = torch.nn.functional.cross_entropy(lm_logits.transpose(1, 2), labels, reduction='none')
+    ce_loss = torch.nn.functional.cross_entropy(lm_logits.transpose(1, 2), labels.long(), reduction='none')
     seq_mask = mask_tensor(labels, labels_len)
     ce_loss = (ce_loss * seq_mask).sum()
     total_length = torch.sum(labels_len)

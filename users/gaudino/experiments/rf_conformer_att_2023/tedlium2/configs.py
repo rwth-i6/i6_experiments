@@ -1,6 +1,8 @@
 """
 Configurations, i.e. RETURNN settings,
 shared across several setups here in this directory.
+
+Used for training system on tedlium2. However, none of them were really successful.
 """
 
 from __future__ import annotations

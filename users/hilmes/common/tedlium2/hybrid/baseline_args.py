@@ -19,10 +19,7 @@ def get_gammatone_feature_extraction_args():
             "preemphasis": True,
             "legacy_scaling": False,
             "without_samples": False,
-            "samples_options": {
-                "audio_format": "wav",
-                "dc_detection": False,
-            },
+            "samples_options": {"audio_format": "wav", "dc_detection": False,},
             "normalization_options": {},
         }
     }
@@ -41,7 +38,9 @@ def get_log_mel_feature_extraction_args():
                 "samples_options": {
                     "audio_format": "wav",
                     "dc_detection": False,
+                    # "scale_input": 0.00003051757
                 },
+                # "fft_options": {"preemphasis": 0.97},
                 "fft_options": None,
                 "add_features_output": True,
                 "apply_log": True,
@@ -49,3 +48,7 @@ def get_log_mel_feature_extraction_args():
             }
         }
     }
+
+
+def get_samples_extraction_args():
+    return {"audio_format": "wav", "dc_detection": False, "input_options": None, "scale_input": 0.00003051757}

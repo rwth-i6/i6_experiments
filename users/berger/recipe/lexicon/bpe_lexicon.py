@@ -5,9 +5,7 @@ import os
 import sys
 import xml.etree.ElementTree as ET
 
-from sisyphus import *
-
-Path = setup_path(__package__)
+from sisyphus import Job, Task, tk
 
 from i6_core.lib.lexicon import Lexicon, Lemma
 import i6_core.util as util
@@ -15,57 +13,89 @@ import i6_core.util as util
 
 class CreateBPELexiconJob(Job):
     """
-    Create a Bliss lexicon from bpe transcriptions.
+    Create a Bliss lexicon from bpe transcriptions that can be used e.g, for lexicon constrained BPE search.
+
+    DO NOT USE; THIS IS SUPERSEDED BY i6_core.lexicon.bpe.CreateBpeLexiconJob
     """
 
     def __init__(
         self,
-        base_lexicon_path,
-        bpe_codes,
-        bpe_vocab,
-        subword_nmt_repo=None,
-        unk_label="UNK",
+        base_lexicon_path: tk.Path,
+        bpe_codes: tk.Path,
+        bpe_vocab: tk.Path,
+        subword_nmt_repo: tk.Path,
+        unk_label: str = "<unk>",
+        keep_special_lemmas: bool = False,
     ):
         """
-        :param Path base_lexicon_path:
-        :param Path bpe_codes:
-        :param Path|None bpe_vocab:
-        :param Path|str|None subword_nmt_repo:
+        :param base_lexicon_path: base lexicon (can be phoneme based) to take the lemmas from
+        :param bpe_codes: bpe codes from the ReturnnTrainBPEJob
+        :param bpe_vocab: vocab file to limit which bpe splits can be created
+        :param subword_nmt_repo: cloned repository
+        :param keep_special_lemmas: If special lemmas should be kept,
+            usually yes for RASR search and no for Flashlight search
         """
         self.base_lexicon_path = base_lexicon_path
         self.bpe_codes = bpe_codes
         self.bpe_vocab = bpe_vocab
-        self.subword_nmt_repo = subword_nmt_repo if subword_nmt_repo is not None else gs.SUBWORD_NMT_PATH
+        self.subword_nmt_repo = subword_nmt_repo
         self.unk_label = unk_label
+        self.keep_special_lemmas = keep_special_lemmas
 
         self.out_lexicon = self.output_path("lexicon.xml.gz", cached=True)
 
     def tasks(self):
         yield Task("run", resume="run", mini_task=True)
 
-    def run(self):
-        lexicon = Lexicon()
-
+    def _fill_lm_tokens(self, base_lexicon: Lexicon):
         lm_tokens = set()
-
-        base_lexicon = Lexicon()
-        base_lexicon.load(self.base_lexicon_path)
-        for l in base_lexicon.lemmata:
-            for orth in l.orth:
-                lm_tokens.add(orth)
-            for token in l.synt or []:  # l.synt can be None
-                lm_tokens.add(token)
-            for eval in l.eval:
-                for t in eval:
-                    lm_tokens.add(t)
+        special_lemmas = []
+        for lemma in base_lexicon.lemmata:
+            if lemma.special is None:
+                for orth in lemma.orth:
+                    lm_tokens.add(orth)
+                for token in lemma.synt or []:  # l.synt can be None
+                    lm_tokens.add(token)
+                for eval in lemma.eval:
+                    for t in eval:
+                        lm_tokens.add(t)
+            else:
+                special_lemmas.append(lemma)
 
         lm_tokens = list(lm_tokens)
+        return lm_tokens, special_lemmas
+
+    def _fill_vocab_and_lexicon(self):
+        lexicon = Lexicon()
+        with util.uopen(self.bpe_vocab.get_path(), "rt") as f, util.uopen("fake_count_vocab.txt", "wt") as vocab_file:
+            vocab = eval(f.read())
+            vocab = {idx: symbol for symbol, idx in vocab.items()}
+            for idx in range(len(vocab)):
+                lexicon.add_phoneme(vocab[idx].replace(".", "_"))
+                if vocab[idx] != self.unk_label:
+                    vocab_file.write(vocab[idx] + " -1\n")
+
+        return set(vocab.values()), lexicon
+
+    def run(self):
+        base_lexicon = Lexicon()
+        base_lexicon.load(self.base_lexicon_path)
+
+        lm_tokens, special_lemmas = self._fill_lm_tokens(base_lexicon)
 
         with util.uopen("words", "wt") as f:
             for t in lm_tokens:
                 f.write(f"{t}\n")
 
-        apply_binary = os.path.join(tk.uncached_path(self.subword_nmt_repo), "apply_bpe.py")
+        vocab, lexicon = self._fill_vocab_and_lexicon()
+
+        # add special lemmas back to lexicon
+        if self.keep_special_lemmas is True:
+            for special_lemma in special_lemmas:
+                special_lemma.phon = []
+                lexicon.add_lemma(special_lemma)
+
+        apply_binary = os.path.join(self.subword_nmt_repo.get_path(), "apply_bpe.py")
         args = [
             sys.executable,
             apply_binary,
@@ -73,44 +103,20 @@ class CreateBPELexiconJob(Job):
             "words",
             "--codes",
             self.bpe_codes.get_path(),
+            "--vocabulary",
+            "fake_count_vocab.txt",
             "--output",
             "bpes",
         ]
         sp.run(args, check=True)
 
         with util.uopen("bpes", "rt") as f:
-            bpe_tokens = [l.strip() for l in f]
+            bpe_tokens = [line.strip() for line in f]
 
         w2b = {w: b for w, b in zip(lm_tokens, bpe_tokens)}
 
-        vocab = set()
-        lexicon.add_phoneme("</s>", variation="none")
-        lexicon.add_phoneme(self.unk_label, variation="none")
-        with util.uopen(self.bpe_vocab.get_path(), "rt") as f:
-            for line in f:
-                if "{" in line or "<s>" in line or "</s>" in line or "}" in line:
-                    continue
-                symbol = line.split(":")[0][1:-1]
-                if symbol != self.unk_label:
-                    symbol = symbol.replace(".", "_")
-                    vocab.add(symbol)
-                    lexicon.add_phoneme(symbol.replace(".", "_"))
-        lexicon.add_phoneme("[SILENCE]", variation="none")
-
-        lexicon.add_lemma(Lemma(["[SILENCE]"], ["[SILENCE]"], [], [[]], special="silence"))
-        lexicon.add_lemma(
-            Lemma(
-                ["[SENTENCE-END]"],
-                ["</s>"],
-                ["</s>"],
-                None,
-                special="sentence-boundary",
-            )
-        )
-        lexicon.add_lemma(Lemma(["[UNKNOWN]"], [self.unk_label], None, None, special="unknown"))
-
         for w, b in w2b.items():
-            b = " ".join([token if token in vocab else self.unk_label for token in b.split()])
+            b = " ".join([token for token in b.split() if token in vocab])
             lexicon.add_lemma(Lemma([w], [b.replace(".", "_")]))
 
         elem = lexicon.to_xml()

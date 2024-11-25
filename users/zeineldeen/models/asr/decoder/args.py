@@ -1,6 +1,8 @@
 from dataclasses import dataclass
 from typing import Optional
 
+from returnn.tf.util.data import Dim
+
 
 class DecoderArgs:
     pass
@@ -109,6 +111,10 @@ class RNNDecoderArgs(DecoderArgs):
     embed_dropout: float = 0.1
     rec_weight_dropout: float = 0.0
 
+    ff_weight_dropout: Optional[float] = None
+
+    ff_weight_noise: Optional[float] = None
+
     # other regularization
     l2: float = 0.0001
     zoneout: bool = True
@@ -135,3 +141,15 @@ class RNNDecoderArgs(DecoderArgs):
     use_monotonic_att_weights_loss_in_recog: Optional[bool] = False
 
     include_eos_in_search_output: bool = False
+
+
+class ChunkwiseRNNDecoderArgs(RNNDecoderArgs):
+
+    enc_chunks_dim: Optional[Dim] = None
+    enc_time_dim: Optional[Dim] = None
+    eos_id = 0
+    search_type: Optional[str] = None
+    enable_check_align = False
+    masked_computation_blank_idx: Optional[int] = None
+    full_sum_simple_approx: bool = False
+    prev_target_embed_direct: bool = False

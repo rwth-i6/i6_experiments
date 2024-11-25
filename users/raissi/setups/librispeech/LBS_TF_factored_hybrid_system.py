@@ -3,10 +3,8 @@ __all__ = ["LBSTFFactoredHybridSystem"]
 import copy
 import dataclasses
 import itertools
-import sys
-from IPython import embed
+import numpy as np
 
-from enum import Enum
 from typing import Dict, List, Optional, Tuple, TypedDict, Union
 
 # -------------------- Sisyphus --------------------
@@ -16,6 +14,8 @@ import sisyphus.global_settings as gs
 
 from sisyphus.delayed_ops import DelayedFormat
 
+from i6_experiments.users.raissi.args.system import get_tdp_values
+
 Path = tk.setup_path(__package__)
 
 # -------------------- Recipes --------------------
@@ -23,6 +23,7 @@ import i6_core.mm as mm
 import i6_core.rasr as rasr
 import i6_core.recognition as recog
 
+import i6_experiments.users.raissi.experiments.librispeech.data_preparation.common.base_args as lbs_data_setups
 import i6_experiments.users.raissi.setups.librispeech.decoder as lbs_decoder
 
 # --------------------------------------------------------------------------------
@@ -46,14 +47,24 @@ from i6_experiments.users.raissi.setups.common.data.factored_label import (
     RasrStateTying,
 )
 
-from i6_experiments.users.raissi.setups.common.decoder.BASE_factored_hybrid_search import (
-    RasrFeatureScorer,
+
+
+from i6_experiments.users.raissi.setups.librispeech.decoder import (
+    LBSSearchParameters
 )
 
-from i6_experiments.users.raissi.setups.common.decoder.config import (
+from i6_experiments.users.raissi.setups.common.decoder import (
     PriorInfo,
     PriorConfig,
     PosteriorScales,
+    RasrFeatureScorer,
+
+)
+
+from i6_experiments.users.raissi.experiments.librispeech.configs.LFR_factored.baseline.config import (
+    ALIGN_GMM_TRI_ALLOPHONES_NOUNK,
+    ALIGN_GMM_TRI_10MS,
+
 )
 
 from i6_experiments.users.raissi.setups.librispeech.config import CV_SEGMENTS, P_HMM_AM7T1_ALIGNMENT_40ms
@@ -89,6 +100,37 @@ class LBSTFFactoredHybridSystem(TFFactoredHybridBaseSystem):
         )
         self.recognizers = {"base": lbs_decoder.LBSFactoredHybridDecoder}
         self.cv_info = {"segment_list": CV_SEGMENTS, "alignment": {"dev-other_dev-clean": P_HMM_AM7T1_ALIGNMENT_40ms}}
+        self.num_segments = lbs_data_setups.get_number_of_segments()
+        self.reference_alignment = {
+            "GMM": {
+                "alignment": ALIGN_GMM_TRI_10MS,
+                "allophones": ALIGN_GMM_TRI_ALLOPHONES_NOUNK,
+            }
+        }
+        self.alignment_example_segments = [
+                            "train-other-960/2920-156224-0013/2920-156224-0013",
+                            "train-other-960/2498-134786-0003/2498-134786-0003",
+                            "train-other-960/6178-86034-0008/6178-86034-0008",
+                            "train-other-960/5983-39669-0034/5983-39669-0034",
+                        ]
+        self.ivectors_prepath = "/work/asr4/raissi/setups/librispeech/960-ls/dependencies/data/ivectors"
+
+
+    def concat_features_with_ivectors_for_feature_flow(self):
+        assert self.ivectors_prepath, "Set the ivectors prepath"
+        for k in self.feature_bundles.keys():
+            ivec_cached_bundle = Path(f'{self.ivectors_prepath}/{k}/ivec.bundle', cached=True)
+
+            ivector_cached_path = rasr.FlagDependentFlowAttribute("cache_mode",
+                                                                  {
+                                                                      "bundle":ivec_cached_bundle,
+                                                                    "task_dependent": ivec_cached_bundle
+                                                                  }
+                                                                  )
+            ft_k = self.feature_info.feature_type.get()
+            self.feature_flows[k][ft_k] = self.concat_features_with_ivec(feature_net=self.feature_flows[k][ft_k], ivec_path=ivector_cached_path)
+
+
 
     def get_recognizer_and_args(
         self,
@@ -102,6 +144,7 @@ class LBSTFFactoredHybridSystem(TFFactoredHybridBaseSystem):
         gpu=False,
         is_multi_encoder_output=False,
         set_batch_major_for_feature_scorer: bool = True,
+        joint_for_factored_loss: bool = False,
         tf_library: Union[Path, str, List[Path], List[str], None] = None,
         dummy_mixtures: Optional[Path] = None,
         lm_gc_simple_hash: Optional[bool] = None,
@@ -126,7 +169,7 @@ class LBSTFFactoredHybridSystem(TFFactoredHybridBaseSystem):
         ):
 
             self.setup_returnn_config_and_graph_for_single_softmax(
-                key=key, state_tying=self.label_info.state_tying, softmax_type=SingleSoftmaxType.DECODE
+                key=key, state_tying=self.label_info.state_tying, softmax_type=SingleSoftmaxType.DECODE, joint_for_factored_loss=joint_for_factored_loss,
             )
         else:
             crp_list = [n for n in self.crp_names if "train" not in n]
@@ -157,6 +200,7 @@ class LBSTFFactoredHybridSystem(TFFactoredHybridBaseSystem):
         if model_path is None:
             model_path = self.get_model_checkpoint(self.experiments[key]["train_job"], epoch)
 
+
         recognizer = self.recognizers[recognizer_key](
             name=name,
             crp=self.crp[crp_corpus] if crp is None else crp,
@@ -166,7 +210,7 @@ class LBSTFFactoredHybridSystem(TFFactoredHybridBaseSystem):
             model_path=model_path,
             graph=graph,
             mixtures=dummy_mixtures,
-            eval_files=self.scorer_args[crp_corpus],
+            eval_args=self.scorer_args[crp_corpus],
             scorer=self.scorers[crp_corpus],
             tf_library=tf_library,
             is_multi_encoder_output=is_multi_encoder_output,
@@ -178,6 +222,7 @@ class LBSTFFactoredHybridSystem(TFFactoredHybridBaseSystem):
         )
 
         return recognizer, recog_args
+
 
     def get_aligner_and_args(
         self,

@@ -155,3 +155,40 @@ def make_context_1_conformer_transducer_recog(
     )
 
     return network, python_code
+
+
+def make_context_1_conformer_transducer_precomputed_recog(
+    num_inputs: int,
+    num_outputs: int,
+    decoder_args: Dict = {},
+) -> Tuple[Dict, List]:
+    network = {}
+    python_code = []
+
+    network.update(
+        encoder.get_best_conformer_network(
+            size=512,
+            num_classes=num_outputs,
+            num_input_feature=num_inputs,
+            time_tag_name=None,
+            upsample_by_transposed_conv=False,
+            chunking="400:200",
+            label_smoothing=0.0,
+            additional_args={
+                "feature_stacking": False,
+                "reduction_factor": (1, 4),
+                "use_spec_augment": False,
+            },
+        ).network
+    )
+
+    network["encoder-output"] = {
+        "class": "copy",
+        "from": "encoder",
+    }
+
+    label_context.add_precomputed_context_1_decoder_recog(
+        network, num_outputs=num_outputs, encoder="encoder-output", **decoder_args
+    )
+
+    return network, python_code

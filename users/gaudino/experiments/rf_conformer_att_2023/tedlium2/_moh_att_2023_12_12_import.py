@@ -1,3 +1,11 @@
+"""
+Script for debugging the imported model. It basically does the same as RETURNN does with the config.
+At some point I stopped using such scripts because it was easier to just run the actual config in an interactive session on the cluster.
+
+The original script is from Albert. It can also compare the scores of the models in an automatic way.
+Be careful how the threshold is set, I discussed this with Albert and I think he used to use a too large threshold for the exact comparison.
+
+"""
 from __future__ import annotations
 
 from typing import Dict
@@ -343,7 +351,6 @@ def test_import_search():
     for batch_idx in range(batch_dim.get_dim_value()):
         # process seq
 
-        breakpoint()
         hyps = seq_targets.raw_tensor[:, batch_idx, :]
         scores = seq_log_prob.raw_tensor[batch_idx, :]
         hyps_len = seq_targets.dims[0].dyn_size_ext.raw_tensor[:, batch_idx]

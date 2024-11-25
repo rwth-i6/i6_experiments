@@ -4,7 +4,6 @@ import json
 import sys
 import numpy as np
 import os
-import tensorflow as tf
 import time
 import h5py
 from collections import Counter
@@ -32,7 +31,7 @@ def get_bpe_to_word_idx_mapping(bpe_align, blank_idx):
   return word_indices
 
 
-def get_allophone_word_end_positions(allophone_idxs, state_tying_vocab, silence_idx, non_final_idx):
+def get_allophone_word_end_positions(allophone_idxs, state_tying_vocab, silence_idx, non_final_idx, count_silence=True):
   """
   Get indices of allophones that correspond to word ends, including silence.
   :return:
@@ -55,10 +54,60 @@ def get_allophone_word_end_positions(allophone_idxs, state_tying_vocab, silence_
   is_word_end = np.append(final_states[:-1] > final_states[1:], [True])
   # silence is always [SILENCE]@i@f.0,
   # so we need to add it to the word ends because it is not counted in the previous line
-  is_word_end = np.logical_or(is_word_end, is_silence)
+  if count_silence:
+    is_word_end = np.logical_or(is_word_end, is_silence)
   word_ends = allophone_idxs[is_word_end]
   word_end_positions = allophone_positions[is_word_end]
   return word_end_positions
+
+
+def calculate_max_word_duration_deviation(
+        phoneme_align,
+        bpe_align,
+        bpe_blank_idx,
+        bpe_vocab,
+        bpe_downsampling_factor,
+        state_tying_vocab,
+        phoneme_silence_idx,
+        phoneme_non_final_idx,
+        phoneme_downsampling_factor,
+        frame_len
+):
+  # get word end positions
+  phoneme_word_end_positions = get_allophone_word_end_positions(
+    phoneme_align, state_tying_vocab, phoneme_silence_idx, phoneme_non_final_idx)
+  bpe_word_end_positions = get_bpe_word_end_positions(bpe_align, bpe_blank_idx, bpe_vocab)
+  assert len(phoneme_word_end_positions) == len(bpe_word_end_positions), "Number of word ends do not match"
+  # get phoneme word durations
+  phoneme_word_end_positions = np.append([-1], phoneme_word_end_positions)
+  phoneme_align_word_durations = np.diff(phoneme_word_end_positions) * phoneme_downsampling_factor * frame_len
+  # get BPE word durations
+  bpe_word_end_positions = np.append([-1], bpe_word_end_positions)
+  bpe_align_word_durations = np.diff(bpe_word_end_positions) * bpe_downsampling_factor * frame_len
+  # calculate maximum word duration deviation
+  max_word_duration_deviation = np.max(np.absolute(phoneme_align_word_durations - bpe_align_word_durations))
+  return max_word_duration_deviation
+
+
+def calculate_bpe_word_boundary_deviation(
+        bpe_positions,
+        bpe_to_word_idx_mapping,
+        phoneme_word_end_positions,
+):
+  """
+  Calculate the deviation between BPE word boundaries and phoneme word boundaries.
+  :param bpe_positions:
+  :param bpe_to_word_idx_mapping:
+  :param phoneme_word_end_positions:
+  :return:
+  """
+  bpe_word_end_positions = bpe_positions[bpe_to_word_idx_mapping]
+  bpe_word_end_positions = np.append([-1], bpe_word_end_positions)
+  bpe_word_durations = np.diff(bpe_word_end_positions)
+  phoneme_word_durations = np.diff(phoneme_word_end_positions)
+  word_boundary_deviation = np.max(np.absolute(bpe_word_durations - phoneme_word_durations))
+  return word_boundary_deviation
+
 
 
 def write_word_duration_deviation_statistics(max_word_duration_deviation_counter):
@@ -129,18 +178,18 @@ def compare_alignments(
     # load phoneme alignment
     sprint_cache_dataset.load_seqs(seq_idx, seq_idx + 1)
     phoneme_align = sprint_cache_dataset.get_data(seq_idx, "data")
-    # get word end positions
-    phoneme_word_end_positions = get_allophone_word_end_positions(phoneme_align, state_tying_vocab, phoneme_silence_idx, phoneme_non_final_idx)
-    bpe_word_end_positions = get_bpe_word_end_positions(bpe_align, bpe_blank_idx, bpe_vocab)
-    assert len(phoneme_word_end_positions) == len(bpe_word_end_positions), "Number of word ends do not match"
-    # get phoneme word durations
-    phoneme_word_end_positions = np.append([-1], phoneme_word_end_positions)
-    phoneme_align_word_durations = np.diff(phoneme_word_end_positions) * phoneme_downsampling_factor * frame_len
-    # get BPE word durations
-    bpe_word_end_positions = np.append([-1], bpe_word_end_positions)
-    bpe_align_word_durations = np.diff(bpe_word_end_positions) * bpe_downsampling_factor * frame_len
-    # calculate maximum word duration deviation
-    max_word_duration_deviation = np.max(np.absolute(phoneme_align_word_durations - bpe_align_word_durations))
+    max_word_duration_deviation = calculate_max_word_duration_deviation(
+      phoneme_align,
+      bpe_align,
+      bpe_blank_idx,
+      bpe_vocab,
+      bpe_downsampling_factor,
+      state_tying_vocab,
+      phoneme_silence_idx,
+      phoneme_non_final_idx,
+      phoneme_downsampling_factor,
+      frame_len
+    )
     max_word_duration_deviation_counter[max_word_duration_deviation] += 1
 
     seq_idx += 1
@@ -151,7 +200,7 @@ def compare_alignments(
 def init_returnn():
   from returnn.log import log
   from returnn.util.debug import init_better_exchook, init_faulthandler
-  from returnn.utqil.basic import init_thread_join_hack
+  from returnn.util.basic import init_thread_join_hack
 
   init_better_exchook()
   init_thread_join_hack()
@@ -250,6 +299,7 @@ def main():
   arg_parser.add_argument("--returnn_root", type=str)
   args = arg_parser.parse_args()
   sys.path.insert(0, args.returnn_root)
+  import tensorflow as tf
   global rnn_main
   import returnn as rnn
   import returnn.__main__ as rnn_main

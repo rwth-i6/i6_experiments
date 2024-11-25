@@ -69,7 +69,7 @@ def get_text_lexicon(prefix: str, bpe_size: int) -> tk.Path:
         include_pronunciation_variants=True,
         include_orthography_variants=True,
     )
-    word_lexicon_job.add_alias(prefix + "bliss_to_g2p_lexicon")
+    word_lexicon_job.add_alias(prefix + "/bliss_to_g2p_lexicon")
     word_lexicon = word_lexicon_job.out_g2p_lexicon
     return word_lexicon
 

@@ -1,14 +1,14 @@
-import copy
 import itertools
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 from i6_core import mm, rasr, recognition, returnn
-from i6_experiments.users.berger.recipe.returnn.training import Backend, get_backend
 from sisyphus import tk
+
+from i6_experiments.users.berger.recipe.returnn.training import Backend, get_backend
+
+from ... import dataclasses, types
 from ..base import RecognitionFunctor
 from ..rasr_base import RasrFunctor, RecognitionScoringType
-from ... import dataclasses
-from ... import types
 
 
 class AdvancedTreeSearchFunctor(
@@ -20,29 +20,51 @@ class AdvancedTreeSearchFunctor(
         train_job: dataclasses.NamedTrainJob[returnn.ReturnnTrainingJob],
         prior_config: returnn.ReturnnConfig,
         recog_config: dataclasses.NamedConfig[returnn.ReturnnConfig],
-        recog_corpus: dataclasses.NamedCorpusInfo,
+        recog_corpus: dataclasses.NamedRasrDataInput,
         num_classes: int,
         epochs: List[types.EpochType],
         lm_scales: List[float],
-        prior_scales: List[float] = [0],
-        pronunciation_scales: List[float] = [0],
-        prior_args: Dict = {},
-        lattice_to_ctm_kwargs: Dict = {},
+        prior_scales: Optional[List[float]] = None,
+        pronunciation_scales: Optional[List[float]] = None,
+        prior_args: Optional[Dict] = None,
+        prior_epoch: Optional[int] = None,
+        am_args: Optional[Dict] = None,
+        lattice_to_ctm_kwargs: Optional[Dict] = None,
         feature_type: dataclasses.FeatureType = dataclasses.FeatureType.SAMPLES,
-        flow_args: Dict = {},
-        model_flow_args: Dict = {},
+        flow_args: Optional[Dict] = None,
+        model_flow_args: Optional[Dict] = None,
         recognition_scoring_type: RecognitionScoringType = RecognitionScoringType.Lattice,
         **kwargs,
     ) -> List[Dict]:
+        if prior_scales is None:
+            prior_scales = [0.0]
+        if pronunciation_scales is None:
+            pronunciation_scales = [0.0]
+        if prior_args is None:
+            prior_args = {}
+        if lattice_to_ctm_kwargs is None:
+            lattice_to_ctm_kwargs = {}
+        if am_args is None:
+            am_args = {}
+        if flow_args is None:
+            flow_args = {}
+        if model_flow_args is None:
+            model_flow_args = {}
+
         assert recog_corpus is not None
-        crp = copy.deepcopy(recog_corpus.corpus_info.crp)
-        assert recog_corpus.corpus_info.scorer is not None
+        crp = recog_corpus.data.get_crp(
+            rasr_python_exe=self.rasr_python_exe,
+            rasr_binary_path=self.rasr_binary_path,
+            returnn_python_exe=self.returnn_python_exe,
+            returnn_root=self.returnn_root,
+            blas_lib=self.blas_lib,
+            am_args=am_args,
+        )
+        assert recog_corpus.data.scorer is not None
 
         acoustic_mixture_path = mm.CreateDummyMixturesJob(num_classes, 1).out_mixtures
 
-        base_feature_flow = self._make_base_feature_flow(
-            recog_corpus.corpus_info, feature_type=feature_type, **flow_args
-        )
+        base_feature_flow = self._make_base_feature_flow(recog_corpus.data, feature_type=feature_type, **flow_args)
 
         recog_results = []
 
@@ -52,6 +74,7 @@ class AdvancedTreeSearchFunctor(
             lm_scales, prior_scales, pronunciation_scales, epochs
         ):
             checkpoint = self._get_checkpoint(train_job.job, epoch)
+
             if backend == Backend.TENSORFLOW:
                 tf_graph = self._make_tf_graph(
                     train_job=train_job.job,
@@ -80,9 +103,13 @@ class AdvancedTreeSearchFunctor(
             else:
                 raise NotImplementedError
 
+            if prior_epoch is None:
+                prior_checkpoint = checkpoint
+            else:
+                prior_checkpoint = self._get_checkpoint(train_job.job, prior_epoch)
             prior_file = self._get_prior_file(
                 prior_config=prior_config,
-                checkpoint=checkpoint,
+                checkpoint=prior_checkpoint,
                 **prior_args,
             )
 
@@ -114,7 +141,7 @@ class AdvancedTreeSearchFunctor(
                 recognition_scoring_type=recognition_scoring_type,
                 crp=crp,
                 lattice_bundle=rec.out_lattice_bundle,
-                scorer=recog_corpus.corpus_info.scorer,
+                scorer=recog_corpus.data.scorer,
                 **lattice_to_ctm_kwargs,
             )
 

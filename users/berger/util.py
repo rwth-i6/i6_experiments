@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from i6_core.tools import CloneGitRepositoryJob
 from typing import List, Union, Callable, Optional
 import functools
 from sisyphus import tk
@@ -106,4 +107,11 @@ default_tools_v2 = ToolPaths(
     returnn_python_exe=tk.Path("/usr/bin/python3"),
     rasr_binary_path=tk.Path("/u/berger/repositories/rasr_versions/gen_seq2seq_dev/arch/linux-x86_64-standard"),
     returnn_common_root=tk.Path("/u/berger/repositories/returnn_common"),
+)
+
+default_tools_apptek = ToolPaths(
+    returnn_root=CloneGitRepositoryJob("https://github.com/rwth-i6/returnn.git").out_repository,
+    returnn_python_exe=tk.Path("/usr/bin/python3"),
+    rasr_binary_path=tk.Path("/home/sberger/repositories/rasr_versions/gen_seq2seq_dev/arch/linux-x86_64-standard"),
+    returnn_common_root=tk.Path(""),
 )

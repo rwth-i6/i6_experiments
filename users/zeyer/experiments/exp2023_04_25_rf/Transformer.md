@@ -45,7 +45,7 @@ Decoder:
 
 - sometimes sliding window attention (supported also by Flash attention)
 
-- T5 style layer norm: No bias and no subtraction of mean
+- T5 style layer norm / RMSNorm: No bias and no subtraction of mean
 
 - Conformer uses Swish (Silu) activation in FF
 
@@ -78,6 +78,15 @@ Via https://huggingface.co/transformers/v3.5.1/_modules/transformers/modeling_t5
   no bias terms in Linear
   huge batch size? growing batch size?
   (example: Mamba paper on Transformer++: https://arxiv.org/pdf/2312.00752.pdf)
+
+- Transformer++ (https://arxiv.org/pdf/2312.00752.pdf):
+  Via Llama or Palm:
+    - rotary positional encodings (RoPE)
+    - SwiGLU MLP (https://arxiv.org/abs/2002.05202)
+    - linear learning rate warmup with cosine decay to 1𝑒−5, with a peak value of 5× the GPT3 value
+    - no linear bias terms
+    - RMSNorm instead of LayerNorm
+    - AdamW hyperparameter 𝛽=(.9,.95) (the GPT3 value) instead of the PyTorch default of 𝛽=(.9,.999)
 
 - μParam
 - see recent Apple paper? (TODO which?)

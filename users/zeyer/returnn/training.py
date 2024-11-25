@@ -167,6 +167,8 @@ def get_relevant_epochs_from_training_learning_rate_scores(
         The function should only really be called once when the scores_and_learning_rates becomes available,
         so it should not be a problem to always enable this.
     """
+    import numpy as np
+
     if n_best == 0:
         return set()
     if log_stream is None:
@@ -207,7 +209,7 @@ def get_relevant_epochs_from_training_learning_rate_scores(
             continue
         break
 
-    scores = eval(scores_str, {"EpochData": EpochData, "nan": nan, "inf": inf})
+    scores = eval(scores_str, {"EpochData": EpochData, "nan": nan, "inf": inf, "np": np})
     assert isinstance(scores, dict)
     all_epochs = sorted(scores.keys())
 

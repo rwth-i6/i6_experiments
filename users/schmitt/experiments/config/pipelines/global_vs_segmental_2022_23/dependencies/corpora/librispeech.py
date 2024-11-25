@@ -1,9 +1,10 @@
-from typing import List, Optional
+from typing import List, Optional, Dict
 
 from sisyphus import *
 
-from i6_core.corpus.convert import CorpusToStmJob
+from i6_core.corpus.convert import CorpusToStmJob, CorpusToTxtJob
 from i6_core.corpus.segments import SegmentCorpusJob
+from i6_core.corpus.filter import FilterCorpusBySegmentDurationJob
 from i6_core.audio.encoding import BlissChangeEncodingJob
 from i6_core.returnn.oggzip import BlissToOggZipJob
 from i6_core.tools.download import DownloadJob
@@ -12,11 +13,13 @@ from i6_experiments.common.datasets.librispeech.corpus import get_bliss_corpus_d
 from i6_experiments.users.schmitt.datasets.dump import DumpDatasetConfigBuilder
 from i6_experiments.users.schmitt.datasets import oggzip, concat
 from i6_experiments.users.schmitt.datasets.concat import ConcatStmFileJob, ConcatSeqTagFileJob
-from i6_experiments.users.schmitt.corpus.statistics import GetSeqLenFileJob
+from i6_experiments.users.schmitt.corpus.statistics import GetSeqLenFileJob, GetCorrectDataFilteringJob
 from i6_experiments.users.schmitt.rasr.convert import ArpaLMToWordListJob, LabelFileToWordListJob
 
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.general.returnn.exes import RETURNN_CURRENT_ROOT, RETURNN_EXE_NEW
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.lm.trafo import model_import as trafo_lm_import
+from i6_experiments.users.schmitt.corpus.segment_ends import AugmentCorpusSegmentEndsJob
+from i6_experiments.users.schmitt.datasets.bpe_lm import build_lm_training_datasets, LMDatasetSettings
 
 
 class LibrispeechCorpora:
@@ -50,43 +53,78 @@ class LibrispeechCorpora:
       "dev-clean": self.corpus_paths_wav_imported["dev-clean"]
     }
 
-    self.oggzip_paths_mine = {
-      key: BlissToOggZipJob(
-        self.corpus_paths_wav[key],
-        returnn_python_exe=RETURNN_EXE_NEW,
-        returnn_root=RETURNN_CURRENT_ROOT
-      ) for key in self.corpus_paths_wav
+    self.corpus_paths_w_correct_segment_ends = {
+      "dev-other": AugmentCorpusSegmentEndsJob(
+        bliss_corpous=self.corpus_paths["dev-other"],
+        oggzip_path=self.oggzip_paths["dev-other"][0]
+      ).out_bliss_corpus
     }
-    tk.register_output("dev-other-my-oggzip", self.oggzip_paths_mine["dev-other"].out_ogg_zip)
-
-    self.corpus_paths_ogg = get_bliss_corpus_dict(audio_format="ogg")
-    tk.register_output("dev-other_corpus_ogg", self.corpus_paths_ogg["dev-other"])
+    dev_other_corpus_by_duration = self.get_corpus_filtered_by_duration_bins("dev-other")
+    self.corpus_paths.update(dev_other_corpus_by_duration)
 
     self.stm_jobs = {
-      "dev-other": CorpusToStmJob(self.corpus_paths["dev-other"]),
-      "dev-clean": CorpusToStmJob(self.corpus_paths["dev-clean"]),
-      "test-other": CorpusToStmJob(self.corpus_paths["test-other"]),
-      "test-clean": CorpusToStmJob(self.corpus_paths["test-clean"]),
+      k: CorpusToStmJob(v) for k, v in self.corpus_paths.items() if (k.startswith("dev-") or k.startswith("test-"))
     }
 
-    self.stm_paths = {
-      "dev-other": self.stm_jobs["dev-other"].out_stm_path,
-      "dev-clean": self.stm_jobs["dev-clean"].out_stm_path,
-      "test-other": self.stm_jobs["test-other"].out_stm_path,
-      "test-clean": self.stm_jobs["test-clean"].out_stm_path,
-    }
+    self.oggzip_paths.update({k: self.oggzip_paths["dev-other"] for k in dev_other_corpus_by_duration.keys()})
+    self.segment_paths.update({
+      k: SegmentCorpusJob(
+        v, num_segments=1).out_single_segment_files[1] for k, v in dev_other_corpus_by_duration.items()
+    })
+
+    self.stm_paths = {k: v.out_stm_path for k, v in self.stm_jobs.items()}
+
+    self.corpus_to_txt_job = CorpusToTxtJob(self.corpus_paths["train-other-960"])
 
     self.segment_corpus_jobs = {
       "dev-other": SegmentCorpusJob(bliss_corpus=self.corpus_paths["dev-other"], num_segments=1)
     }
 
     self.seq_len_files = {
-      "dev-other": self.get_seq_lens_file(dataset_name="dev-other", concat_num=None),
-      "train": self.get_seq_lens_file(dataset_name="train", concat_num=None)
+      # "dev-other": self.get_seq_lens_file(
+      #   dataset_dict=self.get_oggzip_dataset_dict("dev-other"),
+      #   concat_num=None,
+      #   corpus_key="dev-other"
+      # ),
+      # "train": self.get_seq_lens_file(
+      #   dataset_dict=self.get_oggzip_dataset_dict("train"),
+      #   concat_num=None,
+      #   corpus_key="train"
+      # ),
+      **{
+        corpus_key: self.get_seq_lens_file(
+          dataset_dict=self.get_oggzip_dataset_dict(corpus_key),
+          concat_num=None,
+          corpus_key=corpus_key
+        ) for corpus_key in ["train", "dev-other", "dev-clean", "test-clean", "test-other"]
+      },
+      **{
+        f"train_lm_{n}k": self.get_seq_lens_file(
+          dataset_dict=build_lm_training_datasets(
+            prefix=f"lm_{n}k_train_data",
+            librispeech_key="train-other-960",
+            bpe_size=n * 1_000,
+            settings=LMDatasetSettings(
+              train_partition_epoch=1,
+              train_seq_ordering="laplace:.1000",
+            )
+          ).train.as_returnn_opts(),
+          concat_num=None,
+          corpus_key=f"train_lm_{n}k"
+        ) for n in (1, 10)
+      }
     }
 
+    self.calulate_correct_data_filtering_thresholds(
+      seq_len_file1=self.seq_len_files["train_lm_10k"],
+      seq_len_file2=self.seq_len_files["train_lm_1k"],
+      max_seq_len1=75,
+      corpus_name1="train_lm_10k",
+      corpus_name2="train_lm_1k"
+    )
+
     # update self.segment_paths, self.stm_paths and self.seq_len_files
-    self.get_concatenated_seqs("dev-other", concat_nums=[1, 2, 4, 8, 10, 20])
+    self.get_concatenated_seqs("dev-other", concat_nums=[1, 2, 4, 8, 10, 20, 30, 100])
 
     self.corpus_keys = ("train", "cv", "devtrain")
     self.train_corpus_keys = ("train", "cv", "devtrain")
@@ -132,26 +170,13 @@ class LibrispeechCorpora:
     tk.register_output("kazuki-trafo-pt-checkpoint", nn_lm_torch_checkpoints["kazuki-trafo"])
     return nn_lm_torch_checkpoints
 
-  def get_seq_lens_file(self, dataset_name: str, concat_num: Optional[int]):
-    dataset_dict = oggzip.get_dataset_dict(
-      oggzip_path_list=self.oggzip_paths[dataset_name],
-      bpe_file=None,
-      vocab_file=None,
-      segment_file=None,
-      fixed_random_subset=None,
-      partition_epoch=1,
-      pre_process=None,
-      seq_ordering="sorted_reverse",
-      epoch_wise_filter=None,
-      use_targets=False
-    )
-
+  def get_seq_lens_file(self, dataset_dict: Dict, concat_num: Optional[int], corpus_key: str):
     if concat_num:
       # e.g. "dev-other_concat-2"
-      concat_dataset_name = "%s_concat-%d" % (dataset_name, concat_num)
+      concat_dataset_name = "%s_concat-%d" % (corpus_key, concat_num)
       dataset_dict = concat.get_concat_dataset_dict(
         original_dataset_dict=dataset_dict,
-        seq_len_file=self.seq_len_files[dataset_name],
+        seq_len_file=self.seq_len_files[corpus_key],
         seq_list_file=self.segment_paths[concat_dataset_name]
       )
 
@@ -166,14 +191,29 @@ class LibrispeechCorpora:
       returnn_config=dump_dataset_returnn_config,
       returnn_root=RETURNN_CURRENT_ROOT,
       returnn_python_exe=RETURNN_EXE_NEW,
-      time_rqmt=6 if dataset_name == "train" else 1
+      time_rqmt=8 if "train" in corpus_key else 1,
+      downsampling_factor=1 / 16_000
     )
     get_seq_len_file_job.add_alias("datasets/LibriSpeech/seq_lens/%s" % (
-      concat_dataset_name if concat_num else dataset_name
+      concat_dataset_name if concat_num else corpus_key
     ))
     tk.register_output(get_seq_len_file_job.get_one_alias(), get_seq_len_file_job.out_seq_len_file)
 
     return get_seq_len_file_job.out_seq_len_file
+
+  def get_oggzip_dataset_dict(self, corpus_key: str):
+    return oggzip.get_dataset_dict(
+      oggzip_path_list=self.oggzip_paths[corpus_key],
+      bpe_file=None,
+      vocab_file=None,
+      segment_file=None,
+      fixed_random_subset=None,
+      partition_epoch=1,
+      pre_process=None,
+      seq_ordering="sorted_reverse",
+      epoch_wise_filter=None,
+      use_targets=False
+    )
 
   def get_concatenated_seqs(self, dataset_name: str, concat_nums: List[int]):
     """
@@ -197,7 +237,10 @@ class LibrispeechCorpora:
 
     self.seq_len_files.update({
       "%s_concat-%d" % (dataset_name, concat_num): self.get_seq_lens_file(
-        dataset_name, concat_num) for concat_num in concat_nums
+        dataset_dict=self.get_oggzip_dataset_dict(dataset_name),
+        concat_num=concat_num,
+        corpus_key=dataset_name
+      ) for concat_num in concat_nums
     })
 
   def get_concat_seq_tag_file(self, dataset_name: str, concat_num: int):
@@ -218,3 +261,33 @@ class LibrispeechCorpora:
     # concat_stm_file_job.add_alias("concat-stms-%d" % concat_num)
 
     return concat_stm_file_job.out_stm_file
+
+  def get_corpus_filtered_by_duration_bins(self, corpus_key, min_duration=0.1, max_duration=31.0, step_size=5.0):
+    import numpy as np
+    corpus_by_duration = {
+      f"{corpus_key}_{min_duration_}-{max_duration_}": FilterCorpusBySegmentDurationJob(
+        bliss_corpus=self.corpus_paths_w_correct_segment_ends[corpus_key],
+        min_duration=min_duration_,
+        max_duration=max_duration_,
+      ).out_corpus for min_duration_, max_duration_ in zip(
+        np.arange(min_duration, max_duration, step_size),
+        np.arange(min_duration + step_size, max_duration + step_size, step_size)
+      )
+    }
+    return corpus_by_duration
+
+  @staticmethod
+  def calulate_correct_data_filtering_thresholds(
+          seq_len_file1,
+          seq_len_file2,
+          max_seq_len1,
+          corpus_name1,
+          corpus_name2,
+  ):
+    get_correct_data_filtering_job = GetCorrectDataFilteringJob(
+      seq_len_file1=seq_len_file1,
+      seq_len_file2=seq_len_file2,
+      max_seq_len1=max_seq_len1
+    )
+    get_correct_data_filtering_job.add_alias(f"datasets/LibriSpeech/filtering_thresholds/{corpus_name1}-to-{corpus_name2}")
+    tk.register_output(get_correct_data_filtering_job.get_one_alias(), get_correct_data_filtering_job.out_threshold)

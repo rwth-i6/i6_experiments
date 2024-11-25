@@ -100,8 +100,9 @@ class Model(nn.Module):
                             sample_rate=16000,
                             win_size=0.025,
                             hop_size=0.01,
-                            min_amp=1e-10,
+                            min_amp=1.175494e-38,
                             num_filters=80,
+                            alpha=0.97,
                         )
             self.feature_extraction = RasrCompatibleLogMelFeatureExtractionV1(self.fe_cfg)
 
@@ -161,7 +162,7 @@ class Model(nn.Module):
     def forward(self, raw_audio: torch.Tensor, raw_audio_len: torch.Tensor):
 
         run_ctx = rf.get_run_ctx()
-        if self.conformer_cfg.feat_extr is True and (self.training or run_ctx.stage == "train_step"):
+        if raw_audio.shape[-1] == 1 or (self.conformer_cfg.feat_extr is True and (self.training or run_ctx.stage == "train_step")):
             squeezed_features = torch.squeeze(raw_audio, dim=-1)
             audio_features, audio_features_len = self.feature_extraction(raw_audio=squeezed_features, length=raw_audio_len)
         else:
@@ -196,7 +197,6 @@ class Model(nn.Module):
         conformer_out, _ = self.conformer(audio_features_masked, mask)
 
         upsampled = self.upsample_conv(conformer_out.transpose(1, 2)).transpose(1, 2)  # final upsampled [B, T, F]
-        print(upsampled.shape, audio_features.shape, audio_features_len, conformer_out.shape)
         upsampled = upsampled[:, 0: audio_features.size()[1]+1, :]
         student_features = upsampled
         upsampled_dropped = nn.functional.dropout(student_features, p=self.conformer_cfg.dropout, training=self.training)
@@ -229,7 +229,6 @@ def train_step(*, model: Model, extern_data, **_kwargs):
     )
     targets_masked, _ = nn.utils.rnn.pad_packed_sequence(targets_packed, batch_first=True, padding_value=-100)
     targets_masked = targets_masked.long()
-    print(f"{logits_ce_order.shape=}, {targets_masked.shape=}")
     loss_ce = nn.functional.cross_entropy(logits_ce_order, targets_masked)
     #loss_features = nn.functional.l1_loss(student_features, teacher_features, reduction="mean")
 

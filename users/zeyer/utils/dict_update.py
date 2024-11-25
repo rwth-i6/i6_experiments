@@ -24,6 +24,8 @@ def dict_update_deep(
         if "." in k:
             k1, k2 = k.split(".", 1)
             d[k1] = dict_update_deep(d[k1], {k2: v})
+        elif isinstance(d.get(k), dict) and isinstance(v, dict):
+            d[k] = dict_update_deep(d[k], v)
         else:
             d[k] = v
     return d

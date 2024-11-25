@@ -52,7 +52,7 @@ def returnn_config_generator(
     variant: ConfigVariant,
     train_data_config: dict,
     dev_data_config: dict,
-    train_corpus: dataclasses.CorpusInfo,
+    train_corpus: dataclasses.RasrDataInput,
     train_lexicon: tk.Path,
     **kwargs,
 ) -> ReturnnConfig:

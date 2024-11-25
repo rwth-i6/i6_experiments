@@ -408,14 +408,28 @@ class RNNDecoder:
             )
         else:
             self.base_model.network.add_linear_layer(
-                "enc_ctx", "encoder", with_bias=True, n_out=self.enc_key_dim, l2=self.base_model.l2
+                "enc_ctx",
+                "encoder",
+                with_bias=True,
+                n_out=self.enc_key_dim,
+                l2=self.base_model.l2,
+                param_dropout=self.ff_weight_drop,
+                param_dropout_min_ndim=2,
+                param_variational_noise=self.ff_weight_noise,
             )
             self.base_model.network.add_split_dim_layer(
                 "enc_value", "encoder", dims=(self.att_num_heads, self.enc_value_dim // self.att_num_heads)
             )
 
         self.base_model.network.add_linear_layer(
-            "inv_fertility", "encoder", activation="sigmoid", n_out=self.att_num_heads, with_bias=False
+            "inv_fertility",
+            "encoder",
+            activation="sigmoid",
+            n_out=self.att_num_heads,
+            with_bias=False,
+            param_dropout=self.ff_weight_drop,
+            param_dropout_min_ndim=2,
+            param_variational_noise=self.ff_weight_noise,
         )
 
         decision_layer_name = self.base_model.network.add_decide_layer("decision", self.dec_output, target=self.target)

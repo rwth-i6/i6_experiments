@@ -111,26 +111,11 @@ def forward_step_asr_invertibility(*, model, data, run_ctx, **kwargs):
     phonemes = data["phonemes"]
     phonemes_len = data["phonemes:size1"]
 
-    if "xvectors" in data:
-        g = data["xvectors"]
-    elif "speaker_labels" in data:
-        g = data["speaker_labels"]
-    else:
-        raise Exception("Missing speaker embedding!")
-
     squeezed_audio = torch.squeeze(raw_audio)
     y, y_lengths = model.feature_extraction(squeezed_audio, raw_audio_len)  # [B, T, F]
     y = y.transpose(1, 2)  # [B, F, T]
 
-    if hasattr(model, "x_vector"):
-        _, _, g = model.x_vector(y, y_lengths)
-
-        if hasattr(model, "x_vector_bottleneck"):
-            g = model.x_vector_bottleneck(g)
-    elif hasattr(model, "emb_g"):
-        g = torch.nn.functional.normalize(model.emb_g(g.squeeze(-1))).unsqueeze(-1)
-    else:
-        g = None
+    g = None
 
     y_max_length = y.size(2)
 

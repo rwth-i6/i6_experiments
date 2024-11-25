@@ -1,6 +1,6 @@
 import copy
 from enum import Enum, auto
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from i6_core import returnn
 from i6_core.lexicon.modification import itertools
@@ -8,12 +8,15 @@ from i6_core.returnn.vocabulary import ReturnnVocabFromPhonemeInventory
 from sisyphus import tk
 
 from i6_experiments.users.berger.helpers.kenlm import arpa_to_kenlm_bin
+from i6_experiments.users.berger.helpers.rasr_lm_config import ArpaLMData
 from i6_experiments.users.berger.recipe.lexicon.conversion import BlissLexiconToWordLexicon
 from i6_experiments.users.berger.recipe.returnn.training import (
     GetBestCheckpointJob,
     GetBestEpochJob,
     get_backend,
 )
+from i6_experiments.users.berger.corpus.general.hdf import build_feature_hdf_dataset_config
+from i6_experiments.users.berger.corpus.general.ogg import build_oggzip_dataset_config
 
 from ... import dataclasses, types
 from ..base import RecognitionFunctor
@@ -27,7 +30,7 @@ class LexiconType(Enum):
 
 class VocabType(Enum):
     NONE = auto()
-    RETURNN = auto()
+    LEXICON_INVENTORY = auto()
 
 
 class LmType(Enum):
@@ -40,16 +43,19 @@ class ReturnnSearchFunctor(RecognitionFunctor[returnn.ReturnnTrainingJob, return
         self,
         returnn_root: tk.Path,
         returnn_python_exe: tk.Path,
+        rasr_binary_path: tk.Path,
     ) -> None:
         self.returnn_root = returnn_root
         self.returnn_python_exe = returnn_python_exe
+        self.rasr_binary_path = rasr_binary_path
 
     def __call__(
         self,
         train_job: dataclasses.NamedTrainJob[returnn.ReturnnTrainingJob],
         prior_config: returnn.ReturnnConfig,
         recog_config: dataclasses.NamedConfig[returnn.ReturnnConfig],
-        recog_corpus: dataclasses.NamedCorpusInfo,
+        recog_corpus: dataclasses.NamedRasrDataInput,
+        feature_type: dataclasses.FeatureType,
         epochs: List[types.EpochType],
         lm_scales: List[float] = [0.0],
         prior_scales: List[float] = [0.0],
@@ -57,14 +63,57 @@ class ReturnnSearchFunctor(RecognitionFunctor[returnn.ReturnnTrainingJob, return
         vocab_type: VocabType = VocabType.NONE,
         lm_type: LmType = LmType.NONE,
         convert_bpe_results: bool = False,
-        **_,
+        ogg_dataset: bool = False,
+        extra_audio_config: Optional[dict] = None,
+        **kwargs,
     ) -> List[Dict]:
-        assert recog_corpus.corpus_info.scorer is not None
-        crp = recog_corpus.corpus_info.crp
+        assert recog_corpus.data.scorer is not None
 
         recog_results = []
 
         backend = get_backend(recog_config.config)
+
+        updated_recog_config = copy.deepcopy(recog_config.config)
+        if ogg_dataset:
+            updated_recog_config.update(
+                returnn.ReturnnConfig(
+                    config={
+                        "forward": build_oggzip_dataset_config(
+                            data_inputs=[recog_corpus.data],
+                            returnn_root=self.returnn_root,
+                            returnn_python_exe=self.returnn_python_exe,
+                            audio_config={
+                                "features": "raw",
+                                "peak_normalization": True,
+                                **(extra_audio_config or {}),
+                            },
+                            extra_config={
+                                "partition_epoch": 1,
+                                "seq_ordering": "sorted",
+                            },
+                        )
+                    }
+                )
+            )
+        else:
+            updated_recog_config.update(
+                returnn.ReturnnConfig(
+                    config={
+                        "forward": build_feature_hdf_dataset_config(
+                            data_inputs=[recog_corpus.data],
+                            feature_type=feature_type,
+                            returnn_root=self.returnn_root,
+                            returnn_python_exe=self.returnn_python_exe,
+                            rasr_binary_path=self.rasr_binary_path,
+                            single_hdf=True,
+                            extra_config={
+                                "partition_epoch": 1,
+                                "seq_ordering": "sorted",
+                            },
+                        )
+                    }
+                )
+            )
 
         for lm_scale, prior_scale, epoch in itertools.product(lm_scales, prior_scales, epochs):
             if epoch == "best":
@@ -97,11 +146,10 @@ class ReturnnSearchFunctor(RecognitionFunctor[returnn.ReturnnTrainingJob, return
             if lexicon_type == LexiconType.NONE:
                 lexicon_file = None
             elif lexicon_type == LexiconType.BLISS:
-                assert crp.lexicon_config is not None
-                lexicon_file = crp.lexicon_config.file
+                lexicon_file = recog_corpus.data.lexicon.filename
             elif lexicon_type == LexiconType.FLASHLIGHT:
-                assert crp.lexicon_config is not None
-                lexicon_file = BlissLexiconToWordLexicon(crp.lexicon_config.file).out_lexicon
+                lexicon_file = recog_corpus.data.lexicon.filename
+                lexicon_file = BlissLexiconToWordLexicon(lexicon_file).out_lexicon
             else:
                 raise NotImplementedError
 
@@ -109,9 +157,8 @@ class ReturnnSearchFunctor(RecognitionFunctor[returnn.ReturnnTrainingJob, return
 
             if vocab_type == VocabType.NONE:
                 vocab_file = None
-            elif vocab_type == VocabType.RETURNN:
-                assert crp.lexicon_config is not None
-                vocab_file = ReturnnVocabFromPhonemeInventory(crp.lexicon_config.file).out_vocab
+            elif vocab_type == VocabType.LEXICON_INVENTORY:
+                vocab_file = ReturnnVocabFromPhonemeInventory(recog_corpus.data.lexicon.filename).out_vocab
             else:
                 raise NotImplementedError
 
@@ -120,15 +167,13 @@ class ReturnnSearchFunctor(RecognitionFunctor[returnn.ReturnnTrainingJob, return
             if lm_type == LmType.NONE:
                 lm_file = None
             elif lm_type == LmType.ARPA_FILE:
-                assert crp.language_model_config is not None
-                assert crp.language_model_config.type == "ARPA"
-                lm_file = arpa_to_kenlm_bin(crp.language_model_config.file)
+                assert isinstance(recog_corpus.data.lm, ArpaLMData)
+                lm_file = arpa_to_kenlm_bin(recog_corpus.data.lm.filename)
             else:
                 raise NotImplementedError
 
             config_update["lm_file"] = lm_file
 
-            updated_recog_config = copy.deepcopy(recog_config.config)
             updated_recog_config.update(returnn.ReturnnConfig(config=config_update))
 
             forward_job = returnn.ReturnnForwardJobV2(
@@ -137,7 +182,7 @@ class ReturnnSearchFunctor(RecognitionFunctor[returnn.ReturnnTrainingJob, return
                 returnn_root=self.returnn_root,
                 returnn_python_exe=self.returnn_python_exe,
                 output_files=["search_out.py"],
-                mem_rqmt=8,
+                **kwargs,
             )
 
             if isinstance(epoch, str):
@@ -160,10 +205,10 @@ class ReturnnSearchFunctor(RecognitionFunctor[returnn.ReturnnTrainingJob, return
             if convert_bpe_results:
                 search_output = returnn.SearchBPEtoWordsJob(search_output).out_word_search_results
             word2ctm = returnn.SearchWordsToCTMJob(
-                search_output, recog_corpus.corpus_info.data.corpus_object.corpus_file
+                search_output, recog_corpus.data.corpus_object.corpus_file
             ).out_ctm_file
 
-            scorer_job = recog_corpus.corpus_info.scorer.get_score_job(word2ctm)
+            scorer_job = recog_corpus.data.scorer.get_score_job(word2ctm)
 
             tk.register_output(
                 f"{path}.reports",

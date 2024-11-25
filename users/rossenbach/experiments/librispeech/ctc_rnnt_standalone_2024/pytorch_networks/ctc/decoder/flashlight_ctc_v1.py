@@ -140,6 +140,8 @@ def forward_step(*, model, data, run_ctx, **kwargs):
         raw_audio=raw_audio,
         raw_audio_len=raw_audio_len,
     )
+    if isinstance(logprobs, list):
+        logprobs = logprobs[-1]
 
     tags = data["seq_tag"]
 

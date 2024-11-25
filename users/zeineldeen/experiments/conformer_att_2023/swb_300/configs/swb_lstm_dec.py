@@ -5,7 +5,7 @@ import numpy
 
 from i6_experiments.users.zeineldeen.experiments.conformer_att_2022.librispeech_960.attention_asr_config import (
     create_config,
-    ConformerEncoderArgs,
+    ConformerEncoderV2Args,
     TransformerDecoderArgs,
     RNNDecoderArgs,
     ConformerDecoderArgs,
@@ -330,7 +330,7 @@ def conformer_baseline():
     ):
         exp_prefix = os.path.join(prefix_name, exp_name)
 
-        search_args = search_args if search_args is not None else train_args
+        search_args = search_args if search_args is not None else train_args.copy()
 
         search_preemphasis = search_args.pop("preemphasis", None)
 
@@ -420,6 +420,8 @@ def conformer_baseline():
             if "allow_lr_scheduling" not in train_args:
                 train_args["allow_lr_scheduling"] = False  # force it
 
+        preemphasis_val = kwargs.get("preemphasis", None)
+
         train_data = build_training_datasets(
             bpe_size=bpe_size,
             use_raw_features=True,
@@ -427,12 +429,18 @@ def conformer_baseline():
             epoch_wise_filter=kwargs.get("epoch_wise_filter", None),
             link_speed_perturbation=train_args.get("speed_pert", False),
             seq_ordering=kwargs.get("seq_ordering", "laplace:.1000"),
+            preemphasis=preemphasis_val,
         )
 
         train_job = run_train(
             exp_name, train_args, train_data, feature_extraction_net, num_epochs, recog_epochs, **kwargs
         )
         train_jobs_map[exp_name] = train_job
+
+        if preemphasis_val:
+            if search_args is None:
+                search_args = train_args.copy()
+            search_args["preemphasis"] = preemphasis_val
 
         run_search(
             exp_name,
@@ -691,7 +699,7 @@ def conformer_baseline():
 
     # --------------------------- General Settings --------------------------- #
 
-    conformer_enc_args = ConformerEncoderArgs(
+    conformer_enc_args = ConformerEncoderV2Args(
         num_blocks=12,
         input_layer="conv-6",
         att_num_heads=8,
@@ -817,53 +825,66 @@ def conformer_baseline():
 
     def get_base_v2_args(
         num_epochs,
-        num_blocks,
-        reduce_factor,
+        enc_num_blocks,
+        enc_reduce_factor,
         lr_type,
         lr_opts,
-        self_att_drop=0.15,
+        enc_self_att_drop=0.2,
         enc_drop=0.1,
-        weight_drop=0.0,
-        dec_att_drop=0.2,
-        embed_drop=0.05,
+        dec_drop=0.1,
+        enc_weight_drop=0.1,
+        dec_weight_drop=0.1,
+        dec_att_drop=0.15,
+        dec_embed_dim=256,
+        embed_drop=0.1,
         dropout_in=0.1,
         softmax_drop=0.3,
-        ctc_drop=0.0,
-        use_trafo_dec=False,
+        ctc_drop=0.1,
+        use_pretraining=True,
     ):
         base_v2_args = copy.deepcopy(oclr_args)
-        base_v2_args = update_encoder_num_blocks_and_dims(base_v2_args, num_blocks, reduce_factor)
+        base_v2_args = update_encoder_num_blocks_and_dims(base_v2_args, enc_num_blocks, enc_reduce_factor)
         base_v2_args["max_seq_length"] = None
 
-        if use_trafo_dec:
-            base_v2_args["decoder_args"] = trafo_dec_args
-
         # encoder regularization
-        base_v2_args["encoder_args"].att_dropout = self_att_drop
+        base_v2_args["encoder_args"].att_dropout = enc_self_att_drop
         base_v2_args["encoder_args"].dropout = enc_drop
-        base_v2_args["encoder_args"].ff_weight_dropout = weight_drop
-        base_v2_args["encoder_args"].mhsa_weight_dropout = weight_drop
-        base_v2_args["encoder_args"].conv_weight_dropout = weight_drop
+
+        base_v2_args["encoder_args"].ff_weight_dropout = enc_weight_drop
+        base_v2_args["encoder_args"].mhsa_weight_dropout = enc_weight_drop
+        base_v2_args["encoder_args"].conv_weight_dropout = enc_weight_drop
+        base_v2_args["encoder_args"].frontend_conv_weight_dropout = enc_weight_drop
+
         base_v2_args["encoder_args"].dropout_in = dropout_in
         base_v2_args["encoder_args"].ctc_dropout = ctc_drop
 
+        base_v2_args["decoder_args"].embed_dim = dec_embed_dim
+
         # decoder regularization
         base_v2_args["decoder_args"].att_dropout = dec_att_drop
-        base_v2_args["decoder_args"].embed_dropout = embed_drop
+        base_v2_args["decoder_args"].dropout = dec_drop
         base_v2_args["decoder_args"].softmax_dropout = softmax_drop
+        base_v2_args["decoder_args"].embed_dropout = embed_drop
+        base_v2_args["decoder_args"].use_zoneout_output = True
+        base_v2_args["decoder_args"].ff_weight_dropout = dec_weight_drop
 
-        if not use_trafo_dec:
-            base_v2_args["decoder_args"].use_zoneout_output = True
-
-        base_v2_args["global_stats"] = {"mean": mean, "stddev": stddev, "use_legacy_version": True}
+        base_v2_args["global_stats"] = {"mean": mean, "stddev": stddev, "use_legacy_version": False}
         base_v2_args["encoder_args"].input_layer = "conv-6"
-        base_v2_args["pretrain_reps"] = 3
-        base_v2_args["specaug_version"] = 3  # TODO: check again
-        base_v2_args["with_pretrain"] = True
-        base_v2_args["pretrain_opts"]["ignored_keys_for_reduce_dim"] = ["conv_kernel_size"]
 
-        exp_name = f"conf_{num_blocks}l" + (f"_trafo_6l" if use_trafo_dec else "")
-        exp_name += f"_dimF{reduce_factor}_bpe{BPE_500}_drop{enc_drop}_selfAttDrop{self_att_drop}_decDrop{dec_att_drop}_embedDrop{embed_drop}_wd{weight_drop}_softmaxDrop{softmax_drop}ep{num_epochs}"
+        base_v2_args["specaug_version"] = 1
+
+        if use_pretraining:
+            base_v2_args["pretrain_reps"] = 3
+            base_v2_args["with_pretrain"] = True
+            base_v2_args["pretrain_opts"]["ignored_keys_for_reduce_dim"] = ["conv_kernel_size"]
+        else:
+            base_v2_args["with_pretrain"] = False
+
+        exp_name = f"conf{enc_num_blocks}l_lstm1l_dimRed{enc_reduce_factor}"
+        exp_name += f"_encD{enc_drop}_encAttD{enc_self_att_drop}_encWd{enc_weight_drop}"
+        exp_name += f"_decD{dec_drop}_attD{dec_att_drop}_embDim{dec_embed_dim}_embD{embed_drop}_decWd{dec_weight_drop}"
+        exp_name += f"_softmaxD{softmax_drop}_ctcD{ctc_drop}"
+        exp_name += f"_ep{num_epochs}"
 
         # lr schedule
         assert lr_type in ["epoch-oclr", "step-oclr", "wup"]
@@ -872,21 +893,14 @@ def conformer_baseline():
         if lr_type == "epoch-oclr":
             lr = lr_opts["lr"]
             initial_lr = lr_opts.get("initial_lr", lr / 10)
-            cyc1_factor = lr_opts.get("cyc1_factor", 0.45)
-            cyc2_factor = lr_opts.get("cyc2_factor", 0.45)
-            cyc1_ep = int(cyc1_factor * num_epochs)
-            cyc2_ep = int(cyc2_factor * num_epochs)
-            finetune_ep = num_epochs - cyc1_ep - cyc2_ep
-            assert cyc1_ep + cyc2_ep + finetune_ep == num_epochs, "OCLR epochs do not add up."
+            cyc_ep = int(0.45 * num_epochs)
             base_v2_args["learning_rates_list"] = (
-                list(numpy.linspace(initial_lr, lr, cyc1_ep))
-                + list(numpy.linspace(lr, initial_lr, cyc2_ep))
-                + list(numpy.linspace(initial_lr, 1e-6, finetune_ep))
+                list(numpy.linspace(initial_lr, lr, cyc_ep))
+                + list(numpy.linspace(lr, initial_lr, cyc_ep))
+                + list(numpy.linspace(initial_lr, 1e-6, num_epochs - 2 * cyc_ep))
             )
             assert len(base_v2_args["learning_rates_list"]) == num_epochs
-            exp_name += f"_epocOCLR-{initial_lr}-{lr}"
-            if cyc1_factor != 0.45 or cyc2_factor != 0.45:
-                exp_name += f"_epocOCLR-{initial_lr}-{lr}-{cyc1_factor}-{cyc2_factor}"
+            exp_name += f"_epochOCLR-{initial_lr}-{lr}"
         elif lr_type == "step-oclr":
             base_v2_args["oclr_opts"]["peak_lr"] = lr_opts["lr"]
             base_v2_args["oclr_opts"]["total_ep"] = num_epochs
@@ -907,239 +921,33 @@ def conformer_baseline():
             assert len(base_v2_args["learning_rates_list"]) == num_epochs
             exp_name += f"_wupLR-{wup_eps}-const-{const_eps}-{initial_lr}-{lr}"
 
+        if not use_pretraining:
+            exp_name += "_nopre"
+
         return base_v2_args, exp_name
 
-    # conf_8l_dimF1.0_bpe500_drop0.1_selfAttDrop0.15_decDrop0.2_embedDrop0.05_wd0.0_ep300_lr0.001_specaug3_epochOCLR
-    # 12.7       11.2     13.4
-
-    # # TODO: longer training
-    # for target_embed_dim in [256]:
-    #     for ep in [100 * 6]:
-    #         for num_blocks, reduce_factor in [(12, 0.75)]:
-    #             for weight_drop, self_att_drop, dec_att_drop, embed_drop, drop in [
-    #                 (0.1, 0.15, 0.2, 0.05, 0.1),
-    #             ]:
-    #                 args, name = copy.deepcopy(
-    #                     get_base_v2_args(
-    #                         num_epochs=ep,
-    #                         num_blocks=num_blocks,
-    #                         reduce_factor=reduce_factor,
-    #                         self_att_drop=self_att_drop,
-    #                         enc_drop=drop,
-    #                         weight_drop=weight_drop,
-    #                         dec_att_drop=dec_att_drop,
-    #                         embed_drop=embed_drop,
-    #                         lr_type="epoch-oclr",
-    #                         lr_opts={"lr": 1e-3},
-    #                     )
-    #                 )
-    #                 args["decoder_args"].embed_dim = target_embed_dim
-    #                 args["pretrain_opts"]["initial_dim_factor"] = 0.5 / reduce_factor
-    #                 run_default_exp(
-    #                     name + f"_embedDim{target_embed_dim}",
-    #                     train_args=args,
-    #                     num_epochs=ep,
-    #                     gpu_mem=11,
-    #                     bpe_size=BPE_500,
-    #                 )
-
-    # TODO: mixup
-    # best (3, 0.3)
-
-    # conf_12l_dimF0.75_bpe500_drop0.1_selfAttDrop0.15_decDrop0.2_embedDrop0.05_wd0.0_ep300_lr0.001_epochOCLR_specaug3_mixup-log10-nopre       12.6       11.1     13.4  avg
-    # conf_8l_dimF1.0_bpe500_drop0.1_selfAttDrop0.15_decDrop0.2_embedDrop0.05_wd0.0_ep300_lr0.001_epochOCLR_specaug3_mixup-4-0.4               12.5       11.3     13.5  avg
-
-    # conf_8l_dimF1.0_bpe500_drop0.1_selfAttDrop0.2_decAttDrop0.2_embedDrop0.1_wd0.1_ep600_specaug3_embedDim256_lr0.001_epochOCLR
-
-    # TODO: specaug
-    # variant 1 is the best
-    # conf_8l_dimF1.0_bpe500_drop0.1_selfAttDrop0.15_decDrop0.2_embedDrop0.05_wd0.0_ep300_epocOCLR-0.0001-0.001_specaug1
-    # 12.4       11.1     13.4  avg
-    for ep in [50 * 6]:
-        for num_blocks, reduce_factor in [(8, 1.0)]:
-            args, name = get_base_v2_args(ep, num_blocks, reduce_factor, lr_type="epoch-oclr", lr_opts={"lr": 1e-3})
-            args["specaug_version"] = 1
-            run_default_exp(
-                name + f"_specaug1",
-                train_args=args,
-                num_epochs=ep,
-                gpu_mem=11,
-                bpe_size=BPE_500,
-            )
-
+    # without pretraining:
+    # if num_blocks == 8:
+    #     specaug_steps = {"step0": 6_000, "step1": 8_000, "step2": 10_000}
+    # elif num_blocks == 12:
+    #     specaug_steps = {"step0": 10_000, "step1": 15_000, "step2": 20_000}
+    # else:
+    #     raise NotImplementedError
+    #
+    # args["specaug_str_func_opts"] = {
+    #     "version": 2,
+    #     **specaug_steps,
+    #     "max_time_num": 100,
+    #     "max_time_dim": 20,
+    #     "min_num_add_factor": 0,
+    #     "freq_dim_factor": 5,
+    # }
+    #
     # hub5e00 hub5e01 rt03s
     #
     # with pretraining:                                  12.4       11.1     13.0
     # with pretraining + disable specaug initially:      12.5       11.1     13.4
     # without pretraining + disable specaug initially:   12.4       11.2     13.2
-
-    for ep in [50 * 6]:
-        for num_blocks, reduce_factor in [(8, 1.0), (12, 1.0)]:
-            # TODO: smaller target embed dim
-            args, name = get_base_v2_args(ep, num_blocks, reduce_factor, lr_type="epoch-oclr", lr_opts={"lr": 1e-3})
-            args["specaug_version"] = 1
-            args["decoder_args"].embed_dim = 256
-            run_default_exp(
-                name + f"_embed256_specaug1",
-                train_args=args,
-                num_epochs=ep,
-                gpu_mem=11,
-                bpe_size=BPE_500,
-            )
-
-            # TODO: pretrain + step-based oclr
-            # note that batch size is larger during pretrain so the oclr here is not symmetric
-            args, name = get_base_v2_args(
-                ep, num_blocks, reduce_factor, lr_type="step-oclr", lr_opts={"lr": 1e-3, "n_step": 1450}
-            )
-            args["specaug_version"] = 1
-            args["decoder_args"].embed_dim = 256
-            run_default_exp(
-                name + f"_embed256_specaug1",
-                train_args=args,
-                num_epochs=ep,
-                gpu_mem=11,
-                bpe_size=BPE_500,
-            )
-
-            # TODO: no pretrain
-            for oclr_n_step in [None, 1450]:
-                if num_blocks == 12:
-                    continue
-                if oclr_n_step is None and num_blocks == 8:
-                    continue
-                if oclr_n_step is not None:
-                    # step-based
-                    args, name = get_base_v2_args(
-                        ep, num_blocks, reduce_factor, lr_type="step-oclr", lr_opts={"lr": 1e-3, "n_step": oclr_n_step}
-                    )
-                else:
-                    # epoch-based
-                    args, name = get_base_v2_args(
-                        ep, num_blocks, reduce_factor, lr_type="epoch-oclr", lr_opts={"lr": 1e-3}
-                    )
-
-                if num_blocks == 8:
-                    specaug_steps = {"step0": 6_000, "step1": 8_000, "step2": 10_000}
-                elif num_blocks == 12:
-                    specaug_steps = {"step0": 10_000, "step1": 15_000, "step2": 20_000}
-                else:
-                    raise NotImplementedError
-
-                args["specaug_str_func_opts"] = {
-                    "version": 2,
-                    **specaug_steps,
-                    "max_time_num": 100,
-                    "max_time_dim": 20,
-                    "min_num_add_factor": 0,
-                    "freq_dim_factor": 5,
-                }
-                args["decoder_args"].embed_dim = 256
-                args["with_pretrain"] = False
-                run_default_exp(
-                    name + f"_embed256_specaugCurrV1_noPretrain",
-                    train_args=args,
-                    num_epochs=ep,
-                    gpu_mem=11,
-                    bpe_size=BPE_500,
-                )
-
-    # TODO: mixup
-    # for ep in [50 * 6]:
-    #     for num_blocks, reduce_factor in [(8, 1.0)]:
-    #         for apply_drop in [0.1, 0.2, 0.3, 0.4]:
-    #             for max_num_mix in [4, 5]:
-    #                 for lambda_min_max in [(0.15, 0.3), (0.1, 0.3)]:
-    #                     args, name = get_base_v2_args(
-    #                         ep, num_blocks, reduce_factor, lr_type="epoch-oclr", lr_opts={"lr": 1e-3}
-    #                     )
-    #                     args["specaug_version"] = 1
-    #                     args["decoder_args"].embed_dim = 256
-    #                     args["with_pretrain"] = True
-    #
-    #                     args["mixup_aug_opts"] = {
-    #                         "use_log10_features": True,
-    #                         "buffer_size": 1_000_000,
-    #                         "apply_prob": apply_drop,
-    #                         "max_num_mix": max_num_mix,
-    #                         "lambda_min": lambda_min_max[0],
-    #                         "lambda_max": lambda_min_max[1],
-    #                     }
-    #                     args["enable_mixup_in_pretrain"] = False
-    #                     name_ = (
-    #                         name
-    #                         + f"_embed256_specaug1_mixup-{max_num_mix}-{apply_drop}-{lambda_min_max[0]}-{lambda_min_max[1]}"
-    #                     )
-    #                     run_default_exp(
-    #                         name_,
-    #                         train_args=args,
-    #                         num_epochs=ep,
-    #                         gpu_mem=11,
-    #                         bpe_size=BPE_500,
-    #                     )
-
-    # TODO: longer train or retrain
-    # conf_12l_dimF0.75_bpe500_drop0.1_selfAttDrop0.15_decDrop0.2_embedDrop0.05_wd0.0_ep300_lr0.001_epochOCLR_specaug3_mixup-log10-nopre
-    #   12.6       11.1     13.4  avg
-    #   without mixup: 12.6       11.2     13.4
-    # for ep in [100 * 6, 150 * 6]:
-    #     for specaug_version in [1, 3]:
-    #         for num_blocks, reduce_factor in [(12, 0.75), (8, 1.0)]:
-    #             for num_mixes, apply_prob in [(3, 0.3)]:
-    #                 args, name = copy.deepcopy(
-    #                     get_base_v2_args(
-    #                         ep,
-    #                         num_blocks,
-    #                         reduce_factor,
-    #                         enc_drop=0.2,
-    #                         self_att_drop=0.2,
-    #                         embed_drop=0.1,
-    #                         dec_att_drop=0.2,
-    #                         weight_drop=0.1,
-    #                         lr_type="epoch-oclr",
-    #                         lr_opts={"lr": 1e-3},
-    #                     )
-    #                 )
-    #                 args["enable_mixup_in_pretrain"] = False
-    #                 args["pretrain_opts"]["initial_dim_factor"] = 0.5 / reduce_factor
-    #                 args["decoder_args"].embed_dim = 256
-    #                 args["mixup_aug_opts"] = {
-    #                     "use_log10_features": True,
-    #                     "buffer_size": 1_000_000,
-    #                     "apply_prob": apply_prob,
-    #                     "max_num_mix": num_mixes,
-    #                     "lambda_min": 0.15,
-    #                     "lambda_max": 0.3,
-    #                 }
-    #                 args["specaug_version"] = specaug_version
-    #                 run_default_exp(
-    #                     name + f"_embedDim{256}_mixup-{num_mixes}-{apply_prob}-nopre_specaug{specaug_version}",
-    #                     train_args=args,
-    #                     num_epochs=ep,
-    #                     gpu_mem=11,
-    #                     bpe_size=BPE_500,
-    #                 )
-
-    # TODO: staged hyperparams
-    # - weight noise: disable for first 45% of epochs for example and enable it later
-    # - apply curriculum learning for utterances?
-
-    # TODO: no ctc
-    for ep in [50 * 6]:
-        for num_blocks, reduce_factor in [(8, 1.0)]:
-            # TODO: smaller target embed dim
-            args, name = get_base_v2_args(ep, num_blocks, reduce_factor, lr_type="epoch-oclr", lr_opts={"lr": 1e-3})
-            args["specaug_version"] = 1
-            args["decoder_args"].embed_dim = 256
-            args["encoder_args"].with_ctc = False
-            run_default_exp(
-                name + f"_embed256_specaug1_noCTC",
-                train_args=args,
-                num_epochs=ep,
-                gpu_mem=11,
-                bpe_size=BPE_500,
-                avg_key="dev_score",
-            )
 
     # TODO: multi-gpu training
     # conf_8l_dimF1.0_bpe500_drop0.1_selfAttDrop0.15_decDrop0.2_embedDrop0.05_wd0.0_ep300_epocOCLR-0.0001-0.001_embed256_specaug1
@@ -1153,62 +961,198 @@ def conformer_baseline():
     # gpu4_paramSync_step50_accum1_gradClipNorm5                        13.7       12.1     14.5  avg
     # gpu4_paramSync_step100_accum1_gradClipNorm20                      13.8       12.3     14.5  avg
     # gpu4_paramSync_step100_accum1_gradClipNorm5                       14.0       12.1     14.6  avg
-    for ep in [100 * 6]:
-        for num_blocks, reduce_factor in [(8, 1.0)]:
-            for sync_step in [50]:
-                for gradient_clip_global_norm in [1]:
-                    for lr_opts in [{"lr": 2e-3}]:
-                        # regularizations
-                        hyper_params_v1 = {
-                            "self_att_drop": 0.15,
-                            "enc_drop": 0.1,
-                            "weight_drop": 0.1,
-                            "dec_att_drop": 0.1,
-                            "embed_drop": 0.1,
-                            "dropout_in": 0.1,
-                            "softmax_drop": 0.1,
-                        }
 
-                        args["specaug_version"] = 1
+    # for ep in [100 * 6]:
+    #     for num_blocks, reduce_factor in [(8, 1.0)]:
+    #         for sync_step in [50]:
+    #             for gradient_clip_global_norm in [1]:
+    #                 for lr_opts in [{"lr": 2e-3}]:
+    #                     # regularizations
+    #                     hyper_params_v1 = {
+    #                         "self_att_drop": 0.15,
+    #                         "enc_drop": 0.1,
+    #                         "weight_drop": 0.1,
+    #                         "dec_att_drop": 0.1,
+    #                         "embed_drop": 0.1,
+    #                         "dropout_in": 0.1,
+    #                         "softmax_drop": 0.1,
+    #                     }
+    #
+    #                     args["specaug_version"] = 1
+    #
+    #                     args, name = get_base_v2_args(
+    #                         ep,
+    #                         num_blocks,
+    #                         reduce_factor,
+    #                         lr_type="epoch-oclr",
+    #                         lr_opts=lr_opts,
+    #                         use_trafo_dec=True,  # 6l trafo decoder
+    #                         **hyper_params_v1,
+    #                     )
+    #
+    #                     args["horovod_params"] = {
+    #                         "horovod_reduce_type": "param",
+    #                         "horovod_param_sync_step": sync_step,
+    #                         "horovod_dataset_distribution": "random_seed_offset",
+    #                     }
+    #
+    #                     args["accum_grad"] = 1
+    #                     args["batch_size"] = 15_000 * 80
+    #
+    #                     exp_name = name + f"_embed256_specaug1_gpu4_paramSync_step{sync_step}_accum1"
+    #                     if gradient_clip_global_norm:
+    #                         args["gradient_clip_global_norm"] = gradient_clip_global_norm
+    #                         exp_name += f"_gradClipNorm{gradient_clip_global_norm}"
+    #                     run_default_exp(
+    #                         exp_name,
+    #                         train_args=args,
+    #                         num_epochs=ep,
+    #                         partition_epoch=6 * 4,
+    #                         gpu_mem=11,
+    #                         bpe_size=BPE_500,
+    #                         horovod_num_processes=4,
+    #                     )
 
-                        args, name = get_base_v2_args(
-                            ep,
-                            num_blocks,
-                            reduce_factor,
-                            lr_type="epoch-oclr",
-                            lr_opts=lr_opts,
-                            use_trafo_dec=True,  # 6l trafo decoder
-                            **hyper_params_v1,
-                        )
+    # conf12l_lstm1l_dimRed1.0_encD0.1_encAttD0.2_encWd0.1_decD0.1_attD0.15_embDim256_embD0.1_decWd0.1_softmaxD0.3_ctcD0.1_ep600_epochOCLR-0.0001-0.001_bpeMaxSeq100
+    # 11.8       10.2     11.9  best
 
-                        args["horovod_params"] = {
-                            "horovod_reduce_type": "param",
-                            "horovod_param_sync_step": sync_step,
-                            "horovod_dataset_distribution": "random_seed_offset",
-                        }
+    # conf12l_lstm1l_dimRed1.0_encD0.1_encAttD0.2_encWd0.1_decD0.1_attD0.15_embDim256_embD0.1_decWd0.0_softmaxD0.3_ctcD0.1_ep600_epochOCLR-0.0001-0.001
+    # 11.7       10.2     11.9  avg
 
-                        args["accum_grad"] = 1
-                        args["batch_size"] = 15_000 * 80
+    # conf12l_lstm1l_dimRed1.0_encD0.1_encAttD0.2_encWd0.1_decD0.1_attD0.15_embDim256_embD0.1_decWd0.1_softmaxD0.3_ctcD0.1_ep1200_epochOCLR-0.0001-0.001
+    # 11.3        9.9     11.4  avg
 
-                        exp_name = name + f"_embed256_specaug1_gpu4_paramSync_step{sync_step}_accum1"
-                        if gradient_clip_global_norm:
-                            args["gradient_clip_global_norm"] = gradient_clip_global_norm
-                            exp_name += f"_gradClipNorm{gradient_clip_global_norm}"
-                        run_default_exp(
-                            exp_name,
-                            train_args=args,
-                            num_epochs=ep,
-                            partition_epoch=6 * 4,
-                            gpu_mem=11,
-                            bpe_size=BPE_500,
-                            horovod_num_processes=4,
-                        )
+    # conf12l_lstm1l_dimRed1.0_encD0.1_encAttD0.2_encWd0.1_decD0.1_attD0.15_embDim256_embD0.1_decWd0.0_softmaxD0.3_ctcD0.1_ep1200_epochOCLR-0.0001-0.001_bpeMaxSeq100
+    # 11.1        9.8     11.4  avg
 
-    # conf_8l_dimF1.0_bpe500_drop0.1_selfAttDrop0.15_decDrop0.2_embedDrop0.05_wd0.0_ep300_epocOCLR-0.0001-0.001_embed256_specaug1
-    # 12.4       11.1     13    avg
+    # conf12l_lstm1l_dimRed1.0_encD0.1_encAttD0.2_encWd0.1_decD0.1_attD0.15_embDim256_embD0.1_decWd0.0_softmaxD0.3_ctcD0.1_ep1500_epochOCLR-0.0001-0.001_bpeMaxSeq100
+    # 10.9        9.9     11.6  avg
 
-    # conf_8l_dimF1.0_bpe500_drop0.2_selfAttDrop0.2_decDrop0.2_embedDrop0.1_wd0.1_ep900_epocOCLR-0.0001-0.001_embedDim256_mixup-3-0.3-nopre_specaug3
-    # 11.6       10.4     12.1  best
+    for ep in [200 * 6, 250 * 6]:
+        for num_blocks, reduce_factor in [(12, 1.0)]:
+            args, exp_name = get_base_v2_args(
+                num_epochs=ep,
+                enc_num_blocks=num_blocks,
+                enc_reduce_factor=reduce_factor,
+                lr_type="epoch-oclr",
+                lr_opts={"lr": 1e-3},
+                dec_weight_drop=0.0,
+            )
+            args["accum_grad"] = 2
+            args["batch_size"] = 15_000 * 80
+            args["max_seq_length"] = {"bpe_labels": 100}
 
-    # conf_12l_dimF0.75_bpe500_drop0.1_selfAttDrop0.15_decDrop0.2_embedDrop0.05_wd0.1_ep600_epocOCLR-0.0001-0.001_embedDim256
-    # 11.6       10.5     12.4  avg
+            run_default_exp(
+                exp_name + "_bpeMaxSeq100",
+                train_args=args,
+                num_epochs=ep,
+                partition_epoch=6,
+                gpu_mem=11,
+                bpe_size=BPE_500,
+            )
+
+            if ep == 1200:
+                for premphasis_val in [0.9, 0.95, 0.97, 1.0]:
+                    run_default_exp(
+                        exp_name + f"_bpeMaxSeq100_premph{premphasis_val}",
+                        train_args=args,
+                        num_epochs=ep,
+                        partition_epoch=6,
+                        gpu_mem=11,
+                        bpe_size=BPE_500,
+                        preemphasis=premphasis_val,
+                    )
+
+                # TODO: no ctc
+                no_ctc_args = copy.deepcopy(args)
+                no_ctc_args["encoder_args"].with_ctc = False
+                run_default_exp(
+                    exp_name + f"_bpeMaxSeq100_noCTC",
+                    train_args=no_ctc_args,
+                    num_epochs=ep,
+                    partition_epoch=6,
+                    gpu_mem=11,
+                    bpe_size=BPE_500,
+                    avg_key="dev_score",
+                )
+
+                for with_ctc in [True, False]:
+                    mgpu_args = copy.deepcopy(args)  # TODO: uses wrong LR!
+                    mgpu_args["encoder_args"].with_ctc = with_ctc
+                    mgpu_args["horovod_params"] = {
+                        "horovod_reduce_type": "param",
+                        "horovod_param_sync_step": 100,
+                        "horovod_dataset_distribution": "random_seed_offset",
+                    }
+                    run_default_exp(
+                        exp_name + f"_bpeMaxSeq100_mgpu4_11g_paramSync_step100" + ("_noCTC" if not with_ctc else ""),
+                        train_args=mgpu_args,
+                        num_epochs=300,
+                        partition_epoch=6,
+                        gpu_mem=11,
+                        bpe_size=BPE_500,
+                        horovod_num_processes=4,
+                        avg_key="dev_score_output/output_prob" if with_ctc else "dev_score",
+                    )
+
+    # single gpu 200 epochs:
+    # conf12l_lstm1l_dimRed1.0_encD0.1_encAttD0.2_encWd0.1_decD0.1_attD0.15_embDim256_embD0.1_decWd0.0_softmaxD0.3_ctcD0.1_ep1200_epochOCLR-0.0001-0.001_bpeMaxSeq100
+    # 11.1        9.8     11.4  avg
+
+    # first try by only changing the num of epochs:
+    #
+    # conf12l_lstm1l_dimRed1.0_encD0.1_encAttD0.2_encWd0.1_decD0.1_attD0.15_embDim256_embD0.1_decWd0.0_softmaxD0.3_ctcD0.1_ep300_epochOCLR-0.0001-0.001_bpeMaxSeq100_mgpu4_11g_paramSync_step100
+    # 12.1       10.7     12.3  avg
+
+    mgpu_args, exp_name = get_base_v2_args(
+        num_epochs=300,
+        enc_num_blocks=12,
+        enc_reduce_factor=1.0,
+        lr_type="epoch-oclr",
+        lr_opts={"lr": 1e-3},
+        dec_weight_drop=0.0,
+    )
+    mgpu_args["batch_size"] = 15_000 * 80
+    mgpu_args["max_seq_length"] = {"bpe_labels": 100}
+    mgpu_args["horovod_params"] = {
+        "horovod_reduce_type": "param",
+        "horovod_param_sync_step": 100,
+        "horovod_dataset_distribution": "random_seed_offset",
+    }
+    mgpu_args["accum_grad"] = 2
+    run_default_exp(
+        exp_name + f"_bpeMaxSeq100_mgpu4_11g_paramSync_step100",
+        train_args=mgpu_args,
+        num_epochs=300,
+        partition_epoch=6,
+        gpu_mem=11,
+        bpe_size=BPE_500,
+        horovod_num_processes=4,
+    )
+
+    # TODO: reduce grad accum
+    mgpu_args_accum1 = copy.deepcopy(mgpu_args)
+    mgpu_args_accum1["accum_grad"] = 1
+    run_default_exp(
+        exp_name + f"_bpeMaxSeq100_mgpu4_11g_paramSync_step100_accum1",
+        train_args=mgpu_args_accum1,
+        num_epochs=300,
+        partition_epoch=6,
+        gpu_mem=11,
+        bpe_size=BPE_500,
+        horovod_num_processes=4,
+    )
+
+    # TODO: add grad clip
+    for grad_clip in [1.0, 5.0, 10.0, 20.0]:
+        mgpu_args_clip = copy.deepcopy(mgpu_args)
+        mgpu_args_clip["gradient_clip_global_norm"] = grad_clip
+        run_default_exp(
+            exp_name + f"_bpeMaxSeq100_mgpu4_11g_paramSync_step100_gradClipNorm{grad_clip}",
+            train_args=mgpu_args_clip,
+            num_epochs=300,
+            partition_epoch=6,
+            gpu_mem=11,
+            bpe_size=BPE_500,
+            horovod_num_processes=4,
+        )

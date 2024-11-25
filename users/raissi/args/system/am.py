@@ -1,5 +1,3 @@
-
-
 def get_lexicon_args(add_all_allophones=False, norm_pronunciation=True):
     return {
         "add_all_allophones": add_all_allophones,

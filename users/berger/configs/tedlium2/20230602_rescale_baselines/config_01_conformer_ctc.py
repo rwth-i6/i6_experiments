@@ -1,29 +1,55 @@
 import copy
 import os
-from i6_models.config import ModuleFactoryV1
-from i6_core.returnn.config import ReturnnConfig
-
-from sisyphus import gs, tk
+from typing import Dict, Optional, Tuple
 
 import i6_core.rasr as rasr
+import torch
+from i6_core.returnn.config import ReturnnConfig
 from i6_experiments.users.berger.args.experiments import ctc as exp_args
-from i6_experiments.users.berger.args.returnn.config import get_returnn_config, Backend
+from i6_experiments.users.berger.args.returnn.config import Backend, get_returnn_config
 from i6_experiments.users.berger.args.returnn.learning_rates import LearningRateSchedules, Optimizers
 from i6_experiments.users.berger.corpus.tedlium2.ctc_data import get_tedlium2_data_dumped_labels
+from i6_experiments.users.berger.pytorch.custom_parts.identity import IdentityConfig, IdentityModule
+from i6_experiments.users.berger.pytorch.custom_parts.sequential import SequentialModuleV1, SequentialModuleV1Config
+from i6_experiments.users.berger.pytorch.custom_parts.specaugment import (
+    SpecaugmentByLengthConfigV1,
+    SpecaugmentByLengthModuleV1,
+)
+from i6_experiments.users.berger.pytorch.custom_parts.speed_perturbation import (
+    SpeedPerturbationModuleV1,
+    SpeedPerturbationModuleV1Config,
+)
 from i6_experiments.users.berger.pytorch.models import conformer_ctc
 from i6_experiments.users.berger.recipe.summary.report import SummaryReport
-from i6_experiments.users.berger.systems.dataclasses import ConfigVariant, FeatureType, ReturnnConfigs
+from i6_experiments.users.berger.systems.dataclasses import AlignmentData, ConfigVariant, FeatureType, ReturnnConfigs
 from i6_experiments.users.berger.systems.returnn_seq2seq_system import (
     ReturnnSeq2SeqSystem,
 )
 from i6_experiments.users.berger.util import default_tools_v2
-from i6_experiments.users.berger.pytorch.custom_parts.identity import IdentityConfig, IdentityModule
+from i6_models.assemblies.conformer import ConformerBlockV2Config, ConformerEncoderV2, ConformerEncoderV2Config
+from i6_models.config import ModuleFactoryV1
+from i6_models.parts.conformer import (
+    ConformerConvolutionV1Config,
+    ConformerMHSAV1Config,
+    ConformerPositionwiseFeedForwardV1Config,
+    LayerNormNC,
+)
+from i6_models.parts.frontend.generic_frontend import FrontendLayerType, GenericFrontendV1, GenericFrontendV1Config
+from i6_models.parts.frontend.vgg_act import VGG4LayerActFrontendV1, VGG4LayerActFrontendV1Config
+from i6_models.primitives.feature_extraction import (
+    RasrCompatibleLogMelFeatureExtractionV1,
+    RasrCompatibleLogMelFeatureExtractionV1Config,
+)
+from sisyphus import gs, tk
+from .config_01_conformer_ctc_old import py as py_ctc_old
 
 # ********** Settings **********
 
 rasr.flow.FlowNetwork.default_flags = {"cache_mode": "task_dependent"}
 
 num_outputs = 79
+num_subepochs = 500
+sub_checkpoints = [100, 200, 300, 400, 450, 460, 470, 480, 490, 500]
 
 tools = copy.deepcopy(default_tools_v2)
 tools.rasr_binary_path = tk.Path("/u/berger/repositories/rasr_versions/gen_seq2seq_dev/arch/linux-x86_64-standard")
@@ -33,17 +59,163 @@ tools.rasr_binary_path = tk.Path("/u/berger/repositories/rasr_versions/gen_seq2s
 
 
 def returnn_config_generator(
-    variant: ConfigVariant, train_data_config: dict, dev_data_config: dict, num_subepochs: int, **kwargs
+    variant: ConfigVariant, train_data_config: dict, dev_data_config: dict, **kwargs
 ) -> ReturnnConfig:
-    model_config = conformer_ctc.get_default_config_v3(num_outputs=num_outputs)
+    num_heads = kwargs.get("num_heads", 4)
+    dim_per_head = kwargs.get("dim_per_head", 96)
+    total_size = num_heads * dim_per_head
+    dropout = kwargs.get("dropout", 0.2)
 
-    extra_config = {
+    if kwargs.get("speed_perturbation", False):
+        feature_extraction = ModuleFactoryV1(
+            module_class=SequentialModuleV1,
+            cfg=SequentialModuleV1Config(
+                submodules=[
+                    ModuleFactoryV1(
+                        module_class=SpeedPerturbationModuleV1,
+                        cfg=SpeedPerturbationModuleV1Config(
+                            min_speed_factor=0.9,
+                            max_speed_factor=1.1,
+                        ),
+                    ),
+                    ModuleFactoryV1(
+                        module_class=RasrCompatibleLogMelFeatureExtractionV1,
+                        cfg=RasrCompatibleLogMelFeatureExtractionV1Config(
+                            sample_rate=16000,
+                            win_size=0.025,
+                            hop_size=0.01,
+                            min_amp=1.175494e-38,
+                            num_filters=80,
+                            alpha=0.97,
+                        ),
+                    ),
+                ]
+            ),
+        )
+    else:
+        feature_extraction = ModuleFactoryV1(
+            module_class=RasrCompatibleLogMelFeatureExtractionV1,
+            cfg=RasrCompatibleLogMelFeatureExtractionV1Config(
+                sample_rate=16000,
+                win_size=0.025,
+                hop_size=0.01,
+                min_amp=1.175494e-38,
+                num_filters=80,
+                alpha=0.97,
+            ),
+        )
+
+    specaugment = ModuleFactoryV1(
+        module_class=SpecaugmentByLengthModuleV1,
+        cfg=SpecaugmentByLengthConfigV1(
+            time_min_num_masks=2,
+            time_max_mask_per_n_frames=25,
+            time_mask_max_size=20,
+            freq_min_num_masks=2,
+            freq_max_num_masks=5,
+            freq_mask_max_size=16,
+        ),
+    )
+
+    if kwargs.get("wei_frontend", False):
+        frontend = ModuleFactoryV1(
+            GenericFrontendV1,
+            GenericFrontendV1Config(
+                in_features=80,
+                layer_ordering=[
+                    FrontendLayerType.Conv2d,
+                    FrontendLayerType.Activation,
+                    FrontendLayerType.Pool2d,
+                    FrontendLayerType.Conv2d,
+                    FrontendLayerType.Activation,
+                    FrontendLayerType.Conv2d,
+                    FrontendLayerType.Activation,
+                ],
+                conv_kernel_sizes=[(3, 3), (3, 3), (3, 3)],
+                conv_paddings=None,
+                conv_strides=[(1, 1), (2, 1), (2, 1)],
+                conv_out_dims=[32, 64, 64],
+                pool_kernel_sizes=[(1, 2)],
+                pool_strides=None,
+                pool_paddings=None,
+                activations=[torch.nn.SiLU(), torch.nn.SiLU(), torch.nn.SiLU()],
+                out_features=total_size,
+            ),
+        )
+    else:
+        frontend = ModuleFactoryV1(
+            VGG4LayerActFrontendV1,
+            VGG4LayerActFrontendV1Config(
+                in_features=80,
+                conv1_channels=32,
+                conv2_channels=64,
+                conv3_channels=64,
+                conv4_channels=32,
+                conv_kernel_size=(3, 3),
+                conv_padding=None,
+                pool1_kernel_size=(2, 1),
+                pool1_stride=(2, 1),
+                pool1_padding=None,
+                pool2_kernel_size=(2, 1),
+                pool2_stride=(2, 1),
+                pool2_padding=None,
+                activation=torch.nn.ReLU(),
+                out_features=total_size,
+            ),
+        )
+
+    ff_cfg = ConformerPositionwiseFeedForwardV1Config(
+        input_dim=total_size,
+        hidden_dim=4 * total_size,
+        dropout=dropout,
+        activation=torch.nn.SiLU(),
+    )
+
+    mhsa_cfg = ConformerMHSAV1Config(
+        input_dim=total_size,
+        num_att_heads=num_heads,
+        att_weights_dropout=dropout,
+        dropout=dropout,
+    )
+
+    conv_cfg = ConformerConvolutionV1Config(
+        channels=total_size,
+        kernel_size=31,
+        dropout=dropout,
+        activation=torch.nn.SiLU(),
+        norm=LayerNormNC(total_size),
+    )
+
+    block_cfg = ConformerBlockV2Config(
+        ff_cfg=ff_cfg,
+        mhsa_cfg=mhsa_cfg,
+        conv_cfg=conv_cfg,
+        modules=["ff", "conv", "mhsa", "ff"],
+    )
+
+    conformer_cfg = ConformerEncoderV2Config(
+        num_layers=12,
+        frontend=frontend,
+        block_cfg=block_cfg,
+    )
+
+    model_config = conformer_ctc.ConformerCTCConfig(
+        feature_extraction=feature_extraction,
+        specaugment=specaugment,
+        conformer=ModuleFactoryV1(ConformerEncoderV2, cfg=conformer_cfg),
+        dim=total_size,
+        target_size=num_outputs,
+        dropout=dropout,
+    )
+
+    extra_config: dict = {
         "train": train_data_config,
         "dev": dev_data_config,
     }
     if variant == ConfigVariant.TRAIN:
-        extra_config["max_seq_length"] = {"audio_features": 560000}
+        extra_config["max_seq_length"] = {"data": 560000}
         extra_config["torch_amp"] = {"dtype": "bfloat16"}
+        # extra_config["num_workers_per_gpu"] = 0
     if variant == ConfigVariant.RECOG:
         extra_config["extern_data"] = {
             "data": {"dim": 80, "dtype": "float32"},
@@ -63,16 +235,24 @@ def returnn_config_generator(
         extra_python=[conformer_ctc.get_serializer(model_config, variant=variant)],
         extern_data_config=True,
         backend=Backend.PYTORCH,
-        grad_noise=kwargs.get("grad_noise", 0.0),
-        grad_clip=0.0,
+        grad_noise=0.0,
+        grad_clip=kwargs.get("grad_clip", 0.0),
         optimizer=Optimizers.AdamW,
-        schedule=LearningRateSchedules.OCLR_STEP_TORCH,
-        max_seqs=60,
-        initial_lr=7e-06,
-        peak_lr=7e-04,
-        decayed_lr=7e-05,
-        final_lr=1e-08,
+        weight_decay=kwargs.get("weight_decay", 0.001),
+        schedule=LearningRateSchedules.OCLR_STEP_TORCH
+        if kwargs.get("stepwise_oclr", True)
+        else LearningRateSchedules.OCLR_V2,
+        inc_epochs=240,
+        dec_epochs=240,
+        # max_seqs=60,
         n_steps_per_epoch=480,
+        initial_lr=7e-06,
+        peak_lr=kwargs.get("peak_lr", 7e-04),
+        decayed_lr=kwargs.get("decayed_lr", 7e-05),
+        final_lr=1e-07,
+        keep_last_n=1,
+        keep_best_n=0,
+        keep=sub_checkpoints,
         batch_size=36000 * 160,
         use_chunking=False,
         extra_config=extra_config,
@@ -82,7 +262,6 @@ def returnn_config_generator(
 def get_returnn_config_collection(
     train_data_config: dict,
     dev_data_config: dict,
-    num_subepochs: int,
     **kwargs,
 ) -> ReturnnConfigs[ReturnnConfig]:
     return ReturnnConfigs(
@@ -90,14 +269,12 @@ def get_returnn_config_collection(
             variant=ConfigVariant.TRAIN,
             train_data_config=train_data_config,
             dev_data_config=dev_data_config,
-            num_subepochs=num_subepochs,
             **kwargs,
         ),
         prior_config=returnn_config_generator(
             variant=ConfigVariant.PRIOR,
             train_data_config=train_data_config,
             dev_data_config=dev_data_config,
-            num_subepochs=num_subepochs,
             **kwargs,
         ),
         recog_configs={
@@ -105,14 +282,13 @@ def get_returnn_config_collection(
                 variant=ConfigVariant.RECOG,
                 train_data_config=train_data_config,
                 dev_data_config=dev_data_config,
-                num_subepochs=num_subepochs,
                 **kwargs,
             )
         },
     )
 
 
-def run_exp(num_subepochs: int = 250) -> SummaryReport:
+def run_exp(alignments: Optional[Dict[str, AlignmentData]] = None) -> Tuple[SummaryReport, Dict[str, AlignmentData]]:
     assert tools.returnn_root
     assert tools.returnn_python_exe
     assert tools.rasr_binary_path
@@ -123,6 +299,8 @@ def run_exp(num_subepochs: int = 250) -> SummaryReport:
         rasr_binary_path=tools.rasr_binary_path,
         augmented_lexicon=True,
         feature_type=FeatureType.SAMPLES,
+        alignments=alignments,
+        blank_idx=0,
     )
 
     for data_input in data.data_inputs.values():
@@ -133,12 +311,21 @@ def run_exp(num_subepochs: int = 250) -> SummaryReport:
     train_args = exp_args.get_ctc_train_step_args(num_epochs=num_subepochs, gpu_mem_rqmt=24)
     recog_args = exp_args.get_ctc_recog_step_args(
         num_classes=num_outputs,
-        epochs=[ep for ep in [80, 160, 320, 640, 1280, num_subepochs] if ep <= num_subepochs],
-        prior_scales=[0.3, 0.5, 0.7],
-        lm_scales=[0.7, 0.9, 1.1, 1.3],
+        epochs=sub_checkpoints,
+        prior_scales=[0.3],
+        lm_scales=[0.9],
         feature_type=FeatureType.LOGMEL_16K,
         search_stats=True,
         seq2seq_v2=True,
+    )
+    align_args = exp_args.get_ctc_align_step_args(
+        num_classes=num_outputs,
+        feature_type=FeatureType.LOGMEL_16K,
+        prior_scale=0.3,
+        reduction_factor=4,
+        label_scorer_args={"extra_args": {"reduction_subtrahend": 3}},
+        epoch=num_subepochs,
+        register_output=False,
     )
 
     # ********** System **********
@@ -148,41 +335,158 @@ def run_exp(num_subepochs: int = 250) -> SummaryReport:
     system.init_corpora(
         dev_keys=data.dev_keys,
         test_keys=data.test_keys,
+        align_keys=data.align_keys,
         corpus_data=data.data_inputs,
-        am_args=exp_args.ctc_recog_am_args,
     )
     system.setup_scoring()
 
     # ********** Returnn Configs **********
 
-    for grad_noise in [0.0, 0.1]:
+    for wei_frontend in [True, False]:
+        # for wei_frontend in [False]:
+        for speed_perturbation in [True, False]:
+            # for speed_perturbation in [False]:
+            name_suffix = ""
+            if wei_frontend:
+                name_suffix += "_wei-frontend"
+            if speed_perturbation:
+                name_suffix += "_speed-perturb"
+            system.add_experiment_configs(
+                f"Conformer_CTC{name_suffix}",
+                get_returnn_config_collection(
+                    train_data_config=data.train_data_config,
+                    dev_data_config=data.cv_data_config,
+                    num_subepochs=num_subepochs,
+                    wei_frontend=wei_frontend,
+                    speed_perturbation=speed_perturbation,
+                ),
+            )
+
+    for num_heads, dim_per_head in [(8, 64), (4, 96)]:
+        for dropout in [0.1, 0.2]:
+            name_suffix = ""
+            name_suffix += f"_dim-{num_heads * dim_per_head}_drop-{dropout}"
+            system.add_experiment_configs(
+                f"Conformer_CTC{name_suffix}",
+                get_returnn_config_collection(
+                    train_data_config=data.train_data_config,
+                    dev_data_config=data.cv_data_config,
+                    num_subepochs=num_subepochs,
+                    wei_frontend=False,
+                    speed_perturbation=False,
+                    num_heads=num_heads,
+                    dim_per_head=dim_per_head,
+                    dropout=dropout,
+                ),
+            )
+
         system.add_experiment_configs(
-            f"Conformer_CTC_{num_subepochs}-epochs_gn-{grad_noise}",
+            "Conformer_CTC_epoch-oclr",
             get_returnn_config_collection(
                 train_data_config=data.train_data_config,
                 dev_data_config=data.cv_data_config,
                 num_subepochs=num_subepochs,
-                grad_noise=grad_noise,
+                wei_frontend=False,
+                speed_perturbation=False,
+                num_heads=8,
+                dim_per_head=64,
+                dropout=0.1,
+                stepwise_oclr=False,
             ),
         )
 
+        system.add_experiment_configs(
+            "Conformer_CTC_peak-lr-5e-04",
+            get_returnn_config_collection(
+                train_data_config=data.train_data_config,
+                dev_data_config=data.cv_data_config,
+                num_subepochs=num_subepochs,
+                wei_frontend=False,
+                speed_perturbation=False,
+                num_heads=8,
+                dim_per_head=64,
+                dropout=0.1,
+                stepwise_oclr=False,
+                peak_lr=5e-04,
+                decayed_lr=5e-05,
+            ),
+        )
+
+        system.add_experiment_configs(
+            "Conformer_CTC_grad-clip",
+            get_returnn_config_collection(
+                train_data_config=data.train_data_config,
+                dev_data_config=data.cv_data_config,
+                num_subepochs=num_subepochs,
+                wei_frontend=False,
+                speed_perturbation=False,
+                num_heads=8,
+                dim_per_head=64,
+                dropout=0.1,
+                stepwise_oclr=False,
+                peak_lr=5e-04,
+                decayed_lr=5e-05,
+                grad_clip=1.0,
+            ),
+        )
+
+        system.add_experiment_configs(
+            "Conformer_CTC_l2-0.01_grad-clip",
+            get_returnn_config_collection(
+                train_data_config=data.train_data_config,
+                dev_data_config=data.cv_data_config,
+                num_subepochs=num_subepochs,
+                wei_frontend=False,
+                speed_perturbation=False,
+                num_heads=8,
+                dim_per_head=64,
+                dropout=0.1,
+                stepwise_oclr=False,
+                grad_clip=1.0,
+                weight_decay=1e-02,
+                peak_lr=5e-04,
+                decayed_lr=5e-05,
+            ),
+        )
+
+        for l2 in [1e-04, 2e-04, 5e-04, 1e-03, 2e-03, 5e-03, 1e-02]:
+            system.add_experiment_configs(
+                f"Conformer_CTC_l2-{l2}",
+                get_returnn_config_collection(
+                    train_data_config=data.train_data_config,
+                    dev_data_config=data.cv_data_config,
+                    num_subepochs=num_subepochs,
+                    wei_frontend=False,
+                    speed_perturbation=False,
+                    num_heads=8,
+                    dim_per_head=64,
+                    dropout=0.1,
+                    stepwise_oclr=False,
+                    grad_clip=0.0,
+                    weight_decay=l2,
+                    peak_lr=5e-04,
+                    decayed_lr=5e-05,
+                ),
+            )
+
     system.run_train_step(**train_args)
     system.run_dev_recog_step(**recog_args)
+    align_data = next(iter(system.run_align_step(**align_args).values()))
 
     assert system.summary_report
-    return system.summary_report
+    return system.summary_report, align_data
 
 
-def py() -> SummaryReport:
+def py() -> Tuple[SummaryReport, Dict[str, AlignmentData]]:
+    _, alignments = py_ctc_old()
     filename_handle = os.path.splitext(os.path.basename(__file__))[0][len("config_") :]
     gs.ALIAS_AND_OUTPUT_SUBDIR = f"{filename_handle}/"
 
     summary_report = SummaryReport()
 
-    summary_report.merge_report(run_exp(num_subepochs=250), update_structure=True)
-    summary_report.merge_report(run_exp(num_subepochs=500), update_structure=True)
-    summary_report.merge_report(run_exp(num_subepochs=1000), update_structure=True)
+    report, align_data = run_exp(alignments)
+    summary_report.merge_report(report, update_structure=True)
 
     tk.register_report(f"{gs.ALIAS_AND_OUTPUT_SUBDIR}/summary.report", summary_report)
 
-    return summary_report
+    return summary_report, align_data

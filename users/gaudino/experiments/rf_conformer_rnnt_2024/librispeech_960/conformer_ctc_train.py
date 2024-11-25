@@ -10,6 +10,7 @@ import numpy as np
 import hashlib
 import contextlib
 import functools
+from sisyphus import tk
 
 from returnn.tensor import Tensor, Dim, single_step_dim
 import returnn.frontend as rf
@@ -29,13 +30,15 @@ from i6_experiments.users.gaudino.experiments.rf_conformer_att_2023.librispeech_
 
 from i6_experiments.users.gaudino.models.asr.rf.conformer_ctc.model_conformer_ctc import from_scratch_model_def, from_scratch_training
 from i6_experiments.users.gaudino.models.asr.rf.conformer_ctc.model_recog_ctc_greedy import model_recog
+from i6_experiments.users.gaudino.models.asr.rf.conformer_ctc.model_forward_prior import model_forward_prior
+
 
 if TYPE_CHECKING:
     from i6_experiments.users.zeyer.model_interfaces import ModelDef, RecogDef, TrainDef
-    from i6_experiments.users.zeyer.model_with_checkpoints import (
-        ModelWithCheckpoints,
-        ModelWithCheckpoint,
-    )
+from i6_experiments.users.gaudino.model_with_checkpoints import (
+    ModelWithCheckpoints,
+    ModelWithCheckpoint,
+)
 
 # From Mohammad, 2023-06-29
 # dev-clean  2.27
@@ -99,6 +102,9 @@ _log_mel_feature_dim = 80
 
 def sis_run_with_prefix(prefix_name: Optional[str] = None):
     """run the exp"""
+
+    from i6_core.returnn.training import PtCheckpoint
+
     _sis_setup_global_prefix(prefix_name)
 
     # Moh:      dev-clean  2.27, dev-other  5.39, test-clean  2.41,  test-other  5.51
@@ -119,49 +125,128 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
     #     },
     # )
 
-    train_exp(  # dev-other 9.01
-        "base-24gb-lrlin1e_5_600k_ctc_only",
-        config_24gb_v6,
-        config_updates={
-            "learning_rate": 1.0,
-            "dynamic_learning_rate": dyn_lr_piecewise_linear,
-            # total steps after 2000 epochs: 982.312
-            "learning_rate_piecewise_steps": [600_000, 900_000, 982_000],
-            "learning_rate_piecewise_values": [1e-5, 1e-3, 1e-5, 1e-6],
-            "aux_loss_layers":[],
-        },
-    )
+    # train_exp(  # dev-other 9.01
+    #     "base-24gb-lrlin1e_5_600k_ctc_only",
+    #     config_24gb_v6,
+    #     config_updates={
+    #         "learning_rate": 1.0,
+    #         "dynamic_learning_rate": dyn_lr_piecewise_linear,
+    #         # total steps after 2000 epochs: 982.312
+    #         "learning_rate_piecewise_steps": [600_000, 900_000, 982_000],
+    #         "learning_rate_piecewise_values": [1e-5, 1e-3, 1e-5, 1e-6],
+    #         "aux_loss_layers":[],
+    #     },
+    # )
 
-    train_exp(  # dev-other 6.93
-        "base-24gb-lrlin1e_5_600k_ctc_only_aux4_8",
-        config_24gb_v6,
-        config_updates={
-            "learning_rate": 1.0,
-            "dynamic_learning_rate": dyn_lr_piecewise_linear,
-            # total steps after 2000 epochs: 982.312
-            "learning_rate_piecewise_steps": [600_000, 900_000, 982_000],
-            "learning_rate_piecewise_values": [1e-5, 1e-3, 1e-5, 1e-6],
-        },
-    )
+    # train_exp(  # dev-other 6.93
+    #     "base-24gb-lrlin1e_5_600k_ctc_only_aux4_8",
+    #     config_24gb_v6,
+    #     config_updates={
+    #         "learning_rate": 1.0,
+    #         "dynamic_learning_rate": dyn_lr_piecewise_linear,
+    #         # total steps after 2000 epochs: 982.312
+    #         "learning_rate_piecewise_steps": [600_000, 900_000, 982_000],
+    #         "learning_rate_piecewise_values": [1e-5, 1e-3, 1e-5, 1e-6],
+    #     },
+    # )
+    #
+    #
+    # # without mel normalization
+    # train_exp(  # dev-other
+    #     "base-24gb-lrlin1e_5_600k_ctc_only_no_mel_norm",
+    #     config_24gb_v6,
+    #     config_updates={
+    #         "learning_rate": 1.0,
+    #         "dynamic_learning_rate": dyn_lr_piecewise_linear,
+    #         # total steps after 2000 epochs: 982.312
+    #         "learning_rate_piecewise_steps": [600_000, 900_000, 982_000],
+    #         "learning_rate_piecewise_values": [1e-5, 1e-3, 1e-5, 1e-6],
+    #         "aux_loss_layers":[],
+    #         "mel_normalization_ted2": False,
+    #     },
+    #     search_config={
+    #         "mel_normalization_ted2": False,
+    #     },
+    # )
+    #
+    # train_exp(  # dev-other 6.92
+    #     "base-24gb-lrlin1e_5_600k_ctc_only_aux4_8_no_mel_norm",
+    #     config_24gb_v6,
+    #     config_updates={
+    #         "learning_rate": 1.0,
+    #         "dynamic_learning_rate": dyn_lr_piecewise_linear,
+    #         # total steps after 2000 epochs: 982.312
+    #         "learning_rate_piecewise_steps": [600_000, 900_000, 982_000],
+    #         "learning_rate_piecewise_values": [1e-5, 1e-3, 1e-5, 1e-6],
+    #         "mel_normalization_ted2": False,
+    #     },
+    #     search_config = {
+    #         "mel_normalization_ted2": False,
+    #     },
+    # )
+    #
+    # # no eos
+    # train_exp(  # dev-other
+    #     "base-24gb-lrlin1e_5_600k_ctc_only_no_eos",
+    #     config_24gb_v6,
+    #     config_updates={
+    #         "learning_rate": 1.0,
+    #         "dynamic_learning_rate": dyn_lr_piecewise_linear,
+    #         # total steps after 2000 epochs: 982.312
+    #         "learning_rate_piecewise_steps": [600_000, 900_000, 982_000],
+    #         "learning_rate_piecewise_values": [1e-5, 1e-3, 1e-5, 1e-6],
+    #         "aux_loss_layers":[],
+    #         "mel_normalization_ted2": False,
+    #         "hash_override": 1,
+    #     },
+    #     search_config={
+    #         "mel_normalization_ted2": False,
+    #     },
+    #     with_eos_postfix=False,
+    # )
+    #
 
+    # train_exp(  # dev-other
+    #     "base-24gb-lrlin1e_5_600k_ctc_only_aux4_8_no_eos",
+    #     config_24gb_v6,
+    #     config_updates={
+    #         "learning_rate": 1.0,
+    #         "dynamic_learning_rate": dyn_lr_piecewise_linear,
+    #         # total steps after 2000 epochs: 982.312
+    #         "learning_rate_piecewise_steps": [600_000, 900_000, 982_000],
+    #         "learning_rate_piecewise_values": [1e-5, 1e-3, 1e-5, 1e-6],
+    #         "mel_normalization_ted2": False,
+    #         "hash_override": 1,
+    #     },
+    #     search_config = {
+    #         "mel_normalization_ted2": False,
+    #     },
+    #     with_eos_postfix=False,
+    #
+    # )
 
-    # without mel normalization
     train_exp(  # dev-other
-        "base-24gb-lrlin1e_5_600k_ctc_only_no_mel_norm",
+        "base-24gb-lrlin1e_5_600k_ctc_only_aux4_8_40subsample",
         config_24gb_v6,
         config_updates={
+            "batch_size": 30_000 * _batch_size_factor,
             "learning_rate": 1.0,
             "dynamic_learning_rate": dyn_lr_piecewise_linear,
             # total steps after 2000 epochs: 982.312
             "learning_rate_piecewise_steps": [600_000, 900_000, 982_000],
             "learning_rate_piecewise_values": [1e-5, 1e-3, 1e-5, 1e-6],
-            "aux_loss_layers":[],
+            "mel_normalization_ted2": False,
+            "conv_2nd_stride": 2,
+        },
+        search_config = {
             "mel_normalization_ted2": False,
         },
+        with_eos_postfix=False,
+
     )
 
     train_exp(  # dev-other
-        "base-24gb-lrlin1e_5_600k_ctc_only_aux4_8_no_mel_norm",
+        "base-24gb-lrlin1e_5_600k_ctc_only_aux4_8_gauss_win21_std1.0",
         config_24gb_v6,
         config_updates={
             "learning_rate": 1.0,
@@ -170,8 +255,113 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
             "learning_rate_piecewise_steps": [600_000, 900_000, 982_000],
             "learning_rate_piecewise_values": [1e-5, 1e-3, 1e-5, 1e-6],
             "mel_normalization_ted2": False,
+            "hash_override": 1,
+            "gauss_window_size": 21,
+            "gauss_std": 1.0,
         },
+        search_config = {
+            "mel_normalization_ted2": False,
+        },
+        with_eos_postfix=False,
+
     )
+
+
+    global _ls_task
+    if _ls_task:
+        _ls_task = None
+
+    _torch_ckpt_path = "/u/luca.gaudino/setups/2023-08-10--rf-librispeech/work/i6_core/returnn/training/ReturnnTrainingJob.AWwVft0oGy8e/output/models/epoch.1982.pt"
+
+    new_ckpt_path = tk.Path(
+        _torch_ckpt_path,
+        hash_overwrite= "ctc" + "_torch_ckpt",
+    )
+    new_ckpt = PtCheckpoint(new_ckpt_path)
+
+    recog_config = {
+        "batch_size": 160000 * 160,
+        "mel_normalization_ted2": False,
+        "hash_override": 3,
+    }
+
+    # _compute_prior(
+    #     "priors/base-24gb-lrlin1e_5_600k_ctc_only_aux4_8_no_mel_norm/ep1982/prior",
+    #     ModelWithCheckpoint(
+    #         definition=from_scratch_model_def, checkpoint=new_ckpt
+    #     ),
+    #     epoch=1981,
+    #     recog_def=model_forward_prior,
+    #     recog_config=recog_config,
+    #     search_rqmt={"time": 12},
+    # )
+
+    # no eos model
+
+    _torch_ckpt_path = "/work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/2023-08-10--rf-librispeech/work/i6_core/returnn/training/ReturnnTrainingJob.6XXpx2nMCWDx/output/models/epoch.1982.pt"
+
+    new_ckpt_path = tk.Path(
+        _torch_ckpt_path,
+        hash_overwrite= "ctc_no_eos" + "_torch_ckpt",
+    )
+    new_ckpt = PtCheckpoint(new_ckpt_path)
+
+    recog_config = {
+        "batch_size": 160000 * 160,
+        "mel_normalization_ted2": False,
+        "hash_override": 1,
+    }
+
+    _compute_prior(
+        "priors/base-24gb-lrlin1e_5_600k_ctc_only_aux4_8_no_eos/ep1982/prior",
+        ModelWithCheckpoint(
+            definition=from_scratch_model_def, checkpoint=new_ckpt
+        ),
+        epoch=1982,
+        recog_def=model_forward_prior,
+        recog_config=recog_config,
+        search_rqmt={"time": 12},
+    )
+
+    # albert 6.3 model
+
+    _torch_ckpt_path = "/work/asr3/zeineldeen/hiwis/luca.gaudino/checkpoints/zeyer_ctc/v6-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-speedpertV2-bpe10k-bpeSample001/epoch.491.pt"
+
+    new_ckpt_path = tk.Path(
+        _torch_ckpt_path,
+        hash_overwrite= "albert_6.3" + "_torch_ckpt",
+    )
+    new_ckpt = PtCheckpoint(new_ckpt_path)
+
+    recog_config = {
+        "batch_size": 160000 * 160,
+        "mel_normalization_ted2": False,
+        "hash_override": 1,
+        "final_ctc_name": "enc_logits",
+    }
+
+    _compute_prior(
+        "priors/v6-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-speedpertV2-bpe10k-bpeSample001/ep491/prior",
+        ModelWithCheckpoint(
+            definition=from_scratch_model_def, checkpoint=new_ckpt
+        ),
+        epoch=491,
+        recog_def=model_forward_prior,
+        recog_config=recog_config,
+        search_rqmt={"time": 12},
+    )
+
+    # recog ctc only model
+    # _recog(
+    #     "model_recogs/base-24gb-lrlin1e_5_600k_ctc_only_aux4_8_no_mel_norm/ep1981/ctc_greedy/recog_results",
+    #     ModelWithCheckpoint(
+    #         definition=from_scratch_model_def, checkpoint=new_ckpt
+    #     ),
+    #     model_recog,
+    #     recog_config=recog_config,
+    # )
+
+
 
 _sis_prefix: Optional[str] = None
 
@@ -183,6 +373,31 @@ def _sis_setup_global_prefix(prefix_name: Optional[str] = None):
         prefix_name = get_prefix_for_config(__file__)
     global _sis_prefix
     _sis_prefix = prefix_name
+
+def _compute_prior(
+    name: str,
+    model_with_checkpoint: ModelWithCheckpoint,
+    epoch: int,
+    recog_def: RecogDef = None,
+    recog_config: Optional[Dict[str, Any]] = None,
+    *,
+    search_rqmt: Optional[Dict[str, Any]] = None,
+    with_eos_postfix: bool = True,
+):
+    from sisyphus import tk
+    from i6_experiments.users.gaudino.recog_2 import compute_prior
+
+    task = _get_ls_task(with_eos_postfix=with_eos_postfix, main_key="train")
+
+    res = compute_prior(
+        task,
+        model_with_checkpoint,
+        epoch=epoch,
+        recog_def=recog_def,
+        config=recog_config,
+        search_rqmt=search_rqmt,
+    )
+    tk.register_output(_sis_prefix + "/" + name, res)
 
 
 def _recog(
@@ -227,6 +442,8 @@ def train_exp(
     fine_tune: Optional[Union[int, List[Tuple[int, Dict[str, Any]]]]] = None,
     time_rqmt: Optional[int] = None,
     model_avg: bool = False,
+    search_config: Optional[Dict[str, Any]] = None,
+    with_eos_postfix: bool = True,
 ) -> ModelWithCheckpoints:
     """
     Train experiment
@@ -234,13 +451,13 @@ def train_exp(
     from i6_experiments.users.gaudino.experiments.rf_conformer_att_2023.train import (
         train,
     )
-    from i6_experiments.users.zeyer.recog import recog_training_exp
+    from i6_experiments.users.gaudino.recog_2 import recog_training_exp
 
     if _sis_prefix is None:
         _sis_setup_global_prefix()
 
     prefix = _sis_prefix + "/" + name
-    task = _get_ls_task()
+    task = _get_ls_task(with_eos_postfix=with_eos_postfix)
     config = config.copy()
     config = dict_update_deep(config, config_updates, config_deletes)
     if "__num_epochs" in config:
@@ -264,7 +481,7 @@ def train_exp(
         time_rqmt=time_rqmt,
     )
     recog_training_exp(
-        prefix, task, model_with_checkpoint, recog_def=model_recog, model_avg=model_avg
+        prefix, task, model_with_checkpoint, recog_def=model_recog, model_avg=model_avg, search_config=search_config
     )
 
     if fine_tune:
@@ -327,16 +544,16 @@ def train_exp(
 _ls_task = None
 
 
-def _get_ls_task():
+def _get_ls_task(with_eos_postfix=True, **dataset_opts):
     global _ls_task
     if _ls_task:
         return _ls_task
 
-    from i6_experiments.users.zeyer.datasets.librispeech import (
+    from i6_experiments.users.gaudino.datasets.librispeech import (
         get_librispeech_task_bpe10k_raw,
     )
 
-    _ls_task = get_librispeech_task_bpe10k_raw(with_eos_postfix=True)
+    _ls_task = get_librispeech_task_bpe10k_raw(with_eos_postfix=with_eos_postfix, **dataset_opts)
     return _ls_task
 
 

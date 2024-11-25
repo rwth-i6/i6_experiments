@@ -81,7 +81,10 @@ class Transcriber(nn.Module):
 
         mask = mask_tensor(audio_features, audio_features_len)
 
+
         encoder_out, out_mask = self.encoder(audio_features, mask)
+
+
         encoder_out = self.mapping(encoder_out)
         encoder_out_lengths = torch.sum(out_mask, dim=1)  # [B, T] -> [B]
 

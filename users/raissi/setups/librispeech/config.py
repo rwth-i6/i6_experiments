@@ -21,3 +21,7 @@ P_HMM_AM7T1_ALIGNMENT_40ms = tk.Path(
     "/work/asr4/raissi/setups/librispeech/960-ls/dependencies/data/cv_alignment_phmmAm0.7T0.1/alignment.cache.bundle",
     cached=True,
 )
+
+
+SMBR_FEATUREFLOW_SS = "/work/asr4/raissi/setups/librispeech/960-ls/dependencies/data/train.ss.feature.flow"
+SMBR_FEATUREFLOW_SS_IVEC = "/work/asr4/raissi/setups/librispeech/960-ls/dependencies/data/train.ss_ivec.feature.flow"

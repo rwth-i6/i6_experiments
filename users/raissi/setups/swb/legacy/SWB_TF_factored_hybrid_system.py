@@ -3,6 +3,7 @@ __all__ = ["SWBTFFactoredHybridSystem"]
 import copy
 import dataclasses
 import itertools
+import numpy as np
 import sys
 from IPython import embed
 
@@ -197,6 +198,22 @@ class SWBTFFactoredHybridSystem(TFFactoredHybridBaseSystem):
             }
             # 1/9 for 3-state, same amount of silence
         }
+        self.transcript_prior_xml = {
+            "monostate": ("/").join([self.dependencies_path, "haotian/monostate/monostate.we.transcript.prior.xml"]),
+        }
+
+        self.reference_alignment = {
+            "GMM": {
+                "alignment": "/work/asr3/luescher/setups-data/silence/stats/switchboard/dependencies/magic_zoltan/tuske__2016_01_28__align.combined.train",
+                "allophones": f"{self.dependencies_path}/zoltan_allophones",
+            }
+        }
+
+        self.alignment_example_segments = [
+            "switchboard-1/sw02001A/sw2001A-ms98-a-0002",
+            "switchboard-1/sw02019A/sw2019A-ms98-a-0029",
+            "switchboard-1/sw02008A/sw2008A-ms98-a-0002",
+        ]
 
     # -------------------- External helpers --------------------
 
@@ -204,9 +221,7 @@ class SWBTFFactoredHybridSystem(TFFactoredHybridBaseSystem):
         feature_name = self.feature_info.feature_type.get()
         for corpus_key in ["train", "hub500", "hub501"]:
             self.feature_bundles[corpus_key] = {feature_name: feature_bundles[corpus_key]}
-            self.feature_flows[corpus_key] = {
-                feature_name: features.basic_cache_flow(feature_bundles[corpus_key])
-            }
+            self.feature_flows[corpus_key] = {feature_name: features.basic_cache_flow(feature_bundles[corpus_key])}
             mapping = {"train": "train", "hub500": "dev", "hub501": "eval"}
             cache_pattern = feature_bundles[corpus_key].get_path().split(".bundle")[0]
             caches = [tk.Path(f"{cache_pattern}.{i}") for i in range(1, concurrent[mapping[corpus_key]] + 1)]
@@ -251,7 +266,6 @@ class SWBTFFactoredHybridSystem(TFFactoredHybridBaseSystem):
             [self.cross_validation_info["pre_path"], self.cross_validation_info["merged_corpus_segment"]]
         )
 
-
     def get_recognizer_and_args(
         self,
         key: str,
@@ -264,6 +278,7 @@ class SWBTFFactoredHybridSystem(TFFactoredHybridBaseSystem):
         gpu=False,
         is_multi_encoder_output=False,
         set_batch_major_for_feature_scorer: bool = True,
+        joint_for_factored_loss: bool = False,
         tf_library: Union[Path, str, List[Path], List[str], None] = None,
         dummy_mixtures: Optional[Path] = None,
         lm_gc_simple_hash: Optional[bool] = None,
@@ -288,7 +303,10 @@ class SWBTFFactoredHybridSystem(TFFactoredHybridBaseSystem):
         ):
 
             self.setup_returnn_config_and_graph_for_single_softmax(
-                key=key, state_tying=self.label_info.state_tying, softmax_type=SingleSoftmaxType.DECODE
+                key=key,
+                state_tying=self.label_info.state_tying,
+                softmax_type=SingleSoftmaxType.DECODE,
+                joint_for_factored_loss=joint_for_factored_loss,
             )
         else:
             crp_list = [n for n in self.crp_names if "train" not in n]
@@ -328,7 +346,7 @@ class SWBTFFactoredHybridSystem(TFFactoredHybridBaseSystem):
             model_path=model_path,
             graph=graph,
             mixtures=dummy_mixtures,
-            eval_files=self.scorer_args[crp_corpus],
+            eval_args=self.scorer_args[crp_corpus],
             scorer=self.scorers[crp_corpus],
             tf_library=tf_library,
             is_multi_encoder_output=is_multi_encoder_output,
@@ -338,6 +356,7 @@ class SWBTFFactoredHybridSystem(TFFactoredHybridBaseSystem):
             lm_gc_simple_hash=lm_gc_simple_hash if (lm_gc_simple_hash is not None and lm_gc_simple_hash) else None,
             **decoder_kwargs,
         )
+        self.experiments[key]["decode_job"]["runner"] = recognizer
 
         return recognizer, recog_args
 
@@ -402,7 +421,7 @@ class SWBTFFactoredHybridSystem(TFFactoredHybridBaseSystem):
         if feature_path is None:
             feature_path = self.feature_flows[crp_corpus]
 
-        #consider if you need to create separate alignment params
+        # consider if you need to create separate alignment params
         align_args = self.get_parameters_for_aligner(context_type=context_type, prior_info=p_info)
         align_args = dataclasses.replace(align_args, non_word_phonemes="[LAUGHTER],[NOISE],[VOCALIZEDNOISE]")
 

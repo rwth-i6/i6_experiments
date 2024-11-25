@@ -5,7 +5,6 @@ from i6_experiments.users.raissi.torch.dataclasses.train import SpecaugmentByLen
 from i6_models.primitives.specaugment import specaugment_v1_by_length
 
 
-
 class SpecaugmentByLengthModuleV1(torch.nn.Module):
     def __init__(self, cfg: SpecaugmentByLengthConfigV1):
         super().__init__()

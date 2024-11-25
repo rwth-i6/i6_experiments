@@ -1,7 +1,5 @@
 """
-Like v2, but with i6_models specaugment (v3)
-and now controllable start time for when specaugment is applied (v4)
-and with the proper feature extraction from i6-models
+Conformer CTC with the i6_models ConformerV2, which supports customizable modules and aux loss
 """
 
 import numpy as np

@@ -28,7 +28,7 @@ class NltkTimit(DatasetConfig):
         self.random_permute_audio = random_permute_audio
 
     # noinspection PyMethodMayBeStatic
-    def get_dataset(self, key: str) -> Dict[str, Any]:
+    def get_dataset(self, key: str, *, train: bool = False) -> Dict[str, Any]:
         """dataset"""
         assert key in {"train", "dev", "devtrain"}
         # num_seqs = {'train': 3696, 'dev': 192}  # full TIMIT
@@ -36,17 +36,17 @@ class NltkTimit(DatasetConfig):
         d = {
             "class": "NltkTimitDataset",
             "with_delta": True,
-            "train": key.endswith("train"),
-            "seq_ordering": "laplace:.10" if key == "train" else "sorted",
+            "train": key in {"train", "devtrain"},
+            "seq_ordering": "laplace:.10" if train else "sorted",
             "estimated_num_seqs": num_seqs[key],
         }
-        if key.startswith("dev"):
+        if not train:
             d["fixed_random_seed"] = 1
-        if self.random_permute_audio and key in {"train", self.main_key}:
+        if train and self.random_permute_audio:
             d["random_permute_audio"] = self.random_permute_audio
         return d
 
-    def get_extern_data(self) -> Dict[str, Dict[str]]:
+    def get_extern_data(self) -> Dict[str, Dict[str, Any]]:
         """extern data"""
         from returnn.tensor import Dim, batch_dim
 
@@ -63,11 +63,14 @@ class NltkTimit(DatasetConfig):
             },
         }
 
-    def get_train_dataset(self) -> Dict[str]:
+    def get_train_dataset(self) -> Dict[str, Any]:
         """train"""
+        return self.get_dataset("train", train=True)
+
+    def get_train_dataset_for_forward(self) -> Dict[str, Any]:
         return self.get_dataset("train")
 
-    def get_eval_datasets(self) -> Dict[str, Dict[str]]:
+    def get_eval_datasets(self) -> Dict[str, Dict[str, Any]]:
         """dev/devtrain/eval or so"""
         return {
             "dev": self.get_dataset("dev"),

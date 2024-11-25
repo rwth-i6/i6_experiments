@@ -21,13 +21,14 @@ from i6_experiments.users.berger.recipe.lexicon.modification import (
     DeleteEmptyOrthJob,
     EnsureSilenceFirstJob,
     MakeBlankLexiconJob,
+    DeleteLemmataFromLexiconJob,
 )
 from i6_experiments.users.vieting.jobs.returnn import PeakyAlignmentJob
 from .default_tools import RETURNN_ROOT, RETURNN_EXE
 import i6_experiments.users.vieting.util.returnn as returnn_util
 
 
-def get_switchboard_data():
+def get_switchboard_data(lexicon_remove_sentence_boundary: bool = False):
     """
     Get train and test data for switchboard dataset. This is on the level of RASR corpus and segment file, lexicon,
     language model etc., not yet involving anything RETURNN specific.
@@ -37,15 +38,9 @@ def get_switchboard_data():
     total_train_num_segments = 249536
     cv_size = 300 / total_train_num_segments
 
-    segments = {
-        "all": corpus.SegmentCorpusJob(
-            train_corpus.corpus_file, 1
-        ).out_single_segment_files[1]
-    }
+    segments = {"all": corpus.SegmentCorpusJob(train_corpus.corpus_file, 1).out_single_segment_files[1]}
 
-    split_segments_job = corpus.ShuffleAndSplitSegmentsJob(
-        segments["all"], {"train": 1 - cv_size, "cv": cv_size}
-    )
+    split_segments_job = corpus.ShuffleAndSplitSegmentsJob(segments["all"], {"train": 1 - cv_size, "cv": cv_size})
     segments["train"] = split_segments_job.out_segments["train"]
     segments["cv"] = split_segments_job.out_segments["cv"]
 
@@ -66,9 +61,7 @@ def get_switchboard_data():
         segment_files={1: segments["cv"]},
         filter_list=blacklisted_segments,
     ).out_single_segment_files[1]
-    tail_job = text.TailJob(
-        segments["train"], num_lines=300, zip_output=False
-    )
+    tail_job = text.TailJob(segments["train"], num_lines=300, zip_output=False)
     tail_job.out.path = "out.gz"  # fix for hash break, see i6_core/#479
     segments["devtrain"] = tail_job.out
     segments["all_filtered"] = corpus.FilterSegmentsByListJob(
@@ -84,6 +77,8 @@ def get_switchboard_data():
     lexicon_recog_ctc = AddEowPhonemesToLexiconJob(lexicon_rasr_loss, nonword_phones=non_word_phones).out_lexicon
     lexicon_transducer = AddEowPhonemesToLexiconJob(lexicon_base, nonword_phones=non_word_phones).out_lexicon
     lexicon_transducer = EnsureSilenceFirstJob(lexicon_transducer).out_lexicon
+    if lexicon_remove_sentence_boundary:
+        lexicon_transducer = DeleteLemmataFromLexiconJob(lexicon_transducer, ["[SENTENCE-END]"]).out_lexicon
     lexicon_args = {
         "normalize_pronunciation": False,
         "add_all": True,
@@ -154,10 +149,7 @@ def get_returnn_base_data(
     meta_args = {"data_map": {"classes": ("hdf", "data"), "data": ("ogg", "data")}}
     if context_window is not None:
         meta_args["context_window"] = context_window
-    audio = {
-        "features": "raw",
-        "peak_normalization": True
-    }
+    audio = {"features": "raw", "peak_normalization": True}
     ogg_zip_base_args = dict(
         oggzip_files=[ogg_zip_job.out_ogg_zip],
         alignments=[],
@@ -172,21 +164,21 @@ def get_returnn_base_data(
         partition_epoch=partition_epoch["train"],
         ogg_args={"segment_file": segments["train"], "targets": None},
         seq_ordering="laplace:.384",
-        **ogg_zip_base_args,
+        **copy.deepcopy(ogg_zip_base_args),
     )
 
     nn_cv_data = OggZipHdfDataInput(
         partition_epoch=partition_epoch["dev"],
         seq_ordering="sorted_reverse",
         ogg_args={"segment_file": segments["cv"], "targets": None},
-        **ogg_zip_base_args,
+        **copy.deepcopy(ogg_zip_base_args),
     )
 
     nn_devtrain_data = OggZipHdfDataInput(
         partition_epoch=partition_epoch["dev"],
         seq_ordering="sorted_reverse",
         ogg_args={"segment_file": segments["devtrain"], "targets": None},
-        **ogg_zip_base_args,
+        **copy.deepcopy(ogg_zip_base_args),
     )
 
     returnn_datasets = {
@@ -197,7 +189,7 @@ def get_returnn_base_data(
     return returnn_datasets
 
 
-def get_returnn_ogg_datasets(use_multi_proc_dataset=False, **kwargs) -> Dict[str, Dict]:
+def get_returnn_ogg_datasets(use_multi_proc_dataset=False, pre_process=None, **kwargs) -> Dict[str, Dict]:
     """
     Get only ogg input datasets without targets.
     """
@@ -207,10 +199,13 @@ def get_returnn_ogg_datasets(use_multi_proc_dataset=False, **kwargs) -> Dict[str
         "dev": returnn_datasets["dev"].get_data_dict()["datasets"]["ogg"],
         "eval_datasets": {"devtrain": returnn_datasets["eval_datasets"]["devtrain"].get_data_dict()["datasets"]["ogg"]},
     }
+    if pre_process is not None:
+        returnn_datasets["train"]["audio"]["pre_process"] = pre_process
+
     if use_multi_proc_dataset:
         returnn_datasets["train"] = {
             "class": "MultiProcDataset",
-            "dataset": returnn_datasets["train"]["datasets"]["ogg"],
+            "dataset": returnn_datasets["train"],
             "num_workers": 2,
             "buffer_size": 5,
         }
@@ -218,12 +213,12 @@ def get_returnn_ogg_datasets(use_multi_proc_dataset=False, **kwargs) -> Dict[str
 
 
 def get_returnn_datasets_transducer_viterbi(
-        features: str = "waveform",
-        alignment: Union[List[tk.Path], str] = "wei",
-        partition_epoch: Optional[Dict[str, int]] = None,
-        context_window: Optional[Dict[str, int]] = None,
-        keep_hashes: Optional[bool] = None,
-        legacy_feature_dump: bool = False,
+    features: str = "waveform",
+    alignment: Union[List[tk.Path], str] = "wei",
+    partition_epoch: Optional[Dict[str, int]] = None,
+    context_window: Optional[Dict[str, int]] = None,
+    keep_hashes: Optional[bool] = None,
+    legacy_feature_dump: bool = False,
 ) -> Dict[str, Dict]:
     if keep_hashes is None:
         keep_hashes = alignment == "wei"
@@ -248,23 +243,28 @@ def get_returnn_datasets_transducer_viterbi(
     ).out
 
     if alignment == "wei":
-        alignment_caches_train = [tk.Path(
-            "/u/zhou/asr-exps/swb1/2021-12-09_phoneme-transducer/work/mm/alignment/AlignmentJob.fWmd1ZVWfcFA/output/"
-            f"alignment.cache.{idx}",
-            hash_overwrite=f"wei_ctc_blstm_ss4_alignment_train_{idx}"
-        ) for idx in range(1, 101)]
-        alignment_caches_dev = [tk.Path(
-            "/u/zhou/asr-exps/swb1/2021-12-09_phoneme-transducer/work/mm/alignment/AlignmentJob.ETS2qXk7kdOY/output/"
-            f"alignment.cache.{idx}",
-            hash_overwrite=f"wei_ctc_blstm_ss4_alignment_dev_{idx}"
-        ) for idx in range(1, 11)]
+        alignment_caches_train = [
+            tk.Path(
+                "/u/zhou/asr-exps/swb1/2021-12-09_phoneme-transducer/work/mm/alignment/AlignmentJob.fWmd1ZVWfcFA/output/"
+                f"alignment.cache.{idx}",
+                hash_overwrite=f"wei_ctc_blstm_ss4_alignment_train_{idx}",
+            )
+            for idx in range(1, 101)
+        ]
+        alignment_caches_dev = [
+            tk.Path(
+                "/u/zhou/asr-exps/swb1/2021-12-09_phoneme-transducer/work/mm/alignment/AlignmentJob.ETS2qXk7kdOY/output/"
+                f"alignment.cache.{idx}",
+                hash_overwrite=f"wei_ctc_blstm_ss4_alignment_dev_{idx}",
+            )
+            for idx in range(1, 11)
+        ]
         allophone_file = tk.Path(
-            "/u/vieting/setups/swb/20230406_feat/dependencies/allophones",
-            hash_overwrite="SWB_ALLOPHONE_FILE_WEI"
+            "/u/vieting/setups/swb/20230406_feat/dependencies/allophones", hash_overwrite="SWB_ALLOPHONE_FILE_WEI"
         )
         state_tying_file = tk.Path(
             "/u/vieting/setups/swb/20230406_feat/dependencies/state-tying",
-            hash_overwrite="SWB_STATE_TYING_FILE_MONO_EOW_NOCTX_WEI"
+            hash_overwrite="SWB_STATE_TYING_FILE_MONO_EOW_NOCTX_WEI",
         )
         targets = RasrAlignmentDumpHDFJob(
             alignment_caches=alignment_caches_train + alignment_caches_dev,
@@ -302,14 +302,16 @@ def get_returnn_datasets_transducer_viterbi(
     assert len(alignment) > 0
     assert isinstance(alignment[0], tk.Path)
 
-    segments.update({
-        "train": returnn_datasets["train"].ogg_args["segment_file"],
-        "dev": returnn_datasets["dev"].ogg_args["segment_file"],
-        "dev.wei": tk.Path(
-            "/u/vieting/setups/swb/20230406_feat/dependencies/segments.wei.dev",
-            hash_overwrite="swb_segments_dev_wei",
-        ),
-    })
+    segments.update(
+        {
+            "train": returnn_datasets["train"].ogg_args["segment_file"],
+            "dev": returnn_datasets["dev"].ogg_args["segment_file"],
+            "dev.wei": tk.Path(
+                "/u/vieting/setups/swb/20230406_feat/dependencies/segments.wei.dev",
+                hash_overwrite="swb_segments_dev_wei",
+            ),
+        }
+    )
 
     if features == "waveform":
         for dataset in returnn_util.iterate_returnn_datasets(returnn_datasets):
@@ -317,9 +319,9 @@ def get_returnn_datasets_transducer_viterbi(
         returnn_util.instanciate_returnn_data_inputs(returnn_datasets)
         if keep_hashes:
             returnn_datasets["eval_datasets"]["dev.wei"] = copy.deepcopy(returnn_datasets["eval_datasets"]["devtrain"])
-            returnn_datasets["eval_datasets"]["dev.wei"]["datasets"]["hdf"]["seq_list_filter_file"] = (
-                segments["dev.wei"]
-            )
+            returnn_datasets["eval_datasets"]["dev.wei"]["datasets"]["hdf"]["seq_list_filter_file"] = segments[
+                "dev.wei"
+            ]
     elif features == "waveform_pcm":
         for dataset in returnn_util.iterate_returnn_datasets(returnn_datasets):
             dataset.alignments = alignment
@@ -343,16 +345,23 @@ def get_returnn_datasets_transducer_viterbi(
     elif features == "wei":
         if legacy_feature_dump:
             from i6_core.returnn import RasrFeatureDumpHDFJob
-            feature_caches_train = [tk.Path(
-                "/u/zhou/asr-exps/swb1/2021-12-09_phoneme-transducer/work/features/extraction/"
-                f"FeatureExtraction.Gammatone.OKQT9hEV3Zgd/output/gt.cache.{idx}",
-                hash_overwrite=f"wei_ls960_gammatone_train_{idx}"
-            ) for idx in range(1, 101)]
-            feature_caches_dev = [tk.Path(
-                "/u/zhou/asr-exps/swb1/2020-07-27_neural_transducer/work/features/extraction/"
-                f"FeatureExtraction.Gammatone.pp9W8m2Z8mHU/output/gt.cache.{idx}",
-                hash_overwrite=f"wei_ls960_gammatone_dev_{idx}"
-            ) for idx in range(1, 11)]
+
+            feature_caches_train = [
+                tk.Path(
+                    "/u/zhou/asr-exps/swb1/2021-12-09_phoneme-transducer/work/features/extraction/"
+                    f"FeatureExtraction.Gammatone.OKQT9hEV3Zgd/output/gt.cache.{idx}",
+                    hash_overwrite=f"wei_ls960_gammatone_train_{idx}",
+                )
+                for idx in range(1, 101)
+            ]
+            feature_caches_dev = [
+                tk.Path(
+                    "/u/zhou/asr-exps/swb1/2020-07-27_neural_transducer/work/features/extraction/"
+                    f"FeatureExtraction.Gammatone.pp9W8m2Z8mHU/output/gt.cache.{idx}",
+                    hash_overwrite=f"wei_ls960_gammatone_dev_{idx}",
+                )
+                for idx in range(1, 11)
+            ]
             features = RasrFeatureDumpHDFJob(feature_caches_train + feature_caches_dev, returnn_root=RETURNN_ROOT)
             feature_hdf_list = features.out_hdf_files
         else:
@@ -382,18 +391,18 @@ def get_returnn_datasets_transducer_viterbi(
                 if returnn_datasets[dataset]["datasets"]["align"]["partition_epoch"] == 1:
                     returnn_datasets[dataset]["datasets"]["align"].pop("partition_epoch")
                 else:
-                    returnn_datasets[dataset]["partition_epoch"] = (
-                        returnn_datasets[dataset]["datasets"]["align"]["partition_epoch"]
-                    )
+                    returnn_datasets[dataset]["partition_epoch"] = returnn_datasets[dataset]["datasets"]["align"][
+                        "partition_epoch"
+                    ]
         returnn_datasets["eval_datasets"] = {"devtrain": copy.deepcopy(returnn_datasets["dev"])}
-        returnn_datasets["eval_datasets"]["devtrain"]["datasets"]["align"]["seq_list_filter_file"] = (
-            segments["devtrain"]
-        )
+        returnn_datasets["eval_datasets"]["devtrain"]["datasets"]["align"]["seq_list_filter_file"] = segments[
+            "devtrain"
+        ]
         if keep_hashes:
             returnn_datasets["eval_datasets"]["dev.wei"] = copy.deepcopy(returnn_datasets["dev"])
-            returnn_datasets["eval_datasets"]["dev.wei"]["datasets"]["align"]["seq_list_filter_file"] = (
-                segments["dev.wei"]
-            )
+            returnn_datasets["eval_datasets"]["dev.wei"]["datasets"]["align"]["seq_list_filter_file"] = segments[
+                "dev.wei"
+            ]
     else:
         raise NotImplementedError
 

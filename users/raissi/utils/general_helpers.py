@@ -39,6 +39,7 @@ def get_prior_from_xml(path):
 
 def get_prior_from_pickle(path):
     import pickle
+
     with open(path, "rb") as f:
         priors = pickle.load(f)
     return priors

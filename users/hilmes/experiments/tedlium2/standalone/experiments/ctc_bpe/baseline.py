@@ -17,7 +17,7 @@ from ...pipeline import training, prepare_asr_model, search, ASRModel
 from ...report import generate_report
 
 def bpe_ted_1023_base():
-    prefix_name = "experiments/tedlium2/ctc_rnnt_standalone_2024/bpe_ctc_bpe_1024"
+    prefix_name = "experiments/tedlium2/ctc_rnnt_standalone_2024/bpe_ctc_bpe/1024"
 
     train_settings = DatasetSettings(
         preemphasis=0.97,  # TODO: Check if this is really useful
@@ -282,7 +282,7 @@ def bpe_ted_1023_base():
     )
 
     for bpe in [32, 64, 100, 128, 256, 512, 1024]:
-        prefix_name_bpe = f"experiments/tedlium2/ctc_rnnt_standalone_2024/bpe_ctc_bpe_{bpe}"
+        prefix_name_bpe = f"experiments/tedlium2/ctc_rnnt_standalone_2024/bpe_ctc_bpe/{bpe}"
         train_data_bpe = build_bpe_training_datasets(
             prefix=prefix_name_bpe,
             bpe_size=bpe,
@@ -294,9 +294,8 @@ def bpe_ted_1023_base():
         default_decoder_config_bpe = DecoderConfig(
             lexicon=get_text_lexicon(prefix=prefix_name_bpe, bpe_size=bpe),
             returnn_vocab=label_datastream_bpe.vocab,
-            beam_size=bpe,  # Untuned
-            beam_size_token=16,
-            # makes it much faster (0.3 search RTF -> 0.04 search RTF), but looses 0.1% WER over 128
+            beam_size=1024,  # Untuned
+            beam_size_token=16,  # makes it much faster (0.3 search RTF -> 0.04 search RTF), but looses 0.1% WER over 128
             arpa_lm=arpa_4gram_lm,
             beam_threshold=14,  # Untuned
         )
@@ -354,3 +353,74 @@ def bpe_ted_1023_base():
         results.update(res)
         generate_report(results=results, exp_name=training_name)
         del results
+
+    bpe = 0
+    prefix_name_bpe = f"experiments/tedlium2/ctc_rnnt_standalone_2024/bpe_ctc_bpe/{bpe}"
+    train_data_bpe = build_bpe_training_datasets(
+        prefix=prefix_name_bpe,
+        bpe_size=bpe,
+        settings=train_settings,
+        use_postfix=False,
+    )
+    label_datastream_bpe = cast(LabelDatastream, train_data_bpe.datastreams["labels"])
+    vocab_size_without_blank = label_datastream_bpe.vocab_size
+    default_decoder_config_bpe = DecoderConfig(
+        lexicon=get_text_lexicon(prefix=prefix_name_bpe, bpe_size=bpe),
+        returnn_vocab=label_datastream_bpe.vocab,
+        beam_size=1024,  # Untuned
+        beam_size_token=16,  # makes it much faster (0.3 search RTF -> 0.04 search RTF), but looses 0.1% WER over 128
+        arpa_lm=arpa_4gram_lm,
+        beam_threshold=14,  # Untuned
+    )
+    model_config_sub4 = ModelConfig(
+        feature_extraction_config=fe_config,
+        frontend_config=frontend_config_sub4,
+        specaug_config=specaug_config,
+        label_target_size=vocab_size_without_blank,
+        conformer_size=384,
+        num_layers=12,
+        num_heads=8,
+        ff_dim=2048,
+        att_weights_dropout=0.2,
+        conv_dropout=0.2,
+        ff_dropout=0.2,
+        mhsa_dropout=0.2,
+        conv_kernel_size=31,
+        final_dropout=0.2,
+        specauc_start_epoch=11,  # BPE does not converge otherwise
+    )
+    train_config_11gbgpu = {
+        "optimizer": {"class": "radam", "epsilon": 1e-16, "weight_decay": 1e-2, "decoupled_weight_decay": True},
+        "learning_rates": list(np.linspace(7e-6, 5e-4, 110))
+                          + list(np.linspace(5e-4, 5e-5, 110))
+                          + list(np.linspace(5e-5, 1e-7, 30)),
+        #############
+        "batch_size": 180 * 16000,  # GPU MEM still very moderate, but larger batch did not help
+        "max_seq_length": {"audio_features": 35 * 16000},
+        "accum_grad_multiple_step": 1,
+    }
+
+    network_module = "ctc.conformer_1023.i6modelsV1_VGG4LayerActFrontendV1_v6"
+    train_args = {
+        "config": train_config_11gbgpu,
+        "network_module": network_module,
+        "net_args": {"model_config_dict": asdict(model_config_sub4)},
+        "debug": False,
+    }
+    results = {}
+    training_name = prefix_name_bpe + "/" + network_module + ".384dim_sub4_11gbgpu_50eps"
+    train_job = training(training_name, train_data_bpe, train_args, num_epochs=250, **default_returnn)
+    asr_model = prepare_asr_model(
+        training_name, train_job, train_args, with_prior=True, datasets=train_data_bpe,
+        get_specific_checkpoint=250
+    )
+    res = tune_and_evaluate_helper(
+        training_name,
+        asr_model,
+        default_decoder_config_bpe,
+        lm_scales=[1.6, 1.8, 2.0],
+        prior_scales=[0.2, 0.3, 0.4],
+    )
+    results.update(res)
+    generate_report(results=results, exp_name=training_name)
+    del results

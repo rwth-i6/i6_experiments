@@ -7,7 +7,7 @@ __all__ = [
 from typing import Dict
 from collections import defaultdict
 
-#----------recipes--------------------
+# ----------recipes--------------------
 from i6_core.features.filterbank import filter_width_from_channels
 
 from i6_experiments.common.baselines.librispeech.default_tools import SCTK_BINARY_PATH
@@ -19,7 +19,7 @@ from i6_experiments.common.setups.rasr.config.lex_config import (
 )
 from i6_experiments.common.setups.rasr.config.lm_config import ArpaLmRasrConfig
 
-#TED specific
+# TED specific
 from i6_experiments.common.datasets.tedlium2.constants import CONCURRENT
 from i6_experiments.common.datasets.tedlium2.corpus import get_corpus_object_dict
 from i6_experiments.common.datasets.tedlium2.lexicon import (
@@ -27,9 +27,8 @@ from i6_experiments.common.datasets.tedlium2.lexicon import (
 )
 from i6_experiments.common.baselines.tedlium2.lm.ngram_config import run_tedlium2_ngram_lm
 
-from i6_experiments.users.raissi.setups.common.data.pipeline_helpers import (
-    InputKey
-)
+from i6_experiments.users.raissi.setups.common.data.pipeline_helpers import InputKey
+
 
 def get_init_args():
     am_args = {
@@ -83,8 +82,9 @@ def get_init_args():
     )
 
 
-
-def get_corpus_data_inputs(add_unknown_phoneme_and_mapping: bool = True) -> Dict[str, Dict[str, rasr_util.RasrDataInput]]:
+def get_corpus_data_inputs(
+    add_unknown_phoneme_and_mapping: bool = True,
+) -> Dict[str, Dict[str, rasr_util.RasrDataInput]]:
 
     corpus_object_dict = get_corpus_object_dict(audio_format="wav", output_prefix="corpora")
 
@@ -104,11 +104,11 @@ def get_corpus_data_inputs(add_unknown_phoneme_and_mapping: bool = True) -> Dict
     test_data_inputs = {}
 
     train_data_inputs["train"] = rasr_util.RasrDataInput(
-            corpus_object=corpus_object_dict["train"],
-            lexicon=train_lexicon.get_dict(),
-            concurrent=CONCURRENT["train"],
-            lm=None,
-        )
+        corpus_object=corpus_object_dict["train"],
+        lexicon=train_lexicon.get_dict(),
+        concurrent=CONCURRENT["train"],
+        lm=None,
+    )
     dev_data_inputs["dev"] = rasr_util.RasrDataInput(
         corpus_object=corpus_object_dict["dev"],
         lexicon=train_lexicon.get_dict(),
@@ -127,8 +127,6 @@ def get_corpus_data_inputs(add_unknown_phoneme_and_mapping: bool = True) -> Dict
         dev_data=dev_data_inputs,
         test_data=test_data_inputs,
     )
-
-
 
 
 # -------------------- helpers --------------------

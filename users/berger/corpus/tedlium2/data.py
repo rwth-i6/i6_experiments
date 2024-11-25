@@ -2,6 +2,7 @@ import copy
 from sisyphus import tk
 from typing import Dict, List, Optional, Tuple
 
+from i6_core.lexicon.modification import AddEowPhonemesToLexiconJob
 from i6_core.bpe.train import ReturnnTrainBpeJob
 from i6_core.tools import CloneGitRepositoryJob
 from i6_experiments.common.datasets.tedlium2.textual_data import get_text_data_dict
@@ -14,6 +15,31 @@ from i6_experiments.users.berger.corpus.general.helpers import filter_unk_in_cor
 from .lm_data import get_lm
 
 
+def prepare_lexicon(
+    lexicon_path: tk.Path,
+    ctc_lexicon: bool = False,
+    add_all_allophones: bool = False,
+    eow_lexicon: bool = True,
+) -> helpers.LexiconConfig:
+    lexicon_path = lexicon.EnsureSilenceFirstJob(lexicon_path).out_lexicon
+
+    if ctc_lexicon:
+        lexicon_path = lexicon.DeleteEmptyOrthJob(lexicon_path).out_lexicon
+        lexicon_path = lexicon.MakeBlankLexiconJob(lexicon_path).out_lexicon
+
+    if eow_lexicon:
+        lexicon_path = AddEowPhonemesToLexiconJob(bliss_lexicon=lexicon_path).out_lexicon
+
+    lexicon_config = helpers.LexiconConfig(
+        filename=lexicon_path,
+        normalize_pronunciation=False,
+        add_all_allophones=add_all_allophones,
+        add_allophones_from_lexicon=not add_all_allophones,
+    )
+
+    return lexicon_config
+
+
 def get_data_inputs(
     train_key: str = "train",
     cv_keys: Optional[List[str]] = None,
@@ -22,6 +48,7 @@ def get_data_inputs(
     lm_names: Optional[List[str]] = None,
     add_unknown_phoneme_and_mapping: bool = False,
     ctc_lexicon: bool = False,
+    eow_lexicon: bool = True,
     filter_unk_from_corpus: bool = False,
     use_augmented_lexicon: bool = True,
     add_all_allophones: bool = False,
@@ -45,25 +72,30 @@ def get_data_inputs(
         add_unknown_phoneme_and_mapping=add_unknown_phoneme_and_mapping
     )
 
+    recog_lexicon_config = prepare_lexicon(
+        lexicon_path=original_bliss_lexicon,
+        ctc_lexicon=ctc_lexicon,
+        add_all_allophones=add_all_allophones,
+        eow_lexicon=eow_lexicon,
+    )
+
     if use_augmented_lexicon:
-        bliss_lexicon = tdl_lexicon.get_g2p_augmented_bliss_lexicon(
+        g2p_lexicon = tdl_lexicon.get_g2p_augmented_bliss_lexicon(
             add_unknown_phoneme_and_mapping=add_unknown_phoneme_and_mapping
         )
+        train_lexicon_config = prepare_lexicon(
+            lexicon_path=g2p_lexicon,
+            ctc_lexicon=ctc_lexicon,
+            add_all_allophones=add_all_allophones,
+            eow_lexicon=False,
+        )
     else:
-        bliss_lexicon = original_bliss_lexicon
-
-    bliss_lexicon = lexicon.EnsureSilenceFirstJob(bliss_lexicon).out_lexicon
-
-    if ctc_lexicon:
-        bliss_lexicon = lexicon.DeleteEmptyOrthJob(bliss_lexicon).out_lexicon
-        bliss_lexicon = lexicon.MakeBlankLexiconJob(bliss_lexicon).out_lexicon
-
-    lexicon_config = helpers.LexiconConfig(
-        filename=bliss_lexicon,
-        normalize_pronunciation=False,
-        add_all_allophones=add_all_allophones,
-        add_allophones_from_lexicon=not add_all_allophones,
-    )
+        train_lexicon_config = prepare_lexicon(
+            lexicon_path=original_bliss_lexicon,
+            ctc_lexicon=ctc_lexicon,
+            add_all_allophones=add_all_allophones,
+            eow_lexicon=False,
+        )
 
     train_data_inputs = {}
     cv_data_inputs = {}
@@ -73,23 +105,23 @@ def get_data_inputs(
     train_corpus_object = data_inputs[train_key][train_key].corpus_object
     if filter_unk_from_corpus:
         train_corpus_object = copy.deepcopy(train_corpus_object)
-        filter_unk_in_corpus_object(train_corpus_object, bliss_lexicon)
+        filter_unk_in_corpus_object(train_corpus_object, train_lexicon_config.filename)
 
     train_data_inputs[train_key] = helpers.RasrDataInput(
         corpus_object=helpers.convert_legacy_corpus_object_to_scorable(train_corpus_object),
         concurrent=data_inputs[train_key][train_key].concurrent,
-        lexicon=lexicon_config,
+        lexicon=train_lexicon_config,
     )
 
     for cv_key in cv_keys:
         cv_corpus_object = data_inputs[cv_key][cv_key].corpus_object
         if filter_unk_from_corpus:
             cv_corpus_object = copy.deepcopy(cv_corpus_object)
-            filter_unk_in_corpus_object(cv_corpus_object, bliss_lexicon)
+            filter_unk_in_corpus_object(cv_corpus_object, train_lexicon_config.filename)
         cv_data_inputs[cv_key] = helpers.RasrDataInput(
             corpus_object=helpers.convert_legacy_corpus_object_to_scorable(cv_corpus_object),
             concurrent=data_inputs[cv_key][cv_key].concurrent,
-            lexicon=lexicon_config,
+            lexicon=train_lexicon_config,
         )
 
     for dev_key in dev_keys:
@@ -99,7 +131,7 @@ def get_data_inputs(
                     data_inputs[dev_key][dev_key].corpus_object
                 ),
                 concurrent=data_inputs[dev_key][dev_key].concurrent,
-                lexicon=lexicon_config,
+                lexicon=recog_lexicon_config,
                 lm=lm,
             )
 
@@ -110,7 +142,7 @@ def get_data_inputs(
                     data_inputs[test_key][test_key].corpus_object
                 ),
                 concurrent=data_inputs[test_key][test_key].concurrent,
-                lexicon=lexicon_config,
+                lexicon=recog_lexicon_config,
                 lm=lm,
             )
 

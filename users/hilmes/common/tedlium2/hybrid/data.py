@@ -283,19 +283,7 @@ def get_corpus_data_inputs(
     nn_dev_data_inputs = {
         "dev": gmm_system.outputs["dev"]["final"].as_returnn_rasr_data_input(),
     }
-    from sisyphus import gs
-    # quantization paper
-    nn_test_data_inputs = {
-        "dev2010": gmm_system.outputs["dev2010"][
-           "final"
-        ].as_returnn_rasr_data_input(),
-        "tst2015": gmm_system.outputs["tst2015"][
-           "final"
-        ].as_returnn_rasr_data_input(),
-        "tst2014": gmm_system.outputs["tst2014"][
-            "final"
-        ].as_returnn_rasr_data_input(),
-    } if "conformer_baseline" in gs.ALIAS_AND_OUTPUT_SUBDIR else {}
+    nn_test_data_inputs = {}
 
     return (
         nn_train_data_inputs,

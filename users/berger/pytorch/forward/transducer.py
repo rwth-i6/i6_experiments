@@ -1,16 +1,15 @@
-import torch
 import numpy as np
-from torchaudio.models.rnnt import RNNT
-from returnn.frontend import Tensor
-from returnn.tensor.tensor_dict import TensorDict
-from i6_experiments.users.berger.pytorch.forward.transducer_beam_search import monotonic_timesync_beam_search
-from sisyphus import tk
+import torch
 from i6_core.lib.lexicon import Lexicon
-from i6_experiments.users.berger.pytorch.helper_functions import map_tensor_to_minus1_plus1_interval
+from i6_experiments.users.berger.pytorch.forward.transducer_beam_search import monotonic_timesync_beam_search
 from i6_experiments.users.berger.pytorch.models.conformer_transducer_v2 import (
     FFNNTransducerDecoderOnly,
     FFNNTransducerEncoderOnly,
 )
+from returnn.frontend import Tensor
+from returnn.tensor.tensor_dict import TensorDict
+from sisyphus import tk
+from torchaudio.models.rnnt import RNNT
 
 
 def encoder_forward_step(*, model: FFNNTransducerEncoderOnly, extern_data: TensorDict, **_):
@@ -22,7 +21,7 @@ def encoder_forward_step(*, model: FFNNTransducerEncoderOnly, extern_data: Tenso
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    source_encodings, source_lengths = model(
+    source_encodings, source_lengths = model.forward(
         sources=sources.to(device),
         source_lengths=source_lengths.to(device),
     )  # [B, T, E], [B]
@@ -39,14 +38,14 @@ def decoder_forward_step(*, model: FFNNTransducerDecoderOnly, extern_data: Tenso
     source_encodings = extern_data["source_encodings"].raw_tensor
     assert source_encodings is not None
 
-    targets = extern_data["targets"].raw_tensor
-    assert targets is not None
+    history = extern_data["history"].raw_tensor
+    assert history is not None
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    log_probs = model(
+    log_probs = model.forward(
         source_encodings=source_encodings.to(device),
-        targets=targets.to(device),
+        history=history.to(device),
     )  # [B, C]
 
     import returnn.frontend as rf

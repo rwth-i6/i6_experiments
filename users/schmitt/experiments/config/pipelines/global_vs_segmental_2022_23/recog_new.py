@@ -4,7 +4,7 @@ from typing import Dict, List, Optional, Tuple, Union
 from abc import ABC, abstractmethod
 
 from i6_core.returnn.forward import ReturnnForwardJob, ReturnnForwardJobV2
-from i6_core.returnn.search import ReturnnSearchJobV2, SearchWordsToCTMJob, SearchBPEtoWordsJob, SearchTakeBestJob
+from i6_core.returnn.search import ReturnnSearchJobV2, SearchWordsToCTMJob, SearchBPEtoWordsJob, SearchTakeBestJob, SearchOutputRawReplaceJob
 from i6_core.recognition.scoring import Hub5ScoreJob, ScliteJob
 from i6_core.returnn.training import Checkpoint, PtCheckpoint
 from i6_core.returnn.compile import CompileTFGraphJob
@@ -16,15 +16,17 @@ from i6_core.text.processing import WriteToTextFileJob
 from i6_core.corpus.filter import FilterCorpusBySegmentsJob
 from i6_core.corpus.convert import CorpusToStmJob
 
+from i6_experiments.users.schmitt.visualization.visualization import PlotAttentionWeightsJobV2
 from i6_experiments.users.schmitt.flow import get_raw_wav_feature_flow
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.general.rasr.config import RasrConfigBuilder
-from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.config_builder_rf.base import ConfigBuilderRF
+from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.config_builder_rf.base import ConfigBuilderRF, GlobalAttConfigBuilderRF, SegmentalAttConfigBuilderRF
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.returnn.config_builder.base import ConfigBuilder
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.returnn.config_builder.global_ import GlobalConfigBuilder
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.returnn.config_builder.segmental import SegmentalConfigBuilder
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.corpora.swb import SWBCorpus
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.search_errors import calc_search_errors
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.att_weights import dump_att_weights, dump_ctc_probs
+import i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.analysis as analysis_rf
 from i6_experiments.users.schmitt.corpus.concat.convert import WordsToCTMJobV2
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.general.returnn.exes import RETURNN_EXE, RETURNN_CURRENT_ROOT, RETURNN_ROOT
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.general.rasr.exes import RasrExecutables, RasrExecutablesNew
@@ -33,14 +35,8 @@ from i6_experiments.users.schmitt.rasr.convert import RASRLatticeToCTMJob, Conve
 from i6_experiments.users.schmitt.alignment.alignment import AlignmentRemoveAllBlankSeqsJob, AlignmentStatisticsJob
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.train_new import GlobalTrainExperiment, SegmentalTrainExperiment
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.realignment_new import RasrRealignmentExperiment
-from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.labels.v2.librispeech.label_singletons import (
-  LibrispeechBPE10025_CTC_ALIGNMENT,
-  LibrispeechBPE10025_CTC_ALIGNMENT_EOS,
-)
-from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.labels.v2.tedlium2.label_singletons import (
-  TEDLIUM2BPE1057_CTC_ALIGNMENT,
-)
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.corpora import tedlium2, librispeech
+from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.global_.train import _returnn_v2_train_step, from_scratch_training
 
 
 class DecodingExperiment(ABC):
@@ -64,19 +60,15 @@ class DecodingExperiment(ABC):
     if recog_opts is not None:
       self.recog_opts.update(recog_opts)
 
-    self.corpus_key = self.recog_opts["search_corpus_key"]
+    self.corpus_key = self.recog_opts["dataset_opts"]["corpus_key"]
     self.stm_corpus_key = self.corpus_key
 
     self.alias = alias
 
+    self.separate_readout_alpha = self.recog_opts.get("separate_readout_alpha")
+
     self.returnn_python_exe = self.config_builder.variant_params["returnn_python_exe"]
     self.returnn_root = self.config_builder.variant_params["returnn_root"]
-
-    if isinstance(config_builder.variant_params["dataset"]["corpus"], librispeech.LibrispeechCorpora):
-      self.ref_alignment = LibrispeechBPE10025_CTC_ALIGNMENT
-    else:
-      assert isinstance(config_builder.variant_params["dataset"]["corpus"], tedlium2.TedLium2Corpora)
-      self.ref_alignment = TEDLIUM2BPE1057_CTC_ALIGNMENT
 
     self.ilm_correction_opts = self.recog_opts.get("ilm_correction_opts")
     if self.ilm_correction_opts is not None and self.ilm_correction_opts["type"] == "mini_att":
@@ -86,24 +78,20 @@ class DecodingExperiment(ABC):
         )
         train_mini_lstm_opts = {
           "use_se_loss": self.ilm_correction_opts["use_se_loss"],
-          "use_eos": self.ilm_correction_opts["correct_eos"],
+          "get_global_att_config_builder_rf_func": self.ilm_correction_opts.get("get_global_att_config_builder_rf_func"),
         }
         self.ilm_correction_opts["mini_att_checkpoint"] = self.get_mini_att_checkpoint(
           train_mini_lstm_opts=train_mini_lstm_opts
         )
 
     self.score_job = None
+    self.analyze_gradients_job = None
 
   def get_ilm_correction_alias(self, alias: str):
     if self.ilm_correction_opts is not None:
       alias += "/ilm_correction_scale-%f" % self.ilm_correction_opts["scale"]
       if self.ilm_correction_opts.get("type", "mini_att") == "mini_att":
         alias += "/mini_att"
-        if "correct_eos" in self.ilm_correction_opts:
-          if self.ilm_correction_opts["correct_eos"]:
-            alias += "/correct_eos"
-          else:
-            alias += "/wo_correct_eos"
         if self.ilm_correction_opts.get("use_se_loss", False):
           alias += "/w_se_loss"
         else:
@@ -112,6 +100,13 @@ class DecodingExperiment(ABC):
           alias += "/mini_att_train_num_epochs-%d" % self.ilm_correction_opts["mini_att_train_num_epochs"]
       elif self.ilm_correction_opts["type"] == "zero_att":
         alias += "/zero_att"
+
+      alias += f"/{'wo_' if not self.ilm_correction_opts.get('correct_eos', True) else ''}correct-eos"
+      # if "correct_eos" in self.ilm_correction_opts:
+      #   if self.ilm_correction_opts["correct_eos"]:
+      #     alias += "/correct_eos"
+      #   else:
+      #     alias += "/wo_correct_eos"
     else:
       alias += "/wo_ilm_correction"
 
@@ -143,20 +138,30 @@ class DecodingExperiment(ABC):
     return self.config_builder.variant_params["dataset"]["corpus"].stm_paths[self.stm_corpus_key]
 
   def run_eval(self):
-    if type(self.config_builder.variant_params["dataset"]["corpus"]) == SWBCorpus:
-      self.score_job = Hub5ScoreJob(
-        ref=self.config_builder.variant_params["dataset"]["corpus"].stm_paths[self.stm_corpus_key],
-        glm=Path("/work/asr2/oberdorfer/kaldi-stable/egs/swbd/s5/data/eval2000/glm"),
-        hyp=self.get_ctm_path()
-      )
-    else:
+    if type(self.config_builder.variant_params["dataset"]["corpus"]) == SWBCorpus or (
+      type(self.config_builder.variant_params["dataset"]["corpus"]) == librispeech.LibrispeechCorpora
+    ):
+      if type(self.config_builder.variant_params["dataset"]["corpus"]) == SWBCorpus:
+        self.score_job = Hub5ScoreJob(
+          ref=self.config_builder.variant_params["dataset"]["corpus"].stm_paths[self.stm_corpus_key],
+          glm=Path("/work/asr2/oberdorfer/kaldi-stable/egs/swbd/s5/data/eval2000/glm"),
+          hyp=self.get_ctm_path()
+        )
+      else:
         self.score_job = ScliteJob(
           ref=self._get_stm_path(),
           hyp=self.get_ctm_path()
         )
 
-    self.score_job.add_alias("%s/scores_%s" % (self.alias, self.stm_corpus_key))
-    tk.register_output(self.score_job.get_one_alias(), self.score_job.out_report_dir)
+      self.score_job.add_alias("%s/scores" % (self.alias,))
+      tk.register_output(self.score_job.get_one_alias(), self.score_job.out_report_dir)
+    else:
+      corpus = self.config_builder.variant_params["dataset"]["corpus"]
+      corpus.run_eval(
+        corpus_key=self.corpus_key,
+        ctm_path=self.get_ctm_path(),
+        alias=self.alias
+      )
 
 
 class GlobalAttDecodingExperiment(DecodingExperiment, ABC):
@@ -165,29 +170,60 @@ class GlobalAttDecodingExperiment(DecodingExperiment, ABC):
     self.config_builder = config_builder
 
   def get_mini_att_checkpoint(self, train_mini_lstm_opts: Dict) -> Checkpoint:
-    assert train_mini_lstm_opts["use_eos"], "trivial for global att but set for clarity"
-
     num_epochs = 10
-    train_mini_lstm_exp = GlobalTrainExperiment(
-      config_builder=self.config_builder,
-      alias=self.alias,
-      num_epochs=num_epochs,
-      train_opts={
-        "import_model_train_epoch1": self.checkpoint,
-        "lr_opts": {
-          "type": "newbob",
-          "learning_rate": 1e-4,
-          "learning_rate_control": "newbob_multi_epoch",
-          "learning_rate_control_min_num_epochs_per_new_lr": 3,
-          "learning_rate_control_relative_error_relative_lr": True,
-          "learning_rate_control_error_measure": "dev_error_label_model/output_prob"
-        },
-        "train_mini_lstm_opts": train_mini_lstm_opts,
-        "tf_session_opts": {"gpu_options": {"per_process_gpu_memory_fraction": 0.95}},
-        "max_seq_length": {"targets": 75}
-      }
-    )
-    mini_att_checkpoints, model_dir, learning_rates = train_mini_lstm_exp.run_train()
+
+    if isinstance(self.config_builder, GlobalConfigBuilder):
+      train_mini_lstm_exp = GlobalTrainExperiment(
+        config_builder=self.config_builder,
+        alias=self.alias,
+        num_epochs=num_epochs,
+        train_opts={
+          "import_model_train_epoch1": self.checkpoint,
+          "lr_opts": {
+            "type": "newbob",
+            "learning_rate": 1e-4,
+            "learning_rate_control": "newbob_multi_epoch",
+            "learning_rate_control_min_num_epochs_per_new_lr": 3,
+            "learning_rate_control_relative_error_relative_lr": True,
+            "learning_rate_control_error_measure": "dev_error_label_model/output_prob"
+          },
+          "train_mini_lstm_opts": train_mini_lstm_opts,
+          "tf_session_opts": {"gpu_options": {"per_process_gpu_memory_fraction": 0.95}},
+          "max_seq_length": {"targets": 75}
+        }
+      )
+      mini_att_checkpoints, model_dir, learning_rates = train_mini_lstm_exp.run_train()
+    else:
+      assert isinstance(self.config_builder, GlobalAttConfigBuilderRF)
+      train_mini_lstm_exp = GlobalTrainExperiment(
+        config_builder=self.config_builder,
+        alias=self.alias,
+        num_epochs=num_epochs,
+        train_rqmt={"time": 10},
+        train_opts={
+          "preload_from_files": {
+            "pretrained_global_att_params": {
+              "filename": self.checkpoint,
+              "init_for_train": True,
+              "ignore_missing": True,
+            }
+          },
+          "train_def": from_scratch_training,
+          "train_step_func": _returnn_v2_train_step,
+          "batching": "random",
+          "aux_loss_layers": None,
+          "lr_opts": {
+            "type": "const_then_linear",
+            "const_lr": 1e-4,
+            "const_frac": 1 / 3,
+            "final_lr": 1e-6,
+            "num_epochs": num_epochs
+          },
+          "train_mini_lstm_opts": train_mini_lstm_opts,
+        }
+      )
+      mini_att_checkpoints, model_dir, learning_rates = train_mini_lstm_exp.run_train()
+
     return mini_att_checkpoints[num_epochs]
 
 
@@ -204,29 +240,65 @@ class SegmentalAttDecodingExperiment(DecodingExperiment, ABC):
 
   def get_mini_att_checkpoint(self, train_mini_lstm_opts: Dict) -> Checkpoint:
     train_opts = {}
-    if train_mini_lstm_opts["use_eos"]:
-      align_targets = LibrispeechBPE10025_CTC_ALIGNMENT_EOS.alignment_paths
-      train_opts = {"dataset_opts": {"hdf_targets": align_targets}}
 
     num_epochs = 10
-    train_mini_lstm_exp = SegmentalTrainExperiment(
-      config_builder=self.config_builder,
-      alias=self.alias,
-      num_epochs=num_epochs,
-      train_opts={
-        "import_model_train_epoch1": self.checkpoint,
-        "lr_opts": {
-          "type": "newbob",
-          "learning_rate": 1e-4,
-          "learning_rate_control": "newbob_multi_epoch",
-          "learning_rate_control_min_num_epochs_per_new_lr": 3,
-          "learning_rate_control_relative_error_relative_lr": True,
-          "learning_rate_control_error_measure": "dev_error_label_model/output_prob"
-        },
-        "train_mini_lstm_opts": train_mini_lstm_opts,
-        **train_opts
-      }
-    )
+
+    if isinstance(self.config_builder, SegmentalConfigBuilder):
+      train_mini_lstm_exp = SegmentalTrainExperiment(
+        config_builder=self.config_builder,
+        alias=self.alias,
+        num_epochs=num_epochs,
+        train_opts={
+          "import_model_train_epoch1": self.checkpoint,
+          "lr_opts": {
+            "type": "newbob",
+            "learning_rate": 1e-4,
+            "learning_rate_control": "newbob_multi_epoch",
+            "learning_rate_control_min_num_epochs_per_new_lr": 3,
+            "learning_rate_control_relative_error_relative_lr": True,
+            "learning_rate_control_error_measure": "dev_error_label_model/output_prob"
+          },
+          "train_mini_lstm_opts": train_mini_lstm_opts,
+          **train_opts
+        }
+      )
+    else:
+      assert isinstance(self.config_builder, SegmentalAttConfigBuilderRF)
+      _, config_builder_ = train_mini_lstm_opts["get_global_att_config_builder_rf_func"](
+        use_weight_feedback=self.config_builder.use_weight_feedback,
+        use_att_ctx_in_state=self.config_builder.use_att_ctx_in_state,
+        decoder_state=self.config_builder.label_decoder_state,
+        label_type=f"bpe{self.config_builder.variant_params['dependencies'].model_hyperparameters.target_num_labels_wo_blank}",
+      )
+
+      train_mini_lstm_exp = GlobalTrainExperiment(
+        config_builder=config_builder_,
+        alias=self.alias,
+        num_epochs=num_epochs,
+        train_rqmt={"time": 10},
+        train_opts={
+          "preload_from_files": {
+            "pretrained_global_att_params": {
+              "filename": self.checkpoint,
+              "init_for_train": True,
+              "ignore_missing": True,
+            }
+          },
+          "train_def": from_scratch_training,
+          "train_step_func": _returnn_v2_train_step,
+          "batching": "random",
+          "aux_loss_layers": None,
+          "lr_opts": {
+            "type": "const_then_linear",
+            "const_lr": 1e-4,
+            "const_frac": 1 / 3,
+            "final_lr": 1e-6,
+            "num_epochs": num_epochs
+          },
+          "train_mini_lstm_opts": train_mini_lstm_opts,
+        }
+      )
+
     mini_att_checkpoints, model_dir, learning_rates = train_mini_lstm_exp.run_train()
     return mini_att_checkpoints[num_epochs]
 
@@ -244,24 +316,51 @@ class ReturnnDecodingExperiment(DecodingExperiment, ABC):
       self.stm_corpus_key += "_concat-%d" % self.concat_num
 
     self.search_rqmt = search_rqmt if search_rqmt is not None else {}
+    self.search_hyps_file = None
+    self.best_search_hyps_hdf = None
 
     self.alias += "/returnn_decoding" if search_alias is None else f"/{search_alias}"
+
+    self.use_recombination = self.recog_opts.get("use_recombination")
+    if self.use_recombination is not None:
+      assert self.use_recombination in {"sum", "max"}
+      self.alias += f"_w-{self.use_recombination}-recomb"
+
     if isinstance(self, ReturnnSegmentalAttDecodingExperiment):
       length_scale = self.config_builder.variant_params["network"]["length_scale"]
       if length_scale != 1.0:
         self.alias += f"_length-scale-{length_scale:.2f}"
     self.alias += "/%s-checkpoint" % self.checkpoint_alias
 
+    if self.separate_readout_alpha is not None:
+      self.alias = f"{self.alias}/sep-read-alpha-{self.separate_readout_alpha:.2f}"
+
+    base_model_scale = self.recog_opts.get("base_model_scale", 1.0)
+    self.alias += f"/scale-{base_model_scale:.2f}"
+
+    blank_penalty = self.recog_opts.get("blank_penalty")
+    if blank_penalty:
+      self.alias += f"_b-pen-{blank_penalty:.1f}"
+
+    blank_scale = self.recog_opts.get("blank_scale")
+    if blank_scale:
+      self.alias += f"_b-scale-{blank_scale:.1f}"
+
+    external_aed_opts = self.recog_opts.get("external_aed_opts")
+    if external_aed_opts is not None:
+      self.alias = f"{self.alias}_w-ext-aed-scale-{external_aed_opts['scale']}"
+
     lm_opts = self.recog_opts.get("lm_opts")
     if lm_opts is not None:
-      self.alias += "/bpe-%s-lm-scale-%f" % (lm_opts["type"], lm_opts["scale"],)
+      self.alias += f"/bpe-{lm_opts['type']}-{lm_opts['alias']}-lm-scale-{lm_opts['scale']}-lm-eos-scale-{lm_opts.get('eos_scale', 1.0)}"
       if "add_lm_eos_last_frame" in lm_opts:
-        self.alias += "_add-lm-eos-%s" % lm_opts["add_lm_eos_last_frame"]
+        self.alias += f"_add-lm-eos-to-b-hyps-{lm_opts['add_lm_eos_last_frame']}"
+      self.alias += f"_add-lm-eos-to-nb-hyps-{lm_opts.get('add_lm_eos_to_non_blank_end_hyps', False)}"
       self.alias = self.get_ilm_correction_alias(self.alias)
     else:
       self.alias += "/no-lm"
 
-    self.alias += "/beam-size-%d" % self.recog_opts["beam_size"]
+    self.alias = f"{self.alias}/beam-size-{self.recog_opts['beam_size']}/{self.stm_corpus_key}"
 
   def get_ctm_path(self) -> Path:
     recog_config = self.config_builder.get_recog_config(opts=self.recog_opts)
@@ -281,7 +380,7 @@ class ReturnnDecodingExperiment(DecodingExperiment, ABC):
         mem_rqmt=self.search_rqmt.get("mem", 4),
         time_rqmt=self.search_rqmt.get("time", 1),
       )
-      search_job.add_alias("%s/search_%s" % (self.alias, self.stm_corpus_key))
+      search_job.add_alias("%s/search" % (self.alias,))
 
       if recog_config.config["network"]["decision"]["class"] == "decide":
         out_search_file = search_job.out_search_file
@@ -295,23 +394,33 @@ class ReturnnDecodingExperiment(DecodingExperiment, ABC):
         returnn_config=recog_config,
         returnn_root=self.returnn_root,
         returnn_python_exe=self.returnn_python_exe,
-        output_files=["output.py.gz"],
-        mem_rqmt=6,
-        time_rqmt=1,
+        output_files=["output.py.gz", "best_hyp.hdf"],
+        mem_rqmt=self.search_rqmt.get("mem", 6),
+        time_rqmt=self.search_rqmt.get("time", 1),
       )
-      search_job.add_alias("%s/search_%s" % (self.alias, self.stm_corpus_key))
+      search_job.rqmt["sbatch_args"] = ["--exclude", "cn-257"]
+      search_job.add_alias(f"{self.alias}/search")
+      self.search_hyps_file = search_job.out_files["output.py.gz"]
+      self.best_search_hyps_hdf = search_job.out_files["best_hyp.hdf"]
       search_take_best_job = SearchTakeBestJob(search_py_output=search_job.out_files["output.py.gz"])
       out_search_file = search_take_best_job.out_best_search_results
 
-    bpe_to_words_job = SearchBPEtoWordsJob(out_search_file)
+    if self.config_builder.variant_params["dependencies"].bpe_codes_path is None:
+      out_search_results = SearchOutputRawReplaceJob(
+        out_search_file,
+        replacement_list=[(" ", ""), ("▁", " ")],
+        output_gzip=True
+      ).out_search_results
+    else:
+      out_search_results = SearchBPEtoWordsJob(out_search_file).out_word_search_results
 
     if self.concat_num is not None:
       return WordsToCTMJobV2(
-        words_path=bpe_to_words_job.out_word_search_results
+        words_path=out_search_results
       ).out_ctm_file
     else:
       search_words_to_ctm_job = SearchWordsToCTMJob(
-        bpe_to_words_job.out_word_search_results,
+        out_search_results,
         self.config_builder.variant_params["dataset"]["corpus"].corpus_paths[self.corpus_key])
 
       return search_words_to_ctm_job.out_ctm_file
@@ -321,91 +430,169 @@ class ReturnnDecodingExperiment(DecodingExperiment, ABC):
     if analysis_opts is not None:
       _analysis_opts.update(analysis_opts)
 
-    forward_recog_config = self.config_builder.get_recog_config_for_forward_job(opts=self.recog_opts)
-    forward_search_job = ReturnnForwardJob(
-      model_checkpoint=self.checkpoint,
-      returnn_config=forward_recog_config,
-      returnn_root=self.config_builder.variant_params["returnn_root"],
-      returnn_python_exe=self.config_builder.variant_params["returnn_python_exe"],
-      eval_mode=False
-    )
-    forward_search_job.add_alias("%s/analysis/forward_recog_dump_seq" % self.alias)
-    search_hdf = forward_search_job.out_default_hdf
-    search_not_all_blank_segments = None
+    if isinstance(self.config_builder, ConfigBuilderRF):
+      att_weight_seq_tags = _analysis_opts["att_weight_seq_tags"]
 
-    if "baseline_v2/baseline/train_from_global_att_checkpoint/standard-training/win-size-5_200-epochs" in self.alias:
-      statistics_job = AlignmentStatisticsJob(
-        alignment=search_hdf,
-        json_vocab=self.config_builder.dependencies.vocab_path,
-        blank_idx=10025,
-        silence_idx=20000,  # dummy idx which is larger than the vocab size
-        returnn_root=RETURNN_ROOT,
-        returnn_python_exe=self.returnn_python_exe
-      )
-      statistics_job.add_alias("%s/analysis/statistics/%s" % (self.alias, self.corpus_key))
-      tk.register_output(statistics_job.get_one_alias(), statistics_job.out_statistics)
-
-    # remove the alignments, which only consist of blank labels because this leads to errors in the following Forward jobs
-    # temporarily, only do this for selected models to avoid unnecessarily restarting completed jobs
-    for variant in [
-      "att_weight_interpolation_no_length_model",
-    ]:
-      if variant in self.alias:
-        remove_all_blank_seqs_job = AlignmentRemoveAllBlankSeqsJob(
-          hdf_align_path=forward_search_job.out_default_hdf,
-          blank_idx=self.config_builder.variant_params["dependencies"].model_hyperparameters.blank_idx,
-          returnn_root=RETURNN_ROOT,
-          returnn_python_exe=self.config_builder.variant_params["returnn_python_exe"],
+      if _analysis_opts.get("analyze_gradients", False):
+        self.analyze_gradients_job = analysis_rf.analyze_gradients(
+          config_builder=self.config_builder,
+          seq_tags=att_weight_seq_tags,
+          corpus_key=self.stm_corpus_key,
+          checkpoint=self.checkpoint,
+          returnn_root=self.returnn_root,
+          returnn_python_exe=self.returnn_python_exe,
+          alias=self.alias,
+          hdf_targets=analysis_opts.get("ground_truth_hdf"),
+          ref_alignment_hdf=_analysis_opts.get("ref_alignment_hdf"),
+          ref_alignment_blank_idx=_analysis_opts.get("ref_alignment_blank_idx"),
+          ref_alignment_vocab_path=_analysis_opts.get("ref_alignment_vocab_path"),
+          seq_alias="ground-truth",
+          do_forced_align_on_gradients=_analysis_opts.get("do_forced_align_on_gradients", False),
+          plot_encoder_gradient_graph=_analysis_opts.get("plot_encoder_gradient_graph", False),
+          plot_encoder_layers=_analysis_opts.get("analyze_gradients_plot_encoder_layers", False),
+          plot_log_gradients=_analysis_opts.get("analyze_gradients_plot_log_gradients", False),
         )
-        search_hdf = remove_all_blank_seqs_job.out_align
-        search_not_all_blank_segments = remove_all_blank_seqs_job.out_segment_file
-        break
+        # if "global_att/baseline_v2/baseline_rf/sp10240/w-weight-feedback/w-att-ctx-in-state/trafo/import_albert-aed-trafo-decoder-bpe10k/returnn_decoding/epoch-498-checkpoint/no-lm/beam-size-12/dev-other_concat" in self.alias:
+        #   analysis_rf.analyze_gradients(
+        #     config_builder=self.config_builder,
+        #     seq_tags=att_weight_seq_tags,
+        #     corpus_key=self.stm_corpus_key,
+        #     checkpoint=self.checkpoint,
+        #     returnn_root=self.returnn_root,
+        #     returnn_python_exe=self.returnn_python_exe,
+        #     alias=self.alias,
+        #     hdf_targets=self.best_search_hyps_hdf,
+        #     ref_alignment_hdf=_analysis_opts["ref_alignment_hdf"],
+        #     ref_alignment_blank_idx=_analysis_opts["ref_alignment_blank_idx"],
+        #     ref_alignment_vocab_path=_analysis_opts["ref_alignment_vocab_path"],
+        #     seq_alias="search"
+        #   )
 
-    for hdf_alias, hdf_targets in zip(
-            ["ground_truth", "search"],
-            [_analysis_opts["ground_truth_hdf"], search_hdf]
-    ):
-      dump_att_weights(
-        self.config_builder,
-        variant_params=self.config_builder.variant_params,
-        checkpoint=self.checkpoint,
-        hdf_targets=hdf_targets,
-        ref_alignment=_analysis_opts["att_weight_ref_alignment_hdf"],
-        corpus_key=self.corpus_key,
-        hdf_alias=hdf_alias,
-        alias=self.alias,
-        ref_alignment_blank_idx=_analysis_opts["att_weight_ref_alignment_blank_idx"],
-        seq_tags_to_analyse=_analysis_opts["att_weight_seq_tags"],
-        plot_energies=_analysis_opts["plot_energies"],
-        dump_ctc=_analysis_opts["dump_ctc"],
-        calc_att_weight_stats=_analysis_opts["calc_att_weight_stats"],
-        sclite_report_dir=self.score_job.out_report_dir,
+      if _analysis_opts.get("dump_gradients", False):
+        analysis_rf.dump_gradients(
+          config_builder=self.config_builder,
+          seq_tags=att_weight_seq_tags,
+          corpus_key=self.stm_corpus_key,
+          checkpoint=self.checkpoint,
+          returnn_root=self.returnn_root,
+          returnn_python_exe=self.returnn_python_exe,
+          alias=self.alias,
+          hdf_targets=analysis_opts.get("ground_truth_hdf"),
+          seq_alias="ground-truth",
+          input_layer_name=_analysis_opts.get("dump_gradients_input_layer_name", "encoder_input"),
+        )
+
+      if _analysis_opts.get("dump_self_att", False):
+        analysis_rf.dump_self_att(
+          config_builder=self.config_builder,
+          seq_tags=att_weight_seq_tags,
+          corpus_key=self.stm_corpus_key,
+          checkpoint=self.checkpoint,
+          returnn_root=self.returnn_root,
+          returnn_python_exe=self.returnn_python_exe,
+          alias=self.alias,
+          hdf_targets=analysis_opts.get("ground_truth_hdf"),
+          seq_alias="ground-truth",
+        )
+
+      if _analysis_opts.get("calc_search_errors", False):
+        analysis_rf.calculate_search_errors(
+          config_builder=self.config_builder,
+          checkpoint=self.checkpoint,
+          returnn_root=self.returnn_root,
+          returnn_python_exe=self.returnn_python_exe,
+          search_hyps_file=self.search_hyps_file,
+          best_search_hyp_hdf=self.best_search_hyps_hdf,
+          alias=self.alias,
+          corpus_key=self.stm_corpus_key,
+          realignment_use_recombination=self.use_recombination,
+        )
+    else:
+      forward_recog_config = self.config_builder.get_recog_config_for_forward_job(opts=self.recog_opts)
+      forward_search_job = ReturnnForwardJob(
+        model_checkpoint=self.checkpoint,
+        returnn_config=forward_recog_config,
+        returnn_root=self.config_builder.variant_params["returnn_root"],
+        returnn_python_exe=self.config_builder.variant_params["returnn_python_exe"],
+        eval_mode=False
       )
+      forward_search_job.add_alias("%s/analysis/forward_recog_dump_seq" % self.alias)
+      search_hdf = forward_search_job.out_default_hdf
+      search_not_all_blank_segments = None
 
-      if _analysis_opts.get("dump_ctc_probs"):
-        assert isinstance(self.config_builder, GlobalConfigBuilder)
-        assert _analysis_opts["att_weight_seq_tags"] is not None, "att_weight_seq_tags must be set for dump_ctc_probs"
-        dump_ctc_probs(
+      if "baseline_v2/baseline/train_from_global_att_checkpoint/standard-training/win-size-5_200-epochs" in self.alias:
+        statistics_job = AlignmentStatisticsJob(
+          alignment=search_hdf,
+          json_vocab=self.config_builder.dependencies.vocab_path,
+          blank_idx=10025,
+          silence_idx=20000,  # dummy idx which is larger than the vocab size
+          returnn_root=RETURNN_ROOT,
+          returnn_python_exe=self.returnn_python_exe
+        )
+        statistics_job.add_alias("%s/analysis/statistics/%s" % (self.alias, self.corpus_key))
+        tk.register_output(statistics_job.get_one_alias(), statistics_job.out_statistics)
+
+      # remove the alignments, which only consist of blank labels because this leads to errors in the following Forward jobs
+      # temporarily, only do this for selected models to avoid unnecessarily restarting completed jobs
+      for variant in [
+        "att_weight_interpolation_no_length_model",
+      ]:
+        if variant in self.alias:
+          remove_all_blank_seqs_job = AlignmentRemoveAllBlankSeqsJob(
+            hdf_align_path=forward_search_job.out_default_hdf,
+            blank_idx=self.config_builder.variant_params["dependencies"].model_hyperparameters.blank_idx,
+            returnn_root=RETURNN_ROOT,
+            returnn_python_exe=self.config_builder.variant_params["returnn_python_exe"],
+          )
+          search_hdf = remove_all_blank_seqs_job.out_align
+          search_not_all_blank_segments = remove_all_blank_seqs_job.out_segment_file
+          break
+
+      for hdf_alias, hdf_targets in zip(
+              ["ground_truth", "search"],
+              [_analysis_opts["ground_truth_hdf"], search_hdf]
+      ):
+        dump_att_weights(
           self.config_builder,
           variant_params=self.config_builder.variant_params,
           checkpoint=self.checkpoint,
           hdf_targets=hdf_targets,
+          ref_alignment=_analysis_opts["att_weight_ref_alignment_hdf"],
           corpus_key=self.corpus_key,
           hdf_alias=hdf_alias,
           alias=self.alias,
+          ref_alignment_blank_idx=_analysis_opts["att_weight_ref_alignment_blank_idx"],
           seq_tags_to_analyse=_analysis_opts["att_weight_seq_tags"],
+          plot_energies=_analysis_opts["plot_energies"],
+          dump_ctc=_analysis_opts["dump_ctc"],
+          calc_att_weight_stats=_analysis_opts["calc_att_weight_stats"],
+          sclite_report_dir=self.score_job.out_report_dir,
         )
 
-    calc_search_errors(
-      self.config_builder,
-      variant_params=self.config_builder.variant_params,
-      checkpoint=self.checkpoint,
-      ground_truth_hdf_targets=_analysis_opts["ground_truth_hdf"],
-      search_hdf_targets=search_hdf,
-      corpus_key=self.corpus_key,
-      alias=self.alias,
-      segment_file=search_not_all_blank_segments,
-    )
+        if _analysis_opts.get("dump_ctc_probs"):
+          assert isinstance(self.config_builder, GlobalConfigBuilder)
+          assert _analysis_opts["att_weight_seq_tags"] is not None, "att_weight_seq_tags must be set for dump_ctc_probs"
+          dump_ctc_probs(
+            self.config_builder,
+            variant_params=self.config_builder.variant_params,
+            checkpoint=self.checkpoint,
+            hdf_targets=hdf_targets,
+            corpus_key=self.corpus_key,
+            hdf_alias=hdf_alias,
+            alias=self.alias,
+            seq_tags_to_analyse=_analysis_opts["att_weight_seq_tags"],
+          )
+
+      calc_search_errors(
+        self.config_builder,
+        variant_params=self.config_builder.variant_params,
+        checkpoint=self.checkpoint,
+        ground_truth_hdf_targets=_analysis_opts["ground_truth_hdf"],
+        search_hdf_targets=search_hdf,
+        corpus_key=self.corpus_key,
+        alias=self.alias,
+        segment_file=search_not_all_blank_segments,
+      )
 
 
 class ReturnnGlobalAttDecodingExperiment(GlobalAttDecodingExperiment, ReturnnDecodingExperiment):
@@ -423,8 +610,6 @@ class ReturnnGlobalAttDecodingExperiment(GlobalAttDecodingExperiment, ReturnnDec
   def default_analysis_opts(self) -> Dict:
     return {
       "ground_truth_hdf": None,
-      "att_weight_ref_alignment_hdf": self.ref_alignment.alignment_paths[self.corpus_key],
-      "att_weight_ref_alignment_blank_idx": self.ref_alignment.model_hyperparameters.blank_idx,
       "att_weight_seq_tags": None,
       "plot_energies": False,
       "dump_ctc": True,
@@ -447,9 +632,6 @@ class ReturnnSegmentalAttDecodingExperiment(SegmentalAttDecodingExperiment, Retu
   @property
   def default_analysis_opts(self) -> Dict:
     return {
-      "ground_truth_hdf": self.ref_alignment.alignment_paths[self.corpus_key],
-      "att_weight_ref_alignment_hdf": self.ref_alignment.alignment_paths[self.corpus_key],
-      "att_weight_ref_alignment_blank_idx": self.ref_alignment.model_hyperparameters.blank_idx,
       "att_weight_seq_tags": None,
       "plot_energies": False,
       "dump_ctc": True,
@@ -727,12 +909,16 @@ class DecodingPipeline(ABC):
           ilm_opts: Optional[Dict] = None,
           run_analysis: bool = False,
           search_rqmt: Optional[Dict] = None,
-          search_alias: Optional[str] = None
+          search_alias: Optional[str] = None,
+          corpus_keys: Tuple[str, ...] = ("dev-other",),
+          only_do_analysis: bool = False
   ):
     self.recog_opts = recog_opts if recog_opts is not None else {}
-    assert "lm_opts" not in self.recog_opts, "lm_opts are set by the pipeline"
-    assert "ilm_correction_opts" not in self.recog_opts, "ilm_correction_opts are set by the pipeline"
-    assert "beam_size" not in self.recog_opts, "beam_size is set by the pipeline"
+    for key in ("lm_opts", "ilm_correction_opts", "beam_size", "search_corpus_key"):
+      assert key not in self.recog_opts, f"{key} is set by the pipeline"
+
+    if "dataset_opts" not in self.recog_opts:
+      self.recog_opts["dataset_opts"] = {}
 
     self.alias = alias
     self.config_builder = config_builder
@@ -745,8 +931,12 @@ class DecodingPipeline(ABC):
     self.ilm_scales = ilm_scales
     self.ilm_opts = ilm_opts if ilm_opts is not None else {}
     self.run_analysis = run_analysis
-    self.search_rqmt = search_rqmt
+    self.search_rqmt = search_rqmt if search_rqmt is not None else {}
     self.search_alias = search_alias
+    self.corpus_keys = corpus_keys
+    self.only_do_analysis = only_do_analysis
+
+    self.decoding_exps = []
 
   @abstractmethod
   def run_experiment(
@@ -758,12 +948,23 @@ class DecodingPipeline(ABC):
       for beam_size in self.beam_sizes:
         for lm_scale in self.lm_scales:
           for ilm_scale in self.ilm_scales:
-            self.run_experiment(
-              beam_size=beam_size,
-              lm_scale=lm_scale,
-              ilm_scale=ilm_scale,
-              checkpoint_alias=checkpoint_alias
-            )
+            for corpus_key in self.corpus_keys:
+              self.recog_opts.update({
+                "lm_opts": {"scale": lm_scale, **self.lm_opts} if lm_scale > 0 else None,
+                "ilm_correction_opts": {
+                  "scale": ilm_scale, **self.ilm_opts} if ilm_scale > 0 and lm_scale > 0 else None,
+                "beam_size": beam_size,
+                # "search_corpus_key": corpus_key
+              })
+              self.recog_opts["dataset_opts"]["corpus_key"] = corpus_key
+
+              exp = self.run_experiment(
+                beam_size=beam_size,
+                lm_scale=lm_scale,
+                ilm_scale=ilm_scale,
+                checkpoint_alias=checkpoint_alias
+              )
+              self.decoding_exps.append(exp)
 
 
 class ReturnnGlobalAttDecodingPipeline(DecodingPipeline):
@@ -772,27 +973,31 @@ class ReturnnGlobalAttDecodingPipeline(DecodingPipeline):
     self.config_builder = config_builder
 
   def run_experiment(self, beam_size: int, lm_scale: float, ilm_scale: float, checkpoint_alias: str):
-    self.recog_opts.update({
-      "lm_opts": {"scale": lm_scale, **self.lm_opts} if lm_scale > 0 else None,
-      "ilm_correction_opts": {"scale": ilm_scale, **self.ilm_opts} if ilm_scale > 0 and lm_scale > 0 else None,
-      "beam_size": beam_size
-    })
+    recog_opts = copy.deepcopy(self.recog_opts)
+    search_rqmt = copy.deepcopy(self.search_rqmt)
 
-    if lm_scale > 0 and beam_size in (50, 84) and "batch_size" not in self.recog_opts:
-      self.recog_opts["batch_size"] = 4000 * 160
+    if lm_scale > 0:
+      if beam_size in (64, 84):
+        if "batch_size" not in recog_opts:
+          recog_opts["batch_size"] = 1250
+        if "time" not in search_rqmt:
+          search_rqmt["time"] = 6
 
     exp = ReturnnGlobalAttDecodingExperiment(
       alias=self.alias,
       config_builder=self.config_builder,
-      recog_opts=self.recog_opts,
+      recog_opts=recog_opts,
       checkpoint=self.checkpoint,
       checkpoint_alias=checkpoint_alias,
       search_alias=self.search_alias,
-      search_rqmt=self.search_rqmt
+      search_rqmt=search_rqmt
     )
-    exp.run_eval()
+    if not self.only_do_analysis:
+      exp.run_eval()
     if self.run_analysis:
       exp.run_analysis(self.analysis_opts)
+
+    return exp
 
 
 class ReturnnSegmentalAttDecodingPipeline(DecodingPipeline):
@@ -801,7 +1006,7 @@ class ReturnnSegmentalAttDecodingPipeline(DecodingPipeline):
     self.config_builder = config_builder
 
     self.realignment = None
-    if self.run_analysis:
+    if self.run_analysis and not isinstance(self.config_builder, ConfigBuilderRF):
       self.realignment = RasrRealignmentExperiment(
         alias=self.alias,
         reduction_factor=960,
@@ -820,27 +1025,37 @@ class ReturnnSegmentalAttDecodingPipeline(DecodingPipeline):
         self.analysis_opts["ground_truth_hdf"] = self.realignment
 
   def run_experiment(self, beam_size: int, lm_scale: float, ilm_scale: float, checkpoint_alias: str):
-    self.recog_opts.update({
-      "lm_opts": {"scale": lm_scale, **self.lm_opts} if lm_scale > 0 else None,
-      "ilm_correction_opts": {"scale": ilm_scale, **self.ilm_opts} if ilm_scale > 0 else None,
-      "beam_size": beam_size
-    })
+    recog_opts = copy.deepcopy(self.recog_opts)
+    search_rqmt = copy.deepcopy(self.search_rqmt)
 
     if lm_scale > 0:
-      if beam_size == 12 and "batch_size" not in self.recog_opts:
-        self.recog_opts["batch_size"] = 7500 * 160
-      elif beam_size in (50, 84) and "max_seqs" not in self.recog_opts:
-        self.recog_opts["max_seqs"] = 1
+      if beam_size == 12:
+        if "batch_size" not in recog_opts:
+          recog_opts["batch_size"] = 12_000
+        if "time" not in search_rqmt:
+          search_rqmt["time"] = 2
+      elif beam_size in (24, 32, 64, 84):
+        if "batch_size" not in recog_opts:
+          recog_opts["batch_size"] = 1250
+        if "time" not in search_rqmt:
+          search_rqmt["time"] = 12
+    else:
+      recog_opts["batch_size"] = 15_000
+      if "time" not in search_rqmt:
+        search_rqmt["time"] = 2
 
     exp = ReturnnSegmentalAttDecodingExperiment(
       alias=self.alias,
       config_builder=self.config_builder,
-      recog_opts=self.recog_opts,
+      recog_opts=recog_opts,
       checkpoint=self.checkpoint,
       checkpoint_alias=checkpoint_alias,
-      search_rqmt=self.search_rqmt,
+      search_rqmt=search_rqmt,
       search_alias=self.search_alias
     )
-    exp.run_eval()
+    if not self.only_do_analysis:
+      exp.run_eval()
     if self.run_analysis:
       exp.run_analysis(self.analysis_opts)
+
+    return exp

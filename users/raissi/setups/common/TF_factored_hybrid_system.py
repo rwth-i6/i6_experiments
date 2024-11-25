@@ -3,27 +3,25 @@ __all__ = ["TFFactoredHybridBaseSystem"]
 import copy
 import dataclasses
 import itertools
-import sys
+import numpy as np
 from IPython import embed
 
-from enum import Enum
+
 from typing import Dict, List, Optional, Tuple, TypedDict, Union
 
 # -------------------- Sisyphus --------------------
 
 import sisyphus.toolkit as tk
-import sisyphus.global_settings as gs
 
 from sisyphus.delayed_ops import DelayedFormat
 
 # -------------------- Recipes --------------------
 import i6_core.corpus as corpus_recipe
 import i6_core.features as features
+import i6_core.lexicon as lexicon
 import i6_core.mm as mm
 import i6_core.rasr as rasr
-import i6_core.recognition as recog
 import i6_core.returnn as returnn
-import i6_core.text as text
 
 from i6_core.util import MultiPath, MultiOutputPath
 
@@ -33,7 +31,15 @@ from i6_experiments.common.setups.rasr.util import (
     RasrInitArgs,
     RasrDataInput,
 )
+from i6_experiments.users.mann.experimental.helpers import Train
+from i6_experiments.users.raissi.args.system import get_tdp_values
 
+from i6_experiments.users.raissi.setups.common.analysis import (
+    ComputeAveragePhonemeLengthJob,
+    ComputeSilenceRatioJob,
+    ComputeTSEJob,
+    PlotViterbiAlignmentsJob,
+)
 
 from i6_experiments.users.raissi.setups.common.BASE_factored_hybrid_system import (
     BASEFactoredHybridSystem,
@@ -46,7 +52,10 @@ import i6_experiments.users.raissi.setups.common.encoder as encoder_archs
 import i6_experiments.users.raissi.setups.common.helpers.network as net_helpers
 import i6_experiments.users.raissi.setups.common.helpers.train as train_helpers
 import i6_experiments.users.raissi.setups.common.helpers.decode as decode_helpers
+from i6_experiments.users.raissi.setups.common.helpers.network import LogLinearScales
 
+from i6_experiments.users.raissi.setups.common.helpers.priors.factored_estimation import get_triphone_priors
+from i6_experiments.users.raissi.setups.common.helpers.priors.util import PartitionDataSetup
 
 # user based modules
 from i6_experiments.users.raissi.setups.common.data.backend import BackendInfo
@@ -70,19 +79,24 @@ from i6_experiments.users.raissi.setups.common.helpers.priors import (
 
 from i6_experiments.users.raissi.setups.common.decoder.BASE_factored_hybrid_search import (
     RasrFeatureScorer,
+    BASEFactoredHybridAligner, DecodingInput,
 )
 
 from i6_experiments.users.raissi.setups.common.data.backend import Backend, BackendInfo
 
-
+from i6_experiments.users.raissi.setups.common.decoder.BASE_factored_hybrid_search import DecodingTensorMap
 from i6_experiments.users.raissi.setups.common.decoder.config import (
     PriorInfo,
     PriorConfig,
     PosteriorScales,
     SearchParameters,
     AlignmentParameters,
+    default_posterior_scales,
 )
-
+from i6_experiments.users.raissi.setups.common.util.tdp import to_tuple
+from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.returnn.network_builder.network_dicts.zeineldeen_ted2_global_att_w_ctc_mon import (
+    network,
+)
 
 # -------------------- Init --------------------
 
@@ -159,9 +173,6 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
 
     def get_model_path(self, model_job, epoch):
         return model_job.out_checkpoints[epoch].ckpt_path
-
-    def set_local_flf_tool_for_decoding(self, path=None):
-        self.csp["base"].flf_tool_exe = path
 
     # -------------------------------------------- Training --------------------------------------------------------
 
@@ -266,9 +277,32 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
             }
 
         if self.training_criterion != TrainingCriterion.FULLSUM:
-            network = net_helpers.augment.augment_net_with_label_pops(
-                encoder_net, label_info=self.label_info, frame_rate_reduction_ratio_info=frame_rate_reduction_ratio_info
-            )
+            if self.training_criterion == TrainingCriterion.VITERBI:
+                network = net_helpers.augment.augment_net_with_label_pops(
+                    encoder_net,
+                    label_info=self.label_info,
+                    frame_rate_reduction_ratio_info=frame_rate_reduction_ratio_info,
+                )
+            elif self.training_criterion == TrainingCriterion.sMBR:
+                if frame_rate_reduction_ratio_info.factor > 1:
+                    # This layer sets the time step ratio between the input and the output of the NN.
+
+                    frr_factors = (
+                        [frame_rate_reduction_ratio_info.factor]
+                        if isinstance(frame_rate_reduction_ratio_info.factor, int)
+                        else frame_rate_reduction_ratio_info.factor
+                    )
+                    t_tag = f"{frame_rate_reduction_ratio_info.time_tag_name}"
+                    for factor in frr_factors:
+                        t_tag += f".ceildiv_right({factor})"
+
+                    encoder_net["classes_"] = {
+                        "class": "reinterpret_data",
+                        "set_dim_tags": {"T": returnn.CodeWrapper(t_tag)},
+                        "from": "classes",
+                    }
+                    network = encoder_net
+
             if frame_rate_reduction_ratio_info.factor > 1 and frame_rate_reduction_ratio_info.single_state_alignment:
                 network["slice_classes"] = {
                     "class": "slice",
@@ -279,7 +313,7 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
                 network["classes_"]["from"] = "slice_classes"
 
         else:
-            network=encoder_net
+            network = encoder_net
 
         return network
 
@@ -460,13 +494,19 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
         self.experiments[key]["extra_returnn_code"]["prolog"] = returnn_config.python_prolog
         self.experiments[key]["extra_returnn_code"]["epilog"] = returnn_config.python_epilog
 
+    def set_staging_info(
+        self, checkpoint: returnn.Checkpoint, copy_param_mode: train_helpers.CopyParamMode.subset, stage_epochs: List
+    ) -> Dict:
+        self.staging_info = dataclasses.replace(
+            self.staging_info, checkpoint=checkpoint, copy_param_mode=copy_param_mode, stage_epochs=stage_epochs
+        )
+
     # -------------------- Decoding --------------------
     def _compute_returnn_rasr_priors(
         self,
         key: str,
         epoch: int,
         train_corpus_key: str,
-        dev_corpus_key: str,
         returnn_config: returnn.ReturnnConfig,
         share: float,
         time_rqmt: Optional[int] = None,
@@ -483,10 +523,7 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
         )
 
         train_data = self.train_input_data[train_corpus_key]
-        dev_data = self.cv_input_data[dev_corpus_key]
-
         train_crp = train_data.get_crp()
-        dev_crp = dev_data.get_crp()
 
         if share != 1.0:
             train_crp = copy.deepcopy(train_crp)
@@ -496,10 +533,6 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
                 shuffle=True,
             )
             train_crp.segment_path = segment_job.out_segments["priors"]
-
-        # assert train_data.feature_flow == dev_data.feature_flow
-        # assert train_data.features == dev_data.features
-        # assert train_data.alignments == dev_data.alignments
 
         if train_data.feature_flow is not None:
             feature_flow = train_data.feature_flow
@@ -606,6 +639,7 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
         state_tying: RasrStateTying = RasrStateTying.monophone,
         returnn_config: Optional[returnn.ReturnnConfig] = None,
         output_layer_name: str = "output",
+        joint_for_factored_loss: bool = False,
         checkpoint: Optional[Path] = None,
         smoothen: bool = False,
         zero_weight: float = 1e-8,
@@ -625,6 +659,7 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
             returnn_config=returnn_config,
             state_tying=state_tying,
             softmax_type=SingleSoftmaxType.PRIOR,
+            joint_for_factored_loss=joint_for_factored_loss,
         )
 
         config = copy.deepcopy(self.experiments[key]["returnn_config"])
@@ -634,7 +669,6 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
             key,
             epoch,
             train_corpus_key=train_corpus_key,
-            dev_corpus_key=dev_corpus_key,
             returnn_config=config,
             share=data_share,
             checkpoint=checkpoint,
@@ -705,7 +739,6 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
                 key,
                 epoch,
                 train_corpus_key=train_corpus_key,
-                dev_corpus_key=dev_corpus_key,
                 returnn_config=cfg,
                 share=data_share,
                 checkpoint=checkpoint,
@@ -736,9 +769,38 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
 
         self.experiments[key]["priors"] = p_info
 
-
-    def set_triphone_priors_factored(self):
+    def set_triphone_priors_factored(
+        self,
+        key: str,
+        epoch: int,
+        tensor_map: DecodingTensorMap,
+        partition_data_setup: PartitionDataSetup = None,
+        model_path: tk.Path = None,
+    ):
         self.create_hdf()
+        if self.experiments[key]["graph"].get("inference", None) is None:
+            self.set_graph_for_experiment(key)
+        if partition_data_setup is None:
+            partition_data_setup = PartitionDataSetup()
+
+        if model_path is None:
+            model_path = DelayedFormat(self.get_model_path(model_job=self.experiments[key]["train_job"], epoch=epoch))
+        triphone_priors = get_triphone_priors(
+            name=f"{self.experiments[key]['name']}/e{epoch}",
+            graph_path=self.experiments[key]["graph"]["inference"],
+            model_path=model_path,
+            data_paths=self.hdfs[self.train_key],
+            tensor_map=tensor_map,
+            partition_data_setup=partition_data_setup,
+            label_info=self.label_info,
+        )
+
+        p_info = PriorInfo(
+            center_state_prior=PriorConfig(file=triphone_priors[1], scale=0.0),
+            left_context_prior=PriorConfig(file=triphone_priors[2], scale=0.0),
+            right_context_prior=PriorConfig(file=triphone_priors[0], scale=0.0),
+        )
+        self.experiments[key]["priors"] = p_info
 
     def set_triphone_priors_returnn_rasr(
         self,
@@ -794,7 +856,6 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
                 key,
                 epoch,
                 train_corpus_key=train_corpus_key,
-                dev_corpus_key=dev_corpus_key,
                 returnn_config=cfg,
                 share=data_share,
                 time_rqmt=8,
@@ -808,7 +869,7 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
         }
 
         for (ctx, job) in prior_jobs.items():
-            job.add_alias(f"priors/{name}/{ctx}")
+            job.add_alias(f"priors/{name}/{data_share}data/{ctx}")
 
         center_priors = ReshapeCenterStatePriorsJob(prior_jobs["c"].out_prior_txt_file, label_info=self.label_info)
         center_priors_xml = center_priors.out_prior_xml
@@ -875,6 +936,7 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
         out_layer_name: str = None,
         softmax_type: SingleSoftmaxType = SingleSoftmaxType.DECODE,
         cv_corpus_key_for_train: str = None,
+        joint_for_factored_loss: bool = False,
     ):
         prepare_for_train = False
         log_softmax = False
@@ -889,17 +951,23 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
         ], "triphone state tying not possible in precomputed feature scorer due to memory constraint"
 
         if softmax_type == SingleSoftmaxType.TRAIN:
-            assert cv_corpus_key_for_train is not None, "you need to specify the cv corpus for fullsum training"
-            assert (
-                self.training_criterion == TrainingCriterion.FULLSUM
-            ), "you forgot to set the correct training criterion"
+            if self.training_criterion == TrainingCriterion.FULLSUM:
+                assert cv_corpus_key_for_train is not None, "you need to specify the cv corpus for fullsum training"
+            """
+            assert self.training_criterion in [
+                TrainingCriterion.FULLSUM,
+                TrainingCriterion.sMBR,
+            ], "you forgot to set the correct training criterion"
+            """
             self.label_info = dataclasses.replace(self.label_info, state_tying=state_tying)
             self.lexicon_args["norm_pronunciation"] = False
-            self.set_rasr_returnn_input_datas(
-                input_key=InputKey.BASE,
-                is_cv_separate_from_train=True,
-                cv_corpus_key=cv_corpus_key_for_train,
-            )
+            if self.training_criterion == TrainingCriterion.FULLSUM:
+                self.set_rasr_returnn_input_datas(
+                    input_key=InputKey.BASE,
+                    is_cv_separate_from_train=True,
+                    cv_corpus_key=cv_corpus_key_for_train,
+                )
+
             # update all transition models and data
             shift_factor = self.frame_rate_reduction_ratio_info.factor
             tdp_type = "heuristic" if shift_factor == 1 else f"heuristic-{shift_factor}0ms"
@@ -919,7 +987,7 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
             returnn_config = self.experiments[key]["returnn_config"]
 
         if state_tying == RasrStateTying.diphone:
-            clean_returnn_config = net_helpers.augment.remove_label_pops_and_losses_from_returnn_config(returnn_config)
+            clean_returnn_config = net_helpers.augment.remove_label_pops_and_losses_from_returnn_config(returnn_config, modify_chunking=self.training_criterion == TrainingCriterion.FULLSUM)
             context_size = self.label_info.n_contexts
             context_time_tag, _, _ = train_helpers.returnn_time_tag.get_context_dim_tag_prolog(
                 spatial_size=context_size,
@@ -928,7 +996,12 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
                 feature_dim_variable_name="__center_state_feature",
                 context_type="L",
             )
-            final_returnn_config = net_helpers.diphone_joint_output.augment_returnn_config_to_joint_diphone_softmax(
+
+            if joint_for_factored_loss:
+                f = net_helpers.diphone_joint_output.augment_returnn_config_to_joint_factored_monophone_softmax
+            else:
+                f = net_helpers.diphone_joint_output.augment_returnn_config_to_joint_diphone_softmax
+            final_returnn_config = f(
                 returnn_config=clean_returnn_config,
                 label_info=self.label_info,
                 out_joint_score_layer="output",
@@ -949,12 +1022,15 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
         else:
             assert False, "Only monophone and diphone state tying are supported for single softmax"
 
+
         self.reset_returnn_config_for_experiment(
             key=key,
             config_dict=final_returnn_config.config,
             extra_dict_key="context",
             additional_python_prolog=context_time_tag,
         )
+
+
         self.set_graph_for_experiment(key, graph_type_name=f"precomputed-{softmax_type}")
 
     def setup_returnn_config_and_graph_for_precomputed_decoding(
@@ -1043,6 +1119,7 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
         gpu=False,
         is_multi_encoder_output=False,
         set_batch_major_for_feature_scorer: bool = True,
+        joint_for_factored_loss: bool = False,
         tf_library: Union[Path, str, List[Path], List[str], None] = None,
         dummy_mixtures: Optional[Path] = None,
         lm_gc_simple_hash: Optional[bool] = None,
@@ -1067,7 +1144,10 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
         ):
 
             self.setup_returnn_config_and_graph_for_single_softmax(
-                key=key, state_tying=self.label_info.state_tying, softmax_type=SingleSoftmaxType.DECODE
+                key=key,
+                state_tying=self.label_info.state_tying,
+                softmax_type=SingleSoftmaxType.DECODE,
+                joint_for_factored_loss=joint_for_factored_loss,
             )
         else:
             crp_list = [n for n in self.crp_names if "train" not in n]
@@ -1096,6 +1176,8 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
         if model_path is None:
             model_path = self.get_model_checkpoint(self.experiments[key]["train_job"], epoch)
 
+
+
         recognizer = self.recognizers[recognizer_key](
             name=name,
             crp=self.crp[crp_corpus] if crp is None else crp,
@@ -1105,7 +1187,7 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
             model_path=model_path,
             graph=graph,
             mixtures=dummy_mixtures,
-            eval_files=self.scorer_args[crp_corpus],
+            eval_args=self.scorer_args[crp_corpus],
             scorer=self.scorers[crp_corpus],
             tf_library=tf_library,
             is_multi_encoder_output=is_multi_encoder_output,
@@ -1199,3 +1281,325 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
         )
 
         return aligner, align_args
+
+    def get_lattice_generator_and_args(
+        self,
+        key: str,
+        context_type: PhoneticContext,
+        feature_scorer_type: RasrFeatureScorer,
+        crp_corpus: str,
+        decoding_input: DecodingInput,
+        log_linear_scales: LogLinearScales = None,
+        lattice_generator_key: str = "base",
+        gpu=False,
+        num_encoder_output: int = 512,
+        set_batch_major_for_feature_scorer: bool = True,
+        tf_library: Union[Path, str, List[Path], List[str], None] = None,
+        dummy_mixtures: Optional[Path] = None,
+        crp: Optional[rasr.RasrConfig] = None,
+        **decoder_kwargs,
+    ):
+
+        assert context_type in [
+            PhoneticContext.monophone,
+            PhoneticContext.joint_diphone,
+        ], "only non-autoregressive models are allowed for now"
+
+        lattice_generator_crp = rasr.CommonRasrParameters(self.crp[crp_corpus]) if crp is None else crp
+
+        recog_args = self.get_parameters_for_decoder(context_type=context_type, prior_info=decoding_input.get_prior())
+        posterior_scales = default_posterior_scales()
+        if context_type == PhoneticContext.monophone:
+            posterior_scales["center-state-scale"] = log_linear_scales.label_posterior_scale
+            prior_cfg = recog_args.with_prior_scale(center=log_linear_scales.label_prior_scale)
+        else:
+            posterior_scales["joint-diphone-scale"] = log_linear_scales.label_posterior_scale
+            prior_cfg = recog_args.with_prior_scale(diphone=log_linear_scales.label_prior_scale)
+
+        lattice_generator_cfg = (
+            prior_cfg
+            .with_tdp_scale(log_linear_scales.transition_scale)
+            .with_posterior_scales(posterior_scales)
+            .with_tdp_silence(to_tuple(lattice_generator_crp.acoustic_model_config.tdp["silence"]))
+            .with_tdp_nonword(to_tuple(lattice_generator_crp.acoustic_model_config.tdp["*"]))
+            .with_tdp_speech(to_tuple(lattice_generator_crp.acoustic_model_config.tdp["*"]))
+            .with_lm_scale(log_linear_scales.lm_scale)
+            .with_add_all_allophones(False)
+        )
+
+
+        if dummy_mixtures is None:
+            n_labels = (
+                self.cart_state_tying_args["cart_labels"]
+                if self.label_info.state_tying == RasrStateTying.cart
+                else self.label_info.get_n_of_dense_classes()
+            )
+            dummy_mixtures = mm.CreateDummyMixturesJob(
+                n_labels,
+                self.initial_nn_args["num_input"],
+            ).out_mixtures
+
+        lattice_generator = self.lattice_generators[lattice_generator_key](
+            name=self.experiments[key]["name"],
+            crp=lattice_generator_crp,
+            context_type=context_type,
+            feature_scorer_type=feature_scorer_type,
+            feature_path=self.feature_flows[crp_corpus],
+            model_path=decoding_input.get_model(),
+            graph=decoding_input.get_graph(),
+            mixtures=dummy_mixtures,
+            tf_library=tf_library,
+            set_batch_major_for_feature_scorer=set_batch_major_for_feature_scorer,
+            gpu=gpu,
+            **decoder_kwargs,
+        )
+
+        feature_scorer = lattice_generator.get_feature_scorer(
+            label_info=self.label_info, search_parameters=lattice_generator_cfg, num_encoder_output=num_encoder_output
+        )
+
+        return lattice_generator, lattice_generator_cfg, feature_scorer
+
+    def calculate_alignment_statistics(
+        self,
+        key,
+        non_speech_labels: [str],
+        name: str = None,
+        hyp_silence_phone: str = "[SILENCE]",
+        ref_silence_phone: str = "[SILENCE]",
+        silence_label: str = "[SILENCE]{#+#}@i@f",
+        reference_alignment_key: str = "GMM",
+        alignment_bundle: tk.Path = None,
+        allophones: tk.Path = None,
+        reference_alignment: tk.Path = None,
+        reference_allophones: tk.Path = None,
+        segments: [str] = None,
+        use_legacy_tse_calculation: bool = True,
+        segment_file: str = None,
+    ):
+        assert (
+            self.experiments[key]["align_job"] is not None or alignment_bundle is not None
+        ), "Please set either the alignment job or provide a bundle"
+
+        if reference_alignment is None:
+            if reference_alignment_key in self.reference_alignment:
+                reference_alignment = self.reference_alignment[reference_alignment_key].get("alignment")
+            assert reference_alignment is not None, "Please provide a reference alignment"
+
+        if reference_allophones is None:
+            if reference_alignment_key in self.reference_alignment:
+                reference_allophones = self.reference_alignment[reference_alignment_key].get("allophones")
+            assert reference_allophones is not None, "Please provide a reference allophone file"
+
+        alignment = (
+            alignment_bundle
+            if alignment_bundle is not None
+            else self.experiments[key]["align_job"].out_alignment_bundle
+        )
+        allophones = (
+            allophones
+            if allophones is not None
+            else lexicon.StoreAllophonesJob(self.crp[self.crp_names["align.train"]]).out_allophone_file
+        )
+        exp_name = self.experiments[key]["name"] if name is None else name
+        if not isinstance(reference_alignment, tk.Path):
+            reference_alignment = tk.Path(reference_alignment, cached=True)
+        if not isinstance(reference_allophones, tk.Path):
+            reference_allophones = tk.Path(reference_allophones, cached=True)
+
+        if use_legacy_tse_calculation:
+            tse_job = ComputeTSEJob(
+                allophone_file=allophones,
+                alignment_cache=alignment,
+                ref_allophone_file=reference_allophones,
+                ref_alignment_cache=reference_alignment,
+                upsample_factor=self.frame_rate_reduction_ratio_info.factor,
+            )
+            tse_job.add_alias(f"statistics/alignment/{exp_name}/tse")
+            tk.register_output(
+                f"statistics/alignment/{exp_name}/word_tse",
+                tse_job.out_tse_frames,
+            )
+
+        else:
+            # seems buggy need to debug
+            # logging.warn("We do not execute time stamp error until you debugged it ;-)")
+            if segment_file is not None:
+                tse_job = mm.ComputeTimeStampErrorJobV2(
+                    hyp_alignment_cache=alignment,
+                    ref_alignment_cache=reference_alignment,
+                    hyp_allophone_file=allophones,
+                    ref_allophone_file=reference_allophones,
+                    hyp_silence_phone=hyp_silence_phone,
+                    ref_silence_phone=ref_silence_phone,
+                    hyp_upsample_factor=4,
+                    segment_file=segment_file,
+                )
+            else:
+                tse_job = mm.ComputeTimeStampErrorJob(
+                    hyp_alignment_cache=alignment,
+                    ref_alignment_cache=reference_alignment,
+                    hyp_allophone_file=allophones,
+                    ref_allophone_file=reference_allophones,
+                    hyp_silence_phone=hyp_silence_phone,
+                    ref_silence_phone=ref_silence_phone,
+                    hyp_upsample_factor=4,
+                )
+            tse_job.rqmt = {
+                "time": 4,
+                "cpu": 1,
+                "mem": 6,
+            }
+
+            tse_job.add_alias(f"statistics/alignment/{exp_name}/tse{'_segment' if segment_file is not None else ''}")
+            tk.register_output(
+                f"statistics/alignment/{exp_name}/word_tse{'_segment' if segment_file is not None else ''}",
+                tse_job.out_tse_frames,
+            )
+
+        stat_job_phoneme = ComputeAveragePhonemeLengthJob(
+            allophone_file=allophones,
+            alignment_files=alignment,
+            silence_label=silence_label,
+            non_speech_labels=non_speech_labels,
+        )
+        stat_job_phoneme.add_alias(f"statistics/alignment/{exp_name}/average_phoneme_job")
+        tk.register_output(
+            f"statistics/alignment/{exp_name}/out_average_phoneme_length.txt",
+            stat_job_phoneme.out_average_phoneme_length,
+        )
+
+        stat_job_sil = ComputeSilenceRatioJob(
+            allophone_file=allophones,
+            alignment_files=alignment,
+            silence_label=silence_label,
+        )
+        stat_job_sil.add_alias(f"statistics/alignment/{exp_name}/silence_ratio_job")
+        tk.register_output(
+            f"statistics/alignment/{exp_name}/silence_ratio_silence_ratio.txt",
+            stat_job_sil.out_silence_ratio,
+        )
+
+        if segments is not None:
+            plots = PlotViterbiAlignmentsJob(
+                alignment_bundle_path=alignment,
+                allophones_path=allophones,
+                segments=segments,
+                font_size=8,
+                show_labels=True,
+                monophone=True,
+            )
+            tk.register_output(f"alignments/plots/{exp_name}", plots.out_plot_folder)
+
+    def get_best_recog_scales_and_transition_values(
+        self,
+        key: str,
+        num_encoder_output: int,
+        recog_args: SearchParameters,
+        lm_scale: float,
+        context_type: PhoneticContext = None,
+        feature_scorer_type: RasrFeatureScorer = None,
+        tdp_scales: List = None,
+        prior_scales: List = None,
+        pron_scales: List = None,
+        transition_loop_sil: List = None,
+        transition_loop_speech: List = None,
+        transition_exit_sil: List = None,
+        transition_exit_speech: List = None,
+        use_heuristic_tdp: bool = False,
+        extend: bool = True,
+    ) -> SearchParameters:
+
+        assert self.experiments[key]["decode_job"]["runner"] is not None, "Please set the recognizer"
+        recognizer = self.experiments[key]["decode_job"]["runner"]
+
+        context_type = PhoneticContext.diphone if context_type is None else context_type
+        feature_scorer_type = RasrFeatureScorer.nn_precomputed if feature_scorer_type is None else feature_scorer_type
+        if context_type == PhoneticContext.triphone_forward:
+            assert feature_scorer_type == feature_scorer_type.factored, "no triphone with nn precomputed yet"
+
+        tdp_scales = [0.1, 0.2] if tdp_scales is None else tdp_scales
+        if prior_scales is None:
+            if feature_scorer_type == RasrFeatureScorer.factored:
+                if context_type == PhoneticContext.triphone_forward:
+                    prior_scales = list(
+                        itertools.product(
+                            [v for v in np.arange(0.1, 0.6, 0.1).round(1)],
+                            [v for v in np.arange(0.1, 0.6, 0.1).round(1)],
+                            [v for v in np.arange(0.1, 0.6, 0.1).round(1)],
+                        )
+                    )
+                else:
+                    raise NotImplementedError("You were not supposed to run monophone decoding with factored decoder")
+            else:
+                prior_scales = [[v] for v in np.arange(0.1, 0.8, 0.1).round(1)]
+
+        tune_args = recog_args.with_lm_scale(lm_scale)
+        if use_heuristic_tdp:
+            hmm_topology = "monostate" if self.label_info.n_states_per_phone == 1 else "threepartite"
+            if self.frame_rate_reduction_ratio_info.factor > 1:
+                assert self.frame_rate_reduction_ratio_info.factor in [3, 4], "you have not decided for this ss rate"
+                tdps = get_tdp_values()[f"heuristic-{self.frame_rate_reduction_ratio_info.factor}0ms"][hmm_topology]
+            else:
+                tdps = get_tdp_values()[f"heuristic"][hmm_topology]
+            sil_tdp = tdps["silence"]
+            sp_tdp = tdps["*"]
+
+        else:
+            sil_tdp = (11.0, 0.0, "infinity", 20.0)
+            sp_tdp = (8.0, 0.0, "infinity", 0.0)
+
+        best_config_scales = recognizer.recognize_optimize_scales_v2(
+            label_info=self.label_info,
+            search_parameters=tune_args,
+            num_encoder_output=num_encoder_output,
+            altas_value=2.0,
+            altas_beam=16.0,
+            tdp_sil=[sil_tdp],
+            tdp_speech=[sp_tdp],
+            tdp_nonword=[sp_tdp],
+            prior_scales=prior_scales,
+            tdp_scales=tdp_scales,
+            pron_scales=pron_scales,
+        )
+
+        if use_heuristic_tdp:
+            return best_config_scales
+
+        sil_loop = [8.0, 11.0, 13.0]
+        if transition_loop_sil is not None:
+            if extend:
+                sil_loop.extend(transition_loop_sil)
+            else:
+                sil_loop = transition_loop_sil
+        sil_exit = [10.0, 15.0, 20.0]
+        if transition_exit_sil is not None:
+            if extend:
+                sil_exit.extend(transition_exit_sil)
+            else:
+                sil_exit = transition_exit_sil
+        speech_loop = [5.0, 8.0, 11.0]
+        if transition_loop_speech is not None:
+            if extend:
+                speech_loop.extend(transition_loop_speech)
+            else:
+                speech_loop = transition_loop_speech
+        speech_exit = [0.0, 5.0]
+        if transition_exit_speech is not None:
+            if extend:
+                speech_exit.extend(transition_exit_speech)
+            else:
+                speech_exit = transition_exit_speech
+
+        nnsp_tdp = [(l, 0.0, "infinity", e) for l in sil_loop for e in sil_exit]
+        sp_tdp = [(l, 0.0, "infinity", e) for l in speech_loop for e in speech_exit]
+        best_config = recognizer.recognize_optimize_transtition_values(
+            label_info=self.label_info,
+            search_parameters=best_config_scales,
+            num_encoder_output=num_encoder_output,
+            altas_beam=16.0,
+            tdp_sil=nnsp_tdp,
+            tdp_speech=sp_tdp,
+        )
+
+        return best_config

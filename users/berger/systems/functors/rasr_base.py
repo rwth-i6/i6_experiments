@@ -1,27 +1,29 @@
 import copy
-from enum import Enum, auto
 from abc import ABC
-from typing import Union, Optional
+from enum import Enum, auto
 from functools import partial
+from typing import Optional, Union
 
 from i6_core import features, rasr, recognition, returnn
+from sisyphus import tk
+
+from i6_experiments.users.berger import helpers
 from i6_experiments.users.berger.args.jobs.rasr_init_args import (
     get_feature_extraction_args_8kHz,
     get_feature_extraction_args_16kHz,
 )
+from i6_experiments.users.berger.helpers.scorer import ScoreJob, ScorerInfo
 from i6_experiments.users.berger.recipe import returnn as custom_returnn
 from i6_experiments.users.berger.recipe.converse.scoring import (
-    MultiChannelMultiSegmentCtmToStmJob,
     MultiChannelCtmToStmJob,
+    MultiChannelMultiSegmentCtmToStmJob,
 )
 from i6_experiments.users.berger.recipe.recognition.scoring import UpsampleCtmFileJob
 from i6_experiments.users.berger.recipe.returnn.training import get_backend
-from i6_experiments.users.berger.util import ToolPaths, lru_cache_with_signature
-from i6_experiments.users.berger import helpers
-from sisyphus import tk
+from i6_experiments.users.berger.util import lru_cache_with_signature
+from i6_experiments.users.berger.recipe.returnn.onnx import ExportPyTorchModelToOnnxJobV2
 
-from .. import dataclasses
-from .. import types
+from .. import dataclasses, types
 
 
 class RecognitionScoringType(Enum):
@@ -36,10 +38,14 @@ class RasrFunctor(ABC):
         self,
         returnn_root: tk.Path,
         returnn_python_exe: tk.Path,
+        rasr_binary_path: tk.Path,
+        rasr_python_exe: tk.Path,
         blas_lib: Optional[tk.Path] = None,
     ) -> None:
         self.returnn_root = returnn_root
         self.returnn_python_exe = returnn_python_exe
+        self.rasr_binary_path = rasr_binary_path
+        self.rasr_python_exe = rasr_python_exe
         self.blas_lib = blas_lib
 
     @staticmethod
@@ -82,23 +88,30 @@ class RasrFunctor(ABC):
         self,
         returnn_config: returnn.ReturnnConfig,
         checkpoint: returnn.PtCheckpoint,
+        mini_returnn: bool = False,
     ) -> tk.Path:
-        # onnx_export_job = custom_returnn.ExportPyTorchModelToOnnxJob(
-        #     pytorch_checkpoint=checkpoint,
-        #     returnn_config=returnn_config,
-        #     returnn_root=self.returnn_root,
-        # )
-        onnx_export_job = returnn.TorchOnnxExportJob(
-            returnn_config=returnn_config,
-            checkpoint=checkpoint,
-            returnn_python_exe=self.returnn_python_exe,
-            returnn_root=self.returnn_root,
-        )
+        if mini_returnn:
+            onnx_export_job = ExportPyTorchModelToOnnxJobV2(
+                pytorch_checkpoint=checkpoint,
+                returnn_config=returnn_config,
+                returnn_python_exe=self.returnn_python_exe,
+                returnn_root=self.returnn_root,
+                verbosity=5,
+            )
+        else:
+            onnx_export_job = returnn.TorchOnnxExportJob(
+                returnn_config=returnn_config,
+                checkpoint=checkpoint,
+                input_names=[],
+                output_names=[],
+                returnn_python_exe=self.returnn_python_exe,
+                returnn_root=self.returnn_root,
+            )
         return onnx_export_job.out_onnx_model
 
     def _make_base_feature_flow(
         self,
-        corpus_info: dataclasses.CorpusInfo,
+        data_input: dataclasses.RasrDataInput,
         feature_type: dataclasses.FeatureType,
         **kwargs,
     ):
@@ -118,10 +131,12 @@ class RasrFunctor(ABC):
                 self._make_cached_concatenated_gt_feature_flow_16k, use_sec=True, use_mix=True
             ),
             feature_type.LOGMEL_16K: self._make_base_logmel_feature_flow_16k,
-        }[feature_type](corpus_info=corpus_info, **kwargs)
+        }[feature_type](data_input=data_input, **kwargs)
 
-    def _make_base_sample_feature_flow(self, corpus_info: dataclasses.CorpusInfo, dc_detection: bool = False, **kwargs):
-        audio_format = corpus_info.data.corpus_object.audio_format
+    def _make_base_sample_feature_flow(
+        self, data_input: dataclasses.RasrDataInput, dc_detection: bool = False, **kwargs
+    ):
+        audio_format = data_input.corpus_object.audio_format
         args = {
             "audio_format": audio_format,
             "dc_detection": dc_detection,
@@ -131,19 +146,23 @@ class RasrFunctor(ABC):
         args.update(kwargs)
         return features.samples_flow(**args)
 
-    def _make_base_gt_feature_flow_8k(self, corpus_info: dataclasses.CorpusInfo, dc_detection: bool = False, **_):
+    def _make_base_gt_feature_flow_8k(self, data_input: dataclasses.RasrDataInput, dc_detection: bool = False, **_):
         gt_options = copy.deepcopy(get_feature_extraction_args_8kHz(dc_detection=dc_detection)["gt"]["gt_options"])
-        audio_format = corpus_info.crp.audio_format
+        audio_format = data_input.corpus_object.audio_format
         gt_options["samples_options"]["audio_format"] = audio_format
         gt_options["add_features_output"] = True
         return features.gammatone_flow(**gt_options)
 
     def _make_base_cached_gt_feature_flow_8k(
-        self, corpus_info: dataclasses.CorpusInfo, dc_detection: bool = False, **_
+        self, data_input: dataclasses.RasrDataInput, dc_detection: bool = False, **_
     ):
-        gt_job = features.GammatoneJob(
-            crp=corpus_info.crp, **get_feature_extraction_args_8kHz(dc_detection=dc_detection)["gt"]
+        crp = data_input.get_crp(
+            rasr_python_exe=self.rasr_python_exe,
+            rasr_binary_path=self.rasr_binary_path,
+            returnn_python_exe=self.returnn_python_exe,
+            returnn_root=self.returnn_root,
         )
+        gt_job = features.GammatoneJob(crp=crp, **get_feature_extraction_args_8kHz(dc_detection=dc_detection)["gt"])
         feature_path = rasr.FlagDependentFlowAttribute(
             "cache_mode",
             {
@@ -154,19 +173,23 @@ class RasrFunctor(ABC):
             cache_files=feature_path,
         )
 
-    def _make_base_gt_feature_flow_16k(self, corpus_info: dataclasses.CorpusInfo, dc_detection: bool = False, **_):
+    def _make_base_gt_feature_flow_16k(self, data_input: dataclasses.RasrDataInput, dc_detection: bool = False, **_):
         gt_options = copy.deepcopy(get_feature_extraction_args_16kHz(dc_detection=dc_detection)["gt"]["gt_options"])
-        audio_format = corpus_info.crp.audio_format
+        audio_format = data_input.corpus_object.audio_format
         gt_options["samples_options"]["audio_format"] = audio_format
         gt_options["add_features_output"] = True
         return features.gammatone_flow(**gt_options)
 
     def _make_base_cached_gt_feature_flow_16k(
-        self, corpus_info: dataclasses.CorpusInfo, dc_detection: bool = False, **_
+        self, data_input: dataclasses.RasrDataInput, dc_detection: bool = False, **_
     ):
-        gt_job = features.GammatoneJob(
-            crp=corpus_info.crp, **get_feature_extraction_args_16kHz(dc_detection=dc_detection)["gt"]
+        crp = data_input.get_crp(
+            rasr_python_exe=self.rasr_python_exe,
+            rasr_binary_path=self.rasr_binary_path,
+            returnn_python_exe=self.returnn_python_exe,
+            returnn_root=self.returnn_root,
         )
+        gt_job = features.GammatoneJob(crp=crp, **get_feature_extraction_args_16kHz(dc_detection=dc_detection)["gt"])
         feature_path = rasr.FlagDependentFlowAttribute(
             "cache_mode",
             {
@@ -179,23 +202,28 @@ class RasrFunctor(ABC):
 
     def _make_cached_concatenated_gt_feature_flow_16k(
         self,
-        corpus_info: dataclasses.CorpusInfo,
+        data_input: dataclasses.RasrDataInput,
         dc_detection: bool = False,
         use_mix: bool = True,
         use_sec: bool = True,
         **_,
     ):
         # TODO: why does this assert fail?
-        # assert isinstance(corpus_info.data.corpus_object, SeparatedCorpusObject)
-        crp_prim = corpus_info.crp
+        # assert isinstance(data_input.corpus_object, SeparatedCorpusObject)
+        crp_prim = data_input.get_crp(
+            rasr_python_exe=self.rasr_python_exe,
+            rasr_binary_path=self.rasr_binary_path,
+            returnn_python_exe=self.returnn_python_exe,
+            returnn_root=self.returnn_root,
+        )
 
-        crp_sec = copy.deepcopy(corpus_info.crp)
+        crp_sec = copy.deepcopy(crp_prim)
         assert crp_sec.corpus_config is not None
-        crp_sec.corpus_config.file = corpus_info.data.corpus_object.secondary_corpus_file
+        crp_sec.corpus_config.file = data_input.corpus_object.secondary_corpus_file
 
-        crp_mix = copy.deepcopy(corpus_info.crp)
+        crp_mix = copy.deepcopy(crp_prim)
         assert crp_mix.corpus_config is not None
-        crp_mix.corpus_config.file = corpus_info.data.corpus_object.mix_corpus_file
+        crp_mix.corpus_config.file = data_input.corpus_object.mix_corpus_file
 
         cache_files = []
         crp_list = [crp_prim]
@@ -218,11 +246,13 @@ class RasrFunctor(ABC):
 
         return features.basic_cache_flow(cache_files=cache_files)
 
-    def _make_base_logmel_feature_flow_16k(self, corpus_info: dataclasses.CorpusInfo, dc_detection: bool = False, **_):
+    def _make_base_logmel_feature_flow_16k(
+        self, data_input: dataclasses.RasrDataInput, dc_detection: bool = False, **_
+    ):
         filterbank_options = copy.deepcopy(
             get_feature_extraction_args_16kHz(dc_detection=dc_detection)["filterbank"]["filterbank_options"]
         )
-        audio_format = corpus_info.crp.audio_format
+        audio_format = data_input.corpus_object.audio_format
         filterbank_options["samples_options"]["audio_format"] = audio_format
         filterbank_options["add_features_output"] = True
         return features.filterbank_flow(**filterbank_options)
@@ -274,12 +304,9 @@ class RasrFunctor(ABC):
 
     @lru_cache_with_signature
     def _get_native_lstm_op(self) -> tk.Path:
-        tools = ToolPaths(
-            returnn_root=self.returnn_root,
-            returnn_python_exe=self.returnn_python_exe,
-            blas_lib=self.blas_lib,
+        return helpers.get_native_lstm_op(
+            returnn_root=self.returnn_root, returnn_python_exe=self.returnn_python_exe, blas_lib=self.blas_lib
         )
-        return helpers.get_native_lstm_op(tools)
 
     def _make_precomputed_tf_feature_flow(
         self,
@@ -385,9 +412,9 @@ class RasrFunctor(ABC):
         self,
         crp: rasr.CommonRasrParameters,
         lattice_bundle: tk.Path,
-        scorer: dataclasses.ScorerInfo,
+        scorer: ScorerInfo,
         **kwargs,
-    ) -> types.ScoreJob:
+    ) -> ScoreJob:
         lat2ctm = recognition.LatticeToCtmJob(
             crp=crp,
             lattice_cache=lattice_bundle,
@@ -402,9 +429,9 @@ class RasrFunctor(ABC):
         self,
         crp: rasr.CommonRasrParameters,
         lattice_bundle: tk.Path,
-        scorer: dataclasses.ScorerInfo,
+        scorer: ScorerInfo,
         **kwargs,
-    ) -> types.ScoreJob:
+    ) -> ScoreJob:
         lat2ctm = recognition.LatticeToCtmJob(
             crp=crp,
             lattice_cache=lattice_bundle,
@@ -420,9 +447,9 @@ class RasrFunctor(ABC):
         self,
         crp: rasr.CommonRasrParameters,
         lattice_bundle: tk.Path,
-        scorer: dataclasses.ScorerInfo,
+        scorer: ScorerInfo,
         **kwargs,
-    ) -> types.ScoreJob:
+    ) -> ScoreJob:
         lat2ctm = recognition.LatticeToCtmJob(
             crp=crp,
             lattice_cache=lattice_bundle,
@@ -438,9 +465,9 @@ class RasrFunctor(ABC):
         self,
         crp: rasr.CommonRasrParameters,
         lattice_bundle: tk.Path,
-        scorer: dataclasses.ScorerInfo,
+        scorer: ScorerInfo,
         **kwargs,
-    ) -> types.ScoreJob:
+    ) -> ScoreJob:
         lat2ctm = recognition.LatticeToCtmJob(
             crp=crp,
             lattice_cache=lattice_bundle,
@@ -452,7 +479,7 @@ class RasrFunctor(ABC):
 
         return score_job
 
-    def _score_recognition_output(self, recognition_scoring_type: RecognitionScoringType, **kwargs) -> types.ScoreJob:
+    def _score_recognition_output(self, recognition_scoring_type: RecognitionScoringType, **kwargs) -> ScoreJob:
         if recognition_scoring_type == RecognitionScoringType.Lattice:
             return self._lattice_to_ctm_scoring(**kwargs)
         if recognition_scoring_type == RecognitionScoringType.LatticeUpsample:

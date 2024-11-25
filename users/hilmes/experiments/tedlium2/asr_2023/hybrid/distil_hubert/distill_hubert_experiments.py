@@ -28,16 +28,14 @@ def run_gmm_system():
 
 
 def run_tedlium2_torch_distill_hubert():
-    import time
-    start = time.time()
     prefix = "experiments/tedlium2/hybrid/distill_hubert"
     gs.ALIAS_AND_OUTPUT_SUBDIR = prefix
     gmm_system = run_gmm_system()
-    print(f"Hubert GMM Time {time.time() - start}")
-    start = time.time()
 
     rasr_init_args = copy.deepcopy(gmm_system.rasr_init_args)
-    rasr_init_args.feature_extraction_args = get_log_mel_feature_extraction_args()
+    args = copy.deepcopy(get_log_mel_feature_extraction_args())
+
+    rasr_init_args.feature_extraction_args = args
 
     feature_extraction_args = rasr_init_args.feature_extraction_args["fb"]
     feature_extraction_class = FilterbankJob
@@ -79,8 +77,6 @@ def run_tedlium2_torch_distill_hubert():
         commit="d4ab1d8fcbe3baa11f6d8e2cf8e443bc0e9e9fa2",
     ).out_repository.copy()
     returnn_root.hash_overwrite = "TEDLIUM_DISTILL_HUBERT_RETURNN__COMMIT"
-    print(f"Hubert Pre Hybrid Time {time.time() - start}")
-    start = time.time()
     tedlium_nn_system = OnnxPrecomputedHybridSystem(
         returnn_root=returnn_root,
         returnn_python_exe=returnn_exe,
@@ -98,6 +94,5 @@ def run_tedlium2_torch_distill_hubert():
         train_cv_pairing=[tuple(["train.train", "dev.cv"])],
     )
     tedlium_nn_system.run(nn_steps)
-    print(f"Hubert Post Hybrid Time {time.time() - start}")
     gs.ALIAS_AND_OUTPUT_SUBDIR = ""
 

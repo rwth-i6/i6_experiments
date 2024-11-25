@@ -108,6 +108,7 @@ def recog_model(
     *,
     search_post_config: Optional[Dict[str, Any]] = None,
     search_mem_rqmt: Union[int, float] = 6,
+    search_rqmt: Optional[Dict[str, Any]] = None,
     device: Optional[str] = "gpu",
     dev_sets: Optional[Collection[str]] = None,
     model_args: Optional[Dict[str, Any]] = None,
@@ -128,6 +129,7 @@ def recog_model(
             recog_def=recog_def,
             search_post_config=search_post_config,
             search_mem_rqmt=search_mem_rqmt,
+            search_rqmt=search_rqmt,
             device=device,
             recog_post_proc_funcs=task.recog_post_proc_funcs,
             model_args=model_args,
@@ -146,6 +148,7 @@ def search_dataset(
     recog_def: RecogDef,
     search_post_config: Optional[Dict[str, Any]] = None,
     search_mem_rqmt: Union[int, float] = 6,
+    search_rqmt: Optional[Dict[str, Any]] = None,
     device: Optional[str] = "gpu",
     recog_post_proc_funcs: Sequence[Callable[[RecogOutput], RecogOutput]] = (),
     model_args: Optional[Dict[str, Any]] = None,
@@ -188,6 +191,8 @@ def search_dataset(
         forward_job.add_alias(prefix_name + "/forward_job")
         res = forward_job.out_files[_v2_forward_out_filename]
         forward_job_out = res
+    if search_rqmt:
+        forward_job.rqmt.update(search_rqmt)
     if recog_def.output_blank_label:
         res = SearchRemoveLabelJob(res, remove_label=recog_def.output_blank_label, output_gzip=True).out_search_results
     for f in recog_post_proc_funcs:  # for example BPE to words

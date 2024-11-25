@@ -1,3 +1,9 @@
+"""
+Script to import the transformer LM for Librispeech 960h from tensorflow to Librispeech.
+If this does not work maybe check users/gaudino/experiments/rf_conformer_att_2023/tedlium2/_import_model.py,
+ as this was used most recently to import models
+"""
+
 from __future__ import annotations
 
 from typing import Dict
@@ -20,13 +26,15 @@ from i6_experiments.users.gaudino.experiments.rf_conformer_att_2023.librispeech_
 
 import returnn.frontend as rf
 
-from i6_experiments.users.gaudino.experiments.rf_conformer_att_2023.tedlium2._import_model import convert_lm
-
+from i6_experiments.users.gaudino.experiments.rf_conformer_att_2023.tedlium2._import_model import (
+    convert_lm,
+)
 
 
 lm_path = "/work/asr3/irie/experiments/lm/librispeech/2018-03-05--lmbpe-zeyer/data-train/re_i128_m2048_m2048_m2048_m2048.sgd_b32_lr0_cl2.newbobabs.d0.0.1350/bk-net-model/network.035"
 _returnn_tf_ckpt_filename = "/work/asr4/zeineldeen/setups-data/librispeech/2022-11-28--conformer-att/work/i6_core/returnn/training/AverageTFCheckpointsJob.BxqgICRSGkgb/output/model/average"
 trafo_lm_path = "/work/asr3/irie/experiments/lm/librispeech/2018-03-05--lmbpe-zeyer/data-train/transfo_24_d00.4096_1024.sgd.lr1.8_heads/bk-net-model/network.023"
+
 
 def _get_pt_checkpoint_path() -> tk.Path:
     old_tf_ckpt_path = generic_job_output(lm_path)
@@ -75,7 +83,7 @@ def test_convert_checkpoint():
             "ff_activation": "relu",
         },
     }
-    model_args={}
+    model_args = {}
 
     print("Creating model...")
     rf.select_backend_torch()
@@ -261,6 +269,7 @@ def _add_params_conformer():
             f"encoder.layers.{layer_idx}.final_layer_norm.bias"
         ] = f"conformer_block_{layer_idx + 1:02d}_ln/bias"
 
+
 def _add_params_trafo_lm(param_mapping: Dict[str, str]):
     # add params of trafo lm
     for layer_idx in range(30):
@@ -290,9 +299,11 @@ def _add_params_trafo_lm(param_mapping: Dict[str, str]):
         }
     )
 
+
 _add_params_conformer()
 # _add_params()
 _add_params_trafo_lm(_ParamMapping)
+
 
 def map_param_func_lstm(reader, name: str, var: rf.Parameter) -> numpy.ndarray:
     """map params, TF to RF"""
@@ -318,25 +329,37 @@ def map_param_func_lstm(reader, name: str, var: rf.Parameter) -> numpy.ndarray:
         assert isinstance(value, numpy.ndarray)
 
         if name.endswith(".ff_weight"):
-            print("Old ff:", value[0][0], value[0][2048], value[0][4096], value[0][6144])
+            print(
+                "Old ff:", value[0][0], value[0][2048], value[0][4096], value[0][6144]
+            )
             value = convert_params.convert_tf_lstm_to_torch_lstm_ff(value)
-            print("Convert ff:", value[0][0], value[2048][0], value[4096][0], value[6144][0])
+            print(
+                "Convert ff:",
+                value[0][0],
+                value[2048][0],
+                value[4096][0],
+                value[6144][0],
+            )
 
         if name.endswith(".rec_weight"):
-            print("Old rec:", value[0][0], value[0][2048], value[0][4096], value[0][6144])
+            print(
+                "Old rec:", value[0][0], value[0][2048], value[0][4096], value[0][6144]
+            )
             value = convert_params.convert_tf_lstm_to_torch_lstm_rec(value)
-            print("Convert rec:", value[0][0], value[2048][0], value[4096][0], value[6144][0])
-
+            print(
+                "Convert rec:",
+                value[0][0],
+                value[2048][0],
+                value[4096][0],
+                value[6144][0],
+            )
 
         if "lstm" in name and name.endswith(".bias"):
             print("Old bias:", value[0], value[2048], value[4096], value[6144])
-            value = convert_params.convert_tf_lstm_to_torch_lstm_bias(
-                value
-            )
+            value = convert_params.convert_tf_lstm_to_torch_lstm_bias(value)
             print("Convert bias:", value[0], value[2048], value[4096], value[6144])
 
-
-        if (name == "output.weight"):
+        if name == "output.weight":
             # value = convert_params_np.convert_tf_lstm_to_native_lstm_ff(value)
             value = value.transpose()
 
@@ -349,6 +372,7 @@ def map_param_func_lstm(reader, name: str, var: rf.Parameter) -> numpy.ndarray:
         return value
 
     raise NotImplementedError(f"cannot map {name!r} {var}")
+
 
 def map_param_func_trafo_lm(
     reader, name: str, var: rf.Parameter, param_mapping: Dict[str, str]
@@ -451,12 +475,13 @@ def map_param_func_v3(reader, name: str, var: rf.Parameter) -> numpy.ndarray:
 
     raise NotImplementedError(f"cannot map {name!r} {var}")
 
+
 if __name__ == "__main__":
     # import_models()
     trafo_lm_args = {
-            "num_layers": 24,
-            "layer_out_dim": 1024,
-            "att_num_heads": 8,
+        "num_layers": 24,
+        "layer_out_dim": 1024,
+        "att_num_heads": 8,
     }
 
     convert_lm(

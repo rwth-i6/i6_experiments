@@ -4,7 +4,7 @@ Dataset helpers for the EOW-augmented phoneme training
 from sisyphus import tk
 
 import os
-from typing import Optional
+from typing import List, Optional
 
 from i6_core.corpus.transform import ApplyLexiconToCorpusJob
 from i6_core.g2p.convert import BlissLexiconToG2PLexiconJob
@@ -114,17 +114,38 @@ def get_text_lexicon() -> tk.Path:
     return word_lexicon
 
 
+def synthetic_librispeech_bliss_to_ogg_zip(
+        prefix: str,
+        bliss: str,
+        lexicon_librispeech_key,
+    ) -> tk.Path:
+    """
+
+    :param bliss: path to the bliss to generate ogg zip
+    :param lexicon_librispeech_key: lexicon coverage needed for the synthetic data (train-clean-100, 460 etc...)
+    :return:
+    """
+    lexicon = get_eow_lexicon(g2p_librispeech_key=lexicon_librispeech_key, with_g2p=True)
+    converted_bliss = ApplyLexiconToCorpusJob(bliss, lexicon, word_separation_orth=None).out_corpus
+    ogg_zip = get_zip(alias_name=prefix + "/syn_ogg_zip", bliss_dataset=converted_bliss)
+    return ogg_zip
+
+
 def build_eow_phon_training_datasets(
     prefix: str,
     librispeech_key: str,
     settings: DatasetSettings,
     lexicon_librispeech_key: Optional[str] = None,
+    extra_train_ogg_zips: Optional[List[tk.Path]] = None,
+    data_repetition_factors: Optional[List[int]] = None,
 ) -> TrainingDatasets:
     """
     :param prefix:
     :param librispeech_key: which librispeech corpus to use
     :param settings: configuration object for the dataset pipeline
     :param lexicon_librispeech_key: if we are using extra synthetic data, we might want a lexicon with the OOV coverage of that data as well
+    :param extra_train_ogg_zips: add additional ogg zips for training, e.g. created by `synthetic_librispeech_bliss_to_ogg_zip`
+    :param data_repetition_factors: list if integers, first entry is for the original librispeech data
     """
     label_datastream = get_eow_vocab_datastream(
         prefix=prefix, g2p_librispeech_key=lexicon_librispeech_key or librispeech_key
@@ -139,9 +160,17 @@ def build_eow_phon_training_datasets(
     _, dev_other_ogg = get_eow_bliss_and_zip(
         librispeech_key="dev-other", g2p_librispeech_key=librispeech_key, remove_unk_seqs=True
     )
+    if extra_train_ogg_zips is None:
+        ogg_zips = train_ogg
+    else:
+        assert data_repetition_factors, "please provide repetition factors if you provide extra ogg zips"
+        assert len(extra_train_ogg_zips) + 1 == len(data_repetition_factors)
+        ogg_zips = [train_ogg] * data_repetition_factors[0]
+        for ogg_zip, repetition in zip(extra_train_ogg_zips, data_repetition_factors[1:]):
+            ogg_zips += [ogg_zip] * repetition
 
     return build_training_datasets(
-        train_ogg=train_ogg,
+        train_ogg=ogg_zips,
         dev_clean_ogg=dev_clean_ogg,
         dev_other_ogg=dev_other_ogg,
         settings=settings,

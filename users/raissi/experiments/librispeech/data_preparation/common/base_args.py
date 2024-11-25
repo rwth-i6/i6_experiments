@@ -56,10 +56,12 @@ def get_init_args(
 
     costa_args = {"eval_recordings": True, "eval_lm": False}
 
-    feature_extraction_args = get_feature_extraction_args_16kHz(dc_detection=dc_detection,
-                                                                mfcc_cepstrum_options=mfcc_cepstrum_options,
-                                                                mfcc_args=mfcc_extra_args,
-                                                                gt_args=gt_options_extra_args)
+    feature_extraction_args = get_feature_extraction_args_16kHz(
+        dc_detection=dc_detection,
+        mfcc_cepstrum_options=mfcc_cepstrum_options,
+        mfcc_args=mfcc_extra_args,
+        gt_args=gt_options_extra_args,
+    )
     return RasrInitArgs(
         costa_args=costa_args,
         am_args=am_args,
@@ -151,6 +153,7 @@ def get_corpus_data_inputs(
 
 def get_number_of_segments():
     num_segments = constants.num_segments
-    for subset in ["clean-360", "other-500"]:
-        del num_segments[f"train-{subset}"]
+    num_segments[f"train-other-960"] = 0
+    for subset in ["clean-100", "clean-360", "other-500"]:
+        num_segments[f"train-other-960"]+= num_segments[f"train-{subset}"]
     return num_segments

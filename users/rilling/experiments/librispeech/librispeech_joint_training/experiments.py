@@ -1727,6 +1727,104 @@ def get_glow_joint(x_vector_exp, gl_checkpoint):
         search_args=default_search_args,
         tts_forward=False,
     )
+
+    #=================== 200EP training =================================
+    model_config_specaug = copy.deepcopy(model_config)
+    model_config_specaug.specaug_config = specaug_config
+    train_args_200ep = {
+        "net_args": {"fe_config": asdict(fe_config), "model_config": asdict(model_config_specaug)},
+        "network_module": net_module,
+        "debug": True,
+        "config": {
+            "optimizer": {"class": "adam", "epsilon": 1e-8},
+            "learning_rates": list(np.linspace(7e-6, 7e-4, 88))
+            + list(np.linspace(7e-4, 7e-5, 88))
+            + list(np.linspace(7e-5, 1e-8, 24)),
+            "batch_size": 300 * 16000,
+            "max_seq_length": {"audio_features": 25 * 16000},
+            "max_seqs": 60,
+        },
+    }
+
+    train_args_200ep["config"]["preload_from_files"] = {
+        "x_vector_model": {
+            "filename": x_vect_train_job.out_checkpoints[x_vect_train_job.returnn_config.get("num_epochs", 100)],
+            "init_for_train": True,
+            "prefix": "x_vector.",
+            "ignore_missing": True,
+        }
+    }
+
+    net_module = "glowTTS_ASR_conformer_x_vector_v2"
+    train_args_200ep["network_module"] = net_module
+
+    exp_dict = run_exp(
+        net_module + "_200ep_spec_augment_ctc_scale_0.1",
+        train_args_200ep,
+        training_datasets_pe1,
+        asr_test_datasets,
+        200,
+        training_args={"ctc_scale": 0.1},
+        forward_args=forward_args,
+        search_args=default_search_args,
+        eval_tts=True,
+        tts_eval_datasets=tts_forward_datasets_xvectors,
+        eval_invertibility=True,
+    )
+
+    net_module = "glowTTS_ASR_conformer_two_forward_pass"
+    train_args_200ep_two_forward = copy.deepcopy(train_args_200ep)
+    del train_args_200ep_two_forward["config"]["preload_from_files"]
+    train_args_200ep_two_forward["network_module"] = net_module
+
+    exp_dict = run_exp(
+        net_module + "_200ep_ctc_scale_0.1",
+        train_args_200ep_two_forward,
+        training_datasets_pe1,
+        asr_test_datasets,
+        200,
+        training_args={"ctc_scale": 0.1},
+        forward_args=forward_args,
+        search_args=default_search_args,
+        eval_tts=True,
+        tts_eval_datasets=tts_forward_datasets,
+        eval_invertibility=True,
+    )
+
+    for lm in [2.0, 2.5, 3.0, 3.5, 4.0, 4.5]:
+        for ps in [0, 0.3, 0.5]:
+            additional_search_args = {"lm_weight": lm, "prior_scale": ps}
+            suffix = f"/tuning/lm_{lm}_ps_{ps}"
+
+            exp_dict = run_exp(
+                train_args_200ep["network_module"] + "_200ep_spec_augment_ctc_scale_0.1" + suffix,
+                train_args_200ep,
+                training_datasets_pe1,
+                asr_test_datasets,
+                200,
+                training_args={"ctc_scale": 0.1},
+                forward_args=forward_args,
+                search_args={**default_search_args, **additional_search_args},
+                eval_tts=True,
+                tts_eval_datasets=tts_forward_datasets_xvectors,
+            )
+            breakpoint()
+
+            exp_dict = run_exp(
+                train_args_200ep_two_forward["network_module"] + "_200ep_ctc_scale_0.1" + suffix,
+                train_args_200ep_two_forward,
+                training_datasets_pe1,
+                asr_test_datasets,
+                200,
+                training_args={"ctc_scale": 0.1},
+                forward_args=forward_args,
+                search_args={**default_search_args, **additional_search_args},
+                eval_tts=True,
+                tts_eval_datasets=tts_forward_datasets,
+                eval_invertibility=True,
+                with_prior=True,
+            )
+
     # ================== BLSTM =================
     model_config_blstm = ModelConfigV2(
         specaug_config=None,

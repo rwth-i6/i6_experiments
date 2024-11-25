@@ -18,9 +18,10 @@ from i6_core.returnn.training import ReturnnTrainingJob, AverageTorchCheckpoints
 from i6_core.returnn.forward import ReturnnForwardJobV2
 
 from i6_experiments.common.setups.returnn.datasets import Dataset
+from i6_experiments.users.rossenbach.tts.evaluation.nisqa import NISQAMosPredictionJob
 
 from .config import get_forward_config, get_training_config, get_prior_config, TrainingDatasets
-from .default_tools import SCTK_BINARY_PATH, RETURNN_EXE, MINI_RETURNN_ROOT
+from .default_tools import SCTK_BINARY_PATH, RETURNN_EXE, MINI_RETURNN_ROOT, NISQA_REPO
 
 
 @dataclass
@@ -31,6 +32,21 @@ class ASRModel:
     prior_file: Optional[tk.Path]
     prefix_name: Optional[str]
 
+@dataclass
+class NeuralLM:
+    checkpoint: tk.Path
+    net_args: Dict[str, Any]
+    network_module: str
+    prefix_name: Optional[str]
+    bpe_vocab: Optional[tk.Path] = None
+    bpe_codes: Optional[tk.Path] = None
+
+@dataclass
+class TTSModel:
+    checkpoint: tk.Path
+    net_args: Dict[str, Any]
+    network_module: str
+    prefix_name: Optional[str]
 
 def search_single(
     prefix_name: str,
@@ -40,7 +56,7 @@ def search_single(
     recognition_bliss_corpus: tk.Path,
     returnn_exe: tk.Path,
     returnn_root: tk.Path,
-    mem_rqmt: float = 10,
+    mem_rqmt: float = 12,
     use_gpu: bool = False,
 ):
     """
@@ -63,7 +79,7 @@ def search_single(
         returnn_config=returnn_config,
         log_verbosity=5,
         mem_rqmt=mem_rqmt,
-        time_rqmt=24,
+        time_rqmt=0.5 if use_gpu else 12,
         device="gpu" if use_gpu else "cpu",
         cpu_rqmt=2,
         returnn_python_exe=returnn_exe,
@@ -79,7 +95,7 @@ def search_single(
 
     stm_file = CorpusToStmJob(bliss_corpus=recognition_bliss_corpus).out_stm_path
 
-    sclite_job = ScliteJob(ref=stm_file, hyp=search_ctm, sctk_binary_path=SCTK_BINARY_PATH)
+    sclite_job = ScliteJob(ref=stm_file, hyp=search_ctm, sctk_binary_path=SCTK_BINARY_PATH, precision_ndigit=2)
     tk.register_output(prefix_name + "/sclite/wer", sclite_job.out_wer)
     tk.register_output(prefix_name + "/sclite/report", sclite_job.out_report_dir)
 
@@ -190,7 +206,7 @@ def training(training_name, datasets, train_args, num_epochs, returnn_exe, retur
     """
     returnn_config = get_training_config(training_datasets=datasets, **train_args)
     default_rqmt = {
-        "mem_rqmt": 24,
+        "mem_rqmt": 20,
         "time_rqmt": 168,
         "cpu_rqmt": 6,
         "log_verbosity": 5,
@@ -203,6 +219,76 @@ def training(training_name, datasets, train_args, num_epochs, returnn_exe, retur
     tk.register_output(training_name + "/learning_rates", train_job.out_learning_rates)
     return train_job
 
+def tts_eval_v2(
+        prefix_name,
+        returnn_config,
+        checkpoint,
+        returnn_exe,
+        returnn_root,
+        mem_rqmt=8,
+        use_gpu=False,
+        store_log_mels=False,
+):
+    """
+    Run search for a specific test dataset
+
+    :param prefix_name: prefix folder path for alias and output files
+    :param returnn_config: the RETURNN config to be used for forwarding
+    :param Checkpoint checkpoint: path to RETURNN PyTorch model checkpoint
+    :param returnn_exe: The python executable to run the job with (when using container just "python3")
+    :param returnn_root: Path to a checked out RETURNN repository
+    :param mem_rqmt: override the default memory requirement
+    """
+
+    output_files = ["audio_files", "out_corpus.xml.gz"]
+    if store_log_mels:
+        output_files += ["log_mels.hdf"]
+    forward_job = ReturnnForwardJobV2(
+        model_checkpoint=checkpoint,
+        returnn_config=returnn_config,
+        log_verbosity=5,
+        mem_rqmt=mem_rqmt,
+        time_rqmt=24,
+        device="gpu" if use_gpu else "cpu",
+        cpu_rqmt=4,
+        returnn_python_exe=returnn_exe,
+        returnn_root=returnn_root,
+        output_files=output_files,
+    )
+    forward_job.add_alias(prefix_name + "/tts_eval_job")
+    # evaluate_nisqa(prefix_name, forward_job.out_files["out_corpus.xml.gz"], with_bootstrap=True)
+    return forward_job
+
+
+def evaluate_nisqa(
+        prefix_name: str,
+        bliss_corpus: tk.Path,
+        with_bootstrap = False,
+):
+    predict_mos_job = NISQAMosPredictionJob(bliss_corpus, nisqa_repo=NISQA_REPO)
+    predict_mos_job.add_alias(prefix_name + "/nisqa_mos")
+    tk.register_output(os.path.join(prefix_name, "nisqa_mos/average"), predict_mos_job.out_mos_average)
+    tk.register_output(os.path.join(prefix_name, "nisqa_mos/min"), predict_mos_job.out_mos_min)
+    tk.register_output(os.path.join(prefix_name, "nisqa_mos/max"), predict_mos_job.out_mos_max)
+    tk.register_output(os.path.join(prefix_name, "nisqa_mos/std_dev"), predict_mos_job.out_mos_std_dev)
+
+    if with_bootstrap:
+        from i6_experiments.users.rossenbach.tts.evaluation.nisqa import NISQAConfidenceJob
+        nisqa_confidence_job = NISQAConfidenceJob(predict_mos_job.output_dir, bliss_corpus)
+        nisqa_confidence_job.add_alias(prefix_name + "/nisqa_mos_confidence")
+        tk.register_output(os.path.join(prefix_name, "nisqa_mos/confidence_max_interval"), nisqa_confidence_job.out_max_interval_bound)
+
+
+
+@dataclass
+class QuantArgs:
+    quant_config_dict: Dict[str, Any]
+    num_samples: int
+    seed: int
+    datasets: TrainingDatasets
+    network_module: str
+    filter_args: Optional[Dict[str, Any]] = None
+
 
 def prepare_asr_model(
     training_name,
@@ -214,6 +300,7 @@ def prepare_asr_model(
     get_best_averaged_checkpoint: Optional[Tuple[int, str]] = None,
     get_last_averaged_checkpoint: Optional[int] = None,
     prior_config: Optional[Dict[str, Any]] = None,
+    quant_args: Optional[QuantArgs] = None
 ):
     """
     :param training_name:
@@ -291,12 +378,102 @@ def prepare_asr_model(
         if prior_config is not None:
             raise ValueError("prior_config can only be set if with_prior is True")
 
-    asr_model = ASRModel(
+    if quant_args:
+        from .config import get_static_quant_config
+        quant_config = get_static_quant_config(
+            training_datasets=quant_args.datasets,
+            network_module=quant_args.network_module,
+            net_args=train_args["net_args"],
+            quant_args=quant_args.quant_config_dict,
+            config={},
+            num_samples=quant_args.num_samples,
+            dataset_seed=quant_args.seed,
+            debug=False,
+            dataset_filter_args=quant_args.filter_args
+        )
+        quant_chkpt = quantize_static(
+            prefix_name=training_name,
+            returnn_config=quant_config,
+            checkpoint=checkpoint,
+            returnn_exe=RETURNN_EXE,
+            returnn_root=MINI_RETURNN_ROOT,
+        )
+        asr_model = ASRModel(
+            checkpoint=quant_chkpt,
+            net_args=train_args["net_args"] | quant_args.quant_config_dict,
+            network_module=quant_args.network_module,
+            prior_file=prior_file,
+            prefix_name=training_name
+        )
+    else:
+        asr_model = ASRModel(
+            checkpoint=checkpoint,
+            network_module=train_args["network_module"],
+            net_args=train_args["net_args"],
+            prior_file=prior_file,
+            prefix_name=training_name,
+        )
+
+    return asr_model
+
+def prepare_tts_model(
+    training_name,
+    train_job,
+    train_args,
+    get_specific_checkpoint: int,
+):
+    """
+    For now basically do nothing except for creating the dataclass
+
+    :param training_name:
+    :param train_job:
+    :param train_args:
+    :param get_specific_checkpoint:
+    :return:
+    """
+    checkpoint = train_job.out_checkpoints[get_specific_checkpoint]
+    training_name = training_name + "/ep_%i_cpkt" % get_specific_checkpoint
+
+    tts_model = TTSModel(
         checkpoint=checkpoint,
         network_module=train_args["network_module"],
         net_args=train_args["net_args"],
-        prior_file=prior_file,
         prefix_name=training_name,
     )
+    return tts_model
 
-    return asr_model
+
+@tk.block()
+def quantize_static(
+    prefix_name: str,
+    returnn_config: ReturnnConfig,
+    checkpoint: tk.Path,
+    returnn_exe: tk.Path,
+    returnn_root: tk.Path,
+    mem_rqmt: int = 16,
+):
+    """
+    Run search for a specific test dataset
+
+    :param prefix_name: prefix folder path for alias and output files
+    :param returnn_config: the RETURNN config to be used for forwarding
+    :param Checkpoint checkpoint: path to RETURNN PyTorch model checkpoint
+    :param returnn_exe: The python executable to run the job with (when using container just "python3")
+    :param returnn_root: Path to a checked out RETURNN repository
+    :param mem_rqmt: override the default memory requirement
+    """
+    quantize_job = ReturnnForwardJobV2(
+        model_checkpoint=checkpoint,
+        returnn_config=returnn_config,
+        log_verbosity=5,
+        mem_rqmt=mem_rqmt,
+        time_rqmt=2,
+        device="gpu",
+        cpu_rqmt=8,
+        returnn_python_exe=returnn_exe,
+        returnn_root=returnn_root,
+        output_files=['model.pt', "seq_tags.txt"],
+    )
+    quantize_job.set_keep_value(5)
+    quantize_job.add_alias(prefix_name + "/calibration")
+    return quantize_job.out_files['model.pt']

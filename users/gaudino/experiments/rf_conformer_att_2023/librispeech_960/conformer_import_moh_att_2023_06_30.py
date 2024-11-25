@@ -30,18 +30,23 @@ from i6_experiments.users.gaudino.experiments.rf_conformer_att_2023.librispeech_
 from i6_experiments.users.gaudino.experiments.rf_conformer_att_2023.librispeech_960.model_recogs.model_recog_time_sync import (
     model_recog_time_sync,
 )
+from i6_experiments.users.gaudino.experiments.rf_conformer_att_2023.librispeech_960.model_recogs.model_recog_ts_espnet import (
+    model_recog_ts_espnet,
+)
+
+from i6_experiments.users.gaudino.experiments.rf_conformer_att_2023.librispeech_960.model_recogs.model_recog_ts_robin import (
+    model_recog as model_recog_ts_robin,
+)
 from i6_experiments.users.gaudino.experiments.rf_conformer_att_2023.librispeech_960.model_recogs.model_recog_dump import (
     model_recog_dump,
 )
 from i6_experiments.users.gaudino.experiments.rf_conformer_att_2023.librispeech_960.model_recogs.model_recog_ctc_greedy import (
     model_recog_ctc,
 )
-from i6_experiments.users.gaudino.experiments.rf_conformer_att_2023.librispeech_960.model_recogs.model_forward import (
-    model_forward,
+from i6_experiments.users.gaudino.experiments.rf_conformer_att_2023.librispeech_960.model_recogs.model_forward_ctc_max import (
+    model_forward_ctc_max,
 )
-from i6_experiments.users.gaudino.experiments.rf_conformer_att_2023.librispeech_960.model_recogs.model_forward_time_sync import (
-    model_forward_time_sync,
-)
+
 
 
 import torch
@@ -70,7 +75,8 @@ def sis_run_with_prefix(prefix_name: str = None):
     from .sis_setup import get_prefix_for_config
     from i6_core.returnn.training import PtCheckpoint
     from i6_experiments.users.zeyer.model_interfaces import ModelWithCheckpoint
-    from i6_experiments.users.gaudino.recog import recog_model
+    from i6_experiments.users.gaudino.recog import recog_model as recog_model_old
+    from i6_experiments.users.gaudino.recog_2 import recog_model
     from i6_experiments.users.gaudino.forward import forward_model
 
     from i6_experiments.users.gaudino.datasets.librispeech import (
@@ -86,6 +92,9 @@ def sis_run_with_prefix(prefix_name: str = None):
     task = get_librispeech_task_bpe10k_raw(with_eos_postfix=True)
 
     bsf = 10
+    single_seq_prefix_name = prefix_name + "/single_seq"
+    prefix_name_60 = prefix_name + f"/bsf60"
+    prefix_name_40 = prefix_name + f"/bsf40"
     prefix_name = prefix_name + f"/bsf{bsf}"
 
     ### Experiments without LM and with LSTM LM
@@ -98,27 +107,30 @@ def sis_run_with_prefix(prefix_name: str = None):
         definition=from_scratch_model_def, checkpoint=new_chkpt
     )
 
-    model_args = {
-        "add_lstm_lm": True,
+    recog_config = {
+        "model_args": {
+            "add_lstm_lm": True,
+        },
     }
 
     # att only
-    for beam_size in [12, 18]:
+    for beam_size in []:
         recog_name = f"/att_beam{beam_size}"
-        name = prefix_name + recog_name
+        name = prefix_name_40 + recog_name
         search_args = {
             "beam_size": beam_size,
-            "bsf": bsf,
+            "bsf": 40,
         }
+        recog_config["search_args"] = search_args
 
-        res, _ = recog_model(
+        res = recog_model(
             task,
             model_with_checkpoint,
             model_recog,
-            dev_sets=["dev-other"],  # None for all
-            model_args=model_args,
-            search_args=search_args,
-            prefix_name=name,
+            dev_sets=None,  # None for all
+            config=recog_config,
+            name=name,
+            compute_search_errors=True,
         )
         tk.register_output(
             name + f"/recog_results",
@@ -132,6 +144,7 @@ def sis_run_with_prefix(prefix_name: str = None):
             prefix_name
             + f"/ctc_prefix_fix"
             + (f"_prior{prior_scale}" if prior_scale != 0.0 else "")
+            # + "_noLenNorm"
             + f"_beam{beam_size}"
         )
         search_args = {
@@ -144,6 +157,7 @@ def sis_run_with_prefix(prefix_name: str = None):
             "prior_corr": prior_scale != 0.0,
             "ctc_prior_file": "/work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/2023-02-22--conformer-swb/work/i6_core/returnn/extract_prior/ReturnnComputePriorJobV2.ZeflcEHlQTjn/output/prior.txt",
             "prior_scale": prior_scale,
+            # "length_normalization_exponent": 0.0,
         }
         res, _ = recog_model(
             task,
@@ -168,6 +182,7 @@ def sis_run_with_prefix(prefix_name: str = None):
             prefix_name
             + f"/opls_att{att_scale}_ctc{ctc_scale}_fix"
             + (f"_prior{prior_scale}" if prior_scale != 0.0 else "")
+            + "_noLenNorm"
             + f"_beam{beam_size}"
         )
         search_args = {
@@ -180,6 +195,7 @@ def sis_run_with_prefix(prefix_name: str = None):
             "prior_corr": prior_scale != 0.0,
             "ctc_prior_file": "/work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/2023-02-22--conformer-swb/work/i6_core/returnn/extract_prior/ReturnnComputePriorJobV2.ZeflcEHlQTjn/output/prior.txt",
             "prior_scale": prior_scale,
+            "length_normalization_exponent": 0.0,
         }
         res, _ = recog_model(
             task,
@@ -221,6 +237,43 @@ def sis_run_with_prefix(prefix_name: str = None):
         tk.register_output(
             name + f"/recog_results",
             res.output,
+        )
+
+    # optsr att + ctc
+    # beam 32: {"dev-clean": 2.2, "dev-other": 5.33, "test-clean": 2.44, "test-other": 5.61}
+    for scales, prior_scale, beam_size in product([(0.8, 0.2)], [0.1], []):
+        att_scale, ctc_scale = scales
+        name = (
+            prefix_name_40
+            + f"/optsr_att{att_scale}_ctc{ctc_scale}"
+            + (f"_prior{prior_scale}" if prior_scale != 0.0 else "")
+            + f"_beam{beam_size}_eos_end"
+        )
+        search_args = {
+            "beam_size": beam_size,
+            "att_scale": att_scale,
+            "ctc_scale": ctc_scale,
+            "bsf": 40,
+            "mask_eos": True,
+            "ctc_prior_file": "/work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/2023-02-22--conformer-swb/work/i6_core/returnn/extract_prior/ReturnnComputePriorJobV2.ZeflcEHlQTjn/output/prior.txt",
+            "prior_scale": prior_scale,
+            "hash_overwrite": "problem ctc log",
+            "add_eos_to_end": True,
+        }
+
+        recog_res, recog_out = recog_model(
+            task,
+            model_with_checkpoint,
+            model_recog_time_sync,
+            # dev_sets=["dev-other"],
+            dev_sets=None,
+            model_args=model_args,
+            search_args=search_args,
+            prefix_name=name,
+        )
+        tk.register_output(
+            name + f"/recog_results",
+            recog_res.output,
         )
 
     # ------------------ with LSTM LM ------------------------
@@ -411,14 +464,6 @@ def sis_run_with_prefix(prefix_name: str = None):
 
     #  ------------------ with Trafo LM ------------------------
 
-    # model_w_trafo_lm_ckpt_path = tk.Path(
-    #     _torch_ckpt_filename_w_trafo_lm, hash_overwrite="torch_ckpt_w_trafo_lm"
-    # )
-    # model_w_trafo_lm_ckpt = PtCheckpoint(model_w_trafo_lm_ckpt_path)
-    # model_with_checkpoint = ModelWithCheckpoint(
-    #     definition=from_scratch_model_def, checkpoint=model_w_trafo_lm_ckpt
-    # )
-    #
     model_ckpt_path = tk.Path(
         _torch_ckpt_filename_base_model, hash_overwrite="torch_ckpt_base_model"
     )
@@ -427,51 +472,61 @@ def sis_run_with_prefix(prefix_name: str = None):
         definition=from_scratch_model_def, checkpoint=model_ckpt
     )
 
-    model_args = {
-        "external_language_model": {
-            "class": "Trafo_LM_Model",
-            "num_layers": 24,
-            "layer_out_dim": 1024,
-            "att_num_heads": 8,
-            "use_pos_enc": True,
-            "ff_activation": "relu",
+    recog_config = {
+        "model_args": {
+            "external_language_model": {
+                "class": "Trafo_LM_Model",
+                "num_layers": 24,
+                "layer_out_dim": 1024,
+                "att_num_heads": 8,
+                "use_pos_enc": True,
+                "ff_activation": "relu",
+                "pos_enc_diff_pos": True,
+            },
         },
         "preload_from_files": {
             "01_trafo_lm": {
                 "prefix": "language_model.",
                 "filename": "/work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/2023-08-10--rf-librispeech/work/i6_experiments/users/gaudino/returnn/convert_ckpt_rf/librispeech/trafo_lm_only_24_02_06/network.023.pt",
             }
-        },
+        }
     }
+
+    with_lm_name = "/with_lm"
 
     # ilm ckpt torch: /work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/2023-08-10--rf-librispeech/work/i6_experiments/users/gaudino/returnn/convert_ckpt_rf/librispeech/mini_att_ilm_24_05_28/average.pt
 
-    # opts ctc + trafo lm TODO: fix bugs
-    for scales, beam_size in product([(1.0, 0.5)], []):
-        ctc_scale, lm_scale = scales
+    # optsr ctc + trafo lm
+    for lm_scale, prior_scale,  beam_size in product([0.75], [0.4], []):
         name = (
-            prefix_name
-            + f"/opts_ctc{ctc_scale}_trafo_lm{lm_scale}"
-            + f"_beam{beam_size}"
+            prefix_name_40
+            + with_lm_name
+            + f"/optsr_ctc_trafo_lm{lm_scale}"
+            + (f"_prior{prior_scale}" if prior_scale > 0.0 else "")
+            + f"_beam{beam_size}_w_trafo_eos"
         )
         search_args = {
             "beam_size": beam_size,
             "att_scale": 0.0,
-            "ctc_scale": ctc_scale,
+            "ctc_scale": 1.0,
             "add_trafo_lm": True,
-            # "remove_trafo_lm_eos": True,
-            # "add_eos_to_end": True,
+            "add_eos_to_end": True,
             "lm_scale": lm_scale,
-            "bsf": bsf,
+            "lm_skip": True,
+            "bsf": 40,
+            "ctc_prior_file": "/work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/2023-02-22--conformer-swb/work/i6_core/returnn/extract_prior/ReturnnComputePriorJobV2.ZeflcEHlQTjn/output/prior.txt",
+            "prior_scale": prior_scale,
+            "hash_overwrite": "problem_ctc_log",
         }
+        recog_config["search_args"] = search_args
 
-        recog_res, recog_out = recog_model(
+        recog_res = recog_model(
             task,
             model_with_checkpoint,
             model_recog_time_sync,
-            dev_sets=["dev-other"],
-            model_args=model_args,
-            search_args=search_args,
+            dev_sets=None,
+            # dev_sets=["dev-other"],
+            config=recog_config,
             prefix_name=name,
         )
         tk.register_output(
@@ -481,30 +536,31 @@ def sis_run_with_prefix(prefix_name: str = None):
 
     # att + trafo lm
     # beam 32: {"dev-clean": 1.91, "dev-other": 4.14, "test-clean": 2.2, "test-other": 4.6}
-    for lm_scale, beam_size in product([0.42], [32]):
+    for lm_scale, beam_size in product([0.42], [32]): # 12, 18
         recog_name = f"/att_trafo_lm{lm_scale}_beam{beam_size}"
-        name = prefix_name + recog_name
+        name = prefix_name_40 + with_lm_name + recog_name
         search_args = {
             "beam_size": beam_size,
             "add_trafo_lm": True,
             "lm_scale": lm_scale,
-            "bsf": bsf,
+            "bsf": 40,
         }
-        res, _ = recog_model(
+        recog_config["search_args"] = search_args
+        res = recog_model(
             task,
             model_with_checkpoint,
             model_recog,
-            dev_sets=["dev-other"],
-            model_args=model_args,
-            search_args=search_args,
-            prefix_name=name,
+            dev_sets=None,
+            config=recog_config,
+            name=name,
+            compute_search_errors=True,
         )
         tk.register_output(
             name + f"/recog_results",
             res.output,
         )
 
-    # ctc prefix + trafo lm
+    # opls ctc + trafo lm
     # beam 32: {"dev-clean": 1.95, "dev-other": 4.39, "test-clean": 2.21, "test-other": 4.78}
     for ctc_scale, prior_scale, lm_scale, beam_size in product(
         [1.0], [0.0], [0.65], []
@@ -514,7 +570,7 @@ def sis_run_with_prefix(prefix_name: str = None):
             + (f"_prior{prior_scale}" if prior_scale > 0.0 else "")
             + f"_trafo_lm{lm_scale}_beam{beam_size}"
         )
-        name = prefix_name + recog_name
+        name = prefix_name + with_lm_name + recog_name
         search_args = {
             "beam_size": beam_size,
             "add_trafo_lm": True,
@@ -541,7 +597,7 @@ def sis_run_with_prefix(prefix_name: str = None):
             res.output,
         )
 
-    # att + trafo lm + espnet ctc prefix scorer
+    # opls att + ctc + trafo lm
     # beam 32: {"dev-clean": 1.79, "dev-other": 3.94, "test-clean": 2.03, "test-other": 4.36}
     for scales, prior_scale, lm_scale, beam_size in product(
         [(0.85, 0.15)], [0.0], [0.5], []
@@ -552,7 +608,7 @@ def sis_run_with_prefix(prefix_name: str = None):
             + (f"_prior{prior_scale}" if prior_scale > 0.0 else "")
             + f"_trafo_lm{lm_scale}_beam{beam_size}_cpu"
         )
-        name = prefix_name + recog_name
+        name = prefix_name + with_lm_name + recog_name
         search_args = {
             "beam_size": beam_size,
             "add_trafo_lm": True,
@@ -581,20 +637,68 @@ def sis_run_with_prefix(prefix_name: str = None):
             res.output,
         )
 
-    # ------------------ with MiniAtt ILM ------------------------
+    # optsr att + ctc + trafo lm
+    # beam 32: {"dev-clean": 1.81, "dev-other": 4.03, "test-clean": 2.02, "test-other": 4.53}
+    for scales, beam_size in product([(0.8, 0.2, 0.2, 0.5)], []): # did not try larger beam
+        att_scale, ctc_scale, prior_scale, lm_scale = scales
+        name = (
+            prefix_name_40
+            + with_lm_name
+            + f"/optsr_att{att_scale}_ctc{ctc_scale}"
+            + (f"_trafo_lm{lm_scale}" if lm_scale > 0.0 else "")
+            + (f"_prior{prior_scale}" if prior_scale != 0.0 else "")
+            + f"_beam{beam_size}_fix2"
+        )
+        search_args = {
+            "beam_size": beam_size,
+            "att_scale": att_scale,
+            "ctc_scale": ctc_scale,
+            "bsf": 40,
+            "mask_eos": True,
+            "ctc_prior_file": "/work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/2023-02-22--conformer-swb/work/i6_core/returnn/extract_prior/ReturnnComputePriorJobV2.ZeflcEHlQTjn/output/prior.txt",
+            "prior_scale": prior_scale,
+            "add_trafo_lm": lm_scale > 0.0,
+            "lm_scale": lm_scale,
+            "lm_skip": True,
+            "hash_overwrite": "problem_ctc_log",
+            "length_normalization_exponent": 0.0,
+            "add_eos_to_end": True,
+        }
 
-    model_args = {
-        "external_language_model": {
-            "class": "Trafo_LM_Model",
-            "num_layers": 24,
-            "layer_out_dim": 1024,
-            "att_num_heads": 8,
-            "use_pos_enc": True,
-            "ff_activation": "relu",
-        },
-        "internal_language_model": {
-            "class": "MiniAtt_ILM_Model",
-            "s_use_zoneout_output": False,
+        recog_res, recog_out = recog_model(
+            task,
+            model_with_checkpoint,
+            model_recog_time_sync,
+            # dev_sets=["dev-other"],
+            dev_sets=None,
+            model_args=model_args,
+            search_args=search_args,
+            prefix_name=name,
+            search_rqmt={"time": 8}
+        )
+        tk.register_output(
+            name + f"/recog_results",
+            recog_res.output,
+        )
+
+
+    # ------------------ with Trafo LM + MiniAtt ILM ------------------------
+
+    recog_config = {
+        "model_args": {
+            "external_language_model": {
+                "class": "Trafo_LM_Model",
+                "num_layers": 24,
+                "layer_out_dim": 1024,
+                "att_num_heads": 8,
+                "use_pos_enc": True,
+                "ff_activation": "relu",
+                "pos_enc_diff_pos": True,
+            },
+            "internal_language_model": {
+                "class": "MiniAtt_ILM_Model",
+                "s_use_zoneout_output": False,
+            },
         },
         "preload_from_files": {
             "01_trafo_lm": {
@@ -605,19 +709,270 @@ def sis_run_with_prefix(prefix_name: str = None):
                 "prefix": "ilm.",
                 "filename": "/work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/2023-08-10--rf-librispeech/work/i6_experiments/users/gaudino/returnn/convert_ckpt_rf/librispeech/mini_att_ilm_24_05_28/average.pt",
             },
+        }
+    }
+
+
+    with_lm_ilm_name = "/with_lm_ilm"
+
+    # ilm ckpt torch: /work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/2023-08-10--rf-librispeech/work/i6_experiments/users/gaudino/returnn/convert_ckpt_rf/librispeech/mini_att_ilm_24_05_28/average.pt
+
+    # att + trafo lm + ilm old
+    # beam 32: {"dev-clean": 1.78, "dev-other": 3.66, "test-clean": 1.99, "test-other": 4.19}
+    for lm_scale, ilm_scale, beam_size in product([0.54], [0.4], [32]):
+        recog_name = f"/att_trafolm{lm_scale}_ilm{ilm_scale}_beam{beam_size}_ffix_old"
+        name = prefix_name + with_lm_ilm_name + recog_name
+        search_args = {
+            "beam_size": beam_size,
+            "add_trafo_lm": True,
+            "lm_scale": lm_scale,
+            "ilm_scale": ilm_scale,
+            "bsf": bsf,
+            "use_lm_first_label": True,
+            "hash_overwrite": 1,
+        }
+        model_args = {
+            "external_language_model": {
+                "class": "Trafo_LM_Model",
+                "num_layers": 24,
+                "layer_out_dim": 1024,
+                "att_num_heads": 8,
+                "use_pos_enc": True,
+                "ff_activation": "relu",
+                "pos_enc_diff_pos": True,
+            },
+            "internal_language_model": {
+                "class": "MiniAtt_ILM_Model",
+                "s_use_zoneout_output": False,
+            },
+            "preload_from_files": {
+                "01_trafo_lm": {
+                    "prefix": "language_model.",
+                    "filename": "/work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/2023-08-10--rf-librispeech/work/i6_experiments/users/gaudino/returnn/convert_ckpt_rf/librispeech/trafo_lm_only_24_02_06/network.023.pt",
+                },
+                "01_mini_att_ilm": {
+                    "prefix": "ilm.",
+                    "filename": "/work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/2023-08-10--rf-librispeech/work/i6_experiments/users/gaudino/returnn/convert_ckpt_rf/librispeech/mini_att_ilm_24_05_28/average.pt",
+                },
+            },
+        }
+        res, _ = recog_model_old(
+            task,
+            model_with_checkpoint,
+            model_recog,
+            dev_sets=["dev-other"],
+            model_args=model_args,
+            search_args=search_args,
+            prefix_name=name,
+        )
+        tk.register_output(
+            name + f"/recog_results",
+            res.output,
+        )
+
+    # att + trafo lm + ilm
+    # beam 32: {"dev-clean": 1.77, "dev-other": 3.74, "test-clean": 1.99, "test-other": 4.22}
+    # Slightly different results as with old rf setup.
+    # Most probably due to the use of different data file (see vimdiff of configs)
+    for lm_scale, ilm_scale, beam_size in product([0.54], [0.4], [1,2,4,8,16,32]):
+        recog_name = f"/att_trafolm{lm_scale}_ilm{ilm_scale}_beam{beam_size}"
+        name = prefix_name + with_lm_ilm_name + recog_name
+        search_args = {
+            "beam_size": beam_size,
+            "add_trafo_lm": True,
+            "lm_scale": lm_scale,
+            "ilm_scale": ilm_scale,
+            "bsf": bsf,
+            "use_lm_first_label": True,
+        }
+        recog_config["search_args"] = search_args
+
+        res = recog_model(
+            task,
+            model_with_checkpoint,
+            model_recog,
+            dev_sets=["dev-clean", "dev-other", "test-clean", "test-other"],
+            config=recog_config,
+            name=name,
+            search_mem_rqmt=6 if beam_size <= 16 else 24,
+            compute_search_errors=True,
+        )
+        tk.register_output(
+            name + f"/recog_results",
+            res.output,
+        )
+
+    # opls att + ctc + trafo lm + ilm
+    # beam 32 {"dev-clean": 1.71, "dev-other": 3.58, "test-clean": 1.94, "test-other": 4.11}
+    for scales, prior_scale, lm_scale, ilm_scale, beam_size in product(
+        [(0.8, 0.2)], [0.05, 0.07], [0.65], [0.4], [32]
+    ):
+        att_scale, ctc_scale = scales
+        recog_name = (
+            f"/opls_att{att_scale}_ctc{ctc_scale}"
+            + (f"_prior{prior_scale}" if prior_scale > 0.0 else "")
+            + f"_trafo_lm{lm_scale}"
+            + f"_ilm{ilm_scale}"
+            + f"_beam{beam_size}"
+        )
+        name = prefix_name + with_lm_ilm_name + recog_name
+        search_args = {
+            "beam_size": beam_size,
+            "add_trafo_lm": True,
+            "lm_scale": lm_scale,
+            "att_scale": att_scale,
+            "ctc_scale": ctc_scale,
+            "ilm_scale": ilm_scale,
+            "use_ctc": True,
+            "bsf": bsf,
+            "prior_corr": prior_scale > 0.0,
+            "ctc_prior_file": "/work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/2023-02-22--conformer-swb/work/i6_core/returnn/extract_prior/ReturnnComputePriorJobV2.ZeflcEHlQTjn/output/prior.txt",
+            "prior_scale": prior_scale,
+            "use_lm_first_label": True,
+        }
+        recog_config["search_args"] = search_args
+        res = recog_model(
+            task,
+            model_with_checkpoint,
+            model_recog,
+            dev_sets=["dev-clean", "dev-other", "test-clean", "test-other"],
+            config=recog_config,
+            name=name,
+            compute_search_errors=True,
+            # device="cpu",
+            # search_mem_rqmt=15,
+        )
+        tk.register_output(
+            name + f"/recog_results",
+            res.output,
+        )
+
+    # two pass rescoring att + ctc + trafo lm + ilm
+    for scales, prior_scale, lm_scale, ilm_scale, beam_size in product(
+        [(1.0, 0.0009), (1.0 ,0.001)],
+        [0.0], [0.54], [0.4], [] # 12, 32, 40, 64, 80
+    ):
+        att_scale, ctc_scale = scales
+        recog_name = (
+            f"/two_pass_att{att_scale}_ctc{ctc_scale}"
+            + (f"_prior{prior_scale}" if prior_scale > 0.0 else "")
+            + f"_trafo_lm{lm_scale}"
+            + (f"_ilm{ilm_scale}" if ilm_scale > 0.0 else "")
+            + f"_beam{beam_size}"
+        )
+        name = prefix_name + with_lm_name + recog_name
+        search_args = {
+            "beam_size": beam_size,
+            "add_trafo_lm": True,
+            "lm_scale": lm_scale,
+            "att_scale": 1.0,
+            # "ctc_scale": ctc_scale,
+            "ilm_scale": ilm_scale,
+            # "use_ctc": True,
+            "bsf": bsf,
+            "prior_corr": prior_scale > 0.0,
+            "ctc_prior_file": "/work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/2023-02-22--conformer-swb/work/i6_core/returnn/extract_prior/ReturnnComputePriorJobV2.ZeflcEHlQTjn/output/prior.txt",
+            "prior_scale": prior_scale,
+            "rescore_w_ctc": True,
+            "rescore_att_scale": att_scale,
+            "rescore_ctc_scale": ctc_scale,
+            "hash_overwrite": "fix",
+        }
+        res, _ = recog_model(
+            task,
+            model_with_checkpoint,
+            model_recog,
+            # dev_sets=["dev-other"],
+            dev_sets=["dev-clean", "dev-other", "test-clean", "test-other"],
+            model_args=model_args,
+            search_args=search_args,
+            prefix_name=name,
+            # device="cpu",
+            # search_mem_rqmt=15,
+        )
+        tk.register_output(
+            name + f"/recog_results",
+            res.output,
+        )
+
+    # optsr att + ctc + trafo  + ilm
+    for scales, prior_scale, lm_scale, ilm_scale, beam_size in product([(0.8, 0.2)], [0.2], [0.8], [0.42], [32]): #lm 0.7, 0.8 # 32
+        att_scale, ctc_scale = scales
+        name = (
+            prefix_name_40
+            + with_lm_ilm_name
+            + f"/optsr_att{att_scale}_ctc{ctc_scale}"
+            + (f"_trafo_lm{lm_scale}" if lm_scale > 0.0 else "")
+            + (f"_prior{prior_scale}" if prior_scale != 0.0 else "")
+            + (f"_ilm{ilm_scale}" if ilm_scale > 0.0 else "")
+            + f"_beam{beam_size}"
+        )
+        search_args = {
+            "beam_size": beam_size,
+            "att_scale": att_scale,
+            "ctc_scale": ctc_scale,
+            "bsf": 40,
+            "mask_eos": True,
+            "ctc_prior_file": "/work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/2023-02-22--conformer-swb/work/i6_core/returnn/extract_prior/ReturnnComputePriorJobV2.ZeflcEHlQTjn/output/prior.txt",
+            "prior_scale": prior_scale,
+            "add_trafo_lm": lm_scale > 0.0,
+            "lm_scale": lm_scale,
+            "lm_skip": True,
+            "hash_overwrite": "fix forward 2",
+            "length_normalization_exponent": 0.0,
+            "add_eos_to_end": True,
+            "ilm_scale": ilm_scale,
+        }
+        recog_config["search_args"] = search_args
+
+        recog_res = recog_model(
+            task,
+            model_with_checkpoint,
+            model_recog_time_sync,
+            dev_sets=None,
+            # dev_sets=["dev-other"],
+            config=recog_config,
+            name=name,
+            search_rqmt={"time": 8},
+            compute_search_errors=True,
+            forward_def=model_forward_ctc_max,
+        )
+        tk.register_output(
+            name + f"/recog_results",
+            recog_res.output,
+        )
+
+    # -------------- LSTM LM + Mini ILM ------------------------------
+
+    model_args = {
+        "external_language_model": {
+            "class": "LSTM_LM_Model",
+        },
+        "internal_language_model": {
+            "class": "MiniAtt_ILM_Model",
+            "s_use_zoneout_output": False,
+        },
+        "preload_from_files": {
+            "01_lstm_lm": {
+                "prefix": "language_model.",
+                "filename": "/work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/2023-08-10--rf-librispeech/work/i6_experiments/users/gaudino/returnn/convert_ckpt_rf/librispeech/lstm_lm_only_24_05_31/network.035.pt",
+            },
+            "01_mini_att_ilm": {
+                "prefix": "ilm.",
+                "filename": "/work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/2023-08-10--rf-librispeech/work/i6_experiments/users/gaudino/returnn/convert_ckpt_rf/librispeech/mini_att_ilm_24_05_28/average.pt",
+            },
         },
     }
 
     # ilm ckpt torch: /work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/2023-08-10--rf-librispeech/work/i6_experiments/users/gaudino/returnn/convert_ckpt_rf/librispeech/mini_att_ilm_24_05_28/average.pt
 
-    # att + trafo lm + ilm
+    # att + lstm lm + ilm
     #
-    for lm_scale, ilm_scale, beam_size in product([0.54], [0.4], [32, 64]):
-        recog_name = f"/att_trafolm{lm_scale}_ilm{ilm_scale}_beam{beam_size}_ffix"
-        name = prefix_name + recog_name
+    for lm_scale, ilm_scale, beam_size in product([0.33], [0.4], []): # 24
+        recog_name = f"/att_lstmlm{lm_scale}_ilm{ilm_scale}_beam{beam_size}"
+        name = prefix_name + with_lm_ilm_name + recog_name
         search_args = {
             "beam_size": beam_size,
-            "add_trafo_lm": True,
             "lm_scale": lm_scale,
             "ilm_scale": ilm_scale,
             "bsf": bsf,
@@ -637,22 +992,21 @@ def sis_run_with_prefix(prefix_name: str = None):
             res.output,
         )
 
-    # opls att + ctc + trafo lm + ilm
+    # opls att + ctc + lstm lm + ilm
     for scales, prior_scale, lm_scale, ilm_scale, beam_size in product(
-        [(0.85, 0.15)], [0.0], [0.5], [0.3, 0.35, 0.4, 0.45], [12, 32]
+        [(0.9, 0.1), (0.8, 0.2), (0.7, 0.3)], [0.05], [0.4, 0.5, 0.65], [0.4], [] # 32
     ):
         att_scale, ctc_scale = scales
         recog_name = (
             f"/opls_att{att_scale}_ctc{ctc_scale}"
             + (f"_prior{prior_scale}" if prior_scale > 0.0 else "")
-            + f"_trafo_lm{lm_scale}"
+            + f"_lstmlm{lm_scale}"
             + f"_ilm{ilm_scale}"
-            + f"_beam{beam_size}_ffix"
+            + f"_beam{beam_size}"
         )
-        name = prefix_name + recog_name
+        name = prefix_name + with_lm_ilm_name + recog_name
         search_args = {
             "beam_size": beam_size,
-            "add_trafo_lm": True,
             "lm_scale": lm_scale,
             "att_scale": att_scale,
             "ctc_scale": ctc_scale,
@@ -679,6 +1033,52 @@ def sis_run_with_prefix(prefix_name: str = None):
             name + f"/recog_results",
             res.output,
         )
+
+    # ctc bs att + ctc + lstm lm + ilm
+    for scales, prior_scale, lm_scale, ilm_scale, beam_size in product(
+        [(0.6, 0.4)], [0.3], [0.35, 0.38, 0.4, 0.42, 0.45, 0.5, 0.6, 0.65], [0.0], []
+    ):
+        att_scale, ctc_scale = scales
+        recog_name = (
+            f"/optsbs_att{att_scale}_ctc{ctc_scale}"
+            + (f"_prior{prior_scale}" if prior_scale > 0.0 else "")
+            + (f"_lstmlm{lm_scale}" if lm_scale > 0.0 else "")
+            + (f"_ilm{ilm_scale}" if ilm_scale > 0.0 else "")
+            + f"_beam{beam_size}"
+        )
+        name = single_seq_prefix_name + (with_lm_ilm_name if ilm_scale > 0.0 else with_lm_name) + recog_name
+        search_args = {
+            "beam_size": beam_size,
+            "lm_scale": lm_scale,
+            "att_scale": att_scale,
+            "ctc_scale": ctc_scale,
+            "ilm_scale": ilm_scale,
+            "use_ctc": True,
+            "max_seq": 1,
+            "prior_corr": prior_scale > 0.0,
+            "ctc_prior_file": "/work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/2023-02-22--conformer-swb/work/i6_core/returnn/extract_prior/ReturnnComputePriorJobV2.ZeflcEHlQTjn/output/prior.txt",
+            "prior_scale": prior_scale,
+            "use_lm_first_label": True,
+            "hash_overwrite": 2,
+        }
+        res, _ = recog_model(
+            task,
+            model_with_checkpoint,
+            model_recog_ts_espnet,
+            dev_sets=["dev-other"],
+            # dev_sets=None,
+            model_args=model_args,
+            search_args=search_args,
+            prefix_name=name,
+            # device="cpu",
+            # search_rqmt={"time": 24}
+            # search_mem_rqmt=15,
+        )
+        tk.register_output(
+            name + f"/recog_results",
+            res.output,
+        )
+
 
 
 
@@ -871,6 +1271,49 @@ class MakeModel:
             **extra,
         )
 
+class SepCTCEncoder(rf.Module):
+
+    def __init__(
+        self,
+        in_dim: Dim,
+        *,
+        num_enc_layers: int = 12,
+        enc_model_dim: Dim = Dim(name="enc", dimension=512),
+        enc_ff_dim: Dim = Dim(name="enc-ff", dimension=2048),
+        enc_att_num_heads: int = 8,
+        enc_conformer_layer_opts: Optional[Dict[str, Any]] = None,
+        enc_dropout: float = 0.1,
+        enc_att_dropout: float = 0.1,
+        target_dim_w_blank: Dim,
+
+    ):
+        super(SepCTCEncoder, self).__init__()
+
+        self.encoder = ConformerEncoder(
+            in_dim,
+            enc_model_dim,
+            ff_dim=enc_ff_dim,
+            input_layer=ConformerConvSubsample(
+                in_dim,
+                out_dims=[
+                    Dim(32, name="conv1"),
+                    Dim(64, name="conv2"),
+                    Dim(64, name="conv3"),
+                ],
+                filter_sizes=[(3, 3), (3, 3), (3, 3)],
+                pool_sizes=[(1, 2)],
+                strides=[(1, 1), (3, 1), (2, 1)],
+            ),
+            encoder_layer_opts=enc_conformer_layer_opts,
+            num_layers=num_enc_layers,
+            num_heads=enc_att_num_heads,
+            dropout=enc_dropout,
+            att_dropout=enc_att_dropout,
+        )
+        self.ctc = rf.Linear(
+            self.encoder.out_dim, target_dim_w_blank
+        )
+
 
 class Model(rf.Module):
     """Model definition"""
@@ -913,7 +1356,7 @@ class Model(rf.Module):
         self.att_num_heads = att_num_heads
         self.att_dropout = att_dropout
 
-        self.target_dim_w_b = Dim(
+        self.target_dim_w_blank = Dim(
             name="target_w_b",
             dimension=self.target_dim.dimension + 1,
             kind=Dim.Types.Feature,
@@ -947,29 +1390,16 @@ class Model(rf.Module):
         )
 
         if model_args.get("encoder_ctc", False):
-            self.sep_enc_ctc_encoder = ConformerEncoder(
+            self.sep_enc_ctc = SepCTCEncoder(
                 in_dim,
-                enc_model_dim,
-                ff_dim=enc_ff_dim,
-                input_layer=ConformerConvSubsample(
-                    in_dim,
-                    out_dims=[
-                        Dim(32, name="conv1"),
-                        Dim(64, name="conv2"),
-                        Dim(64, name="conv3"),
-                    ],
-                    filter_sizes=[(3, 3), (3, 3), (3, 3)],
-                    pool_sizes=[(1, 2)],
-                    strides=[(1, 1), (3, 1), (2, 1)],
-                ),
-                encoder_layer_opts=enc_conformer_layer_opts,
-                num_layers=num_enc_layers,
-                num_heads=enc_att_num_heads,
-                dropout=enc_dropout,
-                att_dropout=enc_att_dropout,
-            )
-            self.sep_enc_ctc_ctc = rf.Linear(
-                self.sep_enc_ctc_encoder.out_dim, self.target_dim_w_b
+                enc_model_dim=enc_model_dim,
+                enc_ff_dim=enc_ff_dim,
+                enc_att_num_heads=enc_att_num_heads,
+                enc_conformer_layer_opts=enc_conformer_layer_opts,
+                enc_dropout=enc_dropout,
+                enc_att_dropout=enc_att_dropout,
+                num_enc_layers=num_enc_layers,
+                target_dim_w_blank=self.target_dim_w_blank,
             )
 
         # https://github.com/rwth-i6/returnn-experiments/blob/master/2020-rnn-transducer/configs/base2.conv2l.specaug4a.ctc.devtrain.config
@@ -980,7 +1410,7 @@ class Model(rf.Module):
 
         self.search_args = search_args
         if not self.no_ctc:
-            self.ctc = rf.Linear(self.encoder.out_dim, self.target_dim_w_b)
+            self.ctc = rf.Linear(self.encoder.out_dim, self.target_dim_w_blank)
 
         self.language_model = None
         if language_model:
@@ -1050,6 +1480,7 @@ class Model(rf.Module):
         if source.feature_dim:
             assert source.feature_dim.dimension == 1
             source = rf.squeeze(source, source.feature_dim)
+
         # log mel filterbank features
         source, in_spatial_dim, in_dim_ = rf.stft(
             source,
@@ -1091,9 +1522,9 @@ class Model(rf.Module):
         ctc = None
         if not self.no_ctc:
             if self.enc_layer_w_ctc:
-                ctc = rf.log_softmax(self.ctc(collected_outputs[str(self.enc_layer_w_ctc - 1)]), axis=self.target_dim_w_b)
+                ctc = rf.softmax(self.ctc(collected_outputs[str(self.enc_layer_w_ctc - 1)]), axis=self.target_dim_w_blank)
             else:
-                ctc = rf.log_softmax(self.ctc(enc), axis=self.target_dim_w_b)
+                ctc = rf.softmax(self.ctc(enc), axis=self.target_dim_w_blank)
         return (
             dict(enc=enc, enc_ctx=enc_ctx, inv_fertility=inv_fertility, ctc=ctc),
             enc_spatial_dim,
@@ -1107,7 +1538,7 @@ class Model(rf.Module):
         collected_outputs: Optional[Dict[str, Tensor]] = None,
     ) -> Tuple[Dict[str, Tensor], Dim]:
         """encode ctc"""
-        assert self.sep_enc_ctc_encoder is not None, "sep_enc_ctc_encoder is None"
+        assert self.sep_enc_ctc is not None, "sep_enc_ctc_encoder is None"
         if source.feature_dim:
             assert source.feature_dim.dimension == 1
             source = rf.squeeze(source, source.feature_dim)
@@ -1139,11 +1570,11 @@ class Model(rf.Module):
 
             source = (source - rf.copy_to_device(ted2_global_mean)) / rf.copy_to_device(ted2_global_stddev)
 
-        enc, enc_spatial_dim = self.sep_enc_ctc_encoder(
+        enc, enc_spatial_dim = self.sep_enc_ctc.encoder(
             source, in_spatial_dim=in_spatial_dim, collected_outputs=collected_outputs
         )
 
-        ctc = rf.log_softmax(self.sep_enc_ctc_ctc(enc), axis=self.target_dim_w_b)
+        ctc = rf.softmax(self.sep_enc_ctc.ctc(enc), axis=self.target_dim_w_blank)
         return (
             dict(enc=enc, ctc=ctc),
             enc_spatial_dim,

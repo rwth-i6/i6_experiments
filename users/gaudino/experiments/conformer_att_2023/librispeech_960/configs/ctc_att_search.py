@@ -91,6 +91,7 @@ trafo_10k_lm_opts = {
     "name": "trafo",
 }
 
+
 # bpe5k_lm = get_lm("ls960_trafo24_bs3000_5ep_5kbpe")  # type: ZeineldeenLM
 # trafo_5k_lm_opts = {
 #     "lm_subnet": bpe5k_lm.combination_network,
@@ -105,6 +106,17 @@ trafo_10k_lm_opts = {
 trafo_lm_opts_map = {
     BPE_10K: trafo_10k_lm_opts,
     # BPE_5K: trafo_5k_lm_opts,
+}
+
+mini_att_ilm_preload_from_files = {
+    "prior_lm": {
+        "filename": "/u/luca.gaudino/setups/2023-02-22--conformer-swb/work/i6_core/returnn/training/AverageTFCheckpointsJob.BxqgICRSGkgb/output/model/average",
+        "prefix": "prior_",
+    },
+    "mini_lstm": {
+        "filename": "/u/zeineldeen/setups/ubuntu_22_setups/2023-04-17--conformer-att/work/i6_core/returnn/training/GetBestTFCheckpointJob.JLwxrydala1K/output/model/checkpoint",
+        "prefix": "mini_",
+    },
 }
 
 new_prior_file = "/work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/2023-02-22--conformer-swb/work/i6_core/returnn/extract_prior/ReturnnComputePriorJobV2.ZeflcEHlQTjn/output/prior.txt"
@@ -366,6 +378,8 @@ def run_ctc_att_search():
 
                 test_dataset_tuples = get_test_dataset_tuples(bpe_size=bpe_size)
 
+                use_sclite = kwargs.get("use_sclite", False)
+
                 run_single_search(
                     exp_name=name,
                     train_data=train_data,
@@ -380,6 +394,8 @@ def run_ctc_att_search():
                     att_scale=kwargs.get("att_scale", 1.0),
                     ctc_scale=kwargs.get("ctc_scale", 1.0),
                     ctc_prior_scale=kwargs.get("ctc_prior_scale", None),
+                    use_sclite=use_sclite,
+
                 )
 
     def run_decoding(
@@ -883,7 +899,8 @@ def run_ctc_att_search():
     )
 
     prior_args = copy.deepcopy(retrain_args)
-    prior_args["decoder_args"] = CTCDecoderArgs(hash_override_version=1)
+    # prior_args["decoder_args"] = CTCDecoderArgs(hash_override_version=1)
+    prior_args["decoder_args"] = CTCDecoderArgs()
     prior_file = compute_ctc_prior(
         name + f"_retrain1_const20_linDecay580_{1e-4}",
         prior_args,
@@ -969,7 +986,7 @@ def run_ctc_att_search():
         )
 
     # two pass rescoring att,ctc
-    for beam_size in [12]:
+    for beam_size in []: #12
         for ctc_scale in [0.01]:
             att_scale = 1.0
             run_decoding(
@@ -991,7 +1008,7 @@ def run_ctc_att_search():
             )
 
     # optsnr att + ctc
-    for beam_size, scales, prior_scale in product([32], [(0.65, 0.35)], [0.0, 0.3]):
+    for beam_size, scales, prior_scale in product([], [(0.65, 0.35)], [0.0, 0.3]): # 32
         search_args = copy.deepcopy(oclr_args)
         search_args["beam_size"] = beam_size
         search_args["ctc_log_prior_file"] = new_prior_file
@@ -1062,7 +1079,7 @@ def run_ctc_att_search():
 
 
     # att + lstm lm
-    for beam_size in [24]:
+    for beam_size in []: # 24
         for lm_scale in [0.33]:
             att_scale = 1.0
             run_lm_fusion(
@@ -1086,7 +1103,7 @@ def run_ctc_att_search():
 
     # ctc + lstm lm
     for beam_size, scales, prior_scale in product(
-        [55], [(1.0, 0.5)], [0.0, 0.3]
+        [], [(1.0, 0.5)], [0.0, 0.3] # 55
     ):
         search_args = copy.deepcopy(oclr_args)
         search_args["beam_size"] = beam_size
@@ -1125,7 +1142,7 @@ def run_ctc_att_search():
         )
 
     # two pass rescoring att + lstm lm, ctc
-    for beam_size in [12]:
+    for beam_size in []: # 12
         for ctc_scale in [0.003]:
             for lm_scale in [0.4]:
                 # for lm_scale in [0.28, 0.3, 0.32, 0.35, 0.38, 0.4, 0.42]:
@@ -1155,7 +1172,7 @@ def run_ctc_att_search():
                 )
 
     # optsnr att + ctc w prior + lstm lm
-    for beam_size, scales in product([48], [(0.7, 0.3, 0.6, 0.3)]):  # 48
+    for beam_size, scales in product([], [(0.7, 0.3, 0.6, 0.3)]):  # 48
         search_args = copy.deepcopy(oclr_args)
         search_args["ctc_log_prior_file"] = new_prior_file
         # ] = "/u/luca.gaudino/debug/ctc/prior.txt"
@@ -1196,7 +1213,7 @@ def run_ctc_att_search():
     # --------------------------- Trafo LM --------------------------- #
 
     # att + trafo lm
-    for beam_size in [12, 32]:
+    for beam_size in []: # 12, 32
         lm_scale = 0.42
         run_lm_fusion(
             args=oclr_args,
@@ -1219,7 +1236,7 @@ def run_ctc_att_search():
 
     # ctc + trafo lm
     for beam_size, scales, prior_scale in product(
-        [32], [(1, 0.55)], [0.4]
+        [], [(1, 0.55)], [0.4] # 32
     ):
         search_args = copy.deepcopy(oclr_args)
         search_args["beam_size"] = beam_size
@@ -1262,7 +1279,7 @@ def run_ctc_att_search():
 
     # optsnr att + ctc + trafo lm
     for beam_size, scales, lm_scale, prior_scale in product(
-        [12, 32],
+        [], # 12 , 32
         [
             (0.8, 0.2)
         ],
@@ -1315,4 +1332,31 @@ def run_ctc_att_search():
             remove_label={"<s>", "<blank>"},  # blanks are removed in the network
             use_sclite=True,
             time_rqmt=time_rqmt,
+        )
+
+    # --------- With ILM --------------------------------
+
+    # att + trafo lm
+    for beam_size, ilm_scale in product([32], [0.4]):
+        lm_scale = 0.54
+        run_lm_fusion(
+            args=oclr_args,
+            lm_type="trafo",
+            exp_name=(f"bsf{bsf}/" if bsf > 0 else "") + f"att_trafolm{lm_scale}_ilm{ilm_scale}_beam{beam_size}",
+            train_data=train_data,
+            train_job=train_j,
+            feature_net=log10_net_10ms,
+            epoch=train_job_avg_ckpt[
+                f"base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_cyc915_ep2035_peak0.0009_retrain1_const20_linDecay580_{1e-4}"
+            ],
+            ckpt_name="avg",
+            lm_scales=[lm_scale],
+            beam_size=beam_size,
+            bpe_size=BPE_10K,
+            test_set_names=["dev-clean", "dev-other", "test-clean", "test-other"],
+            use_sclite=True,
+            bsf=bsf,
+            prior_type="mini_lstm",
+            prior_scales=[ilm_scale],
+            mini_lstm_ckpt="/u/zeineldeen/setups/ubuntu_22_setups/2023-04-17--conformer-att/work/i6_core/returnn/training/GetBestTFCheckpointJob.JLwxrydala1K/output/model/checkpoint",
         )

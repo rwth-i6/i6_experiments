@@ -398,13 +398,17 @@ class SequenceStatistics:
   """
     Gather statistics on the sequence level.
   """
-  def __init__(self):
+  def __init__(self, blank_idx: int):
+    self.blank_idx = blank_idx
+
     self.num_seqs = 0
     self.num_all_blank_seqs = 0
     self.total_len = 0
     self.max_len = 0
     self.seq_len_counter = Counter()
     self.num_labels_counter = Counter()
+    self.num_initial_blanks = 0
+    self.num_final_blanks = 0
 
   def update(self, alignment, labels):
     if len(labels) == 0:
@@ -417,12 +421,23 @@ class SequenceStatistics:
     self.seq_len_counter[alignment_len] += 1
     self.num_labels_counter[len(labels)] += 1
 
+    label_positions = np.where(alignment != self.blank_idx)[0]
+    first_label_pos = label_positions[0]
+    last_label_pos = label_positions[-1]
+    if first_label_pos > 0:
+      self.num_initial_blanks += first_label_pos - 1
+    if last_label_pos < alignment_len - 1:
+      self.num_final_blanks += alignment_len - 1 - last_label_pos
+
+
   def __str__(self):
     string = "Sequence statistics: \n"
     string += f"\tNum sequences: {self.num_seqs} \n"
     string += f"\tNum all-blank sequences: {self.num_all_blank_seqs} \n"
     string += f"\tMean length: {self.total_len / self.num_seqs} \n"
     string += f"\tMax length: {self.max_len} \n\n"
+    string += f"\tMean num initial blanks: {self.num_initial_blanks / self.num_seqs} \n"
+    string += f"\tMean num final blanks: {self.num_final_blanks / self.num_seqs} \n\n"
     return string
 
   def plot_histograms(self):
@@ -467,7 +482,7 @@ class AlignmentStatistics:
     self.label_segment_statistics = SegmentStatistics(sil_idx, vocab)
     self.label_repetition_statistics = BPERepetitionStatistics()
     self.char_repetition_statistics = CharRepetitionStatistics()
-    self.sequence_statistics = SequenceStatistics()
+    self.sequence_statistics = SequenceStatistics(blank_idx=blank_idx)
     self.word_statistics = WordStatistics()
 
   def process_dataset(self):

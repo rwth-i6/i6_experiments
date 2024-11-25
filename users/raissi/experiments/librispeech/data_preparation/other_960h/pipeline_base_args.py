@@ -20,9 +20,9 @@ import i6_experiments.common.setups.rasr.util as rasr_util
 
 # -------------------- helpers --------------------
 
-from i6_experiments.users.raissi.setups.common.data.pipeline_helpers import (
-    InputKey
-)
+from i6_experiments.users.raissi.setups.common.data.pipeline_helpers import InputKey
+
+
 def get_final_output(name=InputKey.BASE):
     output_args = rasr_util.OutputArgs(name)
 

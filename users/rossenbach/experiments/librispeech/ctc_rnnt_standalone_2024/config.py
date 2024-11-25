@@ -183,3 +183,50 @@ def get_forward_config(
     )
     returnn_config = ReturnnConfig(config=config, post_config=post_config, python_epilog=[serializer])
     return returnn_config
+
+
+def get_static_quant_config(
+    training_datasets: TrainingDatasets,
+    network_module: str,
+    net_args: Dict[str, Any],
+    quant_args: Dict[str, Any],
+    config: Dict[str, Any],
+    num_samples: int,
+    dataset_seed: int,
+    dataset_filter_args: Optional[Dict[str, Any]],
+    debug: bool = False,
+):
+    """
+    Returns the RETURNN config serialized by :class:`ReturnnCommonSerializer` in returnn_common for the ctc_aligner
+    :param returnn_common_root: returnn_common version to be used, usually output of CloneGitRepositoryJob
+    :param training_datasets: datasets for training
+    :param kwargs: arguments to be passed to the network construction
+    :return: RETURNN training config
+    """
+
+    # changing these does not change the hash
+    post_config = {}
+
+    base_config = {
+        #############
+        "batch_size": 50000 * 160,
+        "max_seqs": 240,
+        #############
+        "forward": copy.deepcopy(training_datasets.prior.as_returnn_opts()),
+    }
+    base_config['forward']['seq_ordering'] = 'random'
+    base_config['forward']['datasets']['zip_dataset']['fixed_random_subset'] = num_samples
+    base_config['forward']['datasets']['zip_dataset']['fixed_random_subset_seed'] = dataset_seed
+    if dataset_filter_args is not None:
+        base_config['forward']['datasets']['zip_dataset']['random_subset_filter_args'] = dataset_filter_args
+    config = {**base_config, **copy.deepcopy(config)}
+    post_config["backend"] = "torch"
+    assert net_args.keys().isdisjoint(quant_args.keys())
+    serializer = serialize_forward(
+        network_module=network_module,
+        net_args=net_args | quant_args,
+        debug=debug,
+        forward_step_name="static_quant"
+    )
+    returnn_config = ReturnnConfig(config=config, post_config=post_config, python_epilog=[serializer])
+    return returnn_config

@@ -30,7 +30,7 @@ from i6_experiments.users.gaudino.experiments.conformer_att_2023.tedlium2.defaul
 from i6_experiments.users.zeineldeen.experiments.conformer_att_2022.librispeech_960.feature_extraction_net import (
     log10_net_10ms,
 )
-from i6_experiments.users.zeineldeen.experiments.conformer_att_2022.librispeech_960.pipeline import (
+from i6_experiments.users.gaudino.experiments.conformer_att_2023.tedlium2.pipeline import (
     training,
     search,
     get_average_checkpoint,
@@ -1176,19 +1176,20 @@ def conformer_baseline():
         name + "_onlyCTC_gaussWeights" + "_no_enc" + "/default_last", only_ctc_args, last_checkpoint, bpe_size=BPE_1K
     )
 
+    small_keep_epochs = [398, 399, 400]
 
-
-
-    for use_enc, std, window in product([], [0.5, 1.0, 2.0], [3, 5, 10]):
+    # different window size
+    for use_enc, window in product([True, False], [10, 20, 50]):
+        std = 1.0
         only_ctc_args = copy.deepcopy(only_ctc_args2)
         only_ctc_args["encoder_args"].ctc_att_weights_gauss_stddev = std
         only_ctc_args["encoder_args"].ctc_att_weights_gauss_window = window
         only_ctc_args["encoder_args"].ctc_att_weights_use_enc = use_enc
         only_ctc_args["gradient_clip_global_norm"] = 5.0
 
-        only_ctc_name = name + f"_onlyCTC_gaussWeights_std{std}_window{window}" + ("_no_enc" if not use_enc else "")
+        only_ctc_name = name + f"_onlyCTC_gaussWeights_window{window}" + ("_no_enc" if not use_enc else "")
 
-        _, train_data = run_exp(
+        train_job, train_data = run_exp(
             only_ctc_name,
             only_ctc_args,
             num_epochs=ep,
@@ -1196,7 +1197,78 @@ def conformer_baseline():
             bpe_size=BPE_1K,
             partition_epoch=4,
             search_args={"ctc_decode": True, "ctc_blank_idx": 1057, **only_ctc_args},
+            recog_epochs=small_keep_epochs,
         )
+
+        only_ctc_args["decoder_args"] = CTCDecoderArgs()
+        only_ctc_args.pop("gradient_clip_global_norm")
+
+        compute_ctc_prior(
+            name + f"_onlyCTC_gaussWeights_window{window}" + ("_no_enc" if not use_enc else "") + "/default_last", only_ctc_args, train_job.out_checkpoints[400],
+            bpe_size=BPE_1K
+        )
+
+    # different std
+    for use_enc, std in product([True, False], [0.1, 0.5, 2.0, 10.0]):
+        window = 5
+        only_ctc_args = copy.deepcopy(only_ctc_args2)
+        only_ctc_args["encoder_args"].ctc_att_weights_gauss_stddev = std
+        only_ctc_args["encoder_args"].ctc_att_weights_gauss_window = window
+        only_ctc_args["encoder_args"].ctc_att_weights_use_enc = use_enc
+        only_ctc_args["gradient_clip_global_norm"] = 5.0
+
+        only_ctc_name = name + f"_onlyCTC_gaussWeights_std{std}" + ("_no_enc" if not use_enc else "")
+
+        train_job, train_data = run_exp(
+            only_ctc_name,
+            only_ctc_args,
+            num_epochs=ep,
+            epoch_wise_filter=None,
+            bpe_size=BPE_1K,
+            partition_epoch=4,
+            search_args={"ctc_decode": True, "ctc_blank_idx": 1057, **only_ctc_args},
+            recog_epochs=small_keep_epochs,
+        )
+
+        only_ctc_args["decoder_args"] = CTCDecoderArgs()
+        only_ctc_args.pop("gradient_clip_global_norm")
+
+        compute_ctc_prior(
+            name + f"_onlyCTC_gaussWeights_std{std}" + ("_no_enc" if not use_enc else "") + "/default_last", only_ctc_args, train_job.out_checkpoints[400],
+            bpe_size=BPE_1K
+        )
+
+
+    # center 1 rest 0
+    for use_enc in [True, False]:
+
+        only_ctc_args = copy.deepcopy(only_ctc_args2)
+        only_ctc_args["encoder_args"].ctc_att_weights_gauss_stddev = 0.0
+        only_ctc_args["encoder_args"].ctc_att_weights_gauss_window = 5
+        only_ctc_args["encoder_args"].ctc_att_weights_use_enc = use_enc
+        only_ctc_args["gradient_clip_global_norm"] = 5.0
+
+        only_ctc_name = name + f"_onlyCTC_gaussWeights_control" + ("_no_enc" if not use_enc else "")
+
+        train_job, train_data = run_exp(
+            only_ctc_name,
+            only_ctc_args,
+            num_epochs=ep,
+            epoch_wise_filter=None,
+            bpe_size=BPE_1K,
+            partition_epoch=4,
+            search_args={"ctc_decode": True, "ctc_blank_idx": 1057, **only_ctc_args},
+            recog_epochs=small_keep_epochs,
+        )
+
+        only_ctc_args["decoder_args"] = CTCDecoderArgs()
+        only_ctc_args.pop("gradient_clip_global_norm")
+
+        compute_ctc_prior(
+            name + f"_onlyCTC_gaussWeights_control" + ("_no_enc" if not use_enc else "") + "/default_last", only_ctc_args, train_job.out_checkpoints[400],
+            bpe_size=BPE_1K
+        )
+
 
     # train scale CTC
     scale_ctc_name = name + "_ctcScale0.3"
@@ -1314,13 +1386,13 @@ def conformer_baseline():
     )
 
     for epoch_wise_filter in [
-        [(1, 2, 400), (2, 4, 800)],
-        [(1, 3, 400), (3, 5, 800)],
+        # [(1, 2, 400), (2, 4, 800)],
+        # [(1, 3, 400), (3, 5, 800)],
         # [(1, 4, 400), (4, 5, 800)], # I think it hurts a bit
-        [(1, 3, 400), (3, 6, 800)],
-        [(1, 4, 400), (4, 6, 800)],
+        # [(1, 3, 400), (3, 6, 800)],
+        # [(1, 4, 400), (4, 6, 800)],
         # [(1, 2, 400), (2, 6, 800)], # I think it hurts a bit
-        [(1, 2, 400), (2, 4, 800), (4, 6, 1000)],
+        # [(1, 2, 400), (2, 4, 800), (4, 6, 1000)],
         # [(1, 6, 400), (6, 12, 800)], # This hurts a bit more
     ]:
         # att only with curriculum learning

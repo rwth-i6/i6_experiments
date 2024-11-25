@@ -14,7 +14,7 @@ from ...data.phon import build_eow_phon_training_datasets, get_text_lexicon
 from ...default_tools import RETURNN_EXE, MINI_RETURNN_ROOT
 from ...lm import get_4gram_binary_lm
 from ...pipeline import training, prepare_asr_model, search
-
+from ...report import tune_and_evalue_report
 
 
 def eow_phon_ls960_1023_base():
@@ -74,10 +74,11 @@ def eow_phon_ls960_1023_base():
         "returnn_root": MINI_RETURNN_ROOT,
     }
 
-    def tune_and_evaluate_helper(training_name, asr_model, base_decoder_config, lm_scales, prior_scales):
+    def tune_and_evaluate_helper(training_name, asr_model, base_decoder_config, lm_scales, prior_scales, decoder_module="ctc.decoder.flashlight_ctc_v1"):
         tune_parameters = []
         tune_values_clean = []
         tune_values_other = []
+        report_values = {}
         for lm_weight in lm_scales:
             for prior_scale in prior_scales:
                 decoder_config = copy.deepcopy(base_decoder_config)
@@ -88,7 +89,7 @@ def eow_phon_ls960_1023_base():
                     search_name,
                     forward_config={},
                     asr_model=asr_model,
-                    decoder_module="ctc.decoder.flashlight_ctc_v1",
+                    decoder_module=decoder_module,
                     decoder_args={"config": asdict(decoder_config)},
                     test_dataset_tuples=dev_dataset_tuples,
                     **default_returnn
@@ -104,10 +105,20 @@ def eow_phon_ls960_1023_base():
             decoder_config.lm_weight = pick_optimal_params_job.out_optimal_parameters[0]
             decoder_config.prior_scale = pick_optimal_params_job.out_optimal_parameters[1]
             search_jobs, wers = search(
-                training_name, forward_config={}, asr_model=asr_model, decoder_module="ctc.decoder.flashlight_ctc_v1",
+                training_name, forward_config={}, asr_model=asr_model, decoder_module=decoder_module,
                 decoder_args={"config": asdict(decoder_config)}, test_dataset_tuples={key: test_dataset_tuples[key]},
                 **default_returnn
             )
+            report_values[key] = wers[training_name + "/" + key]
+
+        tune_and_evalue_report(
+            training_name=training_name,
+            tune_parameters=tune_parameters,
+            tuning_names=["LM", "Prior"],
+            tune_values_clean=tune_values_clean,
+            tune_values_other=tune_values_other,
+            report_values=report_values
+        )
 
 
     from ...pytorch_networks.ctc.decoder.flashlight_ctc_v1 import DecoderConfig
@@ -216,6 +227,56 @@ def eow_phon_ls960_1023_base():
         training_name+ "/best4", train_job, train_args, with_prior=True, datasets=train_data, get_best_averaged_checkpoint=(4, "dev_loss_ctc")
     )
     tune_and_evaluate_helper(training_name + "/best4", asr_model_best4, default_decoder_config, lm_scales=[2.3, 2.5, 2.7], prior_scales=[0.2, 0.3, 0.4])
+    
+    
+    # Conv first + Quantization
+    from ...pipeline import QuantArgs
+    from ...pytorch_networks.ctc.conformer_1023.quant.baseline_quant_v1_cfg import QuantModelConfigV1
+    model_config_quant_v1 = QuantModelConfigV1(
+        weight_quant_dtype="qint8",
+        weight_quant_method="per_tensor",
+        activation_quant_dtype="qint8",
+        activation_quant_method="per_tensor",
+        dot_quant_dtype="qint8",
+        dot_quant_method="per_tensor",
+        Av_quant_dtype="qint8",
+        Av_quant_method="per_tensor",
+        moving_average=0.01,
+        weight_bit_prec=8,
+        activation_bit_prec=8,
+        linear_quant_output=True,
+    )
+
+    for num_samples in [10, 100, 1000, 10000]:
+        for i in range(10):
+            q_args_test = QuantArgs(
+                quant_config_dict={
+                    "quant_model_config_dict": asdict(model_config_quant_v1)
+                },
+                num_samples=num_samples,
+                seed=i,
+                datasets=train_data,
+                network_module="ctc.conformer_1023.quant.baseline_quant_v2",
+                filter_args=None
+            )
+            quant_asr_model = prepare_asr_model(
+                training_name + "_test_quant_num%i_run%i" % (num_samples, i), train_job, train_args, with_prior=True, datasets=train_data, get_specific_checkpoint=500, quant_args=q_args_test
+            )
+            # tune_and_evaluate_helper(training_name + "_test_quant", quant_asr_model, default_decoder_config, lm_scales=[2.5],
+            #                         prior_scales=[0.3], decoder_module="ctc.decoder.flashlight_quant_stat_phoneme_ctc")
+            decoder_config = copy.deepcopy(default_decoder_config)
+            decoder_config.lm_weight = 2.5
+            decoder_config.prior_scale = 0.3
+            search_name = training_name + "_test_quant_num%i_run%i/search_lm%.1f_prior%.1f" % (num_samples, i, 2.5, 0.3)
+            search_jobs, wers = search(
+                search_name,
+                forward_config={},
+                asr_model=quant_asr_model,
+                decoder_module="ctc.decoder.flashlight_quant_stat_phoneme_ctc",
+                decoder_args={"config": asdict(decoder_config)},
+                test_dataset_tuples={"dev-other": dev_dataset_tuples["dev-other"]},
+                **default_returnn
+            )
 
 
     # Compile degrades speed
@@ -242,18 +303,19 @@ def eow_phon_ls960_1023_base():
     debug_decoder_config.prior_scale = 0.3
 
 
-    decoder_config = copy.deepcopy(debug_decoder_config)
-    search_name = training_name + "/search_onnx_test"
-    search_jobs, wers = search(
-        search_name,
-        forward_config={},
-        asr_model=asr_model,
-        decoder_module="ctc.decoder.flashlight_ctc_v1_onnx",
-        decoder_args={"config": asdict(decoder_config)},
-        test_dataset_tuples={"dev-other": dev_dataset_tuples["dev-other"]},
-        **default_returnn,
-        debug=True,
-    )
+    # TODO: Wait for Kaloyan to fix
+    # decoder_config = copy.deepcopy(debug_decoder_config)
+    # search_name = training_name + "/search_onnx_test"
+    # search_jobs, wers = search(
+    #     search_name,
+    #     forward_config={},
+    #     asr_model=asr_model,
+    #     decoder_module="ctc.decoder.flashlight_ctc_v1_onnx",
+    #     decoder_args={"config": asdict(decoder_config)},
+    #     test_dataset_tuples={"dev-other": dev_dataset_tuples["dev-other"]},
+    #     **default_returnn,
+    #     debug=True,
+    # )
 
 
     # extra dropout test
@@ -294,6 +356,10 @@ def eow_phon_ls960_1023_base():
     )
     tune_and_evaluate_helper(training_name, asr_model, default_decoder_config, lm_scales=[2.3, 2.5, 2.7],
                              prior_scales=[0.2, 0.3, 0.4])
+
+
+
+
 
 
     # Conv first test + extra dropout
@@ -341,6 +407,9 @@ def eow_phon_ls960_1023_base():
         training_name, train_job, train_args_eff_tune, with_prior=True, datasets=train_data, get_specific_checkpoint=560
     )
     tune_and_evaluate_helper(training_name, asr_model, default_decoder_config, lm_scales=[2.3, 2.5, 2.7], prior_scales=[0.2, 0.3, 0.4])
+
+
+
 
 
 
@@ -422,6 +491,77 @@ def eow_phon_ls960_1023_base():
     train_job.rqmt["gpu_mem"] = 11
     asr_model = prepare_asr_model(
         training_name, train_job, train_args, with_prior=True, datasets=train_data, get_specific_checkpoint=250
+    )
+    tune_and_evaluate_helper(
+        training_name, asr_model, default_decoder_config, lm_scales=[2.3, 2.5, 2.7], prior_scales=[0.2, 0.3, 0.4]
+    )
+    
+    
+    # Faster Convergence RAdam style
+    train_config_11gbgpu = {
+        "optimizer": {"class": "radam", "epsilon": 1e-16, "decoupled_weight_decay": True, "weight_decay": 1e-3},
+        "learning_rates": learning_rates_default_250,
+        #############
+        "batch_size": 180 * 16000,
+        "max_seq_length": {"audio_features": 35 * 16000},
+        "accum_grad_multiple_step": 1,
+        "gradient_clip_norm": 1.0,
+    }
+    train_args = {
+        "config": train_config_11gbgpu,
+        "network_module": network_module,
+        "net_args": {"model_config_dict": asdict(model_config)},
+        "debug": False,
+    }
+    
+    training_name = prefix_name + "/" + network_module + ".512dim_sub4_11gbgpu_25eps_radamv1"
+    train_job = training(training_name, train_data, train_args, num_epochs=250, **default_returnn)
+    train_job.rqmt["gpu_mem"] = 11
+    asr_model = prepare_asr_model(
+        training_name, train_job, train_args, with_prior=True, datasets=train_data, get_specific_checkpoint=250
+    )
+    tune_and_evaluate_helper(
+        training_name, asr_model, default_decoder_config, lm_scales=[2.3, 2.5, 2.7], prior_scales=[0.2, 0.3, 0.4]
+    )
+
+
+    train_args_update_lr_for_adam = copy.deepcopy(train_args)
+    train_args_update_lr_for_adam["config"]["learning_rates"] = list(np.linspace(1e-4, 5e-4, 40)) + list(
+        np.linspace(5e-4, 5e-5, 200)) + list(np.linspace(5e-5, 1e-7, 10))
+
+    training_name = prefix_name + "/" + network_module + ".512dim_sub4_11gbgpu_25eps_radamv1_newlr"
+    train_job = training(training_name, train_data, train_args_update_lr_for_adam, num_epochs=250, **default_returnn)
+    train_job.rqmt["gpu_mem"] = 11
+    asr_model = prepare_asr_model(
+        training_name, train_job, train_args_update_lr_for_adam, with_prior=True, datasets=train_data, get_specific_checkpoint=250
+    )
+    tune_and_evaluate_helper(
+        training_name, asr_model, default_decoder_config, lm_scales=[2.3, 2.5, 2.7], prior_scales=[0.2, 0.3, 0.4]
+    )
+    
+    train_args_update_lr_for_adam = copy.deepcopy(train_args)
+    train_args_update_lr_for_adam["config"]["learning_rates"] = list(np.linspace(1e-4, 5e-4, 40)) + list(
+        np.linspace(5e-4, 5e-4, 80)) + list(np.linspace(5e-4, 5e-5, 120)) + list(np.linspace(5e-5, 1e-7, 10))
+
+    training_name = prefix_name + "/" + network_module + ".512dim_sub4_11gbgpu_25eps_radamv1_newlrv2"
+    train_job = training(training_name, train_data, train_args_update_lr_for_adam, num_epochs=250, **default_returnn)
+    train_job.rqmt["gpu_mem"] = 11
+    asr_model = prepare_asr_model(
+        training_name, train_job, train_args_update_lr_for_adam, with_prior=True, datasets=train_data, get_specific_checkpoint=250
+    )
+    tune_and_evaluate_helper(
+        training_name, asr_model, default_decoder_config, lm_scales=[2.3, 2.5, 2.7], prior_scales=[0.2, 0.3, 0.4]
+    )
+    
+    train_args_update_lr_for_adam = copy.deepcopy(train_args)
+    train_args_update_lr_for_adam["config"]["learning_rates"] = list(np.linspace(1e-4, 5e-4, 40)) + list(
+        np.linspace(5e-4, 5e-4, 80)) + list(np.linspace(5e-4, 5e-5, 120)) + list(np.linspace(5e-5, 1e-7, 10))
+
+    training_name = prefix_name + "/" + network_module + ".512dim_sub4_11gbgpu_25eps_radamv1_newlrv2"
+    train_job = training(training_name, train_data, train_args_update_lr_for_adam, num_epochs=250, **default_returnn)
+    train_job.rqmt["gpu_mem"] = 11
+    asr_model = prepare_asr_model(
+        training_name, train_job, train_args_update_lr_for_adam, with_prior=True, datasets=train_data, get_specific_checkpoint=250
     )
     tune_and_evaluate_helper(
         training_name, asr_model, default_decoder_config, lm_scales=[2.3, 2.5, 2.7], prior_scales=[0.2, 0.3, 0.4]

@@ -65,7 +65,7 @@ class ComputeSearchErrorsJob(Job):
                 f.write(log_txt)
 
         with open(self.out_search_errors.get_path(), "w+") as f:
-            f.write("Search errors: %f%%" % ((num_search_errors / num_seqs) * 100))
+            f.write("Search errors: %f%%" % ((num_search_errors / num_seqs) * 100) + "\n")
 #
 # class ComputeSearchErrorsJob(Job):
 #     def __init__(

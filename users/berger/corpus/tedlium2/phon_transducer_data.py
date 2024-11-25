@@ -1,13 +1,15 @@
 import copy
 from typing import List, Optional
 
+from i6_core.corpus.filter import FilterSegmentsByListJob
+from i6_core.corpus.segments import SegmentCorpusJob
 from i6_core.lexicon.modification import AddEowPhonemesToLexiconJob
 from sisyphus import tk
 
 from i6_experiments.users.berger.systems.dataclasses import FeatureType
 from i6_experiments.users.berger.corpus.general.experiment_data import BasicSetupData
 
-from ..general import build_feature_hdf_dataset_config, build_feature_label_meta_dataset_config
+from ..general import build_feature_label_meta_dataset_config
 from . import data
 
 
@@ -24,6 +26,7 @@ def get_tedlium2_data_dumped_labels(
     add_unknown: bool = False,
     augmented_lexicon: bool = True,
     feature_type: FeatureType = FeatureType.GAMMATONE_16K,
+    filter_out_seg_list: Optional[List[str]] = None,
 ) -> BasicSetupData:
     if cv_keys is None:
         cv_keys = ["dev"]
@@ -48,6 +51,14 @@ def get_tedlium2_data_dumped_labels(
     train_lexicon = train_data_inputs[train_key].lexicon.filename
     eow_lexicon = AddEowPhonemesToLexiconJob(train_lexicon).out_lexicon
 
+    filtered_segment_file = None
+    if filter_out_seg_list:
+        train_corpus_file = train_data_inputs[train_key].corpus_object.corpus_file
+        segment_files = SegmentCorpusJob(train_corpus_file, 1).out_single_segment_files
+        filtered_segment_file = FilterSegmentsByListJob(
+            segment_files, filter_list=filter_out_seg_list, invert_match=False
+        ).out_single_segment_files[1]
+
     train_data_config = build_feature_label_meta_dataset_config(
         label_dim=num_classes - 1,
         data_inputs=[train_data_inputs[train_key]],
@@ -60,6 +71,7 @@ def get_tedlium2_data_dumped_labels(
         extra_config={
             "partition_epoch": 5,
             "seq_ordering": "laplace:.1000",
+            **({"seq_list_filter_file": filtered_segment_file} if filtered_segment_file else {}),
         },
     )
 
@@ -80,25 +92,6 @@ def get_tedlium2_data_dumped_labels(
             "seq_ordering": "sorted",
         },
     )
-
-    # ********** forward data **********
-
-    forward_data_config = {
-        key: build_feature_hdf_dataset_config(
-            data_inputs=[data_input],
-            feature_type=feature_type,
-            returnn_root=returnn_root,
-            returnn_python_exe=returnn_python_exe,
-            rasr_binary_path=rasr_binary_path,
-            rasr_arch=rasr_arch,
-            single_hdf=True,
-            extra_config={
-                "partition_epoch": 1,
-                "seq_ordering": "sorted",
-            },
-        )
-        for key, data_input in {**dev_data_inputs, **test_data_inputs}.items()
-    }
 
     # ********** Recog lexicon **********
 

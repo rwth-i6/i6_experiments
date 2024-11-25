@@ -1,5 +1,9 @@
 
 def get_attention_decoder_dict(label_dim=10025, target_embed_dim=640):
+    """
+    Old attention decoder dictionary that was used at some points but has a bug regrading the masking logic of the different layers in the attention logic.
+    Do not use this!
+    """
     attention_decoder_dict = {
         # reinterpreted for target_embed
         "output_reinterpret": {

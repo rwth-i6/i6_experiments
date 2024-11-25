@@ -1,12 +1,19 @@
-__all__ = ["to_tdp", "format_tdp", "Float", "TDP"]
+__all__ = ["to_tuple", "to_tdp", "format_tdp", "Float", "TDP"]
 
 from typing import Union, Tuple
 
 from sisyphus import tk
-from sisyphus.delayed_ops import DelayedBase
+from sisyphus.delayed_ops import DelayedBase, DelayedGetItem
+
+from i6_core.rasr import RasrConfig
 
 from i6_experiments.common.setups.rasr.config.am_config import Tdp
 from i6_experiments.users.raissi.setups.common.data.typings import TDP
+
+
+def to_tuple(tdp: RasrConfig):
+    assert isinstance(tdp, RasrConfig)
+    return (tdp.loop, tdp.forward, tdp.skip, tdp.exit)
 
 
 def to_tdp(tdp_tuple: Tuple[TDP, TDP, TDP, TDP]) -> Tdp:
@@ -14,6 +21,8 @@ def to_tdp(tdp_tuple: Tuple[TDP, TDP, TDP, TDP]) -> Tdp:
 
 
 def format_tdp_val(val) -> str:
+    if isinstance(val, DelayedGetItem):
+        val = val.get()
     return "inf" if val == "infinity" else f"{val}"
 
 

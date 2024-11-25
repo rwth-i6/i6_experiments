@@ -1,4 +1,6 @@
-from typing import Union
+from typing import List, Union
+from i6_core.corpus.data_augmentation import ChangeCorpusSpeedJob
+from i6_core.corpus.transform import MergeCorporaJob, MergeStrategy
 from sisyphus import tk
 from i6_core.corpus import FilterCorpusRemoveUnknownWordSegmentsJob
 from i6_experiments.users.berger.helpers import SeparatedCorpusObject, ScorableCorpusObject

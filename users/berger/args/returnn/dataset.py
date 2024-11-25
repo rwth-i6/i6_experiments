@@ -38,6 +38,29 @@ def hdf_config_dict_for_files(files: List[tk.Path], extra_config: Optional[dict]
     return config
 
 
+def oggzip_config_dict_for_files(
+    files: List[tk.Path],
+    audio_config: Optional[dict] = None,
+    target_config: Optional[dict] = None,
+    extra_config: Optional[dict] = None,
+) -> dict:
+    if audio_config is None:
+        audio_config = {
+            "features": "raw",
+            "peak_normalization": True,
+        }
+    config = {
+        "class": "OggZipDataset",
+        "use_cache_manager": True,
+        "path": files,
+        "audio": audio_config,
+        "targets": target_config,
+    }
+    if extra_config:
+        config.update(extra_config)
+    return config
+
+
 class MetaDatasetBuilder:
     def __init__(self) -> None:
         self.datasets = {}
