@@ -37,7 +37,7 @@ from i6_experiments.users.zeyer.returnn.training import get_relevant_epochs_from
 import numpy as np
 
 from .experiments.ctc_baseline.ctc import model_recog_lm
-from .lm import get_4gram_binary_lm
+from .experiments.language_models.librispeech_lm import get_4gram_binary_lm
 from .datasets.librispeech import get_bpe_lexicon
 
 if TYPE_CHECKING:
@@ -59,7 +59,7 @@ def recog_training_exp(
     search_mem_rqmt: Union[int, float] = 6,
     exclude_epochs: Collection[int] = (),
     model_avg: bool = False,
-) -> tuple[Optional[tk.Path], Optional[tk.Path]]:
+) -> Optional[tk.Path]:
     """recog on all relevant epochs"""
     recog_and_score_func = _RecogAndScoreFunc(
         prefix_name,
@@ -124,8 +124,8 @@ def recog_training_exp(
         )
         extract_pseudo_labels_job.add_alias(prefix_name + "/pseudo_labels/extract")
     
-        return extract_pseudo_labels_job.out_best_labels_path, summarize_job.out_summary_json
-    return None, None
+        return extract_pseudo_labels_job.out_best_labels_path
+    return None
 
 
 class _RecogAndScoreFunc:
@@ -273,7 +273,7 @@ def compute_prior(
     *,
     dataset: DatasetConfig,
     model: ModelWithCheckpoint,
-    mem_rqmt: Union[int, float] = 16,
+    mem_rqmt: Union[int, float] = 8,
     prior_alias_name: Optional[str] = None,
 ) -> tk.Path:
     prior_job = ReturnnForwardJobV2(
@@ -282,10 +282,10 @@ def compute_prior(
         output_files=["prior.txt"],
         returnn_python_exe=tools_paths.get_returnn_python_exe(),
         returnn_root=tools_paths.get_returnn_root(),
-        device="cpu",
+        device="gpu",
         time_rqmt=4,
         mem_rqmt=mem_rqmt,
-        cpu_rqmt=8,
+        cpu_rqmt=4,
     )
     if prior_alias_name:
         prior_job.add_alias(prior_alias_name)
@@ -389,7 +389,7 @@ def search_dataset(
     if search_alias_name:
         search_job.add_alias(search_alias_name)
         
-    use_lexicon = decoder_hyperparameters.pop("use_lexicon", False) # if we have lexicon we already have the full words
+    use_lexicon = decoder_hyperparameters.get("use_lexicon", False) # if we have lexicon we already have the full words
     if not use_lexicon:
         if recog_def.output_blank_label:
             if recog_def is not model_recog_lm or "greedy" in decoder_hyperparameters:
@@ -697,7 +697,7 @@ def search_config_v2(
                         {
                             # Increase the version whenever some incompatible change is made in this recog() function,
                             # which influences the outcome, but would otherwise not influence the hash.
-                            "version": 12,
+                            "version": 13,
                         }
                     ),
                     serialization.PythonEnlargeStackWorkaroundNonhashedCode,

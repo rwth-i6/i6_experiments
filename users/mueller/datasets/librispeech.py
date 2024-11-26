@@ -429,10 +429,12 @@ class LibrispeechOggZip(DatasetConfig):
             return self.get_dataset(self.train_ds_key)
     
     def get_eval_datasets(self) -> Dict[str, Dict[str, Any]]:
-        return {
+        ds = {
             "dev": self.get_dataset("dev", subset=self.eval_subset),
-            "devtrain": self.get_dataset("train", subset=self.eval_subset),
         }
+        if not self.pseudo_label_path:
+            ds["devtrain"] = self.get_dataset("train", subset=self.eval_subset)
+        return ds
 
     def get_main_name(self) -> str:
         return self.main_key
@@ -472,7 +474,7 @@ class LibrispeechOggZip(DatasetConfig):
         if training:
             if self.train_ds_key == "train-clean-100":
                 d["partition_epoch"] = 2
-            elif self.train_ds_key == "train-clean-860":
+            elif self.train_ds_key == "train-other-860":
                 d["partition_epoch"] = 18
             else:
                 d["partition_epoch"] = self.train_epoch_split
@@ -499,6 +501,7 @@ class LibrispeechOggZip(DatasetConfig):
             for part in parts:
                 files_new += [_get_librispeech_ogg_zip_dict_pseudo_labels(self.pseudo_label_path, part)[part]]
             d_pseudo = copy(d)
+            d_pseudo["audio"] = None
             d_pseudo["path"] = files_new
             d_comb = {"zip_dataset": d, "pseudo_labels_dataset": d_pseudo}
             data_map = {

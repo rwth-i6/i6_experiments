@@ -9,9 +9,10 @@ from typing import TYPE_CHECKING, Optional, Union, Dict, Any, Sequence
 import copy
 from i6_experiments.users.zeyer.model_interfaces import ModelT, ModelDef, ModelDefWithCfg, TrainDef, serialize_model_def
 from i6_experiments.users.zeyer.utils.dict_update import dict_update_deep
+from sisyphus import tk
 
 if TYPE_CHECKING:
-    from returnn.tensor import TensorDict
+    from returnn.tensor import TensorDict, Tensor
     from i6_experiments.common.setups import serialization
     from i6_experiments.users.zeyer.datasets.task import Task, DatasetConfig
     from i6_experiments.users.zeyer.model_with_checkpoints import ModelWithCheckpoints, Checkpoint
@@ -218,7 +219,7 @@ def train(
         log_verbosity=5,
         num_epochs=150,
         time_rqmt=80,
-        mem_rqmt=30 if gpu_mem and gpu_mem > 11 else 30, # 15
+        mem_rqmt=30 if gpu_mem and gpu_mem > 11 else 15, # 15, 30
         cpu_rqmt=4 if (not num_processes or num_processes <= 4) else 3,
         horovod_num_processes=num_processes,  # legacy name but also applies for Torch
     ).items():
@@ -264,10 +265,34 @@ def _returnn_v2_train_step(*, model, extern_data: TensorDict, **_kwargs_unused):
     targets = extern_data[default_target_key]
     targets_spatial_dim = targets.get_time_dim_tag()
     train_def: TrainDef = config.typed_value("_train_def")
-    train_def(
-        model=model,
-        data=data,
-        data_spatial_dim=data_spatial_dim,
-        targets=targets,
-        targets_spatial_dim=targets_spatial_dim,
-    )
+    if isinstance(train_def, ExtendedTrainDef):
+        train_def(
+            model=model,
+            data=data,
+            data_spatial_dim=data_spatial_dim,
+            lm_path=config.typed_value("lm_path")
+        )
+    else:
+        train_def(
+            model=model,
+            data=data,
+            data_spatial_dim=data_spatial_dim,
+            targets=targets,
+            targets_spatial_dim=targets_spatial_dim,
+        )
+
+
+class ExtendedTrainDef(TrainDef):
+    """
+    Extended version of TrainDef, which also allows to return some additional values.
+    """
+
+    def __call__(
+        self,
+        *,
+        model: ModelT,
+        data: Tensor,
+        data_spatial_dim: Tensor,
+        lm_path: tk.Path
+    ) -> Dict[str, Tensor]:
+        raise NotImplementedError

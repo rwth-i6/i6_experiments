@@ -62,7 +62,7 @@ _lrlin_oclr_steps_by_bs_nep = {
     (10, 500): [443_000, 887_000, 986_000],  # ~1973 steps/epoch, total steps after 500 epochs: ~986k
     (15, 50): [27_900, 55_800, 62_000],  # total steps after 50 epochs: ~62k
     (15, 400): [234_000, 469_000, 521_000],  # total steps after 400 epochs: ~521k
-    (15, 450): [251_000, 502_000, 560_000],  # total steps after 450 epochs: ~560k
+    (15, 450): [253_000, 506_000, 562_000],  # total steps after 450 epochs: ~562k
     (15, 500): [295_000, 590_000, 652_000],  # total steps after 500 epochs: ~652k
     (15, 600): [352_000, 704_000, 782_000],  # total steps after 600 epochs: ~782k
     (20, 1000): [438_000, 877_000, 974_000],  # total steps after 1000 epochs: 974.953
