@@ -295,6 +295,14 @@ def sum_loss_topk(
 # ------------------------------------------------
 # Helper functions
 
+# def safe_logsumexp(x: torch.Tensor, dim: int, *, keepdim: bool = False) -> torch.Tensor:
+#     """safe logsumexp, handles the case of -inf values. otherwise, when all are -inf, you get nan"""
+#     with torch.no_grad():
+#         max_x, _ = x.max(dim=dim, keepdim=True)
+#         max_x = max_x.detach()
+#         max_x_ = max_x if keepdim else max_x.squeeze(dim=dim)
+#     return max_x_ + torch.where(max_x_.isneginf(), 0.0, (x - max_x).exp().sum(dim=dim, keepdim=keepdim).log())
+
 def log_matmul(A: torch.Tensor, B: torch.Tensor):
     """
     This is inefficient

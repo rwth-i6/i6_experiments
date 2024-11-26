@@ -65,7 +65,7 @@ def py():
     test_self_training_on_small_dataset = 0 # TODO remove this parameter
     train_small = True
     with_prior = True
-    use_sum_criterion = False
+    use_sum_criterion = True
     
     if train_small:
         epochs = 50
@@ -141,7 +141,8 @@ def py():
         train_small = train_small,
         test_self_training_on_small_dataset = test_self_training_on_small_dataset,
         with_prior = with_prior,
-        use_sum_criterion=use_sum_criterion
+        use_sum_criterion=use_sum_criterion,
+        time_rqmt=2
     )
     
 
@@ -835,7 +836,8 @@ def ctc_sum_training(*, model: Model, data: rf.Tensor, data_spatial_dim: Dim, lm
         
         assert lengths == probs.dim, "Prior calculation lengths are not the same (full_sum)!"
         
-        # mask = torch.arange(probs.size(1), device=probs.device).unsqueeze(1) < lengths.unsqueeze(0)
+        empty_mask = torch.arange(probs.size(1), device=probs.device).expand(probs.size(0), -1) >= lengths.unsqueeze(1)
+        assert (probs * empty_mask).count_nonzero() == 0, f"The remaining entries in probs where not all zeros, we still have {(probs * empty_mask).count_nonzero()} non-zero entries!"
         
         sum_frames = lengths.sum()
         sum_probs = probs.sum(dim=(0, 1)) # Sum over batch and time

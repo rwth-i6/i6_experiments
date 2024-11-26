@@ -300,7 +300,7 @@ from __future__ import annotations
 
 #-----------------------------------------
 import torch
-from typing import Optional
+from typing import Optional, Union, List
 import os
 import shutil
 import sys
@@ -308,7 +308,7 @@ import tempfile
 import subprocess as sp
 
 
-from i6_core.lm.kenlm import KenLMplzJob, CompileKenLMJob
+from i6_core.lm.kenlm import CompileKenLMJob
 from i6_core.tools.git import CloneGitRepositoryJob
 from i6_core.util import uopen
 from i6_core.lib.lm import Lm
@@ -341,7 +341,8 @@ def get_count_based_n_gram(vocab: Bpe, N_order: int) -> tk.Path:
     lm_arpa = KenLMplzJob(
         text=[bpe_text],
         order=N_order,
-        interpolate_unigrams=True,
+        interpolate_unigrams=False,
+        use_discount_fallback=True,
         kenlm_binary_folder=KENLM_BINARY_PATH,
         pruning=None,
         vocabulary=None
@@ -383,17 +384,15 @@ class ConvertARPAtoTensor(Job):
         assert isinstance(vocab, dict), "Has to be a dict containing the vocab!"
         
         # Read out the words and probabilities and turn into indexes of vocab
-        n_grams = [map(lambda x: vocab[x], words.split(" ")).append(probs[0]) for words, probs in n_grams]
+        n_grams = [list(map(lambda x: vocab[x], words.split(" "))) + [probs[0]] for words, probs in n_grams]
         n_grams = list(map(list, zip(*n_grams)))
         
-        assert len(n_grams) == self.N_order, "The conversion into a list failed!"
+        assert len(n_grams) - 1 == self.N_order, f"The conversion into a list failed ({len(n_grams) - 1} != {self.N_order})!"
         
         vocab_n = len(vocab)
-        tensor = torch.zeros((vocab_n)*self.N_order, dtype=torch.float32)
+        tensor = torch.full((vocab_n,)*self.N_order, float("-inf"), dtype=torch.float32)
         # Set the probabailites by using N indexes
-        tensor[n_grams[:-1]] = n_grams[-1]
-        
-        tensor = tensor.log()
+        tensor[n_grams[:-1]] = torch.tensor(n_grams[-1], dtype=torch.float32)
         
         with uopen(self.out_lm_tensor, "wb") as f:
             torch.save(tensor, f)
@@ -442,7 +441,6 @@ class ApplyBPEToTextJob(Job):
             yield Task("run", rqmt=self.rqmt)
 
     def run(self):
-        print("start!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
         with tempfile.TemporaryDirectory(prefix=gs.TMP_PREFIX) as tmp:
             input_file = self.text_file.get_path()
             tmp_infile = os.path.join(tmp, "in_text.txt")
@@ -463,8 +461,6 @@ class ApplyBPEToTextJob(Job):
             if self.bpe_vocab:
                 cmd += ["--vocabulary", self.bpe_vocab.get_path()]
                 
-            print("Start conversion")
-
             util.create_executable("apply_bpe.sh", cmd)
             sp.run(cmd, check=True)
 
@@ -477,4 +473,86 @@ class ApplyBPEToTextJob(Job):
     @classmethod
     def hash(cls, parsed_args):
         del parsed_args["mini_task"]
+        return super().hash(parsed_args)
+    
+class KenLMplzJob(Job):
+    """
+    Run the lmplz command of the KenLM toolkit to create a gzip compressed ARPA-LM file
+    """
+
+    def __init__(
+        self,
+        *,
+        text: Union[tk.Path, List[tk.Path]],
+        order: int,
+        interpolate_unigrams: bool,
+        use_discount_fallback: bool,
+        pruning: Optional[List[int]],
+        vocabulary: Optional[tk.Path],
+        kenlm_binary_folder: tk.Path,
+        mem: float = 4.0,
+        time: float = 1.0,
+    ):
+        """
+
+        :param text: training text data
+        :param order: "N"-order of the "N"-gram LM
+        :param interpolate_unigrams: Set True for KenLM default, and False for SRILM-compatibility.
+            Having this as False will increase the share of the unknown probability
+        :param pruning: absolute pruning threshold for each order,
+            e.g. to remove 3-gram and 4-gram singletons in a 4th order model use [0, 0, 1, 1]
+        :param vocabulary: a "single word per line" file to determine valid words,
+            everything else will be treated as unknown
+        :param kenlm_binary_folder: output of the CompileKenLMJob, or a direct link to the build
+            dir of the KenLM repo
+        :param mem: memory rqmt, needs adjustment for large training corpora
+        :param time: time rqmt, might adjustment for very large training corpora and slow machines
+        """
+        self.text = text
+        self.order = order
+        self.interpolate_unigrams = interpolate_unigrams
+        self.pruning = pruning
+        self.vocabulary = vocabulary
+        self.kenlm_binary_folder = kenlm_binary_folder
+        self.use_discount_fallback = use_discount_fallback
+
+        self.out_lm = self.output_path("lm.gz")
+
+        self.rqmt = {"cpu": 1, "mem": mem, "time": time}
+
+    def tasks(self):
+        yield Task("run", rqmt=self.rqmt)
+
+    def run(self):
+        with tempfile.TemporaryDirectory(prefix=gs.TMP_PREFIX) as tmp:
+            lmplz_command = [
+                os.path.join(self.kenlm_binary_folder.get_path(), "lmplz"),
+                "-o",
+                str(self.order),
+                "--interpolate_unigrams",
+                str(self.interpolate_unigrams),
+                "-S",
+                "%dG" % int(self.rqmt["mem"]),
+                "-T",
+                tmp,
+            ]
+            if self.use_discount_fallback:
+                lmplz_command += ["--discount_fallback"]
+            if self.pruning is not None:
+                lmplz_command += ["--prune"] + [str(p) for p in self.pruning]
+            if self.vocabulary is not None:
+                lmplz_command += ["--limit_vocab_file", self.vocabulary.get_path()]
+
+            zcat_command = ["zcat", "-f"] + [text.get_path() for text in self.text]
+            with uopen(self.out_lm, "wb") as lm_file:
+                p1 = sp.Popen(zcat_command, stdout=sp.PIPE)
+                p2 = sp.Popen(lmplz_command, stdin=p1.stdout, stdout=sp.PIPE)
+                sp.check_call("gzip", stdin=p2.stdout, stdout=lm_file)
+                if p2.returncode:
+                    raise sp.CalledProcessError(p2.returncode, cmd=lmplz_command)
+
+    @classmethod
+    def hash(cls, parsed_args):
+        del parsed_args["mem"]
+        del parsed_args["time"]
         return super().hash(parsed_args)
