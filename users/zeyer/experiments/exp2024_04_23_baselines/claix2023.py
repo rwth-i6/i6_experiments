@@ -2088,6 +2088,14 @@ def py():
     #   50.38 PPL, even worse with loss_dtype float32 (49.39 PPL, which is much worse than baseline 35.58 PPL)?
 
     # TODO we could very systematically go through the whole net/model and leave some parts as float32
+    # Check other (L)LM frameworks, how they do this.
+    # https://github.com/search?q=repo%3AepfLLM%2FMegatron-LLM%20params_dtype&type=code
+    # https://github.com/search?q=repo%3AepfLLM%2FMegatron-LLM%20accumulate_allreduce_grads_in_fp32&type=code
+    # Grad accum in f32:
+    # https://github.com/epfLLM/Megatron-LLM/blob/806a83302cbf4f7d6e147fe34bad5885cf745709/megatron/model/distributed.py#L159-L171
+    # Logits get casted to f32 before softmax/CE.
+    # https://github.com/epfLLM/Megatron-LLM/blob/main/megatron/model/gpt_model.py
+    # https://github.com/epfLLM/Megatron-LLM/blob/main/megatron/core/tensor_parallel/cross_entropy.py
 
     # Try new model (Llama) (noAbsPos-rmsNorm-ffGated-rope-noBias instead of gelu).
     # 38.71 PPL (vs 39.85 PPL)
