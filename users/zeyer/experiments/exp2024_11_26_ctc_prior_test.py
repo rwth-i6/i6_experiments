@@ -6,6 +6,7 @@ https://github.com/pytorch/pytorch/issues/52241
 """
 
 import torch
+import sys
 
 
 def neg_log_prob_pure_torch(
@@ -84,11 +85,11 @@ def test():
     target_lengths = torch.randint(1, max_target_len + 1, (batch_size,))
     input_lengths = torch.minimum(target_lengths * 2, input_lengths)  # make sure there is a valid path
 
-    ref_scores = None
-    ref_grads = None
+    for case, log_probs in log_probs_cases.items():
+        ref_scores = None
+        ref_grads = None
 
-    for dev in devices:
-        for case, log_probs in log_probs_cases.items():
+        for dev in devices:
             print("***", dev, case)
 
             for func in funcs:
@@ -112,6 +113,7 @@ def test():
                     ref_scores = loss
                 else:
                     torch.testing.assert_close(ref_scores, loss.to(ref_scores.device))
+                    print("    loss matches to reference")
 
                 loss.sum().backward()
                 assert log_probs.grad is not None
@@ -120,20 +122,51 @@ def test():
                 if case == "normalized":
                     # The negative grads should be a probability distrib. Check this.
                     y_sum = -log_probs_grad_cpu.sum(dim=-1)  # [T, N]
+                    got_exc = False
                     for b in range(batch_size):
                         for t in range(input_lengths[b]):
-                            torch.testing.assert_close(
-                                y_sum[t, b], torch.tensor(1.0), msg=lambda _msg: f"t={t} b={b}: {_msg}"
-                            )
-                    print("    grad is neg prob distrib")
+                            try:
+                                torch.testing.assert_close(y_sum[t, b], torch.tensor(1.0))
+                            except Exception as exc:
+                                print(f"    Error at t={t} b={b}:")
+                                print(exc)
+                                got_exc = True
+                                break
+                        if got_exc:
+                            break
+                    if not got_exc:
+                        print("    grad is neg prob distrib")
 
                 # All the padded frames should have zero grad.
+                got_exc = False
                 for b in range(batch_size):
                     for t in range(input_lengths[b], max_input_len):
-                        assert (log_probs_grad_cpu[t, b] == 0.0).all(), f"t={t} b={b}: {log_probs_grad_cpu[t, b]}"
-                print("    grad is zero for padded frames")
+                        if not (log_probs_grad_cpu[t, b] == 0.0).all():
+                            print(f"    Grad-zero check: Error at t={t} b={b}: {log_probs_grad_cpu[t, b]}")
+                            got_exc = True
+                            break
+                    if got_exc:
+                        break
+                if not got_exc:
+                    print("    grad is zero for padded frames")
 
                 if ref_grads is None:
                     ref_grads = log_probs_grad_cpu
                 else:
-                    torch.testing.assert_close(ref_grads, log_probs_grad_cpu)
+                    try:
+                        torch.testing.assert_close(ref_grads, log_probs_grad_cpu)
+                    except Exception as exc:
+                        print("    Error comparing grads to ref grads:")
+                        print(exc)
+                    else:
+                        print("    Grad matches to reference")
+
+
+def _setup():
+    sys.path.insert(0, "projects/2024-alignment-analysis")
+
+
+if __name__ == "__main__":
+    _setup()
+    test()
+    print("Done.")
