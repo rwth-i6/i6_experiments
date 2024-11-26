@@ -114,7 +114,25 @@ def test():
 
                 loss.sum().backward()
                 assert log_probs.grad is not None
+                log_probs_grad_cpu = log_probs.grad.cpu()  # [T, N, C]
+
+                if case == "normalized":
+                    # The negative grads should be a probability distrib. Check this.
+                    y_sum = -log_probs_grad_cpu.sum(dim=-1)  # [T, N]
+                    for b in range(batch_size):
+                        for t in range(input_lengths[b]):
+                            torch.testing.assert_close(
+                                y_sum[t, b], torch.tensor(1.0), msg=lambda _msg: f"t={t} b={b}: {_msg}"
+                            )
+                    print("    grad is neg prob distrib")
+
+                # All the padded frames should have zero grad.
+                for b in range(batch_size):
+                    for t in range(input_lengths[b], max_input_len):
+                        assert (log_probs_grad_cpu[t, b] == 0.0).all(), f"t={t} b={b}: {log_probs_grad_cpu[t, b]}"
+                print("    grad is zero for padded frames")
+
                 if ref_grads is None:
-                    ref_grads = log_probs.grad
+                    ref_grads = log_probs_grad_cpu
                 else:
-                    torch.testing.assert_close(ref_grads, log_probs.grad.to(ref_grads.device))
+                    torch.testing.assert_close(ref_grads, log_probs_grad_cpu)
