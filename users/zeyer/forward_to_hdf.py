@@ -209,6 +209,7 @@ def _returnn_get_forward_callback():
                 ndim=output.ndim,
                 labels=output.vocab and output.vocab.labels,
                 extra_type={k: (v.dim, v.ndim, v.dtype) for k, v in expected_outputs.data.items() if k != "output"},
+                extra_labels={k: v.vocab.labels for k, v in expected_outputs.data.items() if k != "output" and v.vocab},
             )
 
         def process_seq(self, *, seq_tag: str, outputs: TensorDict):
