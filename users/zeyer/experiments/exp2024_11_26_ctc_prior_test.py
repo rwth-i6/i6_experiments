@@ -66,6 +66,56 @@ def neg_log_prob_torch_ctc(
     )
 
 
+def neg_log_prob_torch_ctc_fixed_grad(
+    *,
+    log_probs: torch.Tensor,
+    blank_idx: int,
+    targets: torch.Tensor,
+    input_lengths: torch.Tensor,
+    target_lengths: torch.Tensor,
+) -> torch.Tensor:
+    """
+    Forward score with CTC loss using torch.nn.functional.ctc_loss
+    and fixing up the gradient.
+
+    :param log_probs: (T, N, C)
+        where T is the length of the sequence, N is the batch size, C is the number of classes (including the blank).
+        The user is responsible for normalization.
+    :param blank_idx: the index of the blank symbol (in C)
+    :param targets: (N, S), where S is the target length
+    :param input_lengths: (N,)
+    :param target_lengths: (N,)
+    :return: (N,), the forward score (CTC loss)
+    """
+    log_probs = _FixCTCGradFunc.apply(log_probs, input_lengths)
+    return torch.nn.functional.ctc_loss(
+        log_probs, targets, input_lengths, target_lengths, blank=blank_idx, reduction="none", zero_infinity=True
+    )
+
+
+class _FixCTCGradFunc(torch.autograd.Function):
+    @staticmethod
+    def forward(ctx, log_prob, input_lengths):
+        ctx.save_for_backward(log_prob, input_lengths)
+        return log_prob
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        (log_prob, input_lengths) = ctx.saved_tensors
+
+        # The ctc_loss calculates exp(log_prob) - y, where y are the soft targets.
+        # We want to return -y instead.
+        # Thus, substract the exp(log_prob) from the grad_output.
+        grad_input = grad_output - log_prob.exp()
+        input_lengths = input_lengths.to(grad_input.device)
+        mask = (
+            torch.arange(grad_input.shape[0], device=input_lengths.device)[:, None] < input_lengths[None, :]
+        )  # [T, N]
+        grad_input = torch.where(mask[:, :, None], grad_input, torch.zeros_like(grad_input))
+
+        return grad_input, None
+
+
 def test():
     print("PyTorch:", torch.__version__)
     torch.random.manual_seed(42)
@@ -75,9 +125,9 @@ def test():
     max_target_len = 5
     max_input_len = 17
     batch_idx = num_labels - 1
-    # devices = [torch.device("cpu"), torch.device("cuda")]
-    devices = [torch.device("cpu")]
-    funcs = [neg_log_prob_pure_torch, neg_log_prob_torch_ctc]
+    devices = [torch.device("cpu"), torch.device("cuda")]
+    # devices = [torch.device("cpu")]
+    funcs = [neg_log_prob_pure_torch, neg_log_prob_torch_ctc, neg_log_prob_torch_ctc_fixed_grad]
     eps = 1e-4
     do_gradcheck = False
     with_log_prob_grad = True
@@ -148,11 +198,11 @@ def test():
                 logits_grad_cpu = logits.grad.cpu()  # [T, N, C]
                 log_probs_grad_cpu = log_probs.grad.cpu() if with_log_prob_grad else None  # [T, N, C]
 
-                print("logits grads (0,0):")
-                print(logits_grad_cpu[0, 0])
-                if with_log_prob_grad:
-                    print("log probs grads (0,0):")
-                    print(log_probs_grad_cpu[0, 0])
+                # print("logits grads (0,0):")
+                # print(logits_grad_cpu[0, 0])
+                # if with_log_prob_grad:
+                #     print("log probs grads (0,0):")
+                #     print(log_probs_grad_cpu[0, 0])
 
                 if case == "normalized":
                     # The grads of logits should be like probs - y.
@@ -161,18 +211,12 @@ def test():
                     got_exc = False
                     for b in range(batch_size):
                         for t in range(input_lengths[b]):
-                            if not torch.isclose(y_sum[t, b], torch.tensor(1.0)):
-                                print(
-                                    f"    logits grad error at t={t} b={b}: {y_sum[t, b]} vs 1."
-                                    f" logits grads: {logits_grad_cpu[t, b]}"
-                                )
+                            if not torch.isclose(y_sum[t, b], torch.tensor(1.0), atol=eps):
+                                print(f"    logits grad error at t={t} b={b}: {y_sum[t, b]} vs 1.")
                                 got_exc = True
                                 break
                             if not (y[t, b] >= -eps).all():
-                                print(
-                                    f"    logits grad error at t={t} b={b}: got negative: {y[t, b]}."
-                                    f" logits grads: {logits_grad_cpu[t, b]}"
-                                )
+                                print(f"    logits grad error at t={t} b={b}: got negative: {y[t, b]}.")
                                 got_exc = True
                                 break
                         if got_exc:
@@ -188,18 +232,12 @@ def test():
                     got_exc = False
                     for b in range(batch_size):
                         for t in range(input_lengths[b]):
-                            if not torch.isclose(y_sum[t, b], torch.tensor(1.0)):
-                                print(
-                                    f"    log probs grad error at t={t} b={b}: {y_sum[t, b]} vs 1."
-                                    f" log_probs grads: {log_probs_grad_cpu[t, b]}"
-                                )
+                            if not torch.isclose(y_sum[t, b], torch.tensor(1.0), atol=eps):
+                                print(f"    log probs grad error at t={t} b={b}: {y_sum[t, b]} vs 1.")
                                 got_exc = True
                                 break
                             if not (y[t, b] >= -eps).all():
-                                print(
-                                    f"    log probs grad error at t={t} b={b}: got negative: {y[t, b]}."
-                                    f" log_probs grads: {log_probs_grad_cpu[t, b]}"
-                                )
+                                print(f"    log probs grad error at t={t} b={b}: got negative: {y[t, b]}.")
                                 got_exc = True
                                 break
                         if got_exc:
