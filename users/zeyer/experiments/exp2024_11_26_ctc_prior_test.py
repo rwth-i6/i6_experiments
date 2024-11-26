@@ -63,6 +63,7 @@ def neg_log_prob_torch_ctc(
 
 
 def test():
+    print("PyTorch:", torch.__version__)
     torch.random.manual_seed(42)
 
     num_labels = 11
