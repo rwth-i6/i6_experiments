@@ -567,11 +567,12 @@ def py():
     #   -> In the sampling, make some upper limit?
 
     # Blank separated (blankSep).
-    for vocab, alpha, max_seq_len_via_audio in [
-        ("bpe10k", 0.01, False),  # 5.98 (with) vs 6.18 (without)
-        ("spm10k", 0.01, False),  # 5.73 (!!) (with) vs 5.77 (without) (but almost no diff on test)
-        ("spm10k", 0.01, True),  # 5.74 (with) vs 5.80 (without) (but without is better on test,dev-clean)
-        ("spm512", 0.01, True),  # 6.02 (with) vs 6.02 (without) (but without is worse on test,dev-clean)
+    for vocab, alpha, max_seq_len_via_audio, fix_grad in [
+        ("bpe10k", 0.01, False, False),  # 5.98 (with) vs 6.18 (without)
+        ("spm10k", 0.01, False, False),  # 5.73 (!!) (with) vs 5.77 (without) (but almost no diff on test)
+        ("spm10k", 0.01, False, True),
+        ("spm10k", 0.01, True, False),  # 5.74 (with) vs 5.80 (without) (but without is better on test,dev-clean)
+        ("spm512", 0.01, True, False),  # 6.02 (with) vs 6.02 (without) (but without is worse on test,dev-clean)
     ]:
         for blank_sep in [False, True]:
             train_exp(
@@ -579,7 +580,8 @@ def py():
                 f"{'-maxSeqLenAudio19_5' if max_seq_len_via_audio else ''}"
                 "-wd1e_2-lrlin1e_5_295k-featBN"
                 f"-speedpertV2-{vocab}-bpeSample{str(alpha).replace('.', '')}"
-                f"{'-blankSep' if blank_sep else ''}",
+                f"{'-blankSep' if blank_sep else ''}"
+                f"{'-ctcFixGrad' if blank_sep and fix_grad else ''}",
                 config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
                 model_config={
                     "enc_conformer_layer": enc_conformer_layer_default,
@@ -599,6 +601,7 @@ def py():
                     "aux_attention_decoder": rf.build_dict(
                         TransformerDecoder, num_layers=6
                     ),  # purely used for training
+                    **({"use_fixed_ctc_grad": True} if blank_sep and fix_grad else {}),
                 },
                 vocab=vocab,
                 train_vocab_opts={"other_opts": {"class": "SamplingBytePairEncoding", "breadth_prob": alpha}},
@@ -644,6 +647,30 @@ def py():
             "aux_attention_decoder": rf.build_dict(TransformerDecoder, num_layers=6),  # purely used for training
             "ctc_label_smoothing": 0.1,
             "ctc_label_smoothing_exclude_blank": False,
+        },
+        vocab="spm10k",
+        train_vocab_opts={"other_opts": {"class": "SamplingBytePairEncoding", "breadth_prob": 0.01}},
+    )
+
+    # Blank separated (blankSep) with CTC label smoothing (including blank) (ctcLS01) and fixed grad. (baseline: 5.77)
+    train_exp(
+        "v6-relPosAttDef-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-featBN"
+        "-speedpertV2-spm10k-bpeSample001-blankSep-ctcFixGrad-ctcLS01",
+        config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
+        model_config={
+            "enc_conformer_layer": enc_conformer_layer_default,
+            "feature_batch_norm": True,
+            "out_blank_separated": True,
+        },
+        config_updates={
+            **_get_cfg_lrlin_oclr_by_bs_nep(15_000, 500),
+            "optimizer.weight_decay": 1e-2,
+            "__train_audio_preprocess": speed_pert_librosa_config,
+            "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
+            "aux_attention_decoder": rf.build_dict(TransformerDecoder, num_layers=6),  # purely used for training
+            "ctc_label_smoothing": 0.1,
+            "ctc_label_smoothing_exclude_blank": False,
+            "use_fixed_ctc_grad": True,
         },
         vocab="spm10k",
         train_vocab_opts={"other_opts": {"class": "SamplingBytePairEncoding", "breadth_prob": 0.01}},
@@ -1645,6 +1672,13 @@ def ctc_training(*, model: Model, data: rf.Tensor, data_spatial_dim: Dim, target
     aux_loss_scales = config.typed_value("aux_loss_scales", ([1.0] * len(aux_loss_layers)) if aux_loss_layers else None)
     aed_loss_scale = config.float("aed_loss_scale", 1.0)
     use_normalized_loss = config.bool("use_normalized_loss", True)
+    use_fixed_ctc_grad = config.bool("use_fixed_ctc_grad", False)
+
+    ctc_loss = rf.ctc_loss
+    if use_fixed_ctc_grad:
+        from i6_experiments.users.zeyer.nn_rf.torch_ctc_fixed_grad import ctc_loss_fixed_grad
+
+        ctc_loss = ctc_loss_fixed_grad
 
     if data.feature_dim and data.feature_dim.dimension == 1:
         data = rf.squeeze(data, axis=data.feature_dim)
@@ -1664,7 +1698,7 @@ def ctc_training(*, model: Model, data: rf.Tensor, data_spatial_dim: Dim, target
             linear = getattr(model, f"enc_aux_logits_{layer_idx}")
             aux_logits = linear(collected_outputs[str(layer_idx - 1)])
             aux_log_probs = model.log_probs_wb_from_logits(aux_logits)
-            aux_loss = rf.ctc_loss(
+            aux_loss = ctc_loss(
                 logits=aux_log_probs,
                 logits_normalized=True,
                 targets=targets,
@@ -1685,7 +1719,7 @@ def ctc_training(*, model: Model, data: rf.Tensor, data_spatial_dim: Dim, target
             # error.mark_as_loss("label", as_error=True, custom_inv_norm_factor=targets_spatial_dim.get_size_tensor())
 
     log_probs = model.log_probs_wb_from_logits(logits)
-    loss = rf.ctc_loss(
+    loss = ctc_loss(
         logits=log_probs,
         logits_normalized=True,
         targets=targets,
