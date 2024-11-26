@@ -87,30 +87,40 @@ def neg_log_prob_torch_ctc_fixed_grad(
     :param target_lengths: (N,)
     :return: (N,), the forward score (CTC loss)
     """
-    log_probs = _FixCTCGradFunc.apply(log_probs, input_lengths)
-    return torch.nn.functional.ctc_loss(
+    return torch_ctc_fixed_grad(
         log_probs, targets, input_lengths, target_lengths, blank=blank_idx, reduction="none", zero_infinity=True
     )
 
 
+def torch_ctc_fixed_grad(
+    log_probs: torch.Tensor,
+    targets: torch.Tensor,
+    input_lengths: torch.Tensor,
+    target_lengths: torch.Tensor,
+    *args,
+    **kwargs,
+) -> torch.Tensor:
+    log_probs = _FixCTCGradFunc.apply(log_probs, input_lengths)
+    return torch.nn.functional.ctc_loss(log_probs, targets, input_lengths, target_lengths, *args, **kwargs)
+
+
 class _FixCTCGradFunc(torch.autograd.Function):
     @staticmethod
-    def forward(ctx, log_prob, input_lengths):
-        ctx.save_for_backward(log_prob, input_lengths)
-        return log_prob
+    def forward(ctx, log_probs, input_lengths):
+        ctx.save_for_backward(log_probs, input_lengths)
+        return log_probs
 
     @staticmethod
     def backward(ctx, grad_output):
-        (log_prob, input_lengths) = ctx.saved_tensors
+        (log_probs, input_lengths) = ctx.saved_tensors
 
-        # The ctc_loss calculates exp(log_prob) - y, where y are the soft targets.
+        # The ctc_loss calculates exp(log_probs) - y, where y are the soft targets.
         # We want to return -y instead.
-        # Thus, substract the exp(log_prob) from the grad_output.
-        grad_input = grad_output - log_prob.exp()
+        # Thus, subtract the exp(log_probs) from the grad_output.
+        grad_input = grad_output - log_probs.exp()
         input_lengths = input_lengths.to(grad_input.device)
-        mask = (
-            torch.arange(grad_input.shape[0], device=input_lengths.device)[:, None] < input_lengths[None, :]
-        )  # [T, N]
+        max_time = grad_input.shape[0]
+        mask = torch.arange(max_time, device=input_lengths.device)[:, None] < input_lengths[None, :]  # [T, N]
         grad_input = torch.where(mask[:, :, None], grad_input, torch.zeros_like(grad_input))
 
         return grad_input, None
