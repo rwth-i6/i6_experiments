@@ -572,7 +572,7 @@ def py():
             "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
             "aux_attention_decoder": rf.build_dict(TransformerDecoder, num_layers=6),  # purely used for training
             "ctc_label_smoothing": 0.1,
-            "use_fixed_ctc_grad": True,
+            "use_fixed_ctc_grad": "v2",
         },
         vocab="spm10k",
         train_vocab_opts={"other_opts": {"class": "SamplingBytePairEncoding", "breadth_prob": 0.01}},
@@ -636,7 +636,7 @@ def py():
                     "aux_attention_decoder": rf.build_dict(
                         TransformerDecoder, num_layers=6
                     ),  # purely used for training
-                    **({"use_fixed_ctc_grad": True} if blank_sep and fix_grad else {}),
+                    **({"use_fixed_ctc_grad": "v2"} if blank_sep and fix_grad else {}),
                 },
                 vocab=vocab,
                 train_vocab_opts={"other_opts": {"class": "SamplingBytePairEncoding", "breadth_prob": alpha}},
@@ -658,7 +658,7 @@ def py():
             "__train_audio_preprocess": speed_pert_librosa_config,
             "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
             "aux_attention_decoder": rf.build_dict(TransformerDecoder, num_layers=6),  # purely used for training
-            "use_fixed_ctc_grad": True,
+            "use_fixed_ctc_grad": "v2",
         },
         vocab="spm10k",
         train_vocab_opts={"other_opts": {"class": "SamplingBytePairEncoding", "breadth_prob": 0.01}},
@@ -727,7 +727,7 @@ def py():
             "aux_attention_decoder": rf.build_dict(TransformerDecoder, num_layers=6),  # purely used for training
             "ctc_label_smoothing": 0.1,
             "ctc_label_smoothing_exclude_blank": False,
-            "use_fixed_ctc_grad": True,
+            "use_fixed_ctc_grad": "v2",
         },
         vocab="spm10k",
         train_vocab_opts={"other_opts": {"class": "SamplingBytePairEncoding", "breadth_prob": 0.01}},
@@ -805,7 +805,7 @@ def py():
             "log_prob_normed_grad": {
                 "func": {"clamp_min": 0.5, "clamp_max": 1.1, "scale_type": "inv_num_labels", "prior_exp": 1.0}
             },
-            "use_fixed_ctc_grad": True,
+            "use_fixed_ctc_grad": "v2",
         },
         # 5.85/6.10
         # "C05_15P1": {
@@ -833,7 +833,7 @@ def py():
                 "prior": "seq_grad",
                 "func": {"clamp_min": 0.5, "clamp_max": 1.1, "scale_type": "inv_num_labels", "prior_exp": 1.0},
             },
-            "use_fixed_ctc_grad": True,
+            "use_fixed_ctc_grad": "v2",
         },
         # 5.75/6.03 (Note: missing renorm, clamp values suboptimal)
         "C05_11P07": {
@@ -956,7 +956,7 @@ def py():
                 "func": {"clamp_min": 0.5, "clamp_max": 1.1, "scale_type": "inv_num_labels", "prior_exp": 1.0}
             },
             "log_prob_normed_grad_exclude_blank": False,
-            "use_fixed_ctc_grad": True,
+            "use_fixed_ctc_grad": "v2",
         },
         vocab="spm10k",
         train_vocab_opts={"other_opts": {"class": "SamplingBytePairEncoding", "breadth_prob": 0.01}},
@@ -992,7 +992,7 @@ def py():
                 "ctc_am_scale": am_scale,
                 "ctc_prior_scale": prior_scale,
                 "ctc_prior_type": "batch",
-                **({"use_fixed_ctc_grad": True} if fixed_grad else {}),
+                **({"use_fixed_ctc_grad": "v2"} if fixed_grad else {}),
             },
             vocab="spm10k",
             train_vocab_opts={"other_opts": {"class": "SamplingBytePairEncoding", "breadth_prob": 0.01}},
