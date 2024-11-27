@@ -560,7 +560,7 @@ def py():
     )
 
     # CTC label smoothing with fixed grad
-    train_exp(  # 5.74
+    train_exp(
         "v6-relPosAttDef-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-featBN"
         "-speedpertV2-spm10k-bpeSample001-ctcLS01-ctcFixGrad",
         config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
@@ -641,6 +641,28 @@ def py():
                 vocab=vocab,
                 train_vocab_opts={"other_opts": {"class": "SamplingBytePairEncoding", "breadth_prob": alpha}},
             )
+
+    # Blank separated with fixed grad on 24GB.
+    train_exp(
+        f"v6-relPosAttDef-aedLoss-bhv21-24gb-bf16-bs40k-accgrad2-wd1e_2-lrlin1e_5_450k"
+        f"-featBN-speedpertV2-spm10k-bpeSample001-blankSep-ctcFixGrad",
+        config_24gb_v6,
+        model_config={
+            "enc_conformer_layer": enc_conformer_layer_default,
+            "feature_batch_norm": True,
+            "out_blank_separated": True,
+        },
+        config_updates={
+            **_get_cfg_lrlin_oclr_by_bs_nep(40_000, 2000),
+            "optimizer.weight_decay": 1e-2,
+            "__train_audio_preprocess": speed_pert_librosa_config,
+            "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
+            "aux_attention_decoder": rf.build_dict(TransformerDecoder, num_layers=6),  # purely used for training
+            "use_fixed_ctc_grad": True,
+        },
+        vocab="spm10k",
+        train_vocab_opts={"other_opts": {"class": "SamplingBytePairEncoding", "breadth_prob": 0.01}},
+    )
 
     # Blank separated (blankSep) with CTC label smoothing excluding blank (ctcLS01xB). (baseline: 5.77)
     train_exp(  # 6.14. A bit unclear why so much worse, maybe some bug?
