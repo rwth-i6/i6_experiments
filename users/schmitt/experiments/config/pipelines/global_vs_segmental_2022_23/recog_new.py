@@ -65,8 +65,6 @@ class DecodingExperiment(ABC):
 
     self.alias = alias
 
-    self.separate_readout_alpha = self.recog_opts.get("separate_readout_alpha")
-
     self.returnn_python_exe = self.config_builder.variant_params["returnn_python_exe"]
     self.returnn_root = self.config_builder.variant_params["returnn_root"]
 
@@ -332,8 +330,12 @@ class ReturnnDecodingExperiment(DecodingExperiment, ABC):
         self.alias += f"_length-scale-{length_scale:.2f}"
     self.alias += "/%s-checkpoint" % self.checkpoint_alias
 
-    if self.separate_readout_alpha is not None:
-      self.alias = f"{self.alias}/sep-read-alpha-{self.separate_readout_alpha:.2f}"
+    att_readout_scale = self.recog_opts.get("att_readout_scale")
+    if att_readout_scale is not None:
+      self.alias = f"{self.alias}/att-scale-{att_readout_scale:.2f}"
+    h_t_readout_scale = self.recog_opts.get("h_t_readout_scale")
+    if h_t_readout_scale is not None:
+      self.alias = f"{self.alias}_h_t-scale-{h_t_readout_scale:.2f}"
 
     base_model_scale = self.recog_opts.get("base_model_scale", 1.0)
     self.alias += f"/scale-{base_model_scale:.2f}"
@@ -343,7 +345,7 @@ class ReturnnDecodingExperiment(DecodingExperiment, ABC):
       self.alias += f"_b-pen-{blank_penalty:.1f}"
 
     blank_scale = self.recog_opts.get("blank_scale")
-    if blank_scale:
+    if blank_scale is not None:
       self.alias += f"_b-scale-{blank_scale:.1f}"
 
     external_aed_opts = self.recog_opts.get("external_aed_opts")
@@ -952,7 +954,7 @@ class DecodingPipeline(ABC):
               self.recog_opts.update({
                 "lm_opts": {"scale": lm_scale, **self.lm_opts} if lm_scale > 0 else None,
                 "ilm_correction_opts": {
-                  "scale": ilm_scale, **self.ilm_opts} if ilm_scale > 0 and lm_scale > 0 else None,
+                  "scale": ilm_scale, **self.ilm_opts} if ilm_scale > 0 else None,
                 "beam_size": beam_size,
                 # "search_corpus_key": corpus_key
               })

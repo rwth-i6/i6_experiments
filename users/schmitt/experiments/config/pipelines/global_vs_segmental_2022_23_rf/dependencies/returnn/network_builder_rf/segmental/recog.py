@@ -259,7 +259,8 @@ def get_score(
         ilm_correction_scale: Optional[float] = None,
         external_aed_scale: Optional[float] = None,
         subtract_ilm_eos_score: bool = False,
-        separate_readout_alpha: Optional[float] = None,
+        att_readout_scale: Optional[float] = None,
+        h_t_readout_scale: Optional[float] = None,
         blank_penalty: Optional[float] = None,
         blank_scale: Optional[float] = None,
 ) -> Tuple[Tensor, State, Optional[State], Optional[State], Optional[State], Optional[State], Optional[State], Tensor]:
@@ -340,14 +341,13 @@ def get_score(
       att=label_step_out["att"],
     )
     label_log_prob2 = rf.log_softmax(label_logits2, axis=model.target_dim)
-    alpha = separate_readout_alpha
+    alpha = att_readout_scale
     label_log_prob = alpha * label_log_prob + (1 - alpha) * label_log_prob2
 
   # combine two softmaxes in case of two separate readouts
   if not isinstance(model.label_decoder, TransformerDecoder) and model.label_decoder.use_sep_h_t_readout:
     h_t_label_log_prob = rf.log_softmax(h_t_logits, axis=model.target_dim)
-    alpha = separate_readout_alpha
-    label_log_prob = alpha * label_log_prob + (1 - alpha) * h_t_label_log_prob
+    label_log_prob = att_readout_scale * label_log_prob + h_t_readout_scale * h_t_label_log_prob
 
   label_log_prob *= base_model_scale
 
@@ -637,7 +637,8 @@ def model_recog(
         subtract_ilm_eos_score: bool = False,
         cheating_targets: Optional[Tensor] = None,
         cheating_targets_spatial_dim: Optional[Dim] = None,
-        separate_readout_alpha: Optional[float] = None,
+        att_readout_scale: Optional[float] = None,
+        h_t_readout_scale: Optional[float] = None,
         blank_penalty: Optional[float] = None,
         blank_scale: Optional[float] = None,
         add_lm_eos_to_non_blank_end_hyps: bool = False,
@@ -958,7 +959,8 @@ def model_recog(
       ilm_correction_scale=ilm_correction_scale,
       external_aed_scale=external_aed_scale,
       subtract_ilm_eos_score=subtract_ilm_eos_score,
-      separate_readout_alpha=separate_readout_alpha,
+      att_readout_scale=att_readout_scale,
+      h_t_readout_scale=h_t_readout_scale,
       blank_penalty=blank_penalty,
       blank_scale=blank_scale,
     )

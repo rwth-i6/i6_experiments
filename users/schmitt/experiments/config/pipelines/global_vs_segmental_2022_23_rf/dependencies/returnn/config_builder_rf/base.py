@@ -1450,6 +1450,25 @@ class SegmentalAttConfigBuilderRF(TransducerConfigBuilderRF, ABC):
       #   }
       # })
 
+    att_readout_scale = opts.get("att_readout_scale")
+    if att_readout_scale is not None:
+      recog_config.config["beam_search_opts"]["att_readout_scale"] = att_readout_scale
+    h_t_readout_scale = opts.get("h_t_readout_scale")
+    if h_t_readout_scale is not None:
+      recog_config.config["beam_search_opts"]["h_t_readout_scale"] = h_t_readout_scale
+
+    base_model_scale = opts.get("base_model_scale", 1.0)
+    if base_model_scale != 1.0:
+      recog_config.config["beam_search_opts"]["base_model_scale"] = base_model_scale
+
+    blank_penalty = opts.get("blank_penalty")
+    if blank_penalty:
+      recog_config.config["beam_search_opts"]["blank_penalty"] = blank_penalty
+
+    blank_scale = opts.get("blank_scale", 1.0)
+    if blank_scale is not None and blank_scale != 1.0:
+      recog_config.config["beam_search_opts"]["blank_scale"] = blank_scale
+
     return recog_config
 
   def get_dump_att_weight_config(self, opts: Dict):
