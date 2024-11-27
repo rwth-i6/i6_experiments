@@ -203,7 +203,7 @@ def test():
             for func in funcs:
                 print("  *", func.__name__)
 
-                for scale in [1.0, 0.5, -1.5]:
+                for scale in [1.0, 0.5, -1.5, torch.tensor([0.5, 1.0, 2.0])]:
                     print("   * scale:", scale)
 
                     logits: torch.Tensor = _log_probs.detach().clone().to(dev)
@@ -232,10 +232,14 @@ def test():
                         torch.testing.assert_close(ref_scores, loss.to(ref_scores.device))
                         print("    loss matches to reference")
 
-                    if scale != 1.0:
+                    if isinstance(scale, torch.Tensor):
+                        scale = scale.to(dev)
+                    if isinstance(scale, torch.Tensor) or scale != 1.0:
                         loss *= scale
                     loss.sum().backward()
                     assert logits.grad is not None
+                    if isinstance(scale, torch.Tensor) and scale.ndim == 1:
+                        scale = scale[None, :, None]
                     logits.grad.multiply_(1.0 / scale)  # undo the scale
                     if with_log_prob_grad and log_probs is not logits:
                         assert log_probs.grad is not None
