@@ -175,135 +175,144 @@ def test():
             for func in funcs:
                 print("  *", func.__name__)
 
-                logits: torch.Tensor = _log_probs.detach().clone().to(dev)
-                logits.requires_grad_()
-                if case == "normalized":
-                    log_probs = logits.log_softmax(dim=-1)
+                for scale in [1.0, 0.5, -1.5]:
+                    print("   * scale:", scale)
+
+                    logits: torch.Tensor = _log_probs.detach().clone().to(dev)
+                    logits.requires_grad_()
+                    if case == "normalized":
+                        log_probs = logits.log_softmax(dim=-1)
+                        if with_log_prob_grad:
+                            log_probs.requires_grad_()
+                            log_probs.retain_grad()
+                    else:
+                        log_probs = logits
+                    targets: torch.Tensor = targets.to(dev)
+
+                    loss = func(
+                        log_probs=log_probs,
+                        blank_idx=batch_idx,
+                        targets=targets,
+                        input_lengths=input_lengths,
+                        target_lengths=target_lengths,
+                    )
+                    assert loss.shape == (batch_size,)
+                    print("    loss:", loss)
+                    if ref_scores is None:
+                        ref_scores = loss
+                    else:
+                        torch.testing.assert_close(ref_scores, loss.to(ref_scores.device))
+                        print("    loss matches to reference")
+
+                    if scale != 1.0:
+                        loss *= scale
+                    loss.sum().backward()
+                    assert logits.grad is not None
+                    logits.grad.multiply_(1.0 / scale)  # undo the scale
+                    if with_log_prob_grad and log_probs is not logits:
+                        assert log_probs.grad is not None
+                        log_probs.grad.multiply_(1.0 / scale)  # undo the scale
+                    logits_grad_cpu = logits.grad.cpu()  # [T, N, C]
+                    log_probs_grad_cpu = log_probs.grad.cpu() if with_log_prob_grad else None  # [T, N, C]
+
+                    # print("logits grads (0,0):")
+                    # print(logits_grad_cpu[0, 0])
+                    # if with_log_prob_grad:
+                    #     print("log probs grads (0,0):")
+                    #     print(log_probs_grad_cpu[0, 0])
+
+                    if case == "normalized":
+                        # The grads of logits should be like probs - y.
+                        y = log_probs.exp().cpu() - logits_grad_cpu
+                        y_sum = y.sum(dim=-1)  # [T, N]
+                        got_exc = False
+                        for b in range(batch_size):
+                            for t in range(input_lengths[b]):
+                                if not torch.isclose(y_sum[t, b], torch.tensor(1.0), atol=eps):
+                                    print(f"    logits grad error at t={t} b={b}: {y_sum[t, b]} vs 1.")
+                                    got_exc = True
+                                    break
+                                if not (y[t, b] >= -eps).all():
+                                    print(f"    logits grad error at t={t} b={b}: got negative: {y[t, b]}.")
+                                    got_exc = True
+                                    break
+                            if got_exc:
+                                break
+                        if not got_exc:
+                            print("    logits grad + probs is prob distrib")
+
                     if with_log_prob_grad:
-                        log_probs.requires_grad_()
-                        log_probs.retain_grad()
-                else:
-                    log_probs = logits
-                targets: torch.Tensor = targets.to(dev)
-
-                loss = func(
-                    log_probs=log_probs,
-                    blank_idx=batch_idx,
-                    targets=targets,
-                    input_lengths=input_lengths,
-                    target_lengths=target_lengths,
-                )
-                assert loss.shape == (batch_size,)
-                print("    loss:", loss)
-                if ref_scores is None:
-                    ref_scores = loss
-                else:
-                    torch.testing.assert_close(ref_scores, loss.to(ref_scores.device))
-                    print("    loss matches to reference")
-
-                loss.sum().backward()
-                assert logits.grad is not None
-                if with_log_prob_grad:
-                    assert log_probs.grad is not None
-                logits_grad_cpu = logits.grad.cpu()  # [T, N, C]
-                log_probs_grad_cpu = log_probs.grad.cpu() if with_log_prob_grad else None  # [T, N, C]
-
-                # print("logits grads (0,0):")
-                # print(logits_grad_cpu[0, 0])
-                # if with_log_prob_grad:
-                #     print("log probs grads (0,0):")
-                #     print(log_probs_grad_cpu[0, 0])
-
-                if case == "normalized":
-                    # The grads of logits should be like probs - y.
-                    y = log_probs.exp().cpu() - logits_grad_cpu
-                    y_sum = y.sum(dim=-1)  # [T, N]
-                    got_exc = False
-                    for b in range(batch_size):
-                        for t in range(input_lengths[b]):
-                            if not torch.isclose(y_sum[t, b], torch.tensor(1.0), atol=eps):
-                                print(f"    logits grad error at t={t} b={b}: {y_sum[t, b]} vs 1.")
-                                got_exc = True
+                        # The negative grads should be a probability distrib (even when not normalized before).
+                        # Check this.
+                        y = -log_probs_grad_cpu
+                        y_sum = y.sum(dim=-1)  # [T, N]
+                        got_exc = False
+                        for b in range(batch_size):
+                            for t in range(input_lengths[b]):
+                                if not torch.isclose(y_sum[t, b], torch.tensor(1.0), atol=eps):
+                                    print(f"    log probs grad error at t={t} b={b}: {y_sum[t, b]} vs 1.")
+                                    got_exc = True
+                                    break
+                                if not (y[t, b] >= -eps).all():
+                                    print(f"    log probs grad error at t={t} b={b}: got negative: {y[t, b]}.")
+                                    got_exc = True
+                                    break
+                            if got_exc:
                                 break
-                            if not (y[t, b] >= -eps).all():
-                                print(f"    logits grad error at t={t} b={b}: got negative: {y[t, b]}.")
-                                got_exc = True
-                                break
-                        if got_exc:
-                            break
-                    if not got_exc:
-                        print("    logits grad + probs is prob distrib")
+                        if not got_exc:
+                            print("    log prob grad is neg prob distrib")
 
-                if with_log_prob_grad:
-                    # The negative grads should be a probability distrib (even when not normalized before).
-                    # Check this.
-                    y = -log_probs_grad_cpu
-                    y_sum = y.sum(dim=-1)  # [T, N]
-                    got_exc = False
-                    for b in range(batch_size):
-                        for t in range(input_lengths[b]):
-                            if not torch.isclose(y_sum[t, b], torch.tensor(1.0), atol=eps):
-                                print(f"    log probs grad error at t={t} b={b}: {y_sum[t, b]} vs 1.")
-                                got_exc = True
-                                break
-                            if not (y[t, b] >= -eps).all():
-                                print(f"    log probs grad error at t={t} b={b}: got negative: {y[t, b]}.")
-                                got_exc = True
-                                break
-                        if got_exc:
-                            break
-                    if not got_exc:
-                        print("    log prob grad is neg prob distrib")
-
-                # All the padded frames should have zero grad.
-                got_exc = False
-                for b in range(batch_size):
-                    for t in range(input_lengths[b], max_input_len):
-                        if not (logits_grad_cpu[t, b] == 0.0).all():
-                            print(f"    Logits grad zero check: Error at t={t} b={b}: {logits_grad_cpu[t, b]}")
-                            got_exc = True
-                            break
-                    if got_exc:
-                        break
-                if not got_exc:
-                    print("    logits grad is zero for padded frames")
-
-                if with_log_prob_grad:
                     # All the padded frames should have zero grad.
                     got_exc = False
                     for b in range(batch_size):
                         for t in range(input_lengths[b], max_input_len):
-                            if not (log_probs_grad_cpu[t, b] == 0.0).all():
-                                print(f"    Log prob grad zero check: Error at t={t} b={b}: {log_probs_grad_cpu[t, b]}")
+                            if not (logits_grad_cpu[t, b] == 0.0).all():
+                                print(f"    Logits grad zero check: Error at t={t} b={b}: {logits_grad_cpu[t, b]}")
                                 got_exc = True
                                 break
                         if got_exc:
                             break
                     if not got_exc:
-                        print("    log prob grad is zero for padded frames")
+                        print("    logits grad is zero for padded frames")
 
-                if ref_logits_grads is None:
-                    ref_logits_grads = logits_grad_cpu
-                else:
-                    try:
-                        torch.testing.assert_close(ref_logits_grads, logits_grad_cpu, rtol=eps, atol=eps)
-                    except Exception as exc:
-                        print("    Error comparing grads to ref grads:")
-                        print(exc)
-                    else:
-                        print("    Logits grad matches to reference")
+                    if with_log_prob_grad:
+                        # All the padded frames should have zero grad.
+                        got_exc = False
+                        for b in range(batch_size):
+                            for t in range(input_lengths[b], max_input_len):
+                                if not (log_probs_grad_cpu[t, b] == 0.0).all():
+                                    print(
+                                        f"    Log prob grad zero check: Error at t={t} b={b}: {log_probs_grad_cpu[t, b]}"
+                                    )
+                                    got_exc = True
+                                    break
+                            if got_exc:
+                                break
+                        if not got_exc:
+                            print("    log prob grad is zero for padded frames")
 
-                if with_log_prob_grad:
-                    if ref_log_prob_grads is None:
-                        ref_log_prob_grads = log_probs_grad_cpu
+                    if ref_logits_grads is None:
+                        ref_logits_grads = logits_grad_cpu
                     else:
                         try:
-                            torch.testing.assert_close(ref_log_prob_grads, log_probs_grad_cpu, rtol=eps, atol=eps)
+                            torch.testing.assert_close(ref_logits_grads, logits_grad_cpu, rtol=eps, atol=eps)
                         except Exception as exc:
-                            print("    Error comparing log prob grads to ref log prob grads:")
+                            print("    Error comparing grads to ref grads:")
                             print(exc)
                         else:
-                            print("    Log prob grad matches to reference")
+                            print("    Logits grad matches to reference")
+
+                    if with_log_prob_grad:
+                        if ref_log_prob_grads is None:
+                            ref_log_prob_grads = log_probs_grad_cpu
+                        else:
+                            try:
+                                torch.testing.assert_close(ref_log_prob_grads, log_probs_grad_cpu, rtol=eps, atol=eps)
+                            except Exception as exc:
+                                print("    Error comparing log prob grads to ref log prob grads:")
+                                print(exc)
+                            else:
+                                print("    Log prob grad matches to reference")
 
 
 def _setup():
