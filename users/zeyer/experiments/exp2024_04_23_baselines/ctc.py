@@ -1802,12 +1802,13 @@ def ctc_training(*, model: Model, data: rf.Tensor, data_spatial_dim: Dim, target
     aux_loss_scales = config.typed_value("aux_loss_scales", ([1.0] * len(aux_loss_layers)) if aux_loss_layers else None)
     aed_loss_scale = config.float("aed_loss_scale", 1.0)
     use_normalized_loss = config.bool("use_normalized_loss", True)
-    use_fixed_ctc_grad = config.bool("use_fixed_ctc_grad", False)
+    use_fixed_ctc_grad = config.typed_value("use_fixed_ctc_grad", False)
 
     ctc_loss = rf.ctc_loss
     if use_fixed_ctc_grad:
         from i6_experiments.users.zeyer.nn_rf.torch_ctc_fixed_grad import ctc_loss_fixed_grad
 
+        assert use_fixed_ctc_grad == "v2"  # v2 has the fix for scaled/normalized CTC loss
         ctc_loss = ctc_loss_fixed_grad
 
     if data.feature_dim and data.feature_dim.dimension == 1:
