@@ -738,27 +738,61 @@ def py():
     # Baseline without lpNormedGrad: 5.77/6.03
     for name, opts in {
         # 5.71/5.87 (!!) (i.e. better than without)
-        "C05_11P1": {"func": {"clamp_min": 0.5, "clamp_max": 1.1, "scale_type": "inv_num_labels", "prior_exp": 1.0}},
+        "C05_11P1": {
+            "log_prob_normed_grad": {
+                "func": {"clamp_min": 0.5, "clamp_max": 1.1, "scale_type": "inv_num_labels", "prior_exp": 1.0}
+            }
+        },
+        #
+        "C05_11P1-ctcFixGrad": {
+            "log_prob_normed_grad": {
+                "func": {"clamp_min": 0.5, "clamp_max": 1.1, "scale_type": "inv_num_labels", "prior_exp": 1.0}
+            },
+            "use_fixed_ctc_grad": True,
+        },
         # 5.85/6.10
-        # "C05_15P1": {"func": {"clamp_min": 0.5, "clamp_max": 1.5, "scale_type": "inv_num_labels", "prior_exp": 1.0}},
+        # "C05_15P1": {
+        #   "log_prob_normed_grad": {"func": {"clamp_min": 0.5, "clamp_max": 1.5,
+        #   "scale_type": "inv_num_labels", "prior_exp": 1.0}}},
         # 6.21/6.55
-        "C01_11P1": {"func": {"clamp_min": 0.1, "clamp_max": 1.1, "scale_type": "inv_num_labels", "prior_exp": 1.0}},
+        "C01_11P1": {
+            "log_prob_normed_grad": {
+                "func": {"clamp_min": 0.1, "clamp_max": 1.1, "scale_type": "inv_num_labels", "prior_exp": 1.0}
+            }
+        },
         # 5.78/5.96
-        # "C08_11P1": {"func": {"clamp_min": 0.8, "clamp_max": 1.1, "scale_type": "inv_num_labels", "prior_exp": 1.0}},
+        # "C08_11P1": {
+        #   "log_prob_normed_grad": {"func": {"clamp_min": 0.8, "clamp_max": 1.1,
+        #   "scale_type": "inv_num_labels", "prior_exp": 1.0}}},
         # 5.83/5.91
         "C05_11P1Seq": {
-            "prior": "seq_grad",
-            "func": {"clamp_min": 0.5, "clamp_max": 1.1, "scale_type": "inv_num_labels", "prior_exp": 1.0},
+            "log_prob_normed_grad": {
+                "prior": "seq_grad",
+                "func": {"clamp_min": 0.5, "clamp_max": 1.1, "scale_type": "inv_num_labels", "prior_exp": 1.0},
+            },
+        },
+        "C05_11P1Seq-ctcFixGrad": {
+            "log_prob_normed_grad": {
+                "prior": "seq_grad",
+                "func": {"clamp_min": 0.5, "clamp_max": 1.1, "scale_type": "inv_num_labels", "prior_exp": 1.0},
+            },
+            "use_fixed_ctc_grad": True,
         },
         # 5.75/6.03 (Note: missing renorm, clamp values suboptimal)
-        "C05_11P07": {"func": {"clamp_min": 0.5, "clamp_max": 1.1, "scale_type": "inv_num_labels", "prior_exp": 0.7}},
+        "C05_11P07": {
+            "log_prob_normed_grad": {
+                "func": {"clamp_min": 0.5, "clamp_max": 1.1, "scale_type": "inv_num_labels", "prior_exp": 0.7}
+            }
+        },
         "C05_11P07N": {
-            "func": {
-                "clamp_min": 0.5,
-                "clamp_max": 1.1,
-                "scale_type": "inv_num_labels",
-                "prior_exp": 0.7,
-                "prior_renorm": True,
+            "log_prob_normed_grad": {
+                "func": {
+                    "clamp_min": 0.5,
+                    "clamp_max": 1.1,
+                    "scale_type": "inv_num_labels",
+                    "prior_exp": 0.7,
+                    "prior_renorm": True,
+                }
             }
         },
     }.items():
@@ -778,7 +812,7 @@ def py():
                 "aux_attention_decoder": rf.build_dict(TransformerDecoder, num_layers=6),  # purely used for training
                 # See _maybe_apply_log_probs_normed_grad below.
                 # func are opts for NormedGradientFuncInvPrior, other opts are for normed_gradient.
-                "log_prob_normed_grad": opts,
+                **opts,
             },
             vocab="spm10k",
             train_vocab_opts={"other_opts": {"class": "SamplingBytePairEncoding", "breadth_prob": 0.01}},
@@ -844,10 +878,48 @@ def py():
         ],
     )
 
-    for am_scale, prior_scale in [(0.5, 0.0), (0.5, 0.2), (0.5, 0.5)]:
+    # (Baseline without lpNormedGrad: 5.77/6.03)
+    # Log prob normed gradient (lpNormedGrad) (incl blank) with blank separated (blankSep) and fixed grad
+    train_exp(  # 5.73/6.08
+        "v6-relPosAttDef-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-featBN"
+        "-speedpertV2-spm10k-bpeSample001-blankSep-lpNormedGradInclBlank-ctcFixGrad",
+        config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
+        model_config={
+            "enc_conformer_layer": enc_conformer_layer_default,
+            "feature_batch_norm": True,
+            "out_blank_separated": True,
+        },
+        config_updates={
+            **_get_cfg_lrlin_oclr_by_bs_nep(15_000, 500),
+            "optimizer.weight_decay": 1e-2,
+            "__train_audio_preprocess": speed_pert_librosa_config,
+            "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
+            "aux_attention_decoder": rf.build_dict(TransformerDecoder, num_layers=6),  # purely used for training
+            "log_prob_normed_grad": {
+                "func": {"clamp_min": 0.5, "clamp_max": 1.1, "scale_type": "inv_num_labels", "prior_exp": 1.0}
+            },
+            "log_prob_normed_grad_exclude_blank": False,
+            "use_fixed_ctc_grad": True,
+        },
+        vocab="spm10k",
+        train_vocab_opts={"other_opts": {"class": "SamplingBytePairEncoding", "breadth_prob": 0.01}},
+        epilog=[
+            serialization.NonhashedCode(f"sys.path.append({gs.BASE_DIR + '/projects/2024-alignment-analysis'!r})\n")
+        ],
+    )
+
+    for am_scale, prior_scale, fixed_grad in [
+        (0.5, 0.0, False),
+        (0.5, 0.2, False),
+        (0.5, 0.5, False),
+        (0.5, 0.0, True),
+        (0.5, 0.2, True),
+        (0.5, 0.5, True),
+    ]:
         train_exp(
             "v6-relPosAttDef-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-featBN"
-            f"-speedpertV2-spm10k-bpeSample001-am{am_scale}-prior{prior_scale}",
+            f"-speedpertV2-spm10k-bpeSample001-am{am_scale}-prior{prior_scale}"
+            f"{'-ctcFixGrad' if fixed_grad else ''}",
             config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
             model_config={
                 "enc_conformer_layer": enc_conformer_layer_default,
@@ -863,6 +935,7 @@ def py():
                 "ctc_am_scale": am_scale,
                 "ctc_prior_scale": prior_scale,
                 "ctc_prior_type": "batch",
+                **({"use_fixed_ctc_grad": True} if fixed_grad else {}),
             },
             vocab="spm10k",
             train_vocab_opts={"other_opts": {"class": "SamplingBytePairEncoding", "breadth_prob": 0.01}},
