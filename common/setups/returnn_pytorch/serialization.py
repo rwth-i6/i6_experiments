@@ -393,7 +393,9 @@ def build_config_constructor_serializers_v2(
                 val_serialized, item_imports = serialize_value(val)
                 dict_items += [key, val_serialized]
                 dict_imports += item_imports
-            return DelayedFormat(f"{{{', '.join(['{}: {}'] * len(dict_items))}}}", *dict_items), dict_imports
+            return DelayedFormat(
+                "{{" + ", ".join(["{}: {}"] * (len(dict_items) // 2)) + "}}", *dict_items
+            ), dict_imports
         elif isinstance(value, tk.Path):
             return DelayedFormat('tk.Path("{}")', value), [Import("sisyphus.tk")]
         elif isinstance(value, DelayedBase):
