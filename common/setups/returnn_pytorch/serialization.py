@@ -6,7 +6,7 @@ import shutil
 import string
 import textwrap
 from collections import OrderedDict
-from dataclasses import fields
+from dataclasses import fields, is_dataclass
 from enum import Enum
 from inspect import isfunction
 from typing import Any, Dict, List, Optional, Set, Tuple, Union, TYPE_CHECKING
@@ -255,7 +255,7 @@ def build_config_constructor_serializers(
 
 
 def build_config_constructor_serializers_v2(
-    cfg: ModelConfiguration,
+    cfg: Any,
     variable_name: Optional[str] = None,
     unhashed_package_root: Optional[str] = None,
 ) -> Tuple[Call, List[Import]]:
@@ -267,25 +267,20 @@ def build_config_constructor_serializers_v2(
     Compared to the previous version, this function can also serialize enum members and values of type
     list, tuple or dict. It also fixes import deduplication.
 
-    :param cfg: ModelConfiguration object that will be re-constructed by the Call serializer
+    :param cfg: ModelConfiguration or dataclass object that will be re-constructed by the Call serializer
     :param variable_name: Name of the variable which the constructed ModelConfiguration
                           will be assigned to. If None, the result will not be assigned
                           to a variable.
     :param unhashed_package_root: Will be passed to all generated Import objects.
     :return: Call object and list of necessary imports.
     """
-    from i6_models.config import ModelConfiguration, ModuleFactoryV1
+    from i6_models.config import ModuleFactoryV1
 
     # Helper function which can call itself recursively for nested types
     def serialize_value(value: Any) -> Tuple[Union[str, DelayedBase], List[Import]]:
         # Switch over serialization logic for different subtypes
 
-        if isinstance(value, ModelConfiguration):
-            # Example:
-            # ConformerBlockConfig(mhsa_config=ConformerMHSAConfig(...))
-            # -> Sub-Constructor-Call and imports for ConformerMHSAConfig
-            return build_config_constructor_serializers_v2(value, unhashed_package_root=unhashed_package_root)
-        elif isinstance(value, ModuleFactoryV1):
+        if isinstance(value, ModuleFactoryV1):
             # Example:
             # ConformerEncoderConfig(
             #     frontend=ModuleFactoryV1(module_class=VGGFrontend, cfg=VGGFrontendConfig(...)))
@@ -322,6 +317,11 @@ def build_config_constructor_serializers_v2(
                 ),
                 subimports,
             )
+        elif is_dataclass(value):
+            # Example:
+            # ConformerBlockConfig(mhsa_config=ConformerMHSAConfig(...))
+            # -> Sub-Constructor-Call and imports for ConformerMHSAConfig
+            return build_config_constructor_serializers_v2(value, unhashed_package_root=unhashed_package_root)
         elif isinstance(value, torch.nn.Module):
             # Example:
             # ConformerConvolutionConfig(norm=BatchNorm1d(...))
