@@ -21,24 +21,22 @@ def sum_loss(
     Sum criterion training for CTC, given by
     L = sum_{all seq} q(seq)
     where q(seq) = p_AM^alpha(seq) * p_LM^beta(seq)
-    and p_AM = prod_n posterior / prior.
-
-    This is for the case the LM is a bigram (context 1).
+    and p_AM = prod_n posterior / prior. # TODO is result scaled after prior deduction or do we need own scale for prior?
 
     The loss is calculated by sum_{u in V} [Q(T, u, blank) + Q(T, u, non-blank)],
     where Q(t, u, {N or B}) is the sum of partial CTC alignments up to timeframe t
     with u being the last emitted label, and the last emitted frame is non-blank or blank.
 
     This Q is calculated by the two recursions:
-    Q(t, u, blank) = [Q(t-1, u, blank) + Q(t-1, u, non-blank)]*p_AM(blank | x_t)
-    Q(t, u, non-blank) = p_AM(u|x_t) * [horizontal + diagonal + skip], where 
+    Q(t, u, blank) = [p_AM(blank | x_t) / p_PR(blank)] * [Q(t-1, u, blank) + Q(t-1, u, non-blank)]
+    Q(t, u, non-blank) = [p_AM(u|x_t) / p_PR(u)] * [horizontal + diagonal + skip], where
     horizontal = Q(t-1, u, non-blank)
-    diagonal = sum_v Q(t-1, v, blank)*p_LM(u|v)
-    skip = sum{w!=u} Q(t-1, w, non-blank)*p_LM(u|w)
+    diagonal = sum_v Q(t-1, v, blank) * p_LM(u|v)
+    skip = sum{w!=u} Q(t-1, w, non-blank) * p_LM(u|w)
 
     Initialization:
     Q(1, u, blank) = 0
-    Q(1, u, non-blank) = p_AM(u | x1) * p_LM(u | bos)
+    Q(1, u, non-blank) = [p_AM(u | x1) / p_PR(u)] * p_LM(u | bos)
 
     NOTE: In case there is EOS in the vocab, its ctc posterior should be very small,
     because the transitions in the sum do not consider EOS.
@@ -56,9 +54,9 @@ def sum_loss(
     :returns: log sum loss
     """
     device = log_probs.device
-    log_probs.to(device)
-    log_lm_probs.to(device)
-    input_lengths.to(device)
+    log_probs = log_probs.to(device)
+    log_lm_probs = log_lm_probs.to(device)
+    input_lengths = input_lengths.to(device)
     
     max_audio_time, batch_size, n_out = log_probs.shape
     # scaled log am and lm probs
@@ -71,6 +69,8 @@ def sum_loss(
     else:
         vocab_size = n_out - 2
         eos_symbol = eos_idx
+        assert blank_idx == n_out - 1, "blank should be the last symbol"
+    assert log_lm_probs.size() == (vocab_size + 1, vocab_size + 1), f"LM shape is not correct, should be {vocab_size + 1}x{vocab_size + 1} but is {log_lm_probs.size()}"
     
     # calculate empty sequence score
     # Empty am score = sum log prob blank
@@ -100,7 +100,7 @@ def sum_loss(
         # case 1: emit a blank at t
         new_log_q = torch.full((batch_size, 2, vocab_size), log_zero, device=device)
         # Q(t, u, blank) = [Q(t-1, u, blank) + Q(t-1, u, non-blank)]*p_AM(blank | x_t)
-        new_log_q[:, 1, :] = log_q[t-1].logsumexp(dim=1) + log_probs_scaled[t, :, blank_idx].unsqueeze(-1)
+        new_log_q[:, 1, :] = safe_logsumexp(log_q[t-1], dim=1) + log_probs_scaled[t, :, blank_idx].unsqueeze(-1)
         
         # case 2: emit a non-blank at t
         # Q(t, u, non-blank) = p_AM(u|x_t) * [horizontal + diagonal + skip] 
@@ -122,7 +122,7 @@ def sum_loss(
         log_mass_skip = modified_log_matmul(log_q[t-1, :, 0, :], log_lm_probs_scaled_wo_eos)
         
         # multiply with p_AM(u|x_t)
-        new_log_q[:, 0, :] = log_probs_scaled[t, :, out_idx_vocab] + (torch.stack([log_mass_horizontal, log_mass_diagonal, log_mass_skip], dim=-1).logsumexp(dim=-1))
+        new_log_q[:, 0, :] = log_probs_scaled[t, :, out_idx_vocab] + safe_logsumexp(torch.stack([log_mass_horizontal, log_mass_diagonal, log_mass_skip], dim=-1), dim=-1)
         
         # set masked results to log_q
         time_mask = (t < input_lengths).unsqueeze(-1).unsqueeze(-1).expand(-1, 2, vocab_size)
@@ -134,7 +134,7 @@ def sum_loss(
     log_q[-1] += log_lm_probs_scaled[out_idx_vocab, eos_symbol].unsqueeze(0).unsqueeze(0)
     
     # add empty sequence score
-    sum_score = torch.logaddexp(log_q[-1].logsumexp(dim=(1,2)), log_q_empty_seq) # (B,) # TODO do we need to add the empty seq?
+    sum_score = torch.logaddexp(safe_logsumexp(safe_logsumexp(log_q[-1], dim=-1), dim=-1), log_q_empty_seq) # (B,) # TODO do we need to add the empty seq? # TODO make logaddexp safe
     
     loss = -sum_score
     return loss
@@ -223,7 +223,7 @@ def sum_loss_topk(
 
     # sum score by DP
     # dim 2: 0 is non-blank, 1 is blank
-    
+
     log_bigram_probs_no_eos = log_bigram_probs.index_select(0, out_idx_vocab).index_select(1, out_idx_vocab)
     log_bigram_probs_no_eos_masked = log_bigram_probs_no_eos.clone().fill_diagonal_(log_zero)
     # Init Q for t=1
@@ -269,7 +269,7 @@ def sum_loss_topk(
         log_mass_skip = batch_log_matmul(topk_scores_label.unsqueeze(1), log_bigram_probs_masked_from_topk).squeeze(1) # (B, 1, K) @ (B, K, V) --> (B, V)
         
         # multiply with p_AM(u|x_t)
-        all_hyp_scores_label_new = log_probs[t, :, out_idx_vocab] + (torch.stack([log_mass_horizontal, log_mass_diagonal, log_mass_skip], dim=-1).logsumexp(dim=-1)) # (B, V)
+        all_hyp_scores_label_new = log_probs[t, :, out_idx_vocab] + (safe_logsumexp(torch.stack([log_mass_horizontal, log_mass_diagonal, log_mass_skip], dim=-1), dim=-1)) # (B, V)
         # prepare for next time step
         time_mask = (t < input_lengths).unsqueeze(-1).expand(-1, vocab_size).to(device)
         all_hyp_scores_label = torch.where(time_mask, all_hyp_scores_label_new, all_hyp_scores_label)
@@ -286,7 +286,7 @@ def sum_loss_topk(
     topk_scores = topk_scores + log_bigram_eos_prob_from_topk
     
     # add empty sequence score
-    sum_score = torch.logaddexp(topk_scores.logsumexp(-1), log_q_empty_seq)
+    sum_score = torch.logaddexp(safe_logsumexp(topk_scores, -1), log_q_empty_seq)
     
     loss = -sum_score
     return loss
@@ -295,13 +295,13 @@ def sum_loss_topk(
 # ------------------------------------------------
 # Helper functions
 
-# def safe_logsumexp(x: torch.Tensor, dim: int, *, keepdim: bool = False) -> torch.Tensor:
-#     """safe logsumexp, handles the case of -inf values. otherwise, when all are -inf, you get nan"""
-#     with torch.no_grad():
-#         max_x, _ = x.max(dim=dim, keepdim=True)
-#         max_x = max_x.detach()
-#         max_x_ = max_x if keepdim else max_x.squeeze(dim=dim)
-#     return max_x_ + torch.where(max_x_.isneginf(), 0.0, (x - max_x).exp().sum(dim=dim, keepdim=keepdim).log())
+def safe_logsumexp(x: torch.Tensor, dim: int, *, keepdim: bool = False) -> torch.Tensor:
+    """safe logsumexp, handles the case of -inf values. otherwise, when all are -inf, you get nan"""
+    with torch.no_grad():
+        max_x, _ = x.max(dim=dim, keepdim=True)
+        max_x = max_x.detach()
+        max_x_ = max_x if keepdim else max_x.squeeze(dim=dim)
+    return max_x_ + torch.where(max_x_.isneginf(), 0.0, (x - max_x).exp().sum(dim=dim, keepdim=keepdim).log())
 
 def log_matmul(A: torch.Tensor, B: torch.Tensor):
     """
@@ -320,7 +320,7 @@ def log_matmul(A: torch.Tensor, B: torch.Tensor):
     n, r = B.shape
     A_expand = A.unsqueeze(0).expand(r, -1, -1).transpose(0, 1) # (m, r, n)
     B_expand = B.unsqueeze(0).expand(m, -1, -1).transpose(1, 2) # (m, r, n)
-    return (A_expand + B_expand).logsumexp(dim=-1)
+    return safe_logsumexp((A_expand + B_expand), dim=-1)
 
 
 def batch_log_matmul(A: torch.Tensor, B: torch.Tensor):
@@ -335,7 +335,7 @@ def batch_log_matmul(A: torch.Tensor, B: torch.Tensor):
     b, n, r = B.shape
     A_expand = A.unsqueeze(1).expand(-1, r, -1, -1).transpose(1, 2) # (m, r, n)
     B_expand = B.unsqueeze(1).expand(-1, m, -1, -1).transpose(2, 3) # (m, r, n)
-    return (A_expand + B_expand).logsumexp(dim=-1)
+    return safe_logsumexp((A_expand + B_expand), dim=-1)
 
 
 def modified_log_matmul(A: torch.Tensor, B: torch.Tensor, log_zero=-1e15):
@@ -355,7 +355,7 @@ def modified_log_matmul(A: torch.Tensor, B: torch.Tensor, log_zero=-1e15):
     index = torch.arange(n).unsqueeze(0).expand(m, -1).unsqueeze(-1).to(A.device)
     # write log zero to C[i][j][j] for all i, j
     C_masked = torch.scatter(C, 2, index, log_zero)
-    return C_masked.logsumexp(dim=-1)
+    return safe_logsumexp(C_masked, dim=-1)
 
 
 
@@ -363,13 +363,13 @@ def modified_log_matmul(A: torch.Tensor, B: torch.Tensor, log_zero=-1e15):
 def test():
     import time
     
-    batch_size = 12 # 14000 per GPU, 1250 stpes a 12 seqs (0.7 sec/step)
-    vocab_size = 184
-    frames = 180000
+    batch_size = 30 # 14000 per GPU, 1250 stpes a 12 seqs (0.7 sec/step)
+    vocab_size = 185
+    frames = 100
     
     torch.manual_seed(0)
     
-    lm = torch.randn(vocab_size, vocab_size)
+    lm = torch.randn(vocab_size - 1, vocab_size - 1)
     lm = torch.nn.functional.log_softmax(lm, dim=-1)
     
     am = torch.randn(frames, batch_size, vocab_size)
@@ -381,44 +381,45 @@ def test():
     loss = sum_loss(
         log_probs=am,
         log_lm_probs=lm,
+        log_prior=None,
         input_lengths=length,
         am_scale=1.0,
         lm_scale=1.0,
-        blank_idx=0,
+        blank_idx=184,
+        eos_idx=0,
     )
     e1 = time.time()
+    print(f"Sum loss took {time.strftime('%H:%M:%S', time.gmtime(e1-s1))}: {(loss / frames).mean()}") # 5:00 mins
     
-    s2 = time.time()
-    top_k = 9
-    loss2 = sum_loss_topk(
-        log_probs=am,
-        log_bigram_probs=lm,
-        input_lengths=length,
-        am_scale=1.0,
-        lm_scale=1.0,
-        top_k=top_k,
-        blank_idx=0,
-    )
-    e2 = time.time()
+    # s2 = time.time()
+    # top_k = vocab_size - 1
+    # loss2 = sum_loss_topk(
+    #     log_probs=am,
+    #     log_bigram_probs=lm,
+    #     input_lengths=length,
+    #     am_scale=1.0,
+    #     lm_scale=1.0,
+    #     top_k=top_k,
+    #     blank_idx=0,
+    # )
+    # e2 = time.time()
+    # print(f"Top {top_k} sum loss took {time.strftime('%H:%M:%S', time.gmtime(e2 - s2))}: {(loss2 / frames).mean()}") # 7:30 mins
     
-    s3 = time.time()
+    # s3 = time.time()
     
-    targets = torch.randint(1, 184, (batch_size, 80))
-    target_lengths = torch.full((batch_size,), 80)
-    ctc_loss = torch.nn.functional.ctc_loss(
-        log_probs=am,
-        targets=targets,
-        input_lengths=length,
-        target_lengths=target_lengths,
-        blank=0,
-        reduction="none"
-    )
+    # targets = torch.randint(1, vocab_size, (batch_size, 80))
+    # target_lengths = torch.full((batch_size,), 80)
+    # ctc_loss = torch.nn.functional.ctc_loss(
+    #     log_probs=am,
+    #     targets=targets,
+    #     input_lengths=length,
+    #     target_lengths=target_lengths,
+    #     blank=0,
+    #     reduction="none"
+    # )
     
-    e3 = time.time()
-    
-    print(f"Sum loss took {time.strftime('%H:%M:%S', time.gmtime(e1-s1))}: {(loss / frames).mean()}") # 3:30 mins
-    print(f"Tok {top_k} sum loss took {time.strftime('%H:%M:%S', time.gmtime(e2 - s2))}: {(loss2 / frames).mean()}") # 0:50 mins
-    print(f"CTC loss took {time.strftime('%H:%M:%S', time.gmtime(e3 - s3))}: {(ctc_loss / frames).mean()}") # 0:05 mins
+    # e3 = time.time()
+    # print(f"CTC loss took {time.strftime('%H:%M:%S', time.gmtime(e3 - s3))}: {(ctc_loss / frames).mean()}") # 0:08 mins
     
 if __name__ == "__main__":
     test()

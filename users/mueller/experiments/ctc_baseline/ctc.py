@@ -832,17 +832,34 @@ def ctc_sum_training(*, model: Model, data: rf.Tensor, data_spatial_dim: Dim, lm
     from .sum_criterion import sum_loss
     
     def _calc_log_prior(log_probs: torch.Tensor, lengths: torch.Tensor) -> Tensor:
+        lengths = lengths.to(log_probs.device)
+        print("Nans before exp:", log_probs.isnan().sum())
         probs = log_probs.exp()
+        print("Nans after exp:", probs.isnan().sum(), probs.nansum())
+        assert lengths.size(0) == probs.size(0), "Prior calculation batch lengths are not the same (full_sum)!"
         
-        assert lengths == probs.dim, "Prior calculation lengths are not the same (full_sum)!"
+        print("Before mask:", probs.sum(), probs.size(), lengths.size())
         
-        empty_mask = torch.arange(probs.size(1), device=probs.device).expand(probs.size(0), -1) >= lengths.unsqueeze(1)
-        assert (probs * empty_mask).count_nonzero() == 0, f"The remaining entries in probs where not all zeros, we still have {(probs * empty_mask).count_nonzero()} non-zero entries!"
+        mask = torch.arange(probs.size(1), device=probs.device).expand(probs.size(0), -1) < lengths.unsqueeze(1)
+        mask = mask.unsqueeze(-1).expand(-1, -1, probs.size(2))
+        probs = probs * mask
+        
+        print("Before assert:", probs.sum(), probs.size(), lengths.size())
+        
+        with torch.no_grad():
+            empty_mask = torch.arange(probs.size(1), device=probs.device).expand(probs.size(0), -1) >= lengths.unsqueeze(1)
+            empty_mask = empty_mask.unsqueeze(-1).expand(-1, -1, probs.size(2))
+            assert (probs * empty_mask).count_nonzero() == 0, f"The remaining entries in probs were not all zeros, we still have {(probs * empty_mask).count_nonzero()} non-zero entries!"
         
         sum_frames = lengths.sum()
         sum_probs = probs.sum(dim=(0, 1)) # Sum over batch and time
         
         mean_probs = sum_probs / sum_frames
+        
+        with torch.no_grad():
+            print("Prior probs:", mean_probs.sum())
+            assert mean_probs.sum().allclose(torch.tensor(1.0, device=mean_probs.device)), f"Prior probs do not sum to 1.0, but to {mean_probs.sum()}"
+        
         return mean_probs.log()
 
     config = get_global_config()  # noqa
@@ -858,11 +875,13 @@ def ctc_sum_training(*, model: Model, data: rf.Tensor, data_spatial_dim: Dim, lm
     assert not data.feature_dim  # raw audio
     
     with uopen(lm_path, "rb") as f:
-        lm = torch.load(f)
+        lm = torch.load(f, map_location=data.device)
         assert isinstance(lm, torch.Tensor), "Loaded LM is not a tensor"
 
     collected_outputs = {}
+    print("Before model:", data.raw_tensor.isnan().sum(), data.raw_tensor.sum())
     logits, enc, enc_spatial_dim = model(data, in_spatial_dim=data_spatial_dim, collected_outputs=collected_outputs)
+    print("After model:", logits.raw_tensor.isnan().sum(), logits.raw_tensor.sum())
     if aux_loss_layers:
         for i, layer_idx in enumerate(aux_loss_layers):
             if layer_idx > len(model.encoder.layers):
@@ -907,7 +926,7 @@ def ctc_sum_training(*, model: Model, data: rf.Tensor, data_spatial_dim: Dim, lm
         blank_idx=model.blank_idx,
         eos_idx=model.eos_idx,
     )
-    print(loss.dtype) # TODO remove this
+    print("Loss dtype:", loss.dtype) # TODO remove this
     loss = rtf.TorchBackend.convert_to_tensor(loss, dims = [batch_dim], dtype = "float32", name=f"full_sum")
     loss.mark_as_loss(
         f"full_sum",

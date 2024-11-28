@@ -265,7 +265,7 @@ def _returnn_v2_train_step(*, model, extern_data: TensorDict, **_kwargs_unused):
     targets = extern_data[default_target_key]
     targets_spatial_dim = targets.get_time_dim_tag()
     train_def: TrainDef = config.typed_value("_train_def")
-    if isinstance(train_def, ExtendedTrainDef):
+    if train_def.__name__ == "ctc_sum_training":
         train_def(
             model=model,
             data=data,

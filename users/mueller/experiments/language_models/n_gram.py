@@ -312,6 +312,7 @@ from i6_core.lm.kenlm import CompileKenLMJob
 from i6_core.tools.git import CloneGitRepositoryJob
 from i6_core.util import uopen
 from i6_core.lib.lm import Lm
+from i6_core.lm.srilm import ComputeNgramLmPerplexityJob
 import i6_core.util as util
 
 from sisyphus import Job, Task, tk, gs
@@ -319,6 +320,7 @@ from sisyphus import Job, Task, tk, gs
 from i6_experiments.users.mueller.datasets.librispeech import get_librispeech_lm_combined_txt
 from i6_experiments.users.zeyer.datasets.utils.bpe import Bpe
 from i6_experiments.common.helpers.text_labels.subword_nmt_bpe import get_returnn_subword_nmt
+from i6_experiments.common.baselines.tedlium2.default_tools import SRILM_PATH
 
 def get_count_based_n_gram(vocab: Bpe, N_order: int) -> tk.Path:
     kenlm_repo = CloneGitRepositoryJob("https://github.com/kpu/kenlm").out_repository.copy()
@@ -347,6 +349,17 @@ def get_count_based_n_gram(vocab: Bpe, N_order: int) -> tk.Path:
         pruning=None,
         vocabulary=None
     ).out_lm
+    
+    ppl_job = ComputeNgramLmPerplexityJob(
+        ngram_order=N_order,
+        lm = lm_arpa,
+        eval_data=bpe_text,
+        ngram_exe=SRILM_PATH.join_right("ngram"),
+        mem_rqmt=4,
+        time_rqmt=1,
+    )
+    
+    tk.register_output(f"datasets/LibriSpeech/lm/count_based_{N_order}-gram", ppl_job.out_ppl_score)
     
     conversion_job = ConvertARPAtoTensor(
         lm=lm_arpa,
@@ -389,10 +402,20 @@ class ConvertARPAtoTensor(Job):
         
         assert len(n_grams) - 1 == self.N_order, f"The conversion into a list failed ({len(n_grams) - 1} != {self.N_order})!"
         
-        vocab_n = len(vocab)
+        vocab_n = len(vocab) - 1 # we combine eos and bos
         tensor = torch.full((vocab_n,)*self.N_order, float("-inf"), dtype=torch.float32)
-        # Set the probabailites by using N indexes
+        # Set the probabilites by using N indexes
         tensor[n_grams[:-1]] = torch.tensor(n_grams[-1], dtype=torch.float32)
+        # The probs are in logs base 10
+        tensor = torch.pow(10, tensor)
+        
+        atol = 0.005
+        assert tensor.sum(1)[0].allclose(torch.tensor(1.0), atol=atol), "The next word probabilities for <s> do not sum to 1!"
+        assert tensor.sum(1)[1].allclose(torch.tensor(0.0)), "Prob of <unk> should be 0! (1)"
+        assert tensor.sum(1)[2:].allclose(torch.tensor(1.0), atol=atol), "The next word probabilities do not sum to 1!"
+        assert tensor.sum(0)[1].allclose(torch.tensor(0.0)), "Prob of <unk> should be 0! (2)"
+        
+        tensor = tensor.log()
         
         with uopen(self.out_lm_tensor, "wb") as f:
             torch.save(tensor, f)
