@@ -1,16 +1,16 @@
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from random import Random
-from typing import Dict, Iterator
+from typing import Dict, Iterator, List, Literal, Optional
 
-from i6_core.util import uopen
 import i6_experiments.common.datasets.librispeech as lbs_dataset
 import numpy as np
 from i6_core.corpus.segments import SegmentCorpusJob
-from i6_core.returnn.config import CodeWrapper
+from i6_core.returnn.config import CodeWrapper, ReturnnConfig
 from i6_core.returnn.oggzip import BlissToOggZipJob
+from i6_core.util import uopen
 from i6_experiments.common.datasets.librispeech.vocab import get_subword_nmt_bpe_v2
 from i6_experiments.common.datasets.util import CorpusObject
-from i6_experiments.common.setups.serialization import Collection, Import
+from i6_experiments.common.setups.serialization import Import
 from sisyphus import Job, Task, tk
 
 from ..tools import returnn_python_exe, returnn_root
@@ -26,139 +26,96 @@ def speed_perturbation(audio: np.ndarray, sample_rate: int, random_state: Random
 
 
 @dataclass
-class TrainData:
-    train_config_dict: dict
-    dev_config_dict: dict
-    extra_serializers: Collection = field(
-        default_factory=lambda: Collection(
-            [
-                Import(
-                    f"{__package__}.bpe.speed_perturbation",
-                    use_for_hash=False,
-                )
-            ]
+class DataConfig:
+    dataset_type: Literal["train", "dev", "forward_data"]
+    corpus_names: List[
+        Literal[
+            "train-other-960",
+            "train-other-500",
+            "train-clean-460",
+            "train-clean-360",
+            "train-clean-100",
+            "dev-clean",
+            "dev-other",
+            "test-clean",
+            "test-other",
+        ]
+    ]
+    speed_perturbation: bool
+    ogg_segments: int
+    partition_epoch: int
+    seq_ordering: str
+    bpe_size: Optional[int] = None
+    preemphasis: float = 0.97
+
+    def get_returnn_data(self) -> ReturnnConfig:
+        corpus_object_dict: Dict[str, CorpusObject] = lbs_dataset.get_corpus_object_dict(
+            audio_format="wav", output_prefix="corpora"
         )
-    )
 
+        oggzip_files = []
 
-def get_train_data(bpe_size: int) -> TrainData:
-    corpus_object_dict: Dict[str, CorpusObject] = lbs_dataset.get_corpus_object_dict(
-        audio_format="wav", output_prefix="corpora"
-    )
+        for corpus_name in self.corpus_names:
+            corpus_file = corpus_object_dict[corpus_name].corpus_file
 
-    train_corpus_file = corpus_object_dict["train-other-960"].corpus_file
-    dev_clean_corpus_file = corpus_object_dict["dev-clean"].corpus_file
-    dev_other_corpus_file = corpus_object_dict["dev-other"].corpus_file
+            oggzip_job = BlissToOggZipJob(
+                bliss_corpus=corpus_file,
+                segments=SegmentCorpusJob(bliss_corpus=corpus_file, num_segments=self.ogg_segments).out_segment_path
+                if self.ogg_segments > 1
+                else None,
+                returnn_root=returnn_root,
+                returnn_python_exe=returnn_python_exe,
+            )
+            oggzip_job.rqmt = {"cpu": 1, "mem": 4, "time": 1}  # type: ignore
+            oggzip_job.merge_rqmt = {"cpu": 1, "mem": 16, "time": 24}
+            oggzip_files.append(oggzip_job.out_ogg_zip)
 
-    train_oggzip_job = BlissToOggZipJob(
-        bliss_corpus=train_corpus_file,
-        segments=SegmentCorpusJob(bliss_corpus=train_corpus_file, num_segments=200).out_segment_path,
-        returnn_root=returnn_root,
-        returnn_python_exe=returnn_python_exe,
-    )
-    train_oggzip_job.rqmt = {"cpu": 1, "mem": 4, "time": 1}  # type: ignore
-    train_oggzip_job.merge_rqmt = {"cpu": 1, "mem": 16, "time": 24}
-    train_oggzip_file = train_oggzip_job.out_ogg_zip
-
-    dev_clean_oggzip_file = BlissToOggZipJob(
-        bliss_corpus=dev_clean_corpus_file,
-        returnn_root=returnn_root,
-        returnn_python_exe=returnn_python_exe,
-    ).out_ogg_zip
-
-    dev_other_oggzip_file = BlissToOggZipJob(
-        bliss_corpus=dev_other_corpus_file,
-        returnn_root=returnn_root,
-        returnn_python_exe=returnn_python_exe,
-    ).out_ogg_zip
-
-    bpe_settings = get_subword_nmt_bpe_v2(corpus_key="train-other-960", bpe_size=bpe_size)
-    bpe_config = {
-        "class": "BytePairEncoding",
-        "unknown_label": None,
-        "bpe_file": bpe_settings.bpe_codes,
-        "vocab_file": bpe_settings.bpe_vocab,
-    }
-
-    dev_audio_config = {
-        "features": "raw",
-        "peak_normalization": True,
-        "preemphasis": 0.97,
-    }
-
-    train_audio_config = {
-        **dev_audio_config,
-        "pre_process": CodeWrapper("speed_perturbation"),
-    }
-
-    train_config_dict = {
-        "class": "MetaDataset",
-        "datasets": {
-            "data": {
-                "class": "OggZipDataset",
-                "use_cache_manager": True,
-                "path": [train_oggzip_file],
-                "audio": train_audio_config,
-                "targets": bpe_config,
-                "partition_epoch": 10,
-                "seq_ordering": "laplace:.1000",
+        if self.bpe_size is not None:
+            bpe_settings = get_subword_nmt_bpe_v2(corpus_key="train-other-960", bpe_size=self.bpe_size)
+            target_config = {
+                "class": "BytePairEncoding",
+                "unknown_label": None,
+                "bpe_file": bpe_settings.bpe_codes,
+                "vocab_file": bpe_settings.bpe_vocab,
             }
-        },
-        "data_map": {"data": ("data", "data"), "classes": ("data", "classes")},
-        "seq_order_control_dataset": "data",
-    }
+        else:
+            target_config = None
 
-    dev_config_dict = {
-        "class": "MetaDataset",
-        "datasets": {
-            "data": {
-                "class": "OggZipDataset",
-                "use_cache_manager": True,
-                "path": [dev_clean_oggzip_file, dev_other_oggzip_file],
-                "audio": dev_audio_config,
-                "targets": bpe_config,
-                "partition_epoch": 1,
-                "seq_ordering": "sorted",
-            }
-        },
-        "data_map": {"data": ("data", "data"), "classes": ("data", "classes")},
-        "seq_order_control_dataset": "data",
-    }
+        audio_config = {
+            "features": "raw",
+            "peak_normalization": True,
+            "preemphasis": self.preemphasis,
+        }
 
-    return TrainData(train_config_dict=train_config_dict, dev_config_dict=dev_config_dict)
+        if self.speed_perturbation:
+            audio_config["pre_process"] = CodeWrapper("speed_perturbation")
 
+        dataset_config_dict = {
+            "class": "MetaDataset",
+            "datasets": {
+                "data": {
+                    "class": "OggZipDataset",
+                    "use_cache_manager": True,
+                    "path": oggzip_files,
+                    "audio": audio_config,
+                    "targets": target_config,
+                    "partition_epoch": self.partition_epoch,
+                    "seq_ordering": self.seq_ordering,
+                }
+            },
+            "data_map": {"data": ("data", "data")},
+            "seq_order_control_dataset": "data",
+        }
+        if target_config is not None:
+            dataset_config_dict["data_map"]["classes"] = ("data", "classes")
 
-def get_recog_data(corpus_name: str) -> dict:
-    corpus_object_dict: Dict[str, CorpusObject] = lbs_dataset.get_corpus_object_dict(
-        audio_format="wav", output_prefix="corpora"
-    )
-
-    corpus_file = corpus_object_dict[corpus_name].corpus_file
-
-    oggzip_file = BlissToOggZipJob(
-        bliss_corpus=corpus_file,
-        returnn_root=returnn_root,
-        returnn_python_exe=returnn_python_exe,
-    ).out_ogg_zip
-
-    return {
-        "class": "MetaDataset",
-        "datasets": {
-            "data": {
-                "class": "OggZipDataset",
-                "use_cache_manager": True,
-                "path": [oggzip_file],
-                "audio": {
-                    "features": "raw",
-                    "peak_normalization": True,
-                    "preemphasis": 0.97,
-                },
-                "targets": None,
-            }
-        },
-        "data_map": {"data": ("data", "data")},
-        "seq_order_control_dataset": "data",
-    }
+        return ReturnnConfig(
+            config={self.dataset_type: dataset_config_dict},
+            python_prolog=Import(f"{__package__}.bpe.speed_perturbation", use_for_hash=False)
+            if self.speed_perturbation
+            else None,
+            sort_config=False,
+        )
 
 
 class BPEVocabFileConversionJob(Job):

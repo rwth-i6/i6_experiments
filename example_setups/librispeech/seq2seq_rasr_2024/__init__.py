@@ -1,7 +1,9 @@
-from i6_experiments.example_setups.librispeech.seq2seq_rasr_2024.config_ctc_bpe import py as py_ctc_bpe
-from i6_experiments.example_setups.librispeech.seq2seq_rasr_2024.config_transducer_bpe import py as py_transducer_bpe
+from i6_experiments.example_setups.librispeech.seq2seq_rasr_2024.bpe_ctc.pipeline import run as run_bpe_ctc
+from i6_experiments.example_setups.librispeech.seq2seq_rasr_2024.bpe_transducer.pipeline import (
+    run as run_bpe_transducer,
+)
 
 
 def main() -> None:
-    py_ctc_bpe()
-    py_transducer_bpe()
+    run_bpe_ctc()
+    run_bpe_transducer()

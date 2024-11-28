@@ -1,12 +1,15 @@
+from functools import lru_cache
 from time import perf_counter
-from typing import Protocol
+from typing import Iterator, Optional, Protocol
 
 import numpy as np
 import torch
+from returnn.datasets.util.vocabulary import Vocabulary
 from returnn.forward_iface import ForwardCallbackIface
 from returnn.tensor.tensor_dict import Tensor, TensorDict
+from sisyphus import Job, Task, tk
 
-from ..pytorch_models.ctc import ConformerCTCModel, ConformerCTCRecogModel
+from .pytorch_modules import ConformerCTCModel, ConformerCTCRecogModel
 
 
 def train_step(*, model: ConformerCTCModel, extern_data: TensorDict, **_):
@@ -23,7 +26,7 @@ def train_step(*, model: ConformerCTCModel, extern_data: TensorDict, **_):
 
     log_probs, log_probs_size = model.forward(
         audio_samples=audio_samples,
-        audio_samples_size=audio_samples_size.to("cuda"),
+        audio_samples_size=audio_samples_size.to(device=audio_samples.device),
     )  # [B, T, V], [B]
 
     log_probs = torch.transpose(log_probs, 0, 1)  # [T, B, V]
@@ -100,7 +103,7 @@ def prior_step(*, model: ConformerCTCModel, extern_data: TensorDict, **_):
 
     log_probs, sequence_lengths = model.forward(
         audio_samples=audio_samples,
-        audio_samples_size=audio_samples_size.to("cuda"),
+        audio_samples_size=audio_samples_size.to(device=audio_samples.device),
     )  # [B, T, V], [B]
 
     import returnn.frontend as rf
@@ -135,37 +138,144 @@ class SearchCallback(ForwardCallbackIface):
         self.recognition_file.write("}\n")
         self.recognition_file.close()
 
-        total_audio_seconds = self.total_audio_samples / 16000
+        with open("rtf.py", "w") as rtf_file:
+            rtf_file.write("{\n")
+            total_audio_seconds = self.total_audio_samples / 16000
+            rtf_file.write(f'    "audio_seconds": {total_audio_seconds},\n')
 
-        print("Total AM time: %.2fs, AM-RTF: %.3f" % (self.total_am_time, self.total_am_time / total_audio_seconds))
-        print(
-            "Total search time: %.2fs, search-RTF: %.3f"
-            % (self.total_search_time, self.total_search_time / total_audio_seconds)
-        )
+            am_rtf = self.total_am_time / total_audio_seconds
+            am_rtfx = total_audio_seconds / self.total_am_time
 
-        total_time = self.total_am_time + self.total_search_time
-        print("Total time: %.2f, RTF: %.3f" % (total_time, total_time / total_audio_seconds))
+            print(f"Total AM time: {self.total_am_time:.2f} seconds, AM-RTF: {am_rtf}, XRTF: {am_rtfx}")
+
+            rtf_file.write(f'    "am_seconds": {self.total_am_time},\n')
+            rtf_file.write(f'    "am_rtf": {am_rtf},\n')
+            rtf_file.write(f'    "am_rtfx": {am_rtfx},\n')
+
+            search_rtf = self.total_search_time / total_audio_seconds
+            search_rtfx = total_audio_seconds / self.total_search_time
+
+            print(
+                f"Total search time: {self.total_search_time:.2f} seconds, search-RTF: {search_rtf}, RTFX: {search_rtfx}"
+            )
+            rtf_file.write(f'    "search_seconds": {self.total_search_time},\n')
+            rtf_file.write(f'    "search_rtf": {search_rtf},\n')
+            rtf_file.write(f'    "search_rtfx": {search_rtfx},\n')
+
+            total_time = self.total_am_time + self.total_search_time
+            total_rtf = total_time / total_audio_seconds
+            total_rtfx = total_audio_seconds / total_time
+
+            print(f"Total time: {total_time:.2f} seconds, RTF: {total_rtf}, RTFX: {total_rtfx}")
+            rtf_file.write(f'    "total_seconds": {total_time},\n')
+            rtf_file.write(f'    "total_rtf": {total_rtf},\n')
+            rtf_file.write(f'    "total_rtfx": {total_rtfx},\n')
+
+            rtf_file.write("}\n")
+
+
+class ExtractCTCSearchRTFJob(Job):
+    def __init__(self, rtf_file: tk.Path) -> None:
+        self.rtf_file = rtf_file
+
+        self.out_audio_seconds = self.output_var("audio_seconds")
+        self.out_am_seconds = self.output_var("am_seconds")
+        self.out_am_rtf = self.output_var("am_rtf")
+        self.out_am_rtfx = self.output_var("am_rtfx")
+        self.out_search_seconds = self.output_var("search_seconds")
+        self.out_search_rtf = self.output_var("search_rtf")
+        self.out_search_rtfx = self.output_var("search_rtfx")
+        self.out_total_seconds = self.output_var("total_seconds")
+        self.out_total_rtf = self.output_var("total_rtf")
+        self.out_total_rtfx = self.output_var("total_rtfx")
+
+    def tasks(self) -> Iterator[Task]:
+        yield Task("run", mini_task=True)
+
+    def run(self) -> None:
+        with open(self.rtf_file.get(), "r") as f:
+            result_dict = eval(f.read())
+            self.out_audio_seconds.set(result_dict["audio_seconds"])
+            self.out_am_seconds.set(result_dict["am_seconds"])
+            self.out_am_rtf.set(result_dict["am_rtf"])
+            self.out_am_rtfx.set(result_dict["am_rtfx"])
+            self.out_search_seconds.set(result_dict["search_seconds"])
+            self.out_search_rtf.set(result_dict["search_rtf"])
+            self.out_search_rtfx.set(result_dict["search_rtfx"])
+            self.out_total_seconds.set(result_dict["total_seconds"])
+            self.out_total_rtf.set(result_dict["total_rtf"])
+            self.out_total_rtfx.set(result_dict["total_rtfx"])
 
 
 class SearchFunction(Protocol):
     def __call__(self, features: torch.Tensor) -> str: ...
 
 
-def rasr_recog_step(
-    *,
-    model: ConformerCTCRecogModel,
-    extern_data: TensorDict,
-    # search_function: SearchFunction,
-    config_file: str,
-    **_,
-):
+@lru_cache(maxsize=1)
+def get_rasr_search_function(config_file: tk.Path) -> SearchFunction:
     from librasr import Configuration, SearchAlgorithm
 
     config = Configuration()
     config.set_from_file(config_file)
-    search_algorithm = SearchAlgorithm(config=config)
-    search_function = search_algorithm.recognize_segment
 
+    search_algorithm = SearchAlgorithm(config=config)
+    return search_algorithm.recognize_segment
+
+
+@lru_cache(maxsize=1)
+def get_flashlight_search_function(
+    vocab_file: tk.Path,
+    lexicon_file: Optional[str],
+    lm_file: Optional[str],
+    beam_size: int,
+    beam_size_token: Optional[int],
+    beam_threshold: float,
+    lm_scale: float,
+) -> SearchFunction:
+    from torchaudio.models.decoder import ctc_decoder
+
+    vocab = Vocabulary.create_vocab(vocab_file=vocab_file, unknown_label=None)
+    assert vocab._vocab is not None
+    labels = list({value: key for key, value in vocab._vocab.items()}.values())
+
+    if "" not in labels:
+        labels.append("")
+
+    print(f"labels: {labels}")
+
+    decoder = ctc_decoder(
+        lexicon=lexicon_file,
+        tokens=labels,
+        lm=lm_file,
+        nbest=1,
+        beam_size=beam_size,
+        beam_size_token=beam_size_token,
+        beam_threshold=beam_threshold,
+        lm_weight=lm_scale,
+        sil_score=float("inf"),
+        blank_token="<blank>",
+        sil_token="",
+        unk_word="<unk>",
+    )
+
+    def wrapper(features: torch.Tensor) -> str:
+        nonlocal labels
+        nonlocal decoder
+
+        hyps = decoder(-features)
+        str_result = " ".join([labels[token] for token in hyps[0][0].tokens])
+        return str_result
+
+    return wrapper
+
+
+def recog_step(
+    *,
+    model: ConformerCTCRecogModel,
+    extern_data: TensorDict,
+    search_function: SearchFunction,
+    **_,
+):
     raw_data = extern_data.as_raw_tensor_dict()
     audio_samples = raw_data["data"]
     audio_samples_size = raw_data["data:size1"].to(device=audio_samples.device)
@@ -209,8 +319,10 @@ def rasr_recog_step(
         seq_time = seq_samples_size[0] / 16000
 
         print(f"Recognized sequence {repr(seq_tags[b])}")
-        print(f"    AM time: {am_time:.3f} seconds, RTF {am_time / seq_time:.3f}")
-        print(f"    Search time: {search_time:.3f} seconds, RTF {search_time / seq_time:.3f}")
+        print(f"    AM time: {am_time:.3f} seconds, RTF {am_time / seq_time:.3f}, XRTF {seq_time / am_time:.3f}")
+        print(
+            f"    Search time: {search_time:.3f} seconds, RTF {search_time / seq_time:.3f}, XRTF {seq_time / search_time:.3f}"
+        )
         print(f"    Tokens: {tokens_array}")
         print()
 
@@ -259,3 +371,39 @@ def rasr_recog_step(
         time_dim_axis=None,
     )
     run_ctx.mark_as_output(search_time_tensor, name="search_time")
+
+
+def rasr_recog_step(
+    *,
+    model: ConformerCTCRecogModel,
+    extern_data: TensorDict,
+    config_file: tk.Path,
+    **kwargs,
+):
+    search_function = get_rasr_search_function(config_file=config_file)
+    return recog_step(model=model, extern_data=extern_data, search_function=search_function, **kwargs)
+
+
+def flashlight_recog_step(
+    *,
+    model: ConformerCTCRecogModel,
+    extern_data: TensorDict,
+    vocab_file: tk.Path,
+    lexicon_file: Optional[str],
+    lm_file: Optional[str],
+    beam_size: int,
+    beam_size_token: Optional[int],
+    beam_threshold: float,
+    lm_scale: float,
+    **kwargs,
+):
+    search_function = get_flashlight_search_function(
+        vocab_file=vocab_file,
+        lexicon_file=lexicon_file,
+        lm_file=lm_file,
+        beam_size=beam_size,
+        beam_size_token=beam_size_token,
+        beam_threshold=beam_threshold,
+        lm_scale=lm_scale,
+    )
+    return recog_step(model=model, extern_data=extern_data, search_function=search_function, **kwargs)
