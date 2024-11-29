@@ -6,7 +6,7 @@ import shutil
 import string
 import textwrap
 from collections import OrderedDict
-from dataclasses import fields
+from dataclasses import fields, is_dataclass
 from enum import Enum
 from inspect import isfunction
 from typing import Any, Dict, List, Optional, Set, Tuple, Union, TYPE_CHECKING
@@ -255,7 +255,7 @@ def build_config_constructor_serializers(
 
 
 def build_config_constructor_serializers_v2(
-    cfg: ModelConfiguration,
+    cfg: Any,
     variable_name: Optional[str] = None,
     unhashed_package_root: Optional[str] = None,
 ) -> Tuple[Call, List[Import]]:
@@ -267,25 +267,20 @@ def build_config_constructor_serializers_v2(
     Compared to the previous version, this function can also serialize enum members and values of type
     list, tuple or dict. It also fixes import deduplication.
 
-    :param cfg: ModelConfiguration object that will be re-constructed by the Call serializer
+    :param cfg: ModelConfiguration or dataclass object that will be re-constructed by the Call serializer
     :param variable_name: Name of the variable which the constructed ModelConfiguration
                           will be assigned to. If None, the result will not be assigned
                           to a variable.
     :param unhashed_package_root: Will be passed to all generated Import objects.
     :return: Call object and list of necessary imports.
     """
-    from i6_models.config import ModelConfiguration, ModuleFactoryV1
+    from i6_models.config import ModuleFactoryV1
 
     # Helper function which can call itself recursively for nested types
     def serialize_value(value: Any) -> Tuple[Union[str, DelayedBase], List[Import]]:
         # Switch over serialization logic for different subtypes
 
-        if isinstance(value, ModelConfiguration):
-            # Example:
-            # ConformerBlockConfig(mhsa_config=ConformerMHSAConfig(...))
-            # -> Sub-Constructor-Call and imports for ConformerMHSAConfig
-            return build_config_constructor_serializers_v2(value, unhashed_package_root=unhashed_package_root)
-        elif isinstance(value, ModuleFactoryV1):
+        if isinstance(value, ModuleFactoryV1):
             # Example:
             # ConformerEncoderConfig(
             #     frontend=ModuleFactoryV1(module_class=VGGFrontend, cfg=VGGFrontendConfig(...)))
@@ -297,19 +292,23 @@ def build_config_constructor_serializers_v2(
             subimports.append(
                 Import(
                     code_object_path=f"{value.module_class.__module__}.{value.module_class.__name__}",
-                    unhashed_package_root=unhashed_package_root
-                    if unhashed_package_root is not None
-                    and value.module_class.__module__.startswith(unhashed_package_root)
-                    else None,
+                    unhashed_package_root=(
+                        unhashed_package_root
+                        if unhashed_package_root is not None
+                        and value.module_class.__module__.startswith(unhashed_package_root)
+                        else None
+                    ),
                 )
             )
             subimports.append(
                 Import(
                     code_object_path=f"{ModuleFactoryV1.__module__}.{ModuleFactoryV1.__name__}",
-                    unhashed_package_root=unhashed_package_root
-                    if unhashed_package_root is not None
-                    and ModuleFactoryV1.__module__.startswith(unhashed_package_root)
-                    else None,
+                    unhashed_package_root=(
+                        unhashed_package_root
+                        if unhashed_package_root is not None
+                        and ModuleFactoryV1.__module__.startswith(unhashed_package_root)
+                        else None
+                    ),
                 )
             )
             return (
@@ -322,6 +321,11 @@ def build_config_constructor_serializers_v2(
                 ),
                 subimports,
             )
+        elif is_dataclass(value):
+            # Example:
+            # ConformerBlockConfig(mhsa_config=ConformerMHSAConfig(...))
+            # -> Sub-Constructor-Call and imports for ConformerMHSAConfig
+            return build_config_constructor_serializers_v2(value, unhashed_package_root=unhashed_package_root)
         elif isinstance(value, torch.nn.Module):
             # Example:
             # ConformerConvolutionConfig(norm=BatchNorm1d(...))
@@ -331,9 +335,11 @@ def build_config_constructor_serializers_v2(
             return str(value), [
                 Import(
                     code_object_path=f"{value.__module__}.{type(value).__name__}",
-                    unhashed_package_root=unhashed_package_root
-                    if unhashed_package_root is not None and value.__module__.startswith(unhashed_package_root)
-                    else None,
+                    unhashed_package_root=(
+                        unhashed_package_root
+                        if unhashed_package_root is not None and value.__module__.startswith(unhashed_package_root)
+                        else None
+                    ),
                 )
             ]
         elif isfunction(value):
@@ -345,9 +351,11 @@ def build_config_constructor_serializers_v2(
                 subimports = [
                     Import(
                         code_object_path=f"{value.__module__}.{value.__name__}",
-                        unhashed_package_root=unhashed_package_root
-                        if unhashed_package_root is not None and value.__module__.startswith(unhashed_package_root)
-                        else None,
+                        unhashed_package_root=(
+                            unhashed_package_root
+                            if unhashed_package_root is not None and value.__module__.startswith(unhashed_package_root)
+                            else None
+                        ),
                     )
                 ]
             else:
@@ -360,10 +368,12 @@ def build_config_constructor_serializers_v2(
             subimports = [
                 Import(
                     code_object_path=f"{value.__class__.__module__}.{value.__class__.__name__}",
-                    unhashed_package_root=unhashed_package_root
-                    if unhashed_package_root is not None
-                    and value.__class__.__module__.startswith(unhashed_package_root)
-                    else None,
+                    unhashed_package_root=(
+                        unhashed_package_root
+                        if unhashed_package_root is not None
+                        and value.__class__.__module__.startswith(unhashed_package_root)
+                        else None
+                    ),
                 )
             ]
             return f"{value.__class__.__name__}.{value.name}", subimports
@@ -393,7 +403,10 @@ def build_config_constructor_serializers_v2(
                 val_serialized, item_imports = serialize_value(val)
                 dict_items += [key, val_serialized]
                 dict_imports += item_imports
-            return DelayedFormat(f"{{{', '.join(['{}: {}'] * len(dict_items))}}}", *dict_items), dict_imports
+            return (
+                DelayedFormat("{{" + ", ".join(["{}: {}"] * (len(dict_items) // 2)) + "}}", *dict_items),
+                dict_imports,
+            )
         elif isinstance(value, tk.Path):
             return DelayedFormat('tk.Path("{}")', value), [Import("sisyphus.tk")]
         elif isinstance(value, DelayedBase):
@@ -410,9 +423,11 @@ def build_config_constructor_serializers_v2(
     imports = [
         Import(
             code_object_path=f"{type(cfg).__module__}.{type(cfg).__name__}",
-            unhashed_package_root=unhashed_package_root
-            if unhashed_package_root is not None and type(cfg).__module__.startswith(unhashed_package_root)
-            else None,
+            unhashed_package_root=(
+                unhashed_package_root
+                if unhashed_package_root is not None and type(cfg).__module__.startswith(unhashed_package_root)
+                else None
+            ),
         )
     ]
 
