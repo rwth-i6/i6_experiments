@@ -109,3 +109,65 @@ class WriteLmDatasetSeqListJob(Job):
         with open(self.out_seq_list.get_path(), "w") as f:
             for line_nr in range(num_lines):
                 print(f"line-{line_nr}", file=f)
+
+
+class WriteSeqListFromShuffledJob(Job):
+    """
+    Assuming that some dataset was split and shuffled using
+    :class:`i6_core.corpus.segments.ShuffleAndSplitSegmentsJob`,
+    and then merged again (via some more complex pipeline,
+    e.g. involving :class:`i6_core.returnn.oggzip.BlissToOggZipJob`),
+    we might get sequence tags like `"librispeech-lm-part{split_key}/recording_{split_seq_idx}/line_{split_seq_idx}"`.
+
+    We write those seq tags out to a seq list file.
+    This file could be used for :class:`returnn.datasets.meta.MetaDataset` ``seq_list_file``.
+
+    The code is based on :class:`i6_core.corpus.segments.ShuffleAndSplitSegmentsJob`.
+    """
+
+    def __init__(
+        self,
+        *,
+        seq_tag_template: str,
+        num_seqs: Union[int, tk.Variable],
+        split: Dict[str, float],
+        shuffle=True,
+        shuffle_seed=0x3C5EA3E47D4E0077,
+    ):
+        assert isinstance(split, dict)
+        assert all(s > 0 for s in split.values())
+        assert abs(sum(split.values()) - 1.0) < 1e-10
+
+        self.seq_tag_template = seq_tag_template
+        self.num_seqs = num_seqs
+        self.split = split
+        self.shuffle = shuffle
+        self.shuffle_seed = shuffle_seed
+
+        self.out_segments = {k: self.output_path(f"{k}.segments") for k in self.split.keys()}
+
+    def tasks(self):
+        yield Task("run", mini_task=True)
+
+    def run(self):
+        import random
+        import itertools as it
+
+        n = self.num_seqs
+        if isinstance(n, tk.Variable):
+            n = n.get()
+        assert isinstance(n, int)
+        segments = list(range(n))
+
+        if self.shuffle:
+            rng = random.Random(self.shuffle_seed)
+            rng.shuffle(segments)
+
+        ordered_keys = sorted(self.split.keys())
+        split_idx = [0] + [int(n * c) for c in it.accumulate(self.split[k] for k in ordered_keys)]
+        split_idx[-1] = n  # just in case we get numeric errors that drop the last element
+
+        for i, split_key in enumerate(ordered_keys):
+            with uopen(self.out_segments[split_key].get_path(), "wt", encoding="utf-8") as f:
+                for split_seq_idx in range(split_idx[i], split_idx[i + 1]):
+                    f.write(self.seq_tag_template.format(split_key=split_key, split_seq_idx=split_seq_idx) + "\n")
