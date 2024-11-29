@@ -829,34 +829,31 @@ ctc_training.learning_rate_control_error_measure = "ctc"
 def ctc_sum_training(*, model: Model, data: rf.Tensor, data_spatial_dim: Dim, lm_path: tk.Path):
     """Function is run within RETURNN."""
     from returnn.config import get_global_config
-    from .sum_criterion import sum_loss
+    from .sum_criterion import sum_loss, safe_logsumexp
+    
+    # torch.autograd.set_detect_anomaly(True)
     
     def _calc_log_prior(log_probs: torch.Tensor, lengths: torch.Tensor) -> Tensor:
         lengths = lengths.to(log_probs.device)
-        probs = log_probs.exp()
-        assert lengths.size(0) == probs.size(0), "Prior calculation batch lengths are not the same (full_sum)!"
+        assert lengths.size(0) == log_probs.size(0), "Prior calculation batch lengths are not the same (full_sum)!"
         
-        mask = torch.arange(probs.size(1), device=probs.device).expand(probs.size(0), -1) < lengths.unsqueeze(1)
-        mask = mask.unsqueeze(-1).expand(-1, -1, probs.size(2))
-        probs = probs * mask
-        
-        with torch.no_grad():
-            empty_mask = torch.arange(probs.size(1), device=probs.device).expand(probs.size(0), -1) >= lengths.unsqueeze(1)
-            empty_mask = empty_mask.unsqueeze(-1).expand(-1, -1, probs.size(2))
-            assert (probs * empty_mask).count_nonzero() == 0, f"The remaining entries in probs were not all zeros, we still have {(probs * empty_mask).count_nonzero()} non-zero entries!"
+        mask = torch.arange(log_probs.size(1), device=log_probs.device).expand(log_probs.size(0), -1) < lengths.unsqueeze(1)
+        mask = torch.where(mask, 0.0, float("-inf"))
+        mask = mask.unsqueeze(-1).expand(-1, -1, log_probs.size(2))
+        log_probs = log_probs + mask
         
         sum_frames = lengths.sum()
-        sum_probs = torch.zeros([probs.size(2) + 1,], device=probs.device)
-        sum_probs[1:-1] = probs[:,:,1:].sum(dim=(0, 1)) # Sum over batch and time
-        sum_probs[0] = probs[:,0,0].sum() # BOS prob
-        sum_probs[-1] = probs[:,1:,0].sum() # EOS prob
+        log_sum_probs = torch.full([log_probs.size(2) + 1,], float("-inf"), device=log_probs.device)
+        log_sum_probs[1:-1] = safe_logsumexp(safe_logsumexp(log_probs[:,:,1:], dim=0), dim=0) # Sum over batch and time
+        log_sum_probs[0] = safe_logsumexp(log_probs[:,0,0], dim=0) # BOS prob
+        log_sum_probs[-1] = safe_logsumexp(safe_logsumexp(log_probs[:,1:,0], dim=0), dim=0) # EOS prob
         
-        mean_probs = sum_probs / sum_frames
+        log_mean_probs = log_sum_probs - sum_frames.log()
         
         with torch.no_grad():
-            assert mean_probs.sum().allclose(torch.tensor(1.0, device=mean_probs.device)), f"Prior probs do not sum to 1.0, but to {mean_probs.sum()}"
+            assert log_mean_probs.exp().sum().allclose(torch.tensor(1.0, device=log_mean_probs.device)), f"Prior probs do not sum to 1.0, but to {log_mean_probs.exp().sum()}"
         
-        return mean_probs.log()
+        return log_mean_probs
 
     config = get_global_config()  # noqa
     aux_loss_layers = config.typed_value("aux_loss_layers")
@@ -892,6 +889,7 @@ def ctc_sum_training(*, model: Model, data: rf.Tensor, data_spatial_dim: Dim, lm
                 log_lm_probs=lm,
                 log_prior=aux_log_prior,
                 input_lengths=enc_spatial_dim.dyn_size_ext.raw_tensor,
+                LM_order=2,
                 am_scale=am_scale,
                 lm_scale=lm_scale,
                 blank_idx=model.blank_idx,
@@ -916,6 +914,7 @@ def ctc_sum_training(*, model: Model, data: rf.Tensor, data_spatial_dim: Dim, lm
         log_lm_probs=lm,
         log_prior=log_prior,
         input_lengths=enc_spatial_dim.dyn_size_ext.raw_tensor,
+        LM_order=2,
         am_scale=am_scale,
         lm_scale=lm_scale,
         blank_idx=model.blank_idx,
