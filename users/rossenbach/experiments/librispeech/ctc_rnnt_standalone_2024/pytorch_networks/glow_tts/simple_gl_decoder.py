@@ -86,7 +86,7 @@ def save_ogg(args):
     """
     wav, path, sr = args
     wav *= 32767 / max(0.01, np.max(np.abs(wav)))
-    p1 = subprocess.Popen(["ffmpeg", "-y", "-f", "s16le", "-ar", "%i" % sr, "-i", "pipe:0", "-c:a", "libvorbis", "-q", "3.0", path],
+    p1 = subprocess.Popen(["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-threads", "1", "-f", "s16le", "-ar", "%i" % sr, "-i", "pipe:0", "-c:a", "libvorbis", "-q", "3.0", path],
                           stdin=subprocess.PIPE,
                           stdout=subprocess.PIPE,
                           env=ENVIRON)
@@ -119,13 +119,13 @@ def forward_step(*, model: Model, data, run_ctx, **kwargs):
         noise_scale=run_ctx.noise_scale,
         length_scale=1.0,
     )
-    torch.cuda.synchronize()
+    log_mels.detach()
     forward_time = time.time() - forward_start
 
     vocoder_model_start = time.time()
     _, linears = run_ctx.gl_model(log_mels.transpose(1, 2), y_lengths)
     linears = linears.transpose(1, 2)
-    torch.cuda.synchronize()
+    linears.detach()
     vocoder_net_time = time.time() - vocoder_model_start
 
     from matplotlib import pyplot as plt

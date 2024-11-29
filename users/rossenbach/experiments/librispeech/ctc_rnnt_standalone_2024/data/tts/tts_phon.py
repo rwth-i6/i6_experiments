@@ -336,7 +336,7 @@ def build_fixed_speakers_generating_dataset(
 ):
     """
 
-    :param text_bliss:  corpus used for generation
+    :param text_bliss:  corpus used for generation, needs to be processed for TTS
     :param num_splits: split via segments for parallel generation
     :param ls_corpus_key: base corpus to take speakers from
     :param randomize_speaker: Assign shuffled speakers from refrence corpus
@@ -402,7 +402,7 @@ def build_fixed_speakers_generating_dataset(
     }
 
     generating_dataset = GeneratingDataset(
-        split_datasets = datasets,
+        split_datasets=datasets,
         datastreams=datastreams,
     )
 

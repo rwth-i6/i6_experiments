@@ -53,3 +53,24 @@ def add_vocoder(name: str, vocoder: VocoderPackage):
     global vocoders
     assert name not in vocoders.keys()
     vocoders[name] = vocoder
+
+
+# Synthetic data -------------------------------------------------------------------------------------------------------
+
+synthetic_ogg_zip_data = {}
+synthetic_bliss_data = {}
+
+
+def add_synthetic_data(name: str, ogg_zip: tk.Path, bliss: tk.Path):
+    global synthetic_ogg_zip_data
+    global synthetic_bliss_data
+    assert name not in synthetic_ogg_zip_data.keys()
+    synthetic_ogg_zip_data[name] = ogg_zip
+    synthetic_bliss_data[name] = bliss
+
+def get_synthetic_data(name: str):
+    global synthetic_ogg_zip_data
+    global synthetic_bliss_data
+    assert name in synthetic_ogg_zip_data.keys()
+    return synthetic_bliss_data[name], synthetic_ogg_zip_data[name]
+

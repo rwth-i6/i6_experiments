@@ -211,36 +211,6 @@ def rnnt_bpe_ls960_1023_low_bpe_from_scratch():
             "debug": False,
         }
 
-        if BPE_SIZE == 128:
-            training_name = prefix_name + "/" + str(
-                BPE_SIZE) + "/" + network_module + ".512dim_sub6_11gbgpu_25eps_from_scratch_radamv1"
-            train_job = training(training_name, train_data_bpe, train_args_11gb,
-                                 num_epochs=250, **default_returnn)
-            train_job.rqmt["gpu_mem"] = 11
-            train_job.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
-            for keep in KEEP:
-                asr_model = prepare_asr_model(
-                    training_name, train_job, train_args_11gb, with_prior=False,
-                    datasets=train_data_bpe, get_specific_checkpoint=keep
-                )
-                evaluate_helper(
-                    training_name + "/keep_%i" % keep,
-                    asr_model,
-                    decoder_config,
-                    use_gpu=True
-                )
-            asr_model = prepare_asr_model(
-                training_name, train_job, train_args_11gb, with_prior=False,
-                datasets=train_data_bpe, get_specific_checkpoint=250
-            )
-            evaluate_helper(
-                training_name + "/keep_%i" % 250,
-                asr_model,
-                decoder_config,
-                use_gpu=True,
-            )
-
-
 
         if BPE_SIZE == 128 or BPE_SIZE == 1024:
             # Better and more efficient

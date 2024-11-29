@@ -74,6 +74,29 @@ def get_text_lexicon(prefix: str, librispeech_key: str, bpe_size: int) -> tk.Pat
     return word_lexicon
 
 
+def build_custom_bpe_lexicon(bliss_lexicon, bpe_codes, bpe_vocab):
+    """
+
+    :param bliss_lexicon:
+    :param bpe_codes:
+    :param bpe_vocab:
+    :return:
+    """
+    bpe_lexicon = CreateBPELexiconJob(
+        base_lexicon_path=bliss_lexicon,
+        bpe_codes=bpe_codes,
+        bpe_vocab=bpe_vocab,
+        subword_nmt_repo=SUBWORD_NMT_REPO,
+        unk_label="<unk>",
+    ).out_lexicon
+    word_lexicon = BlissLexiconToG2PLexiconJob(
+        bpe_lexicon,
+        include_pronunciation_variants=True,
+        include_orthography_variants=True,
+    ).out_g2p_lexicon
+    return word_lexicon
+
+
 def build_bpe_training_datasets(
     prefix: str,
     librispeech_key: str,
