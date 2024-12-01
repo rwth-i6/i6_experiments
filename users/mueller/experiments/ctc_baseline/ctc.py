@@ -142,7 +142,6 @@ def py():
         test_self_training_on_small_dataset = test_self_training_on_small_dataset,
         with_prior = with_prior,
         use_sum_criterion=use_sum_criterion,
-        time_rqmt=2
     )
     
 
