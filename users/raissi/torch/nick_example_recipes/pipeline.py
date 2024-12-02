@@ -315,7 +315,8 @@ def prepare_asr_model(
 def export_model_for_rasr_decoding(checkpoint: Union[tk.Path, PtCheckpoint],
                                    returnn_config: ReturnnConfig,
                                    returnn_python_exe: tk.Path,
-                                   returnn_root: tk.Path):
+                                   returnn_root: tk.Path,
+                                   device: str):
 
     onnx_export_job = ExportPyTorchModelToOnnxJobV2(
         pytorch_checkpoint=checkpoint,
@@ -323,6 +324,7 @@ def export_model_for_rasr_decoding(checkpoint: Union[tk.Path, PtCheckpoint],
         returnn_python_exe=returnn_python_exe,
         returnn_root=returnn_root,
         verbosity=5,
+        device=device,
     )
 
     return onnx_export_job.out_onnx_model

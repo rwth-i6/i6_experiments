@@ -639,7 +639,7 @@ class BASEFactoredHybridSystem(NnSystem):
                 nn_cv_data_inputs,
                 nn_devtrain_data_inputs,
             ) = self.prepare_rasr_train_data_with_separate_cv(
-                input_key, cv_corpus_key=cv_corpus_key, configure_rasr_automaton=configure_automata
+                cv_corpus_key=cv_corpus_key, input_key=input_key, configure_rasr_automaton=configure_automata
             )
         else:
             (
@@ -717,7 +717,7 @@ class BASEFactoredHybridSystem(NnSystem):
         return nn_train_data_inputs, nn_cv_data_inputs, nn_devtrain_data_inputs
 
     def prepare_rasr_train_data_with_separate_cv(
-        self, input_key: InputKey = InputKey.BASE, cv_corpus_key="dev-other", configure_rasr_automaton=False
+        self, cv_corpus_key, input_key: InputKey = InputKey.BASE, configure_rasr_automaton=False
     ):
         train_corpus_key = self.train_key
 

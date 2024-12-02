@@ -329,18 +329,16 @@ def ls960_hmm_conformer_monophone():
         from i6_experiments.users.raissi.torch.decoder.TORCH_factored_hybrid_search import TORCHFactoredHybridDecoder
         from i6_experiments.users.raissi.utils.default_tools import u22_rasr_path_onnxtorch
 
-
-
         decoding_returnn_config = get_decoding_config(training_datasets=train_data, **train_args_conv_first)
 
 
-        
 
         onnx_model = export_model_for_rasr_decoding(
             checkpoint=asr_model.checkpoint,
             returnn_config=decoding_returnn_config,
             returnn_root=MINI_RETURNN_ROOT,
-            returnn_python_exe=RETURNN_EXE
+            returnn_python_exe=RETURNN_EXE,
+            device="cpu",
 
         )
 

@@ -15,19 +15,22 @@ class ExportPyTorchModelToOnnxJobV2(Job):
         returnn_config: ReturnnConfig,
         returnn_python_exe: tk.Path,
         returnn_root: tk.Path,
+        device: str = "cpu",
         verbosity: int = 4,
     ):
         self.pytorch_checkpoint = pytorch_checkpoint
         self.returnn_python_exe = returnn_python_exe
         self.returnn_config = returnn_config
         self.returnn_root = returnn_root
+        self.device = device
         self.verbosity = verbosity
 
         self.out_returnn_config = self.output_path("returnn.config")
         self.out_onnx_model = self.output_path("model.onnx")
 
     def tasks(self):
-        yield Task("run", rqmt={"gpu": 1})
+        rqmt = {"gpu": 1} if self.device in ["cuda"] else {}
+        yield Task("run", rqmt=rqmt)
 
     def run(self):
         if isinstance(self.returnn_config, tk.Path):
@@ -47,7 +50,7 @@ class ExportPyTorchModelToOnnxJobV2(Job):
             str(self.pytorch_checkpoint),
             self.out_onnx_model.get(),
             f"--verbosity={self.verbosity}",
-            "--device=gpu",
+            f"--device={self.device}",
         ]
 
         util.create_executable("run.sh", args)
