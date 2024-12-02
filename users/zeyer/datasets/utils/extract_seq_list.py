@@ -50,10 +50,8 @@ class ExtractSeqListJob(Job):
             config.typed_dict["log_verbosity"] = 4
         log.init_by_config(config)
 
-        import tree
-
         dataset_dict = self.returnn_dataset
-        dataset_dict = tree.map_structure(lambda x: x.get_path() if isinstance(x, tk.Path) else x, dataset_dict)
+        dataset_dict = util.instanciate_delayed(dataset_dict)
         print("RETURNN dataset dict:", dataset_dict)
         assert isinstance(dataset_dict, dict)
         dataset = init_dataset(dataset_dict)
