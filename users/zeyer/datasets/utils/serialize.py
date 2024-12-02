@@ -113,7 +113,7 @@ class ReturnnDatasetToTextLinesJob(Job):
                         start_elapsed = time.monotonic() - start_time
                         complete = seq_idx / num_seqs
                         assert 1 > complete >= 0, f"{seq_idx} seq idx, {num_seqs} num seqs"
-                        total_time_estimated = start_elapsed / complete
+                        total_time_estimated = start_elapsed / (complete or 1e-5)
                         remaining_estimated = total_time_estimated - start_elapsed
                         info += [
                             f"num seqs {num_seqs}",
