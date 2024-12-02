@@ -134,6 +134,13 @@ class WriteSeqListFromShuffledJob(Job):
         shuffle=True,
         shuffle_seed=0x3C5EA3E47D4E0077,
     ):
+        """
+        :param seq_tag_template: e.g. `"librispeech-lm-part{split_key}/recording_{split_seq_idx}/line_{split_seq_idx}"`
+        :param num_seqs: total number of sequences
+        :param split: dict of split keys to split ratio
+        :param shuffle: whether to shuffle
+        :param shuffle_seed: seed for the shuffle
+        """
         assert isinstance(split, dict)
         assert all(s > 0 for s in split.values())
         assert abs(sum(split.values()) - 1.0) < 1e-10
@@ -144,7 +151,7 @@ class WriteSeqListFromShuffledJob(Job):
         self.shuffle = shuffle
         self.shuffle_seed = shuffle_seed
 
-        self.out_segments = {k: self.output_path(f"{k}.segments") for k in self.split.keys()}
+        self.out_segments = self.output_path("out.segments")
 
     def tasks(self):
         yield Task("run", mini_task=True)
@@ -164,10 +171,18 @@ class WriteSeqListFromShuffledJob(Job):
             rng.shuffle(segments)
 
         ordered_keys = sorted(self.split.keys())
-        split_idx = [0] + [int(n * c) for c in it.accumulate(self.split[k] for k in ordered_keys)]
-        split_idx[-1] = n  # just in case we get numeric errors that drop the last element
+        split_indices = [0] + [int(n * c) for c in it.accumulate(self.split[k] for k in ordered_keys)]
+        split_indices[-1] = n  # just in case we get numeric errors that drop the last element
 
-        for i, split_key in enumerate(ordered_keys):
-            with uopen(self.out_segments[split_key].get_path(), "wt", encoding="utf-8") as f:
-                for split_seq_idx in range(split_idx[i], split_idx[i + 1]):
-                    f.write(self.seq_tag_template.format(split_key=split_key, split_seq_idx=split_seq_idx) + "\n")
+        orig_seq_idx_to_new_seq_tag = {}
+        for split_idx, split_key in enumerate(ordered_keys):
+            for split_seq_idx, orig_seq_idx in enumerate(
+                segments[split_indices[split_idx] : split_indices[split_idx + 1]]
+            ):
+                orig_seq_idx_to_new_seq_tag[orig_seq_idx] = self.seq_tag_template.format(
+                    split_key=split_key, split_seq_idx=split_seq_idx
+                )
+
+        with uopen(self.out_segments.get_path(), "wt", encoding="utf-8") as f:
+            for orig_seq_idx in range(n):
+                f.write(f"{orig_seq_idx_to_new_seq_tag[orig_seq_idx]}\n")
