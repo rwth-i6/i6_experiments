@@ -117,8 +117,8 @@ class ReturnnDatasetToTextLinesJob(Job):
                         remaining_estimated = total_time_estimated - start_elapsed
                         info += [
                             f"num seqs {num_seqs}",
-                            "exp. remaining %s" % hms(remaining_estimated),
-                            "complete %.02f%%" % (complete * 100),
+                            f"exp. remaining {hms(remaining_estimated)}",
+                            f"complete {complete:.2%}",
                         ]
                     else:
                         info += ["num seqs unknown"]
