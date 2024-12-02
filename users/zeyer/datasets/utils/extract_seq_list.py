@@ -23,8 +23,10 @@ class ExtractSeqListJob(Job):
 
         self.out_seq_list = self.output_path("out_seq_list.txt")
 
+        self.rqmt = {"cpu": 1, "mem": 4, "time": 1, "gpu": 0}
+
     def tasks(self):
-        yield Task("run", rqmt={"cpu": 1, "mem": 4, "time": 1, "gpu": 0})
+        yield Task("run", rqmt=self.rqmt)
 
     def run(self):
         import sys

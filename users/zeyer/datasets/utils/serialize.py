@@ -45,12 +45,15 @@ class ReturnnDatasetToTextLinesJob(Job):
 
         self.out_txt = self.output_path("out.txt.gz")
 
+        self.rqmt = {"cpu": 1, "mem": 4, "time": 1, "gpu": 0}
+
     def tasks(self):
-        yield Task("run", rqmt={"cpu": 1, "mem": 4, "time": 1, "gpu": 0})
+        yield Task("run", rqmt=self.rqmt)
 
     def run(self):
         import sys
         import os
+        import time
         import i6_experiments
 
         recipe_dir = os.path.dirname(os.path.dirname(i6_experiments.__file__))
@@ -65,6 +68,7 @@ class ReturnnDatasetToTextLinesJob(Job):
         from returnn.datasets import init_dataset
         from returnn.datasets.util.vocabulary import Vocabulary
         from returnn.log import log
+        from returnn.util.basic import hms
 
         config = Config()
         set_global_config(config)
@@ -93,9 +97,33 @@ class ReturnnDatasetToTextLinesJob(Job):
         else:
             vocab = None
 
+        # noinspection PyBroadException
+        try:
+            num_seqs = dataset.num_seqs
+        except Exception:  # might not work for all datasets
+            num_seqs = None
+        start_time = time.monotonic()
+
         with util.uopen(self.out_txt.get_path(), "wt") as f:
             seq_idx = 0
             while dataset.is_less_than_num_seqs(seq_idx):
+                if seq_idx % 100 == 0:
+                    info = [f"seq idx {seq_idx}"]
+                    if num_seqs is not None:
+                        start_elapsed = time.monotonic() - start_time
+                        complete = seq_idx / num_seqs
+                        assert 1 > complete >= 0, f"{seq_idx} seq idx, {num_seqs} num seqs"
+                        total_time_estimated = start_elapsed / complete
+                        remaining_estimated = total_time_estimated - start_elapsed
+                        info += [
+                            f"num seqs {num_seqs}",
+                            "exp. remaining %s" % hms(remaining_estimated),
+                            "complete %.02f%%" % (complete * 100),
+                        ]
+                    else:
+                        info += ["num seqs unknown"]
+                    print(", ".join(info))
+
                 dataset.load_seqs(seq_idx, seq_idx + 1)
                 if seq_list is not None:
                     assert dataset.get_tag(seq_idx) == seq_list[seq_idx], (
@@ -113,5 +141,6 @@ class ReturnnDatasetToTextLinesJob(Job):
                     s = s.strip()
                 f.write(s + "\n")
                 seq_idx += 1
-            if seq_list is not None:
-                assert seq_idx == len(seq_list), f"seq_list length mismatch: got {seq_idx} != list {len(seq_list)}"
+
+        if seq_list is not None:
+            assert seq_idx == len(seq_list), f"seq_list length mismatch: got {seq_idx} != list {len(seq_list)}"
