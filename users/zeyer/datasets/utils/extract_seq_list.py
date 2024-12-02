@@ -184,3 +184,43 @@ class WriteSeqListFromShuffledJob(Job):
         with uopen(self.out_segments.get_path(), "wt", encoding="utf-8") as f:
             for orig_seq_idx in range(n):
                 f.write(f"{orig_seq_idx_to_new_seq_tag[orig_seq_idx]}\n")
+
+
+class ReorderSeqListJob(Job):
+    """
+    Reorder a seq list file, based on a given order.
+    """
+
+    def __init__(self, *, source_seq_list: tk.Path, source_seq_list_order: tk.Path, target_seq_list: tk.Path):
+        """
+        :param source_seq_list: input seq list, specifying the dataset seq order.
+            This should match the same order (but with potential different seq names) as ``target_seq_list``.
+        :param source_seq_list_order: input seq list, specifying the order.
+            These are seq names from ``source_seq_list``.
+        :param target_seq_list: seq list, using seq names from some potential other dataset,
+            using the same order as ``source_seq_list``.
+        """
+        self.source_seq_list = source_seq_list
+        self.source_seq_list_order = source_seq_list_order
+        self.target_seq_list = target_seq_list
+        self.out_target_seq_list_order = self.output_path("out_seq_list_order.txt")
+
+    def tasks(self):
+        yield Task("run", rqmt={"cpu": 1, "mem": 4, "time": 1, "gpu": 0})
+
+    def run(self):
+        with uopen(self.source_seq_list.get_path(), "rt") as f:
+            source_seq_list = f.read().splitlines()
+        with uopen(self.source_seq_list_order.get_path(), "rt") as f:
+            source_seq_list_order = f.read().splitlines()
+        with uopen(self.target_seq_list.get_path(), "rt") as f:
+            target_seq_list = f.read().splitlines()
+        assert len(source_seq_list) == len(target_seq_list)
+
+        source_seq_indices = {seq: i for i, seq in enumerate(source_seq_list)}
+        seq_list_order = [source_seq_indices[seq] for seq in source_seq_list_order]
+        target_seq_list_reordered = [target_seq_list[i] for i in seq_list_order]
+
+        with open(self.out_target_seq_list_order.get_path(), "w") as f:
+            for seq in target_seq_list_reordered:
+                print(seq, file=f)
