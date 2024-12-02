@@ -84,6 +84,7 @@ def forward_to_hdf(
         returnn_python_exe=tools_paths.get_returnn_python_exe(),
         returnn_root=tools_paths.get_returnn_root(),
         mem_rqmt=forward_mem_rqmt,
+        device="gpu" if model else "cpu",
     )
     if forward_rqmt:
         forward_job.rqmt.update(forward_rqmt)
