@@ -16,14 +16,26 @@ class ExtractSeqListJob(Job):
         self,
         *,
         returnn_dataset: Dict[str, Any],  # to get all seq tags
+        returnn_dataset_ext_non_hashed: Optional[Dict[str, Any]] = None,
         returnn_root: Optional[tk.Path] = None,
     ):
+        """
+        :param returnn_dataset: dict, the dataset dict, as used in RETURNN.
+        :param returnn_dataset_ext_non_hashed: optional addition to the dataset dict but non-hashed
+        :param returnn_root: path, optional, the RETURNN root dir.
+        """
         self.returnn_dataset = returnn_dataset
+        self.returnn_dataset_ext_non_hashed = returnn_dataset_ext_non_hashed
         self.returnn_root = returnn_root
 
         self.out_seq_list = self.output_path("out_seq_list.txt")
 
         self.rqmt = {"cpu": 1, "mem": 4, "time": 1, "gpu": 0}
+
+    def hash(cls, parsed_args):
+        parsed_args = parsed_args.copy()
+        parsed_args.pop("returnn_dataset_ext_non_hashed")
+        return super().hash(parsed_args)
 
     def tasks(self):
         yield Task("run", rqmt=self.rqmt)
@@ -35,6 +47,7 @@ class ExtractSeqListJob(Job):
         import tempfile
         import shutil
         import i6_experiments
+        from i6_experiments.users.zeyer.utils.dict_update import dict_update_deep
 
         recipe_dir = os.path.dirname(os.path.dirname(i6_experiments.__file__))
         sys.path.insert(0, recipe_dir)
@@ -57,6 +70,7 @@ class ExtractSeqListJob(Job):
         log.init_by_config(config)
 
         dataset_dict = self.returnn_dataset
+        dataset_dict = dict_update_deep(dataset_dict, self.returnn_dataset_ext_non_hashed)
         dataset_dict = util.instanciate_delayed(dataset_dict)
         print("RETURNN dataset dict:", dataset_dict)
         assert isinstance(dataset_dict, dict)

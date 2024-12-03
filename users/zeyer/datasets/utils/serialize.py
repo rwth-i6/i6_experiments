@@ -16,6 +16,7 @@ class ReturnnDatasetToTextLinesJob(Job):
         self,
         *,
         returnn_dataset: Dict[str, Any],
+        returnn_dataset_ext_non_hashed: Optional[Dict[str, Any]] = None,
         returnn_root: Optional[tk.Path] = None,
         seq_list: Optional[tk.Path] = None,
         data_key: str,
@@ -25,6 +26,7 @@ class ReturnnDatasetToTextLinesJob(Job):
     ):
         """
         :param returnn_dataset: dict, the dataset dict, as used in RETURNN.
+        :param returnn_dataset_ext_non_hashed: optional addition to the dataset dict but non-hashed
         :param returnn_root: path, optional, the RETURNN root dir.
         :param seq_list: path, optional, a list of seq tags to process. If given, this also defines the order.
         :param data_key: str, the data key to serialize.
@@ -36,6 +38,7 @@ class ReturnnDatasetToTextLinesJob(Job):
         :param raw_final_strip: If given, will strip the final output.
         """
         self.returnn_dataset = returnn_dataset
+        self.returnn_dataset_ext_non_hashed = returnn_dataset_ext_non_hashed
         self.returnn_root = returnn_root
         self.seq_list = seq_list
         self.data_key = data_key
@@ -47,6 +50,11 @@ class ReturnnDatasetToTextLinesJob(Job):
 
         self.rqmt = {"cpu": 1, "mem": 4, "time": 1, "gpu": 0}
 
+    def hash(cls, parsed_args):
+        parsed_args = parsed_args.copy()
+        parsed_args.pop("returnn_dataset_ext_non_hashed")
+        return super().hash(parsed_args)
+
     def tasks(self):
         yield Task("run", rqmt=self.rqmt)
 
@@ -57,6 +65,7 @@ class ReturnnDatasetToTextLinesJob(Job):
         import tempfile
         import shutil
         import i6_experiments
+        from i6_experiments.users.zeyer.utils.dict_update import dict_update_deep
 
         recipe_dir = os.path.dirname(os.path.dirname(i6_experiments.__file__))
         sys.path.insert(0, recipe_dir)
@@ -85,6 +94,7 @@ class ReturnnDatasetToTextLinesJob(Job):
             seq_list = None
 
         dataset_dict = self.returnn_dataset
+        dataset_dict = dict_update_deep(dataset_dict, self.returnn_dataset_ext_non_hashed)
         dataset_dict = util.instanciate_delayed(dataset_dict)
         print("RETURNN dataset dict:", dataset_dict)
         assert isinstance(dataset_dict, dict)
