@@ -18,6 +18,7 @@ class ReturnnDatasetToTextLinesJob(Job):
         returnn_dataset: Dict[str, Any],
         returnn_dataset_ext_non_hashed: Optional[Dict[str, Any]] = None,
         returnn_root: Optional[tk.Path] = None,
+        multi_proc_dataset_opts: Optional[Dict[str, Any]] = None,
         seq_list: Optional[tk.Path] = None,
         data_key: str,
         vocab: Optional[Dict[str, Any]] = None,
@@ -28,6 +29,8 @@ class ReturnnDatasetToTextLinesJob(Job):
         :param returnn_dataset: dict, the dataset dict, as used in RETURNN.
         :param returnn_dataset_ext_non_hashed: optional addition to the dataset dict but non-hashed
         :param returnn_root: path, optional, the RETURNN root dir.
+        :param multi_proc_dataset_opts: dict, optional. if given, wraps the dataset in :class:`MultiProcDataset`.
+            This is not hashed.
         :param seq_list: path, optional, a list of seq tags to process. If given, this also defines the order.
         :param data_key: str, the data key to serialize.
         :param vocab: dict, optional, the vocab dict, as used in RETURNN.
@@ -40,6 +43,7 @@ class ReturnnDatasetToTextLinesJob(Job):
         self.returnn_dataset = returnn_dataset
         self.returnn_dataset_ext_non_hashed = returnn_dataset_ext_non_hashed
         self.returnn_root = returnn_root
+        self.multi_proc_dataset_opts = multi_proc_dataset_opts
         self.seq_list = seq_list
         self.data_key = data_key
         self.vocab = vocab
@@ -54,6 +58,7 @@ class ReturnnDatasetToTextLinesJob(Job):
     def hash(cls, parsed_args):
         parsed_args = parsed_args.copy()
         parsed_args.pop("returnn_dataset_ext_non_hashed")
+        parsed_args.pop("multi_proc_dataset_opts")
         return super().hash(parsed_args)
 
     def tasks(self):
@@ -96,6 +101,8 @@ class ReturnnDatasetToTextLinesJob(Job):
 
         dataset_dict = self.returnn_dataset
         dataset_dict = dict_update_deep(dataset_dict, self.returnn_dataset_ext_non_hashed)
+        if self.multi_proc_dataset_opts:
+            dataset_dict = {"class": "MultiProcDataset", "dataset": dataset_dict, **self.multi_proc_dataset_opts}
         dataset_dict = util.instanciate_delayed(dataset_dict)
         print("RETURNN dataset dict:", dataset_dict)
         assert isinstance(dataset_dict, dict)
