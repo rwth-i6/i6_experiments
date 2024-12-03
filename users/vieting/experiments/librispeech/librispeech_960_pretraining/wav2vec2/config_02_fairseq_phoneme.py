@@ -134,7 +134,7 @@ def run_fairseq_pretraining_from_checkpoint(exp_name, commit, checkpoint, python
     # generate config
     fairseq_args = get_fairseq_args(num_gpus=num_gpus)
     fairseq_args["task"]["alignment"] = alignment
-    fairseq_args["checkpoint"]["restore_file"] = checkpoint
+    fairseq_args["checkpoint"]["continue_once"] = checkpoint
     for k, v in kwargs.items():
         fairseq_args["model"][k] = v
 
