@@ -134,6 +134,72 @@ class ExtractNumLinesFromTextFileJob(Job):
         self.out_num_lines.set(num_lines)
 
 
+class ExtractNumSeqsFromReturnnDatasetJob(Job):
+    """
+    Extracts the number of seqs from a RETURNN dataset.
+    Requires that the dataset supports ``get_total_num_seqs``.
+    """
+
+    def __init__(
+        self,
+        *,
+        returnn_dataset: Dict[str, Any],  # to get all seq tags
+        returnn_dataset_ext_non_hashed: Optional[Dict[str, Any]] = None,
+        returnn_root: Optional[tk.Path] = None,
+    ):
+        self.returnn_dataset = returnn_dataset
+        self.returnn_dataset_ext_non_hashed = returnn_dataset_ext_non_hashed
+        self.returnn_root = returnn_root
+
+        self.out_num_seqs = self.output_var("out_num_seqs.txt")
+
+        self.rqmt = {"cpu": 1, "mem": 4, "time": 1, "gpu": 0}
+
+    @classmethod
+    def hash(cls, parsed_args):
+        parsed_args = parsed_args.copy()
+        parsed_args.pop("returnn_dataset_ext_non_hashed")
+        return super().hash(parsed_args)
+
+    def tasks(self):
+        yield Task("run", rqmt=self.rqmt)
+
+    def run(self):
+        import sys
+        import os
+        import i6_experiments
+        from i6_experiments.users.zeyer.utils.dict_update import dict_update_deep
+
+        recipe_dir = os.path.dirname(os.path.dirname(i6_experiments.__file__))
+        sys.path.insert(0, recipe_dir)
+
+        import i6_core.util as util
+
+        returnn_root = util.get_returnn_root(self.returnn_root)
+        sys.path.insert(1, returnn_root.get_path())
+
+        from returnn.config import set_global_config, Config
+        from returnn.datasets import init_dataset
+        from returnn.log import log
+
+        config = Config()
+        set_global_config(config)
+
+        if not config.has("log_verbosity"):
+            config.typed_dict["log_verbosity"] = 4
+        log.init_by_config(config)
+
+        dataset_dict = self.returnn_dataset
+        dataset_dict = dict_update_deep(dataset_dict, self.returnn_dataset_ext_non_hashed)
+        dataset_dict = util.instanciate_delayed(dataset_dict)
+        print("RETURNN dataset dict:", dataset_dict)
+        assert isinstance(dataset_dict, dict)
+        dataset = init_dataset(dataset_dict)
+
+        num_seqs = dataset.get_total_num_seqs()
+        self.out_num_seqs.set(num_seqs)
+
+
 class WriteLmDatasetSeqListJob(Job):
     """
     LmDataset has simple seq tags like "line-{line_nr}".
