@@ -115,7 +115,8 @@ class ReturnnDatasetToTextLinesJob(Job):
             print("RETURNN vocab:", vocab)
             vocab = Vocabulary.create_vocab(**vocab)
         else:
-            vocab = None
+            assert dataset.labels[self.data_key]
+            vocab = Vocabulary.create_vocab_from_labels(dataset.labels[self.data_key])
 
         # noinspection PyBroadException
         try:
@@ -153,10 +154,7 @@ class ReturnnDatasetToTextLinesJob(Job):
                             f" dataset tag {dataset.get_tag(seq_idx)!r} != seq list tag {seq_list[seq_idx]!r}"
                         )
                     data = dataset.get_data(seq_idx, self.data_key)
-                    if vocab:
-                        s = vocab.get_seq_labels(data)
-                    else:
-                        s = dataset.serialize_data(self.data_key, data)
+                    s = vocab.get_seq_labels(data)
                     for old, new in self.raw_replacement_list:
                         s = s.replace(old, new)
                     if self.raw_final_strip:
