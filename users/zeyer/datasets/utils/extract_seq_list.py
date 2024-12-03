@@ -32,6 +32,7 @@ class ExtractSeqListJob(Job):
 
         self.rqmt = {"cpu": 1, "mem": 4, "time": 1, "gpu": 0}
 
+    @classmethod
     def hash(cls, parsed_args):
         parsed_args = parsed_args.copy()
         parsed_args.pop("returnn_dataset_ext_non_hashed")
