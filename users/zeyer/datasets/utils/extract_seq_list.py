@@ -95,7 +95,7 @@ class ExtractSeqListJob(Job):
                         if num_seqs is not None:
                             start_elapsed = time.monotonic() - start_time
                             complete = (seq_idx + 1) / num_seqs
-                            assert 1 > complete >= 0, f"{seq_idx} seq idx, {num_seqs} num seqs"
+                            assert 1 >= complete >= 0, f"{seq_idx} seq idx, {num_seqs} num seqs"
                             total_time_estimated = start_elapsed / complete
                             remaining_estimated = total_time_estimated - start_elapsed
                             info += [
@@ -259,10 +259,15 @@ class ReorderSeqListJob(Job):
         yield Task("run", rqmt={"cpu": 1, "mem": 4, "time": 1, "gpu": 0})
 
     def run(self):
+        print("Reading source seq list", self.source_seq_list.get_path(), "...")
         with uopen(self.source_seq_list.get_path(), "rt") as f:
             source_seq_list = f.read().splitlines()
+        print("Number of seqs:", len(source_seq_list))
+        print("Reading source seq list order", self.source_seq_list_order.get_path(), "...")
         with uopen(self.source_seq_list_order.get_path(), "rt") as f:
             source_seq_list_order = f.read().splitlines()
+        print("Number of seqs in seq order:", len(source_seq_list_order))
+        print("Reading target seq list", self.target_seq_list.get_path(), "...")
         with uopen(self.target_seq_list.get_path(), "rt") as f:
             target_seq_list = f.read().splitlines()
         assert len(source_seq_list) == len(target_seq_list)
@@ -271,6 +276,44 @@ class ReorderSeqListJob(Job):
         seq_list_order = [source_seq_indices[seq] for seq in source_seq_list_order]
         target_seq_list_reordered = [target_seq_list[i] for i in seq_list_order]
 
-        with open(self.out_target_seq_list_order.get_path(), "w") as f:
-            for seq in target_seq_list_reordered:
-                print(seq, file=f)
+        import tempfile
+        import shutil
+        import os
+        import time
+
+        num_seqs = len(target_seq_list_reordered)
+        start_time = time.monotonic()
+
+        def _hms(s: float) -> str:
+            """
+            :param s: seconds
+            :return: e.g. "1:23:45" (hs:ms:secs). see hms_fraction if you want to get fractional seconds
+            """
+            m, s = divmod(s, 60)
+            h, m = divmod(m, 60)
+            return "%d:%02d:%02d" % (h, m, s)
+
+        with tempfile.NamedTemporaryFile(
+            suffix="." + os.path.basename(self.out_target_seq_list_order.get_path())
+        ) as tmp_file:
+            print("Using temp file:", tmp_file.name)
+            with uopen(tmp_file.name, "wt") as f:
+                for seq_idx, seq_tag in enumerate(target_seq_list_reordered):
+                    print(seq_tag, file=f)
+
+                    if seq_idx % 100 == 0:
+                        info = [f"seq idx {seq_idx}"]
+                        start_elapsed = time.monotonic() - start_time
+                        complete = (seq_idx + 1) / num_seqs
+                        assert 1 >= complete >= 0, f"{seq_idx} seq idx, {num_seqs} num seqs"
+                        total_time_estimated = start_elapsed / complete
+                        remaining_estimated = total_time_estimated - start_elapsed
+                        info += [
+                            f"num seqs {num_seqs}",
+                            f"exp. remaining {_hms(remaining_estimated)}",
+                            f"complete {complete:.2%}",
+                        ]
+                        print(", ".join(info))
+
+            print("Copying to final file:", self.out_target_seq_list_order.get_path())
+            shutil.copy(tmp_file.name, self.out_target_seq_list_order.get_path())
