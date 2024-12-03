@@ -38,6 +38,7 @@ def forward_to_hdf(
     forward_post_config: Optional[Dict[str, Any]] = None,
     forward_mem_rqmt: Union[int, float] = 6,
     forward_rqmt: Optional[Dict[str, Any]] = None,
+    forward_device: Optional[str] = None,
     forward_alias_name: Optional[str] = None,
     _config_v2: bool = True,  # testing...
 ) -> tk.Path:
@@ -60,6 +61,7 @@ def forward_to_hdf(
     :param forward_post_config: additional RETURNN post config (non-hashed) opts for the forward job
     :param forward_mem_rqmt: memory requirement for the forward job (in GB)
     :param forward_rqmt: additional rqmt opts for the forward job (e.g. "time" (in hours))
+    :param forward_device: "cpu" or "gpu". if not given, will be "gpu" if model is given, else "cpu"
     :param forward_alias_name: optional alias name for the forward job
     :param _config_v2: new RETURNN config serialization
     :return: HDF file path
@@ -84,7 +86,7 @@ def forward_to_hdf(
         returnn_python_exe=tools_paths.get_returnn_python_exe(),
         returnn_root=tools_paths.get_returnn_root(),
         mem_rqmt=forward_mem_rqmt,
-        device="gpu" if model else "cpu",
+        device=forward_device or ("gpu" if model else "cpu"),
     )
     if forward_rqmt:
         forward_job.rqmt.update(forward_rqmt)
