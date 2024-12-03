@@ -62,7 +62,8 @@ def _get_corpus_text_dict(key: str) -> tk.Path:
 
 
 @cache
-def _get_train_corpus_text() -> tk.Path:
+def get_train_corpus_text() -> tk.Path:
+    """train corpus text (used for LM training)"""
     key = "train-other-960"
     train_corpus_text_dict = _get_corpus_text_dict(key)
     job = TextDictToTextLinesJob(train_corpus_text_dict, gzip=True)
@@ -85,7 +86,7 @@ def _get_spm_vocab(
 
     # https://github.com/google/sentencepiece/blob/master/doc/options.md
     _spm_train_job = TrainSentencePieceJob(
-        training_text=get_librispeech_lm_combined_txt() if train_full else _get_train_corpus_text(),
+        training_text=get_librispeech_lm_combined_txt() if train_full else get_train_corpus_text(),
         vocab_size=dim,
         model_type=model_type,
         additional_options={
@@ -149,7 +150,7 @@ def _get_bpe_vocab(*, bpe_size: Union[int, str]) -> Bpe:
     subword_nmt_repo.hash_overwrite = "I6_SUBWORD_NMT_V2"  # this is what most other people use as well
 
     _bpe_train_job = ReturnnTrainBpeJob(
-        text_file=_get_train_corpus_text(),
+        text_file=get_train_corpus_text(),
         bpe_size=bpe_size,
         unk_label="<unk>",
         subword_nmt_repo=subword_nmt_repo,
@@ -1249,7 +1250,7 @@ class LibrispeechLmDataset(DatasetConfig):
 
             d: Dict[str, Any] = {
                 "class": "LmDataset",
-                "corpus_file": [get_librispeech_normalized_lm_data(), _get_train_corpus_text()],
+                "corpus_file": [get_librispeech_normalized_lm_data(), get_train_corpus_text()],
                 "use_cache_manager": True,
                 "orth_vocab": vocab.get_opts().copy(),
                 "seq_end_symbol": None,  # handled via orth_vocab
@@ -1337,7 +1338,7 @@ def get_librispeech_lm_combined_txt() -> tk.Path:
     from i6_core.text.processing import ConcatenateJob
     from i6_experiments.common.datasets.librispeech.language_model import get_librispeech_normalized_lm_data
 
-    return ConcatenateJob([get_librispeech_normalized_lm_data(), _get_train_corpus_text()]).out
+    return ConcatenateJob([get_librispeech_normalized_lm_data(), get_train_corpus_text()]).out
 
 
 def tests():
