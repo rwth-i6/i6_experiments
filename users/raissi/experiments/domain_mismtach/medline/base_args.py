@@ -209,21 +209,22 @@ def get_corpus_data_inputs(
         lexicon=train_lexicon,
         lm=None,
     )
+    for dev_key in ["dev"]:
+        dev_data_inputs[dev_key] = RasrDataInput(
+            corpus_object=corpus_object_dev,
+            concurrent=12,
+            lexicon=oov_lexicon_medline,
+            lm=lm_medline,
+        )
     for test_key in ["test-other"]:
-        dev_data_inputs[test_key] = RasrDataInput(
+        test_data_inputs[test_key] = RasrDataInput(
             corpus_object=corpus_object_dict_lbs[test_key],
             concurrent=constants.concurrent[test_key],
             lexicon=lexicon_lbs,
             lm=lm_lbs,
         )
 
-    for test_key in ["dev"]:
-        test_data_inputs[test_key] = RasrDataInput(
-            corpus_object=corpus_object_dev,
-            concurrent=4,
-            lexicon=oov_lexicon_medline,
-            lm=lm_medline,
-        )
+
 
     return CorpusData(
         train_data=train_data_inputs,
