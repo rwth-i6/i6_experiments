@@ -253,10 +253,13 @@ class ReorderSeqListJob(Job):
         self.source_seq_list = source_seq_list
         self.source_seq_list_order = source_seq_list_order
         self.target_seq_list = target_seq_list
+
         self.out_target_seq_list_order = self.output_path("out_seq_list_order.txt")
 
+        self.rqmt = {"cpu": 1, "mem": 4, "time": 1, "gpu": 0}
+
     def tasks(self):
-        yield Task("run", rqmt={"cpu": 1, "mem": 4, "time": 1, "gpu": 0})
+        yield Task("run", rqmt=self.rqmt)
 
     def run(self):
         print("Reading source seq list", self.source_seq_list.get_path(), "...")
