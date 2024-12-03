@@ -54,6 +54,8 @@ class ReturnnDatasetToTextLinesJob(Job):
         import sys
         import os
         import time
+        import tempfile
+        import shutil
         import i6_experiments
 
         recipe_dir = os.path.dirname(os.path.dirname(i6_experiments.__file__))
@@ -104,43 +106,47 @@ class ReturnnDatasetToTextLinesJob(Job):
             num_seqs = None
         start_time = time.monotonic()
 
-        with util.uopen(self.out_txt.get_path(), "wt") as f:
-            seq_idx = 0
-            while dataset.is_less_than_num_seqs(seq_idx):
-                if seq_idx % 100 == 0:
-                    info = [f"seq idx {seq_idx}"]
-                    if num_seqs is not None:
-                        start_elapsed = time.monotonic() - start_time
-                        complete = seq_idx / num_seqs
-                        assert 1 > complete >= 0, f"{seq_idx} seq idx, {num_seqs} num seqs"
-                        total_time_estimated = start_elapsed / (complete or 1e-5)
-                        remaining_estimated = total_time_estimated - start_elapsed
-                        info += [
-                            f"num seqs {num_seqs}",
-                            f"exp. remaining {hms(remaining_estimated)}",
-                            f"complete {complete:.2%}",
-                        ]
-                    else:
-                        info += ["num seqs unknown"]
-                    print(", ".join(info))
+        with tempfile.NamedTemporaryFile(suffix="." + os.path.basename(self.out_txt.get_path())) as tmp_file:
+            print("Using temp file:", tmp_file.name)
+            with util.uopen(tmp_file.name, "wt") as f:
+                seq_idx = 0
+                while dataset.is_less_than_num_seqs(seq_idx):
+                    if seq_idx % 100 == 0:
+                        info = [f"seq idx {seq_idx}"]
+                        if num_seqs is not None:
+                            start_elapsed = time.monotonic() - start_time
+                            complete = seq_idx / num_seqs
+                            assert 1 > complete >= 0, f"{seq_idx} seq idx, {num_seqs} num seqs"
+                            total_time_estimated = start_elapsed / (complete or 1e-5)
+                            remaining_estimated = total_time_estimated - start_elapsed
+                            info += [
+                                f"num seqs {num_seqs}",
+                                f"exp. remaining {hms(remaining_estimated)}",
+                                f"complete {complete:.2%}",
+                            ]
+                        else:
+                            info += ["num seqs unknown"]
+                        print(", ".join(info))
 
-                dataset.load_seqs(seq_idx, seq_idx + 1)
-                if seq_list is not None:
-                    assert dataset.get_tag(seq_idx) == seq_list[seq_idx], (
-                        f"seq_list seq tag mismatch in seq idx {seq_list},"
-                        f" dataset tag {dataset.get_tag(seq_idx)!r} != seq list tag {seq_list[seq_idx]!r}"
-                    )
-                data = dataset.get_data(seq_idx, self.data_key)
-                if vocab:
-                    s = vocab.get_seq_labels(data)
-                else:
-                    s = dataset.serialize_data(self.data_key, data)
-                for old, new in self.raw_replacement_list:
-                    s = s.replace(old, new)
-                if self.raw_final_strip:
-                    s = s.strip()
-                f.write(s + "\n")
-                seq_idx += 1
+                    dataset.load_seqs(seq_idx, seq_idx + 1)
+                    if seq_list is not None:
+                        assert dataset.get_tag(seq_idx) == seq_list[seq_idx], (
+                            f"seq_list seq tag mismatch in seq idx {seq_list},"
+                            f" dataset tag {dataset.get_tag(seq_idx)!r} != seq list tag {seq_list[seq_idx]!r}"
+                        )
+                    data = dataset.get_data(seq_idx, self.data_key)
+                    if vocab:
+                        s = vocab.get_seq_labels(data)
+                    else:
+                        s = dataset.serialize_data(self.data_key, data)
+                    for old, new in self.raw_replacement_list:
+                        s = s.replace(old, new)
+                    if self.raw_final_strip:
+                        s = s.strip()
+                    f.write(s + "\n")
+                    seq_idx += 1
+            print("Copy to final file:", self.out_txt.get_path())
+            shutil.copy(tmp_file.name, self.out_txt.get_path())
 
         if seq_list is not None:
             assert seq_idx == len(seq_list), f"seq_list length mismatch: got {seq_idx} != list {len(seq_list)}"

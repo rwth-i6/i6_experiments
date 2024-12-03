@@ -31,6 +31,9 @@ class ExtractSeqListJob(Job):
     def run(self):
         import sys
         import os
+        import time
+        import tempfile
+        import shutil
         import i6_experiments
 
         recipe_dir = os.path.dirname(os.path.dirname(i6_experiments.__file__))
@@ -44,6 +47,7 @@ class ExtractSeqListJob(Job):
         from returnn.config import set_global_config, Config
         from returnn.datasets import init_dataset
         from returnn.log import log
+        from returnn.util.basic import hms
 
         config = Config()
         set_global_config(config)
@@ -58,9 +62,38 @@ class ExtractSeqListJob(Job):
         assert isinstance(dataset_dict, dict)
         dataset = init_dataset(dataset_dict)
 
-        with open(self.out_seq_list.get_path(), "w") as f:
-            for seq_tag in dataset.get_all_tags():
-                print(seq_tag, file=f)
+        # noinspection PyBroadException
+        try:
+            num_seqs = dataset.get_total_num_seqs()
+        except Exception:  # might not work for all datasets
+            num_seqs = None
+        start_time = time.monotonic()
+
+        with tempfile.NamedTemporaryFile(suffix="." + os.path.basename(self.out_seq_list.get_path())) as tmp_file:
+            print("Using temp file:", tmp_file.name)
+            with util.uopen(tmp_file.name, "wt") as f:
+                for seq_idx, seq_tag in enumerate(dataset.get_all_tags()):
+                    print(seq_tag, file=f)
+
+                    if seq_idx % 100 == 0:
+                        info = [f"seq idx {seq_idx}"]
+                        if num_seqs is not None:
+                            start_elapsed = time.monotonic() - start_time
+                            complete = (seq_idx + 1) / num_seqs
+                            assert 1 > complete >= 0, f"{seq_idx} seq idx, {num_seqs} num seqs"
+                            total_time_estimated = start_elapsed / complete
+                            remaining_estimated = total_time_estimated - start_elapsed
+                            info += [
+                                f"num seqs {num_seqs}",
+                                f"exp. remaining {hms(remaining_estimated)}",
+                                f"complete {complete:.2%}",
+                            ]
+                        else:
+                            info += ["num seqs unknown"]
+                        print(", ".join(info))
+
+            print("Copying to final file:", self.out_seq_list.get_path())
+            shutil.copy(tmp_file.name, self.out_seq_list.get_path())
 
 
 class ExtractNumLinesFromTextFileJob(Job):
