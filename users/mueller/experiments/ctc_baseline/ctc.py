@@ -293,7 +293,7 @@ def train_exp(
             num_epochs=num_epochs,
             gpu_mem=gpu_mem,
             num_processes=num_processes,
-            time_rqmt=time_rqmt if time_rqmt else (312 if use_sum_criterion else 156),
+            time_rqmt=time_rqmt if time_rqmt else (24 if use_sum_criterion else 156),
         ))
         train_job = model_with_checkpoint[i + 1].get_training_job()
         if env_updates:
@@ -926,7 +926,8 @@ def ctc_sum_training(*, model: Model, data: rf.Tensor, data_spatial_dim: Dim, lm
         lm_scale=lm_scale,
         blank_idx=model.blank_idx,
         eos_idx=model.eos_idx,
-        unk_idx=1
+        unk_idx=1,
+        device=log_probs.device
     )
     loss = rtf.TorchBackend.convert_to_tensor(loss, dims = [batch_dim], dtype = "float32", name=f"full_sum")
     loss.mark_as_loss(

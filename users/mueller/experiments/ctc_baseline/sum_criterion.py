@@ -18,6 +18,7 @@ def sum_loss(
     eos_idx: int | None = None,
     unk_idx: int = 1,
     log_zero: float = float("-inf"),
+    device: torch.device = torch.device("cpu"),
 ):
     """
     Sum criterion training for CTC, given by
@@ -67,7 +68,7 @@ def sum_loss(
     
     # TODO generalize LM usage to any order
     
-    device = log_probs.device
+    old_device = log_probs.device
     log_probs = log_probs.to(device)
     log_lm_probs = log_lm_probs.to(device)
     log_prior = log_prior.to(device)
@@ -100,6 +101,10 @@ def sum_loss(
     # Empty lm score = p_LM(eos | bos), prior score = p_PR(eos)
     log_q_empty_seq = log_empty_seq_prob + log_lm_probs_scaled[eos_symbol, eos_symbol]
 
+    # Unbind the log_probs_scaled and log_partial_empty_seq_prob for each timestep so it is faster during backprop
+    log_probs_scaled = log_probs_scaled.unbind(0)
+    log_partial_empty_seq_prob = log_partial_empty_seq_prob.unbind(0)
+
     # to remove blank, unk and eos from the last dim (vocab)
     out_idx = torch.arange(n_out, device=device)
     out_idx_vocab = out_idx[out_idx != blank_idx].long() # "vocab" means no EOS, unk and blank
@@ -113,24 +118,24 @@ def sum_loss(
     
     # List in which we store the log Q values as tensors of the last N timesteps
     # dim 2: 0 is non-blank, 1 is blank
-    log_q = [torch.full((batch_size, 2, vocab_size), log_zero, device=device)] # (B, 2, V-1), no blank and eos in last dim
     # Init Q for t=1
     # Q(1, u, blank) = 0
     # Q(1, u, non-blank) = p_AM(u | x1) * p_LM(u | bos) / p_PR(u)
-    log_q[-1][:, 0, :] = log_probs_scaled[0, :, out_idx_vocab] + log_lm_probs_scaled[eos_symbol, out_idx_vocab].unsqueeze(0) - log_prior[out_idx_vocab].unsqueeze(0)
+    log_q_label = log_probs_scaled[0][:, out_idx_vocab] + log_lm_probs_scaled[eos_symbol, out_idx_vocab].unsqueeze(0) - log_prior[out_idx_vocab].unsqueeze(0)
+    log_q_blank = torch.full((batch_size, vocab_size), log_zero, device=device) # (B, 2, V-1), no blank and eos in last dim
+    log_q = log_q_label
     
     log_lm_probs_scaled_wo_eos = log_lm_probs_scaled[out_idx_vocab][:, out_idx_vocab].fill_diagonal_(log_zero)
     for t in range(1, max_audio_time):
         # case 1: emit a blank at t
-        new_log_q = torch.full((batch_size, 2, vocab_size), log_zero, device=device)
         # Q(t, u, blank) = [Q(t-1, u, blank) + Q(t-1, u, non-blank)]*p_AM(blank | x_t)
-        new_log_q[:, 1, :] = safe_logsumexp(log_q[-1], dim=1) + log_probs_scaled[t, :, blank_idx].unsqueeze(-1) - log_prior[blank_idx]
+        new_log_q_blank = log_q + log_probs_scaled[t][:, blank_idx].unsqueeze(-1) - log_prior[blank_idx]
 
         # case 2: emit a non-blank at t
         # Q(t, u, non-blank) = p_AM(u|x_t) * [horizontal + diagonal + skip] 
         
         # horizontal transition Q(t-1, u, non-blank)
-        log_mass_horizontal = log_q[-1][:, 0, :]
+        log_mass_horizontal = log_q_label  - log_prior[out_idx_vocab].unsqueeze(0) # TODO make this optional
         
         # diagonal transition sum_v Q(t-1, v, blank) * p_LM(u|v) / p_PR(u)
         # take batch index b into account, this is equivalent to compute
@@ -138,36 +143,38 @@ def sum_loss(
         # mass_diagonal = Q(t-1, :, blank, :) @ M / p_PR(u), where M(v,u) = p_LM(u|v) = lm_probs[v][u]
         # important: in this transition, there is a prefix empty^(t-1) that is not covered in the Q(t-1,v,blank)
         # this is covered in log_partial_empty_seq_prob[t-1]
-        log_prev_partial_seq_probs = torch.cat([log_partial_empty_seq_prob[t-1].unsqueeze(-1), log_q[-1][:, 1, :]], dim=-1)
+        log_prev_partial_seq_probs = torch.cat([log_partial_empty_seq_prob[t-1].unsqueeze(-1), log_q_blank], dim=-1)
         log_mass_diagonal = log_matmul_old(log_prev_partial_seq_probs, log_lm_probs_scaled[out_idx_vocab_w_eos][:, out_idx_vocab]) # (B, V) @ (V, V-1)
         log_mass_diagonal = log_mass_diagonal - log_prior[out_idx_vocab].unsqueeze(0) # divide by prior
         
         # skip transition sum{w!=u} Q(t-1, w, non-blank) * p_LM(u|w) / p_PR(u)
         # same consideration as diagonal transition
-        log_mass_skip = log_matmul_old(log_q[-1][:, 0, :], log_lm_probs_scaled_wo_eos)
+        log_mass_skip = log_matmul_old(log_q_label, log_lm_probs_scaled_wo_eos)
         log_mass_skip = log_mass_skip - log_prior[out_idx_vocab].unsqueeze(0) # divide by prior
         
         # multiply with p_AM(u|x_t)
-        new_log_q[:, 0, :] = log_probs_scaled[t, :, out_idx_vocab] + safe_logsumexp(torch.stack([log_mass_horizontal, log_mass_diagonal, log_mass_skip], dim=-1), dim=-1)
+        new_log_q_label = log_probs_scaled[t][:, out_idx_vocab] + safe_logsumexp(torch.stack([log_mass_horizontal, log_mass_diagonal, log_mass_skip], dim=-1), dim=-1)
         
         # set masked results to log_q
-        time_mask = (t < input_lengths).unsqueeze(-1).unsqueeze(-1).expand(-1, 2, vocab_size)
-        log_q.append(torch.where(time_mask, new_log_q, log_q[-1]))
-        
-        # delete first time step in cache
-        log_q.pop(0)
+        time_mask = (t < input_lengths).unsqueeze(-1).expand(-1, vocab_size)
+        log_q_blank = torch.where(time_mask, new_log_q_blank, log_q_blank)
+        log_q_label = torch.where(time_mask, new_log_q_label, log_q_label)
+        log_q = safe_logaddexp(log_q_label, log_q_blank)
         
         torch.cuda.empty_cache()
     
     # multiply last Q with p_LM(eos | u) and devide by prior of EOS
-    log_q[-1] += log_lm_probs_scaled[out_idx_vocab, eos_symbol].unsqueeze(0).unsqueeze(0)
+    log_q += log_lm_probs_scaled[out_idx_vocab, eos_symbol].unsqueeze(0)
     
     # sum over the last two dimensions
-    sum_score = safe_logsumexp(safe_logsumexp(log_q[-1], dim=-1), dim=-1)
+    sum_score = safe_logsumexp(log_q, dim=-1)
     # add empty sequence score
     sum_score = safe_logaddexp(sum_score, log_q_empty_seq) # (B,) # TODO do we need to add the empty seq?
     
     loss = -sum_score
+    if old_device != device:
+        loss = loss.to(old_device)
+    
     return loss
 
 
@@ -334,6 +341,64 @@ def test_mul():
         torch.cuda.empty_cache()
     print(f"This took {time.strftime('%H:%M:%S', time.gmtime(time_d))}: {r}")
 
+def test_profiler():
+    import time
+    from torch.profiler import profile, record_function, ProfilerActivity
+    
+    # torch.cuda.set_sync_debug_mode(1)
+    
+    # device = torch.device("cuda:0")
+    device = torch.device("cpu")
+    
+    batch_size = 12 # 14000 per GPU, 1250 stpes a 12 seqs (0.7 sec/step)
+    vocab_size = 185
+    frames = 100
+    
+    torch.manual_seed(0)
+    ag = AssertGradients.apply
+    
+    lm = torch.randn(vocab_size - 1, vocab_size - 1, device=device)
+    lm = torch.nn.functional.log_softmax(lm, dim=-1)
+    
+    s1 = time.time()
+                
+    am = torch.randn(frames, batch_size, vocab_size, requires_grad=True, device=device)
+    am = torch.nn.functional.log_softmax(am, dim=-1)
+    
+    prior = torch.randn(vocab_size + 1, requires_grad=True, device=device)
+    prior = torch.nn.functional.log_softmax(prior, dim=-1)
+    
+    length = torch.full((batch_size,), frames, device=device)
+
+    with profile(activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA], profile_memory=True) as prof:
+        with record_function("loss"):
+            # am = am.permute(1, 0, 2)
+            # prior = _calc_log_prior(am, length)
+            # am = am.permute(1, 0, 2)
+            
+            # am = ag(am, "AM", False)
+            # prior = ag(prior, "prior", False)
+            
+            loss = sum_loss(
+                log_probs=am,
+                log_lm_probs=lm,
+                log_prior=prior,
+                input_lengths=length,
+                LM_order=2,
+                am_scale=1.0,
+                lm_scale=1.0,
+                blank_idx=184,
+                eos_idx=0,
+            )
+            loss.backward(torch.ones_like(loss, device=device))
+    e1 = time.time()
+    print(f"Sum loss took {time.strftime('%H:%M:%S', time.gmtime(e1-s1))}: {loss}") # 5:00 mins
+    
+    print(prof.key_averages().table(sort_by="cpu_time_total", row_limit=10))
+    # print(prof.key_averages().table(sort_by="cpu_memory_usage", row_limit=10))
+    # print(prof.key_averages().table(sort_by="cuda_time_total", row_limit=10))
+    # print(prof.key_averages().table(sort_by="cuda_memory_usage", row_limit=10))
+
 def test():
     import time
     
@@ -346,8 +411,9 @@ def test():
     vocab_size = 185
     frames = 100
     
-    torch.manual_seed(0)
-    ag = AssertGradients.apply
+    # torch.manual_seed(0)
+    # torch.cuda.manual_seed_all(0)
+    ag = PrintGradients.apply
     
     lm = torch.randn(vocab_size - 1, vocab_size - 1, device=device)
     lm = torch.nn.functional.log_softmax(lm, dim=-1)
@@ -355,21 +421,22 @@ def test():
     l = torch.tensor([0.0], device=device)
     s1 = time.time()
     for i in range(20):
-        
+        s = time.time()
         am = torch.randn(frames, batch_size, vocab_size, requires_grad=True, device=device)
         am = torch.nn.functional.log_softmax(am, dim=-1)
         
-        # prior = torch.randn(vocab_size + 1, requires_grad=True, device=device)
-        # prior = torch.nn.functional.log_softmax(prior, dim=-1)
+        prior = torch.randn(vocab_size + 1, requires_grad=True, device=device)
+        prior = torch.nn.functional.log_softmax(prior, dim=-1)
         
         length = torch.full((batch_size,), frames, device=device)
 
-        am = am.permute(1, 0, 2)
-        prior = _calc_log_prior(am, length)
-        am = am.permute(1, 0, 2)
+        # am = am.permute(1, 0, 2)
+        # prior = _calc_log_prior(am, length)
+        # am = am.permute(1, 0, 2)
         
-        am = ag(am, "AM", False)
-        prior = ag(prior, "prior", False)
+        # am = ag(am, "AM", False)
+        # prior = ag(prior, "prior", False)
+        
         
         loss = sum_loss(
             log_probs=am,
@@ -386,7 +453,8 @@ def test():
         
         del loss, am, prior
         torch.cuda.empty_cache()
-    l.backward()
+        print(time.time() - s)
+    l.backward(torch.ones_like(l, device=device))
     e1 = time.time()
     print(f"Sum loss took {time.strftime('%H:%M:%S', time.gmtime(e1-s1))}: {l}") # 5:00 mins
     
