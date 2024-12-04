@@ -25,13 +25,13 @@ class GlobalAttDecoder(BaseLabelDecoder):
     """Default initial state"""
     state = rf.State()
 
-    if self.trafo_att:
+    if self.trafo_att and not use_mini_att and not use_zero_att:
       state.trafo_att = self.trafo_att.default_initial_state(batch_dims=batch_dims)
-      att_dim = self.trafo_att.model_dim
-    else:
-      att_dim = self.att_num_heads * self.enc_out_dim
+      # att_dim = self.trafo_att.model_dim
+    # else:
+      # att_dim = self.att_num_heads * self.enc_out_dim
 
-    state.att = rf.zeros(list(batch_dims) + [att_dim])
+    state.att = rf.zeros(list(batch_dims) + [self.att_dim])
     state.att.feature_dim_axis = len(state.att.dims) - 1
 
     if "lstm" in self.decoder_state:
