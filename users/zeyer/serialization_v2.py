@@ -31,8 +31,6 @@ All other generic objects are handled in the same way as pickle does it
 (or also :class:`i6_experiments.common.utils.dump_py_code.PythonCodeDumper`),
 i.e. using ``__reduce__`` (etc).
 This also allows circular references.
-
-TODO test on some real configs
 """
 
 from __future__ import annotations
@@ -46,7 +44,6 @@ import builtins
 from typing import Optional, Union, Any, Sequence, Collection, Dict, List, Tuple
 from types import FunctionType, BuiltinFunctionType, ModuleType
 from dataclasses import dataclass
-import textwrap
 import subprocess
 
 from returnn.tensor import Dim, batch_dim, single_step_dim
