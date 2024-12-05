@@ -138,9 +138,9 @@ def save_obj_to_cache_file(obj: Any, *, cache_filename: str) -> None:
     with open(cache_filename, "w") as cache_f:
         cache_f.write(
             textwrap.dedent(
-                """\
+                f"""\
                 \"\"\"
-                Auto-generated code via dependency_boundary.
+                Auto-generated code via {__name__}.
                 Do not modify by hand!
                 \"\"\"
         
