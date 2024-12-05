@@ -5,6 +5,7 @@ Tests for serialization_v2.
 import os
 import textwrap
 import functools
+import dataclasses
 from returnn.tensor import Dim, batch_dim
 from sisyphus.hash import sis_hash_helper
 from ..serialization_v2 import serialize_config, SisPathHandling, PyCode
@@ -290,3 +291,42 @@ def test_mult_value_refs():
         b = True
         """
     )
+
+
+@dataclasses.dataclass
+class _DemoData:
+    value: int
+
+
+def test_dataclass():
+    obj = _DemoData(42)
+    config = {"obj": obj}
+    serialized = serialize_config(config)
+    code = serialized.as_serialized_code()
+    scope = {}
+    exec(code, scope)
+    obj_ = scope["obj"]
+    assert obj_ is not obj
+    assert isinstance(obj_, _DemoData)
+    assert obj_.value == 42
+    assert obj_ == obj
+
+
+@dataclasses.dataclass(frozen=True)
+class _FrozenDemoData:
+    value: int
+
+
+def test_dataclass_frozen():
+    obj = _FrozenDemoData(42)
+    config = {"obj": obj}
+    serialized = serialize_config(config)
+    code = serialized.as_serialized_code()
+    print(code)
+    scope = {}
+    exec(code, scope)
+    obj_ = scope["obj"]
+    assert obj_ is not obj
+    assert isinstance(obj_, _FrozenDemoData)
+    assert obj_.value == 42
+    assert obj_ == obj
