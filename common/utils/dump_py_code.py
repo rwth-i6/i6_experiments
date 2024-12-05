@@ -7,6 +7,7 @@ import sys
 import os
 from typing import Any, Optional, TextIO
 from types import FunctionType, BuiltinFunctionType, ModuleType
+import dataclasses
 
 import sisyphus
 from sisyphus import gs, tk
@@ -126,6 +127,8 @@ class PythonCodeDumper:
             if state:
                 if hasattr(obj, "__setstate__"):
                     print(f"{lhs}.__setstate__({self._py_repr(state)})", file=self.file)
+                elif _is_frozen_dataclass(obj):
+                    print(f"{lhs}.__dict__.update({self._py_repr(state)})", file=self.file)
                 else:
                     slotstate = None
                     if isinstance(state, tuple) and len(state) == 2:
@@ -359,3 +362,17 @@ class PythonCodeDumper:
         }
         print(code[name], file=self.file)
         self._imports.add(name)
+
+
+def _is_frozen_dataclass(obj) -> bool:
+    if not dataclasses.is_dataclass(obj):
+        return False
+    cls = obj if isinstance(obj, type) else type(obj)
+    for b in cls.__mro__:
+        if dataclasses.is_dataclass(b):
+            # This is _PARAMS / _DataclassParams in dataclasses,
+            # which is not exposed publicly.
+            dc_params = getattr(b, "__dataclass_params__")
+            if dc_params.frozen:
+                return True
+    return False
