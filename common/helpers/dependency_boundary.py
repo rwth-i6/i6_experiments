@@ -183,7 +183,7 @@ def _paths_available(func, obj: Any) -> bool:
 
 def _func_name(func: Callable[[], T]) -> str:
     if isinstance(func, functools.partial):
-        return f"{_func_name(func.func)}.partial{short_hash(func)}"
+        return f"{_func_name(func.func)}.partial_{short_hash(func)}"
     if hasattr(func, "__module__") and hasattr(func, "__qualname__"):
         return f"{func.__module__.split('.')[-1]}.{func.__qualname__}"
     raise ValueError(f"cannot get name for func {func!r}")
