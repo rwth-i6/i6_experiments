@@ -67,7 +67,7 @@ class DatasetToTextDictJob(Job):
             vocab = Vocabulary.create_vocab_from_labels(dataset.labels[self.take_vocab_from_key])
         else:
             assert dataset.can_serialize_data(self.data_key)
-            vocab = None
+            vocab = Vocabulary.create_vocab_from_labels(dataset.labels[self.data_key])
 
         with uopen(self.out_dictionary, "wt") as out:
             out.write("{\n")
@@ -77,10 +77,7 @@ class DatasetToTextDictJob(Job):
                 if seq_idx % 10000 == 0:
                     logging.info(f"seq_idx {seq_idx}")
                 key = dataset.get_tag(seq_idx)
-                if vocab:
-                    orth = vocab.get_seq_labels(dataset.get_data(seq_idx, self.data_key))
-                else:
-                    orth = dataset.serialize_data(key=self.data_key, data=dataset.get_data(seq_idx, self.data_key))
+                orth = vocab.get_seq_labels(dataset.get_data(seq_idx, self.data_key))
                 if self.vocab_to_words:
                     orth = self.vocab_to_words(orth)
                 out.write("%r: %r,\n" % (key, orth))
