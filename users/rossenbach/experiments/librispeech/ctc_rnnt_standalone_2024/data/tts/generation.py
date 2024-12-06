@@ -31,7 +31,7 @@ def create_data_lexicon(prefix: str, lm_text_bliss: tk.Path):
     return extended_bliss_lexicon
 
 
-def create_data_lexicon_rasr_style(prefix: str, lm_text_bliss: tk.Path):
+def create_data_lexicon_rasr_style(prefix: str, lm_text_bliss: tk.Path, with_unknown: bool):
     """
 
     :param prefix:
@@ -42,7 +42,7 @@ def create_data_lexicon_rasr_style(prefix: str, lm_text_bliss: tk.Path):
     ls960_tts_lexicon = get_lexicon(with_blank=False, corpus_key="train-other-960")
 
     ls960_rasr_lexicon = get_bliss_lexicon(
-        use_stress_marker=False, add_unknown_phoneme_and_mapping=False, add_silence=True
+        use_stress_marker=False, add_unknown_phoneme_and_mapping=with_unknown, add_silence=True
     )
 
     g2p_augmenter = G2PBasedOovAugmenter(

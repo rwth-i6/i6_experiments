@@ -24,16 +24,24 @@ def ufal_kenlm():
 
     lexicon_bliss = CreateBlissFromTextLinesJob(ufal_medical_version_1_lexicon, corpus_name="ufal_lexicon", sequence_prefix="ufal_").out_corpus
     lexicon = create_data_lexicon(
-        prefix=prefix,
+        prefix=prefix + "/normal_lex",
         lm_text_bliss=lexicon_bliss,
     )
-    tk.register_output(prefix + "/extended_lexicon.xml.gz", lexicon)
+    tk.register_output(prefix + "/ufal_librispeech_lexicon.xml.gz", lexicon)
 
-    rasr_lexicon = create_data_lexicon_rasr_style(
-        prefix=prefix,
+    rasr_lexicon_with_unk = create_data_lexicon_rasr_style(
+        prefix=prefix + "/rasr_lex_with_unk",
         lm_text_bliss=lexicon_bliss,
+        with_unknown=True,
     )
-    tk.register_output(prefix + "/extended_lexicon_rasr.xml.gz", rasr_lexicon)
+    tk.register_output(prefix + "/ufal_librispeech_lexicon_rasr_with_unk.xml.gz", rasr_lexicon_with_unk)
+
+    rasr_lexicon_with_unk = create_data_lexicon_rasr_style(
+        prefix=prefix + "/rasr_lex_without_unk",
+        lm_text_bliss=lexicon_bliss,
+        with_unknown=False,
+    )
+    tk.register_output(prefix + "/ufal_librispeech_lexicon_rasr_without_unk.xml.gz", rasr_lexicon_with_unk)
 
     ufal_kenlm_lslex_job = KenLMplzJob(
         text=[ufal_medical_version_1_text],
@@ -81,12 +89,24 @@ def ufal_kenlm():
         time=4,
     )
 
+    some_ls_kenlm_intermediate_job = KenLMplzJob(
+        text=[get_librispeech_normalized_lm_data()],
+        order=5,
+        interpolate_unigrams=True,
+        pruning=[0, 0, 1, 1, 1],
+        vocabulary=ufal_medical_version_1_lexicon,
+        compute_intermediate=True,
+        kenlm_binary_folder=KENLM_BINARY_PATH,
+        mem=12,
+        time=4,
+    )
 
 
     tk.register_output(prefix + "/ufal_version1_lm2_extendevocab.gz", ufal_kenlm_job.out_lm)
     tk.register_output(prefix + "/ufal_version1_lm1.intermediate.gz", ufal_kenlm_intermediate_job.out_lm)
     tk.register_output(prefix + "/librispeech.intermediate.gz", ls_kenlm_intermediate_job.out_lm)
 
+    tk.register_output("test.gz", some_ls_kenlm_intermediate_job.out_lm)
     return lexicon, {
         "ufal_v1_lslex": CreateBinaryLMJob(arpa_lm=ufal_kenlm_lslex_job.out_lm, kenlm_binary_folder=KENLM_BINARY_PATH).out_lm,
         "ufal_v1_mixlex_v2": CreateBinaryLMJob(arpa_lm=ufal_kenlm_job.out_lm, kenlm_binary_folder=KENLM_BINARY_PATH).out_lm,

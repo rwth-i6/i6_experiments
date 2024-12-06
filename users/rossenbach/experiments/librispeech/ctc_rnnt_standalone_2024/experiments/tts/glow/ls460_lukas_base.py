@@ -492,53 +492,59 @@ def run_flow_tts_460h():
         )
         return merged_corpus_with_text, ogg_zip_job.out_ogg_zip
 
-    # medical test
-    medline_prefix = prefix + "/medline"
+    # medical wmt22
+    prefix = "domain_test_tina_export"
     medline_wmt22_clean = Path(
-        "/work/asr4/rossenbach/github/biomedical_corpora_wmt21/wmt_22_medline_test/medline_en2de_en_final.txt",
-        hash_overwrite="medicial_medline_test_number_two"
+        "/work/asr4/rossenbach/domain_data/wmt_medline_test_data/wmt22_medline_v1.txt",
+        hash_overwrite="wmt22_medline_v1.txt"
     )
-    medline_wmt22_bliss = bliss_from_text(prefix=medline_prefix, name="medline_wmt22_ende_en", lm_text=medline_wmt22_clean)
-    medline_lexicon = create_data_lexicon(prefix=medline_prefix + "/lexicon", lm_text_bliss=medline_wmt22_bliss)
+    set_name = "wmt22_medline_v1"
+    medline_wmt22_bliss = bliss_from_text(prefix="/".join([prefix, set_name]), name=set_name, lm_text=medline_wmt22_clean)
+    set_lex_name = set_name + "_sequiturg2p"
+    medline_lexicon = create_data_lexicon(prefix="/".join([prefix, set_lex_name, "lexicon"]), lm_text_bliss=medline_wmt22_bliss)
 
+    name = set_lex_name + "_glowtts460_noise07"
     merged_corpus_with_text, out_ogg_zip = construct_domain_test_set(
-        medline_prefix,
-        "medline_wmt22_ende_en",
+        prefix,
+        "wmt22_medline_v1",
         bliss=medline_wmt22_bliss,
         lexicon=medline_lexicon
     )
+    tk.register_output("domain_test_tina_export/" + name + ".xml.gz", merged_corpus_with_text)
+    add_synthetic_data(name, out_ogg_zip, bliss=merged_corpus_with_text)
 
-    tk.register_output(medline_prefix + "/synthetic_medline.xml.gz", merged_corpus_with_text)
-    add_synthetic_data("medical_medline_test_number_two", out_ogg_zip, bliss=merged_corpus_with_text)
-
+    name = set_lex_name + "_glowtts460_noise03"
     merged_corpus_with_text, out_ogg_zip = construct_domain_test_set(
-        medline_prefix,
-        "medline_wmt22_ende_en",
+        prefix,
+        "wmt22_medline_v1",
         bliss=medline_wmt22_bliss,
-        lexicon=medline_lexicon
+        lexicon=medline_lexicon,
+        decoder_options=decoder_options_synthetic_03
     )
-
-    tk.register_output(medline_prefix + "/synthetic_medline.xml.gz", merged_corpus_with_text)
-    add_synthetic_data("medical_medline_test_number_two_low_noise", out_ogg_zip, bliss=merged_corpus_with_text)
+    tk.register_output("domain_test_tina_export/" + name + ".xml.gz", merged_corpus_with_text)
+    add_synthetic_data(name, out_ogg_zip, bliss=merged_corpus_with_text)
 
     # dev-other test
-    dev_other_prefix = prefix + "/dev-other"
+    name = "dev-other_sequiturg2p_glowtts460_noise07"
     dev_other_bliss = get_bliss_corpus_dict(audio_format="ogg")["dev-other"]
-    dev_other_lexicon = create_data_lexicon(prefix=dev_other_prefix + "/lexicon", lm_text_bliss=dev_other_bliss)
+    dev_other_lexicon = create_data_lexicon(prefix="/".join([prefix, name, "lexicon"]), lm_text_bliss=dev_other_bliss)
 
     merged_corpus_with_text, out_ogg_zip = construct_domain_test_set(
-        dev_other_prefix,
+        "/".join([prefix, name]),
         "dev-other",
         bliss=dev_other_bliss,
         lexicon=dev_other_lexicon,
     )
-    add_synthetic_data("dev-other", out_ogg_zip, bliss=merged_corpus_with_text)
+    tk.register_output("domain_test_tina_export/" + name + ".xml.gz", merged_corpus_with_text)
+    add_synthetic_data(name, out_ogg_zip, bliss=merged_corpus_with_text)
 
+    name = "dev-other_sequiturg2p_glowtts460_noise03"
     merged_corpus_with_text, out_ogg_zip = construct_domain_test_set(
-        dev_other_prefix,
+        name,
         "dev-other",
         bliss=dev_other_bliss,
         lexicon=dev_other_lexicon,
         decoder_options=decoder_options_synthetic_03
     )
-    add_synthetic_data("dev-other-noise03", out_ogg_zip, bliss=merged_corpus_with_text)
+    tk.register_output("domain_test_tina_export/" + name + ".xml.gz", merged_corpus_with_text)
+    add_synthetic_data(name, out_ogg_zip, bliss=merged_corpus_with_text)

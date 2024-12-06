@@ -14,7 +14,7 @@ from ...data.bpe import build_bpe_training_datasets, get_text_lexicon
 from ...default_tools import RETURNN_EXE, MINI_RETURNN_ROOT
 from ...lm import get_4gram_binary_lm
 from ...pipeline import training, prepare_asr_model, search, ASRModel
-from ...storage import get_ctc_model, get_lm_model, NeuralLM
+from ...storage import get_ctc_model, get_lm_model, NeuralLM, add_aed_model
 
 
 def aed_bpe_ls960_1024_base():
@@ -368,6 +368,9 @@ def aed_bpe_ls960_1024_base():
                     asr_model=asr_model,
                     decoder_config=greedy_decoder_config
                 )
+
+            asr_model.label_datastream = label_datastream_bpe5000
+            add_aed_model(network_module + f".bpe{BPE_SIZE}.512dim_sub6_48gbgpu4w_100eps_highlr_bs300", asr_model=asr_model)
             beam_search_prototype(
                 training_name,
                 asr_model=asr_model,
@@ -401,6 +404,7 @@ def aed_bpe_ls960_1024_base():
                 decoder_config=bs_decoder_config,
                 use_gpu=True,
             )
+
 
 
         # neural_lm = get_lm_model("bpe5k_2x2024_kazuki_lstmlm_3ep")
