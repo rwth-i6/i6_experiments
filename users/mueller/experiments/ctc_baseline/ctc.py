@@ -65,8 +65,10 @@ def py():
     test_self_training_on_small_dataset = 0 # TODO remove this parameter
     train_small = True
     with_prior = True
-    use_sum_criterion = True
-    aux_loss = False
+    use_sum_criterion = False
+    aux_loss = True
+    alt_decoder = True
+    horizontal_prior = True
     
     if train_small:
         epochs = 50
@@ -94,6 +96,7 @@ def py():
         }
         if with_prior:
             decoder_hyperparameters["prior_weight"] = 0.2
+            
         p0 = f"_p{str(decoder_hyperparameters['prior_weight']).replace('.', '')}" if with_prior else ""
         p1 = "sum" if decoder_hyperparameters['log_add'] else "max"
         p2 = f"n{decoder_hyperparameters['nbest']}"
@@ -103,9 +106,21 @@ def py():
         p6 = "_noLM" if not decoder_hyperparameters['use_lm'] else ""
         p7 = "_noLEX" if not decoder_hyperparameters['use_lexicon'] else ""
         lm_hyperparamters_str = f"{p0}_{p1}_{p2}_{p3}_{p4}{p5}{p6}{p7}"
+        
+        if alt_decoder:
+            alt_decoder_hyperparameters = decoder_hyperparameters.copy()
+            alt_decoder_hyperparameters["lm_weight"] = 1.15
+            alt_decoder_hyperparameters["beam_size"] = 70
+            if with_prior:
+                alt_decoder_hyperparameters["prior_weight"] = 0.3
+                
+            a0 = f"_p{str(alt_decoder_hyperparameters['prior_weight']).replace('.', '')}" if with_prior else ""
+            a1 = f"b{alt_decoder_hyperparameters['beam_size']}"
+            a2 = f"w{str(alt_decoder_hyperparameters['lm_weight']).replace('.', '')}"
+            lm_hyperparamters_str += f"_ALT{a0}_{a1}_{a2}"
     
     alias_name = f"ctc-baseline" + \
-        (f"-full_sum" if use_sum_criterion else "") + \
+        (f"-full_sum" + ("_wo_hor_pr" if not horizontal_prior else "") if use_sum_criterion else "") + \
         (f"-self_training_{self_training_rounds}" if self_training_rounds > 0 else "") + \
         (f"-wo_aux_loss" if not aux_loss else "") + \
         (f"-dataset_size_{test_self_training_on_small_dataset}" if test_self_training_on_small_dataset > 0 else "") + \
@@ -135,6 +150,7 @@ def py():
         config = config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
         decoder_def = model_recog_lm if (use_flashlight or use_greedy) else model_recog,
         decoder_hyperparameters = decoder_hyperparameters,
+        hyperparamters_self_training = alt_decoder_hyperparameters if alt_decoder else None,
         model_config = {"enc_conformer_layer": enc_conformer_layer_default, "feature_batch_norm": True},
         config_updates = config_updates,
         config_updates_self_training = config_updates_self_training,
@@ -144,7 +160,8 @@ def py():
         test_self_training_on_small_dataset = test_self_training_on_small_dataset,
         with_prior = with_prior,
         use_sum_criterion=use_sum_criterion,
-        aux_loss=aux_loss
+        aux_loss=aux_loss,
+        horizontal_prior=horizontal_prior
     )
     
 
@@ -158,6 +175,7 @@ def train_exp(
     decoder_def: Callable,
     *,
     decoder_hyperparameters: dict = None,
+    hyperparamters_self_training: dict = None,
     model_def: Optional[Union[ModelDefWithCfg, ModelDef[Model]]] = None,
     vocab: str = "bpe10k",
     train_vocab_opts: Optional[Dict[str, Any]] = None,
@@ -180,6 +198,7 @@ def train_exp(
     with_prior: bool = False,
     use_sum_criterion: bool = False,
     aux_loss: bool = False,
+    horizontal_prior: bool = True,
 ) -> Optional[ModelWithCheckpoints]:
     """
     Train experiment
@@ -281,6 +300,8 @@ def train_exp(
         # config_self.pop("__num_processes")
         if not aux_loss:
             config_self.pop("aux_loss_layers")
+        if not horizontal_prior:
+            config_self["horizontal_prior"] = horizontal_prior
         model_with_checkpoint.append(train(
             prefix_self_training,
             task=task,
@@ -305,9 +326,10 @@ def train_exp(
             task,
             model_with_checkpoint[i + 1],
             recog_def=decoder_def,
-            decoder_hyperparameters=decoder_hyperparameters,
+            decoder_hyperparameters=hyperparamters_self_training if hyperparamters_self_training else decoder_hyperparameters,
             save_pseudo_labels=None if i+1 == self_training_rounds else pseudo_labels_ds,
             recog_post_proc_funcs=recog_post_proc_funcs,
+            num_shards=64
         )
 
     _train_experiments[name] = model_with_checkpoint[-1]
@@ -869,6 +891,8 @@ def ctc_sum_training(*, model: Model, data: rf.Tensor, data_spatial_dim: Dim, lm
     
     am_scale = config.float("am_scale", 1.0)
     lm_scale = config.float("lm_scale", 1.0)
+    
+    horizontal_prior = config.float("horizontal_prior", True)
 
     if data.feature_dim and data.feature_dim.dimension == 1:
         data = rf.squeeze(data, axis=data.feature_dim)
@@ -899,6 +923,7 @@ def ctc_sum_training(*, model: Model, data: rf.Tensor, data_spatial_dim: Dim, lm
                 LM_order=2,
                 am_scale=am_scale,
                 lm_scale=lm_scale,
+                horizontal_prior=horizontal_prior,
                 blank_idx=model.blank_idx,
                 eos_idx=model.eos_idx,
                 unk_idx=1
@@ -924,6 +949,7 @@ def ctc_sum_training(*, model: Model, data: rf.Tensor, data_spatial_dim: Dim, lm
         LM_order=2,
         am_scale=am_scale,
         lm_scale=lm_scale,
+        horizontal_prior=horizontal_prior,
         blank_idx=model.blank_idx,
         eos_idx=model.eos_idx,
         unk_idx=1,

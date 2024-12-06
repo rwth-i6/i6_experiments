@@ -442,8 +442,13 @@ class LibrispeechOggZip(DatasetConfig):
     def get_main_dataset(self) -> Dict[str, Any]:
         assert self.main_key is not None, f"{self}: main_dataset not defined, main_key is None"
         return self.get_dataset(self.main_key)
+    
+    def get_sharded_main_dataset(self, shard_index: int, num_shards: int) -> Dict[str, Any]:
+        assert self.main_key is not None, f"{self}: main_dataset not defined, main_key is None"
+        assert 0 <= shard_index < num_shards, f"{self}: invalid shard_index 0 <= {shard_index} < {num_shards}"
+        return self.get_dataset(self.main_key, sharding=(shard_index, num_shards))
 
-    def get_dataset(self, key: str, *, training: bool = False, subset: Optional[int] = None) -> Dict[str, Any]:
+    def get_dataset(self, key: str, *, training: bool = False, subset: Optional[int] = None, sharding: tuple[int, int] | None = None) -> Dict[str, Any]:
         files = []
         if key == "train-other-860":
             parts = ["train-clean-360", "train-other-500"]
@@ -490,6 +495,9 @@ class LibrispeechOggZip(DatasetConfig):
         else:
             d["fixed_random_seed"] = 1
             d["seq_ordering"] = "sorted_reverse"
+            if sharding:
+                d["_num_shards"] = sharding[1]
+                d["_shard_index"] = sharding[0]
         if not training and self.test_self_training_on_small_dataset > 0:
             d["fixed_random_subset"] = self.test_self_training_on_small_dataset
         elif subset:

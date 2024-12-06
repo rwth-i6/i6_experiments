@@ -14,6 +14,7 @@ def sum_loss(
     LM_order: int,
     am_scale: float,
     lm_scale: float,
+    horizontal_prior: bool,
     blank_idx:int = 0, # should be same as eos index
     eos_idx: int | None = None,
     unk_idx: int = 1,
@@ -135,7 +136,9 @@ def sum_loss(
         # Q(t, u, non-blank) = p_AM(u|x_t) * [horizontal + diagonal + skip] 
         
         # horizontal transition Q(t-1, u, non-blank)
-        log_mass_horizontal = log_q_label  - log_prior[out_idx_vocab].unsqueeze(0) # TODO make this optional
+        log_mass_horizontal = log_q_label
+        if horizontal_prior:
+            log_mass_horizontal -= log_prior[out_idx_vocab].unsqueeze(0)
         
         # diagonal transition sum_v Q(t-1, v, blank) * p_LM(u|v) / p_PR(u)
         # take batch index b into account, this is equivalent to compute

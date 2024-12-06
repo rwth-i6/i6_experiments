@@ -59,6 +59,7 @@ def recog_training_exp(
     search_mem_rqmt: Union[int, float] = 6,
     exclude_epochs: Collection[int] = (),
     model_avg: bool = False,
+    num_shards: Optional[int] = None,
 ) -> Optional[tk.Path]:
     """recog on all relevant epochs"""
     recog_and_score_func = _RecogAndScoreFunc(
@@ -115,6 +116,7 @@ def recog_training_exp(
             search_post_config=search_post_config,
             recog_post_proc_funcs=recog_post_proc_funcs,
             search_mem_rqmt=search_mem_rqmt,
+            num_shards=num_shards,
         )
         
         extract_pseudo_labels_job = ExtractPseudoLabels(
@@ -143,6 +145,7 @@ class _RecogAndScoreFunc:
         search_post_config: Optional[Dict[str, Any]] = None,
         recog_post_proc_funcs: Sequence[Callable[[RecogOutput], RecogOutput]] = (),
         search_mem_rqmt: Union[int, float] = 6,
+        num_shards: Optional[int] = None,
     ):
         # Note: When something is added here, remember to handle it in _sis_hash.
         self.prefix_name = prefix_name
@@ -156,6 +159,7 @@ class _RecogAndScoreFunc:
         self.search_mem_rqmt = search_mem_rqmt
         self.save_pseudo_labels = save_pseudo_labels
         self.calculate_scores = calculate_scores
+        self.num_shards = num_shards
 
     def __call__(self, epoch_or_ckpt: Union[int, PtCheckpoint]) -> tuple[ScoreResultCollection, tk.Path]:
         if isinstance(epoch_or_ckpt, int):
@@ -190,6 +194,7 @@ class _RecogAndScoreFunc:
             recog_post_proc_funcs=self.recog_post_proc_funcs,
             search_mem_rqmt=self.search_mem_rqmt,
             name=self.prefix_name if self.save_pseudo_labels else None,
+            num_shards=self.num_shards,
         )
         if self.calculate_scores and isinstance(epoch_or_ckpt, int):
             tk.register_output(self.prefix_name + f"/recog_results_per_epoch/{epoch_or_ckpt:03}/score", res.output)
@@ -203,6 +208,7 @@ class _RecogAndScoreFunc:
         del d["prefix_name"]
         del d["search_post_config"]
         del d["search_mem_rqmt"]
+        del d["num_shards"]
         if not self.search_config:
             del d["search_config"]  # compat
         if not self.recog_post_proc_funcs:
@@ -237,6 +243,7 @@ def recog_model(
     search_rqmt: Optional[Dict[str, Any]] = None,
     dev_sets: Optional[Collection[str]] = None,
     name: Optional[str] = None,
+    num_shards: Optional[int] = None,
 ) -> tuple[ScoreResultCollection, tk.Path]:
     """recog"""
     if dev_sets is not None:
@@ -260,6 +267,7 @@ def recog_model(
             search_rqmt=search_rqmt,
             search_alias_name=f"{name}/search/{dataset_name}" if name else None,
             recog_post_proc_funcs=list(recog_post_proc_funcs) + list(task.recog_post_proc_funcs),
+            num_shards=num_shards,
         )
         if calculate_scores:
             score_out = task.score_recog_output_func(dataset, recog_out)
@@ -305,6 +313,7 @@ def search_dataset(
     search_rqmt: Optional[Dict[str, Any]] = None,
     search_alias_name: Optional[str] = None,
     recog_post_proc_funcs: Sequence[Callable[[RecogOutput], RecogOutput]] = (),
+    num_shards: Optional[int] = None,
 ) -> RecogOutput:
     """
     Recog on the specific dataset using RETURNN.
@@ -337,10 +346,10 @@ def search_dataset(
             search_post_config and search_post_config.pop("__env_updates", None)
         )
     if save_pseudo_labels:
-        time_rqmt = 60.0
-        cpu_rqmt = 8
-        if search_mem_rqmt < 16:
-            search_mem_rqmt = 16
+        time_rqmt = 4.0
+        cpu_rqmt = 4
+        if search_mem_rqmt < 8:
+            search_mem_rqmt = 8
     else:
         time_rqmt = 4.0
         cpu_rqmt = 4
@@ -367,25 +376,52 @@ def search_dataset(
         out_files = [_v2_forward_out_filename]
         if config and config.get("__recog_def_ext", False):
             out_files.append(_v2_forward_ext_out_filename)
-        search_job = ReturnnForwardJobV2(
-            model_checkpoint=model.checkpoint,
-            returnn_config=search_config_v2(
-                dataset, model.definition, recog_def, decoder_hyperparameters, prior_path, config=config, post_config=search_post_config
-            ),
-            output_files=out_files,
-            returnn_python_exe=tools_paths.get_returnn_python_exe(),
-            returnn_root=tools_paths.get_returnn_root(),
-            device="cpu",
-            time_rqmt=time_rqmt,
-            mem_rqmt=search_mem_rqmt,
-            cpu_rqmt=cpu_rqmt,
-        )
-        res = search_job.out_files[_v2_forward_out_filename]
-    if search_rqmt:
-        search_job.rqmt.update(search_rqmt)
-    if env_updates:
-        for k, v in env_updates.items():
-            search_job.set_env(k, v)
+        if num_shards is not None:
+            shard_search_res = []
+            for i in range(num_shards):
+                shard_search_job = ReturnnForwardJobV2(
+                    model_checkpoint=model.checkpoint,
+                    returnn_config=search_config_v2(
+                        dataset, model.definition, recog_def, decoder_hyperparameters, prior_path, config=config, post_config=search_post_config, shard_index=i, num_shards=num_shards
+                    ),
+                    output_files=out_files,
+                    returnn_python_exe=tools_paths.get_returnn_python_exe(),
+                    returnn_root=tools_paths.get_returnn_root(),
+                    device="cpu",
+                    time_rqmt=time_rqmt,
+                    mem_rqmt=search_mem_rqmt,
+                    cpu_rqmt=cpu_rqmt,
+                )
+                res = shard_search_job.out_files[_v2_forward_out_filename]
+                if search_rqmt:
+                    shard_search_job.rqmt.update(search_rqmt)
+                if env_updates:
+                    for k, v in env_updates.items():
+                        shard_search_job.set_env(k, v)
+                shard_search_res.append(res)
+            search_job = SearchCombineShardsJob(shard_search_res)
+            res = search_job.out_comined_results
+        else:
+            search_job = ReturnnForwardJobV2(
+                model_checkpoint=model.checkpoint,
+                returnn_config=search_config_v2(
+                    dataset, model.definition, recog_def, decoder_hyperparameters, prior_path, config=config, post_config=search_post_config
+                ),
+                output_files=out_files,
+                returnn_python_exe=tools_paths.get_returnn_python_exe(),
+                returnn_root=tools_paths.get_returnn_root(),
+                device="cpu",
+                time_rqmt=time_rqmt,
+                mem_rqmt=search_mem_rqmt,
+                cpu_rqmt=cpu_rqmt,
+            )
+            res = search_job.out_files[_v2_forward_out_filename]
+    if num_shards is None:
+        if search_rqmt:
+            search_job.rqmt.update(search_rqmt)
+        if env_updates:
+            for k, v in env_updates.items():
+                search_job.set_env(k, v)
     if search_alias_name:
         search_job.add_alias(search_alias_name)
         
@@ -621,6 +657,8 @@ def search_config_v2(
     *,
     config: Optional[Dict[str, Any]] = None,
     post_config: Optional[Dict[str, Any]] = None,
+    shard_index: Optional[int] = None,
+    num_shards: Optional[int] = None,
 ) -> ReturnnConfig:
     """
     Create config for search.
@@ -631,13 +669,18 @@ def search_config_v2(
     """
     from i6_experiments.common.setups.returnn.serialization import get_serializable_config
 
+    if num_shards is not None and shard_index is not None:
+        forward_data = dataset.get_sharded_main_dataset(shard_index, num_shards)
+    else:
+        forward_data = dataset.get_main_dataset()
+    
     returnn_recog_config_dict = dict(
         backend=model_def.backend,
         behavior_version=model_def.behavior_version,
         # dataset
         default_input=dataset.get_default_input(),
         target=dataset.get_default_target(),
-        forward_data=dataset.get_main_dataset(), # TODO evtl MultiProcDataset
+        forward_data=forward_data,
     )
     if config:
         returnn_recog_config_dict.update(config)
@@ -1296,3 +1339,27 @@ class GetTorchAvgModelResult(sisyphus.Job):
 
         with open(self.out_merged_epochs_list.get_path(), "w") as f:
             f.write("[%s]\n" % ", ".join(str(ep) for ep in sorted(self._in_checkpoints.keys())))
+            
+class SearchCombineShardsJob(sisyphus.Job):
+
+    def __init__(self, shard_search_outputs: list[tk.Path]):
+        self.shard_search_outputs = shard_search_outputs
+        self.out_comined_results = self.output_path("best_search_results.py.gz")
+
+    def tasks(self):
+        """task"""
+        yield Task("run", mini_task=True)
+
+    def run(self):
+        """run"""
+        res_dict = {}
+        for path in self.shard_search_outputs:
+            d = eval(uopen(path, "rt").read(), {"nan": float("nan"), "inf": float("inf")})
+            assert isinstance(d, dict)  # seq_tag -> bpe string
+            res_dict.update(d)
+        with uopen(self.out_best_search_results, "wt") as out:
+            out.write("{\n")
+            for seq_tag, entry in res_dict.items():
+                assert isinstance(entry, list)
+                out.write("%r: %r,\n" % (seq_tag, entry))
+            out.write("}\n")
