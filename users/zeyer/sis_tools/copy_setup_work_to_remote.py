@@ -37,6 +37,7 @@ _setup()
 
 from sisyphus.loader import config_manager
 from sisyphus import gs, tk, Job
+from sisyphus.graph import OutputPath
 
 
 def main():
@@ -54,7 +55,7 @@ def main():
 
     # Collect all finished inputs of those jobs.
     inputs_visited: Set[tk.Path] = set()
-    inputs_finished: List[tk.Path] = []
+    relevant_paths: List[tk.Path] = []
     for job in jobs_:
         # noinspection PyProtectedMember
         for input_path in sorted(job._sis_inputs):
@@ -63,12 +64,24 @@ def main():
                 continue
             inputs_visited.add(input_path)
             if input_path.available():
-                inputs_finished.append(input_path)
+                relevant_paths.append(input_path)
+
+    # Also add finished registered outputs.
+    for target in tk.sis_graph.targets:
+        if isinstance(target, OutputPath):
+            # noinspection PyProtectedMember
+            path: tk.Path = target._sis_path
+            assert isinstance(path, tk.Path)
+            if path in inputs_visited:
+                continue
+            inputs_visited.add(path)
+            if path.available():
+                relevant_paths.append(path)
 
     # Collect jobs of those inputs.
     jobs_visited: Set[Job] = set()
     jobs_finished: List[Job] = []
-    for input_path in inputs_finished:
+    for input_path in relevant_paths:
         job: Optional[Job] = input_path.creator
         if not job:
             continue
