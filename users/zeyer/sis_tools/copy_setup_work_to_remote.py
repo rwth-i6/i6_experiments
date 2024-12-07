@@ -7,11 +7,13 @@ import os
 import argparse
 from subprocess import check_call
 from functools import reduce
-from typing import Optional, List, Set
+from typing import Optional, Callable, TypeVar, List, Set
 
 _my_dir = os.path.dirname(__file__)
 _base_dir = reduce(lambda p, _: os.path.dirname(p), range(4), _my_dir)
 _sis_dir = os.path.dirname(_base_dir) + "/tools/sisyphus"
+
+T = TypeVar("T")
 
 
 def _setup():
@@ -22,6 +24,15 @@ def _setup():
             sys.path.append(_base_dir)
         if _sis_dir not in sys.path:
             sys.path.append(_sis_dir)
+
+    # Patch dependency_boundary to be a no-op.
+    from i6_experiments.common.helpers import dependency_boundary
+
+    # noinspection PyShadowingBuiltins,PyUnusedLocal
+    def _dependency_boundary_no_op(func: Callable[[], T], *, hash: Optional[str]) -> T:
+        return func()
+
+    dependency_boundary.dependency_boundary = _dependency_boundary_no_op
 
     try:
         import better_exchook
