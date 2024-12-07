@@ -4,6 +4,8 @@ Config for RWTH IPC CLAIX-2023 cluster experiments.
 
 from __future__ import annotations
 
+from typing import Any, Dict
+
 from i6_experiments.users.zeyer.utils.dict_update import dict_update_deep
 from i6_experiments.users.zeyer.speed_pert.librosa_config import speed_pert_librosa_config
 from i6_experiments.users.zeyer.lr_schedules.piecewise_linear import dyn_lr_piecewise_linear
@@ -202,12 +204,16 @@ def py():
         # Note: In the original CR paper, they don't have time-downsampling!
         # {"num_enc_layers": 16, "batch_size": 10_000, "vocab": "spm512"},
         {"num_enc_layers": 12, "batch_size": 200_000, "vocab": "spm512"},
-        {"num_enc_layers": 12, "batch_size": 150_000, "vocab": "spm512", "time_downsampling": 4},
-        {"num_enc_layers": 12, "batch_size": 75_000, "vocab": "spm512", "time_downsampling": 2},
+        # {"num_enc_layers": 12, "batch_size": 150_000, "vocab": "spm512", "time_downsampling": 4},
+        # {"num_enc_layers": 12, "batch_size": 75_000, "vocab": "spm512", "time_downsampling": 2},
     ]:
         for cr_ctc in [None, {"cr_loss_scale": 0.2}]:
             # TODO also adapt specaug for CR...
             use_cr_ctc = cr_ctc is not None
+            if use_cr_ctc:
+                cr_ctc: Dict[str, Any]
+                cr_ctc = cr_ctc.copy()
+                cr_ctc["use_fixed_ctc_grad"] = "v2"
             name = f"crLoss{cr_ctc['cr_loss_scale']}-" if use_cr_ctc else ""
             if opts.get("time_downsampling"):
                 name += f"time{opts['time_downsampling']}-"
