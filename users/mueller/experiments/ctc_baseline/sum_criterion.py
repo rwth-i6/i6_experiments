@@ -9,7 +9,7 @@ def sum_loss(
     *,
     log_probs: torch.Tensor, # (T, B, V)
     log_lm_probs: torch.Tensor, # (V, V)
-    log_prior: torch.Tensor, # (V,)
+    log_prior: torch.Tensor | None, # (V,)
     input_lengths: torch.Tensor, # (B,)
     LM_order: int,
     am_scale: float,
@@ -69,10 +69,13 @@ def sum_loss(
     
     # TODO generalize LM usage to any order
     
+    use_prior = log_prior is not None
+    
     old_device = log_probs.device
     log_probs = log_probs.to(device)
     log_lm_probs = log_lm_probs.to(device)
-    log_prior = log_prior.to(device)
+    if use_prior:
+        log_prior = log_prior.to(device)
     input_lengths = input_lengths.to(device)
     
     max_audio_time, batch_size, n_out = log_probs.shape
@@ -93,11 +96,15 @@ def sum_loss(
     assert unk_idx is not None, "unk_idx should be defined"
     vocab_size -= 1 # remove unk from vocab size
     assert log_lm_probs.size() == (vocab_size + 2, vocab_size + 2), f"LM shape is not correct, should be {vocab_size + 2}x{vocab_size + 2} but is {log_lm_probs.size()}"
-    assert log_prior.size() == (n_out + 1,), f"Prior shape is not correct, should be {n_out + 1} but is {log_prior.size()}"
+    if use_prior:
+        assert log_prior.size() == (n_out + 1,), f"Prior shape is not correct, should be {n_out + 1} but is {log_prior.size()}"
     
     # calculate empty sequence score
     # Empty am score = sum log prob blank
-    log_partial_empty_seq_prob = (log_probs_scaled[:, :, blank_idx] - log_prior[blank_idx]).cumsum(dim=0)
+    if use_prior:
+        log_partial_empty_seq_prob = (log_probs_scaled[:, :, blank_idx] - log_prior[blank_idx]).cumsum(dim=0)
+    else:
+        log_partial_empty_seq_prob = log_probs_scaled[:, :, blank_idx].cumsum(dim=0)
     log_empty_seq_prob = log_partial_empty_seq_prob.gather(0, (input_lengths-1).long().unsqueeze(0)).squeeze(0)
     # Empty lm score = p_LM(eos | bos), prior score = p_PR(eos)
     log_q_empty_seq = log_empty_seq_prob + log_lm_probs_scaled[eos_symbol, eos_symbol]
@@ -122,7 +129,9 @@ def sum_loss(
     # Init Q for t=1
     # Q(1, u, blank) = 0
     # Q(1, u, non-blank) = p_AM(u | x1) * p_LM(u | bos) / p_PR(u)
-    log_q_label = log_probs_scaled[0][:, out_idx_vocab] + log_lm_probs_scaled[eos_symbol, out_idx_vocab].unsqueeze(0) - log_prior[out_idx_vocab].unsqueeze(0)
+    log_q_label = log_probs_scaled[0][:, out_idx_vocab] + log_lm_probs_scaled[eos_symbol, out_idx_vocab].unsqueeze(0)
+    if use_prior:
+        log_q_label -= log_prior[out_idx_vocab].unsqueeze(0)
     log_q_blank = torch.full((batch_size, vocab_size), log_zero, device=device) # (B, 2, V-1), no blank and eos in last dim
     log_q = log_q_label
     
@@ -130,15 +139,17 @@ def sum_loss(
     for t in range(1, max_audio_time):
         # case 1: emit a blank at t
         # Q(t, u, blank) = [Q(t-1, u, blank) + Q(t-1, u, non-blank)]*p_AM(blank | x_t)
-        new_log_q_blank = log_q + log_probs_scaled[t][:, blank_idx].unsqueeze(-1) - log_prior[blank_idx]
+        new_log_q_blank = log_q + log_probs_scaled[t][:, blank_idx].unsqueeze(-1)
+        if use_prior:
+            new_log_q_blank -= log_prior[blank_idx]
 
         # case 2: emit a non-blank at t
         # Q(t, u, non-blank) = p_AM(u|x_t) * [horizontal + diagonal + skip] 
         
         # horizontal transition Q(t-1, u, non-blank)
         log_mass_horizontal = log_q_label
-        if horizontal_prior:
-            log_mass_horizontal -= log_prior[out_idx_vocab].unsqueeze(0)
+        if horizontal_prior and use_prior:
+            log_mass_horizontal -= log_prior[out_idx_vocab].unsqueeze(0) # divide by prior
         
         # diagonal transition sum_v Q(t-1, v, blank) * p_LM(u|v) / p_PR(u)
         # take batch index b into account, this is equivalent to compute
@@ -148,12 +159,14 @@ def sum_loss(
         # this is covered in log_partial_empty_seq_prob[t-1]
         log_prev_partial_seq_probs = torch.cat([log_partial_empty_seq_prob[t-1].unsqueeze(-1), log_q_blank], dim=-1)
         log_mass_diagonal = log_matmul_old(log_prev_partial_seq_probs, log_lm_probs_scaled[out_idx_vocab_w_eos][:, out_idx_vocab]) # (B, V) @ (V, V-1)
-        log_mass_diagonal = log_mass_diagonal - log_prior[out_idx_vocab].unsqueeze(0) # divide by prior
+        if use_prior:
+            log_mass_diagonal -= log_prior[out_idx_vocab].unsqueeze(0) # divide by prior
         
         # skip transition sum{w!=u} Q(t-1, w, non-blank) * p_LM(u|w) / p_PR(u)
         # same consideration as diagonal transition
         log_mass_skip = log_matmul_old(log_q_label, log_lm_probs_scaled_wo_eos)
-        log_mass_skip = log_mass_skip - log_prior[out_idx_vocab].unsqueeze(0) # divide by prior
+        if use_prior:
+            log_mass_skip -= log_prior[out_idx_vocab].unsqueeze(0) # divide by prior
         
         # multiply with p_AM(u|x_t)
         new_log_q_label = log_probs_scaled[t][:, out_idx_vocab] + safe_logsumexp(torch.stack([log_mass_horizontal, log_mass_diagonal, log_mass_skip], dim=-1), dim=-1)

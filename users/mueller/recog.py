@@ -1344,11 +1344,11 @@ class SearchCombineShardsJob(sisyphus.Job):
 
     def __init__(self, shard_search_outputs: list[tk.Path]):
         self.shard_search_outputs = shard_search_outputs
-        self.out_comined_results = self.output_path("best_search_results.py.gz")
+        self.out_comined_results = self.output_path(_v2_forward_out_filename)
 
     def tasks(self):
         """task"""
-        yield Task("run", mini_task=True)
+        yield sisyphus.Task("run", mini_task=True)
 
     def run(self):
         """run"""
@@ -1357,7 +1357,7 @@ class SearchCombineShardsJob(sisyphus.Job):
             d = eval(uopen(path, "rt").read(), {"nan": float("nan"), "inf": float("inf")})
             assert isinstance(d, dict)  # seq_tag -> bpe string
             res_dict.update(d)
-        with uopen(self.out_best_search_results, "wt") as out:
+        with uopen(self.out_comined_results, "wt") as out:
             out.write("{\n")
             for seq_tag, entry in res_dict.items():
                 assert isinstance(entry, list)

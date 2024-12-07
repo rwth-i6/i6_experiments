@@ -62,13 +62,14 @@ def py():
     use_greedy = False
     epochs = 500
     self_training_rounds = 1
-    test_self_training_on_small_dataset = 0 # TODO remove this parameter
     train_small = True
     with_prior = True
     use_sum_criterion = False
     aux_loss = True
     alt_decoder = True
+    use_training_prior = True
     horizontal_prior = True
+    LM_order = 3
     
     if train_small:
         epochs = 50
@@ -109,8 +110,8 @@ def py():
         
         if alt_decoder:
             alt_decoder_hyperparameters = decoder_hyperparameters.copy()
-            alt_decoder_hyperparameters["lm_weight"] = 1.15
-            alt_decoder_hyperparameters["beam_size"] = 70
+            alt_decoder_hyperparameters["lm_weight"] = 1.25
+            alt_decoder_hyperparameters["beam_size"] = 75
             if with_prior:
                 alt_decoder_hyperparameters["prior_weight"] = 0.3
                 
@@ -120,10 +121,9 @@ def py():
             lm_hyperparamters_str += f"_ALT{a0}_{a1}_{a2}"
     
     alias_name = f"ctc-baseline" + \
-        (f"-full_sum" + ("_wo_hor_pr" if not horizontal_prior else "") if use_sum_criterion else "") + \
+        (f"-full_sum" + (f"_LMorder{LM_order}" if LM_order > 2 else "") + (("_wo_hor_pr" if not horizontal_prior else "") if use_training_prior else "_wo_prior") if use_sum_criterion else "") + \
         (f"-self_training_{self_training_rounds}" if self_training_rounds > 0 else "") + \
         (f"-wo_aux_loss" if not aux_loss else "") + \
-        (f"-dataset_size_{test_self_training_on_small_dataset}" if test_self_training_on_small_dataset > 0 else "") + \
         (f"-ds100h" if train_small else "") + \
         f"-{vocab}" + \
         (greedy_str if use_greedy else (("-recog_lm" + lm_hyperparamters_str) if use_flashlight else "-recog_albert"))
@@ -157,11 +157,12 @@ def py():
         vocab = vocab,
         self_training_rounds = self_training_rounds,
         train_small = train_small,
-        test_self_training_on_small_dataset = test_self_training_on_small_dataset,
         with_prior = with_prior,
         use_sum_criterion=use_sum_criterion,
         aux_loss=aux_loss,
-        horizontal_prior=horizontal_prior
+        use_training_prior=use_training_prior,
+        horizontal_prior=horizontal_prior,
+        LM_order=LM_order
     )
     
 
@@ -194,11 +195,12 @@ def train_exp(
     enabled: bool = True,
     self_training_rounds: int = 0,
     train_small: bool = False,
-    test_self_training_on_small_dataset: int = 0,
     with_prior: bool = False,
     use_sum_criterion: bool = False,
     aux_loss: bool = False,
+    use_training_prior: bool = True,
     horizontal_prior: bool = True,
+    LM_order: int = 2
 ) -> Optional[ModelWithCheckpoints]:
     """
     Train experiment
@@ -220,7 +222,6 @@ def train_exp(
         vocab=vocab,
         train_vocab_opts=train_vocab_opts,
         save_pseudo_labels = self_training_rounds > 0,
-        test_self_training_on_small_dataset = test_self_training_on_small_dataset,
         ds_sel = TrainDatasetSel.train_100h if train_small else TrainDatasetSel.train_960h,
         with_prior=with_prior
     )
@@ -293,7 +294,7 @@ def train_exp(
         
         if use_sum_criterion:
             train_def = ctc_sum_training
-            lm_path = get_count_based_n_gram(task.train_dataset.vocab, 2)
+            lm_path = get_count_based_n_gram(task.train_dataset.vocab, LM_order)
             config_self["lm_path"] = lm_path
             
         init_checkpoint = model_with_checkpoint[i].get_last_fixed_epoch().checkpoint
@@ -302,6 +303,8 @@ def train_exp(
             config_self.pop("aux_loss_layers")
         if not horizontal_prior:
             config_self["horizontal_prior"] = horizontal_prior
+        if not use_training_prior:
+            config_self["use_training_prior"] = use_training_prior
         model_with_checkpoint.append(train(
             prefix_self_training,
             task=task,
@@ -328,6 +331,7 @@ def train_exp(
             recog_def=decoder_def,
             decoder_hyperparameters=hyperparamters_self_training if hyperparamters_self_training else decoder_hyperparameters,
             save_pseudo_labels=None if i+1 == self_training_rounds else pseudo_labels_ds,
+            calculate_pseudo_label_scores=False,
             recog_post_proc_funcs=recog_post_proc_funcs,
             num_shards=64
         )
@@ -893,6 +897,7 @@ def ctc_sum_training(*, model: Model, data: rf.Tensor, data_spatial_dim: Dim, lm
     lm_scale = config.float("lm_scale", 1.0)
     
     horizontal_prior = config.float("horizontal_prior", True)
+    use_prior = config.float("use_training_prior", True)
 
     if data.feature_dim and data.feature_dim.dimension == 1:
         data = rf.squeeze(data, axis=data.feature_dim)
@@ -912,7 +917,10 @@ def ctc_sum_training(*, model: Model, data: rf.Tensor, data_spatial_dim: Dim, lm
             aux_logits = linear(collected_outputs[str(layer_idx - 1)])
             aux_log_probs = model.log_probs_wb_from_logits(aux_logits)
             aux_log_probs = aux_log_probs.raw_tensor
-            aux_log_prior = _calc_log_prior(aux_log_probs, enc_spatial_dim.dyn_size_ext.raw_tensor)
+            if use_prior:
+                aux_log_prior = _calc_log_prior(aux_log_probs, enc_spatial_dim.dyn_size_ext.raw_tensor)
+            else:
+                aux_log_prior = None
             # (B, T, F) -> (T, B, F)
             aux_log_probs = aux_log_probs.permute(1, 0, 2)
             aux_loss = sum_loss(
@@ -938,7 +946,10 @@ def ctc_sum_training(*, model: Model, data: rf.Tensor, data_spatial_dim: Dim, lm
 
     log_probs = model.log_probs_wb_from_logits(logits)
     log_probs = log_probs.raw_tensor
-    log_prior = _calc_log_prior(log_probs, enc_spatial_dim.dyn_size_ext.raw_tensor)
+    if use_prior:
+        log_prior = _calc_log_prior(log_probs, enc_spatial_dim.dyn_size_ext.raw_tensor)
+    else:
+        log_prior = None
     # (B, T, F) -> (T, B, F)
     log_probs = log_probs.permute(1, 0, 2)
     loss = sum_loss(

@@ -313,7 +313,6 @@ class LibrispeechOggZip(DatasetConfig):
         eval_subset: Optional[int] = 3000,
         train_ds_key: Optional[str] = None,
         pseudo_label_path: tk.Path = None,
-        test_self_training_on_small_dataset: int = 0
     ):
         """
         :param with_eos_postfix: For RETURNN train/dev/eval datasets, mostly relevant for training.
@@ -332,7 +331,6 @@ class LibrispeechOggZip(DatasetConfig):
         self.train_sort_laplace_num_seqs = train_sort_laplace_num_seqs
         self.train_ds_key = train_ds_key
         self.pseudo_label_path = pseudo_label_path
-        self.test_self_training_on_small_dataset = test_self_training_on_small_dataset
         if train_epoch_wise_filter is NotSpecified:
             train_epoch_wise_filter = deepcopy(_default_train_epoch_wise_filter)
         if train_audio_preprocess is NotSpecified:
@@ -498,9 +496,7 @@ class LibrispeechOggZip(DatasetConfig):
             if sharding:
                 d["_num_shards"] = sharding[1]
                 d["_shard_index"] = sharding[0]
-        if not training and self.test_self_training_on_small_dataset > 0:
-            d["fixed_random_subset"] = self.test_self_training_on_small_dataset
-        elif subset:
+        if subset:
             d["fixed_random_subset"] = subset  # faster
         
         # Combine pseudo labels into MetaDataset
@@ -567,7 +563,6 @@ def get_librispeech_task_raw_v2(
     audio_opts: Optional[Dict[str, Any]] = None,
     audio_dim: int = 1,
     save_pseudo_labels: bool = False,
-    test_self_training_on_small_dataset: int = 0,
     ds_sel: TrainDatasetSel,
     with_prior: bool,
     **dataset_train_opts,
@@ -633,7 +628,7 @@ def get_librispeech_task_raw_v2(
     pseudo_labels_ds = {}
     if save_pseudo_labels:
         for ds_name in ["train-clean-360", "train-other-500"]:
-            pseudo_labels_ds[ds_name] = LibrispeechOggZip(**dataset_common_opts, main_key=ds_name, test_self_training_on_small_dataset=test_self_training_on_small_dataset)
+            pseudo_labels_ds[ds_name] = LibrispeechOggZip(**dataset_common_opts, main_key=ds_name)
             
     if with_prior:
         prior_dataset = LibrispeechOggZip(**dataset_common_opts, main_key=train_ds_key)
@@ -773,11 +768,6 @@ def _score_recog_out_v2(dataset: DatasetConfig, recog_output: RecogOutput) -> Sc
 
     hyp_words = recog_output.output
     corpus_name = dataset.get_main_name()
-    
-    if isinstance(dataset, LibrispeechOggZip):
-        use_seq_order = dataset.test_self_training_on_small_dataset == 0
-    else:
-        use_seq_order = True
 
     corpus_text_dict = _get_corpus_text_dict(corpus_name)
     # Arbitrary seg length time. The jobs SearchWordsDummyTimesToCTMJob and TextDictToStmJob
@@ -785,12 +775,12 @@ def _score_recog_out_v2(dataset: DatasetConfig, recog_output: RecogOutput) -> Sc
     # and no reason not to just use a high value here to avoid this problem whenever we get to it.
     seg_length_time = 1000.0
     search_ctm = SearchWordsDummyTimesToCTMJob(
-        recog_words_file=hyp_words, seq_order_file=corpus_text_dict if use_seq_order else None, seg_length_time=seg_length_time
+        recog_words_file=hyp_words, seq_order_file=corpus_text_dict, seg_length_time=seg_length_time
     ).out_ctm_file
     stm_file = TextDictToStmJob(text_dict=corpus_text_dict, seg_length_time=seg_length_time).out_stm_path
 
     score_job = ScliteJob(
-        ref=stm_file, hyp=search_ctm, sort_files=False if use_seq_order else True, sctk_binary_path=tools_paths.get_sctk_binary_path(), precision_ndigit=2
+        ref=stm_file, hyp=search_ctm, sctk_binary_path=tools_paths.get_sctk_binary_path(), precision_ndigit=2
     )
 
     return ScoreResult(dataset_name=corpus_name, main_measure_value=score_job.out_wer, report=score_job.out_report_dir)
