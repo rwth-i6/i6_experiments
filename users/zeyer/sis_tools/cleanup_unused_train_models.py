@@ -71,7 +71,7 @@ def main():
     total_train_job_with_models_to_remove_count = 0
     model_fns_to_remove = []
     found_active_count = 0  # as a sanity check
-    for basename in os.listdir("../../../../../work/i6_core/returnn/training"):
+    for basename in os.listdir("work/i6_core/returnn/training"):
         if not basename.startswith("ReturnnTrainingJob."):
             continue
         fn = "work/i6_core/returnn/training/" + basename
