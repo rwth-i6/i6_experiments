@@ -63,7 +63,11 @@ def main():
         if not isinstance(job, ReturnnTrainingJob):
             continue
         # print("active train job:", job._sis_path())
-        active_train_job_paths.add(job._sis_path())
+        job_path = job._sis_path()
+        if os.path.isdir(job_path):
+            active_train_job_paths.add(job._sis_path())
+        else:
+            print("Active train job not created yet:", job)
     print("Num active train jobs:", len(active_train_job_paths))
 
     total_model_size_to_remove = 0
@@ -75,22 +79,30 @@ def main():
         if not basename.startswith("ReturnnTrainingJob."):
             continue
         fn = "work/i6_core/returnn/training/" + basename
-        if fn in active_train_job_paths:
-            found_active_count += 1
-            continue
 
         total_train_job_count += 1
         aliases = job_aliases_from_log.get_job_aliases(fn)
-        alias = aliases[0]
-        alias_path = os.path.basename(os.readlink(alias))
-        if alias_path != basename:
-            # Can happen, e.g. when cleared by Sisyphus due to error (cleared.0001 etc),
-            # or when I changed sth in the config due to some mistake.
-            # print("Warning: Alias path mismatch:", alias_path, "actual:", basename)
-            # But doesn't matter, clean up anyway, maybe even more so.
-            pass
+        alias = None
+        if not aliases:
+            print("No aliases found for train job:", fn)
+        else:
+            alias = aliases[0]
+            alias_path = os.path.basename(os.readlink(alias))
+            if alias_path != basename:
+                # Can happen, e.g. when cleared by Sisyphus due to error (cleared.0001 etc),
+                # or when I changed sth in the config due to some mistake.
+                # print("Warning: Alias path mismatch:", alias_path, "actual:", basename)
+                # But doesn't matter, clean up anyway, maybe even more so.
+                pass
+
+        if fn in active_train_job_paths:
+            print("Active train job:", alias or basename)
+            found_active_count += 1
+            continue
 
         model_dir = fn + "/output/models"
+        if not os.path.isdir(model_dir):
+            continue  # can happen when there was an early error, e.g. at file creation
         model_count = 0
         model_size = 0
         with os.scandir(model_dir) as it:
@@ -104,7 +116,7 @@ def main():
                 model_count += 1
         if model_count == 0:
             continue
-        print("Unused train job:", alias, "model size:", human_bytes_size(model_size))
+        print("Unused train job:", alias or basename, "model size:", human_bytes_size(model_size))
         total_model_size_to_remove += model_size
         total_train_job_with_models_to_remove_count += 1
 
