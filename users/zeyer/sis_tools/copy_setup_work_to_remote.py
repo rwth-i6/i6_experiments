@@ -25,23 +25,6 @@ def _setup():
         if _sis_dir not in sys.path:
             sys.path.append(_sis_dir)
 
-    # Patch dependency_boundary to be a no-op.
-    from i6_experiments.common.helpers import dependency_boundary
-
-    # noinspection PyShadowingBuiltins,PyUnusedLocal
-    def _dependency_boundary_no_op(func: Callable[[], T], *, hash: Optional[str]) -> T:
-        return func()
-
-    dependency_boundary.dependency_boundary = _dependency_boundary_no_op
-
-    try:
-        import better_exchook
-
-        better_exchook.install()
-
-    except ImportError:
-        pass
-
 
 _setup()
 
@@ -148,5 +131,25 @@ def _get_sis_job_name(job: Job) -> str:
     return sis_name
 
 
+def _setup_main():
+    # Patch dependency_boundary to be a no-op.
+    from i6_experiments.common.helpers import dependency_boundary
+
+    # noinspection PyShadowingBuiltins,PyUnusedLocal
+    def _dependency_boundary_no_op(func: Callable[[], T], *, hash: Optional[str]) -> T:
+        return func()
+
+    dependency_boundary.dependency_boundary = _dependency_boundary_no_op
+
+    try:
+        import better_exchook
+
+        better_exchook.install()
+
+    except ImportError:
+        pass
+
+
 if __name__ == "__main__":
+    _setup_main()
     main()
