@@ -35,7 +35,7 @@ _setup()
 
 def main():
     arg_parser = argparse.ArgumentParser()
-    arg_parser.add_argument("config")
+    arg_parser.add_argument("config", nargs="+")
     arg_parser.add_argument("--log-level", type=int, default=20)
     arg_parser.add_argument("--mode", default="dryrun", help="dryrun (default), remove")
     args = arg_parser.parse_args()
