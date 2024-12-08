@@ -96,6 +96,14 @@ def cr_ctc_training(*, model: Model, data: Tensor, data_spatial_dim: Dim, target
     use_normalized_loss = config.bool("use_normalized_loss", True)
     cr_loss_scale = config.float("cr_loss_scale", 0.2)
     aed_loss_bug_fix = config.bool("aed_loss_bug_fix", False)
+    use_fixed_ctc_grad = config.typed_value("use_fixed_ctc_grad", False)
+
+    ctc_loss = rf.ctc_loss
+    if use_fixed_ctc_grad:
+        from i6_experiments.users.zeyer.nn_rf.torch_ctc_fixed_grad import ctc_loss_fixed_grad
+
+        assert use_fixed_ctc_grad == "v2"  # v2 has the fix for scaled/normalized CTC loss
+        ctc_loss = ctc_loss_fixed_grad
 
     if data.feature_dim and data.feature_dim.dimension == 1:
         data = rf.squeeze(data, axis=data.feature_dim)
@@ -121,7 +129,7 @@ def cr_ctc_training(*, model: Model, data: Tensor, data_spatial_dim: Dim, target
             linear = getattr(model, f"enc_aux_logits_{layer_idx}")
             aux_logits = linear(collected_outputs[str(layer_idx - 1)])
             aux_log_probs = model.log_probs_wb_from_logits(aux_logits)
-            aux_loss = rf.ctc_loss(
+            aux_loss = ctc_loss(
                 logits=aux_log_probs,
                 logits_normalized=True,
                 targets=targets,
@@ -142,7 +150,7 @@ def cr_ctc_training(*, model: Model, data: Tensor, data_spatial_dim: Dim, target
             # error.mark_as_loss("label", as_error=True, custom_inv_norm_factor=targets_spatial_dim.get_size_tensor())
 
     log_probs = model.log_probs_wb_from_logits(logits)
-    loss = rf.ctc_loss(
+    loss = ctc_loss(
         logits=log_probs,
         logits_normalized=True,
         targets=targets,
