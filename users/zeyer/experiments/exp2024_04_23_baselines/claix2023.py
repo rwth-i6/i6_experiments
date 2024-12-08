@@ -207,7 +207,7 @@ def py():
         # {"num_enc_layers": 12, "batch_size": 150_000, "vocab": "spm512", "time_downsampling": 4},
         # {"num_enc_layers": 12, "batch_size": 75_000, "vocab": "spm512", "time_downsampling": 2},
     ]:
-        for cr_ctc in [None, {"cr_loss_scale": 0.2}]:
+        for cr_ctc in [None, {"cr_loss_scale": 0.2}, {"cr_loss_scale": 0.5}, {"cr_loss_scale": 1.0}]:
             # TODO also adapt specaug for CR...
             use_cr_ctc = cr_ctc is not None
             if use_cr_ctc:
