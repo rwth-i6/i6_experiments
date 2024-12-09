@@ -21,7 +21,7 @@ T = TypeVar("T")
 def _setup():
     # In case the user started this script directly.
     if not globals().get("__package__"):
-        globals()["__package__"] = "i6_experiments.users.zeyer.sis_tools"
+        globals()["__package__"] = "i6_experiments.users.zeyer.slurm_tools"
         if _base_dir not in sys.path:
             sys.path.append(_base_dir)
         if _sis_dir not in sys.path:
