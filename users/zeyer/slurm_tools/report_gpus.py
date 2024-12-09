@@ -38,6 +38,7 @@ def main():
     # by (arg, partition)
     total = defaultdict(int)
     alloc = defaultdict(int)
+    reserved = defaultdict(int)
     down = defaultdict(int)
     for _, node_info in nodes_info.items():
         for partition in node_info["Partitions"].split(","):
@@ -50,7 +51,9 @@ def main():
                 node_total_count = cfg_tres[count_arg]
                 node_alloc_count = alloc_tres.get(count_arg, 0)
                 key = (count_arg, partition)
-                if state in {"ALLOCATED", "IDLE", "MIXED"}:
+                if "RESERVED" in state_flags:
+                    reserved[key] += node_total_count
+                elif state in {"ALLOCATED", "IDLE", "MIXED"}:
                     total[key] += node_total_count
                     alloc[key] += node_alloc_count
                 else:
@@ -59,8 +62,12 @@ def main():
     for key in total:
         total_ = total[key]
         alloc_ = alloc[key]
+        reserved_ = reserved[key]
         down_ = down[key]
-        print(f"Count {key}: {alloc_}/{total_} used, {total_ - alloc_}/{total_} free, {down_} down")
+        print(
+            f"Count {key}: {alloc_}/{total_} used, {total_ - alloc_}/{total_} free,"
+            f" {reserved_} reserved, {down_} down"
+        )
 
 
 def parse_tres(tres_str: str) -> Dict[str, int]:
