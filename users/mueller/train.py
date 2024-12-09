@@ -293,6 +293,6 @@ class ExtendedTrainDef(TrainDef):
         model: ModelT,
         data: Tensor,
         data_spatial_dim: Tensor,
-        lm_path: tk.Path
+        lm_path: tk.Path | list[tk.Path],
     ) -> Dict[str, Tensor]:
         raise NotImplementedError

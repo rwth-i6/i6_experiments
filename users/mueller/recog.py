@@ -193,7 +193,7 @@ class _RecogAndScoreFunc:
             search_post_config=self.search_post_config,
             recog_post_proc_funcs=self.recog_post_proc_funcs,
             search_mem_rqmt=self.search_mem_rqmt,
-            name=self.prefix_name if self.save_pseudo_labels else None,
+            name=self.prefix_name + f"/search/{epoch_or_ckpt:03}",
             num_shards=self.num_shards,
         )
         if self.calculate_scores and isinstance(epoch_or_ckpt, int):
@@ -265,7 +265,7 @@ def recog_model(
             search_post_config=search_post_config,
             search_mem_rqmt=search_mem_rqmt,
             search_rqmt=search_rqmt,
-            search_alias_name=f"{name}/search/{dataset_name}" if name else None,
+            search_alias_name=f"{name}/{dataset_name}" if name else None,
             recog_post_proc_funcs=list(recog_post_proc_funcs) + list(task.recog_post_proc_funcs),
             num_shards=num_shards,
         )

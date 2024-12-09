@@ -331,6 +331,7 @@ class LibrispeechOggZip(DatasetConfig):
         self.train_sort_laplace_num_seqs = train_sort_laplace_num_seqs
         self.train_ds_key = train_ds_key
         self.pseudo_label_path = pseudo_label_path
+        self.test_self_training_on_small_dataset = 0 # Old param, not used. Needed for compatibility.
         if train_epoch_wise_filter is NotSpecified:
             train_epoch_wise_filter = deepcopy(_default_train_epoch_wise_filter)
         if train_audio_preprocess is NotSpecified:

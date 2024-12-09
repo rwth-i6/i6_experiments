@@ -64,12 +64,11 @@ def py():
     self_training_rounds = 1
     train_small = True
     with_prior = True
-    use_sum_criterion = False
-    aux_loss = True
-    alt_decoder = True
-    use_training_prior = True
+    use_sum_criterion = True
+    aux_loss = False
+    alt_decoder = False
     horizontal_prior = True
-    LM_order = 3
+    LM_order = 2
     
     if train_small:
         epochs = 50
@@ -90,7 +89,7 @@ def py():
             "log_add": False,
             "nbest": 1,
             "beam_size": 80,
-            "lm_weight": 1.9,
+            "lm_weight": 1.9, # NOTE: weights are exponentials of the probs
             "use_logsoftmax": True,
             "use_lm": True,
             "use_lexicon": True,
@@ -120,8 +119,23 @@ def py():
             a2 = f"w{str(alt_decoder_hyperparameters['lm_weight']).replace('.', '')}"
             lm_hyperparamters_str += f"_ALT{a0}_{a1}_{a2}"
     
+    if use_sum_criterion:
+        training_scales = {
+            "am": 1.0,
+            "lm": 1.9,
+            "prior": 0.4
+        }
+        
+        if list(training_scales.values()) == [1.0] * len(training_scales):
+            training_scales = None
+        
+        sum_str = f"-full_sum" + \
+            (f"_p{str(training_scales['prior']).replace('.', '')}_l{str(training_scales['lm']).replace('.', '')}_a{str(training_scales['am']).replace('.', '')}" if training_scales else "") + \
+            (f"_LMorder{LM_order}" if LM_order > 2 else "") + \
+            ("_wo_hor_pr" if not horizontal_prior else "")
+    
     alias_name = f"ctc-baseline" + \
-        (f"-full_sum" + (f"_LMorder{LM_order}" if LM_order > 2 else "") + (("_wo_hor_pr" if not horizontal_prior else "") if use_training_prior else "_wo_prior") if use_sum_criterion else "") + \
+        (sum_str if use_sum_criterion else "") + \
         (f"-self_training_{self_training_rounds}" if self_training_rounds > 0 else "") + \
         (f"-wo_aux_loss" if not aux_loss else "") + \
         (f"-ds100h" if train_small else "") + \
@@ -160,9 +174,9 @@ def py():
         with_prior = with_prior,
         use_sum_criterion=use_sum_criterion,
         aux_loss=aux_loss,
-        use_training_prior=use_training_prior,
         horizontal_prior=horizontal_prior,
-        LM_order=LM_order
+        LM_order=LM_order,
+        training_scales=training_scales if use_sum_criterion else None
     )
     
 
@@ -198,9 +212,9 @@ def train_exp(
     with_prior: bool = False,
     use_sum_criterion: bool = False,
     aux_loss: bool = False,
-    use_training_prior: bool = True,
     horizontal_prior: bool = True,
-    LM_order: int = 2
+    LM_order: int = 2,
+    training_scales: Optional[Dict[str, float]] = None,
 ) -> Optional[ModelWithCheckpoints]:
     """
     Train experiment
@@ -294,8 +308,11 @@ def train_exp(
         
         if use_sum_criterion:
             train_def = ctc_sum_training
-            lm_path = get_count_based_n_gram(task.train_dataset.vocab, LM_order)
-            config_self["lm_path"] = lm_path
+            lm_path_list = get_count_based_n_gram(task.train_dataset.vocab, LM_order)
+            if len(lm_path_list) == 1:
+                config_self["lm_path"] = lm_path_list[0]
+            else:
+                config_self["lm_path"] = lm_path_list
             
         init_checkpoint = model_with_checkpoint[i].get_last_fixed_epoch().checkpoint
         # config_self.pop("__num_processes")
@@ -303,8 +320,10 @@ def train_exp(
             config_self.pop("aux_loss_layers")
         if not horizontal_prior:
             config_self["horizontal_prior"] = horizontal_prior
-        if not use_training_prior:
-            config_self["use_training_prior"] = use_training_prior
+        if training_scales:
+            config_self["am_scale"] = training_scales["am"]
+            config_self["lm_scale"] = training_scales["lm"]
+            config_self["prior_scale"] = training_scales["prior"]
         model_with_checkpoint.append(train(
             prefix_self_training,
             task=task,
@@ -317,7 +336,7 @@ def train_exp(
             num_epochs=num_epochs,
             gpu_mem=gpu_mem,
             num_processes=num_processes,
-            time_rqmt=time_rqmt if time_rqmt else (24 if use_sum_criterion else 156),
+            time_rqmt=time_rqmt if time_rqmt else (156 if use_sum_criterion else 156),
         ))
         train_job = model_with_checkpoint[i + 1].get_training_job()
         if env_updates:
@@ -857,7 +876,7 @@ def ctc_training(*, model: Model, data: rf.Tensor, data_spatial_dim: Dim, target
 ctc_training: TrainDef[Model]
 ctc_training.learning_rate_control_error_measure = "ctc"
 
-def ctc_sum_training(*, model: Model, data: rf.Tensor, data_spatial_dim: Dim, lm_path: tk.Path):
+def ctc_sum_training(*, model: Model, data: rf.Tensor, data_spatial_dim: Dim, lm_path: tk.Path | list[tk.Path]):
     """Function is run within RETURNN."""
     from returnn.config import get_global_config
     from .sum_criterion import sum_loss, safe_logsumexp
@@ -895,17 +914,30 @@ def ctc_sum_training(*, model: Model, data: rf.Tensor, data_spatial_dim: Dim, lm
     
     am_scale = config.float("am_scale", 1.0)
     lm_scale = config.float("lm_scale", 1.0)
+    prior_scale = config.float("prior_scale", 1.0)
     
     horizontal_prior = config.float("horizontal_prior", True)
-    use_prior = config.float("use_training_prior", True)
+    use_prior = prior_scale > 0.0
 
     if data.feature_dim and data.feature_dim.dimension == 1:
         data = rf.squeeze(data, axis=data.feature_dim)
     assert not data.feature_dim  # raw audio
     
-    with uopen(lm_path, "rb") as f:
-        lm = torch.load(f, map_location=data.device)
-        assert isinstance(lm, torch.Tensor), "Loaded LM is not a tensor"
+    
+    if isinstance(lm_path, list):
+        lms = []
+        for p in lm_path:
+            with uopen(p, "rb") as f:
+                lm = torch.load(f, map_location=data.device)
+                assert isinstance(lm, torch.Tensor), "Loaded LM is not a tensor"
+            lms.append(lm)
+        lm_order = len(lms) + 1
+    else:
+        with uopen(lm_path, "rb") as f:
+            lm = torch.load(f, map_location=data.device)
+            assert isinstance(lm, torch.Tensor), "Loaded LM is not a tensor"
+        lms = [lm]
+        lm_order = 2
 
     collected_outputs = {}
     logits, enc, enc_spatial_dim = model(data, in_spatial_dim=data_spatial_dim, collected_outputs=collected_outputs)
@@ -925,16 +957,18 @@ def ctc_sum_training(*, model: Model, data: rf.Tensor, data_spatial_dim: Dim, lm
             aux_log_probs = aux_log_probs.permute(1, 0, 2)
             aux_loss = sum_loss(
                 log_probs=aux_log_probs,
-                log_lm_probs=lm,
+                log_lm_probs_list=lms,
                 log_prior=aux_log_prior,
                 input_lengths=enc_spatial_dim.dyn_size_ext.raw_tensor,
-                LM_order=2,
+                LM_order=lm_order,
                 am_scale=am_scale,
                 lm_scale=lm_scale,
+                prior_scale=prior_scale,
                 horizontal_prior=horizontal_prior,
                 blank_idx=model.blank_idx,
                 eos_idx=model.eos_idx,
-                unk_idx=1
+                unk_idx=1,
+                device=aux_log_probs.device
             )
             aux_loss = rtf.TorchBackend.convert_to_tensor(aux_loss, dims = [batch_dim], dtype = "float32", name=f"aux_full_sum_{layer_idx}")
             aux_loss.mark_as_loss(
@@ -954,12 +988,13 @@ def ctc_sum_training(*, model: Model, data: rf.Tensor, data_spatial_dim: Dim, lm
     log_probs = log_probs.permute(1, 0, 2)
     loss = sum_loss(
         log_probs=log_probs,
-        log_lm_probs=lm,
+        log_lm_probs_list=lms,
         log_prior=log_prior,
         input_lengths=enc_spatial_dim.dyn_size_ext.raw_tensor,
-        LM_order=2,
+        LM_order=lm_order,
         am_scale=am_scale,
         lm_scale=lm_scale,
+        prior_scale=prior_scale,
         horizontal_prior=horizontal_prior,
         blank_idx=model.blank_idx,
         eos_idx=model.eos_idx,

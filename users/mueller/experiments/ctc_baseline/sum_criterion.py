@@ -8,12 +8,13 @@ import torch
 def sum_loss(
     *,
     log_probs: torch.Tensor, # (T, B, V)
-    log_lm_probs: torch.Tensor, # (V, V)
+    log_lm_probs_list: list[torch.Tensor], # (V, V)
     log_prior: torch.Tensor | None, # (V,)
     input_lengths: torch.Tensor, # (B,)
     LM_order: int,
     am_scale: float,
     lm_scale: float,
+    prior_scale: float,
     horizontal_prior: bool,
     blank_idx:int = 0, # should be same as eos index
     eos_idx: int | None = None,
@@ -24,7 +25,7 @@ def sum_loss(
     """
     Sum criterion training for CTC, given by
     L = sum_{all seq} q(seq)
-    where q(seq) = p_AM^alpha(seq) * p_LM^beta(seq) / p_PR(seq) # TODO is result scaled after prior deduction or do we need own scale for prior?
+    where q(seq) = p_AM^alpha(seq) * p_LM^beta(seq) / p_PR(seq)
     and p_AM = prod_n posterior.
 
     The loss is calculated by sum_{u in V} [Q(T, u, blank) + Q(T, u, non-blank)],
@@ -66,7 +67,7 @@ def sum_loss(
     :param log_zero: Value of log zero.
     :returns: log sum loss
     """
-    
+    log_lm_probs = log_lm_probs_list[0]
     # TODO generalize LM usage to any order
     
     use_prior = log_prior is not None
@@ -80,8 +81,10 @@ def sum_loss(
     
     max_audio_time, batch_size, n_out = log_probs.shape
     # scaled log am and lm probs
-    log_probs_scaled = am_scale*log_probs
-    log_lm_probs_scaled = lm_scale*log_lm_probs
+    log_probs = am_scale * log_probs
+    log_lm_probs = lm_scale * log_lm_probs
+    if use_prior:
+        log_prior = prior_scale * log_prior
     
     # print_gradients = PrintGradients.apply
     # grad_assert = AssertGradients.apply
@@ -102,15 +105,15 @@ def sum_loss(
     # calculate empty sequence score
     # Empty am score = sum log prob blank
     if use_prior:
-        log_partial_empty_seq_prob = (log_probs_scaled[:, :, blank_idx] - log_prior[blank_idx]).cumsum(dim=0)
+        log_partial_empty_seq_prob = (log_probs[:, :, blank_idx] - log_prior[blank_idx]).cumsum(dim=0)
     else:
-        log_partial_empty_seq_prob = log_probs_scaled[:, :, blank_idx].cumsum(dim=0)
+        log_partial_empty_seq_prob = log_probs[:, :, blank_idx].cumsum(dim=0)
     log_empty_seq_prob = log_partial_empty_seq_prob.gather(0, (input_lengths-1).long().unsqueeze(0)).squeeze(0)
     # Empty lm score = p_LM(eos | bos), prior score = p_PR(eos)
-    log_q_empty_seq = log_empty_seq_prob + log_lm_probs_scaled[eos_symbol, eos_symbol]
+    log_q_empty_seq = log_empty_seq_prob + log_lm_probs[eos_symbol, eos_symbol]
 
-    # Unbind the log_probs_scaled and log_partial_empty_seq_prob for each timestep so it is faster during backprop
-    log_probs_scaled = log_probs_scaled.unbind(0)
+    # Unbind the log_probs and log_partial_empty_seq_prob for each timestep so it is faster during backprop
+    log_probs = log_probs.unbind(0)
     log_partial_empty_seq_prob = log_partial_empty_seq_prob.unbind(0)
 
     # to remove blank, unk and eos from the last dim (vocab)
@@ -129,19 +132,19 @@ def sum_loss(
     # Init Q for t=1
     # Q(1, u, blank) = 0
     # Q(1, u, non-blank) = p_AM(u | x1) * p_LM(u | bos) / p_PR(u)
-    log_q_label = log_probs_scaled[0][:, out_idx_vocab] + log_lm_probs_scaled[eos_symbol, out_idx_vocab].unsqueeze(0)
+    log_q_label = log_probs[0][:, out_idx_vocab] + log_lm_probs[eos_symbol, out_idx_vocab].unsqueeze(0)
     if use_prior:
-        log_q_label -= log_prior[out_idx_vocab].unsqueeze(0)
+        log_q_label = log_q_label - log_prior[out_idx_vocab].unsqueeze(0)
     log_q_blank = torch.full((batch_size, vocab_size), log_zero, device=device) # (B, 2, V-1), no blank and eos in last dim
     log_q = log_q_label
     
-    log_lm_probs_scaled_wo_eos = log_lm_probs_scaled[out_idx_vocab][:, out_idx_vocab].fill_diagonal_(log_zero)
+    log_lm_probs_wo_eos = log_lm_probs[out_idx_vocab][:, out_idx_vocab].fill_diagonal_(log_zero)
     for t in range(1, max_audio_time):
         # case 1: emit a blank at t
         # Q(t, u, blank) = [Q(t-1, u, blank) + Q(t-1, u, non-blank)]*p_AM(blank | x_t)
-        new_log_q_blank = log_q + log_probs_scaled[t][:, blank_idx].unsqueeze(-1)
+        new_log_q_blank = log_q + log_probs[t][:, blank_idx].unsqueeze(-1)
         if use_prior:
-            new_log_q_blank -= log_prior[blank_idx]
+            new_log_q_blank = new_log_q_blank - log_prior[blank_idx]
 
         # case 2: emit a non-blank at t
         # Q(t, u, non-blank) = p_AM(u|x_t) * [horizontal + diagonal + skip] 
@@ -149,7 +152,7 @@ def sum_loss(
         # horizontal transition Q(t-1, u, non-blank)
         log_mass_horizontal = log_q_label
         if horizontal_prior and use_prior:
-            log_mass_horizontal -= log_prior[out_idx_vocab].unsqueeze(0) # divide by prior
+            log_mass_horizontal = log_mass_horizontal - log_prior[out_idx_vocab].unsqueeze(0) # divide by prior
         
         # diagonal transition sum_v Q(t-1, v, blank) * p_LM(u|v) / p_PR(u)
         # take batch index b into account, this is equivalent to compute
@@ -158,18 +161,18 @@ def sum_loss(
         # important: in this transition, there is a prefix empty^(t-1) that is not covered in the Q(t-1,v,blank)
         # this is covered in log_partial_empty_seq_prob[t-1]
         log_prev_partial_seq_probs = torch.cat([log_partial_empty_seq_prob[t-1].unsqueeze(-1), log_q_blank], dim=-1)
-        log_mass_diagonal = log_matmul_old(log_prev_partial_seq_probs, log_lm_probs_scaled[out_idx_vocab_w_eos][:, out_idx_vocab]) # (B, V) @ (V, V-1)
+        log_mass_diagonal = log_matmul_old(log_prev_partial_seq_probs, log_lm_probs[out_idx_vocab_w_eos][:, out_idx_vocab]) # (B, V) @ (V, V-1)
         if use_prior:
-            log_mass_diagonal -= log_prior[out_idx_vocab].unsqueeze(0) # divide by prior
+            log_mass_diagonal = log_mass_diagonal - log_prior[out_idx_vocab].unsqueeze(0) # divide by prior
         
         # skip transition sum{w!=u} Q(t-1, w, non-blank) * p_LM(u|w) / p_PR(u)
         # same consideration as diagonal transition
-        log_mass_skip = log_matmul_old(log_q_label, log_lm_probs_scaled_wo_eos)
+        log_mass_skip = log_matmul_old(log_q_label, log_lm_probs_wo_eos)
         if use_prior:
-            log_mass_skip -= log_prior[out_idx_vocab].unsqueeze(0) # divide by prior
+            log_mass_skip = log_mass_skip - log_prior[out_idx_vocab].unsqueeze(0) # divide by prior
         
         # multiply with p_AM(u|x_t)
-        new_log_q_label = log_probs_scaled[t][:, out_idx_vocab] + safe_logsumexp(torch.stack([log_mass_horizontal, log_mass_diagonal, log_mass_skip], dim=-1), dim=-1)
+        new_log_q_label = log_probs[t][:, out_idx_vocab] + safe_logsumexp(torch.stack([log_mass_horizontal, log_mass_diagonal, log_mass_skip], dim=-1), dim=-1)
         
         # set masked results to log_q
         time_mask = (t < input_lengths).unsqueeze(-1).expand(-1, vocab_size)
@@ -180,7 +183,7 @@ def sum_loss(
         torch.cuda.empty_cache()
     
     # multiply last Q with p_LM(eos | u) and devide by prior of EOS
-    log_q += log_lm_probs_scaled[out_idx_vocab, eos_symbol].unsqueeze(0)
+    log_q = log_q + log_lm_probs[out_idx_vocab, eos_symbol].unsqueeze(0)
     
     # sum over the last two dimensions
     sum_score = safe_logsumexp(log_q, dim=-1)
@@ -420,15 +423,15 @@ def test():
     
     # torch.cuda.set_sync_debug_mode(1)
     
-    device = torch.device("cuda:0")
-    # device = torch.device("cpu")
+    # device = torch.device("cuda:0")
+    device = torch.device("cpu")
     
     batch_size = 12 # 14000 per GPU, 1250 stpes a 12 seqs (0.7 sec/step)
     vocab_size = 185
     frames = 100
     
-    # torch.manual_seed(0)
-    # torch.cuda.manual_seed_all(0)
+    torch.manual_seed(0)
+    torch.cuda.manual_seed_all(0)
     ag = PrintGradients.apply
     
     lm = torch.randn(vocab_size - 1, vocab_size - 1, device=device)
@@ -436,7 +439,7 @@ def test():
     
     l = torch.tensor([0.0], device=device)
     s1 = time.time()
-    for i in range(20):
+    for i in range(1):
         s = time.time()
         am = torch.randn(frames, batch_size, vocab_size, requires_grad=True, device=device)
         am = torch.nn.functional.log_softmax(am, dim=-1)
@@ -456,12 +459,14 @@ def test():
         
         loss = sum_loss(
             log_probs=am,
-            log_lm_probs=lm,
+            log_lm_probs_list=[lm],
             log_prior=prior,
             input_lengths=length,
             LM_order=2,
             am_scale=1.0,
-            lm_scale=1.0,
+            lm_scale=1.9,
+            prior_scale=0.2,
+            horizontal_prior=True,
             blank_idx=184,
             eos_idx=0,
         )

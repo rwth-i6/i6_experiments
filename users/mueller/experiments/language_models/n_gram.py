@@ -322,7 +322,7 @@ from i6_experiments.users.zeyer.datasets.utils.bpe import Bpe
 from i6_experiments.common.helpers.text_labels.subword_nmt_bpe import get_returnn_subword_nmt
 from i6_experiments.common.baselines.tedlium2.default_tools import SRILM_PATH
 
-def get_count_based_n_gram(vocab: Bpe, N_order: int) -> tk.Path:
+def get_count_based_n_gram(vocab: Bpe, N_order: int) -> list[tk.Path]:
     kenlm_repo = CloneGitRepositoryJob("https://github.com/kpu/kenlm").out_repository.copy()
     KENLM_BINARY_PATH = CompileKenLMJob(repository=kenlm_repo).out_binaries.copy()
     KENLM_BINARY_PATH.hash_overwrite = "LIBRISPEECH_DEFAULT_KENLM_BINARY_PATH"
@@ -361,15 +361,19 @@ def get_count_based_n_gram(vocab: Bpe, N_order: int) -> tk.Path:
     
     tk.register_output(f"datasets/LibriSpeech/lm/count_based_{N_order}-gram", ppl_job.out_ppl_score)
     
-    conversion_job = ConvertARPAtoTensor(
-        lm=lm_arpa,
-        bpe_vocab=vocab.vocab,
-        N_order=N_order,
-    )
+    res = []
+    for N in range(2, N_order+1):
+        conversion_job = ConvertARPAtoTensor(
+            lm=lm_arpa,
+            bpe_vocab=vocab.vocab,
+            N_order=N,
+        )
+        
+        conversion_job.add_alias(f"datasets/LibriSpeech/lm/count_based_{N}-gram")
+        
+        res.append(conversion_job.out_lm_tensor)
     
-    conversion_job.add_alias(f"datasets/LibriSpeech/lm/count_based_{N_order}-gram")
-    
-    return conversion_job.out_lm_tensor
+    return res
 
 
 class ConvertARPAtoTensor(Job):
@@ -410,10 +414,14 @@ class ConvertARPAtoTensor(Job):
         tensor = torch.pow(10, tensor)
         
         atol = 0.005
-        assert tensor.sum(1)[0].allclose(torch.tensor(1.0), atol=atol), "The next word probabilities for <s> do not sum to 1!"
-        assert tensor.sum(1)[1].allclose(torch.tensor(0.0)), "Prob of <unk> should be 0! (1)"
-        assert tensor.sum(1)[2:].allclose(torch.tensor(1.0), atol=atol), "The next word probabilities do not sum to 1!"
-        assert tensor.sum(0)[1].allclose(torch.tensor(0.0)), "Prob of <unk> should be 0! (2)"
+        if self.N_order == 2:
+            s = tensor.sum(1)
+            assert s[0].allclose(torch.tensor(1.0), atol=atol), f"The next word probabilities for <s> do not sum to 1! {s[0]}"
+            assert s[1].allclose(torch.tensor(0.0)), f"Prob of <unk> should be 0! (1) {s[1]}"
+            assert s[2:].allclose(torch.tensor(1.0), atol=atol), f"The next word probabilities do not sum to 1! {s[2:]}"
+        else:
+            assert (tensor.sum(-1) < 1.0).all(), f"The next word probabilities are not smaller than 1! {tensor.sum(-1)}"
+        assert tensor.sum(tuple(range(0, self.N_order-1)))[1].allclose(torch.tensor(0.0)), f"Prob of <unk> should be 0! (2) {tensor.sum(tuple(range(0, self.N_order-1)))[1]}"
         
         tensor = tensor.log()
         
