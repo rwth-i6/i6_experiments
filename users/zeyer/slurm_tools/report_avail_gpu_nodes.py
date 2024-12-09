@@ -39,7 +39,7 @@ def main():
         state, *state_flags = node_info["State"].split("+")
         if state not in {"ALLOCATED", "IDLE", "MIXED"}:
             continue
-        if "RESERVED" in state_flags:
+        if "RESERVED" in state_flags or "DRAIN" in state_flags:
             continue
         cfg_tres = parse_tres(node_info["CfgTRES"])
         alloc_tres = parse_tres(node_info.get("AllocTRES", ""))

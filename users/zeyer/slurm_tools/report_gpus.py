@@ -53,7 +53,7 @@ def main():
                 key = (count_arg, partition)
                 if "RESERVED" in state_flags:
                     reserved[key] += node_total_count
-                elif state in {"ALLOCATED", "IDLE", "MIXED"}:
+                elif state in {"ALLOCATED", "IDLE", "MIXED"} and "DRAIN" not in state_flags:
                     total[key] += node_total_count
                     alloc[key] += node_alloc_count
                 else:
