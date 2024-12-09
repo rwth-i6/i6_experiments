@@ -39,6 +39,7 @@ def main():
     total = defaultdict(int)
     alloc = defaultdict(int)
     reserved = defaultdict(int)
+    drain = defaultdict(int)
     down = defaultdict(int)
     for _, node_info in nodes_info.items():
         for partition in node_info.get("Partitions", "").split(","):
@@ -53,7 +54,9 @@ def main():
                 key = (count_arg, partition)
                 if "RESERVED" in state_flags:
                     reserved[key] += node_total_count
-                elif state in {"ALLOCATED", "IDLE", "MIXED"} and "DRAIN" not in state_flags:
+                elif "DRAIN" in state_flags:
+                    drain[key] += node_total_count
+                elif state in {"ALLOCATED", "IDLE", "MIXED"}:
                     total[key] += node_total_count
                     alloc[key] += node_alloc_count
                 else:
@@ -63,10 +66,11 @@ def main():
         total_ = total[key]
         alloc_ = alloc[key]
         reserved_ = reserved[key]
+        drain_ = drain[key]
         down_ = down[key]
         print(
             f"Count {key}: {alloc_}/{total_} used, {total_ - alloc_}/{total_} free,"
-            f" {reserved_} reserved, {down_} down"
+            f" {drain_} drain, {reserved_} reserved, {down_} down"
         )
 
 
