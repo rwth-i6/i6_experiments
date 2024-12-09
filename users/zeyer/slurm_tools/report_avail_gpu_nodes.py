@@ -52,7 +52,7 @@ def main():
             if node_total_count > node_alloc_count:
                 has_free.append(count_arg)
         if has_free:
-            print(f"Node {node_name} ({node_info['Partitions']}) has free {','.join(count_args)}:")
+            print(f"Node {node_name} ({node_info.get('Partitions', '')}) has free {','.join(count_args)}:")
             for k, v in cfg_tres.items():
                 f = _identity
                 if k == "mem":

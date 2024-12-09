@@ -41,7 +41,7 @@ def main():
     reserved = defaultdict(int)
     down = defaultdict(int)
     for _, node_info in nodes_info.items():
-        for partition in node_info["Partitions"].split(","):
+        for partition in node_info.get("Partitions", "").split(","):
             state, *state_flags = node_info["State"].split("+")
             cfg_tres = parse_tres(node_info["CfgTRES"])
             alloc_tres = parse_tres(node_info.get("AllocTRES", ""))
