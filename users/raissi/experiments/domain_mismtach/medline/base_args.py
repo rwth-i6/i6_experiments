@@ -171,7 +171,7 @@ def _get_eval_corpus_object_dict(name: str, version: int=1, noise: float = 0.7, 
 
 
 def get_corpus_data_inputs(
-    corpus_key: str, version: int = 1, noise: float=0.7, segment_mapping_domain:Dict = None, use_g2p_training: bool = True, use_stress_marker: bool = False
+    corpus_key: str, version: int = 1, noise: float=0.7, segment_mapping_domain:Dict = None, add_unknown_for_medline_lex: bool=True, use_g2p_training: bool = True, use_stress_marker: bool = False
 ) -> CorpusData:
     """
     Create the corpus data for any LibriSpeech RASR setup
@@ -223,8 +223,9 @@ def get_corpus_data_inputs(
     else:
         corpus_object_dev = _get_eval_corpus_object_dict(name="dev", version=version, noise=noise)["dev"]
 
+    med_lex = MEDLINE_DATA["dev"][version][noise].lexicon_with_unk if add_unknown_for_medline_lex else MEDLINE_DATA["dev"][version][noise].lexicon_no_unk
     oov_lexicon_medline = {
-        "filename": MEDLINE_DATA["dev"][version][noise].lexicon_with_unk,
+        "filename": med_lex,
         "normalize_pronunciation": False,
     }
 
