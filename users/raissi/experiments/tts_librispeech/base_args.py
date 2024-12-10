@@ -15,6 +15,7 @@ import i6_core.features as features
 import i6_core.rasr as rasr
 from i6_core.audio import BlissChangeEncodingJob
 import i6_core.meta as meta
+from i6_core.meta import CorpusObject
 
 from i6_experiments.common.baselines.librispeech.data import CorpusData
 from i6_experiments.common.datasets.librispeech import (
@@ -80,7 +81,7 @@ def get_init_args(
     )
 
 
-def get_eval_corpus_object_dict(ogg_corpus):
+def get_eval_corpus_object_dict(ogg_corpus: CorpusObject):
     conversion_job = BlissChangeEncodingJob(
         corpus_file=ogg_corpus, output_format="wav", sample_rate=16000
     )

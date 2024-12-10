@@ -36,29 +36,66 @@ from i6_experiments.users.raissi.setups.common.data.pipeline_helpers import Inpu
 
 @dataclass
 class DATASET:
-    lexicon: tk.Path
+    lexicon_with_unk: tk.Path
+    lexicon_no_unk: tk.Path
     corpus: tk.Path
     description: Optional[str]
     lm: Optional[tk.Path] = None
 
 
-
-prepath_data = "/work/asr3/raissi/data/domain_mismatch/medline"
-
-
-
-MEDLINE_V1_DEV_DATA = DATASET(
-    lexicon=tk.Path(f"{prepath_data}/lexicon/v1/oov.lexicon.gz", cached=True, hash_overwrite="v1_nick"),
-    corpus=tk.Path(f"{prepath_data}/corpus/v1/corpus_ogg.xml.gz", cached=True, hash_overwrite="v1_nick"),
-    lm=tk.Path(f"{prepath_data}/lm/v1/ufal_version1_lm1.gz", cached=True, hash_overwrite="v1_nick"),
+#################
+prepath_data_v1 = "/work/asr3/raissi/data/domain_mismatch/medline"
+MEDLINE_V1_DEV_DATA = {
+    0.7: DATASET(
+    lexicon_with_unk=tk.Path(f"{prepath_data_v1}/lexicon/v1/oov.lexicon.gz", cached=True, hash_overwrite="v1_nick"),
+    lexicon_no_unk=tk.Path(f"{prepath_data_v1}/ufal_librispeech_lexicon_rasr_without_unk.xml.gz", cached=True),
+    corpus=tk.Path(f"{prepath_data_v1}/corpus/v1/corpus_ogg.xml.gz", cached=True, hash_overwrite="v1_nick"),
+    lm=tk.Path(f"{prepath_data_v1}/lm/v1/ufal_version1_lm1.gz", cached=True, hash_overwrite="v1_nick"),
     description="first quick dirty version just to gte the pipeline ready."
 )
+}
+#################
+prepath_corpora = "/u/rossenbach/experiments/tts_decoder_asr/output/domain_test_tina_export"
+dev_other_noise07 = tk.Path(("/").join([prepath_corpora, "wmt22_medline_v1_sequiturg2p_glowtts460_noise07.xml.gz"]),cached=True, hash_overwrite="GLOWTTS_V1_DEV_MED_07")
+dev_other_noise03 = tk.Path(("/").join([prepath_corpora, "wmt22_medline_v1_sequiturg2p_glowtts460_noise03.xml.gz"]),cached=True, hash_overwrite="GLOWTTS_V1_DEV_MED_03")
+
+MEDLINE_V11_DEV_DATA = {
+    0.7: DATASET(
+    lexicon_with_unk=tk.Path(f"{prepath_data_v1}/lexicon/v1/oov.lexicon.gz", cached=True, hash_overwrite="v1_nick"),
+    lexicon_no_unk=tk.Path(f"{prepath_data_v1}/ufal_librispeech_lexicon_rasr_without_unk.xml.gz", cached=True),
+    corpus=dev_other_noise07,
+    lm=tk.Path(f"{prepath_data_v1}/lm/v1/ufal_version1_lm1.gz", cached=True, hash_overwrite="v1_nick"),
+    description="based on version 1 using the correct data input."),
+    0.3: DATASET(
+    lexicon_with_unk=tk.Path(f"{prepath_data_v1}/lexicon/v1/oov.lexicon.gz", cached=True, hash_overwrite="v1_nick"),
+    lexicon_no_unk=tk.Path(f"{prepath_data_v1}/ufal_librispeech_lexicon_rasr_without_unk.xml.gz", cached=True),
+    corpus=dev_other_noise03,
+    lm=tk.Path(f"{prepath_data_v1}/lm/v1/ufal_version1_lm1.gz", cached=True, hash_overwrite="v1_nick"),
+    description="based on version 1 using the correct data input.")
+}
+#################
+
+MEDLINE_V2_DEV_DATA = {
+    0.7: DATASET(
+        lexicon_with_unk=tk.Path(f"{prepath_data_v1}/lexicon/v1/oov.lexicon.gz", cached=True, hash_overwrite="v1_nick"),
+        lexicon_no_unk=tk.Path(f"{prepath_data_v1}/ufal_librispeech_lexicon_rasr_without_unk.xml.gz", cached=True),
+    corpus=dev_other_noise07,
+    lm=tk.Path(f"{prepath_data_v1}/lm/v1/ufal_version1_lm1.gz", cached=True, hash_overwrite="v1_nick"),
+    description="based on version 1 using the correct data input."),
+    0.3: DATASET(
+        lexicon_with_unk=tk.Path(f"{prepath_data_v1}/lexicon/v1/oov.lexicon.gz", cached=True, hash_overwrite="v1_nick"),
+        lexicon_no_unk=tk.Path(f"{prepath_data_v1}/ufal_librispeech_lexicon_rasr_without_unk.xml.gz", cached=True),
+    corpus=dev_other_noise03,
+    lm=tk.Path(f"{prepath_data_v1}/lm/v1/ufal_version1_lm1.gz", cached=True, hash_overwrite="v1_nick"),
+    description="based on version 1 using the correct data input.")
+}
 
 
 MEDLINE_CORPORA = ["dev"]
 MEDLINE_DURATIONS = {"dev": 1.0}
 MEDLINE_DEV_VERSIONS={
     1: MEDLINE_V1_DEV_DATA,
+    1.1: MEDLINE_V11_DEV_DATA
 }
 
 MEDLINE_TEST_VERSIONS={}
@@ -96,14 +133,14 @@ def _get_bliss_corpus_dict(corpus, segment_mapping, compressed=True):
 
     return corpus_files
 
-def _get_eval_corpus_object_dict(name: str, version: int=1, segment_mapping: tk.Path=None):
+def _get_eval_corpus_object_dict(name: str, version: int=1, noise: float = 0.7, segment_mapping: tk.Path=None):
     """
     You can either have a segment list and divide a corpus into subcopora or you call this for a specific corpus
     """
     assert version in MEDLINE_DATA[name].keys()
     assert name in MEDLINE_DATA
 
-    corpus = MEDLINE_DATA[name][version].corpus
+    corpus = MEDLINE_DATA[name][version][noise].corpus
 
     if segment_mapping is not None:
         corpora = _get_bliss_corpus_dict(
@@ -134,7 +171,7 @@ def _get_eval_corpus_object_dict(name: str, version: int=1, segment_mapping: tk.
 
 
 def get_corpus_data_inputs(
-    corpus_key: str, version: int = 1, segment_mapping_domain:Dict = None, use_g2p_training: bool = True, use_stress_marker: bool = False
+    corpus_key: str, version: int = 1, noise: float=0.7, segment_mapping_domain:Dict = None, use_g2p_training: bool = True, use_stress_marker: bool = False
 ) -> CorpusData:
     """
     Create the corpus data for any LibriSpeech RASR setup
@@ -184,15 +221,15 @@ def get_corpus_data_inputs(
         corpus_object_test = corpus_object_dict_medline_all["test"]
 
     else:
-        corpus_object_dev = _get_eval_corpus_object_dict(name="dev", version=version)["dev"]
+        corpus_object_dev = _get_eval_corpus_object_dict(name="dev", version=version, noise=noise)["dev"]
 
     oov_lexicon_medline = {
-        "filename": MEDLINE_DATA["dev"][version].lexicon,
+        "filename": MEDLINE_DATA["dev"][version][noise].lexicon_with_unk,
         "normalize_pronunciation": False,
     }
 
     lm_medline = {
-        "filename": MEDLINE_DATA["dev"][version].lm,
+        "filename": MEDLINE_DATA["dev"][version][noise].lm,
         "type": "ARPA",
         "scale": 2.0,
     }
