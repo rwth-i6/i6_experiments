@@ -34,6 +34,7 @@ from i6_experiments.users.raissi.args.rasr.features.init_args import get_feature
 from i6_experiments.users.raissi.args.rasr.am.init_args import get_init_am_args
 from i6_experiments.users.raissi.setups.common.data.pipeline_helpers import InputKey
 
+
 @dataclass
 class DATASET:
     lexicon_with_unk: tk.Path
@@ -47,31 +48,43 @@ class DATASET:
 prepath_data_v1 = "/work/asr3/raissi/data/domain_mismatch/medline"
 MEDLINE_V1_DEV_DATA = {
     0.7: DATASET(
-    lexicon_with_unk=tk.Path(f"{prepath_data_v1}/lexicon/v1/oov.lexicon.gz", cached=True, hash_overwrite="v1_nick"),
-    lexicon_no_unk=tk.Path(f"{prepath_data_v1}/ufal_librispeech_lexicon_rasr_without_unk.xml.gz", cached=True),
-    corpus=tk.Path(f"{prepath_data_v1}/corpus/v1/corpus_ogg.xml.gz", cached=True, hash_overwrite="v1_nick"),
-    lm=tk.Path(f"{prepath_data_v1}/lm/v1/ufal_version1_lm1.gz", cached=True, hash_overwrite="v1_nick"),
-    description="first quick dirty version just to gte the pipeline ready."
-)
+        lexicon_with_unk=tk.Path(f"{prepath_data_v1}/lexicon/v1/oov.lexicon.gz", cached=True, hash_overwrite="v1_nick"),
+        lexicon_no_unk=tk.Path(
+            f"{prepath_data_v1}/lexicon/v1/ufal_librispeech_lexicon_rasr_without_unk.xml.gz", cached=True
+        ),
+        corpus=tk.Path(f"{prepath_data_v1}/corpus/v1/corpus_ogg.xml.gz", cached=True, hash_overwrite="v1_nick"),
+        lm=tk.Path(f"{prepath_data_v1}/lm/v1/ufal_version1_lm1.gz", cached=True, hash_overwrite="v1_nick"),
+        description="first quick dirty version just to gte the pipeline ready.",
+    )
 }
 #################
 prepath_corpora = "/u/rossenbach/experiments/tts_decoder_asr/output/domain_test_tina_export"
-dev_other_noise07 = tk.Path(("/").join([prepath_corpora, "wmt22_medline_v1_sequiturg2p_glowtts460_noise07.xml.gz"]),cached=True, hash_overwrite="GLOWTTS_V1_DEV_MED_07")
-dev_other_noise03 = tk.Path(("/").join([prepath_corpora, "wmt22_medline_v1_sequiturg2p_glowtts460_noise03.xml.gz"]),cached=True, hash_overwrite="GLOWTTS_V1_DEV_MED_03")
+dev_other_noise07 = tk.Path(
+    ("/").join([prepath_corpora, "wmt22_medline_v1_sequiturg2p_glowtts460_noise07.xml.gz"]),
+    cached=True,
+    hash_overwrite="GLOWTTS_V1_DEV_MED_07",
+)
+dev_other_noise03 = tk.Path(
+    ("/").join([prepath_corpora, "wmt22_medline_v1_sequiturg2p_glowtts460_noise03.xml.gz"]),
+    cached=True,
+    hash_overwrite="GLOWTTS_V1_DEV_MED_03",
+)
 
 MEDLINE_V11_DEV_DATA = {
     0.7: DATASET(
-    lexicon_with_unk=tk.Path(f"{prepath_data_v1}/lexicon/v1/oov.lexicon.gz", cached=True, hash_overwrite="v1_nick"),
-    lexicon_no_unk=tk.Path(f"{prepath_data_v1}/ufal_librispeech_lexicon_rasr_without_unk.xml.gz", cached=True),
-    corpus=dev_other_noise07,
-    lm=tk.Path(f"{prepath_data_v1}/lm/v1/ufal_version1_lm1.gz", cached=True, hash_overwrite="v1_nick"),
-    description="based on version 1 using the correct data input."),
+        lexicon_with_unk=tk.Path(f"{prepath_data_v1}/lexicon/v1/oov.lexicon.gz", cached=True, hash_overwrite="v1_nick"),
+        lexicon_no_unk=tk.Path(f"{prepath_data_v1}/ufal_librispeech_lexicon_rasr_without_unk.xml.gz", cached=True),
+        corpus=dev_other_noise07,
+        lm=tk.Path(f"{prepath_data_v1}/lm/v1/ufal_version1_lm1.gz", cached=True, hash_overwrite="v1_nick"),
+        description="based on version 1 using the correct data input.",
+    ),
     0.3: DATASET(
-    lexicon_with_unk=tk.Path(f"{prepath_data_v1}/lexicon/v1/oov.lexicon.gz", cached=True, hash_overwrite="v1_nick"),
-    lexicon_no_unk=tk.Path(f"{prepath_data_v1}/ufal_librispeech_lexicon_rasr_without_unk.xml.gz", cached=True),
-    corpus=dev_other_noise03,
-    lm=tk.Path(f"{prepath_data_v1}/lm/v1/ufal_version1_lm1.gz", cached=True, hash_overwrite="v1_nick"),
-    description="based on version 1 using the correct data input.")
+        lexicon_with_unk=tk.Path(f"{prepath_data_v1}/lexicon/v1/oov.lexicon.gz", cached=True, hash_overwrite="v1_nick"),
+        lexicon_no_unk=tk.Path(f"{prepath_data_v1}/ufal_librispeech_lexicon_rasr_without_unk.xml.gz", cached=True),
+        corpus=dev_other_noise03,
+        lm=tk.Path(f"{prepath_data_v1}/lm/v1/ufal_version1_lm1.gz", cached=True, hash_overwrite="v1_nick"),
+        description="based on version 1 using the correct data input.",
+    ),
 }
 #################
 
@@ -79,33 +92,30 @@ MEDLINE_V2_DEV_DATA = {
     0.7: DATASET(
         lexicon_with_unk=tk.Path(f"{prepath_data_v1}/lexicon/v1/oov.lexicon.gz", cached=True, hash_overwrite="v1_nick"),
         lexicon_no_unk=tk.Path(f"{prepath_data_v1}/ufal_librispeech_lexicon_rasr_without_unk.xml.gz", cached=True),
-    corpus=dev_other_noise07,
-    lm=tk.Path(f"{prepath_data_v1}/lm/v1/ufal_version1_lm1.gz", cached=True, hash_overwrite="v1_nick"),
-    description="based on version 1 using the correct data input."),
+        corpus=dev_other_noise07,
+        lm=tk.Path(f"{prepath_data_v1}/lm/v1/ufal_version1_lm1.gz", cached=True, hash_overwrite="v1_nick"),
+        description="based on version 1 using the correct data input.",
+    ),
     0.3: DATASET(
         lexicon_with_unk=tk.Path(f"{prepath_data_v1}/lexicon/v1/oov.lexicon.gz", cached=True, hash_overwrite="v1_nick"),
         lexicon_no_unk=tk.Path(f"{prepath_data_v1}/ufal_librispeech_lexicon_rasr_without_unk.xml.gz", cached=True),
-    corpus=dev_other_noise03,
-    lm=tk.Path(f"{prepath_data_v1}/lm/v1/ufal_version1_lm1.gz", cached=True, hash_overwrite="v1_nick"),
-    description="based on version 1 using the correct data input.")
+        corpus=dev_other_noise03,
+        lm=tk.Path(f"{prepath_data_v1}/lm/v1/ufal_version1_lm1.gz", cached=True, hash_overwrite="v1_nick"),
+        description="based on version 1 using the correct data input.",
+    ),
 }
 
 
 MEDLINE_CORPORA = ["dev"]
 MEDLINE_DURATIONS = {"dev": 1.0}
-MEDLINE_DEV_VERSIONS={
-    1: MEDLINE_V1_DEV_DATA,
-    1.1: MEDLINE_V11_DEV_DATA
-}
+MEDLINE_DEV_VERSIONS = {1: MEDLINE_V1_DEV_DATA, 1.1: MEDLINE_V11_DEV_DATA}
 
-MEDLINE_TEST_VERSIONS={}
+MEDLINE_TEST_VERSIONS = {}
 
 
 MEDLINE_DATA = {
     "dev": MEDLINE_DEV_VERSIONS,
 }
-
-
 
 
 """
@@ -124,16 +134,14 @@ def _get_bliss_corpus_dict(corpus, segment_mapping, compressed=True):
 
     for key in segment_mapping.keys():
         filter_job = corpus_recipes.FilterCorpusBySegmentsJob(
-            bliss_corpus=corpus,
-            segment_file=segment_mapping[key],
-            compressed=compressed,
-            invert_match=False
+            bliss_corpus=corpus, segment_file=segment_mapping[key], compressed=compressed, invert_match=False
         )
         corpus_files[key] = filter_job.out_corpus
 
     return corpus_files
 
-def _get_eval_corpus_object_dict(name: str, version: int=1, noise: float = 0.7, segment_mapping: tk.Path=None):
+
+def _get_eval_corpus_object_dict(name: str, version: int = 1, noise: float = 0.7, segment_mapping: tk.Path = None):
     """
     You can either have a segment list and divide a corpus into subcopora or you call this for a specific corpus
     """
@@ -147,31 +155,31 @@ def _get_eval_corpus_object_dict(name: str, version: int=1, noise: float = 0.7, 
             corpus=corpus,
             compressed=True,
             segment_mapping=segment_mapping,
-
         )
     else:
         corpora = {name: corpus}
 
-
-
     corpus_object_dict = {}
     for k, v in corpora.items():
-        conversion_job = BlissChangeEncodingJob(
-            corpus_file=v, output_format="wav", sample_rate=16000
-        )
+        conversion_job = BlissChangeEncodingJob(corpus_file=v, output_format="wav", sample_rate=16000)
         crp_obj = meta.CorpusObject()
         crp_obj.corpus_file = conversion_job.out_corpus
-        crp_obj.audio_dir =  conversion_job.out_audio_folder
+        crp_obj.audio_dir = conversion_job.out_audio_folder
         crp_obj.audio_format = "wav"
         crp_obj.duration = MEDLINE_DURATIONS[k]
         corpus_object_dict[k] = crp_obj
-
 
     return corpus_object_dict
 
 
 def get_corpus_data_inputs(
-    corpus_key: str, version: int = 1, noise: float=0.7, segment_mapping_domain:Dict = None, add_unknown_for_medline_lex: bool=True, use_g2p_training: bool = True, use_stress_marker: bool = False
+    corpus_key: str,
+    version: int = 1,
+    noise: float = 0.7,
+    segment_mapping_domain: Dict = None,
+    add_unknown_for_medline_lex: bool = True,
+    use_g2p_training: bool = True,
+    use_stress_marker: bool = False,
 ) -> CorpusData:
     """
     Create the corpus data for any LibriSpeech RASR setup
@@ -213,17 +221,23 @@ def get_corpus_data_inputs(
     else:
         train_lexicon = lexicon_lbs
 
-    #domain dev_data
+    # domain dev_data
     if segment_mapping_domain is not None:
 
-        corpus_object_dict_medline_all = _get_eval_corpus_object_dict(name="all", version=version, segment_mapping=segment_mapping_domain)
+        corpus_object_dict_medline_all = _get_eval_corpus_object_dict(
+            name="all", version=version, segment_mapping=segment_mapping_domain
+        )
         corpus_object_dev = corpus_object_dict_medline_all["dev"]
         corpus_object_test = corpus_object_dict_medline_all["test"]
 
     else:
         corpus_object_dev = _get_eval_corpus_object_dict(name="dev", version=version, noise=noise)["dev"]
 
-    med_lex = MEDLINE_DATA["dev"][version][noise].lexicon_with_unk if add_unknown_for_medline_lex else MEDLINE_DATA["dev"][version][noise].lexicon_no_unk
+    med_lex = (
+        MEDLINE_DATA["dev"][version][noise].lexicon_with_unk
+        if add_unknown_for_medline_lex
+        else MEDLINE_DATA["dev"][version][noise].lexicon_no_unk
+    )
     oov_lexicon_medline = {
         "filename": med_lex,
         "normalize_pronunciation": False,
@@ -238,7 +252,6 @@ def get_corpus_data_inputs(
     train_data_inputs = {}
     dev_data_inputs = {}
     test_data_inputs = {}
-
 
     ##standard LBS 960h
     train_data_inputs[corpus_key] = RasrDataInput(
@@ -262,8 +275,6 @@ def get_corpus_data_inputs(
             lm=lm_lbs,
         )
 
-
-
     return CorpusData(
         train_data=train_data_inputs,
         dev_data=dev_data_inputs,
@@ -275,7 +286,7 @@ def get_number_of_segments():
     num_segments = constants.num_segments
     num_segments[f"train-other-960"] = 0
     for subset in ["clean-100", "clean-360", "other-500"]:
-        num_segments[f"train-other-960"]+= num_segments[f"train-{subset}"]
+        num_segments[f"train-other-960"] += num_segments[f"train-{subset}"]
     return num_segments
 
 
@@ -313,6 +324,7 @@ def get_init_args(
         am_args=am_args,
         feature_extraction_args=feature_extraction_args,
     )
+
 
 def get_final_output(name=InputKey.BASE):
     output_args = rasr_util.OutputArgs(name)
