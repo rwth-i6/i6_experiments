@@ -44,71 +44,128 @@ class DATASET:
     lm: Optional[tk.Path] = None
 
 
-#################
-prepath_data_v1 = "/work/asr3/raissi/data/domain_mismatch/medline"
-MEDLINE_V1_DEV_DATA = {
-    0.7: DATASET(
-        lexicon_with_unk=tk.Path(f"{prepath_data_v1}/lexicon/v1/oov.lexicon.gz", cached=True, hash_overwrite="v1_nick"),
-        lexicon_no_unk=tk.Path(
-            f"{prepath_data_v1}/lexicon/v1/ufal_librispeech_lexicon_rasr_without_unk.xml.gz", cached=True
-        ),
-        corpus=tk.Path(f"{prepath_data_v1}/corpus/v1/corpus_ogg.xml.gz", cached=True, hash_overwrite="v1_nick"),
-        lm=tk.Path(f"{prepath_data_v1}/lm/v1/ufal_version1_lm1.gz", cached=True, hash_overwrite="v1_nick"),
-        description="first quick dirty version just to gte the pipeline ready.",
-    )
-}
-#################
-prepath_corpora = "/u/rossenbach/experiments/tts_decoder_asr/output/domain_test_tina_export"
-dev_other_noise07 = tk.Path(
-    ("/").join([prepath_corpora, "wmt22_medline_v1_sequiturg2p_glowtts460_noise07.xml.gz"]),
+PREPATH_ASR3 = "/work/asr3/raissi/data/domain_mismatch/medline"
+PREPATH_CORPORA = "/u/rossenbach/experiments/tts_decoder_asr/output/domain_test_tina_export"
+
+wmt22_medline_noise07 = tk.Path(
+    ("/").join([PREPATH_CORPORA, "wmt22_medline_v1_sequiturg2p_glowtts460_noise07.xml.gz"]),
     cached=True,
     hash_overwrite="GLOWTTS_V1_DEV_MED_07",
 )
-dev_other_noise03 = tk.Path(
-    ("/").join([prepath_corpora, "wmt22_medline_v1_sequiturg2p_glowtts460_noise03.xml.gz"]),
+wmt22_medline_noise03 = tk.Path(
+    ("/").join([PREPATH_CORPORA, "wmt22_medline_v1_sequiturg2p_glowtts460_noise03.xml.gz"]),
     cached=True,
     hash_overwrite="GLOWTTS_V1_DEV_MED_03",
 )
+#################
+
+MEDLINE_V1_DEV_DATA = {
+    0.7: DATASET(
+        lexicon_with_unk=tk.Path(f"{PREPATH_ASR3}/lexicon/v1/oov.lexicon.gz", cached=True, hash_overwrite="v1_nick"),
+        lexicon_no_unk=tk.Path(
+            f"{PREPATH_ASR3}/lexicon/v1/ufal_librispeech_lexicon_rasr_without_unk.xml.gz", cached=True
+        ),
+        corpus=tk.Path(f"{PREPATH_ASR3}/corpus/v1/corpus_ogg.xml.gz", cached=True, hash_overwrite="v1_nick"),
+        lm=tk.Path(f"{PREPATH_ASR3}/lm/v1/ufal_version1_lm1.gz", cached=True, hash_overwrite="v1_nick"),
+        description="first quick dirty version just to gte the pipeline ready. lexicon have words that appear 2 times or more"
+        "mix between LBs and medline",
+    )
+}
+#################
+
 
 MEDLINE_V11_DEV_DATA = {
     0.7: DATASET(
-        lexicon_with_unk=tk.Path(f"{prepath_data_v1}/lexicon/v1/oov.lexicon.gz", cached=True, hash_overwrite="v1_nick"),
-        lexicon_no_unk=tk.Path(f"{prepath_data_v1}/ufal_librispeech_lexicon_rasr_without_unk.xml.gz", cached=True),
-        corpus=dev_other_noise07,
-        lm=tk.Path(f"{prepath_data_v1}/lm/v1/ufal_version1_lm1.gz", cached=True, hash_overwrite="v1_nick"),
+        lexicon_with_unk=tk.Path(f"{PREPATH_ASR3}/lexicon/v1/oov.lexicon.gz", cached=True, hash_overwrite="v1_nick"),
+        lexicon_no_unk=tk.Path(
+            f"{PREPATH_ASR3}/lexicon/v1/ufal_librispeech_lexicon_rasr_without_unk.xml.gz", cached=True
+        ),
+        corpus=wmt22_medline_noise07,
+        lm=tk.Path(f"{PREPATH_ASR3}/lm/v1/ufal_version1_lm1.gz", cached=True, hash_overwrite="v1_nick"),
         description="based on version 1 using the correct data input.",
     ),
     0.3: DATASET(
-        lexicon_with_unk=tk.Path(f"{prepath_data_v1}/lexicon/v1/oov.lexicon.gz", cached=True, hash_overwrite="v1_nick"),
-        lexicon_no_unk=tk.Path(f"{prepath_data_v1}/ufal_librispeech_lexicon_rasr_without_unk.xml.gz", cached=True),
-        corpus=dev_other_noise03,
-        lm=tk.Path(f"{prepath_data_v1}/lm/v1/ufal_version1_lm1.gz", cached=True, hash_overwrite="v1_nick"),
+        lexicon_with_unk=tk.Path(f"{PREPATH_ASR3}/lexicon/v1/oov.lexicon.gz", cached=True, hash_overwrite="v1_nick"),
+        lexicon_no_unk=tk.Path(
+            f"{PREPATH_ASR3}/lexicon/v1/ufal_librispeech_lexicon_rasr_without_unk.xml.gz", cached=True
+        ),
+        corpus=wmt22_medline_noise03,
+        lm=tk.Path(f"{PREPATH_ASR3}/lm/v1/ufal_version1_lm1.gz", cached=True, hash_overwrite="v1_nick"),
         description="based on version 1 using the correct data input.",
     ),
 }
 #################
 
-MEDLINE_V2_DEV_DATA = {
+MEDLINE_V21_DEV_DATA = {
     0.7: DATASET(
-        lexicon_with_unk=tk.Path(f"{prepath_data_v1}/lexicon/v1/oov.lexicon.gz", cached=True, hash_overwrite="v1_nick"),
-        lexicon_no_unk=tk.Path(f"{prepath_data_v1}/ufal_librispeech_lexicon_rasr_without_unk.xml.gz", cached=True),
-        corpus=dev_other_noise07,
-        lm=tk.Path(f"{prepath_data_v1}/lm/v1/ufal_version1_lm1.gz", cached=True, hash_overwrite="v1_nick"),
-        description="based on version 1 using the correct data input.",
+        lexicon_with_unk=tk.Path(
+            f"{PREPATH_ASR3}/lexicon/v2/medline+LBS/ufal_v1_mixlex_v2.rasr_with_unk.xml.gz",
+            cached=True,
+            hash_overwrite="v21_unk",
+        ),
+        lexicon_no_unk=tk.Path(
+            f"{PREPATH_ASR3}/lexicon/v2/medline+LBS/ufal_v1_mixlex_v2.rasr_without_unk.xml.gz",
+            cached=True,
+            hash_overwrite="v21_nounk",
+        ),
+        corpus=wmt22_medline_noise07,
+        lm=tk.Path(f"{PREPATH_ASR3}/lm/v2/medline+LBS/ufal_v1_mixlex_v2.lm.gz", cached=True, hash_overwrite="v21_lm"),
+        description="lexicon uses both LBS and medline data with words repeating 3 or more",
     ),
     0.3: DATASET(
-        lexicon_with_unk=tk.Path(f"{prepath_data_v1}/lexicon/v1/oov.lexicon.gz", cached=True, hash_overwrite="v1_nick"),
-        lexicon_no_unk=tk.Path(f"{prepath_data_v1}/ufal_librispeech_lexicon_rasr_without_unk.xml.gz", cached=True),
-        corpus=dev_other_noise03,
-        lm=tk.Path(f"{prepath_data_v1}/lm/v1/ufal_version1_lm1.gz", cached=True, hash_overwrite="v1_nick"),
-        description="based on version 1 using the correct data input.",
+        lexicon_with_unk=tk.Path(
+            f"{PREPATH_ASR3}/lexicon/v2/medline+LBS/ufal_v1_mixlex_v2.rasr_with_unk.xml.gz",
+            cached=True,
+            hash_overwrite="v21_unk",
+        ),
+        lexicon_no_unk=tk.Path(
+            f"{PREPATH_ASR3}/lexicon/v2/medline+LBS/ufal_v1_mixlex_v2.rasr_without_unk.xml.gz",
+            cached=True,
+            hash_overwrite="v21_nounk",
+        ),
+        corpus=wmt22_medline_noise03,
+        lm=tk.Path(f"{PREPATH_ASR3}/lm/v2/medline+LBS/ufal_v1_mixlex_v2.lm.gz", cached=True, hash_overwrite="v21_lm"),
+        description="lexicon uses both LBS and medline data with words repeating 3 or more",
+    ),
+}
+
+MEDLINE_V22_DEV_DATA = {
+    0.7: DATASET(
+        lexicon_with_unk=tk.Path(
+            f"{PREPATH_ASR3}/lexicon/v2/only_medline/ufal_v1_3more_only.rasr_with_unk.xml.gz",
+            cached=True,
+            hash_overwrite="v22_unk",
+        ),
+        lexicon_no_unk=tk.Path(
+            f"{PREPATH_ASR3}/lexicon/v2/only_medline/ufal_v1_3more_only.rasr_without_unk.xml.gz",
+            cached=True,
+            hash_overwrite="v22_nounk",
+        ),
+        corpus=wmt22_medline_noise07,
+        lm=tk.Path(f"{PREPATH_ASR3}/lm/v2/only_medline/ufal_v1_lm_3more.gz", cached=True, hash_overwrite="v22_lm"),
+        description="lexicon uses both LBS and medline data with words repeating 3 or more",
+    ),
+    0.3: DATASET(
+        lexicon_with_unk=tk.Path(
+            f"{PREPATH_ASR3}/lexicon/v2/only_medline/ufal_v1_3more_only.rasr_with_unk.xml.gz",
+            cached=True,
+            hash_overwrite="v22_unk",
+        ),
+        lexicon_no_unk=tk.Path(
+            f"{PREPATH_ASR3}/lexicon/v2/only_medline/ufal_v1_3more_only.rasr_without_unk.xml.gz",
+            cached=True,
+            hash_overwrite="v22_nounk",
+        ),
+        corpus=wmt22_medline_noise03,
+        lm=tk.Path(f"{PREPATH_ASR3}/lm/v2/only_medline/ufal_v1_lm_3more.gz", cached=True, hash_overwrite="v22_lm"),
+        description="lexicon uses both LBS and medline data with words repeating 3 or more",
     ),
 }
 
 
 MEDLINE_CORPORA = ["dev"]
 MEDLINE_DURATIONS = {"dev": 1.0}
-MEDLINE_DEV_VERSIONS = {1: MEDLINE_V1_DEV_DATA, 1.1: MEDLINE_V11_DEV_DATA}
+MEDLINE_DEV_VERSIONS = {1: MEDLINE_V1_DEV_DATA, 1.1: MEDLINE_V11_DEV_DATA, 2.1: MEDLINE_V21_DEV_DATA, 2.2: MEDLINE_V22_DEV_DATA}
 
 MEDLINE_TEST_VERSIONS = {}
 
@@ -174,7 +231,7 @@ def _get_eval_corpus_object_dict(name: str, version: int = 1, noise: float = 0.7
 
 def get_corpus_data_inputs(
     corpus_key: str,
-    version: int = 1,
+    version: float = 1,
     noise: float = 0.7,
     segment_mapping_domain: Dict = None,
     add_unknown_for_medline_lex: bool = True,
