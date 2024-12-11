@@ -1714,9 +1714,19 @@ def _sis_setup_global_prefix(prefix_name: Optional[str] = None):
 
 def ctc_model_def(*, epoch: int, in_dim: Dim, target_dim: Dim) -> Model:
     """Function is run within RETURNN."""
+    in_dim, epoch  # noqa
+    return Model(**_get_ctc_model_kwargs_from_global_config(target_dim=target_dim))
+
+
+ctc_model_def: ModelDef[Model]
+ctc_model_def.behavior_version = 21
+ctc_model_def.backend = "torch"
+ctc_model_def.batch_size_factor = _batch_size_factor
+
+
+def _get_ctc_model_kwargs_from_global_config(*, target_dim: Dim) -> Dict[str, Any]:
     from returnn.config import get_global_config
 
-    in_dim, epoch  # noqa
     config = get_global_config()  # noqa
     enc_aux_logits = config.typed_value("aux_loss_layers")
     num_enc_layers = config.int("num_enc_layers", 12)
@@ -1747,8 +1757,8 @@ def ctc_model_def(*, epoch: int, in_dim: Dim, target_dim: Dim) -> Model:
         )
     enc_other_opts = config.typed_value("enc_other_opts", None)
 
-    return Model(
-        in_dim,
+    return dict(
+        in_dim=in_dim,
         enc_build_dict=config.typed_value("enc_build_dict", None),  # alternative more generic/flexible way
         num_enc_layers=num_enc_layers,
         enc_model_dim=Dim(name="enc", dimension=512, kind=Dim.Types.Feature),
@@ -1761,12 +1771,6 @@ def ctc_model_def(*, epoch: int, in_dim: Dim, target_dim: Dim) -> Model:
         eos_idx=_get_eos_idx(target_dim),
         enc_aux_logits=enc_aux_logits or (),
     )
-
-
-ctc_model_def: ModelDef[Model]
-ctc_model_def.behavior_version = 21
-ctc_model_def.backend = "torch"
-ctc_model_def.batch_size_factor = _batch_size_factor
 
 
 def _get_bos_idx(target_dim: Dim) -> int:
@@ -2221,7 +2225,13 @@ class Model(rf.Module):
         in_spatial_dim: Dim,
         collected_outputs: Optional[Dict[str, Tensor]] = None,
     ) -> Tuple[Tensor, Tensor, Dim]:
-        """encode, get logits"""
+        """
+        Encode, get CTC logits.
+        Use :func:`log_probs_wb_from_logits` to get log probs
+        (might be just log_softmax, but there are some other cases).
+
+        :return: logits, enc, enc_spatial_dim
+        """
         # log mel filterbank features
         source, in_spatial_dim = rf.audio.log_mel_filterbank_from_raw(
             source,
@@ -2254,6 +2264,7 @@ class Model(rf.Module):
         :param logits: incl blank
         :return: log probs with blank from logits (wb_target_dim)
             If out_blank_separated, we use a separate sigmoid for the blank.
+            Also, potentially adds label smoothing on the gradients.
         """
         if not self.out_blank_separated:  # standard case, joint distrib incl blank
             if self.blank_logit_shift:
