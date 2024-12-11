@@ -14,6 +14,7 @@ from sisyphus import tk
 import i6_core.corpus as corpus_recipes
 import i6_core.meta as meta
 from i6_core.audio import BlissChangeEncodingJob
+from i6_core.lexicon import MergeLexiconJob
 
 from i6_experiments.common.baselines.librispeech.data import CorpusData
 from i6_experiments.common.datasets.librispeech import (
@@ -143,7 +144,7 @@ MEDLINE_V22_DEV_DATA = {
         ),
         corpus=wmt22_medline_noise07,
         lm=tk.Path(f"{PREPATH_ASR3}/lm/v2/only_medline/ufal_v1_lm_3more.gz", cached=True, hash_overwrite="v22_lm"),
-        description="lexicon uses both LBS and medline data with words repeating 3 or more",
+        description="lexicon uses only medline data with words repeating 3 or more",
     ),
     0.3: DATASET(
         lexicon_with_unk=tk.Path(
@@ -158,7 +159,7 @@ MEDLINE_V22_DEV_DATA = {
         ),
         corpus=wmt22_medline_noise03,
         lm=tk.Path(f"{PREPATH_ASR3}/lm/v2/only_medline/ufal_v1_lm_3more.gz", cached=True, hash_overwrite="v22_lm"),
-        description="lexicon uses both LBS and medline data with words repeating 3 or more",
+        description="lexicon uses only medline data with words repeating 3 or more",
     ),
 }
 
@@ -295,6 +296,11 @@ def get_corpus_data_inputs(
         if add_unknown_for_medline_lex
         else MEDLINE_DATA["dev"][version][noise].lexicon_no_unk
     )
+    if version > 1:
+        seed_lexicon = "seed_withunk.xml.gz" if add_unknown_for_medline_lex else "seed_nounk.xml.gz"
+        seed_lexicon_path = tk.Path(("/").join([f"{PREPATH_ASR3}", f"lexicon/seed_lbs_lexicon_nolemmata/{seed_lexicon}"]), hash_overwrite=f"seed_{seed_lexicon}")
+        med_lex = MergeLexiconJob([seed_lexicon_path, med_lex]).out_bliss_lexicon
+
     oov_lexicon_medline = {
         "filename": med_lex,
         "normalize_pronunciation": False,

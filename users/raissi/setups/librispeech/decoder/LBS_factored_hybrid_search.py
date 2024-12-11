@@ -76,7 +76,7 @@ class LBSFactoredHybridDecoder(BASEFactoredHybridDecoder):
             gpu=gpu,
         )
         self.trafo_lm_config = self.get_eugen_trafo_with_quant_and_compress_config()
-        self.lstm_lm_config = self.get_kazuki_lstm_config()
+        #self.lstm_lm_config = self.get_kazuki_lstm_config()
 
 
     def get_kazuki_lstm_config(
@@ -88,14 +88,13 @@ class LBSFactoredHybridDecoder(BASEFactoredHybridDecoder):
     ) -> rasr.RasrConfig:
 
         assert self.library_path is not None
-        dependency_path = Path("/work/asr4/raissi/setups/librispeech/960-ls/dependencies/trafo-lm_kazuki/IS2019", hash_overwrite="LBS_LM_KAZUKI")
 
         trafo_config = rasr.RasrConfig()
 
         #model and graph info
         trafo_config.loader.type = "meta"
-        trafo_config.loader.meta_graph_file = tk.Path("/u/rossenbach/experiments/asru_ls100_full_context_transducer/work/crnn/compile/CompileTFGraphJob.0dxq1DSvOxuN/output/graph.meta", cached=True)
-        trafo_config.loader.saved_model_file = DelayedFormat("/u/zhou/asr-exps/librispeech/dependencies/kazuki_lstmlm_27062019/network.040")
+        trafo_config.loader.meta_graph_file = tk.Path("/u/raissi/Desktop/debug/lm/graph.meta", cached=True)
+        trafo_config.loader.saved_model_file = DelayedFormat("/work/asr4/rossenbach/custom_projects/kazuki_replicate_lm_training/net-model/network.029")
         trafo_config.loader.required_libraries = self.library_path
 
         trafo_config.type = "tfrnn"
