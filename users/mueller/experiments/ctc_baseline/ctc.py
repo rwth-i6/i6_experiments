@@ -324,6 +324,11 @@ def train_exp(
             config_self["am_scale"] = training_scales["am"]
             config_self["lm_scale"] = training_scales["lm"]
             config_self["prior_scale"] = training_scales["prior"]
+        # Use different LR if second iteration, NOTE: this is very specific to 450 epochs
+        if i > 0:
+            peak_lr = 4e-4
+            config_self["learning_rate_piecewise_values"] = [peak_lr * 1e-1, peak_lr, peak_lr * 3e-2, peak_lr * 3e-3]
+            config_self["learning_rate_piecewise_steps"] = [20_000, 506_000, 562_000]
         model_with_checkpoint.append(train(
             prefix_self_training,
             task=task,
@@ -352,7 +357,8 @@ def train_exp(
             save_pseudo_labels=None if i+1 == self_training_rounds else pseudo_labels_ds,
             calculate_pseudo_label_scores=False,
             recog_post_proc_funcs=recog_post_proc_funcs,
-            num_shards=64
+            num_shards_pseudo=64,
+            # num_shards_prior=64,
         )
 
     _train_experiments[name] = model_with_checkpoint[-1]

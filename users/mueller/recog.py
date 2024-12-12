@@ -6,6 +6,8 @@ from __future__ import annotations
 
 import os
 import copy
+import logging
+import subprocess as sp
 from typing import TYPE_CHECKING, Optional, Union, Any, Dict, Sequence, Collection, Iterator, Callable
 
 import sisyphus
@@ -14,6 +16,7 @@ from sisyphus import tools as sis_tools
 from i6_core.util import instanciate_delayed, uopen
 
 from i6_core.returnn import ReturnnConfig
+import i6_core.util as util
 from i6_core.returnn.training import ReturnnTrainingJob, PtCheckpoint, AverageTorchCheckpointsJob
 from i6_core.returnn.search import (
     ReturnnSearchJobV2,
@@ -38,7 +41,7 @@ import numpy as np
 
 from .experiments.ctc_baseline.ctc import model_recog_lm
 from .experiments.language_models.librispeech_lm import get_4gram_binary_lm
-from .datasets.librispeech import get_bpe_lexicon
+from .datasets.librispeech import get_bpe_lexicon, _get_corpus_text_dict
 
 if TYPE_CHECKING:
     from returnn.tensor import TensorDict
@@ -59,7 +62,8 @@ def recog_training_exp(
     search_mem_rqmt: Union[int, float] = 6,
     exclude_epochs: Collection[int] = (),
     model_avg: bool = False,
-    num_shards: Optional[int] = None,
+    num_shards_pseudo: Optional[int] = None,
+    num_shards_prior: Optional[int] = None,
 ) -> Optional[tk.Path]:
     """recog on all relevant epochs"""
     recog_and_score_func = _RecogAndScoreFunc(
@@ -72,6 +76,7 @@ def recog_training_exp(
         search_post_config=search_post_config,
         recog_post_proc_funcs=recog_post_proc_funcs,
         search_mem_rqmt=search_mem_rqmt,
+        num_shards_prior=num_shards_prior,
     )
     summarize_job = GetBestRecogTrainExp(
         exp=model,
@@ -111,18 +116,20 @@ def recog_training_exp(
             model,
             recog_def,
             save_pseudo_labels=save_pseudo_labels,
-            calculate_scores=calculate_pseudo_label_scores,
+            calculate_scores=False,
+            use_alternatice_scoring=calculate_pseudo_label_scores,
             search_config=search_config,
             search_post_config=search_post_config,
             recog_post_proc_funcs=recog_post_proc_funcs,
             search_mem_rqmt=search_mem_rqmt,
-            num_shards=num_shards,
+            num_shards_pseudo=num_shards_pseudo,
+            num_shards_prior=num_shards_prior,
         )
         
         extract_pseudo_labels_job = ExtractPseudoLabels(
             pseudo_recog_func=pseudo_label_recog_func,
             recog_input=summarize_job.out_summary_json,
-            calculate_score=calculate_pseudo_label_scores,
+            calculate_score=False,
         )
         extract_pseudo_labels_job.add_alias(prefix_name + "/pseudo_labels/extract")
     
@@ -141,11 +148,13 @@ class _RecogAndScoreFunc:
         *,
         save_pseudo_labels: Optional[dict] = None,
         calculate_scores: bool = True,
+        use_alternatice_scoring: bool = False,
         search_config: Optional[Dict[str, Any]] = None,
         search_post_config: Optional[Dict[str, Any]] = None,
         recog_post_proc_funcs: Sequence[Callable[[RecogOutput], RecogOutput]] = (),
         search_mem_rqmt: Union[int, float] = 6,
-        num_shards: Optional[int] = None,
+        num_shards_pseudo: Optional[int] = None,
+        num_shards_prior: Optional[int] = None,
     ):
         # Note: When something is added here, remember to handle it in _sis_hash.
         self.prefix_name = prefix_name
@@ -159,7 +168,9 @@ class _RecogAndScoreFunc:
         self.search_mem_rqmt = search_mem_rqmt
         self.save_pseudo_labels = save_pseudo_labels
         self.calculate_scores = calculate_scores
-        self.num_shards = num_shards
+        self.use_alternatice_scoring = use_alternatice_scoring
+        self.num_shards_pseudo = num_shards_pseudo
+        self.num_shards_prior = num_shards_prior
 
     def __call__(self, epoch_or_ckpt: Union[int, PtCheckpoint]) -> tuple[ScoreResultCollection, tk.Path]:
         if isinstance(epoch_or_ckpt, int):
@@ -175,6 +186,7 @@ class _RecogAndScoreFunc:
                 dataset=self.task.prior_dataset,
                 model=model_with_checkpoint,
                 prior_alias_name=self.prefix_name + f"/prior/{epoch_or_ckpt:03}",
+                num_shards=self.num_shards_prior,
             )
             if isinstance(epoch_or_ckpt, int):
                 tk.register_output(self.prefix_name + f"/recog_results_per_epoch/{epoch_or_ckpt:03}/prior.txt", prior_path)
@@ -194,7 +206,7 @@ class _RecogAndScoreFunc:
             recog_post_proc_funcs=self.recog_post_proc_funcs,
             search_mem_rqmt=self.search_mem_rqmt,
             name=self.prefix_name + f"/search/{epoch_or_ckpt:03}",
-            num_shards=self.num_shards,
+            num_shards=self.num_shards_pseudo,
         )
         if self.calculate_scores and isinstance(epoch_or_ckpt, int):
             tk.register_output(self.prefix_name + f"/recog_results_per_epoch/{epoch_or_ckpt:03}/score", res.output)
@@ -208,7 +220,10 @@ class _RecogAndScoreFunc:
         del d["prefix_name"]
         del d["search_post_config"]
         del d["search_mem_rqmt"]
-        del d["num_shards"]
+        del d["num_shards_prior"]
+        del d["num_shards_pseudo"]
+        if not self.use_alternatice_scoring:
+            del d["use_alternatice_scoring"]
         if not self.search_config:
             del d["search_config"]  # compat
         if not self.recog_post_proc_funcs:
@@ -283,21 +298,46 @@ def compute_prior(
     model: ModelWithCheckpoint,
     mem_rqmt: Union[int, float] = 8,
     prior_alias_name: Optional[str] = None,
+    num_shards: Optional[int] = None,
 ) -> tk.Path:
-    prior_job = ReturnnForwardJobV2(
-        model_checkpoint=model.checkpoint,
-        returnn_config=prior_config(dataset, model.definition),
-        output_files=["prior.txt"],
-        returnn_python_exe=tools_paths.get_returnn_python_exe(),
-        returnn_root=tools_paths.get_returnn_root(),
-        device="gpu",
-        time_rqmt=4,
-        mem_rqmt=mem_rqmt,
-        cpu_rqmt=4,
-    )
-    if prior_alias_name:
-        prior_job.add_alias(prior_alias_name)
-    return prior_job.out_files["prior.txt"]
+    if num_shards is not None:
+        prior_frames_res = []
+        prior_probs_res = []
+        for i in range(num_shards):
+            shard_prior_sum_job = ReturnnForwardJobV2(
+                model_checkpoint=model.checkpoint,
+                returnn_config=prior_config(dataset, model.definition, shard_index=i, num_shards=num_shards),
+                output_files=["output_frames.npy", "output_probs.npy"],
+                returnn_python_exe=tools_paths.get_returnn_python_exe(),
+                returnn_root=tools_paths.get_returnn_root(),
+                device="cpu",
+                time_rqmt=4,
+                mem_rqmt=mem_rqmt,
+                cpu_rqmt=4,
+            )
+            prior_frames_res.append(shard_prior_sum_job.out_files["output_frames.npy"])
+            prior_probs_res.append(shard_prior_sum_job.out_files["output_probs.npy"])
+        prior_job = PriorCombineShardsJob(prior_frames_res, prior_probs_res)
+        if prior_alias_name:
+            prior_job.add_alias(prior_alias_name)
+        res = prior_job.out_comined_results
+    else:
+        prior_job = ReturnnForwardJobV2(
+            model_checkpoint=model.checkpoint,
+            returnn_config=prior_config(dataset, model.definition),
+            output_files=["prior.txt"],
+            returnn_python_exe=tools_paths.get_returnn_python_exe(),
+            returnn_root=tools_paths.get_returnn_root(),
+            device="gpu",
+            time_rqmt=4,
+            mem_rqmt=mem_rqmt,
+            cpu_rqmt=4,
+        )
+        if prior_alias_name:
+            prior_job.add_alias(prior_alias_name)
+            res = prior_job.out_files["prior.txt"]
+        
+    return res
 
 def search_dataset(
     *,
@@ -540,6 +580,9 @@ def search_config(
 def prior_config(
     dataset: DatasetConfig,
     model_def: Union[ModelDef, ModelDefWithCfg],
+    *,
+    shard_index: Optional[int] = None,
+    num_shards: Optional[int] = None,
 ) -> ReturnnConfig:
     # changing these does not change the hash
     post_config = dict(  # not hashed
@@ -549,13 +592,18 @@ def prior_config(
         use_lovely_tensors=True,
     )
     
+    if num_shards is not None and shard_index is not None:
+        forward_data = dataset.get_sharded_main_dataset(shard_index, num_shards)
+    else:
+        forward_data = dataset.get_main_dataset()
+    
     returnn_config_dict = dict(
         backend=model_def.backend,
         behavior_version=model_def.behavior_version,
         # dataset
         default_input=dataset.get_default_input(),
         target=dataset.get_default_target(),
-        forward_data=dataset.get_main_dataset(),
+        forward_data=forward_data,
         #####
         batch_size= 500 * 16000,
         max_seqs= 240,
@@ -568,6 +616,8 @@ def prior_config(
     # It's not hashed because we assume that all aspects of the dataset are already covered
     # by the datasets itself as part in the config above.
     extern_data_raw = instanciate_delayed(extern_data_raw)
+    
+    callback_fn = _returnn_get_prior_forward_callback if num_shards is None or shard_index is None else _returnn_get_sharded_prior_forward_callback
 
     returnn_config = ReturnnConfig(
         config=returnn_config_dict,
@@ -582,8 +632,8 @@ def prior_config(
                     *serialize_model_def(model_def),
                     serialization.Import(_returnn_v2_get_model, import_as="get_model"),
                     serialization.Import(_returnn_prior_step, import_as="forward_step"),
-                    serialization.Import(_returnn_get_prior_forward_callback, import_as="forward_callback"),
-                    serialization.ExplicitHash({"version": 1}),
+                    serialization.Import(callback_fn, import_as="forward_callback"),
+                    serialization.ExplicitHash({"version": 1 + (2000 if num_shards is not None else 0)}),
                     serialization.PythonEnlargeStackWorkaroundNonhashedCode,
                     serialization.PythonCacheManagerFunctionNonhashedCode,
                     serialization.PythonModelineNonhashedCode,
@@ -607,40 +657,75 @@ def _returnn_prior_step(*, model, extern_data: TensorDict, **kwargs):
     logits, enc, audio_features_len = model(data, in_spatial_dim=data_spatial_dim)
     logprobs = model.log_probs_wb_from_logits(logits)
 
-    probs = rf.exp(logprobs)
-    
-    rf.get_run_ctx().mark_as_output(probs, "probs", dims=[batch_dim, audio_features_len, probs.dims[-1]])
+    rf.get_run_ctx().mark_as_output(logprobs, "logprobs", dims=[batch_dim, audio_features_len, logprobs.dims[-1]])
     rf.get_run_ctx().mark_as_output(audio_features_len.dyn_size_ext.raw_tensor.cpu(), "lengths")
     
-def _returnn_get_prior_forward_callback():
+def _returnn_get_sharded_prior_forward_callback():
     from returnn.tensor import Tensor, Dim, TensorDict
     from returnn.forward_iface import ForwardCallbackIface
+    from scipy.special import logsumexp
 
     class _ReturnnPriorForwardCallbackIface(ForwardCallbackIface):
         def __init__(self):
-            self.sum_probs = None
+            self.sum_logprobs = None
             self.sum_frames = 0
 
         def init(self, *, model):
             pass
 
         def process_seq(self, *, seq_tag: str, outputs: TensorDict):
-            probs: Tensor = outputs["probs"]
+            logprobs: Tensor = outputs["logprobs"]
             lengths: Tensor = outputs["lengths"]
             
-            assert lengths.raw_tensor == probs.raw_tensor.shape[0], "Prior calculation lengths are not the same!"
+            assert lengths.raw_tensor == logprobs.raw_tensor.shape[0], "Prior calculation lengths are not the same!"
             
             self.sum_frames += np.sum(lengths.raw_tensor)
-            if self.sum_probs is None:
-                self.sum_probs = np.sum(probs.raw_tensor, axis=0)
+            if self.sum_logprobs is None:
+                self.sum_logprobs = logsumexp(logprobs.raw_tensor, axis=0)
             else:
-                self.sum_probs += np.sum(probs.raw_tensor, axis=0)
+                self.sum_logprobs = np.logaddexp(self.sum_logprobs, logsumexp(logprobs.raw_tensor, axis=0))
 
         def finish(self):
             all_frames = self.sum_frames
-            all_probs = self.sum_probs
-            average_probs = all_probs / all_frames
-            log_average_probs = np.log(average_probs)
+            all_frames = np.array([all_frames])
+            all_logprobs = self.sum_logprobs
+            with open("output_frames.npy", "wb") as f:
+                np.save(f, all_frames)
+            with open("output_probs.npy", "wb") as f:
+                np.save(f, all_logprobs)
+
+    return _ReturnnPriorForwardCallbackIface()
+
+def _returnn_get_prior_forward_callback():
+    from returnn.tensor import Tensor, Dim, TensorDict
+    from returnn.forward_iface import ForwardCallbackIface
+    from scipy.special import logsumexp
+
+    class _ReturnnPriorForwardCallbackIface(ForwardCallbackIface):
+        def __init__(self):
+            self.sum_logprobs = None
+            self.sum_frames = 0
+
+        def init(self, *, model):
+            pass
+
+        def process_seq(self, *, seq_tag: str, outputs: TensorDict):
+            logprobs: Tensor = outputs["logprobs"]
+            lengths: Tensor = outputs["lengths"]
+            
+            assert lengths.raw_tensor == logprobs.raw_tensor.shape[0], "Prior calculation lengths are not the same!"
+            
+            self.sum_frames += np.sum(lengths.raw_tensor)
+            if self.sum_logprobs is None:
+                self.sum_logprobs = logsumexp(logprobs.raw_tensor, axis=0)
+            else:
+                self.sum_logprobs = np.logaddexp(self.sum_logprobs, logsumexp(logprobs.raw_tensor, axis=0))
+
+        def finish(self):
+            all_frames = self.sum_frames
+            all_logprobs = self.sum_logprobs
+            log_average_probs = all_logprobs - np.log(all_frames)
+            average_probs = np.exp(log_average_probs)
             print("Prior sum in std-space (should be close to 1.0):", np.sum(average_probs))
             with open("prior.txt", "w") as f:
                 np.savetxt(f, log_average_probs, delimiter=" ")
@@ -1363,3 +1448,34 @@ class SearchCombineShardsJob(sisyphus.Job):
                 assert isinstance(entry, list)
                 out.write("%r: %r,\n" % (seq_tag, entry))
             out.write("}\n")
+            
+class PriorCombineShardsJob(sisyphus.Job):
+    def __init__(self, shard_prior_frames_outputs: list[tk.Path], shard_prior_probs_outputs: list[tk.Path]):
+        self.shard_prior_frames_outputs = shard_prior_frames_outputs
+        self.shard_prior_probs_outputs = shard_prior_probs_outputs
+        self.out_comined_results = self.output_path("prior.txt")
+
+    def tasks(self):
+        """task"""
+        yield sisyphus.Task("run", mini_task=True)
+
+    def run(self):
+        """run"""
+        all_frames = 0
+        all_logprobs = None
+        for path_frame, path_prob in zip(self.shard_prior_frames_outputs, self.shard_prior_probs_outputs):
+            all_frames += np.load(path_frame)
+            logprobs = np.load(path_prob)
+            if all_logprobs is None:
+                all_logprobs = logprobs
+            else:
+                all_logprobs = np.logaddexp(all_logprobs, logprobs)
+                
+        print(f"All frames: {all_frames}, All probs: {all_logprobs}")
+            
+        log_average_probs = all_logprobs - np.log(all_frames)
+        average_probs = np.exp(log_average_probs)
+        print("Prior sum in std-space (should be close to 1.0):", np.sum(average_probs))
+        with uopen(self.out_comined_results, "w") as f:
+            np.savetxt(f, log_average_probs, delimiter=" ")
+        print("Saved prior in prior.txt in +log space.")
