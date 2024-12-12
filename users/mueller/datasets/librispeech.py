@@ -567,7 +567,7 @@ def get_librispeech_task_raw_v2(
     ds_sel: TrainDatasetSel,
     with_prior: bool,
     **dataset_train_opts,
-) -> tuple[Task, dict]:
+) -> tuple[Task, dict, Optional[LibrispeechOggZip]]:
     """
     Librispeech.
 
@@ -627,9 +627,11 @@ def get_librispeech_task_raw_v2(
     dev_dataset = eval_datasets["dev-other"]
     
     pseudo_labels_ds = {}
+    train_100_ds = None
     if save_pseudo_labels:
         for ds_name in ["train-clean-360", "train-other-500"]:
             pseudo_labels_ds[ds_name] = LibrispeechOggZip(**dataset_common_opts, main_key=ds_name)
+        train_100_ds = LibrispeechOggZip(**dataset_common_opts, main_key="train-clean-100")
             
     if with_prior:
         prior_dataset = LibrispeechOggZip(**dataset_common_opts, main_key=train_ds_key)
@@ -650,7 +652,7 @@ def get_librispeech_task_raw_v2(
     )
     _librispeech_task_raw_v2_cache[cache_key] = task
     
-    return task, pseudo_labels_ds
+    return task, pseudo_labels_ds, train_100_ds
 
 
 def _extract_audio_seq_len_file(train_dataset: DatasetConfig):
