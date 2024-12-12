@@ -1,5 +1,5 @@
 """
-Uses the MHSA fix from v2 modules
+V2 adds option to quantize output
 """
 import math
 
@@ -10,22 +10,17 @@ import copy
 from typing import Tuple
 
 from i6_models.parts.conformer.norm import LayerNormNC
-from i6_models.assemblies.conformer.conformer_v1 import ConformerEncoderV1Config
-from i6_models.assemblies.conformer.conformer_v1 import ConformerBlockV1Config, ConformerEncoderV1
 from i6_models.config import ModuleFactoryV1
 from i6_models.parts.frontend.vgg_act import VGG4LayerActFrontendV1
 from i6_models.util import compat
 
-from i6_models.parts.conformer.convolution import ConformerConvolutionV1Config
-from i6_models.parts.conformer.feedforward import ConformerPositionwiseFeedForwardV1Config
-from i6_models.parts.conformer.mhsa import ConformerMHSAV1Config
 from i6_models.primitives.specaugment import specaugment_v1_by_length
-from i6_models.primitives.feature_extraction import LogMelFeatureExtractionV1, LogMelFeatureExtractionV1Config
+from i6_models.primitives.feature_extraction import LogMelFeatureExtractionV1
 
 from returnn.torch.context import get_run_ctx
 
-from .baseline_qat_v1_cfg import (
-    QuantModelTrainConfigV1,
+from .baseline_qat_v2_cfg import (
+    QuantModelTrainConfigV2,
     ConformerPositionwiseFeedForwardQuantV1Config,
     QuantizedMultiheadAttentionV1Config,
     ConformerConvolutionQuantV1Config,
@@ -515,7 +510,7 @@ class Model(torch.nn.Module):
             assert "random" in list(kwargs.keys())[0], "This must only be RETURNN random arg"
 
         super().__init__()
-        self.train_config = QuantModelTrainConfigV1.from_dict(model_config_dict)
+        self.train_config = QuantModelTrainConfigV2.from_dict(model_config_dict)
         fe_config = self.train_config.feature_extraction_config
         frontend_config = self.train_config.frontend_config
         conformer_size = self.train_config.conformer_size
@@ -577,9 +572,32 @@ class Model(torch.nn.Module):
         )
         self.conformer = ConformerEncoderQuant(cfg=conformer_config)
 
-        self.final_linear = nn.Linear(
-            conformer_size, self.train_config.label_target_size + 1
-        )  # + CTC blank TODO: do we quant here too?
+        if self.train_config.quantize_output is True:
+            self.lin_out = LinearQuant(
+                in_features=self.train_config.conformer_size,
+                out_features=self.train_config.label_target_size + 1,
+                weight_bit_prec=self.train_config.weight_bit_prec,
+                weight_quant_dtype=self.train_config.weight_quant_dtype,
+                weight_quant_method=self.train_config.weight_quant_method,
+                bias=True,
+            )
+            self.lin_out_in_quant = ActivationQuantizer(
+                bit_precision=self.train_config.activation_bit_prec,
+                dtype=self.train_config.activation_quant_dtype,
+                method=self.train_config.activation_quant_method,
+                channel_axis=1,
+                moving_avrg=self.train_config.moving_average,
+            )
+            self.lin_out_out_quant = ActivationQuantizer(
+                bit_precision=self.train_config.activation_bit_prec,
+                dtype=self.train_config.activation_quant_dtype,
+                method=self.train_config.activation_quant_method,
+                channel_axis=1,
+                moving_avrg=self.train_config.moving_average,
+            )
+            self.final_linear = torch.nn.Sequential(self.lin_out_in_quant, self.lin_out, self.lin_out_out_quant)
+        else:
+            self.final_linear = nn.Linear(conformer_size, self.train_config.label_target_size + 1)  # + CTC blank
         self.final_dropout = nn.Dropout(p=self.train_config.final_dropout)
         self.specaug_start_epoch = self.train_config.specauc_start_epoch
         self.extra_act_quant = self.train_config.extra_act_quant
@@ -629,6 +647,21 @@ class Model(torch.nn.Module):
     def prep_quant(self, decompose=False):
         print("Converting Model for efficient inference")
         print(f"Activation quantization is {self.extra_act_quant}")
+        if self.train_config.quantize_output is True:
+            self.lin_out.weight_quantizer.set_scale_and_zp()
+            self.lin_out = Linear.from_float(
+                self.lin_out,
+                weight_qparams={
+                    "qscheme": torch.per_tensor_affine,
+                    "dtype": self.lin_out.weight_quant_dtype,
+                    "zero_point": self.lin_out.weight_quantizer.zero_point,
+                    "scale": self.lin_out.weight_quantizer.scale,
+                    "quant_min": self.lin_out.weight_quantizer.quant_min,
+                    "quant_max": self.lin_out.weight_quantizer.quant_max,
+                    "decompose": decompose,
+                },
+            )
+            self.final_linear = torch.nn.Sequential(self.lin_out_in_quant, self.lin_out, self.lin_out_out_quant)
         self.conformer.prep_quant(self.extra_act_quant, decompose=decompose)
 
     def prep_dequant(self):

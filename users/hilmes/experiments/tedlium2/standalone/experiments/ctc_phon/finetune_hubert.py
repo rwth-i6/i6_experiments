@@ -13,7 +13,7 @@ from ...data.common import DatasetSettings, build_test_dataset
 from ...data.phon import build_eow_phon_training_datasets, get_text_lexicon
 from ...default_tools import RETURNN_EXE, MINI_RETURNN_ROOT
 from ...lm import get_4gram_binary_lm
-from ...pipeline import training, generate_kd_hypothesis
+from ...pipeline import training, generate_kd_hypothesis, calculate_blank_counts
 from ...report import generate_report
 from .tune_eval import eval_model, build_hubert_report, build_hubert_distill_report
 from functools import partial
@@ -104,6 +104,14 @@ def eow_phon_ted_tune_hubert():
         arpa_lm=arpa_4gram_lm,
         beam_threshold=14,
     )
+    no_lm_decoder_config = DecoderConfig(
+        lexicon=get_text_lexicon(),
+        returnn_vocab=label_datastream.vocab,
+        beam_size=1024,
+        beam_size_token=12,  # makes it much faster
+        arpa_lm=None,
+        beam_threshold=14,
+    )
 
     from ...pytorch_networks.ctc.hubert_tune_0711.hubert_tune_v1_cfg import ModelConfig
 
@@ -163,6 +171,23 @@ def eow_phon_ted_tune_hubert():
         generate_report(results=results, exp_name=training_name)
         hubert_report[training_name] = results
         del results
+        training_name = prefix_name + "/" + network_module + f"_{model}_no_lm"
+        train_job.rqmt["gpu_mem"] = 24
+        results = eval_model(
+            training_name=training_name,
+            train_job=train_job,
+            train_args=train_args_amp,
+            train_data=train_data,
+            decoder_config=no_lm_decoder_config,
+            dev_dataset_tuples=dev_dataset_tuples,
+            specific_epoch=keep_epochs,
+            prior_scales=[0.1, 0.2, 0.3, 0.4],
+            lm_scales=[1.0, 1.2, 1.4, 1.6, 1.7, 1.8, 1.9, 2.0],
+        )
+        generate_report(results=results, exp_name=training_name)
+        hubert_report[training_name] = results
+
+        del results
         if model == "large-ll60k" or model == "xlarge-ll60k":
             from ...pytorch_networks.ctc.hubert_tune_0711.hubert_tune_v2_cfg import ModelConfig as ModelConfigV2
 
@@ -216,6 +241,25 @@ def eow_phon_ted_tune_hubert():
             generate_report(results=results, exp_name=training_name)
 
             del results
+
+            training_name = prefix_name + "/" + network_module_v2 + f"_{model}_sub4_no_lm"
+            train_job.rqmt["gpu_mem"] = 24
+            results = eval_model(
+                training_name=training_name,
+                train_job=train_job,
+                train_args=train_args_amp,
+                train_data=train_data,
+                decoder_config=no_lm_decoder_config,
+                dev_dataset_tuples=dev_dataset_tuples,
+                specific_epoch=keep_epochs,
+                prior_scales=[0.1, 0.2, 0.3, 0.4],
+                lm_scales=[1.0, 1.2, 1.4, 1.6, 1.7, 1.8, 1.9, 2.0],
+            )
+            generate_report(results=results, exp_name=training_name)
+            hubert_report[training_name] = results
+
+            del results
+
             if model == "large-ll60k":
                 # for checkpoint in [33, 50, "best4"]:
                 for checkpoint in [33]:
@@ -251,89 +295,15 @@ def eow_phon_ted_tune_hubert():
                             debug=True,
                         )
                         checkpoints[model + f"_{checkpoint}_{n_best}"] = (model_checkpoint, kd_hyp, prior_file, 0.5)
-
-                # for lr in [0.001, 0.0001, 0.0005, 0.00001]:
-                #     train_config_24gbgpu_amp_constlr = {
-                #         "optimizer": {"class": "radam", "epsilon": 1e-16, "weight_decay": 1e-2,
-                #                       "decoupled_weight_decay": True},
-                #         "learning_rates": [lr],
-                #     #############
-                #         "batch_size": 120 * 16000,
-                #         "max_seq_length": {"audio_features": 35 * 16000},
-                #         "accum_grad_multiple_step": 3,
-                #         "cleanup_old_models": {
-                #             "keep_last_n": 4,
-                #             "keep_best_n": 4,
-                #             "keep": keep_epochs,
-                #         },
-                #         "torch_amp_options": {"dtype": "bfloat16"},
-                #     }
-                #     train_args_amp_constlr = {
-                #         "config": train_config_24gbgpu_amp_constlr,
-                #         "network_module": network_module_v2,
-                #         "net_args": {"model_config_dict": asdict(model_config)},
-                #         "debug": True,
-                #     }
-                #     training_name = prefix_name + "/" + network_module_v2 + f"_{model}_sub4_lr{lr}"
-                #     train_job = training(training_name, train_data, train_args_amp_constlr, num_epochs=50, **default_returnn)
-                #     train_job.rqmt["gpu_mem"] = 24
-                #     results = eval_model(
-                #         training_name=training_name,
-                #         train_job=train_job,
-                #         train_args=train_args_amp_constlr,
-                #         train_data=train_data,
-                #         decoder_config=default_decoder_config,
-                #         dev_dataset_tuples=dev_dataset_tuples,
-                #         specific_epoch=keep_epochs,
-                #         prior_scales=[0.1, 0.2, 0.3, 0.4, 0.5, 0.7, 0.9],
-                #         lm_scales=[1.0, 1.2, 1.4, 1.6, 1.7, 1.8, 1.9, 2.0, 2.2, 2.4, 2.6, 2.8, 3.0],
-                #     )
-                #     hubert_report[training_name] = results
-                #     generate_report(results=results, exp_name=training_name)
-                #
-                #     train_config_24gbgpu_amp_constlr = {
-                #         "optimizer": {"class": "radam", "epsilon": 1e-16, "weight_decay": 1e-2,
-                #             "decoupled_weight_decay": True},
-                #         #"learning_rates": [lr],
-                #          "learning_rate": lr,
-                #          "learning_rate_control": "newbob_multi_epoch",
-                #          "learning_rate_control_min_num_epochs_per_new_lr": 3,
-                #          "learning_rate_control_relative_error_relative_lr": True,
-                #          "learning_rates": None,
-                #         #############
-                #         "batch_size": 120 * 16000,
-                #         "max_seq_length": {"audio_features": 35 * 16000},
-                #         "accum_grad_multiple_step": 3,
-                #         "cleanup_old_models": {
-                #             "keep_last_n": 4,
-                #             "keep_best_n": 4,
-                #             "keep": keep_epochs,
-                #         },
-                #         "torch_amp_options": {"dtype": "bfloat16"},
-                #     }
-                #     train_args_amp_constlr = {
-                #         "config": train_config_24gbgpu_amp_constlr,
-                #         "network_module": network_module_v2,
-                #         "net_args": {"model_config_dict": asdict(model_config)},
-                #         "debug": True,
-                #     }
-                #     training_name = prefix_name + "/" + network_module_v2 + f"_{model}_sub4_lr{lr}_newbob"
-                #     train_job = training(training_name, train_data, train_args_amp_constlr, num_epochs=50,
-                #         **default_returnn)
-                #     train_job.rqmt["gpu_mem"] = 24
-                #     results = eval_model(
-                #         training_name=training_name,
-                #         train_job=train_job,
-                #         train_args=train_args_amp_constlr,
-                #         train_data=train_data,
-                #         decoder_config=default_decoder_config,
-                #         dev_dataset_tuples=dev_dataset_tuples,
-                #         specific_epoch=keep_epochs,
-                #         prior_scales=[0.3, 0.4, 0.5, 0.7],
-                #         lm_scales=[1.0, 1.2, 1.4, 1.6, 1.8, 2.0, 2.2, 2.4],
-                #     )
-                #     hubert_report[training_name] = results
-                #     generate_report(results=results, exp_name=training_name)
+                    blank_counts = calculate_blank_counts(
+                        prefix_name=prefix_name,
+                        train_job=train_job,
+                        train_args=train_args_amp,
+                        train_data=train_data,
+                        checkpoint=checkpoint,
+                        debug=True,
+                    )
+                    tk.register_output(prefix_name + "/" + "blank_counts", blank_counts)
 
     tk.register_report(
         "reports/finetune_hubert_report", partial(build_hubert_report, hubert_report), required=hubert_report
@@ -370,10 +340,14 @@ def eow_phon_ted_tune_hubert():
     from ...pytorch_networks.ctc.hubert_tune_0711.distill_hubert_v6_cfg import DistillConfig as TeacherConfigV6
     from ...pytorch_networks.ctc.hubert_tune_0711.distill_hubert_v7_cfg import DistillConfig as TeacherConfigV7
     from ...pytorch_networks.ctc.hubert_tune_0711.distill_hubert_v8_cfg import DistillConfig as TeacherConfigV8
+    from ...pytorch_networks.ctc.hubert_tune_0711.distill_hubert_v9_cfg import DistillConfig as TeacherConfigV9
+    from ...pytorch_networks.ctc.hubert_tune_0711.distill_hubert_v10_cfg import DistillConfig as TeacherConfigV10
 
     distill_module_v6 = "ctc.hubert_tune_0711.distill_hubert_v6"
     distill_module_v7 = "ctc.hubert_tune_0711.distill_hubert_v7"
     distill_module_v8 = "ctc.hubert_tune_0711.distill_hubert_v8"
+    distill_module_v9 = "ctc.hubert_tune_0711.distill_hubert_v9"
+    distill_module_v10 = "ctc.hubert_tune_0711.distill_hubert_v10"
     distill_report = {}
     distill_report["baselines"] = {}
     from .distill_auxloss import eow_phon_ted_auxloss_distill
@@ -519,6 +493,30 @@ def eow_phon_ted_tune_hubert():
                         distill_report[training_name] = results
                         del results
 
+                        training_name = (
+                            prefix_name
+                            + "/"
+                            + distill_module_v3
+                            + f"chkpt_{num}"
+                            + f"_{layer_count}_{dim}_{distill_scale}_{T}_no_lm"
+                        )
+                        results = eval_model(
+                            training_name=training_name,
+                            train_job=train_job,
+                            train_args=train_args_distill_decoding,
+                            train_data=train_data,
+                            decoder_config=no_lm_decoder_config,
+                            dev_dataset_tuples=dev_dataset_tuples,
+                            specific_epoch=250,
+                            decoder_module=decoder_module,
+                            loss_name=f"ctc_loss_layer{layer_count}",
+                            prior_scales=[0.3, 0.5, 0.7, 0.9],
+                            lm_scales=[1.4, 1.6, 1.8, 2.0, 2.2, 2.4, 2.6, 2.8],
+                        )
+                        generate_report(results=results, exp_name=training_name)
+                        distill_report[training_name] = results
+                        del results
+
                         teacher_config = TeacherConfigV2(
                             distill_scale=distill_scale,
                             ctc_scale=1 - distill_scale,
@@ -588,6 +586,201 @@ def eow_phon_ted_tune_hubert():
                         generate_report(results=results, exp_name=training_name)
                         distill_report[training_name] = results
                         del results
+
+                        training_name = (
+                            prefix_name
+                            + "/"
+                            + distill_module_v3
+                            + f"chkpt_{num}"
+                            + f"_{layer_count}_{dim}_{distill_scale}_{T}_elim_blank_no_lm"
+                        )
+                        results = eval_model(
+                            training_name=training_name,
+                            train_job=train_job,
+                            train_args=train_args_distill_decoding,
+                            train_data=train_data,
+                            decoder_config=no_lm_decoder_config,
+                            dev_dataset_tuples=dev_dataset_tuples,
+                            specific_epoch=250,
+                            decoder_module=decoder_module,
+                            loss_name=f"ctc_loss_layer{layer_count}",
+                            prior_scales=[0.3, 0.5, 0.7, 0.9],
+                            lm_scales=[1.4, 1.6, 1.8, 2.0, 2.2, 2.4, 2.6, 2.8],
+                        )
+                        generate_report(results=results, exp_name=training_name)
+                        distill_report[training_name] = results
+                        del results
+
+                        for dropout in [0.1]:
+                            student_config_drop = StudentConfigV2(
+                                feature_extraction_config=fe_config,
+                                frontend_config=frontend_config_student,
+                                specaug_config=specaug_config,
+                                label_target_size=vocab_size_without_blank,
+                                conformer_size=dim,
+                                num_layers=layer_count,
+                                num_heads=4,
+                                ff_dim=4 * dim,
+                                att_weights_dropout=dropout,
+                                conv_dropout=dropout,
+                                ff_dropout=dropout,
+                                mhsa_dropout=dropout,
+                                conv_kernel_size=31,
+                                final_dropout=dropout,
+                                specauc_start_epoch=1,
+                                module_list=["ff", "conv", "mhsa", "ff"],
+                                module_scales=[0.5, 1.0, 1.0, 0.5],
+                                aux_ctc_loss_layers=[3, 7, 11],  # 4, 8, 12 when counting from 1
+                                aux_ctc_loss_scales=[0.3, 0.3, 1.0],
+                            )
+
+                            train_config_distill = {
+                                "optimizer": {
+                                    "class": "radam",
+                                    "epsilon": 1e-16,
+                                    "weight_decay": 1e-2,
+                                    "decoupled_weight_decay": True,
+                                },
+                                "learning_rates": list(np.linspace(7e-6, 5e-4, 110))
+                                + list(np.linspace(5e-4, 5e-5, 110))
+                                + list(np.linspace(5e-5, 1e-7, 30)),
+                                #############
+                                "batch_size": 180 * 16000,
+                                "max_seq_length": {"audio_features": 35 * 16000},
+                                "accum_grad_multiple_step": 1,
+                            }
+                            if dim == 384:
+                                train_config_distill["batch_size"] /= 2
+                                train_config_distill["accum_grad_multiple_step"] *= 2
+                            train_args_distill = {
+                                "config": train_config_distill,
+                                "network_module": distill_module_v3,
+                                "net_args": {
+                                    "model_config_dict": asdict(student_config_drop),
+                                    "distill_config_dict": asdict(teacher_config),
+                                },
+                                "debug": False,
+                            }
+                            train_args_distill["config"]["preload_from_files"] = {
+                                "teacher": {
+                                    "filename": chkpt,
+                                    "init_for_train": True,
+                                    "ignore_missing": False,
+                                    "prefix": "teacher.",
+                                    "ignore_params_prefixes": [],
+                                }
+                            }
+                            model_config_decoding = copy.deepcopy(student_config_drop)
+                            model_config_decoding.aux_ctc_loss_scales = [
+                                0.0,
+                                0.0,
+                                1.0,
+                            ]  # for decoding use result only of last layer
+                            train_args_distill_decoding = copy.deepcopy(train_args_distill)
+                            train_args_distill_decoding["net_args"] = {
+                                "model_config_dict": asdict(model_config_decoding),
+                                "distill_config_dict": None,
+                            }
+                            del train_args_distill_decoding["config"]["preload_from_files"]
+
+                            decoder_module = "ctc.decoder.flashlight_ctc_distill_v1"
+
+                            training_name = (
+                                prefix_name
+                                + "/"
+                                + distill_module_v3
+                                + f"chkpt_{num}"
+                                + f"_{layer_count}_{dim}_{distill_scale}_{T}_drop{dropout}"
+                            )
+                            train_job = training(
+                                training_name, train_data, train_args_distill, num_epochs=250, **default_returnn
+                            )
+                            results = eval_model(
+                                training_name=training_name,
+                                train_job=train_job,
+                                train_args=train_args_distill_decoding,
+                                train_data=train_data,
+                                decoder_config=default_decoder_config,
+                                dev_dataset_tuples=dev_dataset_tuples,
+                                specific_epoch=250,
+                                decoder_module=decoder_module,
+                                loss_name=f"ctc_loss_layer{layer_count}",
+                                prior_scales=[0.3, 0.5, 0.7, 0.9],
+                                lm_scales=[1.4, 1.6, 1.8, 2.0, 2.2, 2.4, 2.6, 2.8],
+                            )
+                            generate_report(results=results, exp_name=training_name)
+                            distill_report[training_name] = results
+                            del results
+
+                            teacher_config = TeacherConfigV2(
+                                distill_scale=distill_scale,
+                                ctc_scale=1 - distill_scale,
+                                t=T,
+                                exp_targets=False,
+                                eliminate_blanks=True,
+                                model_name=name,
+                                normalize_stud=False,
+                                kd_hyps=None,
+                            )
+                            train_args_distill = {
+                                "config": train_config_distill,
+                                "network_module": distill_module_v3,
+                                "net_args": {
+                                    "model_config_dict": asdict(student_config_drop),
+                                    "distill_config_dict": asdict(teacher_config),
+                                },
+                                "debug": True,
+                            }
+                            train_args_distill["config"]["preload_from_files"] = {
+                                "teacher": {
+                                    "filename": chkpt,
+                                    "init_for_train": True,
+                                    "ignore_missing": False,
+                                    "prefix": "teacher.",
+                                    "ignore_params_prefixes": [],
+                                }
+                            }
+                            model_config_decoding = copy.deepcopy(student_config_drop)
+                            model_config_decoding.aux_ctc_loss_scales = [
+                                0.0,
+                                0.0,
+                                1.0,
+                            ]  # for decoding use result only of last layer
+                            train_args_distill_decoding = copy.deepcopy(train_args_distill)
+                            train_args_distill_decoding["net_args"] = {
+                                "model_config_dict": asdict(model_config_decoding),
+                                "distill_config_dict": None,
+                            }
+                            del train_args_distill_decoding["config"]["preload_from_files"]
+
+                            decoder_module = "ctc.decoder.flashlight_ctc_distill_v1"
+
+                            training_name = (
+                                prefix_name
+                                + "/"
+                                + distill_module_v3
+                                + f"chkpt_{num}"
+                                + f"_{layer_count}_{dim}_{distill_scale}_{T}_drop{dropout}_elim_blank"
+                            )
+                            train_job = training(
+                                training_name, train_data, train_args_distill, num_epochs=250, **default_returnn
+                            )
+                            results = eval_model(
+                                training_name=training_name,
+                                train_job=train_job,
+                                train_args=train_args_distill_decoding,
+                                train_data=train_data,
+                                decoder_config=default_decoder_config,
+                                dev_dataset_tuples=dev_dataset_tuples,
+                                specific_epoch=250,
+                                decoder_module=decoder_module,
+                                loss_name=f"ctc_loss_layer{layer_count}",
+                                prior_scales=[0.3, 0.5, 0.7, 0.9],
+                                lm_scales=[1.4, 1.6, 1.8, 2.0, 2.2, 2.4, 2.6, 2.8],
+                            )
+                            generate_report(results=results, exp_name=training_name)
+                            distill_report[training_name] = results
+                            del results
 
                         if dim == 384 and distill_scale == 0.25 and num == "33":
                             for start_epoch in [5, 10, 25, 50, -5, -10, -25, -50, -100, -200]:
@@ -683,6 +876,81 @@ def eow_phon_ted_tune_hubert():
                                 generate_report(results=results, exp_name=training_name)
                                 distill_report[training_name] = results
                                 del results
+                        teacher_config = TeacherConfigV7(
+                            distill_scale=distill_scale,
+                            ctc_scale=1 - distill_scale,
+                            t=T,
+                            eliminate_blanks=True,
+                            model_name=name,
+                            normalize_stud=False,
+                            kd_hyps=None,
+                            keep_some_blanks=None,
+                            mask_padding=False,
+                            prior_file=None,
+                            prior_scale=None,
+                            warmup_loss=None,
+                            trim_blanks=True,
+                        )
+                        train_args_distill = {
+                            "config": train_config_distill,
+                            "network_module": distill_module_v7,
+                            "net_args": {
+                                "model_config_dict": asdict(student_config),
+                                "distill_config_dict": asdict(teacher_config),
+                            },
+                            "debug": True,
+                        }
+                        train_args_distill["config"]["preload_from_files"] = {
+                            "teacher": {
+                                "filename": chkpt,
+                                "init_for_train": True,
+                                "ignore_missing": False,
+                                "prefix": "teacher.",
+                                "ignore_params_prefixes": [],
+                            }
+                        }
+                        model_config_decoding = copy.deepcopy(student_config)
+                        model_config_decoding.aux_ctc_loss_scales = [
+                            0.0,
+                            0.0,
+                            1.0,
+                        ]  # for decoding use result only of last layer
+                        train_args_distill_decoding = copy.deepcopy(train_args_distill)
+                        train_args_distill_decoding["net_args"] = {
+                            "model_config_dict": asdict(model_config_decoding),
+                            "distill_config_dict": None,
+                        }
+                        del train_args_distill_decoding["config"]["preload_from_files"]
+
+                        decoder_module = "ctc.decoder.flashlight_ctc_distill_v1"
+
+                        training_name = (
+                            prefix_name
+                            + "/"
+                            + distill_module_v7
+                            + f"chkpt_{num}"
+                            + f"_{layer_count}_{dim}_{distill_scale}_{T}_trim_blanks"
+                        )
+                        train_job = training(
+                            training_name, train_data, train_args_distill, num_epochs=250, **default_returnn
+                        )
+                        results = eval_model(
+                            training_name=training_name,
+                            train_job=train_job,
+                            train_args=train_args_distill_decoding,
+                            train_data=train_data,
+                            decoder_config=default_decoder_config,
+                            dev_dataset_tuples=dev_dataset_tuples,
+                            specific_epoch=250,
+                            decoder_module=decoder_module,
+                            loss_name=f"ctc_loss_layer{layer_count}",
+                            prior_scales=[0.3, 0.5, 0.7, 0.9],
+                            lm_scales=[1.4, 1.6, 1.8, 2.0, 2.2, 2.4, 2.6, 2.8],
+                        )
+                        generate_report(results=results, exp_name=training_name)
+                        distill_report[training_name] = results
+                        del results
+                        for warmup in [25, 50]:
                             teacher_config = TeacherConfigV7(
                                 distill_scale=distill_scale,
                                 ctc_scale=1 - distill_scale,
@@ -695,7 +963,7 @@ def eow_phon_ted_tune_hubert():
                                 mask_padding=False,
                                 prior_file=None,
                                 prior_scale=None,
-                                warmup_loss=None,
+                                warmup_loss=warmup,
                                 trim_blanks=True,
                             )
                             train_args_distill = {
@@ -736,7 +1004,7 @@ def eow_phon_ted_tune_hubert():
                                 + "/"
                                 + distill_module_v7
                                 + f"chkpt_{num}"
-                                + f"_{layer_count}_{dim}_{distill_scale}_{T}_trim_blanks"
+                                + f"_{layer_count}_{dim}_{distill_scale}_{T}_trim_blanks_warmup{warmup}"
                             )
                             train_job = training(
                                 training_name, train_data, train_args_distill, num_epochs=250, **default_returnn
@@ -757,81 +1025,6 @@ def eow_phon_ted_tune_hubert():
                             generate_report(results=results, exp_name=training_name)
                             distill_report[training_name] = results
                             del results
-                            for warmup in [25, 50]:
-                                teacher_config = TeacherConfigV7(
-                                    distill_scale=distill_scale,
-                                    ctc_scale=1 - distill_scale,
-                                    t=T,
-                                    eliminate_blanks=True,
-                                    model_name=name,
-                                    normalize_stud=False,
-                                    kd_hyps=None,
-                                    keep_some_blanks=None,
-                                    mask_padding=False,
-                                    prior_file=None,
-                                    prior_scale=None,
-                                    warmup_loss=warmup,
-                                    trim_blanks=True,
-                                )
-                                train_args_distill = {
-                                    "config": train_config_distill,
-                                    "network_module": distill_module_v7,
-                                    "net_args": {
-                                        "model_config_dict": asdict(student_config),
-                                        "distill_config_dict": asdict(teacher_config),
-                                    },
-                                    "debug": True,
-                                }
-                                train_args_distill["config"]["preload_from_files"] = {
-                                    "teacher": {
-                                        "filename": chkpt,
-                                        "init_for_train": True,
-                                        "ignore_missing": False,
-                                        "prefix": "teacher.",
-                                        "ignore_params_prefixes": [],
-                                    }
-                                }
-                                model_config_decoding = copy.deepcopy(student_config)
-                                model_config_decoding.aux_ctc_loss_scales = [
-                                    0.0,
-                                    0.0,
-                                    1.0,
-                                ]  # for decoding use result only of last layer
-                                train_args_distill_decoding = copy.deepcopy(train_args_distill)
-                                train_args_distill_decoding["net_args"] = {
-                                    "model_config_dict": asdict(model_config_decoding),
-                                    "distill_config_dict": None,
-                                }
-                                del train_args_distill_decoding["config"]["preload_from_files"]
-
-                                decoder_module = "ctc.decoder.flashlight_ctc_distill_v1"
-
-                                training_name = (
-                                    prefix_name
-                                    + "/"
-                                    + distill_module_v7
-                                    + f"chkpt_{num}"
-                                    + f"_{layer_count}_{dim}_{distill_scale}_{T}_trim_blanks_warmup{warmup}"
-                                )
-                                train_job = training(
-                                    training_name, train_data, train_args_distill, num_epochs=250, **default_returnn
-                                )
-                                results = eval_model(
-                                    training_name=training_name,
-                                    train_job=train_job,
-                                    train_args=train_args_distill_decoding,
-                                    train_data=train_data,
-                                    decoder_config=default_decoder_config,
-                                    dev_dataset_tuples=dev_dataset_tuples,
-                                    specific_epoch=250,
-                                    decoder_module=decoder_module,
-                                    loss_name=f"ctc_loss_layer{layer_count}",
-                                    prior_scales=[0.3, 0.5, 0.7, 0.9],
-                                    lm_scales=[1.4, 1.6, 1.8, 2.0, 2.2, 2.4, 2.6, 2.8],
-                                )
-                                generate_report(results=results, exp_name=training_name)
-                                distill_report[training_name] = results
-                                del results
 
                         if dim == 384:
                             # teacher_config = TeacherConfigV2(
@@ -1098,13 +1291,13 @@ def eow_phon_ted_tune_hubert():
                             generate_report(results=results, exp_name=training_name)
                             distill_report[training_name] = results
                             del results
-                            for warmup in [25, 10, 50, 100, 150]:
+                            for warmup in [10, 25]:
                                 for lrs in [
                                     list(np.linspace(7e-6, 5e-4, 110))
                                     + list(np.linspace(5e-4, 5e-5, 110))
                                     + list(np.linspace(5e-5, 1e-7, 30))
                                 ]:
-                                    for pad in [True, False]:
+                                    for pad in [False]:
                                         train_config_distill = {
                                             "optimizer": {
                                                 "class": "radam",
@@ -1122,82 +1315,83 @@ def eow_phon_ted_tune_hubert():
                                             tmp = "const"
                                         else:
                                             tmp = "oclr"
-                                        teacher_config = TeacherConfigV5(
-                                            distill_scale=distill_scale,
-                                            ctc_scale=1 - distill_scale,
-                                            t=T,
-                                            eliminate_blanks=False,
-                                            model_name=name,
-                                            kd_hyps=None,
-                                            normalize_stud=False,
-                                            prior_file=None,
-                                            prior_scale=None,
-                                            warmup_loss=warmup,
-                                            mask_padding=pad,
-                                        )
-                                        train_args_distill = {
-                                            "config": train_config_distill,
-                                            "network_module": distill_module_v5,
-                                            "net_args": {
-                                                "model_config_dict": asdict(student_config),
-                                                "distill_config_dict": asdict(teacher_config),
-                                            },
-                                            "debug": True,
-                                        }
-                                        train_args_distill["config"]["preload_from_files"] = {
-                                            "teacher": {
-                                                "filename": chkpt,
-                                                "init_for_train": True,
-                                                "ignore_missing": False,
-                                                "prefix": "teacher.",
-                                                "ignore_params_prefixes": [],
+                                        if warmup <= 50:
+                                            teacher_config = TeacherConfigV5(
+                                                distill_scale=distill_scale,
+                                                ctc_scale=1 - distill_scale,
+                                                t=T,
+                                                eliminate_blanks=False,
+                                                model_name=name,
+                                                kd_hyps=None,
+                                                normalize_stud=False,
+                                                prior_file=None,
+                                                prior_scale=None,
+                                                warmup_loss=warmup,
+                                                mask_padding=pad,
+                                            )
+                                            train_args_distill = {
+                                                "config": train_config_distill,
+                                                "network_module": distill_module_v5,
+                                                "net_args": {
+                                                    "model_config_dict": asdict(student_config),
+                                                    "distill_config_dict": asdict(teacher_config),
+                                                },
+                                                "debug": True,
                                             }
-                                        }
-                                        model_config_decoding = copy.deepcopy(student_config)
-                                        model_config_decoding.aux_ctc_loss_scales = [
-                                            0.0,
-                                            0.0,
-                                            1.0,
-                                        ]  # for decoding use result only of last layer
-                                        train_args_distill_decoding = copy.deepcopy(train_args_distill)
-                                        train_args_distill_decoding["net_args"] = {
-                                            "model_config_dict": asdict(model_config_decoding),
-                                            "distill_config_dict": None,
-                                        }
-                                        del train_args_distill_decoding["config"]["preload_from_files"]
+                                            train_args_distill["config"]["preload_from_files"] = {
+                                                "teacher": {
+                                                    "filename": chkpt,
+                                                    "init_for_train": True,
+                                                    "ignore_missing": False,
+                                                    "prefix": "teacher.",
+                                                    "ignore_params_prefixes": [],
+                                                }
+                                            }
+                                            model_config_decoding = copy.deepcopy(student_config)
+                                            model_config_decoding.aux_ctc_loss_scales = [
+                                                0.0,
+                                                0.0,
+                                                1.0,
+                                            ]  # for decoding use result only of last layer
+                                            train_args_distill_decoding = copy.deepcopy(train_args_distill)
+                                            train_args_distill_decoding["net_args"] = {
+                                                "model_config_dict": asdict(model_config_decoding),
+                                                "distill_config_dict": None,
+                                            }
+                                            del train_args_distill_decoding["config"]["preload_from_files"]
 
-                                        decoder_module = "ctc.decoder.flashlight_ctc_distill_v1"
+                                            decoder_module = "ctc.decoder.flashlight_ctc_distill_v1"
 
-                                        training_name = (
-                                            prefix_name
-                                            + "/"
-                                            + distill_module_v5
-                                            + f"chkpt_{num}"
-                                            + f"_{layer_count}_{dim}_{distill_scale}_{T}_warm{warmup}_{tmp}_{pad}"
-                                        )
-                                        train_job = training(
-                                            training_name,
-                                            train_data,
-                                            train_args_distill,
-                                            num_epochs=250,
-                                            **default_returnn,
-                                        )
-                                        results = eval_model(
-                                            training_name=training_name,
-                                            train_job=train_job,
-                                            train_args=train_args_distill_decoding,
-                                            train_data=train_data,
-                                            decoder_config=default_decoder_config,
-                                            dev_dataset_tuples=dev_dataset_tuples,
-                                            specific_epoch=250,
-                                            decoder_module=decoder_module,
-                                            loss_name=f"ctc_loss_layer{layer_count}",
-                                            prior_scales=[0.3, 0.5, 0.7, 0.9],
-                                            lm_scales=[1.4, 1.6, 1.8, 2.0, 2.2, 2.4, 2.6, 2.8],
-                                        )
-                                        generate_report(results=results, exp_name=training_name)
-                                        distill_report[training_name] = results
-                                        del results
+                                            training_name = (
+                                                prefix_name
+                                                + "/"
+                                                + distill_module_v5
+                                                + f"chkpt_{num}"
+                                                + f"_{layer_count}_{dim}_{distill_scale}_{T}_warm{warmup}_{tmp}_{pad}"
+                                            )
+                                            train_job = training(
+                                                training_name,
+                                                train_data,
+                                                train_args_distill,
+                                                num_epochs=250,
+                                                **default_returnn,
+                                            )
+                                            results = eval_model(
+                                                training_name=training_name,
+                                                train_job=train_job,
+                                                train_args=train_args_distill_decoding,
+                                                train_data=train_data,
+                                                decoder_config=default_decoder_config,
+                                                dev_dataset_tuples=dev_dataset_tuples,
+                                                specific_epoch=250,
+                                                decoder_module=decoder_module,
+                                                loss_name=f"ctc_loss_layer{layer_count}",
+                                                prior_scales=[0.3, 0.5, 0.7, 0.9],
+                                                lm_scales=[1.4, 1.6, 1.8, 2.0, 2.2, 2.4, 2.6, 2.8],
+                                            )
+                                            generate_report(results=results, exp_name=training_name)
+                                            distill_report[training_name] = results
+                                            del results
                                         lr_long = (
                                             list(np.linspace(7e-6, 5e-4, warmup))
                                             + list(np.linspace(7e-6, 5e-4, 110))
@@ -1382,11 +1576,167 @@ def eow_phon_ted_tune_hubert():
                                 generate_report(results=results, exp_name=training_name)
                                 distill_report[training_name] = results
                                 del results
+
+                                teacher_config = TeacherConfigV10(
+                                    distill_scale=distill_scale,
+                                    ctc_scale=1 - distill_scale,
+                                    t=T,
+                                    eliminate_blanks=True,
+                                    keep_some_blanks=(keep, keep),
+                                    model_name=name,
+                                    kd_hyps=None,
+                                    normalize_stud=False,
+                                    prior_file=None,
+                                    prior_scale=None,
+                                    warmup_loss=None,
+                                    mask_padding=False,
+                                    trim_blanks=False,
+                                    mix_nonblank=None,
+                                    mix_blank=None,
+                                )
+                                train_args_distill = {
+                                    "config": train_config_distill,
+                                    "network_module": distill_module_v10,
+                                    "net_args": {
+                                        "model_config_dict": asdict(student_config),
+                                        "distill_config_dict": asdict(teacher_config),
+                                    },
+                                    "debug": True,
+                                }
+                                train_args_distill["config"]["preload_from_files"] = {
+                                    "teacher": {
+                                        "filename": chkpt,
+                                        "init_for_train": True,
+                                        "ignore_missing": False,
+                                        "prefix": "teacher.",
+                                        "ignore_params_prefixes": [],
+                                    }
+                                }
+                                model_config_decoding = copy.deepcopy(student_config)
+                                model_config_decoding.aux_ctc_loss_scales = [
+                                    0.0,
+                                    0.0,
+                                    1.0,
+                                ]  # for decoding use result only of last layer
+                                train_args_distill_decoding = copy.deepcopy(train_args_distill)
+                                train_args_distill_decoding["net_args"] = {
+                                    "model_config_dict": asdict(model_config_decoding),
+                                    "distill_config_dict": None,
+                                }
+                                del train_args_distill_decoding["config"]["preload_from_files"]
+
+                                decoder_module = "ctc.decoder.flashlight_ctc_distill_v1"
+
+                                training_name = (
+                                    prefix_name
+                                    + "/"
+                                    + distill_module_v6
+                                    + f"chkpt_{num}"
+                                    + f"_{layer_count}_{dim}_{distill_scale}_{T}_keepsome{keep}_sym"
+                                )
+                                train_job = training(
+                                    training_name, train_data, train_args_distill, num_epochs=250, **default_returnn
+                                )
+                                results = eval_model(
+                                    training_name=training_name,
+                                    train_job=train_job,
+                                    train_args=train_args_distill_decoding,
+                                    train_data=train_data,
+                                    decoder_config=default_decoder_config,
+                                    dev_dataset_tuples=dev_dataset_tuples,
+                                    specific_epoch=250,
+                                    decoder_module=decoder_module,
+                                    loss_name=f"ctc_loss_layer{layer_count}",
+                                    prior_scales=[0.3, 0.5, 0.7, 0.9],
+                                    lm_scales=[1.4, 1.6, 1.8, 2.0, 2.2, 2.4, 2.6, 2.8],
+                                )
+                                generate_report(results=results, exp_name=training_name)
+                                distill_report[training_name] = results
+                                del results
+
+                                if keep == 5:
+                                    teacher_config = TeacherConfigV10(
+                                        distill_scale=distill_scale,
+                                        ctc_scale=1 - distill_scale,
+                                        t=T,
+                                        eliminate_blanks=True,
+                                        keep_some_blanks=(0, keep),
+                                        model_name=name,
+                                        kd_hyps=None,
+                                        normalize_stud=False,
+                                        prior_file=None,
+                                        prior_scale=None,
+                                        warmup_loss=None,
+                                        mask_padding=False,
+                                        trim_blanks=False,
+                                        mix_nonblank=None,
+                                        mix_blank=None,
+                                    )
+                                    train_args_distill = {
+                                        "config": train_config_distill,
+                                        "network_module": distill_module_v10,
+                                        "net_args": {
+                                            "model_config_dict": asdict(student_config),
+                                            "distill_config_dict": asdict(teacher_config),
+                                        },
+                                        "debug": True,
+                                    }
+                                    train_args_distill["config"]["preload_from_files"] = {
+                                        "teacher": {
+                                            "filename": chkpt,
+                                            "init_for_train": True,
+                                            "ignore_missing": False,
+                                            "prefix": "teacher.",
+                                            "ignore_params_prefixes": [],
+                                        }
+                                    }
+                                    model_config_decoding = copy.deepcopy(student_config)
+                                    model_config_decoding.aux_ctc_loss_scales = [
+                                        0.0,
+                                        0.0,
+                                        1.0,
+                                    ]  # for decoding use result only of last layer
+                                    train_args_distill_decoding = copy.deepcopy(train_args_distill)
+                                    train_args_distill_decoding["net_args"] = {
+                                        "model_config_dict": asdict(model_config_decoding),
+                                        "distill_config_dict": None,
+                                    }
+                                    del train_args_distill_decoding["config"]["preload_from_files"]
+
+                                    decoder_module = "ctc.decoder.flashlight_ctc_distill_v1"
+
+                                    training_name = (
+                                        prefix_name
+                                        + "/"
+                                        + distill_module_v6
+                                        + f"chkpt_{num}"
+                                        + f"_{layer_count}_{dim}_{distill_scale}_{T}_keepsome{keep}test_sym"
+                                    )
+                                    train_job = training(
+                                        training_name, train_data, train_args_distill, num_epochs=250, **default_returnn
+                                    )
+                                    results = eval_model(
+                                        training_name=training_name,
+                                        train_job=train_job,
+                                        train_args=train_args_distill_decoding,
+                                        train_data=train_data,
+                                        decoder_config=default_decoder_config,
+                                        dev_dataset_tuples=dev_dataset_tuples,
+                                        specific_epoch=250,
+                                        decoder_module=decoder_module,
+                                        loss_name=f"ctc_loss_layer{layer_count}",
+                                        prior_scales=[0.3, 0.5, 0.7, 0.9],
+                                        lm_scales=[1.4, 1.6, 1.8, 2.0, 2.2, 2.4, 2.6, 2.8],
+                                    )
+                                    generate_report(results=results, exp_name=training_name)
+                                    distill_report[training_name] = results
+                                    del results
+
                         from ...pytorch_networks.ctc.hubert_tune_0711.distill_hubert_v6_cfg import (
                             DistillConfig as TeacherConfigV6,
                         )
 
-                        for keep in [1, 5]:
+                        for keep in []:
                             teacher_config = TeacherConfigV6(
                                 distill_scale=distill_scale,
                                 ctc_scale=1 - distill_scale,
@@ -1591,6 +1941,84 @@ def eow_phon_ted_tune_hubert():
                                 + distill_module_v6
                                 + f"chkpt_{num}"
                                 + f"_{layer_count}_{dim}_{distill_scale}_{T}_mix{mix}"
+                            )
+                            train_job = training(
+                                training_name, train_data, train_args_distill, num_epochs=250, **default_returnn
+                            )
+                            results = eval_model(
+                                training_name=training_name,
+                                train_job=train_job,
+                                train_args=train_args_distill_decoding,
+                                train_data=train_data,
+                                decoder_config=default_decoder_config,
+                                dev_dataset_tuples=dev_dataset_tuples,
+                                specific_epoch=250,
+                                decoder_module=decoder_module,
+                                loss_name=f"ctc_loss_layer{layer_count}",
+                                prior_scales=[0.3, 0.5, 0.7, 0.9],
+                                lm_scales=[1.4, 1.6, 1.8, 2.0, 2.2, 2.4, 2.6, 2.8],
+                            )
+                            generate_report(results=results, exp_name=training_name)
+                            distill_report[training_name] = results
+                            del results
+
+                            # TODO: control exp, if also fails just delete
+                            teacher_config = TeacherConfigV9(
+                                distill_scale=distill_scale,
+                                ctc_scale=1 - distill_scale,
+                                t=T,
+                                eliminate_blanks=False,
+                                keep_some_blanks=None,
+                                model_name=name,
+                                kd_hyps=None,
+                                normalize_stud=False,
+                                prior_file=None,
+                                prior_scale=None,
+                                warmup_loss=None,
+                                mask_padding=False,
+                                trim_blanks=False,
+                                mix_nonblank=1.0,
+                                mix_blank=mix,
+                            )
+                            train_args_distill = {
+                                "config": train_config_distill,
+                                "network_module": distill_module_v9,
+                                "net_args": {
+                                    "model_config_dict": asdict(student_config),
+                                    "distill_config_dict": asdict(teacher_config),
+                                },
+                                "debug": True,
+                            }
+                            train_args_distill["config"]["preload_from_files"] = {
+                                "teacher": {
+                                    "filename": chkpt,
+                                    "init_for_train": True,
+                                    "ignore_missing": False,
+                                    "prefix": "teacher.",
+                                    "ignore_params_prefixes": [],
+                                }
+                            }
+                            model_config_decoding = copy.deepcopy(student_config)
+                            model_config_decoding.aux_ctc_loss_scales = [
+                                0.0,
+                                0.0,
+                                1.0,
+                            ]  # for decoding use result only of last layer
+                            train_args_distill_decoding = copy.deepcopy(train_args_distill)
+                            train_args_distill_decoding["net_args"] = {
+                                "model_config_dict": asdict(model_config_decoding),
+                                "distill_config_dict": None,
+                            }
+                            del train_args_distill_decoding["config"]["preload_from_files"]
+
+                            decoder_module = "ctc.decoder.flashlight_ctc_distill_v1"
+
+                            training_name = (
+                                prefix_name
+                                + "/"
+                                + distill_module_v9
+                                + f"chkpt_{num}"
+                                + f"_{layer_count}_{dim}_{distill_scale}_{T}_blank_mix_{mix}"
                             )
                             train_job = training(
                                 training_name, train_data, train_args_distill, num_epochs=250, **default_returnn
@@ -1972,6 +2400,9 @@ def eow_phon_ted_tune_pos_enc_w_hubert():
                             "max_seq_length": {"audio_features": 35 * 16000},
                             "accum_grad_multiple_step": 1,
                         }
+                        if dim == 384:
+                            train_config_tune["batch_size"] /= 2
+                            train_config_tune["accum_grad_multiple_step"] *= 2
 
                         train_args_distill = {
                             "config": train_config_tune,
@@ -2106,6 +2537,8 @@ def eow_phon_ted_tune_pos_enc_w_hubert():
 
                         if dim == 384:
                             for start_epoch in [5, 25, 50, -10, -25, -50, -100, -200]:
+                                if distill_scale in [1.0]:
+                                    continue
                                 teacher_config = TeacherConfigV1(
                                     distill_scale=distill_scale,
                                     ctc_scale=1 - distill_scale,
@@ -2377,7 +2810,7 @@ def eow_phon_ted_tune_pos_enc_w_hubert():
                             generate_report(results=results, exp_name=training_name)
                             distill_report[training_name] = results
                             del results
-                            for warmup in [10, 25, 50, 100]:
+                            for warmup in []:
                                 train_config_distill = {
                                     "optimizer": {
                                         "class": "radam",
@@ -2636,7 +3069,8 @@ def eow_phon_ted_tune_pos_enc_w_hubert():
                                 generate_report(results=results, exp_name=training_name)
                                 distill_report[training_name] = results
                                 del results
-                            for keep in [1, 2, 3, 4, 5]:
+                            for keep in []:
+                                # did not improve over baseline without warm
                                 teacher_config = TeacherConfigV1(
                                     distill_scale=distill_scale,
                                     ctc_scale=1 - distill_scale,

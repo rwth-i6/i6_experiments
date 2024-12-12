@@ -41,6 +41,9 @@ def eval_model(
     specific_epoch: Optional[Union[int, List]] = None,
     decoder_module: str = "ctc.decoder.flashlight_ctc_v1",
     loss_name: str = "dev_loss_ctc",
+    import_memristor: bool = False,
+    use_gpu: bool = False,
+    extra_forward_config: Optional[dict[str, Any]] = None,
 ):
     if specific_epoch is None:
         specific_epoch = train_job.returnn_config.post_config["num_epochs"]
@@ -52,6 +55,7 @@ def eval_model(
         prior_scales = [0.7, 0.9]
     if result_dict is None:
         result_dict = {}
+    debug = train_args.get("debug", False)
     for epoch in specific_epoch:
         asr_model = prepare_asr_model(
             training_name + f"/{epoch}",
@@ -69,6 +73,10 @@ def eval_model(
             prior_scales=prior_scales,
             dev_dataset_tuples=dev_dataset_tuples,
             decoder_module=decoder_module,
+            use_gpu=use_gpu,
+            import_memristor=import_memristor,
+            debug=debug,
+            extra_forward_config=extra_forward_config,
         )
         result_dict.update(res)
     asr_model_best4 = prepare_asr_model(
@@ -87,6 +95,10 @@ def eval_model(
         prior_scales=prior_scales,
         dev_dataset_tuples=dev_dataset_tuples,
         decoder_module=decoder_module,
+        use_gpu=use_gpu,
+        import_memristor=import_memristor,
+        debug=debug,
+        extra_forward_config=extra_forward_config,
     )
     result_dict.update(res)
     asr_model_best = prepare_asr_model(
@@ -105,6 +117,10 @@ def eval_model(
         prior_scales=prior_scales,
         dev_dataset_tuples=dev_dataset_tuples,
         decoder_module=decoder_module,
+        use_gpu=use_gpu,
+        import_memristor=import_memristor,
+        debug=debug,
+        extra_forward_config=extra_forward_config,
     )
     result_dict.update(res)
     return result_dict
@@ -121,6 +137,10 @@ def tune_and_evaluate_helper(
     test_dataset_tuples: Optional[Dict[str, Any]] = None,
     quant_args: Optional[QuantArgs] = None,
     decoder_module: str = "ctc.decoder.flashlight_ctc_v1",
+    import_memristor: bool = False,
+    extra_forward_config: Optional[dict[str, Any]] = None,
+    use_gpu: bool = False,
+    debug: bool = False,
 ):
     """
     Example helper to execute tuning over lm_scales and prior scales.
@@ -145,11 +165,14 @@ def tune_and_evaluate_helper(
             search_name = training_name + "/search_lm%.1f_prior%.1f" % (lm_weight, prior_scale)
             search_jobs, wers = search(
                 search_name,
-                forward_config={},
+                forward_config=extra_forward_config or {},
                 asr_model=asr_model,
                 decoder_module=decoder_module,
                 decoder_args={"config": asdict(decoder_config)},
                 test_dataset_tuples=dev_dataset_tuples,
+                use_gpu=use_gpu,
+                import_memristor=import_memristor,
+                debug=debug,
                 **default_returnn,
             )
             tune_parameters.append((lm_weight, prior_scale))
@@ -193,11 +216,13 @@ def tune_and_evaluate_helper(
                         search_name = it_name + "/search_lm%.1f_prior%.1f" % (lm_weight, prior_scale)
                         search_jobs, wers = search(
                             search_name,
-                            forward_config={},
+                            forward_config=extra_forward_config or {},
                             asr_model=quant_model,
                             decoder_module=quant_args.decoder,
                             decoder_args={"config": asdict(decoder_config)},
                             test_dataset_tuples=dev_dataset_tuples,
+                            use_gpu=use_gpu,
+                            debug=debug,
                             **default_returnn,
                         )
                         results.update(wers)
@@ -209,6 +234,8 @@ def tune_and_evaluate_helper(
                                 decoder_module=quant_args.decoder,
                                 decoder_args={"config": asdict(decoder_config)},
                                 test_dataset_tuples=test_dataset_tuples,
+                                use_gpu=use_gpu,
+                                debug=debug,
                                 **default_returnn,
                             )
                             results.update(wers)
@@ -223,11 +250,12 @@ def tune_and_evaluate_helper(
             decoder_config.prior_scale = pick_optimal_params_job.out_optimal_parameters[1]
             search_jobs, wers = search(
                 training_name,
-                forward_config={},
+                forward_config=extra_forward_config or {},
                 asr_model=asr_model,
                 decoder_module=decoder_module,
                 decoder_args={"config": asdict(decoder_config)},
                 test_dataset_tuples={key: test_dataset_tuples[key]},
+                use_gpu=use_gpu,
                 **default_returnn,
             )
             results.update(wers)
@@ -393,13 +421,26 @@ def build_hubert_distill_report(report: Dict):
     best_dc = {exp: value for exp, value in best_dc.items() if "128" not in exp}
     line.append("")
 
-    exps = ["elim_blank", "keepsome", "mix", "elim_blank_prior", "kdhyps", "trim_blanks", "elim_blank num"]
+    exps = [
+        "elim_blank",
+        "keepsome",
+        "mix",
+        "pretrain",
+        "elim_blank_prior",
+        "kdhyps",
+        "trim_blanks",
+        "elim_blank num",
+        "long",
+        "lm",
+        "sym",
+    ]
     line.append("Baselines")
     for exp, value in best_dc.items():
         if (
             not any(name in exp.split("_")[-1] for name in exps + ["True", "False"])
             and not any(exp.endswith(name) for name in exps + ["True", "False"])
-            and not ["elim", "blank"] == exp.split("_")[-3:-2]
+            and not ["elim", "blank"] == exp.split("_")[-3:-1]
+            and not "trim_blanks" in exp
         ):
             line.append(f"{' '.join(exp.split('.')[2:])}: {value[0]}   {' '.join(value[1].split('/')[6:])}")
     best_dc = {
@@ -408,7 +449,8 @@ def build_hubert_distill_report(report: Dict):
         if (
             any(exp.endswith(name) for name in exps + ["True", "False"])
             or any(name in exp.split("_")[-1] for name in exps + ["True", "False"])
-            or ["elim", "blank"] == exp.split("_")[-3:-2]
+            or ["elim", "blank"] == exp.split("_")[-3:-1]
+            or "trim_blanks" in exp
         )
     }
     line.append("")
@@ -421,7 +463,9 @@ def build_hubert_distill_report(report: Dict):
                 line.append(f"{' '.join(exp.split('.')[2:])}: {value[0]}   {' '.join(value[1].split('/')[6:])}")
             elif name == "mix" and "mix" in exp.split("_")[-1]:
                 line.append(f"{' '.join(exp.split('.')[2:])}: {value[0]}   {' '.join(value[1].split('/')[6:])}")
-            elif name == "elim_blank num" and ["elim", "blank"] == exp.split("_")[-3:-2]:
+            elif name == "elim_blank num" and ["elim", "blank"] == exp.split("_")[-3:-1]:
+                line.append(f"{' '.join(exp.split('.')[2:])}: {value[0]}   {' '.join(value[1].split('/')[6:])}")
+            elif name == "trim_blanks" and "trim_blanks" in exp:
                 line.append(f"{' '.join(exp.split('.')[2:])}: {value[0]}   {' '.join(value[1].split('/')[6:])}")
         line.append("")
         best_dc = {
@@ -430,7 +474,8 @@ def build_hubert_distill_report(report: Dict):
             if not exp.endswith(name)
             and not (name == "keepsome" and "keepsome" in exp.split("_")[-1])
             and not (name == "mix" and "mix" in exp.split("_")[-1])
-            and not (name == "elim_blank num" and ["elim", "blank"] == exp.split("_")[-3:-2])
+            and not (name == "elim_blank num" and ["elim", "blank"] == exp.split("_")[-3:-1])
+            and not (name == "trim_blanks" and "trim_blanks" in exp)
         }
     line.append("Warmup")
     for exp, value in best_dc.items():

@@ -268,8 +268,23 @@ def eow_phon_ted_1023_base(full=False):
     from ...pytorch_networks.ctc.conformer_1023.quant.baseline_quant_v1_cfg import QuantModelConfigV1
 
     num_iterations = 1
-    for activation_bit, weight_bit in [(8, 8), (8, 4), (8, 3), (4, 4)]:
-        results = {}
+    results = {}
+    for activation_bit, weight_bit in [
+        (8, 8),
+        (8, 4),
+        (8, 3),
+        (8, 2),
+        (8, 1),
+        (6, 6),
+        (6, 4),
+        (6, 3),
+        (6, 2),
+        (6, 1),
+        (4, 4),
+        (4, 3),
+        (4, 2),
+        (4, 1),
+    ]:
         model_config_quant_v1 = QuantModelConfigV1(
             weight_quant_dtype="qint8",
             weight_quant_method="per_tensor",
@@ -313,8 +328,8 @@ def eow_phon_ted_1023_base(full=False):
             test_dataset_tuples=None,
         )
         results.update(res)
-        generate_report(results=results, exp_name=training_name + f"_quantize/weight_{weight_bit}_act_{activation_bit}")
-        del results
+    generate_report(results=results, exp_name=training_name + f"_quantize/combined_results")
+    del results
 
     report = {}
     if full is True:

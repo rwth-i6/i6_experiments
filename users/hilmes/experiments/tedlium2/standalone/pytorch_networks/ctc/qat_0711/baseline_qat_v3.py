@@ -1,5 +1,5 @@
 """
-Uses the MHSA fix from v2 modules
+V3 adds option to quantize bias
 """
 import math
 
@@ -10,29 +10,24 @@ import copy
 from typing import Tuple
 
 from i6_models.parts.conformer.norm import LayerNormNC
-from i6_models.assemblies.conformer.conformer_v1 import ConformerEncoderV1Config
-from i6_models.assemblies.conformer.conformer_v1 import ConformerBlockV1Config, ConformerEncoderV1
 from i6_models.config import ModuleFactoryV1
 from i6_models.parts.frontend.vgg_act import VGG4LayerActFrontendV1
 from i6_models.util import compat
 
-from i6_models.parts.conformer.convolution import ConformerConvolutionV1Config
-from i6_models.parts.conformer.feedforward import ConformerPositionwiseFeedForwardV1Config
-from i6_models.parts.conformer.mhsa import ConformerMHSAV1Config
 from i6_models.primitives.specaugment import specaugment_v1_by_length
-from i6_models.primitives.feature_extraction import LogMelFeatureExtractionV1, LogMelFeatureExtractionV1Config
+from i6_models.primitives.feature_extraction import LogMelFeatureExtractionV1
 
 from returnn.torch.context import get_run_ctx
 
-from .baseline_qat_v1_cfg import (
-    QuantModelTrainConfigV1,
-    ConformerPositionwiseFeedForwardQuantV1Config,
-    QuantizedMultiheadAttentionV1Config,
-    ConformerConvolutionQuantV1Config,
+from .baseline_qat_v3_cfg import (
+    QuantModelTrainConfigV3,
+    ConformerPositionwiseFeedForwardQuantV3Config,
+    QuantizedMultiheadAttentionV3Config,
+    ConformerConvolutionQuantV3Config,
     ConformerBlockQuantV1Config,
     ConformerEncoderQuantV1Config,
 )
-from .baseline_qat_v1_modules import LinearQuant, QuantizedMultiheadAttention, Conv1dQuant, ActivationQuantizer
+from .baseline_qat_v3_modules import LinearQuant, QuantizedMultiheadAttention, Conv1dQuant, ActivationQuantizer
 from torch.nn.quantized._reference.modules import Linear, Conv1d
 
 
@@ -41,7 +36,7 @@ class ConformerPositionwiseFeedForwardQuant(nn.Module):
     Conformer feedforward module
     """
 
-    def __init__(self, cfg: ConformerPositionwiseFeedForwardQuantV1Config):
+    def __init__(self, cfg: ConformerPositionwiseFeedForwardQuantV3Config):
         super().__init__()
 
         self.layer_norm = nn.LayerNorm(cfg.input_dim)
@@ -52,6 +47,7 @@ class ConformerPositionwiseFeedForwardQuant(nn.Module):
             weight_quant_dtype=cfg.weight_quant_dtype,
             weight_quant_method=cfg.weight_quant_method,
             bias=True,
+            quantize_bias=cfg.quantize_bias,
         )
         self.activation = cfg.activation
         self.linear_out = LinearQuant(
@@ -61,6 +57,7 @@ class ConformerPositionwiseFeedForwardQuant(nn.Module):
             weight_quant_dtype=cfg.weight_quant_dtype,
             weight_quant_method=cfg.weight_quant_method,
             bias=True,
+            quantize_bias=cfg.quantize_bias,
         )
 
         self.lin_1_in_quant = ActivationQuantizer(
@@ -168,7 +165,7 @@ class ConformerMHSAQuant(torch.nn.Module):
     Conformer multi-headed self-attention module
     """
 
-    def __init__(self, cfg: QuantizedMultiheadAttentionV1Config):
+    def __init__(self, cfg: QuantizedMultiheadAttentionV3Config):
 
         super().__init__()
 
@@ -208,7 +205,7 @@ class ConformerConvolutionQuant(nn.Module):
     https://github.com/pytorch/pytorch/issues/68880
     """
 
-    def __init__(self, model_cfg: ConformerConvolutionQuantV1Config):
+    def __init__(self, model_cfg: ConformerConvolutionQuantV3Config):
         """
         :param model_cfg: model configuration for this module
         """
@@ -222,6 +219,7 @@ class ConformerConvolutionQuant(nn.Module):
             weight_quant_dtype=model_cfg.weight_quant_dtype,
             weight_quant_method=model_cfg.weight_quant_method,
             bias=True,
+            quantize_bias=model_cfg.quantize_bias,
         )
         self.depthwise_conv = Conv1dQuant(
             in_channels=model_cfg.channels,
@@ -235,6 +233,7 @@ class ConformerConvolutionQuant(nn.Module):
             weight_bit_prec=model_cfg.weight_bit_prec,
             weight_quant_dtype=model_cfg.weight_quant_dtype,
             weight_quant_method=model_cfg.weight_quant_method,
+            quantize_bias=model_cfg.quantize_bias,
         )
         self.dconv_1_in_quant = ActivationQuantizer(
             bit_precision=model_cfg.activation_bit_prec,
@@ -259,6 +258,7 @@ class ConformerConvolutionQuant(nn.Module):
             weight_quant_dtype=model_cfg.weight_quant_dtype,
             weight_quant_method=model_cfg.weight_quant_method,
             bias=True,
+            quantize_bias=model_cfg.quantize_bias,
         )
         self.pconv_1_in_quant = ActivationQuantizer(
             bit_precision=model_cfg.activation_bit_prec,
@@ -515,7 +515,7 @@ class Model(torch.nn.Module):
             assert "random" in list(kwargs.keys())[0], "This must only be RETURNN random arg"
 
         super().__init__()
-        self.train_config = QuantModelTrainConfigV1.from_dict(model_config_dict)
+        self.train_config = QuantModelTrainConfigV3.from_dict(model_config_dict)
         fe_config = self.train_config.feature_extraction_config
         frontend_config = self.train_config.frontend_config
         conformer_size = self.train_config.conformer_size
@@ -524,7 +524,7 @@ class Model(torch.nn.Module):
             num_layers=self.train_config.num_layers,
             frontend=ModuleFactoryV1(module_class=VGG4LayerActFrontendV1, cfg=frontend_config),
             block_cfg=ConformerBlockQuantV1Config(
-                ff_cfg=ConformerPositionwiseFeedForwardQuantV1Config(
+                ff_cfg=ConformerPositionwiseFeedForwardQuantV3Config(
                     input_dim=conformer_size,
                     hidden_dim=self.train_config.ff_dim,
                     dropout=self.train_config.ff_dropout,
@@ -536,8 +536,9 @@ class Model(torch.nn.Module):
                     moving_average=self.train_config.moving_average,
                     weight_bit_prec=self.train_config.weight_bit_prec,
                     activation_bit_prec=self.train_config.activation_bit_prec,
+                    quantize_bias=self.train_config.quantize_bias,
                 ),
-                mhsa_cfg=QuantizedMultiheadAttentionV1Config(
+                mhsa_cfg=QuantizedMultiheadAttentionV3Config(
                     input_dim=conformer_size,
                     num_att_heads=self.train_config.num_heads,
                     att_weights_dropout=self.train_config.att_weights_dropout,
@@ -558,8 +559,9 @@ class Model(torch.nn.Module):
                     bit_prec_A_v=self.train_config.weight_bit_prec,
                     bit_prec_W_o=self.train_config.weight_bit_prec,
                     moving_average=self.train_config.moving_average,
+                    quantize_bias=self.train_config.quantize_bias,
                 ),
-                conv_cfg=ConformerConvolutionQuantV1Config(
+                conv_cfg=ConformerConvolutionQuantV3Config(
                     channels=conformer_size,
                     kernel_size=self.train_config.conv_kernel_size,
                     dropout=self.train_config.conv_dropout,
@@ -572,14 +574,39 @@ class Model(torch.nn.Module):
                     activation_quant_dtype=self.train_config.activation_quant_dtype,
                     activation_quant_method=self.train_config.activation_quant_method,
                     moving_average=self.train_config.moving_average,
+                    quantize_bias=self.train_config.quantize_bias,
                 ),
             ),
         )
         self.conformer = ConformerEncoderQuant(cfg=conformer_config)
 
-        self.final_linear = nn.Linear(
-            conformer_size, self.train_config.label_target_size + 1
-        )  # + CTC blank TODO: do we quant here too?
+        if self.train_config.quantize_output is True:
+            self.lin_out = LinearQuant(
+                in_features=self.train_config.conformer_size,
+                out_features=self.train_config.label_target_size + 1,
+                weight_bit_prec=self.train_config.weight_bit_prec,
+                weight_quant_dtype=self.train_config.weight_quant_dtype,
+                weight_quant_method=self.train_config.weight_quant_method,
+                bias=True,
+                quantize_bias=self.train_config.quantize_bias,
+            )
+            self.lin_out_in_quant = ActivationQuantizer(
+                bit_precision=self.train_config.activation_bit_prec,
+                dtype=self.train_config.activation_quant_dtype,
+                method=self.train_config.activation_quant_method,
+                channel_axis=1,
+                moving_avrg=self.train_config.moving_average,
+            )
+            self.lin_out_out_quant = ActivationQuantizer(
+                bit_precision=self.train_config.activation_bit_prec,
+                dtype=self.train_config.activation_quant_dtype,
+                method=self.train_config.activation_quant_method,
+                channel_axis=1,
+                moving_avrg=self.train_config.moving_average,
+            )
+            self.final_linear = torch.nn.Sequential(self.lin_out_in_quant, self.lin_out, self.lin_out_out_quant)
+        else:
+            self.final_linear = nn.Linear(conformer_size, self.train_config.label_target_size + 1)  # + CTC blank
         self.final_dropout = nn.Dropout(p=self.train_config.final_dropout)
         self.specaug_start_epoch = self.train_config.specauc_start_epoch
         self.extra_act_quant = self.train_config.extra_act_quant
@@ -629,6 +656,21 @@ class Model(torch.nn.Module):
     def prep_quant(self, decompose=False):
         print("Converting Model for efficient inference")
         print(f"Activation quantization is {self.extra_act_quant}")
+        if self.train_config.quantize_output is True:
+            self.lin_out.weight_quantizer.set_scale_and_zp()
+            self.lin_out = Linear.from_float(
+                self.lin_out,
+                weight_qparams={
+                    "qscheme": torch.per_tensor_affine,
+                    "dtype": self.lin_out.weight_quant_dtype,
+                    "zero_point": self.lin_out.weight_quantizer.zero_point,
+                    "scale": self.lin_out.weight_quantizer.scale,
+                    "quant_min": self.lin_out.weight_quantizer.quant_min,
+                    "quant_max": self.lin_out.weight_quantizer.quant_max,
+                    "decompose": decompose,
+                },
+            )
+            self.final_linear = torch.nn.Sequential(self.lin_out_in_quant, self.lin_out, self.lin_out_out_quant)
         self.conformer.prep_quant(self.extra_act_quant, decompose=decompose)
 
     def prep_dequant(self):

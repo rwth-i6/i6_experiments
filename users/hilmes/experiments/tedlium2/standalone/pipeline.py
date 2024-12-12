@@ -19,7 +19,7 @@ from i6_core.returnn.forward import ReturnnForwardJobV2
 
 from i6_experiments.common.setups.returnn.datasets import Dataset
 
-from .config import get_forward_config, get_training_config, get_prior_config, TrainingDatasets
+from .config import get_forward_config, get_training_config, get_prior_config, TrainingDatasets, serialize_forward
 from .default_tools import SCTK_BINARY_PATH, RETURNN_EXE, MINI_RETURNN_ROOT
 
 
@@ -100,6 +100,7 @@ def search(
     returnn_exe: tk.Path,
     returnn_root: tk.Path,
     use_gpu: bool = False,
+    import_memristor: bool = False,
     debug: bool = False,
 ):
     """
@@ -125,6 +126,7 @@ def search(
         decoder_args=decoder_args,
         decoder=decoder_module,
         debug=debug,
+        import_memristor=import_memristor,
     )
 
     # use fixed last checkpoint for now, needs more fine-grained selection / average etc. here
@@ -186,9 +188,10 @@ def compute_prior(
         output_files=["prior.txt"],
     )
     if "hubert_tune_v1_xlarge" in prefix_name or "hubert_tune_v2_xlarge" in prefix_name:
-        search_job.rqmt['time'] += 12
+        search_job.rqmt["time"] += 12
     search_job.add_alias(prefix_name + "/prior_job")
     return search_job.out_files["prior.txt"]
+
 
 @tk.block()
 def quantize_static(
@@ -219,11 +222,11 @@ def quantize_static(
         cpu_rqmt=8,
         returnn_python_exe=returnn_exe,
         returnn_root=returnn_root,
-        output_files=['model.pt', "seq_tags.txt"],
+        output_files=["model.pt", "seq_tags.txt"],
     )
     quantize_job.set_keep_value(5)
     quantize_job.add_alias(prefix_name + "/calibration")
-    return quantize_job.out_files['model.pt']
+    return quantize_job.out_files["model.pt"]
 
 
 def training(training_name, datasets, train_args, num_epochs, returnn_exe, returnn_root):
@@ -296,8 +299,9 @@ def prepare_asr_model(
             avg = AverageTorchCheckpointsJob(
                 checkpoints=checkpoints, returnn_python_exe=RETURNN_EXE, returnn_root=MINI_RETURNN_ROOT
             )
+            avg.keep_value(15)
             if "v6_20_1024" in training_name:
-                avg.rqmt['mem'] += 2
+                avg.rqmt["mem"] += 2
             checkpoint = avg.out_checkpoint
             avg.add_alias(training_name + "/avg_best_%i_cpkt/avrg_job" % num_checkpoints)
             training_name = training_name + "/avg_best_%i_cpkt" % num_checkpoints
@@ -331,9 +335,9 @@ def prepare_asr_model(
             debug=train_args.get("debug", False),
         )
         if "hubert_tune_v1_large" in training_name or "hubert_tune_v2_large" in training_name:
-            returnn_config.config['max_seqs'] = 20
+            returnn_config.config["max_seqs"] = 20
         elif "hubert_tune_v1_xlarge" in training_name or "hubert_tune_v2_xlarge" in training_name:
-            returnn_config.config['max_seqs'] = 15
+            returnn_config.config["max_seqs"] = 15
         prior_file = compute_prior(
             training_name,
             returnn_config,
@@ -358,32 +362,35 @@ def prepare_asr_model(
 
 
 def generate_kd_hypothesis(
-        prefix_name: str,
-        train_job: ReturnnTrainingJob,
-        train_args,
-        train_data: TrainingDatasets,
-        checkpoint: Union[int, str],
-        decoder_config,
-        prior_scale: float,
-        lm_scale: float,
-        train_referece: Optional[tk.Path] = None,
-        decoder: str = "ctc.decoder.flashlight_ctc_kdhyps",
-        debug=False,
+    prefix_name: str,
+    train_job: ReturnnTrainingJob,
+    train_args,
+    train_data: TrainingDatasets,
+    checkpoint: Union[int, str],
+    decoder_config,
+    prior_scale: float,
+    lm_scale: float,
+    train_referece: Optional[tk.Path] = None,
+    decoder: str = "ctc.decoder.flashlight_ctc_kdhyps",
+    debug=False,
 ):
     decoder_config = copy.deepcopy(decoder_config)
     decoder_config.lm_weight = lm_scale
     decoder_config.prior_scale = prior_scale
     if checkpoint == "best4":
         asr_model = prepare_asr_model(
-            prefix_name, train_job, train_args, with_prior=True, datasets=train_data,
-            get_best_averaged_checkpoint=(4, "dev_loss_ctc")
+            prefix_name,
+            train_job,
+            train_args,
+            with_prior=True,
+            datasets=train_data,
+            get_best_averaged_checkpoint=(4, "dev_loss_ctc"),
         )
     else:
         asr_model = prepare_asr_model(
-        prefix_name, train_job, train_args, with_prior=True, datasets=train_data,
-        get_specific_checkpoint=checkpoint
+            prefix_name, train_job, train_args, with_prior=True, datasets=train_data, get_specific_checkpoint=checkpoint
         )
-    decoder_args = {"config": asdict(decoder_config), "extra_config": {'print_rtf': False, 'print_hypothesis': False}}
+    decoder_args = {"config": asdict(decoder_config), "extra_config": {"print_rtf": False, "print_hypothesis": False}}
     decoder_args["config"]["prior_file"] = asr_model.prior_file
     returnn_search_config = get_forward_config(
         network_module=asr_model.network_module,
@@ -395,9 +402,9 @@ def generate_kd_hypothesis(
     )
     returnn_config = copy.deepcopy(returnn_search_config)
     returnn_config.config["forward"] = copy.deepcopy(train_data.train.as_returnn_opts())
-    del returnn_config.config["forward"]['datasets']['zip_dataset']['partition_epoch']
-    returnn_config.config["forward"]['datasets']['zip_dataset']['seq_ordering'] = "sorted"
-    returnn_config.config['batch_size'] = 250 * 16000
+    del returnn_config.config["forward"]["datasets"]["zip_dataset"]["partition_epoch"]
+    returnn_config.config["forward"]["datasets"]["zip_dataset"]["seq_ordering"] = "sorted"
+    returnn_config.config["batch_size"] = 250 * 16000
     search_job = ReturnnForwardJobV2(
         model_checkpoint=asr_model.checkpoint,
         returnn_config=returnn_config,
@@ -423,10 +430,71 @@ def generate_kd_hypothesis(
 
         stm_file = CorpusToStmJob(bliss_corpus=train_referece).out_stm_path
 
-        sclite_job = ScliteJob(ref=stm_file, hyp=search_ctm, sctk_binary_path=SCTK_BINARY_PATH,
-                               precision_ndigit=3)
+        sclite_job = ScliteJob(ref=stm_file, hyp=search_ctm, sctk_binary_path=SCTK_BINARY_PATH, precision_ndigit=3)
         sclite_job.add_alias(prefix_name + "/sclite_job")
         tk.register_output(prefix_name + "/sclite/wer", sclite_job.out_wer)
         tk.register_output(prefix_name + "/sclite/report", sclite_job.out_report_dir)
 
-    return search_job.out_files['n_best_probs.py'], asr_model.prior_file, asr_model.checkpoint
+    return search_job.out_files["n_best_probs.py"], asr_model.prior_file, asr_model.checkpoint
+
+
+def calculate_blank_counts(
+    prefix_name: str,
+    train_job: ReturnnTrainingJob,
+    train_args,
+    train_data: TrainingDatasets,
+    checkpoint: Union[int, str],
+    debug=False,
+):
+    if checkpoint == "best4":
+        asr_model = prepare_asr_model(
+            prefix_name,
+            train_job,
+            train_args,
+            with_prior=True,
+            datasets=train_data,
+            get_best_averaged_checkpoint=(4, "dev_loss_ctc"),
+        )
+    else:
+        asr_model = prepare_asr_model(
+            prefix_name, train_job, train_args, with_prior=True, datasets=train_data, get_specific_checkpoint=checkpoint
+        )
+    post_config = {
+        "num_workers_per_gpu": 2,
+    }
+
+    base_config = {
+        #############
+        "batch_size": 500 * 16000,
+        "max_seqs": 240,
+        #############
+        "forward": copy.deepcopy(train_data.cv.as_returnn_opts()),
+    }
+    config = {**base_config, **copy.deepcopy({})}
+    post_config["backend"] = "torch"
+
+    serializer = serialize_forward(
+        network_module=train_args["network_module"],
+        net_args=train_args["net_args"],
+        unhashed_net_args=train_args.get("unhashed_net_args", None),
+        forward_module=None,  # same as network
+        forward_step_name="calc_blank",
+        forward_init_args=None,
+        unhashed_forward_init_args=None,
+        debug=debug,
+    )
+    returnn_config = ReturnnConfig(config=config, post_config=post_config, python_epilog=[serializer])
+    search_job = ReturnnForwardJobV2(
+        model_checkpoint=asr_model.checkpoint,
+        returnn_config=returnn_config,
+        log_verbosity=5,
+        mem_rqmt=10,
+        time_rqmt=2,
+        device="gpu",
+        cpu_rqmt=8,
+        returnn_python_exe=RETURNN_EXE,
+        returnn_root=MINI_RETURNN_ROOT,
+        output_files=["blank_counts.npy"],
+    )
+    search_job.add_alias(prefix_name + "/calculate_blank_counts")
+    return search_job.out_files["blank_counts.npy"]

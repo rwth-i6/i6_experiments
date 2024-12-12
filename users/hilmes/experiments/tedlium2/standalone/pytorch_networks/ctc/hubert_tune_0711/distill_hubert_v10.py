@@ -1,30 +1,35 @@
 """
-V2 fixes error in KD calculation
+V2 adds KD hyps, V3 fixes downsampling, V4 adds prior, V5 adds option for warmup loss, V6 adds keeping some blanks for elim blanks
+v7 adds possibility to trim sequence blanks
+v8 adds mixing of blank and nonblank loss
+v9 updates mixing
+v10 updates keepsome
 """
 
 import numpy as np
 import torch
-from torch import nn
-from torch import tensor
+from torch import nn, tensor
 from typing import Optional
 from transformers import HubertModel, HubertConfig
 
 from i6_models.parts.conformer.norm import LayerNormNC
-from i6_models.assemblies.conformer.conformer_rel_pos_v1 import ConformerRelPosEncoderV1Config
-from i6_models.assemblies.conformer.conformer_rel_pos_v1 import ConformerRelPosBlockV1Config, ConformerRelPosEncoderV1
+from i6_models.assemblies.conformer.conformer_v2 import (
+    ConformerEncoderV2,
+    ConformerEncoderV2Config,
+    ConformerBlockV2Config,
+)
 from i6_models.config import ModuleFactoryV1
 from i6_models.parts.frontend.vgg_act import VGG4LayerActFrontendV1
 
-from i6_models.parts.conformer.convolution import ConformerConvolutionV2Config
-from i6_models.parts.conformer.feedforward import ConformerPositionwiseFeedForwardV2Config
-from i6_models.parts.conformer.mhsa_rel_pos import ConformerMHSARelPosV1Config
-from i6_models.parts.dropout import BroadcastDropout
+from i6_models.parts.conformer.convolution import ConformerConvolutionV1Config
+from i6_models.parts.conformer.feedforward import ConformerPositionwiseFeedForwardV1Config
+from i6_models.parts.conformer.mhsa import ConformerMHSAV1Config
 from i6_models.primitives.specaugment import specaugment_v1_by_length
 from i6_models.primitives.feature_extraction import LogMelFeatureExtractionV1
 
 from returnn.torch.context import get_run_ctx
 
-from .distill_pos_enc_hubert_v2_cfg import ModelConfig, DistillConfig
+from .distill_hubert_v10_cfg import ModelConfig, DistillConfig
 
 
 def mask_tensor(tensor: torch.Tensor, seq_len: torch.Tensor) -> torch.Tensor:
@@ -56,45 +61,34 @@ class Model(torch.nn.Module):
         self.cfg: ModelConfig = ModelConfig.from_dict(model_config_dict)
         frontend_config = self.cfg.frontend_config
         conformer_size = self.cfg.conformer_size
-        conformer_config = ConformerRelPosEncoderV1Config(
+        conformer_config = ConformerEncoderV2Config(
             num_layers=self.cfg.num_layers,
             frontend=ModuleFactoryV1(module_class=VGG4LayerActFrontendV1, cfg=frontend_config),
-            block_cfg=ConformerRelPosBlockV1Config(
-                ff_cfg=ConformerPositionwiseFeedForwardV2Config(
+            block_cfg=ConformerBlockV2Config(
+                ff_cfg=ConformerPositionwiseFeedForwardV1Config(
                     input_dim=conformer_size,
                     hidden_dim=self.cfg.ff_dim,
                     dropout=self.cfg.ff_dropout,
                     activation=nn.functional.silu,
-                    dropout_broadcast_axes=self.cfg.dropout_broadcast_axes,
                 ),
-                mhsa_cfg=ConformerMHSARelPosV1Config(
+                mhsa_cfg=ConformerMHSAV1Config(
                     input_dim=conformer_size,
                     num_att_heads=self.cfg.num_heads,
                     att_weights_dropout=self.cfg.att_weights_dropout,
-                    with_bias=self.cfg.mhsa_with_bias,
                     dropout=self.cfg.mhsa_dropout,
-                    dropout_broadcast_axes=self.cfg.dropout_broadcast_axes,
-                    learnable_pos_emb=self.cfg.pos_emb_config.learnable_pos_emb,
-                    rel_pos_clip=self.cfg.pos_emb_config.rel_pos_clip,
-                    with_linear_pos=self.cfg.pos_emb_config.with_linear_pos,
-                    with_pos_bias=self.cfg.pos_emb_config.with_pos_bias,
-                    separate_pos_emb_per_head=self.cfg.pos_emb_config.separate_pos_emb_per_head,
-                    pos_emb_dropout=self.cfg.pos_emb_config.pos_emb_dropout,
                 ),
-                conv_cfg=ConformerConvolutionV2Config(
+                conv_cfg=ConformerConvolutionV1Config(
                     channels=conformer_size,
                     kernel_size=self.cfg.conv_kernel_size,
                     dropout=self.cfg.conv_dropout,
                     activation=nn.functional.silu,
                     norm=LayerNormNC(conformer_size),
-                    dropout_broadcast_axes=self.cfg.dropout_broadcast_axes,
                 ),
                 modules=self.cfg.module_list,
                 scales=self.cfg.module_scales,
             ),
         )
-        self.feature_extraction = LogMelFeatureExtractionV1(cfg=self.cfg.feature_extraction_config)
-        self.conformer = ConformerRelPosEncoderV1(cfg=conformer_config)
+        self.conformer = ConformerEncoderV2(cfg=conformer_config)
         self.num_output_linears = 1 if self.cfg.aux_ctc_loss_layers is None else len(self.cfg.aux_ctc_loss_layers)
         self.output_linears = nn.ModuleList(
             [
@@ -102,11 +96,7 @@ class Model(torch.nn.Module):
                 for _ in range(self.num_output_linears)
             ]
         )
-        self.output_dropout = BroadcastDropout(
-            p=self.cfg.final_dropout, dropout_broadcast_axes=self.cfg.dropout_broadcast_axes
-        )
-        self.return_layers = self.cfg.aux_ctc_loss_layers or [self.cfg.num_layers - 1]
-        self.scales = self.cfg.aux_ctc_loss_scales or [1.0]
+
         if self.training and distill_config_dict is not None:
             self.distill_config: DistillConfig = DistillConfig(**distill_config_dict)
             hubert: HubertModel = HubertModel(
@@ -132,9 +122,6 @@ class Model(torch.nn.Module):
                         if "tensor(float('nan'))" in dic:
                             print(name, dic)
                         self.kd_hyps[name] = eval(dic)
-                    # content = f.read()
-                    # content.replace("nan", "float(nan)")
-                    # self.kd_hyps = eval(content)
             else:
                 self.kd_hyps = None
             if self.distill_config.prior_file is not None:
@@ -145,6 +132,8 @@ class Model(torch.nn.Module):
                 self.prior_scale = None
             if self.distill_config.warmup_loss is not None:
                 self.upscale = nn.Conv1d(conformer_size, hubert.config.hidden_size, 1)
+        self.feature_extraction = LogMelFeatureExtractionV1(cfg=self.cfg.feature_extraction_config)
+        self.output_dropout = nn.Dropout(p=self.cfg.final_dropout)
         self.specaug_start_epoch = self.cfg.specauc_start_epoch
         self.downsample_teacher = nn.MaxPool2d(
             kernel_size=(2, 1),
@@ -186,10 +175,12 @@ class Model(torch.nn.Module):
         # create the mask for the conformer input
         mask = mask_tensor(conformer_in, audio_features_len)
 
-        conformer_out_layers, out_mask = self.conformer(conformer_in, mask, return_layers=self.return_layers)
+        return_layers = self.cfg.aux_ctc_loss_layers or [self.cfg.num_layers - 1]
+
+        conformer_out_layers, out_mask = self.conformer(conformer_in, mask, return_layers=return_layers)
         log_probs_list = []
         logit_ls = []
-        for i, (out_layer, scale) in enumerate(zip(conformer_out_layers, self.scales)):
+        for i, (out_layer, scale) in enumerate(zip(conformer_out_layers, self.cfg.aux_ctc_loss_scales)):
             if scale == 0.0:
                 continue
             conformer_out = self.output_dropout(out_layer)
@@ -198,6 +189,7 @@ class Model(torch.nn.Module):
             log_probs = torch.log_softmax(logits, dim=2)
             log_probs_list.append(log_probs)
 
+        # this does only happen in decoding, in training this case is misleading!
         if len(log_probs_list) == 1:
             log_probs_list = log_probs_list[0]
         if len(logit_ls) == 1:
@@ -216,7 +208,7 @@ class Model(torch.nn.Module):
                     teacher_logits = teacher_out[:, : logit_ls.shape[1], :]
                     lengths = out_mask
                 else:
-                    teacher_logits = teacher_logits[:, : log_probs_list.shape[1], :]
+                    teacher_logits = teacher_logits[:, : log_probs_list[-1].shape[1], :]
 
         return log_probs_list, lengths, logit_ls, teacher_logits
 
@@ -235,10 +227,15 @@ def train_step(*, model: Model, data, run_ctx, **kwargs):
     )
     if not isinstance(logprobs_list, list):
         logprobs_list = [logprobs_list]
-    assert not isinstance(student_logits, list)
-    assert student_logits.shape[1] == logprobs_list[0].shape[1]
 
-    for logprobs, layer_index, scale in zip(logprobs_list, model.return_layers, model.scales):
+    if isinstance(student_logits, list):
+        assert student_logits[-1].shape[1] == logprobs_list[-1].shape[1]
+    else:
+        assert student_logits.shape[1] == logprobs_list[-1].shape[1]
+
+    for logprobs, layer_index, scale in zip(
+        logprobs_list, model.cfg.aux_ctc_loss_layers, model.cfg.aux_ctc_loss_scales
+    ):
         if model.distill_config.warmup_loss is not None and run_ctx.epoch < model.distill_config.warmup_loss:
             continue
         transposed_logprobs = torch.permute(logprobs, (1, 0, 2))  # CTC needs [T, B, F]
@@ -282,10 +279,10 @@ def train_step(*, model: Model, data, run_ctx, **kwargs):
             or (0 > model.distill_config.eliminate_blanks > -1 * run_ctx.epoch)
         )
     ):
-        assert model.distill_config.eliminate_blanks is not False
         soft_targets_loss = 0
         num_phonemes = 0
-        for teacher_seq, student_seq, labels in zip(teacher_logits, student_logits, data["labels"]):
+        assert isinstance(student_logits, list)
+        for teacher_seq, student_seq, labels in zip(teacher_logits, student_logits[-1], data["labels"]):
             if model.prior_file is not None:
                 teacher_log_soft = nn.functional.log_softmax(teacher_seq)
                 assert torch.equal(torch.argmax(teacher_seq, dim=-1), torch.argmax(teacher_log_soft, dim=-1))
@@ -295,12 +292,20 @@ def train_step(*, model: Model, data, run_ctx, **kwargs):
                 pos = torch.argmax(teacher_seq, dim=-1)
             pos_blank: torch.Tensor = pos == model.cfg.label_target_size
             pos_non_blank: torch.Tensor = ~pos_blank
-            if model.distill_config.keep_some_blanks is not None and model.distill_config.keep_some_blanks > 0:
-                shift = pos_non_blank
-                for _ in range(model.distill_config.keep_some_blanks):
-                    shift = torch.roll(shift, 1, dims=-1)
-                    shift[0] = 0
-                    pos_non_blank = pos_non_blank + shift
+            if model.distill_config.keep_some_blanks is not None:
+                tmp = pos_non_blank
+                if model.distill_config.keep_some_blanks[0] > 0:
+                    shift = tmp
+                    for _ in range(model.distill_config.keep_some_blanks[0]):
+                        shift = torch.roll(shift, -1, dims=-1)
+                        shift[-1] = tmp[-1]
+                        pos_non_blank = pos_non_blank + shift
+                if model.distill_config.keep_some_blanks[1] > 0:
+                    shift = tmp
+                    for _ in range(model.distill_config.keep_some_blanks[1]):
+                        shift = torch.roll(shift, 1, dims=-1)
+                        shift[0] = tmp[0]
+                        pos_non_blank = pos_non_blank + shift
             elif model.distill_config.trim_blanks is True:
                 idx = torch.arange(pos_non_blank.shape[0], 0, -1).to(device="cuda")
                 first_pos = pos_non_blank * idx
@@ -342,7 +347,7 @@ def train_step(*, model: Model, data, run_ctx, **kwargs):
     elif model.kd_hyps is not None:
         sm = 0
         loss_sum = 0
-        num_phonemes = tensor(0)
+        num_phonemes = 0
         for i, name in enumerate(data["seq_tag"]):
             if name in model.kd_hyps:
                 for teacher_sample, score in model.kd_hyps[name][0].items():
@@ -365,9 +370,69 @@ def train_step(*, model: Model, data, run_ctx, **kwargs):
             run_ctx.mark_as_loss(
                 name=f"KL", loss=sm, scale=model.distill_config.distill_scale, inv_norm_factor=num_phonemes
             )
+    elif model.distill_config.mix_nonblank is not None:
+        soft_nonblank_loss = 0
+        num_phonemes = 0
+        soft_blank_loss = 0
+        num_blanks = 0
+        for teacher_seq, student_seq, labels in zip(teacher_logits, student_logits[-1], data["labels"]):
+            pos = torch.argmax(teacher_seq, dim=-1)
+            pos_blank: torch.Tensor = pos == model.cfg.label_target_size
+            pos_non_blank: torch.Tensor = ~pos_blank
+            # calculate loss for non blank
+            pos_non_blank = pos_non_blank.unsqueeze(dim=-1)
+            teacher_seq_nb = torch.masked_select(teacher_seq, pos_non_blank)
+            student_seq_nb = torch.masked_select(student_seq, pos_non_blank)
+            teacher_seq_nb = teacher_seq_nb.view(-1, model.cfg.label_target_size + 1)
+            student_seq_nb = student_seq_nb.view(-1, model.cfg.label_target_size + 1)
+            soft_targets = nn.functional.softmax(teacher_seq_nb / T, dim=-1)
+            soft_prob = nn.functional.log_softmax(student_seq_nb / T, dim=-1)
+            soft_nonblank_loss += torch.sum(soft_targets * (soft_targets.log() - soft_prob)) * (T**2)
+            num_phonemes += soft_targets.shape[0]
+            # calculate loss for blank
+            num_phonemes = torch.tensor(num_phonemes)
+            pos_blank = pos_blank.unsqueeze(dim=-1)
+            teacher_seq_b = torch.masked_select(teacher_seq, pos_blank)
+            student_seq_b = torch.masked_select(student_seq, pos_blank)
+            teacher_seq_b = teacher_seq_b.view(-1, model.cfg.label_target_size + 1)
+            student_seq_b = student_seq_b.view(-1, model.cfg.label_target_size + 1)
+            soft_targets = nn.functional.softmax(teacher_seq_b / T, dim=-1)
+            soft_prob = nn.functional.log_softmax(student_seq_b / T, dim=-1)
+            soft_blank_loss += torch.sum(soft_targets * (soft_targets.log() - soft_prob)) * (T**2)
+            num_blanks += soft_targets.shape[0]
+            num_blanks = torch.tensor(num_blanks)
+        if num_phonemes == 0:
+            assert soft_nonblank_loss == 0, "No phonemes, but some loss"
+            print("WARNING: Empty Non Blank loss")
+            num_phonemes = torch.tensor(1)
+        if num_blanks == 0:
+            assert soft_blank_loss == 0, "No blanks, but some loss"
+            print("WARNING: Empty Blank loss")
+            num_blanks = torch.tensor(1)
+
+        blank_scale = (
+            model.distill_config.mix_blank
+            if model.distill_config.mix_blank is not None
+            else 1 - model.distill_config.mix_nonblank
+        )
+
+        if model.distill_config.mix_nonblank > 0:
+            run_ctx.mark_as_loss(
+                name=f"KL_non_blank",
+                loss=soft_nonblank_loss,
+                scale=model.distill_config.distill_scale * model.distill_config.mix_nonblank,
+                inv_norm_factor=num_phonemes,
+            )
+        if blank_scale > 0:
+            run_ctx.mark_as_loss(
+                name=f"KL_blank",
+                loss=soft_blank_loss,
+                scale=model.distill_config.distill_scale * blank_scale,
+                inv_norm_factor=num_blanks,
+            )
     else:
         soft_targets = nn.functional.softmax(teacher_logits / T, dim=-1)
-        soft_prob = nn.functional.log_softmax(student_logits / T, dim=-1)
+        soft_prob = nn.functional.log_softmax(student_logits[-1] / T, dim=-1)
         soft_targets_log = soft_targets.log()
         if model.distill_config.mask_padding is True:
             audio_mask = mask_tensor(soft_targets, audio_features_len)

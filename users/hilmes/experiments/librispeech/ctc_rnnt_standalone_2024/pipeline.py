@@ -1,6 +1,7 @@
 """
 Pipeline parts to create the necessary jobs for training / forwarding / search etc...
 """
+
 import copy
 import enum
 from dataclasses import dataclass, asdict
@@ -73,7 +74,8 @@ def search_single(
     search_job.add_alias(prefix_name + "/search_job")
 
     search_ctm = SearchWordsToCTMJob(
-        recog_words_file=search_job.out_files["search_out.py"], bliss_corpus=recognition_bliss_corpus,
+        recog_words_file=search_job.out_files["search_out.py"],
+        bliss_corpus=recognition_bliss_corpus,
     ).out_ctm_file
 
     stm_file = CorpusToStmJob(bliss_corpus=recognition_bliss_corpus).out_stm_path
@@ -133,7 +135,7 @@ def search(
         elif "RelPosEnc" in search_name:
             mem = 16
         else:
-            mem = 10
+            mem = 12
         wers[search_name], search_job = search_single(
             search_name,
             returnn_search_config,
@@ -246,7 +248,10 @@ def prepare_asr_model(
         checkpoints = []
         for index in range(num_checkpoints):
             best_job = GetBestPtCheckpointJob(
-                train_job.out_model_dir, train_job.out_learning_rates, key=loss_key, index=index,
+                train_job.out_model_dir,
+                train_job.out_learning_rates,
+                key=loss_key,
+                index=index,
             )
             best_job.add_alias(training_name + f"/get_best_job_{index}")
             checkpoints.append(best_job.out_checkpoint)
@@ -255,6 +260,7 @@ def prepare_asr_model(
             avg = AverageTorchCheckpointsJob(
                 checkpoints=checkpoints, returnn_python_exe=RETURNN_EXE, returnn_root=MINI_RETURNN_ROOT
             )
+            avg.rqmt["mem"] = 8
             checkpoint = avg.out_checkpoint
             training_name = training_name + "/avg_best_%i_cpkt" % num_checkpoints
         else:
@@ -369,7 +375,8 @@ def generate_kd_hypothesis(
 
     if train_referece is not None:
         search_ctm_job = SearchWordsToCTMJob(
-            recog_words_file=search_job.out_files["search_out.py"], bliss_corpus=train_referece,
+            recog_words_file=search_job.out_files["search_out.py"],
+            bliss_corpus=train_referece,
         )
         search_ctm_job.add_alias(prefix_name + "/ctm_job")
         search_ctm = search_ctm_job.out_ctm_file

@@ -1,5 +1,7 @@
 """
-Flashlight/Torchaudio CTC decoder and prior computation functions
+Flashlight/Torchaudio CTC decoder
+
+includes handling of prior computation
 """
 
 from dataclasses import dataclass
@@ -32,9 +34,8 @@ class DecoderConfig:
 
     arpa_lm: Optional[Union[str, tk.Path]] = None
 
-    turn_off_quant: Union[
-        bool, str
-    ] = False  # parameter for sanity checks, call self.prep_dequant instead of self.prep_quant
+    use_torch_compile: bool = False
+    torch_compile_options: Optional[Dict[str, Any]] = None
 
 
 @dataclass
@@ -48,10 +49,15 @@ class ExtraConfig:
 
 
 def forward_init_hook(run_ctx, **kwargs):
-    # we are storing durations, but call it output.hdf to match
-    # the default output of the ReturnnForwardJob
+    """
+
+    :param run_ctx:
+    :param kwargs:
+    :return:
+    """
     import torch
     from torchaudio.models.decoder import ctc_decoder
+
     from returnn.datasets.util.vocabulary import Vocabulary
     from returnn.util.basic import cf
 
@@ -69,6 +75,7 @@ def forward_init_hook(run_ctx, **kwargs):
 
     vocab = Vocabulary.create_vocab(vocab_file=config.returnn_vocab, unknown_label=None)
     labels = vocab.labels
+
     run_ctx.ctc_decoder = ctc_decoder(
         lexicon=config.lexicon,
         lm=lm,
@@ -93,6 +100,10 @@ def forward_init_hook(run_ctx, **kwargs):
     else:
         run_ctx.prior = None
 
+    if config.use_torch_compile:
+        options = config.torch_compile_options or {}
+        run_ctx.engine._model = torch.compile(run_ctx.engine._model, **options)
+
     run_ctx.print_rtf = extra_config.print_rtf
     if run_ctx.print_rtf:
         run_ctx.running_audio_len_s = 0
@@ -100,24 +111,13 @@ def forward_init_hook(run_ctx, **kwargs):
         run_ctx.total_search_time = 0
 
     run_ctx.print_hypothesis = extra_config.print_hypothesis
-    if config.turn_off_quant is False:
-        run_ctx.engine._model.prep_quant()
-    elif config.turn_off_quant == "decomposed":
-        run_ctx.engine._model.prep_quant(decompose=True)
-        print("Use decomposed version, should match training")
-    elif config.turn_off_quant == "leave_as_is":
-        print("Use same version as in training")
-    else:
-        raise NotImplementedError
-        run_ctx.engine._model.prep_dequant()
-    run_ctx.engine._model.to(device=run_ctx.device)
 
 
 def forward_finish_hook(run_ctx, **kwargs):
     run_ctx.recognition_file.write("}\n")
     run_ctx.recognition_file.close()
 
-    if run_ctx.print_rtf is True:
+    if run_ctx.print_rtf:
         print(
             "Total-AM-Time: %.2fs, AM-RTF: %.3f"
             % (run_ctx.total_am_time, run_ctx.total_am_time / run_ctx.running_audio_len_s)
@@ -141,13 +141,16 @@ def forward_step(*, model, data, run_ctx, **kwargs):
         run_ctx.running_audio_len_s += audio_len_batch
 
     am_start = time.time()
-    logprobs, audio_features_len = model(
+    logprobs, audio_features_len, _, _ = model(
         raw_audio=raw_audio,
         raw_audio_len=raw_audio_len,
     )
 
     tags = data["seq_tag"]
 
+    if isinstance(logprobs, list):
+        assert len(logprobs) == 1
+        logprobs = logprobs[0]
     logprobs_cpu = logprobs.cpu()
     if run_ctx.blank_log_penalty is not None:
         # assumes blank is last
@@ -171,5 +174,6 @@ def forward_step(*, model, data, run_ctx, **kwargs):
     for hyp, tag in zip(hypothesis, tags):
         words = hyp[0].words
         sequence = " ".join([word for word in words if not word.startswith("[")])
-        print(sequence)
+        if run_ctx.print_hypothesis:
+            print(sequence)
         run_ctx.recognition_file.write("%s: %s,\n" % (repr(tag), repr(sequence)))

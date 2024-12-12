@@ -84,6 +84,14 @@ def eow_phon_ted_auxloss_distill(get_report=False):
         arpa_lm=arpa_4gram_lm,
         beam_threshold=14,
     )
+    no_lm_decoder_config = DecoderConfig(
+        lexicon=get_text_lexicon(),
+        returnn_vocab=label_datastream.vocab,
+        beam_size=1024,
+        beam_size_token=12,  # makes it much faster
+        arpa_lm=None,
+        beam_threshold=14,
+    )
 
     from ...pytorch_networks.ctc.conformer_0106.i6modelsV2_VGG4LayerActFrontendV1_auxloss_v1_cfg import (
         SpecaugConfig,
@@ -202,31 +210,6 @@ def eow_phon_ted_auxloss_distill(get_report=False):
                 train_job.rqmt["gpu_mem"] = 24
             if dim == 384 and layer_count == 12:
                 PRETRAIN_CHECKPOINT_DISTILL_V1 = train_job.out_checkpoints[250]
-                from ...pytorch_networks.ctc.decoder.flashlight_ctc_kdhyps import DecoderConfig
-
-                checkpoint = 250
-                kd_decoder_config = DecoderConfig(
-                    lexicon=get_text_lexicon(),
-                    returnn_vocab=label_datastream.vocab,
-                    beam_size=1024,
-                    beam_size_token=12,  # makes it much faster
-                    arpa_lm=arpa_4gram_lm,
-                    beam_threshold=14,
-                    n_best_probs=10,
-                )
-                pref_name = training_name + f"/{checkpoint}"
-
-                # generate_kd_hypothesis(
-                #     prefix_name=pref_name,
-                #     train_job=train_job,
-                #     train_args=train_args_decoding,
-                #     train_data=train_data,
-                #     checkpoint=checkpoint,
-                #     decoder_config=kd_decoder_config,
-                #     prior_scale=0.7,
-                #     lm_scale=2.2,
-                #     train_referece=train_dataset_tuples['train'][1],
-                # )
 
             results = eval_model(
                 training_name=training_name,
@@ -241,6 +224,21 @@ def eow_phon_ted_auxloss_distill(get_report=False):
             generate_report(results=results, exp_name=training_name)
             report[training_name] = results
             del results
+
+            training_name = prefix_name + "/" + network_module + f"_no_lm_{layer_count}_{dim}"
+            results = eval_model(
+                training_name=training_name,
+                train_job=train_job,
+                train_args=train_args_decoding,
+                train_data=train_data,
+                decoder_config=no_lm_decoder_config,
+                dev_dataset_tuples=dev_dataset_tuples,
+                loss_name=f"ctc_loss_layer{layer_count}",
+            )
+            generate_report(results=results, exp_name=training_name)
+            report[training_name] = results
+            del results
+
     tk.register_report("reports/aux_size_report", partial(build_report, report), required=report)
 
     from ...pytorch_networks.ctc.conformer_0106.i6modelsRelPosEncV1_VGG4LayerActFrontendV1_v1_cfg import (
