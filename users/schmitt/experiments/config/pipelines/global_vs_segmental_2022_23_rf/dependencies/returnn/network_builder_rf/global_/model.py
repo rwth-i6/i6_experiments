@@ -59,6 +59,7 @@ class GlobalAttentionModel(rf.Module):
           att_weight_dropout: float = 0.0,
           use_readout: bool = True,
           enc_ctx_layer: Optional[str] = None,
+          external_aed_kwargs: Optional[Dict[str, Any]] = None,
   ):
     super(GlobalAttentionModel, self).__init__()
 
@@ -157,6 +158,23 @@ class GlobalAttentionModel(rf.Module):
         if "mini_att" not in name:
           param.trainable = False
 
+    if external_aed_kwargs:
+      self.aed_model = GlobalAttentionModel(
+        enc_in_dim=enc_in_dim,
+        enc_ff_dim=enc_ff_dim,
+        enc_key_total_dim=enc_key_total_dim,
+        enc_num_heads=8,
+        target_dim=target_dim,
+        blank_idx=target_dim.dimension,
+        feature_extraction_opts=feature_extraction_opts,
+        eos_idx=0,
+        bos_idx=0,
+        enc_aux_logits=(),
+        encoder_layer_opts=encoder_layer_opts,
+      )
+    else:
+      self.aed_model = None
+
     apply_weight_dropout(self)
 
 
@@ -171,7 +189,7 @@ class MakeModel:
           eos_label: int = 0,
           num_enc_layers: int = 12,
           enc_aux_logits: Sequence[int] = (),
-          target_embed_dim: int = 640
+          target_embed_dim: int = 640,
   ):
     self.in_dim = in_dim
     self.target_dim = target_dim

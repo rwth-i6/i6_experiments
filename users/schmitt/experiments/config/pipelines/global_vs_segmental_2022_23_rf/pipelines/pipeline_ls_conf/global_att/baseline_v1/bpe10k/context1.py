@@ -16,17 +16,23 @@ def run_exps():
             n_epochs_list=(300,),
             const_lr_list=(1e-4,),
     ):
-      recog.global_att_returnn_label_sync_beam_search(
-        alias=train_alias,
-        config_builder=config_builder,
-        checkpoint=checkpoint,
-        checkpoint_aliases=("last",),
-        lm_type="trafo",
-        lm_scale_list=(0.54,),
-        ilm_scale_list=(0.4,),
-        ilm_type="mini_att",
-        beam_size_list=(12,),
-      )
+      for lm_scale, ilm_scale, beam_size in [
+        (0.54, 0.4, 12),
+        (0.54, 0.4, 84),
+        (0.5, 0.4, 12),
+        (0.52, 0.4, 12),
+      ]:
+        recog.global_att_returnn_label_sync_beam_search(
+          alias=train_alias,
+          config_builder=config_builder,
+          checkpoint=checkpoint,
+          checkpoint_aliases=("last",),
+          lm_type="trafo",
+          lm_scale_list=(lm_scale,),
+          ilm_scale_list=(ilm_scale,),
+          ilm_type="mini_att",
+          beam_size_list=(beam_size,),
+        )
       recog.global_att_returnn_label_sync_beam_search(
         alias=train_alias,
         config_builder=config_builder,
@@ -51,12 +57,26 @@ def run_exps():
         alias=train_alias,
         config_builder=config_builder,
         checkpoint=checkpoint,
-        # lm_type="trafo",
-        # lm_scale_list=(0.5, 0.52, 0.54,),
-        # ilm_scale_list=(0.4, 0.44, 0.48,),
-        # ilm_type="mini_att",
-        # beam_size_list=(12,),
       )
+
+      for lm_scale, ilm_scale, beam_size in [
+        (0.54, 0.4, 12),
+        # (0.54, 0.4, 84),
+        (0.5, 0.4, 12),
+        (0.52, 0.4, 12),
+      ]:
+        recog.global_att_returnn_label_sync_beam_search(
+          alias=train_alias,
+          config_builder=config_builder,
+          checkpoint=checkpoint,
+          checkpoint_aliases=("last",),
+          lm_type="trafo",
+          lm_scale_list=(lm_scale,),
+          ilm_scale_list=(ilm_scale,),
+          ilm_type="mini_att",
+          beam_size_list=(beam_size,),
+          batch_size=10_000,
+        )
 
       recog.global_att_returnn_label_sync_beam_search(
         alias=train_alias,

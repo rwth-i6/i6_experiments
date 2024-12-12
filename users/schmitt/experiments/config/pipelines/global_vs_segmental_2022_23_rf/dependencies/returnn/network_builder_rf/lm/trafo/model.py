@@ -51,6 +51,11 @@ class MakeModel:
             if k.endswith("_dim") and isinstance(v, int):
                 opts[k] = Dim(v, name=k[: -len("_dim")])
 
+        if "ff" in opts:
+          opts["ff"] = eval(opts["ff"])
+        if "norm" in opts:
+          opts["norm"] = eval(opts["norm"])
+
         return self.make_model(vocab_dim=vocab_dim, model_dim=model_dim, num_layers=self.num_layers, **opts)
 
     @classmethod
@@ -281,7 +286,7 @@ def from_scratch_model_def(*, epoch: int, vocab_dim: Dim) -> TransformerDecoder:
   ff_activation = config.typed_value("ff_activation", "rf.gelu")
   dropout = config.typed_value("dropout", 0.0)
   att_dropout = config.typed_value("att_dropout", 0.0)
-  ff = config.typed_value("ff", "returnn.util.basic.NotSpecified")
+  ff = config.typed_value("ff", "rf.decoder.transformer.FeedForward")
   pos_enc = config.typed_value("pos_enc", "rf.sinusoidal_positional_encoding")
 
   return MakeModel.make_model(

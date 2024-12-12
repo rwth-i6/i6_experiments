@@ -43,6 +43,14 @@ def run_exps():
           corpus_keys=(corpus_key,),
         )
 
+      recog.global_att_returnn_label_sync_beam_search(
+        alias=train_alias,
+        config_builder=config_builder,
+        checkpoint=checkpoint,
+        checkpoint_aliases=("best-luca",),
+        corpus_keys=("test-other",),
+      )
+
     for train_alias, checkpoint in train.train_import_global_tf(
       alias=model_alias,
       config_builder=config_builder,

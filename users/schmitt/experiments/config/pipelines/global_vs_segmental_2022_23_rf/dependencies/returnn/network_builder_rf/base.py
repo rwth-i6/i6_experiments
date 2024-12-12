@@ -380,6 +380,7 @@ class BaseLabelDecoder(rf.Module):
           detach_att: bool = False,
           detach_h_t: bool = False,
   ) -> Tuple[Tensor, Optional[Tensor]]:
+
     if detach_att:
       att = rf.stop_gradient(att)
     if detach_h_t:
@@ -568,6 +569,8 @@ def get_common_config_params():
     else:
       enc_input_layer_cls = ConformerConvSubsample
 
+  external_aed_kwargs = config.typed_value("external_aed_kwargs", None)
+
   return dict(
     in_dim=in_dim,
     enc_aux_logits=enc_aux_logits or (),
@@ -590,6 +593,7 @@ def get_common_config_params():
     enc_num_layers=conformer_num_layers,
     enc_out_dim=Dim(name="enc", dimension=conformer_out_dim, kind=Dim.Types.Feature),
     enc_input_layer_cls=enc_input_layer_cls,
+    external_aed_kwargs=external_aed_kwargs,
   )
 
 

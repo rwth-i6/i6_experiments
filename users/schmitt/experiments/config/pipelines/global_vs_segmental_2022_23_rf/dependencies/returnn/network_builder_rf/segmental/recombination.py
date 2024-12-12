@@ -23,16 +23,17 @@ def recombine_seqs(
         seq_hash: Tensor,
         beam_dim: Dim,
         batch_dim: Dim,
-        recomb_path_counter: Tensor,
+        recomb_path_counter: Optional[Tensor] = None,
         use_sum: bool = True,
-) -> Tuple[Tensor, Tensor]:
+) -> Tuple[Tensor, Optional[Tensor]]:
   if len(seq_targets) in (0, 1):
     return seq_log_prob, recomb_path_counter
 
   seq_hash_cpu = rf.copy_to_device(seq_hash.copy_transpose([batch_dim, beam_dim]), device="cpu")
   # convert from neg log prob to log prob
   seq_log_prob_cpu = rf.copy_to_device(seq_log_prob.copy_transpose([batch_dim, beam_dim]), device="cpu")
-  seq_path_counter_cpu = rf.copy_to_device(recomb_path_counter.copy_transpose([batch_dim, beam_dim]), device="cpu")
+  if recomb_path_counter is not None:
+    seq_path_counter_cpu = rf.copy_to_device(recomb_path_counter.copy_transpose([batch_dim, beam_dim]), device="cpu")
 
   for b in range(batch_dim.dyn_size_ext.raw_tensor.item()):
     # for each batch dim, we need to find the seqs that have the same hash value
@@ -58,11 +59,12 @@ def recombine_seqs(
           best_score = seq_log_prob_cpu.raw_tensor[b, idx]
           best_idx = idx
 
-        # seqs, in the seq_set will be recombined, so we need to sum their corresponding number of paths
-        num_paths_sum = logsumexp(
-          num_paths_sum,
-          seq_path_counter_cpu.raw_tensor[b, idx]
-        )
+        if recomb_path_counter is not None:
+          # seqs, in the seq_set will be recombined, so we need to sum their corresponding number of paths
+          num_paths_sum = logsumexp(
+            num_paths_sum,
+            seq_path_counter_cpu.raw_tensor[b, idx]
+          )
 
       if use_sum:
         sum_score = torch.zeros(1, device="cpu")
@@ -79,10 +81,14 @@ def recombine_seqs(
         else:
           seq_log_prob_cpu.raw_tensor[b, idx] = recomb_score
 
-        # set the number of paths to the sum of the number of paths of the recombined seqs
-        seq_path_counter_cpu.raw_tensor[b, idx] = num_paths_sum
+        if recomb_path_counter is not None:
+          # set the number of paths to the sum of the number of paths of the recombined seqs
+          seq_path_counter_cpu.raw_tensor[b, idx] = num_paths_sum
 
-  return rf.copy_to_device(seq_log_prob_cpu), rf.copy_to_device(seq_path_counter_cpu)
+  return (
+    rf.copy_to_device(seq_log_prob_cpu),
+    rf.copy_to_device(seq_path_counter_cpu) if recomb_path_counter is not None else None
+  )
 
 
 def recombine_seqs_train(

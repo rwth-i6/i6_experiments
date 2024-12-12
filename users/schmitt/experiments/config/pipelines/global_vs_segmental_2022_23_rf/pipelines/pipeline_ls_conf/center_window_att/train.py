@@ -63,6 +63,7 @@ def train_center_window_att(
         mask_att_around_h_t: bool = False,
         use_normalized_loss: bool = False,
         weight_decay: float = 1e-6,
+        random_seed: Optional[int] = None,
 ):
   train_opts, train_rqmt, alias_ = get_common_train_opts_rqmt(
     n_epochs=n_epochs,
@@ -85,6 +86,7 @@ def train_center_window_att(
     filter_target_len=filter_target_len,
     accum_grad_multiple_step=accum_grad_multiple_step,
     weight_decay=weight_decay,
+    random_seed=random_seed,
   )
 
   alias += (

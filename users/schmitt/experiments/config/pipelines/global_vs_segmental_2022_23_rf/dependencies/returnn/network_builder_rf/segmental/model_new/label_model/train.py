@@ -610,28 +610,30 @@ def full_sum_training(
     if (
             model.label_decoder.use_current_frame_in_readout or
             model.label_decoder.use_current_frame_in_readout_w_gate or
-            model.label_decoder.use_current_frame_in_readout_random
+            model.label_decoder.use_current_frame_in_readout_random or
+            model.label_decoder.use_sep_h_t_readout
     ):
       h_t = rf.gather(enc_args["enc"], axis=enc_spatial_dim, indices=center_positions)
     else:
       h_t = None
 
-    logits, _ = model.label_decoder.decode_logits(
+    logits, h_t_logits = model.label_decoder.decode_logits(
       input_embed=non_blank_input_embeddings_shifted,
       att=att,
       s=s_out,
       h_t=h_t,
     )  # [B, S+1, T, D]
 
-    if config.bool("use_sep_ce_loss", False):
-      att_sliced = rf.slice(att, axis=non_blank_targets_spatial_dim_ext, start=0, size=non_blank_targets_spatial_dim)[0]
-      s_out_sliced = rf.slice(s_out, axis=non_blank_targets_spatial_dim_ext, start=0, size=non_blank_targets_spatial_dim)[0]
-      ce_logits, _ = model.label_decoder.decode_logits(
-        input_embed=rf.shift_right(non_blank_input_embeddings, axis=non_blank_targets_spatial_dim, pad_value=0.0),
-        att=att_sliced,
-        s=s_out_sliced,
-        h_t=utils.copy_tensor_replace_dim_tag(rf.zeros_like(att_sliced), att.feature_dim, enc_args["enc"].feature_dim),
-      )
+    if config.bool("use_sep_ce_loss", False) or model.label_decoder.use_sep_h_t_readout:
+      # att_sliced = rf.slice(att, axis=non_blank_targets_spatial_dim_ext, start=0, size=non_blank_targets_spatial_dim)[0]
+      # s_out_sliced = rf.slice(s_out, axis=non_blank_targets_spatial_dim_ext, start=0, size=non_blank_targets_spatial_dim)[0]
+      # ce_logits, _ = model.label_decoder.decode_logits(
+      #   input_embed=rf.shift_right(non_blank_input_embeddings, axis=non_blank_targets_spatial_dim, pad_value=0.0),
+      #   att=att_sliced,
+      #   s=s_out_sliced,
+      #   h_t=utils.copy_tensor_replace_dim_tag(rf.zeros_like(att_sliced), att.feature_dim, enc_args["enc"].feature_dim),
+      # )
+      ce_logits = rf.slice(logits, axis=non_blank_targets_spatial_dim_ext, start=0, size=non_blank_targets_spatial_dim)[0]
       ce_logits_packed, pack_dim = rf.pack_padded(
         ce_logits, dims=batch_dims + [non_blank_targets_spatial_dim], enforce_sorted=False)
       non_blank_targets_packed, _ = rf.pack_padded(
@@ -648,6 +650,10 @@ def full_sum_training(
       best = rf.reduce_argmax(ce_logits_packed, axis=model.target_dim)
       ce_frame_error = best != non_blank_targets_packed
       ce_frame_error.mark_as_loss(name="aed_fer", as_error=True)
+
+      if model.label_decoder.use_sep_h_t_readout:
+        # we want to use the h_t logits in the following for the full-sum loss
+        logits = h_t_logits
 
   if model.blank_decoder is not None:
     assert isinstance(model.blank_decoder, BlankDecoderV4)

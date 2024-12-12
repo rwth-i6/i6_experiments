@@ -128,110 +128,6 @@ def _get_masked_trafo_state(
   return trafo_state
 
 
-def update_state(
-        model: SegmentalAttentionModel,
-        update_state_mask: Tensor,
-        backrefs: Tensor,
-        label_decoder_state: State,
-        label_decoder_state_updated: State,
-        blank_decoder_state: Optional[State],
-        blank_decoder_state_updated: Optional[State],
-        lm_state: Optional[State],
-        lm_state_updated: Optional[State],
-        ilm_state: Optional[State],
-        ilm_state_updated: Optional[State],
-        aed_decoder_state: Optional[State],
-        aed_decoder_state_updated: Optional[State],
-        aed_ilm_state: Optional[State],
-        aed_ilm_state_updated: Optional[State],
-) -> Tuple[State, Optional[State], Optional[State], Optional[State], Optional[State], Optional[State]]:
-
-  # ------------------- update blank decoder state -------------------
-
-  if blank_decoder_state is not None:
-    blank_decoder_state = tree.map_structure(
-      lambda s: rf.gather(s, indices=backrefs), blank_decoder_state_updated)
-
-  # ------------------- update label decoder state and ILM state -------------------
-
-  if model.label_decoder_state == "trafo":
-    label_decoder_state = _get_masked_trafo_state(
-      trafo_state=label_decoder_state,
-      trafo_state_updated=label_decoder_state_updated,
-      update_state_mask=update_state_mask,
-      backrefs=backrefs
-    )
-  else:
-    if model.label_decoder.trafo_att:
-      trafo_att_state = label_decoder_state.pop("trafo_att")
-      trafo_att_state_updated = label_decoder_state_updated.pop("trafo_att")
-
-      trafo_att_state = _get_masked_trafo_state(
-        trafo_state=trafo_att_state,
-        trafo_state_updated=trafo_att_state_updated,
-        update_state_mask=update_state_mask,
-        backrefs=backrefs
-      )
-
-    def _get_masked_state(old, new, mask):
-      old = rf.gather(old, indices=backrefs)
-      new = rf.gather(new, indices=backrefs)
-      return rf.where(mask, new, old)
-
-    if model.label_decoder_state == "joint-lstm":
-      label_decoder_state = tree.map_structure(
-        lambda s: rf.gather(s, indices=backrefs), label_decoder_state_updated)
-    else:
-      label_decoder_state = tree.map_structure(
-        lambda old_state, new_state: _get_masked_state(old_state, new_state, update_state_mask),
-        label_decoder_state, label_decoder_state_updated
-      )
-
-    if model.label_decoder.trafo_att:
-      label_decoder_state["trafo_att"] = trafo_att_state
-
-  # ILM
-  if ilm_state is not None:
-    ilm_state = tree.map_structure(
-      lambda old_state, new_state: _get_masked_state(old_state, new_state, update_state_mask),
-      ilm_state, ilm_state_updated
-    )
-
-  # ------------------- update external AED state -------------------
-
-  if aed_decoder_state is not None:
-    if model.aed_model.decoder_state != "trafo":
-      aed_decoder_state = tree.map_structure(
-        lambda old_state, new_state: _get_masked_state(old_state, new_state, update_state_mask),
-        aed_decoder_state, aed_decoder_state_updated
-      )
-    else:
-      aed_decoder_state = _get_masked_trafo_state(
-        trafo_state=aed_decoder_state,
-        trafo_state_updated=aed_decoder_state_updated,
-        update_state_mask=update_state_mask,
-        backrefs=backrefs
-      )
-
-  if aed_ilm_state is not None:
-    aed_ilm_state = tree.map_structure(
-      lambda old_state, new_state: _get_masked_state(old_state, new_state, update_state_mask),
-      aed_ilm_state, aed_ilm_state_updated
-    )
-
-  # ------------------- update external LM state -------------------
-
-  if lm_state is not None:
-    lm_state = _get_masked_trafo_state(
-      trafo_state=lm_state,
-      trafo_state_updated=lm_state_updated,
-      update_state_mask=update_state_mask,
-      backrefs=backrefs
-    )
-
-  return label_decoder_state, blank_decoder_state, lm_state, ilm_state, aed_decoder_state, aed_ilm_state
-
-
 def get_score(
         model: SegmentalAttentionModel,
         i: int,
@@ -250,6 +146,7 @@ def get_score(
         enc_args: Dict[str, Tensor],
         att_enc_args: Dict[str, Tensor],
         aed_enc_args: Dict[str, Tensor],
+        ext_trans_enc_args: Dict[str, Tensor],
         enc_spatial_dim: Dim,
         beam_dim: Dim,
         batch_dims: Sequence[Dim],
@@ -262,8 +159,12 @@ def get_score(
         att_readout_scale: Optional[float] = None,
         h_t_readout_scale: Optional[float] = None,
         blank_penalty: Optional[float] = None,
-        blank_scale: Optional[float] = None,
-) -> Tuple[Tensor, State, Optional[State], Optional[State], Optional[State], Optional[State], Optional[State], Tensor]:
+        blank_scale: float = 1.0,
+        emit_scale: float = 1.0,
+        ext_trans_scale: Optional[float] = None,
+        ext_trans_label_decoder_state: Optional[State] = None,
+        input_embed_ext_trans: Optional[Tensor] = None,
+) -> Tuple[Tensor, State, Optional[State], Optional[State], Optional[State], Optional[State], Optional[State], Optional[State], Tensor]:
   # ------------------- label step -------------------
 
   center_positions = rf.minimum(
@@ -400,6 +301,27 @@ def get_score(
 
     label_log_prob += external_aed_scale * aed_label_log_prob
 
+  # ------------------- external transducer step -------------------
+  if ext_trans_label_decoder_state is not None:
+    ext_trans_label_step_out, ext_trans_label_decoder_state = model.external_transducer_model.label_decoder.loop_step(
+      **ext_trans_enc_args,
+      enc_spatial_dim=enc_spatial_dim,
+      input_embed=input_embed_ext_trans,
+      segment_lens=segment_lens,
+      segment_starts=segment_starts,
+      center_positions=center_positions,
+      state=ext_trans_label_decoder_state,
+    )
+    ext_trans_label_step_s_out = ext_trans_label_step_out["s"]
+
+    ext_trans_label_logits, _ = model.external_transducer_model.label_decoder.decode_logits(
+      input_embed=input_embed_ext_trans,
+      s=ext_trans_label_step_out["s"],
+      att=ext_trans_label_step_out["att"],
+    )
+    ext_trans_label_log_prob = rf.log_softmax(ext_trans_label_logits, axis=model.external_transducer_model.target_dim)
+    label_log_prob += ext_trans_scale * ext_trans_label_log_prob
+
   # ------------------- external LM step -------------------
 
   lm_eos_log_prob = rf.zeros(batch_dims, dtype="float32")
@@ -459,13 +381,19 @@ def get_score(
         use_mini_att=ilm_type == "mini_att",
         use_zero_att=ilm_type == "zero_att",
       )
-    ilm_logits, _ = model.label_decoder.decode_logits(
+
+    ilm_logits, ilm_h_t_logits = model.label_decoder.decode_logits(
       input_embed=input_embed_label_model,
       s=ilm_step_out["s"],
-      att=ilm_step_out["att"],
-      h_t=h_t
+      att=ilm_step_out["att"],  # mini LSTM
+      h_t=None if h_t is None else rf.zeros_like(h_t),  # zero encoder
     )
     ilm_label_log_prob = rf.log_softmax(ilm_logits, axis=model.target_dim)
+
+    # combine two softmaxes in case of two separate readouts
+    if not isinstance(model.label_decoder, TransformerDecoder) and model.label_decoder.use_sep_h_t_readout:
+      ilm_h_t_label_log_prob = rf.log_softmax(ilm_h_t_logits, axis=model.target_dim)
+      ilm_label_log_prob = att_readout_scale * ilm_label_log_prob + h_t_readout_scale * ilm_h_t_label_log_prob
 
     # do not apply ILM correction to blank
     if model.use_joint_model:
@@ -492,7 +420,7 @@ def get_score(
         ilm_eos_log_prob
       )
 
-    label_log_prob -= ilm_correction_scale * ilm_label_log_prob
+    label_log_prob -= base_model_scale * ilm_correction_scale * ilm_label_log_prob
 
   # --------------------------------- AED ILM step ---------------------------------
 
@@ -535,7 +463,7 @@ def get_score(
         aed_ilm_eos_log_prob
       )
 
-    label_log_prob -= ilm_correction_scale * aed_ilm_label_log_prob
+    label_log_prob -= external_aed_scale * ilm_correction_scale * aed_ilm_label_log_prob
 
   # ------------------- blank step -------------------
 
@@ -595,11 +523,12 @@ def get_score(
 
     emit_log_prob = rf.log(rf.sigmoid(blank_logits))
     emit_log_prob = rf.squeeze(emit_log_prob, axis=emit_log_prob.feature_dim)
+    emit_log_prob *= emit_scale
+
     blank_log_prob = rf.log(rf.sigmoid(-blank_logits))
     if blank_penalty:
       blank_log_prob -= blank_penalty
-    if blank_scale:
-      blank_log_prob *= blank_scale
+    blank_log_prob *= blank_scale
 
     blank_log_prob += external_lm_eos_scale * lm_eos_log_prob + aed_eos_log_prob
     if subtract_ilm_eos_score:
@@ -608,6 +537,26 @@ def get_score(
     # always subtract the AED ILM EOS score from blank
     if aed_ilm_state is not None:
       blank_log_prob -= aed_ilm_eos_log_prob
+
+    # ------------------- external transducer blank step -------------------
+
+    if ext_trans_label_decoder_state is not None:
+      ext_trans_enc_frame = rf.gather(ext_trans_enc_args["enc"], indices=enc_position, axis=enc_spatial_dim)
+      ext_trans_enc_frame = rf.expand_dim(ext_trans_enc_frame, beam_dim)
+      ext_trans_blank_logits = model.external_transducer_model.blank_decoder.decode_logits(
+        enc=ext_trans_enc_frame, label_model_states_unmasked=ext_trans_label_step_s_out)
+      ext_trans_emit_log_prob = rf.log(rf.sigmoid(ext_trans_blank_logits))
+      ext_trans_emit_log_prob = rf.squeeze(ext_trans_emit_log_prob, axis=ext_trans_emit_log_prob.feature_dim)
+      ext_trans_blank_log_prob = rf.log(rf.sigmoid(-ext_trans_blank_logits))
+
+      ext_trans_blank_log_prob = utils.copy_tensor_replace_dim_tag(
+        ext_trans_blank_log_prob,
+        model.external_transducer_model.blank_decoder.emit_prob_dim,
+        model.blank_decoder.emit_prob_dim
+      )
+
+      blank_log_prob += ext_trans_scale * ext_trans_blank_log_prob
+      emit_log_prob += ext_trans_scale * ext_trans_emit_log_prob
 
     # ------------------- combination -------------------
 
@@ -627,6 +576,7 @@ def get_score(
     ilm_state,
     aed_decoder_state,
     aed_ilm_state,
+    ext_trans_label_decoder_state,
     lm_eos_log_prob
   )
 
@@ -642,6 +592,7 @@ def model_recog(
         external_lm_scale: Optional[float] = None,
         external_lm_eos_scale: Optional[float] = None,
         external_aed_scale: Optional[float] = None,
+        external_transducer_scale: Optional[float] = None,
         ilm_type: Optional[str] = None,
         ilm_correction_scale: Optional[float] = None,
         subtract_ilm_eos_score: bool = False,
@@ -650,9 +601,11 @@ def model_recog(
         att_readout_scale: Optional[float] = None,
         h_t_readout_scale: Optional[float] = None,
         blank_penalty: Optional[float] = None,
-        blank_scale: Optional[float] = None,
+        blank_scale: float = 1.0,
+        emit_scale: float = 1.0,
         add_lm_eos_to_non_blank_end_hyps: bool = False,
         cheating_target_is_alignment: bool = False,
+        length_normalization_exponent: float = 0.0,
 ) -> Tuple[Tensor, Tensor, Dim, Tensor, Dim, Dim, Tensor]:
   """
   Function is run within RETURNN.
@@ -744,6 +697,7 @@ def model_recog(
   seq_backrefs = []
 
   update_state_mask = rf.constant(True, dims=batch_dims_)
+  num_labels = rf.constant(0, dims=batch_dims_)
 
   output_dim = model.target_dim if model.use_joint_model else model.align_target_dim
   if model.label_decoder_state == "trafo":
@@ -833,6 +787,28 @@ def model_recog(
     aed_ilm_state = None
     input_embed_aed = None
     aed_enc_args = None
+
+  # external transducer model
+  if model.external_transducer_model:
+    ext_trans_enc_args, ext_trans_enc_spatial_dim = model.external_transducer_model.encoder.encode(data, in_spatial_dim=data_spatial_dim)
+    ext_trans_enc_args["enc"] = utils.copy_tensor_replace_dim_tag(ext_trans_enc_args["enc"], ext_trans_enc_spatial_dim, enc_spatial_dim)
+    ext_trans_decoder_state = model.external_transducer_model.label_decoder.default_initial_state(
+      batch_dims=batch_dims_)
+    input_embed_ext_trans = rf.zeros(
+      batch_dims_ + [model.external_transducer_model.label_decoder.target_embed.out_dim],
+      feature_dim=model.external_transducer_model.label_decoder.target_embed.out_dim,
+      dtype="float32"
+    )
+
+    if ilm_type is not None:
+      raise NotImplementedError
+    else:
+      ext_trans_ilm_state = None
+  else:
+    ext_trans_decoder_state = None
+    ext_trans_ilm_state = None
+    input_embed_ext_trans = None
+    ext_trans_enc_args = None
 
   # --------------------------------- init targets, embeddings ---------------------------------
 
@@ -925,6 +901,12 @@ def model_recog(
           model.aed_model.label_decoder.target_embed(target_non_blank),
           rf.gather(input_embed_aed, indices=backrefs)
         )
+      if model.external_transducer_model:
+        input_embed_ext_trans = rf.where(
+          update_state_mask,
+          model.external_transducer_model.label_decoder.target_embed(target_non_blank),
+          rf.gather(input_embed_ext_trans, indices=backrefs)
+        )
       if isinstance(model.blank_decoder, BlankDecoderV1):
         input_embed_length_model = model.blank_decoder.target_embed(target)
 
@@ -953,6 +935,7 @@ def model_recog(
       ilm_state_updated,
       aed_decoder_state_updated,
       aed_ilm_state_updated,
+      ext_trans_decoder_state_updated,
       lm_eos_log_prob,
     ) = get_score(
       model=model,
@@ -985,6 +968,11 @@ def model_recog(
       h_t_readout_scale=h_t_readout_scale,
       blank_penalty=blank_penalty,
       blank_scale=blank_scale,
+      emit_scale=emit_scale,
+      ext_trans_scale=external_transducer_scale,
+      ext_trans_enc_args=ext_trans_enc_args,
+      ext_trans_label_decoder_state=ext_trans_decoder_state,
+      input_embed_ext_trans=input_embed_ext_trans,
     )
 
     if i == T:
@@ -1058,7 +1046,7 @@ def model_recog(
         beam_dim,
         batch_dims[0],
         use_sum=use_recombination == "sum",
-        recomb_path_counter=recomb_path_counter,
+        # recomb_path_counter=recomb_path_counter,
       )
 
     # ------------------- top-k -------------------
@@ -1082,8 +1070,18 @@ def model_recog(
 
     # mask for updating label-sync states
     update_state_mask = rf.convert_to_tensor(target != model.blank_idx)
+    num_labels = rf.gather(num_labels, indices=backrefs)
+    num_labels = rf.where(update_state_mask, num_labels + 1, num_labels)
 
-    label_decoder_state, blank_decoder_state, lm_state, ilm_state, aed_decoder_state, aed_ilm_state = update_state(
+    (
+      label_decoder_state,
+      blank_decoder_state,
+      lm_state,
+      ilm_state,
+      aed_decoder_state,
+      aed_ilm_state,
+      ext_trans_decoder_state,
+    ) = update_state(
       model=model,
       update_state_mask=update_state_mask,
       backrefs=backrefs,
@@ -1099,9 +1097,22 @@ def model_recog(
       aed_decoder_state_updated=aed_decoder_state_updated,
       aed_ilm_state=aed_ilm_state,
       aed_ilm_state_updated=aed_ilm_state_updated,
+      ext_trans_label_decoder_state=ext_trans_decoder_state,
+      ext_trans_label_decoder_state_updated=ext_trans_decoder_state_updated,
     )
 
-    recomb_path_counter = rf.gather(recomb_path_counter, indices=backrefs)
+    # recomb_path_counter = rf.gather(recomb_path_counter, indices=backrefs)
+
+    if i > 1 and length_normalization_exponent != 0:
+      # Length-normalized scores, so we evaluate score_t/len.
+      # If seq ended, score_i/i == score_{i-1}/(i-1), thus score_i = score_{i-1}*(i/(i-1))
+      # Because we count with EOS symbol, shifted by one.
+      seq_log_prob *= rf.where(
+        num_labels > 1,
+        # add 1e-30 to avoid division by zero
+        (num_labels / (num_labels - 1 + 1e-30)) ** length_normalization_exponent,
+        1.0,
+      )
 
     i += 1
 
@@ -1121,7 +1132,7 @@ def model_recog(
       beam_dim,
       batch_dims[0],
       use_sum=use_recombination == "sum",
-      recomb_path_counter=recomb_path_counter,
+      # recomb_path_counter=recomb_path_counter,
     )
 
   # Backtrack via backrefs, resolve beams.
@@ -1153,18 +1164,19 @@ def model_recog(
     axis=beam_dim,
   )
 
-  # calculate theoretical maximum number of recombined paths
-  best_recomb_path_count = rf.gather(recomb_path_counter, indices=best_hyps)
-  best_S = rf.gather(non_blank_targets_spatial_dim.dyn_size_ext, indices=best_hyps)
-
-  assert len(batch_dims) == 1
-  max_recomb_paths = get_max_num_recombinations(
-    batch_dim=batch_dims[0],
-    S=best_S,
-    T=enc_spatial_dim.dyn_size_ext
-  )
-
-  ratio_recomb_paths = rf.exp(best_recomb_path_count - max_recomb_paths)
+  # # calculate theoretical maximum number of recombined paths
+  # best_recomb_path_count = rf.gather(recomb_path_counter, indices=best_hyps)
+  # best_S = rf.gather(non_blank_targets_spatial_dim.dyn_size_ext, indices=best_hyps)
+  #
+  # assert len(batch_dims) == 1
+  # max_recomb_paths = get_max_num_recombinations(
+  #   batch_dim=batch_dims[0],
+  #   S=best_S,
+  #   T=enc_spatial_dim.dyn_size_ext
+  # )
+  #
+  # ratio_recomb_paths = rf.exp(best_recomb_path_count - max_recomb_paths)
+  ratio_recomb_paths = rf.constant(0.0, dims=batch_dims)
 
   return (
     best_alignment,
@@ -1175,6 +1187,118 @@ def model_recog(
     beam_dim,
     ratio_recomb_paths
   )
+
+
+def update_state(
+        model: SegmentalAttentionModel,
+        update_state_mask: Tensor,
+        backrefs: Tensor,
+        label_decoder_state: State,
+        label_decoder_state_updated: State,
+        blank_decoder_state: Optional[State],
+        blank_decoder_state_updated: Optional[State],
+        lm_state: Optional[State],
+        lm_state_updated: Optional[State],
+        ilm_state: Optional[State],
+        ilm_state_updated: Optional[State],
+        aed_decoder_state: Optional[State],
+        aed_decoder_state_updated: Optional[State],
+        aed_ilm_state: Optional[State],
+        aed_ilm_state_updated: Optional[State],
+        ext_trans_label_decoder_state: Optional[State],
+        ext_trans_label_decoder_state_updated: Optional[State],
+) -> Tuple[State, Optional[State], Optional[State], Optional[State], Optional[State], Optional[State], Optional[State]]:
+  def _get_masked_state(old, new, mask):
+    old = rf.gather(old, indices=backrefs)
+    new = rf.gather(new, indices=backrefs)
+    return rf.where(mask, new, old)
+
+  # ------------------- update blank decoder state -------------------
+
+  if blank_decoder_state is not None:
+    blank_decoder_state = tree.map_structure(
+      lambda s: rf.gather(s, indices=backrefs), blank_decoder_state_updated)
+
+  # ------------------- update label decoder state and ILM state -------------------
+
+  if model.label_decoder_state == "trafo":
+    label_decoder_state = _get_masked_trafo_state(
+      trafo_state=label_decoder_state,
+      trafo_state_updated=label_decoder_state_updated,
+      update_state_mask=update_state_mask,
+      backrefs=backrefs
+    )
+  else:
+    if model.label_decoder.trafo_att:
+      trafo_att_state = label_decoder_state.pop("trafo_att")
+      trafo_att_state_updated = label_decoder_state_updated.pop("trafo_att")
+
+      trafo_att_state = _get_masked_trafo_state(
+        trafo_state=trafo_att_state,
+        trafo_state_updated=trafo_att_state_updated,
+        update_state_mask=update_state_mask,
+        backrefs=backrefs
+      )
+
+    if model.label_decoder_state == "joint-lstm":
+      label_decoder_state = tree.map_structure(
+        lambda s: rf.gather(s, indices=backrefs), label_decoder_state_updated)
+    else:
+      label_decoder_state = tree.map_structure(
+        lambda old_state, new_state: _get_masked_state(old_state, new_state, update_state_mask),
+        label_decoder_state, label_decoder_state_updated
+      )
+
+    if model.label_decoder.trafo_att:
+      label_decoder_state["trafo_att"] = trafo_att_state
+
+  # ILM
+  if ilm_state is not None:
+    ilm_state = tree.map_structure(
+      lambda old_state, new_state: _get_masked_state(old_state, new_state, update_state_mask),
+      ilm_state, ilm_state_updated
+    )
+
+  # ------------------ update external transducer state -------------------
+  if ext_trans_label_decoder_state is not None:
+    ext_trans_label_decoder_state = tree.map_structure(
+      lambda old_state, new_state: _get_masked_state(old_state, new_state, update_state_mask),
+      ext_trans_label_decoder_state, ext_trans_label_decoder_state_updated
+    )
+
+  # ------------------- update external AED state -------------------
+
+  if aed_decoder_state is not None:
+    if model.aed_model.decoder_state != "trafo":
+      aed_decoder_state = tree.map_structure(
+        lambda old_state, new_state: _get_masked_state(old_state, new_state, update_state_mask),
+        aed_decoder_state, aed_decoder_state_updated
+      )
+    else:
+      aed_decoder_state = _get_masked_trafo_state(
+        trafo_state=aed_decoder_state,
+        trafo_state_updated=aed_decoder_state_updated,
+        update_state_mask=update_state_mask,
+        backrefs=backrefs
+      )
+
+  if aed_ilm_state is not None:
+    aed_ilm_state = tree.map_structure(
+      lambda old_state, new_state: _get_masked_state(old_state, new_state, update_state_mask),
+      aed_ilm_state, aed_ilm_state_updated
+    )
+
+  # ------------------- update external LM state -------------------
+
+  if lm_state is not None:
+    lm_state = _get_masked_trafo_state(
+      trafo_state=lm_state,
+      trafo_state_updated=lm_state_updated,
+      update_state_mask=update_state_mask,
+      backrefs=backrefs
+    )
+
+  return label_decoder_state, blank_decoder_state, lm_state, ilm_state, aed_decoder_state, aed_ilm_state, ext_trans_label_decoder_state
 
 
 def model_recog_on_lattice(

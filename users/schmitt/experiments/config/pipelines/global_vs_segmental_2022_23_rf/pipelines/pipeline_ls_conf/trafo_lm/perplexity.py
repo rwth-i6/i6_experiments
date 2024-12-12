@@ -36,6 +36,6 @@ def calculate_perplexity(
     mem_rqmt=6,
     time_rqmt=1,
   )
-  forward_job.add_alias(f"{alias}/perplexity")
+  forward_job.add_alias(f"{alias}/perplexity/{'+'.join(corpus_keys)}")
   tk.register_output(forward_job.get_one_alias(), forward_job.out_files["scores.py.gz"])
 

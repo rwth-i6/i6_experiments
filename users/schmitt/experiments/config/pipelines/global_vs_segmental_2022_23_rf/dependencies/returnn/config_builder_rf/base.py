@@ -28,6 +28,7 @@ from abc import ABC
 from typing import Dict, Optional, List, Callable
 import copy
 import numpy as np
+import re
 
 
 class ConfigBuilderRF(ABC):
@@ -330,33 +331,63 @@ class ConfigBuilderRF(ABC):
     if behavior_version is not None:
       config_dict["behavior_version"] = behavior_version
 
-    separate_readout_alpha = opts.get("separate_readout_alpha")
-    if separate_readout_alpha is not None:
-      config_dict["beam_search_opts"]["separate_readout_alpha"] = separate_readout_alpha
+    # separate_readout_alpha = opts.get("separate_readout_alpha")
+    # if separate_readout_alpha is not None:
+    #   config_dict["beam_search_opts"]["separate_readout_alpha"] = separate_readout_alpha
+    #
+    # base_model_scale = opts.get("base_model_scale", 1.0)
+    # if base_model_scale != 1.0:
+    #   config_dict["beam_search_opts"]["base_model_scale"] = base_model_scale
+    #
+    # blank_penalty = opts.get("blank_penalty")
+    # if blank_penalty:
+    #   config_dict["beam_search_opts"]["blank_penalty"] = blank_penalty
+    #
+    # blank_scale = opts.get("blank_scale")
+    # if blank_scale and blank_scale != 1.0:
+    #   config_dict["beam_search_opts"]["blank_scale"] = blank_scale
 
     base_model_scale = opts.get("base_model_scale", 1.0)
     if base_model_scale != 1.0:
       config_dict["beam_search_opts"]["base_model_scale"] = base_model_scale
-
-    blank_penalty = opts.get("blank_penalty")
-    if blank_penalty:
-      config_dict["beam_search_opts"]["blank_penalty"] = blank_penalty
-
-    blank_scale = opts.get("blank_scale")
-    if blank_scale and blank_scale != 1.0:
-      config_dict["beam_search_opts"]["blank_scale"] = blank_scale
 
     external_aed_opts = opts.get("external_aed_opts", None)
     if external_aed_opts is not None:
       config_dict["external_aed_kwargs"] = {"test": "test"}
       if "preload_from_files" not in config_dict:
         config_dict["preload_from_files"] = {}
-      config_dict["preload_from_files"]["external_aed"] = {
-        "filename": external_aed_opts["checkpoint"],
-        "prefix": "aed_model.",
+      if external_aed_opts.get("mini_lstm_checkpoint", None) is None:
+        config_dict["preload_from_files"]["external_aed"] = {
+          "filename": external_aed_opts["checkpoint"],
+          "prefix": "aed_model.",
+          "ignore_missing": False,
+        }
+      else:
+        config_dict["preload_from_files"]["external_aed_w_mini_lstm"] = {
+          "filename": external_aed_opts["mini_lstm_checkpoint"],
+          "prefix": "aed_model.",
+          "ignore_missing": False,
+          # "var_name_mapping": {
+          #   "aed_model.label_decoder.mini_att.bias": "do_not_load_aed_model.label_decoder.mini_att.bias",
+          #   "aed_model.label_decoder.mini_att.weight": "do_not_load_aed_model.label_decoder.mini_att.weight",
+          #   "aed_model.label_decoder.mini_att_lstm.bias": "do_not_load_aed_model.label_decoder.mini_att_lstm.bias",
+          #   "aed_model.label_decoder.mini_att_lstm.ff_weight": "do_not_load_aed_model.label_decoder.mini_att_lstm.ff_weight",
+          #   "aed_model.label_decoder.mini_att_lstm.rec_weight": "do_not_load_aed_model.label_decoder.mini_att_lstm.rec_weight",
+          # },
+        }
+      config_dict["beam_search_opts"]["external_aed_scale"] = external_aed_opts["scale"]
+
+    external_transducer_opts = opts.get("external_transducer_opts", None)
+    if external_transducer_opts is not None:
+      config_dict["external_transducer_kwargs"] = {"test": "test"}
+      if "preload_from_files" not in config_dict:
+        config_dict["preload_from_files"] = {}
+      config_dict["preload_from_files"]["external_transducer"] = {
+        "filename": external_transducer_opts["checkpoint"],
+        "prefix": "external_transducer_model.",
         "ignore_missing": False,
       }
-      config_dict["beam_search_opts"]["external_aed_scale"] = external_aed_opts["scale"]
+      config_dict["beam_search_opts"]["external_transducer_scale"] = external_transducer_opts["scale"]
 
 
     lm_opts = opts.get("lm_opts", None)  # type: Optional[Dict]
@@ -378,15 +409,32 @@ class ConfigBuilderRF(ABC):
           "input_dropout": 0.1,
         }
       else:
+        lm_match = re.search(r"(\d+)-layers_(\d+)-dim", lm_alias)
+        if lm_match:
+          num_layers = int(lm_match.group(1))
+          model_dim = int(lm_match.group(2))
+        else:
+          raise ValueError("LM alias has unexpected format. Number of layers and dimensions could not be extracted.")
+
         config_dict["external_lm"] = {
           "class": "TransformerDecoder",
           "vocab_dim": self.variant_params["dependencies"].num_bpes,
-          "model_dim": 512,
-          "num_layers": 24,
+          "model_dim": model_dim,
+          "num_layers": num_layers,
           "ff_activation": rf.build_dict(rf.gelu),
           "dropout": 0.0,
           "att_dropout": 0.0,
         }
+
+        # hack this here for now
+        # we use slightly diff settings for the LMs with model dim 1024
+        if model_dim == 1024:
+          config_dict["external_lm"].update({
+            "pos_enc": None,
+            "norm": "rf.RMSNorm",
+            "ff": "rf.decoder.transformer.FeedForwardGated",
+            "decoder_layer_opts": dict(self_att=rf.build_dict(rf.RotaryPosCausalSelfAttention, with_bias=False))
+          })
 
       if "preload_from_files" not in config_dict:
         config_dict["preload_from_files"] = {}
@@ -1194,19 +1242,20 @@ class ConfigBuilderRF(ABC):
   def red_subtrahend(self):
     raise NotImplementedError
 
-  def get_vocab_dict_for_tensor(self):
-    if self.variant_params["dependencies"].bpe_codes_path is None:
+  @staticmethod
+  def get_vocab_dict_for_tensor(variant_params):
+    if variant_params["dependencies"].bpe_codes_path is None:
       return {
-        "model_file": self.variant_params["dependencies"].model_path,
+        "model_file": variant_params["dependencies"].model_path,
         "class": "SentencePieces",
       }
     else:
       return {
-        "bpe_file": self.variant_params["dependencies"].bpe_codes_path,
-        "vocab_file": self.variant_params["dependencies"].vocab_path,
+        "bpe_file": variant_params["dependencies"].bpe_codes_path,
+        "vocab_file": variant_params["dependencies"].vocab_path,
         "unknown_label": None,
-        "bos_label": self.variant_params["dependencies"].model_hyperparameters.sos_idx,
-        "eos_label": self.variant_params["dependencies"].model_hyperparameters.sos_idx,
+        "bos_label": variant_params["dependencies"].model_hyperparameters.sos_idx,
+        "eos_label": variant_params["dependencies"].model_hyperparameters.sos_idx,
       }
 
 
@@ -1231,6 +1280,7 @@ class GlobalAttConfigBuilderRF(ConfigBuilderRF, ABC):
           enc_ctx_layer: Optional[str] = None,
           use_feed_forward_encoder: bool = False,
           hard_att_opts: Optional[Dict] = None,
+          replace_att_by_h_s: bool = False,
           **kwargs
   ):
     super(GlobalAttConfigBuilderRF, self).__init__(**kwargs)
@@ -1251,6 +1301,9 @@ class GlobalAttConfigBuilderRF(ConfigBuilderRF, ABC):
     if hard_att_opts is not None:
       self.config_dict["hard_att_opts"] = hard_att_opts
 
+    if replace_att_by_h_s:
+      self.config_dict["replace_att_by_h_s"] = replace_att_by_h_s
+
   def get_train_config(self, opts: Dict):
     train_config = super(GlobalAttConfigBuilderRF, self).get_train_config(opts)
 
@@ -1259,10 +1312,19 @@ class GlobalAttConfigBuilderRF(ConfigBuilderRF, ABC):
 
     return train_config
 
+  def get_recog_config(self, opts: Dict):
+    recog_config = super(GlobalAttConfigBuilderRF, self).get_recog_config(opts)
+
+    length_normalization_exponent = opts.get("length_normalization_exponent")
+    if length_normalization_exponent != 1.0:
+      recog_config.config["beam_search_opts"]["length_normalization_exponent"] = length_normalization_exponent
+
+    return recog_config
+
   def get_extern_data_dict(self, dataset_opts: Dict, config_dict: Dict):
     extern_data_dict = super(GlobalAttConfigBuilderRF, self).get_extern_data_dict(dataset_opts, config_dict)
 
-    vocab = self.get_vocab_dict_for_tensor()
+    vocab = self.get_vocab_dict_for_tensor(self.variant_params)
     extern_data_dict["targets"]["vocab"] = vocab
 
     return extern_data_dict
@@ -1382,6 +1444,7 @@ class SegmentalAttConfigBuilderRF(TransducerConfigBuilderRF, ABC):
     if window_step_size != 1:
       self.config_dict["window_step_size"] = window_step_size
 
+    self.use_vertical_transitions = use_vertical_transitions
     if use_vertical_transitions:
       self.config_dict["use_vertical_transitions"] = use_vertical_transitions
 
@@ -1422,7 +1485,7 @@ class SegmentalAttConfigBuilderRF(TransducerConfigBuilderRF, ABC):
   def get_recog_config(self, opts: Dict):
     recog_config = super(SegmentalAttConfigBuilderRF, self).get_recog_config(opts)
 
-    recog_config.config["non_blank_vocab"] = self.get_vocab_dict_for_tensor()
+    recog_config.config["non_blank_vocab"] = self.get_vocab_dict_for_tensor(self.variant_params)
 
     use_recombination = opts.get("use_recombination")
     if use_recombination is not None:
@@ -1457,10 +1520,6 @@ class SegmentalAttConfigBuilderRF(TransducerConfigBuilderRF, ABC):
     if h_t_readout_scale is not None:
       recog_config.config["beam_search_opts"]["h_t_readout_scale"] = h_t_readout_scale
 
-    base_model_scale = opts.get("base_model_scale", 1.0)
-    if base_model_scale != 1.0:
-      recog_config.config["beam_search_opts"]["base_model_scale"] = base_model_scale
-
     blank_penalty = opts.get("blank_penalty")
     if blank_penalty:
       recog_config.config["beam_search_opts"]["blank_penalty"] = blank_penalty
@@ -1468,6 +1527,13 @@ class SegmentalAttConfigBuilderRF(TransducerConfigBuilderRF, ABC):
     blank_scale = opts.get("blank_scale", 1.0)
     if blank_scale is not None and blank_scale != 1.0:
       recog_config.config["beam_search_opts"]["blank_scale"] = blank_scale
+    emit_scale = opts.get("emit_scale", 1.0)
+    if emit_scale is not None and emit_scale != 1.0:
+      recog_config.config["beam_search_opts"]["emit_scale"] = emit_scale
+
+    length_normalization_exponent = opts.get("length_normalization_exponent")
+    if length_normalization_exponent is not None and length_normalization_exponent != 0.0:
+      recog_config.config["beam_search_opts"]["length_normalization_exponent"] = length_normalization_exponent
 
     return recog_config
 
