@@ -502,7 +502,6 @@ class LibrispeechOggZip(DatasetConfig):
                 d["_num_shards"] = sharding[1]
                 d["_shard_index"] = sharding[0]
         if subset:
-            d["fixed_random_seed"] = 1
             if training:
                 d["fixed_random_subset_seed"] = 1
             d["fixed_random_subset"] = subset  # faster

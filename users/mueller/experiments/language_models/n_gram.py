@@ -322,7 +322,7 @@ from i6_experiments.users.zeyer.datasets.utils.bpe import Bpe
 from i6_experiments.common.helpers.text_labels.subword_nmt_bpe import get_returnn_subword_nmt
 from i6_experiments.common.baselines.tedlium2.default_tools import SRILM_PATH
 
-def get_count_based_n_gram(vocab: Bpe, N_order: int) -> list[tk.Path]:
+def get_count_based_n_gram(vocab: Bpe, N_order: int) -> tk.Path:
     kenlm_repo = CloneGitRepositoryJob("https://github.com/kpu/kenlm").out_repository.copy()
     KENLM_BINARY_PATH = CompileKenLMJob(repository=kenlm_repo).out_binaries.copy()
     KENLM_BINARY_PATH.hash_overwrite = "LIBRISPEECH_DEFAULT_KENLM_BINARY_PATH"
@@ -361,19 +361,15 @@ def get_count_based_n_gram(vocab: Bpe, N_order: int) -> list[tk.Path]:
     
     tk.register_output(f"datasets/LibriSpeech/lm/count_based_{N_order}-gram", ppl_job.out_ppl_score)
     
-    res = []
-    for N in range(2, N_order+1):
-        conversion_job = ConvertARPAtoTensor(
-            lm=lm_arpa,
-            bpe_vocab=vocab.vocab,
-            N_order=N,
-        )
-        
-        conversion_job.add_alias(f"datasets/LibriSpeech/lm/count_based_{N}-gram")
-        
-        res.append(conversion_job.out_lm_tensor)
+    conversion_job = ConvertARPAtoTensor(
+        lm=lm_arpa,
+        bpe_vocab=vocab.vocab,
+        N_order=N_order,
+    )
     
-    return res
+    conversion_job.add_alias(f"datasets/LibriSpeech/lm/count_based_{N_order}-gram")
+        
+    return conversion_job.out_lm_tensor
 
 
 class ConvertARPAtoTensor(Job):
@@ -395,38 +391,47 @@ class ConvertARPAtoTensor(Job):
 
     def run(self):
         lm_loader = Lm(self.lm)
-        n_grams = list(lm_loader.get_ngrams(self.N_order))
         
         vocab = eval(uopen(self.bpe_vocab, "rt").read(), {"nan": float("nan"), "inf": float("inf")})
         assert isinstance(vocab, dict), "Has to be a dict containing the vocab!"
-        
-        # Read out the words and probabilities and turn into indexes of vocab
-        n_grams = [list(map(lambda x: vocab[x], words.split(" "))) + [probs[0]] for words, probs in n_grams]
-        n_grams = list(map(list, zip(*n_grams)))
-        
-        assert len(n_grams) - 1 == self.N_order, f"The conversion into a list failed ({len(n_grams) - 1} != {self.N_order})!"
-        
         vocab_n = len(vocab) - 1 # we combine eos and bos
-        tensor = torch.full((vocab_n,)*self.N_order, float("-inf"), dtype=torch.float32)
-        # Set the probabilites by using N indexes
-        tensor[n_grams[:-1]] = torch.tensor(n_grams[-1], dtype=torch.float32)
-        # The probs are in logs base 10
-        tensor = torch.pow(10, tensor)
         
-        atol = 0.005
-        if self.N_order == 2:
-            s = tensor.sum(1)
-            assert s[0].allclose(torch.tensor(1.0), atol=atol), f"The next word probabilities for <s> do not sum to 1! {s[0]}"
-            assert s[1].allclose(torch.tensor(0.0)), f"Prob of <unk> should be 0! (1) {s[1]}"
-            assert s[2:].allclose(torch.tensor(1.0), atol=atol), f"The next word probabilities do not sum to 1! {s[2:]}"
-        else:
-            assert (tensor.sum(-1) < 1.0).all(), f"The next word probabilities are not smaller than 1! {tensor.sum(-1)}"
-        assert tensor.sum(tuple(range(0, self.N_order-1)))[1].allclose(torch.tensor(0.0)), f"Prob of <unk> should be 0! (2) {tensor.sum(tuple(range(0, self.N_order-1)))[1]}"
+        ret_tensor = None
         
-        tensor = tensor.log()
-        
+        for N in reversed(range(2, self.N_order + 1)):
+            n_grams = list(lm_loader.get_ngrams(N))
+            
+            # Read out the words and probabilities and turn into indexes of vocab
+            n_grams = [list(map(lambda x: vocab[x], words.split(" "))) + [probs[0]] for words, probs in n_grams]
+            n_grams = list(map(list, zip(*n_grams)))
+            
+            assert len(n_grams) - 1 == N, f"The conversion into a list failed ({len(n_grams) - 1} != {N})!"
+            
+            tensor = torch.full((vocab_n,)*N, float("-inf"), dtype=torch.float32)
+            # Set the probabilites by using N indexes
+            tensor[n_grams[:-1]] = torch.tensor(n_grams[-1], dtype=torch.float32)
+            # The probs are in logs base 10
+            tensor = torch.pow(10, tensor)
+            
+            atol = 0.005
+            if self.N_order == 2:
+                s = tensor.sum(1)
+                assert s[0].allclose(torch.tensor(1.0), atol=atol), f"The next word probabilities for <s> do not sum to 1! {s[0]}"
+                assert s[1].allclose(torch.tensor(0.0)), f"Prob of <unk> should be 0! (1) {s[1]}"
+                assert s[2:].allclose(torch.tensor(1.0), atol=atol), f"The next word probabilities do not sum to 1! {s[2:]}"
+            else:
+                assert (tensor.sum(-1) < 1.0).all(), f"The next word probabilities are not smaller than 1! {tensor.sum(-1)}"
+            assert tensor.sum(tuple(range(0, N-1)))[1].allclose(torch.tensor(0.0)), f"Prob of <unk> should be 0! (2) {tensor.sum(tuple(range(0, N-1)))[1]}"
+            
+            tensor = tensor.log()
+            
+            if ret_tensor is None:
+                ret_tensor = tensor
+            else:
+                ret_tensor[*[0]*(self.N_order - N + 1)] = tensor[0]
+            
         with uopen(self.out_lm_tensor, "wb") as f:
-            torch.save(tensor, f)
+            torch.save(ret_tensor, f)
             
             
 class ApplyBPEToTextJob(Job):

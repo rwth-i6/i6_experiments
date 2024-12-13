@@ -8,7 +8,7 @@ import torch
 def sum_loss(
     *,
     log_probs: torch.Tensor, # (T, B, V)
-    log_lm_probs_list: list[torch.Tensor], # (V, V)
+    log_lm_probs: torch.Tensor, # (V, V)
     log_prior: torch.Tensor | None, # (V,)
     input_lengths: torch.Tensor, # (B,)
     LM_order: int,
@@ -67,7 +67,6 @@ def sum_loss(
     :param log_zero: Value of log zero.
     :returns: log sum loss
     """
-    log_lm_probs = log_lm_probs_list[0]
     # TODO generalize LM usage to any order
     
     use_prior = log_prior is not None
@@ -196,6 +195,221 @@ def sum_loss(
     
     return loss
 
+# TODO generalize LM usage to any order
+# def sum_loss2(
+#     *,
+#     log_probs: torch.Tensor, # (T, B, V)
+#     log_lm_probs: torch.Tensor, # (V, V)
+#     log_prior: torch.Tensor | None, # (V,)
+#     input_lengths: torch.Tensor, # (B,)
+#     LM_order: int,
+#     am_scale: float,
+#     lm_scale: float,
+#     prior_scale: float,
+#     horizontal_prior: bool,
+#     blank_idx:int = 0, # should be same as eos index
+#     eos_idx: int | None = None,
+#     unk_idx: int = 1,
+#     log_zero: float = float("-inf"),
+#     device: torch.device = torch.device("cpu"),
+# ):
+#     """
+#     Sum criterion training for CTC, given by
+#     L = sum_{all seq} q(seq)
+#     where q(seq) = p_AM^alpha(seq) * p_LM^beta(seq) / p_PR(seq)
+#     and p_AM = prod_n posterior.
+
+#     The loss is calculated by sum_{u in V} [Q(T, u, blank) + Q(T, u, non-blank)],
+#     where Q(t, u, {N or B}) is the sum of partial CTC alignments up to timeframe t
+#     with u being the last emitted label, and the last emitted frame is non-blank or blank.
+
+#     This Q is calculated by the two recursions (NOTE: the prior is used in all transitions):
+#     Q(t, u, blank) = [p_AM(blank | x_t) / p_PR(blank)] * [Q(t-1, u, blank) + Q(t-1, u, non-blank)]
+#     Q(t, u, non-blank) = [p_AM(u|x_t) / p_PR(u)] * [horizontal + diagonal + skip], where
+#     horizontal = Q(t-1, u, non-blank)
+#     diagonal = sum_v Q(t-1, v, blank) * p_LM(u|v)
+#     skip = sum{w!=u} Q(t-1, w, non-blank) * p_LM(u|w)
+    
+#     Alternative calculation (NOTE: the prior is only used when the LM is used):
+#     Q(t, u, blank) = p_AM(blank | x_t) * [Q(t-1, u, blank) + Q(t-1, u, non-blank)]
+#     Q(t, u, non-blank) = p_AM(u|x_t) * [horizontal + diagonal + skip], where
+#     horizontal = Q(t-1, u, non-blank)
+#     diagonal = sum_v Q(t-1, v, blank) * p_LM(u|v) / p_PR(u)
+#     skip = sum{w!=u} Q(t-1, w, non-blank) * p_LM(u|w) / p_PR(u)
+
+#     Initialization:
+#     Q(1, u, blank) = 0
+#     Q(1, u, non-blank) = p_AM(u | x1) * p_LM(u | bos) / p_PR(u)
+
+#     NOTE: In case there is EOS in the vocab, its ctc posterior should be very small,
+#     because the transitions in the sum do not consider EOS.
+
+#     :param log_probs: log CTC output probs (T, B, V)
+#     :param log_lm_probs: (V, V), then log bigram LM probs of all possible context
+#     :param log_prior: vocab log prior probs (V,)
+#     :param input_lengths: Input lengths (B,)
+#     :param LM_order: Order of the LM
+#     :param am_scale: AM scale
+#     :param lm_scale: LM scale
+#     :param blank_idx: Blank index in V dim
+#     :param eos_idx: EOS idx in the vocab. None if no EOS in log_probs vocab.
+#         If None, then blank_idx in log_lm_probs should be EOS
+#     :param unk_idx: Unknown index in V dim
+#     :param log_zero: Value of log zero.
+#     :returns: log sum loss
+#     """
+#     use_prior = log_prior is not None
+    
+#     old_device = log_probs.device
+#     log_probs = log_probs.to(device)
+#     log_lm_probs = log_lm_probs.to(device)
+#     if use_prior:
+#         log_prior = log_prior.to(device)
+#     input_lengths = input_lengths.to(device)
+    
+#     max_audio_time, batch_size, n_out = log_probs.shape
+#     # scaled log am and lm probs
+#     log_probs = am_scale * log_probs
+#     log_lm_probs = log_lm_probs * lm_scale
+#     if use_prior:
+#         log_prior = prior_scale * log_prior
+    
+#     # print_gradients = PrintGradients.apply
+#     # grad_assert = AssertGradients.apply
+    
+#     if eos_idx is None or eos_idx == blank_idx: # vocab means no EOS and blank
+#         vocab_size = n_out - 1
+#         eos_symbol = blank_idx
+#     else:
+#         vocab_size = n_out - 2
+#         eos_symbol = eos_idx
+#         assert blank_idx == n_out - 1, "blank should be the last symbol"
+#     assert unk_idx is not None, "unk_idx should be defined"
+#     vocab_size -= 1 # remove unk from vocab size
+#     # BOS and UNK are in the LM
+#     assert log_lm_probs.size() == (vocab_size + 2,) * LM_order, f"LM shape is not correct, should be {vocab_size + 2} in all dimensions but is {log_lm_probs.size()}"
+#     # Reshape higher order LMs to two dimensions, the first is the context and the second is the next vocab token
+#     if i > 0:
+#         log_lm_probs_list[i] = log_lm_probs_list[i].reshape(-1, vocab_size + 2)
+#         assert log_lm_probs_list[i].size() == ((vocab_size + 2)**(i + 1), vocab_size + 2), f"LM shape is not correct, should be {(vocab_size + 2)**(i + 1)}x{vocab_size + 2} but is {log_lm_probs_list[i].size()}"
+#     if use_prior:
+#         assert log_prior.size() == (n_out + 1,), f"Prior shape is not correct, should be {n_out + 1} but is {log_prior.size()}"
+    
+#     # calculate empty sequence score
+#     # Empty am score = sum log prob blank
+#     if use_prior:
+#         log_partial_empty_seq_prob = (log_probs[:, :, blank_idx] - log_prior[blank_idx]).cumsum(dim=0)
+#     else:
+#         log_partial_empty_seq_prob = log_probs[:, :, blank_idx].cumsum(dim=0)
+#     log_empty_seq_prob = log_partial_empty_seq_prob.gather(0, (input_lengths-1).long().unsqueeze(0)).squeeze(0)
+#     # Empty lm score = p_LM(eos | bos), prior score = p_PR(eos)
+#     log_q_empty_seq = log_empty_seq_prob + log_lm_probs_list[0][eos_symbol, eos_symbol]
+
+#     # Unbind the log_probs and log_partial_empty_seq_prob for each timestep so it is faster during backprop
+#     log_probs = log_probs.unbind(0)
+#     log_partial_empty_seq_prob = log_partial_empty_seq_prob.unbind(0)
+
+#     # to remove blank, unk and eos from the last dim (vocab)
+#     out_idx = torch.arange(n_out, device=device)
+#     out_idx_vocab = out_idx[out_idx != blank_idx].long() # "vocab" means no EOS, unk and blank
+#     out_idx_vocab = out_idx_vocab[out_idx_vocab != unk_idx]
+#     out_idx_vocab_w_eos = out_idx[out_idx != unk_idx].long()
+#     if eos_idx is not None and eos_idx != blank_idx:
+#         out_idx_vocab = out_idx_vocab[out_idx_vocab != eos_idx]
+#         out_idx_vocab_w_eos = out_idx_vocab_w_eos[out_idx_vocab_w_eos != blank_idx]
+        
+#     def _convert_idx(idx_list: torch.Tensor, N_order: int, lm_size: int) -> torch.Tensor:
+#         """Converts index list into multiple dimensions for higher order LMs
+#         """
+#         with torch.no_grad():
+#             n = idx_list.size(0)
+#             ret = idx_list
+#             for _ in range(N_order - 2):
+#                 ret = ret * lm_size
+#                 ret = ret.unsqueeze(-1).expand(-1, n)
+#                 ret = ret + idx_list
+#                 ret = ret.flatten()
+#         return ret
+
+#     # sum score by DP
+    
+#     # List in which we store the log Q values as tensors of the last N timesteps
+#     # dim 2: 0 is non-blank, 1 is blank
+#     # Init Q for t=1
+#     # Q(1, u, blank) = 0
+#     # Q(1, u, non-blank) = p_AM(u | x1) * p_LM(u | bos) / p_PR(u)
+#     log_q_label = log_probs[0][:, out_idx_vocab] + log_lm_probs_list[0][eos_symbol, out_idx_vocab].unsqueeze(0)
+#     if use_prior:
+#         log_q_label = log_q_label - log_prior[out_idx_vocab].unsqueeze(0)
+#     log_q_blank = torch.full((batch_size, vocab_size), log_zero, device=device) # (B, 2, V-1), no blank and eos in last dim
+#     log_q = log_q_label
+    
+#     for i in range(1, LM_order - 1):
+#         log_q_label = log_probs[0][:, out_idx_vocab] + log_lm_probs_list[0][eos_symbol, out_idx_vocab].unsqueeze(0)
+    
+#     log_lm_probs_wo_eos = log_lm_probs_list[0][out_idx_vocab][:, out_idx_vocab].fill_diagonal_(log_zero)
+#     lm_idx = 0
+#     for t in range(1, max_audio_time):
+#         # if we have higher order LMSs, we have to change the LM used if we have enough timesteps
+#         if t < LM_order - 1:
+#             log_lm_probs_wo_eos = log_lm_probs_list[lm_idx][_convert_idx(out_idx_vocab, lm_idx + 2, vocab_size + 2)][:, out_idx_vocab].fill_diagonal_(log_zero, wrap=True)
+#             lm_idx += 1
+        
+#         # case 1: emit a blank at t
+#         # Q(t, u, blank) = [Q(t-1, u, blank) + Q(t-1, u, non-blank)]*p_AM(blank | x_t)
+#         new_log_q_blank = log_q + log_probs[t][:, blank_idx].unsqueeze(-1)
+#         if use_prior:
+#             new_log_q_blank = new_log_q_blank - log_prior[blank_idx]
+
+#         # case 2: emit a non-blank at t
+#         # Q(t, u, non-blank) = p_AM(u|x_t) * [horizontal + diagonal + skip] 
+        
+#         # horizontal transition Q(t-1, u, non-blank)
+#         log_mass_horizontal = log_q_label
+#         if horizontal_prior and use_prior:
+#             log_mass_horizontal = log_mass_horizontal - log_prior[out_idx_vocab].unsqueeze(0) # divide by prior
+        
+#         # diagonal transition sum_v Q(t-1, v, blank) * p_LM(u|v) / p_PR(u)
+#         # take batch index b into account, this is equivalent to compute
+#         # mass_diagonal[b, u] = sum_v Q(t-1, b, blank, v) * p_LM(u|v) / p_PR(u)
+#         # mass_diagonal = Q(t-1, :, blank, :) @ M / p_PR(u), where M(v,u) = p_LM(u|v) = lm_probs[v][u]
+#         # important: in this transition, there is a prefix empty^(t-1) that is not covered in the Q(t-1,v,blank)
+#         # this is covered in log_partial_empty_seq_prob[t-1]
+#         log_prev_partial_seq_probs = torch.cat([log_partial_empty_seq_prob[t-1].unsqueeze(-1), log_q_blank], dim=-1)
+#         log_mass_diagonal = log_matmul_old(log_prev_partial_seq_probs, log_lm_probs_list[lm_idx][_convert_idx(out_idx_vocab_w_eos, lm_idx + 2, vocab_size + 2)][:, out_idx_vocab]) # (B, V) @ (V, V-1)
+#         if use_prior:
+#             log_mass_diagonal = log_mass_diagonal - log_prior[out_idx_vocab].unsqueeze(0) # divide by prior
+        
+#         # skip transition sum{w!=u} Q(t-1, w, non-blank) * p_LM(u|w) / p_PR(u)
+#         # same consideration as diagonal transition
+#         log_mass_skip = log_matmul_old(log_q_label, log_lm_probs_wo_eos)
+#         if use_prior:
+#             log_mass_skip = log_mass_skip - log_prior[out_idx_vocab].unsqueeze(0) # divide by prior
+        
+#         # multiply with p_AM(u|x_t)
+#         new_log_q_label = log_probs[t][:, out_idx_vocab] + safe_logsumexp(torch.stack([log_mass_horizontal, log_mass_diagonal, log_mass_skip], dim=-1), dim=-1)
+        
+#         # set masked results to log_q
+#         time_mask = (t < input_lengths).unsqueeze(-1).expand(-1, vocab_size)
+#         log_q_blank = torch.where(time_mask, new_log_q_blank, log_q_blank)
+#         log_q_label = torch.where(time_mask, new_log_q_label, log_q_label)
+#         log_q = safe_logaddexp(log_q_label, log_q_blank)
+        
+#         torch.cuda.empty_cache()
+    
+#     # multiply last Q with p_LM(eos | u) and devide by prior of EOS
+#     log_q = log_q + log_lm_probs[out_idx_vocab, eos_symbol].unsqueeze(0)
+    
+#     # sum over the last two dimensions
+#     sum_score = safe_logsumexp(log_q, dim=-1)
+#     # add empty sequence score
+#     sum_score = safe_logaddexp(sum_score, log_q_empty_seq) # (B,) # TODO do we need to add the empty seq?
+    
+#     loss = -sum_score
+#     if old_device != device:
+#         loss = loss.to(old_device)
+    
+#     return loss
 
 # ------------------------------------------------
 # Helper functions and classes
@@ -494,9 +708,15 @@ def test():
     
     # e2 = time.time()
     # print(f"CTC loss took {time.strftime('%H:%M:%S', time.gmtime(e2 - s2))}: {(ctc_loss / frames).mean()}") # 0:08 mins
-    
+
+def test_LM():
+    with open("/u/marten.mueller/dev/ctc_baseline/work/i6_experiments/users/mueller/experiments/language_models/n_gram/ConvertARPAtoTensor.S9n2YtP1JzJ5/output/lm.pt", "rb") as f:
+    # with open("/u/marten.mueller/dev/ctc_baseline/work/i6_experiments/users/mueller/experiments/language_models/n_gram/ConvertARPAtoTensor.wuVkNuDg8B55/output/lm.pt", "rb") as f:
+        t = torch.load(f)
+    print(t[0])
+
 if __name__ == "__main__":
-    test()
+    test_LM()
     
     
 """

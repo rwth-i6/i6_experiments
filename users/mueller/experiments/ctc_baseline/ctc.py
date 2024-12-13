@@ -68,6 +68,7 @@ def py():
     aux_loss = False
     alt_decoder = False
     horizontal_prior = True
+    prior_gradient = False
     LM_order = 2
     self_train_subset = 18000
     
@@ -123,8 +124,8 @@ def py():
     if use_sum_criterion:
         training_scales = {
             "am": 1.0,
-            "lm": 0.5,
-            "prior": 0.3
+            "lm": 0.7,
+            "prior": 0.2
         }
         
         if list(training_scales.values()) == [1.0] * len(training_scales):
@@ -133,7 +134,8 @@ def py():
         sum_str = f"-full_sum" + \
             (f"_p{str(training_scales['prior']).replace('.', '')}_l{str(training_scales['lm']).replace('.', '')}_a{str(training_scales['am']).replace('.', '')}" if training_scales else "") + \
             (f"_LMorder{LM_order}" if LM_order > 2 else "") + \
-            ("_wo_hor_pr" if not horizontal_prior else "")
+            ("_wo_hor_pr" if not horizontal_prior else "") + \
+            ("_wo_pr_grad" if not prior_gradient else "")
     
     alias_name = f"ctc-baseline" + \
         (sum_str if use_sum_criterion else "") + \
@@ -176,6 +178,7 @@ def py():
         use_sum_criterion=use_sum_criterion,
         aux_loss=aux_loss,
         horizontal_prior=horizontal_prior,
+        prior_gradient=prior_gradient,
         LM_order=LM_order,
         training_scales=training_scales if use_sum_criterion else None,
         self_train_subset=self_train_subset,
@@ -215,6 +218,7 @@ def train_exp(
     use_sum_criterion: bool = False,
     aux_loss: bool = False,
     horizontal_prior: bool = True,
+    prior_gradient: bool = True,
     LM_order: int = 2,
     training_scales: Optional[Dict[str, float]] = None,
     self_train_subset: Optional[int] = None,
@@ -315,20 +319,19 @@ def train_exp(
         
         if use_sum_criterion:
             train_def = ctc_sum_training
-            lm_path_list = get_count_based_n_gram(task.train_dataset.vocab, LM_order)
-            if len(lm_path_list) == 1:
-                config_self["lm_path"] = lm_path_list[0]
-            else:
-                config_self["lm_path"] = lm_path_list
+            config_self["lm_path"] = get_count_based_n_gram(task.train_dataset.vocab, LM_order)
             
         init_checkpoint = model_with_checkpoint[i].get_last_fixed_epoch().checkpoint
         # When testing on a smaller subset we only want one gpu
         if self_train_subset is not None:
             config_self["__num_processes"] = 1
+            config_self["learning_rate_piecewise_steps"] = [4_500, 9_000, 10_000]
         if not aux_loss:
             config_self.pop("aux_loss_layers")
         if not horizontal_prior:
             config_self["horizontal_prior"] = horizontal_prior
+        if not prior_gradient:
+            config_self["prior_gradient"] = prior_gradient
         if training_scales:
             config_self["am_scale"] = training_scales["am"]
             config_self["lm_scale"] = training_scales["lm"]
@@ -892,7 +895,7 @@ def ctc_training(*, model: Model, data: rf.Tensor, data_spatial_dim: Dim, target
 ctc_training: TrainDef[Model]
 ctc_training.learning_rate_control_error_measure = "ctc"
 
-def ctc_sum_training(*, model: Model, data: rf.Tensor, data_spatial_dim: Dim, lm_path: tk.Path | list[tk.Path]):
+def ctc_sum_training(*, model: Model, data: rf.Tensor, data_spatial_dim: Dim, lm_path: tk.Path):
     """Function is run within RETURNN."""
     from returnn.config import get_global_config
     from .sum_criterion import sum_loss, safe_logsumexp
@@ -932,7 +935,8 @@ def ctc_sum_training(*, model: Model, data: rf.Tensor, data_spatial_dim: Dim, lm
     lm_scale = config.float("lm_scale", 1.0)
     prior_scale = config.float("prior_scale", 1.0)
     
-    horizontal_prior = config.float("horizontal_prior", True)
+    horizontal_prior = config.bool("horizontal_prior", True)
+    prior_gradient = config.bool("prior_gradient", True)
     use_prior = prior_scale > 0.0
 
     if data.feature_dim and data.feature_dim.dimension == 1:
@@ -940,20 +944,10 @@ def ctc_sum_training(*, model: Model, data: rf.Tensor, data_spatial_dim: Dim, lm
     assert not data.feature_dim  # raw audio
     
     
-    if isinstance(lm_path, list):
-        lms = []
-        for p in lm_path:
-            with uopen(p, "rb") as f:
-                lm = torch.load(f, map_location=data.device)
-                assert isinstance(lm, torch.Tensor), "Loaded LM is not a tensor"
-            lms.append(lm)
-        lm_order = len(lms) + 1
-    else:
-        with uopen(lm_path, "rb") as f:
-            lm = torch.load(f, map_location=data.device)
-            assert isinstance(lm, torch.Tensor), "Loaded LM is not a tensor"
-        lms = [lm]
-        lm_order = 2
+    with uopen(lm_path, "rb") as f:
+        lm = torch.load(f, map_location=data.device)
+        assert isinstance(lm, torch.Tensor), "Loaded LM is not a tensor"
+    lm_order = len(lm.size())
 
     collected_outputs = {}
     logits, enc, enc_spatial_dim = model(data, in_spatial_dim=data_spatial_dim, collected_outputs=collected_outputs)
@@ -967,13 +961,15 @@ def ctc_sum_training(*, model: Model, data: rf.Tensor, data_spatial_dim: Dim, lm
             aux_log_probs = aux_log_probs.raw_tensor
             if use_prior:
                 aux_log_prior = _calc_log_prior(aux_log_probs, enc_spatial_dim.dyn_size_ext.raw_tensor)
+                if not prior_gradient:
+                    aux_log_prior = aux_log_prior.detach()
             else:
                 aux_log_prior = None
             # (B, T, F) -> (T, B, F)
             aux_log_probs = aux_log_probs.permute(1, 0, 2)
             aux_loss = sum_loss(
                 log_probs=aux_log_probs,
-                log_lm_probs_list=lms,
+                log_lm_probs=lm,
                 log_prior=aux_log_prior,
                 input_lengths=enc_spatial_dim.dyn_size_ext.raw_tensor,
                 LM_order=lm_order,
@@ -998,13 +994,15 @@ def ctc_sum_training(*, model: Model, data: rf.Tensor, data_spatial_dim: Dim, lm
     log_probs = log_probs.raw_tensor
     if use_prior:
         log_prior = _calc_log_prior(log_probs, enc_spatial_dim.dyn_size_ext.raw_tensor)
+        if not prior_gradient:
+            log_prior = log_prior.detach()
     else:
         log_prior = None
     # (B, T, F) -> (T, B, F)
     log_probs = log_probs.permute(1, 0, 2)
     loss = sum_loss(
         log_probs=log_probs,
-        log_lm_probs_list=lms,
+        log_lm_probs=lm,
         log_prior=log_prior,
         input_lengths=enc_spatial_dim.dyn_size_ext.raw_tensor,
         LM_order=lm_order,
