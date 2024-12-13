@@ -69,11 +69,12 @@ def py():
     alt_decoder = False
     horizontal_prior = True
     LM_order = 2
+    self_train_subset = 18000
     
     if train_small:
         epochs = 50
     if self_training_rounds > 0:
-        self_epochs = 450 # 450, 225 or 113
+        self_epochs = 113 # 450, 225 or 113
     
     decoder_hyperparameters = None
     if use_greedy:
@@ -122,8 +123,8 @@ def py():
     if use_sum_criterion:
         training_scales = {
             "am": 1.0,
-            "lm": 1.0,
-            "prior": 1.0
+            "lm": 0.5,
+            "prior": 0.3
         }
         
         if list(training_scales.values()) == [1.0] * len(training_scales):
@@ -136,7 +137,7 @@ def py():
     
     alias_name = f"ctc-baseline" + \
         (sum_str if use_sum_criterion else "") + \
-        (f"-self_training_{self_training_rounds}" + (f"_e{self_epochs}" if self_epochs != 450 else "") if self_training_rounds > 0 else "") + \
+        (f"-self_training_{self_training_rounds}" + (f"_s{self_train_subset}" if self_train_subset is not None else "") + (f"_e{self_epochs}" if self_epochs != 450 else "") if self_training_rounds > 0 else "") + \
         (f"-wo_aux_loss" if not aux_loss else "") + \
         (f"-ds100h" if train_small else "") + \
         f"-{vocab}" + \
@@ -176,7 +177,8 @@ def py():
         aux_loss=aux_loss,
         horizontal_prior=horizontal_prior,
         LM_order=LM_order,
-        training_scales=training_scales if use_sum_criterion else None
+        training_scales=training_scales if use_sum_criterion else None,
+        self_train_subset=self_train_subset,
     )
     
 
@@ -215,6 +217,7 @@ def train_exp(
     horizontal_prior: bool = True,
     LM_order: int = 2,
     training_scales: Optional[Dict[str, float]] = None,
+    self_train_subset: Optional[int] = None,
 ) -> Optional[ModelWithCheckpoints]:
     """
     Train experiment
@@ -297,7 +300,9 @@ def train_exp(
             train_vocab_opts=train_vocab_opts,
             ds_sel = TrainDatasetSel.train_860h if train_small else TrainDatasetSel.train_960h,
             with_prior=with_prior,
-            pseudo_label_path = pseudo_label_path_dict
+            pseudo_label_path = pseudo_label_path_dict,
+            train_subset = self_train_subset,
+            eval_subset = 300 if self_train_subset else 3000,
         )
         
         config_self = config.copy()
@@ -317,7 +322,9 @@ def train_exp(
                 config_self["lm_path"] = lm_path_list
             
         init_checkpoint = model_with_checkpoint[i].get_last_fixed_epoch().checkpoint
-        # config_self.pop("__num_processes")
+        # When testing on a smaller subset we only want one gpu
+        if self_train_subset is not None:
+            config_self["__num_processes"] = 1
         if not aux_loss:
             config_self.pop("aux_loss_layers")
         if not horizontal_prior:
@@ -331,6 +338,7 @@ def train_exp(
             peak_lr = 4e-4
             config_self["learning_rate_piecewise_values"] = [peak_lr * 1e-1, peak_lr, peak_lr * 3e-2, peak_lr * 3e-3]
             config_self["learning_rate_piecewise_steps"] = [20_000] + config_self["learning_rate_piecewise_steps"][1:]
+            
         model_with_checkpoint.append(train(
             prefix_self_training,
             task=task,
@@ -343,7 +351,7 @@ def train_exp(
             num_epochs=num_epochs,
             gpu_mem=gpu_mem,
             num_processes=num_processes,
-            time_rqmt=time_rqmt if time_rqmt else (156 if use_sum_criterion else 156),
+            time_rqmt=time_rqmt if time_rqmt else ((12 if self_train_subset else 156) if use_sum_criterion else 156),
         ))
         train_job = model_with_checkpoint[i + 1].get_training_job()
         if env_updates:

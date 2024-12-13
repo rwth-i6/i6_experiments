@@ -311,6 +311,7 @@ class LibrispeechOggZip(DatasetConfig):
         train_audio_preprocess: Optional[Any] = NotSpecified,
         train_audio_random_permute: Union[bool, Dict[str, Any]] = False,
         eval_subset: Optional[int] = 3000,
+        train_subset: Optional[int] = None,
         train_ds_key: Optional[str] = None,
         pseudo_label_path: tk.Path = None,
     ):
@@ -348,6 +349,7 @@ class LibrispeechOggZip(DatasetConfig):
         self.train_audio_random_permute = train_audio_random_permute
         self.train_epoch_wise_filter = train_epoch_wise_filter
         self.eval_subset = eval_subset
+        self.train_subset = train_subset
 
         self._time_dim = None
         self._feature_dim = None
@@ -380,6 +382,8 @@ class LibrispeechOggZip(DatasetConfig):
         state = self.__dict__.copy()
         if not self.train_vocab:
             state.pop("train_vocab")  # backward compat
+        if self.train_subset is None:
+            state.pop("train_subset")
         state = {k: v for k, v in state.items() if not k.startswith("_")}
         byte_list = [b"LibrispeechOggZip", sis_hash_helper(state)]
 
@@ -419,13 +423,13 @@ class LibrispeechOggZip(DatasetConfig):
         if not self.train_ds_key:
             raise ValueError("train_ds_key not set")
         else:
-            return self.get_dataset(self.train_ds_key, training=True)
+            return self.get_dataset(self.train_ds_key, training=True, subset=self.train_subset)
 
     def get_train_dataset_for_forward(self) -> Dict[str, Any]:
         if not self.train_ds_key:
             raise ValueError("train_ds_key not set")
         else:
-            return self.get_dataset(self.train_ds_key)
+            return self.get_dataset(self.train_ds_key, subset=self.train_subset)
     
     def get_eval_datasets(self) -> Dict[str, Dict[str, Any]]:
         ds = {
@@ -498,6 +502,9 @@ class LibrispeechOggZip(DatasetConfig):
                 d["_num_shards"] = sharding[1]
                 d["_shard_index"] = sharding[0]
         if subset:
+            d["fixed_random_seed"] = 1
+            if training:
+                d["fixed_random_subset_seed"] = 1
             d["fixed_random_subset"] = subset  # faster
         
         # Combine pseudo labels into MetaDataset
@@ -506,6 +513,7 @@ class LibrispeechOggZip(DatasetConfig):
             for part in parts:
                 files_new += [_get_librispeech_ogg_zip_dict_pseudo_labels(self.pseudo_label_path, part)[part]]
             d_pseudo = copy(d)
+            d.pop("fixed_random_subset", None)
             d_pseudo["audio"] = None
             d_pseudo["path"] = files_new
             d_comb = {"zip_dataset": d, "pseudo_labels_dataset": d_pseudo}
