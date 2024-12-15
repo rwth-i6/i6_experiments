@@ -409,6 +409,7 @@ def py():
                 "ctc_am_scale": am_scale,
                 "ctc_prior_scale": prior_scale,
                 "ctc_prior_type": prior_type,
+                "use_fixed_ctc_grad": "v2",
             },
             post_config_updates={"log_grad_norm": True, "__multi_proc_dataset_opts": {"num_workers": 25}},
             vocab="spm512",
