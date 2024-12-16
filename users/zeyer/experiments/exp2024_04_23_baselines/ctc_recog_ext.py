@@ -34,7 +34,7 @@ _ctc_model_name = (
 # _lm_name = "trafo-n96-d512-gelu-drop0-b32_1k"
 _lms = {
     "n24-d512": "trafo-n24-d512-noAbsPos-rmsNorm-ffGated-rope-noBias-drop0-b100_5k",
-    "n96-d512": "trafo-n96-d512-gelu-drop0-b32_1k",
+    # "n96-d512": "trafo-n96-d512-gelu-drop0-b32_1k",
 }
 
 
@@ -66,7 +66,7 @@ def py():
                 recog_def=model_recog,
                 config={
                     "beam_size": beam_size,
-                    "recog_version": 2,
+                    "recog_version": 3,
                     "batch_size": 5_000 * ctc_model.definition.batch_size_factor,
                 },
                 search_rqmt={"time": 24},
