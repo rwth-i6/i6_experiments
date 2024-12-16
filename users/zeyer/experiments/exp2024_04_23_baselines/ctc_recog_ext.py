@@ -251,7 +251,7 @@ def model_recog(
     config = get_global_config()
     beam_size = config.int("beam_size", 12)
     version = config.int("recog_version", 1)
-    assert version == 2
+    assert version == 3
 
     batch_dims = data.remaining_dims((data_spatial_dim, data.feature_dim))
     logits, enc, enc_spatial_dim = model(data, in_spatial_dim=data_spatial_dim)
@@ -281,8 +281,10 @@ def model_recog(
     seq_targets_wb = []
     seq_backrefs = []
     for t in range(max_seq_len):
+        prev_target = target
+        prev_target_wb = target_wb
         lm_logits, lm_state = model.lm(
-            target,
+            prev_target,
             spatial_dim=single_step_dim,
             state=lm_state,
         )  # Batch, InBeam, Vocab / ...
@@ -293,7 +295,7 @@ def model_recog(
 
         # Now add LM score. If prev align label (target_wb) is blank or != cur, add LM score, otherwise 0.
         seq_log_prob += rf.where(
-            (target_wb == model.blank_idx) | (target_wb != rf.range_over_dim(model.wb_target_dim)),
+            (prev_target_wb == model.blank_idx) | (prev_target_wb != rf.range_over_dim(model.wb_target_dim)),
             _target_dense_extend_blank(
                 lm_log_probs,
                 target_dim=model.target_dim,
@@ -321,13 +323,14 @@ def model_recog(
         seq_backrefs.append(backrefs)
 
         lm_state = tree.map_structure(functools.partial(_gather_backrefs, backrefs=backrefs), lm_state)
-        target = rf.gather(target, indices=backrefs)  # Batch, Beam -> Vocab
+        prev_target = rf.gather(prev_target, indices=backrefs)  # Batch, Beam -> Vocab
+        prev_target_wb = rf.gather(prev_target_wb, indices=backrefs)  # Batch, Beam -> VocabWB
         target = rf.where(
-            target_wb != model.blank_idx,
+            (target_wb != model.blank_idx) & (target_wb != prev_target_wb),
             _target_remove_blank(
                 target_wb, target_dim=model.target_dim, wb_target_dim=model.wb_target_dim, blank_idx=model.blank_idx
             ),
-            target,
+            prev_target,
         )  # Batch, Beam -> Vocab
 
     # Backtrack via backrefs, resolve beams.
