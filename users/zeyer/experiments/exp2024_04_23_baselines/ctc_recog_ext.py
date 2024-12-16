@@ -46,6 +46,7 @@ def py():
     ctc_model = _get_ctc_model(_ctc_model_name)
     lm = _get_lm_model(_lm_name)
     prior = get_ctc_prior_probs(ctc_model, task.train_dataset.copy_train_as_static())
+    tk.register_output(f"{prefix}/ctc-prior", prior)
 
     for prior_scale, lm_scale in [(1.0, 1.0)]:
         model = get_ctc_with_lm(
