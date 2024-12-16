@@ -154,26 +154,45 @@ def model_recog(
     )
     label_log_prob_ta = TensorArray.unstack(label_log_prob, axis=enc_spatial_dim)  # t -> Batch, VocabWB
 
-    lm_state = model.lm.default_initial_state(batch_dims=batch_dims_)
+    lm_state = model.lm.default_initial_state(batch_dims=batch_dims_)  # Batch, InBeam, ...
     target = rf.constant(model.bos_idx, dims=batch_dims_, sparse_dim=model.target_dim)  # Batch, InBeam -> Vocab
+    target_wb = rf.constant(
+        model.blank_idx, dims=batch_dims_, sparse_dim=model.wb_target_dim
+    )  # Batch, InBeam -> VocabWB
 
     max_seq_len = int(enc_spatial_dim.get_dim_value())
     seq_targets_wb = []
     seq_backrefs = []
     for t in range(max_seq_len):
-        # TODO lm_state has some hist_dim... normally static, but not here. how to handle that?
-        #   do we need to fix sth in the TransformerDecoder?
         lm_logits, lm_state = model.lm(
             target,
             spatial_dim=single_step_dim,
             state=lm_state,
         )  # Batch, InBeam, Vocab / ...
         lm_log_probs = rf.log_softmax(lm_logits, axis=model.target_dim)  # Batch, InBeam, Vocab
+        lm_log_probs *= model.lm_scale
 
         seq_log_prob = seq_log_prob + label_log_prob_ta[t]  # Batch, InBeam, VocabWB
-        # TODO now add LM score... check prev align label, if == blank or != cur, add LM score, otherwise 0.
-        #   and add EOS score in last frame.
-        #   how to treat LM state? has diff seq length...
+
+        # Now add LM score. If prev align label (target_wb) is blank or != cur, add LM score, otherwise 0.
+        seq_log_prob += rf.where(
+            (target_wb == model.blank_idx) | (target_wb != rf.range_over_dim(model.wb_target_dim)),
+            _target_dense_extend_blank(
+                lm_log_probs,
+                target_dim=model.target_dim,
+                wb_target_dim=model.wb_target_dim,
+                blank_idx=model.blank_idx,
+                value=0.0,
+            ),
+            0.0,
+        )  # Batch, InBeam -> VocabWB
+
+        # Add LM EOS score in last frame.
+        seq_log_prob += rf.where(
+            t == enc_spatial_dim.get_dyn_size_ext_for_device(seq_log_prob.device),
+            rf.gather(lm_log_probs, indices=model.eos_idx, axis=model.target_dim),
+            0.0,
+        )  # Batch, InBeam -> VocabWB
 
         seq_log_prob, (backrefs, target_wb), beam_dim = rf.top_k(
             seq_log_prob, k_dim=Dim(beam_size, name=f"dec-step{t}-beam"), axis=[beam_dim, model.wb_target_dim]
@@ -265,3 +284,12 @@ def _target_remove_blank(target: Tensor, *, target_dim: Dim, wb_target_dim: Dim,
     assert target.sparse_dim == wb_target_dim
     assert blank_idx == target_dim.dimension  # currently just not implemented otherwise
     return rf.set_sparse_dim(target, target_dim)
+
+
+def _target_dense_extend_blank(
+    target: Tensor, *, target_dim: Dim, wb_target_dim: Dim, blank_idx: int, value: float
+) -> Tensor:
+    assert target_dim in target.dims
+    assert blank_idx == target_dim.dimension  # currently just not implemented otherwise
+    res, _ = rf.pad(target, axes=[target_dim], padding=[(0, 1)], out_dims=[wb_target_dim], value=value)
+    return res
