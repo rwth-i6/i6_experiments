@@ -93,7 +93,7 @@ class LBSFactoredHybridDecoder(BASEFactoredHybridDecoder):
 
         #model and graph info
         trafo_config.loader.type = "meta"
-        trafo_config.loader.meta_graph_file = tk.Path("/u/raissi/Desktop/debug/lm/graph.meta", cached=True)
+        trafo_config.loader.meta_graph_file = tk.Path("/u/raissi/Desktop/debug/lstm_lm/mini.graph.meta", cached=True)
         trafo_config.loader.saved_model_file = DelayedFormat("/work/asr4/rossenbach/custom_projects/kazuki_replicate_lm_training/net-model/network.029")
         trafo_config.loader.required_libraries = self.library_path
 
