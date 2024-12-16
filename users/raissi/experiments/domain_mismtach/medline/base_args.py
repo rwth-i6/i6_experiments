@@ -53,11 +53,17 @@ wmt22_medline_noise07 = tk.Path(
     cached=True,
     hash_overwrite="GLOWTTS_V1_DEV_MED_07",
 )
+wmt22_medline_noise055 = tk.Path(
+    ("/").join([PREPATH_CORPORA, "wmt22_medline_v1_sequiturg2p_glowtts460_noise055.xml.gz"]),
+    cached=True,
+    hash_overwrite="GLOWTTS_V1_DEV_MED_055",
+)
 wmt22_medline_noise03 = tk.Path(
     ("/").join([PREPATH_CORPORA, "wmt22_medline_v1_sequiturg2p_glowtts460_noise03.xml.gz"]),
     cached=True,
     hash_overwrite="GLOWTTS_V1_DEV_MED_03",
 )
+
 #################
 
 MEDLINE_V1_DEV_DATA = {
@@ -143,6 +149,21 @@ MEDLINE_V22_DEV_DATA = {
             hash_overwrite="v22_nounk",
         ),
         corpus=wmt22_medline_noise07,
+        lm=tk.Path(f"{PREPATH_ASR3}/lm/v2/only_medline/ufal_v1_lm_3more.gz", cached=True, hash_overwrite="v22_lm"),
+        description="lexicon uses only medline data with words repeating 3 or more",
+    ),
+    0.55: DATASET(
+        lexicon_with_unk=tk.Path(
+            f"{PREPATH_ASR3}/lexicon/v2/only_medline/ufal_v1_3more_only.rasr_with_unk.xml.gz",
+            cached=True,
+            hash_overwrite="v22_unk",
+        ),
+        lexicon_no_unk=tk.Path(
+            f"{PREPATH_ASR3}/lexicon/v2/only_medline/ufal_v1_3more_only.rasr_without_unk.xml.gz",
+            cached=True,
+            hash_overwrite="v22_nounk",
+        ),
+        corpus=wmt22_medline_noise055,
         lm=tk.Path(f"{PREPATH_ASR3}/lm/v2/only_medline/ufal_v1_lm_3more.gz", cached=True, hash_overwrite="v22_lm"),
         description="lexicon uses only medline data with words repeating 3 or more",
     ),
