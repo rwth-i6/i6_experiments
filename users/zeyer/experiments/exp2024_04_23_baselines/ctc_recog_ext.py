@@ -29,7 +29,10 @@ _ctc_model_name = (
 # trafo-n32-d1024-noAbsPos-rmsNorm-ffGated-rope-noBias-drop0-b32_1k*: 34.03  -- still running...
 # trafo-n96-d512-gelu-drop0-b32_1k: 34.96
 # trafo-n24-d1024-noAbsPos-rmsNorm-ffGated-rope-noBias-drop0-b100_5k-ep40: 35.60
-_lm_name = "trafo-n96-d512-gelu-drop0-b32_1k"
+# ...
+# trafo-n24-d512-noAbsPos-rmsNorm-ffGated-rope-noBias-drop0-b100_5k
+# _lm_name = "trafo-n96-d512-gelu-drop0-b32_1k"
+_lm_name = "trafo-n24-d512-noAbsPos-rmsNorm-ffGated-rope-noBias-drop0-b100_5k"
 
 
 def py():
