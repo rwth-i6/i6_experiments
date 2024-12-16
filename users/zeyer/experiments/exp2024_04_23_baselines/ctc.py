@@ -999,6 +999,8 @@ def py():
             epilog=[
                 serialization.NonhashedCode(f"sys.path.append({gs.BASE_DIR + '/projects/2024-alignment-analysis'!r})\n")
             ],
+            # avoid OOM
+            env_updates={"PYTORCH_CUDA_ALLOC_CONF": "backend:cudaMallocAsync,expandable_segments:True"},
         )
 
     # ffGated (and also noBias). (Baseline: 5.77)
