@@ -57,6 +57,7 @@ def py():
             model=model,
             recog_def=model_recog,
             config={"batch_size": 5_000 * ctc_model.definition.batch_size_factor},
+            search_rqmt={"time": 24},
         )
         tk.register_output(f"{prefix}/recog-priorScale{prior_scale}-lmScale{lm_scale}", res.output)
 
