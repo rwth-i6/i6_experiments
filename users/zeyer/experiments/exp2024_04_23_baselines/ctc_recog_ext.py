@@ -16,19 +16,110 @@ from returnn_common.datasets_old_2022_10.interface import DatasetConfig
 from i6_experiments.users.zeyer.model_interfaces import ModelDef, ModelDefWithCfg, RecogDef, ModelWithCheckpoint
 
 from i6_experiments.users.zeyer.recog import recog_model
-from i6_experiments.users.zeyer.collect_model_dataset_stats import collect_statistics, StatisticsOutput
+from i6_experiments.users.zeyer.collect_model_dataset_stats import collect_statistics
 
 from .ctc import Model, _get_ctc_model_kwargs_from_global_config, _batch_size_factor
 
 
+_ctc_model_name = (
+    "v6-relPosAttDef-noBias-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2"
+    "-lrlin1e_5_295k-featBN-speedpertV2-spm10k-bpeSample001"
+)
+
+# trafo-n32-d1024-noAbsPos-rmsNorm-ffGated-rope-noBias-drop0-b32_1k*: 34.03  -- still running...
+# trafo-n96-d512-gelu-drop0-b32_1k: 34.96
+# trafo-n24-d1024-noAbsPos-rmsNorm-ffGated-rope-noBias-drop0-b100_5k-ep40: 35.60
+_lm_name = "trafo-n96-d512-gelu-drop0-b32_1k"
+
+
 def py():
     """Sis entry point"""
-    ctc_model = ...  # TODO
-    prior = get_ctc_prior_probs(ctc_model, ...)  # TODO
-    lm = ...  # TODO
-    model = get_ctc_with_lm(ctc_model=ctc_model, prior=prior, prior_scale=..., language_model=lm, lm_scale=...)  # TODO
+    from i6_experiments.users.zeyer.datasets.librispeech import get_librispeech_task_raw_v2
 
-    recog_model(...)  # TODO...
+    if _sis_prefix is None:
+        _sis_setup_global_prefix()
+
+    prefix = f"{_sis_prefix}/ctc+lm"
+
+    vocab = "spm10k"
+    task = get_librispeech_task_raw_v2(vocab=vocab)
+    ctc_model = _get_ctc_model(_ctc_model_name)
+    lm = _get_lm_model(_lm_name)
+    prior = get_ctc_prior_probs(ctc_model, task.train_dataset.copy_train_as_static())
+
+    for prior_scale, lm_scale in [(1.0, 1.0)]:
+        model = get_ctc_with_lm(
+            ctc_model=ctc_model, prior=prior, prior_scale=prior_scale, language_model=lm, lm_scale=lm_scale
+        )
+        res = recog_model(task=task, model=model, recog_def=model_recog)
+        tk.register_output(f"{prefix}/recog-priorScale{prior_scale}-lmScale{lm_scale}", res.output)
+
+
+_sis_prefix: Optional[str] = None
+
+
+def _sis_setup_global_prefix(prefix_name: Optional[str] = None):
+    if not prefix_name:
+        from i6_experiments.users.zeyer.utils.sis_setup import get_setup_prefix_for_module
+
+        prefix_name = get_setup_prefix_for_module(__name__)
+    global _sis_prefix
+    _sis_prefix = prefix_name
+
+
+_called_ctc_py_once = False
+_model_cache_by_name = {}
+
+
+def _get_ctc_model(name: str) -> ModelWithCheckpoint:
+    # noinspection PyProtectedMember
+    from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.ctc import (
+        py as ctc_py,
+        _train_experiments as ctc_train_experiments,
+    )
+
+    global _called_ctc_py_once
+
+    if name in _model_cache_by_name:
+        return _model_cache_by_name[name]
+
+    if not _called_ctc_py_once:
+        from i6_experiments.users.zeyer.utils.sis_setup import disable_register_output
+
+        with disable_register_output():
+            ctc_py()
+        _called_ctc_py_once = True
+
+    exp = ctc_train_experiments[name]
+    model = exp.get_last_fixed_epoch()
+    _model_cache_by_name[name] = model
+    return model
+
+
+_lm_cache_by_name = {}
+_called_lm_py_once = False
+
+
+def _get_lm_model(name: str) -> ModelWithCheckpoint:
+    from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.lm import py as lm_py
+    from i6_experiments.users.zeyer.train_v3 import train_models_by_prefix
+
+    global _called_lm_py_once
+
+    if name in _lm_cache_by_name:
+        return _lm_cache_by_name[name]
+
+    if not _called_lm_py_once:
+        from i6_experiments.users.zeyer.utils.sis_setup import disable_register_output
+
+        with disable_register_output():
+            lm_py()
+        _called_lm_py_once = True
+
+    exp = train_models_by_prefix["lm/" + name]
+    model = exp.get_last_fixed_epoch()
+    _lm_cache_by_name[name] = model
+    return model
 
 
 class ModelExt(Model):
