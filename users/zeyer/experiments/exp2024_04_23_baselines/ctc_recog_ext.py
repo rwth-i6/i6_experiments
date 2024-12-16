@@ -52,7 +52,12 @@ def py():
         model = get_ctc_with_lm(
             ctc_model=ctc_model, prior=prior, prior_scale=prior_scale, language_model=lm, lm_scale=lm_scale
         )
-        res = recog_model(task=task, model=model, recog_def=model_recog)
+        res = recog_model(
+            task=task,
+            model=model,
+            recog_def=model_recog,
+            config={"batch_size": 10_000 * ctc_model.definition.batch_size_factor},
+        )
         tk.register_output(f"{prefix}/recog-priorScale{prior_scale}-lmScale{lm_scale}", res.output)
 
 
