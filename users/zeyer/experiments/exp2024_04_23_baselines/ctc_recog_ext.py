@@ -56,7 +56,7 @@ def py():
             task=task,
             model=model,
             recog_def=model_recog,
-            config={"batch_size": 5_000 * ctc_model.definition.batch_size_factor},
+            config={"beam_size": 12, "recog_version": 2, "batch_size": 5_000 * ctc_model.definition.batch_size_factor},
             search_rqmt={"time": 24},
         )
         tk.register_output(f"{prefix}/recog-priorScale{prior_scale}-lmScale{lm_scale}", res.output)
@@ -232,10 +232,15 @@ def model_recog(
         final beam_dim
     """
     import tree
+    from returnn.config import get_global_config
+
+    config = get_global_config()
+    beam_size = config.int("beam_size", 12)
+    version = config.int("recog_version", 1)
+    assert version == 2
 
     batch_dims = data.remaining_dims((data_spatial_dim, data.feature_dim))
     logits, enc, enc_spatial_dim = model(data, in_spatial_dim=data_spatial_dim)
-    beam_size = 12
 
     # Eager-mode implementation of beam search.
     # Initial state.
@@ -287,7 +292,7 @@ def model_recog(
 
         # Add LM EOS score in last frame.
         seq_log_prob += rf.where(
-            t == enc_spatial_dim.get_dyn_size_ext_for_device(seq_log_prob.device),
+            t == enc_spatial_dim.get_dyn_size_ext_for_device(seq_log_prob.device) - 1,
             rf.gather(lm_log_probs, indices=model.eos_idx, axis=model.target_dim),
             0.0,
         )  # Batch, InBeam -> VocabWB
