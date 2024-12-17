@@ -11,11 +11,13 @@ def sum_loss(
     log_lm_probs: torch.Tensor, # (V, V)
     log_prior: torch.Tensor | None, # (V,)
     input_lengths: torch.Tensor, # (B,)
+    top_k: int = 0,
     LM_order: int,
     am_scale: float,
     lm_scale: float,
     prior_scale: float,
     horizontal_prior: bool,
+    blank_prior: bool = True,
     blank_idx:int = 0, # should be same as eos index
     eos_idx: int | None = None,
     unk_idx: int = 1,
@@ -103,7 +105,7 @@ def sum_loss(
     
     # calculate empty sequence score
     # Empty am score = sum log prob blank
-    if use_prior:
+    if use_prior and blank_prior:
         log_partial_empty_seq_prob = (log_probs[:, :, blank_idx] - log_prior[blank_idx]).cumsum(dim=0)
     else:
         log_partial_empty_seq_prob = log_probs[:, :, blank_idx].cumsum(dim=0)
@@ -136,13 +138,15 @@ def sum_loss(
         log_q_label = log_q_label - log_prior[out_idx_vocab].unsqueeze(0)
     log_q_blank = torch.full((batch_size, vocab_size), log_zero, device=device) # (B, 2, V-1), no blank and eos in last dim
     log_q = log_q_label
+    if top_k > 0:
+        topk_scores, topk_idx = torch.topk(log_q, top_k, dim=-1, sorted=False)
     
     log_lm_probs_wo_eos = log_lm_probs[out_idx_vocab][:, out_idx_vocab].fill_diagonal_(log_zero)
     for t in range(1, max_audio_time):
         # case 1: emit a blank at t
         # Q(t, u, blank) = [Q(t-1, u, blank) + Q(t-1, u, non-blank)]*p_AM(blank | x_t)
         new_log_q_blank = log_q + log_probs[t][:, blank_idx].unsqueeze(-1)
-        if use_prior:
+        if use_prior and blank_prior:
             new_log_q_blank = new_log_q_blank - log_prior[blank_idx]
 
         # case 2: emit a non-blank at t
@@ -159,14 +163,27 @@ def sum_loss(
         # mass_diagonal = Q(t-1, :, blank, :) @ M / p_PR(u), where M(v,u) = p_LM(u|v) = lm_probs[v][u]
         # important: in this transition, there is a prefix empty^(t-1) that is not covered in the Q(t-1,v,blank)
         # this is covered in log_partial_empty_seq_prob[t-1]
-        log_prev_partial_seq_probs = torch.cat([log_partial_empty_seq_prob[t-1].unsqueeze(-1), log_q_blank], dim=-1)
-        log_mass_diagonal = log_matmul_old(log_prev_partial_seq_probs, log_lm_probs[out_idx_vocab_w_eos][:, out_idx_vocab]) # (B, V) @ (V, V-1)
+        if top_k > 0:
+            log_q_blank_topk = log_q_blank.gather(-1, topk_idx)
+            log_prev_partial_seq_probs = torch.cat([log_partial_empty_seq_prob[t-1].unsqueeze(-1), log_q_blank_topk], dim=-1) # (B, K+1)
+            log_lm_probs_topk = log_lm_probs[out_idx_vocab][:, out_idx_vocab].unsqueeze(0).expand(batch_size, -1, -1) # (B, V-1, V-1)
+            log_lm_probs_topk = log_lm_probs_topk.gather(1, topk_idx.unsqueeze(-1).expand(-1, -1, vocab_size)) # (B, K, V-1)
+            log_lm_probs_topk = torch.cat([log_lm_probs[eos_symbol, out_idx_vocab].unsqueeze(0).unsqueeze(0).expand(batch_size, 1, -1), log_lm_probs_topk], dim=1) # (B, K+1, V-1)
+            log_mass_diagonal = log_matmul(log_prev_partial_seq_probs, log_lm_probs_topk, batch_given=True) # (B, K+1) @ (B, K+1, V-1) -> (B, V-1)
+        else:
+            log_prev_partial_seq_probs = torch.cat([log_partial_empty_seq_prob[t-1].unsqueeze(-1), log_q_blank], dim=-1) # (B, V)
+            log_mass_diagonal = log_matmul(log_prev_partial_seq_probs, log_lm_probs[out_idx_vocab_w_eos][:, out_idx_vocab]) # (B, V) @ (V, V-1) -> (B, V-1)
         if use_prior:
             log_mass_diagonal = log_mass_diagonal - log_prior[out_idx_vocab].unsqueeze(0) # divide by prior
         
         # skip transition sum{w!=u} Q(t-1, w, non-blank) * p_LM(u|w) / p_PR(u)
         # same consideration as diagonal transition
-        log_mass_skip = log_matmul_old(log_q_label, log_lm_probs_wo_eos)
+        if top_k > 0:
+            log_q_label_topk = log_q_label.gather(-1, topk_idx)
+            log_lm_probs_wo_eos_topk = log_lm_probs_wo_eos.unsqueeze(0).expand(batch_size, -1, -1).gather(1, topk_idx.unsqueeze(-1).expand(-1, -1, vocab_size)) # (B, K, V-1)
+            log_mass_skip = log_matmul(log_q_label_topk, log_lm_probs_wo_eos_topk, batch_given=True) # (B, K) @ (B, K, V-1) -> (B, V-1)
+        else:
+            log_mass_skip = log_matmul(log_q_label, log_lm_probs_wo_eos) # (B, V-1) @ (V-1, V-1) -> (B, V-1)
         if use_prior:
             log_mass_skip = log_mass_skip - log_prior[out_idx_vocab].unsqueeze(0) # divide by prior
         
@@ -179,12 +196,21 @@ def sum_loss(
         log_q_label = torch.where(time_mask, new_log_q_label, log_q_label)
         log_q = safe_logaddexp(log_q_label, log_q_blank)
         
+        # if get_argmax:
+        #     argmax_idx = torch.argmax(log_q, dim=-1)
+        
+        if top_k > 0:
+            topk_scores, topk_idx = torch.topk(log_q, top_k, dim=-1, sorted=False)
+        
         torch.cuda.empty_cache()
     
     # multiply last Q with p_LM(eos | u) and devide by prior of EOS
-    log_q = log_q + log_lm_probs[out_idx_vocab, eos_symbol].unsqueeze(0)
+    if top_k > 0:
+        log_q = topk_scores + log_lm_probs[out_idx_vocab, eos_symbol].unsqueeze(0).expand(batch_size, -1).gather(-1, topk_idx)
+    else:
+        log_q = log_q + log_lm_probs[out_idx_vocab, eos_symbol].unsqueeze(0)
     
-    # sum over the last two dimensions
+    # sum over the vocab dimension
     sum_score = safe_logsumexp(log_q, dim=-1)
     # add empty sequence score
     sum_score = safe_logaddexp(sum_score, log_q_empty_seq) # (B,) # TODO do we need to add the empty seq?
@@ -376,13 +402,13 @@ def sum_loss(
 #         # important: in this transition, there is a prefix empty^(t-1) that is not covered in the Q(t-1,v,blank)
 #         # this is covered in log_partial_empty_seq_prob[t-1]
 #         log_prev_partial_seq_probs = torch.cat([log_partial_empty_seq_prob[t-1].unsqueeze(-1), log_q_blank], dim=-1)
-#         log_mass_diagonal = log_matmul_old(log_prev_partial_seq_probs, log_lm_probs_list[lm_idx][_convert_idx(out_idx_vocab_w_eos, lm_idx + 2, vocab_size + 2)][:, out_idx_vocab]) # (B, V) @ (V, V-1)
+#         log_mass_diagonal = log_matmul(log_prev_partial_seq_probs, log_lm_probs_list[lm_idx][_convert_idx(out_idx_vocab_w_eos, lm_idx + 2, vocab_size + 2)][:, out_idx_vocab]) # (B, V) @ (V, V-1)
 #         if use_prior:
 #             log_mass_diagonal = log_mass_diagonal - log_prior[out_idx_vocab].unsqueeze(0) # divide by prior
         
 #         # skip transition sum{w!=u} Q(t-1, w, non-blank) * p_LM(u|w) / p_PR(u)
 #         # same consideration as diagonal transition
-#         log_mass_skip = log_matmul_old(log_q_label, log_lm_probs_wo_eos)
+#         log_mass_skip = log_matmul(log_q_label, log_lm_probs_wo_eos)
 #         if use_prior:
 #             log_mass_skip = log_mass_skip - log_prior[out_idx_vocab].unsqueeze(0) # divide by prior
         
@@ -444,21 +470,21 @@ def safe_logaddexp(x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
     min_ = torch.where(mask, y, x)
     return max_.masked_fill_(inf_mask, float("-inf")) + torch.log1p(torch.exp(min_ - max_.masked_fill(inf_mask, 0)))
 
-def log_matmul(A: torch.Tensor, B: torch.Tensor):
-    with torch.no_grad():
-        max_A, _ = torch.max(A, dim=1, keepdim=True)
-        max_B, _ = torch.max(B, dim=0, keepdim=True)
-        mask_A = max_A.isneginf()
-        mask_B = max_B.isneginf()
-        mask = mask_A + mask_B > 0
-    m1 = (A - max_A.masked_fill(mask_A, 0.0)).exp()
-    m2 = (B - max_B.masked_fill(mask_B, 0.0)).exp()
-    mul = m1.matmul(m2)
-    mul_masked = mul.masked_fill_(mask, 1)
-    log_mul = mul_masked.masked_fill_(mul_masked == 0.0, 0.0).log()
-    return max_A + max_B + log_mul
+# def log_matmul_alt(A: torch.Tensor, B: torch.Tensor):
+#     with torch.no_grad():
+#         max_A, _ = torch.max(A, dim=1, keepdim=True)
+#         max_B, _ = torch.max(B, dim=0, keepdim=True)
+#         mask_A = max_A.isneginf()
+#         mask_B = max_B.isneginf()
+#         mask = mask_A + mask_B > 0
+#     m1 = (A - max_A.masked_fill(mask_A, 0.0)).exp()
+#     m2 = (B - max_B.masked_fill(mask_B, 0.0)).exp()
+#     mul = m1.matmul(m2)
+#     mul_masked = mul.masked_fill_(mask, 1)
+#     log_mul = mul_masked.masked_fill_(mul_masked == 0.0, 0.0).log()
+#     return max_A + max_B + log_mul
 
-def log_matmul_old(A: torch.Tensor, B: torch.Tensor):
+def log_matmul(A: torch.Tensor, B: torch.Tensor, batch_given: bool = False):
     """
     This is inefficient
 
@@ -471,30 +497,16 @@ def log_matmul_old(A: torch.Tensor, B: torch.Tensor):
     :param B: second matrix in log scale
     :returns: matrix product of the two matrices in log scale
     """
-    m, n = A.shape
-    n, r = B.shape
-    A_expand = A.unsqueeze(0).expand(r, -1, -1).transpose(0, 1) # (m, r, n)
-    B_expand = B.unsqueeze(0).expand(m, -1, -1).transpose(1, 2) # (m, r, n)
+    b, v = A.shape
+    if batch_given:
+        b, v, v2 = B.shape
+        B_expand = B.transpose(1, 2) # (b, v2, v)
+    else:
+        v, v2 = B.shape
+        B_expand = B.unsqueeze(0).expand(b, -1, -1).transpose(1, 2) # (b, v2, v)
+    A_expand = A.unsqueeze(0).expand(v2, -1, -1).transpose(0, 1) # (b, v2, v)
+        
     return safe_logsumexp((A_expand + B_expand), dim=-1)
-
-# def modified_log_matmul(A: torch.Tensor, B: torch.Tensor, log_zero=-1e15):
-#     """
-#     This is also inefficient
-
-#     Special case of log_matmul to calculate
-#     Z_ij = sum{k != j} X_{ik}*Y_{kj}
-#     where A = log X, B = log Y,
-#     B is square matrix
-#     """
-#     m, n = A.shape
-#     A_expand = A.unsqueeze(0).expand(n, -1, -1).transpose(0, 1) # (m, n, n)
-#     B_expand = B.unsqueeze(0).expand(m, -1, -1).transpose(1, 2) # (m, n, n)
-#     C = A_expand + B_expand
-#     # to exclude k = j from the summation, apply some masking here
-#     index = torch.arange(n, device=A.device).unsqueeze(0).expand(m, -1).unsqueeze(-1)
-#     # write log zero to C[i][j][j] for all i, j
-#     C_masked = C.scatter(2, index, log_zero)
-#     return safe_logsumexp(C_masked, dim=-1)
 
 class PrintGradients(torch.autograd.Function):
     @staticmethod
@@ -510,9 +522,9 @@ class PrintGradients(torch.autograd.Function):
         print_input = ctx.print_input
         x, = ctx.saved_tensors
         if print_input:
-            print(f"Gradients ({name}): {grad_output},\nInput: {x}\nNaN's: {torch.isnan(grad_output).sum()}")
+            print(f"Gradients ({name}): {grad_output} {grad_output.sum()}\nInput: {x}\nNaN's: {torch.isnan(grad_output).sum()}")
         else:
-            print(f"Gradients ({name}): {grad_output}\nNaN's: {torch.isnan(grad_output).sum()}")
+            print(f"Gradients ({name}): {grad_output} {grad_output.sum()}\nNaN's: {torch.isnan(grad_output).sum()}")
         return grad_output, None, None
     
 class AssertGradients(torch.autograd.Function):
@@ -540,16 +552,16 @@ def test_mul():
     import time
     import gc
     torch.manual_seed(0)
-    ag = AssertGradients.apply
+    ag = PrintGradients.apply
     
-    device = torch.device("cuda:0")
-    # device = torch.device("cpu")
+    # device = torch.device("cuda:0")
+    device = torch.device("cpu")
     
     r = torch.tensor([0.0], device=device)
     time_d = 0.0
-    for i in range(5000):
+    for i in range(1):
         s = time.time()
-        A = torch.randn(500, 185, device=device).log_softmax(dim=1)
+        A = torch.randn(10, 185, device=device)
         # B = torch.randn(1000, 1500, device=device).log_softmax(dim=0)
         B = torch.randn(185, 185, device=device).log_softmax(dim=1)
         # A[0] = float("-inf")
@@ -561,9 +573,11 @@ def test_mul():
         B = ag(B, "B", False)
         
         # res = A.exp().matmul(B.exp()).log()
-        # res = log_matmul(A, B)
-        res = log_matmul_old(A, B)
-        # res = modified_log_matmul(A, B)
+        # res = log_matmul_alt(A, B)
+        A, topk_idx = torch.topk(A, 20, dim=-1)
+        B = B.unsqueeze(0).expand(10, -1, -1)
+        B = B.gather(1, topk_idx.unsqueeze(-1).expand(-1, -1, 185))
+        res = log_matmul(A, B, batch_given=True)
         res = res.exp().sum()
         
         
@@ -645,7 +659,7 @@ def test():
     frames = 100
     
     torch.manual_seed(0)
-    torch.cuda.manual_seed_all(0)
+    # torch.cuda.manual_seed_all(0)
     ag = PrintGradients.apply
     
     lm = torch.randn(vocab_size - 1, vocab_size - 1, device=device)
@@ -667,15 +681,29 @@ def test():
         # prior = _calc_log_prior(am, length)
         # am = am.permute(1, 0, 2)
         
-        # am = ag(am, "AM", False)
-        # prior = ag(prior, "prior", False)
+        am = ag(am, "AM", False)
+        prior = ag(prior, "prior", False)
         
         
-        loss = sum_loss(
+        # loss = sum_loss(
+        #     log_probs=am,
+        #     log_lm_probs=lm,
+        #     log_prior=prior,
+        #     input_lengths=length,
+        #     LM_order=2,
+        #     am_scale=1.0,
+        #     lm_scale=1.9,
+        #     prior_scale=0.2,
+        #     horizontal_prior=True,
+        #     blank_idx=184,
+        #     eos_idx=0,
+        # )
+        loss = sum_loss_k(
             log_probs=am,
-            log_lm_probs_list=[lm],
+            log_lm_probs=lm,
             log_prior=prior,
             input_lengths=length,
+            top_k=1,
             LM_order=2,
             am_scale=1.0,
             lm_scale=1.9,
@@ -716,7 +744,7 @@ def test_LM():
     print(t[0])
 
 if __name__ == "__main__":
-    test_LM()
+    test()
     
     
 """

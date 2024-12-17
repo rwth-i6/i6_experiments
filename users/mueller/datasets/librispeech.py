@@ -657,7 +657,7 @@ def get_librispeech_task_raw_v2(
         prior_dataset=prior_dataset,
         recog_post_proc_funcs=vocab_to_words,
     )
-    _librispeech_task_raw_v2_cache[cache_key] = task
+    _librispeech_task_raw_v2_cache[cache_key] = (task, pseudo_labels_ds, train_100_ds)
     
     return task, pseudo_labels_ds, train_100_ds
 

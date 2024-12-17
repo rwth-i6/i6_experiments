@@ -68,6 +68,7 @@ def py():
     aux_loss = False
     alt_decoder = False
     horizontal_prior = True
+    blank_prior = True
     prior_gradient = False
     LM_order = 2
     self_train_subset = 18000
@@ -75,7 +76,7 @@ def py():
     if train_small:
         epochs = 50
     if self_training_rounds > 0:
-        self_epochs = 113 # 450, 225 or 113
+        self_epochs = 56 # 450, 225, 113, 56
     
     decoder_hyperparameters = None
     if use_greedy:
@@ -116,34 +117,19 @@ def py():
             if with_prior:
                 alt_decoder_hyperparameters["prior_weight"] = 0.3
                 
+            if False:
+                alt_decoder_hyperparameters["lm_weight"] = 0.0
+                alt_decoder_hyperparameters["prior_weight"] = 0.0
+                alt_decoder_hyperparameters["use_lm"] = False
+                alt_decoder_hyperparameters["use_lexicon"] = False
+                str_add = "_no-lexicon"
+            else:
+                str_add = ""
+                
             a0 = f"_p{str(alt_decoder_hyperparameters['prior_weight']).replace('.', '')}" if with_prior else ""
             a1 = f"b{alt_decoder_hyperparameters['beam_size']}"
             a2 = f"w{str(alt_decoder_hyperparameters['lm_weight']).replace('.', '')}"
-            lm_hyperparamters_str += f"_ALT{a0}_{a1}_{a2}"
-    
-    if use_sum_criterion:
-        training_scales = {
-            "am": 1.0,
-            "lm": 0.7,
-            "prior": 0.2
-        }
-        
-        if list(training_scales.values()) == [1.0] * len(training_scales):
-            training_scales = None
-        
-        sum_str = f"-full_sum" + \
-            (f"_p{str(training_scales['prior']).replace('.', '')}_l{str(training_scales['lm']).replace('.', '')}_a{str(training_scales['am']).replace('.', '')}" if training_scales else "") + \
-            (f"_LMorder{LM_order}" if LM_order > 2 else "") + \
-            ("_wo_hor_pr" if not horizontal_prior else "") + \
-            ("_wo_pr_grad" if not prior_gradient else "")
-    
-    alias_name = f"ctc-baseline" + \
-        (sum_str if use_sum_criterion else "") + \
-        (f"-self_training_{self_training_rounds}" + (f"_s{self_train_subset}" if self_train_subset is not None else "") + (f"_e{self_epochs}" if self_epochs != 450 else "") if self_training_rounds > 0 else "") + \
-        (f"-wo_aux_loss" if not aux_loss else "") + \
-        (f"-ds100h" if train_small else "") + \
-        f"-{vocab}" + \
-        (greedy_str if use_greedy else (("-recog_lm" + lm_hyperparamters_str) if use_flashlight else "-recog_albert"))
+            lm_hyperparamters_str += f"_ALT{a0}_{a1}_{a2}{str_add}"
     
     config_updates = {
         **_get_cfg_lrlin_oclr_by_bs_nep(15_000, epochs),
@@ -162,27 +148,62 @@ def py():
         "max_seq_length_default_input": 19.5 * _raw_sample_rate,
     } if self_training_rounds > 0 else None
 
-    train_exp(
-        name = alias_name,
-        config = config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
-        decoder_def = model_recog_lm if (use_flashlight or use_greedy) else model_recog,
-        decoder_hyperparameters = decoder_hyperparameters,
-        hyperparamters_self_training = alt_decoder_hyperparameters if alt_decoder else None,
-        model_config = {"enc_conformer_layer": enc_conformer_layer_default, "feature_batch_norm": True},
-        config_updates = config_updates,
-        config_updates_self_training = config_updates_self_training,
-        vocab = vocab,
-        self_training_rounds = self_training_rounds,
-        train_small = train_small,
-        with_prior = with_prior,
-        use_sum_criterion=use_sum_criterion,
-        aux_loss=aux_loss,
-        horizontal_prior=horizontal_prior,
-        prior_gradient=prior_gradient,
-        LM_order=LM_order,
-        training_scales=training_scales if use_sum_criterion else None,
-        self_train_subset=self_train_subset,
-    )
+    for am, lm, prior in [
+        (0.5, 0.5, 0.5),
+        # (0.5, 0.3, 0.5),
+        # (0.5, 0.2, 0.5),
+        # (0.5, 0.1, 0.5),
+        # (0.5, 0.05, 0.5),
+        # (0.5, 0.0, 0.5),
+        # (0.3, 0.2, 0.5),
+    ]:
+        if use_sum_criterion:
+            training_scales = {
+                "am": am,
+                "lm": lm,
+                "prior": prior
+            }
+            
+            if list(training_scales.values()) == [1.0] * len(training_scales):
+                training_scales = None
+            
+            sum_str = f"-full_sum" + \
+                (f"_p{str(training_scales['prior']).replace('.', '')}_l{str(training_scales['lm']).replace('.', '')}_a{str(training_scales['am']).replace('.', '')}" if training_scales else "") + \
+                (f"_LMorder{LM_order}" if LM_order > 2 else "") + \
+                ("_wo_hor_pr" if not horizontal_prior else "") + \
+                ("_wo_blank_pr" if not blank_prior else "") + \
+                ("_wo_pr_grad" if not prior_gradient else "")
+        
+        alias_name = f"ctc-baseline" + \
+            (sum_str if use_sum_criterion else "") + \
+            (f"-self_training_{self_training_rounds}" + (f"_s{self_train_subset}" if self_train_subset is not None else "") + (f"_e{self_epochs}" if self_epochs != 450 else "") if self_training_rounds > 0 else "") + \
+            (f"-wo_aux_loss" if not aux_loss else "") + \
+            (f"-ds100h" if train_small else "") + \
+            f"-{vocab}" + \
+            (greedy_str if use_greedy else (("-recog_lm" + lm_hyperparamters_str) if use_flashlight else "-recog_albert"))
+
+        train_exp(
+            name = alias_name,
+            config = config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
+            decoder_def = model_recog_lm if (use_flashlight or use_greedy) else model_recog,
+            decoder_hyperparameters = decoder_hyperparameters,
+            hyperparamters_self_training = alt_decoder_hyperparameters if alt_decoder else None,
+            model_config = {"enc_conformer_layer": enc_conformer_layer_default, "feature_batch_norm": True},
+            config_updates = config_updates,
+            config_updates_self_training = config_updates_self_training,
+            vocab = vocab,
+            self_training_rounds = self_training_rounds,
+            train_small = train_small,
+            with_prior = with_prior,
+            use_sum_criterion=use_sum_criterion,
+            aux_loss=aux_loss,
+            horizontal_prior=horizontal_prior,
+            blank_prior=blank_prior,
+            prior_gradient=prior_gradient,
+            LM_order=LM_order,
+            training_scales=training_scales if use_sum_criterion else None,
+            self_train_subset=self_train_subset,
+        )
     
 
 _train_experiments: Dict[str, ModelWithCheckpoints] = {}
@@ -218,6 +239,7 @@ def train_exp(
     use_sum_criterion: bool = False,
     aux_loss: bool = False,
     horizontal_prior: bool = True,
+    blank_prior: bool = True,
     prior_gradient: bool = True,
     LM_order: int = 2,
     training_scales: Optional[Dict[str, float]] = None,
@@ -321,26 +343,32 @@ def train_exp(
             train_def = ctc_sum_training
             config_self["lm_path"] = get_count_based_n_gram(task.train_dataset.vocab, LM_order)
             
-        init_checkpoint = model_with_checkpoint[i].get_last_fixed_epoch().checkpoint
+            if not horizontal_prior:
+                config_self["horizontal_prior"] = horizontal_prior
+            if not blank_prior:
+                config_self["blank_prior"] = blank_prior
+            if training_scales:
+                config_self["am_scale"] = training_scales["am"]
+                config_self["lm_scale"] = training_scales["lm"]
+                config_self["prior_scale"] = training_scales["prior"]
+            if not prior_gradient:
+                config_self["prior_gradient"] = prior_gradient
+            
         # When testing on a smaller subset we only want one gpu
         if self_train_subset is not None:
             config_self["__num_processes"] = 1
-            config_self["learning_rate_piecewise_steps"] = [4_500, 9_000, 10_000]
+            # config_self["learning_rate_piecewise_steps"] = [4_500, 9_000, 10_000]
+            config_self["learning_rate_piecewise_steps"] = [2_250, 4_500, 5_000]
         if not aux_loss:
             config_self.pop("aux_loss_layers")
-        if not horizontal_prior:
-            config_self["horizontal_prior"] = horizontal_prior
-        if not prior_gradient:
-            config_self["prior_gradient"] = prior_gradient
-        if training_scales:
-            config_self["am_scale"] = training_scales["am"]
-            config_self["lm_scale"] = training_scales["lm"]
-            config_self["prior_scale"] = training_scales["prior"]
+
         # Use different LR if second iteration, NOTE: this is very specific to 860h training
         if i > 0:
             peak_lr = 4e-4
             config_self["learning_rate_piecewise_values"] = [peak_lr * 1e-1, peak_lr, peak_lr * 3e-2, peak_lr * 3e-3]
             config_self["learning_rate_piecewise_steps"] = [20_000] + config_self["learning_rate_piecewise_steps"][1:]
+        
+        init_checkpoint = model_with_checkpoint[i].get_last_fixed_epoch().checkpoint
             
         model_with_checkpoint.append(train(
             prefix_self_training,
@@ -354,7 +382,7 @@ def train_exp(
             num_epochs=num_epochs,
             gpu_mem=gpu_mem,
             num_processes=num_processes,
-            time_rqmt=time_rqmt if time_rqmt else ((12 if self_train_subset else 156) if use_sum_criterion else 156),
+            time_rqmt=time_rqmt if time_rqmt else ((10 if self_train_subset else 156) if use_sum_criterion else 156),
         ))
         train_job = model_with_checkpoint[i + 1].get_training_job()
         if env_updates:
@@ -936,6 +964,7 @@ def ctc_sum_training(*, model: Model, data: rf.Tensor, data_spatial_dim: Dim, lm
     prior_scale = config.float("prior_scale", 1.0)
     
     horizontal_prior = config.bool("horizontal_prior", True)
+    blank_prior = config.bool("blank_prior", True)
     prior_gradient = config.bool("prior_gradient", True)
     use_prior = prior_scale > 0.0
 
@@ -977,6 +1006,7 @@ def ctc_sum_training(*, model: Model, data: rf.Tensor, data_spatial_dim: Dim, lm
                 lm_scale=lm_scale,
                 prior_scale=prior_scale,
                 horizontal_prior=horizontal_prior,
+                blank_prior=blank_prior,
                 blank_idx=model.blank_idx,
                 eos_idx=model.eos_idx,
                 unk_idx=1,
@@ -1010,6 +1040,7 @@ def ctc_sum_training(*, model: Model, data: rf.Tensor, data_spatial_dim: Dim, lm
         lm_scale=lm_scale,
         prior_scale=prior_scale,
         horizontal_prior=horizontal_prior,
+        blank_prior=blank_prior,
         blank_idx=model.blank_idx,
         eos_idx=model.eos_idx,
         unk_idx=1,
