@@ -58,6 +58,8 @@ def py():
 
         for beam_size, prior_scale, lm_scale in [
             (12, 1.0, 1.0),
+            (12, 0.0, 1.0),
+            (1, 0.0, 1.0),
             # (1, 1.0, 1.0),
         ]:
             model = get_ctc_with_lm(
