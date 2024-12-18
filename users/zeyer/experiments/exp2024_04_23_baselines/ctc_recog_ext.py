@@ -459,7 +459,7 @@ def _masked_select_prepare_dims(s, *, mask: Tensor, dims: Sequence[Dim], out_dim
     if isinstance(s, Tensor):
         return s  # ignored at this stage
     if isinstance(s, Dim):
-        if s.dimension:  # static
+        if s.dimension is not None:  # static
             return s
         if not any(d in s.dyn_size_ext.dims for d in dims):
             return s
@@ -490,7 +490,7 @@ def _masked_select(s: T, *, mask: Tensor, dims: Sequence[Dim], out_dim: Dim, dim
                     s = rf.slice(s, axis=d, size=dim_map[d])
         return s
     if isinstance(s, Dim):
-        if s.dimension:  # static
+        if s.dimension is not None:  # static
             return s
         if not any(d in s.dyn_size_ext.dims for d in dims):
             return s
@@ -535,7 +535,7 @@ def _masked_scatter(
                 s = rf.gather(s, axis=d, indices=0)
         return s
     if isinstance(s, Dim):
-        if s.dimension:  # static
+        if s.dimension is not None:  # static
             return s
         if not any(d in s.dyn_size_ext.dims for d in dims):
             return s
