@@ -56,7 +56,10 @@ def py():
     for lm_out_name, lm_name in _lms.items():
         lm = _get_lm_model(lm_name)
 
-        for beam_size, prior_scale, lm_scale in [(12, 1.0, 1.0), (1, 1.0, 1.0)]:
+        for beam_size, prior_scale, lm_scale in [
+            (12, 1.0, 1.0),
+            # (1, 1.0, 1.0),
+        ]:
             model = get_ctc_with_lm(
                 ctc_model=ctc_model, prior=prior, prior_scale=prior_scale, language_model=lm, lm_scale=lm_scale
             )
@@ -66,7 +69,7 @@ def py():
                 recog_def=model_recog,
                 config={
                     "beam_size": beam_size,
-                    "recog_version": 3,
+                    "recog_version": 4,
                     "batch_size": 5_000 * ctc_model.definition.batch_size_factor,
                 },
                 search_rqmt={"time": 24},
