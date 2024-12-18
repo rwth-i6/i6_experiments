@@ -71,6 +71,7 @@ def py():
     blank_prior = True
     prior_gradient = False
     LM_order = 2
+    top_k = 1
     self_train_subset = 18000
     
     if train_small:
@@ -149,13 +150,7 @@ def py():
     } if self_training_rounds > 0 else None
 
     for am, lm, prior in [
-        (0.5, 0.5, 0.5),
-        # (0.5, 0.3, 0.5),
-        # (0.5, 0.2, 0.5),
-        # (0.5, 0.1, 0.5),
-        # (0.5, 0.05, 0.5),
-        # (0.5, 0.0, 0.5),
-        # (0.3, 0.2, 0.5),
+        (1.0, 0.0, 0.2)
     ]:
         if use_sum_criterion:
             training_scales = {
@@ -170,6 +165,7 @@ def py():
             sum_str = f"-full_sum" + \
                 (f"_p{str(training_scales['prior']).replace('.', '')}_l{str(training_scales['lm']).replace('.', '')}_a{str(training_scales['am']).replace('.', '')}" if training_scales else "") + \
                 (f"_LMorder{LM_order}" if LM_order > 2 else "") + \
+                (f"_topK{top_k}" if top_k > 0 else "") + \
                 ("_wo_hor_pr" if not horizontal_prior else "") + \
                 ("_wo_blank_pr" if not blank_prior else "") + \
                 ("_wo_pr_grad" if not prior_gradient else "")
@@ -201,6 +197,7 @@ def py():
             blank_prior=blank_prior,
             prior_gradient=prior_gradient,
             LM_order=LM_order,
+            top_k=top_k,
             training_scales=training_scales if use_sum_criterion else None,
             self_train_subset=self_train_subset,
         )
@@ -242,6 +239,7 @@ def train_exp(
     blank_prior: bool = True,
     prior_gradient: bool = True,
     LM_order: int = 2,
+    top_k: int = 0,
     training_scales: Optional[Dict[str, float]] = None,
     self_train_subset: Optional[int] = None,
 ) -> Optional[ModelWithCheckpoints]:
@@ -353,6 +351,8 @@ def train_exp(
                 config_self["prior_scale"] = training_scales["prior"]
             if not prior_gradient:
                 config_self["prior_gradient"] = prior_gradient
+            if top_k > 0:
+                config_self["top_k"] = top_k
             
         # When testing on a smaller subset we only want one gpu
         if self_train_subset is not None:
@@ -966,11 +966,16 @@ def ctc_sum_training(*, model: Model, data: rf.Tensor, data_spatial_dim: Dim, lm
     horizontal_prior = config.bool("horizontal_prior", True)
     blank_prior = config.bool("blank_prior", True)
     prior_gradient = config.bool("prior_gradient", True)
+    top_k = config.int("top_k", 0)
     use_prior = prior_scale > 0.0
 
     if data.feature_dim and data.feature_dim.dimension == 1:
         data = rf.squeeze(data, axis=data.feature_dim)
     assert not data.feature_dim  # raw audio
+    
+    if am_scale == 0.7:
+        print("Data", data)
+        print("Batch", data.batch)
     
     
     with uopen(lm_path, "rb") as f:
@@ -1001,6 +1006,7 @@ def ctc_sum_training(*, model: Model, data: rf.Tensor, data_spatial_dim: Dim, lm
                 log_lm_probs=lm,
                 log_prior=aux_log_prior,
                 input_lengths=enc_spatial_dim.dyn_size_ext.raw_tensor,
+                top_k=top_k,
                 LM_order=lm_order,
                 am_scale=am_scale,
                 lm_scale=lm_scale,
@@ -1035,6 +1041,7 @@ def ctc_sum_training(*, model: Model, data: rf.Tensor, data_spatial_dim: Dim, lm
         log_lm_probs=lm,
         log_prior=log_prior,
         input_lengths=enc_spatial_dim.dyn_size_ext.raw_tensor,
+        top_k=top_k,
         LM_order=lm_order,
         am_scale=am_scale,
         lm_scale=lm_scale,
