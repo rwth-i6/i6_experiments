@@ -487,7 +487,7 @@ def _masked_select(s: T, *, mask: Tensor, dims: Sequence[Dim], out_dim: Dim, dim
         if any(d in dim_map for d in s.dims):
             for d in s.dims:
                 if d in dim_map:
-                    s = rf.slice(s, axis=d, size=dim_map[d])
+                    s, _ = rf.slice(s, axis=d, size=dim_map[d])
         return s
     if isinstance(s, Dim):
         if s.dimension is not None:  # static
@@ -505,29 +505,100 @@ def _masked_scatter_tree(
     import tree
 
     reverse_dim_map = {v: k for k, v in dim_map.items()}
+    merged_dim_map = {}
 
+    tree.map_structure(
+        functools.partial(
+            _masked_scatter_merge_dims,
+            mask=mask,
+            dims=dims,
+            in_dim=in_dim,
+            reverse_dim_map=reverse_dim_map,
+            merged_dim_map=merged_dim_map,
+        ),
+        s,
+        backup,
+    )
     s = tree.map_structure(
-        functools.partial(_masked_scatter, mask=mask, dims=dims, in_dim=in_dim, reverse_dim_map=reverse_dim_map),
+        functools.partial(
+            _masked_scatter,
+            mask=mask,
+            dims=dims,
+            in_dim=in_dim,
+            reverse_dim_map=reverse_dim_map,
+            merged_dim_map=merged_dim_map,
+        ),
         s,
         backup,
     )
     return s
 
 
+def _masked_scatter_merge_dims(
+    s: T,
+    backup: T,
+    *,
+    mask: Tensor,
+    dims: Sequence[Dim],
+    in_dim: Dim,
+    reverse_dim_map: Dict[Dim, Dim],
+    merged_dim_map: Dict[Dim, Dim],
+) -> T:
+    if isinstance(s, Tensor):
+        return s
+    if isinstance(s, Dim):
+        # This is slightly more complex than in the _masked_select case:
+        # We need to merge the s and backup depending on the mask.
+        if s in reverse_dim_map:
+            s = reverse_dim_map[s]
+        if s == backup:
+            return s
+        if s in merged_dim_map:
+            return merged_dim_map[s]
+        # Note: s/backup might even be static dims.
+        new_size = _masked_scatter(
+            s.get_size_tensor(),
+            backup.get_size_tensor(),
+            mask=mask,
+            dims=dims,
+            in_dim=in_dim,
+            reverse_dim_map=reverse_dim_map,
+            merged_dim_map=merged_dim_map,
+        )
+        new_dim = Dim(new_size, name=s.name + "_")
+        merged_dim_map[s] = new_dim
+        return new_dim
+    raise TypeError(f"_masked_scatter_merge_dims: unexpected type ({type(s)})")
+
+
 def _masked_scatter(
-    s: T, backup: T, *, mask: Tensor, dims: Sequence[Dim], in_dim: Dim, reverse_dim_map: Dict[Dim, Dim]
+    s: T,
+    backup: T,
+    *,
+    mask: Tensor,
+    dims: Sequence[Dim],
+    in_dim: Dim,
+    reverse_dim_map: Dict[Dim, Dim],
+    merged_dim_map: Dict[Dim, Dim],
 ) -> T:
     if isinstance(s, Tensor):
         if in_dim not in s.dims:
             return s  # e.g. scalar or so, independent from masking
+        assert isinstance(backup, Tensor)
         # Do the reverse of _masked_select above.
         # First replace the dims back.
         if any(d in reverse_dim_map for d in s.dims):
             for d in s.dims:
                 if d in reverse_dim_map:
                     s = _expand_slice(s, axis=d, expanded_size=reverse_dim_map[d])
+        # We also might need to replace newly merged dims, both in s and backup.
+        for d in s.dims:
+            if d in merged_dim_map:
+                s, _ = rf.slice(s, axis=d, size=merged_dim_map[d])
+        for d in backup.dims:
+            if d in merged_dim_map:
+                backup, _ = rf.slice(backup, axis=d, size=merged_dim_map[d])
         # The unpacking itself (reversing the masked_select, i.e. masked_scatter).
-        assert isinstance(backup, Tensor)
         s = rf.masked_scatter(s, backup, mask=mask, dims=dims, in_dim=in_dim)
         # Now remove potential added dims.
         for d in s.dims:
@@ -535,12 +606,13 @@ def _masked_scatter(
                 s = rf.gather(s, axis=d, indices=0)
         return s
     if isinstance(s, Dim):
-        if s.dimension is not None:  # static
-            return s
-        if not any(d in s.dyn_size_ext.dims for d in dims):
-            return s
-        assert s in reverse_dim_map
-        return reverse_dim_map[s]
+        # This is slightly more complex than in the _masked_select case:
+        # We need to merge the s and backup depending on the mask.
+        if s in reverse_dim_map:
+            s = reverse_dim_map[s]
+        if s in merged_dim_map:
+            return merged_dim_map[s]
+        return s
     raise TypeError(f"_masked_scatter: unexpected type ({type(s)})")
 
 
