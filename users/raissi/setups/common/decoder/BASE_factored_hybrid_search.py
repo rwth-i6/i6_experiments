@@ -982,6 +982,7 @@ class BASEFactoredHybridDecoder:
             )
 
         lat2ctm_extra_config = rasr.RasrConfig()
+
         lat2ctm_extra_config.flf_lattice_tool.network.to_lemma.links = "best"
         lat2ctm = recog.LatticeToCtmJob(
             crp=search_crp,

@@ -38,9 +38,11 @@ prepath_data = "/u/rossenbach/experiments/tts_decoder_asr/output/domain_test_tin
 dev_other_noise07 = tk.Path(("/").join([prepath_data, "dev-other_sequiturg2p_glowtts460_noise07.xml.gz"]),cached=True, hash_overwrite="GLOWTTS_V1_DEV_07")
 dev_other_noise03 = tk.Path(("/").join([prepath_data, "dev-other_sequiturg2p_glowtts460_noise03.xml.gz"]),cached=True, hash_overwrite="GLOWTTS_V1_DEV_03")
 dev_other_noise055 = tk.Path(("/").join([prepath_data, "dev-other_sequiturg2p_glowtts460_noise055.xml.gz"]),cached=True, hash_overwrite="GLOWTTS_V1_DEV_055")
+dev_other_noise0551 = tk.Path(("/").join([prepath_data, "dev-other_sequiturg2p_glowtts460_noise055_seed1.xml.gz"]),cached=True, hash_overwrite="GLOWTTS_V1_DEV_0551")
+dev_other_noise0552 = tk.Path(("/").join([prepath_data, "dev-other_sequiturg2p_glowtts460_noise055_seed2.xml.gz"]),cached=True, hash_overwrite="GLOWTTS_V1_DEV_0552")
 
 TTS_DEVOTHER = {
-    0.3: dev_other_noise03, 0.7: dev_other_noise07, 0.55: dev_other_noise055
+    0.3: dev_other_noise03, 0.7: dev_other_noise07, 0.55: dev_other_noise055, 0.551: dev_other_noise0551, 0.552: dev_other_noise0552,
 }
 
 

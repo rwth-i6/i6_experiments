@@ -1531,6 +1531,14 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
                             [v for v in np.arange(0.1, 0.6, 0.1).round(1)],
                         )
                     )
+                elif context_type == PhoneticContext.diphone:
+                    prior_scales = list(
+                        itertools.product(
+                            [v for v in np.arange(0.1, 0.7, 0.1).round(1)],
+                            [v for v in np.arange(0.1, 0.7, 0.1).round(1)],
+                        )
+                    )
+
                 else:
                     raise NotImplementedError("You were not supposed to run monophone decoding with factored decoder")
             else:
@@ -1550,6 +1558,7 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
         else:
             sil_tdp = (11.0, 0.0, "infinity", 20.0)
             sp_tdp = (8.0, 0.0, "infinity", 0.0)
+
 
         best_config_scales = recognizer.recognize_optimize_scales_v2(
             label_info=self.label_info,
