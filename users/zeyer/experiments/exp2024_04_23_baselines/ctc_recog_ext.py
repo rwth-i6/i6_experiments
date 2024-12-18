@@ -567,6 +567,7 @@ def _masked_scatter_merge_dims(
         )
         new_dim = Dim(new_size, name=s.name + "_")
         merged_dim_map[s] = new_dim
+        merged_dim_map[backup] = new_dim
         return new_dim
     raise TypeError(f"_masked_scatter_merge_dims: unexpected type ({type(s)})")
 
