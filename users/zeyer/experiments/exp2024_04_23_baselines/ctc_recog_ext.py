@@ -596,9 +596,12 @@ def _masked_scatter(
         for d in s.dims:
             if d in merged_dim_map:
                 s, _ = rf.slice(s, axis=d, size=merged_dim_map[d])
+        # There is currently the implicit assumption that the backup might need extra padding,
+        # while the s needs slicing...
+        # (We think of the hist_dim, where s should only have more frames than backup, or the same.)
         for d in backup.dims:
             if d in merged_dim_map:
-                backup, _ = rf.slice(backup, axis=d, size=merged_dim_map[d])
+                backup = _expand_slice(backup, axis=d, expanded_size=merged_dim_map[d])
         # The unpacking itself (reversing the masked_select, i.e. masked_scatter).
         s = rf.masked_scatter(s, backup, mask=mask, dims=dims, in_dim=in_dim)
         # Now remove potential added dims.
