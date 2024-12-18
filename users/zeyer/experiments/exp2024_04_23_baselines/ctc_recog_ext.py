@@ -504,10 +504,10 @@ def _masked_scatter_tree(
 ) -> T:
     import tree
 
-    reverse_dict_map = {v: k for k, v in dim_map.items()}
+    reverse_dim_map = {v: k for k, v in dim_map.items()}
 
     s = tree.map_structure(
-        functools.partial(_masked_scatter, mask=mask, dims=dims, in_dim=in_dim, reverse_dict_map=reverse_dict_map),
+        functools.partial(_masked_scatter, mask=mask, dims=dims, in_dim=in_dim, reverse_dim_map=reverse_dim_map),
         s,
         backup,
     )
