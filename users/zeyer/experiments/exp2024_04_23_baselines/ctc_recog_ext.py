@@ -4,6 +4,7 @@ CTC recognition with LM
 
 from typing import Optional, Union, Any, TypeVar, Sequence, Tuple, Dict
 import functools
+import sys
 
 from returnn.tensor import Tensor, Dim, single_step_dim
 import returnn.frontend as rf
@@ -257,6 +258,17 @@ def model_recog(
     beam_size = config.int("beam_size", 12)
     version = config.int("recog_version", 1)
     assert version == 4
+
+    if not config.typed_dict.get("__debug_initialized"):
+        sys.path.append(
+            "/u/zeyer/.config/JetBrains/RemoteDev/dist/"
+            "c6dedceb73904_pycharm-professional-2024.3/plugins/python-ce/helpers/pydev"
+        )
+
+        import pydevd_pycharm
+
+        pydevd_pycharm.settrace("indigo", port=31337, stdoutToServer=True, stderrToServer=True)
+        config.typed_dict["__debug_initialized"] = True
 
     batch_dims = data.remaining_dims((data_spatial_dim, data.feature_dim))
     logits, enc, enc_spatial_dim = model(data, in_spatial_dim=data_spatial_dim)
