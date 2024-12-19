@@ -422,7 +422,7 @@ def _gather_backrefs(s: T, *, backrefs: Tensor) -> T:
             return rf.gather(s, indices=backrefs)  # really the default case
         return s  # e.g. scalar or so, independent from beam
     if isinstance(s, Dim):
-        if s.dimension:  # static
+        if s.dimension is not None:  # static
             return s
         assert backrefs.sparse_dim not in s.dyn_size_ext.dims  # currently not supported, also not expected
         return s
