@@ -309,22 +309,23 @@ def model_recog(
             dims=batch_dims + [beam_dim],
         )
 
-        lm_logits_, lm_state_ = model.lm(
-            prev_target_,
-            spatial_dim=single_step_dim,
-            state=lm_state_,
-        )  # Flat_Batch_InBeam, Vocab / ...
-        lm_log_probs_ = rf.log_softmax(lm_logits_, axis=model.target_dim)  # Flat_Batch_InBeam, Vocab
-        lm_log_probs_ *= model.lm_scale
+        if packed_new_label_dim.get_dim_value() > 0:
+            lm_logits_, lm_state_ = model.lm(
+                prev_target_,
+                spatial_dim=single_step_dim,
+                state=lm_state_,
+            )  # Flat_Batch_InBeam, Vocab / ...
+            lm_log_probs_ = rf.log_softmax(lm_logits_, axis=model.target_dim)  # Flat_Batch_InBeam, Vocab
+            lm_log_probs_ *= model.lm_scale
 
-        lm_log_probs, lm_state = _masked_scatter_tree(
-            (lm_log_probs_, lm_state_),
-            (lm_log_probs, lm_state),
-            mask=got_new_label,
-            dims=batch_dims + [beam_dim],
-            in_dim=packed_new_label_dim,
-            dim_map=packed_new_label_dim_map,
-        )  # Batch, InBeam, Vocab / ...
+            lm_log_probs, lm_state = _masked_scatter_tree(
+                (lm_log_probs_, lm_state_),
+                (lm_log_probs, lm_state),
+                mask=got_new_label,
+                dims=batch_dims + [beam_dim],
+                in_dim=packed_new_label_dim,
+                dim_map=packed_new_label_dim_map,
+            )  # Batch, InBeam, Vocab / ...
 
         seq_log_prob = seq_log_prob + label_log_prob_ta[t]  # Batch, InBeam, VocabWB
 
