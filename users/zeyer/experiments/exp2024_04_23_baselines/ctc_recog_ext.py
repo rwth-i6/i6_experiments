@@ -58,9 +58,9 @@ def py():
         lm = _get_lm_model(lm_name)
 
         for beam_size, prior_scale, lm_scale in [
-            (12, 1.0, 1.0),
+            # (12, 1.0, 1.0),
             (12, 0.0, 1.0),
-            (1, 0.0, 1.0),
+            # (1, 0.0, 1.0),
             # (1, 1.0, 1.0),
         ]:
             model = get_ctc_with_lm(
@@ -72,7 +72,7 @@ def py():
                 recog_def=model_recog,
                 config={
                     "beam_size": beam_size,
-                    "recog_version": 4,
+                    "recog_version": 5,
                     "batch_size": 5_000 * ctc_model.definition.batch_size_factor,
                 },
                 search_rqmt={"time": 24},
@@ -257,18 +257,7 @@ def model_recog(
     config = get_global_config()
     beam_size = config.int("beam_size", 12)
     version = config.int("recog_version", 1)
-    assert version == 4
-
-    if not config.typed_dict.get("__debug_initialized"):
-        sys.path.append(
-            "/u/zeyer/.config/JetBrains/RemoteDev/dist/"
-            "c6dedceb73904_pycharm-professional-2024.3/plugins/python-ce/helpers/pydev"
-        )
-
-        import pydevd_pycharm
-
-        pydevd_pycharm.settrace("indigo", port=31337, stdoutToServer=True, stderrToServer=True)
-        config.typed_dict["__debug_initialized"] = True
+    assert version == 5
 
     batch_dims = data.remaining_dims((data_spatial_dim, data.feature_dim))
     logits, enc, enc_spatial_dim = model(data, in_spatial_dim=data_spatial_dim)
@@ -303,30 +292,6 @@ def model_recog(
         prev_target = target
         prev_target_wb = target_wb
 
-        (prev_target_, lm_state_), packed_new_label_dim, packed_new_label_dim_map = _masked_select_tree(
-            (prev_target, lm_state),
-            mask=got_new_label,
-            dims=batch_dims + [beam_dim],
-        )
-
-        if packed_new_label_dim.get_dim_value() > 0:
-            lm_logits_, lm_state_ = model.lm(
-                prev_target_,
-                spatial_dim=single_step_dim,
-                state=lm_state_,
-            )  # Flat_Batch_InBeam, Vocab / ...
-            lm_log_probs_ = rf.log_softmax(lm_logits_, axis=model.target_dim)  # Flat_Batch_InBeam, Vocab
-            lm_log_probs_ *= model.lm_scale
-
-            lm_log_probs, lm_state = _masked_scatter_tree(
-                (lm_log_probs_, lm_state_),
-                (lm_log_probs, lm_state),
-                mask=got_new_label,
-                dims=batch_dims + [beam_dim],
-                in_dim=packed_new_label_dim,
-                dim_map=packed_new_label_dim_map,
-            )  # Batch, InBeam, Vocab / ...
-
         seq_log_prob = seq_log_prob + label_log_prob_ta[t]  # Batch, InBeam, VocabWB
 
         # Now add LM score. If prev align label (target_wb) is blank or != cur, add LM score, otherwise 0.
@@ -339,13 +304,6 @@ def model_recog(
                 blank_idx=model.blank_idx,
                 value=0.0,
             ),
-            0.0,
-        )  # Batch, InBeam -> VocabWB
-
-        # Add LM EOS score in last frame.
-        seq_log_prob += rf.where(
-            t == enc_spatial_dim.get_dyn_size_ext_for_device(seq_log_prob.device) - 1,
-            rf.gather(lm_log_probs, indices=model.eos_idx, axis=model.target_dim),
             0.0,
         )  # Batch, InBeam -> VocabWB
 
@@ -370,6 +328,34 @@ def model_recog(
             ),
             prev_target,
         )  # Batch, Beam -> Vocab
+
+        (target_, lm_state_), packed_new_label_dim, packed_new_label_dim_map = _masked_select_tree(
+            (target, lm_state),
+            mask=got_new_label,
+            dims=batch_dims + [beam_dim],
+        )
+
+        if packed_new_label_dim.get_dim_value() > 0:
+            lm_logits_, lm_state_ = model.lm(
+                target_,
+                spatial_dim=single_step_dim,
+                state=lm_state_,
+            )  # Flat_Batch_Beam, Vocab / ...
+            lm_log_probs_ = rf.log_softmax(lm_logits_, axis=model.target_dim)  # Flat_Batch_Beam, Vocab
+            lm_log_probs_ *= model.lm_scale
+
+            lm_log_probs, lm_state = _masked_scatter_tree(
+                (lm_log_probs_, lm_state_),
+                (lm_log_probs, lm_state),
+                mask=got_new_label,
+                dims=batch_dims + [beam_dim],
+                in_dim=packed_new_label_dim,
+                dim_map=packed_new_label_dim_map,
+            )  # Batch, Beam, Vocab / ...
+
+    # seq_log_prob, lm_log_probs: Batch, Beam
+    # Add LM EOS score at the end.
+    seq_log_prob += rf.gather(lm_log_probs, indices=model.eos_idx, axis=model.target_dim)  # Batch, Beam -> VocabWB
 
     # Backtrack via backrefs, resolve beams.
     seq_targets_wb_ = []
