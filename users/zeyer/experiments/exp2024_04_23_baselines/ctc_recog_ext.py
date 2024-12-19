@@ -279,7 +279,6 @@ def model_recog(
 
     lm_log_probs = rf.constant(0.0, dims=batch_dims_ + [model.target_dim])  # Batch, InBeam, Vocab
     lm_state = model.lm.default_initial_state(batch_dims=batch_dims_)  # Batch, InBeam, ...
-    got_new_label = rf.constant(True, dims=batch_dims_, sparse_dim=model.wb_target_dim)  # Batch, InBeam -> 0|1
     target = rf.constant(model.bos_idx, dims=batch_dims_, sparse_dim=model.target_dim)  # Batch, InBeam -> Vocab
     target_wb = rf.constant(
         model.blank_idx, dims=batch_dims_, sparse_dim=model.wb_target_dim
