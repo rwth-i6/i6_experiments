@@ -288,7 +288,7 @@ def model_recog(
         spatial_dim=single_step_dim,
         state=lm_state,
     )  # Batch, InBeam, Vocab / ...
-    lm_log_probs = rf.log_softmax(lm_logits, axis=model.target_dim)  # Flat_Batch_Beam, Vocab
+    lm_log_probs = rf.log_softmax(lm_logits, axis=model.target_dim)  # Batch, InBeam, Vocab
     lm_log_probs *= model.lm_scale
 
     max_seq_len = int(enc_spatial_dim.get_dim_value())
