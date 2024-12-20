@@ -593,11 +593,11 @@ def _returnn_v2_get_forward_callback():
         def init(self, *, model):
             import gzip
 
-            self.out_file = gzip.open(_v2_forward_out_filename, "wt")
+            self.out_file = gzip.open(_v2_forward_out_filename, "wt", encoding="utf-8")
             self.out_file.write("{\n")
 
             if recog_def_ext:
-                self.out_ext_file = gzip.open(_v2_forward_ext_out_filename, "wt")
+                self.out_ext_file = gzip.open(_v2_forward_ext_out_filename, "wt", encoding="utf-8")
                 self.out_ext_file.write("{\n")
 
         def process_seq(self, *, seq_tag: str, outputs: TensorDict):
