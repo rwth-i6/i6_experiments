@@ -331,6 +331,7 @@ class LibrispeechOggZip(DatasetConfig):
         train_audio_preprocess: Optional[Any] = NotSpecified,
         train_audio_random_permute: Union[bool, Dict[str, Any]] = False,
         eval_subset: Optional[int] = 3000,
+        extra_args: Optional[Dict[str, Any]] = None,
     ):
         """
         :param with_eos_postfix: For RETURNN train/dev/eval datasets, mostly relevant for training.
@@ -363,6 +364,7 @@ class LibrispeechOggZip(DatasetConfig):
         self.train_audio_random_permute = train_audio_random_permute
         self.train_epoch_wise_filter = train_epoch_wise_filter
         self.eval_subset = eval_subset
+        self.extra_args = extra_args
 
         self._time_dim = None
         self._feature_dim = None
@@ -395,6 +397,8 @@ class LibrispeechOggZip(DatasetConfig):
         state = self.__dict__.copy()
         if not self.train_vocab:
             state.pop("train_vocab")  # backward compat
+        if not self.extra_args:
+            state.pop("extra_args")  # backward compat
         state = {k: v for k, v in state.items() if not k.startswith("_")}
         byte_list = [b"LibrispeechOggZip", sis_hash_helper(state)]
 
@@ -490,6 +494,8 @@ class LibrispeechOggZip(DatasetConfig):
             d["seq_ordering"] = "sorted_reverse"
         if subset:
             d["fixed_random_subset"] = subset  # faster
+        if self.extra_args:
+            d.update(self.extra_args)
         return d
 
 
