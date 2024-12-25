@@ -42,397 +42,43 @@ def py():
 
     feature_stats = get_librispeech_log_mel_stats(_log_mel_feature_dim)
 
-    # train_exp(  # {"dev-clean": 3.12, "dev-other": 7.05, "test-clean": 3.2, "test-other": 7.07}
-    #     f"v6-bhv21-24gb-bf16-bs40k-accgrad2-wd1e_6-lrlin1e_5_450k-bpe10k",
-    #     config_24gb_v6,
-    #     config_updates={
-    #         **_get_cfg_lrlin_oclr_by_bs_nep(40_000, 2000),
-    #     },
-    #     enabled=False,
-    # )
-
-    # train_exp(  # {"dev-clean": 3.08, "dev-other": 6.84, "test-clean": 3.28, "test-other": 7.21}
-    #     f"v6-bhv21-24gb-bf16-bs40k-accgrad2-wd1e_6-lrlin1e_5_600k-bpe10k",
-    #     config_24gb_v6,
-    #     config_updates={
-    #         **_get_cfg_lrlin_oclr_by_bs_nep(40_000, 2000),
-    #         "learning_rate_piecewise_steps": [600_000, 900_000, 982_000],
-    #     },
-    #     enabled=False,
-    # )
-
-    # train_exp(  # {"dev-clean": 3.1, "dev-other": 6.96, "test-clean": 3.22, "test-other": 7.25}
-    #     f"v6-bhv21-24gb-bf16-bs40k-accgrad2-wd1e_6-lrlin1e_5_600k-featGN-bpe10k",
-    #     config_24gb_v6,
-    #     model_config={"feature_stats": {"mean": feature_stats.mean, "std_dev": feature_stats.std_dev}},
-    #     config_updates={
-    #         **_get_cfg_lrlin_oclr_by_bs_nep(40_000, 2000),
-    #         "learning_rate_piecewise_steps": [600_000, 900_000, 982_000],
-    #     },
-    #     enabled=False,
-    # )
-
-    # for acc, wd in [
-    #     # (5, 1e-5),
-    #     (5, 1e-3),  # 7.37
-    #     (5, 1e-2),  # 7.31
-    #     # (1, 1e-4),
-    #     (1, 1e-3),  # 6.93
-    #     (1, 1e-2),  # 6.39
-    #     (1, 1e-1),  # 7.34
-    # ]:
-    #     train_exp(
-    #         f"v6-bhv20-11gb-f32-bs15k-accgrad{acc}"
-    #         f"-mgpu4-pavg100-wd{('%.e'%wd).replace('e-0', 'e_')}"
-    #         f"-lrlin1e_5_295k-bpe10k",
-    #         config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
-    #         config_updates={
-    #             **_get_cfg_lrlin_oclr_by_bs_nep(15_000, 500),
-    #             "accum_grad_multiple_step": acc,
-    #             "optimizer.weight_decay": wd,
-    #         },
-    #         enabled=False,
-    #     )
-
-    # train_exp(  # 6.82
-    #     f"v6-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_4-lrlin1e_5_295k-speedpertV2-bpe10k",
-    #     config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
-    #     config_updates={
-    #         **_get_cfg_lrlin_oclr_by_bs_nep(15_000, 500),
-    #         "__train_audio_preprocess": speed_pert_librosa_config,
-    #         "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
-    #     },
-    #     enabled=False,
-    # )
-
-    # Comparing vocabs. Note that max_seq_length_default_target=75 always here...
-    # for vocab in [
-    #     "spm20k",  # 6.12
-    #     "bpe10k",  # 6.57
-    #     "spm10k",  # 6.11
-    #     "spm_bpe10k",  # 6.34
-    #     "spm4k",  # 6.20
-    #     "spm1k",  # 7.34
-    #     "spm_bpe1k",  # 7.39
-    # ]:
-    #     train_exp(
-    #         f"v6-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-speedpertV2-{vocab}",
-    #         config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
-    #         config_updates={
-    #             **_get_cfg_lrlin_oclr_by_bs_nep(15_000, 500),
-    #             "optimizer.weight_decay": 1e-2,
-    #             "__train_audio_preprocess": speed_pert_librosa_config,
-    #             "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
-    #         },
-    #         vocab=vocab,
-    #         enabled=False,
-    #     )
-
-    # Comparing vocabs with better settings: feature norm, sampling, no max seq len.
-    # for vocab, sample, alpha in [
-    #     ("spm20k", "spm", 0.7),  # 6.29
-    #     ("bpe10k", "bpe", 0.01),  # 6.46 (but without featBN,maxSeqLenNone: 6.33)
-    #     ("spm10k", "spm", 0.7),  # 6.31 (but without maxSeqLenNone: 6.29)
-    #     ("spm10k", "bpe", 0.01),  # 6.08
-    #     ("spm_bpe10k", "bpe", 0.01),  # 6.19
-    #     ("spm4k", "spm", 0.7),  # 6.55
-    #     ("spm1k", "spm", 0.7),  # 7.43 (but without spmSample07,featBN,maxSeqLenNone: 7.34)
-    #     # ("spm_bpe1k", ...)
-    # ]:
-    #     train_exp(
-    #         f"v6-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-maxSeqLenNone"
-    #         f"-wd1e_2-lrlin1e_5_295k-featBN-speedpertV2-{vocab}"
-    #         f"-{sample}Sample{str(alpha).replace('.', '')}",
-    #         config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
-    #         model_config={"feature_batch_norm": True},
-    #         config_updates={
-    #             **_get_cfg_lrlin_oclr_by_bs_nep(15_000, 500),
-    #             "optimizer.weight_decay": 1e-2,
-    #             "__train_audio_preprocess": speed_pert_librosa_config,
-    #             "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
-    #             "max_seq_length_default_target": None,
-    #         },
-    #         vocab=vocab,
-    #         train_vocab_opts={
-    #             "other_opts": (
-    #                 {
-    #                     "spm": {"enable_sampling": True, "alpha": alpha},
-    #                     "bpe": {"class": "SamplingBytePairEncoding", "breadth_prob": alpha},
-    #                 }[sample]
-    #             )
-    #         },
-    #         enabled=False,
-    #     )
-
-    # lrlin1e_5_393k vs lrlin1e_5_295k
-    # train_exp(  # 6.57 (vs 6.57 with lrlin1e_5_295k), slightly worse (not dev-other but others)
-    #     f"v6-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_393k-speedpertV2-bpe10k",
-    #     config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
-    #     config_updates={
-    #         **_get_cfg_lrlin_oclr_by_bs_nep(15_000, 500),
-    #         "learning_rate_piecewise_steps": [393_000, 590_000, 652_000],  # total steps after 500 epochs: ~652k
-    #         "optimizer.weight_decay": 1e-2,
-    #         "__train_audio_preprocess": speed_pert_librosa_config,
-    #         "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
-    #     },
-    #     vocab="bpe10k",
-    #     enabled=False,
-    # )
-
-    # Testing different vocabs together with sampling.
-    # Note that max_seq_length_default_target=75 always here...
-    # for vocab, sample, alpha in [
-    #     # spm20k no sampling: 6.12
-    #     ("spm20k", "spm", 0.8),  # 6.20
-    #     ("spm20k", "spm", 0.7),  # 6.32
-    #     ("spm20k", "bpe", 0.01),  # 6.04
-    #     # See archive/returnn-spm10-sample.config for playing around with alpha and checking avg seq len.
-    #     # The lower the alpha, the longer the seq len, i.e. the more aggressive the sampling.
-    #     # spm10k no sampling: 6.11
-    #     ("spm10k", "spm", 0.9),  # 6.30
-    #     ("spm10k", "spm", 0.8),  # 6.32
-    #     ("spm10k", "spm", 0.7),  # 6.30
-    #     ("spm10k", "spm", 0.5),  # 6.36
-    #     ("spm10k", "spm", 0.3),  # 7.00
-    #     ("spm10k", "bpe", 0.01),  # 6.00
-    #     # alpha for SPM-BPE has a very different effect, and it causes the seq len to be much longer.
-    #     # The higher the alpha, the longer (the reverse as for SPM Unigram).
-    #     # See archive/returnn-spm_bpe10-sample.config.
-    #     # spm_bpe10k no sampling: 6.34
-    #     ("spm_bpe10k", "spm", 1e-5),  # 6.30
-    #     ("spm_bpe10k", "spm", 1e-4),  # 6.26
-    #     ("spm_bpe10k", "spm", 0.001),  # 6.32
-    #     ("spm_bpe10k", "spm", 0.005),  # 6.31
-    #     ("spm_bpe10k", "spm", 0.01),  # 6.33
-    #     ("spm_bpe10k", "bpe", 0.01),  # 6.11
-    #     # alpha for BPE is again a bit different, but more similar to SPM-BPE than SPM-Unigram.
-    #     # See archive/returnn-bpe10-sample.config.
-    #     # The higher the alpha, the longer the sequence, i.e. the more aggressive the sampling.
-    #     # bpe10k no sampling: 6.57
-    #     ("bpe10k", "bpe", 0.005),  # 6.44
-    #     ("bpe10k", "bpe", 0.01),  # 6.33
-    #     ("bpe10k", "bpe", 0.02),  # 6.56
-    #     # spm4k no sampling: 6.20
-    #     ("spm4k", "spm", 0.7),  # 6.59
-    #     ("spm4k", "bpe", 0.01),  # 6.14
-    #     # smp1k no sampling: 7.34
-    #     ("spm1k", "bpe", 0.01),  # 8.11 (maybe worse because of max seq len?)
-    # ]:
-    #     train_exp(
-    #         f"v6-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-speedpertV2-{vocab}"
-    #         f"-{sample}Sample{str(alpha).replace('.', '').replace('-','_')}",
-    #         config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
-    #         config_updates={
-    #             **_get_cfg_lrlin_oclr_by_bs_nep(15_000, 500),
-    #             "optimizer.weight_decay": 1e-2,
-    #             "__train_audio_preprocess": speed_pert_librosa_config,
-    #             "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
-    #         },
-    #         vocab=vocab,
-    #         train_vocab_opts={
-    #             "other_opts": (
-    #                 {
-    #                     "spm": {"enable_sampling": True, "alpha": alpha},
-    #                     "bpe": {"class": "SamplingBytePairEncoding", "breadth_prob": alpha},
-    #                 }[sample]
-    #             )
-    #         },
-    #         enabled=False,
-    #     )
-
-    # Checking EOS.
-    # train_exp(  # 6.44 (vs without EOS 6.30), so EOS made it worse
-    #     "v6-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-speedpertV2-spm10k-eos-spmSample07",
-    #     config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
-    #     config_updates={
-    #         **_get_cfg_lrlin_oclr_by_bs_nep(15_000, 500),
-    #         "optimizer.weight_decay": 1e-2,
-    #         "__train_audio_preprocess": speed_pert_librosa_config,
-    #         "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
-    #         "use_eos_postfix": True,
-    #     },
-    #     vocab="spm10k",
-    #     train_vocab_opts={"other_opts": {"enable_sampling": True, "alpha": 0.7}},
-    #     enabled=False,
-    # )
-
-    # Test different feature normalization schemes.
-    # Note: It seems the diff between dev-other and test-other is less here, probably du to the normalization.
-    # WARNING: While featBN is best here, this might be due to having a regularization effect,
-    #   because when looking at convergence rate, e.g. featGN is a bit better, followed by featNorm.
-    #   featBN actually has the worst convergence rate! (But the diff is not so big.)
-    # for name, model_opts in {
-    #     None: None,  # {"dev-clean": 2.9, "dev-other": 6.3, "test-clean": 3.05, "test-other": 6.49}
-    #     # featBN: {"dev-clean": 2.84, "dev-other": 6.29, "test-clean": 2.97, "test-other": 6.36}
-    #     "featBN": {"feature_batch_norm": True},  # batch norm
-    #     # featNorm: {"dev-clean": 2.88, "dev-other": 6.3, "test-clean": 2.97, "test-other": 6.55}
-    #     "featNorm": {"feature_norm": True},  # normalize (on sequence level)
-    #     # featGN: {"dev-clean": 2.82, "dev-other": 6.37, "test-clean": 2.99, "test-other": 6.43}
-    #     "featGN": {"feature_stats": {"mean": feature_stats.mean, "std_dev": feature_stats.std_dev}},  # global norm
-    # }.items():
-    #     train_exp(
-    #         "v6-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-"
-    #         f"{(name + '-') if name else ''}speedpertV2-spm10k-spmSample07",
-    #         config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
-    #         model_config=model_opts,
-    #         config_updates={
-    #             **_get_cfg_lrlin_oclr_by_bs_nep(15_000, 500),
-    #             "optimizer.weight_decay": 1e-2,
-    #             "__train_audio_preprocess": speed_pert_librosa_config,
-    #             "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
-    #         },
-    #         vocab="spm10k",
-    #         train_vocab_opts={"other_opts": {"enable_sampling": True, "alpha": 0.7}},
-    #         enabled=False,
-    #     )
-    # featBN but without spmSample07 (baseline without featBN: 6.11)
-    # train_exp(  # 6.07, so again, featBN slightly better, also diff dev vs test is less
-    #     "v6-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-featBN-speedpertV2-spm10k",
-    #     config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
-    #     model_config={"feature_batch_norm": True},
-    #     config_updates={
-    #         **_get_cfg_lrlin_oclr_by_bs_nep(15_000, 500),
-    #         "optimizer.weight_decay": 1e-2,
-    #         "__train_audio_preprocess": speed_pert_librosa_config,
-    #         "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
-    #     },
-    #     vocab="spm10k",
-    #     enabled=False,
-    # )
-
-    from i6_experiments.users.zeyer.nn_rf.batchnorm import BatchRenorm
-
-    # Replacing batch norm in the Conformer Convolution Module with other normalization schemes.
-    # for name, opts in {
-    #     # baseline: (batch-norm): {"dev-clean": 2.73, "dev-other": 6.33, "test-clean": 2.81, "test-other": 6.52}
-    #     # batchRenorm: {"dev-clean": 2.69, "dev-other": 6.26, "test-clean": 2.91, "test-other": 6.55}
-    #     "batchRenorm": rf.build_dict(
-    #         BatchRenorm,
-    #         use_mask=True,
-    #         r_max=rf.build_dict(rf.PiecewiseLinearStepwiseScheduler, points={5_000: 1.0, 40_000: 3.0}),
-    #         d_max=rf.build_dict(rf.PiecewiseLinearStepwiseScheduler, points={5_000: 0.0, 25_000: 5.0}),
-    #     ),
-    #     # groupNorm: {"dev-clean": 2.66, "dev-other": 6.38, "test-clean": 2.87, "test-other": 6.57}
-    #     "groupNorm": rf.build_dict(rf.GroupNorm, num_groups=32),
-    #     # layerNorm: {"dev-clean": 2.58, "dev-other": 6.39, "test-clean": 2.91, "test-other": 6.51}
-    #     "layerNorm": rf.build_dict(rf.LayerNorm),
-    # }.items():
-    #     for vocab, alpha in [("bpe10k", 0.01)]:  # [("bpe10k", 0.01), ("spm10k", 0.7)]:
-    #         train_exp(
-    #             f"v6-{name}-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-speedpertV2-{vocab}"
-    #             f"-{'spmSample' if vocab.startswith('spm') else 'bpeSample'}{str(alpha).replace('.', '')}",
-    #             config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
-    #             model_config={"conv_norm": opts},
-    #             config_updates={
-    #                 **_get_cfg_lrlin_oclr_by_bs_nep(15_000, 500),
-    #                 "optimizer.weight_decay": 1e-2,
-    #                 "__train_audio_preprocess": speed_pert_librosa_config,
-    #                 "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
-    #             },
-    #             vocab=vocab,
-    #             train_vocab_opts={
-    #                 "other_opts": (
-    #                     {"enable_sampling": True, "alpha": alpha}
-    #                     if vocab.startswith("spm")
-    #                     else {"class": "SamplingBytePairEncoding", "breadth_prob": alpha}
-    #                 )
-    #             },
-    #             enabled=False,
-    #         )
-
     # relPosAttDef: Use the default RelPosSelfAttention instead of the Shawn et al 2018 style, old RETURNN way.
     enc_conformer_layer_default = rf.build_dict(
         rf.encoder.conformer.ConformerEncoderLayer,
         ff_activation=rf.build_dict(rf.relu_square),
         num_heads=8,
     )
-    # train_exp(  # 6.18 (no relPosAttDef: 6.30), so relPosAttDef is better
-    #     "v6-relPosAttDef"
-    #     "-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-speedpertV2-spm10k-spmSample07",
-    #     config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
-    #     model_config={"enc_conformer_layer": enc_conformer_layer_default},
-    #     config_updates={
-    #         **_get_cfg_lrlin_oclr_by_bs_nep(15_000, 500),
-    #         "optimizer.weight_decay": 1e-2,
-    #         "__train_audio_preprocess": speed_pert_librosa_config,
-    #         "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
-    #     },
-    #     vocab="spm10k",
-    #     train_vocab_opts={"other_opts": {"enable_sampling": True, "alpha": 0.7}},
-    #     enabled=False,
-    # )
-    # train_exp(  # 5.94 (no relPosAttDef: 6.11), so relPosAttDef is better
-    #     "v6-relPosAttDef-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-speedpertV2-spm10k",
-    #     config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
-    #     model_config={"enc_conformer_layer": enc_conformer_layer_default},
-    #     config_updates={
-    #         **_get_cfg_lrlin_oclr_by_bs_nep(15_000, 500),
-    #         "optimizer.weight_decay": 1e-2,
-    #         "__train_audio_preprocess": speed_pert_librosa_config,
-    #         "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
-    #     },
-    #     vocab="spm10k",
-    #     enabled=False,
-    # )
 
-    # Testing different vocabs together with sampling. Again. Now again with newer settings:
-    # - relPosAttDef
-    # - featBN
-    # - maxSeqLenAudio19_5: Most importantly, this refers to audio len, thus it is independent of targets.
-    for vocab, sample, alpha in [
-        ("spm20k", None, None),  # 5.96
-        ("spm20k", "spm", 0.7),  # 6.14
-        # TODO ("spm20k", "bpe", 0.005),
-        ("spm20k", "bpe", 0.01),  # 6.13
-        ("spm20k", "bpe", 0.02),  # 6.21
-        ("bpe10k", None, None),  # 6.49
-        ("bpe10k", "bpe", 0.005),  # 6.48
-        ("bpe10k", "bpe", 0.01),  # 6.40
-        ("spm10k", None, None),  # 6.00
-        # TODO ("spm10k", "spm", 0.8),
-        ("spm10k", "spm", 0.7),  # 6.20
-        ("spm10k", "bpe", 0.001),  # 5.93
-        ("spm10k", "bpe", 0.005),  # 5.89 (!!)
-        ("spm10k", "bpe", 0.01),  # 5.93
-        ("spm_bpe10k", None, None),  # 6.33
-        ("spm_bpe10k", "spm", 1e-4),  # 6.26
-        # TODO ("spm_bpe10k", "bpe", 0.005),
-        ("spm_bpe10k", "bpe", 0.01),  # 6.21
-        ("spm4k", None, None),  # 6.07 (but test-other even better: 5.94?)
-        ("spm4k", "spm", 0.7),  # 6.42
-        # TODO ("spm4k", "bpe", 0.005),
-        ("spm4k", "bpe", 0.01),  # 6.05
-        ("spm1k", None, None),  # 6.07
-        ("spm1k", "spm", 1.0),  # 6.73
-        ("spm1k", "spm", 0.99),  # 6.93
-        ("spm1k", "spm", 0.9),  # 7.04
-        ("spm1k", "spm", 0.7),  # 7.33
-        ("spm1k", "bpe", 0.0),  # 6.07
-        # TODO ("spm1k", "bpe", 0.0005),
-        ("spm1k", "bpe", 0.001),  # 6.15
-        ("spm1k", "bpe", 0.005),  # 6.25
-        ("spm1k", "bpe", 0.01),  # 6.13 (but dev-clean,test-* are better than no sampling)
-        ("spm_bpe1k", None, None),  # 6.03
-        ("spm_bpe1k", "bpe", 0.01),  # 6.05
-        ("spm512", None, None),  # 6.08
-        ("spm512", "bpe", 0.001),  # 6.05
-        ("spm512", "bpe", 0.005),  # 6.01
-        ("spm512", "bpe", 0.01),  # 6.08 (but test-* is better than spm512 without sampling)
-        ("spm128", None, None),  # 6.37
-        # TODO ("spm128", "bpe", 0.001),
-        ("spm128", "bpe", 0.01),  # 6.40
-        # TODO ("spm128", "bpe", 0.005),
-        ("bpe128", None, None),
-        ("spm64", None, None),
-        ("bpe64", None, None),
-        ("utf8", None, None),
-        ("char", None, None),
-        ("bpe0", None, None),
-    ]:
+    #-------------------setting decoding config-------------------
+    decoding_config = {
+        "log_add": False,
+        "nbest": 1,
+        "beam_size": 80,
+        "lm_weight": 1.9,  # NOTE: weights are exponentials of the probs
+        "use_logsoftmax": True,
+        "use_lm": True,
+        "use_lexicon": True,
+    }
+
+    p1 = "sum" if decoder_hyperparameters['log_add'] else "max"
+    p2 = f"n{decoder_hyperparameters['nbest']}"
+    p3 = f"b{decoder_hyperparameters['beam_size']}"
+    p4 = f"w{str(decoder_hyperparameters['lm_weight']).replace('.', '')}"
+    p5 = "_logsoftmax" if decoder_hyperparameters['use_logsoftmax'] else ""
+    lm_hyperparamters_str = f"{p0}_{p1}_{p2}_{p3}_{p4}{p5}"
+
+
+    # ---------------------------------------------------------
+    # model name: f"v6-relPosAttDef-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100"
+    #               f"-maxSeqLenAudio19_5-wd1e_2-lrlin1e_5_295k-featBN-speedpertV2"
+    #               f"-spm10k" + f"-bpeSample0.005", # 5.89 (!!)
+    lms = []
+    for lm in lms:
+        lm_name = lm if isinstance(lm, str) else lm.name
+        alias_name = f"ctc-baseline" + "decodingWith_" + lm_hyperparamters_str + lm_name
+        decoding_config["lm"] = lm
         train_exp(
-            f"v6-relPosAttDef-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100"
-            f"-maxSeqLenAudio19_5-wd1e_2-lrlin1e_5_295k-featBN-speedpertV2"
-            f"-{vocab}" + (f"-{sample}Sample{str(alpha).replace('.', '').replace('-','_')}" if sample else ""),
+            alias_name,
             config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
             model_config={"enc_conformer_layer": enc_conformer_layer_default, "feature_batch_norm": True},
             config_updates={
@@ -446,1171 +92,20 @@ def py():
                 # With max seq len 19.5 secs on the audio, we also remove exactly 71 seqs.
                 "max_seq_length_default_input": 19.5 * _raw_sample_rate,
             },
-            vocab=vocab,
+            vocab="spm10k",
             train_vocab_opts=(
                 {
                     "other_opts": (
                         {
-                            "spm": {"enable_sampling": True, "alpha": alpha},
-                            "bpe": {"class": "SamplingBytePairEncoding", "breadth_prob": alpha},
-                        }[sample]
+                            "spm": {"enable_sampling": True, "alpha": 0.005},
+                            "bpe": {"class": "SamplingBytePairEncoding", "breadth_prob": 0.005},
+                        }["bpe"]
                     )
                 }
-                if sample
-                else None
             ),
-        )
-    # Debugging `CUDA error: an illegal memory access` https://github.com/rwth-i6/returnn/issues/1577 ...
-    for name in [
-        "v6-relPosAttDef-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-maxSeqLenAudio19_5-wd1e_2-lrlin1e_5_295k-featBN"
-        "-speedpertV2-spm128",
-        "v6-relPosAttDef-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-maxSeqLenAudio19_5-wd1e_2-lrlin1e_5_295k-featBN"
-        "-speedpertV2-spm128-bpeSample001",
-        "v6-relPosAttDef-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-maxSeqLenAudio19_5-wd1e_2-lrlin1e_5_295k-featBN"
-        "-speedpertV2-spm1k-spmSample07",
-        "v6-relPosAttDef-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-maxSeqLenAudio19_5-wd1e_2-lrlin1e_5_295k-featBN"
-        "-speedpertV2-spm512-bpeSample001",
-        "v6-relPosAttDef-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-maxSeqLenAudio19_5-wd1e_2-lrlin1e_5_295k-featBN"
-        "-speedpertV2-spm512",
-    ]:
-        _train_experiments[name].get_training_job().set_env("CUDA_LAUNCH_BLOCKING", "1")
-
-    train_exp(  # 5.78
-        "v6-relPosAttDef-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-speedpertV2-spm10k",
-        config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
-        model_config={"enc_conformer_layer": enc_conformer_layer_default},
-        config_updates={
-            **_get_cfg_lrlin_oclr_by_bs_nep(15_000, 500),
-            "optimizer.weight_decay": 1e-2,
-            "__train_audio_preprocess": speed_pert_librosa_config,
-            "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
-            "aux_attention_decoder": rf.build_dict(TransformerDecoder, num_layers=6),  # purely used for training
-        },
-        vocab="spm10k",
-        enabled=False,
-    )
-
-    # Now with featBN and bpeSample001.
-    train_exp(  # 5.77
-        "v6-relPosAttDef-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-featBN"
-        "-speedpertV2-spm10k-bpeSample001",
-        config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
-        model_config={"enc_conformer_layer": enc_conformer_layer_default, "feature_batch_norm": True},
-        config_updates={
-            **_get_cfg_lrlin_oclr_by_bs_nep(15_000, 500),
-            "optimizer.weight_decay": 1e-2,
-            "__train_audio_preprocess": speed_pert_librosa_config,
-            "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
-            "aux_attention_decoder": rf.build_dict(TransformerDecoder, num_layers=6),  # purely used for training
-        },
-        vocab="spm10k",
-        train_vocab_opts={"other_opts": {"class": "SamplingBytePairEncoding", "breadth_prob": 0.01}},
-    )
-
-    train_exp(
-        f"v6-relPosAttDef-aedLoss-bhv21-24gb-bf16-bs40k-accgrad2-wd1e_2-lrlin1e_5_450k"
-        f"-featBN-speedpertV2-spm10k-bpeSample001",
-        config_24gb_v6,
-        model_config={"enc_conformer_layer": enc_conformer_layer_default, "feature_batch_norm": True},
-        config_updates={
-            **_get_cfg_lrlin_oclr_by_bs_nep(40_000, 2000),
-            "optimizer.weight_decay": 1e-2,
-            "__train_audio_preprocess": speed_pert_librosa_config,
-            "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
-            "aux_attention_decoder": rf.build_dict(TransformerDecoder, num_layers=6),  # purely used for training
-        },
-        vocab="spm10k",
-        train_vocab_opts={"other_opts": {"class": "SamplingBytePairEncoding", "breadth_prob": 0.01}},
-    )
-
-    # Now aux Trafo decoder with only 2 layers (aedLossN2).
-    # train_exp(  # 5.81 (but dev-clean, test-clean, test-other are better)
-    #     "v6-relPosAttDef-aedLossN2-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-featBN"
-    #     "-speedpertV2-spm10k-bpeSample001",
-    #     config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
-    #     model_config={"enc_conformer_layer": enc_conformer_layer_default, "feature_batch_norm": True},
-    #     config_updates={
-    #         **_get_cfg_lrlin_oclr_by_bs_nep(15_000, 500),
-    #         "optimizer.weight_decay": 1e-2,
-    #         "__train_audio_preprocess": speed_pert_librosa_config,
-    #         "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
-    #         "aux_attention_decoder": rf.build_dict(TransformerDecoder, num_layers=2),  # purely used for training
-    #     },
-    #     vocab="spm10k",
-    #     train_vocab_opts={"other_opts": {"class": "SamplingBytePairEncoding", "breadth_prob": 0.01}},
-    #     enabled=False,
-    # )
-
-    # CTC label smoothing (ctcLS01). (baseline: 5.77)
-    train_exp(  # 5.74
-        "v6-relPosAttDef-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-featBN"
-        "-speedpertV2-spm10k-bpeSample001-ctcLS01",
-        config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
-        model_config={"enc_conformer_layer": enc_conformer_layer_default, "feature_batch_norm": True},
-        config_updates={
-            **_get_cfg_lrlin_oclr_by_bs_nep(15_000, 500),
-            "optimizer.weight_decay": 1e-2,
-            "__train_audio_preprocess": speed_pert_librosa_config,
-            "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
-            "aux_attention_decoder": rf.build_dict(TransformerDecoder, num_layers=6),  # purely used for training
-            "ctc_label_smoothing": 0.1,
-        },
-        vocab="spm10k",
-        train_vocab_opts={"other_opts": {"class": "SamplingBytePairEncoding", "breadth_prob": 0.01}},
-    )
-
-    # CTC label smoothing with fixed grad
-    train_exp(
-        "v6-relPosAttDef-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-featBN"
-        "-speedpertV2-spm10k-bpeSample001-ctcLS01-ctcFixGrad",
-        config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
-        model_config={"enc_conformer_layer": enc_conformer_layer_default, "feature_batch_norm": True},
-        config_updates={
-            **_get_cfg_lrlin_oclr_by_bs_nep(15_000, 500),
-            "optimizer.weight_decay": 1e-2,
-            "__train_audio_preprocess": speed_pert_librosa_config,
-            "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
-            "aux_attention_decoder": rf.build_dict(TransformerDecoder, num_layers=6),  # purely used for training
-            "ctc_label_smoothing": 0.1,
-            "use_fixed_ctc_grad": "v2",
-        },
-        vocab="spm10k",
-        train_vocab_opts={"other_opts": {"class": "SamplingBytePairEncoding", "breadth_prob": 0.01}},
-    )
-
-    # CTC label smoothing excluding blank (ctcLS01xB). (baseline: 5.77)
-    train_exp(  # 5.78 (but dev-clean, test-clean, test-other are better than without ctcLS01xB!)
-        "v6-relPosAttDef-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-featBN"
-        "-speedpertV2-spm10k-bpeSample001-ctcLS01xB",
-        config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
-        model_config={"enc_conformer_layer": enc_conformer_layer_default, "feature_batch_norm": True},
-        config_updates={
-            **_get_cfg_lrlin_oclr_by_bs_nep(15_000, 500),
-            "optimizer.weight_decay": 1e-2,
-            "__train_audio_preprocess": speed_pert_librosa_config,
-            "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
-            "aux_attention_decoder": rf.build_dict(TransformerDecoder, num_layers=6),  # purely used for training
-            "ctc_label_smoothing": 0.1,
-            "ctc_label_smoothing_exclude_blank": True,
-        },
-        vocab="spm10k",
-        train_vocab_opts={"other_opts": {"class": "SamplingBytePairEncoding", "breadth_prob": 0.01}},
-    )
-
-    # TODO max_seq_len_via_audio seems to hurt a bit with sampling?
-    #   Probably because now we don't filter when the seq gets very long, and that confuses training.
-    #   -> In the sampling, make some upper limit?
-
-    # Blank separated (blankSep).
-    for vocab, alpha, max_seq_len_via_audio, fix_grad in [
-        ("bpe10k", 0.01, False, False),  # 5.98 (with) vs 6.18 (without)
-        ("spm10k", 0.01, False, False),  # 5.73 (!!) (with) vs 5.77 (without) (but almost no diff on test)
-        ("spm10k", 0.01, False, True),
-        ("spm10k", 0.01, True, False),  # 5.74 (with) vs 5.80 (without) (but without is better on test,dev-clean)
-        ("spm512", 0.01, True, False),  # 6.02 (with) vs 6.02 (without) (but without is worse on test,dev-clean)
-    ]:
-        for blank_sep in [False, True]:
-            train_exp(
-                "v6-relPosAttDef-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100"
-                f"{'-maxSeqLenAudio19_5' if max_seq_len_via_audio else ''}"
-                "-wd1e_2-lrlin1e_5_295k-featBN"
-                f"-speedpertV2-{vocab}-bpeSample{str(alpha).replace('.', '')}"
-                f"{'-blankSep' if blank_sep else ''}"
-                f"{'-ctcFixGrad' if blank_sep and fix_grad else ''}",
-                config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
-                model_config={
-                    "enc_conformer_layer": enc_conformer_layer_default,
-                    "feature_batch_norm": True,
-                    **({"out_blank_separated": True} if blank_sep else {}),
-                    **(
-                        {"max_seq_length_default_target": None, "max_seq_length_default_input": 19.5 * _raw_sample_rate}
-                        if max_seq_len_via_audio
-                        else {}
-                    ),
-                },
-                config_updates={
-                    **_get_cfg_lrlin_oclr_by_bs_nep(15_000, 500),
-                    "optimizer.weight_decay": 1e-2,
-                    "__train_audio_preprocess": speed_pert_librosa_config,
-                    "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
-                    "aux_attention_decoder": rf.build_dict(
-                        TransformerDecoder, num_layers=6
-                    ),  # purely used for training
-                    **({"use_fixed_ctc_grad": "v2"} if blank_sep and fix_grad else {}),
-                },
-                vocab=vocab,
-                train_vocab_opts={"other_opts": {"class": "SamplingBytePairEncoding", "breadth_prob": alpha}},
-            )
-
-    # Blank separated with fixed grad on 24GB.
-    train_exp(
-        f"v6-relPosAttDef-aedLoss-bhv21-24gb-bf16-bs40k-accgrad2-wd1e_2-lrlin1e_5_450k"
-        f"-featBN-speedpertV2-spm10k-bpeSample001-blankSep-ctcFixGrad",
-        config_24gb_v6,
-        model_config={
-            "enc_conformer_layer": enc_conformer_layer_default,
-            "feature_batch_norm": True,
-            "out_blank_separated": True,
-        },
-        config_updates={
-            **_get_cfg_lrlin_oclr_by_bs_nep(40_000, 2000),
-            "optimizer.weight_decay": 1e-2,
-            "__train_audio_preprocess": speed_pert_librosa_config,
-            "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
-            "aux_attention_decoder": rf.build_dict(TransformerDecoder, num_layers=6),  # purely used for training
-            "use_fixed_ctc_grad": "v2",
-        },
-        vocab="spm10k",
-        train_vocab_opts={"other_opts": {"class": "SamplingBytePairEncoding", "breadth_prob": 0.01}},
-    )
-
-    # Blank separated (blankSep) with CTC label smoothing excluding blank (ctcLS01xB). (baseline: 5.77)
-    train_exp(  # 6.14. A bit unclear why so much worse, maybe some bug?
-        "v6-relPosAttDef-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-featBN"
-        "-speedpertV2-spm10k-bpeSample001-blankSep-ctcLS01xB",
-        config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
-        model_config={
-            "enc_conformer_layer": enc_conformer_layer_default,
-            "feature_batch_norm": True,
-            "out_blank_separated": True,
-        },
-        config_updates={
-            **_get_cfg_lrlin_oclr_by_bs_nep(15_000, 500),
-            "optimizer.weight_decay": 1e-2,
-            "__train_audio_preprocess": speed_pert_librosa_config,
-            "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
-            "aux_attention_decoder": rf.build_dict(TransformerDecoder, num_layers=6),  # purely used for training
-            "ctc_label_smoothing": 0.1,
-        },
-        vocab="spm10k",
-        train_vocab_opts={"other_opts": {"class": "SamplingBytePairEncoding", "breadth_prob": 0.01}},
-    )
-
-    # Blank separated (blankSep) with CTC label smoothing (including blank) (ctcLS01). (baseline: 5.77)
-    train_exp(
-        "v6-relPosAttDef-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-featBN"
-        "-speedpertV2-spm10k-bpeSample001-blankSep-ctcLS01",
-        config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
-        model_config={
-            "enc_conformer_layer": enc_conformer_layer_default,
-            "feature_batch_norm": True,
-            "out_blank_separated": True,
-        },
-        config_updates={
-            **_get_cfg_lrlin_oclr_by_bs_nep(15_000, 500),
-            "optimizer.weight_decay": 1e-2,
-            "__train_audio_preprocess": speed_pert_librosa_config,
-            "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
-            "aux_attention_decoder": rf.build_dict(TransformerDecoder, num_layers=6),  # purely used for training
-            "ctc_label_smoothing": 0.1,
-            "ctc_label_smoothing_exclude_blank": False,
-        },
-        vocab="spm10k",
-        train_vocab_opts={"other_opts": {"class": "SamplingBytePairEncoding", "breadth_prob": 0.01}},
-    )
-
-    # Blank separated (blankSep) with CTC label smoothing (including blank) (ctcLS01) and fixed grad. (baseline: 5.77)
-    train_exp(
-        "v6-relPosAttDef-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-featBN"
-        "-speedpertV2-spm10k-bpeSample001-blankSep-ctcFixGrad-ctcLS01",
-        config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
-        model_config={
-            "enc_conformer_layer": enc_conformer_layer_default,
-            "feature_batch_norm": True,
-            "out_blank_separated": True,
-        },
-        config_updates={
-            **_get_cfg_lrlin_oclr_by_bs_nep(15_000, 500),
-            "optimizer.weight_decay": 1e-2,
-            "__train_audio_preprocess": speed_pert_librosa_config,
-            "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
-            "aux_attention_decoder": rf.build_dict(TransformerDecoder, num_layers=6),  # purely used for training
-            "ctc_label_smoothing": 0.1,
-            "ctc_label_smoothing_exclude_blank": False,
-            "use_fixed_ctc_grad": "v2",
-        },
-        vocab="spm10k",
-        train_vocab_opts={"other_opts": {"class": "SamplingBytePairEncoding", "breadth_prob": 0.01}},
-    )
-
-    # Variational noise / weight noise (vn0025 etc).
-    # TODO maybe reduce weight decay
-    # TODO longer training
-    for vn in [
-        # Baseline: 5.77
-        0.0001,  # 5.80
-        0.0005,  # 5.75
-        # 0.001,  # 5.79
-        # 0.0025,  # 5.91 (so worse on dev-other, but it's better on test-other)
-        # 0.01,  # 5.86
-    ]:
-        train_exp(
-            "v6-relPosAttDef-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2"
-            f"-vn{str(vn).replace('.', '')}"
-            "-lrlin1e_5_295k-featBN-speedpertV2-spm10k-bpeSample001",
-            config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
-            model_config={"enc_conformer_layer": enc_conformer_layer_default, "feature_batch_norm": True},
-            config_updates={
-                **_get_cfg_lrlin_oclr_by_bs_nep(15_000, 500),
-                "optimizer.weight_decay": 1e-2,
-                "variational_noise": vn,
-                "__train_audio_preprocess": speed_pert_librosa_config,
-                "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
-                "aux_attention_decoder": rf.build_dict(TransformerDecoder, num_layers=6),  # purely used for training
-            },
-            vocab="spm10k",
-            train_vocab_opts={"other_opts": {"class": "SamplingBytePairEncoding", "breadth_prob": 0.01}},
+            decoding_config = decoding_config
         )
 
-    # Weight dropout (wdrop01 etc).
-    # TODO maybe reduce weight decay
-    # TODO longer training
-    for wdrop in [
-        # baseline: 5.77
-        0.0001,  # 5.85
-        # 0.001,  # 5.86
-        # 0.01,  # 5.96
-        # 0.05,  # 7.33
-        # 0.1,  # 8.91
-    ]:
-        train_exp(
-            f"v6-relPosAttDef-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2"
-            f"-wdrop{str(wdrop).replace('.', '')}"
-            "-lrlin1e_5_295k-featBN-speedpertV2-spm10k-bpeSample001",
-            config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
-            model_config={"enc_conformer_layer": enc_conformer_layer_default, "feature_batch_norm": True},
-            config_updates={
-                **_get_cfg_lrlin_oclr_by_bs_nep(15_000, 500),
-                "optimizer.weight_decay": 1e-2,
-                "weight_dropout": wdrop,
-                "__train_audio_preprocess": speed_pert_librosa_config,
-                "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
-                "aux_attention_decoder": rf.build_dict(TransformerDecoder, num_layers=6),  # purely used for training
-            },
-            vocab="spm10k",
-            train_vocab_opts={"other_opts": {"class": "SamplingBytePairEncoding", "breadth_prob": 0.01}},
-        )
-
-    # Log prob normed gradient (lpNormedGrad)
-    # Baseline without lpNormedGrad: 5.77/6.03
-    for name, opts in {
-        # 5.71/5.87 (!!) (i.e. better than without)
-        "C05_11P1": {
-            "log_prob_normed_grad": {
-                "func": {"clamp_min": 0.5, "clamp_max": 1.1, "scale_type": "inv_num_labels", "prior_exp": 1.0}
-            }
-        },
-        #
-        "C05_11P1-ctcFixGrad": {
-            "log_prob_normed_grad": {
-                "func": {"clamp_min": 0.5, "clamp_max": 1.1, "scale_type": "inv_num_labels", "prior_exp": 1.0}
-            },
-            "use_fixed_ctc_grad": "v2",
-        },
-        # 5.85/6.10
-        # "C05_15P1": {
-        #   "log_prob_normed_grad": {"func": {"clamp_min": 0.5, "clamp_max": 1.5,
-        #   "scale_type": "inv_num_labels", "prior_exp": 1.0}}},
-        # 6.21/6.55
-        "C01_11P1": {
-            "log_prob_normed_grad": {
-                "func": {"clamp_min": 0.1, "clamp_max": 1.1, "scale_type": "inv_num_labels", "prior_exp": 1.0}
-            }
-        },
-        # 5.78/5.96
-        # "C08_11P1": {
-        #   "log_prob_normed_grad": {"func": {"clamp_min": 0.8, "clamp_max": 1.1,
-        #   "scale_type": "inv_num_labels", "prior_exp": 1.0}}},
-        # 5.83/5.91
-        "C05_11P1Seq": {
-            "log_prob_normed_grad": {
-                "prior": "seq_grad",
-                "func": {"clamp_min": 0.5, "clamp_max": 1.1, "scale_type": "inv_num_labels", "prior_exp": 1.0},
-            },
-        },
-        "C05_11P1Seq-ctcFixGrad": {
-            "log_prob_normed_grad": {
-                "prior": "seq_grad",
-                "func": {"clamp_min": 0.5, "clamp_max": 1.1, "scale_type": "inv_num_labels", "prior_exp": 1.0},
-            },
-            "use_fixed_ctc_grad": "v2",
-        },
-        # 5.75/6.03 (Note: missing renorm, clamp values suboptimal)
-        "C05_11P07": {
-            "log_prob_normed_grad": {
-                "func": {"clamp_min": 0.5, "clamp_max": 1.1, "scale_type": "inv_num_labels", "prior_exp": 0.7}
-            }
-        },
-        "C05_11P07N": {
-            "log_prob_normed_grad": {
-                "func": {
-                    "clamp_min": 0.5,
-                    "clamp_max": 1.1,
-                    "scale_type": "inv_num_labels",
-                    "prior_exp": 0.7,
-                    "prior_renorm": True,
-                }
-            }
-        },
-    }.items():
-        train_exp(
-            "v6-relPosAttDef-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-featBN"
-            f"-speedpertV2-spm10k-bpeSample001-lpNormedGrad{name}",
-            config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
-            model_config={
-                "enc_conformer_layer": enc_conformer_layer_default,
-                "feature_batch_norm": True,
-            },
-            config_updates={
-                **_get_cfg_lrlin_oclr_by_bs_nep(15_000, 500),
-                "optimizer.weight_decay": 1e-2,
-                "__train_audio_preprocess": speed_pert_librosa_config,
-                "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
-                "aux_attention_decoder": rf.build_dict(TransformerDecoder, num_layers=6),  # purely used for training
-                # See _maybe_apply_log_probs_normed_grad below.
-                # func are opts for NormedGradientFuncInvPrior, other opts are for normed_gradient.
-                **opts,
-            },
-            vocab="spm10k",
-            train_vocab_opts={"other_opts": {"class": "SamplingBytePairEncoding", "breadth_prob": 0.01}},
-            epilog=[
-                serialization.NonhashedCode(f"sys.path.append({gs.BASE_DIR + '/projects/2024-alignment-analysis'!r})\n")
-            ],
-        )
-
-    # (Baseline without lpNormedGrad: 5.77/6.03)
-    # Log prob normed gradient (lpNormedGrad) (excl blank) with blank separated (blankSep)
-    train_exp(  # 6.05 (so lpNormedGrad is worse here, but specifically in combination with blankSep?)
-        "v6-relPosAttDef-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-featBN"
-        "-speedpertV2-spm10k-bpeSample001-blankSep-lpNormedGrad",
-        config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
-        model_config={
-            "enc_conformer_layer": enc_conformer_layer_default,
-            "feature_batch_norm": True,
-            "out_blank_separated": True,
-        },
-        config_updates={
-            **_get_cfg_lrlin_oclr_by_bs_nep(15_000, 500),
-            "optimizer.weight_decay": 1e-2,
-            "__train_audio_preprocess": speed_pert_librosa_config,
-            "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
-            "aux_attention_decoder": rf.build_dict(TransformerDecoder, num_layers=6),  # purely used for training
-            "log_prob_normed_grad": {
-                "func": {"clamp_min": 0.5, "clamp_max": 1.1, "scale_type": "inv_num_labels", "prior_exp": 1.0}
-            },
-        },
-        vocab="spm10k",
-        train_vocab_opts={"other_opts": {"class": "SamplingBytePairEncoding", "breadth_prob": 0.01}},
-        epilog=[
-            serialization.NonhashedCode(f"sys.path.append({gs.BASE_DIR + '/projects/2024-alignment-analysis'!r})\n")
-        ],
-    )
-
-    # (Baseline without lpNormedGrad: 5.77/6.03)
-    # Log prob normed gradient (lpNormedGrad) (incl blank) with blank separated (blankSep)
-    train_exp(  # 5.73/6.08
-        "v6-relPosAttDef-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-featBN"
-        "-speedpertV2-spm10k-bpeSample001-blankSep-lpNormedGradInclBlank",
-        config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
-        model_config={
-            "enc_conformer_layer": enc_conformer_layer_default,
-            "feature_batch_norm": True,
-            "out_blank_separated": True,
-        },
-        config_updates={
-            **_get_cfg_lrlin_oclr_by_bs_nep(15_000, 500),
-            "optimizer.weight_decay": 1e-2,
-            "__train_audio_preprocess": speed_pert_librosa_config,
-            "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
-            "aux_attention_decoder": rf.build_dict(TransformerDecoder, num_layers=6),  # purely used for training
-            "log_prob_normed_grad": {
-                "func": {"clamp_min": 0.5, "clamp_max": 1.1, "scale_type": "inv_num_labels", "prior_exp": 1.0}
-            },
-            "log_prob_normed_grad_exclude_blank": False,
-        },
-        vocab="spm10k",
-        train_vocab_opts={"other_opts": {"class": "SamplingBytePairEncoding", "breadth_prob": 0.01}},
-        epilog=[
-            serialization.NonhashedCode(f"sys.path.append({gs.BASE_DIR + '/projects/2024-alignment-analysis'!r})\n")
-        ],
-    )
-
-    # (Baseline without lpNormedGrad: 5.77/6.03)
-    # Log prob normed gradient (lpNormedGrad) (incl blank) with blank separated (blankSep) and fixed grad
-    train_exp(  # 5.73/6.08
-        "v6-relPosAttDef-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-featBN"
-        "-speedpertV2-spm10k-bpeSample001-blankSep-lpNormedGradInclBlank-ctcFixGrad",
-        config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
-        model_config={
-            "enc_conformer_layer": enc_conformer_layer_default,
-            "feature_batch_norm": True,
-            "out_blank_separated": True,
-        },
-        config_updates={
-            **_get_cfg_lrlin_oclr_by_bs_nep(15_000, 500),
-            "optimizer.weight_decay": 1e-2,
-            "__train_audio_preprocess": speed_pert_librosa_config,
-            "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
-            "aux_attention_decoder": rf.build_dict(TransformerDecoder, num_layers=6),  # purely used for training
-            "log_prob_normed_grad": {
-                "func": {"clamp_min": 0.5, "clamp_max": 1.1, "scale_type": "inv_num_labels", "prior_exp": 1.0}
-            },
-            "log_prob_normed_grad_exclude_blank": False,
-            "use_fixed_ctc_grad": "v2",
-        },
-        vocab="spm10k",
-        train_vocab_opts={"other_opts": {"class": "SamplingBytePairEncoding", "breadth_prob": 0.01}},
-        epilog=[
-            serialization.NonhashedCode(f"sys.path.append({gs.BASE_DIR + '/projects/2024-alignment-analysis'!r})\n")
-        ],
-    )
-
-    for am_scale, prior_scale, fixed_grad in [
-        (0.5, 0.0, False),
-        (0.5, 0.2, False),
-        (0.5, 0.5, False),
-        (0.5, 0.0, True),
-        (0.5, 0.2, True),
-        (0.5, 0.5, True),
-    ]:
-        train_exp(
-            "v6-relPosAttDef-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-featBN"
-            f"-speedpertV2-spm10k-bpeSample001-am{am_scale}-prior{prior_scale}"
-            f"{'-ctcFixGrad' if fixed_grad else ''}",
-            config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
-            model_config={
-                "enc_conformer_layer": enc_conformer_layer_default,
-                "feature_batch_norm": True,
-            },
-            config_updates={
-                **_get_cfg_lrlin_oclr_by_bs_nep(15_000, 500),
-                "optimizer.weight_decay": 1e-2,
-                "__train_audio_preprocess": speed_pert_librosa_config,
-                "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
-                "aux_attention_decoder": rf.build_dict(TransformerDecoder, num_layers=6),  # purely used for training
-                # Only in training:
-                "ctc_am_scale": am_scale,
-                "ctc_prior_scale": prior_scale,
-                "ctc_prior_type": "batch",
-                **({"use_fixed_ctc_grad": "v2"} if fixed_grad else {}),
-            },
-            vocab="spm10k",
-            train_vocab_opts={"other_opts": {"class": "SamplingBytePairEncoding", "breadth_prob": 0.01}},
-            epilog=[
-                serialization.NonhashedCode(f"sys.path.append({gs.BASE_DIR + '/projects/2024-alignment-analysis'!r})\n")
-            ],
-        )
-
-    # ffGated (and also noBias). (Baseline: 5.77)
-    # train_exp(  # 6.01, so worse
-    #     "v6-relPosAttDef-ffGated-noBias-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2"
-    #     "-lrlin1e_5_295k-featBN-speedpertV2-spm10k-bpeSample001",
-    #     config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
-    #     model_config={
-    #         "enc_conformer_layer": rf.build_dict(
-    #             rf.encoder.conformer.ConformerEncoderLayer,
-    #             ff=rf.build_dict(rf.decoder.transformer.FeedForwardGated),
-    #             num_heads=8,
-    #         ),
-    #         "feature_batch_norm": True,
-    #     },
-    #     config_updates={
-    #         **_get_cfg_lrlin_oclr_by_bs_nep(15_000, 500),
-    #         "optimizer.weight_decay": 1e-2,
-    #         "__train_audio_preprocess": speed_pert_librosa_config,
-    #         "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
-    #         "aux_attention_decoder": rf.build_dict(TransformerDecoder, num_layers=6),  # purely used for training
-    #     },
-    #     vocab="spm10k",
-    #     train_vocab_opts={"other_opts": {"class": "SamplingBytePairEncoding", "breadth_prob": 0.01}},
-    # )
-
-    # rmsNorm. (Baseline: 5.77)
-    # train_exp(  # 5.74, i.e. helps a bit
-    #     "v6-relPosAttDef-rmsNorm-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2"
-    #     "-lrlin1e_5_295k-featBN-speedpertV2-spm10k-bpeSample001",
-    #     config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
-    #     model_config={
-    #         "enc_conformer_layer": rf.build_dict(
-    #             rf.encoder.conformer.ConformerEncoderLayer,
-    #             ff_activation=rf.build_dict(rf.relu_square),
-    #             norm=rf.build_dict(rf.RMSNorm),
-    #             num_heads=8,
-    #         ),
-    #         "feature_batch_norm": True,
-    #     },
-    #     config_updates={
-    #         **_get_cfg_lrlin_oclr_by_bs_nep(15_000, 500),
-    #         "optimizer.weight_decay": 1e-2,
-    #         "__train_audio_preprocess": speed_pert_librosa_config,
-    #         "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
-    #         "aux_attention_decoder": rf.build_dict(TransformerDecoder, num_layers=6),  # purely used for training
-    #     },
-    #     vocab="spm10k",
-    #     train_vocab_opts={"other_opts": {"class": "SamplingBytePairEncoding", "breadth_prob": 0.01}},
-    # )
-
-    # noBias. (Baseline: 5.77)
-    train_exp(  # 5.65 (!!!)
-        "v6-relPosAttDef-noBias-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2"
-        "-lrlin1e_5_295k-featBN-speedpertV2-spm10k-bpeSample001",
-        config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
-        model_config={
-            "enc_conformer_layer": rf.build_dict(
-                rf.encoder.conformer.ConformerEncoderLayer,
-                ff=rf.build_dict(
-                    rf.encoder.conformer.ConformerPositionwiseFeedForward,
-                    activation=rf.build_dict(rf.relu_square),
-                    with_bias=False,
-                ),
-                num_heads=8,
-            ),
-            "feature_batch_norm": True,
-        },
-        config_updates={
-            **_get_cfg_lrlin_oclr_by_bs_nep(15_000, 500),
-            "optimizer.weight_decay": 1e-2,
-            "__train_audio_preprocess": speed_pert_librosa_config,
-            "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
-            "aux_attention_decoder": rf.build_dict(TransformerDecoder, num_layers=6),  # purely used for training
-        },
-        vocab="spm10k",
-        train_vocab_opts={"other_opts": {"class": "SamplingBytePairEncoding", "breadth_prob": 0.01}},
-    )
-
-    # Not normalized loss (normLossFalse) (Baseline 5.65)
-    # (For multi-GPU grad sync, this is what you would want (what we anyway always had with TF).
-    #  For param sync, it's less clear.)
-    train_exp(
-        "v6-relPosAttDef-noBias-aedLoss-normLossFalse-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2"
-        "-lrlin1e_5_295k-featBN-speedpertV2-spm10k-bpeSample001",
-        config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
-        model_config={
-            "enc_conformer_layer": rf.build_dict(
-                rf.encoder.conformer.ConformerEncoderLayer,
-                ff=rf.build_dict(
-                    rf.encoder.conformer.ConformerPositionwiseFeedForward,
-                    activation=rf.build_dict(rf.relu_square),
-                    with_bias=False,
-                ),
-                num_heads=8,
-            ),
-            "feature_batch_norm": True,
-        },
-        config_updates={
-            **_get_cfg_lrlin_oclr_by_bs_nep(15_000, 500),
-            "optimizer.weight_decay": 1e-2,
-            "__train_audio_preprocess": speed_pert_librosa_config,
-            "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
-            "aux_attention_decoder": rf.build_dict(TransformerDecoder, num_layers=6),  # purely used for training
-            "use_normalized_loss": False,
-        },
-        vocab="spm10k",
-        train_vocab_opts={"other_opts": {"class": "SamplingBytePairEncoding", "breadth_prob": 0.01}},
-    )
-
-    # ffGated with sigmoid and relu_square (Baseline: 5.65)
-    # train_exp(  # 5.93. so much worse.
-    #     "v6-relPosAttDef-ffGatedSigmoidReluSq-noBias-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2"
-    #     "-lrlin1e_5_295k-featBN-speedpertV2-spm10k-bpeSample001",
-    #     config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
-    #     model_config={
-    #         "enc_conformer_layer": rf.build_dict(
-    #             rf.encoder.conformer.ConformerEncoderLayer,
-    #             ff=rf.build_dict(
-    #                 rf.decoder.transformer.FeedForwardGated,
-    #                 activation=rf.build_dict(rf.relu_square),
-    #                 gate_activation=rf.build_dict(rf.sigmoid),
-    #                 with_bias=False,
-    #             ),
-    #             num_heads=8,
-    #         ),
-    #         "feature_batch_norm": True,
-    #     },
-    #     config_updates={
-    #         **_get_cfg_lrlin_oclr_by_bs_nep(15_000, 500),
-    #         "optimizer.weight_decay": 1e-2,
-    #         "__train_audio_preprocess": speed_pert_librosa_config,
-    #         "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
-    #         "aux_attention_decoder": rf.build_dict(TransformerDecoder, num_layers=6),  # purely used for training
-    #     },
-    #     vocab="spm10k",
-    #     train_vocab_opts={"other_opts": {"class": "SamplingBytePairEncoding", "breadth_prob": 0.01}},
-    # )
-
-    # lpNormedGrad C05_11P1 (Baseline: 5.65)
-    # train_exp(  # 5.83. so made it worse.
-    #     "v6-relPosAttDef-noBias-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2"
-    #     "-lrlin1e_5_295k-featBN-speedpertV2-spm10k-bpeSample001-lpNormedGradC05_11P1",
-    #     config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
-    #     model_config={
-    #         "enc_conformer_layer": rf.build_dict(
-    #             rf.encoder.conformer.ConformerEncoderLayer,
-    #             ff=rf.build_dict(
-    #                 rf.encoder.conformer.ConformerPositionwiseFeedForward,
-    #                 activation=rf.build_dict(rf.relu_square),
-    #                 with_bias=False,
-    #             ),
-    #             num_heads=8,
-    #         ),
-    #         "feature_batch_norm": True,
-    #     },
-    #     config_updates={
-    #         **_get_cfg_lrlin_oclr_by_bs_nep(15_000, 500),
-    #         "optimizer.weight_decay": 1e-2,
-    #         "__train_audio_preprocess": speed_pert_librosa_config,
-    #         "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
-    #         "aux_attention_decoder": rf.build_dict(TransformerDecoder, num_layers=6),  # purely used for training
-    #         # See _maybe_apply_log_probs_normed_grad below.
-    #         # func are opts for NormedGradientFuncInvPrior, other opts are for normed_gradient.
-    #         "log_prob_normed_grad": {
-    #             "func": {"clamp_min": 0.5, "clamp_max": 1.1, "scale_type": "inv_num_labels", "prior_exp": 1.0}
-    #         },
-    #     },
-    #     vocab="spm10k",
-    #     train_vocab_opts={"other_opts": {"class": "SamplingBytePairEncoding", "breadth_prob": 0.01}},
-    #     epilog=[
-    #         serialization.NonhashedCode(f"sys.path.append({gs.BASE_DIR + '/projects/2024-alignment-analysis'!r})\n")
-    #     ],
-    # )
-
-    # Blank sep (Baseline: 5.65)
-    train_exp(
-        "v6-relPosAttDef-noBias-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2"
-        "-lrlin1e_5_295k-featBN-speedpertV2-spm10k-bpeSample001-blankSep",
-        config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
-        model_config={
-            "enc_conformer_layer": rf.build_dict(
-                rf.encoder.conformer.ConformerEncoderLayer,
-                ff=rf.build_dict(
-                    rf.encoder.conformer.ConformerPositionwiseFeedForward,
-                    activation=rf.build_dict(rf.relu_square),
-                    with_bias=False,
-                ),
-                num_heads=8,
-            ),
-            "feature_batch_norm": True,
-            "out_blank_separated": True,
-        },
-        config_updates={
-            **_get_cfg_lrlin_oclr_by_bs_nep(15_000, 500),
-            "optimizer.weight_decay": 1e-2,
-            "__train_audio_preprocess": speed_pert_librosa_config,
-            "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
-            "aux_attention_decoder": rf.build_dict(TransformerDecoder, num_layers=6),  # purely used for training
-        },
-        vocab="spm10k",
-        train_vocab_opts={"other_opts": {"class": "SamplingBytePairEncoding", "breadth_prob": 0.01}},
-    )
-
-    # Testing Conformer layer without layernorm (noFinalNorm). (Baseline 5.65)
-    # (But this is just one step. Maybe the macaron structure does also not make sense anymore then...)
-    # train_exp(  # 6.27. i.e. works but much worse.
-    #     "v6-relPosAttDef-noBias-noFinalNorm-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2"
-    #     "-lrlin1e_5_295k-featBN-speedpertV2-spm10k-bpeSample001",
-    #     config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
-    #     model_config={
-    #         "enc_conformer_layer": rf.build_dict(
-    #             rf.encoder.conformer.ConformerEncoderLayer,
-    #             ff=rf.build_dict(
-    #                 rf.encoder.conformer.ConformerPositionwiseFeedForward,
-    #                 activation=rf.build_dict(rf.relu_square),
-    #                 with_bias=False,
-    #             ),
-    #             num_heads=8,
-    #         ),
-    #         "enc_conformer_final_layer_norm": "last",
-    #         "feature_batch_norm": True,
-    #     },
-    #     config_updates={
-    #         **_get_cfg_lrlin_oclr_by_bs_nep(15_000, 500),
-    #         "optimizer.weight_decay": 1e-2,
-    #         "__train_audio_preprocess": speed_pert_librosa_config,
-    #         "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
-    #         "aux_attention_decoder": rf.build_dict(TransformerDecoder, num_layers=6),  # purely used for training
-    #     },
-    #     vocab="spm10k",
-    #     train_vocab_opts={"other_opts": {"class": "SamplingBytePairEncoding", "breadth_prob": 0.01}},
-    # )
-
-    # rope+rmsNorm+noBias. (Baseline: 5.77)
-    # train_exp(  # 5.87, so worse. rope makes it worse, as seen before, but rmsNorm and noBias should make it better.
-    #     "v6-relPosAttDef-rope-rmsNorm-noBias-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2"
-    #     "-lrlin1e_5_295k-featBN-speedpertV2-spm10k-bpeSample001",
-    #     config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
-    #     model_config={
-    #         "enc_conformer_layer": rf.build_dict(
-    #             rf.encoder.conformer.ConformerEncoderLayer,
-    #             ff=rf.build_dict(
-    #                 rf.encoder.conformer.ConformerPositionwiseFeedForward,
-    #                 activation=rf.build_dict(rf.relu_square),
-    #                 with_bias=False,
-    #             ),
-    #             norm=rf.build_dict(rf.RMSNorm),
-    #             self_att=rf.build_dict(rf.RotaryPosSelfAttention, with_bias=False),
-    #             num_heads=8,
-    #         ),
-    #         "feature_batch_norm": True,
-    #     },
-    #     config_updates={
-    #         **_get_cfg_lrlin_oclr_by_bs_nep(15_000, 500),
-    #         "optimizer.weight_decay": 1e-2,
-    #         "__train_audio_preprocess": speed_pert_librosa_config,
-    #         "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
-    #         "aux_attention_decoder": rf.build_dict(TransformerDecoder, num_layers=6),  # purely used for training
-    #     },
-    #     vocab="spm10k",
-    #     train_vocab_opts={"other_opts": {"class": "SamplingBytePairEncoding", "breadth_prob": 0.01}},
-    # )
-
-    # rope. (Baseline: 5.77)
-    # train_exp(  # 5.87, so rope is worse here.
-    #     "v6-relPosAttDef-rope-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2"
-    #     "-lrlin1e_5_295k-featBN-speedpertV2-spm10k-bpeSample001",
-    #     config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
-    #     model_config={
-    #         "enc_conformer_layer": rf.build_dict(
-    #             rf.encoder.conformer.ConformerEncoderLayer,
-    #             ff=rf.build_dict(
-    #                 rf.encoder.conformer.ConformerPositionwiseFeedForward,
-    #                 activation=rf.build_dict(rf.relu_square),
-    #             ),
-    #             self_att=rf.build_dict(rf.RotaryPosSelfAttention, with_bias=False),
-    #             num_heads=8,
-    #         ),
-    #         "feature_batch_norm": True,
-    #     },
-    #     config_updates={
-    #         **_get_cfg_lrlin_oclr_by_bs_nep(15_000, 500),
-    #         "optimizer.weight_decay": 1e-2,
-    #         "__train_audio_preprocess": speed_pert_librosa_config,
-    #         "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
-    #         "aux_attention_decoder": rf.build_dict(TransformerDecoder, num_layers=6),  # purely used for training
-    #     },
-    #     vocab="spm10k",
-    #     train_vocab_opts={"other_opts": {"class": "SamplingBytePairEncoding", "breadth_prob": 0.01}},
-    # )
-
-    # rmsNorm+noBias. (Baseline with only noBias, no rmsNorm: 5.65)
-    # train_exp(  # 5.75, so rmsNorm is worse.
-    #     "v6-relPosAttDef-rmsNorm-noBias-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2"
-    #     "-lrlin1e_5_295k-featBN-speedpertV2-spm10k-bpeSample001",
-    #     config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
-    #     model_config={
-    #         "enc_conformer_layer": rf.build_dict(
-    #             rf.encoder.conformer.ConformerEncoderLayer,
-    #             ff=rf.build_dict(
-    #                 rf.encoder.conformer.ConformerPositionwiseFeedForward,
-    #                 activation=rf.build_dict(rf.relu_square),
-    #                 with_bias=False,
-    #             ),
-    #             norm=rf.build_dict(rf.RMSNorm),
-    #             num_heads=8,
-    #         ),
-    #         "feature_batch_norm": True,
-    #     },
-    #     config_updates={
-    #         **_get_cfg_lrlin_oclr_by_bs_nep(15_000, 500),
-    #         "optimizer.weight_decay": 1e-2,
-    #         "__train_audio_preprocess": speed_pert_librosa_config,
-    #         "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
-    #         "aux_attention_decoder": rf.build_dict(TransformerDecoder, num_layers=6),  # purely used for training
-    #     },
-    #     vocab="spm10k",
-    #     train_vocab_opts={"other_opts": {"class": "SamplingBytePairEncoding", "breadth_prob": 0.01}},
-    # )
-
-    # FF with Swish activation (vs our default relu_square) (Baseline: 5.65)
-    # train_exp(  # 6.17, so much worse
-    #     "v6-ffSwish-relPosAttDef-noBias-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2"
-    #     "-lrlin1e_5_295k-featBN-speedpertV2-spm10k-bpeSample001",
-    #     config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
-    #     model_config={
-    #         "enc_conformer_layer": rf.build_dict(
-    #             rf.encoder.conformer.ConformerEncoderLayer,
-    #             ff=rf.build_dict(rf.encoder.conformer.ConformerPositionwiseFeedForward, with_bias=False),
-    #             num_heads=8,
-    #         ),
-    #         "feature_batch_norm": True,
-    #     },
-    #     config_updates={
-    #         **_get_cfg_lrlin_oclr_by_bs_nep(15_000, 500),
-    #         "optimizer.weight_decay": 1e-2,
-    #         "__train_audio_preprocess": speed_pert_librosa_config,
-    #         "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
-    #         "aux_attention_decoder": rf.build_dict(TransformerDecoder, num_layers=6),  # purely used for training
-    #     },
-    #     vocab="spm10k",
-    #     train_vocab_opts={"other_opts": {"class": "SamplingBytePairEncoding", "breadth_prob": 0.01}},
-    # )
-
-    # FF dim 1024 (vs default 2048) (Baseline: 5.65)
-    # train_exp(  # 6.65, i.e. very bad
-    #     "v6-ff1024-relPosAttDef-noBias-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2"
-    #     "-lrlin1e_5_295k-featBN-speedpertV2-spm10k-bpeSample001",
-    #     config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
-    #     model_config={
-    #         "enc_conformer_layer": rf.build_dict(
-    #             rf.encoder.conformer.ConformerEncoderLayer,
-    #             ff=rf.build_dict(
-    #                 rf.encoder.conformer.ConformerPositionwiseFeedForward,
-    #                 ff_dim=1024,
-    #                 activation=rf.build_dict(rf.relu_square),
-    #                 with_bias=False,
-    #             ),
-    #             num_heads=8,
-    #         ),
-    #         "feature_batch_norm": True,
-    #     },
-    #     config_updates={
-    #         **_get_cfg_lrlin_oclr_by_bs_nep(15_000, 500),
-    #         "optimizer.weight_decay": 1e-2,
-    #         "__train_audio_preprocess": speed_pert_librosa_config,
-    #         "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
-    #         "aux_attention_decoder": rf.build_dict(TransformerDecoder, num_layers=6),  # purely used for training
-    #     },
-    #     vocab="spm10k",
-    #     train_vocab_opts={"other_opts": {"class": "SamplingBytePairEncoding", "breadth_prob": 0.01}},
-    # )
-
-    # Deeper. (Baseline with 12 layers: 5.65)
-    # Baseline has 123M params. This has 149M params.
-    # Base trains with 930 secs/dist-subepoch.
-    # This has weird train behavior, flips between 1200,5800,1400,1800 secs/dist-subepoch, somewhat randomly...
-    train_exp(  # 5.44 (!!!)
-        "v6-n16-relPosAttDef-noBias-aedLoss-bhv20-11gb-f32-bs10k-accgrad1-mgpu4-pavg100-wd1e_2"
-        "-lrlin1e_5_295k-featBN-speedpertV2-spm10k-bpeSample001",
-        config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
-        model_config={
-            "enc_conformer_layer": rf.build_dict(
-                rf.encoder.conformer.ConformerEncoderLayer,
-                ff=rf.build_dict(
-                    rf.encoder.conformer.ConformerPositionwiseFeedForward,
-                    activation=rf.build_dict(rf.relu_square),
-                    with_bias=False,
-                ),
-                num_heads=8,
-            ),
-            "feature_batch_norm": True,
-            "num_enc_layers": 16,
-        },
-        config_updates={
-            **_get_cfg_lrlin_oclr_by_bs_nep(10_000, 500),
-            "optimizer.weight_decay": 1e-2,
-            "__train_audio_preprocess": speed_pert_librosa_config,
-            "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
-            "aux_attention_decoder": rf.build_dict(TransformerDecoder, num_layers=6),  # purely used for training
-        },
-        vocab="spm10k",
-        train_vocab_opts={"other_opts": {"class": "SamplingBytePairEncoding", "breadth_prob": 0.01}},
-        # avoid OOM
-        env_updates={"PYTORCH_CUDA_ALLOC_CONF": "backend:cudaMallocAsync,expandable_segments:True"},
-    )
-
-    # Disable self-att (noSelfAtt). Baseline: 5.65
-    # train_exp(  # 5.80, so worse.
-    #     "v6-relPosAttDef-noBias-noSelfAtt20-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2"
-    #     "-lrlin1e_5_295k-featBN-speedpertV2-spm10k-bpeSample001",
-    #     config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
-    #     model_config={
-    #         "enc_conformer_layer": rf.build_dict(
-    #             rf.encoder.conformer.ConformerEncoderLayer,
-    #             ff=rf.build_dict(
-    #                 rf.encoder.conformer.ConformerPositionwiseFeedForward,
-    #                 activation=rf.build_dict(rf.relu_square),
-    #                 with_bias=False,
-    #             ),
-    #             num_heads=8,
-    #         ),
-    #         "feature_batch_norm": True,
-    #         "disable_encoder_self_attention": {"num_epochs": 20},
-    #     },
-    #     config_updates={
-    #         **_get_cfg_lrlin_oclr_by_bs_nep(15_000, 500),
-    #         "optimizer.weight_decay": 1e-2,
-    #         "__train_audio_preprocess": speed_pert_librosa_config,
-    #         "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
-    #         "aux_attention_decoder": rf.build_dict(TransformerDecoder, num_layers=6),  # purely used for training
-    #     },
-    #     vocab="spm10k",
-    #     train_vocab_opts={"other_opts": {"class": "SamplingBytePairEncoding", "breadth_prob": 0.01}},
-    # )
-
-    from returnn.frontend.encoder.e_branchformer import EBranchformerLayer
-
-    # E-Branchformer. (already with our default ff and noBias)
-    # Ref: https://github.com/espnet/espnet/blob/master/egs2/librispeech/asr1/conf/tuning/train_asr_e_branchformer.yaml
-    # Note that this has more params than the baseline. (Baseline: 123M, EBranchformer: 178M) (Baseline has 5.65 WER.)
-    # But train speed not so much slower. (Baseline: 930 secs/dist-subepoch, EBranchformer: 950-1100 secs/dist-subepoch)
-    train_exp(  # 5.54 (!!!) (but more params)
-        "v6-EBranchformer-relPosAttDef-noBias-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2"
-        "-lrlin1e_5_295k-featBN-speedpertV2-spm10k-bpeSample001",
-        config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
-        model_config={
-            "enc_conformer_layer": rf.build_dict(
-                EBranchformerLayer,
-                ff=rf.build_dict(
-                    rf.encoder.conformer.ConformerPositionwiseFeedForward,
-                    # Note: the ffdim in the original EBranchformer is only 1024, but here we use 2048,
-                    # as this is also what we use for Conformer.
-                    # (But this results in more parameters for the EBranchformer, due to more params in cgMLP.)
-                    activation=rf.build_dict(rf.relu_square),
-                    with_bias=False,
-                ),
-                num_heads=8,
-            ),
-            "feature_batch_norm": True,
-        },
-        config_updates={
-            **_get_cfg_lrlin_oclr_by_bs_nep(15_000, 500),
-            "optimizer.weight_decay": 1e-2,
-            "__train_audio_preprocess": speed_pert_librosa_config,
-            "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
-            "aux_attention_decoder": rf.build_dict(TransformerDecoder, num_layers=6),  # purely used for training
-        },
-        vocab="spm10k",
-        train_vocab_opts={"other_opts": {"class": "SamplingBytePairEncoding", "breadth_prob": 0.01}},
-    )
-
-    # EBranchformer, smaller cgmlp_ff_dim (139M params, ~1050 sec/subep)
-    train_exp(  # 5.61
-        "v6-EBranchformer-cgmlpDim1024-relPosAttDef-noBias-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2"
-        "-lrlin1e_5_295k-featBN-speedpertV2-spm10k-bpeSample001",
-        config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
-        model_config={
-            "enc_conformer_layer": rf.build_dict(
-                EBranchformerLayer,
-                ff=rf.build_dict(
-                    rf.encoder.conformer.ConformerPositionwiseFeedForward,
-                    # Note: the ffdim in the original EBranchformer is only 1024, but here we use 2048,
-                    # as this is also what we use for Conformer.
-                    # (But this results in more parameters for the EBranchformer, due to more params in cgMLP.)
-                    activation=rf.build_dict(rf.relu_square),
-                    with_bias=False,
-                ),
-                cgmlp_ff_dim=1024,
-                num_heads=8,
-            ),
-            "feature_batch_norm": True,
-        },
-        config_updates={
-            **_get_cfg_lrlin_oclr_by_bs_nep(15_000, 500),
-            "optimizer.weight_decay": 1e-2,
-            "__train_audio_preprocess": speed_pert_librosa_config,
-            "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
-            "aux_attention_decoder": rf.build_dict(TransformerDecoder, num_layers=6),  # purely used for training
-        },
-        vocab="spm10k",
-        train_vocab_opts={"other_opts": {"class": "SamplingBytePairEncoding", "breadth_prob": 0.01}},
-    )
-
-    # Standard E-Branchformer and standard FF (ffSwish: act and with bias)
-    # train_exp(  # 5.70, so ffSwish is also worse here compared to our default ff and noBias (5.54)
-    #     "v6-EBranchformer-relPosAttDef-ffSwish-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2"
-    #     "-lrlin1e_5_295k-featBN-speedpertV2-spm10k-bpeSample001",
-    #     config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
-    #     model_config={
-    #         "enc_conformer_layer": rf.build_dict(EBranchformerLayer, num_heads=8),
-    #         "feature_batch_norm": True,
-    #     },
-    #     config_updates={
-    #         **_get_cfg_lrlin_oclr_by_bs_nep(15_000, 500),
-    #         "optimizer.weight_decay": 1e-2,
-    #         "__train_audio_preprocess": speed_pert_librosa_config,
-    #         "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
-    #         "aux_attention_decoder": rf.build_dict(TransformerDecoder, num_layers=6),  # purely used for training
-    #     },
-    #     vocab="spm10k",
-    #     train_vocab_opts={"other_opts": {"class": "SamplingBytePairEncoding", "breadth_prob": 0.01}},
-    # )
-
-    # E-Branchformer with 1024 ff dim.
-    # train_exp(  # 6.08
-    #     "v6-EBranchformer-ff1024-relPosAttDef-noBias-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2"
-    #     "-lrlin1e_5_295k-featBN-speedpertV2-spm10k-bpeSample001",
-    #     config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
-    #     model_config={
-    #         "enc_conformer_layer": rf.build_dict(
-    #             EBranchformerLayer,
-    #             ff=rf.build_dict(
-    #                 rf.encoder.conformer.ConformerPositionwiseFeedForward,
-    #                 ff_dim=1024,
-    #                 activation=rf.build_dict(rf.relu_square),
-    #                 with_bias=False,
-    #             ),
-    #             num_heads=8,
-    #         ),
-    #         "feature_batch_norm": True,
-    #     },
-    #     config_updates={
-    #         **_get_cfg_lrlin_oclr_by_bs_nep(15_000, 500),
-    #         "optimizer.weight_decay": 1e-2,
-    #         "__train_audio_preprocess": speed_pert_librosa_config,
-    #         "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
-    #         "aux_attention_decoder": rf.build_dict(TransformerDecoder, num_layers=6),  # purely used for training
-    #     },
-    #     vocab="spm10k",
-    #     train_vocab_opts={"other_opts": {"class": "SamplingBytePairEncoding", "breadth_prob": 0.01}},
-    # )
-
-    # E-Branchformer with 1024 ff dim and standard FF (act and with bias)
-    # train_exp(  # 6.18
-    #     "v6-EBranchformer-ff1024-ffSwish-relPosAttDef-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2"
-    #     "-lrlin1e_5_295k-featBN-speedpertV2-spm10k-bpeSample001",
-    #     config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
-    #     model_config={
-    #         "enc_conformer_layer": rf.build_dict(
-    #             EBranchformerLayer,
-    #             ff=rf.build_dict(rf.encoder.conformer.ConformerPositionwiseFeedForward, ff_dim=1024),
-    #             num_heads=8,
-    #         ),
-    #         "feature_batch_norm": True,
-    #     },
-    #     config_updates={
-    #         **_get_cfg_lrlin_oclr_by_bs_nep(15_000, 500),
-    #         "optimizer.weight_decay": 1e-2,
-    #         "__train_audio_preprocess": speed_pert_librosa_config,
-    #         "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
-    #         "aux_attention_decoder": rf.build_dict(TransformerDecoder, num_layers=6),  # purely used for training
-    #     },
-    #     vocab="spm10k",
-    #     train_vocab_opts={"other_opts": {"class": "SamplingBytePairEncoding", "breadth_prob": 0.01}},
-    # )
-
-    # Test input_embedding_scale (inScale) (baseline 5.65).
-    # (TODO but this actually only makes sense together with abs pos enc?)
-    # train_exp(  # 5.92, so worse (interestingly, test-other (5.80) is better than dev-other here?)
-    #     "v6-relPosAttDef-inScale-noBias-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2"
-    #     "-lrlin1e_5_295k-featBN-speedpertV2-spm10k-bpeSample001",
-    #     config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
-    #     model_config={
-    #         "enc_conformer_layer": rf.build_dict(
-    #             rf.encoder.conformer.ConformerEncoderLayer,
-    #             ff=rf.build_dict(
-    #                 rf.encoder.conformer.ConformerPositionwiseFeedForward,
-    #                 activation=rf.build_dict(rf.relu_square),
-    #                 with_bias=False,
-    #             ),
-    #             num_heads=8,
-    #         ),
-    #         "enc_other_opts": {
-    #             "input_embedding_scale": 512**0.5,
-    #         },
-    #         "feature_batch_norm": True,
-    #     },
-    #     config_updates={
-    #         **_get_cfg_lrlin_oclr_by_bs_nep(15_000, 500),
-    #         "optimizer.weight_decay": 1e-2,
-    #         "__train_audio_preprocess": speed_pert_librosa_config,
-    #         "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
-    #         "aux_attention_decoder": rf.build_dict(TransformerDecoder, num_layers=6),  # purely used for training
-    #     },
-    #     vocab="spm10k",
-    #     train_vocab_opts={"other_opts": {"class": "SamplingBytePairEncoding", "breadth_prob": 0.01}},
-    # )
-
-    # TODO also zigformer, ...
-    # TODO test different frontends
 
 
 _train_experiments: Dict[str, ModelWithCheckpoints] = {}
@@ -1626,8 +121,8 @@ def train_exp(
     train_vocab_opts: Optional[Dict[str, Any]] = None,
     dataset_train_opts: Optional[Dict[str, Any]] = None,
     train_def: Optional[TrainDef[Model]] = None,
-    model_config: Optional[Dict[str, Any]] = None,
-    config_updates: Optional[Dict[str, Any]] = None,
+    model_config: Optional[Dict[str, Any]] = None, # Returnn config
+    config_updates: Optional[Dict[str, Any]] = None, # For iterative changing of config
     config_deletes: Optional[Sequence[str]] = None,
     post_config_updates: Optional[Dict[str, Any]] = None,
     epilog: Sequence[serialization.SerializerObject] = (),
@@ -1637,12 +132,13 @@ def train_exp(
     time_rqmt: Optional[int] = None,  # set this to 1 or below to get the fast test queue
     env_updates: Optional[Dict[str, str]] = None,
     enabled: bool = True,
+    decoding_config: dict = None,
 ) -> Optional[ModelWithCheckpoints]:
     """
     Train experiment
     """
     from i6_experiments.users.zeyer.train_v3 import train
-    from i6_experiments.users.zeyer.recog import recog_training_exp
+    from i6_experiments.users.zhang.recog import recog_training_exp # TODO： determine if this module need modification
     from i6_experiments.users.zeyer.datasets.librispeech import get_librispeech_task_raw_v2
 
     if not enabled:
@@ -1652,6 +148,7 @@ def train_exp(
         _sis_setup_global_prefix()
 
     prefix = _sis_prefix + "/" + name
+    # TODO： find out how to apply recognition on other dataset
     task = get_librispeech_task_raw_v2(vocab=vocab, train_vocab_opts=train_vocab_opts, **(dataset_train_opts or {}))
     config = config.copy()
     config = dict_update_deep(config, config_updates, config_deletes)
@@ -1686,7 +183,10 @@ def train_exp(
     if config.get("use_eos_postfix", False):
         recog_post_proc_funcs.append(_remove_eos_label_v2)
     recog_training_exp(
-        prefix, task, model_with_checkpoint, recog_def=model_recog, recog_post_proc_funcs=recog_post_proc_funcs
+        prefix, task, model_with_checkpoint, recog_def=decoder_def,
+        decoding_config=decoding_config,
+        calculate_pseudo_label_scores=False,
+        recog_post_proc_funcs=recog_post_proc_funcs,
     )
 
     _train_experiments[name] = model_with_checkpoint
@@ -1950,6 +450,7 @@ def model_recog(
         label_log_prob,
         rf.sparse_to_dense(model.blank_idx, axis=model.wb_target_dim, label_value=0.0, other_value=-1.0e30),
     )
+    # Just Initialisation
     label_log_prob_pre_filter, (backrefs_pre_filter,), pre_filter_beam_dim = rf.top_k(
         label_log_prob, k_dim=Dim(beam_size, name=f"pre-filter-beam"), axis=[model.wb_target_dim]
     )  # seq_log_prob, backrefs_global: Batch, Spatial, PreFilterBeam. backrefs_pre_filter -> Vocab
@@ -1963,6 +464,8 @@ def model_recog(
     seq_backrefs = []
     for t in range(max_seq_len):
         # Filter out finished beams
+        # Since it is log_prob, + means the prob is actually product,
+        # Note for CTC each time step is independent to each other.
         seq_log_prob = seq_log_prob + label_log_prob_pre_filter_ta[t]  # Batch, InBeam, PreFilterBeam
         seq_log_prob, (backrefs, target), beam_dim = rf.top_k(
             seq_log_prob, k_dim=Dim(beam_size, name=f"dec-step{t}-beam"), axis=[beam_dim, pre_filter_beam_dim]
@@ -1994,6 +497,159 @@ model_recog: RecogDef[Model]
 model_recog.output_with_beam = True
 model_recog.output_blank_label = "<blank>"
 model_recog.batch_size_dependent = False  # not totally correct, but we treat it as such...
+
+
+def model_recog_lm(
+        *,
+        model: Model,
+        data: Tensor,
+        data_spatial_dim: Dim,
+        arpa_4gram_lm: str,
+        lexicon: str,
+        hyperparameters: dict
+) -> Tuple[Tensor, Tensor, Dim, Dim]:
+    """
+    Function is run within RETURNN.
+
+    Uses a LM and beam search.
+
+    :return:
+        recog results including beam {batch, beam, out_spatial},
+        log probs {batch, beam},
+        out_spatial_dim,
+        final beam_dim
+    """
+    from torchaudio.models.decoder import ctc_decoder
+    import torch
+    from returnn.util.basic import cf
+
+    # Get the logits from the model
+    logits, enc, enc_spatial_dim = model(data, in_spatial_dim=data_spatial_dim)
+
+    hyp_params = copy.copy(hyperparameters)
+    greedy = hyp_params.pop("greedy", False)
+    use_logsoftmax = hyp_params.pop("use_logsoftmax", False)
+
+    if greedy:
+        use_logsoftmax = True
+
+    if use_logsoftmax:
+        label_log_prob = model.log_probs_wb_from_logits(logits)
+        label_log_prob = label_log_prob.raw_tensor.cpu()
+
+    if greedy:
+        probs, greedy_res = torch.max(label_log_prob, dim=-1)
+        greedy_res = greedy_res.unsqueeze(1)
+
+        scores = torch.sum(probs, dim=-1)
+        scores = scores.unsqueeze(1)
+
+        beam_dim = rtf.TorchBackend.get_new_dim_raw(greedy_res, 1, name="beam_dim")
+        dims = [batch_dim, beam_dim, enc_spatial_dim]
+        hyps = rtf.TorchBackend.convert_to_tensor(greedy_res, dims=dims, sparse_dim=model.wb_target_dim, dtype="int64",
+                                                  name="hyps")
+
+        dims = [batch_dim, beam_dim]
+        scores = Tensor("scores", dims=dims, dtype="float32", raw_tensor=scores)
+
+        return hyps, scores, enc_spatial_dim, beam_dim
+
+    arpa_4gram_lm = str(cf(arpa_4gram_lm))
+
+    use_lm = hyp_params.pop("use_lm", True)
+    use_lexicon = hyp_params.pop("use_lexicon", True)
+
+    configs = {
+        "tokens": list(model.wb_target_dim.vocab.labels),
+        "blank_token": OUT_BLANK_LABEL,
+        "sil_token": OUT_BLANK_LABEL,
+        "unk_word": "<unk>",
+        "beam_size_token": None,  # 16
+        "beam_threshold": 1000000,  # 14
+    }
+    configs["lexicon"] = lexicon if use_lexicon else None
+    configs["lm"] = arpa_4gram_lm if use_lm else None
+
+    configs.update(hyp_params)
+
+    decoder = ctc_decoder(**configs)
+    enc_spatial_dim_torch = enc_spatial_dim.dyn_size_ext.raw_tensor.cpu()
+    if use_logsoftmax:
+        decoder_results = decoder(label_log_prob, enc_spatial_dim_torch)
+    else:
+        decoder_results = decoder(logits.raw_tensor.cpu(), enc_spatial_dim_torch)
+
+    if use_lexicon:
+        print("Use words directly!")
+        if CHECK_DECODER_CONSISTENCY:
+            for l1 in decoder_results:
+                for l2 in l1:
+                    lexicon_words = " ".join(l2.words)
+                    token_words = " ".join([configs["tokens"][t] for t in l2.tokens])
+                    assert not token_words.endswith(
+                        "@@"), f"Token words ends with @@: {token_words}, Lexicon words: {lexicon_words}"
+                    token_words = token_words.replace("@@ ", "")
+                    assert lexicon_words == token_words, f"Words don't match: Lexicon words: {lexicon_words}, Token words: {token_words}"
+
+        words = [[" ".join(l2.words) for l2 in l1] for l1 in decoder_results]
+        words = np.array(words)
+        words = np.expand_dims(words, axis=2)
+        scores = [[l2.score for l2 in l1] for l1 in decoder_results]
+        scores = torch.tensor(scores)
+
+        beam_dim = Dim(words.shape[1], name="beam_dim")
+        enc_spatial_dim = Dim(1, name="spatial_dim")
+        words = rf._numpy_backend.NumpyBackend.convert_to_tensor(words, dims=[batch_dim, beam_dim, enc_spatial_dim],
+                                                                 dtype="string", name="hyps")
+        scores = Tensor("scores", dims=[batch_dim, beam_dim], dtype="float32", raw_tensor=scores)
+
+        return words, scores, enc_spatial_dim, beam_dim
+    else:
+        def _pad_blanks(tokens, max_len):
+            if len(tokens) < max_len:
+                # print("We had to pad blanks")
+                tokens = torch.cat([tokens, torch.tensor([model.blank_idx] * (max_len - len(tokens)))])
+            return tokens
+
+        def _pad_lists(t, max_len, max_len2):
+            if t.shape[0] < max_len2:
+                print("We had to pad the list")
+                t = torch.cat([t, torch.tensor([[model.blank_idx] * max_len] * (max_len2 - t.shape[0]))])
+            return t
+
+        def _pad_scores(l, max_len):
+            l = torch.tensor(l)
+            if len(l) < max_len:
+                print("We had to pad scores")
+                l = torch.cat([l, torch.tensor([-1000000.0] * (max_len - len(l)))])
+            return l
+
+        max_length = int(enc_spatial_dim_torch.max())
+        hyps = [torch.stack([_pad_blanks(l2.tokens, max_length) for l2 in l1]) for l1 in decoder_results]
+        max_length_2 = max([l.shape[0] for l in hyps])
+        hyps = [_pad_lists(t, max_length, max_length_2) for t in hyps]
+        hyps = torch.stack(hyps)
+        beam_dim = rtf.TorchBackend.get_new_dim_raw(hyps, 1, name="beam_dim")
+        dims = [batch_dim, beam_dim, enc_spatial_dim]
+        hyps = rtf.TorchBackend.convert_to_tensor(hyps, dims=dims, sparse_dim=model.wb_target_dim, dtype="int64",
+                                                  name="hyps")
+
+        scores = [[l2.score for l2 in l1] for l1 in decoder_results]
+        max_length_3 = max([len(l) for l in scores])
+        scores = torch.stack([_pad_scores(l, max_length_3) for l in scores])
+        dims = [batch_dim, beam_dim]
+        scores = Tensor("scores", dims=dims, dtype="float32", raw_tensor=scores)
+
+        # print(f"CUSTOM seq_targets: {hyps} \n{hyps.raw_tensor.cpu()},\nscores: {scores} \n{scores.raw_tensor.cpu()}n {scores.raw_tensor.cpu()[0][0]},\nspatial_dim: {enc_spatial_dim.dyn_size_ext.raw_tensor.cpu()},\n beam_size: {beam_dim}")
+
+        return hyps, scores, enc_spatial_dim, beam_dim
+
+
+# RecogDef API
+model_recog_lm: RecogDef[Model]
+model_recog_lm.output_with_beam = True
+model_recog_lm.output_blank_label = OUT_BLANK_LABEL
+model_recog_lm.batch_size_dependent = False  # not totally correct, but we treat it as such...
 
 
 class Model(rf.Module):
