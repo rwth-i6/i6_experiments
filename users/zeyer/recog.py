@@ -5,6 +5,7 @@ Generic recog, for the model interfaces defined in model_interfaces.py
 from __future__ import annotations
 
 import os
+import sys
 from typing import TYPE_CHECKING, Optional, Union, Any, Dict, Sequence, Collection, Iterator, Callable
 
 import sisyphus
@@ -27,6 +28,7 @@ from i6_experiments.common.setups import serialization
 from i6_experiments.users.zeyer.utils.serialization import get_import_py_code
 
 from i6_experiments.users.zeyer import tools_paths
+from i6_experiments.users.zeyer.utils.failsafe_text_io import FailsafeTextOutput
 from i6_experiments.users.zeyer.datasets.task import Task
 from i6_experiments.users.zeyer.datasets.score_results import RecogOutput, ScoreResultCollection
 from i6_experiments.users.zeyer.model_interfaces import ModelDef, ModelDefWithCfg, RecogDef, serialize_model_def
@@ -720,20 +722,20 @@ class GetBestRecogTrainExp(sisyphus.Job):
             log_filename = tk.Path("update.log", self).get_path()
             try:
                 os.makedirs(os.path.dirname(log_filename), exist_ok=True)
-                log_stream = open(log_filename, "a")
+                log_stream = FailsafeTextOutput(open(log_filename, "a"), fallback=sys.stdout)
             except PermissionError:  # maybe some other user runs this, via job import
-                log_stream = open("/dev/stdout", "w")
-            with log_stream:
-                log_stream.write(datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
-                log_stream.write(": get_relevant_epochs_from_training_learning_rate_scores\n")
-                for epoch in get_relevant_epochs_from_training_learning_rate_scores(
-                    model_dir=self.exp.model_dir,
-                    model_name=self.exp.model_name,
-                    scores_and_learning_rates=self.exp.scores_and_learning_rates,
-                    n_best=self.check_train_scores_n_best,
-                    log_stream=log_stream,
-                ):
-                    self._add_recog(epoch)
+                log_stream = sys.stdout
+            log_stream.write(datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+            log_stream.write(": get_relevant_epochs_from_training_learning_rate_scores\n")
+            for epoch in get_relevant_epochs_from_training_learning_rate_scores(
+                model_dir=self.exp.model_dir,
+                model_name=self.exp.model_name,
+                scores_and_learning_rates=self.exp.scores_and_learning_rates,
+                n_best=self.check_train_scores_n_best,
+                log_stream=log_stream,
+            ):
+                self._add_recog(epoch)
+            log_stream.close()
             self._update_checked_relevant_epochs = True
 
     def _add_recog(self, epoch: int):
