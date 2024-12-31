@@ -8,7 +8,7 @@ from i6_experiments.users.zeyer.utils.dict_update import dict_update_deep
 from i6_experiments.users.zeyer.lr_schedules.piecewise_linear import dyn_lr_piecewise_linear
 
 from .configs import (
-    config_24gb_v6,
+    config_96gb_bf16_accgrad1,
     _get_cfg_lrlin_oclr_by_bs_nep_v3,
     _get_cfg_lrlin_oclr_by_bs_nep_v4,
 )
@@ -1245,16 +1245,3 @@ def py():
         # avoid oom
         env_updates={"PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"},
     )
-
-
-# https://help.itc.rwth-aachen.de/service/rhr4fjjutttf/article/9108f4a6f43c40a3a168919afd36839d/
-# TODO check weight decay...
-config_96gb_bf16_accgrad1 = dict_update_deep(
-    config_24gb_v6,
-    {
-        "__gpu_mem": 96,
-        "__cpu_rqmt": 24,  # the whole c23g node has 96 CPUs, and 4 GPUs
-        "__mem_rqmt": 100,  # the whole node should have more than 500GB
-        "accum_grad_multiple_step": 1,  # per single GPU
-    },
-)
