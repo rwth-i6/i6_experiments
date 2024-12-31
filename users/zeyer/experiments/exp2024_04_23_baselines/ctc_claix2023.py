@@ -457,7 +457,7 @@ def py():
         # ("spm512", "bpe", 0.001),  # 6.05 (11gb)
         # ("spm512", "bpe", 0.005),  # 6.01 (11gb)
         # ("spm512", "bpe", 0.01),  # 6.08 (but test-* is better than spm512 without sampling) (11gb)
-        ("spm512", None, None),
+        ("spm512", None, None),  # 6.04
         # ("spm128", None, None),  # 6.37 (11gb)
         # TODO ("spm128", "bpe", 0.001),
         # ("spm128", "bpe", 0.01),  # 6.40 (11gb)
