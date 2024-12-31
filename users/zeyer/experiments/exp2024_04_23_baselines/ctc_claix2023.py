@@ -449,7 +449,86 @@ def py():
             env_updates={"PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"},
         )
 
-    # TODO normed grad...
+    # Log prob normed gradient (lpNormedGrad)
+    # Baseline without lpNormedGrad: 5.85
+    for name, opts in {
+        "C05_11P1": {
+            "log_prob_normed_grad": {
+                "func": {"clamp_min": 0.5, "clamp_max": 1.1, "scale_type": "inv_num_labels", "prior_exp": 1.0}
+            },
+        },
+        "C05_15P1": {
+            "log_prob_normed_grad": {
+                "func": {"clamp_min": 0.5, "clamp_max": 1.5, "scale_type": "inv_num_labels", "prior_exp": 1.0}
+            }
+        },
+        "C01_11P1": {
+            "log_prob_normed_grad": {
+                "func": {"clamp_min": 0.1, "clamp_max": 1.1, "scale_type": "inv_num_labels", "prior_exp": 1.0}
+            }
+        },
+        "C05_11P1Seq": {
+            "log_prob_normed_grad": {
+                "prior": "seq_grad",
+                "func": {"clamp_min": 0.5, "clamp_max": 1.1, "scale_type": "inv_num_labels", "prior_exp": 1.0},
+            },
+        },
+        "C05_11P07N": {
+            "log_prob_normed_grad": {
+                "func": {
+                    "clamp_min": 0.5,
+                    "clamp_max": 1.1,
+                    "scale_type": "inv_num_labels",
+                    "prior_exp": 0.7,
+                    "prior_renorm": True,
+                }
+            }
+        },
+    }.items():
+        ctc_train_exp(
+            f"time4-n12-spm10k-auxAED-b150k-lpNormedGrad{name}",
+            config_96gb_bf16_accgrad1,
+            model_config={
+                "enc_input_layer": rf.build_dict(
+                    ConformerConvSubsample,
+                    out_dims=[32, 64, 64],
+                    filter_sizes=[(3, 3), (3, 3), (3, 3)],
+                    pool_sizes=[(1, 2)],
+                    strides=[(1, 1), (2, 1), (2, 1)],
+                ),
+                "enc_conformer_layer": rf.build_dict(
+                    ConformerEncoderLayer,
+                    ff=rf.build_dict(
+                        ConformerPositionwiseFeedForward, activation=rf.build_dict(rf.relu_square), with_bias=False
+                    ),
+                    num_heads=8,
+                ),
+                "feature_batch_norm": True,
+                "num_enc_layers": 12,
+            },
+            config_updates={
+                **_get_cfg_lrlin_oclr_by_bs_nep_v3(150_000, 100, batch_size_factor=_batch_size_factor),
+                "optimizer.weight_decay": 1e-2,
+                "max_seq_length_default_target": None,
+                # Note on max seq len stats: Before, when we used max_seq_length_default_target=75 with bpe10k,
+                # out of 281241 seqs in train, we removed only 71 seqs.
+                # With max seq len 19.5 secs on the audio, we also remove exactly 71 seqs.
+                "max_seq_length_default_input": 19.5 * _raw_sample_rate,
+                "__train_audio_preprocess": speed_pert_librosa_config,
+                "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
+                "aux_attention_decoder": rf.build_dict(TransformerDecoder, num_layers=6),  # purely used for training
+                "use_fixed_ctc_grad": "v2",
+                # See _maybe_apply_log_probs_normed_grad below.
+                # func are opts for NormedGradientFuncInvPrior, other opts are for normed_gradient.
+                **opts,
+            },
+            post_config_updates={"log_grad_norm": True, "__multi_proc_dataset_opts": {"num_workers": 25}},
+            vocab="spm10k",
+            train_vocab_opts={"other_opts": {"class": "SamplingBytePairEncoding", "breadth_prob": 0.01}},
+            dataset_train_opts={"train_epoch_split": 1, "train_epoch_wise_filter": None},
+            # avoid OOM
+            env_updates={"PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"},
+        )
 
     for vocab, sample, alpha in [
         ("spm10k", "bpe", 0.01),  # 6.01 (5.93 without max seq len on audio)
