@@ -442,7 +442,7 @@ def py():
                 "use_fixed_ctc_grad": "v2",
             },
             post_config_updates={"log_grad_norm": True, "__multi_proc_dataset_opts": {"num_workers": 25}},
-            vocab="spm512",
+            vocab="spm10k",
             train_vocab_opts={"other_opts": {"class": "SamplingBytePairEncoding", "breadth_prob": 0.01}},
             dataset_train_opts={"train_epoch_split": 1, "train_epoch_wise_filter": None},
             # avoid OOM
