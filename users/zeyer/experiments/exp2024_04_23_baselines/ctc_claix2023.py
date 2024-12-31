@@ -398,7 +398,7 @@ def py():
 
     for am_scale, prior_scale, prior_type in [
         # Baseline (1.0, 0.0, None): 5.85
-        # (0.7, 0.0, None),
+        (0.7, 0.0, None),
         (0.5, 0.2, "batch"),
         # (0.5, 0.5, "batch"),
         # (1.0, 1.0, "batch"),
