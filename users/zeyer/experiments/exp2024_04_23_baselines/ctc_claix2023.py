@@ -396,6 +396,9 @@ def py():
         env_updates={"PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"},
     )
 
+    from i6_experiments.common.setups import serialization
+    from sisyphus import gs
+
     for am_scale, prior_scale, prior_type in [
         # Baseline (1.0, 0.0, None): 5.85
         (0.7, 0.0, None),
@@ -528,6 +531,9 @@ def py():
             dataset_train_opts={"train_epoch_split": 1, "train_epoch_wise_filter": None},
             # avoid OOM
             env_updates={"PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"},
+            epilog=[
+                serialization.NonhashedCode(f"sys.path.append({gs.BASE_DIR + '/projects/2024-alignment-analysis'!r})\n")
+            ],
         )
 
     for vocab, sample, alpha in [
