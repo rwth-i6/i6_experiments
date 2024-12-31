@@ -17,11 +17,7 @@ from .configs import (
     _batch_size_factor,
 )
 from .aed import train_exp as aed_train_exp
-from .ctc import train_exp as ctc_train_exp, _raw_sample_rate
-from .lm import lm_train_def, lm_model_def
 
-from i6_experiments.users.zeyer.experiments.exp2024_10_16_consistency_reg_ctc import cr_ctc_training
-from i6_experiments.users.zeyer.datasets.librispeech import get_librispeech_lm_dataset
 from i6_experiments.users.zeyer.train_v4 import train, ModelDefWithCfg
 
 import returnn.frontend as rf
