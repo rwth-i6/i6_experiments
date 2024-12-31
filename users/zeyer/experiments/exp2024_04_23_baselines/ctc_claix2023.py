@@ -160,7 +160,8 @@ def py():
         env_updates={"PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"},
     )
 
-    ctc_train_exp(
+    # Blank separated (blankSep). Baseline (without blankSep): 5.99
+    ctc_train_exp(  # 5.97. so no real improvement.
         "time4-n12-spm512-blankSep-auxAED-b150k",
         config_96gb_bf16_accgrad1,
         model_config={
@@ -204,10 +205,11 @@ def py():
     )
 
     for am_scale, prior_scale, prior_type in [
-        (0.7, 0.0, None),
-        (0.5, 0.2, "batch"),
-        (0.5, 0.5, "batch"),
-        (1.0, 1.0, "batch"),
+        # Baseline (1.0, 0.0, None): 5.97
+        (0.7, 0.0, None),  # 6.21
+        (0.5, 0.2, "batch"),  # 7.66
+        (0.5, 0.5, "batch"),  # 99.09
+        (1.0, 1.0, "batch"),  # 94.3
     ]:
         ctc_train_exp(
             f"time4-n12-spm512-blankSep-am{am_scale}-prior{prior_scale}-priorType{prior_type}-auxAED-b150k",
@@ -257,10 +259,11 @@ def py():
         )
 
     for am_scale, prior_scale, prior_type in [
-        (0.7, 0.0, None),
-        (0.5, 0.2, "batch"),
-        (0.5, 0.5, "batch"),
-        (1.0, 1.0, "batch"),
+        # Baseline (1.0, 0.0, None): 5.99
+        (0.7, 0.0, None),  # 6.34
+        (0.5, 0.2, "batch"),  # 7.13
+        (0.5, 0.5, "batch"),  # 98.48
+        (1.0, 1.0, "batch"),  # 93.79
     ]:
         ctc_train_exp(
             f"time4-n12-spm512-am{am_scale}-prior{prior_scale}-priorType{prior_type}-auxAED-b150k",
@@ -308,7 +311,7 @@ def py():
             env_updates={"PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"},
         )
 
-    ctc_train_exp(
+    ctc_train_exp(  # 5.85
         "time4-n12-spm10k-auxAED-b150k",
         config_96gb_bf16_accgrad1,
         model_config={
@@ -349,7 +352,8 @@ def py():
         env_updates={"PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"},
     )
 
-    ctc_train_exp(
+    # Blank separated (blankSep). Baseline (without blankSep): 5.85
+    ctc_train_exp(  # 5.77. so some small improvement.
         "time4-n12-spm10k-blankSep-auxAED-b150k",
         config_96gb_bf16_accgrad1,
         model_config={
@@ -393,6 +397,7 @@ def py():
     )
 
     for am_scale, prior_scale, prior_type in [
+        # Baseline (1.0, 0.0, None): 5.85
         # (0.7, 0.0, None),
         (0.5, 0.2, "batch"),
         # (0.5, 0.5, "batch"),
