@@ -574,6 +574,64 @@ def py():
             ],
         )
 
+    # Log prob normed gradient (lpNormedGrad)
+    for name, opts in {
+        "": {},
+        "-lpNormedGradC05_11P07N": {
+            "log_prob_normed_grad": {
+                "func": {
+                    "clamp_min": 0.5,
+                    "clamp_max": 1.1,
+                    "scale_type": "inv_num_labels",
+                    "prior_exp": 0.7,
+                    "prior_renorm": True,
+                }
+            }
+        },
+    }.items():
+        ctc_train_exp(
+            f"n12-spm10k-auxAED-b150k{name}",
+            config_96gb_bf16_accgrad1,
+            model_config={
+                "enc_conformer_layer": rf.build_dict(
+                    ConformerEncoderLayer,
+                    ff=rf.build_dict(
+                        ConformerPositionwiseFeedForward, activation=rf.build_dict(rf.relu_square), with_bias=False
+                    ),
+                    num_heads=8,
+                ),
+                "feature_batch_norm": True,
+                "num_enc_layers": 12,
+            },
+            config_updates={
+                **_get_cfg_lrlin_oclr_by_bs_nep_v3(150_000, 100, batch_size_factor=_batch_size_factor),
+                "optimizer.weight_decay": 1e-2,
+                "max_seq_length_default_target": None,
+                # Note on max seq len stats: Before, when we used max_seq_length_default_target=75 with bpe10k,
+                # out of 281241 seqs in train, we removed only 71 seqs.
+                # With max seq len 19.5 secs on the audio, we also remove exactly 71 seqs.
+                "max_seq_length_default_input": 19.5 * _raw_sample_rate,
+                "__train_audio_preprocess": speed_pert_librosa_config,
+                "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
+                "aux_attention_decoder": rf.build_dict(TransformerDecoder, num_layers=6),  # purely used for training
+                **({"use_fixed_ctc_grad": "v2"} if opts else {}),
+                # See _maybe_apply_log_probs_normed_grad below.
+                # func are opts for NormedGradientFuncInvPrior, other opts are for normed_gradient.
+                **opts,
+            },
+            post_config_updates={"log_grad_norm": True, "__multi_proc_dataset_opts": {"num_workers": 25}},
+            vocab="spm10k",
+            train_vocab_opts={"other_opts": {"class": "SamplingBytePairEncoding", "breadth_prob": 0.01}},
+            dataset_train_opts={"train_epoch_split": 1, "train_epoch_wise_filter": None},
+            # avoid OOM
+            env_updates={"PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"},
+            epilog=[
+                serialization.NonhashedCode(f"sys.path.append({gs.BASE_DIR + '/projects/2024-alignment-analysis'!r})\n")
+            ]
+            if opts
+            else (),
+        )
+
     for vocab, sample, alpha in [
         ("spm10k", "bpe", 0.01),  # 6.01 (5.93 without max seq len on audio)
         # ("spm512", None, None),  # 6.08 (11gb)
