@@ -589,6 +589,39 @@ def py():
     # Log prob normed gradient (lpNormedGrad)
     for name, opts in {
         "": {},
+        "-lpNormedGradC05_11P1Seq": {
+            "log_prob_normed_grad": {
+                "prior": "seq_grad",
+                "func": {
+                    "clamp_min": 0.5,
+                    "clamp_max": 1.1,
+                    "scale_type": "inv_num_labels",
+                    "prior_exp": 1.0,
+                },
+            }
+        },
+        "-lpNormedGradC05_11P1": {
+            "log_prob_normed_grad": {
+                "func": {
+                    "clamp_min": 0.5,
+                    "clamp_max": 1.1,
+                    "scale_type": "inv_num_labels",
+                    "prior_exp": 1.0,
+                }
+            }
+        },
+        "-lpNormedGradC05_11P07NSeq": {
+            "log_prob_normed_grad": {
+                "prior": "seq_grad",
+                "func": {
+                    "clamp_min": 0.5,
+                    "clamp_max": 1.1,
+                    "scale_type": "inv_num_labels",
+                    "prior_exp": 0.7,
+                    "prior_renorm": True,
+                },
+            }
+        },
         "-lpNormedGradC05_11P07N": {
             "log_prob_normed_grad": {
                 "func": {
