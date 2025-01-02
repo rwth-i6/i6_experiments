@@ -1119,6 +1119,3 @@ def py():
     )
 
     # TODO ctc without aux
-    # TODO ctc with different sampling
-    # TODO for smaller vocabs, less downsampling
-    # TODO zipformer...
