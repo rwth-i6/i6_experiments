@@ -493,21 +493,21 @@ def py():
     # Log prob normed gradient (lpNormedGrad)
     # Baseline without lpNormedGrad: 5.85
     for name, opts in {
-        "C05_11P1": {  # 6.15
-            "log_prob_normed_grad": {
-                "func": {"clamp_min": 0.5, "clamp_max": 1.1, "scale_type": "inv_num_labels", "prior_exp": 1.0}
-            },
-        },
-        "C05_15P1": {  # 6.66
-            "log_prob_normed_grad": {
-                "func": {"clamp_min": 0.5, "clamp_max": 1.5, "scale_type": "inv_num_labels", "prior_exp": 1.0}
-            }
-        },
-        "C01_11P1": {  # 10.12
-            "log_prob_normed_grad": {
-                "func": {"clamp_min": 0.1, "clamp_max": 1.1, "scale_type": "inv_num_labels", "prior_exp": 1.0}
-            }
-        },
+        # "C05_11P1": {  # 6.15
+        #     "log_prob_normed_grad": {
+        #         "func": {"clamp_min": 0.5, "clamp_max": 1.1, "scale_type": "inv_num_labels", "prior_exp": 1.0}
+        #     },
+        # },
+        # "C05_15P1": {  # 6.66
+        #     "log_prob_normed_grad": {
+        #         "func": {"clamp_min": 0.5, "clamp_max": 1.5, "scale_type": "inv_num_labels", "prior_exp": 1.0}
+        #     }
+        # },
+        # "C01_11P1": {  # 10.12
+        #     "log_prob_normed_grad": {
+        #         "func": {"clamp_min": 0.1, "clamp_max": 1.1, "scale_type": "inv_num_labels", "prior_exp": 1.0}
+        #     }
+        # },
         "C05_11P1Seq": {  # 5.81
             "log_prob_normed_grad": {
                 "prior": "seq_grad",
@@ -526,17 +526,17 @@ def py():
                 },
             },
         },
-        "C05_11P07N": {  # 5.85
-            "log_prob_normed_grad": {
-                "func": {
-                    "clamp_min": 0.5,
-                    "clamp_max": 1.1,
-                    "scale_type": "inv_num_labels",
-                    "prior_exp": 0.7,
-                    "prior_renorm": True,
-                }
-            }
-        },
+        # "C05_11P07N": {  # 5.85
+        #     "log_prob_normed_grad": {
+        #         "func": {
+        #             "clamp_min": 0.5,
+        #             "clamp_max": 1.1,
+        #             "scale_type": "inv_num_labels",
+        #             "prior_exp": 0.7,
+        #             "prior_renorm": True,
+        #         }
+        #     }
+        # },
     }.items():
         ctc_train_exp(
             f"time4-n12-spm10k-auxAED-b150k-lpNormedGrad{name}",
