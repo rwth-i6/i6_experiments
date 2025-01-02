@@ -61,6 +61,9 @@ def recog_training_exp(
     model_avg: bool = False,
     num_shards_pseudo: Optional[int] = None,
     num_shards_prior: Optional[int] = None,
+    is_last: bool = False,
+    empirical_prior: Optional[tk.Path] = None,
+    return_summary: bool = False
 ) -> Optional[tk.Path]:
     """recog on all relevant epochs"""
     recog_and_score_func = _RecogAndScoreFunc(
@@ -74,6 +77,7 @@ def recog_training_exp(
         recog_post_proc_funcs=recog_post_proc_funcs,
         search_mem_rqmt=search_mem_rqmt,
         num_shards_prior=num_shards_prior,
+        empirical_prior=empirical_prior,
     )
     summarize_job = GetBestRecogTrainExp(
         exp=model,
@@ -89,6 +93,9 @@ def recog_training_exp(
             exp=model, recog_and_score_func=recog_and_score_func, exclude_epochs=exclude_epochs
         )
         tk.register_output(prefix_name + "/recog_results_model_avg", model_avg_res_job.out_results)
+        
+    if return_summary:
+        return summarize_job.out_summary_json
     
     # Create pseudo labels
     if save_pseudo_labels is not None:
@@ -121,6 +128,7 @@ def recog_training_exp(
             search_mem_rqmt=search_mem_rqmt,
             num_shards_pseudo=num_shards_pseudo,
             num_shards_prior=num_shards_prior,
+            empirical_prior=empirical_prior,
         )
         
         extract_pseudo_labels_job = ExtractPseudoLabels(
@@ -129,6 +137,8 @@ def recog_training_exp(
             calculate_score=False,
         )
         extract_pseudo_labels_job.add_alias(prefix_name + "/pseudo_labels/extract")
+        if is_last:
+            tk.register_output(prefix_name + "/pseudo_labels/extract", extract_pseudo_labels_job.out_best_labels_path)
         
         # Calculate score for 100h
         if calculate_pseudo_label_scores:
@@ -160,7 +170,8 @@ def recog_training_exp(
                 search_mem_rqmt=search_mem_rqmt,
                 num_shards_pseudo=num_shards_pseudo,
                 num_shards_prior=num_shards_prior,
-                register_output=False
+                register_output=False,
+                empirical_prior=empirical_prior,
             )
             
             score_job = GetScoreJob(score_func, summarize_job.out_summary_json)
@@ -188,6 +199,7 @@ class _RecogAndScoreFunc:
         num_shards_pseudo: Optional[int] = None,
         num_shards_prior: Optional[int] = None,
         register_output: bool = True,
+        empirical_prior: Optional[tk.Path] = None,
     ):
         # Note: When something is added here, remember to handle it in _sis_hash.
         self.prefix_name = prefix_name
@@ -204,6 +216,7 @@ class _RecogAndScoreFunc:
         self.num_shards_pseudo = num_shards_pseudo
         self.num_shards_prior = num_shards_prior
         self.register_output = register_output
+        self.empirical_prior = empirical_prior
 
     def __call__(self, epoch_or_ckpt: Union[int, PtCheckpoint]) -> tuple[ScoreResultCollection, tk.Path]:
         if isinstance(epoch_or_ckpt, int):
@@ -215,14 +228,17 @@ class _RecogAndScoreFunc:
         
         # Calculate prior of labels if needed
         if self.task.prior_dataset:
-            prior_path = compute_prior(
-                dataset=self.task.prior_dataset,
-                model=model_with_checkpoint,
-                prior_alias_name=self.prefix_name + f"/prior/{epoch_or_ckpt:03}",
-                num_shards=self.num_shards_prior,
-            )
-            if isinstance(epoch_or_ckpt, int):
-                tk.register_output(self.prefix_name + f"/recog_results_per_epoch/{epoch_or_ckpt:03}/prior.txt", prior_path)
+            if self.empirical_prior:
+                prior_path = self.empirical_prior
+            else:
+                prior_path = compute_prior(
+                    dataset=self.task.prior_dataset,
+                    model=model_with_checkpoint,
+                    prior_alias_name=self.prefix_name + f"/prior/{epoch_or_ckpt:03}",
+                    num_shards=self.num_shards_prior,
+                )
+                if isinstance(epoch_or_ckpt, int):
+                    tk.register_output(self.prefix_name + f"/recog_results_per_epoch/{epoch_or_ckpt:03}/prior.txt", prior_path)
         else:
             prior_path = None
 
@@ -270,6 +286,8 @@ class _RecogAndScoreFunc:
             d[f"task.{k}"] = getattr(task, k)
         if getattr(task, "prior_dataset", None):
             d["task.prior_dataset"] = getattr(task, "prior_dataset")
+        if not self.empirical_prior:
+            del d["empirical_prior"]
         d["class"] = "_RecogAndScoreFunc"  # some identifier; not full qualname to allow for moving the class
         return sis_hash_helper(d)
 
@@ -1232,6 +1250,41 @@ class GetBestRecogTrainExp(sisyphus.Job):
                 f.write(f'  "{epoch}": {json.dumps(res)}')
                 count += 1
             f.write("\n}\n")
+            
+class GetBestTuneValue(sisyphus.Job):
+    def __init__(
+        self,
+        scores: list[tk.Path],
+        tune_values: list[float],
+    ):
+        self.scores = scores
+        self.tune_values = tune_values
+        self.out_best_tune = self.output_path("best_tune.json")
+
+    def tasks(self) -> Iterator[sisyphus.Task]:
+        """tasks"""
+        yield sisyphus.Task("run", mini_task=True)
+
+    def run(self):
+        """run"""
+        import json
+
+        best_score_idx = -1
+        best_score_val = 1000000.0
+        for i in range(len(self.scores)):
+            d = eval(uopen(self.scores[i], "rt").read(), {"nan": float("nan"), "inf": float("inf")})
+            assert isinstance(d, dict), "Has to be a dict containing the best score."
+            
+            if d["best_scores"]["dev-other"] < best_score_val:
+                best_score_idx = i
+                best_score_val = d["best_scores"]["dev-other"]
+                
+        best_tune = self.tune_values[best_score_idx]
+        
+        res = {"best_tune": best_tune}
+        with open(self.out_best_tune.get_path(), "w") as f:
+            f.write(json.dumps(res))
+            f.write("\n")
                 
 class ExtractPseudoLabels(sisyphus.Job):
     def __init__(

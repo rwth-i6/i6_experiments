@@ -573,6 +573,7 @@ def get_librispeech_task_raw_v2(
     save_pseudo_labels: bool = False,
     ds_sel: TrainDatasetSel,
     with_prior: bool,
+    empirical_prior: bool,
     **dataset_train_opts,
 ) -> tuple[Task, dict, Optional[LibrispeechOggZip]]:
     """
@@ -594,7 +595,7 @@ def get_librispeech_task_raw_v2(
         else:
             dataset_train_opts = dict(train_epoch_wise_filter=None)
 
-    cache_key = make_hashable((LibrispeechOggZip, vocab, train_vocab_opts, audio_opts, audio_dim, save_pseudo_labels, ds_sel, with_prior, dataset_train_opts))
+    cache_key = make_hashable((LibrispeechOggZip, vocab, train_vocab_opts, audio_opts, audio_dim, save_pseudo_labels, ds_sel, with_prior, empirical_prior, dataset_train_opts))
     if cache_key in _librispeech_task_raw_v2_cache:
         return _librispeech_task_raw_v2_cache[cache_key]
 
@@ -641,7 +642,10 @@ def get_librispeech_task_raw_v2(
         train_100_ds = LibrispeechOggZip(**dataset_common_opts, main_key="train-clean-100")
             
     if with_prior:
-        prior_dataset = LibrispeechOggZip(**dataset_common_opts, main_key=train_ds_key)
+        if empirical_prior:
+            prior_dataset = LibrispeechOggZip(**dataset_common_opts, main_key="train")
+        else:
+            prior_dataset = LibrispeechOggZip(**dataset_common_opts, main_key=train_ds_key)
     else:
         prior_dataset = None
 
@@ -662,21 +666,24 @@ def get_librispeech_task_raw_v2(
     return task, pseudo_labels_ds, train_100_ds
 
 
-def _extract_audio_seq_len_file(train_dataset: DatasetConfig):
+def _extract_audio_seq_len_file(train_dataset: DatasetConfig, *, use_main_ds: bool = False):
     """
     Extract audio seq len file
     """
     from sisyphus import tk
     from i6_core.returnn.dataset import ExtractSeqLensJob
 
-    ds_dict = train_dataset.get_train_dataset()
+    if use_main_ds:
+        ds_dict = train_dataset.get_main_dataset()
+    else:
+        ds_dict = train_dataset.get_train_dataset()
     # The code is semi-generic. But anyway double check for now. Later to be extended...
     if ds_dict["class"] == "MetaDataset":
         ds_dict = ds_dict["datasets"]["zip_dataset"]
     assert ds_dict["class"] in {"OggZipDataset", "LibriSpeechCorpus"}
     if ds_dict["audio"] is None:
         return None
-    ds_dict.pop("partition_epoch")
+    ds_dict.pop("partition_epoch", None)
     ds_dict["targets"] = None
     ds_dict.pop("epoch_wise_filter", None)
     ds_dict.pop("seq_ordering")
@@ -700,7 +707,7 @@ def _extract_audio_seq_len_file(train_dataset: DatasetConfig):
     return job.out_file
 
 
-def _extract_text_seq_len_file(train_dataset: DatasetConfig, vocab_cfg: Union[str, VocabConfig], *, name: str):
+def _extract_text_seq_len_file(train_dataset: DatasetConfig, vocab_cfg: Union[str, VocabConfig], *, name: str, use_main_ds: bool = False):
     """
     Extract target seq len file
     """
@@ -717,13 +724,16 @@ def _extract_text_seq_len_file(train_dataset: DatasetConfig, vocab_cfg: Union[st
     else:
         raise TypeError(f"invalid vocab_cfg {vocab_cfg!r} type {type(vocab_cfg)}")
 
-    ds_dict = train_dataset.get_train_dataset()
+    if use_main_ds:
+        ds_dict = train_dataset.get_main_dataset()
+    else:
+        ds_dict = train_dataset.get_train_dataset()
     if ds_dict["class"] == "MetaDataset":
         ds_dict = ds_dict["datasets"]["pseudo_labels_dataset"]
     # The code is semi-generic. But anyway double check for now. Later to be extended...
     assert ds_dict["class"] in {"OggZipDataset", "LibriSpeechCorpus", "LmDataset"}
     vocab_key = "targets" if ds_dict["class"] in {"OggZipDataset", "LibriSpeechCorpus"} else "orth_vocab"
-    ds_dict.pop("partition_epoch")
+    ds_dict.pop("partition_epoch", None)
     if ds_dict["class"] in {"OggZipDataset", "LibriSpeechCorpus"}:
         assert "audio" in ds_dict
         ds_dict["audio"] = None

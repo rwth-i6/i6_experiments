@@ -23,7 +23,7 @@ from i6_experiments.users.zeyer.model_interfaces import ModelDef, ModelDefWithCf
 from i6_experiments.users.zeyer.speed_pert.librosa_config import speed_pert_librosa_config
 from i6_experiments.users.zeyer.returnn.models.rf_layerdrop import SequentialLayerDrop
 from i6_experiments.users.mueller.train import ExtendedTrainDef
-from i6_experiments.users.mueller.experiments.language_models.n_gram import get_count_based_n_gram
+from i6_experiments.users.mueller.experiments.language_models.n_gram import get_count_based_n_gram, get_prior_from_unigram
 
 from i6_core.util import uopen
 
@@ -61,23 +61,27 @@ def py():
     use_flashlight = True
     use_greedy = False
     epochs = 500
-    self_training_rounds = 1
+    self_training_rounds = 5
     train_small = True
     with_prior = True
-    use_sum_criterion = True
-    aux_loss = False
-    alt_decoder = False
+    empirical_prior = True
+    aux_loss = True
+    alt_decoder = True
+    calc_last_pseudo_labels = True
+    tune_hyperparameters = True
+    
+    use_sum_criterion = False
     horizontal_prior = True
     blank_prior = True
     prior_gradient = False
     LM_order = 2
     top_k = 1
-    self_train_subset = 18000
+    self_train_subset = None
     
     if train_small:
         epochs = 50
     if self_training_rounds > 0:
-        self_epochs = 56 # 450, 225, 113, 56
+        self_epochs = 45 # 450, 225, 113, 75, 56, 45
     
     decoder_hyperparameters = None
     if use_greedy:
@@ -87,7 +91,7 @@ def py():
         greedy_str = "-recog_greedy"
         if with_prior:
             decoder_hyperparameters["prior_weight"] = 0.2
-            greedy_str += f"_p{str(decoder_hyperparameters['prior_weight']).replace('.', '')}"
+            greedy_str += f"_p{str(decoder_hyperparameters['prior_weight']).replace('.', '')}" + ("-emp" if empirical_prior else "")
     elif use_flashlight:
         decoder_hyperparameters = {
             "log_add": False,
@@ -99,9 +103,9 @@ def py():
             "use_lexicon": True,
         }
         if with_prior:
-            decoder_hyperparameters["prior_weight"] = 0.2
+            decoder_hyperparameters["prior_weight"] = 0.3 # 0.2 if not using emprirical prior
             
-        p0 = f"_p{str(decoder_hyperparameters['prior_weight']).replace('.', '')}" if with_prior else ""
+        p0 = f"_p{str(decoder_hyperparameters['prior_weight']).replace('.', '')}" + ("-emp" if empirical_prior else "") if with_prior else ""
         p1 = "sum" if decoder_hyperparameters['log_add'] else "max"
         p2 = f"n{decoder_hyperparameters['nbest']}"
         p3 = f"b{decoder_hyperparameters['beam_size']}"
@@ -118,7 +122,7 @@ def py():
             if with_prior:
                 alt_decoder_hyperparameters["prior_weight"] = 0.3
                 
-            if False:
+            if use_sum_criterion:
                 alt_decoder_hyperparameters["lm_weight"] = 0.0
                 alt_decoder_hyperparameters["prior_weight"] = 0.0
                 alt_decoder_hyperparameters["use_lm"] = False
@@ -127,10 +131,11 @@ def py():
             else:
                 str_add = ""
                 
-            a0 = f"_p{str(alt_decoder_hyperparameters['prior_weight']).replace('.', '')}" if with_prior else ""
+            a0 = f"_p{str(alt_decoder_hyperparameters['prior_weight']).replace('.', '')}" + ("-emp" if empirical_prior else "") if with_prior else ""
             a1 = f"b{alt_decoder_hyperparameters['beam_size']}"
             a2 = f"w{str(alt_decoder_hyperparameters['lm_weight']).replace('.', '')}"
-            lm_hyperparamters_str += f"_ALT{a0}_{a1}_{a2}{str_add}"
+            a3 = "_tune" if tune_hyperparameters else ""
+            lm_hyperparamters_str += f"_ALT{a3}{a0}_{a1}_{a2}{str_add}"
     
     config_updates = {
         **_get_cfg_lrlin_oclr_by_bs_nep(15_000, epochs),
@@ -150,7 +155,7 @@ def py():
     } if self_training_rounds > 0 else None
 
     for am, lm, prior in [
-        (1.0, 0.0, 0.2)
+        (1.0, 0.0, 0.55)
     ]:
         if use_sum_criterion:
             training_scales = {
@@ -191,6 +196,7 @@ def py():
             self_training_rounds = self_training_rounds,
             train_small = train_small,
             with_prior = with_prior,
+            empirical_prior=empirical_prior,
             use_sum_criterion=use_sum_criterion,
             aux_loss=aux_loss,
             horizontal_prior=horizontal_prior,
@@ -200,6 +206,8 @@ def py():
             top_k=top_k,
             training_scales=training_scales if use_sum_criterion else None,
             self_train_subset=self_train_subset,
+            calc_last_pseudo_labels=calc_last_pseudo_labels,
+            tune_hyperparameters=tune_hyperparameters,
         )
     
 
@@ -233,6 +241,7 @@ def train_exp(
     self_training_rounds: int = 0,
     train_small: bool = False,
     with_prior: bool = False,
+    empirical_prior: bool = False,
     use_sum_criterion: bool = False,
     aux_loss: bool = False,
     horizontal_prior: bool = True,
@@ -242,12 +251,14 @@ def train_exp(
     top_k: int = 0,
     training_scales: Optional[Dict[str, float]] = None,
     self_train_subset: Optional[int] = None,
+    calc_last_pseudo_labels: bool = False,
+    tune_hyperparameters: bool = False,
 ) -> Optional[ModelWithCheckpoints]:
     """
     Train experiment
     """
     from i6_experiments.users.mueller.train import train
-    from i6_experiments.users.mueller.recog import recog_training_exp
+    from i6_experiments.users.mueller.recog import recog_training_exp, GetBestTuneValue
     from i6_experiments.users.mueller.datasets.librispeech import get_librispeech_task_raw_v2, TrainDatasetSel
 
     print("Job Name:", name)
@@ -262,10 +273,15 @@ def train_exp(
     task, pseudo_labels_ds, train_100_ds = get_librispeech_task_raw_v2(
         vocab=vocab,
         train_vocab_opts=train_vocab_opts,
-        save_pseudo_labels = self_training_rounds > 0,
+        save_pseudo_labels = self_training_rounds > 0 or calc_last_pseudo_labels,
         ds_sel = TrainDatasetSel.train_100h if train_small else TrainDatasetSel.train_960h,
-        with_prior=with_prior
+        with_prior=with_prior,
+        empirical_prior=empirical_prior,
     )
+    
+    if with_prior and empirical_prior:
+        emp_prior = get_prior_from_unigram(task.prior_dataset.vocab, task.prior_dataset, vocab)
+    
     config = config.copy()
     config = dict_update_deep(config, config_updates, config_deletes)
     # This logic is also in train(), but keep it here because it would break the hash because of _RecogAndScoreFunc...
@@ -308,11 +324,13 @@ def train_exp(
         model_with_checkpoint[0],
         recog_def=decoder_def,
         decoder_hyperparameters=decoder_hyperparameters,
-        save_pseudo_labels=(pseudo_labels_ds, train_100_ds) if self_training_rounds > 0 else None,
-        calculate_pseudo_label_scores=False,
+        save_pseudo_labels=(pseudo_labels_ds, train_100_ds) if calc_last_pseudo_labels or self_training_rounds > 0 else None,
+        calculate_pseudo_label_scores=True,
         recog_post_proc_funcs=recog_post_proc_funcs,
-        # num_shards_pseudo=64,
+        num_shards_pseudo=64,
         # num_shards_prior=64,
+        is_last=self_training_rounds == 0,
+        empirical_prior=emp_prior if with_prior and empirical_prior else None,
     )
     
     # Do self training on pseudo labels
@@ -324,6 +342,7 @@ def train_exp(
             train_vocab_opts=train_vocab_opts,
             ds_sel = TrainDatasetSel.train_860h if train_small else TrainDatasetSel.train_960h,
             with_prior=with_prior,
+            empirical_prior=empirical_prior,
             pseudo_label_path = pseudo_label_path_dict,
             train_subset = self_train_subset,
             eval_subset = 300 if self_train_subset else 3000,
@@ -364,6 +383,11 @@ def train_exp(
 
         # Use different LR if second iteration, NOTE: this is very specific to 860h training
         if i > 0:
+            # if i > 2:
+            #     peak_lr = 4e-4
+            #     config_self["learning_rate_piecewise_values"] = [peak_lr, peak_lr, peak_lr * 3e-2, peak_lr * 3e-3]
+            #     config_self["learning_rate_piecewise_steps"] = [20_000] + config_self["learning_rate_piecewise_steps"][1:]
+            # else:
             peak_lr = 4e-4
             config_self["learning_rate_piecewise_values"] = [peak_lr * 1e-1, peak_lr, peak_lr * 3e-2, peak_lr * 3e-3]
             config_self["learning_rate_piecewise_steps"] = [20_000] + config_self["learning_rate_piecewise_steps"][1:]
@@ -389,17 +413,68 @@ def train_exp(
             for k, v in env_updates.items():
                 train_job.set_env(k, v)
         
+        if tune_hyperparameters:
+            original_params = hyperparamters_self_training if hyperparamters_self_training else decoder_hyperparameters
+            params = copy.copy(original_params)
+            params.pop("lm_weight_tune", None)
+            params.pop("prior_weight_tune", None)
+            default_lm = original_params.get("lm_weight")
+            default_prior = original_params.get("prior_weight")
+            lm_scores = []
+            prior_scores = []
+            lm_tune_ls = [0.0, 0.05, 0.1, -0.05, -0.1]
+            prior_tune_ls = [0.0, 0.05, 0.1, -0.05, -0.1]
+            for dc_lm in lm_tune_ls:
+                params["lm_weight"] = default_lm + dc_lm
+                score = recog_training_exp(
+                    prefix_self_training + f"/tune/lm/{str(dc_lm).replace('.', '').replace('-', 'm')}",
+                    task,
+                    model_with_checkpoint[i + 1],
+                    recog_def=decoder_def,
+                    decoder_hyperparameters=params,
+                    recog_post_proc_funcs=recog_post_proc_funcs,
+                    num_shards_prior=64,
+                    empirical_prior=emp_prior if with_prior and empirical_prior else None,
+                    return_summary = True
+                )
+                lm_scores.append(score)
+            best_lm_tune = GetBestTuneValue(lm_scores, lm_tune_ls).out_best_tune
+            tk.register_output(prefix_self_training + "/tune/lm_best", best_lm_tune)
+            params["lm_weight"] = default_lm
+            params["lm_weight_tune"] = best_lm_tune
+            for dc_prior in prior_tune_ls:
+                params["prior_weight"] = default_prior + dc_prior
+                score = recog_training_exp(
+                    prefix_self_training + f"/tune/prior/{str(dc_prior).replace('.', '').replace('-', 'm')}",
+                    task,
+                    model_with_checkpoint[i + 1],
+                    recog_def=decoder_def,
+                    decoder_hyperparameters=params,
+                    recog_post_proc_funcs=recog_post_proc_funcs,
+                    num_shards_prior=64,
+                    empirical_prior=emp_prior if with_prior and empirical_prior else None,
+                    return_summary = True
+                )
+                prior_scores.append(score)
+            best_prior_tune = GetBestTuneValue(prior_scores, prior_tune_ls).out_best_tune
+            tk.register_output(prefix_self_training + "/tune/prior_best", best_prior_tune)
+            
+            original_params["lm_weight_tune"] = best_lm_tune
+            original_params["prior_weight_tune"] = best_prior_tune
+        
         pseudo_label_path_dict = recog_training_exp(
             prefix_self_training,
             task,
             model_with_checkpoint[i + 1],
             recog_def=decoder_def,
             decoder_hyperparameters=hyperparamters_self_training if hyperparamters_self_training else decoder_hyperparameters,
-            save_pseudo_labels=None if i+1 == self_training_rounds else (pseudo_labels_ds, train_100_ds),
+            save_pseudo_labels=None if not calc_last_pseudo_labels and i+1 == self_training_rounds else (pseudo_labels_ds, train_100_ds),
             calculate_pseudo_label_scores=True,
             recog_post_proc_funcs=recog_post_proc_funcs,
             num_shards_pseudo=64,
             num_shards_prior=64,
+            is_last=i+1 == self_training_rounds,
+            empirical_prior=emp_prior if with_prior and empirical_prior else None,
         )
 
     _train_experiments[name] = model_with_checkpoint[-1]
@@ -973,9 +1048,9 @@ def ctc_sum_training(*, model: Model, data: rf.Tensor, data_spatial_dim: Dim, lm
         data = rf.squeeze(data, axis=data.feature_dim)
     assert not data.feature_dim  # raw audio
     
-    if am_scale == 0.7:
-        print("Data", data)
-        print("Batch", data.batch)
+    # if prior_scale == 0.55: # TODO kann ich seq tags auslesen? (wahrscheinlich muss ich das in der train.py mit übergeben weil hier nur tensor)
+    #     print("Data", data) # Return Tensor{'data', [B,T|'time'[B]]}
+    #     print("Batch", data.batch) # Return None
     
     
     with uopen(lm_path, "rb") as f:
@@ -1170,6 +1245,7 @@ def model_recog_lm(
     """
     from torchaudio.models.decoder import ctc_decoder
     import torch
+    import json
     from returnn.util.basic import cf
     
     # Get the logits from the model
@@ -1178,7 +1254,23 @@ def model_recog_lm(
     hyp_params = copy.copy(hyperparameters)
     greedy = hyp_params.pop("greedy", False)
     prior_weight = hyp_params.pop("prior_weight", 0.0)
+    prior_weight_tune = hyp_params.pop("prior_weight_tune", None)
+    lm_weight_tune = hyp_params.pop("lm_weight_tune", None)
     use_logsoftmax = hyp_params.pop("use_logsoftmax", False)
+    
+    if prior_weight_tune:
+        prior_weight_tune = json.load(open(prior_weight_tune))
+        prior_weight_tune = prior_weight_tune["best_tune"]
+        assert type(prior_weight_tune) == float, "Prior weight tune is not a float!"
+        print(f"Prior weight with tune: {prior_weight} + {prior_weight_tune} = {prior_weight + prior_weight_tune}")
+        prior_weight += prior_weight_tune
+    if lm_weight_tune:
+        lm_weight_tune = json.load(open(lm_weight_tune))
+        lm_weight_tune = lm_weight_tune["best_tune"]
+        assert type(lm_weight_tune) == float, "LM weight tune is not a float!"
+        old_lm_weight = hyp_params.get("lm_weight", 0.0)
+        print(f"LM weight with tune: {old_lm_weight} + {lm_weight_tune} = {old_lm_weight + lm_weight_tune}")
+        hyp_params["lm_weight"] = old_lm_weight + lm_weight_tune
     
     if greedy:
         use_logsoftmax = True
