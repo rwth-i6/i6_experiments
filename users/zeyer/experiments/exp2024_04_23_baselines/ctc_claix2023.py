@@ -118,7 +118,7 @@ def py():
     # shuffleBatch100. But not so relevant here? No large laplace, also max 200 seqs in batch.
     # (n12-b250k-shuffleBatch100-spm10k) 6.15
 
-    # Small vocab, now time downsampling 4.
+    # Small vocab (spm512), now time downsampling 4.
     ctc_train_exp(  # 5.99
         "time4-n12-spm512-auxAED-b150k",
         config_96gb_bf16_accgrad1,
@@ -204,6 +204,7 @@ def py():
     #     env_updates={"PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"},
     # )
 
+    # Diff am/prior scales, with downsampling 4, spm512, blank separation.
     for am_scale, prior_scale, prior_type in [
         # Baseline (1.0, 0.0, None): 5.97
         # (0.7, 0.0, None),  # 6.21
@@ -258,6 +259,7 @@ def py():
             env_updates={"PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"},
         )
 
+    # Diff am/prior scales, with downsampling 4, spm512.
     for am_scale, prior_scale, prior_type in [
         # Baseline (1.0, 0.0, None): 5.99
         # (0.7, 0.0, None),  # 6.34
@@ -352,6 +354,7 @@ def py():
         env_updates={"PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"},
     )
 
+    # Time downsampling 4, spm10k.
     # Blank separated (blankSep). Baseline (without blankSep): 5.85
     ctc_train_exp(  # 5.77. so some small improvement.
         "time4-n12-spm10k-blankSep-auxAED-b150k",
@@ -396,6 +399,7 @@ def py():
         env_updates={"PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"},
     )
 
+    # Time downsampling 6 (standard), spm10k.
     # Blank separated (blankSep).
     for blank_sep in [False, True]:
         ctc_train_exp(
@@ -437,6 +441,7 @@ def py():
     from i6_experiments.common.setups import serialization
     from sisyphus import gs
 
+    # Diff am/prior scales, with downsampling 4, spm10k.
     for am_scale, prior_scale, prior_type in [
         # Baseline (1.0, 0.0, None): 5.85
         # (0.7, 0.0, None),  # 6.2
@@ -490,6 +495,7 @@ def py():
             env_updates={"PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"},
         )
 
+    # Time downsampling 4, spm10k.
     # Log prob normed gradient (lpNormedGrad)
     # Baseline without lpNormedGrad: 5.85
     for name, opts in {
@@ -586,6 +592,7 @@ def py():
             ],
         )
 
+    # Time downsampling 6, spm10k.
     # Log prob normed gradient (lpNormedGrad)
     for name, opts in {
         "": {},
@@ -688,6 +695,8 @@ def py():
             else (),
         )
 
+    # Time downsampling 6.
+    # Comparing different vocabs, samplings (using max_seq_length_default_input).
     for vocab, sample, alpha in [
         ("spm10k", "bpe", 0.01),  # 6.01 (5.93 without max seq len on audio)
         # ("spm512", None, None),  # 6.08 (11gb)
@@ -752,7 +761,7 @@ def py():
             env_updates={"PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"},
         )
 
-    # Another baseline.
+    # Another baseline. Time downsampling 6, spm512.
     ctc_train_exp(  # {"dev-clean": 2.36, "dev-other": 6.14, "test-clean": 2.56, "test-other": 6.15}
         f"n12-auxAED-b200k-spm512-bpeSample0005",
         config_96gb_bf16_accgrad1,
