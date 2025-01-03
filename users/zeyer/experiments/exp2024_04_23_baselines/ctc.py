@@ -2115,6 +2115,12 @@ class Model(rf.Module):
                 auxiliary=True,
                 non_critical_for_restore=True,
             )
+        self.prior_running_mean_momentum = config.typed_value("prior_running_mean_momentum", None)
+        self.prior_running_mean = None
+        if self.prior_running_mean_momentum is not None:
+            self.prior_running_mean = rf.Parameter(
+                [self.wb_target_dim], auxiliary=True, initial=1.0 / self.wb_target_dim.dimension
+            )
 
         if target_dim.vocab and not wb_target_dim.vocab:
             from returnn.datasets.util.vocabulary import Vocabulary
@@ -2305,6 +2311,20 @@ class Model(rf.Module):
                 out_dim=self.wb_target_dim,
             )
             log_probs.feature_dim = self.wb_target_dim
+
+        if self.prior_running_mean_momentum is not None:
+
+            def _update_running_stats():
+                batch_prior = rf.reduce_mean(
+                    rf.exp(log_probs), axis=[d for d in log_probs.dims if d != self.wb_target_dim]
+                )
+                assert batch_prior.dims == (self.wb_target_dim,)
+                self.prior_running_mean.assign_add(
+                    self.prior_running_mean_momentum * (batch_prior - self.prior_running_mean)
+                )
+
+            rf.cond(rf.get_run_ctx().train_flag, _update_running_stats, lambda: None)
+
         log_probs = self._maybe_apply_on_log_probs(log_probs)
         if self.ctc_am_scale == 1 and self.ctc_prior_scale == 0:  # fast path
             return log_probs
@@ -2318,6 +2338,10 @@ class Model(rf.Module):
                 assert log_prob_prior.dims == (self.wb_target_dim,)
             elif self.ctc_prior_type == "static":
                 log_prob_prior = self.static_prior
+                assert log_prob_prior.dims == (self.wb_target_dim,)
+            elif self.ctc_prior_type == "running_mean":
+                assert self.prior_running_mean is not None
+                log_prob_prior = rf.safe_log(self.prior_running_mean)
                 assert log_prob_prior.dims == (self.wb_target_dim,)
             else:
                 raise ValueError(f"invalid ctc_prior_type {self.ctc_prior_type!r}")
