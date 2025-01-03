@@ -652,6 +652,18 @@ def py():
                 }
             }
         },
+        "-lpNormedGradC05_11P07NExp1_1": {
+            "log_prob_normed_grad": {
+                "prior_running_mean_momentum": 0.1,
+                "func": {
+                    "clamp_min": 0.5,
+                    "clamp_max": 1.1,
+                    "scale_type": "inv_num_labels",
+                    "prior_exp": 0.7,
+                    "prior_renorm": True,
+                },
+            }
+        },
         "-lpNormedGradC05_11P07NExp1_3": {
             "log_prob_normed_grad": {
                 "prior_running_mean_momentum": 0.001,
