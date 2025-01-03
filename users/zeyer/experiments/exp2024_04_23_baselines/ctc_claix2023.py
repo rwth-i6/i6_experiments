@@ -727,6 +727,8 @@ def py():
         (0.5, 0.2, "-priorBatch", "batch", {}),
         (0.7, 0.2, "-priorBatch", "batch", {}),
         (0.7, 0.2, "-priorRunningMean1e_3", "running_mean", {"prior_running_mean_momentum": 0.001}),
+        (0.5, 0.2, "-priorRunningMean1e_3", "running_mean", {"prior_running_mean_momentum": 0.001}),
+        (0.3, 0.15, "-priorRunningMean1e_3", "running_mean", {"prior_running_mean_momentum": 0.001}),
     ]:
         ctc_train_exp(
             f"n12-spm10k-am{am_scale}-prior{prior_scale}{name}-auxAED-b150k",
