@@ -442,12 +442,12 @@ def py():
     from sisyphus import gs
 
     # Diff am/prior scales, with downsampling 4, spm10k.
-    for am_scale, prior_scale, prior_type in [
-        # Baseline (1.0, 0.0, None): 5.85
-        # (0.7, 0.0, None),  # 6.2
-        # (0.5, 0.2, "batch"),  # 13.38
-        # (0.5, 0.5, "batch"),
-        # (1.0, 1.0, "batch"),
+    for am_scale, prior_scale, prior_type, ext_train_opts in [
+        # Baseline (1.0, 0.0, None, {}): 5.85
+        # (0.7, 0.0, None, {}),  # 6.2
+        # (0.5, 0.2, "batch", {}),  # 13.38
+        (0.7, 0.2, "batch", {}),
+        (0.7, 0.2, "running_mean", {"prior_running_mean_momentum": 0.001}),
     ]:
         ctc_train_exp(
             f"time4-n12-spm10k-am{am_scale}-prior{prior_scale}-priorType{prior_type}-auxAED-b150k",
@@ -485,6 +485,7 @@ def py():
                 "ctc_am_scale": am_scale,
                 "ctc_prior_scale": prior_scale,
                 "ctc_prior_type": prior_type,
+                **ext_train_opts,
                 "use_fixed_ctc_grad": "v2",
             },
             post_config_updates={"log_grad_norm": True, "__multi_proc_dataset_opts": {"num_workers": 25}},
