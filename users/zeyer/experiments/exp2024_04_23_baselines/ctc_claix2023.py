@@ -724,6 +724,7 @@ def py():
     for am_scale, prior_scale, name, prior_type, extra_train_opts in [
         # Baseline (1.0, 0.0, None):
         (0.7, 0.0, "", None, {}),
+        (0.5, 0.2, "-priorSeq", "seq", {}),
         (0.5, 0.2, "-priorBatch", "batch", {}),
         (0.7, 0.2, "-priorBatch", "batch", {}),
         (0.7, 0.2, "-priorRunningMean1e_3", "running_mean", {"prior_running_mean_momentum": 0.001}),

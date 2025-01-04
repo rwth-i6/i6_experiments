@@ -8,7 +8,7 @@ import copy
 import functools
 from typing import TYPE_CHECKING, Optional, Union, Tuple, Sequence
 
-from returnn.tensor import Tensor, Dim
+from returnn.tensor import Tensor, Dim, batch_dim
 import returnn.frontend as rf
 from returnn.frontend.tensor_array import TensorArray
 from returnn.frontend.encoder.conformer import ConformerEncoder, ConformerEncoderLayer, ConformerConvSubsample
@@ -2336,6 +2336,11 @@ class Model(rf.Module):
                     log_probs_am, axis=[dim for dim in log_probs_am.dims if dim != self.wb_target_dim]
                 )
                 assert log_prob_prior.dims == (self.wb_target_dim,)
+            elif self.ctc_prior_type == "seq":
+                log_prob_prior = rf.reduce_logsumexp(
+                    log_probs_am, axis=[dim for dim in log_probs_am.dims if dim not in (batch_dim, self.wb_target_dim)]
+                )
+                assert log_prob_prior.dims_set == {batch_dim, self.wb_target_dim}
             elif self.ctc_prior_type == "static":
                 log_prob_prior = self.static_prior
                 assert log_prob_prior.dims == (self.wb_target_dim,)
