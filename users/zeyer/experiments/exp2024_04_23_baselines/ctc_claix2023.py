@@ -726,6 +726,7 @@ def py():
         (0.7, 0.0, "", None, {}),
         (0.5, 0.2, "-priorSeq", "seq", {}),
         (0.5, 0.2, "-priorBatch", "batch", {}),
+        (0.5, 0.2, "-priorBatchFixed", "batch_fixed", {}),
         (0.7, 0.2, "-priorBatch", "batch", {}),
         (0.7, 0.2, "-priorRunningMean1e_3", "running_mean", {"prior_running_mean_momentum": 0.001}),
         (0.5, 0.2, "-priorRunningMean1e_3", "running_mean", {"prior_running_mean_momentum": 0.001}),
