@@ -2354,6 +2354,14 @@ class Model(rf.Module):
                     log_probs_am, axis=[dim for dim in log_probs_am.dims if dim not in (batch_dim, self.wb_target_dim)]
                 )
                 assert log_prob_prior.dims_set == {batch_dim, self.wb_target_dim}
+            elif self.ctc_prior_type == "seq_stop_grad":
+                log_prob_prior = rf.stop_gradient(
+                    rf.reduce_logmeanexp(
+                        log_probs_am,
+                        axis=[dim for dim in log_probs_am.dims if dim not in (batch_dim, self.wb_target_dim)],
+                    )
+                )
+                assert log_prob_prior.dims_set == {batch_dim, self.wb_target_dim}
             elif self.ctc_prior_type == "static":
                 log_prob_prior = self.static_prior
                 assert log_prob_prior.dims == (self.wb_target_dim,)
