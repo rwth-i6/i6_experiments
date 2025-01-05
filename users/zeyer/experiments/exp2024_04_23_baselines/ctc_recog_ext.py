@@ -2,9 +2,8 @@
 CTC recognition with LM
 """
 
-from typing import Optional, Union, Any, TypeVar, Sequence, Tuple, Dict
+from typing import Optional, Any, TypeVar, Sequence, Tuple, Dict
 import functools
-import sys
 
 from returnn.tensor import Tensor, Dim, single_step_dim
 import returnn.frontend as rf
@@ -19,7 +18,7 @@ from i6_experiments.users.zeyer.model_interfaces import ModelDef, ModelDefWithCf
 from i6_experiments.users.zeyer.recog import recog_model
 from i6_experiments.users.zeyer.collect_model_dataset_stats import collect_statistics
 
-from .ctc import Model, _get_ctc_model_kwargs_from_global_config, _batch_size_factor
+from .ctc import Model, ctc_model_def, _batch_size_factor
 
 
 _ctc_model_name = (
@@ -149,25 +148,6 @@ def _get_lm_model(name: str) -> ModelWithCheckpoint:
     return model
 
 
-class ModelExt(Model):
-    """
-    Model extended with LM.
-
-    Base model already can have a prior (static_prior).
-    """
-
-    def __init__(self, *, lm: Union[TransformerDecoder, Any], lm_scale: float, **kwargs):
-        """
-        :param lm: language model. We usually have TransformerDecoder, but any other type would also be ok
-            when it has the same API.
-        :param lm_scale: LM scale factor.
-        :param kwargs: passed to super.
-        """
-        super().__init__(**kwargs)
-        self.lm = lm
-        self.lm_scale = lm_scale
-
-
 def get_ctc_with_lm(
     *,
     ctc_model: ModelWithCheckpoint,
@@ -223,7 +203,10 @@ def ctc_model_ext_def(*, epoch: int, in_dim: Dim, target_dim: Dim) -> Model:
     lm = rf.build_from_dict(config.typed_value("_lm_model_def_dict"), vocab_dim=target_dim)
     lm_scale = config.typed_value("lm_scale", None)
     assert isinstance(lm_scale, (int, float))
-    return ModelExt(**_get_ctc_model_kwargs_from_global_config(target_dim=target_dim), lm=lm, lm_scale=lm_scale)
+    model = ctc_model_def(epoch=epoch, in_dim=in_dim, target_dim=target_dim)
+    model.lm = lm
+    model.lm_scale = lm_scale
+    return model
 
 
 ctc_model_ext_def: ModelDef[Model]
@@ -234,7 +217,7 @@ ctc_model_ext_def.batch_size_factor = _batch_size_factor
 
 def model_recog(
     *,
-    model: ModelExt,
+    model: Model,
     data: Tensor,
     data_spatial_dim: Dim,
 ) -> Tuple[Tensor, Tensor, Dim, Dim]:
@@ -282,14 +265,20 @@ def model_recog(
         model.blank_idx, dims=batch_dims_, sparse_dim=model.wb_target_dim
     )  # Batch, InBeam -> VocabWB
 
-    lm_state = model.lm.default_initial_state(batch_dims=batch_dims_)  # Batch, InBeam, ...
-    lm_logits, lm_state = model.lm(
+    # We usually have TransformerDecoder, but any other type would also be ok when it has the same API.
+    # noinspection PyUnresolvedReferences
+    lm: TransformerDecoder = model.lm
+    # noinspection PyUnresolvedReferences
+    lm_scale: float = model.lm_scale
+
+    lm_state = lm.default_initial_state(batch_dims=batch_dims_)  # Batch, InBeam, ...
+    lm_logits, lm_state = lm(
         target,
         spatial_dim=single_step_dim,
         state=lm_state,
     )  # Batch, InBeam, Vocab / ...
     lm_log_probs = rf.log_softmax(lm_logits, axis=model.target_dim)  # Batch, InBeam, Vocab
-    lm_log_probs *= model.lm_scale
+    lm_log_probs *= lm_scale
 
     lm_log_probs = lm_log_probs.copy_compatible_to_dims(batch_dims_ + [model.target_dim])
     print("* lm_log_probs initial:", lm_log_probs)

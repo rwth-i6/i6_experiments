@@ -1717,16 +1717,7 @@ def _sis_setup_global_prefix(prefix_name: Optional[str] = None):
 def ctc_model_def(*, epoch: int, in_dim: Dim, target_dim: Dim) -> Model:
     """Function is run within RETURNN."""
     in_dim, epoch  # noqa
-    return Model(**_get_ctc_model_kwargs_from_global_config(target_dim=target_dim))
 
-
-ctc_model_def: ModelDef[Model]
-ctc_model_def.behavior_version = 21
-ctc_model_def.backend = "torch"
-ctc_model_def.batch_size_factor = _batch_size_factor
-
-
-def _get_ctc_model_kwargs_from_global_config(*, target_dim: Dim) -> Dict[str, Any]:
     from returnn.config import get_global_config
 
     config = get_global_config()  # noqa
@@ -1759,7 +1750,7 @@ def _get_ctc_model_kwargs_from_global_config(*, target_dim: Dim) -> Dict[str, An
         )
     enc_other_opts = config.typed_value("enc_other_opts", None)
 
-    return dict(
+    return Model(
         in_dim=in_dim,
         enc_build_dict=config.typed_value("enc_build_dict", None),  # alternative more generic/flexible way
         num_enc_layers=num_enc_layers,
@@ -1773,6 +1764,12 @@ def _get_ctc_model_kwargs_from_global_config(*, target_dim: Dim) -> Dict[str, An
         eos_idx=_get_eos_idx(target_dim),
         enc_aux_logits=enc_aux_logits or (),
     )
+
+
+ctc_model_def: ModelDef[Model]
+ctc_model_def.behavior_version = 21
+ctc_model_def.backend = "torch"
+ctc_model_def.batch_size_factor = _batch_size_factor
 
 
 def _get_bos_idx(target_dim: Dim) -> int:
