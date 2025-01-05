@@ -1750,7 +1750,16 @@ def ctc_model_def(*, epoch: int, in_dim: Dim, target_dim: Dim) -> Model:
         )
     enc_other_opts = config.typed_value("enc_other_opts", None)
 
-    return Model(
+    cls = Model
+    cls_name = config.typed_value("ctc_model_cls", None)
+    if cls_name:
+        import importlib
+
+        mod_name, cls_name = cls_name.rsplit(".", 1)
+        mod = importlib.import_module(mod_name)
+        cls = getattr(mod, cls_name)
+
+    return cls(
         in_dim=in_dim,
         enc_build_dict=config.typed_value("enc_build_dict", None),  # alternative more generic/flexible way
         num_enc_layers=num_enc_layers,
@@ -2298,7 +2307,7 @@ class Model(rf.Module):
         :param collected_outputs: from __call__
         :return: logits
         """
-        linear = getattr(self, f"enc_aux_logits_{aux_layer}")
+        linear: rf.Linear = getattr(self, f"enc_aux_logits_{aux_layer}")
         aux_logits = linear(collected_outputs[str(aux_layer - 1)])
         return aux_logits
 
