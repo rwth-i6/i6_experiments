@@ -44,7 +44,7 @@ class ModelSepBlank(rf.Module):
         enc_conformer_layer: Optional[Dict[str, Any]] = None,
         enc_other_opts: Optional[Dict[str, Any]] = None,
     ):
-        super(Model, self).__init__()
+        super().__init__()
 
         self.in_dim = in_dim
 
