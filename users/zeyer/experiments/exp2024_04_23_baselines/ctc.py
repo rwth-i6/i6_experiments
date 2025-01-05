@@ -1829,8 +1829,7 @@ def ctc_training(*, model: Model, data: rf.Tensor, data_spatial_dim: Dim, target
         for i, layer_idx in enumerate(aux_loss_layers):
             if layer_idx > len(model.encoder.layers):
                 continue
-            linear = getattr(model, f"enc_aux_logits_{layer_idx}")
-            aux_logits = linear(collected_outputs[str(layer_idx - 1)])
+            aux_logits = model.aux_logits_from_collected_outputs(layer_idx, collected_outputs)
             aux_log_probs = model.log_probs_wb_from_logits(aux_logits, aux_layer=layer_idx)
             aux_loss = ctc_loss(
                 logits=aux_log_probs,
@@ -2292,6 +2291,16 @@ class Model(rf.Module):
         enc, enc_spatial_dim = self.encoder(source, in_spatial_dim=in_spatial_dim, collected_outputs=collected_outputs)
         logits = self.enc_logits(enc)
         return logits, enc, enc_spatial_dim
+
+    def aux_logits_from_collected_outputs(self, aux_layer: int, collected_outputs: Dict[str, Tensor]) -> Tensor:
+        """
+        :param aux_layer:
+        :param collected_outputs: from __call__
+        :return: logits
+        """
+        linear = getattr(self, f"enc_aux_logits_{aux_layer}")
+        aux_logits = linear(collected_outputs[str(aux_layer - 1)])
+        return aux_logits
 
     def log_probs_wb_from_logits(self, logits: Tensor, *, aux_layer: Optional[int] = None) -> Tensor:
         """
