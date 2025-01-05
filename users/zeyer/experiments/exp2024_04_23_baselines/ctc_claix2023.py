@@ -734,6 +734,20 @@ def py():
         (0.5, 0.2, "-priorRunningMean1e_3", "running_mean", {"prior_running_mean_momentum": 0.001}),
         (0.5, 0.2, "-priorRunningMean1e_1", "running_mean", {"prior_running_mean_momentum": 0.1}),
         (0.5, 0.2, "-priorRunningMean1e_0", "running_mean", {"prior_running_mean_momentum": 1.0}),  # sanity check
+        (
+            0.5,
+            0.2,
+            "-priorRunningMeanPerLayer1e_3",
+            "running_mean",
+            {"prior_running_mean_momentum": 0.001, "prior_running_mean_per_layer": True},
+        ),
+        (
+            0.5,
+            0.2,
+            "-priorRunningMeanPerLayer1e_1",
+            "running_mean",
+            {"prior_running_mean_momentum": 0.1, "prior_running_mean_per_layer": True},
+        ),
         (0.3, 0.15, "-priorRunningMean1e_3", "running_mean", {"prior_running_mean_momentum": 0.001}),
     ]:
         ctc_train_exp(
