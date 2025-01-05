@@ -121,7 +121,7 @@ class ModelSepBlank(rf.Module):
 
         separate_blank_model_dict = config.typed_value("separate_blank_model", None)
         assert isinstance(separate_blank_model_dict, dict)
-        self.separate_blank_model = rf.build_from_dict(separate_blank_model_dict, enc_model_dim)
+        self.separate_blank_model: SeparateBlankModel = rf.build_from_dict(separate_blank_model_dict, enc_model_dim)
 
         self.ctc_am_scale = config.float("ctc_am_scale", 1.0)
         self.ctc_prior_scale = config.float("ctc_prior_scale", 0.0)
@@ -325,7 +325,7 @@ class ModelSepBlank(rf.Module):
         feat, enc_spatial_dim = self.encoder_frontend(source, in_spatial_dim=in_spatial_dim)
         enc = self.encoder(feat, spatial_dim=enc_spatial_dim, collected_outputs=collected_outputs)
         logits = self.enc_logits(enc)
-        blank_logit = self.separate_blank_model(feat)
+        blank_logit = self.separate_blank_model(feat, spatial_dim=enc_spatial_dim)
         if collected_outputs is not None:
             collected_outputs["blank_logit"] = blank_logit
         logits = _concat_vec_with_blank(
