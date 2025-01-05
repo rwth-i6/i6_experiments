@@ -1834,7 +1834,7 @@ def ctc_training(*, model: Model, data: rf.Tensor, data_spatial_dim: Dim, target
                 continue
             linear = getattr(model, f"enc_aux_logits_{layer_idx}")
             aux_logits = linear(collected_outputs[str(layer_idx - 1)])
-            aux_log_probs = model.log_probs_wb_from_logits(aux_logits)
+            aux_log_probs = model.log_probs_wb_from_logits(aux_logits, aux_layer=layer_idx)
             aux_loss = ctc_loss(
                 logits=aux_log_probs,
                 logits_normalized=True,
@@ -2012,7 +2012,7 @@ class Model(rf.Module):
         eos_idx: int,
         bos_idx: int,
         enc_build_dict: Optional[Dict[str, Any]] = None,
-        enc_aux_logits: Sequence[int] = (),  # layers
+        enc_aux_logits: Sequence[int] = (),  # layers, 1-indexed
         enc_model_dim: Dim = Dim(name="enc", dimension=512),
         enc_input_layer: Optional[Dict[str, Any]] = None,
         enc_conformer_layer: Optional[Dict[str, Any]] = None,
@@ -2085,6 +2085,7 @@ class Model(rf.Module):
 
         if not wb_target_dim:
             wb_target_dim = target_dim + 1
+        self.enc_aux_selected_layers = enc_aux_logits
         for i in enc_aux_logits:
             setattr(self, f"enc_aux_logits_{i}", rf.Linear(self.encoder.out_dim, wb_target_dim))
         self.enc_logits = rf.Linear(self.encoder.out_dim, wb_target_dim)
@@ -2116,11 +2117,19 @@ class Model(rf.Module):
                 non_critical_for_restore=True,
             )
         self.prior_running_mean_momentum = config.typed_value("prior_running_mean_momentum", None)
+        self.prior_running_mean_per_layer = config.bool("prior_running_mean_per_layer", False)
         self.prior_running_mean = None  # in std prob, if set
         if self.prior_running_mean_momentum is not None:
             self.prior_running_mean = rf.Parameter(
                 [self.wb_target_dim], auxiliary=True, initial=1.0 / self.wb_target_dim.dimension
             )
+            if self.prior_running_mean_per_layer:
+                for i in enc_aux_logits:
+                    setattr(
+                        self,
+                        f"prior_running_mean_{i}",
+                        rf.Parameter([self.wb_target_dim], auxiliary=True, initial=1.0 / self.wb_target_dim.dimension),
+                    )
 
         if target_dim.vocab and not wb_target_dim.vocab:
             from returnn.datasets.util.vocabulary import Vocabulary
@@ -2280,9 +2289,11 @@ class Model(rf.Module):
         logits = self.enc_logits(enc)
         return logits, enc, enc_spatial_dim
 
-    def log_probs_wb_from_logits(self, logits: Tensor) -> Tensor:
+    def log_probs_wb_from_logits(self, logits: Tensor, *, aux_layer: Optional[int] = None) -> Tensor:
         """
         :param logits: incl blank
+        :param aux_layer: whether the logits come from some intermediate aux layer.
+            That might influence the prior.
         :return: log probs with blank from logits (wb_target_dim)
             If out_blank_separated, we use a separate sigmoid for the blank.
             Also, potentially adds label smoothing on the gradients.
@@ -2312,16 +2323,18 @@ class Model(rf.Module):
             )
             log_probs.feature_dim = self.wb_target_dim
 
+        prior_running_mean = None
         if self.prior_running_mean_momentum is not None:
+            prior_running_mean = self.prior_running_mean
+            if self.prior_running_mean_per_layer and aux_layer is not None:
+                prior_running_mean = getattr(self, f"prior_running_mean_{aux_layer}")
 
             def _update_running_stats():
                 batch_prior = rf.reduce_mean(
                     rf.exp(log_probs), axis=[d for d in log_probs.dims if d != self.wb_target_dim]
                 )
                 assert batch_prior.dims == (self.wb_target_dim,)
-                self.prior_running_mean.assign_add(
-                    self.prior_running_mean_momentum * (batch_prior - self.prior_running_mean)
-                )
+                prior_running_mean.assign_add(self.prior_running_mean_momentum * (batch_prior - prior_running_mean))
 
             rf.cond(rf.get_run_ctx().train_flag, _update_running_stats, lambda: None)
 
@@ -2366,8 +2379,8 @@ class Model(rf.Module):
                 log_prob_prior = self.static_prior
                 assert log_prob_prior.dims == (self.wb_target_dim,)
             elif self.ctc_prior_type == "running_mean":
-                assert self.prior_running_mean is not None
-                log_prob_prior = rf.safe_log(self.prior_running_mean)
+                assert prior_running_mean is not None
+                log_prob_prior = rf.safe_log(prior_running_mean)
                 assert log_prob_prior.dims == (self.wb_target_dim,)
             else:
                 raise ValueError(f"invalid ctc_prior_type {self.ctc_prior_type!r}")
