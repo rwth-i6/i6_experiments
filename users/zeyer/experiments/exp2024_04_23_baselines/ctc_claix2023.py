@@ -676,6 +676,32 @@ def py():
                 },
             }
         },
+        "-lpNormedGradC05_11P07NExpL05": {
+            "prior_running_mean_per_layer": True,
+            "log_prob_normed_grad": {
+                "prior_running_mean_momentum": 0.5,
+                "func": {
+                    "clamp_min": 0.5,
+                    "clamp_max": 1.1,
+                    "scale_type": "inv_num_labels",
+                    "prior_exp": 0.7,
+                    "prior_renorm": True,
+                },
+            },
+        },
+        "-lpNormedGradC05_11P07NExpL1_1": {
+            "prior_running_mean_per_layer": True,
+            "log_prob_normed_grad": {
+                "prior_running_mean_momentum": 0.1,
+                "func": {
+                    "clamp_min": 0.5,
+                    "clamp_max": 1.1,
+                    "scale_type": "inv_num_labels",
+                    "prior_exp": 0.7,
+                    "prior_renorm": True,
+                },
+            },
+        },
         "-lpNormedGradC05_11P07NExpL1_3": {
             "prior_running_mean_per_layer": True,
             "log_prob_normed_grad": {
