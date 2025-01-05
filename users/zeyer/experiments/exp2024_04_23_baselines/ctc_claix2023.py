@@ -676,6 +676,19 @@ def py():
                 },
             }
         },
+        "-lpNormedGradC05_11P07NExpL1_3": {
+            "prior_running_mean_per_layer": True,
+            "log_prob_normed_grad": {
+                "prior_running_mean_momentum": 0.001,
+                "func": {
+                    "clamp_min": 0.5,
+                    "clamp_max": 1.1,
+                    "scale_type": "inv_num_labels",
+                    "prior_exp": 0.7,
+                    "prior_renorm": True,
+                },
+            },
+        },
     }.items():
         ctc_train_exp(
             f"n12-spm10k-auxAED-b150k{name}",
