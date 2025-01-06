@@ -24,7 +24,7 @@ from returnn.frontend.decoder.transformer import TransformerDecoder
 
 from i6_experiments.users.zeyer.model_interfaces import TrainDef
 from i6_experiments.users.zeyer.nn_rf.layerdrop import SequentialLayerDrop
-from ..ctc import model_recog
+from ..ctc import Model, model_recog
 
 # The model gets raw features (16khz) and does feature extraction internally.
 _log_mel_feature_dim = 80
@@ -125,6 +125,7 @@ class ModelSepNet(rf.Module):
         for i in enc_aux_logits:
             setattr(self, f"enc_aux_logits_{i}", rf.Linear(self.encoder.out_dim, wb_target_dim))
         self.enc_logits = rf.Linear(self.encoder.out_dim, wb_target_dim)
+        self.separate_enc_logits = rf.Linear(self.separate_enc_net.out_dim, wb_target_dim)
         self.wb_target_dim = wb_target_dim
         self.out_blank_separated = config.bool("out_blank_separated", False)
         self.blank_logit_shift = config.float("blank_logit_shift", 0.0)
@@ -615,7 +616,8 @@ def ctc_training_with_sep_net(
             # error.mark_as_loss("label", as_error=True, custom_inv_norm_factor=targets_spatial_dim.get_size_tensor())
 
     log_probs = model.log_probs_wb_from_logits(logits)
-    sep_logits = model.separate_enc_net(collected_outputs["feat"], spatial_dim=enc_spatial_dim)
+    sep_enc = model.separate_enc_net(collected_outputs["feat"], spatial_dim=enc_spatial_dim)
+    sep_logits = model.separate_enc_logits(sep_enc)
     sep_log_probs = model.log_probs_wb_from_logits(sep_logits)
     log_probs, sep_log_probs = _interpolate_grad_probs(
         log_probs,
@@ -682,7 +684,7 @@ def ctc_training_with_sep_net(
         frame_error.mark_as_loss(name="aed_fer", as_error=True)
 
 
-ctc_training_with_sep_net: TrainDef[ModelSepNet]
+ctc_training_with_sep_net: TrainDef[Model]
 ctc_training_with_sep_net.learning_rate_control_error_measure = "ctc"
 
 
