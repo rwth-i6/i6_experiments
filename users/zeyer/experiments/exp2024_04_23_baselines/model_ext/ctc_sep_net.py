@@ -760,7 +760,8 @@ def _torch_interpolate_grad_probs(
         class _InterpolateGradFunc(torch.autograd.Function):
             # noinspection PyShadowingNames
             @staticmethod
-            def forward(ctx, log_probs_main, log_probs_sep):
+            def forward(ctx, log_probs_main, log_probs_sep, alpha):
+                ctx.alpha = alpha
                 return log_probs_main, log_probs_sep
 
             @staticmethod
@@ -776,10 +777,10 @@ def _torch_interpolate_grad_probs(
                 # y_interpolated_scaled = (1-alpha) * y_main_scaled + alpha * y_sep_scaled * scale_main / scale_sep
                 # To make this nan-safe, use torch.where(scale_sep != 0, scale_main / scale_sep, 0).
                 scale_ratio = torch.where(scale_sep != 0, scale_main / scale_sep, 0.0)
-                y_interpolated_scaled = y_main_scaled * (1 - alpha) + y_sep_scaled * (alpha * scale_ratio)
+                y_interpolated_scaled = y_main_scaled * (1 - ctx.alpha) + y_sep_scaled * (ctx.alpha * scale_ratio)
                 return -y_interpolated_scaled, grad_log_probs_sep
 
-    log_probs_main, log_probs_sep = _InterpolateGradFunc.apply(log_probs_main, log_probs_sep)
+    log_probs_main, log_probs_sep = _InterpolateGradFunc.apply(log_probs_main, log_probs_sep, alpha)
     return log_probs_main, log_probs_sep
 
 
