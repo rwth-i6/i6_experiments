@@ -571,6 +571,7 @@ def ctc_training_with_sep_net(
     use_normalized_loss = config.bool("use_normalized_loss", True)
     use_fixed_ctc_grad = config.typed_value("use_fixed_ctc_grad", False)
     sep_net_grad_interpolate_alpha = config.float("sep_net_grad_interpolate_alpha", 0.0)
+    sep_net_grad_interpolate_beta = config.float("sep_net_grad_interpolate_beta", 0.0)
 
     from i6_experiments.users.zeyer.nn_rf.torch_ctc_fixed_grad import ctc_loss_fixed_grad
 
@@ -625,6 +626,7 @@ def ctc_training_with_sep_net(
         spatial_dim=enc_spatial_dim,
         wb_target_dim=model.wb_target_dim,
         alpha=sep_net_grad_interpolate_alpha,
+        beta=sep_net_grad_interpolate_beta,
     )
 
     loss = ctc_loss(
@@ -709,6 +711,7 @@ def _interpolate_grad_probs(
     spatial_dim: Dim,
     wb_target_dim: Dim,
     alpha: float,
+    beta: float,
 ) -> Tuple[Tensor, Tensor]:
     """
     Interpolate grads of log_probs an sep_log_probs
@@ -727,13 +730,14 @@ def _interpolate_grad_probs(
     :param spatial_dim: T
     :param wb_target_dim: D
     :param alpha: how much to linearly mixin the y_sep into y_main. 0: only y_main, 1: only y_sep
+    :param beta: how much to linearly mixin the y_main into y_sep. 0: only y_sep, 1: only y_main
     :return: log_prob_main, log_prob_sep. the log probs are not modified.
         the gradient of log_prob_main is interpolated with log_prob_sep.
     """
     log_probs_main = log_probs_main.copy_transpose((spatial_dim, batch_dim, wb_target_dim))
     log_probs_sep = log_probs_sep.copy_transpose((spatial_dim, batch_dim, wb_target_dim))
     log_probs_main_raw, log_probs_sep_raw = _torch_interpolate_grad_probs(
-        log_probs_main.raw_tensor, log_probs_sep.raw_tensor, alpha=alpha
+        log_probs_main.raw_tensor, log_probs_sep.raw_tensor, alpha=alpha, beta=beta
     )
     log_probs_main.raw_tensor = log_probs_main_raw
     log_probs_sep.raw_tensor = log_probs_sep_raw
@@ -741,7 +745,7 @@ def _interpolate_grad_probs(
 
 
 def _torch_interpolate_grad_probs(
-    log_probs_main: torch.Tensor, log_probs_sep: torch.Tensor, *, alpha: float
+    log_probs_main: torch.Tensor, log_probs_sep: torch.Tensor, *, alpha: float, beta: float
 ) -> Tuple[torch.Tensor, torch.Tensor]:
     """
     See :func:`_interpolate_grad_probs` for full doc.
@@ -749,6 +753,7 @@ def _torch_interpolate_grad_probs(
     :param log_probs_main: [T,B,D]
     :param log_probs_sep: [T,B,D]
     :param alpha: how much to linearly mixin the y_sep into y_main. 0: only y_main, 1: only y_sep
+    :param beta: how much to linearly mixin the y_main into y_sep. 0: only y_sep, 1: only y_main
     :return: log_prob_main, log_prob_sep
     """
     import torch
@@ -760,27 +765,37 @@ def _torch_interpolate_grad_probs(
         class _InterpolateGradFunc(torch.autograd.Function):
             # noinspection PyShadowingNames
             @staticmethod
-            def forward(ctx, log_probs_main, log_probs_sep, alpha):
+            def forward(ctx, log_probs_main, log_probs_sep, alpha, beta):
                 ctx.alpha = alpha
+                ctx.beta = beta
                 return log_probs_main, log_probs_sep
 
             @staticmethod
             def backward(ctx, grad_log_probs_main, grad_log_probs_sep):
-                y_main_scaled = -grad_log_probs_main  # [T,B,D]
-                y_sep_scaled = -grad_log_probs_sep  # [T,B,D]
-                scale_main = y_main_scaled.sum(dim=-1, keepdim=True)  # [T,B,1]
-                scale_sep = y_sep_scaled.sum(dim=-1, keepdim=True)  # [T,B,1]
+                # noinspection PyShadowingNames
+                alpha, beta = ctx.alpha, ctx.beta
+                ny_main_scaled = grad_log_probs_main  # [T,B,D]
+                ny_sep_scaled = grad_log_probs_sep  # [T,B,D]
+                scale_main = ny_main_scaled.sum(dim=-1, keepdim=True)  # [T,B,1]
+                scale_sep = ny_sep_scaled.sum(dim=-1, keepdim=True)  # [T,B,1]
+                # ny is negative y. Here we argue about the positive y.
                 # y_main_scaled / scale_main = y_main, and sum(y_main) = 1. Likewise for y_sep.
-                # We want y_interpolated = ((1-alpha) * y_main + alpha * y_sep),
-                # and y_interpolated_scaled = y_interpolated * scale_main.
+                # We want y_main_interpolated = ((1-alpha) * y_main + alpha * y_sep),
+                # and y_main_interpolated_scaled = y_main_interpolated * scale_main.
                 # I.e.:
-                # y_interpolated_scaled = (1-alpha) * y_main_scaled + alpha * y_sep_scaled * scale_main / scale_sep
+                # y_main_interpolated_scaled = (1-alpha) * y_main_scaled + alpha * y_sep_scaled * scale_main / scale_sep
                 # To make this nan-safe, use torch.where(scale_sep != 0, scale_main / scale_sep, 0).
                 scale_ratio = torch.where(scale_sep != 0, scale_main / scale_sep, 0.0)
-                y_interpolated_scaled = y_main_scaled * (1 - ctx.alpha) + y_sep_scaled * (ctx.alpha * scale_ratio)
-                return -y_interpolated_scaled, grad_log_probs_sep
+                ny_main_interpolated_scaled = ny_main_scaled * (1 - alpha) + ny_sep_scaled * (alpha * scale_ratio)
+                if beta != 0:
+                    # Likewise for y_sep_interpolated_scaled.
+                    scale_ratio = torch.where(scale_main != 0, scale_sep / scale_main, 0.0)
+                    ny_sep_interpolated_scaled = ny_sep_scaled * (1 - beta) + ny_main_scaled * (beta * scale_ratio)
+                else:
+                    ny_sep_interpolated_scaled = ny_sep_scaled
+                return ny_main_interpolated_scaled, ny_sep_interpolated_scaled
 
-    log_probs_main, log_probs_sep = _InterpolateGradFunc.apply(log_probs_main, log_probs_sep, alpha)
+    log_probs_main, log_probs_sep = _InterpolateGradFunc.apply(log_probs_main, log_probs_sep, alpha, beta)
     return log_probs_main, log_probs_sep
 
 
