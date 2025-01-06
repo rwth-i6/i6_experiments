@@ -116,6 +116,16 @@ def torch_ctc_fixed_grad(
 
     https://github.com/pytorch/pytorch/issues/52241
 
+    Note: Why does the original ctc_loss still usually works fine then?
+    Usually it is with log_softmax before.
+    grad_{z_j} log_softmax(z)_i = 1_{i=j} - softmax(z)_j.
+    Thus (with incorrect grad of torch.ctc_loss w.r.t. log_softmax(z)):
+    grad_{z_tj} torch.ctc_loss(log_softmax(z)) = sum_i (softmax(z)_ti - y_ti) * (1_{i=j} - softmax(z)_tj)
+      = softmax(z)_tj - y_tj - (sum_i (softmax(z)_ti) - sum_i (y_ti)) * softmax(z)_tj
+      = softmax(z)_tj - y_tj.
+    I.e. the grad of torch.ctc_loss w.r.t. z is correct.
+    The crucial property is that sum_i (softmax(z)_ti - y_ti) = 0.
+
     :param log_probs: shape [T, N, C]
     :param targets: shape [N, S]
     :param input_lengths: shape [N]
@@ -126,6 +136,7 @@ def torch_ctc_fixed_grad(
     """
     import torch
 
+    # We avoid the global torch import in this module, thus we lazily define these classes here.
     global _FixCTCGradFunc, _StoreGradScaleFunc
     if not _FixCTCGradFunc or not _StoreGradScaleFunc:
 
