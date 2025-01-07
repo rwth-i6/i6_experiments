@@ -401,7 +401,13 @@ def py():
 
     # Time downsampling 6 (standard), spm10k.
     # Blank separated (blankSep).
-    for blank_sep in [False, True]:
+    # Small improvement on test with blankSep?
+    for blank_sep in [
+        # best epoch (89): {"dev-clean": 2.49, "dev-other": 5.89, "test-clean": 2.66, "test-other": 6.17}
+        # last epoch: {"dev-clean": 2.47, "dev-other": 5.9, "test-clean": 2.63, "test-other": 6.1}
+        False,
+        True,  # (ep 99) {"dev-clean": 2.49, "dev-other": 5.85, "test-clean": 2.62, "test-other": 6.03}
+    ]:
         ctc_train_exp(
             f"n12-spm10k{'-blankSep' if blank_sep else ''}-auxAED-b150k",
             config_96gb_bf16_accgrad1,
@@ -523,6 +529,8 @@ def py():
         env_updates={"PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"},
     )
 
+    # Time downsampling 6 (standard), spm10k.
+    # Separate FF net, also with beta (smoothing for both main and sep net).
     ctc_train_exp(
         f"n12-spm10k-sepFf_alpha05_beta05-auxAED-b150k",
         config_96gb_bf16_accgrad1,
@@ -571,8 +579,8 @@ def py():
         # Baseline (1.0, 0.0, None, {}): 5.85
         # (0.7, 0.0, None, {}),  # 6.2
         # (0.5, 0.2, "batch", {}),  # 13.38
-        (0.7, 0.2, "batch", {}),
-        (0.7, 0.2, "running_mean", {"prior_running_mean_momentum": 0.001}),
+        # (0.7, 0.2, "batch", {}),  # 8.47 (note: non-fixed variant)
+        # (0.7, 0.2, "running_mean", {"prior_running_mean_momentum": 0.001}),  # 28.87
     ]:
         ctc_train_exp(
             f"time4-n12-spm10k-am{am_scale}-prior{prior_scale}-priorType{prior_type}-auxAED-b150k",
@@ -640,24 +648,24 @@ def py():
         #         "func": {"clamp_min": 0.1, "clamp_max": 1.1, "scale_type": "inv_num_labels", "prior_exp": 1.0}
         #     }
         # },
-        "C05_11P1Seq": {  # 5.81
-            "log_prob_normed_grad": {
-                "prior": "seq_grad",
-                "func": {"clamp_min": 0.5, "clamp_max": 1.1, "scale_type": "inv_num_labels", "prior_exp": 1.0},
-            },
-        },
-        "C05_11P07NSeq": {
-            "log_prob_normed_grad": {
-                "prior": "seq_grad",
-                "func": {
-                    "clamp_min": 0.5,
-                    "clamp_max": 1.1,
-                    "scale_type": "inv_num_labels",
-                    "prior_exp": 0.7,
-                    "prior_renorm": True,
-                },
-            },
-        },
+        # "C05_11P1Seq": {  # 5.81
+        #     "log_prob_normed_grad": {
+        #         "prior": "seq_grad",
+        #         "func": {"clamp_min": 0.5, "clamp_max": 1.1, "scale_type": "inv_num_labels", "prior_exp": 1.0},
+        #     },
+        # },
+        # "C05_11P07NSeq": {  # 5.83
+        #     "log_prob_normed_grad": {
+        #         "prior": "seq_grad",
+        #         "func": {
+        #             "clamp_min": 0.5,
+        #             "clamp_max": 1.1,
+        #             "scale_type": "inv_num_labels",
+        #             "prior_exp": 0.7,
+        #             "prior_renorm": True,
+        #         },
+        #     },
+        # },
         # "C05_11P07N": {  # 5.85
         #     "log_prob_normed_grad": {
         #         "func": {
