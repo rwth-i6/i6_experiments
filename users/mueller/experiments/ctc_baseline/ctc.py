@@ -61,7 +61,7 @@ def py():
     use_flashlight = True
     use_greedy = False
     epochs = 500
-    self_training_rounds = 5
+    self_training_rounds = 4
     train_small = True
     with_prior = True
     empirical_prior = True
@@ -81,7 +81,7 @@ def py():
     if train_small:
         epochs = 50
     if self_training_rounds > 0:
-        self_epochs = 45 # 450, 225, 113, 75, 56, 45
+        self_epochs = 113 # 450, 225, 113, 75, 56, 45
     
     decoder_hyperparameters = None
     if use_greedy:
@@ -136,6 +136,8 @@ def py():
             a2 = f"w{str(alt_decoder_hyperparameters['lm_weight']).replace('.', '')}"
             a3 = "_tune" if tune_hyperparameters else ""
             lm_hyperparamters_str += f"_ALT{a3}{a0}_{a1}_{a2}{str_add}"
+    else:
+        decoder_hyperparameters = {}
     
     config_updates = {
         **_get_cfg_lrlin_oclr_by_bs_nep(15_000, epochs),
@@ -325,8 +327,9 @@ def train_exp(
         recog_def=decoder_def,
         decoder_hyperparameters=decoder_hyperparameters,
         save_pseudo_labels=(pseudo_labels_ds, train_100_ds) if calc_last_pseudo_labels or self_training_rounds > 0 else None,
-        calculate_pseudo_label_scores=True,
+        calculate_pseudo_label_scores=True, # NOTE: breaks hash
         recog_post_proc_funcs=recog_post_proc_funcs,
+        num_shards_recog=16, # NOTE: breaks hash
         num_shards_pseudo=64,
         # num_shards_prior=64,
         is_last=self_training_rounds == 0,
@@ -433,6 +436,7 @@ def train_exp(
                     recog_def=decoder_def,
                     decoder_hyperparameters=params,
                     recog_post_proc_funcs=recog_post_proc_funcs,
+                    num_shards_recog=16, # NOTE: breaks hash
                     num_shards_prior=64,
                     empirical_prior=emp_prior if with_prior and empirical_prior else None,
                     return_summary = True
@@ -451,6 +455,7 @@ def train_exp(
                     recog_def=decoder_def,
                     decoder_hyperparameters=params,
                     recog_post_proc_funcs=recog_post_proc_funcs,
+                    num_shards_recog=16, # NOTE: breaks hash
                     num_shards_prior=64,
                     empirical_prior=emp_prior if with_prior and empirical_prior else None,
                     return_summary = True
@@ -471,6 +476,7 @@ def train_exp(
             save_pseudo_labels=None if not calc_last_pseudo_labels and i+1 == self_training_rounds else (pseudo_labels_ds, train_100_ds),
             calculate_pseudo_label_scores=True,
             recog_post_proc_funcs=recog_post_proc_funcs,
+            num_shards_recog=16, # NOTE: breaks hash
             num_shards_pseudo=64,
             num_shards_prior=64,
             is_last=i+1 == self_training_rounds,

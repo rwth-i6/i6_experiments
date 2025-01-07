@@ -59,6 +59,7 @@ def recog_training_exp(
     search_mem_rqmt: Union[int, float] = 6,
     exclude_epochs: Collection[int] = (),
     model_avg: bool = False,
+    num_shards_recog: Optional[int] = None,
     num_shards_pseudo: Optional[int] = None,
     num_shards_prior: Optional[int] = None,
     is_last: bool = False,
@@ -76,6 +77,7 @@ def recog_training_exp(
         search_post_config=search_post_config,
         recog_post_proc_funcs=recog_post_proc_funcs,
         search_mem_rqmt=search_mem_rqmt,
+        num_shards_recog=num_shards_recog,
         num_shards_prior=num_shards_prior,
         empirical_prior=empirical_prior,
     )
@@ -126,7 +128,7 @@ def recog_training_exp(
             search_post_config=search_post_config,
             recog_post_proc_funcs=recog_post_proc_funcs,
             search_mem_rqmt=search_mem_rqmt,
-            num_shards_pseudo=num_shards_pseudo,
+            num_shards_recog=num_shards_pseudo,
             num_shards_prior=num_shards_prior,
             empirical_prior=empirical_prior,
         )
@@ -168,7 +170,7 @@ def recog_training_exp(
                 search_post_config=search_post_config,
                 recog_post_proc_funcs=recog_post_proc_funcs,
                 search_mem_rqmt=search_mem_rqmt,
-                num_shards_pseudo=num_shards_pseudo,
+                num_shards_recog=num_shards_pseudo,
                 num_shards_prior=num_shards_prior,
                 register_output=False,
                 empirical_prior=empirical_prior,
@@ -196,7 +198,7 @@ class _RecogAndScoreFunc:
         search_post_config: Optional[Dict[str, Any]] = None,
         recog_post_proc_funcs: Sequence[Callable[[RecogOutput], RecogOutput]] = (),
         search_mem_rqmt: Union[int, float] = 6,
-        num_shards_pseudo: Optional[int] = None,
+        num_shards_recog: Optional[int] = None,
         num_shards_prior: Optional[int] = None,
         register_output: bool = True,
         empirical_prior: Optional[tk.Path] = None,
@@ -213,7 +215,7 @@ class _RecogAndScoreFunc:
         self.search_mem_rqmt = search_mem_rqmt
         self.save_pseudo_labels = save_pseudo_labels
         self.calculate_scores = calculate_scores
-        self.num_shards_pseudo = num_shards_pseudo
+        self.num_shards_recog = num_shards_recog
         self.num_shards_prior = num_shards_prior
         self.register_output = register_output
         self.empirical_prior = empirical_prior
@@ -255,7 +257,7 @@ class _RecogAndScoreFunc:
             recog_post_proc_funcs=self.recog_post_proc_funcs,
             search_mem_rqmt=self.search_mem_rqmt,
             name=self.prefix_name + f"/search/{epoch_or_ckpt:03}",
-            num_shards=self.num_shards_pseudo,
+            num_shards=self.num_shards_recog,
         )
         if self.calculate_scores and isinstance(epoch_or_ckpt, int) and self.register_output:
             tk.register_output(self.prefix_name + f"/recog_results_per_epoch/{epoch_or_ckpt:03}/score", res.output)
@@ -270,7 +272,7 @@ class _RecogAndScoreFunc:
         del d["search_post_config"]
         del d["search_mem_rqmt"]
         del d["num_shards_prior"]
-        del d["num_shards_pseudo"]
+        del d["num_shards_recog"]
         del d["register_output"]
         if not self.search_config:
             del d["search_config"]  # compat
