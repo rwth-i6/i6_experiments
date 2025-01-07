@@ -30,27 +30,48 @@ def py():
     from returnn.frontend.encoder.conformer import ConformerConvSubsample
 
     # Consistency regularization (CR) (crLoss).
-    for opts in [
+    for opts, cr_ctc_variants in [
         # Baseline (n12) has {"dev-clean": 2.35, "dev-other": 5.65, "test-clean": 2.66, "test-other": 5.94}.
         # CLAIX baseline: {"dev-clean": 2.54, "dev-other": 5.93, "test-clean": 2.68, "test-other": 6.27}
         # CLAIX CR: {"dev-clean": 2.49, "dev-other": 5.99, "test-clean": 2.68, "test-other": 6.05}
         # v6-relPosAttDef-noBias-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-featBN-speedpertV2-spm10k-bpeSample001
         # {"num_enc_layers": 12, "batch_size": 200_000, "vocab": "spm10k"},
-        {"num_enc_layers": 12, "batch_size": 150_000, "vocab": "spm10k"},
+        (
+            {"num_enc_layers": 12, "batch_size": 150_000, "vocab": "spm10k"},
+            [
+                None,
+                {"cr_loss_scale": 0.1},
+                {"cr_loss_scale": 0.2},
+            ],
+        ),
         # Baseline (n16, spm10k) has {"dev-clean": 2.26, "dev-other": 5.44, "test-clean": 2.5, "test-other": 5.62}.
         # v6-n16-relPosAttDef-noBias-aedLoss-bhv20-11gb-f32-bs10k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-featBN-speedpertV2-spm10k-bpeSample001
         # This here is now spm512 though.
         # Note: In the original CR paper, they don't have time-downsampling!
         # {"num_enc_layers": 16, "batch_size": 10_000, "vocab": "spm512"},
         # No CR: 6.18, CR 0.2: 5.96, CR 0.5: 6.05, CR 1.0: 6.22
-        {"num_enc_layers": 12, "batch_size": 200_000, "vocab": "spm512"},
+        (
+            {"num_enc_layers": 12, "batch_size": 200_000, "vocab": "spm512"},
+            [
+                None,
+                {"cr_loss_scale": 0.1},
+                {"cr_loss_scale": 0.2},
+                {"cr_loss_scale": 0.2, "cr_loss_on_aux_probs": True},
+            ],
+        ),
         # {"num_enc_layers": 12, "batch_size": 150_000, "vocab": "spm512", "time_downsampling": 4},
         # {"num_enc_layers": 12, "batch_size": 75_000, "vocab": "spm512", "time_downsampling": 2},
     ]:
-        for cr_ctc in [None, {"cr_loss_scale": 0.1}, {"cr_loss_scale": 0.2}]:
+        for cr_ctc in cr_ctc_variants:
             # TODO also adapt specaug for CR...
             use_cr_ctc = cr_ctc is not None
-            name = f"crLoss{cr_ctc['cr_loss_scale']}-" if use_cr_ctc else ""
+            if use_cr_ctc:
+                name = f"crLoss{cr_ctc['cr_loss_scale']}"
+                if cr_ctc.get("cr_loss_on_aux_probs"):
+                    name += "_withAux"
+                name += "-"
+            else:
+                name = ""
             if opts.get("time_downsampling"):
                 name += f"time{opts['time_downsampling']}-"
             name += f"n{opts['num_enc_layers']}-{opts['vocab']}-auxAED"
