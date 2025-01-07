@@ -282,25 +282,29 @@ def train_exp(
     # --------------- time-synchronous search -----------------
     from i6_experiments.users.phan.recog.ctc_time_sync_v2 import model_recog_time_sync
     beam_sizes = [32] # to be consistent
-    lm_scales = [0.8, 0.9, 1.0, 1.1]
+    lm_scales = [0.6, 0.7, 0.8, 0.9, 1.0, 1.1]
     ilm_scales = [0.0]
     length_norm_scales = [0.0]
-    prior_scales = [0.0, 0.3, 0.4, 0.5]
+    prior_scales = [0.0, 0.3, 0.4, 0.5, 0.6]
     for beam_size, lm_scale, ilm_scale, length_norm_scale, prior_scale in itertools.product(beam_sizes, lm_scales, ilm_scales, length_norm_scales, prior_scales):                
         if ilm_scale >= lm_scale:
+            continue
+        if config["lm_scale"] != 0.35:
             continue
         search_args = {
             "beam_size": beam_size,
             "lm_scale": lm_scale,
             "ilm_scale": ilm_scale,
-            "length_norm_scale": length_norm_scale, # by default len norm
+            "length_normalization_exponent": length_norm_scale, # by default len norm
             "prior_scale": prior_scale,
             "prior_file": "/work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/2023-08-10--rf-librispeech/work/i6_core/returnn/forward/ReturnnForwardJobV2.OSftOYzAjRUg/output/prior.txt",
             "ctc_log_prior": False,
         }
         recog_config_update_extra = copy.deepcopy(recog_config_update)
         recog_config_update_extra.update({
+            "batch_size": 600000,
             "search_args": search_args,
+            "hash_override": 1,
         })
         recompute_prior = True if prior_scale > 0.0 else False
         prior_config = None
@@ -308,6 +312,7 @@ def train_exp(
             prior_config = copy.deepcopy(recog_config_update_extra)
             prior_config.pop("external_language_model", None)
             prior_config.pop("search_args", None)
+            prior_config.pop("hash_override", None)
             # prior_config.pop("internal_language_model", None)
             prior_config["batch_size"] = int(25600000)
             prior_config["batching"] = "sorted_reverse"

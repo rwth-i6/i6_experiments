@@ -1,4 +1,5 @@
 """
+Modified to do recombination before pruning
 https://github.com/rwth-i6/i6_experiments/blob/main/users/gaudino/models/asr/rf/conformer_ctc/model_recog_ctc_ts.py
 """
 from __future__ import annotations
@@ -26,6 +27,7 @@ from i6_experiments.users.phan.recog.blank_collapse import (
 
 from i6_experiments.users.phan.rf_models.trafo_lm_luca import Trafo_LM_Model
 from i6_experiments.users.phan.rf_models.lstm_lm_luca import LSTM_LM_Model
+from i6_experiments.users.phan.rf_models.lstm_lm_luca_hardcoded_layers import LSTM_LM_Model_Hardcoded_Layers
 
 import torch
 import numpy
@@ -35,8 +37,10 @@ import time
 _ctc_prior_filename = "/u/luca.gaudino/debug/ctc/prior.txt"
 # _ctc_prior_filename = "/work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/2023-02-22--conformer-swb/work/i6_core/returnn/extract_prior/ReturnnComputePriorJobV2.ZdcvhAOyWl95/output/prior.txt"
 
+# debug print settigns
+torch.set_printoptions(precision=2, linewidth=200, threshold=10000)
 
-def model_recog_time_sync(
+def model_recog_time_sync_recomb_first_v2(
     *,
     model,
     data: Tensor,
@@ -51,7 +55,9 @@ def model_recog_time_sync(
     but now we just directly perform the search here,
     as this is overall simpler and shorter.
 
+    Modified to do recombination before pruning
     This only compatible with the kazuki trafo LM
+    (but can be further modified to work with the tedlium2 lstm)
 
     :return:
         recog results including beam {batch, beam, out_spatial},
@@ -94,7 +100,7 @@ def model_recog_time_sync(
     if search_args.get("lm_scale", 0.0) > 0.0:
         if isinstance(model.language_model, Trafo_LM_Model):
             trafo_lm_state = _get_init_trafo_state(model.language_model, batch_dims_)
-        elif isinstance(model.language_model, LSTM_LM_Model):
+        elif isinstance(model.language_model, LSTM_LM_Model) or isinstance(model.language_model, LSTM_LM_Model_Hardcoded_Layers):
             lstm_lm_state = model.language_model.default_initial_state(batch_dims=batch_dims_)
             prev_lstm_lm_state = lstm_lm_state
         else:
@@ -219,7 +225,9 @@ def model_recog_time_sync(
     i = 0
     seq_targets = []
     seq_backrefs = []
-    out_str = [[""] * beam_size for _ in range(batch_size)]
+    # contains hyps without any blank, e.g.  (0, 2, 5, 9), (0, 3, 5)
+    hyps_label_idxs = [[(model.bos_idx,)] * beam_size for _ in range(batch_size)]
+    recomb_possible_pairs = [set() for _ in range(batch_size)]
 
     if search_args.get("add_eos_to_end", False):
         max_seq_len = max_seq_len + 1  # add one step to loop
@@ -227,6 +235,7 @@ def model_recog_time_sync(
     t = time.time()
 
     for i in range(torch.max(max_seq_len.raw_tensor)):
+        # print("Loop step", i)
         is_last_step = i + 1 == torch.max(max_seq_len.raw_tensor)
 
         # gather prev non-blank targets and prev_decoder_state via backrefs
@@ -254,7 +263,7 @@ def model_recog_time_sync(
             # )
 
             if search_args.get("lm_scale", 0.0) > 0:
-                if isinstance(model.language_model, LSTM_LM_Model):
+                if isinstance(model.language_model, LSTM_LM_Model) or isinstance(model.language_model, LSTM_LM_Model_Hardcoded_Layers):
                     lstm_lm_state = model.language_model.select_state(lstm_lm_state, backrefs)
                     prev_lstm_lm_state = model.language_model.select_state(lstm_lm_state_1, backrefs)
 
@@ -287,7 +296,7 @@ def model_recog_time_sync(
                     )
                 else:
                     trafo_lm_state_1 = trafo_lm_state
-            elif isinstance(model.language_model, LSTM_LM_Model):
+            elif isinstance(model.language_model, LSTM_LM_Model) or isinstance(model.language_model, LSTM_LM_Model_Hardcoded_Layers):
                 if not torch.any(mask_combined.raw_tensor) or i == 0: # no recombination, analogous to ILM case
                     lstm_lm_state_1 = prev_lstm_lm_state
                 else:
@@ -382,7 +391,7 @@ def model_recog_time_sync(
                     + search_args.get("lm_scale", 0.0)
                     * trafo_log_prob_raw  # still raw tensor for omt slicing etc
                 )
-            elif isinstance(model.language_model, LSTM_LM_Model):
+            elif isinstance(model.language_model, LSTM_LM_Model) or isinstance(model.language_model, LSTM_LM_Model_Hardcoded_Layers):
                 lstm_lm_out = model.language_model(target_1, state=lstm_lm_state_1, spatial_dim=single_step_dim)
                 lstm_lm_state = lstm_lm_out["state"]
                 lstm_lm_log_prob = rf.log_softmax(lstm_lm_out["output"], axis=model.target_dim)
@@ -481,67 +490,128 @@ def model_recog_time_sync(
             ) # dont add it twice
             break
         
-        seq_log_prob = seq_log_prob + label_log_prob  # Batch, InBeam, Vocab
+        seq_log_prob = seq_log_prob + label_log_prob  # Batch, InBeam, Vocab (batch, beam, V)
 
-        # print("seq_log_prob before top_k", seq_log_prob)
+        # --------------------------- recombination -------------------------------
+        # recomb between possible pairs of hypotheses
+        for batch in range(batch_size):
+            for beam1, beam2 in recomb_possible_pairs[batch]:
+                hyp1, hyp2 = hyps_label_idxs[batch][beam1], hyps_label_idxs[batch][beam2]
+                if len(hyp1) + 1 == len(hyp2) and hyp1 == hyp2[:-1]:
+                    # last output label in the collapsed sequence
+                    last_label1, last_label2 = hyp1[-1], hyp2[-1]
+
+                    # last symbol in the alignment
+                    target_prev1, target_prev2 = target.raw_tensor[batch][[beam1, beam2]]
+
+                    # no recomb possible here, since beam 1 can not emit new label
+                    if last_label1 == last_label2 and target_prev1 != model.blank_idx:
+                        continue
+
+                    # consider candidates in V dim to recombine
+                    beam1_cands = [last_label2]
+                    beam2_cands = [model.blank_idx]
+                    if target_prev2 != model.blank_idx:
+                        beam2_cands.append(last_label2)
+
+                    # create tuple to slice tensor
+                    recom_beams = tuple([beam1] * len(beam1_cands) + [beam2] * len(beam2_cands))
+                    recom_targets = tuple(beam1_cands + beam2_cands)
+                    
+                    # keep max, replace other with -inf
+                    considered_scores = seq_log_prob.raw_tensor[batch][recom_beams, recom_targets]
+                    arg_max_score = considered_scores.argmax()
+                    seq_log_prob.raw_tensor[batch][recom_beams, recom_targets] = torch.where(
+                        torch.arange(len(recom_beams)).to(seq_log_prob.device) == arg_max_score,
+                        considered_scores,
+                        -1e30,
+                    )
+                    # if i > 1000:
+                    #     print("hyp1", hyp1, "target1", target_prev1)
+                    #     print("hyp2", hyp2, "target2", target_prev2)
+                    #     print("recom beams", recom_beams)
+                    #     print("recom targets", recom_targets)
+                    #     print("considered scores", considered_scores)
+                    #     print("beam scores after recomb", seq_log_prob.raw_tensor[batch][recom_beams, recom_targets])
+            
+        # recomb within one hypothesis
+        # e.g. beam (a,b,c) with target c -> must recombine c and blank in expansion
+        seq_log_prob_raw = seq_log_prob.raw_tensor # (batch, beam, V)
+        target_raw = target.raw_tensor # (batch, beam)
+        # only recombine when hypothesis not end with blank
+        target_not_blank_not_eos = (target_raw != model.bos_idx) & (target_raw != model.blank_idx)
+        target_and_blank = torch.concat( 
+            [target_raw.unsqueeze(-1), torch.full_like(target_raw.unsqueeze(-1), model.blank_idx)],
+            dim=-1
+        ) # (batch, beam, 2) target, blank
+        # print("target and blank", target_and_blank)
+        seq_log_prob_lastlabel_blank = seq_log_prob_raw.gather(-1, target_and_blank.long()) # score of target vs blank (batch, beam, 2)
+        # print("score before recomb", seq_log_prob_lastlabel_blank)
+        max_score, max_score_idx = torch.topk(seq_log_prob_lastlabel_blank, k=1, dim=-1) # take max
+        recomb_score = torch.full_like(seq_log_prob_lastlabel_blank, -1e30)
+        recomb_score = recomb_score.scatter_(-1, max_score_idx, max_score) # fill max in the right place
+        recomb_score = torch.where( # recombine only if hypothesis not end with blank
+            target_not_blank_not_eos.unsqueeze(-1).expand(-1, -1, 2),
+            recomb_score,
+            seq_log_prob_lastlabel_blank
+            )
+        # print("recomb score", recomb_score)
+        seq_log_prob.raw_tensor = seq_log_prob_raw.scatter_(-1, target_and_blank.long(), recomb_score)
+        # print("score after recomb", seq_log_prob.raw_tensor.gather(-1, target_and_blank.long()))
+        # # -------------------------- end recombination ---------------------------
+
+        # keep this to properly expand hypotheses            
+        target_prev = target
+
+        # pruning
         seq_log_prob, (backrefs, target), beam_dim = rf.top_k(
             seq_log_prob,
             k_dim=Dim(beam_size, name=f"dec-step{i}-beam"),
             axis=[beam_dim, model.target_dim_w_blank],
         )  # seq_log_prob, backrefs, target: Batch, Beam
-        # print("seq_log_prob after top_k", seq_log_prob)
+        # print("seq_log_prob after top_k", seq_log_prob.raw_tensor)
         # print("backrefs", backrefs.raw_tensor)
         # print("target", target.raw_tensor)
         batch_dims_ = batch_dims + [beam_dim]
         seq_targets.append(target)
         seq_backrefs.append(backrefs)
 
-        # recombination
-        if i == 0:
-            prev_target = rf.gather(initial_target, indices=backrefs)
-        elif i > 0:
-            prev_target = rf.gather(seq_targets[i - 1], indices=backrefs)
-
-        mask_not_blank_rec = rf.compare(target, "not_equal", model.blank_idx)
-        mask_not_repeat_rec = rf.compare(target, "not_equal", prev_target)
-        mask_combined_rec = rf.logical_and(mask_not_blank_rec, mask_not_repeat_rec)
-        out_str_prev = copy.deepcopy(out_str)
-        # print("out_str_prev", out_str_prev)
+        # Store each hypothesis, collapsed and blank removed
+        hyps_label_idxs_prev = copy.deepcopy(hyps_label_idxs)
         for batch in range(batch_size):
             for beam in range(beam_size):
+                beam_target = target.raw_tensor[batch, beam]
                 backref = backrefs.raw_tensor[batch, beam]
-                if mask_combined_rec.raw_tensor[batch, beam]:
-                    out_str[batch][beam] = (
-                        out_str_prev[batch][backref]
-                        + ",,"
-                        + model.target_dim.vocab.id_to_label(
-                            int(target.raw_tensor[batch, beam])
-                        )
-                    )
+                prev_beam_last_target = target_prev.raw_tensor[batch][backref]
+                if (beam_target != model.blank_idx) and \
+                    (beam_target != prev_beam_last_target):
+                    # (prev_beam_last_target == model.blank_idx or \
+                    # beam_target != prev_beam_last_target):
+                    hyps_label_idxs[batch][beam] = hyps_label_idxs_prev[batch][backref] + (beam_target.item(),)
                 else:
-                    out_str[batch][beam] = out_str_prev[batch][backref]
-
+                    hyps_label_idxs[batch][beam] = hyps_label_idxs_prev[batch][backref]
+        
+        # Now, check where recombination can happen
+        # It can only happen between 2 hyps h1, h2 where h1 == h2[:-1]
+        # convention: If (h1, h2) is possible pair then h1 == h2[:-1]
+        recomb_possible_pairs = [set() for _ in range(batch_size)]
         for batch in range(batch_size):
-            hyp_set = {}
-            for beam in range(beam_size):
-                if hyp_set.get(out_str[batch][beam], None) is not None:
-                    hyp_set[out_str[batch][beam]].append(beam)
-                else:
-                    hyp_set[out_str[batch][beam]] = [beam]
-            # print("hyp_set", hyp_set)
+            for beam1 in range(beam_size):
+                for beam2 in range(beam_size):
+                    hyp1, hyp2 = hyps_label_idxs[batch][beam1], hyps_label_idxs[batch][beam2]
+                    if len(hyp1) + 1 == len(hyp2) and hyp1 == hyp2[:-1]: # short circuit, faster?
+                        recomb_possible_pairs[batch].add((beam1, beam2))
 
-            for hyp in hyp_set.keys():
-                if len(hyp_set[hyp]) > 1:
-                    max_idx = hyp_set[hyp][0]
-                    max_prob = seq_log_prob.raw_tensor[batch, max_idx]
-                    for idx in hyp_set[hyp][1:]:
-                        if seq_log_prob.raw_tensor[batch, idx] > max_prob:
-                            max_idx = idx
-                            max_prob = seq_log_prob.raw_tensor[batch, idx]
+        # # ----- debug print, check if two hypotheses are the same --------
+        # # there should not be any such pairs
+        # # print("hyps label set", hyps_label_idxs)
+        # # print("recomb posible pairs", recomb_possible_pairs)
+        # for batch in range(batch_size):
+        #     for b1 in range(len(hyps_label_idxs[batch])):
+        #         for b2 in range(b1+1, len(hyps_label_idxs[batch])):
+        #             if hyps_label_idxs[batch][b1] == hyps_label_idxs[batch][b2]:
+        #                 print(f"Hyps {b1} and {b2} of batch {batch} are equal!")
 
-                    for idx in hyp_set[hyp]:
-                        if idx != max_idx:
-                            seq_log_prob.raw_tensor[batch, idx] = -1e30
 
         ended = rf.gather(ended, indices=backrefs)
         out_seq_len = rf.gather(out_seq_len, indices=backrefs)
@@ -730,7 +800,7 @@ def _get_trafo_state_after(
 
 
 # RecogDef API
-model_recog_time_sync: RecogDef[Model]
-model_recog_time_sync.output_with_beam = True
-model_recog_time_sync.output_blank_label = None
-model_recog_time_sync.batch_size_dependent = False
+model_recog_time_sync_recomb_first_v2: RecogDef[Model]
+model_recog_time_sync_recomb_first_v2.output_with_beam = True
+model_recog_time_sync_recomb_first_v2.output_blank_label = None
+model_recog_time_sync_recomb_first_v2.batch_size_dependent = False

@@ -146,7 +146,7 @@ class BeamSearchTimeSync(torch.nn.Module):
                 score += (
                     self.cached_score(h, self.lm_cache, self.lm) * self.lm_weight
                 )  # lm score
-            score += self.penalty * (len(h) - 1)  # penalty score
+            # score += self.penalty * (len(h) - 1)  # penalty score
             scores[h] = score
         return scores
 
@@ -227,6 +227,7 @@ class BeamSearchTimeSync(torch.nn.Module):
             lambda: (float("-inf"), float("-inf"))
         )  # (p_nb, p_b) - dp object tracking p_ctc
         ctc_score_dp[(self.sos,)] = (float("-inf"), 0.0)
+        cache_clean_time = 0.
         for t in range(lpz.shape[0]):
             logging.debug("position " + str(t))
             ctc_score_dp, hyps, scores = self.time_step(lpz[t, :], ctc_score_dp, hyps)
@@ -245,10 +246,13 @@ class BeamSearchTimeSync(torch.nn.Module):
             #         self.lm_cache.pop(key)
 
             # clean up cache by removing key that is shorter than min length hyps
+            # import time
+            # t1 = time.time()
             min_len_hyps = min(map(len, hyps))
             for key in list(self.lm_cache.keys()):
                 if len(key) < min_len_hyps-1:
                     self.lm_cache.pop(key)
+            # cache_clean_time += time.time() - t1
                 
             # import pprint
             # print(t)
@@ -265,5 +269,6 @@ class BeamSearchTimeSync(torch.nn.Module):
         # logging.info(f"output length: {best_hyp_len}")
         # logging.info(f"total log probability: {best_score:.2f}")
         # logging.info(f"best hypo: {best_hyp}")
+        # print("Total cache clean time:", cache_clean_time)
 
         return ret

@@ -314,40 +314,74 @@ def train_step(*, model: LSTMLMRF, extern_data: TensorDict, **_kwargs_unused):
     #     as_error=True,
     # )
 
-# intended for Albert setup
-def from_scratch_training(
+def model_def(*, epoch: int, in_dim: Dim, target_dim: Dim) -> Model:
+    """Function is run within RETURNN."""
+    from returnn.config import get_global_config
+
+    in_dim, epoch  # noqa
+    config = get_global_config()  # noqa
+    lm_cfg = config.typed_value("lm_cfg", {})
+    lm_cls = lm_cfg.pop("class")
+    assert lm_cls == "LSTMLMRF", "Only LSTM LM are supported"
+    extern_data_dict = config.typed_value("extern_data")
+    default_target_key = config.typed_value("target")
+    targets = Tensor(name="targets", **extern_data_dict[default_target_key])
+    return LSTMLMRF(
+        label_target_size=targets.sparse_dim,
+        output_dim=targets.sparse_dim,
+        **lm_cfg,
+    )
+
+model_def: ModelDef[Model]
+model_def.behavior_version = 21 #16
+model_def.backend = "torch"
+model_def.batch_size_factor = 160
+
+def train_def(
     *,
     model: Model,
-    data: rf.Tensor,
-    data_spatial_dim: Dim,
     targets: rf.Tensor,
     targets_spatial_dim: Dim,
 ):
     """Function is run within RETURNN."""
-    from returnn.config import get_global_config
-
-    # import for training only, will fail on CPU servers
-    # from i6_native_ops import warp_rnnt
-
-    config = get_global_config()  # noqa
-    input_labels, (targets_w_eos_spatial_dim,) = rf.pad(
-        targets, axes=[targets_spatial_dim], padding=[(1, 0)], value=model.bos_idx
+    # <bos> targets
+    targets_w_bos, targets_bos_spatial_dim_pad = rf.pad(
+        targets,
+        padding=[(1, 0)],
+        axes=[targets_spatial_dim],
+        value=0, # hardcode EOS BOS value
     )
-    targets_w_eos, _ = rf.pad(
-        targets, axes=[targets_spatial_dim], padding=[(0, 1)], value=model.eos_idx,
-        out_dims=[targets_w_eos_spatial_dim]
+    #targets <eos>
+    targets_w_eos, targets_eos_spatial_dim_pad = rf.pad(
+        targets,
+        padding=[(0, 1)],
+        axes=[targets_spatial_dim],
+        value=0,
     )
-    out = model(input_labels)
-    estimated_type = "logits" if not model.log_prob_output else "log-probs"
-    ce = rf.cross_entropy(out, targets_w_eos, targets_w_eos_spatial_dim, estimated_type)
-    ce.mark_as_loss(
-        "ce",
-        custom_inv_norm_factor=targets_spatial_dim.get_size_tensor(),
-        use_normalized_loss=True,
+    targets_w_eos_raw = targets_w_eos.raw_tensor.long()
+    out = model(targets_w_bos, spatial_dim=targets_bos_spatial_dim_pad[0])
+    logits: Tensor = out["output"]
+    logits_raw = logits.raw_tensor # (T, B, V)
+    ce = torch.nn.functional.cross_entropy(
+        input = logits_raw.permute(1, 2, 0),
+        target = targets_w_eos_raw,
+        reduction="none",
     )
-    # calculate PPL
+    targets_len_raw = targets_spatial_dim.dyn_size_ext.raw_tensor + 1 # +1 for EOS
+    seq_mask = get_seq_mask(
+        seq_lens=targets_len_raw,
+        max_seq_len=targets_len_raw.max(),
+        device=logits_raw.device
+        )
+    loss = (ce*seq_mask).sum() / targets_len_raw.float().sum()
+    ppl = torch.exp(loss)
+    rf.get_run_ctx().mark_as_loss(
+        name="log_ppl", loss=loss,
+    )
+    rf.get_run_ctx().mark_as_loss(
+        name="ppl", loss=ppl, as_error=True,
+    )
 
+train_def: TrainDef[Model]
+train_def.learning_rate_control_error_measure = "dev_loss_ppl"
 
-
-from_scratch_training: TrainDef[Model]
-from_scratch_training.learning_rate_control_error_measure = "dev_score_full_sum"

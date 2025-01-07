@@ -29,3 +29,17 @@ default_bigram_config = { # almost same as ILM, but one more layer
     "ff_dropout": 0.0,
     "use_bottleneck": False,
 }
+
+default_tedlium2_extern_lm_config = {
+    "class": "LSTM_LM_Model",
+    "num_layers": 4,
+    "lstm_input_dim": 128,
+    "lstm_model_dim": 2048,
+}
+
+default_tedlium2_extern_lm_hardcoded_layers_config = {
+    "class": "LSTM_LM_Model_Hardcoded_Layers",
+    "num_layers": 4,
+    "lstm_input_dim": 128,
+    "lstm_model_dim": 2048,
+}

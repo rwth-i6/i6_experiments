@@ -155,6 +155,7 @@ def log_ctc_pref_beam_scores(
     input_lengths, # (B,)
     blank_idx = 0,
     eos_idx = None,
+    am_scale = 1.0,
     log_zero = -1e25, # maybe better than float min for preventing overflowing
 ):
     '''
@@ -190,6 +191,7 @@ def log_ctc_pref_beam_scores(
         Instead of having one "extra" EOS in place of the blank index, the EOS score will
         be moved to the eos_idx instead. The LM score is then expected to have the same dimension
         as the vocab, not vocab + EOS.
+    :param am_scale: Reshape p_CTC(w | ...) to p^{am_scale}_CTC(w | ...)
     :param log_zero: Value of log zero. Default to -1e15 to prevent overflow comparing to float32 min
     :return: (log_pref_scores_beams, log_gamma)
     
@@ -247,6 +249,9 @@ def log_ctc_pref_beam_scores(
         out_idx = torch.arange(n_out, dtype=torch.long)
         out_idx_no_blank = out_idx[out_idx != blank_idx]
         log_pref_scores_beams = log_pref_scores_beams[:, :, out_idx_no_blank] 
+
+    if am_scale != 1.0:
+        log_pref_scores_beams = (am_scale*log_pref_scores_beams).log_softmax(-1)
 
     return log_pref_scores_beams, log_gamma
 
@@ -656,6 +661,7 @@ def kldiv_ctc_lm_loss(
     log_zero = -1e25, # maybe better than float min for preventing overflowing
     eos_idx = None,
     target_mask = None,
+    am_scale = 1.0,
     return_unsummed_loss = False,
 ):
     '''
@@ -700,6 +706,7 @@ def kldiv_ctc_lm_loss(
         blank_idx=blank_idx,
         eos_idx=eos_idx,
         log_zero=log_zero,
+        am_scale=am_scale,
     )
     # renormalize to have p_ctc(v|hypothesis) in output dim
     log_p_ctc = log_pref_scores_beams.log_softmax(dim=-1)

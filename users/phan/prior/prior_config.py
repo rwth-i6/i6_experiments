@@ -341,13 +341,13 @@ def _returnn_v2_get_prior_callback():
         def process_seq(self, *, seq_tag: str, outputs: TensorDict):
             ctc_out = outputs["ctc_out"].raw_tensor  # [beam, out_spatial]
             len = int(outputs["ctc_out"].dims[0].dyn_size_ext.raw_tensor)
-            probs = ctc_out[:len].sum(0) / len
+            probs = ctc_out[:len].sum(0)
             if self.accum is None:
                 self.accum = probs
             else:
                 self.accum = self.accum + probs
 
-            self.count += 1
+            self.count += len
 
         def finish(self):
             self.accum = self.accum / self.count

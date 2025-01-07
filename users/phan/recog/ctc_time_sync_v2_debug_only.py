@@ -67,7 +67,9 @@ def model_recog_time_sync(
     search_args = config.typed_value("search_args", {})
 
     batch_dims = data.remaining_dims((data_spatial_dim, data.feature_dim))
+    print(data_spatial_dim.dyn_size_ext.raw_tensor)
     enc_args, enc_spatial_dim = model.encode(data, in_spatial_dim=data_spatial_dim)
+    print(enc_spatial_dim.dyn_size_ext.raw_tensor)
     enc_ctc = model.enc_aux_logits_12(enc_args["enc"])
 
     enc_ctc = rf.softmax(enc_ctc, axis=model.target_dim_w_blank)

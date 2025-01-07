@@ -300,8 +300,22 @@ class Model(rf.Module):
                     label_target_dim,
                     **external_language_model,
                 )
+            elif lm_cls == "LSTM_LM_Model":
+                from i6_experiments.users.phan.rf_models.lstm_lm_luca import LSTM_LM_Model
+                self.language_model = LSTM_LM_Model(
+                    label_target_dim,
+                    label_target_dim,
+                    **external_language_model,
+                )
+            elif lm_cls == "LSTM_LM_Model_Hardcoded_Layers":
+                from i6_experiments.users.phan.rf_models.lstm_lm_luca_hardcoded_layers import LSTM_LM_Model_Hardcoded_Layers
+                self.language_model = LSTM_LM_Model_Hardcoded_Layers(
+                    label_target_dim,
+                    label_target_dim,
+                    **external_language_model,
+                )
             else:
-                raise NotImplementedError("Only the Kazuki Trafo LM is supported!!!!!!!!")
+                raise NotImplementedError(f"The LM class {lm_cls} is not supported !!!!!!")
 
         # Freeze the encoder
         if freeze_encoder:
@@ -335,6 +349,26 @@ class Model(rf.Module):
         """
         ilm_out = self.ilm(targets, out_spatial_dim)
         return ilm_out
+
+    def feature_extraction(
+        self,
+        source: Tensor,
+        *,
+        in_spatial_dim: Dim,
+    ):
+        """
+        Simply do features extraction and return the feature-extracted input
+        with the spatial dim
+        """
+        # log mel filterbank features
+        source, in_spatial_dim = rf.audio.log_mel_filterbank_from_raw(
+            source,
+            in_spatial_dim=in_spatial_dim,
+            out_dim=self.in_dim,
+            sampling_rate=16_000,
+            log_base=math.exp(2.3026),  # almost 10.0 but not exactly...
+        )
+        return source, in_spatial_dim
 
     def encode(
         self,
@@ -675,6 +709,7 @@ def from_scratch_training_kldiv(
     
     # expect the kldiv in the beginning to be near -ln(1/10026) ~ 9.x
     log_lm_score = ilm_out_raw.transpose(0, 1).log_softmax(-1) # (B, S, V)
+    am_scale = config.typed_value("teacher_scale", 1.0)
     kldiv = kldiv_ctc_lm_loss(
         aux_logits_raw.transpose(0, 1).log_softmax(-1).detach(),
         targets_raw.clone().long(),
@@ -683,6 +718,7 @@ def from_scratch_training_kldiv(
         ilm_out_raw.transpose(0, 1).log_softmax(-1),
         blank_idx=model.blank_idx,
         eos_idx=model.eos_idx,
+        am_scale=am_scale,
     )
     targets_len_rf = targets_spatial_dim_pad[0].dyn_size_ext
     rf.get_run_ctx().mark_as_loss(
@@ -1511,3 +1547,118 @@ def train_masked_bi_ilm(
 
 from_scratch_training_kldiv_masking: TrainDef[Model]
 from_scratch_training_kldiv_masking.learning_rate_control_error_measure = "dev_score_full_sum"
+
+
+from i6_experiments.users.phan.ctc_ilm_sequence_level_loss import kldiv_ctc_lm_sequence_level, \
+    kldiv_ctc_lm_sequence_level_ground_truth_weight_1
+def ilm_kldiv_sequence_level(
+    *,
+    model: Model,
+    data: rf.Tensor,
+    data_spatial_dim: Dim,
+    targets: rf.Tensor,
+    targets_spatial_dim: Dim,
+):
+    """Like KLDiv but on sequence level"""
+    from returnn.config import get_global_config
+
+    # import for training only, will fail on CPU servers
+    # from i6_native_ops import warp_rnnt
+
+    config = get_global_config()  # noqa
+
+    # sampling weight given to the ground truth
+    weight = config.typed_value("sequence_sampling_weight", None)
+    assert weight is not None, "Must provide sequence_sampling_weight in config"
+
+    aux_loss_layers = config.typed_value("aux_loss_layers")
+    aux_loss_scales = config.typed_value(
+        "aux_loss_scales", ([1.0] * len(aux_loss_layers)) if aux_loss_layers else None
+    )
+    # aed_loss_scale = config.float("aed_loss_scale", 1.0)
+    use_normalized_loss = config.bool("use_normalized_loss", True)
+
+    if data.feature_dim and data.feature_dim.dimension == 1:
+        data = rf.squeeze(data, axis=data.feature_dim)
+    assert not data.feature_dim  # raw audio
+
+    collected_outputs = {}
+    enc_args, enc_spatial_dim = model.encode(
+        data, in_spatial_dim=data_spatial_dim, collected_outputs=collected_outputs
+    )
+    mask_eos = config.bool("mask_eos_output", True)
+    add_eos_to_blank = config.bool("add_eos_to_blank", False)
+
+    # This should be the final logits of the whole encoder
+    aux_logits = model.enc_aux_logits_12(collected_outputs[str(11)])
+
+    if mask_eos:
+        mask_eos_label(aux_logits, add_to_blank=add_eos_to_blank)
+
+
+
+    ######### Needed stuffs for ILM estimation ##########
+    targets_w_bos, targets_spatial_dim_pad = rf.pad(
+        targets,
+        padding=[(1, 0)],
+        axes=[targets_spatial_dim],
+        value=model.eos_idx
+    )
+    ilm_out = model.ilm_forward(targets_w_bos, targets_spatial_dim_pad[0])
+    ilm_out_raw = ilm_out["output"].raw_tensor # (T, B, V)
+    # This is the log probs
+    aux_logits_raw = aux_logits.raw_tensor.detach() # (B, T, V + blank), good
+    targets_raw = targets.raw_tensor
+    torch_target_lengths = targets_spatial_dim.dyn_size_ext.raw_tensor
+    torch_input_lengths = enc_spatial_dim.dyn_size_ext.raw_tensor
+
+
+    log_lm_score = ilm_out_raw.transpose(0, 1).log_softmax(-1) # (B, S, V)
+    targets_len_rf = targets_spatial_dim_pad[0].dyn_size_ext
+
+
+    batch_size, max_seq_len = targets_raw.shape
+    targets_eos = torch.cat(
+        [targets_raw, torch.full((batch_size, 1), fill_value=model.eos_idx, device=targets_raw.device)],
+        dim=1,
+    ).long()
+    ce = torch.nn.functional.cross_entropy(log_lm_score.transpose(1, 2), targets_eos, reduction='none')
+    seq_mask = get_seq_mask(torch_target_lengths, max_seq_len+1, targets_raw.device)
+    ce = ce*seq_mask
+    
+
+    # report the PPL of the ILM
+    log_ppl = ce.sum()/(targets_len_rf.raw_tensor.sum())
+    ppl = torch.exp(log_ppl)
+    rf.get_run_ctx().mark_as_loss(
+        name="student_lm_ppl", loss=ppl, as_error=True,
+    )
+
+    # calculate the sequence KL divergence
+    log_lm_seq_probs = -ce.sum(1) # (B,), ce[b] = log p_ILM(w_1^N), sequence level
+    if weight != 1.0:
+        kldiv = kldiv_ctc_lm_sequence_level(
+            aux_logits_raw.transpose(0, 1).log_softmax(-1),
+            targets_raw.clone().long(),
+            torch_input_lengths.long(),
+            torch_target_lengths.long(),
+            log_lm_seq_probs,
+            blank_idx=model.blank_idx,
+            ground_truth_weight=weight,
+        ) # do we normalize this ? no
+    else:
+        kldiv = kldiv_ctc_lm_sequence_level_ground_truth_weight_1(
+            aux_logits_raw.transpose(0, 1).log_softmax(-1),
+            targets_raw.clone().long(),
+            torch_input_lengths.long(),
+            torch_target_lengths.long(),
+            log_lm_seq_probs,
+            blank_idx=model.blank_idx,
+        ) # do we normalize this ? no
+    rf.get_run_ctx().mark_as_loss(
+        kldiv,
+        "kldiv_sequence_level",
+    )
+
+ilm_kldiv_sequence_level: TrainDef[Model]
+ilm_kldiv_sequence_level.learning_rate_control_error_measure = "dev_score_full_sum"

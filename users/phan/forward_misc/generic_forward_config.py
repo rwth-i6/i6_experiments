@@ -33,9 +33,11 @@ def generic_forward_job(
 	forward_extra_config: dict = {},
 	forward_post_config: Optional[Dict[str, Any]] = None,
 	forward_mem_rqmt: Union[int, float] = 6,
+	forward_time_rqmt: Union[int, float] = 4,
 	device: Optional[str] = "gpu",
 	dataset_key: str = "train",
 	job_vis_name: str = "",
+	extra_hash = None,
 ):
 	"""
 	This "generic" forward is intended to work
@@ -52,11 +54,13 @@ def generic_forward_job(
 			post_config=forward_post_config,
 			device=device,
 			dataset_key=dataset_key,
+			extra_hash=extra_hash,
 		),
 		output_files=output_files,
 		returnn_python_exe=tools_paths.get_returnn_python_exe(),
 		returnn_root=tools_paths.get_returnn_root(),
 		mem_rqmt=forward_mem_rqmt,
+		time_rqmt=forward_time_rqmt,
 		device=device,
 	)
 	forward_job.set_vis_name(job_vis_name)
@@ -68,7 +72,7 @@ def generic_forward_job(
 
 
 def forward_config(
-	dataset: DatasetConfig,
+	dataset: Union[DatasetConfig, dict],
 	model_def,
 	forward_def,
 	forward_callback,
@@ -77,11 +81,15 @@ def forward_config(
 	post_config: Optional[Dict[str, Any]] = None,
 	device: Optional[str] = "gpu",
 	dataset_key: str = "train",
+	extra_hash = None,
 ) -> ReturnnConfig:
-	if dataset_key == "devtrain":
-		forward_data = dataset.get_eval_datasets()["devtrain"]
+	if isinstance(dataset, DatasetConfig):
+		if dataset_key == "devtrain":
+			forward_data = dataset.get_eval_datasets()["devtrain"]
+		else:
+			forward_data = dataset.get_main_dataset()
 	else:
-		forward_data = dataset.get_main_dataset()
+		forward_data = dataset
 	returnn_align_config_dict = dict(
 		backend=model_def.backend,
 		behavior_version=model_def.behavior_version,
@@ -103,31 +111,36 @@ def forward_config(
 	# 	"search_args": search_args,
 	# 	"model_args": model_args,
 	# })
+	serial_collection = [
+		serialization.NonhashedCode(
+			nn.ReturnnConfigSerializer.get_base_extern_data_py_code_str_direct(extern_data_raw)
+		),
+		serialization.Import(model_def, import_as="_model_def", ignore_import_as_for_hash=True),
+		serialization.Import(_returnn_v2_get_model, import_as="get_model"),
+		serialization.Import(forward_def, import_as="_forward_def", ignore_import_as_for_hash=True),
+		serialization.Import(_returnn_v2_forward_step, import_as="forward_step"),
+		serialization.Import(forward_callback, import_as="forward_callback"),
+		serialization.ExplicitHash(
+			{
+				# Increase the version whenever some incompatible change is made in this recog() function,
+				# which influences the outcome, but would otherwise not influence the hash.
+				"version": "01/11/2024",
+				"device": device,
+			}
+		),
+		serialization.PythonEnlargeStackWorkaroundNonhashedCode,
+		serialization.PythonCacheManagerFunctionNonhashedCode,
+		serialization.PythonModelineNonhashedCode,
+	]
+	if extra_hash is not None:
+		serial_collection.append(
+			serialization.ExplicitHash(extra_hash)
+		)
 	returnn_align_config = ReturnnConfig(
 		config=returnn_align_config_dict,
 		python_epilog=[
 			serialization.Collection(
-				[
-					serialization.NonhashedCode(
-						nn.ReturnnConfigSerializer.get_base_extern_data_py_code_str_direct(extern_data_raw)
-					),
-					serialization.Import(model_def, import_as="_model_def", ignore_import_as_for_hash=True),
-					serialization.Import(_returnn_v2_get_model, import_as="get_model"),
-					serialization.Import(forward_def, import_as="_forward_def", ignore_import_as_for_hash=True),
-					serialization.Import(_returnn_v2_forward_step, import_as="forward_step"),
-					serialization.Import(forward_callback, import_as="forward_callback"),
-					# serialization.ExplicitHash(
-					# 	{
-					# 		# Increase the version whenever some incompatible change is made in this recog() function,
-					# 		# which influences the outcome, but would otherwise not influence the hash.
-					# 		"version": 3,
-					# 		"device": device,
-					# 	}
-					# ),
-					serialization.PythonEnlargeStackWorkaroundNonhashedCode,
-					serialization.PythonCacheManagerFunctionNonhashedCode,
-					serialization.PythonModelineNonhashedCode,
-				]
+				serial_collection
 			)
 		],
 		post_config=dict(  # not hashed
@@ -268,3 +281,27 @@ def _returnn_v2_get_forward_callback():
 			self.alignment_file.close()
 
 	return _ReturnnRecogV2ForwardCallbackIface()
+
+def _returnn_v2_forward_step_text_only(*, model, extern_data: TensorDict, **_kwargs_unused):
+	import returnn.frontend as rf
+	from returnn.tensor import Tensor, Dim, batch_dim
+	from returnn.config import get_global_config
+
+	if rf.is_executing_eagerly():
+		batch_size = int(batch_dim.get_dim_value())
+		for batch_idx in range(batch_size):
+			seq_tag = extern_data["seq_tag"].raw_tensor[batch_idx].item()
+			print(f"batch {batch_idx + 1}/{batch_size} seq_tag: {seq_tag!r}")
+
+	config = get_global_config()
+	forward_def = config.typed_value("_forward_def")
+
+	default_target_key = config.typed_value("target")
+	targets = extern_data[default_target_key]
+	targets_spatial_dim = targets.get_time_dim_tag()
+
+	forward_def(
+		model=model,
+		non_blank_targets=targets,
+		non_blank_targets_spatial_dim=targets_spatial_dim,
+	)
