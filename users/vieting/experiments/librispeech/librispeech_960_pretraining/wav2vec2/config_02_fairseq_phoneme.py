@@ -73,7 +73,7 @@ def run_fairseq_pretraining(exp_name, commit, python_exe_hash_overwrite=None, ch
         python_exe_hash_overwrite (Optional[str]): The hash overwrite for the fairseq_python_exe to use.
             It should only be used to achieve compatibility with the previous setup structure and should be ignored
             in all other cases.
-        checkpoint (Optional[str]): The path to the checkpoint to start from. If None, the training will start
+        checkpoint (Optional[tk.Path]): The path to the checkpoint to start from. If None, the training will start
             from scratch.
         **kwargs: Additional arguments to pass to the job. These will be used to overwrite the model configuration.
     """
