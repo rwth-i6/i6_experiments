@@ -45,10 +45,8 @@ def main():
 
     import sisyphus.logging_format
     from sisyphus.loader import config_manager
-    import sisyphus.toolkit as tk
     from sisyphus import graph
     from sisyphus import gs
-    from i6_core.returnn.training import ReturnnTrainingJob
     from i6_experiments.users.zeyer.utils import job_aliases_from_log
     from i6_experiments.users.zeyer.utils.set_insert_order import SetInsertOrder
     from returnn.util.basic import human_bytes_size
@@ -68,10 +66,12 @@ def main():
     print("Checking active train jobs of the Sisyphus graph...")
     active_train_job_paths = set()
     for job in graph.graph.jobs():
-        if not isinstance(job, ReturnnTrainingJob):
+        job_path: str = job._sis_path()
+        # Note: no isinstance(job, ReturnnTrainingJob) check here,
+        # to also catch fake jobs (via dependency_boundary).
+        if not job_path.startswith("work/i6_core/returnn/training/ReturnnTrainingJob."):
             continue
         # print("active train job:", job._sis_path())
-        job_path = job._sis_path()
         if os.path.isdir(job_path):
             active_train_job_paths.add(job_path)
             aliases = job_aliases_from_log.get_job_aliases(job_path)
