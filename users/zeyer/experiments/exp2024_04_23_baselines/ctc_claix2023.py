@@ -602,8 +602,11 @@ def py():
         ("spm10k", 0.5, False),
         ("spm512", 0.2, False),
     ]:
+        sep_name = f"sepFf_alpha{str(alpha).replace('.', '')}_beta05"
+        if sep:
+            sep_name += "_sep"
         ctc_train_exp(
-            f"n12-{vocab}-sepFf_alpha{str(alpha).replace('.', '')}_beta05-auxAED-b150k",
+            f"n12-{vocab}-{sep_name}-auxAED-b150k",
             config_96gb_bf16_accgrad1,
             train_def=ctc_training_with_sep_net,
             model_config={
