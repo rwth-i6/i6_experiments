@@ -11,9 +11,10 @@ from functools import reduce
 from typing import TypeVar
 
 _my_dir = os.path.dirname(__file__)
-_base_dir = reduce(lambda p, _: os.path.dirname(p), range(4), _my_dir)
-_sis_dir = os.path.dirname(_base_dir) + "/tools/sisyphus"
-_returnn_dir = os.path.dirname(_base_dir) + "/tools/returnn"
+_base_recipe_dir = reduce(lambda p, _: os.path.dirname(p), range(4), _my_dir)
+_setup_base_dir = os.path.dirname(_base_recipe_dir)
+_sis_dir = _setup_base_dir + "/tools/sisyphus"
+_returnn_dir = _setup_base_dir + "/tools/returnn"
 
 T = TypeVar("T")
 
@@ -22,8 +23,8 @@ def _setup():
     # In case the user started this script directly.
     if not globals().get("__package__"):
         globals()["__package__"] = "i6_experiments.users.zeyer.sis_tools"
-        if _base_dir not in sys.path:
-            sys.path.append(_base_dir)
+        if _base_recipe_dir not in sys.path:
+            sys.path.append(_base_recipe_dir)
         if _sis_dir not in sys.path:
             sys.path.append(_sis_dir)
         if _returnn_dir not in sys.path:
