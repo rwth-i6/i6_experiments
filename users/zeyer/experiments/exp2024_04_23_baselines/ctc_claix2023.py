@@ -595,7 +595,13 @@ def py():
 
     # Time downsampling 6 (standard), spm10k.
     # Separate FF net, also with beta (smoothing for both main and sep net).
-    for vocab, alpha in [("spm10k", 0.1), ("spm10k", 0.2), ("spm10k", 0.5), ("spm512", 0.2)]:
+    for vocab, alpha, sep in [
+        ("spm10k", 0.1, False),
+        ("spm10k", 0.1, True),
+        ("spm10k", 0.2, False),
+        ("spm10k", 0.5, False),
+        ("spm512", 0.2, False),
+    ]:
         ctc_train_exp(
             f"n12-{vocab}-sepFf_alpha{str(alpha).replace('.', '')}_beta05-auxAED-b150k",
             config_96gb_bf16_accgrad1,
@@ -627,6 +633,7 @@ def py():
                 "use_fixed_ctc_grad": "v2",
                 "sep_net_grad_interpolate_alpha": alpha,
                 "sep_net_grad_interpolate_beta": 0.5,
+                **({"separate_enc_with_sep_aug": True} if sep else {}),
             },
             post_config_updates={"log_grad_norm": True, "__multi_proc_dataset_opts": {"num_workers": 25}},
             vocab=vocab,
