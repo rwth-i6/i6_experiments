@@ -29,6 +29,7 @@ from returnn.frontend.encoder.conformer import ConformerEncoderLayer, ConformerP
 def py():
     from returnn.frontend.encoder.conformer import ConformerConvSubsample
 
+    # Consistency regularization (CR) (crLoss).
     for opts in [
         # Baseline (n12) has {"dev-clean": 2.35, "dev-other": 5.65, "test-clean": 2.66, "test-other": 5.94}.
         # CLAIX baseline: {"dev-clean": 2.54, "dev-other": 5.93, "test-clean": 2.68, "test-other": 6.27}
@@ -114,6 +115,8 @@ def py():
                 # env_updates={"PYTORCH_CUDA_ALLOC_CONF": "backend:cudaMallocAsync,expandable_segments:True"},
             )
         del opts, use_cr_ctc, name
+
+    # TODO Instead of CR, use _interpolate_grad_probs.
 
     # shuffleBatch100. But not so relevant here? No large laplace, also max 200 seqs in batch.
     # (n12-b250k-shuffleBatch100-spm10k) 6.15
