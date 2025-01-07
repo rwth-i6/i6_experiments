@@ -793,7 +793,7 @@ def _torch_interpolate_grad_probs(
                     ny_sep_interpolated_scaled = ny_sep_scaled * (1 - beta) + ny_main_scaled * (beta * scale_ratio)
                 else:
                     ny_sep_interpolated_scaled = ny_sep_scaled
-                return ny_main_interpolated_scaled, ny_sep_interpolated_scaled
+                return ny_main_interpolated_scaled, ny_sep_interpolated_scaled, None, None
 
     log_probs_main, log_probs_sep = _InterpolateGradFunc.apply(log_probs_main, log_probs_sep, alpha, beta)
     return log_probs_main, log_probs_sep
