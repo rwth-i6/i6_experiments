@@ -444,47 +444,50 @@ def py():
             env_updates={"PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"},
         )
 
-    from .model_ext.ctc_sep_blank import ModelSepBlank, SeparateBlankModel
+    # from .model_ext.ctc_sep_blank import ModelSepBlank, SeparateBlankModel
 
     # Time downsampling 6 (standard), spm10k.
-    # Output blank separated (blankSep) + separated blank model
-    ctc_train_exp(
-        f"n12-spm10k-blankSep-blankSepModel-auxAED-b150k",
-        config_96gb_bf16_accgrad1,
-        model_config={
-            "ctc_model_cls": rf.build_dict(ModelSepBlank)["class"],
-            "separate_blank_model": rf.build_dict(SeparateBlankModel),
-            "out_blank_separated": True,
-            "enc_conformer_layer": rf.build_dict(
-                ConformerEncoderLayer,
-                ff=rf.build_dict(
-                    ConformerPositionwiseFeedForward, activation=rf.build_dict(rf.relu_square), with_bias=False
-                ),
-                num_heads=8,
-            ),
-            "feature_batch_norm": True,
-            "num_enc_layers": 12,
-        },
-        config_updates={
-            **_get_cfg_lrlin_oclr_by_bs_nep_v3(150_000, 100, batch_size_factor=_batch_size_factor),
-            "optimizer.weight_decay": 1e-2,
-            "max_seq_length_default_target": None,
-            # Note on max seq len stats: Before, when we used max_seq_length_default_target=75 with bpe10k,
-            # out of 281241 seqs in train, we removed only 71 seqs.
-            # With max seq len 19.5 secs on the audio, we also remove exactly 71 seqs.
-            "max_seq_length_default_input": 19.5 * _raw_sample_rate,
-            "__train_audio_preprocess": speed_pert_librosa_config,
-            "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
-            "aux_attention_decoder": rf.build_dict(TransformerDecoder, num_layers=6),  # purely used for training
-            "use_fixed_ctc_grad": "v2",
-        },
-        post_config_updates={"log_grad_norm": True, "__multi_proc_dataset_opts": {"num_workers": 25}},
-        vocab="spm10k",
-        train_vocab_opts={"other_opts": {"class": "SamplingBytePairEncoding", "breadth_prob": 0.01}},
-        dataset_train_opts={"train_epoch_split": 1, "train_epoch_wise_filter": None},
-        # avoid OOM
-        env_updates={"PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"},
-    )
+    # Output blank separated (blankSep) + separated blank model.
+    # Currently way worse than baseline (baseline (with blankSep): dev-other: 5.85).
+    # Interestingly, relative diff between clean and other is way smaller than in baseline
+    # (baseline: "dev-clean": 2.49, "dev-other": 5.85; this: "dev-clean": 8.61, "dev-other": 12.9).
+    # ctc_train_exp(  # 12.9
+    #     f"n12-spm10k-blankSep-blankSepModel-auxAED-b150k",
+    #     config_96gb_bf16_accgrad1,
+    #     model_config={
+    #         "ctc_model_cls": rf.build_dict(ModelSepBlank)["class"],
+    #         "separate_blank_model": rf.build_dict(SeparateBlankModel),
+    #         "out_blank_separated": True,
+    #         "enc_conformer_layer": rf.build_dict(
+    #             ConformerEncoderLayer,
+    #             ff=rf.build_dict(
+    #                 ConformerPositionwiseFeedForward, activation=rf.build_dict(rf.relu_square), with_bias=False
+    #             ),
+    #             num_heads=8,
+    #         ),
+    #         "feature_batch_norm": True,
+    #         "num_enc_layers": 12,
+    #     },
+    #     config_updates={
+    #         **_get_cfg_lrlin_oclr_by_bs_nep_v3(150_000, 100, batch_size_factor=_batch_size_factor),
+    #         "optimizer.weight_decay": 1e-2,
+    #         "max_seq_length_default_target": None,
+    #         # Note on max seq len stats: Before, when we used max_seq_length_default_target=75 with bpe10k,
+    #         # out of 281241 seqs in train, we removed only 71 seqs.
+    #         # With max seq len 19.5 secs on the audio, we also remove exactly 71 seqs.
+    #         "max_seq_length_default_input": 19.5 * _raw_sample_rate,
+    #         "__train_audio_preprocess": speed_pert_librosa_config,
+    #         "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
+    #         "aux_attention_decoder": rf.build_dict(TransformerDecoder, num_layers=6),  # purely used for training
+    #         "use_fixed_ctc_grad": "v2",
+    #     },
+    #     post_config_updates={"log_grad_norm": True, "__multi_proc_dataset_opts": {"num_workers": 25}},
+    #     vocab="spm10k",
+    #     train_vocab_opts={"other_opts": {"class": "SamplingBytePairEncoding", "breadth_prob": 0.01}},
+    #     dataset_train_opts={"train_epoch_split": 1, "train_epoch_wise_filter": None},
+    #     # avoid OOM
+    #     env_updates={"PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"},
+    # )
 
     from .model_ext.ctc_sep_net import ModelSepNet, FeedForwardNet, ctc_training_with_sep_net
 
@@ -793,17 +796,17 @@ def py():
         # Diffs are small, dev-other is also slightly misleading. Looking at last epoch is more consistent.
         # Then prior scale 0.5 looks to be still slightly better than 0.7 which is also better than 1.0:
         # Last epoch, test-other: 1.0: 6.34, 0.7: 6.11, 0.5: 6.08; baseline: 6.10
-        "-lpNormedGradC05_11P05N": {  # 5.95 (but better on test-other)
-            "log_prob_normed_grad": {
-                "func": {
-                    "clamp_min": 0.5,
-                    "clamp_max": 1.1,
-                    "scale_type": "inv_num_labels",
-                    "prior_exp": 0.5,
-                    "prior_renorm": True,
-                }
-            }
-        },
+        # "-lpNormedGradC05_11P05N": {  # 5.95 (but better on test-other)
+        #     "log_prob_normed_grad": {
+        #         "func": {
+        #             "clamp_min": 0.5,
+        #             "clamp_max": 1.1,
+        #             "scale_type": "inv_num_labels",
+        #             "prior_exp": 0.5,
+        #             "prior_renorm": True,
+        #         }
+        #     }
+        # },
         "-lpNormedGradC05_11P05NSeq": {
             "log_prob_normed_grad": {
                 "prior": "seq_grad",
@@ -1003,32 +1006,49 @@ def py():
     # Diff am/prior scales, with downsampling 6, spm10k.
     for am_scale, prior_scale, name, prior_type, extra_train_opts in [
         # Baseline (1.0, 0.0, None):
-        (0.7, 0.0, "", None, {}),
-        (0.5, 0.2, "-priorSeq", "seq", {}),
-        (0.5, 0.2, "-priorSeqStopGrad", "seq_stop_grad", {}),
-        (0.5, 0.2, "-priorBatch", "batch", {}),
-        (0.5, 0.2, "-priorBatchFixed", "batch_fixed", {}),
-        (0.5, 0.2, "-priorBatchStopGrad", "batch_stop_grad", {}),
-        (0.7, 0.2, "-priorBatch", "batch", {}),
-        (0.7, 0.2, "-priorRunningMean1e_3", "running_mean", {"prior_running_mean_momentum": 0.001}),
-        (0.5, 0.2, "-priorRunningMean1e_3", "running_mean", {"prior_running_mean_momentum": 0.001}),
-        (0.5, 0.2, "-priorRunningMean1e_1", "running_mean", {"prior_running_mean_momentum": 0.1}),
-        (0.5, 0.2, "-priorRunningMean1e_0", "running_mean", {"prior_running_mean_momentum": 1.0}),  # sanity check
-        (
-            0.5,
-            0.2,
-            "-priorRunningMeanPerLayer1e_3",
-            "running_mean",
-            {"prior_running_mean_momentum": 0.001, "prior_running_mean_per_layer": True},
-        ),
-        (
-            0.5,
-            0.2,
-            "-priorRunningMeanPerLayer1e_1",
-            "running_mean",
-            {"prior_running_mean_momentum": 0.1, "prior_running_mean_per_layer": True},
-        ),
-        (0.3, 0.15, "-priorRunningMean1e_3", "running_mean", {"prior_running_mean_momentum": 0.001}),
+        # "best" epoch (89): {"dev-clean": 2.49, "dev-other": 5.89, "test-clean": 2.66, "test-other": 6.17}
+        # last epoch (100):  {"dev-clean": 2.47, "dev-other": 5.90, "test-clean": 2.63, "test-other": 6.10}
+        # (0.7, 0.0, "", None, {}),  # 6.52
+        # (0.7, 0.2, "-priorBatch", "batch", {}),  # 9.65
+        # Note: Running mean here is shared over layers...
+        # (0.7, 0.2, "-priorRunningMean1e_3", "running_mean", {"prior_running_mean_momentum": 0.001}),  # 17.12
+        # (0.5, 0.2, "-priorBatch", "batch", {}),  # 8.23 (but not fixed)
+        # Fixed means, it uses mean instead of sum (non-fixed above).
+        # (0.5, 0.2, "-priorBatchFixed", "batch_fixed", {}),  # 7.72
+        # Stop grad here is already fixed (mean).
+        # It's weird that this is worse. This is inconsistent to earlier experience.
+        # (0.5, 0.2, "-priorBatchStopGrad", "batch_stop_grad", {}),  # 8.22
+        # Interestingly, just as with lpNormedGrad, seq-based prior is better than batch-based prior.
+        # (0.5, 0.2, "-priorSeq", "seq", {}),  # 6.81
+        # Interestingly, here stop grad helps.
+        # (0.5, 0.2, "-priorSeqStopGrad", "seq_stop_grad", {}),  # 6.48
+        # Interestingly, just as with lpNormedGrad, running mean is bad.
+        # Running mean here is again shared over layers. (Below is separate per layer.)
+        # The smaller the momentum, the worse, just as with lpNormedGrad.
+        # Warning: The selected "best" epoch for some of these is very early, epoch 33 or so.
+        # (0.5, 0.2, "-priorRunningMean1e_3", "running_mean", {"prior_running_mean_momentum": 0.001}),  # 22.48
+        # (0.5, 0.2, "-priorRunningMean1e_1", "running_mean", {"prior_running_mean_momentum": 0.1}),  # 12.02
+        (0.5, 0.2, "-priorRunningMean05", "running_mean", {"prior_running_mean_momentum": 0.5}),
+        # Sanity check with momentum 1, i.e. not using the running mean at all.
+        # It should be like priorBatchStopGrad. For some reason, seems a bit better? (8.22 vs 7.91)
+        # (0.5, 0.2, "-priorRunningMean1e_0", "running_mean", {"prior_running_mean_momentum": 1.0}),  # 7.91
+        # Weirdly, this is worse than the shared running mean.
+        # (  # 21.81 (best ep 33)
+        #     0.5,
+        #     0.2,
+        #     "-priorRunningMeanPerLayer1e_3",
+        #     "running_mean",
+        #     {"prior_running_mean_momentum": 0.001, "prior_running_mean_per_layer": True},
+        # ),
+        # (  # 17.31 (best ep 100)
+        #     0.5,
+        #     0.2,
+        #     "-priorRunningMeanPerLayer1e_1",
+        #     "running_mean",
+        #     {"prior_running_mean_momentum": 0.1, "prior_running_mean_per_layer": True},
+        # ),
+        # (0.3, 0.15, "-priorRunningMean1e_3", "running_mean", {"prior_running_mean_momentum": 0.001}),  # 20.37
+        (0.3, 0.15, "-priorSeqStopGrad", "seq_stop_grad", {}),
     ]:
         ctc_train_exp(
             f"n12-spm10k-am{am_scale}-prior{prior_scale}{name}-auxAED-b150k",
@@ -1069,8 +1089,6 @@ def py():
             # avoid OOM
             env_updates={"PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"},
         )
-
-    # TODO exp joint FF, or maybe joint Conformer wo att (with shared params?), ...
 
     # Time downsampling 6.
     # Comparing different vocabs, samplings (using max_seq_length_default_input).
