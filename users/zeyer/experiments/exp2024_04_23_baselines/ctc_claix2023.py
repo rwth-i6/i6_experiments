@@ -36,16 +36,18 @@ def py():
         # CLAIX CR: {"dev-clean": 2.49, "dev-other": 5.99, "test-clean": 2.68, "test-other": 6.05}
         # v6-relPosAttDef-noBias-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-featBN-speedpertV2-spm10k-bpeSample001
         # {"num_enc_layers": 12, "batch_size": 200_000, "vocab": "spm10k"},
+        {"num_enc_layers": 12, "batch_size": 150_000, "vocab": "spm10k"},
         # Baseline (n16, spm10k) has {"dev-clean": 2.26, "dev-other": 5.44, "test-clean": 2.5, "test-other": 5.62}.
         # v6-n16-relPosAttDef-noBias-aedLoss-bhv20-11gb-f32-bs10k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k-featBN-speedpertV2-spm10k-bpeSample001
         # This here is now spm512 though.
         # Note: In the original CR paper, they don't have time-downsampling!
         # {"num_enc_layers": 16, "batch_size": 10_000, "vocab": "spm512"},
+        # No CR: 6.18, CR 0.2: 5.96, CR 0.5: 6.05, CR 1.0: 6.22
         {"num_enc_layers": 12, "batch_size": 200_000, "vocab": "spm512"},
         # {"num_enc_layers": 12, "batch_size": 150_000, "vocab": "spm512", "time_downsampling": 4},
         # {"num_enc_layers": 12, "batch_size": 75_000, "vocab": "spm512", "time_downsampling": 2},
     ]:
-        for cr_ctc in [None, {"cr_loss_scale": 0.2}, {"cr_loss_scale": 0.5}, {"cr_loss_scale": 1.0}]:
+        for cr_ctc in [None, {"cr_loss_scale": 0.1}, {"cr_loss_scale": 0.2}]:
             # TODO also adapt specaug for CR...
             use_cr_ctc = cr_ctc is not None
             name = f"crLoss{cr_ctc['cr_loss_scale']}-" if use_cr_ctc else ""
