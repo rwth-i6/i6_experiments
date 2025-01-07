@@ -728,53 +728,72 @@ def py():
 
     # Time downsampling 6, spm10k.
     # Log prob normed gradient (lpNormedGrad)
+    # Note on clamping with inv_num_labels:
+    # Blank prior has highest prob.
+    # inv_num_labels -> grad * (1/prior) * (1/num_labels).
+    # The clipping is on (1/prior) * (1/num_labels).
+    # Note: (1/num_labels) is like a uniform prior. So this is the ratio between the uniform prior and estimated prior.
+    # For blank, this will be quite a bit lower than 1.0, as blank dominates clearly (even when not peaky).
+    # Thus, clamp_min is basically only about blank, no other label.
+    # All other labels will be less than uniform prior, so clamp_max.
     for name, opts in {
+        # best epoch (89):  {"dev-clean": 2.49, "dev-other": 5.89, "test-clean": 2.66, "test-other": 6.17}
+        # last epoch (100): {"dev-clean": 2.47, "dev-other": 5.90, "test-clean": 2.63, "test-other": 6.10}
+        # (Maybe we should always report last epoch? Currently, we report "best" (which is per dev-other),
+        #  which induces quite some noise, as e.g. last epoch is maybe 0.01 worse on dev-other, but overall better,
+        #  and more comparable?)
         "": {},
-        "-lpNormedGradC05_11P1Seq": {
-            "log_prob_normed_grad": {
-                "prior": "seq_grad",
-                "func": {
-                    "clamp_min": 0.5,
-                    "clamp_max": 1.1,
-                    "scale_type": "inv_num_labels",
-                    "prior_exp": 1.0,
-                },
-            }
-        },
-        "-lpNormedGradC05_11P1": {
-            "log_prob_normed_grad": {
-                "func": {
-                    "clamp_min": 0.5,
-                    "clamp_max": 1.1,
-                    "scale_type": "inv_num_labels",
-                    "prior_exp": 1.0,
-                }
-            }
-        },
-        "-lpNormedGradC05_11P07NSeq": {
-            "log_prob_normed_grad": {
-                "prior": "seq_grad",
-                "func": {
-                    "clamp_min": 0.5,
-                    "clamp_max": 1.1,
-                    "scale_type": "inv_num_labels",
-                    "prior_exp": 0.7,
-                    "prior_renorm": True,
-                },
-            }
-        },
-        "-lpNormedGradC05_11P07N": {
-            "log_prob_normed_grad": {
-                "func": {
-                    "clamp_min": 0.5,
-                    "clamp_max": 1.1,
-                    "scale_type": "inv_num_labels",
-                    "prior_exp": 0.7,
-                    "prior_renorm": True,
-                }
-            }
-        },
-        "-lpNormedGradC05_11P05N": {
+        # "-lpNormedGradC05_11P1Seq": {  # 5.89
+        #     "log_prob_normed_grad": {
+        #         "prior": "seq_grad",
+        #         "func": {
+        #             "clamp_min": 0.5,
+        #             "clamp_max": 1.1,
+        #             "scale_type": "inv_num_labels",
+        #             "prior_exp": 1.0,
+        #         },
+        #     }
+        # },
+        # In many cases, using the batch is worse than using the seq? (Also with time4. Also different prior scales.)
+        # "-lpNormedGradC05_11P1": {  # 6.13
+        #     "log_prob_normed_grad": {
+        #         "func": {
+        #             "clamp_min": 0.5,
+        #             "clamp_max": 1.1,
+        #             "scale_type": "inv_num_labels",
+        #             "prior_exp": 1.0,
+        #         }
+        #     }
+        # },
+        # For scale 0.7, again using seq is better than batch, but difference is much smaller?
+        # Slightly better than prior scale 1.0. (Somewhat more consistent on test-other, last epoch.)
+        # "-lpNormedGradC05_11P07NSeq": {  # 5.86. test-other ep100: 6.02
+        #     "log_prob_normed_grad": {
+        #         "prior": "seq_grad",
+        #         "func": {
+        #             "clamp_min": 0.5,
+        #             "clamp_max": 1.1,
+        #             "scale_type": "inv_num_labels",
+        #             "prior_exp": 0.7,
+        #             "prior_renorm": True,
+        #         },
+        #     }
+        # },
+        # "-lpNormedGradC05_11P07N": {  # 5.91. test-other ep100: 6.11
+        #     "log_prob_normed_grad": {
+        #         "func": {
+        #             "clamp_min": 0.5,
+        #             "clamp_max": 1.1,
+        #             "scale_type": "inv_num_labels",
+        #             "prior_exp": 0.7,
+        #             "prior_renorm": True,
+        #         }
+        #     }
+        # },
+        # Diffs are small, dev-other is also slightly misleading. Looking at last epoch is more consistent.
+        # Then prior scale 0.5 looks to be still slightly better than 0.7 which is also better than 1.0:
+        # Last epoch, test-other: 1.0: 6.34, 0.7: 6.11, 0.5: 6.08; baseline: 6.10
+        "-lpNormedGradC05_11P05N": {  # 5.95 (but better on test-other)
             "log_prob_normed_grad": {
                 "func": {
                     "clamp_min": 0.5,
@@ -785,9 +804,41 @@ def py():
                 }
             }
         },
-        "-lpNormedGradC05_11P07NExp1_1": {
+        "-lpNormedGradC05_11P05NSeq": {
             "log_prob_normed_grad": {
-                "prior_running_mean_momentum": 0.1,
+                "prior": "seq_grad",
+                "func": {
+                    "clamp_min": 0.5,
+                    "clamp_max": 1.1,
+                    "scale_type": "inv_num_labels",
+                    "prior_exp": 0.5,
+                    "prior_renorm": True,
+                },
+            }
+        },
+        "-lpNormedGradC05_11P03N": {
+            "log_prob_normed_grad": {
+                "func": {
+                    "clamp_min": 0.5,
+                    "clamp_max": 1.1,
+                    "scale_type": "inv_num_labels",
+                    "prior_exp": 0.3,
+                    "prior_renorm": True,
+                }
+            }
+        },
+        # The results with running mean are weird. They are all worse.
+        # And the higher the momentum (i.e. using more the current batch, less the running mean),
+        # the better, which indicates that just using the current batch is overall better.
+        # The results above also show this.
+        # Note, there is some small inconsistency to above:
+        # This is a shared prior mean over the aux layers + final layer.
+        # It's unclear whether this is good or bad, just different to the batch/seq prior,
+        # which is just for this layer.
+        # Such experiments for running mean are below.
+        "-lpNormedGradC05_11P07NExp05": {
+            "log_prob_normed_grad": {
+                "prior_running_mean_momentum": 0.5,
                 "func": {
                     "clamp_min": 0.5,
                     "clamp_max": 1.1,
@@ -797,9 +848,39 @@ def py():
                 },
             }
         },
-        "-lpNormedGradC05_11P07NExp1_3": {
+        # "-lpNormedGradC05_11P07NExp1_1": {  # 6.26. test-other ep100: 6.52
+        #     "log_prob_normed_grad": {
+        #         "prior_running_mean_momentum": 0.1,
+        #         "func": {
+        #             "clamp_min": 0.5,
+        #             "clamp_max": 1.1,
+        #             "scale_type": "inv_num_labels",
+        #             "prior_exp": 0.7,
+        #             "prior_renorm": True,
+        #         },
+        #     }
+        # },
+        # "-lpNormedGradC05_11P07NExp1_3": {  # 9.06. test-other ep100: 9.29
+        #     "log_prob_normed_grad": {
+        #         "prior_running_mean_momentum": 0.001,
+        #         "func": {
+        #             "clamp_min": 0.5,
+        #             "clamp_max": 1.1,
+        #             "scale_type": "inv_num_labels",
+        #             "prior_exp": 0.7,
+        #             "prior_renorm": True,
+        #         },
+        #     }
+        # },
+        # Now with prior running mean per layer.
+        # Comparison to shared over layers somewhat inconsistent.
+        # Again, the less the momentum, the better.
+        # With 0.5 momentum, this is even better than the batch/seq prior,
+        # also better than the baseline.
+        "-lpNormedGradC05_11P07NExpL08": {
+            "prior_running_mean_per_layer": True,
             "log_prob_normed_grad": {
-                "prior_running_mean_momentum": 0.001,
+                "prior_running_mean_momentum": 0.8,
                 "func": {
                     "clamp_min": 0.5,
                     "clamp_max": 1.1,
@@ -807,9 +888,9 @@ def py():
                     "prior_exp": 0.7,
                     "prior_renorm": True,
                 },
-            }
+            },
         },
-        "-lpNormedGradC05_11P07NExpL05": {
+        "-lpNormedGradC05_11P07NExpL05": {  # 5.83. test-other ep100: 5.93
             "prior_running_mean_per_layer": True,
             "log_prob_normed_grad": {
                 "prior_running_mean_momentum": 0.5,
@@ -822,27 +903,54 @@ def py():
                 },
             },
         },
-        "-lpNormedGradC05_11P07NExpL1_1": {
+        # "-lpNormedGradC05_11P07NExpL1_1": {  # 6.48. test-other ep100: 6.66
+        #     "prior_running_mean_per_layer": True,
+        #     "log_prob_normed_grad": {
+        #         "prior_running_mean_momentum": 0.1,
+        #         "func": {
+        #             "clamp_min": 0.5,
+        #             "clamp_max": 1.1,
+        #             "scale_type": "inv_num_labels",
+        #             "prior_exp": 0.7,
+        #             "prior_renorm": True,
+        #         },
+        #     },
+        # },
+        # "-lpNormedGradC05_11P07NExpL1_3": {  # 8.66. test-other ep100: 9.12
+        #     "prior_running_mean_per_layer": True,
+        #     "log_prob_normed_grad": {
+        #         "prior_running_mean_momentum": 0.001,
+        #         "func": {
+        #             "clamp_min": 0.5,
+        #             "clamp_max": 1.1,
+        #             "scale_type": "inv_num_labels",
+        #             "prior_exp": 0.7,
+        #             "prior_renorm": True,
+        #         },
+        #     },
+        # },
+        "-lpNormedGradC05_11P05NExpL05": {
             "prior_running_mean_per_layer": True,
             "log_prob_normed_grad": {
-                "prior_running_mean_momentum": 0.1,
+                "prior_running_mean_momentum": 0.5,
                 "func": {
                     "clamp_min": 0.5,
                     "clamp_max": 1.1,
                     "scale_type": "inv_num_labels",
-                    "prior_exp": 0.7,
+                    "prior_exp": 0.5,
                     "prior_renorm": True,
                 },
             },
         },
-        "-lpNormedGradC05_11P07NExpL1_3": {
+        # Trying with prior_min.
+        "-lpNormedGradC05_11SMinP07NExpL05": {
             "prior_running_mean_per_layer": True,
             "log_prob_normed_grad": {
-                "prior_running_mean_momentum": 0.001,
+                "prior_running_mean_momentum": 0.5,
                 "func": {
-                    "clamp_min": 0.5,
+                    "clamp_min": 0.1,
                     "clamp_max": 1.1,
-                    "scale_type": "inv_num_labels",
+                    "scale_type": "prior_min",
                     "prior_exp": 0.7,
                     "prior_renorm": True,
                 },
