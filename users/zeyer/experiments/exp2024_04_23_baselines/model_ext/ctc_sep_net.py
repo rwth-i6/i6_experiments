@@ -113,6 +113,7 @@ class ModelSepNet(rf.Module):
         separate_enc_net_dict = config.typed_value("separate_enc_net", None)
         assert isinstance(separate_enc_net_dict, dict)
         self.separate_enc_net: FeedForwardNet = rf.build_from_dict(separate_enc_net_dict, enc_model_dim)
+        self.separate_enc_with_sep_aug = config.bool("separate_enc_with_sep_aug", False)
 
         self.target_dim = target_dim
         self.blank_idx = blank_idx
@@ -319,6 +320,10 @@ class ModelSepNet(rf.Module):
             source = rf.normalize(source, axis=in_spatial_dim)
         if self.feature_stats:
             source = (source - self.feature_stats.mean) / self.feature_stats.std_dev
+        branch_dim = Dim(2, name="branch")
+        if self.separate_enc_with_sep_aug:
+            # From this point on, calculate it separately: augmentation (mixup, specaugment) and encoder frontend.
+            source = rf.expand_dim(source, dim=branch_dim)
         if self._mixup:
             source = self._mixup(source, spatial_dim=in_spatial_dim)
         # SpecAugment
@@ -330,8 +335,12 @@ class ModelSepNet(rf.Module):
         )
         # Encoder including convolutional frontend
         feat, enc_spatial_dim = self.encoder_frontend(source, in_spatial_dim=in_spatial_dim)
+        if self.separate_enc_with_sep_aug:
+            feat, sep_feat = [rf.gather(feat, axis=branch_dim, indices=i) for i in [0, 1]]
+        else:
+            sep_feat = feat
         if collected_outputs is not None:
-            collected_outputs["feat"] = feat
+            collected_outputs["feat"] = sep_feat
         enc = self.encoder(feat, spatial_dim=enc_spatial_dim, collected_outputs=collected_outputs)
         logits = self.enc_logits(enc)
         return logits, enc, enc_spatial_dim
