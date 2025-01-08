@@ -599,6 +599,7 @@ def py():
         ("spm10k", 0.1, False, None, None),
         ("spm10k", 0.1, True, None, None),
         ("spm10k", 0.1, True, "shared_enc_disable_self_att", "sharedNoSelfAtt"),
+        ("spm10k", 0.1, True, rf.build_dict(FeedForwardNet, num_layers=6), "6l"),
         ("spm10k", 0.1, True, rf.build_dict(FeedForwardNet, activation=rf.build_dict(rf.gelu)), "gelu"),
         ("spm10k", 0.2, False, None, None),
         ("spm10k", 0.5, False, None, None),
