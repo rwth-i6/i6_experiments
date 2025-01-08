@@ -590,7 +590,8 @@ def model_recog_flashlight(
         scores_per_batch = [result.score for result in results]
         print(
             f"batch {batch_idx + 1}/{batch_size}: {len(results)} hyps,"
-            f" best score: {scores_per_batch[0]}, worst score: {scores_per_batch[-1]}"
+            f" best score: {scores_per_batch[0]}, best seq {results[0].words},"
+            f" worst score: {scores_per_batch[-1]}"
         )
         if len(results) >= n_best:
             hyps_per_batch = hyps_per_batch[:n_best]
