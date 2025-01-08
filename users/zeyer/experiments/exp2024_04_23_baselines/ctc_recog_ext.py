@@ -588,6 +588,10 @@ def model_recog_flashlight(
         results = fl_decoder.decode(emissions_ptr, seq_len, model.wb_target_dim.dimension)
         hyps_per_batch = [result.tokens for result in results]
         scores_per_batch = [result.score for result in results]
+        print(
+            f"batch {batch_idx + 1}/{batch_size}: {len(results)} hyps,"
+            f" best score: {scores_per_batch[0]}, worst score: {scores_per_batch[-1]}"
+        )
         if len(results) >= n_best:
             hyps_per_batch = hyps_per_batch[:n_best]
             scores_per_batch = scores_per_batch[:n_best]
