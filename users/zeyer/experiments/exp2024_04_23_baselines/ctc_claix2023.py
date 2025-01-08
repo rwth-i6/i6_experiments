@@ -595,15 +595,22 @@ def py():
 
     # Time downsampling 6 (standard), spm10k.
     # Separate FF net, also with beta (smoothing for both main and sep net).
-    for vocab, alpha, sep in [
-        ("spm10k", 0.1, False),
-        ("spm10k", 0.1, True),
-        ("spm10k", 0.2, False),
-        ("spm10k", 0.5, False),
-        ("spm512", 0.2, False),
+    for vocab, alpha, sep_aug, sep_net, sep_net_name in [
+        ("spm10k", 0.1, False, None, None),
+        ("spm10k", 0.1, True, None, None),
+        ("spm10k", 0.1, True, "shared_enc_disable_self_att", "sharedNoSelfAtt"),
+        ("spm10k", 0.1, True, rf.build_dict(FeedForwardNet, activation=rf.build_dict(rf.gelu)), "gelu"),
+        ("spm10k", 0.2, False, None, None),
+        ("spm10k", 0.5, False, None, None),
+        ("spm512", 0.2, False, None, None),
     ]:
-        sep_name = f"sepFf_alpha{str(alpha).replace('.', '')}_beta05"
-        if sep:
+        sep_name = "sepFf_"
+        if sep_net is None:
+            sep_net = rf.build_dict(FeedForwardNet)  # default
+        if sep_net_name:
+            sep_name += f"_{sep_net_name}"
+        sep_name += f"alpha{str(alpha).replace('.', '')}_beta05"
+        if sep_aug:
             sep_name += "_sep"
         ctc_train_exp(
             f"n12-{vocab}-{sep_name}-auxAED-b150k",
@@ -611,7 +618,7 @@ def py():
             train_def=ctc_training_with_sep_net,
             model_config={
                 "ctc_model_cls": rf.build_dict(ModelSepNet)["class"],
-                "separate_enc_net": rf.build_dict(FeedForwardNet),
+                "separate_enc_net": sep_net,
                 "enc_conformer_layer": rf.build_dict(
                     ConformerEncoderLayer,
                     ff=rf.build_dict(
@@ -636,7 +643,7 @@ def py():
                 "use_fixed_ctc_grad": "v2",
                 "sep_net_grad_interpolate_alpha": alpha,
                 "sep_net_grad_interpolate_beta": 0.5,
-                **({"separate_enc_with_sep_aug": True} if sep else {}),
+                **({"separate_enc_with_sep_aug": True} if sep_aug else {}),
             },
             post_config_updates={"log_grad_norm": True, "__multi_proc_dataset_opts": {"num_workers": 25}},
             vocab=vocab,
