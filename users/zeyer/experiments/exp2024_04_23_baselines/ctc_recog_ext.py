@@ -588,9 +588,14 @@ def model_recog_flashlight(
         results = fl_decoder.decode(emissions_ptr, seq_len, model.wb_target_dim.dimension)
         hyps_per_batch = [result.tokens for result in results]
         scores_per_batch = [result.score for result in results]
+        best_word_seq = [
+            model.target_dim.vocab.id_to_label(label_idx) if label_idx >= 0 else str(label_idx)
+            for label_idx in results[0].words
+        ]
         print(
             f"batch {batch_idx + 1}/{batch_size}: {len(results)} hyps,"
-            f" best score: {scores_per_batch[0]}, best seq {results[0].words},"
+            f" best score: {scores_per_batch[0]},"
+            f" best seq {best_word_seq},"
             f" worst score: {scores_per_batch[-1]}"
         )
         if len(results) >= n_best:
