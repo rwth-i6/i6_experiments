@@ -94,11 +94,11 @@ class LBSFactoredHybridDecoder(BASEFactoredHybridDecoder):
         #model and graph info
         trafo_config.loader.type = "meta"
         trafo_config.loader.meta_graph_file = tk.Path("/u/raissi/Desktop/debug/lstm_lm/mini2.3.graph.meta", cached=True)
-        trafo_config.loader.saved_model_file = DelayedFormat("//u/raissi/Desktop/debug/lstm_lm/models/net-model-mini2.2/network.030")
+        trafo_config.loader.saved_model_file = DelayedFormat("/u/raissi/Desktop/debug/lstm_lm/models/net-model-mini2.3/network.050")
         trafo_config.loader.required_libraries = self.library_path
 
         trafo_config.type = "tfrnn"
-        trafo_config.vocab_file = "/u/zhou/asr-exps/librispeech/dependencies/kazuki_lstmlm_27062019/vocabulary"
+        trafo_config.vocab_file = "/work/asr4/rossenbach/custom_projects/kazuki_replicate_lm_training/vocab.word.freq_sorted.200k.alternative.txt"
         trafo_config.transform_output_negate = True
         trafo_config.vocab_unknown_word = "<UNK>"
 
@@ -356,7 +356,6 @@ class LBSFactoredHybridDecoder(BASEFactoredHybridDecoder):
         rerun_after_opt_lm=False,
         name_override: Union[str, None] = None,
         name_prefix: str = "",
-        gpu: Optional[bool] = None,
         cpu_rqmt: Optional[int] = None,
         mem_rqmt: Optional[int] = None,
         crp_update: Optional[Callable[[rasr.RasrConfig], Any]] = None,
@@ -369,7 +368,6 @@ class LBSFactoredHybridDecoder(BASEFactoredHybridDecoder):
         return self.recognize(
             add_sis_alias_and_output=add_sis_alias_and_output,
             calculate_stats=calculate_stats,
-            gpu=gpu,
             cpu_rqmt=cpu_rqmt,
             mem_rqmt=mem_rqmt,
             is_min_duration=is_min_duration,
@@ -413,20 +411,21 @@ class LBSFactoredHybridDecoder(BASEFactoredHybridDecoder):
         rerun_after_opt_lm=False,
         name_override: Union[str, None] = None,
         name_prefix: str = "",
-        gpu: Optional[bool] = None,
         cpu_rqmt: Optional[int] = None,
         mem_rqmt: Optional[int] = None,
         crp_update: Optional[Callable[[rasr.RasrConfig], Any]] = None,
         rtf_gpu: Optional[float] = None,
         rtf_cpu: Optional[float] = None,
         create_lattice: bool = True,
+        lm_lookahead_options: Optional = None,
         adv_search_extra_config: Optional[rasr.RasrConfig] = None,
         adv_search_extra_post_config: Optional[rasr.RasrConfig] = None,
     ) -> DecodingJobs:
+        if lm_lookahead_options is None:
+            lm_lookahead_options = {"clow": 2000, "chigh": 3000}
         return self.recognize(
             add_sis_alias_and_output=add_sis_alias_and_output,
             calculate_stats=calculate_stats,
-            gpu=gpu,
             cpu_rqmt=cpu_rqmt,
             mem_rqmt=mem_rqmt,
             is_min_duration=is_min_duration,
@@ -447,6 +446,7 @@ class LBSFactoredHybridDecoder(BASEFactoredHybridDecoder):
             crp_update=crp_update,
             rtf_cpu=rtf_cpu,
             rtf_gpu=rtf_gpu,
+            lm_lookahead_options=lm_lookahead_options,
             create_lattice=create_lattice,
             adv_search_extra_config=adv_search_extra_config,
             adv_search_extra_post_config=adv_search_extra_post_config,

@@ -90,6 +90,16 @@ CONF_FH_TRIPHONE_FS_DECODING_TENSOR_CONFIG_V2 = dataclasses.replace(
     out_joint_diphone="output/output_batch_major",
 )
 
+CONF_FH_TRIPHONE_FS_DECODING_TENSOR_CONFIG_V2_ILM = dataclasses.replace(
+    DecodingTensorMap.default(),
+    in_encoder_output="conformer_12_output/add",
+    out_encoder_output="encoder__output/output_batch_major",
+    out_right_context="right__output/output_batch_major",
+    out_left_context="left__output/output_batch_major",
+    out_center_state="output_sub_iLM/output_batch_major",
+    out_joint_diphone="output/output_batch_major",
+)
+
 BLSTM_FH_DECODING_TENSOR_CONFIG = dataclasses.replace(
     CONF_FH_DECODING_TENSOR_CONFIG,
     in_encoder_output="concat_lstm_fwd_6_lstm_bwd_6/concat_sources/concat",

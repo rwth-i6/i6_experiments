@@ -613,7 +613,6 @@ class BASEFactoredHybridDecoder:
         rerun_after_opt_lm=False,
         name_override: Union[str, None] = None,
         name_prefix: str = "",
-        gpu: Optional[bool] = None,
         cpu_rqmt: Optional[int] = None,
         mem_rqmt: Optional[int] = None,
         crp_update: Optional[Callable[[rasr.RasrConfig], Any]] = None,
@@ -633,7 +632,6 @@ class BASEFactoredHybridDecoder:
             num_encoder_output=num_encoder_output,
             search_parameters=search_parameters,
             calculate_stats=calculate_stats,
-            gpu=gpu,
             cpu_rqmt=cpu_rqmt,
             mem_rqmt=mem_rqmt,
             is_min_duration=is_min_duration,
@@ -690,6 +688,7 @@ class BASEFactoredHybridDecoder:
         create_lattice: bool = True,
         adv_search_extra_config: Optional[rasr.RasrConfig] = None,
         adv_search_extra_post_config: Optional[rasr.RasrConfig] = None,
+        lm_lookahead_options: Optional = {},
         search_rqmt_update=None,
         cpu_omp_thread=2,
         separate_lm_image_gc_generation: bool = False,
@@ -876,7 +875,7 @@ class BASEFactoredHybridDecoder:
             la_options = self.get_lookahead_options(clow=0, chigh=10)
             name += "-cheating"
         else:
-            la_options = self.get_lookahead_options()
+            la_options = self.get_lookahead_options(**lm_lookahead_options)
             adv_search_extra_config = (
                 copy.deepcopy(adv_search_extra_config) if adv_search_extra_config is not None else rasr.RasrConfig()
             )
@@ -926,6 +925,7 @@ class BASEFactoredHybridDecoder:
             else "decoding"
         )
 
+
         search = recog.AdvancedTreeSearchJob(
             crp=search_crp,
             feature_flow=self.feature_scorer_flow,
@@ -934,8 +934,8 @@ class BASEFactoredHybridDecoder:
             lm_lookahead=True,
             lookahead_options=la_options,
             eval_best_in_lattice=True,
-            use_gpu=gpu if gpu is not None else self.gpu,
-            rtf=rtf_gpu if rtf_gpu is not None and gpu else rtf_cpu if rtf_cpu is not None else rqms["rtf"],
+            use_gpu=self.gpu,
+            rtf=rtf_gpu if rtf_gpu is not None else rtf_cpu if rtf_cpu is not None else rqms["rtf"],
             mem=rqms["mem"] if mem_rqmt is None else mem_rqmt,
             cpu=2 if cpu_rqmt is None else cpu_rqmt,
             lmgc_scorer=rasr.DiagonalMaximumScorer(self.mixtures) if self.lm_gc_simple_hash else None,
@@ -1107,7 +1107,6 @@ class BASEFactoredHybridDecoder:
         altas_value=14.0,
         altas_beam=14.0,
         keep_value=10,
-        gpu: Optional[bool] = None,
         cpu_rqmt: Optional[int] = None,
         mem_rqmt: Optional[int] = None,
         crp_update: Optional[Callable[[rasr.RasrConfig], Any]] = None,
@@ -1145,7 +1144,6 @@ class BASEFactoredHybridDecoder:
                     calculate_stats=False,
                     cpu_rqmt=cpu_rqmt,
                     crp_update=crp_update,
-                    gpu=gpu,
                     is_min_duration=False,
                     keep_value=keep_value,
                     label_info=label_info,
@@ -1170,7 +1168,6 @@ class BASEFactoredHybridDecoder:
                     calculate_stats=False,
                     cpu_rqmt=cpu_rqmt,
                     crp_update=crp_update,
-                    gpu=gpu,
                     is_min_duration=False,
                     keep_value=keep_value,
                     label_info=label_info,
@@ -1288,7 +1285,6 @@ class BASEFactoredHybridDecoder:
         altas_value=14.0,
         altas_beam=14.0,
         keep_value=10,
-        gpu: Optional[bool] = None,
         cpu_rqmt: Optional[int] = None,
         mem_rqmt: Optional[int] = None,
         crp_update: Optional[Callable[[rasr.RasrConfig], Any]] = None,
@@ -1329,7 +1325,6 @@ class BASEFactoredHybridDecoder:
                     calculate_stats=False,
                     cpu_rqmt=cpu_rqmt,
                     crp_update=crp_update,
-                    gpu=gpu,
                     is_min_duration=False,
                     keep_value=keep_value,
                     label_info=label_info,
@@ -1358,7 +1353,6 @@ class BASEFactoredHybridDecoder:
                     calculate_stats=False,
                     cpu_rqmt=cpu_rqmt,
                     crp_update=crp_update,
-                    gpu=gpu,
                     is_min_duration=False,
                     keep_value=keep_value,
                     label_info=label_info,
@@ -1496,7 +1490,6 @@ class BASEFactoredHybridDecoder:
                 calculate_stats=False,
                 cpu_rqmt=cpu_rqmt,
                 crp_update=crp_update,
-                gpu=gpu,
                 is_min_duration=False,
                 keep_value=keep_value,
                 label_info=label_info,
