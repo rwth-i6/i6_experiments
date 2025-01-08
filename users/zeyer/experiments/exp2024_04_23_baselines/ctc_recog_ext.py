@@ -484,8 +484,9 @@ def model_recog_flashlight(
     @dataclass
     class FlashlightLMState:
         label_seq: List[int]
-        lm_state: Any  # from our RF LM
-        log_probs: torch.Tensor  # Vocab
+        prev_lm_state: Optional[Any]
+        lm_state: Optional[Any] = None  # from our RF LM. lazily calculated
+        log_probs: Optional[torch.Tensor] = None  # Vocab. lazily calculated
 
     class FlashlightLM(LM):
         def __init__(self):
@@ -493,17 +494,16 @@ def model_recog_flashlight(
             self.mapping_states: Dict[LMState, FlashlightLMState] = {}
 
         @staticmethod
-        def _next_lm_state(prefix: List[int], token_index: int, lm_state: Any) -> FlashlightLMState:
-            lm_logits, lm_state = lm(
-                rf.constant(token_index, dims=[], sparse_dim=model.target_dim),
+        def _calc_next_lm_state(state: FlashlightLMState):
+            lm_logits, state.lm_state = lm(
+                rf.constant(state.label_seq[-1], dims=[], sparse_dim=model.target_dim),
                 spatial_dim=single_step_dim,
-                state=lm_state,
+                state=state.prev_lm_state,
             )  # Vocab / ...
             lm_log_probs = rf.log_softmax(lm_logits, axis=model.target_dim)  # Vocab
             assert lm_log_probs.dims == (model.target_dim,)
-            return FlashlightLMState(
-                label_seq=prefix + [token_index], lm_state=lm_state, log_probs=lm_log_probs.raw_tensor.cpu()
-            )
+            state.log_probs = lm_log_probs.raw_tensor.cpu()
+            state.prev_lm_state = None  # can free this now
 
         def start(self, start_with_nothing: bool):
             """
@@ -513,7 +513,9 @@ def model_recog_flashlight(
             start_with_nothing  # noqa  # not sure how to handle this?
             self.mapping_states.clear()
             state = LMState()
-            self.mapping_states[state] = self._next_lm_state([], model.bos_idx, lm.default_initial_state(batch_dims=[]))
+            self.mapping_states[state] = FlashlightLMState(
+                label_seq=[model.bos_idx], prev_lm_state=lm.default_initial_state(batch_dims=[])
+            )
             return state
 
         def score(self, state: LMState, token_index: int):
@@ -529,11 +531,18 @@ def model_recog_flashlight(
             Returns:
                 (LMState, float): pair of (new state, score for the current word)
             """
-            print("***", state.label_seq, token_index)
             state_ = self.mapping_states[state]
+            if state_.log_probs is None:
+                self._calc_next_lm_state(state_)
+            best_word_seq = [
+                model.target_dim.vocab.id_to_label(label_idx) for label_idx in state_.label_seq + [token_index]
+            ]
+            print("***", len(self.mapping_states), best_word_seq)
             outstate = state.child(token_index)
             if outstate not in self.mapping_states:
-                self.mapping_states[outstate] = self._next_lm_state(state_.label_seq, token_index, state_.lm_state)
+                self.mapping_states[outstate] = FlashlightLMState(
+                    label_seq=state_.label_seq + [token_index], prev_lm_state=state_.lm_state
+                )
             return outstate, state_.log_probs[token_index]
 
         def finish(self, state: LMState):
