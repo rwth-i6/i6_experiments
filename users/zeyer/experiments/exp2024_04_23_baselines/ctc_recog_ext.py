@@ -530,7 +530,7 @@ def model_recog_flashlight(
             outstate = state.child(token_index)
             if outstate not in self.mapping_states:
                 self.mapping_states[outstate] = self._next_lm_state(token_index, state_.lm_state)
-            return outstate, state_.log_probs.raw_tensor[token_index]
+            return outstate, state_.log_probs[token_index]
 
         def finish(self, state: LMState):
             """
@@ -577,7 +577,7 @@ def model_recog_flashlight(
     assert enc_spatial_dim.dyn_size_ext.dims == (batch_dim,)
 
     label_log_prob = rf.cast(label_log_prob, "float32")
-    label_log_prob_raw = label_log_prob.raw_tensor
+    label_log_prob_raw = label_log_prob.raw_tensor.contiguous().cpu()
     float_bytes = 4
 
     hyps = []
