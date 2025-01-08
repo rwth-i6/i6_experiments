@@ -358,13 +358,13 @@ def model_recog(
         if packed_new_label_dim.get_dim_value() > 0:
             print(f"* feed target {model.target_dim.vocab.id_to_label(target_.raw_tensor.cpu()[0].item())}")
 
-            lm_logits_, lm_state_ = model.lm(
+            lm_logits_, lm_state_ = lm(
                 target_,
                 spatial_dim=single_step_dim,
                 state=lm_state_,
             )  # Flat_Batch_Beam, Vocab / ...
             lm_log_probs_ = rf.log_softmax(lm_logits_, axis=model.target_dim)  # Flat_Batch_Beam, Vocab
-            lm_log_probs_ *= model.lm_scale
+            lm_log_probs_ *= lm_scale
 
             lm_log_probs_ = lm_log_probs_.copy_compatible_to_dims([packed_new_label_dim, model.target_dim])
             print(
