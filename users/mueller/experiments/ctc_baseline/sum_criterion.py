@@ -85,7 +85,7 @@ def sum_loss(
     # scaled log am and lm probs
     log_probs = am_scale * log_probs
     if lm_scale == 0.0:
-        log_lm_probs = torch.zeros_like(log_lm_probs)
+        log_lm_probs = torch.zeros_like(log_lm_probs, device=device)
     else:
         log_lm_probs = lm_scale * log_lm_probs
     if use_prior:
@@ -143,7 +143,8 @@ def sum_loss(
     log_q_blank = torch.full((batch_size, vocab_size), log_zero, device=device) # (B, 2, V-1), no blank and eos in last dim
     log_q = log_q_label
     if top_k > 0:
-        topk_scores, topk_idx = torch.topk(log_q, top_k, dim=-1, sorted=False)
+        tmp_log_q = torch.cat([log_q, log_partial_empty_seq_prob[0].unsqueeze(-1)], dim=-1)
+        topk_scores, topk_idx = torch.topk(tmp_log_q, top_k, dim=-1, sorted=False)
     if print_best_path_for_idx:
         with torch.no_grad():
             best_path_print = {}
@@ -155,7 +156,15 @@ def sum_loss(
     for t in range(1, max_audio_time):
         # case 1: emit a blank at t
         # Q(t, u, blank) = [Q(t-1, u, blank) + Q(t-1, u, non-blank)]*p_AM(blank | x_t)
-        new_log_q_blank = log_q + log_probs[t][:, blank_idx].unsqueeze(-1)
+        if top_k > 0:
+            # Only consider blanks fro top k indexes (excluding the blank sequence)
+            mask = torch.zeros((batch_size, vocab_size), device=device, dtype=torch.bool)
+            for b in range(batch_size):
+                mask[b, topk_idx[b][topk_idx[b] != vocab_size]] = True
+            new_log_q_blank = log_q + log_probs[t][:, blank_idx].unsqueeze(-1)
+            new_log_q_blank = torch.where(mask, new_log_q_blank, log_zero)
+        else:
+            new_log_q_blank = log_q + log_probs[t][:, blank_idx].unsqueeze(-1)
         if use_prior and blank_prior:
             new_log_q_blank = new_log_q_blank - log_prior[blank_idx]
 
@@ -163,7 +172,11 @@ def sum_loss(
         # Q(t, u, non-blank) = p_AM(u|x_t) * [horizontal + diagonal + skip] 
         
         # horizontal transition Q(t-1, u, non-blank)
-        log_mass_horizontal = log_q_label
+        if top_k > 0:
+            log_mass_horizontal = log_q_label
+            log_mass_horizontal = torch.where(mask, log_mass_horizontal, log_zero)
+        else:
+            log_mass_horizontal = log_q_label
         if horizontal_prior and use_prior:
             log_mass_horizontal = log_mass_horizontal - log_prior[out_idx_vocab].unsqueeze(0) # divide by prior
         
@@ -174,12 +187,17 @@ def sum_loss(
         # important: in this transition, there is a prefix empty^(t-1) that is not covered in the Q(t-1,v,blank)
         # this is covered in log_partial_empty_seq_prob[t-1]
         if top_k > 0:
-            log_q_blank_topk = log_q_blank.gather(-1, topk_idx)
-            log_prev_partial_seq_probs = torch.cat([log_partial_empty_seq_prob[t-1].unsqueeze(-1), log_q_blank_topk], dim=-1) # (B, K+1)
+            # This mask is used to aways add the partial empty seq up to now even if not in the top k
+            # mask = torch.zeros((batch_size,), device=device, dtype=torch.bool)
+            # for b in range(batch_size):
+            #     mask[b] = vocab_size in topk_idx[b]
+            log_q_blank_topk = torch.cat([log_q_blank, log_partial_empty_seq_prob[t-1].unsqueeze(-1)], dim=-1).gather(-1, topk_idx) # (B, K)
+            # log_q_blank_topk = torch.cat([log_q_blank_topk, torch.where(mask, torch.full((batch_size,), log_zero, device=device), log_partial_empty_seq_prob[t-1]).unsqueeze(-1)], dim=-1) # (B, K+1)
             log_lm_probs_topk = log_lm_probs[out_idx_vocab][:, out_idx_vocab].unsqueeze(0).expand(batch_size, -1, -1) # (B, V-1, V-1)
+            log_lm_probs_topk = torch.cat([log_lm_probs_topk, log_lm_probs[eos_symbol, out_idx_vocab].unsqueeze(0).unsqueeze(0).expand(batch_size, 1, -1)], dim=1) # (B, V, V-1)
             log_lm_probs_topk = log_lm_probs_topk.gather(1, topk_idx.unsqueeze(-1).expand(-1, -1, vocab_size)) # (B, K, V-1)
-            log_lm_probs_topk = torch.cat([log_lm_probs[eos_symbol, out_idx_vocab].unsqueeze(0).unsqueeze(0).expand(batch_size, 1, -1), log_lm_probs_topk], dim=1) # (B, K+1, V-1)
-            log_mass_diagonal = log_matmul(log_prev_partial_seq_probs, log_lm_probs_topk, batch_given=True) # (B, K+1) @ (B, K+1, V-1) -> (B, V-1)
+            # log_lm_probs_topk = torch.cat([log_lm_probs_topk, log_lm_probs[eos_symbol, out_idx_vocab].unsqueeze(0).unsqueeze(0).expand(batch_size, 1, -1)], dim=1) # (B, K+1, V-1)
+            log_mass_diagonal = log_matmul(log_q_blank_topk, log_lm_probs_topk, batch_given=True) # (B, K+1) @ (B, K+1, V-1) -> (B, V-1)
         else:
             log_prev_partial_seq_probs = torch.cat([log_partial_empty_seq_prob[t-1].unsqueeze(-1), log_q_blank], dim=-1) # (B, V)
             log_mass_diagonal = log_matmul(log_prev_partial_seq_probs, log_lm_probs[out_idx_vocab_w_eos][:, out_idx_vocab]) # (B, V) @ (V, V-1) -> (B, V-1)
@@ -189,8 +207,8 @@ def sum_loss(
         # skip transition sum{w!=u} Q(t-1, w, non-blank) * p_LM(u|w) / p_PR(u)
         # same consideration as diagonal transition
         if top_k > 0:
-            log_q_label_topk = log_q_label.gather(-1, topk_idx)
-            log_lm_probs_wo_eos_topk = log_lm_probs_wo_eos.unsqueeze(0).expand(batch_size, -1, -1).gather(1, topk_idx.unsqueeze(-1).expand(-1, -1, vocab_size)) # (B, K, V-1)
+            log_q_label_topk = torch.cat([log_q_label, torch.full((batch_size, 1), log_zero, device=device)], dim=-1).gather(-1, topk_idx)
+            log_lm_probs_wo_eos_topk = torch.cat([log_lm_probs_wo_eos, torch.full((1, vocab_size), log_zero, device=device)], dim=0).unsqueeze(0).expand(batch_size, -1, -1).gather(1, topk_idx.unsqueeze(-1).expand(-1, -1, vocab_size)) # (B, K, V-1)
             log_mass_skip = log_matmul(log_q_label_topk, log_lm_probs_wo_eos_topk, batch_given=True) # (B, K) @ (B, K, V-1) -> (B, V-1)
         else:
             log_mass_skip = log_matmul(log_q_label, log_lm_probs_wo_eos) # (B, V-1) @ (V-1, V-1) -> (B, V-1)
@@ -206,11 +224,10 @@ def sum_loss(
         log_q_label = torch.where(time_mask, new_log_q_label, log_q_label)
         log_q = safe_logaddexp(log_q_label, log_q_blank)
         
-        # if get_argmax:
-        #     argmax_idx = torch.argmax(log_q, dim=-1)
-        
         if top_k > 0:
-            topk_scores, topk_idx = torch.topk(log_q, top_k, dim=-1, sorted=False)
+            tmp_log_partial_empty_seq_prob = torch.where((t < input_lengths), log_partial_empty_seq_prob[t], log_empty_seq_prob).unsqueeze(-1)
+            tmp_log_q = torch.cat([log_q, tmp_log_partial_empty_seq_prob], dim=-1) # TODO: we should only add it if it also was in top k up until now
+            topk_scores, topk_idx = torch.topk(tmp_log_q, top_k, dim=-1, sorted=False)
         if print_best_path_for_idx:
             with torch.no_grad():
                 max_val, max_idx = torch.max(log_q, dim=-1)
@@ -223,7 +240,7 @@ def sum_loss(
     
     # multiply last Q with p_LM(eos | u) and devide by prior of EOS
     if top_k > 0:
-        log_q = topk_scores + log_lm_probs[out_idx_vocab, eos_symbol].unsqueeze(0).expand(batch_size, -1).gather(-1, topk_idx)
+        log_q = topk_scores + torch.cat([log_lm_probs[out_idx_vocab, eos_symbol], log_lm_probs[eos_symbol, eos_symbol].unsqueeze(0)], dim=0).unsqueeze(0).expand(batch_size, -1).gather(-1, topk_idx)
     else:
         log_q = log_q + log_lm_probs[out_idx_vocab, eos_symbol].unsqueeze(0)
     if print_best_path_for_idx:
@@ -233,8 +250,9 @@ def sum_loss(
     
     # sum over the vocab dimension
     sum_score = safe_logsumexp(log_q, dim=-1)
-    # add empty sequence score
-    sum_score = safe_logaddexp(sum_score, log_q_empty_seq) # (B,) # TODO do we need to add the empty seq?
+    if top_k <= 0:
+        # add empty sequence score
+        sum_score = safe_logaddexp(sum_score, log_q_empty_seq) # (B,)
     
     loss = -sum_score
     if old_device != device:
@@ -681,7 +699,7 @@ def test():
     
     torch.manual_seed(0)
     # torch.cuda.manual_seed_all(0)
-    ag = PrintGradients.apply
+    ag = AssertGradients.apply
     
     lm = torch.randn(vocab_size - 1, vocab_size - 1, device=device)
     lm = torch.nn.functional.log_softmax(lm, dim=-1)
@@ -690,7 +708,10 @@ def test():
     s1 = time.time()
     for i in range(1):
         s = time.time()
-        am = torch.randn(frames, batch_size, vocab_size, requires_grad=True, device=device)
+        am = torch.randn(frames, batch_size, vocab_size, device=device)
+        am[0, 0, vocab_size - 1] = float(3)
+        am[2, 0, vocab_size - 1] = float(3)
+        am.requires_grad = True
         am = torch.nn.functional.log_softmax(am, dim=-1)
         
         prior = torch.randn(vocab_size + 1, requires_grad=True, device=device)
@@ -702,8 +723,8 @@ def test():
         # prior = _calc_log_prior(am, length)
         # am = am.permute(1, 0, 2)
         
-        # am = ag(am, "AM", False)
-        # prior = ag(prior, "prior", False)
+        am = ag(am, "AM", False)
+        prior = ag(prior, "prior", False)
         
         
         loss = sum_loss(
@@ -732,7 +753,7 @@ def test():
         # targets = torch.tensor([55, 148, 178, 108, 179, 126, 110, 103, 9, 154, 84, 162, 159, 83, 153, 33, 106, 9, 131, 46, 63, 15, 162, 94, 0, 111, 121, 29, 121, 21, 151, 18, 4, 159, 118, 86, 129, 18, 13, 170, 151, 81, 77, 53, 165, 57, 134, 63, 103, 110, 47, 35, 145, 18, 34, 66, 42, 96, 139, 16, 138, 156, 1, 63, 103, 95, 149, 111, 83, 34, 113, 158, 39, 166, 34, 123, 26, 148, 134, 148, 168, 177, 18, 23, 164, 69, 145, 93, 166, 174, 162, 36, 95, 116, 123, 74, 124, 70])
         # targets = targets + 2
         targets = torch.tensor(
-            [ 57, 150, 180, 110, 107, 128, 112, 105,  11, 156,  86, 164, 161,  85,
+            [150, 110, 107, 128, 112, 105,  11, 156,  86, 164, 161,  85,
             155,  35, 108,  11, 133,  48, 133,  17, 164,  96,   2, 113, 123,  31,
             123,  23, 153,  20,   6, 161, 120,  88, 131,  20,  15,  99, 153,  58,
             119,   1,  88,  59, 136,  65, 105,  99, 122,  37, 147,  20,  36,  68,
@@ -756,7 +777,7 @@ def test():
         print(ctc_loss)
         
         
-    # l.backward(torch.ones_like(l, device=device))
+    l.backward(torch.ones_like(l, device=device))
     e1 = time.time()
     # print(f"Sum loss took {time.strftime('%H:%M:%S', time.gmtime(e1-s1))}: {l}") # 5:00 mins
     
@@ -784,10 +805,43 @@ def test_LM():
 
 if __name__ == "__main__":
     test()
-    
-    
+
+
 """
-Epoch 1: Trained 1248 steps, 1:26:12 elapsed (98.4% computing time)
-Epoch 1: Total train loss: aux_full_sum_4 -1.034 aux_full_sum_8 -1.084 full_sum -1.205
-Epoch 1 evaluation: dev: aux_full_sum_4 -1.310 aux_full_sum_8 -1.445 full_sum -1.938
+57 150 180 110 107 128 112 105 11 156 86 164 161 85 155 35 108 11 133 48 133 17 164 96 2 113 123 31 123 23 153 20 6 161 120 88 131 20 15 99 153 58 119 1 88 59 136 65 105 99 122 37 147 20 36 68 44 98 141 18 1 158 3 65 105 97 151 113 85 36 115 160 83 168 36 125 28 150 136 90 170 179 20 25 166 71 147 95 168 176 164 38 97 118 125 76 43 72
+
+Best path for 0: 57 150 180 110 181 128 112 105 11 156 86 164 161 85 155 35 108 11 133 48 65 17 164 96 2 113 123 31 123 23 153 20 6 161 120 88 131 20 15 172 153 83 79 55 167 59 136 65 105 112 49 37 147 20 36 68 44 98 141 18 140 158 3 65 105 97 151 113 85 36 115 160 41 168 36 125 28 150 136 150 170 170 179 179 20 25 166 71 147 95 168 176 164 38 97 118 125 76 126 72
+Score: -2.91 -5.34 -8.16 -11.21 -14.50 -16.31 -18.58 -21.12 -23.79 -26.04 -28.90 -31.76 -34.22 -37.48 -40.06 -43.06 -46.01 -48.10 -51.41 -53.89 -57.03 -59.37 -62.29 -65.05 -68.47 -71.37 -74.73 -77.03 -79.78 -82.74 -86.15 -89.46 -91.50 -93.82 -96.39 -99.48 -101.92 -104.44 -107.64 -110.45 -113.45 -116.10 -119.17 -121.92 -124.92 -127.49 -130.57 -133.07 -135.62 -138.84 -142.07 -144.52 -147.23 -150.00 -152.76 -155.17 -158.34 -161.56 -163.86 -167.02 -170.22 -172.81 -174.91 -178.22 -181.32 -184.03 -187.09 -190.51 -193.15 -196.25 -199.47 -202.59 -204.92 -207.94 -210.88 -212.49 -214.79 -218.09 -221.38 -224.42 -227.13 -229.46 -232.57 -235.22 -238.76 -241.46 -244.60 -247.16 -249.67 -252.67 -254.90 -257.64 -260.54 -262.56 -265.46 -267.74 -270.98 -273.89 -277.19 -280.07
+AM: 295.41814041137695
+OUT 280.0710754394531
+tensor([291.3092], grad_fn=<CtcLossBackward0>)
+
+
+Best path for 0: 57 150 180 110 181 128 112 105 11 156 86 164 161 85 155 35 108 11 133 48 65 17 164 96 2 113 123 31 123 23 153 20 6 161 120 88 131 20 15 172 153 83 79 55 167 59 136 65 105 112 49 37 147 20 36 68 44 98 141 18 140 158 3 65 105 97 151 113 85 36 115 160 41 168 36 125 28 150 136 150 170 170 179 179 20 25 166 71 147 95 168 176 164 38 97 118 125 76 126 72
+Score: -2.91 -5.35 -8.17 -11.22 -14.51 -16.32 -18.59 -21.13 -23.80 -26.05 -28.91 -31.77 -34.23 -37.49 -40.07 -43.08 -46.02 -48.11 -51.42 -53.90 -57.05 -59.38 -62.30 -65.06 -68.48 -71.38 -74.75 -77.05 -79.79 -82.75 -86.16 -89.47 -91.51 -93.83 -96.40 -99.49 -101.93 -104.45 -107.66 -110.46 -113.46 -116.12 -119.18 -121.94 -124.93 -127.51 -130.58 -133.08 -135.63 -138.85 -142.08 -144.53 -147.24 -150.01 -152.77 -155.19 -158.35 -161.57 -163.87 -167.03 -170.23 -172.82 -174.92 -178.24 -181.33 -184.05 -187.10 -190.52 -193.16 -196.26 -199.48 -202.60 -204.93 -207.95 -210.90 -212.50 -214.80 -218.10 -221.39 -224.43 -227.14 -229.47 -232.59 -235.24 -238.77 -241.47 -244.61 -247.17 -249.68 -252.68 -254.91 -257.65 -260.55 -262.57 -265.47 -267.75 -270.99 -273.90 -277.20 -280.08
+AM: 295.41814041137695
+OUT 280.0833740234375
+tensor([291.3092], grad_fn=<CtcLossBackward0>)
+
+Best path for 0: 57 150 180 110 181 128 112 105 11 156 86 164 161 85 155 35 108 11 133 48 65 17 164 96 2 113 123 31 123 23 153 20 6 161 120 88 131 20 15 172 153 58 79 55 167 59 136 65 105 112 49 37 147 20 36 68 44 98 141 18 140 158 3 65 105 97 151 113 85 36 115 160 41 168 36 125 28 150 136 136 170 170 179 179 20 25 166 71 147 95 168 176 164 38 97 118 125 76 126 72
+Score: -2.91 -5.35 -8.17 -11.27 -14.60 -16.42 -18.70 -21.24 -23.91 -26.17 -29.03 -31.90 -34.36 -37.62 -40.23 -43.24 -46.20 -48.30 -51.61 -54.09 -57.26 -59.62 -62.54 -65.31 -68.73 -71.65 -75.01 -77.31 -80.07 -83.05 -86.46 -89.77 -91.81 -94.13 -96.71 -99.80 -102.24 -104.76 -107.97 -110.79 -113.80 -116.65 -119.72 -122.48 -125.48 -128.05 -131.13 -133.64 -136.19 -139.42 -142.72 -145.17 -147.88 -150.67 -153.43 -155.89 -159.08 -162.35 -164.65 -167.81 -171.01 -173.61 -175.71 -179.03 -182.18 -184.89 -187.95 -191.40 -194.04 -197.16 -200.38 -203.52 -205.88 -208.90 -211.85 -213.45 -215.75 -219.06 -222.37 -225.79 -228.48 -230.81 -233.95 -236.60 -240.15 -242.86 -246.00 -248.64 -251.15 -254.17 -256.40 -259.15 -262.05 -264.07 -266.97 -269.26 -272.50 -275.41 -278.74 -281.69
+AM: 296.80163979530334
+OUT 281.6884460449219
+tensor([291.3092], grad_fn=<CtcLossBackward0>)
+
+Best path for 0: 57 150 180 110 107 128 112 105 11 156 86 164 161 85 155 35 108 11 133 48 133 17 164 96 2 113 123 31 123 23 153 20 6 161 120 88 131 20 15 99 153 58 119 55 88 59 136 65 105 99 122 37 147 20 36 68 44 98 141 18 140 158 3 65 105 97 151 113 85 36 115 160 83 168 36 125 28 150 136 136 170 170 179 179 20 25 166 71 147 95 168 176 164 38 97 118 125 76 43 72
+Score: -2.91 -5.44 -8.27 -11.46 -15.08 -17.21 -19.50 -22.07 -24.81 -27.11 -30.02 -32.94 -35.43 -38.69 -41.63 -44.67 -47.67 -50.15 -53.48 -56.09 -59.38 -61.82 -65.03 -67.86 -71.30 -74.40 -77.78 -80.17 -82.98 -86.08 -89.50 -92.89 -94.95 -97.28 -100.03 -103.33 -106.11 -108.73 -111.95 -115.11 -118.26 -121.30 -124.51 -127.30 -130.33 -132.93 -136.01 -138.65 -141.24 -144.55 -148.10 -150.59 -153.32 -156.20 -159.09 -161.73 -164.96 -168.38 -171.05 -174.24 -177.50 -180.18 -182.32 -185.68 -189.27 -192.14 -195.27 -198.77 -201.44 -204.62 -207.92 -211.18 -213.70 -216.77 -219.74 -221.67 -224.00 -227.32 -230.66 -234.09 -236.85 -239.19 -242.39 -245.04 -248.68 -251.50 -254.79 -257.75 -260.28 -263.34 -265.70 -268.50 -271.42 -273.51 -276.44 -278.74 -282.01 -284.95 -288.38 -291.61
+AM: 295.8504433631897
+OUT 291.6074523925781
+tensor([291.3092], grad_fn=<CtcLossBackward0>)
+
+Best path for 0: 57 150 180 110 107 128 112 105 11 156 86 164 161 85 155 35 108 11 133 48 133 17 164 96 2 113 123 31 123 23 153 20 6 161 120 88 131 20 15 99 153 58 119 55 88 59 136 65 105 99 122 37 147 20 36 68 44 98 141 18 140 158 3 65 105 97 151 113 85 36 115 160 83 168 36 125 28 150 136 136 170 170 179 179 20 25 166 71 147 95 168 176 164 38 97 118 125 76 43 72
+Score: -2.91 -5.43 -8.26 -11.45 -15.07 -17.20 -19.49 -22.05 -24.80 -27.10 -30.00 -32.93 -35.42 -38.68 -41.62 -44.66 -47.66 -50.14 -53.46 -56.08 -59.36 -61.81 -65.02 -67.85 -71.29 -74.38 -77.77 -80.16 -82.97 -86.06 -89.48 -92.87 -94.94 -97.27 -100.01 -103.32 -106.09 -108.71 -111.94 -115.09 -118.25 -121.28 -124.50 -127.29 -130.32 -132.92 -136.00 -138.63 -141.23 -144.53 -148.08 -150.58 -153.30 -156.18 -159.07 -161.72 -164.95 -168.37 -171.04 -174.23 -177.48 -180.16 -182.31 -185.67 -189.26 -192.13 -195.26 -198.76 -201.43 -204.60 -207.91 -211.16 -213.69 -216.75 -219.73 -221.66 -223.99 -227.30 -230.65 -234.07 -236.84 -239.17 -242.38 -245.03 -248.67 -251.49 -254.77 -257.74 -260.27 -263.32 -265.69 -268.49 -271.41 -273.50 -276.43 -278.72 -281.99 -284.93 -288.36 -291.59
+AM: 295.8504433631897
+OUT 291.593994140625
+tensor([291.3092], grad_fn=<CtcLossBackward0>)
+"""
+
+"""
+
 """
