@@ -605,12 +605,12 @@ def py():
         ("spm10k", 0.5, False, None, None),
         ("spm512", 0.2, False, None, None),
     ]:
-        sep_name = "sepFf_"
+        sep_name = "sepFf"
         if sep_net is None:
             sep_net = rf.build_dict(FeedForwardNet)  # default
         if sep_net_name:
             sep_name += f"_{sep_net_name}"
-        sep_name += f"alpha{str(alpha).replace('.', '')}_beta05"
+        sep_name += f"_alpha{str(alpha).replace('.', '')}_beta05"
         if sep_aug:
             sep_name += "_sep"
         ctc_train_exp(
