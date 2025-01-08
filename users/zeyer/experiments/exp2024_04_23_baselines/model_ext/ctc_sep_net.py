@@ -110,9 +110,16 @@ class ModelSepNet(rf.Module):
 
             apply_disable_self_attention_(self.encoder, disable_encoder_self_attention)
 
-        separate_enc_net_dict = config.typed_value("separate_enc_net", None)
-        assert isinstance(separate_enc_net_dict, dict)
-        self.separate_enc_net: FeedForwardNet = rf.build_from_dict(separate_enc_net_dict, enc_model_dim)
+        separate_enc_net = config.typed_value("separate_enc_net", None)
+        if isinstance(separate_enc_net, dict):
+            self.separate_enc_net: FeedForwardNet = rf.build_from_dict(separate_enc_net, enc_model_dim)
+        elif isinstance(separate_enc_net, str):
+            if separate_enc_net == "shared_enc_disable_self_att":
+                self.separate_enc_net = _share_enc_disable_self_att(self.encoder)
+            else:
+                raise ValueError(f"invalid separate_enc_net {separate_enc_net!r}")
+        else:
+            raise TypeError(f"invalid separate_enc_net {separate_enc_net!r} type {type(separate_enc_net)}")
         self.separate_enc_with_sep_aug = config.bool("separate_enc_with_sep_aug", False)
 
         self.target_dim = target_dim
@@ -532,6 +539,8 @@ class FeedForwardNet(ISeqFramewiseEncoder):
         self.model_dim = model_dim
         self.out_dim = model_dim
         self.num_layers = num_layers
+        if isinstance(activation, dict):
+            activation = rf.build_from_dict(activation)
         self.activation = activation
         self.layers = rf.ModuleList(*[rf.Linear(model_dim, model_dim) for _ in range(num_layers)])
 
@@ -809,3 +818,16 @@ def _torch_interpolate_grad_probs(
 
 
 _InterpolateGradFunc = None
+
+
+def _share_enc_disable_self_att(enc: ConformerEncoderV2) -> ConformerEncoderV2:
+    import copy
+    import sys
+    from i6_experiments.users.zeyer.nn_rf.disable_self_att import apply_disable_self_attention_scheduled_
+
+    # Make a copy of the model, as we modify its structure. Share params.
+    with rf.set_parameter_copy_behavior_ctx("share"):
+        enc_copy = copy.deepcopy(enc)
+    # Disable self-att. We don't really need the scheduling here but it's fine anyway.
+    apply_disable_self_attention_scheduled_(enc_copy, {"num_epochs": sys.maxsize})
+    return enc_copy
