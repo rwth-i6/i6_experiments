@@ -460,7 +460,6 @@ def model_recog_flashlight(
     import torch
     from flashlight.lib.text.decoder import LM, LMState
     from returnn.config import get_global_config
-    from weakref import ref, WeakKeyDictionary
 
     config = get_global_config()
     n_best = config.int("n_best", 1)
@@ -485,7 +484,7 @@ def model_recog_flashlight(
     @dataclass
     class FlashlightLMState:
         label_seq: List[int]
-        prev_state: ref[LMState]
+        prev_state: LMState
         prev_lm_state: Optional[Any]
         lm_state: Optional[Any] = None  # from our RF LM. lazily calculated
         log_probs: Optional[torch.Tensor] = None  # Vocab. lazily calculated
@@ -493,7 +492,9 @@ def model_recog_flashlight(
     class FlashlightLM(LM):
         def __init__(self):
             super().__init__()
-            self.mapping_states: WeakKeyDictionary[LMState, FlashlightLMState] = WeakKeyDictionary()
+            # Cannot use weakrefs because the LMState object will always be recreated on-the-fly,
+            # i.e. the Python object does not persist.
+            self.mapping_states: Dict[LMState, FlashlightLMState] = {}
 
         @staticmethod
         def _calc_next_lm_state(state: FlashlightLMState):
@@ -516,7 +517,7 @@ def model_recog_flashlight(
             self.mapping_states.clear()
             state = LMState()
             self.mapping_states[state] = FlashlightLMState(
-                label_seq=[model.bos_idx], prev_state=ref(state), prev_lm_state=lm.default_initial_state(batch_dims=[])
+                label_seq=[model.bos_idx], prev_state=state, prev_lm_state=lm.default_initial_state(batch_dims=[])
             )
             return state
 
