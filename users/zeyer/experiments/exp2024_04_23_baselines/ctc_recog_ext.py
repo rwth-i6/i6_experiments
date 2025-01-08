@@ -5,7 +5,7 @@ CTC recognition with LM
 from typing import Optional, Any, TypeVar, Sequence, Tuple, Dict
 import functools
 
-from returnn.tensor import Tensor, Dim, single_step_dim
+from returnn.tensor import Tensor, Dim, single_step_dim, batch_dim
 import returnn.frontend as rf
 from returnn.frontend.tensor_array import TensorArray
 from returnn.frontend.decoder.transformer import TransformerDecoder
@@ -408,6 +408,187 @@ model_recog: RecogDef[Model]
 model_recog.output_with_beam = True
 model_recog.output_blank_label = "<blank>"
 model_recog.batch_size_dependent = True  # our models currently just are batch-size-dependent...
+
+
+def model_recog_flashlight(
+    *,
+    model: Model,
+    data: Tensor,
+    data_spatial_dim: Dim,
+) -> Tuple[Tensor, Tensor, Dim, Dim]:
+    """
+    Function is run within RETURNN.
+
+    Earlier we used the generic beam_search function,
+    but now we just directly perform the search here,
+    as this is overall simpler and shorter.
+
+    :return:
+        recog results including beam {batch, beam, out_spatial},
+        log probs {batch, beam},
+        out_spatial_dim,
+        final beam_dim
+    """
+    from dataclasses import dataclass
+    import torch
+    from flashlight.lib.text.decoder import LM, LMState
+    from returnn.config import get_global_config
+
+    config = get_global_config()
+    n_best = config.int("n_best", 1)
+    beam_size = config.typed_value("beam_size", None)
+    beam_size_token = config.typed_value("beam_size_token", None)
+    beam_threshold = config.typed_value("beam_threshold", None)
+
+    # Eager-mode implementation of beam search using Flashlight.
+
+    # noinspection PyUnresolvedReferences
+    lm: TransformerDecoder = model.lm
+    # noinspection PyUnresolvedReferences
+    lm_scale: float = model.lm_scale
+
+    # https://github.com/flashlight/text/tree/main/bindings/python#decoding-with-your-own-language-model
+    # https://github.com/facebookresearch/fairseq/blob/main/examples/speech_recognition/new/decoders/flashlight_decoder.py
+    # https://github.com/pytorch/audio/blob/main/src/torchaudio/models/decoder/_ctc_decoder.py
+
+    @dataclass
+    class FlashlightLMState:
+        lm_state: Any  # from our RF LM
+        log_probs: Tensor  # Vocab
+
+    class FlashlightLM(LM):
+        def __init__(self):
+            super().__init__()
+            self.mapping_states: Dict[LMState, FlashlightLMState] = {}
+
+        def start(self, start_with_nothing: bool):
+            """
+            Parameters:
+                start_with_nothing (bool): whether or not to start sentence with sil token.
+            """
+            assert start_with_nothing  # not sure?
+            self.mapping_states.clear()
+            state = LMState()
+            lm_state = lm.default_initial_state(batch_dims=[])
+            lm_logits, lm_state = lm(
+                rf.constant(model.bos_idx, dims=[], sparse_dim=model.target_dim),
+                spatial_dim=single_step_dim,
+                state=lm_state,
+            )
+            lm_log_probs = rf.log_softmax(lm_logits, axis=model.target_dim)  # Vocab
+            lm_log_probs = rf.copy_to_device(lm_log_probs, "cpu")
+            self.mapping_states[state] = FlashlightLMState(lm_state=lm_state, log_probs=lm_log_probs)
+            return state
+
+        def score(self, state: LMState, token_index: int):
+            """
+            Evaluate language model based on the current lm state and new word
+
+            Parameters:
+                state: current lm state
+                token_index: index of the word
+                            (can be lexicon index then you should store inside LM the
+                            mapping between indices of lexicon and lm, or lm index of a word)
+
+            Returns:
+                (LMState, float): pair of (new state, score for the current word)
+            """
+            outstate = state.child(token_index)
+            if outstate not in self.mapping_states:
+                state_ = self.mapping_states[state]
+                lm_logits, lm_state = lm(
+                    rf.constant(token_index, dims=[], sparse_dim=model.target_dim),
+                    spatial_dim=single_step_dim,
+                    state=state_.lm_state,
+                )  # Vocab / ...
+                lm_log_probs = rf.log_softmax(lm_logits, axis=model.target_dim)  # Vocab
+                self.mapping_states[outstate] = FlashlightLMState(
+                    lm_state=lm_state, log_probs=lm_log_probs.raw_tensor.cpu()
+                )
+            return outstate, self.mapping_states[outstate].log_probs.raw_tensor[token_index]
+
+        def finish(self, state: LMState):
+            """
+            Evaluate eos for language model based on the current lm state
+
+            Returns:
+                (LMState, float): pair of (new state, score for the current word)
+            """
+            return self.score(state, model.eos_idx)
+
+    fl_lm = FlashlightLM()
+
+    from flashlight.lib.text.decoder import LexiconFreeDecoderOptions, LexiconFreeDecoder, CriterionType
+
+    # Some values from hilmes:
+    # beam_size=1024,  # Untuned
+    # beam_size_token=16,  # makes it much faster (0.3 search RTF -> 0.04 search RTF), but looses 0.1% WER over 128
+    # beam_threshold=14,  # Untuned
+
+    fl_decoder_opts = LexiconFreeDecoderOptions(
+        beam_size=beam_size,
+        beam_size_token=beam_size_token,
+        beam_threshold=beam_threshold,
+        lm_weight=lm_scale,
+        sil_score=0.0,
+        log_add=False,
+        criterion_type=CriterionType.CTC,
+    )
+    fl_decoder = LexiconFreeDecoder(fl_decoder_opts, fl_lm, model.blank_idx, model.blank_idx, [])
+
+    assert data.dims_set == {batch_dim, data_spatial_dim, data.feature_dim}
+    logits, enc, enc_spatial_dim = model(data, in_spatial_dim=data_spatial_dim)
+    assert logits.dims_set == {batch_dim, enc_spatial_dim, model.wb_target_dim}
+
+    # The label log probs include the AM and the (scaled) prior.
+    label_log_prob = model.log_probs_wb_from_logits(logits)  # Batch, Spatial, VocabWB
+    label_log_prob = rf.where(
+        enc_spatial_dim.get_mask(),
+        label_log_prob,
+        rf.sparse_to_dense(model.blank_idx, axis=model.wb_target_dim, label_value=0.0, other_value=-1.0e30),
+    )
+    label_log_prob = label_log_prob.copy_transpose((batch_dim, enc_spatial_dim, model.wb_target_dim))
+    batch_size, max_seq_len = label_log_prob.raw_tensor.shape[:2]
+    assert enc_spatial_dim.dyn_size_ext.dims == (batch_dim,)
+
+    label_log_prob = rf.cast(label_log_prob, "float32")
+    label_log_prob_raw = label_log_prob.raw_tensor
+    float_bytes = 4
+
+    hyps = []
+    scores = []
+    for batch_idx in range(batch_size):
+        emissions_ptr = label_log_prob_raw.data_ptr() + float_bytes * batch_idx * label_log_prob_raw.stride(0)
+        seq_len = enc_spatial_dim.dyn_size[batch_idx]
+        results = fl_decoder.decode(emissions_ptr, seq_len, model.wb_target_dim.dimension)
+        hyps_per_batch = [result.tokens for result in results]
+        scores_per_batch = [result.score for result in results]
+        if len(results) >= n_best:
+            hyps_per_batch = hyps_per_batch[:n_best]
+            scores_per_batch = scores_per_batch[:n_best]
+        else:
+            hyps_per_batch += [[]] * (n_best - len(results))
+            scores_per_batch += [-1e30] * (n_best - len(results))
+        hyps_per_batch = [list(hyp) + [model.blank_idx] * (max_seq_len - len(hyp)) for hyp in hyps_per_batch]
+        hyps.append(hyps_per_batch)
+        scores.append(scores_per_batch)
+    hyps_pt = torch.tensor(hyps, dtype=torch.int32)
+    assert hyps_pt.shape == (batch_size, n_best, max_seq_len)
+    scores_pt = torch.tensor(scores, dtype=torch.float32)
+    assert scores_pt.shape == (batch_size, n_best)
+
+    beam_dim = Dim(n_best, name="beam")
+    out_spatial_dim = enc_spatial_dim
+    hyps_r = rf.convert_to_tensor(hyps_pt, dims=(batch_dim, beam_dim, out_spatial_dim), sparse_dim=model.wb_target_dim)
+    scores_r = rf.convert_to_tensor(scores_pt, dims=(batch_dim, beam_dim))
+    return hyps_r, scores_r, out_spatial_dim, beam_dim
+
+
+# RecogDef API
+model_recog_flashlight: RecogDef[Model]
+model_recog_flashlight.output_with_beam = True
+model_recog_flashlight.output_blank_label = "<blank>"
+model_recog_flashlight.batch_size_dependent = True  # our models currently just are batch-size-dependent...
 
 
 def get_ctc_prior_probs(
