@@ -56,6 +56,7 @@ def py():
     for lm_out_name, lm_name in _lms.items():
         lm = _get_lm_model(lm_name)
 
+        # Our own beam search implementation.
         for beam_size, prior_scale, lm_scale in [
             # (12, 1.0, 1.0),
             (12, 0.0, 1.0),
@@ -71,6 +72,32 @@ def py():
                 recog_def=model_recog,
                 config={
                     "beam_size": beam_size,
+                    "recog_version": 6,
+                    "batch_size": 5_000 * ctc_model.definition.batch_size_factor,
+                },
+                search_rqmt={"time": 24},
+            )
+            tk.register_output(
+                f"{prefix}/recog-beam{beam_size}-lm_{lm_out_name}-lmScale{lm_scale}-priorScale{prior_scale}", res.output
+            )
+
+        # Flashlight beam search implementation.
+        for prior_scale, lm_scale in [
+            (0.0, 1.0),
+            # (0.2, 2.0),
+        ]:
+            model = get_ctc_with_lm(
+                ctc_model=ctc_model, prior=prior, prior_scale=prior_scale, language_model=lm, lm_scale=lm_scale
+            )
+            res = recog_model(
+                task=task,
+                model=model,
+                recog_def=model_recog_flashlight,
+                config={
+                    "n_best": 32,
+                    "beam_size": 1024,
+                    "beam_size_token": 128,
+                    "beam_threshold": 14,
                     "recog_version": 6,
                     "batch_size": 5_000 * ctc_model.definition.batch_size_factor,
                 },
