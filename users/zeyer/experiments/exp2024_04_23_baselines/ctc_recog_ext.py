@@ -478,33 +478,39 @@ def model_recog_flashlight(
     # https://github.com/facebookresearch/fairseq/blob/main/examples/speech_recognition/new/decoders/flashlight_decoder.py
     # https://github.com/pytorch/audio/blob/main/src/torchaudio/models/decoder/_ctc_decoder.py
 
+    # The current implementation of FlashlightLM below assumes we can just use the token_idx as-is for the LM.
+    assert model.blank_idx == model.target_dim.dimension
+
     @dataclass
     class FlashlightLMState:
         lm_state: Any  # from our RF LM
-        log_probs: Tensor  # Vocab
+        log_probs: torch.Tensor  # Vocab
 
     class FlashlightLM(LM):
         def __init__(self):
             super().__init__()
             self.mapping_states: Dict[LMState, FlashlightLMState] = {}
 
+        @staticmethod
+        def _next_lm_state(token_index: int, lm_state: Any) -> FlashlightLMState:
+            lm_logits, lm_state = lm(
+                rf.constant(token_index, dims=[], sparse_dim=model.target_dim),
+                spatial_dim=single_step_dim,
+                state=lm_state,
+            )  # Vocab / ...
+            lm_log_probs = rf.log_softmax(lm_logits, axis=model.target_dim)  # Vocab
+            assert lm_log_probs.dims == (model.target_dim,)
+            return FlashlightLMState(lm_state=lm_state, log_probs=lm_log_probs.raw_tensor.cpu())
+
         def start(self, start_with_nothing: bool):
             """
             Parameters:
                 start_with_nothing (bool): whether or not to start sentence with sil token.
             """
-            assert start_with_nothing  # not sure?
+            start_with_nothing  # noqa  # not sure how to handle this?
             self.mapping_states.clear()
             state = LMState()
-            lm_state = lm.default_initial_state(batch_dims=[])
-            lm_logits, lm_state = lm(
-                rf.constant(model.bos_idx, dims=[], sparse_dim=model.target_dim),
-                spatial_dim=single_step_dim,
-                state=lm_state,
-            )
-            lm_log_probs = rf.log_softmax(lm_logits, axis=model.target_dim)  # Vocab
-            lm_log_probs = rf.copy_to_device(lm_log_probs, "cpu")
-            self.mapping_states[state] = FlashlightLMState(lm_state=lm_state, log_probs=lm_log_probs)
+            self.mapping_states[state] = self._next_lm_state(model.bos_idx, lm.default_initial_state(batch_dims=[]))
             return state
 
         def score(self, state: LMState, token_index: int):
@@ -520,19 +526,11 @@ def model_recog_flashlight(
             Returns:
                 (LMState, float): pair of (new state, score for the current word)
             """
+            state_ = self.mapping_states[state]
             outstate = state.child(token_index)
             if outstate not in self.mapping_states:
-                state_ = self.mapping_states[state]
-                lm_logits, lm_state = lm(
-                    rf.constant(token_index, dims=[], sparse_dim=model.target_dim),
-                    spatial_dim=single_step_dim,
-                    state=state_.lm_state,
-                )  # Vocab / ...
-                lm_log_probs = rf.log_softmax(lm_logits, axis=model.target_dim)  # Vocab
-                self.mapping_states[outstate] = FlashlightLMState(
-                    lm_state=lm_state, log_probs=lm_log_probs.raw_tensor.cpu()
-                )
-            return outstate, self.mapping_states[outstate].log_probs.raw_tensor[token_index]
+                self.mapping_states[outstate] = self._next_lm_state(token_index, state_.lm_state)
+            return outstate, state_.log_probs.raw_tensor[token_index]
 
         def finish(self, state: LMState):
             """
