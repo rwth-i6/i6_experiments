@@ -498,7 +498,10 @@ def model_recog_flashlight(
             self._count_recalc_whole_seq = 0
 
         @lru_cache(maxsize=1024)
-        def _calc_next_lm_state(self, state: LMState):
+        def _calc_next_lm_state(self, state: LMState) -> Tuple[Any, torch.Tensor]:
+            """
+            :return: LM state, log probs [Vocab]
+            """
             state_ = self.mapping_states[state]
 
             if state_.label_seq == [model.bos_idx]:
