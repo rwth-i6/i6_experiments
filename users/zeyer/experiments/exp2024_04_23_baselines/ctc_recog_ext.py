@@ -546,8 +546,8 @@ def model_recog_flashlight(
                 # Maybe check if we should free some more memory.
                 count_pop = 0
                 while self._calc_next_lm_state.cache_len() > 0:
-                    alloc = torch.cuda.memory_allocated(dev)
-                    if alloc / total_mem < 0.8:
+                    used_mem = torch.cuda.memory_reserved(dev)
+                    if used_mem / total_mem < 0.9:
                         break
                     self._calc_next_lm_state.cache_pop_oldest()
                     count_pop += 1
