@@ -27,6 +27,7 @@ def lru_cache(maxsize: int = 128, typed: bool = False):
     with f.cache_info().
     Clear the cache and statistics with f.cache_clear().
     Remove the oldest entry from the cache with f.cache_pop_oldest().
+    Set the maximum cache size to a new value with f.cache_set_maxsize(new_maxsize).
     Access the underlying function with f.__wrapped__.
 
     See:  https://en.wikipedia.org/wiki/Cache_replacement_policies#Least_recently_used_(LRU)
@@ -178,12 +179,22 @@ def _lru_cache_wrapper(user_function, maxsize: int, typed: bool):
             full = False
             return oldvalue
 
+    def cache_set_maxsize(new_maxsize: int):
+        nonlocal maxsize, full
+        assert new_maxsize > 0
+        with lock:
+            maxsize = new_maxsize
+            while cache_len() > maxsize:
+                cache_pop_oldest()
+            full = cache_len() >= maxsize
+
     wrapper.cache_info = cache_info
     wrapper.cache_clear = cache_clear
     wrapper.cache_parameters = cache_parameters
     wrapper.cache_peek = cache_peek
     wrapper.cache_len = cache_len
     wrapper.cache_pop_oldest = cache_pop_oldest
+    wrapper.cache_set_maxsize = cache_set_maxsize
 
     update_wrapper(wrapper, user_function)
 

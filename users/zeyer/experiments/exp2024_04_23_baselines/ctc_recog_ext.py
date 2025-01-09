@@ -516,6 +516,11 @@ def model_recog_flashlight(
         label_seq: List[int]
         prev_state: LMState
 
+    # Use LRU cache for the LM states (on GPU) and log probs.
+    # Note that additionally to the cache size limit here,
+    # we free more when we run out of CUDA memory.
+    start_lru_cache_size = 1024
+
     class FlashlightLM(LM):
         def __init__(self):
             super().__init__()
@@ -525,9 +530,7 @@ def model_recog_flashlight(
             self._count_recalc_whole_seq = 0
             self._recent_debug_log_time = -sys.maxsize
 
-        # Use LRU cache. Note that additionally to the max_size here,
-        # we free more when we run out of CUDA memory.
-        @lru_cache(maxsize=1024)
+        @lru_cache(maxsize=start_lru_cache_size)
         def _calc_next_lm_state(self, state: LMState) -> Tuple[Any, torch.Tensor]:
             """
             :return: LM state, log probs [Vocab]
@@ -550,6 +553,7 @@ def model_recog_flashlight(
                     count_pop += 1
                 if count_pop > 0:
                     print(f"Pop {count_pop} from cache, mem usage {dev_s}: {' '.join(_collect_mem_stats())}")
+                    self._calc_next_lm_state.cache_set_maxsize(self._calc_next_lm_state.cache_len())
 
             if prev_lm_state is not None or lm_initial_state is None:
                 # We have the prev state, or there is no state at all.
@@ -583,6 +587,7 @@ def model_recog_flashlight(
             self._recent_debug_log_time = -sys.maxsize
             self.mapping_states.clear()
             self._calc_next_lm_state.cache_clear()
+            self._calc_next_lm_state.cache_set_maxsize(start_lru_cache_size)
             state = LMState()
             self.mapping_states[state] = FlashlightLMState(label_seq=[model.bos_idx], prev_state=state)
             return state
