@@ -535,7 +535,7 @@ def model_recog_flashlight(
             if dev.type == "cuda":
                 # Maybe check if we should free some more memory.
                 while self._calc_next_lm_state.cache_len() > 0:
-                    free, total = torch.cuda.mem_get_info(dev)
+                    free, total = torch.cuda.mem_get_info(dev if dev.index is not None else None)
                     if free / total < 0.2:
                         self._calc_next_lm_state.cache_pop_oldest()
 
