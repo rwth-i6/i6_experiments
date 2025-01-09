@@ -459,6 +459,7 @@ def model_recog_flashlight(
     from dataclasses import dataclass
     import torch
     from flashlight.lib.text.decoder import LM, LMState
+    from i6_experiments.users.zeyer.utils.lru_cache import lru_cache
     from returnn.config import get_global_config
 
     config = get_global_config()
@@ -474,6 +475,8 @@ def model_recog_flashlight(
     # noinspection PyUnresolvedReferences
     lm_scale: float = model.lm_scale
 
+    lm_initial_state = lm.default_initial_state(batch_dims=[])
+
     # https://github.com/flashlight/text/tree/main/bindings/python#decoding-with-your-own-language-model
     # https://github.com/facebookresearch/fairseq/blob/main/examples/speech_recognition/new/decoders/flashlight_decoder.py
     # https://github.com/pytorch/audio/blob/main/src/torchaudio/models/decoder/_ctc_decoder.py
@@ -485,9 +488,6 @@ def model_recog_flashlight(
     class FlashlightLMState:
         label_seq: List[int]
         prev_state: LMState
-        prev_lm_state: Optional[Any]
-        lm_state: Optional[Any] = None  # from our RF LM. lazily calculated
-        log_probs: Optional[torch.Tensor] = None  # Vocab. lazily calculated
 
     class FlashlightLM(LM):
         def __init__(self):
@@ -495,18 +495,38 @@ def model_recog_flashlight(
             # Cannot use weakrefs because the LMState object will always be recreated on-the-fly,
             # i.e. the Python object does not persist.
             self.mapping_states: Dict[LMState, FlashlightLMState] = {}
+            self._count_recalc_whole_seq = 0
 
-        @staticmethod
-        def _calc_next_lm_state(state: FlashlightLMState):
-            lm_logits, state.lm_state = lm(
-                rf.constant(state.label_seq[-1], dims=[], sparse_dim=model.target_dim),
-                spatial_dim=single_step_dim,
-                state=state.prev_lm_state,
-            )  # Vocab / ...
+        @lru_cache(maxsize=1024)
+        def _calc_next_lm_state(self, state: LMState):
+            state_ = self.mapping_states[state]
+
+            if state_.label_seq == [model.bos_idx]:
+                prev_lm_state = lm_initial_state
+            else:
+                prev_lm_state, _ = self._calc_next_lm_state.cache_peek(state_.prev_state)
+            if prev_lm_state is not None or lm_initial_state is None:
+                # We have the prev state, or there is no state at all.
+                # So we can do a single step.
+                lm_logits, lm_state = lm(
+                    rf.constant(state_.label_seq[-1], dims=[], sparse_dim=model.target_dim),
+                    spatial_dim=single_step_dim,
+                    state=prev_lm_state,
+                )  # Vocab / ...
+            else:
+                # We don't have the prev state. So recalculate it now, but directly on the whole given seq.
+                self._count_recalc_whole_seq += 1
+                spatial_dim = Dim(len(state_.label_seq), name="seq")
+                lm_logits, lm_state = lm(
+                    rf.convert_to_tensor(state_.label_seq, dims=[spatial_dim], sparse_dim=model.target_dim),
+                    spatial_dim=spatial_dim,
+                    state=lm_initial_state,
+                    output_only_last_frame=True,
+                )
+            assert lm_logits.dims == (model.target_dim,)
             lm_log_probs = rf.log_softmax(lm_logits, axis=model.target_dim)  # Vocab
-            assert lm_log_probs.dims == (model.target_dim,)
-            state.log_probs = lm_log_probs.raw_tensor.cpu()
-            state.prev_lm_state = None  # can free this now
+            log_probs_raw = lm_log_probs.raw_tensor.cpu()
+            return lm_state, log_probs_raw
 
         def start(self, start_with_nothing: bool):
             """
@@ -515,10 +535,9 @@ def model_recog_flashlight(
             """
             start_with_nothing  # noqa  # not sure how to handle this?
             self.mapping_states.clear()
+            self._calc_next_lm_state.cache_clear()
             state = LMState()
-            self.mapping_states[state] = FlashlightLMState(
-                label_seq=[model.bos_idx], prev_state=state, prev_lm_state=lm.default_initial_state(batch_dims=[])
-            )
+            self.mapping_states[state] = FlashlightLMState(label_seq=[model.bos_idx], prev_state=state)
             return state
 
         def score(self, state: LMState, token_index: int):
@@ -535,18 +554,15 @@ def model_recog_flashlight(
                 (LMState, float): pair of (new state, score for the current word)
             """
             state_ = self.mapping_states[state]
-            if state_.log_probs is None:
-                self._calc_next_lm_state(state_)
-            best_word_seq = [
-                model.target_dim.vocab.id_to_label(label_idx) for label_idx in state_.label_seq + [token_index]
-            ]
-            print("***", len(self.mapping_states), best_word_seq)
+            word_seq = [model.target_dim.vocab.id_to_label(label_idx) for label_idx in state_.label_seq + [token_index]]
+            print("***", len(self.mapping_states), word_seq)
             outstate = state.child(token_index)
             if outstate not in self.mapping_states:
                 self.mapping_states[outstate] = FlashlightLMState(
-                    label_seq=state_.label_seq + [token_index], prev_state=state, prev_lm_state=state_.lm_state
+                    label_seq=state_.label_seq + [token_index], prev_state=state
                 )
-            return outstate, state_.log_probs[token_index]
+            _, log_probs_raw = self._calc_next_lm_state(state)
+            return outstate, log_probs_raw[token_index]
 
         def finish(self, state: LMState):
             """
@@ -612,7 +628,9 @@ def model_recog_flashlight(
             f"batch {batch_idx + 1}/{batch_size}: {len(results)} hyps,"
             f" best score: {scores_per_batch[0]},"
             f" best seq {best_word_seq},"
-            f" worst score: {scores_per_batch[-1]}"
+            f" worst score: {scores_per_batch[-1]},"
+            f" cache info {fl_decoder._calc_next_lm_state.cache_info()},"
+            f" recalc whole seq count {fl_decoder._count_recalc_whole_seq}",
         )
         if len(results) >= n_best:
             hyps_per_batch = hyps_per_batch[:n_best]
