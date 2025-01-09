@@ -20,11 +20,13 @@ def lru_cache(maxsize: int = 128, typed: bool = False):
 
     Arguments to the cached function must be hashable.
 
+    Use f.cache_len() to see the current size of the cache.
     Use f.cache_peek(*args, update_statistics=False, fallback=None, **kwargs)
     to peek the cache, without ever calling the user function.
     View the cache statistics named tuple (hits, misses, maxsize, currsize)
     with f.cache_info().
     Clear the cache and statistics with f.cache_clear().
+    Remove the oldest entry from the cache with f.cache_pop_oldest().
     Access the underlying function with f.__wrapped__.
 
     See:  https://en.wikipedia.org/wiki/Cache_replacement_policies#Least_recently_used_(LRU)
@@ -109,7 +111,6 @@ def _lru_cache_wrapper(user_function, maxsize: int, typed: bool):
                 # still adjusting the links.
                 root = oldroot[NEXT]
                 oldkey = root[KEY]
-                oldresult = root[RESULT]
                 root[KEY] = root[RESULT] = None
                 # Now update the cache dictionary.
                 del cache[oldkey]
@@ -150,19 +151,38 @@ def _lru_cache_wrapper(user_function, maxsize: int, typed: bool):
         with lock:
             link = cache_get(key)
             if link is not None:
-                # Move the link to the front of the circular queue
-                _, _, _, result = link
                 if update_statistics:
                     hits += 1
-                return result
+                return link[RESULT]
             if update_statistics:
                 misses += 1
             return fallback
+
+    not_specified = object()
+
+    def cache_pop_oldest(*, fallback=not_specified):
+        nonlocal root
+        with lock:
+            if not cache:
+                if fallback is not_specified:
+                    raise KeyError("cache is empty")
+                return fallback
+            assert cache
+            oldroot = root
+            root = oldroot[NEXT]
+            oldkey = root[KEY]
+            oldvalue = root[RESULT]
+            del cache[oldkey]
+            root[KEY] = root[RESULT] = None
+            oldroot[PREV][NEXT] = root
+            return oldvalue
 
     wrapper.cache_info = cache_info
     wrapper.cache_clear = cache_clear
     wrapper.cache_parameters = cache_parameters
     wrapper.cache_peek = cache_peek
+    wrapper.cache_len = cache_len
+    wrapper.cache_pop_oldest = cache_pop_oldest
 
     update_wrapper(wrapper, user_function)
 

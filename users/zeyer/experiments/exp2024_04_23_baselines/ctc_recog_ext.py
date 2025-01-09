@@ -518,6 +518,8 @@ def model_recog_flashlight(
             self._count_recalc_whole_seq = 0
             self._recent_debug_log_time = -sys.maxsize
 
+        # Use LRU cache. Note that additionally to the max_size here,
+        # we free more when we run out of CUDA memory.
         @lru_cache(maxsize=1024)
         def _calc_next_lm_state(self, state: LMState) -> Tuple[Any, torch.Tensor]:
             """
@@ -529,6 +531,14 @@ def model_recog_flashlight(
                 prev_lm_state = lm_initial_state
             else:
                 prev_lm_state, _ = self._calc_next_lm_state.cache_peek(state_.prev_state, fallback=(None, None))
+
+            if dev.type == "cuda":
+                # Maybe check if we should free some more memory.
+                while self._calc_next_lm_state.cache_len() > 0:
+                    free, total = torch.cuda.mem_get_info(dev)
+                    if free / total < 0.2:
+                        self._calc_next_lm_state.cache_pop_oldest()
+
             if prev_lm_state is not None or lm_initial_state is None:
                 # We have the prev state, or there is no state at all.
                 # So we can do a single step.
