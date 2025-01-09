@@ -504,7 +504,7 @@ def model_recog_flashlight(
             if state_.label_seq == [model.bos_idx]:
                 prev_lm_state = lm_initial_state
             else:
-                prev_lm_state, _ = self._calc_next_lm_state.cache_peek(state_.prev_state)
+                prev_lm_state, _ = self._calc_next_lm_state.cache_peek(state_.prev_state, fallback=(None, None))
             if prev_lm_state is not None or lm_initial_state is None:
                 # We have the prev state, or there is no state at all.
                 # So we can do a single step.
