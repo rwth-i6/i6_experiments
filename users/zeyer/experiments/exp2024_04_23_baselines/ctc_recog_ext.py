@@ -457,6 +457,7 @@ def model_recog_flashlight(
         out_spatial_dim,
         final beam_dim
     """
+    import gc
     from dataclasses import dataclass
     import torch
     from flashlight.lib.text.decoder import LM, LMState
@@ -520,6 +521,7 @@ def model_recog_flashlight(
     # Note that additionally to the cache size limit here,
     # we free more when we run out of CUDA memory.
     start_lru_cache_size = 1024
+    max_used_mem_fraction = 0.9
 
     class FlashlightLM(LM):
         def __init__(self):
@@ -545,9 +547,15 @@ def model_recog_flashlight(
             if dev.type == "cuda":
                 # Maybe check if we should free some more memory.
                 count_pop = 0
-                while self._calc_next_lm_state.cache_len() > 0:
+                while self._calc_next_lm_state.cache_len() > 1:
                     used_mem = torch.cuda.memory_reserved(dev)
-                    if used_mem / total_mem < 0.9:
+                    if used_mem / total_mem < max_used_mem_fraction:
+                        break
+                    # Check again after trying to empty the cache.
+                    gc.collect()
+                    torch.cuda.empty_cache()
+                    used_mem = torch.cuda.memory_reserved(dev)
+                    if used_mem / total_mem < max_used_mem_fraction:
                         break
                     self._calc_next_lm_state.cache_pop_oldest()
                     count_pop += 1
