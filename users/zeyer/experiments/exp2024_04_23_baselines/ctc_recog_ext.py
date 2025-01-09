@@ -536,8 +536,9 @@ def model_recog_flashlight(
                 # Maybe check if we should free some more memory.
                 while self._calc_next_lm_state.cache_len() > 0:
                     free, total = torch.cuda.mem_get_info(dev if dev.index is not None else None)
-                    if free / total < 0.2:
-                        self._calc_next_lm_state.cache_pop_oldest()
+                    if free / total > 0.2:
+                        break
+                    self._calc_next_lm_state.cache_pop_oldest()
 
             if prev_lm_state is not None or lm_initial_state is None:
                 # We have the prev state, or there is no state at all.
