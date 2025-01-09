@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import copy
 import functools
-from typing import TYPE_CHECKING, Optional, Union, Tuple, Sequence
+from typing import TYPE_CHECKING, Optional, Callable, Union, Tuple, Sequence
 
 from returnn.tensor import Tensor, Dim
 import returnn.frontend as rf
@@ -27,7 +27,8 @@ if TYPE_CHECKING:
     from i6_experiments.users.zeyer.datasets.task import Task
     from i6_experiments.users.zeyer.datasets.score_results import RecogOutput
 
-
+OUT_BLANK_LABEL = "<blank>"
+CHECK_DECODER_CONSISTENCY = False
 # The model gets raw features (16khz) and does feature extraction internally.
 _log_mel_feature_dim = 80
 
@@ -36,11 +37,6 @@ _raw_sample_rate = _batch_size_factor * 100  # bs factor is from 10ms frames to 
 
 def py():
     """Sisyphus entry point"""
-    from sisyphus import gs
-    from i6_experiments.common.setups import serialization
-    from i6_experiments.users.zeyer.datasets.librispeech import get_librispeech_log_mel_stats
-
-    feature_stats = get_librispeech_log_mel_stats(_log_mel_feature_dim)
 
     # relPosAttDef: Use the default RelPosSelfAttention instead of the Shawn et al 2018 style, old RETURNN way.
     enc_conformer_layer_default = rf.build_dict(
@@ -60,52 +56,108 @@ def py():
         "use_lexicon": True,
     }
 
-    p1 = "sum" if decoder_hyperparameters['log_add'] else "max"
-    p2 = f"n{decoder_hyperparameters['nbest']}"
-    p3 = f"b{decoder_hyperparameters['beam_size']}"
-    p4 = f"w{str(decoder_hyperparameters['lm_weight']).replace('.', '')}"
-    p5 = "_logsoftmax" if decoder_hyperparameters['use_logsoftmax'] else ""
-    lm_hyperparamters_str = f"{p0}_{p1}_{p2}_{p3}_{p4}{p5}"
+    p1 = "sum" if decoding_config['log_add'] else "max"
+    p2 = f"n{decoding_config['nbest']}"
+    p3 = f"b{decoding_config['beam_size']}"
+    p4 = f"w{str(decoding_config['lm_weight']).replace('.', '')}"
+    p5 = "_logsoftmax" if decoding_config['use_logsoftmax'] else ""
+    p6 = "_lexicon" if decoding_config['use_lexicon'] else ""
+    lm_hyperparamters_str = f"{p1}_{p2}_{p3}_{p4}{p5}{p6}"
 
 
     # ---------------------------------------------------------
     # model name: f"v6-relPosAttDef-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100"
     #               f"-maxSeqLenAudio19_5-wd1e_2-lrlin1e_5_295k-featBN-speedpertV2"
-    #               f"-spm10k" + f"-bpeSample0.005", # 5.89 (!!)
-    lms = []
-    for lm in lms:
-        lm_name = lm if isinstance(lm, str) else lm.name
-        alias_name = f"ctc-baseline" + "decodingWith_" + lm_hyperparamters_str + lm_name
-        decoding_config["lm"] = lm
-        train_exp(
-            alias_name,
-            config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
-            model_config={"enc_conformer_layer": enc_conformer_layer_default, "feature_batch_norm": True},
-            config_updates={
-                **_get_cfg_lrlin_oclr_by_bs_nep(15_000, 500),
-                "optimizer.weight_decay": 1e-2,
-                "__train_audio_preprocess": speed_pert_librosa_config,
-                "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
-                "max_seq_length_default_target": None,
-                # Note on max seq len stats: Before, when we used max_seq_length_default_target=75 with bpe10k,
-                # out of 281241 seqs in train, we removed only 71 seqs.
-                # With max seq len 19.5 secs on the audio, we also remove exactly 71 seqs.
-                "max_seq_length_default_input": 19.5 * _raw_sample_rate,
-            },
-            vocab="spm10k",
-            train_vocab_opts=(
-                {
-                    "other_opts": (
-                        {
-                            "spm": {"enable_sampling": True, "alpha": 0.005},
-                            "bpe": {"class": "SamplingBytePairEncoding", "breadth_prob": 0.005},
-                        }["bpe"]
-                    )
-                }
-            ),
-            decoding_config = decoding_config
-        )
+    #               f"-[vocab]" + f"-[sample]"
+    from .language_models.librispeech_lm import get_4gram_binary_lm
+    lms = [get_4gram_binary_lm()]
+    # TODO: get ppl of each lm use i6_core.lm.srilm.ComputeNgramLmPerplexityJob
 
+    for vocab, sample, alpha in [
+        # ("spm20k", None, None),  # 5.96
+        # ("spm20k", "spm", 0.7),  # 6.14
+        # # TODO ("spm20k", "bpe", 0.005),
+        # ("spm20k", "bpe", 0.01),  # 6.13
+        # ("spm20k", "bpe", 0.02),  # 6.21
+        # ("bpe10k", None, None),  # 6.49  #TODO: does not work currently, check the BPEjob in librispeech.bpe10k
+        # ("bpe10k", "bpe", 0.005),  # 6.48
+        # ("bpe10k", "bpe", 0.01),  # 6.40
+        # ("spm10k", None, None),  # 6.00
+        # # TODO ("spm10k", "spm", 0.8),
+        # ("spm10k", "spm", 0.7),  # 6.20
+        # ("spm10k", "bpe", 0.001),  # 5.93
+        # ("spm10k", "bpe", 0.005),  # 5.89 (!!)
+        # ("spm10k", "bpe", 0.01),  # 5.93
+        # ("spm_bpe10k", None, None),  # 6.33
+        # ("spm_bpe10k", "spm", 1e-4),  # 6.26
+        # # TODO ("spm_bpe10k", "bpe", 0.005),
+        # ("spm_bpe10k", "bpe", 0.01),  # 6.21
+        # ("spm4k", None, None),  # 6.07 (but test-other even better: 5.94?)
+        # ("spm4k", "spm", 0.7),  # 6.42
+        # # TODO ("spm4k", "bpe", 0.005),
+        # ("spm4k", "bpe", 0.01),  # 6.05
+        # ("spm1k", None, None),  # 6.07
+        # ("spm1k", "spm", 1.0),  # 6.73
+        # ("spm1k", "spm", 0.99),  # 6.93
+        # ("spm1k", "spm", 0.9),  # 7.04
+        # ("spm1k", "spm", 0.7),  # 7.33
+        # ("spm1k", "bpe", 0.0),  # 6.07
+        # # TODO ("spm1k", "bpe", 0.0005),
+        # ("spm1k", "bpe", 0.001),  # 6.15
+        # ("spm1k", "bpe", 0.005),  # 6.25
+        # ("spm1k", "bpe", 0.01),  # 6.13 (but dev-clean,test-* are better than no sampling)
+        # ("spm_bpe1k", None, None),  # 6.03
+        # ("spm_bpe1k", "bpe", 0.01),  # 6.05
+        # ("spm512", None, None),  # 6.08
+        # ("spm512", "bpe", 0.001),  # 6.05
+        # ("spm512", "bpe", 0.005),  # 6.01
+        # ("spm512", "bpe", 0.01),  # 6.08 (but test-* is better than spm512 without sampling)
+        # ("spm128", None, None),  # 6.37
+        # # TODO ("spm128", "bpe", 0.001),
+        # ("spm128", "bpe", 0.01),  # 6.40
+        # # TODO ("spm128", "bpe", 0.005),
+         ("bpe128", None, None),
+        # ("spm64", None, None),
+        # ("bpe64", None, None),
+        # ("utf8", None, None),
+        # ("char", None, None),
+        # ("bpe0", None, None),
+    ]:
+        for lm in lms:
+            # lm_name = lm if isinstance(lm, str) else lm.name
+            alias_name = f"ctc-baseline" + "decodingWith_" + lm_hyperparamters_str + "4gramLm"
+            decoding_config["lm"] = lm
+            train_exp(
+                name=alias_name,
+                config=config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
+                decoder_def=model_recog_lm,
+                model_config={"enc_conformer_layer": enc_conformer_layer_default, "feature_batch_norm": True},
+                config_updates={
+                    **_get_cfg_lrlin_oclr_by_bs_nep(15_000, 500),
+                    "optimizer.weight_decay": 1e-2,
+                    "__train_audio_preprocess": speed_pert_librosa_config,
+                    "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
+                    "max_seq_length_default_target": None,
+                    # Note on max seq len stats: Before, when we used max_seq_length_default_target=75 with bpe10k,
+                    # out of 281241 seqs in train, we removed only 71 seqs.
+                    # With max seq len 19.5 secs on the audio, we also remove exactly 71 seqs.
+                    "max_seq_length_default_input": 19.5 * _raw_sample_rate,
+                },
+                vocab=vocab,
+                train_vocab_opts=(
+                    {
+                        "other_opts": (
+                            {
+                                "spm": {"enable_sampling": True, "alpha": 0.005},
+                                "bpe": {"class": "SamplingBytePairEncoding", "breadth_prob": 0.005},
+                            }[sample]
+                        )
+                    }
+                    if sample
+                    else None
+                ),
+                decoding_config=decoding_config
+            )
 
 
 _train_experiments: Dict[str, ModelWithCheckpoints] = {}
@@ -115,6 +167,7 @@ _train_experiments: Dict[str, ModelWithCheckpoints] = {}
 def train_exp(
     name: str,
     config: Dict[str, Any],
+    decoder_def: Callable,
     *,
     model_def: Optional[Union[ModelDefWithCfg, ModelDef[Model]]] = None,
     vocab: str = "bpe10k",
@@ -185,7 +238,6 @@ def train_exp(
     recog_training_exp(
         prefix, task, model_with_checkpoint, recog_def=decoder_def,
         decoding_config=decoding_config,
-        calculate_pseudo_label_scores=False,
         recog_post_proc_funcs=recog_post_proc_funcs,
     )
 
@@ -504,7 +556,7 @@ def model_recog_lm(
         model: Model,
         data: Tensor,
         data_spatial_dim: Dim,
-        arpa_4gram_lm: str,
+        lm: str,
         lexicon: str,
         hyperparameters: dict
 ) -> Tuple[Tensor, Tensor, Dim, Dim]:
@@ -522,41 +574,36 @@ def model_recog_lm(
     from torchaudio.models.decoder import ctc_decoder
     import torch
     from returnn.util.basic import cf
-
+    assert lm, "No lm loaded!"
     # Get the logits from the model
     logits, enc, enc_spatial_dim = model(data, in_spatial_dim=data_spatial_dim)
 
     hyp_params = copy.copy(hyperparameters)
-    greedy = hyp_params.pop("greedy", False)
     use_logsoftmax = hyp_params.pop("use_logsoftmax", False)
-
-    if greedy:
-        use_logsoftmax = True
 
     if use_logsoftmax:
         label_log_prob = model.log_probs_wb_from_logits(logits)
         label_log_prob = label_log_prob.raw_tensor.cpu()
 
-    if greedy:
-        probs, greedy_res = torch.max(label_log_prob, dim=-1)
-        greedy_res = greedy_res.unsqueeze(1)
+    # if greedy:
+    #     probs, greedy_res = torch.max(label_log_prob, dim=-1)
+    #     greedy_res = greedy_res.unsqueeze(1)
+    #
+    #     scores = torch.sum(probs, dim=-1)
+    #     scores = scores.unsqueeze(1)
+    #
+    #     beam_dim = rtf.TorchBackend.get_new_dim_raw(greedy_res, 1, name="beam_dim")
+    #     dims = [batch_dim, beam_dim, enc_spatial_dim]
+    #     hyps = rtf.TorchBackend.convert_to_tensor(greedy_res, dims=dims, sparse_dim=model.wb_target_dim, dtype="int64",
+    #                                               name="hyps")
+    #
+    #     dims = [batch_dim, beam_dim]
+    #     scores = Tensor("scores", dims=dims, dtype="float32", raw_tensor=scores)
+    #
+    #     return hyps, scores, enc_spatial_dim, beam_dim
 
-        scores = torch.sum(probs, dim=-1)
-        scores = scores.unsqueeze(1)
+    lm = str(cf(lm))
 
-        beam_dim = rtf.TorchBackend.get_new_dim_raw(greedy_res, 1, name="beam_dim")
-        dims = [batch_dim, beam_dim, enc_spatial_dim]
-        hyps = rtf.TorchBackend.convert_to_tensor(greedy_res, dims=dims, sparse_dim=model.wb_target_dim, dtype="int64",
-                                                  name="hyps")
-
-        dims = [batch_dim, beam_dim]
-        scores = Tensor("scores", dims=dims, dtype="float32", raw_tensor=scores)
-
-        return hyps, scores, enc_spatial_dim, beam_dim
-
-    arpa_4gram_lm = str(cf(arpa_4gram_lm))
-
-    use_lm = hyp_params.pop("use_lm", True)
     use_lexicon = hyp_params.pop("use_lexicon", True)
 
     configs = {
@@ -568,7 +615,7 @@ def model_recog_lm(
         "beam_threshold": 1000000,  # 14
     }
     configs["lexicon"] = lexicon if use_lexicon else None
-    configs["lm"] = arpa_4gram_lm if use_lm else None
+    configs["lm"] = lm
 
     configs.update(hyp_params)
 
