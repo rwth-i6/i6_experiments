@@ -558,7 +558,11 @@ def model_recog_flashlight(
                     self._calc_next_lm_state.cache_pop_oldest()
                     count_pop += 1
                 if count_pop > 0:
-                    print(f"Pop {count_pop} from cache, mem usage {dev_s}: {' '.join(_collect_mem_stats())}")
+                    print(
+                        f"Pop {count_pop} states from cache,"
+                        f" cache size {self._calc_next_lm_state.cache_len()},"
+                        f" mem usage {dev_s}: {' '.join(_collect_mem_stats())}"
+                    )
                     self._calc_next_lm_state.cache_set_maxsize(self._calc_next_lm_state.cache_len())
 
             if prev_lm_state is not None or lm_initial_state is None:
