@@ -161,20 +161,21 @@ def _lru_cache_wrapper(user_function, maxsize: int, typed: bool):
     not_specified = object()
 
     def cache_pop_oldest(*, fallback=not_specified):
-        nonlocal root
+        nonlocal root, full
         with lock:
             if not cache:
                 if fallback is not_specified:
                     raise KeyError("cache is empty")
                 return fallback
             assert cache
-            oldroot = root
-            root = oldroot[NEXT]
-            oldkey = root[KEY]
-            oldvalue = root[RESULT]
+            # Take out oldest link.
+            link = root[NEXT]
+            link[NEXT][PREV] = root
+            root[NEXT] = link[NEXT]
+            oldkey = link[KEY]
+            oldvalue = link[RESULT]
             del cache[oldkey]
-            root[KEY] = root[RESULT] = None
-            oldroot[PREV][NEXT] = root
+            full = False
             return oldvalue
 
     wrapper.cache_info = cache_info
