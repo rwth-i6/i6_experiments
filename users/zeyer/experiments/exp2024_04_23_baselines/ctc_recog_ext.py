@@ -1,7 +1,8 @@
 """
 CTC recognition with LM
 """
-
+import sys
+import time
 from typing import Optional, Any, TypeVar, Sequence, Tuple, Dict, List
 import functools
 
@@ -461,6 +462,7 @@ def model_recog_flashlight(
     from flashlight.lib.text.decoder import LM, LMState
     from i6_experiments.users.zeyer.utils.lru_cache import lru_cache
     from returnn.config import get_global_config
+    from returnn.util import basic as util
 
     config = get_global_config()
     n_best = config.int("n_best", 1)
@@ -474,6 +476,24 @@ def model_recog_flashlight(
     lm: TransformerDecoder = model.lm
     # noinspection PyUnresolvedReferences
     lm_scale: float = model.lm_scale
+
+    dev_s = rf.get_default_device()
+    dev = torch.device(dev_s)
+
+    if dev.type == "cuda":
+        torch.cuda.reset_peak_memory_stats(dev)
+
+    def _collect_mem_stats():
+        if dev.type == "cuda":
+            return [
+                f"alloc cur {util.human_bytes_size(torch.cuda.memory_allocated(dev))}",
+                f"alloc peak {util.human_bytes_size(torch.cuda.max_memory_allocated(dev))}",
+                f"reserved cur {util.human_bytes_size(torch.cuda.memory_reserved(dev))}",
+                f"reserved peak {util.human_bytes_size(torch.cuda.max_memory_reserved(dev))}",
+            ]
+        return ["(unknown)"]
+
+    print(f"Memory usage {dev_s} before encoder forward:", " ".join(_collect_mem_stats()))
 
     lm_initial_state = lm.default_initial_state(batch_dims=[])
 
@@ -496,6 +516,7 @@ def model_recog_flashlight(
             # i.e. the Python object does not persist.
             self.mapping_states: Dict[LMState, FlashlightLMState] = {}
             self._count_recalc_whole_seq = 0
+            self._recent_debug_log_time = -sys.maxsize
 
         @lru_cache(maxsize=1024)
         def _calc_next_lm_state(self, state: LMState) -> Tuple[Any, torch.Tensor]:
@@ -525,7 +546,7 @@ def model_recog_flashlight(
                     spatial_dim=spatial_dim,
                     state=lm_initial_state,
                     output_only_last_frame=True,
-                )
+                )  # Vocab / ...
             assert lm_logits.dims == (model.target_dim,)
             lm_log_probs = rf.log_softmax(lm_logits, axis=model.target_dim)  # Vocab
             log_probs_raw = lm_log_probs.raw_tensor.cpu()
@@ -537,6 +558,7 @@ def model_recog_flashlight(
                 start_with_nothing (bool): whether or not to start sentence with sil token.
             """
             start_with_nothing  # noqa  # not sure how to handle this?
+            self._recent_debug_log_time = -sys.maxsize
             self.mapping_states.clear()
             self._calc_next_lm_state.cache_clear()
             state = LMState()
@@ -557,8 +579,16 @@ def model_recog_flashlight(
                 (LMState, float): pair of (new state, score for the current word)
             """
             state_ = self.mapping_states[state]
-            word_seq = [model.target_dim.vocab.id_to_label(label_idx) for label_idx in state_.label_seq + [token_index]]
-            print("***", len(self.mapping_states), word_seq)
+            if time.monotonic() - self._recent_debug_log_time > 1:
+                print(
+                    "LM prefix",
+                    [model.target_dim.vocab.id_to_label(label_idx) for label_idx in state_.label_seq],
+                    f"score {model.target_dim.vocab.id_to_label(token_index)!r}",
+                    f"({len(self.mapping_states)} states seen)",
+                    f"(cache info {self._calc_next_lm_state.cache_info()})",
+                    f"(mem usage {dev_s}: {' '.join(_collect_mem_stats())})",
+                )
+                self._recent_debug_log_time = time.monotonic()
             outstate = state.child(token_index)
             if outstate not in self.mapping_states:
                 self.mapping_states[outstate] = FlashlightLMState(
@@ -615,6 +645,8 @@ def model_recog_flashlight(
     label_log_prob_raw = label_log_prob.raw_tensor.contiguous().cpu()
     float_bytes = 4
 
+    print(f"Memory usage {dev_s} after encoder forward:", " ".join(_collect_mem_stats()))
+
     hyps = []
     scores = []
     for batch_idx in range(batch_size):
@@ -633,7 +665,8 @@ def model_recog_flashlight(
             f" best seq {best_word_seq},"
             f" worst score: {scores_per_batch[-1]},"
             f" cache info {fl_decoder._calc_next_lm_state.cache_info()},"
-            f" recalc whole seq count {fl_decoder._count_recalc_whole_seq}",
+            f" recalc whole seq count {fl_decoder._count_recalc_whole_seq}"
+            f" mem usage {dev_s}: {' '.join(_collect_mem_stats())}"
         )
         if len(results) >= n_best:
             hyps_per_batch = hyps_per_batch[:n_best]
@@ -653,6 +686,7 @@ def model_recog_flashlight(
     out_spatial_dim = enc_spatial_dim
     hyps_r = rf.convert_to_tensor(hyps_pt, dims=(batch_dim, beam_dim, out_spatial_dim), sparse_dim=model.wb_target_dim)
     scores_r = rf.convert_to_tensor(scores_pt, dims=(batch_dim, beam_dim))
+    print(f"Memory usage ({dev_s}) after batch:", " ".join(_collect_mem_stats()))
     return hyps_r, scores_r, out_spatial_dim, beam_dim
 
 
