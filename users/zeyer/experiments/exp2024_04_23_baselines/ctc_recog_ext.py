@@ -99,8 +99,8 @@ def py():
                     "beam_size": 1024,
                     "beam_size_token": 128,
                     "beam_threshold": 14,
-                    "recog_version": 6,
                     "batch_size": 5_000 * ctc_model.definition.batch_size_factor,
+                    "torch_amp": {"dtype": "bfloat16"},
                 },
                 search_rqmt={"cpu": 4, "mem": 30, "time": 24, "gpu_mem": 24},
             )
