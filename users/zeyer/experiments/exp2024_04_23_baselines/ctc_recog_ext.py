@@ -530,6 +530,7 @@ def model_recog_flashlight(
             self.mapping_states: Dict[LMState, FlashlightLMState] = {}
             self._count_recalc_whole_seq = 0
             self._recent_debug_log_time = -sys.maxsize
+            self._max_used_mem_fraction = max_used_mem_fraction
 
         @lru_cache(maxsize=start_lru_cache_size)
         def _calc_next_lm_state(self, state: LMState) -> Tuple[Any, torch.Tensor]:
@@ -542,25 +543,37 @@ def model_recog_flashlight(
                 prev_lm_state = lm_initial_state
             else:
                 prev_lm_state, _ = self._calc_next_lm_state.cache_peek(state_.prev_state, fallback=(None, None))
-            self._cache_maybe_free_memory()
-            if prev_lm_state is not None or lm_initial_state is None:
-                # We have the prev state, or there is no state at all.
-                # So we can do a single step.
-                lm_logits, lm_state = lm(
-                    rf.constant(state_.label_seq[-1], dims=[], sparse_dim=model.target_dim),
-                    spatial_dim=single_step_dim,
-                    state=prev_lm_state,
-                )  # Vocab / ...
-            else:
-                # We don't have the prev state. So recalculate it now, but directly on the whole given seq.
-                self._count_recalc_whole_seq += 1
-                spatial_dim = Dim(len(state_.label_seq), name="seq")
-                lm_logits, lm_state = lm(
-                    rf.convert_to_tensor(state_.label_seq, dims=[spatial_dim], sparse_dim=model.target_dim),
-                    spatial_dim=spatial_dim,
-                    state=lm_initial_state,
-                    output_only_last_frame=True,
-                )  # Vocab / ...
+            lm_logits, lm_state = None, None
+            while True:
+                self._cache_maybe_free_memory()
+                try:
+                    if prev_lm_state is not None or lm_initial_state is None:
+                        # We have the prev state, or there is no state at all.
+                        # So we can do a single step.
+                        lm_logits, lm_state = lm(
+                            rf.constant(state_.label_seq[-1], dims=[], sparse_dim=model.target_dim),
+                            spatial_dim=single_step_dim,
+                            state=prev_lm_state,
+                        )  # Vocab / ...
+                    else:
+                        # We don't have the prev state. So recalculate it now, but directly on the whole given seq.
+                        self._count_recalc_whole_seq += 1
+                        spatial_dim = Dim(len(state_.label_seq), name="seq")
+                        lm_logits, lm_state = lm(
+                            rf.convert_to_tensor(state_.label_seq, dims=[spatial_dim], sparse_dim=model.target_dim),
+                            spatial_dim=spatial_dim,
+                            state=lm_initial_state,
+                            output_only_last_frame=True,
+                        )  # Vocab / ...
+                except torch.cuda.OutOfMemoryError as exc:
+                    if self._calc_next_lm_state.cache_len() == 0:
+                        raise  # cannot free more
+                    print(f"{type(exc).__name__}: {exc}")
+                    new_max_used_mem_fraction = max(0.2, self._max_used_mem_fraction - 0.1)
+                    if new_max_used_mem_fraction != self._max_used_mem_fraction:
+                        print(f"Reduce max used mem fraction to {new_max_used_mem_fraction:.0%}")
+                    continue  # try again
+                break
             assert lm_logits.dims == (model.target_dim,)
             lm_log_probs = rf.log_softmax(lm_logits, axis=model.target_dim)  # Vocab
             log_probs_raw = lm_log_probs.raw_tensor.cpu()
@@ -571,14 +584,14 @@ def model_recog_flashlight(
                 # Maybe check if we should free some more memory.
                 count_pop = 0
                 used_mem = 0
-                while self._calc_next_lm_state.cache_len() > 1:
+                while self._calc_next_lm_state.cache_len() > 0:
                     used_mem = torch.cuda.memory_reserved(dev)
-                    if used_mem / total_mem < max_used_mem_fraction:
+                    if used_mem / total_mem < self._max_used_mem_fraction:
                         break
                     # Check again after trying to empty the cache.
                     torch.cuda.empty_cache()
                     used_mem = torch.cuda.memory_reserved(dev)
-                    if used_mem / total_mem < max_used_mem_fraction:
+                    if used_mem / total_mem < self._max_used_mem_fraction:
                         break
                     self._calc_next_lm_state.cache_pop_oldest()
                     count_pop += 1
@@ -597,8 +610,10 @@ def model_recog_flashlight(
                 start_with_nothing (bool): whether or not to start sentence with sil token.
             """
             start_with_nothing  # noqa  # not sure how to handle this?
-            self._recent_debug_log_time = -sys.maxsize
             self.mapping_states.clear()
+            self._count_recalc_whole_seq = 0
+            self._recent_debug_log_time = -sys.maxsize
+            self._max_used_mem_fraction = max_used_mem_fraction
             self._calc_next_lm_state.cache_clear()
             self._calc_next_lm_state.cache_set_maxsize(start_lru_cache_size)
             state = LMState()
