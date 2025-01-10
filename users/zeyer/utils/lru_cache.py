@@ -3,6 +3,8 @@
 and extended by functions to check whether some key is cached or not.
 """
 
+from __future__ import annotations
+from typing import Dict, Any
 from functools import update_wrapper
 from threading import RLock
 from collections import namedtuple
@@ -62,7 +64,7 @@ def _lru_cache_wrapper(user_function, maxsize: int, typed: bool):
     make_key = _make_key  # build a key from the function arguments
     PREV, NEXT, KEY, RESULT = 0, 1, 2, 3  # names for the link fields
 
-    cache = {}
+    cache: Dict[Any, list] = {}
     hits = misses = 0
     full = False
     cache_get = cache.get  # bound method to lookup a key or return None
@@ -140,6 +142,8 @@ def _lru_cache_wrapper(user_function, maxsize: int, typed: bool):
         """Clear the cache and cache statistics"""
         nonlocal hits, misses, full
         with lock:
+            for link in cache.values():
+                link.clear()  # make GC happy
             cache.clear()
             root[:] = [root, root, None, None]
             hits = misses = 0
@@ -172,11 +176,12 @@ def _lru_cache_wrapper(user_function, maxsize: int, typed: bool):
                 return fallback
             assert cache
             # Take out oldest link.
-            link = root[NEXT]
+            link: list = root[NEXT]
             link[NEXT][PREV] = root
             root[NEXT] = link[NEXT]
             oldkey = link[KEY]
             oldvalue = link[RESULT]
+            link.clear()
             del cache[oldkey]
             full = False
             return oldvalue
