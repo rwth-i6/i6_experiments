@@ -713,14 +713,10 @@ def model_recog_flashlight(
         results = fl_decoder.decode(emissions_ptr, seq_len, model.wb_target_dim.dimension)
         hyps_per_batch = [result.tokens for result in results]
         scores_per_batch = [result.score for result in results]
-        best_word_seq = [
-            model.wb_target_dim.vocab.id_to_label(label_idx) if label_idx >= 0 else str(label_idx)
-            for label_idx in results[0].tokens
-        ]
         print(
             f"batch {batch_idx + 1}/{batch_size}: {len(results)} hyps,"
             f" best score: {scores_per_batch[0]},"
-            f" best seq {best_word_seq},"
+            f" best seq {_format_align_label_seq(results[0].tokens, model.wb_target_dim)},"
             f" worst score: {scores_per_batch[-1]},"
             f" LM cache info {fl_lm._calc_next_lm_state.cache_info()},"
             f" LM recalc whole seq count {fl_lm._count_recalc_whole_seq}"
@@ -1023,3 +1019,17 @@ def _target_dense_extend_blank(
     assert blank_idx == target_dim.dimension  # currently just not implemented otherwise
     res, _ = rf.pad(target, axes=[target_dim], padding=[(0, 1)], out_dims=[wb_target_dim], value=value)
     return res
+
+
+def _format_align_label_seq(align_label_seq: List[int], wb_target_dim: Dim) -> str:
+    seq_label: List[str] = []  # list of label
+    seq_label_idx: List[int] = []  # list of label index
+    seq_label_count: List[int] = []  # list of label count
+    for align_label in align_label_seq:
+        if seq_label_idx and seq_label_idx[-1] == align_label:
+            seq_label_count[-1] += 1
+        else:
+            seq_label.append(wb_target_dim.vocab.id_to_label(align_label))
+            seq_label_idx.append(align_label)
+            seq_label_count.append(1)
+    return " ".join(f"{label}*{count}" if count > 1 else label for label, count in zip(seq_label, seq_label_count))
