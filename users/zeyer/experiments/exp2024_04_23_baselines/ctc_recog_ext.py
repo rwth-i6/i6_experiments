@@ -102,7 +102,7 @@ def py():
                     "recog_version": 6,
                     "batch_size": 5_000 * ctc_model.definition.batch_size_factor,
                 },
-                search_rqmt={"time": 24},
+                search_rqmt={"time": 24, "gpu_mem": 24},
             )
             tk.register_output(
                 f"{prefix}/recog-beam{beam_size}-lm_{lm_out_name}-lmScale{lm_scale}-priorScale{prior_scale}", res.output
