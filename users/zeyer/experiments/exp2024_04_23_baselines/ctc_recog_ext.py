@@ -533,6 +533,14 @@ def model_recog_flashlight(
             self._recent_debug_log_time = -sys.maxsize
             self._max_used_mem_fraction = max_used_mem_fraction
 
+        def reset(self):
+            self.mapping_states.clear()
+            self._count_recalc_whole_seq = 0
+            self._recent_debug_log_time = -sys.maxsize
+            self._max_used_mem_fraction = max_used_mem_fraction
+            self._calc_next_lm_state.cache_clear()
+            self._calc_next_lm_state.cache_set_maxsize(start_lru_cache_size)
+
         @lru_cache(maxsize=start_lru_cache_size)
         def _calc_next_lm_state(self, state: LMState) -> Tuple[Any, torch.Tensor]:
             """
@@ -612,12 +620,7 @@ def model_recog_flashlight(
                 start_with_nothing (bool): whether or not to start sentence with sil token.
             """
             start_with_nothing  # noqa  # not sure how to handle this?
-            self.mapping_states.clear()
-            self._count_recalc_whole_seq = 0
-            self._recent_debug_log_time = -sys.maxsize
-            self._max_used_mem_fraction = max_used_mem_fraction
-            self._calc_next_lm_state.cache_clear()
-            self._calc_next_lm_state.cache_set_maxsize(start_lru_cache_size)
+            self.reset()
             state = LMState()
             self.mapping_states[state] = FlashlightLMState(label_seq=[model.bos_idx], prev_state=state)
             return state
@@ -725,7 +728,7 @@ def model_recog_flashlight(
             f" best seq {_format_align_label_seq(results[0].tokens, model.wb_target_dim)},"
             f" worst score: {scores_per_batch[-1]},"
             f" LM cache info {fl_lm._calc_next_lm_state.cache_info()},"
-            f" LM recalc whole seq count {fl_lm._count_recalc_whole_seq}"
+            f" LM recalc whole seq count {fl_lm._count_recalc_whole_seq},"
             f" mem usage {dev_s}: {' '.join(_collect_mem_stats())}"
         )
         assert all(
@@ -742,6 +745,7 @@ def model_recog_flashlight(
         assert all(len(hyp) == max_seq_len for hyp in hyps_per_batch)
         hyps.append(hyps_per_batch)
         scores.append(scores_per_batch)
+    fl_lm.reset()
     hyps_pt = torch.tensor(hyps, dtype=torch.int32)
     assert hyps_pt.shape == (batch_size, n_best, max_seq_len)
     scores_pt = torch.tensor(scores, dtype=torch.float32)
