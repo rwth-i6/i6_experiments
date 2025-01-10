@@ -183,7 +183,7 @@ def _lru_cache_wrapper(user_function, maxsize: int, typed: bool):
             oldvalue = link[RESULT]
             link.clear()
             del cache[oldkey]
-            full = False
+            full = cache_len() >= maxsize
             return oldvalue
 
     def cache_set_maxsize(new_maxsize: int):
