@@ -689,12 +689,14 @@ def model_recog_flashlight(
     for batch_idx in range(batch_size):
         emissions_ptr = label_log_prob_raw.data_ptr() + float_bytes * batch_idx * label_log_prob_raw.stride(0)
         seq_len = enc_spatial_dim.dyn_size[batch_idx]
+        assert seq_len <= max_seq_len
         results = fl_decoder.decode(emissions_ptr, seq_len, model.wb_target_dim.dimension)
         hyps_per_batch = [result.tokens for result in results]
+        assert all(len(hyp) == seq_len for hyp in hyps_per_batch)
         scores_per_batch = [result.score for result in results]
         best_word_seq = [
-            model.target_dim.vocab.id_to_label(label_idx) if label_idx >= 0 else str(label_idx)
-            for label_idx in results[0].words
+            model.wb_target_dim.vocab.id_to_label(label_idx) if label_idx >= 0 else str(label_idx)
+            for label_idx in results[0].tokens
         ]
         print(
             f"batch {batch_idx + 1}/{batch_size}: {len(results)} hyps,"
@@ -711,7 +713,9 @@ def model_recog_flashlight(
         else:
             hyps_per_batch += [[]] * (n_best - len(results))
             scores_per_batch += [-1e30] * (n_best - len(results))
+        assert len(hyps_per_batch) == len(scores_per_batch) == n_best
         hyps_per_batch = [list(hyp) + [model.blank_idx] * (max_seq_len - len(hyp)) for hyp in hyps_per_batch]
+        assert all(len(hyp) == max_seq_len for hyp in hyps_per_batch)
         hyps.append(hyps_per_batch)
         scores.append(scores_per_batch)
     hyps_pt = torch.tensor(hyps, dtype=torch.int32)
