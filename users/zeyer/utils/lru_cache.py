@@ -92,6 +92,8 @@ def _lru_cache_wrapper(user_function, maxsize: int, typed: bool):
                 return result
             misses += 1
         result = user_function(*args, **kwds)
+        if maxsize == 0:
+            return result
         with lock:
             if key in cache:
                 # Getting here means that this same key was added to the
