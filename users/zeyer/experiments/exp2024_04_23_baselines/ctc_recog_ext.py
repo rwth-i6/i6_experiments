@@ -542,9 +542,7 @@ def model_recog_flashlight(
                 prev_lm_state = lm_initial_state
             else:
                 prev_lm_state, _ = self._calc_next_lm_state.cache_peek(state_.prev_state, fallback=(None, None))
-
-            self._cache_free_memory()
-
+            self._cache_maybe_free_memory()
             if prev_lm_state is not None or lm_initial_state is None:
                 # We have the prev state, or there is no state at all.
                 # So we can do a single step.
@@ -568,7 +566,7 @@ def model_recog_flashlight(
             log_probs_raw = lm_log_probs.raw_tensor.cpu()
             return lm_state, log_probs_raw
 
-        def _cache_free_memory(self):
+        def _cache_maybe_free_memory(self):
             if dev.type == "cuda":
                 # Maybe check if we should free some more memory.
                 count_pop = 0
