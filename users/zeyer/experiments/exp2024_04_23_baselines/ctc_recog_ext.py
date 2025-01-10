@@ -713,7 +713,11 @@ def model_recog_flashlight(
         seq_len = enc_spatial_dim.dyn_size[batch_idx]
         assert seq_len <= max_seq_len
         results = fl_decoder.decode(emissions_ptr, seq_len, model.wb_target_dim.dimension)
-        hyps_per_batch = [result.tokens for result in results]
+        # I get -1 (silence label?) at the beginning and end in the tokens? Filter those away.
+        # These are also additional frames which don't correspond to the input frames?
+        # When removing those two frames, the len of tokens (align labels) matches the emission frames
+        # (as it should be).
+        hyps_per_batch = [[label for label in result.tokens if label >= 0] for result in results]
         scores_per_batch = [result.score for result in results]
         print(
             f"batch {batch_idx + 1}/{batch_size}: {len(results)} hyps,"
@@ -734,7 +738,7 @@ def model_recog_flashlight(
             hyps_per_batch += [[]] * (n_best - len(results))
             scores_per_batch += [-1e30] * (n_best - len(results))
         assert len(hyps_per_batch) == len(scores_per_batch) == n_best
-        hyps_per_batch = [list(hyp) + [model.blank_idx] * (max_seq_len - len(hyp)) for hyp in hyps_per_batch]
+        hyps_per_batch = [hyp + [model.blank_idx] * (max_seq_len - len(hyp)) for hyp in hyps_per_batch]
         assert all(len(hyp) == max_seq_len for hyp in hyps_per_batch)
         hyps.append(hyps_per_batch)
         scores.append(scores_per_batch)
@@ -1031,7 +1035,7 @@ def _format_align_label_seq(align_label_seq: List[int], wb_target_dim: Dim) -> s
         if seq_label_idx and seq_label_idx[-1] == align_label:
             seq_label_count[-1] += 1
         else:
-            seq_label.append(wb_target_dim.vocab.id_to_label(align_label))
+            seq_label.append(wb_target_dim.vocab.id_to_label(align_label) if align_label >= 0 else str(align_label))
             seq_label_idx.append(align_label)
             seq_label_count.append(1)
     return " ".join(f"{label}*{count}" if count > 1 else label for label, count in zip(seq_label, seq_label_count))
