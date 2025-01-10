@@ -701,8 +701,8 @@ def model_recog_flashlight(
             f" best score: {scores_per_batch[0]},"
             f" best seq {best_word_seq},"
             f" worst score: {scores_per_batch[-1]},"
-            f" cache info {fl_decoder._calc_next_lm_state.cache_info()},"
-            f" recalc whole seq count {fl_decoder._count_recalc_whole_seq}"
+            f" LM cache info {fl_lm._calc_next_lm_state.cache_info()},"
+            f" LM recalc whole seq count {fl_lm._count_recalc_whole_seq}"
             f" mem usage {dev_s}: {' '.join(_collect_mem_stats())}"
         )
         if len(results) >= n_best:
