@@ -457,6 +457,7 @@ def model_recog_flashlight(
         out_spatial_dim,
         final beam_dim
     """
+    import gc
     from dataclasses import dataclass
     import torch
     from flashlight.lib.text.decoder import LM, LMState
@@ -589,6 +590,7 @@ def model_recog_flashlight(
                     if used_mem / total_mem < self._max_used_mem_fraction:
                         break
                     # Check again after trying to empty the cache.
+                    gc.collect()
                     torch.cuda.empty_cache()
                     used_mem = torch.cuda.memory_reserved(dev)
                     if used_mem / total_mem < self._max_used_mem_fraction:
