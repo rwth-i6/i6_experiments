@@ -543,27 +543,7 @@ def model_recog_flashlight(
             else:
                 prev_lm_state, _ = self._calc_next_lm_state.cache_peek(state_.prev_state, fallback=(None, None))
 
-            if dev.type == "cuda":
-                # Maybe check if we should free some more memory.
-                count_pop = 0
-                while self._calc_next_lm_state.cache_len() > 1:
-                    used_mem = torch.cuda.memory_reserved(dev)
-                    if used_mem / total_mem < max_used_mem_fraction:
-                        break
-                    # Check again after trying to empty the cache.
-                    torch.cuda.empty_cache()
-                    used_mem = torch.cuda.memory_reserved(dev)
-                    if used_mem / total_mem < max_used_mem_fraction:
-                        break
-                    self._calc_next_lm_state.cache_pop_oldest()
-                    count_pop += 1
-                if count_pop > 0:
-                    print(
-                        f"Pop {count_pop} states from cache,"
-                        f" cache size {self._calc_next_lm_state.cache_len()},"
-                        f" mem usage {dev_s}: {' '.join(_collect_mem_stats())}"
-                    )
-                    self._calc_next_lm_state.cache_set_maxsize(self._calc_next_lm_state.cache_len())
+            self._cache_free_memory()
 
             if prev_lm_state is not None or lm_initial_state is None:
                 # We have the prev state, or there is no state at all.
@@ -587,6 +567,31 @@ def model_recog_flashlight(
             lm_log_probs = rf.log_softmax(lm_logits, axis=model.target_dim)  # Vocab
             log_probs_raw = lm_log_probs.raw_tensor.cpu()
             return lm_state, log_probs_raw
+
+        def _cache_free_memory(self):
+            if dev.type == "cuda":
+                # Maybe check if we should free some more memory.
+                count_pop = 0
+                used_mem = 0
+                while self._calc_next_lm_state.cache_len() > 1:
+                    used_mem = torch.cuda.memory_reserved(dev)
+                    if used_mem / total_mem < max_used_mem_fraction:
+                        break
+                    # Check again after trying to empty the cache.
+                    torch.cuda.empty_cache()
+                    used_mem = torch.cuda.memory_reserved(dev)
+                    if used_mem / total_mem < max_used_mem_fraction:
+                        break
+                    self._calc_next_lm_state.cache_pop_oldest()
+                    count_pop += 1
+                if count_pop > 0:
+                    print(
+                        f"Pop {count_pop} states from cache,"
+                        f" cache size {self._calc_next_lm_state.cache_len()},"
+                        f" reached {used_mem / total_mem:.1%} of total mem,"
+                        f" mem usage {dev_s}: {' '.join(_collect_mem_stats())}"
+                    )
+                    self._calc_next_lm_state.cache_set_maxsize(self._calc_next_lm_state.cache_len())
 
         def start(self, start_with_nothing: bool):
             """
