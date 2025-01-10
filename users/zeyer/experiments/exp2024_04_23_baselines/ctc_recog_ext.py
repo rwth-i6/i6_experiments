@@ -679,7 +679,8 @@ def model_recog_flashlight(
         log_add=False,
         criterion_type=CriterionType.CTC,
     )
-    fl_decoder = LexiconFreeDecoder(fl_decoder_opts, fl_lm, model.blank_idx, model.blank_idx, [])
+    sil_idx = -1  # no silence
+    fl_decoder = LexiconFreeDecoder(fl_decoder_opts, fl_lm, sil_idx, model.blank_idx, [])
 
     assert data.dims_set == {batch_dim, data_spatial_dim, data.feature_dim}
     logits, enc, enc_spatial_dim = model(data, in_spatial_dim=data_spatial_dim)
