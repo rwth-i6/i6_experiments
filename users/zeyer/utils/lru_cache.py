@@ -40,7 +40,7 @@ def lru_cache(maxsize: int = 128, typed: bool = False):
     # to allow the implementation to change (including a possible C version).
 
     if isinstance(maxsize, int):
-        assert maxsize > 0
+        assert maxsize >= 0
     elif callable(maxsize) and isinstance(typed, bool):
         # The user_function was passed in directly via the maxsize argument
         user_function, maxsize = maxsize, 128
@@ -71,7 +71,7 @@ def _lru_cache_wrapper(user_function, maxsize: int, typed: bool):
     root = []  # root of the circular doubly linked list
     root[:] = [root, root, None, None]  # initialize by pointing to self
 
-    assert maxsize > 0
+    assert maxsize >= 0
 
     def wrapper(*args, **kwds):
         # Size limited caching that tracks accesses by recency
@@ -181,7 +181,7 @@ def _lru_cache_wrapper(user_function, maxsize: int, typed: bool):
 
     def cache_set_maxsize(new_maxsize: int):
         nonlocal maxsize, full
-        assert new_maxsize > 0
+        assert new_maxsize >= 0
         with lock:
             maxsize = new_maxsize
             while cache_len() > maxsize:
