@@ -697,7 +697,8 @@ def model_recog_flashlight(
     assert enc_spatial_dim.dyn_size_ext.dims == (batch_dim,)
 
     label_log_prob = rf.cast(label_log_prob, "float32")
-    label_log_prob_raw = label_log_prob.raw_tensor.contiguous().cpu()
+    label_log_prob = rf.copy_to_device(label_log_prob, "cpu")
+    label_log_prob_raw = label_log_prob.raw_tensor.contiguous()
     float_bytes = 4
 
     print(f"Memory usage {dev_s} after encoder forward:", " ".join(_collect_mem_stats()))
