@@ -91,24 +91,55 @@ def py():
             model = get_ctc_with_lm(
                 ctc_model=ctc_model, prior=prior, prior_scale=prior_scale, language_model=lm, lm_scale=lm_scale
             )
-            res = recog_model(
-                task=task,
-                model=model,
-                recog_def=model_recog_flashlight,
-                config={
-                    "n_best": 32,
-                    "beam_size": 1024,
-                    "beam_size_token": 16,
-                    "beam_threshold": 14,
-                    "batch_size": 5_000 * ctc_model.definition.batch_size_factor,
-                    "torch_amp": {"dtype": "bfloat16"},
-                },
-                search_rqmt={"cpu": 4, "mem": 30, "time": 24, "gpu_mem": 24},
-            )
-            tk.register_output(
-                f"{prefix}/recog-fl-beamToken16-lm_{lm_out_name}-lmScale{lm_scale}-priorScale{prior_scale}",
-                res.output,
-            )
+            for name, opts in [
+                (
+                    "beamToken16-cache0",
+                    {
+                        "n_best": 32,
+                        "beam_size": 1024,
+                        "beam_size_token": 16,
+                        "beam_threshold": 14,
+                        "batch_size": 5_000 * ctc_model.definition.batch_size_factor,
+                        "torch_amp": {"dtype": "bfloat16"},
+                        "lm_state_lru_initial_cache_size": 0,
+                    },
+                ),
+                (
+                    "beam128-beamToken16-cache0",
+                    {
+                        "n_best": 32,
+                        "beam_size": 128,
+                        "beam_size_token": 16,
+                        "beam_threshold": 14,
+                        "batch_size": 5_000 * ctc_model.definition.batch_size_factor,
+                        "torch_amp": {"dtype": "bfloat16"},
+                        "lm_state_lru_initial_cache_size": 0,
+                    },
+                ),
+                (
+                    "beam16-beamToken16-cache0",
+                    {
+                        "n_best": 16,
+                        "beam_size": 16,
+                        "beam_size_token": 16,
+                        "beam_threshold": 14,
+                        "batch_size": 5_000 * ctc_model.definition.batch_size_factor,
+                        "torch_amp": {"dtype": "bfloat16"},
+                        "lm_state_lru_initial_cache_size": 0,
+                    },
+                ),
+            ]:
+                res = recog_model(
+                    task=task,
+                    model=model,
+                    recog_def=model_recog_flashlight,
+                    config=opts,
+                    search_rqmt={"cpu": 4, "mem": 30, "time": 24, "gpu_mem": 24},
+                )
+                tk.register_output(
+                    f"{prefix}/recog-fl-{name}-lm_{lm_out_name}-lmScale{lm_scale}-priorScale{prior_scale}",
+                    res.output,
+                )
 
         # Flashlight beam search implementation.
         # Play around with scales.
@@ -548,7 +579,7 @@ def model_recog_flashlight(
     # Use LRU cache for the LM states (on GPU) and log probs.
     # Note that additionally to the cache size limit here,
     # we free more when we run out of CUDA memory.
-    start_lru_cache_size = 1024
+    start_lru_cache_size = config.int("lm_state_lru_initial_cache_size", 1024)
     max_used_mem_fraction = 0.9
 
     class FlashlightLM(LM):
