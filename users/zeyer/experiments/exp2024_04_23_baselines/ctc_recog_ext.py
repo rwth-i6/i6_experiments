@@ -93,39 +93,15 @@ def py():
             )
             for name, opts in [
                 (
-                    "beamToken16-cache0",
+                    "beam1024-beamToken128-cache1024",
                     {
                         "n_best": 32,
                         "beam_size": 1024,
-                        "beam_size_token": 16,
+                        "beam_size_token": 128,
                         "beam_threshold": 14,
                         "batch_size": 5_000 * ctc_model.definition.batch_size_factor,
                         "torch_amp": {"dtype": "bfloat16"},
-                        "lm_state_lru_initial_cache_size": 0,
-                    },
-                ),
-                (
-                    "beam128-beamToken16-cache0",
-                    {
-                        "n_best": 32,
-                        "beam_size": 128,
-                        "beam_size_token": 16,
-                        "beam_threshold": 14,
-                        "batch_size": 5_000 * ctc_model.definition.batch_size_factor,
-                        "torch_amp": {"dtype": "bfloat16"},
-                        "lm_state_lru_initial_cache_size": 0,
-                    },
-                ),
-                (
-                    "beam16-beamToken16-cache0",
-                    {
-                        "n_best": 16,
-                        "beam_size": 16,
-                        "beam_size_token": 16,
-                        "beam_threshold": 14,
-                        "batch_size": 5_000 * ctc_model.definition.batch_size_factor,
-                        "torch_amp": {"dtype": "bfloat16"},
-                        "lm_state_lru_initial_cache_size": 0,
+                        "lm_state_lru_initial_cache_size": 1024,
                     },
                 ),
                 (
@@ -529,6 +505,7 @@ def model_recog_flashlight(
         out_spatial_dim,
         final beam_dim
     """
+    import tracemalloc
     from dataclasses import dataclass
     import torch
     from flashlight.lib.text.decoder import LM, LMState
@@ -543,6 +520,8 @@ def model_recog_flashlight(
     beam_threshold = config.typed_value("beam_threshold", None)
 
     # Eager-mode implementation of beam search using Flashlight.
+
+    tracemalloc.start()
 
     # noinspection PyUnresolvedReferences
     lm: TransformerDecoder = model.lm
@@ -711,6 +690,12 @@ def model_recog_flashlight(
             Returns:
                 (LMState, float): pair of (new state, score for the current word)
             """
+            if len(self.mapping_states) % 1_000_000 == 0:
+                snapshot = tracemalloc.take_snapshot()
+                top_stats = snapshot.compare_to(snapshot_start, "lineno")
+                print(f"[ {len(self.mapping_states)} states, top 100 mallocs ]")
+                for stat in top_stats[:100]:
+                    print(stat)
             state_ = self.mapping_states[state]
             if time.monotonic() - self._recent_debug_log_time > 1:
                 print(
@@ -781,6 +766,7 @@ def model_recog_flashlight(
     float_bytes = 4
 
     print(f"Memory usage {dev_s} after encoder forward:", " ".join(_collect_mem_stats()))
+    snapshot_start = tracemalloc.take_snapshot()
 
     hyps = []
     scores = []
