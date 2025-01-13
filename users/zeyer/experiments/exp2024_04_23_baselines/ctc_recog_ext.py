@@ -23,6 +23,7 @@ from .ctc import Model, ctc_model_def, _batch_size_factor
 
 
 _ctc_model_name = (
+    # last epoch: {"dev-clean": 2.38, "dev-other": 5.67, "test-clean": 2.63, "test-other": 5.93}
     "v6-relPosAttDef-noBias-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2"
     "-lrlin1e_5_295k-featBN-speedpertV2-spm10k-bpeSample001"
 )
@@ -104,7 +105,7 @@ def py():
                         "lm_state_lru_initial_cache_size": 1024,
                     },
                 ),
-                (
+                (  # {"dev-clean": 3.51, "dev-other": 5.79, "test-clean": 3.66, "test-other": 6.27}
                     "beam16-beamToken16-cache1024",
                     {
                         "n_best": 16,
