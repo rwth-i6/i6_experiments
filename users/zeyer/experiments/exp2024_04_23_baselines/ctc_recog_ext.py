@@ -117,6 +117,18 @@ def py():
                         "lm_state_lru_initial_cache_size": 1024,  # -- default
                     },
                 ),
+                (
+                    "beam16-beamToken16-cache2pow16",
+                    {
+                        "n_best": 16,
+                        "beam_size": 16,
+                        "beam_size_token": 16,
+                        "beam_threshold": 14,
+                        "batch_size": 5_000 * ctc_model.definition.batch_size_factor,
+                        "torch_amp": {"dtype": "bfloat16"},
+                        "lm_state_lru_initial_cache_size": 2**16,
+                    },
+                ),
             ]:
                 res = recog_model(
                     task=task,
