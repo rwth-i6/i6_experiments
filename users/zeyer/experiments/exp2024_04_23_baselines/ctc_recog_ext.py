@@ -522,7 +522,9 @@ def model_recog_flashlight(
 
     # Eager-mode implementation of beam search using Flashlight.
 
-    tracemalloc.start()
+    debug_tracemalloc = config.bool("debug_tracemalloc", False)
+    if debug_tracemalloc:
+        tracemalloc.start()
 
     # noinspection PyUnresolvedReferences
     lm: TransformerDecoder = model.lm
@@ -708,7 +710,7 @@ def model_recog_flashlight(
                     label_seq=state_.label_seq + [token_index], prev_state=state
                 )
 
-                if len(self.mapping_states) % 1_000_000 == 0:
+                if debug_tracemalloc and len(self.mapping_states) % 1_000_000 == 0:
                     snapshot = tracemalloc.take_snapshot()
                     top_stats = snapshot.compare_to(snapshot_start, "lineno")
                     print(f"[ {len(self.mapping_states)} states, top 100 mallocs ]")
