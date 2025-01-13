@@ -93,18 +93,20 @@ def py():
                 ctc_model=ctc_model, prior=prior, prior_scale=prior_scale, language_model=lm, lm_scale=lm_scale
             )
             for name, opts in [
-                (
-                    "beam1024-beamToken128-cache1024",
-                    {
-                        "n_best": 32,
-                        "beam_size": 1024,
-                        "beam_size_token": 128,
-                        "beam_threshold": 14,
-                        "batch_size": 5_000 * ctc_model.definition.batch_size_factor,
-                        "torch_amp": {"dtype": "bfloat16"},
-                        "lm_state_lru_initial_cache_size": 1024,
-                    },
-                ),
+                # This takes forever (more than 2h for only the first (longest) seq of the corpora),
+                # and then at some point runs out of CPU memory (OOM killer kills it).
+                # (
+                #     "beam1024-beamToken128-cache1024",
+                #     {
+                #         "n_best": 32,
+                #         "beam_size": 1024,
+                #         "beam_size_token": 128,
+                #         "beam_threshold": 14,
+                #         "batch_size": 5_000 * ctc_model.definition.batch_size_factor,
+                #         "torch_amp": {"dtype": "bfloat16"},
+                #         "lm_state_lru_initial_cache_size": 1024,
+                #     },
+                # ),
                 (  # {"dev-clean": 3.51, "dev-other": 5.79, "test-clean": 3.66, "test-other": 6.27}
                     "beam16-beamToken16-cache1024",
                     {
