@@ -1,6 +1,9 @@
 from sisyphus import tk
 import numpy as np
 from i6_core.report.report import GenerateReportStringJob, MailJob, _Report_Type
+import copy
+from typing import Dict
+from i6_core.util import instanciate_delayed
 
 
 def calc_stat(ls):
@@ -80,3 +83,33 @@ def generate_report(results, exp_name, report_template=baseline_report_format):
     mail = MailJob(report.out_report, send_contents=True, subject=exp_name)
     mail.add_alias(f"report/mail/{exp_name}")
     tk.register_output("mail/" + exp_name, mail.out_status)
+
+
+def build_memristor_base_report(report: Dict):
+    report = copy.deepcopy(report)
+    bits = set()
+    instanciate_delayed(report)
+    best_dc = {}
+    base = {}
+    from math import ceil
+
+    for exp in report:
+        if not "mem" in exp:
+            base[exp] = report[exp]
+        else:
+            pref = exp.split("_")[12]
+            bits.add(float(pref))
+    for bit in bits:
+        dc = {}
+        for exp in report:
+            if f"weight_{bit}" in exp or (bit == ceil(bit) and f"weight_{int(bit)}" in exp):
+                dc[exp] = report[exp]
+        if all(dc.values()):
+            best = min(dict(dc), key=dc.get)
+            best_dc[best] = ("{:.1f}".format(float(dc[best])), best)
+        else:
+            best_dc[bit] = ("None", "")
+    line = []
+    for exp, value in best_dc.items():
+        line.append(f"{exp.split('/')[6].split('_')[0]}: {value[0]}   {' '.join(value[1].split('/')[7:])}")
+    return "\n".join(line)

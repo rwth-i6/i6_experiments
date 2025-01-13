@@ -44,6 +44,10 @@ def eval_model(
     import_memristor: bool = False,
     use_gpu: bool = False,
     extra_forward_config: Optional[dict[str, Any]] = None,
+    run_best_4: bool = True,
+    run_best: bool = True,
+    run_test: bool = False,
+    test_dataset_tuples: Optional[Dict[str, Any]] = None,
 ):
     if specific_epoch is None:
         specific_epoch = train_job.returnn_config.post_config["num_epochs"]
@@ -77,52 +81,60 @@ def eval_model(
             import_memristor=import_memristor,
             debug=debug,
             extra_forward_config=extra_forward_config,
+            run_test=run_test,
+            test_dataset_tuples=test_dataset_tuples,
         )
         result_dict.update(res)
-    asr_model_best4 = prepare_asr_model(
-        training_name + "/best4",
-        train_job,
-        train_args,
-        with_prior=True,
-        datasets=train_data,
-        get_best_averaged_checkpoint=(4, loss_name),
-    )
-    res, _ = tune_and_evaluate_helper(
-        training_name + "/best4",
-        asr_model_best4,
-        decoder_config,
-        lm_scales=lm_scales,
-        prior_scales=prior_scales,
-        dev_dataset_tuples=dev_dataset_tuples,
-        decoder_module=decoder_module,
-        use_gpu=use_gpu,
-        import_memristor=import_memristor,
-        debug=debug,
-        extra_forward_config=extra_forward_config,
-    )
-    result_dict.update(res)
-    asr_model_best = prepare_asr_model(
-        training_name + "/best",
-        train_job,
-        train_args,
-        with_prior=True,
-        datasets=train_data,
-        get_best_averaged_checkpoint=(1, loss_name),
-    )
-    res, _ = tune_and_evaluate_helper(
-        training_name + "/best",
-        asr_model_best,
-        decoder_config,
-        lm_scales=lm_scales,
-        prior_scales=prior_scales,
-        dev_dataset_tuples=dev_dataset_tuples,
-        decoder_module=decoder_module,
-        use_gpu=use_gpu,
-        import_memristor=import_memristor,
-        debug=debug,
-        extra_forward_config=extra_forward_config,
-    )
-    result_dict.update(res)
+    if run_best_4 is True:
+        asr_model_best4 = prepare_asr_model(
+            training_name + "/best4",
+            train_job,
+            train_args,
+            with_prior=True,
+            datasets=train_data,
+            get_best_averaged_checkpoint=(4, loss_name),
+        )
+        res, _ = tune_and_evaluate_helper(
+            training_name + "/best4",
+            asr_model_best4,
+            decoder_config,
+            lm_scales=lm_scales,
+            prior_scales=prior_scales,
+            dev_dataset_tuples=dev_dataset_tuples,
+            decoder_module=decoder_module,
+            use_gpu=use_gpu,
+            import_memristor=import_memristor,
+            debug=debug,
+            extra_forward_config=extra_forward_config,
+            run_test=run_test,
+            test_dataset_tuples=test_dataset_tuples,
+        )
+        result_dict.update(res)
+    if run_best is True:
+        asr_model_best = prepare_asr_model(
+            training_name + "/best",
+            train_job,
+            train_args,
+            with_prior=True,
+            datasets=train_data,
+            get_best_averaged_checkpoint=(1, loss_name),
+        )
+        res, _ = tune_and_evaluate_helper(
+            training_name + "/best",
+            asr_model_best,
+            decoder_config,
+            lm_scales=lm_scales,
+            prior_scales=prior_scales,
+            dev_dataset_tuples=dev_dataset_tuples,
+            decoder_module=decoder_module,
+            use_gpu=use_gpu,
+            import_memristor=import_memristor,
+            debug=debug,
+            extra_forward_config=extra_forward_config,
+            run_test=run_test,
+            test_dataset_tuples=test_dataset_tuples,
+        )
+        result_dict.update(res)
     return result_dict
 
 
@@ -141,6 +153,7 @@ def tune_and_evaluate_helper(
     extra_forward_config: Optional[dict[str, Any]] = None,
     use_gpu: bool = False,
     debug: bool = False,
+    run_test: bool = False,
 ):
     """
     Example helper to execute tuning over lm_scales and prior scales.
@@ -243,22 +256,24 @@ def tune_and_evaluate_helper(
         parameters=tune_parameters, values=tune_values, mode="minimize"
     )
     pick_optimal_params_job.add_alias(training_name + f"/pick_best_dev")
-    if test_dataset_tuples is not None and False:
-        for key, tune_values in [("test", tune_values)]:
-            decoder_config = copy.deepcopy(base_decoder_config)
-            decoder_config.lm_weight = pick_optimal_params_job.out_optimal_parameters[0]
-            decoder_config.prior_scale = pick_optimal_params_job.out_optimal_parameters[1]
-            search_jobs, wers = search(
-                training_name,
-                forward_config=extra_forward_config or {},
-                asr_model=asr_model,
-                decoder_module=decoder_module,
-                decoder_args={"config": asdict(decoder_config)},
-                test_dataset_tuples={key: test_dataset_tuples[key]},
-                use_gpu=use_gpu,
-                **default_returnn,
-            )
-            results.update(wers)
+    if run_test is True and test_dataset_tuples is not None:
+        for lm_weight in lm_scales:
+            for prior_scale in prior_scales:
+                # for key, tune_values in [("test", tune_values)]:
+                decoder_config = copy.deepcopy(base_decoder_config)
+                decoder_config.lm_weight = lm_weight
+                decoder_config.prior_scale = prior_scale
+                search_jobs, wers = search(
+                    training_name + "/search_lm%.1f_prior%.1f" % (lm_weight, prior_scale),
+                    forward_config=extra_forward_config or {},
+                    asr_model=asr_model,
+                    decoder_module=decoder_module,
+                    decoder_args={"config": asdict(decoder_config)},
+                    test_dataset_tuples={"test": test_dataset_tuples["test"]},
+                    use_gpu=use_gpu,
+                    **default_returnn,
+                )
+                results.update(wers)
     return results, pick_optimal_params_job
 
 
@@ -285,7 +300,7 @@ def build_report(report: Dict):
         else:
             pref = "_".join(exp.split("_")[:-2])
             post = ""
-            layer, size = exp.split("_")[-2:]
+            layer, size = exp.split("_")[6:8]
         sizes.add(int(size))
         layers.add(int(layer))
     nl = []
@@ -392,6 +407,7 @@ def build_base_report(report: Dict):
 
 
 def build_hubert_distill_report(report: Dict):
+
     report = copy.deepcopy(report)
     baselines = report.pop("baselines")
     best_baselines = {}
@@ -413,13 +429,12 @@ def build_hubert_distill_report(report: Dict):
         else:
             best_dc[" ".join(exp.split("/")[5:])] = ("None", "")
     line = []
-
-    line.append("Small")
-    for exp, value in best_dc.items():
-        if "128" in exp:
-            line.append(f"{' '.join(exp.split('.')[2:])}: {value[0]}   {' '.join(value[1].split('/')[6:])}")
-    best_dc = {exp: value for exp, value in best_dc.items() if "128" not in exp}
-    line.append("")
+    # line.append("Small")
+    # for exp, value in best_dc.items():
+    #     if "128" in exp:
+    #         line.append(f"{' '.join(exp.split('.')[2:])}: {value[0]}   {' '.join(value[1].split('/')[6:])}")
+    # best_dc = {exp: value for exp, value in best_dc.items() if "128" not in exp}
+    # line.append("")
 
     exps = [
         "elim_blank",
@@ -430,61 +445,73 @@ def build_hubert_distill_report(report: Dict):
         "kdhyps",
         "trim_blanks",
         "elim_blank num",
-        "long",
+        # "long",
         "lm",
         "sym",
     ]
     line.append("Baselines")
+    tmp = copy.deepcopy(best_dc)
     for exp, value in best_dc.items():
         if (
-            not any(name in exp.split("_")[-1] for name in exps + ["True", "False"])
-            and not any(exp.endswith(name) for name in exps + ["True", "False"])
+            not any(name in exp.split("_")[-1] or exp.endswith(name) for name in exps + ["True", "False"])
             and not ["elim", "blank"] == exp.split("_")[-3:-1]
             and not "trim_blanks" in exp
         ):
             line.append(f"{' '.join(exp.split('.')[2:])}: {value[0]}   {' '.join(value[1].split('/')[6:])}")
-    best_dc = {
-        exp: value
-        for exp, value in best_dc.items()
-        if (
-            any(exp.endswith(name) for name in exps + ["True", "False"])
-            or any(name in exp.split("_")[-1] for name in exps + ["True", "False"])
-            or ["elim", "blank"] == exp.split("_")[-3:-1]
-            or "trim_blanks" in exp
-        )
-    }
+            del tmp[exp]
+    best_dc = tmp
+    # best_dc = {
+    #     exp: value
+    #     for exp, value in best_dc.items()
+    #     if (
+    #         any(exp.endswith(name) or name in exp.split("_")[-1] for name in exps + ["True", "False"])
+    #         or ["elim", "blank"] == exp.split("_")[-3:-1]
+    #         or "trim_blanks" in exp
+    #     )
+    # }
     line.append("")
+    tmp = copy.deepcopy(best_dc)
     for name in exps:
         line.append(name)
         for exp, value in best_dc.items():
             if exp.endswith(name):
                 line.append(f"{' '.join(exp.split('.')[2:])}: {value[0]}   {' '.join(value[1].split('/')[6:])}")
+                del tmp[exp]
             elif name == "keepsome" and "keepsome" in exp.split("_")[-1]:
                 line.append(f"{' '.join(exp.split('.')[2:])}: {value[0]}   {' '.join(value[1].split('/')[6:])}")
+                del tmp[exp]
             elif name == "mix" and "mix" in exp.split("_")[-1]:
                 line.append(f"{' '.join(exp.split('.')[2:])}: {value[0]}   {' '.join(value[1].split('/')[6:])}")
-            elif name == "elim_blank num" and ["elim", "blank"] == exp.split("_")[-3:-1]:
+                del tmp[exp]
+            elif (
+                name == "elim_blank num"
+                and ["elim", "blank"] == exp.split("_")[-3:-1]
+                and exp.split("_")[-1].isnumeric()
+            ):
                 line.append(f"{' '.join(exp.split('.')[2:])}: {value[0]}   {' '.join(value[1].split('/')[6:])}")
+                del tmp[exp]
             elif name == "trim_blanks" and "trim_blanks" in exp:
                 line.append(f"{' '.join(exp.split('.')[2:])}: {value[0]}   {' '.join(value[1].split('/')[6:])}")
+                del tmp[exp]
         line.append("")
-        best_dc = {
-            exp: value
-            for exp, value in best_dc.items()
-            if not exp.endswith(name)
-            and not (name == "keepsome" and "keepsome" in exp.split("_")[-1])
-            and not (name == "mix" and "mix" in exp.split("_")[-1])
-            and not (name == "elim_blank num" and ["elim", "blank"] == exp.split("_")[-3:-1])
-            and not (name == "trim_blanks" and "trim_blanks" in exp)
-        }
-    line.append("Warmup")
-    for exp, value in best_dc.items():
-        if exp.endswith("True") or exp.endswith("False"):
-            line.append(f"{' '.join(exp.split('.')[2:])}: {value[0]}   {' '.join(value[1].split('/')[6:])}")
-    line.append("")
-    best_dc = {
-        exp: value for exp, value in best_dc.items() if not any(exp.endswith(name) for name in ["True", "False"])
-    }
+        # best_dc = {
+        #     exp: value
+        #     for exp, value in best_dc.items()
+        #     if not exp.endswith(name)
+        #     and not (name == "keepsome" and "keepsome" in exp.split("_")[-1])
+        #     and not (name == "mix" and "mix" in exp.split("_")[-1])
+        #     and not (name == "elim_blank num" and ["elim", "blank"] == exp.split("_")[-3:-1])
+        #     and not (name == "trim_blanks" and "trim_blanks" in exp)
+        # }
+    # line.append("Warmup")
+    # for exp, value in best_dc.items():
+    #     if exp.endswith("True") or exp.endswith("False"):
+    #         line.append(f"{' '.join(exp.split('.')[2:])}: {value[0]}   {' '.join(value[1].split('/')[6:])}")
+    # line.append("")
+    # best_dc = {
+    #     exp: value for exp, value in best_dc.items() if not any(exp.endswith(name) for name in ["True", "False"])
+    # }
+    best_dc = tmp
     assert len(best_dc) == 0, best_dc
     return "\n".join(line)
 

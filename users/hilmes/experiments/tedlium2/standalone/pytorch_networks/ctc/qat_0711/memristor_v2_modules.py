@@ -259,7 +259,7 @@ class Conv1dQuant(nn.Module):
         self.groups = groups
         self.padding_mode = padding_mode
 
-        self.weight = nn.Parameter(torch.empty(out_channels, in_channels // groups, kernel_size), requires_grad=True)
+        self.weight = nn.Parameter(torch.empty(in_channels, out_channels // groups, kernel_size), requires_grad=True)
         if bias:
             self.bias = nn.Parameter(torch.empty(out_channels))
         init.kaiming_uniform_(self.weight, a=math.sqrt(5))
@@ -448,15 +448,17 @@ class QuantizedMultiheadAttention(nn.Module):
         return att_out, alpha
 
     def prep_quant(self):
-        from torch_memristor.memristor_modules import MemristorLinear
+        from torch_memristor.memristor_modules import TiledMemristorLinear
 
         self.out_proj.weight_quantizer.set_scale_and_zp()
         self.out_proj_in_quant.set_scale_and_zp()
-        mem_lin = MemristorLinear(
+        mem_lin = TiledMemristorLinear(
             in_features=self.out_proj.in_features,
             out_features=self.out_proj.out_features,
             weight_precision=self.out_proj.weight_bit_prec,
             converter_hardware_settings=self.converter_hardware_settings,
+            memristor_inputs=128,
+            memristor_outputs=128,
         )
         mem_lin.init_from_linear_quant(activation_quant=self.out_proj_in_quant, linear_quant=self.out_proj)
         self.out_proj = mem_lin
@@ -464,11 +466,13 @@ class QuantizedMultiheadAttention(nn.Module):
 
         self.in_proj.weight_quantizer.set_scale_and_zp()
         self.in_proj_in_quant.set_scale_and_zp()
-        mem_lin = MemristorLinear(
+        mem_lin = TiledMemristorLinear(
             in_features=self.in_proj.in_features,
             out_features=self.in_proj.out_features,
             weight_precision=self.in_proj.weight_bit_prec,
             converter_hardware_settings=self.converter_hardware_settings,
+            memristor_inputs=128,
+            memristor_outputs=128,
         )
         mem_lin.init_from_linear_quant(activation_quant=self.in_proj_in_quant, linear_quant=self.in_proj)
         self.in_proj = mem_lin

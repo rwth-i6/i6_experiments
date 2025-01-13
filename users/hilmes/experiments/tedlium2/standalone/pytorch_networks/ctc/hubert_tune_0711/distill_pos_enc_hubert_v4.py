@@ -1,5 +1,6 @@
 """
-V2 fixes error in KD calculation
+V3 fixes eliminate blank
+V4 updates keepsome
 """
 
 import numpy as np
@@ -24,9 +25,7 @@ from i6_models.primitives.feature_extraction import LogMelFeatureExtractionV1
 
 from returnn.torch.context import get_run_ctx
 
-from .distill_pos_enc_hubert_v2_cfg import ModelConfig, DistillConfig
-
-import time
+from .distill_pos_enc_hubert_v4_cfg import ModelConfig, DistillConfig
 
 
 def mask_tensor(tensor: torch.Tensor, seq_len: torch.Tensor) -> torch.Tensor:
@@ -165,6 +164,7 @@ class Model(torch.nn.Module):
         :param raw_audio_len: length of T as [B]
         :return: list of logprobs [B, T, #labels + blank], mask [B, T]
         """
+
         squeezed_features = torch.squeeze(raw_audio, dim=-1)
         with torch.no_grad():
             audio_features, audio_features_len = self.feature_extraction(squeezed_features, raw_audio_len)
@@ -203,6 +203,7 @@ class Model(torch.nn.Module):
             log_probs_list = log_probs_list[0]
         if len(logit_ls) == 1:
             logit_ls = logit_ls[0]
+
         lengths = torch.sum(out_mask, dim=1)
         teacher_logits = None
         if self.training or run_ctx.stage == "train_step":
@@ -235,8 +236,8 @@ def train_step(*, model: Model, data, run_ctx, **kwargs):
     )
     if not isinstance(logprobs_list, list):
         logprobs_list = [logprobs_list]
-    # assert not isinstance(student_logits, list)
-    # assert student_logits.shape[1] == logprobs_list[0].shape[1]
+    assert not isinstance(student_logits, list)
+    assert student_logits.shape[1] == logprobs_list[0].shape[1]
 
     for logprobs, layer_index, scale in zip(logprobs_list, model.return_layers, model.scales):
         if model.distill_config.warmup_loss is not None and run_ctx.epoch < model.distill_config.warmup_loss:
@@ -288,19 +289,39 @@ def train_step(*, model: Model, data, run_ctx, **kwargs):
         for teacher_seq, student_seq, labels in zip(teacher_logits, student_logits, data["labels"]):
             if model.prior_file is not None:
                 teacher_log_soft = nn.functional.log_softmax(teacher_seq)
-                # assert torch.equal(torch.argmax(teacher_seq, dim=-1), torch.argmax(teacher_log_soft, dim=-1))
+                assert torch.equal(torch.argmax(teacher_seq, dim=-1), torch.argmax(teacher_log_soft, dim=-1))
                 teacher_log_soft -= torch.tensor(model.prior_scale * model.prior_file).to(device="cuda")
                 pos = torch.argmax(teacher_log_soft, dim=-1)
             else:
                 pos = torch.argmax(teacher_seq, dim=-1)
             pos_blank: torch.Tensor = pos == model.cfg.label_target_size
             pos_non_blank: torch.Tensor = ~pos_blank
-            if model.distill_config.keep_some_blanks is not None and model.distill_config.keep_some_blanks > 0:
-                shift = pos_non_blank
-                for _ in range(model.distill_config.keep_some_blanks):
-                    shift = torch.roll(shift, 1, dims=-1)
-                    shift[0] = 0
-                    pos_non_blank = pos_non_blank + shift
+            if model.distill_config.keep_some_blanks is not None:
+                tmp = pos_non_blank
+                if model.distill_config.keep_some_blanks[0] > 0:
+                    if model.distill_config.increase_keepsome_epochs is not None:
+                        keepsome = model.distill_config.keep_some_blanks[0] * (
+                            run_ctx.epoch // model.distill_config.increase_keepsome_epochs
+                        )
+                    else:
+                        keepsome = model.distill_config.keep_some_blanks[0]
+                    shift = tmp
+                    for _ in range(keepsome):
+                        shift = torch.roll(shift, -1, dims=-1)
+                        shift[-1] = tmp[-1]
+                        pos_non_blank = pos_non_blank + shift
+                if model.distill_config.keep_some_blanks[1] > 0:
+                    if model.distill_config.increase_keepsome_epochs is not None:
+                        keepsome = model.distill_config.keep_some_blanks[1] * (
+                            run_ctx.epoch // model.distill_config.increase_keepsome_epochs
+                        )
+                    else:
+                        keepsome = model.distill_config.keep_some_blanks[1]
+                    shift = tmp
+                    for _ in range(keepsome):
+                        shift = torch.roll(shift, 1, dims=-1)
+                        shift[0] = tmp[0]
+                        pos_non_blank = pos_non_blank + shift
             elif model.distill_config.trim_blanks is True:
                 idx = torch.arange(pos_non_blank.shape[0], 0, -1).to(device="cuda")
                 first_pos = pos_non_blank * idx
@@ -371,7 +392,7 @@ def train_step(*, model: Model, data, run_ctx, **kwargs):
         soft_targets_log = soft_targets.log()
         if model.distill_config.mask_padding is True:
             audio_mask = mask_tensor(soft_targets, audio_features_len)
-            # assert all(torch.sum(audio_mask, dim=1) == audio_features_len)
+            assert all(torch.sum(audio_mask, dim=1) == audio_features_len)
             audio_mask = ~audio_mask
             audio_mask = audio_mask.unsqueeze(dim=-1)
             soft_targets = torch.masked_fill(soft_targets, audio_mask, 0)

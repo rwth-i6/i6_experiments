@@ -102,6 +102,7 @@ def tune_and_evalue_report(
     ).out_report
     tk.register_output(training_name + "/tune_and_evaluate_report.txt", report)
 
+
 def baseline_report_format(report: _Report_Type) -> str:
     """
     Example report format for the baseline , extra ls can be set in order to filter out certain results
@@ -112,7 +113,11 @@ def baseline_report_format(report: _Report_Type) -> str:
     sets = set()
     for recog in report:
         sets.add(recog.split("/")[-1])
-    out = [(" ".join(recog.split("/")[3:]), str(report[recog])) for recog in report if not any(extra in recog for extra in extra_ls)]
+    out = [
+        (" ".join(recog.split("/")[3:]), str(report[recog]))
+        for recog in report
+        if not any(extra in recog for extra in extra_ls) and "clean" not in recog
+    ]
     out = sorted(out, key=lambda x: float(x[1]))
     best_ls = [out[0]]
     for dataset in sets:
@@ -120,10 +125,14 @@ def baseline_report_format(report: _Report_Type) -> str:
             if extra == "":
                 continue
             else:
-                out2 = [(" ".join(recog.split("/")[3:]), str(report[recog])) for recog in report if extra in recog  and dataset in recog]
+                out2 = [
+                    (" ".join(recog.split("/")[3:]), str(report[recog]))
+                    for recog in report
+                    if extra in recog and dataset in recog
+                ]
                 out2 = sorted(out2, key=lambda x: float(x[1]))
                 if len(out2) > 0:
-                    out.append(('', ''))
+                    out.append(("", ""))
                     out.append((dataset + " " + extra, ""))
                     out.extend(out2)
                     best_ls.append(out2[0])
@@ -134,7 +143,7 @@ def baseline_report_format(report: _Report_Type) -> str:
     return "\n".join([f"{pair[0]}:  {str(pair[1])}" for pair in out])
 
 
-def generate_report(results, exp_name, report_template = baseline_report_format):
+def generate_report(results, exp_name, report_template=baseline_report_format):
     report = GenerateReportStringJob(report_values=results, report_template=report_template)
     report.add_alias(f"report/report/{exp_name}")
     mail = MailJob(report.out_report, send_contents=True, subject=exp_name)

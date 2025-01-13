@@ -186,6 +186,7 @@ def build_base_report(report: Dict):
 
 
 def build_hubert_distill_report(report: Dict):
+
     report = copy.deepcopy(report)
     baselines = report.pop("baselines")
     best_baselines = {}
@@ -209,24 +210,24 @@ def build_hubert_distill_report(report: Dict):
         else:
             best_dc[" ".join(exp.split("/")[5:])] = ("None", "")
     line = []
-
-    line.append("Small")
-    for exp, value in best_dc.items():
-        if "128" in exp:
-            line.append(f"{' '.join(exp.split('.')[2:])}: {value[0]}   {' '.join(value[1].split('/')[6:])}")
-    best_dc = {exp: value for exp, value in best_dc.items() if "128" not in exp}
-    line.append("")
+    # line.append("Small")
+    # for exp, value in best_dc.items():
+    #     if "128" in exp:
+    #         line.append(f"{' '.join(exp.split('.')[2:])}: {value[0]}   {' '.join(value[1].split('/')[6:])}")
+    # best_dc = {exp: value for exp, value in best_dc.items() if "128" not in exp}
+    # line.append("")
 
     exps = [
         "elim_blank",
         "keepsome",
+        "sym",
         "mix",
-        "pretrain",
+        # "pretrain",
         "elim_blank_prior",
         "kdhyps",
         "trim_blanks",
         "elim_blank num",
-        "long",
+        # "long",
     ]
     line.append("Baselines")
     for exp, value in best_dc.items():
@@ -247,37 +248,44 @@ def build_hubert_distill_report(report: Dict):
             or "trim_blanks" in exp
         )
     }
+    tmp = copy.deepcopy(best_dc)
     line.append("")
     for name in exps:
         line.append(name)
         for exp, value in best_dc.items():
             if exp.endswith(name):
                 line.append(f"{' '.join(exp.split('.')[2:])}: {value[0]}   {' '.join(value[1].split('/')[6:])}")
+                del tmp[exp]
             elif name == "keepsome" and "keepsome" in exp.split("_")[-1]:
                 line.append(f"{' '.join(exp.split('.')[2:])}: {value[0]}   {' '.join(value[1].split('/')[6:])}")
+                del tmp[exp]
             elif name == "mix" and "mix" in exp.split("_")[-1]:
                 line.append(f"{' '.join(exp.split('.')[2:])}: {value[0]}   {' '.join(value[1].split('/')[6:])}")
+                del tmp[exp]
             elif name == "elim_blank num" and ["elim", "blank"] == exp.split("_")[-3:-1]:
                 line.append(f"{' '.join(exp.split('.')[2:])}: {value[0]}   {' '.join(value[1].split('/')[6:])}")
+                del tmp[exp]
             elif name == "trim_blanks" and "trim_blanks" in exp:
                 line.append(f"{' '.join(exp.split('.')[2:])}: {value[0]}   {' '.join(value[1].split('/')[6:])}")
+                del tmp[exp]
         line.append("")
-        best_dc = {
-            exp: value
-            for exp, value in best_dc.items()
-            if not exp.endswith(name)
-            and not (name == "keepsome" and "keepsome" in exp.split("_")[-1])
-            and not (name == "mix" and "mix" in exp.split("_")[-1])
-            and not (name == "elim_blank num" and ["elim", "blank"] == exp.split("_")[-3:-1])
-            and not (name == "trim_blanks" and "trim_blanks" in exp)
-        }
-    line.append("Warmup")
-    for exp, value in best_dc.items():
-        if exp.endswith("True") or exp.endswith("False"):
-            line.append(f"{' '.join(exp.split('.')[2:])}: {value[0]}   {' '.join(value[1].split('/')[6:])}")
-    line.append("")
-    best_dc = {
-        exp: value for exp, value in best_dc.items() if not any(exp.endswith(name) for name in ["True", "False"])
-    }
+        # best_dc = {
+        #     exp: value
+        #     for exp, value in best_dc.items()
+        #     if not exp.endswith(name)
+        #     and not (name == "keepsome" and "keepsome" in exp.split("_")[-1])
+        #     and not (name == "mix" and "mix" in exp.split("_")[-1])
+        #     and not (name == "elim_blank num" and ["elim", "blank"] == exp.split("_")[-3:-1])
+        #     and not (name == "trim_blanks" and "trim_blanks" in exp)
+        # }
+    # line.append("Warmup")
+    # for exp, value in best_dc.items():
+    #     if exp.endswith("True") or exp.endswith("False"):
+    #         line.append(f"{' '.join(exp.split('.')[2:])}: {value[0]}   {' '.join(value[1].split('/')[6:])}")
+    # line.append("")
+    # best_dc = {
+    #     exp: value for exp, value in best_dc.items() if not any(exp.endswith(name) for name in ["True", "False"])
+    # }
+    best_dc = tmp
     assert len(best_dc) == 0, best_dc
     return "\n".join(line)
