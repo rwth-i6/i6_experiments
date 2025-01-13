@@ -182,7 +182,8 @@ def py():
         # Flashlight beam search implementation.
         # Play around with scales.
         for prior_scale, lm_scale in [
-            # (0.0, 1.0),
+            (0.0, 0.0),
+            (0.0, 1.0),
             (0.2, 2.0),
             (0.2, 1.0),
             (0.5, 1.0),
