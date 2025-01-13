@@ -806,7 +806,7 @@ def model_recog_flashlight(
     float_bytes = 4
 
     print(f"Memory usage {dev_s} after encoder forward:", " ".join(_collect_mem_stats()))
-    snapshot_start = tracemalloc.take_snapshot()
+    snapshot_start = tracemalloc.take_snapshot() if debug_tracemalloc else None
 
     hyps = []
     scores = []
