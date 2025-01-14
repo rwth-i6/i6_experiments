@@ -393,7 +393,7 @@ def model_recog_flashlight(
         out_spatial_dim,
         final beam_dim
     """
-    from .recog_ext.flashlight_neural_lm import model_recog_flashlight
+    from .recog_ext.ctc_flashlight_neural_lm import model_recog_flashlight
 
     return model_recog_flashlight(model=model, data=data, data_spatial_dim=data_spatial_dim)
 
