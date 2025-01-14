@@ -2,6 +2,7 @@
 Using the ESPnet label-sync code for CTC + other model (neural LM, or AED, or whatever).
 """
 
+from __future__ import annotations
 from typing import TYPE_CHECKING, Any, Tuple, List
 
 import tree
