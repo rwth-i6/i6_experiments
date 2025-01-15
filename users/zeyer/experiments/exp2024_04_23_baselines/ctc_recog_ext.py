@@ -212,7 +212,8 @@ def py():
         # Play around with beam size here.
         for prior_scale, lm_scale in [
             (0.0, 1.0),
-            # (0.2, 2.0),
+            (0.2, 2.0),
+            (0.0, 0.0),
         ]:
             model = get_ctc_with_lm(
                 ctc_model=ctc_model, prior=prior, prior_scale=prior_scale, language_model=lm, lm_scale=lm_scale
@@ -224,6 +225,27 @@ def py():
                         "beam_search_opts": {"beam_size": 12},
                         "batch_size": 5_000 * ctc_model.definition.batch_size_factor,
                         "torch_amp": {"dtype": "bfloat16"},
+                    },
+                ),
+                (
+                    "beam12-f32",
+                    {
+                        "beam_search_opts": {"beam_size": 12},
+                        "batch_size": 5_000 * ctc_model.definition.batch_size_factor,
+                    },
+                ),
+                (
+                    "beam32-f32",
+                    {
+                        "beam_search_opts": {"beam_size": 32},
+                        "batch_size": 5_000 * ctc_model.definition.batch_size_factor,
+                    },
+                ),
+                (
+                    "beam1-f32",
+                    {
+                        "beam_search_opts": {"beam_size": 1},
+                        "batch_size": 5_000 * ctc_model.definition.batch_size_factor,
                     },
                 ),
             ]:
