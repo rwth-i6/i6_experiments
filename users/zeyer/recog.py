@@ -168,8 +168,9 @@ def recog_model(
     :param recog_def:
     :param config:
     :param search_post_config:
-    :param recog_post_proc_funcs: those are run before ``task.recog_post_proc_funcs``
-        (which usually does BPE to words or so)
+    :param recog_post_proc_funcs: Those are run before ``task.recog_post_proc_funcs``
+        (which usually does BPE to words or so).
+        Those are run after blank label removal and label repetition collapsing in case ``output_blank_label`` is set.
     :param search_mem_rqmt: for the search job. 6GB by default. can also be set via ``search_rqmt``
     :param search_rqmt: e.g. {"gpu": 1, "mem": 6, "cpu": 4, "gpu_mem": 24} or so
     :param dev_sets: which datasets to evaluate on. None means all defined by ``task``
@@ -235,7 +236,8 @@ def search_dataset(
     :param search_mem_rqmt: memory requirement for the search job
     :param search_rqmt: any additional requirements for the search job
     :param search_alias_name: alias name for the search job
-    :param recog_post_proc_funcs: post processing functions for the recog output
+    :param recog_post_proc_funcs: post processing functions for the recog output.
+        Those are run after blank label removal and label repetition collapsing in case ``output_blank_label`` is set.
     :return: :class:`RecogOutput`, single best hyp (if there was a beam, we already took the best one)
         over the dataset
     """
