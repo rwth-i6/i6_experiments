@@ -324,7 +324,8 @@ def _lm_scorer(lm: TransformerDecoder) -> BatchScorerInterface:
                 def _batchify(*args):
                     assert len(args) == batch_size
                     if isinstance(args[0], Tensor):
-                        return rf.stack(args, out_dim=batch_dim_)
+                        x, _ = rf.stack(args, out_dim=batch_dim_)
+                        return x
                     if isinstance(args[0], Dim):
                         assert all(args[0] == s for s in args)
                         return args[0]
