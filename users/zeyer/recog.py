@@ -159,7 +159,15 @@ def recog_model(
     dev_sets: Optional[Collection[str]] = None,
     name: Optional[str] = None,
 ) -> ScoreResultCollection:
-    """recog"""
+    """
+    Recog for some given model (a single given checkpoint / epoch).
+    (Used by :func:`recog_training_exp` (:class:`_RecogAndScoreFunc`).)
+
+    :return: scores over all datasets (defined by ``task``) using the main measure (defined by the ``task``),
+        specifically what comes out of :func:`search_dataset`,
+        then scored via ``task.score_recog_output_func``,
+        then collected via ``task.collect_score_results_func``.
+    """
     if dev_sets is not None:
         assert all(k in task.eval_datasets for k in dev_sets)
     outputs = {}
