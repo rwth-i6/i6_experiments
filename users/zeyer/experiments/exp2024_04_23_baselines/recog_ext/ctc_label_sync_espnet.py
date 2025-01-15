@@ -266,7 +266,17 @@ def _ctc_scorer(*, blank_idx: int, eos_idx: int) -> BatchScorerInterface:
                 if state[0] is not None
                 else None
             )
-            return self.impl(y, batch_state, ids)
+            log_probs, new_batch_state = self.impl(y, batch_state, ids)
+            # log_probs is shape [B,V+1], no matter what ids is.
+            # Comment from espnet.nets.batch_beam_search.BatchBeamSearch.search:
+            #   NOTE(takaaki-hori): Unlike BeamSearch, we assume that score_partial returns
+            #   full-size score matrices, which has non-zero scores for part_ids and zeros
+            #   for others.
+            # However, we want to return only V scores, not V+1, excluding the blank
+            # (because the LM (or AED) also don't have the blank in the vocab).
+            assert blank_idx == log_probs.size(1) - 1  # only for this case implemented here currently...
+            log_probs = log_probs[:, :-1]  # [B,V]
+            return log_probs, new_batch_state
 
         def extend_prob(self, x: torch.Tensor):
             """..."""
