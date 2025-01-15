@@ -170,6 +170,8 @@ def recog_model(
     :param search_post_config:
     :param recog_post_proc_funcs: Those are run before ``task.recog_post_proc_funcs``
         (which usually does BPE to words or so).
+        Those are also run before we take the best hyp from a beam of hyps,
+        i.e. they run potentially on a set of hyps (if the recog returned a beam).
         Those are run after blank label removal and label repetition collapsing in case ``output_blank_label`` is set.
     :param search_mem_rqmt: for the search job. 6GB by default. can also be set via ``search_rqmt``
     :param search_rqmt: e.g. {"gpu": 1, "mem": 6, "cpu": 4, "gpu_mem": 24} or so
