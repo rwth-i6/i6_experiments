@@ -328,8 +328,8 @@ def _lm_scorer(lm: TransformerDecoder) -> BatchScorerInterface:
                 encoder=None,
                 state=states_batch,
             )
-            log_probs = rf.log_softmax(logits, axis=lm.vocab_dim)  # [B]
-            assert log_probs.dims == (batch_dim_,)
+            log_probs = rf.log_softmax(logits, axis=lm.vocab_dim)  # [B,V]
+            log_probs = log_probs.copy_transpose((batch_dim_, lm.vocab_dim))
 
             new_state_ls = []  # list over batch entries
             for i in range(batch_size):
