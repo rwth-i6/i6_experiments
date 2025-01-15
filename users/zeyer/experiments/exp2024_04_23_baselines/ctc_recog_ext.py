@@ -63,6 +63,7 @@ def py():
             (12, 0.5, 1.0),
             (16, 0.5, 1.0),
             (1, 0.5, 1.0),
+            (1, 0.0, 0.0),  # sanity check
         ]:
             model = get_ctc_with_lm(
                 ctc_model=ctc_model, prior=prior, prior_scale=prior_scale, language_model=lm, lm_scale=lm_scale
