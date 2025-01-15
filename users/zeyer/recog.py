@@ -163,6 +163,17 @@ def recog_model(
     Recog for some given model (a single given checkpoint / epoch).
     (Used by :func:`recog_training_exp` (:class:`_RecogAndScoreFunc`).)
 
+    :param task:
+    :param model:
+    :param recog_def:
+    :param config:
+    :param search_post_config:
+    :param recog_post_proc_funcs: those are run before ``task.recog_post_proc_funcs``
+        (which usually does BPE to words or so)
+    :param search_mem_rqmt: for the search job. 6GB by default. can also be set via ``search_rqmt``
+    :param search_rqmt: e.g. {"gpu": 1, "mem": 6, "cpu": 4, "gpu_mem": 24} or so
+    :param dev_sets: which datasets to evaluate on. None means all defined by ``task``
+    :param name: defines ``search_alias_name`` for the search job
     :return: scores over all datasets (defined by ``task``) using the main measure (defined by the ``task``),
         specifically what comes out of :func:`search_dataset`,
         then scored via ``task.score_recog_output_func``,
