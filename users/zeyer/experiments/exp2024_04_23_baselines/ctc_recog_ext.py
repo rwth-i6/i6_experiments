@@ -257,7 +257,7 @@ def py():
                     search_rqmt={"cpu": 4, "mem": 30, "time": 24, "gpu_mem": 24},
                 )
                 tk.register_output(
-                    f"{prefix}/recog-fl-{name}-lm_{lm_out_name}-lmScale{lm_scale}-priorScale{prior_scale}",
+                    f"{prefix}/recog-espnet-{name}-lm_{lm_out_name}-lmScale{lm_scale}-priorScale{prior_scale}",
                     res.output,
                 )
 
