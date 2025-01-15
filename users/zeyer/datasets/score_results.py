@@ -32,10 +32,10 @@ class ScoreResult:
 @dataclasses.dataclass
 class ScoreResultCollection:
     """
-    Intended to cover all relevant results over all eval datasets.
+    Intended to cover all relevant results over all eval datasets (for one specific checkpoint).
     """
 
-    main_measure_value: tk.Path  # e.g. the final best WER% on test-other
+    main_measure_value: tk.Path  # single float value, as text. e.g. the final best WER% on test-other
     output: tk.Path  # JSON dict with all score outputs
 
 
