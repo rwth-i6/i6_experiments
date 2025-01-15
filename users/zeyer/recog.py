@@ -653,6 +653,10 @@ class GetBestRecogTrainExp(sisyphus.Job):
             'best_epoch': int,  (sub-epoch by RETURNN)
             ...  (other meta info)
         }
+
+    The best epoch / scores is selected by the ``main_measure_value``
+    of the :class:`ScoreResultCollection` output from each recog
+    (via ``recog_and_score_func``).
     """
 
     def __init__(
