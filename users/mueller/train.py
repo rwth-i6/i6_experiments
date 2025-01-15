@@ -266,11 +266,13 @@ def _returnn_v2_train_step(*, model, extern_data: TensorDict, **_kwargs_unused):
     targets_spatial_dim = targets.get_time_dim_tag()
     train_def: TrainDef = config.typed_value("_train_def")
     if train_def.__name__ == "ctc_sum_training":
+        seq_tags = extern_data["seq_tag"]
         train_def(
             model=model,
             data=data,
             data_spatial_dim=data_spatial_dim,
-            lm_path=config.typed_value("lm_path")
+            lm_path=config.typed_value("lm_path"),
+            seq_tags=seq_tags,
         )
     else:
         train_def(
@@ -294,5 +296,6 @@ class ExtendedTrainDef(TrainDef):
         data: Tensor,
         data_spatial_dim: Tensor,
         lm_path: tk.Path,
+        seq_tags: Tensor = None
     ) -> Dict[str, Tensor]:
         raise NotImplementedError

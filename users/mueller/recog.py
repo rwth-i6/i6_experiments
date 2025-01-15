@@ -64,6 +64,7 @@ def recog_training_exp(
     num_shards_prior: Optional[int] = None,
     is_last: bool = False,
     empirical_prior: Optional[tk.Path] = None,
+    prior_from_max: bool = False,
     return_summary: bool = False
 ) -> Optional[tk.Path]:
     """recog on all relevant epochs"""
@@ -80,6 +81,7 @@ def recog_training_exp(
         num_shards_recog=num_shards_recog,
         num_shards_prior=num_shards_prior,
         empirical_prior=empirical_prior,
+        prior_from_max=prior_from_max,
     )
     summarize_job = GetBestRecogTrainExp(
         exp=model,
@@ -131,6 +133,7 @@ def recog_training_exp(
             num_shards_recog=num_shards_pseudo,
             num_shards_prior=num_shards_prior,
             empirical_prior=empirical_prior,
+            prior_from_max=prior_from_max,
         )
         
         extract_pseudo_labels_job = ExtractPseudoLabels(
@@ -174,6 +177,7 @@ def recog_training_exp(
                 num_shards_prior=num_shards_prior,
                 register_output=False,
                 empirical_prior=empirical_prior,
+                prior_from_max=prior_from_max,
             )
             
             score_job = GetScoreJob(score_func, summarize_job.out_summary_json)
@@ -202,6 +206,7 @@ class _RecogAndScoreFunc:
         num_shards_prior: Optional[int] = None,
         register_output: bool = True,
         empirical_prior: Optional[tk.Path] = None,
+        prior_from_max: bool = False,
     ):
         # Note: When something is added here, remember to handle it in _sis_hash.
         self.prefix_name = prefix_name
@@ -219,6 +224,7 @@ class _RecogAndScoreFunc:
         self.num_shards_prior = num_shards_prior
         self.register_output = register_output
         self.empirical_prior = empirical_prior
+        self.prior_from_max = prior_from_max
 
     def __call__(self, epoch_or_ckpt: Union[int, PtCheckpoint]) -> tuple[ScoreResultCollection, tk.Path]:
         if isinstance(epoch_or_ckpt, int):
@@ -238,6 +244,7 @@ class _RecogAndScoreFunc:
                     model=model_with_checkpoint,
                     prior_alias_name=self.prefix_name + f"/prior/{epoch_or_ckpt:03}",
                     num_shards=self.num_shards_prior,
+                    prior_from_max=self.prior_from_max,
                 )
                 if isinstance(epoch_or_ckpt, int):
                     tk.register_output(self.prefix_name + f"/recog_results_per_epoch/{epoch_or_ckpt:03}/prior.txt", prior_path)
@@ -290,6 +297,8 @@ class _RecogAndScoreFunc:
             d["task.prior_dataset"] = getattr(task, "prior_dataset")
         if not self.empirical_prior:
             del d["empirical_prior"]
+        if not self.prior_from_max:
+            del d["prior_from_max"]
         d["class"] = "_RecogAndScoreFunc"  # some identifier; not full qualname to allow for moving the class
         return sis_hash_helper(d)
 
@@ -355,6 +364,7 @@ def compute_prior(
     mem_rqmt: Union[int, float] = 8,
     prior_alias_name: Optional[str] = None,
     num_shards: Optional[int] = None,
+    prior_from_max: bool = False,
 ) -> tk.Path:
     if num_shards is not None:
         prior_frames_res = []
