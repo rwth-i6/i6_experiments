@@ -56,7 +56,7 @@ class SearchPriorRescoreJob(Job):
     Use prior to rescore some recog output.
     """
 
-    __sis_version__ = 1
+    __sis_version__ = 2
 
     def __init__(
         self, search_py_output: tk.Path, *, prior: tk.Path, prior_type: str, vocab: tk.Path, output_gzip: bool = True
@@ -86,7 +86,7 @@ class SearchPriorRescoreJob(Job):
         d = eval(util.uopen(self.search_py_output, "rt").read(), {"nan": float("nan"), "inf": float("inf")})
         assert isinstance(d, dict)  # seq_tag -> bpe string
 
-        vocab: List[str] = list(util.uopen(self.vocab, "rt"))
+        vocab: List[str] = util.uopen(self.vocab, "rt").read().splitlines()
         vocab_to_idx: Dict[str, int] = {word: i for (i, word) in enumerate(vocab)}
 
         prior = np.loadtxt(self.prior.get_path())
