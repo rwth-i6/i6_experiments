@@ -1941,9 +1941,13 @@ def model_recog(
         out_spatial_dim,
         final beam_dim
     """
+    from returnn.config import get_global_config
+
+    config = get_global_config()
+
     batch_dims = data.remaining_dims((data_spatial_dim, data.feature_dim))
     logits, enc, enc_spatial_dim = model(data, in_spatial_dim=data_spatial_dim)
-    beam_size = 12
+    beam_size = config.int("beam_size", 12)
 
     # Eager-mode implementation of beam search.
     # Initial state.
