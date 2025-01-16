@@ -195,9 +195,8 @@ def _returnn_rescore_config(
     config.update(
         {
             "forward_data": {"class": "TextDictDataset", "filename": recog_output.output, "vocab": vocab_opts},
-            # default input/target should not matter
-            "default_input": None,
-            "target": None,
+            "default_input": None,  # no input
+            "target": "data_flat",  # needed for get_model to know the target dim
             "_beam_dim": beam_dim,
             "extern_data": {
                 # data_flat dyn dim is the flattened dim, no need to define dim tags now
