@@ -175,6 +175,7 @@ def _returnn_rescore_config(
     """
     Create config for rescoring.
     """
+    from returnn.tensor import Tensor, Dim
     from i6_experiments.users.zeyer.serialization_v2 import ReturnnConfigWithNewSerialization
 
     config = config.copy() if config else {}
