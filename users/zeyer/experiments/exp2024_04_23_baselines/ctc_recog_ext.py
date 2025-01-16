@@ -3,6 +3,7 @@ CTC recognition with LM
 """
 
 from typing import Optional, Any, Tuple, Dict
+import functools
 
 from returnn.tensor import Tensor, Dim
 import returnn.frontend as rf
@@ -38,7 +39,7 @@ _lms = {
 
 def py():
     """Sis entry point"""
-    from i6_experiments.users.zeyer.datasets.librispeech import get_librispeech_task_raw_v2
+    from i6_experiments.users.zeyer.datasets.librispeech import get_librispeech_task_raw_v2, get_vocab_by_str
 
     if _sis_prefix is None:
         _sis_setup_global_prefix()
@@ -46,6 +47,7 @@ def py():
     prefix = f"{_sis_prefix}/ctc+lm"
 
     vocab = "spm10k"
+    vocab_ = get_vocab_by_str(vocab)
     task = get_librispeech_task_raw_v2(vocab=vocab)
     ctc_model = _get_ctc_model(_ctc_model_name)
     prior = get_ctc_prior_probs(ctc_model, task.train_dataset.copy_train_as_static())
@@ -265,6 +267,48 @@ def py():
                     f"{prefix}/recog-espnet-{name}-lm_{lm_out_name}-lmScale{lm_scale}-priorScale{prior_scale}",
                     res.output,
                 )
+
+        # Rescoring.
+        from .ctc import model_recog as model_recog_ctc_only, _ctc_model_def_blank_idx
+        from i6_experiments.users.zeyer.decoding.lm_rescoring import lm_framewise_prior_rescore
+        from i6_experiments.users.zeyer.decoding.prior_rescoring import Prior
+        from i6_experiments.users.zeyer.datasets.utils.vocab import (
+            ExtractVocabLabelsJob,
+            ExtendVocabLabelsByNewLabelJob,
+        )
+
+        vocab_file = ExtractVocabLabelsJob(vocab_.get_opts()).out_vocab
+        vocab_w_blank_file = ExtendVocabLabelsByNewLabelJob(
+            vocab=vocab_file, new_label=model_recog_ctc_only.output_blank_label, new_label_idx=_ctc_model_def_blank_idx
+        ).out_vocab
+
+        for beam_size, prior_scale, lm_scale in [
+            (16, 0.5, 1.0),
+        ]:
+            # Note, can use diff priors: framewise using the found alignment.
+            #  or label-based. label-based prior can be estimated simply by counting over the transcriptions.
+            #    or could also use framewise prior, remove blank, renorm.
+            res = recog_model(
+                task=task,
+                model=ctc_model,
+                recog_def=model_recog_ctc_only,
+                config={"beam_size": beam_size},
+                recog_pre_post_proc_funcs_ext=[
+                    functools.partial(
+                        lm_framewise_prior_rescore,
+                        # framewise standard prior
+                        prior=Prior(file=prior, type="prob", vocab=vocab_w_blank_file),
+                        prior_scale=prior_scale,
+                        lm=lm,
+                        lm_scale=lm_scale,
+                        vocab=vocab_file,
+                    )
+                ],
+            )
+            tk.register_output(
+                f"{prefix}/rescore-beam{beam_size}-lm_{lm_out_name}-lmScale{lm_scale}-priorScale{prior_scale}",
+                res.output,
+            )
 
 
 _sis_prefix: Optional[str] = None
