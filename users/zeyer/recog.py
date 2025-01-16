@@ -572,12 +572,15 @@ def _returnn_v2_get_model(*, epoch: int, **_kwargs_unused):
     default_input_key = config.typed_value("default_input")
     default_target_key = config.typed_value("target")
     extern_data_dict = config.typed_value("extern_data")
-    data = Tensor(name=default_input_key, **extern_data_dict[default_input_key])
+    # We allow no input. This is useful when e.g. sampling from some LM, or just scoring.
+    data = Tensor(name=default_input_key, **extern_data_dict[default_input_key]) if default_input_key else None
     targets = Tensor(name=default_target_key, **extern_data_dict[default_target_key])
     assert targets.sparse_dim and targets.sparse_dim.vocab, f"no vocab for {targets}"
 
     model_def = config.typed_value("_model_def")
-    model = model_def(epoch=epoch, in_dim=data.feature_dim_or_sparse_dim, target_dim=targets.sparse_dim)
+    model = model_def(
+        epoch=epoch, in_dim=data.feature_dim_or_sparse_dim if data else None, target_dim=targets.sparse_dim
+    )
     return model
 
 
@@ -594,8 +597,9 @@ def _returnn_v2_forward_step(*, model, extern_data: TensorDict, **_kwargs_unused
 
     config = get_global_config()
     default_input_key = config.typed_value("default_input")
-    data = extern_data[default_input_key]
-    data_spatial_dim = data.get_time_dim_tag()
+    # We allow no input. This is useful when e.g. sampling from some LM, or just scoring.
+    data = extern_data[default_input_key] if default_input_key else None
+    data_spatial_dim = data.get_time_dim_tag() if data is not None else None
     recog_def = config.typed_value("_recog_def")
     extra = {}
     if config.bool("cheating", False):
