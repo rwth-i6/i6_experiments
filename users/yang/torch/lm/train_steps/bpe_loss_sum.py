@@ -19,7 +19,6 @@ def train_step(*, model: torch.nn.Module, extern_data: TensorDict, **kwargs):
     targets_len = targets_len_rf.raw_tensor
     assert targets_len is not None
 
-    model.train()
 
     batch_size, max_seq_len = targets.shape
 
