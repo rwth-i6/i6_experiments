@@ -1,5 +1,7 @@
 """
 Serialization helpers
+
+See also <i6_experiments/users/zeyer/serialization.rst>.
 """
 
 from __future__ import annotations
