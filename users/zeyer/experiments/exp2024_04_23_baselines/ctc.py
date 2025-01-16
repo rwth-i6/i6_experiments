@@ -1759,6 +1759,9 @@ def ctc_model_def(*, epoch: int, in_dim: Dim, target_dim: Dim) -> Model:
         mod = importlib.import_module(mod_name)
         cls = getattr(mod, cls_name)
 
+    blank_idx = _ctc_model_def_blank_idx
+    if blank_idx < 0:
+        blank_idx = target_dim.dimension + 1 + blank_idx
     return cls(
         in_dim=in_dim,
         enc_build_dict=config.typed_value("enc_build_dict", None),  # alternative more generic/flexible way
@@ -1768,7 +1771,7 @@ def ctc_model_def(*, epoch: int, in_dim: Dim, target_dim: Dim) -> Model:
         enc_conformer_layer=enc_conformer_layer,
         enc_other_opts=enc_other_opts,
         target_dim=target_dim,
-        blank_idx=target_dim.dimension,
+        blank_idx=blank_idx,
         bos_idx=_get_bos_idx(target_dim),
         eos_idx=_get_eos_idx(target_dim),
         enc_aux_logits=enc_aux_logits or (),
@@ -1779,6 +1782,8 @@ ctc_model_def: ModelDef[Model]
 ctc_model_def.behavior_version = 21
 ctc_model_def.backend = "torch"
 ctc_model_def.batch_size_factor = _batch_size_factor
+
+_ctc_model_def_blank_idx: int = -1
 
 
 def _get_bos_idx(target_dim: Dim) -> int:
