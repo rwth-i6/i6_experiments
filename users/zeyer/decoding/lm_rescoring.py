@@ -80,12 +80,12 @@ def lm_framewise_prior_rescore(
     :param search_labels_to_labels: function to convert the search labels to the labels
     """
     res_labels_lm_scores = lm_score(raw_res_labels, lm=lm, vocab=vocab)
-    scores = {res: orig_scale, res_labels_lm_scores: lm_scale}
+    scores = [(orig_scale, res), (lm_scale, res_labels_lm_scores)]
     if prior and prior_scale:
         assert search_labels_to_labels
         res_search_labels_prior_scores = prior_score(raw_res_search_labels, prior=prior)
         res_labels_prior_scores = search_labels_to_labels(res_search_labels_prior_scores)
-        scores[res_labels_prior_scores] = -prior_scale
+        scores.append((-prior_scale, res_labels_prior_scores))
     else:
         assert prior_scale == 0.0
     return combine_scores(scores)

@@ -27,7 +27,7 @@ if TYPE_CHECKING:
     from returnn.tensor import Tensor, Dim, TensorDict
 
 
-def combine_scores(scores: Dict[RecogOutput, float]) -> RecogOutput:
+def combine_scores(scores: List[Tuple[float, RecogOutput]]) -> RecogOutput:
     """
     Combine scores from multiple sources, linearly weighted by the given weights.
 
@@ -37,7 +37,7 @@ def combine_scores(scores: Dict[RecogOutput, float]) -> RecogOutput:
     :return: combined scores
     """
     assert scores
-    job = SearchCombineScoresJob({recog_output.output: weight for recog_output, weight in scores.items()})
+    job = SearchCombineScoresJob([(weight, recog_output.output) for weight, recog_output in scores])
     return RecogOutput(output=job.out_search_results)
 
 
@@ -47,7 +47,7 @@ class SearchCombineScoresJob(Job):
     and combines the scores with some weights.
     """
 
-    def __init__(self, search_py_output: Dict[tk.Path, float], *, output_gzip: bool = True):
+    def __init__(self, search_py_output: List[Tuple[float, tk.Path]], *, output_gzip: bool = True):
         """
         :param search_py_output: dict: search output file from RETURNN in python format (n-best list) -> weight
         :param output_gzip: gzip the output
@@ -64,7 +64,7 @@ class SearchCombineScoresJob(Job):
         """run"""
         data: List[Tuple[float, Dict[str, List[Tuple[float, str]]]]] = [
             (weight, eval(util.uopen(fn, "rt").read(), {"nan": float("nan"), "inf": float("inf")}))
-            for fn, weight in self.search_py_output.items()
+            for weight, fn in self.search_py_output
         ]
         weights: List[float] = [weight for weight, _ in data]
         seq_tags: List[str] = list(data[0][1].keys())

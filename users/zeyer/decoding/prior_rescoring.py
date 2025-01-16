@@ -47,7 +47,7 @@ def prior_rescore(res: RecogOutput, *, prior: Prior, prior_scale: float, orig_sc
     :param prior_scale: scale for the prior. the negative of this will be used for the weight
     :param orig_scale: scale for the original score
     """
-    scores = {res: orig_scale, prior_score(res, prior=prior): -prior_scale}
+    scores = [(orig_scale, res), (-prior_scale, prior_score(res, prior=prior))]
     return combine_scores(scores)
 
 
