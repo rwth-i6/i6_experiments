@@ -12,12 +12,12 @@ if TYPE_CHECKING:
 from .model import ModelT
 
 
-__all__ = ["ScoreDef"]
+__all__ = ["RescoreDef"]
 
 
-class ScoreDef(Protocol[ModelT]):
+class RescoreDef(Protocol[ModelT]):
     """
-    Get scores.
+    Get scores for some target hyps.
 
     Conceptional very similar to training,
     but we don't use it for training,
