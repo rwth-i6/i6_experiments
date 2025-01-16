@@ -154,6 +154,7 @@ def recog_model(
     config: Optional[Dict[str, Any]] = None,
     search_post_config: Optional[Dict[str, Any]] = None,
     recog_post_proc_funcs: Sequence[Callable[[RecogOutput], RecogOutput]] = (),
+    recog_blank_post_proc_funcs: Sequence[Callable[[RecogOutput], RecogOutput]] = (),
     search_mem_rqmt: Union[int, float] = 6,
     search_rqmt: Optional[Dict[str, Any]] = None,
     dev_sets: Optional[Collection[str]] = None,
@@ -173,6 +174,11 @@ def recog_model(
         Those are also run before we take the best hyp from a beam of hyps,
         i.e. they run potentially on a set of hyps (if the recog returned a beam).
         Those are run after blank label removal and label repetition collapsing in case ``output_blank_label`` is set.
+    :param recog_blank_post_proc_funcs: those are run before recog_post_proc_funcs
+        and before blank label removal and label repetition collapsing,
+        and before we take the best hyp from a beam of hyps,
+        i.e. they operate on a beam of alignment label sequences.
+        This only makes sense with ``output_blank_label``.
     :param search_mem_rqmt: for the search job. 6GB by default. can also be set via ``search_rqmt``
     :param search_rqmt: e.g. {"gpu": 1, "mem": 6, "cpu": 4, "gpu_mem": 24} or so
     :param dev_sets: which datasets to evaluate on. None means all defined by ``task``
@@ -199,6 +205,7 @@ def recog_model(
             search_rqmt=search_rqmt,
             search_alias_name=f"{name}/search/{dataset_name}" if name else None,
             recog_post_proc_funcs=list(recog_post_proc_funcs) + list(task.recog_post_proc_funcs),
+            recog_blank_post_proc_funcs=recog_blank_post_proc_funcs,
         )
         score_out = task.score_recog_output_func(dataset, recog_out)
         outputs[dataset_name] = score_out
@@ -216,6 +223,7 @@ def search_dataset(
     search_rqmt: Optional[Dict[str, Any]] = None,
     search_alias_name: Optional[str] = None,
     recog_post_proc_funcs: Sequence[Callable[[RecogOutput], RecogOutput]] = (),
+    recog_blank_post_proc_funcs: Sequence[Callable[[RecogOutput], RecogOutput]] = (),
 ) -> RecogOutput:
     """
     Recog on the specific dataset using RETURNN.
@@ -240,6 +248,9 @@ def search_dataset(
     :param search_alias_name: alias name for the search job
     :param recog_post_proc_funcs: post processing functions for the recog output.
         Those are run after blank label removal and label repetition collapsing in case ``output_blank_label`` is set.
+    :param recog_blank_post_proc_funcs: those are run before recog_post_proc_funcs
+        and before blank label removal and label repetition collapsing,
+        i.e. they operate on the alignment label sequence.
     :return: :class:`RecogOutput`, single best hyp (if there was a beam, we already took the best one)
         over the dataset
     """
@@ -284,6 +295,10 @@ def search_dataset(
             search_job.set_env(k, v)
     if search_alias_name:
         search_job.add_alias(search_alias_name)
+    if recog_blank_post_proc_funcs:
+        assert recog_def.output_blank_label  # doesn't make sense otherwise...
+    for f in recog_blank_post_proc_funcs:
+        res = f(RecogOutput(output=res)).output
     if recog_def.output_blank_label:
         # Also assume we should collapse repeated labels first.
         res = SearchCollapseRepeatedLabelsJob(res, output_gzip=True).out_search_results
