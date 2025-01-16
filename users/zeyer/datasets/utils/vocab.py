@@ -62,6 +62,8 @@ class ExtendVocabLabelsByNewLabelJob(Job):
     at a given index.
     """
 
+    __sis_version__ = 1
+
     def __init__(self, *, vocab: tk.Path, new_label: str, new_label_idx: int):
         """
         :param vocab:
@@ -78,7 +80,7 @@ class ExtendVocabLabelsByNewLabelJob(Job):
         yield Task("run", mini_task=True)
 
     def run(self):
-        labels = util.uopen(self.vocab.get_path(), "rt").readlines()
+        labels = list(util.uopen(self.vocab.get_path(), "rt"))
         new_label_idx = self.new_label_idx
         if new_label_idx < 0:
             new_label_idx = len(labels) + 1 + new_label_idx
