@@ -4,6 +4,7 @@ CTC recognition with LM
 
 from typing import Optional, Any, Tuple, Dict
 import functools
+import numpy as np
 
 from returnn.tensor import Tensor, Dim
 import returnn.frontend as rf
@@ -321,6 +322,33 @@ def py():
                 f"{prefix}/rescore-beam{beam_size}-lm_{lm_out_name}-lmScale{lm_scale}-priorScale{prior_scale}",
                 res.output,
             )
+
+        # Tune scales on N-best list with rescoring. (Efficient.)
+        beam_size = 128
+        for prior_scale in np.linspace(0.0, 1.0, 11):
+            for lm_scale in np.linspace(0.0, 2.0, 21):
+                res = recog_model(
+                    task=task,
+                    model=ctc_model,
+                    recog_def=model_recog_ctc_only,
+                    config={"beam_size": beam_size},
+                    recog_pre_post_proc_funcs_ext=[
+                        functools.partial(
+                            lm_framewise_prior_rescore,
+                            # framewise standard prior
+                            prior=Prior(file=prior, type="prob", vocab=vocab_w_blank_file),
+                            prior_scale=prior_scale,
+                            lm=lm,
+                            lm_scale=lm_scale,
+                            vocab=vocab_file,
+                            vocab_opts_file=vocab_opts_file,
+                        )
+                    ],
+                )
+                tk.register_output(
+                    f"{prefix}/rescore-beam{beam_size}-lm_{lm_out_name}-lmScale{lm_scale}-priorScale{prior_scale}",
+                    res.output,
+                )
 
 
 _sis_prefix: Optional[str] = None
