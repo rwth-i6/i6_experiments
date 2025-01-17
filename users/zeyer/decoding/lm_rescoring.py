@@ -105,7 +105,7 @@ def lm_score(recog_output: RecogOutput, *, lm: ModelWithCheckpoint, vocab: tk.Pa
     return rescore(recog_output=recog_output, model=lm, vocab=vocab, rescore_def=lm_rescore_def)
 
 
-def lm_rescore_def(*, model: rf.Module, targets: Tensor, targets_beam_dim: Dim, targets_spatial_dim: Dim):
+def lm_rescore_def(*, model: rf.Module, targets: Tensor, targets_beam_dim: Dim, targets_spatial_dim: Dim, **_other):
     targets_beam_dim  # noqa  # unused here
 
     # noinspection PyTypeChecker
