@@ -289,8 +289,12 @@ def py():
             (32, 0.5, 1.0),
             (64, 0.5, 1.0),
             (128, 0.5, 1.0),
-            (256, 0.5, 1.0),
-            (512, 0.5, 1.0),
+            # Those will run out of CPU memory.
+            # Unfortunately, those also use mini_task=True.
+            # We can reset that in settings.py check_engine_limits,
+            # but not sure how to easily do that automatically...
+            # (256, 0.5, 1.0),
+            # (512, 0.5, 1.0),
         ]:
             # Note, can use diff priors: framewise using the found alignment.
             #  or label-based. label-based prior can be estimated simply by counting over the transcriptions.
