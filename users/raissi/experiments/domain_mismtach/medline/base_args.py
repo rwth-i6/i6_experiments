@@ -241,9 +241,52 @@ MEDLINE_V22_DEV_DATA = {
 }
 
 
+MEDLINE_V3_DEV_DATA = {
+    0.55: DATASET(
+        lexicon_with_unk=tk.Path(
+            f"{PREPATH_ASR3}/lexicon/v3/only_medline/ufal_v1_3more_only.3var.rasr_with_unk.xml.gz",
+            cached=True,
+            hash_overwrite="v3_unk",
+        ),
+        lexicon_no_unk=tk.Path(
+            f"{PREPATH_ASR3}/lexicon/v3/only_medline/ufal_v1_3more_only.3var.rasr_without_unk.xml.gz",
+            cached=True,
+            hash_overwrite="v3_nounk",
+        ),
+        corpus=wmt22_medline_noise055,
+        lm=tk.Path(f"{PREPATH_ASR3}/lm/v2/only_medline/ufal_v1_lm_3more.gz", cached=True, hash_overwrite="v22_lm"),
+        description="lexicon uses only medline data with words repeating 3 or more and includes 3 different pronunciation variants",
+    ),
+}
+
+MEDLINE_V4_DEV_DATA = {
+    0.55: DATASET(
+        lexicon_with_unk=tk.Path(
+            f"{PREPATH_ASR3}/lexicon/v4/only_medline/ufal_v1_3more_only.lsoverride.rasr_with_unk.xml.gz",
+            cached=True,
+            hash_overwrite="v4_unk",
+        ),
+        lexicon_no_unk=tk.Path(
+            f"{PREPATH_ASR3}/lexicon/v4/only_medline/ufal_v1_3more_only.lsoverride.rasr_without_unk.xml.gz",
+            cached=True,
+            hash_overwrite="v4_nounk",
+        ),
+        corpus=wmt22_medline_noise055,
+        lm=tk.Path(f"{PREPATH_ASR3}/lm/v2/only_medline/ufal_v1_lm_3more.gz", cached=True, hash_overwrite="v22_lm"),
+        description="lexicon uses only medline data with words repeating 3 or more and includes the corrected pronunciation for wirds common between ledline and lbs",
+    ),
+}
+
+
 MEDLINE_CORPORA = ["dev"]
 MEDLINE_DURATIONS = {"dev": 1.0}
-MEDLINE_DEV_VERSIONS = {1: MEDLINE_V1_DEV_DATA, 1.1: MEDLINE_V11_DEV_DATA, 2.1: MEDLINE_V21_DEV_DATA, 2.2: MEDLINE_V22_DEV_DATA}
+MEDLINE_DEV_VERSIONS = {1: MEDLINE_V1_DEV_DATA,
+                        1.1: MEDLINE_V11_DEV_DATA,
+                        2.1: MEDLINE_V21_DEV_DATA,
+                        2.2: MEDLINE_V22_DEV_DATA,
+                        3: MEDLINE_V3_DEV_DATA,
+                        4: MEDLINE_V4_DEV_DATA
+                        }
 
 MEDLINE_TEST_VERSIONS = {}
 

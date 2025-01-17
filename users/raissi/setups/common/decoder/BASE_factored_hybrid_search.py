@@ -935,7 +935,7 @@ class BASEFactoredHybridDecoder:
             lookahead_options=la_options,
             eval_best_in_lattice=True,
             use_gpu=self.gpu,
-            rtf=rtf_gpu if rtf_gpu is not None else rtf_cpu if rtf_cpu is not None else rqms["rtf"],
+            rtf=rtf_gpu if rtf_gpu is not None and self.gpu else rtf_cpu if rtf_cpu is not None else rqms["rtf"],
             mem=rqms["mem"] if mem_rqmt is None else mem_rqmt,
             cpu=2 if cpu_rqmt is None else cpu_rqmt,
             lmgc_scorer=rasr.DiagonalMaximumScorer(self.mixtures) if self.lm_gc_simple_hash else None,

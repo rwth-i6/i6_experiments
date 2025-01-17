@@ -76,7 +76,7 @@ class LBSFactoredHybridDecoder(BASEFactoredHybridDecoder):
             gpu=gpu,
         )
         self.trafo_lm_config = self.get_eugen_trafo_with_quant_and_compress_config()
-        #self.lstm_lm_config = self.get_kazuki_lstm_config()
+        self.lstm_lm_config = self.get_kazuki_lstm_config()
 
 
     def get_kazuki_lstm_config(
@@ -89,36 +89,81 @@ class LBSFactoredHybridDecoder(BASEFactoredHybridDecoder):
 
         assert self.library_path is not None
 
-        trafo_config = rasr.RasrConfig()
+        kazuki_lstm_path = tk.Path("/work/asr4/raissi/setups/librispeech/960-ls/dependencies/lstm-lm_kazuki", hash_overwrite="KAZUKI_LSTM_LM")
+
+        lstm_config = rasr.RasrConfig()
 
         #model and graph info
-        trafo_config.loader.type = "meta"
-        trafo_config.loader.meta_graph_file = tk.Path("/u/raissi/Desktop/debug/lstm_lm/mini2.3.graph.meta", cached=True)
-        trafo_config.loader.saved_model_file = DelayedFormat("/u/raissi/Desktop/debug/lstm_lm/models/net-model-mini2.3/network.050")
-        trafo_config.loader.required_libraries = self.library_path
+        lstm_config.loader.type = "meta"
+        lstm_config.loader.meta_graph_file = kazuki_lstm_path.join_right("graph.meta")
+        lstm_config.loader.saved_model_file = DelayedFormat("/work/asr4/raissi/setups/librispeech/960-ls/dependencies/lstm-lm_kazuki/network.040")
+        lstm_config.loader.required_libraries = self.library_path
 
-        trafo_config.type = "tfrnn"
-        trafo_config.vocab_file = "/work/asr4/rossenbach/custom_projects/kazuki_replicate_lm_training/vocab.word.freq_sorted.200k.alternative.txt"
-        trafo_config.transform_output_negate = True
-        trafo_config.vocab_unknown_word = "<UNK>"
+        lstm_config.type = "tfrnn"
+        lstm_config.vocab_file = kazuki_lstm_path.join_right("vocabulary")
+        lstm_config.transform_output_negate = True
+        lstm_config.vocab_unknown_word = "<UNK>"
 
-        trafo_config.min_batch_size = min_batch_size
-        trafo_config.opt_batch_size = opt_batch_size
-        trafo_config.max_batch_size = max_batch_size
+        lstm_config.min_batch_size = min_batch_size
+        lstm_config.opt_batch_size = opt_batch_size
+        lstm_config.max_batch_size = max_batch_size
         #trafo_config.allow_reduced_history = True
         if scale is not None:
-            trafo_config.scale = scale
+            lstm_config.scale = scale
 
         #Tensor names
         #in
-        trafo_config.input_map.info_0.param_name = "word"
-        trafo_config.input_map.info_0.tensor_name = "extern_data/placeholders/delayed/delayed"
-        trafo_config.input_map.info_0.seq_length_tensor_name = "extern_data/placeholders/delayed/delayed_dim0_size"
+        lstm_config.input_map.info_0.param_name = "word"
+        lstm_config.input_map.info_0.tensor_name = "extern_data/placeholders/delayed/delayed"
+        lstm_config.input_map.info_0.seq_length_tensor_name = "extern_data/placeholders/delayed/delayed_dim0_size"
         #out
-        trafo_config.output_map.info_0.param_name = "softmax"
-        trafo_config.output_map.info_0.tensor_name = "output/output_batch_major"
+        lstm_config.output_map.info_0.param_name = "softmax"
+        lstm_config.output_map.info_0.tensor_name = "output/output_batch_major"
 
-        return trafo_config
+        return lstm_config
+
+    def get_nick_lstm_config(
+        self,
+        min_batch_size: int = 4,
+        opt_batch_size: int = 8,
+        max_batch_size: int = 8,
+        scale: Optional[float] = None,
+    ) -> rasr.RasrConfig:
+
+        assert self.library_path is not None
+
+        nick_prepath = "/work/asr4/raissi/setups/librispeech/960-ls/dependencies/lstm-lm_nick"
+
+        lstm_config = rasr.RasrConfig()
+
+        #model and graph info
+        lstm_config.loader.type = "meta"
+        lstm_config.loader.meta_graph_file = ("/").join([nick_prepath, "graph.meta"])
+        lstm_config.loader.saved_model_file = DelayedFormat("/u/rossenbach/experiments/domain_lm_aed_2024/work/i6_core/returnn/training/ReturnnTrainingJob.d2q0Od3IdTEu/output/models/epoch.300")
+        lstm_config.loader.required_libraries = self.library_path
+
+        lstm_config.type = "tfrnn"
+        lstm_config.vocab_file = ("/").join([nick_prepath, "lm.vocab.txt"])
+        lstm_config.transform_output_negate = True
+        lstm_config.vocab_unknown_word = "<UNK>"
+
+        lstm_config.min_batch_size = min_batch_size
+        lstm_config.opt_batch_size = opt_batch_size
+        lstm_config.max_batch_size = max_batch_size
+        #trafo_config.allow_reduced_history = True
+        if scale is not None:
+            lstm_config.scale = scale
+
+        #Tensor names
+        #in
+        lstm_config.input_map.info_0.param_name = "word"
+        lstm_config.input_map.info_0.tensor_name = "extern_data/placeholders/delayed/delayed"
+        lstm_config.input_map.info_0.seq_length_tensor_name = "extern_data/placeholders/delayed/delayed_dim0_size"
+        #out
+        lstm_config.output_map.info_0.param_name = "softmax"
+        lstm_config.output_map.info_0.tensor_name = "output/output_batch_major"
+
+        return lstm_config
 
     def get_kazuki_trafo_config(
         self,
@@ -339,61 +384,6 @@ class LBSFactoredHybridDecoder(BASEFactoredHybridDecoder):
 
         return trafo_config
 
-    def recognize_ls_trafo_lm(
-        self,
-        *,
-        label_info: LabelInfo,
-        num_encoder_output: int,
-        search_parameters: SearchParameters,
-        calculate_stats=False,
-        is_min_duration=False,
-        opt_lm_am=True,
-        only_lm_opt=True,
-        cn_decoding: bool = False,
-        keep_value=12,
-        use_estimated_tdps=False,
-        add_sis_alias_and_output=True,
-        rerun_after_opt_lm=False,
-        name_override: Union[str, None] = None,
-        name_prefix: str = "",
-        cpu_rqmt: Optional[int] = None,
-        mem_rqmt: Optional[int] = None,
-        crp_update: Optional[Callable[[rasr.RasrConfig], Any]] = None,
-        rtf_gpu: Optional[float] = None,
-        rtf_cpu: Optional[float] = None,
-        create_lattice: bool = True,
-        adv_search_extra_config: Optional[rasr.RasrConfig] = None,
-        adv_search_extra_post_config: Optional[rasr.RasrConfig] = None,
-    ) -> DecodingJobs:
-        return self.recognize(
-            add_sis_alias_and_output=add_sis_alias_and_output,
-            calculate_stats=calculate_stats,
-            cpu_rqmt=cpu_rqmt,
-            mem_rqmt=mem_rqmt,
-            is_min_duration=is_min_duration,
-            is_nn_lm=True,
-            keep_value=keep_value,
-            label_info=label_info,
-            lm_config=self.trafo_lm_config,
-            name_override=name_override,
-            name_prefix=name_prefix,
-            num_encoder_output=num_encoder_output,
-            only_lm_opt=only_lm_opt,
-            opt_lm_am=opt_lm_am,
-            cn_decoding=cn_decoding,
-            pre_path="decoding-trafo-lm",
-            rerun_after_opt_lm=rerun_after_opt_lm,
-            search_parameters=search_parameters,
-            use_estimated_tdps=use_estimated_tdps,
-            crp_update=crp_update,
-            rtf_cpu=rtf_cpu,
-            rtf_gpu=rtf_gpu,
-            create_lattice=create_lattice,
-            adv_search_extra_config=adv_search_extra_config,
-            adv_search_extra_post_config=adv_search_extra_post_config,
-        )
-
-
     def recognize_lstm_lm(
         self,
         *,
@@ -440,6 +430,65 @@ class LBSFactoredHybridDecoder(BASEFactoredHybridDecoder):
             opt_lm_am=opt_lm_am,
             cn_decoding=cn_decoding,
             pre_path="decoding-lstm-lm",
+            rerun_after_opt_lm=rerun_after_opt_lm,
+            search_parameters=search_parameters,
+            use_estimated_tdps=use_estimated_tdps,
+            crp_update=crp_update,
+            rtf_cpu=rtf_cpu,
+            rtf_gpu=rtf_gpu,
+            lm_lookahead_options=lm_lookahead_options,
+            create_lattice=create_lattice,
+            adv_search_extra_config=adv_search_extra_config,
+            adv_search_extra_post_config=adv_search_extra_post_config,
+        )
+
+
+    def recognize_trafo_lm(
+        self,
+        *,
+        label_info: LabelInfo,
+        num_encoder_output: int,
+        search_parameters: SearchParameters,
+        calculate_stats=False,
+        is_min_duration=False,
+        opt_lm_am=True,
+        only_lm_opt=True,
+        cn_decoding: bool = False,
+        keep_value=12,
+        use_estimated_tdps=False,
+        add_sis_alias_and_output=True,
+        rerun_after_opt_lm=False,
+        name_override: Union[str, None] = None,
+        name_prefix: str = "",
+        cpu_rqmt: Optional[int] = None,
+        mem_rqmt: Optional[int] = None,
+        crp_update: Optional[Callable[[rasr.RasrConfig], Any]] = None,
+        rtf_gpu: Optional[float] = None,
+        rtf_cpu: Optional[float] = None,
+        create_lattice: bool = True,
+        lm_lookahead_options: Optional = None,
+        adv_search_extra_config: Optional[rasr.RasrConfig] = None,
+        adv_search_extra_post_config: Optional[rasr.RasrConfig] = None,
+    ) -> DecodingJobs:
+        if lm_lookahead_options is None:
+            lm_lookahead_options = {"clow": 2000, "chigh": 3000}
+        return self.recognize(
+            add_sis_alias_and_output=add_sis_alias_and_output,
+            calculate_stats=calculate_stats,
+            cpu_rqmt=cpu_rqmt,
+            mem_rqmt=mem_rqmt,
+            is_min_duration=is_min_duration,
+            is_nn_lm=True,
+            keep_value=keep_value,
+            label_info=label_info,
+            lm_config=self.trafo_lm_config,
+            name_override=name_override,
+            name_prefix=name_prefix,
+            num_encoder_output=num_encoder_output,
+            only_lm_opt=only_lm_opt,
+            opt_lm_am=opt_lm_am,
+            cn_decoding=cn_decoding,
+            pre_path="decoding-trafo-lm",
             rerun_after_opt_lm=rerun_after_opt_lm,
             search_parameters=search_parameters,
             use_estimated_tdps=use_estimated_tdps,
