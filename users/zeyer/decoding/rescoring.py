@@ -285,6 +285,7 @@ def _returnn_score_step(*, model, extern_data: TensorDict, **_kwargs_unused):
     targets_flat = extern_data["data_flat"]
     targets_flat_time_dim = config.typed_value("_data_flat_spatial_dim")
     targets_seq_lens = extern_data["data_seq_lens"]  # [B, beam]
+    # TODO stupid that targets_seq_lens first is copied CPU->GPU and now back to CPU...
     targets_spatial_dim = Dim(rf.copy_to_device(targets_seq_lens, "cpu"), name="targets_spatial")
     targets = rf.pad_packed(targets_flat, in_dim=targets_flat_time_dim, dims=[targets_beam_dim, targets_spatial_dim])
 
