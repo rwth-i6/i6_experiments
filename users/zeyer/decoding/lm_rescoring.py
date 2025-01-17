@@ -142,8 +142,11 @@ def lm_rescore_def(*, model: rf.Module, targets: Tensor, targets_beam_dim: Dim, 
     )
 
     log_prob = rf.log_softmax(logits, axis=model.vocab_dim)
-    log_prob_targets = rf.gather(log_prob, indices=targets, axis=model.vocab_dim)  # [batch,beam,targets_spatial_w_eos]
+    log_prob_targets = rf.gather(
+        log_prob, indices=targets_w_eos, axis=model.vocab_dim
+    )  # [batch,beam,targets_spatial_w_eos]
     log_prob_targets_seq = rf.reduce_sum(log_prob_targets, axis=targets_w_eos_spatial_dim)  # [batch,beam]
+    assert log_prob_targets_seq.dims_set == set(batch_dims)
     return log_prob_targets_seq
 
 
