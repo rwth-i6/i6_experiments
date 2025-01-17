@@ -98,17 +98,26 @@ class ExtractVocabSpecialLabelsJob(Job):
         assert vocab.num_labels == len(vocab.labels)
         labels = vocab.labels
 
+        def _repr_label_id(label_id: int) -> str:
+            label = labels[label_id]
+            # Currently assume the label is unique.
+            # We could make this configurable later,
+            # or maybe also return the label id in this case,
+            # but for now, just make sure it is unique.
+            assert labels.count(label) == 1
+            return label
+
         d = {"unknown_label": vocab.unknown_label}
         if vocab.bos_label_id is not None:
-            d["bos_label"] = labels[vocab.bos_label_id]
+            d["bos_label"] = _repr_label_id(vocab.bos_label_id)
         if vocab.eos_label_id is not None:
-            d["eos_label"] = labels[vocab.eos_label_id]
+            d["eos_label"] = _repr_label_id(vocab.eos_label_id)
         if vocab.pad_label_id is not None:
-            d["pad_label"] = labels[vocab.pad_label_id]
+            d["pad_label"] = _repr_label_id(vocab.pad_label_id)
         if vocab.control_symbol_ids:
-            d["control_symbols"] = {k: labels[v] for k, v in vocab.control_symbol_ids.items()}
+            d["control_symbols"] = {k: _repr_label_id(v) for k, v in vocab.control_symbol_ids.items()}
         if vocab.user_defined_symbol_ids:
-            d["user_defined_symbols"] = {k: labels[v] for k, v in vocab.user_defined_symbol_ids.items()}
+            d["user_defined_symbols"] = {k: _repr_label_id(v) for k, v in vocab.user_defined_symbol_ids.items()}
 
         with util.uopen(self.out_vocab_special_labels_dict.get_path(), "wt") as f:
             f.write("{\n")
