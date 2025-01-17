@@ -274,10 +274,12 @@ def py():
         from i6_experiments.users.zeyer.decoding.prior_rescoring import Prior
         from i6_experiments.users.zeyer.datasets.utils.vocab import (
             ExtractVocabLabelsJob,
+            ExtractVocabSpecialLabelsJob,
             ExtendVocabLabelsByNewLabelJob,
         )
 
         vocab_file = ExtractVocabLabelsJob(vocab_.get_opts()).out_vocab
+        vocab_opts_file = ExtractVocabSpecialLabelsJob(vocab_.get_opts()).out_vocab_special_labels_dict
         vocab_w_blank_file = ExtendVocabLabelsByNewLabelJob(
             vocab=vocab_file, new_label=model_recog_ctc_only.output_blank_label, new_label_idx=_ctc_model_def_blank_idx
         ).out_vocab
@@ -302,6 +304,7 @@ def py():
                         lm=lm,
                         lm_scale=lm_scale,
                         vocab=vocab_file,
+                        vocab_opts_file=vocab_opts_file,
                     )
                 ],
             )

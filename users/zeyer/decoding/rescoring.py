@@ -96,6 +96,7 @@ def rescore(
     recog_output: RecogOutput,
     dataset: Optional[DatasetConfig] = None,
     vocab: tk.Path,
+    vocab_opts_file: Optional[tk.Path] = None,
     model: ModelWithCheckpoint,
     rescore_def: RescoreDef,
     config: Optional[Dict[str, Any]] = None,
@@ -112,6 +113,7 @@ def rescore(
         and also get_default_input() to define the default output,
         and get_extern_data().
     :param vocab:
+    :param vocab_opts_file: can contain info about EOS, BOS etc
     :param model:
     :param rescore_def:
     :param config: additional RETURNN config opts for the forward job
@@ -131,6 +133,7 @@ def rescore(
         returnn_config=_returnn_rescore_config(
             recog_output=recog_output,
             vocab=vocab,
+            vocab_opts_file=vocab_opts_file,
             dataset=dataset,
             model_def=model.definition,
             rescore_def=rescore_def,
@@ -166,6 +169,7 @@ def _returnn_rescore_config(
     *,
     recog_output: RecogOutput,
     vocab: tk.Path,
+    vocab_opts_file: Optional[tk.Path] = None,
     dataset: Optional[DatasetConfig] = None,
     model_def: Union[ModelDef, ModelDefWithCfg],
     rescore_def: RescoreDef,
@@ -192,7 +196,11 @@ def _returnn_rescore_config(
     # Note: we should not put SPM/BPE directly here,
     # because the recog output still has individual labels,
     # so no SPM/BPE encoding on the text.
-    vocab_opts = {"class": "Vocabulary", "vocab_file": vocab, "unknown_label": None}
+    vocab_opts = {"class": "Vocabulary", "vocab_file": vocab}
+    if vocab_opts_file:
+        vocab_opts["special_symbols_via_file"] = vocab_opts_file
+    else:
+        vocab_opts["unknown_label"] = None
 
     config.update(
         {

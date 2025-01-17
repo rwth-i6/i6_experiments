@@ -57,6 +57,7 @@ def lm_framewise_prior_rescore(
     lm: ModelWithCheckpoint,
     lm_scale: float,
     vocab: tk.Path,
+    vocab_opts_file: tk.Path,
     prior: Optional[Prior] = None,
     prior_scale: float = 0.0,
     search_labels_to_labels: Optional[Callable[[RecogOutput], RecogOutput]] = None,
@@ -75,11 +76,12 @@ def lm_framewise_prior_rescore(
     :param lm: language model
     :param lm_scale: scale for the LM scores
     :param vocab: for LM labels in res / raw_res_labels
+    :param vocab_opts_file: for LM labels. contains info about EOS, BOS, etc
     :param prior:
     :param prior_scale: scale for the prior scores. this is used as the negative weight
     :param search_labels_to_labels: function to convert the search labels to the labels
     """
-    res_labels_lm_scores = lm_score(raw_res_labels, lm=lm, vocab=vocab)
+    res_labels_lm_scores = lm_score(raw_res_labels, lm=lm, vocab=vocab, vocab_opts_file=vocab_opts_file)
     scores = [(orig_scale, res), (lm_scale, res_labels_lm_scores)]
     if prior and prior_scale:
         assert search_labels_to_labels
@@ -91,18 +93,23 @@ def lm_framewise_prior_rescore(
     return combine_scores(scores)
 
 
-def lm_score(recog_output: RecogOutput, *, lm: ModelWithCheckpoint, vocab: tk.Path) -> RecogOutput:
+def lm_score(
+    recog_output: RecogOutput, *, lm: ModelWithCheckpoint, vocab: tk.Path, vocab_opts_file: tk.Path
+) -> RecogOutput:
     """
     Scores the hyps with the LM.
 
-    :param res:
+    :param recog_output:
         The format of the JSON is: {"<seq_tag>": [(score, "<text>"), ...], ...},
         i.e. the standard RETURNN search output with beam.
         We ignore the scores here and just use the text of the hyps.
     :param lm: language model
     :param vocab: labels (line-based, maybe gzipped)
+    :param vocab_opts_file: for LM labels. contains info about EOS, BOS, etc
     """
-    return rescore(recog_output=recog_output, model=lm, vocab=vocab, rescore_def=lm_rescore_def)
+    return rescore(
+        recog_output=recog_output, model=lm, vocab=vocab, vocab_opts_file=vocab_opts_file, rescore_def=lm_rescore_def
+    )
 
 
 def lm_rescore_def(*, model: rf.Module, targets: Tensor, targets_beam_dim: Dim, targets_spatial_dim: Dim, **_other):
