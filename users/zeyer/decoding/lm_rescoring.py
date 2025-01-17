@@ -106,6 +106,8 @@ def lm_score(recog_output: RecogOutput, *, lm: ModelWithCheckpoint, vocab: tk.Pa
 
 
 def lm_rescore_def(*, model: rf.Module, targets: Tensor, targets_beam_dim: Dim, targets_spatial_dim: Dim, **_other):
+    import returnn.frontend as rf
+
     targets_beam_dim  # noqa  # unused here
 
     # noinspection PyTypeChecker
