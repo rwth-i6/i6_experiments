@@ -286,6 +286,7 @@ def py():
 
         for beam_size, prior_scale, lm_scale in [
             (16, 0.5, 1.0),
+            (32, 0.5, 1.0),
         ]:
             # Note, can use diff priors: framewise using the found alignment.
             #  or label-based. label-based prior can be estimated simply by counting over the transcriptions.
