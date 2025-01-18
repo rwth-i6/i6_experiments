@@ -26,6 +26,18 @@ _ctc_model_name = (
     "-lrlin1e_5_295k-featBN-speedpertV2-spm10k-bpeSample001"
 )
 
+_dep_bound_hash_by_ctc_model_name = {
+    "v6-relPosAttDef-noBias-aedLoss"
+    "-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k"
+    "-featBN-speedpertV2-spm10k-bpeSample001": "CzG0AHg5psm5",
+    "v6-relPosAttDef"
+    "-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-maxSeqLenAudio19_5-wd1e_2-lrlin1e_5_295k"
+    "-featBN-speedpertV2-spm512-bpeSample0005": "YSvtF9CcL6WF",
+    "v6-relPosAttDef"
+    "-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-maxSeqLenAudio19_5-wd1e_2-lrlin1e_5_295k"
+    "-featBN-speedpertV2-spm128": "hD9XELdfeFO7",
+}
+
 # trafo-n32-d1024-noAbsPos-rmsNorm-ffGated-rope-noBias-drop0-b32_1k*: 34.03  -- still running...
 # trafo-n96-d512-gelu-drop0-b32_1k: 34.96
 # trafo-n24-d1024-noAbsPos-rmsNorm-ffGated-rope-noBias-drop0-b100_5k-ep40: 35.60
@@ -367,7 +379,7 @@ _called_ctc_py_once = False
 _model_cache_by_name = {}
 
 
-def _get_ctc_model(name: str) -> ModelWithCheckpoint:
+def _get_ctc_model(name: str, *, use_dependency_boundary: bool = True) -> ModelWithCheckpoint:
     # noinspection PyProtectedMember
     from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.ctc import (
         py as ctc_py,
@@ -379,15 +391,25 @@ def _get_ctc_model(name: str) -> ModelWithCheckpoint:
     if name in _model_cache_by_name:
         return _model_cache_by_name[name]
 
-    if not _called_ctc_py_once:
-        from i6_experiments.users.zeyer.utils.sis_setup import disable_register_output
+    if use_dependency_boundary:
+        from i6_experiments.common.helpers.dependency_boundary import dependency_boundary
 
-        with disable_register_output():
-            ctc_py()
-        _called_ctc_py_once = True
+        model = dependency_boundary(
+            functools.partial(_get_ctc_model, name=name, use_dependency_boundary=False),
+            hash=_dep_bound_hash_by_ctc_model_name.get(name),
+        )
 
-    exp = ctc_train_experiments[name]
-    model = exp.get_last_fixed_epoch()
+    else:
+        if not _called_ctc_py_once:
+            from i6_experiments.users.zeyer.utils.sis_setup import disable_register_output
+
+            with disable_register_output():
+                ctc_py()
+            _called_ctc_py_once = True
+
+        exp = ctc_train_experiments[name]
+        model = exp.get_last_fixed_epoch()
+
     _model_cache_by_name[name] = model
     return model
 
