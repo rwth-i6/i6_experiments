@@ -9,7 +9,7 @@ import numpy as np
 from returnn.tensor import Tensor, Dim
 import returnn.frontend as rf
 
-from sisyphus import tk
+from sisyphus import Job, Task, tk
 
 from returnn_common.datasets_old_2022_10.interface import DatasetConfig
 from i6_experiments.users.zeyer.model_interfaces import ModelDef, ModelDefWithCfg, RecogDef, ModelWithCheckpoint
@@ -337,6 +337,7 @@ def py():
 
         # Tune scales on N-best list with rescoring. (Efficient.)
         beam_size = 128
+        scales_results = {}
         for prior_scale in np.linspace(0.0, 1.0, 11):
             for lm_scale in np.linspace(0.0, 2.0, 21):
                 res = recog_model(
@@ -361,6 +362,8 @@ def py():
                     f"{prefix}/rescore-beam{beam_size}-lm_{lm_out_name}-lmScale{lm_scale}-priorScale{prior_scale}",
                     res.output,
                 )
+                scales_results[(prior_scale, lm_scale)] = res.output
+        _plot_scales(scales_results)
 
 
 _sis_prefix: Optional[str] = None
@@ -600,3 +603,51 @@ def _ctc_model_softmax_prior_returnn_forward(
     assert isinstance(log_probs, Tensor)
     probs = rf.exp(log_probs)  # the statistics take the average over this, thus prob space, not log prob
     return probs, enc_spatial_dim
+
+
+def _plot_scales(results: Dict[Tuple[float, float], tk.Path]):
+    prefix = f"{_sis_prefix}/ctc+lm"
+    plot_fn = PlotResults2DJob(x_axis_name="prior_scale", y_axis_name="lm_scale", results=results).out_plot
+    tk.register_output(f"{prefix}/plot-scales.pdf", plot_fn)
+
+
+class PlotResults2DJob(Job):
+    """
+    Plot results
+    """
+
+    __sis_version__ = 1
+
+    def __init__(self, *, x_axis_name: str, y_axis_name: str, results: Dict[Tuple[float, float], tk.Path]):
+        self.x_axis_name = x_axis_name
+        self.y_axis_name = y_axis_name
+        self.results = results
+
+        self.out_plot = self.output_path("out-plot.pdf")
+
+    def tasks(self):
+        yield Task("run", mini_task=True)
+
+    def run(self):
+        from ast import literal_eval
+        import matplotlib.pyplot as plt
+
+        xs = sorted(set(x for x, _ in self.results.keys()))
+        ys = sorted(set(y for _, y in self.results.keys()))
+        results = {k: literal_eval(open(v).read()) for k, v in self.results.items()}
+        first_res = results[next(iter(results.keys()))]
+        assert isinstance(first_res, dict)
+
+        for key_idx, key in enumerate(first_res.keys()):
+            zs = np.zeros((len(ys), len(xs)))
+            for y_idx, y in enumerate(ys):
+                for x_idx, x in enumerate(xs):
+                    zs[y_idx, x_idx] = results[(x, y)][key]
+
+            plt.subplot(len(first_res), 1, 1 + key_idx)
+            plt.contourf(xs, ys, zs)
+
+            plt.axis("scaled")
+            plt.colorbar()
+
+        plt.savefig(self.out_plot.get_path())
