@@ -49,6 +49,7 @@ class MixingDataset(CachedDataset2):
     # TODO i overcomplicated some things in the design of this, 
     1. I hyper optimized for memory usage, which makes the code very messy
     2. Because of 1, this doesnt scale well at all inside a MultiProcDataset
+    3. This supports random access, but I had to hack some stuff together because apparently other Datasets don't support that?
     """
 
     def __init__(
@@ -225,6 +226,7 @@ class MixingDataset(CachedDataset2):
                     # so just start loading them at the beginning again
                     if all(self.datasets_exhausted):
                         self.is_chooser_done = True
+                        print(f"MixingDataset: optimal mixing ratio = {child_indices[1] / max(1, child_indices[0]+child_indices[1])}", file=log.v4)
                         break
                     # the modulo operator below will wrap around
 
