@@ -5,6 +5,7 @@ from returnn.datasets.basic import Dataset, DatasetSeq, init_dataset, convert_da
 from returnn.datasets.cached2 import CachedDataset2
 import returnn.util.basic as util
 from returnn.util.basic import NumbersDict, load_json, OptionalNotImplementedError
+from i6_experiments.users.zeyer.utils.basic import make_hashable
 from random import Random
 import numpy
 import sys
@@ -60,6 +61,7 @@ class MixingDataset(CachedDataset2):
         how_to_handle_end_of_data_from_one_dataset: Union[Literal["exception"], Literal["wrap_around"], Literal["early_exit"]] = "wrap_around",
         *,
         data_key: str = "data",
+        control_dataset: str = "left",
         **kwargs,
     ):
         """
@@ -71,6 +73,7 @@ class MixingDataset(CachedDataset2):
             exception: raise an exception, this should practically never be used in training
             wrap_around: wrap around to the beginning of the dataset that is exhausted. Terminate when both datasets have terminated at least once.
             early_exit: end epoch when one dataset has been exhausted
+        :param control_dataset: which dataset is used for i.e. `get_data_dtype`
         """
         super().__init__(**kwargs)
         assert 0.0 <= mixing_ratio <= 1.0
@@ -78,13 +81,14 @@ class MixingDataset(CachedDataset2):
         self.how_to_handle_end_of_data_from_one_dataset = how_to_handle_end_of_data_from_one_dataset
         self.left_dataset = init_dataset(left_dataset, parent_dataset=self)
         self.right_dataset = init_dataset(right_dataset, parent_dataset=self)
-        self.num_inputs = self.left_dataset.num_inputs
-        self.num_outputs = self.left_dataset.num_outputs
+        self.control_dataset = self.left_dataset if control_dataset == "left" else self.right_dataset
+        self.num_inputs = make_hashable(self.left_dataset.num_inputs) # make_hashable normalizes lists/tuples to just tuples
+        self.num_outputs = make_hashable(self.left_dataset.num_outputs)
         self.labels = self.left_dataset.labels
         self.data_key = data_key
 
-        assert self.right_dataset.num_inputs == self.num_inputs
-        assert self.right_dataset.num_outputs == self.num_outputs
+        assert make_hashable(self.right_dataset.num_inputs) == self.num_inputs
+        assert make_hashable(self.right_dataset.num_outputs) == self.num_outputs
         self._reset_params()
 
     def _reset_params(self):
@@ -154,6 +158,7 @@ class MixingDataset(CachedDataset2):
 
         self.left_dataset.init_seq_order(epoch=epoch)
         self.right_dataset.init_seq_order(epoch=epoch)
+        # TODO test whether both datasets have exactly the same metadata, like dtype
         self._reset_params()
         return True
 
@@ -328,11 +333,11 @@ class MixingDataset(CachedDataset2):
         """
         :rtype: list[str]
         """
-        return self.left_dataset.get_target_list()
+        return self.control_dataset.get_target_list()
     
     def get_data_keys(self) -> List[str]:
         """data keys"""
-        return self.left_dataset.get_data_keys()
+        return self.control_dataset.get_data_keys()
 
     def _print_progress(self):
         if self.left_dataset.num_seqs > 0:
@@ -355,19 +360,19 @@ class MixingDataset(CachedDataset2):
 
     def get_data_dim(self, key: str) -> int:
         """data dim"""
-        return self.left_dataset.get_data_dim(key)
+        return self.control_dataset.get_data_dim(key)
 
     def get_data_shape(self, data_key: str) -> List[int]:
         """data shape"""
-        return self.left_dataset.get_data_shape(data_key)
+        return self.control_dataset.get_data_shape(data_key)
 
     def get_data_dtype(self, key: str) -> str:
         """data dtype"""
-        return self.left_dataset.get_data_dtype(key)
+        return self.control_dataset.get_data_dtype(key)
 
     def is_data_sparse(self, key: str) -> bool:
         """is data sparse"""
-        return self.left_dataset.is_data_sparse(key)
+        return self.control_dataset.is_data_sparse(key)
     
     def get_epoch_continuous(self, sorted_seq_idx: int) -> float:
         assert self.left_dataset.num_seqs > 0 and self.right_dataset.num_seqs > 0
