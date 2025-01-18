@@ -616,8 +616,6 @@ class PlotResults2DJob(Job):
     Plot results
     """
 
-    __sis_version__ = 1
-
     def __init__(self, *, x_axis_name: str, y_axis_name: str, results: Dict[Tuple[float, float], tk.Path]):
         self.x_axis_name = x_axis_name
         self.y_axis_name = y_axis_name
@@ -631,6 +629,7 @@ class PlotResults2DJob(Job):
     def run(self):
         from ast import literal_eval
         import matplotlib.pyplot as plt
+        import matplotlib.ticker as ticker
 
         xs = sorted(set(x for x, _ in self.results.keys()))
         ys = sorted(set(y for _, y in self.results.keys()))
@@ -638,16 +637,29 @@ class PlotResults2DJob(Job):
         first_res = results[next(iter(results.keys()))]
         assert isinstance(first_res, dict)
 
+        plt.figure(figsize=(8, 8 * len(first_res)))
+
         for key_idx, key in enumerate(first_res.keys()):
             zs = np.zeros((len(ys), len(xs)))
             for y_idx, y in enumerate(ys):
                 for x_idx, x in enumerate(xs):
                     zs[y_idx, x_idx] = results[(x, y)][key]
 
-            plt.subplot(len(first_res), 1, 1 + key_idx)
-            plt.contourf(xs, ys, zs)
+            best = np.min(zs.flatten())
+            worst_limit = best * 1.3
 
-            plt.axis("scaled")
-            plt.colorbar()
+            ax = plt.subplot(len(first_res), 1, 1 + key_idx)
+            plt.contourf(xs, ys, zs, levels=np.geomspace(best, worst_limit, 30))
+
+            ax.set_title(f"{key}")
+            ax.set_ylabel(self.y_axis_name)
+            ax.set_xlabel(self.x_axis_name)
+            ax.xaxis.set_major_locator(ticker.AutoLocator())
+            ax.xaxis.set_minor_locator(ticker.AutoMinorLocator())
+            ax.yaxis.set_major_locator(ticker.AutoLocator())
+            ax.yaxis.set_minor_locator(ticker.AutoMinorLocator())
+
+            cbar = plt.colorbar()
+            cbar.set_label("WER [%]")
 
         plt.savefig(self.out_plot.get_path())
