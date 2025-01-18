@@ -46,7 +46,8 @@ _dep_bound_hash_by_ctc_model_name = {
 # _lm_name = "trafo-n96-d512-gelu-drop0-b32_1k"
 _lms = {
     "n24-d512": "trafo-n24-d512-noAbsPos-rmsNorm-ffGated-rope-noBias-drop0-b100_5k",
-    # "n96-d512": "trafo-n96-d512-gelu-drop0-b32_1k",
+    "n96-d512": "trafo-n96-d512-gelu-drop0-b32_1k",
+    "n32-d1024": "trafo-n32-d1024-noAbsPos-rmsNorm-ffGated-rope-noBias-drop0-b32_1k",
 }
 
 
@@ -66,7 +67,8 @@ def py():
     prior = get_ctc_prior_probs(ctc_model, task.train_dataset.copy_train_as_static())
     tk.register_output(f"{prefix}/ctc-prior", prior)
 
-    for lm_out_name, lm_name in _lms.items():
+    for lm_out_name in ["n24-d512"]:  # lm_out_name, lm_name in _lms.items():
+        lm_name = _lms[lm_out_name]
         lm = _get_lm_model(lm_name)
 
         # Our own beam search implementation.
@@ -335,11 +337,12 @@ def py():
                 res.output,
             )
 
+    for lm_out_name, lm_name in _lms.items():
         # Tune scales on N-best list with rescoring. (Efficient.)
         beam_size = 128
         scales_results = {}
         for prior_scale in np.linspace(0.0, 1.0, 11):
-            for lm_scale in np.linspace(0.0, 2.0, 21):
+            for lm_scale in np.linspace(0.0, 1.0, 11):
                 res = recog_model(
                     task=task,
                     model=ctc_model,
@@ -363,7 +366,7 @@ def py():
                     res.output,
                 )
                 scales_results[(prior_scale, lm_scale)] = res.output
-        _plot_scales(scales_results)
+        _plot_scales(f"rescore-beam{beam_size}-lm_{lm_out_name}", scales_results)
 
 
 _sis_prefix: Optional[str] = None
@@ -605,10 +608,10 @@ def _ctc_model_softmax_prior_returnn_forward(
     return probs, enc_spatial_dim
 
 
-def _plot_scales(results: Dict[Tuple[float, float], tk.Path]):
+def _plot_scales(name: str, results: Dict[Tuple[float, float], tk.Path]):
     prefix = f"{_sis_prefix}/ctc+lm"
     plot_fn = PlotResults2DJob(x_axis_name="prior_scale", y_axis_name="lm_scale", results=results).out_plot
-    tk.register_output(f"{prefix}/plot-scales.pdf", plot_fn)
+    tk.register_output(f"{prefix}/{name}-plot-scales.pdf", plot_fn)
 
 
 class PlotResults2DJob(Job):
