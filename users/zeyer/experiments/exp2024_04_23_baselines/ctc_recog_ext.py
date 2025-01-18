@@ -339,6 +339,7 @@ def py():
 
     for lm_out_name, lm_name in _lms.items():
         # Tune scales on N-best list with rescoring. (Efficient.)
+        lm = _get_lm_model(lm_name)
         beam_size = 128
         scales_results = {}
         for prior_scale in np.linspace(0.0, 1.0, 11):
