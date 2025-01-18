@@ -226,9 +226,9 @@ class MixingDataset(CachedDataset2):
                     # so just start loading them at the beginning again
                     if all(self.datasets_exhausted):
                         self.is_chooser_done = True
-                        c1 = child_indices[0] / max(1, child_lens[0])
-                        c2 = child_indices[1] / max(1, child_lens[1])
-                        print(f"MixingDataset: optimal mixing ratio = {(self.datalens[1] / c1) / max(1, self.datalens[0]/c1 + self.datalens[1]/c2)}", file=log.v4)
+                        c0 = child_indices[0] / max(1, child_lens[0])
+                        c1 = child_indices[1] / max(1, child_lens[1])
+                        print(f"MixingDataset: optimal mixing ratio = {(self.datalens[1] / c1) / max(1, self.datalens[0]/c0 + self.datalens[1]/c1)}", file=log.v4)
                         break
                     # the modulo operator below will wrap around
 
