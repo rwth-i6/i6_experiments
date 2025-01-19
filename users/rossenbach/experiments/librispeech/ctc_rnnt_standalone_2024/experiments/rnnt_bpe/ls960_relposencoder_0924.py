@@ -14,7 +14,7 @@ from ...data.bpe import build_bpe_training_datasets, get_text_lexicon
 from ...default_tools import RETURNN_EXE, MINI_RETURNN_ROOT
 from ...lm import get_4gram_binary_lm
 from ...pipeline import training, prepare_asr_model, search, ASRModel
-from ...storage import get_ctc_model
+from ...storage import get_ctc_model, add_rnnt_model
 
 
 def rnnt_bpe_ls960_0924_relposencoder():
@@ -255,3 +255,9 @@ def rnnt_bpe_ls960_0924_relposencoder():
             beam_size=10,
             use_gpu=True,
         )
+        
+        asr_model.lexicon = get_text_lexicon(prefix=prefix_name, librispeech_key="train-other-960", bpe_size=BPE_SIZE)
+        asr_model.returnn_vocab = label_datastream_bpe.vocab
+        asr_model.settings = train_settings
+        asr_model.label_datastream = label_datastream_bpe
+        add_rnnt_model(network_module + f".bpe{BPE_SIZE}.512dim_sub6_24gbgpu_100eps_accum1_gradclip_fullspec11_sp_morel2", asr_model)

@@ -1,9 +1,6 @@
 import shutil
 import subprocess as sp
 import sys
-from typing import Optional
-
-from optuna import Trial
 
 from i6_core import util
 from i6_core.returnn.config import ReturnnConfig

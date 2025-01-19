@@ -181,6 +181,12 @@ class PlotAttentionWeightsJob(Job):
 
 
 class PlotAttentionWeightsJobV2(Job):
+  font_size_small = 16
+  font_size_medium = 20
+  font_size_large = 32
+
+  pt_to_inches = 1 / 72.27
+
   def __init__(
           self,
           att_weight_hdf: Union[Path, List[Path]],
@@ -197,8 +203,9 @@ class PlotAttentionWeightsJobV2(Job):
           ref_alignment_json_vocab_path: Optional[Path] = None,
           plot_w_cog: bool = True,
           titles: Optional[List[str]] = None,
-          vmin: Optional[Union[Dict, int, float]] = None,
-          vmax: Optional[Union[Dict, int, float]] = None,
+          vmin: Optional[Union[Dict, int, float]] = 0.0,
+          vmax: Optional[Union[Dict, int, float]] = 1.0,
+          scale: float = 1.0,
   ):
     assert target_blank_idx is None or (seg_lens_hdf is not None and seg_starts_hdf is not None)
     self.seg_lens_hdf = seg_lens_hdf
@@ -208,6 +215,7 @@ class PlotAttentionWeightsJobV2(Job):
     self.titles = titles
     self.vmin = vmin
     self.vmax = vmax
+    self.scale = scale
 
     if isinstance(att_weight_hdf, list):
       self.att_weight_hdf = att_weight_hdf[0]
@@ -296,7 +304,7 @@ class PlotAttentionWeightsJobV2(Job):
     )
 
   @staticmethod
-  def _get_fig_ax(att_weights_: List[np.ndarray], upsampling_factor: int = 1):
+  def _get_fig_ax(att_weights_: List[np.ndarray], upsampling_factor: int = 1, scale: float = 1.0):
     """
       Initialize the figure and axis for the plot.
     """
@@ -310,7 +318,11 @@ class PlotAttentionWeightsJobV2(Job):
       fig_height = fig_width
     else:
       fig_width = 7 * num_frames / 50
-      fig_height = num_labels * 0.18 + 2.0 #  - 1 (-1 can be too large, leading to negative values)
+      # y size is the number of labels times the font size times the scale factor
+      fig_height = (
+              num_labels * PlotAttentionWeightsJobV2.font_size_small *
+              PlotAttentionWeightsJobV2.pt_to_inches * 1.05 + 3.0
+      ) * scale
       # if num_frames < 32:
       #   width_factor = 4
       #   height_factor = 2
@@ -357,6 +369,7 @@ class PlotAttentionWeightsJobV2(Job):
           upsample_factor: int = 1,
           use_time_axis: bool = True,
           use_ref_axis: bool = True,
+          scale: float = 1.0,
   ):
     """
       Set the ticks and labels for the x and y axis.
@@ -382,7 +395,7 @@ class PlotAttentionWeightsJobV2(Job):
       else:
         xticks = vertical_lines
       ax.set_xticks(xticks)
-      ax.set_xticklabels(ref_labels, rotation=90, fontsize=16)
+      ax.set_xticklabels(ref_labels, rotation=90, fontsize=PlotAttentionWeightsJobV2.font_size_small * scale)
       ax.tick_params(axis="x", bottom=False, top=True, labelbottom=False, labeltop=True)
 
       # ax.set_xlabel("Reference Alignment", fontsize=14)
@@ -401,10 +414,10 @@ class PlotAttentionWeightsJobV2(Job):
       # Set the ticks and labels for the secondary y-axis
       time_axis.set_xticks(time_ticks)
       xtick_labels = [(time_tick * 60 / upsample_factor) / 1000 for time_tick in time_ticks]
-      time_axis.set_xticklabels([f"{label:.1f}" for label in xtick_labels], fontsize=16)
+      time_axis.set_xticklabels([f"{label:.1f}" for label in xtick_labels], fontsize=PlotAttentionWeightsJobV2.font_size_small * scale)
       # time_axis.set_xticks([])  # no time ticks
 
-      time_axis.set_xlabel("Time (s) ($\\rightarrow$)", fontsize=26)
+      time_axis.set_xlabel("Time (s) ($\\rightarrow$)", fontsize=PlotAttentionWeightsJobV2.font_size_large * scale)
       # ----
 
     # output labels of the model
@@ -414,7 +427,7 @@ class PlotAttentionWeightsJobV2(Job):
     # y axis
     yticks = [tick for tick in range(len(labels))]
     ax.set_yticks(yticks)
-    ax.set_yticklabels(labels, fontsize=13)
+    ax.set_yticklabels(labels, fontsize=PlotAttentionWeightsJobV2.font_size_small * scale)
 
     # horizontal lines to separate labels on y axis
     for ytick in yticks:
@@ -456,6 +469,7 @@ class PlotAttentionWeightsJobV2(Job):
   def _draw_center_positions(
           ax: plt.Axes,
           center_positions: np.ndarray,
+          upsample_factor: int = 1,
   ):
     """
       Draw green delimiters to indicate center positions
@@ -465,7 +479,7 @@ class PlotAttentionWeightsJobV2(Job):
       ymin = i / num_labels
       ymax = (i + 1) / num_labels
       ax.axvline(x=center_position - .5, ymin=ymin, ymax=ymax, color="lime")
-      ax.axvline(x=center_position + .5, ymin=ymin, ymax=ymax, color="lime")
+      ax.axvline(x=center_position + 0.5 + 1.0 * (upsample_factor - 1), ymin=ymin, ymax=ymax, color="lime")
 
   @staticmethod
   def plot_ctc_alignment(
@@ -505,6 +519,7 @@ class PlotAttentionWeightsJobV2(Job):
     with open(self.json_vocab_path.get_path(), "r", encoding="utf-8") as f:
       json_data = f.read()
       target_vocab = ast.literal_eval(json_data)  # label -> idx
+      # switch keys and values and replace EOS token by "$$\\texttt{EOS}$$" (as in my thesis)
       target_vocab = {v: k for k, v in target_vocab.items()}  # idx -> label
       # if we have a target blank idx, we replace the EOS symbol in the vocab with "<b>"
       if self.target_blank_idx is not None:
@@ -586,7 +601,7 @@ class PlotAttentionWeightsJobV2(Job):
 
         att_weights_list[i] = att_weights_
 
-      fig, axes = self._get_fig_ax(att_weights_list, upsampling_factor=(upsampling_factor // 2) if upsampling_factor > 1 else 1)
+      fig, axes = self._get_fig_ax(att_weights_list, upsampling_factor=(upsampling_factor // 2) if upsampling_factor > 1 else 1, scale=self.scale)
 
       # vmin = None if self.vmin is None else self.vmin[seq_tag]
       vmin = self.vmin
@@ -610,7 +625,7 @@ class PlotAttentionWeightsJobV2(Job):
 
         if self.titles is not None:
           assert len(self.titles) == len(axes)
-          ax.set_title(self.titles[i], fontsize=20)
+          ax.set_title(self.titles[i], fontsize=PlotAttentionWeightsJobV2.font_size_large * self.scale, pad=20)
 
         if self.plot_w_color_gradient:
           gradient = np.linspace(0, 1, att_weights.shape[1])
@@ -626,16 +641,18 @@ class PlotAttentionWeightsJobV2(Job):
           ref_vocab=ref_vocab,
           ref_alignment_blank_idx=self.ref_alignment_blank_idx,
           target_blank_idx=self.target_blank_idx,
-          use_segment_center_as_label_position=upsampling_factor > 1,
+          # a bit ugly but this is currently the only situation where we have a segmental ref alignment
+          use_segment_center_as_label_position="GmmAlignmentToWordBoundaries" in self.ref_alignment_hdf.get_path(),
           upsample_factor=upsampling_factor,
           use_time_axis=i == len(axes) - 1,
           use_ref_axis=i == 0 and ref_alignment is not None,
-          time_len=att_weights.shape[1]
+          time_len=att_weights.shape[1],
+          scale=self.scale,
         )
         if seg_starts is not None:
           self._draw_segment_boundaries(ax, seg_starts, seg_lens, att_weights)
         if center_positions is not None:
-          self._draw_center_positions(ax, center_positions)
+          self._draw_center_positions(ax, center_positions, upsample_factor=upsampling_factor)
 
         ax.invert_yaxis()
 
@@ -648,11 +665,16 @@ class PlotAttentionWeightsJobV2(Job):
       # use single colorbar if vmin and vmax are set
       if self.vmin is not None and self.vmax is not None:
         fig.subplots_adjust(right=0.9)
-        cbar_ax = fig.add_axes([0.91, 0.15, 0.02, 0.7])
+        cbar_ax = fig.add_axes([
+          0.91,
+          0.5 - (0.4 / len(axes)),
+          0.02,
+          0.8 / len(axes)
+        ])
         cbar = fig.colorbar(mat, cax=cbar_ax)
-        cbar.ax.tick_params(labelsize=16)
+        cbar.ax.tick_params(labelsize=self.font_size_medium * self.scale)
 
-      fig.text(0.01, 0.5, 'Output Labels ($\\rightarrow$)', va='center', rotation='vertical', fontsize=26)
+      fig.text(0.07, 0.5, 'Output Labels ($\\rightarrow$)', va='center', rotation='vertical', fontsize=PlotAttentionWeightsJobV2.font_size_large * self.scale)
 
       dirname = self.out_plot_dir.get_path()
       if seq_tag.startswith("dev-other"):
@@ -706,10 +728,12 @@ class PlotAttentionWeightsJobV2(Job):
       d.pop("plot_w_cog")
     if d["titles"] is None:
       d.pop("titles")
-    if d["vmin"] is None:
+    if d["vmin"] == 0.0:
       d.pop("vmin")
-    if d["vmax"] is None:
+    if d["vmax"] == 1.0:
       d.pop("vmax")
+    if d["scale"] == 1.0:
+      d.pop("scale")
 
     return super().hash(d)
 
@@ -1127,8 +1151,8 @@ def plot_att_weights(
         ref_alignment_json_vocab_path: Optional[Path] = None,
         plot_name: str = "plots",
         plot_w_color_gradient: bool = False,
-        vmin: Optional[Dict] = None,
-        vmax: Optional[Dict] = None,
+        vmin: Optional[Dict] = 0.0,
+        vmax: Optional[Dict] = 1.0,
 ):
   plot_att_weights_job = PlotAttentionWeightsJobV2(
     att_weight_hdf=att_weight_hdf,

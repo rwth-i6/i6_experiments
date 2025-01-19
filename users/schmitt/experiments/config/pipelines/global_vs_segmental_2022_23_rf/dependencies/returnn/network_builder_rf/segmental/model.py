@@ -53,7 +53,8 @@ class SegmentalAttentionModel(rf.Module):
           att_dropout: float = 0.1,
           l2: float = 0.0001,
           language_model: Optional[RFModelWithMakeLabelScorer] = None,
-          aed_model: Optional[GlobalAttentionModel] = None,
+          external_aed_model_kwargs: Optional[Dict] = None,
+          external_transducer_kwargs: Optional[Dict] = None,
           enc_in_dim: Dim,
           enc_out_dim: Dim = Dim(name="enc", dimension=512),
           enc_num_layers: int = 12,
@@ -317,8 +318,6 @@ class SegmentalAttentionModel(rf.Module):
       self.language_model = None
       self.language_model_make_label_scorer = None
 
-    self.aed_model = aed_model
-
     self.blank_idx = blank_idx
     self.center_window_size = center_window_size
     self.window_step_size = window_step_size
@@ -331,6 +330,51 @@ class SegmentalAttentionModel(rf.Module):
     self.use_joint_model = use_joint_model
     self.blank_decoder_version = blank_decoder_version
     self.label_decoder_state = label_decoder_state
+
+    if external_aed_model_kwargs:
+      self.aed_model = GlobalAttentionModel(
+        enc_in_dim=enc_in_dim,
+        enc_ff_dim=enc_ff_dim,
+        enc_key_total_dim=enc_key_total_dim,
+        enc_num_heads=8,
+        target_dim=target_dim,
+        blank_idx=target_dim.dimension,
+        feature_extraction_opts=feature_extraction_opts,
+        eos_idx=0,
+        bos_idx=0,
+        enc_aux_logits=(),
+        encoder_layer_opts=encoder_layer_opts,
+        use_mini_att=use_mini_att,
+      )
+    else:
+      self.aed_model = None
+
+    if external_transducer_kwargs:
+      self.external_transducer_model = SegmentalAttentionModel(
+        enc_in_dim=enc_in_dim,
+        enc_ff_dim=enc_ff_dim,
+        enc_key_total_dim=enc_key_total_dim,
+        enc_num_heads=8,
+        target_dim=target_dim,
+        blank_idx=target_dim.dimension,
+        feature_extraction_opts=feature_extraction_opts,
+        enc_aux_logits=(),
+        encoder_layer_opts=encoder_layer_opts,
+        center_window_size=center_window_size,
+        blank_decoder_version=blank_decoder_version,
+        length_model_state_dim=length_model_state_dim,
+        length_model_embed_dim=length_model_embed_dim,
+        use_att_ctx_in_state=use_att_ctx_in_state,
+        use_weight_feedback=use_weight_feedback,
+        label_decoder_state=label_decoder_state,
+        window_step_size=window_step_size,
+        use_vertical_transitions=use_vertical_transitions,
+        align_target_dim=align_target_dim,
+        blank_decoder_opts=blank_decoder_opts,
+        use_mini_att=use_mini_att,
+      )
+    else:
+      self.external_transducer_model = None
 
     apply_weight_dropout(self)
 
@@ -367,7 +411,8 @@ class MakeModel:
           *,
           center_window_size: int,
           language_model: Optional[Dict[str, Any]] = None,
-          aed_model_kwargs: Optional[Dict[str, Any]] = None,
+          external_aed_kwargs: Optional[Dict[str, Any]] = None,
+          external_transducer_kwargs: Optional[Dict[str, Any]] = None,
           use_att_ctx_in_state: bool,
           blank_decoder_version: int,
           blank_decoder_opts: Optional[Dict[str, Any]] = None,
@@ -399,23 +444,6 @@ class MakeModel:
       lm = trafo_lm.MakeModel(vocab_dim=target_dim, **language_model)()
       lm = (lm, functools.partial(trafo_lm.make_time_sync_label_scorer_torch, model=lm, align_target_dim=align_target_dim))
 
-    if aed_model_kwargs:
-      aed_model = GlobalAttentionModel(
-        enc_in_dim=in_dim,
-        enc_ff_dim=Dim(name="enc-ff", dimension=enc_ff_dim, kind=Dim.Types.Feature),
-        enc_key_total_dim=Dim(name="enc_key_total_dim", dimension=enc_key_total_dim),
-        enc_num_heads=8,
-        target_dim=target_dim,
-        blank_idx=target_dim.dimension,
-        feature_extraction_opts=feature_extraction_opts,
-        eos_idx=0,
-        bos_idx=0,
-        enc_aux_logits=(),
-        encoder_layer_opts=extra["encoder_layer_opts"],
-      )
-    else:
-      aed_model = None
-
     return SegmentalAttentionModel(
       enc_in_dim=in_dim,
       enc_ff_dim=Dim(name="enc-ff", dimension=enc_ff_dim, kind=Dim.Types.Feature),
@@ -425,7 +453,7 @@ class MakeModel:
       align_target_dim=align_target_dim,
       blank_idx=0 if use_joint_model else target_dim.dimension,
       language_model=lm,
-      aed_model=aed_model,
+      external_aed_model_kwargs=external_aed_kwargs,
       length_model_state_dim=Dim(name="length_model_state", dimension=128, kind=Dim.Types.Feature),
       length_model_embed_dim=Dim(name="length_model_embed", dimension=128, kind=Dim.Types.Feature),
       center_window_size=center_window_size,
@@ -442,6 +470,7 @@ class MakeModel:
       use_current_frame_in_readout=use_current_frame_in_readout,
       target_embed_dim=target_embed_dim,
       feature_extraction_opts=feature_extraction_opts,
+      external_transducer_kwargs=external_transducer_kwargs,
       **extra,
     )
 
@@ -474,7 +503,7 @@ def from_scratch_model_def(
   trafo_decoder_opts = config.typed_value("trafo_decoder_opts", None)
   use_trafo_att = config.bool("use_trafo_att", False)
 
-  aed_model_kwargs = config.typed_value("external_aed_kwargs", None)
+  external_transducer_kwargs = config.typed_value("external_transducer_kwargs", None)
 
   common_config_params = get_common_config_params()
   in_dim = common_config_params.pop("in_dim")
@@ -499,7 +528,7 @@ def from_scratch_model_def(
     use_current_frame_in_readout_random=use_current_frame_in_readout_random,
     trafo_decoder_opts=trafo_decoder_opts,
     use_trafo_att=use_trafo_att,
-    aed_model_kwargs=aed_model_kwargs,
+    external_transducer_kwargs=external_transducer_kwargs,
     **common_config_params,
   )
 

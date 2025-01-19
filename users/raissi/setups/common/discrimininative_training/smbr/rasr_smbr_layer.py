@@ -120,7 +120,7 @@ def _get_smbr_crp(
     config.lattice_processor.rescoring.combined_lm_rescorers = "lm-rescorer"
     config.lattice_processor.rescoring.lm_rescorer.fall_back_value = 10000
     config.lattice_processor.rescoring.pass_extractors = "tdps,accuracy"
-    config.lattice_processor.rescoring.segmentwise_feature_extraction.feature_extraction.file = "/work/asr4/raissi/setups/librispeech/960-ls/dependencies/data/train.ss.feature.flow"
+    config.lattice_processor.rescoring.segmentwise_feature_extraction.feature_extraction.file = feature_flow
 
 
     # Parameters for Am::ClassicAcousticModel
@@ -184,7 +184,14 @@ def _generate_lattices(
     assert search_parameters.lm_scale > 0
 
     crp = copy.deepcopy(crp)
-    assert crp.acoustic_model_config.tdp.applicator_type == "corrected", "you are using the buggy FSA for alignment"
+    assert crp.acoustic_model_config.tdp.applicator_type == "corrected", "you are using the buggy FSA for alignment when generating lattices"
+
+    name = (f"Am{feature_scorer.config.scale}"
+            f"TDP{search_parameters.tdp_scale}"
+            f"LM{search_parameters.lm_scale}"
+            f"PRIOR{search_parameters.prior_info.diphone_prior.scale}"
+            f"BEAM{search_parameters.beam}"
+            f"WE{search_parameters.we_pruning}")
 
 
     if crp.lexicon_config.normalize_pronunciation and search_parameters.pron_scale is not None:
@@ -193,7 +200,6 @@ def _generate_lattices(
     else:
         model_combination_cfg = None
 
-
     num_lattice = discriminative_training.NumeratorLatticeJob(
         crp=crp,
         feature_flow=feature_flow,
@@ -201,6 +207,8 @@ def _generate_lattices(
         rtf=2,
     )
     num_lattice.rqmt["cpu"] = 1
+    num_lattice.add_alias(f"lattices/{name}/numerator")
+
     raw_den_lattice = discriminative_training.RawDenominatorLatticeJob(
         crp=crp,
         feature_flow=feature_flow,
@@ -215,6 +223,8 @@ def _generate_lattices(
         rtf=10,
     )
     raw_den_lattice.rqmt["cpu"] = 1
+    raw_den_lattice.add_alias(f"lattices/{name}/raw_denominator")
+
     den_lattice = discriminative_training.DenominatorLatticeJob(
         crp=crp,
         numerator_path=num_lattice.lattice_path,
@@ -223,6 +233,8 @@ def _generate_lattices(
     )
 
     den_lattice.rqmt["cpu"] = 1
+    den_lattice.add_alias(f"lattices/{name}/denominator")
+
     alignment_options = None
 
     state_acc = discriminative_training.StateAccuracyJob(
@@ -233,6 +245,7 @@ def _generate_lattices(
         alignment_options=alignment_options,
         rtf=2,
     )
+    state_acc.add_alias(f"lattices/{name}/accuracy")
     state_acc.rqmt["cpu"] = 1
 
     return StateAccuracyLatticeAndAlignment(
@@ -287,8 +300,6 @@ def augment_for_smbr(
         lm_path=(Path(training_lm, cached=True) if isinstance(training_lm, str) else training_lm),
         scale=training_search_parameters.lm_scale,
     ).get()
-
-
 
     config, post_config = _get_smbr_crp(
         alignment_and_lattices=lattice_data,

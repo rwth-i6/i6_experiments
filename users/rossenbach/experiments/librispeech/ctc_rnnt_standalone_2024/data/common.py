@@ -234,3 +234,27 @@ def build_test_dataset(
     )
 
     return test_dataset, bliss_dict[dataset_key]
+
+def build_test_dataset_from_zip(
+    ogg_zip: tk.Path,
+    settings: DatasetSettings,
+) -> Tuple[Dataset, tk.Path]:
+    """
+    Create ASR test set that only contains the audio stream
+
+    :param ogg_zip:
+    :param settings: settings object for the RETURNN data pipeline
+    :return: test dataset
+    """
+    audio_datastream = get_audio_raw_datastream(settings.preemphasis, settings.peak_normalization)
+
+    data_map = {"raw_audio": ("zip_dataset", "data")}
+
+    test_zip_dataset = OggZipDataset(
+        files=[ogg_zip], audio_options=audio_datastream.as_returnn_audio_opts(), seq_ordering="sorted_reverse"
+    )
+    test_dataset = MetaDataset(
+        data_map=data_map, datasets={"zip_dataset": test_zip_dataset}, seq_order_control_dataset="zip_dataset"
+    )
+
+    return test_dataset

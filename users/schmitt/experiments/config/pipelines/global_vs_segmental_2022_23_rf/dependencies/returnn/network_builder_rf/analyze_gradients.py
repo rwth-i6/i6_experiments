@@ -222,6 +222,7 @@ def _plot_log_prob_gradient_wrt_to_input_batched(
 
     # zero grad before next step
     input_raw.grad.zero_()
+    log_probs_sum_raw.grad.zero_()
 
   x_linear_grad_l2_raw = torch.stack(s_gradients, dim=1)[:, :, :, None]
 
@@ -255,7 +256,9 @@ def _plot_log_prob_gradient_wrt_to_input_batched(
       json_vocab_path=json_vocab_path,
       segment_whitelist=list(seq_tags.raw_tensor),
       plot_name=dirname,
-      plot_w_color_gradient=config.bool("debug", False)
+      plot_w_color_gradient=config.bool("debug", False),
+      vmin=None,
+      vmax=None,
     )
 
 
@@ -1396,6 +1399,8 @@ def analyze_gradients(
 
     if isinstance(model.encoder, ConformerEncoder) and config.bool("plot_encoder_layers", False):
       for enc_layer_idx in range(len(model.encoder.layers)):
+        if os.path.exists(f"enc-{enc_layer_idx}"):
+          continue
         print(f"Processing encoder layer {enc_layer_idx}")
         # plot self-attention queries, keys and values
         # for tensor_var_name, tensor_name in [
@@ -1608,6 +1613,8 @@ def analyze_gradients(
             model.encoder.inv_fertility(enc))  # does not exist for transformer decoder
         else:
           enc_args["inv_fertility"] = None  # dummy value, not used
+      else:
+        enc_args.update({"enc_ctx": None, "inv_fertility": None})
 
       if isinstance(model.label_decoder, SegmentalAttLabelDecoder):
         dump_hdfs(
@@ -2303,7 +2310,7 @@ def analyze_gradients(
         ("x_linear", x_linear),
       ]
       if isinstance(model, GlobalAttentionModel):
-        tensors.append((f"enc_ctx-{enc_layer_idx}", enc_args["enc_ctx"]))
+        tensors.append((f"enc_ctx-{enc_layer_idx}", att_enc_args["enc_ctx"]))
       elif "enc_ctx" in att_enc_args and energies is not None and not model.att_encoder:
         tensors.append((f"enc_ctx-{enc_layer_idx}", att_enc_args["enc_ctx"]))
 
@@ -2477,7 +2484,9 @@ def analyze_gradients(
             ref_alignment_json_vocab_path=ref_alignment_vocab_path,
             json_vocab_path=json_vocab_path,
             segment_whitelist=list(seq_tags.raw_tensor),
-            plot_name=tensor_dirname
+            plot_name=tensor_dirname,
+            vmin=0.0 if tensor_name == "att_weights" else None,
+            vmax=1.0 if tensor_name == "att_weights" else None,
           )
 
       # _info_mixing_analysis(

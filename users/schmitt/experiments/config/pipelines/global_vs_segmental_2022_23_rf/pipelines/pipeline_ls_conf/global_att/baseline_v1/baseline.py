@@ -20,6 +20,7 @@ def global_att_baseline_rf(
         use_feed_forward_encoder: bool = False,
         hard_att_opts: Optional[Dict] = None,
         conv_frontend_w_zero_padding: bool = False,
+        replace_att_by_h_s: bool = False,
 ):
   alias, config_builder = get_global_att_config_builder_rf(
     use_weight_feedback=use_weight_feedback,
@@ -36,7 +37,8 @@ def global_att_baseline_rf(
     conformer_conv_w_zero_padding=conformer_conv_w_zero_padding,
     use_feed_forward_encoder=use_feed_forward_encoder,
     hard_att_opts=hard_att_opts,
-    conv_frontend_w_zero_padding=conv_frontend_w_zero_padding
+    conv_frontend_w_zero_padding=conv_frontend_w_zero_padding,
+    replace_att_by_h_s=replace_att_by_h_s,
   )
   alias = f"{base_alias}/baseline_rf/{alias}"
   yield alias, config_builder

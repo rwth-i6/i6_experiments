@@ -29,6 +29,7 @@ def get_global_att_config_builder_rf(
         use_feed_forward_encoder: bool = False,
         hard_att_opts: Optional[dict] = None,
         conv_frontend_w_zero_padding: bool = False,
+        replace_att_by_h_s: bool = False,
 ):
   if label_type == "bpe10025":
     dependencies = LibrispeechBPE10025_LABELS
@@ -72,14 +73,16 @@ def get_global_att_config_builder_rf(
     conformer_conv_w_zero_padding=conformer_conv_w_zero_padding,
     use_feed_forward_encoder=use_feed_forward_encoder,
     hard_att_opts=hard_att_opts,
-    conv_frontend_w_zero_padding=conv_frontend_w_zero_padding
+    conv_frontend_w_zero_padding=conv_frontend_w_zero_padding,
+    replace_att_by_h_s=replace_att_by_h_s,
   )
 
   alias = (
     f"{label_type}/"
     f"{'w' if use_weight_feedback else 'wo'}-weight-feedback/"
     f"{'w' if use_att_ctx_in_state else 'wo'}-att-ctx-in-state/"
-    f"{decoder_state}{'_att_keys_from_' + enc_ctx_layer if enc_ctx_layer is not None else ''}/"
+    f"{decoder_state}{'_att_keys_from_' + enc_ctx_layer if enc_ctx_layer is not None else ''}"
+    f"{'_replace_att_by_h_s/' if replace_att_by_h_s else ''}/"
   )
 
   alias += f"{conformer_num_layers}-layer_{conformer_out_dim}-dim_"

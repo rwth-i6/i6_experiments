@@ -58,11 +58,6 @@ class BlstmPoolingEncoder(nn.Module):
             dropout=self.dropout,
         ))
 
-        # Dropout after last BLSTM layer, before final_linear
-        self.blstm_stack.append(nn.Dropout(
-            p=self.dropout,
-        ))
-
     def forward(self, x: torch.Tensor, seq_len: torch.Tensor):
         if not torch.jit.is_scripting() and not torch.jit.is_tracing():
             # during graph mode we have to assume all Tensors are on the correct device,
@@ -81,10 +76,10 @@ class BlstmPoolingEncoder(nn.Module):
             if isinstance(module, nn.LSTM):
                 blstm_packed_in, _ = module(blstm_packed_in)
             elif isinstance(module, nn.Dropout):
-                # Assumes that this is preceded by a BLSTM layer and followed by a MaxPool1d layer or the end of the stack
+                # Assumes that this is preceded by a BLSTM layer and followed by a MaxPool1d layer
                 blstm_padded, seq_lens_before_pooling = nn.utils.rnn.pad_packed_sequence(blstm_packed_in, padding_value=0.0, batch_first=True)
                 blstm_padded = module(blstm_padded)
-                # Not re-packed here, because MaxPool1d or the end of the stack is following
+                # Not re-packed here, because MaxPool1d is following
             elif isinstance(module, nn.MaxPool1d):
                 blstm_padded = blstm_padded.permute(0, 2, 1)  # Pool along sequence length
                 blstm_pooled = module(blstm_padded)
@@ -99,9 +94,7 @@ class BlstmPoolingEncoder(nn.Module):
             else:
                 raise NotImplementedError
 
-        # Final layer was dropout
-        blstm_out = blstm_padded
-        subsampled_seq_len = seq_lens_before_pooling
+        blstm_out, subsampled_seq_len = nn.utils.rnn.pad_packed_sequence(blstm_packed_in, padding_value=0.0, batch_first=True)
 
         return blstm_out, subsampled_seq_len
 
@@ -166,6 +159,10 @@ def train_step(*, model: Model, data, run_ctx, **kwargs):
     raw_audio = data["raw_audio"]  # [B, T', F]
     raw_audio_len = data["raw_audio:size1"].to("cpu")  # [B]
 
+    raw_audio_len, indices = torch.sort(raw_audio_len, descending=True)
+    raw_audio = raw_audio[indices, :, :]
+    seq_tags = [data["seq_tag"][i] for i in indices]
+
     logprobs, audio_features_len = model(
         raw_audio=raw_audio,
         raw_audio_len=raw_audio_len,
@@ -173,7 +170,7 @@ def train_step(*, model: Model, data, run_ctx, **kwargs):
 
     am_scaled_logprobs = logprobs.mul(model.cfg.am_scale)
 
-    weighted_fsa = model.builder.build_batch(data["seq_tag"]).to(run_ctx.device)
+    weighted_fsa = model.builder.build_batch(seq_tags).to(run_ctx.device)
 
     from i6_native_ops.fbw import fbw_loss
     fbw_loss = fbw_loss(am_scaled_logprobs, weighted_fsa, audio_features_len)

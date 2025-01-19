@@ -951,7 +951,8 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
         ], "triphone state tying not possible in precomputed feature scorer due to memory constraint"
 
         if softmax_type == SingleSoftmaxType.TRAIN:
-            assert cv_corpus_key_for_train is not None, "you need to specify the cv corpus for fullsum training"
+            if self.training_criterion == TrainingCriterion.FULLSUM:
+                assert cv_corpus_key_for_train is not None, "you need to specify the cv corpus for fullsum training"
             """
             assert self.training_criterion in [
                 TrainingCriterion.FULLSUM,
@@ -1174,6 +1175,8 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
 
         if model_path is None:
             model_path = self.get_model_checkpoint(self.experiments[key]["train_job"], epoch)
+
+
 
         recognizer = self.recognizers[recognizer_key](
             name=name,
@@ -1494,16 +1497,19 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
         num_encoder_output: int,
         recog_args: SearchParameters,
         lm_scale: float,
+        altas_transition:float = 2.0,
         context_type: PhoneticContext = None,
         feature_scorer_type: RasrFeatureScorer = None,
         tdp_scales: List = None,
         prior_scales: List = None,
+        pron_scales: List = None,
         transition_loop_sil: List = None,
         transition_loop_speech: List = None,
         transition_exit_sil: List = None,
         transition_exit_speech: List = None,
         use_heuristic_tdp: bool = False,
         extend: bool = True,
+        use_speech_tdp_for_nonword: bool = True,
     ) -> SearchParameters:
 
         assert self.experiments[key]["decode_job"]["runner"] is not None, "Please set the recognizer"
@@ -1525,6 +1531,14 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
                             [v for v in np.arange(0.1, 0.6, 0.1).round(1)],
                         )
                     )
+                elif context_type == PhoneticContext.diphone:
+                    prior_scales = list(
+                        itertools.product(
+                            [v for v in np.arange(0.1, 0.7, 0.1).round(1)],
+                            [v for v in np.arange(0.1, 0.7, 0.1).round(1)],
+                        )
+                    )
+
                 else:
                     raise NotImplementedError("You were not supposed to run monophone decoding with factored decoder")
             else:
@@ -1545,6 +1559,7 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
             sil_tdp = (11.0, 0.0, "infinity", 20.0)
             sp_tdp = (8.0, 0.0, "infinity", 0.0)
 
+
         best_config_scales = recognizer.recognize_optimize_scales_v2(
             label_info=self.label_info,
             search_parameters=tune_args,
@@ -1553,9 +1568,10 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
             altas_beam=16.0,
             tdp_sil=[sil_tdp],
             tdp_speech=[sp_tdp],
-            tdp_nonword=[sp_tdp],
+            tdp_nonword=[sp_tdp if use_speech_tdp_for_nonword else sil_tdp],
             prior_scales=prior_scales,
             tdp_scales=tdp_scales,
+            pron_scales=pron_scales,
         )
 
         if use_heuristic_tdp:
@@ -1592,6 +1608,7 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
             label_info=self.label_info,
             search_parameters=best_config_scales,
             num_encoder_output=num_encoder_output,
+            altas_value=altas_transition,
             altas_beam=16.0,
             tdp_sil=nnsp_tdp,
             tdp_speech=sp_tdp,

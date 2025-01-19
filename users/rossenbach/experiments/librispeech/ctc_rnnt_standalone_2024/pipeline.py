@@ -18,11 +18,12 @@ from i6_core.returnn.training import ReturnnTrainingJob, AverageTorchCheckpoints
 from i6_core.returnn.forward import ReturnnForwardJobV2
 
 from i6_experiments.common.setups.returnn.datasets import Dataset
+from i6_experiments.common.setups.returnn.datastreams.vocabulary import LabelDatastream
 from i6_experiments.users.rossenbach.tts.evaluation.nisqa import NISQAMosPredictionJob
 
 from .config import get_forward_config, get_training_config, get_prior_config, TrainingDatasets
 from .default_tools import SCTK_BINARY_PATH, RETURNN_EXE, MINI_RETURNN_ROOT, NISQA_REPO
-
+from .data.common import DatasetSettings
 
 @dataclass
 class ASRModel:
@@ -31,6 +32,11 @@ class ASRModel:
     network_module: str
     prior_file: Optional[tk.Path]
     prefix_name: Optional[str]
+    # Those are needed if we directly want to decode with the model
+    returnn_vocab: Optional[tk.Path] = None
+    label_datastream: Optional[LabelDatastream] = None
+    lexicon: Optional[tk.Path] = None
+    settings: Optional[DatasetSettings] = None
 
 @dataclass
 class NeuralLM:
@@ -81,7 +87,7 @@ def search_single(
         mem_rqmt=mem_rqmt,
         time_rqmt=0.5 if use_gpu else 12,
         device="gpu" if use_gpu else "cpu",
-        cpu_rqmt=2,
+        cpu_rqmt=int(((mem_rqmt + 1.99) // 4) * 2),
         returnn_python_exe=returnn_exe,
         returnn_root=returnn_root,
         output_files=["search_out.py"],
@@ -226,6 +232,7 @@ def tts_eval_v2(
         returnn_exe,
         returnn_root,
         mem_rqmt=8,
+        cpu_rqmt=4,
         use_gpu=False,
         store_log_mels=False,
 ):
@@ -250,7 +257,7 @@ def tts_eval_v2(
         mem_rqmt=mem_rqmt,
         time_rqmt=24,
         device="gpu" if use_gpu else "cpu",
-        cpu_rqmt=4,
+        cpu_rqmt=cpu_rqmt,
         returnn_python_exe=returnn_exe,
         returnn_root=returnn_root,
         output_files=output_files,

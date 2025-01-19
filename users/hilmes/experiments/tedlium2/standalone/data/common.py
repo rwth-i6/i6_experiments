@@ -215,13 +215,14 @@ def build_st_test_dataset(
 
     ogg_zip = BlissToOggZipJob(bliss_corpus=corpus_path, returnn_root=MINI_RETURNN_ROOT, returnn_python_exe=RETURNN_EXE)
 
-
     audio_datastream = get_audio_raw_datastream(settings.preemphasis, settings.peak_normalization)
 
     data_map = {"raw_audio": ("zip_dataset", "data")}
 
     test_zip_dataset = OggZipDataset(
-        files=[ogg_zip.out_ogg_zip], audio_options=audio_datastream.as_returnn_audio_opts(), seq_ordering="sorted_reverse"
+        files=[ogg_zip.out_ogg_zip],
+        audio_options=audio_datastream.as_returnn_audio_opts(),
+        seq_ordering="sorted_reverse",
     )
     test_dataset = MetaDataset(
         data_map=data_map, datasets={"zip_dataset": test_zip_dataset}, seq_order_control_dataset="zip_dataset"

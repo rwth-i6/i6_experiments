@@ -130,6 +130,7 @@ class TORCHFactoredHybridDecoder(BASEFactoredHybridDecoder):
         name: str,
         rasr_binary_path: tk.Path,
         rasr_input_mapping: Dict[str, RasrDataInput],
+        rasr_init_args: RasrInitArgs,
         context_type: PhoneticContext,
         feature_scorer_type: RasrFeatureScorer,
         feature_flow_type: FeatureFlowType,
@@ -137,7 +138,6 @@ class TORCHFactoredHybridDecoder(BASEFactoredHybridDecoder):
         model_path: Path,
         io_map: Union[Dict[str, str], ONNXDecodeIOMap],
         mixtures: Path,
-        eval_args,
         scorer: Optional[Union[recog.ScliteJob, recog.Hub5ScoreJob, recog.Hub5ScoreJob]] = None,
         is_multi_encoder_output: bool = False,
         silence_id: int = 40,
@@ -147,9 +147,12 @@ class TORCHFactoredHybridDecoder(BASEFactoredHybridDecoder):
     ):
 
 
+        crp, eval_args = self.get_crp_and_eval_args(rasr_binary_path=rasr_binary_path,
+                                                    rasr_input_mapping=rasr_input_mapping,
+                                                    rasr_init_args=rasr_init_args)
         super().__init__(
             name=name,
-            crp=self.get_crp(rasr_binary_path, rasr_input_mapping),
+            crp=crp,
             context_type=context_type,
             feature_scorer_type=feature_scorer_type,
             feature_path=feature_path,
@@ -181,7 +184,8 @@ class TORCHFactoredHybridDecoder(BASEFactoredHybridDecoder):
         rasr_system.create_stm_from_corpus(corpus_key, **stm_args)
         rasr_system._set_scorer_for_corpus(corpus_key)
 
-        return rasr_system.crp[corpus_key],
+
+        return rasr_system.crp[corpus_key], rasr_system.scorer_args[corpus_key]
 
 
 

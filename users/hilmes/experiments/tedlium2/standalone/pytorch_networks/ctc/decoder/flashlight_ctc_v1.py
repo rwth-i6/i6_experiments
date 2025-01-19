@@ -148,7 +148,11 @@ def forward_step(*, model, data, run_ctx, **kwargs):
 
     tags = data["seq_tag"]
 
-    logprobs_cpu = logprobs.cpu()
+    if not isinstance(logprobs, list):
+        logprobs_cpu = logprobs.cpu()
+    else:
+        assert len(logprobs) == 1
+        logprobs_cpu = logprobs[0].cpu()
     if run_ctx.blank_log_penalty is not None:
         # assumes blank is last
         logprobs_cpu[:, :, -1] -= run_ctx.blank_log_penalty

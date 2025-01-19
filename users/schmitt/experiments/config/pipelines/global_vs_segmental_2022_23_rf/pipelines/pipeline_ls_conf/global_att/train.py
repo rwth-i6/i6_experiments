@@ -72,6 +72,7 @@ def train_global_att(
     disable_enc_self_att_until_epoch=disable_enc_self_att_until_epoch,
     cutoff_initial_silence=cutoff_initial_silence,
     use_speed_pert_w_flip=use_speed_pert_w_flip,
+    weight_decay=weight_decay,
   )
 
   alias += alias_

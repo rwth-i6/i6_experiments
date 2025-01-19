@@ -190,6 +190,20 @@ config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4 = dict_update_deep(
 )
 
 
+# Used for CLAIX 2023:
+# https://help.itc.rwth-aachen.de/service/rhr4fjjutttf/article/9108f4a6f43c40a3a168919afd36839d/
+# TODO check weight decay...
+config_96gb_bf16_accgrad1 = dict_update_deep(
+    config_24gb_v6,
+    {
+        "__gpu_mem": 96,
+        "__cpu_rqmt": 24,  # the whole c23g node has 96 CPUs, and 4 GPUs
+        "__mem_rqmt": 100,  # the whole node should have more than 500GB
+        "accum_grad_multiple_step": 1,  # per single GPU
+    },
+)
+
+
 def test():
     from ..exp2023_04_25_rf import configs as configs_old
 

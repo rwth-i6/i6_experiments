@@ -179,7 +179,7 @@ def ls960_hmm_blstm_base():
         input_dim=80,
         hidden_dim=512,
         dropout=0.1,
-        enforce_sorted=False,
+        enforce_sorted=True,
         pooling_layer_positions=[2,3],
     )
 

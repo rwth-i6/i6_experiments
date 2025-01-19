@@ -20,7 +20,8 @@ MINI_RETURNN_ROOT.hash_overwrite = "LIBRISPEECH_DEFAULT_RETURNN_ROOT"
 I6_MODELS_REPO_PATH = CloneGitRepositoryJob(
     url="https://github.com/rwth-i6/i6_models",
     # commit="918143c1011fe5a19c5fcfb61fe05050a8d58a2b",
-    commit="5aa74f878cc0d8d7bbc623a3ced681dcb31955ec",
+    # commit="5aa74f878cc0d8d7bbc623a3ced681dcb31955ec",
+    commit="bb8fa4e690117bae6ab7694b908ee3366376c54b", # with ATT decoder branch
     checkout_folder_name="i6_models",
 ).out_repository.copy()
 I6_MODELS_REPO_PATH.hash_overwrite = "LIBRISPEECH_DEFAULT_I6_MODELS"

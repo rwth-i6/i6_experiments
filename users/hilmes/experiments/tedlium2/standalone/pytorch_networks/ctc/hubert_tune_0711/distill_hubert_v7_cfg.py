@@ -25,6 +25,7 @@ class VGG4LayerActFrontendV1Config_mod(VGG4LayerActFrontendV1Config):
         activation_str = d.pop("activation_str")
         if activation_str == "ReLU":
             from torch.nn import ReLU
+
             activation = ReLU()
         else:
             assert False, "Unsupported activation %s" % d["activation_str"]
@@ -56,7 +57,6 @@ class SpecaugConfig(ModelConfiguration):
     max_dim_feat: int
 
 
-
 @dataclass
 class ModelConfig:
     feature_extraction_config: LogMelFeatureExtractionV1Config
@@ -78,7 +78,7 @@ class ModelConfig:
     module_scales: List[float]
     aux_ctc_loss_layers: Optional[List[int]]
     aux_ctc_loss_scales: Optional[List[float]]
-    
+
     @classmethod
     def from_dict(cls, d):
         d = d.copy()
@@ -86,6 +86,7 @@ class ModelConfig:
         d["frontend_config"] = VGG4LayerActFrontendV1Config_mod.from_dict(d["frontend_config"])
         d["specaug_config"] = SpecaugConfig(**d["specaug_config"])
         return ModelConfig(**d)
+
 
 @dataclass
 class DistillConfig:

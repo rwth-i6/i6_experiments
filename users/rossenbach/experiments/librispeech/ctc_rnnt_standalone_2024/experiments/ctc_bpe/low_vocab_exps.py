@@ -316,14 +316,15 @@ def bpe_ls960_1023_low_vocab_test():
         train_args = copy.deepcopy(global_train_args)
         train_args["net_args"] = {"model_config_dict": asdict(model_config)}
 
-        training_name = prefix_name + "/" + str(BPE_SIZE) + "/" + network_module + ".512dim_sub4_24gbgpu_50eps"
-        train_job = training(training_name, train_data_bpe, train_args, num_epochs=500, **default_returnn)
-        train_job.rqmt["gpu_mem"] = 24
-        asr_model = prepare_asr_model(
-            training_name, train_job, train_args, with_prior=True, datasets=train_data_bpe, get_specific_checkpoint=500
-        )
-        add_ctc_model(f"ls960_ctc_bpe_{BPE_SIZE}." + network_module + ".512dim_sub4_24gbgpu_50eps_ckpt500", asr_model)
-        tune_and_evaluate_helper(training_name, dev_dataset_tuples, test_dataset_tuples, asr_model, default_decoder_config_bpe, lm_scales=[1.6, 1.8, 2.0], prior_scales=[0.2, 0.3, 0.4])
+        if BPE_SIZE != 0:
+            training_name = prefix_name + "/" + str(BPE_SIZE) + "/" + network_module + ".512dim_sub4_24gbgpu_50eps"
+            train_job = training(training_name, train_data_bpe, train_args, num_epochs=500, **default_returnn)
+            train_job.rqmt["gpu_mem"] = 24
+            asr_model = prepare_asr_model(
+                training_name, train_job, train_args, with_prior=True, datasets=train_data_bpe, get_specific_checkpoint=500
+            )
+            add_ctc_model(f"ls960_ctc_bpe_{BPE_SIZE}." + network_module + ".512dim_sub4_24gbgpu_50eps_ckpt500", asr_model)
+            tune_and_evaluate_helper(training_name, dev_dataset_tuples, test_dataset_tuples, asr_model, default_decoder_config_bpe, lm_scales=[1.6, 1.8, 2.0], prior_scales=[0.2, 0.3, 0.4])
 
         # Same with conv first
         network_module_conv_first = "ctc.conformer_1023.i6modelsV1_VGG4LayerActFrontendV1_v6_conv_first"
@@ -333,21 +334,22 @@ def bpe_ls960_1023_low_vocab_test():
             "net_args": {"model_config_dict": asdict(model_config)},
             "debug": False,
         }
-
         training_name = prefix_name + "/" + str(BPE_SIZE) + "/" + network_module_conv_first + ".512dim_sub4_24gbgpu_50eps"
-        train_job = training(training_name, train_data_bpe, train_args_conv_first, num_epochs=500,
-                             **default_returnn)
-        train_job.rqmt["gpu_mem"] = 24
-        asr_model = prepare_asr_model(
-            training_name, train_job, train_args_conv_first, with_prior=True, datasets=train_data_bpe,
-            get_specific_checkpoint=500
-        )
-        tune_and_evaluate_helper(training_name, dev_dataset_tuples, test_dataset_tuples, asr_model, default_decoder_config_bpe, lm_scales=[1.6, 1.8, 2.0],
-                                 prior_scales=[0.2, 0.3, 0.4])
-        greedy_decoder_config = GreedyDecoderConfig(
-            returnn_vocab=label_datastream_bpe.vocab,
-        )
-        greedy_search_helper(training_name, asr_model=asr_model, decoder_config=greedy_decoder_config)
+
+        if BPE_SIZE != 0:
+            train_job = training(training_name, train_data_bpe, train_args_conv_first, num_epochs=500,
+                                 **default_returnn)
+            train_job.rqmt["gpu_mem"] = 24
+            asr_model = prepare_asr_model(
+                training_name, train_job, train_args_conv_first, with_prior=True, datasets=train_data_bpe,
+                get_specific_checkpoint=500
+            )
+            tune_and_evaluate_helper(training_name, dev_dataset_tuples, test_dataset_tuples, asr_model, default_decoder_config_bpe, lm_scales=[1.6, 1.8, 2.0],
+                                     prior_scales=[0.2, 0.3, 0.4])
+            greedy_decoder_config = GreedyDecoderConfig(
+                returnn_vocab=label_datastream_bpe.vocab,
+            )
+            greedy_search_helper(training_name, asr_model=asr_model, decoder_config=greedy_decoder_config)
 
         if BPE_SIZE == 128:
             decoder_config_bpe = copy.deepcopy(default_decoder_config_bpe)

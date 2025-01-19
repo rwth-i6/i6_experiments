@@ -5,9 +5,15 @@ More on grad align
 
 from __future__ import annotations
 
-from typing import Optional, Any, List, Sequence, Dict
-from i6_experiments.users.zeyer.model_interfaces.model_with_checkpoints import ModelWithCheckpoint
+from typing import Optional, Any, List, Sequence, Dict, Tuple
+import sys
 
+from sisyphus import tk, Path, gs
+
+from returnn_common.datasets_old_2022_10.interface import DatasetConfig
+from i6_experiments.users.zeyer.model_interfaces import ForwardRFDef
+from i6_experiments.users.zeyer.utils.sis_setup import get_setup_prefix_for_module
+from i6_experiments.users.zeyer.model_interfaces.model_with_checkpoints import ModelWithCheckpoint
 from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.ctc import (
     train_exp as ctc_train_exp,
     config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
@@ -28,14 +34,12 @@ from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.aed import (
     Model as AedModel,
     aed_training,
 )
+from ..collect_model_dataset_stats import collect_statistics, StatisticsOutput
+
 import returnn.frontend as rf
 from returnn.tensor import Tensor, Dim, TensorDict
 from returnn.frontend.decoder.transformer import TransformerDecoder
 from returnn.frontend.encoder.conformer import ConformerEncoder
-from returnn_common.datasets_old_2022_10.interface import DatasetConfig
-from i6_experiments.users.zeyer.model_interfaces import ForwardRFDef
-from i6_experiments.users.zeyer.utils.sis_setup import get_setup_prefix_for_module
-from sisyphus import tk, Path
 
 
 def py():
@@ -89,60 +93,66 @@ def py():
             "-featBN-speedpertV2-spm10k-bpeSample001",
             "spm10k",
         ),
-        # (  # ctc forced align: 116.8/74.4ms
-        #     "lpNormedGradC05_11P1",  # 5.71/5.87
-        #     "v6-relPosAttDef"
-        #     "-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k"
-        #     "-featBN-speedpertV2-spm10k-bpeSample001"
-        #     "-lpNormedGradC05_11P1",
-        #     "spm10k",
-        # ),
-        # (
-        #     "lpNormedGradC05_11P1Seq",  # 5.83/5.91
-        #     "v6-relPosAttDef"
-        #     "-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k"
-        #     "-featBN-speedpertV2-spm10k-bpeSample001"
-        #     "-lpNormedGradC05_11P1Seq",
-        #     "spm10k",
-        # ),
-        # (
-        #     "lpNormedGradC01_11P1",  # 6.21/6.55
-        #     "v6-relPosAttDef"
-        #     "-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k"
-        #     "-featBN-speedpertV2-spm10k-bpeSample001"
-        #     "-lpNormedGradC01_11P1",
-        #     "spm10k",
-        # ),
-        # (  # ctc forced align: 98.5/77.6ms
-        #     "blankSep",  # 5.73/6.02
-        #     "v6-relPosAttDef"
-        #     "-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k"
-        #     "-featBN-speedpertV2-spm10k-bpeSample001"
-        #     "-blankSep",
-        #     "spm10k",
-        # ),
-        # (  # ctc forced align: 75.4/42.7ms
-        #     "base-spm512",  # 5.97/6.21
-        #     "v6-relPosAttDef"
-        #     "-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-maxSeqLenAudio19_5-wd1e_2-lrlin1e_5_295k"
-        #     "-featBN-speedpertV2-spm512-bpeSample001",
-        #     "spm512",
-        # ),
-        # (  # ctc forced align: 59.6/48.5ms
-        #     "base-spm512-blankSep",  # 6.02/6.04
-        #     "v6-relPosAttDef"
-        #     "-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-maxSeqLenAudio19_5-wd1e_2-lrlin1e_5_295k"
-        #     "-featBN-speedpertV2-spm512-bpeSample001"
-        #     "-blankSep",
-        #     "spm512",
-        # ),
-        # (  # ctc forced align: 113.9/68.1ms
-        #     "base-bpe10k",  # 6.18/6.35
-        #     "v6-relPosAttDef"
-        #     "-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k"
-        #     "-featBN-speedpertV2-bpe10k-bpeSample001",
-        #     "bpe10k",
-        # ),
+        (  # ctc forced align: 116.8/74.4ms
+            "lpNormedGradC05_11P1",  # 5.71/5.87
+            "v6-relPosAttDef"
+            "-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k"
+            "-featBN-speedpertV2-spm10k-bpeSample001"
+            "-lpNormedGradC05_11P1",
+            "spm10k",
+        ),
+        (
+            "lpNormedGradC05_11P1Seq",  # 5.83/5.91
+            "v6-relPosAttDef"
+            "-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k"
+            "-featBN-speedpertV2-spm10k-bpeSample001"
+            "-lpNormedGradC05_11P1Seq",
+            "spm10k",
+        ),
+        (
+            "lpNormedGradC01_11P1",  # 6.21/6.55
+            "v6-relPosAttDef"
+            "-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k"
+            "-featBN-speedpertV2-spm10k-bpeSample001"
+            "-lpNormedGradC01_11P1",
+            "spm10k",
+        ),
+        (  # ctc forced align: 98.5/77.6ms
+            "blankSep",  # 5.73/6.02
+            "v6-relPosAttDef"
+            "-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k"
+            "-featBN-speedpertV2-spm10k-bpeSample001"
+            "-blankSep",
+            "spm10k",
+        ),
+        (
+            "lpNormedGradC05_11P1+blankSep",  # 5.73/6.08
+            "v6-relPosAttDef-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k"
+            "-featBN-speedpertV2-spm10k-bpeSample001-blankSep-lpNormedGradInclBlank",
+            "spm10k",
+        ),
+        (  # ctc forced align: 75.4/42.7ms
+            "base-spm512",  # 5.97/6.21
+            "v6-relPosAttDef"
+            "-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-maxSeqLenAudio19_5-wd1e_2-lrlin1e_5_295k"
+            "-featBN-speedpertV2-spm512-bpeSample001",
+            "spm512",
+        ),
+        (  # ctc forced align: 59.6/48.5ms
+            "base-spm512-blankSep",  # 6.02/6.04
+            "v6-relPosAttDef"
+            "-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-maxSeqLenAudio19_5-wd1e_2-lrlin1e_5_295k"
+            "-featBN-speedpertV2-spm512-bpeSample001"
+            "-blankSep",
+            "spm512",
+        ),
+        (  # ctc forced align: 113.9/68.1ms
+            "base-bpe10k",  # 6.18/6.35
+            "v6-relPosAttDef"
+            "-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k"
+            "-featBN-speedpertV2-bpe10k-bpeSample001",
+            "bpe10k",
+        ),
         (  # ctc forced align: 84.9/64.2ms
             "base-bpe10k-blankSep",  # 5.98/6.13
             "v6-relPosAttDef"
@@ -168,27 +178,109 @@ def py():
         for epoch in [-1]:  # [20, 40, 80, 160, 320, 500, -1]:
             ctc_model = sis_get_ctc_model(fullname, epoch=epoch)
 
-            alignment = ctc_forced_align(ctc_model, train_dataset)
-            alignment.creator.add_alias(f"{prefix}ctc_forced_align/{shortname}-ep{epoch}/align")
-            tk.register_output(f"{prefix}ctc_forced_align/{shortname}-ep{epoch}/align.hdf", alignment)
+            # Priors, using full train dataset.
+            prior_stats = get_ctc_prior(ctc_model, task.train_dataset.copy_train_as_static(), {"fix_log_probs": True})
+            prior_stats.mean.creator.add_alias(f"{prefix}ctc_prior/{shortname}-ep{epoch}/prior_stats_full")
+            tk.register_output(f"{prefix}ctc_prior/{shortname}-ep{epoch}/prior_stats_full.mean.txt", prior_stats.mean)
 
-            name = f"ctc_forced_align/{shortname}-ep{epoch}/align-metrics"
-            job = CalcAlignmentMetrics(
-                seq_list=seq_list,
-                seq_list_ref=seq_list_ref,
-                alignment_hdf=alignment,
-                alignment_label_topology="ctc",
-                alignment_bpe_vocab=vocabs[vocab][1],
-                alignment_bpe_style=vocabs[vocab][0],
-                alignment_blank_idx=vocabs[vocab][2],
-                features_sprint_cache=features_sprint_cache,
-                ref_alignment_sprint_cache=gmm_alignment_sprint_cache,
-                ref_alignment_allophones=gmm_alignment_allophones,
-                ref_alignment_len_factor=6,
-            )
-            job.add_alias(prefix + name)
-            tk.register_output(prefix + name + ".json", job.out_scores)
-            tk.register_output(prefix + name + ".short_report.txt", job.out_short_report_str)
+            opts_variants = [{}]
+
+            for shift in [0, -5, -10, -15, -18, -20, -25]:
+                opts_variants.append({"fix_log_probs": True, "blank_logit_shift": shift})
+
+            # prior_stats = get_ctc_prior(ctc_model, train_dataset, {"fix_log_probs": True})
+            # prior_stats.mean.creator.add_alias(f"{prefix}ctc_prior/{shortname}-ep{epoch}/prior_stats")
+            # tk.register_output(f"{prefix}ctc_prior/{shortname}-ep{epoch}/prior_stats.mean.txt", prior_stats.mean)
+
+            for am_scale, prior_scale in [(1.0, 1.0), (1.0, 1.5), (1.0, 2.0), (1.0, 3.0)]:
+                opts_variants.append(
+                    {
+                        "fix_log_probs": True,
+                        "ctc_prior_type": "static",
+                        "static_prior": {"type": "prob", "file": prior_stats.mean},
+                        "ctc_am_scale": am_scale,
+                        "ctc_prior_scale": prior_scale,
+                    }
+                )
+
+            for shift in [-5, -10, -15, -20]:
+                opts_variants.append(
+                    {
+                        "fix_log_probs": True,
+                        "blank_logit_shift": shift,
+                        "ctc_prior_type": "static",
+                        "static_prior": {"type": "prob", "file": prior_stats.mean},
+                        "ctc_am_scale": 1.0,
+                        "ctc_prior_scale": 1.0,
+                    }
+                )
+
+            for opts in opts_variants:
+                name = f"{shortname}-ep{epoch}"
+                for k, v in opts.items():
+                    if k == "fix_log_probs" and v:
+                        name += "-fix"
+                        continue
+                    if k == "static_prior":
+                        continue
+                    name += f"-{k}{v}"
+
+                ref_log_probs = get_ctc_ref_label_log_probs(ctc_model, train_dataset, opts)
+                ref_log_probs.creator.add_alias(f"{prefix}ctc_ref_log_probs/{name}/log_probs")
+                tk.register_output(f"{prefix}ctc_ref_log_probs/{name}/log_probs.hdf", ref_log_probs)
+
+                if "blankSep" in shortname and not opts:
+                    ref_log_probs_bug = get_ctc_ref_label_log_probs(ctc_model, train_dataset, {"bug_log_probs": True})
+                    ref_log_probs_bug.creator.add_alias(
+                        f"{prefix}ctc_ref_log_probs/{shortname}-ep{epoch}-bug/log_probs"
+                    )
+                    tk.register_output(
+                        f"{prefix}ctc_ref_log_probs/{shortname}-ep{epoch}-bug/log_probs.hdf", ref_log_probs_bug
+                    )
+
+                prefix_ = f"{prefix}ctc_forced_align/{name}/"
+                alignment = ctc_forced_align(ctc_model, train_dataset, opts)
+                alignment.creator.add_alias(f"{prefix_}align")
+                tk.register_output(f"{prefix_}align.hdf", alignment)
+
+                job = CalcAlignmentMetrics(
+                    seq_list=seq_list,
+                    seq_list_ref=seq_list_ref,
+                    alignment_hdf=alignment,
+                    alignment_label_topology="ctc",
+                    alignment_bpe_vocab=vocabs[vocab][1],
+                    alignment_bpe_style=vocabs[vocab][0],
+                    alignment_blank_idx=vocabs[vocab][2],
+                    features_sprint_cache=features_sprint_cache,
+                    ref_alignment_sprint_cache=gmm_alignment_sprint_cache,
+                    ref_alignment_allophones=gmm_alignment_allophones,
+                    ref_alignment_len_factor=6,
+                )
+                job.add_alias(f"{prefix_}align-metrics")
+                tk.register_output(f"{prefix_}align-metrics.json", job.out_scores)
+                tk.register_output(f"{prefix_}align-metrics.short_report.txt", job.out_short_report_str)
+
+        log_prob_normed_grad_opts_by_shortname = {
+            # 5.71/5.87 (!!) (i.e. better than without)
+            "C05_11P1": {
+                "func": {"clamp_min": 0.5, "clamp_max": 1.1, "scale_type": "inv_num_labels", "prior_exp": 1.0}
+            },
+            # 6.21/6.55
+            "C01_11P1": {
+                "func": {"clamp_min": 0.1, "clamp_max": 1.1, "scale_type": "inv_num_labels", "prior_exp": 1.0}
+            },
+            # 5.83/5.91
+            "C05_11P1Seq": {
+                "prior": "seq_grad",
+                "func": {"clamp_min": 0.5, "clamp_max": 1.1, "scale_type": "inv_num_labels", "prior_exp": 1.0},
+            },
+        }
+        log_prob_normed_grad_opts_by_shortname = {
+            "lpNormedGrad" + k: v for k, v in log_prob_normed_grad_opts_by_shortname.items()
+        }
+        log_prob_normed_grad_opts = (
+            log_prob_normed_grad_opts_by_shortname[shortname.split("+")[0]] if "lpNormedGrad" in shortname else None
+        )
 
         for extra_name, grad_opts in [
             # ("", {}),
@@ -226,8 +318,73 @@ def py():
                         # match the model...
                     },
                 )
-                for ctc_scale in [0, 0.1, 0.2, 0.3, 1.0]
+                for ctc_scale in [0]  # [0, 0.1, 0.2, 0.3, 1.0]
             ],
+            *[
+                (
+                    f"-shift{shift}-am{am_scale}-prior{prior_scale}-blankStopGrad-inclBlankState-p0.1",
+                    {
+                        "stop_grad_blank": True,
+                        "ctc_partial_scores_include_next_blank": True,
+                        "grad_norm_p": 0.1,
+                        "blank_logit_shift": shift,
+                        "ctc_prior_type": "static",
+                        "static_prior": {"type": "prob", "file": prior_stats.mean},
+                        "ctc_am_scale": am_scale,
+                        "ctc_prior_scale": prior_scale,
+                    },
+                )
+                for shift, am_scale, prior_scale in [(-10, 1.0, 1.0), (0, 1.0, 1.0), (0, 1.0, 0.3)]
+            ],
+            *(
+                [
+                    (
+                        "-lpNormedGradUsed-blankStopGrad-inclBlankState-p0.1",
+                        {
+                            "log_prob_normed_grad": log_prob_normed_grad_opts,
+                            "_log_prob_normed_grad_mod_import_hack": _HackImportAlignmentModule(),
+                            "_log_prob_normed_grad_version": 2,
+                            "stop_grad_blank": True,
+                            "ctc_partial_scores_include_next_blank": True,
+                            "grad_norm_p": 0.1,
+                        },
+                    ),
+                    (
+                        "-lpNormedGradUsed-shift-10-am1.0-prior1.0-blankStopGrad-inclBlankState-p0.1",
+                        {
+                            "blank_logit_shift": -10,
+                            "ctc_prior_type": "static",
+                            "static_prior": {"type": "prob", "file": prior_stats.mean},
+                            "ctc_am_scale": 1.0,
+                            "ctc_prior_scale": 1.0,
+                            "log_prob_normed_grad": log_prob_normed_grad_opts,
+                            "_log_prob_normed_grad_mod_import_hack": _HackImportAlignmentModule(),
+                            "_log_prob_normed_grad_version": 2,
+                            "stop_grad_blank": True,
+                            "ctc_partial_scores_include_next_blank": True,
+                            "grad_norm_p": 0.1,
+                        },
+                    ),
+                    (
+                        "-lpNormedGradUsed-shift0-am1.0-prior1.0-blankStopGrad-inclBlankState-p0.1",
+                        {
+                            "blank_logit_shift": 0,
+                            "ctc_prior_type": "static",
+                            "static_prior": {"type": "prob", "file": prior_stats.mean},
+                            "ctc_am_scale": 1.0,
+                            "ctc_prior_scale": 1.0,
+                            "log_prob_normed_grad": log_prob_normed_grad_opts,
+                            "_log_prob_normed_grad_mod_import_hack": _HackImportAlignmentModule(),
+                            "_log_prob_normed_grad_version": 2,
+                            "stop_grad_blank": True,
+                            "ctc_partial_scores_include_next_blank": True,
+                            "grad_norm_p": 0.1,
+                        },
+                    ),
+                ]
+                if "lpNormedGrad" in shortname
+                else []
+            ),
         ]:
             grad_opts = grad_opts.copy()
             # base model
@@ -646,7 +803,9 @@ def sis_get_aed_model(name: str, *, epoch: int = -1) -> ModelWithCheckpoint:
     return exp.get_epoch(epoch)
 
 
-def ctc_forced_align(model: ModelWithCheckpoint, dataset: DatasetConfig) -> tk.Path:
+def ctc_forced_align(
+    model: ModelWithCheckpoint, dataset: DatasetConfig, config: Optional[Dict[str, Any]] = None
+) -> tk.Path:
     from i6_experiments.users.zeyer.forward_to_hdf import forward_to_hdf
 
     extern_data_dict = dataset.get_extern_data()
@@ -668,7 +827,8 @@ def ctc_forced_align(model: ModelWithCheckpoint, dataset: DatasetConfig) -> tk.P
             "model_outputs": {
                 "output": {"shape": (None,), "sparse_dim": classes_with_blank_dim},
                 "scores": {"shape": ()},
-            }
+            },
+            **(config or {}),
         },
         forward_rqmt={"time": 12},
     )
@@ -691,8 +851,13 @@ def _ctc_model_forced_align_step(*, model: CtcModel, extern_data: TensorDict, **
     out_spatial_dim = expected_output.dims[-1]
 
     logits, enc, enc_spatial_dim = model(source, in_spatial_dim=source.get_time_dim_tag())
+    if config.bool("fix_log_probs", False):
+        log_probs = model.log_probs_wb_from_logits(logits)
+    else:
+        log_probs = rf.log_softmax(logits, axis=logits.feature_dim)
     path, score = best_path_ctc(
-        logits=logits,
+        logits=log_probs,
+        logits_normalized=True,
         input_spatial_dim=enc_spatial_dim,
         targets=targets,
         targets_spatial_dim=targets.get_time_dim_tag(),
@@ -980,6 +1145,118 @@ def _aed_model_get_input_grads_step(*, model: AedModel, extern_data: TensorDict,
         grad_norms = torch.stack(grad_norms, dim=0)  # [T_out,B,T_in]
         grad_norms_ = rf.convert_to_tensor(grad_norms, dims=[targets_spatial_dim, batch_dim, in_spatial_dim])
         grad_norms_.mark_as_default_output()
+
+
+def get_ctc_ref_label_log_probs(
+    model: ModelWithCheckpoint, dataset: DatasetConfig, config: Optional[Dict[str, Any]] = None
+) -> tk.Path:
+    from i6_experiments.users.zeyer.forward_to_hdf import forward_to_hdf
+    from returnn.tensor import batch_dim
+
+    extern_data_dict = dataset.get_extern_data()
+    default_input_dict = extern_data_dict[dataset.get_default_input()]
+    input_dims: Sequence[Dim] = (
+        default_input_dict["dims"] if "dims" in default_input_dict else default_input_dict["dim_tags"]
+    )
+    assert isinstance(input_dims, (tuple, list)) and all(isinstance(dim, Dim) for dim in input_dims)
+    enc_spatial_dim = Dim(None, name="enc_spatial_dim")
+    target_ext_spatial_dim = Dim(None, name="target_ext_spatial_dim")
+
+    return forward_to_hdf(
+        dataset=dataset,
+        model=model,
+        forward_step=_ctc_model_get_ref_label_log_probs_step,
+        config={
+            "model_outputs": {
+                "output": {"dims": [batch_dim, enc_spatial_dim, target_ext_spatial_dim], "dtype": "float32"},
+                "enc_size": {"dims": [batch_dim], "dtype": "int32"},
+                "targets_ext_size": {"dims": [batch_dim], "dtype": "int32"},
+            },
+            **(config or {}),
+        },
+        forward_rqmt={"time": 24},
+    )
+
+
+def _ctc_model_get_ref_label_log_probs_step(*, model: CtcModel, extern_data: TensorDict, **_kwargs):
+    from returnn.tensor import batch_dim
+    from returnn.config import get_global_config
+
+    config = get_global_config()
+    default_input_key = config.typed_value("default_input")
+    default_target_key = config.typed_value("target")
+    data = extern_data[default_input_key]
+    targets = extern_data[default_target_key]
+    expected_output = rf.get_run_ctx().expected_outputs["output"]
+    batch_dim_, enc_spatial_dim_, target_ext_spatial_dim_ = expected_output.dims
+    assert batch_dim_ == batch_dim
+
+    assert model.blank_idx == targets.sparse_dim.dimension  # blank idx at end. not implemented otherwise
+    # Add blank as first ref label for plotting.
+    targets_, (target_ext_spatial_dim,) = rf.pad(
+        targets, axes=[targets.get_time_dim_tag()], padding=[(1, 0)], value=model.blank_idx
+    )
+    targets_.sparse_dim = model.wb_target_dim
+    target_ext_spatial_dim: Dim
+    target_ext_spatial_dim_.declare_same_as(target_ext_spatial_dim)
+    target_ext_spatial_dim.dyn_size_ext.mark_as_output("targets_ext_size", shape=[batch_dim])
+
+    # Call: logits, enc, enc_spatial_dim = model(source, in_spatial_dim=source.get_time_dim_tag())
+    in_spatial_dim = data.get_time_dim_tag()
+
+    if data.feature_dim and data.feature_dim.dimension == 1:
+        data = rf.squeeze(data, axis=data.feature_dim)
+    assert not data.feature_dim  # raw audio
+    logits, enc, enc_spatial_dim = model(data, in_spatial_dim=in_spatial_dim)
+    enc_spatial_dim_.declare_same_as(enc_spatial_dim)
+    enc_spatial_dim.dyn_size_ext.mark_as_output("enc_size", shape=[batch_dim])
+    if config.bool("bug_log_probs", False):
+        log_probs_wb = rf.log_softmax(logits, axis=logits.feature_dim)
+    else:
+        log_probs_wb = model.log_probs_wb_from_logits(logits)
+    log_probs_ref_seq = rf.gather(log_probs_wb, indices=targets_, axis=model.wb_target_dim)  # [B,T,S+1]
+    log_probs_ref_seq.mark_as_default_output(shape=[batch_dim, enc_spatial_dim, target_ext_spatial_dim])
+
+
+def get_ctc_prior(
+    model: ModelWithCheckpoint, dataset: DatasetConfig, config: Optional[Dict[str, Any]] = None
+) -> StatisticsOutput:
+    """
+    :return: CTC prior, in prob space (not log prob)
+    """
+    return collect_statistics(
+        model=model, dataset=dataset, forward_def=_ctc_model_softmax_prior_returnn_forward, config=config
+    )
+
+
+def _ctc_model_softmax_prior_returnn_forward(
+    source: Tensor, /, in_spatial_dim: Dim, model: CtcModel
+) -> Tuple[Tensor, Dim]:
+    """ForwardDef API"""
+    from returnn.config import get_global_config
+    import returnn.frontend as rf
+    from returnn.tensor import Tensor, Dim
+
+    logits, enc, enc_spatial_dim = model(source, in_spatial_dim=in_spatial_dim)
+    assert isinstance(logits, Tensor) and isinstance(enc_spatial_dim, Dim)
+    assert logits.feature_dim  # we expect a feature dim
+    assert enc_spatial_dim in logits.dims
+    log_probs = model.log_probs_wb_from_logits(logits)
+    assert isinstance(log_probs, Tensor)
+    probs = rf.exp(log_probs)  # the statistics take the average over this, thus prob space, not log prob
+    return probs, enc_spatial_dim
+
+
+class _HackImportAlignmentModule:
+    def _sis_hash(self):
+        return b"(_HackImportAlignmentModule)"
+
+    def __getstate__(self):
+        return {"path": gs.BASE_DIR + "/projects/2024-alignment-analysis"}
+
+    def __setstate__(self, state):
+        # Wanted side effect: Prepare alignment import.
+        sys.path.insert(0, state["path"])
 
 
 def visualize_grad_scores():

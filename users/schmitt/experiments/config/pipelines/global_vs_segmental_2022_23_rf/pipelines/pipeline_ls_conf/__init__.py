@@ -49,35 +49,120 @@ def run_exps():
   # center_window_baseline_v7.run_exps()
   center_window_baseline_v8.run_exps()
 
+  for alias in [
+    "v2_long_two-stage",
+    "v3_long_two-stage",
+  ]:
+    plot_gradient_wrt_enc11(
+      analyze_gradients_job=center_window_att_data.analyze_gradients_jobs["baseline_v3_two-stage"]["fixed-path"][alias]["24gb-gpu"],
+      alias=f"stacked-enc-11-grads/center_window_baseline_v3_two-stage_fixed-path_{alias}_24gb-gpu",
+    )
+
+  # for folder_name in [
+  #   "log-prob-grads_wrt_enc-11_log-space",
+  #   # "log-probs-wo-h_t-grads_wrt_enc-11_log-space",
+  # ]:
+  #   analyze_gradients_jobs = [
+  #     center_window_att_data.analyze_gradients_jobs["baseline_v3_two-stage"]["fixed-path"]["v1_long_two-stage"][
+  #       "24gb-gpu"],
+  #     center_window_att_data.analyze_gradients_jobs["baseline_v3_two-stage"]["fixed-path"]["v2_long_two-stage"][
+  #       "24gb-gpu"],
+  #     center_window_att_data.analyze_gradients_jobs["baseline_v3_two-stage"]["fixed-path"]["v3_long_two-stage"][
+  #       "24gb-gpu"],
+  #     center_window_att_data.analyze_gradients_jobs["baseline_v3_two-stage"]["fixed-path"]["v9_long_two-stage"][
+  #       "24gb-gpu"],
+  #   ]
+  #   titles = [
+  #     "Standard full output label ctx. Transducer",
+  #     "Simple concat.; W/o att. ctx. in state; w/o att. weight feedback",
+  #     "Simple concat.; W/ att. ctx. in state; w/o att. weight feedback",
+  #     "Simple concat.; W/ att. ctx. in state; w/ att. weight feedback",
+  #   ]
+  #
+  #   plot_diff_models(
+  #     analyze_gradients_jobs,
+  #     alias=f"stacked-enc-11-grads/center_window_baseline_v3_two-stage_fixed-path_v1-vs-v2-vs-v3-vs-v9_long_two-stage_24gb-gpu",
+  #     titles=titles,
+  #     folder_name=folder_name,
+  #     scale=1.8,
+  #   )
+
   for folder_name in [
     "log-prob-grads_wrt_enc-11_log-space",
-    "log-probs-wo-h_t-grads_wrt_enc-11_log-space",
+    # "log-probs-wo-h_t-grads_wrt_enc-11_log-space",
   ]:
     analyze_gradients_jobs = [
-      center_window_att_data.analyze_gradients_jobs["baseline_v3_full-sum"]["v2"][f"epoch-360"],
-      center_window_att_data.analyze_gradients_jobs["baseline_v3_two-stage"]["fixed-path"]["v2"]["24gb-gpu"],
-      center_window_att_data.analyze_gradients_jobs["baseline_v5_full-sum"]["v1"][f"epoch-720"],
-      center_window_att_data.analyze_gradients_jobs["baseline_v5_two-stage"]["fixed-path"]["v2"],
-      center_window_att_data.analyze_gradients_jobs["baseline_v5_two-stage"]["fixed-path"]["v4"],
+      center_window_att_data.analyze_gradients_jobs["baseline_v3_two-stage"]["fixed-path"]["v1_long_two-stage"][
+        "24gb-gpu"],
+      center_window_att_data.analyze_gradients_jobs["baseline_v3_two-stage"]["fixed-path"]["v12_long_two-stage"][
+        "24gb-gpu"],
+      center_window_att_data.analyze_gradients_jobs["baseline_v3_two-stage"]["fixed-path"]["v2_long_two-stage"][
+        "24gb-gpu"],
+      center_window_att_data.analyze_gradients_jobs["baseline_v3_two-stage"]["fixed-path"]["v4_long_two-stage"][
+        "24gb-gpu"],
+      center_window_att_data.analyze_gradients_jobs["baseline_v3_two-stage"]["fixed-path"]["v6_long_two-stage"][
+        "24gb-gpu"],
+    ]
+    aliases = [
+      "v1", "v12", "v2", "v4", "v6", "v3", "v5", "v8", "v9", "v11", "v13", "v14"
+
     ]
     titles = [
-      "Full ctx transducer w/ global RNN attention full-sum (epoch 450/900)",
-      "Full ctx transducer w/ global RNN attention fixed-path (epoch 600/600)",
-      "Full ctx transducer w/ global Trafo attention full-sum (epoch 720/900)",
-      "Full ctx transducer w/ global Trafo attention fixed-path (epoch 600/600)",
-      "Ctx-1 transducer w/ global 'Linear' attention fixed-path (epoch 600/600)",
+      "Only $h_t$",
+      "Only $c_{s_t}$",
+      "Simple Concat.",
+      "Double Gate",
+      "Single Gate",
     ]
-
-    if folder_name == "log-prob-grads_wrt_enc-11_log-space":
-      analyze_gradients_jobs.insert(0, center_window_att_data.analyze_gradients_jobs["baseline_v3_full-sum"]["v1"][f"epoch-450"])
-      titles.insert(0, "Full ctx transducer w/o attention full-sum (epoch 450/900)")
 
     plot_diff_models(
       analyze_gradients_jobs,
-      alias=f"{center_window_base_alias}/{folder_name}_different_models",
+      alias=f"stacked-enc-11-grads/center_window_baseline_v3_two-stage_fixed-path_v1-vs-v12-vs-v2-vs-v4-vs-v6_long_two-stage_24gb-gpu",
       titles=titles,
       folder_name=folder_name,
+      scale=1.8,
     )
+
+    for baseline, alias in [
+      ("baseline_v3_two-stage", "v1"),
+      ("baseline_v3_two-stage", "v12"),
+      ("baseline_v3_two-stage", "v2"),
+      ("baseline_v3_two-stage", "v4"),
+      ("baseline_v3_two-stage", "v6"),
+      ("baseline_v3_two-stage", "v3"),
+      ("baseline_v3_two-stage", "v5"),
+      ("baseline_v3_two-stage", "v8"),
+      ("baseline_v3_two-stage", "v9"),
+      ("baseline_v3_two-stage", "v11"),
+      ("baseline_v3_two-stage", "v13"),
+      ("baseline_v3_two-stage", "v14"),
+      ("baseline_v5_two-stage", "v2"),
+      ("baseline_v5_two-stage", "v3"),
+    ]:
+      if baseline == "baseline_v3_two-stage":
+        analyze_gradients_job = center_window_att_data.analyze_gradients_jobs[baseline]["fixed-path"][f"{alias}_long_two-stage"]["24gb-gpu"]
+      else:
+        analyze_gradients_job = center_window_att_data.analyze_gradients_jobs[baseline]["fixed-path"][f"{alias}_long_two-stage"]
+      plot_diff_models(
+        [analyze_gradients_job],
+        alias=f"enc-11-grads/fixed-path/{baseline}_{alias}_long_two-stage_24gb-gpu",
+        titles=None,  # titles,
+        folder_name=folder_name,
+        scale=1.0,
+        vmin=-20.0,
+        vmax=4.0,
+      )
+      if baseline == "baseline_v3_two-stage":
+        plot_diff_models(
+          [analyze_gradients_job],
+          alias=f"att-weights/fixed-path/{baseline}_{alias}_long_two-stage_24gb-gpu",
+          titles=None,  # titles,
+          folder_name="enc-layer-12/att_weights",
+          folder_prefix="cross-att",
+          scale=1.0,
+          vmin=0.0,
+          vmax=1.0,
+        )
 
 
 def setup_gmm_alignment():

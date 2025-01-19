@@ -9,6 +9,12 @@ from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segment
 
 class GlobalAttDecoder(BaseLabelDecoder):
   def __init__(self, eos_idx: int, **kwargs):
+    from returnn.config import get_global_config
+    config = get_global_config()
+    self.replace_att_by_h_s = config.bool("replace_att_by_h_s", False)
+    if not kwargs.get("use_hard_attention") and self.replace_att_by_h_s:
+      kwargs["use_hard_attention"] = True
+
     super(GlobalAttDecoder, self).__init__(**kwargs)
 
     self.eos_idx = eos_idx
@@ -20,25 +26,26 @@ class GlobalAttDecoder(BaseLabelDecoder):
           batch_dims: Sequence[Dim],
           enc_spatial_dim: Dim,
           use_mini_att: bool = False,
+          use_zero_att: bool = False,
   ) -> rf.State:
     """Default initial state"""
     state = rf.State()
 
-    if self.trafo_att:
+    if self.trafo_att and not use_mini_att and not use_zero_att:
       state.trafo_att = self.trafo_att.default_initial_state(batch_dims=batch_dims)
-      att_dim = self.trafo_att.model_dim
-    else:
-      att_dim = self.att_num_heads * self.enc_out_dim
+      # att_dim = self.trafo_att.model_dim
+    # else:
+      # att_dim = self.att_num_heads * self.enc_out_dim
 
-    state.att = rf.zeros(list(batch_dims) + [att_dim])
+    state.att = rf.zeros(list(batch_dims) + [self.att_dim])
     state.att.feature_dim_axis = len(state.att.dims) - 1
 
     if "lstm" in self.decoder_state:
       state.s = self.get_lstm().default_initial_state(batch_dims=batch_dims)
-      if self.use_mini_att and "lstm":
+      if use_mini_att:
         state.mini_att_lstm = self.mini_att_lstm.default_initial_state(batch_dims=batch_dims)
 
-    if self.use_weight_feedback and not use_mini_att:
+    if self.use_weight_feedback and not use_mini_att and not use_zero_att:
       state.accum_att_weights = rf.zeros(
         list(batch_dims) + [enc_spatial_dim, self.att_num_heads], feature_dim=self.att_num_heads
       )
@@ -73,9 +80,11 @@ class GlobalAttDecoder(BaseLabelDecoder):
           input_embed: rf.Tensor,
           state: Optional[rf.State] = None,
           use_mini_att: bool = False,
+          use_zero_att: bool = False,
           hard_att_opts: Optional[Dict] = None,
           mask_att_opts: Optional[Dict] = None,
           detach_att: bool = False,
+          h_s: Optional[rf.Tensor] = None,
   ) -> Tuple[Dict[str, rf.Tensor], rf.State]:
     """step of the inner loop"""
     if state is None:
@@ -98,7 +107,9 @@ class GlobalAttDecoder(BaseLabelDecoder):
     if "lstm" in self.decoder_state:
       state_.s = s_state
 
-    if use_mini_att:
+    if h_s is not None:
+      att = h_s
+    elif use_mini_att:
       if "lstm" in self.decoder_state:
         att_lstm, state_.mini_att_lstm = self.mini_att_lstm(
           input_embed, state=state.mini_att_lstm, spatial_dim=single_step_dim)
@@ -107,6 +118,8 @@ class GlobalAttDecoder(BaseLabelDecoder):
         att_linear = self.mini_att_linear(input_embed)
         pre_mini_att = att_linear
       att = self.mini_att(pre_mini_att)
+    elif use_zero_att:
+      att = rf.zeros_like(prev_att)
     else:
       if self.trafo_att:
         att, state_.trafo_att = self.trafo_att(

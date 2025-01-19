@@ -5,17 +5,32 @@ Dump to Python code utils
 import re
 import sys
 import os
-from operator import attrgetter
 from typing import Any, Optional, TextIO
+from types import FunctionType, BuiltinFunctionType, ModuleType
+import dataclasses
+
 import sisyphus
 from sisyphus import gs, tk
 from sisyphus.hash import sis_hash_helper
+
 import i6_core.util
 import i6_core.rasr as rasr
+
 from .python import is_valid_python_identifier_name
 
 
-_valid_primitive_types = (type(None), int, float, str, bool, tk.Path, type)
+_valid_primitive_types = (
+    type(None),
+    int,
+    float,
+    str,
+    bool,
+    tk.Path,
+    type,
+    FunctionType,
+    BuiltinFunctionType,
+    ModuleType,
+)
 
 
 class PythonCodeDumper:
@@ -112,6 +127,8 @@ class PythonCodeDumper:
             if state:
                 if hasattr(obj, "__setstate__"):
                     print(f"{lhs}.__setstate__({self._py_repr(state)})", file=self.file)
+                elif _is_frozen_dataclass(obj):
+                    print(f"{lhs}.__dict__.update({self._py_repr(state)})", file=self.file)
                 else:
                     slotstate = None
                     if isinstance(state, tuple) and len(state) == 2:
@@ -242,9 +259,13 @@ class PythonCodeDumper:
             if not obj:
                 return "set()"
             return f"{{{', '.join(sorted([self._py_repr(v) for v in obj], key=sis_hash_helper))}}}"
-        if isinstance(obj, type):
+        if isinstance(obj, (type, FunctionType, BuiltinFunctionType, ModuleType)) or (
+            getattr(obj, "__module__", None) and getattr(obj, "__qualname__", None)
+        ):
             self._import_user_mod(obj.__module__)
-            assert attrgetter(obj.__qualname__)(sys.modules[obj.__module__]) is obj
+            assert (
+                getattr(sys.modules[obj.__module__], obj.__qualname__, None) is obj
+            ), f"{obj!r} not found under {obj.__module__}.{obj.__qualname__}"
             return f"{obj.__module__}.{obj.__qualname__}"
         if isinstance(obj, str):
             for name in {"BASE_DIR", "RASR_ROOT"}:
@@ -326,6 +347,7 @@ class PythonCodeDumper:
     def _import_user_mod(self, name: str):
         if name in self._imports:
             return
+        assert name not in self._reserved_names and name not in self._other_reserved_names
         print(f"import {name}", file=self.file)
         self._imports.add(name)
 
@@ -340,3 +362,17 @@ class PythonCodeDumper:
         }
         print(code[name], file=self.file)
         self._imports.add(name)
+
+
+def _is_frozen_dataclass(obj) -> bool:
+    if not dataclasses.is_dataclass(obj):
+        return False
+    cls = obj if isinstance(obj, type) else type(obj)
+    for b in cls.__mro__:
+        if dataclasses.is_dataclass(b):
+            # This is _PARAMS / _DataclassParams in dataclasses,
+            # which is not exposed publicly.
+            dc_params = getattr(b, "__dataclass_params__")
+            if dc_params.frozen:
+                return True
+    return False

@@ -21,13 +21,14 @@ class OnnxPrecomputedHybridSystem(HybridSystem):
     System class for hybrid systems that train PyTorch models and export them to onnx for recognition. The NN
     precomputed hybrid feature scorer is used.
     """
+
     def calcluate_nn_prior(self, returnn_config, epoch, epoch_num, name, checkpoint, train_job):
         prior_config = copy.deepcopy(returnn_config)
         assert len(self.train_cv_pairing) == 1, "multiple train corpora not supported yet"
         train_data = self.train_input_data[self.train_cv_pairing[0][0]]
-        prior_config.config["train"] = copy.deepcopy(train_data) if isinstance(train_data,
-                                                                               Dict) else copy.deepcopy(
-            train_data.get_data_dict())
+        prior_config.config["train"] = (
+            copy.deepcopy(train_data) if isinstance(train_data, Dict) else copy.deepcopy(train_data.get_data_dict())
+        )
         # prior_config.config["train"]["datasets"]["align"]["partition_epoch"] = 3
         if "hdf_align" in prior_config.config["train"]["datasets"]:
             prior_config.config["train"]["datasets"]["hdf_align"]["seq_ordering"] = "random"
@@ -36,21 +37,22 @@ class OnnxPrecomputedHybridSystem(HybridSystem):
         else:
             prior_config.config["train"]["datasets"]["align"]["seq_ordering"] = "random"
         prior_config.config["forward_batch_size"] = 10000
-        #if epoch == "best":
+        # if epoch == "best":
         #    prior_config.config["load_epoch"] = epoch_num
         if "chunking" in prior_config.config.keys():
             del prior_config.config["chunking"]
         if "torch_amp" in prior_config.config.keys():
-            del prior_config.config['torch_amp']
-        prior_config.config["extern_data"]["data_raw"] = {"dim": 1, "shape": (None, 1), "available_for_inference": True}
+            del prior_config.config["torch_amp"]
+
+        # prior_config.config["extern_data"]["data_raw"] = {"dim": 1, "shape": (None, 1), "available_for_inference": True} TODO: check if this breaks smth
         from i6_core.tools.git import CloneGitRepositoryJob
+
         # if "align" not in prior_config.config["train"]["datasets"]:
         returnn_root = CloneGitRepositoryJob(
-            "https://github.com/rwth-i6/returnn",
-            commit="d4ab1d8fcbe3baa11f6d8e2cf8e443bc0e9e9fa2",
+            "https://github.com/rwth-i6/returnn", commit="d4ab1d8fcbe3baa11f6d8e2cf8e443bc0e9e9fa2",
         ).out_repository.copy()
         returnn_root.hash_overwrite = "RETURNN_PRIOR_COMMIT"
-        big_gpu_names = ["whisper_large"] # not including v2large and v2medium for legacy reasons
+        big_gpu_names = ["whisper_large"]  # not including v2large and v2medium for legacy reasons
         if any(x in name for x in big_gpu_names):
             prior_config.config["max_seqs"] = 3
         elif "whisper" in name:
@@ -65,10 +67,10 @@ class OnnxPrecomputedHybridSystem(HybridSystem):
             cpu_rqmt=2,
             returnn_python_exe=self.returnn_python_exe,
             returnn_root=returnn_root,
-            output_files=["prior.txt", "prior.xml"]
+            output_files=["prior.txt", "prior.xml"],
         )
-        if any(x in name for x in ["whisper_v2_large", "whisper_v2_medium"] + big_gpu_names):
-            nn_prior_job.rqmt["gpu_mem"] = 24
+        # if any(x in name for x in ["whisper_v2_large", "whisper_v2_medium"] + big_gpu_names):
+        nn_prior_job.rqmt["gpu_mem"] = 25
         nn_prior_job.add_alias("extract_nn_prior/" + name + "/epoch_" + str(epoch))
         prior_file = nn_prior_job.out_files["prior.xml"]
         return prior_file, prior_config
@@ -121,21 +123,24 @@ class OnnxPrecomputedHybridSystem(HybridSystem):
                     best_checkpoint_job.add_alias(f"get_best/{name}")
                     checkpoint = best_checkpoint_job.out_checkpoint
                     epoch_str = epoch
-                    #epoch_num = best_checkpoint_job.out_epoch
+                    # epoch_num = best_checkpoint_job.out_epoch
                     epoch_num = None
                 elif epoch == "avrg":
                     assert train_job is not None, "train_job needed to average checkpoints"
                     chkpts = []
                     for x in [0, 1, 2, 3]:
-                        best_job = GetBestPtCheckpointJob(train_job.out_model_dir, train_job.out_learning_rates,
-                                                          key=best_checkpoint_key, index=x)
+                        best_job = GetBestPtCheckpointJob(
+                            train_job.out_model_dir, train_job.out_learning_rates, key=best_checkpoint_key, index=x
+                        )
+                        best_job.set_keep_value(5)
                         best_job.add_alias(f"get_best/{name}_{x}")
                         chkpts.append(best_job.out_checkpoint)
                         avrg_job = AverageTorchCheckpointsJob(
                             checkpoints=chkpts,
                             returnn_python_exe=self.returnn_python_exe,
-                            returnn_root=self.returnn_root
+                            returnn_root=self.returnn_root,
                         )
+                        avrg_job.set_keep_value(5)
                         avrg_job.add_alias(f"avrg_chkpt/{name}")
                         checkpoint = avrg_job.out_checkpoint
                         epoch_str = "avrg"
@@ -164,9 +169,13 @@ class OnnxPrecomputedHybridSystem(HybridSystem):
                 onnx_job.add_alias(f"export_onnx/{name}/epoch_{epoch_str}")
                 onnx_job.set_keep_value(5)
                 onnx_model = onnx_job.out_onnx_model
-                io_map = {"features": "data_raw", "output": "log_probs"}
+                data_name = "data_raw" if "data_raw" in returnn_config.config["extern_data"] else "data"
+                io_map = {
+                    "features": data_name,
+                    "output": "log_probs",
+                }
                 if needs_features_size:
-                    io_map["features-size"] = "data_raw:size1"
+                    io_map["features-size"] = f"{data_name}:size1"
 
                 if nn_prior or acoustic_mixture_path is None:
                     prior_file, prior_config = self.calcluate_nn_prior(
@@ -175,28 +184,25 @@ class OnnxPrecomputedHybridSystem(HybridSystem):
                         epoch_num=epoch_num,
                         name=name,
                         checkpoint=checkpoint,
-                        train_job=train_job
+                        train_job=train_job,
                     )
                     # This can't be acoustic_mixture_path because python hands in the object itself, not a copy thus
                     # one would override the old mixture_path (if there is any) for all other exps
-                    if "data_raw" in returnn_config.config['extern_data']:
-                        features = returnn_config.config['extern_data']['data_raw']['dim']
+                    if "data_raw" in returnn_config.config["extern_data"]:
+                        features = returnn_config.config["extern_data"]["data_raw"]["dim"]
                     else:
-                        features = returnn_config.config['extern_data']['data']['dim']
+                        features = returnn_config.config["extern_data"]["data"]["dim"]
                     tmp_acoustic_mixture_path = CreateDummyMixturesJob(
-                        num_mixtures=returnn_config.config['extern_data']['classes']['dim'],
-                        num_features=features).out_mixtures
+                        num_mixtures=returnn_config.config["extern_data"]["classes"]["dim"], num_features=features
+                    ).out_mixtures
                     lmgc_scorer = rasr.GMMFeatureScorer(acoustic_mixture_path)
                     scorer = rasr.PrecomputedHybridFeatureScorer(
-                        prior_mixtures=tmp_acoustic_mixture_path,
-                        prior_file=prior_file,
-                        priori_scale=prior
+                        prior_mixtures=tmp_acoustic_mixture_path, prior_file=prior_file, priori_scale=prior
                     )
                 else:
                     assert acoustic_mixture_path is not None, "need mixtures if no nn prior is computed"
                     scorer = rasr.PrecomputedHybridFeatureScorer(
-                        prior_mixtures=acoustic_mixture_path,
-                        priori_scale=prior,
+                        prior_mixtures=acoustic_mixture_path, priori_scale=prior,
                     )
                     lmgc_scorer = rasr.GMMFeatureScorer(acoustic_mixture_path)
                 kwargs = copy.deepcopy(kwargs)
@@ -209,7 +215,24 @@ class OnnxPrecomputedHybridSystem(HybridSystem):
                 quant_ops_ls = [None, ["Conv"], ["Linear"], ["Conv", "Linear"]]
                 quant_formats = [QuantFormat.QDQ, QuantFormat.QOperator]
                 if data_num_ls is not None and ((prior == 0.7 and lm == 10.0) or "speed" in name):
-                    for data_num, quant_mode, average, sym, activation_type, weight_type, quant_ops, quant_format in itertools.product(quant_modes, average_modes, sym_modes, activation_types, weight_types, quant_ops_ls, quant_formats):
+                    for (
+                        data_num,
+                        quant_mode,
+                        average,
+                        sym,
+                        activation_type,
+                        weight_type,
+                        quant_ops,
+                        quant_format,
+                    ) in itertools.product(
+                        quant_modes,
+                        average_modes,
+                        sym_modes,
+                        activation_types,
+                        weight_types,
+                        quant_ops_ls,
+                        quant_formats,
+                    ):
                         if average and (not quant_mode == CalibrationMethod.MinMax or "speed" in name):
                             continue
                         if not quant_mode == CalibrationMethod.MinMax and "speed" in name:
@@ -238,13 +261,12 @@ class OnnxPrecomputedHybridSystem(HybridSystem):
                             quant_format=quant_format,
                         )
                         quant_job.add_alias(
-                            "quantize_static/" + name + "/" + mode_str + "/epoch" + epoch_str + "_" + str(data_num))
+                            "quantize_static/" + name + "/" + mode_str + "/epoch" + epoch_str + "_" + str(data_num)
+                        )
                         quant_model = quant_job.out_model
 
                         onnx_flow = make_precomputed_hybrid_onnx_feature_flow(
-                            onnx_model=quant_model,
-                            io_map=io_map,
-                            cpu=kwargs.get("cpu", 1),
+                            onnx_model=quant_model, io_map=io_map, cpu=kwargs.get("cpu", 1),
                         )
                         flow = add_fwd_flow_to_base_flow(feature_flow, onnx_flow, fwd_input_name="onnx-fwd-input")
                         self.feature_scorers[recognition_corpus_key][f"pre-nn-{name}-{prior:02.2f}"] = scorer
@@ -270,9 +292,7 @@ class OnnxPrecomputedHybridSystem(HybridSystem):
                 if "quant" in name:
                     continue
                 onnx_flow = make_precomputed_hybrid_onnx_feature_flow(
-                    onnx_model=onnx_model,
-                    io_map=io_map,
-                    cpu=kwargs.get("cpu", 1),
+                    onnx_model=onnx_model, io_map=io_map, cpu=kwargs.get("cpu", 1),
                 )
                 flow = add_fwd_flow_to_base_flow(feature_flow, onnx_flow)
                 self.feature_scorers[recognition_corpus_key][f"pre-nn-{name}-{prior:02.2f}"] = scorer

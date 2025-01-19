@@ -8,3 +8,4 @@ from .model_with_checkpoints import *
 from .recog import *
 from .forward import *
 from .training import *
+from .score import *

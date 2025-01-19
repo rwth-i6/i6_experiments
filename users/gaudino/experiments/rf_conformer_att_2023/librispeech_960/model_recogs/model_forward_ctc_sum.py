@@ -5,7 +5,7 @@ import tree
 from functools import partial
 
 
-from returnn.tensor import Tensor, Dim
+from returnn.tensor import Tensor, Dim, single_step_dim
 import returnn.frontend as rf
 from returnn.frontend.tensor_array import TensorArray
 
@@ -19,7 +19,7 @@ from i6_experiments.users.gaudino.experiments.rf_conformer_att_2023.librispeech_
 import torch
 import numpy
 
-_ctc_prior_filename = "/u/luca.gaudino/debug/ctc/prior.txt"
+# _ctc_prior_filename = "/u/luca.gaudino/debug/ctc/prior.txt"
 # _ctc_prior_filename = "/work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/2023-02-22--conformer-swb/work/i6_core/returnn/extract_prior/ReturnnComputePriorJobV2.ZdcvhAOyWl95/output/prior.txt"
 
 
@@ -29,6 +29,7 @@ def model_forward_ctc_sum(
     data: Tensor,
     data_spatial_dim: Dim,
     max_seq_len: Optional[int] = None,
+    search_args: Optional[Dict[str, Any]] = None,
     ground_truth: Tensor,
 ) -> Tuple[Tensor, Tensor, Dim, Dim]:
     """
@@ -44,16 +45,19 @@ def model_forward_ctc_sum(
         out_spatial_dim,
         final beam_dim
     """
+    if hasattr(model, "search_args"):
+        search_args = model.search_args
+
     batch_dims = data.remaining_dims((data_spatial_dim, data.feature_dim))
     enc_args, enc_spatial_dim = model.encode(data, in_spatial_dim=data_spatial_dim)
     beam_size = 1
-    length_normalization_exponent = model.search_args.get("length_normalization_exponent", 1.0)
+    length_normalization_exponent = search_args.get("length_normalization_exponent", 1.0)
     if max_seq_len is None:
         max_seq_len = enc_spatial_dim.get_size_tensor()
     else:
         max_seq_len = rf.convert_to_tensor(max_seq_len, dtype="int32")
 
-    if model.search_args.get("remove_eos_from_gt", False):
+    if search_args.get("remove_eos_from_gt", False):
         ground_truth.raw_tensor = ground_truth.raw_tensor[:, :-1]
         ground_truth.dims[1].dyn_size_ext = ground_truth.dims[1].get_size_tensor() - 1
 
@@ -68,12 +72,14 @@ def model_forward_ctc_sum(
     decoder_state = model.decoder_default_initial_state(
         batch_dims=batch_dims_, enc_spatial_dim=enc_spatial_dim
     )
-    # if model.search_args.get("add_lstm_lm", False):
-    #     lm_state = model.lstm_lm.lm_default_initial_state(batch_dims=batch_dims_)
-    initial_target = rf.constant(
-        model.bos_idx, dims=batch_dims_, sparse_dim=model.target_dim
-    )
-    target = initial_target
+
+    if search_args.get("lm_scale", 0.0) > 0:
+        lm_state = model.language_model.default_initial_state(batch_dims=batch_dims_)
+
+    if search_args.get("ilm_scale", 0.0) > 0:
+        ilm_state = model.ilm.default_initial_state(batch_dims=batch_dims_)
+
+    target = rf.constant(model.bos_idx, dims=batch_dims_, sparse_dim=model.target_dim)
     ended = rf.constant(False, dims=batch_dims_)
     out_seq_len = rf.constant(0, dims=batch_dims_)
     seq_log_prob = rf.constant(0.0, dims=batch_dims_)
@@ -91,7 +97,7 @@ def model_forward_ctc_sum(
         .raw_tensor
     )  # [B,T,V+1]
 
-    if model.search_args.get("mask_eos", True):
+    if search_args.get("mask_eos", True):
         ctc_eos = ctc_out_raw[:, :, model.eos_idx].unsqueeze(2)
         ctc_blank = ctc_out_raw[:, :, model.blank_idx].unsqueeze(2)
         ctc_out_raw[:, :, model.blank_idx] = torch.logsumexp(
@@ -127,22 +133,43 @@ def model_forward_ctc_sum(
 
     i = 0
     while True:
-        input_embed = model.target_embed(target)
+        # fixed: before it was computed at step 0
+        if i == 0:
+            input_embed = rf.zeros(batch_dims_ + [model.target_embed.out_dim], feature_dim=model.target_embed.out_dim)
+        else:
+            input_embed = model.target_embed(target)
+
         step_out, decoder_state = model.loop_step(
             **enc_args,
             enc_spatial_dim=enc_spatial_dim,
             input_embed=input_embed,
             state=decoder_state,
         )
-        att_weights = step_out.pop("att_weights", None).raw_tensor
-        if i==0:
-            att_weights = torch.flatten(att_weights.squeeze(3).view(batch_size, 1, -1), end_dim=1)
-        else:
-            att_weights = torch.flatten(att_weights.squeeze(3).view(batch_size, beam_size, -1), end_dim=1)
+        step_out.pop("att_weights", None)
         logits = model.decode_logits(input_embed=input_embed, **step_out)
         label_log_prob = rf.log_softmax(
             logits, axis=model.target_dim
         )  # (Dim{'initial-beam'(1)}, Dim{B}, Dim{F'target'(10025)})
+
+        label_log_prob = label_log_prob * search_args.get("att_scale", 1.0)
+
+        if search_args.get("lm_scale", 0.0) > 0:
+            lm_out = model.language_model(target, state=lm_state, spatial_dim=single_step_dim)
+            lm_state = lm_out["state"]
+            lm_log_prob = rf.log_softmax(lm_out["output"], axis=model.target_dim)
+
+            label_log_prob = (
+                label_log_prob + search_args["lm_scale"] * lm_log_prob
+            )
+
+        if search_args.get("ilm_scale", 0.0) > 0:
+            ilm_out = model.ilm(input_embed, state=ilm_state, spatial_dim=single_step_dim)
+            ilm_state = ilm_out["state"]
+            ilm_log_prob = rf.log_softmax(ilm_out["output"], axis=model.target_dim)
+
+            label_log_prob = (
+                label_log_prob - search_args["ilm_scale"] * ilm_log_prob
+            )
 
         # Filter out finished beams
         label_log_prob = rf.where(
@@ -183,7 +210,7 @@ def model_forward_ctc_sum(
     if i > 0 and length_normalization_exponent != 0:
         seq_log_prob *= (1 / i) ** length_normalization_exponent
 
-    seq_log_prob = seq_log_prob * model.search_args.get("att_scale", 1.0) + ctc_scores * model.search_args.get("ctc_scale", 0.0)
+    seq_log_prob = seq_log_prob + ctc_scores * search_args.get("ctc_scale", 0.0)
 
     out_spatial_dim = ground_truth.dims[1]
     seq_targets = rf.reshape(ground_truth, ground_truth.dims, batch_dims_ + [out_spatial_dim])

@@ -281,3 +281,40 @@ def aed_bpe_ls100_0824_base():
             ),
             use_gpu=True,
         )
+
+        if BPE_SIZE == 1024:
+            network_module = "aed.conformer_zoneout_prototype_0624.aed_prototype_v5"
+            train_args = {
+                "config": train_config_11gbgpu_short_baseline,
+                "network_module": network_module,
+                "net_args": {"model_config_dict": asdict(model_zeineldeen_config_v4)},
+                "debug": False,
+            }
+
+            training_name = prefix_name + "/" + str(
+                BPE_SIZE) + "/" + network_module + ".384dim_sub6_11gbgpu_100eps_radam"
+            train_job = training(training_name, train_data_bpe, train_args, num_epochs=300, **default_returnn)
+            train_job.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+
+            asr_model = prepare_asr_model(
+                training_name, train_job, train_args, with_prior=False, datasets=train_data_bpe,
+                get_specific_checkpoint=300
+            )
+            greedy_search_helper(training_name, asr_model=asr_model, decoder_config=greedy_decoder_config)
+
+            beam_search_prototype(
+                training_name,
+                asr_model=asr_model,
+                decoder_config=BeamSearchDecoderConfig(
+                    returnn_vocab=label_datastream_bpe.vocab,
+                    beam_search_opts=BeamSearchOpts(
+                        beam_size=12,
+                        length_normalization_exponent=1.0,
+                        length_reward=0,
+                        bos_label=0,
+                        eos_label=0,
+                        num_labels=label_datastream_bpe.vocab_size
+                    )
+                ),
+                use_gpu=True,
+            )

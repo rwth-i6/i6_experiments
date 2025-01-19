@@ -17,7 +17,7 @@ def model_forward(
 ):
   batch_dims = targets.remaining_dims(targets_spatial_dim)
 
-  logits, _, _ = model(
+  logits, _ = model(
     rf.shift_right(targets, axis=targets_spatial_dim, pad_value=0),
     spatial_dim=targets_spatial_dim,
     state=model.default_initial_state(batch_dims=batch_dims)

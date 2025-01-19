@@ -107,10 +107,12 @@ def get_prior_config(
         "num_workers_per_gpu": 2,
     }
 
-    from .data.prior_segments import get_prior_segments
-    prior_segment_list = get_prior_segments(data_share=data_share)
     dataset_config = copy.deepcopy(training_datasets.prior.as_returnn_opts())
-    dataset_config["datasets"]["zip_dataset"]["segment_file"] = prior_segment_list
+    assert 0.0 < data_share <= 1.0, "set 0.0 < data_share <= 1.0"
+    if data_share < 1.0:
+        from .data.prior_segments import get_prior_segments
+        prior_segment_list = get_prior_segments(data_share=data_share)
+        dataset_config["datasets"]["zip_dataset"]["segment_file"] = prior_segment_list
 
     base_config = {
         #############
@@ -134,6 +136,74 @@ def get_prior_config(
         debug=debug,
     )
     returnn_config = ReturnnConfig(config=config, post_config=post_config, python_epilog=[serializer])
+    return returnn_config
+
+def get_decoding_config(
+    training_datasets: TrainingDatasets,
+    network_module: str,
+    config: Dict[str, Any],
+    net_args: Dict[str, Any],
+    unhashed_net_args: Optional[Dict[str, Any]] = None,
+    include_native_ops=False,
+    debug: bool = False,
+    use_speed_perturbation: bool = False,
+    post_config: Optional[Dict[str, Any]] = None,
+) -> ReturnnConfig:
+    """
+    Get a generic config for training a model
+
+    :param training_datasets: datasets for training
+    :param network_module: path to the pytorch config file containing Model
+    :param net_args: extra arguments for constructing the PyTorch model
+    :param unhashed_net_args: unhashed extra arguments for constructing the PyTorch model
+    :param config: config arguments for RETURNN
+    :param debug: run training in debug mode (linking from recipe instead of copy)
+    :param use_speed_perturbation: Use speedperturbation in the training
+    :param post_config: Add non-hashed arguments for RETURNN
+    """
+
+    # changing these does not change the hash
+    base_post_config = {"stop_on_nonfinite_train_score": True, "num_workers_per_gpu": 2, "backend": "torch"}
+
+    base_config = {
+        "cleanup_old_models": {
+            "keep_last_n": 4,
+            "keep_best_n": 4,
+        },
+        #############
+        "train": copy.deepcopy(training_datasets.train.as_returnn_opts()),
+        "dev": training_datasets.cv.as_returnn_opts(),
+        "eval_datasets": {"devtrain": training_datasets.devtrain.as_returnn_opts()},
+    }
+    config = {**base_config, **copy.deepcopy(config)}
+    post_config = {**base_post_config, **copy.deepcopy(post_config or {})}
+
+    serializer = serialize_training(
+        network_module=network_module,
+        net_args=net_args,
+        unhashed_net_args=unhashed_net_args,
+        include_native_ops=include_native_ops,
+        debug=debug,
+        do_export=True,
+    )
+    python_prolog = None
+
+    # TODO: maybe make nice (if capability added to RETURNN itself)
+    if use_speed_perturbation:
+        prolog_serializer = TorchCollection(
+            serializer_objects=[
+                Import(
+                    code_object_path=PACKAGE + ".extra_code.speed_perturbation.legacy_speed_perturbation",
+                    unhashed_package_root=PACKAGE,
+                )
+            ]
+        )
+        python_prolog = [prolog_serializer]
+        config["train"]["datasets"]["zip_dataset"]["audio"]["pre_process"] = CodeWrapper("legacy_speed_perturbation")
+
+    returnn_config = ReturnnConfig(
+        config=config, post_config=post_config, python_prolog=python_prolog, python_epilog=[serializer]
+    )
     return returnn_config
 
 

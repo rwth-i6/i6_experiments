@@ -5,9 +5,12 @@ import copy
 import enum
 from dataclasses import dataclass, asdict
 import os.path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Tuple, Union
 
 from sisyphus import tk
+
+from i6_core.returnn import PtCheckpoint, ReturnnConfig
 
 from i6_core.corpus.convert import CorpusToStmJob
 from i6_core.recognition.scoring import ScliteJob
@@ -19,8 +22,10 @@ from i6_core.returnn.forward import ReturnnForwardJobV2
 
 from i6_experiments.common.setups.returnn.datasets import Dataset
 
+
 from .config import get_forward_config, get_training_config, get_prior_config, TrainingDatasets
 from .default_tools import SCTK_BINARY_PATH, RETURNN_EXE, MINI_RETURNN_ROOT
+from .onnx import ExportPyTorchModelToOnnxJobV2
 
 
 @dataclass
@@ -273,6 +278,7 @@ def prepare_asr_model(
 
     prior_file = None
     if with_prior:
+        data_share = prior_kwargs.pop("data_share", None) or 0.3
         returnn_config = get_prior_config(
             training_datasets=datasets,
             network_module=train_args["network_module"],
@@ -280,6 +286,7 @@ def prepare_asr_model(
             net_args=train_args["net_args"],
             unhashed_net_args=train_args.get("unhashed_net_args", None),
             debug=train_args.get("debug", False),
+            data_share=data_share,
         )
         prior_file = compute_prior(
             training_name,
@@ -303,3 +310,23 @@ def prepare_asr_model(
     )
 
     return asr_model
+
+
+def export_model_for_rasr_decoding(checkpoint: Union[tk.Path, PtCheckpoint],
+                                   returnn_config: ReturnnConfig,
+                                   returnn_python_exe: tk.Path,
+                                   returnn_root: tk.Path,
+                                   device: str):
+
+    onnx_export_job = ExportPyTorchModelToOnnxJobV2(
+        pytorch_checkpoint=checkpoint,
+        returnn_config=returnn_config,
+        returnn_python_exe=returnn_python_exe,
+        returnn_root=returnn_root,
+        verbosity=5,
+        device=device,
+    )
+
+    return onnx_export_job.out_onnx_model
+
+

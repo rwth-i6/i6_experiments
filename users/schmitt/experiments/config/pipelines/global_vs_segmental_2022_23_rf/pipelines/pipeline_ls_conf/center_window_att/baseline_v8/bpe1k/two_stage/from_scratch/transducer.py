@@ -75,37 +75,34 @@ def run_exps():
                 "lr2": 1e-5,
               },
       ):
-        break
-        checkpoint_aliases = ("last",)
-
         recog.center_window_returnn_frame_wise_beam_search(
           alias=fixed_path_train_alias,
           config_builder=config_builder,
           checkpoint=fixed_path_checkpoint,
-          checkpoint_aliases=checkpoint_aliases,
+          use_recombination=None,
         )
 
-        if alias == "v1" and gpu_mem_rqmt == 24:
-          for lm_scale, ilm_scale in [
-            (0.54, 0.4),
-            (0.6, 0.4),
-            (0.7, 0.4),
-            (0.7, 0.3),
-            (0.8, 0.4),
-          ]:
-            lm_alias = "1k_max-seq-length-112_24-layers_512-dim"
-            recog.center_window_returnn_frame_wise_beam_search(
-              alias=fixed_path_train_alias,
-              config_builder=config_builder,
-              checkpoint=fixed_path_checkpoint,
-              checkpoint_aliases=("last",),
-              lm_type="trafo",
-              lm_scale_list=(lm_scale,),
-              ilm_scale_list=(ilm_scale,),
-              ilm_type="mini_att",
-              lm_alias=lm_alias,
-              lm_checkpoint=lm_checkpoints[lm_alias],
-            )
+        # if alias == "v1" and gpu_mem_rqmt == 24:
+        #   for lm_scale, ilm_scale in [
+        #     (0.54, 0.4),
+        #     (0.6, 0.4),
+        #     (0.7, 0.4),
+        #     (0.7, 0.3),
+        #     (0.8, 0.4),
+        #   ]:
+        #     lm_alias = "1k_max-seq-length-112_24-layers_512-dim"
+        #     recog.center_window_returnn_frame_wise_beam_search(
+        #       alias=fixed_path_train_alias,
+        #       config_builder=config_builder,
+        #       checkpoint=fixed_path_checkpoint,
+        #       checkpoint_aliases=("last",),
+        #       lm_type="trafo",
+        #       lm_scale_list=(lm_scale,),
+        #       ilm_scale_list=(ilm_scale,),
+        #       ilm_type="mini_att",
+        #       lm_alias=lm_alias,
+        #       lm_checkpoint=lm_checkpoints[lm_alias],
+        #     )
 
         for epoch, chckpt in fixed_path_checkpoint["checkpoints"].items():
           if epoch in keep_epochs_fixed_path:
@@ -114,6 +111,7 @@ def run_exps():
               config_builder=config_builder,
               checkpoint=chckpt,
               checkpoint_aliases=(f"epoch-{epoch}",),
+              use_recombination=None,
             )
             # recog.center_window_returnn_frame_wise_beam_search(
             #   alias=fixed_path_train_alias,

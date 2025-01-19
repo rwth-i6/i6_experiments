@@ -28,7 +28,7 @@ def test_tuple_deep():
 
 
 def test_datasets_librispeech_ogg_zip():
-    from .datasets.librispeech import LibrispeechOggZip
+    from ..datasets.librispeech import LibrispeechOggZip
 
     ds = LibrispeechOggZip()
     assert sis_hash_helper(ds) == (
@@ -47,8 +47,8 @@ def test_datasets_librispeech_ogg_zip():
 
 
 def test_datasets_librispeech_lm():
-    from .datasets.librispeech import LibrispeechLmDataset
-    from .datasets.utils.bytes import Utf8BytesVocab
+    from ..datasets.librispeech import LibrispeechLmDataset
+    from ..datasets.utils.bytes import Utf8BytesVocab
 
     ds = LibrispeechLmDataset(vocab=Utf8BytesVocab())
     assert sis_hash_helper(ds) == (

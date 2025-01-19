@@ -10,6 +10,9 @@ from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segment
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.labels.v2.librispeech.phonemes.gmm_alignments import LIBRISPEECH_GMM_WORD_ALIGNMENT
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.pipelines.pipeline_ls_conf.checkpoints import lm_checkpoints
 
+from i6_core.returnn import PtCheckpoint
+
+from sisyphus import Path
 
 def run_exps():
   for model_alias, config_builder in baseline.global_att_baseline_rf(
@@ -236,26 +239,89 @@ def run_exps():
               disable_enc_self_att_until_epoch=disable_self_att_until_epoch,
               ctc_aux_loss_layers=ctc_aux_loss_layers,
       ):
-        if "rand" not in alias:
+        if "rand" in alias:
           recog.global_att_returnn_label_sync_beam_search(
             alias=train_alias,
             config_builder=config_builder,
             checkpoint=checkpoint,
-            corpus_keys=("dev-other", "test-other")
+            corpus_keys=("dev-other", "dev-clean", "test-other", "test-clean"),
+          )
+        else:
+          recog.global_att_returnn_label_sync_beam_search(
+            alias=train_alias,
+            config_builder=config_builder,
+            checkpoint=checkpoint,
+            corpus_keys=("dev-other", "dev-clean", "test-other", "test-clean"),
+            checkpoint_aliases=("last",)
           )
 
         if alias == "v5_big":
-          for lm_scale, ilm_scale in [
-            (0.54, 0.4),
-            (0.5, 0.4),
+          for base_scale, ext_scale in [
+            (1.0, 1.2),
+            (0.1, 0.9),
+            (0.2, 0.8),
+            (0.3, 0.7),
+            (0.4, 0.6),
+            (0.5, 0.5),
             (0.6, 0.4),
+            (0.7, 0.3),
+            (0.8, 0.2),
+            (0.9, 0.1),
+            (0.1, 1.0),
+            (0.2, 1.0),
+            (0.3, 1.0),
+            (0.4, 1.0),
+            (0.5, 1.0),
+            (0.6, 1.0),
+            (0.7, 1.0),
+            (0.8, 1.0),
+            (0.9, 1.0),
+            (1.1, 1.0),
+            (1.2, 1.0),
+            (1.3, 1.0),
+            (1.0, 1.0),
           ]:
-            lm_alias = "1k_max-seq-length-112_24-layers_512-dim"
+            corpus_keys = ["dev-other"]
+            if base_scale == 1.0 and ext_scale == 1.0:
+              corpus_keys += ["test-other"]
             recog.global_att_returnn_label_sync_beam_search(
               alias=train_alias,
               config_builder=config_builder,
               checkpoint=checkpoint,
-              corpus_keys=("dev-other",),
+              corpus_keys=corpus_keys,
+              checkpoint_aliases=("last",),
+              external_aed_opts={
+                "checkpoint": PtCheckpoint(Path(
+                  "/u/schmitt/experiments/03-09-24_aed_flipped_encoder/work/i6_core/returnn/training/ReturnnTrainingJob.czqZZvX66f4j/output/models/epoch.2000.pt"
+                )),
+                "scale": ext_scale,
+              },
+              base_scale=base_scale,
+            )
+
+        if alias in (
+                # "v5_big",
+                # "v8_big",
+                "v3_big",
+        ):
+          for lm_scale, ilm_scale in [
+            (0.54, 0.4),
+            # (0.5, 0.4),
+            # (0.6, 0.4),
+          ]:
+            corpus_keys = ["dev-other"]
+            beam_size_list = [12]
+            if lm_scale == 0.54 and ilm_scale == 0.4:
+              corpus_keys = ["test-other"]
+              beam_size_list = [12, 84]
+
+            lm_alias = "1k_max-seq-length-112_24-layers_512-dim"
+            # lm_alias = "1k_max-seq-length-112_24-layers_1024-dim"
+            recog.global_att_returnn_label_sync_beam_search(
+              alias=train_alias,
+              config_builder=config_builder,
+              checkpoint=checkpoint,
+              corpus_keys=corpus_keys,
               checkpoint_aliases=("last",),
               lm_type="trafo",
               lm_scale_list=(lm_scale,),
@@ -264,6 +330,8 @@ def run_exps():
               lm_alias=lm_alias,
               lm_checkpoint=lm_checkpoints[lm_alias],
               behavior_version=21,  # otherwise, trafo lm logits has wrong weight order
+              beam_size_list=beam_size_list,
+              sbatch_args=["-p", "gpu_48gb,gpu_24gb_preemptive,gpu_11gb"],
             )
 
         recog.global_att_returnn_label_sync_beam_search(

@@ -37,6 +37,7 @@ def model_recog_time_sync(
     data_spatial_dim: Dim,
     max_seq_len: Optional[int] = None,
     search_args: Optional[Dict[str, Any]] = None,
+    ground_truth: Optional[Tensor] = None,
 ) -> Tuple[Tensor, Tensor, Dim, Dim]:
     """
     Function is run within RETURNN.
@@ -54,12 +55,29 @@ def model_recog_time_sync(
     if hasattr(model, "search_args"):
         search_args = model.search_args
 
+    if hasattr(model, "model_aed"):
+        model_aed = model.model_aed
+        model_ctc = model.model_ctc
+        target_dim_w_blank = model_ctc.target_dim_w_blank
+    else:
+        model_aed = model
+        model_ctc = None
+        target_dim_w_blank = model.target_dim_w_blank
+
     batch_dims = data.remaining_dims((data_spatial_dim, data.feature_dim))
-    enc_args, enc_spatial_dim = model.encode(data, in_spatial_dim=data_spatial_dim)
-    if search_args.get("encoder_ctc", False):
-        enc_args_ctc, enc_spatial_dim_ctc = model.encode_ctc(
-            data, in_spatial_dim=data_spatial_dim
-        )
+    enc_args, enc_spatial_dim = model_aed.encode(data, in_spatial_dim=data_spatial_dim)
+
+    if model_ctc:
+        enc_args_ctc, enc_spatial_dim_ctc = model_ctc.encode(data, in_spatial_dim=data_spatial_dim)
+        final_ctc_layer = getattr(model_ctc, model_ctc.final_ctc_name, None)
+        enc_ctc = final_ctc_layer(enc_args_ctc["enc"])
+        enc_ctc = rf.softmax(enc_ctc, axis=model_ctc.target_dim_w_blank)
+    elif search_args.get("encoder_ctc", False):
+        enc_args_ctc, enc_spatial_dim_ctc = model.encode_ctc(data, in_spatial_dim=data_spatial_dim)
+        enc_ctc = enc_args_ctc["ctc"]
+        # enc_ctc = rf.log(enc_ctc)
+    elif search_args.get("ctc_scale", 0.0) > 0.0 or search_args.get("rescore_w_ctc", False):
+        enc_ctc = enc_args["ctc"]
 
     beam_size = search_args.get("beam_size", 12)
     length_normalization_exponent = search_args.get(
@@ -74,8 +92,8 @@ def model_recog_time_sync(
     # Eager-mode implementation of beam search.
     # Initial state.
     beam_dim = Dim(1, name="initial-beam")
-    batch_dims_ = batch_dims + [beam_dim]
-    decoder_state = model.decoder_default_initial_state(
+    batch_dims_ =  batch_dims + [beam_dim]
+    decoder_state = model_aed.decoder_default_initial_state(
         batch_dims=batch_dims_, enc_spatial_dim=enc_spatial_dim
     )
     prev_decoder_state = decoder_state
@@ -84,17 +102,20 @@ def model_recog_time_sync(
         trafo_lm_state = _get_init_trafo_state(model.language_model, batch_dims_)
 
     if search_args.get("ilm_scale", 0.0) > 0:
-        ilm_state = model.ilm.default_initial_state(batch_dims=batch_dims_)
+        ilm_state = model_aed.ilm.default_initial_state(batch_dims=batch_dims_)
         prev_ilm_state = ilm_state
 
     initial_target = rf.constant(
-        model.bos_idx, dims=batch_dims_, sparse_dim=model.target_dim_w_b
+        model.bos_idx, dims=batch_dims_, sparse_dim=target_dim_w_blank
     )
     target = initial_target
     ended = rf.constant(False, dims=batch_dims_)
     out_seq_len = rf.constant(0, dims=batch_dims_)
     seq_log_prob = rf.constant(0.0, dims=batch_dims_)
     eos_log_prob = rf.constant(0.0, dims=batch_dims_)
+
+    # single probs for debugging
+    # seq_ctc_log_prob = rf.constant(0.0, dims=batch_dims_)
 
     assert len(batch_dims) == 1
     batch_size_dim = batch_dims[0]
@@ -103,13 +124,8 @@ def model_recog_time_sync(
 
     blank_index = model.target_dim.get_dim_value()
 
-    if search_args.get("encoder_ctc", False):
-        enc_ctc = enc_args_ctc["ctc"]
-    else:
-        enc_ctc = enc_args["ctc"]
-
     ctc_out_raw = enc_ctc.copy_transpose(
-        (batch_size_dim, enc_spatial_dim, model.target_dim_w_b)
+        (batch_size_dim, enc_spatial_dim, target_dim_w_blank)
     ).raw_tensor  # [B,T,V+1]
 
     if search_args.get("mask_eos", True):
@@ -167,7 +183,7 @@ def model_recog_time_sync(
 
     # ctc_out = rf.Tensor(
     #     name="ctc_out",
-    #     dims=(batch_size_dim, ctc_spatial_dim, model.target_dim_w_b),
+    #     dims=(batch_size_dim, ctc_spatial_dim, model.lank),
     #     dtype="float32",
     #     raw_tensor=ctc_out_raw,
     # )
@@ -218,8 +234,8 @@ def model_recog_time_sync(
             )
 
             if search_args.get("ilm_scale", 0.0) > 0:  # TODO
-                ilm_state = model.ilm.select_state(ilm_state, backrefs)
-                prev_ilm_state = model.ilm.select_state(ilm_state_1, backrefs)
+                ilm_state = model_aed.ilm.select_state(ilm_state, backrefs)
+                prev_ilm_state = model_aed.ilm.select_state(ilm_state_1, backrefs)
 
         mask_not_blank = rf.compare(target, "not_equal", model.blank_idx)
         mask_not_repeat = rf.compare(target, "not_equal", prev_target)
@@ -260,21 +276,18 @@ def model_recog_time_sync(
 
         # step computations
         if i == 0:
-            input_embed = rf.zeros(
-                batch_dims_ + [model.target_embed.out_dim],
-                feature_dim=model.target_embed.out_dim,
-            )
+            input_embed = rf.zeros(batch_dims_ + [model_aed.target_embed.out_dim], feature_dim=model_aed.target_embed.out_dim)
         else:
-            input_embed = model.target_embed(target_1)
+            input_embed = model_aed.target_embed(target_1)
 
-        step_out, decoder_state = model.loop_step(
+        step_out, decoder_state = model_aed.loop_step(
             **enc_args,
             enc_spatial_dim=enc_spatial_dim,
             input_embed=input_embed,
             state=decoder_state_1,
         )
         step_out.pop("att_weights", None)
-        logits = model.decode_logits(input_embed=input_embed, **step_out)
+        logits = model_aed.decode_logits(input_embed=input_embed, **step_out)
         att_label_log_prob = rf.log_softmax(logits, axis=model.target_dim)
 
         att_label_log_prob = att_label_log_prob * search_args.get("att_scale", 1.0)
@@ -305,6 +318,14 @@ def model_recog_time_sync(
             :, :, ctc_index
         ]  # [B, beam, T, V+1]
         ctc_non_blank = ctc_out_log_raw_step[:, :, :blank_index]
+
+        # for debugging
+        # ctc_log_prob = rf.Tensor(
+        #     name="ctc_log_prob",
+        #     dims=(batch_size_dim, beam_dim, model.target_dim_w_blank),
+        #     dtype="float32",
+        #     raw_tensor=ctc_out_log_raw_step,
+        # )
 
         # renormalize ctc_out_raw_step
         # ctc_non_blank = ctc_non_blank - torch.logsumexp(
@@ -354,7 +375,7 @@ def model_recog_time_sync(
             )
 
         if search_args.get("ilm_scale", 0.0) > 0:
-            ilm_out = model.ilm(input_embed, state=ilm_state_1, spatial_dim=single_step_dim)
+            ilm_out = model_aed.ilm(input_embed, state=ilm_state_1, spatial_dim=single_step_dim)
             ilm_state = ilm_out["state"]
             ilm_log_prob = rf.log_softmax(ilm_out["output"], axis=model.target_dim)
 
@@ -406,7 +427,7 @@ def model_recog_time_sync(
 
         label_log_prob = rf.Tensor(
             name="label_log_prob",
-            dims=(batch_size_dim, beam_dim, model.target_dim_w_b),
+            dims=(batch_size_dim, beam_dim, target_dim_w_blank),
             dtype="float32",
             raw_tensor=label_log_prob,
         )
@@ -416,7 +437,7 @@ def model_recog_time_sync(
             ended,
             rf.sparse_to_dense(
                 model.eos_idx,
-                axis=model.target_dim_w_b,
+                axis=target_dim_w_blank,
                 label_value=0.0,
                 other_value=-1.0e30,
             ),
@@ -434,15 +455,20 @@ def model_recog_time_sync(
             break
 
         seq_log_prob = seq_log_prob + label_log_prob  # Batch, InBeam, Vocab
+        # for debugging
+        # seq_ctc_log_prob = seq_ctc_log_prob + ctc_log_prob
 
         seq_log_prob, (backrefs, target), beam_dim = rf.top_k(
             seq_log_prob,
             k_dim=Dim(beam_size, name=f"dec-step{i}-beam"),
-            axis=[beam_dim, model.target_dim_w_b],
+            axis=[beam_dim, target_dim_w_blank],
         )  # seq_log_prob, backrefs, target: Batch, Beam
         batch_dims_ = batch_dims + [beam_dim]
         seq_targets.append(target)
         seq_backrefs.append(backrefs)
+
+        # for debugging
+        # seq_ctc_log_prob = rf.gather(seq_ctc_log_prob, indices=target, axis=model.target_dim_w_blank)
 
         # recombination
         if i == 0:

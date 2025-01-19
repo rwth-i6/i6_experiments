@@ -10,18 +10,19 @@ import math
 from returnn.torch.context import get_run_ctx
 from torch.ao.quantization.utils import check_min_max_valid
 
+
 def get_quantization_range_from_bit_precision(bits, dtype):
 
     if dtype == torch.qint8:
-        quant_min = -(2**(bits-1))
-        quant_max = (2**(bits-1))-1
+        quant_min = -(2 ** (bits - 1))
+        quant_max = (2 ** (bits - 1)) - 1
 
     elif dtype == torch.quint8:
         quant_min = 0
-        quant_max = (2**bits)-1
+        quant_max = (2**bits) - 1
 
     else:
-        raise ValueError(f'Unrecognized dtype {dtype}')
+        raise ValueError(f"Unrecognized dtype {dtype}")
 
     return quant_min, quant_max
 
@@ -41,16 +42,13 @@ class WeightQuantizer(nn.Module):
     def __get_quant_fn_and_observer_for_method(self, method):
         if self.quant_fn is not None and self.observer is not None:
             return self.quant_fn, self.observer
-        if method == 'per_tensor':
+        if method == "per_tensor":
             quant_fn = torch.fake_quantize_per_tensor_affine
             observer = torch_quant.observer.MinMaxObserver(
-                quant_min=self.quant_min,
-                quant_max=self.quant_max,
-                dtype=self.dtype,
-                reduce_range=self.reduce_range
+                quant_min=self.quant_min, quant_max=self.quant_max, dtype=self.dtype, reduce_range=self.reduce_range
             )
         else:
-            raise ValueError(f'Unknown quantization method: {method}!')
+            raise ValueError(f"Unknown quantization method: {method}!")
 
         return quant_fn, observer
 
@@ -74,15 +72,14 @@ class WeightQuantizer(nn.Module):
 
 
 class ActivationQuantizer(nn.Module):
-
     def __init__(
-            self,
-            bit_precision: int,
-            dtype: torch.dtype,
-            method: str,
-            channel_axis: Optional[int],
-            moving_avrg: Optional[float],  # default if enabled should be 0.01, if set enables moving average
-            reduce_range: bool = False,
+        self,
+        bit_precision: int,
+        dtype: torch.dtype,
+        method: str,
+        channel_axis: Optional[int],
+        moving_avrg: Optional[float],  # default if enabled should be 0.01, if set enables moving average
+        reduce_range: bool = False,
     ):
         super().__init__()
         self.quant_min, self.quant_max = get_quantization_range_from_bit_precision(bit_precision, dtype)
@@ -98,7 +95,7 @@ class ActivationQuantizer(nn.Module):
     def __get_quant_fn_and_observer_for_method(self, method):
         if all(x is not None for x in [self.quant_fn, self.base_observer_args, self.observer]):
             return self.quant_fn, self.base_observer_args, self.observer
-        if method == 'per_tensor':
+        if method == "per_tensor":
             quant_fn = torch.fake_quantize_per_tensor_affine
             base_observer_args = [self.quant_min, self.quant_max]
             if self.moving_avrg:
@@ -107,16 +104,13 @@ class ActivationQuantizer(nn.Module):
                     quant_min=self.quant_min,
                     quant_max=self.quant_max,
                     dtype=self.dtype,
-                    reduce_range=self.reduce_range
+                    reduce_range=self.reduce_range,
                 )
             else:
                 observer = torch_quant.observer.MinMaxObserver(
-                    quant_min=self.quant_min,
-                    quant_max=self.quant_max,
-                    dtype=self.dtype,
-                    reduce_range=self.reduce_range
+                    quant_min=self.quant_min, quant_max=self.quant_max, dtype=self.dtype, reduce_range=self.reduce_range
                 )
-        elif method == 'per_channel':
+        elif method == "per_channel":
             quant_fn = torch.fake_quantize_per_channel_affine
             base_observer_args = [self.channel_axis, self.quant_min, self.quant_max]
             assert self.channel_axis is not None
@@ -127,7 +121,7 @@ class ActivationQuantizer(nn.Module):
                     quant_max=self.quant_max,
                     dtype=self.dtype,
                     ch_axis=self.channel_axis,
-                    reduce_range=self.reduce_range
+                    reduce_range=self.reduce_range,
                 )
             else:
                 observer = torch_quant.observer.PerChannelMinMaxObserver(
@@ -135,13 +129,12 @@ class ActivationQuantizer(nn.Module):
                     quant_max=self.quant_max,
                     dtype=self.dtype,
                     reduce_range=self.reduce_range,
-                    ch_axis=self.channel_axis
+                    ch_axis=self.channel_axis,
                 )
         else:
-            raise ValueError(f'Unknown quantization method: {method}!')
+            raise ValueError(f"Unknown quantization method: {method}!")
 
         return quant_fn, observer, base_observer_args
-
 
     def forward(self, tensor: torch.Tensor):
         if self.training:
@@ -152,12 +145,14 @@ class ActivationQuantizer(nn.Module):
             tensor = self.observer(tensor)
         if get_run_ctx().iterative_quant is True or get_run_ctx().apply_quant is True:
             self.set_scale_and_zp()
-            assert self.scale is not None and self.zero_point is not None, "Need to calibrate before applying quant, disable apply_calibration"
+            assert (
+                self.scale is not None and self.zero_point is not None
+            ), "Need to calibrate before applying quant, disable apply_calibration"
             old_tensor = copy.deepcopy(tensor)
             tensor = self.quant_fn(tensor, self.scale, self.zero_point, self.quant_min, self.quant_max)
             # This 0 case should only happen when the model is broken anyways like for 4 bit
             # TODO it seems for linear out this might be the case
-            #assert not torch.equal(old_tensor, tensor) or torch.sum(old_tensor) == torch.sum(tensor) == 0, (tensor[0,0,0], old_tensor[0 , 0 ,0], self.scale, self.zero_point, self.quant_min, self.quant_max)
+            # assert not torch.equal(old_tensor, tensor) or torch.sum(old_tensor) == torch.sum(tensor) == 0, (tensor[0,0,0], old_tensor[0 , 0 ,0], self.scale, self.zero_point, self.quant_min, self.quant_max)
         return tensor
 
     def set_scale_and_zp(self):
@@ -167,20 +162,19 @@ class ActivationQuantizer(nn.Module):
 
 
 class LinearQuant(nn.Module):
-
     def __init__(
-            self,
-            in_features: int,
-            out_features: int,
-            weight_bit_prec: int,
-            weight_quant_dtype: torch.dtype,
-            weight_quant_method: str,
-            activation_bit_prec: int,
-            activation_quant_dtype: torch.dtype,
-            activation_quant_method: str,
-            moving_average: Optional[float],  # default if enabled should be 0.01, if set enables moving average
-            bias: bool,
-            quant_output: bool
+        self,
+        in_features: int,
+        out_features: int,
+        weight_bit_prec: int,
+        weight_quant_dtype: torch.dtype,
+        weight_quant_method: str,
+        activation_bit_prec: int,
+        activation_quant_dtype: torch.dtype,
+        activation_quant_method: str,
+        moving_average: Optional[float],  # default if enabled should be 0.01, if set enables moving average
+        bias: bool,
+        quant_output: bool,
     ):
         super().__init__()
         self.weight = nn.Parameter(torch.empty((out_features, in_features)), requires_grad=True)
@@ -191,9 +185,7 @@ class LinearQuant(nn.Module):
         self.weight_quant_dtype = weight_quant_dtype
         self.weight_quant_method = weight_quant_method
         self.weight_quantizer = WeightQuantizer(
-            bit_precision=self.weight_bit_prec,
-            dtype=self.weight_quant_dtype,
-            method=self.weight_quant_method
+            bit_precision=self.weight_bit_prec, dtype=self.weight_quant_dtype, method=self.weight_quant_method
         )
 
         self.activation_bit_prec = activation_bit_prec
@@ -204,7 +196,8 @@ class LinearQuant(nn.Module):
             dtype=self.activation_quant_dtype,
             method=self.activation_quant_method,
             channel_axis=2,
-            moving_avrg=moving_average)
+            moving_avrg=moving_average,
+        )
 
         self.quant_output = quant_output
         if self.quant_output:
@@ -213,7 +206,7 @@ class LinearQuant(nn.Module):
                 dtype=self.activation_quant_dtype,
                 method=self.activation_quant_method,
                 channel_axis=2,
-                moving_avrg=moving_average
+                moving_avrg=moving_average,
             )
 
     def forward(self, tensor: torch.Tensor):
@@ -223,11 +216,9 @@ class LinearQuant(nn.Module):
         else:
             return lin
 
+
 class QuantizedMultiheadAttention(nn.Module):
-    def __init__(
-            self,
-            cfg: QuantizedMultiheadAttentionV1Config
-    ):
+    def __init__(self, cfg: QuantizedMultiheadAttentionV1Config):
         super().__init__()
         self.cfg = cfg
         self.num_att_heads = cfg.num_att_heads
@@ -253,9 +244,7 @@ class QuantizedMultiheadAttention(nn.Module):
 
         # For some reason pytorch saves the in_proj_weight and bias in this format not with . so we need to adjust
         self.in_proj = self._create_linear_layer(
-            weight_bits=cfg.bit_prec_W_q,
-            act_bits=cfg.activation_bit_prec,
-            output_dim=3 * self.input_dim
+            weight_bits=cfg.bit_prec_W_q, act_bits=cfg.activation_bit_prec, output_dim=3 * self.input_dim
         )
         self.register_parameter("in_proj_weight", self.in_proj.weight)
         self.register_parameter("in_proj_bias", self.in_proj.bias)
@@ -266,22 +255,18 @@ class QuantizedMultiheadAttention(nn.Module):
                 self.dot_quant_dtype,
                 self.dot_quant_method,
                 channel_axis=None if self.dot_quant_method == "per_tensor" else 3,
-                moving_avrg=cfg.moving_average
+                moving_avrg=cfg.moving_average,
             )
             self.k_quantizer = ActivationQuantizer(
                 self.bit_prec_dot,
                 self.dot_quant_dtype,
                 self.dot_quant_method,
                 channel_axis=None if self.dot_quant_method == "per_tensor" else 2,
-                moving_avrg=cfg.moving_average
+                moving_avrg=cfg.moving_average,
             )
 
         if self.bit_prec_Av < 16:
-            self.a_quantizer = WeightQuantizer(
-                self.bit_prec_Av,
-                self.Av_quant_dtype,
-                self.Av_quant_method
-            )
+            self.a_quantizer = WeightQuantizer(self.bit_prec_Av, self.Av_quant_dtype, self.Av_quant_method)
             self.v_quantizer = ActivationQuantizer(
                 self.bit_prec_Av,
                 self.Av_quant_dtype,
@@ -305,16 +290,16 @@ class QuantizedMultiheadAttention(nn.Module):
             activation_quant_method=self.activation_quant_method,
             moving_average=self.cfg.moving_average,
             bias=True,
-            quant_output=self.linear_quant_output
+            quant_output=self.linear_quant_output,
         )
 
     def forward(self, query: torch.Tensor, key: torch.Tensor, value: torch.Tensor, mask: Optional[torch.Tensor] = None):
 
         batch_dim = query.shape[0]
 
-        #query = self.W_q(query)
-        #key = self.W_k(key)
-        #value = self.W_v(value)
+        # query = self.W_q(query)
+        # key = self.W_k(key)
+        # value = self.W_v(value)
         assert query is value is key, "currently only this case is implemented"
 
         x = self.in_proj(query)
@@ -339,7 +324,7 @@ class QuantizedMultiheadAttention(nn.Module):
         dot = dot / self.norm
         if mask is not None:
             mask = mask.view(batch_dim, 1, 1, mask.size(1))
-            dot = dot.masked_fill(mask, -float('inf'))
+            dot = dot.masked_fill(mask, -float("inf"))
         alpha = self.softmax(dot)
         alpha = self.dropout(alpha)
 

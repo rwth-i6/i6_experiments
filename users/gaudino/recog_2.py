@@ -1,10 +1,10 @@
 """
 Generic recog, for the model interfaces defined in model_interfaces.py
-updated version
 """
 
 from __future__ import annotations
 
+import copy
 import os
 from typing import TYPE_CHECKING, Optional, Union, Any, Dict, Sequence, Collection, Iterator, Callable
 
@@ -16,6 +16,7 @@ from i6_core.returnn import ReturnnConfig
 from i6_core.returnn.training import ReturnnTrainingJob, PtCheckpoint, AverageTorchCheckpointsJob
 from i6_core.returnn.search import ReturnnSearchJobV2, SearchRemoveLabelJob, SearchTakeBestJob
 from i6_core.returnn.forward import ReturnnForwardJobV2
+from i6_experiments.users.gaudino.experiments.rf_conformer_att_2023.support.search_errors import ComputeSearchErrorsJob
 from returnn_common import nn
 from returnn_common.datasets_old_2022_10.interface import DatasetConfig
 from i6_experiments.common.setups import serialization
@@ -172,16 +173,19 @@ def recog_model(
     dev_sets: Optional[Collection[str]] = None,
     name: Optional[str] = None,
     device: Optional[str] = "gpu",
+    forward_def: Optional[Callable] = None,
+    compute_search_errors: bool = False,
 ) -> ScoreResultCollection:
     """recog"""
     if dev_sets is not None:
         assert all(k in task.eval_datasets for k in dev_sets)
     outputs = {}
+    recog_outputs = {}
     for dataset_name, dataset in task.eval_datasets.items():
         if dev_sets is not None:
             if dataset_name not in dev_sets:
                 continue
-        recog_out = search_dataset(
+        recog_out, recog_out_full_w_scores = search_dataset(
             dataset=dataset,
             model=model,
             recog_def=recog_def,
@@ -193,8 +197,53 @@ def recog_model(
             recog_post_proc_funcs=task.recog_post_proc_funcs,
             device=device,
         )
+        if compute_search_errors:
+            forward_config = copy.deepcopy(config)
+            if forward_def:
+                _, forward_out_full_w_scores = search_dataset(
+                    dataset=dataset,
+                    model=model,
+                    recog_def=forward_def,
+                    config=forward_config,
+                    search_post_config=search_post_config,
+                    search_mem_rqmt=search_mem_rqmt,
+                    search_rqmt=search_rqmt,
+                    search_alias_name=f"{name}/forward_gt/{dataset_name}" if name else None,
+                    recog_post_proc_funcs=task.recog_post_proc_funcs,
+                    device=device,
+                )
+            else:
+                forward_config["search_args"].update({"forward_ground_truth": True})
+                _, forward_out_full_w_scores = search_dataset(
+                    dataset=dataset,
+                    model=model,
+                    recog_def=recog_def,
+                    config=forward_config,
+                    search_post_config=search_post_config,
+                    search_mem_rqmt=search_mem_rqmt,
+                    search_rqmt=search_rqmt,
+                    search_alias_name=f"{name}/forward_gt/{dataset_name}" if name else None,
+                    recog_post_proc_funcs=task.recog_post_proc_funcs,
+                    device=device,
+                )
+            search_errors = ComputeSearchErrorsJob(
+                forward_out_full_w_scores, recog_out_full_w_scores
+            ).out_search_errors
+            tk.register_output(
+                name + f"/{dataset_name}/search_errors",
+                search_errors,
+            )
+        recog_outputs[dataset_name] = recog_out
         score_out = task.score_recog_output_func(dataset, recog_out)
         outputs[dataset_name] = score_out
+        tk.register_output(
+            name + f"/{dataset_name}/wer",
+            score_out.main_measure_value,
+        )
+        tk.register_output(
+            name + f"/{dataset_name}/sclite",
+            score_out.report,
+        )
     return task.collect_score_results_func(outputs)
 
 
@@ -219,36 +268,38 @@ def search_dataset(
         env_updates = (config and config.pop("__env_updates", None)) or (
             search_post_config and search_post_config.pop("__env_updates", None)
         )
-    if getattr(model.definition, "backend", None) is None:
-        search_job = ReturnnSearchJobV2(
-            search_data=dataset.get_main_dataset(),
-            model_checkpoint=model.checkpoint,
-            returnn_config=search_config(
-                dataset, model.definition, recog_def, config=config, post_config=search_post_config
-            ),
-            returnn_python_exe=tools_paths.get_returnn_python_exe(),
-            returnn_root=tools_paths.get_returnn_root(),
-            output_gzip=True,
-            log_verbosity=5,
-            mem_rqmt=search_mem_rqmt,
-        )
-        res = search_job.out_search_file
-    else:
-        out_files = [_v2_forward_out_filename]
-        if config and config.get("__recog_def_ext", False):
-            out_files.append(_v2_forward_ext_out_filename)
-        search_job = ReturnnForwardJobV2(
-            model_checkpoint=model.checkpoint,
-            returnn_config=search_config_v2(
-                dataset, model.definition, recog_def, config=config, post_config=search_post_config
-            ),
-            output_files=out_files,
-            returnn_python_exe=tools_paths.get_returnn_python_exe(),
-            returnn_root=tools_paths.get_returnn_root(),
-            mem_rqmt=search_mem_rqmt,
-            device=device,
-        )
-        res = search_job.out_files[_v2_forward_out_filename]
+    # if getattr(model.definition, "backend", None) is None:
+    #     search_job = ReturnnSearchJobV2(
+    #         search_data=dataset.get_main_dataset(),
+    #         model_checkpoint=model.checkpoint,
+    #         returnn_config=search_config(
+    #             dataset, model.definition, recog_def, config=config, post_config=search_post_config
+    #         ),
+    #         returnn_python_exe=tools_paths.get_returnn_python_exe(),
+    #         returnn_root=tools_paths.get_returnn_root(),
+    #         output_gzip=True,
+    #         log_verbosity=5,
+    #         mem_rqmt=search_mem_rqmt,
+    #     )
+    #     res = search_job.out_search_file
+    # else:
+    out_files = [_v2_forward_out_filename]
+    if config and config.get("__recog_def_ext", False):
+        out_files.append(_v2_forward_ext_out_filename)
+    search_job = ReturnnForwardJobV2(
+        model_checkpoint=model.checkpoint,
+        returnn_config=search_config_v2(
+            dataset, model.definition, recog_def, config=config, post_config=search_post_config
+        ),
+        output_files=out_files,
+        returnn_python_exe=tools_paths.get_returnn_python_exe(),
+        returnn_root=tools_paths.get_returnn_root(),
+        mem_rqmt=search_mem_rqmt,
+        device=device,
+    )
+    res = search_job.out_files[_v2_forward_out_filename]
+    search_job_out = res
+
     if search_rqmt:
         search_job.rqmt.update(search_rqmt)
     if env_updates:
@@ -265,7 +316,8 @@ def search_dataset(
         #   It's not clear whether this is helpful in general.
         #   As our beam sizes are very small, this might boost some hyps too much.
         res = SearchTakeBestJob(res, output_gzip=True).out_best_search_results
-    return RecogOutput(output=res)
+
+    return RecogOutput(output=res), search_job_out
 
 
 # Those are applied for both training, recog and potential others.
@@ -543,6 +595,11 @@ def _returnn_v2_forward_step(*, model, extern_data: TensorDict, **_kwargs_unused
     data_spatial_dim = data.get_time_dim_tag()
     recog_def = config.typed_value("_recog_def")
     extra = {}
+
+    default_target_key = config.typed_value("target")
+    target = extern_data[default_target_key]
+    if target:
+        extra["ground_truth"] = target
 
     search_args = config.typed_value("search_args")
     if search_args:

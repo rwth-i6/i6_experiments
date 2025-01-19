@@ -37,19 +37,30 @@ def run_exps():
         run_analysis=True,
         analyze_gradients=True,
       )
-      for concat_num in (8,):
+      recog.center_window_returnn_frame_wise_beam_search(
+        alias=train_alias,
+        config_builder=config_builder,
+        checkpoint=checkpoint,
+        checkpoint_aliases=("last",),
+        use_recombination="sum",
+        corpus_keys=("test-other",),
+        beam_size_list=(12,),
+      )
+      for concat_num in (2, 4, 8, 10, 20, 30):
+        if concat_num in (20, 30):
+          batch_size = 40_000
+          time_rqmt = 6
+        else:
+          batch_size = 15_000
+          time_rqmt = 2
         recog.center_window_returnn_frame_wise_beam_search(
           alias=train_alias,
           config_builder=config_builder,
           checkpoint=checkpoint,
           checkpoint_aliases=("last",),
-          run_analysis=True,
-          analyze_gradients=True,
+          batch_size=batch_size,
           concat_num=concat_num,
-          batch_size=30_000,
-          att_weight_seq_tags=[
-            "dev-other/116-288045-0008/116-288045-0008;dev-other/116-288045-0009/116-288045-0009;dev-other/116-288045-0010/116-288045-0010;dev-other/116-288045-0011/116-288045-0011;dev-other/116-288045-0012/116-288045-0012;dev-other/116-288045-0013/116-288045-0013;dev-other/116-288045-0014/116-288045-0014;dev-other/116-288045-0015/116-288045-0015",
-          ]
+          time_rqmt=time_rqmt,
         )
 
   # same as above, just doing recog during training for some epochs (Done)

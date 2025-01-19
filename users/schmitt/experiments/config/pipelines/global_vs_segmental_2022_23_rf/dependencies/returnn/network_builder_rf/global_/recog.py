@@ -35,6 +35,9 @@ def model_recog(
         ilm_correction_scale: Optional[float] = None,
         cheating_targets: Optional[Tensor] = None,
         cheating_targets_spatial_dim: Optional[Dim] = None,
+        length_normalization_exponent: float = 1.0,
+        external_aed_scale: Optional[float] = None,
+        base_model_scale: float = 1.0,
 ) -> Tuple[Tensor, Tensor, Dim, Tensor, Dim, Dim]:
   """
   Function is run within RETURNN.
@@ -52,13 +55,18 @@ def model_recog(
   assert (cheating_targets is None) == (cheating_targets_spatial_dim is None)
 
   if ilm_type is not None:
-    assert ilm_type in ("mini_att",)
+    assert ilm_type in ("mini_att", "zero_att")
     assert ilm_correction_scale is not None
 
   # --------------------------------- init encoder, dims, etc ---------------------------------
 
   enc_args, enc_spatial_dim = model.encoder.encode(data, in_spatial_dim=data_spatial_dim)
   if model.decoder_state == "trafo":
+    if ilm_type == "zero_att":
+      zero_enc = rf.zeros_like(enc_args["enc"])
+      zero_enc = model.label_decoder.transform_encoder(zero_enc, axis=enc_spatial_dim)
+    else:
+      zero_enc = None
     enc_args["enc"] = model.label_decoder.transform_encoder(enc_args["enc"], axis=enc_spatial_dim)
 
   if max_seq_len is None:
@@ -69,8 +77,6 @@ def model_recog(
   batch_dims = data.remaining_dims((data_spatial_dim, data.feature_dim))
   beam_dim = Dim(1, name="initial-beam")
   batch_dims_ = [beam_dim] + batch_dims
-
-  length_normalization_exponent = 1.0
 
   ended = rf.constant(False, dims=batch_dims_)
   out_seq_len = rf.constant(0, dims=batch_dims_)
@@ -95,10 +101,51 @@ def model_recog(
 
   # ILM
   if ilm_type is not None:
-    ilm_state = model.label_decoder.decoder_default_initial_state(
-      batch_dims=batch_dims_, enc_spatial_dim=enc_spatial_dim)
+    if model.decoder_state != "trafo":
+      ilm_state = model.label_decoder.decoder_default_initial_state(
+        batch_dims=batch_dims_,
+        enc_spatial_dim=enc_spatial_dim,
+        use_mini_att=ilm_type == "mini_att",
+        use_zero_att=ilm_type == "zero_att",
+      )
+    else:
+      assert ilm_type == "zero_att"
+      ilm_state = model.label_decoder.default_initial_state(batch_dims=batch_dims_)
   else:
     ilm_state = None
+
+  # external aed model
+  if model.aed_model:
+    external_aed_enc_args, external_aed_enc_spatial_dim = model.aed_model.encoder.encode(data, in_spatial_dim=data_spatial_dim)
+    external_aed_enc_args["enc"] = utils.copy_tensor_replace_dim_tag(external_aed_enc_args["enc"], external_aed_enc_spatial_dim, enc_spatial_dim)
+
+    assert model.aed_model.decoder_state != "trafo", "external AED decoder state 'trafo' not supported"
+
+    external_aed_enc_args["enc_ctx"] = utils.copy_tensor_replace_dim_tag(
+      external_aed_enc_args["enc_ctx"], external_aed_enc_spatial_dim, enc_spatial_dim)
+    external_aed_decoder_state = model.aed_model.label_decoder.decoder_default_initial_state(
+      batch_dims=batch_dims_, enc_spatial_dim=enc_spatial_dim)
+    input_embed_external_aed = rf.zeros(
+      batch_dims_ + [model.aed_model.label_decoder.target_embed.out_dim],
+      feature_dim=model.aed_model.label_decoder.target_embed.out_dim,
+      dtype="float32"
+    )
+
+    if ilm_type is not None:
+      raise NotImplementedError
+      external_aed_ilm_state = model.aed_model.label_decoder.decoder_default_initial_state(
+        batch_dims=batch_dims_,
+        use_mini_att=ilm_type == "mini_att",
+        use_zero_att=ilm_type == "zero_att",
+        enc_spatial_dim=enc_spatial_dim
+      )
+    else:
+      external_aed_ilm_state = None
+  else:
+    external_aed_decoder_state = None
+    external_aed_ilm_state = None
+    input_embed_external_aed = None
+    external_aed_enc_args = None
 
   # --------------------------------- init targets ---------------------------------
 
@@ -120,18 +167,33 @@ def model_recog(
           feature_dim=model.label_decoder.target_embed.out_dim)
       else:
         input_embed = model.label_decoder.target_embed(target)
+        if model.aed_model:
+          input_embed_external_aed = model.aed_model.label_decoder.target_embed(target)
 
       # --------------------------------- decoder step ---------------------------------
 
+      if model.label_decoder.replace_att_by_h_s:
+        s = rf.minimum(
+          rf.full(dims=[beam_dim] + batch_dims, fill_value=i, dtype="int32"),
+          rf.copy_to_device(enc_spatial_dim.get_size_tensor() - 1)
+        )
+        h_s = rf.gather(enc_args["enc"], indices=s, axis=enc_spatial_dim)
+      else:
+        h_s = None
       step_out, decoder_state = model.label_decoder.loop_step(
         **enc_args,
         enc_spatial_dim=enc_spatial_dim,
         input_embed=input_embed,
         state=decoder_state,
+        h_s=h_s,
       )
-      logits, h_t_logits = model.label_decoder.decode_logits(input_embed=input_embed, **step_out)
+      logits, h_t_logits = model.label_decoder.decode_logits(
+        input_embed=input_embed,
+        s=step_out["s"],
+        att=step_out["att"],
+      )
     else:
-      logits, decoder_state, _ = model.label_decoder(
+      logits, decoder_state  = model.label_decoder(
         target,
         spatial_dim=single_step_dim,
         encoder=enc_args["enc"],
@@ -139,11 +201,29 @@ def model_recog(
       )
 
     label_log_prob = rf.log_softmax(logits, axis=model.target_dim)
+    label_log_prob *= base_model_scale
+
+    # --------------------------------- external AED step ---------------------------------
+
+    if model.aed_model:
+      external_aed_step_out, external_aed_decoder_state = model.aed_model.label_decoder.loop_step(
+        **external_aed_enc_args,
+        enc_spatial_dim=enc_spatial_dim,
+        input_embed=input_embed_external_aed,
+        state=external_aed_decoder_state,
+      )
+      external_aed_logits, _ = model.aed_model.label_decoder.decode_logits(
+        input_embed=input_embed_external_aed,
+        s=external_aed_step_out["s"],
+        att=external_aed_step_out["att"],
+      )
+      external_aed_label_log_prob = rf.log_softmax(external_aed_logits, axis=model.aed_model.target_dim)
+      label_log_prob += external_aed_scale * external_aed_label_log_prob
 
     # --------------------------------- external LM step ---------------------------------
 
     if lm_state is not None:
-      lm_logits, lm_state, _ = model.language_model(
+      lm_logits, lm_state = model.language_model(
         target,
         spatial_dim=single_step_dim,
         state=lm_state,
@@ -154,16 +234,27 @@ def model_recog(
     # --------------------------------- ILM step ---------------------------------
 
     if ilm_state is not None:
-      assert model.decoder_state != "trafo", "not implemented yet"
-
-      ilm_step_out, ilm_state = model.label_decoder.loop_step(
-        **enc_args,
-        enc_spatial_dim=enc_spatial_dim,
-        input_embed=input_embed,
-        state=ilm_state,
-        use_mini_att=True
-      )
-      ilm_logits, _ = model.label_decoder.decode_logits(input_embed=input_embed, **ilm_step_out)
+      if model.decoder_state != "trafo":
+        ilm_step_out, ilm_state = model.label_decoder.loop_step(
+          **enc_args,
+          enc_spatial_dim=enc_spatial_dim,
+          input_embed=input_embed,
+          state=ilm_state,
+          use_mini_att=ilm_type == "mini_att",
+          use_zero_att=ilm_type == "zero_att",
+        )
+        ilm_logits, _ = model.label_decoder.decode_logits(
+          input_embed=input_embed,
+          att=ilm_step_out["att"],
+          s=ilm_step_out["s"],
+        )
+      else:
+        ilm_logits, ilm_state = model.label_decoder(
+          target,
+          spatial_dim=single_step_dim,
+          encoder=zero_enc,
+          state=ilm_state,
+        )
       ilm_label_log_prob = rf.log_softmax(ilm_logits, axis=model.target_dim)
       label_log_prob -= ilm_correction_scale * ilm_label_log_prob
 
@@ -209,6 +300,10 @@ def model_recog(
       decoder_state = tree.map_structure(
         functools.partial(_trafo_gather_backrefs, backrefs=backrefs), decoder_state)
 
+    # external AED
+    if model.aed_model:
+      external_aed_decoder_state = tree.map_structure(lambda s: rf.gather(s, indices=backrefs), external_aed_decoder_state)
+
     # external LM
     if lm_state is not None:
       def _get_lm_state(state):
@@ -225,7 +320,11 @@ def model_recog(
 
     # ILM
     if ilm_state is not None:
-      ilm_state = tree.map_structure(lambda s: rf.gather(s, indices=backrefs), ilm_state)
+      if model.decoder_state != "trafo":
+        ilm_state = tree.map_structure(lambda s: rf.gather(s, indices=backrefs), ilm_state)
+      else:
+        ilm_state = tree.map_structure(
+          functools.partial(_trafo_gather_backrefs, backrefs=backrefs), ilm_state)
 
     ended = rf.gather(ended, indices=backrefs)
     out_seq_len = rf.gather(out_seq_len, indices=backrefs)

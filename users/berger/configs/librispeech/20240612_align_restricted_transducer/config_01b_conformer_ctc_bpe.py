@@ -64,6 +64,8 @@ def returnn_config_generator(
     dev_data_config: dict,
     **kwargs,
 ) -> ReturnnConfig:
+    dropout = kwargs.get("dropout", 0.1)
+
     feature_extraction = ModuleFactoryV1(
         module_class=RasrCompatibleLogMelFeatureExtractionV1,
         cfg=RasrCompatibleLogMelFeatureExtractionV1Config(
@@ -72,33 +74,19 @@ def returnn_config_generator(
             hop_size=0.01,
             min_amp=1.175494e-38,
             num_filters=80,
-            alpha=0.97 if kwargs.get("preemphasis", False) else 0.0,
+            alpha=0.97,
         ),
     )
-    # feature_extraction = ModuleFactoryV1(
-    #     module_class=LogMelFeatureExtractionV1,
-    #     cfg=LogMelFeatureExtractionV1Config(
-    #         sample_rate=16000,
-    #         win_size=0.025,
-    #         hop_size=0.01,
-    #         f_min=60,
-    #         f_max=7600,
-    #         min_amp=1e-10,
-    #         num_filters=80,
-    #         center=False,
-    #         n_fft=400,
-    #     ),
-    # )
 
     specaugment = ModuleFactoryV1(
         module_class=SpecaugmentByLengthModuleV1,
         cfg=SpecaugmentByLengthConfigV1(
             time_min_num_masks=2,
-            time_max_mask_per_n_frames=25,
-            time_mask_max_size=20,
+            time_max_mask_per_n_frames=kwargs.get("time_max_mask_per_n_frames", 25),
+            time_mask_max_size=kwargs.get("time_mask_max_size", 20),
             freq_min_num_masks=2,
-            freq_max_num_masks=5,
-            freq_mask_max_size=16,
+            freq_max_num_masks=kwargs.get("freq_max_num_masks", 5),
+            freq_mask_max_size=80 // kwargs.get("freq_max_num_masks", 5),
         ),
     )
 
@@ -131,21 +119,21 @@ def returnn_config_generator(
     ff_cfg = ConformerPositionwiseFeedForwardV1Config(
         input_dim=512,
         hidden_dim=2048,
-        dropout=0.1,
+        dropout=dropout,
         activation=torch.nn.SiLU(),
     )
 
     mhsa_cfg = ConformerMHSAV1Config(
         input_dim=512,
         num_att_heads=8,
-        att_weights_dropout=0.1,
-        dropout=0.1,
+        att_weights_dropout=dropout,
+        dropout=dropout,
     )
 
     conv_cfg = ConformerConvolutionV1Config(
         channels=512,
         kernel_size=31,
-        dropout=0.1,
+        dropout=dropout,
         activation=torch.nn.SiLU(),
         norm=LayerNormNC(512),
     )
@@ -170,7 +158,7 @@ def returnn_config_generator(
         conformer=ModuleFactoryV1(ConformerEncoderV2, cfg=conformer_cfg),
         dim=512,
         target_size=target_size,
-        dropout=0.1,
+        dropout=dropout,
         specaug_start_epoch=11,
     )
 
@@ -222,7 +210,7 @@ def returnn_config_generator(
         backend=Backend.PYTORCH,
         use_lovely_tensors=False,
         grad_noise=None,
-        grad_clip=1.0,
+        grad_clip=kwargs.get("grad_clip", 1.0),
         optimizer=Optimizers.AdamW,
         weight_decay=kwargs.get("weight_decay", 0.01),
         schedule=LearningRateSchedules.OCLR_V2,
@@ -234,7 +222,7 @@ def returnn_config_generator(
         peak_lr=kwargs.get("peak_lr", 5e-04),
         decayed_lr=kwargs.get("decay_lr", 5e-05),
         final_lr=1e-07,
-        batch_size=kwargs.get("batch_size", 36000 * 160),
+        batch_size=kwargs.get("batch_frames", 36000) * 160,
         use_chunking=False,
         extra_config=extra_config,
         use_base_config=False,
@@ -351,11 +339,7 @@ def run_exp() -> SummaryReport:
     system.setup_scoring()
 
     data.train_data_config = copy.deepcopy(data.train_data_config)
-    data.train_data_config["datasets"]["data"]["audio"]["preemphasis"] = 0.97
     data.train_data_config["datasets"]["data"]["audio"]["pre_process"] = CodeWrapper("legacy_speed_perturbation")
-
-    data.cv_data_config = copy.deepcopy(data.cv_data_config)
-    data.cv_data_config["datasets"]["data"]["audio"]["preemphasis"] = 0.97
 
     # ********** Returnn Configs **********
 
@@ -364,55 +348,43 @@ def run_exp() -> SummaryReport:
         get_returnn_config_collection(
             train_data_config=data.train_data_config,
             dev_data_config=data.cv_data_config,
-            preemphasis=False,
         ),
     )
 
-    data.train_data_config = copy.deepcopy(data.train_data_config)
-    data.train_data_config["datasets"]["data"]["audio"]["preemphasis"] = 0.0
-    data.cv_data_config = copy.deepcopy(data.cv_data_config)
-    data.cv_data_config["datasets"]["data"]["audio"]["preemphasis"] = 0.0
-
     system.add_experiment_configs(
-        "Conformer_CTC_bpe-128_model-preemph",
+        "Conformer_CTC_bpe-128_tuned",
         get_returnn_config_collection(
             train_data_config=data.train_data_config,
             dev_data_config=data.cv_data_config,
-            preemphasis=True,
+            time_max_mask_per_n_frames=30,
+            freq_max_num_masks=8,
+            peak_lr=3e-04,
+            initial_lr=7e-06,
+            decayed_lr=3e-05,
+            weight_decay=2e-03,
         ),
     )
 
-    data.train_data_config = copy.deepcopy(data.train_data_config)
-    data.train_data_config["datasets"]["data"]["audio"]["preemphasis"] = 0.97
-    data.cv_data_config = copy.deepcopy(data.cv_data_config)
-    data.cv_data_config["datasets"]["data"]["audio"]["preemphasis"] = 0.97
+    system.add_experiment_configs(
+        "Conformer_CTC_bpe-128_tuned-v2",
+        get_returnn_config_collection(
+            train_data_config=data.train_data_config,
+            dev_data_config=data.cv_data_config,
+            time_max_mask_per_n_frames=30,
+            time_mask_max_size=20,
+            freq_max_num_masks=5,
+            dropout=0.02,
+            grad_clip=100.0,
+            peak_lr=2.6e-04,
+            initial_lr=7e-06,
+            decayed_lr=2.6e-05,
+            weight_decay=2.6e-02,
+            batch_frames=22000,
+        ),
+    )
 
     system.run_train_step(**train_args)
-    system.run_dev_recog_step(
-        exp_names=["Conformer_CTC_bpe-128"],
-        extra_audio_config={"preemphasis": 0.97},
-        **recog_args,
-    )
-    system.run_dev_recog_step(
-        exp_names=["Conformer_CTC_bpe-128_model-preemph"],
-        **recog_args,
-    )
-
-    # recog_args["epochs"] = sub_checkpoints[-1:]
-    # recog_args["lm_scales"] = [1.4, 1.6, 1.8, 2.0, 2.2]
-    # system.run_dev_recog_step(
-    #     exp_names=["Conformer_CTC_bpe-128"],
-    #     extra_audio_config={"preemphasis": 0.97},
-    #     **recog_args,
-    # )
-    # recog_args["epochs"] = sub_checkpoints[-1:]
-    # recog_args["prior_scales"] = [0.2, 0.3, 0.4]
-    # recog_args["lm_scales"] = [1.5, 1.6, 1.7]
-    # system.run_dev_recog_step(
-    #     exp_names=["Conformer_CTC_bpe-128"],
-    #     extra_audio_config={"preemphasis": 0.97},
-    #     **recog_args,
-    # )
+    system.run_dev_recog_step(**recog_args)
 
     system.add_experiment_configs(
         "Conformer_CTC_bpe-128",
@@ -430,7 +402,6 @@ def run_exp() -> SummaryReport:
     recog_args["lm_scales"] = [1.5]
     system.run_dev_recog_step(
         exp_names=["Conformer_CTC_bpe-128"],
-        extra_audio_config={"preemphasis": 0.97},
         **recog_args,
     )
 

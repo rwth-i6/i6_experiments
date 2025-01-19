@@ -1,6 +1,8 @@
 __all__ = [
     "BlissCorpusToTargetHdfJob",
+    "RemoveBlanksFromAlignmentHdfJob",
     "MatchLengthsJob",
+    "FilterHdfSegmentsByLengthRatioJob",
 ]
 
 from functools import lru_cache
@@ -307,6 +309,105 @@ class MatchLengthsJob(Job):
             out_hdf["inputs"].attrs[attr_key] = attr_val
         copy_data_group(hdf_file, "seqTags", out_hdf)
         out_hdf.create_dataset("seqLengths", data=matched_lengths)
+        for attr_key, attr_val in hdf_file["seqLengths"].attrs.items():
+            out_hdf["seqLengths"].attrs[attr_key] = attr_val
+        copy_data_group(hdf_file, "targets", out_hdf)
+
+
+class FilterHdfSegmentsByLengthRatioJob(Job):
+    def __init__(
+        self,
+        data_hdf: tk.Path,
+        comparison_hdfs: List[tk.Path],
+        min_ratio: float = 0,
+        max_ratio: float = float("inf"),
+    ) -> None:
+        self.data_hdf = data_hdf
+        self.comparison_hdfs = comparison_hdfs
+        self.min_ratio = min_ratio
+        self.max_ratio = max_ratio
+
+        self.out_hdf = self.output_path("data.hdf")
+
+    def tasks(self):
+        yield Task("run", resume="run", rqmt={"cpu": 1, "mem": 16})
+
+    def run(self) -> None:
+        import h5py
+        import numpy as np
+
+        hdf_file = h5py.File(self.data_hdf)
+        comparison_hdf_files = [h5py.File(comparison_hdf) for comparison_hdf in self.comparison_hdfs]
+
+        def copy_data_group(src, key, dest):
+            src_data = src[key]
+            if isinstance(src_data, h5py.Dataset):
+                dest.create_dataset(key, data=src_data[:])
+                for attr_key, attr_val in src_data.attrs.items():
+                    dest[key].attrs[attr_key] = attr_val
+            if isinstance(src_data, h5py.Group):
+                dest.create_group(key)
+                for attr_key, attr_val in src_data.attrs.items():
+                    dest[key].attrs[attr_key] = attr_val
+                for sub_key in src_data:
+                    copy_data_group(src_data, sub_key, dest[key])
+
+        out_hdf = h5py.File(self.out_hdf, "w")
+        for attr_key, attr_val in hdf_file.attrs.items():
+            out_hdf.attrs[attr_key] = attr_val
+
+        comparison_length_map = {}
+        for comparison_hdf_file in comparison_hdf_files:
+            comparison_length_map.update(
+                dict(
+                    zip(
+                        comparison_hdf_file["seqTags"],
+                        [length[0] for length in comparison_hdf_file["seqLengths"]],
+                    )
+                )
+            )
+
+        new_inputs = []
+        new_lengths = []
+        new_tags = []
+        current_begin_pos = 0
+        num_too_short = 0
+        num_too_long = 0
+        for tag, length in zip(hdf_file["seqTags"], [length[0] for length in hdf_file["seqLengths"]]):
+            comparison_length = comparison_length_map[tag]
+
+            if length / comparison_length >= self.max_ratio:
+                print(
+                    f"Sequence {tag} is too long with length {length}, should be at most {self.max_ratio * comparison_length}."
+                )
+                num_too_long += 1
+            elif length / comparison_length <= self.min_ratio:
+                print(
+                    f"Sequence {tag} is too short with length {length}, should be at lest {self.min_ratio * comparison_length}."
+                )
+                num_too_short += 1
+            else:
+                new_inputs.extend(hdf_file["inputs"][current_begin_pos : current_begin_pos + length])
+                new_tags.append(tag)
+                new_lengths.append([length])
+
+            current_begin_pos += length
+
+        print(
+            f"Finished processing. {num_too_short} sequences were too short and {num_too_long} were too long, for a total of {num_too_short + num_too_long} filtered-out sequences."
+        )
+
+        new_inputs = np.array(new_inputs, dtype=hdf_file["inputs"].dtype)
+        new_lengths = np.array(new_lengths, dtype=hdf_file["seqLengths"].dtype)
+        new_tags = np.array(new_tags, dtype=hdf_file["seqTags"].dtype)
+
+        out_hdf.create_dataset("inputs", data=new_inputs)
+        for attr_key, attr_val in hdf_file["inputs"].attrs.items():
+            out_hdf["inputs"].attrs[attr_key] = attr_val
+        out_hdf.create_dataset("seqTags", data=new_tags)
+        for attr_key, attr_val in hdf_file["seqTags"].attrs.items():
+            out_hdf["seqTags"].attrs[attr_key] = attr_val
+        out_hdf.create_dataset("seqLengths", data=new_lengths)
         for attr_key, attr_val in hdf_file["seqLengths"].attrs.items():
             out_hdf["seqLengths"].attrs[attr_key] = attr_val
         copy_data_group(hdf_file, "targets", out_hdf)

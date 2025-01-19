@@ -36,11 +36,15 @@ class Model(torch.nn.Module):
         run_ctx = get_run_ctx()
         if not run_ctx.global_step and run_ctx.epoch == 1:
             print("Load Hubert model parameters")
-            self.hubert: HubertModel = HubertModel.from_pretrained(f"facebook/hubert-{self.cfg.model_name}",
-                                                                cache_dir="/work/asr4/hilmes/debug/whisper/transformers/")
+            self.hubert: HubertModel = HubertModel.from_pretrained(
+                f"facebook/hubert-{self.cfg.model_name}", cache_dir="/work/asr4/hilmes/debug/whisper/transformers/"
+            )
         else:
-            self.hubert: HubertModel = HubertModel(HubertConfig.from_pretrained(f"facebook/hubert-{self.cfg.model_name}",
-                                                                   cache_dir="/work/asr4/hilmes/debug/whisper/transformers/"))
+            self.hubert: HubertModel = HubertModel(
+                HubertConfig.from_pretrained(
+                    f"facebook/hubert-{self.cfg.model_name}", cache_dir="/work/asr4/hilmes/debug/whisper/transformers/"
+                )
+            )
         if self.training:
             if self.cfg.keep_layers is not None:
                 assert False, "Recheck if correct"
@@ -51,7 +55,7 @@ class Model(torch.nn.Module):
                     for layer, num in zip(layer_ls, self.cfg.keep_layers):
                         assert layer == self.hubert.encoder.layers[num], "Wrong layers were picked"
                 elif isinstance(self.cfg.keep_layers, int):
-                    self.hubert.encoder.layers = self.hubert.encoder.layers[:self.cfg.keep_layers+1]
+                    self.hubert.encoder.layers = self.hubert.encoder.layers[: self.cfg.keep_layers + 1]
                 else:
                     raise NotImplementedError
             if self.cfg.finetune_layer is True:
@@ -75,7 +79,6 @@ class Model(torch.nn.Module):
             )
         self.final_linear = nn.Linear(self.hubert.config.hidden_size, self.cfg.label_target_size + 1)  # + CTC blank
         self.final_dropout = nn.Dropout(p=self.cfg.final_dropout)
-
 
         # No particular weight init!
 
@@ -168,6 +171,7 @@ def prior_step(*, model: Model, data, run_ctx, **kwargs):
 
 def export(*, model: Model, f: str, **kwargs):
     from torch.onnx import export
+
     model.export_mode = True
     dummy_data = torch.randn(1, 30000, 1)
     dummy_data_len = torch.IntTensor([30000])
@@ -186,3 +190,43 @@ def export(*, model: Model, f: str, **kwargs):
         opset_version=17,
     )
 
+
+def calc_blank_init_hook(run_ctx, **kwargs):
+    run_ctx.seqs = {}
+
+
+def calc_blank_finish_hook(run_ctx, **kwargs):
+    np.save("blank_counts.npy", run_ctx.seqs)
+
+
+def calc_blank_step(*, model: Model, data, run_ctx, **kwargs):
+    raw_audio = data["raw_audio"]  # [B, T', F]
+    raw_audio_len = data["raw_audio:size1"]  # [B]
+
+    logprobs, audio_features_len = model(
+        raw_audio=raw_audio,
+        raw_audio_len=raw_audio_len,
+    )
+    for seq, tag in zip(logprobs, data["labels"]):
+        pos = torch.argmax(seq, dim=-1)
+        pos_blank: torch.Tensor = pos == model.cfg.label_target_size
+        pos_non_blank: torch.Tensor = ~pos_blank
+        idx = torch.arange(pos_non_blank.shape[0], 0, -1).to(device="cuda")
+        first_pos = pos_non_blank * idx
+        first_pos = torch.argmax(first_pos, 0, keepdim=True)
+        idx = torch.arange(0, pos_non_blank.shape[0], 1).to(device="cuda")
+        last_pos = pos_non_blank * idx
+        last_pos = torch.argmax(last_pos, 0, keepdim=True)
+        pos_blank = pos_blank[first_pos:last_pos]
+        groups = []
+        counter = 0
+        for pos in pos_blank:
+            if pos == 0:  # found non blank
+                if counter > 0:
+                    groups.append(counter)
+                counter = 0
+            elif pos == 1:  # another blank blank
+                counter += 1
+            else:
+                assert False, "Matrix is not boolean for some reason"
+        run_ctx.seqs[tag] = groups

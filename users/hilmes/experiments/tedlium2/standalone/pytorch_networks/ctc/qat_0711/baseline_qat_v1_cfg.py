@@ -45,7 +45,7 @@ class ConformerPositionwiseFeedForwardQuantV1Config(ModelConfiguration):
     input_dim: int
     hidden_dim: int
     dropout: float
-    weight_bit_prec: int
+    weight_bit_prec: Union[int, float]
     activation_bit_prec: int
     weight_quant_dtype: torch.dtype
     weight_quant_method: str
@@ -68,12 +68,12 @@ class QuantizedMultiheadAttentionV1Config(ModelConfiguration):
     dot_quant_method: str
     Av_quant_dtype: torch.dtype
     Av_quant_method: str
-    bit_prec_W_q: int
-    bit_prec_W_k: int
-    bit_prec_W_v: int
-    bit_prec_dot: int
-    bit_prec_A_v: int
-    bit_prec_W_o: int
+    bit_prec_W_q: Union[int, float]
+    bit_prec_W_k: Union[int, float]
+    bit_prec_W_v: Union[int, float]
+    bit_prec_dot: Union[int, float]
+    bit_prec_A_v: Union[int, float]
+    bit_prec_W_o: Union[int, float]
     activation_bit_prec: int
     moving_average: Optional[float]  # Moving average for input quantization
     dropout: float
@@ -98,7 +98,7 @@ class ConformerConvolutionQuantV1Config(ModelConfiguration):
     dropout: float
     activation: Union[nn.Module, Callable[[torch.Tensor], torch.Tensor]]
     norm: Union[nn.Module, Callable[[torch.Tensor], torch.Tensor]]
-    weight_bit_prec: int
+    weight_bit_prec: Union[int, float]
     activation_bit_prec: int
     weight_quant_dtype: torch.dtype
     weight_quant_method: str
@@ -181,7 +181,7 @@ class QuantModelTrainConfigV1:
     Av_quant_dtype: Union[torch.dtype, str]
     Av_quant_method: str
     moving_average: Optional[float]  # default if enabled should be 0.01, if set enables moving average
-    weight_bit_prec: int
+    weight_bit_prec: Union[int, float]
     activation_bit_prec: int
     extra_act_quant: bool
 
