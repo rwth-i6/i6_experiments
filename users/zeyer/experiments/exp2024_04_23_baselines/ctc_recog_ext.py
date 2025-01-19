@@ -290,8 +290,11 @@ def py():
 
         # Rescoring.
         from .ctc import model_recog as model_recog_ctc_only, _ctc_model_def_blank_idx
-        from i6_experiments.users.zeyer.decoding.lm_rescoring import lm_framewise_prior_rescore
-        from i6_experiments.users.zeyer.decoding.prior_rescoring import Prior
+        from i6_experiments.users.zeyer.decoding.lm_rescoring import (
+            lm_framewise_prior_rescore,
+            lm_labelwise_prior_rescore,
+        )
+        from i6_experiments.users.zeyer.decoding.prior_rescoring import Prior, PriorRemoveLabelRenormJob
         from i6_experiments.users.zeyer.datasets.utils.vocab import (
             ExtractVocabLabelsJob,
             ExtractVocabSpecialLabelsJob,
@@ -303,6 +306,13 @@ def py():
         vocab_w_blank_file = ExtendVocabLabelsByNewLabelJob(
             vocab=vocab_file, new_label=model_recog_ctc_only.output_blank_label, new_label_idx=_ctc_model_def_blank_idx
         ).out_vocab
+        log_prior_wo_blank = PriorRemoveLabelRenormJob(
+            prior_file=prior,
+            prior_type="prob",
+            vocab=vocab_w_blank_file,
+            remove_label=model_recog_ctc_only.output_blank_label,
+            out_prior_type="log_prob",
+        ).out_prior
 
         for beam_size, prior_scale, lm_scale in [
             (16, 0.5, 1.0),
@@ -377,7 +387,7 @@ def py():
 
         scales_results = {}
         for lm_scale in np.linspace(0.0, 1.0, 11):
-            for prior_scale_ in np.linspace(0.0, 1.0, 11):
+            for prior_scale_rel in np.linspace(0.0, 1.0, 11):
                 res = recog_model(
                     task=task,
                     model=ctc_model,
@@ -388,7 +398,7 @@ def py():
                             lm_framewise_prior_rescore,
                             # framewise standard prior
                             prior=Prior(file=prior, type="prob", vocab=vocab_w_blank_file),
-                            prior_scale=lm_scale * prior_scale_,
+                            prior_scale=lm_scale * prior_scale_rel,
                             lm=lm,
                             lm_scale=lm_scale,
                             lm_rescore_rqmt={"cpu": 4, "mem": 30, "time": 24, "gpu_mem": 24},
@@ -398,12 +408,46 @@ def py():
                     ],
                 )
                 tk.register_output(
-                    f"{prefix}/rescore-beam{beam_size}-lm_{lm_out_name}-lmScale{lm_scale}-priorScaleRel{prior_scale}",
+                    f"{prefix}/rescore-beam{beam_size}-lm_{lm_out_name}-lmScale{lm_scale}-priorScaleRel{prior_scale_rel}",
                     res.output,
                 )
-                scales_results[(prior_scale_, lm_scale)] = res.output
+                scales_results[(prior_scale_rel, lm_scale)] = res.output
         _plot_scales(
             f"rescore-beam{beam_size}-lm_{lm_out_name}-priorScaleRel", scales_results, x_axis_name="prior_scale_rel"
+        )
+
+        scales_results = {}
+        for lm_scale in np.linspace(0.0, 1.0, 3):
+            for prior_scale_rel in np.linspace(0.0, 1.0, 3):
+                res = recog_model(
+                    task=task,
+                    model=ctc_model,
+                    recog_def=model_recog_ctc_only,
+                    config={"beam_size": beam_size},
+                    recog_pre_post_proc_funcs_ext=[
+                        functools.partial(
+                            lm_labelwise_prior_rescore,
+                            # labelwise prior
+                            prior=Prior(file=log_prior_wo_blank, type="log_prob", vocab=vocab_file),
+                            prior_scale=lm_scale * prior_scale_rel,
+                            lm=lm,
+                            lm_scale=lm_scale,
+                            lm_rescore_rqmt={"cpu": 4, "mem": 30, "time": 24, "gpu_mem": 24},
+                            vocab=vocab_file,
+                            vocab_opts_file=vocab_opts_file,
+                        )
+                    ],
+                )
+                tk.register_output(
+                    f"{prefix}/rescore-beam{beam_size}-lm_{lm_out_name}-lmScale{lm_scale}"
+                    f"-labelPrior-priorScaleRel{prior_scale_rel}",
+                    res.output,
+                )
+                scales_results[(prior_scale_rel, lm_scale)] = res.output
+        _plot_scales(
+            f"rescore-beam{beam_size}-lm_{lm_out_name}-labelPrior-priorScaleRel",
+            scales_results,
+            x_axis_name="prior_scale_rel",
         )
 
 
