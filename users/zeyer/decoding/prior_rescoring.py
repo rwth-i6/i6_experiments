@@ -117,3 +117,69 @@ class SearchPriorRescoreJob(Job):
                     out.write(f"({score}, {text!r}),\n")
                 out.write("],\n")
             out.write("}\n")
+
+
+class PriorRemoveLabelRenormJob(Job):
+    """
+    Gets some prior, removes some label from it, renorms the remaining.
+    """
+
+    def __init__(self, *, prior_file: tk.Path, prior_type: str, vocab: tk.Path, remove_label: str, out_prior_type: str):
+        self.prior_file = prior_file
+        self.prior_type = prior_type
+        self.vocab = vocab
+        self.remove_label = remove_label
+        self.out_prior_type = out_prior_type
+
+        self.out_prior = self.output_path("prior.txt")
+
+    def tasks(self):
+        """task"""
+        yield Task("run", mini_task=True)
+
+    def run(self):
+        """run"""
+        import numpy as np
+
+        vocab: List[str] = util.uopen(self.vocab, "rt").read().splitlines()
+        vocab_to_idx: Dict[str, int] = {word: i for (i, word) in enumerate(vocab)}
+
+        assert (
+            vocab.count(self.remove_label) == 1
+        ), f"remove_label {self.remove_label!r} not unique in vocab. found {vocab.count(self.remove_label)} times."
+        remove_label_idx = vocab_to_idx[self.remove_label]
+
+        prior = np.loadtxt(self.prior_file.get_path())
+        assert prior.shape == (len(vocab),), f"prior shape {prior.shape} vs vocab size {len(vocab)}"
+        # The `type` is about what is stored in the file.
+        # We always want it in log prob here, so we potentially need to convert it.
+        if self.prior_type == "log_prob":
+            pass  # already log prob
+        elif self.prior_type == "prob":
+            prior = np.log(prior)
+        else:
+            raise ValueError(f"invalid static_prior type {self.prior_type!r}")
+
+        neg_inf = float("-inf")
+
+        def _logsumexp(arg: np.ndarray) -> np.ndarray:
+            """
+            Stable log sum exp.
+            """
+            if np.all(arg == neg_inf):
+                return arg
+            a_max = np.max(arg)
+            lsp = np.log(np.sum(np.exp(arg - a_max)))
+            return a_max + lsp
+
+        prior = np.concatenate([prior[:remove_label_idx], prior[remove_label_idx + 1 :]])
+        assert prior.shape == (len(vocab) - 1,), f"prior shape {prior.shape} vs vocab size {len(vocab) - 1}"
+        prior = prior - _logsumexp(prior)
+
+        if self.out_prior_type == "log_prob":
+            pass
+        elif self.out_prior_type == "prob":
+            prior = np.exp(prior)
+        else:
+            raise ValueError(f"invalid out_prior_type {self.out_prior_type!r}")
+        np.savetxt(self.out_prior.get_path(), prior)
