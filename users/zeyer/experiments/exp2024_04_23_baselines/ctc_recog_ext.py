@@ -362,11 +362,11 @@ def py():
                             prior_scale=prior_scale,
                             lm=lm,
                             lm_scale=lm_scale,
+                            lm_rescore_rqmt={"cpu": 4, "mem": 30, "time": 24, "gpu_mem": 24},
                             vocab=vocab_file,
                             vocab_opts_file=vocab_opts_file,
                         )
                     ],
-                    search_rqmt={"cpu": 4, "mem": 30, "time": 24, "gpu_mem": 24},
                 )
                 tk.register_output(
                     f"{prefix}/rescore-beam{beam_size}-lm_{lm_out_name}-lmScale{lm_scale}-priorScale{prior_scale}",
@@ -391,11 +391,11 @@ def py():
                             prior_scale=lm_scale * prior_scale_,
                             lm=lm,
                             lm_scale=lm_scale,
+                            lm_rescore_rqmt={"cpu": 4, "mem": 30, "time": 24, "gpu_mem": 24},
                             vocab=vocab_file,
                             vocab_opts_file=vocab_opts_file,
                         )
                     ],
-                    search_rqmt={"cpu": 4, "mem": 30, "time": 24, "gpu_mem": 24},
                 )
                 tk.register_output(
                     f"{prefix}/rescore-beam{beam_size}-lm_{lm_out_name}-lmScale{lm_scale}-priorScaleRel{prior_scale}",

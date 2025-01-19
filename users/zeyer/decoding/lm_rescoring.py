@@ -33,7 +33,7 @@ However, to keep it generic, we don't do this here.
 """
 
 from __future__ import annotations
-from typing import TYPE_CHECKING, Optional, Callable
+from typing import TYPE_CHECKING, Optional, Any, Callable, Dict
 
 from sisyphus import tk
 from i6_experiments.users.zeyer.model_interfaces import ModelWithCheckpoint, RescoreDef
@@ -56,6 +56,7 @@ def lm_framewise_prior_rescore(
     orig_scale: float = 1.0,
     lm: ModelWithCheckpoint,
     lm_scale: float,
+    lm_rescore_rqmt: Optional[Dict[str, Any]] = None,
     vocab: tk.Path,
     vocab_opts_file: tk.Path,
     prior: Optional[Prior] = None,
@@ -75,13 +76,16 @@ def lm_framewise_prior_rescore(
     :param orig_scale: scale for the original scores
     :param lm: language model
     :param lm_scale: scale for the LM scores
+    :param lm_rescore_rqmt:
     :param vocab: for LM labels in res / raw_res_labels
     :param vocab_opts_file: for LM labels. contains info about EOS, BOS, etc
     :param prior:
     :param prior_scale: scale for the prior scores. this is used as the negative weight
     :param search_labels_to_labels: function to convert the search labels to the labels
     """
-    res_labels_lm_scores = lm_score(raw_res_labels, lm=lm, vocab=vocab, vocab_opts_file=vocab_opts_file)
+    res_labels_lm_scores = lm_score(
+        raw_res_labels, lm=lm, vocab=vocab, vocab_opts_file=vocab_opts_file, rescore_rqmt=lm_rescore_rqmt
+    )
     scores = [(orig_scale, res), (lm_scale, res_labels_lm_scores)]
     if prior and prior_scale:
         assert search_labels_to_labels
@@ -94,7 +98,12 @@ def lm_framewise_prior_rescore(
 
 
 def lm_score(
-    recog_output: RecogOutput, *, lm: ModelWithCheckpoint, vocab: tk.Path, vocab_opts_file: tk.Path
+    recog_output: RecogOutput,
+    *,
+    lm: ModelWithCheckpoint,
+    vocab: tk.Path,
+    vocab_opts_file: tk.Path,
+    rescore_rqmt: Optional[Dict[str, Any]] = None,
 ) -> RecogOutput:
     """
     Scores the hyps with the LM.
@@ -106,9 +115,15 @@ def lm_score(
     :param lm: language model
     :param vocab: labels (line-based, maybe gzipped)
     :param vocab_opts_file: for LM labels. contains info about EOS, BOS, etc
+    :param rescore_rqmt:
     """
     return rescore(
-        recog_output=recog_output, model=lm, vocab=vocab, vocab_opts_file=vocab_opts_file, rescore_def=lm_rescore_def
+        recog_output=recog_output,
+        model=lm,
+        vocab=vocab,
+        vocab_opts_file=vocab_opts_file,
+        rescore_def=lm_rescore_def,
+        forward_rqmt=rescore_rqmt,
     )
 
 
