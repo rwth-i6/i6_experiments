@@ -454,8 +454,8 @@ def py():
 
         # Try rescaling AM scores with full sum (lm_am_labelwise_prior_rescore).
         scales_results = {}
-        for lm_scale in np.linspace(0.0, 1.0, 3):
-            for prior_scale_rel in np.linspace(0.0, 1.0, 3):
+        for lm_scale in np.linspace(0.0, 1.0, 11):
+            for prior_scale_rel in np.linspace(0.0, 1.0, 11):
                 res = recog_model(
                     task=task,
                     model=ctc_model,
