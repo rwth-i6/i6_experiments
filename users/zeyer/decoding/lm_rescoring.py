@@ -132,6 +132,7 @@ def lm_labelwise_prior_rescore(
     :param prior_scale: scale for the prior scores. this is used as the negative weight
     :param search_labels_to_labels: function to convert the search labels to the labels
     """
+    raw_res_search_labels, search_labels_to_labels  # noqa  # unused here
     res_labels_lm_scores = lm_score(
         raw_res_labels, lm=lm, vocab=vocab, vocab_opts_file=vocab_opts_file, rescore_rqmt=lm_rescore_rqmt
     )
