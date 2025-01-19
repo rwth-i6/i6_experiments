@@ -81,6 +81,9 @@ def py():
             (16, 0.5, 1.0),
             (1, 0.5, 1.0),
             (1, 0.0, 0.0),  # sanity check
+            (1, 0.3, 0.5),
+            (16, 0.3, 0.5),
+            (32, 0.3, 0.5),
         ]:
             model = get_ctc_with_lm(
                 ctc_model=ctc_model, prior=prior, prior_scale=prior_scale, language_model=lm, lm_scale=lm_scale
@@ -105,6 +108,7 @@ def py():
         for prior_scale, lm_scale in [
             (0.0, 1.0),
             # (0.2, 2.0),
+            (0.3, 0.5),
         ]:
             model = get_ctc_with_lm(
                 ctc_model=ctc_model, prior=prior, prior_scale=prior_scale, language_model=lm, lm_scale=lm_scale
@@ -203,6 +207,7 @@ def py():
             (0.0, 1.0),
             (0.2, 2.0),
             (0.2, 1.0),
+            (0.3, 0.5),
             (0.5, 1.0),
             (0.7, 2.0),
         ]:
