@@ -218,6 +218,9 @@ class MixingDataset(CachedDataset2):
                 self.datasets_exhausted[dataset_index] = True
                 print(f"MixingDataset: ({dataset_index}) exhausted", file=log.v4)
                 self._print_progress()
+                c0 = self.chooser_childindices[0] / max(1, child_lens[0])
+                c1 = self.chooser_childindices[1] / max(1, child_lens[1])
+                print(f"MixingDataset: optimal mixing ratio = {(self.datalens[1] / c1) / max(1, self.datalens[0]/c0 + self.datalens[1]/c1)}", file=log.v4)
                 if self.how_to_handle_end_of_data_from_one_dataset == "exception":
                     self.is_chooser_done = True
                     raise Exception(
@@ -233,9 +236,6 @@ class MixingDataset(CachedDataset2):
                     # so just start loading them at the beginning again
                     if all(self.datasets_exhausted):
                         self.is_chooser_done = True
-                        c0 = self.chooser_childindices[0] / max(1, child_lens[0])
-                        c1 = self.chooser_childindices[1] / max(1, child_lens[1])
-                        print(f"MixingDataset: optimal mixing ratio = {(self.datalens[1] / c1) / max(1, self.datalens[0]/c0 + self.datalens[1]/c1)}", file=log.v4)
                         break
                     # the modulo operator below will wrap around
                 else:
