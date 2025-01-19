@@ -761,6 +761,7 @@ def _ctc_model_rescore(
         targets_b_seq_lens = rf.gather(targets_spatial_dim.dyn_size_ext, axis=targets_beam_dim, indices=beam_idx)
         targets_b_spatial_dim = Dim(targets_b_seq_lens, name=f"{targets_spatial_dim.name}_beam{beam_idx}")
         targets_b, _ = rf.replace_dim(targets_b, in_dim=targets_spatial_dim, out_dim=targets_b_spatial_dim)
+        targets_b, _ = rf.slice(targets_b, axis=targets_b_spatial_dim, size=targets_b_spatial_dim)
         # Note: gradient does not matter (not used), thus no need use our ctc_loss_fixed_grad.
         neg_log_prob = rf.ctc_loss(
             logits=log_probs,
