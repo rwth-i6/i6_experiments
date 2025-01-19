@@ -479,13 +479,13 @@ def py():
                     ],
                 )
                 tk.register_output(
-                    f"{prefix}/rescore-beam{beam_size}-lm_{lm_out_name}-lmScale{lm_scale}"
+                    f"{prefix}/rescore-beam{beam_size}-amFSRescore-lm_{lm_out_name}-lmScale{lm_scale}"
                     f"-labelPrior-priorScaleRel{prior_scale_rel}",
                     res.output,
                 )
                 scales_results[(prior_scale_rel, lm_scale)] = res.output
         _plot_scales(
-            f"rescore-beam{beam_size}-lm_{lm_out_name}-labelPrior-priorScaleRel",
+            f"rescore-beam{beam_size}-amFSRescore-lm_{lm_out_name}-labelPrior-priorScaleRel",
             scales_results,
             x_axis_name="prior_scale_rel",
         )
