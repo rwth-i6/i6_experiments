@@ -307,6 +307,7 @@ def search_dataset(
     for f in recog_pre_post_proc_funcs_ext:
         res = f(
             RecogOutput(output=res),
+            dataset=dataset,
             raw_res_search_labels=raw_res_search_labels,
             raw_res_labels=raw_res_labels,
             search_labels_to_labels=functools.partial(

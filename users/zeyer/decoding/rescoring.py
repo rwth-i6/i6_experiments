@@ -184,15 +184,6 @@ def _returnn_rescore_config(
 
     config = config.copy() if config else {}
 
-    if dataset:
-        # TODO make MetaDataset, putting this inside, alongside with the dataset for recog output
-        raise NotImplementedError(f"dataset {dataset} ...")
-
-    # Beam dim size unknown. Usually static size, but it's ok to leave this unknown here (right?).
-    beam_dim = Dim(Tensor("beam_size", dims=[], dtype="int32"), name="beam")
-
-    data_flat_spatial_dim = Dim(None, name="data_flat_spatial")
-
     # Note: we should not put SPM/BPE directly here,
     # because the recog output still has individual labels,
     # so no SPM/BPE encoding on the text.
@@ -202,18 +193,41 @@ def _returnn_rescore_config(
     else:
         vocab_opts["unknown_label"] = None
 
+    # Beam dim size unknown. Usually static size, but it's ok to leave this unknown here (right?).
+    beam_dim = Dim(Tensor("beam_size", dims=[], dtype="int32"), name="beam")
+
+    data_flat_spatial_dim = Dim(None, name="data_flat_spatial")
+
+    default_input = None  # no input
+    forward_data = {"class": "TextDictDataset", "filename": recog_output.output, "vocab": vocab_opts}
+    extern_data = {
+        # data_flat dyn dim is the flattened dim, no need to define dim tags now
+        "data_flat": {"dims": [batch_dim, data_flat_spatial_dim], "dtype": "int32", "vocab": vocab_opts},
+        "data_seq_lens": {"dims": [batch_dim, beam_dim], "dtype": "int32"},
+    }
+    if dataset:
+        default_input = dataset.get_default_input()
+        assert default_input not in extern_data
+        extern_data[default_input] = dataset.get_extern_data()[default_input]
+        forward_data = {
+            "class": "MetaDataset",
+            "datasets": {"orig_data": dataset.get_main_dataset(), "hyps": forward_data},
+            "data_map": {
+                default_input: ("orig_data", default_input),
+                "data_flat": ("hyps", "data_flat"),
+                "data_seq_lens": ("hyps", "data_seq_lens"),
+            },
+            "seq_order_control_dataset": "hyps",
+        }
+
     config.update(
         {
-            "forward_data": {"class": "TextDictDataset", "filename": recog_output.output, "vocab": vocab_opts},
-            "default_input": None,  # no input
+            "forward_data": forward_data,
+            "default_input": default_input,
             "target": "data_flat",  # needed for get_model to know the target dim
             "_beam_dim": beam_dim,
             "_data_flat_spatial_dim": data_flat_spatial_dim,
-            "extern_data": {
-                # data_flat dyn dim is the flattened dim, no need to define dim tags now
-                "data_flat": {"dims": [batch_dim, data_flat_spatial_dim], "dtype": "int32", "vocab": vocab_opts},
-                "data_seq_lens": {"dims": [batch_dim, beam_dim], "dtype": "int32"},
-            },
+            "extern_data": extern_data,
         }
     )
 

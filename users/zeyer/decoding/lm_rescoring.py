@@ -43,6 +43,7 @@ from .rescoring import combine_scores, rescore
 from .prior_rescoring import prior_score, Prior
 
 if TYPE_CHECKING:
+    from returnn_common.datasets_old_2022_10.interface import DatasetConfig
     from returnn.tensor import Tensor, Dim
     import returnn.frontend as rf
     from returnn.frontend.decoder.transformer import TransformerDecoder
@@ -51,6 +52,7 @@ if TYPE_CHECKING:
 def lm_framewise_prior_rescore(
     res: RecogOutput,
     *,
+    dataset: DatasetConfig,
     raw_res_search_labels: RecogOutput,
     raw_res_labels: RecogOutput,
     orig_scale: float = 1.0,
@@ -71,6 +73,7 @@ def lm_framewise_prior_rescore(
     :param res:
         The format of the JSON is: {"<seq_tag>": [(score, "<text>"), ...], ...},
         i.e. the standard RETURNN search output with beam.
+    :param dataset: the orig data which was used to generate res
     :param raw_res_search_labels:
     :param raw_res_labels:
     :param orig_scale: scale for the original scores
@@ -83,6 +86,7 @@ def lm_framewise_prior_rescore(
     :param prior_scale: scale for the prior scores. this is used as the negative weight
     :param search_labels_to_labels: function to convert the search labels to the labels
     """
+    dataset  # noqa  # unused here
     res_labels_lm_scores = lm_score(
         raw_res_labels, lm=lm, vocab=vocab, vocab_opts_file=vocab_opts_file, rescore_rqmt=lm_rescore_rqmt
     )
@@ -100,6 +104,7 @@ def lm_framewise_prior_rescore(
 def lm_labelwise_prior_rescore(
     res: RecogOutput,
     *,
+    dataset: DatasetConfig,
     raw_res_search_labels: RecogOutput,
     raw_res_labels: RecogOutput,
     orig_scale: float = 1.0,
@@ -120,6 +125,7 @@ def lm_labelwise_prior_rescore(
     :param res:
         The format of the JSON is: {"<seq_tag>": [(score, "<text>"), ...], ...},
         i.e. the standard RETURNN search output with beam.
+    :param dataset: the orig data which was used to generate res
     :param raw_res_search_labels:
     :param raw_res_labels:
     :param orig_scale: scale for the original scores
@@ -132,11 +138,73 @@ def lm_labelwise_prior_rescore(
     :param prior_scale: scale for the prior scores. this is used as the negative weight
     :param search_labels_to_labels: function to convert the search labels to the labels
     """
-    raw_res_search_labels, search_labels_to_labels  # noqa  # unused here
+    dataset, raw_res_search_labels, search_labels_to_labels  # noqa  # unused here
     res_labels_lm_scores = lm_score(
         raw_res_labels, lm=lm, vocab=vocab, vocab_opts_file=vocab_opts_file, rescore_rqmt=lm_rescore_rqmt
     )
     scores = [(orig_scale, res), (lm_scale, res_labels_lm_scores)]
+    if prior and prior_scale:
+        res_labels_prior_scores = prior_score(raw_res_labels, prior=prior)
+        scores.append((-prior_scale, res_labels_prior_scores))
+    else:
+        assert prior_scale == 0.0
+    return combine_scores(scores)
+
+
+def lm_am_labelwise_prior_rescore(
+    res: RecogOutput,
+    *,
+    dataset: DatasetConfig,
+    raw_res_search_labels: RecogOutput,
+    raw_res_labels: RecogOutput,
+    am: ModelWithCheckpoint,
+    am_rescore_def: RescoreDef,
+    am_scale: float = 1.0,
+    lm: ModelWithCheckpoint,
+    lm_scale: float,
+    lm_rescore_rqmt: Optional[Dict[str, Any]] = None,
+    vocab: tk.Path,
+    vocab_opts_file: tk.Path,
+    prior: Optional[Prior] = None,
+    prior_scale: float = 0.0,
+    search_labels_to_labels: Optional[Callable[[RecogOutput], RecogOutput]] = None,
+) -> RecogOutput:
+    """
+    With functools.partial, you can use this for ``recog_post_proc_funcs`` in :func:`recog_model` and co.
+
+    If you also want to combine a prior, e.g. for CTC, you might want to use :func:`prior_rescore` first.
+
+    :param res:
+        The format of the JSON is: {"<seq_tag>": [(score, "<text>"), ...], ...},
+        i.e. the standard RETURNN search output with beam.
+    :param dataset: the orig data which was used to generate res
+    :param raw_res_search_labels:
+    :param raw_res_labels:
+    :param am:
+    :param am_rescore_def:
+    :param am_scale: scale for the new AM scores
+    :param lm: language model
+    :param lm_scale: scale for the LM scores
+    :param lm_rescore_rqmt:
+    :param vocab: for LM labels in res / raw_res_labels
+    :param vocab_opts_file: for LM labels. contains info about EOS, BOS, etc
+    :param prior:
+    :param prior_scale: scale for the prior scores. this is used as the negative weight
+    :param search_labels_to_labels: function to convert the search labels to the labels
+    """
+    res, raw_res_search_labels, search_labels_to_labels  # noqa  # unused here
+    res_labels_lm_scores = lm_score(
+        raw_res_labels, lm=lm, vocab=vocab, vocab_opts_file=vocab_opts_file, rescore_rqmt=lm_rescore_rqmt
+    )
+    res_labels_am_scores = rescore(
+        recog_output=raw_res_labels,
+        dataset=dataset,
+        model=am,
+        vocab=vocab,
+        vocab_opts_file=vocab_opts_file,
+        rescore_def=am_rescore_def,
+    )
+    scores = [(am_scale, res_labels_am_scores), (lm_scale, res_labels_lm_scores)]
     if prior and prior_scale:
         res_labels_prior_scores = prior_score(raw_res_labels, prior=prior)
         scores.append((-prior_scale, res_labels_prior_scores))

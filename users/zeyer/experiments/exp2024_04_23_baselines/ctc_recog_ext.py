@@ -293,6 +293,7 @@ def py():
         from i6_experiments.users.zeyer.decoding.lm_rescoring import (
             lm_framewise_prior_rescore,
             lm_labelwise_prior_rescore,
+            lm_am_labelwise_prior_rescore,
         )
         from i6_experiments.users.zeyer.decoding.prior_rescoring import Prior, PriorRemoveLabelRenormJob
         from i6_experiments.users.zeyer.datasets.utils.vocab import (
@@ -416,6 +417,7 @@ def py():
             f"rescore-beam{beam_size}-lm_{lm_out_name}-priorScaleRel", scales_results, x_axis_name="prior_scale_rel"
         )
 
+        # Try labelwise prior (lm_labelwise_prior_rescore).
         scales_results = {}
         for lm_scale in np.linspace(0.0, 1.0, 11):
             for prior_scale_rel in np.linspace(0.0, 1.0, 11):
@@ -427,6 +429,43 @@ def py():
                     recog_pre_post_proc_funcs_ext=[
                         functools.partial(
                             lm_labelwise_prior_rescore,
+                            # labelwise prior
+                            prior=Prior(file=log_prior_wo_blank, type="log_prob", vocab=vocab_file),
+                            prior_scale=lm_scale * prior_scale_rel,
+                            lm=lm,
+                            lm_scale=lm_scale,
+                            lm_rescore_rqmt={"cpu": 4, "mem": 30, "time": 24, "gpu_mem": 24},
+                            vocab=vocab_file,
+                            vocab_opts_file=vocab_opts_file,
+                        )
+                    ],
+                )
+                tk.register_output(
+                    f"{prefix}/rescore-beam{beam_size}-lm_{lm_out_name}-lmScale{lm_scale}"
+                    f"-labelPrior-priorScaleRel{prior_scale_rel}",
+                    res.output,
+                )
+                scales_results[(prior_scale_rel, lm_scale)] = res.output
+        _plot_scales(
+            f"rescore-beam{beam_size}-lm_{lm_out_name}-labelPrior-priorScaleRel",
+            scales_results,
+            x_axis_name="prior_scale_rel",
+        )
+
+        # Try rescaling AM scores with full sum (lm_am_labelwise_prior_rescore).
+        scales_results = {}
+        for lm_scale in np.linspace(0.0, 1.0, 3):
+            for prior_scale_rel in np.linspace(0.0, 1.0, 3):
+                res = recog_model(
+                    task=task,
+                    model=ctc_model,
+                    recog_def=model_recog_ctc_only,
+                    config={"beam_size": beam_size},
+                    recog_pre_post_proc_funcs_ext=[
+                        functools.partial(
+                            lm_am_labelwise_prior_rescore,
+                            am=ctc_model,
+                            am_rescore_def=_ctc_model_rescore,
                             # labelwise prior
                             prior=Prior(file=log_prior_wo_blank, type="log_prob", vocab=vocab_file),
                             prior_scale=lm_scale * prior_scale_rel,
@@ -688,6 +727,44 @@ def _ctc_model_softmax_prior_returnn_forward(
     assert isinstance(log_probs, Tensor)
     probs = rf.exp(log_probs)  # the statistics take the average over this, thus prob space, not log prob
     return probs, enc_spatial_dim
+
+
+def _ctc_model_rescore(
+    *,
+    model: Model,
+    data: Tensor,
+    data_spatial_dim: Dim,
+    targets: Tensor,
+    targets_beam_dim: Dim,
+    targets_spatial_dim: Dim,
+):
+    """RescoreDef API"""
+    targets_beam_dim  # noqa  # unused here
+
+    import returnn.frontend as rf
+    from returnn.tensor import Tensor, Dim
+
+    logits, enc, enc_spatial_dim = model(data, in_spatial_dim=data_spatial_dim)
+    assert isinstance(logits, Tensor) and isinstance(enc_spatial_dim, Dim)
+    assert logits.feature_dim  # we expect a feature dim
+    assert enc_spatial_dim in logits.dims
+    log_probs = model.log_probs_wb_from_logits(logits)
+    assert isinstance(log_probs, Tensor)
+
+    batch_dims = targets.remaining_dims(targets_spatial_dim)
+
+    # Note: gradient does not matter (not used), thus no need use our ctc_loss_fixed_grad.
+    neg_log_prob = rf.ctc_loss(
+        logits=log_probs,
+        logits_normalized=True,
+        targets=targets,
+        input_spatial_dim=enc_spatial_dim,
+        targets_spatial_dim=targets_spatial_dim,
+        blank_index=model.blank_idx,
+    )
+    log_prob_targets_seq = -neg_log_prob
+    assert log_prob_targets_seq.dims_set == set(batch_dims)
+    return log_prob_targets_seq
 
 
 def _plot_scales(name: str, results: Dict[Tuple[float, float], tk.Path], x_axis_name: str = "prior_scale"):
