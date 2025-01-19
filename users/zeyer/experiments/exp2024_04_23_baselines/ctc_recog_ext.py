@@ -361,6 +361,7 @@ def py():
                             vocab_opts_file=vocab_opts_file,
                         )
                     ],
+                    search_rqmt={"cpu": 4, "mem": 30, "time": 24, "gpu_mem": 24},
                 )
                 tk.register_output(
                     f"{prefix}/rescore-beam{beam_size}-lm_{lm_out_name}-lmScale{lm_scale}-priorScale{prior_scale}",
@@ -368,6 +369,37 @@ def py():
                 )
                 scales_results[(prior_scale, lm_scale)] = res.output
         _plot_scales(f"rescore-beam{beam_size}-lm_{lm_out_name}", scales_results)
+
+        scales_results = {}
+        for lm_scale in np.linspace(0.0, 1.0, 11):
+            for prior_scale_ in np.linspace(0.0, 1.0, 11):
+                res = recog_model(
+                    task=task,
+                    model=ctc_model,
+                    recog_def=model_recog_ctc_only,
+                    config={"beam_size": beam_size},
+                    recog_pre_post_proc_funcs_ext=[
+                        functools.partial(
+                            lm_framewise_prior_rescore,
+                            # framewise standard prior
+                            prior=Prior(file=prior, type="prob", vocab=vocab_w_blank_file),
+                            prior_scale=lm_scale * prior_scale_,
+                            lm=lm,
+                            lm_scale=lm_scale,
+                            vocab=vocab_file,
+                            vocab_opts_file=vocab_opts_file,
+                        )
+                    ],
+                    search_rqmt={"cpu": 4, "mem": 30, "time": 24, "gpu_mem": 24},
+                )
+                tk.register_output(
+                    f"{prefix}/rescore-beam{beam_size}-lm_{lm_out_name}-lmScale{lm_scale}-priorScaleRel{prior_scale}",
+                    res.output,
+                )
+                scales_results[(prior_scale_, lm_scale)] = res.output
+        _plot_scales(
+            f"rescore-beam{beam_size}-lm_{lm_out_name}-priorScaleRel", scales_results, x_axis_name="prior_scale_rel"
+        )
 
 
 _sis_prefix: Optional[str] = None
@@ -609,9 +641,9 @@ def _ctc_model_softmax_prior_returnn_forward(
     return probs, enc_spatial_dim
 
 
-def _plot_scales(name: str, results: Dict[Tuple[float, float], tk.Path]):
+def _plot_scales(name: str, results: Dict[Tuple[float, float], tk.Path], x_axis_name: str = "prior_scale"):
     prefix = f"{_sis_prefix}/ctc+lm"
-    plot_fn = PlotResults2DJob(x_axis_name="prior_scale", y_axis_name="lm_scale", results=results).out_plot
+    plot_fn = PlotResults2DJob(x_axis_name=x_axis_name, y_axis_name="lm_scale", results=results).out_plot
     tk.register_output(f"{prefix}/{name}-plot-scales.pdf", plot_fn)
 
 
