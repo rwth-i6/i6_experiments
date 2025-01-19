@@ -97,6 +97,53 @@ def lm_framewise_prior_rescore(
     return combine_scores(scores)
 
 
+def lm_labelwise_prior_rescore(
+    res: RecogOutput,
+    *,
+    raw_res_search_labels: RecogOutput,
+    raw_res_labels: RecogOutput,
+    orig_scale: float = 1.0,
+    lm: ModelWithCheckpoint,
+    lm_scale: float,
+    lm_rescore_rqmt: Optional[Dict[str, Any]] = None,
+    vocab: tk.Path,
+    vocab_opts_file: tk.Path,
+    prior: Optional[Prior] = None,
+    prior_scale: float = 0.0,
+    search_labels_to_labels: Optional[Callable[[RecogOutput], RecogOutput]] = None,
+) -> RecogOutput:
+    """
+    With functools.partial, you can use this for ``recog_post_proc_funcs`` in :func:`recog_model` and co.
+
+    If you also want to combine a prior, e.g. for CTC, you might want to use :func:`prior_rescore` first.
+
+    :param res:
+        The format of the JSON is: {"<seq_tag>": [(score, "<text>"), ...], ...},
+        i.e. the standard RETURNN search output with beam.
+    :param raw_res_search_labels:
+    :param raw_res_labels:
+    :param orig_scale: scale for the original scores
+    :param lm: language model
+    :param lm_scale: scale for the LM scores
+    :param lm_rescore_rqmt:
+    :param vocab: for LM labels in res / raw_res_labels
+    :param vocab_opts_file: for LM labels. contains info about EOS, BOS, etc
+    :param prior:
+    :param prior_scale: scale for the prior scores. this is used as the negative weight
+    :param search_labels_to_labels: function to convert the search labels to the labels
+    """
+    res_labels_lm_scores = lm_score(
+        raw_res_labels, lm=lm, vocab=vocab, vocab_opts_file=vocab_opts_file, rescore_rqmt=lm_rescore_rqmt
+    )
+    scores = [(orig_scale, res), (lm_scale, res_labels_lm_scores)]
+    if prior and prior_scale:
+        res_labels_prior_scores = prior_score(raw_res_labels, prior=prior)
+        scores.append((-prior_scale, res_labels_prior_scores))
+    else:
+        assert prior_scale == 0.0
+    return combine_scores(scores)
+
+
 def lm_score(
     recog_output: RecogOutput,
     *,
