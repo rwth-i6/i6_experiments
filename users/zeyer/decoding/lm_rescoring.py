@@ -159,6 +159,7 @@ def lm_am_labelwise_prior_rescore(
     raw_res_labels: RecogOutput,
     am: ModelWithCheckpoint,
     am_rescore_def: RescoreDef,
+    am_rescore_rqmt: Optional[Dict[str, Any]] = None,
     am_scale: float = 1.0,
     lm: ModelWithCheckpoint,
     lm_scale: float,
@@ -182,6 +183,7 @@ def lm_am_labelwise_prior_rescore(
     :param raw_res_labels:
     :param am:
     :param am_rescore_def:
+    :param am_rescore_rqmt:
     :param am_scale: scale for the new AM scores
     :param lm: language model
     :param lm_scale: scale for the LM scores
@@ -203,6 +205,7 @@ def lm_am_labelwise_prior_rescore(
         vocab=vocab,
         vocab_opts_file=vocab_opts_file,
         rescore_def=am_rescore_def,
+        forward_rqmt=am_rescore_rqmt,
     )
     scores = [(am_scale, res_labels_am_scores), (lm_scale, res_labels_lm_scores)]
     if prior and prior_scale:

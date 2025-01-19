@@ -466,6 +466,7 @@ def py():
                             lm_am_labelwise_prior_rescore,
                             am=ctc_model,
                             am_rescore_def=_ctc_model_rescore,
+                            am_rescore_rqmt={"cpu": 4, "mem": 30, "time": 24, "gpu_mem": 24},
                             # labelwise prior
                             prior=Prior(file=log_prior_wo_blank, type="log_prob", vocab=vocab_file),
                             prior_scale=lm_scale * prior_scale_rel,
@@ -752,6 +753,9 @@ def _ctc_model_rescore(
     assert isinstance(log_probs, Tensor)
 
     batch_dims = targets.remaining_dims(targets_spatial_dim)
+
+    # Note: This requires quite a lot of memory, as we broadcast the log_probs over the beam dim.
+    # We could also do a loop over the beam dim (or over chunks of the beam dim) to avoid this.
 
     # Note: gradient does not matter (not used), thus no need use our ctc_loss_fixed_grad.
     neg_log_prob = rf.ctc_loss(
