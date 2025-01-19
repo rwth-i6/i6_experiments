@@ -270,9 +270,17 @@ class MixingDataset(CachedDataset2):
             raise Exception("seq_idx < 0")
         if seq_idx >= self.chooser_index:
             ran_ids = self._run_seq_idx(seq_idx)
-            if seq_idx >= self.chooser_index:
+            if seq_idx >= self.chooser_index or ran_ids is None:
                 return None # we could not progress to the desired seq_idx, maybe early exit or exhaustion?
-            return (ran_ids[0] % self.left_dataset.num_seqs, ran_ids[1] % self.right_dataset.num_seqs)
+
+            assert self.chooser_index == seq_idx + 1
+            # reverse last decision to get actual indices
+            if self.bitset_chooser.get(seq_idx):
+                assert ran_ids[1] > 0
+                return (ran_ids[0] % self.left_dataset.num_seqs, (ran_ids[1] - 1) % self.right_dataset.num_seqs)
+            else:
+                assert ran_ids[0] > 0
+                return ((ran_ids[0] - 1) % self.left_dataset.num_seqs, ran_ids[1] % self.right_dataset.num_seqs)
         # maybe in cache? this should happen often when we go over the dataset sequentially
         restore_from_idx = seq_idx - (seq_idx % 1024)
         restore_indices = self.index_cache[restore_from_idx // 1024]
