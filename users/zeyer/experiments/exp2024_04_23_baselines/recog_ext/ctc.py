@@ -95,8 +95,10 @@ def model_recog(
         f"* argmax LM begin: {model.target_dim.vocab.id_to_label(lm_log_probs.raw_tensor[0, 0].argmax().cpu().item())}"
     )
 
-    # for debugging
-    seq_label = _seq_label_history_init_state(vocab_dim=model.target_dim, batch_dims=batch_dims_)
+    # For debugging, accumulate (non-blank) label history.
+    # Note: When you use this, uncomment the seq_label usages below,
+    # and also add this to the masked_select_tree and masked_scatter_tree.
+    # seq_label = _seq_label_history_init_state(vocab_dim=model.target_dim, batch_dims=batch_dims_)
 
     max_seq_len = int(enc_spatial_dim.get_dim_value())
     seq_targets_wb = []
@@ -169,13 +171,13 @@ def model_recog(
             f" {[model.target_dim.vocab.id_to_label(l.item()) for l in target.raw_tensor[0, :3].cpu()]}"
         )
 
-        seq_label = _gather_backrefs_tree(seq_label, backrefs=backrefs, dim_map=backrefs_dim_map)
-        _seq_label_print("gather backrefs", seq_label)
+        # seq_label = _gather_backrefs_tree(seq_label, backrefs=backrefs, dim_map=backrefs_dim_map)
+        # _seq_label_print("gather backrefs", seq_label)
 
         got_new_label_cpu = rf.copy_to_device(got_new_label, "cpu")
         if got_new_label_cpu.raw_tensor.sum().item() > 0:
-            (target_, lm_state_, seq_label_), packed_new_label_dim, packed_new_label_dim_map = _masked_select_tree(
-                (target, lm_state, seq_label),
+            (target_, lm_state_), packed_new_label_dim, packed_new_label_dim_map = _masked_select_tree(
+                (target, lm_state),
                 mask=got_new_label,
                 mask_cpu=got_new_label_cpu,
                 dims=batch_dims + [beam_dim],
@@ -202,13 +204,12 @@ def model_recog(
                 f" {model.target_dim.vocab.id_to_label(lm_log_probs_.raw_tensor[0].argmax().cpu().item())}"
             )
 
-            seq_label_ = _seq_label_append(seq_label_, target_)
+            # seq_label_ = _seq_label_append(seq_label_, target_)
+            # _seq_label_print("packed append", seq_label_)
 
-            _seq_label_print("packed append", seq_label_)
-
-            lm_log_probs, lm_state, seq_label = _masked_scatter_tree(
-                (lm_log_probs_, lm_state_, seq_label_),
-                (lm_log_probs, lm_state, seq_label),
+            lm_log_probs, lm_state = _masked_scatter_tree(
+                (lm_log_probs_, lm_state_),
+                (lm_log_probs, lm_state),
                 mask=got_new_label,
                 mask_cpu=got_new_label_cpu,
                 dims=batch_dims + [beam_dim],
@@ -216,7 +217,7 @@ def model_recog(
                 dim_map=packed_new_label_dim_map,
             )  # Batch, Beam, Vocab / ...
 
-            _seq_label_print("masked scatter", seq_label)
+            # _seq_label_print("masked scatter", seq_label)
 
     # seq_log_prob, lm_log_probs: Batch, Beam
     # Add LM EOS score at the end.
