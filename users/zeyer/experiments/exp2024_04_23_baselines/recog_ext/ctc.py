@@ -76,6 +76,8 @@ def model_recog(
     # noinspection PyUnresolvedReferences
     lm_scale: float = model.lm_scale
 
+    print(f"* beam size {beam_size}, lm scale {lm_scale}, prior scale {model.ctc_prior_scale}")
+
     lm_state = lm.default_initial_state(batch_dims=batch_dims_)  # Batch, InBeam, ...
     lm_logits, lm_state = lm(
         target,
