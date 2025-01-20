@@ -1256,6 +1256,7 @@ def py():
     report_scf_specaug_sort = run_scf_specaug_sort()
     report_scf_audio_perturbation_from_checkpoint = run_scf_audio_perturbation_from_checkpoint()
     report_mel_audio_perturbation_from_checkpoint = run_mel_audio_perturbation_from_checkpoint()
+    report_stft = run_stft_experiments()
 
     report_base = Report(
         columns_start=["train_name", "batch_size"],
@@ -1269,6 +1270,7 @@ def py():
             report_scf_specaug_sort,
             report_scf_audio_perturbation_from_checkpoint,
             report_mel_audio_perturbation_from_checkpoint,
+            report_stft,
         ]
     )
     tk.register_report(
