@@ -5,7 +5,9 @@ Generic recog, for the model interfaces defined in model_interfaces.py
 from __future__ import annotations
 
 import os
+import sys
 from typing import TYPE_CHECKING, Optional, Union, Any, Dict, Sequence, Collection, Iterator, Callable
+import functools
 
 import sisyphus
 from sisyphus import tk
@@ -27,6 +29,7 @@ from i6_experiments.common.setups import serialization
 from i6_experiments.users.zeyer.utils.serialization import get_import_py_code
 
 from i6_experiments.users.zeyer import tools_paths
+from i6_experiments.users.zeyer.utils.failsafe_text_io import FailsafeTextOutput
 from i6_experiments.users.zeyer.datasets.task import Task
 from i6_experiments.users.zeyer.datasets.score_results import RecogOutput, ScoreResultCollection
 from i6_experiments.users.zeyer.model_interfaces import ModelDef, ModelDefWithCfg, RecogDef, serialize_model_def
@@ -152,12 +155,41 @@ def recog_model(
     config: Optional[Dict[str, Any]] = None,
     search_post_config: Optional[Dict[str, Any]] = None,
     recog_post_proc_funcs: Sequence[Callable[[RecogOutput], RecogOutput]] = (),
+    recog_pre_post_proc_funcs_ext: Sequence[Callable] = (),
     search_mem_rqmt: Union[int, float] = 6,
     search_rqmt: Optional[Dict[str, Any]] = None,
     dev_sets: Optional[Collection[str]] = None,
     name: Optional[str] = None,
 ) -> ScoreResultCollection:
-    """recog"""
+    """
+    Recog for some given model (a single given checkpoint / epoch).
+    (Used by :func:`recog_training_exp` (:class:`_RecogAndScoreFunc`).)
+
+    :param task:
+    :param model:
+    :param recog_def:
+    :param config:
+    :param search_post_config:
+    :param recog_post_proc_funcs: Those are run before ``task.recog_post_proc_funcs``
+        (which usually does BPE to words or so).
+        Those are also run before we take the best hyp from a beam of hyps,
+        i.e. they run potentially on a set of hyps (if the recog returned a beam).
+        Those are run after blank label removal and label repetition collapsing in case ``output_blank_label`` is set.
+    :param recog_pre_post_proc_funcs_ext:
+        Funcs (recog_out, *, raw_res_search_labels, raw_res_labels, search_labels_to_labels, **other).
+        Those are run before recog_post_proc_funcs,
+        and they additionally get also
+        ``raw_res_search_labels`` (e.g. align labels, e.g. BPE including blank)
+        and ``raw_res_labels`` (e.g. BPE labels).
+    :param search_mem_rqmt: for the search job. 6GB by default. can also be set via ``search_rqmt``
+    :param search_rqmt: e.g. {"gpu": 1, "mem": 6, "cpu": 4, "gpu_mem": 24} or so
+    :param dev_sets: which datasets to evaluate on. None means all defined by ``task``
+    :param name: defines ``search_alias_name`` for the search job
+    :return: scores over all datasets (defined by ``task``) using the main measure (defined by the ``task``),
+        specifically what comes out of :func:`search_dataset`,
+        then scored via ``task.score_recog_output_func``,
+        then collected via ``task.collect_score_results_func``.
+    """
     if dev_sets is not None:
         assert all(k in task.eval_datasets for k in dev_sets)
     outputs = {}
@@ -175,6 +207,7 @@ def recog_model(
             search_rqmt=search_rqmt,
             search_alias_name=f"{name}/search/{dataset_name}" if name else None,
             recog_post_proc_funcs=list(recog_post_proc_funcs) + list(task.recog_post_proc_funcs),
+            recog_pre_post_proc_funcs_ext=recog_pre_post_proc_funcs_ext,
         )
         score_out = task.score_recog_output_func(dataset, recog_out)
         outputs[dataset_name] = score_out
@@ -192,6 +225,7 @@ def search_dataset(
     search_rqmt: Optional[Dict[str, Any]] = None,
     search_alias_name: Optional[str] = None,
     recog_post_proc_funcs: Sequence[Callable[[RecogOutput], RecogOutput]] = (),
+    recog_pre_post_proc_funcs_ext: Sequence[Callable] = (),
 ) -> RecogOutput:
     """
     Recog on the specific dataset using RETURNN.
@@ -214,7 +248,14 @@ def search_dataset(
     :param search_mem_rqmt: memory requirement for the search job
     :param search_rqmt: any additional requirements for the search job
     :param search_alias_name: alias name for the search job
-    :param recog_post_proc_funcs: post processing functions for the recog output
+    :param recog_post_proc_funcs: post processing functions for the recog output.
+        Those are run after blank label removal and label repetition collapsing in case ``output_blank_label`` is set.
+    :param recog_pre_post_proc_funcs_ext:
+        Funcs (recog_out, *, raw_res_search_labels, raw_res_labels, search_labels_to_labels, **other).
+        Those are run before recog_post_proc_funcs,
+        and they additionally get also
+        ``raw_res_search_labels`` (e.g. align labels, e.g. BPE including blank)
+        and ``raw_res_labels`` (e.g. BPE labels).
     :return: :class:`RecogOutput`, single best hyp (if there was a beam, we already took the best one)
         over the dataset
     """
@@ -259,10 +300,20 @@ def search_dataset(
             search_job.set_env(k, v)
     if search_alias_name:
         search_job.add_alias(search_alias_name)
+    raw_res_search_labels = RecogOutput(output=res)
     if recog_def.output_blank_label:
-        # Also assume we should collapse repeated labels first.
-        res = SearchCollapseRepeatedLabelsJob(res, output_gzip=True).out_search_results
-        res = SearchRemoveLabelJob(res, remove_label=recog_def.output_blank_label, output_gzip=True).out_search_results
+        res = _ctc_alignment_to_label_seq(RecogOutput(output=res), blank_label=recog_def.output_blank_label).output
+    raw_res_labels = RecogOutput(output=res)
+    for f in recog_pre_post_proc_funcs_ext:
+        res = f(
+            RecogOutput(output=res),
+            dataset=dataset,
+            raw_res_search_labels=raw_res_search_labels,
+            raw_res_labels=raw_res_labels,
+            search_labels_to_labels=functools.partial(
+                _ctc_alignment_to_label_seq, blank_label=recog_def.output_blank_label
+            ),
+        ).output
     for f in recog_post_proc_funcs:  # for example BPE to words
         res = f(RecogOutput(output=res)).output
     if recog_def.output_with_beam:
@@ -270,6 +321,13 @@ def search_dataset(
         #   It's not clear whether this is helpful in general.
         #   As our beam sizes are very small, this might boost some hyps too much.
         res = SearchTakeBestJob(res, output_gzip=True).out_best_search_results
+    return RecogOutput(output=res)
+
+
+def _ctc_alignment_to_label_seq(recog_output: RecogOutput, *, blank_label: str) -> RecogOutput:
+    # Also assume we should collapse repeated labels first.
+    res = SearchCollapseRepeatedLabelsJob(recog_output.output, output_gzip=True).out_search_results
+    res = SearchRemoveLabelJob(res, remove_label=blank_label, output_gzip=True).out_search_results
     return RecogOutput(output=res)
 
 
@@ -515,12 +573,15 @@ def _returnn_v2_get_model(*, epoch: int, **_kwargs_unused):
     default_input_key = config.typed_value("default_input")
     default_target_key = config.typed_value("target")
     extern_data_dict = config.typed_value("extern_data")
-    data = Tensor(name=default_input_key, **extern_data_dict[default_input_key])
+    # We allow no input. This is useful when e.g. sampling from some LM, or just scoring.
+    data = Tensor(name=default_input_key, **extern_data_dict[default_input_key]) if default_input_key else None
     targets = Tensor(name=default_target_key, **extern_data_dict[default_target_key])
     assert targets.sparse_dim and targets.sparse_dim.vocab, f"no vocab for {targets}"
 
     model_def = config.typed_value("_model_def")
-    model = model_def(epoch=epoch, in_dim=data.feature_dim_or_sparse_dim, target_dim=targets.sparse_dim)
+    model = model_def(
+        epoch=epoch, in_dim=data.feature_dim_or_sparse_dim if data else None, target_dim=targets.sparse_dim
+    )
     return model
 
 
@@ -537,8 +598,9 @@ def _returnn_v2_forward_step(*, model, extern_data: TensorDict, **_kwargs_unused
 
     config = get_global_config()
     default_input_key = config.typed_value("default_input")
-    data = extern_data[default_input_key]
-    data_spatial_dim = data.get_time_dim_tag()
+    # We allow no input. This is useful when e.g. sampling from some LM, or just scoring.
+    data = extern_data[default_input_key] if default_input_key else None
+    data_spatial_dim = data.get_time_dim_tag() if data is not None else None
     recog_def = config.typed_value("_recog_def")
     extra = {}
     if config.bool("cheating", False):
@@ -593,11 +655,11 @@ def _returnn_v2_get_forward_callback():
         def init(self, *, model):
             import gzip
 
-            self.out_file = gzip.open(_v2_forward_out_filename, "wt")
+            self.out_file = gzip.open(_v2_forward_out_filename, "wt", encoding="utf-8")
             self.out_file.write("{\n")
 
             if recog_def_ext:
-                self.out_ext_file = gzip.open(_v2_forward_ext_out_filename, "wt")
+                self.out_ext_file = gzip.open(_v2_forward_ext_out_filename, "wt", encoding="utf-8")
                 self.out_ext_file.write("{\n")
 
         def process_seq(self, *, seq_tag: str, outputs: TensorDict):
@@ -651,6 +713,10 @@ class GetBestRecogTrainExp(sisyphus.Job):
             'best_epoch': int,  (sub-epoch by RETURNN)
             ...  (other meta info)
         }
+
+    The best epoch / scores is selected by the ``main_measure_value``
+    of the :class:`ScoreResultCollection` output from each recog
+    (via ``recog_and_score_func``).
     """
 
     def __init__(
@@ -720,20 +786,20 @@ class GetBestRecogTrainExp(sisyphus.Job):
             log_filename = tk.Path("update.log", self).get_path()
             try:
                 os.makedirs(os.path.dirname(log_filename), exist_ok=True)
-                log_stream = open(log_filename, "a")
+                log_stream = FailsafeTextOutput(open(log_filename, "a"), fallback=sys.stdout)
             except PermissionError:  # maybe some other user runs this, via job import
-                log_stream = open("/dev/stdout", "w")
-            with log_stream:
-                log_stream.write(datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
-                log_stream.write(": get_relevant_epochs_from_training_learning_rate_scores\n")
-                for epoch in get_relevant_epochs_from_training_learning_rate_scores(
-                    model_dir=self.exp.model_dir,
-                    model_name=self.exp.model_name,
-                    scores_and_learning_rates=self.exp.scores_and_learning_rates,
-                    n_best=self.check_train_scores_n_best,
-                    log_stream=log_stream,
-                ):
-                    self._add_recog(epoch)
+                log_stream = sys.stdout
+            log_stream.write(datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+            log_stream.write(": get_relevant_epochs_from_training_learning_rate_scores\n")
+            for epoch in get_relevant_epochs_from_training_learning_rate_scores(
+                model_dir=self.exp.model_dir,
+                model_name=self.exp.model_name,
+                scores_and_learning_rates=self.exp.scores_and_learning_rates,
+                n_best=self.check_train_scores_n_best,
+                log_stream=log_stream,
+            ):
+                self._add_recog(epoch)
+            log_stream.close()
             self._update_checked_relevant_epochs = True
 
     def _add_recog(self, epoch: int):

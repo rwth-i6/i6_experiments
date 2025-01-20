@@ -15,6 +15,7 @@ from ...default_tools import RETURNN_EXE, MINI_RETURNN_ROOT
 from ...lm import get_4gram_binary_lm
 from ...pipeline import training, prepare_asr_model, search, ASRModel
 from ...storage import add_ctc_model
+from ...report import tune_and_evalue_report
 
 
 
@@ -27,6 +28,14 @@ def bpe_ls960_0924_relposencoder():
         # training
         train_partition_epoch=10,
         train_seq_ordering="laplace:.1000",
+    )
+    
+    train_settings_laplace4 = DatasetSettings(
+        preemphasis=0.97,  # TODO: Check if this is really useful
+        peak_normalization=True,  # TODO: Also check if really useful, older Attention setups did not have that
+        # training
+        train_partition_epoch=10,
+        train_seq_ordering="laplace:.4000",
     )
 
     arpa_4gram_lm = get_4gram_binary_lm(prefix_name=prefix_name)
@@ -115,6 +124,7 @@ def bpe_ls960_0924_relposencoder():
         tune_parameters = []
         tune_values_clean = []
         tune_values_other = []
+        report_values = {}
         for lm_weight in lm_scales:
             for prior_scale in prior_scales:
                 decoder_config = copy.deepcopy(base_decoder_config)
@@ -145,6 +155,16 @@ def bpe_ls960_0924_relposencoder():
                 decoder_args={"config": asdict(decoder_config)}, test_dataset_tuples={key: test_dataset_tuples[key]},
                 **default_returnn
             )
+            report_values[key] = wers[training_name + "/" + key]
+
+        tune_and_evalue_report(
+            training_name=training_name,
+            tune_parameters=tune_parameters,
+            tuning_names=["LM", "Prior"],
+            tune_values_clean=tune_values_clean,
+            tune_values_other=tune_values_other,
+            report_values=report_values
+        )
 
     def greedy_search_helper(
             training_name: str,
@@ -175,6 +195,13 @@ def bpe_ls960_0924_relposencoder():
             librispeech_key="train-other-960",
             bpe_size=BPE_SIZE,
             settings=train_settings,
+            use_postfix=False,
+        )
+        train_data_bpe_laplace4 = build_bpe_training_datasets(
+            prefix=prefix_name,
+            librispeech_key="train-other-960",
+            bpe_size=BPE_SIZE,
+            settings=train_settings_laplace4,
             use_postfix=False,
         )
         label_datastream_bpe = cast(LabelDatastream, train_data_bpe.datastreams["labels"])
@@ -241,31 +268,101 @@ def bpe_ls960_0924_relposencoder():
         train_args = copy.deepcopy(global_train_args)
         train_args["net_args"] = {"model_config_dict": asdict(model_config)}
 
-        train_args_decoding = copy.deepcopy(train_args)
-        # train_args_decoding["net_args"] = {"model_config_dict": asdict(model_config_decoding)}
-
         training_name = prefix_name + "/" + str(BPE_SIZE) + "/" + network_module + ".512dim_sub4_24gbgpu_100eps_sp_lp_fullspec_gradnorm_smallbatch"
         train_job = training(training_name, train_data_bpe, train_args, num_epochs=1000, **default_returnn)
         train_job.rqmt["gpu_mem"] = 24
         asr_model = prepare_asr_model(
-            training_name, train_job, train_args_decoding, with_prior=True, datasets=train_data_bpe, get_specific_checkpoint=1000
+            training_name, train_job, train_args, with_prior=True, datasets=train_data_bpe, get_specific_checkpoint=1000
         )
         tune_and_evaluate_helper(training_name, dev_dataset_tuples, test_dataset_tuples, asr_model, default_decoder_config_bpe, lm_scales=[1.6, 1.8, 2.0], prior_scales=[0.2, 0.3, 0.4])
         greedy_search_helper(training_name, asr_model=asr_model, decoder_config=greedy_decoder_config)
 
 
+        # test with bs360
+        train_args_bs360 = copy.deepcopy(train_args)
+        train_args_bs360["config"]["batch_size"] = 360 * 16000
+        training_name = prefix_name + "/" + str(BPE_SIZE) + "/" + network_module + ".512dim_sub4_24gbgpu_100eps_sp_lp_fullspec_gradnorm"
+        train_job = training(training_name, train_data_bpe, train_args_bs360, num_epochs=1000, **default_returnn)
+        train_job.rqmt["gpu_mem"] = 24
+        asr_model = prepare_asr_model(
+            training_name, train_job, train_args_bs360, with_prior=True, datasets=train_data_bpe, get_specific_checkpoint=1000
+        )
+        tune_and_evaluate_helper(training_name, dev_dataset_tuples, test_dataset_tuples, asr_model, default_decoder_config_bpe, lm_scales=[1.6, 1.8, 2.0], prior_scales=[0.2, 0.3, 0.4])
+        greedy_search_helper(training_name, asr_model=asr_model, decoder_config=greedy_decoder_config)
 
+        # test dropout broadcasting
         train_args_dropbt = copy.deepcopy(global_train_args)
         train_args_dropbt["net_args"] = {"model_config_dict": asdict(model_config_dropbt)}
-
-        train_args_dropbt_decoding = copy.deepcopy(train_args_dropbt)
-        # train_args_decoding["net_args"] = {"model_config_dict": asdict(model_config_decoding)}
 
         training_name = prefix_name + "/" + str(BPE_SIZE) + "/" + network_module + ".512dim_sub4_24gbgpu_100eps_sp_lp_fullspec_gradnorm_smallbatch_dropbt"
         train_job = training(training_name, train_data_bpe, train_args_dropbt, num_epochs=1000, **default_returnn)
         train_job.rqmt["gpu_mem"] = 24
         asr_model = prepare_asr_model(
-            training_name, train_job, train_args_dropbt_decoding, with_prior=True, datasets=train_data_bpe, get_specific_checkpoint=1000
+            training_name, train_job, train_args_dropbt, with_prior=True, datasets=train_data_bpe, get_specific_checkpoint=1000
         )
         tune_and_evaluate_helper(training_name, dev_dataset_tuples, test_dataset_tuples, asr_model, default_decoder_config_bpe, lm_scales=[1.6, 1.8, 2.0], prior_scales=[0.2, 0.3, 0.4])
         greedy_search_helper(training_name, asr_model=asr_model, decoder_config=greedy_decoder_config)
+
+        # test with bs 360
+        train_args_dropbt_bs360 = copy.deepcopy(train_args_dropbt)
+        train_args_dropbt_bs360["config"]["batch_size"] = 360 * 16000
+        training_name = prefix_name + "/" + str(BPE_SIZE) + "/" + network_module + ".512dim_sub4_48gbgpu_100eps_sp_lp_fullspec_gradnorm_dropbt"
+        train_job = training(training_name, train_data_bpe, train_args_dropbt_bs360, num_epochs=1000, **default_returnn)
+        train_job.rqmt["gpu_mem"] = 48
+        asr_model = prepare_asr_model(
+            training_name, train_job, train_args_dropbt_bs360, with_prior=True, datasets=train_data_bpe, get_specific_checkpoint=1000
+        )
+        tune_and_evaluate_helper(training_name, dev_dataset_tuples, test_dataset_tuples, asr_model, default_decoder_config_bpe, lm_scales=[1.6, 1.8, 2.0], prior_scales=[0.2, 0.3, 0.4])
+        greedy_search_helper(training_name, asr_model=asr_model, decoder_config=greedy_decoder_config)
+
+        # higher lr
+        train_args_lr07 = copy.deepcopy(train_args)
+        train_args_lr07["config"]["learning_rates"] = list(np.linspace(7e-6, 7e-4, 480)) + list(
+                np.linspace(7e-4, 5e-5, 480)) + list(np.linspace(5e-5, 1e-7, 40))
+
+        training_name = prefix_name + "/" + str(BPE_SIZE) + "/" + network_module + ".512dim_sub4_24gbgpu_100eps_sp_lp_fullspec_gradnorm_smallbatch_lr07"
+        train_job = training(training_name, train_data_bpe, train_args_lr07, num_epochs=1000, **default_returnn)
+        train_job.rqmt["gpu_mem"] = 24
+        train_job.hold()
+        asr_model = prepare_asr_model(
+            training_name, train_job, train_args_lr07, with_prior=True, datasets=train_data_bpe, get_specific_checkpoint=1000
+        )
+        tune_and_evaluate_helper(training_name, dev_dataset_tuples, test_dataset_tuples, asr_model, default_decoder_config_bpe, lm_scales=[1.6, 1.8, 2.0], prior_scales=[0.2, 0.3, 0.4])
+        greedy_search_helper(training_name, asr_model=asr_model, decoder_config=greedy_decoder_config)
+        
+        # higher lr bs360
+        train_args_lr07 = copy.deepcopy(train_args_bs360)
+        train_args_lr07["config"]["learning_rates"] = list(np.linspace(7e-6, 7e-4, 480)) + list(
+                np.linspace(7e-4, 5e-5, 480)) + list(np.linspace(5e-5, 1e-7, 40))
+
+        training_name = prefix_name + "/" + str(BPE_SIZE) + "/" + network_module + ".512dim_sub4_24gbgpu_100eps_sp_lp_fullspec_gradnorm_lr07"
+        train_job = training(training_name, train_data_bpe, train_args_lr07, num_epochs=1000, **default_returnn)
+        train_job.rqmt["gpu_mem"] = 24
+        train_job.hold()
+        asr_model = prepare_asr_model(
+            training_name, train_job, train_args_lr07, with_prior=True, datasets=train_data_bpe, get_specific_checkpoint=1000
+        )
+        tune_and_evaluate_helper(training_name, dev_dataset_tuples, test_dataset_tuples, asr_model, default_decoder_config_bpe, lm_scales=[1.6, 1.8, 2.0], prior_scales=[0.2, 0.3, 0.4])
+        greedy_search_helper(training_name, asr_model=asr_model, decoder_config=greedy_decoder_config)
+        
+        # higher lr bs360, laplace4
+        train_args_lr07 = copy.deepcopy(train_args_bs360)
+        train_args_lr07["config"]["learning_rates"] = list(np.linspace(7e-6, 7e-4, 480)) + list(
+                np.linspace(7e-4, 5e-5, 480)) + list(np.linspace(5e-5, 1e-7, 40))
+        train_args_lr07["post_config"] = {"num_workers_per_gpu": 8}
+
+        training_name = prefix_name + "/" + str(BPE_SIZE) + "/" + network_module + ".512dim_sub4_24gbgpu_100eps_sp_lp_fullspec_gradnorm_lr07_work8"
+        train_job = training(training_name, train_data_bpe_laplace4, train_args_lr07, num_epochs=1000, **default_returnn)
+        train_job.rqmt["gpu_mem"] = 24
+        train_job.hold()
+        asr_model = prepare_asr_model(
+            training_name, train_job, train_args_lr07, with_prior=True, datasets=train_data_bpe, get_specific_checkpoint=1000
+        )
+        tune_and_evaluate_helper(training_name, dev_dataset_tuples, test_dataset_tuples, asr_model, default_decoder_config_bpe, lm_scales=[1.6, 1.8, 2.0], prior_scales=[0.2, 0.3, 0.4])
+        greedy_search_helper(training_name, asr_model=asr_model, decoder_config=greedy_decoder_config)
+
+        asr_model.lexicon = get_text_lexicon(prefix=prefix_name, librispeech_key="train-other-960", bpe_size=BPE_SIZE)
+        asr_model.returnn_vocab = label_datastream_bpe.vocab
+        asr_model.settings = train_settings
+        asr_model.label_datastream = label_datastream_bpe
+        add_ctc_model(network_module + ".512dim_sub4_24gbgpu_100eps_sp_lp_fullspec_gradnorm_lr07_work8", asr_model)

@@ -10,6 +10,7 @@ from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segment
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.labels.v2.librispeech.label_singletons import LibrispeechBPE1056_LABELS
 from i6_experiments.users.schmitt.visualization.visualization import PlotAttentionWeightsJobV2, PlotSelfAttentionWeightsOverEpochsJob
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.pipelines.pipeline_ls_conf.checkpoints import lm_checkpoints
+from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.pipelines.pipeline_ls_conf.center_window_att import plot_gradient_wrt_enc11, plot_diff_models
 
 from sisyphus import Path, tk
 from sisyphus.delayed_ops import DelayedFormat
@@ -18,6 +19,7 @@ from sisyphus.delayed_ops import DelayedFormat
 def run_exps():
   flipped_att_weights_evolution = []
   flipped_att_weights_evolution_epochs = [374, 484, 490, 500]
+  analyze_gradients_jobs = {}
   for (
           alias,
           random_seed,
@@ -42,6 +44,12 @@ def run_exps():
           accum_grad_multiple_step_,
   ) in [
     # ["v3_big", None, None, None, False, 12, 512, False, False, False, list(range(1, 240)), 24], # v3_big: same as v2, but on 24gb GPU with batch size 40k
+    ["v3_wo-wf-w-ctx-in-state", None, None, None, False, 12, 512, False, False, False, list(range(1, 240)), 24, None, None, False, False, False, False, False, 1e-6, None],
+    ["v3_wo-wf-wo-ctx-in-state", None, None, None, False, 12, 512, False, False, False, list(range(1, 240)), 24, None, None, False, False, False, False, False, 1e-6, None],
+    ["v3_w-wf-w-ctx-in-state", 9999, None, None, False, 12, 512, False, False, False, list(range(1, 240)), 24, None, None, False, False, False, False, False, 1e-6, None],
+    ["v3_wo-wf-w-ctx-in-state_ctc", None, None, (4, 8), False, 12, 512, False, False, False, list(range(1, 240)), 24, None, None, False, False, False, False, False, 1e-6, None],
+    ["v3_wo-wf-wo-ctx-in-state_ctc", None, None, (4, 8), False, 12, 512, False, False, False, list(range(1, 240)), 24, None, None, False, False, False, False, False, 1e-6, None],
+    ["v3_w-wf-w-ctx-in-state_ctc", 9999, None, (4, 8), False, 12, 512, False, False, False, list(range(1, 240)), 24, None, None, False, False, False, False, False, 1e-6, None],
     ["v3_rand-9999", 9999, None, None, False, 12, 512, False, False, False, list(range(1, 240)), 11, None, None, False, False, False, False, False, 1e-6, None],  # v3_big_rand - flipped
     ["v3_rand-1234", 1234, None, None, False, 12, 512, False, False, False, list(range(1, 240)), 11, None, None, False, False, False, False, False, 1e-6, None],  # v3_big_rand -
     ["v3_rand-1111", 1111, None, None, False, 12, 512, False, False, False, list(range(1, 240)), 11, None, None, False, False, False, False, False, 1e-6, None],  # v3_big_rand
@@ -78,8 +86,18 @@ def run_exps():
     ["v19", None, None, None, False, 12, 512, False, False, False, list(range(1, 240)), 11, None, None, False, False, False, False, True, 1e-6, None],  # v19: same as v3 but reverse audio
     ["v20", None, None, None, False, 12, 512, False, False, False, list(range(10, 100, 10)), 11, None, None, False, False, False, False, False, 0.01, 1],  # v20: same as v3 but with weight decay 1e-2 and grad accum 1
   ]:
+    if "v3_wo-wf-w-ctx-in-state" in alias:
+      use_weight_feedback = False
+      use_att_ctx_in_state = True
+    elif "v3_wo-wf-wo-ctx-in-state" in alias:
+      use_weight_feedback = False
+      use_att_ctx_in_state = False
+    else:
+      use_weight_feedback = True
+      use_att_ctx_in_state = True
     for model_alias, config_builder in baseline.global_att_baseline_rf(
-            use_weight_feedback=True,
+            use_weight_feedback=use_weight_feedback,
+            use_att_ctx_in_state=use_att_ctx_in_state,
             label_type="bpe1056",
             conformer_wo_final_layer_norm_per_layer=conformer_wo_final_layer_norm_per_layer,
             conformer_num_layers=conformer_num_layers,
@@ -110,6 +128,9 @@ def run_exps():
           batch_size = 12_000 if alias == "v9" else 15_000
           n_epochs = 500
 
+      if any([str_ in alias for str_ in ["v3_wo-wf-w-ctx-in-state", "v3_wo-wf-wo-ctx-in-state", "v3_w-wf-w-ctx-in-state"]]):
+        n_epochs = 1200
+
       if accum_grad_multiple_step_ is not None:
         accum_grad_multiple_step = accum_grad_multiple_step_
 
@@ -132,13 +153,24 @@ def run_exps():
               use_speed_pert_w_flip=use_speed_pert_w_flip,
               weight_decay=weight_decay,
       ):
+        corpus_keys = ["dev-other"]
+        checkpoint_aliases = ("last", "best", "best-4-avg")
+        if "big" in alias and alias != "v8_big":
+          corpus_keys += ["dev-clean", "test-clean", "test-other"]
+          if alias in ["v3_big_rand-5678", "v5_big_rand-1234", "v85_big"]:
+            checkpoint_aliases = ("last",)
+          elif alias in ["v3_big_rand-2222",]:
+            checkpoint_aliases = ("best",)
+          elif alias in ["v6_big"]:
+            checkpoint_aliases = ("best-4-avg",)
         recog.global_att_returnn_label_sync_beam_search(
           alias=train_alias,
           config_builder=config_builder,
           checkpoint=checkpoint,
-          corpus_keys=("dev-other",)
+          corpus_keys=corpus_keys,
+          checkpoint_aliases=checkpoint_aliases,
         )
-        recog.global_att_returnn_label_sync_beam_search(
+        pipeline = recog.global_att_returnn_label_sync_beam_search(
           alias=train_alias,
           config_builder=config_builder,
           checkpoint=checkpoint,
@@ -152,15 +184,18 @@ def run_exps():
             "train-other-960/103-1240-0038/103-1240-0038",
           ],
           corpus_keys=("train",),
+          analsis_analyze_gradients_plot_log_gradients=alias in [
+            "v3_wo-wf-wo-ctx-in-state_ctc", "v3_wo-wf-w-ctx-in-state_ctc", "v3_w-wf-w-ctx-in-state_ctc"
+          ]
         )
+        analyze_gradients_jobs[alias] = pipeline.decoding_exps[0].analyze_gradients_job
 
-        if alias == "v20":
+        if alias in ["v20", "v5_big_rand-1234", "v85_big", "v3_rand-2222", "v5"]:
           for lm_scale, ilm_scale in [
             (0.54, 0.4),
-            (0.5, 0.4),
-            (0.6, 0.4),
+            # (0.5, 0.4),
           ]:
-            lm_alias = "1k_max-seq-length-112_24-layers_512-dim"
+            lm_alias = "1k_max-seq-length-112_24-layers_1024-dim"
             recog.global_att_returnn_label_sync_beam_search(
               alias=train_alias,
               config_builder=config_builder,
@@ -176,7 +211,28 @@ def run_exps():
               behavior_version=21,  # otherwise trafo lm logits weight dims are flipped apparently
             )
 
+        if alias in ["v3_big_rand-5678", "v3_big_rand-2222"]:
+          analysis_epochs = [100, 160, 180]
+        else:
+          analysis_epochs = []
         for epoch, chckpt in checkpoint["checkpoints"].items():
+          if epoch in analysis_epochs:
+            recog.global_att_returnn_label_sync_beam_search(
+              alias=train_alias,
+              config_builder=config_builder,
+              checkpoint=chckpt,
+              checkpoint_aliases=(f"epoch-{epoch}",),
+              corpus_keys=("train",),
+              run_analysis=True,
+              analyze_gradients=True,
+              only_do_analysis=True,
+              att_weight_seq_tags=["train-other-960/40-222-0033/40-222-0033"],
+              analysis_ref_alignment_opts={
+                "ref_alignment_hdf": LIBRISPEECH_GMM_WORD_ALIGNMENT.alignment_paths["train"],
+                "ref_alignment_blank_idx": LIBRISPEECH_GMM_WORD_ALIGNMENT.model_hyperparameters.blank_idx,
+                "ref_alignment_vocab_path": LIBRISPEECH_GMM_WORD_ALIGNMENT.vocab_path,
+              },
+            )
         #   if epoch in [61, 225] and alias == "v16":
         #     if epoch == 61:
         #       input_layer_names = ["encoder_input", "frontend_input"]
@@ -309,6 +365,17 @@ def run_exps():
   # plot_flipped_self_att_weight_evolution()
   # plot_flipped_vs_normal_cross_att_weights()
   # plot_gradients_wrt_different_layers()
+
+  for alias in [
+    "v3_wo-wf-wo-ctx-in-state_ctc", "v3_wo-wf-w-ctx-in-state_ctc", "v3_w-wf-w-ctx-in-state_ctc"
+  ]:
+    plot_diff_models(
+      [analyze_gradients_jobs[alias]],
+      alias=f"enc-11-grads/global-aed/{alias}",
+      titles=None,  # titles,
+      folder_name="log-prob-grads_wrt_enc-11_log-space",
+      scale=1.0,
+    )
 
 
 def plot_flipped_cross_att_weight_evolution_v2(epochs, analyze_gradients_jobs_list):

@@ -2,7 +2,6 @@ from dataclasses import asdict
 import numpy as np
 from typing import cast, Dict
 
-from neural_compressor.conf.pythonic_config import weight
 
 from sisyphus import tk
 
@@ -272,28 +271,514 @@ def eow_phon_ted_1023_qat():
     del results
 
     # try out lower bits
-    lower_bit_decoder_config = DecoderConfig(
+    as_training_decoder_config = DecoderConfig(
         lexicon=get_text_lexicon(),
         returnn_vocab=label_datastream.vocab,
         beam_size=1024,
         beam_size_token=12,  # makes it much faster
         arpa_lm=arpa_4gram_lm,
         beam_threshold=14,
-        turn_off_quant="leave_as_is_",
+        turn_off_quant="leave_as_is",
     )
-    real_lower_bit_decoder_config = DecoderConfig(
-        lexicon=get_text_lexicon(),
-        returnn_vocab=label_datastream.vocab,
-        beam_size=1024,
-        beam_size_token=12,  # makes it much faster
-        arpa_lm=arpa_4gram_lm,
-        beam_threshold=14,
-        turn_off_quant="decompose",
+    network_module_v4 = "ctc.qat_0711.baseline_qat_v4"
+    from ...pytorch_networks.ctc.qat_0711.baseline_qat_v4_cfg import QuantModelTrainConfigV4
+
+    model_config = QuantModelTrainConfigV4(
+        feature_extraction_config=fe_config,
+        frontend_config=default_frontend_config,
+        specaug_config=specaug_config,
+        label_target_size=vocab_size_without_blank,
+        conformer_size=384,
+        num_layers=12,
+        num_heads=4,
+        ff_dim=1536,
+        att_weights_dropout=0.2,
+        conv_dropout=0.2,
+        ff_dropout=0.2,
+        mhsa_dropout=0.2,
+        conv_kernel_size=31,
+        final_dropout=0.2,
+        specauc_start_epoch=1,
+        weight_quant_dtype="qint8",
+        weight_quant_method="per_tensor",
+        activation_quant_dtype="qint8",
+        activation_quant_method="per_tensor",
+        dot_quant_dtype="qint8",
+        dot_quant_method="per_tensor",
+        Av_quant_dtype="qint8",
+        Av_quant_method="per_tensor",
+        moving_average=None,
+        weight_bit_prec=8,
+        activation_bit_prec=8,
+        quantize_output=False,
+        extra_act_quant=False,
+        quantize_bias=None,
+        observer_only_in_train=False,
     )
-    qat_report = {}
-    for activation_bit in [8, 6]:
-        for weight_bit in [4, 3, 2]:
-            model_config = QuantModelTrainConfigV1(
+
+    train_config = {
+        "optimizer": {
+            "class": "radam",
+            "epsilon": 1e-16,
+            "weight_decay": 1e-2,
+            "decoupled_weight_decay": True,
+        },
+        "learning_rates": list(np.linspace(7e-6, 5e-4, 110))
+        + list(np.linspace(5e-4, 5e-5, 110))
+        + list(np.linspace(5e-5, 1e-7, 30)),
+        #############
+        "batch_size": 300 * 16000,
+        "max_seq_length": {"audio_features": 35 * 16000},
+        "accum_grad_multiple_step": 1,
+        "gradient_clip_norm": 1.0,
+    }
+    train_args = {
+        "config": train_config,
+        "network_module": network_module_v4,
+        "net_args": {"model_config_dict": asdict(model_config)},
+        "debug": True,
+        "post_config": {"num_workers_per_gpu": 8},
+        "use_speed_perturbation": True,
+    }
+
+    training_name = prefix_name + "/" + network_module_v4 + f"_8_8"
+    train_job = training(training_name, train_data_4k, train_args, num_epochs=250, **default_returnn)
+    train_job.rqmt["gpu_mem"] = 48
+    results = {}
+    results = eval_model(
+        training_name=training_name,
+        train_job=train_job,
+        train_args=train_args,
+        train_data=train_data_4k,
+        decoder_config=as_training_decoder_config,
+        dev_dataset_tuples=dev_dataset_tuples,
+        result_dict=results,
+        decoder_module="ctc.decoder.flashlight_qat_phoneme_ctc",
+        prior_scales=[0.1, 0.3, 0.5, 0.7, 0.9],
+        lm_scales=[1.8, 2.0, 2.2, 2.4, 2.6, 2.8],
+    )
+    generate_report(results=results, exp_name=training_name)
+    qat_report[training_name] = results
+
+    network_module_mem_v1 = "ctc.qat_0711.memristor_v1"
+    network_module_mem_v2 = "ctc.qat_0711.memristor_v2"
+    from ...pytorch_networks.ctc.qat_0711.memristor_v1_cfg import QuantModelTrainConfigV4 as MemristorModelTrainConfigV1
+    from torch_memristor.memristor_modules import DacAdcHardwareSettings
+
+    for activation_bit in [8]:
+        for weight_bit in [8, 4, 3, 2, 1.5, 2.5]:
+            if weight_bit > activation_bit:
+                continue
+            dac_settings = DacAdcHardwareSettings(
+                input_bits=activation_bit,
+                output_precision_bits=8,
+                output_range_bits=10,
+                hardware_input_vmax=0.6,
+                hardware_output_current_scaling=8020.0,
+            )
+            model_config = MemristorModelTrainConfigV1(
+                feature_extraction_config=fe_config,
+                frontend_config=default_frontend_config,
+                specaug_config=specaug_config,
+                label_target_size=vocab_size_without_blank,
+                conformer_size=384,
+                num_layers=12,
+                num_heads=4,
+                ff_dim=1536,
+                att_weights_dropout=0.2,
+                conv_dropout=0.2,
+                ff_dropout=0.2,
+                mhsa_dropout=0.2,
+                conv_kernel_size=31,
+                final_dropout=0.2,
+                specauc_start_epoch=1,
+                weight_quant_dtype="qint8",
+                weight_quant_method="per_tensor_symmetric",
+                activation_quant_dtype="qint8",
+                activation_quant_method="per_tensor_symmetric",
+                dot_quant_dtype="qint8",
+                dot_quant_method="per_tensor_symmetric",
+                Av_quant_dtype="qint8",
+                Av_quant_method="per_tensor_symmetric",
+                moving_average=None,
+                weight_bit_prec=weight_bit,
+                activation_bit_prec=activation_bit,
+                quantize_output=False,
+                converter_hardware_settings=dac_settings,
+                quant_in_linear=True,
+            )
+
+            train_config = {
+                "optimizer": {
+                    "class": "radam",
+                    "epsilon": 1e-16,
+                    "weight_decay": 1e-2,
+                    "decoupled_weight_decay": True,
+                },
+                "learning_rates": list(np.linspace(7e-6, 5e-4, 110))
+                + list(np.linspace(5e-4, 5e-5, 110))
+                + list(np.linspace(5e-5, 1e-7, 30)),
+                #############
+                "batch_size": 300 * 16000,
+                "max_seq_length": {"audio_features": 35 * 16000},
+                "accum_grad_multiple_step": 1,
+                "gradient_clip_norm": 1.0,
+            }
+            train_args = {
+                "config": train_config,
+                "network_module": network_module_mem_v1,
+                "net_args": {"model_config_dict": asdict(model_config)},
+                "debug": True,
+                "post_config": {"num_workers_per_gpu": 8},
+                "use_speed_perturbation": True,
+            }
+
+            training_name = prefix_name + "/" + network_module_mem_v1 + f"_{weight_bit}_{activation_bit}"
+            train_job = training(training_name, train_data_4k, train_args, num_epochs=250, **default_returnn)
+            train_job.rqmt["gpu_mem"] = 48
+            results = {}
+            results = eval_model(
+                training_name=training_name,
+                train_job=train_job,
+                train_args=train_args,
+                train_data=train_data_4k,
+                decoder_config=as_training_decoder_config,
+                dev_dataset_tuples=dev_dataset_tuples,
+                result_dict=results,
+                decoder_module="ctc.decoder.flashlight_qat_phoneme_ctc",
+                prior_scales=[0.1, 0.3, 0.5, 0.7, 0.9],
+                lm_scales=[1.8, 2.0, 2.2, 2.4, 2.6, 2.8],
+            )
+            generate_report(results=results, exp_name=training_name)
+            qat_report[training_name] = results
+
+            if 8 > weight_bit >= 3:
+                training_name = prefix_name + "/" + network_module_mem_v1 + f"_{weight_bit}_{activation_bit}_memristor"
+                results = {}
+                results = eval_model(
+                    training_name=training_name,
+                    train_job=train_job,
+                    train_args=train_args,
+                    train_data=train_data_4k,
+                    decoder_config=default_decoder_config,
+                    dev_dataset_tuples=dev_dataset_tuples,
+                    result_dict=results,
+                    decoder_module="ctc.decoder.flashlight_qat_phoneme_ctc",
+                    prior_scales=[0.5, 0.7],
+                    lm_scales=[2.0, 2.2, 2.4, 2.6],
+                    use_gpu=True,
+                    import_memristor=True,
+                    extra_forward_config={
+                        "batch_size": 500000,
+                    },
+                )
+                generate_report(results=results, exp_name=training_name)
+                qat_report[training_name] = results
+
+                training_name = (
+                    prefix_name + "/" + network_module_mem_v2 + f"_{weight_bit}_{activation_bit}_memristor_tiled"
+                )
+                train_args_v2 = {
+                    "config": train_config,
+                    "network_module": network_module_mem_v2,
+                    "net_args": {"model_config_dict": asdict(model_config)},
+                    "debug": True,
+                    "post_config": {"num_workers_per_gpu": 8},
+                    "use_speed_perturbation": True,
+                }
+                results = {}
+                results = eval_model(
+                    training_name=training_name,
+                    train_job=train_job,
+                    train_args=train_args_v2,
+                    train_data=train_data_4k,
+                    decoder_config=default_decoder_config,
+                    dev_dataset_tuples=dev_dataset_tuples,
+                    result_dict=results,
+                    decoder_module="ctc.decoder.flashlight_qat_phoneme_ctc",
+                    prior_scales=[0.5, 0.7],
+                    lm_scales=[2.0, 2.2, 2.4, 2.6],
+                    use_gpu=True,
+                    import_memristor=True,
+                    extra_forward_config={
+                        "batch_size": 500000,
+                    },
+                )
+                generate_report(results=results, exp_name=training_name)
+                qat_report[training_name] = results
+            if weight_bit == 4:
+                for prec_bit, range_bit in [(8, 8), (8, 6), (6, 8), (6, 6), (4, 6)]:
+                    dac_settings = DacAdcHardwareSettings(
+                        input_bits=activation_bit,
+                        output_precision_bits=prec_bit,
+                        output_range_bits=range_bit,
+                        hardware_input_vmax=0.6,
+                        hardware_output_current_scaling=8020.0,
+                    )
+                    model_config = MemristorModelTrainConfigV1(
+                        feature_extraction_config=fe_config,
+                        frontend_config=default_frontend_config,
+                        specaug_config=specaug_config,
+                        label_target_size=vocab_size_without_blank,
+                        conformer_size=384,
+                        num_layers=12,
+                        num_heads=4,
+                        ff_dim=1536,
+                        att_weights_dropout=0.2,
+                        conv_dropout=0.2,
+                        ff_dropout=0.2,
+                        mhsa_dropout=0.2,
+                        conv_kernel_size=31,
+                        final_dropout=0.2,
+                        specauc_start_epoch=1,
+                        weight_quant_dtype="qint8",
+                        weight_quant_method="per_tensor_symmetric",
+                        activation_quant_dtype="qint8",
+                        activation_quant_method="per_tensor_symmetric",
+                        dot_quant_dtype="qint8",
+                        dot_quant_method="per_tensor_symmetric",
+                        Av_quant_dtype="qint8",
+                        Av_quant_method="per_tensor_symmetric",
+                        moving_average=None,
+                        weight_bit_prec=weight_bit,
+                        activation_bit_prec=activation_bit,
+                        quantize_output=False,
+                        converter_hardware_settings=dac_settings,
+                        quant_in_linear=True,
+                    )
+                    train_config = {
+                        "optimizer": {
+                            "class": "radam",
+                            "epsilon": 1e-16,
+                            "weight_decay": 1e-2,
+                            "decoupled_weight_decay": True,
+                        },
+                        "learning_rates": list(np.linspace(7e-6, 5e-4, 110))
+                        + list(np.linspace(5e-4, 5e-5, 110))
+                        + list(np.linspace(5e-5, 1e-7, 30)),
+                        #############
+                        "batch_size": 300 * 16000,
+                        "max_seq_length": {"audio_features": 35 * 16000},
+                        "accum_grad_multiple_step": 1,
+                        "gradient_clip_norm": 1.0,
+                    }
+                    train_args = {
+                        "config": train_config,
+                        "network_module": network_module_mem_v1,
+                        "net_args": {"model_config_dict": asdict(model_config)},
+                        "debug": True,
+                        "post_config": {"num_workers_per_gpu": 8},
+                        "use_speed_perturbation": True,
+                    }
+                    training_name = (
+                        prefix_name
+                        + "/"
+                        + network_module_mem_v1
+                        + f"_{weight_bit}_{activation_bit}_memristor_p{prec_bit}_r{range_bit}"
+                    )
+                    results = {}
+                    results = eval_model(
+                        training_name=training_name,
+                        train_job=train_job,
+                        train_args=train_args,
+                        train_data=train_data_4k,
+                        decoder_config=default_decoder_config,
+                        dev_dataset_tuples=dev_dataset_tuples,
+                        result_dict=results,
+                        decoder_module="ctc.decoder.flashlight_qat_phoneme_ctc",
+                        prior_scales=[0.5],  # TODO 0.7
+                        lm_scales=[2.0, 2.2, 2.4, 2.6],
+                        use_gpu=True,
+                        import_memristor=True,
+                        extra_forward_config={
+                            "batch_size": 500000,
+                        },
+                        run_best_4=False,
+                        run_best=False,
+                    )
+                    generate_report(results=results, exp_name=training_name)
+                    qat_report[training_name] = results
+
+                dac_settings = DacAdcHardwareSettings(
+                    input_bits=activation_bit,
+                    output_precision_bits=8,
+                    output_range_bits=10,
+                    hardware_input_vmax=0.6,
+                    hardware_output_current_scaling=8020.0,
+                )
+                model_config = MemristorModelTrainConfigV1(
+                    feature_extraction_config=fe_config,
+                    frontend_config=default_frontend_config,
+                    specaug_config=specaug_config,
+                    label_target_size=vocab_size_without_blank,
+                    conformer_size=384,
+                    num_layers=12,
+                    num_heads=4,
+                    ff_dim=768,
+                    att_weights_dropout=0.2,
+                    conv_dropout=0.2,
+                    ff_dropout=0.2,
+                    mhsa_dropout=0.2,
+                    conv_kernel_size=31,
+                    final_dropout=0.2,
+                    specauc_start_epoch=1,
+                    weight_quant_dtype="qint8",
+                    weight_quant_method="per_tensor_symmetric",
+                    activation_quant_dtype="qint8",
+                    activation_quant_method="per_tensor_symmetric",
+                    dot_quant_dtype="qint8",
+                    dot_quant_method="per_tensor_symmetric",
+                    Av_quant_dtype="qint8",
+                    Av_quant_method="per_tensor_symmetric",
+                    moving_average=None,
+                    weight_bit_prec=weight_bit,
+                    activation_bit_prec=activation_bit,
+                    quantize_output=False,
+                    converter_hardware_settings=dac_settings,
+                    quant_in_linear=True,
+                )
+                train_config = {
+                    "optimizer": {
+                        "class": "radam",
+                        "epsilon": 1e-16,
+                        "weight_decay": 1e-2,
+                        "decoupled_weight_decay": True,
+                    },
+                    "learning_rates": list(np.linspace(7e-6, 5e-4, 110))
+                    + list(np.linspace(5e-4, 5e-5, 110))
+                    + list(np.linspace(5e-5, 1e-7, 30)),
+                    #############
+                    "batch_size": 300 * 16000,
+                    "max_seq_length": {"audio_features": 35 * 16000},
+                    "accum_grad_multiple_step": 1,
+                    "gradient_clip_norm": 1.0,
+                }
+                train_args = {
+                    "config": train_config,
+                    "network_module": network_module_mem_v1,
+                    "net_args": {"model_config_dict": asdict(model_config)},
+                    "debug": True,
+                    "post_config": {"num_workers_per_gpu": 8},
+                    "use_speed_perturbation": True,
+                }
+
+                training_name = prefix_name + "/" + network_module_mem_v1 + f"_{weight_bit}_{activation_bit}_smaller"
+                train_job = training(training_name, train_data_4k, train_args, num_epochs=250, **default_returnn)
+                train_job.rqmt["gpu_mem"] = 48
+                results = {}
+                results = eval_model(
+                    training_name=training_name,
+                    train_job=train_job,
+                    train_args=train_args,
+                    train_data=train_data_4k,
+                    decoder_config=as_training_decoder_config,
+                    dev_dataset_tuples=dev_dataset_tuples,
+                    result_dict=results,
+                    decoder_module="ctc.decoder.flashlight_qat_phoneme_ctc",
+                    prior_scales=[0.1, 0.3, 0.5, 0.7, 0.9],
+                    lm_scales=[1.8, 2.0, 2.2, 2.4, 2.6, 2.8],
+                )
+                generate_report(results=results, exp_name=training_name)
+                qat_report[training_name] = results
+
+                for prec_bit, range_bit in [(8, 10), (8, 8), (8, 6), (6, 8), (6, 6), (4, 6)]:
+                    dac_settings = DacAdcHardwareSettings(
+                        input_bits=activation_bit,
+                        output_precision_bits=prec_bit,
+                        output_range_bits=range_bit,
+                        hardware_input_vmax=0.6,
+                        hardware_output_current_scaling=8020.0,
+                    )
+                    model_config = MemristorModelTrainConfigV1(
+                        feature_extraction_config=fe_config,
+                        frontend_config=default_frontend_config,
+                        specaug_config=specaug_config,
+                        label_target_size=vocab_size_without_blank,
+                        conformer_size=384,
+                        num_layers=12,
+                        num_heads=4,
+                        ff_dim=2 * 384,
+                        att_weights_dropout=0.2,
+                        conv_dropout=0.2,
+                        ff_dropout=0.2,
+                        mhsa_dropout=0.2,
+                        conv_kernel_size=31,
+                        final_dropout=0.2,
+                        specauc_start_epoch=1,
+                        weight_quant_dtype="qint8",
+                        weight_quant_method="per_tensor_symmetric",
+                        activation_quant_dtype="qint8",
+                        activation_quant_method="per_tensor_symmetric",
+                        dot_quant_dtype="qint8",
+                        dot_quant_method="per_tensor_symmetric",
+                        Av_quant_dtype="qint8",
+                        Av_quant_method="per_tensor_symmetric",
+                        moving_average=None,
+                        weight_bit_prec=weight_bit,
+                        activation_bit_prec=activation_bit,
+                        quantize_output=False,
+                        converter_hardware_settings=dac_settings,
+                        quant_in_linear=True,
+                    )
+                    train_config = {
+                        "optimizer": {
+                            "class": "radam",
+                            "epsilon": 1e-16,
+                            "weight_decay": 1e-2,
+                            "decoupled_weight_decay": True,
+                        },
+                        "learning_rates": list(np.linspace(7e-6, 5e-4, 110))
+                        + list(np.linspace(5e-4, 5e-5, 110))
+                        + list(np.linspace(5e-5, 1e-7, 30)),
+                        #############
+                        "batch_size": 300 * 16000,
+                        "max_seq_length": {"audio_features": 35 * 16000},
+                        "accum_grad_multiple_step": 1,
+                        "gradient_clip_norm": 1.0,
+                    }
+                    train_args = {
+                        "config": train_config,
+                        "network_module": network_module_mem_v1,
+                        "net_args": {"model_config_dict": asdict(model_config)},
+                        "debug": True,
+                        "post_config": {"num_workers_per_gpu": 8},
+                        "use_speed_perturbation": True,
+                    }
+                    training_name = (
+                        prefix_name
+                        + "/"
+                        + network_module_mem_v1
+                        + f"_{weight_bit}_{activation_bit}_smaller_memristor_p{prec_bit}_r{range_bit}"
+                    )
+                    results = {}
+                    results = eval_model(
+                        training_name=training_name,
+                        train_job=train_job,
+                        train_args=train_args,
+                        train_data=train_data_4k,
+                        decoder_config=default_decoder_config,
+                        dev_dataset_tuples=dev_dataset_tuples,
+                        result_dict=results,
+                        decoder_module="ctc.decoder.flashlight_qat_phoneme_ctc",
+                        prior_scales=[0.5],  # TODO 0.7
+                        lm_scales=[2.0, 2.2, 2.4, 2.6],
+                        use_gpu=True,
+                        import_memristor=True,
+                        extra_forward_config={
+                            "batch_size": 500000,
+                        },
+                        run_best_4=False,
+                        run_best=False,
+                    )
+                    generate_report(results=results, exp_name=training_name)
+                    qat_report[training_name] = results
+
+    network_module_v2 = "ctc.qat_0711.baseline_qat_v2"
+    from ...pytorch_networks.ctc.qat_0711.baseline_qat_v2_cfg import QuantModelTrainConfigV2
+
+    for activation_bit in [8]:
+        for weight_bit in [4]:
+            model_config = QuantModelTrainConfigV2(
                 feature_extraction_config=fe_config,
                 frontend_config=default_frontend_config,
                 specaug_config=specaug_config,
@@ -321,9 +806,9 @@ def eow_phon_ted_1023_qat():
                 weight_bit_prec=weight_bit,
                 activation_bit_prec=activation_bit,
                 extra_act_quant=True,
+                quantize_output=True,
             )
 
-            network_module = "ctc.qat_0711.baseline_qat_v1"
             train_config = {
                 "optimizer": {"class": "radam", "epsilon": 1e-16, "weight_decay": 1e-2, "decoupled_weight_decay": True},
                 "learning_rates": list(np.linspace(7e-6, 5e-4, 110))
@@ -337,14 +822,14 @@ def eow_phon_ted_1023_qat():
             }
             train_args = {
                 "config": train_config,
-                "network_module": network_module,
+                "network_module": network_module_v2,
                 "net_args": {"model_config_dict": asdict(model_config)},
                 "debug": True,
                 "post_config": {"num_workers_per_gpu": 8},
                 "use_speed_perturbation": True,
             }
 
-            training_name = prefix_name + "/" + network_module + f"_{weight_bit}_{activation_bit}"
+            training_name = prefix_name + "/" + network_module_v2 + f"_{weight_bit}_{activation_bit}_quant_out"
             train_job = training(training_name, train_data_4k, train_args, num_epochs=250, **default_returnn)
             train_job.rqmt["gpu_mem"] = 48
             results = {}
@@ -353,7 +838,7 @@ def eow_phon_ted_1023_qat():
                 train_job=train_job,
                 train_args=train_args,
                 train_data=train_data_4k,
-                decoder_config=lower_bit_decoder_config,
+                decoder_config=as_training_decoder_config,
                 dev_dataset_tuples=dev_dataset_tuples,
                 result_dict=results,
                 decoder_module="ctc.decoder.flashlight_qat_phoneme_ctc",
@@ -362,38 +847,108 @@ def eow_phon_ted_1023_qat():
             )
             generate_report(results=results, exp_name=training_name)
             qat_report[training_name] = results
+            #
+            # training_name = (
+            #     prefix_name + "/" + network_module_v2 + f"_{weight_bit}_{activation_bit}_quant_out_real_quant"
+            # )
+            # results = {}
+            # results = eval_model(
+            #     training_name=training_name,
+            #     train_job=train_job,
+            #     train_args=train_args,
+            #     train_data=train_data_4k,
+            #     decoder_config=default_decoder_config,
+            #     dev_dataset_tuples=dev_dataset_tuples,
+            #     result_dict=results,
+            #     decoder_module="ctc.decoder.flashlight_qat_phoneme_ctc",
+            #     prior_scales=[0.1, 0.3, 0.5, 0.7, 0.9],
+            #     lm_scales=[1.8, 2.0, 2.2, 2.4, 2.6, 2.8],
+            # )
+            # generate_report(results=results, exp_name=training_name)
+            # qat_report[training_name] = results
 
-            training_name = prefix_name + "/" + network_module + f"_{weight_bit}_{activation_bit}_real_lower"
-            results = {}
-            results = eval_model(
-                training_name=training_name,
-                train_job=train_job,
-                train_args=train_args,
-                train_data=train_data_4k,
-                decoder_config=real_lower_bit_decoder_config,
-                dev_dataset_tuples=dev_dataset_tuples,
-                result_dict=results,
-                decoder_module="ctc.decoder.flashlight_qat_phoneme_ctc",
-                prior_scales=[0.1, 0.3, 0.5, 0.7, 0.9],
-                lm_scales=[1.8, 2.0, 2.2, 2.4, 2.6, 2.8],
-            )
-            generate_report(results=results, exp_name=training_name)
-            qat_report[training_name] = results
+    network_module_v3 = "ctc.qat_0711.baseline_qat_v3"
+    from ...pytorch_networks.ctc.qat_0711.baseline_qat_v3_cfg import QuantModelTrainConfigV3
 
-            training_name = prefix_name + "/" + network_module + f"_{weight_bit}_{activation_bit}_real_quant"
-            results = {}
-            results = eval_model(
-                training_name=training_name,
-                train_job=train_job,
-                train_args=train_args,
-                train_data=train_data_4k,
-                decoder_config=default_decoder_config,
-                dev_dataset_tuples=dev_dataset_tuples,
-                result_dict=results,
-                decoder_module="ctc.decoder.flashlight_qat_phoneme_ctc",
-                prior_scales=[0.1, 0.3, 0.5, 0.7, 0.9],
-                lm_scales=[1.8, 2.0, 2.2, 2.4, 2.6, 2.8],
-            )
-            generate_report(results=results, exp_name=training_name)
-            qat_report[training_name] = results
+    for activation_bit in [8]:
+        for weight_bit in [4]:
+            for quant_bias in ["weight"]:
+                model_config = QuantModelTrainConfigV3(
+                    feature_extraction_config=fe_config,
+                    frontend_config=default_frontend_config,
+                    specaug_config=specaug_config,
+                    label_target_size=vocab_size_without_blank,
+                    conformer_size=384,
+                    num_layers=12,
+                    num_heads=4,
+                    ff_dim=1536,
+                    att_weights_dropout=0.2,
+                    conv_dropout=0.2,
+                    ff_dropout=0.2,
+                    mhsa_dropout=0.2,
+                    conv_kernel_size=31,
+                    final_dropout=0.2,
+                    specauc_start_epoch=1,
+                    weight_quant_dtype="qint8",
+                    weight_quant_method="per_tensor",
+                    activation_quant_dtype="qint8",
+                    activation_quant_method="per_tensor",
+                    dot_quant_dtype="qint8",
+                    dot_quant_method="per_tensor",
+                    Av_quant_dtype="qint8",
+                    Av_quant_method="per_tensor",
+                    moving_average=0.01,
+                    weight_bit_prec=weight_bit,
+                    activation_bit_prec=activation_bit,
+                    extra_act_quant=True,
+                    quantize_output=True,
+                    quantize_bias=quant_bias,
+                )
+
+                train_config = {
+                    "optimizer": {
+                        "class": "radam",
+                        "epsilon": 1e-16,
+                        "weight_decay": 1e-2,
+                        "decoupled_weight_decay": True,
+                    },
+                    "learning_rates": list(np.linspace(7e-6, 5e-4, 110))
+                    + list(np.linspace(5e-4, 5e-5, 110))
+                    + list(np.linspace(5e-5, 1e-7, 30)),
+                    #############
+                    "batch_size": 300 * 16000,
+                    "max_seq_length": {"audio_features": 35 * 16000},
+                    "accum_grad_multiple_step": 1,
+                    "gradient_clip_norm": 1.0,
+                }
+                train_args = {
+                    "config": train_config,
+                    "network_module": network_module_v3,
+                    "net_args": {"model_config_dict": asdict(model_config)},
+                    "debug": True,
+                    "post_config": {"num_workers_per_gpu": 8},
+                    "use_speed_perturbation": True,
+                }
+
+                training_name = (
+                    prefix_name + "/" + network_module_v3 + f"_{weight_bit}_{activation_bit}_quant_bias_{quant_bias}"
+                )
+                train_job = training(training_name, train_data_4k, train_args, num_epochs=250, **default_returnn)
+                train_job.rqmt["gpu_mem"] = 48
+                results = {}
+                results = eval_model(
+                    training_name=training_name,
+                    train_job=train_job,
+                    train_args=train_args,
+                    train_data=train_data_4k,
+                    decoder_config=as_training_decoder_config,
+                    dev_dataset_tuples=dev_dataset_tuples,
+                    result_dict=results,
+                    decoder_module="ctc.decoder.flashlight_qat_phoneme_ctc",
+                    prior_scales=[0.1, 0.3, 0.5, 0.7, 0.9],
+                    lm_scales=[1.8, 2.0, 2.2, 2.4, 2.6, 2.8],
+                )
+                generate_report(results=results, exp_name=training_name)
+                qat_report[training_name] = results
+
     tk.register_report("reports/qat_report", partial(build_qat_report, qat_report), required=qat_report)

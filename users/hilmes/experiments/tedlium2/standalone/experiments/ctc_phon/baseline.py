@@ -2,6 +2,7 @@ from dataclasses import asdict
 import numpy as np
 from typing import cast, Dict
 from sisyphus import tk
+from functools import partial
 
 from i6_experiments.common.setups.returnn.datastreams.vocabulary import LabelDatastream
 from .tune_eval import QuantArgs
@@ -10,7 +11,7 @@ from ...data.phon import build_eow_phon_training_datasets, get_text_lexicon
 from ...default_tools import RETURNN_EXE, MINI_RETURNN_ROOT
 from ...lm import get_4gram_binary_lm
 from ...pipeline import training, prepare_asr_model
-from ...report import generate_report
+from ...report import generate_report, build_memristor_base_report
 from .tune_eval import tune_and_evaluate_helper, eval_model, build_report, build_distill_report
 
 
@@ -268,8 +269,23 @@ def eow_phon_ted_1023_base(full=False):
     from ...pytorch_networks.ctc.conformer_1023.quant.baseline_quant_v1_cfg import QuantModelConfigV1
 
     num_iterations = 1
-    for activation_bit, weight_bit in [(8, 8), (8, 4), (8, 3), (4, 4)]:
-        results = {}
+    results = {}
+    for activation_bit, weight_bit in [
+        (8, 8),
+        (8, 4),
+        (8, 3),
+        (8, 2),
+        (8, 1),
+        (6, 6),
+        (6, 4),
+        (6, 3),
+        (6, 2),
+        (6, 1),
+        (4, 4),
+        (4, 3),
+        (4, 2),
+        (4, 1),
+    ]:
         model_config_quant_v1 = QuantModelConfigV1(
             weight_quant_dtype="qint8",
             weight_quant_method="per_tensor",
@@ -313,8 +329,64 @@ def eow_phon_ted_1023_base(full=False):
             test_dataset_tuples=None,
         )
         results.update(res)
-        generate_report(results=results, exp_name=training_name + f"_quantize/weight_{weight_bit}_act_{activation_bit}")
-        del results
+    generate_report(results=results, exp_name=training_name + f"_quantize/combined_results")
+    del results
+    results = {}
+    for activation_bit, weight_bit in [
+        (8, 8),
+        (8, 6),
+        (8, 5),
+        (8, 4),
+        (8, 3),
+        (8, 2),
+        (8, 1.5),
+    ]:
+        model_config_quant_v1 = QuantModelConfigV1(
+            weight_quant_dtype="qint8",
+            weight_quant_method="per_tensor_symmetric",
+            activation_quant_dtype="qint8",
+            activation_quant_method="per_tensor_symmetric",
+            dot_quant_dtype="qint8",
+            dot_quant_method="per_tensor_symmetric",
+            Av_quant_dtype="qint8",
+            Av_quant_method="per_tensor_symmetric",
+            moving_average=None,
+            weight_bit_prec=weight_bit,
+            activation_bit_prec=activation_bit,
+            linear_quant_output=True,
+        )
+        quant_args = QuantArgs(
+            sample_ls=[100],
+            quant_config_dict={"quant_config_dict": asdict(model_config_quant_v1)},
+            decoder="ctc.decoder.flashlight_quant_stat_phoneme_ctc",
+            num_iterations=num_iterations,
+            datasets=train_data,
+            network_module="ctc.conformer_1023.quant.baseline_quant_v2_mem",
+        )
+        quant_str = f"/quantize/weight_{weight_bit}_act_{activation_bit}_mem"
+        asr_model = prepare_asr_model(
+            training_name + quant_str,
+            train_job,
+            train_args,
+            with_prior=True,
+            datasets=train_data,
+            get_specific_checkpoint=250,
+        )
+        res, _ = tune_and_evaluate_helper(  # only take best for now, since otherwise too many searches
+            training_name,
+            asr_model,
+            default_decoder_config,
+            lm_scales=[1.8, 2.0, 2.2, 2.4, 2.6, 2.8],
+            prior_scales=[0.5, 0.7, 0.9, 1.1],
+            quant_args=quant_args,
+            quant_str=quant_str,
+            dev_dataset_tuples=dev_dataset_tuples,
+            test_dataset_tuples=None,
+        )
+        results.update(res)
+    generate_report(results=results, exp_name=training_name + f"_quantize/qat_memristor_results")
+    tk.register_report("reports/baseline_quant", partial(build_memristor_base_report, results), required=results)
+    del results
 
     report = {}
     if full is True:
@@ -461,8 +533,6 @@ def eow_phon_ted_1023_base(full=False):
                     generate_report(results=results, exp_name=training_name)
                     report[training_name] = results
                     del results
-
-        from functools import partial
 
         tk.register_report("reports/size_report", partial(build_report, report), required=report)
 

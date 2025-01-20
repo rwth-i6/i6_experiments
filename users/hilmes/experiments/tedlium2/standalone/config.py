@@ -136,6 +136,7 @@ def get_forward_config(
     decoder_args: Dict[str, Any],
     unhashed_decoder_args: Optional[Dict[str, Any]] = None,
     unhashed_net_args: Optional[Dict[str, Any]] = None,
+    import_memristor: bool = False,
     debug: bool = False,
 ) -> ReturnnConfig:
     """
@@ -169,6 +170,7 @@ def get_forward_config(
         forward_module=decoder,
         forward_init_args=decoder_args,
         unhashed_forward_init_args=unhashed_decoder_args,
+        import_memristor=import_memristor,
         debug=debug,
     )
     returnn_config = ReturnnConfig(config=config, post_config=post_config, python_epilog=[serializer])
@@ -204,19 +206,16 @@ def get_static_quant_config(
         #############
         "forward": copy.deepcopy(training_datasets.prior.as_returnn_opts()),
     }
-    base_config['forward']['seq_ordering'] = 'random'
-    base_config['forward']['datasets']['zip_dataset']['fixed_random_subset'] = num_samples
-    base_config['forward']['datasets']['zip_dataset']['fixed_random_subset_seed'] = dataset_seed
+    base_config["forward"]["seq_ordering"] = "random"
+    base_config["forward"]["datasets"]["zip_dataset"]["fixed_random_subset"] = num_samples
+    base_config["forward"]["datasets"]["zip_dataset"]["fixed_random_subset_seed"] = dataset_seed
     if dataset_filter_args is not None:
-        base_config['forward']['datasets']['zip_dataset']['random_subset_filter_args'] = dataset_filter_args
+        base_config["forward"]["datasets"]["zip_dataset"]["random_subset_filter_args"] = dataset_filter_args
     config = {**base_config, **copy.deepcopy(config)}
     post_config["backend"] = "torch"
     assert net_args.keys().isdisjoint(quant_args.keys())
     serializer = serialize_forward(
-        network_module=network_module,
-        net_args=net_args | quant_args,
-        debug=debug,
-        forward_step_name="static_quant"
+        network_module=network_module, net_args=net_args | quant_args, debug=debug, forward_step_name="static_quant"
     )
     returnn_config = ReturnnConfig(config=config, post_config=post_config, python_epilog=[serializer])
     return returnn_config
@@ -256,7 +255,7 @@ def get_onnx_export_config(
         net_args=net_args,
         unhashed_net_args=unhashed_net_args,
         debug=debug,
-        export_step_name="export"
+        export_step_name="export",
     )
     returnn_config = ReturnnConfig(config=config, post_config=post_config, python_epilog=[serializer])
     return returnn_config

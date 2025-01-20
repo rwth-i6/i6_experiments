@@ -84,6 +84,14 @@ def eow_phon_ted_auxloss_distill(get_report=False):
         arpa_lm=arpa_4gram_lm,
         beam_threshold=14,
     )
+    no_lm_decoder_config = DecoderConfig(
+        lexicon=get_text_lexicon(),
+        returnn_vocab=label_datastream.vocab,
+        beam_size=1024,
+        beam_size_token=12,  # makes it much faster
+        arpa_lm=None,
+        beam_threshold=14,
+    )
 
     from ...pytorch_networks.ctc.conformer_0106.i6modelsV2_VGG4LayerActFrontendV1_auxloss_v1_cfg import (
         SpecaugConfig,
@@ -131,116 +139,196 @@ def eow_phon_ted_auxloss_distill(get_report=False):
             16  12.136  8.893   7.478   7.313   7.138   6.902   6.743
             20  11.982  9.535   8.092   7.516   7.165   7.154   7.099
             """
-
-            frontend_config = VGG4LayerActFrontendV1Config_mod(
-                in_features=80,
-                conv1_channels=32,
-                conv2_channels=64,
-                conv3_channels=64,
-                conv4_channels=32,
-                conv_kernel_size=(3, 3),
-                conv_padding=None,
-                pool1_kernel_size=(2, 1),
-                pool1_stride=(2, 1),
-                pool1_padding=None,
-                pool2_kernel_size=(2, 1),
-                pool2_stride=(2, 1),
-                pool2_padding=None,
-                activation_str="ReLU",
-                out_features=dim,
-                activation=None,
-            )
-            model_config = ModelConfig(
-                feature_extraction_config=fe_config,
-                frontend_config=frontend_config,
-                specaug_config=specaug_config,
-                label_target_size=vocab_size_without_blank,
-                conformer_size=dim,
-                num_layers=layer_count,
-                num_heads=4,
-                ff_dim=4 * dim,
-                att_weights_dropout=0.2,
-                conv_dropout=0.2,
-                ff_dropout=0.2,
-                mhsa_dropout=0.2,
-                conv_kernel_size=31,
-                final_dropout=0.2,
-                specauc_start_epoch=1,
-                module_list=["ff", "conv", "mhsa", "ff"],
-                module_scales=[0.5, 1.0, 1.0, 0.5],
-                aux_ctc_loss_layers=loss_mapping[layer_count],  # 4, 8, 12 when counting from 1
-                aux_ctc_loss_scales=(len(loss_mapping[layer_count]) - 1) * [0.3] + [1.0],
-            )
-            model_config_decoding = copy.deepcopy(model_config)
-            model_config_decoding.aux_ctc_loss_scales = [0.0, 0.0, 1.0]  # for decoding use result only of last layer
-
-            network_module = "ctc.conformer_0106.i6modelsV2_VGG4LayerActFrontendV1_auxloss_v1"
-            small = layer_count > 16 and dim > 768
-            train_config = {
-                "optimizer": {"class": "radam", "epsilon": 1e-16, "weight_decay": 1e-2, "decoupled_weight_decay": True},
-                "learning_rates": list(np.linspace(7e-6, 5e-4, 110))
-                + list(np.linspace(5e-4, 5e-5, 110))
-                + list(np.linspace(5e-5, 1e-7, 30)),
-                #############
-                "batch_size": 180 * 16000 if not small else 90 * 16000,
-                "max_seq_length": {"audio_features": 35 * 16000},
-                "accum_grad_multiple_step": 1 if not small else 2,
-            }
-            train_args = {
-                "config": train_config,
-                "network_module": network_module,
-                "net_args": {"model_config_dict": asdict(model_config)},
-                "debug": False,
-            }
-            train_args_decoding = copy.deepcopy(train_args)
-            train_args_decoding["net_args"] = {"model_config_dict": asdict(model_config_decoding)}
-
-            results = {}
-            training_name = prefix_name + "/" + network_module + f"_{layer_count}_{dim}"
-            train_job = training(training_name, train_data, train_args, num_epochs=250, **default_returnn)
-            if dim >= 768 or layer_count > 12:
-                train_job.rqmt["gpu_mem"] = 24
-            if dim == 384 and layer_count == 12:
-                PRETRAIN_CHECKPOINT_DISTILL_V1 = train_job.out_checkpoints[250]
-                from ...pytorch_networks.ctc.decoder.flashlight_ctc_kdhyps import DecoderConfig
-
-                checkpoint = 250
-                kd_decoder_config = DecoderConfig(
-                    lexicon=get_text_lexicon(),
-                    returnn_vocab=label_datastream.vocab,
-                    beam_size=1024,
-                    beam_size_token=12,  # makes it much faster
-                    arpa_lm=arpa_4gram_lm,
-                    beam_threshold=14,
-                    n_best_probs=10,
+            for drop in [0.0, 0.1, 0.2]:
+                if drop < 0.2 and not dim == 384:
+                    continue
+                frontend_config = VGG4LayerActFrontendV1Config_mod(
+                    in_features=80,
+                    conv1_channels=32,
+                    conv2_channels=64,
+                    conv3_channels=64,
+                    conv4_channels=32,
+                    conv_kernel_size=(3, 3),
+                    conv_padding=None,
+                    pool1_kernel_size=(2, 1),
+                    pool1_stride=(2, 1),
+                    pool1_padding=None,
+                    pool2_kernel_size=(2, 1),
+                    pool2_stride=(2, 1),
+                    pool2_padding=None,
+                    activation_str="ReLU",
+                    out_features=dim,
+                    activation=None,
                 )
-                pref_name = training_name + f"/{checkpoint}"
+                model_config = ModelConfig(
+                    feature_extraction_config=fe_config,
+                    frontend_config=frontend_config,
+                    specaug_config=specaug_config,
+                    label_target_size=vocab_size_without_blank,
+                    conformer_size=dim,
+                    num_layers=layer_count,
+                    num_heads=4,
+                    ff_dim=4 * dim,
+                    att_weights_dropout=drop,
+                    conv_dropout=drop,
+                    ff_dropout=drop,
+                    mhsa_dropout=drop,
+                    conv_kernel_size=31,
+                    final_dropout=drop,
+                    specauc_start_epoch=1,
+                    module_list=["ff", "conv", "mhsa", "ff"],
+                    module_scales=[0.5, 1.0, 1.0, 0.5],
+                    aux_ctc_loss_layers=loss_mapping[layer_count],  # 4, 8, 12 when counting from 1
+                    aux_ctc_loss_scales=(len(loss_mapping[layer_count]) - 1) * [0.3] + [1.0],
+                )
+                model_config_decoding = copy.deepcopy(model_config)
+                model_config_decoding.aux_ctc_loss_scales = [
+                    0.0,
+                    0.0,
+                    1.0,
+                ]  # for decoding use result only of last layer
 
-                # generate_kd_hypothesis(
-                #     prefix_name=pref_name,
-                #     train_job=train_job,
-                #     train_args=train_args_decoding,
-                #     train_data=train_data,
-                #     checkpoint=checkpoint,
-                #     decoder_config=kd_decoder_config,
-                #     prior_scale=0.7,
-                #     lm_scale=2.2,
-                #     train_referece=train_dataset_tuples['train'][1],
-                # )
+                network_module = "ctc.conformer_0106.i6modelsV2_VGG4LayerActFrontendV1_auxloss_v1"
+                small = layer_count > 16 and dim > 768
+                train_config = {
+                    "optimizer": {
+                        "class": "radam",
+                        "epsilon": 1e-16,
+                        "weight_decay": 1e-2,
+                        "decoupled_weight_decay": True,
+                    },
+                    "learning_rates": list(np.linspace(7e-6, 5e-4, 110))
+                    + list(np.linspace(5e-4, 5e-5, 110))
+                    + list(np.linspace(5e-5, 1e-7, 30)),
+                    #############
+                    "batch_size": 180 * 16000 if not small else 90 * 16000,
+                    "max_seq_length": {"audio_features": 35 * 16000},
+                    "accum_grad_multiple_step": 1 if not small else 2,
+                }
+                train_args = {
+                    "config": train_config,
+                    "network_module": network_module,
+                    "net_args": {"model_config_dict": asdict(model_config)},
+                    "debug": False,
+                }
+                train_args_decoding = copy.deepcopy(train_args)
+                train_args_decoding["net_args"] = {"model_config_dict": asdict(model_config_decoding)}
 
-            results = eval_model(
-                training_name=training_name,
-                train_job=train_job,
-                train_args=train_args_decoding,
-                train_data=train_data,
-                decoder_config=default_decoder_config,
-                dev_dataset_tuples=dev_dataset_tuples,
-                result_dict=results,
-                loss_name=f"ctc_loss_layer{layer_count}",
-            )
-            generate_report(results=results, exp_name=training_name)
-            report[training_name] = results
-            del results
+                results = {}
+                training_name = (
+                    prefix_name + "/" + network_module + f"_{layer_count}_{dim}"
+                    if drop == 0.2
+                    else prefix_name + "/" + network_module + f"_{layer_count}_{dim}_drop{drop}"
+                )
+                train_job = training(training_name, train_data, train_args, num_epochs=250, **default_returnn)
+                if dim >= 768 or layer_count > 12:
+                    train_job.rqmt["gpu_mem"] = 24
+                if dim == 384 and layer_count == 12:
+                    PRETRAIN_CHECKPOINT_DISTILL_V1 = train_job.out_checkpoints[250]
+
+                results = eval_model(
+                    training_name=training_name,
+                    train_job=train_job,
+                    train_args=train_args_decoding,
+                    train_data=train_data,
+                    decoder_config=default_decoder_config,
+                    dev_dataset_tuples=dev_dataset_tuples,
+                    result_dict=results,
+                    loss_name=f"ctc_loss_layer{layer_count}",
+                    run_test=drop == 0.2,
+                    test_dataset_tuples=test_dataset_tuples,
+                    lm_scales=[1.0, 1.2, 1.4, 1.6, 1.8, 2.0, 2.2, 2.4, 2.6, 2.8],
+                    prior_scales=[0.5, 0.7, 0.9],
+                )
+                generate_report(results=results, exp_name=training_name)
+                report[training_name] = results
+                del results
+                for feat, time in [(2, 12)]:
+                    if drop < 0.2 or not dim == 384:
+                        continue
+                    specaug_config_less = SpecaugConfig(
+                        repeat_per_n_frames=time,
+                        max_dim_time=20,
+                        max_dim_feat=8,
+                        num_repeat_feat=feat,  # Jingjing style
+                    )
+                    model_config = ModelConfig(
+                        feature_extraction_config=fe_config,
+                        frontend_config=frontend_config,
+                        specaug_config=specaug_config_less,
+                        label_target_size=vocab_size_without_blank,
+                        conformer_size=dim,
+                        num_layers=layer_count,
+                        num_heads=4,
+                        ff_dim=4 * dim,
+                        att_weights_dropout=drop,
+                        conv_dropout=drop,
+                        ff_dropout=drop,
+                        mhsa_dropout=drop,
+                        conv_kernel_size=31,
+                        final_dropout=drop,
+                        specauc_start_epoch=1,
+                        module_list=["ff", "conv", "mhsa", "ff"],
+                        module_scales=[0.5, 1.0, 1.0, 0.5],
+                        aux_ctc_loss_layers=loss_mapping[layer_count],  # 4, 8, 12 when counting from 1
+                        aux_ctc_loss_scales=(len(loss_mapping[layer_count]) - 1) * [0.3] + [1.0],
+                    )
+                    model_config_decoding = copy.deepcopy(model_config)
+                    model_config_decoding.aux_ctc_loss_scales = [
+                        0.0,
+                        0.0,
+                        1.0,
+                    ]  # for decoding use result only of last layer
+
+                    network_module = "ctc.conformer_0106.i6modelsV2_VGG4LayerActFrontendV1_auxloss_v1"
+                    small = layer_count > 16 and dim > 768
+                    train_config = {
+                        "optimizer": {
+                            "class": "radam",
+                            "epsilon": 1e-16,
+                            "weight_decay": 1e-2,
+                            "decoupled_weight_decay": True,
+                        },
+                        "learning_rates": list(np.linspace(7e-6, 5e-4, 110))
+                        + list(np.linspace(5e-4, 5e-5, 110))
+                        + list(np.linspace(5e-5, 1e-7, 30)),
+                        #############
+                        "batch_size": 180 * 16000 if not small else 90 * 16000,
+                        "max_seq_length": {"audio_features": 35 * 16000},
+                        "accum_grad_multiple_step": 1 if not small else 2,
+                    }
+                    train_args = {
+                        "config": train_config,
+                        "network_module": network_module,
+                        "net_args": {"model_config_dict": asdict(model_config)},
+                        "debug": False,
+                    }
+                    train_args_decoding = copy.deepcopy(train_args)
+                    train_args_decoding["net_args"] = {"model_config_dict": asdict(model_config_decoding)}
+
+                    results = {}
+                    training_name = (
+                        prefix_name
+                        + "/"
+                        + network_module
+                        + f"_{layer_count}_{dim}_drop{drop}_less_spec_f{feat}_t{time}"
+                    )
+                    train_job = training(training_name, train_data, train_args, num_epochs=250, **default_returnn)
+
+                    results = eval_model(
+                        training_name=training_name,
+                        train_job=train_job,
+                        train_args=train_args_decoding,
+                        train_data=train_data,
+                        decoder_config=default_decoder_config,
+                        dev_dataset_tuples=dev_dataset_tuples,
+                        result_dict=results,
+                        loss_name=f"ctc_loss_layer{layer_count}",
+                    )
+                    generate_report(results=results, exp_name=training_name)
+                    report[training_name] = results
+                    del results
+
     tk.register_report("reports/aux_size_report", partial(build_report, report), required=report)
 
     from ...pytorch_networks.ctc.conformer_0106.i6modelsRelPosEncV1_VGG4LayerActFrontendV1_v1_cfg import (
@@ -255,118 +343,72 @@ def eow_phon_ted_auxloss_distill(get_report=False):
             for epochs in [250, 500]:
                 for spec in [8, 16]:
                     for num_heads in [4, 8]:
-                        frontend_config = VGG4LayerActFrontendV1Config_mod(
-                            in_features=80,
-                            conv1_channels=32,
-                            conv2_channels=64,
-                            conv3_channels=64,
-                            conv4_channels=32,
-                            conv_kernel_size=(3, 3),
-                            conv_padding=None,
-                            pool1_kernel_size=(2, 1),
-                            pool1_stride=(2, 1),
-                            pool1_padding=None,
-                            pool2_kernel_size=(2, 1),
-                            pool2_stride=(2, 1),
-                            pool2_padding=None,
-                            activation_str="ReLU",
-                            out_features=dim,
-                            activation=None,
-                        )
-                        specaug_config_test = SpecaugConfig(
-                            repeat_per_n_frames=25,
-                            max_dim_time=20,
-                            max_dim_feat=spec,
-                            num_repeat_feat=5,
-                        )
-                        pos_emb_cfg = ConformerPosEmbConfig(
-                            learnable_pos_emb=False,
-                            rel_pos_clip=16,
-                            with_linear_pos=True,
-                            with_pos_bias=True,
-                            separate_pos_emb_per_head=True,
-                            pos_emb_dropout=0.0,
-                        )
-                        model_config_pos_enc = RelPosModelConfig(
-                            feature_extraction_config=fe_config,
-                            frontend_config=frontend_config,
-                            specaug_config=specaug_config_test,
-                            label_target_size=vocab_size_without_blank,
-                            pos_emb_config=pos_emb_cfg,
-                            conformer_size=dim,
-                            num_layers=12,
-                            num_heads=num_heads,
-                            ff_dim=4 * dim,
-                            att_weights_dropout=0.2,
-                            conv_dropout=0.2,
-                            ff_dropout=0.2,
-                            mhsa_dropout=0.2,
-                            mhsa_with_bias=True,
-                            conv_kernel_size=31,
-                            final_dropout=0.2,
-                            dropout_broadcast_axes=None,
-                            specauc_start_epoch=spec_start,
-                            module_list=["ff", "conv", "mhsa", "ff"],
-                            module_scales=[0.5, 1.0, 1.0, 0.5],
-                            aux_ctc_loss_layers=None,
-                            aux_ctc_loss_scales=None,
-                        )
-                        network_module_pos_enc = "ctc.conformer_0106.i6modelsRelPosEncV1_VGG4LayerActFrontendV1_v1"
-                        train_config = {
-                            "optimizer": {
-                                "class": "radam",
-                                "epsilon": 1e-16,
-                                "weight_decay": 1e-2,
-                                "decoupled_weight_decay": True,
-                            },
-                            "learning_rates": list(np.linspace(7e-6, 5e-4, (epochs - 30) // 2))
-                            + list(np.linspace(5e-4, 5e-5, (epochs - 30) // 2))
-                            + list(np.linspace(5e-5, 1e-7, 30)),
-                            #############
-                            "batch_size": 180 * 16000,
-                            "max_seq_length": {"audio_features": 35 * 16000},
-                            "accum_grad_multiple_step": 1,
-                        }
-                        train_args = {
-                            "config": train_config,
-                            "network_module": network_module_pos_enc,
-                            "net_args": {"model_config_dict": asdict(model_config_pos_enc)},
-                            "debug": True,
-                        }
-                        results = {}
-                        training_name = (
-                            prefix_name
-                            + "/"
-                            + network_module_pos_enc
-                            + f"_{epochs}_{dim}_{num_heads}_{spec}_{spec_start}"
-                        )
-                        train_job = training(
-                            training_name, train_data, train_args, num_epochs=epochs, **default_returnn
-                        )
-
-                        results = eval_model(
-                            training_name=training_name,
-                            train_job=train_job,
-                            train_args=train_args,
-                            train_data=train_data,
-                            decoder_config=default_decoder_config,
-                            dev_dataset_tuples=dev_dataset_tuples,
-                            result_dict=results,
-                            loss_name=f"ctc_loss_layer12",
-                            specific_epoch=epochs,
-                            prior_scales=[0.0, 0.1, 0.2, 0.3, 0.5, 0.7, 0.9],
-                            lm_scales=[1.2, 1.3, 1.4, 1.6, 1.8, 2.0, 2.2, 2.4, 2.6, 2.8],
-                        )
-                        generate_report(results=results, exp_name=training_name)
-                        new_rep[training_name] = results
-                        chkpts[training_name] = train_job.out_checkpoints[250]
-                        del results
-                        if dim == 384 and spec_start == 1 and spec == 16 and num_heads == 8:
+                        for drop in [0.2, 0.1, 0.0]:
+                            if drop < 0.2 and (not spec == 16 or not num_heads == 8 or not spec_start == 1):
+                                continue
+                            frontend_config = VGG4LayerActFrontendV1Config_mod(
+                                in_features=80,
+                                conv1_channels=32,
+                                conv2_channels=64,
+                                conv3_channels=64,
+                                conv4_channels=32,
+                                conv_kernel_size=(3, 3),
+                                conv_padding=None,
+                                pool1_kernel_size=(2, 1),
+                                pool1_stride=(2, 1),
+                                pool1_padding=None,
+                                pool2_kernel_size=(2, 1),
+                                pool2_stride=(2, 1),
+                                pool2_padding=None,
+                                activation_str="ReLU",
+                                out_features=dim,
+                                activation=None,
+                            )
+                            specaug_config_test = SpecaugConfig(
+                                repeat_per_n_frames=25,
+                                max_dim_time=20,
+                                max_dim_feat=spec,
+                                num_repeat_feat=5,
+                            )
+                            pos_emb_cfg = ConformerPosEmbConfig(
+                                learnable_pos_emb=False,
+                                rel_pos_clip=16,
+                                with_linear_pos=True,
+                                with_pos_bias=True,
+                                separate_pos_emb_per_head=True,
+                                pos_emb_dropout=0.0,
+                            )
+                            model_config_pos_enc = RelPosModelConfig(
+                                feature_extraction_config=fe_config,
+                                frontend_config=frontend_config,
+                                specaug_config=specaug_config_test,
+                                label_target_size=vocab_size_without_blank,
+                                pos_emb_config=pos_emb_cfg,
+                                conformer_size=dim,
+                                num_layers=12,
+                                num_heads=num_heads,
+                                ff_dim=4 * dim,
+                                att_weights_dropout=drop,
+                                conv_dropout=drop,
+                                ff_dropout=drop,
+                                mhsa_dropout=drop,
+                                mhsa_with_bias=True,
+                                conv_kernel_size=31,
+                                final_dropout=drop,
+                                dropout_broadcast_axes=None,
+                                specauc_start_epoch=spec_start,
+                                module_list=["ff", "conv", "mhsa", "ff"],
+                                module_scales=[0.5, 1.0, 1.0, 0.5],
+                                aux_ctc_loss_layers=None,
+                                aux_ctc_loss_scales=None,
+                            )
+                            network_module_pos_enc = "ctc.conformer_0106.i6modelsRelPosEncV1_VGG4LayerActFrontendV1_v1"
                             train_config = {
                                 "optimizer": {
-                                    "class": "adamw",
+                                    "class": "radam",
                                     "epsilon": 1e-16,
                                     "weight_decay": 1e-2,
+                                    "decoupled_weight_decay": True,
                                 },
                                 "learning_rates": list(np.linspace(7e-6, 5e-4, (epochs - 30) // 2))
                                 + list(np.linspace(5e-4, 5e-5, (epochs - 30) // 2))
@@ -375,22 +417,28 @@ def eow_phon_ted_auxloss_distill(get_report=False):
                                 "batch_size": 180 * 16000,
                                 "max_seq_length": {"audio_features": 35 * 16000},
                                 "accum_grad_multiple_step": 1,
-                                "gradient_clip_norm": 1.0,
                             }
                             train_args = {
                                 "config": train_config,
                                 "network_module": network_module_pos_enc,
                                 "net_args": {"model_config_dict": asdict(model_config_pos_enc)},
                                 "debug": True,
-                                "use_speed_perturbation": True,
                             }
                             results = {}
-                            training_name = (
-                                prefix_name
-                                + "/"
-                                + network_module_pos_enc
-                                + f"_better_params_{epochs}_{dim}_{num_heads}_{spec}_{spec_start}"
-                            )
+                            if drop == 0.2:
+                                training_name = (
+                                    prefix_name
+                                    + "/"
+                                    + network_module_pos_enc
+                                    + f"_{epochs}_{dim}_{num_heads}_{spec}_{spec_start}"
+                                )
+                            else:
+                                training_name = (
+                                    prefix_name
+                                    + "/"
+                                    + network_module_pos_enc
+                                    + f"_{epochs}_{dim}_{num_heads}_{spec}_{spec_start}_drop{drop}"
+                                )
                             train_job = training(
                                 training_name, train_data, train_args, num_epochs=epochs, **default_returnn
                             )
@@ -410,7 +458,251 @@ def eow_phon_ted_auxloss_distill(get_report=False):
                             )
                             generate_report(results=results, exp_name=training_name)
                             new_rep[training_name] = results
+                            chkpts[training_name] = train_job.out_checkpoints[250]
                             del results
+                            if dim == 384 and spec_start == 1 and spec == 16 and num_heads == 8 and drop == 0.2:
+                                frontend_config = VGG4LayerActFrontendV1Config_mod(
+                                    in_features=80,
+                                    conv1_channels=32,
+                                    conv2_channels=64,
+                                    conv3_channels=64,
+                                    conv4_channels=32,
+                                    conv_kernel_size=(3, 3),
+                                    conv_padding=None,
+                                    pool1_kernel_size=(2, 1),
+                                    pool1_stride=(2, 1),
+                                    pool1_padding=None,
+                                    pool2_kernel_size=(2, 1),
+                                    pool2_stride=(2, 1),
+                                    pool2_padding=None,
+                                    activation_str="ReLU",
+                                    out_features=dim,
+                                    activation=None,
+                                )
+                                specaug_config_test = SpecaugConfig(
+                                    repeat_per_n_frames=25,
+                                    max_dim_time=20,
+                                    max_dim_feat=spec,
+                                    num_repeat_feat=5,
+                                )
+                                pos_emb_cfg = ConformerPosEmbConfig(
+                                    learnable_pos_emb=False,
+                                    rel_pos_clip=16,
+                                    with_linear_pos=True,
+                                    with_pos_bias=True,
+                                    separate_pos_emb_per_head=True,
+                                    pos_emb_dropout=0.0,
+                                )
+                                model_config_pos_enc = RelPosModelConfig(
+                                    feature_extraction_config=fe_config,
+                                    frontend_config=frontend_config,
+                                    specaug_config=specaug_config_test,
+                                    label_target_size=vocab_size_without_blank,
+                                    pos_emb_config=pos_emb_cfg,
+                                    conformer_size=dim,
+                                    num_layers=12,
+                                    num_heads=num_heads,
+                                    ff_dim=4 * dim,
+                                    att_weights_dropout=drop,
+                                    conv_dropout=drop,
+                                    ff_dropout=drop,
+                                    mhsa_dropout=drop,
+                                    mhsa_with_bias=True,
+                                    conv_kernel_size=31,
+                                    final_dropout=drop,
+                                    dropout_broadcast_axes=None,
+                                    specauc_start_epoch=spec_start,
+                                    module_list=["ff", "conv", "mhsa", "ff"],
+                                    module_scales=[0.5, 1.0, 1.0, 0.5],
+                                    aux_ctc_loss_layers=None,
+                                    aux_ctc_loss_scales=None,
+                                )
+                                network_module_pos_enc = (
+                                    "ctc.conformer_0106.i6modelsRelPosEncV1_VGG4LayerActFrontendV1_v1"
+                                )
+                                train_config_no_wd = {
+                                    "optimizer": {
+                                        "class": "radam",
+                                        "epsilon": 1e-16,
+                                        # "weight_decay": 1e-2,
+                                        # "decoupled_weight_decay": True,
+                                    },
+                                    "learning_rates": list(np.linspace(7e-6, 5e-4, (epochs - 30) // 2))
+                                    + list(np.linspace(5e-4, 5e-5, (epochs - 30) // 2))
+                                    + list(np.linspace(5e-5, 1e-7, 30)),
+                                    #############
+                                    "batch_size": 180 * 16000,
+                                    "max_seq_length": {"audio_features": 35 * 16000},
+                                    "accum_grad_multiple_step": 1,
+                                }
+                                train_args = {
+                                    "config": train_config_no_wd,
+                                    "network_module": network_module_pos_enc,
+                                    "net_args": {"model_config_dict": asdict(model_config_pos_enc)},
+                                    "debug": True,
+                                }
+                                results = {}
+                                training_name = (
+                                    prefix_name
+                                    + "/"
+                                    + network_module_pos_enc
+                                    + f"_{epochs}_{dim}_{num_heads}_{spec}_{spec_start}_drop{drop}_no_wdecay"
+                                )
+                                train_job = training(
+                                    training_name, train_data, train_args, num_epochs=epochs, **default_returnn
+                                )
+                                results = eval_model(
+                                    training_name=training_name,
+                                    train_job=train_job,
+                                    train_args=train_args,
+                                    train_data=train_data,
+                                    decoder_config=default_decoder_config,
+                                    dev_dataset_tuples=dev_dataset_tuples,
+                                    result_dict=results,
+                                    loss_name=f"ctc_loss_layer12",
+                                    specific_epoch=epochs,
+                                    prior_scales=[0.0, 0.1, 0.2, 0.3, 0.5, 0.7, 0.9],
+                                    lm_scales=[1.2, 1.3, 1.4, 1.6, 1.8, 2.0, 2.2, 2.4, 2.6, 2.8],
+                                )
+                                generate_report(results=results, exp_name=training_name)
+                                new_rep[training_name] = results
+                                chkpts[training_name] = train_job.out_checkpoints[250]
+                                del results
+
+                            if dim == 384 and spec_start == 1 and spec == 16 and num_heads == 8 and drop == 0.2:
+                                for feat, time in [(2, 12)]:
+                                    specaug_config_less = SpecaugConfig(
+                                        repeat_per_n_frames=time,
+                                        max_dim_time=20,
+                                        max_dim_feat=spec,
+                                        num_repeat_feat=feat,
+                                    )
+                                    model_config_pos_enc_spec = RelPosModelConfig(
+                                        feature_extraction_config=fe_config,
+                                        frontend_config=frontend_config,
+                                        specaug_config=specaug_config_less,
+                                        label_target_size=vocab_size_without_blank,
+                                        pos_emb_config=pos_emb_cfg,
+                                        conformer_size=dim,
+                                        num_layers=12,
+                                        num_heads=num_heads,
+                                        ff_dim=4 * dim,
+                                        att_weights_dropout=drop,
+                                        conv_dropout=drop,
+                                        ff_dropout=drop,
+                                        mhsa_dropout=drop,
+                                        mhsa_with_bias=True,
+                                        conv_kernel_size=31,
+                                        final_dropout=drop,
+                                        dropout_broadcast_axes=None,
+                                        specauc_start_epoch=spec_start,
+                                        module_list=["ff", "conv", "mhsa", "ff"],
+                                        module_scales=[0.5, 1.0, 1.0, 0.5],
+                                        aux_ctc_loss_layers=None,
+                                        aux_ctc_loss_scales=None,
+                                    )
+                                    network_module_pos_enc = (
+                                        "ctc.conformer_0106.i6modelsRelPosEncV1_VGG4LayerActFrontendV1_v1"
+                                    )
+                                    train_config = {
+                                        "optimizer": {
+                                            "class": "radam",
+                                            "epsilon": 1e-16,
+                                            "weight_decay": 1e-2,
+                                            "decoupled_weight_decay": True,
+                                        },
+                                        "learning_rates": list(np.linspace(7e-6, 5e-4, (epochs - 30) // 2))
+                                        + list(np.linspace(5e-4, 5e-5, (epochs - 30) // 2))
+                                        + list(np.linspace(5e-5, 1e-7, 30)),
+                                        #############
+                                        "batch_size": 180 * 16000,
+                                        "max_seq_length": {"audio_features": 35 * 16000},
+                                        "accum_grad_multiple_step": 1,
+                                    }
+                                    train_args = {
+                                        "config": train_config,
+                                        "network_module": network_module_pos_enc,
+                                        "net_args": {"model_config_dict": asdict(model_config_pos_enc_spec)},
+                                        "debug": True,
+                                    }
+                                    results = {}
+                                    training_name = (
+                                        prefix_name
+                                        + "/"
+                                        + network_module_pos_enc
+                                        + f"_{epochs}_{dim}_{num_heads}_{spec}_{spec_start}_drop{drop}_less_spec_f{feat}_t{time}"
+                                    )
+                                    train_job = training(
+                                        training_name, train_data, train_args, num_epochs=epochs, **default_returnn
+                                    )
+                                    results = eval_model(
+                                        training_name=training_name,
+                                        train_job=train_job,
+                                        train_args=train_args,
+                                        train_data=train_data,
+                                        decoder_config=default_decoder_config,
+                                        dev_dataset_tuples=dev_dataset_tuples,
+                                        result_dict=results,
+                                        loss_name=f"ctc_loss_layer12",
+                                        specific_epoch=epochs,
+                                        prior_scales=[0.0, 0.1, 0.2, 0.3, 0.5, 0.7, 0.9],
+                                        lm_scales=[1.2, 1.3, 1.4, 1.6, 1.8, 2.0, 2.2, 2.4, 2.6, 2.8],
+                                    )
+                                    generate_report(results=results, exp_name=training_name)
+                                    new_rep[training_name] = results
+                                    chkpts[training_name] = train_job.out_checkpoints[250]
+                                    del results
+
+                            if dim == 384 and spec_start == 1 and spec == 16 and num_heads == 8 and drop == 0.2:
+                                train_config = {
+                                    "optimizer": {
+                                        "class": "adamw",
+                                        "epsilon": 1e-16,
+                                        "weight_decay": 1e-2,
+                                    },
+                                    "learning_rates": list(np.linspace(7e-6, 5e-4, (epochs - 30) // 2))
+                                    + list(np.linspace(5e-4, 5e-5, (epochs - 30) // 2))
+                                    + list(np.linspace(5e-5, 1e-7, 30)),
+                                    #############
+                                    "batch_size": 180 * 16000,
+                                    "max_seq_length": {"audio_features": 35 * 16000},
+                                    "accum_grad_multiple_step": 1,
+                                    "gradient_clip_norm": 1.0,
+                                }
+                                train_args = {
+                                    "config": train_config,
+                                    "network_module": network_module_pos_enc,
+                                    "net_args": {"model_config_dict": asdict(model_config_pos_enc)},
+                                    "debug": True,
+                                    "use_speed_perturbation": True,
+                                }
+                                results = {}
+                                training_name = (
+                                    prefix_name
+                                    + "/"
+                                    + network_module_pos_enc
+                                    + f"_better_params_{epochs}_{dim}_{num_heads}_{spec}_{spec_start}"
+                                )
+                                train_job = training(
+                                    training_name, train_data, train_args, num_epochs=epochs, **default_returnn
+                                )
+
+                                results = eval_model(
+                                    training_name=training_name,
+                                    train_job=train_job,
+                                    train_args=train_args,
+                                    train_data=train_data,
+                                    decoder_config=default_decoder_config,
+                                    dev_dataset_tuples=dev_dataset_tuples,
+                                    result_dict=results,
+                                    loss_name=f"ctc_loss_layer12",
+                                    specific_epoch=epochs,
+                                    prior_scales=[0.0, 0.1, 0.2, 0.3, 0.5, 0.7, 0.9],
+                                    lm_scales=[1.2, 1.3, 1.4, 1.6, 1.8, 2.0, 2.2, 2.4, 2.6, 2.8],
+                                )
+                                generate_report(results=results, exp_name=training_name)
+                                new_rep[training_name] = results
+                                del results
 
     tk.register_report("reports/pos_enc_report", partial(build_base_report, new_rep), required=new_rep)
     if get_report is True:

@@ -186,14 +186,16 @@ def build_base_report(report: Dict):
 
 
 def build_hubert_distill_report(report: Dict):
+
     report = copy.deepcopy(report)
     baselines = report.pop("baselines")
     best_baselines = {}
     for exp, dic in baselines.items():
         instanciate_delayed(dic)
+        new_dic = {k: v for k, v in dic.items() if "other" in k}
         if all(dic.values()):
-            best = min(dic, key=dic.get)
-            best_baselines[" ".join(exp.split("/")[4:])] = (dic[best], best)
+            best = min(new_dic, key=new_dic.get)
+            best_baselines[" ".join(exp.split("/")[4:])] = (new_dic[best], best)
         else:
             best_baselines[" ".join(exp.split("/")[4:])] = ("None", "")
     best_dc = {}
@@ -201,47 +203,89 @@ def build_hubert_distill_report(report: Dict):
         best_dc[exp] = best
     for exp, dic in report.items():
         instanciate_delayed(dic)
+        new_dic = {k: v for k, v in dic.items() if "other" in k}
         if all(dic.values()):
-            best = min(dic, key=dic.get)
-            best_dc[" ".join(exp.split("/")[5:])] = ("{:.1f}".format(float(dic[best])), best)
+            best = min(new_dic, key=new_dic.get)
+            best_dc[" ".join(exp.split("/")[5:])] = ("{:.1f}".format(float(new_dic[best])), best)
         else:
             best_dc[" ".join(exp.split("/")[5:])] = ("None", "")
     line = []
+    # line.append("Small")
+    # for exp, value in best_dc.items():
+    #     if "128" in exp:
+    #         line.append(f"{' '.join(exp.split('.')[2:])}: {value[0]}   {' '.join(value[1].split('/')[6:])}")
+    # best_dc = {exp: value for exp, value in best_dc.items() if "128" not in exp}
+    # line.append("")
 
-    line.append("Small")
-    for exp, value in best_dc.items():
-        if "128" in exp:
-            line.append(f"{' '.join(exp.split('.')[2:])}: {value[0]}   {' '.join(value[1].split('/')[6:])}")
-    best_dc = {exp: value for exp, value in best_dc.items() if "128" not in exp}
-    line.append("")
-
-    exps = ["elim_blank", "keepsome", "mix", "elim_blank_prior", "kdhyps", "trim_blanks"]
+    exps = [
+        "elim_blank",
+        "keepsome",
+        "sym",
+        "mix",
+        # "pretrain",
+        "elim_blank_prior",
+        "kdhyps",
+        "trim_blanks",
+        "elim_blank num",
+        # "long",
+    ]
     line.append("Baselines")
     for exp, value in best_dc.items():
-        if not any(exp.endswith(name) for name in exps + ["True", "False"] and not "keepsome" in exp.split("_")[-1]):
+        if (
+            not any(name in exp.split("_")[-1] for name in exps + ["True", "False"])
+            and not any(exp.endswith(name) for name in exps + ["True", "False"])
+            and not ["elim", "blank"] == exp.split("_")[-3:-1]
+            and not "trim_blanks" in exp
+        ):
             line.append(f"{' '.join(exp.split('.')[2:])}: {value[0]}   {' '.join(value[1].split('/')[6:])}")
     best_dc = {
-        exp: value for exp, value in best_dc.items() if any(exp.endswith(name) for name in exps + ["True", "False"])
+        exp: value
+        for exp, value in best_dc.items()
+        if (
+            any(exp.endswith(name) for name in exps + ["True", "False"])
+            or any(name in exp.split("_")[-1] for name in exps + ["True", "False"])
+            or ["elim", "blank"] == exp.split("_")[-3:-1]
+            or "trim_blanks" in exp
+        )
     }
+    tmp = copy.deepcopy(best_dc)
     line.append("")
     for name in exps:
         line.append(name)
         for exp, value in best_dc.items():
             if exp.endswith(name):
                 line.append(f"{' '.join(exp.split('.')[2:])}: {value[0]}   {' '.join(value[1].split('/')[6:])}")
+                del tmp[exp]
             elif name == "keepsome" and "keepsome" in exp.split("_")[-1]:
                 line.append(f"{' '.join(exp.split('.')[2:])}: {value[0]}   {' '.join(value[1].split('/')[6:])}")
+                del tmp[exp]
             elif name == "mix" and "mix" in exp.split("_")[-1]:
                 line.append(f"{' '.join(exp.split('.')[2:])}: {value[0]}   {' '.join(value[1].split('/')[6:])}")
+                del tmp[exp]
+            elif name == "elim_blank num" and ["elim", "blank"] == exp.split("_")[-3:-1]:
+                line.append(f"{' '.join(exp.split('.')[2:])}: {value[0]}   {' '.join(value[1].split('/')[6:])}")
+                del tmp[exp]
+            elif name == "trim_blanks" and "trim_blanks" in exp:
+                line.append(f"{' '.join(exp.split('.')[2:])}: {value[0]}   {' '.join(value[1].split('/')[6:])}")
+                del tmp[exp]
         line.append("")
-        best_dc = {exp: value for exp, value in best_dc.items() if not exp.endswith(name)}
-    line.append("Warmup")
-    for exp, value in best_dc.items():
-        if exp.endswith("True") or exp.endswith("False"):
-            line.append(f"{' '.join(exp.split('.')[2:])}: {value[0]}   {' '.join(value[1].split('/')[6:])}")
-    line.append("")
-    best_dc = {
-        exp: value for exp, value in best_dc.items() if not any(exp.endswith(name) for name in ["True", "False"])
-    }
+        # best_dc = {
+        #     exp: value
+        #     for exp, value in best_dc.items()
+        #     if not exp.endswith(name)
+        #     and not (name == "keepsome" and "keepsome" in exp.split("_")[-1])
+        #     and not (name == "mix" and "mix" in exp.split("_")[-1])
+        #     and not (name == "elim_blank num" and ["elim", "blank"] == exp.split("_")[-3:-1])
+        #     and not (name == "trim_blanks" and "trim_blanks" in exp)
+        # }
+    # line.append("Warmup")
+    # for exp, value in best_dc.items():
+    #     if exp.endswith("True") or exp.endswith("False"):
+    #         line.append(f"{' '.join(exp.split('.')[2:])}: {value[0]}   {' '.join(value[1].split('/')[6:])}")
+    # line.append("")
+    # best_dc = {
+    #     exp: value for exp, value in best_dc.items() if not any(exp.endswith(name) for name in ["True", "False"])
+    # }
+    best_dc = tmp
     assert len(best_dc) == 0, best_dc
     return "\n".join(line)

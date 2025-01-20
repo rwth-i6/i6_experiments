@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import copy
 import functools
+import torch
 from typing import TYPE_CHECKING, Optional, Union, Tuple, Sequence, Callable, Dict, Any, List
 import numpy as np
 
@@ -21,6 +22,8 @@ from sisyphus import tk
 from i6_experiments.users.zeyer.model_interfaces import ModelDef, ModelDefWithCfg, TrainDef, RecogDef
 from i6_experiments.users.zeyer.speed_pert.librosa_config import speed_pert_librosa_config
 from i6_experiments.users.zeyer.returnn.models.rf_layerdrop import SequentialLayerDrop
+from i6_experiments.users.mueller.train import ExtendedTrainDef
+from i6_experiments.users.mueller.experiments.language_models.n_gram import get_count_based_n_gram, get_prior_from_unigram
 
 from i6_core.util import uopen
 
@@ -58,15 +61,33 @@ def py():
     use_flashlight = True
     use_greedy = False
     epochs = 500
-    self_training_rounds = 0
-    test_self_training_on_small_dataset = 0 # TODO remove this parameter
+    self_training_rounds = 1
     train_small = True
     with_prior = True
+    empirical_prior = True
+    prior_from_max = False
+    aux_loss = False
+    alt_decoder = True
+    calc_last_pseudo_labels = False
+    tune_hyperparameters = False
+    from_scratch = False
+    
+    use_sum_criterion = True
+    horizontal_prior = True
+    blank_prior = True
+    prior_gradient = False
+    empirical_prior_full_sum = False
+    prior_from_max_full_sum = False
+    LM_order = 2
+    top_k = 3
+    self_train_subset = 18000 # 18000
+    
+    assert (empirical_prior_full_sum and empirical_prior) or not empirical_prior_full_sum
     
     if train_small:
         epochs = 50
     if self_training_rounds > 0:
-        self_epochs = 450
+        self_epochs = 56 # 450, 225, 113, 75, 56, 45
     
     decoder_hyperparameters = None
     if use_greedy:
@@ -76,20 +97,21 @@ def py():
         greedy_str = "-recog_greedy"
         if with_prior:
             decoder_hyperparameters["prior_weight"] = 0.2
-            greedy_str += f"_p{str(decoder_hyperparameters['prior_weight']).replace('.', '')}"
+            greedy_str += f"_p{str(decoder_hyperparameters['prior_weight']).replace('.', '')}" + ("-emp" if empirical_prior else "")
     elif use_flashlight:
         decoder_hyperparameters = {
             "log_add": False,
             "nbest": 1,
             "beam_size": 80,
-            "lm_weight": 1.9,
+            "lm_weight": 1.9, # NOTE: weights are exponentials of the probs
             "use_logsoftmax": True,
             "use_lm": True,
             "use_lexicon": True,
         }
         if with_prior:
-            decoder_hyperparameters["prior_weight"] = 0.2
-        p0 = f"_p{str(decoder_hyperparameters['prior_weight']).replace('.', '')}" if with_prior else ""
+            decoder_hyperparameters["prior_weight"] = 0.3 # 0.2 if not using emprirical prior
+            
+        p0 = f"_p{str(decoder_hyperparameters['prior_weight']).replace('.', '')}" + ("-emp" if empirical_prior else ("-from_max" if prior_from_max else "")) if with_prior else ""
         p1 = "sum" if decoder_hyperparameters['log_add'] else "max"
         p2 = f"n{decoder_hyperparameters['nbest']}"
         p3 = f"b{decoder_hyperparameters['beam_size']}"
@@ -99,37 +121,120 @@ def py():
         p7 = "_noLEX" if not decoder_hyperparameters['use_lexicon'] else ""
         lm_hyperparamters_str = f"{p0}_{p1}_{p2}_{p3}_{p4}{p5}{p6}{p7}"
         
-    train_exp(
-        f"test_ctc-baseline" +
-        (f"-self_training_{self_training_rounds}" if self_training_rounds > 0 else "") + (f"-dataset_size_{test_self_training_on_small_dataset}" if test_self_training_on_small_dataset > 0 else "") +
-        (f"-ds100h" if train_small else "") +
-        f"-{vocab}" + (greedy_str if use_greedy else (("-recog_lm" + lm_hyperparamters_str) if use_flashlight else "-recog_albert")),
-        config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
-        model_recog_lm if (use_flashlight or use_greedy) else model_recog,
-        decoder_hyperparameters=decoder_hyperparameters,
-        model_config={"enc_conformer_layer": enc_conformer_layer_default, "feature_batch_norm": True},
-        config_updates={
-            **_get_cfg_lrlin_oclr_by_bs_nep(15_000, epochs),
-            "optimizer.weight_decay": 1e-2,
-            "__train_audio_preprocess": speed_pert_librosa_config,
-            "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
-            "max_seq_length_default_target": None,
-            "max_seq_length_default_input": 19.5 * _raw_sample_rate,
-        },
-        config_updates_self_training={
-            **_get_cfg_lrlin_oclr_by_bs_nep(15_000, self_epochs),
-            "optimizer.weight_decay": 1e-2,
-            "__train_audio_preprocess": speed_pert_librosa_config,
-            "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
-            "max_seq_length_default_target": None,
-            "max_seq_length_default_input": 19.5 * _raw_sample_rate,
-        } if self_training_rounds > 0 else None,
-        vocab=vocab,
-        self_training_rounds=self_training_rounds,
-        train_small=train_small,
-        test_self_training_on_small_dataset=test_self_training_on_small_dataset,
-        with_prior=with_prior,
-    )
+        if alt_decoder:
+            alt_decoder_hyperparameters = decoder_hyperparameters.copy()
+            alt_decoder_hyperparameters["lm_weight"] = 1.25
+            alt_decoder_hyperparameters["beam_size"] = 75
+            if with_prior:
+                alt_decoder_hyperparameters["prior_weight"] = 0.3
+                
+            if use_sum_criterion:
+                alt_decoder_hyperparameters["lm_weight"] = 0.0
+                alt_decoder_hyperparameters["prior_weight"] = 0.0
+                alt_decoder_hyperparameters["use_lm"] = False
+                alt_decoder_hyperparameters["use_lexicon"] = False
+                str_add = "_no-lexicon"
+            else:
+                str_add = ""
+                
+            a0 = f"_p{str(alt_decoder_hyperparameters['prior_weight']).replace('.', '')}" + ("-emp" if empirical_prior else ("-from_max" if prior_from_max else "")) if with_prior else ""
+            a1 = f"b{alt_decoder_hyperparameters['beam_size']}"
+            a2 = f"w{str(alt_decoder_hyperparameters['lm_weight']).replace('.', '')}"
+            a3 = "_tune" if tune_hyperparameters else ""
+            lm_hyperparamters_str += f"_ALT{a3}{a0}_{a1}_{a2}{str_add}"
+    else:
+        decoder_hyperparameters = {}
+    
+    config_updates = {
+        **_get_cfg_lrlin_oclr_by_bs_nep(15_000, epochs),
+        "optimizer.weight_decay": 1e-2,
+        "__train_audio_preprocess": speed_pert_librosa_config,
+        "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
+        "max_seq_length_default_target": None,
+        "max_seq_length_default_input": 19.5 * _raw_sample_rate,
+    }
+    config_updates_self_training = {
+        **_get_cfg_lrlin_oclr_by_bs_nep(15_000, self_epochs),
+        "optimizer.weight_decay": 1e-2,
+        "__train_audio_preprocess": speed_pert_librosa_config,
+        "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
+        "max_seq_length_default_target": None,
+        "max_seq_length_default_input": 19.5 * _raw_sample_rate,
+    } if self_training_rounds > 0 else None
+
+    for am, lm, prior in [
+        (8.0, 0.01, 0.08)
+    ]:
+        if use_sum_criterion:
+            if am != 1.0 or lm != 1.0 or prior != 1.0:
+                scales_not_std = True
+                config_full_sum = {
+                    "am_scale": am,
+                    "lm_scale": lm,
+                    "prior_scale": prior
+                }
+            else:
+                scales_not_std = False
+                config_full_sum = {}
+            
+            if not horizontal_prior:
+                config_full_sum["horizontal_prior"] = horizontal_prior
+            if not blank_prior:
+                config_full_sum["blank_prior"] = blank_prior
+            if not prior_gradient:
+                config_full_sum["prior_gradient"] = prior_gradient
+            if top_k > 0:
+                config_full_sum["top_k"] = top_k
+            if empirical_prior_full_sum:
+                config_full_sum["empirical_prior"] = True
+            if prior_from_max_full_sum:
+                config_full_sum["max_prior"] = True
+            
+            # This is to change the hash when we made chnages in the loss function
+            config_full_sum["version"] = 1
+            
+            sum_str = f"-full_sum" + \
+                (f"_p{str(config_full_sum['prior_scale']).replace('.', '')}_l{str(config_full_sum['lm_scale']).replace('.', '')}_a{str(config_full_sum['am_scale']).replace('.', '')}" if scales_not_std else "") + \
+                (f"_LMorder{LM_order}" if LM_order > 2 else "") + \
+                (f"_topK{top_k}" if top_k > 0 else "") + \
+                ("_emp" if empirical_prior_full_sum else "") + \
+                ("_max_pr" if not empirical_prior_full_sum and prior_from_max_full_sum else "") + \
+                ("_wo_hor_pr" if not horizontal_prior else "") + \
+                ("_wo_blank_pr" if not blank_prior else "") + \
+                ("_wo_pr_grad" if not prior_gradient else "")
+        
+        alias_name = f"ctc-baseline" + \
+            (sum_str if use_sum_criterion else "") + \
+            (f"-self_training_{self_training_rounds}" + ("_from_scratch" if from_scratch else "") + (f"_s{self_train_subset}" if self_train_subset is not None else "") + (f"_e{self_epochs}" if self_epochs != 450 else "") if self_training_rounds > 0 else "") + \
+            (f"-wo_aux_loss" if not aux_loss else "") + \
+            (f"-ds100h" if train_small else "") + \
+            f"-{vocab}" + \
+            (greedy_str if use_greedy else (("-recog_lm" + lm_hyperparamters_str) if use_flashlight else "-recog_albert"))
+
+        train_exp(
+            name = alias_name,
+            config = config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
+            decoder_def = model_recog_lm if (use_flashlight or use_greedy) else model_recog,
+            decoder_hyperparameters = decoder_hyperparameters,
+            hyperparamters_self_training = alt_decoder_hyperparameters if alt_decoder else None,
+            model_config = {"enc_conformer_layer": enc_conformer_layer_default, "feature_batch_norm": True},
+            config_updates = config_updates,
+            config_updates_self_training = config_updates_self_training,
+            config_full_sum=config_full_sum if use_sum_criterion else None,
+            vocab = vocab,
+            self_training_rounds = self_training_rounds,
+            train_small = train_small,
+            with_prior = with_prior,
+            empirical_prior=empirical_prior,
+            prior_from_max=prior_from_max,
+            use_sum_criterion=use_sum_criterion,
+            aux_loss=aux_loss,
+            LM_order=LM_order,
+            self_train_subset=self_train_subset,
+            calc_last_pseudo_labels=calc_last_pseudo_labels,
+            tune_hyperparameters=tune_hyperparameters,
+            from_scratch=from_scratch,
+        )
     
 
 _train_experiments: Dict[str, ModelWithCheckpoints] = {}
@@ -142,6 +247,7 @@ def train_exp(
     decoder_def: Callable,
     *,
     decoder_hyperparameters: dict = None,
+    hyperparamters_self_training: dict = None,
     model_def: Optional[Union[ModelDefWithCfg, ModelDef[Model]]] = None,
     vocab: str = "bpe10k",
     train_vocab_opts: Optional[Dict[str, Any]] = None,
@@ -149,6 +255,7 @@ def train_exp(
     model_config: Optional[Dict[str, Any]] = None,
     config_updates: Optional[Dict[str, Any]] = None,
     config_updates_self_training: Optional[Dict[str, Any]] = None,
+    config_full_sum: Optional[Dict[str, Any]] = None,
     config_deletes: Optional[Sequence[str]] = None,
     post_config_updates: Optional[Dict[str, Any]] = None,
     epilog: Sequence[serialization.SerializerObject] = (),
@@ -160,14 +267,22 @@ def train_exp(
     enabled: bool = True,
     self_training_rounds: int = 0,
     train_small: bool = False,
-    test_self_training_on_small_dataset: int = 0,
     with_prior: bool = False,
+    empirical_prior: bool = False,
+    prior_from_max: bool = False,
+    use_sum_criterion: bool = False,
+    aux_loss: bool = False,
+    LM_order: int = 2,
+    self_train_subset: Optional[int] = None,
+    calc_last_pseudo_labels: bool = False,
+    tune_hyperparameters: bool = False,
+    from_scratch: bool = False,
 ) -> Optional[ModelWithCheckpoints]:
     """
     Train experiment
     """
     from i6_experiments.users.mueller.train import train
-    from i6_experiments.users.mueller.recog import recog_training_exp
+    from i6_experiments.users.mueller.recog import recog_training_exp, GetBestTuneValue
     from i6_experiments.users.mueller.datasets.librispeech import get_librispeech_task_raw_v2, TrainDatasetSel
 
     print("Job Name:", name)
@@ -179,14 +294,18 @@ def train_exp(
 
     prefix = _sis_prefix + "/" + name
     
-    task, pseudo_labels_ds = get_librispeech_task_raw_v2(
+    task, pseudo_labels_ds, train_100_ds = get_librispeech_task_raw_v2(
         vocab=vocab,
         train_vocab_opts=train_vocab_opts,
-        save_pseudo_labels = self_training_rounds > 0,
-        test_self_training_on_small_dataset = test_self_training_on_small_dataset,
+        save_pseudo_labels = self_training_rounds > 0 or calc_last_pseudo_labels,
         ds_sel = TrainDatasetSel.train_100h if train_small else TrainDatasetSel.train_960h,
-        with_prior=with_prior
+        with_prior=with_prior,
+        empirical_prior=empirical_prior,
     )
+    
+    if with_prior and empirical_prior:
+        emp_prior = get_prior_from_unigram(task.prior_dataset.vocab, task.prior_dataset, vocab)
+    
     config = config.copy()
     config = dict_update_deep(config, config_updates, config_deletes)
     # This logic is also in train(), but keep it here because it would break the hash because of _RecogAndScoreFunc...
@@ -201,7 +320,8 @@ def train_exp(
         model_def = ModelDefWithCfg(model_def, model_config)
     if not train_def:
         train_def = ctc_training
-    model_with_checkpoint = train(
+    model_with_checkpoint = []
+    model_with_checkpoint.append(train(
         prefix,
         task=task,
         config=config,
@@ -212,9 +332,9 @@ def train_exp(
         num_epochs=num_epochs,
         gpu_mem=gpu_mem,
         num_processes=num_processes,
-        time_rqmt=time_rqmt,
-    )
-    train_job = model_with_checkpoint.get_training_job()
+        time_rqmt=time_rqmt if time_rqmt else (36 if train_small else 132),
+    ))
+    train_job = model_with_checkpoint[0].get_training_job()
     if env_updates:
         for k, v in env_updates.items():
             train_job.set_env(k, v)
@@ -222,28 +342,36 @@ def train_exp(
     recog_post_proc_funcs = []
     if config.get("use_eos_postfix", False):
         recog_post_proc_funcs.append(_remove_eos_label_v2)
-    pseudo_label_path_dict, best_epoch_path = recog_training_exp(
+    pseudo_label_path_dict = recog_training_exp(
         prefix,
         task,
-        model_with_checkpoint,
+        model_with_checkpoint[0],
         recog_def=decoder_def,
         decoder_hyperparameters=decoder_hyperparameters,
-        save_pseudo_labels=pseudo_labels_ds,
-        calculate_pseudo_label_scores=False,
-        recog_post_proc_funcs=recog_post_proc_funcs
+        save_pseudo_labels=(pseudo_labels_ds, train_100_ds) if calc_last_pseudo_labels or self_training_rounds > 0 else None,
+        calculate_pseudo_label_scores=True, # NOTE: breaks hash
+        recog_post_proc_funcs=recog_post_proc_funcs,
+        # num_shards_recog=16, # NOTE: breaks hash
+        num_shards_pseudo=64,
+        # num_shards_prior=64,
+        is_last=self_training_rounds == 0,
+        prior_from_max=prior_from_max,
+        empirical_prior=emp_prior if with_prior and empirical_prior else None,
     )
     
     # Do self training on pseudo labels
     for i in range(self_training_rounds):
         assert pseudo_label_path_dict is not None, "Pseudo label path is not set"
-        assert best_epoch_path is not None, "Best epoch path is not set"
         prefix_self_training = prefix + f"/self-training-{i+1}"
-        task, _ = get_librispeech_task_raw_v2(
+        task, _, _ = get_librispeech_task_raw_v2(
             vocab=vocab,
             train_vocab_opts=train_vocab_opts,
             ds_sel = TrainDatasetSel.train_860h if train_small else TrainDatasetSel.train_960h,
             with_prior=with_prior,
-            pseudo_label_path = pseudo_label_path_dict
+            empirical_prior=empirical_prior,
+            pseudo_label_path = pseudo_label_path_dict,
+            train_subset = self_train_subset,
+            eval_subset = 300 if self_train_subset else 3000,
         )
         
         config_self = config.copy()
@@ -253,13 +381,42 @@ def train_exp(
             task: Task = copy.copy(task)
             task.train_dataset = copy.copy(task.train_dataset)
             task.train_dataset.train_audio_preprocess = config_self.pop("__train_audio_preprocess")
+        
+        if use_sum_criterion:
+            train_def = ctc_sum_training
+            config_self = dict_update_deep(config_self, config_full_sum)
+            config_self["lm_path"] = get_count_based_n_gram(task.train_dataset.vocab, LM_order)
             
-        d = eval(uopen(best_epoch_path, "rt").read(), {"nan": float("nan"), "inf": float("inf")})
-        assert isinstance(d, dict), "Has to be a dict containing the best epoch during scoring."
-        best_epoch = d["best_epoch"]
+            if config_self.get("empirical_prior", False):
+                config_self["empirical_prior"] = emp_prior
+            
+        # When testing on a smaller subset we only want one gpu
+        if self_train_subset is not None:
+            config_self["__num_processes"] = 1
+            # config_self["learning_rate_piecewise_steps"] = [4_500, 9_000, 10_000]
+            config_self["learning_rate_piecewise_steps"] = [2_250, 4_500, 5_000]
+            peak_lr = 1e-4
+            config_self["learning_rate_piecewise_values"] = [peak_lr * 1.001e-1, peak_lr, peak_lr * 3e-2, peak_lr * 3e-3]
+        if not aux_loss:
+            config_self.pop("aux_loss_layers")
 
-        # TODO whole training has to be adapted for sum criterion
-        model_with_checkpoint = train(
+        # Use different LR if second iteration, NOTE: this is very specific to 860h training
+        if i > 0:
+            # if i > 2:
+            #     peak_lr = 4e-4
+            #     config_self["learning_rate_piecewise_values"] = [peak_lr, peak_lr, peak_lr * 3e-2, peak_lr * 3e-3]
+            #     config_self["learning_rate_piecewise_steps"] = [20_000] + config_self["learning_rate_piecewise_steps"][1:]
+            # else:
+            peak_lr = 4e-4
+            config_self["learning_rate_piecewise_values"] = [peak_lr * 1e-1, peak_lr, peak_lr * 3e-2, peak_lr * 3e-3]
+            config_self["learning_rate_piecewise_steps"] = [20_000] + config_self["learning_rate_piecewise_steps"][1:]
+        
+        if i == 0 and from_scratch:
+            init_checkpoint = None
+        else:
+            init_checkpoint = model_with_checkpoint[i].get_last_fixed_epoch().checkpoint
+            
+        model_with_checkpoint.append(train(
             prefix_self_training,
             task=task,
             config=config_self,
@@ -267,29 +424,89 @@ def train_exp(
             epilog=epilog,
             model_def=model_def,
             train_def=train_def,
-            init_params=model_with_checkpoint.get_epoch(best_epoch).checkpoint,
+            init_params=init_checkpoint,
             num_epochs=num_epochs,
             gpu_mem=gpu_mem,
             num_processes=num_processes,
-            time_rqmt=time_rqmt,
-        )
-        train_job = model_with_checkpoint.get_training_job()
+            time_rqmt=time_rqmt if time_rqmt else ((4 if self_train_subset else 156) if use_sum_criterion else 156),
+        ))
+        train_job = model_with_checkpoint[i + 1].get_training_job()
         if env_updates:
             for k, v in env_updates.items():
                 train_job.set_env(k, v)
         
-        pseudo_label_path_dict, best_epoch_path = recog_training_exp(
+        if tune_hyperparameters:
+            original_params = hyperparamters_self_training if hyperparamters_self_training else decoder_hyperparameters
+            params = copy.copy(original_params)
+            params.pop("lm_weight_tune", None)
+            params.pop("prior_weight_tune", None)
+            default_lm = original_params.get("lm_weight")
+            default_prior = original_params.get("prior_weight")
+            lm_scores = []
+            prior_scores = []
+            lm_tune_ls = [0.0, 0.05, 0.1, -0.05, -0.1]
+            prior_tune_ls = [0.0, 0.05, 0.1, -0.05, -0.1]
+            for dc_lm in lm_tune_ls:
+                params["lm_weight"] = default_lm + dc_lm
+                score = recog_training_exp(
+                    prefix_self_training + f"/tune/lm/{str(dc_lm).replace('.', '').replace('-', 'm')}",
+                    task,
+                    model_with_checkpoint[i + 1],
+                    recog_def=decoder_def,
+                    decoder_hyperparameters=params,
+                    recog_post_proc_funcs=recog_post_proc_funcs,
+                    num_shards_recog=16, # NOTE: breaks hash
+                    num_shards_prior=64,
+                    prior_from_max=prior_from_max,
+                    empirical_prior=emp_prior if with_prior and empirical_prior else None,
+                    return_summary = True
+                )
+                lm_scores.append(score)
+            best_lm_tune = GetBestTuneValue(lm_scores, lm_tune_ls).out_best_tune
+            tk.register_output(prefix_self_training + "/tune/lm_best", best_lm_tune)
+            params["lm_weight"] = default_lm
+            params["lm_weight_tune"] = best_lm_tune
+            for dc_prior in prior_tune_ls:
+                params["prior_weight"] = default_prior + dc_prior
+                score = recog_training_exp(
+                    prefix_self_training + f"/tune/prior/{str(dc_prior).replace('.', '').replace('-', 'm')}",
+                    task,
+                    model_with_checkpoint[i + 1],
+                    recog_def=decoder_def,
+                    decoder_hyperparameters=params,
+                    recog_post_proc_funcs=recog_post_proc_funcs,
+                    num_shards_recog=16, # NOTE: breaks hash
+                    num_shards_prior=64,
+                    prior_from_max=prior_from_max,
+                    empirical_prior=emp_prior if with_prior and empirical_prior else None,
+                    return_summary = True
+                )
+                prior_scores.append(score)
+            best_prior_tune = GetBestTuneValue(prior_scores, prior_tune_ls).out_best_tune
+            tk.register_output(prefix_self_training + "/tune/prior_best", best_prior_tune)
+            
+            original_params["lm_weight_tune"] = best_lm_tune
+            original_params["prior_weight_tune"] = best_prior_tune
+        
+        pseudo_label_path_dict = recog_training_exp(
             prefix_self_training,
             task,
-            model_with_checkpoint,
+            model_with_checkpoint[i + 1],
             recog_def=decoder_def,
-            decoder_hyperparameters=decoder_hyperparameters,
-            save_pseudo_labels=None if i+1 == self_training_rounds else pseudo_labels_ds,
+            decoder_hyperparameters=hyperparamters_self_training if hyperparamters_self_training else decoder_hyperparameters,
+            save_pseudo_labels=None if not calc_last_pseudo_labels and i+1 == self_training_rounds else (pseudo_labels_ds, train_100_ds),
+            calculate_pseudo_label_scores=True,
             recog_post_proc_funcs=recog_post_proc_funcs,
+            num_shards_recog=16, # NOTE: breaks hash
+            num_shards_pseudo=64,
+            num_shards_prior=64,
+            is_last=i+1 == self_training_rounds,
+            prior_from_max=prior_from_max,
+            empirical_prior=emp_prior if with_prior and empirical_prior else None,
         )
 
-    _train_experiments[name] = model_with_checkpoint
-    return model_with_checkpoint
+    _train_experiments[name] = model_with_checkpoint[-1]
+    return model_with_checkpoint[-1]
 
 
 def _remove_eos_label_v2(res: RecogOutput) -> RecogOutput:
@@ -747,11 +964,6 @@ def ctc_training(*, model: Model, data: rf.Tensor, data_spatial_dim: Dim, target
                 custom_inv_norm_factor=targets_spatial_dim.get_size_tensor(),
                 use_normalized_loss=use_normalized_loss,
             )
-            # decoded, decoded_spatial_dim = rf.ctc_greedy_decode(aux_logits, in_spatial_dim=enc_spatial_dim)
-            # error = rf.edit_distance(
-            #     a=decoded, a_spatial_dim=decoded_spatial_dim, b=targets, b_spatial_dim=targets_spatial_dim
-            # )
-            # error.mark_as_loss("label", as_error=True, custom_inv_norm_factor=targets_spatial_dim.get_size_tensor())
 
     log_probs = model.log_probs_wb_from_logits(logits)
     loss = rf.ctc_loss(
@@ -813,6 +1025,190 @@ def ctc_training(*, model: Model, data: rf.Tensor, data_spatial_dim: Dim, target
 
 ctc_training: TrainDef[Model]
 ctc_training.learning_rate_control_error_measure = "ctc"
+
+def ctc_sum_training(*, model: Model, data: rf.Tensor, data_spatial_dim: Dim, lm_path: tk.Path, seq_tags: rf.Tensor = None):
+    """Function is run within RETURNN."""
+    from returnn.config import get_global_config
+    from .sum_criterion import sum_loss, safe_logsumexp
+    
+    # torch.autograd.set_detect_anomaly(True)
+    
+    def _calc_log_prior(log_probs: torch.Tensor, lengths: torch.Tensor, use_max: bool = False, separate_eos: bool = False) -> torch.Tensor:
+        lengths = lengths.to(log_probs.device)
+        assert lengths.size(0) == log_probs.size(0), "Prior calculation batch lengths are not the same (full_sum)!"
+        
+        mask_bool = torch.arange(log_probs.size(1), device=log_probs.device).expand(log_probs.size(0), -1) < lengths.unsqueeze(1)
+        mask = torch.where(mask_bool, 0.0, float("-inf"))
+        mask = mask.unsqueeze(-1).expand(-1, -1, log_probs.size(2))
+        log_probs = log_probs + mask
+        
+        sum_frames = lengths.sum()
+        if use_max:
+            if separate_eos:
+                raise NotImplementedError("Separate EOS not implemented for max prior")
+            else:
+                argmaxs = log_probs.argmax(dim=2)
+                argmaxs = argmaxs.flatten()
+                argmaxs = argmaxs[mask_bool.flatten()]
+                assert argmaxs.size(0) == sum_frames, f"Prior calculation frame count does not match (max) ({argmaxs.size(0)} != {sum_frames})"
+                sum_probs = argmaxs.bincount(minlength=log_probs.size(2))
+                sum_frames += (sum_probs == 0).sum()
+                sum_probs = torch.where(sum_probs == 0, 1, sum_probs)
+                log_sum_probs = sum_probs.log()
+        else:
+            if separate_eos:
+                log_sum_probs = torch.full((log_probs.size(2) + 1,), float("-inf"), device=log_probs.device)
+                log_sum_probs[1:-1] = safe_logsumexp(safe_logsumexp(log_probs[:,:,1:], dim=0), dim=0) # Sum over batch and time
+                log_sum_probs[0] = safe_logsumexp(log_probs[:,0,0], dim=0) # BOS prob
+                log_sum_probs[-1] = safe_logsumexp(safe_logsumexp(log_probs[:,1:,0], dim=0), dim=0) # EOS prob
+            else:
+                log_sum_probs = safe_logsumexp(safe_logsumexp(log_probs, dim=0), dim=0)
+            
+        log_mean_probs = log_sum_probs - sum_frames.log()
+        
+        with torch.no_grad():
+            assert log_mean_probs.exp().sum().allclose(torch.tensor(1.0, device=log_mean_probs.device)), f"Prior probs do not sum to 1.0, but to {log_mean_probs.exp().sum()}"
+            if log_mean_probs.isclose(torch.tensor([0.0], device=log_probs.device)).any() or log_mean_probs.isinf().any() or log_mean_probs.isnan().any():
+                print("Prior probs contain inf or nan or 0 values!", log_mean_probs, log_mean_probs.exp())
+        
+        return log_mean_probs
+
+    config = get_global_config()  # noqa
+    aux_loss_layers = config.typed_value("aux_loss_layers")
+    aux_loss_scales = config.typed_value("aux_loss_scales", ([1.0] * len(aux_loss_layers)) if aux_loss_layers else None)
+    use_normalized_loss = config.bool("use_normalized_loss", True)
+    
+    am_scale = config.float("am_scale", 1.0)
+    lm_scale = config.float("lm_scale", 1.0)
+    prior_scale = config.float("prior_scale", 1.0)
+    
+    horizontal_prior = config.bool("horizontal_prior", True)
+    blank_prior = config.bool("blank_prior", True)
+    prior_gradient = config.bool("prior_gradient", True)
+    empirical_prior = config.typed_value("empirical_prior", None)
+    max_prior = config.bool("max_prior", False)
+    top_k = config.int("top_k", 0)
+    use_prior = prior_scale > 0.0
+
+    if data.feature_dim and data.feature_dim.dimension == 1:
+        data = rf.squeeze(data, axis=data.feature_dim)
+    assert not data.feature_dim  # raw audio
+    
+    # if prior_scale == 0.55: # TODO kann ich seq tags auslesen? (wahrscheinlich muss ich das in der train.py mit übergeben weil hier nur tensor)
+    #     print("Data", data) # Return Tensor{'data', [B,T|'time'[B]]}
+    #     print("Batch", data.batch) # Return None
+    
+    
+    with uopen(lm_path, "rb") as f:
+        lm = torch.load(f, map_location=data.device)
+        assert isinstance(lm, torch.Tensor), "Loaded LM is not a tensor"
+    lm_order = len(lm.size())
+
+    collected_outputs = {}
+    logits, enc, enc_spatial_dim = model(data, in_spatial_dim=data_spatial_dim, collected_outputs=collected_outputs)
+    
+    if aux_loss_layers:
+        for i, layer_idx in enumerate(aux_loss_layers):
+            if layer_idx > len(model.encoder.layers):
+                continue
+            linear = getattr(model, f"enc_aux_logits_{layer_idx}")
+            aux_logits = linear(collected_outputs[str(layer_idx - 1)])
+            aux_log_probs = model.log_probs_wb_from_logits(aux_logits)
+            aux_log_probs = aux_log_probs.raw_tensor
+            if use_prior:
+                if empirical_prior is not None:
+                    aux_log_prior = np.loadtxt(empirical_prior, dtype="float32")
+                    aux_log_prior = torch.tensor(aux_log_prior, device=log_probs.device)
+                    assert aux_log_prior.size(0) == log_probs.size(2), "Empirical prior size does not match (full_sum)!"
+                else:
+                    aux_log_prior = _calc_log_prior(aux_log_probs, enc_spatial_dim.dyn_size_ext.raw_tensor, use_max=max_prior)
+                    if not prior_gradient:
+                        aux_log_prior = aux_log_prior.detach()
+            else:
+                aux_log_prior = None
+            # (B, T, F) -> (T, B, F)
+            aux_log_probs = aux_log_probs.permute(1, 0, 2)
+            aux_loss = sum_loss(
+                log_probs=aux_log_probs,
+                log_lm_probs=lm,
+                log_prior=aux_log_prior,
+                input_lengths=enc_spatial_dim.dyn_size_ext.raw_tensor,
+                top_k=top_k,
+                LM_order=lm_order,
+                am_scale=am_scale,
+                lm_scale=lm_scale,
+                prior_scale=prior_scale,
+                horizontal_prior=horizontal_prior,
+                blank_prior=blank_prior,
+                blank_idx=model.blank_idx,
+                eos_idx=model.eos_idx,
+                unk_idx=1,
+                device=aux_log_probs.device
+            )
+            aux_loss = rtf.TorchBackend.convert_to_tensor(aux_loss, dims = [batch_dim], dtype = "float32", name=f"aux_full_sum_{layer_idx}")
+            aux_loss.mark_as_loss(
+                f"aux_full_sum_{layer_idx}",
+                scale=aux_loss_scales[i],
+                custom_inv_norm_factor=enc_spatial_dim.get_size_tensor(),
+                use_normalized_loss=use_normalized_loss,
+            )
+            
+    fixed_seqs = ["train-other-500/5756-305214-0041/5756-305214-0041"] # MONICA DREW FRESH HOPE FROM HER SON'S WRITINGS THEY WERE FULL OF NOBLE THOUGHTS AND HIGH ASPIRATIONS
+    print_for_idx = []
+    
+    seq_tags = seq_tags.raw_tensor
+    for seq in fixed_seqs:
+        if seq in seq_tags:
+            idx = np.where(seq_tags == seq)[0]
+            print("Found seq", seq, enc_spatial_dim.dyn_size_ext.raw_tensor[idx])
+            print_for_idx.append(idx[0])
+    
+    # seq = seq_tags[0]
+    # idx = np.where(seq_tags == seq)[0]
+    # print_for_idx.append(idx[0])
+
+    log_probs = model.log_probs_wb_from_logits(logits)
+    log_probs = log_probs.raw_tensor
+    if use_prior:
+        if empirical_prior is not None:
+            log_prior = np.loadtxt(empirical_prior, dtype="float32")
+            log_prior = torch.tensor(log_prior, device=log_probs.device)
+            assert log_prior.size(0) == log_probs.size(2), "Empirical prior size does not match (full_sum)!"
+        else:
+            log_prior = _calc_log_prior(log_probs, enc_spatial_dim.dyn_size_ext.raw_tensor, use_max=max_prior)
+            if not prior_gradient:
+                log_prior = log_prior.detach()
+    else:
+        log_prior = None
+    # (B, T, F) -> (T, B, F)
+    log_probs = log_probs.permute(1, 0, 2)
+    loss = sum_loss(
+        log_probs=log_probs,
+        log_lm_probs=lm,
+        log_prior=log_prior,
+        input_lengths=enc_spatial_dim.dyn_size_ext.raw_tensor,
+        top_k=top_k,
+        LM_order=lm_order,
+        am_scale=am_scale,
+        lm_scale=lm_scale,
+        prior_scale=prior_scale,
+        horizontal_prior=horizontal_prior,
+        blank_prior=blank_prior,
+        blank_idx=model.blank_idx,
+        eos_idx=model.eos_idx,
+        unk_idx=1,
+        device=log_probs.device,
+        print_best_path_for_idx=print_for_idx
+    )
+    loss = rtf.TorchBackend.convert_to_tensor(loss, dims = [batch_dim], dtype = "float32", name=f"full_sum")
+    loss.mark_as_loss(
+        f"full_sum",
+        custom_inv_norm_factor=enc_spatial_dim.get_size_tensor(),
+        use_normalized_loss=use_normalized_loss,
+    )
+
+ctc_sum_training: ExtendedTrainDef[Model]
+ctc_sum_training.learning_rate_control_error_measure = "full_sum"
 
 
 #---------------------------------------------------------------------------------------------------------------------------------------
@@ -921,6 +1317,7 @@ def model_recog_lm(
     """
     from torchaudio.models.decoder import ctc_decoder
     import torch
+    import json
     from returnn.util.basic import cf
     
     # Get the logits from the model
@@ -929,7 +1326,23 @@ def model_recog_lm(
     hyp_params = copy.copy(hyperparameters)
     greedy = hyp_params.pop("greedy", False)
     prior_weight = hyp_params.pop("prior_weight", 0.0)
+    prior_weight_tune = hyp_params.pop("prior_weight_tune", None)
+    lm_weight_tune = hyp_params.pop("lm_weight_tune", None)
     use_logsoftmax = hyp_params.pop("use_logsoftmax", False)
+    
+    if prior_weight_tune:
+        prior_weight_tune = json.load(open(prior_weight_tune))
+        prior_weight_tune = prior_weight_tune["best_tune"]
+        assert type(prior_weight_tune) == float, "Prior weight tune is not a float!"
+        print(f"Prior weight with tune: {prior_weight} + {prior_weight_tune} = {prior_weight + prior_weight_tune}")
+        prior_weight += prior_weight_tune
+    if lm_weight_tune:
+        lm_weight_tune = json.load(open(lm_weight_tune))
+        lm_weight_tune = lm_weight_tune["best_tune"]
+        assert type(lm_weight_tune) == float, "LM weight tune is not a float!"
+        old_lm_weight = hyp_params.get("lm_weight", 0.0)
+        print(f"LM weight with tune: {old_lm_weight} + {lm_weight_tune} = {old_lm_weight + lm_weight_tune}")
+        hyp_params["lm_weight"] = old_lm_weight + lm_weight_tune
     
     if greedy:
         use_logsoftmax = True
@@ -989,6 +1402,7 @@ def model_recog_lm(
         decoder_results = decoder(logits.raw_tensor.cpu(), enc_spatial_dim_torch)
     
     if use_lexicon:
+        print("Use words directly!")
         if CHECK_DECODER_CONSISTENCY:
             for l1 in decoder_results:
                 for l2 in l1:

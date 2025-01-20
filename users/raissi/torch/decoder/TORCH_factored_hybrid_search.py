@@ -150,7 +150,6 @@ class TORCHFactoredHybridDecoder(BASEFactoredHybridDecoder):
         crp, eval_args = self.get_crp_and_eval_args(rasr_binary_path=rasr_binary_path,
                                                     rasr_input_mapping=rasr_input_mapping,
                                                     rasr_init_args=rasr_init_args)
-        embed()
         super().__init__(
             name=name,
             crp=crp,

@@ -38,6 +38,7 @@ def forward_to_hdf(
     forward_post_config: Optional[Dict[str, Any]] = None,
     forward_mem_rqmt: Union[int, float] = 6,
     forward_rqmt: Optional[Dict[str, Any]] = None,
+    forward_device: Optional[str] = None,
     forward_alias_name: Optional[str] = None,
     _config_v2: bool = True,  # testing...
 ) -> tk.Path:
@@ -60,6 +61,7 @@ def forward_to_hdf(
     :param forward_post_config: additional RETURNN post config (non-hashed) opts for the forward job
     :param forward_mem_rqmt: memory requirement for the forward job (in GB)
     :param forward_rqmt: additional rqmt opts for the forward job (e.g. "time" (in hours))
+    :param forward_device: "cpu" or "gpu". if not given, will be "gpu" if model is given, else "cpu"
     :param forward_alias_name: optional alias name for the forward job
     :param _config_v2: new RETURNN config serialization
     :return: HDF file path
@@ -84,6 +86,7 @@ def forward_to_hdf(
         returnn_python_exe=tools_paths.get_returnn_python_exe(),
         returnn_root=tools_paths.get_returnn_root(),
         mem_rqmt=forward_mem_rqmt,
+        device=forward_device or ("gpu" if model else "cpu"),
     )
     if forward_rqmt:
         forward_job.rqmt.update(forward_rqmt)
@@ -209,6 +212,7 @@ def _returnn_get_forward_callback():
                 ndim=output.ndim,
                 labels=output.vocab and output.vocab.labels,
                 extra_type={k: (v.dim, v.ndim, v.dtype) for k, v in expected_outputs.data.items() if k != "output"},
+                extra_labels={k: v.vocab.labels for k, v in expected_outputs.data.items() if k != "output" and v.vocab},
             )
 
         def process_seq(self, *, seq_tag: str, outputs: TensorDict):

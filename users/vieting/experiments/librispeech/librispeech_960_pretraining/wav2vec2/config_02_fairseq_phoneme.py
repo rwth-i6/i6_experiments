@@ -63,7 +63,7 @@ def get_fairseq_root(commit="e4a2e4e93efbcbaaae52a17ae6600beb2083fb33", fairseq_
     return fairseq_root
 
 
-def run_fairseq_pretraining(exp_name, commit, python_exe_hash_overwrite=None, **kwargs):
+def run_fairseq_pretraining(exp_name, commit, python_exe_hash_overwrite=None, checkpoint=None, **kwargs):
     """
     Runs a FairseqHydraTrainingJob to pretrain a wav2vec 2.0 model.
 
@@ -73,6 +73,8 @@ def run_fairseq_pretraining(exp_name, commit, python_exe_hash_overwrite=None, **
         python_exe_hash_overwrite (Optional[str]): The hash overwrite for the fairseq_python_exe to use.
             It should only be used to achieve compatibility with the previous setup structure and should be ignored
             in all other cases.
+        checkpoint (Optional[tk.Path]): The path to the checkpoint to start from. If None, the training will start
+            from scratch.
         **kwargs: Additional arguments to pass to the job. These will be used to overwrite the model configuration.
     """
     # job requirements
@@ -93,6 +95,8 @@ def run_fairseq_pretraining(exp_name, commit, python_exe_hash_overwrite=None, **
     # generate config
     fairseq_args = get_fairseq_args(num_gpus=num_gpus)
     fairseq_args["task"]["alignment"] = alignment
+    if checkpoint is not None:
+        fairseq_args["checkpoint"]["continue_once"] = checkpoint
     for k, v in kwargs.items():
         fairseq_args["model"][k] = v
     fairseq_config = FairseqHydraConfig(fairseq_args)

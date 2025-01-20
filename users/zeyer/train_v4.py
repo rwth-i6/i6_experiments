@@ -87,6 +87,22 @@ def train(
         train_dataset = copy.copy(train_dataset)
         assert hasattr(train_dataset, "train_audio_preprocess")
         train_dataset.train_audio_preprocess = config.pop("__train_audio_preprocess")
+    mp_ds_opts = {}
+    if "__multi_proc_dataset" in config:
+        mp_ds = config.pop("__multi_proc_dataset")
+        if isinstance(mp_ds, bool):
+            apply_multi_proc = mp_ds
+        elif isinstance(mp_ds, int):
+            if mp_ds > 0:
+                apply_multi_proc = True
+                mp_ds_opts["num_workers"] = mp_ds
+            else:
+                apply_multi_proc = False
+        elif isinstance(mp_ds, dict):
+            apply_multi_proc = True
+            mp_ds_opts.update(mp_ds)
+        else:
+            raise ValueError(f"invalid __multi_proc_dataset: {mp_ds}")
 
     returnn_train_config_dict: Dict[str, Any] = dict(
         backend=model_def.backend,
@@ -96,7 +112,7 @@ def train(
         target=train_dataset.get_default_target(),
         extern_data=train_dataset.get_extern_data(),
         train=(
-            mp_ds_utils.multi_proc_dataset_opts(train_dataset.get_train_dataset())
+            mp_ds_utils.multi_proc_dataset_opts(train_dataset.get_train_dataset(), **mp_ds_opts)
             if apply_multi_proc
             else train_dataset.get_train_dataset()
         ),

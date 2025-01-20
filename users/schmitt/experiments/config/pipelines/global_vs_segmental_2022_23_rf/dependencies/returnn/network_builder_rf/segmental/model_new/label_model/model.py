@@ -24,6 +24,7 @@ class SegmentalAttLabelDecoder(BaseLabelDecoder):
           segment_starts_sparse_dim: Optional[Dim] = None,
           segment_lens_sparse_dim: Optional[Dim] = None,
           use_mini_att: bool = False,
+          use_zero_att: bool = False,
   ) -> rf.State:
     """Default initial state"""
     if self.center_window_size == 1:
@@ -42,7 +43,7 @@ class SegmentalAttLabelDecoder(BaseLabelDecoder):
       if use_mini_att:
         state.mini_att_lstm = self.mini_att_lstm.default_initial_state(batch_dims=batch_dims)
 
-    if self.use_weight_feedback and not use_mini_att:
+    if self.use_weight_feedback and not use_mini_att and not use_zero_att:
       state.accum_att_weights = rf.zeros(
         list(batch_dims) + [self.accum_att_weights_dim, self.att_num_heads], feature_dim=self.att_num_heads
       )

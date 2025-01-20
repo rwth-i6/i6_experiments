@@ -26,6 +26,8 @@ from returnn.torch.context import get_run_ctx
 
 from .distill_pos_enc_hubert_v2_cfg import ModelConfig, DistillConfig
 
+import time
+
 
 def mask_tensor(tensor: torch.Tensor, seq_len: torch.Tensor) -> torch.Tensor:
     """
@@ -146,18 +148,23 @@ class Model(torch.nn.Module):
             if self.distill_config.warmup_loss is not None:
                 self.upscale = nn.Conv1d(conformer_size, hubert.config.hidden_size, 1)
         self.specaug_start_epoch = self.cfg.specauc_start_epoch
-        self.downsample_teacher = nn.MaxPool2d(kernel_size=(2, 1), stride=(2, 1), padding=(0, 0),)
+        self.downsample_teacher = nn.MaxPool2d(
+            kernel_size=(2, 1),
+            stride=(2, 1),
+            padding=(0, 0),
+        )
         # No particular weight init!
 
     def forward(
-        self, raw_audio: torch.Tensor, raw_audio_len: torch.Tensor,
+        self,
+        raw_audio: torch.Tensor,
+        raw_audio_len: torch.Tensor,
     ):
         """
         :param raw_audio: Audio samples as [B, T, 1]
         :param raw_audio_len: length of T as [B]
         :return: list of logprobs [B, T, #labels + blank], mask [B, T]
         """
-
         squeezed_features = torch.squeeze(raw_audio, dim=-1)
         with torch.no_grad():
             audio_features, audio_features_len = self.feature_extraction(squeezed_features, raw_audio_len)
@@ -196,7 +203,6 @@ class Model(torch.nn.Module):
             log_probs_list = log_probs_list[0]
         if len(logit_ls) == 1:
             logit_ls = logit_ls[0]
-
         lengths = torch.sum(out_mask, dim=1)
         teacher_logits = None
         if self.training or run_ctx.stage == "train_step":
@@ -224,12 +230,13 @@ def train_step(*, model: Model, data, run_ctx, **kwargs):
     labels_len = data["labels:size1"]  # [B, N]
 
     logprobs_list, audio_features_len, student_logits, teacher_logits = model(
-        raw_audio=raw_audio, raw_audio_len=raw_audio_len,
+        raw_audio=raw_audio,
+        raw_audio_len=raw_audio_len,
     )
     if not isinstance(logprobs_list, list):
         logprobs_list = [logprobs_list]
-    assert not isinstance(student_logits, list)
-    assert student_logits.shape[1] == logprobs_list[0].shape[1]
+    # assert not isinstance(student_logits, list)
+    # assert student_logits.shape[1] == logprobs_list[0].shape[1]
 
     for logprobs, layer_index, scale in zip(logprobs_list, model.return_layers, model.scales):
         if model.distill_config.warmup_loss is not None and run_ctx.epoch < model.distill_config.warmup_loss:
@@ -275,12 +282,13 @@ def train_step(*, model: Model, data, run_ctx, **kwargs):
             or (0 > model.distill_config.eliminate_blanks > -1 * run_ctx.epoch)
         )
     ):
+        assert model.distill_config.eliminate_blanks is not False
         soft_targets_loss = 0
         num_phonemes = 0
         for teacher_seq, student_seq, labels in zip(teacher_logits, student_logits, data["labels"]):
             if model.prior_file is not None:
                 teacher_log_soft = nn.functional.log_softmax(teacher_seq)
-                assert torch.equal(torch.argmax(teacher_seq, dim=-1), torch.argmax(teacher_log_soft, dim=-1))
+                # assert torch.equal(torch.argmax(teacher_seq, dim=-1), torch.argmax(teacher_log_soft, dim=-1))
                 teacher_log_soft -= torch.tensor(model.prior_scale * model.prior_file).to(device="cuda")
                 pos = torch.argmax(teacher_log_soft, dim=-1)
             else:
@@ -320,7 +328,7 @@ def train_step(*, model: Model, data, run_ctx, **kwargs):
             student_seq = student_seq.view(-1, model.cfg.label_target_size + 1)
             soft_targets = nn.functional.softmax(teacher_seq / T, dim=-1)
             soft_prob = nn.functional.log_softmax(student_seq / T, dim=-1)
-            soft_targets_loss += torch.sum(soft_targets * (soft_targets.log() - soft_prob)) * (T ** 2)
+            soft_targets_loss += torch.sum(soft_targets * (soft_targets.log() - soft_prob)) * (T**2)
             num_phonemes += soft_targets.shape[0]
             counter += 1
         if num_phonemes == 0:
@@ -363,13 +371,13 @@ def train_step(*, model: Model, data, run_ctx, **kwargs):
         soft_targets_log = soft_targets.log()
         if model.distill_config.mask_padding is True:
             audio_mask = mask_tensor(soft_targets, audio_features_len)
-            assert all(torch.sum(audio_mask, dim=1) == audio_features_len)
+            # assert all(torch.sum(audio_mask, dim=1) == audio_features_len)
             audio_mask = ~audio_mask
             audio_mask = audio_mask.unsqueeze(dim=-1)
             soft_targets = torch.masked_fill(soft_targets, audio_mask, 0)
             soft_targets_log = torch.masked_fill(soft_targets_log, audio_mask, 0)
             soft_prob = torch.masked_fill(soft_prob, audio_mask, 0)
-        soft_targets_loss = torch.sum(soft_targets * (soft_targets_log - soft_prob)) / soft_prob.size()[0] * (T ** 2)
+        soft_targets_loss = torch.sum(soft_targets * (soft_targets_log - soft_prob)) / soft_prob.size()[0] * (T**2)
         num_phonemes = torch.sum(labels_len)
         run_ctx.mark_as_loss(
             name=f"KL", loss=soft_targets_loss, scale=model.distill_config.distill_scale, inv_norm_factor=num_phonemes
@@ -398,7 +406,10 @@ def prior_step(*, model: Model, data, run_ctx, **kwargs):
     raw_audio = data["raw_audio"]  # [B, T', F]
     raw_audio_len = data["raw_audio:size1"]  # [B]
 
-    logprobs, audio_features_len, test, test2 = model(raw_audio=raw_audio, raw_audio_len=raw_audio_len,)
+    logprobs, audio_features_len, test, test2 = model(
+        raw_audio=raw_audio,
+        raw_audio_len=raw_audio_len,
+    )
 
     probs = torch.exp(logprobs)
     run_ctx.sum_frames = run_ctx.sum_frames + torch.sum(audio_features_len)

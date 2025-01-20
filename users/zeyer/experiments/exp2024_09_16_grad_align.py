@@ -125,6 +125,12 @@ def py():
             "-blankSep",
             "spm10k",
         ),
+        (
+            "lpNormedGradC05_11P1+blankSep",  # 5.73/6.08
+            "v6-relPosAttDef-aedLoss-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100-wd1e_2-lrlin1e_5_295k"
+            "-featBN-speedpertV2-spm10k-bpeSample001-blankSep-lpNormedGradInclBlank",
+            "spm10k",
+        ),
         (  # ctc forced align: 75.4/42.7ms
             "base-spm512",  # 5.97/6.21
             "v6-relPosAttDef"
@@ -185,6 +191,7 @@ def py():
             # prior_stats = get_ctc_prior(ctc_model, train_dataset, {"fix_log_probs": True})
             # prior_stats.mean.creator.add_alias(f"{prefix}ctc_prior/{shortname}-ep{epoch}/prior_stats")
             # tk.register_output(f"{prefix}ctc_prior/{shortname}-ep{epoch}/prior_stats.mean.txt", prior_stats.mean)
+
             for am_scale, prior_scale in [(1.0, 1.0), (1.0, 1.5), (1.0, 2.0), (1.0, 3.0)]:
                 opts_variants.append(
                     {
@@ -271,6 +278,9 @@ def py():
         log_prob_normed_grad_opts_by_shortname = {
             "lpNormedGrad" + k: v for k, v in log_prob_normed_grad_opts_by_shortname.items()
         }
+        log_prob_normed_grad_opts = (
+            log_prob_normed_grad_opts_by_shortname[shortname.split("+")[0]] if "lpNormedGrad" in shortname else None
+        )
 
         for extra_name, grad_opts in [
             # ("", {}),
@@ -331,7 +341,7 @@ def py():
                     (
                         "-lpNormedGradUsed-blankStopGrad-inclBlankState-p0.1",
                         {
-                            "log_prob_normed_grad": log_prob_normed_grad_opts_by_shortname[shortname],
+                            "log_prob_normed_grad": log_prob_normed_grad_opts,
                             "_log_prob_normed_grad_mod_import_hack": _HackImportAlignmentModule(),
                             "_log_prob_normed_grad_version": 2,
                             "stop_grad_blank": True,
@@ -347,7 +357,7 @@ def py():
                             "static_prior": {"type": "prob", "file": prior_stats.mean},
                             "ctc_am_scale": 1.0,
                             "ctc_prior_scale": 1.0,
-                            "log_prob_normed_grad": log_prob_normed_grad_opts_by_shortname[shortname],
+                            "log_prob_normed_grad": log_prob_normed_grad_opts,
                             "_log_prob_normed_grad_mod_import_hack": _HackImportAlignmentModule(),
                             "_log_prob_normed_grad_version": 2,
                             "stop_grad_blank": True,
@@ -363,7 +373,7 @@ def py():
                             "static_prior": {"type": "prob", "file": prior_stats.mean},
                             "ctc_am_scale": 1.0,
                             "ctc_prior_scale": 1.0,
-                            "log_prob_normed_grad": log_prob_normed_grad_opts_by_shortname[shortname],
+                            "log_prob_normed_grad": log_prob_normed_grad_opts,
                             "_log_prob_normed_grad_mod_import_hack": _HackImportAlignmentModule(),
                             "_log_prob_normed_grad_version": 2,
                             "stop_grad_blank": True,

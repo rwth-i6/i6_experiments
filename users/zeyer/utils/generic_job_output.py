@@ -7,7 +7,6 @@ but in a way that it is keeps the has just as if it would be the output of the c
 
 from __future__ import annotations
 
-import os
 import importlib
 
 from sisyphus import Job

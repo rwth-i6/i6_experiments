@@ -68,7 +68,7 @@ def extend_lexicon_with_blank(lexicon: tk.Path) -> tk.Path:
     return lexicon
 
 
-def process_corpus_text_with_extended_lexicon(bliss_corpus: tk.Path, lexicon: tk.Path) -> tk.Path:
+def process_corpus_text_with_extended_lexicon(bliss_corpus: tk.Path, lexicon: tk.Path, prefix=None) -> tk.Path:
     """
     Apply the lexicon to a corpus file, and insert [start], [end] and [space] tokens.
 
@@ -86,5 +86,9 @@ def process_corpus_text_with_extended_lexicon(bliss_corpus: tk.Path, lexicon: tk
          add_end_command]).out
     processed_bliss_corpus = CorpusReplaceOrthFromTxtJob(bliss_corpus, tokenized_text).out_corpus
 
-    converted_bliss_corpus = ApplyLexiconToCorpusJob(processed_bliss_corpus, lexicon, word_separation_orth="[space]").out_corpus
+    converted_bliss_corpus_job = ApplyLexiconToCorpusJob(processed_bliss_corpus, lexicon, word_separation_orth="[space]")
+    converted_bliss_corpus = converted_bliss_corpus_job.out_corpus
+    if prefix is not None:
+        converted_bliss_corpus_job.add_alias(prefix + "/apply_lexicon")
+
     return converted_bliss_corpus

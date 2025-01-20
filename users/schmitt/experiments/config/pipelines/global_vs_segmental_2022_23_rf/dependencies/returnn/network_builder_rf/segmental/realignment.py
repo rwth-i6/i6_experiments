@@ -74,7 +74,7 @@ def model_realign_(
   #     cheating_targets_spatial_dim=non_blank_targets_spatial_dim,
   #   )
   # else:
-  viterbi_alignment, seq_log_prob, viterbi_alignment_spatial_dim, _, _, beam_dim, recomb_path_counter = recog.model_recog(
+  viterbi_alignment, seq_log_prob, viterbi_alignment_spatial_dim, _, _, beam_dim, _ = recog.model_recog(
     model=model,
     data=data,
     data_spatial_dim=data_spatial_dim,
@@ -87,7 +87,6 @@ def model_realign_(
   # reduce to best score (remove beam dim)
   best_hyp = rf.reduce_argmax(seq_log_prob, axis=beam_dim)
   seq_log_prob = rf.reduce_max(seq_log_prob, axis=beam_dim)
-  best_recomb_path_counter = rf.gather(recomb_path_counter, indices=best_hyp, axis=beam_dim)
 
   # if data.feature_dim and data.feature_dim.dimension == 1:
   #   data = rf.squeeze(data, axis=data.feature_dim)
@@ -106,7 +105,7 @@ def model_realign_(
   #   use_recombination="max",
   # )
 
-  return viterbi_alignment, seq_log_prob, viterbi_alignment_spatial_dim, best_recomb_path_counter
+  return viterbi_alignment, seq_log_prob, viterbi_alignment_spatial_dim
 
 
 # def model_realign(
@@ -1292,18 +1291,17 @@ def _returnn_v2_forward_step(*, model, extern_data: TensorDict, **_kwargs_unused
     non_blank_targets_spatial_dim=targets_spatial_dim,
   )
 
-  if len(realign_out) == 4:
+  if len(realign_out) == 3:
     # realign results including viterbi_align,
     # log probs {batch,},
     # out_spatial_dim,
-    viterbi_align, scores, out_spatial_dim, recomb_path_counter = realign_out
+    viterbi_align, scores, out_spatial_dim = realign_out
   else:
     raise ValueError(f"unexpected num outputs {len(realign_out)} from recog_def")
   assert isinstance(viterbi_align, Tensor) and isinstance(scores, Tensor)
   assert isinstance(out_spatial_dim, Dim)
   rf.get_run_ctx().mark_as_output(viterbi_align, "viterbi_align", dims=[batch_dim, out_spatial_dim])
   rf.get_run_ctx().mark_as_output(scores, "scores", dims=[batch_dim,])
-  rf.get_run_ctx().mark_as_output(recomb_path_counter, "recomb_path_counter", dims=[batch_dim, ])
 
 
 _v2_forward_out_scores_filename = "scores.py.gz"
@@ -1322,7 +1320,6 @@ def _returnn_v2_get_forward_callback():
   class _ReturnnRecogV2ForwardCallbackIface(ForwardCallbackIface):
     def __init__(self):
       self.score_file: Optional[TextIO] = None
-      self.recomb_path_counter_file: Optional[TextIO] = None
       self.alignment_file: Optional[SimpleHDFWriter] = None
 
     def init(self, *, model):
@@ -1331,9 +1328,6 @@ def _returnn_v2_get_forward_callback():
       self.score_file = gzip.open(_v2_forward_out_scores_filename, "wt")
       self.score_file.write("{\n")
 
-      self.recomb_path_counter_file = gzip.open(_v2_forward_out_recomb_path_counter_filename, "wt")
-      self.recomb_path_counter_file.write("{\n")
-
       self.alignment_file = SimpleHDFWriter(
         filename=_v2_forward_out_alignment_filename, dim=model.target_dim.dimension, ndim=1
       )
@@ -1341,13 +1335,10 @@ def _returnn_v2_get_forward_callback():
     def process_seq(self, *, seq_tag: str, outputs: TensorDict):
       viterbi_align: Tensor = outputs["viterbi_align"]  # [T]
       scores: Tensor = outputs["scores"]  # []
-      recomb_path_counter: Tensor = outputs["recomb_path_counter"]
       assert len(viterbi_align.dims) == 1, f"expected hyps to be 1D, but got {viterbi_align.dims}"
       assert viterbi_align.dims[0].dyn_size_ext, f"viterbi_align {viterbi_align} does not define seq lengths"
       score = float(scores.raw_tensor)
       self.score_file.write(f"{seq_tag!r}: {score!r},\n")
-
-      self.recomb_path_counter_file.write(f"{seq_tag!r}: {int(recomb_path_counter.raw_tensor)},\n")
 
       seq_len = viterbi_align.dims[0].dyn_size_ext.raw_tensor.item()
       viterbi_align_raw = viterbi_align.raw_tensor[:seq_len]
@@ -1362,8 +1353,6 @@ def _returnn_v2_get_forward_callback():
     def finish(self):
       self.score_file.write("}\n")
       self.score_file.close()
-      self.recomb_path_counter_file.write("}\n")
-      self.recomb_path_counter_file.close()
       self.alignment_file.close()
 
   return _ReturnnRecogV2ForwardCallbackIface()

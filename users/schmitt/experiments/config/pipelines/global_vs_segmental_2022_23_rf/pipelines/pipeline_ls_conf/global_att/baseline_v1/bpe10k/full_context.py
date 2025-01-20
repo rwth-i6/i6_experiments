@@ -87,6 +87,23 @@ def run_exps():
         checkpoint=checkpoint,
         checkpoint_aliases=("best-4-avg",),
         run_analysis=True,
+        only_do_analysis=True,
+        analyze_gradients=True,
+        analsis_analyze_gradients_plot_log_gradients=False,
+        analysis_analyze_gradients_plot_encoder_layers=False,
+        att_weight_seq_tags=[
+          "train-other-960/1246-124548-0042/1246-124548-0042",
+          "train-other-960/40-222-0033/40-222-0033",
+          "train-other-960/103-1240-0038/103-1240-0038",
+        ],
+        corpus_keys=("train",),
+      )
+      recog.global_att_returnn_label_sync_beam_search(
+        alias=train_alias,
+        config_builder=config_builder,
+        checkpoint=checkpoint,
+        checkpoint_aliases=("best-4-avg",),
+        run_analysis=True,
         analysis_dump_gradients=True,
         only_do_analysis=True,
         corpus_keys=("train",),
@@ -143,6 +160,13 @@ def run_exps():
         config_builder=config_builder,
         checkpoint=checkpoint,
         checkpoint_aliases=("last",),
+        corpus_keys=("test-other",),
+      )
+      recog.global_att_returnn_label_sync_beam_search(
+        alias=train_alias,
+        config_builder=config_builder,
+        checkpoint=checkpoint,
+        checkpoint_aliases=("last",),
         lm_type="trafo",
         lm_scale_list=(0.5, 0.52, 0.54,),
         ilm_scale_list=(0.4,),
@@ -150,6 +174,56 @@ def run_exps():
         beam_size_list=(12, 84),
         # corpus_keys=("dev-other", "test-other"),
       )
+      recog.global_att_returnn_label_sync_beam_search(
+        alias=train_alias,
+        config_builder=config_builder,
+        checkpoint=checkpoint,
+        checkpoint_aliases=("last",),
+        lm_type="trafo",
+        lm_scale_list=(0.54,),
+        ilm_scale_list=(0.4,),
+        ilm_type="mini_att",
+        beam_size_list=(84,),
+        corpus_keys=("test-other",),
+      )
+
+      for concat_num in (2, 4, 8, 10, 20, 30):
+        if concat_num == 20:
+          batch_size = 23_000
+        elif concat_num == 30:
+          batch_size = 30_000
+        elif concat_num == 100:
+          batch_size = 61_000
+        else:
+          batch_size = 15_000
+        recog.global_att_returnn_label_sync_beam_search(
+          alias=train_alias,
+          config_builder=config_builder,
+          checkpoint=checkpoint,
+          checkpoint_aliases=("last",),
+          batch_size=batch_size,
+          concat_num=concat_num,
+        )
+
+      for lm_scale, ilm_scale, beam_size, length_normalization_exponent in [
+        (0.0, 0.0, 12, 0.0),
+        (0.0, 0.0, 84, 0.0),
+        (0.0, 0.0, 84, 1.0),
+        (0.54, 0.4, 12, 0.0),
+        (0.54, 0.4, 84, 0.0),
+      ]:
+        recog.global_att_returnn_label_sync_beam_search(
+          alias=train_alias,
+          config_builder=config_builder,
+          checkpoint=checkpoint,
+          checkpoint_aliases=("last",),
+          lm_type="trafo",
+          lm_scale_list=(lm_scale,),
+          ilm_scale_list=(ilm_scale,),
+          ilm_type="mini_att",
+          beam_size_list=(beam_size,),
+          length_normalization_exponent=length_normalization_exponent,
+        )
 
   for model_alias, config_builder in baseline.global_att_baseline_rf(
           use_weight_feedback=False, use_att_ctx_in_state=False
@@ -180,6 +254,41 @@ def run_exps():
           "dev-other/7697-105815-0051/7697-105815-0051",
         ]
       )
+      # recog.global_att_returnn_label_sync_beam_search(
+      #   alias=train_alias,
+      #   config_builder=config_builder,
+      #   checkpoint=checkpoint,
+      #   checkpoint_aliases=("best-4-avg",),
+      #   run_analysis=True,
+      #   analyze_gradients=True,
+      #   att_weight_seq_tags=[
+      #     "train-other-960/1246-124548-0042/1246-124548-0042",
+      #     "train-other-960/40-222-0033/40-222-0033",
+      #     "train-other-960/103-1240-0038/103-1240-0038",
+      #   ],
+      #   corpus_keys=("train-sample",)
+      # )
+      for lm_scale, ilm_scale, beam_size in [
+        (0.2, 0.1, 12),
+        (0.1, 0.1, 12),
+        (0.54, 0.4, 12),
+        (0.3, 0.1, 12),
+        (0.3, 0.2, 12),
+        (0.4, 0.2, 12),
+        (0.5, 0.3, 12),
+      ]:
+        recog.global_att_returnn_label_sync_beam_search(
+          alias=train_alias,
+          config_builder=config_builder,
+          checkpoint=checkpoint,
+          checkpoint_aliases=("best-4-avg",),
+          lm_type="trafo",
+          lm_scale_list=(lm_scale,),
+          ilm_scale_list=(ilm_scale,),
+          ilm_type="mini_att",
+          beam_size_list=(beam_size,),
+          batch_size=10_000,
+        )
 
   for model_alias, config_builder in baseline.global_att_baseline_rf(
           use_weight_feedback=False, use_att_ctx_in_state=True
@@ -212,6 +321,28 @@ def run_exps():
         ]
       )
 
+      for lm_scale, ilm_scale, beam_size, length_normalization_exponent in [
+        (0.54, 0.4, 12, 1.0),
+        (0.54, 0.4, 84, 1.0),
+        (0.54, 0.4, 12, 0.0),
+        (0.54, 0.4, 84, 0.0),
+        (0.0, 0.0, 84, 0.0),
+        (0.0, 0.0, 12, 0.0),
+        (0.0, 0.0, 84, 1.0),
+      ]:
+        recog.global_att_returnn_label_sync_beam_search(
+          alias=train_alias,
+          config_builder=config_builder,
+          checkpoint=checkpoint,
+          checkpoint_aliases=("last",),
+          lm_type="trafo",
+          lm_scale_list=(lm_scale,),
+          ilm_scale_list=(ilm_scale,),
+          ilm_type="mini_att",
+          beam_size_list=(beam_size,),
+          length_normalization_exponent=length_normalization_exponent,
+        )
+
   for model_alias, config_builder in baseline.global_att_baseline_rf(
           use_weight_feedback=True, use_att_ctx_in_state=False
   ):
@@ -229,3 +360,24 @@ def run_exps():
         run_analysis=True,
         analyze_gradients=True,
       )
+
+      for lm_scale, ilm_scale, beam_size in [
+        (0.2, 0.1, 12),
+        (0.1, 0.1, 12),
+        (0.54, 0.4, 12),
+        (0.3, 0.1, 12),
+        (0.3, 0.2, 12),
+        (0.4, 0.2, 12),
+        (0.5, 0.3, 12),
+      ]:
+        recog.global_att_returnn_label_sync_beam_search(
+          alias=train_alias,
+          config_builder=config_builder,
+          checkpoint=checkpoint,
+          checkpoint_aliases=("best-4-avg",),
+          lm_type="trafo",
+          lm_scale_list=(lm_scale,),
+          ilm_scale_list=(ilm_scale,),
+          ilm_type="mini_att",
+          beam_size_list=(beam_size,),
+        )

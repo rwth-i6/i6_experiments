@@ -18,6 +18,7 @@ from i6_core.corpus.convert import CorpusToStmJob
 
 from i6_experiments.users.schmitt.visualization.visualization import PlotAttentionWeightsJobV2
 from i6_experiments.users.schmitt.flow import get_raw_wav_feature_flow
+from i6_experiments.users.schmitt.scoring import ProcessConcatStmAndCtm
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.general.rasr.config import RasrConfigBuilder
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.config_builder_rf.base import ConfigBuilderRF, GlobalAttConfigBuilderRF, SegmentalAttConfigBuilderRF
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.returnn.config_builder.base import ConfigBuilder
@@ -64,8 +65,6 @@ class DecodingExperiment(ABC):
     self.stm_corpus_key = self.corpus_key
 
     self.alias = alias
-
-    self.separate_readout_alpha = self.recog_opts.get("separate_readout_alpha")
 
     self.returnn_python_exe = self.config_builder.variant_params["returnn_python_exe"]
     self.returnn_root = self.config_builder.variant_params["returnn_root"]
@@ -148,9 +147,23 @@ class DecodingExperiment(ABC):
           hyp=self.get_ctm_path()
         )
       else:
+        stm_path = self._get_stm_path()
+        ctm_path = self.get_ctm_path()
+
+        concat_num = self.recog_opts["dataset_opts"].get("concat_num")
+        if concat_num is not None and concat_num > 10:
+          corpus_key = self.corpus_key
+          process_concat_stm_and_ctm_job = ProcessConcatStmAndCtm(
+            ctm_path=ctm_path,
+            stm_path=stm_path,
+            seq_tag_prefix=corpus_key
+          )
+          stm_path = process_concat_stm_and_ctm_job.out_stm
+          ctm_path = process_concat_stm_and_ctm_job.out_ctm
+
         self.score_job = ScliteJob(
-          ref=self._get_stm_path(),
-          hyp=self.get_ctm_path()
+          ref=stm_path,
+          hyp=ctm_path
         )
 
       self.score_job.add_alias("%s/scores" % (self.alias,))
@@ -332,8 +345,12 @@ class ReturnnDecodingExperiment(DecodingExperiment, ABC):
         self.alias += f"_length-scale-{length_scale:.2f}"
     self.alias += "/%s-checkpoint" % self.checkpoint_alias
 
-    if self.separate_readout_alpha is not None:
-      self.alias = f"{self.alias}/sep-read-alpha-{self.separate_readout_alpha:.2f}"
+    att_readout_scale = self.recog_opts.get("att_readout_scale")
+    if att_readout_scale is not None:
+      self.alias = f"{self.alias}/att-scale-{att_readout_scale:.2f}"
+    h_t_readout_scale = self.recog_opts.get("h_t_readout_scale")
+    if h_t_readout_scale is not None:
+      self.alias = f"{self.alias}_h_t-scale-{h_t_readout_scale:.2f}"
 
     base_model_scale = self.recog_opts.get("base_model_scale", 1.0)
     self.alias += f"/scale-{base_model_scale:.2f}"
@@ -343,12 +360,22 @@ class ReturnnDecodingExperiment(DecodingExperiment, ABC):
       self.alias += f"_b-pen-{blank_penalty:.1f}"
 
     blank_scale = self.recog_opts.get("blank_scale")
-    if blank_scale:
+    if blank_scale is not None:
       self.alias += f"_b-scale-{blank_scale:.1f}"
+    emit_scale = self.recog_opts.get("emit_scale")
+    if emit_scale is not None:
+      self.alias += f"_e-scale-{emit_scale:.1f}"
+
+    length_normalization_exponent = self.recog_opts.get("length_normalization_exponent")
+    if length_normalization_exponent is not None:
+      self.alias += f"_len-norm-exp-{length_normalization_exponent:.1f}"
 
     external_aed_opts = self.recog_opts.get("external_aed_opts")
     if external_aed_opts is not None:
       self.alias = f"{self.alias}_w-ext-aed-scale-{external_aed_opts['scale']}"
+    external_transducer_opts = self.recog_opts.get("external_transducer_opts")
+    if external_transducer_opts is not None:
+      self.alias = f"{self.alias}_w-ext-transducer-scale-{external_transducer_opts['scale']}"
 
     lm_opts = self.recog_opts.get("lm_opts")
     if lm_opts is not None:
@@ -356,9 +383,9 @@ class ReturnnDecodingExperiment(DecodingExperiment, ABC):
       if "add_lm_eos_last_frame" in lm_opts:
         self.alias += f"_add-lm-eos-to-b-hyps-{lm_opts['add_lm_eos_last_frame']}"
       self.alias += f"_add-lm-eos-to-nb-hyps-{lm_opts.get('add_lm_eos_to_non_blank_end_hyps', False)}"
-      self.alias = self.get_ilm_correction_alias(self.alias)
     else:
       self.alias += "/no-lm"
+    self.alias = self.get_ilm_correction_alias(self.alias)
 
     self.alias = f"{self.alias}/beam-size-{self.recog_opts['beam_size']}/{self.stm_corpus_key}"
 
@@ -398,7 +425,7 @@ class ReturnnDecodingExperiment(DecodingExperiment, ABC):
         mem_rqmt=self.search_rqmt.get("mem", 6),
         time_rqmt=self.search_rqmt.get("time", 1),
       )
-      search_job.rqmt["sbatch_args"] = ["--exclude", "cn-257"]
+      search_job.rqmt["sbatch_args"] = self.search_rqmt.get("sbatch_args", [])
       search_job.add_alias(f"{self.alias}/search")
       self.search_hyps_file = search_job.out_files["output.py.gz"]
       self.best_search_hyps_hdf = search_job.out_files["best_hyp.hdf"]
@@ -452,21 +479,21 @@ class ReturnnDecodingExperiment(DecodingExperiment, ABC):
           plot_encoder_layers=_analysis_opts.get("analyze_gradients_plot_encoder_layers", False),
           plot_log_gradients=_analysis_opts.get("analyze_gradients_plot_log_gradients", False),
         )
-        # if "global_att/baseline_v2/baseline_rf/sp10240/w-weight-feedback/w-att-ctx-in-state/trafo/import_albert-aed-trafo-decoder-bpe10k/returnn_decoding/epoch-498-checkpoint/no-lm/beam-size-12/dev-other_concat" in self.alias:
-        #   analysis_rf.analyze_gradients(
-        #     config_builder=self.config_builder,
-        #     seq_tags=att_weight_seq_tags,
-        #     corpus_key=self.stm_corpus_key,
-        #     checkpoint=self.checkpoint,
-        #     returnn_root=self.returnn_root,
-        #     returnn_python_exe=self.returnn_python_exe,
-        #     alias=self.alias,
-        #     hdf_targets=self.best_search_hyps_hdf,
-        #     ref_alignment_hdf=_analysis_opts["ref_alignment_hdf"],
-        #     ref_alignment_blank_idx=_analysis_opts["ref_alignment_blank_idx"],
-        #     ref_alignment_vocab_path=_analysis_opts["ref_alignment_vocab_path"],
-        #     seq_alias="search"
-        #   )
+      if _analysis_opts.get("analyze_gradients_search", False):
+        analysis_rf.analyze_gradients(
+          config_builder=self.config_builder,
+          seq_tags=att_weight_seq_tags,
+          corpus_key=self.stm_corpus_key,
+          checkpoint=self.checkpoint,
+          returnn_root=self.returnn_root,
+          returnn_python_exe=self.returnn_python_exe,
+          alias=self.alias,
+          hdf_targets=self.best_search_hyps_hdf,
+          ref_alignment_hdf=_analysis_opts["ref_alignment_hdf"],
+          ref_alignment_blank_idx=_analysis_opts["ref_alignment_blank_idx"],
+          ref_alignment_vocab_path=_analysis_opts["ref_alignment_vocab_path"],
+          seq_alias="search"
+        )
 
       if _analysis_opts.get("dump_gradients", False):
         analysis_rf.dump_gradients(
@@ -952,7 +979,7 @@ class DecodingPipeline(ABC):
               self.recog_opts.update({
                 "lm_opts": {"scale": lm_scale, **self.lm_opts} if lm_scale > 0 else None,
                 "ilm_correction_opts": {
-                  "scale": ilm_scale, **self.ilm_opts} if ilm_scale > 0 and lm_scale > 0 else None,
+                  "scale": ilm_scale, **self.ilm_opts} if ilm_scale > 0 else None,
                 "beam_size": beam_size,
                 # "search_corpus_key": corpus_key
               })
@@ -1040,7 +1067,8 @@ class ReturnnSegmentalAttDecodingPipeline(DecodingPipeline):
         if "time" not in search_rqmt:
           search_rqmt["time"] = 12
     else:
-      recog_opts["batch_size"] = 15_000
+      if "batch_size" not in recog_opts:
+        recog_opts["batch_size"] = 15_000
       if "time" not in search_rqmt:
         search_rqmt["time"] = 2
 

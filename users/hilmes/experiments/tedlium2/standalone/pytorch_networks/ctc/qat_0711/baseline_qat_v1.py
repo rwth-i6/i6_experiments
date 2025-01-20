@@ -124,7 +124,7 @@ class ConformerPositionwiseFeedForwardQuant(nn.Module):
                 "scale": self.linear_ff.weight_quantizer.scale,
                 "quant_min": self.linear_ff.weight_quantizer.quant_min,
                 "quant_max": self.linear_ff.weight_quantizer.quant_max,
-                "decompose": decompose,
+                "is_decomposed": decompose,
             },
         )
         self.linear_out.weight_quantizer.set_scale_and_zp()
@@ -137,7 +137,7 @@ class ConformerPositionwiseFeedForwardQuant(nn.Module):
                 "scale": self.linear_out.weight_quantizer.scale,
                 "quant_min": self.linear_out.weight_quantizer.quant_min,
                 "quant_max": self.linear_out.weight_quantizer.quant_max,
-                "decompose": decompose,
+                "is_decomposed": decompose,
             },
         )
         if extra_act_quant is False:

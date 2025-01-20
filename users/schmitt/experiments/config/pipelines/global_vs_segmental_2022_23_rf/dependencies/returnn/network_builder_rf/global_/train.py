@@ -94,6 +94,7 @@ def get_s_and_att_efficient(
         enc_spatial_dim: Dim,
         targets_spatial_dim: Dim,
         batch_dims: List[Dim],
+        h_s: Optional[Tensor] = None
 ) -> Tuple[Tensor, Tensor, rf.State]:
   if "lstm" in model.decoder_state:
     s, final_state = model.s_wo_att(
@@ -105,15 +106,18 @@ def get_s_and_att_efficient(
     s = model.s_wo_att_linear(input_embeddings)
     final_state = None
 
-  att = model(
-    enc=enc_args["enc"],
-    enc_ctx=enc_args.get("enc_ctx"),
-    enc_spatial_dim=enc_spatial_dim,
-    s=s,
-    input_embed=input_embeddings,
-    input_embed_spatial_dim=targets_spatial_dim,
-    use_mini_att=model.use_mini_att,
-  )
+  if h_s is not None:
+    att = h_s
+  else:
+    att = model(
+      enc=enc_args["enc"],
+      enc_ctx=enc_args.get("enc_ctx"),
+      enc_spatial_dim=enc_spatial_dim,
+      s=s,
+      input_embed=input_embeddings,
+      input_embed_spatial_dim=targets_spatial_dim,
+      use_mini_att=model.use_mini_att,
+    )
 
   return s, att, final_state
 
@@ -163,13 +167,21 @@ def forward_sequence(
       )
     else:
       assert type(model) is GlobalAttEfficientDecoder
+
+      if model.replace_att_by_h_s:
+        s_range = rf.range_over_dim(targets_spatial_dim)
+        h_s = rf.gather(att_enc_args["enc"], axis=enc_spatial_dim, indices=s_range)
+      else:
+        h_s = None
+
       s, att, final_state = get_s_and_att_efficient(
         model=model,
         enc_args=att_enc_args,
         input_embeddings=input_embeddings,
         enc_spatial_dim=enc_spatial_dim,
         targets_spatial_dim=targets_spatial_dim,
-        batch_dims=batch_dims
+        batch_dims=batch_dims,
+        h_s=h_s
       )
 
     if (
@@ -187,7 +199,7 @@ def forward_sequence(
       input_embed=input_embeddings,
       s=s,
       att=att,
-      h_t=h_t,
+      h_t=att if model.use_mini_att and h_t is not None else h_t,
       detach_att=detach_att_before_readout,
       detach_h_t=detach_h_t_before_readout
     )

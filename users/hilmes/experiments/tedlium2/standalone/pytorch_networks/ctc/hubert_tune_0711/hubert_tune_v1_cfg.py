@@ -7,6 +7,7 @@ from typing import Optional, Union, List
 
 from i6_models.config import ModelConfiguration
 
+
 @dataclass
 class ModelConfig:
     label_target_size: int

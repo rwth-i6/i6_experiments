@@ -18,17 +18,23 @@ from torch.nn.quantized._reference.modules import Linear
 
 def get_quantization_range_from_bit_precision(bits, dtype):
 
-    if dtype == torch.qint8:
+    if bits == 1.5:
+        quant_min = -1
+        quant_max = 1
+    elif bits == 2.5:
+        quant_min = -2
+        quant_max = 3
+    elif bits == 3.5:
+        quant_min = -4
+        quant_max = 4
+    elif dtype == torch.qint8:
         quant_min = -(2 ** (bits - 1))
         quant_max = (2 ** (bits - 1)) - 1
-
     elif dtype == torch.quint8:
         quant_min = 0
         quant_max = (2**bits) - 1
-
     else:
         raise ValueError(f"Unrecognized dtype {dtype}")
-
     return quant_min, quant_max
 
 
@@ -52,6 +58,15 @@ class WeightQuantizer(nn.Module):
             observer = torch_quant.observer.MinMaxObserver(
                 quant_min=self.quant_min, quant_max=self.quant_max, dtype=self.dtype, reduce_range=self.reduce_range
             )
+        elif method == "per_tensor_symmetric":
+            quant_fn = torch.fake_quantize_per_tensor_affine
+            observer = torch_quant.observer.MinMaxObserver(
+                quant_min=self.quant_min,
+                quant_max=self.quant_max,
+                dtype=self.dtype,
+                reduce_range=self.reduce_range,
+                qscheme=torch.per_tensor_symmetric,
+            )
         else:
             raise ValueError(f"Unknown quantization method: {method}!")
 
@@ -67,7 +82,9 @@ class WeightQuantizer(nn.Module):
     def set_scale_and_zp(self):
         assert self.observer is not None
         assert check_min_max_valid(self.observer.min_val, self.observer.max_val), "Need to init observer first"
-        self.scale, self.zero_point = self.observer.calculate_qparams()
+        scale, zero_point = self.observer.calculate_qparams()
+        self.scale = scale.to(dtype=torch.float32)
+        self.zero_point = zero_point.to(dtype=torch.int32)
 
 
 class ActivationQuantizer(nn.Module):
@@ -109,6 +126,26 @@ class ActivationQuantizer(nn.Module):
                 observer = torch_quant.observer.MinMaxObserver(
                     quant_min=self.quant_min, quant_max=self.quant_max, dtype=self.dtype, reduce_range=self.reduce_range
                 )
+        elif method == "per_tensor_symmetric":
+            quant_fn = torch.fake_quantize_per_tensor_affine
+            base_observer_args = [self.quant_min, self.quant_max]
+            if self.moving_avrg:
+                observer = torch_quant.observer.MovingAverageMinMaxObserver(
+                    averaging_constant=self.moving_avrg,
+                    quant_min=self.quant_min,
+                    quant_max=self.quant_max,
+                    dtype=self.dtype,
+                    reduce_range=self.reduce_range,
+                    qscheme=torch.per_tensor_symmetric,
+                )
+            else:
+                observer = torch_quant.observer.MinMaxObserver(
+                    quant_min=self.quant_min,
+                    quant_max=self.quant_max,
+                    dtype=self.dtype,
+                    reduce_range=self.reduce_range,
+                    qscheme=torch.per_tensor_symmetric,
+                )
         elif method == "per_channel":
             quant_fn = torch.fake_quantize_per_channel_affine
             base_observer_args = [self.channel_axis, self.quant_min, self.quant_max]
@@ -147,7 +184,9 @@ class ActivationQuantizer(nn.Module):
     def set_scale_and_zp(self):
         assert self.observer is not None
         assert check_min_max_valid(self.observer.min_val, self.observer.max_val), "Need to init observer first"
-        self.scale, self.zero_point = self.observer.calculate_qparams()
+        scale, zero_point = self.observer.calculate_qparams()
+        self.scale = scale.to(dtype=torch.float32)
+        self.zero_point = zero_point.to(dtype=torch.int32)
 
 
 class LinearQuant(nn.Module):
@@ -304,14 +343,14 @@ class QuantizedMultiheadAttention(nn.Module):
                 self.bit_prec_dot,
                 self.dot_quant_dtype,
                 self.dot_quant_method,
-                channel_axis=None if self.dot_quant_method == "per_tensor" else 3,
+                channel_axis=None if "per_tensor" in self.dot_quant_method else 3,
                 moving_avrg=cfg.moving_average,
             )
             self.k_quantizer = ActivationQuantizer(
                 self.bit_prec_dot,
                 self.dot_quant_dtype,
                 self.dot_quant_method,
-                channel_axis=None if self.dot_quant_method == "per_tensor" else 2,
+                channel_axis=None if "per_tensor" in self.dot_quant_method else 2,
                 moving_avrg=cfg.moving_average,
             )
 
@@ -322,7 +361,7 @@ class QuantizedMultiheadAttention(nn.Module):
                 self.Av_quant_dtype,
                 self.Av_quant_method,
                 moving_avrg=cfg.moving_average,
-                channel_axis=None if self.dot_quant_method == "per_tensor" else NotImplementedError,
+                channel_axis=None if "per_tensor" in self.dot_quant_method else NotImplementedError,
             )
         self.norm = math.sqrt(self.dim_heads)
         self.softmax = nn.Softmax(-1)

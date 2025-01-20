@@ -6,7 +6,7 @@ from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segment
   baseline
 )
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.pipelines.pipeline_ls_conf.trafo_lm import (
-  train
+  train, perplexity
 )
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.pipelines.pipeline_ls_conf.checkpoints import lm_checkpoints
 
@@ -68,6 +68,14 @@ def run_exps():
             f"{model_kwargs['model_dim']}-dim"
           )
           lm_checkpoints[checkpoint_alias] = checkpoint["checkpoints"][40]
+
+          for corpus_keys in [("dev-clean", "dev-other"), ("test-clean", "test-other")]:
+            perplexity.calculate_perplexity(
+              config_builder=config_builder,
+              corpus_keys=corpus_keys,
+              checkpoint=checkpoint["checkpoints"][40],
+              alias=train_alias,
+            )
 
 
 def run_small_model_exps():

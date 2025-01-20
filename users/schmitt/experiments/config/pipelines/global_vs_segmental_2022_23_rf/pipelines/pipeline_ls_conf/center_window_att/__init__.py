@@ -33,9 +33,9 @@ def plot_gradient_wrt_enc11(analyze_gradients_job, alias):
     ref_alignment_json_vocab_path=LIBRISPEECH_GMM_WORD_ALIGNMENT.vocab_path,
     plot_w_cog=False,
     titles=[
-      "Log prob gradients wrt encoder layer 12",
-      "Log prob gradients w/o c_t wrt encoder layer 12",
-      "Log prob gradients w/o h_t wrt encoder layer 12",
+      "$G_{11}$",
+      "$G_{11}$ w/o contribution of $c_{s_t}$",
+      "$G_{11}$ w/o contribution of $h_t$",
     ],
     vmin=-20,
     vmax=0,
@@ -44,11 +44,12 @@ def plot_gradient_wrt_enc11(analyze_gradients_job, alias):
   tk.register_output(plot_att_weights_job.get_one_alias(), plot_att_weights_job.out_plot_dir)
 
 
-def plot_diff_models(analyze_gradients_jobs, alias, titles, folder_name):
+def plot_diff_models(
+        analyze_gradients_jobs, alias, titles, folder_name, folder_prefix: str = "enc-11", scale: float = 1.0, vmin: float = -20, vmax: float = 0):
   gradient_hdfs = [
     Path(DelayedFormat(
       f"{{}}/{folder_name}/att_weights.hdf",
-      analyze_gradients_job.out_files["enc-11"]
+      analyze_gradients_job.out_files[folder_prefix]
     ).get()) for analyze_gradients_job in analyze_gradients_jobs
   ]
   targets_hdf = analyze_gradients_jobs[0].out_files["targets.hdf"]
@@ -67,8 +68,9 @@ def plot_diff_models(analyze_gradients_jobs, alias, titles, folder_name):
     ref_alignment_json_vocab_path=LIBRISPEECH_GMM_WORD_ALIGNMENT.vocab_path,
     plot_w_cog=False,
     titles=titles,
-    vmin=-20,
-    vmax=0,
+    vmin=vmin,
+    vmax=vmax,
+    scale=scale,
   )
   plot_att_weights_job.add_alias(alias)
   tk.register_output(plot_att_weights_job.get_one_alias(), plot_att_weights_job.out_plot_dir)
