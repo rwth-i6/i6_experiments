@@ -472,17 +472,14 @@ def _masked_scatter(
         if any(d in reverse_dim_map for d in s.dims):
             for d in s.dims:
                 if d in reverse_dim_map:
-                    s = _expand_slice(s, axis=d, expanded_size=reverse_dim_map[d])
+                    s = _expand_slice(s, old_dim=d, new_dim=reverse_dim_map[d])
         # We also might need to replace newly merged dims, both in s and backup.
         for d in s.dims:
             if d in merged_dim_map:
-                s, _ = rf.slice(s, axis=d, size=merged_dim_map[d])
-        # There is currently the implicit assumption that the backup might need extra padding,
-        # while the s needs slicing...
-        # (We think of the hist_dim, where s should only have more frames than backup, or the same.)
+                s, _ = _expand_slice(s, old_dim=d, new_dim=merged_dim_map[d])
         for d in backup.dims:
             if d in merged_dim_map:
-                backup = _expand_slice(backup, axis=d, expanded_size=merged_dim_map[d])
+                backup = _expand_slice(backup, old_dim=d, new_dim=merged_dim_map[d])
         # The unpacking itself (reversing the masked_select, i.e. masked_scatter).
         s = rf.masked_scatter(s, backup, mask=mask, dims=dims, in_dim=in_dim)
         return s
@@ -497,14 +494,22 @@ def _masked_scatter(
     raise TypeError(f"_masked_scatter: unexpected type ({type(s)})")
 
 
-def _expand_slice(source: Tensor, axis: Dim, expanded_size: Dim) -> Tensor:
-    res, _ = rf.pad(
-        source,
-        axes=[axis],
-        padding=[(0, expanded_size.get_dim_value_tensor() - axis.get_dim_value_tensor())],
-        out_dims=[expanded_size],
-        value=0,
-    )
+def _expand_slice(source: Tensor, old_dim: Dim, new_dim: Dim) -> Tensor:
+    assert old_dim in source.dims
+    old_size = old_dim.get_dim_value_tensor()
+    new_size = new_dim.get_dim_value_tensor()
+    if old_size == new_size:
+        res, _ = rf.replace_dim(source, in_dim=old_dim, out_dim=new_dim)
+    elif old_size < new_size:
+        res, _ = rf.pad(
+            source,
+            axes=[old_dim],
+            padding=[(0, new_size - old_size)],
+            out_dims=[new_dim],
+            value=0,
+        )
+    else:
+        res, _ = rf.slice(source, axis=old_dim, size=new_dim)
     return res
 
 
