@@ -139,7 +139,7 @@ def model_recog(
         target_wb = target_wb.copy_compatible_to_dims(batch_dims + [beam_dim])  # Batch, Beam -> VocabWB
         print(
             f"* target_wb t={t} beam:"
-            f" {[model.wb_target_dim.vocab.id_to_label(l) for l in target_wb.raw_tensor[0, :3].cpu()]}"
+            f" {[model.wb_target_dim.vocab.id_to_label(l.item()) for l in target_wb.raw_tensor[0, :3].cpu()]}"
         )
 
         lm_log_probs = rf.gather(lm_log_probs, indices=backrefs)  # Batch, Beam, Vocab
@@ -156,7 +156,10 @@ def model_recog(
         )  # Batch, Beam -> Vocab
 
         target = target.copy_compatible_to_dims(batch_dims + [beam_dim])  # Batch, Beam -> Vocab
-        print(f"* target t={t} beam: {[model.target_dim.vocab.id_to_label(l) for l in target.raw_tensor[0, :3].cpu()]}")
+        print(
+            f"* target t={t} beam:"
+            f" {[model.target_dim.vocab.id_to_label(l.item()) for l in target.raw_tensor[0, :3].cpu()]}"
+        )
 
         (target_, lm_state_), packed_new_label_dim, packed_new_label_dim_map = _masked_select_tree(
             (target, lm_state),
@@ -165,7 +168,10 @@ def model_recog(
         )
 
         if packed_new_label_dim.get_dim_value() > 0:
-            print(f"* feed target {[model.target_dim.vocab.id_to_label(l) for l in target_.raw_tensor[0, :3].cpu()]}")
+            print(
+                f"* feed target"
+                f" {[model.target_dim.vocab.id_to_label(l.item()) for l in target_.raw_tensor[0, :3].cpu()]}"
+            )
 
             lm_logits_, lm_state_ = lm(
                 target_,
