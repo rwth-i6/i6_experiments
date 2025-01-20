@@ -158,19 +158,52 @@ def make_conformer_fullsum_ctc_model(
 
     if recognition:
         python_code = []
+        network["wave_input"] = {"class": "copy", "from": "data"}
     else:
         if specaug_old is not None:
-            assert specaug_config is None
-            sort_layer2 = specaug_old.pop("sort_layer2", False)
-            specaug_func = add_specaug_layer_sort_layer2 if sort_layer2 else add_specaug_layer
-            specaug_old_args = {
-                "max_time_num": 1,
-                "max_time": 15,
-                "max_feature_num": 5,
-                "max_feature": 4,
-                **specaug_old,
-            }
-            from_list, python_code = specaug_func(network, from_list=from_list, **specaug_old_args)
+            if specaug_old.get("stft", False):
+                specaug_old_args = {
+                    "max_time_num": 1,
+                    "max_time": 15,
+                    "max_feature_num": 5,
+                    "max_feature": 4,
+                   **{k: v for k, v in specaug_old.items() if k != "stft"},
+                }
+                # Add STFT layer
+                network["stft"] = {
+                    "class": "stft",
+                    "from": ["data"],
+                    "frame_size": 400,
+                    "frame_shift": 160,
+                    "fft_size": 512,
+                }
+                from_list = ["stft"]
+
+                specaug_func = add_specaug_layer
+                from_list, python_code = specaug_func(network, from_list=from_list, **specaug_old_args)
+
+                # Add iSTFT layer
+                network["istft"] = {
+                    "class": "istft",
+                    "from": from_list,
+                    "frame_size": 400,
+                    "frame_shift": 160,
+                    "fft_size": 512,
+                }
+                network["wave_input"] = {"class": "copy", "from": "istft"}
+            else:
+                assert specaug_config is None
+                sort_layer2 = specaug_old.pop("sort_layer2", False)
+                specaug_func = add_specaug_layer_sort_layer2 if sort_layer2 else add_specaug_layer
+                specaug_old_args = {
+                    "max_time_num": 1,
+                    "max_time": 15,
+                    "max_feature_num": 5,
+                    "max_feature": 4,
+                    **specaug_old,
+                }
+                from_list, python_code = specaug_func(network, from_list=from_list, **specaug_old_args)
+                network["wave_input"] = {"class": "copy", "from": "data"}
         elif specaug_config is not None:
             assert specaug_old is None
             from_list, python_code = add_specaug_layer_configurable(network, from_list=from_list, num_epochs=num_epochs, config=specaug_config)
