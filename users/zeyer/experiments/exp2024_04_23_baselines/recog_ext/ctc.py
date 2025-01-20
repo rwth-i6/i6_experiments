@@ -401,7 +401,10 @@ def _masked_scatter_merge_dims(
             merged_dim_map=merged_dim_map,
         )
         print(f"*** masked scatter merge dims: {new_size=} {s=} {backup=} {mask=} {dims=} {in_dim=}")
-        new_dim = Dim(new_size, name=s.name + "_")
+        assert new_size.dims_set == (
+            (s.get_size_tensor().dims_set | backup.get_size_tensor().dims_set) - {in_dim}
+        ) | set(dims)
+        new_dim = Dim(new_size, name=backup.name)
         merged_dim_map[s] = new_dim
         merged_dim_map[backup] = new_dim
         return new_dim
