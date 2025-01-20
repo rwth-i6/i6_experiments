@@ -3,7 +3,7 @@ CTC decoding with neural LM
 """
 
 from __future__ import annotations
-from typing import TypeVar, Sequence, Tuple, Dict, Generator
+from typing import TypeVar, Optional, Sequence, Tuple, Dict, Generator
 import functools
 
 from returnn.tensor import Tensor, Dim, single_step_dim
@@ -337,11 +337,12 @@ def _masked_scatter_tree(
 
     reverse_dim_map = {v: k for k, v in dim_map.items()}
     merged_dim_map = {}
+    mask_cpu = rf.copy_to_device(mask, "cpu")
 
     tree.map_structure(
         functools.partial(
             _masked_scatter_merge_dims,
-            mask=rf.copy_to_device(mask, "cpu"),
+            mask=mask_cpu,
             dims=dims,
             in_dim=in_dim,
             reverse_dim_map=reverse_dim_map,
@@ -354,6 +355,7 @@ def _masked_scatter_tree(
         functools.partial(
             _masked_scatter,
             mask=mask,
+            mask_cpu=mask_cpu,
             dims=dims,
             in_dim=in_dim,
             reverse_dim_map=reverse_dim_map,
@@ -409,6 +411,7 @@ def _masked_scatter(
     backup: T,
     *,
     mask: Tensor,
+    mask_cpu: Optional[Tensor] = None,
     dims: Sequence[Dim],
     in_dim: Dim,
     reverse_dim_map: Dict[Dim, Dim],
@@ -416,6 +419,8 @@ def _masked_scatter(
 ) -> T:
     if isinstance(s, Tensor):
         assert isinstance(backup, Tensor)
+        if s.device == "cpu" and mask_cpu is not None:
+            mask = mask_cpu
         if in_dim not in s.dims:
             s = rf.expand_dim(s, in_dim)
         # Do the reverse of _masked_select above.
