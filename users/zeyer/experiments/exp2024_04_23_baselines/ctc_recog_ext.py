@@ -304,10 +304,13 @@ def py():
         )
 
         vocab_file = ExtractVocabLabelsJob(vocab_.get_opts()).out_vocab
+        tk.register_output(f"{prefix}/vocab.txt.gz", vocab_file)
         vocab_opts_file = ExtractVocabSpecialLabelsJob(vocab_.get_opts()).out_vocab_special_labels_dict
+        tk.register_output(f"{prefix}/vocab_opts.py", vocab_opts_file)
         vocab_w_blank_file = ExtendVocabLabelsByNewLabelJob(
             vocab=vocab_file, new_label=model_recog_ctc_only.output_blank_label, new_label_idx=_ctc_model_def_blank_idx
         ).out_vocab
+        tk.register_output(f"{prefix}/vocab_w_blank.txt.gz", vocab_w_blank_file)
         log_prior_wo_blank = PriorRemoveLabelRenormJob(
             prior_file=prior,
             prior_type="prob",
@@ -315,6 +318,7 @@ def py():
             remove_label=model_recog_ctc_only.output_blank_label,
             out_prior_type="log_prob",
         ).out_prior
+        tk.register_output(f"{prefix}/log_prior_wo_blank.txt", log_prior_wo_blank)
 
         for beam_size, prior_scale, lm_scale in [
             (16, 0.5, 1.0),
