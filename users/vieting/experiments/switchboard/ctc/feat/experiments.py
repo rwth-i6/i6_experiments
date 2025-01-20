@@ -1158,74 +1158,74 @@ def run_stft_experiments():
 
     nn_args, report_args_collection = get_nn_args_baseline(
         nn_base_args={
-            # "bs2x5k_scf_stft_time_only": dict(
-            #     returnn_args={
-            #         **returnn_args,
-            #         "specaug_old": {"max_feature": 0, "max_feature_num": 0, "stft": True },
-            #     },
-            #     feature_args=feature_args,
-            #     lr_args=lr_args,
-            #     report_args={"batch_size": "2x5k", "stft": True},
-            # ),
-            # "bs2x5k_scf_stft_mask_1_1": dict(
-            #     returnn_args={
-            #         **returnn_args,
-            #         "specaug_old": {"max_feature": 1, "max_feature_num": 1, "stft": True },
-            #     },
-            #     feature_args=feature_args,
-            #     lr_args=lr_args,
-            #     report_args={"batch_size": "2x5k", "stft": True},
-            # ),
-            # "bs2x5k_scf_stft_mask_2_4": dict(
-            #     returnn_args={
-            #         **returnn_args,
-            #         "specaug_old": {"max_feature": 4, "max_feature_num": 2, "stft": True },
-            #     },
-            #     feature_args=feature_args,
-            #     lr_args=lr_args,
-            #     report_args={"batch_size": "2x5k", "stft": True},
-            # ),
-            # "bs2x5k_scf_stft_mask_5_8": dict(
-            #     returnn_args={
-            #         **returnn_args,
-            #         "specaug_old": {"max_feature": 8, "stft": True },
-            #     },
-            #     feature_args=feature_args,
-            #     lr_args=lr_args,
-            #     report_args={"batch_size": "2x5k", "stft": True},
-            # ),
-            # "bs2x5k_scf_stft_mask_5_8_checkpoint": dict(
-            #     returnn_args={
-            #         **returnn_args,
-            #         "specaug_old": {"max_feature": 8, "stft": True },
-            #         "extra_args": 
-            #         {
-            #             **returnn_args["extra_args"],
-            #             "dummy": "checkpoint",
-            #         }
-            #     },
-            #     feature_args=feature_args,
-            #     lr_args=lr_args,
-            #     report_args={"batch_size": "2x5k", "stft": True},
-            # ),
-            "bs2x5k_scf_stft_mask_5_15": dict(
+            "bs2x5k_scf_stft_time_only": dict(
                 returnn_args={
                     **returnn_args,
-                    "specaug_old": {"max_feature": 15},
+                    "specaug_old": {"max_feature": 0, "max_feature_num": 0, "stft": True },
                 },
                 feature_args=feature_args,
                 lr_args=lr_args,
                 report_args={"batch_size": "2x5k", "stft": True},
             ),
-            # "bs2x5k_mel_stft_mask_5_8": dict(
-            #     returnn_args={
-            #         **returnn_args,
-            #         "specaug_old": {"max_feature": 8, "stft": True },
-            #     },
-            #     feature_args=feature_args_lgm,
-            #     lr_args=lr_args,
-            #     report_args={"batch_size": "2x5k", "stft": True},
-            # ),
+            "bs2x5k_scf_stft_mask_1_1": dict(
+                returnn_args={
+                    **returnn_args,
+                    "specaug_old": {"max_feature": 1, "max_feature_num": 1, "stft": True },
+                },
+                feature_args=feature_args,
+                lr_args=lr_args,
+                report_args={"batch_size": "2x5k", "stft": True},
+            ),
+            "bs2x5k_scf_stft_mask_2_4": dict(
+                returnn_args={
+                    **returnn_args,
+                    "specaug_old": {"max_feature": 4, "max_feature_num": 2, "stft": True },
+                },
+                feature_args=feature_args,
+                lr_args=lr_args,
+                report_args={"batch_size": "2x5k", "stft": True},
+            ),
+            "bs2x5k_scf_stft_mask_5_8": dict(
+                returnn_args={
+                    **returnn_args,
+                    "specaug_old": {"max_feature": 8, "stft": True },
+                },
+                feature_args=feature_args,
+                lr_args=lr_args,
+                report_args={"batch_size": "2x5k", "stft": True},
+            ),
+            "bs2x5k_scf_stft_mask_5_8_checkpoint": dict(
+                returnn_args={
+                    **returnn_args,
+                    "specaug_old": {"max_feature": 8, "stft": True },
+                    "extra_args": 
+                    {
+                        **returnn_args["extra_args"],
+                        "dummy": "checkpoint",
+                    }
+                },
+                feature_args=feature_args,
+                lr_args=lr_args,
+                report_args={"batch_size": "2x5k", "stft": True},
+            ),
+            "bs2x5k_scf_stft_mask_5_15": dict(
+                returnn_args={
+                    **returnn_args,
+                    "specaug_old": {"max_feature": 15, "stft": True },
+                },
+                feature_args=feature_args,
+                lr_args=lr_args,
+                report_args={"batch_size": "2x5k", "stft": True},
+            ),
+            "bs2x5k_mel_stft_mask_5_8": dict(
+                returnn_args={
+                    **returnn_args,
+                    "specaug_old": {"max_feature": 8, "stft": True },
+                },
+                feature_args=feature_args_lgm,
+                lr_args=lr_args,
+                report_args={"batch_size": "2x5k", "stft": True},
+            ),
         },
         num_epochs=450,
         evaluation_epochs=[350, 390, 400, 410, 450],
