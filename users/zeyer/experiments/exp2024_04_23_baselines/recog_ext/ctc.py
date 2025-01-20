@@ -36,7 +36,6 @@ def model_recog(
         out_spatial_dim,
         final beam_dim
     """
-    import tree
     import returnn
     from returnn.config import get_global_config
 
