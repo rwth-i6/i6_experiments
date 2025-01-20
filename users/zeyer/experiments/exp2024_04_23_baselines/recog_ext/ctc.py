@@ -476,7 +476,7 @@ def _masked_scatter(
         # We also might need to replace newly merged dims, both in s and backup.
         for d in s.dims:
             if d in merged_dim_map:
-                s, _ = _expand_slice(s, old_dim=d, new_dim=merged_dim_map[d])
+                s = _expand_slice(s, old_dim=d, new_dim=merged_dim_map[d])
         for d in backup.dims:
             if d in merged_dim_map:
                 backup = _expand_slice(backup, old_dim=d, new_dim=merged_dim_map[d])
