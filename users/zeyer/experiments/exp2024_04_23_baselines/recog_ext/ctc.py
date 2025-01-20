@@ -213,6 +213,8 @@ def model_recog(
 
             # TODO for debugging, reimplement the same thing as above in another way and compare...
 
+        assert t <= 3  # for debugging, early stop
+
     # seq_log_prob, lm_log_probs: Batch, Beam
     # Add LM EOS score at the end.
     seq_log_prob += rf.gather(lm_log_probs, indices=model.eos_idx, axis=model.target_dim)  # Batch, Beam -> VocabWB
