@@ -67,7 +67,7 @@ def _mask(x, batch_axis, axis, pos, max_amount):
     )
     from TFUtil import where_bc
 
-    x = where_bc(cond, 0.0, x)
+    x = where_bc(cond, tf.constant(0.0, dtype=x.dtype), x)
     return x
 
 
