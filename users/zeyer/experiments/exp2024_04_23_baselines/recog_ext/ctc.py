@@ -4,6 +4,7 @@ CTC decoding with neural LM
 
 from __future__ import annotations
 from typing import TypeVar, Optional, Sequence, Tuple, Dict, Generator
+import re
 import functools
 
 from returnn.tensor import Tensor, Dim, single_step_dim
@@ -270,7 +271,7 @@ def _gather_backrefs_prepare_dims(s: T, *, backrefs: Tensor, dim_map: Dict[Dim, 
             return dim_map[s]
         if backrefs.sparse_dim in s.dyn_size_ext.dims:
             new_dyn_size = _gather_backrefs(s.dyn_size_ext, backrefs=backrefs, dim_map=dim_map)
-            new_dim = Dim(new_dyn_size, name=s.name + "_")
+            new_dim = Dim(new_dyn_size, name=_extend_dim_name(s.name))
             dim_map[s] = new_dim
             return new_dim
         return s
@@ -338,7 +339,7 @@ def _masked_select_prepare_dims(s, *, mask: Tensor, dims: Sequence[Dim], out_dim
         if s in dim_map:
             return dim_map[s]
         new_dyn_size = _masked_select(s.dyn_size_ext, mask=mask, dims=dims, out_dim=out_dim, dim_map=dim_map)
-        new_dim = Dim(new_dyn_size, name=s.name + "_")
+        new_dim = Dim(new_dyn_size, name=_extend_dim_name(s.name))
         dim_map[s] = new_dim
         return new_dim
     raise TypeError(f"_masked_select_prepare_dims: unexpected type ({type(s)})")
@@ -442,7 +443,6 @@ def _masked_scatter_merge_dims(
             reverse_dim_map=reverse_dim_map,
             merged_dim_map=merged_dim_map,
         )
-        print(f"*** masked scatter merge dims: {new_size=} {s=} {backup=} {mask=} {dims=} {in_dim=}")
         assert new_size.dims_set == (
             (s.get_size_tensor().dims_set | backup.get_size_tensor().dims_set) - {in_dim}
         ) | set(dims)
@@ -523,6 +523,14 @@ def _target_dense_extend_blank(
     assert blank_idx == target_dim.dimension  # currently just not implemented otherwise
     res, _ = rf.pad(target, axes=[target_dim], padding=[(0, 1)], out_dims=[wb_target_dim], value=value)
     return res
+
+
+def _extend_dim_name(name: str) -> str:
+    # check ends with _<num>
+    m = re.match(r"^(.*)_(\d+)$", name)
+    if m:
+        return f"{m.group(1)}_{int(m.group(2)) + 1}"
+    return name + "_1"
 
 
 # for debugging:
