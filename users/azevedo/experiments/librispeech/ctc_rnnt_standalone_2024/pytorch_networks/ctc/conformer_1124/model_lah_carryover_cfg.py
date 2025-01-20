@@ -1,7 +1,3 @@
-"""
-Config for the base CTC models v4, including specaug start time
-"""
-
 from dataclasses import dataclass
 import enum
 

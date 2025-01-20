@@ -266,100 +266,103 @@ def rnnt_bpe_ls960_0924_relposencoder():
         chunk_size = 2.4
         lookahead_size = 8
         carry_over_size = 2
-        training_strategy = str(TrainingStrategy.STREAMING)
+        for training_strategy in [str(TrainingStrategy.STREAMING), str(TrainingStrategy.UNIFIED)]:
+            model_config_streaming = ModelConfigStreaming(
+                feature_extraction_config=fe_config,
+                frontend_config=frontend_config,
+                specaug_config=specaug_config,
+                pos_emb_config=posemb_config,
+                predictor_config=predictor_config,
+                label_target_size=vocab_size_without_blank,
+                conformer_size=512,
+                num_layers=12,
+                num_heads=8,
+                ff_dim=2048,
+                att_weights_dropout=0.1,
+                conv_dropout=0.1,
+                ff_dropout=0.1,
+                mhsa_dropout=0.1,
+                mhsa_with_bias=True,
+                conv_kernel_size=31,
+                final_dropout=0.1,
+                specauc_start_epoch=11,
+                joiner_dim=640,
+                joiner_activation="relu",
+                joiner_dropout=0.1,
+                dropout_broadcast_axes=None,  # No dropout broadcast yet to properly compare
+                module_list=["ff", "conv", "mhsa", "ff"],
+                module_scales=[0.5, 1.0, 1.0, 0.5],
+                aux_ctc_loss_layers=[11],
+                aux_ctc_loss_scales=[0.3],
+                ctc_output_loss=0.3,
 
-        model_config_streaming = ModelConfigStreaming(
-            feature_extraction_config=fe_config,
-            frontend_config=frontend_config,
-            specaug_config=specaug_config,
-            pos_emb_config=posemb_config,
-            predictor_config=predictor_config,
-            label_target_size=vocab_size_without_blank,
-            conformer_size=512,
-            num_layers=12,
-            num_heads=8,
-            ff_dim=2048,
-            att_weights_dropout=0.1,
-            conv_dropout=0.1,
-            ff_dropout=0.1,
-            mhsa_dropout=0.1,
-            mhsa_with_bias=True,
-            conv_kernel_size=31,
-            final_dropout=0.1,
-            specauc_start_epoch=11,
-            joiner_dim=640,
-            joiner_activation="relu",
-            joiner_dropout=0.1,
-            dropout_broadcast_axes=None,  # No dropout broadcast yet to properly compare
-            module_list=["ff", "conv", "mhsa", "ff"],
-            module_scales=[0.5, 1.0, 1.0, 0.5],
-            aux_ctc_loss_layers=[11],
-            aux_ctc_loss_scales=[0.3],
-            ctc_output_loss=0.3,
-
-            fastemit_lambda=None,
-            chunk_size=chunk_size*16e3,
-            lookahead_size=lookahead_size,
-            carry_over_size=carry_over_size,
-            online_model_scale=0.5,
-            training_strategy=training_strategy
-        )
-
-        decoder_config_v2 = DecoderConfigV2(
-            beam_size=12,
-            returnn_vocab=label_datastream_bpe.vocab,
-            chunk_size=int(model_config_streaming.chunk_size),
-            lookahead_size=int(model_config_streaming.lookahead_size * 0.06 * 16e3),
-            carry_over_size=model_config_streaming.carry_over_size,
-            test_version=0.0,
-        )
-        offline_decoder_config = DecoderConfigV2(
-            beam_size=12,  # greedy as default
-            returnn_vocab=label_datastream_bpe.vocab,
-            test_version=0.0,
-        )
-
-        train_args_radam_streaming = copy.deepcopy(train_args_radam)
-        network_module = "rnnt.conformer_1124.model_relpos_streaming_v1"
-        train_args_radam_streaming["network_module"] = network_module
-        train_args_radam_streaming["net_args"] = {"model_config_dict": asdict(model_config_streaming)}
-
-        train_strat_str = training_strategy.split(".")[-1].lower()
-        training_name = (
-            prefix_name + "/" + str(BPE_SIZE) + "/" +
-            network_module +
-            ".512dim_sub6_24gbgpu_100eps_from_scratch_radamv1_%s_lah_co" % train_strat_str + "/" +
-            str(chunk_size) + "/" +
-            "carry%i" % model_config_streaming.carry_over_size + "/" +
-            "lah%i" % model_config_streaming.lookahead_size
-        )
-        train_job = training(training_name, train_data_bpe,
-                             train_args_radam_streaming,
-                             num_epochs=1000, **default_returnn)
-        train_job.rqmt["gpu_mem"] = 24
-        train_job.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
-
-        decoder_module = "rnnt.decoder.carryover_decoder_v3"
-        for keep in KEEP + [1000]:
-            asr_model = prepare_asr_model(
-                training_name, train_job, train_args_radam_streaming,
-                with_prior=False,
-                datasets=train_data_bpe, get_specific_checkpoint=keep
+                fastemit_lambda=None,
+                chunk_size=chunk_size*16e3,
+                lookahead_size=lookahead_size,
+                carry_over_size=carry_over_size,
+                online_model_scale=0.5,
+                training_strategy=training_strategy
             )
-            evaluate_helper(
-                training_name + "/offline/keep_%i" % keep,
-                asr_model,
-                offline_decoder_config,
-                use_gpu=True,
+
+            decoder_config_v2 = DecoderConfigV2(
                 beam_size=12,
-                decoder_module=decoder_module
+                returnn_vocab=label_datastream_bpe.vocab,
+                chunk_size=int(model_config_streaming.chunk_size),
+                lookahead_size=int(model_config_streaming.lookahead_size * 0.06 * 16e3),
+                carry_over_size=model_config_streaming.carry_over_size,
+                test_version=0.0,
             )
-            evaluate_helper(
-                training_name + "/keep_%i" % keep,
-                asr_model,
-                decoder_config_v2,
-                use_gpu=True,
-                beam_size=12,
-                decoder_module=decoder_module
+            # offline_decoder_config = DecoderConfigV2(
+            #     beam_size=12,  # greedy as default
+            #     returnn_vocab=label_datastream_bpe.vocab,
+            #     test_version=0.0,
+            # )
+            offline_decoder_config = DecoderConfig(
+                beam_size=12,  # greedy as default
+                returnn_vocab=label_datastream_bpe.vocab
             )
+
+            train_args_radam_streaming = copy.deepcopy(train_args_radam)
+            network_module = "rnnt.conformer_1124.model_relpos_streaming_v1"
+            train_args_radam_streaming["network_module"] = network_module
+            train_args_radam_streaming["net_args"] = {"model_config_dict": asdict(model_config_streaming)}
+
+            train_strat_str = training_strategy.split(".")[-1].lower()
+            training_name = (
+                prefix_name + "/" + str(BPE_SIZE) + "/" +
+                network_module +
+                ".512dim_sub6_48gbgpu_100eps_from_scratch_radamv1_%s_lah_co" % train_strat_str + "/" +
+                str(chunk_size) + "/" +
+                "carry%i" % model_config_streaming.carry_over_size + "/" +
+                "lah%i" % model_config_streaming.lookahead_size
+            )
+            train_job = training(training_name, train_data_bpe,
+                                 train_args_radam_streaming,
+                                 num_epochs=1000, **default_returnn)
+            train_job.rqmt["gpu_mem"] = 48
+            train_job.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+
+            decoder_module = "rnnt.decoder.carryover_decoder_v3"
+            for keep in KEEP[4:] + [1000]:
+                asr_model = prepare_asr_model(
+                    training_name, train_job, train_args_radam_streaming,
+                    with_prior=False,
+                    datasets=train_data_bpe, get_specific_checkpoint=keep
+                )
+                evaluate_helper(
+                    training_name + "/offline/keep_%i" % keep,
+                    asr_model,
+                    offline_decoder_config,
+                    use_gpu=True,
+                    beam_size=12,
+                    decoder_module="rnnt.decoder.experimental_rnnt_decoder"
+                )
+                evaluate_helper(
+                    training_name + "/keep_%i" % keep,
+                    asr_model,
+                    decoder_config_v2,
+                    use_gpu=True,
+                    beam_size=12,
+                    decoder_module=decoder_module
+                )
         

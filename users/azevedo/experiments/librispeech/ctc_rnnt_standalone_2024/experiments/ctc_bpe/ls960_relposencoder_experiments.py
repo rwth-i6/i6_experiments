@@ -25,16 +25,16 @@ def product_dict(**kwargs):
         yield dict(zip(keys, instance))
 
 
-def get_train_config(model_config, keep, module, accum_grads=1,  **kwargs):
+def get_train_config(model_config, keep, module, accum_grads=1, **kwargs):
     num_epochs = kwargs.get("num_epochs")
 
-    epochs_r = num_epochs/1000
+    epochs_r = num_epochs / 1000
     # Default configs for continued training
     train_config_24gbgpu = {
         "optimizer": {"class": "adamw", "epsilon": 1e-16, "weight_decay": 1e-2},
         "learning_rates": list(np.linspace(7e-6, 5e-4, int(480 * epochs_r)))
-        + list(np.linspace(5e-4, 5e-5, int(480 * epochs_r)))
-        + list(np.linspace(5e-5, 1e-7, int(40 * epochs_r))),
+                          + list(np.linspace(5e-4, 5e-5, int(480 * epochs_r)))
+                          + list(np.linspace(5e-5, 1e-7, int(40 * epochs_r))),
         #############
         "batch_size": 240 * 16000 // accum_grads,  # GPU MEM still very moderate, but larger batch did not help
         "max_seq_length": {"audio_features": 35 * 16000},
@@ -65,7 +65,7 @@ def get_train_config(model_config, keep, module, accum_grads=1,  **kwargs):
     #     }
     # }
 
-    network_module = "ctc.conformer_1124.%s" % module
+    network_module = "ctc.conformer_0125.%s" % module
     train_args_24gb_default = {
         "config": train_config_24gbgpu,
         "network_module": network_module,
@@ -78,13 +78,13 @@ def get_train_config(model_config, keep, module, accum_grads=1,  **kwargs):
 
 
 def run_experiments(**kwargs):
-    prefix_name = "example_setups/librispeech/ctc_rnnt_standalone_2024/ls960_ctc_low_bpe_lah_co"
+    prefix_name = "example_setups/librispeech/ctc_rnnt_standalone_2024/ls960_ctc_bpe_relposencoder_0924"
     bpe_size = kwargs.get("bpe_size", 128)
     experiments_config = kwargs.get("experiments_config")
 
     train_settings = DatasetSettings(
-        preemphasis=0.97,  # TODO: Check if this is really useful
-        peak_normalization=True,  # TODO: Also check if really useful, older Attention setups did not have that
+        preemphasis=0.97,
+        peak_normalization=True,
         # training
         train_partition_epoch=10,
         train_seq_ordering="laplace:.1000",
@@ -121,7 +121,7 @@ def run_experiments(**kwargs):
         "returnn_exe": RETURNN_EXE,
         "returnn_root": MINI_RETURNN_ROOT,
     }
-    
+
     from ...pytorch_networks.ctc.decoder.flashlight_ctc_v1 import DecoderConfig as DecoderConfigOffline
     from ...pytorch_networks.ctc.decoder.flashlight_ctc_v2 import DecoderConfig
     from ...pytorch_networks.ctc.decoder.lah_carryover_decoder import DecoderConfig as DecoderConfigV2
@@ -129,12 +129,12 @@ def run_experiments(**kwargs):
     from ...pytorch_networks.ctc.decoder.greedy_lah_carryover_decoder import DecoderConfig as GreedyDecoderConfig
 
     def tune_and_evaluate_helper(
-        training_name: str,
-        asr_model: ASRModel,
-        base_decoder_config: DecoderConfig,
-        lm_scales: List[float],
-        prior_scales: List[float],
-        decoder_module: str = "ctc.decoder.flashlight_ctc_v1"
+            training_name: str,
+            asr_model: ASRModel,
+            base_decoder_config: DecoderConfig,
+            lm_scales: List[float],
+            prior_scales: List[float],
+            decoder_module: str = "ctc.decoder.flashlight_ctc_v1"
     ):
         """
         Example helper to execute tuning over lm_scales and prior scales.
@@ -214,7 +214,9 @@ def run_experiments(**kwargs):
         VGG4LayerActFrontendV1Config_mod,
         LogMelFeatureExtractionV1Config,
     )
-    from ...pytorch_networks.ctc.conformer_1124.model_lah_carryover_cfg import ModelConfig
+    from ...pytorch_networks.rnnt.conformer_0924.i6models_relposV1_VGG4LayerActFrontendV1_v1_cfg import \
+        ConformerPosEmbConfig
+    from ...pytorch_networks.ctc.conformer_0125.model_relpos_streaming_v1_cfg import ModelConfig
 
     fe_config = LogMelFeatureExtractionV1Config(
         sample_rate=16000,
@@ -257,6 +259,15 @@ def run_experiments(**kwargs):
         activation=None,
     )
 
+    posemb_config = ConformerPosEmbConfig(
+        learnable_pos_emb=False,
+        rel_pos_clip=16,
+        with_linear_pos=True,
+        with_pos_bias=True,
+        separate_pos_emb_per_head=True,
+        pos_emb_dropout=0.0,
+    )
+    
     train_data_bpe = build_bpe_training_datasets(
         prefix=prefix_name,
         librispeech_key="train-other-960",
@@ -267,8 +278,9 @@ def run_experiments(**kwargs):
     label_datastream_bpe = cast(LabelDatastream, train_data_bpe.datastreams["labels"])
     vocab_size_without_blank = label_datastream_bpe.vocab_size
 
+
     #
-    # different encoder param experiments 
+    # different encoder param experiments
     #
     for experiment in experiments_config:
         exp_config = experiments_config[experiment]
@@ -281,6 +293,7 @@ def run_experiments(**kwargs):
                 feature_extraction_config=fe_config,
                 frontend_config=frontend_config,
                 specaug_config=specaug_config,
+                pos_emb_config=posemb_config,
                 label_target_size=vocab_size_without_blank,
                 conformer_size=512,
                 num_layers=12,
@@ -290,9 +303,13 @@ def run_experiments(**kwargs):
                 conv_dropout=0.1,
                 ff_dropout=0.1,
                 mhsa_dropout=0.1,
+                mhsa_with_bias=True,
                 conv_kernel_size=param_combi["kernel_size"],
                 final_dropout=0.1,
-                specauc_start_epoch=11,  # BPE does not converge otherwise
+                specauc_start_epoch=11,
+                dropout_broadcast_axes=None,  # No dropout broadcast yet to properly compare
+                module_list=["ff", "conv", "mhsa", "ff"],
+                module_scales=[0.5, 1.0, 1.0, 0.5],
 
                 chunk_size=param_combi["chunk_size"] * 16e3,
                 lookahead_size=param_combi["lookahead_size"],
@@ -305,63 +322,25 @@ def run_experiments(**kwargs):
                 lexicon=get_text_lexicon(prefix=prefix_name, librispeech_key="train-other-960", bpe_size=128),
                 returnn_vocab=label_datastream_bpe128.vocab,
                 beam_size=1024,  # Untuned
-                beam_size_token=16,  # makes it much faster (0.3 search RTF -> 0.04 search RTF), but looses 0.1% WER over 128
+                beam_size_token=16,
+                # makes it much faster (0.3 search RTF -> 0.04 search RTF), but looses 0.1% WER over 128
                 arpa_lm=arpa_4gram_lm,
                 beam_threshold=14,  # Untuned
                 chunk_size=int(model_config.chunk_size),
-                lookahead_size=int(model_config.lookahead_size*0.06*16e3),
+                lookahead_size=int(model_config.lookahead_size * 0.06 * 16e3),
                 carry_over_size=model_config.carry_over_size,
                 test_version=0.0,
             )
-            
+
             offline_decoder_config_bpe128 = DecoderConfigOffline(
                 lexicon=get_text_lexicon(prefix=prefix_name, librispeech_key="train-other-960", bpe_size=128),
                 returnn_vocab=label_datastream_bpe128.vocab,
                 beam_size=1024,  # Untuned
-                beam_size_token=16,  # makes it much faster (0.3 search RTF -> 0.04 search RTF), but looses 0.1% WER over 128
+                beam_size_token=16,
+                # makes it much faster (0.3 search RTF -> 0.04 search RTF), but looses 0.1% WER over 128
                 arpa_lm=arpa_4gram_lm,
                 beam_threshold=14,  # Untuned
             )
-
-            num_epochs = exp_config.get("num_epochs")
-            KEEP = exp_config.get("keep")
-            train_args = get_train_config(model_config, keep=KEEP, 
-                                          module=exp_config["network_module"],
-                                          accum_grads=exp_config["accum_grads"],
-                                          num_epochs=num_epochs)
-
-            gpu_mem = exp_config["gpu_mem"]
-            train_strat = model_config.training_strategy.split(".")[-1].lower()
-
-            training_name = (
-                prefix_name + "/" + str(bpe_size) + "/" + 
-                train_args["network_module"] +
-                ".512dim_sub6_%dgbgpu_" % gpu_mem + 
-                "%deps_" % (num_epochs//10) +
-                "from_scratch_radamv1_%s_lah_co_specaug%d" % (train_strat, model_config.specauc_start_epoch) + "/" +
-                str(param_combi["chunk_size"]) + "/" +
-                "carry%.1f" % model_config.carry_over_size + "/" + 
-                "lah%i" % model_config.lookahead_size
-            )
-            train_job = training(training_name, train_data_bpe, train_args,
-                                 num_epochs=num_epochs, **default_returnn)
-            train_job.rqmt["gpu_mem"] = gpu_mem
-            train_job.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
-            #
-            # decodings
-            #
-            asr_model = prepare_asr_model(
-                training_name, train_job, train_args, with_prior=True, datasets=train_data_bpe128, get_specific_checkpoint=num_epochs
-            )
-            tune_and_evaluate_helper(
-                training_name + "/online",
-                asr_model,
-                default_decoder_config_bpe128,
-                lm_scales=[1.6, 1.8, 2.0, 2.2, 2.4],
-                prior_scales=[0.2, 0.3, 0.4, 0.6, 0.8],
-                decoder_module="ctc.decoder.lah_carryover_decoder"
-            )
-
             if experiment == 20:
                 offline_decoder_config_bpe128 = DecoderConfigV2(
                     lexicon=get_text_lexicon(prefix=prefix_name, librispeech_key="train-other-960", bpe_size=128),
@@ -371,6 +350,46 @@ def run_experiments(**kwargs):
                     arpa_lm=arpa_4gram_lm,
                     beam_threshold=14,
                 )
+
+            num_epochs = exp_config.get("num_epochs")
+            KEEP = exp_config.get("keep")
+            train_args = get_train_config(model_config, keep=KEEP,
+                                          module=exp_config["network_module"],
+                                          accum_grads=exp_config["accum_grads"],
+                                          num_epochs=num_epochs)
+
+            gpu_mem = exp_config["gpu_mem"]
+            train_strat = model_config.training_strategy.split(".")[-1].lower()
+
+            training_name = (
+                    prefix_name + "/" + str(bpe_size) + "/" +
+                    train_args["network_module"] +
+                    ".512dim_sub6_%dgbgpu_" % gpu_mem +
+                    "%deps_" % (num_epochs // 10) +
+                    "from_scratch_adamw_%s_specaug%d" % (train_strat, model_config.specauc_start_epoch) + "/" +
+                    str(param_combi["chunk_size"]) + "/" +
+                    "carry%.1f" % model_config.carry_over_size + "/" +
+                    "lah%i" % model_config.lookahead_size
+            )
+            train_job = training(training_name, train_data_bpe, train_args,
+                                 num_epochs=num_epochs, **default_returnn)
+            train_job.rqmt["gpu_mem"] = gpu_mem
+            train_job.set_env("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+            #
+            # decodings
+            #
+            asr_model = prepare_asr_model(
+                training_name, train_job, train_args, with_prior=True, datasets=train_data_bpe128,
+                get_specific_checkpoint=num_epochs
+            )
+            tune_and_evaluate_helper(
+                training_name + "/online",
+                asr_model,
+                default_decoder_config_bpe128,
+                lm_scales=[1.6, 1.8, 2.0, 2.2, 2.4],
+                prior_scales=[0.2, 0.3, 0.4, 0.6, 0.8],
+                decoder_module="ctc.decoder.lah_carryover_decoder"
+            )
             tune_and_evaluate_helper(
                 training_name + "/offline",
                 asr_model,
@@ -380,48 +399,8 @@ def run_experiments(**kwargs):
                 decoder_module="ctc.decoder.lah_carryover_decoder"
             )
 
-            if experiment in [20, 30]: #and (model_config.carry_over_size, model_config.lookahead_size) in [(2, 8)]:
-                tune_and_evaluate_helper(
-                    training_name + "/nolm" + "/offline",
-                    asr_model,
-                    offline_decoder_config_bpe128,
-                    lm_scales=[0],
-                    prior_scales=[0.2, 0.3, 0.4, 0.6, 0.8],
-                    decoder_module="ctc.decoder.lah_carryover_decoder"
-                )
 
-            if experiment == 30 and model_config.lookahead_size == 8:
-                online_decoder_greedy = GreedyDecoderConfig(
-                    returnn_vocab=label_datastream_bpe128.vocab,
-
-                    chunk_size=int(model_config.chunk_size),
-                    lookahead_size=int(model_config.lookahead_size * 0.06 * 16e3),
-                    carry_over_size=model_config.carry_over_size,
-                    test_version=0.2,
-                )
-                greedy_search_helper(
-                    training_name + "/online",
-                    asr_model,
-                    online_decoder_greedy,
-                    decoder_module="ctc.decoder.greedy_lah_carryover_decoder"
-                )
-                offline_decoder_greedy = GreedyDecoderConfig(
-                    returnn_vocab=label_datastream_bpe128.vocab,
-
-                    chunk_size=None,
-                    lookahead_size=None,
-                    carry_over_size=None,
-                    test_version=0.0,
-                )
-                greedy_search_helper(
-                    training_name + "/offline",
-                    asr_model,
-                    offline_decoder_greedy,
-                    decoder_module="ctc.decoder.greedy_lah_carryover_decoder"
-                )
-
-
-def ctc_lah_carryover_v2_ls960_1023_low_bpe_from_scratch():
+def ls960_ctc_relpos_streaming_0924_low_bpe_from_scratch():
     experiment_configs = {
         10: {
             "model_params": {
@@ -433,64 +412,29 @@ def ctc_lah_carryover_v2_ls960_1023_low_bpe_from_scratch():
                 "training_strategy": [str(TrainingStrategy.UNIFIED)]
             },
 
-            "network_module": "model_streaming_lah_carryover",
+            "network_module": "model_relpos_streaming",
             "accum_grads": 1,
-            "gpu_mem": 24,
+            "gpu_mem": 48,
             "num_epochs": 1000,
-            "keep": [300, 400, 500, 600, 700, 800, 900, 950, 980]
+            "keep": [300, 500, 800, 950]
         },
 
         20: {
-            "model_params": {
-                "chunk_size": [0.6],
-                "lookahead_size": [0, 8, 16],
-                "kernel_size": [31],
-                "specauc_start_epoch": [11],
-                "carry_over_size": [0, 2, 4, 8],
-                "training_strategy": [str(TrainingStrategy.STREAMING)]
-            },
-
-            "network_module": "model_streaming_lah_carryover",
-            "accum_grads": 1,
-            "gpu_mem": 24,
-            "num_epochs": 1000,
-            "keep": [300, 500, 800, 950]
-        },
-
-        30: {
-            "model_params": {
-                "chunk_size": [2.4],
-                "lookahead_size": [0, 8, 16],
-                "kernel_size": [31],
-                "specauc_start_epoch": [11],
-                "carry_over_size": [0, 0.5, 1, 2],
-                "training_strategy": [str(TrainingStrategy.STREAMING)]
-            },
-
-            "network_module": "model_streaming_lah_carryover",
-            "accum_grads": 1,
-            "gpu_mem": 24,
-            "num_epochs": 1000,
-            "keep": [300, 500, 800, 950]
-        },
-
-        40: {
             "model_params": {
                 "chunk_size": [2.4],
                 "lookahead_size": [8],
                 "kernel_size": [31],
                 "specauc_start_epoch": [11],
                 "carry_over_size": [2],
-                "training_strategy": [str(TrainingStrategy.SWITCHING)]
+                "training_strategy": [str(TrainingStrategy.STREAMING)]
             },
 
-            "network_module": "model_streaming_lah_carryover",
+            "network_module": "model_relpos_streaming",
             "accum_grads": 1,
-            "gpu_mem": 24,
+            "gpu_mem": 48,
             "num_epochs": 1000,
-            "keep": [300, 400, 500, 600, 700, 800, 900, 950, 980]
+            "keep": [300, 500, 800, 950]
         },
-
     }
 
     run_experiments(experiments_config=experiment_configs, bpe_size=128)

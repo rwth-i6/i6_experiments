@@ -460,3 +460,69 @@ def bpe_ls960_1023_uni_lah(chunk_size: float, lookahead_size: int, kernel_size: 
         lm_scales=[1.6, 1.8, 2.0],
         prior_scales=[0.2, 0.3, 0.4],
     )
+
+    #
+    # relpos baseline
+    #
+
+
+    from ...pytorch_networks.ctc.conformer_0125.i6models_relposV1_VGG4LayerActFrontendV1_v1_cfg import (
+        ConformerPosEmbConfig,
+        ModelConfig as ModelConfigRelpos
+    )
+
+    posemb_config = ConformerPosEmbConfig(
+        learnable_pos_emb=False,
+        rel_pos_clip=16,
+        with_linear_pos=True,
+        with_pos_bias=True,
+        separate_pos_emb_per_head=True,
+        pos_emb_dropout=0.0,
+    )
+
+    model_config_relpos = ModelConfigRelpos(
+        feature_extraction_config=fe_config,
+        frontend_config=frontend_config_sub6,
+        pos_emb_config=posemb_config,
+        specaug_config=specaug_config,
+        label_target_size=vocab_size_without_blank,
+        conformer_size=512,
+        num_layers=12,
+        num_heads=8,
+        ff_dim=2048,
+        att_weights_dropout=0.1,
+        conv_dropout=0.1,
+        ff_dropout=0.1,
+        mhsa_dropout=0.1,
+        mhsa_with_bias=True,
+        conv_kernel_size=31,
+        final_dropout=0.1,
+        specauc_start_epoch=11,
+        dropout_broadcast_axes=None, # No dropout broadcast yet to properly compare
+        module_list=["ff", "conv", "mhsa", "ff"],
+        module_scales=[0.5, 1.0, 1.0, 0.5],
+        aux_ctc_loss_layers=None,
+        aux_ctc_loss_scales=None,
+    )
+
+    prefix_name_rel = "example_setups/librispeech/ctc_rnnt_standalone_2024/ls960_ctc_bpe_relposencoder_0924"
+    train_args_relpos = copy.deepcopy(train_args_offline)
+    train_args_relpos["network_module"] = "ctc.conformer_0125.i6models_relposV1_VGG4LayerActFrontendV1_v1"
+    train_args_relpos["net_args"] = {"model_config_dict": asdict(model_config_relpos)}
+
+    training_name_relpos = prefix_name_rel + "/" + train_args_relpos["network_module"] + ".512dim_sub6_48gbgpu_100eps_relpos_base"
+    train_job = training(training_name_relpos, train_data_bpe128, train_args_relpos, num_epochs=1000,
+                         **default_returnn)
+    train_job.rqmt["gpu_mem"] = 48
+    asr_model_relpos = prepare_asr_model(
+        training_name_relpos, train_job, train_args_relpos, with_prior=True, datasets=train_data_bpe128,
+        get_specific_checkpoint=1000
+    )
+
+    tune_and_evaluate_helper(
+        training_name_relpos,
+        asr_model_relpos,
+        offline_decoder_config_bpe128,
+        lm_scales=[1.6, 1.8, 2.0],
+        prior_scales=[0.2, 0.3, 0.4],
+    )

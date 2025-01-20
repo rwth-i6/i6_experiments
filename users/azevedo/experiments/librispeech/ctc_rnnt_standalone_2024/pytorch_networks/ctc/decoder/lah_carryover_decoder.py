@@ -14,7 +14,7 @@ from typing import Any, Dict, Optional, List, Tuple
 
 from ...rnnt.decoder.chunk_handler import AudioStreamer
 from ...rnnt.auxil.functional import Mode, num_samples_to_frames
-from .greedy_bpe_ctc_v3 import forward_step as forward_offline
+from .flashlight_ctc_v1 import forward_step as forward_offline
 
 
 @dataclass
