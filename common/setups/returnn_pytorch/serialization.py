@@ -401,7 +401,7 @@ def build_config_constructor_serializers_v2(
             dict_imports = []
             for key, val in value.items():
                 val_serialized, item_imports = serialize_value(val)
-                dict_items += [key, val_serialized]
+                dict_items += [repr(key), val_serialized]
                 dict_imports += item_imports
             return (
                 DelayedFormat("{{" + ", ".join(["{}: {}"] * (len(dict_items) // 2)) + "}}", *dict_items),
