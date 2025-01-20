@@ -74,12 +74,12 @@ def py():
         # Our own beam search implementation.
         for beam_size, prior_scale, lm_scale in [
             # (12, 1.0, 1.0),
-            (12, 0.0, 1.0),
+            # (12, 0.0, 1.0),
             # (1, 0.0, 1.0),
             # (1, 1.0, 1.0),
-            (12, 0.5, 1.0),
-            (16, 0.5, 1.0),
-            (1, 0.5, 1.0),
+            # (12, 0.5, 1.0),
+            # (16, 0.5, 1.0),
+            # (1, 0.5, 1.0),
             (1, 0.0, 0.0),  # sanity check
             (1, 0.3, 0.5),
             (16, 0.3, 0.5),
@@ -94,8 +94,9 @@ def py():
                 recog_def=model_recog,
                 config={
                     "beam_size": beam_size,
-                    "recog_version": 6,
+                    "recog_version": 7,
                     "batch_size": 5_000 * ctc_model.definition.batch_size_factor,
+                    # "__trigger_hash_change": 1,
                 },
                 search_rqmt={"time": 24},
             )
