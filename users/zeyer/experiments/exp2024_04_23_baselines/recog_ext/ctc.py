@@ -502,6 +502,7 @@ def _expand_slice(source: Tensor, axis: Dim, expanded_size: Dim) -> Tensor:
         axes=[axis],
         padding=[(0, expanded_size.get_dim_value_tensor() - axis.get_dim_value_tensor())],
         out_dims=[expanded_size],
+        value=0,
     )
     return res
 
