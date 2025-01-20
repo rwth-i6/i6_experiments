@@ -148,8 +148,9 @@ def model_recog(
             f" {[model.wb_target_dim.vocab.id_to_label(l.item()) for l in target_wb.raw_tensor[0, :3].cpu()]}"
         )
 
+        backrefs_dim_map = {}  # old dim -> new dim
         lm_log_probs = rf.gather(lm_log_probs, indices=backrefs)  # Batch, Beam, Vocab
-        lm_state = tree.map_structure(functools.partial(_gather_backrefs, backrefs=backrefs), lm_state)
+        lm_state = _gather_backrefs_tree(lm_state, backrefs=backrefs, dim_map=backrefs_dim_map)
         prev_target = rf.gather(prev_target, indices=backrefs)  # Batch, Beam -> Vocab
         prev_target_wb = rf.gather(prev_target_wb, indices=backrefs)  # Batch, Beam -> VocabWB
         got_new_label = (target_wb != model.blank_idx) & (target_wb != prev_target_wb)  # Batch, Beam -> 0|1
@@ -167,14 +168,17 @@ def model_recog(
             f" {[model.target_dim.vocab.id_to_label(l.item()) for l in target.raw_tensor[0, :3].cpu()]}"
         )
 
-        seq_label = tree.map_structure(functools.partial(_gather_backrefs, backrefs=backrefs), seq_label)
+        seq_label = _gather_backrefs_tree(seq_label, backrefs=backrefs, dim_map=backrefs_dim_map)
         _seq_label_print("gather backrefs", seq_label)
 
+        got_new_label_cpu = rf.copy_to_device(got_new_label, "cpu")
         (target_, lm_state_, seq_label_), packed_new_label_dim, packed_new_label_dim_map = _masked_select_tree(
             (target, lm_state, seq_label),
             mask=got_new_label,
+            mask_cpu=got_new_label_cpu,
             dims=batch_dims + [beam_dim],
         )
+        # packed_new_label_dim_map: old dim -> new dim. see _masked_select_prepare_dims
 
         if packed_new_label_dim.get_dim_value() > 0:
             print(
@@ -204,6 +208,7 @@ def model_recog(
                 (lm_log_probs_, lm_state_, seq_label_),
                 (lm_log_probs, lm_state, seq_label),
                 mask=got_new_label,
+                mask_cpu=got_new_label_cpu,
                 dims=batch_dims + [beam_dim],
                 in_dim=packed_new_label_dim,
                 dim_map=packed_new_label_dim_map,
@@ -247,20 +252,53 @@ model_recog.batch_size_dependent = True  # our models currently just are batch-s
 T = TypeVar("T")
 
 
-def _gather_backrefs(s: T, *, backrefs: Tensor) -> T:
+def _gather_backrefs_tree(s: T, *, backrefs: Tensor, dim_map: Dict[Dim, Dim]) -> T:
+    import tree
+
+    tree.map_structure(functools.partial(_gather_backrefs_prepare_dims, backrefs=backrefs, dim_map=dim_map), s)
+    s = tree.map_structure(functools.partial(_gather_backrefs, backrefs=backrefs, dim_map=dim_map), s)
+    return s
+
+
+def _gather_backrefs_prepare_dims(s: T, *, backrefs: Tensor, dim_map: Dict[Dim, Dim]) -> T:
     if isinstance(s, Tensor):
-        if backrefs.sparse_dim in s.dims:
-            return rf.gather(s, indices=backrefs)  # really the default case
-        return s  # e.g. scalar or so, independent from beam
+        return s  # ignored at this stage
     if isinstance(s, Dim):
         if s.dimension is not None:  # static
             return s
-        assert backrefs.sparse_dim not in s.dyn_size_ext.dims  # currently not supported, also not expected
+        if s in dim_map:
+            return dim_map[s]
+        if backrefs.sparse_dim in s.dyn_size_ext.dims:
+            new_dyn_size = _gather_backrefs(s.dyn_size_ext, backrefs=backrefs, dim_map=dim_map)
+            new_dim = Dim(new_dyn_size, name=s.name + "_")
+            dim_map[s] = new_dim
+            return new_dim
+        return s
+    raise TypeError(f"_gather_backrefs_prepare_dims: unexpected type ({type(s)})")
+
+
+def _gather_backrefs(s: T, *, backrefs: Tensor, dim_map: Optional[Dict[Dim, Dim]] = None) -> T:
+    if isinstance(s, Tensor):
+        if backrefs.sparse_dim in s.dims:
+            # really the default case, otherwise e.g. scalar or so, independent from beam
+            s = rf.gather(s, indices=backrefs)
+        if dim_map and any(d in dim_map for d in s.dims):
+            for d in s.dims:
+                if d in dim_map:
+                    s, new_dim = rf.replace_dim(s, in_dim=d, out_dim=dim_map[d])
+                    s, _ = rf.slice(s, axis=new_dim, size=new_dim)
+        return s
+    if isinstance(s, Dim):
+        if s.dimension is not None:  # static
+            return s
+        if dim_map and s in dim_map:
+            return dim_map[s]
+        assert backrefs.sparse_dim not in s.dyn_size_ext.dims  # not expected, should be in dim_map
         return s
     raise TypeError(f"_gather_backrefs: unexpected type ({type(s)})")
 
 
-def _masked_select_tree(s: T, *, mask: Tensor, dims: Sequence[Dim]) -> Tuple[T, Dim, Dict[Dim, Dim]]:
+def _masked_select_tree(s: T, *, mask: Tensor, mask_cpu: Tensor, dims: Sequence[Dim]) -> Tuple[T, Dim, Dict[Dim, Dim]]:
     import tree
 
     packed_new_label_dim = Dim(None, name="packed_new_label")  # Flat_Batch_InBeam
@@ -268,7 +306,7 @@ def _masked_select_tree(s: T, *, mask: Tensor, dims: Sequence[Dim]) -> Tuple[T, 
     tree.map_structure(
         functools.partial(
             _masked_select_prepare_dims,
-            mask=mask,
+            mask=mask_cpu,
             dims=dims,
             out_dim=packed_new_label_dim,
             dim_map=packed_new_label_dim_map,
@@ -279,6 +317,7 @@ def _masked_select_tree(s: T, *, mask: Tensor, dims: Sequence[Dim]) -> Tuple[T, 
         functools.partial(
             _masked_select,
             mask=mask,
+            mask_cpu=mask_cpu,
             dims=dims,
             out_dim=packed_new_label_dim,
             dim_map=packed_new_label_dim_map,
@@ -305,10 +344,14 @@ def _masked_select_prepare_dims(s, *, mask: Tensor, dims: Sequence[Dim], out_dim
     raise TypeError(f"_masked_select_prepare_dims: unexpected type ({type(s)})")
 
 
-def _masked_select(s: T, *, mask: Tensor, dims: Sequence[Dim], out_dim: Dim, dim_map: Dict[Dim, Dim]) -> T:
+def _masked_select(
+    s: T, *, mask: Tensor, mask_cpu: Optional[Tensor] = None, dims: Sequence[Dim], out_dim: Dim, dim_map: Dict[Dim, Dim]
+) -> T:
     if isinstance(s, Tensor):
         if not any(d in s.dims for d in dims):
             return s  # e.g. scalar or so, independent from dims
+        if s.device == "cpu" and mask_cpu is not None:
+            mask = mask_cpu
         # For the masked_select, we need that all masked dims are present, so add them if not.
         # (E.g., when we mask [batch,beam], but we only have [batch], we need to add the beam dim.)
         if any(d not in s.dims for d in dims):
@@ -333,13 +376,12 @@ def _masked_select(s: T, *, mask: Tensor, dims: Sequence[Dim], out_dim: Dim, dim
 
 
 def _masked_scatter_tree(
-    s: T, backup: T, *, mask: Tensor, dims: Sequence[Dim], in_dim: Dim, dim_map: Dict[Dim, Dim]
+    s: T, backup: T, *, mask: Tensor, mask_cpu: Tensor, dims: Sequence[Dim], in_dim: Dim, dim_map: Dict[Dim, Dim]
 ) -> T:
     import tree
 
     reverse_dim_map = {v: k for k, v in dim_map.items()}
     merged_dim_map = {}
-    mask_cpu = rf.copy_to_device(mask, "cpu")
 
     tree.map_structure(
         functools.partial(
