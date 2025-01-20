@@ -170,7 +170,7 @@ def model_recog(
         if packed_new_label_dim.get_dim_value() > 0:
             print(
                 f"* feed target"
-                f" {[model.target_dim.vocab.id_to_label(l.item()) for l in target_.raw_tensor[0, :3].cpu()]}"
+                f" {[model.target_dim.vocab.id_to_label(l.item()) for l in target_.raw_tensor[:3].cpu()]}"
             )
 
             lm_logits_, lm_state_ = lm(
