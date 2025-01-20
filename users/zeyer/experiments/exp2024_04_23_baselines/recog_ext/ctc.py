@@ -446,10 +446,6 @@ def _masked_scatter(
                 backup = _expand_slice(backup, axis=d, expanded_size=merged_dim_map[d])
         # The unpacking itself (reversing the masked_select, i.e. masked_scatter).
         s = rf.masked_scatter(s, backup, mask=mask, dims=dims, in_dim=in_dim)
-        # Now remove potential added dims.
-        for d in s.dims:
-            if d not in backup.dims:
-                s = rf.gather(s, axis=d, indices=0)
         return s
     if isinstance(s, Dim):
         # This is slightly more complex than in the _masked_select case:
