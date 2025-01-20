@@ -89,10 +89,10 @@ def model_recog(
     lm_log_probs *= lm_scale
 
     lm_log_probs = lm_log_probs.copy_compatible_to_dims(batch_dims_ + [model.target_dim])
-    print("* lm_log_probs initial:", lm_log_probs)
-    print(
-        f"* argmax LM begin: {model.target_dim.vocab.id_to_label(lm_log_probs.raw_tensor[0, 0].argmax().cpu().item())}"
-    )
+    # print("* lm_log_probs initial:", lm_log_probs)
+    # print(
+    #     f"* argmax LM begin: {model.target_dim.vocab.id_to_label(lm_log_probs.raw_tensor[0, 0].argmax().cpu().item())}"
+    # )
 
     # For debugging, accumulate (non-blank) label history.
     # Note: When you use this, uncomment the seq_label usages below,
@@ -110,11 +110,11 @@ def model_recog(
 
         seq_log_prob = seq_log_prob + label_log_prob_ta[t]  # Batch, InBeam, VocabWB
 
-        seq_log_prob = seq_log_prob.copy_compatible_to_dims(batch_dims + [beam_dim, model.wb_target_dim])
-        print(
-            f"* argmax seq_log_prob (before LM) t={t}:"
-            f" {model.wb_target_dim.vocab.id_to_label(seq_log_prob.raw_tensor[0, 0].argmax().cpu().item())}"
-        )
+        # seq_log_prob = seq_log_prob.copy_compatible_to_dims(batch_dims + [beam_dim, model.wb_target_dim])
+        # print(
+        #     f"* argmax seq_log_prob (before LM) t={t}:"
+        #     f" {model.wb_target_dim.vocab.id_to_label(seq_log_prob.raw_tensor[0, 0].argmax().cpu().item())}"
+        # )
 
         # Now add LM score. If prev align label (target_wb) is blank or != cur, add LM score, otherwise 0.
         seq_log_prob += rf.where(
@@ -129,11 +129,11 @@ def model_recog(
             0.0,
         )  # Batch, InBeam -> VocabWB
 
-        seq_log_prob = seq_log_prob.copy_compatible_to_dims(batch_dims + [beam_dim, model.wb_target_dim])
-        print(
-            f"* argmax seq_log_prob (with LM) t={t}:"
-            f" {model.wb_target_dim.vocab.id_to_label(seq_log_prob.raw_tensor[0, 0].argmax().cpu().item())}"
-        )
+        # seq_log_prob = seq_log_prob.copy_compatible_to_dims(batch_dims + [beam_dim, model.wb_target_dim])
+        # print(
+        #     f"* argmax seq_log_prob (with LM) t={t}:"
+        #     f" {model.wb_target_dim.vocab.id_to_label(seq_log_prob.raw_tensor[0, 0].argmax().cpu().item())}"
+        # )
 
         seq_log_prob, (backrefs, target_wb), beam_dim = rf.top_k(
             seq_log_prob, k_dim=Dim(beam_size, name=f"dec-step{t}-beam"), axis=[beam_dim, model.wb_target_dim]
@@ -144,11 +144,11 @@ def model_recog(
         seq_targets_wb.append(target_wb)
         seq_backrefs.append(backrefs)
 
-        target_wb = target_wb.copy_compatible_to_dims(batch_dims + [beam_dim])  # Batch, Beam -> VocabWB
-        print(
-            f"* target_wb t={t} beam:"
-            f" {[model.wb_target_dim.vocab.id_to_label(l.item()) for l in target_wb.raw_tensor[0, :3].cpu()]}"
-        )
+        # target_wb = target_wb.copy_compatible_to_dims(batch_dims + [beam_dim])  # Batch, Beam -> VocabWB
+        # print(
+        #     f"* target_wb t={t} beam:"
+        #     f" {[model.wb_target_dim.vocab.id_to_label(l.item()) for l in target_wb.raw_tensor[0, :3].cpu()]}"
+        # )
 
         backrefs_dim_map = {}  # old dim -> new dim
         lm_log_probs = rf.gather(lm_log_probs, indices=backrefs)  # Batch, Beam, Vocab
@@ -164,11 +164,11 @@ def model_recog(
             prev_target,
         )  # Batch, Beam -> Vocab
 
-        target = target.copy_compatible_to_dims(batch_dims + [beam_dim])  # Batch, Beam -> Vocab
-        print(
-            f"* target t={t} beam:"
-            f" {[model.target_dim.vocab.id_to_label(l.item()) for l in target.raw_tensor[0, :3].cpu()]}"
-        )
+        # target = target.copy_compatible_to_dims(batch_dims + [beam_dim])  # Batch, Beam -> Vocab
+        # print(
+        #     f"* target t={t} beam:"
+        #     f" {[model.target_dim.vocab.id_to_label(l.item()) for l in target.raw_tensor[0, :3].cpu()]}"
+        # )
 
         # seq_label = _gather_backrefs_tree(seq_label, backrefs=backrefs, dim_map=backrefs_dim_map)
         # _seq_label_print("gather backrefs", seq_label)
@@ -184,10 +184,10 @@ def model_recog(
             # packed_new_label_dim_map: old dim -> new dim. see _masked_select_prepare_dims
             assert packed_new_label_dim.get_dim_value() > 0
 
-            print(
-                f"* feed target"
-                f" {[model.target_dim.vocab.id_to_label(l.item()) for l in target_.raw_tensor[:3].cpu()]}"
-            )
+            # print(
+            #     f"* feed target"
+            #     f" {[model.target_dim.vocab.id_to_label(l.item()) for l in target_.raw_tensor[:3].cpu()]}"
+            # )
 
             lm_logits_, lm_state_ = lm(
                 target_,
@@ -197,11 +197,11 @@ def model_recog(
             lm_log_probs_ = rf.log_softmax(lm_logits_, axis=model.target_dim)  # Flat_Batch_Beam, Vocab
             lm_log_probs_ *= lm_scale
 
-            lm_log_probs_ = lm_log_probs_.copy_compatible_to_dims([packed_new_label_dim, model.target_dim])
-            print(
-                f"* argmax LM after feed:"
-                f" {model.target_dim.vocab.id_to_label(lm_log_probs_.raw_tensor[0].argmax().cpu().item())}"
-            )
+            # lm_log_probs_ = lm_log_probs_.copy_compatible_to_dims([packed_new_label_dim, model.target_dim])
+            # print(
+            #     f"* argmax LM after feed:"
+            #     f" {model.target_dim.vocab.id_to_label(lm_log_probs_.raw_tensor[0].argmax().cpu().item())}"
+            # )
 
             # seq_label_ = _seq_label_append(seq_label_, target_)
             # _seq_label_print("packed append", seq_label_)
