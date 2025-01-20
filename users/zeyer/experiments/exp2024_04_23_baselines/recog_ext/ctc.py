@@ -2,7 +2,8 @@
 CTC decoding with neural LM
 """
 
-from typing import TypeVar, Sequence, Tuple, Dict
+from __future__ import annotations
+from typing import TypeVar, Sequence, Tuple, Dict, Generator
 import functools
 
 from returnn.tensor import Tensor, Dim, single_step_dim
@@ -93,6 +94,9 @@ def model_recog(
         f"* argmax LM begin: {model.target_dim.vocab.id_to_label(lm_log_probs.raw_tensor[0, 0].argmax().cpu().item())}"
     )
 
+    # for debugging
+    seq_label = _seq_label_history_init_state(vocab_dim=model.target_dim, batch_dims=batch_dims_)
+
     max_seq_len = int(enc_spatial_dim.get_dim_value())
     seq_targets_wb = []
     seq_backrefs = []
@@ -163,8 +167,11 @@ def model_recog(
             f" {[model.target_dim.vocab.id_to_label(l.item()) for l in target.raw_tensor[0, :3].cpu()]}"
         )
 
-        (target_, lm_state_), packed_new_label_dim, packed_new_label_dim_map = _masked_select_tree(
-            (target, lm_state),
+        seq_label = tree.map_structure(functools.partial(_gather_backrefs, backrefs=backrefs), seq_label)
+        _seq_label_print("gather backrefs", seq_label)
+
+        (target_, lm_state_, seq_label_), packed_new_label_dim, packed_new_label_dim_map = _masked_select_tree(
+            (target, lm_state, seq_label),
             mask=got_new_label,
             dims=batch_dims + [beam_dim],
         )
@@ -189,14 +196,22 @@ def model_recog(
                 f" {model.target_dim.vocab.id_to_label(lm_log_probs_.raw_tensor[0].argmax().cpu().item())}"
             )
 
-            lm_log_probs, lm_state = _masked_scatter_tree(
-                (lm_log_probs_, lm_state_),
-                (lm_log_probs, lm_state),
+            seq_label_ = _seq_label_append(seq_label_, target_)
+
+            _seq_label_print("packed append", seq_label_)
+
+            lm_log_probs, lm_state, seq_label = _masked_scatter_tree(
+                (lm_log_probs_, lm_state_, seq_label_),
+                (lm_log_probs, lm_state, seq_label),
                 mask=got_new_label,
                 dims=batch_dims + [beam_dim],
                 in_dim=packed_new_label_dim,
                 dim_map=packed_new_label_dim_map,
             )  # Batch, Beam, Vocab / ...
+
+            _seq_label_print("masked scatter", seq_label)
+
+            # TODO for debugging, reimplement the same thing as above in another way and compare...
 
     # seq_log_prob, lm_log_probs: Batch, Beam
     # Add LM EOS score at the end.
@@ -381,6 +396,7 @@ def _masked_scatter_merge_dims(
             reverse_dim_map=reverse_dim_map,
             merged_dim_map=merged_dim_map,
         )
+        print(f"*** masked scatter merge dims: {new_size=} {s=} {backup=} {mask=} {dims=} {in_dim=}")
         new_dim = Dim(new_size, name=s.name + "_")
         merged_dim_map[s] = new_dim
         merged_dim_map[backup] = new_dim
@@ -459,3 +475,50 @@ def _target_dense_extend_blank(
     assert blank_idx == target_dim.dimension  # currently just not implemented otherwise
     res, _ = rf.pad(target, axes=[target_dim], padding=[(0, 1)], out_dims=[wb_target_dim], value=value)
     return res
+
+
+# for debugging:
+
+
+def _seq_label_history_init_state(*, vocab_dim: Dim, batch_dims: Sequence[Dim]) -> rf.State:
+    hist_dim = Dim(0, name="hist0")
+    history = rf.zeros(list(batch_dims) + [hist_dim], dtype="int64", sparse_dim=vocab_dim)
+    return rf.State(hist_dim=hist_dim, history=history)
+
+
+def _seq_label_append(state: rf.State, new_label: Tensor) -> rf.State:
+    hist_dim: Dim = state.hist_dim
+    new_history, new_hist_dim = rf.cum_concat_step(new_label, prev_accum=state.history, axis=hist_dim)
+    return rf.State(hist_dim=new_hist_dim, history=new_history)
+
+
+def _seq_label_print(prefix: str, state: rf.State):
+    hist_dim: Dim = state.hist_dim
+    hist: Tensor = state.history
+    hist = rf.copy_to_device(hist, "cpu")
+    batch_dims = hist.remaining_dims(hist_dim)
+    print(f"* seq_label history {prefix}: {hist}:")
+    for indices in _iter_dims_indices(batch_dims):
+        print(" ", end="")
+        hist_seq_len_ = hist_dim.get_size_tensor()
+        hist_ = hist
+        for dim, i in zip(batch_dims, indices):
+            hist_ = rf.gather(hist_, axis=dim, indices=i)
+            if dim in hist_seq_len_.dims:
+                hist_seq_len_ = rf.gather(hist_seq_len_, axis=dim, indices=i)
+            print(f" {dim}={i}", end="")
+        hist_, _ = rf.slice(hist_, axis=hist_dim, size=hist_seq_len_)
+        print(
+            f": len={hist_seq_len_.raw_tensor}"
+            f" {[hist.sparse_dim.vocab.id_to_label(l.item()) for l in hist_.raw_tensor]}"
+        )
+
+
+def _iter_dims_indices(dims: Sequence[Dim]) -> Generator[Tuple[int, ...]]:
+    if not dims:
+        yield ()
+        return
+    dim, rest = dims[0], dims[1:]
+    for i in range(dim.get_dim_value()):
+        for rest_indices in _iter_dims_indices(rest):
+            yield (i,) + rest_indices
