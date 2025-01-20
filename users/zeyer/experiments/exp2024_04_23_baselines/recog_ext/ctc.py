@@ -341,7 +341,7 @@ def _masked_scatter_tree(
     tree.map_structure(
         functools.partial(
             _masked_scatter_merge_dims,
-            mask=mask,
+            mask=rf.copy_to_device(mask, "cpu"),
             dims=dims,
             in_dim=in_dim,
             reverse_dim_map=reverse_dim_map,
