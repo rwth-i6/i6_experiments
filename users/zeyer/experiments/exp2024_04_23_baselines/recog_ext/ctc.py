@@ -415,8 +415,6 @@ def _masked_scatter(
     merged_dim_map: Dict[Dim, Dim],
 ) -> T:
     if isinstance(s, Tensor):
-        if in_dim not in s.dims:
-            return s  # e.g. scalar or so, independent from masking
         assert isinstance(backup, Tensor)
         # Do the reverse of _masked_select above.
         # First replace the dims back.
