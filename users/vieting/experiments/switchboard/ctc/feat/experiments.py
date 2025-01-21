@@ -1200,19 +1200,6 @@ def run_stft_experiments():
                 lr_args=lr_args,
                 report_args={"batch_size": "2x5k", "stft": True},
             ),
-            "bs2x5k_scf_stft_mask_5_8_checkpoint": dict(
-                returnn_args={
-                    **returnn_args,
-                    "specaug_old": {"max_feature": 8, "stft": True},
-                    "extra_args": {
-                        **returnn_args["extra_args"],
-                        "dummy": "checkpoint",
-                    },
-                },
-                feature_args=feature_args,
-                lr_args=lr_args,
-                report_args={"batch_size": "2x5k", "stft": True},
-            ),
             "bs2x5k_scf_stft_mask_5_15": dict(
                 returnn_args={
                     **returnn_args,
