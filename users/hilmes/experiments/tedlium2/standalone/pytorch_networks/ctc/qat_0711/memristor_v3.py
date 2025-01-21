@@ -27,8 +27,7 @@ from .memristor_v1_cfg import (
     ConformerBlockQuantV1Config,
     ConformerEncoderQuantV1Config,
 )
-from .memristor_v2_modules import LinearQuant, ActivationQuantizer, QuantizedMultiheadAttention, Conv1dQuant
-from torch_memristor.memristor_modules import TiledMemristorLinear
+from .memristor_v3_modules import LinearQuant, ActivationQuantizer, QuantizedMultiheadAttention, Conv1dQuant
 from torch.nn.quantized._reference.modules import Conv1d
 
 
@@ -114,10 +113,12 @@ class ConformerPositionwiseFeedForwardQuant(nn.Module):
 
         self.linear_ff.weight_quantizer.set_scale_and_zp()
         self.lin_1_in_quant.set_scale_and_zp()
+        from torch_memristor.memristor_modules import TiledMemristorLinear
+
         mem_lin = TiledMemristorLinear(
             in_features=self.linear_ff.in_features,
             out_features=self.linear_ff.out_features,
-            weight_precision=self.linear_ff.weight_bit_prec if not self.linear_ff.weight_bit_prec == 1.5 else 2,
+            weight_precision=self.linear_ff.weight_bit_prec,
             converter_hardware_settings=self.converter_hardware_settings,
             memristor_inputs=128,
             memristor_outputs=128,
@@ -133,7 +134,7 @@ class ConformerPositionwiseFeedForwardQuant(nn.Module):
         mem_lin = TiledMemristorLinear(
             in_features=self.linear_out.in_features,
             out_features=self.linear_out.out_features,
-            weight_precision=self.linear_out.weight_bit_prec if not self.linear_out.weight_bit_prec == 1.5 else 2,
+            weight_precision=self.linear_out.weight_bit_prec,
             converter_hardware_settings=self.converter_hardware_settings,
             memristor_inputs=128,
             memristor_outputs=128,
@@ -305,12 +306,12 @@ class ConformerConvolutionQuant(nn.Module):
     def prep_quant(self, decompose: bool):
         self.pointwise_conv1.weight_quantizer.set_scale_and_zp()
         self.pconv_1_in_quant.set_scale_and_zp()
+        from torch_memristor.memristor_modules import TiledMemristorLinear
+
         mem_lin = TiledMemristorLinear(
             in_features=self.pointwise_conv1.in_features,
             out_features=self.pointwise_conv1.out_features,
-            weight_precision=self.pointwise_conv1.weight_bit_prec
-            if not self.pointwise_conv1.weight_bit_prec == 1.5
-            else 2,
+            weight_precision=self.pointwise_conv1.weight_bit_prec,
             converter_hardware_settings=self.converter_hardware_settings,
             memristor_inputs=128,
             memristor_outputs=128,
@@ -340,9 +341,7 @@ class ConformerConvolutionQuant(nn.Module):
         mem_lin = TiledMemristorLinear(
             in_features=self.pointwise_conv2.in_features,
             out_features=self.pointwise_conv2.out_features,
-            weight_precision=self.pointwise_conv2.weight_bit_prec
-            if not self.pointwise_conv2.weight_bit_prec == 1.5
-            else 2,
+            weight_precision=self.pointwise_conv2.weight_bit_prec,
             converter_hardware_settings=self.converter_hardware_settings,
             memristor_inputs=128,
             memristor_outputs=128,
@@ -602,10 +601,12 @@ class Model(torch.nn.Module):
         if self.train_config.quantize_output is True:
             self.lin_out.weight_quantizer.set_scale_and_zp()
             self.lin_out_in_quant.set_scale_and_zp()
+            from torch_memristor.memristor_modules import TiledMemristorLinear
+
             mem_lin = TiledMemristorLinear(
                 in_features=self.lin_out.in_features,
                 out_features=self.lin_out.out_features * 2,
-                weight_precision=self.lin_out.weight_bit_prec if not self.lin_out.weight_bit_prec == 1.5 else 2,
+                weight_precision=self.lin_out.weight_bit_prec,
                 converter_hardware_settings=self.converter_hardware_settings,
                 memristor_inputs=128,
                 memristor_outputs=128,

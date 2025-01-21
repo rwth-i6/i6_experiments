@@ -2116,7 +2116,7 @@ def eow_phon_ted_tune_hubert():
                                 distill_report[training_name] = results
                                 del results
 
-                        for increase in [10, 25, 50]:
+                        for increase in [10, 25, 50, 75, 100]:
                             teacher_config = TeacherConfigV11(
                                 distill_scale=distill_scale,
                                 ctc_scale=1 - distill_scale,
@@ -2195,7 +2195,7 @@ def eow_phon_ted_tune_hubert():
                             distill_report[training_name] = results
                             del results
 
-                        for perc in [0.5]:
+                        for perc in [0.5, 1.0, 2.0]:
                             if not distill_scale == 0.9:
                                 continue
                             teacher_config = TeacherConfigV12(
@@ -2276,7 +2276,7 @@ def eow_phon_ted_tune_hubert():
                             generate_report(results=results, exp_name=training_name)
                             distill_report[training_name] = results
                             del results
-                        for threshold in [0.5]:
+                        for threshold in [0.5, 0.25, 0.1]:
                             if not distill_scale == 0.9:
                                 continue
                             teacher_config = TeacherConfigV13(
@@ -2667,6 +2667,7 @@ def eow_phon_ted_tune_hubert():
                             # distill_report[training_name] = results
                             # del results
     tmp_rep = {}
+    tmp_rep["baselines"] = distill_report["baselines"]
     for exp, dic in distill_report.items():
         tmp = {}
         for x in dic:
@@ -2680,6 +2681,7 @@ def eow_phon_ted_tune_hubert():
         update_frequency=3600,
     )
     tmp_rep = {}
+    tmp_rep["baselines"] = distill_report["baselines"]
     for exp, dic in distill_report.items():
         tmp = {}
         for x in dic:
@@ -2693,6 +2695,7 @@ def eow_phon_ted_tune_hubert():
         update_frequency=3600,
     )
     tmp_rep = {}
+    tmp_rep["baselines"] = distill_report["baselines"]
     for exp, dic in distill_report.items():
         tmp = {}
         for x in dic:
@@ -3202,7 +3205,7 @@ def eow_phon_ted_tune_pos_enc_w_hubert():
                         distill_report[training_name] = results
                         del results
 
-                        for dropout in [0.1]:
+                        for dropout in [0.0, 0.1]:
                             teacher_config = TeacherConfigV1(
                                 distill_scale=distill_scale,
                                 ctc_scale=1 - distill_scale,
@@ -3423,7 +3426,7 @@ def eow_phon_ted_tune_pos_enc_w_hubert():
                                     "config": train_config_distill,
                                     "network_module": distill_module_v3,
                                     "net_args": {
-                                        "model_config_dict": asdict(student_config),
+                                        "model_config_dict": asdict(student_config_drop),
                                         "distill_config_dict": asdict(teacher_config),
                                     },
                                     "debug": True,
@@ -3495,7 +3498,7 @@ def eow_phon_ted_tune_pos_enc_w_hubert():
                                     "config": train_config_distill,
                                     "network_module": distill_module_v4,
                                     "net_args": {
-                                        "model_config_dict": asdict(student_config),
+                                        "model_config_dict": asdict(student_config_drop),
                                         "distill_config_dict": asdict(teacher_config),
                                     },
                                     "debug": True,
@@ -4220,11 +4223,57 @@ def eow_phon_ted_tune_pos_enc_w_hubert():
                                 generate_report(results=results, exp_name=training_name)
                                 distill_report[training_name] = results
                                 del results
+            tmp_rep = {}
+            for exp, dic in distill_report.items():
+                tmp = {}
+                for x in dic:
+                    if "250" in x.split("/")[6:] or "500" in x.split("/")[6:]:
+                        tmp[x] = dic[x]
+                assert len(tmp) > 0 or "baselines" in exp, exp
+                tmp_rep[exp] = tmp
+            tmp_rep["baselines"] = distill_report["baselines"]
+            tk.register_report(
+                f"reports/distill_pos_enc_w_hubert_report_last_{epochs}",
+                partial(build_hubert_distill_report, tmp_rep),
+                required=distill_report,
+                update_frequency=3600,
+            )
+            tmp_rep = {}
+
+            for exp, dic in distill_report.items():
+                tmp = {}
+                for x in dic:
+                    if "best" in x.split("/")[6:] and not "best4" in x.split("/")[6:]:
+                        tmp[x] = dic[x]
+                assert len(tmp) > 0 or "baselines" in exp, exp
+                tmp_rep[exp] = tmp
+            tmp_rep["baselines"] = distill_report["baselines"]
+            tk.register_report(
+                f"reports/distill_pos_enc_w_hubert_report_best_{epochs}",
+                partial(build_hubert_distill_report, tmp_rep),
+                required=distill_report,
+                update_frequency=3600,
+            )
+            tmp_rep = {}
+            for exp, dic in distill_report.items():
+                tmp = {}
+                for x in dic:
+                    if "best4" in x.split("/")[6:]:
+                        tmp[x] = dic[x]
+                tmp_rep[exp] = tmp
+                assert len(tmp) > 0 or "baselines" in exp, exp
+            tmp_rep["baselines"] = distill_report["baselines"]
+            tk.register_report(
+                f"reports/distill_pos_enc_w_hubert_report_best4_{epochs}",
+                partial(build_hubert_distill_report, tmp_rep),
+                required=distill_report,
+                update_frequency=3600,
+            )
             tk.register_report(
                 f"reports/distill_pos_enc_w_hubert_report_{epochs}",
                 partial(build_hubert_distill_report, distill_report),
                 required=distill_report,
-                update_frequency=900,
+                update_frequency=3600,
             )
 
 

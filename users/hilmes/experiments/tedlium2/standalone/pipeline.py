@@ -138,6 +138,8 @@ def search(
             mem = 30
         elif "RelPosEnc" in search_name:
             mem = 16
+        elif "cycle" in search_name:
+            mem = 16
         else:
             mem = 10
         wers[search_name], search_job = search_single(
@@ -333,6 +335,7 @@ def prepare_asr_model(
             net_args=train_args["net_args"],
             unhashed_net_args=train_args.get("unhashed_net_args", None),
             debug=train_args.get("debug", False),
+            import_memristor=(prior_config or {}).pop("import_memristor", False),
         )
         if "hubert_tune_v1_large" in training_name or "hubert_tune_v2_large" in training_name:
             returnn_config.config["max_seqs"] = 20

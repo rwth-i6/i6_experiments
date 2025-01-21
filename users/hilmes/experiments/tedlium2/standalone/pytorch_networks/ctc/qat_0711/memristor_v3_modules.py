@@ -259,7 +259,7 @@ class Conv1dQuant(nn.Module):
         self.groups = groups
         self.padding_mode = padding_mode
 
-        self.weight = nn.Parameter(torch.empty(in_channels, out_channels // groups, kernel_size), requires_grad=True)
+        self.weight = nn.Parameter(torch.empty(out_channels, in_channels // groups, kernel_size), requires_grad=True)
         if bias:
             self.bias = nn.Parameter(torch.empty(out_channels))
         init.kaiming_uniform_(self.weight, a=math.sqrt(5))
@@ -455,7 +455,7 @@ class QuantizedMultiheadAttention(nn.Module):
         mem_lin = TiledMemristorLinear(
             in_features=self.out_proj.in_features,
             out_features=self.out_proj.out_features,
-            weight_precision=self.out_proj.weight_bit_prec if not self.out_proj.weight_bit_prec == 1.5 else 2,
+            weight_precision=self.out_proj.weight_bit_prec,
             converter_hardware_settings=self.converter_hardware_settings,
             memristor_inputs=128,
             memristor_outputs=128,
@@ -469,7 +469,7 @@ class QuantizedMultiheadAttention(nn.Module):
         mem_lin = TiledMemristorLinear(
             in_features=self.in_proj.in_features,
             out_features=self.in_proj.out_features,
-            weight_precision=self.in_proj.weight_bit_prec if not self.in_proj.weight_bit_prec == 1.5 else 2,
+            weight_precision=self.in_proj.weight_bit_prec,
             converter_hardware_settings=self.converter_hardware_settings,
             memristor_inputs=128,
             memristor_outputs=128,

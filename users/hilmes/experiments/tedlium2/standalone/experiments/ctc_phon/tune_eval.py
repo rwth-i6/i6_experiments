@@ -48,6 +48,7 @@ def eval_model(
     run_best: bool = True,
     run_test: bool = False,
     test_dataset_tuples: Optional[Dict[str, Any]] = None,
+    prior_args: Optional[Dict[str, Any]] = None,
 ):
     if specific_epoch is None:
         specific_epoch = train_job.returnn_config.post_config["num_epochs"]
@@ -64,11 +65,15 @@ def eval_model(
         asr_model = prepare_asr_model(
             training_name + f"/{epoch}",
             train_job,
-            train_args,
+            train_args if prior_args is None else prior_args,
             with_prior=True,
             datasets=train_data,
             get_specific_checkpoint=epoch,
+            prior_config={"import_memristor": import_memristor} if import_memristor is True else None,
         )
+        if prior_args is not None:
+            asr_model.net_args = train_args["net_args"]
+            asr_model.network_module = train_args["network_module"]
         res, _ = tune_and_evaluate_helper(
             training_name + f"/{epoch}",
             asr_model,
@@ -89,11 +94,15 @@ def eval_model(
         asr_model_best4 = prepare_asr_model(
             training_name + "/best4",
             train_job,
-            train_args,
+            train_args if prior_args is None else prior_args,
             with_prior=True,
             datasets=train_data,
             get_best_averaged_checkpoint=(4, loss_name),
+            prior_config={"import_memristor": import_memristor} if import_memristor is True else None,
         )
+        if prior_args is not None:
+            asr_model_best4.net_args = train_args["net_args"]
+            asr_model_best4.network_module = train_args["network_module"]
         res, _ = tune_and_evaluate_helper(
             training_name + "/best4",
             asr_model_best4,
@@ -114,11 +123,15 @@ def eval_model(
         asr_model_best = prepare_asr_model(
             training_name + "/best",
             train_job,
-            train_args,
+            train_args if prior_args is None else prior_args,
             with_prior=True,
             datasets=train_data,
             get_best_averaged_checkpoint=(1, loss_name),
+            prior_config={"import_memristor": import_memristor} if import_memristor is True else None,
         )
+        if prior_args is not None:
+            asr_model_best.net_args = train_args["net_args"]
+            asr_model_best.network_module = train_args["network_module"]
         res, _ = tune_and_evaluate_helper(
             training_name + "/best",
             asr_model_best,
@@ -407,7 +420,6 @@ def build_base_report(report: Dict):
 
 
 def build_hubert_distill_report(report: Dict):
-
     report = copy.deepcopy(report)
     baselines = report.pop("baselines")
     best_baselines = {}
@@ -447,6 +459,8 @@ def build_hubert_distill_report(report: Dict):
         "elim_blank num",
         # "long",
         "lm",
+        "keep",
+        "increase",
         "sym",
     ]
     line.append("Baselines")
@@ -472,6 +486,7 @@ def build_hubert_distill_report(report: Dict):
     line.append("")
     tmp = copy.deepcopy(best_dc)
     for name in exps:
+        best_dc = copy.deepcopy(tmp)
         line.append(name)
         for exp, value in best_dc.items():
             if exp.endswith(name):
@@ -493,40 +508,65 @@ def build_hubert_distill_report(report: Dict):
             elif name == "trim_blanks" and "trim_blanks" in exp:
                 line.append(f"{' '.join(exp.split('.')[2:])}: {value[0]}   {' '.join(value[1].split('/')[6:])}")
                 del tmp[exp]
+            elif name == "keep" and "keep" == exp.split("_")[-2]:
+                line.append(f"{' '.join(exp.split('.')[2:])}: {value[0]}   {' '.join(value[1].split('/')[6:])}")
+                del tmp[exp]
+            elif name == "increase" and "increase" in exp.split("_")[-2]:
+                line.append(f"{' '.join(exp.split('.')[2:])}: {value[0]}   {' '.join(value[1].split('/')[6:])}")
+                del tmp[exp]
         line.append("")
-        # best_dc = {
-        #     exp: value
-        #     for exp, value in best_dc.items()
-        #     if not exp.endswith(name)
-        #     and not (name == "keepsome" and "keepsome" in exp.split("_")[-1])
-        #     and not (name == "mix" and "mix" in exp.split("_")[-1])
-        #     and not (name == "elim_blank num" and ["elim", "blank"] == exp.split("_")[-3:-1])
-        #     and not (name == "trim_blanks" and "trim_blanks" in exp)
-        # }
-    # line.append("Warmup")
-    # for exp, value in best_dc.items():
-    #     if exp.endswith("True") or exp.endswith("False"):
-    #         line.append(f"{' '.join(exp.split('.')[2:])}: {value[0]}   {' '.join(value[1].split('/')[6:])}")
-    # line.append("")
-    # best_dc = {
-    #     exp: value for exp, value in best_dc.items() if not any(exp.endswith(name) for name in ["True", "False"])
-    # }
+
     best_dc = tmp
     assert len(best_dc) == 0, best_dc
     return "\n".join(line)
 
 
 def build_qat_report(report: Dict):
+    import numpy as np
+
+    exps = ["cycle", "smaller"]
 
     best_dc = {}
+    bits = [8, 7, 6, 5, 4, 3, 2, 1.5]
     for exp, dic in report.items():
         instanciate_delayed(dic)
         if all(dic.values()):
             best = min(dic, key=dic.get)
-            best_dc[" ".join(exp.split("/")[5:])] = ("{:.1f}".format(float(dic[best])), best)
+            if "cycle" in exp:
+                mean = np.mean(list(dic.values()))
+                mini = np.min(list(dic.values()))
+                maxi = np.max(list(dic.values()))
+                std = np.std(list(dic.values()))
+                best_dc[" ".join(exp.split("/")[5:])] = (
+                    "{:.1f}".format(float(dic[best])),
+                    best + f"  {mean=} {std=} {mini=} {maxi=}",
+                )
+            else:
+                best_dc[" ".join(exp.split("/")[5:])] = ("{:.1f}".format(float(dic[best])), best)
         else:
             best_dc[" ".join(exp.split("/")[5:])] = ("None", "")
     line = []
-    for exp, value in best_dc.items():
-        line.append(f"{' '.join(exp.split('.')[2:])}: {value[0]}   {' '.join(value[1].split('/')[6:])}")
+    tmp = copy.deepcopy(best_dc)
+    for bit in bits:
+        best_dc = tmp
+        tmp = copy.deepcopy(best_dc)
+        for exp, value in best_dc.items():
+            if any(x in exp for x in exps):
+                continue
+            if f"{bit}_8" not in exp:
+                continue
+            line.append(f"{' '.join(exp.split('.')[2:])}: {value[0]}   {' '.join(value[1].split('/')[6:])}")
+            del tmp[exp]
+        line.append("")
+    tmp = best_dc
+    for x in exps:
+        line.append(x)
+        line.append("")
+        best_dc = copy.deepcopy(tmp)
+        for exp, value in best_dc.items():
+            if x in exp:
+                line.append(f"{' '.join(exp.split('.')[2:])}: {value[0]}   {' '.join(value[1].split('/')[6:])}")
+                del tmp[exp]
+        line.append("")
+    assert len(tmp) == 0, tmp
     return "\n".join(line)

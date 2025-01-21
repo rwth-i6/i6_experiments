@@ -33,6 +33,9 @@ def baseline_report_format(report: _Report_Type) -> str:
     ]
     out = sorted(out, key=lambda x: float(x[1]))
     best_ls = [out[0]]
+    if any("cycle" in x for x in best_ls):
+        ex_str = calc_stat(out)
+        best_ls = ["Cycle Statistics: " + ex_str] + best_ls
     for dataset in sets:
         for extra in extra_ls:
             if extra == "quantize_static":
@@ -86,30 +89,38 @@ def generate_report(results, exp_name, report_template=baseline_report_format):
 
 
 def build_memristor_base_report(report: Dict):
-    report = copy.deepcopy(report)
-    bits = set()
-    instanciate_delayed(report)
-    best_dc = {}
-    base = {}
     from math import ceil
 
-    for exp in report:
-        if not "mem" in exp:
-            base[exp] = report[exp]
+    report = copy.deepcopy(report)
+    baselines = report.pop("baselines")
+    best_baselines = {}
+    for exp, dic in baselines.items():
+        instanciate_delayed(dic)
+        if all(dic.values()):
+            best = min(dic, key=dic.get)
+            best_baselines[exp + "/" + best] = dic[best]
         else:
-            pref = exp.split("_")[12]
-            bits.add(float(pref))
-    for bit in bits:
-        dc = {}
-        for exp in report:
-            if f"weight_{bit}" in exp or (bit == ceil(bit) and f"weight_{int(bit)}" in exp):
-                dc[exp] = report[exp]
-        if all(dc.values()):
-            best = min(dict(dc), key=dc.get)
-            best_dc[best] = ("{:.1f}".format(float(dc[best])), best)
-        else:
-            best_dc[bit] = ("None", "")
+            best_baselines[exp] = "None"
     line = []
+    best_dc = {}
+    bits = {1.5, 2, 3, 4, 5, 6, 8}
+    for exp, best in best_baselines.items():
+        line.append(f"{exp.split('/')[5]}: {best}   {' '.join(exp.split('/')[10:])}")
+    for exp, dic in report.items():
+        tmp = {}
+        for bit in bits:
+            for name in dic:
+                if f"weight_{bit}" in name or (bit == ceil(bit) and f"weight_{int(bit)}" in name):
+                    tmp[name] = dic[name]
+            if all(tmp.values()):
+                instanciate_delayed(tmp)
+                best = min(tmp, key=tmp.get)
+                best_dc[exp + "/" + best] = tmp[best]
+            else:
+                best_dc[exp] = "None"
     for exp, value in best_dc.items():
-        line.append(f"{exp.split('/')[6].split('_')[0]}: {value[0]}   {' '.join(value[1].split('/')[7:])}")
+        if isinstance(exp, float):
+            line.append(f"{exp}: {value}")
+        else:
+            line.append(f"{' '.join(exp.split('/')[9:12])}: {value}   {' '.join(exp.split('/')[12:])}")
     return "\n".join(line)

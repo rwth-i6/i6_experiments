@@ -8,7 +8,7 @@ from torch.nn import init
 import torch.ao.quantization as torch_quant
 import torch.nn.functional as F
 from typing import Optional, Union
-from .memristor_v1_cfg import QuantizedMultiheadAttentionV4Config
+from .memristor_v4_cfg import QuantizedMultiheadAttentionV4Config
 import math
 from torch.ao.quantization.utils import check_min_max_valid
 
@@ -259,7 +259,7 @@ class Conv1dQuant(nn.Module):
         self.groups = groups
         self.padding_mode = padding_mode
 
-        self.weight = nn.Parameter(torch.empty(in_channels, out_channels // groups, kernel_size), requires_grad=True)
+        self.weight = nn.Parameter(torch.empty(out_channels, in_channels // groups, kernel_size), requires_grad=True)
         if bias:
             self.bias = nn.Parameter(torch.empty(out_channels))
         init.kaiming_uniform_(self.weight, a=math.sqrt(5))
@@ -460,7 +460,9 @@ class QuantizedMultiheadAttention(nn.Module):
             memristor_inputs=128,
             memristor_outputs=128,
         )
-        mem_lin.init_from_linear_quant(activation_quant=self.out_proj_in_quant, linear_quant=self.out_proj)
+        mem_lin.init_from_linear_quant(
+            activation_quant=self.out_proj_in_quant, linear_quant=self.out_proj, num_cycles=self.cfg.num_cycles
+        )
         self.out_proj = mem_lin
         self.out_proj_in_quant = nn.Identity()
 
@@ -474,6 +476,8 @@ class QuantizedMultiheadAttention(nn.Module):
             memristor_inputs=128,
             memristor_outputs=128,
         )
-        mem_lin.init_from_linear_quant(activation_quant=self.in_proj_in_quant, linear_quant=self.in_proj)
+        mem_lin.init_from_linear_quant(
+            activation_quant=self.in_proj_in_quant, linear_quant=self.in_proj, num_cycles=self.cfg.num_cycles
+        )
         self.in_proj = mem_lin
         self.in_proj_in_quant = nn.Identity()
