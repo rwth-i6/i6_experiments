@@ -74,14 +74,15 @@ def py():
         # Our own beam search implementation.
         for beam_size, prior_scale, lm_scale in [
             # (12, 1.0, 1.0),
-            (12, 0.0, 1.0),
+            # (12, 0.0, 1.0),
             # (1, 0.0, 1.0),
             # (1, 1.0, 1.0),
-            (12, 0.5, 1.0),
-            (16, 0.5, 1.0),
-            (1, 0.5, 1.0),
+            # (12, 0.5, 1.0),
+            # (16, 0.5, 1.0),
+            # (1, 0.5, 1.0),
             (1, 0.0, 0.0),  # sanity check
             (1, 0.3, 0.5),
+            (4, 0.3, 0.5),
             (16, 0.3, 0.5),
             (32, 0.3, 0.5),
         ]:
@@ -94,8 +95,9 @@ def py():
                 recog_def=model_recog,
                 config={
                     "beam_size": beam_size,
-                    "recog_version": 6,
+                    "recog_version": 8,
                     "batch_size": 5_000 * ctc_model.definition.batch_size_factor,
+                    # "__trigger_hash_change": 1,
                 },
                 search_rqmt={"time": 24},
             )
@@ -303,10 +305,13 @@ def py():
         )
 
         vocab_file = ExtractVocabLabelsJob(vocab_.get_opts()).out_vocab
+        tk.register_output(f"{prefix}/vocab.txt.gz", vocab_file)
         vocab_opts_file = ExtractVocabSpecialLabelsJob(vocab_.get_opts()).out_vocab_special_labels_dict
+        tk.register_output(f"{prefix}/vocab_opts.py", vocab_opts_file)
         vocab_w_blank_file = ExtendVocabLabelsByNewLabelJob(
             vocab=vocab_file, new_label=model_recog_ctc_only.output_blank_label, new_label_idx=_ctc_model_def_blank_idx
         ).out_vocab
+        tk.register_output(f"{prefix}/vocab_w_blank.txt.gz", vocab_w_blank_file)
         log_prior_wo_blank = PriorRemoveLabelRenormJob(
             prior_file=prior,
             prior_type="prob",
@@ -314,6 +319,7 @@ def py():
             remove_label=model_recog_ctc_only.output_blank_label,
             out_prior_type="log_prob",
         ).out_prior
+        tk.register_output(f"{prefix}/log_prior_wo_blank.txt", log_prior_wo_blank)
 
         for beam_size, prior_scale, lm_scale in [
             (16, 0.5, 1.0),
