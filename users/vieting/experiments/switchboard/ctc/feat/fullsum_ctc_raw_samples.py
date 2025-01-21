@@ -167,7 +167,7 @@ def make_conformer_fullsum_ctc_model(
                     "max_time": 15,
                     "max_feature_num": 5,
                     "max_feature": 4,
-                   **{k: v for k, v in specaug_old.items() if k != "stft"},
+                    **{k: v for k, v in specaug_old.items() if k != "stft"},
                 }
                 # Add STFT layer
                 network["stft"] = {
@@ -206,7 +206,9 @@ def make_conformer_fullsum_ctc_model(
                 network["wave_input"] = {"class": "copy", "from": "data"}
         elif specaug_config is not None:
             assert specaug_old is None
-            from_list, python_code = add_specaug_layer_configurable(network, from_list=from_list, num_epochs=num_epochs, config=specaug_config)
+            from_list, python_code = add_specaug_layer_configurable(
+                network, from_list=from_list, num_epochs=num_epochs, config=specaug_config
+            )
         else:
             from_list, python_code = add_specaug_layer_v2(network, from_list=from_list)
 

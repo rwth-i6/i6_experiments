@@ -1146,7 +1146,13 @@ def run_stft_experiments():
         "conformer_type": "wei",
     }
     feature_args = {"class": "ScfNetwork", "size_tf": 256 // 2, "stride_tf": 10 // 2, "preemphasis": 0.97}
-    feature_args_lgm = {"class": "LogMelNetwork", "wave_norm": True, "frame_size": 200, "frame_shift": 80, "fft_size": 256}
+    feature_args_lgm = {
+        "class": "LogMelNetwork",
+        "wave_norm": True,
+        "frame_size": 200,
+        "frame_shift": 80,
+        "fft_size": 256,
+    }
     lr_args = {
         "peak_lr": 4e-4,
         "start_lr": 1.325e-05,
@@ -1161,7 +1167,7 @@ def run_stft_experiments():
             "bs2x5k_scf_stft_time_only": dict(
                 returnn_args={
                     **returnn_args,
-                    "specaug_old": {"max_feature": 0, "max_feature_num": 0, "stft": True },
+                    "specaug_old": {"max_feature": 0, "max_feature_num": 0, "stft": True},
                 },
                 feature_args=feature_args,
                 lr_args=lr_args,
@@ -1170,7 +1176,7 @@ def run_stft_experiments():
             "bs2x5k_scf_stft_mask_1_1": dict(
                 returnn_args={
                     **returnn_args,
-                    "specaug_old": {"max_feature": 1, "max_feature_num": 1, "stft": True },
+                    "specaug_old": {"max_feature": 1, "max_feature_num": 1, "stft": True},
                 },
                 feature_args=feature_args,
                 lr_args=lr_args,
@@ -1179,7 +1185,7 @@ def run_stft_experiments():
             "bs2x5k_scf_stft_mask_2_4": dict(
                 returnn_args={
                     **returnn_args,
-                    "specaug_old": {"max_feature": 4, "max_feature_num": 2, "stft": True },
+                    "specaug_old": {"max_feature": 4, "max_feature_num": 2, "stft": True},
                 },
                 feature_args=feature_args,
                 lr_args=lr_args,
@@ -1188,7 +1194,7 @@ def run_stft_experiments():
             "bs2x5k_scf_stft_mask_5_8": dict(
                 returnn_args={
                     **returnn_args,
-                    "specaug_old": {"max_feature": 8, "stft": True },
+                    "specaug_old": {"max_feature": 8, "stft": True},
                 },
                 feature_args=feature_args,
                 lr_args=lr_args,
@@ -1197,12 +1203,11 @@ def run_stft_experiments():
             "bs2x5k_scf_stft_mask_5_8_checkpoint": dict(
                 returnn_args={
                     **returnn_args,
-                    "specaug_old": {"max_feature": 8, "stft": True },
-                    "extra_args": 
-                    {
+                    "specaug_old": {"max_feature": 8, "stft": True},
+                    "extra_args": {
                         **returnn_args["extra_args"],
                         "dummy": "checkpoint",
-                    }
+                    },
                 },
                 feature_args=feature_args,
                 lr_args=lr_args,
@@ -1211,7 +1216,7 @@ def run_stft_experiments():
             "bs2x5k_scf_stft_mask_5_15": dict(
                 returnn_args={
                     **returnn_args,
-                    "specaug_old": {"max_feature": 15, "stft": True },
+                    "specaug_old": {"max_feature": 15, "stft": True},
                 },
                 feature_args=feature_args,
                 lr_args=lr_args,
@@ -1220,7 +1225,7 @@ def run_stft_experiments():
             "bs2x5k_mel_stft_mask_5_8": dict(
                 returnn_args={
                     **returnn_args,
-                    "specaug_old": {"max_feature": 8, "stft": True },
+                    "specaug_old": {"max_feature": 8, "stft": True},
                 },
                 feature_args=feature_args_lgm,
                 lr_args=lr_args,
@@ -1246,6 +1251,7 @@ def run_stft_experiments():
         recog_args={"epochs": [350, 390, 400, 410, 450]},
     )
     return report, ctc_nn_system
+
 
 def py():
     """
