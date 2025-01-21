@@ -277,14 +277,14 @@ def _gather_backrefs_prepare_dims(s: T, *, backrefs: Tensor, dim_map: Dict[Dim, 
 
 def _gather_backrefs(s: T, *, backrefs: Tensor, dim_map: Optional[Dict[Dim, Dim]] = None) -> T:
     if isinstance(s, Tensor):
-        if backrefs.sparse_dim in s.dims:
-            # really the default case, otherwise e.g. scalar or so, independent from beam
-            s = rf.gather(s, indices=backrefs)
         if dim_map and any(d in dim_map for d in s.dims):
             for d in s.dims:
                 if d in dim_map:
                     s, new_dim = rf.replace_dim(s, in_dim=d, out_dim=dim_map[d])
                     s, _ = rf.slice(s, axis=new_dim, size=new_dim)
+        if backrefs.sparse_dim in s.dims:
+            # really the default case, otherwise e.g. scalar or so, independent from beam
+            s = rf.gather(s, indices=backrefs)
         return s
     if isinstance(s, Dim):
         if s.dimension is not None:  # static
