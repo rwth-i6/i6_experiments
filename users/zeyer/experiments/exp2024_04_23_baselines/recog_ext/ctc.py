@@ -280,8 +280,7 @@ def _gather_backrefs(s: T, *, backrefs: Tensor, dim_map: Optional[Dict[Dim, Dim]
         if dim_map and any(d in dim_map for d in s.dims):
             for d in s.dims:
                 if d in dim_map:
-                    s, new_dim = rf.replace_dim(s, in_dim=d, out_dim=dim_map[d])
-                    s, _ = rf.slice(s, axis=new_dim, size=new_dim)
+                    s = _expand_slice(s, old_dim=d, new_dim=dim_map[d])
         if backrefs.sparse_dim in s.dims:
             # really the default case, otherwise e.g. scalar or so, independent from beam
             s = rf.gather(s, indices=backrefs)
