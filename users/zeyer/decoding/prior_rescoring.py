@@ -28,8 +28,7 @@ def prior_score(res: RecogOutput, *, prior: Prior) -> RecogOutput:
 
     :param res: previous recog output, some hyps to rescore. the score in those hyps is ignored
     :param prior:
-    :param prior_scale: scale for the prior. the negative of this will be used for the weight
-    :param orig_scale: scale for the original score
+    :return: recog output with prior scores instead
     """
     return RecogOutput(
         output=SearchPriorRescoreJob(
@@ -40,12 +39,13 @@ def prior_score(res: RecogOutput, *, prior: Prior) -> RecogOutput:
 
 def prior_rescore(res: RecogOutput, *, prior: Prior, prior_scale: float, orig_scale: float = 1.0) -> RecogOutput:
     """
-    Use prior to rescore some recog output.
+    Use prior to rescore some recog output, i.e. combine the orig score with new prior score.
 
     :param res: previous recog output, some hyps to rescore. the score in those hyps is ignored
     :param prior:
     :param prior_scale: scale for the prior. the negative of this will be used for the weight
     :param orig_scale: scale for the original score
+    :return: recog output with combined scores
     """
     scores = [(orig_scale, res), (-prior_scale, prior_score(res, prior=prior))]
     return combine_scores(scores)
