@@ -285,3 +285,93 @@ def lm_rescore_def(*, model: rf.Module, targets: Tensor, targets_beam_dim: Dim, 
 
 
 lm_rescore_def: RescoreDef
+
+
+def ngram_score(
+    recog_output: RecogOutput,
+    *,
+    lm: tk.Path,
+    vocab: tk.Path,
+    rescore_rqmt: Optional[Dict[str, Any]] = None,
+) -> RecogOutput:
+    """
+    Scores the hyps with the LM.
+
+    :param recog_output:
+        The format of the JSON is: {"<seq_tag>": [(score, "<text>"), ...], ...},
+        i.e. the standard RETURNN search output with beam.
+        We ignore the scores here and just use the text of the hyps.
+    :param lm: language model
+    :param vocab: labels (line-based, maybe gzipped)
+    :param vocab_opts_file: for LM labels. contains info about EOS, BOS, etc
+    :param rescore_rqmt:
+    """
+    return rescore(
+        recog_output=recog_output,
+        model=ModelWithCheckpoint(
+            definition=ModelDefWithCfg(model_def=ngram_model_def, config={"_lm_file": lm}), checkpoint=None
+        ),
+        vocab=vocab,
+        rescore_def=ngram_rescore_def,
+        forward_rqmt=rescore_rqmt,
+        forward_device="cpu",
+    )
+
+
+def ngram_model_def(**_other):
+    import torch
+    from returnn.config import get_global_config
+    import kenlm  # pip install kenlm
+
+    config = get_global_config()
+
+    class _NGramModel(torch.Module):
+        def __init__(self):
+            super().__init__()
+            self.config = config
+            self._lm_file = config.typed_value("_lm_file")
+            self.lm = kenlm.LanguageModel(self._lm_file)
+
+    return _NGramModel()
+
+
+ngram_model_def: ModelDef
+
+
+def ngram_rescore_def(*, model: rf.Module, targets: Tensor, targets_beam_dim: Dim, targets_spatial_dim: Dim, **_other):
+    import torch
+    import kenlm
+    import returnn.frontend as rf
+    from returnn.tensor import batch_dim
+
+    # noinspection PyUnresolvedReferences
+    lm: kenlm.LanguageModel = model.lm
+    vocab = targets.sparse_dim.vocab
+
+    # https://github.com/kpu/kenlm/blob/master/python/example.py
+    # https://github.com/kpu/kenlm/blob/master/python/kenlm.pyx
+
+    assert targets.dims_set == {batch_dim, targets_beam_dim, targets_spatial_dim}
+    targets = targets.copy_transpose((batch_dim, targets_beam_dim, targets_spatial_dim))
+
+    res_raw = torch.zeros((batch_dim.get_dim_value(), targets_beam_dim.get_dim_value()))
+    for i in range(batch_dim.get_dim_value()):
+        for j in range(targets_beam_dim.get_dim_value()):
+            seq_len = targets_spatial_dim.dyn_size_ext
+            seq_len = rf.gather(seq_len, axis=targets_beam_dim, indices=j)
+            seq_len = rf.gather(seq_len, axis=batch_dim, indices=i)
+            assert seq_len.dims == ()
+            targets_raw = targets.raw_tensor[i, j, :seq_len]
+            targets_str = vocab.get_seq_labels(targets_raw.numpy())
+            res_raw[i, j] = lm.score(targets_str)
+
+    # KenLM returns score in +log10 space.
+    # We want to return in (natural) +log space.
+    # 10 ** x = e ** (x * log(10))
+    res_raw *= torch.log(torch.tensor(10.0))
+
+    res = rf.convert_to_tensor(res_raw, dims=(batch_dim, targets_beam_dim))
+    return res
+
+
+ngram_rescore_def: RescoreDef
