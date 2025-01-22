@@ -734,7 +734,7 @@ def get_prior_ngram(*, order: int, vocab: str) -> tk.Path:
     kenlm_binary_path = CompileKenLMJob(repository=kenlm_repo).out_binaries.copy()
     # run it locally, and then make sure, and then make sure that necessary deps are installed,
     # e.g. libeigen3-dev.
-    kenlm_binary_path.owner.rqmt["engine"] = "short"
+    kenlm_binary_path.creator.rqmt["engine"] = "short"
     kenlm_binary_path.hash_overwrite = "LIBRISPEECH_DEFAULT_KENLM_BINARY_PATH"
     # kenlm_binary_path = tk.Path(
     #     "/work/tools/asr/kenlm/2020-01-17/build/bin", hash_overwrite="LIBRISPEECH_DEFAULT_KENLM_BINARY_PATH"
