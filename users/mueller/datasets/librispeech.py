@@ -314,6 +314,7 @@ class LibrispeechOggZip(DatasetConfig):
         train_subset: Optional[int] = None,
         train_ds_key: Optional[str] = None,
         pseudo_label_path: tk.Path = None,
+        keep_small_labels: bool = False,
     ):
         """
         :param with_eos_postfix: For RETURNN train/dev/eval datasets, mostly relevant for training.
@@ -332,6 +333,7 @@ class LibrispeechOggZip(DatasetConfig):
         self.train_sort_laplace_num_seqs = train_sort_laplace_num_seqs
         self.train_ds_key = train_ds_key
         self.pseudo_label_path = pseudo_label_path
+        self.keep_small_labels = keep_small_labels
         self.test_self_training_on_small_dataset = 0 # Old param, not used. Needed for compatibility.
         if train_epoch_wise_filter is NotSpecified:
             train_epoch_wise_filter = deepcopy(_default_train_epoch_wise_filter)
@@ -384,6 +386,8 @@ class LibrispeechOggZip(DatasetConfig):
             state.pop("train_vocab")  # backward compat
         if self.train_subset is None:
             state.pop("train_subset")
+        if not self.keep_small_labels:
+            state.pop("keep_small_labels")
         state = {k: v for k, v in state.items() if not k.startswith("_")}
         byte_list = [b"LibrispeechOggZip", sis_hash_helper(state)]
 
@@ -510,7 +514,10 @@ class LibrispeechOggZip(DatasetConfig):
         if training and self.pseudo_label_path:
             files_new = []
             for part in parts:
-                files_new += [_get_librispeech_ogg_zip_dict_pseudo_labels(self.pseudo_label_path, part)[part]]
+                if part == "train-clean-100" and self.keep_small_labels:
+                    files_new += [_get_librispeech_ogg_zip_dict()[part]]
+                else:
+                    files_new += [_get_librispeech_ogg_zip_dict_pseudo_labels(self.pseudo_label_path, part)[part]]
             d_pseudo = copy(d)
             d.pop("fixed_random_subset", None)
             d_pseudo["audio"] = None
@@ -570,8 +577,9 @@ def get_librispeech_task_raw_v2(
     train_vocab_opts: Optional[Dict[str, Any]] = None,
     audio_opts: Optional[Dict[str, Any]] = None,
     audio_dim: int = 1,
-    save_pseudo_labels: bool = False,
+    save_pseudo_labels: Optional[TrainDatasetSel] = None,
     ds_sel: TrainDatasetSel,
+    init_small: bool,
     with_prior: bool,
     empirical_prior: bool,
     **dataset_train_opts,
@@ -587,15 +595,15 @@ def get_librispeech_task_raw_v2(
     
     vocab_ = vocab
     if isinstance(vocab, str):
-        vocab = get_vocab_by_str(vocab, train_small=True if (ds_sel == TrainDatasetSel.train_100h or ds_sel == TrainDatasetSel.train_860h) else False)
+        vocab = get_vocab_by_str(vocab, train_small=init_small)
         
-    if ds_sel == TrainDatasetSel.train_860h:
+    if ds_sel == TrainDatasetSel.train_860h or (ds_sel == TrainDatasetSel.train_960h and init_small):
         if dataset_train_opts:
             dataset_train_opts["train_epoch_wise_filter"] = None
         else:
             dataset_train_opts = dict(train_epoch_wise_filter=None)
 
-    cache_key = make_hashable((LibrispeechOggZip, vocab, train_vocab_opts, audio_opts, audio_dim, save_pseudo_labels, ds_sel, with_prior, empirical_prior, dataset_train_opts))
+    cache_key = make_hashable((LibrispeechOggZip, vocab, train_vocab_opts, audio_opts, audio_dim, save_pseudo_labels, ds_sel, init_small, with_prior, empirical_prior, dataset_train_opts))
     if cache_key in _librispeech_task_raw_v2_cache:
         return _librispeech_task_raw_v2_cache[cache_key]
 
@@ -636,8 +644,9 @@ def get_librispeech_task_raw_v2(
     
     pseudo_labels_ds = {}
     train_100_ds = None
-    if save_pseudo_labels:
-        for ds_name in ["train-clean-360", "train-other-500"]:
+    if save_pseudo_labels is not None:
+        ds_ls = ["train-clean-360", "train-other-500"] if save_pseudo_labels == TrainDatasetSel.train_860h else ["train-clean-100", "train-clean-360", "train-other-500"]
+        for ds_name in ds_ls:
             pseudo_labels_ds[ds_name] = LibrispeechOggZip(**dataset_common_opts, main_key=ds_name)
         train_100_ds = LibrispeechOggZip(**dataset_common_opts, main_key="train-clean-100")
             

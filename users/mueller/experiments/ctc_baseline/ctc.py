@@ -53,16 +53,15 @@ def py():
         num_heads=8,
     )
 
-    # Supervised CTC-baseline
-    # vocab = "spm20k"
-    # vocab = "char"
-    vocab = "bpe128"
-    # vocab = "bpe10k"
-    use_flashlight = True
-    use_greedy = False
-    epochs = 500
-    self_training_rounds = 1
-    train_small = True
+    # Config
+    vocab = "bpe128"                            # "spm20k", "char", "bpe10k"
+    use_flashlight = True                       # Flashlight decoding
+    use_greedy = False                          # Greedy decoding
+    epochs = 500                                # Training epochs
+    self_training_rounds = 1                    # Self-supevised training rounds
+    init_small = True                           # 100h supervised initialization
+    pseudo_label_small = True                   # 860h pseudo-labels
+    keep_small_labels = False                   # Keep true labels of 100h data during self-training
     with_prior = True
     empirical_prior = True
     prior_from_max = False
@@ -78,16 +77,22 @@ def py():
     prior_gradient = False
     empirical_prior_full_sum = False
     prior_from_max_full_sum = False
-    LM_order = 2
+    LM_order = 3
     top_k = 3
+    alignment_topk = False
     self_train_subset = 18000 # 18000
     
     assert (empirical_prior_full_sum and empirical_prior) or not empirical_prior_full_sum
     
-    if train_small:
+    if init_small:
         epochs = 50
     if self_training_rounds > 0:
-        self_epochs = 56 # 450, 225, 113, 75, 56, 45
+        if pseudo_label_small:
+            epoch_dict = {1: 450, 2: 225, 4: 113, 6: 75, 8: 56, 10: 45}
+        else:
+            epoch_dict = {1: 500, 2: 250, 4: 125, 6: 83, 8: 63, 10: 50}
+        self_epochs = epoch_dict[self_training_rounds]
+        self_epochs = 56
     
     decoder_hyperparameters = None
     if use_greedy:
@@ -163,7 +168,7 @@ def py():
     } if self_training_rounds > 0 else None
 
     for am, lm, prior in [
-        (8.0, 0.01, 0.08)
+        (8.0, 0.0, 0.08)
     ]:
         if use_sum_criterion:
             if am != 1.0 or lm != 1.0 or prior != 1.0:
@@ -189,14 +194,16 @@ def py():
                 config_full_sum["empirical_prior"] = True
             if prior_from_max_full_sum:
                 config_full_sum["max_prior"] = True
+            if not alignment_topk:
+                config_full_sum["alignment_topk"] = False
             
             # This is to change the hash when we made chnages in the loss function
-            config_full_sum["version"] = 1
+            config_full_sum["version"] = 2
             
             sum_str = f"-full_sum" + \
                 (f"_p{str(config_full_sum['prior_scale']).replace('.', '')}_l{str(config_full_sum['lm_scale']).replace('.', '')}_a{str(config_full_sum['am_scale']).replace('.', '')}" if scales_not_std else "") + \
                 (f"_LMorder{LM_order}" if LM_order > 2 else "") + \
-                (f"_topK{top_k}" if top_k > 0 else "") + \
+                (f"_topK{top_k}" + ("_align" if alignment_topk else "") if top_k > 0 else "") + \
                 ("_emp" if empirical_prior_full_sum else "") + \
                 ("_max_pr" if not empirical_prior_full_sum and prior_from_max_full_sum else "") + \
                 ("_wo_hor_pr" if not horizontal_prior else "") + \
@@ -207,7 +214,8 @@ def py():
             (sum_str if use_sum_criterion else "") + \
             (f"-self_training_{self_training_rounds}" + ("_from_scratch" if from_scratch else "") + (f"_s{self_train_subset}" if self_train_subset is not None else "") + (f"_e{self_epochs}" if self_epochs != 450 else "") if self_training_rounds > 0 else "") + \
             (f"-wo_aux_loss" if not aux_loss else "") + \
-            (f"-ds100h" if train_small else "") + \
+            (f"-ds100h" if init_small else "") + \
+            (f"-pl960h" + ("_keep100h" if keep_small_labels else "") if not pseudo_label_small else "") + \
             f"-{vocab}" + \
             (greedy_str if use_greedy else (("-recog_lm" + lm_hyperparamters_str) if use_flashlight else "-recog_albert"))
 
@@ -223,7 +231,9 @@ def py():
             config_full_sum=config_full_sum if use_sum_criterion else None,
             vocab = vocab,
             self_training_rounds = self_training_rounds,
-            train_small = train_small,
+            init_small = init_small,
+            pseudo_label_small = pseudo_label_small,
+            keep_small_labels = keep_small_labels,
             with_prior = with_prior,
             empirical_prior=empirical_prior,
             prior_from_max=prior_from_max,
@@ -266,7 +276,9 @@ def train_exp(
     env_updates: Optional[Dict[str, str]] = None,
     enabled: bool = True,
     self_training_rounds: int = 0,
-    train_small: bool = False,
+    init_small: bool = False,
+    pseudo_label_small: bool = True,
+    keep_small_labels: bool = False,
     with_prior: bool = False,
     empirical_prior: bool = False,
     prior_from_max: bool = False,
@@ -297,8 +309,9 @@ def train_exp(
     task, pseudo_labels_ds, train_100_ds = get_librispeech_task_raw_v2(
         vocab=vocab,
         train_vocab_opts=train_vocab_opts,
-        save_pseudo_labels = self_training_rounds > 0 or calc_last_pseudo_labels,
-        ds_sel = TrainDatasetSel.train_100h if train_small else TrainDatasetSel.train_960h,
+        save_pseudo_labels = (TrainDatasetSel.train_860h if pseudo_label_small else TrainDatasetSel.train_960h) if self_training_rounds > 0 or calc_last_pseudo_labels else None,
+        ds_sel = TrainDatasetSel.train_100h if init_small else TrainDatasetSel.train_960h,
+        init_small=init_small,
         with_prior=with_prior,
         empirical_prior=empirical_prior,
     )
@@ -332,7 +345,7 @@ def train_exp(
         num_epochs=num_epochs,
         gpu_mem=gpu_mem,
         num_processes=num_processes,
-        time_rqmt=time_rqmt if time_rqmt else (36 if train_small else 132),
+        time_rqmt=time_rqmt if time_rqmt else (36 if init_small else 132),
     ))
     train_job = model_with_checkpoint[0].get_training_job()
     if env_updates:
@@ -366,10 +379,12 @@ def train_exp(
         task, _, _ = get_librispeech_task_raw_v2(
             vocab=vocab,
             train_vocab_opts=train_vocab_opts,
-            ds_sel = TrainDatasetSel.train_860h if train_small else TrainDatasetSel.train_960h,
+            ds_sel = TrainDatasetSel.train_860h if pseudo_label_small else TrainDatasetSel.train_960h,
+            init_small=init_small,
             with_prior=with_prior,
             empirical_prior=empirical_prior,
             pseudo_label_path = pseudo_label_path_dict,
+            keep_small_labels = keep_small_labels,
             train_subset = self_train_subset,
             eval_subset = 300 if self_train_subset else 3000,
         )
@@ -428,7 +443,7 @@ def train_exp(
             num_epochs=num_epochs,
             gpu_mem=gpu_mem,
             num_processes=num_processes,
-            time_rqmt=time_rqmt if time_rqmt else ((4 if self_train_subset else 156) if use_sum_criterion else 156),
+            time_rqmt=time_rqmt if time_rqmt else ((8 if self_train_subset else 156) if use_sum_criterion else 156),
         ))
         train_job = model_with_checkpoint[i + 1].get_training_job()
         if env_updates:
@@ -1029,9 +1044,10 @@ ctc_training.learning_rate_control_error_measure = "ctc"
 def ctc_sum_training(*, model: Model, data: rf.Tensor, data_spatial_dim: Dim, lm_path: tk.Path, seq_tags: rf.Tensor = None):
     """Function is run within RETURNN."""
     from returnn.config import get_global_config
-    from .sum_criterion import sum_loss, safe_logsumexp
+    from .sum_criterion import sum_loss2, safe_logsumexp, PrintGradients
     
     # torch.autograd.set_detect_anomaly(True)
+    pg = PrintGradients.apply
     
     def _calc_log_prior(log_probs: torch.Tensor, lengths: torch.Tensor, use_max: bool = False, separate_eos: bool = False) -> torch.Tensor:
         lengths = lengths.to(log_probs.device)
@@ -1088,6 +1104,7 @@ def ctc_sum_training(*, model: Model, data: rf.Tensor, data_spatial_dim: Dim, lm
     empirical_prior = config.typed_value("empirical_prior", None)
     max_prior = config.bool("max_prior", False)
     top_k = config.int("top_k", 0)
+    alignment_topk = config.bool("alignment_topk", True)
     use_prior = prior_scale > 0.0
 
     if data.feature_dim and data.feature_dim.dimension == 1:
@@ -1143,7 +1160,8 @@ def ctc_sum_training(*, model: Model, data: rf.Tensor, data_spatial_dim: Dim, lm
                 blank_idx=model.blank_idx,
                 eos_idx=model.eos_idx,
                 unk_idx=1,
-                device=aux_log_probs.device
+                device=aux_log_probs.device,
+                alignment_topk=alignment_topk
             )
             aux_loss = rtf.TorchBackend.convert_to_tensor(aux_loss, dims = [batch_dim], dtype = "float32", name=f"aux_full_sum_{layer_idx}")
             aux_loss.mark_as_loss(
@@ -1153,8 +1171,15 @@ def ctc_sum_training(*, model: Model, data: rf.Tensor, data_spatial_dim: Dim, lm
                 use_normalized_loss=use_normalized_loss,
             )
             
+    log_probs = model.log_probs_wb_from_logits(logits)
+    log_probs = log_probs.raw_tensor
+    
     fixed_seqs = ["train-other-500/5756-305214-0041/5756-305214-0041"] # MONICA DREW FRESH HOPE FROM HER SON'S WRITINGS THEY WERE FULL OF NOBLE THOUGHTS AND HIGH ASPIRATIONS
     print_for_idx = []
+    
+    # seq = seq_tags[0]
+    # idx = np.where(seq_tags == seq)[0]
+    # print_for_idx.append(idx[0])
     
     seq_tags = seq_tags.raw_tensor
     for seq in fixed_seqs:
@@ -1162,13 +1187,10 @@ def ctc_sum_training(*, model: Model, data: rf.Tensor, data_spatial_dim: Dim, lm
             idx = np.where(seq_tags == seq)[0]
             print("Found seq", seq, enc_spatial_dim.dyn_size_ext.raw_tensor[idx])
             print_for_idx.append(idx[0])
+            
+    torch.set_printoptions(profile="full")
+    log_probs = pg(log_probs, "log_probs", False, (0, 1))
     
-    # seq = seq_tags[0]
-    # idx = np.where(seq_tags == seq)[0]
-    # print_for_idx.append(idx[0])
-
-    log_probs = model.log_probs_wb_from_logits(logits)
-    log_probs = log_probs.raw_tensor
     if use_prior:
         if empirical_prior is not None:
             log_prior = np.loadtxt(empirical_prior, dtype="float32")
@@ -1180,9 +1202,9 @@ def ctc_sum_training(*, model: Model, data: rf.Tensor, data_spatial_dim: Dim, lm
                 log_prior = log_prior.detach()
     else:
         log_prior = None
-    # (B, T, F) -> (T, B, F)
+    # (B, T, V) -> (T, B, V)
     log_probs = log_probs.permute(1, 0, 2)
-    loss = sum_loss(
+    loss = sum_loss2(
         log_probs=log_probs,
         log_lm_probs=lm,
         log_prior=log_prior,
@@ -1198,7 +1220,8 @@ def ctc_sum_training(*, model: Model, data: rf.Tensor, data_spatial_dim: Dim, lm
         eos_idx=model.eos_idx,
         unk_idx=1,
         device=log_probs.device,
-        print_best_path_for_idx=print_for_idx
+        print_best_path_for_idx=print_for_idx,
+        alignment_topk=alignment_topk
     )
     loss = rtf.TorchBackend.convert_to_tensor(loss, dims = [batch_dim], dtype = "float32", name=f"full_sum")
     loss.mark_as_loss(
