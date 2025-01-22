@@ -36,7 +36,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Optional, Any, Callable, Dict
 
 from sisyphus import tk
-from i6_experiments.users.zeyer.model_interfaces import ModelWithCheckpoint, RescoreDef
+from i6_experiments.users.zeyer.model_interfaces import ModelWithCheckpoint, ModelDefWithCfg, ModelDef, RescoreDef
 from i6_experiments.users.zeyer.datasets.score_results import RecogOutput
 
 from .rescoring import combine_scores, rescore
@@ -210,6 +210,71 @@ def lm_am_labelwise_prior_rescore(
     scores = [(am_scale, res_labels_am_scores), (lm_scale, res_labels_lm_scores)]
     if prior and prior_scale:
         res_labels_prior_scores = prior_score(raw_res_labels, prior=prior)
+        scores.append((-prior_scale, res_labels_prior_scores))
+    else:
+        assert prior_scale == 0.0
+    return combine_scores(scores)
+
+
+def lm_am_labelwise_prior_ngram_rescore(
+    res: RecogOutput,
+    *,
+    dataset: DatasetConfig,
+    raw_res_search_labels: RecogOutput,
+    raw_res_labels: RecogOutput,
+    am: ModelWithCheckpoint,
+    am_rescore_def: RescoreDef,
+    am_rescore_rqmt: Optional[Dict[str, Any]] = None,
+    am_scale: float = 1.0,
+    lm: ModelWithCheckpoint,
+    lm_scale: float,
+    lm_rescore_rqmt: Optional[Dict[str, Any]] = None,
+    vocab: tk.Path,
+    vocab_opts_file: tk.Path,
+    prior_ngram_lm: tk.Path,
+    prior_scale: float = 0.0,
+    search_labels_to_labels: Optional[Callable[[RecogOutput], RecogOutput]] = None,
+) -> RecogOutput:
+    """
+    With functools.partial, you can use this for ``recog_post_proc_funcs`` in :func:`recog_model` and co.
+
+    If you also want to combine a prior, e.g. for CTC, you might want to use :func:`prior_rescore` first.
+
+    :param res:
+        The format of the JSON is: {"<seq_tag>": [(score, "<text>"), ...], ...},
+        i.e. the standard RETURNN search output with beam.
+    :param dataset: the orig data which was used to generate res
+    :param raw_res_search_labels:
+    :param raw_res_labels:
+    :param am:
+    :param am_rescore_def:
+    :param am_rescore_rqmt:
+    :param am_scale: scale for the new AM scores
+    :param lm: language model
+    :param lm_scale: scale for the LM scores
+    :param lm_rescore_rqmt:
+    :param vocab: for LM labels in res / raw_res_labels
+    :param vocab_opts_file: for LM labels. contains info about EOS, BOS, etc
+    :param prior_ngram_lm:
+    :param prior_scale: scale for the prior scores. this is used as the negative weight
+    :param search_labels_to_labels: function to convert the search labels to the labels
+    """
+    res, raw_res_search_labels, search_labels_to_labels  # noqa  # unused here
+    res_labels_lm_scores = lm_score(
+        raw_res_labels, lm=lm, vocab=vocab, vocab_opts_file=vocab_opts_file, rescore_rqmt=lm_rescore_rqmt
+    )
+    res_labels_am_scores = rescore(
+        recog_output=raw_res_labels,
+        dataset=dataset,
+        model=am,
+        vocab=vocab,
+        vocab_opts_file=vocab_opts_file,
+        rescore_def=am_rescore_def,
+        forward_rqmt=am_rescore_rqmt,
+    )
+    scores = [(am_scale, res_labels_am_scores), (lm_scale, res_labels_lm_scores)]
+    if prior_scale:
+        res_labels_prior_scores = ngram_score(raw_res_labels, lm=prior_ngram_lm, vocab=vocab)
         scores.append((-prior_scale, res_labels_prior_scores))
     else:
         assert prior_scale == 0.0
