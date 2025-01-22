@@ -471,7 +471,7 @@ def _masked_scatter(
         if any(d in reverse_dim_map for d in s.dims):
             for d in s.dims:
                 if d in reverse_dim_map:
-                    s = _expand_slice(s, old_dim=d, new_dim=reverse_dim_map[d])
+                    s = _expand_slice(s, old_dim=d, new_dim=reverse_dim_map[d], expect_expand=True)
         # We also might need to replace newly merged dims, both in s and backup.
         for d in s.dims:
             if d in merged_dim_map:
@@ -493,21 +493,26 @@ def _masked_scatter(
     raise TypeError(f"_masked_scatter: unexpected type ({type(s)})")
 
 
-def _expand_slice(source: Tensor, old_dim: Dim, new_dim: Dim) -> Tensor:
+def _expand_slice(source: Tensor, old_dim: Dim, new_dim: Dim, *, expect_expand: Optional[bool] = None) -> Tensor:
     assert old_dim in source.dims
-    old_size = old_dim.get_dim_value_tensor()
-    new_size = new_dim.get_dim_value_tensor()
+    old_size = old_dim.get_dim_value()
+    new_size = new_dim.get_dim_value()
     if old_size == new_size:
         res, _ = rf.replace_dim(source, in_dim=old_dim, out_dim=new_dim)
     elif old_size < new_size:
         res, _ = rf.pad(
             source,
             axes=[old_dim],
-            padding=[(0, new_size - old_size)],
+            padding=[(0, new_dim.get_dim_value_tensor() - old_dim.get_dim_value_tensor())],
             out_dims=[new_dim],
             value=0,
         )
     else:
+        if expect_expand is True:
+            raise ValueError(
+                f"expected expand, but got reduce (slice): {old_size} -> {new_size},"
+                f" for {old_dim=} {new_dim=}, in {source=}"
+            )
         res, _ = rf.slice(source, axis=old_dim, size=new_dim)
     return res
 
