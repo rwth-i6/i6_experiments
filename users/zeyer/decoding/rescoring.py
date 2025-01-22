@@ -129,7 +129,7 @@ def rescore(
             forward_post_config and forward_post_config.pop("__env_updates", None)
         )
     forward_job = ReturnnForwardJobV2(
-        model_checkpoint=model.checkpoint.path,
+        model_checkpoint=model.checkpoint.path if model.checkpoint is not None else None,
         returnn_config=_returnn_rescore_config(
             recog_output=recog_output,
             vocab=vocab,
