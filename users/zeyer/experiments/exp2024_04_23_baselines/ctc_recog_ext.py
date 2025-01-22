@@ -765,6 +765,7 @@ def get_prior_ngram(*, order: int, vocab: str) -> tk.Path:
         interpolate_unigrams=True,
         pruning=[int(i >= 2) for i in range(order)],
         vocabulary=vocab_file,
+        discount_fallback=(),
         kenlm_binary_folder=kenlm_binary_path,
         mem=12,
         time=4,
