@@ -67,6 +67,8 @@ def py():
     prior = get_ctc_prior_probs(ctc_model, task.train_dataset.copy_train_as_static())
     tk.register_output(f"{prefix}/ctc-prior", prior)
 
+    label_2gram_prior = get_prior_ngram(order=2, vocab=vocab)
+
     for lm_out_name in ["n24-d512"]:  # lm_out_name, lm_name in _lms.items():
         lm_name = _lms[lm_out_name]
         lm = _get_lm_model(lm_name)
@@ -717,6 +719,52 @@ def get_ctc_prior_probs(
     return collect_statistics(
         model=ctc_model, dataset=dataset, forward_def=_ctc_model_softmax_prior_returnn_forward, config=config
     ).mean
+
+
+def get_prior_ngram(*, order: int, vocab: str) -> tk.Path:
+    from i6_experiments.users.zeyer.datasets.librispeech import get_vocab_by_str, get_train_corpus_text
+    from i6_experiments.users.zeyer.datasets.utils.vocab import ExtractVocabLabelsJob
+    from i6_experiments.users.zeyer.datasets.utils.serialize import ReturnnDatasetToTextLinesJob
+    from i6_core.tools.git import CloneGitRepositoryJob
+    from i6_core.lm.kenlm import KenLMplzJob, CompileKenLMJob
+
+    kenlm_repo = CloneGitRepositoryJob(
+        "https://github.com/kpu/kenlm", commit="f6c947dc943859e265fabce886232205d0fb2b37"
+    ).out_repository.copy()
+    kenlm_binary_path = CompileKenLMJob(repository=kenlm_repo).out_binaries.copy()
+    kenlm_binary_path.hash_overwrite = "LIBRISPEECH_DEFAULT_KENLM_BINARY_PATH"
+
+    vocab_ = get_vocab_by_str(vocab)
+    vocab_opts = vocab_.get_opts()
+    vocab_file = ExtractVocabLabelsJob(vocab_opts).out_vocab
+
+    # Get transcriptions text with applied SPM/BPE on it
+    txt_with_vocab = ReturnnDatasetToTextLinesJob(
+        returnn_dataset={
+            "class": "LmDataset",
+            "corpus_file": [get_train_corpus_text()],
+            "use_cache_manager": True,
+            "orth_vocab": vocab_opts,
+            "seq_end_symbol": None,  # handled via orth_vocab
+            "unknown_symbol": None,  # handled via orth_vocab
+        },
+        vocab=vocab_opts,
+        data_key="data",
+    ).out_txt
+
+    kenlm_job = KenLMplzJob(
+        text=[txt_with_vocab],
+        order=order,
+        interpolate_unigrams=True,
+        pruning=[int(i >= 2) for i in range(order)],
+        vocabulary=vocab_file,
+        kenlm_binary_folder=kenlm_binary_path,
+        mem=12,
+        time=4,
+    )
+    prefix = f"{_sis_prefix}/ctc+lm"
+    tk.register_output(f"{prefix}/prior_{order}gram.arpa.gz", kenlm_job.out_lm)
+    return kenlm_job.out_lm
 
 
 def _ctc_model_softmax_prior_returnn_forward(
