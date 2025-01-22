@@ -769,6 +769,8 @@ def get_prior_ngram(*, order: int, vocab: str) -> tk.Path:
         mem=12,
         time=4,
     )
+    # Run locally, to have the locally installed deps available.
+    kenlm_job.rqmt["engine"] = "short"
     prefix = f"{_sis_prefix}/ctc+lm"
     tk.register_output(f"{prefix}/prior_{order}gram.arpa.gz", kenlm_job.out_lm)
     return kenlm_job.out_lm
