@@ -401,6 +401,9 @@ def ngram_model_def(**_other):
 
 
 ngram_model_def: ModelDef
+ngram_model_def.behavior_version = 22
+ngram_model_def.backend = "torch"
+ngram_model_def.batch_size_factor = 1
 
 
 def ngram_rescore_def(*, model: rf.Module, targets: Tensor, targets_beam_dim: Dim, targets_spatial_dim: Dim, **_other):
