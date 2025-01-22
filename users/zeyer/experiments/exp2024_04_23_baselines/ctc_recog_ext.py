@@ -298,6 +298,7 @@ def py():
             lm_framewise_prior_rescore,
             lm_labelwise_prior_rescore,
             lm_am_labelwise_prior_rescore,
+            lm_am_labelwise_prior_ngram_rescore,
         )
         from i6_experiments.users.zeyer.decoding.prior_rescoring import Prior, PriorRemoveLabelRenormJob
         from i6_experiments.users.zeyer.datasets.utils.vocab import (
@@ -494,6 +495,44 @@ def py():
                 scales_results[(prior_scale_rel, lm_scale)] = res.output
         _plot_scales(
             f"rescore-beam{beam_size}-amFSRescore-lm_{lm_out_name}-labelPrior-priorScaleRel",
+            scales_results,
+            x_axis_name="prior_scale_rel",
+        )
+
+        # Try using ngram prior (lm_am_labelwise_prior_ngram_rescore).
+        scales_results = {}
+        for lm_scale in np.linspace(0.0, 1.0, 3):
+            for prior_scale_rel in np.linspace(0.0, 1.0, 3):
+                res = recog_model(
+                    task=task,
+                    model=ctc_model,
+                    recog_def=model_recog_ctc_only,
+                    config={"beam_size": beam_size},
+                    recog_pre_post_proc_funcs_ext=[
+                        functools.partial(
+                            lm_am_labelwise_prior_ngram_rescore,
+                            am=ctc_model,
+                            am_rescore_def=_ctc_model_rescore,
+                            am_rescore_rqmt={"cpu": 4, "mem": 30, "time": 24, "gpu_mem": 24},
+                            # labelwise prior
+                            prior_ngram_lm=label_2gram_prior,
+                            prior_scale=lm_scale * prior_scale_rel,
+                            lm=lm,
+                            lm_scale=lm_scale,
+                            lm_rescore_rqmt={"cpu": 4, "mem": 30, "time": 24, "gpu_mem": 24},
+                            vocab=vocab_file,
+                            vocab_opts_file=vocab_opts_file,
+                        )
+                    ],
+                )
+                tk.register_output(
+                    f"{prefix}/rescore-beam{beam_size}-amFSRescore-lm_{lm_out_name}-lmScale{lm_scale}"
+                    f"-labelPrior2gram-priorScaleRel{prior_scale_rel}",
+                    res.output,
+                )
+                scales_results[(prior_scale_rel, lm_scale)] = res.output
+        _plot_scales(
+            f"rescore-beam{beam_size}-amFSRescore-lm_{lm_out_name}-labelPrior2gram-priorScaleRel",
             scales_results,
             x_axis_name="prior_scale_rel",
         )
