@@ -728,14 +728,17 @@ def get_prior_ngram(*, order: int, vocab: str) -> tk.Path:
     from i6_core.tools.git import CloneGitRepositoryJob
     from i6_core.lm.kenlm import KenLMplzJob, CompileKenLMJob
 
-    # kenlm_repo = CloneGitRepositoryJob(
-    #     "https://github.com/kpu/kenlm", commit="f6c947dc943859e265fabce886232205d0fb2b37"
-    # ).out_repository.copy()
-    # kenlm_binary_path = CompileKenLMJob(repository=kenlm_repo).out_binaries.copy()
-    # kenlm_binary_path.hash_overwrite = "LIBRISPEECH_DEFAULT_KENLM_BINARY_PATH"
-    kenlm_binary_path = tk.Path(
-        "/work/tools/asr/kenlm/2020-01-17/build/bin", hash_overwrite="LIBRISPEECH_DEFAULT_KENLM_BINARY_PATH"
-    )
+    kenlm_repo = CloneGitRepositoryJob(
+        "https://github.com/kpu/kenlm", commit="f6c947dc943859e265fabce886232205d0fb2b37"
+    ).out_repository.copy()
+    kenlm_binary_path = CompileKenLMJob(repository=kenlm_repo).out_binaries.copy()
+    # run it locally, and then make sure, and then make sure that necessary deps are installed,
+    # e.g. libeigen3-dev.
+    kenlm_binary_path.owner.rqmt["engine"] = "short"
+    kenlm_binary_path.hash_overwrite = "LIBRISPEECH_DEFAULT_KENLM_BINARY_PATH"
+    # kenlm_binary_path = tk.Path(
+    #     "/work/tools/asr/kenlm/2020-01-17/build/bin", hash_overwrite="LIBRISPEECH_DEFAULT_KENLM_BINARY_PATH"
+    # )
 
     vocab_ = get_vocab_by_str(vocab)
     vocab_opts = vocab_.get_opts()
