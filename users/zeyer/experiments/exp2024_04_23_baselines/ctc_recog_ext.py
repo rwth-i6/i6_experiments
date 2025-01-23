@@ -84,6 +84,7 @@ def py():
             # (1, 0.5, 1.0),
             (1, 0.0, 0.0),  # sanity check
             (4, 0.0, 0.0),  # sanity check
+            (4, 0.0, 1.0),
             (1, 0.3, 0.5),
             (4, 0.3, 0.5),
             (16, 0.3, 0.5),
@@ -103,9 +104,11 @@ def py():
                     # "__trigger_hash_change": 1,
                 },
                 search_rqmt={"time": 24},
+                name=f"{prefix}/recog-beam{beam_size}-lm_{lm_out_name}-lmScale{lm_scale}-priorScale{prior_scale}",
             )
             tk.register_output(
-                f"{prefix}/recog-beam{beam_size}-lm_{lm_out_name}-lmScale{lm_scale}-priorScale{prior_scale}", res.output
+                f"{prefix}/recog-beam{beam_size}-lm_{lm_out_name}-lmScale{lm_scale}-priorScale{prior_scale}-res",
+                res.output,
             )
 
         # Flashlight beam search implementation.
