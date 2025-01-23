@@ -336,6 +336,9 @@ def py():
             # but not sure how to easily do that automatically...
             # (256, 0.5, 1.0),
             # (512, 0.5, 1.0),
+            # For reference, getting some scores:
+            (128, 0.0, 1.0),
+            (128, 0.3, 0.5),
         ]:
             # Note, can use diff priors: framewise using the found alignment.
             #  or label-based. label-based prior can be estimated simply by counting over the transcriptions.
