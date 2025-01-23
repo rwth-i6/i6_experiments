@@ -390,7 +390,7 @@ def ngram_model_def(**_other):
 
     config = get_global_config()
 
-    class _NGramModel(torch.Module):
+    class _NGramModel(torch.nn.Module):
         def __init__(self):
             super().__init__()
             self.config = config
@@ -424,12 +424,15 @@ def ngram_rescore_def(*, model: rf.Module, targets: Tensor, targets_beam_dim: Di
 
     res_raw = torch.zeros((batch_dim.get_dim_value(), targets_beam_dim.get_dim_value()))
     for i in range(batch_dim.get_dim_value()):
-        for j in range(targets_beam_dim.get_dim_value()):
+        targets_beam_size = targets_beam_dim.dyn_size_ext
+        if batch_dim in targets_beam_size.dims:
+            targets_beam_size = rf.gather(targets_beam_size, axis=batch_dim, indices=i)
+        for j in range(targets_beam_size.raw_tensor.item()):
             seq_len = targets_spatial_dim.dyn_size_ext
             seq_len = rf.gather(seq_len, axis=targets_beam_dim, indices=j)
             seq_len = rf.gather(seq_len, axis=batch_dim, indices=i)
             assert seq_len.dims == ()
-            targets_raw = targets.raw_tensor[i, j, :seq_len]
+            targets_raw = targets.raw_tensor[i, j, : seq_len.raw_tensor]
             targets_str = vocab.get_seq_labels(targets_raw.numpy())
             res_raw[i, j] = lm.score(targets_str)
 
