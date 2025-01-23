@@ -7,9 +7,14 @@ from __future__ import annotations
 import copy
 import functools
 from typing import TYPE_CHECKING, Optional, Callable, Union, Tuple, Sequence
+import numpy as np
+import re
+import json
 
-from returnn.tensor import Tensor, Dim
+from sisyphus import tk
 import returnn.frontend as rf
+import returnn.torch.frontend as rtf
+from returnn.tensor import Tensor, Dim, batch_dim
 from returnn.frontend.tensor_array import TensorArray
 from returnn.frontend.encoder.conformer import ConformerEncoder, ConformerEncoderLayer, ConformerConvSubsample
 from returnn.frontend.decoder.transformer import TransformerDecoder
@@ -17,6 +22,8 @@ from returnn.frontend.decoder.transformer import TransformerDecoder
 from i6_experiments.users.zeyer.model_interfaces import ModelDef, ModelDefWithCfg, RecogDef, TrainDef
 from i6_experiments.users.zeyer.returnn.models.rf_layerdrop import SequentialLayerDrop
 from i6_experiments.users.zeyer.speed_pert.librosa_config import speed_pert_librosa_config
+
+from i6_experiments.users.zhang.experiments.WER_PPL.util import WER_ppl_PlotAndSummaryJob
 
 from .configs import *
 from .configs import _get_cfg_lrlin_oclr_by_bs_nep, _batch_size_factor
@@ -50,7 +57,7 @@ def py():
         "log_add": False,
         "nbest": 1,
         "beam_size": 80,
-        "lm_weight": 1.9,  # NOTE: weights are exponentials of the probs
+        "lm_weight": 1.9,  # NOTE: weights are exponentials of the probs. 1.9 seems make the results worse by using selftrained lm
         "use_logsoftmax": True,
         "use_lm": True,
         "use_lexicon": True,
@@ -69,9 +76,7 @@ def py():
     # model name: f"v6-relPosAttDef-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100"
     #               f"-maxSeqLenAudio19_5-wd1e_2-lrlin1e_5_295k-featBN-speedpertV2"
     #               f"-[vocab]" + f"-[sample]"
-    from .language_models.librispeech_lm import get_4gram_binary_lm
-    lms = [get_4gram_binary_lm()]
-    # TODO: get ppl of each lm use i6_core.lm.srilm.ComputeNgramLmPerplexityJob
+
 
     for vocab, sample, alpha in [
         # ("spm20k", None, None),  # 5.96
@@ -116,18 +121,45 @@ def py():
         # # TODO ("spm128", "bpe", 0.001),
         # ("spm128", "bpe", 0.01),  # 6.40
         # # TODO ("spm128", "bpe", 0.005),
-         ("bpe128", None, None),
+        ("bpe128", None, None),
         # ("spm64", None, None),
         # ("bpe64", None, None),
         # ("utf8", None, None),
         # ("char", None, None),
         # ("bpe0", None, None),
     ]:
-        for lm in lms:
+        from .language_models.librispeech_lm import get_4gram_binary_lm
+        from .language_models.librispeech import _get_bpe_vocab, bpe10k
+        from .language_models.n_gram import get_count_based_n_gram
+        lms = dict()
+        wer_ppl_results = dict()
+        ppl_results = dict()
+        # vocabs = {str(i) + "gram":_get_bpe_vocab(i) for i in [3,4,5,6,7,8,9,10]}
+        # ----------------------Add bpe count based n-gram LMs--------------------
+        if re.match("^bpe[0-9]+.*$", vocab):
+            bpe = bpe10k if vocab == "bpe10k" else _get_bpe_vocab(bpe_size=vocab[len("bpe") :])
+            for i in [#2, 3,
+                      4, 5#, 6,
+                      #7, 8,
+                      #9, 10
+                      ]: # Assume we only do bpe for now
+                lm, ppl_var = get_count_based_n_gram(bpe, i)
+                lms.update(dict([(str(i) + "gram", lm)]))
+                ppl_results.update(dict([(str(i) + "gram", ppl_var)]))
+
+        # Try to use the out of downstream job which has existing logged output. Instead of just Forward job, which seems cleaned up each time
+        lms.update({"NoLM": None})
+        official_4gram, ppl_official4gram = get_4gram_binary_lm()
+        lms.update({"4gram_official": official_4gram})
+        ppl_results.update({"4gram_official": ppl_official4gram})
+        lm_hyperparamters_str = vocab + lm_hyperparamters_str # Assume only experiment on one ASR model, so the difference of model itself is not reflected here
+        for name, lm in lms.items():
             # lm_name = lm if isinstance(lm, str) else lm.name
-            alias_name = f"ctc-baseline" + "decodingWith_" + lm_hyperparamters_str + "4gramLm"
+
+            alias_name = f"ctc-baseline" + "decodingWith_" + lm_hyperparamters_str + name if lm else f"ctc-baseline-" + vocab + name
             decoding_config["lm"] = lm
-            train_exp(
+            decoding_config["use_lm"] = True if lm else False
+            _, wer_result_path = train_exp(
                 name=alias_name,
                 config=config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
                 decoder_def=model_recog_lm,
@@ -158,7 +190,11 @@ def py():
                 ),
                 decoding_config=decoding_config
             )
-
+            if lm:
+                wer_ppl_results[name] = (ppl_results.get(name), wer_result_path)
+        (names, results) = zip(*wer_ppl_results.items())
+        summaryjob = WER_ppl_PlotAndSummaryJob(names, results)
+        tk.register_output("wer_ppl/"+vocab+lm_hyperparamters_str, summaryjob.out_summary_json)
 
 _train_experiments: Dict[str, ModelWithCheckpoints] = {}
 
@@ -186,7 +222,7 @@ def train_exp(
     env_updates: Optional[Dict[str, str]] = None,
     enabled: bool = True,
     decoding_config: dict = None,
-) -> Optional[ModelWithCheckpoints]:
+) -> Tuple[Optional[ModelWithCheckpoints], Optional[tk.path]]:
     """
     Train experiment
     """
@@ -235,14 +271,14 @@ def train_exp(
     recog_post_proc_funcs = []
     if config.get("use_eos_postfix", False):
         recog_post_proc_funcs.append(_remove_eos_label_v2)
-    recog_training_exp(
+    recog_result = recog_training_exp(
         prefix, task, model_with_checkpoint, recog_def=decoder_def,
         decoding_config=decoding_config,
         recog_post_proc_funcs=recog_post_proc_funcs,
     )
 
     _train_experiments[name] = model_with_checkpoint
-    return model_with_checkpoint
+    return model_with_checkpoint, recog_result
 
 
 def _remove_eos_label_v2(res: RecogOutput) -> RecogOutput:
@@ -574,7 +610,6 @@ def model_recog_lm(
     from torchaudio.models.decoder import ctc_decoder
     import torch
     from returnn.util.basic import cf
-    assert lm, "No lm loaded!"
     # Get the logits from the model
     logits, enc, enc_spatial_dim = model(data, in_spatial_dim=data_spatial_dim)
 
@@ -601,8 +636,8 @@ def model_recog_lm(
     #     scores = Tensor("scores", dims=dims, dtype="float32", raw_tensor=scores)
     #
     #     return hyps, scores, enc_spatial_dim, beam_dim
-
-    lm = str(cf(lm))
+    use_lm = hyp_params.pop("use_lm", False)
+    lm = str(cf(lm)) if use_lm else None
 
     use_lexicon = hyp_params.pop("use_lexicon", True)
 

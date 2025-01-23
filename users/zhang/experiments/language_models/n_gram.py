@@ -307,8 +307,9 @@ import sys
 import tempfile
 import subprocess as sp
 
+from typing import TYPE_CHECKING, Optional, Callable, Union, Tuple, Sequence
 
-from i6_core.lm.kenlm import CompileKenLMJob
+from i6_core.lm.kenlm import CompileKenLMJob#, CreateBinaryLMJob
 from i6_core.tools.git import CloneGitRepositoryJob
 from i6_core.util import uopen
 from i6_core.lib.lm import Lm
@@ -322,11 +323,22 @@ from i6_experiments.users.zeyer.datasets.utils.bpe import Bpe
 from i6_experiments.common.helpers.text_labels.subword_nmt_bpe import get_returnn_subword_nmt
 from i6_experiments.common.baselines.tedlium2.default_tools import SRILM_PATH
 
-def get_count_based_n_gram(vocab: Bpe, N_order: int) -> tk.Path:
+rqmt_map = {5: [("mem", 20),("time", 2)], 6: [("mem", 20),("time", 2)],
+                                             7: [("mem", 25),("time", 3)],
+                                                 8: [("mem", 30),("time", 3)]} # rqmt_map for n_gram KenLMplz job. Smaller as 4 use default setting
+default_rqmt = [("mem", 4),("time", 1)]
+
+
+
+def get_count_based_n_gram(vocab: Bpe, N_order: int) -> Tuple[tk.Path, tk.Variable]:
     kenlm_repo = CloneGitRepositoryJob("https://github.com/kpu/kenlm").out_repository.copy()
     KENLM_BINARY_PATH = CompileKenLMJob(repository=kenlm_repo).out_binaries.copy()
     KENLM_BINARY_PATH.hash_overwrite = "LIBRISPEECH_DEFAULT_KENLM_BINARY_PATH"
-    
+
+    if N_order > 4:
+        rqmt = dict(rqmt_map[N_order])
+    else:
+        rqmt = dict(default_rqmt)
     subword_nmt = get_returnn_subword_nmt()
     
     lm_data = get_librispeech_lm_combined_txt()
@@ -343,33 +355,73 @@ def get_count_based_n_gram(vocab: Bpe, N_order: int) -> tk.Path:
     lm_arpa = KenLMplzJob(
         text=[bpe_text],
         order=N_order,
-        interpolate_unigrams=False,
+        interpolate_unigrams=False, # Set false for Compatibility with srilm
         use_discount_fallback=True,
         kenlm_binary_folder=KENLM_BINARY_PATH,
         pruning=None,
-        vocabulary=None
+        vocabulary=None,
+        **rqmt
     ).out_lm
-    
+
+    arpa_binary_lm = CreateBinaryLMJob(
+        arpa_lm=lm_arpa, kenlm_binary_folder=KENLM_BINARY_PATH,**rqmt
+    ).out_lm
+
     ppl_job = ComputeNgramLmPerplexityJob(
         ngram_order=N_order,
-        lm = lm_arpa,
-        eval_data=bpe_text,
+        lm = lm_arpa, # Seems only accept arpa LM
+        eval_data=bpe_text, # This is train data for the LM. TODO: use same data for eval on ASR model
         ngram_exe=SRILM_PATH.join_right("ngram"),
-        mem_rqmt=4,
+        mem_rqmt=rqmt["mem"],
         time_rqmt=1,
     )
     
     tk.register_output(f"datasets/LibriSpeech/lm/count_based_{N_order}-gram", ppl_job.out_ppl_score)
     
-    conversion_job = ConvertARPAtoTensor(
-        lm=lm_arpa,
-        bpe_vocab=vocab.vocab,
-        N_order=N_order,
-    )
-    
-    conversion_job.add_alias(f"datasets/LibriSpeech/lm/count_based_{N_order}-gram")
+    # conversion_job = ConvertARPAtoTensor(
+    #     lm=lm_arpa,
+    #     bpe_vocab=vocab.vocab,
+    #     N_order=N_order,
+    # )
+    #
+    # conversion_job.add_alias(f"datasets/LibriSpeech/lm/count_based_{N_order}-gram")
         
-    return conversion_job.out_lm_tensor
+    #return conversion_job.out_lm_tensor
+    return arpa_binary_lm, ppl_job.out_ppl_score
+
+
+# Borrowed, modiefied rqmt
+class CreateBinaryLMJob(Job):
+    """
+    Run the build_binary command of the KenLM toolkit to create a binary LM from an given ARPA LM
+    """
+
+    def __init__(
+        self,
+        *,
+        arpa_lm: tk.Path,
+        kenlm_binary_folder: tk.Path,
+        mem: float = 4.0,
+        time: float = 1.0,
+    ):
+        """
+        :param arpa_lm: any ARPA format LM
+        :param kenlm_binary_folder: output of the CompileKenLMJob, or a direct link to the build
+            dir of the KenLM repo
+        """
+        self.arpa_lm = arpa_lm
+        self.kenlm_binary_folder = kenlm_binary_folder
+
+        self.out_lm = self.output_path("lm.bin")
+
+        self.rqmt = {"cpu": 1, "mem": mem, "time": time}
+
+    def tasks(self):
+        yield Task("run", rqmt=self.rqmt)
+
+    def run(self):
+        build_binary = os.path.join(self.kenlm_binary_folder.get_path(), "build_binary")
+        sp.check_call([build_binary, self.arpa_lm.get_path(), self.out_lm.get_path()])
 
 
 class ConvertARPAtoTensor(Job):
@@ -428,8 +480,8 @@ class ConvertARPAtoTensor(Job):
             if ret_tensor is None:
                 ret_tensor = tensor
             else:
-                ret_tensor[*[0]*(self.N_order - N + 1)] = tensor[0]
-            
+                #ret_tensor[*[0]*(self.N_order - N + 1)] = tensor[0]
+                ret_tensor[tuple([0] * (self.N_order - N + 1))] = tensor[0]
         with uopen(self.out_lm_tensor, "wb") as f:
             torch.save(ret_tensor, f)
             
