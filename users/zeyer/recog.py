@@ -580,7 +580,7 @@ def _returnn_v2_get_model(*, epoch: int, **_kwargs_unused):
 
     model_def = config.typed_value("_model_def")
     model = model_def(
-        epoch=epoch, in_dim=data.feature_dim_or_sparse_dim if data else None, target_dim=targets.sparse_dim
+        epoch=epoch, in_dim=data.feature_dim_or_sparse_dim if data is not None else None, target_dim=targets.sparse_dim
     )
     return model
 
