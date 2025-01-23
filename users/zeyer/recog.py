@@ -666,7 +666,7 @@ def _returnn_v2_get_forward_callback():
             hyps: Tensor = outputs["hyps"]  # [beam, out_spatial]
             scores: Tensor = outputs["scores"]  # [beam]
             assert hyps.sparse_dim and hyps.sparse_dim.vocab  # should come from the model
-            assert hyps.dims[1].dyn_size_ext, f"hyps {hyps} do not define seq lengths"
+            assert hyps.dims[1].dyn_size_ext is not None, f"hyps {hyps} do not define seq lengths"
             # AED/Transducer etc will have hyps len depending on beam -- however, CTC will not.
             hyps_len = hyps.dims[1].dyn_size_ext  # [beam] or []
             assert hyps.raw_tensor.shape[:1] == scores.raw_tensor.shape  # (beam,)
