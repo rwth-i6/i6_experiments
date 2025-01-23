@@ -87,6 +87,7 @@ def model_recog(
     )  # Batch, InBeam, Vocab / ...
     lm_log_probs = rf.log_softmax(lm_logits, axis=model.target_dim)  # Batch, InBeam, Vocab
     lm_log_probs *= lm_scale
+    lm_scores = rf.constant(0.0, dims=batch_dims_)  # Batch, InBeam
 
     lm_log_probs = lm_log_probs.copy_compatible_to_dims(batch_dims_ + [model.target_dim])
     # print("* lm_log_probs initial:", lm_log_probs)
@@ -97,7 +98,7 @@ def model_recog(
     # For debugging, accumulate (non-blank) label history.
     # Note: When you use this, uncomment the seq_label usages below,
     # and also add this to the masked_select_tree and masked_scatter_tree.
-    # seq_label = _seq_label_history_init_state(vocab_dim=model.target_dim, batch_dims=batch_dims_)
+    seq_label = _seq_label_history_init_state(vocab_dim=model.target_dim, batch_dims=batch_dims_)
 
     max_seq_len = int(enc_spatial_dim.get_dim_value())
     seq_targets_wb = []
@@ -170,13 +171,19 @@ def model_recog(
         #     f" {[model.target_dim.vocab.id_to_label(l.item()) for l in target.raw_tensor[0, :3].cpu()]}"
         # )
 
-        # seq_label = _gather_backrefs_tree(seq_label, backrefs=backrefs, dim_map=backrefs_dim_map)
-        # _seq_label_print("gather backrefs", seq_label)
+        lm_scores = rf.gather(lm_scores, indices=backrefs)  # Batch, Beam
+        seq_label = _gather_backrefs_tree(seq_label, backrefs=backrefs, dim_map=backrefs_dim_map)
+        _seq_label_print(f"{t=} gather backrefs", seq_label)
 
         got_new_label_cpu = rf.copy_to_device(got_new_label, "cpu")
         if got_new_label_cpu.raw_tensor.sum().item() > 0:
-            (target_, lm_state_), packed_new_label_dim, packed_new_label_dim_map = _masked_select_tree(
-                (target, lm_state),
+            (
+                (target_, lm_state_, lm_scores_, lm_log_probs_, seq_label_),
+                packed_new_label_dim,
+                packed_new_label_dim_map,
+            ) = _masked_select_tree(
+                # (target, lm_state),
+                (target, lm_state, lm_scores, lm_log_probs, seq_label),
                 mask=got_new_label,
                 mask_cpu=got_new_label_cpu,
                 dims=batch_dims + [beam_dim],
@@ -184,10 +191,15 @@ def model_recog(
             # packed_new_label_dim_map: old dim -> new dim. see _masked_select_prepare_dims
             assert packed_new_label_dim.get_dim_value() > 0
 
-            # print(
-            #     f"* feed target"
-            #     f" {[model.target_dim.vocab.id_to_label(l.item()) for l in target_.raw_tensor[:3].cpu()]}"
-            # )
+            lm_log_probs_ = rf.gather(lm_log_probs_, axis=model.target_dim, indices=target_)  # Flat_Batch_Beam
+            assert lm_scores_.dims == lm_log_probs_.dims == (packed_new_label_dim,)
+            lm_scores_ += lm_log_probs_  # Flat_Batch_Beam
+            print(
+                f"* {t=} new label"
+                f" {[model.target_dim.vocab.id_to_label(l.item()) for l in target_.raw_tensor[:3].cpu()]}"
+                f" new log probs {[l.item() for l in lm_log_probs_.raw_tensor[:3].cpu()]}"
+                f" new seq scores {[l.item() for l in lm_scores_.raw_tensor[:3].cpu()]}"
+            )
 
             lm_logits_, lm_state_ = lm(
                 target_,
@@ -203,12 +215,12 @@ def model_recog(
             #     f" {model.target_dim.vocab.id_to_label(lm_log_probs_.raw_tensor[0].argmax().cpu().item())}"
             # )
 
-            # seq_label_ = _seq_label_append(seq_label_, target_)
-            # _seq_label_print("packed append", seq_label_)
+            seq_label_ = _seq_label_append(seq_label_, target_)
+            _seq_label_print(f"{t=} packed append", seq_label_)
 
-            lm_log_probs, lm_state = _masked_scatter_tree(
-                (lm_log_probs_, lm_state_),
-                (lm_log_probs, lm_state),
+            lm_log_probs, lm_state, lm_scores, seq_label = _masked_scatter_tree(
+                (lm_log_probs_, lm_state_, lm_scores_, seq_label_),
+                (lm_log_probs, lm_state, lm_scores, seq_label),
                 mask=got_new_label,
                 mask_cpu=got_new_label_cpu,
                 dims=batch_dims + [beam_dim],
@@ -218,9 +230,18 @@ def model_recog(
 
             # _seq_label_print("masked scatter", seq_label)
 
+            # TODO debug more... compare scores to when fed directly
+
     # seq_log_prob, lm_log_probs: Batch, Beam
     # Add LM EOS score at the end.
-    seq_log_prob += rf.gather(lm_log_probs, indices=model.eos_idx, axis=model.target_dim)  # Batch, Beam -> VocabWB
+    lm_eos_score = rf.gather(lm_log_probs, indices=model.eos_idx, axis=model.target_dim)
+    seq_log_prob += lm_eos_score  # Batch, Beam -> VocabWB
+    lm_scores += lm_eos_score  # Batch, Beam
+
+    _seq_label_print("final", seq_label)
+    print("** final LM scores:")
+    _generic_print(lm_scores)
+    _seq_label_lm_score("final", seq_label, lm)
 
     # Backtrack via backrefs, resolve beams.
     seq_targets_wb_ = []
@@ -236,6 +257,20 @@ def model_recog(
         seq_targets_wb__ = seq_targets_wb__.push_back(target_wb)
     out_spatial_dim = enc_spatial_dim
     seq_targets_wb = seq_targets_wb__.stack(axis=out_spatial_dim)
+
+    print(f"** Result {seq_targets_wb}:")
+    _generic_seq_label_print(seq_targets_wb, out_spatial_dim)
+    am_scores = rf.reduce_sum(
+        rf.gather(label_log_prob, axis=model.wb_target_dim, indices=seq_targets_wb), axis=out_spatial_dim
+    )
+    print("** Final result AM scores:")
+    _generic_print(am_scores)
+    print("** Final result (combined) scores:")
+    _generic_print(seq_log_prob)
+
+    import sys
+
+    sys.exit(1)
 
     return seq_targets_wb, seq_log_prob, out_spatial_dim, beam_dim
 
@@ -558,23 +593,77 @@ def _seq_label_append(state: rf.State, new_label: Tensor) -> rf.State:
 def _seq_label_print(prefix: str, state: rf.State):
     hist_dim: Dim = state.hist_dim
     hist: Tensor = state.history
-    hist = rf.copy_to_device(hist, "cpu")
-    batch_dims = hist.remaining_dims(hist_dim)
     print(f"* seq_label history {prefix}: {hist}:")
+    _generic_seq_label_print(hist, hist_dim)
+
+
+def _seq_label_lm_score(prefix: str, state: rf.State, lm: TransformerDecoder):
+    from returnn.tensor import batch_dim
+
+    print(f"*** scoring seq_label {prefix}...")
+
+    targets_spatial_dim: Dim = state.hist_dim
+    targets: Tensor = state.history
+    vocab = lm.vocab_dim.vocab
+    batch_dims = targets.remaining_dims(targets_spatial_dim)
+    assert batch_dim in batch_dims
+    # Reorder, but batch_dim first. This is just for nicer visualization, easier debug hacks.
+    batch_dims = [batch_dim] + [d for d in batch_dims if d != batch_dim]
+
+    input_labels, (targets_w_eos_spatial_dim,) = rf.pad(
+        targets, axes=[targets_spatial_dim], padding=[(1, 0)], value=vocab.bos_label_id
+    )
+    targets_w_eos, _ = rf.pad(
+        targets,
+        axes=[targets_spatial_dim],
+        padding=[(0, 1)],
+        value=vocab.eos_label_id,
+        out_dims=[targets_w_eos_spatial_dim],
+    )
+    print(f"  seq lens {targets_w_eos_spatial_dim}:")
+    _generic_print(targets_w_eos_spatial_dim.dyn_size_ext)
+
+    logits, _ = lm(
+        input_labels,
+        spatial_dim=targets_w_eos_spatial_dim,
+        encoder=None,
+        state=lm.default_initial_state(batch_dims=batch_dims),
+    )
+    log_probs = rf.log_softmax(logits, axis=lm.vocab_dim)  # Batch, InBeam, Spatial, Vocab
+    log_probs = rf.gather(log_probs, axis=lm.vocab_dim, indices=targets_w_eos)  # Batch, InBeam, Spatial
+    log_probs = rf.reduce_sum(log_probs, axis=targets_w_eos_spatial_dim)  # Batch, InBeam
+    print(f"  scores {log_probs}:")
+    _generic_print(log_probs)
+
+
+def _generic_seq_label_print(labels: Tensor, spatial_dim: Dim):
+    labels = rf.copy_to_device(labels, "cpu")
+    batch_dims = labels.remaining_dims(spatial_dim)
     for indices in _iter_dims_indices(batch_dims):
         print(" ", end="")
-        hist_seq_len_ = hist_dim.get_size_tensor()
-        hist_ = hist
+        hist_seq_len_ = spatial_dim.get_size_tensor()
+        hist_ = labels
         for dim, i in zip(batch_dims, indices):
             hist_ = rf.gather(hist_, axis=dim, indices=i)
             if dim in hist_seq_len_.dims:
                 hist_seq_len_ = rf.gather(hist_seq_len_, axis=dim, indices=i)
             print(f" {dim}={i}", end="")
-        hist_, _ = rf.slice(hist_, axis=hist_dim, size=hist_seq_len_)
+        hist_, _ = rf.slice(hist_, axis=spatial_dim, size=hist_seq_len_)
         print(
             f": len={hist_seq_len_.raw_tensor}"
-            f" {[hist.sparse_dim.vocab.id_to_label(l.item()) for l in hist_.raw_tensor]}"
+            f" {[labels.sparse_dim.vocab.id_to_label(l.item()) for l in hist_.raw_tensor]}"
         )
+
+
+def _generic_print(tensor: Tensor):
+    tensor = rf.copy_to_device(tensor, "cpu")
+    for indices in _iter_dims_indices(tensor.dims):
+        print(" ", end="")
+        tensor_ = tensor
+        for dim, i in zip(tensor.dims, indices):
+            tensor_ = rf.gather(tensor_, axis=dim, indices=i)
+            print(f" {dim}={i}", end="")
+        print(f": {tensor_.raw_tensor.item()}")
 
 
 def _iter_dims_indices(dims: Sequence[Dim]) -> Generator[Tuple[int, ...]]:
