@@ -268,9 +268,8 @@ def model_recog(
     print("** Final result (combined) scores:")
     _generic_print(seq_log_prob)
 
-    import sys
-
-    sys.exit(1)
+    # import sys
+    # sys.exit(1)
 
     return seq_targets_wb, seq_log_prob, out_spatial_dim, beam_dim
 
