@@ -501,8 +501,8 @@ def py():
 
         # Try using ngram prior (lm_am_labelwise_prior_ngram_rescore).
         scales_results = {}
-        for lm_scale in np.linspace(0.0, 1.0, 3):
-            for prior_scale_rel in np.linspace(0.0, 1.0, 3):
+        for lm_scale in np.linspace(0.0, 1.0, 11):
+            for prior_scale_rel in np.linspace(0.0, 1.0, 11):
                 res = recog_model(
                     task=task,
                     model=ctc_model,
