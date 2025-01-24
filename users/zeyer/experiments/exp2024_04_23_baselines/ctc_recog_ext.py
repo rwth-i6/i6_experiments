@@ -100,7 +100,7 @@ def py():
                 recog_def=model_recog,
                 config={
                     "beam_size": beam_size,
-                    "recog_version": 8,
+                    "recog_version": 9,
                     "batch_size": 5_000 * ctc_model.definition.batch_size_factor,
                     "__trigger_hash_change": 1,
                 },
