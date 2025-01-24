@@ -220,7 +220,7 @@ class MixingDataset(CachedDataset2):
                 self._print_progress()
                 c0 = self.chooser_childindices[0] / max(1, child_lens[0])
                 c1 = self.chooser_childindices[1] / max(1, child_lens[1])
-                print(f"MixingDataset: optimal mixing ratio = {(self.datalens[1] / c1) / max(1, self.datalens[0]/c0 + self.datalens[1]/c1)}", file=log.v4)
+                print(f"MixingDataset: optimal mixing ratio = {(self.datalens[1] / c1) / max(1, self.datalens[0]/c0 + self.datalens[1]/c1)} (assuming uniform random distribution)", file=log.v4)
                 if self.how_to_handle_end_of_data_from_one_dataset == "exception":
                     self.is_chooser_done = True
                     raise Exception(
