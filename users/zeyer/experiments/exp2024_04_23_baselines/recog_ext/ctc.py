@@ -712,7 +712,10 @@ def _where_res_check_equal(path: Tuple[Any, ...], a: Any, b: Any, *, dim_map: Di
         try:
             torch.testing.assert_close(a.raw_tensor, b.raw_tensor)
         except AssertionError as exc:
-            print(f"** Error in {path} ({a} vs {b}):\n{exc}")
+            print(f"** Error in {path}:")
+            print(exc)
+            print(f"a {a}: {a.raw_tensor}")
+            print(f"b {b}: {b.raw_tensor}")
             return False
         else:
             return True
