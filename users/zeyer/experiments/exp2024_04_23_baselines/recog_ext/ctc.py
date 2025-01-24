@@ -233,8 +233,8 @@ def model_recog(
 
         new_state = _state_update(prev, target=target, beam_dim=beam_dim, model=model, lm=lm, lm_scale=lm_scale)
         _where_deep_check(
-            prev,
             new_state,
+            prev,
             (lm_log_probs, lm_state, lm_scores, seq_label),
             mask=got_new_label,
             mask_cpu=got_new_label_cpu,
