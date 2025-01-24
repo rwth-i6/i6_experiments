@@ -38,11 +38,12 @@ def model_recog(
     config = get_global_config()
     beam_size = config.int("beam_size", 12)
     version = config.int("recog_version", 1)
-    assert version == 8
+    assert version == 9
 
     # RETURNN version is like "1.20250115.110555"
     # There was an important fix in 2025-01-17 affecting masked_scatter.
-    assert tuple(int(n) for n in returnn.__version__.split(".")) >= (1, 20250119, 0), returnn.__version__
+    # And another important fix in 2025-01-24 affecting masked_scatter for old PyTorch versions.
+    assert tuple(int(n) for n in returnn.__version__.split(".")) >= (1, 20250125, 0), returnn.__version__
 
     batch_dims = data.remaining_dims((data_spatial_dim, data.feature_dim))
     logits, enc, enc_spatial_dim = model(data, in_spatial_dim=data_spatial_dim)
