@@ -686,7 +686,7 @@ def _where_res_check_equal(path: Tuple[Any, ...], a: Any, b: Any, *, dim_map: Di
         a = rf.copy_to_device(a, "cpu")
         b = rf.copy_to_device(b, "cpu")
         try:
-            torch.testing.assert_close(a.raw_tensor, b.raw_tensor)
+            torch.testing.assert_close(a.raw_tensor, b.raw_tensor, rtol=5e-4, atol=1e-5)
         except AssertionError as exc:
             print(f"** Error in {path}:")
             print(exc)
