@@ -89,6 +89,7 @@ def py():
             (4, 0.3, 0.5),
             (16, 0.3, 0.5),
             (32, 0.3, 0.5),
+            (32, 0.25, 0.5),
         ]:
             model = get_ctc_with_lm(
                 ctc_model=ctc_model, prior=prior, prior_scale=prior_scale, language_model=lm, lm_scale=lm_scale
@@ -101,7 +102,7 @@ def py():
                     "beam_size": beam_size,
                     "recog_version": 8,
                     "batch_size": 5_000 * ctc_model.definition.batch_size_factor,
-                    # "__trigger_hash_change": 1,
+                    "__trigger_hash_change": 1,
                 },
                 search_rqmt={"time": 24},
                 name=f"{prefix}/recog-beam{beam_size}-lm_{lm_out_name}-lmScale{lm_scale}-priorScale{prior_scale}",
