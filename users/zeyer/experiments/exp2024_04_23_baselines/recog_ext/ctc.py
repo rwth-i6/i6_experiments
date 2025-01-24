@@ -322,7 +322,7 @@ def _gather_backrefs(s: T, *, backrefs: Tensor, dim_map: Optional[Dict[Dim, Dim]
         if dim_map and any(d in dim_map for d in s.dims):
             for d in s.dims:
                 if d in dim_map:
-                    s = _expand_slice(s, old_dim=d, new_dim=dim_map[d])
+                    s = rf.replace_dim_v2(s, in_dim=d, out_dim=dim_map[d])
         if backrefs.sparse_dim in s.dims:
             # really the default case, otherwise e.g. scalar or so, independent from beam
             s = rf.gather(s, indices=backrefs)
@@ -513,14 +513,14 @@ def _masked_scatter(
         if any(d in reverse_dim_map for d in s.dims):
             for d in s.dims:
                 if d in reverse_dim_map:
-                    s = _expand_slice(s, old_dim=d, new_dim=reverse_dim_map[d], expect_expand=True)
+                    s = rf.replace_dim_v2(s, in_dim=d, out_dim=reverse_dim_map[d], allow_shrink=False)
         # We also might need to replace newly merged dims, both in s and backup.
         for d in s.dims:
             if d in merged_dim_map:
-                s = _expand_slice(s, old_dim=d, new_dim=merged_dim_map[d])
+                s = rf.replace_dim_v2(s, in_dim=d, out_dim=merged_dim_map[d])
         for d in backup.dims:
             if d in merged_dim_map:
-                backup = _expand_slice(backup, old_dim=d, new_dim=merged_dim_map[d])
+                backup = rf.replace_dim_v2(backup, in_dim=d, out_dim=merged_dim_map[d])
         # The unpacking itself (reversing the masked_select, i.e. masked_scatter).
         s = rf.masked_scatter(s, backup, mask=mask, dims=dims, in_dim=in_dim)
         return s
@@ -533,30 +533,6 @@ def _masked_scatter(
             return merged_dim_map[s]
         return s
     raise TypeError(f"_masked_scatter: unexpected type ({type(s)})")
-
-
-def _expand_slice(source: Tensor, old_dim: Dim, new_dim: Dim, *, expect_expand: Optional[bool] = None) -> Tensor:
-    assert old_dim in source.dims
-    old_size = old_dim.get_dim_value()
-    new_size = new_dim.get_dim_value()
-    if old_size == new_size:
-        res, _ = rf.replace_dim(source, in_dim=old_dim, out_dim=new_dim)
-    elif old_size < new_size:
-        res, _ = rf.pad(
-            source,
-            axes=[old_dim],
-            padding=[(0, new_dim.get_dim_value_tensor() - old_dim.get_dim_value_tensor())],
-            out_dims=[new_dim],
-            value=0,
-        )
-    else:
-        if expect_expand is True:
-            raise ValueError(
-                f"expected expand, but got reduce (slice): {old_size} -> {new_size},"
-                f" for {old_dim=} {new_dim=}, in {source=}"
-            )
-        res, _ = rf.slice(source, axis=old_dim, size=new_dim)
-    return res
 
 
 def _target_remove_blank(target: Tensor, *, target_dim: Dim, wb_target_dim: Dim, blank_idx: int) -> Tensor:
@@ -669,10 +645,10 @@ def _where(a: Any, b: Any, *, mask: Tensor, mask_cpu: Tensor, dim_map: Dict[Dim,
         assert isinstance(b, Tensor)
         for d in a.dims:
             if d in dim_map:
-                a = _expand_slice(a, old_dim=d, new_dim=dim_map[d])
+                a = rf.replace_dim_v2(a, in_dim=d, out_dim=dim_map[d])
         for d in b.dims:
             if d in dim_map:
-                b = _expand_slice(b, old_dim=d, new_dim=dim_map[d])
+                b = rf.replace_dim_v2(b, in_dim=d, out_dim=dim_map[d])
         assert a.dims_set == b.dims_set
         if a.device == "cpu":
             mask = mask_cpu
