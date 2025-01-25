@@ -424,6 +424,10 @@ def py():
                 scales_results[(prior_scale, lm_scale)] = res.output
         _plot_scales(f"rescore-beam{beam_size}-lm_{lm_out_name}", scales_results)
 
+        # TODO make one single combined job for finding the optimal scales,
+        #  i.e. iterating through some given scales, and evaluating WER for each,
+        #  maybe with post-processing like SPM-merging before WER evaluation.
+
         scales_results = {}
         for lm_scale in np.linspace(0.0, 1.0, 11):
             for prior_scale_rel in np.linspace(0.0, 1.0, 11):
