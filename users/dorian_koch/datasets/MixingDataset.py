@@ -340,7 +340,7 @@ class MixingDataset(CachedDataset2):
         if self.is_chooser_done:
             return self.chooser_index
         # we can calculate this, but its very expensive! TODO what do?
-        raise Exception("num_seqs not known yet")
+        raise NotImplementedError("num_seqs not known yet")
 
     def get_target_list(self):
         """
