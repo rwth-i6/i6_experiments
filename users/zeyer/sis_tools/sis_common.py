@@ -324,7 +324,7 @@ def collect_inputs_per_key(info_params: list[ParsedInfoParameter]) -> dict[str, 
                 continue
             break
 
-    jobs_ = {"/".join(path): job for path, job in jobs.items()}
+    jobs_ = {"/".join(str(p) for p in path): job for path, job in jobs.items()}
     assert len(jobs_) == len(jobs)  # unique joined paths
     return jobs_
 
