@@ -115,7 +115,7 @@ def get_job_from_work_output(filename: str, *, allow_none: bool = False) -> Opti
                     if f <= 0:
                         break
                     if os.path.realpath(get_work_dir_prefix() + path[f + 1 :]) == path:
-                        return path[f:]
+                        return path[f + 1 :]
         if allow_none:
             return None
         raise ValueError(f"invalid {filename=}, not prefixed by {work_dir_prefix=} or {work_dir_prefix2=}")
