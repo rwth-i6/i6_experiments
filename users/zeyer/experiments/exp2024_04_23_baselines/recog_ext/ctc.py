@@ -109,7 +109,7 @@ def model_recog(
                 value=0.0,
             ),
             0.0,
-        )  # Batch, InBeam -> VocabWB
+        )  # Batch, InBeam, VocabWB
 
         seq_log_prob, (backrefs, target_wb), beam_dim = rf.top_k(
             seq_log_prob, k_dim=Dim(beam_size, name=f"dec-step{t}-beam"), axis=[beam_dim, model.wb_target_dim]
