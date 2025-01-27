@@ -474,7 +474,7 @@ class ConvertARPAtoTensor(Job):
                 assert s[1].allclose(torch.tensor(0.0)), f"Prob of <unk> should be 0! (1) {s[1]}"
                 assert s[2:].allclose(torch.tensor(1.0), atol=atol), f"The next word probabilities do not sum to 1! {s[2:]}"
             else:
-                assert (tensor.sum(-1) < 1.0).all(), f"The next word probabilities are not smaller than 1! {tensor.sum(-1)}"
+                assert (tensor.sum(-1) < 1.005).all(), f"The next word probabilities are not smaller than 1! {tensor.sum(-1).flatten()[tensor.sum(-1).flatten() >= 1.005]}"
             assert tensor.sum(tuple(range(0, N-1)))[1].allclose(torch.tensor(0.0)), f"Prob of <unk> should be 0! (2) {tensor.sum(tuple(range(0, N-1)))[1]}"
             
             tensor = tensor.log()

@@ -1230,7 +1230,7 @@ class GetBestRecogTrainExp(sisyphus.Job):
 
     def tasks(self) -> Iterator[sisyphus.Task]:
         """tasks"""
-        yield sisyphus.Task("run", mini_task=True)
+        yield sisyphus.Task("run", rqmt={"cpu": 4, "mem": 8, "time": 4})
 
     def run(self):
         """run"""
@@ -1275,7 +1275,7 @@ class GetBestTuneValue(sisyphus.Job):
 
     def tasks(self) -> Iterator[sisyphus.Task]:
         """tasks"""
-        yield sisyphus.Task("run", mini_task=True)
+        yield sisyphus.Task("run", rqmt={"cpu": 4, "mem": 8, "time": 4})
 
     def run(self):
         """run"""
@@ -1334,7 +1334,7 @@ class ExtractPseudoLabels(sisyphus.Job):
 
     def tasks(self) -> Iterator[sisyphus.Task]:
         """tasks"""
-        yield sisyphus.Task("run", mini_task=True)
+        yield sisyphus.Task("run", rqmt={"cpu": 4, "mem": 8, "time": 4})
 
     def run(self):
         """run"""
@@ -1392,7 +1392,7 @@ class GetScoreJob(sisyphus.Job):
         self._recog_score = res
 
     def tasks(self) -> Iterator[sisyphus.Task]:
-        yield sisyphus.Task("run", mini_task=True)
+        yield sisyphus.Task("run", rqmt={"cpu": 4, "mem": 8, "time": 4})
 
     def run(self):
         import json
@@ -1547,7 +1547,7 @@ class GetTorchAvgModelResult(sisyphus.Job):
 
     def tasks(self) -> Iterator[sisyphus.Task]:
         """tasks"""
-        yield sisyphus.Task("run", mini_task=True)
+        yield sisyphus.Task("run", rqmt={"cpu": 4, "mem": 8, "time": 4})
 
     def run(self):
         """run"""
@@ -1571,7 +1571,7 @@ class SearchCombineShardsJob(sisyphus.Job):
 
     def tasks(self):
         """task"""
-        yield sisyphus.Task("run", mini_task=True)
+        yield sisyphus.Task("run", rqmt={"cpu": 4, "mem": 8, "time": 4})
 
     def run(self):
         """run"""
@@ -1595,7 +1595,7 @@ class PriorCombineShardsJob(sisyphus.Job):
 
     def tasks(self):
         """task"""
-        yield sisyphus.Task("run", mini_task=True)
+        yield sisyphus.Task("run", rqmt={"cpu": 4, "mem": 8, "time": 4})
 
     def run(self):
         """run"""

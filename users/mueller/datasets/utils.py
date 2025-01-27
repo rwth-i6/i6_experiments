@@ -24,7 +24,7 @@ class CorpusReplaceOrthFromPyDictJob(Job):
         self.out_corpus = self.output_path("corpus.xml.gz")
 
     def tasks(self):
-        yield SisTask("run", mini_task=True)
+        yield SisTask("run", rqmt={"cpu": 4, "mem": 8, "time": 4})
 
     def run(self):
         c = corpus.Corpus()

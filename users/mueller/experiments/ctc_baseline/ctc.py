@@ -77,9 +77,10 @@ def py():
     prior_gradient = False
     empirical_prior_full_sum = False
     prior_from_max_full_sum = False
-    LM_order = 3
-    top_k = 3
+    LM_order = 2
+    top_k = 1
     alignment_topk = False
+    blank_correction_version = 12
     self_train_subset = 18000 # 18000
     
     assert (empirical_prior_full_sum and empirical_prior) or not empirical_prior_full_sum
@@ -92,7 +93,8 @@ def py():
         else:
             epoch_dict = {1: 500, 2: 250, 4: 125, 6: 83, 8: 63, 10: 50}
         self_epochs = epoch_dict[self_training_rounds]
-        self_epochs = 56
+        if self_train_subset:
+            self_epochs = 56
     
     decoder_hyperparameters = None
     if use_greedy:
@@ -168,7 +170,7 @@ def py():
     } if self_training_rounds > 0 else None
 
     for am, lm, prior in [
-        (8.0, 0.0, 0.08)
+        (1.0, 1.0, 0.3)
     ]:
         if use_sum_criterion:
             if am != 1.0 or lm != 1.0 or prior != 1.0:
@@ -196,6 +198,8 @@ def py():
                 config_full_sum["max_prior"] = True
             if not alignment_topk:
                 config_full_sum["alignment_topk"] = False
+            if blank_correction_version > 0:
+                config_full_sum["blank_correction_version"] = blank_correction_version
             
             # This is to change the hash when we made chnages in the loss function
             config_full_sum["version"] = 2
@@ -203,7 +207,7 @@ def py():
             sum_str = f"-full_sum" + \
                 (f"_p{str(config_full_sum['prior_scale']).replace('.', '')}_l{str(config_full_sum['lm_scale']).replace('.', '')}_a{str(config_full_sum['am_scale']).replace('.', '')}" if scales_not_std else "") + \
                 (f"_LMorder{LM_order}" if LM_order > 2 else "") + \
-                (f"_topK{top_k}" + ("_align" if alignment_topk else "") if top_k > 0 else "") + \
+                (f"_topK{top_k}" + ("_align" if alignment_topk else "") + (f"_bc{blank_correction_version}" if blank_correction_version > 0 else "") if top_k > 0 else "") + \
                 ("_emp" if empirical_prior_full_sum else "") + \
                 ("_max_pr" if not empirical_prior_full_sum and prior_from_max_full_sum else "") + \
                 ("_wo_hor_pr" if not horizontal_prior else "") + \
@@ -1105,16 +1109,12 @@ def ctc_sum_training(*, model: Model, data: rf.Tensor, data_spatial_dim: Dim, lm
     max_prior = config.bool("max_prior", False)
     top_k = config.int("top_k", 0)
     alignment_topk = config.bool("alignment_topk", True)
+    blank_correction_version = config.int("blank_correction_version", 0)
     use_prior = prior_scale > 0.0
 
     if data.feature_dim and data.feature_dim.dimension == 1:
         data = rf.squeeze(data, axis=data.feature_dim)
     assert not data.feature_dim  # raw audio
-    
-    # if prior_scale == 0.55: # TODO kann ich seq tags auslesen? (wahrscheinlich muss ich das in der train.py mit übergeben weil hier nur tensor)
-    #     print("Data", data) # Return Tensor{'data', [B,T|'time'[B]]}
-    #     print("Batch", data.batch) # Return None
-    
     
     with uopen(lm_path, "rb") as f:
         lm = torch.load(f, map_location=data.device)

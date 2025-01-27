@@ -152,7 +152,9 @@ def sum_loss(
         else:
             tmp_log_q = torch.cat([log_q, log_partial_empty_seq_prob[0].unsqueeze(-1)], dim=-1)
         topk_scores, topk_idx = torch.topk(tmp_log_q, top_k, dim=-1, sorted=False)
-        # print(topk_idx[print_best_path_for_idx[0]], topk_scores[print_best_path_for_idx[0]])
+        # p_idx = topk_idx.clone()
+        # p_idx[p_idx == vocab_size] = 0
+        # print(p_idx[print_best_path_for_idx[0]], topk_scores[print_best_path_for_idx[0]], log_q[print_best_path_for_idx[0], p_idx[print_best_path_for_idx[0]]])
     
     # Set up the best path print
     if print_best_path_for_idx:
@@ -279,7 +281,9 @@ def sum_loss(
             new_topk_scores, new_topk_idx = torch.topk(tmp_log_q, top_k, dim=-1, sorted=False)
             topk_scores = torch.where(time_mask_k, new_topk_scores, topk_scores)
             topk_idx = torch.where(time_mask_k, new_topk_idx, topk_idx)
-            # print(topk_idx[print_best_path_for_idx[0]], topk_scores[print_best_path_for_idx[0]])
+            # p_idx = topk_idx.clone()
+            # p_idx[p_idx == vocab_size] = 0
+            # print(p_idx[print_best_path_for_idx[0]], topk_scores[print_best_path_for_idx[0]], log_q[print_best_path_for_idx[0], p_idx[print_best_path_for_idx[0]]])
         
         torch.cuda.empty_cache()
     
@@ -305,7 +309,6 @@ def sum_loss(
     
     return loss
 
-# TODO generalize LM usage to any order
 def sum_loss2(
     *,
     log_probs: torch.Tensor, # (T, B, V)
@@ -326,7 +329,7 @@ def sum_loss2(
     device: torch.device = torch.device("cpu"),
     print_best_path_for_idx: list[int] = [],
     alignment_topk: bool = False,
-    blank_correction_version = 0
+    blank_correction_version: int = 0,
 ):
     """
     Sum criterion training for CTC, given by
@@ -459,6 +462,33 @@ def sum_loss2(
             tmp_log_q = torch.stack([log_q_label, log_q_blank], dim=-1).view(batch_size, -1)
         else:
             tmp_log_q = log_q
+        
+        if blank_correction_version > 0:
+            tmp_log_q_blank = log_q_blank.clone()
+            first_lm_probs = log_lm_probs[*[eos_symbol] * (LM_order - 1), out_idx_vocab_w_eos]
+            if blank_correction_version in [1, 2]: # mean next lm prob
+                vocab_size_log = torch.log(torch.tensor(vocab_size + 1, device=device, dtype=log_probs[0].dtype))
+                tmp_log_q_blank[:, 0] += safe_logsumexp(first_lm_probs, dim=-1) - vocab_size_log
+            elif blank_correction_version in [3, 4]: # median next lm prob
+                tmp_log_q_blank[:, 0] += torch.median(first_lm_probs, dim=-1).values
+            elif blank_correction_version in [5, 6]: # 90% quantile next lm prob
+                tmp_log_q_blank[:, 0] += torch.quantile(first_lm_probs, 0.9, dim=-1, interpolation="higher")
+            elif blank_correction_version in [7, 8]: # average over top 10% next lm prob
+                top_10 = torch.topk(first_lm_probs, int(0.1 * (vocab_size + 1)), dim=-1, sorted=False).values
+                top_10_size_log = torch.log(torch.tensor(top_10.size(0), device=device, dtype=log_probs[0].dtype))
+                tmp_log_q_blank[:, 0] += safe_logsumexp(top_10, dim=-1) - top_10_size_log
+            elif blank_correction_version in [9, 10]: # average over top 5% next lm prob
+                top_5 = torch.topk(first_lm_probs, int(0.05 * (vocab_size + 1)), dim=-1, sorted=False).values
+                top_5_size_log = torch.log(torch.tensor(top_5.size(0), device=device, dtype=log_probs[0].dtype))
+                tmp_log_q_blank[:, 0] += safe_logsumexp(top_5, dim=-1) - top_5_size_log
+            elif blank_correction_version in [11, 12]: # 70% quantile next lm prob
+                tmp_log_q_blank[:, 0] += torch.quantile(first_lm_probs, 0.7, dim=-1, interpolation="higher")
+            elif blank_correction_version in [13, 14]: # 80% quantile next lm prob
+                tmp_log_q_blank[:, 0] += torch.quantile(first_lm_probs, 0.8, dim=-1, interpolation="higher")
+            else:
+                raise NotImplementedError(f"Blank correction version {blank_correction_version} is not implemented")
+            tmp_log_q = safe_logaddexp(log_q_label, tmp_log_q_blank)
+        
         topk_scores, topk_idx = torch.topk(tmp_log_q, top_k, dim=1, sorted=False) # TODO replace log_q with topk_scores
         topk_idx = torch.tensor(np.array([np.unravel_index(topk_idx[b].cpu().numpy(), (log_q.size(1), 2)) for b in range(batch_size)]), device=device).transpose(1,2) if alignment_topk else topk_idx
         # print(topk_idx.shape)
@@ -468,7 +498,7 @@ def sum_loss2(
         new_idx = torch.cat([new_idx, new_last_idx], dim=2)
         new_idx = torch.tensor(np.array([[np.ravel_multi_index(new_idx[b, k].cpu().numpy(), original_shape[1:]) for k in range(top_k)] for b in range(batch_size)]), device=device)
         new_idx = new_idx.view(batch_size, -1)
-        # print(topk_idx[print_best_path_for_idx[0]], topk_scores[print_best_path_for_idx[0]])
+        # print(topk_idx[print_best_path_for_idx[0]], topk_scores[print_best_path_for_idx[0]], log_q[print_best_path_for_idx[0], topk_idx[print_best_path_for_idx[0]]])
     
     # Set up the best path print
     if print_best_path_for_idx:
@@ -477,12 +507,31 @@ def sum_loss2(
             max_val, max_idx = torch.max(log_q.view(batch_size, -1), dim=-1)
             max_idx = torch.tensor([np.unravel_index(max_idx[b].cpu().numpy(), (vocab_size + 1,) * (LM_order - 1)) for b in range(batch_size)], device=device)
             for idx in print_best_path_for_idx:
-                m_idx = max_idx[idx]
+                m_idx = max_idx[idx].clone()
                 m_idx[m_idx > 0] += 1
                 a_idx = m_idx.clone()
                 a_idx[a_idx == 0] = blank_idx
                 best_path_print[idx] = {"str": f"{m_idx.tolist()}", "am_str": "{:.2f}".format(log_probs[0][idx][a_idx[-1]].tolist()), "prior": "{:.2f}".format(log_prior[a_idx[-1]].tolist() if use_prior else 0.0), "LM": "{:.2f}".format(log_lm_probs[*[eos_symbol] * (LM_order - 1), m_idx[-1]].tolist()), "score": "{:.2f}".format(max_val[idx].tolist()), "AM": log_probs[0][idx][a_idx[-1]].tolist()}
     
+    if blank_correction_version > 0 and top_k > 0:
+        # Prepare lm tensor for blank transition
+        log_lm_probs_w_eos = dynamic_slice(log_lm_probs, [out_idx_vocab_w_eos] * (LM_order)).view(-1, vocab_size + 1).unsqueeze(0)
+        if blank_correction_version in [1, 2]: # mean next lm prob
+            log_lm_probs_w_eos = safe_logsumexp(log_lm_probs_w_eos, dim=-1) - vocab_size_log
+        elif blank_correction_version in [3, 4]: # median next lm prob
+            log_lm_probs_w_eos = torch.median(log_lm_probs_w_eos, dim=-1).values
+        elif blank_correction_version in [5, 6]: # 90% quantile next lm prob
+            log_lm_probs_w_eos = torch.quantile(log_lm_probs_w_eos, 0.9, dim=-1, interpolation="higher")
+        elif blank_correction_version in [7, 8]: # average over top 10% next lm prob
+            top_10 = torch.topk(log_lm_probs_w_eos, int(0.1 * (vocab_size + 1)), dim=-1, sorted=False).values
+            log_lm_probs_w_eos = safe_logsumexp(top_10, dim=-1) - top_10_size_log
+        elif blank_correction_version in [9, 10]: # average over top 5% next lm prob
+            top_5 = torch.topk(log_lm_probs_w_eos, int(0.05 * (vocab_size + 1)), dim=-1, sorted=False).values
+            log_lm_probs_w_eos = safe_logsumexp(top_5, dim=-1) - top_5_size_log
+        elif blank_correction_version in [11, 12]: # 70% quantile next lm prob
+            log_lm_probs_w_eos = torch.quantile(log_lm_probs_w_eos, 0.7, dim=-1, interpolation="higher")
+        elif blank_correction_version in [13, 14]: # 80% quantile next lm prob
+            log_lm_probs_w_eos = torch.quantile(log_lm_probs_w_eos, 0.8, dim=-1, interpolation="higher")
     # Prepare lm tensor for the diagonal transition
     log_lm_probs_wo_last_eos = dynamic_slice(log_lm_probs, [out_idx_vocab_w_eos] * (LM_order - 1) + [out_idx_vocab])
     log_lm_probs_wo_last_eos = torch.cat([torch.full((*log_lm_probs_wo_last_eos.size()[:-1], 1), log_zero, device=device), log_lm_probs_wo_last_eos], dim=-1) # EoS in last dimension is set to log_zero
@@ -493,13 +542,15 @@ def sum_loss2(
     log_lm_probs_wo_diag = (1 - torch.eye(vocab_size + 1, device=device)).log() + log_lm_probs_wo_diag # Fill diagonal in last two dimensions with log_zero as we don't allow repetitions of the same label here
     # Prepare lm tensor for EoS transition
     log_lm_probs_eos = dynamic_slice(log_lm_probs, [out_idx_vocab_w_eos] * (LM_order - 1) + [torch.tensor([eos_symbol], device=device)]).squeeze(-1).unsqueeze(0)
-    if top_k > 0:
+    if top_k > 0 and lm_scale > 0.0:
         log_lm_probs_eos[log_lm_probs_eos == float("-inf")] = -1000000.0 # Set to a very low value to avoid having -inf scores in the top k
     # Prepare prior
     if use_prior:
         log_prior_wo_bos = torch.cat([torch.full((1,), 0.0, device=device), log_prior[out_idx_vocab]], dim=0).unsqueeze(0)[:, *(None,) * (LM_order - 2), :].expand(original_shape)
         if top_k > 0:
             log_prior_wo_bos = log_prior_wo_bos.reshape(batch_size, -1)
+    
+    # print(safe_logsumexp(log_q[0], dim=-1), safe_logsumexp(log_q[0], dim=-1).exp())
     
     for t in range(1, max_audio_time):
         # case 1: emit a blank at t
@@ -526,10 +577,14 @@ def sum_loss2(
         # horizontal transition Q(t-1, u, non-blank)
         if top_k > 0:
             new_log_q_label = torch.full_like(log_q, log_zero, device=device)
+            if blank_correction_version > 0 and blank_correction_version % 2 == 0:
+                topk_log_q_label = torch.full_like(log_q, log_zero, device=device)
             if alignment_topk:
-                log_mass_horizontal[label_topk_idx] = log_q_label[label_topk_idx] # TODO maybe we need gather instead
+                new_log_q_label[label_topk_idx] = log_q_label[label_topk_idx] # TODO maybe we need gather instead
             else:
                 new_log_q_label.scatter_(1, topk_idx, log_q_label.gather(1, topk_idx))
+                if blank_correction_version > 0 and blank_correction_version % 2 == 0:
+                    topk_log_q_label.scatter_(1, topk_idx, (log_q_label + log_lm_probs_w_eos).gather(1, topk_idx))
         else:
             log_mass_horizontal = log_q_label
         
@@ -549,6 +604,8 @@ def sum_loss2(
             log_mass_diagonal_add = log_q_blank_topk + log_lm_probs_topk # (B, K, V)
             log_mass_diagonal_add = log_mass_diagonal_add.view(batch_size, -1)
             new_log_q_label = scatter_safe_logsumexp(new_log_q_label, 1, new_idx, log_mass_diagonal_add, include_self=True)
+            if blank_correction_version > 0 and blank_correction_version % 2 == 0:
+                topk_log_q_label = scatter_safe_logsumexp(topk_log_q_label, 1, new_idx, log_mass_diagonal_add, include_self=True)
         else:
             log_mass_diagonal = log_matmul(log_q_blank, log_lm_probs_wo_last_eos) # (B, V) @ (V, V) -> (B, V)
         
@@ -565,6 +622,8 @@ def sum_loss2(
             log_mass_skip_add = log_q_label_topk + log_lm_probs_topk # (B, K, V)
             log_mass_skip_add = log_mass_skip_add.view(batch_size, -1)
             new_log_q_label = scatter_safe_logsumexp(new_log_q_label, 1, new_idx, log_mass_skip_add, include_self=True)
+            if blank_correction_version > 0 and blank_correction_version % 2 == 0:
+                topk_log_q_label = scatter_safe_logsumexp(topk_log_q_label, 1, new_idx, log_mass_skip_add, include_self=True)
         else:
             log_mass_skip = log_matmul(log_q_label, log_lm_probs_wo_diag) # (B, V) @ (V, V) -> (B, V)
         
@@ -578,15 +637,19 @@ def sum_loss2(
         
         # multiply with p_AM(u|x_t)
         if top_k > 0:
-            new_log_q_label = new_log_q_label + torch.cat([torch.full((batch_size, 1), log_zero, device=device), log_probs[t][:, out_idx_vocab]], dim=-1)[:, *(None,) * (LM_order - 2), :].expand(original_shape).reshape(batch_size, -1)
+            label_am = torch.cat([torch.full((batch_size, 1), log_zero, device=device), log_probs[t][:, out_idx_vocab]], dim=-1)[:, *(None,) * (LM_order - 2), :].expand(original_shape).reshape(batch_size, -1)
+            new_log_q_label += label_am
+            if blank_correction_version > 0 and blank_correction_version % 2 == 0:
+                topk_log_q_label += label_am
         else:
-            new_log_q_label = new_log_q_label + torch.cat([torch.full((batch_size, 1), log_zero, device=device), log_probs[t][:, out_idx_vocab]], dim=-1)[:, *(None,) * (LM_order - 2), :]
+            new_log_q_label += torch.cat([torch.full((batch_size, 1), log_zero, device=device), log_probs[t][:, out_idx_vocab]], dim=-1)[:, *(None,) * (LM_order - 2), :]
         
         # set masked results to log_q
         time_mask = (t < input_lengths)[:, *(None,) * (LM_order - 1)] if top_k <= 0 else (t < input_lengths).unsqueeze(-1)
         log_q_blank = torch.where(time_mask.expand_as(log_q), new_log_q_blank, log_q_blank)
         log_q_label = torch.where(time_mask.expand_as(log_q), new_log_q_label, log_q_label)
         log_q = safe_logaddexp(log_q_label, log_q_blank)
+        # print(safe_logsumexp(log_q[0], dim=-1), safe_logsumexp(log_q[0], dim=-1).exp())
         
         assert torch.all(torch.isneginf(log_q_label[..., 0])), "There should be no probability for the BoS symbol in log_q_label"
         
@@ -595,9 +658,20 @@ def sum_loss2(
                 tmp_log_q = torch.stack([log_q_label, log_q_blank], dim=-1)
             else:
                 tmp_log_q = log_q
+            
+            if blank_correction_version > 0:
+                tmp_log_q_blank = log_q_blank + log_lm_probs_w_eos
+                if blank_correction_version % 2 == 0:
+                    tmp_log_q_2 = safe_logaddexp(topk_log_q_label, tmp_log_q_blank)
+                else:
+                    tmp_log_q_2 = safe_logaddexp(log_q_label, tmp_log_q_blank)
+                    
+            else:
+                tmp_log_q_2 = tmp_log_q
+            
             # If we are in the last timestep, we also have to add the EOS LM probability
             last_mask = (t == input_lengths - 1).unsqueeze(-1).expand_as(tmp_log_q)
-            tmp_log_q = torch.where(last_mask, tmp_log_q + log_lm_probs_eos.view(1, -1).expand_as(tmp_log_q), tmp_log_q)
+            tmp_log_q = torch.where(last_mask, tmp_log_q + log_lm_probs_eos.view(1, -1).expand_as(tmp_log_q), tmp_log_q_2)
             # Calculate top k and apply time mask
             new_topk_scores, new_topk_idx = torch.topk(tmp_log_q, top_k, dim=1, sorted=False)
             new_topk_idx = torch.tensor(np.array([np.unravel_index(new_topk_idx[b].cpu().numpy(), (log_q.size(1), 2)) for b in range(batch_size)]), device=device).transpose(1,2) if alignment_topk else new_topk_idx
@@ -609,14 +683,14 @@ def sum_loss2(
             new_idx = torch.cat([new_idx, new_last_idx], dim=2)
             new_idx = torch.tensor(np.array([[np.ravel_multi_index(new_idx[b, k].cpu().numpy(), original_shape[1:]) for k in range(top_k)] for b in range(batch_size)]), device=device)
             new_idx = new_idx.view(batch_size, -1)
-            # print(topk_idx[print_best_path_for_idx[0]], topk_scores[print_best_path_for_idx[0]])
+            # print(topk_idx[print_best_path_for_idx[0]], topk_scores[print_best_path_for_idx[0]], log_q[print_best_path_for_idx[0], topk_idx[print_best_path_for_idx[0]]])
             
         if print_best_path_for_idx:
             with torch.no_grad():
                 max_val, max_idx = torch.max(log_q.view(batch_size, -1), dim=-1)
                 max_idx = torch.tensor([np.unravel_index(max_idx[b].cpu().numpy(), (vocab_size + 1,) * (LM_order - 1)) for b in range(batch_size)], device=device)
                 for idx in print_best_path_for_idx:
-                    m_idx = max_idx[idx]
+                    m_idx = max_idx[idx].clone()
                     m_idx[m_idx > 0] += 1
                     a_idx = m_idx.clone()
                     a_idx[a_idx == 0] = blank_idx
@@ -631,10 +705,12 @@ def sum_loss2(
         torch.cuda.empty_cache()
     
     if top_k > 0:
+        print(safe_logsumexp(topk_scores[0], dim=-1), safe_logsumexp(topk_scores[0], dim=-1).exp())
         sum_score = safe_logsumexp(topk_scores, dim=-1)
     else:
         # multiply last Q with p_LM(eos | u)
-        log_q = log_q + log_lm_probs_eos
+        log_q += log_lm_probs_eos
+        print(safe_logsumexp(log_q[0], dim=-1), safe_logsumexp(log_q[0], dim=-1).exp())
         # sum over the vocab dimensions
         sum_score = log_q
         for _ in range(LM_order - 1):
@@ -897,10 +973,11 @@ def get_bpes(tokens):
 
 class PrintGradients(torch.autograd.Function):
     @staticmethod
-    def forward(ctx, x, name, print_input, mean_dim = None):
+    def forward(ctx, x, name, print_input, mean_dim = None, batch_idx = None):
         ctx.name = name
         ctx.print_input = print_input
         ctx.mean_dim = mean_dim
+        ctx.batch_idx = batch_idx
         ctx.save_for_backward(x)
         return x
 
@@ -909,11 +986,33 @@ class PrintGradients(torch.autograd.Function):
         name = ctx.name
         print_input = ctx.print_input
         x, = ctx.saved_tensors
-        if print_input:
-            print(f"Gradients ({name}): {grad_output.mean(dim=ctx.mean_dim) if ctx.mean_dim is not None else grad_output} {grad_output.sum()}\nInput: {x}\nNaN's: {torch.isnan(grad_output).sum()}")
+        if ctx.batch_idx is not None:
+            if ctx.mean_dim is not None:
+                g = grad_output[ctx.batch_idx]
+                if print_input:
+                    print(f"Gradients ({name}): {g.mean(dim=ctx.mean_dim).cpu().numpy()} Sum: {g.sum()} Mean: {g.mean()}\nInput: {x[ctx.batch_idx].mean(dim=ctx.mean_dim).cpu().numpy()}\nNaN's: {torch.isnan(g).sum()}")
+                else:
+                    print(f"Gradients ({name}): {g.mean(dim=ctx.mean_dim).cpu().numpy()} Sum: {g.sum()} Mean: {g.mean()}\nNaN's: {torch.isnan(g).sum()}")
+            else:
+                np.set_printoptions(threshold=10000)
+                g = grad_output[ctx.batch_idx, 9:18].squeeze(0).cpu().numpy()
+                if print_input:
+                    x_b = x[ctx.batch_idx, 9:18].squeeze(0).cpu().numpy()
+                    # diff = (g - x_b).exp().cpu().numpy()
+                    print(f"Gradients ({name}): NaN's: {torch.isnan(grad_output).sum()}")
+                    for i in range(0, 9):
+                        print(f"{i + 9}: {g[i]} Max: {g[i].max()} Sum: {g[i].sum()}\nInput: {x_b[i]} Max: {x_b[i].max()} Sum: {x_b[i].sum()}")
+                        # print(f"{i + 9}: {diff[i]} Max: {diff[i].max()} Sum: {diff[i].sum()}")
+                else:
+                    print(f"Gradients ({name}): NaN's: {torch.isnan(grad_output).sum()}")
+                    for i in range(0, 9):
+                        print(f"{i + 9}: {g[i]} Max: {g[i].max()} Sum: {g[i].sum()}")
         else:
-            print(f"Gradients ({name}): {grad_output.mean(dim=ctx.mean_dim) if ctx.mean_dim is not None else grad_output} {grad_output.sum()}\nNaN's: {torch.isnan(grad_output).sum()}")
-        return grad_output, None, None, None
+            if print_input:
+                print(f"Gradients ({name}): {grad_output.mean(dim=ctx.mean_dim).cpu().numpy() if ctx.mean_dim is not None else grad_output} Sum: {grad_output.sum()} Mean: {grad_output.mean()}\nInput: {x.mean(dim=ctx.mean_dim).cpu().numpy() if ctx.mean_dim else (x[ctx.batch_idx] if ctx.batch_idx else x)}\nNaN's: {torch.isnan(grad_output).sum()}")
+            else:
+                print(f"Gradients ({name}): {grad_output.mean(dim=ctx.mean_dim).cpu().numpy() if ctx.mean_dim is not None else grad_output} Sum: {grad_output.sum()} Mean: {grad_output.mean()}\nNaN's: {torch.isnan(grad_output).sum()}")
+        return grad_output, None, None, None, None
     
 class AssertGradients(torch.autograd.Function):
     @staticmethod
@@ -1072,8 +1171,8 @@ def test():
     # torch.autograd.set_detect_anomaly(True)
     # torch.cuda.set_sync_debug_mode(1)
     
-    # device = torch.device("cuda:0")
-    device = torch.device("cpu")
+    device = torch.device("cuda:0")
+    # device = torch.device("cpu")
     
     batch_size = 12 # 14000 per GPU, 1250 stpes a 12 seqs (0.7 sec/step)
     vocab_size = 185
@@ -1093,10 +1192,16 @@ def test():
     for i in range(1):
         s = time.time()
         am = torch.randn(frames, batch_size, vocab_size, device=device)
-        am[0, 0, vocab_size - 1] = float(3)
-        am[2, 0, vocab_size - 1] = float(3)
+        # am[0, 0, vocab_size - 1] = float(3)
+        # am[2, 0, vocab_size - 1] = float(3)
         am.requires_grad = True
-        am = torch.nn.functional.log_softmax(am, dim=-1)
+        am = torch.cat([torch.full((1,1,2), float("-inf"), device=device).expand(frames, batch_size, 2), torch.nn.functional.log_softmax(am[:, :, 2:], dim=-1)], dim = -1)
+        
+        # res = 0.0
+        # res = am[0, 0, :].unsqueeze(0)
+        # for t in range(1, frames):
+        #     res = log_matmul(res, am[t, 0, :].unsqueeze(0).expand(vocab_size, vocab_size))
+        # print(safe_logsumexp(res, dim=-1), safe_logsumexp(res, dim=-1).exp())
         
         prior = torch.randn(vocab_size + 1, requires_grad=True, device=device)
         prior = torch.nn.functional.log_softmax(prior, dim=-1)
@@ -1111,45 +1216,45 @@ def test():
         am = ag(am, "AM", False)
         prior = ag(prior, "prior", False)
         
-        # TODO check gradient
         loss = sum_loss2(
             log_probs=am,
             log_lm_probs=lm,
             log_prior=prior,
             input_lengths=length,
-            top_k=10,
+            top_k=1,
             LM_order=LM_order,
             am_scale=1.0,
             lm_scale=1.0,
-            prior_scale=1.0,
+            prior_scale=0.0,
             horizontal_prior=True,
             blank_prior=True,
             blank_idx=184,
             eos_idx=0,
             print_best_path_for_idx=[0],
             alignment_topk=False,
+            blank_correction_version = 10
         )
-        print("OUT", loss[0].tolist())
+        print("OUT", (-loss[0]).tolist(), (-loss[0]).exp().tolist())
         l += (loss / frames).mean()
         
         # del loss, am, prior
         # torch.cuda.empty_cache()
         print("Time:", time.time() - s)
         
-        # targets = torch.tensor([55, 148, 178, 108, 179, 126, 110, 103, 9, 154, 84, 162, 159, 83, 153, 33, 106, 9, 131, 46, 63, 15, 162, 94, 0, 111, 121, 29, 121, 21, 151, 18, 4, 159, 118, 86, 129, 18, 13, 170, 151, 81, 77, 53, 165, 57, 134, 63, 103, 110, 47, 35, 145, 18, 34, 66, 42, 96, 139, 16, 138, 156, 1, 63, 103, 95, 149, 111, 83, 34, 113, 158, 39, 166, 34, 123, 26, 148, 134, 148, 168, 177, 18, 23, 164, 69, 145, 93, 166, 174, 162, 36, 95, 116, 123, 74, 124, 70])
-        # targets = targets + 2
         targets = torch.tensor(
-            [150, 110, 107, 128, 112, 105,  11, 156,  86, 164, 161,  85,
-            155,  35, 108,  11, 133,  48, 133,  17, 164,  96,   2, 113, 123,  31,
-            123,  23, 153,  20,   6, 161, 120,  88, 131,  20,  15,  99, 153,  58,
-            119,   1,  88,  59, 136,  65, 105,  99, 122,  37, 147,  20,  36,  68,
-            44,  98, 141,  18,   1, 158,   3,  65, 105,  97, 151, 113,  85,  36,
-            115, 160,  83, 168,  36, 125,  28, 150, 136,  90, 170, 179,
-            20,  25, 166,  71, 147,  95, 168, 176, 164,  38,  97, 118, 125,  76,
-            43,  72]
+            [ 34,  34, 117,  31,  67,  12, 146, 107, 154,  45,  45, 123,  17,  53,
+            35,  97,  97, 120,  48, 135, 103,  20,  75, 117,  96, 120,  58,   9,
+            30,  27,  13,  28, 162, 175, 123, 151,  65,  70, 145, 109, 103,  76,
+            99, 156, 141, 157, 173,  62,  44,  89, 155, 159,  58,   6,  19, 126,
+            138, 152, 152,  44, 111, 122,  14,  50, 146, 122, 179,   4,  36,  55,
+            117,  99,  42, 171, 157, 137,  21, 128,   9,  78,  19,  31,  37, 140,
+            16,  30, 109, 102,  32,  72, 146,  37, 126, 130, 147,  83,  19, 137,
+            13,  14]
         )
-        # greedy_probs, greedy_idx = torch.max(am[:, 0:1], dim=-1)
+        targets = targets - 2
+        greedy_probs, greedy_idx = torch.max(am[:, 0:1], dim=-1)
         # print(greedy_idx.squeeze(-1))
+        # print(greedy_probs.sum())
         targets = targets.unsqueeze(0)
         target_lengths = torch.tensor([targets.size(1)])
         ctc_loss = torch.nn.functional.ctc_loss(
@@ -1184,10 +1289,11 @@ def test():
     # print(f"CTC loss took {time.strftime('%H:%M:%S', time.gmtime(e2 - s2))}: {(ctc_loss / frames).mean()}") # 0:08 mins
 
 def test_LM():
-    # with open("/u/marten.mueller/dev/ctc_baseline/work/i6_experiments/users/mueller/experiments/language_models/n_gram/ConvertARPAtoTensor.S9n2YtP1JzJ5/output/lm.pt", "rb") as f:
-    with open("/u/marten.mueller/dev/ctc_baseline/work/i6_experiments/users/mueller/experiments/language_models/n_gram/ConvertARPAtoTensor.wuVkNuDg8B55/output/lm.pt", "rb") as f:
+    # with open("/u/marten.mueller/dev/ctc_baseline/work/i6_experiments/users/mueller/experiments/language_models/n_gram/ConvertARPAtoTensor.wuVkNuDg8B55/output/lm.pt", "rb") as f: # 2-gram
+    # with open("/u/marten.mueller/dev/ctc_baseline/work/i6_experiments/users/mueller/experiments/language_models/n_gram/ConvertARPAtoTensor.S9n2YtP1JzJ5/output/lm.pt", "rb") as f: # 3-gram
+    with open("/u/marten.mueller/dev/ctc_baseline/work/i6_experiments/users/mueller/experiments/language_models/n_gram/ConvertARPAtoTensor.XxvP7yk50Q8u/output/lm.pt", "rb") as f: # 4-gram
         t = torch.load(f)
-    print(t[3])
+    print(safe_logsumexp(safe_logsumexp(safe_logsumexp(t, dim=-1), dim=-1), dim=-1))
     
 def test_get_bpes():
     tokens = "[117] [117] [117] [117] [117] [117] [117] [46] [46] [46] [46] [21] [35] [35] [55] [55] [120] [120] [120] [26] [26] [76] [13] [26] [10] [10] [74] [116] [7] [7] [19] [13] [53] [57] [57] [108] [108] [10] [10] [10] [42] [42] [24] [24] [34] [34] [34] [55] [25] [14] [14] [18] [18] [18] [18] [18] [156] [156] [9] [81] [81] [13] [15] [21] [50] [50] [23] [23] [113] [113] [113] [28] [77] [77] [27] [27] [39] [170] [2] [18] [18] [20] [20] [142] [142] [142] [170] [170] [170] [106] [106] [7] [7] [33] [33] [162] [162] [162] [52] [52] [18] [18] [18] [18] [18] [18] [18] [18] [18] [18] [18] [18] [18]"
