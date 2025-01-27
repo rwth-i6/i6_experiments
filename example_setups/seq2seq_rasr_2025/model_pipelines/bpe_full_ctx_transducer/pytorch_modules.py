@@ -1,9 +1,9 @@
 __all__ = [
-    "FFNNTransducerConfig",
-    "FFNNTransducerRecogConfig",
-    "FFNNTransducerModel",
-    "FFNNTransducerEncoder",
-    "FFNNTransducerScorer",
+    "LstmTransducerConfig",
+    "LstmTransducerRecogConfig",
+    "LstmTransducerModel",
+    "LstmTransducerEncoder",
+    "LstmTransducerScorer",
 ]
 
 from dataclasses import dataclass
@@ -19,7 +19,7 @@ from ..common.pytorch_modules import SpecaugmentByLengthConfig, lengths_to_paddi
 
 
 @dataclass
-class FFNNTransducerConfig(ModelConfiguration):
+class LstmTransducerConfig(ModelConfiguration):
     logmel_cfg: LogMelFeatureExtractionV1Config
     specaug_cfg: SpecaugmentByLengthConfig
     conformer_cfg: ConformerRelPosEncoderV1Config
@@ -28,7 +28,6 @@ class FFNNTransducerConfig(ModelConfiguration):
     pred_dim: int
     pred_activation: torch.nn.Module
     dropout: float
-    context_history_size: int
     context_embedding_dim: int
     joiner_dim: int
     joiner_activation: torch.nn.Module
@@ -36,13 +35,13 @@ class FFNNTransducerConfig(ModelConfiguration):
 
 
 @dataclass
-class FFNNTransducerRecogConfig(FFNNTransducerConfig):
+class LstmTransducerRecogConfig(LstmTransducerConfig):
     ilm_scale: float
     blank_penalty: float
 
 
-class FFNNTransducerModel(torch.nn.Module):
-    def __init__(self, cfg: FFNNTransducerConfig, **_):
+class LstmTransducerModel(torch.nn.Module):
+    def __init__(self, cfg: LstmTransducerConfig, **_):
         super().__init__()
         self.target_size = cfg.target_size
 
@@ -53,20 +52,20 @@ class FFNNTransducerModel(torch.nn.Module):
             torch.nn.Dropout(cfg.dropout), torch.nn.Linear(cfg.enc_dim, cfg.target_size)
         )
 
-        self.context_history_size = cfg.context_history_size
         self.token_embedding = torch.nn.Embedding(
             num_embeddings=self.target_size, embedding_dim=cfg.context_embedding_dim, padding_idx=cfg.target_size - 1
         )
 
-        prediction_layers = []
-        prev_size = self.context_history_size * cfg.context_embedding_dim
-        for _ in range(cfg.pred_num_layers):
-            prediction_layers.append(torch.nn.Dropout(cfg.dropout))
-            prediction_layers.append(torch.nn.Linear(prev_size, cfg.pred_dim))
-            prediction_layers.append(cfg.pred_activation)
-            prev_size = cfg.pred_dim
-
-        self.pred_ffnn = torch.nn.Sequential(*prediction_layers)
+        self.pred_lstm = torch.nn.LSTM(
+            input_size=cfg.context_embedding_dim,
+            hidden_size=cfg.pred_dim,
+            num_layers=cfg.pred_num_layers,
+            bias=True,
+            batch_first=True,
+            dropout=cfg.dropout,
+            bidirectional=False,
+        )
+        self.pred_act = cfg.pred_activation
 
         self.joiner = torch.nn.Sequential(
             torch.nn.Dropout(cfg.dropout),
@@ -121,25 +120,12 @@ class FFNNTransducerModel(torch.nn.Module):
         self,
         targets: torch.Tensor,  # [B, S]
     ) -> torch.Tensor:  # Final prediction network states [B, S+1, P]
-        extended_targets = torch.nn.functional.pad(targets, [self.context_history_size, 0], value=self.target_size - 1)
 
-        # Build context at each position by shifting and cutting label sequence.
-        # E.g. for history size 2 and extended targets 0, 0, a_1, ..., a_S we have context
-        # 0, a_1, a_2 a_3 a_4 ... a_S
-        # 0,   0, a_1 a_2 a_3 ... a_{S-1}
-        context = torch.stack(
-            [
-                extended_targets[:, self.context_history_size - 1 - i : (-i if i != 0 else None)]  # [B, S+1]
-                for i in range(self.context_history_size)
-            ],
-            dim=-1,
-        )  # [B, S+1, H]
+        context = torch.nn.functional.pad(targets, [1, 0], value=self.target_size - 1)  # [B, S+1]
 
-        embedding = self.token_embedding.forward(context)  # [B, S+1, H, A]
-        embedding = torch.reshape(
-            embedding, shape=[*(embedding.shape[:-2]), embedding.shape[-2] * embedding.shape[-1]]
-        )  # [B, S+1, H*A]
-        pred_states = self.pred_ffnn.forward(embedding)  # [B, S+1, P]
+        embedding = self.token_embedding.forward(context)  # [B, S+1, A]
+        pred_states, _ = self.pred_lstm.forward(embedding)  # [B, S+1, P]
+        pred_states = self.pred_act.forward(pred_states)  # [B, S+1, P]
 
         return pred_states
 
@@ -189,8 +175,8 @@ class FFNNTransducerModel(torch.nn.Module):
         return joint_output, ctc_log_probs, encoder_states_size
 
 
-class FFNNTransducerEncoder(FFNNTransducerModel):
-    def __init__(self, cfg: FFNNTransducerConfig, **_):
+class LstmTransducerEncoder(LstmTransducerModel):
+    def __init__(self, cfg: LstmTransducerConfig, **_):
         super().__init__(cfg=cfg)
         self.enc_output_indices = []
 
@@ -203,8 +189,8 @@ class FFNNTransducerEncoder(FFNNTransducerModel):
         return encoder_states  # [B, T, E]
 
 
-class FFNNTransducerScorer(FFNNTransducerModel):
-    def __init__(self, cfg: FFNNTransducerRecogConfig, **_):
+class LstmTransducerScorer(LstmTransducerModel):
+    def __init__(self, cfg: LstmTransducerRecogConfig, **_):
         super().__init__(cfg=cfg)
         self.ilm_scale = cfg.ilm_scale
         self.blank_penalty = cfg.blank_penalty
@@ -212,23 +198,17 @@ class FFNNTransducerScorer(FFNNTransducerModel):
     def forward(
         self,
         encoder_state: torch.Tensor,  # [1, E]
-        history: torch.Tensor,  # [B, H]
+        lstm_out: torch.Tensor,  # [B, P]
     ) -> torch.Tensor:  # [B, V]
-        encoder_states = encoder_state.expand([history.size(0), encoder_state.size(1)])
+        encoder_states = encoder_state.expand([lstm_out.size(0), encoder_state.size(1)])
 
-        embedding = self.token_embedding.forward(history)  # [B, H, A]
-        embedding = torch.reshape(
-            embedding, shape=[*(embedding.shape[:-2]), embedding.shape[-2] * embedding.shape[-1]]
-        )  # [B, H*A]
-        pred_states = self.pred_ffnn.forward(embedding)  # [B, P]
-
-        combination = torch.concat([encoder_states, pred_states], dim=1)  # [B, E+P]
+        combination = torch.concat([encoder_states, lstm_out], dim=1)  # [B, E+P]
         joint_output = self.joiner.forward(combination)  # [B, V]
         scores = -torch.nn.functional.log_softmax(joint_output, dim=1)  # [B, V]
 
         scores[:, -1] += self.blank_penalty
 
-        zero_enc_combination = torch.concat([torch.zeros_like(encoder_states), pred_states], dim=1)  # [B, E+P]
+        zero_enc_combination = torch.concat([torch.zeros_like(encoder_states), lstm_out], dim=1)  # [B, E+P]
         joint_output_ilm = self.joiner.forward(zero_enc_combination)  # [B, V]
         ilm_log_probs = torch.nn.functional.log_softmax(joint_output_ilm, dim=1)  # [B, V]
 
@@ -245,4 +225,38 @@ class FFNNTransducerScorer(FFNNTransducerModel):
 
         ilm_scores = -ilm_log_probs
 
-        return scores - self.ilm_scale * ilm_scores
+        return scores + self.ilm_scale * ilm_scores
+
+
+class LstmTransducerStateInitializer(LstmTransducerModel):
+    def forward(self) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        token = torch.tensor([[self.target_size - 1]], dtype=torch.int32)  # [1, 1]
+        embed = self.token_embedding.forward(token)  # [1, 1, E]
+        h_0 = torch.zeros((self.pred_lstm.num_layers, 1, self.pred_lstm.hidden_size), dtype=torch.float32)  # [L, 1, P]
+        c_0 = torch.zeros((self.pred_lstm.num_layers, 1, self.pred_lstm.hidden_size), dtype=torch.float32)  # [L, 1, P]
+
+        lstm_out, (h_0, c_0) = self.pred_lstm.forward(embed, (h_0, c_0))  # [1, 1, P], [L, 1, P], [L, 1, P]
+        lstm_out = self.pred_act.forward(lstm_out)  # [1, 1, P]
+        lstm_out = lstm_out.reshape([1, self.pred_lstm.hidden_size])  # [1, P]
+
+        return lstm_out, h_0, c_0
+
+
+class LstmTransducerStateUpdater(LstmTransducerModel):
+    def forward(
+        self,
+        token: torch.Tensor,  # [1]
+        lstm_h: torch.Tensor,  # [L, 1, P]
+        lstm_c: torch.Tensor,  # [L, 1, P]
+    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        embed = self.token_embedding.forward(token)  # [1, E]
+        embed = embed.reshape([embed.size(0), 1, embed.size(1)])  # [1, 1, E]
+
+        lstm_out, (new_lstm_h, new_lstm_c) = self.pred_lstm.forward(
+            embed, (lstm_h, lstm_c)
+        )  # [1, 1, P] [L, 1, P] [L, 1, P]
+        lstm_out = self.pred_act.forward(lstm_out)  # [1, 1, P]
+
+        lstm_out = lstm_out.reshape([-1, self.pred_lstm.hidden_size])  # [1, P]
+
+        return lstm_out, new_lstm_h, new_lstm_c

@@ -63,6 +63,9 @@ class LstmLmScorer(LstmLm):
     ) -> torch.Tensor:
         logits = self.final_linear(lstm_out)  # [B, V]
         scores = -torch.nn.functional.log_softmax(logits, dim=-1)  # [B, V]
+        scores = torch.nn.functional.pad(
+            scores, [0, 1], value=0
+        )  # [B, V+1]  add 0 score for blank in model combination
         return scores
 
 

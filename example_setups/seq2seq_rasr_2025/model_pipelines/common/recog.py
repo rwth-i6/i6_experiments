@@ -3,12 +3,12 @@ __all__ = ["recog_base", "recog_flashlight", "recog_rasr"]
 from dataclasses import dataclass
 from functools import lru_cache
 from time import perf_counter
-from typing import Iterator, Literal, Optional, Protocol
+from typing import Iterator, List, Literal, Optional, Protocol
 
 import numpy as np
 import torch
 from i6_core.returnn import PtCheckpoint
-from i6_core.returnn.config import ReturnnConfig, WriteReturnnConfigJob
+from i6_core.returnn.config import ReturnnConfig
 from i6_core.returnn.forward import ReturnnForwardJobV2
 from i6_core.returnn.search import SearchBPEtoWordsJob, SearchWordsToCTMJob
 from i6_experiments.common.setups.serialization import Collection, ExternalImport, Import, PartialImport
@@ -227,7 +227,7 @@ def _base_recog_forward_step(
         time_dim_axis=None,
     )
     run_ctx.mark_as_output(enc_time_tensor, name="enc_time")
-    
+
     audio_samples_size_tensor = Tensor(
         name="audio_samples_size",
         dtype="int32",
@@ -255,6 +255,7 @@ def recog_base(
     forward_step_import: Import,
     device: Literal["cpu", "gpu"] = "cpu",
     checkpoint: Optional[PtCheckpoint] = None,
+    extra_output_files: Optional[List[str]] = None,
 ) -> RecogResult:
     recog_returnn_config = ReturnnConfig(
         config={
@@ -307,27 +308,25 @@ def recog_base(
 
     recog_returnn_config.update(recog_data_config.get_returnn_data("forward_data"))
 
-    tk.register_output(
-        f"recognition/{recog_corpus.corpus_name}/{descriptor}/returnn.config",
-        WriteReturnnConfigJob(recog_returnn_config).out_returnn_config_file,
-    )
+    output_files = ["search_out.py", "rtf.py"] + (extra_output_files or [])
 
     recog_job = ReturnnForwardJobV2(
         model_checkpoint=checkpoint,
         returnn_config=recog_returnn_config,
         returnn_python_exe=returnn_python_exe,
         returnn_root=returnn_root,
-        output_files=["search_out.py", "rtf.py"],
+        output_files=output_files,
         device=device,
         mem_rqmt=16,
         time_rqmt=24,
     )
     recog_job.add_alias(f"recognition/{recog_corpus.corpus_name}/{descriptor}")
 
-    tk.register_output(
-        f"recognition/{recog_corpus.corpus_name}/{descriptor}/search_output",
-        recog_job.out_files["search_out.py"],
-    )
+    for output_file in output_files:
+        tk.register_output(
+            f"recognition/{recog_corpus.corpus_name}/{descriptor}/{output_file}",
+            recog_job.out_files[output_file],
+        )
 
     extract_rtf_job = ExtractSearchRTFJob(rtf_file=recog_job.out_files["rtf.py"])
     tk.register_output(f"recognition/{recog_corpus.corpus_name}/{descriptor}/rtf", extract_rtf_job.out_total_rtf)
@@ -500,4 +499,5 @@ def recog_rasr(
         forward_step_import=rasr_forward_step_import,
         device=device,
         checkpoint=checkpoint,
+        extra_output_files=["rasr.log"],
     )

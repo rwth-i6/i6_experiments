@@ -21,6 +21,9 @@ from ...data.librispeech.datasets import (
     get_default_recog_data,
     get_default_score_corpus,
 )
+from .bpe_lstm_lm_baseline import run_bpe_lstm_lm_baseline
+from ...model_pipelines.bpe_lstm_lm.pytorch_modules import LstmLmConfig
+from ...model_pipelines.bpe_lstm_lm.label_scorer_config import get_lstm_lm_label_scorer_config
 from ...model_pipelines.bpe_ffnn_transducer.label_scorer_config import get_ffnn_transducer_label_scorer_config
 from ...model_pipelines.bpe_ffnn_transducer.pytorch_modules import FFNNTransducerConfig, FFNNTransducerEncoder
 from ...model_pipelines.bpe_ffnn_transducer.train import FFNNTransducerTrainOptions, train
@@ -30,7 +33,11 @@ from ...model_pipelines.common.learning_rates import OCLRConfig
 from ...model_pipelines.common.optimizer import RAdamConfig
 from ...model_pipelines.common.pytorch_modules import SpecaugmentByLengthConfig
 from ...model_pipelines.common.recog import RecogResult, recog_rasr
-from ...model_pipelines.common.recog_rasr_config import RasrRecogOptions, get_rasr_config_file
+from ...model_pipelines.common.recog_rasr_config import (
+    RasrRecogOptions,
+    get_combine_label_scorer_config,
+    get_rasr_config_file,
+)
 from ...model_pipelines.common.report import create_report
 
 BPE_SIZE = 128
@@ -186,6 +193,9 @@ def run_recog(
     corpus_name: str,
     checkpoint: PtCheckpoint,
     model_config: FFNNTransducerConfig,
+    lm_checkpoint: Optional[PtCheckpoint] = None,
+    lm_config: Optional[LstmLmConfig] = None,
+    lm_scale: float = 0.0,
     ilm_scale: float = 0.0,
     blank_penalty: float = 0.0,
     recog_options: Optional[RasrRecogOptions] = None,
@@ -193,16 +203,24 @@ def run_recog(
 ) -> RecogResult:
     recog_options = recog_options or get_baseline_recog_options()
 
-    ffnn_transducer_scorer_config = get_ffnn_transducer_label_scorer_config(
+    label_scorer_config = get_ffnn_transducer_label_scorer_config(
         model_config=model_config,
         checkpoint=checkpoint,
         ilm_scale=ilm_scale,
         blank_penalty=blank_penalty,
     )
 
+    if lm_scale != 0:
+        assert lm_checkpoint is not None
+        assert lm_config is not None
+        lm_label_scorer_config = get_lstm_lm_label_scorer_config(model_config=lm_config, checkpoint=lm_checkpoint)
+        label_scorer_config = get_combine_label_scorer_config(
+            [(label_scorer_config, 1.0), (lm_label_scorer_config, lm_scale)]
+        )
+
     rasr_config_file = get_rasr_config_file(
         recog_options=recog_options,
-        label_scorer_config=ffnn_transducer_scorer_config,
+        label_scorer_config=label_scorer_config,
     )
 
     return recog_rasr(
@@ -223,7 +241,14 @@ def run_bpe_ffnn_transducer_baseline(prefix: str = "librispeech/bpe_ffnn_transdu
         train_config = get_baseline_train_options()
 
         train_job = train(options=train_config, model_config=model_config)
-        checkpoint: PtCheckpoint = train_job.out_checkpoints[train_config.save_epochs[0]]  # type: ignore
+        checkpoint: PtCheckpoint = train_job.out_checkpoints[train_config.save_epochs[-1]]  # type: ignore
+
+        lstm_lm_config, lstm_lm_checkpoint = run_bpe_lstm_lm_baseline()
+        lstm_lm_checkpoint = PtCheckpoint(
+            tk.Path(
+                "/work/asr4/rossenbach/sisyphus_work_folders/tts_decoder_asr_work/i6_core/returnn/training/ReturnnTrainingJob.EuWaxahLY8Ab/output/models/epoch.300.pt"
+            )
+        )
 
         recog_results = []
         for corpus_name in ["dev-clean", "dev-other", "test-clean", "test-other"]:
@@ -235,6 +260,28 @@ def run_bpe_ffnn_transducer_baseline(prefix: str = "librispeech/bpe_ffnn_transdu
                     checkpoint=checkpoint,
                 )
             )
+
+        for max_beam_size in [2, 4, 6, 8, 10]:
+            for score_threshold in [0.5, 1.0, 2.0, 3.0, 4.0, 6.0, 8.0, 10.0, 12.0]:
+                for lm_scale in [0.6, 0.8]:
+                    for ilm_scale in [0.0, 0.2]:
+                        beam_recog_options = get_baseline_recog_options()
+                        beam_recog_options.max_beam_size = max_beam_size
+                        beam_recog_options.top_k_tokens = 8
+                        beam_recog_options.score_threshold = score_threshold
+                        recog_results.append(
+                            run_recog(
+                                descriptor=f"bpe-ffnn-transducer_recog-rasr_lm-{lm_scale}_ilm-{ilm_scale}_beam-{max_beam_size}_score-{score_threshold}",
+                                corpus_name="dev-other",
+                                model_config=model_config,
+                                checkpoint=checkpoint,
+                                lm_scale=lm_scale,
+                                ilm_scale=ilm_scale,
+                                lm_config=lstm_lm_config,
+                                lm_checkpoint=lstm_lm_checkpoint,
+                                recog_options=beam_recog_options,
+                            )
+                        )
 
         tk.register_report(f"{prefix}/report.txt", values=create_report(recog_results), required=True)
     return recog_results

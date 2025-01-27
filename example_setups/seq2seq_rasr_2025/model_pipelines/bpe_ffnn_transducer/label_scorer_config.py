@@ -1,12 +1,11 @@
 __all__ = ["get_ffnn_transducer_label_scorer_config"]
 
 from dataclasses import fields
-from typing import Optional
 
 from i6_core.rasr.config import RasrConfig
 from i6_core.returnn.training import PtCheckpoint
 
-from .export import export_encoder, export_scorer
+from .export import export_scorer
 from .pytorch_modules import FFNNTransducerConfig, FFNNTransducerRecogConfig
 
 

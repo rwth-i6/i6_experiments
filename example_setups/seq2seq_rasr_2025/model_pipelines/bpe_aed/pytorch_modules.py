@@ -117,7 +117,7 @@ class ZoneoutLSTMCell(torch.nn.Module):
         self, inputs: torch.Tensor, state: Tuple[torch.Tensor, torch.Tensor]
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         with torch.autocast(device_type="cuda", enabled=False):
-            h, c = self.cell(inputs)
+            h, c = self.cell.forward(inputs)
         prev_h, prev_c = state
         h = self._zoneout(prev_h, h, self.zoneout_h)
         c = self._zoneout(prev_c, c, self.zoneout_c)
@@ -335,7 +335,8 @@ class AEDEncoder(AEDModel):
         # create the mask for the conformer input
         mask = lengths_to_padding_mask(audio_features_size)
 
-        conformer_out, _ = self.conformer(conformer_in, mask)
+        conformer_out, _ = self.conformer.forward(conformer_in, mask)
+        conformer_out = conformer_out[-1]
         enc_ctx = self.decoder.enc_ctx.forward(conformer_out)  # [B, T, A]
         enc_inv_fertility = torch.nn.functional.sigmoid(self.decoder.inv_fertility.forward(conformer_out))  # [B,T,1]
         return torch.cat([conformer_out, enc_ctx, enc_inv_fertility], dim=2)  # [B, T, E+A+1]

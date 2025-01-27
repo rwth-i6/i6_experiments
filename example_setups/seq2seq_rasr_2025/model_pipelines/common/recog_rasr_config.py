@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from typing import List, Optional, Tuple
 
 from i6_core.rasr.config import RasrConfig, WriteRasrConfigJob, build_config_from_mapping
-from i6_core.rasr.crp import CommonRasrParameters, crp_add_default_output
+from i6_core.rasr.crp import CommonRasrParameters
 from sisyphus import tk
 
 from ...tools import rasr_binary_path
@@ -50,7 +50,20 @@ def get_rasr_config_file(
     label_scorer_config: Optional[RasrConfig] = None,
 ) -> tk.Path:
     crp = CommonRasrParameters()
-    crp_add_default_output(crp)
+
+    # LibRASR does not have a channel manager so the settings from `crp_add_default_output` don't work
+    log_config = RasrConfig()
+    log_config["*.log.channel"] = "rasr.log"
+    log_config["*.warning.channel"] = "rasr.log"
+    log_config["*.error.channel"] = "rasr.log"
+    log_config["*.statistics.channel"] = "rasr.log"
+
+    log_post_config = RasrConfig()
+    log_post_config["*.encoding"] = "UTF-8"
+    crp.log_config = log_config  # type: ignore
+    crp.log_post_config = log_post_config  # type: ignore
+    crp.default_log_channel = "rasr.log"
+
     crp.set_executables(rasr_binary_path=rasr_binary_path)
 
     rasr_config, rasr_post_config = build_config_from_mapping(crp=crp, mapping={}, include_log_config=True)
@@ -62,15 +75,12 @@ def get_rasr_config_file(
     rasr_config.lib_rasr.lexicon.file = recog_options.vocab_file
 
     rasr_config.lib_rasr.search_algorithm = RasrConfig()
-    if recog_options.max_beam_size == 1 or recog_options.score_threshold == 0:
-        rasr_config.lib_rasr.search_algorithm.type = "lexiconfree-greedy-search"
-    else:
-        rasr_config.lib_rasr.search_algorithm.type = "lexiconfree-beam-search"
-        rasr_config.lib_rasr.search_algorithm.max_beam_size = recog_options.max_beam_size
-        if recog_options.top_k_tokens is not None:
-            rasr_config.lib_rasr.search_algorithm.top_k_tokens = recog_options.top_k_tokens
-        if recog_options.score_threshold is not None:
-            rasr_config.lib_rasr.search_algorithm.score_threshold = recog_options.score_threshold
+    rasr_config.lib_rasr.search_algorithm.type = "lexiconfree-beam-search"
+    rasr_config.lib_rasr.search_algorithm.max_beam_size = recog_options.max_beam_size
+    if recog_options.top_k_tokens is not None:
+        rasr_config.lib_rasr.search_algorithm.top_k_tokens = recog_options.top_k_tokens
+    if recog_options.score_threshold is not None:
+        rasr_config.lib_rasr.search_algorithm.score_threshold = recog_options.score_threshold
 
     if recog_options.blank_index is not None:
         rasr_config.lib_rasr.search_algorithm.use_blank = True
@@ -82,11 +92,12 @@ def get_rasr_config_file(
 
     rasr_config.lib_rasr.search_algorithm.allow_label_loop = recog_options.allow_label_loop
 
+    rasr_config.lib_rasr.search_algorithm.log_stepwise_statistics = True
+
     if label_scorer_config is not None:
         rasr_config.lib_rasr.label_scorer = label_scorer_config
     else:
-        rasr_config.lib_rasr.label_scorer = RasrConfig()
-        rasr_config.lib_rasr.label_scorer.type = "no-op"
+        rasr_config.lib_rasr.label_scorer = get_no_op_label_scorer_config()
 
     recog_rasr_config_path = WriteRasrConfigJob(rasr_config, rasr_post_config).out_config
 

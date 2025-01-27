@@ -1,14 +1,14 @@
-__all__ = ["get_aed_label_scorer_config"]
+__all__ = ["get_lstm_lm_label_scorer_config"]
 
 from i6_core.rasr.config import RasrConfig
 from i6_core.returnn.training import PtCheckpoint
 
 from .export import export_scorer, export_state_initializer, export_state_updater
-from .pytorch_modules import AEDConfig
+from .pytorch_modules import LstmLmConfig
 
 
-def get_aed_label_scorer_config(
-    model_config: AEDConfig,
+def get_lstm_lm_label_scorer_config(
+    model_config: LstmLmConfig,
     checkpoint: PtCheckpoint,
 ) -> RasrConfig:
     scorer_onnx_model = export_scorer(model_config=model_config, checkpoint=checkpoint)
@@ -33,10 +33,6 @@ def get_aed_label_scorer_config(
     rasr_config.state_initializer_model.session.inter_op_num_threads = 2
     rasr_config.state_initializer_model.session.intra_op_num_threads = 2
 
-    rasr_config.state_initializer_model.io_map = RasrConfig()
-    rasr_config.state_initializer_model.io_map.encoder_states = "encoder_states"
-    rasr_config.state_initializer_model.io_map.encoder_states_size = "encoder_states:size1"
-
     rasr_config.state_updater_model = RasrConfig()
     rasr_config.state_updater_model.session = RasrConfig()
     rasr_config.state_updater_model.session.file = state_updater_onnx_model
@@ -44,8 +40,6 @@ def get_aed_label_scorer_config(
     rasr_config.state_updater_model.session.intra_op_num_threads = 2
 
     rasr_config.state_updater_model.io_map = RasrConfig()
-    rasr_config.state_updater_model.io_map.encoder_states = "encoder_states"
-    rasr_config.state_updater_model.io_map.encoder_states_size = "accum_att_weights_in:size1"
     rasr_config.state_updater_model.io_map.token = "token"
 
     return rasr_config

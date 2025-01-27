@@ -188,7 +188,8 @@ def get_baseline_train_options() -> AEDTrainOptions:
 
 def get_baseline_recog_options() -> RasrRecogOptions:
     return RasrRecogOptions(
-        blank_index=bpe_to_vocab_size(bpe_size=BPE_SIZE),
+        blank_index=None,
+        sentence_end_index=0,
         vocab_file=get_bpe_vocab_file(bpe_size=BPE_SIZE, add_blank=False),
         max_beam_size=8,
         top_k_tokens=8,
@@ -232,7 +233,7 @@ def run_bpe_aed_baseline(prefix: str = "librispeech/bpe_aed") -> List[RecogResul
         train_config = get_baseline_train_options()
 
         train_job = train(options=train_config, model_config=model_config)
-        checkpoint: PtCheckpoint = train_job.out_checkpoints[train_config.save_epochs[0]]  # type: ignore
+        checkpoint: PtCheckpoint = train_job.out_checkpoints[train_config.save_epochs[-1]]  # type: ignore
 
         recog_results = []
         for corpus_name in ["dev-clean", "dev-other", "test-clean", "test-other"]:

@@ -1,4 +1,3 @@
-from dataclasses import fields
 from typing import List, Literal, Optional
 
 import torch
@@ -19,41 +18,27 @@ from ...data.librispeech.bpe import bpe_to_vocab_size, get_bpe_vocab_file
 from ...data.librispeech.datasets import (
     get_default_bpe_cv_data,
     get_default_bpe_train_data,
-    get_default_prior_data,
     get_default_recog_data,
     get_default_score_corpus,
 )
-from ...model_pipelines.bpe_ctc.prior import compute_priors
-from ...model_pipelines.bpe_ctc.pytorch_modules import (
-    ConformerCTCConfig,
-    ConformerCTCRecogConfig,
-    ConformerCTCRecogModel,
-    SpecaugmentByLengthConfig,
-)
-from .bpe_lstm_lm_baseline import run_bpe_lstm_lm_baseline
-from ...model_pipelines.bpe_lstm_lm.pytorch_modules import LstmLmConfig
-from ...model_pipelines.bpe_lstm_lm.label_scorer_config import get_lstm_lm_label_scorer_config
-from ...model_pipelines.bpe_ctc.train import train
+from ...model_pipelines.bpe_full_ctx_transducer.label_scorer_config import get_lstm_transducer_label_scorer_config
+from ...model_pipelines.bpe_full_ctx_transducer.pytorch_modules import LstmTransducerConfig, LstmTransducerEncoder
+from ...model_pipelines.bpe_full_ctx_transducer.train import LstmTransducerTrainOptions, train
 from ...model_pipelines.common.experiment_context import ExperimentContext
 from ...model_pipelines.common.imports import get_model_serializers
 from ...model_pipelines.common.learning_rates import OCLRConfig
-from ...model_pipelines.common.optimizer import AdamWConfig
+from ...model_pipelines.common.optimizer import RAdamConfig
+from ...model_pipelines.common.pytorch_modules import SpecaugmentByLengthConfig
 from ...model_pipelines.common.recog import RecogResult, recog_rasr
-from ...model_pipelines.common.recog_rasr_config import (
-    RasrRecogOptions,
-    get_combine_label_scorer_config,
-    get_no_op_label_scorer_config,
-    get_rasr_config_file,
-)
+from ...model_pipelines.common.recog_rasr_config import RasrRecogOptions, get_rasr_config_file
 from ...model_pipelines.common.report import create_report
-from ...model_pipelines.common.train import TrainOptions
 
 BPE_SIZE = 128
 
 
-def get_baseline_model_config() -> ConformerCTCConfig:
+def get_baseline_model_config() -> LstmTransducerConfig:
     vocab_size = bpe_to_vocab_size(BPE_SIZE)
-    return ConformerCTCConfig(
+    return LstmTransducerConfig(
         logmel_cfg=LogMelFeatureExtractionV1Config(
             sample_rate=16000,
             win_size=0.025,
@@ -66,7 +51,7 @@ def get_baseline_model_config() -> ConformerCTCConfig:
             n_fft=400,
         ),
         specaug_cfg=SpecaugmentByLengthConfig(
-            start_epoch=21,
+            start_epoch=41,
             time_min_num_masks=2,
             time_max_mask_per_n_frames=25,
             time_mask_max_size=20,
@@ -135,23 +120,38 @@ def get_baseline_model_config() -> ConformerCTCConfig:
                 scales=[0.5, 1.0, 1.0, 0.5],
             ),
         ),
-        dim=512,
-        target_size=vocab_size + 1,
         dropout=0.1,
+        enc_dim=512,
+        pred_num_layers=1,
+        pred_dim=640,
+        pred_activation=torch.nn.Tanh(),
+        context_embedding_dim=256,
+        joiner_dim=1024,
+        joiner_activation=torch.nn.Tanh(),
+        target_size=vocab_size + 1,
     )
 
 
-def get_baseline_train_options() -> TrainOptions:
-    return TrainOptions(
+def get_baseline_train_options() -> LstmTransducerTrainOptions:
+    train_data_config = get_default_bpe_train_data(BPE_SIZE)
+    assert train_data_config.target_config
+    train_data_config.target_config["seq_postfix"] = [0]
+
+    cv_data_config = get_default_bpe_cv_data(BPE_SIZE)
+    assert cv_data_config.target_config
+    cv_data_config.target_config["seq_postfix"] = [0]
+
+    return LstmTransducerTrainOptions(
         descriptor="baseline",
         train_data_config=get_default_bpe_train_data(BPE_SIZE),
         cv_data_config=get_default_bpe_cv_data(BPE_SIZE),
         save_epochs=list(range(1500, 1900, 100)) + list(range(1900, 2001, 20)),
-        batch_size=24_000 * 160,
-        accum_grad_multiple_step=1,
-        optimizer_config=AdamWConfig(
-            epsilon=1e-16,
+        batch_size=12_000 * 160,
+        accum_grad_multiple_step=2,
+        optimizer_config=RAdamConfig(
+            epsilon=1e-12,
             weight_decay=0.01,
+            decoupled_weight_decay=True,
         ),
         lr_config=OCLRConfig(
             init_lr=7e-06,
@@ -163,6 +163,7 @@ def get_baseline_train_options() -> TrainOptions:
             final_epochs=80,
         ),
         gradient_clip=1.0,
+        ctc_loss_scale=0.7,
         num_workers_per_gpu=2,
         stop_on_inf_nan_score=True,
     )
@@ -172,10 +173,10 @@ def get_baseline_recog_options() -> RasrRecogOptions:
     return RasrRecogOptions(
         blank_index=bpe_to_vocab_size(bpe_size=BPE_SIZE),
         vocab_file=get_bpe_vocab_file(bpe_size=BPE_SIZE, add_blank=True),
-        max_beam_size=1,
-        top_k_tokens=None,
-        score_threshold=None,
-        allow_label_loop=True,
+        max_beam_size=8,
+        top_k_tokens=8,
+        score_threshold=12.0,
+        allow_label_loop=False,
     )
 
 
@@ -183,53 +184,31 @@ def run_recog(
     descriptor: str,
     corpus_name: str,
     checkpoint: PtCheckpoint,
-    model_config: ConformerCTCConfig,
-    lm_checkpoint: Optional[PtCheckpoint] = None,
-    lm_config: Optional[LstmLmConfig] = None,
-    lm_scale: float = 0.0,
-    prior_scale: float = 0.0,
+    model_config: LstmTransducerConfig,
+    ilm_scale: float = 0.0,
     blank_penalty: float = 0.0,
     recog_options: Optional[RasrRecogOptions] = None,
     device: Literal["cpu", "gpu"] = "cpu",
 ) -> RecogResult:
     recog_options = recog_options or get_baseline_recog_options()
 
-    prior_file = compute_priors(
-        prior_data_config=get_default_prior_data(),
+    lstm_transducer_scorer_config = get_lstm_transducer_label_scorer_config(
         model_config=model_config,
         checkpoint=checkpoint,
-    )
-
-    recog_model_config = ConformerCTCRecogConfig(
-        **{f.name: getattr(model_config, f.name) for f in fields(model_config)},
-        prior_file=prior_file,
-        prior_scale=prior_scale,
+        ilm_scale=ilm_scale,
         blank_penalty=blank_penalty,
     )
 
-    label_scorer_config = get_no_op_label_scorer_config()
-
-    if lm_scale != 0:
-        assert lm_checkpoint is not None
-        assert lm_config is not None
-        lm_label_scorer_config = get_lstm_lm_label_scorer_config(model_config=lm_config, checkpoint=lm_checkpoint)
-        label_scorer_config = get_combine_label_scorer_config(
-            [(label_scorer_config, 1.0), (lm_label_scorer_config, lm_scale)]
-        )
-
     rasr_config_file = get_rasr_config_file(
         recog_options=recog_options,
-        label_scorer_config=label_scorer_config,
+        label_scorer_config=lstm_transducer_scorer_config,
     )
-    # rasr_config_file = tk.Path(
-    #     "/work/asr4/berger/sisyphus_work_dirs/librispeech/20241106_seq2seq_template_setups/i6_core/rasr/config/WriteRasrConfigJob.IL8J55AwcVWX/output/rasr.config"
-    # )
 
     return recog_rasr(
         descriptor=descriptor,
         recog_data_config=get_default_recog_data(corpus_name=corpus_name),
         recog_corpus=get_default_score_corpus(corpus_name=corpus_name),
-        model_serializers=get_model_serializers(model_class=ConformerCTCRecogModel, model_config=recog_model_config),
+        model_serializers=get_model_serializers(model_class=LstmTransducerEncoder, model_config=model_config),
         rasr_config_file=rasr_config_file,
         sample_rate=16000,
         device=device,
@@ -237,52 +216,24 @@ def run_recog(
     )
 
 
-def run_bpe_ctc_baseline(prefix: str = "librispeech/bpe_ctc") -> List[RecogResult]:
+def run_bpe_full_ctx_transducer_baseline(prefix: str = "librispeech/bpe_full_ctx_transducer") -> List[RecogResult]:
     with ExperimentContext(prefix):
         model_config = get_baseline_model_config()
         train_config = get_baseline_train_options()
 
         train_job = train(options=train_config, model_config=model_config)
-        checkpoint: PtCheckpoint = train_job.out_checkpoints[train_config.save_epochs[-1]]  # type: ignore
-
-        lstm_lm_config, lstm_lm_checkpoint = run_bpe_lstm_lm_baseline()
-        lstm_lm_checkpoint = PtCheckpoint(
-            tk.Path(
-                "/work/asr4/rossenbach/sisyphus_work_folders/tts_decoder_asr_work/i6_core/returnn/training/ReturnnTrainingJob.EuWaxahLY8Ab/output/models/epoch.300.pt"
-            )
-        )
+        checkpoint: PtCheckpoint = train_job.out_checkpoints[train_config.save_epochs[0]]  # type: ignore
 
         recog_results = []
         for corpus_name in ["dev-clean", "dev-other", "test-clean", "test-other"]:
             recog_results.append(
                 run_recog(
-                    descriptor="bpe-ctc_recog-rasr",
+                    descriptor="bpe-lstm-transducer_recog-rasr",
                     corpus_name=corpus_name,
                     model_config=model_config,
                     checkpoint=checkpoint,
                 )
             )
-
-        for max_beam_size in [2, 4, 6, 8, 10]:
-            for score_threshold in [0.5, 1.0, 2.0, 3.0, 4.0, 6.0, 8.0, 10.0, 12.0]:
-                beam_recog_options = get_baseline_recog_options()
-                beam_recog_options.max_beam_size = max_beam_size
-                beam_recog_options.top_k_tokens = 8
-                beam_recog_options.score_threshold = score_threshold
-
-                recog_results.append(
-                    run_recog(
-                        descriptor=f"bpe-ctc_recog-rasr_lm_beam-{max_beam_size}_score-{score_threshold}",
-                        corpus_name="dev-other",
-                        model_config=model_config,
-                        checkpoint=checkpoint,
-                        prior_scale=0.3,
-                        lm_scale=0.8,
-                        lm_config=lstm_lm_config,
-                        lm_checkpoint=lstm_lm_checkpoint,
-                        recog_options=beam_recog_options,
-                    )
-                )
 
         tk.register_report(f"{prefix}/report.txt", values=create_report(recog_results), required=True)
     return recog_results

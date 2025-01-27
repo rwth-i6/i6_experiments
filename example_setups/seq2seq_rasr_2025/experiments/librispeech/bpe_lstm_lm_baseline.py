@@ -50,4 +50,4 @@ def run_bpe_lstm_lm_baseline(prefix: str = "librispeech/bpe_lstm-lm") -> Tuple[L
         train_config = get_baseline_train_options()
 
         train_job = train(train_config, model_config)
-    return (model_config, train_job.out_checkpoints[train_config.save_epochs[-1]])  # type: ignore
+    return (model_config, train_job.out_checkpoints[200])  # type: ignore

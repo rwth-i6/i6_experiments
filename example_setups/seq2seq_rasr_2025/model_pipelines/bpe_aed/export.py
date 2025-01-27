@@ -274,7 +274,7 @@ def export_state_initializer(model_config: AEDConfig, checkpoint: PtCheckpoint) 
 
 
 def export_state_updater(model_config: AEDConfig, checkpoint: PtCheckpoint) -> tk.Path:
-    model_serializers = get_model_serializers(model_class=AEDStateInitializer, model_config=model_config)
+    model_serializers = get_model_serializers(model_class=AEDStateUpdater, model_config=model_config)
 
     return _export_model(
         model_serializers=model_serializers,
