@@ -43,6 +43,8 @@ def py():
     # TODO tune LR
     # TODO devtrain better
 
+    # TODO depthwise convolution after QKV (via Primer arXiv:2109.08668)
+
     train(
         "lm/trafo-n12-d512-drop0-b200_10k-wrongLr",
         config=dict_update_deep(
