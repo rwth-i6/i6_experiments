@@ -11,10 +11,10 @@ from i6_experiments.users.vieting.experiments.librispeech.\
 
 # pretraining
 neg_other_pretrain_job = run_fairseq_pretraining(
-        exp_name="monophone_negatives_other_target_v1",
-        commit="1397363c5c0e3c4e3ab620be562730399c852493",
-        python_exe_hash_overwrite="itc_python_launcher_py310_torch",
-        negative_sampling_strategy="other_target",
+    exp_name="monophone_negatives_other_target_v1",
+    commit="1397363c5c0e3c4e3ab620be562730399c852493",
+    python_exe_hash_overwrite="itc_python_launcher_py310_torch",
+    negative_sampling_strategy="other_target",
     )
 
 # fairseq root
@@ -47,126 +47,77 @@ for checkpoint in checkpoints:
 
 
 # finetuning experiments only for the last checkpoint
-CHECKPOINT = 600
+final_cp = 600
 # random vs phoneme mask in finetuning
 model_conf_w2v = base_model_conf.copy()  # base model, no need to set `mask_strategy` and `mask_length`
-model_conf_w2v["w2v_path"] = neg_other_pretrain_job.out_models[CHECKPOINT].model
+model_conf_w2v["w2v_path"] = neg_other_pretrain_job.out_models[final_cp].model
 eow_phon_ls100_ctc_base(
     model_conf_w2v=model_conf_w2v,
     train_name_suffix=os.path.join(
         "w2v_neg_sampling_other_target",
         "random_spec",
-        f"checkpoint_{CHECKPOINT}"
+        f"checkpoint_{final_cp}"
         ),
     fairseq_root=fairseq_root,
 )
 model_conf_w2v = base_model_conf.copy()
-model_conf_w2v["w2v_path"] = neg_other_pretrain_job.out_models[CHECKPOINT].model
-model_conf_w2v["mask_strategy"] = "phoneme"
+model_conf_w2v["w2v_path"] = neg_other_pretrain_job.out_models[final_cp].model
+model_conf_w2v["mask_strategy"] = "phonemes"
 model_conf_w2v["mask_length"] = 1
 eow_phon_ls100_ctc_base(
     model_conf_w2v=model_conf_w2v,
     train_name_suffix=os.path.join(
         "w2v_neg_sampling_other_target",
         "phoneme_spec",
-        f"checkpoint_{CHECKPOINT}"
+        f"checkpoint_{final_cp}"
         ),
     fairseq_root=fairseq_root,
 )
 
 # phoneme mask lengths in finetuning
-model_conf_w2v = base_model_conf.copy()
-model_conf_w2v["w2v_path"] = neg_other_pretrain_job.out_models[CHECKPOINT].model
-model_conf_w2v["mask_strategy"] = "phoneme"
-model_conf_w2v["mask_length"] = 1
-eow_phon_ls100_ctc_base(
-    model_conf_w2v=model_conf_w2v,
-    train_name_suffix=os.path.join(
-        "w2v_neg_sampling_other_target",
-        "1_phoneme_spec",
-        f"checkpoint_{CHECKPOINT}"
-        ),
-    fairseq_root=fairseq_root,
-)
-model_conf_w2v = base_model_conf.copy()
-model_conf_w2v["w2v_path"] = neg_other_pretrain_job.out_models[CHECKPOINT].model
-model_conf_w2v["mask_strategy"] = "phoneme"
-model_conf_w2v["mask_length"] = 2
-eow_phon_ls100_ctc_base(
-    model_conf_w2v=model_conf_w2v,
-    train_name_suffix=os.path.join(
-        "w2v_neg_sampling_other_target",
-        "2_phoneme_spec",
-        f"checkpoint_{CHECKPOINT}"
-        ),
-    fairseq_root=fairseq_root,
-)
+for mask_len in [1, 2]:
+    model_conf_w2v = base_model_conf.copy()
+    model_conf_w2v["w2v_path"] = neg_other_pretrain_job.out_models[final_cp].model
+    model_conf_w2v["mask_strategy"] = "phonemes"
+    model_conf_w2v["mask_length"] = mask_len
+    eow_phon_ls100_ctc_base(
+        model_conf_w2v=model_conf_w2v,
+        train_name_suffix=os.path.join(
+            "w2v_neg_sampling_other_target",
+            f"{mask_len}_phoneme_spec",
+            f"checkpoint_{final_cp}"
+            ),
+        fairseq_root=fairseq_root,
+    )
 
 model_conf_w2v = base_model_conf.copy()
-model_conf_w2v["w2v_path"] = neg_other_pretrain_job.out_models[CHECKPOINT].model
-model_conf_w2v["mask_strategy"] = "phoneme"
+model_conf_w2v["w2v_path"] = neg_other_pretrain_job.out_models[final_cp].model
+model_conf_w2v["mask_strategy"] = "phonemes"
 model_conf_w2v["mask_length"] = 1
-model_conf_w2v["mask_other"] = 1
 model_conf_w2v["mask_selection"] = "uniform"
+model_conf_w2v["mask_other"] = 1
 eow_phon_ls100_ctc_base(
     model_conf_w2v=model_conf_w2v,
     train_name_suffix=os.path.join(
         "w2v_neg_sampling_other_target",
         "1_2_phoneme_spec",
-        f"checkpoint_{CHECKPOINT}"
+        f"checkpoint_{final_cp}"
         ),
     fairseq_root=fairseq_root,
 )
 
 # mask probability in finetuning
-model_conf_w2v = base_model_conf.copy()
-model_conf_w2v["w2v_path"] = neg_other_pretrain_job.out_models[CHECKPOINT].model
-model_conf_w2v["mask_prob"] = 0.35
-eow_phon_ls100_ctc_base(
-    model_conf_w2v=model_conf_w2v,
-    train_name_suffix=os.path.join(
-        "w2v_neg_sampling_other_target",
-        "0_35_phoneme_mask_prob",
-        f"checkpoint_{CHECKPOINT}"
-        ),
-    fairseq_root=fairseq_root,
-)
-
-model_conf_w2v = base_model_conf.copy()
-model_conf_w2v["w2v_path"] = neg_other_pretrain_job.out_models[CHECKPOINT].model
-model_conf_w2v["mask_prob"] = 0.5
-eow_phon_ls100_ctc_base(
-    model_conf_w2v=model_conf_w2v,
-    train_name_suffix=os.path.join(
-        "w2v_neg_sampling_other_target",
-        "0_5_phoneme_mask_prob",
-        f"checkpoint_{CHECKPOINT}"
-        ),
-    fairseq_root=fairseq_root,
-)
-
-model_conf_w2v = base_model_conf.copy()
-model_conf_w2v["w2v_path"] = neg_other_pretrain_job.out_models[CHECKPOINT].model
-model_conf_w2v["mask_prob"] = 0.65  # base model
-eow_phon_ls100_ctc_base(
-    model_conf_w2v=model_conf_w2v,
-    train_name_suffix=os.path.join(
-        "w2v_neg_sampling_other_target",
-        "0_65_phoneme_mask_prob",
-        f"checkpoint_{CHECKPOINT}"
-        ),
-    fairseq_root=fairseq_root,
-)
-
-model_conf_w2v = base_model_conf.copy()
-model_conf_w2v["w2v_path"] = neg_other_pretrain_job.out_models[CHECKPOINT].model
-model_conf_w2v["mask_prob"] = 0.8
-eow_phon_ls100_ctc_base(
-    model_conf_w2v=model_conf_w2v,
-    train_name_suffix=os.path.join(
-        "w2v_neg_sampling_other_target",
-        "0_8_phoneme_mask_prob",
-        f"checkpoint_{CHECKPOINT}"
-        ),
-    fairseq_root=fairseq_root,
-)
+for mask_prob in [0.35, 0.5, 0.65, 0.8]:
+    model_conf_w2v = base_model_conf.copy()
+    model_conf_w2v["w2v_path"] = neg_other_pretrain_job.out_models[final_cp].model
+    model_conf_w2v["mask_strategy"] = "phonemes"
+    model_conf_w2v["mask_prob"] = mask_prob
+    eow_phon_ls100_ctc_base(
+        model_conf_w2v=model_conf_w2v,
+        train_name_suffix=os.path.join(
+            "w2v_neg_sampling_other_target",
+            f"{str(mask_prob).replace('.', '_')}_phoneme_mask_prob",  # replace "." with "_" for the folder name
+            f"checkpoint_{final_cp}"
+            ),
+        fairseq_root=fairseq_root,
+    )

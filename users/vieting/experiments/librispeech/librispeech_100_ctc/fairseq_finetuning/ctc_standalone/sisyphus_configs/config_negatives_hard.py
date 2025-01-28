@@ -27,7 +27,7 @@ neg_hard_pretrain_job = run_fairseq_pretraining(
 
 neg_hard_pretrain_jobs = dict()
 neg_hard_pretrain_jobs[0] = neg_hard_pretrain_job
-for start_cp in [50, 100, 150, 200]:
+for start_cp in [50, 100, 150, 200, 250]:
     neg_hard_pretrain_jobs[start_cp] = run_fairseq_pretraining(
         exp_name=f"monophone_negatives_hard_after_{start_cp}ep_other_v1",
         commit="be51394d876428ad531e0786d80de43d6a8818af",
@@ -52,7 +52,7 @@ base_model_conf = {
     "freeze_finetune_updates": 10000,  # was 0 in fairseq config
 }
 
-for start_cp in [50, 100, 150, 200]:
+for start_cp in [50, 100, 150, 200, 250]:
     for additional_cp in range(50, 600+1-start_cp, 50):
         model_conf_w2v = base_model_conf.copy()
         model_conf_w2v["w2v_path"] = neg_hard_pretrain_jobs[start_cp].out_models[start_cp + additional_cp].model

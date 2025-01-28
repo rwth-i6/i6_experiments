@@ -10,23 +10,23 @@ from i6_experiments.users.vieting.experiments.librispeech.\
 
 # pretraining
 # positive sampling
-pos_sampling_5_pretrain_job = run_fairseq_pretraining(
-    exp_name="monophone_positive_sampling_5_v2",
-    commit="24d7d72c1e00f69689dc8a8ba2e0d75fe5f1cccd",
-    num_positives=5,
-)
-
-pos_sampling_10_pretrain_job = run_fairseq_pretraining(
-    exp_name="monophone_positive_sampling_10_v2",
-    commit="24d7d72c1e00f69689dc8a8ba2e0d75fe5f1cccd",
-    num_positives=10,
-)
-
-pos_sampling_15_pretrain_job = run_fairseq_pretraining(
-    exp_name="monophone_positive_sampling_15_v2",
-    commit="24d7d72c1e00f69689dc8a8ba2e0d75fe5f1cccd",
-    num_positives=15,
-)
+pos_sampling_n_pretrain_job = {
+    5: run_fairseq_pretraining(
+        exp_name="monophone_positive_sampling_5_v2",
+        commit="24d7d72c1e00f69689dc8a8ba2e0d75fe5f1cccd",
+        num_positives=5,
+    ),
+    10: run_fairseq_pretraining(
+        exp_name="monophone_positive_sampling_10_v2",
+        commit="24d7d72c1e00f69689dc8a8ba2e0d75fe5f1cccd",
+        num_positives=10,
+    ),
+    15: run_fairseq_pretraining(
+        exp_name="monophone_positive_sampling_15_v2",
+        commit="24d7d72c1e00f69689dc8a8ba2e0d75fe5f1cccd",
+        num_positives=15,
+    ),
+}
 
 
 # fairseq root
@@ -45,29 +45,13 @@ base_model_conf = {
     "freeze_finetune_updates": 10000,  # was 0 in fairseq config
 }
 
-#checkpoint = 400
+# finetuning
 for checkpoint in [100, 200, 300, 400, 500, 600]:
-    # positive sampling 5
-    model_conf_w2v = base_model_conf.copy()
-    model_conf_w2v["w2v_path"] = pos_sampling_5_pretrain_job.out_models[checkpoint].model
-    eow_phon_ls100_ctc_base(
-        model_conf_w2v=model_conf_w2v,
-        train_name_suffix=os.path.join("w2v_positive_sampling", "pos_samples_5", f"checkpoint_{checkpoint}"),
-        fairseq_root=fairseq_root,
-    )
-    # positive sampling 10
-    model_conf_w2v = base_model_conf.copy()
-    model_conf_w2v["w2v_path"] = pos_sampling_10_pretrain_job.out_models[checkpoint].model
-    eow_phon_ls100_ctc_base(
-        model_conf_w2v=model_conf_w2v,
-        train_name_suffix=os.path.join("w2v_positive_sampling", "pos_samples_10", f"checkpoint_{checkpoint}"),
-        fairseq_root=fairseq_root,
-    )
-    # positive sampling 15
-    model_conf_w2v = base_model_conf.copy()
-    model_conf_w2v["w2v_path"] = pos_sampling_15_pretrain_job.out_models[checkpoint].model
-    eow_phon_ls100_ctc_base(
-        model_conf_w2v=model_conf_w2v,
-        train_name_suffix=os.path.join("w2v_positive_sampling", "pos_samples_15", f"checkpoint_{checkpoint}"),
-        fairseq_root=fairseq_root,
-    )
+    for n, pos_pretrain_job in pos_sampling_n_pretrain_job.items():
+        model_conf_w2v = base_model_conf.copy()
+        model_conf_w2v["w2v_path"] = pos_pretrain_job.out_models[checkpoint].model
+        eow_phon_ls100_ctc_base(
+            model_conf_w2v=model_conf_w2v,
+            train_name_suffix=os.path.join("w2v_positive_sampling", f"pos_samples_{n}", f"checkpoint_{checkpoint}"),
+            fairseq_root=fairseq_root,
+        )
