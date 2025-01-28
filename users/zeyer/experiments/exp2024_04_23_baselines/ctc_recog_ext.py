@@ -866,7 +866,7 @@ def _ctc_model_softmax_prior_returnn_forward(
     return probs, enc_spatial_dim
 
 
-def _ctc_model_rescore(
+def ctc_model_rescore(
     *,
     model: Model,
     data: Tensor,
@@ -874,7 +874,7 @@ def _ctc_model_rescore(
     targets: Tensor,
     targets_beam_dim: Dim,
     targets_spatial_dim: Dim,
-):
+) -> Tensor:
     """RescoreDef API"""
     import returnn.frontend as rf
     from returnn.tensor import Tensor, Dim
@@ -912,6 +912,26 @@ def _ctc_model_rescore(
     log_prob_targets_seq = -neg_log_prob
     assert log_prob_targets_seq.dims_set == set(batch_dims)
     return log_prob_targets_seq
+
+
+# just an alias now, but keep here to not break hash
+def _ctc_model_rescore(
+    *,
+    model: Model,
+    data: Tensor,
+    data_spatial_dim: Dim,
+    targets: Tensor,
+    targets_beam_dim: Dim,
+    targets_spatial_dim: Dim,
+) -> Tensor:
+    return ctc_model_rescore(
+        model=model,
+        data=data,
+        data_spatial_dim=data_spatial_dim,
+        targets=targets,
+        targets_beam_dim=targets_beam_dim,
+        targets_spatial_dim=targets_spatial_dim,
+    )
 
 
 def _plot_scales(name: str, results: Dict[Tuple[float, float], tk.Path], x_axis_name: str = "prior_scale"):
