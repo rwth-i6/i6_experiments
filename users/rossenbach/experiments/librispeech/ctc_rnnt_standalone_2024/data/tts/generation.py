@@ -10,7 +10,7 @@ from i6_experiments.users.rossenbach.corpus.generate import CreateBlissFromTextL
 from ..tts.tts_phon import get_lexicon
 
 
-def create_data_lexicon(prefix: str, lexicon_bliss: tk.Path):
+def create_data_lexicon(prefix: str, lexicon_bliss: tk.Path, min_iter_seed=1):
     """
 
     :param prefix:
@@ -19,10 +19,15 @@ def create_data_lexicon(prefix: str, lexicon_bliss: tk.Path):
     """
     ls960_tts_lexicon = get_lexicon(with_blank=False, corpus_key="train-other-960")
 
+
+    train_args = {}
+    if min_iter_seed > 1:
+        train_args["min_iter"] = min_iter_seed
     g2p_augmenter = G2PBasedOovAugmenter(
         original_bliss_lexicon=ls960_tts_lexicon,
         train_lexicon=ls960_tts_lexicon,
-        apply_args={"concurrent": 5}
+        train_args=train_args,
+        apply_args={"concurrent": 5},
     )
     extended_bliss_lexicon = g2p_augmenter.get_g2p_augmented_bliss_lexicon(
         bliss_corpus=lexicon_bliss,
@@ -39,11 +44,12 @@ def create_data_lexicon_v2(prefix: str, lexicon_bliss: tk.Path):
         add_unknown_phoneme_and_mapping=False,
         add_silence=False,
     )
+
     static_lexicon_job = WriteLexiconJob(static_lexicon, sort_phonemes=True, sort_lemmata=False)
     g2p_augmenter = G2PBasedOovAugmenter(
         original_bliss_lexicon=static_lexicon_job.out_bliss_lexicon,
         train_lexicon=ls960_tts_lexicon,
-        apply_args={"concurrent": 5}
+        apply_args={"concurrent": 5},
     )
     extended_bliss_lexicon = g2p_augmenter.get_g2p_augmented_bliss_lexicon(
         bliss_corpus=lexicon_bliss,
@@ -82,12 +88,14 @@ def create_data_lexicon_rasr_style(prefix: str, lm_text_bliss: tk.Path, with_unk
     )
     return extended_bliss_lexicon
 
-def create_data_lexicon_rasr_style_v2(prefix: str, lm_text_bliss: tk.Path, with_unknown: bool):
+def create_data_lexicon_rasr_style_v2(prefix: str, lm_text_bliss: tk.Path, with_unknown: bool, variants: int = 1, ls_override=False):
     """
     (pure, without librispeech, only static lexicon)
 
     :param prefix:
     :param lm_text_bliss:
+    :param with_unknown: add unknown lemma
+    :param variants: maximum number of pronunciation variants to create per lemma
     :return:
     """
 
@@ -99,10 +107,14 @@ def create_data_lexicon_rasr_style_v2(prefix: str, lm_text_bliss: tk.Path, with_
     )
     static_lexicon_job = WriteLexiconJob(static_lexicon, sort_phonemes=True, sort_lemmata=False)
 
+    apply_args = {"concurrent": 5}
+    if variants > 1:
+        apply_args["variants_number"] = variants
+
     g2p_augmenter = G2PBasedOovAugmenter(
         original_bliss_lexicon=static_lexicon_job.out_bliss_lexicon,
         train_lexicon=ls960_tts_lexicon,
-        apply_args={"concurrent": 5}
+        apply_args=apply_args,
     )
     extended_bliss_lexicon = g2p_augmenter.get_g2p_augmented_bliss_lexicon(
         bliss_corpus=lm_text_bliss,
@@ -110,6 +122,16 @@ def create_data_lexicon_rasr_style_v2(prefix: str, lm_text_bliss: tk.Path, with_
         alias_path=prefix,
         casing="upper",
     )
+
+    if ls_override is True:
+        ls960_rasr_lexicon = get_bliss_lexicon(
+            use_stress_marker=False, add_unknown_phoneme_and_mapping=with_unknown, add_silence=True,
+            output_prefix=prefix
+        )
+        from i6_experiments.users.rossenbach.lexicon.modification import QuickAndDirtyUpdateLexiconPronunciationsJob
+        # G2P might give weird pronunciations, so overwritte with existing lemmas from LS lexicon
+        extended_bliss_lexicon = QuickAndDirtyUpdateLexiconPronunciationsJob(extended_bliss_lexicon, ls960_rasr_lexicon).out_lexicon
+
     return extended_bliss_lexicon
 
 

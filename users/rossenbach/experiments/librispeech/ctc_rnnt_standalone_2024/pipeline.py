@@ -212,7 +212,7 @@ def training(training_name, datasets, train_args, num_epochs, returnn_exe, retur
     """
     returnn_config = get_training_config(training_datasets=datasets, **train_args)
     default_rqmt = {
-        "mem_rqmt": 20,
+        "mem_rqmt": 32,
         "time_rqmt": 168,
         "cpu_rqmt": 6,
         "log_verbosity": 5,
