@@ -163,8 +163,9 @@ def get_score(
         emit_scale: float = 1.0,
         ext_trans_scale: Optional[float] = None,
         ext_trans_label_decoder_state: Optional[State] = None,
+        ext_trans_ilm_state: Optional[State] = None,
         input_embed_ext_trans: Optional[Tensor] = None,
-) -> Tuple[Tensor, State, Optional[State], Optional[State], Optional[State], Optional[State], Optional[State], Optional[State], Tensor]:
+) -> Tuple[Tensor, State, Optional[State], Optional[State], Optional[State], Optional[State], Optional[State], Optional[State], Optional[State], Tensor]:
   # ------------------- label step -------------------
 
   center_positions = rf.minimum(
@@ -382,11 +383,15 @@ def get_score(
         use_zero_att=ilm_type == "zero_att",
       )
 
+    if h_t is None:
+      ilm_h_t = None
+    else:
+      ilm_h_t = utils.copy_tensor_replace_dim_tag(ilm_step_out["att"], model.label_decoder.att_dim, model.label_decoder.enc_out_dim)
     ilm_logits, ilm_h_t_logits = model.label_decoder.decode_logits(
       input_embed=input_embed_label_model,
       s=ilm_step_out["s"],
       att=ilm_step_out["att"],  # mini LSTM
-      h_t=None if h_t is None else rf.zeros_like(h_t),  # zero encoder
+      h_t=ilm_h_t,
     )
     ilm_label_log_prob = rf.log_softmax(ilm_logits, axis=model.target_dim)
 
@@ -464,6 +469,30 @@ def get_score(
       )
 
     label_log_prob -= external_aed_scale * ilm_correction_scale * aed_ilm_label_log_prob
+
+  # --------------------------------- ext transducer ILM step ---------------------------------
+
+  if ext_trans_ilm_state is not None:
+    ext_trans_ilm_step_out, ext_trans_ilm_state = model.external_transducer_model.label_decoder.loop_step(
+      **ext_trans_enc_args,
+      enc_spatial_dim=enc_spatial_dim,
+      input_embed=input_embed_ext_trans,
+      segment_lens=segment_lens,
+      segment_starts=segment_starts,
+      center_positions=center_positions,
+      state=ext_trans_ilm_state,
+      use_mini_att=ilm_type == "mini_att",
+      use_zero_att=ilm_type == "zero_att",
+    )
+
+    ext_trans_ilm_logits, _ = model.external_transducer_model.label_decoder.decode_logits(
+      input_embed=input_embed_ext_trans,
+      s=ext_trans_ilm_step_out["s"],
+      att=ext_trans_ilm_step_out["att"],
+    )
+    ext_trans_ilm_label_log_prob = rf.log_softmax(ext_trans_ilm_logits, axis=model.target_dim)
+
+    label_log_prob -= ext_trans_scale * ilm_correction_scale * ext_trans_ilm_label_log_prob
 
   # ------------------- blank step -------------------
 
@@ -577,6 +606,7 @@ def get_score(
     aed_decoder_state,
     aed_ilm_state,
     ext_trans_label_decoder_state,
+    ext_trans_ilm_state,
     lm_eos_log_prob
   )
 
@@ -801,7 +831,11 @@ def model_recog(
     )
 
     if ilm_type is not None:
-      raise NotImplementedError
+      ext_trans_ilm_state = model.external_transducer_model.label_decoder.default_initial_state(
+        batch_dims=batch_dims_,
+        use_mini_att=ilm_type == "mini_att",
+        use_zero_att=ilm_type == "zero_att",
+      )
     else:
       ext_trans_ilm_state = None
   else:
@@ -936,6 +970,7 @@ def model_recog(
       aed_decoder_state_updated,
       aed_ilm_state_updated,
       ext_trans_decoder_state_updated,
+      ext_trans_ilm_state_updated,
       lm_eos_log_prob,
     ) = get_score(
       model=model,
@@ -972,6 +1007,7 @@ def model_recog(
       ext_trans_scale=external_transducer_scale,
       ext_trans_enc_args=ext_trans_enc_args,
       ext_trans_label_decoder_state=ext_trans_decoder_state,
+      ext_trans_ilm_state=ext_trans_ilm_state,
       input_embed_ext_trans=input_embed_ext_trans,
     )
 
@@ -1081,6 +1117,7 @@ def model_recog(
       aed_decoder_state,
       aed_ilm_state,
       ext_trans_decoder_state,
+      ext_trans_ilm_state,
     ) = update_state(
       model=model,
       update_state_mask=update_state_mask,
@@ -1099,6 +1136,8 @@ def model_recog(
       aed_ilm_state_updated=aed_ilm_state_updated,
       ext_trans_label_decoder_state=ext_trans_decoder_state,
       ext_trans_label_decoder_state_updated=ext_trans_decoder_state_updated,
+      ext_trans_ilm_state=ext_trans_ilm_state,
+      ext_trans_ilm_state_updated=ext_trans_ilm_state_updated,
     )
 
     # recomb_path_counter = rf.gather(recomb_path_counter, indices=backrefs)
@@ -1207,7 +1246,9 @@ def update_state(
         aed_ilm_state_updated: Optional[State],
         ext_trans_label_decoder_state: Optional[State],
         ext_trans_label_decoder_state_updated: Optional[State],
-) -> Tuple[State, Optional[State], Optional[State], Optional[State], Optional[State], Optional[State], Optional[State]]:
+        ext_trans_ilm_state: Optional[State],
+        ext_trans_ilm_state_updated: Optional[State],
+) -> Tuple[State, Optional[State], Optional[State], Optional[State], Optional[State], Optional[State], Optional[State], Optional[State]]:
   def _get_masked_state(old, new, mask):
     old = rf.gather(old, indices=backrefs)
     new = rf.gather(new, indices=backrefs)
@@ -1266,6 +1307,12 @@ def update_state(
       ext_trans_label_decoder_state, ext_trans_label_decoder_state_updated
     )
 
+  if ext_trans_ilm_state is not None:
+    ext_trans_ilm_state = tree.map_structure(
+      lambda old_state, new_state: _get_masked_state(old_state, new_state, update_state_mask),
+      ext_trans_ilm_state, ext_trans_ilm_state_updated
+    )
+
   # ------------------- update external AED state -------------------
 
   if aed_decoder_state is not None:
@@ -1298,7 +1345,7 @@ def update_state(
       backrefs=backrefs
     )
 
-  return label_decoder_state, blank_decoder_state, lm_state, ilm_state, aed_decoder_state, aed_ilm_state, ext_trans_label_decoder_state
+  return label_decoder_state, blank_decoder_state, lm_state, ilm_state, aed_decoder_state, aed_ilm_state, ext_trans_label_decoder_state, ext_trans_ilm_state
 
 
 def model_recog_on_lattice(
