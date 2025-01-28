@@ -141,9 +141,15 @@ def bpe_ls960_0924_relposencoder(lex, lm):
     bpe_ctc_asr_model = get_ctc_model(network_module + ".512dim_sub4_24gbgpu_100eps_sp_lp_fullspec_gradnorm_lr07_work8")
     med_wmt22_n2_bliss, med_wmt22_n2_oggzip = get_synthetic_data("wmt22_medline_v1_sequiturg2p_glowtts460_noise07")
     _, med_wmt22_n2_noise03_oggzip = get_synthetic_data("wmt22_medline_v1_sequiturg2p_glowtts460_noise03")
+    _, med_wmt22_n2_noise055_oggzip = get_synthetic_data("wmt22_medline_v1_sequiturg2p_glowtts460_noise055")
+
+    MTG_trial3_dev_bliss, MTG_trial3_dev_oggzip = get_synthetic_data("MTG_trial3_dev_sequiturg2p_glowtts460_noise055")
     # (dataset, bliss)
     ddt_medline_wmt22_noise07 = {"medline_wmt22_n2": (build_test_dataset_from_zip(med_wmt22_n2_oggzip, bpe_ctc_asr_model.settings), med_wmt22_n2_bliss)}
+    ddt_medline_wmt22_noise055 = {"medline_wmt22_n2_noise055": (build_test_dataset_from_zip(med_wmt22_n2_noise055_oggzip, bpe_ctc_asr_model.settings), med_wmt22_n2_bliss)}
     ddt_medline_wmt22_noise03 = {"medline_wmt22_n2_noise03": (build_test_dataset_from_zip(med_wmt22_n2_noise03_oggzip, bpe_ctc_asr_model.settings), med_wmt22_n2_bliss)}
+
+    MTG_trial3_dev_noise055 = {"MTG_trial3_dev_noise055": (build_test_dataset_from_zip(MTG_trial3_dev_oggzip, bpe_ctc_asr_model.settings), MTG_trial3_dev_bliss)}
 
 
     bpe_lexicon = {
@@ -200,6 +206,12 @@ def bpe_ls960_0924_relposencoder(lex, lm):
         )
 
         ctc_tune_and_evaluate_helper(
+            prefix_name + f"/medline_wmt22_ende_n2_noise055_{lex_lm_key}",
+            ddt_medline_wmt22_noise055, {}, bpe_ctc_asr_model, ufal_lm_config,
+            lm_scales=[1.6, 1.8, 2.0, 2.2], prior_scales=[0.1, 0.2, 0.3, 0.4]
+        )
+
+        ctc_tune_and_evaluate_helper(
             prefix_name + f"/medline_wmt22_ende_n2_noise03_{lex_lm_key}",
             ddt_medline_wmt22_noise03, {}, bpe_ctc_asr_model, ufal_lm_config,
             lm_scales=[1.6, 1.8, 2.0, 2.2], prior_scales=[0.1, 0.2, 0.3, 0.4]
@@ -219,6 +231,84 @@ def bpe_ls960_0924_relposencoder(lex, lm):
             ddt_medline_wmt22_noise07, {}, bpe_ctc_asr_model, ufal_lm_config_nols,
             lm_scales=[1.6, 1.8, 2.0, 2.2], prior_scales=[0.1, 0.2, 0.3, 0.4]
         )
+
+        ctc_tune_and_evaluate_helper(
+            prefix_name + f"/medline_wmt22_ende_n2_noise055_{lex_lm_key}_nols",
+            ddt_medline_wmt22_noise055, {}, bpe_ctc_asr_model, ufal_lm_config_nols,
+            lm_scales=[1.6, 1.8, 2.0, 2.2, 2.4, 2.6], prior_scales=[0.1, 0.2, 0.3, 0.4]
+        )
+
+        if lex_lm_key == "ufal_v1_3more_only":
+            ctc_tune_and_evaluate_helper(
+                prefix_name + f"/medline_wmt22_ende_n2_noise055_{lex_lm_key}_nols",
+                ddt_medline_wmt22_noise055, {}, bpe_ctc_asr_model, ufal_lm_config_nols,
+                lm_scales=[2.2, 2.4, 2.6, 2.8, 3.0], prior_scales=[0.1, 0.2, 0.3]
+            )
+
+            ufal_lm_config_nols_large_search = DecoderConfig(
+                lexicon=bpe_lexicon[lex_lm_key + "_nols"],
+                returnn_vocab=bpe_ctc_asr_model.returnn_vocab,
+                beam_size=2048,
+                beam_size_token=32,  # makes it much faster
+                arpa_lm=lm[lex_lm_key],
+                beam_threshold=18,
+            )
+            ctc_tune_and_evaluate_helper(
+                prefix_name + f"/medline_wmt22_ende_n2_noise055_{lex_lm_key}_nols_large_search",
+                ddt_medline_wmt22_noise055, {}, bpe_ctc_asr_model, ufal_lm_config_nols_large_search,
+                lm_scales=[2.2, 2.4, 2.6, 2.8, 3.0], prior_scales=[0.1, 0.2, 0.3]
+            )
+            ctc_tune_and_evaluate_helper(
+                prefix_name + f"/medline_wmt22_ende_n2_noise055_{lex_lm_key}_nols_large_search2",
+                ddt_medline_wmt22_noise055, {}, bpe_ctc_asr_model, ufal_lm_config_nols_large_search,
+                lm_scales=[3.0, 3.2, 3.4], prior_scales=[0.3, 0.4, 0.5]
+            )
+
+            ufal_lm_config_nols_ultra_large_search = DecoderConfig(
+                lexicon=bpe_lexicon[lex_lm_key + "_nols"],
+                returnn_vocab=bpe_ctc_asr_model.returnn_vocab,
+                beam_size=4096,
+                beam_size_token=64,  # makes it much faster
+                arpa_lm=lm[lex_lm_key],
+                beam_threshold=20,
+            )
+            ctc_tune_and_evaluate_helper(
+                prefix_name + f"/medline_wmt22_ende_n2_noise055_{lex_lm_key}_nols_ultra_large_search",
+                ddt_medline_wmt22_noise055, {}, bpe_ctc_asr_model, ufal_lm_config_nols_ultra_large_search,
+                lm_scales=[3.0, 3.2, 3.4], prior_scales=[0.3, 0.4, 0.5]
+            )
+
+    # MTG
+    ls_lm_config = DecoderConfig(
+        lexicon=bpe_ctc_asr_model.lexicon,
+        returnn_vocab=bpe_ctc_asr_model.returnn_vocab,
+        beam_size=2048,
+        beam_size_token=32,  # makes it much faster
+        arpa_lm=arpa_4gram_lm,
+        beam_threshold=16,
+    )
+    ctc_tune_and_evaluate_helper(
+        prefix_name + f"/MTG_trial3_dev_noise055_lslm",
+        MTG_trial3_dev_noise055, {}, bpe_ctc_asr_model, ls_lm_config,
+        lm_scales=[1.6, 1.8, 2.0, 2.2], prior_scales=[0.1, 0.2, 0.3]
+    )
+
+    lex_key = "MTG_trial3"
+    MTG_lm_config = DecoderConfig(
+        lexicon=bpe_lexicon[lex_key],
+        returnn_vocab=bpe_ctc_asr_model.returnn_vocab,
+        beam_size=2048,
+        beam_size_token=32,  # makes it much faster
+        arpa_lm=lm[lex_key],
+        beam_threshold=16,
+    )
+
+    ctc_tune_and_evaluate_helper(
+        prefix_name + f"/MTG_trial3_dev_noise055_{lex_key}",
+        MTG_trial3_dev_noise055, {}, bpe_ctc_asr_model, MTG_lm_config,
+        lm_scales=[2.2, 2.4, 2.6, 2.8, 3.0], prior_scales=[0.2, 0.3, 0.4]
+    )
+
 
 
     # dev other reference

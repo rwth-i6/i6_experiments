@@ -112,6 +112,7 @@ def run_flow_tts_460h():
             cpu_rqmt=10,
             use_gpu=True,
             local_prefix=None,
+            seed=None,
     ):
         if local_prefix is None:
             local_prefix = prefix
@@ -128,6 +129,8 @@ def run_flow_tts_460h():
         # this is now characters!
         forward_config.config["batch_size"] = 10000
         forward_config.config["max_seqs"] = 32
+        if seed is not None:
+            forward_config.config["random_seed"] = seed
         forward_job = tts_eval_v2(
             prefix_name=local_prefix + "/" + tts_model.prefix_name + "/" + name,
             returnn_config=forward_config,
@@ -479,11 +482,9 @@ def run_flow_tts_460h():
             text_bliss=tts_bliss,
             num_splits=1,  # we already splitted before
             ls_corpus_key="train-clean-460",
-            randomize_speaker=True
+            randomize_speaker=True,
+            seed=seed,
         )
-        if seed is not None:
-            decoder_options = copy.deepcopy(decoder_options)
-            decoder_options["seed"] = seed
         result_corpus = synthesize_dataset(
             corpus_name,
             tts_model=tts_model,
@@ -492,6 +493,7 @@ def run_flow_tts_460h():
             corpus_name=corpus_name,
             dataset=dataset_part,
             local_prefix=prefix + "/" + name,
+            seed=seed,
         )
 
         from i6_core.corpus.convert import CorpusReplaceOrthFromReferenceCorpus
@@ -518,6 +520,13 @@ def run_flow_tts_460h():
     medline_wmt22_bliss = bliss_from_text(prefix="/".join([prefix, set_name]), name=set_name, lm_text=medline_wmt22_clean)
     set_lex_name = set_name + "_sequiturg2p"
     medline_lexicon = create_data_lexicon(prefix="/".join([prefix, set_lex_name, "lexicon"]), lexicon_bliss=medline_wmt22_bliss)
+    medline_lexica_with_seed = {
+        None: medline_lexicon,
+        1: medline_lexicon,
+        2: create_data_lexicon(prefix="/".join([prefix, set_lex_name, "lexicon"]), lexicon_bliss=medline_wmt22_bliss, min_iter_seed=2),
+        3: create_data_lexicon(prefix="/".join([prefix, set_lex_name, "lexicon"]), lexicon_bliss=medline_wmt22_bliss,
+                           min_iter_seed=3),
+    }
 
     name = set_lex_name + "_glowtts460_noise07"
     merged_corpus_with_text, out_ogg_zip = construct_domain_test_set(
@@ -531,13 +540,13 @@ def run_flow_tts_460h():
 
 
 
-    for seed in [None, 1, 2]:
+    for seed in [None, 1, 2, 3]:
         name = set_lex_name + "_glowtts460_noise055" + ("_seed%i" % seed if seed is not None else "")
         merged_corpus_with_text, out_ogg_zip = construct_domain_test_set(
             prefix + "/" + name,
             "wmt22_medline_v1",
             bliss=medline_wmt22_bliss,
-            lexicon=medline_lexicon,
+            lexicon=medline_lexica_with_seed[seed],
             decoder_options=decoder_options_synthetic_055,
             seed=seed
         )
@@ -614,3 +623,26 @@ def run_flow_tts_460h():
         )
         tk.register_output("domain_test_tina_export/" + name + ".xml.gz", merged_corpus_with_text)
         add_synthetic_data(name, out_ogg_zip, bliss=merged_corpus_with_text)
+
+
+    # MTG Things
+    MTG_trial1_dev = Path(
+        "/work/asr4/rossenbach/domain_data/MTG/MTG_trial3_dev.txt",
+        hash_overwrite="MTG/MTG_trial3_dev.txt"
+    )
+    set_name = "MTG_trial3_dev"
+    MTG_trial3_dev_bliss = bliss_from_text(prefix="/".join([prefix, set_name]), name=set_name,
+                                           lm_text=MTG_trial1_dev)
+    set_lex_name = set_name + "_sequiturg2p"
+    mtg_trial3_dev_lexicon = create_data_lexicon(prefix="/".join([prefix, set_lex_name, "lexicon"]), lexicon_bliss=MTG_trial3_dev_bliss)
+
+    name = set_lex_name + "_glowtts460_noise055"
+    merged_corpus_with_text, out_ogg_zip = construct_domain_test_set(
+        prefix,
+        "MTG_trial3_dev",
+        bliss=MTG_trial3_dev_bliss,
+        lexicon=mtg_trial3_dev_lexicon,
+        decoder_options = decoder_options_synthetic_055,
+    )
+    tk.register_output("domain_test_tina_export/" + name + ".xml.gz", merged_corpus_with_text)
+    add_synthetic_data(name, out_ogg_zip, bliss=merged_corpus_with_text)
