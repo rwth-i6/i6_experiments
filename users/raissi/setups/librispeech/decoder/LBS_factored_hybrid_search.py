@@ -76,7 +76,8 @@ class LBSFactoredHybridDecoder(BASEFactoredHybridDecoder):
             gpu=gpu,
         )
         self.trafo_lm_config = self.get_eugen_trafo_with_quant_and_compress_config()
-        self.lstm_lm_config = self.get_kazuki_lstm_config()
+        if self.library_path is not None:
+            self.lstm_lm_config = self.get_kazuki_lstm_config()
 
 
     def get_kazuki_lstm_config(

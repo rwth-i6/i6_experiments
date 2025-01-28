@@ -61,13 +61,19 @@ wmt22_medline_noise055 = tk.Path(
 wmt22_medline_noise0551 = tk.Path(
     ("/").join([PREPATH_CORPORA, "wmt22_medline_v1_sequiturg2p_glowtts460_noise055_seed1.xml.gz"]),
     cached=True,
-    hash_overwrite="GLOWTTS_V1_DEV_MED_0551",
+    hash_overwrite="GLOWTTS_V1_DEV_MED_0551_PronVar",
 )
 wmt22_medline_noise0552 = tk.Path(
     ("/").join([PREPATH_CORPORA, "wmt22_medline_v1_sequiturg2p_glowtts460_noise055_seed2.xml.gz"]),
     cached=True,
-    hash_overwrite="GLOWTTS_V1_DEV_MED_0552",
+    hash_overwrite="GLOWTTS_V1_DEV_MED_0552_PronVar",
 )
+wmt22_medline_noise0553 = tk.Path(
+    ("/").join([PREPATH_CORPORA, "wmt22_medline_v1_sequiturg2p_glowtts460_noise055_seed3.xml.gz"]),
+    cached=True,
+    hash_overwrite="GLOWTTS_V1_DEV_MED_0553_PronVar",
+)
+
 wmt22_medline_noise03 = tk.Path(
     ("/").join([PREPATH_CORPORA, "wmt22_medline_v1_sequiturg2p_glowtts460_noise03.xml.gz"]),
     cached=True,
@@ -193,36 +199,6 @@ MEDLINE_V22_DEV_DATA = {
         lm=tk.Path(f"{PREPATH_ASR3}/lm/v2/only_medline/ufal_v1_lm_3more.gz", cached=True, hash_overwrite="v22_lm"),
         description="lexicon uses only medline data with words repeating 3 or more",
     ),
-    0.551: DATASET(
-        lexicon_with_unk=tk.Path(
-            f"{PREPATH_ASR3}/lexicon/v2/only_medline/ufal_v1_3more_only.rasr_with_unk.xml.gz",
-            cached=True,
-            hash_overwrite="v22_unk",
-        ),
-        lexicon_no_unk=tk.Path(
-            f"{PREPATH_ASR3}/lexicon/v2/only_medline/ufal_v1_3more_only.rasr_without_unk.xml.gz",
-            cached=True,
-            hash_overwrite="v22_nounk",
-        ),
-        corpus=wmt22_medline_noise0551,
-        lm=tk.Path(f"{PREPATH_ASR3}/lm/v2/only_medline/ufal_v1_lm_3more.gz", cached=True, hash_overwrite="v22_lm"),
-        description="lexicon uses only medline data with words repeating 3 or more",
-    ),
-    0.552: DATASET(
-        lexicon_with_unk=tk.Path(
-            f"{PREPATH_ASR3}/lexicon/v2/only_medline/ufal_v1_3more_only.rasr_with_unk.xml.gz",
-            cached=True,
-            hash_overwrite="v22_unk",
-        ),
-        lexicon_no_unk=tk.Path(
-            f"{PREPATH_ASR3}/lexicon/v2/only_medline/ufal_v1_3more_only.rasr_without_unk.xml.gz",
-            cached=True,
-            hash_overwrite="v22_nounk",
-        ),
-        corpus=wmt22_medline_noise0552,
-        lm=tk.Path(f"{PREPATH_ASR3}/lm/v2/only_medline/ufal_v1_lm_3more.gz", cached=True, hash_overwrite="v22_lm"),
-        description="lexicon uses only medline data with words repeating 3 or more",
-    ),
     0.3: DATASET(
         lexicon_with_unk=tk.Path(
             f"{PREPATH_ASR3}/lexicon/v2/only_medline/ufal_v1_3more_only.rasr_with_unk.xml.gz",
@@ -274,6 +250,51 @@ MEDLINE_V4_DEV_DATA = {
         corpus=wmt22_medline_noise055,
         lm=tk.Path(f"{PREPATH_ASR3}/lm/v2/only_medline/ufal_v1_lm_3more.gz", cached=True, hash_overwrite="v22_lm"),
         description="lexicon uses only medline data with words repeating 3 or more and includes the corrected pronunciation for wirds common between ledline and lbs",
+    ),
+    0.551: DATASET(
+        lexicon_with_unk=tk.Path(
+            f"{PREPATH_ASR3}/lexicon/v4/only_medline/ufal_v1_3more_only.lsoverride.rasr_with_unk.xml.gz",
+            cached=True,
+            hash_overwrite="v4_unk",
+        ),
+        lexicon_no_unk=tk.Path(
+            f"{PREPATH_ASR3}/lexicon/v4/only_medline/ufal_v1_3more_only.lsoverride.rasr_without_unk.xml.gz",
+            cached=True,
+            hash_overwrite="v4_nounk",
+        ),
+        corpus=wmt22_medline_noise0551,
+        lm=tk.Path(f"{PREPATH_ASR3}/lm/v2/only_medline/ufal_v1_lm_3more.gz", cached=True, hash_overwrite="v22_lm"),
+        description="lexicon uses only medline data with words repeating 3 or more and includes the corrected pronunciation for words common between ledline and lbs. TTS uses g2p with different seeds",
+    ),
+    0.552: DATASET(
+        lexicon_with_unk=tk.Path(
+            f"{PREPATH_ASR3}/lexicon/v4/only_medline/ufal_v1_3more_only.lsoverride.rasr_with_unk.xml.gz",
+            cached=True,
+            hash_overwrite="v4_unk",
+        ),
+        lexicon_no_unk=tk.Path(
+            f"{PREPATH_ASR3}/lexicon/v4/only_medline/ufal_v1_3more_only.lsoverride.rasr_without_unk.xml.gz",
+            cached=True,
+            hash_overwrite="v4_nounk",
+        ),
+        corpus=wmt22_medline_noise0552,
+        lm=tk.Path(f"{PREPATH_ASR3}/lm/v2/only_medline/ufal_v1_lm_3more.gz", cached=True, hash_overwrite="v22_lm"),
+        description="lexicon uses only medline data with words repeating 3 or more and includes the corrected pronunciation for words common between ledline and lbs. TTS uses g2p with different seeds",
+    ),
+    0.553: DATASET(
+        lexicon_with_unk=tk.Path(
+            f"{PREPATH_ASR3}/lexicon/v4/only_medline/ufal_v1_3more_only.lsoverride.rasr_with_unk.xml.gz",
+            cached=True,
+            hash_overwrite="v4_unk",
+        ),
+        lexicon_no_unk=tk.Path(
+            f"{PREPATH_ASR3}/lexicon/v4/only_medline/ufal_v1_3more_only.lsoverride.rasr_without_unk.xml.gz",
+            cached=True,
+            hash_overwrite="v4_nounk",
+        ),
+        corpus=wmt22_medline_noise0553,
+        lm=tk.Path(f"{PREPATH_ASR3}/lm/v2/only_medline/ufal_v1_lm_3more.gz", cached=True, hash_overwrite="v22_lm"),
+        description="lexicon uses only medline data with words repeating 3 or more and includes the corrected pronunciation for words common between ledline and lbs. TTS uses g2p with different seeds",
     ),
 }
 

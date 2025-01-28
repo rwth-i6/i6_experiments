@@ -899,7 +899,6 @@ class BASEFactoredHybridDecoder:
                 # Use 4gram for lookahead. The lookahead LM must not be too good.
                 # Half the normal LM scale is a good starting value.
                 # To validate the assumption the original LM is a 4gram
-                print(search_crp.language_model_config.type.lower())
                 assert original_lm_config.type.lower() == "arpa"
 
                 adv_search_extra_config.flf_lattice_tool.network.recognizer.recognizer.separate_lookahead_lm = True
@@ -924,7 +923,6 @@ class BASEFactoredHybridDecoder:
             if search_parameters.altas is not None
             else "decoding"
         )
-
 
         search = recog.AdvancedTreeSearchJob(
             crp=search_crp,
