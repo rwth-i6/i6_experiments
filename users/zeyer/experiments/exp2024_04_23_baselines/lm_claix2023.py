@@ -96,6 +96,45 @@ def py():
         env_updates={"PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"},
     )
 
+    train(
+        f"lm/trafo-n32-d1024-noAbsPos-rmsNorm-ffGated-rope-noBias-drop0-b2k_20k-laplace1k-spm10k",
+        config=dict_update_deep(
+            config_96gb_bf16_accgrad1,
+            {
+                **_get_cfg_lrlin_oclr_by_bs_nep_v4(100),
+                "batch_size": 20_000,
+                "max_seqs": 2_000,
+                "optimizer.weight_decay": 1e-2,
+                "calculate_exp_loss": True,
+                "online_shuffle_batches": 100,
+            },
+        ),
+        post_config={"log_grad_norm": True},
+        train_dataset=get_librispeech_lm_dataset(
+            vocab="spm10k", train_epoch_split=20, train_sort_laplace_num_seqs=1_000
+        ),
+        model_def=ModelDefWithCfg(
+            lm_model_def,
+            {
+                "_model_def_dict": rf.build_dict(
+                    TransformerDecoder,
+                    encoder_dim=None,
+                    num_layers=24,
+                    model_dim=512,
+                    pos_enc=None,
+                    norm=rf.build_dict(rf.RMSNorm),
+                    ff=rf.build_dict(rf.decoder.transformer.FeedForwardGated),
+                    decoder_layer_opts=dict(self_att=rf.build_dict(rf.RotaryPosCausalSelfAttention, with_bias=False)),
+                    dropout=0.0,
+                    att_dropout=0.0,
+                )
+            },
+        ),
+        train_def=lm_train_def,
+        # avoid oom
+        env_updates={"PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"},
+    )
+
     # Prepare some small baseline setup. 38.69 PPL, 166_408 steps, 27.1h
     # (trafo-n24-d512-gelu-drop0-b2k_80k-spm10k)
     # (trafo-n24-d512-gelu-drop0-b100_5k on older GPUs with smaller batch size and float32 results in 38.66 PPL)
