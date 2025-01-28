@@ -11,7 +11,6 @@ from i6_experiments.users.vieting.experiments.librispeech.\
 # Pretraining
 phon_boundary_pretrain_job = run_fairseq_pretraining(
     exp_name="monophone_boundary_masking_v1",
-    #commit="3a67ce092a569e85449a8e911936e87c8948b6d7",
     commit="87dec4ffcba2fd71e8838ca099a09816cddeff5b",
     python_exe_hash_overwrite="itc_python_launcher_py310_torch",
     mask_strategy="phonemes",

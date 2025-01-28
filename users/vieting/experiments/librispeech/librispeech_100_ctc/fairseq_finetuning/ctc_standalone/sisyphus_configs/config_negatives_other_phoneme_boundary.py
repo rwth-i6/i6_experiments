@@ -11,7 +11,6 @@ from i6_experiments.users.vieting.experiments.librispeech.\
 # Pretraining
 neg_other_trg_phon_boundary_pretrain_job = run_fairseq_pretraining(
     exp_name="monophone_negatives_other_target_boundary_masking_v1",
-    #commit="3a67ce092a569e85449a8e911936e87c8948b6d7",
     commit="87dec4ffcba2fd71e8838ca099a09816cddeff5b",
     negative_sampling_strategy="other_target",
     mask_strategy="phonemes",
