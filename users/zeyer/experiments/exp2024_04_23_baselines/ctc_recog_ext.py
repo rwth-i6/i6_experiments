@@ -934,6 +934,53 @@ def _ctc_model_rescore(
     )
 
 
+def ctc_prior_full_sum_rescore(
+    *,
+    model: Model,  # TODO doesnt need that. need blank_idx, downsample factor, prior
+    data: Tensor,
+    data_spatial_dim: Dim,
+    targets: Tensor,
+    targets_beam_dim: Dim,
+    targets_spatial_dim: Dim,
+) -> Tensor:
+    """RescoreDef API"""
+    import returnn.frontend as rf
+    from returnn.tensor import Tensor, Dim
+
+    data  # noqa  # not used here
+
+    enc_spatial_dim = ...  # TODO downsample factor from data_spatial_dim...
+    log_probs = ...  # TODO...
+    assert isinstance(log_probs, Tensor)
+
+    batch_dims = targets.remaining_dims(targets_spatial_dim)
+
+    # Note: Using ctc_loss directly requires quite a lot of memory,
+    # as we would broadcast the log_probs over the beam dim.
+    # Instead, we do a loop over the beam dim to avoid this.
+    neg_log_prob_ = []
+    for beam_idx in range(targets_beam_dim.get_dim_value()):
+        targets_b = rf.gather(targets, axis=targets_beam_dim, indices=beam_idx)
+        targets_b_seq_lens = rf.gather(targets_spatial_dim.dyn_size_ext, axis=targets_beam_dim, indices=beam_idx)
+        targets_b_spatial_dim = Dim(targets_b_seq_lens, name=f"{targets_spatial_dim.name}_beam{beam_idx}")
+        targets_b, _ = rf.replace_dim(targets_b, in_dim=targets_spatial_dim, out_dim=targets_b_spatial_dim)
+        targets_b, _ = rf.slice(targets_b, axis=targets_b_spatial_dim, size=targets_b_spatial_dim)
+        # Note: gradient does not matter (not used), thus no need use our ctc_loss_fixed_grad.
+        neg_log_prob = rf.ctc_loss(
+            logits=log_probs,
+            logits_normalized=True,
+            targets=targets_b,
+            input_spatial_dim=enc_spatial_dim,
+            targets_spatial_dim=targets_b_spatial_dim,
+            blank_index=blank_idx,
+        )
+        neg_log_prob_.append(neg_log_prob)
+    neg_log_prob, _ = rf.stack(neg_log_prob_, out_dim=targets_beam_dim)
+    log_prob_targets_seq = -neg_log_prob
+    assert log_prob_targets_seq.dims_set == set(batch_dims)
+    return log_prob_targets_seq
+
+
 def _plot_scales(name: str, results: Dict[Tuple[float, float], tk.Path], x_axis_name: str = "prior_scale"):
     prefix = f"{_sis_prefix}/ctc+lm"
     plot_fn = PlotResults2DJob(x_axis_name=x_axis_name, y_axis_name="lm_scale", results=results).out_plot
