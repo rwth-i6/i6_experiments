@@ -114,9 +114,7 @@ class FeedForwardLm(rf.Module):
             value=self.vocab_dim.vocab.bos_label_id,
         )
 
-        conv_out, out_spatial_dim = self.conv(
-            conv_inp, in_spatial_dim=conv_inp_spatial_dim, out_spatial_dim=out_spatial_dim
-        )
+        conv_out, _ = self.conv(conv_inp, in_spatial_dim=conv_inp_spatial_dim, out_spatial_dim=out_spatial_dim)
 
         ff_out = self.activation_func(conv_out)
         ff_out = rf.dropout(ff_out, drop_prob=self.dropout)
