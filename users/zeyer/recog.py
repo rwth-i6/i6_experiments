@@ -226,6 +226,7 @@ def search_dataset(
     search_alias_name: Optional[str] = None,
     recog_post_proc_funcs: Sequence[Callable[[RecogOutput], RecogOutput]] = (),
     recog_pre_post_proc_funcs_ext: Sequence[Callable] = (),
+    keep_beam: bool = False,
 ) -> RecogOutput:
     """
     Recog on the specific dataset using RETURNN.
@@ -256,6 +257,7 @@ def search_dataset(
         and they additionally get also
         ``raw_res_search_labels`` (e.g. align labels, e.g. BPE including blank)
         and ``raw_res_labels`` (e.g. BPE labels).
+    :param keep_beam: if there was a beam, keep it, otherwise take the best hyp
     :return: :class:`RecogOutput`, single best hyp (if there was a beam, we already took the best one)
         over the dataset
     """
@@ -316,7 +318,7 @@ def search_dataset(
         ).output
     for f in recog_post_proc_funcs:  # for example BPE to words
         res = f(RecogOutput(output=res)).output
-    if recog_def.output_with_beam:
+    if not keep_beam and recog_def.output_with_beam:
         # Don't join scores here (SearchBeamJoinScoresJob).
         #   It's not clear whether this is helpful in general.
         #   As our beam sizes are very small, this might boost some hyps too much.
