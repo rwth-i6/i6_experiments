@@ -37,7 +37,7 @@ class SearchConcatHypsJob(Job):
         seq_tags: List[str] = list(data[0].keys())
         seq_tags_set: Set[str] = set(seq_tags)
         assert len(seq_tags) == len(seq_tags_set), "duplicate seq tags"
-        for _, d in data:
+        for d in data:
             assert set(d.keys()) == seq_tags_set, "inconsistent seq tags"
 
         with util.uopen(self.out_search_results, "wt") as out:
