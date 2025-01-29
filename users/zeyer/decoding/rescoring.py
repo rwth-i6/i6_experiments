@@ -49,7 +49,7 @@ class SearchCombineScoresJob(Job):
 
     def __init__(self, search_py_output: List[Tuple[float, tk.Path]], *, output_gzip: bool = True):
         """
-        :param search_py_output: dict: search output file from RETURNN in python format (n-best list) -> weight
+        :param search_py_output: list of tuple (search output file from RETURNN in python format (n-best list), weight)
         :param output_gzip: gzip the output
         """
         assert len(search_py_output) > 0
