@@ -1,5 +1,5 @@
 """
-adapted from: users/phan/rf_models/bigram.py (under branch phan_ctc_10kbpe)
+training based on i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.lm
 """
 
 from __future__ import annotations
