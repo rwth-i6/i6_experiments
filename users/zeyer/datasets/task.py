@@ -34,6 +34,10 @@ class Task:
     main_measure_type: MeasureType  # e.g. WER%
     main_measure_name: str  # e.g. dataset name but arbitrary, just to describe the main measure value
 
+    # E.g. for WER, CER, BLEU, ... Usually uses sclite for ASR.
+    # Currently, many score funcs in use only use ``get_main_name()`` of the dataset,
+    # and not really the dataset itself.
+    # E.g. see librispeech _score_recog_out_v2.
     score_recog_output_func: Callable[[DatasetConfig, RecogOutput], ScoreResult]
 
     # e.g. for bpe_to_words or so. This is here because it depends on the type of vocab.
