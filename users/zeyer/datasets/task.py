@@ -20,6 +20,7 @@ class Task:
 
     Note that the dataset would also already include things like feature extraction details, output labels (BPE etc).
     """
+
     name: str  # to differentiate between different tasks. might be used for the output dir name
 
     # for training
@@ -41,6 +42,7 @@ class Task:
     def default_collect_score_results(self, score_results: Dict[str, ScoreResult]) -> ScoreResultCollection:
         """using main_measure_name as the main key in score_results"""
         from .score_results import join_score_results
+
         return join_score_results(score_results, main_measure_key=self.main_measure_name)
 
     collect_score_results_func: Callable[[Dict[str, ScoreResult]], ScoreResultCollection] = None
