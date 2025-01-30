@@ -106,7 +106,7 @@ class FeedForwardLm(rf.Module):
         state: Optional[rf.State] = None,
     ) -> Tuple[rf.Tensor, rf.State]:
 
-        embed_out = self.embedding(rf.cast(input, "long"))
+        embed_out = self.embedding(rf.cast(input, "int64"))
         embed_out = rf.dropout(
             embed_out,
             drop_prob=self.embed_dropout,
