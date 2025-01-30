@@ -5,6 +5,8 @@ training based on i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines
 from __future__ import annotations
 
 from typing import Optional, Sequence, Tuple
+
+import torch
 import tree
 
 from returnn.tensor import Tensor, Dim, single_step_dim
@@ -23,21 +25,24 @@ def py():
     from i6_experiments.users.zeyer.train_v3 import train
     from i6_experiments.users.zeyer.datasets.librispeech import get_librispeech_lm_dataset
 
-    # TODO: override learning_rate_piecewise_steps
-    train(
-        "lm/ffnn-n2-ctx4-embd128-d1024-bpe128-drop0.1",
-        config=dict_update_deep(config_11gb_lm_v1, {**_get_cfg_lrlin_oclr_by_bs_nep(200, 10_000, 10)}),
-        train_dataset=get_librispeech_lm_dataset(vocab="bpe128"),
-        model_def=ModelDefWithCfg(
-            lm_model_def,
-            {
-                "_model_def_dict": rf.build_dict(
-                    FeedForwardLm, context_size=4, num_layers=2, embed_dropout=0.1, dropout=0.1
-                )
-            },
-        ),
-        train_def=lm_train_def,
-    )
+    for context_size in [4, 6, 10]:
+        train(
+            f"lm/ffnn-n2-ctx{context_size}-embd128-d1024-bpe128-drop0.1",
+            config=dict_update_deep(
+                config_11gb_lm_v1,
+                {**_get_cfg_lrlin_oclr_by_bs_nep(200, 10_000, 10), "torch_distributed": None, "use_horovod": False},
+            ),
+            train_dataset=get_librispeech_lm_dataset(vocab="bpe128"),
+            model_def=ModelDefWithCfg(
+                lm_model_def,
+                {
+                    "_model_def_dict": rf.build_dict(
+                        FeedForwardLm, context_size=context_size, num_layers=2, embed_dropout=0.1, dropout=0.1
+                    )
+                },
+            ),
+            train_def=lm_train_def,
+        )
 
 
 class FeedForwardLm(rf.Module):
@@ -100,7 +105,8 @@ class FeedForwardLm(rf.Module):
         out_spatial_dim: Optional[Dim] = None,
         state: Optional[rf.State] = None,
     ) -> Tuple[rf.Tensor, rf.State]:
-        embed_out = self.embedding(input)
+
+        embed_out = self.embedding(rf.cast(input, "long"))
         embed_out = rf.dropout(
             embed_out,
             drop_prob=self.embed_dropout,
