@@ -25,32 +25,8 @@ def py():
     from i6_experiments.users.zeyer.train_v3 import train
     from i6_experiments.users.zeyer.datasets.librispeech import get_librispeech_lm_dataset
 
-    for context_size in [5, 10, 20]:
-        train(
-            f"lm/ffnn-n2-ctx{context_size}-embd128-d1024-bpe128-drop0.1",
-            config=dict_update_deep(
-                config_11gb_lm_v1,
-                {
-                    **_get_cfg_lrlin_oclr_by_bs_nep(200, 10_000, 50),
-                    "max_seq_length": {},
-                    "torch_distributed": None,
-                    "use_horovod": False,
-                },
-            ),
-            train_dataset=get_librispeech_lm_dataset(vocab="bpe128"),
-            model_def=ModelDefWithCfg(
-                lm_model_def,
-                {
-                    "_model_def_dict": rf.build_dict(
-                        FeedForwardLm, context_size=context_size, num_layers=2, embed_dropout=0.1, dropout=0.1
-                    )
-                },
-            ),
-            train_def=lm_train_def,
-        )
-
     train(
-        f"lm/ffnn-n2-ctx10-embd128-d2048-bpe128-drop0.1",
+        f"lm/ffnn-n2-ctx10-embd128-d2048-bpe128-drop0.1-relu",
         config=dict_update_deep(
             config_11gb_lm_v1,
             {
@@ -66,7 +42,7 @@ def py():
             {
                 "_model_def_dict": rf.build_dict(
                     FeedForwardLm,
-                    context_size=context_size,
+                    context_size=10,
                     num_layers=2,
                     embed_dropout=0.1,
                     dropout=0.1,
@@ -94,7 +70,7 @@ def py():
             {
                 "_model_def_dict": rf.build_dict(
                     FeedForwardLm,
-                    context_size=context_size,
+                    context_size=10,
                     num_layers=2,
                     embed_dropout=0.1,
                     dropout=0.1,
@@ -123,7 +99,7 @@ def py():
             {
                 "_model_def_dict": rf.build_dict(
                     FeedForwardLm,
-                    context_size=context_size,
+                    context_size=10,
                     num_layers=2,
                     embed_dropout=0.0,
                     dropout=0.0,
@@ -134,6 +110,10 @@ def py():
         ),
         train_def=lm_train_def,
     )
+
+
+def compute_ppl():
+    pass
 
 
 class FeedForwardLm(rf.Module):
@@ -317,3 +297,4 @@ config_11gb_lm_v1 = dict_update_deep(
         "calculate_exp_loss": True,
     },
 )
+config_11gb_lm_v1.pop("__num_processes", None)
