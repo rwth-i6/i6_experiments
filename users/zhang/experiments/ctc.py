@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import copy
 import functools
-from typing import TYPE_CHECKING, Optional, Callable, Union, Tuple, Sequence
+from typing import TYPE_CHECKING, Optional, Callable, Union, Tuple, Sequence, Collection
 import numpy as np
 import re
 import json
@@ -57,26 +57,20 @@ def py():
         "log_add": False,
         "nbest": 1,
         "beam_size": 80,
-        "lm_weight": 1.9,  # NOTE: weights are exponentials of the probs. 1.9 seems make the results worse by using selftrained lm
+        "lm_weight": 1.4,  # NOTE: weights are exponentials of the probs. 1.9 seems make the results worse by using selftrained lm
         "use_logsoftmax": True,
         "use_lm": True,
-        "use_lexicon": True,
+        "use_lexicon": False, # Do open vocab search when using bpe lms.
     }
 
-    p1 = "sum" if decoding_config['log_add'] else "max"
-    p2 = f"n{decoding_config['nbest']}"
-    p3 = f"b{decoding_config['beam_size']}"
-    p4 = f"w{str(decoding_config['lm_weight']).replace('.', '')}"
-    p5 = "_logsoftmax" if decoding_config['use_logsoftmax'] else ""
-    p6 = "_lexicon" if decoding_config['use_lexicon'] else ""
-    lm_hyperparamters_str = f"{p1}_{p2}_{p3}_{p4}{p5}{p6}"
+
 
 
     # ---------------------------------------------------------
     # model name: f"v6-relPosAttDef-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100"
     #               f"-maxSeqLenAudio19_5-wd1e_2-lrlin1e_5_295k-featBN-speedpertV2"
     #               f"-[vocab]" + f"-[sample]"
-
+    exclude_epochs = set(range(0, 470)) #Reduce #ForwardJobs
 
     for vocab, sample, alpha in [
         # ("spm20k", None, None),  # 5.96
@@ -84,7 +78,6 @@ def py():
         # # TODO ("spm20k", "bpe", 0.005),
         # ("spm20k", "bpe", 0.01),  # 6.13
         # ("spm20k", "bpe", 0.02),  # 6.21
-        # ("bpe10k", None, None),  # 6.49  #TODO: does not work currently, check the BPEjob in librispeech.bpe10k
         # ("bpe10k", "bpe", 0.005),  # 6.48
         # ("bpe10k", "bpe", 0.01),  # 6.40
         # ("spm10k", None, None),  # 6.00
@@ -121,7 +114,8 @@ def py():
         # # TODO ("spm128", "bpe", 0.001),
         # ("spm128", "bpe", 0.01),  # 6.40
         # # TODO ("spm128", "bpe", 0.005),
-        ("bpe128", None, None),
+        # ("bpe128", None, None),
+        ("bpe10k", None, None),  # 6.49  #TODO: does not work currently, check the BPEjob in librispeech.bpe10k
         # ("spm64", None, None),
         # ("bpe64", None, None),
         # ("utf8", None, None),
@@ -129,36 +123,56 @@ def py():
         # ("bpe0", None, None),
     ]:
         from .language_models.librispeech_lm import get_4gram_binary_lm
-        from .language_models.librispeech import _get_bpe_vocab, bpe10k
         from .language_models.n_gram import get_count_based_n_gram
         lms = dict()
         wer_ppl_results = dict()
         ppl_results = dict()
         # vocabs = {str(i) + "gram":_get_bpe_vocab(i) for i in [3,4,5,6,7,8,9,10]}
-        # ----------------------Add bpe count based n-gram LMs--------------------
+        # ----------------------Add bpe count based n-gram LMs(Only if ctc also operates on same bpe)--------------------
         if re.match("^bpe[0-9]+.*$", vocab):
-            bpe = bpe10k if vocab == "bpe10k" else _get_bpe_vocab(bpe_size=vocab[len("bpe") :])
+            #bpe = bpe10k if vocab == "bpe10k" else _get_bpe_vocab(bpe_size=vocab[len("bpe") :])
             for i in [#2, 3,
-                      4, 5#, 6,
+                      4, 5, 6,
                       #7, 8,
                       #9, 10
                       ]: # Assume we only do bpe for now
-                lm, ppl_var = get_count_based_n_gram(bpe, i)
+                lm, ppl_var = get_count_based_n_gram(vocab, i)
                 lms.update(dict([(str(i) + "gram", lm)]))
                 ppl_results.update(dict([(str(i) + "gram", ppl_var)]))
-
+        # ----------------------Add word count based n-gram LMs--------------------
+        for i in [  # 2, 3,
+            4, 5, 6,
+            # 7, 8,
+            # 9, 10
+        ]:
+            lm, ppl_var = get_count_based_n_gram("word", i)
+            lms.update(dict([(str(i) + "gram_word", lm)]))
+            ppl_results.update(dict([(str(i) + "gram_word", ppl_var)]))
         # Try to use the out of downstream job which has existing logged output. Instead of just Forward job, which seems cleaned up each time
         lms.update({"NoLM": None})
         official_4gram, ppl_official4gram = get_4gram_binary_lm()
-        lms.update({"4gram_official": official_4gram})
-        ppl_results.update({"4gram_official": ppl_official4gram})
-        lm_hyperparamters_str = vocab + lm_hyperparamters_str # Assume only experiment on one ASR model, so the difference of model itself is not reflected here
+        lms.update({"4gram_word_official": official_4gram})
+        ppl_results.update({"4gram_word_official": ppl_official4gram})
+
+
         for name, lm in lms.items():
             # lm_name = lm if isinstance(lm, str) else lm.name
-
-            alias_name = f"ctc-baseline" + "decodingWith_" + lm_hyperparamters_str + name if lm else f"ctc-baseline-" + vocab + name
             decoding_config["lm"] = lm
             decoding_config["use_lm"] = True if lm else False
+            if re.match("word", name):
+                decoding_config["use_lexicon"] = True
+            else:
+                decoding_config["use_lexicon"] = False
+            p1 = "sum" if decoding_config['log_add'] else "max"
+            p2 = f"n{decoding_config['nbest']}"
+            p3 = f"b{decoding_config['beam_size']}"
+            p4 = f"w{str(decoding_config['lm_weight']).replace('.', '')}"
+            p5 = "_logsoftmax" if decoding_config['use_logsoftmax'] else ""
+            p6 = "_lexicon" if decoding_config['use_lexicon'] else ""
+            lm_hyperparamters_str = f"{p1}_{p2}_{p3}_{p4}{p5}{p6}"
+            lm_hyperparamters_str = vocab + lm_hyperparamters_str  # Assume only experiment on one ASR model, so the difference of model itself is not reflected here
+
+            alias_name = f"ctc-baseline" + "decodingWith_" + lm_hyperparamters_str + name if lm else f"ctc-baseline-" + vocab + name
             _, wer_result_path = train_exp(
                 name=alias_name,
                 config=config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
@@ -188,13 +202,15 @@ def py():
                     if sample
                     else None
                 ),
-                decoding_config=decoding_config
+                decoding_config=decoding_config,
+                exclude_epochs=exclude_epochs,
+                search_mem_rqmt= 10 if vocab == "bpe10k" else 6
             )
             if lm:
                 wer_ppl_results[name] = (ppl_results.get(name), wer_result_path)
         (names, results) = zip(*wer_ppl_results.items())
         summaryjob = WER_ppl_PlotAndSummaryJob(names, results)
-        tk.register_output("wer_ppl/"+vocab+lm_hyperparamters_str, summaryjob.out_summary_json)
+        tk.register_output("wer_ppl/"+lm_hyperparamters_str, summaryjob.out_summary_json)
 
 _train_experiments: Dict[str, ModelWithCheckpoints] = {}
 
@@ -222,6 +238,8 @@ def train_exp(
     env_updates: Optional[Dict[str, str]] = None,
     enabled: bool = True,
     decoding_config: dict = None,
+    exclude_epochs: Collection[int] = (),
+    search_mem_rqmt: Union[int, float] = 6,
 ) -> Tuple[Optional[ModelWithCheckpoints], Optional[tk.path]]:
     """
     Train experiment
@@ -275,6 +293,8 @@ def train_exp(
         prefix, task, model_with_checkpoint, recog_def=decoder_def,
         decoding_config=decoding_config,
         recog_post_proc_funcs=recog_post_proc_funcs,
+        exclude_epochs=exclude_epochs,
+        search_mem_rqmt=serach_mem_rqmt
     )
 
     _train_experiments[name] = model_with_checkpoint

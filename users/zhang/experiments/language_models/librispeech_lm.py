@@ -33,14 +33,15 @@ def get_4gram_binary_lm() -> Tuple[tk.Path, tk.Variable]:
     #     gzip_output=True,
     #     mini_task=False,
     # ).out_bpe_text
+    arpa_lm = get_arpa_lm_dict()["4gram"]
     ppl_job = ComputeNgramLmPerplexityJob(
         ngram_order=4,
-        lm = get_arpa_lm_dict()["4gram"], # Seems only accept arpa LM
+        lm = arpa_lm, # Seems only accept arpa LM
         eval_data=lm_data, # This is train data for the LM. TODO: use same data for eval on ASR model
         ngram_exe=SRILM_PATH.join_right("ngram"),
         time_rqmt=1,
     )
     arpa_4gram_binary_lm_job = CreateBinaryLMJob(
-        arpa_lm=get_arpa_lm_dict()["4gram"], kenlm_binary_folder=KENLM_BINARY_PATH
+        arpa_lm=arpa_lm, kenlm_binary_folder=KENLM_BINARY_PATH
     )
     return arpa_4gram_binary_lm_job.out_lm, ppl_job.out_ppl_score

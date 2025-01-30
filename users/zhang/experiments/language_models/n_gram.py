@@ -306,6 +306,7 @@ import shutil
 import sys
 import tempfile
 import subprocess as sp
+import re
 
 from typing import TYPE_CHECKING, Optional, Callable, Union, Tuple, Sequence
 
@@ -323,14 +324,16 @@ from i6_experiments.users.zeyer.datasets.utils.bpe import Bpe
 from i6_experiments.common.helpers.text_labels.subword_nmt_bpe import get_returnn_subword_nmt
 from i6_experiments.common.baselines.tedlium2.default_tools import SRILM_PATH
 
-rqmt_map = {5: [("mem", 20),("time", 2)], 6: [("mem", 20),("time", 2)],
-                                             7: [("mem", 25),("time", 3)],
-                                                 8: [("mem", 30),("time", 3)]} # rqmt_map for n_gram KenLMplz job. Smaller as 4 use default setting
+rqmt_map = {5: [("mem", 20),("time", 2)], 6: [("mem", 20),("time", 2)],  # Need much more for bpe10k
+                                             7: [("mem", 25),("time", 2)],
+                                                 8: [("mem", 30),("time", 2)],
+            9: [("mem", 35),("time", 2)],
+            10: [("mem", 40),("time", 2)]} # rqmt_map for n_gram KenLMplz job. Smaller as 4 use default setting
 default_rqmt = [("mem", 4),("time", 1)]
 
 
 
-def get_count_based_n_gram(vocab: Bpe, N_order: int) -> Tuple[tk.Path, tk.Variable]:
+def get_count_based_n_gram(vocab: Optional[str], N_order: int) -> Tuple[tk.Path, tk.Variable]:
     kenlm_repo = CloneGitRepositoryJob("https://github.com/kpu/kenlm").out_repository.copy()
     KENLM_BINARY_PATH = CompileKenLMJob(repository=kenlm_repo).out_binaries.copy()
     KENLM_BINARY_PATH.hash_overwrite = "LIBRISPEECH_DEFAULT_KENLM_BINARY_PATH"
@@ -340,20 +343,27 @@ def get_count_based_n_gram(vocab: Bpe, N_order: int) -> Tuple[tk.Path, tk.Variab
     else:
         rqmt = dict(default_rqmt)
     subword_nmt = get_returnn_subword_nmt()
-    
+
     lm_data = get_librispeech_lm_combined_txt()
-    
-    bpe_text = ApplyBPEToTextJob(
-        text_file=lm_data,
-        bpe_codes=vocab.codes,
-        bpe_vocab=tk.Path(vocab.vocab.get_path()[:-5] + "dummy_count.vocab"),
-        subword_nmt_repo=subword_nmt,
-        gzip_output=True,
-        mini_task=False,
-    ).out_bpe_text
-    
+    if re.match("^bpe[0-9]+.*$", vocab):
+        from ..language_models.librispeech import _get_bpe_vocab, bpe10k
+        if vocab == "bpe10k":
+            vocab = bpe10k
+            rqmt = dict([(key, value*2) for key, value in rqmt.items()])
+        else:
+            vocab = _get_bpe_vocab(bpe_size=vocab[len("bpe") :])
+        text = ApplyBPEToTextJob(
+            text_file=lm_data,
+            bpe_codes=vocab.codes,
+            bpe_vocab=tk.Path(vocab.vocab.get_path() [:-5] + "dummy_count.vocab"), #
+            subword_nmt_repo=subword_nmt,
+            gzip_output=True,
+            mini_task=False,
+        ).out_bpe_text
+    else: # Train on whole word
+        text = lm_data
     lm_arpa = KenLMplzJob(
-        text=[bpe_text],
+        text=[text],
         order=N_order,
         interpolate_unigrams=False, # Set false for Compatibility with srilm
         use_discount_fallback=True,
@@ -370,7 +380,7 @@ def get_count_based_n_gram(vocab: Bpe, N_order: int) -> Tuple[tk.Path, tk.Variab
     ppl_job = ComputeNgramLmPerplexityJob(
         ngram_order=N_order,
         lm = lm_arpa, # Seems only accept arpa LM
-        eval_data=bpe_text, # This is train data for the LM. TODO: use same data for eval on ASR model
+        eval_data=text, # This is train data for the LM.
         ngram_exe=SRILM_PATH.join_right("ngram"),
         mem_rqmt=rqmt["mem"],
         time_rqmt=1,
