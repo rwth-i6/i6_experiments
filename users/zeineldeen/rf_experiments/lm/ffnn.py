@@ -25,12 +25,17 @@ def py():
     from i6_experiments.users.zeyer.train_v3 import train
     from i6_experiments.users.zeyer.datasets.librispeech import get_librispeech_lm_dataset
 
-    for context_size in [10]:
+    for context_size in [5, 10, 20]:
         train(
             f"lm/ffnn-n2-ctx{context_size}-embd128-d1024-bpe128-drop0.1",
             config=dict_update_deep(
                 config_11gb_lm_v1,
-                {**_get_cfg_lrlin_oclr_by_bs_nep(200, 10_000, 12), "max_seq_length": {}},
+                {
+                    **_get_cfg_lrlin_oclr_by_bs_nep(200, 10_000, 50),
+                    "max_seq_length": {},
+                    "torch_distributed": None,
+                    "use_horovod": False,
+                },
             ),
             train_dataset=get_librispeech_lm_dataset(vocab="bpe128"),
             model_def=ModelDefWithCfg(
