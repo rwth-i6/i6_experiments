@@ -164,8 +164,8 @@ def recog_model(
     search_post_config: Optional[Dict[str, Any]] = None,
     recog_post_proc_funcs: Sequence[Callable[[RecogOutput], RecogOutput]] = (),
     search_mem_rqmt: Union[int, float] = 6,
-    search_rqmt: Optional[Dict[str, Any]] = None,
-    dev_sets: Optional[Collection[str]] = None,
+    search_rqmt: Optional[Dict[str, Any]] = {"time": 6},
+    dev_sets: Optional[Collection[str]] = None, #["dev-other", "test-other"], #TODO make this more visible at higher level
     name: Optional[str] = None,
 ) -> ScoreResultCollection:
     """recog"""
