@@ -54,6 +54,12 @@ mtg_noise055 = tk.Path(
     hash_overwrite="GLOWTTS_TRIAL3_DEV_MTG_07",
 )
 
+mtg_noise055_v2 = tk.Path(
+    ("/").join([PREPATH_CORPORA, "MTG_trial4_dev_sequiturg2p_glowtts460_noise055.xml.gz"]),
+    cached=True,
+    hash_overwrite="GLOWTTS_TRIAL4_DEV_MTG_055",
+)
+
 
 #################
 
@@ -68,12 +74,26 @@ MTG_V1_DEV_DATA = {
         description="first version with correct pronunciations",
     )
 }
+
+
+MTG_V2_DEV_DATA = {
+    0.55: DATASET(
+        lexicon_with_unk=tk.Path(f"{PREPATH_ASR3}/lexicon/v2/MTG_trial4.lsoverride.rasr_with_unk.xml.gz", cached=True, hash_overwrite="mtg_v2_unk"),
+        lexicon_no_unk=tk.Path(
+            f"{PREPATH_ASR3}/lexicon/v2/MTG_trial4.lsoverride.rasr_without_unk.xml.gz", cached=True, hash_overwrite="mtg_v2_nounk"
+        ),
+        corpus=mtg_noise055_v2,
+        lm=tk.Path(f"{PREPATH_ASR3}/lm/v2/MTG_trial4.lm.gz", cached=True, hash_overwrite="mtg_lm_v2"),
+        description="first version with correct pronunciations",
+    )
+}
 #################
 
 
 MTG_CORPORA = ["dev"]
 MTG_DURATIONS = {"dev": 1.0}
 MTG_DEV_VERSIONS = {1: MTG_V1_DEV_DATA,
+                    2: MTG_V2_DEV_DATA,
                         }
 
 MTG_TEST_VERSIONS = {}
