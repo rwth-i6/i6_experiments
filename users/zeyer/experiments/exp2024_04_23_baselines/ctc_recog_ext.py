@@ -436,7 +436,7 @@ def py():
             dataset=dataset,
             model=ctc_model,
             recog_def=model_recog_ctc_only,
-            config={"beam_size": 16},
+            config={"beam_size": 128},
             keep_beam=True,
         )
         prior_scores = prior_score(ctc_scores, prior=Prior(file=log_prior_wo_blank, type="log_prob", vocab=vocab_file))
