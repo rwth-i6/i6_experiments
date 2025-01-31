@@ -2,22 +2,27 @@
 CTC recognition with LM
 """
 
-from typing import Optional, Any, Tuple, Dict
+from __future__ import annotations
+from typing import TYPE_CHECKING, Optional, Union, Any, Tuple, Dict
 import functools
 import numpy as np
 
 from returnn.tensor import Tensor, Dim
 import returnn.frontend as rf
 
-from sisyphus import Job, Task, tk
+from sisyphus import Job, tk
 
 from returnn_common.datasets_old_2022_10.interface import DatasetConfig
 from i6_experiments.users.zeyer.model_interfaces import ModelDef, ModelDefWithCfg, RecogDef, ModelWithCheckpoint
+from i6_experiments.users.zeyer.datasets.task import Task
 
 from i6_experiments.users.zeyer.recog import recog_model, search_dataset
 from i6_experiments.users.zeyer.collect_model_dataset_stats import collect_statistics
 
 from .ctc import Model, ctc_model_def, _batch_size_factor
+
+if TYPE_CHECKING:
+    from i6_experiments.users.zeyer.decoding.prior_rescoring import Prior
 
 
 _ctc_model_name = (
@@ -426,50 +431,19 @@ def py():
                 scales_results[(prior_scale, lm_scale)] = res.output
         _plot_scales(f"rescore-beam{beam_size}-lm_{lm_out_name}", scales_results)
 
-        # TODO make one single combined job for finding the optimal scales,
-        #  i.e. iterating through some given scales, and evaluating WER for each,
-        #  maybe with post-processing like SPM-merging before WER evaluation.
-
-        # see recog_model
-        dataset = task.eval_datasets["dev-other"]
-        ctc_scores = search_dataset(
-            dataset=dataset,
-            model=ctc_model,
-            recog_def=model_recog_ctc_only,
-            config={"beam_size": 128},
-            keep_beam=True,
+        ctc_recog_auto_scale(
+            prefix=f"{prefix}/opt-beam128-lm_n24-d512",
+            task=task,
+            ctc_model=ctc_model,
+            am_recog_def=model_recog_ctc_only,
+            labelwise_prior=Prior(file=log_prior_wo_blank, type="log_prob", vocab=vocab_file),
+            # TODO fix, remove framewise...
+            framewise_prior=Prior(file=prior, type="prob", vocab=vocab_w_blank_file),
+            lm=_get_lm_model(_lms["n24-d512"]),
+            vocab_file=vocab_file,
+            vocab_opts_file=vocab_opts_file,
+            beam_size=128,
         )
-        prior_scores = prior_score(ctc_scores, prior=Prior(file=log_prior_wo_blank, type="log_prob", vocab=vocab_file))
-        lm_scores = lm_score(
-            ctc_scores, lm=_get_lm_model(_lms["n24-d512"]), vocab=vocab_file, vocab_opts_file=vocab_opts_file
-        )
-
-        from i6_experiments.users.zeyer.datasets.utils.serialize import ReturnnDatasetToTextDictJob
-        from i6_experiments.users.zeyer.datasets.task import RecogOutput
-
-        ref = RecogOutput(
-            output=ReturnnDatasetToTextDictJob(
-                returnn_dataset=dataset.get_main_dataset(), data_key=dataset.get_default_target()
-            ).out_txt
-        )
-
-        for f in task.recog_post_proc_funcs:  # BPE to words or so
-            ctc_scores = f(ctc_scores)
-            prior_scores = f(prior_scores)
-            lm_scores = f(lm_scores)
-            ref = f(ref)
-
-        from i6_experiments.users.zeyer.decoding.scale_tuning import ScaleTuningJob
-
-        opt_scales = ScaleTuningJob(
-            scores={"ctc": ctc_scores.output, "prior": prior_scores.output, "lm": lm_scores.output},
-            ref=ref.output,
-            fixed_scales={"ctc": 1.0},
-            negative_scales={"prior"},
-            scale_relative_to={"prior": "lm"},
-            evaluation="edit_distance",
-        ).out_scales
-        tk.register_output(f"{prefix}/opt_scales", opt_scales)
 
         scales_results = {}
         for lm_scale in np.linspace(0.0, 1.0, 11):
@@ -696,10 +670,11 @@ def get_ctc_with_lm(
     ctc_model: ModelWithCheckpoint,
     prior: Optional[tk.Path] = None,
     prior_type: str = "prob",
-    prior_scale: Optional[float] = None,
+    prior_scale: Optional[Union[float, tk.Variable]] = None,
     language_model: ModelWithCheckpoint,
-    lm_scale: float,
+    lm_scale: Union[float, tk.Variable],
 ) -> ModelWithCheckpoint:
+    """Combined CTC model with LM and prior"""
     # Keep CTC model config as-is, extend below for prior and LM.
     ctc_model_def = ctc_model.definition
     if isinstance(ctc_model_def, ModelDefWithCfg):
@@ -711,7 +686,7 @@ def get_ctc_with_lm(
     # Then the CTC Model log_probs_wb_from_logits will include the prior.
     if prior is not None:
         assert prior_scale is not None
-    if prior_scale:
+    if prior_scale is not None:
         assert prior is not None
         config.update(
             {
@@ -1024,6 +999,89 @@ def ctc_prior_full_sum_rescore(
     return log_prob_targets_seq
 
 
+def ctc_recog_auto_scale(
+    *,
+    prefix: str,
+    task: Task,
+    ctc_model: ModelWithCheckpoint,
+    am_recog_def: RecogDef,
+    labelwise_prior: Prior,
+    framewise_prior: Prior,
+    lm: ModelWithCheckpoint,
+    vocab_file: tk.Path,
+    vocab_opts_file: tk.Path,
+    beam_size: int,
+):
+    from i6_experiments.users.zeyer.decoding.lm_rescoring import (
+        prior_score,
+        lm_score,
+    )
+
+    # see recog_model, lm_labelwise_prior_rescore
+    dataset = task.dev_dataset
+    asr_scores = search_dataset(
+        dataset=dataset,
+        model=ctc_model,
+        recog_def=am_recog_def,
+        config={"beam_size": beam_size},
+        keep_beam=True,
+    )
+    prior_scores = prior_score(asr_scores, prior=labelwise_prior)
+    lm_scores = lm_score(asr_scores, lm=lm, vocab=vocab_file, vocab_opts_file=vocab_opts_file)
+
+    from i6_experiments.users.zeyer.datasets.utils.serialize import ReturnnDatasetToTextDictJob
+    from i6_experiments.users.zeyer.datasets.task import RecogOutput
+
+    ref = RecogOutput(
+        output=ReturnnDatasetToTextDictJob(
+            returnn_dataset=dataset.get_main_dataset(), data_key=dataset.get_default_target()
+        ).out_txt
+    )
+
+    for f in task.recog_post_proc_funcs:  # BPE to words or so
+        asr_scores = f(asr_scores)
+        prior_scores = f(prior_scores)
+        lm_scores = f(lm_scores)
+        ref = f(ref)
+
+    from i6_experiments.users.zeyer.decoding.scale_tuning import ScaleTuningJob
+
+    opt_scales_job = ScaleTuningJob(
+        scores={"am": asr_scores.output, "prior": prior_scores.output, "lm": lm_scores.output},
+        ref=ref.output,
+        fixed_scales={"am": 1.0},
+        negative_scales={"prior"},
+        scale_relative_to={"prior": "lm"},
+        evaluation="edit_distance",
+    )
+    tk.register_output(f"{prefix}/opt_scales", opt_scales_job.out_scales)
+
+    # TODO that's the wrong prior! get_ctc_with_lm expects a framewise prior...
+    #   should implement that get_ctc_with_lm + recog_model + model_recog can also work with labelwise prior
+    model = get_ctc_with_lm(
+        ctc_model=ctc_model,
+        prior=framewise_prior.file,
+        prior_type=framewise_prior.type,
+        prior_scale=opt_scales_job.out_real_scale_per_name["prior"],
+        language_model=lm,
+        lm_scale=opt_scales_job.out_real_scale_per_name["lm"],
+    )
+    res = recog_model(
+        task=task,
+        model=model,
+        recog_def=model_recog,
+        config={
+            "beam_size": beam_size,
+            "recog_version": 9,
+            "batch_size": 5_000 * ctc_model.definition.batch_size_factor,
+            "__trigger_hash_change": 1,
+        },
+        search_rqmt={"time": 24},
+        name=f"{prefix}/recog-opt",
+    )
+    tk.register_output(f"{prefix}/recog-opt-res", res.output)
+
+
 def _plot_scales(name: str, results: Dict[Tuple[float, float], tk.Path], x_axis_name: str = "prior_scale"):
     prefix = f"{_sis_prefix}/ctc+lm"
     plot_fn = PlotResults2DJob(x_axis_name=x_axis_name, y_axis_name="lm_scale", results=results).out_plot
@@ -1043,6 +1101,8 @@ class PlotResults2DJob(Job):
         self.out_plot = self.output_path("out-plot.pdf")
 
     def tasks(self):
+        from sisyphus import Task
+
         yield Task("run", mini_task=True)
 
     def run(self):
