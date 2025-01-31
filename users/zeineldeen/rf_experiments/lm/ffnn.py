@@ -4,9 +4,8 @@ training based on i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines
 
 from __future__ import annotations
 
-from typing import Optional, Sequence, Tuple
+from typing import TYPE_CHECKING, Optional, Sequence, Tuple
 
-import torch
 import tree
 
 from returnn.tensor import Tensor, Dim, single_step_dim
@@ -20,12 +19,16 @@ from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.configs impo
 from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.lm import _get_cfg_lrlin_oclr_by_bs_nep
 from i6_experiments.users.zeyer.utils.dict_update import dict_update_deep
 
+from i6_experiments.users.zeineldeen.rf_experiments.lm.lm_ppl import compute_ppl
+
 
 def py():
     from i6_experiments.users.zeyer.train_v3 import train
     from i6_experiments.users.zeyer.datasets.librispeech import get_librispeech_lm_dataset
 
-    train(
+    bpe_128_lm_dataset = get_librispeech_lm_dataset(vocab="bpe128")
+
+    model_with_checkpoints = train(
         f"lm/ffnn-n2-ctx10-embd128-d2048-bpe128-drop0.1-relu",
         config=dict_update_deep(
             config_11gb_lm_v1,
@@ -36,7 +39,7 @@ def py():
                 "use_horovod": False,
             },
         ),
-        train_dataset=get_librispeech_lm_dataset(vocab="bpe128"),
+        train_dataset=bpe_128_lm_dataset,
         model_def=ModelDefWithCfg(
             lm_model_def,
             {
@@ -53,6 +56,13 @@ def py():
         train_def=lm_train_def,
     )
 
+    compute_ppl(
+        prefix_name="ffnn-n2-ctx10-embd128-d2048-bpe128-drop0.1-relu/trans",
+        model_with_checkpoints=model_with_checkpoints,
+        dataset=bpe_128_lm_dataset,
+        dataset_key="transcriptions-train",
+    )
+
     train(
         f"lm/ffnn-n2-ctx10-embd128-d2048-bpe128-drop0.1-tanh",
         config=dict_update_deep(
@@ -64,7 +74,7 @@ def py():
                 "use_horovod": False,
             },
         ),
-        train_dataset=get_librispeech_lm_dataset(vocab="bpe128"),
+        train_dataset=bpe_128_lm_dataset,
         model_def=ModelDefWithCfg(
             lm_model_def,
             {
@@ -82,7 +92,7 @@ def py():
         train_def=lm_train_def,
     )
 
-    train(
+    model_with_checkpoints = train(
         f"lm/ffnn-n2-ctx10-embd128-d2048-bpe128-drop0.0-tanh",
         config=dict_update_deep(
             config_11gb_lm_v1,
@@ -93,7 +103,7 @@ def py():
                 "use_horovod": False,
             },
         ),
-        train_dataset=get_librispeech_lm_dataset(vocab="bpe128"),
+        train_dataset=bpe_128_lm_dataset,
         model_def=ModelDefWithCfg(
             lm_model_def,
             {
@@ -110,10 +120,6 @@ def py():
         ),
         train_def=lm_train_def,
     )
-
-
-def compute_ppl():
-    pass
 
 
 class FeedForwardLm(rf.Module):
@@ -176,7 +182,6 @@ class FeedForwardLm(rf.Module):
         out_spatial_dim: Optional[Dim] = None,
         state: Optional[rf.State] = None,
     ) -> Tuple[rf.Tensor, rf.State]:
-
         embed_out = self.embedding(rf.cast(input, "int64"))
         embed_out = rf.dropout(
             embed_out,
