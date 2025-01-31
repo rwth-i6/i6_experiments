@@ -17,6 +17,8 @@ class ScaleTuningJob(Job):
     Tunes some scales
     """
 
+    __sis_version__ = 2
+
     def __init__(
         self,
         scores: Dict[str, tk.Path],
@@ -57,6 +59,7 @@ class ScaleTuningJob(Job):
 
         self.out_scales = self.output_var("scales.txt")
         self.out_real_scales = self.output_var("real_scales.txt")
+        self.out_real_scale_per_name = {name: self.output_var(f"real_scale_{name}.txt") for name in scores}
         self.out_grid_plot = self.output_path("grid_plot.0.pdf") if len(scores) - len(fixed_scales) == 2 else None
 
         self.rqmt = {"gpu": 0, "cpu": 4, "mem": 12, "time": 4}
@@ -102,3 +105,10 @@ class ScaleTuningJob(Job):
         assert os.path.exists(self.out_real_scales.get_path())
         if self.out_grid_plot:
             assert os.path.exists(self.out_grid_plot.get_path())
+
+        real_scales = eval(open(self.out_real_scales.get_path()).read())
+        assert isinstance(real_scales, dict) and set(real_scales.keys()) == set(self.scores.keys()) == set(
+            self.out_real_scale_per_name.keys()
+        )
+        for name, scale in real_scales.items():
+            self.out_real_scale_per_name[name].set(scale)
