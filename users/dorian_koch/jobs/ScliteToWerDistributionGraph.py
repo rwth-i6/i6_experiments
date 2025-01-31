@@ -10,17 +10,24 @@ class ScliteToWerDistributionGraph(Job):
         *,
         report_dir: tk.AbstractPath,
         num_bins: int = 10,
+        plot_title: str = "WER distribution",
     ):
         self.report_dir = report_dir
         self.num_bins = num_bins
+        self.plot_title = plot_title
 
         self.out_file = self.output_path("vals.csv")
-        self.distrib_file = self.output_path("distrib.txt")
+        self.distrib_file = self.output_path("distrib.csv")
+        self.out_plot = self.output_path("plot.png")
+        self.out_plot_no_ylim = self.output_path("plot_no_ylim.png")
+        self.out_plot_ylim_without_first_bin = self.output_path("plot_ylim_without_first_bin.png")
 
     def tasks(self):
         yield Task("run", mini_task=True)
 
     def run(self):
+        import matplotlib.pyplot as plt
+        import matplotlib.ticker as ticker
         output_dir = self.report_dir.get_path()
 
         values = []
@@ -55,6 +62,27 @@ class ScliteToWerDistributionGraph(Job):
             bins[bin_idx] += 1
 
         print("WER distribution:")
-        for i, count in enumerate(bins):
-            print(f"{i/self.num_bins:.2f}-{(i+1)/self.num_bins:.2f}: {count / len(values) * 100:.2f}%")
-        
+        with uopen(self.distrib_file, "wt") as out:
+            out.write("bin_start,bin_end,count,relative_count\n")
+            for i, count in enumerate(bins):
+                print(f"{i/self.num_bins:.4f}-{(i+1)/self.num_bins:.4f}: {count / len(values) * 100:.3f}%")
+                out.write(f"{i/self.num_bins:.4f},{(i+1)/self.num_bins:.4f},{count},{count / len(values):.6f}\n")
+
+
+        plt.figure(figsize=(8, 8))
+        # show relative count
+        plt.bar(range(self.num_bins), [count / len(values) for count in bins])
+
+        plt.xlabel("WER")
+        plt.ylabel("%")
+        plt.ylim(0, 1)
+        plt.title(self.plot_title)
+        plt.xticks(range(0, self.num_bins, max(1, self.num_bins // 10)), [f"{i/self.num_bins:.2f}" for i in range(0, self.num_bins, max(1, self.num_bins // 10))])
+        plt.grid(axis="y")
+        plt.savefig(self.out_plot)
+        plt.autoscale(axis="y")
+        plt.savefig(self.out_plot_no_ylim)
+        new_ylim = max([count / len(values) for count in bins[1:]]) * 1.1
+        plt.ylim(0, new_ylim)
+        plt.savefig(self.out_plot_ylim_without_first_bin)
+
