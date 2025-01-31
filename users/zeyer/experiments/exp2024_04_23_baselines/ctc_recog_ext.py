@@ -14,7 +14,7 @@ from sisyphus import Job, Task, tk
 from returnn_common.datasets_old_2022_10.interface import DatasetConfig
 from i6_experiments.users.zeyer.model_interfaces import ModelDef, ModelDefWithCfg, RecogDef, ModelWithCheckpoint
 
-from i6_experiments.users.zeyer.recog import recog_model
+from i6_experiments.users.zeyer.recog import recog_model, search_dataset
 from i6_experiments.users.zeyer.collect_model_dataset_stats import collect_statistics
 
 from .ctc import Model, ctc_model_def, _batch_size_factor
@@ -325,6 +325,8 @@ def py():
             lm_labelwise_prior_rescore,
             lm_am_labelwise_prior_rescore,
             lm_am_labelwise_prior_ngram_rescore,
+            prior_score,
+            lm_score,
         )
         from i6_experiments.users.zeyer.decoding.prior_rescoring import Prior, PriorRemoveLabelRenormJob
         from i6_experiments.users.zeyer.datasets.utils.vocab import (
@@ -427,6 +429,47 @@ def py():
         # TODO make one single combined job for finding the optimal scales,
         #  i.e. iterating through some given scales, and evaluating WER for each,
         #  maybe with post-processing like SPM-merging before WER evaluation.
+
+        # see recog_model
+        dataset = task.eval_datasets["dev-other"]
+        ctc_scores = search_dataset(
+            dataset=dataset,
+            model=ctc_model,
+            recog_def=model_recog_ctc_only,
+            config={"beam_size": 16},
+            keep_beam=True,
+        )
+        prior_scores = prior_score(ctc_scores, prior=Prior(file=log_prior_wo_blank, type="log_prob", vocab=vocab_file))
+        lm_scores = lm_score(
+            ctc_scores, lm=_get_lm_model(_lms["n24-d512"]), vocab=vocab_file, vocab_opts_file=vocab_opts_file
+        )
+
+        from i6_experiments.users.zeyer.datasets.utils.serialize import ReturnnDatasetToTextDictJob
+        from i6_experiments.users.zeyer.datasets.task import RecogOutput
+
+        ref = RecogOutput(
+            output=ReturnnDatasetToTextDictJob(
+                returnn_dataset=dataset.get_main_dataset(), data_key=dataset.get_default_target()
+            ).out_txt
+        )
+
+        for f in task.recog_post_proc_funcs:  # BPE to words or so
+            ctc_scores = f(ctc_scores)
+            prior_scores = f(prior_scores)
+            lm_scores = f(lm_scores)
+            ref = f(ref)
+
+        from i6_experiments.users.zeyer.decoding.scale_tuning import ScaleTuningJob
+
+        opt_scales = ScaleTuningJob(
+            scores={"ctc": ctc_scores.output, "prior": prior_scores.output, "lm": lm_scores.output},
+            ref=ref.output,
+            fixed_scales={"ctc": 1.0},
+            negative_scales={"prior"},
+            scale_relative_to={"prior": "lm"},
+            evaluation="edit_distance",
+        ).out_scales
+        tk.register_output(f"{prefix}/opt_scales", opt_scales)
 
         scales_results = {}
         for lm_scale in np.linspace(0.0, 1.0, 11):
