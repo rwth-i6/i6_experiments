@@ -33,9 +33,9 @@ def baseline_report_format(report: _Report_Type) -> str:
     ]
     out = sorted(out, key=lambda x: float(x[1]))
     best_ls = [out[0]]
-    if any("cycle" in x for x in best_ls):
+    if any("cycle" in x[0] for x in best_ls):
         ex_str = calc_stat(out)
-        best_ls = ["Cycle Statistics: " + ex_str] + best_ls
+        out.insert(0, ("Cycle Statistics: ", ex_str))
     for dataset in sets:
         for extra in extra_ls:
             if extra == "quantize_static":

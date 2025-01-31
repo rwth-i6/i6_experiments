@@ -304,6 +304,7 @@ def eow_phon_ted_1023_qat():
                 decoder_module="ctc.decoder.flashlight_qat_phoneme_ctc",
                 prior_scales=[0.1, 0.3, 0.5, 0.7, 0.9],
                 lm_scales=[1.8, 2.0, 2.2, 2.4, 2.6, 2.8],
+                import_memristor=True,
             )
             generate_report(results=results, exp_name=training_name)
             qat_report[training_name] = results
@@ -365,7 +366,9 @@ def eow_phon_ted_1023_qat():
             qat_report[training_name] = results
 
             res_cyc = {}
-            for num_cycle in range(1, 11):
+            for num_cycle in range(1, 51):
+                if num_cycle > 10 and not weight_bit == 4:
+                    continue
                 model_config = MemristorModelTrainConfigV4(
                     feature_extraction_config=fe_config,
                     frontend_config=default_frontend_config,
@@ -449,15 +452,20 @@ def eow_phon_ted_1023_qat():
                     "use_speed_perturbation": True,
                 }
 
-                training_name = prefix_name + "/" + network_module_mem_v4 + f"_{weight_bit}_{activation_bit}_cycle"
+                training_name = (
+                    prefix_name
+                    + "/"
+                    + network_module_mem_v4
+                    + f"_{weight_bit}_{activation_bit}_cycle_{num_cycle // 11}"
+                )
                 res_cyc = eval_model(
-                    training_name=training_name + f"{num_cycle}",
+                    training_name=training_name + f"_{num_cycle}",
                     train_job=train_job,
                     train_args=train_args,
                     train_data=train_data_4k,
                     decoder_config=default_decoder_config,
                     dev_dataset_tuples=dev_dataset_tuples,
-                    result_dict=None,
+                    result_dict=res_cyc,
                     decoder_module="ctc.decoder.flashlight_qat_phoneme_ctc",
                     prior_scales=[0.5],
                     lm_scales=[2.0],
@@ -467,10 +475,11 @@ def eow_phon_ted_1023_qat():
                     import_memristor=not train_args["debug"],
                     use_gpu=True,
                 )
-            generate_report(results=res_cyc, exp_name=training_name)
-            qat_report[training_name] = res_cyc
+                if num_cycle % 10 == 0:
+                    generate_report(results=res_cyc, exp_name=training_name)
+                    qat_report[training_name] = res_cyc
 
-            if weight_bit in [4, 6, 8]:
+            if weight_bit in [3, 4, 6, 8]:
                 for prec_bit, range_bit in [(8, 8), (8, 6), (6, 8), (6, 6), (4, 6), (4, 4), (4, 2), (2, 2), (2, 1)]:
                     dac_settings = DacAdcHardwareSettings(
                         input_bits=activation_bit,
@@ -688,6 +697,7 @@ def eow_phon_ted_1023_qat():
                     decoder_module="ctc.decoder.flashlight_qat_phoneme_ctc",
                     prior_scales=[0.1, 0.3, 0.5, 0.7, 0.9],
                     lm_scales=[1.8, 2.0, 2.2, 2.4, 2.6, 2.8],
+                    import_memristor=True,
                 )
                 generate_report(results=results, exp_name=training_name)
                 qat_report[training_name] = results

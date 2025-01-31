@@ -63,7 +63,7 @@ def search_single(
         returnn_config=returnn_config,
         log_verbosity=5,
         mem_rqmt=mem_rqmt,
-        time_rqmt=24,
+        time_rqmt=24 if not "cycle" in prefix_name else 48,
         device="gpu" if use_gpu else "cpu",
         cpu_rqmt=8 if mem_rqmt < 30 else 16,
         returnn_python_exe=returnn_exe,

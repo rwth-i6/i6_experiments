@@ -265,28 +265,27 @@ def tune_and_evaluate_helper(
                                 **default_returnn,
                             )
                             results.update(wers)
-    pick_optimal_params_job = GetOptimalParametersAsVariableJob(
-        parameters=tune_parameters, values=tune_values, mode="minimize"
-    )
-    pick_optimal_params_job.add_alias(training_name + f"/pick_best_dev")
+    pick_optimal_params_job = None
     if run_test is True and test_dataset_tuples is not None:
-        for lm_weight in lm_scales:
-            for prior_scale in prior_scales:
-                # for key, tune_values in [("test", tune_values)]:
-                decoder_config = copy.deepcopy(base_decoder_config)
-                decoder_config.lm_weight = lm_weight
-                decoder_config.prior_scale = prior_scale
-                search_jobs, wers = search(
-                    training_name + "/search_lm%.1f_prior%.1f" % (lm_weight, prior_scale),
-                    forward_config=extra_forward_config or {},
-                    asr_model=asr_model,
-                    decoder_module=decoder_module,
-                    decoder_args={"config": asdict(decoder_config)},
-                    test_dataset_tuples={"test": test_dataset_tuples["test"]},
-                    use_gpu=use_gpu,
-                    **default_returnn,
-                )
-                results.update(wers)
+        for key, tune_values in [("test", tune_values)]:
+            pick_optimal_params_job = GetOptimalParametersAsVariableJob(
+                parameters=tune_parameters, values=tune_values, mode="minimize"
+            )
+            pick_optimal_params_job.add_alias(training_name + f"/pick_best_{key}")
+            decoder_config = copy.deepcopy(base_decoder_config)
+            decoder_config.lm_weight = pick_optimal_params_job.out_optimal_parameters[0]
+            decoder_config.prior_scale = pick_optimal_params_job.out_optimal_parameters[1]
+            search_jobs, wers = search(
+                training_name,
+                forward_config=extra_forward_config or {},
+                asr_model=asr_model,
+                decoder_module=decoder_module,
+                decoder_args={"config": asdict(decoder_config)},
+                test_dataset_tuples={"test": test_dataset_tuples["test"]},
+                use_gpu=use_gpu,
+                **default_returnn,
+            )
+        results.update(wers)
     return results, pick_optimal_params_job
 
 
@@ -396,6 +395,11 @@ def build_hubert_report(report: Dict):
         if all(dic.values()):
             best = min(dic, key=dic.get)
             best_dc[" ".join(exp.split("/")[5:])] = ("{:.1f}".format(float(dic[best])), best)
+            if "/".join(best.split("/")[:-2]) + "/test" in dic:
+                best_dc["/".join(best.split("/")[:-2]) + "/test"] = (
+                    "{:.1f}".format(float(dic["/".join(best.split("/")[:-2]) + "/test"])),
+                    best,
+                )
         else:
             best_dc[" ".join(exp.split("/")[5:])] = ("None", "")
     line = []
@@ -408,9 +412,18 @@ def build_base_report(report: Dict):
     best_dc = {}
     for exp, dic in report.items():
         instanciate_delayed(dic)
-        if all(dic.values()):
-            best = min(dic, key=dic.get)
-            best_dc[" ".join(exp.split("/")[5:])] = ("{:.1f}".format(float(dic[best])), best)
+        tmp = {x: dic[x] for x in dic.keys() if not "test" in x}
+        if all(tmp.values()):
+            best = min(tmp, key=tmp.get)
+            best_dc[" ".join(exp.split("/")[5:])] = ("{:.1f}".format(float(tmp[best])), best)
+            if "/".join(best.split("/")[:-2]) + "/test" in dic:
+                if dic["/".join(best.split("/")[:-2]) + "/test"] is not None:
+                    best_dc["/".join(best.split("/")[:-2]) + "/test"] = (
+                        "{:.1f}".format(float(dic["/".join(best.split("/")[:-2]) + "/test"])),
+                        best,
+                    )
+                else:
+                    best_dc["/".join(best.split("/")[:-2]) + "/test"] = ("None", "")
         else:
             best_dc[" ".join(exp.split("/")[5:])] = ("None", "")
     line = []
@@ -435,9 +448,18 @@ def build_hubert_distill_report(report: Dict):
         best_dc[exp] = best
     for exp, dic in report.items():
         instanciate_delayed(dic)
-        if all(dic.values()):
-            best = min(dic, key=dic.get)
-            best_dc[" ".join(exp.split("/")[5:])] = ("{:.1f}".format(float(dic[best])), best)
+        tmp = {x: dic[x] for x in dic.keys() if not "test" in x}
+        if all(tmp.values()):
+            best = min(tmp, key=tmp.get)
+            best_dc[" ".join(exp.split("/")[5:])] = ("{:.1f}".format(float(tmp[best])), best)
+            if "/".join(best.split("/")[:-2]) + "/test" in dic:
+                if dic["/".join(best.split("/")[:-2]) + "/test"] is not None:
+                    best_dc["/".join(best.split("/")[:-2]) + "/test"] = (
+                        "{:.1f}".format(float(dic["/".join(best.split("/")[:-2]) + "/test"])),
+                        best,
+                    )
+                else:
+                    best_dc["/".join(best.split("/")[:-2]) + "/test"] = ("None", "")
         else:
             best_dc[" ".join(exp.split("/")[5:])] = ("None", "")
     line = []
@@ -516,7 +538,14 @@ def build_hubert_distill_report(report: Dict):
                 del tmp[exp]
         line.append("")
 
-    best_dc = tmp
+    tmp = copy.deepcopy(best_dc)
+    line.append("Testsets")
+    for exp, value in best_dc.items():
+        if "test" in exp:
+            line.append(
+                f"{' '.join(exp.split('.')[2:])}: {value[0]}   {' '.join(value[1].split('/')[6:])}"
+            )
+            del tmp[exp]
     assert len(best_dc) == 0, best_dc
     return "\n".join(line)
 

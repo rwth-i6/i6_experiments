@@ -28,6 +28,13 @@ def eval_model(
     specific_epoch: Optional[Union[int, List]] = None,
     decoder_module: str = "ctc.decoder.flashlight_ctc_v1",
     loss_name: str = "dev_loss_ctc",
+    use_gpu: bool = False,
+    extra_forward_config: Optional[dict[str, Any]] = None,
+    run_best_4: bool = True,
+    run_best: bool = True,
+    run_test: bool = False,
+    test_dataset_tuples: Optional[Dict[str, Any]] = None,
+    prior_args: Optional[Dict[str, Any]] = None,
 ):
     if specific_epoch is None:
         specific_epoch = train_job.returnn_config.post_config["num_epochs"]
@@ -39,16 +46,20 @@ def eval_model(
         prior_scales = [0.7, 0.9]
     if result_dict is None:
         result_dict = {}
+    debug = train_args.get("debug", False)
     for epoch in specific_epoch:
         asr_model = prepare_asr_model(
             training_name + f"/{epoch}",
             train_job,
-            train_args,
+            train_args if prior_args is None else prior_args,
             with_prior=True,
             datasets=train_data,
             get_specific_checkpoint=epoch,
         )
-        res = tune_and_evaluate_helper(
+        if prior_args is not None:
+            asr_model.net_args = train_args["net_args"]
+            asr_model.network_module = train_args["network_module"]
+        res, _ = tune_and_evaluate_helper(
             training_name + f"/{epoch}",
             asr_model,
             decoder_config,
@@ -56,44 +67,67 @@ def eval_model(
             prior_scales=prior_scales,
             dev_dataset_tuples=dev_dataset_tuples,
             decoder_module=decoder_module,
+            use_gpu=use_gpu,
+            debug=debug,
+            extra_forward_config=extra_forward_config,
+            run_test=run_test,
+            test_dataset_tuples=test_dataset_tuples,
         )
         result_dict.update(res)
-    asr_model_best4 = prepare_asr_model(
-        training_name + "/best4",
-        train_job,
-        train_args,
-        with_prior=True,
-        datasets=train_data,
-        get_best_averaged_checkpoint=(4, loss_name),
-    )
-    res = tune_and_evaluate_helper(
-        training_name + "/best4",
-        asr_model_best4,
-        decoder_config,
-        lm_scales=lm_scales,
-        prior_scales=prior_scales,
-        dev_dataset_tuples=dev_dataset_tuples,
-        decoder_module=decoder_module,
-    )
-    result_dict.update(res)
-    asr_model_best = prepare_asr_model(
-        training_name + "/best",
-        train_job,
-        train_args,
-        with_prior=True,
-        datasets=train_data,
-        get_best_averaged_checkpoint=(1, loss_name),
-    )
-    res = tune_and_evaluate_helper(
-        training_name + "/best",
-        asr_model_best,
-        decoder_config,
-        lm_scales=lm_scales,
-        prior_scales=prior_scales,
-        dev_dataset_tuples=dev_dataset_tuples,
-        decoder_module=decoder_module,
-    )
-    result_dict.update(res)
+    if run_best_4 is True:
+        asr_model_best4 = prepare_asr_model(
+            training_name + "/best4",
+            train_job,
+            train_args if prior_args is None else prior_args,
+            with_prior=True,
+            datasets=train_data,
+            get_best_averaged_checkpoint=(4, loss_name),
+        )
+        if prior_args is not None:
+            asr_model_best4.net_args = train_args["net_args"]
+            asr_model_best4.network_module = train_args["network_module"]
+        res, _ = tune_and_evaluate_helper(
+            training_name + "/best4",
+            asr_model_best4,
+            decoder_config,
+            lm_scales=lm_scales,
+            prior_scales=prior_scales,
+            dev_dataset_tuples=dev_dataset_tuples,
+            decoder_module=decoder_module,
+            use_gpu=use_gpu,
+            debug=debug,
+            extra_forward_config=extra_forward_config,
+            run_test=run_test,
+            test_dataset_tuples=test_dataset_tuples,
+        )
+        result_dict.update(res)
+    if run_best is True:
+        asr_model_best = prepare_asr_model(
+            training_name + "/best",
+            train_job,
+            train_args if prior_args is None else prior_args,
+            with_prior=True,
+            datasets=train_data,
+            get_best_averaged_checkpoint=(1, loss_name),
+        )
+        if prior_args is not None:
+            asr_model_best.net_args = train_args["net_args"]
+            asr_model_best.network_module = train_args["network_module"]
+        res, _ = tune_and_evaluate_helper(
+            training_name + "/best",
+            asr_model_best,
+            decoder_config,
+            lm_scales=lm_scales,
+            prior_scales=prior_scales,
+            dev_dataset_tuples=dev_dataset_tuples,
+            decoder_module=decoder_module,
+            use_gpu=use_gpu,
+            debug=debug,
+            extra_forward_config=extra_forward_config,
+            run_test=run_test,
+            test_dataset_tuples=test_dataset_tuples,
+        )
+        result_dict.update(res)
     return result_dict
 
 
@@ -106,7 +140,12 @@ def tune_and_evaluate_helper(
     dev_dataset_tuples: Dict[str, Any],
     quant_str: Optional[str] = None,
     test_dataset_tuples: Optional[Dict[str, Any]] = None,
+    quant_args: Optional[Any] = None,
     decoder_module: str = "ctc.decoder.flashlight_ctc_v1",
+    extra_forward_config: Optional[dict[str, Any]] = None,
+    use_gpu: bool = False,
+    debug: bool = False,
+    run_test: bool = False,
 ):
     """
     Example helper to execute tuning over lm_scales and prior scales.
@@ -132,19 +171,82 @@ def tune_and_evaluate_helper(
             search_name = training_name + "/search_lm%.1f_prior%.1f" % (lm_weight, prior_scale)
             search_jobs, wers = search(
                 search_name,
-                forward_config={},
+                forward_config=extra_forward_config or {},
                 asr_model=asr_model,
                 decoder_module=decoder_module,
                 decoder_args={"config": asdict(decoder_config)},
                 test_dataset_tuples=dev_dataset_tuples,
+                use_gpu=use_gpu,
+                debug=debug,
                 **default_returnn,
             )
             tune_parameters.append((lm_weight, prior_scale))
             tune_values_clean.append((wers[search_name + "/dev-clean"]))
             tune_values_other.append((wers[search_name + "/dev-other"]))
             results.update(wers)
-    if test_dataset_tuples is not None and False:
-        # TODO
+    if quant_args is not None:
+        assert quant_str is not None, "You want your quant to have a name"
+        for num_samples in quant_args.sample_ls:
+            for seed in range(quant_args.num_iterations):
+                it_name = training_name + quant_str + f"/quantize_static/samples_{num_samples}/seed_{seed}"
+                quant_config = get_static_quant_config(
+                    training_datasets=quant_args.datasets,
+                    network_module=quant_args.network_module,
+                    net_args=asr_model.net_args,
+                    quant_args=quant_args.quant_config_dict,
+                    config={},
+                    num_samples=num_samples,
+                    dataset_seed=seed,
+                    debug=False,
+                    dataset_filter_args=quant_args.filter_args,
+                )
+                quant_chkpt = quantize_static(
+                    prefix_name=it_name,
+                    returnn_config=quant_config,
+                    checkpoint=asr_model.checkpoint,
+                    returnn_exe=RETURNN_EXE,
+                    returnn_root=QUANT_RETURNN,
+                )
+                quant_model = ASRModel(
+                    checkpoint=quant_chkpt,
+                    net_args=asr_model.net_args | quant_args.quant_config_dict,
+                    network_module=quant_args.network_module,
+                    prior_file=asr_model.prior_file,
+                    prefix_name=it_name,
+                )
+                for lm_weight in lm_scales:
+                    for prior_scale in prior_scales:
+                        decoder_config = copy.deepcopy(base_decoder_config)
+                        decoder_config.lm_weight = lm_weight
+                        decoder_config.prior_scale = prior_scale
+                        search_name = it_name + "/search_lm%.1f_prior%.1f" % (lm_weight, prior_scale)
+                        search_jobs, wers = search(
+                            search_name,
+                            forward_config=extra_forward_config or {},
+                            asr_model=quant_model,
+                            decoder_module=quant_args.decoder,
+                            decoder_args={"config": asdict(decoder_config)},
+                            test_dataset_tuples=dev_dataset_tuples,
+                            use_gpu=use_gpu,
+                            debug=debug,
+                            **default_returnn,
+                        )
+                        results.update(wers)
+                        if test_dataset_tuples is not None and seed in [59, 11, 93, 78, 25, 11, 38, 71, 68, 66, 18, 61]:
+                            search_jobs, wers = search(
+                                search_name,
+                                forward_config={},
+                                asr_model=quant_model,
+                                decoder_module=quant_args.decoder,
+                                decoder_args={"config": asdict(decoder_config)},
+                                test_dataset_tuples=test_dataset_tuples,
+                                use_gpu=use_gpu,
+                                debug=debug,
+                                **default_returnn,
+                            )
+                            results.update(wers)
+    pick_optimal_params_job = None
+    if run_test is True and test_dataset_tuples is not None:
         for key, tune_values in [("test-clean", tune_values_clean), ("test-other", tune_values_other)]:
             pick_optimal_params_job = GetOptimalParametersAsVariableJob(
                 parameters=tune_parameters, values=tune_values, mode="minimize"
@@ -155,15 +257,16 @@ def tune_and_evaluate_helper(
             decoder_config.prior_scale = pick_optimal_params_job.out_optimal_parameters[1]
             search_jobs, wers = search(
                 training_name,
-                forward_config={},
+                forward_config=extra_forward_config or {},
                 asr_model=asr_model,
                 decoder_module=decoder_module,
                 decoder_args={"config": asdict(decoder_config)},
                 test_dataset_tuples={key: test_dataset_tuples[key]},
+                use_gpu=use_gpu,
                 **default_returnn,
             )
-            report_values[key] = wers[training_name + "/" + key]
-    return results
+        results.update(wers)
+    return results, pick_optimal_params_job
 
 
 from i6_core.util import instanciate_delayed
@@ -177,6 +280,11 @@ def build_base_report(report: Dict):
         if all(new_dic.values()):
             best = min(new_dic, key=new_dic.get)
             best_dc[" ".join(exp.split("/")[5:])] = ("{:.1f}".format(float(new_dic[best])), best)
+            if "/".join(best.split("/")[:-2]) + "/test" in dic:
+                best_dc["/".join(best.split("/")[:-2]) + "/test"] = (
+                    "{:.1f}".format(float(dic["/".join(best.split("/")[:-2]) + "/test"])),
+                    best,
+                )
         else:
             best_dc[" ".join(exp.split("/")[5:])] = ("None", "")
     line = []
