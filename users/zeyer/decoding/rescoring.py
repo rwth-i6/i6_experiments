@@ -5,6 +5,7 @@ Rescoring multiple text dicts / search outputs.
 from __future__ import annotations
 from typing import TYPE_CHECKING, Optional, Union, Any, Dict, List, Tuple, Set
 from sisyphus import Job, Task, tk
+from sisyphus.delayed_ops import DelayedBase
 
 import i6_core.util as util
 from i6_core.returnn import ReturnnConfig
@@ -27,7 +28,7 @@ if TYPE_CHECKING:
     from returnn.tensor import Tensor, Dim, TensorDict
 
 
-def combine_scores(scores: List[Tuple[Union[float, tk.Variable], RecogOutput]]) -> RecogOutput:
+def combine_scores(scores: List[Tuple[Union[float, DelayedBase], RecogOutput]]) -> RecogOutput:
     """
     Combine scores from multiple sources, linearly weighted by the given weights.
 
@@ -47,7 +48,7 @@ class SearchCombineScoresJob(Job):
     and combines the scores with some weights.
     """
 
-    def __init__(self, search_py_output: List[Tuple[Union[float, tk.Variable], tk.Path]], *, output_gzip: bool = True):
+    def __init__(self, search_py_output: List[Tuple[Union[float, DelayedBase], tk.Path]], *, output_gzip: bool = True):
         """
         :param search_py_output: list of tuple (search output file from RETURNN in python format (n-best list), weight)
         :param output_gzip: gzip the output
@@ -64,9 +65,9 @@ class SearchCombineScoresJob(Job):
         """run"""
         data: List[Tuple[float, Dict[str, List[Tuple[float, str]]]]] = []
         for weight, fn in self.search_py_output:
-            if isinstance(weight, tk.Variable):
+            if isinstance(weight, DelayedBase):
                 weight = weight.get()
-            assert isinstance(weight, (int, float))
+            assert isinstance(weight, (int, float)), f"invalid weight {weight!r} type {type(weight)}"
             out = eval(util.uopen(fn, "rt").read(), {"nan": float("nan"), "inf": float("inf")})
             data.append((weight, out))
         weights: List[float] = [weight for weight, _ in data]
