@@ -75,17 +75,13 @@ def _returnn_forward_callback():
     from typing import TextIO
     from returnn.tensor import Tensor, TensorDict
     from returnn.forward_iface import ForwardCallbackIface
-    from returnn.config import get_global_config
 
     class _ReturnnRecogV2ForwardCallbackIface(ForwardCallbackIface):
         def __init__(self):
-            self.out_file: Optional[TextIO] = None
+            self.data = {}
 
         def init(self, *, model):
-            import gzip
-
-            self.out_file = gzip.open(_v2_forward_out_filename, "wt", encoding="utf-8")
-            self.out_file.write("{\n")
+            pass
 
         def process_seq(self, *, seq_tag: str, outputs: TensorDict):
             hyps: Tensor = outputs["hyps"]  # [out_spatial]
@@ -93,11 +89,14 @@ def _returnn_forward_callback():
             assert hyps.sparse_dim and hyps.sparse_dim.vocab  # should come from the model
             assert hyps.dims[0].dyn_size_ext is not None, f"hyps {hyps} do not define seq lengths"
             hyps_len = hyps.dims[0].dyn_size_ext
-            self.out_file.write(f"{seq_tag!r}: ({hyps_len.raw_tensor.item(), scores.raw_tensor.item()}),\n")
+            self.data[seq_tag] = [hyps_len.raw_tensor.item(), scores.raw_tensor.item()]
 
         def finish(self):
-            self.out_file.write("}\n")
-            self.out_file.close()
+            import json
+            import gzip
+
+            out_file_fp = gzip.open(_v2_forward_out_filename, "wt", encoding="utf-8")
+            json.dump(self.data, out_file_fp)
 
     return _ReturnnRecogV2ForwardCallbackIface()
 
@@ -115,7 +114,7 @@ def _returnn_ppl_config(model_def: ModelDef, dataset: LibrispeechLmDataset, data
         default_input=dataset.get_default_input(),
         target=dataset.get_default_target(),
         forward_data=dataset.get_dataset(dataset_key),
-        batch_size=10_000,
+        batch_size=100_000,
     )
 
     if isinstance(model_def, ModelDefWithCfg):
@@ -133,7 +132,7 @@ def _returnn_ppl_config(model_def: ModelDef, dataset: LibrispeechLmDataset, data
         serialization.Import(lm_forward_def, import_as="_forward_def", ignore_import_as_for_hash=True),
         serialization.Import(_returnn_forward_step, import_as="forward_step"),
         serialization.Import(_returnn_forward_callback, import_as="forward_callback"),
-        serialization.ExplicitHash({"version": "1"}),
+        serialization.ExplicitHash({"version": "4"}),
         serialization.PythonEnlargeStackWorkaroundNonhashedCode,
         serialization.PythonCacheManagerFunctionNonhashedCode,
         serialization.PythonModelineNonhashedCode,
@@ -172,21 +171,27 @@ class ComputePerplexityJob(Job):
         yield Task("run", rqmt={"cpu": 1, "mem": 4, "time": 1, "gpu": 0}, mini_task=True)
 
     def run(self):
-        import numpy
+        import math
+        import json
 
-        d_gt = eval(open(self.scores_and_lens_file.get_path(), "rt").read())
-        assert isinstance(d_gt, dict)  # seq_tag -> bpe string
+        fpath = self.scores_and_lens_file.get_path()
+        if fpath.endswith(".gz"):
+            import gzip
 
-        scores = []
-        lens = []
-        for _, (seq_len, score) in enumerate(d_gt.items()):
-            scores.append(score)
-            lens.append(seq_len)
+            open_func = gzip.open
+        else:
+            open_func = open
 
-        scores = numpy.array(scores)
-        lens = numpy.array(lens)
+        with open_func(fpath, "rt") as f:
+            d = json.load(f)
 
-        ppl = numpy.exp(-numpy.sum(scores) / numpy.sum(lens))
+        scores = 0.0
+        lens = 0
+        for v in d.values():
+            scores += v[1]
+            lens += v[0]
+
+        ppl = math.exp(-1.0 * scores / lens)
 
         with open(self.out_ppl.get_path(), "w+") as f:
             f.write("Perplexity: %f" % ppl)
