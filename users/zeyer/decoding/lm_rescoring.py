@@ -33,7 +33,7 @@ However, to keep it generic, we don't do this here.
 """
 
 from __future__ import annotations
-from typing import TYPE_CHECKING, Optional, Any, Callable, Dict
+from typing import TYPE_CHECKING, Optional, Union, Any, Callable, Dict
 
 from sisyphus import tk
 from i6_experiments.users.zeyer.model_interfaces import ModelWithCheckpoint, ModelDefWithCfg, ModelDef, RescoreDef
@@ -55,14 +55,14 @@ def lm_framewise_prior_rescore(
     dataset: DatasetConfig,
     raw_res_search_labels: RecogOutput,
     raw_res_labels: RecogOutput,
-    orig_scale: float = 1.0,
+    orig_scale: Union[float, tk.Variable] = 1.0,
     lm: ModelWithCheckpoint,
-    lm_scale: float,
+    lm_scale: Union[float, tk.Variable],
     lm_rescore_rqmt: Optional[Dict[str, Any]] = None,
     vocab: tk.Path,
     vocab_opts_file: tk.Path,
     prior: Optional[Prior] = None,
-    prior_scale: float = 0.0,
+    prior_scale: float = Union[0.0, tk.Variable],
     search_labels_to_labels: Optional[Callable[[RecogOutput], RecogOutput]] = None,
 ) -> RecogOutput:
     """
@@ -95,9 +95,9 @@ def lm_framewise_prior_rescore(
         assert search_labels_to_labels
         res_search_labels_prior_scores = prior_score(raw_res_search_labels, prior=prior)
         res_labels_prior_scores = search_labels_to_labels(res_search_labels_prior_scores)
-        scores.append((-prior_scale, res_labels_prior_scores))
+        scores.append((prior_scale * (-1), res_labels_prior_scores))
     else:
-        assert prior_scale == 0.0
+        assert isinstance(prior_scale, (int, float)) and prior_scale == 0.0
     return combine_scores(scores)
 
 
@@ -107,14 +107,14 @@ def lm_labelwise_prior_rescore(
     dataset: DatasetConfig,
     raw_res_search_labels: RecogOutput,
     raw_res_labels: RecogOutput,
-    orig_scale: float = 1.0,
+    orig_scale: Union[float, tk.Variable] = 1.0,
     lm: ModelWithCheckpoint,
-    lm_scale: float,
+    lm_scale: Union[float, tk.Variable],
     lm_rescore_rqmt: Optional[Dict[str, Any]] = None,
     vocab: tk.Path,
     vocab_opts_file: tk.Path,
     prior: Optional[Prior] = None,
-    prior_scale: float = 0.0,
+    prior_scale: Union[float, tk.Variable] = 0.0,
     search_labels_to_labels: Optional[Callable[[RecogOutput], RecogOutput]] = None,
 ) -> RecogOutput:
     """
@@ -145,9 +145,9 @@ def lm_labelwise_prior_rescore(
     scores = [(orig_scale, res), (lm_scale, res_labels_lm_scores)]
     if prior and prior_scale:
         res_labels_prior_scores = prior_score(raw_res_labels, prior=prior)
-        scores.append((-prior_scale, res_labels_prior_scores))
+        scores.append((prior_scale * (-1), res_labels_prior_scores))
     else:
-        assert prior_scale == 0.0
+        assert isinstance(prior_scale, (int, float)) and prior_scale == 0.0
     return combine_scores(scores)
 
 
@@ -160,14 +160,14 @@ def lm_am_labelwise_prior_rescore(
     am: ModelWithCheckpoint,
     am_rescore_def: RescoreDef,
     am_rescore_rqmt: Optional[Dict[str, Any]] = None,
-    am_scale: float = 1.0,
+    am_scale: Union[float, tk.Variable] = 1.0,
     lm: ModelWithCheckpoint,
-    lm_scale: float,
+    lm_scale: Union[float, tk.Variable],
     lm_rescore_rqmt: Optional[Dict[str, Any]] = None,
     vocab: tk.Path,
     vocab_opts_file: tk.Path,
     prior: Optional[Prior] = None,
-    prior_scale: float = 0.0,
+    prior_scale: Union[float, tk.Variable] = 0.0,
     search_labels_to_labels: Optional[Callable[[RecogOutput], RecogOutput]] = None,
 ) -> RecogOutput:
     """
@@ -210,9 +210,9 @@ def lm_am_labelwise_prior_rescore(
     scores = [(am_scale, res_labels_am_scores), (lm_scale, res_labels_lm_scores)]
     if prior and prior_scale:
         res_labels_prior_scores = prior_score(raw_res_labels, prior=prior)
-        scores.append((-prior_scale, res_labels_prior_scores))
+        scores.append((prior_scale * (-1), res_labels_prior_scores))
     else:
-        assert prior_scale == 0.0
+        assert isinstance(prior_scale, (int, float)) and prior_scale == 0.0
     return combine_scores(scores)
 
 
@@ -225,14 +225,14 @@ def lm_am_labelwise_prior_ngram_rescore(
     am: ModelWithCheckpoint,
     am_rescore_def: RescoreDef,
     am_rescore_rqmt: Optional[Dict[str, Any]] = None,
-    am_scale: float = 1.0,
+    am_scale: Union[float, tk.Variable] = 1.0,
     lm: ModelWithCheckpoint,
-    lm_scale: float,
+    lm_scale: Union[float, tk.Variable],
     lm_rescore_rqmt: Optional[Dict[str, Any]] = None,
     vocab: tk.Path,
     vocab_opts_file: tk.Path,
     prior_ngram_lm: tk.Path,
-    prior_scale: float = 0.0,
+    prior_scale: Union[float, tk.Variable] = 0.0,
     search_labels_to_labels: Optional[Callable[[RecogOutput], RecogOutput]] = None,
 ) -> RecogOutput:
     """
@@ -275,9 +275,9 @@ def lm_am_labelwise_prior_ngram_rescore(
     scores = [(am_scale, res_labels_am_scores), (lm_scale, res_labels_lm_scores)]
     if prior_scale:
         res_labels_prior_scores = ngram_score(raw_res_labels, lm=prior_ngram_lm, vocab=vocab)
-        scores.append((-prior_scale, res_labels_prior_scores))
+        scores.append((prior_scale * (-1), res_labels_prior_scores))
     else:
-        assert prior_scale == 0.0
+        assert isinstance(prior_scale, (int, float)) and prior_scale == 0.0
     return combine_scores(scores)
 
 
