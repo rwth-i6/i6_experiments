@@ -36,6 +36,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Optional, Union, Any, Callable, Dict
 
 from sisyphus import tk
+from sisyphus.delayed_ops import DelayedBase
 from i6_experiments.users.zeyer.model_interfaces import ModelWithCheckpoint, ModelDefWithCfg, ModelDef, RescoreDef
 from i6_experiments.users.zeyer.datasets.score_results import RecogOutput
 
@@ -55,14 +56,14 @@ def lm_framewise_prior_rescore(
     dataset: DatasetConfig,
     raw_res_search_labels: RecogOutput,
     raw_res_labels: RecogOutput,
-    orig_scale: Union[float, tk.Variable] = 1.0,
+    orig_scale: Union[float, tk.Variable, DelayedBase] = 1.0,
     lm: ModelWithCheckpoint,
-    lm_scale: Union[float, tk.Variable],
+    lm_scale: Union[float, tk.Variable, DelayedBase],
     lm_rescore_rqmt: Optional[Dict[str, Any]] = None,
     vocab: tk.Path,
     vocab_opts_file: tk.Path,
     prior: Optional[Prior] = None,
-    prior_scale: float = Union[0.0, tk.Variable],
+    prior_scale: float = Union[0.0, tk.Variable, DelayedBase],
     search_labels_to_labels: Optional[Callable[[RecogOutput], RecogOutput]] = None,
 ) -> RecogOutput:
     """
@@ -107,14 +108,14 @@ def lm_labelwise_prior_rescore(
     dataset: DatasetConfig,
     raw_res_search_labels: RecogOutput,
     raw_res_labels: RecogOutput,
-    orig_scale: Union[float, tk.Variable] = 1.0,
+    orig_scale: Union[float, tk.Variable, DelayedBase] = 1.0,
     lm: ModelWithCheckpoint,
-    lm_scale: Union[float, tk.Variable],
+    lm_scale: Union[float, tk.Variable, DelayedBase],
     lm_rescore_rqmt: Optional[Dict[str, Any]] = None,
     vocab: tk.Path,
     vocab_opts_file: tk.Path,
     prior: Optional[Prior] = None,
-    prior_scale: Union[float, tk.Variable] = 0.0,
+    prior_scale: Union[float, tk.Variable, DelayedBase] = 0.0,
     search_labels_to_labels: Optional[Callable[[RecogOutput], RecogOutput]] = None,
 ) -> RecogOutput:
     """
@@ -160,14 +161,14 @@ def lm_am_labelwise_prior_rescore(
     am: ModelWithCheckpoint,
     am_rescore_def: RescoreDef,
     am_rescore_rqmt: Optional[Dict[str, Any]] = None,
-    am_scale: Union[float, tk.Variable] = 1.0,
+    am_scale: Union[float, tk.Variable, DelayedBase] = 1.0,
     lm: ModelWithCheckpoint,
-    lm_scale: Union[float, tk.Variable],
+    lm_scale: Union[float, tk.Variable, DelayedBase],
     lm_rescore_rqmt: Optional[Dict[str, Any]] = None,
     vocab: tk.Path,
     vocab_opts_file: tk.Path,
     prior: Optional[Prior] = None,
-    prior_scale: Union[float, tk.Variable] = 0.0,
+    prior_scale: Union[float, tk.Variable, DelayedBase] = 0.0,
     search_labels_to_labels: Optional[Callable[[RecogOutput], RecogOutput]] = None,
 ) -> RecogOutput:
     """
@@ -225,14 +226,14 @@ def lm_am_labelwise_prior_ngram_rescore(
     am: ModelWithCheckpoint,
     am_rescore_def: RescoreDef,
     am_rescore_rqmt: Optional[Dict[str, Any]] = None,
-    am_scale: Union[float, tk.Variable] = 1.0,
+    am_scale: Union[float, tk.Variable, DelayedBase] = 1.0,
     lm: ModelWithCheckpoint,
-    lm_scale: Union[float, tk.Variable],
+    lm_scale: Union[float, tk.Variable, DelayedBase],
     lm_rescore_rqmt: Optional[Dict[str, Any]] = None,
     vocab: tk.Path,
     vocab_opts_file: tk.Path,
     prior_ngram_lm: tk.Path,
-    prior_scale: Union[float, tk.Variable] = 0.0,
+    prior_scale: Union[float, tk.Variable, DelayedBase] = 0.0,
     search_labels_to_labels: Optional[Callable[[RecogOutput], RecogOutput]] = None,
 ) -> RecogOutput:
     """
