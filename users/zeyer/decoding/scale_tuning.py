@@ -18,6 +18,7 @@ class ScaleTuningJob(Job):
     """
 
     __sis_version__ = 2
+    __sis_hash_exclude__ = {"max_scales": None}
 
     def __init__(
         self,
@@ -28,6 +29,7 @@ class ScaleTuningJob(Job):
         fixed_scales: Optional[Dict[str, float]] = None,
         negative_scales: Optional[Set[str]] = None,
         scale_relative_to: Optional[Dict[str, str]] = None,
+        max_scales: Optional[Dict[str, float]] = None,
         returnn_python_exe: Optional[tk.Path] = None,
         returnn_root: Optional[tk.Path] = None,
     ):
@@ -54,6 +56,7 @@ class ScaleTuningJob(Job):
         self.fixed_scales = fixed_scales
         self.negative_scales = negative_scales
         self.scale_relative_to = scale_relative_to
+        self.max_scales = max_scales
         self.returnn_python_exe = returnn_python_exe
         self.returnn_root = returnn_root
 
@@ -82,6 +85,8 @@ class ScaleTuningJob(Job):
             cmd += ["--negative-scales"] + sorted(self.negative_scales)
         if self.scale_relative_to is not None:
             cmd += sum((list(item) for item in self.scale_relative_to.items()), ["--scale-relative-to"])
+        if self.max_scales is not None:
+            cmd += sum(([name, str(scale)] for name, scale in self.max_scales.items()), ["--max-scales"])
         if self.rqmt.get("gpu", 0) > 0:
             cmd += ["--device", "cuda"]
         else:
