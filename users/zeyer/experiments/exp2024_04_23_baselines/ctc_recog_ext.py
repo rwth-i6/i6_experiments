@@ -435,6 +435,7 @@ def py():
                 scales_results[(prior_scale, lm_scale)] = res.output
         _plot_scales(f"rescore-beam{beam_size}-lm_{lm_out_name}", scales_results)
 
+        # TODO note: currently, the task.dev_dataset is only dev-other. maybe change that?
         ctc_recog_framewise_prior_auto_scale(
             prefix=f"{prefix}/opt-beam128-lm_n24-d512-frameprior",
             task=task,
