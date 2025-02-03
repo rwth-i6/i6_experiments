@@ -1108,7 +1108,10 @@ def ctc_recog_framewise_prior_auto_scale(
         config={
             "beam_size": beam_size,
             "recog_version": 9,
-            "batch_size": 5_000 * ctc_model.definition.batch_size_factor,
+            # Batch size was fitted on our small GPUs (1080) with 11GB for beam size 32.
+            # So when the beam size is larger, reduce batch size.
+            # (Linear is a bit wrong, because the encoder mem consumption is independent, but anyway...)
+            "batch_size": int(5_000 * ctc_model.definition.batch_size_factor * min(32 / beam_size, 1)),
         },
         search_rqmt={"time": 24},
         name=f"{prefix}/recog-opt-1stpass",
