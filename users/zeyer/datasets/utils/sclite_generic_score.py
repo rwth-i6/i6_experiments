@@ -22,13 +22,8 @@ def generic_sclite_score_recog_out(
     To use it for :class:`Task.score_recog_output_func`,
     you need to use functools.partial and set ``post_proc_funcs``.
     """
-    # sclite here. Could also use ReturnnComputeWERJob.
-    from i6_core.returnn.search import SearchWordsDummyTimesToCTMJob
-    from i6_core.text.convert import TextDictToStmJob
-    from i6_core.recognition.scoring import ScliteJob
     from .serialize import ReturnnDatasetToTextDictJob
 
-    hyp_words = recog_output.output
     corpus_name = dataset.get_main_name()
 
     ref = RecogOutput(
@@ -38,6 +33,23 @@ def generic_sclite_score_recog_out(
     )
     for f in post_proc_funcs:
         ref = f(ref)
+
+    return sclite_score_recog_out_to_ref(recog_output, ref=ref, corpus_name=corpus_name)
+
+
+def sclite_score_recog_out_to_ref(recog_output: RecogOutput, *, ref: RecogOutput, corpus_name: str) -> ScoreResult:
+    """
+    score
+
+    To use it for :class:`Task.score_recog_output_func`,
+    you need to use functools.partial and set ``post_proc_funcs``.
+    """
+    # sclite here. Could also use ReturnnComputeWERJob.
+    from i6_core.returnn.search import SearchWordsDummyTimesToCTMJob
+    from i6_core.text.convert import TextDictToStmJob
+    from i6_core.recognition.scoring import ScliteJob
+
+    hyp_words = recog_output.output
     corpus_text_dict = ref.output
 
     # Arbitrary seg length time. The jobs SearchWordsDummyTimesToCTMJob and TextDictToStmJob
