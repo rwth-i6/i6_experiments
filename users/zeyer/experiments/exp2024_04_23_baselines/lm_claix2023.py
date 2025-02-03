@@ -1285,6 +1285,7 @@ def py():
     #   trafo-n32-d1024-noAbsPos-rmsNorm-ffGated-rope-noBias-drop0-gradClip0.01-b2k_30k-laplace100k-shuffleBatch100-bpe1k:
     #     12.71
 
+    # TODO max_seq_len needs fixing? it's max_seq_length_default_target=75...
     # laplace10k, less batch shuffling.
     train(
         "lm/trafo-n32-d1024-noAbsPos-rmsNorm-ffGated-rope-noBias-drop0-b2k_30k-laplace10k-shuffleBatch10-bpe1k",
