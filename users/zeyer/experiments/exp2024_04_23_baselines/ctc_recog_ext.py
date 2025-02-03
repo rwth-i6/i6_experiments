@@ -436,27 +436,30 @@ def py():
         _plot_scales(f"rescore-beam{beam_size}-lm_{lm_out_name}", scales_results)
 
         # TODO note: currently, the task.dev_dataset is only dev-other. maybe change that?
-        ctc_recog_framewise_prior_auto_scale(
-            prefix=f"{prefix}/opt-beam128-lm_n24-d512-frameprior",
-            task=task,
-            ctc_model=ctc_model,
-            # labelwise_prior=Prior(file=log_prior_wo_blank, type="log_prob", vocab=vocab_file),
-            framewise_prior=Prior(file=prior, type="prob", vocab=vocab_w_blank_file),
-            lm=_get_lm_model(_lms["n24-d512"]),
-            vocab_file=vocab_file,
-            vocab_opts_file=vocab_opts_file,
-            beam_size=128,
-        )
-        ctc_recog_labelwise_prior_auto_scale(
-            prefix=f"{prefix}/opt-beam128-lm_n24-d512-labelprior",
-            task=task,
-            ctc_model=ctc_model,
-            labelwise_prior=Prior(file=log_prior_wo_blank, type="log_prob", vocab=vocab_file),
-            lm=_get_lm_model(_lms["n24-d512"]),
-            vocab_file=vocab_file,
-            vocab_opts_file=vocab_opts_file,
-            beam_size=128,
-        )
+        for fp_beam_size in [128, 32, 16, 4]:
+            ctc_recog_framewise_prior_auto_scale(
+                prefix=f"{prefix}/opt-beam128-fp{fp_beam_size}-lm_n24-d512-frameprior",
+                task=task,
+                ctc_model=ctc_model,
+                # labelwise_prior=Prior(file=log_prior_wo_blank, type="log_prob", vocab=vocab_file),
+                framewise_prior=Prior(file=prior, type="prob", vocab=vocab_w_blank_file),
+                lm=_get_lm_model(_lms["n24-d512"]),
+                vocab_file=vocab_file,
+                vocab_opts_file=vocab_opts_file,
+                n_best_list_size=128,
+                first_pass_recog_beam_size=fp_beam_size,
+            )
+            ctc_recog_labelwise_prior_auto_scale(
+                prefix=f"{prefix}/opt-beam128-fp{fp_beam_size}-lm_n24-d512-labelprior",
+                task=task,
+                ctc_model=ctc_model,
+                labelwise_prior=Prior(file=log_prior_wo_blank, type="log_prob", vocab=vocab_file),
+                lm=_get_lm_model(_lms["n24-d512"]),
+                vocab_file=vocab_file,
+                vocab_opts_file=vocab_opts_file,
+                n_best_list_size=128,
+                first_pass_recog_beam_size=fp_beam_size,
+            )
 
         scales_results = {}
         for lm_scale in np.linspace(0.0, 1.0, 11):
@@ -1095,7 +1098,8 @@ def ctc_recog_framewise_prior_auto_scale(
     lm: ModelWithCheckpoint,
     vocab_file: tk.Path,
     vocab_opts_file: tk.Path,
-    beam_size: int,
+    n_best_list_size: int,
+    first_pass_recog_beam_size: int,
 ) -> ScoreResultCollection:
     """
     Recog with ``model_recog_ctc_only`` to get N-best list on ``task.dev_dataset``,
@@ -1117,7 +1121,7 @@ def ctc_recog_framewise_prior_auto_scale(
         dataset=dataset,
         model=ctc_model,
         recog_def=model_recog_ctc_only,
-        config={"beam_size": beam_size},
+        config={"beam_size": n_best_list_size},
         keep_alignment_frames=True,
         keep_beam=True,
     )
@@ -1165,7 +1169,7 @@ def ctc_recog_framewise_prior_auto_scale(
         task=task,
         model=ctc_model,
         recog_def=model_recog_ctc_only,
-        config={"beam_size": beam_size},
+        config={"beam_size": n_best_list_size},
         recog_pre_post_proc_funcs_ext=[
             functools.partial(
                 lm_framewise_prior_rescore,
@@ -1195,12 +1199,12 @@ def ctc_recog_framewise_prior_auto_scale(
         model=model,
         recog_def=model_recog,
         config={
-            "beam_size": beam_size,
+            "beam_size": first_pass_recog_beam_size,
             "recog_version": 9,
             # Batch size was fitted on our small GPUs (1080) with 11GB for beam size 32.
             # So when the beam size is larger, reduce batch size.
             # (Linear is a bit wrong, because the encoder mem consumption is independent, but anyway...)
-            "batch_size": int(5_000 * ctc_model.definition.batch_size_factor * min(32 / beam_size, 1)),
+            "batch_size": int(5_000 * ctc_model.definition.batch_size_factor * min(32 / first_pass_recog_beam_size, 1)),
         },
         search_rqmt={"time": 24},
         name=f"{prefix}/recog-opt-1stpass",
@@ -1218,7 +1222,8 @@ def ctc_recog_labelwise_prior_auto_scale(
     lm: ModelWithCheckpoint,
     vocab_file: tk.Path,
     vocab_opts_file: tk.Path,
-    beam_size: int,
+    n_best_list_size: int,
+    first_pass_recog_beam_size: int,
 ) -> ScoreResultCollection:
     """
     Recog with ``model_recog_ctc_only`` to get N-best list on ``task.dev_dataset``,
@@ -1240,7 +1245,7 @@ def ctc_recog_labelwise_prior_auto_scale(
         dataset=dataset,
         model=ctc_model,
         recog_def=model_recog_ctc_only,
-        config={"beam_size": beam_size},
+        config={"beam_size": n_best_list_size},
         keep_beam=True,
     )
     prior_scores = prior_score(asr_scores, prior=labelwise_prior)
@@ -1284,7 +1289,7 @@ def ctc_recog_labelwise_prior_auto_scale(
         task=task,
         model=ctc_model,
         recog_def=model_recog_ctc_only,
-        config={"beam_size": beam_size},
+        config={"beam_size": n_best_list_size},
         recog_pre_post_proc_funcs_ext=[
             functools.partial(
                 lm_labelwise_prior_rescore,
@@ -1314,12 +1319,12 @@ def ctc_recog_labelwise_prior_auto_scale(
         model=model,
         recog_def=model_recog,
         config={
-            "beam_size": beam_size,
+            "beam_size": first_pass_recog_beam_size,
             "recog_version": 9,
             # Batch size was fitted on our small GPUs (1080) with 11GB for beam size 32.
             # So when the beam size is larger, reduce batch size.
             # (Linear is a bit wrong, because the encoder mem consumption is independent, but anyway...)
-            "batch_size": int(5_000 * ctc_model.definition.batch_size_factor * min(32 / beam_size, 1)),
+            "batch_size": int(5_000 * ctc_model.definition.batch_size_factor * min(32 / first_pass_recog_beam_size, 1)),
         },
         search_rqmt={"time": 24},
         name=f"{prefix}/recog-opt-1stpass",
