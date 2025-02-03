@@ -3,7 +3,7 @@ CTC decoding with neural LM
 """
 
 from __future__ import annotations
-from typing import Tuple
+from typing import Optional, Tuple
 
 from returnn.tensor import Tensor, Dim, single_step_dim
 import returnn.frontend as rf
@@ -80,6 +80,9 @@ def model_recog(
     # noinspection PyUnresolvedReferences
     lm_scale: float = model.lm_scale
 
+    # noinspection PyUnresolvedReferences
+    labelwise_prior: Optional[rf.Parameter] = model.labelwise_prior
+
     lm_state = lm.default_initial_state(batch_dims=batch_dims_)  # Batch, InBeam, ...
     lm_logits, lm_state = lm(
         target,
@@ -88,6 +91,8 @@ def model_recog(
     )  # Batch, InBeam, Vocab / ...
     lm_log_probs = rf.log_softmax(lm_logits, axis=model.target_dim)  # Batch, InBeam, Vocab
     lm_log_probs *= lm_scale
+    if labelwise_prior is not None:
+        lm_log_probs -= labelwise_prior  # prior scale already applied
 
     max_seq_len = int(enc_spatial_dim.get_dim_value())
     seq_targets_wb = []
@@ -151,6 +156,8 @@ def model_recog(
             )  # Flat_Batch_Beam, Vocab / ...
             lm_log_probs_ = rf.log_softmax(lm_logits_, axis=model.target_dim)  # Flat_Batch_Beam, Vocab
             lm_log_probs_ *= lm_scale
+            if labelwise_prior is not None:
+                lm_log_probs_ -= labelwise_prior  # prior scale already applied
 
             lm_log_probs, lm_state = rf.nested.masked_scatter_nested(
                 (lm_log_probs_, lm_state_),

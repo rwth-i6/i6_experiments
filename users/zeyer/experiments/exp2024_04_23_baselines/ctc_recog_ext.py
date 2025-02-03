@@ -436,11 +436,21 @@ def py():
         _plot_scales(f"rescore-beam{beam_size}-lm_{lm_out_name}", scales_results)
 
         ctc_recog_framewise_prior_auto_scale(
-            prefix=f"{prefix}/opt-beam128-lm_n24-d512",
+            prefix=f"{prefix}/opt-beam128-lm_n24-d512-frameprior",
             task=task,
             ctc_model=ctc_model,
             # labelwise_prior=Prior(file=log_prior_wo_blank, type="log_prob", vocab=vocab_file),
             framewise_prior=Prior(file=prior, type="prob", vocab=vocab_w_blank_file),
+            lm=_get_lm_model(_lms["n24-d512"]),
+            vocab_file=vocab_file,
+            vocab_opts_file=vocab_opts_file,
+            beam_size=128,
+        )
+        ctc_recog_labelwise_prior_auto_scale(
+            prefix=f"{prefix}/opt-beam128-lm_n24-d512-labelprior",
+            task=task,
+            ctc_model=ctc_model,
+            labelwise_prior=Prior(file=log_prior_wo_blank, type="log_prob", vocab=vocab_file),
             lm=_get_lm_model(_lms["n24-d512"]),
             vocab_file=vocab_file,
             vocab_opts_file=vocab_opts_file,
@@ -714,18 +724,92 @@ def get_ctc_with_lm_and_framewise_prior(
     )
 
 
+def get_ctc_with_lm_and_labelwise_prior(
+    *,
+    ctc_model: ModelWithCheckpoint,
+    prior: Optional[tk.Path] = None,
+    prior_type: str = "prob",
+    prior_scale: Optional[Union[float, tk.Variable, DelayedBase]] = None,
+    language_model: ModelWithCheckpoint,
+    lm_scale: Union[float, tk.Variable],
+) -> ModelWithCheckpoint:
+    """Combined CTC model with LM and prior"""
+    # Keep CTC model config as-is, extend below for prior and LM.
+    ctc_model_def = ctc_model.definition
+    if isinstance(ctc_model_def, ModelDefWithCfg):
+        config: Dict[str, Any] = ctc_model_def.config.copy()
+    else:
+        config = {}
+
+    # Add prior.
+    # Then the CTC Model log_probs_wb_from_logits will include the prior.
+    if prior is not None:
+        assert prior_scale is not None
+    if prior_scale is not None:
+        assert prior is not None
+        config.update(
+            {
+                "labelwise_prior": {"type": prior_type, "file": prior, "scale": prior_scale},
+            }
+        )
+
+    # Add LM.
+    # LM has _model_def_dict in config. Put that as _lm_model_def_dict.
+    config.update(
+        {
+            "_lm_model_def_dict": language_model.definition.config["_model_def_dict"],
+            "lm_scale": lm_scale,
+        }
+    )
+    config.setdefault("preload_from_files", {})["lm"] = {"prefix": "lm.", "filename": language_model.checkpoint}
+
+    return ModelWithCheckpoint(
+        definition=ModelDefWithCfg(model_def=ctc_model_ext_def, config=config),
+        checkpoint=ctc_model.checkpoint,
+    )
+
+
 def ctc_model_ext_def(*, epoch: int, in_dim: Dim, target_dim: Dim) -> Model:
     """Function is run within RETURNN."""
     from returnn.config import get_global_config
+    import numpy
 
     in_dim, epoch  # noqa
     config = get_global_config()  # noqa
+
     lm = rf.build_from_dict(config.typed_value("_lm_model_def_dict"), vocab_dim=target_dim)
     lm_scale = config.typed_value("lm_scale", None)
     assert isinstance(lm_scale, (int, float))
+
+    # (framewise) ctc_prior_type / static_prior handled by ctc_model_def.
     model = ctc_model_def(epoch=epoch, in_dim=in_dim, target_dim=target_dim)
     model.lm = lm
     model.lm_scale = lm_scale
+
+    labelwise_prior = config.typed_value("labelwise_prior", None)
+    if labelwise_prior:
+        assert isinstance(labelwise_prior, dict) and set(labelwise_prior.keys()) == {"type", "file", "scale"}
+        v = numpy.loadtxt(labelwise_prior["file"])
+        assert v.shape == (
+            target_dim.dimension,
+        ), f"invalid shape {v.shape} for labelwise_prior {labelwise_prior['file']!r}, expected dim {target_dim}"
+        # The `type` is about what is stored in the file.
+        # We always store it in log prob here, so we potentially need to convert it.
+        if labelwise_prior["type"] == "log_prob":
+            pass  # already log prob
+        elif labelwise_prior["type"] == "prob":
+            v = numpy.log(v)
+        else:
+            raise ValueError(f"invalid static_prior type {labelwise_prior['type']!r}")
+        v *= labelwise_prior["scale"]  # can already apply now
+        model.labelwise_prior = rf.Parameter(
+            rf.convert_to_tensor(v, dims=[target_dim], dtype=rf.get_default_float_dtype()),
+            auxiliary=True,
+            non_critical_for_restore=True,
+        )
+    else:
+        model.labelwise_prior = None
+
     return model
 
 
@@ -1101,6 +1185,125 @@ def ctc_recog_framewise_prior_auto_scale(
         ctc_model=ctc_model,
         prior=framewise_prior.file,
         prior_type=framewise_prior.type,
+        prior_scale=prior_scale,
+        language_model=lm,
+        lm_scale=lm_scale,
+    )
+    res = recog_model(
+        task=task,
+        model=model,
+        recog_def=model_recog,
+        config={
+            "beam_size": beam_size,
+            "recog_version": 9,
+            # Batch size was fitted on our small GPUs (1080) with 11GB for beam size 32.
+            # So when the beam size is larger, reduce batch size.
+            # (Linear is a bit wrong, because the encoder mem consumption is independent, but anyway...)
+            "batch_size": int(5_000 * ctc_model.definition.batch_size_factor * min(32 / beam_size, 1)),
+        },
+        search_rqmt={"time": 24},
+        name=f"{prefix}/recog-opt-1stpass",
+    )
+    tk.register_output(f"{prefix}/recog-1stpass-res.txt", res.output)
+    return res
+
+
+def ctc_recog_labelwise_prior_auto_scale(
+    *,
+    prefix: str,
+    task: Task,
+    ctc_model: ModelWithCheckpoint,
+    labelwise_prior: Prior,
+    lm: ModelWithCheckpoint,
+    vocab_file: tk.Path,
+    vocab_opts_file: tk.Path,
+    beam_size: int,
+) -> ScoreResultCollection:
+    """
+    Recog with ``model_recog_ctc_only`` to get N-best list on ``task.dev_dataset``,
+    then calc scores with framewise prior and LM on N-best list,
+    then tune optimal scales on N-best list,
+    then rescore on all ``task.eval_datasets`` using those scales,
+    and also do first-pass recog (``model_recog``) with those scales.
+    """
+    from .ctc import model_recog as model_recog_ctc_only
+    from i6_experiments.users.zeyer.decoding.lm_rescoring import (
+        lm_labelwise_prior_rescore,
+        prior_score,
+        lm_score,
+    )
+
+    # see recog_model, lm_labelwise_prior_rescore
+    dataset = task.dev_dataset
+    asr_scores = search_dataset(
+        dataset=dataset,
+        model=ctc_model,
+        recog_def=model_recog_ctc_only,
+        config={"beam_size": beam_size},
+        keep_beam=True,
+    )
+    prior_scores = prior_score(asr_scores, prior=labelwise_prior)
+    lm_scores = lm_score(asr_scores, lm=lm, vocab=vocab_file, vocab_opts_file=vocab_opts_file)
+
+    from i6_experiments.users.zeyer.datasets.utils.serialize import ReturnnDatasetToTextDictJob
+    from i6_experiments.users.zeyer.datasets.task import RecogOutput
+
+    ref = RecogOutput(
+        output=ReturnnDatasetToTextDictJob(
+            returnn_dataset=dataset.get_main_dataset(), data_key=dataset.get_default_target()
+        ).out_txt
+    )
+
+    for f in task.recog_post_proc_funcs:  # BPE to words or so
+        asr_scores = f(asr_scores)
+        prior_scores = f(prior_scores)
+        lm_scores = f(lm_scores)
+        ref = f(ref)
+
+    from i6_experiments.users.zeyer.decoding.scale_tuning import ScaleTuningJob
+
+    opt_scales_job = ScaleTuningJob(
+        scores={"am": asr_scores.output, "prior": prior_scores.output, "lm": lm_scores.output},
+        ref=ref.output,
+        fixed_scales={"am": 1.0},
+        negative_scales={"prior"},
+        scale_relative_to={"prior": "lm"},
+        evaluation="edit_distance",
+    )
+    tk.register_output(f"{prefix}/opt-real-scales", opt_scales_job.out_real_scales)
+    tk.register_output(f"{prefix}/opt-rel-scales", opt_scales_job.out_scales)
+    # We use the real scales.
+    # But prior is still handled as negative in lm_framewise_prior_rescore and 1stpass model_recog below.
+    # (The DelayedBase logic on the Sis Variable should handle this.)
+    prior_scale = opt_scales_job.out_real_scale_per_name["prior"] * (-1)
+    lm_scale = opt_scales_job.out_real_scale_per_name["lm"]
+
+    # Rescore with optimal scales. Like recog_model with lm_framewise_prior_rescore.
+    res = recog_model(
+        task=task,
+        model=ctc_model,
+        recog_def=model_recog_ctc_only,
+        config={"beam_size": beam_size},
+        recog_pre_post_proc_funcs_ext=[
+            functools.partial(
+                lm_labelwise_prior_rescore,
+                # framewise standard prior
+                prior=labelwise_prior,
+                prior_scale=prior_scale,
+                lm=lm,
+                lm_scale=lm_scale,
+                lm_rescore_rqmt={"cpu": 4, "mem": 30, "time": 24, "gpu_mem": 24},
+                vocab=vocab_file,
+                vocab_opts_file=vocab_opts_file,
+            )
+        ],
+    )
+    tk.register_output(f"{prefix}/rescore-res.txt", res.output)
+
+    model = get_ctc_with_lm_and_labelwise_prior(
+        ctc_model=ctc_model,
+        prior=labelwise_prior.file,
+        prior_type=labelwise_prior.type,
         prior_scale=prior_scale,
         language_model=lm,
         lm_scale=lm_scale,
