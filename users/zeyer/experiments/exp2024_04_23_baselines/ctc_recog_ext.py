@@ -460,6 +460,17 @@ def py():
                 n_best_list_size=128,
                 first_pass_recog_beam_size=fp_beam_size,
             )
+        ctc_recog_labelwise_prior_auto_scale(
+            prefix=f"{prefix}/opt-beam128-fp128-lm_{lm_out_name}-labelprior",
+            task=task,
+            ctc_model=ctc_model,
+            labelwise_prior=Prior(file=log_prior_wo_blank, type="log_prob", vocab=vocab_file),
+            lm=_get_lm_model(_lms[lm_out_name]),
+            vocab_file=vocab_file,
+            vocab_opts_file=vocab_opts_file,
+            n_best_list_size=128,
+            first_pass_recog_beam_size=128,
+        )
 
         scales_results = {}
         for lm_scale in np.linspace(0.0, 1.0, 11):
