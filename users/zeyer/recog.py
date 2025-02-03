@@ -304,7 +304,7 @@ def search_dataset(
         search_job.add_alias(search_alias_name)
     raw_res_search_labels = RecogOutput(output=res)
     if recog_def.output_blank_label:
-        res = _ctc_alignment_to_label_seq(RecogOutput(output=res), blank_label=recog_def.output_blank_label).output
+        res = ctc_alignment_to_label_seq(RecogOutput(output=res), blank_label=recog_def.output_blank_label).output
     raw_res_labels = RecogOutput(output=res)
     for f in recog_pre_post_proc_funcs_ext:
         res = f(
@@ -313,7 +313,7 @@ def search_dataset(
             raw_res_search_labels=raw_res_search_labels,
             raw_res_labels=raw_res_labels,
             search_labels_to_labels=functools.partial(
-                _ctc_alignment_to_label_seq, blank_label=recog_def.output_blank_label
+                ctc_alignment_to_label_seq, blank_label=recog_def.output_blank_label
             ),
         ).output
     for f in recog_post_proc_funcs:  # for example BPE to words
@@ -326,7 +326,15 @@ def search_dataset(
     return RecogOutput(output=res)
 
 
-def _ctc_alignment_to_label_seq(recog_output: RecogOutput, *, blank_label: str) -> RecogOutput:
+def ctc_alignment_to_label_seq(recog_output: RecogOutput, *, blank_label: str) -> RecogOutput:
+    """
+    Convert CTC alignment to label sequence.
+    (Used by :func:`search_dataset`.)
+
+    :param recog_output: comes out of search, alignment label frames incl blank
+    :param blank_label: from the vocab. e.g. via ``recog_def.output_blank_label``
+    :return: recog output with repetitions collapsed, and blank removed
+    """
     # Also assume we should collapse repeated labels first.
     res = SearchCollapseRepeatedLabelsJob(recog_output.output, output_gzip=True).out_search_results
     res = SearchRemoveLabelJob(res, remove_label=blank_label, output_gzip=True).out_search_results
