@@ -470,6 +470,7 @@ def py():
             vocab_opts_file=vocab_opts_file,
             n_best_list_size=128,
             first_pass_recog_beam_size=128,
+            first_pass_search_rqmt={"gpu_mem": 24 if lm_out_name in {"n96-d512", "n32-d1024"} else 11},
         )
 
         scales_results = {}
@@ -1235,6 +1236,7 @@ def ctc_recog_labelwise_prior_auto_scale(
     vocab_opts_file: tk.Path,
     n_best_list_size: int,
     first_pass_recog_beam_size: int,
+    first_pass_search_rqmt: Optional[Dict[str, int]] = None,
 ) -> ScoreResultCollection:
     """
     Recog with ``model_recog_ctc_only`` to get N-best list on ``task.dev_dataset``,
@@ -1325,6 +1327,8 @@ def ctc_recog_labelwise_prior_auto_scale(
         language_model=lm,
         lm_scale=lm_scale,
     )
+    first_pass_search_rqmt = first_pass_search_rqmt.copy() if first_pass_search_rqmt else {}
+    first_pass_search_rqmt.setdefault("time", 24)
     res = recog_model(
         task=task,
         model=model,
@@ -1337,7 +1341,7 @@ def ctc_recog_labelwise_prior_auto_scale(
             # (Linear is a bit wrong, because the encoder mem consumption is independent, but anyway...)
             "batch_size": int(5_000 * ctc_model.definition.batch_size_factor * min(32 / first_pass_recog_beam_size, 1)),
         },
-        search_rqmt={"time": 24},
+        search_rqmt=first_pass_search_rqmt,
         name=f"{prefix}/recog-opt-1stpass",
     )
     tk.register_output(f"{prefix}/recog-1stpass-res.txt", res.output)
