@@ -1,4 +1,5 @@
-from typing import Union, Optional
+import copy
+from typing import Union, Optional, List
 
 from sisyphus import *
 
@@ -118,7 +119,20 @@ def _returnn_ppl_config(model_def: ModelDef, dataset: LibrispeechLmDataset, data
     )
 
     if isinstance(model_def, ModelDefWithCfg):
-        returnn_config = dict_update_deep(returnn_config, model_def.config)
+        # TODO:
+        #  somehow the activation func is not being serialized correctly for forwarding but works fine in training
+        #  for now we will just convert it to a dict
+
+        assert "_model_def_dict" in model_def.config
+        model_def_config = copy.deepcopy(model_def.config)
+        if "activation_func" in model_def_config["_model_def_dict"] and not isinstance(
+            model_def_config["_model_def_dict"]["activation_func"], dict
+        ):
+            model_def_config["_model_def_dict"]["activation_func"] = rf.build_dict(
+                model_def_config["_model_def_dict"]["activation_func"]
+            )
+
+        returnn_config = dict_update_deep(returnn_config, model_def_config)
 
     extern_data_raw = instanciate_delayed(dataset.get_extern_data())
 
@@ -143,22 +157,30 @@ def _returnn_ppl_config(model_def: ModelDef, dataset: LibrispeechLmDataset, data
     return returnn_config
 
 
-def compute_ppl(*, prefix_name, model_with_checkpoints, dataset, dataset_key):
+def compute_ppl(*, prefix_name, model_with_checkpoints, dataset, dataset_keys: Union[str, List[str]]):
     from i6_core.returnn.forward import ReturnnForwardJobV2
     from i6_experiments.users.zeyer import tools_paths
 
-    returnn_config = _returnn_ppl_config(model_with_checkpoints.definition, dataset, dataset_key)
+    if isinstance(dataset_keys, str):
+        dataset_keys = [dataset_keys]
 
-    for epoch in model_with_checkpoints.fixed_epochs:
-        res = ReturnnForwardJobV2(
-            model_checkpoint=model_with_checkpoints.get_epoch(epoch).checkpoint,
-            returnn_config=returnn_config,
-            output_files=[_v2_forward_out_filename],
-            returnn_python_exe=tools_paths.get_returnn_python_exe(),
-            returnn_root=tools_paths.get_returnn_root(),
-        )
-        ppl_job = ComputePerplexityJob(scores_and_lens_file=res.out_files[_v2_forward_out_filename])
-        tk.register_output(f"ppl/{prefix_name}", ppl_job.out_ppl)
+    for dataset_key in dataset_keys:
+        returnn_config = _returnn_ppl_config(model_with_checkpoints.definition, dataset, dataset_key)
+
+        for epoch in model_with_checkpoints.fixed_epochs:
+            res = ReturnnForwardJobV2(
+                model_checkpoint=model_with_checkpoints.get_epoch(epoch).checkpoint,
+                returnn_config=returnn_config,
+                output_files=[_v2_forward_out_filename],
+                returnn_python_exe=tools_paths.get_returnn_python_exe(),
+                returnn_root=tools_paths.get_returnn_root(),
+            )
+            ppl_job = ComputePerplexityJob(scores_and_lens_file=res.out_files[_v2_forward_out_filename])
+
+            dataset_key_ = (
+                dataset_key[len("transcriptions-") :] if dataset_key.startswith("transcriptions-") else dataset_key
+            )
+            tk.register_output(f"ppl/{prefix_name}/{epoch}/{dataset_key_}_bpe_ppl", ppl_job.out_ppl)
 
 
 class ComputePerplexityJob(Job):

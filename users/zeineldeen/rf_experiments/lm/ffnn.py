@@ -4,7 +4,7 @@ training based on i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Optional, Sequence, Tuple
+from typing import Optional, Sequence, Tuple, Callable, Dict, Union, Any
 
 import tree
 
@@ -57,13 +57,13 @@ def py():
     )
 
     compute_ppl(
-        prefix_name="ffnn-n2-ctx10-embd128-d2048-bpe128-drop0.1-relu/trans",
+        prefix_name="ffnn-n2-ctx10-embd128-d2048-bpe128-drop0.1-relu",
         model_with_checkpoints=model_with_checkpoints,
         dataset=bpe_128_lm_dataset,
-        dataset_key="transcriptions-train",
+        dataset_keys=["transcriptions-train", "transcriptions-test-other", "transcriptions-dev-other"],
     )
 
-    train(
+    model_with_checkpoints = train(
         f"lm/ffnn-n2-ctx10-embd128-d2048-bpe128-drop0.1-tanh",
         config=dict_update_deep(
             config_11gb_lm_v1,
@@ -90,6 +90,13 @@ def py():
             },
         ),
         train_def=lm_train_def,
+    )
+
+    compute_ppl(
+        prefix_name="ffnn-n2-ctx10-embd128-d2048-bpe128-drop0.1-tanh",
+        model_with_checkpoints=model_with_checkpoints,
+        dataset=bpe_128_lm_dataset,
+        dataset_keys=["transcriptions-train", "transcriptions-test-other", "transcriptions-dev-other"],
     )
 
     model_with_checkpoints = train(
@@ -121,6 +128,51 @@ def py():
         train_def=lm_train_def,
     )
 
+    compute_ppl(
+        prefix_name="ffnn-n2-ctx10-embd128-d2048-bpe128-drop0.0-tanh",
+        model_with_checkpoints=model_with_checkpoints,
+        dataset=bpe_128_lm_dataset,
+        dataset_keys=["transcriptions-train", "transcriptions-test-other", "transcriptions-dev-other"],
+    )
+
+    # TODO: try different context sizes
+    for layers in [2, 3, 4]:
+        for context_size in [5, 10, 20, 30]:
+            model_with_checkpoints = train(
+                f"lm/ffnn-n{layers}-ctx{context_size}-embd128-d2048-bpe128-drop0.0-tanh",
+                config=dict_update_deep(
+                    config_11gb_lm_v1,
+                    {
+                        **_get_cfg_lrlin_oclr_by_bs_nep(200, 10_000, 50),
+                        "max_seq_length": {},
+                        "torch_distributed": None,
+                        "use_horovod": False,
+                    },
+                ),
+                train_dataset=bpe_128_lm_dataset,
+                model_def=ModelDefWithCfg(
+                    lm_model_def,
+                    {
+                        "_model_def_dict": rf.build_dict(
+                            FeedForwardLm,
+                            context_size=context_size,
+                            num_layers=layers,
+                            embed_dropout=0.0,
+                            dropout=0.0,
+                            ff_hidden_dim=2048,
+                            activation_func=rf.tanh,
+                        )
+                    },
+                ),
+                train_def=lm_train_def,
+            )
+            compute_ppl(
+                prefix_name=f"ffnn-n{layers}-ctx{context_size}-embd128-d2048-bpe128-drop0.0-tanh",
+                model_with_checkpoints=model_with_checkpoints,
+                dataset=bpe_128_lm_dataset,
+                dataset_keys=["transcriptions-train", "transcriptions-test-other", "transcriptions-dev-other"],
+            )
+
 
 class FeedForwardLm(rf.Module):
     def __init__(
@@ -129,7 +181,7 @@ class FeedForwardLm(rf.Module):
         context_size: int,
         num_layers: int,
         embed_dim: int = 128,
-        activation_func=rf.relu,
+        activation_func: Union[Callable[[Tensor], Tensor], Dict[str, Any]] = rf.relu,
         embed_dropout: float = 0.0,
         ff_hidden_dim: int = 1024,
         dropout: float = 0.0,
@@ -144,7 +196,12 @@ class FeedForwardLm(rf.Module):
         self.vocab_dim = vocab_dim
         self.embed_dropout = embed_dropout
         self.dropout = dropout
-        self.activation_func = activation_func
+
+        if isinstance(activation_func, dict):
+            self.activation_func = rf.build_from_dict(activation_func)
+        else:
+            self.activation_func = activation_func
+
         self.use_bottleneck = use_bottleneck
 
         self.embed_dim = Dim(name="embed_dim", dimension=embed_dim)
