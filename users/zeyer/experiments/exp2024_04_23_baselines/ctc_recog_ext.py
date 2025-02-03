@@ -1064,7 +1064,8 @@ def ctc_recog_framewise_prior_auto_scale(
         scale_relative_to={"prior": "lm"},
         evaluation="edit_distance",
     )
-    tk.register_output(f"{prefix}/opt_scales", opt_scales_job.out_scales)
+    tk.register_output(f"{prefix}/opt-real-scales", opt_scales_job.out_real_scales)
+    tk.register_output(f"{prefix}/opt-rel-scales", opt_scales_job.out_scales)
     # We use the real scales.
     # But prior is still handled as negative in lm_framewise_prior_rescore and 1stpass model_recog below.
     # (The DelayedBase logic on the Sis Variable should handle this.)
@@ -1091,7 +1092,7 @@ def ctc_recog_framewise_prior_auto_scale(
             )
         ],
     )
-    tk.register_output(f"{prefix}/recog-opt-rescore-scores.txt", res.output)
+    tk.register_output(f"{prefix}/rescore-res.txt", res.output)
 
     model = get_ctc_with_lm(
         ctc_model=ctc_model,
@@ -1116,7 +1117,7 @@ def ctc_recog_framewise_prior_auto_scale(
         search_rqmt={"time": 24},
         name=f"{prefix}/recog-opt-1stpass",
     )
-    tk.register_output(f"{prefix}/recog-opt-1stpass-scores.txt", res.output)
+    tk.register_output(f"{prefix}/recog-1stpass-res.txt", res.output)
     return res
 
 
