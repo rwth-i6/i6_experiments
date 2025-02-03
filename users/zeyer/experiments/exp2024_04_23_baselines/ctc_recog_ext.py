@@ -15,8 +15,9 @@ from sisyphus import Job, tk
 from returnn_common.datasets_old_2022_10.interface import DatasetConfig
 from i6_experiments.users.zeyer.model_interfaces import ModelDef, ModelDefWithCfg, RecogDef, ModelWithCheckpoint
 from i6_experiments.users.zeyer.datasets.task import Task
+from i6_experiments.users.zeyer.datasets.score_results import ScoreResultCollection
 
-from i6_experiments.users.zeyer.recog import recog_model, search_dataset
+from i6_experiments.users.zeyer.recog import recog_model, search_dataset, ctc_alignment_to_label_seq
 from i6_experiments.users.zeyer.collect_model_dataset_stats import collect_statistics
 
 from .ctc import Model, ctc_model_def, _batch_size_factor
@@ -431,13 +432,11 @@ def py():
                 scales_results[(prior_scale, lm_scale)] = res.output
         _plot_scales(f"rescore-beam{beam_size}-lm_{lm_out_name}", scales_results)
 
-        ctc_recog_auto_scale(
+        ctc_recog_framewise_prior_auto_scale(
             prefix=f"{prefix}/opt-beam128-lm_n24-d512",
             task=task,
             ctc_model=ctc_model,
-            am_recog_def=model_recog_ctc_only,
-            labelwise_prior=Prior(file=log_prior_wo_blank, type="log_prob", vocab=vocab_file),
-            # TODO fix, remove framewise...
+            # labelwise_prior=Prior(file=log_prior_wo_blank, type="log_prob", vocab=vocab_file),
             framewise_prior=Prior(file=prior, type="prob", vocab=vocab_w_blank_file),
             lm=_get_lm_model(_lms["n24-d512"]),
             vocab_file=vocab_file,
@@ -999,20 +998,27 @@ def ctc_prior_full_sum_rescore(
     return log_prob_targets_seq
 
 
-def ctc_recog_auto_scale(
+def ctc_recog_framewise_prior_auto_scale(
     *,
     prefix: str,
     task: Task,
     ctc_model: ModelWithCheckpoint,
-    am_recog_def: RecogDef,
-    labelwise_prior: Prior,
     framewise_prior: Prior,
     lm: ModelWithCheckpoint,
     vocab_file: tk.Path,
     vocab_opts_file: tk.Path,
     beam_size: int,
-):
+) -> ScoreResultCollection:
+    """
+    Recog with ``model_recog_ctc_only`` to get N-best list on ``task.dev_dataset``,
+    then calc scores with framewise prior and LM on N-best list,
+    then tune optimal scales on N-best list,
+    then rescore on all ``task.eval_datasets`` using those scales,
+    and also do first-pass recog (``model_recog``) with those scales.
+    """
+    from .ctc import model_recog as model_recog_ctc_only
     from i6_experiments.users.zeyer.decoding.lm_rescoring import (
+        lm_framewise_prior_rescore,
         prior_score,
         lm_score,
     )
@@ -1022,11 +1028,15 @@ def ctc_recog_auto_scale(
     asr_scores = search_dataset(
         dataset=dataset,
         model=ctc_model,
-        recog_def=am_recog_def,
+        recog_def=model_recog_ctc_only,
         config={"beam_size": beam_size},
+        keep_alignment_frames=True,
         keep_beam=True,
     )
-    prior_scores = prior_score(asr_scores, prior=labelwise_prior)
+    prior_scores = prior_score(asr_scores, prior=framewise_prior)
+    if model_recog_ctc_only.output_blank_label:
+        asr_scores = ctc_alignment_to_label_seq(asr_scores, blank_label=model_recog_ctc_only.output_blank_label)
+        prior_scores = ctc_alignment_to_label_seq(prior_scores, blank_label=model_recog_ctc_only.output_blank_label)
     lm_scores = lm_score(asr_scores, lm=lm, vocab=vocab_file, vocab_opts_file=vocab_opts_file)
 
     from i6_experiments.users.zeyer.datasets.utils.serialize import ReturnnDatasetToTextDictJob
@@ -1055,16 +1065,41 @@ def ctc_recog_auto_scale(
         evaluation="edit_distance",
     )
     tk.register_output(f"{prefix}/opt_scales", opt_scales_job.out_scales)
+    # We use the real scales.
+    # But prior is still handled as negative in lm_framewise_prior_rescore and 1stpass model_recog below.
+    # (The DelayedBase logic on the Sis Variable should handle this.)
+    prior_scale = opt_scales_job.out_real_scale_per_name["prior"] * (-1)
+    lm_scale = opt_scales_job.out_real_scale_per_name["lm"]
 
-    # TODO that's the wrong prior! get_ctc_with_lm expects a framewise prior...
-    #   should implement that get_ctc_with_lm + recog_model + model_recog can also work with labelwise prior
+    # Rescore with optimal scales. Like recog_model with lm_framewise_prior_rescore.
+    res = recog_model(
+        task=task,
+        model=ctc_model,
+        recog_def=model_recog_ctc_only,
+        config={"beam_size": beam_size},
+        recog_pre_post_proc_funcs_ext=[
+            functools.partial(
+                lm_framewise_prior_rescore,
+                # framewise standard prior
+                prior=framewise_prior,
+                prior_scale=prior_scale,
+                lm=lm,
+                lm_scale=lm_scale,
+                lm_rescore_rqmt={"cpu": 4, "mem": 30, "time": 24, "gpu_mem": 24},
+                vocab=vocab_file,
+                vocab_opts_file=vocab_opts_file,
+            )
+        ],
+    )
+    tk.register_output(f"{prefix}/recog-opt-rescore-scores.txt", res.output)
+
     model = get_ctc_with_lm(
         ctc_model=ctc_model,
         prior=framewise_prior.file,
         prior_type=framewise_prior.type,
-        prior_scale=opt_scales_job.out_real_scale_per_name["prior"],
+        prior_scale=prior_scale,
         language_model=lm,
-        lm_scale=opt_scales_job.out_real_scale_per_name["lm"],
+        lm_scale=lm_scale,
     )
     res = recog_model(
         task=task,
@@ -1074,12 +1109,12 @@ def ctc_recog_auto_scale(
             "beam_size": beam_size,
             "recog_version": 9,
             "batch_size": 5_000 * ctc_model.definition.batch_size_factor,
-            "__trigger_hash_change": 1,
         },
         search_rqmt={"time": 24},
-        name=f"{prefix}/recog-opt",
+        name=f"{prefix}/recog-opt-1stpass",
     )
-    tk.register_output(f"{prefix}/recog-opt-res", res.output)
+    tk.register_output(f"{prefix}/recog-opt-1stpass-scores.txt", res.output)
+    return res
 
 
 def _plot_scales(name: str, results: Dict[Tuple[float, float], tk.Path], x_axis_name: str = "prior_scale"):
