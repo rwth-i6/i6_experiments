@@ -227,6 +227,7 @@ def search_dataset(
     recog_post_proc_funcs: Sequence[Callable[[RecogOutput], RecogOutput]] = (),
     recog_pre_post_proc_funcs_ext: Sequence[Callable] = (),
     keep_beam: bool = False,
+    keep_alignment_frames: bool = False,
 ) -> RecogOutput:
     """
     Recog on the specific dataset using RETURNN.
@@ -258,6 +259,9 @@ def search_dataset(
         ``raw_res_search_labels`` (e.g. align labels, e.g. BPE including blank)
         and ``raw_res_labels`` (e.g. BPE labels).
     :param keep_beam: if there was a beam, keep it, otherwise take the best hyp
+    :param keep_alignment_frames: keep alignment frames. e.g. don't use :func:`ctc_alignment_to_label_seq`.
+        By default, this is False, and if ``recog_def.output_blank_label`` is set,
+        :func:`ctc_alignment_to_label_seq` is used.
     :return: :class:`RecogOutput`, single best hyp (if there was a beam, we already took the best one)
         over the dataset
     """
@@ -304,8 +308,11 @@ def search_dataset(
         search_job.add_alias(search_alias_name)
     raw_res_search_labels = RecogOutput(output=res)
     if recog_def.output_blank_label:
-        res = ctc_alignment_to_label_seq(RecogOutput(output=res), blank_label=recog_def.output_blank_label).output
-    raw_res_labels = RecogOutput(output=res)
+        raw_res_labels = ctc_alignment_to_label_seq(raw_res_search_labels, blank_label=recog_def.output_blank_label)
+        if not keep_alignment_frames:
+            res = raw_res_labels.output
+    else:
+        raw_res_labels = raw_res_search_labels
     for f in recog_pre_post_proc_funcs_ext:
         res = f(
             RecogOutput(output=res),
