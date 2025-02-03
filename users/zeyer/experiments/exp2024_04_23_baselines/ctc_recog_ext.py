@@ -98,7 +98,7 @@ def py():
             (32, 0.3, 0.5),
             (32, 0.25, 0.5),
         ]:
-            model = get_ctc_with_lm(
+            model = get_ctc_with_lm_and_framewise_prior(
                 ctc_model=ctc_model, prior=prior, prior_scale=prior_scale, language_model=lm, lm_scale=lm_scale
             )
             res = recog_model(
@@ -120,7 +120,9 @@ def py():
             )
 
         # For debugging:
-        model = get_ctc_with_lm(ctc_model=ctc_model, prior=prior, prior_scale=0.3, language_model=lm, lm_scale=0.5)
+        model = get_ctc_with_lm_and_framewise_prior(
+            ctc_model=ctc_model, prior=prior, prior_scale=0.3, language_model=lm, lm_scale=0.5
+        )
         res = recog_model(
             task=task,
             model=model,
@@ -147,7 +149,7 @@ def py():
             # (0.2, 2.0),
             (0.3, 0.5),
         ]:
-            model = get_ctc_with_lm(
+            model = get_ctc_with_lm_and_framewise_prior(
                 ctc_model=ctc_model, prior=prior, prior_scale=prior_scale, language_model=lm, lm_scale=lm_scale
             )
             for name, opts in [
@@ -248,7 +250,7 @@ def py():
             (0.5, 1.0),
             (0.7, 2.0),
         ]:
-            model = get_ctc_with_lm(
+            model = get_ctc_with_lm_and_framewise_prior(
                 ctc_model=ctc_model, prior=prior, prior_scale=prior_scale, language_model=lm, lm_scale=lm_scale
             )
             res = recog_model(
@@ -279,7 +281,7 @@ def py():
             (0.0, 0.0),
             (0.5, 1.0),
         ]:
-            model = get_ctc_with_lm(
+            model = get_ctc_with_lm_and_framewise_prior(
                 ctc_model=ctc_model, prior=prior, prior_scale=prior_scale, language_model=lm, lm_scale=lm_scale
             )
             for name, opts in [
@@ -665,7 +667,7 @@ def _get_lm_model(name: str) -> ModelWithCheckpoint:
     return model
 
 
-def get_ctc_with_lm(
+def get_ctc_with_lm_and_framewise_prior(
     *,
     ctc_model: ModelWithCheckpoint,
     prior: Optional[tk.Path] = None,
@@ -1095,7 +1097,7 @@ def ctc_recog_framewise_prior_auto_scale(
     )
     tk.register_output(f"{prefix}/rescore-res.txt", res.output)
 
-    model = get_ctc_with_lm(
+    model = get_ctc_with_lm_and_framewise_prior(
         ctc_model=ctc_model,
         prior=framewise_prior.file,
         prior_type=framewise_prior.type,
