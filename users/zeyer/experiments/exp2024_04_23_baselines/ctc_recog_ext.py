@@ -11,6 +11,7 @@ from returnn.tensor import Tensor, Dim
 import returnn.frontend as rf
 
 from sisyphus import Job, tk
+from sisyphus.delayed_ops import DelayedBase
 
 from returnn_common.datasets_old_2022_10.interface import DatasetConfig
 from i6_experiments.users.zeyer.model_interfaces import ModelDef, ModelDefWithCfg, RecogDef, ModelWithCheckpoint
@@ -669,7 +670,7 @@ def get_ctc_with_lm(
     ctc_model: ModelWithCheckpoint,
     prior: Optional[tk.Path] = None,
     prior_type: str = "prob",
-    prior_scale: Optional[Union[float, tk.Variable]] = None,
+    prior_scale: Optional[Union[float, tk.Variable, DelayedBase]] = None,
     language_model: ModelWithCheckpoint,
     lm_scale: Union[float, tk.Variable],
 ) -> ModelWithCheckpoint:
