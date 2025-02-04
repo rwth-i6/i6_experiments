@@ -169,6 +169,7 @@ class PruneLMJob(Job):
             f"  -lm {self.lm.get_path()} \\\n",
             f"  -write-lm pruned.lm.gz \\\n",
             f"  -prune {self.prune_thresh} \\\n",
+            f"  -prune-lowprobs \\\n",
             f"  -memuse \n",
         ]
         create_executable("run.sh", cmd)

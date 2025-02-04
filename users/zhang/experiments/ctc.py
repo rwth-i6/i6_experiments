@@ -57,7 +57,7 @@ def py():
         "log_add": False,
         "nbest": 1,
         "beam_size": 80,
-        "lm_weight": 1.9,  # NOTE: weights are exponentials of the probs. 1.9 seems make the results worse by using selftrained lm
+        "lm_weight": 1.4,  # NOTE: weights are exponentials of the probs. 1.9 seems make the results worse by using selftrained lm
         "use_logsoftmax": True,
         "use_lm": True,
         "use_lexicon": False, # Do open vocab search when using bpe lms.
@@ -122,8 +122,8 @@ def py():
         # ("char", None, None),
         # ("bpe0", None, None),
     ]:
-        from .language_models.librispeech_lm import get_4gram_binary_lm
-        from .language_models.n_gram import get_count_based_n_gram
+        # from ..datasets.librispeech_lm import get_4gram_binary_lm
+        from i6_experiments.users.zhang.experiments.language_models.n_gram import get_count_based_n_gram # If move to lm it somehow breaks the hash...
         lms = dict()
         wer_ppl_results = dict()
         ppl_results = dict()
@@ -146,18 +146,26 @@ def py():
         exp_names_postfix = ""
         prune_num = 0
         for n_order in [  # 2, 3,
-            4, # 5
+            4, 5
             # 6 Slow recog
         ]:
             exp_names_postfix += str(n_order) + "_"
-            for prune_thresh in [x * 1e-9 for x in range(1, 100, 6)] + [None]: #[x * 1e-9 for x in range(1, 30, 3)]
-
+            prune_threshs = list(set([x * 1e-9 for x in range(1, 100, 6)] +
+                                     [x * 1e-7 for x in range(1, 200, 25)] +
+                                     [x * 1e-7 for x in range(1, 200, 16)] +
+                                     [x * 1e-7 for x in range(1, 10, 2)]
+                                     ))
+            prune_threshs.sort()
+            if n_order == 5:
+                prune_threshs = [x for x in prune_threshs if x and x < 9*1e-6]
+            prune_threshs.append(None)
+            for prune_thresh in prune_threshs: # + [None]: #[x * 1e-9 for x in range(1, 30, 3)]
                 prune_num += 1 if prune_thresh else 0
-                lm, ppl_var = get_count_based_n_gram("word", n_order, prune_thresh)
+                lm, ppl_log = get_count_based_n_gram("word", n_order, prune_thresh)
                 lm_name = str(n_order) + "gram_word" + (f"{prune_thresh:.1e}" if prune_thresh else "").replace("e-0", "e-").replace("e+0", "e+").replace(".", "_")
                 lms.update(dict([(lm_name, lm)]))
-                ppl_results.update(dict([(lm_name, ppl_var)]))
-                tk.register_output(f"datasets/LibriSpeech/lm/ppl/" + lm_name, ppl_var)
+                ppl_results.update(dict([(lm_name, ppl_log)]))
+                tk.register_output(f"datasets/LibriSpeech/lm/ppl/" + lm_name, ppl_log)
         exp_names_postfix += f"pruned_{str(prune_num)}"
         # Try to use the out of downstream job which has existing logged output. Instead of just Forward job, which seems cleaned up each time
         lms.update({"NoLM": None})
@@ -165,7 +173,7 @@ def py():
         #     official_4gram, ppl_official4gram = get_4gram_binary_lm(**dict(zip(["prunning","quant_level"],prunning)))
         #     lms.update({"4gram_word_official"+f"q{prunning[1]}": official_4gram})
         #     ppl_results.update({"4gram_word_official"+f"q{prunning[1]}": ppl_official4gram})
-
+        print(ppl_results)
 
         for name, lm in lms.items():
             # lm_name = lm if isinstance(lm, str) else lm.name
@@ -223,7 +231,8 @@ def py():
                 wer_ppl_results[name] = (ppl_results.get(name), wer_result_path)
         (names, results) = zip(*wer_ppl_results.items())
         summaryjob = WER_ppl_PlotAndSummaryJob(names, results)
-        tk.register_output("wer_ppl/"+lm_hyperparamters_str + exp_names_postfix, summaryjob.out_summary_json)
+        tk.register_output("wer_ppl/"+lm_hyperparamters_str + exp_names_postfix + "/summary", summaryjob.out_summary)
+        tk.register_output("wer_ppl/"+ lm_hyperparamters_str + exp_names_postfix + "/plot.png", summaryjob.out_plot)
 
 _train_experiments: Dict[str, ModelWithCheckpoints] = {}
 
