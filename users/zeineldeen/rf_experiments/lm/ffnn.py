@@ -197,7 +197,6 @@ def py():
                             embed_dropout=drop,
                             dropout=drop,
                             ff_hidden_dim=2048,
-                            activation_func=rf.relu,
                         )
                     },
                 ),
