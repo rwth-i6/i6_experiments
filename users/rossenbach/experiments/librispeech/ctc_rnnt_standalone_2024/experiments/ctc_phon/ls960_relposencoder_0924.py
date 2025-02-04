@@ -15,11 +15,12 @@ from ...default_tools import RETURNN_EXE, MINI_RETURNN_ROOT
 from ...lm import get_4gram_binary_lm
 from ...pipeline import training, prepare_asr_model, search
 from ...report import tune_and_evalue_report
+from ...storage import add_ctc_model
 
 
 
 def eow_phon_ls960_relposencoder_0924_base():
-    prefix_name = "experiments/librispeech/ctc_rnnt_standalone_2024/ls960_ctc_eow_phon"
+    prefix_name = "experiments/librispeech/ctc_rnnt_standalone_2024/ls960_ctc_eow_phon_relposencoder"
 
     train_settings = DatasetSettings(
         preemphasis=0.97,  # TODO: Check if this is really useful
@@ -225,5 +226,9 @@ def eow_phon_ls960_relposencoder_0924_base():
         get_specific_checkpoint=1000
     )
     tune_and_evaluate_helper(training_name, asr_model, default_decoder_config, lm_scales=[1.6, 1.8, 2.0], prior_scales=[0.2, 0.3, 0.4])
+    asr_model.returnn_vocab = label_datastream.vocab
+    asr_model.settings = train_settings
+    asr_model.label_datastream = label_datastream
+    add_ctc_model(network_module + ".eow_phon.512dim_sub4_24gbgpu_100eps_sp_lp_fullspec_gradnorm_lr07_work8", asr_model)
 
 

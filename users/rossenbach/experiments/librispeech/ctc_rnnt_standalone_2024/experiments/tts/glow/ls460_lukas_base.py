@@ -626,22 +626,22 @@ def run_flow_tts_460h():
 
 
     # MTG Things
-    MTG_trial1_dev = Path(
-        "/work/asr4/rossenbach/domain_data/MTG/MTG_trial3_dev.txt",
-        hash_overwrite="MTG/MTG_trial3_dev.txt"
+    MTG_trial4_dev = Path(
+        "/work/asr4/rossenbach/domain_data/MTG/MTG_trial4_dev.txt",
+        hash_overwrite="MTG/MTG_trial4_dev.txt"
     )
-    set_name = "MTG_trial3_dev"
-    MTG_trial3_dev_bliss = bliss_from_text(prefix="/".join([prefix, set_name]), name=set_name,
-                                           lm_text=MTG_trial1_dev)
+    set_name = "MTG_trial4_dev"
+    MTG_trial4_dev_bliss = bliss_from_text(prefix="/".join([prefix, set_name]), name=set_name,
+                                           lm_text=MTG_trial4_dev)
     set_lex_name = set_name + "_sequiturg2p"
-    mtg_trial3_dev_lexicon = create_data_lexicon(prefix="/".join([prefix, set_lex_name, "lexicon"]), lexicon_bliss=MTG_trial3_dev_bliss)
+    mtg_trial4_dev_lexicon = create_data_lexicon(prefix="/".join([prefix, set_lex_name, "lexicon"]), lexicon_bliss=MTG_trial4_dev_bliss)
 
     name = set_lex_name + "_glowtts460_noise055"
     merged_corpus_with_text, out_ogg_zip = construct_domain_test_set(
         prefix,
-        "MTG_trial3_dev",
-        bliss=MTG_trial3_dev_bliss,
-        lexicon=mtg_trial3_dev_lexicon,
+        "MTG_trial4_dev",
+        bliss=MTG_trial4_dev_bliss,
+        lexicon=mtg_trial4_dev_lexicon,
         decoder_options = decoder_options_synthetic_055,
     )
     tk.register_output("domain_test_tina_export/" + name + ".xml.gz", merged_corpus_with_text)
