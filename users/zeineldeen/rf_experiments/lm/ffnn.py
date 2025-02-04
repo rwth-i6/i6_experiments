@@ -173,6 +173,43 @@ def py():
                 dataset_keys=["transcriptions-train", "transcriptions-test-other", "transcriptions-dev-other"],
             )
 
+    for drop in [0.0, 0.1]:
+        for context_size in [5, 10, 15, 20]:
+            model_with_checkpoints = train(
+                f"lm/ffnn-n2-ctx{context_size}-embd128-d2048-bpe128-drop{drop}-relu",
+                config=dict_update_deep(
+                    config_11gb_lm_v1,
+                    {
+                        **_get_cfg_lrlin_oclr_by_bs_nep(200, 10_000, 50),
+                        "max_seq_length": {},
+                        "torch_distributed": None,
+                        "use_horovod": False,
+                    },
+                ),
+                train_dataset=bpe_128_lm_dataset,
+                model_def=ModelDefWithCfg(
+                    lm_model_def,
+                    {
+                        "_model_def_dict": rf.build_dict(
+                            FeedForwardLm,
+                            num_layers=2,
+                            context_size=context_size,
+                            embed_dropout=drop,
+                            dropout=drop,
+                            ff_hidden_dim=2048,
+                            activation_func=rf.relu,
+                        )
+                    },
+                ),
+                train_def=lm_train_def,
+            )
+            compute_ppl(
+                prefix_name=f"ffnn-n2-ctx{context_size}-embd128-d2048-bpe128-drop{drop}-relu",
+                model_with_checkpoints=model_with_checkpoints,
+                dataset=bpe_128_lm_dataset,
+                dataset_keys=["transcriptions-train", "transcriptions-test-other", "transcriptions-dev-other"],
+            )
+
 
 class FeedForwardLm(rf.Module):
     def __init__(
