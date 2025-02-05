@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import numpy
 import os.path
 from typing import TYPE_CHECKING, Optional, Union, Tuple, Sequence, List, Collection
 import tree
@@ -129,19 +130,60 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
         train_def=mini_lstm_ilm_train_def,
     )
 
+    # use higher LR and less training epochs
+    train(
+        f"ilm/mini-lstm-d50-lr8e4-ep20",
+        config=dict_update_deep(
+            config_11gb_ilm_v1,
+            {"batch_size": 10_000, "preload_from_files": preload_from_files, "__num_epochs": 20, "learning_rate": 8e-4},
+        ),
+        train_dataset=lbs_bpe10k_dataset,
+        model_def=ModelDefWithCfg(
+            mini_lstm_ilm_def,
+            {"_model_def_dict": rf.build_dict(MiniLstmIlm)},
+        ),
+        train_def=mini_lstm_ilm_train_def,
+    )
+
+    # lr: const + linear decay
+    ilm_v3_model_with_checkpoints = train(
+        f"ilm/mini-lstm-d50-ep40-v3",
+        config=dict_update_deep(
+            config_11gb_ilm_v1,
+            {
+                "batch_size": 10_000,
+                "preload_from_files": preload_from_files,
+                "__num_epochs": 40,
+                "learning_rates": [8e-4] * 3 + list(numpy.linspace(8e-4, 2e-4, num=37)),
+            },
+        ),
+        train_dataset=lbs_bpe10k_dataset,
+        model_def=ModelDefWithCfg(
+            mini_lstm_ilm_def,
+            {"_model_def_dict": rf.build_dict(MiniLstmIlm)},
+        ),
+        train_def=mini_lstm_ilm_train_def,
+    )
+
     from . import trafo_lm_kazuki_import
 
-    for lm_scale in [0.42]:
-        lm_recog_config = {
-            "beam_search_opts": {"beam_size": 32, "lm_scale": lm_scale},
-            "external_language_model": {"class": "TransformerDecoder", **trafo_lm_kazuki_import.TrafoLmOpts},
-            "preload_from_files": {
-                "trafo_lm": {"prefix": "language_model.", "filename": trafo_lm_kazuki_import.get_pt_checkpoint_path()}
-            },
-            "batch_size": 4000 * 160,
-            "version": 2,
-        }
-        _recog_imported(name=f"trafo_lm_{lm_scale}_beam32", recog_config=lm_recog_config)
+    for beam_size in [16, 20, 24, 32]:
+        for lm_scale in [0.36, 0.38, 0.4]:
+            lm_recog_config = {
+                "beam_search_opts": {"beam_size": beam_size, "lm_scale": lm_scale},
+                "external_language_model": {"class": "TransformerDecoder", **trafo_lm_kazuki_import.TrafoLmOpts},
+                "preload_from_files": {
+                    "trafo_lm": {
+                        "prefix": "language_model.",
+                        "filename": trafo_lm_kazuki_import.get_pt_checkpoint_path(),
+                    }
+                },
+                "batch_size": 4000 * 160,
+                "version": 2,
+            }
+            _recog_imported(
+                name=f"trafo_lm_{lm_scale}_beam{beam_size}", recog_config=lm_recog_config, dev_sets=["dev-other"]
+            )
 
     for lm_scale in [0.54]:
         for ilm_scale in [0.4]:
@@ -160,13 +202,17 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
                     },
                     "ilm": {
                         "prefix": "internal_language_model.",
-                        "filename": ilm_with_checkpoints.get_last_fixed_epoch().checkpoint,  # TODO: not optimal!
+                        "filename": ilm_v3_model_with_checkpoints.get_epoch(31).checkpoint,
                     },
                 },
                 "batch_size": 1000 * 160,
-                "max_seqs": 1,
+                # "max_seqs": 1,
             }
-            _recog_imported(name=f"trafo_lm_{lm_scale}_ilm_{ilm_scale}_beam70_lastckpt", recog_config=ilm_recog_config)
+            _recog_imported(
+                name=f"trafo_lm_{lm_scale}_ilm_{ilm_scale}_beam70_v3",
+                recog_config=ilm_recog_config,
+                dev_sets=["dev-other"],
+            )
 
 
 _sis_prefix: Optional[str] = None
@@ -206,7 +252,11 @@ def get_tf_to_rf_converted_ckpt_path() -> tk.Path:
     return new_chkpt_path
 
 
-def _recog_imported(name: str = "recog_resutls", recog_config: Optional[Dict[str, Any]] = None):
+def _recog_imported(
+    name: str = "recog_resutls",
+    recog_config: Optional[Dict[str, Any]] = None,
+    dev_sets: Optional[Collection[str]] = None,
+):
     from i6_core.returnn.training import PtCheckpoint
     from i6_experiments.users.zeyer.model_interfaces import ModelWithCheckpoint
 
@@ -215,7 +265,7 @@ def _recog_imported(name: str = "recog_resutls", recog_config: Optional[Dict[str
 
     model_with_checkpoint = ModelWithCheckpoint(definition=from_scratch_model_def, checkpoint=new_chkpt)
 
-    _recog(name, model_with_checkpoint, recog_config=recog_config)
+    _recog(name, model_with_checkpoint, recog_config=recog_config, dev_sets=dev_sets)
 
 
 def _recog(
@@ -470,18 +520,18 @@ class Model(rf.Module):
         *,
         num_enc_layers: int = 12,
         target_dim: Dim,
-        target_embed_dim: Dim,
+        target_embed_dim: Dim = Dim(name="target_embed", dimension=640),
         wb_target_dim: Optional[Dim] = None,
         blank_idx: int,
         eos_idx: int,
         bos_idx: int,
-        enc_model_dim: Dim,
-        att_num_heads: Dim,
         enc_aux_logits: Sequence[int] = (),  # layers
+        enc_model_dim: Dim = Dim(name="enc", dimension=512),
         enc_ff_dim: Dim = Dim(name="enc-ff", dimension=2048),
         enc_att_num_heads: int = 4,
         enc_conformer_layer_opts: Optional[Dict[str, Any]] = None,
         enc_key_total_dim: Dim = Dim(name="enc_key_total_dim", dimension=1024),
+        att_num_heads: Dim = Dim(name="att_num_heads", dimension=1),
         att_dropout: float = 0.1,
         enc_dropout: float = 0.1,
         enc_att_dropout: float = 0.1,
@@ -1586,9 +1636,9 @@ class MiniLstmIlm(rf.Module):
         self,
         *,
         target_dim: Dim,
-        target_embed_dim: Dim,
-        att_context_dim: Dim,
-        att_num_heads: Dim,
+        target_embed_dim: Dim = Dim(name="mini_lstm_ilm_target_embed", dimension=640),
+        att_context_dim: Dim = Dim(name="mini_lstm_ilm_att_dim", dimension=512, kind=Dim.Types.Feature),
+        att_num_heads: Dim = Dim(name="mini_lstm_ilm_att_num_heads", dimension=1),
         hidden_dim: int = 50,
     ):
         """
