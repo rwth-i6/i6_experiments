@@ -28,186 +28,42 @@ def py():
 
     bpe_128_lm_dataset = get_librispeech_lm_dataset(vocab="bpe128")
 
-    model_with_checkpoints = train(
-        f"lm/ffnn-n2-ctx10-embd128-d2048-bpe128-drop0.1-relu",
-        config=dict_update_deep(
-            config_11gb_lm_v1,
-            {
-                **_get_cfg_lrlin_oclr_by_bs_nep(200, 10_000, 50),
-                "max_seq_length": {},
-                "torch_distributed": None,
-                "use_horovod": False,
-            },
-        ),
-        train_dataset=bpe_128_lm_dataset,
-        model_def=ModelDefWithCfg(
-            lm_model_def,
-            {
-                "_model_def_dict": rf.build_dict(
-                    FeedForwardLm,
-                    context_size=10,
-                    num_layers=2,
-                    embed_dropout=0.1,
-                    dropout=0.1,
-                    ff_hidden_dim=2048,
-                )
-            },
-        ),
-        train_def=lm_train_def,
-    )
-
-    compute_ppl(
-        prefix_name="ffnn-n2-ctx10-embd128-d2048-bpe128-drop0.1-relu",
-        model_with_checkpoints=model_with_checkpoints,
-        dataset=bpe_128_lm_dataset,
-        dataset_keys=["transcriptions-train", "transcriptions-test-other", "transcriptions-dev-other"],
-    )
-
-    model_with_checkpoints = train(
-        f"lm/ffnn-n2-ctx10-embd128-d2048-bpe128-drop0.1-tanh",
-        config=dict_update_deep(
-            config_11gb_lm_v1,
-            {
-                **_get_cfg_lrlin_oclr_by_bs_nep(200, 10_000, 50),
-                "max_seq_length": {},
-                "torch_distributed": None,
-                "use_horovod": False,
-            },
-        ),
-        train_dataset=bpe_128_lm_dataset,
-        model_def=ModelDefWithCfg(
-            lm_model_def,
-            {
-                "_model_def_dict": rf.build_dict(
-                    FeedForwardLm,
-                    context_size=10,
-                    num_layers=2,
-                    embed_dropout=0.1,
-                    dropout=0.1,
-                    ff_hidden_dim=2048,
-                    activation_func=rf.tanh,
-                )
-            },
-        ),
-        train_def=lm_train_def,
-    )
-
-    compute_ppl(
-        prefix_name="ffnn-n2-ctx10-embd128-d2048-bpe128-drop0.1-tanh",
-        model_with_checkpoints=model_with_checkpoints,
-        dataset=bpe_128_lm_dataset,
-        dataset_keys=["transcriptions-train", "transcriptions-test-other", "transcriptions-dev-other"],
-    )
-
-    model_with_checkpoints = train(
-        f"lm/ffnn-n2-ctx10-embd128-d2048-bpe128-drop0.0-tanh",
-        config=dict_update_deep(
-            config_11gb_lm_v1,
-            {
-                **_get_cfg_lrlin_oclr_by_bs_nep(200, 10_000, 50),
-                "max_seq_length": {},
-                "torch_distributed": None,
-                "use_horovod": False,
-            },
-        ),
-        train_dataset=bpe_128_lm_dataset,
-        model_def=ModelDefWithCfg(
-            lm_model_def,
-            {
-                "_model_def_dict": rf.build_dict(
-                    FeedForwardLm,
-                    context_size=10,
-                    num_layers=2,
-                    embed_dropout=0.0,
-                    dropout=0.0,
-                    ff_hidden_dim=2048,
-                    activation_func=rf.tanh,
-                )
-            },
-        ),
-        train_def=lm_train_def,
-    )
-
-    compute_ppl(
-        prefix_name="ffnn-n2-ctx10-embd128-d2048-bpe128-drop0.0-tanh",
-        model_with_checkpoints=model_with_checkpoints,
-        dataset=bpe_128_lm_dataset,
-        dataset_keys=["transcriptions-train", "transcriptions-test-other", "transcriptions-dev-other"],
-    )
-
-    # TODO: try different context sizes
-    for layers in [2, 3, 4]:
-        for context_size in [5, 10, 20, 30]:
-            model_with_checkpoints = train(
-                f"lm/ffnn-n{layers}-ctx{context_size}-embd128-d2048-bpe128-drop0.0-tanh",
-                config=dict_update_deep(
-                    config_11gb_lm_v1,
-                    {
-                        **_get_cfg_lrlin_oclr_by_bs_nep(200, 10_000, 50),
-                        "max_seq_length": {},
-                        "torch_distributed": None,
-                        "use_horovod": False,
-                    },
-                ),
-                train_dataset=bpe_128_lm_dataset,
-                model_def=ModelDefWithCfg(
-                    lm_model_def,
-                    {
-                        "_model_def_dict": rf.build_dict(
-                            FeedForwardLm,
-                            context_size=context_size,
-                            num_layers=layers,
-                            embed_dropout=0.0,
-                            dropout=0.0,
-                            ff_hidden_dim=2048,
-                            activation_func=rf.tanh,
-                        )
-                    },
-                ),
-                train_def=lm_train_def,
-            )
-            compute_ppl(
-                prefix_name=f"ffnn-n{layers}-ctx{context_size}-embd128-d2048-bpe128-drop0.0-tanh",
-                model_with_checkpoints=model_with_checkpoints,
-                dataset=bpe_128_lm_dataset,
-                dataset_keys=["transcriptions-train", "transcriptions-test-other", "transcriptions-dev-other"],
-            )
-
-    for drop in [0.0, 0.1]:
-        for context_size in [5, 10, 15, 20]:
-            model_with_checkpoints = train(
-                f"lm/ffnn-n2-ctx{context_size}-embd128-d2048-bpe128-drop{drop}-relu",
-                config=dict_update_deep(
-                    config_11gb_lm_v1,
-                    {
-                        **_get_cfg_lrlin_oclr_by_bs_nep(200, 10_000, 50),
-                        "max_seq_length": {},
-                        "torch_distributed": None,
-                        "use_horovod": False,
-                    },
-                ),
-                train_dataset=bpe_128_lm_dataset,
-                model_def=ModelDefWithCfg(
-                    lm_model_def,
-                    {
-                        "_model_def_dict": rf.build_dict(
-                            FeedForwardLm,
-                            num_layers=2,
-                            context_size=context_size,
-                            embed_dropout=drop,
-                            dropout=drop,
-                            ff_hidden_dim=2048,
-                        )
-                    },
-                ),
-                train_def=lm_train_def,
-            )
-            compute_ppl(
-                prefix_name=f"ffnn-n2-ctx{context_size}-embd128-d2048-bpe128-drop{drop}-relu",
-                model_with_checkpoints=model_with_checkpoints,
-                dataset=bpe_128_lm_dataset,
-                dataset_keys=["transcriptions-train", "transcriptions-test-other", "transcriptions-dev-other"],
-            )
+    for context_size in [3, 10, 20]:
+        train_prefix_name = f"ffnn-n2-ctx{context_size}-embd128-d2048-bpe128-drop{0.0}-relu"
+        model_with_checkpoints = train(
+            f"lm/{train_prefix_name}",
+            config=dict_update_deep(
+                config_11gb_lm_v1,
+                {
+                    **_get_cfg_lrlin_oclr_by_bs_nep(200, 10_000, 50),
+                    "max_seq_length": {},
+                    "torch_distributed": None,
+                    "use_horovod": False,
+                    "version": 2,
+                },
+            ),
+            train_dataset=bpe_128_lm_dataset,
+            model_def=ModelDefWithCfg(
+                lm_model_def,
+                {
+                    "_model_def_dict": rf.build_dict(
+                        FeedForwardLm,
+                        num_layers=2,
+                        context_size=context_size,
+                        embed_dropout=0.0,
+                        dropout=0.0,
+                        ff_hidden_dim=2048,
+                    )
+                },
+            ),
+            train_def=lm_train_def,
+        )
+        compute_ppl(
+            prefix_name=train_prefix_name,
+            model_with_checkpoints=model_with_checkpoints,
+            dataset=bpe_128_lm_dataset,
+            dataset_keys=["transcriptions-train", "transcriptions-test-other", "transcriptions-dev-other"],
+        )
 
 
 class FeedForwardLm(rf.Module):
@@ -243,7 +99,7 @@ class FeedForwardLm(rf.Module):
         self.embed_dim = Dim(name="embed_dim", dimension=embed_dim)
         self.ff_hidden_dim = Dim(name="ff_hidden_dim", dimension=ff_hidden_dim)
 
-        self.conv_filter_size_dim = Dim(name="conv_filter_size", dimension=context_size + 1)
+        self.conv_filter_size_dim = Dim(name="conv_filter_size", dimension=context_size)
 
         # input embedding layer
         self.embedding = rf.Embedding(vocab_dim, self.embed_dim)
