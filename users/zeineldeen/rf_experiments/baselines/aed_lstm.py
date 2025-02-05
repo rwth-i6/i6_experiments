@@ -908,9 +908,7 @@ def model_recog(
     lm_scale = beam_search_opts.get("lm_scale", None)
     lm_state = None
     if lm_scale:
-        lm_state = model.language_model.decoder_default_initial_state(
-            batch_dims=batch_dims_, enc_spatial_dim=enc_spatial_dim
-        )
+        lm_state = model.language_model.default_initial_state(batch_dims=batch_dims_)
 
     ilm_scale = beam_search_opts.get("ilm_scale", None)
     ilm_state = None
@@ -935,7 +933,7 @@ def model_recog(
         label_log_prob = rf.log_softmax(logits, axis=model.target_dim)
 
         if lm_scale:
-            lm_log_prob, lm_state = model.language_model(input_embed=input_embed, state=lm_state)
+            lm_log_prob, lm_state = model.language_model(x=input_embed, spatial_dim=single_step_dim, state=lm_state)
             label_log_prob += lm_scale * lm_log_prob
 
         if ilm_state:
