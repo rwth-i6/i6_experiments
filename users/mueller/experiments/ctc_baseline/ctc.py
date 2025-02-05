@@ -70,6 +70,7 @@ def py():
     calc_last_pseudo_labels = False
     tune_hyperparameters = False
     from_scratch = False
+    decoder_lm_order = None
     
     use_sum_criterion = True
     horizontal_prior = True
@@ -117,12 +118,15 @@ def py():
         }
         if with_prior:
             decoder_hyperparameters["prior_weight"] = 0.3 # 0.2 if not using emprirical prior
+        if decoder_lm_order:
+            decoder_hyperparameters["lm_order"] = decoder_lm_order
+            decoder_hyperparameters["use_lexicon"] = False
             
         p0 = f"_p{str(decoder_hyperparameters['prior_weight']).replace('.', '')}" + ("-emp" if empirical_prior else ("-from_max" if prior_from_max else "")) if with_prior else ""
         p1 = "sum" if decoder_hyperparameters['log_add'] else "max"
         p2 = f"n{decoder_hyperparameters['nbest']}"
         p3 = f"b{decoder_hyperparameters['beam_size']}"
-        p4 = f"w{str(decoder_hyperparameters['lm_weight']).replace('.', '')}"
+        p4 = f"w{str(decoder_hyperparameters['lm_weight']).replace('.', '')}" + (f"o{decoder_lm_order}" if decoder_lm_order else "")
         p5 = "_logsoftmax" if decoder_hyperparameters['use_logsoftmax'] else ""
         p6 = "_noLM" if not decoder_hyperparameters['use_lm'] else ""
         p7 = "_noLEX" if not decoder_hyperparameters['use_lexicon'] else ""
@@ -376,6 +380,10 @@ def train_exp(
         empirical_prior=emp_prior if with_prior and empirical_prior else None,
     )
     
+    # Create LM for full-sum criterion
+    if use_sum_criterion:
+        lm = get_count_based_n_gram(task.train_dataset.vocab, LM_order)
+    
     # Do self training on pseudo labels
     for i in range(self_training_rounds):
         assert pseudo_label_path_dict is not None, "Pseudo label path is not set"
@@ -404,7 +412,7 @@ def train_exp(
         if use_sum_criterion:
             train_def = ctc_sum_training
             config_self = dict_update_deep(config_self, config_full_sum)
-            config_self["lm_path"] = get_count_based_n_gram(task.train_dataset.vocab, LM_order)
+            config_self["lm_path"] = lm
             
             if config_self.get("empirical_prior", False):
                 config_self["empirical_prior"] = emp_prior
@@ -1347,6 +1355,7 @@ def model_recog_lm(
     logits, enc, enc_spatial_dim = model(data, in_spatial_dim=data_spatial_dim)
     
     hyp_params = copy.copy(hyperparameters)
+    hyp_params.pop("lm_order", None)
     greedy = hyp_params.pop("greedy", False)
     prior_weight = hyp_params.pop("prior_weight", 0.0)
     prior_weight_tune = hyp_params.pop("prior_weight_tune", None)

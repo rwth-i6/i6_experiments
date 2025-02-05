@@ -32,11 +32,13 @@ from i6_experiments.users.zeyer.datasets.score_results import RecogOutput, Score
 from i6_experiments.users.zeyer.model_interfaces import ModelDef, ModelDefWithCfg, RecogDef, serialize_model_def
 from i6_experiments.users.zeyer.model_with_checkpoints import ModelWithCheckpoint, ModelWithCheckpoints
 from i6_experiments.users.zeyer.returnn.training import get_relevant_epochs_from_training_learning_rate_scores
+from i6_experiments.common.datasets.librispeech.language_model import get_arpa_lm_dict
 
 import numpy as np
 
 from .experiments.ctc_baseline.ctc import model_recog_lm
-from .experiments.language_models.librispeech_lm import get_4gram_binary_lm
+from .experiments.language_models.librispeech_lm import get_binary_lm
+from .experiments.language_models.n_gram import get_kenlm_n_gram
 from .datasets.librispeech import get_bpe_lexicon, LibrispeechOggZip
 from .scoring import ComputeWERJob, _score_recog
 
@@ -857,8 +859,11 @@ def search_config_v2(
         else:
             print("No vocab found in dataset!!!")
             lexicon = None
-            
-        lm = get_4gram_binary_lm()
+        
+        if "lm_order" in decoder_hyperparameters:
+            lm = get_binary_lm(get_kenlm_n_gram(vocab = dataset.vocab, N_order = decoder_hyperparameters['lm_order']))
+        else:
+            lm = get_binary_lm(get_arpa_lm_dict()["4gram"])
             
         args = {"arpa_4gram_lm": lm, "lexicon": lexicon, "hyperparameters": decoder_hyperparameters}
     

@@ -318,13 +318,15 @@ import i6_core.util as util
 
 from sisyphus import Job, Task, tk, gs
 
-from i6_experiments.users.mueller.datasets.librispeech import get_librispeech_lm_combined_txt, _extract_audio_seq_len_file, _extract_text_seq_len_file
+from i6_experiments.users.mueller.datasets.librispeech import get_librispeech_lm_combined_txt, _extract_audio_seq_len_file, _extract_text_seq_len_file, _get_corpus_text_dict, TextDictToTextLinesJob
 from i6_experiments.users.zeyer.datasets.utils.bpe import Bpe
 from i6_experiments.common.helpers.text_labels.subword_nmt_bpe import get_returnn_subword_nmt
 from i6_experiments.common.baselines.tedlium2.default_tools import SRILM_PATH
 from returnn_common.datasets_old_2022_10.interface import DatasetConfig
 
-def get_count_based_n_gram(vocab: Bpe, N_order: int) -> tk.Path:
+def get_kenlm_n_gram(vocab: Bpe, N_order: int) -> tk.Path:
+    assert vocab
+    
     kenlm_repo = CloneGitRepositoryJob("https://github.com/kpu/kenlm").out_repository.copy()
     KENLM_BINARY_PATH = CompileKenLMJob(repository=kenlm_repo).out_binaries.copy()
     KENLM_BINARY_PATH.hash_overwrite = "LIBRISPEECH_DEFAULT_KENLM_BINARY_PATH"
@@ -352,16 +354,37 @@ def get_count_based_n_gram(vocab: Bpe, N_order: int) -> tk.Path:
         vocabulary=None
     ).out_lm
     
-    ppl_job = ComputeNgramLmPerplexityJob(
-        ngram_order=N_order,
-        lm = lm_arpa,
-        eval_data=bpe_text,
-        ngram_exe=SRILM_PATH.join_right("ngram"),
-        mem_rqmt=4,
-        time_rqmt=1,
-    )
+    return lm_arpa
+
+def get_count_based_n_gram(vocab: Bpe, N_order: int) -> tk.Path:    
+    subword_nmt = get_returnn_subword_nmt()
     
-    tk.register_output(f"datasets/LibriSpeech/lm/count_based_{N_order}-gram", ppl_job.out_ppl_score)
+    lm_arpa = get_kenlm_n_gram(vocab, N_order)
+    
+    for corpus_id in ["dev-other", "test-other", "train-other-960", "all"]:
+        if corpus_id == "all":
+            ppl_data = get_librispeech_lm_combined_txt()
+        else:
+            corpus = _get_corpus_text_dict(corpus_id)
+            ppl_data = TextDictToTextLinesJob(corpus, gzip=True).out_text_lines
+        ppl_text = ApplyBPEToTextJob(
+            text_file=ppl_data,
+            bpe_codes=vocab.codes,
+            bpe_vocab=tk.Path(vocab.vocab.get_path()[:-5] + "dummy_count.vocab"),
+            subword_nmt_repo=subword_nmt,
+            gzip_output=True,
+            mini_task=False,
+        ).out_bpe_text
+        ppl_job = ComputeNgramLmPerplexityJob(
+            ngram_order=N_order,
+            lm = lm_arpa,
+            eval_data=ppl_text,
+            ngram_exe=SRILM_PATH.join_right("ngram"),
+            mem_rqmt=4,
+            time_rqmt=1,
+        )
+        
+        tk.register_output(f"datasets/LibriSpeech/lm/count_based_{N_order}-gram_{corpus_id}", ppl_job.out_ppl_score)
     
     conversion_job = ConvertARPAtoTensor(
         lm=lm_arpa,
@@ -410,7 +433,7 @@ def get_prior_from_unigram(vocab: Bpe, prior_dataset: Optional[DatasetConfig], v
         time_rqmt=1,
     )
     
-    tk.register_output(f"datasets/LibriSpeech/lm/count_based_1-gram", ppl_job.out_ppl_score)
+    tk.register_output(f"datasets/LibriSpeech/lm/count_based_1-gram_all", ppl_job.out_ppl_score)
     
     bpe_len_wo_blank = _extract_text_seq_len_file(prior_dataset, vocab_name, name="target", use_main_ds=True)
     audio_len = _extract_audio_seq_len_file(prior_dataset, use_main_ds=True)
