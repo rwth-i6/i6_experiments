@@ -84,9 +84,12 @@ def py():
     print_gradients = True
     alignment_topk = False
     blank_correction_version = 0
+    correction_in_final_score = False
     am_lm_prior = [
         (1.0, 0.5, 0.02)
     ]
+    
+    use_sgd = False
     self_train_subset = None # 18000
     
     assert (empirical_prior_full_sum and empirical_prior) or not empirical_prior_full_sum
@@ -207,6 +210,8 @@ def py():
                 config_full_sum["alignment_topk"] = False
             if blank_correction_version > 0:
                 config_full_sum["blank_correction_version"] = blank_correction_version
+            if correction_in_final_score:
+                config_full_sum["correction_in_final_score"] = True
             if print_gradients:
                 config_full_sum["print_gradients"] = True
             
@@ -216,7 +221,7 @@ def py():
             sum_str = f"-full_sum" + \
                 (f"_p{str(config_full_sum['prior_scale']).replace('.', '')}_l{str(config_full_sum['lm_scale']).replace('.', '')}_a{str(config_full_sum['am_scale']).replace('.', '')}" if scales_not_std else "") + \
                 (f"_LMorder{LM_order}" if LM_order > 2 else "") + \
-                (f"_topK{top_k}" + ("_align" if alignment_topk else "") + (f"_bc{blank_correction_version}" if blank_correction_version > 0 else "") if top_k > 0 else "") + \
+                (f"_topK{top_k}" + ("_align" if alignment_topk else "") + (f"_bc{blank_correction_version}" + ("sc" if correction_in_final_score else "") if blank_correction_version > 0 else "") if top_k > 0 else "") + \
                 ("_emp" if empirical_prior_full_sum else "") + \
                 ("_max_pr" if not empirical_prior_full_sum and prior_from_max_full_sum else "") + \
                 ("_wo_hor_pr" if not horizontal_prior else "") + \
@@ -225,7 +230,7 @@ def py():
         
         alias_name = f"ctc-baseline" + \
             (sum_str if use_sum_criterion else "") + \
-            (f"-self_training_{self_training_rounds}" + ("_from_scratch" if from_scratch else "") + (f"_s{self_train_subset}" if self_train_subset is not None else "") + (f"_e{self_epochs}" if self_epochs != 450 else "") if self_training_rounds > 0 else "") + \
+            (f"-self_training_{self_training_rounds}" + ("_SGD" if use_sgd else "") + ("_from_scratch" if from_scratch else "") + (f"_s{self_train_subset}" if self_train_subset is not None else "") + (f"_e{self_epochs}" if self_epochs != 450 else "") if self_training_rounds > 0 else "") + \
             (f"-wo_aux_loss" if not aux_loss else "") + \
             (f"-ds100h" if init_small else "") + \
             (f"-pl960h" + ("_keep100h" if keep_small_labels else "") if not pseudo_label_small else "") + \
@@ -257,6 +262,7 @@ def py():
             calc_last_pseudo_labels=calc_last_pseudo_labels,
             tune_hyperparameters=tune_hyperparameters,
             from_scratch=from_scratch,
+            use_sgd=use_sgd
         )
     
 
@@ -302,6 +308,7 @@ def train_exp(
     calc_last_pseudo_labels: bool = False,
     tune_hyperparameters: bool = False,
     from_scratch: bool = False,
+    use_sgd: bool = False
 ) -> Optional[ModelWithCheckpoints]:
     """
     Train experiment
@@ -421,14 +428,34 @@ def train_exp(
             
             if config_self.get("empirical_prior", False):
                 config_self["empirical_prior"] = emp_prior
+                
+        if use_sgd:
+            config_self["optimizer"] = {
+                "class": "sgd"
+            }
+        else:
+            config_self["optimizer"] = {
+                "class": "adamw",
+                "betas": (0.5, 0.98),
+                "epsilon": 1e-16,
+                "weight_decay": 1e-6,
+                "weight_decay_modules_blacklist": [
+                    "rf.Embedding",
+                    "rf.LearnedRelativePositionalEncoding",
+                ],
+            }
             
         # When testing on a smaller subset we only want one gpu
         if self_train_subset is not None:
             config_self["__num_processes"] = 1
             # config_self["learning_rate_piecewise_steps"] = [4_500, 9_000, 10_000]
             config_self["learning_rate_piecewise_steps"] = [2_250, 4_500, 5_000]
-            peak_lr = 1e-4
-            config_self["learning_rate_piecewise_values"] = [peak_lr * 1.001e-1, peak_lr, peak_lr * 3e-2, peak_lr * 3e-3]
+            if not use_sgd:
+                peak_lr = 1e-4
+                config_self["learning_rate_piecewise_values"] = [peak_lr * 1.001e-1, peak_lr, peak_lr * 3e-2, peak_lr * 3e-3]
+            else:
+                peak_lr = 1e-2
+                config_self["learning_rate_piecewise_values"] = [peak_lr * 1e-2, peak_lr, peak_lr * 1e-2, peak_lr * 1e-3]
         if not aux_loss:
             config_self.pop("aux_loss_layers")
 

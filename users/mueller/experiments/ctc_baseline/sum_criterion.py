@@ -331,6 +331,7 @@ def sum_loss2(
     print_best_path_for_idx: list[int] = [],
     alignment_topk: bool = False,
     blank_correction_version: int = 0,
+    correction_in_final_score: bool = False
 ):
     """
     Sum criterion training for CTC, given by
@@ -465,7 +466,7 @@ def sum_loss2(
             tmp_log_q = log_q
         
         if blank_correction_version > 0:
-            tmp_log_q_blank = log_q_blank.clone()
+            tmp_log_q_blank = log_q_blank.clone() if not correction_in_final_score else log_q_blank
             first_lm_probs = log_lm_probs[*[eos_symbol] * (LM_order - 1), out_idx_vocab_w_eos]
             if blank_correction_version in [1, 2]: # mean next lm prob
                 vocab_size_log = torch.log(torch.tensor(vocab_size + 1, device=device, dtype=log_probs[0].dtype))
@@ -486,11 +487,15 @@ def sum_loss2(
                 tmp_log_q_blank[:, 0] += torch.quantile(first_lm_probs, 0.7, dim=-1, interpolation="higher")
             elif blank_correction_version in [13, 14]: # 80% quantile next lm prob
                 tmp_log_q_blank[:, 0] += torch.quantile(first_lm_probs, 0.8, dim=-1, interpolation="higher")
+            elif blank_correction_version in [15, 16]: # 87% quantile next lm prob
+                tmp_log_q_blank[:, 0] += torch.quantile(first_lm_probs, 0.87, dim=-1, interpolation="higher")
             else:
                 raise NotImplementedError(f"Blank correction version {blank_correction_version} is not implemented")
             tmp_log_q = safe_logaddexp(log_q_label, tmp_log_q_blank)
+            if correction_in_final_score:
+                log_q = tmp_log_q
         
-        topk_scores, topk_idx = torch.topk(tmp_log_q, top_k, dim=1, sorted=False) # TODO replace log_q with topk_scores
+        topk_scores, topk_idx = torch.topk(tmp_log_q, top_k, dim=1) #, sorted=False) # TODO replace log_q with topk_scores
         topk_idx = torch.tensor(np.array([np.unravel_index(topk_idx[b].cpu().numpy(), (log_q.size(1), 2)) for b in range(batch_size)]), device=device).transpose(1,2) if alignment_topk else topk_idx
         # print(topk_idx.shape)
         
@@ -507,12 +512,20 @@ def sum_loss2(
             best_path_print = {}
             max_val, max_idx = torch.max(log_q.view(batch_size, -1), dim=-1)
             max_idx = torch.tensor([np.unravel_index(max_idx[b].cpu().numpy(), (vocab_size + 1,) * (LM_order - 1)) for b in range(batch_size)], device=device)
+            if top_k > 0:
+                tmp_topk_idx = torch.tensor(np.array([np.unravel_index(topk_idx[b].cpu().numpy(), original_shape[1:]) for b in range(batch_size)]), device=device).transpose(1,2)
             for idx in print_best_path_for_idx:
                 m_idx = max_idx[idx].clone()
                 m_idx[m_idx > 0] += 1
                 a_idx = m_idx.clone()
                 a_idx[a_idx == 0] = blank_idx
                 best_path_print[idx] = {"str": f"{m_idx.tolist()}", "am_str": "{:.2f}".format(log_probs[0][idx][a_idx[-1]].tolist()), "prior": "{:.2f}".format(log_prior[a_idx[-1]].tolist() if use_prior else 0.0), "LM": "{:.2f}".format(log_lm_probs[*[eos_symbol] * (LM_order - 1), m_idx[-1]].tolist()), "score": "{:.2f}".format(max_val[idx].tolist()), "AM": log_probs[0][idx][a_idx[-1]].tolist()}
+                for k in range(top_k):
+                    if k == 5:
+                        break
+                    k_idx = tmp_topk_idx[idx, k].clone()
+                    k_idx[k_idx > 0] += 1
+                    best_path_print[idx][f"top{k}_str"] = f"{k_idx.tolist()}"
     
     if blank_correction_version > 0 and top_k > 0:
         # Prepare lm tensor for blank transition
@@ -533,6 +546,8 @@ def sum_loss2(
             log_lm_probs_w_eos = torch.quantile(log_lm_probs_w_eos, 0.7, dim=-1, interpolation="higher")
         elif blank_correction_version in [13, 14]: # 80% quantile next lm prob
             log_lm_probs_w_eos = torch.quantile(log_lm_probs_w_eos, 0.8, dim=-1, interpolation="higher")
+        elif blank_correction_version in [15, 16]: # 87% quantile next lm prob
+            log_lm_probs_w_eos = torch.quantile(log_lm_probs_w_eos, 0.87, dim=-1, interpolation="higher")
     # Prepare lm tensor for the diagonal transition
     log_lm_probs_wo_last_eos = dynamic_slice(log_lm_probs, [out_idx_vocab_w_eos] * (LM_order - 1) + [out_idx_vocab])
     log_lm_probs_wo_last_eos = torch.cat([torch.full((*log_lm_probs_wo_last_eos.size()[:-1], 1), log_zero, device=device), log_lm_probs_wo_last_eos], dim=-1) # EoS in last dimension is set to log_zero
@@ -578,14 +593,17 @@ def sum_loss2(
         # horizontal transition Q(t-1, u, non-blank)
         if top_k > 0:
             new_log_q_label = torch.full_like(log_q, log_zero, device=device)
-            if blank_correction_version > 0 and blank_correction_version % 2 == 0:
+            if blank_correction_version > 0 and blank_correction_version % 2 == 0 and not correction_in_final_score:
                 topk_log_q_label = torch.full_like(log_q, log_zero, device=device)
             if alignment_topk:
                 new_log_q_label[label_topk_idx] = log_q_label[label_topk_idx] # TODO maybe we need gather instead
             else:
-                new_log_q_label.scatter_(1, topk_idx, log_q_label.gather(1, topk_idx))
-                if blank_correction_version > 0 and blank_correction_version % 2 == 0:
-                    topk_log_q_label.scatter_(1, topk_idx, (log_q_label + log_lm_probs_w_eos).gather(1, topk_idx))
+                if blank_correction_version > 0 and blank_correction_version % 2 == 0 and correction_in_final_score:
+                    new_log_q_label.scatter_(1, topk_idx, (log_q_label + log_lm_probs_w_eos).gather(1, topk_idx))
+                else:
+                    new_log_q_label.scatter_(1, topk_idx, log_q_label.gather(1, topk_idx))
+                    if blank_correction_version > 0 and blank_correction_version % 2 == 0:
+                        topk_log_q_label.scatter_(1, topk_idx, (log_q_label + log_lm_probs_w_eos).gather(1, topk_idx))
         else:
             log_mass_horizontal = log_q_label
         
@@ -605,7 +623,7 @@ def sum_loss2(
             log_mass_diagonal_add = log_q_blank_topk + log_lm_probs_topk # (B, K, V)
             log_mass_diagonal_add = log_mass_diagonal_add.view(batch_size, -1)
             new_log_q_label = scatter_safe_logsumexp(new_log_q_label, 1, new_idx, log_mass_diagonal_add, include_self=True)
-            if blank_correction_version > 0 and blank_correction_version % 2 == 0:
+            if blank_correction_version > 0 and blank_correction_version % 2 == 0 and not correction_in_final_score:
                 topk_log_q_label = scatter_safe_logsumexp(topk_log_q_label, 1, new_idx, log_mass_diagonal_add, include_self=True)
         else:
             log_mass_diagonal = log_matmul(log_q_blank, log_lm_probs_wo_last_eos) # (B, V) @ (V, V) -> (B, V)
@@ -623,7 +641,7 @@ def sum_loss2(
             log_mass_skip_add = log_q_label_topk + log_lm_probs_topk # (B, K, V)
             log_mass_skip_add = log_mass_skip_add.view(batch_size, -1)
             new_log_q_label = scatter_safe_logsumexp(new_log_q_label, 1, new_idx, log_mass_skip_add, include_self=True)
-            if blank_correction_version > 0 and blank_correction_version % 2 == 0:
+            if blank_correction_version > 0 and blank_correction_version % 2 == 0 and not correction_in_final_score:
                 topk_log_q_label = scatter_safe_logsumexp(topk_log_q_label, 1, new_idx, log_mass_skip_add, include_self=True)
         else:
             log_mass_skip = log_matmul(log_q_label, log_lm_probs_wo_diag) # (B, V) @ (V, V) -> (B, V)
@@ -640,7 +658,7 @@ def sum_loss2(
         if top_k > 0:
             label_am = torch.cat([torch.full((batch_size, 1), log_zero, device=device), log_probs[t][:, out_idx_vocab]], dim=-1)[:, *(None,) * (LM_order - 2), :].expand(original_shape).reshape(batch_size, -1)
             new_log_q_label += label_am
-            if blank_correction_version > 0 and blank_correction_version % 2 == 0:
+            if blank_correction_version > 0 and blank_correction_version % 2 == 0 and not correction_in_final_score:
                 topk_log_q_label += label_am
         else:
             new_log_q_label += torch.cat([torch.full((batch_size, 1), log_zero, device=device), log_probs[t][:, out_idx_vocab]], dim=-1)[:, *(None,) * (LM_order - 2), :]
@@ -661,11 +679,21 @@ def sum_loss2(
                 tmp_log_q = log_q
             
             if blank_correction_version > 0:
+                # if print_best_path_for_idx:
+                #     with torch.no_grad():
+                #         for idx in print_best_path_for_idx:
+                #             print(f"Blank correction for {idx} in {t}: {log_lm_probs_w_eos[0].gather(0, topk_idx[idx]).tolist()}")
+                            
                 tmp_log_q_blank = log_q_blank + log_lm_probs_w_eos
-                if blank_correction_version % 2 == 0:
+                if blank_correction_version % 2 == 0 and not correction_in_final_score:
                     tmp_log_q_2 = safe_logaddexp(topk_log_q_label, tmp_log_q_blank)
                 else:
                     tmp_log_q_2 = safe_logaddexp(log_q_label, tmp_log_q_blank)
+                
+                if correction_in_final_score:
+                    log_q_blank = tmp_log_q_blank
+                    tmp_log_q = tmp_log_q_2
+                    log_q = tmp_log_q_2
                     
             else:
                 tmp_log_q_2 = tmp_log_q
@@ -674,8 +702,15 @@ def sum_loss2(
             last_mask = (t == input_lengths - 1).unsqueeze(-1).expand_as(tmp_log_q)
             tmp_log_q = torch.where(last_mask, tmp_log_q + log_lm_probs_eos.view(1, -1).expand_as(tmp_log_q), tmp_log_q_2)
             # Calculate top k and apply time mask
-            new_topk_scores, new_topk_idx = torch.topk(tmp_log_q, top_k, dim=1, sorted=False)
+            new_topk_scores, new_topk_idx = torch.topk(tmp_log_q, top_k, dim=1) #, sorted=False)
             new_topk_idx = torch.tensor(np.array([np.unravel_index(new_topk_idx[b].cpu().numpy(), (log_q.size(1), 2)) for b in range(batch_size)]), device=device).transpose(1,2) if alignment_topk else new_topk_idx
+            
+            # if blank_correction_version > 0 and print_best_path_for_idx:
+            #     with torch.no_grad():
+            #         for idx in print_best_path_for_idx:
+            #             tmp_topk_idx = torch.tensor(np.array([np.unravel_index(new_topk_idx[b].cpu().numpy(), original_shape[1:]) for b in range(batch_size)]), device=device).transpose(1,2)[idx, :, -1]
+            #             print(f"Top-K correction for {idx} in {t}: {log_lm_probs_wo_last_eos.view(-1, vocab_size + 1).gather(0, topk_idx[idx].unsqueeze(-1).expand(-1, vocab_size + 1))[:, tmp_topk_idx].tolist()}")
+            
             topk_scores = torch.where(time_mask.expand_as(topk_scores), new_topk_scores, topk_scores)
             topk_idx = torch.where(time_mask.expand_as(topk_idx), new_topk_idx, topk_idx)
 
@@ -690,6 +725,8 @@ def sum_loss2(
             with torch.no_grad():
                 max_val, max_idx = torch.max(log_q.view(batch_size, -1), dim=-1)
                 max_idx = torch.tensor([np.unravel_index(max_idx[b].cpu().numpy(), (vocab_size + 1,) * (LM_order - 1)) for b in range(batch_size)], device=device)
+                if top_k > 0:
+                    tmp_topk_idx = torch.tensor(np.array([np.unravel_index(topk_idx[b].cpu().numpy(), original_shape[1:]) for b in range(batch_size)]), device=device).transpose(1,2)
                 for idx in print_best_path_for_idx:
                     m_idx = max_idx[idx].clone()
                     m_idx[m_idx > 0] += 1
@@ -702,16 +739,20 @@ def sum_loss2(
                     best_path_print[idx]["LM"] += " {:.2f}".format(safe_logsumexp(log_lm_probs_wo_last_eos[:, *max_idx[idx]], dim=-1).tolist() if lm_scale > 0.0 else 0.0)
                     best_path_print[idx]["score"] += " {:.2f}".format(max_val[idx].tolist()) #  / (t+1)
                     best_path_print[idx]["AM"] += log_probs[t][idx][a_idx[-1]].tolist()
+                    for k in range(top_k):
+                        if k == 5:
+                            break
+                        k_idx = tmp_topk_idx[idx, k].clone()
+                        k_idx[k_idx > 0] += 1
+                        best_path_print[idx][f"top{k}_str"] += f" {k_idx.tolist()}"
         
         torch.cuda.empty_cache()
     
     if top_k > 0:
-        print(safe_logsumexp(topk_scores[0], dim=-1), safe_logsumexp(topk_scores[0], dim=-1).exp())
         sum_score = safe_logsumexp(topk_scores, dim=-1)
     else:
         # multiply last Q with p_LM(eos | u)
         log_q += log_lm_probs_eos
-        print(safe_logsumexp(log_q[0], dim=-1), safe_logsumexp(log_q[0], dim=-1).exp())
         # sum over the vocab dimensions
         sum_score = log_q
         for _ in range(LM_order - 1):
@@ -720,7 +761,12 @@ def sum_loss2(
     if print_best_path_for_idx:
         with torch.no_grad():
             for idx in print_best_path_for_idx:
-                print(f"Best path for {idx}: {get_bpes(best_path_print[idx]['str'])}\nAM str: {best_path_print[idx]['am_str']}\nPrior: {best_path_print[idx]['prior']}\nLM: {best_path_print[idx]['LM']}\nScore: {best_path_print[idx]['score']}\nAM: {best_path_print[idx]['AM']}")
+                print(f"\n\nBest path for {idx}: \n{get_bpes(best_path_print[idx]['str'])}\nAM str: {best_path_print[idx]['am_str']}\nPrior: {best_path_print[idx]['prior']}\nLM: {best_path_print[idx]['LM']}\nScore: {best_path_print[idx]['score']}\nAM: {best_path_print[idx]['AM']}")
+                for k in range(top_k):
+                    if k == 5:
+                        break
+                    print(f"Top {k + 1} path: \n{get_bpes(best_path_print[idx][f'top{k}_str'])}")
+                print("\n\n")
     
     loss = -sum_score
     if old_device != device:
@@ -1374,6 +1420,10 @@ def log_matmul(A: torch.Tensor, B: torch.Tensor, batch_given: bool = False):
     
     return safe_logsumexp((A_expand + B_expand), dim=1) # (b, v, v2) -> (b, v2)
 
+def get_bpe_from_dict(idx: int):
+    d = {0: '<s>', 1: '<unk>', 2: 'T@@', 3: 'THE', 4: 'C@@', 5: 'E@@', 6: 'M@@', 7: 'P@@', 8: 'I@@', 9: 'W@@', 10: 'S@@', 11: 'A@@', 12: 'D@@', 13: 'F@@', 14: 'G@@', 15: 'U@@', 16: 'ED', 17: 'O@@', 18: 'S', 19: 'E', 20: 'AND', 21: 'L@@', 22: 'Y', 23: 'OF', 24: 'TO', 25: 'IN@@', 26: 'RE@@', 27: 'TH@@', 28: 'B@@', 29: 'AR@@', 30: 'ING', 31: 'A', 32: 'T', 33: 'ER@@', 34: 'R@@', 35: 'AN@@', 36: 'H@@', 37: 'ST@@', 38: 'IN', 39: 'OU@@', 40: 'V@@', 41: 'D', 42: 'ON', 43: 'N@@', 44: 'K@@', 45: 'Y@@', 46: 'EN', 47: 'OR@@', 48: 'ER', 49: 'EL@@', 50: 'L', 51: 'EN@@', 52: 'ON@@', 53: 'RO@@', 54: 'ES', 55: 'IT@@', 56: 'I', 57: 'M', 58: 'R', 59: 'WAS', 60: 'HE', 61: 'ME', 62: 'AT@@', 63: 'LY', 64: 'IT', 65: 'THAT', 66: 'O', 67: 'AL@@', 68: 'AC@@', 69: 'HA@@', 70: 'BE@@', 71: 'AN', 72: 'ST', 73: 'IS', 74: 'H', 75: 'IS@@', 76: 'W', 77: 'LE', 78: 'LE@@', 79: 'K', 80: 'TI@@', 81: 'ERE', 82: 'LI@@', 83: 'HIS', 84: 'RI@@', 85: 'SI@@', 86: 'WH@@', 87: 'UR@@', 88: 'LO@@', 89: 'SE', 90: 'AT', 91: 'AS', 92: 'SA@@', 93: 'CH', 94: 'CO@@', 95: 'HAD', 96: 'THE@@', 97: 'WITH', 98: 'SE@@', 99: 'IL@@', 100: 'UN@@', 101: 'YOU', 102: 'CE', 103: 'FOR', 104: 'F', 105: 'NE@@', 106: 'AS@@', 107: 'DI@@', 108: 'HER', 109: 'DE@@', 110: 'SU@@', 111: 'N', 112: 'MA@@', 113: 'NO@@', 114: 'NOT', 115: 'LA@@', 116: 'HO@@', 117: 'BUT', 118: 'ENT', 119: 'CA@@', 120: 'OR', 121: 'OULD', 122: 'RA@@', 123: 'GHT', 124: 'WHI@@', 125: 'PO@@', 126: 'VE', 127: 'P', 128: 'J@@', 129: 'VER@@', 130: 'SHE', 131: 'SO@@', 132: 'ONE', 133: 'IR@@', 134: 'AB@@', 135: 'THER', 136: 'X@@', 137: 'BE', 138: 'OUN@@', 139: 'HE@@', 140: 'ALL', 141: 'CON@@', 142: 'HI@@', 143: 'PE@@', 144: "'S", 145: 'OUT', 146: 'HIM', 147: 'MO@@', 148: 'FOR@@', 149: 'ID', 150: 'VER', 151: 'DO@@', 152: 'TO@@', 153: 'MY', 154: "'@@", 155: 'ME@@', 156: 'THEY', 157: 'BY', 158: 'SS', 159: 'ENT@@', 160: 'KE', 161: 'G', 162: 'ATI@@', 163: 'WA@@', 164: 'HAVE', 165: 'MP@@', 166: 'AL', 167: 'SO', 168: 'Q@@', 169: 'LD', 170: 'GH@@', 171: 'Z@@', 172: 'BU@@', 173: 'C', 174: 'X', 175: 'B', 176: 'OU', 177: 'WIT@@', 178: 'U', 179: 'Z', 180: 'V', 181: 'Q', 182: 'J', 183: "'", 184: "<blank>"}
+    return d[idx]
+
 def get_bpes(tokens):
     # MONICA DREW FRESH HOPE FROM HER SON'S WRITINGS THEY WERE FULL OF NOBLE THOUGHTS AND HIGH ASPIRATIONS
     
@@ -1699,7 +1749,7 @@ def test():
             log_lm_probs=lm,
             log_prior=prior,
             input_lengths=length,
-            top_k=1,
+            top_k=2,
             LM_order=LM_order,
             am_scale=1.0,
             lm_scale=1.0,
@@ -1710,7 +1760,8 @@ def test():
             eos_idx=0,
             print_best_path_for_idx=[0],
             alignment_topk=False,
-            blank_correction_version = 10
+            blank_correction_version = 16,
+            correction_in_final_score = False
         )
         print("OUT", (-loss[0]).tolist(), (-loss[0]).exp().tolist())
         l += (loss / frames).mean()
