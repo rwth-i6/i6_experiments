@@ -11,6 +11,7 @@ import numpy as np
 import hashlib
 import contextlib
 import functools
+import types
 
 from returnn.tensor import Tensor, Dim, single_step_dim
 import returnn.frontend as rf
@@ -28,6 +29,10 @@ from i6_experiments.users.zeyer.experiments.exp2023_04_25_rf.configs import (
 if TYPE_CHECKING:
     from i6_experiments.users.zeyer.model_interfaces import ModelDef, RecogDef, TrainDef
     from i6_experiments.users.zeyer.model_with_checkpoints import ModelWithCheckpoints, ModelWithCheckpoint
+
+from i6_experiments.users.zeyer.model_interfaces import ModelDefWithCfg
+from i6_experiments.users.zeyer.datasets.librispeech import get_librispeech_lm_dataset
+from i6_experiments.users.zeyer.train_v3 import train
 
 # From Mohammad, 2023-06-29
 # dev-clean  2.27
@@ -97,6 +102,68 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
     # RF recog: {"dev-clean": 2.25, "dev-other": 5.34, "test-clean": 2.42, "test-other": 5.56}
     _recog_imported()
 
+    lbs_bpe10k_dataset = get_librispeech_lm_dataset(vocab="bpe10k")
+
+    # monkey patching to use only transcription text data for training
+    def get_train_trans_dataset(self):
+        return self.get_dataset("transcriptions-train", training=True)
+
+    lbs_bpe10k_dataset.get_train_dataset = types.MethodType(get_train_trans_dataset, lbs_bpe10k_dataset)
+
+    preload_from_files = {
+        "aed": {"filename": get_tf_to_rf_converted_ckpt_path(), "init_for_train": True, "ignore_missing": True}
+    }
+
+    # train Mini-LSTM ILM
+    ilm_with_checkpoints = train(
+        f"ilm/mini-lstm-d50",
+        config=dict_update_deep(
+            config_11gb_ilm_v1,
+            {"batch_size": 10_000, "preload_from_files": preload_from_files, "__num_epochs": 40},
+        ),
+        train_dataset=lbs_bpe10k_dataset,
+        model_def=ModelDefWithCfg(
+            mini_lstm_ilm_def,
+            {"_model_def_dict": rf.build_dict(MiniLstmIlm)},
+        ),
+        train_def=mini_lstm_ilm_train_def,
+    )
+
+    from . import trafo_lm_kazuki_import
+
+    for lm_scale in [0.0, 0.42]:
+        lm_recog_config = {
+            "beam_search_opts": {"beam_size": 32, "lm_scale": lm_scale},
+            "external_language_model": {"class": "TransformerDecoder", **trafo_lm_kazuki_import.TrafoLmOpts},
+            "preload_from_files": {
+                "trafo_lm": {"prefix": "language_model.", "filename": trafo_lm_kazuki_import.get_pt_checkpoint_path()}
+            },
+        }
+        _recog_imported(name=f"trafo_lm_{lm_scale}_beam32", recog_config=lm_recog_config)
+
+    for lm_scale in [0.54]:
+        for ilm_scale in [0.28]:
+            ilm_recog_config = {
+                "beam_search_opts": {
+                    "beam_size": 32,
+                    "lm_scale": lm_scale,
+                    "ilm_scale": ilm_scale,
+                },
+                "external_language_model": {"class": "TransformerDecoder", **trafo_lm_kazuki_import.TrafoLmOpts},
+                "internal_language_model": {"class": "MiniLstmIlm"},
+                "preload_from_files": {
+                    "trafo_lm": {
+                        "prefix": "language_model.",
+                        "filename": trafo_lm_kazuki_import.get_pt_checkpoint_path(),
+                    },
+                    "ilm": {
+                        "prefix": "internal_language_model.",
+                        "filename": ilm_with_checkpoints.get_last_fixed_epoch().checkpoint,
+                    },
+                },
+            }
+            _recog_imported(name=f"trafo_lm_{lm_scale}_ilm_{ilm_scale}_beam32", recog_config=ilm_recog_config)
+
 
 _sis_prefix: Optional[str] = None
 
@@ -135,7 +202,7 @@ def get_tf_to_rf_converted_ckpt_path() -> tk.Path:
     return new_chkpt_path
 
 
-def _recog_imported():
+def _recog_imported(name: str = "recog_resutls", recog_config: Optional[Dict[str, Any]] = None):
     from i6_core.returnn.training import PtCheckpoint
     from i6_experiments.users.zeyer.model_interfaces import ModelWithCheckpoint
 
@@ -144,7 +211,7 @@ def _recog_imported():
 
     model_with_checkpoint = ModelWithCheckpoint(definition=from_scratch_model_def, checkpoint=new_chkpt)
 
-    _recog("recog_results", model_with_checkpoint)
+    _recog(name, model_with_checkpoint, recog_config=recog_config)
 
 
 def _recog(
@@ -322,6 +389,7 @@ class MakeModel:
         num_enc_layers: int = 12,
         pos_emb_dropout: float = 0.0,
         language_model: Optional[Dict[str, Any]] = None,
+        internal_language_model: Optional[Dict[str, Any]] = None,
         **extra,
     ) -> Model:
         """make"""
@@ -337,6 +405,15 @@ class MakeModel:
 
             lm = trafo_lm.MakeModel(vocab_dim=target_dim, **language_model)()
             lm = (lm, functools.partial(trafo_lm.make_label_scorer_torch, model=lm))
+
+        ilm = None
+        if internal_language_model:
+            assert isinstance(internal_language_model, dict)
+            internal_language_model = internal_language_model.copy()
+            cls_name = internal_language_model.pop("class")
+            assert cls_name == "MiniLstmIlm"
+            internal_language_model.pop("vocab_dim", None)  # will just overwrite
+            ilm = MiniLstmIlm(target_dim=target_dim, **internal_language_model)
 
         return Model(
             in_dim,
@@ -362,6 +439,7 @@ class MakeModel:
             bos_idx=_get_bos_idx(target_dim),
             eos_idx=_get_eos_idx(target_dim),
             language_model=lm,
+            internal_language_model=ilm,
             **extra,
         )
 
@@ -391,6 +469,7 @@ class Model(rf.Module):
         enc_att_dropout: float = 0.1,
         l2: float = 0.0001,
         language_model: Optional[RFModelWithMakeLabelScorer] = None,
+        internal_language_model: Optional[MiniLstmIlm] = None,
     ):
         super(Model, self).__init__()
 
@@ -492,6 +571,10 @@ class Model(rf.Module):
         self.language_model_make_label_scorer = None
         if language_model:
             self.language_model, self.language_model_make_label_scorer = language_model
+
+        self.internal_language_model = None
+        if internal_language_model:
+            self.internal_language_model = internal_language_model
 
     def encode(
         self,
@@ -632,8 +715,14 @@ def from_scratch_model_def(*, epoch: int, in_dim: Dim, target_dim: Dim) -> Model
     # real input is raw audio, internally it does logmel
     in_dim = Dim(name="logmel", dimension=_log_mel_feature_dim, kind=Dim.Types.Feature)
     lm_opts = config.typed_value("external_language_model")
+    ilm_opts = config.typed_value("internal_language_model")
     return MakeModel.make_model(
-        in_dim, target_dim, enc_aux_logits=enc_aux_logits or (), pos_emb_dropout=pos_emb_dropout, language_model=lm_opts
+        in_dim,
+        target_dim,
+        enc_aux_logits=enc_aux_logits or (),
+        pos_emb_dropout=pos_emb_dropout,
+        language_model=lm_opts,
+        internal_language_model=ilm_opts,
     )
 
 
@@ -790,12 +879,16 @@ def model_recog(
         out_spatial_dim,
         final beam_dim
     """
-    assert not model.language_model  # not implemented here. use the pure PyTorch search instead
+
+    from returnn.config import get_global_config
+
+    config = get_global_config()
+    beam_search_opts = config.typed_value("beam_search_opts")
 
     batch_dims = data.remaining_dims((data_spatial_dim, data.feature_dim))
     enc_args, enc_spatial_dim = model.encode(data, in_spatial_dim=data_spatial_dim)
-    beam_size = 12
-    length_normalization_exponent = 1.0
+    beam_size = beam_search_opts.get("beam_size", 12)
+    length_normalization_exponent = beam_search_opts.get("length_normalization_exponent", 1.0)
     if max_seq_len is None:
         max_seq_len = enc_spatial_dim.get_size_tensor()
     else:
@@ -811,6 +904,17 @@ def model_recog(
     ended = rf.constant(False, dims=batch_dims_)
     out_seq_len = rf.constant(0, dims=batch_dims_)
     seq_log_prob = rf.constant(0.0, dims=batch_dims_)
+
+    lm_scale = beam_search_opts.get("lm_scale", None)
+    lm_state = None
+    model_lm = model.language_model[0]
+    if lm_scale:
+        lm_state = model_lm.decoder_default_initial_state(batch_dims=batch_dims_, enc_spatial_dim=enc_spatial_dim)
+
+    ilm_scale = beam_search_opts.get("ilm_scale", None)
+    ilm_state = None
+    if ilm_scale:
+        ilm_state = model.internal_language_model.decoder_default_initial_state(batch_dims=batch_dims_)
 
     i = 0
     seq_targets = []
@@ -828,6 +932,17 @@ def model_recog(
         )
         logits = model.decode_logits(input_embed=input_embed, **step_out)
         label_log_prob = rf.log_softmax(logits, axis=model.target_dim)
+
+        if lm_scale:
+            lm_log_prob, lm_state = model_lm(input_embed=input_embed, state=lm_state)
+            label_log_prob += lm_scale * lm_log_prob
+
+        if ilm_state:
+            ilm_step_out, ilm_state = model.internal_language_model.loop_step(input_embed=input_embed, state=ilm_state)
+            ilm_logits = model.internal_language_model.decode_logits(input_embed=input_embed, **ilm_step_out)
+            ilm_log_prob = rf.log_softmax(ilm_logits, axis=model.target_dim)
+            label_log_prob -= ilm_scale * ilm_log_prob
+
         # Filter out finished beams
         label_log_prob = rf.where(
             ended,
@@ -1431,3 +1546,232 @@ def model_warmup(*, model: Model, **_kwargs):
         if source.raw_tensor.device.type == "cuda":
             torch.cuda.synchronize(source.raw_tensor.device)
         res  # noqa  # keep ref to make sure it is calculated
+
+
+class MiniLstmIlm(rf.Module):
+    """
+    Represents a Mini-LSTM ILM decoder (text only input).
+    This is based on our standard AED LSTM decoder.
+    Note that during training, all params are frozen except for the parameters of Mini-LSTM and
+    the attention context linear projection.
+    """
+
+    def __init__(
+        self,
+        *,
+        target_dim: Dim,
+        target_embed_dim: int = 640,
+        att_context_dim: int = 512,
+        hidden_dim: int = 50,
+        att_num_heads: int = 1,
+    ):
+        """
+        :param target_dim:
+        :param target_embed_dim:
+        :param att_context_dim:
+        :param hidden_dim:
+        :param att_num_heads:
+        """
+
+        frozen_modules = []
+
+        self.target_dim = target_dim
+
+        target_embed_dim = Dim(name="target_embed", dimension=target_embed_dim)
+        self.target_embed = rf.Embedding(target_dim, target_embed_dim)
+        frozen_modules.append(self.target_embed)
+
+        self.att_num_heads = Dim(name="att_num_heads", dimension=att_num_heads)
+        self.att_context_dim = Dim(name="att_context_dim", dimension=att_context_dim)
+
+        self.s = rf.ZoneoutLSTM(
+            self.target_embed.out_dim + self.att_num_heads * self.att_context_dim,
+            Dim(name="lstm", dimension=1024),
+            zoneout_factor_cell=0.15,
+            zoneout_factor_output=0.05,
+            use_zoneout_output=False,  # like RETURNN/TF ZoneoutLSTM old default
+            # parts_order="icfo",  # like RETURNN/TF ZoneoutLSTM
+            # parts_order="ifco",
+            parts_order="jifo",  # NativeLSTM (the code above converts it...)
+            forget_bias=0.0,  # the code above already adds it during conversion
+        )
+        frozen_modules.append(self.s)
+
+        mini_lstm_dim = Dim(name="mini_lstm_dim", dimension=hidden_dim)
+
+        self.mini_lstm = rf.LSTM(in_dim=target_embed_dim, out_dim=mini_lstm_dim)
+
+        # this is used instead of original attention context vector
+        self.att_context_proj = rf.Linear(mini_lstm_dim, self.att_num_heads * self.att_context_dim)
+
+        self.readout_in = rf.Linear(
+            self.s.out_dim + self.target_embed.out_dim + self.att_num_heads * self.att_context_dim,
+            Dim(name="readout", dimension=1024),
+        )
+        frozen_modules.append(self.readout_in)
+
+        self.output_prob = rf.Linear(self.readout_in.out_dim // 2, target_dim)
+        frozen_modules.append(self.output_prob)
+
+        self.dropout_broadcast = rf.dropout_broadcast_default()
+
+        for module in frozen_modules:
+            for param in module.parameters():
+                param.trainable = False
+
+    def decoder_default_initial_state(self, *, batch_dims: Sequence[Dim]) -> rf.State:
+        """Default initial state"""
+        state = rf.State(
+            s=self.s.default_initial_state(batch_dims=batch_dims),
+            mini_lstm=self.mini_lstm.default_initial_state(batch_dims=batch_dims),
+            att=rf.zeros(list(batch_dims) + [self.att_num_heads * self.att_context_dim]),
+        )
+        state.att.feature_dim_axis = len(state.att.dims) - 1
+        return state
+
+    def loop_step_output_templates(self, batch_dims: List[Dim]) -> Dict[str, Tensor]:
+        """loop step out"""
+        return {
+            "s": Tensor(
+                "s", dims=batch_dims + [self.s.out_dim], dtype=rf.get_default_float_dtype(), feature_dim_axis=-1
+            ),
+            "att": Tensor(
+                "att",
+                dims=batch_dims + [self.att_num_heads * self.att_context_dim],
+                dtype=rf.get_default_float_dtype(),
+                feature_dim_axis=-1,
+            ),
+        }
+
+    def loop_step(
+        self,
+        *,
+        input_embed: rf.Tensor,
+        state: Optional[rf.State] = None,
+    ) -> Tuple[Dict[str, rf.Tensor], rf.State]:
+        """step of the inner loop"""
+        if state is None:
+            batch_dims = input_embed.remaining_dims(input_embed.feature_dim)
+            state = self.decoder_default_initial_state(batch_dims=batch_dims)
+        state_ = rf.State()
+
+        prev_att = state.att
+        s, state_.s = self.s(rf.concat_features(input_embed, prev_att), state=state.s, spatial_dim=single_step_dim)
+
+        # compute attention context vector via mini-lstm
+        mini_lstm_out, state_.mini_lstm = self.mini_lstm(
+            input_embed, state=state.mini_lstm, spatial_dim=single_step_dim
+        )
+
+        att = self.att_context_proj(mini_lstm_out)
+        state_.att = att
+
+        return {"s": s, "att": att}, state_
+
+    def decode_logits(self, *, s: Tensor, input_embed: Tensor, att: Tensor) -> Tensor:
+        """logits for the decoder"""
+        readout_in = self.readout_in(rf.concat_features(s, input_embed, att))
+        readout = rf.reduce_out(readout_in, mode="max", num_pieces=2, out_dim=self.output_prob.in_dim)
+        readout = rf.dropout(readout, drop_prob=0.3, axis=self.dropout_broadcast and readout.feature_dim)
+        logits = self.output_prob(readout)
+        return logits
+
+
+def mini_lstm_ilm_def(*, epoch: int, in_dim: Dim, target_dim: Dim) -> MiniLstmIlm:
+    from returnn.config import get_global_config
+
+    in_dim, epoch  # noqa
+    assert target_dim
+    config = get_global_config()  # noqa
+
+    model = rf.build_from_dict(config.typed_value("_model_def_dict"), target_dim=target_dim)
+    return model
+
+
+mini_lstm_ilm_def: ModelDef
+mini_lstm_ilm_def.behavior_version = 21
+mini_lstm_ilm_def.backend = "torch"
+mini_lstm_ilm_def.batch_size_factor = _batch_size_factor
+
+
+def mini_lstm_ilm_train_def(
+    *, model: MiniLstmIlm, data: rf.Tensor, data_spatial_dim: Dim, targets: rf.Tensor, targets_spatial_dim: Dim
+):
+    from returnn.config import get_global_config
+
+    config = get_global_config()
+    use_normalized_loss = config.bool("use_normalized_loss", True)
+
+    batch_dims = data.remaining_dims(data_spatial_dim)
+    input_embeddings = model.target_embed(targets)
+    input_embeddings = rf.shift_right(input_embeddings, axis=targets_spatial_dim, pad_value=0.0)
+
+    def _body(input_embed: Tensor, state: rf.State):
+        new_state = rf.State()
+        loop_out_, new_state.decoder = model.loop_step(
+            input_embed=input_embed,
+            state=state.decoder,
+        )
+        return loop_out_, new_state
+
+    loop_out, _, _ = rf.scan(
+        spatial_dim=targets_spatial_dim,
+        xs=input_embeddings,
+        ys=model.loop_step_output_templates(batch_dims=batch_dims),
+        initial=rf.State(
+            decoder=model.decoder_default_initial_state(batch_dims=batch_dims),
+        ),
+        body=_body,
+    )
+
+    logits = model.decode_logits(input_embed=input_embeddings, **loop_out)
+    logits_packed, pack_dim = rf.pack_padded(logits, dims=batch_dims + [targets_spatial_dim], enforce_sorted=False)
+    targets_packed, _ = rf.pack_padded(
+        targets, dims=batch_dims + [targets_spatial_dim], enforce_sorted=False, out_dim=pack_dim
+    )
+
+    log_prob = rf.log_softmax(logits_packed, axis=model.target_dim)
+    log_prob = rf.label_smoothed_log_prob_gradient(log_prob, 0.1, axis=model.target_dim)
+    loss = rf.cross_entropy(
+        target=targets_packed, estimated=log_prob, estimated_type="log-probs", axis=model.target_dim
+    )
+    loss.mark_as_loss("ce", use_normalized_loss=use_normalized_loss)
+
+    best = rf.reduce_argmax(logits_packed, axis=model.target_dim)
+    frame_error = best != targets_packed
+    frame_error.mark_as_loss(name="fer", as_error=True)
+
+
+mini_lstm_ilm_train_def: TrainDef[MiniLstmIlm]
+mini_lstm_ilm_train_def.learning_rate_control_error_measure = "ce"
+
+
+ilm_config_params = dict(
+    # torch_amp="bfloat16",
+    # grad_scaler=None,
+    batching="laplace:.1000",
+    max_seqs=200,
+    max_seq_length_default_target=None,
+    gradient_clip_global_norm=5.0,
+    optimizer={
+        "class": "adamw",
+        "epsilon": 1e-16,
+        "weight_decay": 1e-6,
+        "weight_decay_modules_blacklist": [
+            "rf.Embedding",
+            "rf.LearnedRelativePositionalEncoding",
+        ],
+    },
+    accum_grad_multiple_step=2,
+    learning_rate=1e-5,
+    pos_emb_dropout=0.1,  # WARNING: when the self-att or conformer opts are custom, this is ignored! also for CTC!
+    rf_att_dropout_broadcast=False,
+)
+
+config_11gb_ilm_v1 = dict_update_deep(
+    ilm_config_params,
+    {
+        "optimizer.weight_decay": 1e-2,
+        "calculate_exp_loss": True,
+    },
+)
