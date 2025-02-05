@@ -19,6 +19,7 @@ from .configs import _batch_size_factor
 def py():
     lbs_bpe10k_dataset = get_librispeech_lm_dataset(vocab="bpe10k")
 
+    # monkey patching to use only transcription text data for training
     def get_train_trans_dataset(self):
         return self.get_dataset("transcriptions-train", training=True)
 
@@ -74,11 +75,11 @@ class MiniLstmIlm(rf.Module):
         self.target_embed = rf.Embedding(target_dim, target_embed_dim)
         frozen_modules.append(self.target_embed)
 
-        self.att_num_heads = att_num_heads
-        self.att_context_dim = att_context_dim
+        self.att_num_heads = Dim(name="att_num_heads", dimension=att_num_heads)
+        self.att_context_dim = Dim(name="att_context_dim", dimension=att_context_dim)
 
         self.s = rf.ZoneoutLSTM(
-            self.target_embed.out_dim + att_num_heads * att_context_dim,
+            self.target_embed.out_dim + self.att_num_heads * self.att_context_dim,
             Dim(name="lstm", dimension=1024),
             zoneout_factor_cell=0.15,
             zoneout_factor_output=0.05,
@@ -95,10 +96,10 @@ class MiniLstmIlm(rf.Module):
         self.mini_lstm = rf.LSTM(in_dim=target_embed_dim, out_dim=mini_lstm_dim)
 
         # this is used instead of original attention context vector
-        self.att_context_proj = rf.Linear(mini_lstm_dim, Dim(name="att_context_proj", dimension=att_context_dim))
+        self.att_context_proj = rf.Linear(mini_lstm_dim, self.att_context_dim)
 
         self.readout_in = rf.Linear(
-            self.s.out_dim + self.target_embed.out_dim + att_num_heads * att_context_dim,
+            self.s.out_dim + self.target_embed.out_dim + self.att_num_heads * self.att_context_dim,
             Dim(name="readout", dimension=1024),
         )
         frozen_modules.append(self.readout_in)
@@ -127,9 +128,15 @@ class MiniLstmIlm(rf.Module):
             "s": Tensor(
                 "s", dims=batch_dims + [self.s.out_dim], dtype=rf.get_default_float_dtype(), feature_dim_axis=-1
             ),
+            "mini_lstm": Tensor(
+                "mini_lstm",
+                dims=batch_dims + [self.mini_lstm.out_dim],
+                dtype=rf.get_default_float_dtype,
+                feature_dim_axis=-1,
+            ),
             "att": Tensor(
                 "att",
-                dims=batch_dims + [self.att_num_heads * self.encoder.out_dim],
+                dims=batch_dims + [self.att_num_heads * self.att_context_dim],
                 dtype=rf.get_default_float_dtype(),
                 feature_dim_axis=-1,
             ),
@@ -151,11 +158,14 @@ class MiniLstmIlm(rf.Module):
         s, state_.s = self.s(rf.concat_features(input_embed, prev_att), state=state.s, spatial_dim=single_step_dim)
 
         # compute attention context vector via mini-lstm
-        mini_lstm_out = self.mini_lstm(input_embed)
+        mini_lstm_out, state_.mini_lstm = self.mini_lstm(
+            input_embed, state=state.mini_lstm, spatial_dim=single_step_dim
+        )
+
         att = self.att_context_proj(mini_lstm_out)
         state_.att = att
 
-        return {"s": s, "att": att}, state_
+        return {"s": s, "mini_lstm": mini_lstm_out, "att": att}, state_
 
     def decode_logits(self, *, s: Tensor, input_embed: Tensor, att: Tensor) -> Tensor:
         """logits for the decoder"""
