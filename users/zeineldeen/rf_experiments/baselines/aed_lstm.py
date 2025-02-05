@@ -923,6 +923,7 @@ def model_recog(
             input_embed = rf.zeros(batch_dims_ + [model.target_embed.out_dim], feature_dim=model.target_embed.out_dim)
         else:
             input_embed = model.target_embed(target)
+
         step_out, decoder_state = model.loop_step(
             **enc_args,
             enc_spatial_dim=enc_spatial_dim,
@@ -933,7 +934,7 @@ def model_recog(
         label_log_prob = rf.log_softmax(logits, axis=model.target_dim)
 
         if lm_scale:
-            lm_log_prob, lm_state = model.language_model(x=input_embed, spatial_dim=single_step_dim, state=lm_state)
+            lm_log_prob, lm_state = model.language_model(target, spatial_dim=single_step_dim, state=lm_state)
             label_log_prob += lm_scale * lm_log_prob
 
         if ilm_state:
