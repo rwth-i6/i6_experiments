@@ -142,30 +142,30 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
         }
         _recog_imported(name=f"trafo_lm_{lm_scale}_beam32", recog_config=lm_recog_config)
 
-    for lm_scale in [0.54]:
-        for ilm_scale in [0.4]:
-            ilm_recog_config = {
-                "beam_search_opts": {
-                    "beam_size": 70,
-                    "lm_scale": lm_scale,
-                    "ilm_scale": ilm_scale,
-                },
-                "external_language_model": {"class": "TransformerDecoder", **trafo_lm_kazuki_import.TrafoLmOpts},
-                "internal_language_model": {"class": "MiniLstmIlm"},
-                "preload_from_files": {
-                    "trafo_lm": {
-                        "prefix": "language_model.",
-                        "filename": trafo_lm_kazuki_import.get_pt_checkpoint_path(),
-                    },
-                    "ilm": {
-                        "prefix": "internal_language_model.",
-                        "filename": ilm_with_checkpoints.get_last_fixed_epoch().checkpoint,  # TODO: not optimal!
-                    },
-                },
-                "batch_size": 1000 * 160,
-                "max_seqs": 1,
-            }
-            _recog_imported(name=f"trafo_lm_{lm_scale}_ilm_{ilm_scale}_beam70", recog_config=ilm_recog_config)
+    # for lm_scale in [0.54]:
+    #     for ilm_scale in [0.4]:
+    #         ilm_recog_config = {
+    #             "beam_search_opts": {
+    #                 "beam_size": 70,
+    #                 "lm_scale": lm_scale,
+    #                 "ilm_scale": ilm_scale,
+    #             },
+    #             "external_language_model": {"class": "TransformerDecoder", **trafo_lm_kazuki_import.TrafoLmOpts},
+    #             "internal_language_model": {"class": "MiniLstmIlm"},
+    #             "preload_from_files": {
+    #                 "trafo_lm": {
+    #                     "prefix": "language_model.",
+    #                     "filename": trafo_lm_kazuki_import.get_pt_checkpoint_path(),
+    #                 },
+    #                 "ilm": {
+    #                     "prefix": "internal_language_model.",
+    #                     "filename": ilm_with_checkpoints.get_last_fixed_epoch().checkpoint,  # TODO: not optimal!
+    #                 },
+    #             },
+    #             "batch_size": 1000 * 160,
+    #             "max_seqs": 1,
+    #         }
+    #         _recog_imported(name=f"trafo_lm_{lm_scale}_ilm_{ilm_scale}_beam70", recog_config=ilm_recog_config)
 
 
 _sis_prefix: Optional[str] = None
@@ -951,7 +951,8 @@ def model_recog(
         label_log_prob = rf.log_softmax(logits, axis=model.target_dim)
 
         if lm_scale:
-            lm_log_prob, lm_state = model.language_model(target, spatial_dim=single_step_dim, state=lm_state)
+            lm_logits, lm_state = model.language_model(target, spatial_dim=single_step_dim, state=lm_state)
+            lm_log_prob = rf.log_softmax(lm_logits, axis=model.target_dim)
             label_log_prob += lm_scale * lm_log_prob
 
         if ilm_state:
