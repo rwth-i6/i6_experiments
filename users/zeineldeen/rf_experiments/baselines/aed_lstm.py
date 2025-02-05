@@ -138,6 +138,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
             "preload_from_files": {
                 "trafo_lm": {"prefix": "language_model.", "filename": trafo_lm_kazuki_import.get_pt_checkpoint_path()}
             },
+            "batch_size": 4000 * 160,
         }
         _recog_imported(name=f"trafo_lm_{lm_scale}_beam32", recog_config=lm_recog_config)
 
@@ -145,7 +146,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
         for ilm_scale in [0.4]:
             ilm_recog_config = {
                 "beam_search_opts": {
-                    "beam_size": 32,  # TODO: try higher beam
+                    "beam_size": 70,
                     "lm_scale": lm_scale,
                     "ilm_scale": ilm_scale,
                 },
@@ -161,8 +162,10 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
                         "filename": ilm_with_checkpoints.get_last_fixed_epoch().checkpoint,  # TODO: not optimal!
                     },
                 },
+                "batch_size": 1000 * 160,
+                "max_seqs": 1,
             }
-            _recog_imported(name=f"trafo_lm_{lm_scale}_ilm_{ilm_scale}_beam32", recog_config=ilm_recog_config)
+            _recog_imported(name=f"trafo_lm_{lm_scale}_ilm_{ilm_scale}_beam70", recog_config=ilm_recog_config)
 
 
 _sis_prefix: Optional[str] = None
@@ -393,6 +396,11 @@ class MakeModel:
         **extra,
     ) -> Model:
         """make"""
+
+        target_embed_dim = Dim(name="target_embed", dimension=640)
+        att_num_heads = Dim(name="att_num_heads", dimension=1)
+        enc_model_dim = Dim(name="enc", dimension=512, kind=Dim.Types.Feature)
+
         lm = None
         if language_model:
             assert isinstance(language_model, dict)
@@ -413,12 +421,18 @@ class MakeModel:
             cls_name = internal_language_model.pop("class")
             assert cls_name == "MiniLstmIlm"
             internal_language_model.pop("vocab_dim", None)  # will just overwrite
-            ilm = MiniLstmIlm(target_dim=target_dim, **internal_language_model)
+            ilm = MiniLstmIlm(
+                target_dim=target_dim,
+                target_embed_dim=target_embed_dim,
+                att_context_dim=enc_model_dim,
+                att_num_heads=att_num_heads,
+                **internal_language_model,
+            )
 
         return Model(
             in_dim,
             num_enc_layers=num_enc_layers,
-            enc_model_dim=Dim(name="enc", dimension=512, kind=Dim.Types.Feature),
+            enc_model_dim=enc_model_dim,
             enc_ff_dim=Dim(name="enc-ff", dimension=2048, kind=Dim.Types.Feature),
             enc_att_num_heads=8,
             enc_conformer_layer_opts=dict(
@@ -434,7 +448,9 @@ class MakeModel:
                 ),
                 ff_activation=lambda x: rf.relu(x) ** 2.0,
             ),
+            att_num_heads=att_num_heads,
             target_dim=target_dim,
+            target_embed_dim=target_embed_dim,
             blank_idx=target_dim.dimension,
             bos_idx=_get_bos_idx(target_dim),
             eos_idx=_get_eos_idx(target_dim),
@@ -453,17 +469,18 @@ class Model(rf.Module):
         *,
         num_enc_layers: int = 12,
         target_dim: Dim,
+        target_embed_dim: Dim,
         wb_target_dim: Optional[Dim] = None,
         blank_idx: int,
         eos_idx: int,
         bos_idx: int,
+        enc_model_dim: Dim,
+        att_num_heads: Dim,
         enc_aux_logits: Sequence[int] = (),  # layers
-        enc_model_dim: Dim = Dim(name="enc", dimension=512),
         enc_ff_dim: Dim = Dim(name="enc-ff", dimension=2048),
         enc_att_num_heads: int = 4,
         enc_conformer_layer_opts: Optional[Dict[str, Any]] = None,
         enc_key_total_dim: Dim = Dim(name="enc_key_total_dim", dimension=1024),
-        att_num_heads: Dim = Dim(name="att_num_heads", dimension=1),
         att_dropout: float = 0.1,
         enc_dropout: float = 0.1,
         enc_att_dropout: float = 0.1,
@@ -515,7 +532,7 @@ class Model(rf.Module):
 
         self.inv_fertility = rf.Linear(self.encoder.out_dim, att_num_heads, with_bias=False)
 
-        self.target_embed = rf.Embedding(target_dim, Dim(name="target_embed", dimension=640))
+        self.target_embed = rf.Embedding(target_dim, target_embed_dim)
         if config.float("embed_init_stddev", None):
             self.target_embed.weight.initial = rf.init.Normal(stddev=config.float("embed_init_stddev", 0.0))
 
@@ -938,18 +955,8 @@ def model_recog(
             label_log_prob += lm_scale * lm_log_prob
 
         if ilm_state:
-            # TODO: for now, we need to handle input embed separately due to dim tags mismatch
-            if i == 0:
-                ilm_input_embed = rf.zeros(
-                    batch_dims_ + [model.internal_language_model.target_embed.out_dim],
-                    feature_dim=model.internal_language_model.target_embed.out_dim,
-                )
-            else:
-                ilm_input_embed = model.internal_language_model.target_embed(target)
-            ilm_step_out, ilm_state = model.internal_language_model.loop_step(
-                input_embed=ilm_input_embed, state=ilm_state
-            )
-            ilm_logits = model.internal_language_model.decode_logits(input_embed=ilm_input_embed, **ilm_step_out)
+            ilm_step_out, ilm_state = model.internal_language_model.loop_step(input_embed=input_embed, state=ilm_state)
+            ilm_logits = model.internal_language_model.decode_logits(input_embed=input_embed, **ilm_step_out)
             ilm_log_prob = rf.log_softmax(ilm_logits, axis=model.target_dim)
             label_log_prob -= ilm_scale * ilm_log_prob
 
@@ -1577,10 +1584,10 @@ class MiniLstmIlm(rf.Module):
         self,
         *,
         target_dim: Dim,
-        target_embed_dim: int = 640,
-        att_context_dim: int = 512,
+        target_embed_dim: Dim,
+        att_context_dim: Dim,
+        att_num_heads: Dim,
         hidden_dim: int = 50,
-        att_num_heads: int = 1,
     ):
         """
         :param target_dim:
@@ -1590,19 +1597,15 @@ class MiniLstmIlm(rf.Module):
         :param att_num_heads:
         """
 
-        # TODO: pass the dim tags of target embed, att num heads, and att context dim of the AED decoder instead
-        #   of creating new dim tags here!
-
         frozen_modules = []
 
         self.target_dim = target_dim
 
-        target_embed_dim = Dim(name="ilm_target_embed", dimension=target_embed_dim)
         self.target_embed = rf.Embedding(target_dim, target_embed_dim)
         frozen_modules.append(self.target_embed)
 
-        self.att_num_heads = Dim(name="ilm_att_num_heads", dimension=att_num_heads)
-        self.att_context_dim = Dim(name="ilm_att_context_dim", dimension=att_context_dim)
+        self.att_num_heads = att_num_heads
+        self.att_context_dim = att_context_dim
 
         self.s = rf.ZoneoutLSTM(
             self.target_embed.out_dim + self.att_num_heads * self.att_context_dim,
