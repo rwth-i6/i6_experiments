@@ -938,6 +938,7 @@ def model_recog(
             label_log_prob += lm_scale * lm_log_prob
 
         if ilm_state:
+            # TODO: for now, we need to handle input embed separately due to dim tags mismatch
             if i == 0:
                 ilm_input_embed = rf.zeros(
                     batch_dims_ + [model.internal_language_model.target_embed.out_dim],
@@ -965,6 +966,13 @@ def model_recog(
         seq_targets.append(target)
         seq_backrefs.append(backrefs)
         decoder_state = tree.map_structure(lambda s: rf.gather(s, indices=backrefs), decoder_state)
+
+        if lm_state:
+            lm_state = rf.nested.gather_nested(lm_state, indices=backrefs)
+
+        if ilm_state:
+            ilm_state = tree.map_structure(lambda s: rf.gather(s, indices=backrefs), ilm_state)
+
         ended = rf.gather(ended, indices=backrefs)
         out_seq_len = rf.gather(out_seq_len, indices=backrefs)
         i += 1
@@ -1581,6 +1589,9 @@ class MiniLstmIlm(rf.Module):
         :param hidden_dim:
         :param att_num_heads:
         """
+
+        # TODO: pass the dim tags of target embed, att num heads, and att context dim of the AED decoder instead
+        #   of creating new dim tags here!
 
         frozen_modules = []
 
