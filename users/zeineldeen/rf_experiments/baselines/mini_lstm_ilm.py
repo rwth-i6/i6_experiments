@@ -32,7 +32,7 @@ def py():
         f"ilm/mini-lstm",
         config=dict_update_deep(
             config_11gb_ilm_v1,
-            {"batch_size": 10_000, "preload_from_files": preload_from_files, "num_epochs": 40},
+            {"batch_size": 10_000, "preload_from_files": preload_from_files, "__num_epochs": 40},
         ),
         train_dataset=lbs_bpe10k_dataset,
         model_def=ModelDefWithCfg(
