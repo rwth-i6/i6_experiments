@@ -117,6 +117,7 @@ class MiniLstmIlm(rf.Module):
         """Default initial state"""
         state = rf.State(
             s=self.s.default_initial_state(batch_dims=batch_dims),
+            mini_lstm=self.mini_lstm.default_initial_state(batch_dims=batch_dims),
             att=rf.zeros(list(batch_dims) + [self.att_num_heads * self.att_context_dim]),
         )
         state.att.feature_dim_axis = len(state.att.dims) - 1
