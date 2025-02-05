@@ -142,10 +142,10 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
         _recog_imported(name=f"trafo_lm_{lm_scale}_beam32", recog_config=lm_recog_config)
 
     for lm_scale in [0.54]:
-        for ilm_scale in [0.28]:
+        for ilm_scale in [0.4]:
             ilm_recog_config = {
                 "beam_search_opts": {
-                    "beam_size": 32,
+                    "beam_size": 32,  # TODO: try higher beam
                     "lm_scale": lm_scale,
                     "ilm_scale": ilm_scale,
                 },
@@ -938,8 +938,17 @@ def model_recog(
             label_log_prob += lm_scale * lm_log_prob
 
         if ilm_state:
-            ilm_step_out, ilm_state = model.internal_language_model.loop_step(input_embed=input_embed, state=ilm_state)
-            ilm_logits = model.internal_language_model.decode_logits(input_embed=input_embed, **ilm_step_out)
+            if i == 0:
+                ilm_input_embed = rf.zeros(
+                    batch_dims_ + [model.internal_language_model.target_embed.out_dim],
+                    feature_dim=model.internal_language_model.target_embed.out_dim,
+                )
+            else:
+                ilm_input_embed = model.internal_language_model.target_embed(target)
+            ilm_step_out, ilm_state = model.internal_language_model.loop_step(
+                input_embed=ilm_input_embed, state=ilm_state
+            )
+            ilm_logits = model.internal_language_model.decode_logits(input_embed=ilm_input_embed, **ilm_step_out)
             ilm_log_prob = rf.log_softmax(ilm_logits, axis=model.target_dim)
             label_log_prob -= ilm_scale * ilm_log_prob
 
@@ -1577,12 +1586,12 @@ class MiniLstmIlm(rf.Module):
 
         self.target_dim = target_dim
 
-        target_embed_dim = Dim(name="target_embed", dimension=target_embed_dim)
+        target_embed_dim = Dim(name="ilm_target_embed", dimension=target_embed_dim)
         self.target_embed = rf.Embedding(target_dim, target_embed_dim)
         frozen_modules.append(self.target_embed)
 
-        self.att_num_heads = Dim(name="att_num_heads", dimension=att_num_heads)
-        self.att_context_dim = Dim(name="att_context_dim", dimension=att_context_dim)
+        self.att_num_heads = Dim(name="ilm_att_num_heads", dimension=att_num_heads)
+        self.att_context_dim = Dim(name="ilm_att_context_dim", dimension=att_context_dim)
 
         self.s = rf.ZoneoutLSTM(
             self.target_embed.out_dim + self.att_num_heads * self.att_context_dim,
