@@ -74,6 +74,8 @@ class MiniLstmIlm(rf.Module):
         self.target_embed = rf.Embedding(target_dim, target_embed_dim)
         frozen_modules.append(self.target_embed)
 
+        self.att_num_heads = att_num_heads
+
         self.s = rf.ZoneoutLSTM(
             self.target_embed.out_dim + att_num_heads * att_context_dim,
             Dim(name="lstm", dimension=1024),
