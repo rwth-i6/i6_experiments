@@ -194,6 +194,7 @@ def train(
             watch_memory=True,
             use_lovely_tensors=True,
             use_train_proc_manager=True,
+            alias=prefix_name
         ),
         sort_config=False,
     )
@@ -273,6 +274,8 @@ def _returnn_v2_train_step(*, model, extern_data: TensorDict, **_kwargs_unused):
             data_spatial_dim=data_spatial_dim,
             lm_path=config.typed_value("lm_path"),
             seq_tags=seq_tags,
+            targets=targets,
+            targets_spatial_dim=targets_spatial_dim,
         )
     else:
         train_def(
@@ -296,6 +299,8 @@ class ExtendedTrainDef(TrainDef):
         data: Tensor,
         data_spatial_dim: Tensor,
         lm_path: tk.Path,
-        seq_tags: Tensor = None
+        seq_tags: Tensor = None,
+        targets: Tensor,
+        targets_spatial_dim
     ) -> Dict[str, Tensor]:
         raise NotImplementedError

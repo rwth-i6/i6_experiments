@@ -2,6 +2,7 @@
 Implement lattice-free MMI training for CTC
 """
 
+import os
 import torch
 import numpy as np
 
@@ -1392,48 +1393,93 @@ def get_bpes(tokens):
     tokens = tokens.replace("@@ ", "")
     return tokens
 
+def plot_gradients(gradients: np.ndarray, savename: str, title: str = "Text"):
+    import matplotlib.pyplot as plt
+    from datetime import datetime
+    if gradients.ndim == 1:
+        notzero = np.where(gradients != 0)[0]
+        if len(notzero) > 10:
+            notzero = np.argpartition(np.abs(gradients), -10)[-10:]
+        fig = plt.figure(figsize=(10, 5))
+        plt.plot(gradients, ".-", linewidth=1, markersize=3)
+        plt.xticks(np.arange(0, 185, 10))
+        plt.title(title)
+        plt.xlabel("Vocab")
+        plt.ylabel("Gradients")
+        for idx in notzero:
+            plt.text(idx - 3, gradients[idx], get_bpe_from_dict(idx), rotation = "vertical", fontsize = "x-small")
+    elif gradients.ndim == 2:
+        fig, axs = plt.subplots(gradients.shape[0], 1, figsize=(10, 5 * gradients.shape[0]))
+        fig.supxlabel("Vocab")
+        fig.supylabel("Gradients")
+        for t in range(gradients.shape[0]):
+            notzero = np.where(gradients[t] != 0)[0]
+            if len(notzero) > 10:
+                notzero = np.argpartition(np.abs(gradients[t]), -10)[-10:]
+            axs[t].plot(gradients[t], ".-", linewidth=1, markersize=3)
+            axs[t].set_xticks(np.arange(0, 185, 10))
+            axs[t].set_title(title[t])
+            for idx in notzero:
+                axs[t].text(idx - 3, gradients[t][idx], get_bpe_from_dict(idx), rotation = "vertical", fontsize = "x-small")
+    else:
+        raise NotImplementedError("Only 2D gradients are supported")
+    now = datetime.now()
+    fig.savefig(savename + now.strftime("_%H:%M:%S_%d-%m") + ".png")
+
 class PrintGradients(torch.autograd.Function):
     @staticmethod
-    def forward(ctx, x, name, print_input, mean_dim = None, batch_idx = None):
+    def forward(ctx, x, name, prefix, print_input, mean_dim = None, batch_idx = None, timesteps = [], title: list = []):
         ctx.name = name
+        ctx.prefix = prefix
         ctx.print_input = print_input
         ctx.mean_dim = mean_dim
-        ctx.batch_idx = batch_idx
+        if batch_idx is not None:
+            if type(batch_idx) == int:
+                ctx.batch_idx = [batch_idx]
+            else:
+                ctx.batch_idx = batch_idx
+        ctx.timesteps = timesteps
+        ctx.title = title
         ctx.save_for_backward(x)
         return x
 
     @staticmethod
     def backward(ctx, grad_output):
         name = ctx.name
+        prefix = ctx.prefix
         print_input = ctx.print_input
         x, = ctx.saved_tensors
         if ctx.batch_idx is not None:
+            prefix += "/"
+            prefix = "/u/marten.mueller/dev/ctc_baseline/output/" + prefix
+            if not os.path.exists(prefix):
+                os.makedirs(prefix)
             if ctx.mean_dim is not None:
                 g = grad_output[ctx.batch_idx]
-                if print_input:
-                    print(f"Gradients ({name}): {g.mean(dim=ctx.mean_dim).cpu().numpy()} Sum: {g.sum()} Mean: {g.mean()}\nInput: {x[ctx.batch_idx].mean(dim=ctx.mean_dim).cpu().numpy()}\nNaN's: {torch.isnan(g).sum()}")
-                else:
-                    print(f"Gradients ({name}): {g.mean(dim=ctx.mean_dim).cpu().numpy()} Sum: {g.sum()} Mean: {g.mean()}\nNaN's: {torch.isnan(g).sum()}")
+                plot_gradients(g.mean(dim=ctx.mean_dim).squeeze(0).cpu().numpy(), prefix + name, "")
+                # if print_input:
+                #     print(f"Gradients ({name}): {g.mean(dim=ctx.mean_dim).cpu().numpy()} Sum: {g.sum()} Mean: {g.mean()}\nInput: {x[ctx.batch_idx].mean(dim=ctx.mean_dim).cpu().numpy()}\nNaN's: {torch.isnan(g).sum()}")
+                # else:
+                #     print(f"Gradients ({name}): {g.mean(dim=ctx.mean_dim).cpu().numpy()} Sum: {g.sum()} Mean: {g.mean()}\nNaN's: {torch.isnan(g).sum()}")
             else:
                 np.set_printoptions(threshold=10000)
-                g = grad_output[ctx.batch_idx, 9:18].squeeze(0).cpu().numpy()
-                if print_input:
-                    x_b = x[ctx.batch_idx, 9:18].squeeze(0).cpu().numpy()
-                    # diff = (g - x_b).exp().cpu().numpy()
-                    print(f"Gradients ({name}): NaN's: {torch.isnan(grad_output).sum()}")
-                    for i in range(0, 9):
-                        print(f"{i + 9}: {g[i]} Max: {g[i].max()} Sum: {g[i].sum()}\nInput: {x_b[i]} Max: {x_b[i].max()} Sum: {x_b[i].sum()}")
-                        # print(f"{i + 9}: {diff[i]} Max: {diff[i].max()} Sum: {diff[i].sum()}")
-                else:
-                    print(f"Gradients ({name}): NaN's: {torch.isnan(grad_output).sum()}")
-                    for i in range(0, 9):
-                        print(f"{i + 9}: {g[i]} Max: {g[i].max()} Sum: {g[i].sum()}")
+                g = grad_output[ctx.batch_idx, ctx.timesteps].squeeze(0).cpu().numpy()
+                plot_gradients(g, prefix + name + "_ts", ctx.title)
+                # if print_input:
+                #     x_b = x[ctx.batch_idx, ctx.timesteps].squeeze(0).cpu().numpy()
+                #     print(f"Gradients ({name}): NaN's: {torch.isnan(grad_output).sum()}")
+                #     for j, i in zip(ctx.timesteps, range(len(ctx.timesteps))):
+                #         print(f"{j}: {g[i]} Max: {g[i].max()} Sum: {g[i].sum()}\nInput: {x_b[i]} Max: {x_b[i].max()} Sum: {x_b[i].sum()}")
+                # else:
+                #     print(f"Gradients ({name}): NaN's: {torch.isnan(grad_output).sum()}")
+                #     for j, i in zip(ctx.timesteps, range(len(ctx.timesteps))):
+                #         print(f"{j}: {g[i]} Max: {g[i].max()} Sum: {g[i].sum()}")
         else:
             if print_input:
                 print(f"Gradients ({name}): {grad_output.mean(dim=ctx.mean_dim).cpu().numpy() if ctx.mean_dim is not None else grad_output} Sum: {grad_output.sum()} Mean: {grad_output.mean()}\nInput: {x.mean(dim=ctx.mean_dim).cpu().numpy() if ctx.mean_dim else (x[ctx.batch_idx] if ctx.batch_idx else x)}\nNaN's: {torch.isnan(grad_output).sum()}")
             else:
                 print(f"Gradients ({name}): {grad_output.mean(dim=ctx.mean_dim).cpu().numpy() if ctx.mean_dim is not None else grad_output} Sum: {grad_output.sum()} Mean: {grad_output.mean()}\nNaN's: {torch.isnan(grad_output).sum()}")
-        return grad_output, None, None, None, None
+        return grad_output, None, None, None, None, None, None, None
     
 class AssertGradients(torch.autograd.Function):
     @staticmethod
@@ -1605,8 +1651,16 @@ def test():
     ag = AssertGradients.apply
     # ag = PrintGradients.apply
     
-    lm = torch.randn((vocab_size - 1,) * LM_order, device=device)
-    lm = torch.nn.functional.log_softmax(lm, dim=-1)
+    # lm = torch.randn((vocab_size - 1,) * LM_order, device=device)
+    # lm = torch.nn.functional.log_softmax(lm, dim=-1)
+    if LM_order == 2:
+        lm_path = "/u/marten.mueller/dev/ctc_baseline/work/i6_experiments/users/mueller/experiments/language_models/n_gram/ConvertARPAtoTensor.wuVkNuDg8B55/output/lm.pt"
+    elif LM_order == 3:
+        lm_path = "/u/marten.mueller/dev/ctc_baseline/work/i6_experiments/users/mueller/experiments/language_models/n_gram/ConvertARPAtoTensor.S9n2YtP1JzJ5/output/lm.pt"
+    elif LM_order == 4:
+        lm_path = "/u/marten.mueller/dev/ctc_baseline/work/i6_experiments/users/mueller/experiments/language_models/n_gram/ConvertARPAtoTensor.XxvP7yk50Q8u/output/lm.pt"
+    with open(lm_path, "rb") as f:
+        lm = torch.load(f)
     
     l = torch.tensor([0.0], device=device)
     s1 = time.time()
@@ -1634,8 +1688,11 @@ def test():
         # prior = _calc_log_prior(am, length, use_max=True)
         # am = am.permute(1, 0, 2)
         
+        am = am.permute(1, 0, 2)
+        # am = ag(am, "AM", False, None, 0, [0, 1, 34])
         am = ag(am, "AM", False)
-        prior = ag(prior, "prior", False)
+        am = am.permute(1, 0, 2)
+        # prior = ag(prior, "prior", False)
         
         loss = sum_loss2(
             log_probs=am,

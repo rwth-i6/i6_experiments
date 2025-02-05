@@ -78,11 +78,16 @@ def py():
     prior_gradient = False
     empirical_prior_full_sum = False
     prior_from_max_full_sum = False
-    LM_order = 2
-    top_k = 1
+    LM_order = 3
+    top_k = 3
+    version = 2
+    print_gradients = True
     alignment_topk = False
-    blank_correction_version = 12
-    self_train_subset = 18000 # 18000
+    blank_correction_version = 0
+    am_lm_prior = [
+        (1.0, 0.5, 0.02)
+    ]
+    self_train_subset = None # 18000
     
     assert (empirical_prior_full_sum and empirical_prior) or not empirical_prior_full_sum
     
@@ -173,9 +178,7 @@ def py():
         "max_seq_length_default_input": 19.5 * _raw_sample_rate,
     } if self_training_rounds > 0 else None
 
-    for am, lm, prior in [
-        (1.0, 1.0, 0.3)
-    ]:
+    for am, lm, prior in am_lm_prior:
         if use_sum_criterion:
             if am != 1.0 or lm != 1.0 or prior != 1.0:
                 scales_not_std = True
@@ -204,9 +207,11 @@ def py():
                 config_full_sum["alignment_topk"] = False
             if blank_correction_version > 0:
                 config_full_sum["blank_correction_version"] = blank_correction_version
+            if print_gradients:
+                config_full_sum["print_gradients"] = True
             
             # This is to change the hash when we made chnages in the loss function
-            config_full_sum["version"] = 2
+            config_full_sum["version"] = version
             
             sum_str = f"-full_sum" + \
                 (f"_p{str(config_full_sum['prior_scale']).replace('.', '')}_l{str(config_full_sum['lm_scale']).replace('.', '')}_a{str(config_full_sum['am_scale']).replace('.', '')}" if scales_not_std else "") + \
@@ -1053,10 +1058,10 @@ def ctc_training(*, model: Model, data: rf.Tensor, data_spatial_dim: Dim, target
 ctc_training: TrainDef[Model]
 ctc_training.learning_rate_control_error_measure = "ctc"
 
-def ctc_sum_training(*, model: Model, data: rf.Tensor, data_spatial_dim: Dim, lm_path: tk.Path, seq_tags: rf.Tensor = None):
+def ctc_sum_training(*, model: Model, data: rf.Tensor, data_spatial_dim: Dim, lm_path: tk.Path, seq_tags: rf.Tensor = None, targets: rf.Tensor, targets_spatial_dim: Dim):
     """Function is run within RETURNN."""
     from returnn.config import get_global_config
-    from .sum_criterion import sum_loss2, safe_logsumexp, PrintGradients
+    from .sum_criterion import sum_loss, sum_loss2, safe_logsumexp, PrintGradients
     
     # torch.autograd.set_detect_anomaly(True)
     pg = PrintGradients.apply
@@ -1118,8 +1123,11 @@ def ctc_sum_training(*, model: Model, data: rf.Tensor, data_spatial_dim: Dim, lm
     top_k = config.int("top_k", 0)
     alignment_topk = config.bool("alignment_topk", True)
     blank_correction_version = config.int("blank_correction_version", 0)
+    correction_in_final_score = config.bool("correction_in_final_score", False)
     use_prior = prior_scale > 0.0
-
+    
+    print_gradients = config.bool("print_gradients", False)
+    version = config.int("version", 2)
     if data.feature_dim and data.feature_dim.dimension == 1:
         data = rf.squeeze(data, axis=data.feature_dim)
     assert not data.feature_dim  # raw audio
@@ -1178,11 +1186,8 @@ def ctc_sum_training(*, model: Model, data: rf.Tensor, data_spatial_dim: Dim, lm
                 custom_inv_norm_factor=enc_spatial_dim.get_size_tensor(),
                 use_normalized_loss=use_normalized_loss,
             )
-            
-    log_probs = model.log_probs_wb_from_logits(logits)
-    log_probs = log_probs.raw_tensor
     
-    fixed_seqs = ["train-other-500/5756-305214-0041/5756-305214-0041"] # MONICA DREW FRESH HOPE FROM HER SON'S WRITINGS THEY WERE FULL OF NOBLE THOUGHTS AND HIGH ASPIRATIONS
+    fixed_seqs = ["train-other-500/5756-305214-0041/5756-305214-0041", "train-clean-360/2498-134786-0003/2498-134786-0003"] # MONICA DREW FRESH HOPE FROM HER SON'S WRITINGS THEY WERE FULL OF NOBLE THOUGHTS AND HIGH ASPIRATIONS, HERE IT IS
     print_for_idx = []
     
     # seq = seq_tags[0]
@@ -1196,9 +1201,22 @@ def ctc_sum_training(*, model: Model, data: rf.Tensor, data_spatial_dim: Dim, lm
             print("Found seq", seq, enc_spatial_dim.dyn_size_ext.raw_tensor[idx])
             print_for_idx.append(idx[0])
             
-    torch.set_printoptions(profile="full")
-    log_probs = pg(log_probs, "log_probs", False, (0, 1))
-    
+    if print_gradients and fixed_seqs[1] in seq_tags:
+        alias_name = config.typed_value("alias")
+        idx_t = np.where(seq_tags == fixed_seqs[1])[0]
+        print("Target:", targets.raw_tensor[idx_t].detach().cpu().numpy())
+        logits_raw = logits.raw_tensor
+        logits_raw = pg(logits_raw, "logits", alias_name, False, 1, idx_t)
+        logits_raw = pg(logits_raw, "logits", alias_name, False, None, idx_t, [8, 9, 10, 11], ["<blank>", "H", "<blank>", "ERE"])
+        logits.raw_tensor = logits_raw
+        log_probs = model.log_probs_wb_from_logits(logits)
+        log_probs = log_probs.raw_tensor
+        log_probs = pg(log_probs, "log_probs", alias_name, False, 1, idx_t)
+        log_probs = pg(log_probs, "log_probs", alias_name, False, None, idx_t, [8, 9, 10, 11], ["<blank>", "H", "<blank>", "ERE"])
+    else:
+        log_probs = model.log_probs_wb_from_logits(logits)
+        log_probs = log_probs.raw_tensor
+
     if use_prior:
         if empirical_prior is not None:
             log_prior = np.loadtxt(empirical_prior, dtype="float32")
@@ -1212,31 +1230,90 @@ def ctc_sum_training(*, model: Model, data: rf.Tensor, data_spatial_dim: Dim, lm
         log_prior = None
     # (B, T, V) -> (T, B, V)
     log_probs = log_probs.permute(1, 0, 2)
-    loss = sum_loss2(
-        log_probs=log_probs,
-        log_lm_probs=lm,
-        log_prior=log_prior,
-        input_lengths=enc_spatial_dim.dyn_size_ext.raw_tensor,
-        top_k=top_k,
-        LM_order=lm_order,
-        am_scale=am_scale,
-        lm_scale=lm_scale,
-        prior_scale=prior_scale,
-        horizontal_prior=horizontal_prior,
-        blank_prior=blank_prior,
-        blank_idx=model.blank_idx,
-        eos_idx=model.eos_idx,
-        unk_idx=1,
-        device=log_probs.device,
-        print_best_path_for_idx=print_for_idx,
-        alignment_topk=alignment_topk
-    )
-    loss = rtf.TorchBackend.convert_to_tensor(loss, dims = [batch_dim], dtype = "float32", name=f"full_sum")
-    loss.mark_as_loss(
-        f"full_sum",
-        custom_inv_norm_factor=enc_spatial_dim.get_size_tensor(),
-        use_normalized_loss=use_normalized_loss,
-    )
+    
+    if version == 5:
+        loss = torch.ctc_loss(
+            log_probs,
+            targets.raw_tensor,
+            enc_spatial_dim.dyn_size_ext.raw_tensor,
+            targets_spatial_dim.dyn_size_ext.raw_tensor,
+            blank=model.blank_idx,
+            reduction=0,
+            zero_infinity=False
+        )
+        if print_gradients and fixed_seqs[1] in seq_tags:
+            print("Loss:", loss[np.where(seq_tags == fixed_seqs[1])[0]].detach().cpu().numpy()) # 0: [6.9210505], 0.0009867928 , 1: [0.00390251], 0.99610509
+        loss = rtf.TorchBackend.convert_to_tensor(loss, dims = [batch_dim], dtype = "float32", name=f"ctc")
+        loss.mark_as_loss(
+            "ctc",
+            custom_inv_norm_factor=targets_spatial_dim.get_size_tensor(),
+            use_normalized_loss=use_normalized_loss,
+        )
+    elif version in [10, 11]:
+        if version == 10:
+            loss = torch.logsumexp(log_probs[0], dim=-1)
+        else:
+            loss = safe_logsumexp(log_probs[0], -1)
+        for t in range(1, log_probs.size(0)):
+            if version == -1:
+                A = loss.unsqueeze(1)
+                B = log_probs[t].unsqueeze(1).expand(-1, log_probs.size(-1), log_probs.size(-1))
+                new_loss = A.matmul(B).squeeze(1)
+                time_mask = (t < enc_spatial_dim.dyn_size_ext.raw_tensor.to(log_probs.device)).unsqueeze(-1)
+                loss = torch.where(time_mask.expand_as(new_loss), new_loss, loss)
+            else:
+                # A = loss.unsqueeze(1).expand(-1, log_probs.size(-1), log_probs.size(-1))
+                # B = log_probs[t].unsqueeze(-1).expand(-1, log_probs.size(-1), log_probs.size(-1))
+                # new_loss = safe_logsumexp(A + B, dim=-1)
+                # new_loss = safe_logsumexp(torch.stack([loss, safe_logsumexp(log_probs[t], -1)], dim=-1), dim=-1)
+                if version == 10:
+                    new_loss = loss + torch.logsumexp(log_probs[t], -1)
+                else:
+                    new_loss = loss + safe_logsumexp(log_probs[t], -1)
+                time_mask = (t < enc_spatial_dim.dyn_size_ext.raw_tensor.to(log_probs.device))#.unsqueeze(-1)
+                loss = torch.where(time_mask.expand_as(new_loss), new_loss, loss)
+        if version == -1:
+            loss = loss.sum(-1)
+        # else:
+        #     loss = safe_logsumexp(loss, dim=-1)
+        loss = -loss
+        # print(loss[0].detach().cpu().numpy())
+        loss = rtf.TorchBackend.convert_to_tensor(loss, dims = [batch_dim], dtype = "float32", name=f"sum")
+        loss.mark_as_loss(
+            f"sum",
+            custom_inv_norm_factor=enc_spatial_dim.get_size_tensor(),
+            use_normalized_loss=use_normalized_loss,
+        )
+    else:
+        loss = sum_loss2(
+            log_probs=log_probs,
+            log_lm_probs=lm,
+            log_prior=log_prior,
+            input_lengths=enc_spatial_dim.dyn_size_ext.raw_tensor,
+            top_k=top_k,
+            LM_order=lm_order,
+            am_scale=am_scale,
+            lm_scale=lm_scale,
+            prior_scale=prior_scale,
+            horizontal_prior=horizontal_prior,
+            blank_prior=blank_prior,
+            blank_idx=model.blank_idx,
+            eos_idx=model.eos_idx,
+            unk_idx=1,
+            device=log_probs.device,
+            print_best_path_for_idx=print_for_idx,
+            alignment_topk=alignment_topk,
+            blank_correction_version=blank_correction_version,
+            correction_in_final_score = correction_in_final_score
+        )
+        if print_gradients and fixed_seqs[1] in seq_tags:
+            print("Loss:", loss[np.where(seq_tags == fixed_seqs[1])[0]].detach().cpu().numpy()) # 0: [6.9392214] 0.0009690238, 1: [0.01604532], 0.984082720
+        loss = rtf.TorchBackend.convert_to_tensor(loss, dims = [batch_dim], dtype = "float32", name=f"full_sum")
+        loss.mark_as_loss(
+            f"full_sum",
+            custom_inv_norm_factor=enc_spatial_dim.get_size_tensor(),
+            use_normalized_loss=use_normalized_loss,
+        )
 
 ctc_sum_training: ExtendedTrainDef[Model]
 ctc_sum_training.learning_rate_control_error_measure = "full_sum"
