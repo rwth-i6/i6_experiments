@@ -110,12 +110,11 @@ def _sis_setup_global_prefix(prefix_name: Optional[str] = None):
     _sis_prefix = prefix_name
 
 
-def _recog_imported():
-    from i6_experiments.users.zeyer.utils.generic_job_output import generic_job_output
-    from i6_experiments.users.zeyer.experiments.exp2023_04_25_rf._moh_att_2023_06_30_import import map_param_func_v2
-    from i6_core.returnn.training import Checkpoint as TfCheckpoint, PtCheckpoint
-    from i6_experiments.users.zeyer.model_interfaces import ModelWithCheckpoint
+def get_tf_to_rf_converted_ckpt_path() -> tk.Path:
     from i6_experiments.users.zeyer.returnn.convert_ckpt_rf import ConvertTfCheckpointToRfPtJob
+    from i6_experiments.users.zeyer.experiments.exp2023_04_25_rf._moh_att_2023_06_30_import import map_param_func_v2
+    from i6_experiments.users.zeyer.utils.generic_job_output import generic_job_output
+    from i6_core.returnn.training import Checkpoint as TfCheckpoint, PtCheckpoint
 
     task = _get_ls_task()
     extern_data_dict = task.train_dataset.get_extern_data()
@@ -132,7 +131,17 @@ def _recog_imported():
         ),
         map_func=map_param_func_v2,
     ).out_checkpoint
+
+    return new_chkpt_path
+
+
+def _recog_imported():
+    from i6_core.returnn.training import PtCheckpoint
+    from i6_experiments.users.zeyer.model_interfaces import ModelWithCheckpoint
+
+    new_chkpt_path = get_tf_to_rf_converted_ckpt_path()
     new_chkpt = PtCheckpoint(new_chkpt_path)
+
     model_with_checkpoint = ModelWithCheckpoint(definition=from_scratch_model_def, checkpoint=new_chkpt)
 
     _recog("recog_results", model_with_checkpoint)
