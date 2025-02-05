@@ -32,7 +32,7 @@ def py():
         f"ilm/mini-lstm",
         config=dict_update_deep(
             config_11gb_ilm_v1,
-            {"batch_size": 10_000, "preload_from_files": preload_from_files},
+            {"batch_size": 10_000, "preload_from_files": preload_from_files, "num_epochs": 40},
         ),
         train_dataset=lbs_bpe10k_dataset,
         model_def=ModelDefWithCfg(
@@ -75,6 +75,7 @@ class MiniLstmIlm(rf.Module):
         frozen_modules.append(self.target_embed)
 
         self.att_num_heads = att_num_heads
+        self.att_context_dim = att_context_dim
 
         self.s = rf.ZoneoutLSTM(
             self.target_embed.out_dim + att_num_heads * att_context_dim,
@@ -115,7 +116,7 @@ class MiniLstmIlm(rf.Module):
         """Default initial state"""
         state = rf.State(
             s=self.s.default_initial_state(batch_dims=batch_dims),
-            att=rf.zeros(list(batch_dims) + [self.att_num_heads * self.encoder.out_dim]),
+            att=rf.zeros(list(batch_dims) + [self.att_num_heads * self.att_context_dim]),
         )
         state.att.feature_dim_axis = len(state.att.dims) - 1
         return state
