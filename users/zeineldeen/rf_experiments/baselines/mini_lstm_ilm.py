@@ -71,6 +71,8 @@ class MiniLstmIlm(rf.Module):
 
         frozen_modules = []
 
+        self.target_dim = target_dim
+
         target_embed_dim = Dim(name="target_embed", dimension=target_embed_dim)
         self.target_embed = rf.Embedding(target_dim, target_embed_dim)
         frozen_modules.append(self.target_embed)
@@ -96,7 +98,7 @@ class MiniLstmIlm(rf.Module):
         self.mini_lstm = rf.LSTM(in_dim=target_embed_dim, out_dim=mini_lstm_dim)
 
         # this is used instead of original attention context vector
-        self.att_context_proj = rf.Linear(mini_lstm_dim, self.att_context_dim)
+        self.att_context_proj = rf.Linear(mini_lstm_dim, self.att_num_heads * self.att_context_dim)
 
         self.readout_in = rf.Linear(
             self.s.out_dim + self.target_embed.out_dim + self.att_num_heads * self.att_context_dim,
@@ -129,12 +131,6 @@ class MiniLstmIlm(rf.Module):
             "s": Tensor(
                 "s", dims=batch_dims + [self.s.out_dim], dtype=rf.get_default_float_dtype(), feature_dim_axis=-1
             ),
-            "mini_lstm": Tensor(
-                "mini_lstm",
-                dims=batch_dims + [self.mini_lstm.out_dim],
-                dtype=rf.get_default_float_dtype,
-                feature_dim_axis=-1,
-            ),
             "att": Tensor(
                 "att",
                 dims=batch_dims + [self.att_num_heads * self.att_context_dim],
@@ -166,7 +162,7 @@ class MiniLstmIlm(rf.Module):
         att = self.att_context_proj(mini_lstm_out)
         state_.att = att
 
-        return {"s": s, "mini_lstm": mini_lstm_out, "att": att}, state_
+        return {"s": s, "att": att}, state_
 
     def decode_logits(self, *, s: Tensor, input_embed: Tensor, att: Tensor) -> Tensor:
         """logits for the decoder"""
