@@ -85,7 +85,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
     # ---------- double softmax experiments ---------
     am_scales = [1.0] 
     # rel_scales = [0.2, 0.35] # just start with this
-    rel_scales = [0.35]
+    rel_scales = [0.2, 0.35]
     for lr, epoch, am_scale, rel_scale in itertools.product(lr_list, ep_list, am_scales, rel_scales):
         lm_scale = round(am_scale*rel_scale, 2)
         train_exp( 
@@ -97,7 +97,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
                 "batch_size": 1000000,
                 "learning_rate": lr,
                 "learning_rates": [lr] * epoch,
-                "__num_epochs": 4,
+                "__num_epochs": 20,
                 "mask_eos_output": True,
                 "add_eos_to_blank": True,
                 "preload_from_files": {
@@ -497,7 +497,8 @@ def train_exp(
 
     #---------- default ted2 recog config ----------
     ted2_recog_config_update = {
-        'batch_size': 1800000,
+        # 'batch_size': 1800000,
+        'batch_size': 400000,
         "preload_from_files": {
             "01_lstm_extern_lm": {
                 "prefix": "language_model.",
@@ -509,7 +510,7 @@ def train_exp(
     }
 
     # with prior
-    beam_sizes = [32]
+    beam_sizes = [128]
     length_norm_scales = [0.0] # we don't need 1.0 for time sync search!!!
     lm_scales = [0.9, 1.0, 1.1, 1.2, 1.3, 1.4, 1.5]
     ilm_scales = [0.0] 
@@ -538,13 +539,13 @@ def train_exp(
             search_config=ted2_recog_config_update_extra,
             recog_def=model_recog_time_sync_recomb_first_v2,
             model_avg=False,
-            exclude_epochs=[],
+            exclude_epochs=[2, 4, 6, 8, 12, 16],
             train_exp_name=name,
             dev_sets=["dev", "test"],
         )
 
     # without prior
-    beam_sizes = [32]
+    beam_sizes = [128]
     length_norm_scales = [0.0] # we don't need 1.0 for time sync search!!!
     lm_scales = [0.5, 0.6, 0.7, 0.8, 0.9, 1.0]
     ilm_scales = [0.0] 
@@ -573,7 +574,7 @@ def train_exp(
             search_config=ted2_recog_config_update_extra,
             recog_def=model_recog_time_sync_recomb_first_v2,
             model_avg=False,
-            exclude_epochs=[],
+            exclude_epochs=[2, 4, 6, 8, 12, 16],
             train_exp_name=name,
             dev_sets=["dev", "test"],
         )

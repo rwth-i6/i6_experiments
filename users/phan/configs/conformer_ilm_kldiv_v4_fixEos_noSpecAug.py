@@ -91,7 +91,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
     lr_list = [(1e-3, 1e-3)] # [(1e-5, 1e-7), (1e-3, 1e-3)]
     ep_list = [(40, 60)]
     # recog_epoch = [1] + list(range(20, 120, 20)) # 1 is mostly for debugging and getting the baseline
-    recog_epoch = [20, 40]
+    recog_epoch = [20, 40, 60, 80, 100]
     # Standard KLDiv ILM
     for lrs in lr_list:
         for epochs in ep_list:
@@ -107,7 +107,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
                     "batch_size": 2400000,
                     "learning_rate": float(lrs[-1]),
                     "learning_rates": lrs,
-                    "__num_epochs": ep1,
+                    "__num_epochs": 100,
                     "mask_eos_output": True,
                     "add_eos_to_blank": True,
                     "preload_from_files": {
@@ -135,8 +135,9 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
     # standard KL Div
     lr = 1e-3
     ep = 40
-    recog_epoch_short = [20, 40]
-    ground_truth_weights = [0.5, "average"]
+    recog_epoch_short = [20, 40, 60, 80, 100]
+    # ground_truth_weights = [0.5, "average"]
+    ground_truth_weights = [0.5]
     for weight in ground_truth_weights:
         train_exp( 
             f"conformer_ilm_kldiv_sampling_weight_{weight}_lr_{lr}_ep_{ep}_fixEos_noSpecAug",
@@ -147,7 +148,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
                 "batch_size": 1200000,
                 "learning_rate": lr,
                 "learning_rates": [lr]*ep,
-                "__num_epochs": ep,
+                "__num_epochs": 100,
                 "mask_eos_output": True,
                 "add_eos_to_blank": True,
                 "preload_from_files": {
@@ -602,132 +603,133 @@ def train_exp(
     #         dev_sets=["dev-other", "test-other"],
     #     )
 
-    # ----------------- finish dev-clean and test-clean recognition -----------------
-    from i6_experiments.users.phan.recog.ctc_time_sync_recomb_first_v2 import model_recog_time_sync_recomb_first_v2
-    beam_sizes = [32] # to be consistent [16, 32]
-    length_norm_scales = [0.0] # never use 1.0!
-    lm_scales = [0.8, 0.9, 1.0, 1.1] # [0.9, 1.0, 1.1, 1.2, 1.3]
-    ilm_scales = [0.3, 0.4, 0.5, 0.6]
-    prior_scales = [0.0]
-    # lm_scales = [1.1, 1.2, 1.3]
-    # ilm_scales = [0.6, 0.7, 0.8] # try this ???
-    # prior_scales = [0.0, 0.2, 0.3]
-    unfinished_params = [
-        (1.0, 0.5, 0.3), # standard
-        (1.0, 0.4, 0.3), # sampling 0.5
-        (0.9, 0.4, 0.3), # sampling average
-        (0.9, 0.4, 0.0), # standard
-        (0.9, 0.5, 0.0), # sampling 0.5
-        (0.9, 0.5, 0.0), # sampling average
-    ]
-    for beam_size, length_norm_scale in itertools.product(beam_sizes, length_norm_scales):                
-        for triple in unfinished_params:
-            lm_scale, ilm_scale, prior_scale = triple
-            if triple in [(1.0, 0.5, 0.3), (0.9, 0.4, 0.0)] and "kldiv_sampling_weight" in config: # standard only
-                continue
-            elif triple in [(1.0, 0.4, 0.3)] and config.get("kldiv_sampling_weight", None) != 0.5:
-                continue
-            elif triple in [(0.9, 0.4, 0.3)] and config.get("kldiv_sampling_weight", None) != "average":
-                continue
-            if triple == (0.9, 0.5, 0.0) and "kldiv_sampling_weight" not in config:
-                continue
-            if "kldiv_sampling_weight" not in config:
-                exclude_epochs = [40]
-            elif config["kldiv_sampling_weight"] == 0.5:
-                exclude_epochs = [40]
-            elif config["kldiv_sampling_weight"] == "average":
-                exclude_epochs = [20]
-            search_args = {
-                "beam_size": beam_size,
-                "lm_scale": lm_scale,
-                "ilm_scale": ilm_scale,
-                "length_norm_scale": length_norm_scale, # by default len norm
-                "prior_scale": prior_scale,
-                "prior_file": "/work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/2023-08-10--rf-librispeech/work/i6_core/returnn/forward/ReturnnForwardJobV2.OSftOYzAjRUg/output/prior.txt",
-                "ctc_log_prior": False,
-            }
-            recog_config_update_extra = copy.deepcopy(recog_config_update)
-            recog_config_update_extra.update({
-                "search_args": search_args,
-                "batch_size": 600000,
-            })
-            recog_training_exp(
-                prefix + f"_timeSyncRecombFirstV2_beam-{beam_size}_lm-{lm_scale}_ilm-{ilm_scale}_lenNorm-{length_norm_scale}_prior-{prior_scale}",
-                task,
-                model_with_checkpoint,
-                search_config=recog_config_update_extra,
-                recog_def=model_recog_time_sync_recomb_first_v2,
-                model_avg=False,
-                exclude_epochs=exclude_epochs,
-                train_exp_name=name,
-                # dev_sets=["dev-clean", "test-clean"],
-            )
-
-    # # ----------------- TED2 time sync recombination before pruning ----------------
-    # ted2_prefix = "lbs_cross_domain_ted2/" + prefix
-    # ted2_task = _get_ted2_task()
-    # from i6_experiments.users.phan.rf_models.default_checkpoints import default_ted2_lstm_extern_lm_checkpoint
+    # # ----------------- finish dev-clean and test-clean recognition -----------------
     # from i6_experiments.users.phan.recog.ctc_time_sync_recomb_first_v2 import model_recog_time_sync_recomb_first_v2
+    # beam_sizes = [32] # to be consistent [16, 32]
+    # length_norm_scales = [0.0] # never use 1.0!
+    # lm_scales = [0.8, 0.9, 1.0, 1.1] # [0.9, 1.0, 1.1, 1.2, 1.3]
+    # ilm_scales = [0.3, 0.4, 0.5, 0.6]
+    # prior_scales = [0.0]
+    # # lm_scales = [1.1, 1.2, 1.3]
+    # # ilm_scales = [0.6, 0.7, 0.8] # try this ???
+    # # prior_scales = [0.0, 0.2, 0.3]
+    # unfinished_params = [
+    #     (1.0, 0.5, 0.3), # standard
+    #     (1.0, 0.4, 0.3), # sampling 0.5
+    #     (0.9, 0.4, 0.3), # sampling average
+    #     (0.9, 0.4, 0.0), # standard
+    #     (0.9, 0.5, 0.0), # sampling 0.5
+    #     (0.9, 0.5, 0.0), # sampling average
+    # ]
+    # for beam_size, length_norm_scale in itertools.product(beam_sizes, length_norm_scales):                
+    #     for triple in unfinished_params:
+    #         lm_scale, ilm_scale, prior_scale = triple
+    #         if triple in [(1.0, 0.5, 0.3), (0.9, 0.4, 0.0)] and "kldiv_sampling_weight" in config: # standard only
+    #             continue
+    #         elif triple in [(1.0, 0.4, 0.3)] and config.get("kldiv_sampling_weight", None) != 0.5:
+    #             continue
+    #         elif triple in [(0.9, 0.4, 0.3)] and config.get("kldiv_sampling_weight", None) != "average":
+    #             continue
+    #         if triple == (0.9, 0.5, 0.0) and "kldiv_sampling_weight" not in config:
+    #             continue
+    #         if "kldiv_sampling_weight" not in config:
+    #             exclude_epochs = [40]
+    #         elif config["kldiv_sampling_weight"] == 0.5:
+    #             exclude_epochs = [40]
+    #         elif config["kldiv_sampling_weight"] == "average":
+    #             exclude_epochs = [20]
+    #         search_args = {
+    #             "beam_size": beam_size,
+    #             "lm_scale": lm_scale,
+    #             "ilm_scale": ilm_scale,
+    #             "length_norm_scale": length_norm_scale, # by default len norm
+    #             "prior_scale": prior_scale,
+    #             "prior_file": "/work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/2023-08-10--rf-librispeech/work/i6_core/returnn/forward/ReturnnForwardJobV2.OSftOYzAjRUg/output/prior.txt",
+    #             "ctc_log_prior": False,
+    #         }
+    #         recog_config_update_extra = copy.deepcopy(recog_config_update)
+    #         recog_config_update_extra.update({
+    #             "search_args": search_args,
+    #             "batch_size": 600000,
+    #         })
+    #         recog_training_exp(
+    #             prefix + f"_timeSyncRecombFirstV2_beam-{beam_size}_lm-{lm_scale}_ilm-{ilm_scale}_lenNorm-{length_norm_scale}_prior-{prior_scale}",
+    #             task,
+    #             model_with_checkpoint,
+    #             search_config=recog_config_update_extra,
+    #             recog_def=model_recog_time_sync_recomb_first_v2,
+    #             model_avg=False,
+    #             exclude_epochs=exclude_epochs,
+    #             train_exp_name=name,
+    #             # dev_sets=["dev-clean", "test-clean"],
+    #         )
 
-    # #---------- default ted2 recog config ----------
-    # ted2_recog_config_update = {
-    #     'batch_size': 1800000,
-    #     "preload_from_files": {
-    #         "01_lstm_extern_lm": {
-    #             "prefix": "language_model.",
-    #             "filename": default_ted2_lstm_extern_lm_checkpoint,
-    #         },
-    #     },
-    #     "internal_language_model": default_ilm_config,
-    #     "external_language_model": default_tedlium2_extern_lm_config, # this to load the external LM only in recog
-    # }
+    # ----------------- TED2 time sync recombination before pruning ----------------
+    ted2_prefix = "lbs_cross_domain_ted2/" + prefix
+    ted2_task = _get_ted2_task()
+    from i6_experiments.users.phan.rf_models.default_checkpoints import default_ted2_lstm_extern_lm_checkpoint
+    from i6_experiments.users.phan.recog.ctc_time_sync_recomb_first_v2 import model_recog_time_sync_recomb_first_v2
 
-    # beam_sizes = [32]
-    # length_norm_scales = [0.0] # we don't need 1.0 for time sync search!!!
-    # # lm_scales = [1.6, 1.7, 1.8]
-    # # ilm_scales = [0.5, 0.6, 0.7, 0.8] 
-    # # prior_scales = [0.4, 0.5, 0.6]
-    # # lm_scales = [1.5, 1.6, 1.7, 1.8, 1.9, 2.0]
-    # # ilm_scales = [0.5, 0.6, 0.7, 0.8, 0.9, 1.0] 
-    # # prior_scales = [0.2, 0.3, 0.4, 0.5, 0.6]
+    #---------- default ted2 recog config ----------
+    ted2_recog_config_update = {
+        'batch_size': 2400000,
+        "preload_from_files": {
+            "01_lstm_extern_lm": {
+                "prefix": "language_model.",
+                "filename": default_ted2_lstm_extern_lm_checkpoint,
+            },
+        },
+        "internal_language_model": default_ilm_config,
+        "external_language_model": default_tedlium2_extern_lm_config, # this to load the external LM only in recog
+    }
+
+    beam_sizes = [32]
+    length_norm_scales = [0.0] # we don't need 1.0 for time sync search!!!
+    # lm_scales = [1.6, 1.7, 1.8]
+    # ilm_scales = [0.5, 0.6, 0.7, 0.8] 
+    # prior_scales = [0.4, 0.5, 0.6]
     # lm_scales = [1.5, 1.6, 1.7, 1.8, 1.9, 2.0]
-    # ilm_scales = [0.9, 1.0, 1.1, 1.2, 1.3, 1.4, 1.5] 
+    # ilm_scales = [0.5, 0.6, 0.7, 0.8, 0.9, 1.0] 
+    # prior_scales = [0.2, 0.3, 0.4, 0.5, 0.6]
+    lm_scales = [1.5, 1.6, 1.7, 1.8, 1.9, 2.0]
+    ilm_scales = [0.9, 1.0, 1.1, 1.2, 1.3, 1.4, 1.5, 1.6] 
     # prior_scales = [0.0, 0.1, 0.2, 0.3, 0.4]
-    # for beam_size, lm_scale, ilm_scale, length_norm_scale, prior_scale in itertools.product(beam_sizes, lm_scales, ilm_scales, length_norm_scales, prior_scales):                
-    #     if ilm_scale >= lm_scale:
-    #         continue
-    #     config_weight = config.get("kldiv_sampling_weight", None)
-    #     if config_weight == 0.5:
-    #         exclude_epochs = [40]
-    #     elif config_weight == "average":
-    #         exclude_epochs = [20]
-    #     elif config_weight == None:
-    #         exclude_epochs = [40]
-    #     search_args = {
-    #         "beam_size": beam_size,
-    #         "lm_scale": lm_scale,
-    #         "ilm_scale": ilm_scale,
-    #         "length_norm_scale": length_norm_scale,
-    #         "prior_scale": prior_scale,
-    #         "prior_file": "/work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/2023-08-10--rf-librispeech/work/i6_core/returnn/forward/ReturnnForwardJobV2.OSftOYzAjRUg/output/prior.txt",
-    #         "ctc_log_prior": False,
-    #         "lm_skip": True,
-    #     }
-    #     ted2_recog_config_update_extra = copy.deepcopy(ted2_recog_config_update)
-    #     ted2_recog_config_update_extra.update({
-    #         "search_args": search_args,
-    #     })
-    #     recog_training_exp(
-    #         ted2_prefix + f"_timeSyncRecombFirstV2_beam-{beam_size}_lm-{lm_scale}_ilm-{ilm_scale}_lenNorm-{length_norm_scale}_prior-{prior_scale}",
-    #         ted2_task,
-    #         model_with_checkpoint,
-    #         search_config=ted2_recog_config_update_extra,
-    #         recog_def=model_recog_time_sync_recomb_first_v2,
-    #         model_avg=False,
-    #         exclude_epochs=exclude_epochs,
-    #         train_exp_name=name,
-    #         dev_sets=["dev", "test"],
-    #     )
+    prior_scales = [0.0]
+    for beam_size, lm_scale, ilm_scale, length_norm_scale, prior_scale in itertools.product(beam_sizes, lm_scales, ilm_scales, length_norm_scales, prior_scales):                
+        if ilm_scale >= lm_scale:
+            continue
+        # config_weight = config.get("kldiv_sampling_weight", None)
+        # if config_weight == 0.5:
+        #     exclude_epochs = [40]
+        # elif config_weight == "average":
+        #     exclude_epochs = [20]
+        # elif config_weight == None:
+        #     exclude_epochs = [40]
+        search_args = {
+            "beam_size": beam_size,
+            "lm_scale": lm_scale,
+            "ilm_scale": ilm_scale,
+            "length_norm_scale": length_norm_scale,
+            "prior_scale": prior_scale,
+            "prior_file": "/work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/2023-08-10--rf-librispeech/work/i6_core/returnn/forward/ReturnnForwardJobV2.OSftOYzAjRUg/output/prior.txt",
+            "ctc_log_prior": False,
+            "lm_skip": True,
+        }
+        ted2_recog_config_update_extra = copy.deepcopy(ted2_recog_config_update)
+        ted2_recog_config_update_extra.update({
+            "search_args": search_args,
+        })
+        recog_training_exp(
+            ted2_prefix + f"_timeSyncRecombFirstV2_beam-{beam_size}_lm-{lm_scale}_ilm-{ilm_scale}_lenNorm-{length_norm_scale}_prior-{prior_scale}",
+            ted2_task,
+            model_with_checkpoint,
+            search_config=ted2_recog_config_update_extra,
+            recog_def=model_recog_time_sync_recomb_first_v2,
+            model_avg=False,
+            exclude_epochs=[],
+            train_exp_name=name,
+            dev_sets=["dev", "test"],
+        )
 
     return model_with_checkpoint
 

@@ -293,27 +293,6 @@ def train_step(*, model: LSTMLMRF, extern_data: TensorDict, **_kwargs_unused):
         name="ppl", loss=ppl, as_error=True,
     )
 
-    # doesn't work wtf ?????
-    # ce = rf.loss.cross_entropy(
-    #     estimated=logits,
-    #     target=targets,
-    #     axis=targets.sparse_dim,
-    #     estimated_type="logits",
-    # )
-    # rf.get_run_ctx().mark_as_loss(
-    #     name="log_ppl",
-    #     loss=ce,
-    #     custom_inv_norm_factor=rf.reduce_sum(targets_len_rf, axis=batch_dim),
-    # )
-    # log_ppl = rf.reduce_mean(ce, axis=spatial_dim) #(B,)
-    # ppl = rf.exp(log_ppl) # (B, )
-    # ppl = rf.reduce_mean(ppl, axis=batch_dim) # scalar
-    # rf.get_run_ctx().mark_as_loss(
-    #     name="ppl",
-    #     loss=ppl,
-    #     as_error=True,
-    # )
-
 def model_def(*, epoch: int, in_dim: Dim, target_dim: Dim) -> Model:
     """Function is run within RETURNN."""
     from returnn.config import get_global_config

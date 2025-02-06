@@ -1,0 +1,1 @@
+This folder contains configs for different architectures of the ILM. It contains several subfolders, each of which is an ILM architecture with different configs for different methods. These subfolders are structured in the same way.

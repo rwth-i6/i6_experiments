@@ -925,14 +925,17 @@ def train_exp(
     # Important: turn on LM skip 
     from i6_experiments.users.phan.rf_models.default_checkpoints import default_ted2_lstm_extern_lm_checkpoint
     from i6_experiments.users.phan.recog.ctc_time_sync_recomb_first_v2 import model_recog_time_sync_recomb_first_v2
-    beam_sizes = [32]
+    beam_sizes = [128]
     length_norm_scales = [0.0] # we don't need 1.0 for time sync search!!!
     # lm_scales = [0.6, 0.7, 0.8, 0.9, 1.0, 1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 1.7]
     # ilm_scales = [0.0, 0.2, 0.4, 0.6, 0.8] 
     # prior_scales = [0.0, 0.2, 0.4, 0.6]
-    lm_scales = [1.4, 1.5, 1.6, 1.7, 1.8, 1.9, 2.0]
-    ilm_scales = [0.5, 0.6, 0.7] 
-    prior_scales = [0.4, 0.5, 0.6]
+    # lm_scales = [1.4, 1.5, 1.6, 1.7, 1.8, 1.9, 2.0]
+    # ilm_scales = [0.5, 0.6, 0.7] 
+    # prior_scales = [0.4, 0.5, 0.6]
+    lm_scales = [0.6, 0.7, 0.8, 0.9, 1.0, 1.1, 1.2, 1.3, 1.4, 1.5]
+    ilm_scales = [0.0] 
+    prior_scales = [0.0, 0.2, 0.3, 0.4, 0.5, 0.6]
     prior_types = ["precomputed_average"]
     for beam_size, lm_scale, ilm_scale, length_norm_scale, prior_scale, prior_type in itertools.product(beam_sizes, lm_scales, ilm_scales, length_norm_scales, prior_scales, prior_types):
         if ilm_scale >= lm_scale:
@@ -956,7 +959,8 @@ def train_exp(
         recog_name = ted2_prefix + exp_name + suffix
         recog_config_update_extra = copy.deepcopy(recog_config_update)
         recog_config_update_extra.update({
-            "batch_size": 1800000,
+            # "batch_size": 1800000,
+            "batch_size": 400000,
             "search_args": search_args,
             "preload_from_files": {
                 "01_lstm_extern_lm": {

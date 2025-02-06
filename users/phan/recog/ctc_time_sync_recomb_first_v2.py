@@ -413,6 +413,7 @@ def model_recog_time_sync_recomb_first_v2(
             # target_1: (Batch, Beam). State should be (Batch, Beam, Hidden state dim)
             ilm_out = model.ilm(target_1, state=ilm_state_1, spatial_dim=single_step_dim)
             ilm_state = ilm_out["state"]
+            # print("ilm state after forwarding", ilm_state.raw_tensor)
             ilm_log_prob = rf.log_softmax(ilm_out["output"], axis=model.target_dim)
             # print("ilm_state out", ilm_state)
             if search_args.get("add_eos_to_end", False) and is_last_step:
@@ -570,7 +571,7 @@ def model_recog_time_sync_recomb_first_v2(
             axis=[beam_dim, model.target_dim_w_blank],
         )  # seq_log_prob, backrefs, target: Batch, Beam
         # print("seq_log_prob after top_k", seq_log_prob.raw_tensor)
-        # print("backrefs", backrefs.raw_tensor)
+        # print("backrefs", backrefs)
         # print("target", target.raw_tensor)
         batch_dims_ = batch_dims + [beam_dim]
         seq_targets.append(target)

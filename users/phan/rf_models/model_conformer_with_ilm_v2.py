@@ -38,6 +38,8 @@ _log_mel_feature_dim = 80
 
 from i6_experiments.users.phan.rf_models.lstm_lm import LSTMLMRF
 from i6_experiments.users.phan.rf_models.bigram import BigramLMRF
+from i6_experiments.users.phan.rf_models.ffnn_lm import FFNN_LM_RF
+from i6_experiments.users.phan.rf_models.unigram_lm import Unigram_LM_RF
 from i6_experiments.users.phan.rf_models.trafo_lm_luca import Trafo_LM_Model
 from i6_experiments.users.yang.torch.loss.ctc_forward_backward import ctc_forward
 from i6_experiments.users.yang.torch.loss.ctc_pref_scores_loss import kldiv_ctc_lm_loss, kldiv_ctc_lm_sample_batch_loss, ctc_double_softmax_loss
@@ -286,6 +288,18 @@ class Model(rf.Module):
             elif ilm_cls == "BigramLMRF":
                 self.ilm = BigramLMRF(
                     label_target_dim,
+                    label_target_dim,
+                    **internal_language_model,
+                )
+            elif ilm_cls == "FFNN_LM_RF":
+                self.ilm = FFNN_LM_RF(
+                    label_target_dim,
+                    label_target_dim,
+                    eos_idx=self.eos_idx,
+                    **internal_language_model,
+                )
+            elif ilm_cls == "Unigram_LM_RF":
+                self.ilm = Unigram_LM_RF(
                     label_target_dim,
                     **internal_language_model,
                 )
@@ -1662,3 +1676,52 @@ def ilm_kldiv_sequence_level(
 
 ilm_kldiv_sequence_level: TrainDef[Model]
 ilm_kldiv_sequence_level.learning_rate_control_error_measure = "dev_score_full_sum"
+
+
+def from_scratch_training_density_ratio(
+    *,
+    model: Model,
+    data: rf.Tensor,
+    data_spatial_dim: Dim,
+    targets: rf.Tensor,
+    targets_spatial_dim: Dim,
+):
+    """Function is run within RETURNN."""
+    # Fuck audio data loading
+    # Do this for simplicity, even though audio data loading is costly
+
+    targets_w_bos, targets_spatial_dim_pad = rf.pad(
+        targets,
+        padding=[(1, 0)],
+        axes=[targets_spatial_dim],
+        value=model.eos_idx
+    )
+    ilm_out = model.ilm_forward(targets_w_bos, targets_spatial_dim_pad[0])
+    ilm_out_raw = ilm_out["output"].raw_tensor # (T, B, V)
+    targets_raw = targets.raw_tensor
+    torch_target_lengths = targets_spatial_dim.dyn_size_ext.raw_tensor
+    log_lm_score = ilm_out_raw.transpose(0, 1).log_softmax(-1) # (B, S, V)
+    targets_len_rf = targets_spatial_dim_pad[0].dyn_size_ext
+
+    # CE loss
+    batch_size, max_seq_len = targets_raw.shape
+    targets_eos = torch.cat(
+        [targets_raw, torch.full((batch_size, 1), fill_value=model.eos_idx, device=targets_raw.device)],
+        dim=1,
+    ).long()
+    ce = torch.nn.functional.cross_entropy(log_lm_score.transpose(1, 2), targets_eos, reduction='none')
+    seq_mask = get_seq_mask(torch_target_lengths, max_seq_len+1, targets_raw.device)
+    log_ppl_seq = (ce*seq_mask).sum(1) # (B,)
+    rf.get_run_ctx().mark_as_loss(
+        log_ppl_seq,
+        "ilm_log_ppl",
+        custom_inv_norm_factor=rf.reduce_sum(targets_len_rf, axis=batch_dim),
+    )
+    log_ppl_all = (ce*seq_mask).sum()/(targets_len_rf.raw_tensor.sum())
+    ppl = torch.exp(log_ppl_all)
+    rf.get_run_ctx().mark_as_loss(
+        name="ilm_ppl", loss=ppl, as_error=True,
+    )
+
+from_scratch_training_density_ratio: TrainDef[Model]
+from_scratch_training_density_ratio.learning_rate_control_error_measure = "dev_score_full_sum"

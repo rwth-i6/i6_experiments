@@ -34,7 +34,7 @@ lbs_bpe10k_trans_lm_base_config = OrderedDict(
     learning_rate = 1.,
     learning_rate_control = "newbob_rel",
     learning_rate_control_relative_error_relative_lr = False,
-    newbob_multi_num_epochs = CodeWrapper("train_epoch_split"),
+    newbob_multi_num_epochs = base_dataloader_config["train_epoch_split"],
     newbob_relative_error_div_by_old = True,
     newbob_learning_rate_decay = 0.8,
     newbob_relative_error_threshold = -0.02,
@@ -94,6 +94,7 @@ def train_lbs_bpe10k_transcription_lm(
     num_epochs: int = 10,
     hashed_config: dict = {},
     non_hashed_config: dict = {},
+    post_config_update: dict = {},
 ):
     """
     Get a Returnn Config to train a transcription LM
@@ -101,7 +102,18 @@ def train_lbs_bpe10k_transcription_lm(
     :param hashed_config: Extra config to be hashed
     :param non_hashed_config: Extra unhashed config
     """
-
+    post_config = dict(  # not hashed
+        log_batch_size=True,
+        cleanup_old_models=True,
+        # debug_add_check_numerics_ops = True
+        # debug_add_check_numerics_on_output = True
+        # stop_on_nonfinite_train_score = False,
+        torch_log_memory_usage=True,
+        watch_memory=True,
+        use_lovely_tensors=True,
+        use_train_proc_manager=True,
+    )
+    post_config.update(post_config_update)
     returnn_train_config = ReturnnConfig(
         config=config,
         python_prolog=[
@@ -171,17 +183,7 @@ def train_lbs_bpe10k_transcription_lm(
                 ]
             )
         ],
-        post_config=dict(  # not hashed
-            log_batch_size=True,
-            cleanup_old_models=True,
-            # debug_add_check_numerics_ops = True
-            # debug_add_check_numerics_on_output = True
-            # stop_on_nonfinite_train_score = False,
-            torch_log_memory_usage=True,
-            watch_memory=True,
-            use_lovely_tensors=True,
-            use_train_proc_manager=True,
-        ),
+        post_config=post_config,
         sort_config=False,
     )
 
