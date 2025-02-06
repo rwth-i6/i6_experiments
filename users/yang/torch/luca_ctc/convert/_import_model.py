@@ -615,7 +615,7 @@ def map_param_func_trafo_lm(
 
 
 def map_param_func_lstm(
-    reader, name: str, var: rf.Parameter, param_mapping: Dict[str, str], output_transpose= False
+    reader, name: str, var: rf.Parameter, param_mapping: Dict[str, str], output_transpose= False, bias_name='layers',
 ) -> numpy.ndarray:
     """map params, TF to RF"""
     from tensorflow.python.training.py_checkpoint_reader import CheckpointReader
@@ -646,7 +646,7 @@ def map_param_func_lstm(
         if name.endswith(".rec_weight"):
             value = convert_params.convert_tf_lstm_to_torch_lstm_rec(value)
 
-        if "lstm" in name and name.endswith(".bias"):
+        if bias_name in name and name.endswith(".bias"):
             value = convert_params.convert_tf_lstm_to_torch_lstm_bias(value)
 
         if output_transpose:
