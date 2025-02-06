@@ -2,6 +2,8 @@ import torch
 from typing import Optional, Union, Tuple
 from enum import Enum
 
+from ..decoder.chunk_handler import AudioStreamer, StreamingASRContextManager
+
 
 class Mode(Enum):
     STREAMING = 0
@@ -12,7 +14,8 @@ class TrainingStrategy(Enum):
     STREAMING = 0
     UNIFIED = 1
     SWITCHING = 2
-    INTRA_BATCH = 3
+    OFFLINE = 3
+    INTRA_BATCH = 4
 
 
 
@@ -171,3 +174,70 @@ def pad_chunk_frames(self, tensor, mask, chunk_size):
     mask_pad = mask_pad.view(batch_size, -1, chunk_size)  # (B, N, C)
 
     return tensor_pad, mask_pad
+
+
+def rotary_pos_encoding(
+        x: torch.Tensor, start_time: int = 0
+) -> torch.Tensor:
+    """
+    Implements Rotary Positional Embedding (RoPE) as presented in
+    "Roformer: Enhanced transformer with rotary position embedding."
+
+    :param x: [B, T, d]
+    :param start_time: start index of first frame
+    """
+    d = x.size(-1)
+    T = x.size(-2)
+    assert d % 2 == 0, "Err: dimension of input must be even."
+
+    pos = torch.arange(T, dtype=torch.float, device=x.device).unsqueeze(-1) + start_time  # [T, 1]
+    thetas = torch.pow(10e4,
+                       -2 * (torch.cos(torch.arange(d//2, device=x.device) - 1)) / d).unsqueeze(0)  # [1, d/2]
+
+    trig_in = torch.matmul(pos, thetas)  # [T, d/2]
+    cos_vals = torch.cos(trig_in)
+    cos_vals = torch.repeat_interleave(cos_vals, 2, dim=-1).unsqueeze(0)  # [1, T, d]
+
+    sin_vals = torch.sin(trig_in)
+    sin_vals = torch.repeat_interleave(sin_vals, 2, dim=-1).unsqueeze(0)  # [1, T, d]
+
+    # alternating -sin and sin
+    m = torch.arange(d, device=x.device)
+    m = torch.where(m % 2 == 0, -1, 1)[None, None]
+    sin_vals = sin_vals * m
+
+    output_value = x * cos_vals + x * sin_vals  # [B, T, d]
+
+    return output_value
+
+
+def process_offline_sample(
+        raw_audio: torch.Tensor, raw_audio_len: torch.Tensor, run_ctx
+) -> torch.Tensor:
+    hypothesis, _ = run_ctx.rnnt_decoder.infer(
+        input=raw_audio[None],
+        length=raw_audio_len[None],
+        beam_width=run_ctx.beam_size,
+    )
+
+    return hypothesis[0][0][:-1]
+
+def process_streaming_sample(
+        raw_audio: torch.Tensor, raw_audio_len: torch.Tensor, config, run_ctx
+) -> torch.Tensor:
+    chunk_streamer = AudioStreamer(
+        raw_audio=raw_audio[None],
+        raw_audio_len=raw_audio_len[None],
+        left_size=config.chunk_size,
+        right_size=config.lookahead_size,
+        stride=config.stride,
+        pad_value=config.pad_value,
+    )
+
+    hypothesis = None
+    # context manager for handling states of streaming inference (only need to pass chunk and its effective size)
+    with StreamingASRContextManager(run_ctx.rnnt_decoder, carryover_sz=config.carry_over_size, beam_sz=run_ctx.beam_size) as cm:
+        for chunk, eff_chunk_sz in chunk_streamer:
+            _, hypothesis = cm.process_chunk(ext_chunk=chunk, eff_chunk_sz=eff_chunk_sz) 
+
+    return hypothesis[0][0][:-1]

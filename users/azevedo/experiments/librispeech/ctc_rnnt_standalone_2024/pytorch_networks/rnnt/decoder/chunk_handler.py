@@ -1,4 +1,6 @@
-from typing import Optional, Tuple
+from typing import Optional, Tuple, List
+import collections
+import math
 import torch
 
 
@@ -19,6 +21,7 @@ stride
                                                 ooooooooo++++++++
 """
 
+
 class AudioStreamer:
     def __init__(
         self,
@@ -28,7 +31,7 @@ class AudioStreamer:
         right_size: Optional[int] = None,
         stride: Optional[int] = None,
         pad_value: Optional[float] = None,
-        ) -> None:
+    ) -> None:
         """Simulates audio stream for complete audio input.
 
         Args:
@@ -56,7 +59,6 @@ class AudioStreamer:
         assert self.stride <= self.left_size + self.right_size, "Stride shouldn't be bigger than chunk size"
         
         self.pad_value = pad_value if pad_value is not None else 0.0
-
 
     def __iter__(self) -> Tuple[torch.Tensor, int]:
         """Every chunk returned should have same size (self.left_size + self.right_size). 
@@ -86,3 +88,85 @@ class AudioStreamer:
                 # normal chunk
                 chunk = self.raw_audio[i:i+total_chunk_size].clone()
                 yield chunk, total_chunk_size
+                
+                
+class AudioStreamerV2(AudioStreamer):
+    def __init__(
+            self,
+            raw_audio: torch.Tensor,
+            raw_audio_len: int,
+            left_size: int,
+            right_size: Optional[int] = None,
+            stride: Optional[int] = None,
+            pad_value: Optional[float] = None,
+    ) -> None:
+        super().__init__(raw_audio, raw_audio_len, left_size, right_size, stride, pad_value)
+
+    def __iter__(self) -> Tuple[torch.Tensor, int, int]:
+        """Every chunk returned should have same size (self.left_size + self.right_size).
+        In real streaming setting we don't know if last chunk was received until we wait
+        longer than total chunk size.
+
+        Yields:
+            Tuple[torch.Tensor, int, int]: chunk with shape (left_size + right_size, 1), the effective
+                chunk_size (num. of non padded samples) and the time step
+        """
+        total_chunk_size = self.left_size + self.right_size
+
+        for i in range(0, self.raw_audio_len, self.stride):
+            if i + 1 > self.raw_audio_len:
+                # stop if left side can't even have a single frame
+                break
+
+            elif i + total_chunk_size > self.raw_audio_len:
+                # raw audio needs to be padded to get chunk of size `total_chunk_size`
+                chunk = self.raw_audio[i:]
+                pad_tensor = torch.full((total_chunk_size - chunk.shape[0], 1), self.pad_value, device=chunk.device)
+                chunk_padded = torch.cat((chunk, pad_tensor), dim=0)
+
+                yield chunk_padded, chunk.shape[0], i
+
+            else:
+                # normal chunk
+                chunk = self.raw_audio[i:i+total_chunk_size].clone()
+                yield chunk, total_chunk_size, i
+
+
+
+class StreamingASRContextManager:
+    def __init__(self, decoder, carryover_sz, beam_sz):
+        """..."""
+
+        self.decoder = decoder
+        self.beam_sz = beam_sz
+        self.carryover_sz = carryover_sz
+        
+        self.states = None
+
+
+    def __enter__(self):
+        self.states = collections.deque(maxlen=math.ceil(self.carryover_sz))
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        self.states = None
+
+    def process_chunk(self, ext_chunk, eff_chunk_sz) -> Tuple[torch.Tensor, List]:
+        """
+        :param chunk: shape [C, 1]
+        :param future_ctx: shape [R, 1]
+        :param eff_chunk_sz: L <= C+R
+
+        :return: state and current hypothesis
+        """
+        hypothesis, state = self.decoder.infer(
+            input=ext_chunk,
+            length=eff_chunk_sz,
+            beam_width=self.beam_sz,
+            state=tuple(self.states) if len(self.states) > 0 else None,
+            hypothesis=hypothesis,
+        )
+
+        self.states.append(state)
+
+        return state, hypothesis

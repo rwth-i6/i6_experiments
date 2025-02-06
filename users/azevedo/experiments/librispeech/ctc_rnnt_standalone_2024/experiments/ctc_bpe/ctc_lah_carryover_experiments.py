@@ -457,6 +457,23 @@ def ctc_lah_carryover_v2_ls960_1023_low_bpe_from_scratch():
             "keep": [300, 500, 800, 950]
         },
 
+        25: {
+            "model_params": {
+                "chunk_size": [0.6],
+                "lookahead_size": [8],
+                "kernel_size": [31],
+                "specauc_start_epoch": [11],
+                "carry_over_size": [4],
+                "training_strategy": [str(TrainingStrategy.STREAMING)]
+            },
+
+            "network_module": "model_streaming_lah_carryover",
+            "accum_grads": 1,
+            "gpu_mem": 48,
+            "num_epochs": 1500,
+            "keep": [300, 800, 1200]
+        },
+
         30: {
             "model_params": {
                 "chunk_size": [2.4],
@@ -472,6 +489,23 @@ def ctc_lah_carryover_v2_ls960_1023_low_bpe_from_scratch():
             "gpu_mem": 24,
             "num_epochs": 1000,
             "keep": [300, 500, 800, 950]
+        },
+
+        35: {
+            "model_params": {
+                "chunk_size": [2.4],
+                "lookahead_size": [8],
+                "kernel_size": [31],
+                "specauc_start_epoch": [11],
+                "carry_over_size": [2],
+                "training_strategy": [str(TrainingStrategy.STREAMING)]
+            },
+
+            "network_module": "model_streaming_lah_carryover",
+            "accum_grads": 1,
+            "gpu_mem": 48,
+            "num_epochs": 1500,
+            "keep": [300, 800, 1200]
         },
 
         40: {

@@ -365,7 +365,7 @@ def bpe_ls960_1023_uni_lah(chunk_size: float, lookahead_size: int, kernel_size: 
     )
 
     #
-    # Baseline
+    # Baseline(s)
     #
     model_config_offline = ModelConfigOffline(
         feature_extraction_config=fe_config,
@@ -462,10 +462,31 @@ def bpe_ls960_1023_uni_lah(chunk_size: float, lookahead_size: int, kernel_size: 
     )
 
     #
+    # Baseline 150eps
+    #
+    train_args_150_offline = copy.deepcopy(train_args_offline)
+    train_args_150_offline["config"]["cleanup_old_models"]["keep"] = [300, 750, 1400]
+    training_name_150_offline = prefix_name + "/" + network_module + ".512dim_sub6_24gbgpu_150eps_base"
+    train_job = training(training_name_150_offline, train_data_bpe128, train_args_150_offline, num_epochs=1500,
+                         **default_returnn)
+    train_job.rqmt["gpu_mem"] = 24
+    asr_model_offline = prepare_asr_model(
+        training_name_150_offline, train_job, train_args_150_offline, with_prior=True, datasets=train_data_bpe128,
+        get_specific_checkpoint=1500
+    )
+
+    tune_and_evaluate_helper(
+        training_name_150_offline,
+        asr_model_offline,
+        offline_decoder_config_bpe128,
+        lm_scales=[1.6, 1.8, 2.0],
+        prior_scales=[0.2, 0.3, 0.4],
+    )
+
+
+    #
     # relpos baseline
     #
-
-
     from ...pytorch_networks.ctc.conformer_0125.i6models_relposV1_VGG4LayerActFrontendV1_v1_cfg import (
         ConformerPosEmbConfig,
         ModelConfig as ModelConfigRelpos

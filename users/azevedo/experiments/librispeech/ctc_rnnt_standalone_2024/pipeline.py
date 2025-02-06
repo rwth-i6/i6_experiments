@@ -73,7 +73,7 @@ def search_single(
         returnn_config=returnn_config,
         log_verbosity=5,
         mem_rqmt=mem_rqmt,
-        time_rqmt=1.0 if use_gpu else 12,
+        time_rqmt=6.0 if use_gpu else 12,
         device="gpu" if use_gpu else "cpu",
         cpu_rqmt=int(((mem_rqmt + 1.99) // 4) * 2),
         returnn_python_exe=returnn_exe,

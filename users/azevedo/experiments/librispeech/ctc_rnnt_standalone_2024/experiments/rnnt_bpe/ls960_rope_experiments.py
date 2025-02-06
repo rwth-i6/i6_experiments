@@ -1,22 +1,20 @@
 from sisyphus import tk
 
-import math
 import copy
 from dataclasses import asdict
 import numpy as np
 from typing import cast, List
 
-from i6_core.tools.parameter_tuning import GetOptimalParametersAsVariableJob
 
 from i6_experiments.common.setups.returnn.datastreams.vocabulary import LabelDatastream
 
 from ...data.common import DatasetSettings, build_test_dataset
-from ...data.bpe import build_bpe_training_datasets, get_text_lexicon
+from ...data.bpe import build_bpe_training_datasets
 from ...default_tools import RETURNN_EXE, MINI_RETURNN_ROOT
-from ...lm import get_4gram_binary_lm
 from ...pipeline import training, prepare_asr_model, search, ASRModel
-from ...storage import get_ctc_model
 
+
+from ...pytorch_networks.rnnt.auxil.functional import TrainingStrategy
 
 
 def product_dict(**kwargs):
@@ -50,7 +48,7 @@ def get_train_config(model_config, keep, module, accum_grads=1,  **kwargs):
         }
     }
 
-    network_module = "rnnt.conformer_0924.%s" % module
+    network_module = "rnnt.conformer_0125.%s" % module
     train_args_24gb_default = {
         "config": train_config_24gbgpu,
         "network_module": network_module,
@@ -63,7 +61,7 @@ def get_train_config(model_config, keep, module, accum_grads=1,  **kwargs):
 
 
 def run_experiments(**kwargs):
-    prefix_name = "experiments/librispeech/ctc_rnnt_standalone_2024/ls960_uni_lah_co_low_bpe_from_scratch"
+    prefix_name = "experiments/librispeech/ctc_rnnt_standalone_2024/ls960_rope_low_bpe_from_scratch"
     bpe_size = kwargs.get("bpe_size", 128)
     experiments_config = kwargs.get("experiments_config")
 
@@ -131,15 +129,13 @@ def run_experiments(**kwargs):
             debug=False
         )
 
-        return wers
-
     from ...pytorch_networks.rnnt.conformer_1023.i6modelsV1_VGG4LayerActFrontendV1_v9_cfg import (
         SpecaugConfig,
         VGG4LayerActFrontendV1Config_mod,
         LogMelFeatureExtractionV1Config,
         PredictorConfig
     )
-    from ...pytorch_networks.rnnt.conformer_0924.uni_lah_carryover_cfg import ModelConfig
+    from ...pytorch_networks.rnnt.conformer_0924.uni_lah_carryover_cfg import ModelConfigV2 as ModelConfig
 
     fe_config = LogMelFeatureExtractionV1Config(
         sample_rate=16000,
@@ -200,11 +196,9 @@ def run_experiments(**kwargs):
     vocab_size_without_blank = label_datastream_bpe.vocab_size
 
     #
-    # different encoder param experiments 
+    # different encoder param experiments
     #
     for experiment in experiments_config:
-        results = []
-
         exp_config = experiments_config[experiment]
         model_params = exp_config["model_params"]
 
@@ -238,6 +232,7 @@ def run_experiments(**kwargs):
                 lookahead_size=param_combi["lookahead_size"],
                 online_model_scale=0.5,
                 carry_over_size=param_combi["carry_over_size"],
+                training_strategy=param_combi["training_strategy"],
             )
 
             decoder_config = DecoderConfig(
@@ -247,7 +242,7 @@ def run_experiments(**kwargs):
                 right_size=model_config.lookahead_size,
                 keep_states=True,
                 keep_hyps=True,
-                test_version=0.0,  # default 0.5
+                test_version=0.5,  # default 0.3
             )
             offline_decoder_config = DecoderConfig(
                 beam_size=1,  # greedy as default
@@ -255,29 +250,21 @@ def run_experiments(**kwargs):
             )
 
             num_epochs = exp_config.get("num_epochs")
-            KEEP = exp_config.get("keep", [80, 160, 200, 220, 240])
+            KEEP = exp_config.get("keep")
             train_args = get_train_config(model_config, keep=KEEP,
                                           module=exp_config["network_module"],
                                           accum_grads=exp_config["accum_grads"],
                                           num_epochs=num_epochs)
 
-            # if model_config.chunk_size/16e3 + model_config.lookahead_size*0.06 > 2:
-            #     gpu_mem = exp_config["gpu_mem"]
-            # else:
-            #     gpu_mem = 11
-
             gpu_mem = exp_config["gpu_mem"]
-
-            alias = ""
-            if "alias" in exp_config:
-                alias = "_" + exp_config["alias"]
+            train_strat = model_config.training_strategy.split(".")[-1].lower()
 
             training_name = (
                 prefix_name + "/" + str(bpe_size) + "/" +
                 train_args["network_module"] +
                 ".512dim_sub6_%dgbgpu_" % gpu_mem +
                 "%deps_" % (num_epochs//10) +
-                "from_scratch_radamv1_switching_lah_co%s_specaug%d" % (alias, model_config.specauc_start_epoch) + "/" +
+                "from_scratch_radamv1_%s_lah_co_specaug%d" % (train_strat, model_config.specauc_start_epoch) + "/" +
                 str(param_combi["chunk_size"]) + "/" +
                 "carry%.1f" % model_config.carry_over_size + "/" +
                 "lah%i" % model_config.lookahead_size
@@ -290,15 +277,7 @@ def run_experiments(**kwargs):
             #
             # checkpoint decodings
             #
-            # if exp_config["network_module"] == "model_switching_lah_carryover":
-            #     decoder_module = "rnnt.decoder.carryover_decoder_v1"
-            # else:
-            #     decoder_module = "rnnt.decoder.carryover_decoder_v2"
-
-            decoder_module = "rnnt.decoder.carryover_decoder_v2"
-
-            for keep in [KEEP[0], num_epochs]:  # + KEEP
-                if alias not in exp_config and keep == KEEP[0]: continue
+            for keep in KEEP + [num_epochs]:  # + KEEP
                 # online
                 asr_model = prepare_asr_model(
                     training_name, train_job, train_args, with_prior=False,
@@ -310,7 +289,7 @@ def run_experiments(**kwargs):
                     decoder_config,
                     use_gpu=True,
                     beam_size=12,
-                    decoder_module=decoder_module
+                    decoder_module="rnnt.decoder.carryover_decoder_v2"
                 )
                 evaluate_helper(
                     training_name + "/offline" + "/keep_%i" % keep,
@@ -325,9 +304,9 @@ def run_experiments(**kwargs):
                 beam_size=12,  # greedy as default
                 returnn_vocab=label_datastream_bpe.vocab,
                 chunk_size=int(model_config.chunk_size),
-                lookahead_size=int(model_config.lookahead_size*0.06*16e3),
+                lookahead_size=int(model_config.lookahead_size * 0.06 * 16e3),
                 carry_over_size=model_config.carry_over_size,
-                test_version=0.1,
+                test_version=0.1,  # default 0.5
             )
 
             decoder_module = "rnnt.decoder.carryover_decoder_v3"
@@ -344,180 +323,25 @@ def run_experiments(**kwargs):
                 beam_size=12,
                 decoder_module=decoder_module
             )
-            if "alias" in exp_config:
-                evaluate_helper(
-                    training_name + "/offline" + "/keepv0_%i" % num_epochs,
-                    asr_model,
-                    offline_decoder_config,
-                    use_gpu=False,
-                    beam_size=12,
-                    decoder_module="rnnt.decoder.experimental_rnnt_decoder"
-                )
-
-            if experiment in ["large_chunk_exps", "small_chunk_exps"] and model_config.lookahead_size == 8:
-                for beam_size in [64, 128]:
-                    evaluate_helper(
-                        training_name + "/keep_%i" % num_epochs,
-                        asr_model,
-                        decoder_config,
-                        use_gpu=True,
-                        beam_size=beam_size,
-                        decoder_module="rnnt.decoder.carryover_decoder_v2"
-                    )
 
 
-def switching_lah_carryover_ls960_1023_low_bpe_from_scratch():
+def rnnt_bpe_ls960_0924_ropeencoder():
     experiment_configs = {
-        20: {
-            "model_params": {
-                "chunk_size": [2.4],
-                "lookahead_size": [8],
-                "kernel_size": [31],
-                "specauc_start_epoch": [11],
-                "carry_over_size": [0, 1, 2, 4, 1000]
-            },
-
-            "network_module": "model_switching_lah_carryover",
-            "accum_grads": 1,
-            "gpu_mem": 24,
-            "num_epochs": 1000,
-            "keep": [300, 400, 500, 600, 700, 800, 900, 950, 980]
-        },
-
-        21: {
-            "model_params": {
-                "chunk_size": [2.4],
-                "lookahead_size": [8],
-                "kernel_size": [31],
-                "specauc_start_epoch": [11],
-                "carry_over_size": [2]
-            },
-
-            "alias": "rerun",
-            "network_module": "model_switching_lah_carryover",
-            "accum_grads": 1,
-            "gpu_mem": 24,
-            "num_epochs": 1000,
-            "keep": [300, 980]
-        },
-
-        22: {
-            "model_params": {
-                "chunk_size": [2.4],
-                "lookahead_size": [8],
-                "kernel_size": [31],
-                "specauc_start_epoch": [11],
-                "carry_over_size": [2]
-            },
-
-            "alias": "rerun",
-            "network_module": "model_streaming_lah_carryover",
-            "accum_grads": 1,
-            "gpu_mem": 24,
-            "num_epochs": 1000,
-            "keep": [300, 980]
-        },
-
-        # 25: {
-        #     "model_params": {
-        #         "chunk_size": [1.2],
-        #         "lookahead_size": [5],
-        #         "kernel_size": [31],
-        #         "specauc_start_epoch": [11],
-        #         "carry_over_size": [2, 3] #, 1
-        #     },
-
-        #     "network_module": "model_switching_lah_carryover",
-        #     "accum_grads": 1,
-        #     "gpu_mem": 24,
-        #     "num_epochs": 1000,
-        #     "keep": [300, 400, 500, 600, 700, 800, 900, 950, 980]
-        # },
-
-        # 40: {
-        #     "model_params": {
-        #         "chunk_size": [2.4],
-        #         "lookahead_size": [8],
-        #         "kernel_size": [31],
-        #         "specauc_start_epoch": [11],
-        #         "carry_over_size": [0]
-        #     },
-
-        #     "network_module": "model_switching_lah_carryover",
-        #     "accum_grads": 1,
-        #     "gpu_mem": 24,
-        #     "num_epochs": 1000,
-        #     "keep": [300, 400, 500, 600, 700, 800, 900, 950, 980]
-        # },
-
-
-        #
-        #
-        #
-
-        # carryover x chunk size x future acoustic context experiments
-        "small_chunk_exps": {
-            "model_params": {
-                "chunk_size": [0.6],
-                "lookahead_size": [0, 8, 16],
-                "kernel_size": [31],
-                "specauc_start_epoch": [11],
-                "carry_over_size": [0, 2, 4, 8]
-            },
-
-            "network_module": "model_streaming_lah_carryover_v2",
-            "accum_grads": 1,
-            "gpu_mem": 24,
-            "num_epochs": 1000,
-            "keep": [100, 300, 500, 900, 980]
-        },
-
-        "large_chunk_exps": {
-            "model_params": {
-                "chunk_size": [2.4],
-                "lookahead_size": [0, 8, 16],
-                "kernel_size": [31],
-                "specauc_start_epoch": [11],
-                "carry_over_size": [0, 0.5, 1, 2, 1000]  # 1000 to check if past context is relevant
-            },
-
-            "network_module": "model_streaming_lah_carryover_v2",
-            "accum_grads": 1,
-            "gpu_mem": 24,
-            "num_epochs": 1000,
-            "keep": [300, 400, 500, 600, 700, 800, 900, 950, 980]
-        },
-
         50: {
             "model_params": {
-                "chunk_size": [0.6],
-                "lookahead_size": [8],
-                "kernel_size": [31],
-                "specauc_start_epoch": [11],
-                "carry_over_size": [4]
-            },
-
-            "network_module": "model_streaming_lah_carryover_v2",
-            "accum_grads": 1,
-            "gpu_mem": 48,
-            "num_epochs": 1500,
-            "keep": [100, 800, 1200]
-        },
-
-        60: {
-            "model_params": {
                 "chunk_size": [2.4],
                 "lookahead_size": [8],
                 "kernel_size": [31],
                 "specauc_start_epoch": [11],
-                "carry_over_size": [2]
+                "carry_over_size": [2],
+                "training_strategy": [str(strat) for strat in [TrainingStrategy.OFFLINE, TrainingStrategy.STREAMING]]
             },
 
-            "network_module": "model_streaming_lah_carryover_v2",
+            "network_module": "model_rope_streaming_v1",
             "accum_grads": 1,
             "gpu_mem": 48,
-            "num_epochs": 1500,
-            "keep": [100, 800, 1200]
+            "num_epochs": 1000,
+            "keep": [300, 500, 800, 980]
         },
 
     }
