@@ -35,8 +35,10 @@ class ScoreResultCollection:
     Intended to cover all relevant results over all eval datasets (for one specific checkpoint).
     """
 
-    main_measure_value: tk.Path  # single float value, as text. e.g. the final best WER% on test-other
-    output: tk.Path  # JSON dict with all score outputs
+    main_measure_value: tk.Path
+    "single float value, as text. e.g. the best WER% on dev-other, defined by task.collect_score_results_func"
+    output: tk.Path
+    "JSON dict with all score outputs for each eval dataset"
 
 
 @dataclasses.dataclass(frozen=True)
