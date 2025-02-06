@@ -8,6 +8,7 @@ import shutil
 import sys
 import tempfile
 import subprocess as sp
+import numpy as np
 import re
 
 from typing import TYPE_CHECKING, Optional, Callable, Union, Tuple, Sequence
@@ -21,10 +22,11 @@ import i6_core.util as util
 
 from sisyphus import Job, Task, tk, gs
 
-from i6_experiments.users.zhang.datasets.librispeech import get_librispeech_lm_combined_txt, _get_test_corpus_text
+from i6_experiments.users.zhang.datasets.librispeech import get_librispeech_lm_combined_txt, _get_test_corpus_text, _extract_audio_seq_len_file, _extract_text_seq_len_file
 from i6_experiments.users.zeyer.datasets.utils.bpe import Bpe
 from i6_experiments.common.helpers.text_labels.subword_nmt_bpe import get_returnn_subword_nmt
 from i6_experiments.common.baselines.tedlium2.default_tools import SRILM_PATH
+from returnn_common.datasets_old_2022_10.interface import DatasetConfig
 
 rqmt_map = {5: [("mem", 20),("time", 2)], 6: [("mem", 20),("time", 2)],  # Compare to bpe 128 Need much more for bpe10k and more for whole word
                                              7: [("mem", 25),("time", 2)],
@@ -112,6 +114,60 @@ def get_count_based_n_gram(vocab: Optional[str], N_order: int, prune_thresh: Opt
         
     #return conversion_job.out_lm_tensor
     return arpa_binary_lm, ppl_job.out_ppl_log
+
+
+def get_prior_from_unigram(vocab: Bpe, prior_dataset: Optional[DatasetConfig], vocab_name: str) -> tk.Path:
+    kenlm_repo = CloneGitRepositoryJob("https://github.com/kpu/kenlm").out_repository.copy()
+    KENLM_BINARY_PATH = CompileKenLMJob(repository=kenlm_repo).out_binaries.copy()
+    KENLM_BINARY_PATH.hash_overwrite = "LIBRISPEECH_DEFAULT_KENLM_BINARY_PATH"
+
+    subword_nmt = get_returnn_subword_nmt()
+
+    lm_data = get_librispeech_lm_combined_txt()
+
+    bpe_text = ApplyBPEToTextJob(
+        text_file=lm_data,
+        bpe_codes=vocab.codes,
+        bpe_vocab=tk.Path(vocab.vocab.get_path()[:-5] + "dummy_count.vocab"),
+        subword_nmt_repo=subword_nmt,
+        gzip_output=True,
+        mini_task=False,
+    ).out_bpe_text
+
+    lm_arpa = KenLMplzJob(
+        text=[bpe_text],
+        order=1,
+        interpolate_unigrams=False,
+        use_discount_fallback=True,
+        kenlm_binary_folder=KENLM_BINARY_PATH,
+        pruning=None,
+        vocabulary=None
+    ).out_lm
+
+    ppl_job = ComputeNgramLmPerplexityJob(
+        ngram_order=1,
+        lm=lm_arpa,
+        eval_data=bpe_text,
+        ngram_exe=SRILM_PATH.join_right("ngram"),
+        mem_rqmt=4,
+        time_rqmt=1,
+    )
+
+    tk.register_output(f"datasets/LibriSpeech/lm/count_based_1-gram", ppl_job.out_ppl_score)
+
+    bpe_len_wo_blank = _extract_text_seq_len_file(prior_dataset, vocab_name, name="target", use_main_ds=True)
+    audio_len = _extract_audio_seq_len_file(prior_dataset, use_main_ds=True)
+    prior_job = ExtractPrior(
+        lm=lm_arpa,
+        bpe_vocab=vocab.vocab,
+        bpe_len_wo_blank=bpe_len_wo_blank,
+        audio_len=audio_len,
+    )
+
+    prior_job.add_alias(f"datasets/LibriSpeech/lm/prior_from_unigram")
+    tk.register_output(f"datasets/LibriSpeech/lm/prior_from_unigram", prior_job.out_prior_tensor)
+
+    return prior_job.out_prior_tensor
 
 class PruneLMJob(Job):
     """
@@ -282,8 +338,78 @@ class ConvertARPAtoTensor(Job):
                 ret_tensor[tuple([0] * (self.N_order - N + 1))] = tensor[0]
         with uopen(self.out_lm_tensor, "wb") as f:
             torch.save(ret_tensor, f)
-            
-            
+
+
+class ExtractPrior(Job):
+    def __init__(
+            self,
+            lm: tk.Path,
+            bpe_vocab: tk.Path,
+            bpe_len_wo_blank: tk.Path,
+            audio_len: tk.Path,
+    ):
+        self.lm = lm
+        self.bpe_vocab = bpe_vocab
+        self.out_prior_tensor = self.output_path("prior.txt")
+        self.audio_len = audio_len
+        self.bpe_len_wo_blank = bpe_len_wo_blank
+
+        # self.rqmt = {"cpu": 1, "mem": 2, "time": 2}
+
+    def tasks(self):
+        yield Task("run", mini_task=True)
+
+    def run(self):
+        lm_loader = Lm(self.lm)
+
+        vocab = eval(uopen(self.bpe_vocab, "rt").read(), {"nan": float("nan"), "inf": float("inf")})
+        assert isinstance(vocab, dict), "Has to be a dict containing the vocab!"
+        vocab_n = len(vocab) - 1  # we combine eos and bos
+
+        bpe_len_wo_blank = np.loadtxt(self.bpe_len_wo_blank.get_path(), dtype="int32")
+        audio_len = np.loadtxt(self.audio_len.get_path(), dtype="int32")
+
+        assert len(bpe_len_wo_blank) == len(audio_len), "The lengths of the files do not match!"
+
+        bpe_len_w_blank = np.ceil((audio_len + 1) / 960)
+
+        bpe_len_w_blank = bpe_len_w_blank.sum()
+        bpe_len_wo_blank = bpe_len_wo_blank.sum()
+
+        uni_gram = list(lm_loader.get_ngrams(1))
+
+        # Read out the words and probabilities and turn into indexes of vocab
+        uni_gram = [list(map(lambda x: vocab[x], words.split(" "))) + [probs[0]] for words, probs in uni_gram]
+        uni_gram = list(map(list, zip(*uni_gram)))
+
+        assert len(uni_gram) - 1 == 1, f"The conversion into a list failed ({len(uni_gram) - 1} != {1})!"
+
+        tensor = torch.full((vocab_n,), float("-inf"), dtype=torch.float32)
+        # Set the probabilites by using N indexes
+        tensor[uni_gram[:-1]] = torch.tensor(uni_gram[-1], dtype=torch.float32)
+        # The probs are in logs base 10
+        tensor = torch.pow(10, tensor)
+
+        atol = 0.005
+        assert tensor[1].allclose(torch.tensor(0.0), atol=0.0001), f"Prob of <unk> should be 0! (1) {tensor[1]}"
+        assert tensor.sum().allclose(torch.tensor(1.0),
+                                     atol=atol), f"The word probabilities do not sum to 1! {tensor.sum()}"
+
+        tensor = tensor * bpe_len_wo_blank
+
+        tensor = torch.cat([tensor, torch.tensor([bpe_len_w_blank - bpe_len_wo_blank], dtype=torch.float32)])
+        tensor = tensor / bpe_len_w_blank
+
+        assert tensor.sum().allclose(torch.tensor(1.0),
+                                     atol=atol), f"The word probabilities do not sum to 1! {tensor.sum()}"
+
+        tensor = tensor.log()
+        tensor = tensor.numpy()
+
+        with uopen(self.out_prior_tensor, "w") as f:
+            np.savetxt(f, tensor, delimiter=" ")
+
+
 class ApplyBPEToTextJob(Job):
     """
     Apply BPE codes on a text file

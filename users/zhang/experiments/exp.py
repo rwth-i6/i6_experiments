@@ -23,13 +23,16 @@ def ctc_exp(lmname, lm, vocab):
     #               f"-maxSeqLenAudio19_5-wd1e_2-lrlin1e_5_295k-featBN-speedpertV2"
     #               f"-[vocab]" + f"-[sample]"
     exclude_epochs = set(range(0, 500)) - set([477]) #Reduce #ForwardJobs, 477 is the best epoch for most cases.
-
+    tune_hyperparameters = False
+    with_prior = True
+    prior_from_max = False # ! arg in recog.compute_prior, actually Unused
+    empirical_prior = True
     #-------------------setting decoding config-------------------
     decoding_config = {
         "log_add": False,
         "nbest": 1,
         "beam_size": 80,
-        "lm_weight": 1.9,  # NOTE: weights are exponentials of the probs. 1.9 seems make the results worse by using selftrained lm
+        "lm_weight": 1.45,  # NOTE: weights are exponentials of the probs. 1.9 seems make the results worse by using selftrained lm
         "use_logsoftmax": True,
         "use_lm": True,
         "use_lexicon": False, # Do open vocab search when using bpe lms.
@@ -46,13 +49,17 @@ def ctc_exp(lmname, lm, vocab):
         decoding_config["use_lexicon"] = True
     else:
         decoding_config["use_lexicon"] = False
+    if with_prior:
+        decoding_config["prior_weight"] = 0.15  # 0.2 as initial ref for tuning or if not using emprirical prior
+    p0 = f"_p{str(decoding_config['prior_weight']).replace('.', '')}" + (
+            "-emp" if empirical_prior else ("-from_max" if prior_from_max else "")) if with_prior else ""
     p1 = "sum" if decoding_config['log_add'] else "max"
     p2 = f"n{decoding_config['nbest']}"
     p3 = f"b{decoding_config['beam_size']}"
     p4 = f"w{str(decoding_config['lm_weight']).replace('.', '')}"
     p5 = "_logsoftmax" if decoding_config['use_logsoftmax'] else ""
     p6 = "_lexicon" if decoding_config['use_lexicon'] else ""
-    lm_hyperparamters_str = f"{p1}_{p2}_{p3}_{p4}{p5}{p6}"
+    lm_hyperparamters_str = f"{p0}_{p1}_{p2}_{p3}_{p4}{p5}{p6}"
     lm_hyperparamters_str = vocab + lm_hyperparamters_str  # Assume only experiment on one ASR model, so the difference of model itself is not reflected here
 
     alias_name = f"ctc-baseline" + "decodingWith_" + lm_hyperparamters_str + lmname if lm else f"ctc-baseline-" + vocab + lmname
@@ -78,6 +85,10 @@ def ctc_exp(lmname, lm, vocab):
         train_vocab_opts=None,
         decoding_config=decoding_config,
         exclude_epochs=exclude_epochs,
+        with_prior=with_prior,
+        empirical_prior=empirical_prior,
+        prior_from_max=prior_from_max,
+        tune_hyperparameters=tune_hyperparameters,
         search_mem_rqmt=30 if vocab == "bpe10k" else 6
     )
     return wer_result_path, lm_hyperparamters_str
@@ -110,16 +121,17 @@ def py():
         # ----------------------Add word count based n-gram LMs--------------------
         exp_names_postfix = ""
         prune_num = 0
-        prune_threshs = list(set([x * 1e-9 for x in range(1, 100, 6)] +
-                                 [x * 1e-7 for x in range(1, 200, 25)] +
-                                 [x * 1e-7 for x in range(1, 200, 16)] +
-                                 [x * 1e-7 for x in range(1, 10, 2)]
-                                 ))
-        prune_threshs.sort()
+
         for n_order in [  # 2, 3,
             4, 5
             # 6 Slow recog
         ]:
+            prune_threshs = list(set([x * 1e-9 for x in range(1, 100, 6)] +
+                                     [x * 1e-7 for x in range(1, 200, 25)] +
+                                     [x * 1e-7 for x in range(1, 200, 16)] +
+                                     [x * 1e-7 for x in range(1, 10, 2)]
+                                     ))
+            prune_threshs.sort()
             exp_names_postfix += str(n_order) + "_"
             if n_order == 5:
                 prune_threshs = [x for x in prune_threshs if x and x < 9*1e-6]
@@ -135,7 +147,7 @@ def py():
                 tk.register_output(f"datasets/LibriSpeech/lm/ppl/" + lm_name, ppl_log)
         exp_names_postfix += f"pruned_{str(prune_num)}"
         # Try to use the out of downstream job which has existing logged output. Instead of just Forward job, which seems cleaned up each time
-        lms.update({"NoLM": None})
+        # lms.update({"NoLM": None})
         # for prunning in [(None, 5), (None, 6), (None, 7), (None, 8)]: # (thresholds, quantization level)
         #     official_4gram, ppl_official4gram = get_4gram_binary_lm(**dict(zip(["prunning","quant_level"],prunning)))
         #     lms.update({"4gram_word_official"+f"q{prunning[1]}": official_4gram})

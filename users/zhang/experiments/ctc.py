@@ -31,7 +31,7 @@ from .configs import _get_cfg_lrlin_oclr_by_bs_nep, _batch_size_factor
 if TYPE_CHECKING:
     from i6_experiments.common.setups import serialization
     from i6_experiments.users.zeyer.model_with_checkpoints import ModelWithCheckpoints
-    from i6_experiments.users.zeyer.datasets.task import Task
+    from i6_experiments.users.zhang.datasets.task import Task
     from i6_experiments.users.zeyer.datasets.score_results import RecogOutput
 
 OUT_BLANK_LABEL = "<blank>"
@@ -261,14 +261,19 @@ def train_exp(
     enabled: bool = True,
     decoding_config: dict = None,
     exclude_epochs: Collection[int] = (),
+    with_prior: bool = False,
+    empirical_prior: bool = False,
+    prior_from_max: bool = False,
+    tune_hyperparameters: bool = False,
     search_mem_rqmt: Union[int, float] = 6,
 ) -> Tuple[Optional[ModelWithCheckpoints], Optional[tk.path]]:
     """
     Train experiment
     """
     from i6_experiments.users.zeyer.train_v3 import train
-    from i6_experiments.users.zhang.recog import recog_training_exp # TODO： determine if this module need modification
-    from i6_experiments.users.zeyer.datasets.librispeech import get_librispeech_task_raw_v2
+    from i6_experiments.users.zhang.recog import recog_training_exp, GetBestTuneValue
+    from i6_experiments.users.zhang.datasets.librispeech import get_librispeech_task_raw_v2
+    from i6_experiments.users.zhang.experiments.lm.n_gram import get_prior_from_unigram
 
     if not enabled:
         return None
@@ -278,7 +283,13 @@ def train_exp(
 
     prefix = _sis_prefix + "/" + name
     # TODO： find out how to apply recognition on other dataset
-    task = get_librispeech_task_raw_v2(vocab=vocab, train_vocab_opts=train_vocab_opts, **(dataset_train_opts or {}))
+    task = get_librispeech_task_raw_v2(vocab=vocab,
+                                       train_vocab_opts=train_vocab_opts,
+                                       with_prior=with_prior,
+                                       empirical_prior=empirical_prior,
+                                       **(dataset_train_opts or {}))
+    if with_prior and empirical_prior:
+        emp_prior = get_prior_from_unigram(task.prior_dataset.vocab, task.prior_dataset, vocab)
     config = config.copy()
     config = dict_update_deep(config, config_updates, config_deletes)
     # This logic is also in train(), but keep it here because it would break the hash because of _RecogAndScoreFunc...
@@ -293,6 +304,7 @@ def train_exp(
         model_def = ModelDefWithCfg(model_def, model_config)
     if not train_def:
         train_def = ctc_training
+
     model_with_checkpoint = train(
         prefix,
         task=task,
@@ -311,12 +323,66 @@ def train_exp(
     recog_post_proc_funcs = []
     if config.get("use_eos_postfix", False):
         recog_post_proc_funcs.append(_remove_eos_label_v2)
+
+    if tune_hyperparameters:
+        original_params = decoding_config
+        params = copy.copy(original_params)
+        params.pop("lm_weight_tune", None)
+        params.pop("prior_weight_tune", None)
+        default_lm = original_params.get("lm_weight")
+        default_prior = original_params.get("prior_weight")
+        lm_scores = []
+        prior_scores = []
+        lm_tune_ls = [0.0, 0.05, 0.1, -0.05, -0.1]
+        prior_tune_ls = [0.0, 0.05, 0.1, -0.05, -0.1]
+        for dc_lm in lm_tune_ls:
+            params["lm_weight"] = default_lm + dc_lm
+            score = recog_training_exp(
+                prefix + f"/tune/lm/{str(dc_lm).replace('.', '').replace('-', 'm')}",
+                task,
+                model_with_checkpoint,
+                recog_def=decoder_def,
+                decoding_config=params,
+                recog_post_proc_funcs=recog_post_proc_funcs,
+                exclude_epochs=exclude_epochs,
+                search_mem_rqmt=search_mem_rqmt,
+                prior_from_max=prior_from_max,
+                empirical_prior=emp_prior if with_prior and empirical_prior else None,
+            )
+            lm_scores.append(score)
+        best_lm_tune = GetBestTuneValue(lm_scores, lm_tune_ls).out_best_tune
+        tk.register_output(prefix + "/tune/lm_best", best_lm_tune)
+        params["lm_weight"] = default_lm
+        params["lm_weight_tune"] = best_lm_tune
+        for dc_prior in prior_tune_ls:
+            params["prior_weight"] = default_prior + dc_prior
+            score = recog_training_exp(
+                prefix + f"/tune/prior/{str(dc_prior).replace('.', '').replace('-', 'm')}",
+                task,
+                model_with_checkpoint,
+                recog_def=decoder_def,
+                decoding_config=params,
+                recog_post_proc_funcs=recog_post_proc_funcs,
+                exclude_epochs=exclude_epochs,
+                search_mem_rqmt=search_mem_rqmt,
+                prior_from_max=prior_from_max,
+                empirical_prior=emp_prior if with_prior and empirical_prior else None,
+            )
+            prior_scores.append(score)
+        best_prior_tune = GetBestTuneValue(prior_scores, prior_tune_ls).out_best_tune
+        tk.register_output(prefix + "/tune/prior_best", best_prior_tune)
+
+        original_params["lm_weight_tune"] = best_lm_tune # This will be implicitly used by following exps
+        original_params["prior_weight_tune"] = best_prior_tune
+
     recog_result = recog_training_exp(
         prefix, task, model_with_checkpoint, recog_def=decoder_def,
         decoding_config=decoding_config,
         recog_post_proc_funcs=recog_post_proc_funcs,
         exclude_epochs=exclude_epochs,
-        search_mem_rqmt=search_mem_rqmt
+        search_mem_rqmt=search_mem_rqmt,
+        prior_from_max=prior_from_max,
+        empirical_prior=emp_prior if with_prior and empirical_prior else None,
     )
 
     _train_experiments[name] = model_with_checkpoint
@@ -636,7 +702,8 @@ def model_recog_lm(
         data_spatial_dim: Dim,
         lm: str,
         lexicon: str,
-        hyperparameters: dict
+        hyperparameters: dict,
+        prior_file: tk.Path = None
 ) -> Tuple[Tensor, Tensor, Dim, Dim]:
     """
     Function is run within RETURNN.
@@ -656,12 +723,37 @@ def model_recog_lm(
     logits, enc, enc_spatial_dim = model(data, in_spatial_dim=data_spatial_dim)
 
     hyp_params = copy.copy(hyperparameters)
+    prior_weight = hyp_params.pop("prior_weight", 0.0)
+    prior_weight_tune = hyp_params.pop("prior_weight_tune", None)
+    lm_weight_tune = hyp_params.pop("lm_weight_tune", None)
     use_logsoftmax = hyp_params.pop("use_logsoftmax", False)
+
+    if prior_weight_tune:
+        prior_weight_tune = json.load(open(prior_weight_tune))
+        prior_weight_tune = prior_weight_tune["best_tune"]
+        assert type(prior_weight_tune) == float, "Prior weight tune is not a float!"
+        print(f"Prior weight with tune: {prior_weight} + {prior_weight_tune} = {prior_weight + prior_weight_tune}")
+        prior_weight += prior_weight_tune
+    if lm_weight_tune:
+        lm_weight_tune = json.load(open(lm_weight_tune))
+        lm_weight_tune = lm_weight_tune["best_tune"]
+        assert type(lm_weight_tune) == float, "LM weight tune is not a float!"
+        old_lm_weight = hyp_params.get("lm_weight", 0.0)
+        print(f"LM weight with tune: {old_lm_weight} + {lm_weight_tune} = {old_lm_weight + lm_weight_tune}")
+        hyp_params["lm_weight"] = old_lm_weight + lm_weight_tune
 
     if use_logsoftmax:
         label_log_prob = model.log_probs_wb_from_logits(logits)
         label_log_prob = label_log_prob.raw_tensor.cpu()
 
+        # Subtract prior of labels if available
+        if prior_file and prior_weight > 0.0:
+            prior = np.loadtxt(prior_file, dtype="float32")
+            label_log_prob -= prior_weight * prior
+            print("We subtracted the prior!")
+    elif prior_file and prior_weight > 0.0:
+        print("Cannot subtract prior without running log softmax")
+        return None
     # if greedy:
     #     probs, greedy_res = torch.max(label_log_prob, dim=-1)
     #     greedy_res = greedy_res.unsqueeze(1)

@@ -592,12 +592,12 @@ def get_librispeech_task_raw_v2(
     audio_opts: Optional[Dict[str, Any]] = None,
     audio_dim: int = 1,
     save_pseudo_labels: Optional[TrainDatasetSel] = None,
-    ds_sel: TrainDatasetSel,
-    init_small: bool,
+    ds_sel: TrainDatasetSel = TrainDatasetSel.train_960h,
+    init_small: bool = False,
     with_prior: bool,
     empirical_prior: bool,
     **dataset_train_opts,
-) -> tuple[Task, dict, Optional[LibrispeechOggZip]]:
+) -> Task:
     """
     Librispeech.
 
@@ -656,14 +656,6 @@ def get_librispeech_task_raw_v2(
     }
     dev_dataset = eval_datasets["dev-other"]
 
-    pseudo_labels_ds = {}
-    train_100_ds = None
-    if save_pseudo_labels is not None:
-        ds_ls = ["train-clean-360", "train-other-500"] if save_pseudo_labels == TrainDatasetSel.train_860h else ["train-clean-100", "train-clean-360", "train-other-500"]
-        for ds_name in ds_ls:
-            pseudo_labels_ds[ds_name] = LibrispeechOggZip(**dataset_common_opts, main_key=ds_name)
-        train_100_ds = LibrispeechOggZip(**dataset_common_opts, main_key="train-clean-100")
-
     if with_prior:
         if empirical_prior:
             prior_dataset = LibrispeechOggZip(**dataset_common_opts, main_key="train")
@@ -684,9 +676,8 @@ def get_librispeech_task_raw_v2(
         prior_dataset=prior_dataset,
         recog_post_proc_funcs=vocab_to_words,
     )
-    _librispeech_task_raw_v2_cache[cache_key] = (task, pseudo_labels_ds, train_100_ds)
-
-    return task, pseudo_labels_ds, train_100_ds
+    _librispeech_task_raw_v2_cache[cache_key] = task
+    return task
 
 
 def _extract_audio_seq_len_file(train_dataset: DatasetConfig, *, use_main_ds: bool = False):
