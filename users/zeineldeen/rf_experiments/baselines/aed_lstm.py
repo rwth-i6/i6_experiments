@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+import copy
+
 import numpy
 import os.path
 from typing import TYPE_CHECKING, Optional, Union, Tuple, Sequence, List, Collection
@@ -167,8 +169,8 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
 
     from . import trafo_lm_kazuki_import
 
-    for beam_size in [16, 20, 24, 32]:
-        for lm_scale in [0.36, 0.38, 0.4]:
+    for beam_size in [17, 18, 19]:
+        for lm_scale in [0.39, 0.4, 0.41]:
             lm_recog_config = {
                 "beam_search_opts": {"beam_size": beam_size, "lm_scale": lm_scale},
                 "external_language_model": {"class": "TransformerDecoder", **trafo_lm_kazuki_import.TrafoLmOpts},
@@ -181,38 +183,34 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
                 "batch_size": 4000 * 160,
                 "version": 2,
             }
-            _recog_imported(
-                name=f"trafo_lm_{lm_scale}_beam{beam_size}", recog_config=lm_recog_config, dev_sets=["dev-other"]
-            )
+            _recog_imported(name=f"trafo_lm_{lm_scale}_beam{beam_size}", recog_config=lm_recog_config)
 
-    for lm_scale in [0.54]:
-        for ilm_scale in [0.4]:
-            ilm_recog_config = {
-                "beam_search_opts": {
-                    "beam_size": 70,
-                    "lm_scale": lm_scale,
-                    "ilm_scale": ilm_scale,
-                },
-                "external_language_model": {"class": "TransformerDecoder", **trafo_lm_kazuki_import.TrafoLmOpts},
-                "internal_language_model": {"class": "MiniLstmIlm"},
-                "preload_from_files": {
-                    "trafo_lm": {
-                        "prefix": "language_model.",
-                        "filename": trafo_lm_kazuki_import.get_pt_checkpoint_path(),
+    for beam_size in [32]:
+        for lm_scale in [0.54]:
+            for ilm_scale in [0.4]:
+                ilm_recog_config = {
+                    "beam_search_opts": {
+                        "beam_size": beam_size,
+                        "lm_scale": lm_scale,
+                        "ilm_scale": ilm_scale,
                     },
-                    "ilm": {
-                        "prefix": "internal_language_model.",
-                        "filename": ilm_v3_model_with_checkpoints.get_epoch(31).checkpoint,
+                    "external_language_model": {"class": "TransformerDecoder", **trafo_lm_kazuki_import.TrafoLmOpts},
+                    "internal_language_model": {"class": "MiniLstmIlm"},
+                    "preload_from_files": {
+                        "trafo_lm": {
+                            "prefix": "language_model.",
+                            "filename": trafo_lm_kazuki_import.get_pt_checkpoint_path(),
+                        },
+                        "ilm": {
+                            "prefix": "internal_language_model.",
+                            "filename": ilm_v3_model_with_checkpoints.get_epoch(31).checkpoint,
+                        },
                     },
-                },
-                "batch_size": 1000 * 160,
-                # "max_seqs": 1,
-            }
-            _recog_imported(
-                name=f"trafo_lm_{lm_scale}_ilm_{ilm_scale}_beam70_v3",
-                recog_config=ilm_recog_config,
-                dev_sets=["dev-other"],
-            )
+                    "batch_size": 2500 * 160,
+                }
+                _recog_imported(
+                    name=f"trafo_lm_{lm_scale}_ilm_{ilm_scale}_beam{beam_size}_v3", recog_config=ilm_recog_config
+                )
 
 
 _sis_prefix: Optional[str] = None
