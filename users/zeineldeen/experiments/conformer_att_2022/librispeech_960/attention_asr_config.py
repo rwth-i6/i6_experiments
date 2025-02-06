@@ -694,9 +694,9 @@ def create_config(
     if feature_extraction_net:
         if global_stats:
             add_global_stats_norm(global_stats, exp_config["network"])
-        else:
-            # use per-seq norm
-            add_per_seq_norm(exp_config["network"])
+        # else:
+        #     # use per-seq norm
+        #     add_per_seq_norm(exp_config["network"])
 
     if mixup_aug_opts:
         add_mixup_layers(
@@ -727,8 +727,8 @@ def create_config(
                     net.update(feature_extraction_net)
                     if global_stats:
                         add_global_stats_norm(global_stats, net)
-                    else:
-                        add_per_seq_norm(net)
+                    # else:
+                    #     add_per_seq_norm(net)
 
                 if (mixup_aug_opts and enable_mixup_in_pretrain) or (
                     global_stats and not global_stats.get("use_legacy_version", False)
