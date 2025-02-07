@@ -206,6 +206,9 @@ def create_model(*, load_params: bool = True, device: Optional[torch.device] = N
         model_state = checkpoint_state.get("model", checkpoint_state)
         missing_keys_main_ckpt, unexpected_keys_main_ckpt = pt_model.load_state_dict(model_state, strict=False)
         if unexpected_keys_main_ckpt:
+            # Note: The model might have been trained with some auxiliary losses (`enc_aux_logits_*.*`)
+            # or even an auxiliary decoder (`decoder.*`),
+            # and we created the model now without those, so we can get these unexpected keys.
             print(
                 f"Note: While loading {filename}, unexpected key(s) in state_dict: "
                 + ", ".join(map(repr, sorted(unexpected_keys_main_ckpt))),
