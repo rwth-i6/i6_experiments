@@ -315,7 +315,15 @@ class Model(rf.Module):
         Use :func:`log_probs_wb_from_logits` to get log probs
         (might be just log_softmax, but there are some other cases).
 
-        :return: logits, enc, enc_spatial_dim
+        :param source: shape {..., in_spatial_dim}, for example {batch_dim, in_spatial_dim}, audio samples, 16khz
+        :param in_spatial_dim: input spatial dim
+        :param collected_outputs: if provided, will write intermediate encoder outputs into it
+        :return: logits, enc, enc_spatial_dim.
+            logits shape: {..., enc_spatial_dim, self.wb_target_dim}.
+            enc shape: {..., enc_spatial_dim, self.encoder.out_dim}.
+            enc_spatial_dim: output spatial dim.
+            Use :func:`log_probs_wb_from_logits` on the logits to get log probs
+            (which is just :func:`rf.log_softmax` in the standard case).
         """
         # log mel filterbank features
         source, in_spatial_dim = rf.audio.log_mel_filterbank_from_raw(
