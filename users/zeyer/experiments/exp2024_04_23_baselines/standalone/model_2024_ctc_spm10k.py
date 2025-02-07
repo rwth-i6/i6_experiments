@@ -259,12 +259,6 @@ class Model(rf.Module):
             "num_spatial_mask_factor": config.typed_value("specaugment_num_spatial_mask_factor") or 100,
         }
 
-        self._mixup = None
-        if config.typed_value("mixup", None) is not None:
-            from i6_experiments.users.zeyer.returnn.models.rf_mixup import Mixup, MixupOpts
-
-            self._mixup = Mixup(feature_dim=self.in_dim, opts=MixupOpts(**config.typed_value("mixup")))
-
         self.decoder = None
         aux_attention_decoder = config.typed_value("aux_attention_decoder", None)
         if aux_attention_decoder:
@@ -336,8 +330,6 @@ class Model(rf.Module):
             source = rf.normalize(source, axis=in_spatial_dim)
         if self.feature_stats:
             source = (source - self.feature_stats.mean) / self.feature_stats.std_dev
-        if self._mixup:
-            source = self._mixup(source, spatial_dim=in_spatial_dim)
         # SpecAugment
         source = rf.audio.specaugment(
             source,
