@@ -452,10 +452,9 @@ class Model(rf.Module):
             log_probs -= log_prob_prior * self.ctc_prior_scale
         return log_probs
 
-    def _maybe_apply_on_log_probs(self, log_probs: Tensor, *, aux_layer: Optional[int] = None) -> Tensor:
+    def _maybe_apply_on_log_probs(self, log_probs: Tensor) -> Tensor:
         """
         :param log_probs: either with blank or without blank
-        :param aux_layer:
         :return: log probs, maybe some smoothing applied (all on gradients so far, not on log probs itself)
         """
         assert log_probs.feature_dim in (self.wb_target_dim, self.target_dim)
