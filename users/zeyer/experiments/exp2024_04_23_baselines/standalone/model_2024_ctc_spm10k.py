@@ -9,10 +9,26 @@ You can copy the code here and adapt it to your needs.
 """
 
 from __future__ import annotations
+
 from typing import Dict, Any, Optional, Sequence, Tuple
+import os
+
 from returnn.tensor import Tensor, Dim, batch_dim
 import returnn.frontend as rf
 from returnn.frontend.encoder.conformer import ConformerEncoder, ConformerEncoderLayer, ConformerConvSubsample
+from returnn.datasets.util.vocabulary import Vocabulary
+
+# EDIT this to the path where the model / SPM vocab is stored, e.g. HF repo dir
+_data_dirs = [os.getcwd()]
+
+
+def _get_vocab_file() -> str:
+    for data_dir in _data_dirs:
+        if os.path.exists(f"{data_dir}/spm.vocab"):
+            return f"{data_dir}/spm.vocab"
+        if os.path.exists(f"{data_dir}/deps/spm.vocab"):
+            return f"{data_dir}/deps/spm.vocab"
+    raise FileNotFoundError("Could not find spm.vocab. Edit _data_dirs.")
 
 
 model_config = {
@@ -31,6 +47,8 @@ model_config = {
 }
 
 vocab_name = "spm10k"
+_vocab_size = 10_240  # See i6_experiments.users.zeyer.datasets.librispeech._get_spm_vocab
+_vocab_opts = dict(unknown_label="<unk>", bos_label="<s>", eos_label="</s>")
 
 output_blank_label = "<blank>"
 _ctc_model_def_blank_idx: int = -1
@@ -39,7 +57,7 @@ _ctc_model_def_blank_idx: int = -1
 _log_mel_feature_dim = 80
 
 
-def create_model(*, target_dim: Dim) -> Model:
+def create_model() -> Model:
     """
     Create model
 
@@ -49,6 +67,9 @@ def create_model(*, target_dim: Dim) -> Model:
 
     config = get_global_config(auto_create=True)
     config.update(model_config)
+
+    target_dim = Dim(_vocab_size, name="vocab")
+    target_dim.vocab = Vocabulary(_get_vocab_file(), **_vocab_opts)
 
     enc_aux_logits = config.typed_value("aux_loss_layers")
     num_enc_layers = config.int("num_enc_layers", 12)
@@ -66,7 +87,7 @@ def create_model(*, target_dim: Dim) -> Model:
     blank_idx = _ctc_model_def_blank_idx
     if blank_idx < 0:
         blank_idx = target_dim.dimension + 1 + blank_idx
-    return Model(
+    model = Model(
         in_dim=in_dim,
         enc_build_dict=config.typed_value("enc_build_dict", None),  # alternative more generic/flexible way
         num_enc_layers=num_enc_layers,
@@ -78,6 +99,7 @@ def create_model(*, target_dim: Dim) -> Model:
         blank_idx=blank_idx,
         enc_aux_logits=enc_aux_logits or (),
     )
+    return model
 
 
 class Model(rf.Module):
@@ -188,8 +210,6 @@ class Model(rf.Module):
             )
 
         if target_dim.vocab and not wb_target_dim.vocab:
-            from returnn.datasets.util.vocabulary import Vocabulary
-
             # Just assumption for code now, might extend this later.
             assert wb_target_dim.dimension == target_dim.dimension + 1 and blank_idx == target_dim.dimension
             vocab_labels = list(target_dim.vocab.labels) + [output_blank_label]
