@@ -26,7 +26,7 @@ class LSTMILMDecoder(ILMDecoder):
 
     def _add_prior_input(self, subnet_unit):
         # TODO: currently train_avg_ctx and train_avg_enc won't work since RETURNN does not support loading numpy vectors
-        # with constant layer. A change in RETURNN was done to make this work but we need a better solution
+        #   with constant layer. A change in RETURNN was done to make this work but we need a better solution
 
         prior_type = self.prior_lm_opts.get("type", "zero")
 
