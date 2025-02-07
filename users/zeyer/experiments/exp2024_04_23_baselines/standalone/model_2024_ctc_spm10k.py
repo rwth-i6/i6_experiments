@@ -12,10 +12,12 @@ from __future__ import annotations
 
 from typing import Dict, Any, Optional, Sequence, Tuple
 import os
+import torch
 
-from returnn.tensor import Tensor, Dim, batch_dim
+from returnn.tensor import Tensor, Dim
 import returnn.frontend as rf
 from returnn.frontend.encoder.conformer import ConformerEncoder, ConformerEncoderLayer, ConformerConvSubsample
+from returnn.torch.frontend.bridge import rf_module_to_pt_module
 from returnn.datasets.util.vocabulary import Vocabulary
 
 # EDIT this to the path where the model / SPM vocab is stored, e.g. HF repo dir
@@ -28,7 +30,16 @@ def _get_vocab_file() -> str:
             return f"{data_dir}/spm.vocab"
         if os.path.exists(f"{data_dir}/deps/spm.vocab"):
             return f"{data_dir}/deps/spm.vocab"
-    raise FileNotFoundError("Could not find spm.vocab. Edit _data_dirs.")
+    raise FileNotFoundError(f"Could not find spm.vocab. Edit _data_dirs. Searched in {_data_dirs}")
+
+
+def _get_model_ckpt_file() -> str:
+    for data_dir in _data_dirs:
+        if os.path.exists(f"{data_dir}/epoch.500.pt"):
+            return f"{data_dir}/epoch.500.pt"
+        if os.path.exists(f"{data_dir}/data/epoch.500.pt"):
+            return f"{data_dir}/data/epoch.500.pt"
+    raise FileNotFoundError(f"Could not find epoch.500.pt. Edit _data_dirs. Searched in {_data_dirs}")
 
 
 model_config = {
@@ -57,13 +68,75 @@ _ctc_model_def_blank_idx: int = -1
 _log_mel_feature_dim = 80
 
 
-def create_model() -> Model:
+def _demo():
+    import argparse
+    import soundfile  # pip install pysoundfile
+    import numpy as np
+
+    arg_parser = argparse.ArgumentParser()
+    arg_parser.add_argument("soundfile", required=True, help="Input audio file, e.g. wav, ogg, flac")
+    arg_parser.add_argument("--device", default="auto", help="Device, e.g. 'cuda', 'cpu', 'auto'")
+    arg_parser.add_argument("--data-dir", help="where to find the model/vocab")
+    args = arg_parser.parse_args()
+
+    rf.select_backend_torch()
+
+    if args.device == "auto":
+        dev_s = "cuda" if torch.cuda.is_available() else "cpu"
+    else:
+        dev_s = args.device
+    rf.set_default_device(dev_s)
+
+    if args.data_dir:
+        _data_dirs.clear()
+        _data_dirs.append(args.data_dir)
+
+    model = create_model()
+
+    data, samplerate = soundfile.read(args.soundfile)
+    assert samplerate == 16_000, f"Expected 16khz, got {samplerate}"
+    assert isinstance(data, np.ndarray)
+    data = data.astype(np.float32)
+
+    # Add some batch dim. Not really necessary here, but just to show how it works.
+    data = data[None, :]  # [batch_dim,audio_spatial_dim]
+    batch_dim = Dim(1, name="batch")
+    audio_seq_lens = rf.convert_to_tensor([data.shape[1]], dims=[batch_dim], dtype="int32")
+    audio_spatial_dim = Dim(audio_seq_lens, name="time")
+    source = rf.convert_to_tensor(data, dims=[batch_dim, audio_spatial_dim])  # [batch_dim,audio_spatial_dim]
+    source = rf.copy_to_device(source, dev_s)
+
+    logits, enc, enc_spatial_dim = model(
+        source, in_spatial_dim=audio_spatial_dim
+    )  # [batch_dim,enc_spatial_dim,model_dim|wb_target_dim]
+    labels = rf.reduce_argmax(logits, axis=model.wb_target_dim)
+    labels = rf.cast(labels, "int32")
+
+    labels_shifted = rf.shift_right(labels, axis=enc_spatial_dim, pad_value=model.blank_idx)
+    mask_repeat = labels != labels_shifted
+    labels, labels_spatial_dim = rf.masked_select(
+        labels, mask=(labels != model.blank_idx) & mask_repeat, dims=[enc_spatial_dim]
+    )  # {batch_dim,labels_spatial_dim}
+    labels_raw = labels.copy_compatible_to_dims_raw([batch_dim, labels_spatial_dim]).cpu()
+    labels_seq_lens = labels_spatial_dim.get_size_tensor().copy_compatible_to_dims_raw([batch_dim])
+
+    # batch_size=1 here, so simplify the code:
+    labels_raw = labels_raw[0, : labels_seq_lens[0]]  # [labels_spatial_dim]
+    print("Labels:", model.target_dim.vocab.get_seq_labels(labels_raw))
+
+
+def create_model(*, load_params: bool = True) -> Model:
     """
-    Create model
+    Create model.
 
     Adapted from :func:`i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.ctc.ctc_model_def`.
+
+    :param load_params: if True, load params from the checkpoint. Otherwise, keep randomly initialized.
+    :return: model. See :func:`Model.__call__` for main usage.
     """
     from returnn.config import get_global_config
+
+    rf.select_backend_torch()
 
     config = get_global_config(auto_create=True)
     config.update(model_config)
@@ -87,6 +160,7 @@ def create_model() -> Model:
     blank_idx = _ctc_model_def_blank_idx
     if blank_idx < 0:
         blank_idx = target_dim.dimension + 1 + blank_idx
+
     model = Model(
         in_dim=in_dim,
         enc_build_dict=config.typed_value("enc_build_dict", None),  # alternative more generic/flexible way
@@ -99,6 +173,28 @@ def create_model() -> Model:
         blank_idx=blank_idx,
         enc_aux_logits=enc_aux_logits or (),
     )
+
+    pt_model: torch.nn.Module = rf_module_to_pt_module(model)
+    print("Model:", pt_model)
+    num_params = sum([parameter.numel() for parameter in pt_model.parameters()])
+    print(f"net params #: {num_params}")
+
+    if load_params:
+        filename = _get_model_ckpt_file()
+        print(f"Load model {filename}")
+        checkpoint_state = torch.load(filename, map_location=torch.device(rf.get_default_device()))
+        epoch = checkpoint_state.get("epoch", 1)
+        step = checkpoint_state.get("step", 1)
+        print(f"Model checkpoint epoch {epoch}, global train step {step}")
+
+        model_state = checkpoint_state.get("model", checkpoint_state)
+        missing_keys_main_ckpt, unexpected_keys_main_ckpt = pt_model.load_state_dict(model_state, strict=False)
+        if unexpected_keys_main_ckpt:
+            print(
+                f"Note: While loading {filename}, unexpected key(s) in state_dict: "
+                + ", ".join(map(repr, sorted(unexpected_keys_main_ckpt))),
+            )
+
     return model
 
 
@@ -416,19 +512,6 @@ class Model(rf.Module):
                     )
                 )
                 assert log_prob_prior.dims == (self.wb_target_dim,)
-            elif self.ctc_prior_type == "seq":
-                log_prob_prior = rf.reduce_logmeanexp(
-                    log_probs_am, axis=[dim for dim in log_probs_am.dims if dim not in (batch_dim, self.wb_target_dim)]
-                )
-                assert log_prob_prior.dims_set == {batch_dim, self.wb_target_dim}
-            elif self.ctc_prior_type == "seq_stop_grad":
-                log_prob_prior = rf.stop_gradient(
-                    rf.reduce_logmeanexp(
-                        log_probs_am,
-                        axis=[dim for dim in log_probs_am.dims if dim not in (batch_dim, self.wb_target_dim)],
-                    )
-                )
-                assert log_prob_prior.dims_set == {batch_dim, self.wb_target_dim}
             elif self.ctc_prior_type == "static":
                 log_prob_prior = self.static_prior
                 assert log_prob_prior.dims == (self.wb_target_dim,)
@@ -459,3 +542,7 @@ class Model(rf.Module):
                 log_probs = rf.label_smoothed_log_prob_gradient(log_probs, **self.ctc_label_smoothing_opts)
 
         return log_probs
+
+
+if __name__ == "__main__":
+    _demo()
