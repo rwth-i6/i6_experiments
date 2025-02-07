@@ -72,26 +72,38 @@ def _demo():
     import argparse
     import soundfile  # pip install pysoundfile
     import numpy as np
+    from returnn.util import better_exchook
+    from returnn.util.basic import BehaviorVersion
+
+    better_exchook.install()
+
+    try:
+        import lovely_tensors
+
+        lovely_tensors.monkey_patch()
+    except ImportError:
+        pass  # ignore
 
     arg_parser = argparse.ArgumentParser()
-    arg_parser.add_argument("soundfile", required=True, help="Input audio file, e.g. wav, ogg, flac")
+    arg_parser.add_argument("soundfile", help="Input audio file, e.g. wav, ogg, flac")
     arg_parser.add_argument("--device", default="auto", help="Device, e.g. 'cuda', 'cpu', 'auto'")
     arg_parser.add_argument("--data-dir", help="where to find the model/vocab")
     args = arg_parser.parse_args()
 
+    BehaviorVersion.set_min_behavior_version(21)
     rf.select_backend_torch()
 
     if args.device == "auto":
         dev_s = "cuda" if torch.cuda.is_available() else "cpu"
     else:
         dev_s = args.device
-    rf.set_default_device(dev_s)
+    dev = torch.device(dev_s)
 
     if args.data_dir:
         _data_dirs.clear()
         _data_dirs.append(args.data_dir)
 
-    model = create_model()
+    model = create_model(device=dev)
 
     data, samplerate = soundfile.read(args.soundfile)
     assert samplerate == 16_000, f"Expected 16khz, got {samplerate}"
@@ -100,11 +112,14 @@ def _demo():
 
     # Add some batch dim. Not really necessary here, but just to show how it works.
     data = data[None, :]  # [batch_dim,audio_spatial_dim]
+    assert data.ndim == 2
+    data_pt = torch.tensor(data).to(dev)
     batch_dim = Dim(1, name="batch")
     audio_seq_lens = rf.convert_to_tensor([data.shape[1]], dims=[batch_dim], dtype="int32")
     audio_spatial_dim = Dim(audio_seq_lens, name="time")
-    source = rf.convert_to_tensor(data, dims=[batch_dim, audio_spatial_dim])  # [batch_dim,audio_spatial_dim]
-    source = rf.copy_to_device(source, dev_s)
+    source = rf.convert_to_tensor(data_pt, dims=[batch_dim, audio_spatial_dim])  # [batch_dim,audio_spatial_dim]
+
+    rf.set_default_device(dev_s)
 
     logits, enc, enc_spatial_dim = model(
         source, in_spatial_dim=audio_spatial_dim
@@ -125,13 +140,14 @@ def _demo():
     print("Labels:", model.target_dim.vocab.get_seq_labels(labels_raw))
 
 
-def create_model(*, load_params: bool = True) -> Model:
+def create_model(*, load_params: bool = True, device: Optional[torch.device] = None) -> Model:
     """
     Create model.
 
     Adapted from :func:`i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.ctc.ctc_model_def`.
 
     :param load_params: if True, load params from the checkpoint. Otherwise, keep randomly initialized.
+    :param device:
     :return: model. See :func:`Model.__call__` for main usage.
     """
     from returnn.config import get_global_config
@@ -182,7 +198,7 @@ def create_model(*, load_params: bool = True) -> Model:
     if load_params:
         filename = _get_model_ckpt_file()
         print(f"Load model {filename}")
-        checkpoint_state = torch.load(filename, map_location=torch.device(rf.get_default_device()))
+        checkpoint_state = torch.load(filename, map_location=device)
         epoch = checkpoint_state.get("epoch", 1)
         step = checkpoint_state.get("step", 1)
         print(f"Model checkpoint epoch {epoch}, global train step {step}")
@@ -195,6 +211,8 @@ def create_model(*, load_params: bool = True) -> Model:
                 + ", ".join(map(repr, sorted(unexpected_keys_main_ckpt))),
             )
 
+    if device:
+        pt_model.to(device)
     return model
 
 
