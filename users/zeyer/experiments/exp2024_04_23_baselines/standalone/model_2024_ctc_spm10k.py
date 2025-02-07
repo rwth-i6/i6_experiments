@@ -154,7 +154,9 @@ def create_model(*, load_params: bool = True, device: Optional[torch.device] = N
     :return: model. See :func:`Model.__call__` for main usage.
     """
     from returnn.config import get_global_config
+    from returnn.util.basic import BehaviorVersion
 
+    BehaviorVersion.set_min_behavior_version(21)
     rf.select_backend_torch()
 
     config = get_global_config(auto_create=True)
