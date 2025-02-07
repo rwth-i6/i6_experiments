@@ -105,6 +105,7 @@ def _demo():
 
     model = create_model(device=dev)
 
+    print(f"Loading soundfile {args.soundfile}...")
     data, samplerate = soundfile.read(args.soundfile)
     assert samplerate == 16_000, f"Expected 16khz, got {samplerate}"
     assert isinstance(data, np.ndarray)
@@ -137,7 +138,9 @@ def _demo():
 
     # batch_size=1 here, so simplify the code:
     labels_raw = labels_raw[0, : labels_seq_lens[0]]  # [labels_spatial_dim]
-    print("Labels:", model.target_dim.vocab.get_seq_labels(labels_raw))
+    labels_s = model.target_dim.vocab.get_seq_labels(labels_raw)
+    print("Recognized label sequence:", labels_s)
+    print("SPM-to-words:", labels_s.replace(" ", "").replace("▁", " ").strip())
 
 
 def create_model(*, load_params: bool = True, device: Optional[torch.device] = None) -> Model:
