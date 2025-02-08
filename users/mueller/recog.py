@@ -36,9 +36,8 @@ from i6_experiments.common.datasets.librispeech.language_model import get_arpa_l
 
 import numpy as np
 
-from .experiments.ctc_baseline.ctc import model_recog_lm
-from .experiments.language_models.librispeech_lm import get_binary_lm
-from .experiments.language_models.n_gram import get_kenlm_n_gram
+from .experiments.ctc_baseline.ctc import model_recog_lm, model_recog_flashlight
+from .experiments.language_models.n_gram import get_kenlm_n_gram, get_binary_lm
 from .datasets.librispeech import get_bpe_lexicon, LibrispeechOggZip
 from .scoring import ComputeWERJob, _score_recog
 
@@ -536,7 +535,7 @@ def search_dataset(
     use_lexicon = decoder_hyperparameters.get("use_lexicon", False) # if we have lexicon we already have the full words
     if not use_lexicon:
         if recog_def.output_blank_label:
-            if recog_def is not model_recog_lm or "greedy" in decoder_hyperparameters:
+            if (recog_def is not model_recog_lm or "greedy" in decoder_hyperparameters) and recog_def is not model_recog_flashlight:
                 # Also assume we should collapse repeated labels first.
                 res = SearchCollapseRepeatedLabelsJob(res, output_gzip=True).out_search_results
             res = SearchRemoveLabelJob(res, remove_label=recog_def.output_blank_label, output_gzip=True).out_search_results
@@ -861,12 +860,22 @@ def search_config_v2(
             lexicon = None
         
         if "lm_order" in decoder_hyperparameters:
-            lm = get_binary_lm(get_kenlm_n_gram(vocab = dataset.vocab, N_order = decoder_hyperparameters['lm_order']))
+            lm_name = decoder_hyperparameters["lm_order"]
+            if isinstance(lm_name, int):
+                lm = get_binary_lm(get_kenlm_n_gram(vocab = dataset.vocab, N_order = int(lm_name)))
+            elif lm_name.startswith("ffnn"):
+                lm = None
+            else:
+                raise NotImplementedError(f"Unknown lm_name {lm_name}")
         else:
             lm = get_binary_lm(get_arpa_lm_dict()["4gram"])
             
         args = {"arpa_4gram_lm": lm, "lexicon": lexicon, "hyperparameters": decoder_hyperparameters}
     
+        if prior_path:
+            args["prior_file"] = prior_path
+    elif recog_def is model_recog_flashlight:
+        args = {"hyperparameters": decoder_hyperparameters}
         if prior_path:
             args["prior_file"] = prior_path
     else:

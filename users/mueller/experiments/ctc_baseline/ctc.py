@@ -7,12 +7,14 @@ from __future__ import annotations
 import copy
 import functools
 import torch
+import sys
+import time
 from typing import TYPE_CHECKING, Optional, Union, Tuple, Sequence, Callable, Dict, Any, List
 import numpy as np
 
 import returnn.frontend as rf
 import returnn.torch.frontend as rtf
-from returnn.tensor import Tensor, Dim, batch_dim
+from returnn.tensor import Tensor, Dim, batch_dim, single_step_dim
 from returnn.frontend.encoder.conformer import ConformerEncoder, ConformerEncoderLayer, ConformerConvSubsample
 from returnn.frontend.decoder.transformer import TransformerDecoder
 from returnn.frontend.tensor_array import TensorArray
@@ -22,8 +24,10 @@ from sisyphus import tk
 from i6_experiments.users.zeyer.model_interfaces import ModelDef, ModelDefWithCfg, TrainDef, RecogDef
 from i6_experiments.users.zeyer.speed_pert.librosa_config import speed_pert_librosa_config
 from i6_experiments.users.zeyer.returnn.models.rf_layerdrop import SequentialLayerDrop
+from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.recog_ext.ctc_flashlight_neural_lm import _format_align_label_seq
 from i6_experiments.users.mueller.train import ExtendedTrainDef
 from i6_experiments.users.mueller.experiments.language_models.n_gram import get_count_based_n_gram, get_prior_from_unigram
+from i6_experiments.users.mueller.experiments.language_models.ffnn import FeedForwardLm, get_ffnn_lm
 
 from i6_core.util import uopen
 
@@ -55,8 +59,7 @@ def py():
 
     # Config
     vocab = "bpe128"                            # "spm20k", "char", "bpe10k"
-    use_flashlight = True                       # Flashlight decoding
-    use_greedy = False                          # Greedy decoding
+    decoding_imp = "albert-flashlight"                 # "flashlight", "albert-flashlight", "albert-greedy", "marten-greedy""
     epochs = 500                                # Training epochs
     self_training_rounds = 1                    # Self-supevised training rounds
     init_small = True                           # 100h supervised initialization
@@ -70,7 +73,9 @@ def py():
     calc_last_pseudo_labels = False
     tune_hyperparameters = False
     from_scratch = False
-    decoder_lm_order = None
+    # decoder_lm_config = {}
+    decoder_lm_config = {"class": "FeedForwardLm", "context_size": 3}
+    # decoder_lm_config = {"class": "ngram", "order": 4}
     
     use_sum_criterion = True
     horizontal_prior = True
@@ -93,6 +98,7 @@ def py():
     self_train_subset = None # 18000
     
     assert (empirical_prior_full_sum and empirical_prior) or not empirical_prior_full_sum
+    model_config = {"enc_conformer_layer": enc_conformer_layer_default, "feature_batch_norm": True}
     
     if init_small:
         epochs = 50
@@ -106,15 +112,17 @@ def py():
             self_epochs = 56
     
     decoder_hyperparameters = None
-    if use_greedy:
+    if decoding_imp == "marten-greedy":
         decoder_hyperparameters = {
             "greedy": True
         }
-        greedy_str = "-recog_greedy"
+        decoding_str = "-recog_greedy"
         if with_prior:
             decoder_hyperparameters["prior_weight"] = 0.2
-            greedy_str += f"_p{str(decoder_hyperparameters['prior_weight']).replace('.', '')}" + ("-emp" if empirical_prior else "")
-    elif use_flashlight:
+            decoding_str += f"_p{str(decoder_hyperparameters['prior_weight']).replace('.', '')}" + ("-emp" if empirical_prior else "")
+    elif decoding_imp == "albert-greedy":
+        decoding_str = "-recog_albert"
+    elif decoding_imp.endswith("flashlight"):
         decoder_hyperparameters = {
             "log_add": False,
             "nbest": 1,
@@ -126,19 +134,26 @@ def py():
         }
         if with_prior:
             decoder_hyperparameters["prior_weight"] = 0.3 # 0.2 if not using emprirical prior
-        if decoder_lm_order:
-            decoder_hyperparameters["lm_order"] = decoder_lm_order
+        if decoder_lm_config:
+            decoder_hyperparameters["lm_order"] = decoder_lm_config["order"] if decoder_lm_config["class"] == "ngram" else f"ffnn{decoder_lm_config['context_size']}"
             decoder_hyperparameters["use_lexicon"] = False
+            if decoder_lm_config["class"] == "FeedForwardLm":
+                model_config["recog_language_model"] = decoder_lm_config
             
         p0 = f"_p{str(decoder_hyperparameters['prior_weight']).replace('.', '')}" + ("-emp" if empirical_prior else ("-from_max" if prior_from_max else "")) if with_prior else ""
         p1 = "sum" if decoder_hyperparameters['log_add'] else "max"
         p2 = f"n{decoder_hyperparameters['nbest']}"
         p3 = f"b{decoder_hyperparameters['beam_size']}"
-        p4 = f"w{str(decoder_hyperparameters['lm_weight']).replace('.', '')}" + (f"o{decoder_lm_order}" if decoder_lm_order else "")
+        p4 = f"w{str(decoder_hyperparameters['lm_weight']).replace('.', '')}" + ((f"o{decoder_lm_config['order']}" if decoder_lm_config["class"] == "ngram" else f"ffnn{decoder_lm_config['context_size']}") if decoder_lm_config else "")
         p5 = "_logsoftmax" if decoder_hyperparameters['use_logsoftmax'] else ""
         p6 = "_noLM" if not decoder_hyperparameters['use_lm'] else ""
         p7 = "_noLEX" if not decoder_hyperparameters['use_lexicon'] else ""
-        lm_hyperparamters_str = f"{p0}_{p1}_{p2}_{p3}_{p4}{p5}{p6}{p7}"
+        decoding_str = f"{p0}_{p1}_{p2}_{p3}_{p4}{p5}{p6}{p7}"
+        
+        if decoding_imp == "albert-flashlight":
+            decoding_str == "-recog_albert_lm" + decoding_str
+        else:
+            decoding_str == "-recog_lm" + decoding_str
         
         if alt_decoder:
             alt_decoder_hyperparameters = decoder_hyperparameters.copy()
@@ -160,9 +175,9 @@ def py():
             a1 = f"b{alt_decoder_hyperparameters['beam_size']}"
             a2 = f"w{str(alt_decoder_hyperparameters['lm_weight']).replace('.', '')}"
             a3 = "_tune" if tune_hyperparameters else ""
-            lm_hyperparamters_str += f"_ALT{a3}{a0}_{a1}_{a2}{str_add}"
+            decoding_str += f"_ALT{a3}{a0}_{a1}_{a2}{str_add}"
     else:
-        decoder_hyperparameters = {}
+        raise ValueError(f"Unknown decoder selection: {decoding_imp}")
     
     config_updates = {
         **_get_cfg_lrlin_oclr_by_bs_nep(15_000, epochs),
@@ -235,15 +250,15 @@ def py():
             (f"-ds100h" if init_small else "") + \
             (f"-pl960h" + ("_keep100h" if keep_small_labels else "") if not pseudo_label_small else "") + \
             f"-{vocab}" + \
-            (greedy_str if use_greedy else (("-recog_lm" + lm_hyperparamters_str) if use_flashlight else "-recog_albert"))
+            f"{decoding_str}"
 
         train_exp(
             name = alias_name,
             config = config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
-            decoder_def = model_recog_lm if (use_flashlight or use_greedy) else model_recog,
+            decoder_def = model_recog_lm if (decoding_imp in ["flashlight", "marten-greedy"]) else (model_recog if decoding_imp == "albert-greedy" else model_recog_flashlight),
             decoder_hyperparameters = decoder_hyperparameters,
             hyperparamters_self_training = alt_decoder_hyperparameters if alt_decoder else None,
-            model_config = {"enc_conformer_layer": enc_conformer_layer_default, "feature_batch_norm": True},
+            model_config = model_config,
             config_updates = config_updates,
             config_updates_self_training = config_updates_self_training,
             config_full_sum=config_full_sum if use_sum_criterion else None,
@@ -353,6 +368,27 @@ def train_exp(
         model_def = ModelDefWithCfg(model_def, model_config)
     if not train_def:
         train_def = ctc_training
+        
+    # Create LM for full-sum criterion
+    if use_sum_criterion:
+        lm = get_count_based_n_gram(task.train_dataset.vocab, LM_order)
+        
+    # Get recog ffnn LM
+    search_config = None
+    if model_config and "recog_language_model" in model_config:
+        recog_language_model = model_config["recog_language_model"].copy()
+        cls_name = recog_language_model.pop("class")
+        assert cls_name == "FeedForwardLm"
+        lm_checkpoint = get_ffnn_lm(task.train_dataset.vocab, **recog_language_model)
+        search_config = {
+            "preload_from_files": {
+                "recog_lm": {
+                    "prefix": "recog_language_model.",
+                    "filename": lm_checkpoint.checkpoint,
+                },
+            },
+        }
+        
     model_with_checkpoint = []
     model_with_checkpoint.append(train(
         prefix,
@@ -383,6 +419,7 @@ def train_exp(
         decoder_hyperparameters=decoder_hyperparameters,
         save_pseudo_labels=(pseudo_labels_ds, train_100_ds) if calc_last_pseudo_labels or self_training_rounds > 0 else None,
         calculate_pseudo_label_scores=True, # NOTE: breaks hash
+        search_config=search_config,
         recog_post_proc_funcs=recog_post_proc_funcs,
         # num_shards_recog=16, # NOTE: breaks hash
         num_shards_pseudo=64,
@@ -391,10 +428,6 @@ def train_exp(
         prior_from_max=prior_from_max,
         empirical_prior=emp_prior if with_prior and empirical_prior else None,
     )
-    
-    # Create LM for full-sum criterion
-    if use_sum_criterion:
-        lm = get_count_based_n_gram(task.train_dataset.vocab, LM_order)
     
     # Do self training on pseudo labels
     for i in range(self_training_rounds):
@@ -513,6 +546,7 @@ def train_exp(
                     model_with_checkpoint[i + 1],
                     recog_def=decoder_def,
                     decoder_hyperparameters=params,
+                    search_config=search_config,
                     recog_post_proc_funcs=recog_post_proc_funcs,
                     num_shards_recog=16, # NOTE: breaks hash
                     num_shards_prior=64,
@@ -533,6 +567,7 @@ def train_exp(
                     model_with_checkpoint[i + 1],
                     recog_def=decoder_def,
                     decoder_hyperparameters=params,
+                    search_config=search_config,
                     recog_post_proc_funcs=recog_post_proc_funcs,
                     num_shards_recog=16, # NOTE: breaks hash
                     num_shards_prior=64,
@@ -555,6 +590,7 @@ def train_exp(
             decoder_hyperparameters=hyperparamters_self_training if hyperparamters_self_training else decoder_hyperparameters,
             save_pseudo_labels=None if not calc_last_pseudo_labels and i+1 == self_training_rounds else (pseudo_labels_ds, train_100_ds),
             calculate_pseudo_label_scores=True,
+            search_config=search_config,
             recog_post_proc_funcs=recog_post_proc_funcs,
             num_shards_recog=16, # NOTE: breaks hash
             num_shards_pseudo=64,
@@ -626,6 +662,23 @@ def ctc_model_def(*, epoch: int, in_dim: Dim, target_dim: Dim) -> Model:
             num_heads=8,
         )
     enc_other_opts = config.typed_value("enc_other_opts", None)
+    
+    train_language_model = config.typed_value("train_language_model", None)
+    train_lm = None
+    if train_language_model:
+        assert isinstance(train_language_model, dict)
+        train_language_model = train_language_model.copy()
+        cls_name = train_language_model.pop("class")
+        assert cls_name == "FeedForwardLm"
+        train_lm = FeedForwardLm(vocab_dim=target_dim, **train_language_model)
+    recog_language_model = config.typed_value("recog_language_model", None)
+    recog_lm = None
+    if recog_language_model:
+        assert isinstance(recog_language_model, dict)
+        recog_language_model = recog_language_model.copy()
+        cls_name = recog_language_model.pop("class")
+        assert cls_name == "FeedForwardLm"
+        recog_lm = FeedForwardLm(vocab_dim=target_dim, **recog_language_model)
 
     return Model(
         in_dim,
@@ -638,6 +691,8 @@ def ctc_model_def(*, epoch: int, in_dim: Dim, target_dim: Dim) -> Model:
         bos_idx=_get_bos_idx(target_dim),
         eos_idx=_get_eos_idx(target_dim),
         enc_aux_logits=enc_aux_logits or (),
+        train_language_model=train_lm,
+        recog_language_model=recog_lm,
     )
 
 
@@ -688,6 +743,8 @@ class Model(rf.Module):
         enc_model_dim: Dim = Dim(name="enc", dimension=512),
         enc_conformer_layer: Optional[Dict[str, Any]] = None,
         enc_other_opts: Optional[Dict[str, Any]] = None,
+        train_language_model: Optional[FeedForwardLm] = None,
+        recog_language_model: Optional[FeedForwardLm] = None
     ):
         super(Model, self).__init__()
 
@@ -853,6 +910,9 @@ class Model(rf.Module):
                     if param.auxiliary:
                         continue
                     rf.weight_dropout(mod, param_name, drop_prob=weight_dropout)
+        
+        self.train_language_model = train_language_model
+        self.recog_language_model = recog_language_model
 
     def __call__(
         self,
@@ -1434,7 +1494,7 @@ def model_recog_lm(
     model: Model,
     data: Tensor,
     data_spatial_dim: Dim,
-    arpa_4gram_lm: str,
+    arpa_4gram_lm: Optional[str],
     lexicon: str,
     hyperparameters: dict,
     prior_file: tk.Path = None
@@ -1454,12 +1514,13 @@ def model_recog_lm(
     import torch
     import json
     from returnn.util.basic import cf
+    from i6_experiments.users.mueller.experiments.language_models.ffnn import FFNN_LM_flashlight
     
     # Get the logits from the model
     logits, enc, enc_spatial_dim = model(data, in_spatial_dim=data_spatial_dim)
     
     hyp_params = copy.copy(hyperparameters)
-    hyp_params.pop("lm_order", None)
+    lm_name = hyp_params.pop("lm_order", None)
     greedy = hyp_params.pop("greedy", False)
     prior_weight = hyp_params.pop("prior_weight", 0.0)
     prior_weight_tune = hyp_params.pop("prior_weight_tune", None)
@@ -1512,7 +1573,14 @@ def model_recog_lm(
         
         return hyps, scores, enc_spatial_dim, beam_dim
     
-    arpa_4gram_lm = str(cf(arpa_4gram_lm))
+    if arpa_4gram_lm:
+        arpa_4gram_lm = str(cf(arpa_4gram_lm))
+    else:
+        assert lm_name.startswith("ffnn")
+        assert model.recog_language_model
+        assert model.recog_language_model.vocab_dim == model.target_dim
+        context_size = int(lm_name[len("ffnn"):])
+        arpa_4gram_lm = FFNN_LM_flashlight(model.recog_language_model, model.recog_language_model.vocab_dim, context_size)
     
     use_lm = hyp_params.pop("use_lm", True)
     use_lexicon = hyp_params.pop("use_lexicon", True)
@@ -1604,3 +1672,356 @@ model_recog_lm: RecogDef[Model]
 model_recog_lm.output_with_beam = True
 model_recog_lm.output_blank_label = OUT_BLANK_LABEL
 model_recog_lm.batch_size_dependent = False  # not totally correct, but we treat it as such...
+
+
+def model_recog_flashlight(
+    *,
+    model: Model,
+    data: Tensor,
+    data_spatial_dim: Dim,
+    hyperparameters: dict,
+    prior_file: tk.Path = None
+) -> Tuple[Tensor, Tensor, Dim, Dim]:
+    """
+    Function is run within RETURNN.
+
+    Earlier we used the generic beam_search function,
+    but now we just directly perform the search here,
+    as this is overall simpler and shorter.
+
+    :return:
+        recog results including beam {batch, beam, out_spatial},
+        log probs {batch, beam},
+        out_spatial_dim,
+        final beam_dim
+    """
+    from dataclasses import dataclass
+    import torch
+    import json
+    from flashlight.lib.text.decoder import LM, LMState
+    from i6_experiments.users.zeyer.utils.lru_cache import lru_cache
+    from returnn.util import basic as util
+
+    hyp_params = copy.copy(hyperparameters)
+    lm_name = hyp_params.pop("lm_order", None)
+    prior_weight = hyp_params.pop("prior_weight", 0.0)
+    prior_weight_tune = hyp_params.pop("prior_weight_tune", None)
+    lm_weight_tune = hyp_params.pop("lm_weight_tune", None)
+    
+    if prior_weight_tune:
+        prior_weight_tune = json.load(open(prior_weight_tune))
+        prior_weight_tune = prior_weight_tune["best_tune"]
+        assert type(prior_weight_tune) == float, "Prior weight tune is not a float!"
+        print(f"Prior weight with tune: {prior_weight} + {prior_weight_tune} = {prior_weight + prior_weight_tune}")
+        prior_weight += prior_weight_tune
+    if lm_weight_tune:
+        lm_weight_tune = json.load(open(lm_weight_tune))
+        lm_weight_tune = lm_weight_tune["best_tune"]
+        assert type(lm_weight_tune) == float, "LM weight tune is not a float!"
+        old_lm_weight = hyp_params.get("lm_weight", 0.0)
+        print(f"LM weight with tune: {old_lm_weight} + {lm_weight_tune} = {old_lm_weight + lm_weight_tune}")
+        hyp_params["lm_weight"] = old_lm_weight + lm_weight_tune
+
+    n_best = hyp_params.pop("nbest", 1)
+    beam_size = hyp_params.pop("beam_size", -1)
+    beam_size_token = hyp_params.pop("beam_size_token", -1)
+    beam_threshold = hyp_params.pop("beam_threshold", 1000000)
+    log_add = hyp_params.pop("log_add", False)
+
+    # Eager-mode implementation of beam search using Flashlight.
+
+    # noinspection PyUnresolvedReferences
+    assert lm_name.startswith("ffnn")
+    assert model.recog_language_model
+    assert model.recog_language_model.vocab_dim == model.target_dim
+    context_size = int(lm_name[len("ffnn"):])
+    lm: FeedForwardLm = model.recog_language_model
+    # noinspection PyUnresolvedReferences
+    lm_scale: float = hyp_params["lm_weight"]
+
+    dev_s = rf.get_default_device()
+    dev = torch.device(dev_s)
+
+    total_mem = None
+    if dev.type == "cuda":
+        torch.cuda.reset_peak_memory_stats(dev)
+        _, total_mem = torch.cuda.mem_get_info(dev if dev.index is not None else None)
+
+    def _collect_mem_stats():
+        if dev.type == "cuda":
+            return [
+                f"alloc cur {util.human_bytes_size(torch.cuda.memory_allocated(dev))}",
+                f"alloc peak {util.human_bytes_size(torch.cuda.max_memory_allocated(dev))}",
+                f"reserved cur {util.human_bytes_size(torch.cuda.memory_reserved(dev))}",
+                f"reserved peak {util.human_bytes_size(torch.cuda.max_memory_reserved(dev))}",
+            ]
+        return ["(unknown)"]
+
+    print(
+        f"Memory usage {dev_s} before encoder forward:",
+        " ".join(_collect_mem_stats()),
+        "total:",
+        util.human_bytes_size(total_mem) if total_mem else "(unknown)",
+    )
+
+    lm_initial_state = lm.default_initial_state(batch_dims=[])
+
+    # https://github.com/flashlight/text/tree/main/bindings/python#decoding-with-your-own-language-model
+    # https://github.com/facebookresearch/fairseq/blob/main/examples/speech_recognition/new/decoders/flashlight_decoder.py
+    # https://github.com/pytorch/audio/blob/main/src/torchaudio/models/decoder/_ctc_decoder.py
+
+    # The current implementation of FlashlightLM below assumes we can just use the token_idx as-is for the LM.
+    assert model.blank_idx == model.target_dim.dimension
+
+    @dataclass
+    class FlashlightLMState:
+        def __init__(self, label_seq: List[int], prev_state: LMState):
+            if len(label_seq) > context_size:
+                self.label_seq = label_seq[-context_size:]
+            else:
+                self.label_seq = label_seq
+            self.prev_state = prev_state
+
+    # Use LRU cache for the LM states (on GPU) and log probs.
+    # Note that additionally to the cache size limit here,
+    # we free more when we run out of CUDA memory.
+    start_lru_cache_size = 1024
+    max_used_mem_fraction = 0.9
+
+    class FlashlightLM(LM):
+        def __init__(self):
+            super().__init__()
+            # Cannot use weakrefs because the LMState object will always be recreated on-the-fly,
+            # i.e. the Python object does not persist.
+            self.mapping_states: Dict[LMState, FlashlightLMState] = {}
+            self._count_recalc_whole_seq = 0
+            self._recent_debug_log_time = -sys.maxsize
+            self._max_used_mem_fraction = max_used_mem_fraction
+
+        def reset(self):
+            self.mapping_states.clear()
+            self._count_recalc_whole_seq = 0
+            self._recent_debug_log_time = -sys.maxsize
+            self._max_used_mem_fraction = max_used_mem_fraction
+            self._calc_next_lm_state.cache_clear()
+            self._calc_next_lm_state.cache_set_maxsize(start_lru_cache_size)
+
+        @lru_cache(maxsize=start_lru_cache_size)
+        def _calc_next_lm_state(self, state: LMState) -> Tuple[Any, torch.Tensor]:
+            """
+            :return: LM state, log probs [Vocab]
+            """
+            state_ = self.mapping_states[state]
+            
+            lm_logits, lm_state = None, None
+            while True:
+                self._cache_maybe_free_memory()
+                try:
+                    self._count_recalc_whole_seq += 1
+                    spatial_dim = Dim(len(state_.label_seq), name="seq")
+                    out_spatial_dim = Dim(len(state_.label_seq) + 1, name="seq_out")
+                    lm_logits, lm_state = lm(
+                        rf.convert_to_tensor(state_.label_seq, dims=[spatial_dim], sparse_dim=model.target_dim),
+                        spatial_dim=spatial_dim,
+                        out_spatial_dim=out_spatial_dim,
+                        state=lm_initial_state,
+                    )  # Vocab / ...
+                    lm_logits = rf.gather(lm_logits, axis=spatial_dim, indices=rf.last_frame_position_of_dim(spatial_dim))
+                except torch.cuda.OutOfMemoryError as exc:
+                    if self._calc_next_lm_state.cache_len() == 0:
+                        raise  # cannot free more
+                    print(f"{type(exc).__name__}: {exc}")
+                    new_max_used_mem_fraction = max(0.2, self._max_used_mem_fraction - 0.1)
+                    if new_max_used_mem_fraction != self._max_used_mem_fraction:
+                        print(f"Reduce max used mem fraction to {new_max_used_mem_fraction:.0%}")
+                    continue  # try again
+                break
+            assert lm_logits.dims == (model.target_dim,)
+            lm_log_probs = rf.log_softmax(lm_logits, axis=model.target_dim)  # Vocab
+            log_probs_raw = lm_log_probs.raw_tensor.cpu()
+            return lm_state, log_probs_raw
+
+        def _cache_maybe_free_memory(self):
+            if dev.type == "cuda":
+                # Maybe check if we should free some more memory.
+                count_pop = 0
+                used_mem = 0
+                while self._calc_next_lm_state.cache_len() > 0:
+                    used_mem = torch.cuda.memory_reserved(dev)
+                    if used_mem / total_mem < self._max_used_mem_fraction:
+                        break
+                    # Check again after trying to empty the cache.
+                    # Note: gc.collect() is problematic here because of how Flashlight handles the states:
+                    # We have millions of Python objects in the mapping_states dict,
+                    # which takes a very long time to go through.
+                    torch.cuda.empty_cache()
+                    used_mem = torch.cuda.memory_reserved(dev)
+                    if used_mem / total_mem < self._max_used_mem_fraction:
+                        break
+                    self._calc_next_lm_state.cache_pop_oldest()
+                    count_pop += 1
+                if count_pop > 0:
+                    print(
+                        f"Pop {count_pop} states from cache,"
+                        f" cache size {self._calc_next_lm_state.cache_len()},"
+                        f" reached {used_mem / total_mem:.1%} of total mem,"
+                        f" mem usage {dev_s}: {' '.join(_collect_mem_stats())}"
+                    )
+                    self._calc_next_lm_state.cache_set_maxsize(self._calc_next_lm_state.cache_len())
+
+        def start(self, start_with_nothing: bool):
+            """
+            Parameters:
+                start_with_nothing (bool): whether or not to start sentence with sil token.
+            """
+            start_with_nothing  # noqa  # not sure how to handle this?
+            self.reset()
+            state = LMState()
+            self.mapping_states[state] = FlashlightLMState(label_seq=[model.bos_idx], prev_state=state)
+            return state
+
+        def score(self, state: LMState, token_index: int):
+            """
+            Evaluate language model based on the current lm state and new word
+
+            Parameters:
+                state: current lm state
+                token_index: index of the word
+                            (can be lexicon index then you should store inside LM the
+                            mapping between indices of lexicon and lm, or lm index of a word)
+
+            Returns:
+                (LMState, float): pair of (new state, score for the current word)
+            """
+            state_ = self.mapping_states[state]
+            if time.monotonic() - self._recent_debug_log_time > 1:
+                print(
+                    "LM prefix",
+                    [model.target_dim.vocab.id_to_label(label_idx) for label_idx in state_.label_seq],
+                    f"score {model.target_dim.vocab.id_to_label(token_index)!r}",
+                    f"({len(self.mapping_states)} states seen)",
+                    f"(cache info {self._calc_next_lm_state.cache_info()})",
+                    f"(mem usage {dev_s}: {' '.join(_collect_mem_stats())})",
+                )
+                self._recent_debug_log_time = time.monotonic()
+            outstate = state.child(token_index)
+            if outstate not in self.mapping_states:
+                self.mapping_states[outstate] = FlashlightLMState(
+                    label_seq=state_.label_seq + [token_index], prev_state=state
+                )
+
+            _, log_probs_raw = self._calc_next_lm_state(state)
+            return outstate, log_probs_raw[token_index]
+
+        def finish(self, state: LMState):
+            """
+            Evaluate eos for language model based on the current lm state
+
+            Returns:
+                (LMState, float): pair of (new state, score for the current word)
+            """
+            return self.score(state, model.eos_idx)
+
+    fl_lm = FlashlightLM()
+
+    from flashlight.lib.text.decoder import LexiconFreeDecoderOptions, LexiconFreeDecoder, CriterionType
+
+    fl_decoder_opts = LexiconFreeDecoderOptions(
+        beam_size=beam_size,
+        beam_size_token=beam_size_token,
+        beam_threshold=beam_threshold,
+        lm_weight=lm_scale,
+        sil_score=0.0,
+        log_add=log_add,
+        criterion_type=CriterionType.CTC,
+    )
+    fl_decoder = LexiconFreeDecoder(fl_decoder_opts, fl_lm, model.blank_idx, model.blank_idx, [])
+
+    assert data.dims_set == {batch_dim, data_spatial_dim, data.feature_dim}
+    logits, enc, enc_spatial_dim = model(data, in_spatial_dim=data_spatial_dim)
+    assert logits.dims_set == {batch_dim, enc_spatial_dim, model.wb_target_dim}
+
+    # The label log probs include the AM
+    label_log_prob = model.log_probs_wb_from_logits(logits)  # Batch, Spatial, VocabWB
+    
+    # Subtract prior of labels if available
+    if prior_file and prior_weight > 0.0:
+        prior = np.loadtxt(prior_file, dtype="float32")
+        prior *= prior_weight
+        prior = torch.tensor(prior, dtype=torch.float32, device=dev)
+        prior = rtf.TorchBackend.convert_to_tensor(prior, dims=[model.wb_target_dim], dtype="float32")
+        print("Before:", label_log_prob)
+        label_log_prob = label_log_prob - prior
+        print("We subtracted the prior!", label_log_prob)
+    
+    label_log_prob = rf.where(
+        enc_spatial_dim.get_mask(),
+        label_log_prob,
+        rf.sparse_to_dense(model.blank_idx, axis=model.wb_target_dim, label_value=0.0, other_value=-1.0e30),
+    )
+    label_log_prob = label_log_prob.copy_transpose((batch_dim, enc_spatial_dim, model.wb_target_dim))
+    batch_size, max_seq_len = label_log_prob.raw_tensor.shape[:2]
+    assert enc_spatial_dim.dyn_size_ext.dims == (batch_dim,)
+
+    label_log_prob = rf.cast(label_log_prob, "float32")
+    label_log_prob = rf.copy_to_device(label_log_prob, "cpu")
+    label_log_prob_raw = label_log_prob.raw_tensor.contiguous()
+    float_bytes = 4
+
+    print(f"Memory usage {dev_s} after encoder forward:", " ".join(_collect_mem_stats()))
+
+    hyps = []
+    scores = []
+    for batch_idx in range(batch_size):
+        emissions_ptr = label_log_prob_raw.data_ptr() + float_bytes * batch_idx * label_log_prob_raw.stride(0)
+        seq_len = enc_spatial_dim.dyn_size[batch_idx]
+        assert seq_len <= max_seq_len
+        results = fl_decoder.decode(emissions_ptr, seq_len, model.wb_target_dim.dimension)
+        # I get -1 (silence label?) at the beginning and end in the tokens? Filter those away.
+        # These are also additional frames which don't correspond to the input frames?
+        # When removing those two frames, the len of tokens (align labels) matches the emission frames
+        # (as it should be).
+        hyps_per_batch = [[label for label in result.tokens if label >= 0] for result in results]
+        scores_per_batch = [result.score for result in results]
+        print(
+            f"batch {batch_idx + 1}/{batch_size}: {len(results)} hyps,"
+            f" best score: {scores_per_batch[0]},"
+            f" best seq {_format_align_label_seq(results[0].tokens, model.wb_target_dim)},"
+            f" worst score: {scores_per_batch[-1]},"
+            f" LM cache info {fl_lm._calc_next_lm_state.cache_info()},"
+            f" LM recalc whole seq count {fl_lm._count_recalc_whole_seq},"
+            f" mem usage {dev_s}: {' '.join(_collect_mem_stats())}"
+        )
+        assert all(
+            len(hyp) == seq_len for hyp in hyps_per_batch
+        ), f"seq_len {seq_len}, hyps lens {[len(hyp) for hyp in hyps_per_batch]}"
+        if len(results) >= n_best:
+            hyps_per_batch = hyps_per_batch[:n_best]
+            scores_per_batch = scores_per_batch[:n_best]
+        else:
+            hyps_per_batch += [[]] * (n_best - len(results))
+            scores_per_batch += [-1e30] * (n_best - len(results))
+        assert len(hyps_per_batch) == len(scores_per_batch) == n_best
+        hyps_per_batch = [hyp + [model.blank_idx] * (max_seq_len - len(hyp)) for hyp in hyps_per_batch]
+        assert all(len(hyp) == max_seq_len for hyp in hyps_per_batch)
+        hyps.append(hyps_per_batch)
+        scores.append(scores_per_batch)
+    fl_lm.reset()
+    hyps_pt = torch.tensor(hyps, dtype=torch.int32)
+    assert hyps_pt.shape == (batch_size, n_best, max_seq_len)
+    scores_pt = torch.tensor(scores, dtype=torch.float32)
+    assert scores_pt.shape == (batch_size, n_best)
+
+    beam_dim = Dim(n_best, name="beam")
+    out_spatial_dim = enc_spatial_dim
+    hyps_r = rf.convert_to_tensor(hyps_pt, dims=(batch_dim, beam_dim, out_spatial_dim), sparse_dim=model.wb_target_dim)
+    scores_r = rf.convert_to_tensor(scores_pt, dims=(batch_dim, beam_dim))
+    print(f"Memory usage ({dev_s}) after batch:", " ".join(_collect_mem_stats()))
+    return hyps_r, scores_r, out_spatial_dim, beam_dim
+
+
+# RecogDef API
+model_recog_flashlight: RecogDef[Model]
+model_recog_flashlight.output_with_beam = True
+model_recog_flashlight.output_blank_label = OUT_BLANK_LABEL
+model_recog_flashlight.batch_size_dependent = True  # our models currently just are batch-size-dependent...

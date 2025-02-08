@@ -121,7 +121,9 @@ def train(
     )
     returnn_train_config_dict = dict_update_deep(returnn_train_config_dict, config)
     if isinstance(model_def, ModelDefWithCfg):
-        returnn_train_config_dict = dict_update_deep(returnn_train_config_dict, model_def.config)
+        model_conf = model_def.config.copy()
+        model_conf.pop("recog_language_model", None)
+        returnn_train_config_dict = dict_update_deep(returnn_train_config_dict, model_conf)
 
     max_seq_length_default_target = returnn_train_config_dict.pop("max_seq_length_default_target", None)
     if max_seq_length_default_target is not None:

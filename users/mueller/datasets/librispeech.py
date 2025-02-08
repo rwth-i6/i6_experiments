@@ -529,7 +529,143 @@ class LibrispeechOggZip(DatasetConfig):
             }
             d = MetaDataset(data_map, d_comb, "pseudo_labels_dataset").as_returnn_opts()
         return d
+    
+class LibrispeechLmDataset(DatasetConfig):
+    """
+    Librispeech LM dataset
+    """
 
+    def __init__(
+        self,
+        *,
+        vocab: VocabConfig,
+        train_vocab: Optional[VocabConfig] = None,
+        main_key: Optional[str] = None,
+        train_epoch_split: int = default_train_epoch_split,
+        train_sort_order: Optional[Any] = "laplace",
+        train_sort_laplace_num_seqs: Optional[int] = 1000,
+        eval_subset: Optional[int] = 3000,
+    ):
+        super().__init__()
+        self.vocab = vocab
+        self.train_vocab = train_vocab
+        self.main_key = main_key
+        self.train_epoch_split = train_epoch_split
+        self.train_sort_order = train_sort_order
+        self.train_sort_laplace_num_seqs = train_sort_laplace_num_seqs
+        self.eval_subset = eval_subset
+
+    def _sis_hash(self) -> bytes:
+        import hashlib
+        from sisyphus.hash import sis_hash_helper
+
+        # Keep consistent once we do any changes.
+        state = self.__dict__.copy()
+        if not self.train_vocab:
+            state.pop("train_vocab")  # backward compat
+        if self.train_sort_order == "laplace":
+            state.pop("train_sort_order")  # backward compat
+        byte_list = [b"LibrispeechLmDataset", sis_hash_helper(state)]
+
+        # Same as sis_hash_helper.
+        byte_str = b"(" + b", ".join(byte_list) + b")"
+        if len(byte_str) > 4096:
+            return hashlib.sha256(byte_str).digest()
+        else:
+            return byte_str
+
+    def get_extern_data(self) -> Dict[str, Dict[str, Any]]:
+        """
+        Get extern data
+        """
+        from returnn.tensor import Dim, batch_dim
+
+        out_spatial_dim = Dim(None, name="out-spatial", kind=Dim.Types.Spatial)
+        classes_dim = Dim(self.vocab.get_num_classes(), name="vocab", kind=Dim.Types.Spatial)
+
+        return {
+            "data": {
+                "dim_tags": [batch_dim, out_spatial_dim],
+                "sparse_dim": classes_dim,
+                "vocab": self.vocab.get_opts(),
+            }
+        }
+
+    def get_default_input(self) -> Optional[str]:
+        """data"""
+        return "data"
+
+    def get_default_target(self) -> Optional[str]:
+        """data"""
+        return "data"
+
+    def get_train_dataset(self) -> Dict[str, Any]:
+        return self.get_dataset("full", training=True)
+
+    def get_train_dataset_for_forward(self) -> Dict[str, Any]:
+        return self.get_dataset("full")
+
+    def get_eval_datasets(self) -> Dict[str, Dict[str, Any]]:
+        return {
+            "dev": self.get_dataset("dev-other", subset=self.eval_subset),
+            "devtrain": self.get_dataset("train-clean-100", subset=self.eval_subset),
+        }
+
+    def get_main_name(self) -> str:
+        return self.main_key
+
+    def get_main_dataset(self) -> Dict[str, Any]:
+        return self.get_dataset(self.main_key)
+
+    def get_dataset(self, key: str, *, training: bool = False, subset: Optional[int] = None) -> Dict[str, Any]:
+        vocab = self.train_vocab if training and self.train_vocab else self.vocab
+        if key == "full":
+            from i6_experiments.common.datasets.librispeech.language_model import get_librispeech_normalized_lm_data
+
+            d: Dict[str, Any] = {
+                "class": "LmDataset",
+                "corpus_file": [get_librispeech_normalized_lm_data(), _get_train_corpus_text()],
+                "use_cache_manager": True,
+                "orth_vocab": vocab.get_opts().copy(),
+                "seq_end_symbol": None,  # handled via orth_vocab
+                "unknown_symbol": None,  # handled via orth_vocab
+            }
+        else:
+            files = []
+            parts = [part for part in _Parts if part.startswith(key)]
+            assert parts, f"invalid key {key!r}"
+            for part in parts:
+                files += [_get_librispeech_ogg_zip_dict()[part]]
+            d: Dict[str, Any] = {
+                "class": "OggZipDataset",
+                "path": files,
+                "use_cache_manager": True,
+                "audio": None,
+                "targets": vocab.get_opts().copy(),
+            }
+        if training:
+            d["partition_epoch"] = self.train_epoch_split
+            if self.train_sort_order == "laplace":
+                if self.train_sort_laplace_num_seqs is not None:
+                    d["seq_ordering"] = f"laplace:.{self.train_sort_laplace_num_seqs}"
+                else:
+                    d["seq_ordering"] = "random"
+            else:
+                d["seq_ordering"] = self.train_sort_order
+        else:
+            if d["class"] == "OggZipDataset":
+                d["fixed_random_seed"] = 1
+            d["seq_ordering"] = "sorted_reverse"
+        if subset:
+            d["fixed_random_subset"] = subset  # faster
+        if d["class"] == "OggZipDataset":
+            d = {
+                "class": "MetaDataset",
+                "datasets": {"ogg_zip": d},
+                "data_map": {"data": ("ogg_zip", "classes")},
+                "seq_order_control_dataset": "ogg_zip",
+            }
+        return d
 
 class _DelayedDim(DelayedBase):
     """
