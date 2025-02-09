@@ -63,7 +63,16 @@ lstm_10k_lm_opts = {
     "name": "lstm",
 }
 
-lbs_density_ratio_lm_opts = {}
+from i6_experiments.users.zeineldeen.experiments.conformer_att_2022.librispeech_960.seq_train_helpers import (
+    get_trans_lstm_lm,
+)
+
+lbs_trans_subnet_cls = get_trans_lstm_lm()
+lbs_density_ratio_lm_opts = {
+    "lm_subset": lbs_trans_subnet_cls["subnetwork"],
+    "lm_model": lbs_trans_subnet_cls["load_on_init"],
+    "name": "lstm",
+}
 
 ted2_lstm_lm_opts = {
     "lm_subnet": generic_lm.libri_lstm_bpe10k_net,
@@ -291,8 +300,8 @@ def conformer_baseline():
             for scale in scales:
                 lm_scale = scale[0]
                 prior_scale = scale[1] if len(scale) == 2 else None
-                if prior_scale and prior_scale > lm_scale:
-                    continue
+                # if prior_scale and prior_scale > lm_scale:
+                #     continue
 
                 # External LM opts
                 ext_lm_opts["lm_scale"] = lm_scale
@@ -1063,9 +1072,9 @@ def conformer_baseline():
                                         test_dataset_tuples=get_ted2_test_dataset_tuples(BPE_10K),
                                     )
 
-                                for prior_type in ["train_avg_enc", "train_avg_ctx"]:
-                                    for lm_scale in [0.74, 0.76, 0.78]:
-                                        for ilm_scale in [0.6, 0.62, 0.64, 0.66, 0.68]:
+                                for prior_type in ["avg"]:
+                                    for lm_scale in [0.7, 0.72, 0.74, 0.76, 0.78]:
+                                        for ilm_scale in [0.6, 0.62, 0.64, 0.66, 0.68, 0.7]:
                                             run_lm_fusion(
                                                 lm_type="lstm",
                                                 extra_name="ted2-recogs",
@@ -1076,7 +1085,11 @@ def conformer_baseline():
                                                 lm_scales=[lm_scale],
                                                 prior_scales=[ilm_scale],
                                                 prior_type=prior_type,
-                                                prior_type_name="avgEnc" if prior_type == "train_avg_enc" else "avgAtt",
+                                                prior_type_name={
+                                                    "train_avg_enc": "avgEnc",
+                                                    "train_avg_ctx": "avgAtt",
+                                                    "avg": "seqAvg",
+                                                }.get(prior_type),
                                                 length_norm_exponent=length_norm_exp,
                                                 mini_lstm_ckpt=mini_lstm_j.out_checkpoints[mini_lstm_ep],
                                                 train_job=train_j,

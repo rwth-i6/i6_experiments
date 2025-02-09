@@ -32,6 +32,9 @@ class LSTMILMDecoder(ILMDecoder):
 
         if prior_type == "zero":  # set att context vector to zero
             prior_att_input = subnet_unit.add_eval_layer("zero_att", "att", eval="tf.zeros_like(source(0))")
+        elif prior_type == "avg":
+            self.asr_decoder.network.add_reduce_layer("encoder_mean", "encoder", axes=["t"], mode="mean")
+            prior_att_input = "base:encoder_mean"
         elif prior_type == "train_avg_ctx":  # average all context vectors over training data
             prior_att_input = subnet_unit.add_constant_layer(
                 "train_avg_ctx",
@@ -83,7 +86,7 @@ class LSTMILMDecoder(ILMDecoder):
         prior_type = self.prior_lm_opts.get("type", "zero")
 
         # for the first frame in decoding, don't use average but zero always
-        if prior_type == "train_avg_ctx" or prior_type == "train_avg_enc":
+        if prior_type == "avg" or prior_type == "train_avg_ctx" or prior_type == "train_avg_enc":
             is_first_frame = subnet_unit.add_compare_layer("is_first_frame", source=":i", kind="equal", value=0)
             zero_att = subnet_unit.add_eval_layer("zero_att", "att", eval="tf.zeros_like(source(0))")
             prev_att = subnet_unit.add_switch_layer(
