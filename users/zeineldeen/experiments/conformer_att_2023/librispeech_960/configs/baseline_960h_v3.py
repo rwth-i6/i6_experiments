@@ -63,11 +63,15 @@ lstm_10k_lm_opts = {
     "name": "lstm",
 }
 
+lbs_density_ratio_lm_opts = {}
+
 ted2_lstm_lm_opts = {
     "lm_subnet": generic_lm.libri_lstm_bpe10k_net,
     "lm_model": "/work/asr4/michel/setups-data/lm_training/data-train/tedlium_re_i128_m2048_m2048_m2048_m2048.sgd_b32_lr0_cl2.newbobabs.d0.0.1350/net-model/network.020",
     "name": "lstm",
 }
+
+ted2_density_ratio_lm_opts = {}
 
 lstm_lm_opts_map = {
     BPE_10K: lstm_10k_lm_opts,
@@ -100,6 +104,15 @@ trafo_lm_opts_map = {
     BPE_10K: trafo_10k_lm_opts,
     BPE_5K: trafo_5k_lm_opts,
 }
+
+TRAIN_AVG_ENC = tk.Path(
+    "/work/asr4/zeineldeen/setups-data/librispeech/2022-11-28--conformer-att/work/i6_core/returnn/training/ReturnnTrainingJob.ZhtaEElHqWlr/output/enc.mean.txt",
+    hash_overwrite="best_global_aed_enc_avg",
+)
+TRAIN_AVG_ATT = tk.Path(
+    "/work/asr4/zeineldeen/setups-data/librispeech/2022-11-28--conformer-att/work/i6_core/returnn/training/ReturnnTrainingJob.ZhtaEElHqWlr/output/att_ctx.mean.txt",
+    hash_overwrite="best_global_aed_att_avg",
+)
 
 # ----------------------------------------------------------- #
 
@@ -317,6 +330,11 @@ def conformer_baseline():
                                 }
                             }
                         )
+
+                    if prior_type == "train_avg_enc":
+                        ilm_opts["data"] = TRAIN_AVG_ENC
+                    if prior_type == "train_avg_ctx":
+                        ilm_opts["data"] = TRAIN_AVG_ATT
 
                 if prior_type_name is None:
                     prior_type_name = prior_type
@@ -970,26 +988,27 @@ def conformer_baseline():
 
                 if beam_size == 32:
                     for len_norm_exp in [0.0]:
-                        run_lm_fusion(
-                            lm_type="trafo",
-                            exp_name=f"base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_cyc915_ep2035_peak0.0009_retrain1_const20_linDecay580_{1e-4}",
-                            epoch="avg",
-                            test_set_names=["dev-clean", "dev-other"],
-                            lm_scales=[0.3, 0.32, 0.34, 0.36, 0.38, 0.4, 0.42, 0.44, 0.46, 0.5],
-                            prior_scales=[0.3, 0.32, 0.34, 0.36, 0.38, 0.4],
-                            prior_type="zero",
-                            train_job=train_j,
-                            train_data=train_data,
-                            feature_net=log10_net_10ms,
-                            args=oclr_args,
-                            beam_size=beam_size,
-                            batch_size=1000 * 160,
-                            bpe_size=BPE_10K,
-                            coverage_scale=0.2,
-                            coverage_threshold=0.1,
-                            use_sclite=True,
-                            length_norm_exponent=len_norm_exp,
-                        )
+                        for k, lm, ilm in [("test-clean", 0.38, 0.3), ("test-other", 0.46, 0.34)]:
+                            run_lm_fusion(
+                                lm_type="trafo",
+                                exp_name=f"base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_cyc915_ep2035_peak0.0009_retrain1_const20_linDecay580_{1e-4}",
+                                epoch="avg",
+                                test_set_names=[k],
+                                lm_scales=[lm],
+                                prior_scales=[ilm],
+                                prior_type="zero",
+                                train_job=train_j,
+                                train_data=train_data,
+                                feature_net=log10_net_10ms,
+                                args=oclr_args,
+                                beam_size=beam_size,
+                                batch_size=1000 * 160,
+                                bpe_size=BPE_10K,
+                                coverage_scale=0.2,
+                                coverage_threshold=0.1,
+                                use_sclite=True,
+                                length_norm_exponent=len_norm_exp,
+                            )
 
                 run_lm_fusion(
                     lm_type="trafo",
@@ -1044,27 +1063,29 @@ def conformer_baseline():
                                         test_dataset_tuples=get_ted2_test_dataset_tuples(BPE_10K),
                                     )
 
-                                for lm_scale in [0.6, 0.62, 0.64, 0.66, 0.68, 0.7]:
-                                    for ilm_scale in [0.48, 0.5, 0.52, 0.54]:
-                                        run_lm_fusion(
-                                            lm_type="lstm",
-                                            extra_name="ted2-recogs",
-                                            ext_lm_opts=ted2_lstm_lm_opts,
-                                            exp_name=f"base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_cyc915_ep2035_peak0.0009_retrain1_const20_linDecay580_{1e-4}",
-                                            epoch="avg",
-                                            test_set_names=["dev", "test"],
-                                            lm_scales=[lm_scale],
-                                            prior_scales=[ilm_scale],
-                                            prior_type="zero",
-                                            length_norm_exponent=length_norm_exp,
-                                            mini_lstm_ckpt=mini_lstm_j.out_checkpoints[mini_lstm_ep],
-                                            train_job=train_j,
-                                            train_data=train_data,
-                                            feature_net=log10_net_10ms,
-                                            args=oclr_args,
-                                            beam_size=beam_size,
-                                            batch_size=10_000 * 160,
-                                            bpe_size=BPE_10K,
-                                            use_sclite=True,
-                                            test_dataset_tuples=get_ted2_test_dataset_tuples(BPE_10K),
-                                        )
+                                for prior_type in ["train_avg_enc", "train_avg_ctx"]:
+                                    for lm_scale in [0.74, 0.76, 0.78]:
+                                        for ilm_scale in [0.6, 0.62, 0.64, 0.66, 0.68]:
+                                            run_lm_fusion(
+                                                lm_type="lstm",
+                                                extra_name="ted2-recogs",
+                                                ext_lm_opts=ted2_lstm_lm_opts,
+                                                exp_name=f"base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_cyc915_ep2035_peak0.0009_retrain1_const20_linDecay580_{1e-4}",
+                                                epoch="avg",
+                                                test_set_names=["dev", "test"],
+                                                lm_scales=[lm_scale],
+                                                prior_scales=[ilm_scale],
+                                                prior_type=prior_type,
+                                                prior_type_name="avgEnc" if prior_type == "train_avg_enc" else "avgAtt",
+                                                length_norm_exponent=length_norm_exp,
+                                                mini_lstm_ckpt=mini_lstm_j.out_checkpoints[mini_lstm_ep],
+                                                train_job=train_j,
+                                                train_data=train_data,
+                                                feature_net=log10_net_10ms,
+                                                args={**oclr_args, "extra_prolog": ["import numpy"]},
+                                                beam_size=beam_size,
+                                                batch_size=10_000 * 160,
+                                                bpe_size=BPE_10K,
+                                                use_sclite=True,
+                                                test_dataset_tuples=get_ted2_test_dataset_tuples(BPE_10K),
+                                            )

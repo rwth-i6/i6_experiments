@@ -413,6 +413,7 @@ def create_config(
     retrain_checkpoint=None,
     decouple_constraints_factor=0.025,
     extra_str=None,
+    extra_prolog=None,
     preload_from_files=None,
     min_lr_factor=50,
     specaug_str_func_opts=None,
@@ -861,6 +862,10 @@ def create_config(
 
     if horovod_params:
         exp_config.update(horovod_params)
+
+    if extra_prolog:
+        assert isinstance(extra_prolog, list)
+        python_prolog += extra_prolog
 
     returnn_config = ReturnnConfig(
         exp_config,
