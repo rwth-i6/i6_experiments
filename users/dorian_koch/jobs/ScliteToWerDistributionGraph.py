@@ -21,6 +21,7 @@ class ScliteToWerDistributionGraph(Job):
         self.out_plot = self.output_path("plot.png")
         self.out_plot_no_ylim = self.output_path("plot_no_ylim.png")
         self.out_plot_ylim_without_first_bin = self.output_path("plot_ylim_without_first_bin.png")
+        self.out_plot_ylim10p = self.output_path("plot_ylim10p.png")
 
     def tasks(self):
         yield Task("run", mini_task=True)
@@ -74,7 +75,7 @@ class ScliteToWerDistributionGraph(Job):
         plt.bar(range(self.num_bins), [count / len(values) for count in bins])
 
         plt.xlabel("WER")
-        plt.ylabel("%")
+        plt.ylabel("fraction")
         plt.ylim(0, 1)
         plt.title(self.plot_title)
         plt.xticks(range(0, self.num_bins, max(1, self.num_bins // 10)), [f"{i/self.num_bins:.2f}" for i in range(0, self.num_bins, max(1, self.num_bins // 10))])
@@ -85,4 +86,6 @@ class ScliteToWerDistributionGraph(Job):
         new_ylim = max([count / len(values) for count in bins[1:]]) * 1.1
         plt.ylim(0, new_ylim)
         plt.savefig(self.out_plot_ylim_without_first_bin)
+        plt.ylim(0, 0.1)
+        plt.savefig(self.out_plot_ylim10p)
 
