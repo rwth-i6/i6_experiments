@@ -517,10 +517,11 @@ def _returnn_forward_config_v2(
     return ReturnnConfigWithNewSerialization(config, post_config)
 
 
-def _returnn_get_model(*, epoch: int, **_kwargs_unused):
+def _returnn_get_model(*, epoch: int, device: Optional[str] = None, **_kwargs_unused):
     from returnn.tensor import Tensor
     from returnn.config import get_global_config
     import returnn.frontend as rf
+    import inspect
 
     config = get_global_config()
     model_def = config.typed_value("_model_def")
@@ -534,7 +535,15 @@ def _returnn_get_model(*, epoch: int, **_kwargs_unused):
     targets = Tensor(name=default_target_key, **extern_data_dict[default_target_key])
     assert targets.sparse_dim and targets.sparse_dim.vocab, f"no vocab for {targets}"
 
-    model = model_def(epoch=epoch, in_dim=data.feature_dim, target_dim=targets.sparse_dim)
+    print(f"** Using model_def {model_def}")
+    model_def_expected_args = inspect.getargs(model_def).args
+    print(f"   Expected args: {model_def_expected_args}")
+    args = dict(epoch=epoch, in_dim=data.feature_dim, target_dim=targets.sparse_dim)
+    if "device" in model_def_expected_args:
+        args["device"] = device
+    print(f"   Args: {args}")
+
+    model = model_def(**args)
     return model
 
 
