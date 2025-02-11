@@ -166,6 +166,14 @@ def build_test_dataset(dataset_key, bpe_size=10000, use_raw_features=False, pree
     return test_dataset, test_reference_dict_file, bliss_dict[dataset_key]
 
 
+def _merge_contractions(s):
+    import re
+
+    res = re.sub(r"(\b\w+)\s'([a-zA-Z]+)\b", r"\1'\2", s)
+    res = res.lower()
+    return res
+
+
 class MergeContractionsJob(Job):
     """
     Merge contractions (ending with 's)
@@ -181,14 +189,6 @@ class MergeContractionsJob(Job):
     def tasks(self):
         yield Task("run", mini_task=True)
 
-    @staticmethod
-    def _merge_contractions(s):
-        import re
-
-        res = re.sub(r"(\b\w+)\s'([a-zA-Z]+)\b", r"\1'\2", s)
-        res = res.lower()
-        return res
-
     def run(self):
         if self.dict_file.get_path().endswith(".gz"):
             import gzip
@@ -202,5 +202,27 @@ class MergeContractionsJob(Job):
         out_f = open(self.out_dict.get_path(), "wt")
         out_f.write("{\n")
         for k, v in d.items():
-            out_f.write(f"{k!r}: {self._merge_contractions(v)!r},\n")
+            out_f.write(f"{k!r}: {_merge_contractions(v)!r},\n")
         out_f.write("}\n")
+
+
+class CorpusMergeContractionsJob(Job):
+
+    def __init__(self, corpus_file: tk.Path):
+        self.corpus_file = corpus_file
+
+        self.out_corpus_file = self.output_path("out_corpus.xml")
+
+    def tasks(self):
+        yield Task("run", mini_task=True)
+
+    def run(self):
+        from i6_core.lib.corpus import Corpus
+
+        c = Corpus()
+        c.load(self.corpus_file.get_path())
+
+        for seg in c.segments():
+            seg.text = _merge_contractions(seg.text)
+
+        c.dump(self.out_corpus_file.get_path())

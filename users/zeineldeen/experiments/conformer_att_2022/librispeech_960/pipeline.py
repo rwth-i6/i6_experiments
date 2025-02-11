@@ -203,8 +203,16 @@ def search_single(
         ).out_ctm_file
 
         # TODO: merge contractions on corpus level
+        if merge_contractions:
+            from i6_experiments.users.zeineldeen.experiments.conformer_att_2023.tedlium2.data import (
+                CorpusMergeContractionsJob,
+            )
 
-        stm_file = CorpusToStmJob(bliss_corpus=recognition_bliss_corpus).out_stm_path
+            bliss_corpus = CorpusMergeContractionsJob(recognition_bliss_corpus).out_corpus_file
+        else:
+            bliss_corpus = recognition_bliss_corpus
+
+        stm_file = CorpusToStmJob(bliss_corpus=bliss_corpus).out_stm_path
 
         sclite_job = ScliteJob(ref=stm_file, hyp=search_ctm, sctk_binary_path=SCTK_BINARY_PATH)
         tk.register_output(

@@ -921,7 +921,7 @@ def conformer_baseline():
     #
     # with merged contractions:
     # None: 12.6/11.9
-    # LM:       /10.6
+    # LM:   11.2/10.6
     # LM+ILM: 9.2/9.5
 
     run_lm_fusion(
