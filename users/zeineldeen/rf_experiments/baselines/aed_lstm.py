@@ -203,14 +203,41 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
                         },
                         "ilm": {
                             "prefix": "internal_language_model.",
-                            "filename": ilm_v3_model_with_checkpoints.get_epoch(31).checkpoint,
+                            "filename": ilm_v3_model_with_checkpoints.get_epoch(10).checkpoint,
                         },
                     },
                     "batch_size": 2500 * 160,
                 }
                 _recog_imported(
-                    name=f"trafo_lm_{lm_scale}_ilm_{ilm_scale}_beam{beam_size}_v3", recog_config=ilm_recog_config
+                    name=f"trafo_lm_{lm_scale}_ilm_{ilm_scale}_beam{beam_size}_ep10", recog_config=ilm_recog_config
                 )
+
+    # TODO: static ILM methods
+
+    for static_ilm_method in ["zero", "seq_avg"]:
+        ilm_recog_config = {
+            "beam_search_opts": {
+                "beam_size": 32,
+                "length_normalization_exponent": 0.0,
+                "lm_scale": 0.46,
+                "ilm_scale": 0.36,
+                "static_ilm_method": static_ilm_method,
+            },
+            "external_language_model": {"class": "TransformerDecoder", **trafo_lm_kazuki_import.TrafoLmOpts},
+            "internal_language_model": {"class": "StaticBasedIlm"},
+            "preload_from_files": {
+                "trafo_lm": {
+                    "prefix": "language_model.",
+                    "filename": trafo_lm_kazuki_import.get_pt_checkpoint_path(),
+                },
+                "ilm": {
+                    "prefix": "internal_language_model.",
+                    "filename": get_tf_to_rf_converted_ckpt_path(),  # asr decoder
+                },
+            },
+            "batch_size": 2500 * 160,
+        }
+        _recog_imported(name=f"trafo_lm_0.46_ilm_0.36_beam32_{static_ilm_method}", recog_config=ilm_recog_config)
 
 
 _sis_prefix: Optional[str] = None
@@ -468,15 +495,25 @@ class MakeModel:
             assert isinstance(internal_language_model, dict)
             internal_language_model = internal_language_model.copy()
             cls_name = internal_language_model.pop("class")
-            assert cls_name == "MiniLstmIlm"
             internal_language_model.pop("vocab_dim", None)  # will just overwrite
-            ilm = MiniLstmIlm(
-                target_dim=target_dim,
-                target_embed_dim=target_embed_dim,
-                att_context_dim=enc_model_dim,
-                att_num_heads=att_num_heads,
-                **internal_language_model,
-            )
+            if cls_name == "MiniLstmIlm":
+                ilm = MiniLstmIlm(
+                    target_dim=target_dim,
+                    target_embed_dim=target_embed_dim,
+                    att_context_dim=enc_model_dim,
+                    att_num_heads=att_num_heads,
+                    **internal_language_model,
+                )
+            elif cls_name == "StaticBasedIlm":
+                ilm = StaticBasedIlm(
+                    target_dim=target_dim,
+                    target_embed_dim=target_embed_dim,
+                    att_context_dim=enc_model_dim,
+                    att_num_heads=att_num_heads,
+                    **internal_language_model,
+                )
+            else:
+                raise ValueError(f"unknown internal_language_model class {cls_name}")
 
         return Model(
             in_dim,
@@ -977,9 +1014,15 @@ def model_recog(
         lm_state = model.language_model.default_initial_state(batch_dims=batch_dims_)
 
     ilm_scale = beam_search_opts.get("ilm_scale", None)
+    static_ilm_method = None
     ilm_state = None
+    ilm_feature_dim = model.internal_language_model.att_num_heads * model.internal_language_model.att_context_dim
     if ilm_scale:
         ilm_state = model.internal_language_model.decoder_default_initial_state(batch_dims=batch_dims_)
+        if isinstance(model.internal_language_model, StaticBasedIlm):
+            static_ilm_method = beam_search_opts["static_ilm_method"]
+            if static_ilm_method == "zero":
+                model.internal_language_model.static_att_ctx = rf.zeros(list(batch_dims_) + [ilm_feature_dim])
 
     i = 0
     seq_targets = []
@@ -1005,6 +1048,11 @@ def model_recog(
             label_log_prob += lm_scale * lm_log_prob
 
         if ilm_state:
+            if static_ilm_method == "seq_avg":
+                model.internal_language_model.static_att_ctx = rf.reduce_mean(
+                    enc_args["enc"], axis=enc_spatial_dim
+                )  # [B,D]
+                model.internal_language_model.static_att_ctx.feature_dim = ilm_feature_dim
             ilm_step_out, ilm_state = model.internal_language_model.loop_step(input_embed=input_embed, state=ilm_state)
             ilm_logits = model.internal_language_model.decode_logits(input_embed=input_embed, **ilm_step_out)
             ilm_log_prob = rf.log_softmax(ilm_logits, axis=model.target_dim)
@@ -1740,6 +1788,117 @@ class MiniLstmIlm(rf.Module):
         state_.att = att
 
         return {"s": s, "att": att}, state_
+
+    def decode_logits(self, *, s: Tensor, input_embed: Tensor, att: Tensor) -> Tensor:
+        """logits for the decoder"""
+        readout_in = self.readout_in(rf.concat_features(s, input_embed, att))
+        readout = rf.reduce_out(readout_in, mode="max", num_pieces=2, out_dim=self.output_prob.in_dim)
+        readout = rf.dropout(readout, drop_prob=0.3, axis=self.dropout_broadcast and readout.feature_dim)
+        logits = self.output_prob(readout)
+        return logits
+
+
+class StaticBasedIlm(rf.Module):
+
+    def __init__(
+        self,
+        *,
+        target_dim: Dim,
+        target_embed_dim: Dim = Dim(name="static_ilm_target_embed", dimension=640),
+        att_context_dim: Dim = Dim(name="static_ilm_att_dim", dimension=512, kind=Dim.Types.Feature),
+        att_num_heads: Dim = Dim(name="static_ilm_att_num_heads", dimension=1),
+    ):
+        """
+        :param target_dim:
+        :param target_embed_dim:
+        :param att_context_dim:
+        :param hidden_dim:
+        :param att_num_heads:
+        """
+
+        frozen_modules = []
+
+        self.target_dim = target_dim
+
+        self.target_embed = rf.Embedding(target_dim, target_embed_dim)
+        frozen_modules.append(self.target_embed)
+
+        self.static_att_ctx = None
+
+        self.att_num_heads = att_num_heads
+        self.att_context_dim = att_context_dim
+
+        self.s = rf.ZoneoutLSTM(
+            self.target_embed.out_dim + self.att_num_heads * self.att_context_dim,
+            Dim(name="lstm", dimension=1024),
+            zoneout_factor_cell=0.15,
+            zoneout_factor_output=0.05,
+            use_zoneout_output=False,  # like RETURNN/TF ZoneoutLSTM old default
+            # parts_order="icfo",  # like RETURNN/TF ZoneoutLSTM
+            # parts_order="ifco",
+            parts_order="jifo",  # NativeLSTM (the code above converts it...)
+            forget_bias=0.0,  # the code above already adds it during conversion
+        )
+        frozen_modules.append(self.s)
+
+        self.readout_in = rf.Linear(
+            self.s.out_dim + self.target_embed.out_dim + self.att_num_heads * self.att_context_dim,
+            Dim(name="readout", dimension=1024),
+        )
+        frozen_modules.append(self.readout_in)
+
+        self.output_prob = rf.Linear(self.readout_in.out_dim // 2, target_dim)
+        frozen_modules.append(self.output_prob)
+
+        self.dropout_broadcast = rf.dropout_broadcast_default()
+
+        for module in frozen_modules:
+            for param in module.parameters():
+                param.trainable = False
+
+    def decoder_default_initial_state(self, *, batch_dims: Sequence[Dim]) -> rf.State:
+        """Default initial state"""
+        state = rf.State(
+            s=self.s.default_initial_state(batch_dims=batch_dims),
+            att=rf.zeros(list(batch_dims) + [self.att_num_heads * self.att_context_dim]),
+        )
+        state.att.feature_dim_axis = len(state.att.dims) - 1
+        return state
+
+    def loop_step_output_templates(self, batch_dims: List[Dim]) -> Dict[str, Tensor]:
+        """loop step out"""
+        return {
+            "s": Tensor(
+                "s", dims=batch_dims + [self.s.out_dim], dtype=rf.get_default_float_dtype(), feature_dim_axis=-1
+            ),
+            "att": Tensor(
+                "att",
+                dims=batch_dims + [self.att_num_heads * self.att_context_dim],
+                dtype=rf.get_default_float_dtype(),
+                feature_dim_axis=-1,
+            ),
+        }
+
+    def loop_step(
+        self,
+        *,
+        input_embed: rf.Tensor,
+        state: Optional[rf.State] = None,
+    ) -> Tuple[Dict[str, rf.Tensor], rf.State]:
+        """step of the inner loop"""
+        if state is None:
+            batch_dims = input_embed.remaining_dims(input_embed.feature_dim)
+            state = self.decoder_default_initial_state(batch_dims=batch_dims)
+        state_ = rf.State()
+
+        prev_att = state.att
+        s, state_.s = self.s(rf.concat_features(input_embed, prev_att), state=state.s, spatial_dim=single_step_dim)
+
+        assert self.static_att_ctx is not None, "Static attention context vector is not set."
+
+        state_.att = self.static_att_ctx
+
+        return {"s": s, "att": self.static_att_ctx}, state_
 
     def decode_logits(self, *, s: Tensor, input_embed: Tensor, att: Tensor) -> Tensor:
         """logits for the decoder"""
