@@ -223,6 +223,6 @@ class CorpusMergeContractionsJob(Job):
         c.load(self.corpus_file.get_path())
 
         for seg in c.segments():
-            seg.text = _merge_contractions(seg.text)
+            seg.orth = _merge_contractions(seg.orth)
 
         c.dump(self.out_corpus_file.get_path())
