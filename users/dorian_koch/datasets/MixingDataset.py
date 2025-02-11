@@ -387,7 +387,7 @@ class MixingDataset(CachedDataset2):
         """is data sparse"""
         return self.control_dataset.is_data_sparse(key)
     
-    def get_epoch_continuous(self, sorted_seq_idx: int) -> float:
+    def get_complete_frac(self, sorted_seq_idx: int, *, allow_approximation: bool = True, **kwargs) -> Optional[float]:
         assert self.left_dataset.num_seqs > 0 and self.right_dataset.num_seqs > 0
         indices = self._get_childindices_at_seq_idx(sorted_seq_idx)
         if indices is None:
@@ -398,5 +398,4 @@ class MixingDataset(CachedDataset2):
             return min(frac_left, frac_right)
         # "early_exit" or "exception"
         return max(frac_left, frac_right)
-    
-    # TODO implement is_less_than_num_seqs
+
