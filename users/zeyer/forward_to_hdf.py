@@ -527,11 +527,21 @@ def _returnn_get_model(*, epoch: int, **_kwargs_unused):
     if model_def is None:
         return rf.Module()  # empty dummy module
 
-    default_input_key = config.typed_value("default_input")
-    default_target_key = config.typed_value("target")
     extern_data_dict = config.typed_value("extern_data")
-    data = Tensor(name=default_input_key, **extern_data_dict[default_input_key])
-    targets = Tensor(name=default_target_key, **extern_data_dict[default_target_key])
+    model_outputs_dict = config.typed_value("model_outputs")
+
+    default_input_key = config.typed_value("default_input")
+    data_templ_dict = {"name": default_input_key, **extern_data_dict[default_input_key]}
+    default_target_key = config.typed_value("target")
+    if default_target_key:
+        targets_templ_dict = {"name": default_target_key, **extern_data_dict[default_target_key]}
+    elif model_outputs_dict and "output" in model_outputs_dict:
+        targets_templ_dict = {"name": "output", **model_outputs_dict["output"]}
+    else:
+        raise ValueError(f"default_target_key {default_target_key} and model_outputs {model_outputs_dict}")
+
+    data = Tensor(**data_templ_dict)
+    targets = Tensor(**targets_templ_dict)
     assert targets.sparse_dim and targets.sparse_dim.vocab, f"no vocab for {targets}"
 
     model = model_def(epoch=epoch, in_dim=data.feature_dim, target_dim=targets.sparse_dim)
