@@ -2,6 +2,8 @@ from dataclasses import dataclass
 from functools import lru_cache
 from typing import Dict, Any
 
+from sisyphus import *
+
 from i6_core.returnn import CodeWrapper
 from i6_experiments.common.datasets.tedlium2.corpus import get_ogg_zip_dict, get_bliss_corpus_dict
 from i6_experiments.common.datasets.tedlium2.vocab import get_subword_nmt_bpe
@@ -132,13 +134,15 @@ def build_training_datasets(
 
 
 @lru_cache()
-def build_test_dataset(dataset_key, bpe_size=10000, use_raw_features=False, preemphasis=None):
+def build_test_dataset(dataset_key, bpe_size=10000, use_raw_features=False, preemphasis=None, merge_contractions=False):
     ogg_zip_dict = get_ogg_zip_dict("corpora")
     bliss_dict = get_bliss_corpus_dict()
     test_ogg = ogg_zip_dict[dataset_key]
     from i6_core.corpus.convert import CorpusToTextDictJob
 
     test_reference_dict_file = CorpusToTextDictJob(bliss_dict[dataset_key]).out_dictionary
+    if merge_contractions:
+        test_reference_dict_file = MergeContractionsJob(test_reference_dict_file).out_dict
 
     train_bpe_datastream = get_bpe_datastream(bpe_size=bpe_size, is_recog=True)
 
@@ -160,3 +164,43 @@ def build_test_dataset(dataset_key, bpe_size=10000, use_raw_features=False, pree
     )
 
     return test_dataset, test_reference_dict_file, bliss_dict[dataset_key]
+
+
+class MergeContractionsJob(Job):
+    """
+    Merge contractions (ending with 's)
+    example: he 's => he's
+
+    Takes as input a dict with format {<seq-tag>: <text>}
+    """
+
+    def __init__(self, dict_file: tk.Path):
+        self.dict_file = dict_file
+        self.out_dict = self.output_path("out_dict.txt")
+
+    def tasks(self):
+        yield Task("run", mini_task=True)
+
+    @staticmethod
+    def _merge_contractions(s):
+        import re
+
+        res = re.sub(r"(\b\w+)\s'([a-zA-Z]+)\b", r"\1'\2", s)
+        res = res.lower()
+        return res
+
+    def run(self):
+        if self.dict_file.get_path().endswith(".gz"):
+            import gzip
+
+            open_func = gzip.open
+        else:
+            open_func = open
+
+        d = eval(open_func(self.dict_file.get_path()).read())
+
+        out_f = open(self.out_dict.get_path(), "wt")
+        out_f.write("{\n")
+        for k, v in d.items():
+            out_f.write(f"{k!r}: {self._merge_contractions(v)!r},\n")
+        out_f.write("}\n")

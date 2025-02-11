@@ -71,6 +71,7 @@ lbs_trans_subnet_cls = get_trans_lstm_lm()
 lbs_density_ratio_lm_opts = {
     "lm_subset": lbs_trans_subnet_cls["subnetwork"],
     "lm_model": lbs_trans_subnet_cls["load_on_init"],
+    "target": "bpe_labels",
     "name": "lstm",
 }
 
@@ -79,8 +80,6 @@ ted2_lstm_lm_opts = {
     "lm_model": "/work/asr4/michel/setups-data/lm_training/data-train/tedlium_re_i128_m2048_m2048_m2048_m2048.sgd_b32_lr0_cl2.newbobabs.d0.0.1350/net-model/network.020",
     "name": "lstm",
 }
-
-ted2_density_ratio_lm_opts = {}
 
 lstm_lm_opts_map = {
     BPE_10K: lstm_10k_lm_opts,
@@ -140,13 +139,11 @@ def conformer_baseline():
             )
         return test_dataset_tuples
 
-    def get_ted2_test_dataset_tuples(bpe_size):
+    def get_ted2_test_dataset_tuples(bpe_size, merge_contractions=False):
         test_dataset_tuples = {}
         for testset in ["dev", "test"]:
             test_dataset_tuples[testset] = build_ted2_test_dataset(
-                testset,
-                use_raw_features=True,
-                bpe_size=bpe_size,
+                testset, use_raw_features=True, bpe_size=bpe_size, merge_contractions=merge_contractions
             )
             # override to use LibriSpeech bpe labels
             test_dataset_tuples[testset][0].datasets["zip_dataset"]["targets"]["bpe_file"] = tk.Path(
@@ -215,6 +212,7 @@ def conformer_baseline():
             mem_rqmt=mem_rqmt,
             time_rqmt=time_rqmt,
             use_sclite=kwargs.get("use_sclite", False),
+            merge_contractions=kwargs.get("merge_contractions", False),
         )
 
     def run_lm_fusion(
@@ -323,13 +321,19 @@ def conformer_baseline():
                     ilm_opts.update(kwargs.get("ilm_train_opts", {}))  # example for FFN, etc
 
                     search_args["prior_lm_opts"] = ilm_opts
-                    search_args["preload_from_files"] = {
-                        "prior_lm": {
-                            "filename": search_checkpoint,  # copy ASR decoder to be used as ILM decoder
-                            "prefix": "prior_",
+
+                    if prior_type != "density_ratio":
+                        search_args["preload_from_files"] = {
+                            "prior_lm": {
+                                "filename": search_checkpoint,  # copy ASR decoder to be used as ILM decoder
+                                "prefix": "prior_",
+                            }
                         }
-                    }
+
                     if prior_type == "mini_lstm" or prior_type == "ffn":
+                        assert (
+                            "preload_from_files" in search_args
+                        ), "preload_from_files must have been set for the ASR decoder prior copy"
                         assert mini_lstm_ckpt, "Mini-LSTM checkpoint not set."
                         search_args["preload_from_files"].update(
                             {
@@ -344,6 +348,11 @@ def conformer_baseline():
                         ilm_opts["data"] = TRAIN_AVG_ENC
                     if prior_type == "train_avg_ctx":
                         ilm_opts["data"] = TRAIN_AVG_ATT
+
+                    if prior_type == "density_ratio":
+                        ilm_opts["lm_subnet"] = lbs_density_ratio_lm_opts["lm_subset"]
+                        ilm_opts["lm_model"] = lbs_density_ratio_lm_opts["lm_model"]
+                        ilm_opts["target"] = lbs_density_ratio_lm_opts["target"]
 
                 if prior_type_name is None:
                     prior_type_name = prior_type
@@ -385,6 +394,7 @@ def conformer_baseline():
                     recog_bliss=test_dataset_tuples[test_set][2],
                     time_rqmt=kwargs.get("time_rqmt", time_rqmt),
                     use_sclite=kwargs.get("use_sclite", False),
+                    merge_contractions=kwargs.get("merge_contractions", False),
                 )
 
     def run_search(
@@ -907,7 +917,32 @@ def conformer_baseline():
     # Cross-domain evaluation
     # None: 16.1/16.9
     # LM: 13.9/14.6
-    # LM+ILM: 12.5/13.6
+    # LM+ILM: 12.1/13.3
+    #
+    # with merged contractions:
+    # None: 12.6/11.9
+    # LM:       /10.6
+    # LM+ILM: 9.2/9.5
+
+    run_lm_fusion(
+        lm_type="lstm",
+        extra_name="ted2-recogs",
+        ext_lm_opts=ted2_lstm_lm_opts,
+        exp_name=f"base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_cyc915_ep2035_peak0.0009_retrain1_const20_linDecay580_{1e-4}",
+        epoch="avg",
+        test_set_names=["dev", "test"],
+        lm_scales=[0.0],
+        train_job=train_j,
+        train_data=train_data,
+        feature_net=log10_net_10ms,
+        args=oclr_args,
+        beam_size=4,
+        batch_size=10_000 * 160,
+        bpe_size=BPE_10K,
+        use_sclite=True,
+        test_dataset_tuples=get_ted2_test_dataset_tuples(BPE_10K, merge_contractions=True),
+        merge_contractions=True,
+    )
 
     for beam_size in [10]:
         for lm_scale in [0.38]:
@@ -917,7 +952,7 @@ def conformer_baseline():
                 ext_lm_opts=ted2_lstm_lm_opts,
                 exp_name=f"base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_cyc915_ep2035_peak0.0009_retrain1_const20_linDecay580_{1e-4}",
                 epoch="avg",
-                test_set_names=["test"],
+                test_set_names=["dev", "test"],
                 lm_scales=[lm_scale],
                 train_job=train_j,
                 train_data=train_data,
@@ -927,7 +962,8 @@ def conformer_baseline():
                 batch_size=10_000 * 160,
                 bpe_size=BPE_10K,
                 use_sclite=True,
-                test_dataset_tuples=get_ted2_test_dataset_tuples(BPE_10K),
+                test_dataset_tuples=get_ted2_test_dataset_tuples(BPE_10K, merge_contractions=True),
+                merge_contractions=True,
             )
 
     # 1.9/4.2/2.1/4.6
@@ -997,19 +1033,33 @@ def conformer_baseline():
 
                 if beam_size == 32:
                     for len_norm_exp in [0.0]:
-                        for k, lm, ilm in [("test-clean", 0.38, 0.3), ("test-other", 0.46, 0.34)]:
+                        for prior_type, lm_scale, ilm_scale in [
+                            ("train_avg_ctx", 0.46, 0.36),
+                            ("avg", 0.5, 0.44),
+                            ("train_avg_enc", 0.54, 0.44),
+                        ]:
                             run_lm_fusion(
                                 lm_type="trafo",
                                 exp_name=f"base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_cyc915_ep2035_peak0.0009_retrain1_const20_linDecay580_{1e-4}",
                                 epoch="avg",
-                                test_set_names=[k],
-                                lm_scales=[lm],
-                                prior_scales=[ilm],
-                                prior_type="zero",
+                                test_set_names=["test-clean", "test-other"],
+                                lm_scales=[lm_scale],
+                                prior_scales=[ilm_scale],
+                                prior_type=prior_type,
+                                prior_type_name={
+                                    "density_ratio": "densityRatio",
+                                    "train_avg_enc": "avgEnc",
+                                    "train_avg_ctx": "avgAtt",
+                                    "avg": "seqAvg",
+                                }[prior_type],
                                 train_job=train_j,
                                 train_data=train_data,
                                 feature_net=log10_net_10ms,
-                                args=oclr_args,
+                                args=(
+                                    {**oclr_args, "extra_prolog": ["import numpy"]}
+                                    if prior_type.startswith("train_")
+                                    else oclr_args
+                                ),
                                 beam_size=beam_size,
                                 batch_size=1000 * 160,
                                 bpe_size=BPE_10K,
@@ -1017,6 +1067,34 @@ def conformer_baseline():
                                 coverage_threshold=0.1,
                                 use_sclite=True,
                                 length_norm_exponent=len_norm_exp,
+                            )
+
+                    for lm_scale in [0.46, 0.48, 0.5, 0.52, 0.54, 0.56]:
+                        for ilm_scale in [0.2, 0.22, 0.24, 0.26, 0.28, 0.3, 0.32]:
+                            run_lm_fusion(
+                                lm_type="trafo",
+                                exp_name=f"base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_cyc915_ep2035_peak0.0009_retrain1_const20_linDecay580_{1e-4}",
+                                epoch="avg",
+                                test_set_names=["dev-clean", "dev-other", "test-clean", "test-other"],
+                                lm_scales=[lm_scale],
+                                prior_scales=[ilm_scale],
+                                prior_type="density_ratio",
+                                prior_type_name="densityRatio_lenNorm",
+                                train_job=train_j,
+                                train_data=train_data,
+                                feature_net=log10_net_10ms,
+                                args=(
+                                    {**oclr_args, "extra_prolog": ["import numpy"]}
+                                    if prior_type.startswith("train_")
+                                    else oclr_args
+                                ),
+                                beam_size=beam_size,
+                                batch_size=1000 * 160,
+                                bpe_size=BPE_10K,
+                                coverage_scale=0.2,
+                                coverage_threshold=0.1,
+                                use_sclite=True,
+                                length_norm_exponent=1.0,
                             )
 
                 run_lm_fusion(
@@ -1056,9 +1134,6 @@ def conformer_baseline():
                                         prior_scales=[ilm_scale],
                                         prior_type="mini_lstm",
                                         prior_type_name=f"mini_lstm_{att_constraints_loss}Loss{att_constraint_scale}_ep{mini_lstm_ep}_lenNorm{length_norm_exp}",
-                                        # mini_lstm_ckpt=get_best_checkpoint(
-                                        #     mini_lstm_j, key="dev_score_output/output_prob"
-                                        # ),
                                         length_norm_exponent=length_norm_exp,
                                         mini_lstm_ckpt=mini_lstm_j.out_checkpoints[mini_lstm_ep],
                                         train_job=train_j,
@@ -1069,36 +1144,36 @@ def conformer_baseline():
                                         batch_size=10_000 * 160,
                                         bpe_size=BPE_10K,
                                         use_sclite=True,
-                                        test_dataset_tuples=get_ted2_test_dataset_tuples(BPE_10K),
+                                        test_dataset_tuples=get_ted2_test_dataset_tuples(
+                                            BPE_10K, merge_contractions=True
+                                        ),
+                                        merge_contractions=True,
                                     )
 
-                                for prior_type in ["avg"]:
-                                    for lm_scale in [0.7, 0.72, 0.74, 0.76, 0.78]:
-                                        for ilm_scale in [0.6, 0.62, 0.64, 0.66, 0.68, 0.7]:
-                                            run_lm_fusion(
-                                                lm_type="lstm",
-                                                extra_name="ted2-recogs",
-                                                ext_lm_opts=ted2_lstm_lm_opts,
-                                                exp_name=f"base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_cyc915_ep2035_peak0.0009_retrain1_const20_linDecay580_{1e-4}",
-                                                epoch="avg",
-                                                test_set_names=["dev", "test"],
-                                                lm_scales=[lm_scale],
-                                                prior_scales=[ilm_scale],
-                                                prior_type=prior_type,
-                                                prior_type_name={
-                                                    "train_avg_enc": "avgEnc",
-                                                    "train_avg_ctx": "avgAtt",
-                                                    "avg": "seqAvg",
-                                                }.get(prior_type),
-                                                length_norm_exponent=length_norm_exp,
-                                                mini_lstm_ckpt=mini_lstm_j.out_checkpoints[mini_lstm_ep],
-                                                train_job=train_j,
-                                                train_data=train_data,
-                                                feature_net=log10_net_10ms,
-                                                args={**oclr_args, "extra_prolog": ["import numpy"]},
-                                                beam_size=beam_size,
-                                                batch_size=10_000 * 160,
-                                                bpe_size=BPE_10K,
-                                                use_sclite=True,
-                                                test_dataset_tuples=get_ted2_test_dataset_tuples(BPE_10K),
-                                            )
+                for length_norm_exp in [1.0]:
+                    for prior_type in ["density_ratio"]:
+                        for lm_scale in [0.7, 0.72, 0.74, 0.76]:
+                            for ilm_scale in [0.4, 0.42, 0.44, 0.46, 0.48, 0.5, 0.52]:
+                                run_lm_fusion(
+                                    lm_type="lstm",
+                                    extra_name="ted2-recogs",
+                                    ext_lm_opts=ted2_lstm_lm_opts,
+                                    exp_name=f"base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_cyc915_ep2035_peak0.0009_retrain1_const20_linDecay580_{1e-4}",
+                                    epoch="avg",
+                                    test_set_names=["dev", "test"],
+                                    lm_scales=[lm_scale],
+                                    prior_scales=[ilm_scale],
+                                    prior_type=prior_type,
+                                    prior_type_name="densityRatio" + ("_lenNorm" if length_norm_exp else ""),
+                                    length_norm_exponent=length_norm_exp,
+                                    mini_lstm_ckpt=mini_lstm_j.out_checkpoints[10],
+                                    train_job=train_j,
+                                    train_data=train_data,
+                                    feature_net=log10_net_10ms,
+                                    args={**oclr_args, "extra_prolog": ["import numpy"]},
+                                    beam_size=12,
+                                    batch_size=10_000 * 160,
+                                    bpe_size=BPE_10K,
+                                    use_sclite=True,
+                                    test_dataset_tuples=get_ted2_test_dataset_tuples(BPE_10K),
+                                )

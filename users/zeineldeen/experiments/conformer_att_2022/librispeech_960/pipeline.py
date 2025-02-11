@@ -112,6 +112,7 @@ def search_single(
     use_returnn_compute_wer=True,
     recog_ext_pipeline=False,
     remove_label: Optional[Union[str, Set[str]]] = None,
+    merge_contractions: bool = False,
     gpu_mem: int = 11,
     use_gpu_test: bool = False,
     device: str = "gpu",
@@ -129,6 +130,8 @@ def search_single(
     :param recog_ext_pipeline: the search output is the raw beam search output, all beams.
         still need to select best, and also still need to maybe remove blank/EOS/whatever.
     :param remove_label: for SearchRemoveLabelJob
+    :param merge_contractions: if this is set, contractions such as "he 's" are mapped to "he's"
+        (this might be needed for ted2 cross-domain scoring to mask such unnecessary errors)
     :param gpu_mem: used in sis settings.py to select gpu partition
     :param use_gpu_test: if enabled, use gpu_test partition (usually just for testing)
     :param device: "gpu" or "cpu"
@@ -182,6 +185,11 @@ def search_single(
 
     search_words = SearchBPEtoWordsJob(search_bpe, output_gzip=recog_ext_pipeline).out_word_search_results
 
+    if merge_contractions:
+        from i6_experiments.users.zeineldeen.experiments.conformer_att_2023.tedlium2.data import MergeContractionsJob
+
+        search_words = MergeContractionsJob(search_words).out_dict
+
     wer_ = None
 
     if use_sclite:
@@ -194,18 +202,27 @@ def search_single(
             bliss_corpus=recognition_bliss_corpus,
         ).out_ctm_file
 
+        # TODO: merge contractions on corpus level
+
         stm_file = CorpusToStmJob(bliss_corpus=recognition_bliss_corpus).out_stm_path
 
         sclite_job = ScliteJob(ref=stm_file, hyp=search_ctm, sctk_binary_path=SCTK_BINARY_PATH)
-        tk.register_output(prefix_name + "/sclite/wer", sclite_job.out_wer)
-        tk.register_output(prefix_name + "/sclite/report", sclite_job.out_report_dir)
+        tk.register_output(
+            prefix_name + ("/merged_contractions" if merge_contractions else "") + "/sclite/wer", sclite_job.out_wer
+        )
+        tk.register_output(
+            prefix_name + ("/merged_contractions" if merge_contractions else "") + "/sclite/report",
+            sclite_job.out_report_dir,
+        )
         wer_ = sclite_job.out_wer
 
     if use_returnn_compute_wer:
         wer = ReturnnComputeWERJob(search_words, recognition_reference)
 
-        tk.register_output(prefix_name + "/search_out_words.py", search_words)
-        tk.register_output(prefix_name + "/wer", wer.out_wer)
+        tk.register_output(
+            prefix_name + ("/merged_contractions" if merge_contractions else "") + "/search_out_words.py", search_words
+        )
+        tk.register_output(prefix_name + ("/merged_contractions" if merge_contractions else "") + "/wer", wer.out_wer)
         wer_ = wer.out_wer
 
     return wer_, search_words
