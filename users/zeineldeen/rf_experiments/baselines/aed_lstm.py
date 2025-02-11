@@ -1023,6 +1023,7 @@ def model_recog(
             static_ilm_method = beam_search_opts["static_ilm_method"]
             if static_ilm_method == "zero":
                 model.internal_language_model.static_att_ctx = rf.zeros(list(batch_dims_) + [ilm_feature_dim])
+                model.internal_language_model.static_att_ctx.feature_dim = ilm_feature_dim
 
     i = 0
     seq_targets = []
@@ -1052,6 +1053,7 @@ def model_recog(
                 model.internal_language_model.static_att_ctx = rf.reduce_mean(
                     enc_args["enc"], axis=enc_spatial_dim
                 )  # [B,D]
+                model.internal_language_model.static_att_ctx.feature_dim = ilm_feature_dim
             ilm_step_out, ilm_state = model.internal_language_model.loop_step(input_embed=input_embed, state=ilm_state)
             ilm_logits = model.internal_language_model.decode_logits(input_embed=input_embed, **ilm_step_out)
             ilm_log_prob = rf.log_softmax(ilm_logits, axis=model.target_dim)
