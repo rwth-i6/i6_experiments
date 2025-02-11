@@ -10,18 +10,6 @@ from . import modules
 from . import commons
 from . import attentions
 
-try:
-    from .monotonic_align.path import maximum_path
-except:
-    import subprocess
-    import sys
-
-    subprocess.call(
-        [sys.executable, "setup.py", "build_ext", "--inplace"],
-        cwd=os.path.join(os.path.realpath(os.path.dirname(__file__)), "monotonic_align"),
-    )
-    from .monotonic_align.path import maximum_path
-
 from ..tts_shared.tts_base_model.base_model_v1 import BaseTTSModelV1
 from ..tts_shared import DbMelFeatureExtractionConfig
 from ..tts_shared.encoder.transformer import TTSTransformerTextEncoderV1Config
@@ -230,6 +218,18 @@ class Model(BaseTTSModelV1):
                 logp3 = torch.matmul((h_m * x_s_sq_r).transpose(1, 2), z)  # [b, t, d] x [b, d, t'] = [b, t, t']
                 logp4 = torch.sum(-0.5 * (h_m**2) * x_s_sq_r, [1]).unsqueeze(-1)  # [b, t, 1]
                 logp = logp1 + logp2 + logp3 + logp4  # [b, t, t']
+
+                try:
+                    from .monotonic_align.path import maximum_path
+                except ImportError:
+                    import subprocess
+                    import sys
+
+                    subprocess.call(
+                        [sys.executable, "setup.py", "build_ext", "--inplace"],
+                        cwd=os.path.join(os.path.realpath(os.path.dirname(__file__)), "monotonic_align"),
+                    )
+                    from .monotonic_align.path import maximum_path
 
                 attn = maximum_path(logp, attn_mask.squeeze(1)).unsqueeze(1).detach()
                 # embed()
