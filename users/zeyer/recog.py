@@ -12,7 +12,6 @@ import functools
 import sisyphus
 from sisyphus import tk
 from sisyphus import tools as sis_tools
-from i6_core.util import instanciate_delayed
 
 from i6_core.returnn import ReturnnConfig
 from i6_core.returnn.training import ReturnnTrainingJob, PtCheckpoint, AverageTorchCheckpointsJob
@@ -27,6 +26,7 @@ from returnn_common import nn
 from returnn_common.datasets_old_2022_10.interface import DatasetConfig
 from i6_experiments.common.setups import serialization
 from i6_experiments.users.zeyer.utils.serialization import get_import_py_code
+from i6_experiments.users.zeyer.sis_tools.instanciate_delayed import instanciate_delayed
 
 from i6_experiments.users.zeyer import tools_paths
 from i6_experiments.users.zeyer.utils.failsafe_text_io import FailsafeTextOutput
