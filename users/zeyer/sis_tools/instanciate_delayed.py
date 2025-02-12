@@ -66,9 +66,7 @@ def print_instanciate_delayed_warning_on_obj(o: Any):
         " (if the instanciate_delayed modification happened on the task itself).\n"
         "If you want to keep the old behavior, call this in the beginning of your Sisyphus config:\n"
         "  set_use_buggy_old_instanciate_delayed(True).\n"
-        "(If you want to have a context manager for this, let me know.)\n"
-        "If you want to disable this warning, call this in the beginning of your Sisyphus config:\n"
-        "  set_enable_check_behavior_change_new_to_old(False)."
+        "(If you want to have a context manager for this, let me know.)"
     )
 
 
