@@ -26,10 +26,7 @@ from returnn_common import nn
 from returnn_common.datasets_old_2022_10.interface import DatasetConfig
 from i6_experiments.common.setups import serialization
 from i6_experiments.users.zeyer.utils.serialization import get_import_py_code
-from i6_experiments.users.zeyer.sis_tools.instanciate_delayed import (
-    instanciate_delayed,
-    print_instanciate_delayed_warning_on_obj,
-)
+from i6_experiments.users.zeyer.sis_tools.instanciate_delayed import instanciate_delayed_inplace_with_warning
 
 from i6_experiments.users.zeyer import tools_paths
 from i6_experiments.users.zeyer.utils.failsafe_text_io import FailsafeTextOutput
@@ -382,11 +379,10 @@ def search_config(
         **(config or {}),
     )
 
-    extern_data_raw = dataset.get_extern_data()
     # The extern_data is anyway not hashed, so we can also instanciate any delayed objects here.
     # It's not hashed because we assume that all aspects of the dataset are already covered
     # by the datasets itself as part in the config above.
-    extern_data_raw = instanciate_delayed(extern_data_raw)
+    extern_data_raw = instanciate_delayed_inplace_with_warning(dataset.get_extern_data)
 
     returnn_recog_config = ReturnnConfig(
         config=returnn_recog_config_dict,
@@ -463,7 +459,6 @@ def search_config_v2(
     TODO should use sth like unhashed_package_root (https://github.com/rwth-i6/i6_experiments/pull/157)
     """
     from i6_experiments.common.setups.returnn.serialization import get_serializable_config
-    from sisyphus.hash import short_hash
 
     returnn_recog_config_dict = dict(
         backend=model_def.backend,
@@ -478,18 +473,10 @@ def search_config_v2(
     if isinstance(model_def, ModelDefWithCfg):
         returnn_recog_config_dict.update(model_def.config)
 
-    extern_data_raw = dataset.get_extern_data()
-    h = short_hash(extern_data_raw)
     # The extern_data is anyway not hashed, so we can also instanciate any delayed objects here.
     # It's not hashed because we assume that all aspects of the dataset are already covered
     # by the datasets itself as part in the config above.
-    extern_data_raw = instanciate_delayed(extern_data_raw)
-    if h != short_hash(dataset.get_extern_data()):
-        print(
-            "WARNING: instanciate_delayed changed the dataset extern_data. "
-            "Any further jobs using this dataset will not be hashed correctly."
-        )
-        print_instanciate_delayed_warning_on_obj(extern_data_raw)
+    extern_data_raw = instanciate_delayed_inplace_with_warning(dataset.get_extern_data)
 
     returnn_recog_config = ReturnnConfig(
         config=returnn_recog_config_dict,
