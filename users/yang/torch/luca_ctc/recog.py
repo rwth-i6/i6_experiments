@@ -56,6 +56,7 @@ def recog_training_exp(
     prior_config: Optional[dict] = None,
     prior_task: Optional[Task] = None, # where to compute the task
     search_rqmt = {"time": 6},
+    merge_contraction: bool = False,
 ):
     """recog on all relevant epochs"""
     recog_and_score_func = _RecogAndScoreFunc(
@@ -73,6 +74,7 @@ def recog_training_exp(
         prior_config=prior_config,
         prior_task=prior_task,
         search_rqmt=search_rqmt,
+        merge_contraction=merge_contraction,
     )
     summarize_job = GetBestRecogTrainExp(
         exp=model,
@@ -108,6 +110,7 @@ class _RecogAndScoreFunc:
         prior_config: Optional[dict] = None,
         prior_task = None,
         search_rqmt = {"time": 5},
+        merge_contraction: bool = False,
     ):
         # Note: When something is added here, remember to handle it in _sis_hash.
         self.prefix_name = prefix_name
@@ -124,6 +127,7 @@ class _RecogAndScoreFunc:
         self.prior_config = prior_config
         self.prior_task = prior_task
         self.search_rqmt = search_rqmt
+        self.merge_contraction = merge_contraction
 
     def __call__(self, epoch_or_ckpt: Union[int, PtCheckpoint]) -> ScoreResultCollection:
         if isinstance(epoch_or_ckpt, int):
@@ -149,6 +153,7 @@ class _RecogAndScoreFunc:
             name=self.prefix_name,
             epoch=epoch_or_ckpt,
             search_rqmt=self.search_rqmt,
+            merge_contraction=self.merge_contraction,
         )
         if isinstance(epoch_or_ckpt, int):
             tk.register_output(self.prefix_name + f"/recog_results_per_epoch/{epoch_or_ckpt:03}", res.output)
@@ -184,6 +189,7 @@ def recog_model(
     search_post_config: Optional[Dict[str, Any]] = None,
     recog_post_proc_funcs: Sequence[Callable[[RecogOutput], RecogOutput]] = (),
     search_mem_rqmt: Union[int, float] = 6,
+    merge_contraction: bool = False,
     search_rqmt: Optional[Dict[str, Any]] = {"time": 5},
     dev_sets: Optional[Collection[str]] = None,
     name: Optional[str] = None,
@@ -233,8 +239,9 @@ def recog_model(
             recog_post_proc_funcs=list(recog_post_proc_funcs) + list(task.recog_post_proc_funcs),
             dataset_name=dataset_name,
             train_exp_name=train_exp_name,
+            merge_contraction=merge_contraction,
         )
-        score_out = task.score_recog_output_func(dataset, recog_out)
+        score_out = task.score_recog_output_func(dataset, recog_out, merge_contraction=merge_contraction)
         outputs[dataset_name] = score_out
     return task.collect_score_results_func(outputs)
 
@@ -247,6 +254,7 @@ def search_dataset(
     config: Optional[Dict[str, Any]] = None,
     search_post_config: Optional[Dict[str, Any]] = None,
     search_mem_rqmt: Union[int, float] = 6,
+    merge_contraction: bool = False,
     search_rqmt: Optional[Dict[str, Any]] = None,
     search_alias_name: Optional[str] = None,
     recog_post_proc_funcs: Sequence[Callable[[RecogOutput], RecogOutput]] = (),
@@ -310,6 +318,9 @@ def search_dataset(
         #   It's not clear whether this is helpful in general.
         #   As our beam sizes are very small, this might boost some hyps too much.
         res = SearchTakeBestJob(res, output_gzip=True).out_best_search_results
+    if merge_contraction:
+        from i6_experiments.users.yang.torch.ctc_ilm_kd.datasets.librispeech_tedlium2 import MergeContractionsJob
+        res = MergeContractionsJob(res).out_dict
     return RecogOutput(output=res)
 
 
