@@ -9,7 +9,6 @@ import sys
 from sisyphus.delayed_ops import DelayedBase
 from sisyphus.hash import short_hash
 from i6_core.util import instanciate_delayed as instanciate_delayed_inplace
-import tree
 
 
 def instanciate_delayed_copy(o: Any) -> Any:
@@ -22,6 +21,7 @@ def instanciate_delayed_copy(o: Any) -> Any:
     :param o: nested structure that may contain DelayedBase objects
     :return: o with all DelayedBase objects replaced by their .get() value
     """
+    import tree
 
     def _instanciate_delayed_obj(o: Any) -> Any:
         if isinstance(o, DelayedBase):
