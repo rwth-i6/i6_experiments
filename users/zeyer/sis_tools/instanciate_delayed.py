@@ -22,6 +22,12 @@ def instanciate_delayed_copy(o: Any) -> Any:
     :param o: nested structure that may contain DelayedBase objects
     :return: o with all DelayedBase objects replaced by their .get() value
     """
+
+    def _instanciate_delayed_obj(o: Any) -> Any:
+        if isinstance(o, DelayedBase):
+            return o.get()
+        return o
+
     return tree.map_structure(_instanciate_delayed_obj, o)
 
 
@@ -88,9 +94,3 @@ def print_instanciate_delayed_warning(*, obj: Any = _not_specified, func: Any = 
         "With fixed behavior, all of exp1, exp2 and exp3 will get the same hash. "
         "However, note that also exp4 might get a new hash than before."
     )
-
-
-def _instanciate_delayed_obj(o: Any) -> Any:
-    if isinstance(o, DelayedBase):
-        return o.get()
-    return o
