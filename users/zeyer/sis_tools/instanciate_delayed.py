@@ -11,7 +11,8 @@ import tree
 from i6_core.util import instanciate_delayed as _instanciate_delayed_old
 
 
-use_buggy_old_instanciate_delayed = False
+# Keep this as the default to not break hashes...
+use_buggy_old_instanciate_delayed = True
 
 
 def instanciate_delayed(o: Any) -> Any:
@@ -50,9 +51,6 @@ def print_instanciate_delayed_warning_on_obj(o: Any):
         print(f"  {f.f_code.co_name} in {f.f_code.co_filename}:{f.f_lineno}")
         f = f.f_back
     print(
-        "Now the code uses a new instanciate_delayed which does not modify the input inplace. "
-        "If you observe that many of your jobs do get a different hash now, "
-        "it means you were affected by this change. "
         "Specifically, imagine you have code like this:\n"
         "  train_exp('exp1', task, model_def, config=config)\n"
         "  train_exp('exp2', task, model_def, config=config)  # exactly same as exp1\n"
@@ -61,12 +59,12 @@ def print_instanciate_delayed_warning_on_obj(o: Any):
         "(similar for train_exp, search_dataset, recog_model, recog_training_exp, ...) "
         "I.e. you use exactly the same args: Because instanciate_delayed modified some of the data inplace, "
         "the first call will get a different hash than exp2 and exp3. "
-        "Now, with the new behavior, all of exp1, exp2 and exp3 will get the same hash. "
-        "But also exp4 might get a new hash than before"
         " (if the instanciate_delayed modification happened on the task itself).\n"
-        "If you want to keep the old behavior, call this in the beginning of your Sisyphus config:\n"
-        "  set_use_buggy_old_instanciate_delayed(True).\n"
-        "(If you want to have a context manager for this, let me know.)"
+        "If you want to use the new fixed behavior, call this in the beginning of your Sisyphus config:\n"
+        "  set_use_buggy_old_instanciate_delayed(False).\n"
+        "(If you want to have a context manager for this, let me know.)\n"
+        "Now, with the new fixed behavior, all of exp1, exp2 and exp3 will get the same hash. "
+        "However, note that also exp4 might get a new hash than before."
     )
 
 
@@ -79,11 +77,13 @@ def _instanciate_delayed_obj(o: Any) -> Any:
 def set_use_buggy_old_instanciate_delayed(b: bool) -> None:
     """
     Set whether to use the old buggy version of instanciate_delayed,
-    i.e. :func:`i6_core.util.instanciate_delayed`.
+    i.e. :func:`i6_core.util.instanciate_delayed`,
+    or not.
+
+    Note that this can change the hash of your experiments.
+    The hashes should be more correct with the new version.
 
     :param b: True to use the old version, False to use the new version
     """
     global use_buggy_old_instanciate_delayed
     use_buggy_old_instanciate_delayed = b
-    if b:
-        print("WARNING: Using the old buggy version of instanciate_delayed.")
