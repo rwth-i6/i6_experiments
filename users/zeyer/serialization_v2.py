@@ -40,6 +40,7 @@ import functools
 import sys
 import os
 import re
+import math
 import builtins
 from typing import Optional, Union, Any, Sequence, Collection, Dict, List, Tuple
 from types import FunctionType, BuiltinFunctionType, ModuleType
@@ -400,6 +401,8 @@ class _Serializer:
         if value is None:
             return PyEvalCode("None")
         if isinstance(value, (int, float, bool, str, bytes)):
+            if isinstance(value, float) and not math.isfinite(value):
+                return PyEvalCode(f"float('{value}')")
             return PyEvalCode(repr(value))
         if self.sis_path_handling and isinstance(value, Path):
             return self._serialize_sis_path(value)

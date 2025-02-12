@@ -330,3 +330,8 @@ def test_dataclass_frozen():
     assert isinstance(obj_, _FrozenDemoData)
     assert obj_.value == 42
     assert obj_ == obj
+
+
+def test_inf():
+    d = {"num": float("inf")}
+    assert serialize_config(d).as_serialized_code() == "num = float('inf')\n"
