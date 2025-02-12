@@ -1,465 +1,174 @@
 from typing import Optional, Dict, Any, Sequence, Tuple, List, Union
-import functools
+import math
 
 from returnn.tensor import Tensor, Dim, single_step_dim
 import returnn.frontend as rf
-from returnn.frontend.decoder.transformer import TransformerDecoder
+from returnn.frontend.encoder.conformer import ConformerEncoderLayer, ConformerConvSubsample
+import returnn.frontend
 
-from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.base import (
-  _batch_size_factor,
-  get_common_config_params,
-  apply_weight_dropout,
-)
+import i6_experiments
+import i6_experiments.users.schmitt.experiments.exp2025_01_22_model_combination.model.conformer_tina
 
-from .base import BaseLabelDecoder
+from .decoder import GlobalAttDecoder, GlobalAttEfficientDecoder
 
-
-class GlobalAttDecoder(BaseLabelDecoder):
-  def __init__(self, eos_idx: int, **kwargs):
-    from returnn.config import get_global_config
-    config = get_global_config()
-    self.replace_att_by_h_s = config.bool("replace_att_by_h_s", False)
-    if not kwargs.get("use_hard_attention") and self.replace_att_by_h_s:
-      kwargs["use_hard_attention"] = True
-
-    super(GlobalAttDecoder, self).__init__(**kwargs)
-
-    self.eos_idx = eos_idx
-    self.bos_idx = eos_idx
-
-  def decoder_default_initial_state(
-          self,
-          *,
-          batch_dims: Sequence[Dim],
-          enc_spatial_dim: Dim,
-          use_mini_att: bool = False,
-          use_zero_att: bool = False,
-  ) -> rf.State:
-    """Default initial state"""
-    state = rf.State()
-
-    if self.trafo_att and not use_mini_att and not use_zero_att:
-      state.trafo_att = self.trafo_att.default_initial_state(batch_dims=batch_dims)
-      # att_dim = self.trafo_att.model_dim
-    # else:
-      # att_dim = self.att_num_heads * self.enc_out_dim
-
-    state.att = rf.zeros(list(batch_dims) + [self.att_dim])
-    state.att.feature_dim_axis = len(state.att.dims) - 1
-
-    if "lstm" in self.decoder_state:
-      state.s = self.get_lstm().default_initial_state(batch_dims=batch_dims)
-      if use_mini_att:
-        state.mini_att_lstm = self.mini_att_lstm.default_initial_state(batch_dims=batch_dims)
-
-    if self.use_weight_feedback and not use_mini_att and not use_zero_att:
-      state.accum_att_weights = rf.zeros(
-        list(batch_dims) + [enc_spatial_dim, self.att_num_heads], feature_dim=self.att_num_heads
-      )
-
-    return state
-
-  def loop_step_output_templates(
-          self,
-          batch_dims: List[Dim],
-  ) -> Dict[str, Tensor]:
-    """loop step out"""
-    output_templates = {
-      "s": Tensor(
-        "s", dims=batch_dims + [self.get_lstm().out_dim], dtype=rf.get_default_float_dtype(), feature_dim_axis=-1
-      ),
-      "att": Tensor(
-        "att",
-        dims=batch_dims + [self.att_num_heads * self.enc_out_dim],
-        dtype=rf.get_default_float_dtype(),
-        feature_dim_axis=-1,
-      ),
-    }
-    return output_templates
-
-  def loop_step(
-          self,
-          *,
-          enc: rf.Tensor,
-          enc_ctx: rf.Tensor,
-          inv_fertility: rf.Tensor,
-          enc_spatial_dim: Dim,
-          input_embed: rf.Tensor,
-          state: Optional[rf.State] = None,
-          use_mini_att: bool = False,
-          use_zero_att: bool = False,
-          hard_att_opts: Optional[Dict] = None,
-          mask_att_opts: Optional[Dict] = None,
-          detach_att: bool = False,
-          h_s: Optional[rf.Tensor] = None,
-          set_prev_att_to_zero: bool = False,
-  ) -> Tuple[Dict[str, rf.Tensor], rf.State]:
-    """step of the inner loop"""
-    if state is None:
-      batch_dims = enc.remaining_dims(
-        remove=(enc.feature_dim, enc_spatial_dim) if enc_spatial_dim != single_step_dim else (enc.feature_dim,)
-      )
-      state = self.decoder_default_initial_state(batch_dims=batch_dims, enc_spatial_dim=enc_spatial_dim)
-    state_ = rf.State()
-
-    output_dict = {}
-
-    prev_att = state.att
-    if detach_att:
-      prev_att = rf.stop_gradient(prev_att)
-    if set_prev_att_to_zero:
-      prev_att = rf.zeros_like(prev_att)
-    prev_s_state = state.s if "lstm" in self.decoder_state else None
-
-    input_embed = rf.dropout(input_embed, drop_prob=self.target_embed_dropout, axis=None)
-    s, s_state = self._update_state(input_embed, prev_att, prev_s_state)
-    output_dict["s"] = s
-    if "lstm" in self.decoder_state:
-      state_.s = s_state
-
-    if h_s is not None:
-      att = h_s
-    elif use_mini_att:
-      if "lstm" in self.decoder_state:
-        att_lstm, state_.mini_att_lstm = self.mini_att_lstm(
-          input_embed, state=state.mini_att_lstm, spatial_dim=single_step_dim)
-        pre_mini_att = att_lstm
-      else:
-        att_linear = self.mini_att_linear(input_embed)
-        pre_mini_att = att_linear
-      att = self.mini_att(pre_mini_att)
-    elif use_zero_att:
-      att = rf.zeros_like(prev_att)
-    else:
-      if self.trafo_att:
-        att, state_.trafo_att = self.trafo_att(
-          input_embed,
-          state=state.trafo_att,
-          spatial_dim=single_step_dim,
-          encoder=None if self.use_trafo_att_wo_cross_att else self.trafo_att.transform_encoder(enc, axis=enc_spatial_dim)
-        )
-      else:
-        if self.use_weight_feedback:
-          weight_feedback = self.weight_feedback(state.accum_att_weights)
-        else:
-          weight_feedback = rf.zeros((self.enc_key_total_dim,))
-
-        if hard_att_opts is None or rf.get_run_ctx().epoch > hard_att_opts["until_epoch"]:
-          s_transformed = self.s_transformed(s)
-          energy_in = enc_ctx + weight_feedback + s_transformed
-
-          energy = self.energy(rf.tanh(energy_in))
-
-          # set energies to -inf for the given frame indices
-          # e.g. we use this to mask the frames around h_t when we have h_t in the readout in order to force
-          # the attention to focus on the other frames
-          if mask_att_opts is not None:
-            enc_spatial_sizes = rf.copy_to_device(enc_spatial_dim.dyn_size_ext)
-            mask_frame_idx = mask_att_opts["frame_idx"]  # [B]
-            # just some heuristic
-            # i.e. we mask:
-            # 1 frame, if there are less than 6 frames
-            # 3 frames, if there are less than 9 frames
-            # 5 frames, otherwise
-            mask_dimension = (enc_spatial_sizes // 3) * 2 - 1
-            mask_dimension = rf.clip_by_value(mask_dimension, 1, 5)
-            mask_dim = Dim(dimension=mask_dimension, name="att_mask")  # [5]
-            # example mask: [-inf, -inf, -inf, 0, 0]
-            mask_range = rf.range_over_dim(mask_dim)
-            mask = rf.where(
-              mask_range < mask_dimension,
-              float("-inf"),
-              0.0
-            )
-            # move mask to correct position along the time axis
-            mask_indices = mask_range + mask_frame_idx - (mask_dimension // 2)  # [B, 5]
-            mask_indices.sparse_dim = enc_spatial_dim
-            mask_indices = rf.clip_by_value(
-              mask_indices,
-              0,
-              enc_spatial_sizes - 1
-            )
-            mask = rf.scatter(
-              mask,
-              indices=mask_indices,
-              indices_dim=mask_dim,
-            )  # [B, T]
-            energy = energy + mask
-
-          att_weights = rf.softmax(energy, axis=enc_spatial_dim)
-          att_weights = rf.dropout(att_weights, drop_prob=self.att_weight_dropout, axis=None)
-        if hard_att_opts is not None and rf.get_run_ctx().epoch <= hard_att_opts["until_epoch"] + hard_att_opts["num_interpolation_epochs"]:
-          if hard_att_opts["frame"] == "middle":
-            frame_idx = rf.copy_to_device(enc_spatial_dim.dyn_size_ext) // 2
-          else:
-            frame_idx = rf.constant(hard_att_opts["frame"], dims=enc_spatial_dim.dyn_size_ext.dims)
-          frame_idx.sparse_dim = enc_spatial_dim
-          one_hot = rf.one_hot(frame_idx)
-          one_hot = rf.expand_dim(one_hot, dim=self.att_num_heads)
-
-          if rf.get_run_ctx().epoch <= hard_att_opts["until_epoch"] and hard_att_opts["frame"] == "middle":
-            att_weights = one_hot
-          else:
-            interpolation_factor = (rf.get_run_ctx().epoch - hard_att_opts["until_epoch"]) / hard_att_opts["num_interpolation_epochs"]
-            att_weights = (1 - interpolation_factor) * one_hot + interpolation_factor * att_weights
-
-        if self.use_weight_feedback:
-          state_.accum_att_weights = state.accum_att_weights + att_weights * inv_fertility * 0.5
-
-        att = self.get_att(att_weights, enc, enc_spatial_dim)
-
-    state_.att = att
-    output_dict["att"] = att
-
-    return output_dict, state_
+_batch_size_factor = 160
 
 
-class GlobalAttentionModel(rf.Module):
+class AEDModel(rf.Module):
   def __init__(
           self,
           *,
-          target_dim: Dim,
-          blank_idx: int,
-          enc_key_total_dim: Dim = Dim(name="enc_key_total_dim", dimension=1024),
-          att_dropout: float = 0.1,
-          l2: float = 0.0001,
-          language_model: Optional[rf.Module] = None,
-          enc_in_dim: Dim,
-          enc_out_dim: Dim = Dim(name="enc", dimension=512),
-          enc_num_layers: int = 12,
-          enc_aux_logits: Sequence[int] = (),  # layers
-          enc_ff_dim: Dim = Dim(name="enc-ff", dimension=2048),
-          enc_num_heads: int = 4,
-          encoder_layer_opts: Optional[Dict[str, Any]] = None,
-          encoder_layer: Optional[Union[ConformerEncoderLayer, rf.Module, type, Dict[str, Any], Any]] = None,
-          encoder_cls: rf.Module = GlobalConformerEncoder,
-          enc_input_layer_cls: rf.Module = ConformerConvSubsample,
-          dec_att_num_heads: Dim = Dim(name="att_num_heads", dimension=1),
-          enc_dropout: float = 0.1,
+          encoder_opts: Dict,
+          decoder_opts: Dict,
           eos_idx: int,
           bos_idx: int,
-          use_weight_feedback: bool = True,
-          use_att_ctx_in_state: bool = True,
-          use_mini_att: bool = False,
-          label_decoder_state: str = "nb-lstm",
-          num_dec_layers: int = 1,
-          target_embed_dim: int = 640,
-          readout_dimension: int = 1024,
-          ilm_dimension: int = 1024,
-          feature_extraction_opts: Optional[Dict[str, Any]] = None,
-          target_embed_dropout: float = 0.0,
-          att_weight_dropout: float = 0.0,
-          use_readout: bool = True,
-          enc_ctx_layer: Optional[str] = None,
-          external_aed_kwargs: Optional[Dict[str, Any]] = None,
+          in_dim: Dim,
+          target_dim: Dim,
+          enc_aux_logits: Sequence[int] = (),
+          feature_extraction: Optional[str] = "log-mel-on-the-fly",
   ):
-    super(GlobalAttentionModel, self).__init__()
+    super(AEDModel, self).__init__()
+
+    from returnn.config import get_global_config
+    config = get_global_config(return_empty_if_none=True)
 
     self.bos_idx = bos_idx
     self.eos_idx = eos_idx
-
-    if encoder_cls == LinearEncoder:
-      self.encoder = encoder_cls(
-        enc_in_dim,
-        enc_out_dim,
-        num_layers=enc_num_layers,
-        enc_key_total_dim=enc_key_total_dim,
-        dec_att_num_heads=dec_att_num_heads,
-        decoder_type="trafo" if label_decoder_state == "trafo" else "lstm",
-        feature_extraction_opts=feature_extraction_opts,
-        enc_ctx_layer=enc_ctx_layer,
-      )
-    else:
-      self.encoder = encoder_cls(
-        enc_in_dim,
-        enc_out_dim,
-        num_layers=enc_num_layers,
-        target_dim=target_dim,
-        wb_target_dim=None,
-        aux_logits=enc_aux_logits,
-        ff_dim=enc_ff_dim,
-        num_heads=enc_num_heads,
-        encoder_layer_opts=encoder_layer_opts,
-        enc_key_total_dim=enc_key_total_dim,
-        dec_att_num_heads=dec_att_num_heads,
-        dropout=enc_dropout,
-        att_dropout=att_dropout,
-        l2=l2,
-        decoder_type="trafo" if label_decoder_state == "trafo" else "lstm",
-        feature_extraction_opts=feature_extraction_opts,
-        encoder_layer=encoder_layer,
-        input_layer_cls=enc_input_layer_cls,
-        enc_ctx_layer=enc_ctx_layer,
-      )
-
-    self.decoder_state = label_decoder_state
-    if label_decoder_state != "trafo":
-      assert num_dec_layers == 1
-
-      if not use_weight_feedback and not use_att_ctx_in_state:
-        decoder_cls = GlobalAttEfficientDecoder
-      else:
-        decoder_cls = GlobalAttDecoder
-
-      self.label_decoder = decoder_cls(
-        enc_out_dim=self.encoder.out_dim,
-        target_dim=target_dim,
-        att_num_heads=dec_att_num_heads,
-        att_dropout=att_dropout,
-        blank_idx=blank_idx,
-        enc_key_total_dim=enc_key_total_dim,
-        l2=l2,
-        eos_idx=eos_idx,
-        use_weight_feedback=use_weight_feedback,
-        use_att_ctx_in_state=use_att_ctx_in_state,
-        use_mini_att=use_mini_att,
-        decoder_state=label_decoder_state,
-        target_embed_dim=Dim(name="target_embed", dimension=target_embed_dim),
-        target_embed_dropout=target_embed_dropout,
-        att_weight_dropout=att_weight_dropout,
-        readout_dimension=readout_dimension,
-        ilm_dimension=ilm_dimension,
-        use_readout=use_readout,
-      )
-    else:
-      # hard code for now
-      self.eos_idx = eos_idx
-      self.bos_idx = bos_idx
-
-      model_dim = Dim(name="dec", dimension=512)
-      self.label_decoder = TransformerDecoder(
-        num_layers=num_dec_layers,
-        encoder_dim=self.encoder.out_dim,
-        vocab_dim=target_dim,
-        model_dim=model_dim,
-        sequential=rf.Sequential,
-        share_embedding=True,
-        input_embedding_scale=model_dim.dimension**0.5
-      )
-
-    if language_model:
-      self.language_model = language_model
-    else:
-      self.language_model = None
-
-    self.blank_idx = blank_idx
+    self.in_dim = in_dim
+    # for CTC aux loss
+    self.blank_idx = target_dim.dimension  # type: int
     self.target_dim = target_dim
+    self.feature_extraction = feature_extraction
 
-    if use_mini_att:
-      for name, param in self.named_parameters():
-        if "mini_att" not in name:
-          param.trainable = False
+    # encoder
 
-    if external_aed_kwargs:
-      self.aed_model = GlobalAttentionModel(
-        enc_in_dim=enc_in_dim,
-        enc_ff_dim=enc_ff_dim,
-        enc_key_total_dim=enc_key_total_dim,
-        enc_num_heads=8,
-        target_dim=target_dim,
-        blank_idx=target_dim.dimension,
-        feature_extraction_opts=feature_extraction_opts,
-        eos_idx=0,
-        bos_idx=0,
-        enc_aux_logits=(),
-        encoder_layer_opts=encoder_layer_opts,
-      )
-    else:
-      self.aed_model = None
+    # enc_out_dim = Dim(name="enc", dimension=512)
+    # enc_ff_dim = Dim(name="enc-ff", dimension=2048)
+    # self.encoder = rf.encoder.conformer.ConformerEncoder(
+    #   in_dim,
+    #   out_dim=enc_out_dim,
+    #   ff_dim=enc_ff_dim,
+    #   input_layer=rf.encoder.conformer.ConformerConvSubsample(
+    #     in_dim,
+    #     out_dims=[Dim(32, name="conv1"), Dim(64, name="conv2"), Dim(64, name="conv3")],
+    #     filter_sizes=[(3, 3), (3, 3), (3, 3)],
+    #     pool_sizes=[(1, 2)],
+    #     strides=[(1, 1), (3, 1), (2, 1)],
+    #   ),
+    #   num_layers=12,
+    #   num_heads=8,
+    #   dropout=0.1,
+    #   att_dropout=0.1,
+    #   encoder_layer=rf.encoder.conformer.ConformerEncoderLayer(
+    #     out_dim=enc_out_dim,
+    #     ff_dim=enc_ff_dim,
+    #     conv_norm_opts=dict(use_mask=True),
+    #     num_heads=8,
+    #     self_att_opts=dict(
+    #       # Shawn et al 2018 style, old RETURNN way.
+    #       with_bias=False,
+    #       with_linear_pos=False,
+    #       with_pos_bias=False,
+    #       learnable_pos_emb=True,
+    #       separate_pos_emb_per_head=False,
+    #       pos_emb_dropout=0.0,
+    #     ),
+    #     self_att=rf.RelPosSelfAttention,
+    #     ff_activation=rf.relu_square,
+    #   )
+    # )
+    enc_cls = eval(encoder_opts.pop("class"))
+    enc_input_layer_cls = eval(encoder_opts.pop("input_layer_cls")["class"])
+    enc_out_dimension = encoder_opts.pop("out_dimension")
+    enc_input_layer_opts = dict(
+      out_dims=[Dim(32, name="conv1"), Dim(64, name="conv2"), Dim(64, name="conv3")],
+      filter_sizes=[(3, 3), (3, 3), (3, 3)],
+      pool_sizes=[(1, 2)],
+      strides=[(1, 1), (3, 1), (2, 1)],
+    )
+    enc_input_layer_opts.update(encoder_opts.pop("input_layer_opts", {}))
+    self.encoder = enc_cls(
+      in_dim,
+      out_dim=Dim(name="enc", dimension=enc_out_dimension),
+      ff_dim=Dim(name="enc-ff", dimension=2048),
+      input_layer=enc_input_layer_cls(
+        in_dim,
+        **enc_input_layer_opts
+      ),
+      **encoder_opts
+    )
+
+    # auxiliary logits
+    if enc_aux_logits:
+      wb_target_dim = target_dim + 1
+    for i in enc_aux_logits:
+      setattr(self, f"enc_aux_logits_{i}", rf.Linear(self.encoder.out_dim, wb_target_dim))
+
+    # specaugment
+    self._specaugment_opts = {
+      "steps": config.typed_value("specaugment_steps") or (0, 1000, 2000),
+      "max_consecutive_spatial_dims": config.typed_value("specaugment_max_consecutive_spatial_dims") or 20,
+      "max_consecutive_feature_dims": config.typed_value("specaugment_max_consecutive_feature_dims")
+                                      or (in_dim.dimension // 5),
+      "num_spatial_mask_factor": config.typed_value("specaugment_num_spatial_mask_factor") or 100,
+    }
+
+    # decoder
+    decoder_cls = eval(decoder_opts.pop("class"))
+    self.decoder = decoder_cls(
+      enc_out_dim=self.encoder.out_dim,
+      target_dim=target_dim,
+      **decoder_opts
+    )
 
     apply_weight_dropout(self)
 
-
-class MakeModel:
-  """for import"""
-
-  def __init__(
+  def encode(
           self,
-          in_dim: int,
-          target_dim: int,
+          source: Tensor,
           *,
-          eos_label: int = 0,
-          num_enc_layers: int = 12,
-          enc_aux_logits: Sequence[int] = (),
-          target_embed_dim: int = 640,
-  ):
-    self.in_dim = in_dim
-    self.target_dim = target_dim
-    self.eos_label = eos_label
-    self.num_enc_layers = num_enc_layers
+          in_spatial_dim: Dim,
+          collected_outputs: Optional[Dict[str, Tensor]] = None,
+  ) -> Tuple[Dict[str, Tensor], Dim]:
+    """encode, and extend the encoder output for things we need in the decoder"""
+    # log mel filterbank features
+    if self.feature_extraction == "log-mel-on-the-fly":
+      source, in_spatial_dim = rf.audio.log_mel_filterbank_from_raw(
+        raw_audio=source,
+        in_spatial_dim=in_spatial_dim,
+        out_dim=self.in_dim,
+        log_base=math.exp(
+          2.3026  # almost 10.0 but not exactly...
+        )
+      )
+    else:
+      assert self.feature_extraction is None
 
-    # do not set attribute otherwise to keep job hashes
-    if enc_aux_logits != ():
-      self.enc_aux_logits = enc_aux_logits
-
-    if target_embed_dim != 640:
-      self.target_embed_dim = target_embed_dim
-
-  def __call__(self) -> GlobalAttentionModel:
-    from returnn.datasets.util.vocabulary import Vocabulary
-
-    in_dim = Dim(name="in", dimension=self.in_dim, kind=Dim.Types.Feature)
-    target_dim = Dim(name="target", dimension=self.target_dim, kind=Dim.Types.Feature)
-    target_dim.vocab = Vocabulary.create_vocab_from_labels(
-      [str(i) for i in range(target_dim.dimension)], eos_label=self.eos_label
+    # SpecAugment
+    source = rf.audio.specaugment(
+      source,
+      spatial_dim=in_spatial_dim,
+      feature_dim=self.in_dim,
+      **self._specaugment_opts,
     )
 
-    extra = {}
-    if hasattr(self, "enc_aux_logits"):
-      extra["enc_aux_logits"] = self.enc_aux_logits
+    if collected_outputs is None:
+      collected_outputs = {}
 
-    if hasattr(self, "target_embed_dim"):
-      extra["target_embed_dim"] = self.target_embed_dim
-
-    return self.make_model(in_dim, target_dim, num_enc_layers=self.num_enc_layers, **extra)
-
-  @classmethod
-  def make_model(
-          cls,
-          in_dim: Dim,
-          target_dim: Dim,
-          *,
-          language_model: Optional[Dict[str, Any]] = None,
-          use_weight_feedback: bool = True,
-          use_att_ctx_in_state: bool = True,
-          use_mini_att: bool = False,
-          label_decoder_state: str = "nb-lstm",
-          num_dec_layers: int = 1,
-          target_embed_dim: int = 640,
-          feature_extraction_opts: Optional[Dict[str, Any]] = None,
-          **extra,
-  ) -> GlobalAttentionModel:
-    """make"""
-    lm = None
-    if language_model:
-      assert isinstance(language_model, dict)
-      language_model = language_model.copy()
-      cls_name = language_model.pop("class")
-      assert cls_name == "TransformerDecoder"
-      language_model.pop("vocab_dim", None)  # will just overwrite
-
-      from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.lm.trafo import model as trafo_lm
-
-      lm = trafo_lm.MakeModel(vocab_dim=target_dim, **language_model)()
-
-    return GlobalAttentionModel(
-      enc_in_dim=in_dim,
-      enc_ff_dim=Dim(name="enc-ff", dimension=2048, kind=Dim.Types.Feature),
-      enc_num_heads=8,
-      eos_idx=_get_eos_idx(target_dim),
-      bos_idx=_get_bos_idx(target_dim),
-      target_dim=target_dim,
-      blank_idx=target_dim.dimension,
-      language_model=lm,
-      use_weight_feedback=use_weight_feedback,
-      use_att_ctx_in_state=use_att_ctx_in_state,
-      use_mini_att=use_mini_att,
-      label_decoder_state=label_decoder_state,
-      num_dec_layers=num_dec_layers,
-      target_embed_dim=target_embed_dim,
-      feature_extraction_opts=feature_extraction_opts,
-      **extra,
+    enc, enc_spatial_dim = self.encoder(
+      source, in_spatial_dim=in_spatial_dim, collected_outputs=collected_outputs
     )
+
+    if self.decoder.enc_ctx_layer is None:
+      enc_ctx = self.decoder.enc_ctx(enc)
+    else:
+      enc_ctx = self.decoder.enc_ctx(collected_outputs[self.decoder.enc_ctx_layer])
+    if self.decoder.use_weight_feedback:
+      inv_fertility = rf.sigmoid(self.decoder.inv_fertility(enc))
+    else:
+      inv_fertility = None
+
+    return dict(enc=enc, enc_ctx=enc_ctx, inv_fertility=inv_fertility), enc_spatial_dim
 
 
 def _get_bos_idx(target_dim: Dim) -> int:
@@ -484,31 +193,35 @@ def _get_eos_idx(target_dim: Dim) -> int:
   return eos_idx
 
 
-def from_scratch_model_def(*, epoch: int, in_dim: Dim, target_dim: Dim) -> GlobalAttentionModel:
+def aed_model_def(*, epoch: int, in_dim: Dim, target_dim: Dim) -> AEDModel:
   """Function is run within RETURNN."""
   from returnn.config import get_global_config
 
   in_dim, epoch  # noqa
   config = get_global_config()  # noqa
-  num_dec_layers = config.int("num_label_decoder_layers", 1)
-  enc_ctx_layer = config.typed_value("enc_ctx_layer", None)
+  enc_aux_logits = config.typed_value("aux_loss_layers", ())
+  encoder_opts = config.typed_value("encoder_opts")
+  decoder_opts = config.typed_value("decoder_opts")
 
-  common_config_params = get_common_config_params()
-  in_dim = common_config_params.pop("in_dim")
+  feature_extraction = config.typed_value("feature_extraction", "log-mel-on-the-fly")
+  feature_dimension = config.int("feature_dim", 80)
+  if feature_extraction is None:
+    feature_dim = config.typed_value("features_dim")
+    in_dim = feature_dim
+  else:
+    assert feature_extraction == "log-mel-on-the-fly"
+    in_dim = Dim(name="logmel", dimension=feature_dimension, kind=Dim.Types.Feature)
 
-  return MakeModel.make_model(
-    in_dim,
-    target_dim,
-    num_dec_layers=num_dec_layers,
-    enc_ctx_layer=enc_ctx_layer,
-    **common_config_params,
+  return AEDModel(
+    encoder_opts=encoder_opts,
+    decoder_opts=decoder_opts,
+    bos_idx=_get_bos_idx(target_dim),
+    eos_idx=_get_eos_idx(target_dim),
+    target_dim=target_dim,
+    enc_aux_logits=enc_aux_logits,
+    feature_extraction=feature_extraction,
+    in_dim=in_dim,
   )
-
-
-from_scratch_model_def: ModelDef[GlobalAttentionModel]
-from_scratch_model_def.behavior_version = 16
-from_scratch_model_def.backend = "torch"
-from_scratch_model_def.batch_size_factor = _batch_size_factor
 
 
 def _returnn_v2_get_model(*, epoch: int, **_kwargs_unused):
@@ -533,3 +246,24 @@ def _returnn_v2_get_model(*, epoch: int, **_kwargs_unused):
   model_def = config.typed_value("_model_def")
   model = model_def(epoch=epoch, in_dim=data.feature_dim, target_dim=targets.sparse_dim)
   return model
+
+
+def apply_weight_dropout(model: rf.Module):
+  from returnn.config import get_global_config
+  config = get_global_config()  # noqa
+
+  weight_dropout = config.float("weight_dropout", None)
+  if weight_dropout:
+    # Use some blacklist. I think the same blacklist as for weight decay is reasonable.
+    # Usually sth like: ["rf.Embedding", "rf.LearnedRelativePositionalEncoding"]
+    blacklist = config.typed_value("optimizer")["weight_decay_modules_blacklist"]
+    blacklist = tuple(eval(name, {"rf": rf}) for name in blacklist)
+    for mod in model.modules():
+      if isinstance(mod, blacklist):
+        continue
+      for param_name, param in mod.named_parameters(recurse=False):
+        if param_name.endswith("bias"):  # no bias
+          continue
+        if param.auxiliary:
+          continue
+        rf.weight_dropout(mod, param_name, drop_prob=weight_dropout)

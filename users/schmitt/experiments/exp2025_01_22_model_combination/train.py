@@ -8,8 +8,8 @@ from i6_core.returnn.training import Checkpoint, ReturnnTrainingJob
 from .config_builder import AEDConfigBuilder
 from .tools_paths import RETURNN_EXE, RETURNN_ROOT
 
-from i6_experiments.users.schmitt.experiments.exp2024_08_27_flipped_conformer.model.aed import AEDModel
-from i6_experiments.users.schmitt.experiments.exp2024_08_27_flipped_conformer.model.decoder import (
+from .model.aed import AEDModel
+from .model.decoder import (
   GlobalAttDecoder,
   GlobalAttEfficientDecoder
 )
@@ -183,7 +183,10 @@ def from_scratch_training(
 
   if data.feature_dim and data.feature_dim.dimension == 1:
     data = rf.squeeze(data, axis=data.feature_dim)
-  assert not data.feature_dim  # raw audio
+    assert not data.feature_dim  # raw audio
+    batch_dims = data.remaining_dims(data_spatial_dim)
+  else:
+    batch_dims = data.remaining_dims([data_spatial_dim, data.feature_dim])
 
   collected_outputs = {}
   enc_args, enc_spatial_dim = model.encode(data, in_spatial_dim=data_spatial_dim, collected_outputs=collected_outputs)
@@ -191,7 +194,7 @@ def from_scratch_training(
     for i, layer_idx in enumerate(aux_loss_layers):
       if layer_idx > len(model.encoder.layers):
         continue
-      linear = getattr(model.encoder, f"enc_aux_logits_{layer_idx}")
+      linear = getattr(model, f"enc_aux_logits_{layer_idx}")
       aux_logits = linear(collected_outputs[str(layer_idx - 1)])
       aux_loss = rf.ctc_loss(
         logits=aux_logits,
@@ -206,8 +209,6 @@ def from_scratch_training(
         custom_inv_norm_factor=targets_spatial_dim.get_size_tensor(),
         use_normalized_loss=use_normalized_loss,
       )
-
-  batch_dims = data.remaining_dims(data_spatial_dim)
 
   logits = forward_sequence(
     model=model.decoder,

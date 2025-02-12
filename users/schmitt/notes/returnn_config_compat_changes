@@ -1,0 +1,3 @@
+to use the current RETURNN version, we need to change the following:
+
+- in extern data: "t": DimensionTag(kind=DimensionTag.Types.Spatial, description="time") -> "t": DimensionTag(kind=DimensionTag.Types.Spatial, description="time", dimension=None)

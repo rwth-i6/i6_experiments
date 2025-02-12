@@ -1,0 +1,3 @@
+Extract lattice from cache and visualize using dot:
+  archiver --mode extract path/to/lattice.cache name/of/segment.binfsa.gz
+  fsa bin:name/of/segment.binfsa draw > lattice.dot

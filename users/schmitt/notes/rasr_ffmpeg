@@ -1,0 +1,2 @@
+Compile RASR with Ffmpeg module activated:
+  add -DCMAKE_BUILD_TYPE=standard to cmake compile options

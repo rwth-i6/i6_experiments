@@ -22,7 +22,7 @@ import numpy as np
 import re
 
 
-class AEDConfigBuilder:
+class ConfigBuilder:
   def __init__(
           self,
           dataset,
@@ -30,11 +30,17 @@ class AEDConfigBuilder:
           model_def: Callable,
           get_model_func: Callable,
           behavior_version: Optional[int] = None,
+          feature_dimension: Optional[int] = None,
+          feature_extraction: Optional[str] = "log-mel-on-the-fly",
+          batch_size_factor: int = 160,
   ):
     self.dataset = dataset
     self.model_def = model_def
     self.get_model_func = get_model_func
     self.vocab_opts = vocab_opts
+    self.feature_dimension = feature_dimension
+    self.feature_extraction = feature_extraction
+    self.batch_size_factor = batch_size_factor
 
     self.python_epilog = []
 
@@ -73,6 +79,128 @@ class AEDConfigBuilder:
       ]
     )
 
+  def get_analyze_encoder_config(self, opts: Dict):
+    config_dict = copy.deepcopy(self.config_dict)
+    post_config_dict = copy.deepcopy(self.post_config_dict)
+    python_prolog = copy.deepcopy(self.python_prolog)
+    python_epilog = copy.deepcopy(self.python_epilog)
+
+    dataset_opts = opts.get("dataset_opts", {})
+    config_dict.update(dict(
+      task="forward",
+      batching=opts.get("batching", "random")
+    ))
+
+    config_dict.update(dict(forward_data=self.get_dataset(dataset_opts=dataset_opts, type_='search')))
+    extern_data_raw = self.get_extern_data_dict()
+    extern_data_raw = instanciate_delayed(extern_data_raw)
+
+    config_dict["batch_size"] = opts.get("batch_size", 15_000) * self.batch_size_factor
+
+    config_dict.update({
+      "ref_alignment_hdf": opts["ref_alignment_hdf"],
+      "ref_alignment_vocab_path": opts["ref_alignment_vocab_path"],
+      "ref_alignment_blank_idx": opts["ref_alignment_blank_idx"],
+      "json_vocab_path": opts["json_vocab_path"],
+    })
+
+    python_epilog.append(
+      self.get_python_epilog_serialization(
+        extern_data_raw,
+        serialization.Import(
+          opts["analyze_encoder_def"], import_as="_analyze_encoder_def", ignore_import_as_for_hash=True),
+        serialization.Import(opts["forward_step_func"], import_as="forward_step"),
+        serialization.Import(opts["forward_callback"], import_as="forward_callback"),
+      )
+    )
+
+    returnn_analyze_encoder_config = ReturnnConfig(
+      config=config_dict,
+      post_config=post_config_dict,
+      python_prolog=python_prolog,
+      python_epilog=python_epilog,
+    )
+
+    # serialize remaining functions, e.g. dynamic learning rate
+    return get_serializable_config(returnn_analyze_encoder_config, serialize_dim_tags=False)
+
+
+  @staticmethod
+  def get_lr_settings(lr_opts):
+    if lr_opts["type"] == "dyn_lr_piecewise_linear_epoch-wise":
+      peak_lr = lr_opts.get("peak_lr", 1e-3)
+      initial_lr = lr_opts.get("init_lr", peak_lr * 1e-2)
+      lr2 = lr_opts.get("lr2", initial_lr)
+      final_lr = lr_opts.get("final_lr", peak_lr * 1e-3)
+      cyc_ep = int(0.45 * lr_opts["num_epochs"])
+      return dict(
+        learning_rates=list(
+          np.linspace(initial_lr, peak_lr, cyc_ep)  # go up
+        ) + list(
+            np.linspace(peak_lr, lr2, cyc_ep)  # go down
+        ) + list(
+          np.linspace(lr2, final_lr, lr_opts["num_epochs"] - 2 * cyc_ep)  # cool down
+        )
+      )
+    else:
+      raise NotImplementedError
+
+  def get_default_dataset_opts(self, corpus_key: str, dataset_opts: Dict):
+    raise NotImplementedError
+
+  def get_train_dataset_dict(self, dataset_opts: Dict):
+    raise NotImplementedError
+
+  def get_eval_dataset_dict(self, corpus_key: str, dataset_opts: Dict):
+    raise NotImplementedError
+
+  def get_extern_data_dict(self):
+    raise NotImplementedError
+
+  def get_dataset(self, dataset_opts: Dict, type_: str):
+    if type_ == "train":
+      dataset_dict = self.get_train_dataset_dict(dataset_opts)
+    elif type_ == "cv":
+      dataset_dict = self.get_eval_dataset_dict("cv", dataset_opts)
+    elif type_ == "devtrain":
+      dataset_dict = self.get_eval_dataset_dict("devtrain", dataset_opts)
+    else:
+      assert type_ == "search"
+      dataset_dict = self.get_eval_dataset_dict(dataset_opts["corpus_key"], dataset_opts)
+
+    if dataset_opts.get("use_multi_proc", True):
+      dataset_dict = {
+        "class": "MultiProcDataset",
+        "buffer_size": 10,
+        "num_workers": 4,
+        "dataset": dataset_dict
+      }
+
+    return dataset_dict
+
+  def get_train_datasets(self, dataset_opts: Dict):
+    datasets = dict(
+      train=self.get_dataset(dataset_opts, type_='train'),
+      eval_datasets={
+        "devtrain": self.get_dataset(dataset_opts, type_='devtrain'),
+        "dev": self.get_dataset(dataset_opts, type_='cv'),
+      }
+    )
+
+    return datasets
+
+  @staticmethod
+  def get_vocab_dict_for_tensor(vocab_opts):
+    return {
+      "bpe_file": vocab_opts["bpe_codes_path"],
+      "vocab_file": vocab_opts["vocab_path"],
+      "unknown_label": None,
+      "bos_label": vocab_opts["bos_idx"],
+      "eos_label": vocab_opts["eos_idx"],
+    }
+
+
+class AEDConfigBuilder(ConfigBuilder):
   def get_train_config(self, opts: Dict):
     config_dict = copy.deepcopy(self.config_dict)
     post_config_dict = copy.deepcopy(self.post_config_dict)
@@ -202,137 +330,6 @@ class AEDConfigBuilder:
     # serialize remaining functions, e.g. dynamic learning rate
     return get_serializable_config(returnn_train_config, serialize_dim_tags=False)
 
-  def get_analyze_gradients_config(self, opts: Dict):
-    config_dict = copy.deepcopy(self.config_dict)
-    post_config_dict = copy.deepcopy(self.post_config_dict)
-    python_prolog = copy.deepcopy(self.python_prolog)
-    python_epilog = copy.deepcopy(self.python_epilog)
-
-    dataset_opts = opts.get("dataset_opts", {})
-    config_dict.update(dict(
-      task="forward",
-      batching=opts.get("batching", "random")
-    ))
-
-    if opts.get("plot_encoder_gradient_graph", False):
-      config_dict["plot_encoder_gradient_graph"] = True
-    if opts.get("plot_encoder_layers", False):
-      config_dict["plot_encoder_layers"] = True
-    if opts.get("plot_log_gradients", False):
-      config_dict["plot_log_gradients"] = True
-
-    config_dict.update(dict(forward_data=self.get_dataset(dataset_opts=dataset_opts, type_='search')))
-    extern_data_raw = self.get_extern_data_dict()
-    extern_data_raw = instanciate_delayed(extern_data_raw)
-
-    config_dict["batch_size"] = opts.get("batch_size", 15_000) * self.batch_size_factor
-
-    config_dict.update({
-      "ref_alignment_hdf": opts["ref_alignment_hdf"],
-      "ref_alignment_vocab_path": opts["ref_alignment_vocab_path"],
-      "ref_alignment_blank_idx": opts["ref_alignment_blank_idx"],
-      "json_vocab_path": opts["json_vocab_path"],
-    })
-
-    python_epilog.append(
-      self.get_python_epilog_serialization(
-        extern_data_raw,
-        serialization.Import(
-          opts["analyze_gradients_def"], import_as="_analyze_gradients_def", ignore_import_as_for_hash=True),
-        serialization.Import(opts["forward_step_func"], import_as="forward_step"),
-        serialization.Import(opts["forward_callback"], import_as="forward_callback"),
-      )
-    )
-
-    returnn_analyze_gradients_config = ReturnnConfig(
-      config=config_dict,
-      post_config=post_config_dict,
-      python_prolog=python_prolog,
-      python_epilog=python_epilog,
-    )
-
-    # serialize remaining functions, e.g. dynamic learning rate
-    return get_serializable_config(returnn_analyze_gradients_config, serialize_dim_tags=False)
-
-  def get_dump_gradients_config(self, opts: Dict):
-    config_dict = copy.deepcopy(self.config_dict)
-    post_config_dict = copy.deepcopy(self.post_config_dict)
-    python_prolog = copy.deepcopy(self.python_prolog)
-    python_epilog = copy.deepcopy(self.python_epilog)
-
-    dataset_opts = opts.get("dataset_opts", {})
-    config_dict.update(dict(
-      task="forward",
-      batching=opts.get("batching", "random")
-    ))
-
-    if opts.get("input_layer_name", "encoder_input") != "encoder_input":
-      config_dict["input_layer_name"] = opts["input_layer_name"]
-
-    config_dict.update(dict(forward_data=self.get_dataset(dataset_opts=dataset_opts, type_='search')))
-    extern_data_raw = self.get_extern_data_dict()
-    extern_data_raw = instanciate_delayed(extern_data_raw)
-
-    config_dict["batch_size"] = opts.get("batch_size", 15_000) * self.batch_size_factor
-
-    python_epilog.append(
-      self.get_python_epilog_serialization(
-        extern_data_raw,
-        serialization.Import(
-          opts["dump_gradients_def"], import_as="_dump_gradients_def", ignore_import_as_for_hash=True),
-        serialization.Import(opts["forward_step_func"], import_as="forward_step"),
-        serialization.Import(opts["forward_callback"], import_as="forward_callback"),
-      )
-    )
-
-    returnn_dump_gradients_config = ReturnnConfig(
-      config=config_dict,
-      post_config=post_config_dict,
-      python_prolog=python_prolog,
-      python_epilog=python_epilog,
-    )
-
-    # serialize remaining functions, e.g. dynamic learning rate
-    return get_serializable_config(returnn_dump_gradients_config, serialize_dim_tags=False)
-
-  def get_dump_self_att_config(self, opts: Dict):
-    config_dict = copy.deepcopy(self.config_dict)
-    post_config_dict = copy.deepcopy(self.post_config_dict)
-    python_prolog = copy.deepcopy(self.python_prolog)
-    python_epilog = copy.deepcopy(self.python_epilog)
-
-    dataset_opts = opts.get("dataset_opts", {})
-    config_dict.update(dict(
-      task="forward",
-      batching=opts.get("batching", "random")
-    ))
-
-    config_dict.update(dict(forward_data=self.get_dataset(dataset_opts=dataset_opts, type_='search')))
-    extern_data_raw = self.get_extern_data_dict()
-    extern_data_raw = instanciate_delayed(extern_data_raw)
-
-    config_dict["batch_size"] = opts.get("batch_size", 15_000) * self.batch_size_factor
-
-    python_epilog.append(
-      self.get_python_epilog_serialization(
-        extern_data_raw,
-        serialization.Import(
-          opts["dump_self_att_def"], import_as="_dump_self_att_def", ignore_import_as_for_hash=True),
-        serialization.Import(opts["forward_step_func"], import_as="forward_step"),
-        serialization.Import(opts["forward_callback"], import_as="forward_callback"),
-      )
-    )
-
-    returnn_self_att_config = ReturnnConfig(
-      config=config_dict,
-      post_config=post_config_dict,
-      python_prolog=python_prolog,
-      python_epilog=python_epilog,
-    )
-
-    # serialize remaining functions, e.g. dynamic learning rate
-    return get_serializable_config(returnn_self_att_config, serialize_dim_tags=False)
-
   @staticmethod
   def get_recog_checkpoints(
           model_dir: Path, learning_rates: Path, key: str, checkpoints: Dict[int, PtCheckpoint]
@@ -364,36 +361,19 @@ class AEDConfigBuilder:
 
     return checkpoints
 
-
-  @staticmethod
-  def get_lr_settings(lr_opts):
-    if lr_opts["type"] == "dyn_lr_piecewise_linear_epoch-wise":
-      peak_lr = lr_opts.get("peak_lr", 1e-3)
-      initial_lr = lr_opts.get("init_lr", peak_lr * 1e-2)
-      lr2 = lr_opts.get("lr2", initial_lr)
-      final_lr = lr_opts.get("final_lr", peak_lr * 1e-3)
-      cyc_ep = int(0.45 * lr_opts["num_epochs"])
-      return dict(
-        learning_rates=list(
-          np.linspace(initial_lr, peak_lr, cyc_ep)  # go up
-        ) + list(
-            np.linspace(peak_lr, lr2, cyc_ep)  # go down
-        ) + list(
-          np.linspace(lr2, final_lr, lr_opts["num_epochs"] - 2 * cyc_ep)  # cool down
-        )
-      )
-    else:
-      raise NotImplementedError
-
   def get_default_dataset_opts(self, corpus_key: str, dataset_opts: Dict):
     segment_paths = dataset_opts.get("segment_paths", self.dataset.segment_paths)
     oggzip_paths = dataset_opts.get("oggzip_paths", self.dataset.oggzip_paths)
+    hdf_features = dataset_opts.get("hdf_features", {})
+    seq_order_control_dataset = dataset_opts.get("seq_order_control_dataset", {})
 
     opts = {
       "oggzip_path_list": oggzip_paths[corpus_key],
       "segment_file": segment_paths.get(corpus_key, None),
       "hdf_targets": None,
       "peak_normalization": dataset_opts.get("peak_normalization", True),
+      "hdf_features": hdf_features.get(corpus_key, None),
+      "seq_order_control_dataset": seq_order_control_dataset.get(corpus_key, "zip_dataset"),
     }
 
     opts.update({
@@ -437,8 +417,13 @@ class AEDConfigBuilder:
 
     extern_data_dict = {}
     time_dim = Dim(description="time", dimension=None, kind=Dim.Types.Spatial)
-    audio_dim = Dim(description="audio", dimension=1, kind=Dim.Types.Feature)
-    extern_data_dict["data"] = {"dim_tags": [batch_dim, time_dim, audio_dim]}
+    if self.feature_extraction == "log-mel-on-the-fly":
+      audio_dim = Dim(description="audio", dimension=1, kind=Dim.Types.Feature)
+      extern_data_dict["data"] = {"dim_tags": [batch_dim, time_dim, audio_dim]}
+    else:
+      assert self.feature_extraction is None
+      feature_dim = Dim(description="features", dimension=self.feature_dimension, kind=Dim.Types.Feature)
+      extern_data_dict["data"] = {"dim_tags": [batch_dim, time_dim, feature_dim]}
 
     out_spatial_dim = Dim(description="out_spatial", dimension=None, kind=Dim.Types.Spatial)
     extern_data_dict["targets"] = {"dim_tags": [batch_dim, out_spatial_dim]}
@@ -452,56 +437,52 @@ class AEDConfigBuilder:
 
     return extern_data_dict
 
-  def get_dataset(self, dataset_opts: Dict, type_: str):
-    if type_ == "train":
-      dataset_dict = self.get_train_dataset_dict(dataset_opts)
-    elif type_ == "cv":
-      dataset_dict = self.get_eval_dataset_dict("cv", dataset_opts)
-    elif type_ == "devtrain":
-      dataset_dict = self.get_eval_dataset_dict("devtrain", dataset_opts)
-    else:
-      assert type_ == "search"
-      dataset_dict = self.get_eval_dataset_dict(dataset_opts["corpus_key"], dataset_opts)
 
-    if dataset_opts.get("use_multi_proc", True):
-      dataset_dict = {
-        "class": "MultiProcDataset",
-        "buffer_size": 10,
-        "num_workers": 4,
-        "dataset": dataset_dict
-      }
+class TinaAlignmentModelConfigBuilder(ConfigBuilder):
+  def __init__(self, **kwargs):
+    super().__init__(**kwargs)
 
-    return dataset_dict
+    self.post_config_dict["torch_dataloader_opts"] = {"num_workers": 0}
 
-  def get_train_datasets(self, dataset_opts: Dict):
-    datasets = dict(
-      train=self.get_dataset(dataset_opts, type_='train'),
-      eval_datasets={
-        "devtrain": self.get_dataset(dataset_opts, type_='devtrain'),
-        "dev": self.get_dataset(dataset_opts, type_='cv'),
-      }
-    )
+  def get_eval_dataset_dict(self, corpus_key: str, dataset_opts: Dict):
+    assert corpus_key == "train", f"corpus_key {corpus_key} not supported"
 
-    return datasets
+    segment_paths = dataset_opts.get("segment_paths", self.dataset.segment_paths)
 
-  @property
-  def batch_size_factor(self):
-    return 160
-
-  @property
-  def red_factor(self):
-    return 960
-
-  @property
-  def red_subtrahend(self):
-    return 399
-
-  @staticmethod
-  def get_vocab_dict_for_tensor(vocab_opts):
+    # we are only interested in forwarding the input
+    # so we use the same dataset for data and targets
+    sprint_cache_path = "/u/raissi/setups/librispeech/960h/work/i6_core/features/extraction/FeatureExtractionJob.Gammatone.XS6hEq8ovdgv/output/gt.cache.bundle"
     return {
-      "bpe_file": vocab_opts["bpe_codes_path"],
-      "vocab_file": vocab_opts["vocab_path"],
-      "unknown_label": None,
-      "bos_label": vocab_opts["bos_idx"],
-      "eos_label": vocab_opts["eos_idx"],
+      "class": "SprintCacheDataset",
+      "data": {
+          "data": {"filename": sprint_cache_path},
+          "targets": {"filename": sprint_cache_path, "data_type": "feat"},
+      },
+      "seq_list_filter_file": segment_paths.get(corpus_key, None),
+      "seq_ordering": "random"
     }
+
+  def get_extern_data_dict(self):
+    from returnn.tensor import Dim, batch_dim
+
+    extern_data_dict = {}
+    time_dim = Dim(description="time", dimension=None, kind=Dim.Types.Spatial)
+
+    assert self.feature_extraction is None
+    feature_dim = Dim(description="features", dimension=self.feature_dimension, kind=Dim.Types.Feature)
+    extern_data_dict["data"] = {"dim_tags": [batch_dim, time_dim, feature_dim]}
+    # set target dims to same as input dims
+    # for now, we are just interested in forwarding the input
+    extern_data_dict["targets"] = {"dim_tags": [batch_dim, time_dim, feature_dim]}
+
+    # out_spatial_dim = Dim(description="out_spatial", dimension=None, kind=Dim.Types.Spatial)
+    # extern_data_dict["targets"] = {"dim_tags": [batch_dim, out_spatial_dim]}
+    #
+    # target_dimension = self.vocab_opts["num_labels"]
+    # target_dim = Dim(
+    #   description="target_dim", dimension=target_dimension, kind=Dim.Types.Spatial)
+    # extern_data_dict["targets"]["sparse_dim"] = target_dim
+    # # vocab = self.get_vocab_dict_for_tensor(self.vocab_opts)
+    # # extern_data_dict["targets"]["vocab"] = vocab
+
+    return extern_data_dict

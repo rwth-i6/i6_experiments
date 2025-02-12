@@ -1,0 +1,111 @@
+<?xml version="1.0" encoding="ISO-8859-1"?>
+<sprint>
+  <system-information>
+    <name>chlor</name>
+    <type>x86_64</type>
+    <operating-system>Linux</operating-system>
+    <build-date>Mar 19 2024</build-date>
+    <local-time>2025-02-04 13:13:02.959</local-time>
+  </system-information>
+  <configuration>
+    <source type="command line">allophone-tool.config</source>
+    <source type="file">allophone-tool.config</source>
+    <source type="command line">allophone-tool.config</source>
+    <resources>
+      *.DESCRIPTION = cart-to-lut
+      *.acoustic-model.hmm.across-word-model = yes
+      *.acoustic-model.hmm.early-recombination = no
+      *.acoustic-model.hmm.state-repetitions = 1
+      *.acoustic-model.hmm.states-per-phone = 1
+      *.acoustic-model.state-tying.type = monophone-eow
+      *.acoustic-model.state-tying.use-boundary-classes = no
+      *.acoustic-model.state-tying.use-word-end-classes = yes
+      *.acoustic-model.tdp.*.exit = 0.0
+      *.acoustic-model.tdp.*.forward = 0.0
+      *.acoustic-model.tdp.*.loop = 3.0
+      *.acoustic-model.tdp.*.skip = infinity
+      *.acoustic-model.tdp.entry-m1.loop = infinity
+      *.acoustic-model.tdp.entry-m2.loop = infinity
+      *.acoustic-model.tdp.scale = 1.0
+      *.acoustic-model.tdp.silence.exit = 20.0
+      *.acoustic-model.tdp.silence.forward = 3.0
+      *.acoustic-model.tdp.silence.loop = 0.0
+      *.acoustic-model.tdp.silence.skip = infinity
+      *.allophones.add-all = no
+      *.allophones.add-from-lexicon = yes
+      *.configuration.channel = output-channel
+      *.dump-state-tying.channel = state-tying.lut
+      *.error.channel = output-channel, stderr
+      *.home = /u/schmitt
+      *.lexicon.file = `cf /u/raissi/setups/librispeech/960h/work/i6_core/g2p/convert/G2POutputToBlissLexiconJob.JOqKFQpjp04H/output/oov.lexicon.gz`
+      *.lexicon.normalize-pronunciation = no
+      *.load-state-tying = false
+      *.log.channel = output-channel
+      *.statistics.channel = output-channel
+      *.system-info.channel = output-channel
+      *.warning.channel = output-channel, stderr
+      CCACHE_DIR = /u/ccache
+      CCACHE_UMASK = 000
+      CCACHE_UNIFY = 1
+      CVS_RSH = ssh
+      DBUS_SESSION_BUS_ADDRESS = unix:path=/run/user/2765/bus
+      HOME = /u/schmitt
+      LANG = en_GB.UTF-8
+      LANGUAGE = en_GB:en
+      LC_ADDRESS = en_GB.UTF-8
+      LC_IDENTIFICATION = en_GB.UTF-8
+      LC_MEASUREMENT = en_GB.UTF-8
+      LC_MONETARY = en_GB.UTF-8
+      LC_NAME = en_GB.UTF-8
+      LC_NUMERIC = en_GB.UTF-8
+      LC_PAPER = en_GB.UTF-8
+      LC_TELEPHONE = en_GB.UTF-8
+      LC_TIME = en_GB.UTF-8
+      LD_LIBRARY_PATH = :/usr/local/lib:
+      LOGNAME = schmitt
+      MOTD_SHOWN = pam
+      OLDPWD = /u/schmitt/experiments/2025_01_22_model_combination
+      OMP_NUM_THREADS = 1
+      PAPERSIZE = a4
+      PATH = /u/schmitt/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/games:/usr/local/games:/snap/bin:/u/schmitt/.local/share/JetBrains/Toolbox/scripts:/u/schmitt/.local/share/JetBrains/Toolbox/scripts
+      PWD = /u/schmitt/experiments/2025_01_22_model_combination/recipe/i6_experiments/users/schmitt/rasr/configs
+      SHELL = /bin/bash
+      SHLVL = 1
+      SLURM_CONF_SERVER = cluster-mn-04
+      SSH_CLIENT = 137.226.36.152 57110 22
+      SSH_CONNECTION = 137.226.36.152 57110 137.226.36.124 22
+      SSH_TTY = /dev/pts/12
+      TEMP = /var/tmp
+      TERM = xterm-256color
+      TMP = /var/tmp
+      TMPDIR = /var/tmp
+      USER = schmitt
+      XDG_DATA_DIRS = /usr/share/gnome:/usr/local/share:/usr/share:/var/lib/snapd/desktop
+      XDG_RUNTIME_DIR = /run/user/2765
+      XDG_SESSION_CLASS = user
+      XDG_SESSION_ID = 4020
+      XDG_SESSION_TYPE = tty
+      _ = /work/asr3/zeyer/schmitt/src/rasr_versions/gen_seq2seq_dev/arch/linux-x86_64-standard/allophone-tool.linux-x86_64-standard
+    </resources>
+    <selection>allophone-tool</selection>
+  </configuration>
+  <information component="allophone-tool.lexicon">
+    reading lexicon from file "/work/common/asr/librispeech/data/sisyphus_work_dir/i6_core/g2p/convert/G2POutputToBlissLexiconJob.JOqKFQpjp04H/output/oov.lexicon.gz" ...
+  </information>
+  <information component="allophone-tool.lexicon">
+    dependency value: ae184af93ac8e8779b6efe8408f0d72f
+  </information>
+  <information component="allophone-tool.lexicon">
+    statistics:
+    number of phonemes:                    41
+    number of lemmas:                      214295
+    number of lemma pronunciations:        220557
+    number of distinct pronunciations:     185498
+    number of distinct syntactic tokens:   214294
+    number of distinct evaluation tokens:  214294
+    average number of phonemes per pronunciation: 6.76977
+  </information>
+  <information component="allophone-tool.acoustic-model.allophones">
+    147015 allophones after adding allophones from lexicon
+  </information>
+</sprint>

@@ -14,7 +14,8 @@ from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segment
 from i6_experiments.users.schmitt import hdf
 from i6_experiments.users.schmitt.alignment.alignment import GmmAlignmentToWordBoundariesJob
 
-from ..tools_paths import RETURNN_EXE, RETURNN_ROOT
+from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.general.returnn.exes import RETURNN_EXE_NEW, RETURNN_CURRENT_ROOT
+# from ..tools_paths import RETURNN_EXE, RETURNN_ROOT
 
 
 class LibrispeechGmmAlignment:
@@ -119,8 +120,9 @@ def setup_gmm_alignment(ls_train_bliss_corpus):
     alignment_cache=LIBRISPEECH_GMM_ALIGNMENT.alignment_caches["train"],
     allophone_file=LIBRISPEECH_GMM_ALIGNMENT.allophone_file,
     state_tying_file=Path("/u/schmitt/experiments/segmental_models_2022_23_rf/state-tying"),
-    returnn_python_exe=RETURNN_EXE,
-    returnn_root=RETURNN_ROOT,
+    # we just use these paths here in order to be able to import from previous sisyphus experiments
+    returnn_python_exe=RETURNN_EXE_NEW,
+    returnn_root=RETURNN_CURRENT_ROOT,
   )
 
   gmm_to_word_boundaries_job = GmmAlignmentToWordBoundariesJob(
