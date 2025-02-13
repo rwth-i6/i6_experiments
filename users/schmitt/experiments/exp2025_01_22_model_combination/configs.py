@@ -162,6 +162,14 @@ config_ctc_v1 = dict(
   )
 )
 
+config_ctc_v2 = dict_update_deep(
+  config_24gb_v1,
+  {},
+  [
+    "model_opts.decoder_opts"
+  ]
+)
+
 config_phon_transducer_v1 = dict(
   model_opts=dict(
     feature_extraction=None,

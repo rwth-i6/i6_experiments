@@ -18,20 +18,28 @@ from .model.aed import (
   aed_model_def,
   _returnn_v2_get_model as aed_get_model
 )
+from .model.ctc import (
+  ctc_model_def,
+  _returnn_v2_get_model as ctc_get_model,
+  model_recog as ctc_model_recog,
+  load_missing_params as load_missing_params_ctc,
+)
 from .model.custom_load_params import load_missing_params_aed
 from .analysis.analysis import analyze_encoder
 from .analysis.gmm_alignments import setup_gmm_alignment, LIBRISPEECH_GMM_WORD_ALIGNMENT
+from .rescoring import rescore
 from .configs import (
   config_24gb_v1,
   config_24gb_v2,
-  config_tina_v1,
   config_ctc_v1,
+  config_ctc_v2,
   config_post_hmm_v1,
   config_diphone_fh_v1,
   config_monophone_fh_v1,
   config_phon_transducer_v1,
 )
 from .train import TrainExperiment
+from .recog import RecogExperiment, _returnn_v2_forward_step, _returnn_v2_get_forward_callback
 
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.corpora.librispeech import LibrispeechCorpora
 
@@ -48,7 +56,19 @@ BPE1K_OPTS = dict(
     "/work/asr4/zeineldeen/setups-data/librispeech/2022-11-28--conformer-att/work/i6_core/text/label/subword_nmt/train/"
     "ReturnnTrainBpeJob.qhkNn2veTWkV/output/bpe.vocab"
   ),
-  num_labels=1056,
+  num_labels=1_056,
+  bos_idx=0,
+  eos_idx=0,
+)
+
+BPE10K_OPTS = dict(
+  bpe_codes_path=Path(
+    "/u/zeineldeen/setups/librispeech/2022-11-28--conformer-att/work/i6_core/text/label/subword_nmt/train/ReturnnTrainBpeJob.vTq56NZ8STWt/output/bpe.codes"
+  ),
+  vocab_path=Path(
+    "/u/zeineldeen/setups/librispeech/2022-11-28--conformer-att/work/i6_core/text/label/subword_nmt/train/ReturnnTrainBpeJob.vTq56NZ8STWt/output/bpe.vocab"
+  ),
+  num_labels=10_025,
   bos_idx=0,
   eos_idx=0,
 )
@@ -230,3 +250,58 @@ def py():
       train_rqmt=train_rqmt,
     )
     checkpoints, model_dir, learning_rates = train_exp.run_train()
+
+  # CTC recog and rescoring
+  configs = []
+  configs.append(dict(
+    model_opts=config_ctc_v2["model_opts"],
+    checkpoint=external_torch_checkpoints["mohammad-aed-5.4"],
+    checkpoint_alias="avg",
+    model_name="mohammad-aed-5.4/aux-ctc",
+  ))
+
+  for config in configs:
+    model_name = config["model_name"]
+
+    config_builder = AEDConfigBuilder(
+      dataset=LIBRISPEECH_CORPUS,
+      vocab_opts=BPE10K_OPTS,
+      model_def=ctc_model_def,
+      get_model_func=ctc_get_model,
+    )
+    config_builder.config_dict.update(config["model_opts"])
+    config_builder.config_dict["preload_from_files"] = {
+      "pretrained_params": {
+        "filename": config["checkpoint"],
+        "ignore_missing": True,
+        "custom_missing_load_func": load_missing_params_ctc,
+    }}
+    # config_builder.config_dict["ctc_prior_scale"] = 0.4
+
+    recog_exp = RecogExperiment(
+      alias=f"models/{model_name}",
+      config_builder=config_builder,
+      checkpoint=None,  # config["checkpoint"],
+      checkpoint_alias=config["checkpoint_alias"],
+      recog_opts={
+        "recog_def": ctc_model_recog,
+        "beam_size": 12,
+        "dataset_opts": {
+          "corpus_key": "dev-other",
+        },
+        "forward_step_func": _returnn_v2_forward_step,
+        "forward_callback": _returnn_v2_get_forward_callback,
+        "length_normalization_exponent": 1.0,
+      },
+      search_rqmt=dict(cpu=4)
+    )
+    recog_exp.run_eval()
+    #
+    # rescore(
+    #   config_builder=config_builder,
+    #   corpus_key="dev-other",
+    #   checkpoint=None,  # we set the checkpoint above via preload_from_files
+    #   returnn_root=RETURNN_ROOT,
+    #   returnn_python_exe=RETURNN_EXE,
+    #   alias=f"models/{model_name}",
+    # )

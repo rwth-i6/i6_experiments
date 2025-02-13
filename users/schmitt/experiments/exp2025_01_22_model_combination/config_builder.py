@@ -330,6 +330,47 @@ class AEDConfigBuilder(ConfigBuilder):
     # serialize remaining functions, e.g. dynamic learning rate
     return get_serializable_config(returnn_train_config, serialize_dim_tags=False)
 
+  def get_rescore_config(self, opts: Dict):
+    config_dict = copy.deepcopy(self.config_dict)
+    post_config_dict = copy.deepcopy(self.post_config_dict)
+    python_prolog = copy.deepcopy(self.python_prolog)
+    python_epilog = copy.deepcopy(self.python_epilog)
+
+    dataset_opts = opts.get("dataset_opts", {})
+    config_dict.update(dict(
+      task="forward",
+      search_output_layer="decision",
+      batching=opts.get("batching", "random")
+    ))
+    config_dict.update(dict(forward_data=self.get_dataset(dataset_opts=dataset_opts, type_='search')))
+    extern_data_raw = self.get_extern_data_dict()
+    extern_data_raw = instanciate_delayed(extern_data_raw)
+
+    config_dict["batch_size"] = opts.get("batch_size", 15_000) * self.batch_size_factor
+
+    behavior_version = opts.get("behavior_version")
+    if behavior_version is not None:
+      config_dict["behavior_version"] = behavior_version
+
+    python_epilog.append(
+      self.get_python_epilog_serialization(
+        extern_data_raw,
+        serialization.Import(opts["rescore_def"], import_as="_rescore_def", ignore_import_as_for_hash=True),
+        serialization.Import(opts["rescore_step_func"], import_as="forward_step"),
+        serialization.Import(opts["forward_callback"], import_as="forward_callback")
+      )
+    )
+
+    returnn_train_config = ReturnnConfig(
+      config=config_dict,
+      post_config=post_config_dict,
+      python_prolog=python_prolog,
+      python_epilog=python_epilog,
+    )
+
+    # serialize remaining functions, e.g. dynamic learning rate
+    return get_serializable_config(returnn_train_config, serialize_dim_tags=False)
+
   @staticmethod
   def get_recog_checkpoints(
           model_dir: Path, learning_rates: Path, key: str, checkpoints: Dict[int, PtCheckpoint]

@@ -7,6 +7,7 @@ from .conformer_import_tina.fh_ctc import (
   map_param_func_v2_diphone_fh,
   map_param_func_v2_monophone_fh,
 )
+from .mohammad_aed_import import map_param_func_v2 as map_param_func_v2_mohammad_aed
 from .conformer_import_tina.transducer import map_param_func_v2 as map_param_func_v2_transducer
 from .conformer_tina import (
   MakeModel,
@@ -15,6 +16,8 @@ from .conformer_tina import (
   MakeMonophoneFHModel,
   MakePhonTransducerModel,
 )
+from .aed import MakeModel as MakeAedModel
+from ..configs import config_24gb_v1
 
 from i6_core.returnn.training import PtCheckpoint, Checkpoint
 
@@ -28,6 +31,7 @@ external_tf_checkpoints = {
   "tina-monoph-fh_fs-50-ep": Checkpoint(Path("/work/asr4/raissi/setups/librispeech/960-ls/2023-01--system_paper/work/i6_experiments/users/raissi/costum/returnn/rasr_returnn_bw/ReturnnRasrTrainingBWJob.4zAslTmyAn43/output/models/epoch.998.index")),
   "tina-diph-fh_viterbi-20-ep": Checkpoint(Path("/work/asr4/raissi/setups/librispeech/960-ls/2023-01--system_paper/work/i6_experiments/users/raissi/costum/returnn/rasr_returnn_vit/ReturnnRasrTrainingVITJob.A5ctZ7yM0OeU/output/models/epoch.390.index")),
   "tina-diph-fh_vit+fs-35-ep": Checkpoint(Path("/work/asr4/raissi/setups/librispeech/960-ls/2023-01--system_paper/work/i6_experiments/users/raissi/costum/returnn/rasr_returnn_bw/ReturnnRasrTrainingBWJob.Fxqx6AA8yScR/output/models/epoch.291.index")),
+  "mohammad-aed-5.4": Checkpoint(Path("/work/asr4/zeineldeen/setups-data/librispeech/2022-11-28--conformer-att/work/i6_core/returnn/training/AverageTFCheckpointsJob.BxqgICRSGkgb/output/model/average.index"))
 }
 
 external_torch_checkpoints = {
@@ -48,36 +52,53 @@ def convert_checkpoints():
       map_func = map_param_func_v2_transducer
       make_model = MakePhonTransducerModel
       target_dim = 79
+      in_dim = 50
       extra = {}
     elif "ctc" in checkpoint_name:
       map_func = map_param_func_v2_ctc
       make_model = MakeFramewiseProbModel
       target_dim = 79
+      in_dim = 50
       extra = {}
     elif "post-hmm" in checkpoint_name:
       map_func = map_param_func_v2_post_hmm
       make_model = MakeFramewiseProbModel
       target_dim = 84
+      in_dim = 50
       extra = {}
     elif checkpoint_name in ["tina-diph-fh_vit+fs-35-ep", "tina-diph-fh_viterbi-20-ep"]:
       map_func = map_param_func_v2_diphone_fh
       make_model = MakeDiphoneFHModel
       target_dim = 84
+      in_dim = 50
       extra = {"left_target_dim": 42}
     elif checkpoint_name == "tina-monoph-fh_fs-50-ep":
       map_func = map_param_func_v2_monophone_fh
       make_model = MakeMonophoneFHModel
       target_dim = 84
+      in_dim = 50
+      extra = {}
+    elif checkpoint_name == "mohammad-aed-5.4":
+      map_func = map_param_func_v2_mohammad_aed
+      make_model = MakeAedModel
+      target_dim = 10_025
+      in_dim = 80  # log mel on the fly
+      extra = dict(
+        encoder_opts=config_24gb_v1["model_opts"]["encoder_opts"],
+        decoder_opts=config_24gb_v1["model_opts"]["decoder_opts"],
+        enc_aux_logits=(12,)
+      )
     else:
       map_func = map_param_func_v2_fh_ctc
       make_model = MakeModel
       target_dim = 10_025
+      in_dim = 50
       extra = {}
 
     torch_checkpoint_job = ConvertTfCheckpointToRfPtJob(
       checkpoint=checkpoint,
       make_model_func=make_model(
-        in_dim=50,
+        in_dim=in_dim,
         target_dim=target_dim,
         **extra,
       ),

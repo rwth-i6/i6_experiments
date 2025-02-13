@@ -56,7 +56,7 @@ class GlobalAttDecoder(rf.Module):
     super(GlobalAttDecoder, self).__init__()
 
     from returnn.config import get_global_config
-    config = get_global_config()  # noqa
+    config = get_global_config(return_empty_if_none=True)  # noqa
 
     self.target_dim = target_dim
     self.enc_out_dim = enc_out_dim

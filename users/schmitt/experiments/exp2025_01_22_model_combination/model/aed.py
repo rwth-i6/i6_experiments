@@ -1,9 +1,10 @@
 from typing import Optional, Dict, Any, Sequence, Tuple, List, Union
 import math
+import copy
 
 from returnn.tensor import Tensor, Dim, single_step_dim
 import returnn.frontend as rf
-from returnn.frontend.encoder.conformer import ConformerEncoderLayer, ConformerConvSubsample
+from returnn.frontend.encoder.conformer import ConformerEncoderLayer, ConformerConvSubsample, ConformerEncoder
 import returnn.frontend
 
 import i6_experiments
@@ -14,95 +15,52 @@ from .decoder import GlobalAttDecoder, GlobalAttEfficientDecoder
 _batch_size_factor = 160
 
 
-class AEDModel(rf.Module):
+def get_conformer(opts: Dict) -> ConformerEncoder:
+  opts = copy.deepcopy(opts)
+  enc_cls = eval(opts.pop("class"))
+  enc_input_layer_cls = eval(opts.pop("input_layer_cls")["class"])
+  enc_out_dimension = opts.pop("out_dimension")
+  in_dim = opts.pop("in_dim")
+  enc_input_layer_opts = dict(
+    out_dims=[Dim(32, name="conv1"), Dim(64, name="conv2"), Dim(64, name="conv3")],
+    filter_sizes=[(3, 3), (3, 3), (3, 3)],
+    pool_sizes=[(1, 2)],
+    strides=[(1, 1), (3, 1), (2, 1)],
+  )
+  enc_input_layer_opts.update(opts.pop("input_layer_opts", {}))
+  encoder = enc_cls(
+    in_dim,
+    out_dim=Dim(name="enc", dimension=enc_out_dimension),
+    ff_dim=Dim(name="enc-ff", dimension=2048),
+    input_layer=enc_input_layer_cls(
+      in_dim,
+      **enc_input_layer_opts
+    ),
+    **opts
+  )
+
+  return encoder
+
+
+class Model(rf.Module):
   def __init__(
           self,
           *,
           encoder_opts: Dict,
-          decoder_opts: Dict,
-          eos_idx: int,
-          bos_idx: int,
           in_dim: Dim,
-          target_dim: Dim,
-          enc_aux_logits: Sequence[int] = (),
           feature_extraction: Optional[str] = "log-mel-on-the-fly",
   ):
-    super(AEDModel, self).__init__()
+    super(Model, self).__init__()
 
     from returnn.config import get_global_config
     config = get_global_config(return_empty_if_none=True)
 
-    self.bos_idx = bos_idx
-    self.eos_idx = eos_idx
     self.in_dim = in_dim
-    # for CTC aux loss
-    self.blank_idx = target_dim.dimension  # type: int
-    self.target_dim = target_dim
     self.feature_extraction = feature_extraction
 
     # encoder
-
-    # enc_out_dim = Dim(name="enc", dimension=512)
-    # enc_ff_dim = Dim(name="enc-ff", dimension=2048)
-    # self.encoder = rf.encoder.conformer.ConformerEncoder(
-    #   in_dim,
-    #   out_dim=enc_out_dim,
-    #   ff_dim=enc_ff_dim,
-    #   input_layer=rf.encoder.conformer.ConformerConvSubsample(
-    #     in_dim,
-    #     out_dims=[Dim(32, name="conv1"), Dim(64, name="conv2"), Dim(64, name="conv3")],
-    #     filter_sizes=[(3, 3), (3, 3), (3, 3)],
-    #     pool_sizes=[(1, 2)],
-    #     strides=[(1, 1), (3, 1), (2, 1)],
-    #   ),
-    #   num_layers=12,
-    #   num_heads=8,
-    #   dropout=0.1,
-    #   att_dropout=0.1,
-    #   encoder_layer=rf.encoder.conformer.ConformerEncoderLayer(
-    #     out_dim=enc_out_dim,
-    #     ff_dim=enc_ff_dim,
-    #     conv_norm_opts=dict(use_mask=True),
-    #     num_heads=8,
-    #     self_att_opts=dict(
-    #       # Shawn et al 2018 style, old RETURNN way.
-    #       with_bias=False,
-    #       with_linear_pos=False,
-    #       with_pos_bias=False,
-    #       learnable_pos_emb=True,
-    #       separate_pos_emb_per_head=False,
-    #       pos_emb_dropout=0.0,
-    #     ),
-    #     self_att=rf.RelPosSelfAttention,
-    #     ff_activation=rf.relu_square,
-    #   )
-    # )
-    enc_cls = eval(encoder_opts.pop("class"))
-    enc_input_layer_cls = eval(encoder_opts.pop("input_layer_cls")["class"])
-    enc_out_dimension = encoder_opts.pop("out_dimension")
-    enc_input_layer_opts = dict(
-      out_dims=[Dim(32, name="conv1"), Dim(64, name="conv2"), Dim(64, name="conv3")],
-      filter_sizes=[(3, 3), (3, 3), (3, 3)],
-      pool_sizes=[(1, 2)],
-      strides=[(1, 1), (3, 1), (2, 1)],
-    )
-    enc_input_layer_opts.update(encoder_opts.pop("input_layer_opts", {}))
-    self.encoder = enc_cls(
-      in_dim,
-      out_dim=Dim(name="enc", dimension=enc_out_dimension),
-      ff_dim=Dim(name="enc-ff", dimension=2048),
-      input_layer=enc_input_layer_cls(
-        in_dim,
-        **enc_input_layer_opts
-      ),
-      **encoder_opts
-    )
-
-    # auxiliary logits
-    if enc_aux_logits:
-      wb_target_dim = target_dim + 1
-    for i in enc_aux_logits:
-      setattr(self, f"enc_aux_logits_{i}", rf.Linear(self.encoder.out_dim, wb_target_dim))
+    encoder_opts.update({"in_dim": in_dim})
+    self.encoder = get_conformer(encoder_opts)
 
     # specaugment
     self._specaugment_opts = {
@@ -113,14 +71,6 @@ class AEDModel(rf.Module):
       "num_spatial_mask_factor": config.typed_value("specaugment_num_spatial_mask_factor") or 100,
     }
 
-    # decoder
-    decoder_cls = eval(decoder_opts.pop("class"))
-    self.decoder = decoder_cls(
-      enc_out_dim=self.encoder.out_dim,
-      target_dim=target_dim,
-      **decoder_opts
-    )
-
     apply_weight_dropout(self)
 
   def encode(
@@ -129,7 +79,7 @@ class AEDModel(rf.Module):
           *,
           in_spatial_dim: Dim,
           collected_outputs: Optional[Dict[str, Tensor]] = None,
-  ) -> Tuple[Dict[str, Tensor], Dim]:
+  ) -> Tuple[Tensor, Dim]:
     """encode, and extend the encoder output for things we need in the decoder"""
     # log mel filterbank features
     if self.feature_extraction == "log-mel-on-the-fly":
@@ -157,6 +107,65 @@ class AEDModel(rf.Module):
 
     enc, enc_spatial_dim = self.encoder(
       source, in_spatial_dim=in_spatial_dim, collected_outputs=collected_outputs
+    )
+
+    return enc, enc_spatial_dim
+
+
+class AEDModel(Model):
+  def __init__(
+          self,
+          *,
+          encoder_opts: Dict,
+          decoder_opts: Dict,
+          eos_idx: int,
+          bos_idx: int,
+          in_dim: Dim,
+          target_dim: Dim,
+          enc_aux_logits: Sequence[int] = (),
+          feature_extraction: Optional[str] = "log-mel-on-the-fly",
+  ):
+    super(AEDModel, self).__init__(
+      encoder_opts=encoder_opts,
+      in_dim=in_dim,
+      feature_extraction=feature_extraction,
+    )
+
+    self.bos_idx = bos_idx
+    self.eos_idx = eos_idx
+    # for CTC aux loss
+    self.blank_idx = target_dim.dimension  # type: int
+    self.target_dim = target_dim
+
+    # auxiliary logits
+    if enc_aux_logits:
+      wb_target_dim = target_dim + 1
+    for i in enc_aux_logits:
+      setattr(self, f"enc_aux_logits_{i}", rf.Linear(self.encoder.out_dim, wb_target_dim))
+
+    # decoder
+    decoder_cls = eval(decoder_opts.pop("class"))
+    self.decoder = decoder_cls(
+      enc_out_dim=self.encoder.out_dim,
+      target_dim=target_dim,
+      **decoder_opts
+    )
+
+    apply_weight_dropout(self)
+
+  def encode(
+          self,
+          source: Tensor,
+          *,
+          in_spatial_dim: Dim,
+          collected_outputs: Optional[Dict[str, Tensor]] = None,
+  ) -> Tuple[Dict[str, Tensor], Dim]:
+    """encode, and extend the encoder output for things we need in the decoder"""
+
+    enc, enc_spatial_dim = super(AEDModel, self).encode(
+      source=source,
+      in_spatial_dim=in_spatial_dim,
+      collected_outputs=collected_outputs,
     )
 
     if self.decoder.enc_ctx_layer is None:
@@ -191,6 +200,57 @@ def _get_eos_idx(target_dim: Dim) -> int:
   else:
     raise Exception(f"cannot determine eos_idx from vocab {target_dim.vocab}")
   return eos_idx
+
+
+class MakeModel:
+  """for import"""
+
+  def __init__(
+          self,
+          in_dim: int,
+          target_dim: int,
+          eos_label: int = 0,
+          **extra,
+  ):
+    self.in_dim = in_dim
+    self.target_dim = target_dim
+    self.eos_label = eos_label
+    self.extra = extra
+
+  def __call__(self) -> AEDModel:
+    from returnn.datasets.util.vocabulary import Vocabulary
+
+    in_dim = Dim(name="in", dimension=self.in_dim, kind=Dim.Types.Feature)
+    target_dim = Dim(name="target", dimension=self.target_dim, kind=Dim.Types.Feature)
+    target_dim.vocab = Vocabulary.create_vocab_from_labels(
+      [str(i) for i in range(target_dim.dimension)], eos_label=self.eos_label
+    )
+    return self.make_model(in_dim, target_dim, **self.extra)
+
+  @classmethod
+  def make_model(
+          cls,
+          in_dim: Dim,
+          target_dim: Dim,
+          *,
+          encoder_opts: Dict = None,
+          decoder_opts: Dict = None,
+          enc_aux_logits: Sequence[int] = (),
+          feature_extraction: Optional[str] = "log-mel-on-the-fly",
+
+  ) -> AEDModel:
+    """make"""
+
+    return AEDModel(
+      encoder_opts=encoder_opts,
+      decoder_opts=decoder_opts,
+      bos_idx=_get_bos_idx(target_dim),
+      eos_idx=_get_eos_idx(target_dim),
+      target_dim=target_dim,
+      enc_aux_logits=enc_aux_logits,
+      feature_extraction=feature_extraction,
+      in_dim=in_dim,
+    )
 
 
 def aed_model_def(*, epoch: int, in_dim: Dim, target_dim: Dim) -> AEDModel:
@@ -250,7 +310,7 @@ def _returnn_v2_get_model(*, epoch: int, **_kwargs_unused):
 
 def apply_weight_dropout(model: rf.Module):
   from returnn.config import get_global_config
-  config = get_global_config()  # noqa
+  config = get_global_config(return_empty_if_none=True)  # noqa
 
   weight_dropout = config.float("weight_dropout", None)
   if weight_dropout:
