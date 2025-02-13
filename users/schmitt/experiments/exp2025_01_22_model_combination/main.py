@@ -296,12 +296,12 @@ def py():
       search_rqmt=dict(cpu=4)
     )
     recog_exp.run_eval()
-    #
-    # rescore(
-    #   config_builder=config_builder,
-    #   corpus_key="dev-other",
-    #   checkpoint=None,  # we set the checkpoint above via preload_from_files
-    #   returnn_root=RETURNN_ROOT,
-    #   returnn_python_exe=RETURNN_EXE,
-    #   alias=f"models/{model_name}",
-    # )
+
+    rescore(
+      config_builder=config_builder,
+      corpus_key="dev-other",
+      checkpoint=None,  # we set the checkpoint above via preload_from_files
+      returnn_root=RETURNN_ROOT,
+      returnn_python_exe=RETURNN_EXE,
+      alias=f"models/{model_name}",
+    )
