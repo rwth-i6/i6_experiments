@@ -217,7 +217,7 @@ def recog_model(
         search_alias_name = None
         if name:
             search_alias_name = f"{name}/search/{dataset_name}"
-            if epoch:
+            if epoch is not None:
                 search_alias_name += f"/{epoch}"
         if config.get("max_seqs", None) == 1:
             search_rqmt["time"] = 24

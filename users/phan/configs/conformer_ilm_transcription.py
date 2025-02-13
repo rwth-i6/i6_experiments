@@ -197,7 +197,8 @@ def train_exp(
         "lstm_layers1_hiddendim1000": {
             # "job": lstm_trans_lm(), # don't know why this gives a different hash, so hardcoding job path instead
             "job": "/work/asr3/zyang/share/mnphan/work_rf_ctc/work/i6_core/returnn/training/ReturnnTrainingJob.N5TOF2UEaiyE",
-            "recog_epochs": [1, 2, 3, 4, 5],
+            # "recog_epochs": [1, 2, 3, 4, 5],
+            "recog_epochs": [1],
             "ilm_config": default_ilm_config,
         },
         # "lstm_layers1_hiddendim1000_estimated_on_ted2": {
@@ -207,17 +208,20 @@ def train_exp(
         # }
         "ffnn_context1_layers2_hiddendim1000": {
             "job": "/work/asr3/zyang/share/mnphan/work_rf_ctc/work/i6_core/returnn/training/ReturnnTrainingJob.cEtm5bxOkNnD",
-            "recog_epochs": [1, 6, 12, 18, 24],
+            # "recog_epochs": [1, 6, 12, 18, 24],
+            "recog_epochs": [6],
             "ilm_config": ffnn_context1_config,
         },
         "ffnn_context6_layers2_hiddendim1000": {
             "job": "/work/asr3/zyang/share/mnphan/work_rf_ctc/work/i6_core/returnn/training/ReturnnTrainingJob.plZWGXP93VTI",
-            "recog_epochs": [1, 6, 11, 17, 22],
+            # "recog_epochs": [1, 6, 11, 17, 22],
+            "recog_epochs": [6],
             "ilm_config": ffnn_context6_config,
         },
         "ffnn_context10_layers2_hiddendim1000": {
             "job": "/work/asr3/zyang/share/mnphan/work_rf_ctc/work/i6_core/returnn/training/ReturnnTrainingJob.tp9HkD3xGqQ5",
-            "recog_epochs": [1, 6, 12, 18, 24],
+            # "recog_epochs": [1, 6, 12, 18, 24],
+            "recog_epochs": [1],
             "ilm_config": ffnn_context10_config,
         },
     }
@@ -443,9 +447,12 @@ def train_exp(
             from i6_experiments.users.phan.recog.ctc_time_sync_recomb_first_v2 import model_recog_time_sync_recomb_first_v2
             beam_sizes = [32]
             length_norm_scales = [0.0] # we don't need 1.0 for time sync search!!!
-            lm_scales = [1.3, 1.4, 1.5, 1.6, 1.7, 1.8]
-            ilm_scales = [0.8, 0.9, 1.0, 1.1, 1.2, 1.3, 1.4] 
-            prior_scales = [0.0]
+            # lm_scales = [1.3, 1.4, 1.5, 1.6, 1.7, 1.8]
+            # ilm_scales = [0.8, 0.9, 1.0, 1.1, 1.2, 1.3, 1.4] 
+            # prior_scales = [0.0]
+            lm_scales = [1.4, 1.5, 1.6, 1.7, 1.8, 1.9]
+            ilm_scales = [0.6, 0.7, 0.8, 0.9, 1.0, 1.1, 1.2] 
+            prior_scales = [0.3, 0.4, 0.5, 0.6]
             for beam_size, lm_scale, ilm_scale, length_norm_scale, prior_scale in itertools.product(beam_sizes, lm_scales, ilm_scales, length_norm_scales, prior_scales):
                 if ilm_scale >= lm_scale:
                     continue
@@ -458,7 +465,8 @@ def train_exp(
                 }
                 search_args.update({
                     "prior_scale": prior_scale,
-                    "prior_file": "/work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/2023-08-10--rf-librispeech/work/i6_core/returnn/forward/ReturnnForwardJobV2.OSftOYzAjRUg/output/prior.txt",
+                    # correct prior
+                    "prior_file": "/work/asr3/zyang/share/mnphan/work_rf_ctc/work/i6_core/returnn/forward/ReturnnForwardJobV2.Wug49TgveO2b/output/prior.txt",
                     "ctc_log_prior": False,
                 })
                 exp_name = f"/{ilm_arch}"

@@ -44,9 +44,10 @@ config_11gb.update({"internal_language_model": default_ffnn_context1_layers2_hid
 
 def sis_run_with_prefix(prefix_name: Optional[str] = None):
     """run the exp"""
-    lr_list = [1e-3, 1e-4, 1e-5]
+    # lr_list = [1e-3, 1e-4, 1e-5]
+    lr_list = [1e-3, 1e-4]
     ep_list = [100]
-    recog_epoch = [20, 40, 60, 80, 100]
+    recog_epoch = [20, 40, 60, 80, 100, 120, 140, 160, 180, 200]
     for lr in lr_list:
         for ep in ep_list:
             lrs = [lr]*ep
@@ -126,7 +127,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
                         "batch_size": 1200000,
                         "learning_rate": float(lrs[-1]),
                         # "learning_rates": lrs,
-                        "__num_epochs": ep,
+                        "__num_epochs": 200,
                         "mask_eos_output": True,
                         "add_eos_to_blank": True,
                         "preload_from_files": {
@@ -446,20 +447,27 @@ def train_exp(
 
     beam_sizes = [32]
     length_norm_scales = [0.0] # we don't need 1.0 for time sync search!!!
-    lm_scales = [1.2, 1.4, 1.6, 1.8, 2.0]
-    ilm_scales = [0.6, 0.8, 1.0, 1.2, 1.4, 1.6] 
-    # prior_scales = [0.0, 0.2, 0.4]
+    lm_scales = [1.3, 1.4, 1.5, 1.6, 1.7, 1.8]
+    ilm_scales = [0.8, 0.9, 1.0, 1.1, 1.2, 1.3, 1.4] 
+    # prior_scales = [0.3, 0.4, 0.5]
     prior_scales = [0.0]
     for beam_size, lm_scale, ilm_scale, length_norm_scale, prior_scale in itertools.product(beam_sizes, lm_scales, ilm_scales, length_norm_scales, prior_scales):                
         if ilm_scale >= lm_scale:
             continue
+        # lr = config.get("learning_rate")
+        # if lr == 1e-3:
+        #     exclude_epochs = [20, 40, 60, 80, 120, 140, 160, 180, 200]
+        # elif lr == 1e-4:
+        #     exclude_epochs = [20, 60, 80, 100, 120, 140, 160, 180, 200]
+        exclude_epochs = []
         search_args = {
             "beam_size": beam_size,
             "lm_scale": lm_scale,
             "ilm_scale": ilm_scale,
             "length_norm_scale": length_norm_scale,
             "prior_scale": prior_scale,
-            "prior_file": "/work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/2023-08-10--rf-librispeech/work/i6_core/returnn/forward/ReturnnForwardJobV2.OSftOYzAjRUg/output/prior.txt",
+            # correct prior
+            "prior_file": "/work/asr3/zyang/share/mnphan/work_rf_ctc/work/i6_core/returnn/forward/ReturnnForwardJobV2.Wug49TgveO2b/output/prior.txt",
             "ctc_log_prior": False,
             "lm_skip": True,
         }
@@ -474,7 +482,7 @@ def train_exp(
             search_config=ted2_recog_config_update_extra,
             recog_def=model_recog_time_sync_recomb_first_v2,
             model_avg=False,
-            exclude_epochs=[],
+            exclude_epochs=exclude_epochs,
             train_exp_name=name,
             dev_sets=["dev", "test"],
         )

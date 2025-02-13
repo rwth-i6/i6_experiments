@@ -26,20 +26,36 @@ if TYPE_CHECKING:
 
 
 class Unigram_LM_RF(rf.Module):
-    r"""Context 0 LM
+    r"""Context 0 LM. It is the logits.
     """
 
     def __init__(
         self,
         output_dim: Dim,
+        preload_tensor: Optional[str] = None,
+        preload_is_log_prob: Optional[bool] = False,
+        preload_blank_idx: Optional[int] = None,
         **kwargs,
     ) -> None:
         """
         :param output_dim: output vocab size
+        :param preload_tensor: preload the unigram using a TXT (compat with np.loadtxt)
+        :param preload_is_log_prob: True if preload is in log prob space, False if in probability space
+        :param preload_blank_idx: If the preload is a frame-level prior, pass its blank idx here.
+            The blank idx will be removed from the preloaded tensor, then renormalize over the rest true labels.
         """
         super().__init__()
         self.output_dim = output_dim
-        raw_output = torch.normal(mean=0.0, std=0.1, size=(output_dim.capacity,), requires_grad=True)
+        if preload_tensor is None:
+            raw_output = torch.normal(mean=0.0, std=0.1, size=(output_dim.capacity,), requires_grad=True)
+        else:
+            preload_unigram = np.loadtxt(preload_tensor, dtype="float32")
+            if not preload_is_log_prob:
+                preload_unigram = np.log(preload_unigram)
+            if preload_blank_idx is not None:
+                preload_unigram = np.delete(preload_unigram, preload_blank_idx, 0)
+            raw_output = torch.tensor(preload_unigram).log_softmax(0)
+        assert raw_output.shape == (output_dim.capacity,)
         self.output = rf.Tensor("output", dims=[output_dim], dtype="float32", raw_tensor=raw_output)
         for name, param in self.named_parameters():
             param.initial = rf.init.Normal(stddev=0.1) # mean already 0.0
