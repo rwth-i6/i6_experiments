@@ -63,7 +63,7 @@ def lm_framewise_prior_rescore(
     vocab: tk.Path,
     vocab_opts_file: tk.Path,
     prior: Optional[Prior] = None,
-    prior_scale: float = Union[0.0, tk.Variable, DelayedBase],
+    prior_scale: Union[float, tk.Variable, DelayedBase] = 0.0,
     search_labels_to_labels: Optional[Callable[[RecogOutput], RecogOutput]] = None,
 ) -> RecogOutput:
     """
