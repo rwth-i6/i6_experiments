@@ -193,7 +193,8 @@ class CompareTwoScliteWerDistributions(Job):
             if self.ignore_perfect_seqs and wer0 == 0 and wer1 == 0:
                 continue
             wer_diff = wer1 - wer0
-            wer_diff = min(max(-self.x_extents, wer_diff), self.x_extents)
+            if wer_diff < -self.x_extents or wer_diff > self.x_extents:
+                continue
 
             bin_idx = min(int(wer_diff / self.x_extents * self.num_bins_in_each_direction + self.num_bins_in_each_direction), len(bins) - 1)
             val = (s + d + c)
@@ -228,7 +229,7 @@ class CompareTwoScliteWerDistributions(Job):
         else:
             plt.title(self.plot_title)
         x_range = range(-self.num_bins_in_each_direction, self.num_bins_in_each_direction + 1, max(1, 2 * self.num_bins_in_each_direction // 10))
-        plt.xticks(x_range, [f"{i/self.num_bins_in_each_direction*self.x_extents/100:.2f}" for i in x_range])
+        plt.xticks(x_range, [f"{i/self.num_bins_in_each_direction*self.x_extents:.2f}" for i in x_range])
         plt.grid(axis="y")
         plt.legend(loc="upper right")
         if self.ignore_perfect_seqs:
