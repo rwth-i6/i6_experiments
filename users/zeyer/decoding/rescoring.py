@@ -149,6 +149,7 @@ def rescore(
         returnn_root=tools_paths.get_returnn_root(),
         device=forward_device,
     )
+    forward_job.rqmt["mem"] = 16  # often needs more mem
     if forward_rqmt:
         forward_job.rqmt.update(forward_rqmt)
     if env_updates:
