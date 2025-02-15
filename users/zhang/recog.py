@@ -5,7 +5,7 @@ Generic recog, for the model interfaces defined in model_interfaces.py
 from __future__ import annotations
 
 import os
-from typing import TYPE_CHECKING, Optional, Union, Any, Dict, Sequence, Collection, Iterator, Callable
+from typing import TYPE_CHECKING, Optional, Union, Any, Dict, Sequence, Collection, Iterator, Callable, List
 
 import sisyphus
 from sisyphus import tk
@@ -57,6 +57,9 @@ def recog_training_exp(
     model_avg: bool = False,
     empirical_prior: Optional[tk.Path] = None,
     prior_from_max: bool = False,
+    dev_sets: Optional[List[str]] = None,
+    search_rqmt: dict = None,
+    alias_name: str = None,
 )-> tk.path:
     """recog on all relevant epochs"""
     recog_and_score_func = _RecogAndScoreFunc(
@@ -71,6 +74,8 @@ def recog_training_exp(
         search_mem_rqmt=search_mem_rqmt,
         empirical_prior=empirical_prior,
         prior_from_max=prior_from_max,
+        dev_sets=dev_sets,
+        search_rqmt=search_rqmt,
     )
     # In following jobs, model is implicitly called in recog_and_score_func, here the passed reference only provides epoch information.
     # So, make sure the exp here align with the model used to initialise recog_and_score_func
@@ -105,6 +110,8 @@ class _RecogAndScoreFunc:
         search_mem_rqmt: Union[int, float] = 6,
         empirical_prior: Optional[tk.Path] = None,
         prior_from_max: bool = False,
+        dev_sets: Optional[List[str]] = None,
+        search_rqmt: dict = None,
     ):
         # Note: When something is added here, remember to handle it in _sis_hash.
         self.prefix_name = prefix_name
@@ -118,6 +125,8 @@ class _RecogAndScoreFunc:
         self.search_mem_rqmt = search_mem_rqmt
         self.empirical_prior = empirical_prior
         self.prior_from_max = prior_from_max
+        self.dev_sets = dev_sets
+        self.search_rqmt = search_rqmt
 
     def __call__(self, epoch_or_ckpt: Union[int, PtCheckpoint]) -> ScoreResultCollection:
         if isinstance(epoch_or_ckpt, int):
@@ -135,7 +144,7 @@ class _RecogAndScoreFunc:
                     dataset=self.task.prior_dataset,
                     model=model_with_checkpoint,
                     prior_alias_name=self.prefix_name + f"/prior/{epoch_or_ckpt:03}",
-                    num_shards=self.num_shards_prior,
+                    #num_shards=self.num_shards_prior,
                     prior_from_max=self.prior_from_max,
                 )
                 if isinstance(epoch_or_ckpt, int):
@@ -152,9 +161,12 @@ class _RecogAndScoreFunc:
             search_post_config=self.search_post_config,
             recog_post_proc_funcs=self.recog_post_proc_funcs,
             search_mem_rqmt=self.search_mem_rqmt,
+            dev_sets=self.dev_sets,
+            search_rqmt=self.search_rqmt,
+            name=self.prefix_name,
         )
         if isinstance(epoch_or_ckpt, int):
-            tk.register_output(self.prefix_name + f"/recog_results_per_epoch/{epoch_or_ckpt:03}", res.output)
+            tk.register_output(self.prefix_name + f"/recog_results_per_epoch/{epoch_or_ckpt:03}/res", res.output)
         return res
 
     def _sis_hash(self) -> bytes:
@@ -165,6 +177,7 @@ class _RecogAndScoreFunc:
         del d["prefix_name"]
         del d["search_post_config"]
         del d["search_mem_rqmt"]
+        del d["search_rqmt"]
         if not self.search_config:
             del d["search_config"]  # compat
         if not self.recog_post_proc_funcs:
@@ -199,12 +212,13 @@ def recog_model(
     recog_post_proc_funcs: Sequence[Callable[[RecogOutput], RecogOutput]] = (),
     search_mem_rqmt: Union[int, float] = 6,
     search_rqmt: Optional[Dict[str, Any]] = None, #= {"time": 6},
-    dev_sets: Optional[Collection[str]] = None, #["dev-other", "test-other"], #TODO make this more visible at higher level
+    dev_sets: Optional[Collection[str]] = None, #["dev-other", "test-other"]
     name: Optional[str] = None,
 ) -> ScoreResultCollection:
     """recog"""
     if dev_sets is not None:
         assert all(k in task.eval_datasets for k in dev_sets)
+        # task.main_measure_name = dev_sets[0]
     outputs = {}
     for dataset_name, dataset in task.eval_datasets.items():
         if dev_sets is not None:
@@ -226,6 +240,8 @@ def recog_model(
         )
         score_out = task.score_recog_output_func(dataset, recog_out)
         outputs[dataset_name] = score_out
+    # if dev_sets:
+    #     assert task.main_measure_name == dev_sets[0]
     return task.collect_score_results_func(outputs)
 
 
@@ -274,6 +290,35 @@ def compute_prior(
         if prior_alias_name:
             prior_job.add_alias(prior_alias_name)
             res = prior_job.out_files["prior.txt"]
+
+    return res
+
+def check_search_error(
+        *,
+        dataset: DatasetConfig,
+        model: ModelWithCheckpoint,
+        hyps: tk.path,
+        mem_rqmt: Union[int, float] = 8,
+        alias_name: Optional[str] = None,
+        num_shards: Optional[int] = None,
+        prior_from_max: bool = False,
+) -> tk.Path:
+    pre_SearchError_job = ReturnnForwardJobV2(
+        model_checkpoint=model.checkpoint,
+        returnn_config=search_error_config(dataset, model.definition),
+        output_files=["grdth.dict", "target.dict"],
+        returnn_python_exe=tools_paths.get_returnn_python_exe(),
+        returnn_root=tools_paths.get_returnn_root(),
+        device="gpu",
+        time_rqmt=4,
+        mem_rqmt=mem_rqmt,
+        cpu_rqmt=4,
+    )
+    from utils.search_error import ComputeSearchErrorsJob
+    res = ComputeSearchErrorsJob(pre_SearchError_job.out_files["grundtrh"], hyps)
+    if alias_name:
+        pre_SearchError_job.add_alias(alias_name)
+        res = pre_SearchError_job.out_files["prior.txt"]
 
     return res
 
@@ -466,6 +511,142 @@ def search_config(
 
     return returnn_recog_config
 
+def search_error_config(
+        dataset: DatasetConfig,
+        model_def: Union[ModelDef, ModelDefWithCfg],
+        scoring_func: Callable,
+        decoding_config: dict,
+        prior_path: tk.Path,
+) -> ReturnnConfig:
+    # changing these does not change the hash
+    post_config = dict(  # not hashed
+        log_batch_size=True,
+        torch_log_memory_usage=True,
+        watch_memory=True,
+        use_lovely_tensors=True,
+    )
+
+    forward_data = dataset.get_main_dataset()
+
+    returnn_config_dict = dict(
+        backend=model_def.backend,
+        behavior_version=model_def.behavior_version,
+        # dataset
+        default_input=dataset.get_default_input(),
+        target=dataset.get_default_target(),
+        forward_data=forward_data,
+        #####
+        batch_size=500 * 16000,
+        max_seqs=240,
+    )
+    if isinstance(model_def, ModelDefWithCfg):
+        returnn_config_dict.update(model_def.config)
+
+    extern_data_raw = dataset.get_extern_data()
+    # The extern_data is anyway not hashed, so we can also instanciate any delayed objects here.
+    # It's not hashed because we assume that all aspects of the dataset are already covered
+    # by the datasets itself as part in the config above.
+    extern_data_raw = instanciate_delayed(extern_data_raw)
+
+    from i6_experiments.users.zeyer.datasets.utils.bpe import Bpe
+
+    if hasattr(dataset, "vocab"):
+        vocab = dataset.vocab
+        if isinstance(vocab, Bpe):
+            lexicon = get_bpe_lexicon(vocab)
+        else:
+            print(f"Getting lexicon for vocab {vocab} is not implemented!!!")
+            lexicon = None
+    else:
+        print("No vocab found in dataset!!!")
+        lexicon = None
+    decoder_params = decoding_config.copy()  # Since decoding_config is shared across runs for different lm
+    lm = decoder_params.pop("lm", 0)
+    # print(f"lm:{lm}, type:{type(lm)}")
+    assert lm != 0, "no lm in decoding_config!!!"
+    args = {"lm": lm, "lexicon": lexicon, "hyperparameters": decoder_params}
+    if prior_path:
+        args["prior_file"] = prior_path
+
+    returnn_config = ReturnnConfig(
+        config=returnn_config_dict,
+        post_config=post_config,
+        python_epilog=[
+            serialization.Collection(
+                [
+                    serialization.NonhashedCode(get_import_py_code()),
+                    serialization.NonhashedCode(
+                        nn.ReturnnConfigSerializer.get_base_extern_data_py_code_str_direct(extern_data_raw)
+                    ),
+                    *serialize_model_def(model_def),
+                    serialization.PartialImport(
+                        code_object_path=scoring_func,
+                        unhashed_package_root=None,
+                        hashed_arguments=args,
+                        unhashed_arguments={},
+                        import_as="_scoring_def",
+                        ignore_import_as_for_hash=True),
+                    serialization.Import(_returnn_v2_get_model, import_as="get_model"),
+                    serialization.Import(_returnn_search_error_step, import_as="forward_step"),
+                    serialization.Import(_returnn_search_error_forward_callback, import_as="forward_callback"),
+                    serialization.ExplicitHash({"version": 1}),
+                    serialization.PythonEnlargeStackWorkaroundNonhashedCode,
+                    serialization.PythonCacheManagerFunctionNonhashedCode,
+                    serialization.PythonModelineNonhashedCode,
+                ]
+            )
+        ],
+        sort_config=False
+    )
+    return returnn_config
+
+
+def _returnn_search_error_step(*, model, extern_data: TensorDict, **kwargs):
+    from returnn.config import get_global_config
+    import returnn.frontend as rf
+    from returnn.tensor import Tensor, Dim, batch_dim
+
+    config = get_global_config()
+    default_input_key = config.typed_value("default_input")
+    data = extern_data[default_input_key]
+    data_spatial_dim = data.get_time_dim_tag()
+    default_target_key = config.typed_value("target")
+    targets = extern_data[default_target_key]
+    targets_spatial_dim = targets.get_time_dim_tag()
+    scoring_def = config.typed_value("_scoring_def")
+    scoring_out = scoring_def(model=model, data=data, targets=targets, data_spatial_dim=data_spatial_dim)
+
+    rf.get_run_ctx().mark_as_output(scoring_out, "scores", dims=[batch_dim, 1])
+    rf.get_run_ctx().mark_as_output(targets, "targets", dims=[batch_dim, targets_spatial_dim])
+
+def _returnn_search_error_forward_callback():
+    from typing import TextIO
+    from returnn.tensor import Tensor, Dim, TensorDict
+    from returnn.forward_iface import ForwardCallbackIface
+
+    class _ReturnnSearchErrorForwardCallbackIface(ForwardCallbackIface):
+        def __init__(self):
+            self.out_file: Optional[TextIO] = None
+
+        def init(self, *, model):
+            import gzip
+
+            self.out_file = gzip.open(_v2_forward_out_filename, "wt")
+            self.out_file.write("{\n")
+
+
+        def process_seq(self, *, seq_tag: str, outputs: TensorDict):
+            score: Tensor = outputs["scores"]
+            target: Tensor = outputs["targets"]
+            self.out_file.write(f"{seq_tag!r}: [\n")
+            self.out_file.write(f"  ({score!r}, {target!r})\n")
+            self.out_file.write("],\n")
+
+        def finish(self):
+            self.out_file.write("}\n")
+            self.out_file.close()
+
+    return _ReturnnSearchErrorForwardCallbackIface()
 
 def prior_config(
         dataset: DatasetConfig,
@@ -888,7 +1069,7 @@ def _returnn_v2_get_forward_callback():
                 self.out_ext_file = gzip.open(_v2_forward_ext_out_filename, "wt")
                 self.out_ext_file.write("{\n")
 
-        # From Marten, TODO make it clear what makes the hyps output different.
+        # Copied From Martens, TODO make it clear what makes the hyps output different.
         def process_seq(self, *, seq_tag: str, outputs: TensorDict):
             hyps: Tensor = outputs["hyps"]  # [beam, out_spatial]
             scores: Tensor = outputs["scores"]  # [beam]
@@ -1109,9 +1290,9 @@ class GetBestTuneValue(sisyphus.Job):
             d = eval(uopen(self.scores[i], "rt").read(), {"nan": float("nan"), "inf": float("inf")})
             assert isinstance(d, dict), "Has to be a dict containing the best score."
 
-            if d["best_scores"]["dev-other"] + d["best_scores"]["test-other"]  < best_score_val:
+            if d["best_scores"]["dev-other"]  < best_score_val: #  + d["best_scores"]["test-other"] !  Implicitly first best score when multiple best. Dependent on the ordering!
                 best_score_idx = i
-                best_score_val = d["best_scores"]["dev-other"] + d["best_scores"]["test-other"]
+                best_score_val = d["best_scores"]["dev-other"] #  + d["best_scores"]["test-other"]
 
         best_tune = self.tune_values[best_score_idx]
 

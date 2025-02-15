@@ -83,7 +83,7 @@ def get_count_based_n_gram(vocab: Optional[str], N_order: int, prune_thresh: Opt
         interpolate_unigrams=False, # Set false for Compatibility with srilm
         use_discount_fallback=True,
         kenlm_binary_folder=KENLM_BINARY_PATH,
-        pruning=[0, 0, 0] + [1 for _ in range(N_order-3)], # 3e-7
+        pruning=[0, 0, 0] + [1 for _ in range(N_order-3)] if N_order > 2 else None, # 3e-7
         vocabulary=None,
         **rqmt
     ).out_lm

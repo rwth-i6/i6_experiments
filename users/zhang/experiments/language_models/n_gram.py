@@ -21,10 +21,11 @@ import i6_core.util as util
 
 from sisyphus import Job, Task, tk, gs
 
-from i6_experiments.users.zhang.datasets.librispeech import get_librispeech_lm_combined_txt, _get_test_corpus_text
+from i6_experiments.users.zhang.datasets.librispeech import get_librispeech_lm_combined_txt, _get_test_corpus_text, _extract_audio_seq_len_file, _extract_text_seq_len_file
 from i6_experiments.users.zeyer.datasets.utils.bpe import Bpe
 from i6_experiments.common.helpers.text_labels.subword_nmt_bpe import get_returnn_subword_nmt
 from i6_experiments.common.baselines.tedlium2.default_tools import SRILM_PATH
+from returnn_common.datasets_old_2022_10.interface import DatasetConfig
 
 rqmt_map = {5: [("mem", 20),("time", 2)], 6: [("mem", 20),("time", 2)],  # Compare to bpe 128 Need much more for bpe10k and more for whole word
                                              7: [("mem", 25),("time", 2)],
@@ -81,7 +82,7 @@ def get_count_based_n_gram(vocab: Optional[str], N_order: int, prune_thresh: Opt
         interpolate_unigrams=False, # Set false for Compatibility with srilm
         use_discount_fallback=True,
         kenlm_binary_folder=KENLM_BINARY_PATH,
-        pruning=[0, 0, 0] + [1 for _ in range(N_order-3)], # 3e-7
+        pruning=[0, 0, 0] + [1 for _ in range(N_order-3)] if N_order > 2 else None, # 3e-7
         vocabulary=None,
         **rqmt
     ).out_lm
@@ -112,6 +113,59 @@ def get_count_based_n_gram(vocab: Optional[str], N_order: int, prune_thresh: Opt
         
     #return conversion_job.out_lm_tensor
     return arpa_binary_lm, ppl_job.out_ppl_log
+
+def get_prior_from_unigram(vocab: Bpe, prior_dataset: Optional[DatasetConfig], vocab_name: str) -> tk.Path:
+    kenlm_repo = CloneGitRepositoryJob("https://github.com/kpu/kenlm").out_repository.copy()
+    KENLM_BINARY_PATH = CompileKenLMJob(repository=kenlm_repo).out_binaries.copy()
+    KENLM_BINARY_PATH.hash_overwrite = "LIBRISPEECH_DEFAULT_KENLM_BINARY_PATH"
+
+    subword_nmt = get_returnn_subword_nmt()
+
+    lm_data = get_librispeech_lm_combined_txt()
+
+    bpe_text = ApplyBPEToTextJob(
+        text_file=lm_data,
+        bpe_codes=vocab.codes,
+        bpe_vocab=tk.Path(vocab.vocab.get_path()[:-5] + "dummy_count.vocab"),
+        subword_nmt_repo=subword_nmt,
+        gzip_output=True,
+        mini_task=False,
+    ).out_bpe_text
+
+    lm_arpa = KenLMplzJob(
+        text=[bpe_text],
+        order=1,
+        interpolate_unigrams=False,
+        use_discount_fallback=True,
+        kenlm_binary_folder=KENLM_BINARY_PATH,
+        pruning=None,
+        vocabulary=None
+    ).out_lm
+
+    ppl_job = ComputeNgramLmPerplexityJob(
+        ngram_order=1,
+        lm=lm_arpa,
+        eval_data=bpe_text,
+        ngram_exe=SRILM_PATH.join_right("ngram"),
+        mem_rqmt=4,
+        time_rqmt=1,
+    )
+
+    tk.register_output(f"datasets/LibriSpeech/lm/count_based_1-gram", ppl_job.out_ppl_score)
+
+    bpe_len_wo_blank = _extract_text_seq_len_file(prior_dataset, vocab_name, name="target", use_main_ds=True)
+    audio_len = _extract_audio_seq_len_file(prior_dataset, use_main_ds=True)
+    prior_job = ExtractPrior(
+        lm=lm_arpa,
+        bpe_vocab=vocab.vocab,
+        bpe_len_wo_blank=bpe_len_wo_blank,
+        audio_len=audio_len,
+    )
+
+    prior_job.add_alias(f"datasets/LibriSpeech/lm/prior_from_unigram")
+    tk.register_output(f"datasets/LibriSpeech/lm/prior_from_unigram", prior_job.out_prior_tensor)
+
+    return prior_job.out_prior_tensor
 
 class PruneLMJob(Job):
     """

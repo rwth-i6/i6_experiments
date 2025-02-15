@@ -19,13 +19,16 @@ class WER_ppl_PlotAndSummaryJob(Job):
         self,
         names: List[str],
         results: List[Tuple[tk.Variable, tk.Path]],
+        lm_scales: List[Optional[float]],
         # Reserved for plot setting
     ):
         self.out_summary = self.output_path("summary.csv")
         self.out_plot_folder = self.output_path("plots", directory=True)
-        self.out_plot = self.output_path("plots/wer_ppl.png")
+        self.out_plot1 = self.output_path("plots/dev_other.png")
+        self.out_plot2 = self.output_path("plots/test_other.png")
         self.names = names
         self.results = results
+        self.lm_scales = lm_scales
 
     def tasks(self) -> Iterator[Task]:
         yield Task("create_table", mini_task=True)#, rqmt={"cpu": 1, "time": 1, "mem": 4})
@@ -46,7 +49,7 @@ class WER_ppl_PlotAndSummaryJob(Job):
             with open(wer_path.get_path(), "r") as f:
                 wers.append(json.load(f))
         ppls = ppls
-        wers = [all_res["best_scores"]["test-other"] for all_res in wers]
+        wers = {"dev-other":[all_res["best_scores"]["dev-other"] for all_res in wers], "test-other":[all_res["best_scores"]["test-other"] for all_res in wers]}
         return ppls, wers
 
     def plots(self):
@@ -54,47 +57,51 @@ class WER_ppl_PlotAndSummaryJob(Job):
         import scipy.optimize
         # Apply logarithmic transformation to PPL
         ppls, wers = self.get_points()
-        ln_ppl = np.log(ppls)
-
         # Define the regression function: WER = a + b * ln(PPL)
         def regression_func(x, a, b):
             return a + b * x
 
-        # Fit the function to the data
-        params, _ = scipy.optimize.curve_fit(regression_func, ln_ppl, wers)
-        a, b = params  # Extract coefficients
+        def plot(ppls, wers, savepath):
+            # Fit the function to the data
+            ln_ppl = np.log10(ppls)
+            ln_wer = np.log10(wers)
+            params, _ = scipy.optimize.curve_fit(regression_func, ln_ppl, ln_wer)
+            a, b = params  # Extract coefficients
 
-        # Generate data points for the fitted line
-        ppl_range = np.linspace(min(ppls), max(ppls), 100)  # Smooth range of PPL values
-        ln_ppl_range = np.log(ppl_range)  # Log transform them
-        wer_fit = regression_func(ln_ppl_range, a, b)  # Compute fitted WER
+            # Generate data points for the fitted line
+            ppl_range = np.linspace(min(ppls), max(ppls), 100)  # Smooth range of PPL values
+            ln_ppl_range = np.log10(ppl_range)  # Log transform them
+            wer_fit = np.power(10, regression_func(ln_ppl_range, a, b))  # Compute fitted WER
+            # Plot Data Points
+            plt.figure(figsize=(8, 6))
+            markers = {"4gram":"o", "5gram":"s", "2gram":"D", "3gram":"v", "default":"^"}  # Different markers for different LM
+            group_points = dict([(key,[]) for key in markers])
+            for i, name in enumerate(self.names):
+                for key, value in markers.items():
+                    if key in name:
+                        group_points[key].append((ppls[i], wers[i]))
+                        break
 
-        # Plot Data Points
-        plt.figure(figsize=(8, 6))
-        markers = {"4gram":"o", "5gram":"s", "other1":"D", "other2":"v", "default":"^"}  # Different markers for different LM
-        group_points = dict([(key,[]) for key in markers])
-        for i, name in enumerate(self.names):
-            for key, value in markers.items():
-                if key in name:
-                    group_points[key].append((ppls[i], wers[i]))
-                    break
+            for key, points in group_points.items():
+                if len(points):
+                    x_vals, y_vals = zip(*points)
+                    plt.scatter(x_vals, y_vals, label=key, marker=markers[key], s=100)
 
-        for key, points in group_points.items():
-            if len(points):
-                x_vals, y_vals = zip(*points)
-                plt.scatter(x_vals, y_vals, label=key, marker=markers[key], s=100)
+            # Plot Regression Line
+            plt.plot(ppl_range, wer_fit, label=f"Fit: log(WER) = {a:.2f} + {b:.2f} log(PPL)", color="red", linestyle="--")
 
-        # Plot Regression Line
-        plt.plot(ppl_range, wer_fit, label=f"Fit: WER = {a:.2f} + {b:.2f} ln(PPL)", color="red", linestyle="--")
+            # Labels and Formatting
+            plt.xlabel("Perplexity (PPL)")
+            plt.ylabel("Word Error Rate (WER)")
+            plt.title("WER vs PPL with Log-Linear Regression")
+            plt.legend()
+            plt.grid(True)
+            plt.xscale("log")  # Log-scale for better visualization
+            plt.yscale("log")
+            plt.savefig(savepath)
 
-        # Labels and Formatting
-        plt.xlabel("Perplexity (PPL)")
-        plt.ylabel("Word Error Rate (WER)")
-        plt.title("WER vs PPL with Log-Linear Regression")
-        plt.legend()
-        plt.grid(True)
-        plt.xscale("log")  # Log-scale for better visualization
-        plt.savefig(self.out_plot.get_path())
+        plot(ppls, wers["dev-other"], self.out_plot1.get_path())
+        plot(ppls, wers["test-other"], self.out_plot2.get_path())
 
     def create_table(self):
         ppls, _ = self.get_points()
@@ -103,52 +110,22 @@ class WER_ppl_PlotAndSummaryJob(Job):
         for _, wer_path in self.results:
             with open(wer_path.get_path(), "r") as f:
                 wers.append(json.load(f))
-        res = dict(zip(self.names, zip(ppls,wers)))
+        res = dict(zip(self.names, zip(ppls,wers,self.lm_scales)))
         # Define filenames
         csv_filename = self.out_summary.get_path()
 
         # Prepare the data as a list of lists
-        table_data = [["Model Name", "Perplexity", "Best Epoch", "Dev-Clean WER", "Dev-Other WER", "Test-Clean WER",
+        table_data = [["Model Name", "Perplexity", "Best Epoch", "lm_scale", "Dev-Clean WER", "Dev-Other WER", "Test-Clean WER",
                        "Test-Other WER"]]
         for key, values in res.items():
             ppl = values[0]
             scores = values[1]["best_scores"]
             best_epoch = values[1]["best_epoch"]
-            table_data.append([key, ppl, best_epoch, scores["dev-clean"], scores["dev-other"], scores["test-clean"],
-                               scores["test-other"]])
+            lm_scale = values[2]
+            table_data.append([key, ppl, best_epoch, f"{lm_scale:.2f}", scores.get("dev-clean","-"), scores.get("dev-other","-"), scores.get("test-clean","-"),
+                               scores.get("test-other","-")])
 
         # Save to a CSV file manually
         with open(csv_filename, mode="w", newline="") as file:
             writer = csv.writer(file)
             writer.writerows(table_data)
-        # from matplotlib import pyplot as plt
-        #
-        # processor = AlignmentProcessor(
-        #     alignment_bundle_path=self.alignment_bundle_path.get_path(),
-        #     allophones_path=self.allophones_path.get_path(),
-        #     sil_allophone=self.sil_allophone,
-        #     monophone=self.monophone,
-        # )
-        #
-        # if isinstance(self.segments, tk.Variable):
-        #     segments_to_plot = self.segments.get()
-        #     assert isinstance(segments_to_plot, list)
-        #     out_plot_files = [self.output_path(f"plots/{s.replace('/', '_')}.pdf") for s in segments_to_plot]
-        # elif isinstance(self.segments, Path):
-        #     with open(self.segments, "rt") as segments_file:
-        #         segments_to_plot = [s.strip() for s in segments_file.readlines()]
-        #     out_plot_files = [self.output_path(f"plots/{s.replace('/', '_')}.pdf") for s in segments_to_plot]
-        # else:
-        #     segments_to_plot = self.segments
-        #     out_plot_files = self.out_plots
-        #
-        # plt.rc("font", family="serif")
-        #
-        # for seg, out_path in zip(segments_to_plot, out_plot_files):
-        #     fig, ax, *_ = processor.plot_segment(
-        #         seg, font_size=self.font_size, show_labels=self.show_labels, show_title=self.show_title
-        #     )
-        #     if self.show_title:
-        #         fig.savefig(out_path, transparent=True)
-        #     else:
-        #         fig.savefig(out_path, transparent=True, bbox_inches="tight", pad_inches=0)

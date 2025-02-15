@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING, Optional, Callable, Union, Tuple, Sequence, Co
 import numpy as np
 import re
 import json
+import os
 
 from sisyphus import tk
 import returnn.frontend as rf
@@ -194,7 +195,7 @@ def py():
 
             alias_name = f"ctc-baseline" + "decodingWith_" + lm_hyperparamters_str + name if lm else f"ctc-baseline-" + vocab + name
             print(f"name{name}","lexicon:" + str(decoding_config["use_lexicon"]))
-            _, wer_result_path = train_exp(
+            _, wer_result_path, _ = train_exp(
                 name=alias_name,
                 config=config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
                 decoder_def=model_recog_lm,
@@ -266,14 +267,15 @@ def train_exp(
     prior_from_max: bool = False,
     tune_hyperparameters: bool = False,
     search_mem_rqmt: Union[int, float] = 6,
-) -> Tuple[Optional[ModelWithCheckpoints], Optional[tk.path]]:
+    search_rqmt: dict = None,
+) -> Tuple[Optional[ModelWithCheckpoints], Optional[tk.path], Optional[tk.path]]:
     """
     Train experiment
     """
     from i6_experiments.users.zeyer.train_v3 import train
     from i6_experiments.users.zhang.recog import recog_training_exp, GetBestTuneValue
     from i6_experiments.users.zhang.datasets.librispeech import get_librispeech_task_raw_v2
-    from i6_experiments.users.zhang.experiments.lm.n_gram import get_prior_from_unigram
+    from i6_experiments.users.zhang.experiments.language_models.n_gram import get_prior_from_unigram
 
     if not enabled:
         return None
@@ -324,6 +326,7 @@ def train_exp(
     if config.get("use_eos_postfix", False):
         recog_post_proc_funcs.append(_remove_eos_label_v2)
 
+    lm_scale = decoding_config.get("lm_weight")
     if tune_hyperparameters:
         original_params = decoding_config
         params = copy.copy(original_params)
@@ -333,13 +336,14 @@ def train_exp(
         default_prior = original_params.get("prior_weight")
         lm_scores = []
         prior_scores = []
-        lm_tune_ls = [0.0, 0.05, 0.1, -0.05, -0.1]
-        prior_tune_ls = [0.0, 0.05, 0.1, -0.05, -0.1]
+        lm_tune_ls = [scale/100 for scale in range(-50,51,5)] #[-0.5,-0.45....+0.45,+0.5]  [scale/100 for scale in range(-50,51,10)] for bpe10k
+        prior_tune_ls = [-0.05, -0.1, 0.0, 0.05, 0.1]
         for dc_lm in lm_tune_ls:
             params["lm_weight"] = default_lm + dc_lm
+            task_copy = copy.deepcopy(task)
             score = recog_training_exp(
                 prefix + f"/tune/lm/{str(dc_lm).replace('.', '').replace('-', 'm')}",
-                task,
+                task_copy,
                 model_with_checkpoint,
                 recog_def=decoder_def,
                 decoding_config=params,
@@ -348,17 +352,26 @@ def train_exp(
                 search_mem_rqmt=search_mem_rqmt,
                 prior_from_max=prior_from_max,
                 empirical_prior=emp_prior if with_prior and empirical_prior else None,
+                dev_sets=["dev-other"],
             )
             lm_scores.append(score)
-        best_lm_tune = GetBestTuneValue(lm_scores, lm_tune_ls).out_best_tune
-        tk.register_output(prefix + "/tune/lm_best", best_lm_tune)
-        params["lm_weight"] = default_lm
-        params["lm_weight_tune"] = best_lm_tune
+
+        if len(lm_scores):
+            best_lm_tune = GetBestTuneValue(lm_scores, lm_tune_ls).out_best_tune
+            tk.register_output(prefix + "/tune/lm_best", best_lm_tune)
+            params["lm_weight"] = default_lm
+            params["lm_weight_tune"] = best_lm_tune # Prior tuned on best lm_scale
+            if os.path.exists(best_lm_tune): # Just for bypassing the static check
+                lm_weight_tune = json.load(open(best_lm_tune))
+                lm_weight_tune = lm_weight_tune["best_tune"]
+                lm_scale = default_lm + lm_weight_tune
+            original_params["lm_weight_tune"] = best_lm_tune  # This will be implicitly used by following exps, i.e through decoding_config
         for dc_prior in prior_tune_ls:
             params["prior_weight"] = default_prior + dc_prior
+            task_copy = copy.deepcopy(task)
             score = recog_training_exp(
                 prefix + f"/tune/prior/{str(dc_prior).replace('.', '').replace('-', 'm')}",
-                task,
+                task_copy,
                 model_with_checkpoint,
                 recog_def=decoder_def,
                 decoding_config=params,
@@ -367,13 +380,15 @@ def train_exp(
                 search_mem_rqmt=search_mem_rqmt,
                 prior_from_max=prior_from_max,
                 empirical_prior=emp_prior if with_prior and empirical_prior else None,
+                dev_sets=["dev-other"],
+                search_rqmt=search_rqmt,
             )
             prior_scores.append(score)
-        best_prior_tune = GetBestTuneValue(prior_scores, prior_tune_ls).out_best_tune
-        tk.register_output(prefix + "/tune/prior_best", best_prior_tune)
+        if len(prior_scores):
+            best_prior_tune = GetBestTuneValue(prior_scores, prior_tune_ls).out_best_tune
+            tk.register_output(prefix + "/tune/prior_best", best_prior_tune)
+            original_params["prior_weight_tune"] = best_prior_tune
 
-        original_params["lm_weight_tune"] = best_lm_tune # This will be implicitly used by following exps
-        original_params["prior_weight_tune"] = best_prior_tune
 
     recog_result = recog_training_exp(
         prefix, task, model_with_checkpoint, recog_def=decoder_def,
@@ -383,10 +398,12 @@ def train_exp(
         search_mem_rqmt=search_mem_rqmt,
         prior_from_max=prior_from_max,
         empirical_prior=emp_prior if with_prior and empirical_prior else None,
+        dev_sets=["test-other","dev-other"],
+        search_rqmt=search_rqmt,
     )
 
     _train_experiments[name] = model_with_checkpoint
-    return model_with_checkpoint, recog_result
+    return model_with_checkpoint, recog_result, lm_scale
 
 
 def _remove_eos_label_v2(res: RecogOutput) -> RecogOutput:
@@ -781,7 +798,7 @@ def model_recog_lm(
         "sil_token": OUT_BLANK_LABEL,
         "unk_word": "<unk>",
         "beam_size_token": None,  # 16
-        "beam_threshold": 1000000,  # 14
+        "beam_threshold": 50,  # 14. 1000000
     }
     configs["lexicon"] = lexicon if use_lexicon else None
     configs["lm"] = lm
@@ -867,6 +884,97 @@ model_recog_lm.output_with_beam = True
 model_recog_lm.output_blank_label = OUT_BLANK_LABEL
 model_recog_lm.batch_size_dependent = False  # not totally correct, but we treat it as such...
 
+
+def scoring(
+        *,
+        model: Model,
+        data: Tensor,
+        targets: Tensor,
+        data_spatial_dim: Dim,
+        lm: str,
+        lexicon: str,
+        hyperparameters: dict,
+        prior_file: tk.Path = None
+) -> Tuple[Tensor, Tensor, Dim, Dim]:
+    """
+    Function is run within RETURNN.
+
+    Uses a LM interpolation and prior correction.
+
+    :return:
+        recog results including beam {batch, beam, out_spatial},
+        log probs {batch, beam},
+        out_spatial_dim,
+        final beam_dim
+    """
+    from torchaudio.models.decoder import ctc_decoder
+    import torch
+    from returnn.util.basic import cf
+    # Get the logits from the model
+    logits, enc, enc_spatial_dim = model(data, in_spatial_dim=data_spatial_dim)
+
+    hyp_params = copy.copy(hyperparameters)
+    prior_weight = hyp_params.pop("prior_weight", 0.0)
+    prior_weight_tune = hyp_params.pop("prior_weight_tune", None)
+    lm_weight_tune = hyp_params.pop("lm_weight_tune", None)
+    use_logsoftmax = hyp_params.pop("use_logsoftmax", False)
+
+    if prior_weight_tune:
+        prior_weight_tune = json.load(open(prior_weight_tune))
+        prior_weight_tune = prior_weight_tune["best_tune"]
+        assert type(prior_weight_tune) == float, "Prior weight tune is not a float!"
+        print(f"Prior weight with tune: {prior_weight} + {prior_weight_tune} = {prior_weight + prior_weight_tune}")
+        prior_weight += prior_weight_tune
+    if lm_weight_tune:
+        lm_weight_tune = json.load(open(lm_weight_tune))
+        lm_weight_tune = lm_weight_tune["best_tune"]
+        assert type(lm_weight_tune) == float, "LM weight tune is not a float!"
+        old_lm_weight = hyp_params.get("lm_weight", 0.0)
+        print(f"LM weight with tune: {old_lm_weight} + {lm_weight_tune} = {old_lm_weight + lm_weight_tune}")
+        hyp_params["lm_weight"] = old_lm_weight + lm_weight_tune
+
+    if use_logsoftmax:
+        label_log_prob = model.log_probs_wb_from_logits(logits)
+        label_log_prob = label_log_prob.raw_tensor.cpu()
+
+        # Subtract prior of labels if available
+        if prior_file and prior_weight > 0.0:
+            prior = np.loadtxt(prior_file, dtype="float32")
+            label_log_prob -= prior_weight * prior
+            print("We subtracted the prior!")
+    elif prior_file and prior_weight > 0.0:
+        print("Cannot subtract prior without running log softmax")
+        return None
+
+    use_lm = hyp_params.pop("use_lm", False)
+    lm = str(cf(lm)) if use_lm else None
+
+    use_lexicon = hyp_params.pop("use_lexicon", True)
+
+    configs = {
+        "tokens": list(model.wb_target_dim.vocab.labels),
+        "blank_token": OUT_BLANK_LABEL,
+        "sil_token": OUT_BLANK_LABEL,
+        "unk_word": "<unk>",
+        "beam_size_token": None,  # 16
+        "beam_threshold": 50,  # 14. 1000000
+    }
+    configs["lexicon"] = lexicon if use_lexicon else None
+    configs["lm"] = lm
+
+    configs.update(hyp_params)
+
+    decoder = ctc_decoder(**configs)
+    enc_spatial_dim_torch = enc_spatial_dim.dyn_size_ext.raw_tensor.cpu()
+    # TODO : get ctcloss(label_log_prob, target, ..) and decoder.lm.score()
+    return scores, enc_spatial_dim
+
+
+# RecogDef API
+scoring: RecogDef[Model]
+scoring.output_with_beam = True
+scoring.output_blank_label = OUT_BLANK_LABEL
+scoring.batch_size_dependent = False  # not totally correct, but we treat it as such...
 
 class Model(rf.Module):
     """Model definition"""
