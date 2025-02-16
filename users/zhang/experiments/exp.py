@@ -22,10 +22,13 @@ def ctc_exp(lmname, lm, vocab):
     # model name: f"v6-relPosAttDef-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100"
     #               f"-maxSeqLenAudio19_5-wd1e_2-lrlin1e_5_295k-featBN-speedpertV2"
     #               f"-[vocab]" + f"-[sample]"
+    recog_epoch = None
     if vocab == "bpe128":
         exclude_epochs = set(range(0, 501)) - set([477])#Reduce #ForwardJobs, 477 is the best epoch for most cases.
+        recog_epoch = 477
     if vocab == "bpe10k":
         exclude_epochs = set(range(0, 500))
+        recog_epoch = 500
 
     tune_hyperparameters = True
     with_prior = True
@@ -36,8 +39,8 @@ def ctc_exp(lmname, lm, vocab):
     decoding_config = {
         "log_add": False,
         "nbest": 1,
-        "beam_size": 80,
-        "lm_weight": 1.45,  # Tuned_best val: 1.45 NOTE: weights are exponentials of the probs.
+        "beam_size": 50, # 80 for previous exps on bpe128
+        "lm_weight": 1.4,  # Tuned_best val: 1.45 NOTE: weights are exponentials of the probs.
         "use_logsoftmax": True,
         "use_lm": True,
         "use_lexicon": False, # Do open vocab search when using bpe lms.
@@ -55,7 +58,7 @@ def ctc_exp(lmname, lm, vocab):
     else:
         decoding_config["use_lexicon"] = False
     if with_prior:
-        decoding_config["prior_weight"] = 0.15  # 0.15 as initial ref for tuning or if not using emprirical prior
+        decoding_config["prior_weight"] = 0.2  # 0.15 as initial ref for tuning or if not using emprirical prior
     p0 = f"_p{str(decoding_config['prior_weight']).replace('.', '')}" + (
             "-emp" if empirical_prior else ("-from_max" if prior_from_max else "")) if with_prior else ""
     p1 = "sum" if decoding_config['log_add'] else "max"
@@ -98,14 +101,15 @@ def ctc_exp(lmname, lm, vocab):
         tune_hyperparameters=tune_hyperparameters,
         search_mem_rqmt=search_mem_rqmt,
         search_rqmt=search_rqmt,
+        recog_epoch=recog_epoch
     )
     return wer_result_path, lm_hyperparamters_str, lm_scale
 
 def py():
     """Sisyphus entry point"""
     models = {"ctc": ctc_exp, "transducer": None}
-    for vocab in ["bpe128",
-                  #"bpe10k", # 6.49  # Require much more time on recog even with lexicon
+    for vocab in [#"bpe128",
+                  "bpe10k", # 6.49  # Require much more time on recog even with lexicon
                   ]:
         # from ..datasets.librispeech_lm import get_4gram_binary_lm
         from .language_models.n_gram import get_count_based_n_gram # If move to lm dir it somehow breaks the hash...
@@ -130,8 +134,8 @@ def py():
         exp_names_postfix = ""
         prune_num = 0
 
-        for n_order in [ 2, 3,
-            4, 5
+        for n_order in [ #2, 3,
+            4#, 5
             # 6 Slow recog
         ]:
             # prune_threshs = list(set([x * 1e-9 for x in range(1, 100, 6)] +   # These has correspond existing pruned LMs !! Float should not direct go in hashes
@@ -141,8 +145,8 @@ def py():
             #                          ))
             prune_threshs = [1e-9, 1.3e-8, 6.7e-8,
                              3e-7, 7e-7, 1.7e-6,
-                             5.1e-6,
-                             8.1e-6, 1.1e-5, 1.6e-5, 1.9e-5
+                             #5.1e-6,
+                             #8.1e-6, 1.1e-5, 1.6e-5, 1.9e-5
                              ]
             prune_threshs.sort()
             exp_names_postfix += str(n_order) + "_"

@@ -41,6 +41,51 @@ from .datasets.librispeech import get_bpe_lexicon, LibrispeechOggZip
 if TYPE_CHECKING:
     from returnn.tensor import TensorDict
 
+def recog_exp(
+    prefix_name: str,
+    task: Task,
+    model: ModelWithCheckpoints,
+    recog_def: RecogDef,
+    *,
+    epoch: int, # TODO: should run a GetBestRecogTrainExp beforehand to get the best epoch
+    decoding_config: Optional[dict] = None,
+    search_config: Dict[str, Any] = None,
+    search_post_config: Optional[Dict[str, Any]] = None,
+    recog_post_proc_funcs: Sequence[Callable[[RecogOutput], RecogOutput]] = (),
+    search_mem_rqmt: Union[int, float] = 6,
+    exclude_epochs: Collection[int] = (),
+    empirical_prior: Optional[tk.Path] = None,
+    prior_from_max: bool = False,
+    dev_sets: Optional[List[str]] = None,
+    search_rqmt: dict = None,
+)-> tk.path:
+    """recog on given epoch"""
+    recog_and_score_func = _RecogAndScoreFunc(
+        prefix_name,
+        decoding_config,
+        task,
+        model,
+        recog_def,
+        search_config=search_config,
+        search_post_config=search_post_config,
+        recog_post_proc_funcs=recog_post_proc_funcs,
+        search_mem_rqmt=search_mem_rqmt,
+        empirical_prior=empirical_prior,
+        prior_from_max=prior_from_max,
+        dev_sets=dev_sets,
+        search_rqmt=search_rqmt,
+    )
+    # In following jobs, model is implicitly called in recog_and_score_func, here the passed reference only provides epoch information.
+    # So, make sure the exp here align with the model used to initialise recog_and_score_func
+    summarize_job = GetRecogExp(
+        model=model,
+        epoch=epoch,
+        recog_and_score_func=recog_and_score_func,
+    )
+    summarize_job.add_alias(prefix_name + "/train-summarize")
+    tk.register_output(prefix_name + "/recog_results_best", summarize_job.out_summary_json)
+    return summarize_job.out_summary_json
+
 
 def recog_training_exp(
     prefix_name: str,
@@ -59,7 +104,6 @@ def recog_training_exp(
     prior_from_max: bool = False,
     dev_sets: Optional[List[str]] = None,
     search_rqmt: dict = None,
-    alias_name: str = None,
 )-> tk.path:
     """recog on all relevant epochs"""
     recog_and_score_func = _RecogAndScoreFunc(
@@ -163,7 +207,7 @@ class _RecogAndScoreFunc:
             search_mem_rqmt=self.search_mem_rqmt,
             dev_sets=self.dev_sets,
             search_rqmt=self.search_rqmt,
-            name=self.prefix_name,
+            name=self.prefix_name + f"/epoch{epoch_or_ckpt:03}",
         )
         if isinstance(epoch_or_ckpt, int):
             tk.register_output(self.prefix_name + f"/recog_results_per_epoch/{epoch_or_ckpt:03}/res", res.output)
@@ -300,13 +344,11 @@ def check_search_error(
         hyps: tk.path,
         mem_rqmt: Union[int, float] = 8,
         alias_name: Optional[str] = None,
-        num_shards: Optional[int] = None,
-        prior_from_max: bool = False,
 ) -> tk.Path:
     pre_SearchError_job = ReturnnForwardJobV2(
         model_checkpoint=model.checkpoint,
         returnn_config=search_error_config(dataset, model.definition),
-        output_files=["grdth.dict", "target.dict"],
+        output_files=["groundtruth_score"],
         returnn_python_exe=tools_paths.get_returnn_python_exe(),
         returnn_root=tools_paths.get_returnn_root(),
         device="gpu",
@@ -314,12 +356,12 @@ def check_search_error(
         mem_rqmt=mem_rqmt,
         cpu_rqmt=4,
     )
-    from utils.search_error import ComputeSearchErrorsJob
-    res = ComputeSearchErrorsJob(pre_SearchError_job.out_files["grundtrh"], hyps)
     if alias_name:
         pre_SearchError_job.add_alias(alias_name)
-        res = pre_SearchError_job.out_files["prior.txt"]
-
+    ground_truth_out = pre_SearchError_job.out_files["groundtruth_score"]
+    from utils.search_error import ComputeSearchErrorsJob
+    # TODO ground_truth_out and hyps might not in comparable text form.(bpe <-> word)
+    res = ComputeSearchErrorsJob(ground_truth_out, hyps).out_search_errors
     return res
 
 def search_dataset(
@@ -636,10 +678,17 @@ def _returnn_search_error_forward_callback():
 
 
         def process_seq(self, *, seq_tag: str, outputs: TensorDict):
-            score: Tensor = outputs["scores"]
-            target: Tensor = outputs["targets"]
+            score: Tensor = outputs["scores"] # [1]
+            target: Tensor = outputs["targets"] # [1, out_spatial]
             self.out_file.write(f"{seq_tag!r}: [\n")
             self.out_file.write(f"  ({score!r}, {target!r})\n")
+            self.out_file.write("],\n")
+            assert target.sparse_dim and target.sparse_dim.vocab  # should come from the model
+            self.out_file.write(f"{seq_tag!r}: [\n")
+            score = float(score.raw_tensor[0])
+            target_ids = target.raw_tensor[0, :]
+            target_serialized = target.sparse_dim.vocab.get_seq_labels(target_ids)
+            self.out_file.write(f"  ({score!r}, {target_serialized!r}),\n")
             self.out_file.write("],\n")
 
         def finish(self):
@@ -1122,6 +1171,80 @@ def _returnn_v2_get_forward_callback():
                 self.out_ext_file.close()
 
     return _ReturnnRecogV2ForwardCallbackIface()
+
+class GetRecogExp(sisyphus.Job):
+    """
+    Collect all info from recogs.
+    The output is a JSON dict with the format::
+    kept best_... for temporary compatibility
+        {
+            'best_scores': {...}  (ScoreResultCollection)
+            'best_epoch': int,  (sub-epoch by RETURNN)
+            ...  (other meta info)
+        }
+    """
+
+    def __init__(
+        self,
+        model: ModelWithCheckpoints,
+        epoch: int,
+        *,
+        recog_and_score_func: Callable[[int], ScoreResultCollection],
+    ):
+        """
+        :param model: modelwithcheckpoints, all fixed checkpoints + scoring file for potential other relevant checkpoints (see update())
+        :param recog_and_score_func: epoch -> scores. called in graph proc
+        """
+        super(GetRecogExp, self).__init__()
+        self.model = model
+        self.epoch = epoch
+        self.recog_and_score_func = recog_and_score_func
+        self.out_summary_json = self.output_path("summary.json")
+        self._scores_outputs = {}  # type: Dict[int, ScoreResultCollection]  # epoch -> scores out
+        self._add_recog(self.epoch)
+
+    # @classmethod
+    # def hash(cls, parsed_args: Dict[str, Any]) -> str:
+    #     """
+    #     :param parsed_args:
+    #     :return: hash for job given the arguments
+    #     """
+    #     # Extend the default hash() function.
+    #     d = parsed_args.copy()
+    #     if not d["exclude_epochs"]:
+    #         d.pop("exclude_epochs")
+    #     exp: ModelWithCheckpoints = d["exp"]
+    #     assert isinstance(exp, ModelWithCheckpoints)
+    #     assert exp.fixed_epochs  # need some fixed epochs to define the hash
+    #     last_fixed_epoch = max(exp.fixed_epochs)
+    #     recog_and_score_func = d["recog_and_score_func"]
+    #     res = recog_and_score_func(last_fixed_epoch)
+    #     assert isinstance(res, ScoreResultCollection)
+    #     # Add this to the hash, to make sure the pipeline of the recog and scoring influences the hash.
+    #     d["_last_fixed_epoch_results"] = res
+    #     return sis_tools.sis_hash(d)
+
+    def _add_recog(self, epoch: int):
+        if epoch in self._scores_outputs:
+            return
+        res = self.recog_and_score_func(epoch)
+        assert isinstance(res, ScoreResultCollection)
+        self._scores_outputs[epoch] = res
+
+    def tasks(self) -> Iterator[sisyphus.Task]:
+        """tasks"""
+        yield sisyphus.Task("run", mini_task=True)
+
+    def run(self):
+        """run"""
+        import json
+
+        best_epoch = self.epoch
+        best_scores = json.load(open(self._scores_outputs[best_epoch].output.get_path()))
+        res = {"best_scores": best_scores, "best_epoch": best_epoch}
+        with open(self.out_summary_json.get_path(), "w") as f:
+            f.write(json.dumps(res))
+            f.write("\n")
 
 
 class GetBestRecogTrainExp(sisyphus.Job):

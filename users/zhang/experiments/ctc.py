@@ -262,6 +262,7 @@ def train_exp(
     enabled: bool = True,
     decoding_config: dict = None,
     exclude_epochs: Collection[int] = (),
+    recog_epoch: int = None,
     with_prior: bool = False,
     empirical_prior: bool = False,
     prior_from_max: bool = False,
@@ -273,7 +274,7 @@ def train_exp(
     Train experiment
     """
     from i6_experiments.users.zeyer.train_v3 import train
-    from i6_experiments.users.zhang.recog import recog_training_exp, GetBestTuneValue
+    from i6_experiments.users.zhang.recog import recog_training_exp, recog_exp, GetBestTuneValue
     from i6_experiments.users.zhang.datasets.librispeech import get_librispeech_task_raw_v2
     from i6_experiments.users.zhang.experiments.language_models.n_gram import get_prior_from_unigram
 
@@ -336,15 +337,29 @@ def train_exp(
         default_prior = original_params.get("prior_weight")
         lm_scores = []
         prior_scores = []
-        lm_tune_ls = [scale/100 for scale in range(-50,51,5)] #[-0.5,-0.45....+0.45,+0.5]  [scale/100 for scale in range(-50,51,10)] for bpe10k
+        lm_tune_ls = [scale/100 for scale in range(-50,51,10)] #[-0.5,-0.45....+0.45,+0.5]  [scale/100 for scale in range(-50,51,10/5)] for bpe10k/bpe128
         prior_tune_ls = [-0.05, -0.1, 0.0, 0.05, 0.1]
         for dc_lm in lm_tune_ls:
             params["lm_weight"] = default_lm + dc_lm
             task_copy = copy.deepcopy(task)
-            score = recog_training_exp(
+            # score = recog_training_exp(
+            #     prefix + f"/tune/lm/{str(dc_lm).replace('.', '').replace('-', 'm')}",
+            #     task_copy,
+            #     model_with_checkpoint,
+            #     recog_def=decoder_def,
+            #     decoding_config=params,
+            #     recog_post_proc_funcs=recog_post_proc_funcs,
+            #     exclude_epochs=exclude_epochs,
+            #     search_mem_rqmt=search_mem_rqmt,
+            #     prior_from_max=prior_from_max,
+            #     empirical_prior=emp_prior if with_prior and empirical_prior else None,
+            #     dev_sets=["dev-other"],
+            # )
+            score = recog_exp(
                 prefix + f"/tune/lm/{str(dc_lm).replace('.', '').replace('-', 'm')}",
                 task_copy,
                 model_with_checkpoint,
+                epoch=recog_epoch,
                 recog_def=decoder_def,
                 decoding_config=params,
                 recog_post_proc_funcs=recog_post_proc_funcs,
@@ -369,10 +384,25 @@ def train_exp(
         for dc_prior in prior_tune_ls:
             params["prior_weight"] = default_prior + dc_prior
             task_copy = copy.deepcopy(task)
-            score = recog_training_exp(
+            # score = recog_training_exp(
+            #     prefix + f"/tune/prior/{str(dc_prior).replace('.', '').replace('-', 'm')}",
+            #     task_copy,
+            #     model_with_checkpoint,
+            #     recog_def=decoder_def,
+            #     decoding_config=params,
+            #     recog_post_proc_funcs=recog_post_proc_funcs,
+            #     exclude_epochs=exclude_epochs,
+            #     search_mem_rqmt=search_mem_rqmt,
+            #     prior_from_max=prior_from_max,
+            #     empirical_prior=emp_prior if with_prior and empirical_prior else None,
+            #     dev_sets=["dev-other"],
+            #     search_rqmt=search_rqmt,
+            # )
+            score = recog_exp(
                 prefix + f"/tune/prior/{str(dc_prior).replace('.', '').replace('-', 'm')}",
                 task_copy,
                 model_with_checkpoint,
+                epoch=recog_epoch,
                 recog_def=decoder_def,
                 decoding_config=params,
                 recog_post_proc_funcs=recog_post_proc_funcs,
@@ -390,8 +420,21 @@ def train_exp(
             original_params["prior_weight_tune"] = best_prior_tune
 
 
-    recog_result = recog_training_exp(
-        prefix, task, model_with_checkpoint, recog_def=decoder_def,
+    # recog_result = recog_training_exp(
+    #     prefix, task, model_with_checkpoint, recog_def=decoder_def,
+    #     decoding_config=decoding_config,
+    #     recog_post_proc_funcs=recog_post_proc_funcs,
+    #     exclude_epochs=exclude_epochs,
+    #     search_mem_rqmt=search_mem_rqmt,
+    #     prior_from_max=prior_from_max,
+    #     empirical_prior=emp_prior if with_prior and empirical_prior else None,
+    #     dev_sets=["test-other","dev-other"],
+    #     search_rqmt=search_rqmt,
+    # )
+    recog_result = recog_exp(
+        prefix, task, model_with_checkpoint,
+        epoch=recog_epoch,
+        recog_def=decoder_def,
         decoding_config=decoding_config,
         recog_post_proc_funcs=recog_post_proc_funcs,
         exclude_epochs=exclude_epochs,
