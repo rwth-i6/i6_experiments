@@ -30,8 +30,8 @@ def ctc_exp(lmname, lm, vocab):
         exclude_epochs = set(range(0, 500))
         recog_epoch = 500
 
-    tune_hyperparameters = True
-    with_prior = True
+    tune_hyperparameters = False
+    with_prior = False
     prior_from_max = False # ! arg in recog.compute_prior, actually Unused
     empirical_prior = False
     #-------------------setting decoding config-------------------
@@ -39,10 +39,10 @@ def ctc_exp(lmname, lm, vocab):
     decoding_config = {
         "log_add": False,
         "nbest": 1,
-        "beam_size": 50, # 80 for previous exps on bpe128
-        "lm_weight": 1.4,  # Tuned_best val: 1.45 NOTE: weights are exponentials of the probs.
+        "beam_size": 80, # 80 for previous exps on bpe128
+        "lm_weight": 1.45,  # Tuned_best val: 1.45 NOTE: weights are exponentials of the probs.
         "use_logsoftmax": True,
-        "use_lm": True,
+        "use_lm": False,
         "use_lexicon": False, # Do open vocab search when using bpe lms.
     }
     decoding_config["lm"] = lm
@@ -53,12 +53,12 @@ def ctc_exp(lmname, lm, vocab):
         num_heads=8,
     )
     decoding_config["use_lm"] = True if lm else False
-    if re.match(r".*word.*", lmname) or "NoLM" in lmname:
+    if re.match(r".*word.*", lmname): # Why  or "NoLM"  in lmname?
         decoding_config["use_lexicon"] = True
     else:
         decoding_config["use_lexicon"] = False
     if with_prior:
-        decoding_config["prior_weight"] = 0.2  # 0.15 as initial ref for tuning or if not using emprirical prior
+        decoding_config["prior_weight"] = 0.15  # 0.15 as initial ref for tuning or if not using emprirical prior
     p0 = f"_p{str(decoding_config['prior_weight']).replace('.', '')}" + (
             "-emp" if empirical_prior else ("-from_max" if prior_from_max else "")) if with_prior else ""
     p1 = "sum" if decoding_config['log_add'] else "max"
@@ -108,8 +108,8 @@ def ctc_exp(lmname, lm, vocab):
 def py():
     """Sisyphus entry point"""
     models = {"ctc": ctc_exp, "transducer": None}
-    for vocab in [#"bpe128",
-                  "bpe10k", # 6.49  # Require much more time on recog even with lexicon
+    for vocab in ["bpe128",
+                  #"bpe10k", # 6.49  # Require much more time on recog even with lexicon
                   ]:
         # from ..datasets.librispeech_lm import get_4gram_binary_lm
         from .language_models.n_gram import get_count_based_n_gram # If move to lm dir it somehow breaks the hash...
@@ -174,16 +174,20 @@ def py():
             if not exp:
                 continue
             wer_ppl_results = dict()
+            #----------Test--------------------
+            lms = ({"NoLM": None})
+            #------------------------------
             for name, lm in lms.items():
                 # lm_name = lm if isinstance(lm, str) else lm.name
                 wer_result_path, lm_hyperparamters_str, lm_scale = exp(name, lm, vocab)
                 if lm:
                     wer_ppl_results[name] = (ppl_results.get(name), wer_result_path, lm_scale)
-            (names, res) = zip(*wer_ppl_results.items())
-            results = [(x[0],x[1]) for x in res]
-            lm_scales = [x[2] for x in res]
-            summaryjob = WER_ppl_PlotAndSummaryJob(names, results, lm_scales)
-            tk.register_output("wer_ppl/"+ model + lm_hyperparamters_str + exp_names_postfix + "/summary", summaryjob.out_summary)
-            tk.register_output("wer_ppl/"+ model + lm_hyperparamters_str + exp_names_postfix + "/dev_other.png", summaryjob.out_plot1)
-            tk.register_output("wer_ppl/" + model + lm_hyperparamters_str + exp_names_postfix + "/test_other.png",
-                               summaryjob.out_plot2)
+            if wer_ppl_results:
+                (names, res) = zip(*wer_ppl_results.items())
+                results = [(x[0],x[1]) for x in res]
+                lm_scales = [x[2] for x in res]
+                summaryjob = WER_ppl_PlotAndSummaryJob(names, results, lm_scales)
+                tk.register_output("wer_ppl/"+ model + lm_hyperparamters_str + exp_names_postfix + "/summary", summaryjob.out_summary)
+                tk.register_output("wer_ppl/"+ model + lm_hyperparamters_str + exp_names_postfix + "/dev_other.png", summaryjob.out_plot1)
+                tk.register_output("wer_ppl/" + model + lm_hyperparamters_str + exp_names_postfix + "/test_other.png",
+                                   summaryjob.out_plot2)

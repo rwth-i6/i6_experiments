@@ -5,7 +5,7 @@ Generic recog, for the model interfaces defined in model_interfaces.py
 from __future__ import annotations
 
 import os
-from typing import TYPE_CHECKING, Optional, Union, Any, Dict, Sequence, Collection, Iterator, Callable, List
+from typing import TYPE_CHECKING, Optional, Union, Any, Dict, Sequence, Collection, Iterator, Callable, List, Tuple
 
 import sisyphus
 from sisyphus import tk
@@ -172,7 +172,7 @@ class _RecogAndScoreFunc:
         self.dev_sets = dev_sets
         self.search_rqmt = search_rqmt
 
-    def __call__(self, epoch_or_ckpt: Union[int, PtCheckpoint]) -> ScoreResultCollection:
+    def __call__(self, epoch_or_ckpt: Union[int, PtCheckpoint]) -> Tuple[ScoreResultCollection, Optional[tk.paht]]:
         if isinstance(epoch_or_ckpt, int):
             model_with_checkpoint = self.model.get_epoch(epoch_or_ckpt)
         elif isinstance(epoch_or_ckpt, PtCheckpoint):
@@ -195,7 +195,7 @@ class _RecogAndScoreFunc:
                     tk.register_output(self.prefix_name + f"/recog_results_per_epoch/{epoch_or_ckpt:03}/prior.txt", prior_path)
         else:
             prior_path = None
-        res = recog_model(
+        res, search_error = recog_model(
             self.task,
             model_with_checkpoint,
             self.recog_def,
@@ -211,7 +211,7 @@ class _RecogAndScoreFunc:
         )
         if isinstance(epoch_or_ckpt, int):
             tk.register_output(self.prefix_name + f"/recog_results_per_epoch/{epoch_or_ckpt:03}/res", res.output)
-        return res
+        return res, search_error
 
     def _sis_hash(self) -> bytes:
         from sisyphus.hash import sis_hash_helper
@@ -258,7 +258,7 @@ def recog_model(
     search_rqmt: Optional[Dict[str, Any]] = None, #= {"time": 6},
     dev_sets: Optional[Collection[str]] = None, #["dev-other", "test-other"]
     name: Optional[str] = None,
-) -> ScoreResultCollection:
+) -> Tuple[ScoreResultCollection, Optional[tk.path]]:
     """recog"""
     if dev_sets is not None:
         assert all(k in task.eval_datasets for k in dev_sets)
@@ -284,9 +284,13 @@ def recog_model(
         )
         score_out = task.score_recog_output_func(dataset, recog_out)
         outputs[dataset_name] = score_out
+        search_error = None
+        if dataset_name == "test-other":
+            search_error = check_search_error(dataset=dataset, model=model, hyps=score_out,
+                                              decoding_config=decoding_config,prior_path=prior_path, alias_name=None)
     # if dev_sets:
     #     assert task.main_measure_name == dev_sets[0]
-    return task.collect_score_results_func(outputs)
+    return task.collect_score_results_func(outputs), search_error
 
 
 def compute_prior(
@@ -342,12 +346,16 @@ def check_search_error(
         dataset: DatasetConfig,
         model: ModelWithCheckpoint,
         hyps: tk.path,
+        decoding_config: dict,
+        prior_path: tk.Path,
         mem_rqmt: Union[int, float] = 8,
         alias_name: Optional[str] = None,
 ) -> tk.Path:
+    from .experiments.ctc import scoring
     pre_SearchError_job = ReturnnForwardJobV2(
         model_checkpoint=model.checkpoint,
-        returnn_config=search_error_config(dataset, model.definition),
+        returnn_config=search_error_config(dataset, model.definition, scoring,
+                                           decoding_config=decoding_config, prior_path=prior_path),
         output_files=["groundtruth_score"],
         returnn_python_exe=tools_paths.get_returnn_python_exe(),
         returnn_root=tools_paths.get_returnn_root(),
@@ -359,7 +367,7 @@ def check_search_error(
     if alias_name:
         pre_SearchError_job.add_alias(alias_name)
     ground_truth_out = pre_SearchError_job.out_files["groundtruth_score"]
-    from utils.search_error import ComputeSearchErrorsJob
+    from .utils.search_error import ComputeSearchErrorsJob
     # TODO ground_truth_out and hyps might not in comparable text form.(bpe <-> word)
     res = ComputeSearchErrorsJob(ground_truth_out, hyps).out_search_errors
     return res
@@ -1189,7 +1197,7 @@ class GetRecogExp(sisyphus.Job):
         model: ModelWithCheckpoints,
         epoch: int,
         *,
-        recog_and_score_func: Callable[[int], ScoreResultCollection],
+        recog_and_score_func: Callable[[int], Tuple[ScoreResultCollection,Optional[tk.path]]],
     ):
         """
         :param model: modelwithcheckpoints, all fixed checkpoints + scoring file for potential other relevant checkpoints (see update())
@@ -1200,7 +1208,8 @@ class GetRecogExp(sisyphus.Job):
         self.epoch = epoch
         self.recog_and_score_func = recog_and_score_func
         self.out_summary_json = self.output_path("summary.json")
-        self._scores_outputs = {}  # type: Dict[int, ScoreResultCollection]  # epoch -> scores out
+        self.out_search_error = self.output_path("search_error")
+        self._scores_outputs = {}  # type: Dict[int, Tuple[ScoreResultCollection,Optional[tk.path]]]  # epoch -> scores out
         self._add_recog(self.epoch)
 
     # @classmethod
@@ -1227,9 +1236,9 @@ class GetRecogExp(sisyphus.Job):
     def _add_recog(self, epoch: int):
         if epoch in self._scores_outputs:
             return
-        res = self.recog_and_score_func(epoch)
-        assert isinstance(res, ScoreResultCollection)
-        self._scores_outputs[epoch] = res
+        res, search_error = self.recog_and_score_func(epoch)
+        #assert isinstance(res, Tuple[ScoreResultCollection,Optional[tk.path]])
+        self._scores_outputs[epoch] = (res,search_error)
 
     def tasks(self) -> Iterator[sisyphus.Task]:
         """tasks"""
@@ -1240,11 +1249,13 @@ class GetRecogExp(sisyphus.Job):
         import json
 
         best_epoch = self.epoch
-        best_scores = json.load(open(self._scores_outputs[best_epoch].output.get_path()))
+        best_scores = json.load(open(self._scores_outputs[best_epoch][0].output.get_path()))
+
         res = {"best_scores": best_scores, "best_epoch": best_epoch}
         with open(self.out_summary_json.get_path(), "w") as f:
             f.write(json.dumps(res))
             f.write("\n")
+        os.symlink(self.out_search_error.get_path(), self._scores_outputs[best_epoch][1].get_path())
 
 
 class GetBestRecogTrainExp(sisyphus.Job):

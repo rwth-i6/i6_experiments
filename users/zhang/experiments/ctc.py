@@ -368,6 +368,7 @@ def train_exp(
                 prior_from_max=prior_from_max,
                 empirical_prior=emp_prior if with_prior and empirical_prior else None,
                 dev_sets=["dev-other"],
+                search_rqmt=search_rqmt,
             )
             lm_scores.append(score)
 
@@ -854,7 +855,25 @@ def model_recog_lm(
         decoder_results = decoder(label_log_prob, enc_spatial_dim_torch)
     else:
         decoder_results = decoder(logits.raw_tensor.cpu(), enc_spatial_dim_torch)
-
+    #--------------------------------------test---------------------------------------------------------
+    ctc_scores = [[l2.score for l2 in l1] for l1 in decoder_results]
+    viterbi_scores = []
+    ctc_losses = []
+    ctc_loss = torch.nn.CTCLoss(model.blank_idx, "none")
+    for i in range(label_log_prob.shape[0]):
+        seq = decoder_results[i][0].tokens
+        log_prob = label_log_prob[i]
+        viterbi_scores.append(ctc_viterbi_one_seq(log_prob, seq, int(enc_spatial_dim_torch.max()),
+                               blank_idx=model.blank_idx)[1])
+        ctc_losses.append(ctc_loss(log_prob, seq, [log_prob.shape[0]],
+                               [seq.shape[0]]))
+    print("Scores available: ctc_losses, viterbi_scores, ctc_scores")
+    #print(f"Average difference of ctc_decoder score and viterbi score: {np.mean(np.array(ctc_scores[:,0])-viterbi_scores)}")
+    import pdb
+    pdb.set_trace()
+    # assert scores.raw_tensor[0,:] - ctc_viterbi_one_seq(label_log_prob[0], decoder_results[0][0].tokens, int(enc_spatial_dim_torch.max()),
+    #                            blank_idx=model.blank_idx) < tolerance, "CTCdecoder does use viterbi decoding!"
+    # -----------------------------------------------------------------------------------------------
     if use_lexicon:
         print("Use words directly!")
         if CHECK_DECODER_CONSISTENCY:
@@ -868,6 +887,7 @@ def model_recog_lm(
                     assert lexicon_words == token_words, f"Words don't match: Lexicon words: {lexicon_words}, Token words: {token_words}"
 
         words = [[" ".join(l2.words) for l2 in l1] for l1 in decoder_results]
+
         words = np.array(words)
         words = np.expand_dims(words, axis=2)
         scores = [[l2.score for l2 in l1] for l1 in decoder_results]
@@ -926,6 +946,49 @@ model_recog_lm: RecogDef[Model]
 model_recog_lm.output_with_beam = True
 model_recog_lm.output_blank_label = OUT_BLANK_LABEL
 model_recog_lm.batch_size_dependent = False  # not totally correct, but we treat it as such...
+
+
+def ctc_viterbi_one_seq(ctc_log_probs, seq, t_max, blank_idx=10025):
+    import torch
+    mod_len = 2 * seq.shape[0] + 1
+    mod_seq = torch.stack([seq, torch.full(seq.shape, blank_idx,device=seq.device)], dim=1).flatten()
+    mod_seq = torch.cat((torch.tensor([blank_idx], device=mod_seq.device), mod_seq))
+    V = torch.full((t_max, mod_len), float("-inf"))  # [T, 2S+1]
+    breakpoint()
+    V[0, 0] = ctc_log_probs[0, blank_idx]
+    V[0, 1] = ctc_log_probs[0, seq[0]]
+
+    backref = torch.full((t_max, mod_len), -1, dtype=torch.int64, device="cuda")
+
+    for t in range(1, t_max):
+        for s in range(mod_len):
+            if s > 2 * t + 1:
+                continue
+            skip = False
+            if s % 2 != 0 and s >= 3:
+                idx = (s - 1) // 2
+                prev_idx = (s - 3) // 2
+                if seq[idx] != seq[prev_idx]:
+                    skip = True
+
+            if skip:
+                V[t, s] = max(V[t - 1, s], V[t - 1, s - 1], V[t - 1, s - 2]) + ctc_log_probs[t, mod_seq[s]]
+                backref[t, s] = torch.argmax(torch.tensor([V[t - 1, s], V[t - 1, s - 1], V[t - 1, s - 2]]))
+            else:
+                V[t, s] = max(V[t - 1, s], V[t - 1, s - 1]) + ctc_log_probs[t, mod_seq[s]]
+                backref[t, s] = torch.argmax(torch.tensor([V[t - 1, s], V[t - 1, s - 1]]))
+
+    score = torch.max(V[t_max - 1, :])
+    idx = torch.argmax(V[t_max - 1, :])
+    res = [mod_seq[idx]]
+
+    for t in range(t_max - 1, 0, -1):
+        next_idx = idx - backref[t, idx]
+        res.append(mod_seq[next_idx])
+        idx = next_idx
+
+    res = torch.tensor(res).flip(0)
+    return res, score
 
 
 def scoring(
@@ -1008,6 +1071,10 @@ def scoring(
     configs.update(hyp_params)
 
     decoder = ctc_decoder(**configs)
+    # `````````````````test```````````````````````
+    import pdb
+    pdb.set_trace()
+    #````````````````````````````````````````````
     enc_spatial_dim_torch = enc_spatial_dim.dyn_size_ext.raw_tensor.cpu()
     # TODO : get ctcloss(label_log_prob, target, ..) and decoder.lm.score()
     return scores, enc_spatial_dim
