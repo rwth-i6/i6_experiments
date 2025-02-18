@@ -27,7 +27,7 @@ from .model.ctc import (
 from .model.custom_load_params import load_missing_params_aed
 from .analysis.analysis import analyze_encoder
 from .analysis.gmm_alignments import setup_gmm_alignment, LIBRISPEECH_GMM_WORD_ALIGNMENT
-from .rescoring import rescore
+# from .rescoring import rescore
 from .configs import (
   config_24gb_v1,
   config_24gb_v2,
@@ -42,6 +42,10 @@ from .train import TrainExperiment
 from .recog import RecogExperiment, _returnn_v2_forward_step, _returnn_v2_get_forward_callback
 
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.corpora.librispeech import LibrispeechCorpora
+from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.segmental.model import (
+  _returnn_v2_get_model as transducer_get_model,
+  from_scratch_model_def as transducer_model_def,
+)
 
 from sisyphus import Path, tk
 
@@ -251,57 +255,98 @@ def py():
     )
     checkpoints, model_dir, learning_rates = train_exp.run_train()
 
-  # CTC recog and rescoring
-  configs = []
-  configs.append(dict(
-    model_opts=config_ctc_v2["model_opts"],
-    checkpoint=external_torch_checkpoints["mohammad-aed-5.4"],
-    checkpoint_alias="avg",
-    model_name="mohammad-aed-5.4/aux-ctc",
-  ))
+  # # CTC recog and rescoring
+  # configs = []
+  # configs.append(dict(
+  #   model_opts=config_ctc_v2["model_opts"],
+  #   checkpoint=external_torch_checkpoints["mohammad-aed-5.4"],
+  #   checkpoint_alias="avg",
+  #   model_name="mohammad-aed-5.4/aux-ctc",
+  # ))
+  #
+  # for config in configs:
+  #   model_name = config["model_name"]
+  #
+  #   config_builder = AEDConfigBuilder(
+  #     dataset=LIBRISPEECH_CORPUS,
+  #     vocab_opts=BPE10K_OPTS,
+  #     model_def=ctc_model_def,
+  #     get_model_func=ctc_get_model,
+  #   )
+  #   config_builder.config_dict.update(config["model_opts"])
+  #   config_builder.config_dict["preload_from_files"] = {
+  #     "pretrained_params": {
+  #       "filename": config["checkpoint"],
+  #       "ignore_missing": True,
+  #       "custom_missing_load_func": load_missing_params_ctc,
+  #   }}
+  #   # config_builder.config_dict["ctc_prior_scale"] = 0.4
+  #
+  #   recog_exp = RecogExperiment(
+  #     alias=f"models/{model_name}",
+  #     config_builder=config_builder,
+  #     checkpoint=None,  # config["checkpoint"],
+  #     checkpoint_alias=config["checkpoint_alias"],
+  #     recog_opts={
+  #       "recog_def": ctc_model_recog,
+  #       "beam_size": 12,
+  #       "dataset_opts": {
+  #         "corpus_key": "dev-other",
+  #       },
+  #       "forward_step_func": _returnn_v2_forward_step,
+  #       "forward_callback": _returnn_v2_get_forward_callback,
+  #       "length_normalization_exponent": 1.0,
+  #     },
+  #     search_rqmt=dict(cpu=4)
+  #   )
+  #   recog_exp.run_eval()
+  #   #
+  #   rescore(
+  #     config_builder=config_builder,
+  #     corpus_key="dev-other",
+  #     checkpoint=None,  # we set the checkpoint above via preload_from_files
+  #     returnn_root=RETURNN_ROOT,
+  #     returnn_python_exe=RETURNN_EXE,
+  #     alias=f"models/{model_name}",
+  #   )
 
-  for config in configs:
-    model_name = config["model_name"]
-
-    config_builder = AEDConfigBuilder(
-      dataset=LIBRISPEECH_CORPUS,
-      vocab_opts=BPE10K_OPTS,
-      model_def=ctc_model_def,
-      get_model_func=ctc_get_model,
-    )
-    config_builder.config_dict.update(config["model_opts"])
-    config_builder.config_dict["preload_from_files"] = {
-      "pretrained_params": {
-        "filename": config["checkpoint"],
-        "ignore_missing": True,
-        "custom_missing_load_func": load_missing_params_ctc,
-    }}
-    # config_builder.config_dict["ctc_prior_scale"] = 0.4
-
-    recog_exp = RecogExperiment(
-      alias=f"models/{model_name}",
-      config_builder=config_builder,
-      checkpoint=None,  # config["checkpoint"],
-      checkpoint_alias=config["checkpoint_alias"],
-      recog_opts={
-        "recog_def": ctc_model_recog,
-        "beam_size": 12,
-        "dataset_opts": {
-          "corpus_key": "dev-other",
-        },
-        "forward_step_func": _returnn_v2_forward_step,
-        "forward_callback": _returnn_v2_get_forward_callback,
-        "length_normalization_exponent": 1.0,
-      },
-      search_rqmt=dict(cpu=4)
-    )
-    recog_exp.run_eval()
-
-    rescore(
-      config_builder=config_builder,
-      corpus_key="dev-other",
-      checkpoint=None,  # we set the checkpoint above via preload_from_files
-      returnn_root=RETURNN_ROOT,
-      returnn_python_exe=RETURNN_EXE,
-      alias=f"models/{model_name}",
-    )
+  # # transducer rescoring
+  # configs = []
+  # configs.append(dict(
+  #   model_opts=config_24gb_v1["model_opts"],
+  #   checkpoint=external_torch_checkpoints["context-1-transducer_1k-bpe_full-sum"],
+  #   checkpoint_alias="avg",
+  #   model_name="context-1-transducer_1k-bpe_full-sum",
+  # ))
+  #
+  # for config in configs:
+  #   model_name = config["model_name"]
+  #
+  #   config_builder = AEDConfigBuilder(
+  #     dataset=LIBRISPEECH_CORPUS,
+  #     vocab_opts=BPE10K_OPTS,
+  #     model_def=transducer_model_def,
+  #     get_model_func=transducer_get_model,
+  #   )
+  #   config_builder.config_dict.update(config["model_opts"])
+  #   config_builder.config_dict["preload_from_files"] = {
+  #     "pretrained_params": {
+  #       "filename": config["checkpoint"],
+  #       "ignore_missing": True,
+  #       "custom_missing_load_func": load_missing_params_ctc,
+  #   }}
+  #   config_builder.config_dict.update({
+  #     "blank_decoder_version": 4,
+  #     "center_window_size": 1,
+  #     "label_decoder_state": "nb-2linear-ctx1"
+  #   })
+  #
+  #   #
+  #   rescore(
+  #     config_builder=config_builder,
+  #     corpus_key="dev-other",
+  #     checkpoint=None,  # we set the checkpoint above via preload_from_files
+  #     returnn_root=RETURNN_ROOT,
+  #     returnn_python_exe=RETURNN_EXE,
+  #     alias=f"models/{model_name}",
+  #   )
