@@ -57,7 +57,7 @@ def py():
     decoding_config = {
         "log_add": False,
         "nbest": 1,
-        "beam_size": 80,
+        "beam_size": 2,
         "lm_weight": 1.4,  # NOTE: weights are exponentials of the probs. 1.9 seems make the results worse by using selftrained lm
         "use_logsoftmax": True,
         "use_lm": True,
@@ -269,7 +269,7 @@ def train_exp(
     tune_hyperparameters: bool = False,
     search_mem_rqmt: Union[int, float] = 6,
     search_rqmt: dict = None,
-) -> Tuple[Optional[ModelWithCheckpoints], Optional[tk.path], Optional[tk.path]]:
+) -> Tuple[Optional[ModelWithCheckpoints], Optional[tk.path], Optional[tk.path], Optional[tk.path]]:
     """
     Train experiment
     """
@@ -337,7 +337,7 @@ def train_exp(
         default_prior = original_params.get("prior_weight")
         lm_scores = []
         prior_scores = []
-        lm_tune_ls = [scale/100 for scale in range(-50,51,10)] #[-0.5,-0.45....+0.45,+0.5]  [scale/100 for scale in range(-50,51,10/5)] for bpe10k/bpe128
+        lm_tune_ls = [scale/100 for scale in range(-50,51,5)] #[-0.5,-0.45....+0.45,+0.5]  [scale/100 for scale in range(-50,51,10/5)] for bpe10k/bpe128
         prior_tune_ls = [-0.05, -0.1, 0.0, 0.05, 0.1]
         for dc_lm in lm_tune_ls:
             params["lm_weight"] = default_lm + dc_lm
@@ -399,7 +399,7 @@ def train_exp(
             #     dev_sets=["dev-other"],
             #     search_rqmt=search_rqmt,
             # )
-            score = recog_exp(
+            score, _ = recog_exp(
                 prefix + f"/tune/prior/{str(dc_prior).replace('.', '').replace('-', 'm')}",
                 task_copy,
                 model_with_checkpoint,
@@ -432,7 +432,7 @@ def train_exp(
     #     dev_sets=["test-other","dev-other"],
     #     search_rqmt=search_rqmt,
     # )
-    recog_result = recog_exp(
+    recog_result, search_error = recog_exp(
         prefix, task, model_with_checkpoint,
         epoch=recog_epoch,
         recog_def=decoder_def,
@@ -444,10 +444,11 @@ def train_exp(
         empirical_prior=emp_prior if with_prior and empirical_prior else None,
         dev_sets=["test-other","dev-other"],
         search_rqmt=search_rqmt,
+        search_error_check=True,
     )
 
     _train_experiments[name] = model_with_checkpoint
-    return model_with_checkpoint, recog_result, lm_scale
+    return model_with_checkpoint, recog_result, search_error, lm_scale
 
 
 def _remove_eos_label_v2(res: RecogOutput) -> RecogOutput:
@@ -856,21 +857,42 @@ def model_recog_lm(
     else:
         decoder_results = decoder(logits.raw_tensor.cpu(), enc_spatial_dim_torch)
     #--------------------------------------test---------------------------------------------------------
-    ctc_scores = [[l2.score for l2 in l1] for l1 in decoder_results]
-    viterbi_scores = []
-    ctc_losses = []
-    ctc_loss = torch.nn.CTCLoss(model.blank_idx, "none")
-    for i in range(label_log_prob.shape[0]):
-        seq = decoder_results[i][0].tokens
-        log_prob = label_log_prob[i]
-        viterbi_scores.append(ctc_viterbi_one_seq(log_prob, seq, int(enc_spatial_dim_torch.max()),
-                               blank_idx=model.blank_idx)[1])
-        ctc_losses.append(ctc_loss(log_prob, seq, [log_prob.shape[0]],
-                               [seq.shape[0]]))
-    print("Scores available: ctc_losses, viterbi_scores, ctc_scores")
-    #print(f"Average difference of ctc_decoder score and viterbi score: {np.mean(np.array(ctc_scores[:,0])-viterbi_scores)}")
     import pdb
     pdb.set_trace()
+    # from flashlight.lib.text.decoder import LexiconDecoderLM
+    def CTClm_score(seq):
+        """
+        When lm is word level, sequence need to be converted to word...?
+        """
+        state = decoder.lm.start(True)
+        score = 0
+        for token in seq:
+            state, cur_score = decoder.lm.score(state, token)
+            score += cur_score
+        score += decoder.lm.finish(state)[1]
+        return score
+
+    ctc_scores = [[l2.score for l2 in l1] for l1 in decoder_results]
+    ctc_scores = torch.tensor(ctc_scores)
+    sim_scores = []
+    ctc_losses = []
+    viterbi_scores = []
+    ctc_loss = torch.nn.CTCLoss(model.blank_idx, "none")
+    for i in range(label_log_prob.shape[0]):
+        seq = decoder_results[i][0].tokens # These are not padded
+        log_prob = label_log_prob[i]
+        viterbi_score = ctc_viterbi_one_seq(log_prob, seq, int(enc_spatial_dim_torch[i].item()), # int(enc_spatial_dim_torch.max())
+                               blank_idx=model.blank_idx)[1]
+        viterbi_scores.append(viterbi_score)
+        word_seq = [decoder.word_dict.get_index(word) for word in decoder_results[i][0].words]
+        lm_score = CTClm_score(word_seq)
+        sim_scores.append(viterbi_score + hyp_params["lm_weight"]*lm_score)
+        ctc_losses.append(ctc_loss(log_prob, seq, [log_prob.shape[0]],
+                               [seq.shape[0]]))
+    pdb.set_trace()
+    print(f"Average difference of ctc_decoder score and viterbi score: {np.mean(np.array(ctc_scores[:,0])-sim_scores)}")
+
+
     # assert scores.raw_tensor[0,:] - ctc_viterbi_one_seq(label_log_prob[0], decoder_results[0][0].tokens, int(enc_spatial_dim_torch.max()),
     #                            blank_idx=model.blank_idx) < tolerance, "CTCdecoder does use viterbi decoding!"
     # -----------------------------------------------------------------------------------------------
@@ -948,13 +970,12 @@ model_recog_lm.output_blank_label = OUT_BLANK_LABEL
 model_recog_lm.batch_size_dependent = False  # not totally correct, but we treat it as such...
 
 
-def ctc_viterbi_one_seq(ctc_log_probs, seq, t_max, blank_idx=10025):
+def ctc_viterbi_one_seq(ctc_log_probs, seq, t_max, blank_idx):
     import torch
     mod_len = 2 * seq.shape[0] + 1
     mod_seq = torch.stack([seq, torch.full(seq.shape, blank_idx,device=seq.device)], dim=1).flatten()
     mod_seq = torch.cat((torch.tensor([blank_idx], device=mod_seq.device), mod_seq))
     V = torch.full((t_max, mod_len), float("-inf"))  # [T, 2S+1]
-    breakpoint()
     V[0, 0] = ctc_log_probs[0, blank_idx]
     V[0, 1] = ctc_log_probs[0, seq[0]]
 
@@ -965,12 +986,14 @@ def ctc_viterbi_one_seq(ctc_log_probs, seq, t_max, blank_idx=10025):
             if s > 2 * t + 1:
                 continue
             skip = False
+            # if s % 2 != 0 and s >= 3:
+            #     idx = (s - 1) // 2
+            #     prev_idx = (s - 3) // 2
+            #     if seq[idx] != seq[prev_idx]:
+            #         skip = True
             if s % 2 != 0 and s >= 3:
-                idx = (s - 1) // 2
-                prev_idx = (s - 3) // 2
-                if seq[idx] != seq[prev_idx]:
+                if mod_seq[s] != mod_seq[s-2]:
                     skip = True
-
             if skip:
                 V[t, s] = max(V[t - 1, s], V[t - 1, s - 1], V[t - 1, s - 2]) + ctc_log_probs[t, mod_seq[s]]
                 backref[t, s] = torch.argmax(torch.tensor([V[t - 1, s], V[t - 1, s - 1], V[t - 1, s - 2]]))
@@ -1001,7 +1024,7 @@ def scoring(
         lexicon: str,
         hyperparameters: dict,
         prior_file: tk.Path = None
-) -> Tuple[Tensor, Tensor, Dim, Dim]:
+) -> Tensor:
     """
     Function is run within RETURNN.
 
@@ -1071,13 +1094,73 @@ def scoring(
     configs.update(hyp_params)
 
     decoder = ctc_decoder(**configs)
+    enc_spatial_dim_torch = enc_spatial_dim.dyn_size_ext.raw_tensor.cpu()
+    scores = []
     # `````````````````test```````````````````````
+    def CTClm_score(seq):
+        """
+        When lm is word level, sequence need to be converted to word...?
+        """
+        state = decoder.lm.start(True)
+        score = 0
+        for token in seq:
+            state, cur_score = decoder.lm.score(state, token)
+            score += cur_score
+        score += decoder.lm.finish(state)[1]
+        return score
+
+    # TODO: dynmically get the pad_index
+    def trim_padded_sequence(sequence: torch.Tensor, pad_index: int = 0) -> torch.Tensor:
+        """
+        Removes trailing pad_index elements from a padded 1D sequence tensor.
+
+        Args:
+            sequence (torch.Tensor): 1D tensor containing the sequence with padding.
+            pad_index (int): The padding index used in the sequence.
+
+        Returns:
+            torch.Tensor: The trimmed sequence without trailing padding.
+        """
+        # Find indices where the sequence is not the pad_index.
+        non_pad_indices = (sequence != pad_index).nonzero(as_tuple=True)[0]
+
+        if non_pad_indices.numel() == 0:
+            # If the entire sequence is padding, return an empty tensor.
+            return sequence.new_empty(0)
+
+        # The last non-padding index; add 1 for slicing (because slicing is exclusive).
+        last_index = non_pad_indices[-1].item() + 1
+
+        return sequence[:last_index]
+    #ctc_scores = [[l2.score for l2 in l1] for l1 in decoder_results]
+    # ctc_scores = torch.tensor(ctc_scores)
+    # TODO: add ctc_loss for the case CTCdecoder use sum
+    # ctc_loss = torch.nn.CTCLoss(model.blank_idx, "none")
+    viterbi_scores = []
+    lm_scores = []
     import pdb
     pdb.set_trace()
+    for i in range(label_log_prob.shape[0]):
+        seq = trim_padded_sequence(targets.raw_tensor[i,:])
+        target_words = " ".join([decoder.tokens_dict.get_entry(idx) for idx in seq])
+        target_words = target_words.replace("@@ ","")
+        #target_words = target_words.replace(" <s>", "")
+        log_prob = label_log_prob[i]
+        viterbi_score = ctc_viterbi_one_seq(log_prob, seq, int(enc_spatial_dim_torch[i].item()), # int(enc_spatial_dim_torch.max())
+                               blank_idx=model.blank_idx)[1]
+        viterbi_scores.append(viterbi_score)
+        word_seq = [decoder.word_dict.get_index(word) for word in target_words.split()]
+        lm_score = CTClm_score(word_seq)
+        lm_scores.append(lm_score)
+        scores.append(viterbi_score + hyp_params["lm_weight"]*lm_score)
+    pdb.set_trace()
+    beam_dim = Dim(1, name="beam_dim")
+    scores = Tensor("scores", dims=[batch_dim, beam_dim], dtype="float32",
+                    raw_tensor=torch.tensor(scores).reshape([label_log_prob.shape[0], 1]))
+
     #````````````````````````````````````````````
-    enc_spatial_dim_torch = enc_spatial_dim.dyn_size_ext.raw_tensor.cpu()
-    # TODO : get ctcloss(label_log_prob, target, ..) and decoder.lm.score()
-    return scores, enc_spatial_dim
+
+    return scores
 
 
 # RecogDef API

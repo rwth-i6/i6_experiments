@@ -31,7 +31,7 @@ def ctc_exp(lmname, lm, vocab):
         recog_epoch = 500
 
     tune_hyperparameters = False
-    with_prior = False
+    with_prior = True
     prior_from_max = False # ! arg in recog.compute_prior, actually Unused
     empirical_prior = False
     #-------------------setting decoding config-------------------
@@ -39,10 +39,10 @@ def ctc_exp(lmname, lm, vocab):
     decoding_config = {
         "log_add": False,
         "nbest": 1,
-        "beam_size": 80, # 80 for previous exps on bpe128
+        "beam_size": 2, # 80 for previous exps on bpe128
         "lm_weight": 1.45,  # Tuned_best val: 1.45 NOTE: weights are exponentials of the probs.
         "use_logsoftmax": True,
-        "use_lm": False,
+        "use_lm": True,
         "use_lexicon": False, # Do open vocab search when using bpe lms.
     }
     decoding_config["lm"] = lm
@@ -75,7 +75,7 @@ def ctc_exp(lmname, lm, vocab):
     from i6_experiments.users.zhang.experiments.ctc import train_exp, model_recog_lm, config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4, _get_cfg_lrlin_oclr_by_bs_nep, speed_pert_librosa_config, _raw_sample_rate
     search_mem_rqmt = 16 if vocab == "bpe10k" else 6
     search_rqmt = {"cpu": search_mem_rqmt//2, "time": 6} if vocab == "bpe10k" else None
-    _, wer_result_path, lm_scale = train_exp(
+    _, wer_result_path, search_error, lm_scale = train_exp(
         name=alias_name,
         config=config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
         decoder_def=model_recog_lm,
@@ -103,7 +103,7 @@ def ctc_exp(lmname, lm, vocab):
         search_rqmt=search_rqmt,
         recog_epoch=recog_epoch
     )
-    return wer_result_path, lm_hyperparamters_str, lm_scale
+    return wer_result_path, search_error, lm_hyperparamters_str, lm_scale
 
 def py():
     """Sisyphus entry point"""
@@ -143,8 +143,8 @@ def py():
             #                          [x * 1e-7 for x in range(1, 200, 16)] +
             #                          [x * 1e-7 for x in range(1, 10, 2)]
             #                          ))
-            prune_threshs = [1e-9, 1.3e-8, 6.7e-8,
-                             3e-7, 7e-7, 1.7e-6,
+            prune_threshs = [#1e-9, 1.3e-8, 6.7e-8,
+                             #3e-7, 7e-7, 1.7e-6,
                              #5.1e-6,
                              #8.1e-6, 1.1e-5, 1.6e-5, 1.9e-5
                              ]
@@ -175,18 +175,19 @@ def py():
                 continue
             wer_ppl_results = dict()
             #----------Test--------------------
-            lms = ({"NoLM": None})
+            #lms = ({"NoLM": None})
             #------------------------------
             for name, lm in lms.items():
                 # lm_name = lm if isinstance(lm, str) else lm.name
-                wer_result_path, lm_hyperparamters_str, lm_scale = exp(name, lm, vocab)
+                wer_result_path, search_error, lm_hyperparamters_str, lm_scale = exp(name, lm, vocab)
                 if lm:
-                    wer_ppl_results[name] = (ppl_results.get(name), wer_result_path, lm_scale)
+                    wer_ppl_results[name] = (ppl_results.get(name), wer_result_path, search_error, lm_scale)
             if wer_ppl_results:
                 (names, res) = zip(*wer_ppl_results.items())
                 results = [(x[0],x[1]) for x in res]
-                lm_scales = [x[2] for x in res]
-                summaryjob = WER_ppl_PlotAndSummaryJob(names, results, lm_scales)
+                search_errors = [x[2] for x in res]
+                lm_scales = [x[3] for x in res]
+                summaryjob = WER_ppl_PlotAndSummaryJob(names, results, lm_scales) #, search_errors)
                 tk.register_output("wer_ppl/"+ model + lm_hyperparamters_str + exp_names_postfix + "/summary", summaryjob.out_summary)
                 tk.register_output("wer_ppl/"+ model + lm_hyperparamters_str + exp_names_postfix + "/dev_other.png", summaryjob.out_plot1)
                 tk.register_output("wer_ppl/" + model + lm_hyperparamters_str + exp_names_postfix + "/test_other.png",

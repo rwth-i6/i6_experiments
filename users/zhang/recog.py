@@ -57,8 +57,9 @@ def recog_exp(
     empirical_prior: Optional[tk.Path] = None,
     prior_from_max: bool = False,
     dev_sets: Optional[List[str]] = None,
+    search_error_check: bool = False,
     search_rqmt: dict = None,
-)-> tk.path:
+)-> Tuple[tk.path, tk.path]:
     """recog on given epoch"""
     recog_and_score_func = _RecogAndScoreFunc(
         prefix_name,
@@ -74,6 +75,7 @@ def recog_exp(
         prior_from_max=prior_from_max,
         dev_sets=dev_sets,
         search_rqmt=search_rqmt,
+        search_error_check=search_error_check,
     )
     # In following jobs, model is implicitly called in recog_and_score_func, here the passed reference only provides epoch information.
     # So, make sure the exp here align with the model used to initialise recog_and_score_func
@@ -84,7 +86,10 @@ def recog_exp(
     )
     summarize_job.add_alias(prefix_name + "/train-summarize")
     tk.register_output(prefix_name + "/recog_results_best", summarize_job.out_summary_json)
-    return summarize_job.out_summary_json
+    if search_error_check:
+        tk.register_output(prefix_name + "/search_error", summarize_job.out_search_error)
+        return summarize_job.out_summary_json, summarize_job.out_search_error
+    return summarize_job.out_summary_json, None
 
 
 def recog_training_exp(
@@ -156,6 +161,7 @@ class _RecogAndScoreFunc:
         prior_from_max: bool = False,
         dev_sets: Optional[List[str]] = None,
         search_rqmt: dict = None,
+        search_error_check: bool = False,
     ):
         # Note: When something is added here, remember to handle it in _sis_hash.
         self.prefix_name = prefix_name
@@ -171,6 +177,7 @@ class _RecogAndScoreFunc:
         self.prior_from_max = prior_from_max
         self.dev_sets = dev_sets
         self.search_rqmt = search_rqmt
+        self.search_error_check = search_error_check
 
     def __call__(self, epoch_or_ckpt: Union[int, PtCheckpoint]) -> Tuple[ScoreResultCollection, Optional[tk.paht]]:
         if isinstance(epoch_or_ckpt, int):
@@ -208,6 +215,7 @@ class _RecogAndScoreFunc:
             dev_sets=self.dev_sets,
             search_rqmt=self.search_rqmt,
             name=self.prefix_name + f"/epoch{epoch_or_ckpt:03}",
+            search_error_check=self.search_error_check,
         )
         if isinstance(epoch_or_ckpt, int):
             tk.register_output(self.prefix_name + f"/recog_results_per_epoch/{epoch_or_ckpt:03}/res", res.output)
@@ -258,12 +266,14 @@ def recog_model(
     search_rqmt: Optional[Dict[str, Any]] = None, #= {"time": 6},
     dev_sets: Optional[Collection[str]] = None, #["dev-other", "test-other"]
     name: Optional[str] = None,
+    search_error_check: bool = False,
 ) -> Tuple[ScoreResultCollection, Optional[tk.path]]:
     """recog"""
     if dev_sets is not None:
         assert all(k in task.eval_datasets for k in dev_sets)
         # task.main_measure_name = dev_sets[0]
     outputs = {}
+    search_error = None
     for dataset_name, dataset in task.eval_datasets.items():
         if dev_sets is not None:
             if dataset_name not in dev_sets:
@@ -284,8 +294,7 @@ def recog_model(
         )
         score_out = task.score_recog_output_func(dataset, recog_out)
         outputs[dataset_name] = score_out
-        search_error = None
-        if dataset_name == "test-other":
+        if dataset_name == "test-other" and search_error_check:
             search_error = check_search_error(dataset=dataset, model=model, hyps=score_out,
                                               decoding_config=decoding_config,prior_path=prior_path, alias_name=None)
     # if dev_sets:
@@ -356,7 +365,7 @@ def check_search_error(
         model_checkpoint=model.checkpoint,
         returnn_config=search_error_config(dataset, model.definition, scoring,
                                            decoding_config=decoding_config, prior_path=prior_path),
-        output_files=["groundtruth_score"],
+        output_files=["grdtruth_score.py.gz"],
         returnn_python_exe=tools_paths.get_returnn_python_exe(),
         returnn_root=tools_paths.get_returnn_root(),
         device="gpu",
@@ -366,7 +375,7 @@ def check_search_error(
     )
     if alias_name:
         pre_SearchError_job.add_alias(alias_name)
-    ground_truth_out = pre_SearchError_job.out_files["groundtruth_score"]
+    ground_truth_out = pre_SearchError_job.out_files["grdtruth_score.py.gz"]
     from .utils.search_error import ComputeSearchErrorsJob
     # TODO ground_truth_out and hyps might not in comparable text form.(bpe <-> word)
     res = ComputeSearchErrorsJob(ground_truth_out, hyps).out_search_errors
@@ -656,6 +665,12 @@ def _returnn_search_error_step(*, model, extern_data: TensorDict, **kwargs):
     import returnn.frontend as rf
     from returnn.tensor import Tensor, Dim, batch_dim
 
+    if rf.is_executing_eagerly():
+        batch_size = int(batch_dim.get_dim_value())
+        for batch_idx in range(batch_size):
+            seq_tag = extern_data["seq_tag"].raw_tensor[batch_idx].item()
+            print(f"batch {batch_idx+1}/{batch_size} seq_tag: {seq_tag!r}")
+
     config = get_global_config()
     default_input_key = config.typed_value("default_input")
     data = extern_data[default_input_key]
@@ -688,6 +703,10 @@ def _returnn_search_error_forward_callback():
         def process_seq(self, *, seq_tag: str, outputs: TensorDict):
             score: Tensor = outputs["scores"] # [1]
             target: Tensor = outputs["targets"] # [1, out_spatial]
+            # --------------test--------------
+            import pdb
+            pdb.set_trace()
+            #---------------------------------
             self.out_file.write(f"{seq_tag!r}: [\n")
             self.out_file.write(f"  ({score!r}, {target!r})\n")
             self.out_file.write("],\n")
@@ -1255,7 +1274,8 @@ class GetRecogExp(sisyphus.Job):
         with open(self.out_summary_json.get_path(), "w") as f:
             f.write(json.dumps(res))
             f.write("\n")
-        os.symlink(self.out_search_error.get_path(), self._scores_outputs[best_epoch][1].get_path())
+        if self._scores_outputs[best_epoch][1]:
+            os.symlink(self.out_search_error.get_path(), self._scores_outputs[best_epoch][1].get_path())
 
 
 class GetBestRecogTrainExp(sisyphus.Job):
