@@ -2229,6 +2229,10 @@ class Model(rf.Module):
         self.decoder = None
         aux_attention_decoder = config.typed_value("aux_attention_decoder", None)
         if aux_attention_decoder:
+            # Auxiliary attention decoder for regularization.
+            # "Keep Decoding Parallel With Effective Knowledge Distillation
+            #  From Language Models To End-To-End Speech Recognisers", 2024
+            # https://ieeexplore.ieee.org/document/10447305
             assert isinstance(aux_attention_decoder, dict)
             aux_attention_decoder = aux_attention_decoder.copy()
             aux_attention_decoder.setdefault("class", "returnn.frontend.decoder.transformer.TransformerDecoder")
