@@ -72,7 +72,6 @@ class FFNN_LM_flashlight(CTCDecoderLM):
         self.states = {}
         # self.cache = {} # NOTE: necessary as the garbage collector will delete states otherwise which leads to errors, so we have to keep track of them
         self.cache = []
-        print("INIT")
         
     def _get_logprobs(self, tokens: list) -> torch.Tensor:
         tokens = torch.tensor(tokens, dtype=torch.int64).unsqueeze(0)
@@ -93,7 +92,6 @@ class FFNN_LM_flashlight(CTCDecoderLM):
         self.states[state] = score
         # self.cache[state] = state
         self.cache.append(state)
-        print("START")
         return state
 
     def score(self, state: FFNN_LM_State, token_index: int):
@@ -111,7 +109,6 @@ class FFNN_LM_flashlight(CTCDecoderLM):
         return outstate, score
 
     def finish(self, state: FFNN_LM_State):
-        print("FINISH")
         outstate = state.child(self.vocab.eos_label_id)
         assert state in self.states
         return outstate, self.states[state][self.vocab.eos_label_id].item()

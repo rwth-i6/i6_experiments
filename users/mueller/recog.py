@@ -53,6 +53,7 @@ def recog_training_exp(
     *,
     decoder_hyperparameters: Optional[dict] = None,
     save_pseudo_labels: Optional[tuple[dict, Optional[LibrispeechOggZip]]] = None,
+    pseudo_nbest: int = 1,
     calculate_pseudo_label_scores: bool = True,
     search_config: Dict[str, Any] = None,
     search_post_config: Optional[Dict[str, Any]] = None,
@@ -119,9 +120,13 @@ def recog_training_exp(
             recog_post_proc_funcs=task.recog_post_proc_funcs,
         )
         
+        pseudo_hyperparameters = decoder_hyperparameters.copy()
+        if pseudo_nbest > 1: #  and not is_last
+            pseudo_hyperparameters["nbest"] = pseudo_nbest
+            
         pseudo_label_recog_func = _RecogAndScoreFunc(
             prefix_name + "/pseudo_labels",
-            decoder_hyperparameters,
+            pseudo_hyperparameters,
             task_pseudo_labels,
             model,
             recog_def,
@@ -331,7 +336,7 @@ def recog_model(
         if dev_sets is not None:
             if dataset_name not in dev_sets:
                 continue
-        recog_out = search_dataset(
+        recog_out, beam_recog_out = search_dataset(
             decoder_hyperparameters=decoder_hyperparameters,
             dataset=dataset,
             model=model,
@@ -348,13 +353,16 @@ def recog_model(
         )
         if calculate_scores:
             if dataset_name.startswith("train"):
-                score_out = _score_recog(dataset, recog_out)
+                score_out = _score_recog(dataset, recog_out, alias_name=name + f"/sclite/{dataset_name}")
                 # score_out = ComputeWERJob(recog_out.output, corpus_text_dict).out_wer
             else:
                 score_out = task.score_recog_output_func(dataset, recog_out)
             outputs[dataset_name] = score_out
         if save_pseudo_labels:
-            recog_paths[dataset_name] = recog_out.output
+            if decoder_hyperparameters["nbest"] > 1:
+                recog_paths[dataset_name] = beam_recog_out
+            else:
+                recog_paths[dataset_name] = recog_out.output
     return task.collect_score_results_func(outputs) if calculate_scores else None, recog_paths if save_pseudo_labels else None
 
 
@@ -421,7 +429,7 @@ def search_dataset(
     search_alias_name: Optional[str] = None,
     recog_post_proc_funcs: Sequence[Callable[[RecogOutput], RecogOutput]] = (),
     num_shards: Optional[int] = None,
-) -> RecogOutput:
+) -> tuple[RecogOutput, tk.Path]:
     """
     Recog on the specific dataset using RETURNN.
 
@@ -453,12 +461,12 @@ def search_dataset(
             search_post_config and search_post_config.pop("__env_updates", None)
         )
     if save_pseudo_labels:
-        time_rqmt = 4.0
+        time_rqmt = 8.0
         cpu_rqmt = 4
         if search_mem_rqmt < 8:
             search_mem_rqmt = 8
     else:
-        time_rqmt = 4.0
+        time_rqmt = 12.0
         cpu_rqmt = 4
         if search_mem_rqmt < 8:
             search_mem_rqmt = 8
@@ -535,18 +543,22 @@ def search_dataset(
     use_lexicon = decoder_hyperparameters.get("use_lexicon", False) # if we have lexicon we already have the full words
     if not use_lexicon:
         if recog_def.output_blank_label:
-            if (recog_def is not model_recog_lm or "greedy" in decoder_hyperparameters) and recog_def is not model_recog_flashlight:
+            if recog_def is not model_recog_lm or "greedy" in decoder_hyperparameters:
                 # Also assume we should collapse repeated labels first.
                 res = SearchCollapseRepeatedLabelsJob(res, output_gzip=True).out_search_results
             res = SearchRemoveLabelJob(res, remove_label=recog_def.output_blank_label, output_gzip=True).out_search_results
         for f in recog_post_proc_funcs:  # for example BPE to words
             res = f(RecogOutput(output=res)).output
+        if recog_def is model_recog_flashlight:
+            from i6_core.returnn.search import SearchOutputRawReplaceJob
+            res = SearchOutputRawReplaceJob(res, [("@@", "")], output_gzip=True).out_search_results
+    beam_res = res
     if recog_def.output_with_beam:
         # Don't join scores here (SearchBeamJoinScoresJob).
         #   It's not clear whether this is helpful in general.
         #   As our beam sizes are very small, this might boost some hyps too much.
         res = SearchTakeBestJob(res, output_gzip=True).out_best_search_results
-    return RecogOutput(output=res)
+    return RecogOutput(output=res), beam_res
 
 
 # Those are applied for both training, recog and potential others.

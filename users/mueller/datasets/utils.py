@@ -56,6 +56,11 @@ class CorpusReplaceOrthFromPyDictJob(Job):
                 c.remove_recording(segment.recording)
                 j += 1
             else:
+                if isinstance(line, list):
+                    line = [e[1] for e in line]
+                    assert line[0] != line[1]
+                    print(line[0])
+                    line = " ZZZZZ ".join(line)
                 segment.orth = line.strip()
         n = len(c.recordings)
         m = len(d)

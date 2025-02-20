@@ -55,7 +55,6 @@ def _get_bliss_corpus_dict(pseudo_labels_path: tk.Path, part: str) -> Dict[str, 
     # to not break hashes of old setups.
     if pseudo_labels_path:
         assert part is not None
-        print("Made it to pseudo label combination", pseudo_labels_path)
         bliss_corpus_dict = librispeech.get_bliss_corpus_dict(audio_format="ogg")
         # load pseudo labels and replace here
         bliss_corpus = bliss_corpus_dict[part]

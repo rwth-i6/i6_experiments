@@ -62,7 +62,7 @@ class ComputeWERJob(sisyphus.Job):
 
 # ---------------------------------------------------
 
-def _score_recog(dataset: DatasetConfig, recog_output: RecogOutput):
+def _score_recog(dataset: DatasetConfig, recog_output: RecogOutput, alias_name: str = None):
     """score"""
     # We use sclite now.
     # Could also use ReturnnComputeWERJob.
@@ -87,6 +87,9 @@ def _score_recog(dataset: DatasetConfig, recog_output: RecogOutput):
     score_job = CustomScliteJob(
         ref=stm_file, hyp=search_ctm, sctk_binary_path=tools_paths.get_sctk_binary_path(), precision_ndigit=2
     )
+    
+    if alias_name:
+        score_job.add_alias(alias_name)
 
     return ScoreResult(dataset_name=corpus_name, main_measure_value=score_job.out_wer, report=score_job.out_report_dir)
 
