@@ -34,7 +34,7 @@ from i6_experiments.common.setups.rasr import (
 from i6_experiments.users.raissi.args.rasr.features.init_args import get_feature_extraction_args_16kHz
 from i6_experiments.users.raissi.args.rasr.am.init_args import get_init_am_args
 from i6_experiments.users.raissi.setups.common.data.pipeline_helpers import InputKey
-
+from IPython import embed
 
 @dataclass
 class DATASET:
@@ -48,6 +48,9 @@ class DATASET:
 PREPATH_ASR3 = "/work/asr3/raissi/data/domain_mismatch/medline"
 PREPATH_CORPORA = "/u/rossenbach/experiments/tts_decoder_asr/output/domain_test_tina_export"
 
+
+
+#dev sets
 wmt22_medline_noise07 = tk.Path(
     ("/").join([PREPATH_CORPORA, "wmt22_medline_v1_sequiturg2p_glowtts460_noise07.xml.gz"]),
     cached=True,
@@ -58,6 +61,8 @@ wmt22_medline_noise055 = tk.Path(
     cached=True,
     hash_overwrite="GLOWTTS_V1_DEV_MED_055",
 )
+
+
 wmt22_medline_noise0551 = tk.Path(
     ("/").join([PREPATH_CORPORA, "wmt22_medline_v1_sequiturg2p_glowtts460_noise055_seed1.xml.gz"]),
     cached=True,
@@ -80,6 +85,19 @@ wmt22_medline_noise03 = tk.Path(
     hash_overwrite="GLOWTTS_V1_DEV_MED_03",
 )
 
+#test sets
+wmt21_medline_noise055 = tk.Path(
+    ("/").join([PREPATH_CORPORA, "wmt21_medline_v2_sequiturg2p_glowtts460_noise055.xml.gz"]),
+    cached=True,
+    hash_overwrite="GLOWTTS_V1_TEST21_MED_055",
+)
+
+wmt23_medline_noise055 = tk.Path(
+    ("/").join([PREPATH_CORPORA, "wmt23_medline_v2_sequiturg2p_glowtts460_noise055.xml.gz"]),
+    cached=True,
+    hash_overwrite="GLOWTTS_V1_TEST23_MED_055",
+)
+
 #################
 
 MEDLINE_V1_DEV_DATA = {
@@ -94,8 +112,6 @@ MEDLINE_V1_DEV_DATA = {
         "mix between LBs and medline",
     )
 }
-#################
-
 
 MEDLINE_V11_DEV_DATA = {
     0.7: DATASET(
@@ -117,7 +133,6 @@ MEDLINE_V11_DEV_DATA = {
         description="based on version 1 using the correct data input.",
     ),
 }
-#################
 
 MEDLINE_V21_DEV_DATA = {
     0.7: DATASET(
@@ -216,7 +231,6 @@ MEDLINE_V22_DEV_DATA = {
     ),
 }
 
-
 MEDLINE_V3_DEV_DATA = {
     0.55: DATASET(
         lexicon_with_unk=tk.Path(
@@ -298,9 +312,45 @@ MEDLINE_V4_DEV_DATA = {
     ),
 }
 
+MEDLINE_V4_TEST21_DATA = {
+    0.55: DATASET(
+        lexicon_with_unk=tk.Path(
+            f"{PREPATH_ASR3}/lexicon/v4/only_medline/ufal_v1_3more_only.lsoverride.rasr_with_unk.xml.gz",
+            cached=True,
+            hash_overwrite="v4_unk",
+        ),
+        lexicon_no_unk=tk.Path(
+            f"{PREPATH_ASR3}/lexicon/v4/only_medline/ufal_v1_3more_only.lsoverride.rasr_without_unk.xml.gz",
+            cached=True,
+            hash_overwrite="v4_nounk",
+        ),
+        corpus=wmt21_medline_noise055,
+        lm=tk.Path(f"{PREPATH_ASR3}/lm/v2/only_medline/ufal_v1_lm_3more.gz", cached=True, hash_overwrite="v22_lm"),
+        description="lexicon uses only medline data with words repeating 3 or more and includes the corrected pronunciation for wirds common between ledline and lbs",
+    ),
+}
 
-MEDLINE_CORPORA = ["dev"]
-MEDLINE_DURATIONS = {"dev": 1.0}
+MEDLINE_V4_TEST23_DATA = {
+    0.55: DATASET(
+        lexicon_with_unk=tk.Path(
+            f"{PREPATH_ASR3}/lexicon/v4/only_medline/ufal_v1_3more_only.lsoverride.rasr_with_unk.xml.gz",
+            cached=True,
+            hash_overwrite="v4_unk",
+        ),
+        lexicon_no_unk=tk.Path(
+            f"{PREPATH_ASR3}/lexicon/v4/only_medline/ufal_v1_3more_only.lsoverride.rasr_without_unk.xml.gz",
+            cached=True,
+            hash_overwrite="v4_nounk",
+        ),
+        corpus=wmt23_medline_noise055,
+        lm=tk.Path(f"{PREPATH_ASR3}/lm/v2/only_medline/ufal_v1_lm_3more.gz", cached=True, hash_overwrite="v22_lm"),
+        description="lexicon uses only medline data with words repeating 3 or more and includes the corrected pronunciation for wirds common between ledline and lbs",
+    ),
+}
+
+
+MEDLINE_CORPORA = ["dev", "test21", "test23"]
+MEDLINE_DURATIONS = {"dev": 1.0, "test21": 1.0, "test23": 1.0}
 MEDLINE_DEV_VERSIONS = {1: MEDLINE_V1_DEV_DATA,
                         1.1: MEDLINE_V11_DEV_DATA,
                         2.1: MEDLINE_V21_DEV_DATA,
@@ -309,11 +359,14 @@ MEDLINE_DEV_VERSIONS = {1: MEDLINE_V1_DEV_DATA,
                         4: MEDLINE_V4_DEV_DATA
                         }
 
-MEDLINE_TEST_VERSIONS = {}
+MEDLINE_TEST21_VERSIONS = {4: MEDLINE_V4_TEST21_DATA}
+MEDLINE_TEST23_VERSIONS = {4: MEDLINE_V4_TEST23_DATA}
 
 
 MEDLINE_DATA = {
     "dev": MEDLINE_DEV_VERSIONS,
+    "test21": MEDLINE_TEST21_VERSIONS,
+    "test23": MEDLINE_TEST23_VERSIONS
 }
 
 
@@ -344,19 +397,27 @@ def _get_eval_corpus_object_dict(name: str, version: int = 1, noise: float = 0.7
     """
     You can either have a segment list and divide a corpus into subcopora or you call this for a specific corpus
     """
-    assert version in MEDLINE_DATA[name].keys()
-    assert name in MEDLINE_DATA
 
-    corpus = MEDLINE_DATA[name][version][noise].corpus
+    if 'test' not in name:
+        assert version in MEDLINE_DATA[name].keys()
+        assert name in MEDLINE_DATA
 
-    if segment_mapping is not None:
-        corpora = _get_bliss_corpus_dict(
-            corpus=corpus,
-            compressed=True,
-            segment_mapping=segment_mapping,
-        )
+        corpus = MEDLINE_DATA[name][version][noise].corpus
+        if segment_mapping is not None:
+            corpora = _get_bliss_corpus_dict(
+                corpus=corpus,
+                compressed=True,
+                segment_mapping=segment_mapping,
+            )
+        else: corpora = {name: corpus}
     else:
-        corpora = {name: corpus}
+        corpora = {}
+        for test_number in ['21', '23']:
+            test_name = f'{name}{test_number}'
+            assert version in MEDLINE_DATA[test_name].keys()
+            assert test_name in MEDLINE_DATA
+            corpora[test_name] = MEDLINE_DATA[test_name][version][noise].corpus
+
 
     corpus_object_dict = {}
     for k, v in corpora.items():
@@ -427,10 +488,13 @@ def get_corpus_data_inputs(
             name="all", version=version, segment_mapping=segment_mapping_domain
         )
         corpus_object_dev = corpus_object_dict_medline_all["dev"]
-        corpus_object_test = corpus_object_dict_medline_all["test"]
+        corpus_object_test = None
+
 
     else:
         corpus_object_dev = _get_eval_corpus_object_dict(name="dev", version=version, noise=noise)["dev"]
+        corpus_object_test = _get_eval_corpus_object_dict(name="test", version=version, noise=noise)
+
 
     med_lex = (
         MEDLINE_DATA["dev"][version][noise].lexicon_with_unk
@@ -471,6 +535,16 @@ def get_corpus_data_inputs(
             lexicon=oov_lexicon_medline,
             lm=lm_medline,
         )
+
+    if corpus_object_test is not None:
+        for test_key in ["test21", "test23"]:
+            test_data_inputs[test_key] = RasrDataInput(
+                corpus_object=corpus_object_test[test_key],
+                concurrent=12,
+                lexicon=oov_lexicon_medline,
+                lm=lm_medline,
+            )
+
     for test_key in ["test-other"]:
         test_data_inputs[test_key] = RasrDataInput(
             corpus_object=corpus_object_dict_lbs[test_key],
@@ -535,6 +609,8 @@ def get_final_output(name=InputKey.BASE):
 
     output_args.define_corpus_type("train-other-960", "train")
     output_args.define_corpus_type("dev", "dev")
+    output_args.define_corpus_type("test21", "test21")
+    output_args.define_corpus_type("test23", "test23")
     output_args.define_corpus_type("test-other", "test")
 
     output_args.add_feature_to_extract("gt")

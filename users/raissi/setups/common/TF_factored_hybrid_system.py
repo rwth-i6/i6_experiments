@@ -937,6 +937,7 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
         softmax_type: SingleSoftmaxType = SingleSoftmaxType.DECODE,
         cv_corpus_key_for_train: str = None,
         joint_for_factored_loss: bool = False,
+        is_cv_separate_from_train: bool = True,
         keep_right_context_for_joint: bool = False,
     ):
         prepare_for_train = False
@@ -953,7 +954,8 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
 
         if softmax_type == SingleSoftmaxType.TRAIN:
             if self.training_criterion == TrainingCriterion.FULLSUM:
-                assert cv_corpus_key_for_train is not None, "you need to specify the cv corpus for fullsum training"
+                if is_cv_separate_from_train:
+                    assert cv_corpus_key_for_train is not None, "you need to specify the cv corpus for fullsum training"
             """
             assert self.training_criterion in [
                 TrainingCriterion.FULLSUM,
@@ -965,7 +967,7 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
             if self.training_criterion == TrainingCriterion.FULLSUM:
                 self.set_rasr_returnn_input_datas(
                     input_key=InputKey.BASE,
-                    is_cv_separate_from_train=True,
+                    is_cv_separate_from_train=is_cv_separate_from_train,
                     cv_corpus_key=cv_corpus_key_for_train,
                 )
 

@@ -693,6 +693,7 @@ def augment_net_with_triphone_outputs(
 
 def remove_label_pops_and_losses(network: Network, except_layers: Optional[Iterable[str]] = None) -> Network:
     network = copy.copy(network)
+    except_layers = [] if except_layers is None else except_layers
 
     layers_to_pop = {
         "centerPhoneme",
@@ -722,6 +723,8 @@ def remove_label_pops_and_losses_from_returnn_config(
     cfg: returnn.ReturnnConfig, except_layers: Optional[Iterable[str]] = None, except_extern_data: Optional[Iterable[str]] = None, modify_chunking: bool = True
 ) -> returnn.ReturnnConfig:
     cfg = copy.deepcopy(cfg)
+    except_layers = [] if except_layers is None else except_layers
+    except_extern_data = [] if except_extern_data is None else except_extern_data
     cfg.config["network"] = remove_label_pops_and_losses(cfg.config["network"], except_layers)
 
     for k in ["centerState", "singleStateCenter", "classes", "futureLabel", "pastLabel"]:

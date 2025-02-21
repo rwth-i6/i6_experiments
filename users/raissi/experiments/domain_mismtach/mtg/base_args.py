@@ -60,6 +60,14 @@ mtg_noise055_v2 = tk.Path(
     hash_overwrite="GLOWTTS_TRIAL4_DEV_MTG_055",
 )
 
+mtg_noise055_v2_test = tk.Path(
+    ("/").join([PREPATH_CORPORA, "MTG_trial4_test_sequiturg2p_glowtts460_noise055.xml.gz"]),
+    cached=True,
+    hash_overwrite="GLOWTTS_TRIAL4_TEST_MTG_055",
+)
+
+
+
 
 #################
 
@@ -87,20 +95,34 @@ MTG_V2_DEV_DATA = {
         description="first version with correct pronunciations",
     )
 }
+
+
+MTG_V2_TEST_DATA = {
+    0.55: DATASET(
+        lexicon_with_unk=tk.Path(f"{PREPATH_ASR3}/lexicon/v2/MTG_trial4.lsoverride.rasr_with_unk.xml.gz", cached=True, hash_overwrite="mtg_v2_unk"),
+        lexicon_no_unk=tk.Path(
+            f"{PREPATH_ASR3}/lexicon/v2/MTG_trial4.lsoverride.rasr_without_unk.xml.gz", cached=True, hash_overwrite="mtg_v2_nounk"
+        ),
+        corpus=mtg_noise055_v2_test,
+        lm=tk.Path(f"{PREPATH_ASR3}/lm/v2/MTG_trial4.lm.gz", cached=True, hash_overwrite="mtg_lm_v2"),
+        description="first version with correct pronunciations",
+    )
+}
 #################
 
 
-MTG_CORPORA = ["dev"]
-MTG_DURATIONS = {"dev": 1.0}
+MTG_CORPORA = ["dev", "test"]
+MTG_DURATIONS = {"dev": 1.0, "test": 1.0}
 MTG_DEV_VERSIONS = {1: MTG_V1_DEV_DATA,
                     2: MTG_V2_DEV_DATA,
                         }
 
-MTG_TEST_VERSIONS = {}
+MTG_TEST_VERSIONS = {2: MTG_V2_TEST_DATA}
 
 
 MTG_DATA = {
     "dev": MTG_DEV_VERSIONS,
+    "test": MTG_TEST_VERSIONS
 }
 
 
@@ -208,6 +230,7 @@ def get_corpus_data_inputs(
 
     else:
         corpus_object_dev = _get_eval_corpus_object_dict(name="dev", version=version, noise=noise)["dev"]
+        corpus_object_test = _get_eval_corpus_object_dict(name="test", version=version, noise=noise)["test"]
 
     med_lex = (
         MTG_DATA["dev"][version][noise].lexicon_with_unk
@@ -248,6 +271,15 @@ def get_corpus_data_inputs(
             lexicon=oov_lexicon_medline,
             lm=lm_medline,
         )
+
+    for test_key in ["test"]:
+        test_data_inputs[test_key] = RasrDataInput(
+            corpus_object=corpus_object_test,
+            concurrent=12,
+            lexicon=oov_lexicon_medline,
+            lm=lm_medline,
+        )
+
     for test_key in ["test-other"]:
         test_data_inputs[test_key] = RasrDataInput(
             corpus_object=corpus_object_dict_lbs[test_key],
@@ -312,6 +344,7 @@ def get_final_output(name=InputKey.BASE):
 
     output_args.define_corpus_type("train-other-960", "train")
     output_args.define_corpus_type("dev", "dev")
+    output_args.define_corpus_type("test", "test")
     output_args.define_corpus_type("test-other", "test")
 
     output_args.add_feature_to_extract("gt")
