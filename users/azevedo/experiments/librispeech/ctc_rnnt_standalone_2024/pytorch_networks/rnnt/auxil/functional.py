@@ -215,8 +215,8 @@ def process_offline_sample(
         raw_audio: torch.Tensor, raw_audio_len: torch.Tensor, run_ctx
 ) -> torch.Tensor:
     hypothesis, _ = run_ctx.rnnt_decoder.infer(
-        input=raw_audio[None],
-        length=raw_audio_len[None],
+        input=raw_audio,
+        length=raw_audio_len,
         beam_width=run_ctx.beam_size,
     )
 
@@ -226,8 +226,8 @@ def process_streaming_sample(
         raw_audio: torch.Tensor, raw_audio_len: torch.Tensor, config, run_ctx
 ) -> torch.Tensor:
     chunk_streamer = AudioStreamer(
-        raw_audio=raw_audio[None],
-        raw_audio_len=raw_audio_len[None],
+        raw_audio=raw_audio,
+        raw_audio_len=raw_audio_len,
         left_size=config.chunk_size,
         right_size=config.lookahead_size,
         stride=config.stride,

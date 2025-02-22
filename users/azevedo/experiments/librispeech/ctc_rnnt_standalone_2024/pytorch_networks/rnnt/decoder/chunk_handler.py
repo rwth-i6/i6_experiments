@@ -142,6 +142,7 @@ class StreamingASRContextManager:
         self.carryover_sz = carryover_sz
         
         self.states = None
+        self.hypothesis = None
 
 
     def __enter__(self):
@@ -159,14 +160,14 @@ class StreamingASRContextManager:
 
         :return: state and current hypothesis
         """
-        hypothesis, state = self.decoder.infer(
+        self.hypothesis, state = self.decoder.infer(
             input=ext_chunk,
-            length=eff_chunk_sz,
+            length=torch.tensor(eff_chunk_sz),
             beam_width=self.beam_sz,
             state=tuple(self.states) if len(self.states) > 0 else None,
-            hypothesis=hypothesis,
+            hypothesis=self.hypothesis,
         )
 
         self.states.append(state)
 
-        return state, hypothesis
+        return state, self.hypothesis

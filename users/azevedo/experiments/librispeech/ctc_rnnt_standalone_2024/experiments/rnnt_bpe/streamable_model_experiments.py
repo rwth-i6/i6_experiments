@@ -236,12 +236,12 @@ def run_experiments(**kwargs):
                 online_model_scale=0.5,
                 carry_over_size=param_combi["carry_over_size"],
                 training_strategy=param_combi["training_strategy"],
-                dual_mode=True
+                dual_mode=param_combi["dual_mode"]
             )
 
             decoder_config_streaming = DecoderConfig(
                 beam_size=12,
-                mode=Mode.STREAMING,
+                mode=str(Mode.STREAMING),
                 returnn_vocab=label_datastream_bpe.vocab,
                 chunk_size=int(model_config.chunk_size),
                 lookahead_size=int(model_config.lookahead_size * 0.06 * 16e3),
@@ -250,7 +250,7 @@ def run_experiments(**kwargs):
             )
             decoder_config_offline = DecoderConfig(
                 beam_size=12,  # greedy as default
-                mode=Mode.OFFLINE,
+                mode=str(Mode.OFFLINE),
                 returnn_vocab=label_datastream_bpe.vocab,
             )
 
@@ -282,7 +282,8 @@ def run_experiments(**kwargs):
             #
             # checkpoint decodings
             #
-            for keep in KEEP + [num_epochs]:
+            # for keep in KEEP + [num_epochs]:
+            for keep in [num_epochs]:
                 # online
                 asr_model = prepare_asr_model(
                     training_name, train_job, train_args, with_prior=False,
@@ -304,6 +305,32 @@ def run_experiments(**kwargs):
                     beam_size=12,
                     decoder_module="rnnt.decoder.streaming_decoder_v1",
                 )
+            
+            #
+            # Testing
+            #
+            decoder_config_offline_2 = copy.deepcopy(decoder_config_offline)
+            decoder_config_offline_2.test_version = 0.1
+            if experiment == 20:
+                evaluate_helper(
+                    training_name + "/offline" + "/keepv2_%i" % 1000,
+                    asr_model,
+                    decoder_config_offline_2,
+                    use_gpu=True,
+                    beam_size=12,
+                    decoder_module="rnnt.decoder.streaming_decoder_v1",
+                )
+            
+            if experiment == 10:
+                evaluate_helper(
+                    training_name + "/offline" + "/keepv2_%i" % 1000,
+                    asr_model,
+                    decoder_config_offline_2,
+                    use_gpu=True,
+                    beam_size=12,
+                    decoder_module="rnnt.decoder.streaming_decoder_v1",
+                )
+
 
 
 def streaming_ls960_0225_low_bpe_from_scratch():
@@ -315,7 +342,8 @@ def streaming_ls960_0225_low_bpe_from_scratch():
                 "kernel_size": [31],
                 "specauc_start_epoch": [11],
                 "carry_over_size": [2],
-                "training_strategy": [str(TrainingStrategy.UNIFIED)]
+                "training_strategy": [str(TrainingStrategy.UNIFIED)],
+                "dual_mode": [True],
             },
 
             "network_module": "model_streaming_0225",
@@ -327,12 +355,13 @@ def streaming_ls960_0225_low_bpe_from_scratch():
 
         20: {
             "model_params": {
-                "chunk_size": [2.4], # , 0.6
+                "chunk_size": [2.4],
                 "lookahead_size": [8],
                 "kernel_size": [31],
                 "specauc_start_epoch": [11],
                 "carry_over_size": [2],
-                "training_strategy": [str(TrainingStrategy.STREAMING)]
+                "training_strategy": [str(TrainingStrategy.STREAMING)],
+                "dual_mode": [True],
             },
 
             "network_module": "model_streaming_0225",
@@ -340,7 +369,44 @@ def streaming_ls960_0225_low_bpe_from_scratch():
             "gpu_mem": 48,
             "num_epochs": 1000,
             "keep": [300, 500, 800, 950]
-        }
+        },
+
+        25: {
+            "model_params": {
+                "chunk_size": [0.6],
+                "lookahead_size": [8],
+                "kernel_size": [31],
+                "specauc_start_epoch": [11],
+                "carry_over_size": [2],
+                "training_strategy": [str(TrainingStrategy.STREAMING)],
+                "dual_mode": [False],
+            },
+
+            "network_module": "model_streaming_0225",
+            "accum_grads": 1,
+            "gpu_mem": 48,
+            "num_epochs": 1000,
+            "keep": [300, 500, 800, 950]
+        },
+
+        # SANITY CHECK: 
+        30: {
+            "model_params": {
+                "chunk_size": [0.6],
+                "lookahead_size": [8],
+                "kernel_size": [31],
+                "specauc_start_epoch": [11],
+                "carry_over_size": [2, 1000],
+                "training_strategy": [str(TrainingStrategy.STREAMING)],
+                "dual_mode": [False],
+            },
+
+            "network_module": "model_streaming_oldconv",
+            "accum_grads": 1,
+            "gpu_mem": 48,
+            "num_epochs": 1000,
+            "keep": [300, 500, 800, 950]
+        },
     }
 
     run_experiments(experiments_config=experiment_configs, bpe_size=128)

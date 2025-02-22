@@ -89,11 +89,12 @@ class Transcriber(nn.Module):
             self.feature_extraction.set_mode(Mode.OFFLINE)
             audio_features, audio_features_len = self.feature_extraction(squeezed_features, lengths)
 
-        mask = mask_tensor(audio_features, audio_features_len)
+        # mask = mask_tensor(audio_features, audio_features_len)
 
-        self.encoder.set_mode(Mode.OFFLINE)
+        self.encoder.set_mode_cascaded(Mode.OFFLINE)
+        print(f"{audio_features.shape = }, {audio_features_len.shape = }")
         encoder_out, out_mask = self.encoder(
-            audio_features, mask,
+            audio_features, audio_features_len,
             lookahead_size=self.lookahead_size, carry_over_size=self.carry_over_size,
         )
         encoder_out = self.mapping(encoder_out)
@@ -107,8 +108,12 @@ class Transcriber(nn.Module):
             lengths: torch.Tensor,
             states: Optional[List[List[torch.Tensor]]],
     ) -> Tuple[torch.Tensor, torch.Tensor, List[List[torch.Tensor]]]:
+
+        if self.chunk_size is None:
+            output, out_lengths = self.forward(input, lengths)
+            return output, out_lengths, [[]]
                 
-        with torch.no_grad():            
+        with torch.no_grad():
             # TODO: TEST!
             chunk_size_frames = self.feature_extraction.num_samples_to_frames(num_samples=int(self.chunk_size))
             audio_features, audio_features_len = self.feature_extraction.infer(input, lengths, chunk_size_frames)
@@ -119,7 +124,8 @@ class Transcriber(nn.Module):
                 chunk_size=chunk_size_frames,
                 lookahead_size=self.lookahead_size
             )
-            encoder_out = self.mapping(encoder_out)  # (1, C', F'')
+
+            encoder_out = self.mapping(encoder_out)  # [1, C', F'']
             encoder_out_lengths = torch.sum(out_mask, dim=1)  # [B, T] -> [B]
 
         return encoder_out, encoder_out_lengths, [state]
@@ -129,6 +135,7 @@ def forward_init_hook(run_ctx, **kwargs):
     # we are storing durations, but call it output.hdf to match
     # the default output of the ReturnnForwardJob
     config = DecoderConfig(**kwargs["config"])
+    config.mode = {str(m): m for m in Mode}[config.mode]
     extra_config_dict = kwargs.get("extra_config", {})
     extra_config = ExtraConfig(**extra_config_dict)
 
@@ -146,6 +153,8 @@ def forward_init_hook(run_ctx, **kwargs):
 
     print("create RNNT model...")
     model = run_ctx.engine._model
+    model.joiner.set_mode(config.mode)
+    # model.joiner.set_mode(Mode.STREAMING)  # FIXME
 
     rnnt_model = RNNT(
         transcriber=Transcriber(

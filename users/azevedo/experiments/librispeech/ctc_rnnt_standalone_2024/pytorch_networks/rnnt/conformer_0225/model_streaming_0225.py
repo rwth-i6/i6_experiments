@@ -95,6 +95,7 @@ class Model(nn.Module):
             output_dim=self.cfg.label_target_size + 1,
             activation=self.cfg.joiner_activation,
             dropout=self.cfg.joiner_dropout,
+            dual_mode=dual_mode,
         )
 
         self.encoder_out_linear = nn.Linear(self.cfg.conformer_size, self.cfg.joiner_dim)
