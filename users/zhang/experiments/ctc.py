@@ -1161,19 +1161,26 @@ def scoring(
     with ProcessPoolExecutor(max_workers=min(cpu_cores,32)) as executor:
         alignments, viterbi_scores = zip(*list(executor.map(viterbi_batch_partial, zip(target_list, log_prob_list, spatial_dim_list))))
 
-    lm_scores = []
-    for i in range(label_log_prob.shape[0]):
-        seq = trim_padded_sequence(targets.raw_tensor[i,:])
-        target_words = " ".join([decoder.tokens_dict.get_entry(idx) for idx in seq])
-        target_words = target_words.replace("@@ ","")
-        #target_words = target_words.replace(" <s>", "")
-        word_seq = [decoder.word_dict.get_index(word) for word in target_words.split()]
-        lm_score = CTClm_score(word_seq, decoder)
-        lm_scores.append(lm_score)
-        scores.append(viterbi_scores[i] + hyp_params["lm_weight"]*lm_score)
-    score_dim = Dim(1, name="score_dim")
-    scores = Tensor("scores", dims=[batch_dim, score_dim], dtype="float32",
-                    raw_tensor=torch.tensor(scores).reshape([label_log_prob.shape[0], 1]))
+    if use_lm:
+        lm_scores = []
+        for i in range(label_log_prob.shape[0]):
+            seq = trim_padded_sequence(targets.raw_tensor[i,:])
+            target_words = " ".join([decoder.tokens_dict.get_entry(idx) for idx in seq])
+            target_words = target_words.replace("@@ ","")
+            #target_words = target_words.replace(" <s>", "")
+            word_seq = [decoder.word_dict.get_index(word) for word in target_words.split()]
+            lm_score = CTClm_score(word_seq, decoder)
+            lm_scores.append(lm_score)
+            scores.append(viterbi_scores[i] + hyp_params["lm_weight"]*lm_score)
+        score_dim = Dim(1, name="score_dim")
+        scores = Tensor("scores", dims=[batch_dim, score_dim], dtype="float32",
+                        raw_tensor=torch.tensor(scores).reshape([label_log_prob.shape[0], 1]))
+
+    else:
+        scores = viterbi_scores
+        score_dim = Dim(1, name="score_dim")
+        scores = Tensor("scores", dims=[batch_dim, score_dim], dtype="float32",
+                        raw_tensor=torch.tensor(scores).reshape([label_log_prob.shape[0], 1]))
     torch.cuda.empty_cache()
     #````````````````````````````````````````````
 
