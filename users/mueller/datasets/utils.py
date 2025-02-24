@@ -57,10 +57,20 @@ class CorpusReplaceOrthFromPyDictJob(Job):
                 j += 1
             else:
                 if isinstance(line, list):
-                    line = [e[1] for e in line]
-                    assert line[0] != line[1]
-                    print(line[0])
-                    line = " ZZZZZ ".join(line)
+                    lines = []
+                    for e in line:
+                        new_str = e[1].strip()
+                        if new_str:
+                            if new_str in lines:
+                                raise ValueError(f"Duplicate pseudo label {new_str} in segment {segment.fullname()}")
+                            else:
+                                lines.append(new_str)
+                        else:
+                            print(f"Empty pseudo label in segment {segment.fullname()}")
+                            lines.append("")
+                    line = " ZZZZZ ".join(lines)
+                    if len(lines) != 2:
+                        print(f"Segment {segment.fullname()} does not have enough pseudo labels. ({line})")
                 segment.orth = line.strip()
         n = len(c.recordings)
         m = len(d)

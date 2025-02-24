@@ -63,10 +63,11 @@ def py():
     vocab = "bpe128"                            # "spm20k", "char", "bpe10k"
     decoding_imp = "albert-flashlight"                 # "flashlight", "albert-flashlight", "albert-greedy", "marten-greedy""
     epochs = 500                                # Training epochs
-    self_training_rounds = 4                    # Self-supevised training rounds
+    self_training_rounds = 1                    # Self-supevised training rounds
+    reset_steps = True                          # Whether to reset steps after the first self-training round
     init_small = True                           # 100h supervised initialization
-    pseudo_label_small = False                   # 860h pseudo-labels
-    keep_small_labels = True                   # Keep true labels of 100h data during self-training
+    pseudo_label_small = True                   # 860h pseudo-labels
+    keep_small_labels = False                   # Keep true labels of 100h data during self-training
     pseudo_nbest = 1                            # Number of pseudo-labels
     with_prior = True
     empirical_prior = True
@@ -75,7 +76,8 @@ def py():
     alt_decoder = True
     calc_last_pseudo_labels = True
     tune_hyperparameters = True
-    from_scratch = True
+    from_scratch = False
+    decode_every_step = True
     # decoder_lm_config = {}
     decoder_lm_config = {"class": "FeedForwardLm", "context_size": 8}
     # decoder_lm_config = {"class": "ngram", "order": 4}
@@ -101,6 +103,7 @@ def py():
     use_sgd = False
     self_train_subset = None # 18000
     
+    assert not decode_every_step or (decode_every_step and decoder_lm_config["class"] == "FeedForwardLm" and empirical_prior)
     assert (empirical_prior_full_sum and empirical_prior) or not empirical_prior_full_sum
     model_config = {"enc_conformer_layer": enc_conformer_layer_default, "feature_batch_norm": True}
     
@@ -143,6 +146,8 @@ def py():
             decoder_hyperparameters["use_lexicon"] = False
             if decoder_lm_config["class"] == "FeedForwardLm":
                 model_config["recog_language_model"] = decoder_lm_config
+                if decode_every_step:
+                    model_config["train_language_model"] = decoder_lm_config
             
         p0 = f"_p{str(decoder_hyperparameters['prior_weight']).replace('.', '')}" + ("-emp" if empirical_prior else ("-from_max" if prior_from_max else "")) if with_prior else ""
         p1 = "sum" if decoder_hyperparameters['log_add'] else "max"
@@ -178,7 +183,7 @@ def py():
             a0 = f"_p{str(alt_decoder_hyperparameters['prior_weight']).replace('.', '')}" + ("-emp" if empirical_prior else ("-from_max" if prior_from_max else "")) if with_prior else ""
             a1 = f"b{alt_decoder_hyperparameters['beam_size']}"
             a2 = f"w{str(alt_decoder_hyperparameters['lm_weight']).replace('.', '')}"
-            a3 = "_tune" if tune_hyperparameters else ""
+            a3 = ("_every-step" if decode_every_step else "") + ("_tune" if tune_hyperparameters else "")
             decoding_str += f"_ALT{a3}{a0}_{a1}_{a2}{str_add}"
     else:
         raise ValueError(f"Unknown decoder selection: {decoding_imp}")
@@ -199,6 +204,18 @@ def py():
         "max_seq_length_default_target": None,
         "max_seq_length_default_input": 19.5 * _raw_sample_rate,
     } if self_training_rounds > 0 else None
+    
+    if config_updates_self_training and not reset_steps:
+        if pseudo_label_small:
+            config_updates_self_training["learning_rate_piecewise_steps"] = [253_000, 506_000, 562_000]
+        else:
+            config_updates_self_training["learning_rate_piecewise_steps"] = [279_000, 558_000, 620_000]
+    if config_updates_self_training and decode_every_step:
+        config_updates_self_training["decode_every_step"] = decode_every_step
+        if alt_decoder:
+            config_updates_self_training["hyperparameters_decoder"] = alt_decoder_hyperparameters
+        else:
+            config_updates_self_training["hyperparameters_decoder"] = decoder_hyperparameters
 
     for am, lm, prior in am_lm_prior:
         if use_sum_criterion:
@@ -252,7 +269,7 @@ def py():
         
         alias_name = f"ctc-baseline" + \
             (sum_str if use_sum_criterion else "") + \
-            (f"-self_training_{self_training_rounds}" + ("_SGD" if use_sgd else "") + ("_from_scratch" if from_scratch else "") + (f"_s{self_train_subset}" if self_train_subset is not None else "") + (f"_e{self_epochs}" if self_epochs != 450 else "") if self_training_rounds > 0 else "") + \
+            (f"-self_training_{self_training_rounds}" + ("_keep_LR" if not reset_steps else "") + ("_SGD" if use_sgd else "") + ("_from_scratch" if from_scratch else "") + (f"_s{self_train_subset}" if self_train_subset is not None else "") + (f"_e{self_epochs}" if self_epochs != 450 else "") if self_training_rounds > 0 else "") + \
             (f"-wo_aux_loss" if not aux_loss else "") + \
             (f"-ds100h" if init_small else "") + \
             (f"-pl960h" + ("_keep100h" if keep_small_labels else "") if not pseudo_label_small else "") + \
@@ -284,7 +301,8 @@ def py():
             calc_last_pseudo_labels=calc_last_pseudo_labels,
             tune_hyperparameters=tune_hyperparameters,
             from_scratch=from_scratch,
-            use_sgd=use_sgd
+            use_sgd=use_sgd,
+            reset_steps=reset_steps,
         )
     
 
@@ -330,7 +348,8 @@ def train_exp(
     calc_last_pseudo_labels: bool = False,
     tune_hyperparameters: bool = False,
     from_scratch: bool = False,
-    use_sgd: bool = False
+    use_sgd: bool = False,
+    reset_steps: bool = True,
 ) -> Optional[ModelWithCheckpoints]:
     """
     Train experiment
@@ -371,11 +390,16 @@ def train_exp(
 
     if not model_def:
         model_def = ctc_model_def
+        model_def_self = ctc_model_def
     if model_config:
         mc = model_config.copy()
-        if "train_language_model" in mc and mc["train_language_model"]["class"] == "ngram":
+        if "train_language_model" in mc:
             mc.pop("train_language_model", None)
+        mc_self = model_config.copy()
+        if "train_language_model" in mc and mc["train_language_model"]["class"] == "ngram":
+            mc_self.pop("train_language_model", None)
         model_def = ModelDefWithCfg(model_def, mc)
+        model_def_self = ModelDefWithCfg(model_def_self, mc_self)
     if not train_def:
         train_def = ctc_training
         
@@ -389,6 +413,7 @@ def train_exp(
                 config_updates_self_training.update({
                     "preload_from_files": {
                         "train_lm": {
+                            "init_for_train": True,
                             "prefix": "train_language_model.",
                             "filename": lm_checkpoint.checkpoint,
                         },
@@ -417,6 +442,16 @@ def train_exp(
                 },
             },
         }
+        if config_updates_self_training and config_updates_self_training.get("decode_every_step", False):
+            config_updates_self_training.update({
+                "preload_from_files": {
+                    "train_lm": {
+                        "init_for_train": True,
+                        "prefix": "train_language_model.",
+                        "filename": lm_checkpoint.checkpoint,
+                    },
+                },
+            })
         
     model_with_checkpoint = []
     model_with_checkpoint.append(train(
@@ -491,11 +526,11 @@ def train_exp(
                 config_self["lm_path"] = train_lm
             else:
                 config_self["lm_path"] = "ffnn" + str(model_config["train_language_model"]["context_size"])
-            
-            if config_self.get("empirical_prior", False):
-                config_self["empirical_prior"] = emp_prior
         elif pseudo_nbest > 1:
-            config_self["nbest"] = pseudo_nbest
+            config_self["ps_nbest"] = pseudo_nbest
+            
+        if config_self.get("empirical_prior", False) or config_self.get("decode_every_step", False):
+            config_self["empirical_prior"] = emp_prior
                 
         if use_sgd:
             config_self["optimizer"] = {
@@ -528,7 +563,7 @@ def train_exp(
             config_self.pop("aux_loss_layers")
 
         # Use different LR if second iteration, NOTE: this is very specific to 860h training
-        if i > 0:
+        if i > 0 and reset_steps:
             # if i > 2:
             #     peak_lr = 4e-4
             #     config_self["learning_rate_piecewise_values"] = [peak_lr, peak_lr, peak_lr * 3e-2, peak_lr * 3e-3]
@@ -542,16 +577,17 @@ def train_exp(
             init_checkpoint = None
         else:
             init_checkpoint = model_with_checkpoint[i].get_last_fixed_epoch().checkpoint
-            
+
         model_with_checkpoint.append(train(
             prefix_self_training,
             task=task,
             config=config_self,
             post_config=dict_update_deep(post_config, post_config_updates),
             epilog=epilog,
-            model_def=model_def,
+            model_def=model_def_self,
             train_def=train_def,
             init_params=init_checkpoint,
+            reset_steps=True if reset_steps or i == 0 else False,
             num_epochs=num_epochs,
             gpu_mem=gpu_mem,
             num_processes=num_processes,
@@ -1123,7 +1159,7 @@ def split_on_sep(tensor: torch.Tensor, sizes: torch.Tensor, vocab_dim: Dim, nbes
         new_list = [torch.cat([t_slice, torch.tensor([0] * (max_length - t_slice.size(0)), device=tensor.device)]) for t_slice in new_list]
         new_tensor = torch.stack(new_list, dim=0)
         new_tensor = new_tensor.to(torch.int32)
-        new_s = torch.tensor(new_s, device=tensor.device)
+        new_s = torch.tensor(new_s, dtype=torch.int32, device=tensor.device)
         new_s = rf.convert_to_tensor(new_s, dims=(batch_dim,))
         new_s = Dim(new_s, name="out_spatial", dyn_size_ext=new_s)
         new_tensor = rf.convert_to_tensor(new_tensor, dims=(batch_dim, new_s), sparse_dim=vocab_dim)
@@ -1141,18 +1177,53 @@ def ctc_training(*, model: Model, data: rf.Tensor, data_spatial_dim: Dim, target
     aux_loss_scales = config.typed_value("aux_loss_scales", ([1.0] * len(aux_loss_layers)) if aux_loss_layers else None)
     aed_loss_scale = config.float("aed_loss_scale", 1.0)
     use_normalized_loss = config.bool("use_normalized_loss", True)
-    nbest = config.int("nbest", 1)
+    nbest = config.int("ps_nbest", 1)
+    decode_every_step = config.bool("decode_every_step", False)
 
     if data.feature_dim and data.feature_dim.dimension == 1:
         data = rf.squeeze(data, axis=data.feature_dim)
     assert not data.feature_dim  # raw audio
     
+    collected_outputs = {}
+    logits, enc, enc_spatial_dim = model(data, in_spatial_dim=data_spatial_dim, collected_outputs=collected_outputs)
+    log_probs = model.log_probs_wb_from_logits(logits)
+    
+    if decode_every_step:
+        def _output_hyps(hyp: list) -> list:
+            prev = None
+            ls = []
+            for h in hyp:
+                if h != prev:
+                    ls.append(h)
+                    prev = h
+            ls = [h for h in ls if h != model.blank_idx]
+            return ls
+        
+        if nbest > 1:
+            raise NotImplementedError("nbest > 1 with decode_every_step not implemented")
+        hyperparameters = config.typed_value("hyperparameters_decoder").copy()
+        hyperparameters["beam_size"] = 1
+        prior_file = config.typed_value("empirical_prior")
+        assert hyperparameters and prior_file
+        hyps = decode_flashlight(model=model, label_log_prob=log_probs, enc_spatial_dim=enc_spatial_dim, hyperparameters=hyperparameters, prior_file=prior_file, train_lm=True)
+        assert len(hyps[0]) == 1
+        hyps = [_output_hyps(hyps_batch[0]) for hyps_batch in hyps]
+        lengths = [len(h) for h in hyps]
+        lengths2 = [1 if l == 0 else l for l in lengths]
+        max_length = max(lengths)
+        targets_spatial_dim = torch.tensor(lengths, dtype=torch.int32, device=data.raw_tensor.device)
+        targets_spatial_dim = rf.convert_to_tensor(targets_spatial_dim, dims=(batch_dim,))
+        targets_spatial_dim = Dim(targets_spatial_dim, name="out_spatial", dyn_size_ext=targets_spatial_dim)
+        targets_spatial_dim2 = torch.tensor(lengths2, dtype=torch.int32, device=data.raw_tensor.device)
+        targets_spatial_dim2 = rf.convert_to_tensor(targets_spatial_dim2, dims=(batch_dim,))
+        targets_spatial_dim2 = Dim(targets_spatial_dim2, name="out_spatial2", dyn_size_ext=targets_spatial_dim2)
+        hyps = [h + [0] * (max_length - len(h)) for h in hyps]
+        hyps = torch.tensor(hyps, dtype=torch.int32, device=data.raw_tensor.device)
+        targets = rf.convert_to_tensor(hyps, dims=(batch_dim, targets_spatial_dim), sparse_dim=model.target_dim)
+    
     if nbest > 1:
         from .sum_criterion import safe_logaddexp
         tensor_ls, sizes_ls = split_on_sep(targets.raw_tensor, targets_spatial_dim.dyn_size_ext.raw_tensor, model.target_dim, nbest)
-        
-        collected_outputs = {}
-        logits, enc, enc_spatial_dim = model(data, in_spatial_dim=data_spatial_dim, collected_outputs=collected_outputs)
         
         loss_sum = None
         if aux_loss_layers:
@@ -1187,7 +1258,6 @@ def ctc_training(*, model: Model, data: rf.Tensor, data_spatial_dim: Dim, target
                         aux_loss_sum[i] = (-aux_loss).raw_tensor
                     
 
-            log_probs = model.log_probs_wb_from_logits(logits)
             loss = rf.ctc_loss(
                 logits=log_probs,
                 logits_normalized=True,
@@ -1222,8 +1292,6 @@ def ctc_training(*, model: Model, data: rf.Tensor, data_spatial_dim: Dim, target
             targets, axes=[targets_spatial_dim], padding=[(0, 1)], value=model.eos_idx
         )
 
-    collected_outputs = {}
-    logits, enc, enc_spatial_dim = model(data, in_spatial_dim=data_spatial_dim, collected_outputs=collected_outputs)
     if aux_loss_layers:
         for i, layer_idx in enumerate(aux_loss_layers):
             if layer_idx > len(model.encoder.layers):
@@ -1242,11 +1310,10 @@ def ctc_training(*, model: Model, data: rf.Tensor, data_spatial_dim: Dim, target
             aux_loss.mark_as_loss(
                 f"ctc_{layer_idx}",
                 scale=aux_loss_scales[i],
-                custom_inv_norm_factor=targets_spatial_dim.get_size_tensor(),
+                custom_inv_norm_factor=targets_spatial_dim.get_size_tensor() if not decode_every_step else targets_spatial_dim2.get_size_tensor(),
                 use_normalized_loss=use_normalized_loss,
             )
 
-    log_probs = model.log_probs_wb_from_logits(logits)
     loss = rf.ctc_loss(
         logits=log_probs,
         logits_normalized=True,
@@ -1257,7 +1324,7 @@ def ctc_training(*, model: Model, data: rf.Tensor, data_spatial_dim: Dim, target
     )
     loss.mark_as_loss(
         "ctc",
-        custom_inv_norm_factor=targets_spatial_dim.get_size_tensor(),
+        custom_inv_norm_factor=targets_spatial_dim.get_size_tensor() if not decode_every_step else targets_spatial_dim2.get_size_tensor(),
         use_normalized_loss=use_normalized_loss,
     )
 
@@ -1777,7 +1844,7 @@ def model_recog_lm(
     
     configs.update(hyp_params)
     
-    assert configs["nbest"] == 1, "We only support nbest == 1"
+    assert "ps_nbest" not in configs, "We only support nbest == 1"
     
     decoder = ctc_decoder(**configs)
     enc_spatial_dim_torch = enc_spatial_dim.dyn_size_ext.raw_tensor.cpu()
@@ -1877,6 +1944,31 @@ def model_recog_flashlight(
         out_spatial_dim,
         final beam_dim
     """
+    assert data.dims_set == {batch_dim, data_spatial_dim, data.feature_dim}
+    logits, enc, enc_spatial_dim = model(data, in_spatial_dim=data_spatial_dim)
+    assert logits.dims_set == {batch_dim, enc_spatial_dim, model.wb_target_dim}
+
+    # The label log probs include the AM
+    label_log_prob = model.log_probs_wb_from_logits(logits)  # Batch, Spatial, VocabWB
+    
+    return decode_flashlight(model=model, label_log_prob=label_log_prob, enc_spatial_dim=enc_spatial_dim, hyperparameters=hyperparameters, prior_file=prior_file)
+
+
+# RecogDef API
+model_recog_flashlight: RecogDef[Model]
+model_recog_flashlight.output_with_beam = True
+model_recog_flashlight.output_blank_label = OUT_BLANK_LABEL
+model_recog_flashlight.batch_size_dependent = True  # our models currently just are batch-size-dependent...
+
+def decode_flashlight(
+    *,
+    model: Model,
+    label_log_prob: Tensor,
+    enc_spatial_dim: Dim,
+    hyperparameters: dict,
+    prior_file: tk.Path = None,
+    train_lm = False
+) -> Tuple[Tensor, Tensor, Dim, Dim] | list:
     from dataclasses import dataclass
     import torch
     import json
@@ -1904,7 +1996,7 @@ def model_recog_flashlight(
         print(f"LM weight with tune: {old_lm_weight} + {lm_weight_tune} = {old_lm_weight + lm_weight_tune}")
         hyp_params["lm_weight"] = old_lm_weight + lm_weight_tune
 
-    n_best = hyp_params.pop("nbest", 1)
+    n_best = hyp_params.pop("ps_nbest", 1)
     beam_size = hyp_params.pop("beam_size", 1)
     beam_size_token = hyp_params.pop("beam_size_token", model.wb_target_dim.vocab.num_labels)
     beam_threshold = hyp_params.pop("beam_threshold", 1000000)
@@ -1914,10 +2006,15 @@ def model_recog_flashlight(
 
     # noinspection PyUnresolvedReferences
     assert lm_name.startswith("ffnn")
-    assert model.recog_language_model
-    assert model.recog_language_model.vocab_dim == model.target_dim
     context_size = int(lm_name[len("ffnn"):])
-    lm: FeedForwardLm = model.recog_language_model
+    if train_lm:
+        assert model.train_language_model
+        assert model.train_language_model.vocab_dim == model.target_dim
+        lm: FeedForwardLm = model.train_language_model
+    else:
+        assert model.recog_language_model
+        assert model.recog_language_model.vocab_dim == model.target_dim
+        lm: FeedForwardLm = model.recog_language_model
     # noinspection PyUnresolvedReferences
     lm_scale: float = hyp_params["lm_weight"]
 
@@ -2120,13 +2217,6 @@ def model_recog_flashlight(
     )
     fl_decoder = LexiconFreeDecoder(fl_decoder_opts, fl_lm, -1, model.blank_idx, [])
 
-    assert data.dims_set == {batch_dim, data_spatial_dim, data.feature_dim}
-    logits, enc, enc_spatial_dim = model(data, in_spatial_dim=data_spatial_dim)
-    assert logits.dims_set == {batch_dim, enc_spatial_dim, model.wb_target_dim}
-
-    # The label log probs include the AM
-    label_log_prob = model.log_probs_wb_from_logits(logits)  # Batch, Spatial, VocabWB
-    
     # Subtract prior of labels if available
     if prior_file and prior_weight > 0.0:
         prior = np.loadtxt(prior_file, dtype="float32")
@@ -2134,7 +2224,7 @@ def model_recog_flashlight(
         prior = torch.tensor(prior, dtype=torch.float32, device=dev)
         prior = rtf.TorchBackend.convert_to_tensor(prior, dims=[model.wb_target_dim], dtype="float32")
         label_log_prob = label_log_prob - prior
-        print("We subtracted the prior!")
+        # print("We subtracted the prior!")
     
     label_log_prob = rf.where(
         enc_spatial_dim.get_mask(),
@@ -2151,6 +2241,19 @@ def model_recog_flashlight(
     float_bytes = 4
 
     print(f"Memory usage {dev_s} after encoder forward:", " ".join(_collect_mem_stats()))
+    
+    def _output_hyps(hyp: list) -> str:
+        prev = None
+        ls = []
+        for h in hyp:
+            if h != prev:
+                ls.append(h)
+                prev = h
+        ls = [model.target_dim.vocab.id_to_label(h) for h in ls if h != model.blank_idx]
+        s = " ".join(ls).replace("@@ ", "")
+        if s.endswith("@@"):
+            s = s[:-2]
+        return s
 
     hyps = []
     scores = []
@@ -2179,8 +2282,8 @@ def model_recog_flashlight(
         ), f"seq_len {seq_len}, hyps lens {[len(hyp) for hyp in hyps_per_batch]}"
         if len(results) >= n_best:
             if n_best > 1:
-                hyps_shortened = [" ".join([model.wb_target_dim.vocab.id_to_label(l) for l in hyp]).replace("@@ ", "") for hyp in hyps_per_batch]
                 # We have to select the n_best on output level
+                hyps_shortened = [_output_hyps(hyp) for hyp in hyps_per_batch]
                 nbest_hyps = []
                 nbest_hyps_ids = []
                 k = 0
@@ -2197,6 +2300,7 @@ def model_recog_flashlight(
                 scores_per_batch = [scores_per_batch[id] for id in nbest_hyps_ids]
                 
                 if len(hyps_per_batch) < n_best:
+                    print("Not enough n-best")
                     hyps_per_batch += [[]] * (n_best - len(hyps_per_batch))
                     scores_per_batch += [-1e30] * (n_best - len(hyps_per_batch))
             else:
@@ -2221,11 +2325,7 @@ def model_recog_flashlight(
     hyps_r = rf.convert_to_tensor(hyps_pt, dims=(batch_dim, beam_dim, out_spatial_dim), sparse_dim=model.wb_target_dim)
     scores_r = rf.convert_to_tensor(scores_pt, dims=(batch_dim, beam_dim))
     print(f"Memory usage ({dev_s}) after batch:", " ".join(_collect_mem_stats()))
-    return hyps_r, scores_r, out_spatial_dim, beam_dim
-
-
-# RecogDef API
-model_recog_flashlight: RecogDef[Model]
-model_recog_flashlight.output_with_beam = True
-model_recog_flashlight.output_blank_label = OUT_BLANK_LABEL
-model_recog_flashlight.batch_size_dependent = True  # our models currently just are batch-size-dependent...
+    if train_lm:
+        return hyps
+    else:
+        return hyps_r, scores_r, out_spatial_dim, beam_dim

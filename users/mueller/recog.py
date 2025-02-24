@@ -121,8 +121,8 @@ def recog_training_exp(
         )
         
         pseudo_hyperparameters = decoder_hyperparameters.copy()
-        if pseudo_nbest > 1: #  and not is_last
-            pseudo_hyperparameters["nbest"] = pseudo_nbest
+        if pseudo_nbest > 1 and not is_last:
+            pseudo_hyperparameters["ps_nbest"] = pseudo_nbest
             
         pseudo_label_recog_func = _RecogAndScoreFunc(
             prefix_name + "/pseudo_labels",
@@ -359,7 +359,7 @@ def recog_model(
                 score_out = task.score_recog_output_func(dataset, recog_out)
             outputs[dataset_name] = score_out
         if save_pseudo_labels:
-            if decoder_hyperparameters["nbest"] > 1:
+            if "ps_nbest" in decoder_hyperparameters and decoder_hyperparameters["ps_nbest"] > 1:
                 recog_paths[dataset_name] = beam_recog_out
             else:
                 recog_paths[dataset_name] = recog_out.output
