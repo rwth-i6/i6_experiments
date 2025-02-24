@@ -31,7 +31,7 @@ def ctc_exp(lmname, lm, vocab):
         recog_epoch = 500
 
     tune_hyperparameters = False
-    with_prior = True
+    with_prior = False
     prior_from_max = False # ! arg in recog.compute_prior, actually Unused
     empirical_prior = False
     #-------------------setting decoding config-------------------
@@ -39,19 +39,13 @@ def ctc_exp(lmname, lm, vocab):
     decoding_config = {
         "log_add": False,
         "nbest": 1,
-        "beam_size": 2, # 80 for previous exps on bpe128
+        "beam_size": 1, # 80 for previous exps on bpe128
         "lm_weight": 1.45,  # Tuned_best val: 1.45 NOTE: weights are exponentials of the probs.
         "use_logsoftmax": True,
-        "use_lm": True,
+        "use_lm": False,
         "use_lexicon": False, # Do open vocab search when using bpe lms.
     }
     decoding_config["lm"] = lm
-    # relPosAttDef: Use the default RelPosSelfAttention instead of the Shawn et al 2018 style, old RETURNN way.
-    enc_conformer_layer_default = rf.build_dict(
-        ConformerEncoderLayer,
-        ff_activation=rf.build_dict(rf.relu_square),
-        num_heads=8,
-    )
     decoding_config["use_lm"] = True if lm else False
     if re.match(r".*word.*", lmname): # Why  or "NoLM"  in lmname?
         decoding_config["use_lexicon"] = True
@@ -59,6 +53,7 @@ def ctc_exp(lmname, lm, vocab):
         decoding_config["use_lexicon"] = False
     if with_prior:
         decoding_config["prior_weight"] = 0.15  # 0.15 as initial ref for tuning or if not using emprirical prior
+
     p0 = f"_p{str(decoding_config['prior_weight']).replace('.', '')}" + (
             "-emp" if empirical_prior else ("-from_max" if prior_from_max else "")) if with_prior else ""
     p1 = "sum" if decoding_config['log_add'] else "max"
@@ -75,6 +70,13 @@ def ctc_exp(lmname, lm, vocab):
     from i6_experiments.users.zhang.experiments.ctc import train_exp, model_recog_lm, config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4, _get_cfg_lrlin_oclr_by_bs_nep, speed_pert_librosa_config, _raw_sample_rate
     search_mem_rqmt = 16 if vocab == "bpe10k" else 6
     search_rqmt = {"cpu": search_mem_rqmt//2, "time": 6} if vocab == "bpe10k" else None
+
+    # relPosAttDef: Use the default RelPosSelfAttention instead of the Shawn et al 2018 style, old RETURNN way.
+    enc_conformer_layer_default = rf.build_dict(
+        ConformerEncoderLayer,
+        ff_activation=rf.build_dict(rf.relu_square),
+        num_heads=8,
+    )
     _, wer_result_path, search_error, lm_scale = train_exp(
         name=alias_name,
         config=config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
@@ -134,8 +136,8 @@ def py():
         exp_names_postfix = ""
         prune_num = 0
 
-        for n_order in [ #2, 3,
-            4#, 5
+        for n_order in [#2, 3,
+            4, #5
             # 6 Slow recog
         ]:
             # prune_threshs = list(set([x * 1e-9 for x in range(1, 100, 6)] +   # These has correspond existing pruned LMs !! Float should not direct go in hashes
@@ -143,10 +145,11 @@ def py():
             #                          [x * 1e-7 for x in range(1, 200, 16)] +
             #                          [x * 1e-7 for x in range(1, 10, 2)]
             #                          ))
-            prune_threshs = [#1e-9, 1.3e-8, 6.7e-8,
-                             #3e-7, 7e-7, 1.7e-6,
-                             #5.1e-6,
-                             #8.1e-6, 1.1e-5, 1.6e-5, 1.9e-5
+            prune_threshs = [
+                            1e-9, 1.3e-8, 6.7e-8,
+                             3e-7, 7e-7, 1.7e-6,
+                             5.1e-6,
+                             8.1e-6, 1.1e-5, 1.6e-5, 1.9e-5
                              ]
             prune_threshs.sort()
             exp_names_postfix += str(n_order) + "_"
@@ -175,7 +178,7 @@ def py():
                 continue
             wer_ppl_results = dict()
             #----------Test--------------------
-            #lms = ({"NoLM": None})
+            lms = ({"NoLM": None})
             #------------------------------
             for name, lm in lms.items():
                 # lm_name = lm if isinstance(lm, str) else lm.name
@@ -187,7 +190,7 @@ def py():
                 results = [(x[0],x[1]) for x in res]
                 search_errors = [x[2] for x in res]
                 lm_scales = [x[3] for x in res]
-                summaryjob = WER_ppl_PlotAndSummaryJob(names, results, lm_scales) #, search_errors)
+                summaryjob = WER_ppl_PlotAndSummaryJob(names, results, lm_scales, search_errors)
                 tk.register_output("wer_ppl/"+ model + lm_hyperparamters_str + exp_names_postfix + "/summary", summaryjob.out_summary)
                 tk.register_output("wer_ppl/"+ model + lm_hyperparamters_str + exp_names_postfix + "/dev_other.png", summaryjob.out_plot1)
                 tk.register_output("wer_ppl/" + model + lm_hyperparamters_str + exp_names_postfix + "/test_other.png",

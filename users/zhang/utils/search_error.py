@@ -19,7 +19,6 @@ class ComputeSearchErrorsJob(Job):
         yield Task("run", rqmt={"cpu": 1, "mem": 4, "time": 1, "gpu": 0}, mini_task=True)
 
     def run(self):
-
         d_gt = eval(util.uopen(self.ground_truth_out, "rt").read())
         d_rec = eval(util.uopen(self.recog_out, "rt").read())
         assert isinstance(d_gt, dict)  # seq_tag -> bpe string

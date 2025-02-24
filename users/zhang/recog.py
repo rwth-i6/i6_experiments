@@ -279,7 +279,7 @@ def recog_model(
             if dataset_name not in dev_sets:
                 continue
         # print(f"dataset:{dataset}, type{type(dataset)}, name:{dataset_name}, type:{type(dataset_name)}")
-        recog_out = search_dataset(
+        recog_out, hyps = search_dataset(
             decoding_config=decoding_config,
             dataset=dataset,
             model=model,
@@ -295,8 +295,10 @@ def recog_model(
         score_out = task.score_recog_output_func(dataset, recog_out)
         outputs[dataset_name] = score_out
         if dataset_name == "test-other" and search_error_check:
-            search_error = check_search_error(dataset=dataset, model=model, hyps=score_out,
-                                              decoding_config=decoding_config,prior_path=prior_path, alias_name=None)
+            search_error = check_search_error(dataset=dataset, model=model, hyps=hyps,
+                                              decoding_config=decoding_config,prior_path=prior_path,
+                                              alias_name=f"{name}/search_error/{dataset_name}" if name else None,
+                                              )
     # if dev_sets:
     #     assert task.main_measure_name == dev_sets[0]
     return task.collect_score_results_func(outputs), search_error
@@ -357,7 +359,7 @@ def check_search_error(
         hyps: tk.path,
         decoding_config: dict,
         prior_path: tk.Path,
-        mem_rqmt: Union[int, float] = 8,
+        mem_rqmt: Union[int, float] = 16,
         alias_name: Optional[str] = None,
 ) -> tk.Path:
     from .experiments.ctc import scoring
@@ -365,17 +367,17 @@ def check_search_error(
         model_checkpoint=model.checkpoint,
         returnn_config=search_error_config(dataset, model.definition, scoring,
                                            decoding_config=decoding_config, prior_path=prior_path),
-        output_files=["grdtruth_score.py.gz"],
+        output_files=[_v2_forward_out_filename],
         returnn_python_exe=tools_paths.get_returnn_python_exe(),
         returnn_root=tools_paths.get_returnn_root(),
         device="gpu",
         time_rqmt=4,
-        mem_rqmt=mem_rqmt,
-        cpu_rqmt=4,
+        mem_rqmt=16,
+        cpu_rqmt=32,
     )
     if alias_name:
         pre_SearchError_job.add_alias(alias_name)
-    ground_truth_out = pre_SearchError_job.out_files["grdtruth_score.py.gz"]
+    ground_truth_out = pre_SearchError_job.out_files[_v2_forward_out_filename]
     from .utils.search_error import ComputeSearchErrorsJob
     # TODO ground_truth_out and hyps might not in comparable text form.(bpe <-> word)
     res = ComputeSearchErrorsJob(ground_truth_out, hyps).out_search_errors
@@ -394,7 +396,7 @@ def search_dataset(
     search_rqmt: Optional[Dict[str, Any]] = None,
     search_alias_name: Optional[str] = None,
     recog_post_proc_funcs: Sequence[Callable[[RecogOutput], RecogOutput]] = (),
-) -> RecogOutput:
+) -> Tuple[RecogOutput, tk.path]:
     """
     Recog on the specific dataset using RETURNN.
 
@@ -472,7 +474,7 @@ def search_dataset(
         #   It's not clear whether this is helpful in general.
         #   As our beam sizes are very small, this might boost some hyps too much.
         res = SearchTakeBestJob(res, output_gzip=True).out_best_search_results
-    return RecogOutput(output=res)
+    return RecogOutput(output=res), search_job.out_files[_v2_forward_out_filename]
 
 
 # Those are applied for both training, recog and potential others.
@@ -679,9 +681,8 @@ def _returnn_search_error_step(*, model, extern_data: TensorDict, **kwargs):
     targets = extern_data[default_target_key]
     targets_spatial_dim = targets.get_time_dim_tag()
     scoring_def = config.typed_value("_scoring_def")
-    scoring_out = scoring_def(model=model, data=data, targets=targets, data_spatial_dim=data_spatial_dim)
-
-    rf.get_run_ctx().mark_as_output(scoring_out, "scores", dims=[batch_dim, 1])
+    scoring_out, score_dim = scoring_def(model=model, data=data, targets=targets, data_spatial_dim=data_spatial_dim)
+    rf.get_run_ctx().mark_as_output(scoring_out, "scores", dims=[batch_dim, score_dim])
     rf.get_run_ctx().mark_as_output(targets, "targets", dims=[batch_dim, targets_spatial_dim])
 
 def _returnn_search_error_forward_callback():
@@ -703,18 +704,19 @@ def _returnn_search_error_forward_callback():
         def process_seq(self, *, seq_tag: str, outputs: TensorDict):
             score: Tensor = outputs["scores"] # [1]
             target: Tensor = outputs["targets"] # [1, out_spatial]
-            # --------------test--------------
-            import pdb
-            pdb.set_trace()
-            #---------------------------------
-            self.out_file.write(f"{seq_tag!r}: [\n")
-            self.out_file.write(f"  ({score!r}, {target!r})\n")
-            self.out_file.write("],\n")
+            # self.out_file.write(f"{seq_tag!r}: [\n")
+            # self.out_file.write(f"  ({score!r}, {target!r})\n")
+            # self.out_file.write("],\n")
             assert target.sparse_dim and target.sparse_dim.vocab  # should come from the model
             self.out_file.write(f"{seq_tag!r}: [\n")
             score = float(score.raw_tensor[0])
-            target_ids = target.raw_tensor[0, :]
+            target_ids = target.raw_tensor
+            # #################
+            # import pdb
+            # pdb.set_trace()
+            # ###############
             target_serialized = target.sparse_dim.vocab.get_seq_labels(target_ids)
+            target_serialized = target_serialized.replace("@@ ", "")
             self.out_file.write(f"  ({score!r}, {target_serialized!r}),\n")
             self.out_file.write("],\n")
 
@@ -1274,8 +1276,11 @@ class GetRecogExp(sisyphus.Job):
         with open(self.out_summary_json.get_path(), "w") as f:
             f.write(json.dumps(res))
             f.write("\n")
-        if self._scores_outputs[best_epoch][1]:
-            os.symlink(self.out_search_error.get_path(), self._scores_outputs[best_epoch][1].get_path())
+        import shutil
+        if (self._scores_outputs[best_epoch][1] and
+                os.path.exists(self._scores_outputs[best_epoch][1].get_path())):
+            #os.symlink(self._scores_outputs[best_epoch][1].get_path(),self.out_search_error.get_path())
+            shutil.copy2(self._scores_outputs[best_epoch][1].get_path(),self.out_search_error.get_path())
 
 
 class GetBestRecogTrainExp(sisyphus.Job):

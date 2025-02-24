@@ -19,7 +19,9 @@ class WER_ppl_PlotAndSummaryJob(Job):
         self,
         names: List[str],
         results: List[Tuple[tk.Variable, tk.Path]],
+
         lm_scales: List[Optional[float]],
+        search_errors: List[Optional[tk.Path]],
         # Reserved for plot setting
     ):
         self.out_summary = self.output_path("summary.csv")
@@ -29,6 +31,7 @@ class WER_ppl_PlotAndSummaryJob(Job):
         self.names = names
         self.results = results
         self.lm_scales = lm_scales
+        self.search_errors = search_errors
 
     def tasks(self) -> Iterator[Task]:
         yield Task("create_table", mini_task=True)#, rqmt={"cpu": 1, "time": 1, "mem": 4})
@@ -110,19 +113,23 @@ class WER_ppl_PlotAndSummaryJob(Job):
         for _, wer_path in self.results:
             with open(wer_path.get_path(), "r") as f:
                 wers.append(json.load(f))
-        res = dict(zip(self.names, zip(ppls,wers,self.lm_scales)))
+        res = dict(zip(self.names, zip(ppls,wers,self.lm_scales,self.search_errors)))
         # Define filenames
         csv_filename = self.out_summary.get_path()
 
         # Prepare the data as a list of lists
-        table_data = [["Model Name", "Perplexity", "Best Epoch", "lm_scale", "Dev-Clean WER", "Dev-Other WER", "Test-Clean WER",
+        table_data = [["Model Name", "Perplexity", "Best Epoch", "lm_scale", "search_error", "Dev-Clean WER", "Dev-Other WER", "Test-Clean WER",
                        "Test-Other WER"]]
         for key, values in res.items():
             ppl = values[0]
             scores = values[1]["best_scores"]
             best_epoch = values[1]["best_epoch"]
             lm_scale = values[2]
-            table_data.append([key, ppl, best_epoch, f"{lm_scale:.2f}", scores.get("dev-clean","-"), scores.get("dev-other","-"), scores.get("test-clean","-"),
+            with open(values[3].get_path()) as f:
+                import re
+                search_error = f.readline()
+                match = re.search(r"([-+]?\d*\.\d+|\d+)%", search_error)
+            table_data.append([key, ppl, best_epoch, f"{lm_scale:.2f}", match.group(0), scores.get("dev-clean","-"), scores.get("dev-other","-"), scores.get("test-clean","-"),
                                scores.get("test-other","-")])
 
         # Save to a CSV file manually
