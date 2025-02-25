@@ -23,7 +23,7 @@ class GaussianProcessOptimizer:
         self.previous_results = previous_results
         self._prepare_data()
 
-        self.optimizer = Optimizer(dimensions=self.search_space, base_estimator="GP", random_state=1, n_initial_points=10)
+        self.optimizer = Optimizer(dimensions=self.search_space, base_estimator="GP", random_state=1, n_initial_points=8)
 
         for x, y in zip(self.X, self.y):
             self.optimizer.tell(x, y)

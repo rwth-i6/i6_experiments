@@ -387,7 +387,7 @@ class MixingDataset(CachedDataset2):
         """is data sparse"""
         return self.control_dataset.is_data_sparse(key)
     
-    def get_complete_frac(self, sorted_seq_idx: int, *, allow_only_exact: bool = False, **kwargs) -> Optional[float]:
+    def get_complete_frac(self, sorted_seq_idx: int, *, allow_only_lr_suitable: bool = False, **kwargs) -> Optional[float]:
         assert self.left_dataset.num_seqs > 0 and self.right_dataset.num_seqs > 0
         indices = self._get_childindices_at_seq_idx(sorted_seq_idx)
         if indices is None:
