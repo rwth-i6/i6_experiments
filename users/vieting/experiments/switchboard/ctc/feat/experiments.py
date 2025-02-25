@@ -1122,7 +1122,7 @@ def run_mel_audio_perturbation_from_checkpoint():
     return report
 
 
-def run_stft_experiments():
+def run_specaug_stft_experiments():
     gs.ALIAS_AND_OUTPUT_SUBDIR = "experiments/switchboard/ctc/feat/"
 
     (
@@ -1233,7 +1233,7 @@ def run_stft_experiments():
         nn_args,
         report_args_collection,
         dev_corpora,
-        "report_stft",
+        "report_specaug_stft",
         returnn_root=returnn_root,
         recog_args={"epochs": [350, 390, 400, 410, 450]},
     )
@@ -1249,7 +1249,7 @@ def py():
     report_scf_specaug_sort = run_scf_specaug_sort()
     report_scf_audio_perturbation_from_checkpoint = run_scf_audio_perturbation_from_checkpoint()
     report_mel_audio_perturbation_from_checkpoint = run_mel_audio_perturbation_from_checkpoint()
-    report_stft = run_stft_experiments()
+    report_specaug_stft = run_specaug_stft_experiments()
 
     report_base = Report(
         columns_start=["train_name", "batch_size"],
@@ -1263,7 +1263,7 @@ def py():
             report_scf_specaug_sort,
             report_scf_audio_perturbation_from_checkpoint,
             report_mel_audio_perturbation_from_checkpoint,
-            report_stft,
+            report_specaug_stft,
         ]
     )
     tk.register_report(
