@@ -13,7 +13,7 @@ def add_specaug_layer(
     max_feature: int = 5,
 ) -> List[str]:
     if from_list is None:
-        from_list = ["data"]
+        from_list = ["stft"]
     network[name] = {
         "class": "eval",
         "from": from_list,
@@ -21,21 +21,6 @@ def add_specaug_layer(
     }
 
     return [name], get_specaug_funcs()
-
-
-def add_specaug_layer_v2(
-    network: Dict,
-    name: str = "specaug",
-    from_list: Optional[Union[str, List[str]]] = "data",
-) -> List[str]:
-    network[name] = {
-        "class": "eval",
-        "from": from_list,
-        "eval": CodeWrapper(specaugment_v1_eval_func.__name__),
-    }
-
-    return [name], get_specaug_func_v2()
-
 
 def _mask(x, batch_axis, axis, pos, max_amount):
     """
@@ -67,7 +52,7 @@ def _mask(x, batch_axis, axis, pos, max_amount):
     )
     from TFUtil import where_bc
 
-    x = where_bc(cond, 0.0, x)
+    x = where_bc(cond, tf.constant(0.0, dtype=x.dtype), x)
     return x
 
 

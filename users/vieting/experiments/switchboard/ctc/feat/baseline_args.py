@@ -225,7 +225,7 @@ def get_returnn_config(
     if audio_perturbation:
         prolog += get_code_for_perturbation()
     for layer in list(network.keys()):
-        if layer in ("stft", "istft", "wave_input"):
+        if layer in ("stft", "wave_input"):
             continue
         if network[layer]["from"] == "data":
             network[layer]["from"] = "features"
