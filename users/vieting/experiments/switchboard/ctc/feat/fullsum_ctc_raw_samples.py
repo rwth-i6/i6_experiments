@@ -9,7 +9,7 @@ from i6_experiments.users.berger.network.helpers.conformer import add_conformer_
 from .network_helpers.specaug import add_specaug_layer, add_specaug_layer_v2
 from .network_helpers.specaug_configurable import add_specaug_layer as add_specaug_layer_configurable
 from .network_helpers.specaug_sort_layer2 import add_specaug_layer as add_specaug_layer_sort_layer2
-from .network_helpers.stft_specaug import add_specaug_layer as add_specaug_layer_stft
+from .network_helpers.specaug_stft import add_specaug_layer as add_specaug_layer_stft
 from .network_helpers.conformer_wei import add_conformer_stack as add_conformer_stack_wei
 from .network_helpers.conformer_wei import add_vgg_stack as add_vgg_stack_wei
 
@@ -151,6 +151,7 @@ def make_conformer_fullsum_ctc_model(
     conformer_type: str = "wei",
     specaug_old: Optional[Dict[str, Any]] = None,
     specaug_config: Optional[Dict[str, Any]] = None,
+    specaug_stft: Optional[Dict[str, Any]] = None,
     recognition: bool = False,
     num_epochs: Optional[int] = None,
 ) -> Tuple[Dict, Union[str, List[str]]]:
@@ -161,50 +162,57 @@ def make_conformer_fullsum_ctc_model(
         python_code = []
         network["wave_input"] = {"class": "copy", "from": "data"}
     else:
-        if specaug_old is not None:
-            if specaug_old.get("stft", False):
-                specaug_old_args = {
-                    "max_time_num": 1,
-                    "max_time": 15,
-                    "max_feature_num": 5,
-                    "max_feature": 4,
-                    **{k: v for k, v in specaug_old.items() if k != "stft"},
-                }
-                # Add STFT layer
-                network["stft"] = {
-                    "class": "stft",
-                    "from": ["data"],
-                    "frame_size": 400,
-                    "frame_shift": 160,
-                    "fft_size": 512,
-                }
-                from_list = ["stft"]
+        if specaug_stft is not None:
+            stft_params = specaug_stft.get("stft", {})
+            frame_size = stft_params.get("frame_size", 400)
+            frame_shift = stft_params.get("frame_shift", 160)
+            fft_size = stft_params.get("fft_size", 512)
 
-                specaug_func = add_specaug_layer_stft
-                from_list, python_code = specaug_func(network, from_list=from_list, **specaug_old_args)
+            specaug_stft_args = {
+                "max_time_num": 1,
+                "max_time": 15,
+                "max_feature_num": 5,
+                "max_feature": 4,
+                **specaug_stft,
+            }
 
-                # Add iSTFT layer
-                network["istft"] = {
-                    "class": "istft",
-                    "from": from_list,
-                    "frame_size": 400,
-                    "frame_shift": 160,
-                    "fft_size": 512,
-                }
-                network["wave_input"] = {"class": "copy", "from": "istft"}
-            else:
-                assert specaug_config is None
-                sort_layer2 = specaug_old.pop("sort_layer2", False)
-                specaug_func = add_specaug_layer_sort_layer2 if sort_layer2 else add_specaug_layer
-                specaug_old_args = {
-                    "max_time_num": 1,
-                    "max_time": 15,
-                    "max_feature_num": 5,
-                    "max_feature": 4,
-                    **specaug_old,
-                }
-                from_list, python_code = specaug_func(network, from_list=from_list, **specaug_old_args)
-                network["wave_input"] = {"class": "copy", "from": "data"}
+            # Add STFT layer
+            network["stft"] = {
+                "class": "stft",
+                "from": ["specaug"],
+                "frame_size": frame_size,
+                "frame_shift": frame_shift,
+                "fft_size": fft_size,
+            }
+            from_list = ["stft"]
+
+            specaug_func = add_specaug_layer_stft
+            from_list, python_code = specaug_func(network, from_list=from_list, **specaug_stft_args)
+
+            # Add iSTFT layer
+            network["istft"] = {
+                "class": "istft",
+                "from": from_list,
+                "frame_size": frame_size,
+                "frame_shift": frame_shift,
+                "fft_size": fft_size,
+            }
+            network["wave_input"] = {"class": "copy", "from": "istft"}
+
+        elif specaug_old is not None:
+            assert specaug_config is None
+            sort_layer2 = specaug_old.pop("sort_layer2", False)
+            specaug_func = add_specaug_layer_sort_layer2 if sort_layer2 else add_specaug_layer
+            specaug_old_args = {
+                "max_time_num": 1,
+                "max_time": 15,
+                "max_feature_num": 5,
+                "max_feature": 4,
+                **specaug_old,
+            }
+            from_list, python_code = specaug_func(network, from_list=from_list, **specaug_old_args)
+            network["wave_input"] = {"class": "copy", "from": "data"}
+
         elif specaug_config is not None:
             assert specaug_old is None
             from_list, python_code = add_specaug_layer_configurable(

@@ -160,6 +160,7 @@ def get_returnn_config(
     conformer_type: str = "wei",
     specaug_old: Optional[Dict[str, Any]] = None,
     specaug_config: Optional[Dict[str, Any]] = None,
+    specaug_stft: Optional[Dict[str, Any]] = None,
     am_args: Optional[Dict[str, Any]] = None,
     batch_size: Union[int, Dict[str, int]] = 10000,
     sample_rate: int = 8000,
@@ -218,6 +219,7 @@ def get_returnn_config(
         conformer_type=conformer_type,
         specaug_old=specaug_old,
         specaug_config=specaug_config,
+        specaug_stft=specaug_stft,
         recognition=recognition,
         num_epochs=num_epochs,
     )
