@@ -214,17 +214,20 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
 
     # TODO: static ILM methods
 
-    for static_ilm_method in ["seq_avg"]:
+    for static_ilm_method, lm_scale, ilm_scale in [
+        ("seq_avg", 0.5, 0.44),
+        ("zero", 0.46, 0.34),
+    ]:
         ilm_recog_config = {
             "beam_search_opts": {
                 "beam_size": 32,
                 "length_normalization_exponent": 0.0,
-                "lm_scale": 0.5,
-                "ilm_scale": 0.44,
+                "lm_scale": lm_scale,
+                "ilm_scale": ilm_scale,
                 "static_ilm_method": static_ilm_method,
             },
             "external_language_model": {"class": "TransformerDecoder", **trafo_lm_kazuki_import.TrafoLmOpts},
-            "internal_language_model": {"class": "StaticBasedIlm"},
+            "internal_language_model": {"class": "StaticIlm"},
             "preload_from_files": {
                 "trafo_lm": {
                     "prefix": "language_model.",
@@ -237,7 +240,9 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
             },
             "batch_size": 2500 * 160,
         }
-        _recog_imported(name=f"trafo_lm_0.46_ilm_0.36_beam32_{static_ilm_method}", recog_config=ilm_recog_config)
+        _recog_imported(
+            name=f"trafo_lm_{lm_scale}_ilm_{ilm_scale}_beam32_{static_ilm_method}", recog_config=ilm_recog_config
+        )
 
 
 _sis_prefix: Optional[str] = None
