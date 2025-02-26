@@ -241,8 +241,6 @@ def get_returnn_config(
                 network.pop(layer)
         network["source"] = {"class": "copy", "from": "features"}
     else:
-        if specaug_stft not None:
-            feature_net["from"] = "istft"
         # network["source"] = specaug_layer_jingjing(in_layer=["features"])
         pass
 
