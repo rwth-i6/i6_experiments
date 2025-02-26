@@ -160,13 +160,12 @@ def make_conformer_fullsum_ctc_model(
 
     if recognition:
         python_code = []
-        network["wave_input"] = {"class": "copy", "from": "data"}
     else:
         if specaug_stft is not None:
             stft_params = specaug_stft.get("stft", {})
-            frame_size = stft_params.get("frame_size", 400)
-            frame_shift = stft_params.get("frame_shift", 160)
-            fft_size = stft_params.get("fft_size", 512)
+            frame_size = stft_params.pop("frame_size", 400)
+            frame_shift = stft_params.pop("frame_shift", 160)
+            fft_size = stft_params.pop("fft_size", 512)
 
             specaug_stft_args = {
                 "max_time_num": 1,
@@ -179,7 +178,7 @@ def make_conformer_fullsum_ctc_model(
             # Add STFT layer
             network["stft"] = {
                 "class": "stft",
-                "from": ["specaug"],
+                "from": ["data"],
                 "frame_size": frame_size,
                 "frame_shift": frame_shift,
                 "fft_size": fft_size,
@@ -197,7 +196,6 @@ def make_conformer_fullsum_ctc_model(
                 "frame_shift": frame_shift,
                 "fft_size": fft_size,
             }
-            network["wave_input"] = {"class": "copy", "from": "istft"}
 
         elif specaug_old is not None:
             assert specaug_config is None
@@ -211,7 +209,6 @@ def make_conformer_fullsum_ctc_model(
                 **specaug_old,
             }
             from_list, python_code = specaug_func(network, from_list=from_list, **specaug_old_args)
-            network["wave_input"] = {"class": "copy", "from": "data"}
 
         elif specaug_config is not None:
             assert specaug_old is None
