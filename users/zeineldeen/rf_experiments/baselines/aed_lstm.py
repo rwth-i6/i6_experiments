@@ -1026,6 +1026,8 @@ def model_recog(
             static_ilm_method = beam_search_opts["static_ilm_method"]
             zero_vector = rf.zeros([model.att_num_heads * model.encoder.out_dim])
             zero_vector.feature_dim = model.att_num_heads * model.encoder.out_dim
+            if static_ilm_method == "zero":
+                model.internal_language_model.static_att_ctx = zero_vector
 
     i = 0
     seq_targets = []
@@ -1051,22 +1053,26 @@ def model_recog(
             label_log_prob += lm_scale * lm_log_prob
 
         if ilm_state:
-            if static_ilm_method == "seq_avg":
-                if i == 0:
-                    model.internal_language_model.static_att_ctx = zero_vector
-                else:
-                    model.internal_language_model.static_att_ctx = rf.reduce_mean(
-                        enc_args["enc"], axis=enc_spatial_dim
-                    )  # [B,D]
+            if static_ilm_method:
+                if static_ilm_method == "seq_avg":
+                    if i == 0:
+                        model.internal_language_model.static_att_ctx = zero_vector
+                    else:
+                        model.internal_language_model.static_att_ctx = rf.reduce_mean(
+                            enc_args["enc"], axis=enc_spatial_dim
+                        )  # [B,D]
 
-                    # TODO: reduce_mean removes feature_dim because of a bug
-                    model.internal_language_model.static_att_ctx.feature_dim = enc_args["enc"].dims[-1]
-                    model.internal_language_model.static_att_ctx = rf.expand_dim(
-                        model.internal_language_model.static_att_ctx, model.att_num_heads
-                    )
-                    model.internal_language_model.static_att_ctx, _ = rf.merge_dims(
-                        model.internal_language_model.static_att_ctx, dims=(model.att_num_heads, model.encoder.out_dim)
-                    )
+                        # TODO: reduce_mean removes feature_dim because of a bug
+                        model.internal_language_model.static_att_ctx.feature_dim = enc_args["enc"].dims[-1]
+                        model.internal_language_model.static_att_ctx = rf.expand_dim(
+                            model.internal_language_model.static_att_ctx, model.att_num_heads
+                        )
+                        model.internal_language_model.static_att_ctx, _ = rf.merge_dims(
+                            model.internal_language_model.static_att_ctx,
+                            dims=(model.att_num_heads, model.encoder.out_dim),
+                        )
+                elif static_ilm_method == "zero":
+                    pass  # already set to zero vector
 
                 ilm_step_out, ilm_state = model.internal_language_model.loop_step(
                     input_embed=input_embed, state=ilm_state, concat_allow_broadcast=True
@@ -1074,8 +1080,6 @@ def model_recog(
                 ilm_logits = model.internal_language_model.decode_logits(
                     input_embed=input_embed, concat_allow_broadcast=True, **ilm_step_out
                 )
-            elif static_ilm_method == "zero":
-                model.internal_language_model.static_att_ctx = zero_vector
             else:
                 assert isinstance(model.internal_language_model, MiniLstmIlm)
                 ilm_step_out, ilm_state = model.internal_language_model.loop_step(
