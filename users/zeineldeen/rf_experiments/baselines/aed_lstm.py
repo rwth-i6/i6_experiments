@@ -214,13 +214,13 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
 
     # TODO: static ILM methods
 
-    for static_ilm_method in ["zero", "seq_avg"]:
+    for static_ilm_method in ["seq_avg"]:
         ilm_recog_config = {
             "beam_search_opts": {
                 "beam_size": 32,
                 "length_normalization_exponent": 0.0,
-                "lm_scale": 0.46,
-                "ilm_scale": 0.36,
+                "lm_scale": 0.5,
+                "ilm_scale": 0.44,
                 "static_ilm_method": static_ilm_method,
             },
             "external_language_model": {"class": "TransformerDecoder", **trafo_lm_kazuki_import.TrafoLmOpts},
@@ -504,13 +504,12 @@ class MakeModel:
                     att_num_heads=att_num_heads,
                     **internal_language_model,
                 )
-            elif cls_name == "StaticBasedIlm":
-                ilm = StaticBasedIlm(
+            elif cls_name == "StaticIlm":
+                ilm = StaticIlm(
                     target_dim=target_dim,
                     target_embed_dim=target_embed_dim,
                     att_context_dim=enc_model_dim,
                     att_num_heads=att_num_heads,
-                    **internal_language_model,
                 )
             else:
                 raise ValueError(f"unknown internal_language_model class {cls_name}")
@@ -1016,14 +1015,10 @@ def model_recog(
     ilm_scale = beam_search_opts.get("ilm_scale", None)
     static_ilm_method = None
     ilm_state = None
-    ilm_feature_dim = model.internal_language_model.att_num_heads * model.internal_language_model.att_context_dim
     if ilm_scale:
         ilm_state = model.internal_language_model.decoder_default_initial_state(batch_dims=batch_dims_)
-        if isinstance(model.internal_language_model, StaticBasedIlm):
+        if isinstance(model.internal_language_model, StaticIlm):
             static_ilm_method = beam_search_opts["static_ilm_method"]
-            if static_ilm_method == "zero":
-                model.internal_language_model.static_att_ctx = rf.zeros(list(batch_dims_) + [ilm_feature_dim])
-                model.internal_language_model.static_att_ctx.feature_dim = ilm_feature_dim
 
     i = 0
     seq_targets = []
@@ -1053,9 +1048,21 @@ def model_recog(
                 model.internal_language_model.static_att_ctx = rf.reduce_mean(
                     enc_args["enc"], axis=enc_spatial_dim
                 )  # [B,D]
-                model.internal_language_model.static_att_ctx.feature_dim = ilm_feature_dim
-            ilm_step_out, ilm_state = model.internal_language_model.loop_step(input_embed=input_embed, state=ilm_state)
-            ilm_logits = model.internal_language_model.decode_logits(input_embed=input_embed, **ilm_step_out)
+
+                # TODO: reduce_mean removes feature_dim because of a bug
+                model.internal_language_model.static_att_ctx.feature_dim = enc_args["enc"].dims[-1]
+
+                ilm_step_out, ilm_state = model.internal_language_model.loop_step(
+                    input_embed=input_embed, state=ilm_state, concat_allow_broadcast=True
+                )
+                ilm_logits = model.internal_language_model.decode_logits(
+                    input_embed=input_embed, concat_allow_broadcast=True, **ilm_step_out
+                )
+            else:
+                ilm_step_out, ilm_state = model.internal_language_model.loop_step(
+                    input_embed=input_embed, state=ilm_state
+                )
+                ilm_logits = model.internal_language_model.decode_logits(input_embed=input_embed, **ilm_step_out)
             ilm_log_prob = rf.log_softmax(ilm_logits, axis=model.target_dim)
             label_log_prob -= ilm_scale * ilm_log_prob
 
@@ -1799,8 +1806,7 @@ class MiniLstmIlm(rf.Module):
         return logits
 
 
-class StaticBasedIlm(rf.Module):
-
+class StaticIlm(rf.Module):
     def __init__(
         self,
         *,
@@ -1885,6 +1891,7 @@ class StaticBasedIlm(rf.Module):
         *,
         input_embed: rf.Tensor,
         state: Optional[rf.State] = None,
+        concat_allow_broadcast: bool = False,
     ) -> Tuple[Dict[str, rf.Tensor], rf.State]:
         """step of the inner loop"""
         if state is None:
@@ -1893,7 +1900,11 @@ class StaticBasedIlm(rf.Module):
         state_ = rf.State()
 
         prev_att = state.att
-        s, state_.s = self.s(rf.concat_features(input_embed, prev_att), state=state.s, spatial_dim=single_step_dim)
+        s, state_.s = self.s(
+            rf.concat_features(input_embed, prev_att, allow_broadcast=concat_allow_broadcast),
+            state=state.s,
+            spatial_dim=single_step_dim,
+        )
 
         assert self.static_att_ctx is not None, "Static attention context vector is not set."
 
@@ -1901,9 +1912,11 @@ class StaticBasedIlm(rf.Module):
 
         return {"s": s, "att": self.static_att_ctx}, state_
 
-    def decode_logits(self, *, s: Tensor, input_embed: Tensor, att: Tensor) -> Tensor:
+    def decode_logits(
+        self, *, s: Tensor, input_embed: Tensor, att: Tensor, concat_allow_broadcast: bool = False
+    ) -> Tensor:
         """logits for the decoder"""
-        readout_in = self.readout_in(rf.concat_features(s, input_embed, att))
+        readout_in = self.readout_in(rf.concat_features(s, input_embed, att, allow_broadcast=concat_allow_broadcast))
         readout = rf.reduce_out(readout_in, mode="max", num_pieces=2, out_dim=self.output_prob.in_dim)
         readout = rf.dropout(readout, drop_prob=0.3, axis=self.dropout_broadcast and readout.feature_dim)
         logits = self.output_prob(readout)
