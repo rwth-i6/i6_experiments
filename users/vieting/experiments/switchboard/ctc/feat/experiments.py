@@ -1167,60 +1167,136 @@ def run_specaug_stft_experiments():
             "bs2x5k_scf_stft_time_only": dict(
                 returnn_args={
                     **returnn_args,
-                    "specaug_old": {"max_feature": 0, "max_feature_num": 0, "stft": True},
+                    "specaug_stft": {"max_feature": 0, "max_feature_num": 0},
                 },
                 feature_args=feature_args,
                 lr_args=lr_args,
-                report_args={"batch_size": "2x5k", "stft": True},
+                report_args={"batch_size": "2x5k"},
             ),
             "bs2x5k_scf_stft_mask_1_1": dict(
                 returnn_args={
                     **returnn_args,
-                    "specaug_old": {"max_feature": 1, "max_feature_num": 1, "stft": True},
+                    "specaug_stft": {"max_feature": 1, "max_feature_num": 1},
                 },
                 feature_args=feature_args,
                 lr_args=lr_args,
-                report_args={"batch_size": "2x5k", "stft": True},
+                report_args={"batch_size": "2x5k"},
             ),
             "bs2x5k_scf_stft_mask_2_4": dict(
                 returnn_args={
                     **returnn_args,
-                    "specaug_old": {"max_feature": 4, "max_feature_num": 2, "stft": True},
+                    "specaug_stft": {"max_feature": 4, "max_feature_num": 2},
                 },
                 feature_args=feature_args,
                 lr_args=lr_args,
-                report_args={"batch_size": "2x5k", "stft": True},
+                report_args={"batch_size": "2x5k"},
             ),
             "bs2x5k_scf_stft_mask_5_8": dict(
                 returnn_args={
                     **returnn_args,
-                    "specaug_old": {"max_feature": 8, "stft": True},
+                    "specaug_stft": {"max_feature": 8},
                 },
                 feature_args=feature_args,
                 lr_args=lr_args,
-                report_args={"batch_size": "2x5k", "stft": True},
+                report_args={"batch_size": "2x5k"},
             ),
             "bs2x5k_scf_stft_mask_5_15": dict(
                 returnn_args={
                     **returnn_args,
-                    "specaug_old": {"max_feature": 15, "stft": True},
+                    "specaug_stft": {"max_feature": 15},
                 },
                 feature_args=feature_args,
                 lr_args=lr_args,
-                report_args={"batch_size": "2x5k", "stft": True},
+                report_args={"batch_size": "2x5k"},
             ),
             "bs2x5k_mel_stft_mask_5_8": dict(
                 returnn_args={
                     **returnn_args,
-                    "specaug_old": {"max_feature": 8, "stft": True},
+                    "specaug_stft": {"max_feature": 8},
                 },
                 feature_args=feature_args_lgm,
                 lr_args=lr_args,
-                report_args={"batch_size": "2x5k", "stft": True},
+                report_args={"batch_size": "2x5k",},
+            ),
+            "bs10k_mel_stft_mask_5_8": dict(
+                returnn_args={
+                    **returnn_args,
+                    "specaug_stft": {"max_feature": 8},
+                    "batch_size": 10000,
+                    "extra_args": {},
+                },
+                feature_args=feature_args_lgm,
+                lr_args=lr_args,
+                report_args={"batch_size": "10k"},
+            ),
+            "bs10k_scf_stft_mask_5_8_smaller_frames": dict(
+                returnn_args={
+                    **returnn_args,
+                    "specaug_stft": {"max_feature": 8, "frame_size": 200, "frame_shift": 80 },
+                    "batch_size": 10000,
+                    "extra_args": {
+                        "conv_pad_seq_len_to_power": 1.5,
+                    },
+                },
+                feature_args=feature_args,
+                lr_args=lr_args,
+                report_args={"batch_size": "10k"},
+            ),
+            "bs10k_scf_stft_mask_5_8_smaller_frames_and_fft": dict(
+                returnn_args={
+                    **returnn_args,
+                    "specaug_stft": {"max_feature": 8,  "frame_size": 200, "frame_shift": 80, "fft_size": 256},
+                    "batch_size": 10000,
+                    "extra_args": {
+                        "conv_pad_seq_len_to_power": 1.5,
+                    },
+                },
+                feature_args=feature_args,
+                lr_args=lr_args,
+                report_args={"batch_size": "10k"},
+            ),
+            "bs10k_mel_stft_mask_5_8_smaller_frames_and_fft": dict(
+                returnn_args={
+                    **returnn_args,
+                    "specaug_stft": {"max_feature": 8, "frame_size": 200, "frame_shift": 80, "fft_size": 256},
+                    "batch_size": 10000,
+                    "extra_args": {
+                        "conv_pad_seq_len_to_power": 1.5,
+                    },
+                },
+                feature_args=feature_args_lgm,
+                lr_args=lr_args,
+                report_args={"batch_size": "10k"},
+            ),
+            "bs10k_scf_stft_mask_5_4_smaller_frames_and_fft": dict(
+                returnn_args={
+                    **returnn_args,
+                    "specaug_stft": {"max_feature": 4, "frame_size": 200, "frame_shift": 80, "fft_size": 256},
+                    "batch_size": 10000,
+                    "extra_args": {
+                        "conv_pad_seq_len_to_power": 1.5,
+                    },
+                },
+                feature_args=feature_args,
+                lr_args=lr_args,
+                report_args={"batch_size": "10k"},
+            ),
+            "bs10k_mel_stft_mask_5_4_smaller_frames_and_fft": dict(
+                returnn_args={
+                    **returnn_args,
+                    "specaug_stft": {"max_feature": 4, "frame_size": 200, "frame_shift": 80, "fft_size": 256},
+                    "batch_size": 10000,
+                    "extra_args": {
+                        "conv_pad_seq_len_to_power": 1.5,
+                    },
+                },
+                feature_args=feature_args_lgm,
+                lr_args=lr_args,
+                report_args={"batch_size": "10k"},
             ),
         },
         num_epochs=450,
-        evaluation_epochs=[350, 390, 400, 410, 450],
+        evaluation_epochs=[24, 350, 390, 400, 410, 450],
         prefix="conformer_",
     )
 
@@ -1235,7 +1311,7 @@ def run_specaug_stft_experiments():
         dev_corpora,
         "report_specaug_stft",
         returnn_root=returnn_root,
-        recog_args={"epochs": [350, 390, 400, 410, 450]},
+        recog_args={"epochs": [24, 350, 390, 400, 410, 450]},
     )
     return report, ctc_nn_system
 
