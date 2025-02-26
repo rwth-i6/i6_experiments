@@ -114,6 +114,8 @@ def get_nn_args_single(
             if layer_config.get("class") != "variable" and layer_config.get("from", "data") == "data":
                 feature_net["subnetwork"][layer]["from"] = source_layer
 
+    feature_net_recog = copy.deepcopy(feature_net)
+
     returnn_config = get_returnn_config(
         num_inputs=1,
         num_outputs=num_outputs,
@@ -130,7 +132,7 @@ def get_nn_args_single(
         evaluation_epochs=evaluation_epochs,
         recognition=True,
         num_epochs=num_epochs,
-        feature_net=feature_net,
+        feature_net=feature_net_recog,
         **(returnn_args or {}),
     )
 
@@ -241,6 +243,8 @@ def get_returnn_config(
                 network.pop(layer)
         network["source"] = {"class": "copy", "from": "features"}
     else:
+        if specaug_stft is not None:
+            feature_net["from"] = "istft"
         # network["source"] = specaug_layer_jingjing(in_layer=["features"])
         pass
 
