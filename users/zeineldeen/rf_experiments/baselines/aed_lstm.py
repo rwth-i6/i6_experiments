@@ -1019,6 +1019,8 @@ def model_recog(
         ilm_state = model.internal_language_model.decoder_default_initial_state(batch_dims=batch_dims_)
         if isinstance(model.internal_language_model, StaticIlm):
             static_ilm_method = beam_search_opts["static_ilm_method"]
+            zero_vector = rf.zeros([model.att_num_heads * model.encoder.out_dim])
+            zero_vector.feature_dim = model.att_num_heads * model.encoder.out_dim
 
     i = 0
     seq_targets = []
@@ -1045,12 +1047,21 @@ def model_recog(
 
         if ilm_state:
             if static_ilm_method == "seq_avg":
-                model.internal_language_model.static_att_ctx = rf.reduce_mean(
-                    enc_args["enc"], axis=enc_spatial_dim
-                )  # [B,D]
+                if i == 0:
+                    model.internal_language_model.static_att_ctx = zero_vector
+                else:
+                    model.internal_language_model.static_att_ctx = rf.reduce_mean(
+                        enc_args["enc"], axis=enc_spatial_dim
+                    )  # [B,D]
 
-                # TODO: reduce_mean removes feature_dim because of a bug
-                model.internal_language_model.static_att_ctx.feature_dim = enc_args["enc"].dims[-1]
+                    # TODO: reduce_mean removes feature_dim because of a bug
+                    model.internal_language_model.static_att_ctx.feature_dim = enc_args["enc"].dims[-1]
+                    model.internal_language_model.static_att_ctx = rf.expand_dim(
+                        model.internal_language_model.static_att_ctx, model.att_num_heads
+                    )
+                    model.internal_language_model.static_att_ctx, _ = rf.merge_dims(
+                        model.internal_language_model.static_att_ctx, dims=(model.att_num_heads, model.encoder.out_dim)
+                    )
 
                 ilm_step_out, ilm_state = model.internal_language_model.loop_step(
                     input_embed=input_embed, state=ilm_state, concat_allow_broadcast=True
@@ -1058,7 +1069,10 @@ def model_recog(
                 ilm_logits = model.internal_language_model.decode_logits(
                     input_embed=input_embed, concat_allow_broadcast=True, **ilm_step_out
                 )
+            elif static_ilm_method == "zero":
+                model.internal_language_model.static_att_ctx = zero_vector
             else:
+                assert isinstance(model.internal_language_model, MiniLstmIlm)
                 ilm_step_out, ilm_state = model.internal_language_model.loop_step(
                     input_embed=input_embed, state=ilm_state
                 )
@@ -1465,6 +1479,7 @@ def get_label_scorer_and_coverage_scorer_pure_torch(
         nonlocal att_weights_dec_frame
         # Standard dot attention, inline rf.dot_attention.
         q *= self.key_dim_per_head.dimension**-0.5
+        q *= self.key_dim_per_head.dimension**-0.5
         energy = rf.matmul(q, k, reduce=self.key_dim_per_head)
         att_weights = rf.softmax(energy, axis=kv_axis)
         if model_att_reduce_type == "max":
@@ -1865,11 +1880,7 @@ class StaticIlm(rf.Module):
 
     def decoder_default_initial_state(self, *, batch_dims: Sequence[Dim]) -> rf.State:
         """Default initial state"""
-        state = rf.State(
-            s=self.s.default_initial_state(batch_dims=batch_dims),
-            att=rf.zeros(list(batch_dims) + [self.att_num_heads * self.att_context_dim]),
-        )
-        state.att.feature_dim_axis = len(state.att.dims) - 1
+        state = rf.State(s=self.s.default_initial_state(batch_dims=batch_dims))
         return state
 
     def loop_step_output_templates(self, batch_dims: List[Dim]) -> Dict[str, Tensor]:
@@ -1877,13 +1888,7 @@ class StaticIlm(rf.Module):
         return {
             "s": Tensor(
                 "s", dims=batch_dims + [self.s.out_dim], dtype=rf.get_default_float_dtype(), feature_dim_axis=-1
-            ),
-            "att": Tensor(
-                "att",
-                dims=batch_dims + [self.att_num_heads * self.att_context_dim],
-                dtype=rf.get_default_float_dtype(),
-                feature_dim_axis=-1,
-            ),
+            )
         }
 
     def loop_step(
@@ -1899,16 +1904,11 @@ class StaticIlm(rf.Module):
             state = self.decoder_default_initial_state(batch_dims=batch_dims)
         state_ = rf.State()
 
-        prev_att = state.att
         s, state_.s = self.s(
-            rf.concat_features(input_embed, prev_att, allow_broadcast=concat_allow_broadcast),
+            rf.concat_features(input_embed, self.static_att_ctx, allow_broadcast=concat_allow_broadcast),
             state=state.s,
             spatial_dim=single_step_dim,
         )
-
-        assert self.static_att_ctx is not None, "Static attention context vector is not set."
-
-        state_.att = self.static_att_ctx
 
         return {"s": s, "att": self.static_att_ctx}, state_
 
