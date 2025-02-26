@@ -1,6 +1,7 @@
 """
-V2 fixes error in KD calculation
-V3 adds symmetric keepsome
+V3 fixes eliminate blank
+V4 updates keepsome
+V5 adds threshold and random
 """
 
 import numpy as np
@@ -25,7 +26,7 @@ from i6_models.primitives.feature_extraction import LogMelFeatureExtractionV1
 
 from returnn.torch.context import get_run_ctx
 
-from .distill_pos_enc_hubert_v3_cfg import ModelConfig, DistillConfig
+from .distill_pos_enc_hubert_v5_cfg import ModelConfig, DistillConfig
 
 
 def mask_tensor(tensor: torch.Tensor, seq_len: torch.Tensor) -> torch.Tensor:
@@ -227,9 +228,6 @@ def train_step(*, model: Model, data, run_ctx, **kwargs):
     raw_audio = data["raw_audio"]  # [B, T', F]
     raw_audio_len = data["raw_audio:size1"].to("cpu")  # [B]
 
-    labels = data["labels"]  # [B, N] (sparse)
-    labels_len = data["labels:size1"]  # [B, N]
-
     logprobs_list, audio_features_len, student_logits, teacher_logits = model(
         raw_audio=raw_audio,
         raw_audio_len=raw_audio_len,
@@ -239,24 +237,29 @@ def train_step(*, model: Model, data, run_ctx, **kwargs):
     assert not isinstance(student_logits, list)
     assert student_logits.shape[1] == logprobs_list[0].shape[1]
 
-    for logprobs, layer_index, scale in zip(logprobs_list, model.return_layers, model.scales):
-        if model.distill_config.warmup_loss is not None and run_ctx.epoch < model.distill_config.warmup_loss:
-            continue
-        transposed_logprobs = torch.permute(logprobs, (1, 0, 2))  # CTC needs [T, B, F]
-        ctc_loss = nn.functional.ctc_loss(
-            transposed_logprobs,
-            labels,
-            input_lengths=audio_features_len,
-            target_lengths=labels_len,
-            blank=model.cfg.label_target_size,
-            reduction="sum",
-            zero_infinity=True,
-        )
-        num_phonemes = torch.sum(labels_len)
-        scale = scale * model.distill_config.ctc_scale if scale == 1.0 else scale
-        run_ctx.mark_as_loss(
-            name=f"ctc_loss_layer{layer_index + 1}", loss=ctc_loss, scale=scale, inv_norm_factor=num_phonemes
-        )
+    assert model.distill_config.distill_scale == 1.0
+
+    if not model.training and False:
+        for logprobs, layer_index, scale in zip(logprobs_list, model.return_layers, model.scales):
+            if model.distill_config.warmup_loss is not None and run_ctx.epoch < model.distill_config.warmup_loss:
+                continue
+            labels = data["labels"]  # [B, N] (sparse)
+            labels_len = data["labels:size1"]  # [B, N]
+            transposed_logprobs = torch.permute(logprobs, (1, 0, 2))  # CTC needs [T, B, F]
+            ctc_loss = nn.functional.ctc_loss(
+                transposed_logprobs,
+                labels,
+                input_lengths=audio_features_len,
+                target_lengths=labels_len,
+                blank=model.cfg.label_target_size,
+                reduction="sum",
+                zero_infinity=True,
+            )
+            num_phonemes = torch.sum(labels_len)
+            scale = scale * model.distill_config.ctc_scale if scale == 1.0 else scale
+            run_ctx.mark_as_loss(
+                name=f"ctc_loss_layer{layer_index + 1}", loss=ctc_loss, scale=scale, inv_norm_factor=num_phonemes
+            )
 
     T = model.distill_config.t
     counter = 0
@@ -386,6 +389,84 @@ def train_step(*, model: Model, data, run_ctx, **kwargs):
             run_ctx.mark_as_loss(
                 name=f"KL", loss=sm, scale=model.distill_config.distill_scale, inv_norm_factor=num_phonemes
             )
+    elif model.distill_config.keep_random is not None:
+        soft_targets_loss = 0
+        num_phonemes = 0
+        for teacher_seq, student_seq, labels in zip(teacher_logits, student_logits, data["labels"]):
+            if model.prior_file is not None:
+                teacher_log_soft = nn.functional.log_softmax(teacher_seq)
+                assert torch.equal(torch.argmax(teacher_seq, dim=-1), torch.argmax(teacher_log_soft, dim=-1))
+                teacher_log_soft -= torch.tensor(model.prior_scale * model.prior_file).to(device="cuda")
+                pos = torch.argmax(teacher_log_soft, dim=-1)
+            else:
+                pos = torch.argmax(teacher_seq, dim=-1)
+            pos_blank: torch.Tensor = pos == model.cfg.label_target_size
+            pos_non_blank: torch.Tensor = ~pos_blank
+            num_non_blank: torch.Tensor = torch.sum(pos_non_blank)  # [1]
+            num_select: torch.Tensor = torch.round(num_non_blank * model.distill_config.keep_random).to(
+                dtype=torch.int32
+            )
+            ls_blank = pos_blank.nonzero()
+            x = len(ls_blank)
+            positions = torch.randperm(x)
+            positions = positions[:num_select]
+            positions = ls_blank[positions]
+            tmp = torch.zeros_like(pos_blank)
+            tmp[positions] = 1
+            pos_non_blank = pos_non_blank + tmp
+            pos_non_blank = pos_non_blank.unsqueeze(dim=-1)
+            teacher_seq = torch.masked_select(teacher_seq, pos_non_blank)
+            student_seq = torch.masked_select(student_seq, pos_non_blank)
+            teacher_seq = teacher_seq.view(-1, model.cfg.label_target_size + 1)
+            student_seq = student_seq.view(-1, model.cfg.label_target_size + 1)
+            soft_targets = nn.functional.softmax(teacher_seq / T, dim=-1)
+            soft_prob = nn.functional.log_softmax(student_seq / T, dim=-1)
+            soft_targets_loss += torch.sum(soft_targets * (soft_targets.log() - soft_prob)) * (T**2)
+            num_phonemes += soft_targets.shape[0]
+            counter += 1
+
+        if num_phonemes == 0:
+            assert soft_targets_loss == 0, "No phonemes, but some loss"
+            print("WARNING: Empty KD loss")
+            num_phonemes = 1
+        num_phonemes = torch.tensor(num_phonemes)
+        run_ctx.mark_as_loss(
+            name=f"KL", loss=soft_targets_loss, scale=model.distill_config.distill_scale, inv_norm_factor=num_phonemes
+        )
+    elif model.distill_config.keep_threshold is not None:
+        soft_targets_loss = 0
+        num_phonemes = 0
+        for teacher_seq, student_seq, labels in zip(teacher_logits, student_logits, data["labels"]):
+            teacher_soft = nn.functional.softmax(teacher_seq)
+            teacher_sums = torch.concat(
+                (torch.sum(teacher_soft[:, :-1], dim=-1, keepdims=True), teacher_soft[:, -1:]), dim=-1
+            )
+            pos_blank = torch.argmax(teacher_seq, dim=-1) == model.cfg.label_target_size
+            pos_blank2 = torch.argmax(teacher_soft, dim=-1) == model.cfg.label_target_size
+            assert torch.equal(pos_blank, pos_blank2)
+            pos_thresh = teacher_sums[:, 0] >= model.distill_config.keep_threshold
+            pos_sel = pos_blank * pos_thresh
+            pos_non_blank: torch.Tensor = ~pos_blank
+            pos_non_blank = pos_non_blank + pos_sel
+            pos_non_blank = pos_non_blank.unsqueeze(dim=-1)
+            teacher_seq = torch.masked_select(teacher_seq, pos_non_blank)
+            student_seq = torch.masked_select(student_seq, pos_non_blank)
+            teacher_seq = teacher_seq.view(-1, model.cfg.label_target_size + 1)
+            student_seq = student_seq.view(-1, model.cfg.label_target_size + 1)
+            soft_targets = nn.functional.softmax(teacher_seq / T, dim=-1)
+            soft_prob = nn.functional.log_softmax(student_seq / T, dim=-1)
+            soft_targets_loss += torch.sum(soft_targets * (soft_targets.log() - soft_prob)) * (T**2)
+            num_phonemes += soft_targets.shape[0]
+            counter += 1
+
+        if num_phonemes == 0:
+            assert soft_targets_loss == 0, "No phonemes, but some loss"
+            print("WARNING: Empty KD loss")
+            num_phonemes = 1
+        num_phonemes = torch.tensor(num_phonemes)
+        run_ctx.mark_as_loss(
+            name=f"KL", loss=soft_targets_loss, scale=model.distill_config.distill_scale, inv_norm_factor=num_phonemes
+        )
     else:
         soft_targets = nn.functional.softmax(teacher_logits / T, dim=-1)
         soft_prob = nn.functional.log_softmax(student_logits / T, dim=-1)
@@ -399,10 +480,7 @@ def train_step(*, model: Model, data, run_ctx, **kwargs):
             soft_targets_log = torch.masked_fill(soft_targets_log, audio_mask, 0)
             soft_prob = torch.masked_fill(soft_prob, audio_mask, 0)
         soft_targets_loss = torch.sum(soft_targets * (soft_targets_log - soft_prob)) / soft_prob.size()[0] * (T**2)
-        num_phonemes = torch.sum(labels_len)
-        run_ctx.mark_as_loss(
-            name=f"KL", loss=soft_targets_loss, scale=model.distill_config.distill_scale, inv_norm_factor=num_phonemes
-        )
+        run_ctx.mark_as_loss(name=f"KL", loss=soft_targets_loss, scale=model.distill_config.distill_scale)
 
 
 def prior_init_hook(run_ctx, **kwargs):
@@ -438,47 +516,3 @@ def prior_step(*, model: Model, data, run_ctx, **kwargs):
         run_ctx.sum_probs = torch.sum(probs, dim=(0, 1))
     else:
         run_ctx.sum_probs += torch.sum(probs, dim=(0, 1))
-
-
-def calc_blank_init_hook(run_ctx, **kwargs):
-    run_ctx.seqs = {}
-
-
-def calc_blank_finish_hook(run_ctx, **kwargs):
-    import pickle
-
-    with open("blank_counts.pkl", "wb") as f:
-        pickle.dump(run_ctx.seqs, f)
-
-
-def calc_blank_step(*, model: Model, data, run_ctx, **kwargs):
-    raw_audio = data["raw_audio"]  # [B, T', F]
-    raw_audio_len = data["raw_audio:size1"]  # [B]
-
-    logprobs, audio_features_len, _, _ = model(
-        raw_audio=raw_audio,
-        raw_audio_len=raw_audio_len,
-    )
-    for seq, tag in zip(logprobs, data["seq_tag"]):
-        pos = torch.argmax(seq, dim=-1)
-        pos_blank: torch.Tensor = pos == model.cfg.label_target_size
-        pos_non_blank: torch.Tensor = ~pos_blank
-        idx = torch.arange(pos_non_blank.shape[0], 0, -1).to(device=logprobs.device)
-        first_pos = pos_non_blank * idx
-        first_pos = torch.argmax(first_pos, 0, keepdim=True)
-        idx = torch.arange(0, pos_non_blank.shape[0], 1).to(device=logprobs.device)
-        last_pos = pos_non_blank * idx
-        last_pos = torch.argmax(last_pos, 0, keepdim=True)
-        pos_blank = pos_blank[first_pos:last_pos]
-        groups = []
-        counter = 0
-        for pos in pos_blank:
-            if pos == 0:  # found non blank
-                if counter > 0:
-                    groups.append(counter)
-                counter = 0
-            elif pos == 1:  # another blank blank
-                counter += 1
-            else:
-                assert False, "Matrix is not boolean for some reason"
-        run_ctx.seqs[tag] = groups

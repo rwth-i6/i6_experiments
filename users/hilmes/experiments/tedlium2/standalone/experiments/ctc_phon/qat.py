@@ -1,3 +1,4 @@
+import copy
 from dataclasses import asdict
 import numpy as np
 from typing import cast, Dict
@@ -219,6 +220,7 @@ def eow_phon_ted_1023_qat():
     network_module_mem_v2 = "ctc.qat_0711.memristor_v2"
     network_module_mem_v3 = "ctc.qat_0711.memristor_v3"
     network_module_mem_v4 = "ctc.qat_0711.memristor_v4"
+    network_module_mem_v5 = "ctc.qat_0711.memristor_v5"
     from ...pytorch_networks.ctc.qat_0711.memristor_v1_cfg import QuantModelTrainConfigV4 as MemristorModelTrainConfigV1
     from ...pytorch_networks.ctc.qat_0711.memristor_v4_cfg import QuantModelTrainConfigV4 as MemristorModelTrainConfigV4
     from torch_memristor.memristor_modules import DacAdcHardwareSettings
@@ -447,7 +449,7 @@ def eow_phon_ted_1023_qat():
                     "config": train_config,
                     "network_module": network_module_mem_v4,
                     "net_args": {"model_config_dict": asdict(prior_config)},
-                    "debug": True,
+                    "debug": False,
                     "post_config": {"num_workers_per_gpu": 8},
                     "use_speed_perturbation": True,
                 }
@@ -477,7 +479,164 @@ def eow_phon_ted_1023_qat():
                 )
                 if num_cycle % 10 == 0:
                     generate_report(results=res_cyc, exp_name=training_name)
-                    qat_report[training_name] = res_cyc
+                    qat_report[training_name] = copy.deepcopy(res_cyc)
+
+            res_cyc = {}
+            for num_cycle in range(1, 11):
+                if weight_bit not in [3, 4, 5, 6, 8]:
+                    continue
+                dac_settings_lower = DacAdcHardwareSettings(
+                    input_bits=activation_bit,
+                    output_precision_bits=4,
+                    output_range_bits=4,
+                    hardware_input_vmax=0.6,
+                    hardware_output_current_scaling=8020.0,
+                )
+                model_config = MemristorModelTrainConfigV4(
+                    feature_extraction_config=fe_config,
+                    frontend_config=default_frontend_config,
+                    specaug_config=specaug_config,
+                    label_target_size=vocab_size_without_blank,
+                    conformer_size=384,
+                    num_layers=12,
+                    num_heads=4,
+                    ff_dim=1536,
+                    att_weights_dropout=0.2,
+                    conv_dropout=0.2,
+                    ff_dropout=0.2,
+                    mhsa_dropout=0.2,
+                    conv_kernel_size=31,
+                    final_dropout=0.2,
+                    specauc_start_epoch=1,
+                    weight_quant_dtype="qint8",
+                    weight_quant_method="per_tensor_symmetric",
+                    activation_quant_dtype="qint8",
+                    activation_quant_method="per_tensor_symmetric",
+                    dot_quant_dtype="qint8",
+                    dot_quant_method="per_tensor_symmetric",
+                    Av_quant_dtype="qint8",
+                    Av_quant_method="per_tensor_symmetric",
+                    moving_average=None,
+                    weight_bit_prec=weight_bit,
+                    activation_bit_prec=activation_bit,
+                    quantize_output=False,
+                    converter_hardware_settings=dac_settings_lower,
+                    quant_in_linear=True,
+                    num_cycles=num_cycle,
+                )
+
+                train_args = {
+                    "config": train_config,
+                    "network_module": network_module_mem_v4,
+                    "net_args": {"model_config_dict": asdict(model_config)},
+                    "debug": True,
+                    "post_config": {"num_workers_per_gpu": 8},
+                    "use_speed_perturbation": True,
+                }
+
+                prior_config = MemristorModelTrainConfigV4(
+                    feature_extraction_config=fe_config,
+                    frontend_config=default_frontend_config,
+                    specaug_config=specaug_config,
+                    label_target_size=vocab_size_without_blank,
+                    conformer_size=384,
+                    num_layers=12,
+                    num_heads=4,
+                    ff_dim=1536,
+                    att_weights_dropout=0.2,
+                    conv_dropout=0.2,
+                    ff_dropout=0.2,
+                    mhsa_dropout=0.2,
+                    conv_kernel_size=31,
+                    final_dropout=0.2,
+                    specauc_start_epoch=1,
+                    weight_quant_dtype="qint8",
+                    weight_quant_method="per_tensor_symmetric",
+                    activation_quant_dtype="qint8",
+                    activation_quant_method="per_tensor_symmetric",
+                    dot_quant_dtype="qint8",
+                    dot_quant_method="per_tensor_symmetric",
+                    Av_quant_dtype="qint8",
+                    Av_quant_method="per_tensor_symmetric",
+                    moving_average=None,
+                    weight_bit_prec=weight_bit,
+                    activation_bit_prec=activation_bit,
+                    quantize_output=False,
+                    converter_hardware_settings=dac_settings,
+                    quant_in_linear=True,
+                    num_cycles=0,
+                )
+                prior_args = {
+                    "config": train_config,
+                    "network_module": network_module_mem_v4,
+                    "net_args": {"model_config_dict": asdict(prior_config)},
+                    "debug": False,
+                    "post_config": {"num_workers_per_gpu": 8},
+                    "use_speed_perturbation": True,
+                }
+
+                training_name = (
+                    prefix_name
+                    + "/"
+                    + network_module_mem_v4
+                    + f"_{weight_bit}_{activation_bit}_lower_output_prec_cycle_{num_cycle // 11}"
+                )
+                res_cyc = eval_model(
+                    training_name=training_name + f"_{num_cycle}",
+                    train_job=train_job,
+                    train_args=train_args,
+                    train_data=train_data_4k,
+                    decoder_config=default_decoder_config,
+                    dev_dataset_tuples=dev_dataset_tuples,
+                    result_dict=res_cyc,
+                    decoder_module="ctc.decoder.flashlight_qat_phoneme_ctc",
+                    prior_scales=[0.5],
+                    lm_scales=[2.0],
+                    prior_args=prior_args,
+                    run_best=False,
+                    run_best_4=False,
+                    import_memristor=not train_args["debug"],
+                    use_gpu=True,
+                )
+                if num_cycle % 10 == 0:
+                    generate_report(results=res_cyc, exp_name=training_name)
+                    qat_report[training_name] = copy.deepcopy(res_cyc)
+                if False:
+                    train_args_v5 = {
+                        "config": train_config,
+                        "network_module": network_module_mem_v5,
+                        "net_args": {"model_config_dict": asdict(model_config)},
+                        "debug": True,
+                        "post_config": {"num_workers_per_gpu": 8},
+                        "use_speed_perturbation": True,
+                    }
+                    training_name_v5 = (
+                        prefix_name
+                        + "/"
+                        + network_module_mem_v5
+                        + f"_{weight_bit}_{activation_bit}_lower_output_prec_cycle_{num_cycle // 11}"
+                    )
+                    res_cyc = eval_model(
+                        training_name=training_name_v5 + f"_{num_cycle}",
+                        train_job=train_job,
+                        train_args=train_args_v5,
+                        train_data=train_data_4k,
+                        decoder_config=default_decoder_config,
+                        dev_dataset_tuples=dev_dataset_tuples,
+                        result_dict=res_cyc,
+                        decoder_module="ctc.decoder.flashlight_qat_phoneme_ctc",
+                        prior_scales=[0.5],
+                        lm_scales=[2.0],
+                        prior_args=prior_args,
+                        run_best=False,
+                        run_best_4=False,
+                        import_memristor=not train_args_v5["debug"],
+                        use_gpu=True,
+                    )
+
+                    if num_cycle % 10 == 0:
+                        generate_report(results=res_cyc, exp_name=training_name_v5)
+                        qat_report[training_name_v5] = copy.deepcopy(res_cyc)
 
             if weight_bit in [3, 4, 6, 8]:
                 for prec_bit, range_bit in [(8, 8), (8, 6), (6, 8), (6, 6), (4, 6), (4, 4), (4, 2), (2, 2), (2, 1)]:

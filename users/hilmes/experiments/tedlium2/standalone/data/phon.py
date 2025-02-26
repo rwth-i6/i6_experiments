@@ -1,6 +1,7 @@
 """
 Dataset helpers for the EOW-augmented phoneme training
 """
+
 from sisyphus import tk
 
 import os
@@ -10,10 +11,13 @@ from i6_core.corpus.transform import ApplyLexiconToCorpusJob
 from i6_core.g2p.convert import BlissLexiconToG2PLexiconJob
 from i6_core.lexicon.modification import AddEowPhonemesToLexiconJob
 from i6_core.returnn.vocabulary import ReturnnVocabFromPhonemeInventory
+from i6_core.returnn.oggzip import BlissToOggZipJob
 
 from i6_experiments.common.datasets.tedlium2.corpus import get_bliss_corpus_dict
 from i6_experiments.common.datasets.tedlium2.lexicon import get_bliss_lexicon, get_g2p_augmented_bliss_lexicon
 from i6_experiments.common.setups.returnn.datastreams.vocabulary import LabelDatastream
+
+from ..default_tools import RETURNN_EXE, MINI_RETURNN_ROOT
 
 from .common import get_zip, build_training_datasets, TrainingDatasets, DatasetSettings
 
@@ -48,7 +52,7 @@ def get_eow_bliss(corpus_key: str, remove_unk_seqs=False) -> tk.Path:
         bliss = FilterCorpusRemoveUnknownWordSegmentsJob(
             bliss_corpus=bliss,
             # cv may include words from g2p
-            bliss_lexicon=get_eow_lexicon(with_g2p=True), # TODO
+            bliss_lexicon=get_eow_lexicon(with_g2p=True),  # TODO
             all_unknown=False,
         ).out_corpus
 
@@ -118,6 +122,38 @@ def build_eow_phon_training_datasets(
 
     return build_training_datasets(
         train_ogg=train_ogg,
+        dev_ogg=dev_ogg,
+        settings=settings,
+        label_datastream=label_datastream,
+    )
+
+
+def build_combined_eow_phon_training_datasets(
+    prefix: str,
+    settings: DatasetSettings,
+) -> TrainingDatasets:
+    """
+    :param prefix:
+    :param settings: configuration object for the dataset pipeline
+    """
+    label_datastream = get_eow_vocab_datastream(prefix=prefix)
+
+    _, train_ogg = get_eow_bliss_and_zip(corpus_key="train", remove_unk_seqs=False)
+    _, dev_ogg = get_eow_bliss_and_zip(corpus_key="dev", remove_unk_seqs=True)
+
+    ll_xml = tk.Path("/work/smt4/hilmes/LibriLight/corpus.xml", hash_overwrite="LibriLightSmallPath2")
+    ll_zip_dataset_job = BlissToOggZipJob(
+        bliss_corpus=ll_xml,
+        no_conversion=False,  # for Tedlium we need conversion to cut the audio
+        returnn_python_exe=RETURNN_EXE,
+        returnn_root=MINI_RETURNN_ROOT,
+    )
+    ll_zip_dataset_job.rqmt = {"cpu": 4, "time": 24, "mem": 16}
+    ll_zip_dataset_job.add_alias(prefix + "convert_librilight")
+    ll_ogg = ll_zip_dataset_job.out_ogg_zip
+
+    return build_training_datasets(
+        train_ogg=[train_ogg, train_ogg, ll_ogg],  # to have equal partitioning
         dev_ogg=dev_ogg,
         settings=settings,
         label_datastream=label_datastream,

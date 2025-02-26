@@ -51,7 +51,7 @@ class Model(torch.nn.Module):
                     hidden_dim=self.cfg.ff_dim,
                     dropout=self.cfg.ff_dropout,
                     activation=nn.functional.silu,
-                    dropout_broadcast_axes=self.cfg.dropout_broadcast_axes
+                    dropout_broadcast_axes=self.cfg.dropout_broadcast_axes,
                 ),
                 mhsa_cfg=ConformerMHSARelPosV1Config(
                     input_dim=conformer_size,
@@ -66,13 +66,14 @@ class Model(torch.nn.Module):
                     with_pos_bias=self.cfg.pos_emb_config.with_pos_bias,
                     separate_pos_emb_per_head=self.cfg.pos_emb_config.separate_pos_emb_per_head,
                     pos_emb_dropout=self.cfg.pos_emb_config.pos_emb_dropout,
-
                 ),
                 conv_cfg=ConformerConvolutionV2Config(
-                    channels=conformer_size, kernel_size=self.cfg.conv_kernel_size, dropout=self.cfg.conv_dropout,
+                    channels=conformer_size,
+                    kernel_size=self.cfg.conv_kernel_size,
+                    dropout=self.cfg.conv_dropout,
                     activation=nn.functional.silu,
                     norm=LayerNormNC(conformer_size),
-                    dropout_broadcast_axes=self.cfg.dropout_broadcast_axes
+                    dropout_broadcast_axes=self.cfg.dropout_broadcast_axes,
                 ),
                 modules=self.cfg.module_list,
                 scales=self.cfg.module_scales,
@@ -82,12 +83,15 @@ class Model(torch.nn.Module):
         self.feature_extraction = LogMelFeatureExtractionV1(cfg=self.cfg.feature_extraction_config)
         self.conformer = ConformerRelPosEncoderV1(cfg=conformer_config)
         self.num_output_linears = 1 if self.cfg.aux_ctc_loss_layers is None else len(self.cfg.aux_ctc_loss_layers)
-        self.output_linears = nn.ModuleList([
-            nn.Linear(conformer_size, self.cfg.label_target_size + 1)  # + CTC blank
-            for _ in range(self.num_output_linears)
-        ])
-        self.output_dropout = BroadcastDropout(p=self.cfg.final_dropout,
-                                               dropout_broadcast_axes=self.cfg.dropout_broadcast_axes)
+        self.output_linears = nn.ModuleList(
+            [
+                nn.Linear(conformer_size, self.cfg.label_target_size + 1)  # + CTC blank
+                for _ in range(self.num_output_linears)
+            ]
+        )
+        self.output_dropout = BroadcastDropout(
+            p=self.cfg.final_dropout, dropout_broadcast_axes=self.cfg.dropout_broadcast_axes
+        )
         self.return_layers = self.cfg.aux_ctc_loss_layers or [self.cfg.num_layers - 1]
         self.scales = self.cfg.aux_ctc_loss_scales or [1.0]
         self.specaug_start_epoch = self.cfg.specauc_start_epoch
@@ -163,8 +167,9 @@ def train_step(*, model: Model, data, run_ctx, **kwargs):
             zero_infinity=True,
         )
         num_phonemes = torch.sum(labels_len)
-        run_ctx.mark_as_loss(name=f"ctc_loss_layer{layer_index + 1}", loss=ctc_loss, scale=scale,
-                             inv_norm_factor=num_phonemes)
+        run_ctx.mark_as_loss(
+            name=f"ctc_loss_layer{layer_index + 1}", loss=ctc_loss, scale=scale, inv_norm_factor=num_phonemes
+        )
 
 
 def prior_init_hook(run_ctx, **kwargs):
@@ -180,8 +185,8 @@ def prior_finish_hook(run_ctx, **kwargs):
     average_probs = all_probs / all_frames
     log_average_probs = np.log(average_probs)
     print("Prior sum in std-space (should be close to 1.0):", np.sum(average_probs))
-    with open("prior.txt", 'w') as f:
-        np.savetxt(f, log_average_probs, delimiter=' ')
+    with open("prior.txt", "w") as f:
+        np.savetxt(f, log_average_probs, delimiter=" ")
     print("Saved prior in prior.txt in +log space.")
 
 
@@ -201,3 +206,48 @@ def prior_step(*, model: Model, data, run_ctx, **kwargs):
         run_ctx.sum_probs = torch.sum(probs, dim=(0, 1))
     else:
         run_ctx.sum_probs += torch.sum(probs, dim=(0, 1))
+
+
+def calc_blank_init_hook(run_ctx, **kwargs):
+    run_ctx.seqs = {}
+
+
+def calc_blank_finish_hook(run_ctx, **kwargs):
+    import pickle
+
+    with open("blank_counts.pkl", "wb") as f:
+        pickle.dump(run_ctx.seqs, f)
+
+
+def calc_blank_step(*, model: Model, data, run_ctx, **kwargs):
+    raw_audio = data["raw_audio"]  # [B, T', F]
+    raw_audio_len = data["raw_audio:size1"]  # [B]
+
+    logprobs, audio_features_len = model(
+        raw_audio=raw_audio,
+        raw_audio_len=raw_audio_len,
+    )
+    logprobs = logprobs[-1]
+    for seq, tag in zip(logprobs, data["seq_tag"]):
+        pos = torch.argmax(seq, dim=-1)
+        pos_blank: torch.Tensor = pos == model.cfg.label_target_size
+        pos_non_blank: torch.Tensor = ~pos_blank
+        idx = torch.arange(pos_non_blank.shape[0], 0, -1).to(device=logprobs.device)
+        first_pos = pos_non_blank * idx
+        first_pos = torch.argmax(first_pos, 0, keepdim=True)
+        idx = torch.arange(0, pos_non_blank.shape[0], 1).to(device=logprobs.device)
+        last_pos = pos_non_blank * idx
+        last_pos = torch.argmax(last_pos, 0, keepdim=True)
+        pos_blank = pos_blank[first_pos:last_pos]
+        groups = []
+        counter = 0
+        for pos in pos_blank:
+            if pos == 0:  # found non blank
+                if counter > 0:
+                    groups.append(counter)
+                counter = 0
+            elif pos == 1:  # another blank blank
+                counter += 1
+            else:
+                assert False, "Matrix is not boolean for some reason"
+        run_ctx.seqs[tag] = groups

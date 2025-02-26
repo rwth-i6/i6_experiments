@@ -280,9 +280,9 @@ def build_base_report(report: Dict):
         if all(new_dic.values()):
             best = min(new_dic, key=new_dic.get)
             best_dc[" ".join(exp.split("/")[5:])] = ("{:.1f}".format(float(new_dic[best])), best)
-            if "/".join(best.split("/")[:-2]) + "/test" in dic:
-                best_dc["/".join(best.split("/")[:-2]) + "/test"] = (
-                    "{:.1f}".format(float(dic["/".join(best.split("/")[:-2]) + "/test"])),
+            if "/".join(best.split("/")[:-2]) + "/test-other" in dic:
+                best_dc["/".join(best.split("/")[:-2]) + "/test-other"] = (
+                    "{:.1f}".format(float(dic["/".join(best.split("/")[:-2]) + "/test-other"])),
                     best,
                 )
         else:
@@ -311,10 +311,18 @@ def build_hubert_distill_report(report: Dict):
         best_dc[exp] = best
     for exp, dic in report.items():
         instanciate_delayed(dic)
-        new_dic = {k: v for k, v in dic.items() if "other" in k}
-        if all(dic.values()):
+        new_dic = {k: v for k, v in dic.items() if "other" in k and "test" not in k}
+        if all(new_dic.values()):
             best = min(new_dic, key=new_dic.get)
             best_dc[" ".join(exp.split("/")[5:])] = ("{:.1f}".format(float(new_dic[best])), best)
+            if "/".join(best.split("/")[:-2]) + "/test-other" in dic:
+                if dic["/".join(best.split("/")[:-2]) + "/test-other"] is not None:
+                    best_dc["/".join(best.split("/")[:-2]) + "/test-other"] = (
+                        "{:.1f}".format(float(dic["/".join(best.split("/")[:-2]) + "/test-other"])),
+                        best,
+                    )
+                else:
+                    best_dc["/".join(best.split("/")[:-2]) + "/test-other"] = ("None", "")
         else:
             best_dc[" ".join(exp.split("/")[5:])] = ("None", "")
     line = []
@@ -336,16 +344,24 @@ def build_hubert_distill_report(report: Dict):
         "trim_blanks",
         "elim_blank num",
         # "long",
+        "random",
+        "thresh",
     ]
     line.append("Baselines")
     for exp, value in best_dc.items():
         if (
-            not any(name in exp.split("_")[-1] for name in exps + ["True", "False"])
+            not any(name in exp.split("_")[-1] for name in exps)
             and not any(exp.endswith(name) for name in exps + ["True", "False"])
             and not ["elim", "blank"] == exp.split("_")[-3:-1]
             and not "trim_blanks" in exp
+            and not "test" in exp
         ):
             line.append(f"{' '.join(exp.split('.')[2:])}: {value[0]}   {' '.join(value[1].split('/')[6:])}")
+            if "/".join(value[1].split("/")[:-2]) + "/test-other" in best_dc:
+                value_test = best_dc["/".join(value[1].split("/")[:-2]) + "/test-other"]
+                line.append(
+                    f"{' '.join(value[1].split('.')[2:-2])+ '/test-other'}: {value_test[0]}   {' '.join(value_test[1].split('/')[6:])}"
+                )
     best_dc = {
         exp: value
         for exp, value in best_dc.items()
@@ -361,6 +377,8 @@ def build_hubert_distill_report(report: Dict):
     for name in exps:
         line.append(name)
         for exp, value in best_dc.items():
+            if "test" in exp:
+                continue
             if exp.endswith(name):
                 line.append(f"{' '.join(exp.split('.')[2:])}: {value[0]}   {' '.join(value[1].split('/')[6:])}")
                 del tmp[exp]
@@ -376,6 +394,24 @@ def build_hubert_distill_report(report: Dict):
             elif name == "trim_blanks" and "trim_blanks" in exp:
                 line.append(f"{' '.join(exp.split('.')[2:])}: {value[0]}   {' '.join(value[1].split('/')[6:])}")
                 del tmp[exp]
+            elif name == "random" and "random" in exp.split("_")[-2]:
+                line.append(f"{' '.join(exp.split('.')[2:])}: {value[0]}   {' '.join(value[1].split('/')[6:])}")
+                del tmp[exp]
+                if "/".join(value[1].split("/")[:-2]) + "/test-other" in best_dc:
+                    value_test = best_dc["/".join(value[1].split("/")[:-2]) + "/test-other"]
+                    line.append(
+                        f"{' '.join(value[1].split('.')[2:-2]) + '/test-other'}: {value_test[0]}   {' '.join(value_test[1].split('/')[6:])}"
+                    )
+                    del tmp["/".join(value[1].split("/")[:-2]) + "/test-other"]
+            elif name == "thresh" and "thresh" in exp.split("_")[-2]:
+                line.append(f"{' '.join(exp.split('.')[2:])}: {value[0]}   {' '.join(value[1].split('/')[6:])}")
+                del tmp[exp]
+                if "/".join(value[1].split("/")[:-2]) + "/test-other" in best_dc:
+                    value_test = best_dc["/".join(value[1].split("/")[:-2]) + "/test-other"]
+                    line.append(
+                        f"{' '.join(value[1].split('.')[2:-2]) + '/test-other'}: {value_test[0]}   {' '.join(value_test[1].split('/')[6:])}"
+                    )
+                    del tmp["/".join(value[1].split("/")[:-2]) + "/test-other"]
         line.append("")
         # best_dc = {
         #     exp: value
@@ -394,6 +430,12 @@ def build_hubert_distill_report(report: Dict):
     # best_dc = {
     #     exp: value for exp, value in best_dc.items() if not any(exp.endswith(name) for name in ["True", "False"])
     # }
+    best_dc = copy.deepcopy(tmp)
+    line.append("Testsets")
+    for exp, value in best_dc.items():
+        if "test" in exp:
+            line.append(f"{' '.join(exp.split('.')[2:])}: {value[0]}   {' '.join(value[1].split('/')[6:])}")
+            del tmp[exp]
     best_dc = tmp
     assert len(best_dc) == 0, best_dc
     return "\n".join(line)

@@ -478,12 +478,9 @@ def build_hubert_distill_report(report: Dict):
         "elim_blank_prior",
         "kdhyps",
         "trim_blanks",
-        "elim_blank num",
-        # "long",
-        "lm",
-        "keep",
-        "increase",
         "sym",
+        "rdn",
+        "thresh",
     ]
     line.append("Baselines")
     tmp = copy.deepcopy(best_dc)
@@ -492,9 +489,16 @@ def build_hubert_distill_report(report: Dict):
             not any(name in exp.split("_")[-1] or exp.endswith(name) for name in exps + ["True", "False"])
             and not ["elim", "blank"] == exp.split("_")[-3:-1]
             and not "trim_blanks" in exp
+            and not "test" in exp
         ):
             line.append(f"{' '.join(exp.split('.')[2:])}: {value[0]}   {' '.join(value[1].split('/')[6:])}")
             del tmp[exp]
+            if "/".join(value[1].split("/")[:-2]) + "/test" in best_dc:
+                value_test = best_dc["/".join(value[1].split("/")[:-2]) + "/test"]
+                line.append(
+                    f"{' '.join(value_test[1].split('.')[2:-2])+ '/test'}: {value_test[0]}   {' '.join(value_test[1].split('/')[6:])}"
+                )
+                del tmp["/".join(value[1].split("/")[:-2]) + "/test"]
     best_dc = tmp
     # best_dc = {
     #     exp: value
@@ -511,9 +515,17 @@ def build_hubert_distill_report(report: Dict):
         best_dc = copy.deepcopy(tmp)
         line.append(name)
         for exp, value in best_dc.items():
+            if "test" in exp:
+                continue
             if exp.endswith(name):
                 line.append(f"{' '.join(exp.split('.')[2:])}: {value[0]}   {' '.join(value[1].split('/')[6:])}")
                 del tmp[exp]
+                if "/".join(value[1].split("/")[:-2]) + "/test" in best_dc:
+                    value_test = best_dc["/".join(value[1].split("/")[:-2]) + "/test"]
+                    line.append(
+                        f"{' '.join(value_test[1].split('.')[2:-2]) + '/test'}: {value_test[0]}   {' '.join(value_test[1].split('/')[6:])}"
+                    )
+                    del tmp["/".join(value[1].split("/")[:-2]) + "/test"]
             elif name == "keepsome" and "keepsome" in exp.split("_")[-1]:
                 line.append(f"{' '.join(exp.split('.')[2:])}: {value[0]}   {' '.join(value[1].split('/')[6:])}")
                 del tmp[exp]
@@ -536,16 +548,35 @@ def build_hubert_distill_report(report: Dict):
             elif name == "increase" and "increase" in exp.split("_")[-2]:
                 line.append(f"{' '.join(exp.split('.')[2:])}: {value[0]}   {' '.join(value[1].split('/')[6:])}")
                 del tmp[exp]
+            elif name == "rdn" and "rdn" in exp.split("_")[-1]:
+                line.append(f"{' '.join(exp.split('.')[2:])}: {value[0]}   {' '.join(value[1].split('/')[6:])}")
+                del tmp[exp]
+                if "/".join(value[1].split("/")[:-2]) + "/test" in best_dc:
+                    value_test = best_dc["/".join(value[1].split("/")[:-2]) + "/test"]
+                    line.append(
+                        f"{' '.join(value_test[1].split('.')[2:-2]) + '/test'}: {value_test[0]}   {' '.join(value_test[1].split('/')[6:])}"
+                    )
+                    del tmp["/".join(value[1].split("/")[:-2]) + "/test"]
+
+            elif name == "thresh" and "thresh" in exp.split("_")[-1]:
+                line.append(f"{' '.join(exp.split('.')[2:])}: {value[0]}   {' '.join(value[1].split('/')[6:])}")
+                del tmp[exp]
+                if "/".join(value[1].split("/")[:-2]) + "/test" in best_dc:
+                    value_test = best_dc["/".join(value[1].split("/")[:-2]) + "/test"]
+                    line.append(
+                        f"{' '.join(value_test[1].split('.')[2:-2]) + '/test'}: {value_test[0]}   {' '.join(value_test[1].split('/')[6:])}"
+                    )
+                    del tmp["/".join(value[1].split("/")[:-2]) + "/test"]
+
         line.append("")
 
-    tmp = copy.deepcopy(best_dc)
+    best_dc = copy.deepcopy(tmp)
     line.append("Testsets")
     for exp, value in best_dc.items():
         if "test" in exp:
-            line.append(
-                f"{' '.join(exp.split('.')[2:])}: {value[0]}   {' '.join(value[1].split('/')[6:])}"
-            )
+            line.append(f"{' '.join(exp.split('.')[2:])}: {value[0]}   {' '.join(value[1].split('/')[6:])}")
             del tmp[exp]
+    best_dc = tmp
     assert len(best_dc) == 0, best_dc
     return "\n".join(line)
 

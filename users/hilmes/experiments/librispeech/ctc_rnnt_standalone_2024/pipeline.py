@@ -20,7 +20,7 @@ from i6_core.returnn.forward import ReturnnForwardJobV2
 
 from i6_experiments.common.setups.returnn.datasets import Dataset
 
-from .config import get_forward_config, get_training_config, get_prior_config, TrainingDatasets
+from .config import get_forward_config, get_training_config, get_prior_config, TrainingDatasets, serialize_forward
 from .default_tools import SCTK_BINARY_PATH, RETURNN_EXE, MINI_RETURNN_ROOT
 
 
@@ -389,3 +389,65 @@ def generate_kd_hypothesis(
         tk.register_output(prefix_name + "/sclite/report", sclite_job.out_report_dir)
 
     return search_job.out_files["n_best_probs.py"], asr_model.prior_file, asr_model.checkpoint
+
+
+def calculate_blank_counts(
+    prefix_name: str,
+    train_job: ReturnnTrainingJob,
+    train_args,
+    train_data: TrainingDatasets,
+    checkpoint: Union[int, str],
+    debug=False,
+):
+    if checkpoint == "best4":
+        asr_model = prepare_asr_model(
+            prefix_name,
+            train_job,
+            train_args,
+            with_prior=True,
+            datasets=train_data,
+            get_best_averaged_checkpoint=(4, "dev_loss_ctc"),
+        )
+    else:
+        asr_model = prepare_asr_model(
+            prefix_name, train_job, train_args, with_prior=True, datasets=train_data, get_specific_checkpoint=checkpoint
+        )
+    post_config = {
+        "num_workers_per_gpu": 2,
+    }
+
+    base_config = {
+        #############
+        "batch_size": 500 * 16000,
+        "max_seqs": 240,
+        #############
+        "forward": copy.deepcopy(train_data.cv.as_returnn_opts()),
+    }
+    config = {**base_config, **copy.deepcopy({})}
+    post_config["backend"] = "torch"
+
+    serializer = serialize_forward(
+        network_module=train_args["network_module"],
+        net_args=train_args["net_args"],
+        unhashed_net_args=train_args.get("unhashed_net_args", None),
+        forward_module=None,  # same as network
+        forward_step_name="calc_blank",
+        forward_init_args=None,
+        unhashed_forward_init_args=None,
+        debug=debug,
+    )
+    returnn_config = ReturnnConfig(config=config, post_config=post_config, python_epilog=[serializer])
+    search_job = ReturnnForwardJobV2(
+        model_checkpoint=asr_model.checkpoint,
+        returnn_config=returnn_config,
+        log_verbosity=5,
+        mem_rqmt=10,
+        time_rqmt=2,
+        device="cpu",
+        cpu_rqmt=8,
+        returnn_python_exe=RETURNN_EXE,
+        returnn_root=MINI_RETURNN_ROOT,
+        output_files=["blank_counts.pkl"],
+    )
+    search_job.add_alias(prefix_name + "/calculate_blank_counts")
+    return search_job.out_files["blank_counts.pkl"]

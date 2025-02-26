@@ -151,8 +151,8 @@ class Model(torch.nn.Module):
             log_probs = torch.log_softmax(logits, dim=2)
             log_probs_list.append(log_probs)
 
-        if len(log_probs_list) == 1:
-            log_probs_list = log_probs_list[0]
+        # if len(log_probs_list) == 1:
+        #     log_probs_list = log_probs_list[0]
 
         return log_probs_list, torch.sum(out_mask, dim=1)
 

@@ -9,7 +9,7 @@ from ...data.common import DatasetSettings, build_test_dataset
 from ...data.phon import build_eow_phon_training_datasets, get_text_lexicon, get_eow_bliss
 from ...default_tools import RETURNN_EXE, MINI_RETURNN_ROOT, SCTK_BINARY_PATH
 from ...lm import get_4gram_binary_lm
-from ...pipeline import training, prepare_asr_model, get_forward_config, generate_kd_hypothesis
+from ...pipeline import training, prepare_asr_model, get_forward_config, generate_kd_hypothesis, calculate_blank_counts
 from ...report import generate_report
 from functools import partial
 from sisyphus import tk
@@ -459,6 +459,15 @@ def eow_phon_ted_auxloss_distill(get_report=False):
                                 test_dataset_tuples=test_dataset_tuples,
                             )
                             generate_report(results=results, exp_name=training_name)
+                            blank_counts = calculate_blank_counts(
+                                prefix_name=training_name,
+                                train_job=train_job,
+                                train_args=train_args,
+                                train_data=train_data,
+                                checkpoint=epochs,
+                                debug=True,
+                            )
+                            tk.register_output(training_name + "/" + "blank_counts", blank_counts)
                             new_rep[training_name] = results
                             chkpts[training_name] = train_job.out_checkpoints[250]
                             del results
@@ -718,6 +727,16 @@ def eow_phon_ted_auxloss_distill(get_report=False):
                                 generate_report(results=results, exp_name=training_name)
                                 new_rep[training_name] = results
                                 del results
+
+                                blank_counts = calculate_blank_counts(
+                                    prefix_name=training_name,
+                                    train_job=train_job,
+                                    train_args=train_args,
+                                    train_data=train_data,
+                                    checkpoint=epochs,
+                                    debug=True,
+                                )
+                                tk.register_output(training_name + "/" + "blank_counts", blank_counts)
 
     tk.register_report("reports/pos_enc_report", partial(build_base_report, new_rep), required=new_rep)
     if get_report is True:
