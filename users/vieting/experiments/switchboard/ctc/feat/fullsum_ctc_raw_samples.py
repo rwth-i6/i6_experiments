@@ -184,8 +184,7 @@ def make_conformer_fullsum_ctc_model(
             }
             from_list = ["stft"]
 
-            specaug_func = add_specaug_layer_stft
-            from_list, python_code = specaug_func(network, from_list=from_list, **specaug_stft_args)
+            from_list, python_code = add_specaug_layer_stft(network, from_list=from_list, **specaug_stft_args)
 
             # Add iSTFT layer
             network["istft"] = {
@@ -208,7 +207,6 @@ def make_conformer_fullsum_ctc_model(
                 **specaug_old,
             }
             from_list, python_code = specaug_func(network, from_list=from_list, **specaug_old_args)
-
         elif specaug_config is not None:
             assert specaug_old is None
             from_list, python_code = add_specaug_layer_configurable(

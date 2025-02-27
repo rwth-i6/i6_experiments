@@ -13,7 +13,7 @@ def add_specaug_layer(
     max_feature: int = 5,
 ) -> List[str]:
     if from_list is None:
-        from_list = ["stft"]
+        from_list = ["data"]
     network[name] = {
         "class": "eval",
         "from": from_list,
@@ -21,6 +21,7 @@ def add_specaug_layer(
     }
 
     return [name], get_specaug_funcs()
+
 
 def _mask(x, batch_axis, axis, pos, max_amount):
     """
@@ -35,21 +36,15 @@ def _mask(x, batch_axis, axis, pos, max_amount):
     ndim = x.get_shape().ndims
     n_batch = tf.shape(x)[batch_axis]
     dim = tf.shape(x)[axis]
-    amount = tf.random.uniform(
-        shape=(n_batch,), minval=1, maxval=max_amount + 1, dtype=tf.int32
-    )
+    amount = tf.random.uniform(shape=(n_batch,), minval=1, maxval=max_amount + 1, dtype=tf.int32)
     pos2 = tf.math.minimum(pos + amount, dim)
     idxs = tf.expand_dims(tf.range(0, dim), 0)  # (1,dim)
     pos_bc = tf.expand_dims(pos, 1)  # (batch,1)
     pos2_bc = tf.expand_dims(pos2, 1)  # (batch,1)
-    cond = tf.math.logical_and(
-        tf.greater_equal(idxs, pos_bc), tf.less(idxs, pos2_bc)
-    )  # (batch,dim)
+    cond = tf.math.logical_and(tf.greater_equal(idxs, pos_bc), tf.less(idxs, pos2_bc))  # (batch,dim)
     if batch_axis > axis:
         cond = tf.transpose(cond)  # (dim,batch)
-    cond = tf.reshape(
-        cond, [tf.shape(x)[i] if i in (batch_axis, axis) else 1 for i in range(ndim)]
-    )
+    cond = tf.reshape(cond, [tf.shape(x)[i] if i in (batch_axis, axis) else 1 for i in range(ndim)])
     from TFUtil import where_bc
 
     x = where_bc(cond, tf.constant(0.0, dtype=x.dtype), x)
@@ -71,14 +66,10 @@ def random_mask(x, batch_axis, axis, min_num, max_num, max_dims):
     if isinstance(min_num, int) and isinstance(max_num, int) and min_num == max_num:
         num = min_num
     else:
-        num = tf.random.uniform(
-            shape=(n_batch,), minval=min_num, maxval=max_num + 1, dtype=tf.int32
-        )
+        num = tf.random.uniform(shape=(n_batch,), minval=min_num, maxval=max_num + 1, dtype=tf.int32)
     # https://github.com/tensorflow/tensorflow/issues/9260
     # https://timvieira.github.io/blog/post/2014/08/01/gumbel-max-trick-and-weighted-reservoir-sampling/
-    z = -tf.math.log(
-        -tf.math.log(tf.random.uniform((n_batch, tf.shape(x)[axis]), 0, 1))
-    )
+    z = -tf.math.log(-tf.math.log(tf.random.uniform((n_batch, tf.shape(x)[axis]), 0, 1)))
     _, indices = tf.math.top_k(z, num if isinstance(num, int) else tf.reduce_max(num))
     # indices should be sorted, and of shape (batch,num), entries (int32) in [0,dim)
     # indices = tf.Print(indices, ["indices", indices, tf.shape(indices)])
