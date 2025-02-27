@@ -1304,9 +1304,7 @@ def run_specaug_stft_experiments():
                     **returnn_args,
                     "specaug_stft": {"max_feature": 4},
                     "batch_size": 10000,
-                    "extra_args": {
-                        "conv_pad_seq_len_to_power": 1.5,
-                    },
+                    "extra_args": {},
                 },
                 feature_args=feature_args_lgm,
                 lr_args=lr_args,
@@ -1314,7 +1312,7 @@ def run_specaug_stft_experiments():
             ),
         },
         num_epochs=450,
-        evaluation_epochs=[24, 350, 390, 400, 410, 450],
+        evaluation_epochs=[24, 350, 390, 400, 410, 420, 430, 440, 450],
         prefix="conformer_",
     )
 
@@ -1327,9 +1325,9 @@ def run_specaug_stft_experiments():
         nn_args,
         report_args_collection,
         dev_corpora,
-        "report_specaug_stft",
+        "report_specaug_stft.csv",
         returnn_root=returnn_root,
-        recog_args={"epochs": [24, 350, 390, 400, 410, 450]},
+        recog_args={"epochs": [24, 350, 390, 400, 410, 420, 430, 440, 450]},
     )
     return report, ctc_nn_system
 
