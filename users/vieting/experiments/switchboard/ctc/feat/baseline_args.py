@@ -245,8 +245,6 @@ def get_returnn_config(
     else:
         if specaug_stft is not None:
             feature_net["from"] = "istft"
-        # network["source"] = specaug_layer_jingjing(in_layer=["features"])
-        pass
 
     if audio_perturbation and recognition:
         # Remove pre-processing from recognition and replace with layers in the network if needed

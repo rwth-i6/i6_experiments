@@ -162,9 +162,9 @@ def make_conformer_fullsum_ctc_model(
         python_code = []
     else:
         if specaug_stft is not None:
-            frame_size = specaug_stft.pop("frame_size", 400)
-            frame_shift = specaug_stft.pop("frame_shift", 160)
-            fft_size = specaug_stft.pop("fft_size", 512)
+            frame_size = specaug_stft.pop("frame_size", 200)
+            frame_shift = specaug_stft.pop("frame_shift", 80)
+            fft_size = specaug_stft.pop("fft_size", 256)
 
             specaug_stft_args = {
                 "max_time_num": 1,
