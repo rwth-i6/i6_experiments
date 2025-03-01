@@ -1249,19 +1249,6 @@ def run_specaug_stft_experiments():
                 lr_args=lr_args,
                 report_args={"batch_size": "10k"},
             ),
-            "bs10k_scf_stft_fmask_5_8_smaller_frames": dict(
-                returnn_args={
-                    **returnn_args,
-                    "specaug_stft": {"max_feature": 8, "fft_size": 512},
-                    "batch_size": 10000,
-                    "extra_args": {
-                        "conv_pad_seq_len_to_power": 1.5,
-                    },
-                },
-                feature_args=feature_args_scf,
-                lr_args=lr_args,
-                report_args={"batch_size": "10k"},
-            ),
             "bs10k_scf_stft_fmask_5_8_smaller_frames_and_fft": dict(
                 returnn_args={
                     **returnn_args,
