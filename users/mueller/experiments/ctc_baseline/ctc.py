@@ -9,6 +9,7 @@ import functools
 import torch
 import sys
 import time
+import warnings
 from typing import TYPE_CHECKING, Optional, Union, Tuple, Sequence, Callable, Dict, Any, List
 import numpy as np
 
@@ -29,6 +30,7 @@ from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.recog_ext.ct
 from i6_experiments.users.mueller.train import ExtendedTrainDef
 from i6_experiments.users.mueller.experiments.language_models.n_gram import get_count_based_n_gram, get_prior_from_unigram
 from i6_experiments.users.mueller.experiments.language_models.ffnn import FeedForwardLm, get_ffnn_lm
+from i6_experiments.users.mann.nn.util import DelayedCodeWrapper
 
 from i6_core.util import uopen
 
@@ -45,10 +47,16 @@ OUT_BLANK_LABEL = "<blank>"
 CHECK_DECODER_CONSISTENCY = False
 _raw_sample_rate = _batch_size_factor * 100  # bs factor is from 10ms frames to raw samples
 
-
-# 'train-clean-360/4837-302000-0048/4837-302000-0048'
-
-num_shards_recog = 4 # NOTE breaks hash, None, 4, 16
+# Some params for the jobs influencing the hash
+num_shards_recog = 4 # None, 4, 16
+num_shards_recog_init = 4
+num_shards_pseudo = 64 # 32, 64
+num_shards_prior = 64
+num_shards_prior_init = None
+calculate_pseudo_label_scores = True
+calculate_pseudo_label_scores_init = True
+cache_manager = True
+exclude_epochs = False
 
 def py():
     """Sisyphus entry point"""
@@ -61,13 +69,13 @@ def py():
 
     # Config
     vocab = "bpe128"                            # "spm20k", "char", "bpe10k"
-    decoding_imp = "albert-flashlight"                 # "flashlight", "albert-flashlight", "albert-greedy", "marten-greedy""
+    decoding_imp = "albert-flashlight"                 # "flashlight", "albert-flashlight", "albert-lm", "albert-greedy", "marten-greedy""
     epochs = 500                                # Training epochs
-    self_training_rounds = 1                    # Self-supevised training rounds
+    self_training_rounds = 4                    # Self-supevised training rounds
     reset_steps = True                          # Whether to reset steps after the first self-training round
     init_small = True                           # 100h supervised initialization
-    pseudo_label_small = True                   # 860h pseudo-labels
-    keep_small_labels = False                   # Keep true labels of 100h data during self-training
+    pseudo_label_small = False                   # 860h pseudo-labels
+    keep_small_labels = True                   # Keep true labels of 100h data during self-training
     pseudo_nbest = 1                            # Number of pseudo-labels
     with_prior = True
     empirical_prior = True
@@ -76,11 +84,12 @@ def py():
     alt_decoder = True
     calc_last_pseudo_labels = True
     tune_hyperparameters = True
-    from_scratch = False
-    decode_every_step = True
+    from_scratch = True
+    decode_every_step = False
     # decoder_lm_config = {}
     decoder_lm_config = {"class": "FeedForwardLm", "context_size": 8}
     # decoder_lm_config = {"class": "ngram", "order": 4}
+    use_norm_st_loss = True
     
     use_sum_criterion = False
     horizontal_prior = True
@@ -129,7 +138,7 @@ def py():
             decoding_str += f"_p{str(decoder_hyperparameters['prior_weight']).replace('.', '')}" + ("-emp" if empirical_prior else "")
     elif decoding_imp == "albert-greedy":
         decoding_str = "-recog_albert"
-    elif decoding_imp.endswith("flashlight"):
+    elif decoding_imp.endswith("flashlight") or decoding_imp == "albert-lm":
         decoder_hyperparameters = {
             "log_add": False,
             "nbest": 1,
@@ -161,6 +170,8 @@ def py():
         
         if decoding_imp == "albert-flashlight":
             decoding_str = "-recog_albert_lm" + decoding_str
+        elif decoding_imp == "albert-lm":
+            decoding_str = "-recog_alberts_own_lm" + decoding_str
         else:
             decoding_str = "-recog_lm" + decoding_str
         
@@ -216,6 +227,8 @@ def py():
             config_updates_self_training["hyperparameters_decoder"] = alt_decoder_hyperparameters
         else:
             config_updates_self_training["hyperparameters_decoder"] = decoder_hyperparameters
+    if config_updates_self_training and not use_norm_st_loss:
+        config_updates_self_training["use_normalized_loss"] = use_norm_st_loss
 
     for am, lm, prior in am_lm_prior:
         if use_sum_criterion:
@@ -269,17 +282,28 @@ def py():
         
         alias_name = f"ctc-baseline" + \
             (sum_str if use_sum_criterion else "") + \
-            (f"-self_training_{self_training_rounds}" + ("_keep_LR" if not reset_steps else "") + ("_SGD" if use_sgd else "") + ("_from_scratch" if from_scratch else "") + (f"_s{self_train_subset}" if self_train_subset is not None else "") + (f"_e{self_epochs}" if self_epochs != 450 else "") if self_training_rounds > 0 else "") + \
+            (f"-self_training_{self_training_rounds}" + ("_no_norm" if not use_norm_st_loss else "") + ("_keep_LR" if not reset_steps else "") + ("_SGD" if use_sgd else "") + ("_from_scratch" if from_scratch else "") + (f"_s{self_train_subset}" if self_train_subset is not None else "") + (f"_e{self_epochs}" if self_epochs != 450 else "") if self_training_rounds > 0 else "") + \
             (f"-wo_aux_loss" if not aux_loss else "") + \
             (f"-ds100h" if init_small else "") + \
             (f"-pl960h" + ("_keep100h" if keep_small_labels else "") if not pseudo_label_small else "") + \
             f"-{vocab}" + \
             f"{decoding_str}"
+            
+        if decoding_imp in ["flashlight", "marten-greedy"]:
+            decoder_def = model_recog_lm
+        elif decoding_imp == "albert-greedy":
+            decoder_def = model_recog
+        elif decoding_imp == "albert-flashlight":
+            decoder_def = model_recog_flashlight
+        elif decoding_imp == "albert-lm":
+            decoder_def = model_recog_lm_albert
+        else:
+            raise ValueError(f"Unknown decoder selection: {decoding_imp}")
 
         train_exp(
             name = alias_name,
             config = config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
-            decoder_def = model_recog_lm if (decoding_imp in ["flashlight", "marten-greedy"]) else (model_recog if decoding_imp == "albert-greedy" else model_recog_flashlight),
+            decoder_def = decoder_def,
             decoder_hyperparameters = decoder_hyperparameters,
             hyperparamters_self_training = alt_decoder_hyperparameters if alt_decoder else None,
             pseudo_nbest=pseudo_nbest,
@@ -410,12 +434,16 @@ def train_exp(
             cls_name = train_language_model.pop("class")
             if cls_name == "FeedForwardLm":
                 lm_checkpoint = get_ffnn_lm(task.train_dataset.vocab, **train_language_model)
+                if cache_manager:
+                    lm_checkpoint_path = DelayedCodeWrapper("cf('{}')", lm_checkpoint.checkpoint)
+                else:
+                    lm_checkpoint_path = lm_checkpoint.checkpoint
                 config_updates_self_training.update({
                     "preload_from_files": {
                         "train_lm": {
                             "init_for_train": True,
                             "prefix": "train_language_model.",
-                            "filename": lm_checkpoint.checkpoint,
+                            "filename": lm_checkpoint_path,
                         },
                     },
                 })
@@ -434,11 +462,16 @@ def train_exp(
         cls_name = recog_language_model.pop("class")
         assert cls_name == "FeedForwardLm"
         lm_checkpoint = get_ffnn_lm(task.train_dataset.vocab, **recog_language_model)
+        if cache_manager:
+            lm_checkpoint_path = DelayedCodeWrapper("cf('{}')", lm_checkpoint.checkpoint)
+        else:
+            lm_checkpoint_path = lm_checkpoint.checkpoint
+            
         search_config = {
             "preload_from_files": {
                 "recog_lm": {
                     "prefix": "recog_language_model.",
-                    "filename": lm_checkpoint.checkpoint,
+                    "filename": lm_checkpoint_path,
                 },
             },
         }
@@ -448,7 +481,7 @@ def train_exp(
                     "train_lm": {
                         "init_for_train": True,
                         "prefix": "train_language_model.",
-                        "filename": lm_checkpoint.checkpoint,
+                        "filename": lm_checkpoint_path,
                     },
                 },
             })
@@ -483,15 +516,16 @@ def train_exp(
         decoder_hyperparameters=decoder_hyperparameters,
         save_pseudo_labels=(pseudo_labels_ds, train_100_ds) if calc_last_pseudo_labels or self_training_rounds > 0 else None,
         pseudo_nbest=pseudo_nbest,
-        calculate_pseudo_label_scores=True, # NOTE: breaks hash
+        calculate_pseudo_label_scores=calculate_pseudo_label_scores_init, # NOTE: breaks hash
         search_config=search_config,
         recog_post_proc_funcs=recog_post_proc_funcs,
-        num_shards_recog=num_shards_recog, # NOTE: breaks hash
-        num_shards_pseudo=64,
-        # num_shards_prior=64,
+        num_shards_recog=num_shards_recog_init, # NOTE: breaks hash
+        num_shards_pseudo=num_shards_pseudo,
+        num_shards_prior=num_shards_prior_init,
         is_last=self_training_rounds == 0,
         prior_from_max=prior_from_max,
         empirical_prior=emp_prior if with_prior and empirical_prior else None,
+        cache_manager=cache_manager,
     )
     
     # Do self training on pseudo labels
@@ -609,6 +643,9 @@ def train_exp(
             prior_scores = []
             lm_tune_ls = [0.0, 0.05, 0.1, -0.05, -0.1]
             prior_tune_ls = [0.0, 0.05, 0.1, -0.05, -0.1]
+            tune_exclude_epochs = []
+            if exclude_epochs:
+                tune_exclude_epochs = sorted(list(model_with_checkpoint[i + 1].fixed_epochs))[:-1]
             for dc_lm in lm_tune_ls:
                 params["lm_weight"] = default_lm + dc_lm
                 score = recog_training_exp(
@@ -619,11 +656,14 @@ def train_exp(
                     decoder_hyperparameters=params,
                     search_config=search_config,
                     recog_post_proc_funcs=recog_post_proc_funcs,
+                    exclude_epochs=tune_exclude_epochs,
                     num_shards_recog=num_shards_recog, # NOTE: breaks hash
-                    num_shards_prior=64,
+                    num_shards_prior=num_shards_prior,
                     prior_from_max=prior_from_max,
                     empirical_prior=emp_prior if with_prior and empirical_prior else None,
-                    return_summary = True
+                    return_summary = True,
+                    cache_manager=cache_manager,
+                    check_train_scores_nbest=0 if exclude_epochs else 2,
                 )
                 lm_scores.append(score)
             best_lm_tune = GetBestTuneValue(lm_scores, lm_tune_ls).out_best_tune
@@ -640,11 +680,14 @@ def train_exp(
                     decoder_hyperparameters=params,
                     search_config=search_config,
                     recog_post_proc_funcs=recog_post_proc_funcs,
+                    exclude_epochs=tune_exclude_epochs,
                     num_shards_recog=num_shards_recog, # NOTE: breaks hash
-                    num_shards_prior=64,
+                    num_shards_prior=num_shards_prior,
                     prior_from_max=prior_from_max,
                     empirical_prior=emp_prior if with_prior and empirical_prior else None,
-                    return_summary = True
+                    return_summary = True,
+                    cache_manager=cache_manager,
+                    check_train_scores_nbest=0 if exclude_epochs else 2,
                 )
                 prior_scores.append(score)
             best_prior_tune = GetBestTuneValue(prior_scores, prior_tune_ls).out_best_tune
@@ -661,15 +704,16 @@ def train_exp(
             decoder_hyperparameters=hyperparamters_self_training if hyperparamters_self_training else decoder_hyperparameters,
             save_pseudo_labels=None if not calc_last_pseudo_labels and i+1 == self_training_rounds else (pseudo_labels_ds, train_100_ds),
             pseudo_nbest=pseudo_nbest,
-            calculate_pseudo_label_scores=True,
+            calculate_pseudo_label_scores=calculate_pseudo_label_scores,
             search_config=search_config,
             recog_post_proc_funcs=recog_post_proc_funcs,
             num_shards_recog=num_shards_recog, # NOTE: breaks hash
-            num_shards_pseudo=64,
-            num_shards_prior=64,
+            num_shards_pseudo=num_shards_pseudo,
+            num_shards_prior=num_shards_prior,
             is_last=i+1 == self_training_rounds,
             prior_from_max=prior_from_max,
             empirical_prior=emp_prior if with_prior and empirical_prior else None,
+            cache_manager=cache_manager,
         )
 
     _train_experiments[name] = model_with_checkpoint[-1]
@@ -1112,33 +1156,53 @@ class Model(rf.Module):
 #---------------------------------------------------------------------------------------------------------------------------------------
 # TRAINING DEFINITION
 
-def is_separator(tensor: torch.Tensor, vocab: Vocabulary) -> list[list, list]:
+def is_separator(tensor: torch.Tensor, vocab: Vocabulary, nbest: int) -> list[list, list]:
     with torch.no_grad():
+        batch_size = tensor.size(0)
         start_sep = vocab.label_to_id("Z@@")
         end_sep = vocab.label_to_id("Z")
         idxs = torch.where(tensor == start_sep)
         n = len(idxs[1])
         m = tensor.size(1)
         final_idxs = [[], []]
-        for i in range(n):
-            first_idx = idxs[0][i]
-            found_all = False
-            for j in range(4):
-                second_idx = idxs[1][i] + j
-                if second_idx < m:
-                    if tensor[first_idx, second_idx] != start_sep:
-                        break
-                    elif j == 3:
-                        found_all = True
-                else:
-                    break
-            if found_all and tensor[first_idx, idxs[1][i] + 4] == end_sep:
-                final_idxs[0].append(first_idx)
-                final_idxs[1].append(idxs[1][i])
+        idxs_cnt = dict.fromkeys(list(range(batch_size)), 0)
+        i = 0
+        for b in range(batch_size):
+            for _ in range(nbest - 1):
+                found_all = 0
+                first_idx = None
+                while found_all == 0:
+                    for j in range(4):
+                        if i >= n or idxs[0][i].item() != b:
+                            idxs_cnt[b] += 1
+                            final_idxs[0].append(torch.tensor(b, device=tensor.device))
+                            final_idxs[1].append(torch.tensor(-1, device=tensor.device))
+                            found_all = 2
+                            break
+                        else:
+                            if j > 0 and idxs[1][i - 1] + 1 != idxs[1][i]:
+                                break
+                            elif j == 3:
+                                found_all = 1
+                                break
+                            elif j == 0:
+                                first_idx = i
+                            i += 1
+                    if found_all == 1:
+                        if tensor[idxs[0][i], idxs[1][i] + 1] == end_sep:
+                            idxs_cnt[b] += 1
+                            final_idxs[0].append(idxs[0][first_idx])
+                            final_idxs[1].append(idxs[1][first_idx])
+                            i += 1
+                        else:
+                            found_all = 0
+                            i = first_idx + 1
+        for b in range(batch_size):
+            assert idxs_cnt[b] == nbest - 1, f"Batch {b} has {idxs_cnt[b]} separators, should have {nbest - 1}"
         return final_idxs
     
 def split_on_sep(tensor: torch.Tensor, sizes: torch.Tensor, vocab_dim: Dim, nbest: int) -> tuple[list[rf.Tensor], list[Dim]]:
-    idxs = is_separator(tensor, vocab_dim.vocab)
+    idxs = is_separator(tensor, vocab_dim.vocab, nbest)
     batch_size = tensor.size(0)
     assert len(idxs[0]) == batch_size * (nbest - 1), f"Not enough separators found: {len(idxs[0])}, should be {batch_size * (nbest - 1)}"
     ret = []
@@ -1152,8 +1216,11 @@ def split_on_sep(tensor: torch.Tensor, sizes: torch.Tensor, vocab_dim: Dim, nbes
         assert len(lengths) == batch_size, f"Lengths: {len(lengths)}, should be {batch_size}"
         new_list = []
         for i in range(batch_size):
-            t_slice = tensor[i, (old_lengths[i] + 5):lengths[i]]
-            new_list.append(t_slice)
+            if lengths[i].item() == -1:
+                new_list.append(torch.tensor([], dtype=tensor.dtype, device=tensor.device))
+            else:
+                t_slice = tensor[i, (old_lengths[i] + 5):lengths[i]]
+                new_list.append(t_slice)
         new_s = [l.size(0) for l in new_list]
         max_length = max(new_s)
         new_list = [torch.cat([t_slice, torch.tensor([0] * (max_length - t_slice.size(0)), device=tensor.device)]) for t_slice in new_list]
@@ -1205,11 +1272,13 @@ def ctc_training(*, model: Model, data: rf.Tensor, data_spatial_dim: Dim, target
         hyperparameters["beam_size"] = 1
         prior_file = config.typed_value("empirical_prior")
         assert hyperparameters and prior_file
-        hyps = decode_flashlight(model=model, label_log_prob=log_probs, enc_spatial_dim=enc_spatial_dim, hyperparameters=hyperparameters, prior_file=prior_file, train_lm=True)
+        with torch.no_grad():
+            hyps = decode_flashlight(model=model, label_log_prob=log_probs, enc_spatial_dim=enc_spatial_dim, hyperparameters=hyperparameters, prior_file=prior_file, train_lm=True)
         assert len(hyps[0]) == 1
         hyps = [_output_hyps(hyps_batch[0]) for hyps_batch in hyps]
+        print(hyps[0])
         lengths = [len(h) for h in hyps]
-        lengths2 = [1 if l == 0 else l for l in lengths]
+        lengths2 = [l + 1 for l in lengths]
         max_length = max(lengths)
         targets_spatial_dim = torch.tensor(lengths, dtype=torch.int32, device=data.raw_tensor.device)
         targets_spatial_dim = rf.convert_to_tensor(targets_spatial_dim, dims=(batch_dim,))
@@ -2036,12 +2105,12 @@ def decode_flashlight(
             ]
         return ["(unknown)"]
 
-    print(
-        f"Memory usage {dev_s} before encoder forward:",
-        " ".join(_collect_mem_stats()),
-        "total:",
-        util.human_bytes_size(total_mem) if total_mem else "(unknown)",
-    )
+    # print(
+    #     f"Memory usage {dev_s} before encoder forward:",
+    #     " ".join(_collect_mem_stats()),
+    #     "total:",
+    #     util.human_bytes_size(total_mem) if total_mem else "(unknown)",
+    # )
 
     lm_initial_state = lm.default_initial_state(batch_dims=[])
 
@@ -2240,7 +2309,7 @@ def decode_flashlight(
     label_log_prob_raw = label_log_prob.raw_tensor.contiguous()
     float_bytes = 4
 
-    print(f"Memory usage {dev_s} after encoder forward:", " ".join(_collect_mem_stats()))
+    # print(f"Memory usage {dev_s} after encoder forward:", " ".join(_collect_mem_stats()))
     
     def _output_hyps(hyp: list) -> str:
         prev = None
@@ -2302,7 +2371,7 @@ def decode_flashlight(
                 if len(hyps_per_batch) < n_best:
                     print("Not enough n-best")
                     hyps_per_batch += [[]] * (n_best - len(hyps_per_batch))
-                    scores_per_batch += [-1e30] * (n_best - len(hyps_per_batch))
+                    scores_per_batch += [-1e30] * (n_best - len(scores_per_batch))
             else:
                 hyps_per_batch = hyps_per_batch[:n_best]
                 scores_per_batch = scores_per_batch[:n_best]
@@ -2329,3 +2398,328 @@ def decode_flashlight(
         return hyps
     else:
         return hyps_r, scores_r, out_spatial_dim, beam_dim
+    
+def model_recog_lm_albert(
+    *,
+    model: Model,
+    data: Tensor,
+    data_spatial_dim: Dim,
+    hyperparameters: dict,
+    prior_file: tk.Path = None,
+    version: Optional[int] = None
+) -> Tuple[Tensor, Tensor, Dim, Dim]:
+    """
+    Function is run within RETURNN.
+
+    Note, for debugging, see :func:`model_recog_debug` below.
+
+    Note, some potential further improvements:
+    There are many align label seqs which correspond to the same label seq,
+    but the LM score is calculated for each of them.
+    We could make this somehow unique depending on the label seq.
+    (But unclear how exactly to do this in a GPU friendly, batched way.)
+
+    :return:
+        recog results including beam {batch, beam, out_spatial},
+        log probs {batch, beam},
+        out_spatial_dim,
+        final beam_dim
+    """
+    assert data.dims_set == {batch_dim, data_spatial_dim, data.feature_dim}
+    logits, enc, enc_spatial_dim = model(data, in_spatial_dim=data_spatial_dim)
+    assert logits.dims_set == {batch_dim, enc_spatial_dim, model.wb_target_dim}
+    
+    batch_dims = data.remaining_dims((data_spatial_dim, data.feature_dim))
+
+    # The label log probs include the AM
+    label_log_prob = model.log_probs_wb_from_logits(logits)  # Batch, Spatial, VocabWB
+    
+    return decode_albert(model=model, label_log_prob=label_log_prob, enc_spatial_dim=enc_spatial_dim, hyperparameters=hyperparameters, batch_dims=batch_dims, prior_file=prior_file, version=version)
+
+# RecogDef API
+model_recog_lm_albert: RecogDef[Model]
+model_recog_lm_albert.output_with_beam = True
+model_recog_lm_albert.output_blank_label = OUT_BLANK_LABEL
+model_recog_lm_albert.batch_size_dependent = True  # our models currently just are batch-size-dependent...
+
+def decode_albert(
+    *,
+    model: Model,
+    label_log_prob: Tensor,
+    enc_spatial_dim: Dim,
+    hyperparameters: dict,
+    batch_dims: List[Dim],
+    prior_file: tk.Path = None,
+    train_lm = False,
+    version: int = 1
+):
+    import json
+    
+    def _update_context(context: Tensor, new_label: Tensor, context_dim: Dim) -> Tensor:
+        new_dim = Dim(1, name="new_label")
+        new_label = rf.expand_dim(new_label, dim=new_dim)
+        old_context, old_context_dim = rf.slice(context, axis=context_dim, start=1)
+        new_context, new_context_dim = rf.concat((old_context, old_context_dim), (new_label, new_dim), out_dim=context_dim)
+        assert new_context_dim == context_dim
+        return new_context
+    
+    def _target_remove_blank(target: Tensor, *, target_dim: Dim, wb_target_dim: Dim, blank_idx: int) -> Tensor:
+        assert target.sparse_dim == wb_target_dim
+        assert blank_idx == target_dim.dimension  # currently just not implemented otherwise
+        return rf.set_sparse_dim(target, target_dim)
+
+
+    def _target_dense_extend_blank(
+        target: Tensor, *, target_dim: Dim, wb_target_dim: Dim, blank_idx: int, value: float
+    ) -> Tensor:
+        assert target_dim in target.dims
+        assert blank_idx == target_dim.dimension  # currently just not implemented otherwise
+        res, _ = rf.pad(target, axes=[target_dim], padding=[(0, 1)], out_dims=[wb_target_dim], value=value)
+        return res
+
+    hyp_params = copy.copy(hyperparameters)
+    lm_name = hyp_params.pop("lm_order", None)
+    prior_weight = hyp_params.pop("prior_weight", 0.0)
+    prior_weight_tune = hyp_params.pop("prior_weight_tune", None)
+    lm_weight_tune = hyp_params.pop("lm_weight_tune", None)
+    
+    if prior_weight_tune:
+        prior_weight_tune = json.load(open(prior_weight_tune))
+        prior_weight_tune = prior_weight_tune["best_tune"]
+        assert type(prior_weight_tune) == float, "Prior weight tune is not a float!"
+        print(f"Prior weight with tune: {prior_weight} + {prior_weight_tune} = {prior_weight + prior_weight_tune}")
+        prior_weight += prior_weight_tune
+    if lm_weight_tune:
+        lm_weight_tune = json.load(open(lm_weight_tune))
+        lm_weight_tune = lm_weight_tune["best_tune"]
+        assert type(lm_weight_tune) == float, "LM weight tune is not a float!"
+        old_lm_weight = hyp_params.get("lm_weight", 0.0)
+        print(f"LM weight with tune: {old_lm_weight} + {lm_weight_tune} = {old_lm_weight + lm_weight_tune}")
+        hyp_params["lm_weight"] = old_lm_weight + lm_weight_tune
+
+    n_best = hyp_params.pop("ps_nbest", 1)
+    assert n_best == 1, "We only support nbest == 1"
+    beam_size = hyp_params.pop("beam_size", 1)
+    
+    dev_s = rf.get_default_device()
+    dev = torch.device(dev_s)
+
+    # RETURNN version is like "1.20250115.110555"
+    # There was an important fix in 2025-01-17 affecting masked_scatter.
+    # And another important fix in 2025-01-24 affecting masked_scatter for old PyTorch versions.
+    import returnn
+    assert tuple(int(n) for n in returnn.__version__.split(".")) >= (1, 20250125, 0), returnn.__version__
+    
+    # Subtract prior of labels if available
+    if prior_file and prior_weight > 0.0:
+        prior = np.loadtxt(prior_file, dtype="float32")
+        prior *= prior_weight
+        prior = torch.tensor(prior, dtype=torch.float32, device=dev)
+        prior = rtf.TorchBackend.convert_to_tensor(prior, dims=[model.wb_target_dim], dtype="float32")
+        label_log_prob = label_log_prob - prior
+        # print("We subtracted the prior!")
+        
+    assert lm_name.startswith("ffnn")
+    context_size = int(lm_name[len("ffnn"):])
+    if train_lm:
+        assert model.train_language_model
+        assert model.train_language_model.vocab_dim == model.target_dim
+        lm: FeedForwardLm = model.train_language_model
+    else:
+        assert model.recog_language_model
+        assert model.recog_language_model.vocab_dim == model.target_dim
+        lm: FeedForwardLm = model.recog_language_model
+    # noinspection PyUnresolvedReferences
+    lm_scale: float = hyp_params["lm_weight"]
+
+    # Eager-mode implementation of beam search.
+    # Initial state.
+    beam_dim = Dim(1, name="initial-beam")
+    context_dim = Dim(context_size, name="context")
+    lm_out_dim = Dim(context_size + 1, name="context+1")
+    batch_dims_ = [beam_dim] + batch_dims
+    seq_log_prob = rf.constant(0.0, dims=batch_dims_)  # Batch, Beam
+    
+    if version == 3:
+        max_probs = torch.full((label_log_prob.raw_tensor.size(0),), 0.0)
+        max_res = []
+
+    label_log_prob = rf.where(
+        enc_spatial_dim.get_mask(),
+        label_log_prob,
+        rf.sparse_to_dense(model.blank_idx, axis=model.wb_target_dim, label_value=0.0, other_value=-1.0e30),
+    )
+    label_log_prob_ta = TensorArray.unstack(label_log_prob, axis=enc_spatial_dim)  # t -> Batch, VocabWB
+
+    target = rf.constant(model.bos_idx, dims=batch_dims_ + [context_dim], sparse_dim=model.target_dim)  # Batch, InBeam -> Vocab
+    target_wb = rf.constant(
+        model.blank_idx, dims=batch_dims_, sparse_dim=model.wb_target_dim
+    )  # Batch, InBeam -> VocabWB
+
+    lm_state = lm.default_initial_state(batch_dims=batch_dims_)  # Batch, InBeam, ...
+    lm_logits, lm_state = lm(
+        target,
+        spatial_dim=context_dim,
+        out_spatial_dim=lm_out_dim,
+        state=lm_state,
+    )  # Batch, InBeam, Vocab / ...
+    lm_logits = rf.gather(lm_logits, axis=lm_out_dim, indices=rf.last_frame_position_of_dim(lm_out_dim))
+    assert lm_logits.dims == (*batch_dims_, model.target_dim)
+    lm_log_probs = rf.log_softmax(lm_logits, axis=model.target_dim)  # Batch, InBeam, Vocab
+    lm_log_probs *= lm_scale
+
+    max_seq_len = int(enc_spatial_dim.get_dim_value())
+    seq_targets_wb = []
+    seq_backrefs = []
+    for t in range(max_seq_len):
+        prev_target = target
+        prev_target_wb = target_wb
+
+        seq_log_prob = seq_log_prob + label_log_prob_ta[t]  # Batch, InBeam, VocabWB
+        
+        if version == 3:
+            new_max_probs, greedy_res = torch.max(label_log_prob_ta[t].raw_tensor, dim=-1)
+            max_probs += new_max_probs
+            max_res.append(greedy_res[0].item())
+            # print(f"max_probs {t}: {max_probs[0]}")
+
+        # Now add LM score. If prev align label (target_wb) is blank or != cur, add LM score, otherwise 0.
+        if lm_scale > 0.0:
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                seq_log_prob += rf.where(
+                    (prev_target_wb == model.blank_idx) | (prev_target_wb != rf.range_over_dim(model.wb_target_dim)),
+                    _target_dense_extend_blank(
+                        lm_log_probs,
+                        target_dim=model.target_dim,
+                        wb_target_dim=model.wb_target_dim,
+                        blank_idx=model.blank_idx,
+                        value=0.0,
+                    ),
+                    0.0,
+                )  # Batch, InBeam, VocabWB
+            
+            if version == 2 and t == max_seq_len - 1:
+                # Add LM EOS score at the end.
+                eos_dim = Dim(model.target_dim.capacity, name="eos_dim")
+                eos_target = rf.expand_dim(prev_target, dim=eos_dim)
+                new_label = rf.expand_dims(rf.range_over_dim(eos_dim), dims=batch_dims + [beam_dim])
+                eos_target = _update_context(
+                    eos_target,
+                    new_label,
+                    context_dim
+                )
+                
+                eos_logits, _ = lm(
+                    eos_target,
+                    spatial_dim=context_dim,
+                    out_spatial_dim=lm_out_dim,
+                    state=lm_state_,
+                )  # Flat_Batch_Beam, Vocab / ...
+                eos_logits = rf.gather(eos_logits, axis=lm_out_dim, indices=rf.last_frame_position_of_dim(lm_out_dim))
+                assert eos_logits.dims == (beam_dim, *batch_dims, eos_dim, model.target_dim)
+                lm_eos_score = rf.log_softmax(eos_logits, axis=model.target_dim)  # Flat_Batch_Beam, Vocab
+                lm_eos_score *= lm_scale
+                lm_eos_score = rf.gather(lm_eos_score, indices=model.eos_idx, axis=model.target_dim)
+                lm_eos_score = _target_dense_extend_blank(
+                    lm_eos_score,
+                    target_dim=eos_dim,
+                    wb_target_dim=model.wb_target_dim,
+                    blank_idx=model.blank_idx,
+                    value=0.0,
+                )
+                
+                seq_log_prob += lm_eos_score  # Batch, Beam -> VocabWB
+            
+        seq_log_prob, (backrefs, target_wb), beam_dim = rf.top_k(
+            seq_log_prob, k_dim=Dim(beam_size, name=f"dec-step{t}-beam"), axis=[beam_dim, model.wb_target_dim]
+        )
+        # seq_log_prob, backrefs, target_wb: Batch, Beam
+        # backrefs -> InBeam.
+        # target_wb -> VocabWB.
+        target_wb = rf.cast(target_wb, "int32")
+        seq_targets_wb.append(target_wb)
+        seq_backrefs.append(backrefs)
+        
+        if version == 3:
+            if max_probs[0].item() != seq_log_prob.raw_tensor[0].item():
+                raise ValueError(f"Found diff in {t}: {max_probs[0].item()} != {seq_log_prob.raw_tensor[0].item()}")
+
+        if version != 2 or t < max_seq_len - 1:
+            lm_log_probs = rf.gather(lm_log_probs, indices=backrefs)  # Batch, Beam, Vocab
+            lm_state = rf.nested.gather_nested(lm_state, indices=backrefs)
+            prev_target = rf.gather(prev_target, indices=backrefs)  # Batch, Beam -> Vocab
+            prev_target_wb = rf.gather(prev_target_wb, indices=backrefs)  # Batch, Beam -> VocabWB
+            got_new_label = (target_wb != model.blank_idx) & (target_wb != prev_target_wb)  # Batch, Beam -> 0|1
+            target = rf.where(
+                got_new_label,
+                _update_context(
+                    prev_target,
+                    _target_remove_blank(
+                        target_wb, target_dim=model.target_dim, wb_target_dim=model.wb_target_dim, blank_idx=model.blank_idx
+                    ),
+                    context_dim
+                ),
+                prev_target,
+            )  # Batch, Beam -> Vocab
+
+            got_new_label_cpu = rf.copy_to_device(got_new_label, "cpu")
+            if got_new_label_cpu.raw_tensor.sum().item() > 0:
+                (target_, lm_state_), packed_new_label_dim, packed_new_label_dim_map = rf.nested.masked_select_nested(
+                    (target, lm_state),
+                    mask=got_new_label,
+                    mask_cpu=got_new_label_cpu,
+                    dims=batch_dims + [beam_dim],
+                )
+                # packed_new_label_dim_map: old dim -> new dim. see _masked_select_prepare_dims
+                assert packed_new_label_dim.get_dim_value() > 0
+                
+                lm_logits_, lm_state_ = lm(
+                    target_,
+                    spatial_dim=context_dim,
+                    out_spatial_dim=lm_out_dim,
+                    state=lm_state_,
+                )  # Flat_Batch_Beam, Vocab / ...
+                lm_logits_ = rf.gather(lm_logits_, axis=lm_out_dim, indices=rf.last_frame_position_of_dim(lm_out_dim))
+                assert lm_logits_.dims == (packed_new_label_dim, model.target_dim)
+                lm_log_probs_ = rf.log_softmax(lm_logits_, axis=model.target_dim)  # Flat_Batch_Beam, Vocab
+                lm_log_probs_ *= lm_scale
+
+                lm_log_probs, lm_state = rf.nested.masked_scatter_nested(
+                    (lm_log_probs_, lm_state_),
+                    (lm_log_probs, lm_state),
+                    mask=got_new_label,
+                    mask_cpu=got_new_label_cpu,
+                    dims=batch_dims + [beam_dim],
+                    in_dim=packed_new_label_dim,
+                    masked_select_dim_map=packed_new_label_dim_map,
+                )  # Batch, Beam, Vocab / ...
+                
+    if version != 2 and lm_scale > 0.0:
+        # seq_log_prob, lm_log_probs: Batch, Beam
+        # Add LM EOS score at the end.
+        lm_eos_score = rf.gather(lm_log_probs, indices=model.eos_idx, axis=model.target_dim)
+        seq_log_prob += lm_eos_score  # Batch, Beam -> VocabWB
+        
+
+    # Backtrack via backrefs, resolve beams.
+    seq_targets_wb_ = []
+    indices = rf.range_over_dim(beam_dim)  # FinalBeam -> FinalBeam
+    for backrefs, target_wb in zip(seq_backrefs[::-1], seq_targets_wb[::-1]):
+        # indices: FinalBeam -> Beam
+        # backrefs: Beam -> PrevBeam
+        seq_targets_wb_.insert(0, rf.gather(target_wb, indices=indices))
+        indices = rf.gather(backrefs, indices=indices)  # FinalBeam -> PrevBeam
+
+    seq_targets_wb__ = TensorArray(seq_targets_wb_[0])
+    for target_wb in seq_targets_wb_:
+        seq_targets_wb__ = seq_targets_wb__.push_back(target_wb)
+    out_spatial_dim = enc_spatial_dim
+    seq_targets_wb = seq_targets_wb__.stack(axis=out_spatial_dim)
+    
+    if version == 3:
+        ft = seq_targets_wb.raw_tensor[:, 0, 0].tolist()
+        if ft != max_res:
+            raise ValueError(f"Found diff: {ft} != {max_res}")
+
+    return seq_targets_wb, seq_log_prob, out_spatial_dim, beam_dim

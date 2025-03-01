@@ -4,6 +4,7 @@ Generic recog, for the model interfaces defined in model_interfaces.py
 
 from __future__ import annotations
 
+import copy
 import os
 from typing import TYPE_CHECKING, Optional, Union, Any, Dict, Sequence, Collection, Iterator, Callable
 
@@ -34,9 +35,12 @@ from i6_experiments.users.zeyer.model_with_checkpoints import ModelWithCheckpoin
 from i6_experiments.users.zeyer.returnn.training import get_relevant_epochs_from_training_learning_rate_scores
 from i6_experiments.common.datasets.librispeech.language_model import get_arpa_lm_dict
 
+from i6_experiments.users.mann.nn.util import DelayedCodeWrapper
+
 import numpy as np
 
-from .experiments.ctc_baseline.ctc import model_recog_lm, model_recog_flashlight
+from .utils import PartialImportCustom, ReturnnConfigCustom
+from .experiments.ctc_baseline.ctc import model_recog_lm, model_recog_flashlight, model_recog_lm_albert
 from .experiments.language_models.n_gram import get_kenlm_n_gram, get_binary_lm
 from .datasets.librispeech import get_bpe_lexicon, LibrispeechOggZip
 from .scoring import ComputeWERJob, _score_recog
@@ -67,7 +71,9 @@ def recog_training_exp(
     is_last: bool = False,
     empirical_prior: Optional[tk.Path] = None,
     prior_from_max: bool = False,
-    return_summary: bool = False
+    return_summary: bool = False,
+    cache_manager: bool = True,
+    check_train_scores_nbest: int = 2
 ) -> Optional[tk.Path]:
     """recog on all relevant epochs"""
     recog_and_score_func = _RecogAndScoreFunc(
@@ -84,11 +90,13 @@ def recog_training_exp(
         num_shards_prior=num_shards_prior,
         empirical_prior=empirical_prior,
         prior_from_max=prior_from_max,
+        cache_manager=cache_manager
     )
     summarize_job = GetBestRecogTrainExp(
         exp=model,
         recog_and_score_func=recog_and_score_func,
         main_measure_lower_is_better=task.main_measure_type.lower_is_better,
+        check_train_scores_n_best=check_train_scores_nbest,
         exclude_epochs=exclude_epochs,
     )
     summarize_job.add_alias(prefix_name + "/train-summarize")
@@ -140,6 +148,7 @@ def recog_training_exp(
             num_shards_prior=num_shards_prior,
             empirical_prior=empirical_prior,
             prior_from_max=prior_from_max,
+            cache_manager=cache_manager
         )
         
         extract_pseudo_labels_job = ExtractPseudoLabels(
@@ -184,6 +193,7 @@ def recog_training_exp(
                 register_output=False,
                 empirical_prior=empirical_prior,
                 prior_from_max=prior_from_max,
+                cache_manager=cache_manager
             )
             
             score_job = GetScoreJob(score_func, summarize_job.out_summary_json)
@@ -213,6 +223,7 @@ class _RecogAndScoreFunc:
         register_output: bool = True,
         empirical_prior: Optional[tk.Path] = None,
         prior_from_max: bool = False,
+        cache_manager: bool = True
     ):
         # Note: When something is added here, remember to handle it in _sis_hash.
         self.prefix_name = prefix_name
@@ -231,6 +242,7 @@ class _RecogAndScoreFunc:
         self.register_output = register_output
         self.empirical_prior = empirical_prior
         self.prior_from_max = prior_from_max
+        self.cache_manager = cache_manager
 
     def __call__(self, epoch_or_ckpt: Union[int, PtCheckpoint]) -> tuple[ScoreResultCollection, tk.Path]:
         if isinstance(epoch_or_ckpt, int):
@@ -251,6 +263,7 @@ class _RecogAndScoreFunc:
                     prior_alias_name=self.prefix_name + f"/prior/{epoch_or_ckpt:03}",
                     num_shards=self.num_shards_prior,
                     prior_from_max=self.prior_from_max,
+                    cache_manager=self.cache_manager
                 )
                 if isinstance(epoch_or_ckpt, int):
                     tk.register_output(self.prefix_name + f"/recog_results_per_epoch/{epoch_or_ckpt:03}/prior.txt", prior_path)
@@ -271,6 +284,7 @@ class _RecogAndScoreFunc:
             search_mem_rqmt=self.search_mem_rqmt,
             name=self.prefix_name + f"/search/{epoch_or_ckpt:03}",
             num_shards=self.num_shards_recog,
+            cache_manager=self.cache_manager
         )
         if self.calculate_scores and isinstance(epoch_or_ckpt, int) and self.register_output:
             tk.register_output(self.prefix_name + f"/recog_results_per_epoch/{epoch_or_ckpt:03}/score", res.output)
@@ -287,8 +301,16 @@ class _RecogAndScoreFunc:
         del d["num_shards_prior"]
         del d["num_shards_recog"]
         del d["register_output"]
+        del d["cache_manager"]
         if not self.search_config:
             del d["search_config"]  # compat
+        else:
+            conf = copy.deepcopy(d["search_config"])
+            if "preload_from_files" in conf:
+                for v in conf["preload_from_files"].values():
+                    if "filename" in v and isinstance(v["filename"], DelayedCodeWrapper):
+                        v["filename"] = v["filename"].args[0]
+            d["search_config"] = conf
         if not self.recog_post_proc_funcs:
             del d["recog_post_proc_funcs"]  # compat
         # Not the whole task object is relevant but only some minimal parts.
@@ -326,6 +348,7 @@ def recog_model(
     dev_sets: Optional[Collection[str]] = None,
     name: Optional[str] = None,
     num_shards: Optional[int] = None,
+    cache_manager: bool = True
 ) -> tuple[ScoreResultCollection, tk.Path]:
     """recog"""
     if dev_sets is not None:
@@ -350,6 +373,7 @@ def recog_model(
             search_alias_name=f"{name}/{dataset_name}" if name else None,
             recog_post_proc_funcs=list(recog_post_proc_funcs) + list(task.recog_post_proc_funcs),
             num_shards=num_shards,
+            cache_manager=cache_manager
         )
         if calculate_scores:
             if dataset_name.startswith("train"):
@@ -374,13 +398,14 @@ def compute_prior(
     prior_alias_name: Optional[str] = None,
     num_shards: Optional[int] = None,
     prior_from_max: bool = False,
+    cache_manager: bool = True
 ) -> tk.Path:
     if num_shards is not None:
         prior_frames_res = []
         prior_probs_res = []
         for i in range(num_shards):
             shard_prior_sum_job = ReturnnForwardJobV2(
-                model_checkpoint=model.checkpoint,
+                model_checkpoint=DelayedCodeWrapper("cf('{}')", model.checkpoint) if cache_manager else model.checkpoint,
                 returnn_config=prior_config(dataset, model.definition, shard_index=i, num_shards=num_shards),
                 output_files=["output_frames.npy", "output_probs.npy"],
                 returnn_python_exe=tools_paths.get_returnn_python_exe(),
@@ -398,7 +423,7 @@ def compute_prior(
         res = prior_job.out_comined_results
     else:
         prior_job = ReturnnForwardJobV2(
-            model_checkpoint=model.checkpoint,
+            model_checkpoint=DelayedCodeWrapper("cf('{}')", model.checkpoint) if cache_manager else model.checkpoint,
             returnn_config=prior_config(dataset, model.definition),
             output_files=["prior.txt"],
             returnn_python_exe=tools_paths.get_returnn_python_exe(),
@@ -429,6 +454,7 @@ def search_dataset(
     search_alias_name: Optional[str] = None,
     recog_post_proc_funcs: Sequence[Callable[[RecogOutput], RecogOutput]] = (),
     num_shards: Optional[int] = None,
+    cache_manager: bool = True
 ) -> tuple[RecogOutput, tk.Path]:
     """
     Recog on the specific dataset using RETURNN.
@@ -469,7 +495,7 @@ def search_dataset(
         time_rqmt = 12.0
         cpu_rqmt = 4
         if search_mem_rqmt < 8:
-            search_mem_rqmt = 8
+            search_mem_rqmt = 24
     if getattr(model.definition, "backend", None) is None:
         search_job = ReturnnSearchJobV2(
             search_data=dataset.get_main_dataset(),
@@ -495,7 +521,7 @@ def search_dataset(
             shard_search_res = []
             for i in range(num_shards):
                 shard_search_job = ReturnnForwardJobV2(
-                    model_checkpoint=model.checkpoint,
+                    model_checkpoint=DelayedCodeWrapper("cf('{}')", model.checkpoint) if cache_manager else model.checkpoint,
                     returnn_config=search_config_v2(
                         dataset, model.definition, recog_def, decoder_hyperparameters, prior_path, config=config, post_config=search_post_config, shard_index=i, num_shards=num_shards
                     ),
@@ -518,7 +544,7 @@ def search_dataset(
             res = search_job.out_comined_results
         else:
             search_job = ReturnnForwardJobV2(
-                model_checkpoint=model.checkpoint,
+                model_checkpoint=DelayedCodeWrapper("cf('{}')", model.checkpoint) if cache_manager else model.checkpoint,
                 returnn_config=search_config_v2(
                     dataset, model.definition, recog_def, decoder_hyperparameters, prior_path, config=config, post_config=search_post_config
                 ),
@@ -549,7 +575,7 @@ def search_dataset(
             res = SearchRemoveLabelJob(res, remove_label=recog_def.output_blank_label, output_gzip=True).out_search_results
         for f in recog_post_proc_funcs:  # for example BPE to words
             res = f(RecogOutput(output=res)).output
-        if recog_def is model_recog_flashlight:
+        if recog_def is model_recog_flashlight or recog_def is model_recog_lm_albert:
             from i6_core.returnn.search import SearchOutputRawReplaceJob
             res = SearchOutputRawReplaceJob(res, [("@@", "")], output_gzip=True).out_search_results
     beam_res = res
@@ -857,6 +883,7 @@ def search_config_v2(
     # by the datasets itself as part in the config above.
     extern_data_raw = instanciate_delayed(extern_data_raw)
     
+    args_cached = {}
     if recog_def is model_recog_lm:
         from i6_experiments.users.zeyer.datasets.utils.bpe import Bpe
         
@@ -883,32 +910,47 @@ def search_config_v2(
             lm = get_binary_lm(get_arpa_lm_dict()["4gram"])
             
         args = {"arpa_4gram_lm": lm, "lexicon": lexicon, "hyperparameters": decoder_hyperparameters}
+        if lexicon:
+            args_cached["lexicon"] = DelayedCodeWrapper("`cf {}`", lexicon.get_path())
+        if lm:
+            args_cached["arpa_4gram_lm"] = DelayedCodeWrapper("`cf {}`", lm.get_path())
     
         if prior_path:
             args["prior_file"] = prior_path
-    elif recog_def is model_recog_flashlight:
+            args_cached["prior_file"] = DelayedCodeWrapper("`cf {}`", prior_path.get_path())
+    elif recog_def is model_recog_flashlight or recog_def is model_recog_lm_albert:
         args = {"hyperparameters": decoder_hyperparameters}
         if prior_path:
             args["prior_file"] = prior_path
+            args_cached["prior_file"] = DelayedCodeWrapper("cf('{}')", prior_path.get_path())
+        if recog_def is model_recog_lm_albert:
+            args["version"] = 3
     else:
         args = {}
 
-    returnn_recog_config = ReturnnConfig(
+    returnn_recog_config = ReturnnConfigCustom(
         config=returnn_recog_config_dict,
-        python_epilog=[
+        python_prolog=[
             serialization.Collection(
                 [
                     serialization.NonhashedCode(get_import_py_code()),
+                    serialization.PythonCacheManagerFunctionNonhashedCode,
+                ]
+            )
+        ],
+        python_epilog=[
+            serialization.Collection(
+                [
                     serialization.NonhashedCode(
                         nn.ReturnnConfigSerializer.get_base_extern_data_py_code_str_direct(extern_data_raw)
                     ),
                     *serialize_model_def(model_def),
                     serialization.Import(_returnn_v2_get_model, import_as="get_model"),
-                    serialization.PartialImport(
+                    PartialImportCustom(
                         code_object_path=recog_def,
                         unhashed_package_root=None,
                         hashed_arguments=args,
-                        unhashed_arguments={},
+                        unhashed_arguments=args_cached,
                         import_as="_recog_def",
                         ignore_import_as_for_hash=True),
                     serialization.Import(_returnn_v2_forward_step, import_as="forward_step"),
@@ -921,7 +963,6 @@ def search_config_v2(
                         }
                     ),
                     serialization.PythonEnlargeStackWorkaroundNonhashedCode,
-                    serialization.PythonCacheManagerFunctionNonhashedCode,
                     serialization.PythonModelineNonhashedCode,
                 ]
             )
