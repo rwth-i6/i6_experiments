@@ -132,7 +132,6 @@ class AudioStreamerV2(AudioStreamer):
                 yield chunk, total_chunk_size, i
 
 
-
 class StreamingASRContextManager:
     def __init__(self, decoder, carryover_sz, beam_sz):
         """..."""
@@ -144,7 +143,6 @@ class StreamingASRContextManager:
         self.states = None
         self.hypothesis = None
 
-
     def __enter__(self):
         self.states = collections.deque(maxlen=math.ceil(self.carryover_sz))
         return self
@@ -154,8 +152,7 @@ class StreamingASRContextManager:
 
     def process_chunk(self, ext_chunk, eff_chunk_sz) -> Tuple[torch.Tensor, List]:
         """
-        :param chunk: shape [C, 1]
-        :param future_ctx: shape [R, 1]
+        :param ext_chunk: shape [C, 1]
         :param eff_chunk_sz: L <= C+R
 
         :return: state and current hypothesis

@@ -311,14 +311,25 @@ def run_experiments(**kwargs):
             #
             decoder_config_offline_2 = copy.deepcopy(decoder_config_offline)
             decoder_config_offline_2.test_version = 0.1
-            if experiment == 20:
+            if experiment in [20, 30]:
                 evaluate_helper(
-                    training_name + "/offline" + "/keepv2_%i" % 1000,
+                    training_name + "/offline" + "/keep_%i" % 1000,
                     asr_model,
                     decoder_config_offline_2,
                     use_gpu=True,
                     beam_size=12,
                     decoder_module="rnnt.decoder.streaming_decoder_v1",
+                )
+
+                decoder_config_streaming_2 = copy.deepcopy(decoder_config_streaming)
+                decoder_config_streaming_2.test_version = 0.2
+                evaluate_helper(
+                    training_name + "/keepv2_%i" % keep,
+                    asr_model,
+                    decoder_config_streaming_2,
+                    use_gpu=True,
+                    beam_size=12,
+                    decoder_module="rnnt.decoder.streaming_decoder_v1"
                 )
             
             if experiment == 10:
@@ -335,7 +346,24 @@ def run_experiments(**kwargs):
 
 def streaming_ls960_0225_low_bpe_from_scratch():
     experiment_configs = {
-        10: {
+        # 10: {
+        #     "model_params": {
+        #         "chunk_size": [2.4],
+        #         "lookahead_size": [8],
+        #         "kernel_size": [31],
+        #         "specauc_start_epoch": [11],
+        #         "carry_over_size": [2],
+        #         "training_strategy": [str(TrainingStrategy.UNIFIED)],
+        #         "dual_mode": [True],
+        #     },
+
+        #     "network_module": "model_streaming_0225",
+        #     "accum_grads": 1,
+        #     "gpu_mem": 48,
+        #     "num_epochs": 1000,
+        #     "keep": [300, 500, 800, 950]
+        # },
+        15: {
             "model_params": {
                 "chunk_size": [2.4],
                 "lookahead_size": [8],
@@ -350,7 +378,7 @@ def streaming_ls960_0225_low_bpe_from_scratch():
             "accum_grads": 1,
             "gpu_mem": 48,
             "num_epochs": 1000,
-            "keep": [300, 500, 800, 950]
+            "keep": [300, 800, 950, 980]
         },
 
         20: {
@@ -361,19 +389,54 @@ def streaming_ls960_0225_low_bpe_from_scratch():
                 "specauc_start_epoch": [11],
                 "carry_over_size": [2],
                 "training_strategy": [str(TrainingStrategy.STREAMING)],
-                "dual_mode": [True],
+                "dual_mode": [False],
             },
 
             "network_module": "model_streaming_0225",
             "accum_grads": 1,
             "gpu_mem": 48,
             "num_epochs": 1000,
-            "keep": [300, 500, 800, 950]
+            "keep": [300, 800, 950, 980]
         },
+        # 25: {
+        #     "model_params": {
+        #         "chunk_size": [0.6],
+        #         "lookahead_size": [8],
+        #         "kernel_size": [31],
+        #         "specauc_start_epoch": [11],
+        #         "carry_over_size": [4],
+        #         "training_strategy": [str(TrainingStrategy.STREAMING)],
+        #         "dual_mode": [False],
+        #     },
 
-        25: {
+        #     "network_module": "model_streaming_0225",
+        #     "accum_grads": 1,
+        #     "gpu_mem": 48,
+        #     "num_epochs": 1000,
+        #     "keep": [300, 800, 950, 980]
+        # },
+
+        # SANITY CHECK:
+        # 30: {
+        #     "model_params": {
+        #         "chunk_size": [0.6],
+        #         "lookahead_size": [8],
+        #         "kernel_size": [31],
+        #         "specauc_start_epoch": [11],
+        #         "carry_over_size": [4],
+        #         "training_strategy": [str(TrainingStrategy.STREAMING)],
+        #         "dual_mode": [False],
+        #     },
+
+        #     "network_module": "model_streaming_oldconv",
+        #     "accum_grads": 1,
+        #     "gpu_mem": 48,
+        #     "num_epochs": 1000,
+        #     "keep": [300, 800, 950, 980]
+        # },
+        35: {
             "model_params": {
-                "chunk_size": [0.6],
+                "chunk_size": [2.4],
                 "lookahead_size": [8],
                 "kernel_size": [31],
                 "specauc_start_epoch": [11],
@@ -382,30 +445,11 @@ def streaming_ls960_0225_low_bpe_from_scratch():
                 "dual_mode": [False],
             },
 
-            "network_module": "model_streaming_0225",
-            "accum_grads": 1,
-            "gpu_mem": 48,
-            "num_epochs": 1000,
-            "keep": [300, 500, 800, 950]
-        },
-
-        # SANITY CHECK: 
-        30: {
-            "model_params": {
-                "chunk_size": [0.6],
-                "lookahead_size": [8],
-                "kernel_size": [31],
-                "specauc_start_epoch": [11],
-                "carry_over_size": [2, 1000],
-                "training_strategy": [str(TrainingStrategy.STREAMING)],
-                "dual_mode": [False],
-            },
-
             "network_module": "model_streaming_oldconv",
             "accum_grads": 1,
             "gpu_mem": 48,
             "num_epochs": 1000,
-            "keep": [300, 500, 800, 950]
+            "keep": [300, 800, 950, 980]
         },
     }
 

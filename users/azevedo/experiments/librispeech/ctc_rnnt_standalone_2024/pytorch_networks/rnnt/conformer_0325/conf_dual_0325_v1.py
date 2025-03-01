@@ -1,5 +1,6 @@
 import torch
 from torch import nn
+import torch.functional as F
 from typing import Optional, List, Tuple, Union
 import math
 from copy import deepcopy
@@ -12,10 +13,23 @@ from i6_models.primitives.feature_extraction import LogMelFeatureExtractionV1, L
 from i6_models.config import ModelConfiguration, ModuleFactoryV1
 from i6_models.parts.conformer import ConformerMHSAV1Config, ConformerPositionwiseFeedForwardV1Config
 from i6_models.assemblies.conformer.conformer_v1 import ConformerEncoderV1Config, ConformerBlockV1Config
+
+from i6_models.parts.conformer import (
+    ConformerConvolutionV2,
+    ConformerConvolutionV2Config,
+    ConformerMHSARelPosV1,
+    ConformerMHSARelPosV1Config,
+    ConformerPositionwiseFeedForwardV2,
+    ConformerPositionwiseFeedForwardV2Config,
+)
+
 from i6_models.parts.conformer import (
     ConformerConvolutionV1Config,
     ConformerPositionwiseFeedForwardV1,
 )
+
+from i6_models.parts.dropout import BroadcastDropout
+
 from i6_models.primitives.specaugment import specaugment_v1_by_length
 
 from ..conformer_1023.i6modelsV1_VGG4LayerActFrontendV1_v9_i6_native import mask_tensor, Joiner
@@ -25,236 +39,209 @@ from ..auxil.functional import add_lookahead_v2, create_chunk_mask, Mode
 
 from returnn.torch.context import get_run_ctx
 
+from ..conformer_0225.conf_lah_carryover_v4 import (
+    StreamableModule,
+    StreamableLayerNormV1,
+    StreamableJoinerV1,
+    StreamableFeatureExtractorV1
+)
 
-class StreamableModule(nn.Module):
-    """
-    Abstract class for modules that operate differently in offline- and streaming inference mode
-    """
-    def __init__(self):
-        super().__init__()
-        self._mode = None
+from ..conformer_1124.conf_relpos_streaming_v1 import ConformerRelPosBlockV1COV1Config
 
-    def set_mode(self, mode: Mode) -> None:
-        assert mode is not None, ""
 
-        self._mode = mode
-
-    def set_mode_cascaded(self, mode: Mode) -> None:
-        assert mode is not None, ""
-        
-        if self._mode == mode:
-            return
-
-        self._mode = mode
-
-        for m in self.modules():
-            if isinstance(m, StreamableModule):
-                m.set_mode(mode)
-
-    def forward(self, *args, **kwargs):
-        assert self._mode is not None, ""
-
-        # if not self.training:
-        #     raise NotImplementedError("how to deal with differing signature?")
-        #     return self.infer(x, *args, **kwargs)
-
-        if self._mode == Mode.STREAMING:
-            return self.forward_streaming(*args, **kwargs)
-        else:
-            return self.forward_offline(*args, **kwargs)
-
-    def forward_offline(self, *args, **kwargs):
-        raise NotImplementedError("Implement offline forward pass")
-
-    def forward_streaming(self, *args, **kwargs):
-        raise NotImplementedError("Implement streaming forward pass")
-    
-    def infer(self, *args, **kwargs):
-        raise NotImplementedError("Implement infer")
-    
-
-class StreamableFeatureExtractorV1(StreamableModule):
-    def __init__(
-            self, cfg: LogMelFeatureExtractionV1Config, specaug_cfg: SpecaugConfig, specaug_start_epoch: int
-    ):
+class StreamableConformerMHSARelPosV2(StreamableModule):
+    def __init__(self, cfg: ConformerMHSARelPosV1Config, dual_mode: bool):
         super().__init__()
 
-        self.logmel = LogMelFeatureExtractionV1(cfg)
-        self.specaug_config = specaug_cfg
-        self.specaug_start_epoch = specaug_start_epoch
-
-    def num_samples_to_frames(self, num_samples: int):
-        if self.logmel.center:
-            return (num_samples // self.logmel.hop_length) + 1
-        else:
-            return ((num_samples - self.logmel.n_fft) // self.logmel.hop_length) + 1
-
-    def prep_streaming_input(self, features: torch.Tensor, mask: torch.Tensor, chunk_sz: int):
-        bsz = features.size(0)
-
-        chunk_size_frames = self.num_samples_to_frames(num_samples=int(chunk_sz))
-        # pad conformer time-dim to be able to chunk (by reshaping) below
-        time_dim_pad = -features.size(1) % chunk_size_frames
-        # [B, T, *] -> [B, T+time_dim_pad, *] = [B, T', *]
-        features = nn.functional.pad(features, (0, 0, 0, time_dim_pad),
-                                               "constant", 0)
-        mask = nn.functional.pad(mask, (0, time_dim_pad), "constant", False)
-
-        # separate chunks to signal the conformer that we are chunking input
-        features = features.view(bsz, -1, chunk_size_frames,
-                                         features.size(-1))  # [B, (T'/C), C, F] = [B, N, C, F]
-        mask = mask.view(bsz, -1, chunk_size_frames)  # [B, N, C]
-
-        return features, mask
-
-    def forward_offline(self, raw_audio: torch.Tensor, raw_audio_len: torch.Tensor, *args, **kwargs) -> Tuple[torch.Tensor, torch.Tensor]:
-        """
-        :param raw_audio: [B, T', <?>] 
-        :param raw_audio_len: <= T' (in samples)
-
-        :return: [B, T, F] features
-        """
-        squeezed_features = torch.squeeze(raw_audio, dim=-1)
-        with torch.no_grad():
-            audio_features, audio_features_len = self.logmel(squeezed_features, raw_audio_len)
-
-            run_ctx = get_run_ctx()
-            if self.training and run_ctx.epoch >= self.specaug_start_epoch:
-                audio_features_masked_2 = specaugment_v1_by_length(
-                    audio_features,
-                    time_min_num_masks=2,
-                    time_max_mask_per_n_frames=self.specaug_config.repeat_per_n_frames,
-                    time_mask_max_size=self.specaug_config.max_dim_time,
-                    freq_min_num_masks=2,
-                    freq_mask_max_size=self.specaug_config.max_dim_feat,
-                    freq_max_num_masks=self.specaug_config.num_repeat_feat,
-                )
-            else:
-                audio_features_masked_2 = audio_features
-
-        out = audio_features_masked_2
-        mask = mask_tensor(out, audio_features_len)
-
-        return out, mask
-    
-    def forward_streaming(self, raw_audio: torch.Tensor, length: torch.Tensor, chunk_sz: int) -> Tuple[torch.Tensor, torch.Tensor]:
-        """
-        
-        :return: [B, N, C, F], [B, N, C]
-        """
-        features, mask = self.forward_offline(raw_audio=raw_audio, raw_audio_len=length)
-        out, mask = self.prep_streaming_input(features, mask, chunk_sz)
-
-        return out, mask
-
-    def infer(self, input, lengths, chunk_sz_frames):
-        audio_features, audio_features_lengths = self.forward_offline(input, lengths)
-
-        time_dim_pad = -audio_features.size(1) % chunk_sz_frames
-        audio_features = torch.nn.functional.pad(audio_features, (0, 0, 0, time_dim_pad), "constant", 0)
-
-        return audio_features, audio_features_lengths.sum(dim=-1)
-    
-
-class StreamableLayerNormV1(StreamableModule):
-    def __init__(self, input_dim: torch.Tensor, dual_mode: bool = True):
-        super().__init__()
-        self.layernorm_off = nn.LayerNorm(input_dim)
-        self.layernorm_on = nn.LayerNorm(input_dim) if dual_mode else self.layernorm_off
-
-    def forward_offline(self, x: torch.Tensor) -> torch.Tensor:
-        return self.layernorm_off(x)
-    
-    def forward_streaming(self, x: torch.Tensor) -> torch.Tensor:
-        return self.layernorm_on(x)
-
-
-class StreamableJoinerV1(StreamableModule):
-    r"""Streamable RNN-T joint network.
-
-    Args:
-        input_dim (int): source and target input dimension.
-        output_dim (int): output dimension.
-        activation (str, optional): activation function to use in the joiner.
-            Must be one of ("relu", "tanh"). (Default: "relu")
-
-    Taken directly from torchaudio
-    """
-
-    def __init__(
-            self, input_dim: int, output_dim: int, activation: str = "relu", dropout: float = 0.0, dual_mode: bool = True
-    ) -> None:
-        super().__init__()
-        self.joiner_off = Joiner(
-            input_dim=input_dim,
-            output_dim=output_dim,
-            activation=activation,
-            dropout=dropout
-        )
-        self.joiner_on = Joiner(
-            input_dim=input_dim,
-            output_dim=output_dim,
-            activation=activation,
-            dropout=dropout
-        ) if dual_mode else self.joiner_off
-
-    def forward_offline(
-            self,
-            source_encodings: torch.Tensor,
-            source_lengths: torch.Tensor,
-            target_encodings: torch.Tensor,
-            target_lengths: torch.Tensor,
-    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-        return self.joiner_off(source_encodings, source_lengths, target_encodings, target_lengths)
-    
-    def forward_streaming(
-            self,
-            source_encodings: torch.Tensor,
-            source_lengths: torch.Tensor,
-            target_encodings: torch.Tensor,
-            target_lengths: torch.Tensor,
-    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-        return self.joiner_on(source_encodings, source_lengths, target_encodings, target_lengths)
-
-
-class StreamableConformerMHSAV1(StreamableModule):
-    def __init__(self, cfg: ConformerMHSAV1Config, dual_mode: bool):
-        super().__init__()
-
-        # TODO: diff layernorm depending on context (add flag to config?)
         self.layernorm = StreamableLayerNormV1(cfg.input_dim, dual_mode=dual_mode)
-        self.mhsa = nn.MultiheadAttention(
-            cfg.input_dim, cfg.num_att_heads, dropout=cfg.att_weights_dropout, batch_first=True
+
+        self.embed_dim = cfg.input_dim
+        self.num_heads = cfg.num_att_heads
+        self.embed_dim_per_head = self.embed_dim // self.num_heads
+
+        self.learnable_pos_emb = cfg.learnable_pos_emb
+        self.rel_pos_clip = cfg.rel_pos_clip
+        self.separate_pos_emb_per_head = cfg.separate_pos_emb_per_head
+        self.with_pos_bias = cfg.with_pos_bias
+        self.pos_emb_dropout = nn.Dropout(cfg.pos_emb_dropout)
+
+        assert not self.learnable_pos_emb or self.rel_pos_clip
+
+        self.att_weights_dropout = nn.Dropout(cfg.att_weights_dropout)
+
+        assert self.embed_dim % self.num_heads == 0, "embed_dim must be divisible by num_heads"
+
+        # projection matrices
+        self.qkv_proj = nn.Linear(self.embed_dim, 3 * self.embed_dim, bias=cfg.with_bias)
+        self.out_proj = nn.Linear(self.embed_dim, self.embed_dim, bias=cfg.with_bias)
+
+        self.register_parameter("rel_pos_embeddings", None)
+        self.register_parameter("pos_bias_u", None)
+        self.register_parameter("pos_bias_v", None)
+
+        self.pos_emb_dim = (
+            self.embed_dim if cfg.with_linear_pos or cfg.separate_pos_emb_per_head else self.embed_dim_per_head
         )
-        self.dropout = cfg.dropout
+        if self.learnable_pos_emb:
+            self.rel_pos_embeddings = nn.parameter.Parameter(torch.empty(self.rel_pos_clip * 2 + 1, self.pos_emb_dim))
+        if cfg.with_linear_pos:
+            self.linear_pos = nn.Linear(
+                self.pos_emb_dim,
+                self.embed_dim if cfg.separate_pos_emb_per_head else self.embed_dim_per_head,
+                bias=False,
+            )
+        else:
+            self.linear_pos = nn.Identity()
+
+        if self.with_pos_bias:
+            self.pos_bias_u = nn.parameter.Parameter(torch.empty(self.num_heads, self.embed_dim_per_head))
+            self.pos_bias_v = nn.parameter.Parameter(torch.empty(self.num_heads, self.embed_dim_per_head))
+
+        self.dropout = BroadcastDropout(cfg.dropout, dropout_broadcast_axes=cfg.dropout_broadcast_axes)
+
+        self._reset_parameters()
+
+    def _reset_parameters(self):
+        if self.learnable_pos_emb:
+            nn.init.xavier_normal_(self.rel_pos_embeddings)
+        if self.with_pos_bias:
+            # init taken from espnet default
+            nn.init.xavier_uniform_(self.pos_bias_u)
+            nn.init.xavier_uniform_(self.pos_bias_v)
 
     def forward_offline(
-            self, input_tensor: torch.Tensor, sequence_mask: torch.Tensor, attn_mask: Optional[torch.Tensor] = None,
+            self, input_tensor: torch.Tensor, sequence_mask: torch.Tensor, attn_mask: Optional[torch.Tensor] = None
     ) -> torch.Tensor:
         """
-        :param input_tensor: [B, T, F]
-        :param sequence_mask: [B, T]
-        :param attn_mask: [T, T]
+        Apply layer norm and multi-head self attention and dropout
 
-        :return: [B, T, F]
+        :param input_tensor: Input to the self attention of shape (B, T, F)
+        :param sequence_mask: bool mask of shape (B, T), True signals within sequence, False outside
+        :param attn_mask: bool mask of shape (T, T)
         """
+        output_tensor = self.layernorm(input_tensor)  # [B, T, F]
 
-        inv_sequence_mask = compat.logical_not(sequence_mask)
-        inv_attn_mask = None
+        time_dim_size = output_tensor.shape[1]
+        batch_dim_size = output_tensor.shape[0]
+
+        # attention mask
+        # T: query seq. length, T' key/value seg length; T = T' if same input tensor
+
+        inv_sequence_mask = compat.logical_not(sequence_mask)  # [B, T']
+        inv_sequence_mask = inv_sequence_mask.unsqueeze(1)  # [B, 1, T']
         if attn_mask is not None:
             inv_attn_mask = compat.logical_not(attn_mask)
+            inv_attn_mask = inv_attn_mask.unsqueeze(0)  # [1, T', T']
 
-        output_tensor = self.layernorm(input_tensor)  # [B, T, F]
-        
-        output_tensor, _ = self.mhsa(
-            output_tensor, output_tensor, output_tensor, 
-            key_padding_mask=inv_sequence_mask, attn_mask=inv_attn_mask, 
-            need_weights=False
-        )  # [B, T, F]
+        total_mask = inv_sequence_mask
+        if attn_mask is not None:
+            total_mask = total_mask + inv_attn_mask
+        total_mask = total_mask.unsqueeze(1)  # [B, 1, T', T']
 
-        output_tensor = nn.functional.dropout(output_tensor, p=self.dropout, training=self.training)  # [B, T, F]
+        # query, key and value sequences
+        query_seq, key_seq, value_seq = self.qkv_proj(output_tensor).chunk(3, dim=-1)  # [B, T, #heads * F']
+        q = query_seq.view(batch_dim_size, -1, self.num_heads, self.embed_dim_per_head)  # [B, T, #heads, F']
+        k = key_seq.view(batch_dim_size, -1, self.num_heads, self.embed_dim_per_head)  # [B, T', #heads, F']
 
-        return output_tensor
+        if self.learnable_pos_emb:
+            pos_seq_q = torch.arange(time_dim_size, device=input_tensor.device)
+            pos_seq_k = torch.arange(time_dim_size, device=input_tensor.device)
+
+            distance_mat = pos_seq_k[None, :] - pos_seq_q[:, None]
+            distance_mat_clipped = torch.clamp(distance_mat, -self.rel_pos_clip, self.rel_pos_clip)
+
+            final_mat = distance_mat_clipped + self.rel_pos_clip
+
+            rel_pos_embeddings = self.rel_pos_embeddings[final_mat]  # [T, T', pos_emb_dim]
+        else:
+            rel_pos_embeddings = self._sinusoidal_pe(
+                torch.arange(time_dim_size - 1, -time_dim_size, -1, device=input_tensor.device, dtype=torch.float32),
+                self.pos_emb_dim,
+            ).view(
+                1, 2 * time_dim_size - 1, self.pos_emb_dim
+            )  # [1, T+T'-1, pos_emb_dim]
+
+        # dropout relative positional embeddings
+        rel_pos_embeddings = self.pos_emb_dropout(
+            rel_pos_embeddings
+        )  # [T, T', pos_emb_dim] or [1, T+T'-1, pos_emb_dim]
+        rel_pos_embeddings = rel_pos_embeddings.unsqueeze(2)  # [T, T', 1, pos_emb_dim] or [1, T+T'-1, 1, pos_emb_dim]
+
+        # linear transformation or identity
+        rel_pos_embeddings = self.linear_pos(rel_pos_embeddings)  # [T, T', 1, F'|F] or [1, T+T'-1, 1, F'|F]
+
+        if self.separate_pos_emb_per_head:
+            rel_pos_embeddings = rel_pos_embeddings.squeeze(2).reshape(
+                *rel_pos_embeddings.shape[:2], -1, self.embed_dim_per_head
+            )  # [T, T', #heads, F'] or [1, T+T'-1, #heads, F']
+
+        q_with_bias_u = q + self.pos_bias_u if self.with_pos_bias else q  # [B, T, #heads, F']
+        q_with_bias_v = q + self.pos_bias_v if self.with_pos_bias else q
+
+        # attention matrix a and c
+        attn_ac = torch.einsum("bihf, bjhf -> bhij", q_with_bias_u, k)  # [B, #heads, T, T']
+
+        # attention matrix b and d
+        attn_bd = torch.einsum(
+            "bihf, ijhf -> bhij", q_with_bias_v, rel_pos_embeddings
+        )  # [B, #heads, T, T'] or [B, #heads, T, T+T'+1]
+
+        if not self.learnable_pos_emb:
+            attn_bd = self._rel_shift_bhij(attn_bd, k_len=time_dim_size)  # [B, #heads, T, T']
+
+        attn = attn_ac + attn_bd  # [B, #heads, T, T']
+        attn_scaled = attn * (math.sqrt(1.0 / float(self.embed_dim_per_head)))  # [B, #heads, T, T']
+
+        # NOTE: mask applied with masked_fill instead of addition for stable grads for zero-rows
+        attn_scaled = attn_scaled.masked_fill(total_mask, float("-inf"))
+        # softmax and dropout
+        attn_output_weights = self.att_weights_dropout(F.softmax(attn_scaled, dim=-1))  # [B, #heads, T, T']
+
+        attn_output_weights = attn_output_weights.masked_fill(total_mask, 0.0)
+
+        # sequence of weighted sums over value sequence
+        v = value_seq.view(batch_dim_size, -1, self.num_heads, self.embed_dim_per_head)  # [B, T, H, F']
+        attn_output = torch.einsum("bhij, bjhf -> bihf", attn_output_weights, v).reshape(
+            batch_dim_size, -1, self.embed_dim
+        )
+
+        output_tensor = self.out_proj(attn_output)
+
+        output_tensor = self.dropout(output_tensor)
+
+        return output_tensor  # [B,T,F]
+
+    @staticmethod
+    def _rel_shift_bhij(x, k_len=None):
+        """
+        :param x: input tensor of shape (B, H, T, L) to apply left shift
+        :k_len: length of the key squence
+        """
+        x_shape = x.shape
+
+        x = torch.nn.functional.pad(x, (1, 0))  # [B, H, T, L+1]
+        x = x.reshape(x_shape[0], x_shape[1], x_shape[3] + 1, x_shape[2])  # [B, H, L+1, T]
+        x = x[:, :, 1:]  # [B, H, L, T]
+        x = x.reshape(x_shape)  # [B, H, T, L]]
+
+        return x[:, :, :, :k_len] if k_len else x  # [B, H, T, T']
+
+    @staticmethod
+    def _sinusoidal_pe(pos_seq: torch.Tensor, embed_dim: int):
+        """
+        :param pos_seq: 1-D position sequence for which to compute embeddings
+        :param embed_dim: embedding dimension
+        """
+        inv_freq = 1 / (10000 ** (torch.arange(0.0, embed_dim, 2.0, device=pos_seq.device) / embed_dim))
+
+        sinusoid_input = torch.outer(pos_seq, inv_freq)
+
+        pos_emb = torch.zeros(pos_seq.shape[0], embed_dim, device=pos_seq.device)
+
+        pos_emb[:, 0::2] = sinusoid_input.sin()
+        pos_emb[:, 1::2] = sinusoid_input.cos()
+
+        return pos_emb
 
     def forward_streaming(
             self, input_tensor: torch.Tensor, sequence_mask: torch.Tensor, attn_mask: Optional[torch.Tensor] = None,
@@ -283,17 +270,14 @@ class StreamableConformerMHSAV1(StreamableModule):
     def infer(
             self, x: torch.Tensor, seq_mask: torch.Tensor, ext_chunk_sz: int,
     ) -> torch.Tensor:
-        
-        y = self.layernorm(x)
-        q = y[-ext_chunk_sz:]  # [C+R, F']
+        # x: [t, F]
 
-        inv_seq_mask = ~seq_mask
-        output_tensor, _ = self.mhsa(
-            q, y, y, key_padding_mask=inv_seq_mask, need_weights=False
-        )  # [C+R, F]
-        x = output_tensor + x[-ext_chunk_sz:]  # [C+R, F]
+        attn_mask = torch.ones(x.size(0), x.size(0), device=x.device, dtype=torch.bool)
+        y = self.forward_offline(
+            input_tensor=x.unsqueeze(0), sequence_mask=seq_mask.unsqueeze(0), attn_mask=attn_mask)
+        y = y[0, -ext_chunk_sz:]
 
-        return x
+        return y + x[-ext_chunk_sz:]
 
 
 class StreamableConformerConvolutionV1(StreamableModule):
@@ -396,14 +380,14 @@ class StreamableConformerConvolutionV1(StreamableModule):
         return x.squeeze(0)
 
 
-class StreamableConformerBlockV1(StreamableModule):
-    def __init__(self, cfg: ConformerBlockV1Config, dual_mode: bool):
+class StreamableConformerBlockRelPosV1(StreamableModule):
+    def __init__(self, cfg: ConformerRelPosBlockV1COV1Config, dual_mode: bool):
         super().__init__()
 
-        self.ff1 = ConformerPositionwiseFeedForwardV1(cfg=cfg.ff_cfg)
-        self.mhsa = StreamableConformerMHSAV1(cfg=cfg.mhsa_cfg, dual_mode=dual_mode)
+        self.ff1 = ConformerPositionwiseFeedForwardV2(cfg=cfg.ff_cfg)
+        self.mhsa = StreamableConformerMHSARelPosV2(cfg=cfg.mhsa_cfg, dual_mode=dual_mode)
         self.conv = StreamableConformerConvolutionV1(model_cfg=cfg.conv_cfg, dual_mode=dual_mode)
-        self.ff2 = ConformerPositionwiseFeedForwardV1(cfg=cfg.ff_cfg)
+        self.ff2 = ConformerPositionwiseFeedForwardV2(cfg=cfg.ff_cfg)
         self.final_layer_norm = StreamableLayerNormV1(cfg.ff_cfg.input_dim, dual_mode=dual_mode)
 
     def forward_offline(self, x: torch.Tensor, /, sequence_mask: torch.Tensor, *args, **kwargs) -> torch.Tensor:
@@ -424,7 +408,7 @@ class StreamableConformerBlockV1(StreamableModule):
         return x
 
     def forward_streaming(
-            self, x: torch.Tensor, /, sequence_mask: torch.Tensor, 
+            self, x: torch.Tensor, /, sequence_mask: torch.Tensor,
             attn_mask: torch.Tensor, lookahead_size: int, carry_over_size: int,
     ) -> torch.Tensor:
         """
@@ -503,7 +487,7 @@ class StreamableConformerBlockV1(StreamableModule):
 
 
 @dataclass
-class StreamableConformerEncoderV1Config(ModelConfiguration):
+class StreamableConformerEncoderRelPosV2Config(ModelConfiguration):
     """
     Attributes:
         num_layers: Number of conformer layers in the conformer encoder
@@ -516,19 +500,20 @@ class StreamableConformerEncoderV1Config(ModelConfiguration):
 
     # nested configurations
     frontend: ModuleFactoryV1
-    block_cfg: ConformerBlockV1Config
+    block_cfg: ConformerRelPosBlockV1COV1Config
 
 
-class StreamableConformerEncoderV1(StreamableModule):
-    def __init__(self, cfg: StreamableConformerEncoderV1Config):
+class StreamableConformerEncoderRelPosV2(StreamableModule):
+    def __init__(self, cfg: StreamableConformerEncoderRelPosV2Config):
         super().__init__()
 
         self.frontend = cfg.frontend()
         self.module_list = nn.ModuleList(
-            [StreamableConformerBlockV1(cfg.block_cfg, dual_mode=cfg.dual_mode) for _ in range(cfg.num_layers)]
+            [StreamableConformerBlockRelPosV1(cfg.block_cfg, dual_mode=cfg.dual_mode) for _ in range(cfg.num_layers)]
         )
 
-    def forward_offline(self, data_tensor: torch.Tensor, sequence_mask: torch.Tensor, *args, **kwargs) -> Tuple[torch.Tensor, torch.Tensor]:
+    def forward_offline(self, data_tensor: torch.Tensor, sequence_mask: torch.Tensor, *args, **kwargs) -> Tuple[
+        torch.Tensor, torch.Tensor]:
         """
         :param data_tensor: input tensor of shape [B, T', F]
         :param sequence_mask: mask tensor where 1 defines positions within the sequence and 0 outside, shape: [B, T']
@@ -544,10 +529,11 @@ class StreamableConformerEncoderV1(StreamableModule):
             x = module(x, sequence_mask)  # [B, T, F']
 
         return x, sequence_mask
-    
-    def forward_streaming(self, 
-            data_tensor: torch.Tensor, sequence_mask: torch.Tensor, lookahead_size: int, carry_over_size: int,
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
+
+    def forward_streaming(self,
+                          data_tensor: torch.Tensor, sequence_mask: torch.Tensor, lookahead_size: int,
+                          carry_over_size: int,
+                          ) -> Tuple[torch.Tensor, torch.Tensor]:
         """
         B: batch size, N: number of chunks = T/C, C: chunk size, F: feature dim, F': internal and output feature dim,
         T': data time dim, T: down-sampled time dim (internal time dim)
@@ -576,13 +562,13 @@ class StreamableConformerEncoderV1(StreamableModule):
         x, sequence_mask = add_lookahead_v2(x, sequence_mask=sequence_mask, lookahead_size=lookahead_size)
 
         attn_mask = create_chunk_mask(seq_len=(x.size(1) * x.size(2)),
-                                        chunk_size=x.size(2) - lookahead_size,
-                                        lookahead_size=lookahead_size,
-                                        carry_over_size=carry_over_size,
-                                        device=x.device)
+                                      chunk_size=x.size(2) - lookahead_size,
+                                      lookahead_size=lookahead_size,
+                                      carry_over_size=carry_over_size,
+                                      device=x.device)
 
         for module in self.module_list:
-            x = module(x, sequence_mask, attn_mask=attn_mask, 
+            x = module(x, sequence_mask, attn_mask=attn_mask,
                        lookahead_size=lookahead_size, carry_over_size=carry_over_size)  # [B, T, F'] or [B, N, C'+R, F']
 
         # remove lookahead frames from every chunk
@@ -647,7 +633,7 @@ class StreamableConformerEncoderV1(StreamableModule):
             if states is not None:
                 # first chunk is not provided with any previous states
                 prev_layer = [prev_chunk[-1][i] for prev_chunk in states]
-                curr_layer = [prev_chunk[-1][i+1] for prev_chunk in states]
+                curr_layer = [prev_chunk[-1][i + 1] for prev_chunk in states]
 
             x = module.infer(x, sequence_mask, states=prev_layer, curr_layer=curr_layer, lookahead_size=lookahead_size)
             layer_outs.append(x)

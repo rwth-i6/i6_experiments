@@ -5,6 +5,7 @@ __all__ = [
     "ConformerRelPosEncoderV1Config",
     "ConformerRelPosBlockV1",
     "ConformerRelPosEncoderV1",
+    "ConformerRelPosBlockV1COV1Config",
 ]
 
 import math

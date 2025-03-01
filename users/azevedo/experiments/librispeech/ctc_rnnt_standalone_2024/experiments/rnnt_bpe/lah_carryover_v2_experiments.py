@@ -268,9 +268,10 @@ def run_experiments(**kwargs):
                 train_args["network_module"] +
                 ".512dim_sub6_%dgbgpu_" % gpu_mem + 
                 "%deps_" % (num_epochs//10) +
-                "from_scratch_radamv1_%s_lah_co_specaug%d" % (train_strat, model_config.specauc_start_epoch) + "/" +
+                "from_scratch_radamv1_%s_lah_co_specaug%d_%s" % (
+                    train_strat, model_config.specauc_start_epoch, str(experiment)) + "/" +
                 str(param_combi["chunk_size"]) + "/" +
-                "carry%i" % model_config.carry_over_size + "/" +  # FIXME: use "carry%.1f" % model_config.carry_over_size
+                "carry%.1f" % model_config.carry_over_size + "/" +
                 "lah%i" % model_config.lookahead_size
             )
             train_job = training(training_name, train_data_bpe, train_args,
@@ -363,7 +364,41 @@ def lah_carryover_v2_ls960_1023_low_bpe_from_scratch():
             "gpu_mem": 48,
             "num_epochs": 1000,
             "keep": [300, 500, 800, 950]
-        }
+        },
+
+        "var_carry": {
+            "model_params": {
+                "chunk_size": [2.4],
+                "lookahead_size": [8],
+                "kernel_size": [31],
+                "specauc_start_epoch": [11],
+                "carry_over_size": [0, 0.5, 1, 2, 1000],
+                "training_strategy": [str(strat) for strat in [TrainingStrategy.STREAMING]]
+            },
+
+            "network_module": "model_streaming_lah_carryover_v4",
+            "accum_grads": 1,
+            "gpu_mem": 48,
+            "num_epochs": 1000,
+            "keep": [300, 500, 800, 950, 980]
+        },
+
+        "uni": {
+            "model_params": {
+                "chunk_size": [2.4],
+                "lookahead_size": [8],
+                "kernel_size": [31],
+                "specauc_start_epoch": [11],
+                "carry_over_size": [2],
+                "training_strategy": [str(strat) for strat in [TrainingStrategy.UNIFIED]]
+            },
+
+            "network_module": "model_streaming_lah_carryover_v4",
+            "accum_grads": 1,
+            "gpu_mem": 48,
+            "num_epochs": 1000,
+            "keep": [300, 500, 800, 950]
+        },
     }
 
     run_experiments(experiments_config=experiment_configs, bpe_size=128)

@@ -2,79 +2,92 @@ import torch
 from torch import nn
 from dataclasses import dataclass
 
-from i6_models.primitives.specaugment import specaugment_v1_by_length
-from returnn.torch.context import get_run_ctx
 
 from .model_streaming_0225_cfg import ModelConfig
-from i6_models.assemblies.conformer.conformer_v1 import ConformerBlockV1Config
 from i6_models.config import ModuleFactoryV1
 
 # frontend imports
 from i6_models.parts.frontend.vgg_act import VGG4LayerActFrontendV1
-from ..streaming_conformer.generic_frontend_v2 import GenericFrontendV2
 
 # feature extract and conformer module imports
 from i6_models.parts.conformer.norm import LayerNormNC
-from i6_models.parts.conformer.convolution import ConformerConvolutionV1Config
-from i6_models.parts.conformer.feedforward import ConformerPositionwiseFeedForwardV1Config
-from i6_models.parts.conformer.mhsa import ConformerMHSAV1Config
+from i6_models.parts.dropout import BroadcastDropout
 
-from .conf_lah_carryover_v4 import (
-    StreamableConformerEncoderV1, 
-    StreamableFeatureExtractorV1, 
+from .conf_dual_0325_v1 import (
+    StreamableConformerEncoderRelPosV2,
+    StreamableConformerEncoderRelPosV2Config,
+
+)
+
+from ..conformer_0924.i6models_relposV1_VGG4LayerActFrontendV1_v1 import Predictor, Joiner
+
+from ..conformer_0225.conf_lah_carryover_v4 import (
+    StreamableFeatureExtractorV1,
     StreamableJoinerV1,
     StreamableConformerEncoderV1Config
 )
+from ..conformer_1124.conf_relpos_streaming_v1 import (
+    ConformerRelPosBlockV1COV1Config,
+    ConformerPositionwiseFeedForwardV2Config,
+    ConformerMHSARelPosV1Config,
+    ConformerConvolutionV2Config,
+
+    ConformerRelPosEncoderV1COV1
+)
+
 from ..conformer_0924.model_streaming_lah_carryover_v4 import train_step
 
 from ..conformer_1023.i6modelsV1_VGG4LayerActFrontendV1_v9_i6_native import (
     prior_step,
     prior_init_hook,
     prior_finish_hook,
-    Predictor,
 )
 
-from ..auxil.functional import num_samples_to_frames, Mode, TrainingStrategy, mask_tensor
+from ..auxil.functional import Mode, TrainingStrategy
 
 
 class Model(nn.Module):
     def __init__(self, model_config_dict: ModelConfig, **kwargs):
         super().__init__()
-        # net_args passed as dict to returnn and retransformed here into dataclass
-        self.cfg = ModelConfig.from_dict(model_config_dict)
 
-        if self.cfg.use_vgg:
-            frontend = ModuleFactoryV1(module_class=VGG4LayerActFrontendV1, cfg=self.cfg.frontend_config)
-        else:
-            frontend = ModuleFactoryV1(module_class=GenericFrontendV2, cfg=self.cfg.frontend_config)
+        self.cfg = ModelConfig.from_dict(model_config_dict)
 
         dual_mode = False
         if self.cfg.dual_mode and self.cfg.training_strategy in [TrainingStrategy.UNIFIED, TrainingStrategy.SWITCHING]:
             dual_mode = True
 
-        conformer_config = StreamableConformerEncoderV1Config(
+        conformer_config = StreamableConformerEncoderRelPosV2Config(
             num_layers=self.cfg.num_layers,
             dual_mode=dual_mode,
-            frontend=frontend,
-            block_cfg=ConformerBlockV1Config(
-                ff_cfg=ConformerPositionwiseFeedForwardV1Config(
+            frontend=ModuleFactoryV1(module_class=VGG4LayerActFrontendV1, cfg=self.cfg.frontend_config),
+            block_cfg=ConformerRelPosBlockV1COV1Config(
+                ff_cfg=ConformerPositionwiseFeedForwardV2Config(
                     input_dim=self.cfg.conformer_size,
                     hidden_dim=self.cfg.ff_dim,
                     dropout=self.cfg.ff_dropout,
                     activation=nn.functional.silu,
+                    dropout_broadcast_axes=self.cfg.dropout_broadcast_axes
                 ),
-                mhsa_cfg=ConformerMHSAV1Config(
+                mhsa_cfg=ConformerMHSARelPosV1Config(
                     input_dim=self.cfg.conformer_size,
                     num_att_heads=self.cfg.num_heads,
                     att_weights_dropout=self.cfg.att_weights_dropout,
                     dropout=self.cfg.mhsa_dropout,
+                    dropout_broadcast_axes=self.cfg.dropout_broadcast_axes,
+                    learnable_pos_emb=self.cfg.pos_emb_config.learnable_pos_emb,
+                    rel_pos_clip=self.cfg.pos_emb_config.rel_pos_clip,
+                    with_linear_pos=self.cfg.pos_emb_config.with_linear_pos,
+                    with_pos_bias=self.cfg.pos_emb_config.with_pos_bias,
+                    separate_pos_emb_per_head=self.cfg.pos_emb_config.separate_pos_emb_per_head,
+                    pos_emb_dropout=self.cfg.pos_emb_config.pos_emb_dropout,
+                    with_bias=self.cfg.mhsa_with_bias,
                 ),
-                conv_cfg=ConformerConvolutionV1Config(
-                    channels=self.cfg.conformer_size,
-                    kernel_size=self.cfg.conv_kernel_size,
-                    dropout=self.cfg.conv_dropout,
-                    activation=nn.functional.silu,
+                conv_cfg=ConformerConvolutionV2Config(
+                    channels=self.cfg.conformer_size, kernel_size=self.cfg.conv_kernel_size,
+                    dropout=self.cfg.conv_dropout, activation=nn.functional.silu,
                     norm=LayerNormNC(self.cfg.conformer_size),
+                    dropout_broadcast_axes=self.cfg.dropout_broadcast_axes,
+
                 ),
             ),
         )
@@ -84,24 +97,27 @@ class Model(nn.Module):
             specaug_cfg=self.cfg.specaug_config,
             specaug_start_epoch=self.cfg.specauc_start_epoch
         )
-        self.conformer = StreamableConformerEncoderV1(cfg=conformer_config)
+        self.conformer = StreamableConformerEncoderRelPosV2(cfg=conformer_config)
         self.predictor = Predictor(
             cfg=self.cfg.predictor_config,
             label_target_size=self.cfg.label_target_size + 1,  # ctc blank added
             output_dim=self.cfg.joiner_dim,
+            dropout_broadcast_axes=self.cfg.dropout_broadcast_axes,
         )
-        self.joiner = StreamableJoinerV1(
+        # TODO: StreamableJoinerV2
+        self.joiner = Joiner(
             input_dim=self.cfg.joiner_dim,
             output_dim=self.cfg.label_target_size + 1,
             activation=self.cfg.joiner_activation,
             dropout=self.cfg.joiner_dropout,
-            dual_mode=dual_mode,
+            dropout_broadcast_axes=self.cfg.dropout_broadcast_axes,
+            dual_mode=dual_mode
         )
 
         self.encoder_out_linear = nn.Linear(self.cfg.conformer_size, self.cfg.joiner_dim)
 
         if self.cfg.ctc_output_loss > 0:
-            self.encoder_ctc_on = nn.Linear(self.cfg.conformer_size, self.cfg.label_target_size + 1) 
+            self.encoder_ctc_on = nn.Linear(self.cfg.conformer_size, self.cfg.label_target_size + 1)
             if dual_mode:
                 self.encoder_ctc_off = nn.Linear(self.cfg.conformer_size, self.cfg.label_target_size + 1)
             else:
@@ -113,6 +129,9 @@ class Model(nn.Module):
         self.lookahead_size = self.cfg.lookahead_size
         self.carry_over_size = self.cfg.carry_over_size
         self.mode = None
+
+        self.output_dropout = BroadcastDropout(p=self.cfg.final_dropout,
+                                               dropout_broadcast_axes=self.cfg.dropout_broadcast_axes)
 
     def forward(
             self, raw_audio: torch.Tensor, raw_audio_len: torch.Tensor,
@@ -134,7 +153,7 @@ class Model(nn.Module):
         conformer_out, out_mask = self.conformer(conformer_in, mask,
                                                  lookahead_size=self.lookahead_size,
                                                  carry_over_size=self.carry_over_size)
-        
+
         if self.mode == Mode.STREAMING:
             conformer_out = conformer_out.flatten(1, 2)  # [B, C'*N, F']
             out_mask = out_mask.flatten(1, 2)  # [B, C'*N]

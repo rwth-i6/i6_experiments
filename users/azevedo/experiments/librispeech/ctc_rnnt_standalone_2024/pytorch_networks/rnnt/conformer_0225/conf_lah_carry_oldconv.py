@@ -153,13 +153,12 @@ class StreamableFeatureExtractorV1(StreamableModule):
         return out, mask
 
     def infer(self, input, lengths, chunk_sz_frames):
-        squeezed_features = torch.squeeze(input)
-        audio_features, audio_features_len = self.forward_offline(squeezed_features, lengths)
+        audio_features, audio_features_lengths = self.forward_offline(input, lengths)
 
         time_dim_pad = -audio_features.size(1) % chunk_sz_frames
         audio_features = torch.nn.functional.pad(audio_features, (0, 0, 0, time_dim_pad), "constant", 0)
 
-        return audio_features, audio_features_len
+        return audio_features, audio_features_lengths.sum(dim=-1)
     
 
 class StreamableLayerNormV1(StreamableModule):
@@ -287,7 +286,7 @@ class StreamableConformerMHSAV1(StreamableModule):
         return out
 
     def infer(
-        self, x: torch.Tensor, seq_mask: torch.Tensor, ext_chunk_sz: int,
+            self, x: torch.Tensor, seq_mask: torch.Tensor, ext_chunk_sz: int,
     ) -> torch.Tensor:
         
         y = self.layernorm(x)
@@ -345,7 +344,7 @@ class StreamableConformerConvolutionV1(StreamableModule):
 
         return self.dropout(tensor)
 
-    def forward_streaming(self, tensor: torch.Tensor, lookahead_sz: int) -> torch.Tensor:
+    def forward_streaming(self, tensor: torch.Tensor, lookahead_sz: int, *args, **kwargs) -> torch.Tensor:
         """
         :param tensor: [B, N, C, F]
         :param lookahead_sz: number of future frames in chunk
@@ -357,14 +356,15 @@ class StreamableConformerConvolutionV1(StreamableModule):
         bsz, num_chunks, chunk_sz, _ = tensor.shape
 
         x = tensor.flatten(0, 1)  # [B*N, C, F]
-        x = self.forward_offline(x) + x
+        x = self.forward_offline(x)
         x = x.view(bsz, num_chunks, chunk_sz, x.size(-1))  # [B, N, C, F]
 
         return x
 
     def infer(self, x: torch.Tensor, states: Optional[List[torch.Tensor]], chunk_sz: int, lookahead_sz: int) -> torch.Tensor:
-        
-        return self.conv(x) + x  # [C+R, F']
+        x = x.unsqueeze(0)
+        x = self.forward_offline(x)  # [1, C+R, F']
+        return x.squeeze(0)
 
 
 class StreamableConformerBlockV1(StreamableModule):
@@ -395,7 +395,8 @@ class StreamableConformerBlockV1(StreamableModule):
         return x
 
     def forward_streaming(
-            self, x: torch.Tensor, /, sequence_mask: torch.Tensor, attn_mask: torch.Tensor, lookahead_size: int
+            self, x: torch.Tensor, /, sequence_mask: torch.Tensor, 
+            attn_mask: torch.Tensor, lookahead_size: int, carry_over_size: int,
     ) -> torch.Tensor:
         """
         :param x: input tensor of shape [B, N, C, F]
@@ -413,7 +414,7 @@ class StreamableConformerBlockV1(StreamableModule):
         x = self.mhsa(x, sequence_mask, attn_mask) + x  # [B, N, C, F]
 
         x = x.masked_fill((~sequence_mask.unsqueeze(-1)), 0.0)
-        x = self.conv(x, lookahead_size) + x
+        x = self.conv(x, lookahead_size, carry_over_size) + x
 
         x = 0.5 * self.ff2(x) + x  # [B, T, F] or [B*N, C, F]
         x = self.final_layer_norm(x)  # [B, T, F] or [B*N, C, F]
@@ -431,10 +432,10 @@ class StreamableConformerBlockV1(StreamableModule):
             lookahead_size: int,
     ) -> Tuple[torch.Tensor, torch.Tensor, List[List[torch.Tensor]]]:
         """
-        input should be assumed to be streamed (C+R, F')
+        input should be assumed to be streamed [C+R, F']
             where C = chunk_size, R = lookahead_size (, K = carry_over_size)
-        sequence_mask: (1, C+R)
-        states: List[Tensor(C+R, F')] corresponding to previous chunk output of lower layer
+        sequence_mask: [1, C+R]
+        states: List[Tensor[C+R, F']] corresponding to previous chunk output of lower layer
         """
         ext_chunk_sz = input.size(0)
 
@@ -461,8 +462,10 @@ class StreamableConformerBlockV1(StreamableModule):
 
         x = self.mhsa.infer(x, seq_mask=seq_mask, ext_chunk_sz=ext_chunk_sz)
 
-        x = x.masked_fill((~sequence_mask[0, :, None]), 0.0)
-        x = self.conv.infer(x, states=curr_layer, chunk_sz=ext_chunk_sz, lookahead_sz=lookahead_size)
+        x = x.masked_fill((~sequence_mask[0, :, None]), 0.0)  # [C+R, F']
+        x = self.conv.infer(
+            x, states=curr_layer, chunk_sz=ext_chunk_sz, lookahead_sz=lookahead_size
+        ) + x
 
         x = 0.5 * self.ff2(x) + x  # [C+R, F]
         x = self.final_layer_norm(x)  # [C+R, F]
@@ -549,7 +552,8 @@ class StreamableConformerEncoderV1(StreamableModule):
                                         device=x.device)
 
         for module in self.module_list:
-            x = module(x, sequence_mask, attn_mask=attn_mask, lookahead_size=lookahead_size)  # [B, T, F'] or [B, N, C'+R, F']
+            x = module(x, sequence_mask, attn_mask=attn_mask, 
+                       lookahead_size=lookahead_size, carry_over_size=carry_over_size)  # [B, T, F'] or [B, N, C'+R, F']
 
         # remove lookahead frames from every chunk
         if lookahead_size > 0:
@@ -578,6 +582,7 @@ class StreamableConformerEncoderV1(StreamableModule):
         if self._mode != Mode.STREAMING:
             self.set_mode_cascaded(Mode.STREAMING)
 
+        print(f"{input.shape = }, {lengths.shape = }")
         # [P, C] where first P is current chunk and rest is for future ac ctx.
         sequence_mask = mask_tensor(tensor=input, seq_len=lengths)  # (1, P*C)
 

@@ -222,6 +222,7 @@ def process_offline_sample(
 
     return hypothesis[0][0][:-1]
 
+
 def process_streaming_sample(
         raw_audio: torch.Tensor, raw_audio_len: torch.Tensor, config, run_ctx
 ) -> torch.Tensor:
