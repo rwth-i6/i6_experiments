@@ -1231,6 +1231,7 @@ def run_specaug_stft_experiments():
                 returnn_args={
                     **returnn_args,
                     "specaug_stft": {"max_feature": 8, "frame_size": 400, "frame_shift": 160, "fft_size": 512},
+                    "extra_args": {"accum_grad_multiple_step": 2},
                 },
                 feature_args=feature_args_lgm,
                 lr_args=lr_args,
