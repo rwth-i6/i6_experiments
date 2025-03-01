@@ -139,7 +139,7 @@ class MixingDataset(CachedDataset2):
         # we will get out of balance while choosing, we will correct this by biasing the next choice
         self.bias = 0.0
         self.datalens = [0, 0]
-        self._get_childindices_at_seq_idx.cache_clear()
+        self._get_raw_childindices_at_seq_idx.cache_clear()
 
     def init_seq_order(self, epoch=None, seq_list=None, seq_order=None):
         """
@@ -268,7 +268,7 @@ class MixingDataset(CachedDataset2):
         return (self.chooser_childindices[0], self.chooser_childindices[1])
 
     @lru_cache(maxsize=500)
-    def _get_childindices_at_seq_idx(self, seq_idx):
+    def _get_raw_childindices_at_seq_idx(self, seq_idx):
         """
         May return None if we could not progress to the desired seq_idx.
         """
@@ -283,15 +283,15 @@ class MixingDataset(CachedDataset2):
             # reverse last decision to get actual indices
             if self.bitset_chooser.get(seq_idx):
                 assert ran_ids[1] > 0
-                return (ran_ids[0] % self.left_dataset.num_seqs, (ran_ids[1] - 1) % self.right_dataset.num_seqs)
+                return (ran_ids[0], ran_ids[1] - 1)
             else:
                 assert ran_ids[0] > 0
-                return ((ran_ids[0] - 1) % self.left_dataset.num_seqs, ran_ids[1] % self.right_dataset.num_seqs)
+                return (ran_ids[0] - 1, ran_ids[1])
         # maybe in cache? this should happen often when we go over the dataset sequentially
         restore_from_idx = seq_idx - (seq_idx % 1024)
         restore_indices = self.index_cache[restore_from_idx // 1024]
         for try_seq in range(seq_idx, max(seq_idx - 20, restore_from_idx), -1):
-            result = self._get_childindices_at_seq_idx.cache_peek(try_seq)
+            result = self._get_raw_childindices_at_seq_idx.cache_peek(try_seq)
             if result is not None:
                 restore_from_idx = try_seq
                 restore_indices = result
@@ -307,7 +307,13 @@ class MixingDataset(CachedDataset2):
                 restore_indices[0] += 1  # left
             restore_from_idx += 1
 
-        return (restore_indices[0] % self.left_dataset.num_seqs, restore_indices[1] % self.right_dataset.num_seqs)
+        return (restore_indices[0], restore_indices[1])
+
+    def _get_childindices_at_seq_idx(self, seq_idx):
+        result = self._get_raw_childindices_at_seq_idx(seq_idx)
+        if result is None:
+            return result
+        return (result[0] % self.left_dataset.num_seqs, result[1] % self.right_dataset.num_seqs)
 
     def _get_dataset_and_childindex_at_seq_idx(self, seq_idx):
         indices = self._get_childindices_at_seq_idx(seq_idx)
@@ -401,7 +407,7 @@ class MixingDataset(CachedDataset2):
         self, sorted_seq_idx: int, *, allow_only_lr_suitable: bool = False, **kwargs
     ) -> Optional[float]:
         assert self.left_dataset.num_seqs > 0 and self.right_dataset.num_seqs > 0
-        indices = self._get_childindices_at_seq_idx(sorted_seq_idx)
+        indices = self._get_raw_childindices_at_seq_idx(sorted_seq_idx)
         if indices is None:
             return 1.0  # we are done
         frac_left = indices[0] / self.left_dataset.num_seqs
@@ -409,6 +415,4 @@ class MixingDataset(CachedDataset2):
         if self.how_to_handle_end_of_data_from_one_dataset == "wrap_around":
             return min(frac_left, frac_right)
         # "early_exit" or "exception"
-        if any([self.datasets_exhausted[i] and indices[i] == 0 for i in range(2)]):
-            return 1.0  # index overflowed back to 0.0, so we just return 1.0
-        return max(frac_left, frac_right)
+        return min(1.0, max(frac_left, frac_right))
