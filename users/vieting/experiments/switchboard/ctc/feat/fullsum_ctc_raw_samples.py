@@ -9,6 +9,7 @@ from i6_experiments.users.berger.network.helpers.conformer import add_conformer_
 from .network_helpers.specaug import add_specaug_layer, add_specaug_layer_v2
 from .network_helpers.specaug_configurable import add_specaug_layer as add_specaug_layer_configurable
 from .network_helpers.specaug_sort_layer2 import add_specaug_layer as add_specaug_layer_sort_layer2
+from .network_helpers.specaug_stft import add_specaug_layer as add_specaug_layer_stft
 from .network_helpers.conformer_wei import add_conformer_stack as add_conformer_stack_wei
 from .network_helpers.conformer_wei import add_vgg_stack as add_vgg_stack_wei
 
@@ -150,6 +151,7 @@ def make_conformer_fullsum_ctc_model(
     conformer_type: str = "wei",
     specaug_old: Optional[Dict[str, Any]] = None,
     specaug_config: Optional[Dict[str, Any]] = None,
+    specaug_stft: Optional[Dict[str, Any]] = None,
     recognition: bool = False,
     num_epochs: Optional[int] = None,
 ) -> Tuple[Dict, Union[str, List[str]]]:
@@ -159,7 +161,41 @@ def make_conformer_fullsum_ctc_model(
     if recognition:
         python_code = []
     else:
-        if specaug_old is not None:
+        if specaug_stft is not None:
+            frame_size = specaug_stft.pop("frame_size", 200)
+            frame_shift = specaug_stft.pop("frame_shift", 80)
+            fft_size = specaug_stft.pop("fft_size", 256)
+
+            specaug_stft_args = {
+                "max_time_num": 1,
+                "max_time": 15,
+                "max_feature_num": 5,
+                "max_feature": 4,
+                **specaug_stft,
+            }
+
+            # Add STFT layer
+            network["stft"] = {
+                "class": "stft",
+                "from": ["data"],
+                "frame_size": frame_size,
+                "frame_shift": frame_shift,
+                "fft_size": fft_size,
+            }
+            from_list = ["stft"]
+
+            from_list, python_code = add_specaug_layer_stft(network, from_list=from_list, **specaug_stft_args)
+
+            # Add iSTFT layer
+            network["istft"] = {
+                "class": "istft",
+                "from": from_list,
+                "frame_size": frame_size,
+                "frame_shift": frame_shift,
+                "fft_size": fft_size,
+            }
+
+        elif specaug_old is not None:
             assert specaug_config is None
             sort_layer2 = specaug_old.pop("sort_layer2", False)
             specaug_func = add_specaug_layer_sort_layer2 if sort_layer2 else add_specaug_layer
@@ -173,7 +209,9 @@ def make_conformer_fullsum_ctc_model(
             from_list, python_code = specaug_func(network, from_list=from_list, **specaug_old_args)
         elif specaug_config is not None:
             assert specaug_old is None
-            from_list, python_code = add_specaug_layer_configurable(network, from_list=from_list, num_epochs=num_epochs, config=specaug_config)
+            from_list, python_code = add_specaug_layer_configurable(
+                network, from_list=from_list, num_epochs=num_epochs, config=specaug_config
+            )
         else:
             from_list, python_code = add_specaug_layer_v2(network, from_list=from_list)
 

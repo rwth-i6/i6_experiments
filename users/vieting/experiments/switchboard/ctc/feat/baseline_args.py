@@ -114,6 +114,8 @@ def get_nn_args_single(
             if layer_config.get("class") != "variable" and layer_config.get("from", "data") == "data":
                 feature_net["subnetwork"][layer]["from"] = source_layer
 
+    feature_net_recog = copy.deepcopy(feature_net)
+
     returnn_config = get_returnn_config(
         num_inputs=1,
         num_outputs=num_outputs,
@@ -130,7 +132,7 @@ def get_nn_args_single(
         evaluation_epochs=evaluation_epochs,
         recognition=True,
         num_epochs=num_epochs,
-        feature_net=feature_net,
+        feature_net=feature_net_recog,
         **(returnn_args or {}),
     )
 
@@ -160,6 +162,7 @@ def get_returnn_config(
     conformer_type: str = "wei",
     specaug_old: Optional[Dict[str, Any]] = None,
     specaug_config: Optional[Dict[str, Any]] = None,
+    specaug_stft: Optional[Dict[str, Any]] = None,
     am_args: Optional[Dict[str, Any]] = None,
     batch_size: Union[int, Dict[str, int]] = 10000,
     sample_rate: int = 8000,
@@ -218,6 +221,7 @@ def get_returnn_config(
         conformer_type=conformer_type,
         specaug_old=specaug_old,
         specaug_config=specaug_config,
+        specaug_stft=specaug_stft,
         recognition=recognition,
         num_epochs=num_epochs,
     )
@@ -225,6 +229,8 @@ def get_returnn_config(
     if audio_perturbation:
         prolog += get_code_for_perturbation()
     for layer in list(network.keys()):
+        if layer in ("stft"):
+            continue
         if network[layer]["from"] == "data":
             network[layer]["from"] = "features"
         elif isinstance(network[layer]["from"], list) and "data" in network[layer]["from"]:
@@ -237,8 +243,8 @@ def get_returnn_config(
                 network.pop(layer)
         network["source"] = {"class": "copy", "from": "features"}
     else:
-        # network["source"] = specaug_layer_jingjing(in_layer=["features"])
-        pass
+        if specaug_stft is not None:
+            feature_net["from"] = "istft"
 
     if audio_perturbation and recognition:
         # Remove pre-processing from recognition and replace with layers in the network if needed
