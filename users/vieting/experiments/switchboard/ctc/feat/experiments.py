@@ -1179,7 +1179,7 @@ def run_specaug_stft_experiments():
                 lr_args=lr_args,
                 report_args={"batch_size": "2x5k"},
             ),
-            "bs2x5k_scf_stft_fmask_1_1": dict(
+            "bs2x5k_scf_stft_fmask_1_1of512": dict(
                 returnn_args={
                     **returnn_args,
                     "specaug_stft": {
@@ -1194,7 +1194,7 @@ def run_specaug_stft_experiments():
                 lr_args=lr_args,
                 report_args={"batch_size": "2x5k"},
             ),
-            "bs2x5k_scf_stft_fmask_2_4": dict(
+            "bs2x5k_scf_stft_fmask_2_4of512": dict(
                 returnn_args={
                     **returnn_args,
                     "specaug_stft": {
@@ -1209,7 +1209,7 @@ def run_specaug_stft_experiments():
                 lr_args=lr_args,
                 report_args={"batch_size": "2x5k"},
             ),
-            "bs2x5k_scf_stft_fmask_5_8": dict(
+            "bs2x5k_scf_stft400_fmask_5_8of512": dict(
                 returnn_args={
                     **returnn_args,
                     "specaug_stft": {"max_feature": 8, "frame_size": 400, "frame_shift": 160, "fft_size": 512},
@@ -1218,7 +1218,7 @@ def run_specaug_stft_experiments():
                 lr_args=lr_args,
                 report_args={"batch_size": "2x5k"},
             ),
-            "bs2x5k_scf_stft_fmask_5_15": dict(
+            "bs2x5k_scf_stft400_fmask_5_15of512": dict(
                 returnn_args={
                     **returnn_args,
                     "specaug_stft": {"max_feature": 15, "frame_size": 400, "frame_shift": 160, "fft_size": 512},
@@ -1227,7 +1227,7 @@ def run_specaug_stft_experiments():
                 lr_args=lr_args,
                 report_args={"batch_size": "2x5k"},
             ),
-            "bs2x5k_lgm_stft_fmask_5_8": dict(
+            "bs2x5k_lgm_stft400_fmask_5_8of512": dict(
                 returnn_args={
                     **returnn_args,
                     "specaug_stft": {"max_feature": 8, "frame_size": 400, "frame_shift": 160, "fft_size": 512},
@@ -1239,7 +1239,7 @@ def run_specaug_stft_experiments():
                     "batch_size": "2x5k",
                 },
             ),
-            "bs10k_lgm_stft_fmask_5_8": dict(
+            "bs10k_lgm_stft400_fmask_5_8of512": dict(
                 returnn_args={
                     **returnn_args,
                     "specaug_stft": {"max_feature": 8, "frame_size": 400, "frame_shift": 160, "fft_size": 512},
@@ -1250,7 +1250,7 @@ def run_specaug_stft_experiments():
                 lr_args=lr_args,
                 report_args={"batch_size": "10k"},
             ),
-            "bs10k_scf_stft_fmask_5_8_smaller_frames_and_fft": dict(
+            "bs10k_scf_stft200_fmask_5_8of256": dict(
                 returnn_args={
                     **returnn_args,
                     "specaug_stft": {"max_feature": 8},
@@ -1263,7 +1263,7 @@ def run_specaug_stft_experiments():
                 lr_args=lr_args,
                 report_args={"batch_size": "10k"},
             ),
-            "bs10k_lgm_stft_fmask_5_8_smaller_frames_and_fft": dict(
+            "bs10k_lgm_stft200_fmask_5_8of256": dict(
                 returnn_args={
                     **returnn_args,
                     "specaug_stft": {"max_feature": 8},
@@ -1274,7 +1274,7 @@ def run_specaug_stft_experiments():
                 lr_args=lr_args,
                 report_args={"batch_size": "10k"},
             ),
-            "bs10k_scf_stft_fmask_5_4_smaller_frames_and_fft": dict(
+            "bs10k_scf_stft200_fmask_5_4of256": dict(
                 returnn_args={
                     **returnn_args,
                     "specaug_stft": {"max_feature": 4},
@@ -1287,7 +1287,7 @@ def run_specaug_stft_experiments():
                 lr_args=lr_args,
                 report_args={"batch_size": "10k"},
             ),
-            "bs10k_lgm_stft_fmask_5_4_smaller_frames_and_fft": dict(
+            "bs10k_lgm_stft200_fmask_5_4of256": dict(
                 returnn_args={
                     **returnn_args,
                     "specaug_stft": {"max_feature": 4},
