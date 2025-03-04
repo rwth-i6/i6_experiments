@@ -455,8 +455,6 @@ def search_config_v2(
     Create config for search.
 
     v2: Use any backend (usually PyTorch) and the new API (get_model, forward_step).
-
-    TODO should use sth like unhashed_package_root (https://github.com/rwth-i6/i6_experiments/pull/157)
     """
     from i6_experiments.common.setups.returnn.serialization import get_serializable_config
 
