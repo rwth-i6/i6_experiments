@@ -8,6 +8,7 @@ from i6_core.corpus.segments import SegmentCorpusJob
 from i6_core.returnn.config import CodeWrapper, ReturnnConfig
 from i6_core.returnn.oggzip import BlissToOggZipJob
 from i6_core.util import uopen
+from i6_core.lib.corpus import Corpus
 from i6_experiments.common.setups.serialization import Import
 from sisyphus import Job, Task, tk
 from sisyphus.delayed_ops import DelayedFormat
@@ -122,7 +123,7 @@ class LmDataConfig:
             "orth_replace_map_file": "",
             "word_based": True,
             "seq_end_symbol": "</s>",
-            "auto_replace_unknown_symbol": False,
+            "auto_replace_unknown_symbol": True,
             "unknown_symbol": "<unk>",
             "add_delayed_seq_data": True,
             "delayed_seq_data_start_symbol": "<s>",
@@ -178,3 +179,31 @@ class BPEVocabToTextFileConversionJob(Job):
 
             for token in self.extra_tokens:
                 f.write(f"{token}\n")
+
+
+class RemoveWordsFromTranscriptionsJob(Job):
+    def __init__(self, corpus_file: tk.Path, remove_words: List[str]) -> None:
+        self.corpus_file = corpus_file
+        self.remove_words = remove_words
+
+        self.out_corpus_file = self.output_path("corpus.xml.gz")
+
+    def tasks(self) -> Iterator[Task]:
+        yield Task("run", resume="run", mini_task=True)
+
+    def run(self) -> None:
+        corpus = Corpus()
+        corpus.load(self.corpus_file.get())
+
+        def remove_words(c: Corpus) -> None:
+            for rec in c.recordings:
+                for seg in rec.segments:
+                    seg.orth = " ".join(
+                        filter(lambda symbol: symbol not in self.remove_words, (seg.orth or "").split())
+                    )
+            for subcorpus in c.subcorpora:
+                remove_words(subcorpus)
+
+        remove_words(corpus)
+
+        corpus.dump(self.out_corpus_file.get())

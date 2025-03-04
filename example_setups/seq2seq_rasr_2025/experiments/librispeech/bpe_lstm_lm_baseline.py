@@ -40,7 +40,8 @@ def get_baseline_train_options() -> TrainOptions:
         gradient_clip=1.0,
         lr_config=ConstDecayLRConfig(const_lr=1e-03, final_lr=1e-05, const_epochs=100, final_epochs=200),
         num_workers_per_gpu=1,
-        stop_on_inf_nan_score=False,
+        automatic_mixed_precision=False,
+        gpu_mem_rqmt=11,
     )
 
 
@@ -50,4 +51,4 @@ def run_bpe_lstm_lm_baseline(prefix: str = "librispeech/bpe_lstm-lm") -> Tuple[L
         train_config = get_baseline_train_options()
 
         train_job = train(train_config, model_config)
-    return (model_config, train_job.out_checkpoints[200])  # type: ignore
+    return (model_config, train_job.out_checkpoints[train_config.save_epochs[-1]])  # type: ignore

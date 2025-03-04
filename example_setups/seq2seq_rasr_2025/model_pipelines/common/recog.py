@@ -318,7 +318,7 @@ def recog_base(
         output_files=output_files,
         device=device,
         mem_rqmt=16,
-        time_rqmt=24,
+        time_rqmt=168,
     )
     recog_job.add_alias(f"recognition/{recog_corpus.corpus_name}/{descriptor}")
 

@@ -170,7 +170,6 @@ def get_baseline_config() -> PipelineConfig:
         lm_scale: float = 0.0,
         blank_penalty: float = 1.0,
         max_beam_size: int = 1,
-        top_k_tokens: Optional[int] = None,
         score_threshold: Optional[float] = None,
         ilm_scale: float = 0.2,
     ) -> TransducerRasrRecogRoutineConfig:
@@ -194,7 +193,6 @@ def get_baseline_config() -> PipelineConfig:
             ilm_scale=ilm_scale,
             blank_penalty=blank_penalty,
             max_beam_size=max_beam_size,
-            top_k_tokens=top_k_tokens,
             score_threshold=score_threshold,
         )
 
@@ -209,7 +207,6 @@ def get_baseline_config() -> PipelineConfig:
         lm_scale: float = 0.0,
         blank_penalty: float = 0.0,
         max_beam_size: int = 1,
-        top_k_tokens: Optional[int] = None,
         score_threshold: Optional[float] = None,
     ) -> CTCRasrRecogRoutineConfig:
         return CTCRasrRecogRoutineConfig(
@@ -234,7 +231,6 @@ def get_baseline_config() -> PipelineConfig:
             lm_scale=lm_scale,
             blank_penalty=blank_penalty,
             max_beam_size=max_beam_size,
-            top_k_tokens=top_k_tokens,
             score_threshold=score_threshold,
         )
 

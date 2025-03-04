@@ -31,7 +31,6 @@ def _train_step(*, model: LstmLm, data: dict, run_ctx: RunCtx, **_):
     loss_norm_factor = torch.sum(targets_size)
 
     run_ctx.mark_as_loss(name="ce", loss=ce_loss, inv_norm_factor=loss_norm_factor)
-    run_ctx.mark_as_loss(name="ppl", loss=torch.exp(ce_loss / loss_norm_factor), scale=0.0)
 
 
 def train(

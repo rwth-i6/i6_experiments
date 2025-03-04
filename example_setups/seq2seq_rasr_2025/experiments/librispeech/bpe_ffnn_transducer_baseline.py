@@ -173,7 +173,8 @@ def get_baseline_train_options() -> FFNNTransducerTrainOptions:
         gradient_clip=1.0,
         ctc_loss_scale=0.7,
         num_workers_per_gpu=2,
-        stop_on_inf_nan_score=True,
+        automatic_mixed_precision=True,
+        gpu_mem_rqmt=24,
     )
 
 
@@ -181,9 +182,8 @@ def get_baseline_recog_options() -> RasrRecogOptions:
     return RasrRecogOptions(
         blank_index=bpe_to_vocab_size(bpe_size=BPE_SIZE),
         vocab_file=get_bpe_vocab_file(bpe_size=BPE_SIZE, add_blank=True),
-        max_beam_size=8,
-        top_k_tokens=8,
-        score_threshold=12.0,
+        max_beam_size=12,
+        score_threshold=3.0,
         allow_label_loop=False,
     )
 
@@ -261,27 +261,41 @@ def run_bpe_ffnn_transducer_baseline(prefix: str = "librispeech/bpe_ffnn_transdu
                 )
             )
 
-        for max_beam_size in [2, 4, 6, 8, 10]:
+        # for lm_scale in [0.4, 0.5, 0.6, 0.7, 0.8]:
+        #     for ilm_scale in [0.0, 0.1, 0.2, 0.3]:
+        #         for blank_penalty in [0.0, 0.3, 0.6, 0.9, 1.2, 1.5]:
+        #             recog_results.append(
+        #                 run_recog(
+        #                     descriptor=f"bpe-ffnn-transducer_recog-rasr_lm-{lm_scale}_ilm-{ilm_scale}_bp-{blank_penalty}",
+        #                     corpus_name="dev-other",
+        #                     model_config=model_config,
+        #                     checkpoint=checkpoint,
+        #                     lm_scale=lm_scale,
+        #                     lm_config=lstm_lm_config,
+        #                     lm_checkpoint=lstm_lm_checkpoint,
+        #                     ilm_scale=ilm_scale,
+        #                     blank_penalty=blank_penalty,
+        #                 )
+        #             )
+
+        for max_beam_size in [2, 4, 6, 8, 10, 12, 16, 24]:
             for score_threshold in [0.5, 1.0, 2.0, 3.0, 4.0, 6.0, 8.0, 10.0, 12.0]:
-                for lm_scale in [0.6, 0.8]:
-                    for ilm_scale in [0.0, 0.2]:
-                        beam_recog_options = get_baseline_recog_options()
-                        beam_recog_options.max_beam_size = max_beam_size
-                        beam_recog_options.top_k_tokens = 8
-                        beam_recog_options.score_threshold = score_threshold
-                        recog_results.append(
-                            run_recog(
-                                descriptor=f"bpe-ffnn-transducer_recog-rasr_lm-{lm_scale}_ilm-{ilm_scale}_beam-{max_beam_size}_score-{score_threshold}",
-                                corpus_name="dev-other",
-                                model_config=model_config,
-                                checkpoint=checkpoint,
-                                lm_scale=lm_scale,
-                                ilm_scale=ilm_scale,
-                                lm_config=lstm_lm_config,
-                                lm_checkpoint=lstm_lm_checkpoint,
-                                recog_options=beam_recog_options,
-                            )
-                        )
+                beam_recog_options = get_baseline_recog_options()
+                beam_recog_options.max_beam_size = max_beam_size
+                beam_recog_options.score_threshold = score_threshold
+                recog_results.append(
+                    run_recog(
+                        descriptor=f"bpe-ffnn-transducer_recog-rasr_lm_beam-{max_beam_size}_score-{score_threshold}",
+                        corpus_name="dev-other",
+                        model_config=model_config,
+                        checkpoint=checkpoint,
+                        lm_scale=0.6,
+                        ilm_scale=0.2,
+                        lm_config=lstm_lm_config,
+                        lm_checkpoint=lstm_lm_checkpoint,
+                        recog_options=beam_recog_options,
+                    )
+                )
 
         tk.register_report(f"{prefix}/report.txt", values=create_report(recog_results), required=True)
     return recog_results

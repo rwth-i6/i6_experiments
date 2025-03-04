@@ -1,22 +1,23 @@
-from i6_experiments.common.datasets.tedlium2.vocab import get_subword_nmt_bpe_v2
 from i6_core.corpus.convert import CorpusToTxtJob
+from i6_core.corpus.segments import SegmentCorpusJob
 from i6_core.text.label.subword_nmt.apply import ApplyBPEToTextJob
 from i6_core.text.processing import ConcatenateJob
-from i6_experiments.common.datasets.tedlium2.textual_data import get_text_data_dict
-from i6_core.corpus.segments import SegmentCorpusJob
 from i6_experiments.common.datasets.tedlium2.corpus import get_bliss_corpus_dict
+from i6_experiments.common.datasets.tedlium2.textual_data import get_text_data_dict
+from i6_experiments.common.datasets.tedlium2.vocab import get_subword_nmt_bpe_v2
 
-from ..base import DataConfig, LmDataConfig
-from .bpe import get_default_bpe_target_config
+from ...model_pipelines.common.corpus import ScorableCorpus
 from ...tools import subword_nmt_repo
+from ..base import LmDataConfig, MetaOggZipDataConfig, OggZipDataConfig
+from .bpe import get_default_bpe_target_config
 
 
-def get_default_bpe_train_data(bpe_size: int) -> DataConfig:
-    return DataConfig(
+def get_default_bpe_train_data(bpe_size: int) -> MetaOggZipDataConfig:
+    return MetaOggZipDataConfig(
         bliss_corpus_files=[get_bliss_corpus_dict("wav")["train"]],
         speed_perturbation=True,
         ogg_segments=40,
-        partition_epoch=2,
+        partition_epoch=4,
         seq_ordering="laplace:.1000",
         target_config=get_default_bpe_target_config(bpe_size),
     )
@@ -46,8 +47,8 @@ def get_default_bpe_lm_train_data(bpe_size: int) -> LmDataConfig:
     )
 
 
-def get_default_bpe_cv_data(bpe_size: int) -> DataConfig:
-    return DataConfig(
+def get_default_bpe_cv_data(bpe_size: int) -> MetaOggZipDataConfig:
+    return MetaOggZipDataConfig(
         bliss_corpus_files=[get_bliss_corpus_dict("wav")["dev"]],
         speed_perturbation=False,
         ogg_segments=1,
@@ -77,12 +78,12 @@ def get_default_bpe_lm_cv_data(bpe_size: int) -> LmDataConfig:
     )
 
 
-def get_default_prior_data() -> DataConfig:
+def get_default_prior_data() -> MetaOggZipDataConfig:
     # use 50% of the training corpus to estimate the prior
     train_corpus_file = get_bliss_corpus_dict("wav")["train"]
     segment_file = SegmentCorpusJob(train_corpus_file, 2).out_single_segment_files[1]
 
-    return DataConfig(
+    return MetaOggZipDataConfig(
         bliss_corpus_files=[train_corpus_file],
         speed_perturbation=False,
         ogg_segments=40,
@@ -92,11 +93,18 @@ def get_default_prior_data() -> DataConfig:
     )
 
 
-def get_default_recog_data(corpus_name: str) -> DataConfig:
-    return DataConfig(
+def get_default_recog_data(corpus_name: str) -> OggZipDataConfig:
+    return OggZipDataConfig(
         bliss_corpus_files=[get_bliss_corpus_dict("wav")[corpus_name]],
         speed_perturbation=False,
         ogg_segments=1,
         partition_epoch=1,
         seq_ordering="sorted",
+    )
+
+
+def get_default_score_corpus(corpus_name: str) -> ScorableCorpus:
+    return ScorableCorpus(
+        corpus_name=corpus_name,
+        bliss_corpus_file=get_bliss_corpus_dict("wav")[corpus_name],
     )

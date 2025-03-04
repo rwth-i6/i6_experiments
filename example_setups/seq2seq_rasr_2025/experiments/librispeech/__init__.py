@@ -8,7 +8,8 @@ from .bpe_aed_baseline import run_bpe_aed_baseline
 from .bpe_combination_baseline import run_bpe_combination_baseline
 from .bpe_ctc_baseline import run_bpe_ctc_baseline
 from .bpe_ffnn_transducer_baseline import run_bpe_ffnn_transducer_baseline
-from .bpe_full_ctx_transducer_baseline import run_bpe_full_ctx_transducer_baseline
+
+# from .bpe_full_ctx_transducer_baseline import run_bpe_full_ctx_transducer_baseline
 from .bpe_lstm_lm_baseline import run_bpe_lstm_lm_baseline
 
 
@@ -18,7 +19,7 @@ def run_librispeech_baselines(prefix: str = "librispeech") -> List[RecogResult]:
     recog_results = []
     recog_results.extend(run_bpe_ctc_baseline())
     recog_results.extend(run_bpe_ffnn_transducer_baseline())
-    recog_results.extend(run_bpe_full_ctx_transducer_baseline())
+    # recog_results.extend(run_bpe_full_ctx_transducer_baseline())
     recog_results.extend(run_bpe_aed_baseline())
     recog_results.extend(run_bpe_combination_baseline())
 

@@ -165,7 +165,8 @@ def get_baseline_train_options() -> LstmTransducerTrainOptions:
         gradient_clip=1.0,
         ctc_loss_scale=0.7,
         num_workers_per_gpu=2,
-        stop_on_inf_nan_score=True,
+        automatic_mixed_precision=True,
+        gpu_mem_rqmt=24,
     )
 
 
@@ -174,7 +175,6 @@ def get_baseline_recog_options() -> RasrRecogOptions:
         blank_index=bpe_to_vocab_size(bpe_size=BPE_SIZE),
         vocab_file=get_bpe_vocab_file(bpe_size=BPE_SIZE, add_blank=True),
         max_beam_size=8,
-        top_k_tokens=8,
         score_threshold=12.0,
         allow_label_loop=False,
     )

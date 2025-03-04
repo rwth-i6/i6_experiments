@@ -23,18 +23,28 @@ from ...data.librispeech.datasets import (
     get_default_score_corpus,
 )
 from ...model_pipelines.bpe_aed.pytorch_modules import AdditiveAttentionConfig, AttentionLSTMDecoderV1Config
-from ...model_pipelines.bpe_combination_model.label_scorer_config import get_combine_label_scorer_config
+from ...model_pipelines.bpe_combination_model.label_scorer_config import (
+    get_attention_label_scorer_config,
+    get_ctc_label_scorer_config,
+    get_ctc_prefix_label_scorer_config,
+    get_transducer_label_scorer_config,
+)
 from ...model_pipelines.bpe_combination_model.prior import compute_priors
 from ...model_pipelines.bpe_combination_model.pytorch_modules import CombinationModelConfig, CombinationModelEncoder
 from ...model_pipelines.bpe_combination_model.train import CombinationTrainOptions, train
+from ...model_pipelines.bpe_lstm_lm.label_scorer_config import (
+    get_lstm_lm_label_scorer_config,
+)
+from ...model_pipelines.bpe_lstm_lm.pytorch_modules import LstmLmConfig
 from ...model_pipelines.common.experiment_context import ExperimentContext
 from ...model_pipelines.common.imports import get_model_serializers
-from ...model_pipelines.common.learning_rates import ConstConstDecayLRConfig
-from ...model_pipelines.common.optimizer import RAdamConfig
+from ...model_pipelines.common.learning_rates import ConstConstDecayLRConfig, OCLRConfig
+from ...model_pipelines.common.optimizer import AdamWConfig, RAdamConfig
 from ...model_pipelines.common.pytorch_modules import SpecaugmentByLengthConfig
 from ...model_pipelines.common.recog import RecogResult, recog_rasr
 from ...model_pipelines.common.recog_rasr_config import RasrRecogOptions, get_rasr_config_file
 from ...model_pipelines.common.report import create_report
+from .bpe_lstm_lm_baseline import run_bpe_lstm_lm_baseline
 
 BPE_SIZE = 128
 
@@ -183,6 +193,19 @@ def get_baseline_train_options() -> CombinationTrainOptions:
             dec_epochs=960,
             final_epochs=80,
         ),
+        # optimizer_config=AdamWConfig(
+        #     epsilon=1e-16,
+        #     weight_decay=0.01,
+        # ),
+        # lr_config=OCLRConfig(
+        #     init_lr=7e-06,
+        #     peak_lr=5e-04,
+        #     decayed_lr=5e-05,
+        #     final_lr=1e-07,
+        #     inc_epochs=960,
+        #     dec_epochs=960,
+        #     final_epochs=80,
+        # ),
         gradient_clip=1.0,
         ctc_loss_scale=0.7,
         transducer_loss_scale=1.0,
@@ -190,19 +213,21 @@ def get_baseline_train_options() -> CombinationTrainOptions:
         attention_label_smoothing=0.1,
         attention_label_smoothing_start_epoch=61,
         num_workers_per_gpu=2,
-        stop_on_inf_nan_score=True,
+        automatic_mixed_precision=True,
+        gpu_mem_rqmt=24,
     )
 
 
-def get_baseline_recog_options() -> RasrRecogOptions:
+def get_baseline_recog_options(blank: bool, sentence_end: bool, label_loop: bool) -> RasrRecogOptions:
     return RasrRecogOptions(
-        blank_index=bpe_to_vocab_size(bpe_size=BPE_SIZE),
-        sentence_end_index=0,
-        vocab_file=get_bpe_vocab_file(bpe_size=BPE_SIZE, add_blank=False),
-        max_beam_size=4,
-        top_k_tokens=4,
-        score_threshold=8.0,
-        allow_label_loop=True,
+        blank_index=bpe_to_vocab_size(bpe_size=BPE_SIZE) if blank else None,
+        sentence_end_index=0 if sentence_end else None,
+        length_norm_scale=1.1 if sentence_end else None,
+        vocab_file=get_bpe_vocab_file(bpe_size=BPE_SIZE, add_blank=blank),
+        max_beam_size=8,
+        max_beam_size_per_scorer=32,
+        score_threshold=12.0,
+        allow_label_loop=label_loop,
     )
 
 
@@ -211,17 +236,30 @@ def run_recog(
     corpus_name: str,
     checkpoint: PtCheckpoint,
     model_config: CombinationModelConfig,
-    ctc_score_scale: float = 0.7,
-    transducer_score_scale: float = 1.0,
-    attention_score_scale: float = 1.0,
+    ctc_score_scale: float = 0.0,
+    ctc_prefix_score_scale: float = 0.0,
+    transducer_score_scale: float = 0.0,
+    attention_score_scale: float = 0.0,
     ctc_blank_penalty: float = 0.0,
-    ctc_prior_scale: float = 0.3,
+    ctc_prior_scale: float = 0.0,
     transducer_ilm_scale: float = 0.2,
     transducer_blank_penalty: float = 0.0,
-    recog_options: Optional[RasrRecogOptions] = None,
+    lm_checkpoint: Optional[PtCheckpoint] = None,
+    lm_config: Optional[LstmLmConfig] = None,
+    lm_scale: float = 0.0,
+    max_beam_size: Optional[int] = None,
+    score_threshold: Optional[float] = None,
     device: Literal["cpu", "gpu"] = "cpu",
 ) -> RecogResult:
-    recog_options = recog_options or get_baseline_recog_options()
+    recog_options = get_baseline_recog_options(
+        blank=(ctc_score_scale != 0 or transducer_score_scale != 0),
+        sentence_end=attention_score_scale != 0,
+        label_loop=ctc_score_scale != 0 and transducer_score_scale == 0 and attention_score_scale == 0,
+    )
+    if max_beam_size is not None:
+        recog_options.max_beam_size = max_beam_size
+    if score_threshold is not None:
+        recog_options.score_threshold = score_threshold
 
     prior_file = compute_priors(
         prior_data_config=get_default_prior_data(),
@@ -229,23 +267,65 @@ def run_recog(
         checkpoint=checkpoint,
     )
 
-    combine_scorer_config = get_combine_label_scorer_config(
-        model_config=model_config,
-        checkpoint=checkpoint,
-        include_encoder=False,
-        ctc_score_scale=ctc_score_scale,
-        transducer_score_scale=transducer_score_scale,
-        attention_score_scale=attention_score_scale,
-        ctc_blank_penalty=ctc_blank_penalty,
-        ctc_prior_file=prior_file,
-        ctc_prior_scale=ctc_prior_scale,
-        transducer_ilm_scale=transducer_ilm_scale,
-        transducer_blank_penalty=transducer_blank_penalty,
-    )
+    label_scorer_configs = []
+
+    if ctc_score_scale != 0:
+        label_scorer_configs.append(
+            get_ctc_label_scorer_config(
+                model_config=model_config,
+                checkpoint=checkpoint,
+                prior_file=prior_file,
+                prior_scale=ctc_prior_scale,
+                blank_penalty=ctc_blank_penalty,
+                scale=ctc_score_scale,
+            )
+        )
+
+    if transducer_score_scale != 0:
+        label_scorer_configs.append(
+            get_transducer_label_scorer_config(
+                model_config=model_config,
+                checkpoint=checkpoint,
+                ilm_scale=transducer_ilm_scale,
+                blank_penalty=transducer_blank_penalty,
+                scale=transducer_score_scale,
+            )
+        )
+
+    if attention_score_scale != 0:
+        label_scorer_configs.append(
+            get_attention_label_scorer_config(
+                model_config=model_config,
+                checkpoint=checkpoint,
+                scale=attention_score_scale,
+            )
+        )
+
+    if ctc_prefix_score_scale != 0:
+        label_scorer_configs.append(
+            get_ctc_prefix_label_scorer_config(
+                model_config=model_config,
+                checkpoint=checkpoint,
+                prior_file=prior_file,
+                prior_scale=ctc_prior_scale,
+                scale=ctc_prefix_score_scale,
+            )
+        )
+
+    if lm_scale != 0:
+        assert lm_config is not None
+        assert lm_checkpoint is not None
+        label_scorer_configs.append(
+            get_lstm_lm_label_scorer_config(
+                model_config=lm_config,
+                checkpoint=lm_checkpoint,
+                scale=lm_scale,
+            )
+        )
 
     rasr_config_file = get_rasr_config_file(
         recog_options=recog_options,
-        label_scorer_config=combine_scorer_config,
+        label_scorer_config=label_scorer_configs,
     )
 
     return recog_rasr(
@@ -266,7 +346,14 @@ def run_bpe_combination_baseline(prefix: str = "librispeech/bpe_combination") ->
         train_config = get_baseline_train_options()
 
         train_job = train(options=train_config, model_config=model_config)
-        checkpoint: PtCheckpoint = train_job.out_checkpoints[71]  # type: ignore
+        checkpoint: PtCheckpoint = train_job.out_checkpoints[train_config.save_epochs[-1]]  # type: ignore
+
+        lstm_lm_config, lstm_lm_checkpoint = run_bpe_lstm_lm_baseline()
+        lstm_lm_checkpoint = PtCheckpoint(
+            tk.Path(
+                "/work/asr4/rossenbach/sisyphus_work_folders/tts_decoder_asr_work/i6_core/returnn/training/ReturnnTrainingJob.EuWaxahLY8Ab/output/models/epoch.300.pt"
+            )
+        )
 
         recog_results = []
         # for corpus_name in ["dev-clean", "dev-other", "test-clean", "test-other"]:
@@ -278,162 +365,245 @@ def run_bpe_combination_baseline(prefix: str = "librispeech/bpe_combination") ->
                     model_config=model_config,
                     checkpoint=checkpoint,
                     ctc_score_scale=1.0,
-                    transducer_score_scale=0.0,
-                    attention_score_scale=0.0,
-                )
-            )
-            recog_results.append(
-                run_recog(
-                    descriptor="bpe-combination_recog-rasr_transducer-only",
-                    corpus_name=corpus_name,
-                    model_config=model_config,
-                    checkpoint=checkpoint,
-                    ctc_score_scale=0.0,
-                    transducer_score_scale=1.0,
-                    attention_score_scale=0.0,
-                )
-            )
-            recog_results.append(
-                run_recog(
-                    descriptor="bpe-combination_recog-rasr_attention-only",
-                    corpus_name=corpus_name,
-                    model_config=model_config,
-                    checkpoint=checkpoint,
-                    ctc_score_scale=0.0,
-                    transducer_score_scale=0.0,
-                    attention_score_scale=1.0,
-                )
-            )
-            recog_results.append(
-                run_recog(
-                    descriptor="bpe-combination_recog-rasr_ctc+attention",
-                    corpus_name=corpus_name,
-                    model_config=model_config,
-                    checkpoint=checkpoint,
-                    ctc_score_scale=0.7,
-                    transducer_score_scale=0.0,
-                    attention_score_scale=1.0,
-                )
-            )
-            recog_results.append(
-                run_recog(
-                    descriptor="bpe-combination_recog-rasr_ctc+transducer",
-                    corpus_name=corpus_name,
-                    model_config=model_config,
-                    checkpoint=checkpoint,
-                    ctc_score_scale=1.0,
-                    transducer_score_scale=1.0,
-                    attention_score_scale=0.0,
-                )
-            )
-            recog_results.append(
-                run_recog(
-                    descriptor="bpe-combination_recog-rasr_transducer+attention",
-                    corpus_name=corpus_name,
-                    model_config=model_config,
-                    checkpoint=checkpoint,
-                    ctc_score_scale=0.0,
-                    transducer_score_scale=0.7,
-                    attention_score_scale=1.0,
-                )
-            )
-            recog_results.append(
-                run_recog(
-                    descriptor="bpe-combination_recog-rasr_ctc+transducer+attention",
-                    corpus_name=corpus_name,
-                    model_config=model_config,
-                    checkpoint=checkpoint,
-                    ctc_score_scale=0.3,
-                    transducer_score_scale=0.7,
-                    attention_score_scale=1.0,
+                    max_beam_size=1,
+                    score_threshold=0.0,
                 )
             )
 
-        model_config.conformer_cfg.frontend.cfg.pool_kernel_sizes = [(3, 1), (2, 1)]
-        train_config.descriptor = "subsample-6"
-        train_job = train(options=train_config, model_config=model_config)
-        checkpoint: PtCheckpoint = train_job.out_checkpoints[71]  # type: ignore
+            for beam_size in [2, 4, 6, 8]:
+                for score_threshold in [0.3, 1.0, 3.0, 5.0]:
+                    for blank_penalty in [0.0, 1.0]:
+                        recog_results.append(
+                            run_recog(
+                                descriptor=f"bpe-combination_recog-rasr_ctc+lm_beam-{beam_size}_score-{score_threshold}_bp-{blank_penalty}",
+                                corpus_name=corpus_name,
+                                model_config=model_config,
+                                checkpoint=checkpoint,
+                                ctc_score_scale=1.0,
+                                ctc_blank_penalty=blank_penalty,
+                                lm_config=lstm_lm_config,
+                                lm_checkpoint=lstm_lm_checkpoint,
+                                lm_scale=0.8,
+                                max_beam_size=beam_size,
+                                score_threshold=score_threshold,
+                            )
+                        )
 
-        recog_results = []
-        # for corpus_name in ["dev-clean", "dev-other", "test-clean", "test-other"]:
-        for corpus_name in ["dev-other"]:
-            recog_results.append(
-                run_recog(
-                    descriptor="bpe-combination_subsample-6_recog-rasr_ctc-only",
-                    corpus_name=corpus_name,
-                    model_config=model_config,
-                    checkpoint=checkpoint,
-                    ctc_score_scale=1.0,
-                    transducer_score_scale=0.0,
-                    attention_score_scale=0.0,
+            for beam_size in [2, 4, 6, 8]:
+                for score_threshold in [0.3, 1.0, 3.0, 5.0]:
+                    recog_results.append(
+                        run_recog(
+                            descriptor=f"bpe-combination_recog-rasr_transducer-only_beam-{beam_size}_score-{score_threshold}",
+                            corpus_name=corpus_name,
+                            model_config=model_config,
+                            checkpoint=checkpoint,
+                            ctc_score_scale=0.0,
+                            transducer_score_scale=1.0,
+                            max_beam_size=beam_size,
+                            score_threshold=score_threshold,
+                        )
+                    )
+
+            for beam_size in [2, 4, 6, 8]:
+                for score_threshold in [0.3, 1.0, 3.0, 5.0]:
+                    for blank_penalty in [0.0, 1.0, 2.0]:
+                        recog_results.append(
+                            run_recog(
+                                descriptor=f"bpe-combination_recog-rasr_transducer+lm_beam-{beam_size}_score-{score_threshold}_bp-{blank_penalty}",
+                                corpus_name=corpus_name,
+                                model_config=model_config,
+                                checkpoint=checkpoint,
+                                transducer_score_scale=1.0,
+                                transducer_blank_penalty=blank_penalty,
+                                lm_config=lstm_lm_config,
+                                lm_checkpoint=lstm_lm_checkpoint,
+                                lm_scale=0.6,
+                                max_beam_size=beam_size,
+                                score_threshold=score_threshold,
+                            )
+                        )
+
+            for beam_size in [2, 4, 6, 8]:
+                for score_threshold in [0.3, 1.0, 3.0, 5.0]:
+                    recog_results.append(
+                        run_recog(
+                            descriptor=f"bpe-combination_recog-rasr_attention-only_beam-{beam_size}_score-{score_threshold}",
+                            corpus_name=corpus_name,
+                            model_config=model_config,
+                            checkpoint=checkpoint,
+                            attention_score_scale=1.0,
+                            max_beam_size=beam_size,
+                            score_threshold=score_threshold,
+                        )
+                    )
+
+            for beam_size in [2, 4, 6, 8]:
+                for score_threshold in [0.3, 1.0, 3.0, 5.0]:
+                    recog_results.append(
+                        run_recog(
+                            descriptor=f"bpe-combination_recog-rasr_attention+lm_beam-{beam_size}_score-{score_threshold}",
+                            corpus_name=corpus_name,
+                            model_config=model_config,
+                            checkpoint=checkpoint,
+                            attention_score_scale=1.0,
+                            lm_config=lstm_lm_config,
+                            lm_checkpoint=lstm_lm_checkpoint,
+                            lm_scale=0.4,
+                            max_beam_size=beam_size,
+                            score_threshold=score_threshold,
+                        )
+                    )
+
+            for ctc_weight, att_weight in [(0.3, 0.7), (0.4, 0.6)]:
+                for blank_penalty in [0.0, 1.0]:
+                    recog_results.append(
+                        run_recog(
+                            descriptor=f"bpe-combination_recog-rasr_ctc+attention_weights-{ctc_weight}-{att_weight}_bp-{blank_penalty}",
+                            corpus_name=corpus_name,
+                            model_config=model_config,
+                            checkpoint=checkpoint,
+                            ctc_score_scale=ctc_weight,
+                            ctc_blank_penalty=blank_penalty / ctc_weight,
+                            attention_score_scale=att_weight,
+                        )
+                    )
+
+            for ctc_weight, att_weight in [(0.3, 0.7)]:
+                for beam_size in [2, 4]:
+                    for score_threshold in [0.3, 1.0, 3.0, 5.0]:
+                        recog_results.append(
+                            run_recog(
+                                descriptor=f"bpe-combination_recog-rasr_ctc-prefix+attention_weights-{ctc_weight}-{att_weight}_beam-{beam_size}_score-{score_threshold}",
+                                corpus_name=corpus_name,
+                                model_config=model_config,
+                                checkpoint=checkpoint,
+                                ctc_prefix_score_scale=ctc_weight,
+                                attention_score_scale=att_weight,
+                                max_beam_size=beam_size,
+                                score_threshold=score_threshold,
+                            )
+                        )
+
+            for ctc_weight, att_weight in [(0.3, 0.7)]:
+                for blank_penalty in [0.0, 1.0]:
+                    recog_results.append(
+                        run_recog(
+                            descriptor=f"bpe-combination_recog-rasr_ctc+attention+lm_weights-{ctc_weight}-{att_weight}_bp-{blank_penalty}",
+                            corpus_name=corpus_name,
+                            model_config=model_config,
+                            checkpoint=checkpoint,
+                            ctc_score_scale=ctc_weight,
+                            attention_score_scale=att_weight,
+                            lm_config=lstm_lm_config,
+                            lm_checkpoint=lstm_lm_checkpoint,
+                            lm_scale=0.6,
+                            ctc_blank_penalty=blank_penalty / ctc_weight,
+                        )
+                    )
+
+            for ctc_weight in list(range(1, 10)):
+                transducer_weight = (10 - ctc_weight) / 10
+                ctc_weight /= 10
+                recog_results.append(
+                    run_recog(
+                        descriptor=f"bpe-combination_recog-rasr_ctc+transducer_weights-{ctc_weight}-{transducer_weight}",
+                        corpus_name=corpus_name,
+                        model_config=model_config,
+                        checkpoint=checkpoint,
+                        ctc_score_scale=ctc_weight,
+                        transducer_score_scale=transducer_weight,
+                    )
                 )
-            )
-            recog_results.append(
-                run_recog(
-                    descriptor="bpe-combination_subsample-6_recog-rasr_transducer-only",
-                    corpus_name=corpus_name,
-                    model_config=model_config,
-                    checkpoint=checkpoint,
-                    ctc_score_scale=0.0,
-                    transducer_score_scale=1.0,
-                    attention_score_scale=0.0,
+
+            for ctc_weight, transducer_weight in [(0.3, 0.7)]:
+                recog_results.append(
+                    run_recog(
+                        descriptor=f"bpe-combination_recog-rasr_ctc-prefix+transducer_weights-{ctc_weight}-{transducer_weight}",
+                        corpus_name=corpus_name,
+                        model_config=model_config,
+                        checkpoint=checkpoint,
+                        ctc_prefix_score_scale=ctc_weight,
+                        transducer_score_scale=transducer_weight,
+                    )
                 )
-            )
-            recog_results.append(
-                run_recog(
-                    descriptor="bpe-combination_subsample-6_recog-rasr_attention-only",
-                    corpus_name=corpus_name,
-                    model_config=model_config,
-                    checkpoint=checkpoint,
-                    ctc_score_scale=0.0,
-                    transducer_score_scale=0.0,
-                    attention_score_scale=1.0,
-                )
-            )
-            recog_results.append(
-                run_recog(
-                    descriptor="bpe-combination_subsample-6_recog-rasr_ctc+attention",
-                    corpus_name=corpus_name,
-                    model_config=model_config,
-                    checkpoint=checkpoint,
-                    ctc_score_scale=0.7,
-                    transducer_score_scale=0.0,
-                    attention_score_scale=1.0,
-                )
-            )
-            recog_results.append(
-                run_recog(
-                    descriptor="bpe-combination_subsample-6_recog-rasr_ctc+transducer",
-                    corpus_name=corpus_name,
-                    model_config=model_config,
-                    checkpoint=checkpoint,
-                    ctc_score_scale=1.0,
-                    transducer_score_scale=1.0,
-                    attention_score_scale=0.0,
-                )
-            )
-            recog_results.append(
-                run_recog(
-                    descriptor="bpe-combination_subsample-6_recog-rasr_transducer+attention",
-                    corpus_name=corpus_name,
-                    model_config=model_config,
-                    checkpoint=checkpoint,
-                    ctc_score_scale=0.0,
-                    transducer_score_scale=0.7,
-                    attention_score_scale=1.0,
-                )
-            )
-            recog_results.append(
-                run_recog(
-                    descriptor="bpe-combination_subsample-6_recog-rasr_ctc+transducer+attention",
-                    corpus_name=corpus_name,
-                    model_config=model_config,
-                    checkpoint=checkpoint,
-                    ctc_score_scale=0.3,
-                    transducer_score_scale=0.7,
-                    attention_score_scale=1.0,
-                )
-            )
+
+            for transducer_weight, att_weight in [
+                (0.5, 0.5),
+                (0.5, 0.2),
+                (0.5, 0.8),
+                (0.2, 0.5),
+                (0.8, 0.5),
+                (1.0, 0.6),
+                (1.0, 0.2),
+                (1.0, 2.0),
+                (0.5, 0.6),
+                (1.5, 0.6),
+            ]:
+                for blank_penalty in [0.0, 1.0, 2.0]:
+                    recog_results.append(
+                        run_recog(
+                            descriptor=f"bpe-combination_recog-rasr_transducer+attention_weights-{transducer_weight}-{att_weight}_bp-{blank_penalty}",
+                            corpus_name=corpus_name,
+                            model_config=model_config,
+                            checkpoint=checkpoint,
+                            transducer_score_scale=transducer_weight,
+                            attention_score_scale=att_weight,
+                            transducer_blank_penalty=blank_penalty / transducer_weight,
+                            max_beam_size=6,
+                            score_threshold=5.0,
+                        )
+                    )
+
+            for transducer_weight in list(range(1, 10)):
+                att_weight = (10 - transducer_weight) / 10
+                transducer_weight /= 10
+                for blank_penalty in [0.0, 1.0]:
+                    recog_results.append(
+                        run_recog(
+                            descriptor=f"bpe-combination_recog-rasr_transducer+attention+lm_weights-{transducer_weight}-{att_weight}_bp-{blank_penalty}",
+                            corpus_name=corpus_name,
+                            model_config=model_config,
+                            checkpoint=checkpoint,
+                            transducer_score_scale=transducer_weight,
+                            attention_score_scale=att_weight,
+                            lm_config=lstm_lm_config,
+                            lm_checkpoint=lstm_lm_checkpoint,
+                            lm_scale=0.6,
+                        )
+                    )
+
+            for ctc_weight, transducer_weight, att_weight in [(0.1, 0.4, 0.5)]:
+                for blank_penalty in [0.0, 1.0, 2.0]:
+                    recog_results.append(
+                        run_recog(
+                            descriptor=f"bpe-combination_recog-rasr_ctc+transducer+attention_weights-{ctc_weight}-{transducer_weight}-{att_weight}_bp-{blank_penalty}",
+                            corpus_name=corpus_name,
+                            model_config=model_config,
+                            checkpoint=checkpoint,
+                            ctc_score_scale=ctc_weight,
+                            transducer_score_scale=transducer_weight,
+                            attention_score_scale=att_weight,
+                            ctc_blank_penalty=blank_penalty / ctc_weight,
+                        )
+                    )
+
+            for ctc_weight, transducer_weight, att_weight in [(0.1, 0.4, 0.5)]:
+                for blank_penalty in [0.0, 1.0, 2.0]:
+                    recog_results.append(
+                        run_recog(
+                            descriptor=f"bpe-combination_recog-rasr_ctc+transducer+attention+lm_weights-{ctc_weight}-{transducer_weight}-{att_weight}_bp-{blank_penalty}",
+                            corpus_name=corpus_name,
+                            model_config=model_config,
+                            checkpoint=checkpoint,
+                            ctc_score_scale=ctc_weight,
+                            ctc_blank_penalty=blank_penalty / ctc_weight,
+                            transducer_score_scale=transducer_weight,
+                            attention_score_scale=att_weight,
+                            lm_config=lstm_lm_config,
+                            lm_checkpoint=lstm_lm_checkpoint,
+                            lm_scale=0.5,
+                        )
+                    )
 
         tk.register_report(f"{prefix}/report.txt", values=create_report(recog_results), required=True)
     return recog_results

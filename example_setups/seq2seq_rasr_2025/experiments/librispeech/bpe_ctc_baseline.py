@@ -164,7 +164,8 @@ def get_baseline_train_options() -> TrainOptions:
         ),
         gradient_clip=1.0,
         num_workers_per_gpu=2,
-        stop_on_inf_nan_score=True,
+        automatic_mixed_precision=True,
+        gpu_mem_rqmt=24,
     )
 
 
@@ -173,7 +174,6 @@ def get_baseline_recog_options() -> RasrRecogOptions:
         blank_index=bpe_to_vocab_size(bpe_size=BPE_SIZE),
         vocab_file=get_bpe_vocab_file(bpe_size=BPE_SIZE, add_blank=True),
         max_beam_size=1,
-        top_k_tokens=None,
         score_threshold=None,
         allow_label_loop=True,
     )
@@ -267,7 +267,6 @@ def run_bpe_ctc_baseline(prefix: str = "librispeech/bpe_ctc") -> List[RecogResul
             for score_threshold in [0.5, 1.0, 2.0, 3.0, 4.0, 6.0, 8.0, 10.0, 12.0]:
                 beam_recog_options = get_baseline_recog_options()
                 beam_recog_options.max_beam_size = max_beam_size
-                beam_recog_options.top_k_tokens = 8
                 beam_recog_options.score_threshold = score_threshold
 
                 recog_results.append(

@@ -10,6 +10,7 @@ from .pytorch_modules import LstmLmConfig
 def get_lstm_lm_label_scorer_config(
     model_config: LstmLmConfig,
     checkpoint: PtCheckpoint,
+    scale: float = 1.0,
 ) -> RasrConfig:
     scorer_onnx_model = export_scorer(model_config=model_config, checkpoint=checkpoint)
     state_initializer_onnx_model = export_state_initializer(model_config=model_config, checkpoint=checkpoint)
@@ -17,6 +18,8 @@ def get_lstm_lm_label_scorer_config(
 
     rasr_config = RasrConfig()
     rasr_config.type = "stateful-onnx"
+    if scale != 1:
+        rasr_config.scale = scale
 
     rasr_config.scorer_model = RasrConfig()
     rasr_config.scorer_model.session = RasrConfig()
