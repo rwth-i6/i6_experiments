@@ -35,6 +35,7 @@ from i6_experiments.users.zeyer.datasets.score_results import RecogOutput, Score
 from i6_experiments.users.zeyer.model_interfaces import ModelDef, ModelDefWithCfg, RecogDef, serialize_model_def
 from i6_experiments.users.zeyer.model_with_checkpoints import ModelWithCheckpoint, ModelWithCheckpoints
 from i6_experiments.users.zeyer.returnn.training import get_relevant_epochs_from_training_learning_rate_scores
+from i6_experiments.users.zeyer.returnn.config import config_dict_update_
 
 if TYPE_CHECKING:
     from returnn.tensor import TensorDict
@@ -376,8 +377,9 @@ def search_config(
         default_input=dataset.get_default_input(),
         target=dataset.get_default_target(),
         dev=dataset.get_main_dataset(),
-        **(config or {}),
     )
+    if config:
+        config_dict_update_(returnn_recog_config_dict, config)
 
     # The extern_data is anyway not hashed, so we can also instanciate any delayed objects here.
     # It's not hashed because we assume that all aspects of the dataset are already covered
@@ -467,9 +469,9 @@ def search_config_v2(
         forward_data=dataset.get_main_dataset(),
     )
     if config:
-        returnn_recog_config_dict.update(config)
+        config_dict_update_(returnn_recog_config_dict, config)
     if isinstance(model_def, ModelDefWithCfg):
-        returnn_recog_config_dict.update(model_def.config)
+        config_dict_update_(returnn_recog_config_dict, model_def.config)
 
     # The extern_data is anyway not hashed, so we can also instanciate any delayed objects here.
     # It's not hashed because we assume that all aspects of the dataset are already covered
@@ -542,7 +544,7 @@ def search_config_v2(
         (returnn_recog_config.config if batch_size_dependent else returnn_recog_config.post_config)[k] = v
 
     if post_config:
-        returnn_recog_config.post_config.update(post_config)
+        config_dict_update_(returnn_recog_config.post_config, post_config)
 
     for k, v in SharedPostConfig.items():
         if k in returnn_recog_config.config or k in returnn_recog_config.post_config:
