@@ -114,7 +114,6 @@ def get_nn_args_single(
             if layer_config.get("class") != "variable" and layer_config.get("from", "data") == "data":
                 feature_net["subnetwork"][layer]["from"] = source_layer
 
-    feature_net_recog = copy.deepcopy(feature_net)
 
     returnn_config = get_returnn_config(
         num_inputs=1,
@@ -132,7 +131,7 @@ def get_nn_args_single(
         evaluation_epochs=evaluation_epochs,
         recognition=True,
         num_epochs=num_epochs,
-        feature_net=feature_net_recog,
+        feature_net=feature_net,
         **(returnn_args or {}),
     )
 
@@ -225,6 +224,7 @@ def get_returnn_config(
         recognition=recognition,
         num_epochs=num_epochs,
     )
+    feature_net = copy.deepcopy(feature_net)
 
     if audio_perturbation:
         prolog += get_code_for_perturbation()
@@ -250,7 +250,6 @@ def get_returnn_config(
         # Remove pre-processing from recognition and replace with layers in the network if needed
         datasets["train"]["dataset"]["audio"].pop("pre_process", None)
 
-        feature_net = copy.deepcopy(feature_net)
         audio_perturb_args = extra_args.get("audio_perturb_args", {})
         source_layer = "data"
         if "preemphasis" in audio_perturb_args:
