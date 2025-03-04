@@ -1164,7 +1164,7 @@ def run_specaug_stft_experiments():
 
     nn_args, report_args_collection = get_nn_args_baseline(
         nn_base_args={
-            "bs2x5k_scf_stft_time_only": dict(
+            "bs2x5k_scf_stft400_time_only": dict(
                 returnn_args={
                     **returnn_args,
                     "specaug_stft": {
@@ -1179,7 +1179,7 @@ def run_specaug_stft_experiments():
                 lr_args=lr_args,
                 report_args={"batch_size": "2x5k"},
             ),
-            "bs2x5k_scf_stft_fmask_1_1of512": dict(
+            "bs2x5k_scf_stft400_fmask_1_1of512": dict(
                 returnn_args={
                     **returnn_args,
                     "specaug_stft": {
@@ -1194,7 +1194,7 @@ def run_specaug_stft_experiments():
                 lr_args=lr_args,
                 report_args={"batch_size": "2x5k"},
             ),
-            "bs2x5k_scf_stft_fmask_2_4of512": dict(
+            "bs2x5k_scf_stft400_fmask_2_4of512": dict(
                 returnn_args={
                     **returnn_args,
                     "specaug_stft": {
