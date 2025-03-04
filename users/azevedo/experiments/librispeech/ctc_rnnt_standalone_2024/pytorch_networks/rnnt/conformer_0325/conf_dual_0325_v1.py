@@ -1,23 +1,17 @@
 import torch
 from torch import nn
-import torch.functional as F
-from typing import Optional, List, Tuple, Union
+import torch.nn.functional as F
+from typing import Optional, List, Tuple, Union, Literal
 import math
 from copy import deepcopy
 from dataclasses import dataclass
 
 from i6_models.util import compat
 
-from i6_models.primitives.feature_extraction import LogMelFeatureExtractionV1, LogMelFeatureExtractionV1Config, filters
-
 from i6_models.config import ModelConfiguration, ModuleFactoryV1
-from i6_models.parts.conformer import ConformerMHSAV1Config, ConformerPositionwiseFeedForwardV1Config
-from i6_models.assemblies.conformer.conformer_v1 import ConformerEncoderV1Config, ConformerBlockV1Config
 
 from i6_models.parts.conformer import (
     ConformerConvolutionV2,
-    ConformerConvolutionV2Config,
-    ConformerMHSARelPosV1,
     ConformerMHSARelPosV1Config,
     ConformerPositionwiseFeedForwardV2,
     ConformerPositionwiseFeedForwardV2Config,
@@ -32,21 +26,71 @@ from i6_models.parts.dropout import BroadcastDropout
 
 from i6_models.primitives.specaugment import specaugment_v1_by_length
 
-from ..conformer_1023.i6modelsV1_VGG4LayerActFrontendV1_v9_i6_native import mask_tensor, Joiner
-from ..conformer_1023.i6modelsV1_VGG4LayerActFrontendV1_v9_cfg import SpecaugConfig
-
-from ..auxil.functional import add_lookahead_v2, create_chunk_mask, Mode
-
-from returnn.torch.context import get_run_ctx
+from ..conformer_0924.i6models_relposV1_VGG4LayerActFrontendV1_v1 import Predictor, Joiner
 
 from ..conformer_0225.conf_lah_carryover_v4 import (
     StreamableModule,
     StreamableLayerNormV1,
-    StreamableJoinerV1,
     StreamableFeatureExtractorV1
 )
+from ..auxil.functional import add_lookahead_v2, create_chunk_mask, Mode, mask_tensor
+
+from returnn.torch.context import get_run_ctx
+
 
 from ..conformer_1124.conf_relpos_streaming_v1 import ConformerRelPosBlockV1COV1Config
+
+
+class StreamableJoinerV1(StreamableModule):
+    r"""Streamable RNN-T joint network.
+
+    Args:
+        input_dim (int): source and target input dimension.
+        output_dim (int): output dimension.
+        activation (str, optional): activation function to use in the joiner.
+            Must be one of ("relu", "tanh"). (Default: "relu")
+
+    Taken directly from torchaudio
+    """
+
+    def __init__(
+            self, input_dim: int, output_dim: int, activation: str = "relu", 
+            dropout: float = 0.0, dropout_broadcast_axes: Optional[Literal["B", "T", "BT"]] = None, 
+            dual_mode: bool = True
+    ) -> None:
+        super().__init__()
+        self.joiner_off = Joiner(
+            input_dim=input_dim,
+            output_dim=output_dim,
+            activation=activation,
+            dropout=dropout,
+            dropout_broadcast_axes=dropout_broadcast_axes
+        )
+        self.joiner_on = Joiner(
+            input_dim=input_dim,
+            output_dim=output_dim,
+            activation=activation,
+            dropout=dropout,
+            dropout_broadcast_axes=dropout_broadcast_axes
+        ) if dual_mode else self.joiner_off
+
+    def forward_offline(
+            self,
+            source_encodings: torch.Tensor,
+            source_lengths: torch.Tensor,
+            target_encodings: torch.Tensor,
+            target_lengths: torch.Tensor,
+    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        return self.joiner_off(source_encodings, source_lengths, target_encodings, target_lengths)
+    
+    def forward_streaming(
+            self,
+            source_encodings: torch.Tensor,
+            source_lengths: torch.Tensor,
+            target_encodings: torch.Tensor,
+            target_lengths: torch.Tensor,
+    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        return self.joiner_on(source_encodings, source_lengths, target_encodings, target_lengths)
 
 
 class StreamableConformerMHSARelPosV2(StreamableModule):
@@ -275,9 +319,8 @@ class StreamableConformerMHSARelPosV2(StreamableModule):
         attn_mask = torch.ones(x.size(0), x.size(0), device=x.device, dtype=torch.bool)
         y = self.forward_offline(
             input_tensor=x.unsqueeze(0), sequence_mask=seq_mask.unsqueeze(0), attn_mask=attn_mask)
-        y = y[0, -ext_chunk_sz:]
-
-        return y + x[-ext_chunk_sz:]
+        
+        return y[0, -ext_chunk_sz:]  # [C+R, F]
 
 
 class StreamableConformerConvolutionV1(StreamableModule):
@@ -473,7 +516,9 @@ class StreamableConformerBlockRelPosV1(StreamableModule):
         #
         x = 0.5 * self.ff1(all_curr_chunks) + all_curr_chunks  # [t, F']
 
-        x = self.mhsa.infer(x, seq_mask=seq_mask, ext_chunk_sz=ext_chunk_sz)
+        x = self.mhsa.infer(
+            x, seq_mask=seq_mask, ext_chunk_sz=ext_chunk_sz
+        ) + x[-ext_chunk_sz:]
 
         x = x.masked_fill((~sequence_mask[0, :, None]), 0.0)  # [C+R, F']
         x = self.conv.infer(

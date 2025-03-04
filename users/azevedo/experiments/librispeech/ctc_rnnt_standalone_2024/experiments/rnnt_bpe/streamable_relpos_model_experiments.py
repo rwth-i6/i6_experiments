@@ -52,7 +52,7 @@ def get_train_config(model_config, keep, module, accum_grads=1,  **kwargs):
         }
     }
 
-    network_module = "rnnt.conformer_0225.%s" % module
+    network_module = "rnnt.conformer_0325.%s" % module
     train_args_default = {
         "config": train_config,
         "network_module": network_module,
@@ -65,7 +65,7 @@ def get_train_config(model_config, keep, module, accum_grads=1,  **kwargs):
 
 
 def run_experiments(**kwargs):
-    prefix_name = "experiments/librispeech/ctc_rnnt_standalone_2024/ls960_streaming_0225_low_bpe_from_scratch"
+    prefix_name = "experiments/librispeech/ctc_rnnt_standalone_2024/ls960_relpos_streaming_0325_low_bpe_from_scratch"
     bpe_size = kwargs.get("bpe_size", 128)
     experiments_config = kwargs.get("experiments_config")
 
@@ -132,13 +132,14 @@ def run_experiments(**kwargs):
             debug=False
         )
 
-    from ...pytorch_networks.rnnt.conformer_1023.i6modelsV1_VGG4LayerActFrontendV1_v9_cfg import (
+    from ...pytorch_networks.rnnt.conformer_0924.i6models_relposV1_VGG4LayerActFrontendV1_v1_cfg import (
         SpecaugConfig,
         VGG4LayerActFrontendV1Config_mod,
         LogMelFeatureExtractionV1Config,
-        PredictorConfig
+        PredictorConfig,
+        ConformerPosEmbConfig
     )
-    from ...pytorch_networks.rnnt.conformer_0225.model_streaming_0225_cfg import ModelConfig
+    from ...pytorch_networks.rnnt.conformer_0325.model_dual_0325_v1_cfg import ModelConfig
 
     fe_config = LogMelFeatureExtractionV1Config(
         sample_rate=16000,
@@ -187,6 +188,14 @@ def run_experiments(**kwargs):
         lstm_hidden_dim=512,
         lstm_dropout=0.1,
     )
+    posemb_config = ConformerPosEmbConfig(
+        learnable_pos_emb=False,
+        rel_pos_clip=16,
+        with_linear_pos=True,
+        with_pos_bias=True,
+        separate_pos_emb_per_head=True,
+        pos_emb_dropout=0.0,
+    )
 
     train_data_bpe = build_bpe_training_datasets(
         prefix=prefix_name,
@@ -211,7 +220,8 @@ def run_experiments(**kwargs):
             model_config = ModelConfig(
                 feature_extraction_config=fe_config,
                 frontend_config=frontend_config,
-                specaug_config=specaug_config_full,
+                specaug_config=specaug_config,
+                pos_emb_config=posemb_config,
                 predictor_config=predictor_config,
                 label_target_size=vocab_size_without_blank,
                 conformer_size=512,
@@ -222,14 +232,20 @@ def run_experiments(**kwargs):
                 conv_dropout=0.1,
                 ff_dropout=0.1,
                 mhsa_dropout=0.1,
-                conv_kernel_size=param_combi["kernel_size"],
+                mhsa_with_bias=True,
+                conv_kernel_size=31,
                 final_dropout=0.1,
-                specauc_start_epoch=param_combi['specauc_start_epoch'],
+                specauc_start_epoch=11,
                 joiner_dim=640,
                 joiner_activation="relu",
                 joiner_dropout=0.1,
+                dropout_broadcast_axes=None,  # No dropout broadcast yet to properly compare
+                module_list=["ff", "conv", "mhsa", "ff"],
+                module_scales=[0.5, 1.0, 1.0, 0.5],
+                aux_ctc_loss_layers=[11],
+                aux_ctc_loss_scales=[0.3],
                 ctc_output_loss=0.3,
-                use_vgg=None,
+
                 fastemit_lambda=None,
                 chunk_size=param_combi["chunk_size"] * 16e3,
                 lookahead_size=param_combi["lookahead_size"],
@@ -283,8 +299,7 @@ def run_experiments(**kwargs):
             # checkpoint decodings
             #
             # for keep in KEEP + [num_epochs]:
-            for keep in [num_epochs]:
-                # online
+            for keep in KEEP + [num_epochs]:
                 asr_model = prepare_asr_model(
                     training_name, train_job, train_args, with_prior=False,
                     datasets=train_data_bpe, get_specific_checkpoint=keep
@@ -305,46 +320,10 @@ def run_experiments(**kwargs):
                     beam_size=12,
                     decoder_module="rnnt.decoder.streaming_decoder_v1",
                 )
-            
-            # #
-            # # Testing
-            # #
-            # decoder_config_offline_2 = copy.deepcopy(decoder_config_offline)
-            # decoder_config_offline_2.test_version = 0.1
-            # if experiment in [20, 30]:
-            #     evaluate_helper(
-            #         training_name + "/offline" + "/keep_%i" % 1000,
-            #         asr_model,
-            #         decoder_config_offline_2,
-            #         use_gpu=True,
-            #         beam_size=12,
-            #         decoder_module="rnnt.decoder.streaming_decoder_v1",
-            #     )
-
-            #     decoder_config_streaming_2 = copy.deepcopy(decoder_config_streaming)
-            #     decoder_config_streaming_2.test_version = 0.2
-            #     evaluate_helper(
-            #         training_name + "/keepv2_%i" % keep,
-            #         asr_model,
-            #         decoder_config_streaming_2,
-            #         use_gpu=True,
-            #         beam_size=12,
-            #         decoder_module="rnnt.decoder.streaming_decoder_v1"
-            #     )
-            
-            # if experiment == 10:
-            #     evaluate_helper(
-            #         training_name + "/offline" + "/keepv2_%i" % 1000,
-            #         asr_model,
-            #         decoder_config_offline_2,
-            #         use_gpu=True,
-            #         beam_size=12,
-            #         decoder_module="rnnt.decoder.streaming_decoder_v1",
-            #     )
 
 
 
-def streaming_ls960_0225_low_bpe_from_scratch():
+def relpos_streaming_ls960_0325_low_bpe_from_scratch():
     experiment_configs = {
         # 10: {
         #     "model_params": {
@@ -357,29 +336,12 @@ def streaming_ls960_0225_low_bpe_from_scratch():
         #         "dual_mode": [True],
         #     },
 
-        #     "network_module": "model_streaming_0225",
+        #     "network_module": "model_dual_0325_v1",
         #     "accum_grads": 1,
         #     "gpu_mem": 48,
         #     "num_epochs": 1000,
-        #     "keep": [300, 500, 800, 950]
+        #     "keep": [300, 800, 950, 980]
         # },
-        15: {
-            "model_params": {
-                "chunk_size": [2.4],
-                "lookahead_size": [8],
-                "kernel_size": [31],
-                "specauc_start_epoch": [11],
-                "carry_over_size": [2],
-                "training_strategy": [str(TrainingStrategy.UNIFIED)],
-                "dual_mode": [True],
-            },
-
-            "network_module": "model_streaming_0225",
-            "accum_grads": 1,
-            "gpu_mem": 48,
-            "num_epochs": 1000,
-            "keep": [300, 800, 950, 980]
-        },
 
         20: {
             "model_params": {
@@ -392,65 +354,13 @@ def streaming_ls960_0225_low_bpe_from_scratch():
                 "dual_mode": [False],
             },
 
-            "network_module": "model_streaming_0225",
+            "network_module": "model_dual_0325_v1",
             "accum_grads": 1,
             "gpu_mem": 48,
             "num_epochs": 1000,
             "keep": [300, 800, 950, 980]
         },
-        # 25: {
-        #     "model_params": {
-        #         "chunk_size": [0.6],
-        #         "lookahead_size": [8],
-        #         "kernel_size": [31],
-        #         "specauc_start_epoch": [11],
-        #         "carry_over_size": [4],
-        #         "training_strategy": [str(TrainingStrategy.STREAMING)],
-        #         "dual_mode": [False],
-        #     },
 
-        #     "network_module": "model_streaming_0225",
-        #     "accum_grads": 1,
-        #     "gpu_mem": 48,
-        #     "num_epochs": 1000,
-        #     "keep": [300, 800, 950, 980]
-        # },
-
-        # SANITY CHECK:
-        # 30: {
-        #     "model_params": {
-        #         "chunk_size": [0.6],
-        #         "lookahead_size": [8],
-        #         "kernel_size": [31],
-        #         "specauc_start_epoch": [11],
-        #         "carry_over_size": [4],
-        #         "training_strategy": [str(TrainingStrategy.STREAMING)],
-        #         "dual_mode": [False],
-        #     },
-
-        #     "network_module": "model_streaming_oldconv",
-        #     "accum_grads": 1,
-        #     "gpu_mem": 48,
-        #     "num_epochs": 1000,
-        #     "keep": [300, 800, 950, 980]
-        # },
-        35: {
-            "model_params": {
-                "chunk_size": [2.4],
-                "lookahead_size": [8],
-                "kernel_size": [31],
-                "specauc_start_epoch": [11],
-                "carry_over_size": [2],
-                "training_strategy": [str(TrainingStrategy.STREAMING)],
-                "dual_mode": [False],
-            },
-
-            "network_module": "model_streaming_oldconv",
-            "accum_grads": 1,
-            "gpu_mem": 48,
-            "num_epochs": 1000,
-            "keep": [300, 800, 950, 980]
-        },
     }
 
     run_experiments(experiments_config=experiment_configs, bpe_size=128)

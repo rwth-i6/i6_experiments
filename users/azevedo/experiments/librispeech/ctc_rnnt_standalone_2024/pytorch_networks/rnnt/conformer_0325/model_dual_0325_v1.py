@@ -2,14 +2,11 @@ import torch
 from torch import nn
 from dataclasses import dataclass
 
-
-from .model_streaming_0225_cfg import ModelConfig
+from .model_dual_0325_v1_cfg import ModelConfig
 from i6_models.config import ModuleFactoryV1
 
-# frontend imports
 from i6_models.parts.frontend.vgg_act import VGG4LayerActFrontendV1
 
-# feature extract and conformer module imports
 from i6_models.parts.conformer.norm import LayerNormNC
 from i6_models.parts.dropout import BroadcastDropout
 
@@ -18,22 +15,19 @@ from .conf_dual_0325_v1 import (
     StreamableConformerEncoderRelPosV2Config,
 
 )
-
-from ..conformer_0924.i6models_relposV1_VGG4LayerActFrontendV1_v1 import Predictor, Joiner
-
-from ..conformer_0225.conf_lah_carryover_v4 import (
-    StreamableFeatureExtractorV1,
-    StreamableJoinerV1,
-    StreamableConformerEncoderV1Config
-)
 from ..conformer_1124.conf_relpos_streaming_v1 import (
     ConformerRelPosBlockV1COV1Config,
     ConformerPositionwiseFeedForwardV2Config,
     ConformerMHSARelPosV1Config,
     ConformerConvolutionV2Config,
-
-    ConformerRelPosEncoderV1COV1
 )
+
+
+from .conf_dual_0325_v1 import (
+    StreamableFeatureExtractorV1,
+    StreamableJoinerV1,
+)
+from ..conformer_0924.i6models_relposV1_VGG4LayerActFrontendV1_v1 import Predictor
 
 from ..conformer_0924.model_streaming_lah_carryover_v4 import train_step
 
@@ -104,8 +98,7 @@ class Model(nn.Module):
             output_dim=self.cfg.joiner_dim,
             dropout_broadcast_axes=self.cfg.dropout_broadcast_axes,
         )
-        # TODO: StreamableJoinerV2
-        self.joiner = Joiner(
+        self.joiner = StreamableJoinerV1(
             input_dim=self.cfg.joiner_dim,
             output_dim=self.cfg.label_target_size + 1,
             activation=self.cfg.joiner_activation,
