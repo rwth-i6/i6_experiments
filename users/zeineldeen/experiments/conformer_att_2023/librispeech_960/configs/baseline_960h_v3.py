@@ -2,6 +2,8 @@ import copy, os
 
 import numpy
 
+from sisyphus import *
+
 from i6_experiments.users.zeineldeen.experiments.conformer_att_2022.librispeech_960.attention_asr_config import (
     create_config,
     ConformerEncoderArgs,
@@ -41,6 +43,10 @@ from i6_experiments.users.rossenbach.experiments.librispeech.kazuki_lm.experimen
     ZeineldeenLM,
 )
 
+from i6_experiments.users.zeineldeen.experiments.conformer_att_2023.tedlium2.data import (
+    build_test_dataset as build_ted2_test_dataset,
+)
+
 train_jobs_map = {}  # dict[str, ReturnnTrainJob]
 train_job_avg_ckpt = {}
 train_job_best_epoch = {}
@@ -54,6 +60,24 @@ BPE_1K = 1000
 lstm_10k_lm_opts = {
     "lm_subnet": generic_lm.libri_lstm_bpe10k_net,
     "lm_model": generic_lm.libri_lstm_bpe10k_model,
+    "name": "lstm",
+}
+
+from i6_experiments.users.zeineldeen.experiments.conformer_att_2022.librispeech_960.seq_train_helpers import (
+    get_trans_lstm_lm,
+)
+
+lbs_trans_subnet_cls = get_trans_lstm_lm()
+lbs_density_ratio_lm_opts = {
+    "lm_subset": lbs_trans_subnet_cls["subnetwork"],
+    "lm_model": lbs_trans_subnet_cls["load_on_init"],
+    "target": "bpe_labels",
+    "name": "lstm",
+}
+
+ted2_lstm_lm_opts = {
+    "lm_subnet": generic_lm.libri_lstm_bpe10k_net,
+    "lm_model": "/work/asr4/michel/setups-data/lm_training/data-train/tedlium_re_i128_m2048_m2048_m2048_m2048.sgd_b32_lr0_cl2.newbobabs.d0.0.1350/net-model/network.020",
     "name": "lstm",
 }
 
@@ -89,6 +113,15 @@ trafo_lm_opts_map = {
     BPE_5K: trafo_5k_lm_opts,
 }
 
+TRAIN_AVG_ENC = tk.Path(
+    "/work/asr4/zeineldeen/setups-data/librispeech/2022-11-28--conformer-att/work/i6_core/returnn/training/ReturnnTrainingJob.ZhtaEElHqWlr/output/enc.mean.txt",
+    hash_overwrite="best_global_aed_enc_avg",
+)
+TRAIN_AVG_ATT = tk.Path(
+    "/work/asr4/zeineldeen/setups-data/librispeech/2022-11-28--conformer-att/work/i6_core/returnn/training/ReturnnTrainingJob.ZhtaEElHqWlr/output/att_ctx.mean.txt",
+    hash_overwrite="best_global_aed_att_avg",
+)
+
 # ----------------------------------------------------------- #
 
 
@@ -103,6 +136,21 @@ def conformer_baseline():
                 testset,
                 use_raw_features=True,
                 bpe_size=bpe_size,
+            )
+        return test_dataset_tuples
+
+    def get_ted2_test_dataset_tuples(bpe_size, merge_contractions=False):
+        test_dataset_tuples = {}
+        for testset in ["dev", "test"]:
+            test_dataset_tuples[testset] = build_ted2_test_dataset(
+                testset, use_raw_features=True, bpe_size=bpe_size, merge_contractions=merge_contractions
+            )
+            # override to use LibriSpeech bpe labels
+            test_dataset_tuples[testset][0].datasets["zip_dataset"]["targets"]["bpe_file"] = tk.Path(
+                "/u/zeineldeen/setups/ubuntu_22_setups/2023-04-17--conformer-att/work/i6_core/text/label/subword_nmt/train/ReturnnTrainBpeJob.vTq56NZ8STWt/output/bpe.codes"
+            )
+            test_dataset_tuples[testset][0].datasets["zip_dataset"]["targets"]["vocab_file"] = tk.Path(
+                "/u/zeineldeen/setups/ubuntu_22_setups/2023-04-17--conformer-att/work/i6_core/text/label/subword_nmt/train/ReturnnTrainBpeJob.vTq56NZ8STWt/output/bpe.vocab"
             )
         return test_dataset_tuples
 
@@ -164,6 +212,7 @@ def conformer_baseline():
             mem_rqmt=mem_rqmt,
             time_rqmt=time_rqmt,
             use_sclite=kwargs.get("use_sclite", False),
+            merge_contractions=kwargs.get("merge_contractions", False),
         )
 
     def run_lm_fusion(
@@ -178,6 +227,7 @@ def conformer_baseline():
         bpe_size,
         args,
         beam_size=12,
+        length_norm_exponent=1.0,
         prior_scales=None,
         prior_type=None,
         mini_lstm_ckpt=None,
@@ -186,6 +236,7 @@ def conformer_baseline():
         coverage_scale=None,
         coverage_threshold=None,
         coverage_update="sum",
+        ext_lm_opts=None,
         **kwargs,
     ):
         assert lm_type in ["lstm", "trafo"], "lm type should be lstm or trafo"
@@ -206,7 +257,8 @@ def conformer_baseline():
             assert isinstance(epoch, int), "epoch must be either a defined integer or a string in {avg, best}."
             search_checkpoint = train_job.out_checkpoints[epoch]
 
-        ext_lm_opts = lstm_lm_opts_map[bpe_size] if lm_type == "lstm" else trafo_lm_opts_map[bpe_size]
+        if ext_lm_opts is None:
+            ext_lm_opts = lstm_lm_opts_map[bpe_size] if lm_type == "lstm" else trafo_lm_opts_map[bpe_size]
 
         time_rqmt = 1.0
 
@@ -228,6 +280,8 @@ def conformer_baseline():
 
         if not length_norm:
             search_args["decoder_args"].length_normalization = False
+        else:
+            search_args["decoder_args"].length_normalization_exponent = length_norm_exponent
 
         if "decoder_args" in kwargs:
             for k, v in kwargs["decoder_args"].items():
@@ -244,8 +298,8 @@ def conformer_baseline():
             for scale in scales:
                 lm_scale = scale[0]
                 prior_scale = scale[1] if len(scale) == 2 else None
-                if prior_scale and prior_scale > lm_scale:
-                    continue
+                # if prior_scale and prior_scale > lm_scale:
+                #     continue
 
                 # External LM opts
                 ext_lm_opts["lm_scale"] = lm_scale
@@ -267,13 +321,19 @@ def conformer_baseline():
                     ilm_opts.update(kwargs.get("ilm_train_opts", {}))  # example for FFN, etc
 
                     search_args["prior_lm_opts"] = ilm_opts
-                    search_args["preload_from_files"] = {
-                        "prior_lm": {
-                            "filename": search_checkpoint,  # copy ASR decoder to be used as ILM decoder
-                            "prefix": "prior_",
+
+                    if prior_type != "density_ratio":
+                        search_args["preload_from_files"] = {
+                            "prior_lm": {
+                                "filename": search_checkpoint,  # copy ASR decoder to be used as ILM decoder
+                                "prefix": "prior_",
+                            }
                         }
-                    }
+
                     if prior_type == "mini_lstm" or prior_type == "ffn":
+                        assert (
+                            "preload_from_files" in search_args
+                        ), "preload_from_files must have been set for the ASR decoder prior copy"
                         assert mini_lstm_ckpt, "Mini-LSTM checkpoint not set."
                         search_args["preload_from_files"].update(
                             {
@@ -283,6 +343,16 @@ def conformer_baseline():
                                 }
                             }
                         )
+
+                    if prior_type == "train_avg_enc":
+                        ilm_opts["data"] = TRAIN_AVG_ENC
+                    if prior_type == "train_avg_ctx":
+                        ilm_opts["data"] = TRAIN_AVG_ATT
+
+                    if prior_type == "density_ratio":
+                        ilm_opts["lm_subnet"] = lbs_density_ratio_lm_opts["lm_subset"]
+                        ilm_opts["lm_model"] = lbs_density_ratio_lm_opts["lm_model"]
+                        ilm_opts["target"] = lbs_density_ratio_lm_opts["target"]
 
                 if prior_type_name is None:
                     prior_type_name = prior_type
@@ -303,7 +373,10 @@ def conformer_baseline():
                     if coverage_update != "sum":
                         lm_desc += f"-{coverage_update}"
 
-                name = f"{exp_name}/recog-{lm_type}-lm/ep-{epoch}/{lm_desc}/{test_set}"
+                name = exp_name
+                if kwargs.get("extra_name", None):
+                    name += f"/{kwargs['extra_name']}"
+                name += f"/recog-{lm_type}-lm/ep-{epoch}/{lm_desc}/{test_set}"
 
                 if kwargs.get("test_dataset_tuples", None):
                     test_dataset_tuples = kwargs["test_dataset_tuples"]
@@ -321,6 +394,7 @@ def conformer_baseline():
                     recog_bliss=test_dataset_tuples[test_set][2],
                     time_rqmt=kwargs.get("time_rqmt", time_rqmt),
                     use_sclite=kwargs.get("use_sclite", False),
+                    merge_contractions=kwargs.get("merge_contractions", False),
                 )
 
     def run_search(
@@ -828,15 +902,6 @@ def conformer_baseline():
     name = "base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_cyc915_ep2035_peak0.0009"
     run_exp(name, train_args=oclr_args, num_epochs=2035)
 
-    # for ep in [150 * 100]:
-    #     args = copy.deepcopy(oclr_args)
-    #     args["oclr_opts"]["cycle_ep"] = int(0.45 * ep)
-    #     args["oclr_opts"]["total_ep"] = ep
-    #     del args["oclr_opts"]["learning_rates"]
-    #     args["decoder_args"].use_zoneout_output = True
-    #     args["pretrain_opts"]["ignored_keys_for_reduce_dim"] = ["conv_kernel_size"]
-    #     run_exp(name, train_args=args, num_epochs=ep)
-
     # Att baseline with avg checkpoint: 2.27/5.39/2.41/5.51
     retrain_args = copy.deepcopy(oclr_args)
     best_global_att_avg_ckpt = train_job_avg_ckpt[name]
@@ -847,6 +912,75 @@ def conformer_baseline():
         exp_name=name + f"_retrain1_const20_linDecay580_{1e-4}",
         train_args=retrain_args,
         num_epochs=600,
+    )
+
+    # Cross-domain evaluation
+    # None: 16.1/16.9
+    # LM: 13.9/14.6
+    # LM+ILM: 12.1/13.3
+    #
+    # with merged contractions:
+    # None: 12.6/11.9
+    # LM:   11.2/10.6
+    # LM+ILM: 9.2/9.5
+
+    run_lm_fusion(
+        lm_type="lstm",
+        extra_name="ted2-recogs",
+        ext_lm_opts=ted2_lstm_lm_opts,
+        exp_name=f"base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_cyc915_ep2035_peak0.0009_retrain1_const20_linDecay580_{1e-4}",
+        epoch="avg",
+        test_set_names=["dev", "test"],
+        lm_scales=[0.0],
+        train_job=train_j,
+        train_data=train_data,
+        feature_net=log10_net_10ms,
+        args=oclr_args,
+        beam_size=4,
+        batch_size=10_000 * 160,
+        bpe_size=BPE_10K,
+        use_sclite=True,
+        test_dataset_tuples=get_ted2_test_dataset_tuples(BPE_10K, merge_contractions=True),
+        merge_contractions=True,
+    )
+
+    for beam_size in [10]:
+        for lm_scale in [0.38]:
+            run_lm_fusion(
+                lm_type="lstm",
+                extra_name="ted2-recogs",
+                ext_lm_opts=ted2_lstm_lm_opts,
+                exp_name=f"base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_cyc915_ep2035_peak0.0009_retrain1_const20_linDecay580_{1e-4}",
+                epoch="avg",
+                test_set_names=["dev", "test"],
+                lm_scales=[lm_scale],
+                train_job=train_j,
+                train_data=train_data,
+                feature_net=log10_net_10ms,
+                args=oclr_args,
+                beam_size=beam_size,
+                batch_size=10_000 * 160,
+                bpe_size=BPE_10K,
+                use_sclite=True,
+                test_dataset_tuples=get_ted2_test_dataset_tuples(BPE_10K, merge_contractions=True),
+                merge_contractions=True,
+            )
+
+    # 1.9/4.2/2.1/4.6
+    run_lm_fusion(
+        lm_type="trafo",
+        exp_name=f"base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_cyc915_ep2035_peak0.0009_retrain1_const20_linDecay580_{1e-4}",
+        epoch="avg",
+        test_set_names=["dev-clean", "dev-other", "test-clean", "test-other"],
+        lm_scales=[0.42],
+        train_job=train_j,
+        train_data=train_data,
+        feature_net=log10_net_10ms,
+        args=oclr_args,
+        beam_size=32,
+        batch_size=4000 * 160,
+        bpe_size=BPE_10K,
+        use_sclite=True,
     )
 
     for att_constraints_loss in ["mse"]:
@@ -862,167 +996,184 @@ def conformer_baseline():
                 name=f"mini_lstm_{att_constraints_loss}Loss{att_constraint_scale}",
             )
 
-            for beam_size in [84]:
-                for lm_scale in [0.54]:
-                    for prior_scale in [0.4]:
-                        for cov_scale in [0.01, 0.02, 0.03]:
-                            for cov_thre in [0.14, 0.15, 0.2, 0.3]:
-                                run_lm_fusion(
-                                    lm_type="trafo",
-                                    exp_name=f"base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_cyc915_ep2035_peak0.0009_retrain1_const20_linDecay580_{1e-4}",
-                                    epoch="avg",
-                                    test_set_names=["dev-other"],
-                                    lm_scales=[lm_scale],
-                                    prior_scales=[prior_scale],
-                                    prior_type="mini_lstm",
-                                    prior_type_name=f"mini_lstm_{att_constraints_loss}Loss{att_constraint_scale}",
-                                    mini_lstm_ckpt=get_best_checkpoint(mini_lstm_j, key="dev_score_output/output_prob"),
-                                    train_job=train_j,
-                                    train_data=train_data,
-                                    feature_net=log10_net_10ms,
-                                    args=oclr_args,
-                                    beam_size=beam_size,
-                                    batch_size=1000 * 160,
-                                    bpe_size=BPE_10K,
-                                    use_sclite=True,
-                                    coverage_scale=cov_scale,
-                                    coverage_threshold=cov_thre,
-                                    coverage_update="max",
-                                )
+            # with LM
+            mini_lstm_j_v2 = train_mini_lstm(
+                exp_name=f"base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_cyc915_ep2035_peak0.0009_retrain1_const20_linDecay580_{1e-4}",
+                checkpoint=train_job_avg_ckpt[
+                    f"base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_cyc915_ep2035_peak0.0009_retrain1_const20_linDecay580_{1e-4}"
+                ],
+                args=oclr_args,
+                num_epochs=40,
+                w_drop=True,
+            )
 
             # best recog model:
             # base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_cyc915_ep2035_peak0.0009_retrain1_const20_linDecay580_0.0001/recog-trafo-lm/ep-avg/lm-scale-0.54-prior-0.4-mini_lstm_mseLoss0.05-beam-84_coverage-thre0.1-scale0.2
             # dev-other/test-other: 3.64/4.18
-            # run_lm_fusion(
-            #     lm_type="trafo",
-            #     exp_name=f"base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_cyc915_ep2035_peak0.0009_retrain1_const20_linDecay580_{1e-4}",
-            #     epoch="avg",
-            #     test_set_names=["test-other"],
-            #     lm_scales=[0.54],
-            #     prior_scales=[0.4],
-            #     prior_type="mini_lstm",
-            #     prior_type_name=f"mini_lstm_{att_constraints_loss}Loss{att_constraint_scale}",
-            #     mini_lstm_ckpt=get_best_checkpoint(mini_lstm_j, key="dev_score_output/output_prob"),
-            #     train_job=train_j,
-            #     train_data=train_data,
-            #     feature_net=log10_net_10ms,
-            #     args=oclr_args,
-            #     beam_size=84,
-            #     batch_size=1000 * 160,
-            #     bpe_size=BPE_10K,
-            #     coverage_scale=0.2,
-            #     coverage_threshold=0.1,
-            #     use_sclite=True,
-            # )
+            for beam_size in [32, 70, 84]:
+                run_lm_fusion(
+                    lm_type="trafo",
+                    exp_name=f"base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_cyc915_ep2035_peak0.0009_retrain1_const20_linDecay580_{1e-4}",
+                    epoch="avg",
+                    test_set_names=["dev-clean", "dev-other", "test-clean", "test-other"],
+                    lm_scales=[0.54],
+                    prior_scales=[0.4],
+                    prior_type="mini_lstm",
+                    prior_type_name=f"mini_lstm_{att_constraints_loss}Loss{att_constraint_scale}",
+                    mini_lstm_ckpt=get_best_checkpoint(mini_lstm_j, key="dev_score_output/output_prob"),
+                    train_job=train_j,
+                    train_data=train_data,
+                    feature_net=log10_net_10ms,
+                    args=oclr_args,
+                    beam_size=beam_size,
+                    batch_size=1000 * 160,
+                    bpe_size=BPE_10K,
+                    use_sclite=True,
+                )
 
-    # ------------------------------------- #
+                if beam_size == 32:
+                    for len_norm_exp in [0.0]:
+                        for prior_type, lm_scale, ilm_scale in [
+                            ("train_avg_ctx", 0.46, 0.36),
+                            ("avg", 0.5, 0.44),
+                            ("train_avg_enc", 0.54, 0.44),
+                        ]:
+                            run_lm_fusion(
+                                lm_type="trafo",
+                                exp_name=f"base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_cyc915_ep2035_peak0.0009_retrain1_const20_linDecay580_{1e-4}",
+                                epoch="avg",
+                                test_set_names=["test-clean", "test-other"],
+                                lm_scales=[lm_scale],
+                                prior_scales=[ilm_scale],
+                                prior_type=prior_type,
+                                prior_type_name={
+                                    "density_ratio": "densityRatio",
+                                    "train_avg_enc": "avgEnc",
+                                    "train_avg_ctx": "avgAtt",
+                                    "avg": "seqAvg",
+                                }[prior_type],
+                                train_job=train_j,
+                                train_data=train_data,
+                                feature_net=log10_net_10ms,
+                                args=(
+                                    {**oclr_args, "extra_prolog": ["import numpy"]}
+                                    if prior_type.startswith("train_")
+                                    else oclr_args
+                                ),
+                                beam_size=beam_size,
+                                batch_size=1000 * 160,
+                                bpe_size=BPE_10K,
+                                coverage_scale=0.2,
+                                coverage_threshold=0.1,
+                                use_sclite=True,
+                                length_norm_exponent=len_norm_exp,
+                            )
 
-    # recognition for Peter on LibriCSS
+                    for lm_scale in [0.46, 0.48, 0.5, 0.52, 0.54, 0.56]:
+                        for ilm_scale in [0.2, 0.22, 0.24, 0.26, 0.28, 0.3, 0.32]:
+                            run_lm_fusion(
+                                lm_type="trafo",
+                                exp_name=f"base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_cyc915_ep2035_peak0.0009_retrain1_const20_linDecay580_{1e-4}",
+                                epoch="avg",
+                                test_set_names=["dev-clean", "dev-other", "test-clean", "test-other"],
+                                lm_scales=[lm_scale],
+                                prior_scales=[ilm_scale],
+                                prior_type="density_ratio",
+                                prior_type_name="densityRatio_lenNorm",
+                                train_job=train_j,
+                                train_data=train_data,
+                                feature_net=log10_net_10ms,
+                                args=(
+                                    {**oclr_args, "extra_prolog": ["import numpy"]}
+                                    if prior_type.startswith("train_")
+                                    else oclr_args
+                                ),
+                                beam_size=beam_size,
+                                batch_size=1000 * 160,
+                                bpe_size=BPE_10K,
+                                coverage_scale=0.2,
+                                coverage_threshold=0.1,
+                                use_sclite=True,
+                                length_norm_exponent=1.0,
+                            )
 
-    def get_libriCSS_test_sets(bpe_size):
-        from i6_experiments.users.zeineldeen.experiments.conformer_att_2023.librispeech_960.libriCSS_data import (
-            build_libriCSS_test_sets,
-        )
+                run_lm_fusion(
+                    lm_type="trafo",
+                    exp_name=f"base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_cyc915_ep2035_peak0.0009_retrain1_const20_linDecay580_{1e-4}",
+                    epoch="avg",
+                    test_set_names=["dev-other"],
+                    lm_scales=[0.54],
+                    prior_scales=[0.4],
+                    prior_type="mini_lstm",
+                    mini_lstm_ckpt=get_best_checkpoint(mini_lstm_j_v2, key="dev_score"),
+                    train_job=train_j,
+                    train_data=train_data,
+                    feature_net=log10_net_10ms,
+                    args=oclr_args,
+                    beam_size=beam_size,
+                    batch_size=1000 * 160,
+                    bpe_size=BPE_10K,
+                    use_sclite=True,
+                )
 
-        res = {}
-        for dataset_key in ["dev", "eval"]:
-            res[dataset_key] = build_libriCSS_test_sets(
-                dataset_key,
-                bpe_size=bpe_size,
-                use_raw_features=True,
-            )
-        return res
+                # TODO: with ILM
+                # lm-scale-0.78-prior-0.76-mini_lstm_mseLoss0.05_ep10_lenNorm0.0-beam-12 12.1
+                for length_norm_exp in [0.0]:
+                    for mini_lstm_ep in [10]:
+                        for beam_size in [12]:
+                            for lm_scale in [0.78]:
+                                for ilm_scale in [0.76]:
+                                    run_lm_fusion(
+                                        lm_type="lstm",
+                                        extra_name="ted2-recogs",
+                                        ext_lm_opts=ted2_lstm_lm_opts,
+                                        exp_name=f"base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_cyc915_ep2035_peak0.0009_retrain1_const20_linDecay580_{1e-4}",
+                                        epoch="avg",
+                                        test_set_names=["dev", "test"],
+                                        lm_scales=[lm_scale],
+                                        prior_scales=[ilm_scale],
+                                        prior_type="mini_lstm",
+                                        prior_type_name=f"mini_lstm_{att_constraints_loss}Loss{att_constraint_scale}_ep{mini_lstm_ep}_lenNorm{length_norm_exp}",
+                                        length_norm_exponent=length_norm_exp,
+                                        mini_lstm_ckpt=mini_lstm_j.out_checkpoints[mini_lstm_ep],
+                                        train_job=train_j,
+                                        train_data=train_data,
+                                        feature_net=log10_net_10ms,
+                                        args=oclr_args,
+                                        beam_size=beam_size,
+                                        batch_size=10_000 * 160,
+                                        bpe_size=BPE_10K,
+                                        use_sclite=True,
+                                        test_dataset_tuples=get_ted2_test_dataset_tuples(
+                                            BPE_10K, merge_contractions=True
+                                        ),
+                                        merge_contractions=True,
+                                    )
 
-    def run_libriCSS_decoding(
-        exp_name,
-        train_data,
-        checkpoint,
-        search_args,
-        feature_extraction_net,
-        bpe_size,
-        test_sets: list,
-        time_rqmt: float = 1.0,
-        remove_label=None,
-        **kwargs,
-    ):
-        test_dataset_tuples = get_libriCSS_test_sets(bpe_size=bpe_size)
-        for test_set in test_sets:
-            run_single_search(
-                exp_name=exp_name + f"/recogs/{test_set}",
-                train_data=train_data,
-                search_args=search_args,
-                checkpoint=checkpoint,
-                feature_extraction_net=feature_extraction_net,
-                recog_dataset=test_dataset_tuples[test_set][0],
-                recog_ref=test_dataset_tuples[test_set][1],
-                recog_bliss=test_dataset_tuples[test_set][2],
-                time_rqmt=time_rqmt,
-                remove_label=remove_label,
-                **kwargs,
-            )
-
-    run_libriCSS_decoding(
-        "peter_libriCSS",
-        train_data,
-        checkpoint=train_job_avg_ckpt[
-            f"base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_cyc915_ep2035_peak0.0009_retrain1_const20_linDecay580_{1e-4}"
-        ],
-        search_args=oclr_args,
-        feature_extraction_net=log10_net_10ms,
-        bpe_size=BPE_10K,
-        test_sets=["dev", "eval"],
-        use_sclite=True,
-    )
-
-    run_lm_fusion(
-        lm_type="trafo",
-        exp_name=f"base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_cyc915_ep2035_peak0.0009_retrain1_const20_linDecay580_{1e-4}",
-        epoch="avg",
-        test_set_names=["dev", "eval"],
-        lm_scales=[0.42],
-        # prior_scales=[0.38],
-        # prior_type="mini_lstm",
-        # mini_lstm_ckpt=get_best_checkpoint(mini_lstm_j, key="dev_score"),
-        train_job=train_j,
-        train_data=train_data,
-        feature_net=log10_net_10ms,
-        args=oclr_args,
-        beam_size=32,
-        batch_size=1000 * 160,
-        bpe_size=BPE_10K,
-        test_dataset_tuples=get_libriCSS_test_sets(bpe_size=BPE_10K),
-        use_sclite=True,
-    )
-
-    # ------------------------------------- #
-
-    # with LM
-    mini_lstm_j = train_mini_lstm(
-        exp_name=f"base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_cyc915_ep2035_peak0.0009_retrain1_const20_linDecay580_{1e-4}",
-        checkpoint=train_job_avg_ckpt[
-            f"base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_cyc915_ep2035_peak0.0009_retrain1_const20_linDecay580_{1e-4}"
-        ],
-        args=oclr_args,
-        num_epochs=40,
-        w_drop=True,
-    )
-
-    run_lm_fusion(
-        lm_type="trafo",
-        exp_name=f"base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_cyc915_ep2035_peak0.0009_retrain1_const20_linDecay580_{1e-4}",
-        epoch="avg",
-        test_set_names=["dev", "eval"],
-        lm_scales=[0.54],
-        prior_scales=[0.38],
-        prior_type="mini_lstm",
-        mini_lstm_ckpt=get_best_checkpoint(mini_lstm_j, key="dev_score"),
-        train_job=train_j,
-        train_data=train_data,
-        feature_net=log10_net_10ms,
-        args=oclr_args,
-        beam_size=70,
-        batch_size=1000 * 160,
-        bpe_size=BPE_10K,
-        test_dataset_tuples=get_libriCSS_test_sets(bpe_size=BPE_10K),
-        use_sclite=True,
-    )
+                for length_norm_exp in [1.0]:
+                    for prior_type in ["density_ratio"]:
+                        for lm_scale in [0.7, 0.72, 0.74, 0.76]:
+                            for ilm_scale in [0.4, 0.42, 0.44, 0.46, 0.48, 0.5, 0.52]:
+                                run_lm_fusion(
+                                    lm_type="lstm",
+                                    extra_name="ted2-recogs",
+                                    ext_lm_opts=ted2_lstm_lm_opts,
+                                    exp_name=f"base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_cyc915_ep2035_peak0.0009_retrain1_const20_linDecay580_{1e-4}",
+                                    epoch="avg",
+                                    test_set_names=["dev", "test"],
+                                    lm_scales=[lm_scale],
+                                    prior_scales=[ilm_scale],
+                                    prior_type=prior_type,
+                                    prior_type_name="densityRatio" + ("_lenNorm" if length_norm_exp else ""),
+                                    length_norm_exponent=length_norm_exp,
+                                    mini_lstm_ckpt=mini_lstm_j.out_checkpoints[10],
+                                    train_job=train_j,
+                                    train_data=train_data,
+                                    feature_net=log10_net_10ms,
+                                    args={**oclr_args, "extra_prolog": ["import numpy"]},
+                                    beam_size=12,
+                                    batch_size=10_000 * 160,
+                                    bpe_size=BPE_10K,
+                                    use_sclite=True,
+                                    test_dataset_tuples=get_ted2_test_dataset_tuples(BPE_10K),
+                                )

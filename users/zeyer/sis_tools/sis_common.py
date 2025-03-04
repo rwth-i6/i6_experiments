@@ -106,9 +106,19 @@ def get_job_from_work_output(filename: str, *, allow_none: bool = False) -> Opti
     elif filename.startswith("work/") and os.path.exists(get_setup_base_dir() + "/" + filename):
         filename = filename[len("work/") :]
     else:
+        if "/output/" in filename:
+            path = os.path.realpath(filename[: filename.rindex("/output/")])
+            if is_job_dir(path):
+                f = None
+                while True:
+                    f = path.rindex("/", None, f)
+                    if f <= 0:
+                        break
+                    if os.path.realpath(get_work_dir_prefix() + path[f + 1 :]) == path:
+                        return path[f + 1 :]
         if allow_none:
             return None
-        raise ValueError(f"invalid {filename=}")
+        raise ValueError(f"invalid {filename=}, not prefixed by {work_dir_prefix=} or {work_dir_prefix2=}")
     s = 0
     while True:
         f = filename.find("/", s)
@@ -123,9 +133,12 @@ def get_job_from_work_output(filename: str, *, allow_none: bool = False) -> Opti
 
 def is_job_dir(job: str) -> bool:
     """
-    :param job: without "work/" prefix
+    :param job: without "work/" prefix, or absolute
     """
-    d = get_work_dir_prefix() + job
+    if job.startswith("/"):
+        d = job
+    else:
+        d = get_work_dir_prefix() + job
     if not os.path.isdir(d):
         return False
     if not os.path.isfile(d + "/info"):
@@ -311,7 +324,7 @@ def collect_inputs_per_key(info_params: list[ParsedInfoParameter]) -> dict[str, 
                 continue
             break
 
-    jobs_ = {"/".join(path): job for path, job in jobs.items()}
+    jobs_ = {"/".join(str(p) for p in path): job for path, job in jobs.items()}
     assert len(jobs_) == len(jobs)  # unique joined paths
     return jobs_
 

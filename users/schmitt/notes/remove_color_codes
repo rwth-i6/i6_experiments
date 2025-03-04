@@ -1,0 +1,1 @@
+less -r log | sed -e 's/\x1b\[[0-9;]*m//g' > log2

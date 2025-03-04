@@ -1122,6 +1122,204 @@ def run_mel_audio_perturbation_from_checkpoint():
     return report
 
 
+def run_specaug_stft_experiments():
+    gs.ALIAS_AND_OUTPUT_SUBDIR = "experiments/switchboard/ctc/feat/"
+
+    (
+        returnn_datasets,
+        rasr_loss_corpus_path,
+        rasr_loss_corpus_segments,
+        rasr_loss_lexicon_path,
+        dev_corpora,
+    ) = get_datasets()
+    returnn_args = {
+        "batch_size": 5000,
+        "rasr_binary_path": RASR_BINARY_PATH,
+        "rasr_loss_corpus_path": rasr_loss_corpus_path,
+        "rasr_loss_corpus_segments": rasr_loss_corpus_segments,
+        "rasr_loss_lexicon_path": rasr_loss_lexicon_path,
+        "datasets": returnn_datasets,
+        "extra_args": {
+            "accum_grad_multiple_step": 2,
+            "conv_pad_seq_len_to_power": 1.5,
+        },
+        "conformer_type": "wei",
+    }
+    feature_args_scf = {"class": "ScfNetwork", "size_tf": 256 // 2, "stride_tf": 10 // 2, "preemphasis": 0.97}
+    feature_args_lgm = {
+        "class": "LogMelNetwork",
+        "wave_norm": True,
+        "frame_size": 200,
+        "frame_shift": 80,
+        "fft_size": 256,
+    }
+    lr_args = {
+        "peak_lr": 4e-4,
+        "start_lr": 1.325e-05,
+        "end_lr": 1e-5,
+        "increase_epochs": 180,
+        "decrease_epochs": 180,
+        "final_epochs": 0,
+    }
+
+    nn_args, report_args_collection = get_nn_args_baseline(
+        nn_base_args={
+            "bs2x5k_scf_stft20ms_time_only": dict(
+                returnn_args={
+                    **returnn_args,
+                    "specaug_stft": {
+                        "max_feature": 0,
+                        "max_feature_num": 0,
+                        "frame_size": 400,
+                        "frame_shift": 160,
+                        "fft_size": 512,
+                    },
+                },
+                feature_args=feature_args_scf,
+                lr_args=lr_args,
+                report_args={"batch_size": "2x5k"},
+            ),
+            "bs2x5k_scf_stft20ms_fmask_1_1of512": dict(
+                returnn_args={
+                    **returnn_args,
+                    "specaug_stft": {
+                        "max_feature": 1,
+                        "max_feature_num": 1,
+                        "frame_size": 400,
+                        "frame_shift": 160,
+                        "fft_size": 512,
+                    },
+                },
+                feature_args=feature_args_scf,
+                lr_args=lr_args,
+                report_args={"batch_size": "2x5k"},
+            ),
+            "bs2x5k_scf_stft20ms_fmask_2_4of512": dict(
+                returnn_args={
+                    **returnn_args,
+                    "specaug_stft": {
+                        "max_feature": 4,
+                        "max_feature_num": 2,
+                        "frame_size": 400,
+                        "frame_shift": 160,
+                        "fft_size": 512,
+                    },
+                },
+                feature_args=feature_args_scf,
+                lr_args=lr_args,
+                report_args={"batch_size": "2x5k"},
+            ),
+            "bs2x5k_scf_stft20ms_fmask_5_8of512": dict(
+                returnn_args={
+                    **returnn_args,
+                    "specaug_stft": {"max_feature": 8, "frame_size": 400, "frame_shift": 160, "fft_size": 512},
+                },
+                feature_args=feature_args_scf,
+                lr_args=lr_args,
+                report_args={"batch_size": "2x5k"},
+            ),
+            "bs2x5k_scf_stft20ms_fmask_5_15of512": dict(
+                returnn_args={
+                    **returnn_args,
+                    "specaug_stft": {"max_feature": 15, "frame_size": 400, "frame_shift": 160, "fft_size": 512},
+                },
+                feature_args=feature_args_scf,
+                lr_args=lr_args,
+                report_args={"batch_size": "2x5k"},
+            ),
+            "bs2x5k_lgm_stft20ms_fmask_5_8of512": dict(
+                returnn_args={
+                    **returnn_args,
+                    "specaug_stft": {"max_feature": 8, "frame_size": 400, "frame_shift": 160, "fft_size": 512},
+                    "extra_args": {"accum_grad_multiple_step": 2},
+                },
+                feature_args=feature_args_lgm,
+                lr_args=lr_args,
+                report_args={
+                    "batch_size": "2x5k",
+                },
+            ),
+            "bs10k_lgm_stft20ms_fmask_5_8of512": dict(
+                returnn_args={
+                    **returnn_args,
+                    "specaug_stft": {"max_feature": 8, "frame_size": 400, "frame_shift": 160, "fft_size": 512},
+                    "batch_size": 10000,
+                    "extra_args": {},
+                },
+                feature_args=feature_args_lgm,
+                lr_args=lr_args,
+                report_args={"batch_size": "10k"},
+            ),
+            "bs10k_scf_stft10ms_fmask_5_8of256": dict(
+                returnn_args={
+                    **returnn_args,
+                    "specaug_stft": {"max_feature": 8},
+                    "batch_size": 10000,
+                    "extra_args": {
+                        "conv_pad_seq_len_to_power": 1.5,
+                    },
+                },
+                feature_args=feature_args_scf,
+                lr_args=lr_args,
+                report_args={"batch_size": "10k"},
+            ),
+            "bs10k_lgm_stft10ms_fmask_5_8of256": dict(
+                returnn_args={
+                    **returnn_args,
+                    "specaug_stft": {"max_feature": 8},
+                    "batch_size": 10000,
+                    "extra_args": {},
+                },
+                feature_args=feature_args_lgm,
+                lr_args=lr_args,
+                report_args={"batch_size": "10k"},
+            ),
+            "bs10k_scf_stft10ms_fmask_5_4of256": dict(
+                returnn_args={
+                    **returnn_args,
+                    "specaug_stft": {"max_feature": 4},
+                    "batch_size": 10000,
+                    "extra_args": {
+                        "conv_pad_seq_len_to_power": 1.5,
+                    },
+                },
+                feature_args=feature_args_scf,
+                lr_args=lr_args,
+                report_args={"batch_size": "10k"},
+            ),
+            "bs10k_lgm_stft10ms_fmask_5_4of256": dict(
+                returnn_args={
+                    **returnn_args,
+                    "specaug_stft": {"max_feature": 4},
+                    "batch_size": 10000,
+                    "extra_args": {},
+                },
+                feature_args=feature_args_lgm,
+                lr_args=lr_args,
+                report_args={"batch_size": "10k"},
+            ),
+        },
+        num_epochs=450,
+        evaluation_epochs=[24, 350, 390, 400, 410, 420, 430, 440, 450],
+        prefix="conformer_",
+    )
+
+    returnn_root = CloneGitRepositoryJob(
+        "https://github.com/rwth-i6/returnn",
+        commit="c4d36d06f6465e82a50d400d114259e07b8b0709",
+    ).out_repository
+    returnn_root.hash_overwrite = "returnn_conv_padding"
+    report, ctc_nn_system = run_nn_args(
+        nn_args,
+        report_args_collection,
+        dev_corpora,
+        "report_specaug_stft.csv",
+        returnn_root=returnn_root,
+        recog_args={"epochs": [24, 350, 390, 400, 410, 420, 430, 440, 450]},
+    )
+    return report, ctc_nn_system
+
+
 def py():
     """
     called if the file is passed to sis manager, used to run all experiments (replacement for main)
@@ -1131,6 +1329,7 @@ def py():
     report_scf_specaug_sort = run_scf_specaug_sort()
     report_scf_audio_perturbation_from_checkpoint = run_scf_audio_perturbation_from_checkpoint()
     report_mel_audio_perturbation_from_checkpoint = run_mel_audio_perturbation_from_checkpoint()
+    report_specaug_stft = run_specaug_stft_experiments()
 
     report_base = Report(
         columns_start=["train_name", "batch_size"],
@@ -1144,6 +1343,7 @@ def py():
             report_scf_specaug_sort,
             report_scf_audio_perturbation_from_checkpoint,
             report_mel_audio_perturbation_from_checkpoint,
+            report_specaug_stft,
         ]
     )
     tk.register_report(

@@ -11,7 +11,6 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Optional, Union, Any, Callable, Dict, Tuple
 
 from sisyphus import tk
-from i6_core.util import instanciate_delayed
 
 from i6_core.returnn import ReturnnConfig
 from i6_core.returnn.forward import ReturnnForwardJobV2
@@ -20,6 +19,7 @@ from returnn_common.datasets_old_2022_10.interface import DatasetConfig
 from i6_experiments.common.setups import serialization
 from i6_experiments.users.zeyer.utils.serialization import get_import_py_code
 
+from i6_experiments.users.zeyer.sis_tools.instanciate_delayed import instanciate_delayed_inplace_with_warning
 from i6_experiments.users.zeyer import tools_paths
 from i6_experiments.users.zeyer.model_interfaces import ModelDef, ModelDefWithCfg, ForwardRFDef, serialize_model_def
 from i6_experiments.users.zeyer.model_with_checkpoints import ModelWithCheckpoint
@@ -298,12 +298,11 @@ def _returnn_forward_config(
                 lambda v_: {"dim": v_.dimension} if isinstance(v_, Dim) else v_, v
             )
 
-    extern_data_raw = dataset.get_extern_data()
     # TODO why is the instanciate_delayed needed?
     # The extern_data is anyway not hashed, so we can also instanciate any delayed objects here.
     # It's not hashed because we assume that all aspects of the dataset are already covered
     # by the datasets itself as part in the config above.
-    extern_data_raw = instanciate_delayed(extern_data_raw)
+    extern_data_raw = instanciate_delayed_inplace_with_warning(dataset.get_extern_data)
 
     if (
         forward_step is _returnn_forward_noop_step
@@ -527,11 +526,21 @@ def _returnn_get_model(*, epoch: int, **_kwargs_unused):
     if model_def is None:
         return rf.Module()  # empty dummy module
 
-    default_input_key = config.typed_value("default_input")
-    default_target_key = config.typed_value("target")
     extern_data_dict = config.typed_value("extern_data")
-    data = Tensor(name=default_input_key, **extern_data_dict[default_input_key])
-    targets = Tensor(name=default_target_key, **extern_data_dict[default_target_key])
+    model_outputs_dict = config.typed_value("model_outputs")
+
+    default_input_key = config.typed_value("default_input")
+    data_templ_dict = {"name": default_input_key, **extern_data_dict[default_input_key]}
+    default_target_key = config.typed_value("target")
+    if default_target_key:
+        targets_templ_dict = {"name": default_target_key, **extern_data_dict[default_target_key]}
+    elif model_outputs_dict and "output" in model_outputs_dict:
+        targets_templ_dict = {"name": "output", **model_outputs_dict["output"]}
+    else:
+        raise ValueError(f"default_target_key {default_target_key} and model_outputs {model_outputs_dict}")
+
+    data = Tensor(**data_templ_dict)
+    targets = Tensor(**targets_templ_dict)
     assert targets.sparse_dim and targets.sparse_dim.vocab, f"no vocab for {targets}"
 
     model = model_def(epoch=epoch, in_dim=data.feature_dim, target_dim=targets.sparse_dim)

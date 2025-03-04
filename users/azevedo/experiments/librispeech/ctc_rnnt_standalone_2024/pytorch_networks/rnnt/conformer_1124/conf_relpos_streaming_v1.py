@@ -61,14 +61,15 @@ class ConformerMHSARelPosV2(ConformerMHSARelPosV1):
         # T: query seq. length, T' key/value seg length; T = T' if same input tensor
 
         inv_sequence_mask = compat.logical_not(sequence_mask)  # [B, T']
-        inv_attn_mask = compat.logical_not(attn_mask)
-
-        # print(f"{inv_attn_mask.shape = }, {inv_sequence_mask.shape = }, {input_tensor.shape = }")
-
-        inv_attn_mask = inv_attn_mask.unsqueeze(0)  # [1, T', T']
         inv_sequence_mask = inv_sequence_mask.unsqueeze(1)  # [B, 1, T']
-        total_mask = (inv_sequence_mask + inv_attn_mask).unsqueeze(1)  # [B, 1, T', T']
+        if attn_mask is not None:
+            inv_attn_mask = compat.logical_not(attn_mask)
+            inv_attn_mask = inv_attn_mask.unsqueeze(0)  # [1, T', T']
 
+        total_mask = inv_sequence_mask
+        if attn_mask is not None:
+            total_mask = total_mask + inv_attn_mask
+        total_mask = total_mask.unsqueeze(1)  # [B, 1, T', T']
 
         # query, key and value sequences
         query_seq, key_seq, value_seq = self.qkv_proj(output_tensor).chunk(3, dim=-1)  # [B, T, #heads * F']
@@ -146,19 +147,14 @@ class ConformerMHSARelPosV2(ConformerMHSARelPosV1):
     def infer(
         self, x: torch.Tensor, seq_mask: torch.Tensor, ext_chunk_sz: int,
     ) -> torch.Tensor:
-        
-        # TODO
-        raise NotImplementedError
-        # y = self.layernorm(x)
-        # q = y[-ext_chunk_sz:]  # [C+R, F']
+        # x: [t, F]
 
-        # inv_seq_mask = ~seq_mask
-        # output_tensor, _ = self.mhsa.mhsa(
-        #     q, y, y, key_padding_mask=inv_seq_mask, need_weights=False
-        # )  # [C+R, F]
-        # x = output_tensor + x[-ext_chunk_sz:]  # [C+R, F]
+        attn_mask = torch.ones(x.size(0), x.size(0), device=x.device, dtype=torch.bool)
+        y = self.forward(
+            input_tensor=x.unsqueeze(0), sequence_mask=seq_mask.unsqueeze(0), attn_mask=attn_mask)
+        y = y[0, -ext_chunk_sz:]
 
-        return x
+        return y + x[-ext_chunk_sz:]
 
 
 @dataclass

@@ -139,6 +139,7 @@ class BASEFactoredHybridSystem(NnSystem):
         self.lexicon_args = get_lexicon_args(norm_pronunciation=False)
         self.tdp_values = get_tdp_values()
         self.segments_to_exclude = None
+        self.sort_returnn_config = True
 
         # since ivectors are still from old systems, they are not concatenated to feature caches
         # If one plans to use creat_hdf function when using ivectors, then there is an assertion
@@ -233,7 +234,7 @@ class BASEFactoredHybridSystem(NnSystem):
 
         self.crp_names["dev"] = dev_key
         self.crp_names["test"] = test_key
-        self.sort_returnn_config = True
+
 
     def set_experiment_dict(self, key, alignment, context, postfix_name=""):
         prefix_name = f"{context}-from-{alignment}"
@@ -680,7 +681,9 @@ class BASEFactoredHybridSystem(NnSystem):
     ):
 
         assert self.train_key is not None, "You did not specify the train_key"
-        assert not len(self.cv_corpora), "You should not set any cv corpora if you want to take the cv from train"
+        if len(self.cv_corpora):
+            for c_name in self.cv_corpora:
+                assert "train" in c_name, "You should not set any cv corpora out of train if you want to take the cv from train"
         train_corpus_path = self.corpora[self.train_key].corpus_file
 
         all_segments = self._get_segment_file(corpus_path=train_corpus_path)

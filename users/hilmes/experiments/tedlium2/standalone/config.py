@@ -87,6 +87,7 @@ def get_prior_config(
     net_args: Dict[str, Any],
     unhashed_net_args: Optional[Dict[str, Any]] = None,
     debug: bool = False,
+    import_memristor: bool = False,
 ):
     """
     Get a generic config for extracting output label priors
@@ -123,6 +124,7 @@ def get_prior_config(
         forward_init_args=None,
         unhashed_forward_init_args=None,
         debug=debug,
+        import_memristor=import_memristor,
     )
     returnn_config = ReturnnConfig(config=config, post_config=post_config, python_epilog=[serializer])
     return returnn_config

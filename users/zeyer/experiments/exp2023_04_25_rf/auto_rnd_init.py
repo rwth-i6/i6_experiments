@@ -2,6 +2,7 @@
 Inspired from recent Twitter discussion:
 https://twitter.com/francoisfleuret/status/1747150719969321294
 https://twitter.com/ducha_aiki/status/1747176379009896838
+https://x.com/cloneofsimo/status/1846680520316670160
 
 Where the following paper were mentioned:
 

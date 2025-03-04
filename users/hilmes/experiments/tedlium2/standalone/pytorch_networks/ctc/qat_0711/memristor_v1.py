@@ -117,7 +117,7 @@ class ConformerPositionwiseFeedForwardQuant(nn.Module):
         mem_lin = MemristorLinear(
             in_features=self.linear_ff.in_features,
             out_features=self.linear_ff.out_features,
-            weight_precision=self.linear_ff.weight_bit_prec,
+            weight_precision=self.linear_ff.weight_bit_prec if not self.linear_ff.weight_bit_prec == 1.5 else 2,
             converter_hardware_settings=self.converter_hardware_settings,
         )
         mem_lin.init_from_linear_quant(
@@ -131,7 +131,7 @@ class ConformerPositionwiseFeedForwardQuant(nn.Module):
         mem_lin = MemristorLinear(
             in_features=self.linear_out.in_features,
             out_features=self.linear_out.out_features,
-            weight_precision=self.linear_out.weight_bit_prec,
+            weight_precision=self.linear_out.weight_bit_prec if not self.linear_out.weight_bit_prec == 1.5 else 2,
             converter_hardware_settings=self.converter_hardware_settings,
         )
         mem_lin.init_from_linear_quant(activation_quant=self.lin_2_in_quant, linear_quant=self.linear_out)
@@ -304,7 +304,9 @@ class ConformerConvolutionQuant(nn.Module):
         mem_lin = MemristorLinear(
             in_features=self.pointwise_conv1.in_features,
             out_features=self.pointwise_conv1.out_features,
-            weight_precision=self.pointwise_conv1.weight_bit_prec,
+            weight_precision=self.pointwise_conv1.weight_bit_prec
+            if not self.pointwise_conv1.weight_bit_prec == 1.5
+            else 2,
             converter_hardware_settings=self.converter_hardware_settings,
         )
         mem_lin.init_from_linear_quant(
@@ -332,7 +334,9 @@ class ConformerConvolutionQuant(nn.Module):
         mem_lin = MemristorLinear(
             in_features=self.pointwise_conv2.in_features,
             out_features=self.pointwise_conv2.out_features,
-            weight_precision=self.pointwise_conv2.weight_bit_prec,
+            weight_precision=self.pointwise_conv2.weight_bit_prec
+            if not self.pointwise_conv2.weight_bit_prec == 1.5
+            else 2,
             converter_hardware_settings=self.converter_hardware_settings,
         )
         mem_lin.init_from_linear_quant(
@@ -593,7 +597,7 @@ class Model(torch.nn.Module):
             mem_lin = MemristorLinear(
                 in_features=self.lin_out.in_features,
                 out_features=self.lin_out.out_features * 2,
-                weight_precision=self.lin_out.weight_bit_prec,
+                weight_precision=self.lin_out.weight_bit_prec if not self.lin_out.weight_bit_prec == 1.5 else 2,
                 converter_hardware_settings=self.converter_hardware_settings,
             )
             mem_lin.init_from_linear_quant(

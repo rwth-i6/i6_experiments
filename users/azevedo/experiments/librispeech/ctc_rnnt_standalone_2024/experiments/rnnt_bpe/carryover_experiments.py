@@ -256,7 +256,7 @@ def run_experiments(**kwargs):
 
             num_epochs = exp_config.get("num_epochs")
             KEEP = exp_config.get("keep", [80, 160, 200, 220, 240])
-            train_args = get_train_config(model_config, keep=KEEP, 
+            train_args = get_train_config(model_config, keep=KEEP,
                                           module=exp_config["network_module"],
                                           accum_grads=exp_config["accum_grads"],
                                           num_epochs=num_epochs)
@@ -273,13 +273,13 @@ def run_experiments(**kwargs):
                 alias = "_" + exp_config["alias"]
 
             training_name = (
-                prefix_name + "/" + str(bpe_size) + "/" + 
+                prefix_name + "/" + str(bpe_size) + "/" +
                 train_args["network_module"] +
-                ".512dim_sub6_%dgbgpu_" % gpu_mem + 
+                ".512dim_sub6_%dgbgpu_" % gpu_mem +
                 "%deps_" % (num_epochs//10) +
                 "from_scratch_radamv1_switching_lah_co%s_specaug%d" % (alias, model_config.specauc_start_epoch) + "/" +
                 str(param_combi["chunk_size"]) + "/" +
-                "carry%.1f" % model_config.carry_over_size + "/" + 
+                "carry%.1f" % model_config.carry_over_size + "/" +
                 "lah%i" % model_config.lookahead_size
             )
             train_job = training(training_name, train_data_bpe, train_args,
@@ -353,19 +353,17 @@ def run_experiments(**kwargs):
                     beam_size=12,
                     decoder_module="rnnt.decoder.experimental_rnnt_decoder"
                 )
-            # if (experiment == "large_chunk_exps" and model_config.carry_over_size == 1000 and 
-            #             model_config.lookahead_size == 0):
-            #     evaluate_helper(
-            #         training_name + "/keep_%i" % num_epochs,
-            #         asr_model,
-            #         decoder_config,
-            #         use_gpu=True,
-            #         beam_size=64,
-            #         decoder_module="rnnt.decoder.carryover_decoder_v2"
-            #     )
 
-
-
+            if experiment in ["large_chunk_exps", "small_chunk_exps"] and model_config.lookahead_size == 8:
+                for beam_size in [64, 128]:
+                    evaluate_helper(
+                        training_name + "/keep_%i" % num_epochs,
+                        asr_model,
+                        decoder_config,
+                        use_gpu=True,
+                        beam_size=beam_size,
+                        decoder_module="rnnt.decoder.carryover_decoder_v2"
+                    )
 
 
 def switching_lah_carryover_ls960_1023_low_bpe_from_scratch():
@@ -488,6 +486,38 @@ def switching_lah_carryover_ls960_1023_low_bpe_from_scratch():
             "gpu_mem": 24,
             "num_epochs": 1000,
             "keep": [300, 400, 500, 600, 700, 800, 900, 950, 980]
+        },
+
+        50: {
+            "model_params": {
+                "chunk_size": [0.6],
+                "lookahead_size": [8],
+                "kernel_size": [31],
+                "specauc_start_epoch": [11],
+                "carry_over_size": [4]
+            },
+
+            "network_module": "model_streaming_lah_carryover_v2",
+            "accum_grads": 1,
+            "gpu_mem": 48,
+            "num_epochs": 1500,
+            "keep": [100, 800, 1200]
+        },
+
+        60: {
+            "model_params": {
+                "chunk_size": [2.4],
+                "lookahead_size": [8],
+                "kernel_size": [31],
+                "specauc_start_epoch": [11],
+                "carry_over_size": [2]
+            },
+
+            "network_module": "model_streaming_lah_carryover_v2",
+            "accum_grads": 1,
+            "gpu_mem": 48,
+            "num_epochs": 1500,
+            "keep": [100, 800, 1200]
         },
 
     }

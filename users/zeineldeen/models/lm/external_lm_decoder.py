@@ -1,6 +1,9 @@
 import copy
 from i6_experiments.users.zeineldeen.modules.network import ReturnnNetwork
 
+from i6_core.returnn.config import CodeWrapper
+from sisyphus.delayed_ops import DelayedFormat
+
 
 class ILMDecoder:
     def __init__(self, asr_decoder):
@@ -25,20 +28,26 @@ class LSTMILMDecoder(ILMDecoder):
         self.prior_lm_opts = prior_lm_opts
 
     def _add_prior_input(self, subnet_unit):
-        # TODO: currently train_avg_ctx and train_avg_enc won't work since RETURNN does not support loading numpy vectors
-        # with constant layer. A change in RETURNN was done to make this work but we need a better solution
-
         prior_type = self.prior_lm_opts.get("type", "zero")
 
         if prior_type == "zero":  # set att context vector to zero
             prior_att_input = subnet_unit.add_eval_layer("zero_att", "att", eval="tf.zeros_like(source(0))")
+        elif prior_type == "avg":
+            self.asr_decoder.network.add_reduce_layer("encoder_mean", "encoder", axes=["t"], mode="mean")
+            prior_att_input = "base:encoder_mean"
         elif prior_type == "train_avg_ctx":  # average all context vectors over training data
             prior_att_input = subnet_unit.add_constant_layer(
-                "train_avg_ctx", value=self.prior_lm_opts["data"], with_batch_dim=True, dtype="float32"
+                "train_avg_ctx",
+                value=CodeWrapper(DelayedFormat("numpy.loadtxt('{}', dtype='float32')", self.prior_lm_opts["data"])),
+                with_batch_dim=True,
+                dtype="float32",
             )
         elif prior_type == "train_avg_enc":  # average all encoder states over training data
             prior_att_input = subnet_unit.add_constant_layer(
-                "train_avg_enc", value=self.prior_lm_opts["data"], with_batch_dim=True, dtype="float32"
+                "train_avg_enc",
+                value=CodeWrapper(DelayedFormat("numpy.loadtxt('{}', dtype='float32')", self.prior_lm_opts["data"])),
+                with_batch_dim=True,
+                dtype="float32",
             )
         elif prior_type == "mini_lstm":  # train a mini LM-like LSTM and use that as prior
             mini_lstm_dim = self.prior_lm_opts.get("mini_lstm_dim", 50)
@@ -47,6 +56,20 @@ class LSTMILMDecoder(ILMDecoder):
             prior_att_input = subnet_unit.add_linear_layer("mini_att", "mini_att_lstm", activation=None, n_out=ctx_dim)
         elif prior_type == "trained_vec":
             prior_att_input = subnet_unit.add_variable_layer("trained_vec_att_var", shape=[2048], L2=0.0001)
+        elif prior_type == "density_ratio":
+            assert "lm_model" in self.prior_lm_opts, "lm_model is missing for density ratio prior"
+            assert "lm_subnet" in self.prior_lm_opts, "lm_subnet is missing for density ratio prior"
+            assert "target" in self.prior_lm_opts, "target is missing for density ratio subnet"
+            subnet_unit.add_subnetwork(
+                "density_ratio_output",
+                "prev:output",
+                subnetwork_net=self.prior_lm_opts["lm_subnet"],
+                load_on_init=self.prior_lm_opts["lm_model"],
+            )
+            subnet_unit.add_activation_layer(
+                "prior_output_prob", "density_ratio_output", activation="softmax", target=self.prior_lm_opts["target"]
+            )
+            return None
         else:
             raise ValueError("{} prior type is not supported".format(prior_type))
 
@@ -55,10 +78,15 @@ class LSTMILMDecoder(ILMDecoder):
     def _create_prior_net(self, subnet_unit: ReturnnNetwork):
         prior_att_input = self._add_prior_input(subnet_unit)
 
+        # for ILM methods such as density ratio, no modification is done to the att context vector.
+        # in this case we directly return the prior prob
+        if prior_att_input is None:
+            return "prior_output_prob"
+
         prior_type = self.prior_lm_opts.get("type", "zero")
 
         # for the first frame in decoding, don't use average but zero always
-        if prior_type == "train_avg_ctx" or prior_type == "train_avg_enc":
+        if prior_type == "avg" or prior_type == "train_avg_ctx" or prior_type == "train_avg_enc":
             is_first_frame = subnet_unit.add_compare_layer("is_first_frame", source=":i", kind="equal", value=0)
             zero_att = subnet_unit.add_eval_layer("zero_att", "att", eval="tf.zeros_like(source(0))")
             prev_att = subnet_unit.add_switch_layer(

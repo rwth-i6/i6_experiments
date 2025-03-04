@@ -12,7 +12,6 @@ import functools
 import sisyphus
 from sisyphus import tk
 from sisyphus import tools as sis_tools
-from i6_core.util import instanciate_delayed
 
 from i6_core.returnn import ReturnnConfig
 from i6_core.returnn.training import ReturnnTrainingJob, PtCheckpoint, AverageTorchCheckpointsJob
@@ -27,6 +26,7 @@ from returnn_common import nn
 from returnn_common.datasets_old_2022_10.interface import DatasetConfig
 from i6_experiments.common.setups import serialization
 from i6_experiments.users.zeyer.utils.serialization import get_import_py_code
+from i6_experiments.users.zeyer.sis_tools.instanciate_delayed import instanciate_delayed_inplace_with_warning
 
 from i6_experiments.users.zeyer import tools_paths
 from i6_experiments.users.zeyer.utils.failsafe_text_io import FailsafeTextOutput
@@ -35,6 +35,7 @@ from i6_experiments.users.zeyer.datasets.score_results import RecogOutput, Score
 from i6_experiments.users.zeyer.model_interfaces import ModelDef, ModelDefWithCfg, RecogDef, serialize_model_def
 from i6_experiments.users.zeyer.model_with_checkpoints import ModelWithCheckpoint, ModelWithCheckpoints
 from i6_experiments.users.zeyer.returnn.training import get_relevant_epochs_from_training_learning_rate_scores
+from i6_experiments.users.zeyer.returnn.config import config_dict_update_
 
 if TYPE_CHECKING:
     from returnn.tensor import TensorDict
@@ -226,6 +227,8 @@ def search_dataset(
     search_alias_name: Optional[str] = None,
     recog_post_proc_funcs: Sequence[Callable[[RecogOutput], RecogOutput]] = (),
     recog_pre_post_proc_funcs_ext: Sequence[Callable] = (),
+    keep_beam: bool = False,
+    keep_alignment_frames: bool = False,
 ) -> RecogOutput:
     """
     Recog on the specific dataset using RETURNN.
@@ -256,6 +259,10 @@ def search_dataset(
         and they additionally get also
         ``raw_res_search_labels`` (e.g. align labels, e.g. BPE including blank)
         and ``raw_res_labels`` (e.g. BPE labels).
+    :param keep_beam: if there was a beam, keep it, otherwise take the best hyp
+    :param keep_alignment_frames: keep alignment frames. e.g. don't use :func:`ctc_alignment_to_label_seq`.
+        By default, this is False, and if ``recog_def.output_blank_label`` is set,
+        :func:`ctc_alignment_to_label_seq` is used.
     :return: :class:`RecogOutput`, single best hyp (if there was a beam, we already took the best one)
         over the dataset
     """
@@ -302,8 +309,11 @@ def search_dataset(
         search_job.add_alias(search_alias_name)
     raw_res_search_labels = RecogOutput(output=res)
     if recog_def.output_blank_label:
-        res = _ctc_alignment_to_label_seq(RecogOutput(output=res), blank_label=recog_def.output_blank_label).output
-    raw_res_labels = RecogOutput(output=res)
+        raw_res_labels = ctc_alignment_to_label_seq(raw_res_search_labels, blank_label=recog_def.output_blank_label)
+        if not keep_alignment_frames:
+            res = raw_res_labels.output
+    else:
+        raw_res_labels = raw_res_search_labels
     for f in recog_pre_post_proc_funcs_ext:
         res = f(
             RecogOutput(output=res),
@@ -311,12 +321,12 @@ def search_dataset(
             raw_res_search_labels=raw_res_search_labels,
             raw_res_labels=raw_res_labels,
             search_labels_to_labels=functools.partial(
-                _ctc_alignment_to_label_seq, blank_label=recog_def.output_blank_label
+                ctc_alignment_to_label_seq, blank_label=recog_def.output_blank_label
             ),
         ).output
     for f in recog_post_proc_funcs:  # for example BPE to words
         res = f(RecogOutput(output=res)).output
-    if recog_def.output_with_beam:
+    if not keep_beam and recog_def.output_with_beam:
         # Don't join scores here (SearchBeamJoinScoresJob).
         #   It's not clear whether this is helpful in general.
         #   As our beam sizes are very small, this might boost some hyps too much.
@@ -324,7 +334,15 @@ def search_dataset(
     return RecogOutput(output=res)
 
 
-def _ctc_alignment_to_label_seq(recog_output: RecogOutput, *, blank_label: str) -> RecogOutput:
+def ctc_alignment_to_label_seq(recog_output: RecogOutput, *, blank_label: str) -> RecogOutput:
+    """
+    Convert CTC alignment to label sequence.
+    (Used by :func:`search_dataset`.)
+
+    :param recog_output: comes out of search, alignment label frames incl blank
+    :param blank_label: from the vocab. e.g. via ``recog_def.output_blank_label``
+    :return: recog output with repetitions collapsed, and blank removed
+    """
     # Also assume we should collapse repeated labels first.
     res = SearchCollapseRepeatedLabelsJob(recog_output.output, output_gzip=True).out_search_results
     res = SearchRemoveLabelJob(res, remove_label=blank_label, output_gzip=True).out_search_results
@@ -359,14 +377,14 @@ def search_config(
         default_input=dataset.get_default_input(),
         target=dataset.get_default_target(),
         dev=dataset.get_main_dataset(),
-        **(config or {}),
     )
+    if config:
+        config_dict_update_(returnn_recog_config_dict, config)
 
-    extern_data_raw = dataset.get_extern_data()
     # The extern_data is anyway not hashed, so we can also instanciate any delayed objects here.
     # It's not hashed because we assume that all aspects of the dataset are already covered
     # by the datasets itself as part in the config above.
-    extern_data_raw = instanciate_delayed(extern_data_raw)
+    extern_data_raw = instanciate_delayed_inplace_with_warning(dataset.get_extern_data)
 
     returnn_recog_config = ReturnnConfig(
         config=returnn_recog_config_dict,
@@ -439,8 +457,6 @@ def search_config_v2(
     Create config for search.
 
     v2: Use any backend (usually PyTorch) and the new API (get_model, forward_step).
-
-    TODO should use sth like unhashed_package_root (https://github.com/rwth-i6/i6_experiments/pull/157)
     """
     from i6_experiments.common.setups.returnn.serialization import get_serializable_config
 
@@ -453,15 +469,14 @@ def search_config_v2(
         forward_data=dataset.get_main_dataset(),
     )
     if config:
-        returnn_recog_config_dict.update(config)
+        config_dict_update_(returnn_recog_config_dict, config)
     if isinstance(model_def, ModelDefWithCfg):
-        returnn_recog_config_dict.update(model_def.config)
+        config_dict_update_(returnn_recog_config_dict, model_def.config)
 
-    extern_data_raw = dataset.get_extern_data()
     # The extern_data is anyway not hashed, so we can also instanciate any delayed objects here.
     # It's not hashed because we assume that all aspects of the dataset are already covered
     # by the datasets itself as part in the config above.
-    extern_data_raw = instanciate_delayed(extern_data_raw)
+    extern_data_raw = instanciate_delayed_inplace_with_warning(dataset.get_extern_data)
 
     returnn_recog_config = ReturnnConfig(
         config=returnn_recog_config_dict,
@@ -529,7 +544,7 @@ def search_config_v2(
         (returnn_recog_config.config if batch_size_dependent else returnn_recog_config.post_config)[k] = v
 
     if post_config:
-        returnn_recog_config.post_config.update(post_config)
+        config_dict_update_(returnn_recog_config.post_config, post_config)
 
     for k, v in SharedPostConfig.items():
         if k in returnn_recog_config.config or k in returnn_recog_config.post_config:
@@ -580,7 +595,7 @@ def _returnn_v2_get_model(*, epoch: int, **_kwargs_unused):
 
     model_def = config.typed_value("_model_def")
     model = model_def(
-        epoch=epoch, in_dim=data.feature_dim_or_sparse_dim if data else None, target_dim=targets.sparse_dim
+        epoch=epoch, in_dim=data.feature_dim_or_sparse_dim if data is not None else None, target_dim=targets.sparse_dim
     )
     return model
 
@@ -666,7 +681,7 @@ def _returnn_v2_get_forward_callback():
             hyps: Tensor = outputs["hyps"]  # [beam, out_spatial]
             scores: Tensor = outputs["scores"]  # [beam]
             assert hyps.sparse_dim and hyps.sparse_dim.vocab  # should come from the model
-            assert hyps.dims[1].dyn_size_ext, f"hyps {hyps} do not define seq lengths"
+            assert hyps.dims[1].dyn_size_ext is not None, f"hyps {hyps} do not define seq lengths"
             # AED/Transducer etc will have hyps len depending on beam -- however, CTC will not.
             hyps_len = hyps.dims[1].dyn_size_ext  # [beam] or []
             assert hyps.raw_tensor.shape[:1] == scores.raw_tensor.shape  # (beam,)

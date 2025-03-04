@@ -36,21 +36,16 @@ from ..conformer_1023.i6modelsV1_VGG4LayerActFrontendV1_v6 import (
 from ...rnnt.auxil.functional import num_samples_to_frames, Mode, mask_tensor
 
 
-
 class Model(torch.nn.Module):
     def __init__(self, model_config_dict, **kwargs):
         super().__init__()
         # net_args are passed as a dict to returnn and here the config is retransformed into its dataclass
         self.cfg = ModelConfig.from_dict(model_config_dict)
 
-        if self.cfg.use_vgg:
-            frontend = ModuleFactoryV1(module_class=VGG4LayerActFrontendV1, cfg=self.cfg.frontend_config)
-        else:
-            frontend = ModuleFactoryV1(module_class=GenericFrontendV2, cfg=self.cfg.frontend_config)
-
+        frontend_config = self.cfg.frontend_config
         conformer_config = ConformerEncoderV1Config(
             num_layers=self.cfg.num_layers,
-            frontend=frontend,
+            frontend=ModuleFactoryV1(module_class=VGG4LayerActFrontendV1, cfg=frontend_config),
             block_cfg=ConformerBlockV1Config(
                 ff_cfg=ConformerPositionwiseFeedForwardV1Config(
                     input_dim=self.cfg.conformer_size,
@@ -76,7 +71,7 @@ class Model(torch.nn.Module):
 
         self.feature_extraction = LogMelFeatureExtractionV1(cfg=self.cfg.feature_extraction_config)
         self.conformer = ConformerEncoderInBatchSamplingV1(cfg=conformer_config)
-        self.final_linear = nn.Linear(conformer_size, self.cfg.label_target_size + 1)  # + CTC blank
+        self.final_linear = nn.Linear(self.cfg.conformer_size, self.cfg.label_target_size + 1)  # + CTC blank
         self.final_dropout = nn.Dropout(p=self.cfg.final_dropout)
         self.specaug_start_epoch = self.cfg.specauc_start_epoch
 
@@ -170,7 +165,7 @@ def train_step(*, model: Model, data, run_ctx, **kwargs):
 
     num_phonemes = torch.sum(labels_len)
 
-    
+
     logprobs, audio_features_len = model(
         raw_audio=raw_audio, raw_audio_len=raw_audio_len,
     )
@@ -187,4 +182,4 @@ def train_step(*, model: Model, data, run_ctx, **kwargs):
         zero_infinity=True,
     )
 
-    run_ctx.mark_as_loss(name=loss_key, loss=ctc_loss, inv_norm_factor=num_phonemes,)
+    run_ctx.mark_as_loss(name="ctc.smpl", loss=ctc_loss, inv_norm_factor=num_phonemes,)

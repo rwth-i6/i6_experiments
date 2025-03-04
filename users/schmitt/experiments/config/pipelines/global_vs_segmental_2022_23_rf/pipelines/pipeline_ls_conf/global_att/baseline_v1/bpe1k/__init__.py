@@ -256,33 +256,19 @@ def run_exps():
           )
 
         if alias == "v5_big":
-          for base_scale, ext_scale in [
-            (1.0, 1.2),
-            (0.1, 0.9),
-            (0.2, 0.8),
-            (0.3, 0.7),
-            (0.4, 0.6),
-            (0.5, 0.5),
-            (0.6, 0.4),
-            (0.7, 0.3),
-            (0.8, 0.2),
-            (0.9, 0.1),
-            (0.1, 1.0),
-            (0.2, 1.0),
-            (0.3, 1.0),
-            (0.4, 1.0),
-            (0.5, 1.0),
-            (0.6, 1.0),
-            (0.7, 1.0),
-            (0.8, 1.0),
-            (0.9, 1.0),
-            (1.1, 1.0),
-            (1.2, 1.0),
-            (1.3, 1.0),
-            (1.0, 1.0),
+          for base_scale, ext_scale, lm_scale, ilm_scale in [
+            (1.0, 1.0, 0.0, 0.0),
+            (1.0, 1.0, 0.1, 0.0),
+            (1.0, 1.0, 0.2, 0.0),
+            (1.0, 1.0, 0.3, 0.0),
+            (1.0, 1.0, 0.4, 0.0),
+            (1.0, 1.0, 0.45, 0.0),
+            (1.0, 1.0, 0.5, 0.0),
+            (1.0, 1.0, 0.55, 0.0),
+            (1.0, 1.0, 0.6, 0.0),
           ]:
             corpus_keys = ["dev-other"]
-            if base_scale == 1.0 and ext_scale == 1.0:
+            if base_scale == 1.0 and ext_scale == 1.0 and lm_scale in [0.0, 0.55] and ilm_scale in [0.0]:
               corpus_keys += ["test-other"]
             recog.global_att_returnn_label_sync_beam_search(
               alias=train_alias,
@@ -297,42 +283,58 @@ def run_exps():
                 "scale": ext_scale,
               },
               base_scale=base_scale,
+              lm_type="trafo",
+              lm_scale_list=(lm_scale,),
+              ilm_scale_list=(ilm_scale,),
+              ilm_type="zero_att",
+              lm_alias="1k_max-seq-length-112_24-layers_1024-dim",
+              lm_checkpoint=lm_checkpoints["1k_max-seq-length-112_24-layers_1024-dim"],
+              sbatch_args=["-p", "gpu_48gb"],
+              behavior_version=21,
             )
 
         if alias in (
                 # "v5_big",
-                # "v8_big",
-                "v3_big",
+                "v8_big",
+                # "v3_big",
         ):
           for lm_scale, ilm_scale in [
-            (0.54, 0.4),
+            (0.0, 0.0),
+            (0.1, 0.0),
+            (0.2, 0.0),
+            (0.3, 0.0),
+            (0.4, 0.0),
+            (0.5, 0.0),
             # (0.5, 0.4),
             # (0.6, 0.4),
           ]:
             corpus_keys = ["dev-other"]
             beam_size_list = [12]
-            if lm_scale == 0.54 and ilm_scale == 0.4:
-              corpus_keys = ["test-other"]
-              beam_size_list = [12, 84]
-
-            lm_alias = "1k_max-seq-length-112_24-layers_512-dim"
-            # lm_alias = "1k_max-seq-length-112_24-layers_1024-dim"
-            recog.global_att_returnn_label_sync_beam_search(
-              alias=train_alias,
-              config_builder=config_builder,
-              checkpoint=checkpoint,
-              corpus_keys=corpus_keys,
-              checkpoint_aliases=("last",),
-              lm_type="trafo",
-              lm_scale_list=(lm_scale,),
-              ilm_scale_list=(ilm_scale,),
-              ilm_type="mini_att",
-              lm_alias=lm_alias,
-              lm_checkpoint=lm_checkpoints[lm_alias],
-              behavior_version=21,  # otherwise, trafo lm logits has wrong weight order
-              beam_size_list=beam_size_list,
-              sbatch_args=["-p", "gpu_48gb,gpu_24gb_preemptive,gpu_11gb"],
-            )
+            if lm_scale == 0.3 and ilm_scale == 0.0:
+              corpus_keys += ["test-other"]
+              beam_size_list = [12]
+            length_normalization_exponents = [1.0]
+            if lm_scale in (0.0, 0.3) and ilm_scale == 0.0:
+              length_normalization_exponents = [0.0, 1.0]
+            for length_normalization_exponent in length_normalization_exponents:
+              lm_alias = "1k_max-seq-length-112_24-layers_1024-dim"
+              recog.global_att_returnn_label_sync_beam_search(
+                alias=train_alias,
+                config_builder=config_builder,
+                checkpoint=checkpoint,
+                corpus_keys=corpus_keys,
+                checkpoint_aliases=("last",),
+                lm_type="trafo",
+                lm_scale_list=(lm_scale,),
+                ilm_scale_list=(ilm_scale,),
+                ilm_type="zero_att",
+                lm_alias=lm_alias,
+                lm_checkpoint=lm_checkpoints[lm_alias],
+                behavior_version=21,  # otherwise, trafo lm logits has wrong weight order
+                beam_size_list=beam_size_list,
+                sbatch_args=["-p", "gpu_48gb,gpu_24gb"],
+                length_normalization_exponent=length_normalization_exponent,
+              )
 
         recog.global_att_returnn_label_sync_beam_search(
           alias=train_alias,

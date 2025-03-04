@@ -31,6 +31,7 @@ def train(
     model_def: Union[ModelDefWithCfg, ModelDef[ModelT]],
     train_def: TrainDef[ModelT],
     init_params: Optional[Checkpoint] = None,
+    reset_steps: bool = True,
     extra_hash: Any = None,
     gpu_mem: Optional[int] = None,
     num_processes: Optional[int] = None,
@@ -121,7 +122,9 @@ def train(
     )
     returnn_train_config_dict = dict_update_deep(returnn_train_config_dict, config)
     if isinstance(model_def, ModelDefWithCfg):
-        returnn_train_config_dict = dict_update_deep(returnn_train_config_dict, model_def.config)
+        model_conf = model_def.config.copy()
+        model_conf.pop("recog_language_model", None)
+        returnn_train_config_dict = dict_update_deep(returnn_train_config_dict, model_conf)
 
     max_seq_length_default_target = returnn_train_config_dict.pop("max_seq_length_default_target", None)
     if max_seq_length_default_target is not None:
@@ -136,6 +139,8 @@ def train(
 
     if init_params:
         returnn_train_config_dict["import_model_train_epoch1"] = init_params
+        if not reset_steps:
+            returnn_train_config_dict["reset_steps"] = False
 
     extern_data_raw = train_dataset.get_extern_data()
     # The extern_data is anyway not hashed, so we can also instanciate any delayed objects here.
@@ -194,6 +199,7 @@ def train(
             watch_memory=True,
             use_lovely_tensors=True,
             use_train_proc_manager=True,
+            alias=prefix_name
         ),
         sort_config=False,
     )
@@ -273,6 +279,8 @@ def _returnn_v2_train_step(*, model, extern_data: TensorDict, **_kwargs_unused):
             data_spatial_dim=data_spatial_dim,
             lm_path=config.typed_value("lm_path"),
             seq_tags=seq_tags,
+            targets=targets,
+            targets_spatial_dim=targets_spatial_dim,
         )
     else:
         train_def(
@@ -296,6 +304,8 @@ class ExtendedTrainDef(TrainDef):
         data: Tensor,
         data_spatial_dim: Tensor,
         lm_path: tk.Path,
-        seq_tags: Tensor = None
+        seq_tags: Tensor = None,
+        targets: Tensor,
+        targets_spatial_dim
     ) -> Dict[str, Tensor]:
         raise NotImplementedError

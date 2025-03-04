@@ -9,7 +9,7 @@ from ...data.common import DatasetSettings, build_test_dataset
 from ...data.phon import build_eow_phon_training_datasets, get_text_lexicon, get_eow_bliss
 from ...default_tools import RETURNN_EXE, MINI_RETURNN_ROOT, SCTK_BINARY_PATH
 from ...lm import get_4gram_binary_lm
-from ...pipeline import training, prepare_asr_model, get_forward_config, generate_kd_hypothesis
+from ...pipeline import training, prepare_asr_model, get_forward_config, generate_kd_hypothesis, calculate_blank_counts
 from ...report import generate_report
 from functools import partial
 from sisyphus import tk
@@ -119,7 +119,7 @@ def eow_phon_ted_auxloss_distill(get_report=False):
     report = {}
     chkpts = {}
     # for dim in [64, 128, 256, 384, 512, 768, 1024]:
-    for dim in [128, 384, 768]:  # keep 128 for baseline
+    for dim in [384]:  # keep 128 for baseline
         # for layer_count in [4, 6, 9, 12, 16, 20]:
         for layer_count in [12]:
             loss_mapping = {
@@ -329,7 +329,7 @@ def eow_phon_ted_auxloss_distill(get_report=False):
                     report[training_name] = results
                     del results
 
-    tk.register_report("reports/aux_size_report", partial(build_report, report), required=report)
+    tk.register_report("reports/aux_size_report", partial(build_base_report, report), required=report)
 
     from ...pytorch_networks.ctc.conformer_0106.i6modelsRelPosEncV1_VGG4LayerActFrontendV1_v1_cfg import (
         ModelConfig as RelPosModelConfig,
@@ -339,7 +339,7 @@ def eow_phon_ted_auxloss_distill(get_report=False):
     new_rep = {}
     # Best: 384, 1, 500, 16, 8
     for dim in [384]:
-        for spec_start in [1, 11]:
+        for spec_start in [1]:
             for epochs in [250, 500]:
                 for spec in [8, 16]:
                     for num_heads in [4, 8]:
@@ -455,8 +455,19 @@ def eow_phon_ted_auxloss_distill(get_report=False):
                                 specific_epoch=epochs,
                                 prior_scales=[0.0, 0.1, 0.2, 0.3, 0.5, 0.7, 0.9],
                                 lm_scales=[1.2, 1.3, 1.4, 1.6, 1.8, 2.0, 2.2, 2.4, 2.6, 2.8],
+                                run_test=True,
+                                test_dataset_tuples=test_dataset_tuples,
                             )
                             generate_report(results=results, exp_name=training_name)
+                            blank_counts = calculate_blank_counts(
+                                prefix_name=training_name,
+                                train_job=train_job,
+                                train_args=train_args,
+                                train_data=train_data,
+                                checkpoint=epochs,
+                                debug=True,
+                            )
+                            tk.register_output(training_name + "/" + "blank_counts", blank_counts)
                             new_rep[training_name] = results
                             chkpts[training_name] = train_job.out_checkpoints[250]
                             del results
@@ -563,6 +574,8 @@ def eow_phon_ted_auxloss_distill(get_report=False):
                                     specific_epoch=epochs,
                                     prior_scales=[0.0, 0.1, 0.2, 0.3, 0.5, 0.7, 0.9],
                                     lm_scales=[1.2, 1.3, 1.4, 1.6, 1.8, 2.0, 2.2, 2.4, 2.6, 2.8],
+                                    run_test=True,
+                                    test_dataset_tuples=test_dataset_tuples,
                                 )
                                 generate_report(results=results, exp_name=training_name)
                                 new_rep[training_name] = results
@@ -647,13 +660,22 @@ def eow_phon_ted_auxloss_distill(get_report=False):
                                         specific_epoch=epochs,
                                         prior_scales=[0.0, 0.1, 0.2, 0.3, 0.5, 0.7, 0.9],
                                         lm_scales=[1.2, 1.3, 1.4, 1.6, 1.8, 2.0, 2.2, 2.4, 2.6, 2.8],
+                                        run_test=True,
+                                        test_dataset_tuples=test_dataset_tuples,
                                     )
                                     generate_report(results=results, exp_name=training_name)
                                     new_rep[training_name] = results
                                     chkpts[training_name] = train_job.out_checkpoints[250]
                                     del results
 
-                            if dim == 384 and spec_start == 1 and spec == 16 and num_heads == 8 and drop == 0.2:
+                            if (
+                                dim == 384
+                                and spec_start == 1
+                                and spec == 16
+                                and num_heads == 8
+                                and drop == 0.2
+                                and False
+                            ):
                                 train_config = {
                                     "optimizer": {
                                         "class": "adamw",
@@ -699,10 +721,22 @@ def eow_phon_ted_auxloss_distill(get_report=False):
                                     specific_epoch=epochs,
                                     prior_scales=[0.0, 0.1, 0.2, 0.3, 0.5, 0.7, 0.9],
                                     lm_scales=[1.2, 1.3, 1.4, 1.6, 1.8, 2.0, 2.2, 2.4, 2.6, 2.8],
+                                    run_test=True,
+                                    test_dataset_tuples=test_dataset_tuples,
                                 )
                                 generate_report(results=results, exp_name=training_name)
                                 new_rep[training_name] = results
                                 del results
+
+                                blank_counts = calculate_blank_counts(
+                                    prefix_name=training_name,
+                                    train_job=train_job,
+                                    train_args=train_args,
+                                    train_data=train_data,
+                                    checkpoint=epochs,
+                                    debug=True,
+                                )
+                                tk.register_output(training_name + "/" + "blank_counts", blank_counts)
 
     tk.register_report("reports/pos_enc_report", partial(build_base_report, new_rep), required=new_rep)
     if get_report is True:
@@ -718,7 +752,7 @@ def eow_phon_ted_auxloss_distill(get_report=False):
     distill_module_v2 = "ctc.conformer_distill_1206.self_distill_conformer_auxloss_v2"
     distill_report = {}
     distill_report["baselines"] = {}
-    for dim in [128]:
+    for dim in []:
         for layer_count in [12]:
             for distill_scale in [0.25]:
                 for T in [2]:

@@ -48,6 +48,7 @@ def eval_model(
     run_best: bool = True,
     run_test: bool = False,
     test_dataset_tuples: Optional[Dict[str, Any]] = None,
+    prior_args: Optional[Dict[str, Any]] = None,
 ):
     if specific_epoch is None:
         specific_epoch = train_job.returnn_config.post_config["num_epochs"]
@@ -64,11 +65,15 @@ def eval_model(
         asr_model = prepare_asr_model(
             training_name + f"/{epoch}",
             train_job,
-            train_args,
+            train_args if prior_args is None else prior_args,
             with_prior=True,
             datasets=train_data,
             get_specific_checkpoint=epoch,
+            prior_config={"import_memristor": import_memristor} if import_memristor is True else None,
         )
+        if prior_args is not None:
+            asr_model.net_args = train_args["net_args"]
+            asr_model.network_module = train_args["network_module"]
         res, _ = tune_and_evaluate_helper(
             training_name + f"/{epoch}",
             asr_model,
@@ -89,11 +94,15 @@ def eval_model(
         asr_model_best4 = prepare_asr_model(
             training_name + "/best4",
             train_job,
-            train_args,
+            train_args if prior_args is None else prior_args,
             with_prior=True,
             datasets=train_data,
             get_best_averaged_checkpoint=(4, loss_name),
+            prior_config={"import_memristor": import_memristor} if import_memristor is True else None,
         )
+        if prior_args is not None:
+            asr_model_best4.net_args = train_args["net_args"]
+            asr_model_best4.network_module = train_args["network_module"]
         res, _ = tune_and_evaluate_helper(
             training_name + "/best4",
             asr_model_best4,
@@ -114,11 +123,15 @@ def eval_model(
         asr_model_best = prepare_asr_model(
             training_name + "/best",
             train_job,
-            train_args,
+            train_args if prior_args is None else prior_args,
             with_prior=True,
             datasets=train_data,
             get_best_averaged_checkpoint=(1, loss_name),
+            prior_config={"import_memristor": import_memristor} if import_memristor is True else None,
         )
+        if prior_args is not None:
+            asr_model_best.net_args = train_args["net_args"]
+            asr_model_best.network_module = train_args["network_module"]
         res, _ = tune_and_evaluate_helper(
             training_name + "/best",
             asr_model_best,
@@ -252,28 +265,27 @@ def tune_and_evaluate_helper(
                                 **default_returnn,
                             )
                             results.update(wers)
-    pick_optimal_params_job = GetOptimalParametersAsVariableJob(
-        parameters=tune_parameters, values=tune_values, mode="minimize"
-    )
-    pick_optimal_params_job.add_alias(training_name + f"/pick_best_dev")
+    pick_optimal_params_job = None
     if run_test is True and test_dataset_tuples is not None:
-        for lm_weight in lm_scales:
-            for prior_scale in prior_scales:
-                # for key, tune_values in [("test", tune_values)]:
-                decoder_config = copy.deepcopy(base_decoder_config)
-                decoder_config.lm_weight = lm_weight
-                decoder_config.prior_scale = prior_scale
-                search_jobs, wers = search(
-                    training_name + "/search_lm%.1f_prior%.1f" % (lm_weight, prior_scale),
-                    forward_config=extra_forward_config or {},
-                    asr_model=asr_model,
-                    decoder_module=decoder_module,
-                    decoder_args={"config": asdict(decoder_config)},
-                    test_dataset_tuples={"test": test_dataset_tuples["test"]},
-                    use_gpu=use_gpu,
-                    **default_returnn,
-                )
-                results.update(wers)
+        for key, tune_values in [("test", tune_values)]:
+            pick_optimal_params_job = GetOptimalParametersAsVariableJob(
+                parameters=tune_parameters, values=tune_values, mode="minimize"
+            )
+            pick_optimal_params_job.add_alias(training_name + f"/pick_best_{key}")
+            decoder_config = copy.deepcopy(base_decoder_config)
+            decoder_config.lm_weight = pick_optimal_params_job.out_optimal_parameters[0]
+            decoder_config.prior_scale = pick_optimal_params_job.out_optimal_parameters[1]
+            search_jobs, wers = search(
+                training_name,
+                forward_config=extra_forward_config or {},
+                asr_model=asr_model,
+                decoder_module=decoder_module,
+                decoder_args={"config": asdict(decoder_config)},
+                test_dataset_tuples={"test": test_dataset_tuples["test"]},
+                use_gpu=use_gpu,
+                **default_returnn,
+            )
+        results.update(wers)
     return results, pick_optimal_params_job
 
 
@@ -383,6 +395,11 @@ def build_hubert_report(report: Dict):
         if all(dic.values()):
             best = min(dic, key=dic.get)
             best_dc[" ".join(exp.split("/")[5:])] = ("{:.1f}".format(float(dic[best])), best)
+            if "/".join(best.split("/")[:-2]) + "/test" in dic:
+                best_dc["/".join(best.split("/")[:-2]) + "/test"] = (
+                    "{:.1f}".format(float(dic["/".join(best.split("/")[:-2]) + "/test"])),
+                    best,
+                )
         else:
             best_dc[" ".join(exp.split("/")[5:])] = ("None", "")
     line = []
@@ -395,9 +412,18 @@ def build_base_report(report: Dict):
     best_dc = {}
     for exp, dic in report.items():
         instanciate_delayed(dic)
-        if all(dic.values()):
-            best = min(dic, key=dic.get)
-            best_dc[" ".join(exp.split("/")[5:])] = ("{:.1f}".format(float(dic[best])), best)
+        tmp = {x: dic[x] for x in dic.keys() if not "test" in x}
+        if all(tmp.values()):
+            best = min(tmp, key=tmp.get)
+            best_dc[" ".join(exp.split("/")[5:])] = ("{:.1f}".format(float(tmp[best])), best)
+            if "/".join(best.split("/")[:-2]) + "/test" in dic:
+                if dic["/".join(best.split("/")[:-2]) + "/test"] is not None:
+                    best_dc["/".join(best.split("/")[:-2]) + "/test"] = (
+                        "{:.1f}".format(float(dic["/".join(best.split("/")[:-2]) + "/test"])),
+                        best,
+                    )
+                else:
+                    best_dc["/".join(best.split("/")[:-2]) + "/test"] = ("None", "")
         else:
             best_dc[" ".join(exp.split("/")[5:])] = ("None", "")
     line = []
@@ -407,7 +433,6 @@ def build_base_report(report: Dict):
 
 
 def build_hubert_distill_report(report: Dict):
-
     report = copy.deepcopy(report)
     baselines = report.pop("baselines")
     best_baselines = {}
@@ -423,9 +448,18 @@ def build_hubert_distill_report(report: Dict):
         best_dc[exp] = best
     for exp, dic in report.items():
         instanciate_delayed(dic)
-        if all(dic.values()):
-            best = min(dic, key=dic.get)
-            best_dc[" ".join(exp.split("/")[5:])] = ("{:.1f}".format(float(dic[best])), best)
+        tmp = {x: dic[x] for x in dic.keys() if not "test" in x}
+        if all(tmp.values()):
+            best = min(tmp, key=tmp.get)
+            best_dc[" ".join(exp.split("/")[5:])] = ("{:.1f}".format(float(tmp[best])), best)
+            if "/".join(best.split("/")[:-2]) + "/test" in dic:
+                if dic["/".join(best.split("/")[:-2]) + "/test"] is not None:
+                    best_dc["/".join(best.split("/")[:-2]) + "/test"] = (
+                        "{:.1f}".format(float(dic["/".join(best.split("/")[:-2]) + "/test"])),
+                        best,
+                    )
+                else:
+                    best_dc["/".join(best.split("/")[:-2]) + "/test"] = ("None", "")
         else:
             best_dc[" ".join(exp.split("/")[5:])] = ("None", "")
     line = []
@@ -444,10 +478,9 @@ def build_hubert_distill_report(report: Dict):
         "elim_blank_prior",
         "kdhyps",
         "trim_blanks",
-        "elim_blank num",
-        # "long",
-        "lm",
         "sym",
+        "rdn",
+        "thresh",
     ]
     line.append("Baselines")
     tmp = copy.deepcopy(best_dc)
@@ -456,9 +489,16 @@ def build_hubert_distill_report(report: Dict):
             not any(name in exp.split("_")[-1] or exp.endswith(name) for name in exps + ["True", "False"])
             and not ["elim", "blank"] == exp.split("_")[-3:-1]
             and not "trim_blanks" in exp
+            and not "test" in exp
         ):
             line.append(f"{' '.join(exp.split('.')[2:])}: {value[0]}   {' '.join(value[1].split('/')[6:])}")
             del tmp[exp]
+            if "/".join(value[1].split("/")[:-2]) + "/test" in best_dc:
+                value_test = best_dc["/".join(value[1].split("/")[:-2]) + "/test"]
+                line.append(
+                    f"{' '.join(value_test[1].split('.')[2:-2])+ '/test'}: {value_test[0]}   {' '.join(value_test[1].split('/')[6:])}"
+                )
+                del tmp["/".join(value[1].split("/")[:-2]) + "/test"]
     best_dc = tmp
     # best_dc = {
     #     exp: value
@@ -472,11 +512,20 @@ def build_hubert_distill_report(report: Dict):
     line.append("")
     tmp = copy.deepcopy(best_dc)
     for name in exps:
+        best_dc = copy.deepcopy(tmp)
         line.append(name)
         for exp, value in best_dc.items():
+            if "test" in exp:
+                continue
             if exp.endswith(name):
                 line.append(f"{' '.join(exp.split('.')[2:])}: {value[0]}   {' '.join(value[1].split('/')[6:])}")
                 del tmp[exp]
+                if "/".join(value[1].split("/")[:-2]) + "/test" in best_dc:
+                    value_test = best_dc["/".join(value[1].split("/")[:-2]) + "/test"]
+                    line.append(
+                        f"{' '.join(value_test[1].split('.')[2:-2]) + '/test'}: {value_test[0]}   {' '.join(value_test[1].split('/')[6:])}"
+                    )
+                    del tmp["/".join(value[1].split("/")[:-2]) + "/test"]
             elif name == "keepsome" and "keepsome" in exp.split("_")[-1]:
                 line.append(f"{' '.join(exp.split('.')[2:])}: {value[0]}   {' '.join(value[1].split('/')[6:])}")
                 del tmp[exp]
@@ -493,40 +542,91 @@ def build_hubert_distill_report(report: Dict):
             elif name == "trim_blanks" and "trim_blanks" in exp:
                 line.append(f"{' '.join(exp.split('.')[2:])}: {value[0]}   {' '.join(value[1].split('/')[6:])}")
                 del tmp[exp]
+            elif name == "keep" and "keep" == exp.split("_")[-2]:
+                line.append(f"{' '.join(exp.split('.')[2:])}: {value[0]}   {' '.join(value[1].split('/')[6:])}")
+                del tmp[exp]
+            elif name == "increase" and "increase" in exp.split("_")[-2]:
+                line.append(f"{' '.join(exp.split('.')[2:])}: {value[0]}   {' '.join(value[1].split('/')[6:])}")
+                del tmp[exp]
+            elif name == "rdn" and "rdn" in exp.split("_")[-1]:
+                line.append(f"{' '.join(exp.split('.')[2:])}: {value[0]}   {' '.join(value[1].split('/')[6:])}")
+                del tmp[exp]
+                if "/".join(value[1].split("/")[:-2]) + "/test" in best_dc:
+                    value_test = best_dc["/".join(value[1].split("/")[:-2]) + "/test"]
+                    line.append(
+                        f"{' '.join(value_test[1].split('.')[2:-2]) + '/test'}: {value_test[0]}   {' '.join(value_test[1].split('/')[6:])}"
+                    )
+                    del tmp["/".join(value[1].split("/")[:-2]) + "/test"]
+
+            elif name == "thresh" and "thresh" in exp.split("_")[-1]:
+                line.append(f"{' '.join(exp.split('.')[2:])}: {value[0]}   {' '.join(value[1].split('/')[6:])}")
+                del tmp[exp]
+                if "/".join(value[1].split("/")[:-2]) + "/test" in best_dc:
+                    value_test = best_dc["/".join(value[1].split("/")[:-2]) + "/test"]
+                    line.append(
+                        f"{' '.join(value_test[1].split('.')[2:-2]) + '/test'}: {value_test[0]}   {' '.join(value_test[1].split('/')[6:])}"
+                    )
+                    del tmp["/".join(value[1].split("/")[:-2]) + "/test"]
+
         line.append("")
-        # best_dc = {
-        #     exp: value
-        #     for exp, value in best_dc.items()
-        #     if not exp.endswith(name)
-        #     and not (name == "keepsome" and "keepsome" in exp.split("_")[-1])
-        #     and not (name == "mix" and "mix" in exp.split("_")[-1])
-        #     and not (name == "elim_blank num" and ["elim", "blank"] == exp.split("_")[-3:-1])
-        #     and not (name == "trim_blanks" and "trim_blanks" in exp)
-        # }
-    # line.append("Warmup")
-    # for exp, value in best_dc.items():
-    #     if exp.endswith("True") or exp.endswith("False"):
-    #         line.append(f"{' '.join(exp.split('.')[2:])}: {value[0]}   {' '.join(value[1].split('/')[6:])}")
-    # line.append("")
-    # best_dc = {
-    #     exp: value for exp, value in best_dc.items() if not any(exp.endswith(name) for name in ["True", "False"])
-    # }
+
+    best_dc = copy.deepcopy(tmp)
+    line.append("Testsets")
+    for exp, value in best_dc.items():
+        if "test" in exp:
+            line.append(f"{' '.join(exp.split('.')[2:])}: {value[0]}   {' '.join(value[1].split('/')[6:])}")
+            del tmp[exp]
     best_dc = tmp
     assert len(best_dc) == 0, best_dc
     return "\n".join(line)
 
 
 def build_qat_report(report: Dict):
+    import numpy as np
+
+    exps = ["cycle", "smaller"]
 
     best_dc = {}
+    bits = [8, 7, 6, 5, 4, 3, 2, 1.5]
     for exp, dic in report.items():
         instanciate_delayed(dic)
         if all(dic.values()):
             best = min(dic, key=dic.get)
-            best_dc[" ".join(exp.split("/")[5:])] = ("{:.1f}".format(float(dic[best])), best)
+            if "cycle" in exp:
+                mean = np.mean(list(dic.values()))
+                mini = np.min(list(dic.values()))
+                maxi = np.max(list(dic.values()))
+                std = np.std(list(dic.values()))
+                best_dc[" ".join(exp.split("/")[5:])] = (
+                    "{:.1f}".format(float(dic[best])),
+                    best + f"  {mean=} {std=} {mini=} {maxi=}",
+                )
+            else:
+                best_dc[" ".join(exp.split("/")[5:])] = ("{:.1f}".format(float(dic[best])), best)
         else:
             best_dc[" ".join(exp.split("/")[5:])] = ("None", "")
     line = []
-    for exp, value in best_dc.items():
-        line.append(f"{' '.join(exp.split('.')[2:])}: {value[0]}   {' '.join(value[1].split('/')[6:])}")
+    tmp = copy.deepcopy(best_dc)
+    for bit in bits:
+        best_dc = tmp
+        tmp = copy.deepcopy(best_dc)
+        for exp, value in best_dc.items():
+            if any(x in exp for x in exps):
+                continue
+            if f"{bit}_8" not in exp:
+                continue
+            line.append(f"{' '.join(exp.split('.')[2:])}: {value[0]}   {' '.join(value[1].split('/')[6:])}")
+            del tmp[exp]
+        line.append("")
+    tmp = best_dc
+    for x in exps:
+        line.append(x)
+        line.append("")
+        best_dc = copy.deepcopy(tmp)
+        for exp, value in best_dc.items():
+            if x in exp:
+                line.append(f"{' '.join(exp.split('.')[2:])}: {value[0]}   {' '.join(value[1].split('/')[6:])}")
+                del tmp[exp]
+        line.append("")
+    assert len(tmp) == 0, tmp
     return "\n".join(line)

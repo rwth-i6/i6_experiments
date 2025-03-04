@@ -317,7 +317,7 @@ def run_exps():
                   h_t_readout_scale=h_t_readout_scale,
                 )
 
-            if alias in ["v1_long_two-stage", "v1_long_two-stage-rand-seed-1234"]:
+            if alias in ["v1_long_two-stage-rand-seed-1234"]:
               recog.center_window_returnn_frame_wise_beam_search(
                 alias=full_sum_train_alias,
                 config_builder=config_builder,
@@ -328,68 +328,29 @@ def run_exps():
                 run_analysis=True,
               )
 
-              if alias == "v1_long_two-stage":
-                params = [
-                  # w/ LM + ILM
-                  (0.8, 1.0, 0.1, 0.05),
-                  (0.8, 1.0, 0.2, 0.05),
-                  (0.8, 1.0, 0.3, 0.05),
-                  (0.8, 1.0, 0.4, 0.05),
-                  (0.8, 1.0, 0.5, 0.05),
-                  (0.8, 1.0, 0.6, 0.05),
-                  (0.8, 1.0, 0.7, 0.05),
-                  #
-                  (0.8, 1.0, 0.1, 0.1),
-                  (0.8, 1.0, 0.2, 0.1),
-                  (0.8, 1.0, 0.3, 0.1),
-                  (0.8, 1.0, 0.4, 0.1),
-                  (0.8, 1.0, 0.5, 0.1),
-                  #
-                  (0.8, 1.0, 0.5, 0.2),
-                ]
-                # dev-other: 5.5
-                external_aed_checkpoint_path = "/u/schmitt/experiments/segmental_models_2022_23_rf/work/i6_core/returnn/training/ReturnnTrainingJob.VNhMCmbnAUcd/output/models/epoch.2000.pt"
-                external_aed_mini_lstm_checkpoint = "/u/schmitt/experiments/segmental_models_2022_23_rf/work/i6_core/returnn/training/ReturnnTrainingJob.K1W7qayIjuM1/output/models/epoch.010.pt"
-                external_aed_mini_lstm_checkpoint = PtCheckpoint(Path(external_aed_mini_lstm_checkpoint))
-                ilm_type = "mini_att"
-              else:
-                params = [
-                  (0.4, 1.0, 0.0, 0.0),
-                  (0.5, 1.0, 0.0, 0.0),
-                  (0.6, 1.0, 0.0, 0.0),
-                  (0.7, 1.0, 0.0, 0.0),
-                  (0.8, 1.0, 0.0, 0.0),
-                  (0.9, 1.0, 0.0, 0.0),
-                  (1.0, 1.0, 0.0, 0.0),
-                  (1.1, 1.0, 0.0, 0.0),
-                  #
-                  (0.1, 0.9, 0.0, 0.0),
-                  (0.2, 0.8, 0.0, 0.0),
-                  (0.3, 0.7, 0.0, 0.0),
-                  (0.4, 0.6, 0.0, 0.0),
-                  (0.5, 0.5, 0.0, 0.0),
-                  (0.6, 0.4, 0.0, 0.0),
-                  (0.7, 0.3, 0.0, 0.0),
-                  (0.8, 0.2, 0.0, 0.0),
-                  (0.9, 0.1, 0.0, 0.0),
-                  #
-                  (0.8, 1.1, 0.0, 0.0),
-                  (0.8, 1.2, 0.0, 0.0),
-                  (0.8, 1.3, 0.0, 0.0),
-                  #
-                  (0.5, 1.1, 0.0, 0.0),
-                  (0.5, 1.2, 0.0, 0.0),
-                  (0.5, 1.3, 0.0, 0.0),
-                ]
-                # dev-other: 5.4
-                external_aed_checkpoint_path = "/u/schmitt/experiments/03-09-24_aed_flipped_encoder/work/i6_core/returnn/training/ReturnnTrainingJob.czqZZvX66f4j/output/models/epoch.2000.pt"
-                external_aed_mini_lstm_checkpoint = None
-                ilm_type = "zero_att"
+              params = [
+                (0.5, 0.5, 0.05, 0.0),
+                (0.5, 0.5, 0.1, 0.0),
+                (0.5, 0.5, 0.15, 0.0),
+                (0.5, 0.5, 0.2, 0.0),
+                (0.5, 0.5, 0.25, 0.0),
+                (0.5, 0.5, 0.3, 0.0),
+                (0.5, 0.5, 0.35, 0.0),
+                (0.5, 0.5, 0.4, 0.0),
+                (0.5, 0.5, 0.45, 0.0),
+                (0.5, 0.5, 0.5, 0.0),
+                (0.5, 0.5, 0.55, 0.0),
+                (0.5, 0.5, 0.6, 0.0),
+              ]
+              # dev-other: 5.4
+              external_aed_checkpoint_path = "/u/schmitt/experiments/03-09-24_aed_flipped_encoder/work/i6_core/returnn/training/ReturnnTrainingJob.czqZZvX66f4j/output/models/epoch.2000.pt"
+              external_aed_mini_lstm_checkpoint = None
+              ilm_type = "zero_att"
 
               for base_scale, aed_scale, lm_scale, ilm_scale in params:
                 lm_alias = "1k_max-seq-length-112_24-layers_1024-dim"
                 corpus_keys = ["dev-other"]
-                if base_scale == 0.5 and aed_scale == 0.5 and alias == "v1_long_two-stage-rand-seed-1234" and lm_scale == 0.0:
+                if base_scale == 0.5 and aed_scale == 0.5 and alias == "v1_long_two-stage-rand-seed-1234" and lm_scale in [0.0, 0.25]:
                   corpus_keys.append("test-other")
 
                 recog.center_window_returnn_frame_wise_beam_search(
@@ -415,7 +376,7 @@ def run_exps():
                   add_lm_eos_to_non_blank_end_hyps=True,
                   lm_eos_scale=1.0,
                   subtract_ilm_eos_score=False,
-                  sbatch_args=["-p", "gpu_48gb,gpu_24gb_preemptive,gpu_11gb"] if lm_scale == 0.0 else ["-p", "gpu_48gb,gpu_24gb_preemptive"],
+                  sbatch_args=["-p", "gpu_48gb,gpu_11gb"] if lm_scale == 0.0 else ["-p", "gpu_48gb,gpu_24gb"],
                   batch_size=None if lm_scale == 0.0 else 20_000,
                   time_rqmt=None if lm_scale == 0.0 else 2,
                 )
@@ -430,9 +391,21 @@ def run_exps():
                   (1.0, 0.8, 0.0, 0.0),
                   (1.0, 0.9, 0.0, 0.0),
                   (0.8, 1.0, 0.0, 0.0),
+                  (0.8, 1.0, 0.05, 0.0),
+                  (0.8, 1.0, 0.1, 0.0),
+                  (0.8, 1.0, 0.15, 0.0),
+                  (0.8, 1.0, 0.2, 0.0),
+                  (0.8, 1.0, 0.25, 0.0),
+                  (0.8, 1.0, 0.3, 0.0),
+                  (0.8, 1.0, 0.35, 0.0),
+                  (0.8, 1.0, 0.4, 0.0),
+                  (0.8, 1.0, 0.45, 0.0),
+                  (0.8, 1.0, 0.5, 0.0),
+                  (0.8, 1.0, 0.55, 0.0),
+                  (0.8, 1.0, 0.6, 0.0),
                 ]:
                   corpus_keys = ["dev-other"]
-                  if base_scale == 0.8 and external_transducer_scale == 1.0:
+                  if base_scale == 0.8 and external_transducer_scale == 1.0 and lm_scale in [0.0, 0.55]:
                     corpus_keys.append("test-other")
 
                   lm_alias = "1k_max-seq-length-112_24-layers_1024-dim"
@@ -460,49 +433,55 @@ def run_exps():
                     add_lm_eos_to_non_blank_end_hyps=True,
                     lm_eos_scale=1.0,
                     subtract_ilm_eos_score=False,
-                    sbatch_args=["-p", "gpu_48gb,gpu_24gb_preemptive"],
+                    sbatch_args=["-p", "gpu_48gb,gpu_24gb"],
                     batch_size=None if lm_scale == 0.0 else 20_000,
-                    time_rqmt=None if lm_scale == 0.0 else 2,
+                    time_rqmt=None if lm_scale == 0.0 else 6,
                   )
 
-            if "long" in alias and alias not in ["v1_long_two-stage", "v2_long_two-stage"] and not use_sep_h_t_readout:
-              if win_size is None and (
-                use_current_frame_in_readout or
-                use_current_frame_in_readout_w_double_gate or
-                use_current_frame_in_readout_w_gate
-              ):
-                ilm_type = "mini_att"
+            if "long" in alias and alias:
+              if alias in ["v3_long_two-stage"]:
+                ilm_type = "zero_att"
 
                 params = [
-                  # (0.4, 0.1, True, 1.0, False, "1k_max-seq-length-112_24-layers_1024-dim"),
-                  # (0.4, 0.15, True, 1.0, False, "1k_max-seq-length-112_24-layers_1024-dim"),
-                  # (0.4, 0.2, True, 1.0, False, "1k_max-seq-length-112_24-layers_1024-dim"),
-                  # (0.4, 0.25, True, 1.0, False, "1k_max-seq-length-112_24-layers_1024-dim"),
-                  # (0.5, 0.1, True, 1.0, False, "1k_max-seq-length-112_24-layers_1024-dim"),
-                  # (0.5, 0.15, True, 1.0, False, "1k_max-seq-length-112_24-layers_1024-dim"),
-                  # (0.5, 0.2, True, 1.0, False, "1k_max-seq-length-112_24-layers_1024-dim"),
-                  # (0.5, 0.25, True, 1.0, False, "1k_max-seq-length-112_24-layers_1024-dim"),
-                  # (0.6, 0.1, True, 1.0, False, "1k_max-seq-length-112_24-layers_1024-dim"),
-                  # (0.6, 0.15, True, 1.0, False, "1k_max-seq-length-112_24-layers_1024-dim"),
-                  # (0.6, 0.2, True, 1.0, False, "1k_max-seq-length-112_24-layers_1024-dim"),
-                  # (0.6, 0.25, True, 1.0, False, "1k_max-seq-length-112_24-layers_1024-dim"),
+                  (0.5, 0.05, True, 1.0, False, "1k_max-seq-length-112_24-layers_1024-dim"),
+                  (0.5, 0.1, True, 1.0, False, "1k_max-seq-length-112_24-layers_1024-dim"),
+                  (0.5, 0.2, True, 1.0, False, "1k_max-seq-length-112_24-layers_1024-dim"),
+                  (0.5, 0.3, True, 1.0, False, "1k_max-seq-length-112_24-layers_1024-dim"),
                   (0.54, 0.4, True, 1.0, False, "1k_max-seq-length-112_24-layers_1024-dim"),
+                  (0.7, 0.3, True, 1.0, False, "1k_max-seq-length-112_24-layers_1024-dim"),
+                  (0.7, 0.4, True, 1.0, False, "1k_max-seq-length-112_24-layers_1024-dim"),
+                ]
+              elif use_sep_h_t_readout:
+                ilm_type = "zero_att"
+
+                params = [
+                  (0.2, 0.05, True, 1.0, False, "1k_max-seq-length-112_24-layers_1024-dim"),
+                  (0.2, 0.1, True, 1.0, False, "1k_max-seq-length-112_24-layers_1024-dim"),
+                  (0.2, 0.2, True, 1.0, False, "1k_max-seq-length-112_24-layers_1024-dim"),
+                  (0.3, 0.05, True, 1.0, False, "1k_max-seq-length-112_24-layers_1024-dim"),
+                  (0.3, 0.1, True, 1.0, False, "1k_max-seq-length-112_24-layers_1024-dim"),
+                  (0.3, 0.2, True, 1.0, False, "1k_max-seq-length-112_24-layers_1024-dim"),
+                  (0.5, 0.15, True, 1.0, False, "1k_max-seq-length-112_24-layers_1024-dim"),
+                  (0.5, 0.25, True, 1.0, False, "1k_max-seq-length-112_24-layers_1024-dim"),
+                  (0.4, 0.15, True, 1.0, False, "1k_max-seq-length-112_24-layers_1024-dim"),
+                ]
+              elif "v1_long_two-stage" in alias:
+                ilm_type = "mini_att"
+                params = [
+                  (0.1, 0.0, True, 1.0, False, "1k_max-seq-length-112_24-layers_1024-dim"),
+                  (0.15, 0.0, True, 1.0, False, "1k_max-seq-length-112_24-layers_1024-dim"),
+                  (0.2, 0.0, True, 1.0, False, "1k_max-seq-length-112_24-layers_1024-dim"),
+                  (0.25, 0.0, True, 1.0, False, "1k_max-seq-length-112_24-layers_1024-dim"),
+                  (0.3, 0.0, True, 1.0, False, "1k_max-seq-length-112_24-layers_1024-dim"),
+                  (0.35, 0.0, True, 1.0, False, "1k_max-seq-length-112_24-layers_1024-dim"),
+                  (0.4, 0.0, True, 1.0, False, "1k_max-seq-length-112_24-layers_1024-dim"),
+                  (0.45, 0.0, True, 1.0, False, "1k_max-seq-length-112_24-layers_1024-dim"),
+                  (0.5, 0.0, True, 1.0, False, "1k_max-seq-length-112_24-layers_1024-dim"),
                 ]
               else:
                 ilm_type = "mini_att"
 
                 params = [
-                  (0.54, 0.4, True, 1.0, False, "1k_max-seq-length-112_24-layers_1024-dim"),
-                  (0.6, 0.4, True, 1.0, False, "1k_max-seq-length-112_24-layers_1024-dim"),
-                  (0.6, 0.3, True, 1.0, False, "1k_max-seq-length-112_24-layers_1024-dim"),
-                  (0.66, 0.4, True, 1.0, False, "1k_max-seq-length-112_24-layers_1024-dim"),
-                  (0.68, 0.4, True, 1.0, False, "1k_max-seq-length-112_24-layers_1024-dim"),
-                  (0.7, 0.4, True, 1.0, False, "1k_max-seq-length-112_24-layers_1024-dim"),
-                  (0.72, 0.4, True, 1.0, False, "1k_max-seq-length-112_24-layers_1024-dim"),
-                  (0.74, 0.4, True, 1.0, False, "1k_max-seq-length-112_24-layers_1024-dim"),
-                  (0.7, 0.3, True, 1.0, False, "1k_max-seq-length-112_24-layers_1024-dim"),
-                  (0.8, 0.3, True, 1.0, False, "1k_max-seq-length-112_24-layers_1024-dim"),
-                  (0.8, 0.4, True, 1.0, False, "1k_max-seq-length-112_24-layers_1024-dim"),
                 ]
 
               if use_sep_h_t_readout:
@@ -538,21 +517,30 @@ def run_exps():
                   att_readout_scale=att_readout_scale,
                   h_t_readout_scale=h_t_readout_scale,
                   # batch_size=10_000 if win_size is None else None,
-                  sbatch_args=None if lm_scale == 0.0 else ["-p", "gpu_48gb,gpu_24gb_preemptive"],
+                  sbatch_args=None if lm_scale == 0.0 else ["-p", "gpu_48gb"],
                   time_rqmt=None if lm_scale == 0.0 else 2,
                 )
 
+            # Best LM scales on test
             if "long" in alias:
               if use_sep_h_t_readout:
                 att_readout_scale = 1.0
                 h_t_readout_scale = 0.5
                 checkpoint_alias = "best-4-avg"
-                best_scales = (None, None)
+                best_scales = (0.4, 0.1)
+                ilm_type = "zero_att"
               elif alias in ["v1_long_two-stage", "v1_long_two-stage-rand-seed-1234"]:
-                best_scales = (0.7, 0.4)
+                best_scales = (0.45, 0.0)
                 checkpoint_alias = "last"
                 att_readout_scale = None
                 h_t_readout_scale = None
+                ilm_type = "mini_att"
+              elif alias in ["v3_long_two-stage"]:
+                best_scales = (0.6, 0.1)
+                checkpoint_alias = "last"
+                att_readout_scale = None
+                h_t_readout_scale = None
+                ilm_type = "zero_att"
               else:
                 att_readout_scale = None
                 h_t_readout_scale = None
@@ -563,30 +551,29 @@ def run_exps():
 
               for lm_scale, ilm_scale in [best_scales, (0.0, 0.0)]:
                 if (lm_scale, ilm_scale) != (None, None):
-                  for beam_size in [12, 84] if lm_scale > 0.0 else [12]:
-                    for ilm_type in ("mini_att", "zero_att"):
-                      recog.center_window_returnn_frame_wise_beam_search(
-                        alias=full_sum_train_alias,
-                        config_builder=config_builder,
-                        checkpoint=full_sum_checkpoint,
-                        checkpoint_aliases=(checkpoint_alias,),
-                        lm_type="trafo",
-                        lm_scale_list=(lm_scale,),
-                        ilm_scale_list=(ilm_scale,),
-                        ilm_type=ilm_type,
-                        lm_alias="1k_max-seq-length-112_24-layers_1024-dim",
-                        lm_checkpoint=lm_checkpoints["1k_max-seq-length-112_24-layers_1024-dim"],
-                        add_lm_eos_to_non_blank_end_hyps=True,
-                        lm_eos_scale=1.0,
-                        subtract_ilm_eos_score=False,
-                        att_readout_scale=att_readout_scale,
-                        h_t_readout_scale=h_t_readout_scale,
-                        batch_size=15_000 if beam_size == 12 else 6_000,
-                        sbatch_args=None if lm_scale == 0.0 else ["-p", "gpu_48gb,gpu_24gb_preemptive"],
-                        time_rqmt=None if lm_scale == 0.0 else 2,
-                        corpus_keys=("test-other",),
-                        beam_size_list=(beam_size,),
-                      )
+                  for beam_size in [12] if lm_scale > 0.0 else [12]:
+                    recog.center_window_returnn_frame_wise_beam_search(
+                      alias=full_sum_train_alias,
+                      config_builder=config_builder,
+                      checkpoint=full_sum_checkpoint,
+                      checkpoint_aliases=(checkpoint_alias,),
+                      lm_type="trafo",
+                      lm_scale_list=(lm_scale,),
+                      ilm_scale_list=(ilm_scale,),
+                      ilm_type=ilm_type,
+                      lm_alias="1k_max-seq-length-112_24-layers_1024-dim",
+                      lm_checkpoint=lm_checkpoints["1k_max-seq-length-112_24-layers_1024-dim"],
+                      add_lm_eos_to_non_blank_end_hyps=True,
+                      lm_eos_scale=1.0,
+                      subtract_ilm_eos_score=False,
+                      att_readout_scale=att_readout_scale,
+                      h_t_readout_scale=h_t_readout_scale,
+                      batch_size=15_000 if beam_size == 12 else 6_000,
+                      sbatch_args=None if lm_scale == 0.0 else ["-p", "gpu_48gb"],
+                      time_rqmt=None if lm_scale == 0.0 else 2,
+                      corpus_keys=("test-other",),
+                      beam_size_list=(beam_size,),
+                    )
 
             for epoch, chckpt in full_sum_checkpoint["checkpoints"].items():
               if epoch in keep_epochs_full_sum and not use_sep_h_t_readout:

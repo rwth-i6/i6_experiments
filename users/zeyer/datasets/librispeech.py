@@ -10,7 +10,6 @@ from functools import cache
 
 from sisyphus import tk, Task as SisTask
 from sisyphus.delayed_ops import DelayedBase
-from i6_core.util import instanciate_delayed
 from i6_core.corpus.convert import CorpusToTextDictJob
 from i6_core.text.convert import TextDictToTextLinesJob
 from i6_core.text.label.subword_nmt.train import ReturnnTrainBpeJob
@@ -22,6 +21,7 @@ from i6_experiments.common.datasets import librispeech
 from i6_experiments.users.zeyer.utils.generic_job_output import generic_job_output
 from i6_experiments.users.zeyer import tools_paths
 from i6_experiments.users.zeyer.utils.basic import make_hashable
+from i6_experiments.users.zeyer.sis_tools.instanciate_delayed import instanciate_delayed_copy
 from i6_experiments.users.zeyer.speed_pert.librosa_09_10_11_kaiser_fast import (
     speed_pert_librosa_09_10_11_kaiser_fast as _default_train_audio_preprocess,
 )
@@ -517,11 +517,11 @@ class _DelayedDim(DelayedBase):
 
         assert running_in_worker(), "_DelayedDim: get() should only be called in worker"
         assert self.dimension.is_set(), f"_DelayedDim: dimension not set: {self.dimension}"
-        dimension = instanciate_delayed(self.dimension)
+        dimension = instanciate_delayed_copy(self.dimension)
         assert isinstance(
             dimension, int
         ), f"unexpected type {type(dimension)} for {dimension}, {self.dimension}, {self.dimension.get_path()}"
-        return Dim(dimension, **instanciate_delayed(self.opts))
+        return Dim(dimension, **instanciate_delayed_copy(self.opts))
 
 
 class LibrispeechOldFlacTarZip(DatasetConfig):

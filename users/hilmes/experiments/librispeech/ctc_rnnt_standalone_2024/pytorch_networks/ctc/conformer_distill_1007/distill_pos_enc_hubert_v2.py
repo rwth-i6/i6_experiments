@@ -417,3 +417,47 @@ def prior_step(*, model: Model, data, run_ctx, **kwargs):
         run_ctx.sum_probs = torch.sum(probs, dim=(0, 1))
     else:
         run_ctx.sum_probs += torch.sum(probs, dim=(0, 1))
+
+
+def calc_blank_init_hook(run_ctx, **kwargs):
+    run_ctx.seqs = {}
+
+
+def calc_blank_finish_hook(run_ctx, **kwargs):
+    import pickle
+
+    with open("blank_counts.pkl", "wb") as f:
+        pickle.dump(run_ctx.seqs, f)
+        
+
+def calc_blank_step(*, model: Model, data, run_ctx, **kwargs):
+    raw_audio = data["raw_audio"]  # [B, T', F]
+    raw_audio_len = data["raw_audio:size1"]  # [B]
+
+    logprobs, audio_features_len, _, _ = model(
+        raw_audio=raw_audio,
+        raw_audio_len=raw_audio_len,
+    )
+    for seq, tag in zip(logprobs, data["seq_tag"]):
+        pos = torch.argmax(seq, dim=-1)
+        pos_blank: torch.Tensor = pos == model.cfg.label_target_size
+        pos_non_blank: torch.Tensor = ~pos_blank
+        idx = torch.arange(pos_non_blank.shape[0], 0, -1).to(device="cuda")
+        first_pos = pos_non_blank * idx
+        first_pos = torch.argmax(first_pos, 0, keepdim=True)
+        idx = torch.arange(0, pos_non_blank.shape[0], 1).to(device="cuda")
+        last_pos = pos_non_blank * idx
+        last_pos = torch.argmax(last_pos, 0, keepdim=True)
+        pos_blank = pos_blank[first_pos:last_pos]
+        groups = []
+        counter = 0
+        for pos in pos_blank:
+            if pos == 0:  # found non blank
+                if counter > 0:
+                    groups.append(counter)
+                counter = 0
+            elif pos == 1:  # another blank blank
+                counter += 1
+            else:
+                assert False, "Matrix is not boolean for some reason"
+        run_ctx.seqs[tag] = groups

@@ -24,7 +24,7 @@ class CorpusReplaceOrthFromPyDictJob(Job):
         self.out_corpus = self.output_path("corpus.xml.gz")
 
     def tasks(self):
-        yield SisTask("run", mini_task=True)
+        yield SisTask("run", rqmt={"cpu": 4, "mem": 8, "time": 4})
 
     def run(self):
         c = corpus.Corpus()
@@ -56,6 +56,21 @@ class CorpusReplaceOrthFromPyDictJob(Job):
                 c.remove_recording(segment.recording)
                 j += 1
             else:
+                if isinstance(line, list):
+                    lines = []
+                    for e in line:
+                        new_str = e[1].strip()
+                        if new_str:
+                            if new_str in lines:
+                                raise ValueError(f"Duplicate pseudo label {new_str} in segment {segment.fullname()}")
+                            else:
+                                lines.append(new_str)
+                        else:
+                            print(f"Empty pseudo label in segment {segment.fullname()}")
+                            lines.append("")
+                    line = " ZZZZZ ".join(lines)
+                    if len(lines) != 2:
+                        print(f"Segment {segment.fullname()} does not have enough pseudo labels. ({line})")
                 segment.orth = line.strip()
         n = len(c.recordings)
         m = len(d)

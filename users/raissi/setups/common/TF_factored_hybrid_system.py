@@ -937,6 +937,8 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
         softmax_type: SingleSoftmaxType = SingleSoftmaxType.DECODE,
         cv_corpus_key_for_train: str = None,
         joint_for_factored_loss: bool = False,
+        is_cv_separate_from_train: bool = True,
+        keep_right_context_for_joint: bool = False,
     ):
         prepare_for_train = False
         log_softmax = False
@@ -952,7 +954,8 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
 
         if softmax_type == SingleSoftmaxType.TRAIN:
             if self.training_criterion == TrainingCriterion.FULLSUM:
-                assert cv_corpus_key_for_train is not None, "you need to specify the cv corpus for fullsum training"
+                if is_cv_separate_from_train:
+                    assert cv_corpus_key_for_train is not None, "you need to specify the cv corpus for fullsum training"
             """
             assert self.training_criterion in [
                 TrainingCriterion.FULLSUM,
@@ -964,7 +967,7 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
             if self.training_criterion == TrainingCriterion.FULLSUM:
                 self.set_rasr_returnn_input_datas(
                     input_key=InputKey.BASE,
-                    is_cv_separate_from_train=True,
+                    is_cv_separate_from_train=is_cv_separate_from_train,
                     cv_corpus_key=cv_corpus_key_for_train,
                 )
 
@@ -987,7 +990,12 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
             returnn_config = self.experiments[key]["returnn_config"]
 
         if state_tying == RasrStateTying.diphone:
-            clean_returnn_config = net_helpers.augment.remove_label_pops_and_losses_from_returnn_config(returnn_config, modify_chunking=self.training_criterion == TrainingCriterion.FULLSUM)
+            except_layers = except_extern_data = None
+            if keep_right_context_for_joint:
+                except_layers = ["futureLabel", "popFutureLabel", "centerState", "classes_"]
+                except_extern_data = ["classes"]
+            clean_returnn_config = net_helpers.augment.remove_label_pops_and_losses_from_returnn_config(returnn_config, except_layers=except_layers, except_extern_data=except_extern_data, modify_chunking=self.training_criterion == TrainingCriterion.FULLSUM)
+
             context_size = self.label_info.n_contexts
             context_time_tag, _, _ = train_helpers.returnn_time_tag.get_context_dim_tag_prolog(
                 spatial_size=context_size,
@@ -1007,6 +1015,7 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
                 out_joint_score_layer="output",
                 log_softmax=log_softmax,
                 prepare_for_train=prepare_for_train,
+                keep_right_context=keep_right_context_for_joint,
             )
 
         elif state_tying == RasrStateTying.monophone:
@@ -1022,14 +1031,12 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
         else:
             assert False, "Only monophone and diphone state tying are supported for single softmax"
 
-
         self.reset_returnn_config_for_experiment(
             key=key,
             config_dict=final_returnn_config.config,
             extra_dict_key="context",
             additional_python_prolog=context_time_tag,
         )
-
 
         self.set_graph_for_experiment(key, graph_type_name=f"precomputed-{softmax_type}")
 

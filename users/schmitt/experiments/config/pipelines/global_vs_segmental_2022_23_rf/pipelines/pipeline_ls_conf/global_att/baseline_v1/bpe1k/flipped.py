@@ -190,26 +190,103 @@ def run_exps():
         )
         analyze_gradients_jobs[alias] = pipeline.decoding_exps[0].analyze_gradients_job
 
-        if alias in ["v20", "v5_big_rand-1234", "v85_big", "v3_rand-2222", "v5"]:
+        if alias in [
+          # "v20",
+          "v5_big_rand-1234",
+          # "v85_big",
+          # "v3_rand-2222",
+          "v5"
+        ]:
           for lm_scale, ilm_scale in [
-            (0.54, 0.4),
+            # (0.2, 0.0),
+            # (0.25, 0.0),
+            # (0.3, 0.0),
+            # (0.35, 0.0),
+            # (0.4, 0.0),
+            # (0.45, 0.0),
+            (0.5, 0.0),
+            (0.5, 0.1),
+            (0.5, 0.2),
+            (0.5, 0.3),
             # (0.5, 0.4),
           ]:
+            for lm_alias in [
+              # "1k_max-seq-length-112_24-layers_512-dim",
+              "1k_max-seq-length-112_24-layers_1024-dim",
+            ]:
+              corpus_keys = ["dev-other"]
+              if alias == "v5_big_rand-1234" and lm_scale == 0.4 and ilm_scale == 0.0:
+                corpus_keys += ["test-other"]
+              if alias == "v20" and lm_scale == 0.5 and ilm_scale == 0.4:
+                corpus_keys += ["test-other"]
+              recog.global_att_returnn_label_sync_beam_search(
+                alias=train_alias,
+                config_builder=config_builder,
+                checkpoint=checkpoint,
+                corpus_keys=corpus_keys,
+                checkpoint_aliases=("last",),
+                lm_type="trafo",
+                lm_scale_list=(lm_scale,),
+                ilm_scale_list=(ilm_scale,),
+                ilm_type="zero_att",
+                lm_alias=lm_alias,
+                lm_checkpoint=lm_checkpoints[lm_alias],
+                behavior_version=21,  # otherwise trafo lm logits weight dims are flipped apparently
+                sbatch_args=["-p", "gpu_48gb,gpu_24gb_preemptive"],
+              )
+
+        # test different const LRs for mini LSTM
+        if alias in ["v5_big_rand-1234"]:
+          for lm_scale, ilm_scale in [
+            (0.54, 0.4),
+          ]:
             lm_alias = "1k_max-seq-length-112_24-layers_1024-dim"
+            for mini_lstm_const_lr in [
+              1e-4,
+              5e-5,
+              1e-5,
+            ]:
+              recog.global_att_returnn_label_sync_beam_search(
+                alias=train_alias,
+                config_builder=config_builder,
+                checkpoint=checkpoint,
+                corpus_keys=("dev-other",),
+                checkpoint_aliases=("last",),
+                lm_type="trafo",
+                lm_scale_list=(lm_scale,),
+                ilm_scale_list=(ilm_scale,),
+                ilm_type="mini_att",
+                lm_alias=lm_alias,
+                lm_checkpoint=lm_checkpoints[lm_alias],
+                behavior_version=21,  # otherwise trafo lm logits weight dims are flipped apparently
+                sbatch_args=["-p", "gpu_48gb,gpu_24gb_preemptive"],
+                mini_lstm_const_lr=mini_lstm_const_lr,
+              )
+
+        if alias == "v3_rand-3333":
+          for epoch in [10, 50, 70]:
             recog.global_att_returnn_label_sync_beam_search(
-              alias=train_alias,
-              config_builder=config_builder,
-              checkpoint=checkpoint,
-              corpus_keys=("dev-other",),
-              checkpoint_aliases=("last",),
-              lm_type="trafo",
-              lm_scale_list=(lm_scale,),
-              ilm_scale_list=(ilm_scale,),
-              ilm_type="mini_att",
-              lm_alias=lm_alias,
-              lm_checkpoint=lm_checkpoints[lm_alias],
-              behavior_version=21,  # otherwise trafo lm logits weight dims are flipped apparently
-            )
+                  alias=train_alias,
+                  config_builder=config_builder,
+                  checkpoint=checkpoint["checkpoints"][epoch],
+                  checkpoint_aliases=(f"epoch-{epoch}",),
+                  corpus_keys=("train",),
+                  run_analysis=True,
+                  analyze_gradients=True,
+                  only_do_analysis=True,
+                  att_weight_seq_tags=[
+                    "train-other-960/1246-124548-0042/1246-124548-0042",
+                    "train-other-960/40-222-0033/40-222-0033",
+                    "train-other-960/103-1240-0038/103-1240-0038",
+                  ],
+                  analysis_ref_alignment_opts={
+                    "ref_alignment_hdf": LIBRISPEECH_GMM_WORD_ALIGNMENT.alignment_paths["train"],
+                    "ref_alignment_blank_idx": LIBRISPEECH_GMM_WORD_ALIGNMENT.model_hyperparameters.blank_idx,
+                    "ref_alignment_vocab_path": LIBRISPEECH_GMM_WORD_ALIGNMENT.vocab_path,
+                  },
+                  analysis_analyze_gradients_plot_encoder_layers=True,
+                  # analsis_analyze_gradients_plot_log_gradients=True,
+                )
 
         if alias in ["v3_big_rand-5678", "v3_big_rand-2222"]:
           analysis_epochs = [100, 160, 180]

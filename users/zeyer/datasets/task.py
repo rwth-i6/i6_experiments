@@ -20,6 +20,7 @@ class Task:
 
     Note that the dataset would also already include things like feature extraction details, output labels (BPE etc).
     """
+
     name: str  # to differentiate between different tasks. might be used for the output dir name
 
     # for training
@@ -33,6 +34,10 @@ class Task:
     main_measure_type: MeasureType  # e.g. WER%
     main_measure_name: str  # e.g. dataset name but arbitrary, just to describe the main measure value
 
+    # E.g. for WER, CER, BLEU, ... Usually uses sclite for ASR.
+    # Currently, many score funcs in use only use ``get_main_name()`` of the dataset,
+    # and not really the dataset itself.
+    # E.g. see librispeech _score_recog_out_v2.
     score_recog_output_func: Callable[[DatasetConfig, RecogOutput], ScoreResult]
 
     # e.g. for bpe_to_words or so. This is here because it depends on the type of vocab.
@@ -41,6 +46,7 @@ class Task:
     def default_collect_score_results(self, score_results: Dict[str, ScoreResult]) -> ScoreResultCollection:
         """using main_measure_name as the main key in score_results"""
         from .score_results import join_score_results
+
         return join_score_results(score_results, main_measure_key=self.main_measure_name)
 
     collect_score_results_func: Callable[[Dict[str, ScoreResult]], ScoreResultCollection] = None

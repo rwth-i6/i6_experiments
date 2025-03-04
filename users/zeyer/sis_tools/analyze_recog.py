@@ -12,6 +12,9 @@ Analyze the results:
 
 from __future__ import annotations
 import argparse
+import gzip
+import json
+import pickle
 import os
 import sys
 import re
@@ -50,7 +53,9 @@ def _setup():
 _setup()
 
 
+from sisyphus import tk
 from . import sis_common
+from i6_experiments.users.zeyer.utils.job_file_open import read_job_file
 
 
 def main():
@@ -72,6 +77,11 @@ def main():
         print(f"{corpus or '?'}: {job}")
         if "/JoinScoreResultsJob." in job:
             _report_join_score_results_job(job)
+        elif job.startswith("i6_experiments/users/zeyer/recog/GetBestRecogTrainExp."):
+            _report_get_best_recog_train_exp_job(job)
+            for job_ in _get_best_recog_train_exp_job_deps(job):
+                queue.append((job_, corpus, scoring))
+            continue  # do not follow all the other deps
         elif job.startswith("i6_core/recognition/scoring/ScliteJob."):
             print(
                 f"* {corpus or '?'}: Found scoring. Aliases:", " ".join(sis_common.get_job_aliases(job) or ["<None?>"])
@@ -106,6 +116,29 @@ def _report_join_score_results_job(job: str):
     if os.path.exists(fn):
         with open(fn) as f:
             print("joined score results:", f.read().strip())
+
+
+def _report_get_best_recog_train_exp_job(job: str):
+    fn = sis_common.get_work_dir_prefix() + job + "/output/summary.json"
+    with open(fn) as f:
+        print("best recog train exp:", f.read().strip())
+
+
+def _get_best_recog_train_exp_job_deps(job: str) -> list[str]:
+    fn = sis_common.get_work_dir_prefix() + job + "/output/summary.json"
+    d = json.load(open(fn))
+    assert isinstance(d, dict)
+    best_ep = d["best_epoch"]
+    assert isinstance(best_ep, int)
+
+    d = read_job_file(job, "job.save")
+    d = gzip.decompress(d)
+    job_obj = pickle.loads(d)
+    # noinspection PyProtectedMember
+    p = job_obj._scores_outputs[best_ep].output
+    assert isinstance(p, tk.Path)
+    dep = sis_common.get_job_from_work_output(p.get_path())
+    return [dep]
 
 
 def sclite_pra_report_worst_seqs(

@@ -5,11 +5,13 @@ import functools
 from returnn.tensor import Tensor, Dim, single_step_dim
 import returnn.frontend as rf
 from returnn.frontend.tensor_array import TensorArray
+from returnn.frontend.state import State
 
 from i6_experiments.users.schmitt.returnn_frontend.model_interfaces.recog import RecogDef
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.base import _batch_size_factor
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.global_.model import GlobalAttentionModel
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.segmental import utils
+from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23_rf.dependencies.returnn.network_builder_rf.segmental.recog import _get_init_trafo_state
 
 
 def _trafo_gather_backrefs(s, *, backrefs: Tensor):
@@ -21,6 +23,43 @@ def _trafo_gather_backrefs(s, *, backrefs: Tensor):
     assert s.dimension or backrefs not in s.dyn_size_ext.dims  # currently not supported, also not expected
     return s
   raise TypeError(f"_gather_backrefs: unexpected type ({type(s)})")
+
+
+def _trafo_gather_backrefs_v2(
+        trafo_state: State,
+        backrefs: Tensor,
+) -> State:
+  for state in trafo_state:
+    if state == "pos":
+      trafo_state[state] = rf.gather(trafo_state[state], indices=backrefs)
+    else:
+      accum_axis = trafo_state[state].self_att.accum_axis
+
+      self_att_expand_dim_dyn_size_ext = rf.gather(accum_axis.dyn_size_ext, indices=backrefs)
+      self_att_expand_dim = Dim(self_att_expand_dim_dyn_size_ext, name="self_att_expand_dim_init")
+      trafo_state[state].self_att.accum_axis = self_att_expand_dim
+
+      def _replace_accum_dim(tensor: rf.Tensor):
+        tensor = rf.gather(tensor, indices=backrefs)
+        tensor = tensor.copy_transpose(
+          [accum_axis] + tensor.remaining_dims(accum_axis))
+        tensor_raw = tensor.raw_tensor
+        tensor = tensor.copy_template_replace_dim_tag(
+          tensor.get_axis_from_description(accum_axis), self_att_expand_dim
+        )
+        tensor.raw_tensor = tensor_raw
+        return tensor
+
+      trafo_state[state].self_att.k_accum = _replace_accum_dim(trafo_state[state].self_att.k_accum)
+      trafo_state[state].self_att.v_accum = _replace_accum_dim(trafo_state[state].self_att.v_accum)
+
+      # print(accum_axis)
+      # print(self_att_expand_dim)
+      # print(trafo_state[state].self_att.k_accum)
+      # print(trafo_state[state].self_att.v_accum)
+      # exit()
+
+  return trafo_state
 
 
 def model_recog(
@@ -95,7 +134,8 @@ def model_recog(
 
   # external LM
   if model.language_model:
-    lm_state = model.language_model.default_initial_state(batch_dims=batch_dims_)
+    # lm_state = model.language_model.default_initial_state(batch_dims=batch_dims_)
+    lm_state = _get_init_trafo_state(model.language_model, batch_dims_)
   else:
     lm_state = None
 
@@ -132,18 +172,17 @@ def model_recog(
     )
 
     if ilm_type is not None:
-      raise NotImplementedError
-      external_aed_ilm_state = model.aed_model.label_decoder.decoder_default_initial_state(
+      ext_aed_ilm_state = model.aed_model.label_decoder.decoder_default_initial_state(
         batch_dims=batch_dims_,
         use_mini_att=ilm_type == "mini_att",
         use_zero_att=ilm_type == "zero_att",
         enc_spatial_dim=enc_spatial_dim
       )
     else:
-      external_aed_ilm_state = None
+      ext_aed_ilm_state = None
   else:
     external_aed_decoder_state = None
-    external_aed_ilm_state = None
+    ext_aed_ilm_state = None
     input_embed_external_aed = None
     external_aed_enc_args = None
 
@@ -258,6 +297,25 @@ def model_recog(
       ilm_label_log_prob = rf.log_softmax(ilm_logits, axis=model.target_dim)
       label_log_prob -= ilm_correction_scale * ilm_label_log_prob
 
+    # --------------------------------- ext AED ILM step ---------------------------------
+
+    if ext_aed_ilm_state is not None:
+      ext_aed_ilm_step_out, ext_aed_ilm_state = model.aed_model.label_decoder.loop_step(
+        **external_aed_enc_args,
+        enc_spatial_dim=enc_spatial_dim,
+        input_embed=input_embed_external_aed,
+        state=ext_aed_ilm_state,
+        use_mini_att=ilm_type == "mini_att",
+        use_zero_att=ilm_type == "zero_att",
+      )
+      ext_aed_ilm_logits, _ = model.aed_model.label_decoder.decode_logits(
+        input_embed=input_embed_external_aed,
+        att=ext_aed_ilm_step_out["att"],
+        s=ext_aed_ilm_step_out["s"],
+      )
+      ext_aed_ilm_label_log_prob = rf.log_softmax(ext_aed_ilm_logits, axis=model.target_dim)
+      label_log_prob -= ilm_correction_scale * external_aed_scale * ext_aed_ilm_label_log_prob
+
     if cheating_targets is not None:
       label_ground_truth = rf.gather(
         cheating_targets,
@@ -304,19 +362,27 @@ def model_recog(
     if model.aed_model:
       external_aed_decoder_state = tree.map_structure(lambda s: rf.gather(s, indices=backrefs), external_aed_decoder_state)
 
+      # ILM
+      if ext_aed_ilm_state is not None:
+        ext_aed_ilm_state = tree.map_structure(lambda s: rf.gather(s, indices=backrefs), ext_aed_ilm_state)
+
     # external LM
     if lm_state is not None:
-      def _get_lm_state(state):
-        if isinstance(state, Dim):
-          return state
-
-        assert isinstance(state, Tensor)
-        if len(state.dims) == 0:
-          return state
-
-        return rf.gather(state, indices=backrefs)
-
-      lm_state = tree.map_structure(lambda state: _get_lm_state(state), lm_state)
+      # def _get_lm_state(state):
+      #   if isinstance(state, Dim):
+      #     return state
+      #
+      #   assert isinstance(state, Tensor)
+      #   if len(state.dims) == 0:
+      #     return state
+      #
+      #   return rf.gather(state, indices=backrefs)
+      #
+      # lm_state = tree.map_structure(lambda state: _get_lm_state(state), lm_state)
+      lm_state = _trafo_gather_backrefs_v2(
+        trafo_state=lm_state,
+        backrefs=backrefs
+      )
 
     # ILM
     if ilm_state is not None:

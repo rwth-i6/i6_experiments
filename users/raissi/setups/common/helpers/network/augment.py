@@ -685,13 +685,15 @@ def augment_net_with_triphone_outputs(
         "pastEmbed",
     ]
 
-    network[f"{prefix}center-output"]["loss_opts"].pop("label_smoothing", None)
+    if "loss_opts" in network[f"{prefix}center-output"]:
+        network[f"{prefix}center-output"]["loss_opts"].pop("label_smoothing", None)
 
     return network
 
 
 def remove_label_pops_and_losses(network: Network, except_layers: Optional[Iterable[str]] = None) -> Network:
     network = copy.copy(network)
+    except_layers = [] if except_layers is None else except_layers
 
     layers_to_pop = {
         "centerPhoneme",
@@ -705,7 +707,7 @@ def remove_label_pops_and_losses(network: Network, except_layers: Optional[Itera
         network.pop(k, None)
 
     for center_target in ["centerState", "singleStateCenter"]:
-        if center_target in network:
+        if center_target in network and center_target not in except_layers:
             network.pop(center_target, None)
 
     for layer in network.values():
@@ -718,13 +720,15 @@ def remove_label_pops_and_losses(network: Network, except_layers: Optional[Itera
 
 
 def remove_label_pops_and_losses_from_returnn_config(
-    cfg: returnn.ReturnnConfig, except_layers: Optional[Iterable[str]] = None, modify_chunking: bool = True
+    cfg: returnn.ReturnnConfig, except_layers: Optional[Iterable[str]] = None, except_extern_data: Optional[Iterable[str]] = None, modify_chunking: bool = True
 ) -> returnn.ReturnnConfig:
     cfg = copy.deepcopy(cfg)
+    except_layers = [] if except_layers is None else except_layers
+    except_extern_data = [] if except_extern_data is None else except_extern_data
     cfg.config["network"] = remove_label_pops_and_losses(cfg.config["network"], except_layers)
 
     for k in ["centerState", "singleStateCenter", "classes", "futureLabel", "pastLabel"]:
-        if k in cfg.config["extern_data"]:
+        if k in cfg.config["extern_data"] and k not in except_extern_data:
             cfg.config["extern_data"].pop(k, None)
 
 

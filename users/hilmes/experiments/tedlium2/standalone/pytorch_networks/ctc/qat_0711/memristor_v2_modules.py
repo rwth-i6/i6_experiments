@@ -455,7 +455,7 @@ class QuantizedMultiheadAttention(nn.Module):
         mem_lin = TiledMemristorLinear(
             in_features=self.out_proj.in_features,
             out_features=self.out_proj.out_features,
-            weight_precision=self.out_proj.weight_bit_prec,
+            weight_precision=self.out_proj.weight_bit_prec if not self.out_proj.weight_bit_prec == 1.5 else 2,
             converter_hardware_settings=self.converter_hardware_settings,
             memristor_inputs=128,
             memristor_outputs=128,
@@ -469,7 +469,7 @@ class QuantizedMultiheadAttention(nn.Module):
         mem_lin = TiledMemristorLinear(
             in_features=self.in_proj.in_features,
             out_features=self.in_proj.out_features,
-            weight_precision=self.in_proj.weight_bit_prec,
+            weight_precision=self.in_proj.weight_bit_prec if not self.in_proj.weight_bit_prec == 1.5 else 2,
             converter_hardware_settings=self.converter_hardware_settings,
             memristor_inputs=128,
             memristor_outputs=128,

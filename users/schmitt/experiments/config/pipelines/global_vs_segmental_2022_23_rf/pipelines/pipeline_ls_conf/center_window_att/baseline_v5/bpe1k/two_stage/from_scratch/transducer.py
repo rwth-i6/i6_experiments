@@ -388,7 +388,7 @@ def run_exps():
                         lm_eos_scale=1.0,
                         subtract_ilm_eos_score=False,
                         batch_size=15_000 if beam_size == 12 else 6_000,
-                        sbatch_args=None if lm_scale == 0.0 else ["-p", "gpu_48gb,gpu_24gb_preemptive"],
+                        sbatch_args=None if lm_scale == 0.0 else ["-p", "gpu_48gb"],
                         time_rqmt=None if lm_scale == 0.0 else 2,
                         corpus_keys=("test-other",),
                         beam_size_list=(beam_size,),

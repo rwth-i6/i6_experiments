@@ -36,7 +36,7 @@ from i6_experiments.users.zeyer.datasets.utils.char import get_char_vocab
 if TYPE_CHECKING:
     from returnn.tensor import Tensor, Dim
     from i6_experiments.users.zeyer.collect_model_dataset_stats import StatisticsOutput
-    
+
 from .utils import CorpusReplaceOrthFromPyDictJob, get_ogg_zip_dict_pseudo_labels, MetaDataset
 
 _alias_prefix = "datasets/LibriSpeech/"
@@ -70,7 +70,7 @@ def _get_bliss_corpus_dict(pseudo_labels_path: tk.Path, part: str) -> Dict[str, 
 @cache
 def _get_librispeech_ogg_zip_dict_pseudo_labels(pseudo_labels_path: tk.Path, part: str) -> Dict[str, tk.Path]:
     # print("Convert pseudo labels to ogg")
-    
+
     bliss_corpus_dict = _get_bliss_corpus_dict(pseudo_labels_path, part)
 
     return get_ogg_zip_dict_pseudo_labels(bliss_corpus_dict)
@@ -95,6 +95,20 @@ def _get_train_corpus_text(train_small: bool = False) -> tk.Path:
     job.add_alias(_alias_prefix + f"{key.replace('-', '_')}_corpus_text_lines")
     tk.register_output(_alias_prefix + f"{key.replace('-', '_')}_corpus_text_lines.txt.gz", job.out_text_lines)
     return job.out_text_lines
+
+@cache
+def _get_test_corpus_text() -> tk.Path:
+    from i6_core.text.processing import ConcatenateJob
+    keys = ["dev-clean", "dev-other", "test-clean", "test-other"]
+    texts = []
+    for key in keys:
+        test_corpus_text_dict = _get_corpus_text_dict(key)
+        job = TextDictToTextLinesJob(test_corpus_text_dict, gzip=True)
+        job.add_alias(_alias_prefix + f"{key.replace('-', '_')}_corpus_text_lines")
+        tk.register_output(_alias_prefix + f"{key.replace('-', '_')}_corpus_text_lines.txt.gz", job.out_text_lines)
+        texts.append(job.out_text_lines)
+    return ConcatenateJob(texts).out
+
 
 
 @cache
@@ -261,7 +275,7 @@ def get_bpe_lexicon(bpe_vocab: Bpe) -> tk.Path:
     )
     subword_nmt_repo = subword_nmt_job.out_repository
     subword_nmt_repo.hash_overwrite = "I6_SUBWORD_NMT_V2"  # this is what most other people use as well
-    
+
     bpe_lexicon = CreateBPELexiconJob(
         base_lexicon_path=get_bliss_lexicon(add_unknown_phoneme_and_mapping=False, add_silence=False),
         bpe_codes=bpe_vocab.codes,
@@ -269,7 +283,7 @@ def get_bpe_lexicon(bpe_vocab: Bpe) -> tk.Path:
         subword_nmt_repo=subword_nmt_repo,
         unk_label="<unk>",
     ).out_lexicon
-    
+
     word_lexicon = BlissLexiconToG2PLexiconJob(
         bpe_lexicon,
         include_pronunciation_variants=True,
@@ -314,6 +328,7 @@ class LibrispeechOggZip(DatasetConfig):
         train_subset: Optional[int] = None,
         train_ds_key: Optional[str] = None,
         pseudo_label_path: tk.Path = None,
+        keep_small_labels: bool = False,
     ):
         """
         :param with_eos_postfix: For RETURNN train/dev/eval datasets, mostly relevant for training.
@@ -332,6 +347,7 @@ class LibrispeechOggZip(DatasetConfig):
         self.train_sort_laplace_num_seqs = train_sort_laplace_num_seqs
         self.train_ds_key = train_ds_key
         self.pseudo_label_path = pseudo_label_path
+        self.keep_small_labels = keep_small_labels
         self.test_self_training_on_small_dataset = 0 # Old param, not used. Needed for compatibility.
         if train_epoch_wise_filter is NotSpecified:
             train_epoch_wise_filter = deepcopy(_default_train_epoch_wise_filter)
@@ -384,6 +400,8 @@ class LibrispeechOggZip(DatasetConfig):
             state.pop("train_vocab")  # backward compat
         if self.train_subset is None:
             state.pop("train_subset")
+        if not self.keep_small_labels:
+            state.pop("keep_small_labels")
         state = {k: v for k, v in state.items() if not k.startswith("_")}
         byte_list = [b"LibrispeechOggZip", sis_hash_helper(state)]
 
@@ -430,7 +448,7 @@ class LibrispeechOggZip(DatasetConfig):
             raise ValueError("train_ds_key not set")
         else:
             return self.get_dataset(self.train_ds_key, subset=self.train_subset)
-    
+
     def get_eval_datasets(self) -> Dict[str, Dict[str, Any]]:
         ds = {
             "dev": self.get_dataset("dev", subset=self.eval_subset),
@@ -445,7 +463,7 @@ class LibrispeechOggZip(DatasetConfig):
     def get_main_dataset(self) -> Dict[str, Any]:
         assert self.main_key is not None, f"{self}: main_dataset not defined, main_key is None"
         return self.get_dataset(self.main_key)
-    
+
     def get_sharded_main_dataset(self, shard_index: int, num_shards: int) -> Dict[str, Any]:
         assert self.main_key is not None, f"{self}: main_dataset not defined, main_key is None"
         assert 0 <= shard_index < num_shards, f"{self}: invalid shard_index 0 <= {shard_index} < {num_shards}"
@@ -505,12 +523,15 @@ class LibrispeechOggZip(DatasetConfig):
             if training:
                 d["fixed_random_subset_seed"] = 1
             d["fixed_random_subset"] = subset  # faster
-        
+
         # Combine pseudo labels into MetaDataset
         if training and self.pseudo_label_path:
             files_new = []
             for part in parts:
-                files_new += [_get_librispeech_ogg_zip_dict_pseudo_labels(self.pseudo_label_path, part)[part]]
+                if part == "train-clean-100" and self.keep_small_labels:
+                    files_new += [_get_librispeech_ogg_zip_dict()[part]]
+                else:
+                    files_new += [_get_librispeech_ogg_zip_dict_pseudo_labels(self.pseudo_label_path, part)[part]]
             d_pseudo = copy(d)
             d.pop("fixed_random_subset", None)
             d_pseudo["audio"] = None
@@ -570,11 +591,13 @@ def get_librispeech_task_raw_v2(
     train_vocab_opts: Optional[Dict[str, Any]] = None,
     audio_opts: Optional[Dict[str, Any]] = None,
     audio_dim: int = 1,
-    save_pseudo_labels: bool = False,
-    ds_sel: TrainDatasetSel,
+    save_pseudo_labels: Optional[TrainDatasetSel] = None,
+    ds_sel: TrainDatasetSel = TrainDatasetSel.train_960h,
+    init_small: bool = False,
     with_prior: bool,
+    empirical_prior: bool,
     **dataset_train_opts,
-) -> tuple[Task, dict, Optional[LibrispeechOggZip]]:
+) -> Task:
     """
     Librispeech.
 
@@ -583,18 +606,18 @@ def get_librispeech_task_raw_v2(
     so it is easier to copy this setup to a new environment.
     """
     assert isinstance(ds_sel, TrainDatasetSel)
-    
+
     vocab_ = vocab
     if isinstance(vocab, str):
-        vocab = get_vocab_by_str(vocab, train_small=True if (ds_sel == TrainDatasetSel.train_100h or ds_sel == TrainDatasetSel.train_860h) else False)
-        
-    if ds_sel == TrainDatasetSel.train_860h:
+        vocab = get_vocab_by_str(vocab, train_small=init_small)
+
+    if ds_sel == TrainDatasetSel.train_860h or (ds_sel == TrainDatasetSel.train_960h and init_small):
         if dataset_train_opts:
             dataset_train_opts["train_epoch_wise_filter"] = None
         else:
             dataset_train_opts = dict(train_epoch_wise_filter=None)
 
-    cache_key = make_hashable((LibrispeechOggZip, vocab, train_vocab_opts, audio_opts, audio_dim, save_pseudo_labels, ds_sel, with_prior, dataset_train_opts))
+    cache_key = make_hashable((LibrispeechOggZip, vocab, train_vocab_opts, audio_opts, audio_dim, save_pseudo_labels, ds_sel, init_small, with_prior, empirical_prior, dataset_train_opts))
     if cache_key in _librispeech_task_raw_v2_cache:
         return _librispeech_task_raw_v2_cache[cache_key]
 
@@ -606,12 +629,12 @@ def get_librispeech_task_raw_v2(
         vocab_to_words = []  # assume it can just stay that way
     else:
         raise TypeError(f"unhandled vocab type {type(vocab)}")
-    
+
     # Read out which datasets to use during training
     if ds_sel == TrainDatasetSel.train_100h:
         train_ds_key = "train-clean-100"
     elif ds_sel == TrainDatasetSel.train_860h:
-        train_ds_key = "train-other-860" 
+        train_ds_key = "train-other-860"
     else:
         train_ds_key = "train"
 
@@ -632,16 +655,12 @@ def get_librispeech_task_raw_v2(
         "test-other": LibrispeechOggZip(**dataset_common_opts, main_key="test-other"),
     }
     dev_dataset = eval_datasets["dev-other"]
-    
-    pseudo_labels_ds = {}
-    train_100_ds = None
-    if save_pseudo_labels:
-        for ds_name in ["train-clean-360", "train-other-500"]:
-            pseudo_labels_ds[ds_name] = LibrispeechOggZip(**dataset_common_opts, main_key=ds_name)
-        train_100_ds = LibrispeechOggZip(**dataset_common_opts, main_key="train-clean-100")
-            
+
     if with_prior:
-        prior_dataset = LibrispeechOggZip(**dataset_common_opts, main_key=train_ds_key)
+        if empirical_prior:
+            prior_dataset = LibrispeechOggZip(**dataset_common_opts, main_key="train")
+        else:
+            prior_dataset = LibrispeechOggZip(**dataset_common_opts, main_key=train_ds_key)
     else:
         prior_dataset = None
 
@@ -658,25 +677,27 @@ def get_librispeech_task_raw_v2(
         recog_post_proc_funcs=vocab_to_words,
     )
     _librispeech_task_raw_v2_cache[cache_key] = task
-    
-    return task, pseudo_labels_ds, train_100_ds
+    return task
 
 
-def _extract_audio_seq_len_file(train_dataset: DatasetConfig):
+def _extract_audio_seq_len_file(train_dataset: DatasetConfig, *, use_main_ds: bool = False):
     """
     Extract audio seq len file
     """
     from sisyphus import tk
     from i6_core.returnn.dataset import ExtractSeqLensJob
 
-    ds_dict = train_dataset.get_train_dataset()
+    if use_main_ds:
+        ds_dict = train_dataset.get_main_dataset()
+    else:
+        ds_dict = train_dataset.get_train_dataset()
     # The code is semi-generic. But anyway double check for now. Later to be extended...
     if ds_dict["class"] == "MetaDataset":
         ds_dict = ds_dict["datasets"]["zip_dataset"]
     assert ds_dict["class"] in {"OggZipDataset", "LibriSpeechCorpus"}
     if ds_dict["audio"] is None:
         return None
-    ds_dict.pop("partition_epoch")
+    ds_dict.pop("partition_epoch", None)
     ds_dict["targets"] = None
     ds_dict.pop("epoch_wise_filter", None)
     ds_dict.pop("seq_ordering")
@@ -700,7 +721,7 @@ def _extract_audio_seq_len_file(train_dataset: DatasetConfig):
     return job.out_file
 
 
-def _extract_text_seq_len_file(train_dataset: DatasetConfig, vocab_cfg: Union[str, VocabConfig], *, name: str):
+def _extract_text_seq_len_file(train_dataset: DatasetConfig, vocab_cfg: Union[str, VocabConfig], *, name: str, use_main_ds: bool = False):
     """
     Extract target seq len file
     """
@@ -717,13 +738,16 @@ def _extract_text_seq_len_file(train_dataset: DatasetConfig, vocab_cfg: Union[st
     else:
         raise TypeError(f"invalid vocab_cfg {vocab_cfg!r} type {type(vocab_cfg)}")
 
-    ds_dict = train_dataset.get_train_dataset()
+    if use_main_ds:
+        ds_dict = train_dataset.get_main_dataset()
+    else:
+        ds_dict = train_dataset.get_train_dataset()
     if ds_dict["class"] == "MetaDataset":
         ds_dict = ds_dict["datasets"]["pseudo_labels_dataset"]
     # The code is semi-generic. But anyway double check for now. Later to be extended...
     assert ds_dict["class"] in {"OggZipDataset", "LibriSpeechCorpus", "LmDataset"}
     vocab_key = "targets" if ds_dict["class"] in {"OggZipDataset", "LibriSpeechCorpus"} else "orth_vocab"
-    ds_dict.pop("partition_epoch")
+    ds_dict.pop("partition_epoch", None)
     if ds_dict["class"] in {"OggZipDataset", "LibriSpeechCorpus"}:
         assert "audio" in ds_dict
         ds_dict["audio"] = None

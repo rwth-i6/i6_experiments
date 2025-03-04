@@ -97,7 +97,7 @@ class ConformerMHSAV2(torch.nn.Module):
         q = y[-ext_chunk_sz:]  # [C+R, F']
 
         inv_seq_mask = ~seq_mask
-        output_tensor, _ = self.mhsa.mhsa(
+        output_tensor, _ = self.mhsa(
             q, y, y, key_padding_mask=inv_seq_mask, need_weights=False
         )  # [C+R, F]
         x = output_tensor + x[-ext_chunk_sz:]  # [C+R, F]
