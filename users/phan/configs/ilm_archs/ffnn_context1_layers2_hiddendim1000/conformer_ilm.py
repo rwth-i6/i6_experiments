@@ -45,9 +45,10 @@ config_11gb.update({"internal_language_model": default_ffnn_context1_layers2_hid
 def sis_run_with_prefix(prefix_name: Optional[str] = None):
     """run the exp"""
     # lr_list = [1e-3, 1e-4, 1e-5]
-    lr_list = [1e-3, 1e-4]
+    # lr_list = [1e-3, 1e-4]
+    lr_list = [1e-4]
     ep_list = [100]
-    recog_epoch = [20, 40, 60, 80, 100, 120, 140, 160, 180, 200]
+    recog_epoch = [20, 40, 60, 80, 100]
     for lr in lr_list:
         for ep in ep_list:
             lrs = [lr]*ep
@@ -127,7 +128,7 @@ def sis_run_with_prefix(prefix_name: Optional[str] = None):
                         "batch_size": 1200000,
                         "learning_rate": float(lrs[-1]),
                         # "learning_rates": lrs,
-                        "__num_epochs": 200,
+                        "__num_epochs": 100,
                         "mask_eos_output": True,
                         "add_eos_to_blank": True,
                         "preload_from_files": {
@@ -426,7 +427,69 @@ def train_exp(
             tk.register_output(ted2_prefix + f"/ilm_stats_v2/{dataset_key}/{epoch}/{compute_kldiv.default_out_file_name}" , out_stat_file)
 
 
+    # # ----------------- TED2 time sync recombination before pruning ----------------
+    # ted2_prefix = "lbs_cross_domain_ted2/" + prefix
+    # ted2_task = _get_ted2_task()
+    # from i6_experiments.users.phan.rf_models.default_checkpoints import default_ted2_lstm_extern_lm_checkpoint
+    # from i6_experiments.users.phan.recog.ctc_time_sync_recomb_first_v2 import model_recog_time_sync_recomb_first_v2
+
+    # #---------- default ted2 recog config ----------
+    # ted2_recog_config_update = {
+    #     'batch_size': 2400000,
+    #     "preload_from_files": {
+    #         "01_lstm_extern_lm": {
+    #             "prefix": "language_model.",
+    #             "filename": default_ted2_lstm_extern_lm_checkpoint,
+    #         },
+    #     },
+    #     "internal_language_model": default_ffnn_context1_layers2_hiddendim1000_ilm_config,
+    #     "external_language_model": default_tedlium2_extern_lm_config, # this to load the external LM only in recog
+    # }
+
+    # beam_sizes = [32]
+    # length_norm_scales = [0.0] # we don't need 1.0 for time sync search!!!
+    # lm_scales = [1.3, 1.4, 1.5, 1.6, 1.7, 1.8]
+    # ilm_scales = [0.8, 0.9, 1.0, 1.1, 1.2, 1.3, 1.4] 
+    # # prior_scales = [0.3, 0.4, 0.5]
+    # prior_scales = [0.0]
+    # for beam_size, lm_scale, ilm_scale, length_norm_scale, prior_scale in itertools.product(beam_sizes, lm_scales, ilm_scales, length_norm_scales, prior_scales):                
+    #     if ilm_scale >= lm_scale:
+    #         continue
+    #     # lr = config.get("learning_rate")
+    #     # if lr == 1e-3:
+    #     #     exclude_epochs = [20, 40, 60, 80, 120, 140, 160, 180, 200]
+    #     # elif lr == 1e-4:
+    #     #     exclude_epochs = [20, 60, 80, 100, 120, 140, 160, 180, 200]
+    #     exclude_epochs = []
+    #     search_args = {
+    #         "beam_size": beam_size,
+    #         "lm_scale": lm_scale,
+    #         "ilm_scale": ilm_scale,
+    #         "length_norm_scale": length_norm_scale,
+    #         "prior_scale": prior_scale,
+    #         # correct prior
+    #         "prior_file": "/work/asr3/zyang/share/mnphan/work_rf_ctc/work/i6_core/returnn/forward/ReturnnForwardJobV2.Wug49TgveO2b/output/prior.txt",
+    #         "ctc_log_prior": False,
+    #         "lm_skip": True,
+    #     }
+    #     ted2_recog_config_update_extra = copy.deepcopy(ted2_recog_config_update)
+    #     ted2_recog_config_update_extra.update({
+    #         "search_args": search_args,
+    #     })
+    #     recog_training_exp(
+    #         ted2_prefix + f"_timeSyncRecombFirstV2_beam-{beam_size}_lm-{lm_scale}_ilm-{ilm_scale}_lenNorm-{length_norm_scale}_prior-{prior_scale}",
+    #         ted2_task,
+    #         model_with_checkpoint,
+    #         search_config=ted2_recog_config_update_extra,
+    #         recog_def=model_recog_time_sync_recomb_first_v2,
+    #         model_avg=False,
+    #         exclude_epochs=exclude_epochs,
+    #         train_exp_name=name,
+    #         dev_sets=["dev", "test"],
+    #     )
+
     # ----------------- TED2 time sync recombination before pruning ----------------
+    # !!!!!!!!!!!!!!!!!!!!!! WITH MERGE CONTRACTION !!!!!!!!!!!!!!!!!!!!!!!
     ted2_prefix = "lbs_cross_domain_ted2/" + prefix
     ted2_task = _get_ted2_task()
     from i6_experiments.users.phan.rf_models.default_checkpoints import default_ted2_lstm_extern_lm_checkpoint
@@ -447,10 +510,10 @@ def train_exp(
 
     beam_sizes = [32]
     length_norm_scales = [0.0] # we don't need 1.0 for time sync search!!!
-    lm_scales = [1.3, 1.4, 1.5, 1.6, 1.7, 1.8]
-    ilm_scales = [0.8, 0.9, 1.0, 1.1, 1.2, 1.3, 1.4] 
+    lm_scales = [0.9, 1.0, 1.1, 1.2, 1.3, 1.4, 1.5]
+    ilm_scales = [0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 1.1] 
     # prior_scales = [0.3, 0.4, 0.5]
-    prior_scales = [0.0]
+    prior_scales = [0.0, 0.2, 0.3, 0.4, 0.5, 0.6]
     for beam_size, lm_scale, ilm_scale, length_norm_scale, prior_scale in itertools.product(beam_sizes, lm_scales, ilm_scales, length_norm_scales, prior_scales):                
         if ilm_scale >= lm_scale:
             continue
@@ -459,7 +522,7 @@ def train_exp(
         #     exclude_epochs = [20, 40, 60, 80, 120, 140, 160, 180, 200]
         # elif lr == 1e-4:
         #     exclude_epochs = [20, 60, 80, 100, 120, 140, 160, 180, 200]
-        exclude_epochs = []
+        exclude_epochs = [20, 60, 80, 100]
         search_args = {
             "beam_size": beam_size,
             "lm_scale": lm_scale,
@@ -476,7 +539,7 @@ def train_exp(
             "search_args": search_args,
         })
         recog_training_exp(
-            ted2_prefix + f"_timeSyncRecombFirstV2_beam-{beam_size}_lm-{lm_scale}_ilm-{ilm_scale}_lenNorm-{length_norm_scale}_prior-{prior_scale}",
+            ted2_prefix + f"_timeSyncRecombFirstV2_mergecontraction_beam-{beam_size}_lm-{lm_scale}_ilm-{ilm_scale}_lenNorm-{length_norm_scale}_prior-{prior_scale}",
             ted2_task,
             model_with_checkpoint,
             search_config=ted2_recog_config_update_extra,
@@ -485,6 +548,7 @@ def train_exp(
             exclude_epochs=exclude_epochs,
             train_exp_name=name,
             dev_sets=["dev", "test"],
+            merge_contraction=True,
         )
 
     return model_with_checkpoint

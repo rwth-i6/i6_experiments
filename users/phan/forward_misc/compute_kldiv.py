@@ -77,6 +77,8 @@ def forward_compute_kldiv(
         return_unsummed_loss=True,
     )
 
+    if config.bool("no_bos_eos", False):
+        ctc_kldiv = ctc_kldiv[:, :-1, :]
     ctc_kldiv_per_pos = ctc_kldiv.sum(-1)
     rf.get_run_ctx().mark_as_output(
         ctc_kldiv_per_pos,
@@ -126,21 +128,34 @@ def forward_compute_kldiv(
 
 
     # TODO: Also returns seq len to properly sum in the callback iface
+    if config.bool("no_bos_eos", False):
+        target_lengths = torch_target_lengths
+        max_seq_len_ = max_seq_len
+    else:
+        target_lengths = torch_target_lengths + 1
+        max_seq_len_ = max_seq_len + 1
     rf.get_run_ctx().mark_as_output(
-        torch_target_lengths+1,
+        target_lengths,
         "target_len_w_bos",
     )
 
     # TODO: Also compute dev-other PPL
     # Also report PPL of the ILM
     batch_size, max_seq_len = targets_raw.shape
-    targets_eos = torch.cat(
-        [targets_raw, torch.full((batch_size, 1), fill_value=model.eos_idx, device=targets_raw.device)],
-        dim=1,
-    ).long()
+    
+    if config.bool("no_bos_eos", False):
+        targets_eos = targets_raw.long()
+        ilm_log_probs = ilm_log_probs[:, :-1, :]
+    else:
+        targets_eos = torch.cat(
+            [targets_raw, torch.full((batch_size, 1), fill_value=model.eos_idx, device=targets_raw.device)],
+            dim=1,
+        ).long()
+
     # ilm_log_probs = ilm_log_probs.transpose(0,1)
     ce = torch.nn.functional.cross_entropy(ilm_log_probs.transpose(1, 2), targets_eos, reduction='none')
-    seq_mask = get_seq_mask(torch_target_lengths+1, max_seq_len+1, targets_raw.device)
+    seq_mask = get_seq_mask(target_lengths, max_seq_len_, targets_raw.device)
+    # print("EOS CE", ce.gather(-1, (target_lengths.to(ce.device).long().unsqueeze(-1)-1)))
     ce = (ce*seq_mask).sum(-1)
     rf.get_run_ctx().mark_as_output(
         ce,

@@ -206,24 +206,24 @@ def train_exp(
         #     "recog_epochs": [5, 10, 12, 13, 14],
         #     "ilm_config": default_ilm_config,
         # }
-        "ffnn_context1_layers2_hiddendim1000": {
-            "job": "/work/asr3/zyang/share/mnphan/work_rf_ctc/work/i6_core/returnn/training/ReturnnTrainingJob.cEtm5bxOkNnD",
-            # "recog_epochs": [1, 6, 12, 18, 24],
-            "recog_epochs": [6],
-            "ilm_config": ffnn_context1_config,
-        },
-        "ffnn_context6_layers2_hiddendim1000": {
-            "job": "/work/asr3/zyang/share/mnphan/work_rf_ctc/work/i6_core/returnn/training/ReturnnTrainingJob.plZWGXP93VTI",
-            # "recog_epochs": [1, 6, 11, 17, 22],
-            "recog_epochs": [6],
-            "ilm_config": ffnn_context6_config,
-        },
-        "ffnn_context10_layers2_hiddendim1000": {
-            "job": "/work/asr3/zyang/share/mnphan/work_rf_ctc/work/i6_core/returnn/training/ReturnnTrainingJob.tp9HkD3xGqQ5",
-            # "recog_epochs": [1, 6, 12, 18, 24],
-            "recog_epochs": [1],
-            "ilm_config": ffnn_context10_config,
-        },
+        # "ffnn_context1_layers2_hiddendim1000": {
+        #     "job": "/work/asr3/zyang/share/mnphan/work_rf_ctc/work/i6_core/returnn/training/ReturnnTrainingJob.cEtm5bxOkNnD",
+        #     # "recog_epochs": [1, 6, 12, 18, 24],
+        #     "recog_epochs": [6],
+        #     "ilm_config": ffnn_context1_config,
+        # },
+        # "ffnn_context6_layers2_hiddendim1000": {
+        #     "job": "/work/asr3/zyang/share/mnphan/work_rf_ctc/work/i6_core/returnn/training/ReturnnTrainingJob.plZWGXP93VTI",
+        #     # "recog_epochs": [1, 6, 11, 17, 22],
+        #     "recog_epochs": [6],
+        #     "ilm_config": ffnn_context6_config,
+        # },
+        # "ffnn_context10_layers2_hiddendim1000": {
+        #     "job": "/work/asr3/zyang/share/mnphan/work_rf_ctc/work/i6_core/returnn/training/ReturnnTrainingJob.tp9HkD3xGqQ5",
+        #     # "recog_epochs": [1, 6, 12, 18, 24],
+        #     "recog_epochs": [1],
+        #     "ilm_config": ffnn_context10_config,
+        # },
     }
 
     for ilm_arch in trans_lms:
@@ -233,7 +233,7 @@ def train_exp(
 
             # ---------------- Compute ILM statistics on librispeech -----------------
             from i6_experiments.users.phan.forward_misc import generic_forward_config, compute_kldiv
-            dataset_keys = ["dev-other", "test-other"]
+            dataset_keys = ["dev-other", "test-other", "dev-clean"]
             forward_extra_config = copy.deepcopy(config)
             forward_extra_config.update({
                 "batch_size": 4800000,
@@ -388,13 +388,79 @@ def train_exp(
             #     )
             #     tk.register_output(_sis_prefix + exp_name + suffix + f"/recog_results_per_epoch/{epoch}", res.output)
 
+            # prior = 0.0
+            from i6_experiments.users.phan.recog.ctc_time_sync_recomb_first_v2 import model_recog_time_sync_recomb_first_v2
+            beam_sizes = [32]
+            length_norm_scales = [0.0] # we don't need 1.0 for time sync search!!!
+            lm_scales = [0.8, 0.9, 1.0]
+            ilm_scales = [0.4, 0.5, 0.6, 0.7] 
+            prior_scales = [0.0] # [0.8]
+            for beam_size, lm_scale, ilm_scale, length_norm_scale, prior_scale in itertools.product(beam_sizes, lm_scales, ilm_scales, length_norm_scales, prior_scales):
+                if ilm_scale >= lm_scale:
+                    continue
+                if not (lm_scale == 0.9 and ilm_scale == 0.5):
+                    continue
+                search_args = {
+                    "beam_size": beam_size,
+                    "length_normalization_exponent": length_norm_scale, # by default len norm
+                    "lm_scale": lm_scale,
+                    "ilm_scale": ilm_scale,
+                    "lm_skip": True, # IMPORTANT!!!
+                }
+                if prior_scale > 0.0:
+                    search_args.update({
+                        "prior_scale": prior_scale,
+                        "prior_file": "/work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/2023-08-10--rf-librispeech/work/i6_core/returnn/forward/ReturnnForwardJobV2.OSftOYzAjRUg/output/prior.txt",
+                        "ctc_log_prior": False,
+                    })
+                exp_name = f"/{ilm_arch}"
+                suffix = f"_timeSyncRecombFirstV2_beam-{beam_size}_lm-{lm_scale}_ilm-{ilm_scale}_lenNorm-{length_norm_scale}_prior-{prior_scale}"
+                recog_name = prefix + exp_name + suffix
+                recog_config_update_extra = copy.deepcopy(recog_config_update)
+                recog_config_update_extra.update({
+                    "batch_size": 600000,
+                    "search_args": search_args,
+                    "internal_language_model": trans_lms[ilm_arch]["ilm_config"],
+                })
+                recog_config_update_extra["preload_from_files"].update({ # transcription ilm ep 5
+                    "02_ilm": {
+                        "prefix": "ilm.",
+                        "filename": ilm_ckpt,
+                    }
+                })
+                res = recog_model(
+                    task,
+                    ModelWithCheckpoint(
+                        definition=from_scratch_model_def,
+                        checkpoint=tk.Path("/work/asr4/zyang/torch_checkpoints/ctc/luca_20240617_noeos/epoch.1982.pt"),
+                    ),
+                    recog_def=model_recog_time_sync_recomb_first_v2,
+                    config=recog_config_update_extra,
+                    search_rqmt={"time": 7},
+                    dev_sets=["dev-other", "test-other", "dev-clean", "test-clean"],
+                    # dev_sets=["dev-other", "test-other"],
+                    name=recog_name,
+                    epoch=epoch
+                )
+                tk.register_output(_sis_prefix + exp_name + suffix + f"/recog_results_per_epoch/{epoch}", res.output)
+
+            # # --------------------- Cross-domain recognition on Tedlium 2 ---------------------
             # # prior = 0.0
+            # from i6_experiments.users.phan.rf_models.default_checkpoints import default_ted2_lstm_extern_lm_checkpoint
             # from i6_experiments.users.phan.recog.ctc_time_sync_recomb_first_v2 import model_recog_time_sync_recomb_first_v2
             # beam_sizes = [32]
             # length_norm_scales = [0.0] # we don't need 1.0 for time sync search!!!
-            # lm_scales = [0.9]
-            # ilm_scales = [0.4, 0.5] 
-            # prior_scales = [0.0] # [0.8]
+            # # lm_scales = [1.3, 1.4, 1.5, 1.6, 1.7, 1.8]
+            # # ilm_scales = [0.8, 0.9, 1.0, 1.1, 1.2, 1.3, 1.4] 
+            # # lm_scales = [0.8, 0.9, 1.0, 1.1, 1.2, 1.3]
+            # # ilm_scales = [0.3, 0.4, 0.5, 0.6, 0.7, 0.8] 
+            # # prior_scales = [0.0]
+            # # lm_scales = [1.4, 1.5, 1.6, 1.7, 1.8, 1.9]
+            # # ilm_scales = [0.6, 0.7, 0.8, 0.9, 1.0, 1.1, 1.2] 
+            # # prior_scales = [0.3, 0.4, 0.5, 0.6]
+            # lm_scales = [0.8, 0.9, 1.0, 1.1, 1.2, 1.3]
+            # ilm_scales = [0.3, 0.4, 0.5, 0.6, 0.7, 0.8] 
+            # prior_scales = [0.0, 0.2, 0.3, 0.4, 0.5, 0.6]
             # for beam_size, lm_scale, ilm_scale, length_norm_scale, prior_scale in itertools.product(beam_sizes, lm_scales, ilm_scales, length_norm_scales, prior_scales):
             #     if ilm_scale >= lm_scale:
             #         continue
@@ -405,104 +471,48 @@ def train_exp(
             #         "ilm_scale": ilm_scale,
             #         "lm_skip": True, # IMPORTANT!!!
             #     }
-            #     if prior_scale > 0.0:
-            #         search_args.update({
-            #             "prior_scale": prior_scale,
-            #             "prior_file": "/work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/2023-08-10--rf-librispeech/work/i6_core/returnn/forward/ReturnnForwardJobV2.OSftOYzAjRUg/output/prior.txt",
-            #             "ctc_log_prior": False,
-            #         })
+            #     search_args.update({
+            #         "prior_scale": prior_scale,
+            #         # correct prior
+            #         "prior_file": "/work/asr3/zeineldeen/hiwis/luca.gaudino/setups-data/2023-08-10--rf-librispeech/work/i6_core/returnn/forward/ReturnnForwardJobV2.OSftOYzAjRUg/output/prior.txt",
+            #         "ctc_log_prior": False,
+            #     })
             #     exp_name = f"/{ilm_arch}"
-            #     suffix = f"_timeSyncRecombFirstV2_beam-{beam_size}_lm-{lm_scale}_ilm-{ilm_scale}_lenNorm-{length_norm_scale}_prior-{prior_scale}"
-            #     recog_name = prefix + exp_name + suffix
+            #     suffix = f"_timeSyncRecombFirstV2_mergecontraction_beam-{beam_size}_lm-{lm_scale}_ilm-{ilm_scale}_lenNorm-{length_norm_scale}_prior-{prior_scale}"
+            #     recog_name = ted2_prefix + suffix
             #     recog_config_update_extra = copy.deepcopy(recog_config_update)
             #     recog_config_update_extra.update({
-            #         "batch_size": 600000,
+            #         "batch_size": 2400000,
             #         "search_args": search_args,
-            #         "internal_language_model": trans_lms[ilm_arch]["ilm_config"],
-            #     })
-            #     recog_config_update_extra["preload_from_files"].update({ # transcription ilm ep 5
-            #         "02_ilm": {
-            #             "prefix": "ilm.",
-            #             "filename": ilm_ckpt,
-            #         }
+            #         "preload_from_files": {
+            #             "01_lstm_extern_lm": {
+            #                 "prefix": "language_model.",
+            #                 "filename": default_ted2_lstm_extern_lm_checkpoint,
+            #             },
+            #             "02_ilm": {
+            #                 "prefix": "ilm.",
+            #                 "filename": ilm_ckpt,
+            #             }
+            #         },
+            #         "external_language_model": default_tedlium2_extern_lm_config,
+            #         "internal_language_model": trans_lms[ilm_arch]["ilm_config"]
             #     })
             #     res = recog_model(
-            #         task,
+            #         ted2_task,
             #         ModelWithCheckpoint(
             #             definition=from_scratch_model_def,
             #             checkpoint=tk.Path("/work/asr4/zyang/torch_checkpoints/ctc/luca_20240617_noeos/epoch.1982.pt"),
             #         ),
             #         recog_def=model_recog_time_sync_recomb_first_v2,
             #         config=recog_config_update_extra,
-            #         search_rqmt={"time": 7},
-            #         dev_sets=["dev-other", "test-other", "dev-clean", "test-clean"],
+            #         search_rqmt={"time": 5},
+            #         dev_sets=["dev", "test"],
             #         name=recog_name,
-            #         epoch=epoch
-            #     )
-            #     tk.register_output(_sis_prefix + exp_name + suffix + f"/recog_results_per_epoch/{epoch}", res.output)
+            #         epoch=epoch,
+            #         merge_contraction=True,
 
-            # --------------------- Cross-domain recognition on Tedlium 2 ---------------------
-            # prior = 0.0
-            from i6_experiments.users.phan.rf_models.default_checkpoints import default_ted2_lstm_extern_lm_checkpoint
-            from i6_experiments.users.phan.recog.ctc_time_sync_recomb_first_v2 import model_recog_time_sync_recomb_first_v2
-            beam_sizes = [32]
-            length_norm_scales = [0.0] # we don't need 1.0 for time sync search!!!
-            # lm_scales = [1.3, 1.4, 1.5, 1.6, 1.7, 1.8]
-            # ilm_scales = [0.8, 0.9, 1.0, 1.1, 1.2, 1.3, 1.4] 
-            # prior_scales = [0.0]
-            lm_scales = [1.4, 1.5, 1.6, 1.7, 1.8, 1.9]
-            ilm_scales = [0.6, 0.7, 0.8, 0.9, 1.0, 1.1, 1.2] 
-            prior_scales = [0.3, 0.4, 0.5, 0.6]
-            for beam_size, lm_scale, ilm_scale, length_norm_scale, prior_scale in itertools.product(beam_sizes, lm_scales, ilm_scales, length_norm_scales, prior_scales):
-                if ilm_scale >= lm_scale:
-                    continue
-                search_args = {
-                    "beam_size": beam_size,
-                    "length_normalization_exponent": length_norm_scale, # by default len norm
-                    "lm_scale": lm_scale,
-                    "ilm_scale": ilm_scale,
-                    "lm_skip": True, # IMPORTANT!!!
-                }
-                search_args.update({
-                    "prior_scale": prior_scale,
-                    # correct prior
-                    "prior_file": "/work/asr3/zyang/share/mnphan/work_rf_ctc/work/i6_core/returnn/forward/ReturnnForwardJobV2.Wug49TgveO2b/output/prior.txt",
-                    "ctc_log_prior": False,
-                })
-                exp_name = f"/{ilm_arch}"
-                suffix = f"_timeSyncRecombFirstV2_beam-{beam_size}_lm-{lm_scale}_ilm-{ilm_scale}_lenNorm-{length_norm_scale}_prior-{prior_scale}"
-                recog_name = ted2_prefix + suffix
-                recog_config_update_extra = copy.deepcopy(recog_config_update)
-                recog_config_update_extra.update({
-                    "batch_size": 2400000,
-                    "search_args": search_args,
-                    "preload_from_files": {
-                        "01_lstm_extern_lm": {
-                            "prefix": "language_model.",
-                            "filename": default_ted2_lstm_extern_lm_checkpoint,
-                        },
-                        "02_ilm": {
-                            "prefix": "ilm.",
-                            "filename": ilm_ckpt,
-                        }
-                    },
-                    "external_language_model": default_tedlium2_extern_lm_config,
-                    "internal_language_model": trans_lms[ilm_arch]["ilm_config"]
-                })
-                res = recog_model(
-                    ted2_task,
-                    ModelWithCheckpoint(
-                        definition=from_scratch_model_def,
-                        checkpoint=tk.Path("/work/asr4/zyang/torch_checkpoints/ctc/luca_20240617_noeos/epoch.1982.pt"),
-                    ),
-                    recog_def=model_recog_time_sync_recomb_first_v2,
-                    config=recog_config_update_extra,
-                    search_rqmt={"time": 5},
-                    dev_sets=["dev", "test"],
-                    name=recog_name,
-                    epoch=epoch,
-                )
-                tk.register_output(ted2_sis_prefix + exp_name + suffix + f"/recog_results_per_epoch/{epoch}", res.output)
+            #     )
+            #     tk.register_output(ted2_sis_prefix + exp_name + suffix + f"/recog_results_per_epoch/{epoch}", res.output)
 
             # # --------------------- Cross-domain recognition on Tedlium 2 ---------------------
             # # prior > 0.0

@@ -807,7 +807,7 @@ def _score_recog_out_v1(dataset: DatasetConfig, recog_output: RecogOutput) -> Sc
     return ScoreResult(dataset_name=corpus_name, main_measure_value=score_job.out_wer, report=score_job.out_report_dir)
 
 
-def _score_recog_out_v2(dataset: DatasetConfig, recog_output: RecogOutput) -> ScoreResult:
+def _score_recog_out_v2(dataset: DatasetConfig, recog_output: RecogOutput, merge_contraction=False) -> ScoreResult:
     """score"""
     # We use sclite now.
     # Could also use ReturnnComputeWERJob.

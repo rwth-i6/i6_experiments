@@ -43,7 +43,7 @@ from i6_experiments.users.phan.rf_models.unigram_lm import Unigram_LM_RF
 from i6_experiments.users.phan.rf_models.trafo_lm_luca import Trafo_LM_Model
 from i6_experiments.users.yang.torch.loss.ctc_forward_backward import ctc_forward
 from i6_experiments.users.yang.torch.loss.ctc_pref_scores_loss import kldiv_ctc_lm_loss, kldiv_ctc_lm_sample_batch_loss, ctc_double_softmax_loss
-from i6_experiments.users.phan.ctc_lf_mmi import ctc_lf_mmi_context_1_topk
+from i6_experiments.users.phan.ctc_lf_mmi import ctc_lf_mmi_context_1_topk, ctc_lf_mmi_context_1_topk_strict
 from i6_experiments.users.phan.utils.masking import get_seq_mask, mask_audio_features_with_alignments, \
     mask_audio_features_exact_label_pos_single_seq
 from i6_experiments.users.phan.alignment.convert import map_sublabels_to_pseudo_label_indices
@@ -1167,7 +1167,12 @@ def from_scratch_training_lfmmi_context_1(
     assert am_scale is not None, "Must provide am_scale in config"
     assert lm_scale is not None, "Must provide lm_scale in config"
     assert top_k is not None, "Must provide top_k in config"
-    lfmmi_loss = ctc_lf_mmi_context_1_topk(
+    using_strict_topk = config.typed_value("using_strict_topk", False)
+    if not using_strict_topk:
+        lfmmi_loss_func = ctc_lf_mmi_context_1_topk
+    else:
+        lfmmi_loss_func = ctc_lf_mmi_context_1_topk_strict
+    lfmmi_loss = lfmmi_loss_func(
         ctc_log_posteriors,
         targets_raw,
         torch_input_lengths,

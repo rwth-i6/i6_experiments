@@ -13,6 +13,8 @@ from typing import Optional, Any, Union, Tuple, Dict
 from copy import deepcopy
 
 from sisyphus import tk
+from sisyphus import *
+from sisyphus import Task as sisTask
 from i6_core.corpus.convert import CorpusToTxtJob
 from i6_core.text.label.sentencepiece.train import (
     TrainSentencePieceJob,
@@ -492,7 +494,7 @@ def _bpe_to_words(bpe: RecogOutput) -> RecogOutput:
     return RecogOutput(output=words)
 
 
-def _score(*, hyp_words: tk.Path, corpus_name: str) -> ScoreResult:
+def _score(*, hyp_words: tk.Path, corpus_name: str, merge_contraction=False) -> ScoreResult:
     # We use sclite now.
     # Could also use ReturnnComputeWERJob.
 
@@ -501,6 +503,9 @@ def _score(*, hyp_words: tk.Path, corpus_name: str) -> ScoreResult:
     from i6_core.recognition.scoring import ScliteJob
 
     recognition_bliss_corpus = bliss_corpus_dict[corpus_name]
+    if merge_contraction:
+        recognition_bliss_corpus = CorpusMergeContractionsJob(recognition_bliss_corpus).out_corpus_file
+
 
     search_ctm = SearchWordsToCTMJob(
         recog_words_file=hyp_words,
@@ -523,6 +528,68 @@ def _score(*, hyp_words: tk.Path, corpus_name: str) -> ScoreResult:
     )
 
 
-def score(dataset: DatasetConfig, recog_output: RecogOutput) -> ScoreResult:
+def score(dataset: DatasetConfig, recog_output: RecogOutput, merge_contraction=False) -> ScoreResult:
     """score"""
-    return _score(hyp_words=recog_output.output, corpus_name=dataset.get_main_name())
+    return _score(hyp_words=recog_output.output, corpus_name=dataset.get_main_name(), merge_contraction=merge_contraction)
+
+
+def _merge_contractions(s):
+    import re
+
+    res = re.sub(r"(\b\w+)\s'([a-zA-Z]+)\b", r"\1'\2", s)
+    res = res.lower()
+    return res
+
+
+class MergeContractionsJob(Job):
+    """
+    Merge contractions (ending with 's)
+    example: he 's => he's
+
+    Takes as input a dict with format {<seq-tag>: <text>}
+    """
+
+    def __init__(self, dict_file: tk.Path):
+        self.dict_file = dict_file
+        self.out_dict = self.output_path("out_dict.txt")
+
+    def tasks(self):
+        yield sisTask("run", mini_task=True)
+
+    def run(self):
+        if self.dict_file.get_path().endswith(".gz"):
+            import gzip
+
+            open_func = gzip.open
+        else:
+            open_func = open
+
+        d = eval(open_func(self.dict_file.get_path()).read())
+
+        out_f = open(self.out_dict.get_path(), "wt")
+        out_f.write("{\n")
+        for k, v in d.items():
+            out_f.write(f"{k!r}: {_merge_contractions(v)!r},\n")
+        out_f.write("}\n")
+
+
+class CorpusMergeContractionsJob(Job):
+
+    def __init__(self, corpus_file: tk.Path):
+        self.corpus_file = corpus_file
+
+        self.out_corpus_file = self.output_path("out_corpus.xml")
+
+    def tasks(self):
+        yield sisTask("run", mini_task=True)
+
+    def run(self):
+        from i6_core.lib.corpus import Corpus
+
+        c = Corpus()
+        c.load(self.corpus_file.get_path())
+
+        for seg in c.segments():
+            seg.orth = _merge_contractions(seg.orth)
+
+        c.dump(self.out_corpus_file.get_path())
