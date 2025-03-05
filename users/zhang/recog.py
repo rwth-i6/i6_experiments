@@ -35,7 +35,7 @@ from i6_experiments.users.zeyer.returnn.training import get_relevant_epochs_from
 
 import numpy as np
 
-from .experiments.ctc import model_recog_lm
+from .experiments.ctc import model_recog_lm, model_recog_flashlight
 from .datasets.librispeech import get_bpe_lexicon, LibrispeechOggZip
 
 if TYPE_CHECKING:
@@ -295,7 +295,7 @@ def recog_model(
         score_out = task.score_recog_output_func(dataset, recog_out)
         outputs[dataset_name] = score_out
         if dataset_name == "test-other" and search_error_check:
-            search_error = check_search_error(dataset=dataset, model=model, hyps=hyps,
+            search_error = check_search_error(dataset=dataset, model=model, hyps=hyps, config=config,
                                               decoding_config=decoding_config,prior_path=prior_path,
                                               alias_name=f"{name}/search_error/{dataset_name}" if name else None,
                                               )
@@ -360,13 +360,14 @@ def check_search_error(
         decoding_config: dict,
         prior_path: tk.Path,
         mem_rqmt: Union[int, float] = 16,
+        config: Optional[Dict[str, Any]] = None,
         alias_name: Optional[str] = None,
 ) -> tk.Path:
     from .experiments.ctc import scoring
     pre_SearchError_job = ReturnnForwardJobV2(
         model_checkpoint=model.checkpoint,
         returnn_config=search_error_config(dataset, model.definition, scoring,
-                                           decoding_config=decoding_config, prior_path=prior_path),
+                                           decoding_config=decoding_config, config=config, prior_path=prior_path),
         output_files=[_v2_forward_out_filename],
         returnn_python_exe=tools_paths.get_returnn_python_exe(),
         returnn_root=tools_paths.get_returnn_root(),
@@ -381,6 +382,7 @@ def check_search_error(
     from .utils.search_error import ComputeSearchErrorsJob
     # TODO ground_truth_out and hyps might not in comparable text form.(bpe <-> word)
     res = ComputeSearchErrorsJob(ground_truth_out, hyps).out_search_errors
+    tk.register_output(alias_name + "/search_error_job", res)
     return res
 
 def search_dataset(
@@ -578,6 +580,8 @@ def search_error_config(
         scoring_func: Callable,
         decoding_config: dict,
         prior_path: tk.Path,
+        *,
+        config: Optional[Dict[str, Any]] = None,
 ) -> ReturnnConfig:
     # changing these does not change the hash
     post_config = dict(  # not hashed
@@ -600,6 +604,8 @@ def search_error_config(
         batch_size=500 * 16000,
         max_seqs=240,
     )
+    if config:
+        returnn_config_dict.update(config)
     if isinstance(model_def, ModelDefWithCfg):
         returnn_config_dict.update(model_def.config)
 
@@ -622,9 +628,21 @@ def search_error_config(
         print("No vocab found in dataset!!!")
         lexicon = None
     decoder_params = decoding_config.copy()  # Since decoding_config is shared across runs for different lm
-    lm = decoder_params.pop("lm", 0)
-    # print(f"lm:{lm}, type:{type(lm)}")
-    assert lm != 0, "no lm in decoding_config!!!"
+
+    if "lm_order" in decoder_params:
+        lm_name = decoder_params["lm_order"]
+        if lm_name[0].isdigit():  # Use count based n-gram, it is already in decoder_params["lm"] TODO: maybe pass the lm config here and get the lm here
+            lm = decoder_params.pop("lm", 0)
+            assert lm != 0, "no count based lm given in decoding_config!!!"
+        elif lm_name.startswith(
+                "ffnn"):  # Actually lm should be none not only for ffnn, can change to something else later
+            decoder_params.pop("lm", 0)
+            lm = None
+        else:
+            raise NotImplementedError(f"Unknown lm_name {lm_name}")
+    else:
+        lm = None
+
     args = {"lm": lm, "lexicon": lexicon, "hyperparameters": decoder_params}
     if prior_path:
         args["prior_file"] = prior_path
@@ -650,7 +668,7 @@ def search_error_config(
                     serialization.Import(_returnn_v2_get_model, import_as="get_model"),
                     serialization.Import(_returnn_search_error_step, import_as="forward_step"),
                     serialization.Import(_returnn_search_error_forward_callback, import_as="forward_callback"),
-                    serialization.ExplicitHash({"version": 1}),
+                    serialization.ExplicitHash({"version": 1}),  #1: eos added 2: eos not added
                     serialization.PythonEnlargeStackWorkaroundNonhashedCode,
                     serialization.PythonCacheManagerFunctionNonhashedCode,
                     serialization.PythonModelineNonhashedCode,
@@ -937,15 +955,30 @@ def search_config_v2(
             print("No vocab found in dataset!!!")
             lexicon = None
         decoder_params = decoding_config.copy() # Since decoding_config is shared across runs for different lm
-        lm = decoder_params.pop("lm", 0)
-        #print(f"lm:{lm}, type:{type(lm)}")
-        assert lm != 0, "no lm in decoding_config!!!"
+
+        if "lm_order" in decoder_params:
+            lm_name = decoder_params["lm_order"]
+            if lm_name[0].isdigit(): #Use count based n-gram, it is already in decoder_params["lm"] TODO: maybe pass the lm config here and get the lm here
+                lm = decoder_params.pop("lm", 0)
+                assert lm != 0, "no count based lm given in decoding_config!!!"
+            elif lm_name.startswith("ffnn"): # Actually lm should be none not only for ffnn, can change to something else later
+                decoder_params.pop("lm", 0)
+                lm = None
+            else:
+                raise NotImplementedError(f"Unknown lm_name {lm_name}")
+        else:
+            lm = None
+
         args = {"lm": lm, "lexicon": lexicon, "hyperparameters": decoder_params}
+        if prior_path:
+            args["prior_file"] = prior_path
+
+    elif recog_def is model_recog_flashlight:
+        args = {"hyperparameters": decoding_config}
         if prior_path:
             args["prior_file"] = prior_path
     else:
         args = {}
-
     returnn_recog_config = ReturnnConfig(
         config=returnn_recog_config_dict,
         python_epilog=[

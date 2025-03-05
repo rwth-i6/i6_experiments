@@ -11,6 +11,7 @@ import numpy as np
 import re
 import json
 
+from i6_experiments.users.zeyer.datasets.librispeech import get_vocab_by_str
 from sisyphus import tk
 import returnn.frontend as rf
 from returnn.frontend.encoder.conformer import ConformerEncoder, ConformerEncoderLayer, ConformerConvSubsample
@@ -22,6 +23,15 @@ def ctc_exp(lmname, lm, vocab):
     # model name: f"v6-relPosAttDef-bhv20-11gb-f32-bs15k-accgrad1-mgpu4-pavg100"
     #               f"-maxSeqLenAudio19_5-wd1e_2-lrlin1e_5_295k-featBN-speedpertV2"
     #               f"-[vocab]" + f"-[sample]"
+    # relPosAttDef: Use the default RelPosSelfAttention instead of the Shawn et al 2018 style, old RETURNN way.
+    enc_conformer_layer_default = rf.build_dict(
+        ConformerEncoderLayer,
+        ff_activation=rf.build_dict(rf.relu_square),
+        num_heads=8,
+    )
+    model_config = {"enc_conformer_layer": enc_conformer_layer_default, "feature_batch_norm": True}
+
+
     recog_epoch = None
     if vocab == "bpe128":
         exclude_epochs = set(range(0, 501)) - set([477])#Reduce #ForwardJobs, 477 is the best epoch for most cases.
@@ -31,7 +41,7 @@ def ctc_exp(lmname, lm, vocab):
         recog_epoch = 500
 
     tune_hyperparameters = False
-    with_prior = False
+    with_prior = True
     prior_from_max = False # ! arg in recog.compute_prior, actually Unused
     empirical_prior = False
     #-------------------setting decoding config-------------------
@@ -39,14 +49,21 @@ def ctc_exp(lmname, lm, vocab):
     decoding_config = {
         "log_add": False,
         "nbest": 1,
-        "beam_size": 1, # 80 for previous exps on bpe128
+        "beam_size": 10, # 80 for previous exps on bpe128
         "lm_weight": 1.45,  # Tuned_best val: 1.45 NOTE: weights are exponentials of the probs.
         "use_logsoftmax": True,
         "use_lm": False,
         "use_lexicon": False, # Do open vocab search when using bpe lms.
     }
-    decoding_config["lm"] = lm
+    if lmname != "NoLM":
+        decoding_config["lm_order"] = lmname
+        if lmname[0].isdigit():
+            decoding_config["lm"] = lm
+        else: # in var lm Should be a config
+            model_config["recog_language_model"] = lm
+
     decoding_config["use_lm"] = True if lm else False
+
     if re.match(r".*word.*", lmname): # Why  or "NoLM"  in lmname?
         decoding_config["use_lexicon"] = True
     else:
@@ -67,21 +84,19 @@ def ctc_exp(lmname, lm, vocab):
 
     alias_name = f"ctc-baseline" + "decodingWith_" + lm_hyperparamters_str + lmname if lm else f"ctc-baseline-" + vocab + lmname
     print(f"name{lmname}", "lexicon:" + str(decoding_config["use_lexicon"]))
-    from i6_experiments.users.zhang.experiments.ctc import train_exp, model_recog_lm, config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4, _get_cfg_lrlin_oclr_by_bs_nep, speed_pert_librosa_config, _raw_sample_rate
-    search_mem_rqmt = 16 if vocab == "bpe10k" else 6
-    search_rqmt = {"cpu": search_mem_rqmt//2, "time": 6} if vocab == "bpe10k" else None
 
-    # relPosAttDef: Use the default RelPosSelfAttention instead of the Shawn et al 2018 style, old RETURNN way.
-    enc_conformer_layer_default = rf.build_dict(
-        ConformerEncoderLayer,
-        ff_activation=rf.build_dict(rf.relu_square),
-        num_heads=8,
-    )
+    from i6_experiments.users.zhang.experiments.ctc import train_exp, model_recog_lm, model_recog_flashlight, config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4, _get_cfg_lrlin_oclr_by_bs_nep, speed_pert_librosa_config, _raw_sample_rate
+    search_mem_rqmt = 16 if vocab == "bpe10k"  else 6
+    search_rqmt = {"cpu": search_mem_rqmt//2, "time": 6} if vocab == "bpe10k" else None
+    if "ffnn" in lmname:
+        search_mem_rqmt = 24
+        search_rqmt = {"time": decoding_config["beam_size"]//3 + 4}
+
     _, wer_result_path, search_error, lm_scale = train_exp(
         name=alias_name,
         config=config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4,
-        decoder_def=model_recog_lm,
-        model_config={"enc_conformer_layer": enc_conformer_layer_default, "feature_batch_norm": True},
+        decoder_def=model_recog_flashlight if "ffnn" in lmname else model_recog_lm,
+        model_config=model_config,
         config_updates={
             **_get_cfg_lrlin_oclr_by_bs_nep(15_000, 500),
             "optimizer.weight_decay": 1e-2,
@@ -146,10 +161,10 @@ def py():
             #                          [x * 1e-7 for x in range(1, 10, 2)]
             #                          ))
             prune_threshs = [
-                            1e-9, 1.3e-8, 6.7e-8,
-                             3e-7, 7e-7, 1.7e-6,
-                             5.1e-6,
-                             8.1e-6, 1.1e-5, 1.6e-5, 1.9e-5
+                            #1e-9, 1.3e-8, 6.7e-8,
+                             #3e-7, 7e-7, 1.7e-6,
+                             #5.1e-6,
+                             #8.1e-6, 1.1e-5, 1.6e-5, 1.9e-5
                              ]
             prune_threshs.sort()
             exp_names_postfix += str(n_order) + "_"
@@ -165,6 +180,33 @@ def py():
                 lms.update(dict([(lm_name, lm)]))
                 ppl_results.update(dict([(lm_name, ppl_log)]))
                 tk.register_output(f"datasets/LibriSpeech/lm/ppl/" + lm_name, ppl_log)
+
+        # ----------------------Add $vocab$ FFNN LMs--------------------
+        # /u/haoran.zhang/setups/2024-12-16--lm-ppl/work/i6_core/returnn/training/ReturnnTrainingJob.T5Vjltnx1Sp3/output/models/epoch.050
+        from .lm.ffnn import get_ffnn_lm
+        lm_config = {
+                    "context_size": 15,
+                    "num_layers": 2,
+                    "ff_hidden_dim": 2048
+                }
+        # f"ffnn{ctx_size}_{epoch}"
+        lm_checkpoint, ppl, epoch = get_ffnn_lm(get_vocab_by_str(vocab), **lm_config)#context_size=ctx_size, num_layers=2, ff_hidden_dim=2048)
+        #embed_dim 128, relu dropout=0.0,embed_dropout=0.0
+        lm_config["class"] = "FeedForwardLm"
+        ctx_size = lm_config["context_size"]
+        ffnnlm_name = f"ffnn{ctx_size}_{epoch}"
+        ppl_results.update(dict([(ffnnlm_name, ppl)]))
+        ffnn_lm = {
+                    "preload_from_files": {
+                    "recog_lm": {
+                        "prefix": "recog_language_model.",
+                        "filename": lm_checkpoint.checkpoint,
+                        },
+                    },
+                    "recog_language_model":lm_config
+                }
+        # -------------------------------------
+
         exp_names_postfix += f"pruned_{str(prune_num)}"
         # Try to use the out of downstream job which has existing logged output. Instead of just Forward job, which seems cleaned up each time
         # lms.update({"NoLM": None})
@@ -178,7 +220,8 @@ def py():
                 continue
             wer_ppl_results = dict()
             #----------Test--------------------
-            lms = ({"NoLM": None})
+            # lms = ({"NoLM": None})
+            lms = {ffnnlm_name: ffnn_lm}
             #------------------------------
             for name, lm in lms.items():
                 # lm_name = lm if isinstance(lm, str) else lm.name
