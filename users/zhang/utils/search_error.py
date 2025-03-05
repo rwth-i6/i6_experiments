@@ -26,6 +26,7 @@ class ComputeSearchErrorsJob(Job):
 
         num_seqs = 0
         num_search_errors = 0
+        num_unequal = 0
 
         # for each seq tag, calculate whether we have a search error
         for seq_tag in d_gt.keys():
@@ -36,11 +37,15 @@ class ComputeSearchErrorsJob(Job):
 
             # we count as search error if the label seqs differ and the search score is worse than the ground truth score
             is_search_error = False
+            targets_search = targets_search.replace("@@ ", "")
+            targets_search = targets_search.replace("<blank>", "")
+            targets_search = " ".join(targets_search.split())
             if list(targets_ground_truth) == list(targets_search):
                 equal_label_seq = True
             else:
+                num_unequal += 1
                 equal_label_seq = False
-                if score_ground_truth > score_search:
+                if score_ground_truth > score_search:# TODO add threshold
                     is_search_error = True
                     num_search_errors += 1
 
@@ -61,4 +66,5 @@ class ComputeSearchErrorsJob(Job):
                 f.write(log_txt)
 
         with open(self.out_search_errors.get_path(), "w+") as f:
-            f.write("Search errors: %f%%" % ((num_search_errors / num_seqs) * 100) + "\n")
+            f.write("Search errors: %.2f%%" % ((num_search_errors / num_seqs) * 100) + "\n" +
+                    "Search errors/total errors: %.2f%%" % ((num_search_errors / num_unequal) * 100) + "\n")

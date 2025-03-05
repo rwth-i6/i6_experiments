@@ -4,13 +4,13 @@ training based on i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines
 
 from __future__ import annotations
 
-from typing import Optional, Sequence, Tuple
+from typing import TYPE_CHECKING, Optional, Sequence, Tuple, Callable, Dict, Union, Any
 
-import torch
 import tree
 
-from returnn.tensor import Tensor, Dim, single_step_dim
+from returnn.tensor import Tensor, Dim, single_step_dim, batch_dim
 import returnn.frontend as rf
+import returnn.torch.frontend as rtf
 
 from i6_experiments.users.zeyer.model_interfaces import ModelDefWithCfg, TrainDef, ModelDef
 
@@ -20,102 +20,154 @@ from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.configs impo
 from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.lm import _get_cfg_lrlin_oclr_by_bs_nep
 from i6_experiments.users.zeyer.utils.dict_update import dict_update_deep
 
+from i6_experiments.users.zhang.experiments.lm.lm_ppl import compute_ppl
 
-def py():
+import torch
+from torchaudio.models.decoder import CTCDecoderLM, CTCDecoderLMState
+
+if TYPE_CHECKING:
+    from sisyphus import *
+    from i6_experiments.users.zeyer.datasets.utils.bpe import Bpe
+    from i6_experiments.users.zeyer.model_with_checkpoints import ModelWithCheckpoint
+
+def get_ffnn_lm(vocab: Bpe, context_size: int, num_layers: int = 2, ff_hidden_dim: int = 2048, dropout: float = 0.0,
+                embed_dropout: float = 0.0)-> Tuple[ModelWithCheckpoint, tk.path, int]:
     from i6_experiments.users.zeyer.train_v3 import train
     from i6_experiments.users.zeyer.datasets.librispeech import get_librispeech_lm_dataset
-    for ctx_size in [15]:
-        for num_layer in [2,3]:
-            train(
-                f"lm/ffnn-n{num_layer}-ctx{ctx_size}-embd128-d2048-bpe128-drop0.1-relu",
-                config=dict_update_deep(
-                    config_11gb_lm_v1,
-                    {
-                        **_get_cfg_lrlin_oclr_by_bs_nep(200, 10_000, 50), # Partition epoch is 20
-                        "max_seq_length": {},
-                        "torch_distributed": None,
-                        "use_horovod": False,
-                    },
-                ),
-                train_dataset=get_librispeech_lm_dataset(vocab="bpe128"),
-                model_def=ModelDefWithCfg(
-                    lm_model_def,
-                    {
-                        "_model_def_dict": rf.build_dict(
-                            FeedForwardLm,
-                            context_size=10,
-                            num_layers=num_layer,
-                            embed_dropout=0.1,
-                            dropout=0.1,
-                            ff_hidden_dim=2048,
-                        )
-                    },
-                ),
-                train_def=lm_train_def,
+
+    lm_dataset = get_librispeech_lm_dataset(vocab=vocab)
+
+    train_prefix_name = f"ffnn-n{num_layers}-ctx{context_size}-embd128-d{ff_hidden_dim}-bpe128-drop{dropout}-relu"
+    conf = _get_cfg_lrlin_oclr_by_bs_nep(200, 10_000, 50)
+    conf["learning_rate_piecewise_steps"] = [205817, 411635, 457372]
+    model_with_checkpoints = train(
+        f"lm/{train_prefix_name}",
+        config=dict_update_deep(
+            config_11gb_lm_v1,
+            {
+                **conf,
+                "max_seq_length": {},
+                "torch_distributed": None,
+                "use_horovod": False,
+                "version": 2,
+            },
+        ),
+        train_dataset=lm_dataset,
+        model_def=ModelDefWithCfg(
+            lm_model_def,
+            {
+                "_model_def_dict": rf.build_dict(
+                    FeedForwardLm,
+                    num_layers=num_layers,
+                    context_size=context_size,
+                    embed_dropout=embed_dropout,
+                    dropout=dropout,
+                    ff_hidden_dim=ff_hidden_dim,
+                )
+            },
+        ),
+        train_def=lm_train_def,
     )
-    #
-    # train(
-    #     f"lm/ffnn-n2-ctx10-embd128-d2048-bpe128-drop0.1-tanh",
-    #     config=dict_update_deep(
-    #         config_11gb_lm_v1,
-    #         {
-    #             **_get_cfg_lrlin_oclr_by_bs_nep(200, 10_000, 50),
-    #             "max_seq_length": {},
-    #             "torch_distributed": None,
-    #             "use_horovod": False,
-    #         },
-    #     ),
-    #     train_dataset=get_librispeech_lm_dataset(vocab="bpe128"),
-    #     model_def=ModelDefWithCfg(
-    #         lm_model_def,
-    #         {
-    #             "_model_def_dict": rf.build_dict(
-    #                 FeedForwardLm,
-    #                 context_size=10,
-    #                 num_layers=2,
-    #                 embed_dropout=0.1,
-    #                 dropout=0.1,
-    #                 ff_hidden_dim=2048,
-    #                 activation_func=rf.tanh,
-    #             )
-    #         },
-    #     ),
-    #     train_def=lm_train_def,
-    # )
-    #
-    # train(
-    #     f"lm/ffnn-n2-ctx10-embd128-d2048-bpe128-drop0.0-tanh",
-    #     config=dict_update_deep(
-    #         config_11gb_lm_v1,
-    #         {
-    #             **_get_cfg_lrlin_oclr_by_bs_nep(200, 10_000, 50),
-    #             "max_seq_length": {},
-    #             "torch_distributed": None,
-    #             "use_horovod": False,
-    #         },
-    #     ),
-    #     train_dataset=get_librispeech_lm_dataset(vocab="bpe128"),
-    #     model_def=ModelDefWithCfg(
-    #         lm_model_def,
-    #         {
-    #             "_model_def_dict": rf.build_dict(
-    #                 FeedForwardLm,
-    #                 context_size=10,
-    #                 num_layers=2,
-    #                 embed_dropout=0.0,
-    #                 dropout=0.0,
-    #                 ff_hidden_dim=2048,
-    #                 activation_func=rf.tanh,
-    #             )
-    #         },
-    #     ),
-    #     train_def=lm_train_def,
-    # )
+    ppls = compute_ppl(
+        prefix_name=train_prefix_name,
+        model_with_checkpoints=model_with_checkpoints,
+        dataset=lm_dataset,
+        dataset_keys=["transcriptions-train", "transcriptions-test-other", "transcriptions-dev-other"],
+    )
+
+    return model_with_checkpoints.get_last_fixed_epoch(), ppls[f"epoch{model_with_checkpoints.last_fixed_epoch_idx}"], model_with_checkpoints.last_fixed_epoch_idx
+
+class FFNN_LM_State(CTCDecoderLMState):
+    def __init__(self, tokens: Sequence[int], context_size: int, labels: Sequence[int]):
+        super().__init__()
+        assert len(tokens) == context_size
+        self.context_size = context_size
+        self.tokens = tokens
+        self.labels = labels
+
+    def __add__(self, token: int):
+        new_tokens = self.tokens[1:] + [token]
+        return FFNN_LM_State(new_tokens, context_size=self.context_size, labels=self.labels)
+
+    def child(self, token: int) -> FFNN_LM_State:
+        return self + token
+
+    def __repr__(self):
+        return f"FFNN_LM_State({self.tokens})"
+
+    def __eq__(self, other):
+        return isinstance(other, FFNN_LM_State) and self.tokens == other.tokens
+
+    def __hash__(self):
+        return hash(tuple(self.tokens))
+
+    # @property
+    # def children(self) -> Dict[int, FFNN_LM_State]:
+    #     """Map of indices to LM states"""
+    #     return {i: self.child(i) for i in self.labels}
 
 
-def compute_ppl():
-    pass
+class FFNN_LM_flashlight(CTCDecoderLM):
+    """Create a Python wrapper around `language_model` to feed to the decoder."""
 
+    def __init__(self, language_model: FeedForwardLm, vocab_dim: Dim, context_size: int):
+        super().__init__()
+        self.language_model = language_model
+        self.vocab_dim = vocab_dim
+        self.vocab = vocab_dim.vocab
+        self.context_size = context_size
+        self.states = {}
+        # self.cache = {} # NOTE: necessary as the garbage collector will delete states otherwise which leads to errors, so we have to keep track of them
+        self.cache = []
+
+    def _get_logprobs(self, tokens: list) -> torch.Tensor:
+        tokens = torch.tensor(tokens, dtype=torch.int64).unsqueeze(0)
+        #-------------------------------------------------------------------------
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        tokens = tokens.to(device)
+        #-------------------------------------------------------------------------
+        spatial_dim = Dim(int(tokens.size(1)), name="frames", kind=Dim.Types.Spatial)
+        out_spatial_dim = Dim(int(tokens.size(1)) + 1, name="frames_out", kind=Dim.Types.Spatial)
+        tokens = rtf.TorchBackend.convert_to_tensor(tokens, dims=[batch_dim, spatial_dim], sparse_dim=self.vocab_dim,
+                                                    dtype="int64", name="tokens")
+        logits, _ = self.language_model(tokens, spatial_dim=spatial_dim, out_spatial_dim=out_spatial_dim)
+        log_prob = rf.log_softmax(logits, axis=self.vocab_dim)
+        log_prob = log_prob.raw_tensor
+        log_prob = log_prob[0][-1]
+        assert log_prob.exp().sum().allclose(torch.tensor(1.0)), str(log_prob.exp().sum())
+        return log_prob
+
+    def start(self, start_with_nothing: bool = False):
+        state = FFNN_LM_State(tokens=[self.vocab.bos_label_id] * self.context_size, context_size=self.context_size,
+                              labels=range(self.vocab.num_labels))
+        score = self._get_logprobs(state.tokens)
+
+        self.states[state] = score
+        # self.cache[state] = state
+        self.cache.append(state)
+        return state
+
+    def score(self, state: FFNN_LM_State, token_index: int):
+        outstate = state.child(token_index)
+        self.cache.append(outstate)
+        # if outstate in self.cache:
+        #     outstate = self.cache[outstate]
+        # else:
+        #     self.cache[outstate] = outstate
+        if outstate not in self.states:
+            score = self._get_logprobs(outstate.tokens)
+            self.states[outstate] = score
+        score = self.states[state][token_index].item()
+
+        return outstate, score
+
+    def finish(self, state: FFNN_LM_State):
+        outstate = state.child(self.vocab.eos_label_id)
+        assert state in self.states
+        return outstate, self.states[state][self.vocab.eos_label_id].item()
+
+
+# ---------------------------------------------------
 
 class FeedForwardLm(rf.Module):
     def __init__(
@@ -124,7 +176,7 @@ class FeedForwardLm(rf.Module):
         context_size: int,
         num_layers: int,
         embed_dim: int = 128,
-        activation_func=rf.relu,
+        activation_func: Union[Callable[[Tensor], Tensor], Dict[str, Any]] = rf.relu,
         embed_dropout: float = 0.0,
         ff_hidden_dim: int = 1024,
         dropout: float = 0.0,
@@ -139,13 +191,18 @@ class FeedForwardLm(rf.Module):
         self.vocab_dim = vocab_dim
         self.embed_dropout = embed_dropout
         self.dropout = dropout
-        self.activation_func = activation_func
+
+        if isinstance(activation_func, dict):
+            self.activation_func = rf.build_from_dict(activation_func)
+        else:
+            self.activation_func = activation_func
+
         self.use_bottleneck = use_bottleneck
 
         self.embed_dim = Dim(name="embed_dim", dimension=embed_dim)
         self.ff_hidden_dim = Dim(name="ff_hidden_dim", dimension=ff_hidden_dim)
 
-        self.conv_filter_size_dim = Dim(name="conv_filter_size", dimension=context_size + 1)
+        self.conv_filter_size_dim = Dim(name="conv_filter_size", dimension=context_size)
 
         # input embedding layer
         self.embedding = rf.Embedding(vocab_dim, self.embed_dim)
@@ -177,7 +234,6 @@ class FeedForwardLm(rf.Module):
         out_spatial_dim: Optional[Dim] = None,
         state: Optional[rf.State] = None,
     ) -> Tuple[rf.Tensor, rf.State]:
-
         embed_out = self.embedding(rf.cast(input, "int64"))
         embed_out = rf.dropout(
             embed_out,

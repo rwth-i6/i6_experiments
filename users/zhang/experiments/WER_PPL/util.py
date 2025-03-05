@@ -47,7 +47,7 @@ class WER_ppl_PlotAndSummaryJob(Job):
                 for line in lines:
                     line = line.split(" ")
                     for idx, ln in enumerate(line):
-                        if ln == "ppl=":
+                        if ln == "ppl=" or ln == "Perplexity:":
                             ppls.append(float(line[idx + 1]))
             with open(wer_path.get_path(), "r") as f:
                 wers.append(json.load(f))
@@ -77,7 +77,7 @@ class WER_ppl_PlotAndSummaryJob(Job):
             wer_fit = np.power(10, regression_func(ln_ppl_range, a, b))  # Compute fitted WER
             # Plot Data Points
             plt.figure(figsize=(8, 6))
-            markers = {"4gram":"o", "5gram":"s", "2gram":"D", "3gram":"v", "default":"^"}  # Different markers for different LM
+            markers = {"2gram":"D", "3gram":"v", "4gram":"o", "ffnn":"s", "default":"^"}  # Different markers for different LM
             group_points = dict([(key,[]) for key in markers])
             for i, name in enumerate(self.names):
                 for key, value in markers.items():
