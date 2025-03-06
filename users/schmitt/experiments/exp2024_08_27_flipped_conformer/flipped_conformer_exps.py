@@ -257,10 +257,8 @@ def py():
     recog_exp = RecogExperiment(
       alias=config["alias"],
       config_builder=config_builder,
-      # checkpoint=recog_checkpoints["best-wer"],
-      # checkpoint_alias="best-wer",
-      checkpoint=checkpoints[518],
-      checkpoint_alias=f"epoch-518",
+      checkpoint=recog_checkpoints["best-wer"],
+      checkpoint_alias="best-wer",
       recog_opts=recog_opts,
       search_rqmt=dict(cpu=4)
     )

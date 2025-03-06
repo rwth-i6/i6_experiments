@@ -290,6 +290,17 @@ def run_exps():
                 corpus_keys=("test-other",)
               )
 
+            if alias == "v1_long_two-stage":
+              checkpoint_aliases = ("best-4-avg",)
+
+              recog.center_window_returnn_frame_wise_beam_search(
+                alias=full_sum_train_alias,
+                config_builder=config_builder,
+                checkpoint=full_sum_checkpoint,
+                checkpoint_aliases=checkpoint_aliases,
+                beam_size_list=(100,)
+              )
+
             if use_sep_h_t_readout and "long" in alias:
               for att_readout_scale, h_t_readout_scale in [
                 (1.0, 0.1),

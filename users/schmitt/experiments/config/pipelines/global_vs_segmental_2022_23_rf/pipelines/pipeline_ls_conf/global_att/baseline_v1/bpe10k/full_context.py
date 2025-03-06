@@ -11,14 +11,34 @@ from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segment
 def run_exps():
   for model_alias, config_builder in baseline.global_att_baseline_rf(use_weight_feedback=True):
     # v5: same as v3, but use bpe size 10k
-    for random_seed in [None, 1234]:
+    for random_seed, gpu_mem_rqmt, ctc_aux_loss_layers in [
+      [None, 11, None],
+      [1234, 11, None],
+      [None, 24, (4, 8)],
+    ]:
+
+      if gpu_mem_rqmt == 24:
+        use_mgpu = False
+        accum_grad_multiple_step = 2
+        batch_size = 35_000
+        n_epochs = 2_000
+      else:
+        use_mgpu = True
+        accum_grad_multiple_step = 4
+        batch_size = 15_000
+        n_epochs = 500
+
       for train_alias, checkpoint in train.train_global_att(
         alias=model_alias,
         config_builder=config_builder,
-        n_epochs=500,
-        keep_epochs=[10, 20, 30] + list(range(30, 50, 1)),
+        n_epochs=n_epochs,
         filter_data_len=19.5 * 16_000,  # sample rate 16kHz
         random_seed=random_seed,
+        use_mgpu=use_mgpu,
+        accum_grad_multiple_step=accum_grad_multiple_step,
+        ctc_aux_loss_layers=ctc_aux_loss_layers,
+        batch_size=batch_size,
+        gpu_mem_rqmt=gpu_mem_rqmt,
       ):
         if random_seed != 1234:
           recog.global_att_returnn_label_sync_beam_search(
@@ -154,6 +174,14 @@ def run_exps():
         checkpoint_aliases=("last",),
         run_analysis=True,
         analyze_gradients=True,
+      )
+      recog.global_att_returnn_label_sync_beam_search(
+        alias=train_alias,
+        config_builder=config_builder,
+        checkpoint=checkpoint,
+        checkpoint_aliases=("last",),
+        beam_size_list=(100,),
+        corpus_keys=("test-other", "dev-other"),
       )
       recog.global_att_returnn_label_sync_beam_search(
         alias=train_alias,
