@@ -113,8 +113,8 @@ RETURNN_ROOT_BW_FACTORED = tk.Path(
 )
 RETURNN_ROOT_SMBR = tk.Path("/work/tools/users/raissi/returnn_versions/conformer", hash_overwrite="SMBR_RETURNN_ROOT")
 
-SCTK_BINARY_PATH = compile_sctk(branch="v2.4.12")  # use last published version
-SCTK_BINARY_PATH.hash_overwrite = "DEFAULT_SCTK_BINARY_PATH"
+#SCTK_BINARY_PATH = compile_sctk(branch="v2.4.12")  # use last published version
+#SCTK_BINARY_PATH.hash_overwrite = "DEFAULT_SCTK_BINARY_PATH"
 
 
 

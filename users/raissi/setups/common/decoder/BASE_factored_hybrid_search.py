@@ -621,6 +621,7 @@ class BASEFactoredHybridDecoder:
         rtf_gpu: float = 4,
         lm_config: rasr.RasrConfig = None,
         create_lattice: bool = True,
+        parallelize_lat2ctm: bool = True,
         separate_lm_image_gc_generation: bool = False,
         search_rqmt_update=None,
         adv_search_extra_config: Optional[rasr.RasrConfig] = None,
@@ -655,6 +656,7 @@ class BASEFactoredHybridDecoder:
             adv_search_extra_config=adv_search_extra_config,
             adv_search_extra_post_config=adv_search_extra_post_config,
             cpu_omp_thread=cpu_omp_thread,
+            parallelize_lat2ctm=parallelize_lat2ctm,
             separate_lm_image_gc_generation=separate_lm_image_gc_generation,
         )
 
@@ -691,6 +693,7 @@ class BASEFactoredHybridDecoder:
         lm_lookahead_options: Optional = {},
         search_rqmt_update=None,
         cpu_omp_thread=2,
+        parallelize_lat2ctm: bool = True,
         separate_lm_image_gc_generation: bool = False,
     ) -> DecodingJobs:
         if isinstance(search_parameters, SearchParameters):
@@ -985,7 +988,7 @@ class BASEFactoredHybridDecoder:
         lat2ctm = recog.LatticeToCtmJob(
             crp=search_crp,
             lattice_cache=search.out_lattice_bundle,
-            parallelize=True,
+            parallelize=parallelize_lat2ctm,
             best_path_algo=self.shortest_path_algo.value,
             extra_config=lat2ctm_extra_config,
             fill_empty_segments=True,
@@ -1075,6 +1078,7 @@ class BASEFactoredHybridDecoder:
                     rerun_after_opt_lm=rerun_after_opt_lm,
                     search_parameters=params,
                     use_estimated_tdps=use_estimated_tdps,
+                    parallelize_lat2ctm=parallelize_lat2ctm,
                 )
 
         return DecodingJobs(
@@ -1084,183 +1088,6 @@ class BASEFactoredHybridDecoder:
             search_crp=search_crp,
             search_feature_scorer=feature_scorer,
             search_stats=stat,
-        )
-
-    def recognize_optimize_scales(
-        self,
-        *,
-        label_info: LabelInfo,
-        num_encoder_output: int,
-        search_parameters: SearchParameters,
-        prior_scales: Union[
-            List[Tuple[float]],  # center
-            List[Tuple[float, float]],  # center, left
-            List[Tuple[float, float, float]],  # center, left, right
-            np.ndarray,
-        ],
-        tdp_scales: Union[List[float], np.ndarray],
-        tdp_sil: Optional[List[Tuple[TDP, TDP, TDP, TDP]]] = None,
-        tdp_speech: Optional[List[Tuple[TDP, TDP, TDP, TDP]]] = None,
-        pron_scales: Union[List[float], np.ndarray] = None,
-        altas_value=14.0,
-        altas_beam=14.0,
-        keep_value=10,
-        cpu_rqmt: Optional[int] = None,
-        mem_rqmt: Optional[int] = None,
-        crp_update: Optional[Callable[[rasr.RasrConfig], Any]] = None,
-        pre_path: str = "scales",
-        cpu_slow: bool = True,
-    ) -> SearchParameters:
-        assert len(prior_scales) > 0
-        assert len(tdp_scales) > 0
-
-        recog_args = dataclasses.replace(search_parameters, altas=altas_value, beam=altas_beam)
-
-        if isinstance(prior_scales, np.ndarray):
-            prior_scales = [(s,) for s in prior_scales] if prior_scales.ndim == 1 else [tuple(s) for s in prior_scales]
-
-        prior_scales = [tuple(round(p, 2) for p in priors) for priors in prior_scales]
-        prior_scales = [
-            (p, 0.0, 0.0)
-            if isinstance(p, float)
-            else (p[0], 0.0, 0.0)
-            if len(p) == 1
-            else (p[0], p[1], 0.0)
-            if len(p) == 2
-            else p
-            for p in prior_scales
-        ]
-        tdp_scales = [round(s, 2) for s in tdp_scales]
-        tdp_sil = tdp_sil if tdp_sil is not None else [recog_args.tdp_silence]
-        tdp_speech = tdp_speech if tdp_speech is not None else [recog_args.tdp_speech]
-        use_pron = self.crp.lexicon_config.normalize_pronunciation and pron_scales is not None
-
-        if use_pron:
-            jobs = {
-                ((c, l, r), tdp, tdp_sl, tdp_sp, pron): self.recognize_count_lm(
-                    add_sis_alias_and_output=False,
-                    calculate_stats=False,
-                    cpu_rqmt=cpu_rqmt,
-                    crp_update=crp_update,
-                    is_min_duration=False,
-                    keep_value=keep_value,
-                    label_info=label_info,
-                    mem_rqmt=mem_rqmt,
-                    name_override=f"{self.name}-pC{c}-pL{l}-pR{r}-tdp{tdp}-tdpSil{tdp_sl}-tdpSp{tdp_sp}-pron{pron}",
-                    num_encoder_output=num_encoder_output,
-                    opt_lm_am=False,
-                    rerun_after_opt_lm=False,
-                    search_parameters=dataclasses.replace(
-                        recog_args, tdp_scale=tdp, tdp_silence=tdp_sl, tdp_speech=tdp_sp, pron_scale=pron
-                    ).with_prior_scale(left=l, center=c, right=r, diphone=c),
-                )
-                for ((c, l, r), tdp, tdp_sl, tdp_sp, pron) in itertools.product(
-                    prior_scales, tdp_scales, tdp_sil, tdp_speech, pron_scales
-                )
-            }
-
-        else:
-            jobs = {
-                ((c, l, r), tdp, tdp_sl, tdp_sp): self.recognize_count_lm(
-                    add_sis_alias_and_output=False,
-                    calculate_stats=False,
-                    cpu_rqmt=cpu_rqmt,
-                    crp_update=crp_update,
-                    is_min_duration=False,
-                    keep_value=keep_value,
-                    label_info=label_info,
-                    mem_rqmt=mem_rqmt,
-                    name_override=f"{self.name}-pC{c}-pL{l}-pR{r}-tdp{tdp}-tdpSil{tdp_sl}-tdpSp{tdp_sp}",
-                    num_encoder_output=num_encoder_output,
-                    opt_lm_am=False,
-                    rerun_after_opt_lm=False,
-                    search_parameters=dataclasses.replace(
-                        recog_args, tdp_scale=tdp, tdp_silence=tdp_sl, tdp_speech=tdp_sp
-                    ).with_prior_scale(left=l, center=c, right=r, diphone=c),
-                )
-                for ((c, l, r), tdp, tdp_sl, tdp_sp) in itertools.product(prior_scales, tdp_scales, tdp_sil, tdp_speech)
-            }
-        jobs_num_e = {k: v.scorer.out_num_errors for k, v in jobs.items()}
-
-        if use_pron:
-            for ((c, l, r), tdp, tdp_sl, tdp_sp, pron), recog_jobs in jobs.items():
-                if cpu_slow:
-                    recog_jobs.search.update_rqmt("run", {"cpu_slow": True})
-
-                pre_name = f"{pre_path}/{self.name}/Lm{recog_args.lm_scale}-Pron{pron}-pC{c}-pL{l}-pR{r}-tdp{tdp}-tdpSil{format_tdp(tdp_sl)}-tdpSp{format_tdp(tdp_sp)}"
-
-                recog_jobs.lat2ctm.set_keep_value(keep_value)
-                recog_jobs.search.set_keep_value(keep_value)
-
-                recog_jobs.search.add_alias(pre_name)
-                tk.register_output(f"{pre_name}.wer", recog_jobs.scorer.out_report_dir)
-        else:
-            for ((c, l, r), tdp, tdp_sl, tdp_sp), recog_jobs in jobs.items():
-                if cpu_slow:
-                    recog_jobs.search.update_rqmt("run", {"cpu_slow": True})
-
-                pre_name = f"{pre_path}/{self.name}/Lm{recog_args.lm_scale}-Pron{recog_args.pron_scale}-pC{c}-pL{l}-pR{r}-tdp{tdp}-tdpSil{format_tdp(tdp_sl)}-tdpSp{format_tdp(tdp_sp)}"
-
-                recog_jobs.lat2ctm.set_keep_value(keep_value)
-                recog_jobs.search.set_keep_value(keep_value)
-
-                recog_jobs.search.add_alias(pre_name)
-                tk.register_output(f"{pre_name}.wer", recog_jobs.scorer.out_report_dir)
-
-        best_overall_wer = ComputeArgminJob({k: v.scorer.out_wer for k, v in jobs.items()})
-        best_overall_n = ComputeArgminJob(jobs_num_e)
-        tk.register_output(
-            f"decoding/scales-best/{self.name}/args",
-            best_overall_n.out_argmin,
-        )
-        tk.register_output(
-            f"decoding/scales-best/{self.name}/wer",
-            best_overall_wer.out_min,
-        )
-
-        def push_delayed_tuple(
-            argmin: DelayedBase,
-        ) -> Tuple[DelayedBase, DelayedBase, DelayedBase, DelayedBase]:
-            return tuple(argmin[i] for i in range(4))
-
-        # cannot destructure, need to use indices
-        best_priors = best_overall_n.out_argmin[0]
-        best_tdp_scale = best_overall_n.out_argmin[1]
-        best_tdp_sil = best_overall_n.out_argmin[2]
-        best_tdp_sp = best_overall_n.out_argmin[3]
-        if use_pron:
-            best_pron = best_overall_n.out_argmin[4]
-
-            base_cfg = dataclasses.replace(
-                search_parameters,
-                tdp_scale=best_tdp_scale,
-                tdp_silence=push_delayed_tuple(best_tdp_sil),
-                tdp_speech=push_delayed_tuple(best_tdp_sp),
-                pron_scale=best_pron,
-            )
-        else:
-            base_cfg = dataclasses.replace(
-                search_parameters,
-                tdp_scale=best_tdp_scale,
-                tdp_silence=push_delayed_tuple(best_tdp_sil),
-                tdp_speech=push_delayed_tuple(best_tdp_sp),
-            )
-
-        best_center_prior = best_priors[0]
-        if self.context_type.is_monophone():
-            return base_cfg.with_prior_scale(center=best_center_prior)
-        if self.context_type.is_joint_diphone():
-            return base_cfg.with_prior_scale(diphone=best_center_prior)
-
-        best_left_prior = best_priors[1]
-        if self.context_type.is_diphone():
-            return base_cfg.with_prior_scale(center=best_center_prior, left=best_left_prior)
-
-        best_right_prior = best_priors[2]
-        return base_cfg.with_prior_scale(
-            center=best_center_prior,
-            left=best_left_prior,
-            right=best_right_prior,
         )
 
     def recognize_optimize_scales_v2(
@@ -1286,8 +1113,8 @@ class BASEFactoredHybridDecoder:
         cpu_rqmt: Optional[int] = None,
         mem_rqmt: Optional[int] = None,
         crp_update: Optional[Callable[[rasr.RasrConfig], Any]] = None,
+        parallelize_lat2ctm: bool = True,
         pre_path: str = "scales",
-        cpu_slow: bool = True,
     ) -> SearchParameters:
         assert len(prior_scales) > 0
         assert len(tdp_scales) > 0
@@ -1331,6 +1158,7 @@ class BASEFactoredHybridDecoder:
                     num_encoder_output=num_encoder_output,
                     opt_lm_am=False,
                     rerun_after_opt_lm=False,
+                    parallelize_lat2ctm=parallelize_lat2ctm,
                     search_parameters=dataclasses.replace(
                         recog_args,
                         tdp_scale=tdp,
@@ -1359,6 +1187,7 @@ class BASEFactoredHybridDecoder:
                     num_encoder_output=num_encoder_output,
                     opt_lm_am=False,
                     rerun_after_opt_lm=False,
+                    parallelize_lat2ctm=parallelize_lat2ctm,
                     search_parameters=dataclasses.replace(
                         recog_args, tdp_scale=tdp, tdp_silence=tdp_sl, tdp_nonword=tdp_nw, tdp_speech=tdp_sp
                     ).with_prior_scale(left=l, center=c, right=r, diphone=c),
@@ -1371,9 +1200,6 @@ class BASEFactoredHybridDecoder:
 
         if use_pron:
             for ((c, l, r), tdp, tdp_sl, tdp_nw, tdp_sp, pron), recog_jobs in jobs.items():
-                if cpu_slow:
-                    recog_jobs.search.update_rqmt("run", {"cpu_slow": True})
-
                 pre_name = (
                     f"{pre_path}/{self.name}/Lm{recog_args.lm_scale}-Pron{pron}-pC{c}-pL{l}-pR{r}-tdp{tdp}-"
                     f"tdpSil{format_tdp(tdp_sl)}-tdpNw{format_tdp(tdp_nw)}-tdpSp{format_tdp(tdp_sp)}"
@@ -1386,8 +1212,6 @@ class BASEFactoredHybridDecoder:
                 tk.register_output(f"{pre_name}.wer", recog_jobs.scorer.out_report_dir)
         else:
             for ((c, l, r), tdp, tdp_sl, tdp_nw, tdp_sp), recog_jobs in jobs.items():
-                if cpu_slow:
-                    recog_jobs.search.update_rqmt("run", {"cpu_slow": True})
 
                 pre_name = (
                     f"{pre_path}/{self.name}/Lm{recog_args.lm_scale}-Pron{recog_args.pron_scale}"
@@ -1475,7 +1299,7 @@ class BASEFactoredHybridDecoder:
         mem_rqmt: Optional[int] = None,
         crp_update: Optional[Callable[[rasr.RasrConfig], Any]] = None,
         pre_path: str = "transition-values",
-        cpu_slow: bool = True,
+        parallelize_lat2ctm: bool = True,
     ) -> SearchParameters:
 
         recog_args = dataclasses.replace(search_parameters, altas=altas_value, beam=altas_beam)
@@ -1496,6 +1320,7 @@ class BASEFactoredHybridDecoder:
                 num_encoder_output=num_encoder_output,
                 opt_lm_am=False,
                 rerun_after_opt_lm=False,
+                parallelize_lat2ctm=parallelize_lat2ctm,
                 search_parameters=dataclasses.replace(recog_args, tdp_silence=tdp_sl, tdp_speech=tdp_sp),
             )
             for (tdp_sl, tdp_sp) in itertools.product(tdp_sil, tdp_speech)
@@ -1503,9 +1328,6 @@ class BASEFactoredHybridDecoder:
         jobs_num_e = {k: v.scorer.out_num_errors for k, v in jobs.items()}
 
         for (tdp_sl, tdp_sp), recog_jobs in jobs.items():
-            if cpu_slow:
-                recog_jobs.search.update_rqmt("run", {"cpu_slow": True})
-
             pre_name = f"{pre_path}/{self.name}/" f"tdpSil{format_tdp(tdp_sl)}tdpSp{format_tdp(tdp_sp)}"
 
             recog_jobs.lat2ctm.set_keep_value(keep_value)

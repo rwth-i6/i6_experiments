@@ -250,18 +250,26 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
         spec_augment_as_data: bool = True,
         auxilary_loss_layers: list = [6],
         frame_rate_reduction_ratio_info: Optional[net_helpers.FrameRateReductionRatioinfo] = None,
+        apply_spec_augment: bool = True,
     ):
 
         if frame_rate_reduction_ratio_info is None:
             frame_rate_reduction_ratio_info = self.frame_rate_reduction_ratio_info
-        encoder_net = {
-            "specaug": {
-                "class": "eval",
-                "from": "data",
-                "eval": f"self.network.get_config().typed_value('transform')(source(0, as_data={spec_augment_as_data}), network=self.network)",
+
+        if  apply_spec_augment:
+            init_layer = "specaug"
+            encoder_net = {
+                init_layer : {
+                    "class": "eval",
+                    "from": "data",
+                    "eval": f"self.network.get_config().typed_value('transform')(source(0, as_data={spec_augment_as_data}), network=self.network)",
+                }
             }
-        }
-        from_list = encoder_archs.add_initial_conv(network=encoder_net, linear_size=conf_model_dim, from_list="specaug")
+        else:
+            init_layer = "data"
+            encoder_net = {}
+        from_list = encoder_archs.add_initial_conv(network=encoder_net, linear_size=conf_model_dim, from_list=init_layer)
+
         encoder_archs.add_conformer_stack(encoder_net, from_list=from_list)
         encoder_net[out_layer_name] = {
             "class": "copy",
@@ -1517,6 +1525,7 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
         use_heuristic_tdp: bool = False,
         extend: bool = True,
         use_speech_tdp_for_nonword: bool = True,
+        parallelize_lat2ctm: bool = True,
     ) -> SearchParameters:
 
         assert self.experiments[key]["decode_job"]["runner"] is not None, "Please set the recognizer"
@@ -1579,6 +1588,7 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
             prior_scales=prior_scales,
             tdp_scales=tdp_scales,
             pron_scales=pron_scales,
+            parallelize_lat2ctm=parallelize_lat2ctm,
         )
 
         if use_heuristic_tdp:
@@ -1619,6 +1629,7 @@ class TFFactoredHybridBaseSystem(BASEFactoredHybridSystem):
             altas_beam=16.0,
             tdp_sil=nnsp_tdp,
             tdp_speech=sp_tdp,
+            parallelize_lat2ctm=parallelize_lat2ctm,
         )
 
         return best_config
