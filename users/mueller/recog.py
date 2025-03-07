@@ -487,7 +487,7 @@ def search_dataset(
             search_post_config and search_post_config.pop("__env_updates", None)
         )
     if save_pseudo_labels:
-        time_rqmt = 8.0
+        time_rqmt = 16.0
         cpu_rqmt = 4
         if search_mem_rqmt < 8:
             search_mem_rqmt = 8
@@ -911,20 +911,20 @@ def search_config_v2(
             
         args = {"arpa_4gram_lm": lm, "lexicon": lexicon, "hyperparameters": decoder_hyperparameters}
         if lexicon:
-            args_cached["lexicon"] = DelayedCodeWrapper("`cf {}`", lexicon.get_path())
+            args_cached["lexicon"] = DelayedCodeWrapper("cf('{}')", lexicon.get_path())
         if lm:
-            args_cached["arpa_4gram_lm"] = DelayedCodeWrapper("`cf {}`", lm.get_path())
+            args_cached["arpa_4gram_lm"] = DelayedCodeWrapper("cf('{}')", lm.get_path())
     
         if prior_path:
             args["prior_file"] = prior_path
-            args_cached["prior_file"] = DelayedCodeWrapper("`cf {}`", prior_path.get_path())
+            args_cached["prior_file"] = DelayedCodeWrapper("cf('{}')", prior_path.get_path())
     elif recog_def is model_recog_flashlight or recog_def is model_recog_lm_albert:
         args = {"hyperparameters": decoder_hyperparameters}
         if prior_path:
             args["prior_file"] = prior_path
             args_cached["prior_file"] = DelayedCodeWrapper("cf('{}')", prior_path.get_path())
-        if recog_def is model_recog_lm_albert:
-            args["version"] = 3
+        # if recog_def is model_recog_lm_albert or recog_def is model_recog_flashlight:
+        #     args["version"] = 7
     else:
         args = {}
 
@@ -1080,7 +1080,11 @@ def _returnn_v2_forward_step(*, model, extern_data: TensorDict, **_kwargs_unused
         default_target_key = config.typed_value("target")
         targets = extern_data[default_target_key]
         extra.update(dict(targets=targets, targets_spatial_dim=targets.get_time_dim_tag()))
-    recog_out = recog_def(model=model, data=data, data_spatial_dim=data_spatial_dim, **extra)
+    if recog_def.func is model_recog_lm_albert or recog_def.func is model_recog_flashlight:
+        seq_tags = extern_data["seq_tag"]
+        recog_out = recog_def(model=model, data=data, data_spatial_dim=data_spatial_dim, seq_tags=seq_tags, **extra)
+    else:
+        recog_out = recog_def(model=model, data=data, data_spatial_dim=data_spatial_dim, **extra)
     if len(recog_out) == 5:
         # recog results including beam {batch, beam, out_spatial},
         # log probs {batch, beam},

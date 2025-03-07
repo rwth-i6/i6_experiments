@@ -37,7 +37,7 @@ if TYPE_CHECKING:
     from returnn.tensor import Tensor, Dim
     from i6_experiments.users.zeyer.collect_model_dataset_stats import StatisticsOutput
     
-from .utils import CorpusReplaceOrthFromPyDictJob, get_ogg_zip_dict_pseudo_labels, MetaDataset
+from .utils import CorpusReplaceOrthFromPyDictJob, get_ogg_zip_dict_pseudo_labels, MetaDataset, GetScoresDummy
 
 _alias_prefix = "datasets/LibriSpeech/"
 
@@ -48,7 +48,7 @@ def _get_librispeech_ogg_zip_dict() -> Dict[str, tk.Path]:
 
 
 @cache
-def _get_bliss_corpus_dict(pseudo_labels_path: tk.Path, part: str) -> Dict[str, tk.Path]:
+def _get_bliss_corpus_dict(pseudo_labels_path: tk.Path, part: str, return_scores: bool = False) -> Dict[str, tk.Path]:
     # Get Bliss corpus. Same audio format as in ogg_zip, so already there anyway due to how we created the ogg_zip.
     # WARNING: Do not use these directly... It will keep another ogg copy of the audio...
     # However, these are used later in the scoring, so when changing them, make sure it's optional,
@@ -58,21 +58,21 @@ def _get_bliss_corpus_dict(pseudo_labels_path: tk.Path, part: str) -> Dict[str, 
         bliss_corpus_dict = librispeech.get_bliss_corpus_dict(audio_format="ogg")
         # load pseudo labels and replace here
         bliss_corpus = bliss_corpus_dict[part]
-        replace_job = CorpusReplaceOrthFromPyDictJob(bliss_corpus, pseudo_labels_path)
+        replace_job = CorpusReplaceOrthFromPyDictJob(bliss_corpus, pseudo_labels_path, return_scores=return_scores)
         replace_job.add_alias(os.path.join("datasets", "LibriSpeech-PseudoLabels", "%s_replace_orth" % part.replace('-', '_')))
         bliss_corpus = replace_job.out_corpus
-        return {part: bliss_corpus}
+        return {part: bliss_corpus}, replace_job.scores_file if return_scores else None
     else:
         return librispeech.get_bliss_corpus_dict(audio_format="ogg")
 
 
 @cache
-def _get_librispeech_ogg_zip_dict_pseudo_labels(pseudo_labels_path: tk.Path, part: str) -> Dict[str, tk.Path]:
+def _get_librispeech_ogg_zip_dict_pseudo_labels(pseudo_labels_path: tk.Path, part: str, return_scores: bool) -> Dict[str, tk.Path]:
     # print("Convert pseudo labels to ogg")
     
-    bliss_corpus_dict = _get_bliss_corpus_dict(pseudo_labels_path, part)
+    bliss_corpus_dict, scores_dict = _get_bliss_corpus_dict(pseudo_labels_path, part, return_scores)
 
-    return get_ogg_zip_dict_pseudo_labels(bliss_corpus_dict)
+    return get_ogg_zip_dict_pseudo_labels(bliss_corpus_dict), scores_dict
 
 
 @cache
@@ -314,6 +314,7 @@ class LibrispeechOggZip(DatasetConfig):
         train_ds_key: Optional[str] = None,
         pseudo_label_path: tk.Path = None,
         keep_small_labels: bool = False,
+        pseudo_nbest: Optional[int] = None,
     ):
         """
         :param with_eos_postfix: For RETURNN train/dev/eval datasets, mostly relevant for training.
@@ -351,6 +352,7 @@ class LibrispeechOggZip(DatasetConfig):
         self.train_epoch_wise_filter = train_epoch_wise_filter
         self.eval_subset = eval_subset
         self.train_subset = train_subset
+        self.pseudo_nbest = pseudo_nbest
 
         self._time_dim = None
         self._feature_dim = None
@@ -387,6 +389,8 @@ class LibrispeechOggZip(DatasetConfig):
             state.pop("train_subset")
         if not self.keep_small_labels:
             state.pop("keep_small_labels")
+        if self.pseudo_nbest is None or self.pseudo_nbest == 1:
+            state.pop("pseudo_nbest")
         state = {k: v for k, v in state.items() if not k.startswith("_")}
         byte_list = [b"LibrispeechOggZip", sis_hash_helper(state)]
 
@@ -418,6 +422,11 @@ class LibrispeechOggZip(DatasetConfig):
                 "dim_tags": [batch_dim, self._out_spatial_dim],
                 "sparse_dim": self._classes_dim,
                 "vocab": self.vocab.get_opts(),
+            }
+            
+        if self.pseudo_nbest is not None and self.pseudo_nbest > 1:
+            opts["weights"] = {
+                "dim_tags": [batch_dim, Dim(self.pseudo_nbest, name="pseudo_nbest")]
             }
 
         return opts
@@ -510,13 +519,20 @@ class LibrispeechOggZip(DatasetConfig):
             d["fixed_random_subset"] = subset  # faster
         
         # Combine pseudo labels into MetaDataset
+        return_scores = self.pseudo_nbest is not None and self.pseudo_nbest > 1
         if training and self.pseudo_label_path:
             files_new = []
+            score_files = []
             for part in parts:
                 if part == "train-clean-100" and self.keep_small_labels:
                     files_new += [_get_librispeech_ogg_zip_dict()[part]]
+                    if return_scores:
+                        score_files += [GetScoresDummy(_get_bliss_corpus_dict(None, None)[part], self.pseudo_nbest).scores_file]
                 else:
-                    files_new += [_get_librispeech_ogg_zip_dict_pseudo_labels(self.pseudo_label_path, part)[part]]
+                    ogg_files, scores = _get_librispeech_ogg_zip_dict_pseudo_labels(self.pseudo_label_path, part, return_scores)
+                    files_new += [ogg_files[part]]
+                    if return_scores:
+                        score_files += [scores]
             d_pseudo = copy(d)
             d.pop("fixed_random_subset", None)
             d_pseudo["audio"] = None
@@ -526,7 +542,25 @@ class LibrispeechOggZip(DatasetConfig):
                 "data": ("zip_dataset", "data"),
                 "classes": ("pseudo_labels_dataset", "classes"),
             }
+            if return_scores:
+                d_weights = {
+                    "class": "HDFDataset",
+                    "files": score_files,
+                    "use_cache_manager": True,
+                }
+                d_comb["weights_datasets"] = d_weights
+                data_map["weights"] = ("weights_datasets", "data")
             d = MetaDataset(data_map, d_comb, "pseudo_labels_dataset").as_returnn_opts()
+        elif return_scores:
+            score_files = []
+            for part in parts:
+                score_files += [GetScoresDummy(_get_bliss_corpus_dict(None, None)[part], self.pseudo_nbest).scores_file]
+            d_weights = {
+                "class": "HDFDataset",
+                "files": score_files,
+                "use_cache_manager": True,
+            }
+            d = MetaDataset({"data": ("zip_dataset", "data"), "classes": ("zip_dataset", "classes"), "weights": ("weights_datasets", "data")}, {"zip_dataset": d, "weights_datasets": d_weights}, "zip_dataset").as_returnn_opts()
         return d
     
 class LibrispeechLmDataset(DatasetConfig):
