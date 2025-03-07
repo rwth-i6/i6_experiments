@@ -72,3 +72,10 @@ cos_y_xpy_norm = cos_sim(y, xpy_norm).mean()
 
 print(f"cos_x_xpy: {cos_x_xpy}, cos_y_xpy: {cos_y_xpy}")
 print(f"cos_x_xpy_norm: {cos_x_xpy_norm}, cos_y_xpy_norm: {cos_y_xpy_norm}")
+
+# results of simulation:
+# cos_x_xpy: 0.853427515003555, cos_y_xpy: 0.9847957562888822
+# cos_x_xpy_norm: 0.15775154006591643, cos_y_xpy_norm: 0.47402306053889504
+# -> before layer norm, the information of the vector with small L2 (s) norm is preserved
+# -> after layer norm, most of the information of the vector with small L2 (s) norm is removed
+# -> for the vector with large L2 norm, much more information is preserved after layer norm
