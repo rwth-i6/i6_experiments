@@ -2,7 +2,7 @@ from typing import Optional, Dict, Any, Sequence, Tuple, List, Union
 import math
 import copy
 
-from returnn.tensor import Tensor, Dim, single_step_dim
+from returnn.tensor import Tensor, Dim, single_step_dim, TensorDict
 import returnn.frontend as rf
 from returnn.frontend.encoder.conformer import ConformerEncoderLayer, ConformerConvSubsample, ConformerEncoder
 import returnn.frontend
@@ -11,6 +11,7 @@ import i6_experiments
 import i6_experiments.users.schmitt.experiments.exp2025_01_22_model_combination.model.conformer_tina
 
 from .decoder import GlobalAttDecoder, GlobalAttEfficientDecoder
+from .. import tensor_utils
 
 _batch_size_factor = 160
 
@@ -327,3 +328,215 @@ def apply_weight_dropout(model: rf.Module):
         if param.auxiliary:
           continue
         rf.weight_dropout(mod, param_name, drop_prob=weight_dropout)
+
+
+# def _returnn_v2_rescore_step(*, model, extern_data: TensorDict, **_kwargs_unused):
+#   from returnn.config import get_global_config
+#
+#   config = get_global_config()
+#   default_input_key = config.typed_value("default_input")
+#   default_target_key = config.typed_value("target")
+#   data = extern_data[default_input_key]
+#   data_spatial_dim = data.get_time_dim_tag()
+#   targets = extern_data[default_target_key]
+#   targets_spatial_dim = targets.get_time_dim_tag()
+#   train_def = config.typed_value("_train_def")
+#   train_def(
+#     model=model,
+#     data=data,
+#     data_spatial_dim=data_spatial_dim,
+#     targets=targets,
+#     targets_spatial_dim=targets_spatial_dim,
+#   )
+
+def _returnn_v2_rescore_step(*, model, extern_data: TensorDict, **_kwargs_unused):
+  # Similar to i6_experiments.users.zeyer.recog._returnn_v2_forward_step,
+  # but using score_def instead of recog_def.
+  import returnn.frontend as rf
+  from returnn.tensor import Tensor, Dim, batch_dim
+  from returnn.config import get_global_config
+
+  if rf.is_executing_eagerly():
+    batch_size = int(batch_dim.get_dim_value())
+    for batch_idx in range(batch_size):
+      seq_tag = extern_data["seq_tag"].raw_tensor[batch_idx].item()
+      print(f"batch {batch_idx + 1}/{batch_size} seq_tag: {seq_tag!r}")
+
+  config = get_global_config()
+  default_input_key = config.typed_value("default_input")
+  if default_input_key:
+    data = extern_data[default_input_key]
+    data_spatial_dim = data.get_time_dim_tag()
+  else:
+    data, data_spatial_dim = None, None
+
+  targets_beam_dim = config.typed_value("beam_dim")
+  targets_flat = extern_data["data_flat"]
+  targets_flat_time_dim = config.typed_value("data_flat_spatial_dim")
+  targets_seq_lens = extern_data["data_seq_lens"]  # [B, beam]
+  # TODO stupid that targets_seq_lens first is copied CPU->GPU and now back to CPU...
+  targets_spatial_dim = Dim(rf.copy_to_device(targets_seq_lens, "cpu"), name="targets_spatial")
+  targets = rf.pad_packed(targets_flat, in_dim=targets_flat_time_dim, dims=[targets_beam_dim, targets_spatial_dim])
+
+  rescore_def = config.typed_value("_rescore_def")
+  scores = rescore_def(
+    model=model,
+    data=data,
+    data_spatial_dim=data_spatial_dim,
+    targets=targets,
+    targets_spatial_dim=targets_spatial_dim,
+    targets_beam_dim=targets_beam_dim,
+  )
+
+  assert isinstance(scores, Tensor)
+  rf.get_run_ctx().mark_as_output(targets, "hyps", dims=[batch_dim, targets_beam_dim, targets_spatial_dim])
+  rf.get_run_ctx().mark_as_output(scores, "scores", dims=[batch_dim, targets_beam_dim])
+
+
+def get_s_and_att(
+        *,
+        model: GlobalAttDecoder,
+        enc_args: Dict[str, Tensor],
+        input_embeddings: Tensor,
+        enc_spatial_dim: Dim,
+        targets_spatial_dim: Dim,
+        batch_dims: List[Dim],
+) -> Tuple[Tensor, Tensor, rf.State]:
+
+  from returnn.config import get_global_config
+  config = get_global_config()
+
+  hard_att_opts = config.typed_value("hard_att_opts", None)
+
+  def _body(xs, state: rf.State):
+    new_state = rf.State()
+    loop_out_, new_state.decoder = model.loop_step(
+      **enc_args,
+      enc_spatial_dim=enc_spatial_dim,
+      input_embed=xs["input_embed"],
+      state=state.decoder,
+      hard_att_opts=hard_att_opts,
+    )
+    return loop_out_, new_state
+
+  xs = {"input_embed": input_embeddings}
+  loop_out, final_state, _ = rf.scan(
+    spatial_dim=targets_spatial_dim,
+    xs=xs,
+    ys=model.loop_step_output_templates(
+      batch_dims=batch_dims),
+    initial=rf.State(
+      decoder=model.decoder_default_initial_state(
+        batch_dims=batch_dims,
+        enc_spatial_dim=enc_spatial_dim,
+      ),
+    ),
+    body=_body,
+  )
+
+  return loop_out["s"], loop_out["att"], final_state
+
+
+def forward_sequence(
+        model: Union[GlobalAttDecoder],
+        targets: rf.Tensor,
+        targets_spatial_dim: Dim,
+        enc_args: Dict[str, rf.Tensor],
+        enc_spatial_dim: Dim,
+        batch_dims: List[Dim],
+) -> rf.Tensor:
+  input_embeddings = model.target_embed(targets)
+  input_embeddings = rf.shift_right(input_embeddings, axis=targets_spatial_dim, pad_value=0.0)
+  input_embeddings = rf.dropout(input_embeddings, drop_prob=model.target_embed_dropout, axis=None)
+
+  s, att, final_state = get_s_and_att(
+    model=model,
+    enc_args=enc_args,
+    input_embeddings=input_embeddings,
+    enc_spatial_dim=enc_spatial_dim,
+    targets_spatial_dim=targets_spatial_dim,
+    batch_dims=batch_dims,
+  )
+
+  logits = model.decode_logits(
+    input_embed=input_embeddings,
+    s=s,
+    att=att,
+  )
+
+  return logits
+
+
+import torch
+def rescore(
+        *,
+        model: AEDModel,
+        data: Tensor,
+        data_spatial_dim: Dim,
+        targets: Tensor,
+        targets_beam_dim: Dim,
+        targets_spatial_dim: Dim,
+        max_approx: bool = False,
+):
+  """Function is run within RETURNN."""
+  from returnn.config import get_global_config
+
+  config = get_global_config()  # noqa
+
+  if data.feature_dim and data.feature_dim.dimension == 1:
+    data = rf.squeeze(data, axis=data.feature_dim)
+    assert not data.feature_dim  # raw audio
+    batch_dims = data.remaining_dims(data_spatial_dim)
+  else:
+    batch_dims = data.remaining_dims([data_spatial_dim, data.feature_dim])
+
+  collected_outputs = {}
+  enc_args, enc_spatial_dim = model.encode(data, in_spatial_dim=data_spatial_dim, collected_outputs=collected_outputs)
+
+  batch_dimension = batch_dims[0].dyn_size_ext.raw_tensor.item()
+  spatial_dimension = targets_spatial_dim.dyn_size_ext.raw_tensor.max().item()
+  beam_dimension = targets_beam_dim.get_dim_value().item()
+
+  log_probs_tensor = rf.Tensor(
+    "log_probs",
+    dims=batch_dims + [targets_beam_dim],
+    dtype="float32",
+    raw_tensor=torch.zeros((batch_dimension, beam_dimension), dtype=torch.float32)
+  )
+  for beam_idx in range(targets_beam_dim.get_dim_value()):
+    targets_b = rf.gather(targets, axis=targets_beam_dim, indices=beam_idx)
+    targets_b_seq_lens = rf.gather(targets_spatial_dim.dyn_size_ext, axis=targets_beam_dim, indices=beam_idx)
+    targets_b_spatial_dim = Dim(targets_b_seq_lens, name=f"{targets_spatial_dim.name}_beam{beam_idx}")
+    targets_b, _ = rf.replace_dim(targets_b, in_dim=targets_spatial_dim, out_dim=targets_b_spatial_dim)
+    targets_b, _ = rf.slice(targets_b, axis=targets_b_spatial_dim, size=targets_b_spatial_dim)
+    logits = forward_sequence(
+      model=model.decoder,
+      targets=targets_b,
+      targets_spatial_dim=targets_b_spatial_dim,
+      enc_args=enc_args,
+      enc_spatial_dim=enc_spatial_dim,
+      batch_dims=batch_dims
+    )
+    log_prob = rf.log_softmax(logits, axis=model.target_dim)
+
+    # get negative log probs
+    neg_log_prob = rf.gather(log_prob, axis=model.target_dim, indices=targets_b)
+    print("targets_b: ", targets_b.raw_tensor)
+    neg_log_prob = rf.reduce_sum(neg_log_prob, axis=targets_b_spatial_dim)
+    print("neg_log_prob: ", neg_log_prob.raw_tensor)
+    neg_log_prob /= rf.copy_to_device(targets_b_spatial_dim.dyn_size_ext, neg_log_prob.device)
+    print("neg_log_prob: ", neg_log_prob.raw_tensor)
+    exit()
+
+    # negate to get log probs
+    log_probs_tensor.raw_tensor[:, beam_idx] = -neg_log_prob.raw_tensor
+
+    # print("loss: ", loss)
+    # print("loss.shape: ", loss.raw_tensor.shape)
+    # exit()
+    #
+    # for batch_idx in range(batch_dimension):
+    #   loss_batch = loss.raw_tensor[batch_idx]
+    #   log_probs_tensor.raw_tensor[batch_idx, beam_idx, :targets_b_spatial_dim.dyn_size_ext.raw_tensor[batch_idx]] = loss_batch
+
+  return log_probs_tensor

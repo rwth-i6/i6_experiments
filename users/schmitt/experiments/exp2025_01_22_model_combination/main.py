@@ -27,7 +27,7 @@ from .model.ctc import (
 from .model.custom_load_params import load_missing_params_aed
 from .analysis.analysis import analyze_encoder
 from .analysis.gmm_alignments import setup_gmm_alignment, LIBRISPEECH_GMM_WORD_ALIGNMENT
-# from .rescoring import rescore
+from .rescoring import aed_rescore
 from .configs import (
   config_24gb_v1,
   config_24gb_v2,
@@ -350,3 +350,77 @@ def py():
   #     returnn_python_exe=RETURNN_EXE,
   #     alias=f"models/{model_name}",
   #   )
+
+  # rescore 1k AED model output with 10k AED model and 10k AED model output with 1k AED model
+  from i6_experiments.users.zeyer.experiments.exp2024_04_23_baselines.interspeech_ctc_rescoring import \
+    NBestListReduceNJob, ApplyVocabToNBestListJob
+  from i6_core.returnn.search import SearchOutputRawReplaceJob
+  configs = []
+  configs.append(dict(
+    model_opts=config_24gb_v1["model_opts"],
+    checkpoint=PtCheckpoint(Path("/u/schmitt/experiments/segmental_models_2022_23_rf/work/i6_core/returnn/training/ReturnnTrainingJob.VNhMCmbnAUcd/output/models/epoch.2000.pt")),
+    alias="1k-aed",
+    vocab_opts=BPE1K_OPTS,
+    rescore_n_best_path=Path("/work/asr3/zeyer/schmitt/sisyphus_work_dirs/segmental_models_2022_23_rf/i6_core/returnn/forward/ReturnnForwardJobV2.39mQsZKFtWYG/output/output.py.gz"),
+    rescored_model_alias="10k-aed",
+    n_best_per_model=16,
+    own_n_best_path=Path("/work/asr3/zeyer/schmitt/sisyphus_work_dirs/segmental_models_2022_23_rf/i6_core/returnn/forward/ReturnnForwardJobV2.KHsw8m5r59Cc/output/output.py.gz"),
+  ))
+
+  # configs.append(dict(
+  #   model_opts=config_24gb_v1["model_opts"],
+  #   checkpoint=PtCheckpoint(Path("/u/schmitt/experiments/segmental_models_2022_23_rf/work/i6_core/returnn/training/ReturnnTrainingJob.xEQKl4JvwUe4/output/models/epoch.300.pt")),
+  #   alias="10k-aed",
+  #   vocab_opts=BPE10K_OPTS,
+  #   rescore_n_best_path=Path("/work/asr3/zeyer/schmitt/sisyphus_work_dirs/segmental_models_2022_23_rf/i6_core/returnn/forward/ReturnnForwardJobV2.KHsw8m5r59Cc/output/output.py.gz"),
+  #   rescored_model_alias="1k-aed",
+  #   n_best_per_model=16,
+  #   own_n_best_path=Path("/work/asr3/zeyer/schmitt/sisyphus_work_dirs/segmental_models_2022_23_rf/i6_core/returnn/forward/ReturnnForwardJobV2.39mQsZKFtWYG/output/output.py.gz"),
+  # ))
+
+  for config in configs:
+    config_builder = AEDConfigBuilder(
+      dataset=LIBRISPEECH_CORPUS,
+      vocab_opts=config["vocab_opts"],
+      model_def=aed_model_def,
+      get_model_func=aed_get_model,
+      batch_size_factor=1,
+    )
+    config_builder.config_dict.update(config["model_opts"])
+    config_builder.config_dict["preload_from_files"] = dict(
+      pretrained_params=dict(
+        filename=config["checkpoint"],
+        ignore_missing=True,
+        custom_missing_load_func=load_missing_params_aed,
+    ))
+    n_best_per_model = config["n_best_per_model"]
+    rescore_n_best_path = config["rescore_n_best_path"]
+    rescored_model_alias = config["rescored_model_alias"]
+    own_n_best_path = config["own_n_best_path"]
+
+    rescore_n_best_path = SearchOutputRawReplaceJob(
+      rescore_n_best_path, [("@@ ", "")], output_gzip=True).out_search_results
+    rescore_n_best_path = NBestListReduceNJob(rescore_n_best_path, new_n=n_best_per_model).out_returnn_n_best
+
+    own_n_best_path = SearchOutputRawReplaceJob(
+      own_n_best_path, [("@@ ", "")], output_gzip=True).out_search_results
+    own_n_best_path = NBestListReduceNJob(own_n_best_path, new_n=n_best_per_model).out_returnn_n_best
+
+    # rescored_n_best_path = aed_rescore(
+    #   config_builder=config_builder,
+    #   corpus_key="dev-other",
+    #   checkpoint=None,
+    #   returnn_root=RETURNN_ROOT,
+    #   returnn_python_exe=RETURNN_EXE,
+    #   vocab_opts={
+    #     "bpe_file": "/work/asr4/zeineldeen/setups-data/librispeech/2022-11-28--conformer-att/work/i6_core/text/label/subword_nmt/train/ReturnnTrainBpeJob.qhkNn2veTWkV/output/bpe.codes",
+    #     "class": "BytePairEncoding",
+    #     # "seq_postfix": [0],
+    #     "unknown_label": None,
+    #     "vocab_file": "/work/asr4/zeineldeen/setups-data/librispeech/2022-11-28--conformer-att/work/i6_core/text/label/subword_nmt/train/ReturnnTrainBpeJob.qhkNn2veTWkV/output/bpe.vocab",
+    #     "bos_label": 0,
+    #     "eos_label": 0,
+    #   },
+    #   n_best_path=own_n_best_path,  # rescore_n_best_path,
+    #   alias=f"models/{config['alias']}/rescore-{rescored_model_alias}_{n_best_per_model}-best-per-model",
+    # )
