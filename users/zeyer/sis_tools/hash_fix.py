@@ -65,6 +65,8 @@ _setup()
 from sisyphus import Path
 from sisyphus.job import JobSingleton, Job
 import sisyphus.global_settings as gs
+from sisyphus import tools
+from i6_experiments.users.zeyer.recog import GetBestRecogTrainExp
 
 
 def hash_fix(
@@ -217,9 +219,20 @@ def _is_matching_job(*, job_broken: Job, job_correct: Job, map_correct_to_broken
     if type(job_broken) is not type(job_correct):
         return False, "Different type"
     if job_broken.get_aliases() != job_correct.get_aliases():
-        return False, "Different aliases"
-    # noinspection PyProtectedMember
-    job_broken_inputs, job_correct_inputs = job_broken._sis_inputs, job_correct._sis_inputs
+        return False, (
+            f"Different aliases: Broken job {job_broken.get_aliases()} vs correct job {job_correct.get_aliases()}"
+        )
+    if isinstance(job_broken, GetBestRecogTrainExp):
+        # Special handling for GetBestRecogTrainExp as we dynamically add more inputs,
+        # and the new job with correct hash might not know about all inputs yet.
+        # (Actually, we might use this logic here just for all jobs?)
+        # noinspection PyProtectedMember
+        job_broken_kwargs, job_correct_kwargs = job_broken._sis_kwargs, job_correct._sis_kwargs
+        job_broken_inputs = tools.extract_paths(job_broken_kwargs)
+        job_correct_inputs = tools.extract_paths(job_correct_kwargs)
+    else:
+        # noinspection PyProtectedMember
+        job_broken_inputs, job_correct_inputs = job_broken._sis_inputs, job_correct._sis_inputs
     job_broken_inputs: Set[Path]
     job_correct_inputs: Set[Path]
     job_correct_inputs = set(_map_correct_job_path_to_broken(p, map_correct_to_broken) for p in job_correct_inputs)
@@ -227,7 +240,10 @@ def _is_matching_job(*, job_broken: Job, job_correct: Job, map_correct_to_broken
     job_correct_inputs_ = set(p.get_path() for p in job_correct_inputs)
     # Note: We allow that the broken job has some fewer inputs, e.g. when some Path was converted to str.
     if not job_broken_inputs_.issubset(job_correct_inputs_):
-        return False, f"Different inputs. Broken:{sorted(job_broken_inputs_)}, Correct:{sorted(job_correct_inputs_)}"
+        return False, (
+            f"Different inputs. Broken deps that are not in correct deps: "
+            f"{sorted(p for p in job_broken_inputs_ if p not in job_correct_inputs_)}"
+        )
     return True, "<Matching>"
 
 
