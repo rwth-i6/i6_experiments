@@ -135,6 +135,7 @@ def hash_fix(
     JobSingleton.__call__ = _wrapped_job_type_call
     start = time.time()
     exp_func()
+    JobSingleton.__call__ = orig_job_type_call
     print(f"Elapsed time: {time.time() - start:.3f} sec")
     print(f"Collected {len(_created_jobs_correct)} jobs with correct hashing.")
 
