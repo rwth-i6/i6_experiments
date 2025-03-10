@@ -222,10 +222,15 @@ def _find_matching_job(
 def _is_matching_job(*, job_broken: Job, job_correct: Job, map_correct_to_broken: Dict[Job, Job]) -> Tuple[bool, str]:
     if type(job_broken) is not type(job_correct):
         return False, "Different type"
-    if job_broken.get_aliases() != job_correct.get_aliases():
-        return False, (
-            f"Different aliases: Broken job {job_broken.get_aliases()} vs correct job {job_correct.get_aliases()}"
-        )
+    job_broken_aliases: Set[str] = job_broken.get_aliases() or set()
+    job_correct_aliases: Set[str] = job_correct.get_aliases() or set()
+    if job_broken_aliases:
+        # Allow that the broken job has some fewer aliases.
+        # Due to broken hashing, there might be multiple jobs with different hashes which should actually be the same.
+        if not job_broken_aliases.issubset(job_correct_aliases):
+            return False, f"Different aliases: Broken job {job_broken_aliases} vs correct job {job_correct_aliases}"
+    elif job_correct_aliases:
+        return False, f"Different aliases: Broken job {job_broken_aliases} vs correct job {job_correct_aliases}"
     if isinstance(job_broken, GetBestRecogTrainExp):
         # Special handling for GetBestRecogTrainExp as we dynamically add more inputs,
         # and the new job with correct hash might not know about all inputs yet.
