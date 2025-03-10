@@ -36,6 +36,7 @@ from __future__ import annotations
 import sys
 import os
 import stat
+import time
 from typing import Union, Callable, TypeVar, List, Tuple, Dict, Set
 from functools import reduce
 from types import FunctionType, CodeType, FrameType
@@ -109,7 +110,9 @@ def hash_fix(
     # Trace all jobs.
     sys.settrace(_trace_func)
     print("Collect jobs with broken hashing...")
+    start = time.time()
     exp_func()
+    print(f"Elapsed time: {time.time() - start:.3f} sec")
     sys.settrace(None)
     print(f"Collected {len(_created_jobs_broken)} jobs with broken hashing.")
 
@@ -130,7 +133,9 @@ def hash_fix(
 
     sys.settrace(_trace_func)
     print("Collect jobs with correct hashing...")
+    start = time.time()
     exp_func()
+    print(f"Elapsed time: {time.time() - start:.3f} sec")
     sys.settrace(None)
     print(f"Collected {len(_created_jobs_correct)} jobs with correct hashing.")
 
