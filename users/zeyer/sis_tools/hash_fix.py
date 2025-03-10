@@ -35,6 +35,7 @@ Usage example::
 from __future__ import annotations
 import sys
 import os
+import stat
 from typing import Union, Callable, TypeVar, List, Tuple, Dict, Set
 from functools import reduce
 from types import FunctionType, CodeType, FrameType
@@ -147,6 +148,37 @@ def hash_fix(
         print(f"Matched correct job {job_correct} to broken job {job_broken}")
         job_broken_idx += 1
         map_correct_to_broken[job_correct] = job_broken
+
+    # All matched, no error, so we are good. Now proposing new symlinks.
+    for job_correct, job_broken in map_correct_to_broken.items():
+        print(f"Job correct {job_correct} -> broken {job_broken}")
+        # noinspection PyProtectedMember
+        job_correct_path, job_broken_path = job_correct._sis_path(abspath=True), job_broken._sis_path(abspath=True)
+        if not os.path.exists(job_broken_path):
+            print(f"  Job broken path does not exist: {job_broken_path}")
+            continue
+        try:
+            stat_ = os.stat(job_correct_path, follow_symlinks=False)
+        except FileNotFoundError:
+            stat_ = None
+        job_correct_path_existing_symlink = (
+            os.readlink(job_correct_path) if stat_ and stat.S_ISLNK(stat_.st_mode) else None
+        )
+        job_correct_path_target_symlink = job_broken_path
+        if job_correct_path_existing_symlink:
+            if job_correct_path_target_symlink == job_correct_path_existing_symlink:
+                print(f"  Job correct path already has correct symlink")
+                continue
+            print(f"  Job correct path has wrong symlink -> {job_correct_path_existing_symlink}, removing")
+            if not dry_run:
+                os.remove(job_correct_path)  # recreate it
+        elif stat_:
+            print(f"  Job correct path already exists: {stat.filemode(stat_.st_mode)}")
+            continue
+        print(f"  Create symlink {job_correct_path} -> {job_correct_path_target_symlink}")
+        if not dry_run:
+            assert not os.path.exists(job_correct_path) and os.path.exists(job_correct_path_target_symlink)
+            os.symlink(job_correct_path_target_symlink, job_correct_path)
 
 
 def _find_matching_job(
