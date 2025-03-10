@@ -5,7 +5,7 @@ RETURNN training utils
 from __future__ import annotations
 
 import sys
-from typing import Optional, Set, TextIO
+from typing import Optional, Set, TextIO, List
 import os
 import subprocess
 import copy
@@ -144,7 +144,7 @@ def get_relevant_epochs_from_training_learning_rate_scores(
     scores_and_learning_rates: tk.Path,
     n_best: int = 2,
     log_stream: Optional[TextIO] = sys.stderr,
-) -> Set[int]:
+) -> List[int]:
     """
     Collects the most relevant kept epochs from the training job
     based on the training cross validation ("dev_...") scores.
@@ -170,7 +170,7 @@ def get_relevant_epochs_from_training_learning_rate_scores(
     import numpy as np
 
     if n_best == 0:
-        return set()
+        return []
     if log_stream is None:
         log_stream = open(os.devnull, "w")
     print(f"Check relevant epochs in {model_dir.get_path()}", file=log_stream)
@@ -229,7 +229,7 @@ def get_relevant_epochs_from_training_learning_rate_scores(
             suggested_epochs.add(ep)
             print("Suggest: epoch %i because %s %f" % (ep, score_key, value), file=log_stream)
 
-    print("Suggested epochs:", suggested_epochs, file=log_stream)
+    print("Suggested epochs:", sorted(suggested_epochs), file=log_stream)
     assert suggested_epochs
 
     for ep in sorted(suggested_epochs):
@@ -237,7 +237,7 @@ def get_relevant_epochs_from_training_learning_rate_scores(
             print("Model does not exist (anymore):", suggested_epochs, file=log_stream)
             suggested_epochs.remove(ep)
     assert suggested_epochs  # after filter
-    return suggested_epochs
+    return sorted(suggested_epochs)
 
 
 def _chkpt_exists(*, model_dir: tk.Path, model_name: str = "epoch", epoch: int) -> bool:
