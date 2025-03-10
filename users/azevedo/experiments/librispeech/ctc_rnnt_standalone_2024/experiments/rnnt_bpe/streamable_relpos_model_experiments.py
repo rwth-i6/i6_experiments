@@ -58,6 +58,7 @@ def get_train_config(model_config, keep, module, accum_grads=1,  **kwargs):
         "network_module": network_module,
         "include_native_ops": True,
         "debug": False,
+        "use_speed_perturbation": True,
         "net_args": {"model_config_dict": asdict(model_config)}
     }
 
@@ -220,7 +221,7 @@ def run_experiments(**kwargs):
             model_config = ModelConfig(
                 feature_extraction_config=fe_config,
                 frontend_config=frontend_config,
-                specaug_config=specaug_config,
+                specaug_config=specaug_config_full,
                 pos_emb_config=posemb_config,
                 predictor_config=predictor_config,
                 label_target_size=vocab_size_without_blank,
@@ -325,23 +326,23 @@ def run_experiments(**kwargs):
 
 def relpos_streaming_ls960_0325_low_bpe_from_scratch():
     experiment_configs = {
-        # 10: {
-        #     "model_params": {
-        #         "chunk_size": [2.4],
-        #         "lookahead_size": [8],
-        #         "kernel_size": [31],
-        #         "specauc_start_epoch": [11],
-        #         "carry_over_size": [2],
-        #         "training_strategy": [str(TrainingStrategy.UNIFIED)],
-        #         "dual_mode": [True],
-        #     },
+        10: {
+            "model_params": {
+                "chunk_size": [2.4],
+                "lookahead_size": [8],
+                "kernel_size": [31],
+                "specauc_start_epoch": [11],
+                "carry_over_size": [2],
+                "training_strategy": [str(TrainingStrategy.UNIFIED)],
+                "dual_mode": [True],
+            },
 
-        #     "network_module": "model_dual_0325_v1",
-        #     "accum_grads": 1,
-        #     "gpu_mem": 48,
-        #     "num_epochs": 1000,
-        #     "keep": [300, 800, 950, 980]
-        # },
+            "network_module": "model_dual_0325_v1",
+            "accum_grads": 1,
+            "gpu_mem": 48,
+            "num_epochs": 1000,
+            "keep": [300, 800, 950, 980]
+        },
 
         20: {
             "model_params": {
@@ -350,6 +351,24 @@ def relpos_streaming_ls960_0325_low_bpe_from_scratch():
                 "kernel_size": [31],
                 "specauc_start_epoch": [11],
                 "carry_over_size": [2],
+                "training_strategy": [str(TrainingStrategy.STREAMING)],
+                "dual_mode": [False],
+            },
+
+            "network_module": "model_dual_0325_v1",
+            "accum_grads": 1,
+            "gpu_mem": 48,
+            "num_epochs": 1000,
+            "keep": [300, 800, 950, 980]
+        },
+
+        30: {
+            "model_params": {
+                "chunk_size": [0.6],
+                "lookahead_size": [8],
+                "kernel_size": [31],
+                "specauc_start_epoch": [11],
+                "carry_over_size": [4],
                 "training_strategy": [str(TrainingStrategy.STREAMING)],
                 "dual_mode": [False],
             },
