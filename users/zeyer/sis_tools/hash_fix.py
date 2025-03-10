@@ -95,25 +95,27 @@ def hash_fix(
 
     # Run with the broken hashing first.
 
-    # Also see returnn.util.debug.PyTracer.
+    # Note: Previously, we used sys.settrace to intercept all job creations.
+    # (Also see returnn.util.debug.PyTracer for reference on that.)
+    # However, that turned out to be too slow,
+    # as all the hashing and recursive iteration through nested state dicts
+    # consumed quite some Python computation.
+    orig_job_type_call = JobSingleton.__call__
     _job_create_code = _get_func_code(JobSingleton.__call__)
     _created_jobs_broken: List[Job] = []
 
-    def _trace_func(frame: FrameType, event: str, arg):
-        if frame.f_code == _job_create_code:
-            if event == "call":
-                return _trace_func
-            if event == "return":
-                # print(f"*** JOB CREATE {arg!r}")
-                _created_jobs_broken.append(arg)
+    def _wrapped_job_type_call(*args, **kwargs):
+        job = orig_job_type_call(*args, **kwargs)
+        assert isinstance(job, Job)
+        _created_jobs_broken.append(job)
+        return job
 
     # Trace all jobs.
-    sys.settrace(_trace_func)
     print("Collect jobs with broken hashing...")
+    JobSingleton.__call__ = _wrapped_job_type_call
     start = time.time()
     exp_func()
     print(f"Elapsed time: {time.time() - start:.3f} sec")
-    sys.settrace(None)
     print(f"Collected {len(_created_jobs_broken)} jobs with broken hashing.")
 
     # Enable the correct hashing.
@@ -123,20 +125,17 @@ def hash_fix(
     # Trace all jobs again.
     _created_jobs_correct: List[Job] = []
 
-    def _trace_func(frame: FrameType, event: str, arg):
-        if frame.f_code == _job_create_code:
-            if event == "call":
-                return _trace_func
-            if event == "return":
-                # print(f"*** JOB CREATE {arg!r}")
-                _created_jobs_correct.append(arg)
+    def _wrapped_job_type_call(*args, **kwargs):
+        job = orig_job_type_call(*args, **kwargs)
+        assert isinstance(job, Job)
+        _created_jobs_correct.append(job)
+        return job
 
-    sys.settrace(_trace_func)
     print("Collect jobs with correct hashing...")
+    JobSingleton.__call__ = _wrapped_job_type_call
     start = time.time()
     exp_func()
     print(f"Elapsed time: {time.time() - start:.3f} sec")
-    sys.settrace(None)
     print(f"Collected {len(_created_jobs_correct)} jobs with correct hashing.")
 
     print("Matching jobs...")
