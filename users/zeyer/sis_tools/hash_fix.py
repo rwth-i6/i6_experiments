@@ -134,6 +134,8 @@ def hash_fix(
     def _wrapped_job_type_call(*args, **kwargs):
         job = orig_job_type_call(*args, **kwargs)
         assert isinstance(job, Job)
+        if job in _created_jobs_broken_visited:
+            return job  # we can safely skip this
         if job in _created_jobs_correct_visited:
             return job
         _created_jobs_correct_visited.add(job)
