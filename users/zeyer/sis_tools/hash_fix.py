@@ -205,7 +205,14 @@ def _find_matching_job(
 ) -> Tuple[int, Job]:
     assert job_broken_start_idx < len(jobs_broken)
     job_broken_idx = job_broken_start_idx
-    while job_broken_idx < len(jobs_broken):
+    wrapped_around = False
+    while True:
+        if job_broken_idx >= len(jobs_broken):
+            assert not wrapped_around
+            job_broken_idx = 0
+            wrapped_around = True
+        if wrapped_around and job_broken_idx == job_broken_start_idx:
+            break
         job_broken = jobs_broken[job_broken_idx]
         is_matching, is_non_matching_reason = _is_matching_job(
             job_broken=job_broken, job_correct=job_correct, map_correct_to_broken=map_correct_to_broken
