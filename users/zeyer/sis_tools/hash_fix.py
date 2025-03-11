@@ -169,12 +169,16 @@ def hash_fix(
             map_from_other=map_broken_to_correct,
         )
         for job_broken in jobs_broken:
-            if job_broken in map_broken_to_correct:
+            if job_broken in _created_jobs_correct_visited:  # Same job also created with correct hashing.
+                if job_broken == job_correct:
+                    continue  # no need to add this to map_broken_to_correct
                 # This is weird... should be unique.
                 raise Exception(
-                    f"Job broken {job_broken} already matched to {map_broken_to_correct[job_broken]},"
-                    f" new correct match is {job_correct}"
+                    f"Job broken {job_broken} is a correct job by itself,"
+                    f" but it also matches to the correct job {job_correct}"
                 )
+            assert job_broken not in map_broken_to_correct
+            assert job_broken not in _created_jobs_correct_visited
             map_broken_to_correct[job_broken] = job_correct
         if job_correct in _created_jobs_broken_visited:
             # It should have matched above.
