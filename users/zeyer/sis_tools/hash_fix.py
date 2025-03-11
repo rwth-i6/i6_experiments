@@ -276,12 +276,14 @@ def _main():
     """When called directly"""
     import argparse
     import importlib
+    from returnn.util import better_exchook
 
     arg_parser = argparse.ArgumentParser()
     arg_parser.add_argument("config_file", help="Sisyphus config file (entry point with `py` func)")
     arg_parser.add_argument("--fix-func", help="Func to enable fixed behavior")
     arg_parser.add_argument("--no-dry-run", action="store_true", help="Actually create the symlinks")
     args = arg_parser.parse_args()
+    better_exchook.install()
 
     # like sisyphus.loader.ConfigManager.load_config_file
     filename = args.config_file
