@@ -203,26 +203,48 @@ def _find_matching_job(
         job_broken_idx += 1
 
     # We assume that all correct jobs have a matching broken job, thus getting here is an error.
+    # Collect some information for debugging why it is not matching
+    # (maybe some bug in the matching logic).
+    stacktrace_strs = []
     # noinspection PyProtectedMember
     stacktraces = job_correct._sis_stacktrace
-    stacktrace_str = "".join(traceback.format_list(stacktraces[0])) if stacktraces else "<no stacktrace>"
+    if stacktraces:
+        for i in range(len(stacktraces)):
+            stacktrace_strs.append(f"Correct job create traceback {i + 1}/{len(stacktraces)}:\n")
+            stacktrace_strs.extend(traceback.format_list(stacktraces[i]))
+    else:
+        stacktrace_strs.append("Correct job create traceback: <none?>\n")
+    job_broken_idx = job_broken_start_idx
+    job_broken = jobs_broken[job_broken_idx]
+    if type(job_broken) is type(job_correct):
+        prefix = f"Potential matching broken job {job_broken_idx}"
+        # noinspection PyProtectedMember
+        stacktraces = job_broken._sis_stacktrace
+        if stacktraces:
+            for i in range(len(stacktraces)):
+                stacktrace_strs.append(f"{prefix} create traceback {i + 1}/{len(stacktraces)}:\n")
+                stacktrace_strs.extend(traceback.format_list(stacktraces[i]))
+        else:
+            stacktrace_strs.append(f"{prefix} create traceback: <none?>\n")
     jobs_broken_ = []
     for i in range(max(0, job_broken_start_idx - 3), min(job_broken_start_idx + 4, len(jobs_broken))):
         s = " -> " if job_broken_start_idx == i else "    "
         _, non_match_reason = _is_matching_job(
             job_broken=jobs_broken[i], job_correct=job_correct, map_correct_to_broken=map_correct_to_broken
         )
-        jobs_broken_.append(f"{s}{jobs_broken[i]} ({non_match_reason})")
+        jobs_broken_.append(f"{s}{i} {jobs_broken[i]} ({non_match_reason})")
     raise Exception(
         f"Could not find matching broken job for correct job: {job_correct}\n"
         f"Broken job candidates:\n{'\n'.join(jobs_broken_)}\n"
-        f"Correct job create traceback:\n{stacktrace_str}"
+        f"{''.join(stacktrace_strs)}"
     )
 
 
 def _is_matching_job(*, job_broken: Job, job_correct: Job, map_correct_to_broken: Dict[Job, Job]) -> Tuple[bool, str]:
     if type(job_broken) is not type(job_correct):
         return False, "Different type"
+    if job_broken.job_id() == job_correct.job_id():  # fast path
+        return True, "<Matching>"
     job_broken_aliases: Set[str] = job_broken.get_aliases() or set()
     job_correct_aliases: Set[str] = job_correct.get_aliases() or set()
     if job_broken_aliases:
