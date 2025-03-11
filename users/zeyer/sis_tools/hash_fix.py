@@ -68,6 +68,8 @@ from sisyphus.job import JobSingleton, Job
 import sisyphus.global_settings as gs
 from sisyphus import tools
 from i6_experiments.users.zeyer.recog import GetBestRecogTrainExp
+from i6_core.returnn.training import ReturnnTrainingJob
+from i6_core.returnn.forward import ReturnnForwardJobV2
 
 
 def hash_fix(
@@ -180,6 +182,7 @@ def hash_fix(
                     f"Correct job args: {job_correct._sis_kwargs}\n"
                     f"Broken job args: {job_broken._sis_kwargs}"
                 )
+            assert job_broken != job_correct
             assert job_broken not in map_broken_to_correct
             assert job_broken not in _created_jobs_correct_visited
             map_broken_to_correct[job_broken] = job_correct
@@ -345,14 +348,20 @@ def _is_matching_job(
             job_inputs = set(_map_job_path_to_other(p, map_to_other) for p in job_inputs)
         job_other_inputs_ = set(p.get_path() for p in job_other_inputs)
         job_inputs_ = set(p.get_path() for p in job_inputs)
-        # Note: We allow that the broken job has some fewer inputs, e.g. when some Path was converted to str.
-        if not job_other_inputs_.issubset(job_inputs_):
+        # Note: We allow that the broken job has some fewer inputs for certain job types,
+        # e.g. when some Path was converted to str.
+        if (
+            (not job_other_inputs_.issubset(job_inputs_))
+            if isinstance(job, (ReturnnTrainingJob, ReturnnForwardJobV2))
+            else (job_other_inputs_ != job_inputs_)
+        ):
             return False, (
                 f"Different inputs. {job_other_name.capitalize()} deps that are not in {job_name} deps: "
                 f"{sorted(p for p in job_other_inputs_ if p not in job_inputs_)}; "
                 f"{job_name.capitalize()} deps that are not in {job_other_name} deps: "
                 f"{sorted(p for p in job_inputs_ if p not in job_other_inputs_)}"
             )
+
     # noinspection PyProtectedMember,PyUnresolvedReferences
     job_stacktrace, job_broken_stacktrace = (
         # hash_fix_broken_traceback / hash_fix_correct_traceback
