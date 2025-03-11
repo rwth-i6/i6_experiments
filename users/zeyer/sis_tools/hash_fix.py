@@ -153,54 +153,39 @@ def hash_fix(
     # For every correct job, there can be one or multiple broken jobs,
     # but for every broken job, there is exactly one correct job (maybe itself if it is already correct),
     # or maybe none if it is covered by some caching mechanism.
+    map_correct_to_broken: Dict[Job, Job] = {}  # first broken one we found, if no correct
     map_broken_to_correct: Dict[Job, Job] = {}
-    job_correct_idx = 0
-    for job_broken_idx, job_broken in enumerate(_created_jobs_broken):
-        job_correct_idx, job_correct = _find_matching_job(
-            job=job_broken,
-            job_name="broken",
-            jobs_other=_created_jobs_correct,
-            job_other_name="correct",
-            job_other_start_idx=job_correct_idx,
-            map_to_other=map_broken_to_correct,
-            allow_no_match=True,
-        )
-        if not job_correct:
-            # Can happen e.g. if there is caching somewhere. Ignore for now.
-            continue
-        if job_correct.job_id() == job_broken.job_id():
-            continue  # not interesting
-        print(f"Matched broken job {job_broken_idx} {job_broken} to correct job {job_correct_idx} {job_correct}")
-        job_correct_idx += 1
-        map_broken_to_correct[job_broken] = job_correct
-
-    map_correct_to_broken: Dict[Job, Job] = {}
-    job_correct_visited: Set[Job] = set()
-    for job_broken, job_correct in map_broken_to_correct.items():
-        if job_correct in job_correct_visited:
-            continue
-        if job_correct in _created_jobs_broken_visited:
-            # Was also created during broken run, so nothing to do.
-            continue
-        job_correct_visited.add(job_correct)
-        map_correct_to_broken[job_correct] = job_broken
-
-    # As a sanity check, iterate through all correct jobs.
     job_broken_idx = 0
     for job_correct_idx, job_correct in enumerate(_created_jobs_correct):
-        job_broken_idx, job_broken = _find_matching_job(
+        # There can be multiple broken jobs for one correct job,
+        # thus the map_correct_to_broken mapping is not unique,
+        # thus we use map_from_other=map_broken_to_correct.
+        job_broken_idx, jobs_broken = _find_matching_jobs(
             job=job_correct,
             job_name="correct",
             jobs_other=_created_jobs_broken,
             job_other_name="broken",
             job_other_start_idx=job_broken_idx,
-            map_to_other=map_correct_to_broken,
+            map_from_other=map_broken_to_correct,
         )
-        if job_correct.job_id() == job_broken.job_id():
-            continue  # not interesting
+        for job_broken in jobs_broken:
+            if job_broken in map_broken_to_correct:
+                # This is weird... should be unique.
+                raise Exception(
+                    f"Job broken {job_broken} already matched to {map_broken_to_correct[job_broken]},"
+                    f" new correct match is {job_correct}"
+                )
+            map_broken_to_correct[job_broken] = job_correct
+        if job_correct in _created_jobs_broken_visited:
+            # It should have matched above.
+            assert map_broken_to_correct[job_correct] == job_correct
+            # No need to handle this further, no need to add it to map_correct_to_broken.
+            continue
+        assert job_correct not in map_broken_to_correct
+        job_broken = jobs_broken[0]  # take first one
         print(f"Matched correct job {job_correct_idx} {job_correct} to broken job {job_broken_idx} {job_broken}")
         job_broken_idx += 1
-        assert map_correct_to_broken[job_correct] == job_broken
+        map_correct_to_broken[job_correct] = job_broken
 
     # All matched, no error, so we are good. Now proposing new symlinks.
     for job_correct, job_broken in map_correct_to_broken.items():
@@ -234,20 +219,28 @@ def hash_fix(
             os.symlink(job_correct_path_target_symlink, job_correct_path)
 
 
-def _find_matching_job(
+def _find_matching_jobs(
     job: Job,
     *,
     jobs_other: List[Job],
     job_other_start_idx: int,
-    map_to_other: Dict[Job, Job],
+    map_to_other: Optional[Dict[Job, Job]] = None,
+    map_from_other: Optional[Dict[Job, Job]] = None,
     job_name: str,
     job_other_name: str,
-    allow_no_match: bool = False,
-) -> Tuple[int, Optional[Job]]:
+) -> Tuple[int, List[Job]]:
     assert job_other_start_idx < len(jobs_other)
     job_other_idx = job_other_start_idx
     wrapped_around = False
-    match_kwargs = dict(job=job, job_name=job_name, job_other_name=job_other_name, map_to_other=map_to_other)
+    match_kwargs = dict(
+        job=job,
+        job_name=job_name,
+        job_other_name=job_other_name,
+        map_to_other=map_to_other,
+        map_from_other=map_from_other,
+    )
+    matching_jobs = []
+    matching_job_indices = []
     while True:
         if job_other_idx >= len(jobs_other):
             assert not wrapped_around
@@ -256,13 +249,14 @@ def _find_matching_job(
         if wrapped_around and job_other_idx == job_other_start_idx:
             break
         job_other = jobs_other[job_other_idx]
-        is_matching, is_non_matching_reason = _is_matching_job(job_other=job_other, **match_kwargs)
+        is_matching, _ = _is_matching_job(job_other=job_other, **match_kwargs)
         if is_matching:
-            return job_other_idx, job_other
+            matching_jobs.append(job_other)
+            matching_job_indices.append(job_other_idx)
         job_other_idx += 1
 
-    if allow_no_match:
-        return job_other_start_idx, None
+    if matching_jobs:
+        return matching_job_indices[0], matching_jobs
 
     # We assume that all correct jobs have a matching broken job, thus getting here is an error.
     # Collect some information for debugging why it is not matching
@@ -303,7 +297,8 @@ def _is_matching_job(
     *,
     job: Job,
     job_other: Job,
-    map_to_other: Dict[Job, Job],
+    map_to_other: Optional[Dict[Job, Job]] = None,
+    map_from_other: Optional[Dict[Job, Job]] = None,
     check_inputs: bool = True,
     job_name: str,
     job_other_name: str,
@@ -335,9 +330,13 @@ def _is_matching_job(
         else:
             # noinspection PyProtectedMember
             job_other_inputs, job_inputs = job_other._sis_inputs, job._sis_inputs
+        assert not (map_to_other and map_from_other)
         job_other_inputs: Set[Path]
+        if map_from_other:
+            job_other_inputs = set(_map_job_path_to_other(p, map_from_other) for p in job_other_inputs)
         job_inputs: Set[Path]
-        job_inputs = set(_map_job_path_to_other(p, map_to_other) for p in job_inputs)
+        if map_to_other:
+            job_inputs = set(_map_job_path_to_other(p, map_to_other) for p in job_inputs)
         job_other_inputs_ = set(p.get_path() for p in job_other_inputs)
         job_inputs_ = set(p.get_path() for p in job_inputs)
         # Note: We allow that the broken job has some fewer inputs, e.g. when some Path was converted to str.
