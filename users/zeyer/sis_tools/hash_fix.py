@@ -20,7 +20,7 @@ We can have multiple sanity checks to make sure we match the right jobs:
 
 - All the created jobs are exactly of the same type in the same order (only hash might differ)
   (note: due to caching, we might see a few less...).
-- The dependencies are the same (potentially mapping the hashes).
+- The kwargs are the same (potentially mapping the hashes) (this is more than just the inputs/deps).
 - The Python stack trace is the same.
   (But careful: there might be same jobs with different stack traces...)
 - Alias / output names are the same.
@@ -64,13 +64,13 @@ def _setup():
 _setup()
 
 
-from sisyphus import Path
+from sisyphus.job_path import Path, AbstractPath
 from sisyphus.job import JobSingleton, Job
+from sisyphus.hash import get_object_state
 import sisyphus.global_settings as gs
-from sisyphus import tools
-from i6_experiments.users.zeyer.recog import GetBestRecogTrainExp
-from i6_core.returnn.training import ReturnnTrainingJob
-from i6_core.returnn.forward import ReturnnForwardJobV2
+from i6_core.returnn.config import ReturnnConfig
+from i6_core.returnn.training import PtCheckpoint
+from returnn.util.basic import obj_diff_list
 
 
 def hash_fix(
@@ -317,6 +317,7 @@ def _is_matching_job(
         return False, "Different type"
     if job_other.job_id() == job.job_id():  # fast path
         return True, "<Matching>"
+
     job_other_aliases: Set[str] = job_other.get_aliases() or set()
     job_aliases: Set[str] = job.get_aliases() or set()
     if job_other_aliases:
@@ -328,40 +329,19 @@ def _is_matching_job(
             )
     elif job_aliases:
         return False, f"Different aliases: {job_other_name} job {job_other_aliases} vs {job_name} job {job_aliases}"
+
     if check_inputs:
-        if isinstance(job_other, GetBestRecogTrainExp):
-            # Special handling for GetBestRecogTrainExp as we dynamically add more inputs,
-            # and the new job with correct hash might not know about all inputs yet.
-            # (Actually, we might use this logic here just for all jobs?)
-            # noinspection PyProtectedMember
-            job_other_kwargs, job_kwargs = job_other._sis_kwargs, job._sis_kwargs
-            job_other_inputs = tools.extract_paths(job_other_kwargs)
-            job_inputs = tools.extract_paths(job_kwargs)
-        else:
-            # noinspection PyProtectedMember
-            job_other_inputs, job_inputs = job_other._sis_inputs, job._sis_inputs
         assert not (map_to_other and map_from_other)
-        job_other_inputs: Set[Path]
-        if map_from_other:
-            job_other_inputs = set(_map_job_path_to_other(p, map_from_other) for p in job_other_inputs)
-        job_inputs: Set[Path]
-        if map_to_other:
-            job_inputs = set(_map_job_path_to_other(p, map_to_other) for p in job_inputs)
-        job_other_inputs_ = set(p.get_path() for p in job_other_inputs)
-        job_inputs_ = set(p.get_path() for p in job_inputs)
-        # Note: We allow that the broken job has some fewer inputs for certain job types,
-        # e.g. when some Path was converted to str.
-        if (
-            (not job_other_inputs_.issubset(job_inputs_))
-            if isinstance(job, (ReturnnTrainingJob, ReturnnForwardJobV2))
-            else (job_other_inputs_ != job_inputs_)
-        ):
-            return False, (
-                f"Different inputs. {job_other_name.capitalize()} deps that are not in {job_name} deps: "
-                f"{sorted(p for p in job_other_inputs_ if p not in job_inputs_)}; "
-                f"{job_name.capitalize()} deps that are not in {job_other_name} deps: "
-                f"{sorted(p for p in job_inputs_ if p not in job_other_inputs_)}"
-            )
+        # noinspection PyProtectedMember
+        job_other_kwargs = _map_kwargs_to_other(job_other._sis_kwargs, map_to_other=map_from_other)
+        # noinspection PyProtectedMember
+        job_kwargs = _map_kwargs_to_other(job._sis_kwargs, map_to_other=map_to_other)
+        if job_kwargs != job_other_kwargs:
+            diff_ls = obj_diff_list(job_other_kwargs, job_kwargs)
+            if diff_ls[:1] == ["dict diff:"]:
+                diff_ls = diff_ls[1:]  # remove this prefix
+            diff_s = " ".join(diff_ls[:1] + ([f"({len(diff_ls) - 1} more)"] if len(diff_ls) > 1 else []))
+            return False, f"Different kwargs. {job_other_name.capitalize()} vs {job_name}: {diff_s or '<empty?>'}"
 
     # noinspection PyProtectedMember
     job_stacktraces, job_broken_stacktraces = job._sis_stacktrace, job_other._sis_stacktrace
@@ -371,13 +351,32 @@ def _is_matching_job(
     return True, "<Matching>"
 
 
-def _map_job_path_to_other(path: Path, map_to_other: Dict[Job, Job]) -> Path:
+def _map_job_path_to_other(path: AbstractPath, map_to_other: Optional[Dict[Job, Job]]) -> AbstractPath:
     if path.creator is None:
         return path
-    if path.creator in map_to_other:
+    if map_to_other and path.creator in map_to_other:
         job_other = map_to_other[path.creator]
         return Path(path.path, creator=job_other)
     return path
+
+
+def _map_kwargs_to_other(obj: T, *, map_to_other: Optional[Dict[Job, Job]]) -> T:
+    if obj is None or isinstance(obj, (str, int, float, bool, str, complex)):
+        return obj
+    if isinstance(obj, AbstractPath):
+        obj = _map_job_path_to_other(obj, map_to_other=map_to_other)
+        return obj.get_path()
+    if isinstance(obj, PtCheckpoint):
+        return _map_kwargs_to_other(obj.path, map_to_other=map_to_other)
+    if isinstance(obj, Job):
+        raise TypeError(f"Unexpected Job object in kwargs: {obj}")
+    if isinstance(obj, dict):
+        return {k: _map_kwargs_to_other(v, map_to_other=map_to_other) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple, set, frozenset)):
+        return type(obj)(_map_kwargs_to_other(v, map_to_other=map_to_other) for v in obj)
+    if isinstance(obj, ReturnnConfig):
+        return _map_kwargs_to_other(obj.config, map_to_other=map_to_other)
+    return _map_kwargs_to_other(get_object_state(obj), map_to_other=map_to_other)
 
 
 def _get_func_code(func: Union[FunctionType, Callable]) -> CodeType:
