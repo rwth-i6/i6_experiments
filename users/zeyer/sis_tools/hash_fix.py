@@ -200,8 +200,12 @@ def hash_fix(
         print(f"Job correct {job_correct} -> broken {job_broken}")
         # noinspection PyProtectedMember
         job_correct_path, job_broken_path = job_correct._sis_path(abspath=True), job_broken._sis_path(abspath=True)
-        if not os.path.exists(job_broken_path):
-            print(f"  Job broken path does not exist: {job_broken_path}")
+        try:
+            existing_broken_content = os.listdir(job_broken_path)
+        except FileNotFoundError:
+            existing_broken_content = None
+        if not existing_broken_content:
+            print(f"  Job broken path {job_broken_path} has no content {existing_broken_content}, ignoring")
             continue
         try:
             stat_ = os.stat(job_correct_path, follow_symlinks=False)
@@ -215,7 +219,20 @@ def hash_fix(
             if job_correct_path_target_symlink == job_correct_path_existing_symlink:
                 print(f"  Job correct path already has correct symlink")
                 continue
-            print(f"  Job correct path has wrong symlink -> {job_correct_path_existing_symlink}, removing")
+            try:
+                existing_content = os.listdir(job_correct_path_existing_symlink)
+            except FileNotFoundError:
+                existing_content = None
+            if existing_content:
+                print(
+                    f"  Job correct path has different symlink with content"
+                    f" -> {job_correct_path_existing_symlink}, ignoring"
+                )
+                continue
+            print(
+                f"  Job correct path has wrong symlink -> {job_correct_path_existing_symlink}"
+                f" with content {existing_content}, removing"
+            )
             if not dry_run:
                 os.remove(job_correct_path)  # recreate it
         elif stat_:
