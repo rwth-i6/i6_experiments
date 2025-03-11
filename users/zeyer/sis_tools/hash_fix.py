@@ -254,6 +254,17 @@ def _is_matching_job(*, job_broken: Job, job_correct: Job, map_correct_to_broken
             f"Different inputs. Broken deps that are not in correct deps: "
             f"{sorted(p for p in job_broken_inputs_ if p not in job_correct_inputs_)}"
         )
+    # noinspection PyProtectedMember
+    job_correct_stacktraces, job_broken_stacktraces = job_correct._sis_stacktrace, job_broken._sis_stacktrace
+    assert len(job_correct_stacktraces) >= 1 and len(job_broken_stacktraces) >= 1
+    equal = False
+    for job_broken_stacktrace in job_broken_stacktraces:
+        equal, _ = _is_stacktrace_equal(job_broken_stacktrace, job_correct_stacktraces[0])
+        if equal:
+            break
+    if not equal:
+        _, not_equal_reason = _is_stacktrace_equal(job_broken_stacktraces[0], job_correct_stacktraces[0])
+        return False, f"Different stacktrace: {not_equal_reason}"
     return True, "<Matching>"
 
 
@@ -270,6 +281,27 @@ def _get_func_code(func: Union[FunctionType, Callable]) -> CodeType:
     while getattr(func, "__wrapped__", None) is not None:
         func = func.__wrapped__
     return func.__code__
+
+
+def _is_stacktrace_equal(
+    stacktrace1: List[traceback.FrameSummary], stacktrace2: List[traceback.FrameSummary]
+) -> Tuple[bool, str]:
+    """
+    :return: (is_equal, reason)
+    """
+    common: List[Union[traceback.FrameSummary, str]] = []
+    for frame1, frame2 in zip(stacktrace1, stacktrace2):
+        if frame1.filename != frame2.filename:
+            return False, f"{common}, frame differs: {frame1} vs {frame2}"
+        if frame1.filename == __file__:
+            common.append(f"({os.path.basename(__file__)})")
+            continue
+        if frame1.lineno != frame2.lineno:
+            return False, f"{common}, frame differs: {frame1} vs {frame2}"
+        common.append(frame1)
+    if len(stacktrace1) != len(stacktrace2):
+        return False, f"{common}, different length"
+    return True, "<Matching>"
 
 
 def _main():
