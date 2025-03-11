@@ -173,16 +173,18 @@ def hash_fix(
                 if job_broken == job_correct:
                     continue  # no need to add this to map_broken_to_correct
                 # This is weird... should be unique.
+                # noinspection PyProtectedMember
                 raise Exception(
                     f"Job broken {job_broken} is a correct job by itself,"
-                    f" but it also matches to the correct job {job_correct}"
+                    f" but it also matches to the correct job {job_correct}.\n"
+                    f"Correct job args: {job_correct._sis_kwargs}\n"
+                    f"Broken job args: {job_broken._sis_kwargs}"
                 )
             assert job_broken not in map_broken_to_correct
             assert job_broken not in _created_jobs_correct_visited
             map_broken_to_correct[job_broken] = job_correct
         if job_correct in _created_jobs_broken_visited:
             # It should have matched above.
-            assert map_broken_to_correct[job_correct] == job_correct
             # No need to handle this further, no need to add it to map_correct_to_broken.
             continue
         assert job_correct not in map_broken_to_correct
