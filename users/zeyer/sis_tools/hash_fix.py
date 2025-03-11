@@ -103,11 +103,16 @@ def hash_fix(
     orig_job_type_call = JobSingleton.__call__
     _job_create_code = _get_func_code(JobSingleton.__call__)
     _created_jobs_broken: List[Job] = []
+    _created_jobs_broken_visited: Set[Job] = set()
 
     def _wrapped_job_type_call(*args, **kwargs):
         job = orig_job_type_call(*args, **kwargs)
         assert isinstance(job, Job)
+        if job in _created_jobs_broken_visited:
+            return job
+        _created_jobs_broken_visited.add(job)
         _created_jobs_broken.append(job)
+        job.hash_fix_broken_traceback = traceback.extract_stack()
         return job
 
     # Trace all jobs.
@@ -124,11 +129,16 @@ def hash_fix(
 
     # Trace all jobs again.
     _created_jobs_correct: List[Job] = []
+    _created_jobs_correct_visited: Set[Job] = set()
 
     def _wrapped_job_type_call(*args, **kwargs):
         job = orig_job_type_call(*args, **kwargs)
         assert isinstance(job, Job)
+        if job in _created_jobs_correct_visited:
+            return job
+        _created_jobs_correct_visited.add(job)
         _created_jobs_correct.append(job)
+        job.hash_fix_correct_traceback = traceback.extract_stack()
         return job
 
     print("Collect jobs with correct hashing...")
@@ -206,26 +216,17 @@ def _find_matching_job(
     # Collect some information for debugging why it is not matching
     # (maybe some bug in the matching logic).
     stacktrace_strs = []
-    # noinspection PyProtectedMember
-    stacktraces = job_correct._sis_stacktrace
-    if stacktraces:
-        for i in range(len(stacktraces)):
-            stacktrace_strs.append(f"Correct job create traceback {i + 1}/{len(stacktraces)}:\n")
-            stacktrace_strs.extend(traceback.format_list(stacktraces[i]))
-    else:
-        stacktrace_strs.append("Correct job create traceback: <none?>\n")
+    # noinspection PyProtectedMember,PyUnresolvedReferences
+    stacktrace = job_correct.hash_fix_correct_traceback
+    stacktrace_strs.append(f"Correct job create traceback:\n")
+    stacktrace_strs.extend(traceback.format_list(stacktrace))
     job_broken_idx = job_broken_start_idx
     job_broken = jobs_broken[job_broken_idx]
     if type(job_broken) is type(job_correct):
-        prefix = f"Potential matching broken job {job_broken_idx}"
-        # noinspection PyProtectedMember
-        stacktraces = job_broken._sis_stacktrace
-        if stacktraces:
-            for i in range(len(stacktraces)):
-                stacktrace_strs.append(f"{prefix} create traceback {i + 1}/{len(stacktraces)}:\n")
-                stacktrace_strs.extend(traceback.format_list(stacktraces[i]))
-        else:
-            stacktrace_strs.append(f"{prefix} create traceback: <none?>\n")
+        # noinspection PyProtectedMember,PyUnresolvedReferences
+        stacktrace = job_broken.hash_fix_broken_traceback
+        stacktrace_strs.append(f"Potential matching broken job {job_broken_idx} create traceback:\n")
+        stacktrace_strs.extend(traceback.format_list(stacktrace))
     jobs_broken_ = []
     for i in range(max(0, job_broken_start_idx - 3), min(job_broken_start_idx + 4, len(jobs_broken))):
         s = " -> " if job_broken_start_idx == i else "    "
@@ -276,16 +277,13 @@ def _is_matching_job(*, job_broken: Job, job_correct: Job, map_correct_to_broken
             f"Different inputs. Broken deps that are not in correct deps: "
             f"{sorted(p for p in job_broken_inputs_ if p not in job_correct_inputs_)}"
         )
-    # noinspection PyProtectedMember
-    job_correct_stacktraces, job_broken_stacktraces = job_correct._sis_stacktrace, job_broken._sis_stacktrace
-    assert len(job_correct_stacktraces) >= 1 and len(job_broken_stacktraces) >= 1
-    equal = False
-    for job_broken_stacktrace in job_broken_stacktraces:
-        equal, _ = _is_stacktrace_equal(job_broken_stacktrace, job_correct_stacktraces[0])
-        if equal:
-            break
+    # noinspection PyProtectedMember,PyUnresolvedReferences
+    job_correct_stacktrace, job_broken_stacktrace = (
+        job_correct.hash_fix_correct_traceback,
+        job_broken.hash_fix_broken_traceback,
+    )
+    equal, not_equal_reason = _is_stacktrace_equal(job_broken_stacktrace, job_correct_stacktrace)
     if not equal:
-        _, not_equal_reason = _is_stacktrace_equal(job_broken_stacktraces[0], job_correct_stacktraces[0])
         return False, f"Different stacktrace: {not_equal_reason}"
     return True, "<Matching>"
 
