@@ -182,6 +182,7 @@ def hash_fix(
         if job_correct in _created_jobs_broken_visited:
             # Was also created during broken run, so nothing to do.
             continue
+        job_correct_visited.add(job_correct)
         map_correct_to_broken[job_correct] = job_broken
 
     # As a sanity check, iterate through all correct jobs.
@@ -359,12 +360,12 @@ def _is_matching_job(
     return True, "<Matching>"
 
 
-def _map_job_path_to_other(path: Path, map_correct_to_broken: Dict[Job, Job]) -> Path:
+def _map_job_path_to_other(path: Path, map_to_other: Dict[Job, Job]) -> Path:
     if path.creator is None:
         return path
-    if path.creator in map_correct_to_broken:
-        broken_job = map_correct_to_broken[path.creator]
-        return Path(path.path, creator=broken_job)
+    if path.creator in map_to_other:
+        job_other = map_to_other[path.creator]
+        return Path(path.path, creator=job_other)
     return path
 
 
