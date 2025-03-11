@@ -104,6 +104,9 @@ _use_instanciate_delayed_copy_instead_of_inplace = False
 def use_instanciate_delayed_copy_instead_of_inplace(value: bool = True):
     """
     If you want to use the new behavior, you can call this function at the beginning of your script.
+
+    Note: If you have some old experiments run without this,
+    consider using the :mod:`hash_fix` script to fix (symlink) the hashes.
     """
     global _use_instanciate_delayed_copy_instead_of_inplace
     _use_instanciate_delayed_copy_instead_of_inplace = value
