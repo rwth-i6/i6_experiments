@@ -22,6 +22,7 @@ We can have multiple sanity checks to make sure we match the right jobs:
   (note: due to caching, we might see a few less...).
 - The dependencies are the same (potentially mapping the hashes).
 - The Python stack trace is the same.
+  (But careful: there might be same jobs with different stack traces...)
 - Alias / output names are the same.
 
 Usage example::
@@ -114,7 +115,6 @@ def hash_fix(
             return job
         _created_jobs_broken_visited.add(job)
         _created_jobs_broken.append(job)
-        job.hash_fix_broken_traceback = traceback.extract_stack()
         return job
 
     # Trace all jobs.
@@ -140,7 +140,6 @@ def hash_fix(
             return job
         _created_jobs_correct_visited.add(job)
         _created_jobs_correct.append(job)
-        job.hash_fix_correct_traceback = traceback.extract_stack()
         return job
 
     print("Collect jobs with correct hashing...")
@@ -271,13 +270,15 @@ def _find_matching_jobs(
     # Collect some information for debugging why it is not matching
     # (maybe some bug in the matching logic).
     stacktrace_strs = []
-    stacktrace = getattr(job, f"hash_fix_{job_name}_traceback")
+    # noinspection PyProtectedMember
+    stacktrace = job._sis_stacktrace[0]
     stacktrace_strs.append(f"{job_name.capitalize()} job create traceback:\n")
     stacktrace_strs.extend(traceback.format_list(stacktrace))
     job_other_idx = job_other_start_idx
     job_other = jobs_other[job_other_idx]
     if type(job_other) is type(job):
-        stacktrace = getattr(job_other, f"hash_fix_{job_other_name}_traceback")
+        # noinspection PyProtectedMember
+        stacktrace = job_other._sis_stacktrace[0]
         stacktrace_strs.append(f"Potential matching {job_other_name} job {job_other_idx} create traceback:\n")
         stacktrace_strs.extend(traceback.format_list(stacktrace))
 
@@ -362,13 +363,9 @@ def _is_matching_job(
                 f"{sorted(p for p in job_inputs_ if p not in job_other_inputs_)}"
             )
 
-    # noinspection PyProtectedMember,PyUnresolvedReferences
-    job_stacktrace, job_broken_stacktrace = (
-        # hash_fix_broken_traceback / hash_fix_correct_traceback
-        getattr(job, f"hash_fix_{job_name}_traceback"),
-        getattr(job_other, f"hash_fix_{job_other_name}_traceback"),
-    )
-    equal, not_equal_reason = _is_stacktrace_equal(job_broken_stacktrace, job_stacktrace)
+    # noinspection PyProtectedMember
+    job_stacktraces, job_broken_stacktraces = job._sis_stacktrace, job_other._sis_stacktrace
+    equal, not_equal_reason = _are_stacktraces_equal(job_broken_stacktraces, job_stacktraces)
     if not equal:
         return False, f"Different stacktrace: {not_equal_reason}"
     return True, "<Matching>"
@@ -389,14 +386,17 @@ def _get_func_code(func: Union[FunctionType, Callable]) -> CodeType:
     return func.__code__
 
 
-def _is_stacktrace_equal(
-    stacktrace1: List[traceback.FrameSummary], stacktrace2: List[traceback.FrameSummary]
+def _are_stacktraces_equal(
+    stacktraces1: List[List[traceback.FrameSummary]], stacktraces2: List[List[traceback.FrameSummary]]
 ) -> Tuple[bool, str]:
-    """
-    :return: (is_equal, reason)
-    """
+    assert stacktraces1 and stacktraces2
+    stacktraces1_ = set(_stacktrace_as_key(stacktrace) for stacktrace in stacktraces1)
+    stacktraces2_ = set(_stacktrace_as_key(stacktrace) for stacktrace in stacktraces2)
+    if stacktraces1_.intersection(stacktraces2_):
+        return True, "<Matching>"
+
     common: List[Union[traceback.FrameSummary, str]] = []
-    for frame1, frame2 in zip(stacktrace1, stacktrace2):
+    for frame1, frame2 in zip(stacktraces1[0], stacktraces2[0]):
         if frame1.filename != frame2.filename:
             return False, f"{common}, frame differs: {frame1} vs {frame2}"
         if frame1.filename == __file__:
@@ -405,9 +405,16 @@ def _is_stacktrace_equal(
         if frame1.lineno != frame2.lineno:
             return False, f"{common}, frame differs: {frame1} vs {frame2}"
         common.append(frame1)
-    if len(stacktrace1) != len(stacktrace2):
+    if len(stacktraces1[0]) != len(stacktraces2[0]):
         return False, f"{common}, different length"
-    return True, "<Matching>"
+    return False, f"{common}, unknown diff?"
+
+
+def _stacktrace_as_key(stacktrace: List[traceback.FrameSummary]):
+    res: List[Tuple[str, Optional[int]]] = []
+    for frame in stacktrace:
+        res.append((frame.filename, frame.lineno if frame.filename != __file__ else None))
+    return tuple(res)
 
 
 def _main():
