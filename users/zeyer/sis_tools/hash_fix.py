@@ -236,6 +236,7 @@ def _find_matching_job(
         stacktrace = job_broken.hash_fix_broken_traceback
         stacktrace_strs.append(f"Potential matching broken job {job_broken_idx} create traceback:\n")
         stacktrace_strs.extend(traceback.format_list(stacktrace))
+
     jobs_broken_ = []
     for i in range(max(0, job_broken_start_idx - 3), min(job_broken_start_idx + 4, len(jobs_broken))):
         s = " -> " if job_broken_start_idx == i else "    "
@@ -243,14 +244,34 @@ def _find_matching_job(
             job_broken=jobs_broken[i], job_correct=job_correct, map_correct_to_broken=map_correct_to_broken
         )
         jobs_broken_.append(f"{s}{i} {jobs_broken[i]} ({non_match_reason})")
+
+    matching_jobs_broken_ignoring_in = []
+    for job_broken in jobs_broken:
+        is_matching, _ = _is_matching_job(
+            job_broken=job_broken,
+            job_correct=job_correct,
+            map_correct_to_broken=map_correct_to_broken,
+            check_inputs=False,
+        )
+        if is_matching:
+            _, non_match_reason = _is_matching_job(
+                job_broken=job_broken,
+                job_correct=job_correct,
+                map_correct_to_broken=map_correct_to_broken,
+            )
+            matching_jobs_broken_ignoring_in.append(f"  {job_broken} ({non_match_reason})")
+
     raise Exception(
         f"Could not find matching broken job for correct job: {job_correct}\n"
         f"Broken job candidates:\n{'\n'.join(jobs_broken_)}\n"
+        f"Matching broken jobs ignoring inputs:\n{'\n'.join(matching_jobs_broken_ignoring_in) or '  <none>'}\n"
         f"{''.join(stacktrace_strs)}"
     )
 
 
-def _is_matching_job(*, job_broken: Job, job_correct: Job, map_correct_to_broken: Dict[Job, Job]) -> Tuple[bool, str]:
+def _is_matching_job(
+    *, job_broken: Job, job_correct: Job, map_correct_to_broken: Dict[Job, Job], check_inputs: bool = True
+) -> Tuple[bool, str]:
     if type(job_broken) is not type(job_correct):
         return False, "Different type"
     if job_broken.job_id() == job_correct.job_id():  # fast path
@@ -264,28 +285,29 @@ def _is_matching_job(*, job_broken: Job, job_correct: Job, map_correct_to_broken
             return False, f"Different aliases: Broken job {job_broken_aliases} vs correct job {job_correct_aliases}"
     elif job_correct_aliases:
         return False, f"Different aliases: Broken job {job_broken_aliases} vs correct job {job_correct_aliases}"
-    if isinstance(job_broken, GetBestRecogTrainExp):
-        # Special handling for GetBestRecogTrainExp as we dynamically add more inputs,
-        # and the new job with correct hash might not know about all inputs yet.
-        # (Actually, we might use this logic here just for all jobs?)
-        # noinspection PyProtectedMember
-        job_broken_kwargs, job_correct_kwargs = job_broken._sis_kwargs, job_correct._sis_kwargs
-        job_broken_inputs = tools.extract_paths(job_broken_kwargs)
-        job_correct_inputs = tools.extract_paths(job_correct_kwargs)
-    else:
-        # noinspection PyProtectedMember
-        job_broken_inputs, job_correct_inputs = job_broken._sis_inputs, job_correct._sis_inputs
-    job_broken_inputs: Set[Path]
-    job_correct_inputs: Set[Path]
-    job_correct_inputs = set(_map_correct_job_path_to_broken(p, map_correct_to_broken) for p in job_correct_inputs)
-    job_broken_inputs_ = set(p.get_path() for p in job_broken_inputs)
-    job_correct_inputs_ = set(p.get_path() for p in job_correct_inputs)
-    # Note: We allow that the broken job has some fewer inputs, e.g. when some Path was converted to str.
-    if not job_broken_inputs_.issubset(job_correct_inputs_):
-        return False, (
-            f"Different inputs. Broken deps that are not in correct deps: "
-            f"{sorted(p for p in job_broken_inputs_ if p not in job_correct_inputs_)}"
-        )
+    if check_inputs:
+        if isinstance(job_broken, GetBestRecogTrainExp):
+            # Special handling for GetBestRecogTrainExp as we dynamically add more inputs,
+            # and the new job with correct hash might not know about all inputs yet.
+            # (Actually, we might use this logic here just for all jobs?)
+            # noinspection PyProtectedMember
+            job_broken_kwargs, job_correct_kwargs = job_broken._sis_kwargs, job_correct._sis_kwargs
+            job_broken_inputs = tools.extract_paths(job_broken_kwargs)
+            job_correct_inputs = tools.extract_paths(job_correct_kwargs)
+        else:
+            # noinspection PyProtectedMember
+            job_broken_inputs, job_correct_inputs = job_broken._sis_inputs, job_correct._sis_inputs
+        job_broken_inputs: Set[Path]
+        job_correct_inputs: Set[Path]
+        job_correct_inputs = set(_map_correct_job_path_to_broken(p, map_correct_to_broken) for p in job_correct_inputs)
+        job_broken_inputs_ = set(p.get_path() for p in job_broken_inputs)
+        job_correct_inputs_ = set(p.get_path() for p in job_correct_inputs)
+        # Note: We allow that the broken job has some fewer inputs, e.g. when some Path was converted to str.
+        if not job_broken_inputs_.issubset(job_correct_inputs_):
+            return False, (
+                f"Different inputs. Broken deps that are not in correct deps: "
+                f"{sorted(p for p in job_broken_inputs_ if p not in job_correct_inputs_)}"
+            )
     # noinspection PyProtectedMember,PyUnresolvedReferences
     job_correct_stacktrace, job_broken_stacktrace = (
         job_correct.hash_fix_correct_traceback,
