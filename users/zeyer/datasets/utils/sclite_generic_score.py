@@ -40,9 +40,6 @@ def generic_sclite_score_recog_out(
 def sclite_score_recog_out_to_ref(recog_output: RecogOutput, *, ref: RecogOutput, corpus_name: str) -> ScoreResult:
     """
     score
-
-    To use it for :class:`Task.score_recog_output_func`,
-    you need to use functools.partial and set ``post_proc_funcs``.
     """
     # sclite here. Could also use ReturnnComputeWERJob.
     from i6_core.returnn.search import SearchWordsDummyTimesToCTMJob
