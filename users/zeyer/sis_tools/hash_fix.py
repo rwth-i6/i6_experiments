@@ -37,7 +37,7 @@ import sys
 import os
 import stat
 import time
-from typing import Union, Callable, TypeVar, List, Tuple, Dict, Set
+from typing import Optional, Union, Callable, TypeVar, List, Tuple, Dict, Set
 from functools import reduce
 from types import FunctionType, CodeType
 import traceback
@@ -150,12 +150,12 @@ def hash_fix(
     print(f"Collected {len(_created_jobs_correct)} jobs with correct hashing.")
 
     print("Matching jobs...")
-    # For every correct job, there can be multiple broken jobs,
-    # but for every broken job, there is exactly one correct job (maybe itself if it is already correct).
+    # For every correct job, there can be one or multiple broken jobs,
+    # but for every broken job, there is exactly one correct job (maybe itself if it is already correct),
+    # or maybe none if it is covered by some caching mechanism.
     map_broken_to_correct: Dict[Job, Job] = {}
     job_correct_idx = 0
     for job_broken_idx, job_broken in enumerate(_created_jobs_broken):
-        # We assume that all correct jobs have a matching broken job.
         job_correct_idx, job_correct = _find_matching_job(
             job=job_broken,
             job_name="broken",
@@ -163,14 +163,18 @@ def hash_fix(
             job_other_name="correct",
             job_other_start_idx=job_correct_idx,
             map_to_other=map_broken_to_correct,
+            allow_no_match=True,
         )
+        if not job_correct:
+            # Can happen e.g. if there is caching somewhere. Ignore for now.
+            continue
         if job_correct.job_id() == job_broken.job_id():
             continue  # not interesting
         print(f"Matched broken job {job_broken_idx} {job_broken} to correct job {job_correct_idx} {job_correct}")
         job_correct_idx += 1
         map_broken_to_correct[job_broken] = job_correct
 
-    # All matched, no error, so we are good. Now proposing new symlinks.
+    map_correct_to_broken: Dict[Job, Job] = {}
     job_correct_visited: Set[Job] = set()
     for job_broken, job_correct in map_broken_to_correct.items():
         if job_correct in job_correct_visited:
@@ -178,7 +182,27 @@ def hash_fix(
         if job_correct in _created_jobs_broken_visited:
             # Was also created during broken run, so nothing to do.
             continue
-        job_correct_visited.add(job_correct)
+        map_correct_to_broken[job_correct] = job_broken
+
+    # As a sanity check, iterate through all correct jobs.
+    job_broken_idx = 0
+    for job_correct_idx, job_correct in enumerate(_created_jobs_correct):
+        job_broken_idx, job_broken = _find_matching_job(
+            job=job_correct,
+            job_name="correct",
+            jobs_other=_created_jobs_broken,
+            job_other_name="broken",
+            job_other_start_idx=job_broken_idx,
+            map_to_other=map_correct_to_broken,
+        )
+        if job_correct.job_id() == job_broken.job_id():
+            continue  # not interesting
+        print(f"Matched correct job {job_correct_idx} {job_correct} to broken job {job_broken_idx} {job_broken}")
+        job_broken_idx += 1
+        assert map_correct_to_broken[job_correct] == job_broken
+
+    # All matched, no error, so we are good. Now proposing new symlinks.
+    for job_correct, job_broken in map_correct_to_broken.items():
         print(f"Job correct {job_correct} -> broken {job_broken}")
         # noinspection PyProtectedMember
         job_correct_path, job_broken_path = job_correct._sis_path(abspath=True), job_broken._sis_path(abspath=True)
@@ -217,7 +241,8 @@ def _find_matching_job(
     map_to_other: Dict[Job, Job],
     job_name: str,
     job_other_name: str,
-) -> Tuple[int, Job]:
+    allow_no_match: bool = False,
+) -> Tuple[int, Optional[Job]]:
     assert job_other_start_idx < len(jobs_other)
     job_other_idx = job_other_start_idx
     wrapped_around = False
@@ -234,6 +259,9 @@ def _find_matching_job(
         if is_matching:
             return job_other_idx, job_other
         job_other_idx += 1
+
+    if allow_no_match:
+        return job_other_start_idx, None
 
     # We assume that all correct jobs have a matching broken job, thus getting here is an error.
     # Collect some information for debugging why it is not matching
