@@ -142,7 +142,7 @@ def hash_fix(
     print("Matching jobs...")
     map_correct_to_broken: Dict[Job, Job] = {}
     job_broken_idx = 0
-    for job_correct in _created_jobs_correct:
+    for job_correct_idx, job_correct in enumerate(_created_jobs_correct):
         # We assume that all correct jobs have a matching broken job.
         job_broken_idx, job_broken = _find_matching_job(
             job_correct=job_correct,
@@ -152,7 +152,7 @@ def hash_fix(
         )
         if job_correct.job_id() == job_broken.job_id():
             continue  # not interesting
-        print(f"Matched correct job {job_correct} to broken job {job_broken}")
+        print(f"Matched correct job {job_correct_idx} {job_correct} to broken job {job_broken_idx} {job_broken}")
         job_broken_idx += 1
         map_correct_to_broken[job_correct] = job_broken
 
