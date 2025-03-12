@@ -50,7 +50,10 @@ def main():
     from sisyphus import gs
     from i6_experiments.users.zeyer.utils import job_aliases_from_log
     from i6_experiments.users.zeyer.utils.set_insert_order import SetInsertOrder
+    from returnn.util import better_exchook
     from returnn.util.basic import human_bytes_size
+
+    better_exchook.install()
 
     # HACK: Replace the set() by SetInsertOrder() to make the order deterministic.
     graph.graph._targets = SetInsertOrder()
