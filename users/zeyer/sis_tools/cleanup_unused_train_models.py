@@ -4,6 +4,7 @@ Cleanup unused train model checkpoints in the work dir.
 """
 
 import os
+import re
 import sys
 import argparse
 import logging
@@ -49,8 +50,10 @@ def main():
     from sisyphus import graph
     from sisyphus import gs
     from sisyphus import Job
+    from i6_core.returnn.training import ReturnnTrainingJob
     from i6_experiments.users.zeyer.utils import job_aliases_from_info
     from i6_experiments.users.zeyer.utils.set_insert_order import SetInsertOrder
+    from i6_experiments.users.zeyer.returnn.training import get_relevant_epochs_from_training_learning_rate_scores
     from returnn.util import better_exchook
     from returnn.util.basic import human_bytes_size
 
@@ -72,7 +75,7 @@ def main():
 
     print("Checking active train jobs of the Sisyphus graph...")
     active_train_job_paths_set = set()
-    active_train_job_paths_list = []
+    active_train_job_finished_list = []
     for job in graph.graph.jobs():
         job: Job
         # noinspection PyProtectedMember
@@ -81,6 +84,7 @@ def main():
         # to also catch fake jobs (via dependency_boundary).
         if not job_path.startswith("work/i6_core/returnn/training/ReturnnTrainingJob."):
             continue
+        job: ReturnnTrainingJob
         # print("active train job:", job._sis_path())
         if os.path.isdir(job_path):
             print("Active train job:", job)
@@ -96,7 +100,9 @@ def main():
                 job_path = job_path__
             assert job_path not in active_train_job_paths_set
             active_train_job_paths_set.add(job_path)
-            active_train_job_paths_list.append(job_path)
+            # noinspection PyProtectedMember
+            if isinstance(job, ReturnnTrainingJob) and job._sis_finished():  # If finished, and also no fake job.
+                active_train_job_finished_list.append(job)
         else:
             print("Active train job not created yet:", job)
     print("Num active train jobs:", len(active_train_job_paths_set))
@@ -185,6 +191,57 @@ def main():
         print("Unused train job:", name, "model size:", human_bytes_size(model_size))
         total_model_size_to_remove += model_size
         train_job_with_models_to_remove.append(name)
+
+    print("Collecting model checkpoint files from active finished train jobs to remove...")
+    for job in active_train_job_finished_list:
+        job: ReturnnTrainingJob
+        name = job.get_one_alias() or job.job_id()
+        relevant_epochs = get_relevant_epochs_from_training_learning_rate_scores(
+            model_dir=job.out_model_dir, scores_and_learning_rates=job.out_learning_rates, log_stream=None
+        )
+        # Relevant epochs so far only contains the best from the learning rate scores.
+        # Those are not necessarily e.g. the final epochs, or other fixed kept epochs.
+        # Always keep the 10 last epochs.
+        last_epoch = max(job.out_checkpoints.keys())
+        relevant_epochs.extend(range(last_epoch - 10, last_epoch + 1))
+        model_dir = job.out_model_dir.get_path()
+        model_fns_to_remove_ = []
+        model_size = 0
+        epochs_to_keep = set()
+        epochs_to_delete = set()
+        with os.scandir(model_dir) as it:
+            for model_base_fn in it:
+                model_base_fn: os.DirEntry
+                if not model_base_fn.name.endswith(".pt"):
+                    print("Unexpected model file:", model_base_fn.name)
+                    continue
+                if model_base_fn.name.endswith(".opt.pt"):
+                    continue  # ignore optimizer state. this is the last epoch. keep it
+                epoch = int(re.match("epoch\\.([0-9]+)\\.pt", model_base_fn.name).group(1))
+                if epoch in relevant_epochs:
+                    epochs_to_keep.add(epoch)
+                    continue
+                epochs_to_delete.add(epoch)
+                model_fns_to_remove_.append(model_base_fn.path)
+                model_size += model_base_fn.stat().st_size
+        if not model_fns_to_remove_:
+            continue
+        if not epochs_to_keep:
+            print("Warning: Active finished train job with no relevant epochs found:", name)
+            continue  # better skip this
+        model_fns_to_remove.extend(model_fns_to_remove_)
+        print(
+            "Active finished train job with checkpoints to clean:",
+            name,
+            "cleanup model size:",
+            human_bytes_size(model_size),
+            "epochs to delete:",
+            sorted(epochs_to_delete),
+            "epochs to keep:",
+            sorted(epochs_to_keep),
+        )
+        total_model_size_to_remove += model_size
+        train_job_with_models_to_remove.append(f"partial: {name}")
 
     print("Total train job count:", total_train_job_count)
     print("Total train job with models to remove count:", len(train_job_with_models_to_remove))
