@@ -115,6 +115,7 @@ def hash_fix(
             return job
         _created_jobs_broken_visited.add(job)
         _created_jobs_broken.append(job)
+        _maybe_update_job(job)
         return job
 
     # Trace all jobs.
@@ -140,6 +141,7 @@ def hash_fix(
             return job
         _created_jobs_correct_visited.add(job)
         _created_jobs_correct.append(job)
+        _maybe_update_job(job)
         return job
 
     print("Collect jobs with correct hashing...")
@@ -431,6 +433,14 @@ def _stacktrace_as_key(stacktrace: List[traceback.FrameSummary]):
     for frame in stacktrace:
         res.append((frame.filename, frame.lineno if frame.filename != __file__ else None))
     return tuple(res)
+
+
+def _maybe_update_job(job: Job):
+    # Could also run job._sis_runnable(), but this here is doing a bit less work, and thus faster.
+    # noinspection PyProtectedMember
+    if job._sis_update_possible():
+        # noinspection PyProtectedMember
+        job._sis_update_inputs()
 
 
 def _main():
