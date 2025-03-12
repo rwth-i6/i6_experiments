@@ -82,21 +82,21 @@ def main():
             continue
         # print("active train job:", job._sis_path())
         if os.path.isdir(job_path):
-            active_train_job_paths.add(job_path)
             print(
                 "Active train job:",
                 job if job.get_aliases() else (job_aliases_from_log.get_job_aliases(job_path) or job),
             )
+            # Resolve symlinks, to only store the path which is actually used for storage
+            # (even if that might be some outdated incorrect hash),
+            # because that makes the matching easier when we scan the work dir.
             while os.path.islink(job_path):
                 job_path_ = os.readlink(job_path)
-                job_path = _rel_job_path(job_path_)
-                print("  symlink ->", job_path_, "resolved to", job_path or "<none?>")
-                if not job_path:
+                job_path__ = _rel_job_path(job_path_)
+                if job_path == job_path__:  # same name, just on different disk; stop
                     break
-                if job_path in active_train_job_paths:
-                    print("  (already added)")
-                    break
-                active_train_job_paths.add(job_path)
+                print("  symlink ->", job_path_, "resolved to", job_path__)
+                job_path = job_path__
+            active_train_job_paths.add(job_path)
         else:
             print("Active train job not created yet:", job)
     print("Num active train jobs:", len(active_train_job_paths))
@@ -108,15 +108,28 @@ def main():
     unused_train_jobs = {}  # key: alias (or basename as fallback), value: job path filename
     model_fns_to_remove = []
     found_active_fns = set()  #  as a sanity check.
+    covered_real_job_paths = set()
     for basename in os.listdir("work/i6_core/returnn/training"):
         if not basename.startswith("ReturnnTrainingJob."):
             continue
         fn = "work/i6_core/returnn/training/" + basename
 
-        if os.path.islink(fn):
-            link = _rel_job_path(os.readlink(fn))
-            if link != fn:
-                continue  # skip, will be handled when we reach the real name
+        if fn not in active_train_job_paths and os.path.islink(fn):
+            try:
+                link = _rel_job_path(os.readlink(fn))
+            except FileNotFoundError:
+                pass  # resolves to some non-existing work dir; just keep using it
+            else:
+                if link != fn:
+                    continue  # skip, will be handled when we reach the real name
+
+        # Avoid duplicates, due to symlinks or so.
+        # This potentially covers a bit more cases than the _rel_job_path logic above.
+        realpath = os.path.realpath(fn)
+        if realpath in covered_real_job_paths:
+            assert fn not in active_train_job_paths
+            continue
+        covered_real_job_paths.add(realpath)
 
         total_train_job_count += 1
 
