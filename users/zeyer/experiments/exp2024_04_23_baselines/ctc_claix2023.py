@@ -79,7 +79,7 @@ def py():
                 "enc_build_dict": rf.build_dict(
                     # ConformerEncoder(in_dim, enc_model_dim, **enc_opts)
                     ConformerEncoder,
-                    enc_input_layer=rf.build_dict(
+                    input_layer=rf.build_dict(
                         ConformerConvSubsample,
                         out_dims=[32, 64, 64],
                         filter_sizes=[(3, 3), (3, 3), (3, 3)],
