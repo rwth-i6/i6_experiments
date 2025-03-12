@@ -20,6 +20,7 @@ from .ctc import train_exp as ctc_train_exp, _raw_sample_rate
 
 from i6_experiments.users.zeyer.experiments.exp2024_10_16_consistency_reg_ctc import cr_ctc_training
 from i6_experiments.users.zeyer.train_v4 import train, ModelDefWithCfg
+from i6_experiments.users.zeyer.sis_tools.instanciate_delayed import use_instanciate_delayed_copy_instead_of_inplace
 
 import returnn.frontend as rf
 from returnn.frontend.decoder.transformer import TransformerDecoder
@@ -28,6 +29,9 @@ from returnn.frontend.encoder.conformer import ConformerEncoderLayer, ConformerP
 
 def py():
     from returnn.frontend.encoder.conformer import ConformerConvSubsample
+
+    # Should have no effect here (I tested this), but better to have anyway.
+    use_instanciate_delayed_copy_instead_of_inplace()
 
     # Consistency regularization (CR) (crLoss).
     for opts, cr_ctc_variants in [
