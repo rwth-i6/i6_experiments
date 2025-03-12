@@ -71,7 +71,7 @@ def py():
         # env_updates={"PYTORCH_CUDA_ALLOC_CONF": "backend:cudaMallocAsync,expandable_segments:True"},
     )
 
-    for num_layers, num_dims, batch_size in [(16, 512, 150_000)]:
+    for num_layers, num_dims, batch_size in [(16, 512, 150_000), (16, 768, 100_000), (20, 512, 150_000)]:
         ctc_train_exp(
             f"L{num_layers}-D{num_dims}-spm10k-auxAED-b{batch_size // 1000}k",
             config_96gb_bf16_accgrad1,
