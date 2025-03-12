@@ -3,6 +3,7 @@ Config for RWTH IPC CLAIX-2023 cluster experiments.
 """
 
 from __future__ import annotations
+from i6_experiments.users.zeyer.sis_tools.instanciate_delayed import use_instanciate_delayed_copy_instead_of_inplace
 
 
 def py():
@@ -31,6 +32,9 @@ def py():
     # -----
 
     from . import aed_claix2023, ctc_claix2023, lm_claix2023
+
+    # Should have no effect here (I tested this), but better to have anyway.
+    use_instanciate_delayed_copy_instead_of_inplace()
 
     aed_claix2023.py()
     ctc_claix2023.py()
