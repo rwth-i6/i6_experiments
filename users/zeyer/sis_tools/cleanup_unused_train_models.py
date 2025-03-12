@@ -87,6 +87,16 @@ def main():
                 "Active train job:",
                 job if job.get_aliases() else (job_aliases_from_log.get_job_aliases(job_path) or job),
             )
+            while os.path.islink(job_path):
+                job_path_ = os.readlink(job_path)
+                job_path = _rel_job_path(job_path_)
+                print("  symlink ->", job_path_, "resolved to", job_path or "<none?>")
+                if not job_path:
+                    break
+                if job_path in active_train_job_paths:
+                    print("  (already added)")
+                    break
+                active_train_job_paths.add(job_path)
         else:
             print("Active train job not created yet:", job)
     print("Num active train jobs:", len(active_train_job_paths))
@@ -181,6 +191,21 @@ def main():
         print("Dry-run mode, not removing.")
     else:
         raise ValueError("invalid mode: %r" % args.mode)
+
+
+def _rel_job_path(job_path: str) -> str:
+    if not job_path.startswith("/"):  # is already relative
+        assert job_path.startswith("work/")
+        return job_path
+    p = -1
+    while True:
+        p = job_path.find("/work/", p + 1)
+        if p < 0:
+            raise FileNotFoundError(f"Cannot find relative work path in {job_path!r}")
+        rel_path = job_path[p + 1 :]
+        assert rel_path.startswith("work/")
+        if os.path.exists(rel_path):
+            return rel_path
 
 
 if __name__ == "__main__":
