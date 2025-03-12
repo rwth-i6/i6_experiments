@@ -49,7 +49,7 @@ def main():
     from sisyphus import graph
     from sisyphus import gs
     from sisyphus import Job
-    from i6_experiments.users.zeyer.utils import job_aliases_from_log
+    from i6_experiments.users.zeyer.utils import job_aliases_from_info
     from i6_experiments.users.zeyer.utils.set_insert_order import SetInsertOrder
     from returnn.util import better_exchook
     from returnn.util.basic import human_bytes_size
@@ -82,10 +82,7 @@ def main():
             continue
         # print("active train job:", job._sis_path())
         if os.path.isdir(job_path):
-            print(
-                "Active train job:",
-                job if job.get_aliases() else (job_aliases_from_log.get_job_aliases(job_path) or job),
-            )
+            print("Active train job:", job)
             # Resolve symlinks, to only store the path which is actually used for storage
             # (even if that might be some outdated incorrect hash),
             # because that makes the matching easier when we scan the work dir.
@@ -141,7 +138,7 @@ def main():
         if not os.path.isdir(model_dir):
             continue  # can happen when there was an early error, e.g. at file creation
 
-        aliases = job_aliases_from_log.get_job_aliases(fn)
+        aliases = job_aliases_from_info.get_job_aliases(fn)
         if aliases:
             # Some alias could have been used multiple times.
             # Ignore those.

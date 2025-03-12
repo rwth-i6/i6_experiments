@@ -51,13 +51,13 @@ def get_work_dir_prefix2() -> str:
     return sis_path.get_work_dir_prefix2()
 
 
-def get_job_aliases(job: str) -> Optional[List[str]]:
+def get_job_aliases(job: str) -> List[str]:
     """
     :param job: without "work/" prefix
     """
-    from i6_experiments.users.zeyer.utils import job_aliases_from_log
+    from i6_experiments.users.zeyer.utils import job_aliases_from_info
 
-    return job_aliases_from_log.get_job_aliases(job)
+    return job_aliases_from_info.get_job_aliases(job)
 
 
 @contextmanager
