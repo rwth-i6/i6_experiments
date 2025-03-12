@@ -48,6 +48,7 @@ def main():
     from sisyphus.loader import config_manager
     from sisyphus import graph
     from sisyphus import gs
+    from sisyphus import Job
     from i6_experiments.users.zeyer.utils import job_aliases_from_log
     from i6_experiments.users.zeyer.utils.set_insert_order import SetInsertOrder
     from returnn.util import better_exchook
@@ -72,6 +73,8 @@ def main():
     print("Checking active train jobs of the Sisyphus graph...")
     active_train_job_paths = set()
     for job in graph.graph.jobs():
+        job: Job
+        # noinspection PyProtectedMember
         job_path: str = job._sis_path()
         # Note: no isinstance(job, ReturnnTrainingJob) check here,
         # to also catch fake jobs (via dependency_boundary).
@@ -80,8 +83,10 @@ def main():
         # print("active train job:", job._sis_path())
         if os.path.isdir(job_path):
             active_train_job_paths.add(job_path)
-            aliases = job_aliases_from_log.get_job_aliases(job_path)
-            print("Active train job:", aliases[0] if aliases else job)
+            print(
+                "Active train job:",
+                job if job.get_aliases() else (job_aliases_from_log.get_job_aliases(job_path) or job),
+            )
         else:
             print("Active train job not created yet:", job)
     print("Num active train jobs:", len(active_train_job_paths))
@@ -99,19 +104,6 @@ def main():
         fn = "work/i6_core/returnn/training/" + basename
 
         total_train_job_count += 1
-        aliases = job_aliases_from_log.get_job_aliases(fn)
-        alias = None
-        if not aliases:
-            print("No aliases found for train job:", fn)
-        else:
-            alias = aliases[0]
-            alias_path = os.path.basename(os.readlink(alias))
-            if alias_path != basename:
-                # Can happen, e.g. when cleared by Sisyphus due to error (cleared.0001 etc),
-                # or when I changed sth in the config due to some mistake.
-                # print("Warning: Alias path mismatch:", alias_path, "actual:", basename)
-                # But doesn't matter, clean up anyway, maybe even more so.
-                pass
 
         if fn in active_train_job_paths:
             found_active_fns.add(fn)
@@ -120,6 +112,25 @@ def main():
         model_dir = fn + "/output/models"
         if not os.path.isdir(model_dir):
             continue  # can happen when there was an early error, e.g. at file creation
+
+        aliases = job_aliases_from_log.get_job_aliases(fn)
+        if aliases:
+            # Some alias could have been used multiple times.
+            # Ignore those.
+            aliases = [a for a in aliases if a not in unused_train_jobs]
+        alias = None
+        if not aliases:
+            print("No aliases found for train job:", fn)
+        else:
+            alias = aliases[0]
+            # alias_path = os.path.basename(os.readlink(alias))
+            # if alias_path != basename:
+            # Can happen, e.g. when cleared by Sisyphus due to error (cleared.0001 etc),
+            # or when I changed sth in the config due to some mistake.
+            # print("Warning: Alias path mismatch:", alias_path, "actual:", basename)
+            # But doesn't matter, clean up anyway, maybe even more so.
+            # pass
+
         # First collect all, and then go through them in sorted order below.
         # We do this because here the listdir order is totally arbitrary
         # (due to FS, but sorting by hash also would not help),
