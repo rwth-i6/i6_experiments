@@ -7,6 +7,7 @@ import os
 import sys
 import argparse
 import logging
+import time
 from functools import reduce
 from typing import TypeVar
 
@@ -61,7 +62,9 @@ def main():
     logging.basicConfig(format="[%(asctime)s] %(levelname)s: %(message)s", level=args.log_level)
 
     print("Loading Sisyphus configs...")
+    start = time.time()
     config_manager.load_configs(args.config)
+    print("Loading Sisyphus configs done, took %.3f sec." % (time.time() - start))
 
     print("Checking active train jobs of the Sisyphus graph...")
     active_train_job_paths = set()
