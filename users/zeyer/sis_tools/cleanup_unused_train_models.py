@@ -71,7 +71,8 @@ def main():
     print("Loading Sisyphus configs done, took %.3f sec." % (time.time() - start))
 
     print("Checking active train jobs of the Sisyphus graph...")
-    active_train_job_paths = set()
+    active_train_job_paths_set = set()
+    active_train_job_paths_list = []
     for job in graph.graph.jobs():
         job: Job
         # noinspection PyProtectedMember
@@ -93,12 +94,14 @@ def main():
                     break
                 print("  symlink ->", job_path_, "resolved to", job_path__)
                 job_path = job_path__
-            active_train_job_paths.add(job_path)
+            assert job_path not in active_train_job_paths_set
+            active_train_job_paths_set.add(job_path)
+            active_train_job_paths_list.append(job_path)
         else:
             print("Active train job not created yet:", job)
-    print("Num active train jobs:", len(active_train_job_paths))
+    print("Num active train jobs:", len(active_train_job_paths_set))
 
-    print("Now checking all train jobs in work dir...")
+    print("Now checking all train jobs in work dir to find unused train jobs...")
     total_model_size_to_remove = 0
     total_train_job_count = 0
     train_job_with_models_to_remove = []
@@ -111,7 +114,7 @@ def main():
             continue
         fn = "work/i6_core/returnn/training/" + basename
 
-        if fn not in active_train_job_paths and os.path.islink(fn):
+        if fn not in active_train_job_paths_set and os.path.islink(fn):
             try:
                 link = _rel_job_path(os.readlink(fn))
             except FileNotFoundError:
@@ -124,13 +127,13 @@ def main():
         # This potentially covers a bit more cases than the _rel_job_path logic above.
         realpath = os.path.realpath(fn)
         if realpath in covered_real_job_paths:
-            assert fn not in active_train_job_paths
+            assert fn not in active_train_job_paths_set
             continue
         covered_real_job_paths.add(realpath)
 
         total_train_job_count += 1
 
-        if fn in active_train_job_paths:
+        if fn in active_train_job_paths_set:
             found_active_fns.add(fn)
             continue
 
@@ -162,7 +165,7 @@ def main():
         # and to inspect the output, it's much more helpful when this is sorted in some way.
         unused_train_jobs[alias or basename] = fn
 
-    print("Collecting model checkpoint files to remove...")
+    print("Collecting model checkpoint files from unused train jobs to remove...")
     # Now go sorted.
     for name, fn in sorted(unused_train_jobs.items()):
         model_dir = fn + "/output/models"
@@ -191,9 +194,9 @@ def main():
     if not train_job_with_models_to_remove:
         print(" (none)")
     print("Can remove total model size:", human_bytes_size(total_model_size_to_remove))
-    if len(found_active_fns) != len(active_train_job_paths):
+    if len(found_active_fns) != len(active_train_job_paths_set):
         print("ERROR: Did not find some active jobs:")
-        for fn in active_train_job_paths:
+        for fn in active_train_job_paths_set:
             if fn not in found_active_fns:
                 print(" ", fn)
         raise Exception("Did not find some active jobs.")
