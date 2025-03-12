@@ -113,6 +113,11 @@ def main():
             continue
         fn = "work/i6_core/returnn/training/" + basename
 
+        if os.path.islink(fn):
+            link = _rel_job_path(os.readlink(fn))
+            if link != fn:
+                continue  # skip, will be handled when we reach the real name
+
         total_train_job_count += 1
 
         if fn in active_train_job_paths:
