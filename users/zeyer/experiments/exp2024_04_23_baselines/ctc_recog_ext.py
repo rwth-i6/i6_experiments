@@ -460,6 +460,9 @@ def py():
                 n_best_list_size=128,
                 first_pass_recog_beam_size=fp_beam_size,
             )
+
+        # output/ctc_recog_ext/ctc+lm/opt-beam128-fp128-lm_n32-d1024-labelprior/recog-1stpass-res.txt
+        # {"dev-clean": 2.04, "dev-other": 4.06, "test-clean": 2.08, "test-other": 4.36}
         ctc_recog_labelwise_prior_auto_scale(
             prefix=f"{prefix}/opt-beam128-fp128-lm_{lm_out_name}-labelprior",
             task=task,
