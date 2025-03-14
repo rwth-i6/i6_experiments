@@ -5,6 +5,7 @@ Config for RWTH IPC CLAIX-2023 cluster experiments for CTC
 from __future__ import annotations
 
 from typing import Any, Dict
+from sisyphus import tk
 
 from i6_experiments.users.zeyer.utils.dict_update import dict_update_deep
 from i6_experiments.users.zeyer.speed_pert.librosa_config import speed_pert_librosa_config
@@ -124,6 +125,8 @@ def py():
             # avoid OOM
             # env_updates={"PYTORCH_CUDA_ALLOC_CONF": "backend:cudaMallocAsync,expandable_segments:True"},
         )
+
+    recog_ext_with_lm()
 
     # Consistency regularization (CR) (crLoss).
     for opts, cr_ctc_variants in [
@@ -1705,3 +1708,54 @@ def py():
     )
 
     # TODO ctc without aux
+
+
+def recog_ext_with_lm():
+    from .ctc_recog_ext import ctc_recog_labelwise_prior_auto_scale, _get_lm_model, _lms, get_ctc_prior_probs
+    from .ctc import _train_experiments, _ctc_model_def_blank_idx, model_recog
+    from i6_experiments.users.zeyer.datasets.librispeech import get_librispeech_task_raw_v2, get_vocab_by_str
+    from i6_experiments.users.zeyer.decoding.prior_rescoring import Prior, PriorRemoveLabelRenormJob
+    from i6_experiments.users.zeyer.datasets.utils.vocab import (
+        ExtractVocabLabelsJob,
+        ExtractVocabSpecialLabelsJob,
+        ExtendVocabLabelsByNewLabelJob,
+    )
+
+    prefix = "ctc"
+    ctc_model_name = "L16-D512-spm10k-auxAED-b150k"
+    ctc_model = _train_experiments[ctc_model_name].get_last_fixed_epoch()
+    vocab = "spm10k"
+    task = get_librispeech_task_raw_v2(vocab=vocab)
+    prior = get_ctc_prior_probs(ctc_model, task.train_dataset.copy_train_as_static())
+    prior.creator.add_alias(f"{prefix}/{ctc_model_name}/prior")
+    tk.register_output(f"{prefix}/{ctc_model_name}/prior.txt", prior)
+    vocab_ = get_vocab_by_str(vocab)
+    vocab_file = ExtractVocabLabelsJob(vocab_.get_opts()).out_vocab
+    tk.register_output(f"{prefix}/vocab/{vocab}/vocab.txt.gz", vocab_file)
+    vocab_opts_file = ExtractVocabSpecialLabelsJob(vocab_.get_opts()).out_vocab_special_labels_dict
+    tk.register_output(f"{prefix}/vocab/{vocab}/vocab_opts.py", vocab_opts_file)
+    vocab_w_blank_file = ExtendVocabLabelsByNewLabelJob(
+        vocab=vocab_file, new_label=model_recog.output_blank_label, new_label_idx=_ctc_model_def_blank_idx
+    ).out_vocab
+    tk.register_output(f"{prefix}/vocab/{vocab}/vocab_w_blank.txt.gz", vocab_w_blank_file)
+    log_prior_wo_blank = PriorRemoveLabelRenormJob(
+        prior_file=prior,
+        prior_type="prob",
+        vocab=vocab_w_blank_file,
+        remove_label=model_recog.output_blank_label,
+        out_prior_type="log_prob",
+    ).out_prior
+    tk.register_output(f"{prefix}/{ctc_model_name}/log_prior_wo_blank.txt", log_prior_wo_blank)
+    lm_out_name = "n32-d1024"
+    ctc_recog_labelwise_prior_auto_scale(
+        prefix=f"{prefix}/{ctc_model_name}/recog-beam128-fp128-lm_{lm_out_name}-labelprior",
+        task=task,
+        ctc_model=ctc_model,
+        labelwise_prior=Prior(file=log_prior_wo_blank, type="log_prob", vocab=vocab_file),
+        lm=_get_lm_model(_lms[lm_out_name]),
+        vocab_file=vocab_file,
+        vocab_opts_file=vocab_opts_file,
+        n_best_list_size=128,
+        first_pass_recog_beam_size=128,
+        # first_pass_search_rqmt={"gpu_mem": 24 if lm_out_name in {"n96-d512", "n32-d1024"} else 11},
+    )
