@@ -254,6 +254,7 @@ def _collect_stats_returnn_forward_config(
     TODO should use sth like unhashed_package_root (https://github.com/rwth-i6/i6_experiments/pull/157)
     """
     from i6_experiments.common.setups.returnn.serialization import get_serializable_config
+    from i6_experiments.users.zeyer.returnn.config import config_dict_update_
 
     returnn_recog_config_dict = dict(
         # dataset
@@ -262,18 +263,19 @@ def _collect_stats_returnn_forward_config(
         forward_data=dataset.get_main_dataset(),
     )
     if model_def:
-        returnn_recog_config_dict.update(
+        config_dict_update_(
+            returnn_recog_config_dict,
             dict(
                 backend=model_def.backend,
                 behavior_version=model_def.behavior_version,
-            )
+            ),
         )
     else:
         assert config and config.get("backend") and config.get("behavior_version")
     if config:
-        returnn_recog_config_dict.update(config)
+        config_dict_update_(returnn_recog_config_dict, config)
     if isinstance(model_def, ModelDefWithCfg):
-        returnn_recog_config_dict.update(model_def.config)
+        config_dict_update_(returnn_recog_config_dict, model_def.config)
 
     extern_data_raw = dataset.get_extern_data()
     # The extern_data is anyway not hashed, so we can also instanciate any delayed objects here.
