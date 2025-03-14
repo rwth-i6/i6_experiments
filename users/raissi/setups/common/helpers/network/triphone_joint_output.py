@@ -1,4 +1,5 @@
-__all__ = ["augment_returnn_config_to_joint_diphone_softmax", "get_prolog_augment_network_to_joint_diphone_softmax"]
+__all__ = ["get_prolog_augment_network_to_joint_triphone_softmax",
+           "augment_returnn_config_to_joint_triphone_softmax"]
 
 import copy
 from textwrap import dedent
@@ -18,15 +19,14 @@ def get_prolog_augment_network_to_joint_triphone_softmax(
     log_softmax: bool,
     joint_softmax_layer: str = "output",
     right_context_softmax_layer: str = "right-output",
-    encoder_output_layer: str = "encoder-output-2",
+    encoder_output_layer: str = "encoder-output",
     prepare_for_train: bool = False,
-
 ) -> Network:
 
-    dim_prolog, lc_spatial_dim, c_range_dim = get_context_dim_tag_prolog(
-        spatial_size=label_info.get_n_state_classes()+label_info.n_contexts,
-        feature_size=label_info.n_contexts,
-        context_type="LC",
+    dim_prolog, r_spatial_dim, r_range_dim = get_context_dim_tag_prolog(
+        spatial_size=label_info.n_contexts * label_info.get_n_state_classes(),
+        feature_size=label_info.get_n_state_classes(),
+        context_type="R",
         spatial_dim_variable_name="__right_spatial",
         feature_dim_variable_name="__right_feature",
     )
@@ -49,24 +49,25 @@ def get_prolog_augment_network_to_joint_triphone_softmax(
         "class": "expand_dims",
         "from": encoder_output_layer,
         "axis": "spatial",
-        "dim": lc_spatial_dim,
+        "dim": r_spatial_dim,
     }
-    network["currentStateAndRange"] = {
+    network["currentStateRange"] = {
         "class": "range",
         "dtype": "int32",
         "start": 0,
         "limit": label_info.get_n_state_classes(),
         "sparse": True,
-        "out_spatial_dim": lc_spatial_dim,
+        "out_spatial_dim": r_spatial_dim,
     }
     network["currentState"] = {
         "class": "reinterpret_data",
-        "from": "pastLabelRange",
-        "set_sparse_dim": c_range_dim,
+        "from": "currentStateRange",
+        "set_sparse_dim": r_range_dim,
     }
-    network["pastEmbed"]["in_dim"] = c_range_dim
-    network["pastEmbed"]["from"] = "pastLabel"
-    network["linear1-diphone"]["from"] = [f"{encoder_output_layer}_expanded", "pastEmbed"]
+    network["currentState"]["in_dim"] = r_range_dim
+    network["currentState"]["from"] = "futureLabel"
+
+    network["linear1-triphone"]["from"] = [f"{encoder_output_layer}_expanded", "currentState", "pastEmbed"]
     network[f"{joint_softmax_layer}_transposed"] = {
         # Transpose the center output because in diphone-no-tying-dense, the left context is
         # the trailing index. So we have for every center state all left contexts next to each
@@ -92,10 +93,12 @@ def get_prolog_augment_network_to_joint_triphone_softmax(
     }
     network[out_joint_score_layer] = {
         "class": "merge_dims",
-        "axes": [f"dim:{label_info.get_n_state_classes()}", f"dim:{label_info.n_contexts}"],
+        "axes": [f"dim:{label_info.get_n_state_classes()*label_info.n_contexts}", f"dim:{label_info.n_contexts}"],
         "keep_order": True,
         "from": f"{out_joint_score_layer}_scores",
     }
+    from IPython import embed
+    #embed()
 
     if prepare_for_train:
         # To train numerically stable RETURNN needs a softmax activation at the end.
@@ -117,16 +120,15 @@ def get_prolog_augment_network_to_joint_triphone_softmax(
     return dim_prolog, network
 
 
-def augment_returnn_config_to_joint_diphone_softmax(
+def augment_returnn_config_to_joint_triphone_softmax(
     returnn_config: returnn.ReturnnConfig,
     label_info: LabelInfo,
     out_joint_score_layer: str,
     log_softmax: bool,
-    joint_softmax_layer: str = "center-output",
-    right_context_softmax_layer: str = "left-output",
+    joint_softmax_layer: str = "output",
+    right_context_softmax_layer: str = "right-output",
     encoder_output_layer: str = "encoder-output",
     prepare_for_train: bool = False,
-    keep_right_context: bool = False,
 ) -> returnn.ReturnnConfig:
     """
     Assumes a diphone FH model and expands the model to calculate the scores for the joint
@@ -142,14 +144,9 @@ def augment_returnn_config_to_joint_diphone_softmax(
     returnn_config.config["forward_output_layer"] = out_joint_score_layer
 
     extern_data = returnn_config.config["extern_data"]
-    for k in ["centerState", "singleStateCenter", "futureLabel", "pastLabel"]:
-        if k in extern_data:
-            extern_data.pop(k, None)
-    if "classes" in extern_data:
-        extern_data["classes"].pop("same_dim_tags_as", None)
     extern_data[out_joint_score_layer] = {
         "available_for_inference": True,
-        "dim": label_info.get_n_state_classes() * label_info.n_contexts,
+        "dim": label_info.get_n_state_classes() * label_info.n_contexts *label_info.n_contexts,
         "same_dim_tags_as": extern_data["data"]["same_dim_tags_as"],
     }
 
@@ -162,12 +159,9 @@ def augment_returnn_config_to_joint_diphone_softmax(
         right_context_softmax_layer=right_context_softmax_layer,
         encoder_output_layer=encoder_output_layer,
         prepare_for_train=prepare_for_train,
-        keep_right_context=keep_right_context,
     )
 
     update_cfg = returnn.ReturnnConfig({}, python_prolog=dim_prolog)
     returnn_config.update(update_cfg)
 
     return returnn_config
-
-
