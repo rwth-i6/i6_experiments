@@ -170,7 +170,7 @@ def py():
                 name = f"crLoss{cr_ctc['cr_loss_scale']}"
                 if cr_ctc.get("cr_loss_on_aux_probs"):
                     name += "_withAux"
-                if cr_ctc.get("aux_attention_decoder") is None:
+                if "aux_attention_decoder" in cr_ctc and cr_ctc["aux_attention_decoder"] is None:
                     name += "_noAuxAed"
                 elif cr_ctc.get("aed_loss_scale", 1.0) != 1.0:
                     name += f"_aedLoss{cr_ctc['aed_loss_scale']}"
