@@ -1726,7 +1726,11 @@ def recog_ext_with_lm():
     ctc_model = _train_experiments[ctc_model_name].get_last_fixed_epoch()
     vocab = "spm10k"
     task = get_librispeech_task_raw_v2(vocab=vocab)
-    prior = get_ctc_prior_probs(ctc_model, task.train_dataset.copy_train_as_static())
+    prior = get_ctc_prior_probs(
+        ctc_model,
+        task.train_dataset.copy_train_as_static(),
+        config={"behavior_version": 24, "batch_size": 200_000, "max_seqs": 2000},
+    )
     prior.creator.add_alias(f"{prefix}/{ctc_model_name}/prior")
     tk.register_output(f"{prefix}/{ctc_model_name}/prior.txt", prior)
     vocab_ = get_vocab_by_str(vocab)
