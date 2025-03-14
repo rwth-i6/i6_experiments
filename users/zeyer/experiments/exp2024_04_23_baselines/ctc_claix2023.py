@@ -149,10 +149,11 @@ def py():
         (
             {"num_enc_layers": 12, "batch_size": 200_000, "vocab": "spm512"},
             [
-                None,
-                {"cr_loss_scale": 0.1},
-                {"cr_loss_scale": 0.2},
-                {"cr_loss_scale": 0.2, "cr_loss_on_aux_probs": True},
+                None,  # 6.18
+                {"cr_loss_scale": 0.1},  # 5.94
+                {"cr_loss_scale": 0.2},  # 5.96
+                {"cr_loss_scale": 0.2, "cr_loss_on_aux_probs": True},  # 5.93
+                # {"cr_loss_scale": 0.5},  # 6.05
             ],
         ),
         # {"num_enc_layers": 12, "batch_size": 150_000, "vocab": "spm512", "time_downsampling": 4},
