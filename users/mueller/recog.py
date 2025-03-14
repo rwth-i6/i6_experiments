@@ -39,7 +39,7 @@ from i6_experiments.users.mann.nn.util import DelayedCodeWrapper
 
 import numpy as np
 
-from .utils import PartialImportCustom, ReturnnConfigCustom
+from .utils import PartialImportCustom, ReturnnConfigCustom, DataSetStatsJob
 from .experiments.ctc_baseline.ctc import model_recog_lm, model_recog_flashlight, model_recog_lm_albert
 from .experiments.language_models.n_gram import get_kenlm_n_gram, get_binary_lm
 from .datasets.librispeech import get_bpe_lexicon, LibrispeechOggZip
@@ -580,15 +580,15 @@ def search_dataset(
         if recog_def is model_recog_flashlight or recog_def is model_recog_lm_albert:
             from i6_core.returnn.search import SearchOutputRawReplaceJob
             res = SearchOutputRawReplaceJob(res, [("@@", "")], output_gzip=True).out_search_results
-        if count_repeated_path:
-            cnt = CountRepeatedLabelsJob(res).out_count_results
-            tk.register_output(count_repeated_path, cnt)
     beam_res = res
     if recog_def.output_with_beam:
         # Don't join scores here (SearchBeamJoinScoresJob).
         #   It's not clear whether this is helpful in general.
         #   As our beam sizes are very small, this might boost some hyps too much.
         res = SearchTakeBestJob(res, output_gzip=True).out_best_search_results
+    if count_repeated_path:
+        cnt = DataSetStatsJob(res).out_count_results
+        tk.register_output(count_repeated_path, cnt)
     return RecogOutput(output=res), beam_res
 
 
@@ -928,8 +928,8 @@ def search_config_v2(
         if prior_path:
             args["prior_file"] = prior_path
             args_cached["prior_file"] = DelayedCodeWrapper("cf('{}')", prior_path.get_path())
-        if recog_def is model_recog_lm_albert or recog_def is model_recog_flashlight:
-            args["version"] = 9
+        # if recog_def is model_recog_lm_albert or recog_def is model_recog_flashlight:
+        #     args["version"] = 1
     else:
         args = {}
 
@@ -1693,53 +1693,3 @@ class PriorCombineShardsJob(sisyphus.Job):
         with uopen(self.out_comined_results, "w") as f:
             np.savetxt(f, log_average_probs, delimiter=" ")
         print("Saved prior in prior.txt in +log space.")
-        
-class CountRepeatedLabelsJob(sisyphus.Job):
-
-    def __init__(self, search_py_output: tk.Path):
-        """
-        :param search_py_output: a search output file from RETURNN in python format (single or n-best)
-        :param output_gzip: gzip the output
-        """
-        self.search_py_output = search_py_output
-        self.out_count_results = self.output_path("count_results.py")
-
-    def tasks(self):
-        """task"""
-        yield sisyphus.Task("run", mini_task=True)
-
-    def run(self):
-        """run"""
-        d = eval(uopen(self.search_py_output, "rt").read(), {"nan": float("nan"), "inf": float("inf")})
-        assert isinstance(d, dict)  # seq_tag -> bpe string
-        assert not os.path.exists(self.out_count_results.get_path())
-        with uopen(self.out_count_results, "wt") as out:
-            out.write("{\n")
-            num_repeated = 0
-            num_total = 0
-            nbest = 0
-            for seq_tag, entry in d.items():
-                if isinstance(entry, list):
-                    # n-best list as [(score, text), ...]
-                    nbest=len(entry)
-                    for score, text in entry:
-                        prev = len(text.split(" "))
-                        num_total += prev
-                        new = len(self._filter(text).split(" "))
-                        num_repeated += (prev - new)
-                else:
-                    nbest=1
-                    prev = len(entry.split(" "))
-                    num_total += prev
-                    new = len(self._filter(entry).split(" "))
-                    num_repeated += (prev - new)
-            out.write("%r: %r,\n" % ("Repeated", num_repeated))
-            out.write("%r: %r,\n" % ("Total", num_total))
-            out.write("%r: %r,\n" % ("Percentage", num_repeated / num_total))
-            out.write("%r: %r,\n" % ("Nbest", nbest))
-            out.write("}\n")
-
-    def _filter(self, txt: str) -> str:
-        tokens = txt.split(" ")
-        tokens = [t1 for (t1, t2) in zip(tokens, [None] + tokens) if t1 != t2]
-        return " ".join(tokens)

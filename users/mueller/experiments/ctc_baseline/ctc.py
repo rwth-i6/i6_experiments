@@ -35,6 +35,7 @@ from i6_experiments.users.mann.nn.util import DelayedCodeWrapper
 from i6_core.util import uopen
 
 from .configs import _get_cfg_lrlin_oclr_by_bs_nep, _batch_size_factor, config_11gb_v6_f32_accgrad1_mgpu4_pavg100_wd1e_4, dict_update_deep, post_config
+from . import recombination
 
 if TYPE_CHECKING:
     from i6_experiments.common.setups import serialization
@@ -91,6 +92,10 @@ def py():
     decoder_lm_config = {"class": "FeedForwardLm", "context_size": 8}
     # decoder_lm_config = {"class": "ngram", "order": 4}
     use_norm_st_loss = True
+    # only relevant in alberts LM decoding
+    use_recombination = True
+    recombine_blank = True
+    recombine_after_topk = True
     
     use_sum_criterion = False
     horizontal_prior = True
@@ -144,14 +149,14 @@ def py():
         decoder_hyperparameters = {
             "log_add": False,
             "nbest": 1,
-            "beam_size": 2,
+            "beam_size": 10,
             "lm_weight": 0.8, # NOTE: weights are exponentials of the probs
             "use_logsoftmax": True,
             "use_lm": True,
             "use_lexicon": True,
         }
         if with_prior:
-            decoder_hyperparameters["prior_weight"] = 0.0 # 0.2 if not using emprirical prior
+            decoder_hyperparameters["prior_weight"] = 0.3 # 0.2 if not using emprirical prior
         if decoder_lm_config:
             decoder_hyperparameters["lm_order"] = decoder_lm_config["order"] if decoder_lm_config["class"] == "ngram" else f"ffnn{decoder_lm_config['context_size']}"
             decoder_hyperparameters["use_lexicon"] = False
@@ -159,6 +164,12 @@ def py():
                 model_config["recog_language_model"] = decoder_lm_config
                 if decode_every_step:
                     model_config["train_language_model"] = decoder_lm_config
+                if use_recombination:
+                    decoder_hyperparameters["use_recombination"] = True
+                    if recombine_blank:
+                        decoder_hyperparameters["recomb_blank"] = True
+                    if recombine_after_topk:
+                        decoder_hyperparameters["recomb_after_topk"] = True
             
         p0 = f"_p{str(decoder_hyperparameters['prior_weight']).replace('.', '')}" + ("-emp" if empirical_prior else ("-from_max" if prior_from_max else "")) if with_prior else ""
         p1 = "sum" if decoder_hyperparameters['log_add'] else "max"
@@ -173,7 +184,7 @@ def py():
         if decoding_imp == "albert-flashlight":
             decoding_str = "-recog_albert_lm" + decoding_str
         elif decoding_imp == "albert-lm":
-            decoding_str = "-recog_alberts_own_lm" + decoding_str
+            decoding_str = "-recog_alberts_own_lm" + ("_recomb" + ("-blank" if recombine_blank else "") + ("-after" if recombine_after_topk else "") if use_recombination else "") + decoding_str
         else:
             decoding_str = "-recog_lm" + decoding_str
         
@@ -2511,9 +2522,9 @@ def decode_albert(
     hyperparameters: dict,
     batch_dims: List[Dim],
     prior_file: tk.Path = None,
-    train_lm = False,
+    train_lm: bool = False,
     version: int = 1,
-    print_idx = []
+    print_idx: list = []
 ):
     import json
     
@@ -2562,6 +2573,9 @@ def decode_albert(
     n_best = hyp_params.pop("ps_nbest", 1)
     assert n_best == 1, "n-best not implemented yet"
     beam_size = hyp_params.pop("beam_size", 1)
+    use_recombination = hyp_params.pop("use_recombination", False)
+    recomb_blank = hyp_params.pop("recomb_blank", False)
+    recomb_after_topk = hyp_params.pop("recomb_after_topk", False)
     
     dev_s = rf.get_default_device()
     dev = torch.device(dev_s)
@@ -2625,16 +2639,17 @@ def decode_albert(
     assert lm_logits.dims == (*batch_dims_, model.target_dim)
     lm_log_probs = rf.log_softmax(lm_logits, axis=model.target_dim)  # Batch, InBeam, Vocab
     lm_log_probs *= lm_scale
-    
-    if version == 9:
-        if print_idx:
-            flashlight_align = [184, 184, 184, 24, 184, 9, 184, 75, 74, 184, 184, 24, 184, 7, 184, 106, 184, 18, 184, 184, 184, 42, 184, 184, 24, 184, 184, 78, 11, 184, 126, 184, 184, 108, 184, 184, 184, 184, 184, 184, 184, 130, 184, 9, 121, 184, 184, 114, 184, 184, 184, 141, 184, 184, 10, 184, 184, 184, 118, 184, 184, 184, 184, 184, 184, 27, 184, 46, 184, 156, 184, 184, 28, 17, 2, 74, 184, 184, 184, 14, 15, 29, 184, 12, 30, 184, 184, 24, 184, 3, 184, 119, 184, 184, 184, 175, 184, 184, 184, 184, 20, 184, 184, 184, 184, 12, 84, 184, 40, 184, 184, 184, 184, 30, 184, 184, 152, 14, 14, 5, 184, 184, 135, 184, 184, 184, 184, 184, 184, 184, 184, 184]
-            fixed_lm_state = [model.bos_idx] * 8
-            fixed_seq_prob = torch.zeros(1, dtype=torch.float32)
 
     max_seq_len = int(enc_spatial_dim.get_dim_value())
     seq_targets_wb = []
     seq_backrefs = []
+    backrefs = None
+    if use_recombination:
+        assert len(batch_dims) == 1
+        if recomb_after_topk:
+            seq_hash = rf.constant(0, dims=batch_dims_, dtype="int64")
+        else:
+            seq_hash = rf.constant(0, dims=batch_dims_ + [model.wb_target_dim], dtype="int64")
     for t in range(max_seq_len):
         prev_target = target
         prev_target_wb = target_wb
@@ -2656,48 +2671,24 @@ def decode_albert(
                 0.0,
             )  # Batch, InBeam, VocabWB
             
+        if use_recombination and not recomb_after_topk:
+            seq_hash = recombination.update_seq_hash(seq_hash, rf.range_over_dim(model.wb_target_dim), backrefs, target_wb, model.blank_idx)
+            if t > 0:
+                seq_log_prob = recombination.recombine_seqs(
+                    seq_log_prob,
+                    seq_hash,
+                    beam_dim,
+                    batch_dims[0],
+                    model.wb_target_dim,
+                    model.blank_idx,
+                    recomb_blank=recomb_blank,
+                    use_sum=False,
+                )
+            
         seq_log_prob, (backrefs, target_wb), beam_dim = rf.top_k(
             seq_log_prob, k_dim=Dim(beam_size, name=f"dec-step{t}-beam"), axis=[beam_dim, model.wb_target_dim]
         )
         
-        if version == 9:
-            if print_idx:
-                fixed_seq_prob += label_log_prob_ta[t].raw_tensor[print_idx[0], flashlight_align[t]]
-                if flashlight_align[t] != 184:
-                    lm_initial_state2 = lm.default_initial_state(batch_dims=batch_dims_)
-                    lm_logits2, lm_state2 = lm(
-                        rf.convert_to_tensor(fixed_lm_state, dims=[context_dim], sparse_dim=model.target_dim),
-                        spatial_dim=context_dim,
-                        out_spatial_dim=lm_out_dim,
-                        state=lm_initial_state2,
-                    )  # Vocab / ...
-                    lm_logits2 = rf.gather(lm_logits2, axis=lm_out_dim, indices=rf.last_frame_position_of_dim(lm_out_dim))
-                    lm_log_probs2 = rf.log_softmax(lm_logits2, axis=model.target_dim)  # Vocab
-                    lm_log_probs2 *= lm_scale
-                    
-                    fixed_lm_state = fixed_lm_state[1:] + [flashlight_align[t]]
-                    fixed_seq_prob += lm_log_probs2.raw_tensor[flashlight_align[t]]
-                print(f"t={t}: {fixed_seq_prob}")
-                topk_scores = seq_log_prob.raw_tensor[print_idx[0]].tolist()
-                print(f"Topk scores: {topk_scores}")
-                print(target_wb)
-                topk_res = target_wb.raw_tensor[print_idx[0]].tolist()
-                if flashlight_align[t] not in topk_res:
-                    print(f"Removed {flashlight_align[t]} from topk: {topk_res}")
-                if t == max_seq_len - 1:
-                    lm_initial_state2 = lm.default_initial_state(batch_dims=batch_dims_)
-                    lm_logits2, lm_state2 = lm(
-                        rf.convert_to_tensor(fixed_lm_state, dims=[context_dim], sparse_dim=model.target_dim),
-                        spatial_dim=context_dim,
-                        out_spatial_dim=lm_out_dim,
-                        state=lm_initial_state2,
-                    )  # Vocab / ...
-                    lm_logits2 = rf.gather(lm_logits2, axis=lm_out_dim, indices=rf.last_frame_position_of_dim(lm_out_dim))
-                    lm_log_probs2 = rf.log_softmax(lm_logits2, axis=model.target_dim)  # Vocab
-                    lm_log_probs2 *= lm_scale
-                    
-                    fixed_seq_prob += lm_log_probs2.raw_tensor[model.eos_idx]
-                    print(f"FINAL SCORE: {fixed_seq_prob}")
         # seq_log_prob, backrefs, target_wb: Batch, Beam
         # backrefs -> InBeam.
         # target_wb -> VocabWB.
@@ -2721,6 +2712,21 @@ def decode_albert(
             ),
             prev_target,
         )  # Batch, Beam -> Vocab
+        
+        if use_recombination and recomb_after_topk:
+            seq_hash = recombination.update_seq_hash(seq_hash, target_wb, backrefs, prev_target_wb, model.blank_idx, gather_old_target=False)
+            if t > 0:
+                seq_log_prob = recombination.recombine_seqs(
+                    seq_log_prob,
+                    seq_hash,
+                    beam_dim,
+                    batch_dims[0],
+                    None,
+                    model.blank_idx,
+                    recomb_blank=recomb_blank,
+                    use_sum=False,
+                    is_blank=(target_wb == model.blank_idx),
+                )
 
         got_new_label_cpu = rf.copy_to_device(got_new_label, "cpu")
         if got_new_label_cpu.raw_tensor.sum().item() > 0:
@@ -2813,57 +2819,3 @@ def decode_albert(
         return seq_targets_wb.raw_tensor.transpose(0,1).transpose(1,2).tolist()
     else:
         return seq_targets_wb, seq_log_prob, out_spatial_dim, beam_dim
-    
-    
-# t=3: tensor[1] [-4.254]
-# t=5: tensor[1] [-7.274]
-# t=7: tensor[1] [-10.040]
-# t=8: tensor[1] [-12.021]
-# t=11: tensor[1] [-15.535]
-# t=13: tensor[1] [-18.169]
-# t=15: tensor[1] [-21.431]
-# t=17: tensor[1] [-23.825]
-# t=21: tensor[1] [-27.083]
-# t=24: tensor[1] [-28.782]
-# t=27: tensor[1] [-32.880]
-# t=28: tensor[1] [-33.451]
-# t=30: tensor[1] [-33.597]
-# t=33: tensor[1] [-36.125]
-# t=41: tensor[1] [-40.106]
-# t=43: tensor[1] [-42.046]
-# t=44: tensor[1] [-42.348]
-# t=47: tensor[1] [-43.962]
-# t=51: tensor[1] [-47.847]
-# t=54: tensor[1] [-48.427]
-# t=58: tensor[1] [-48.738]
-# t=65: tensor[1] [-53.043]
-# t=67: tensor[1] [-54.884]
-# t=69: tensor[1] [-58.897]
-# t=72: tensor[1] [-62.208]
-# t=73: tensor[1] [-62.714]
-# t=74: tensor[1] [-62.753]
-# t=75: tensor[1] [-62.761]
-# t=79: tensor[1] [-65.390]
-# t=80: tensor[1] [-68.034]
-# t=81: tensor[1] [-69.029]
-# t=83: tensor[1] [-69.460]
-# t=84: tensor[1] [-71.438]
-# t=87: tensor[1] [-75.929]
-# t=89: tensor[1] [-77.140]
-# t=91: tensor[1] [-80.649]
-# t=95: tensor[1] [-84.254]
-# t=100: tensor[1] [-85.932]
-# t=105: tensor[1] [-91.674]
-# t=106: tensor[1] [-93.684]
-# t=108: tensor[1] [-95.993]
-# t=113: tensor[1] [-112.235]
-# t=116: tensor[1] [-116.193]
-# t=117: tensor[1] [-117.841]
-# t=118: tensor[1] [-124.033]
-# t=119: tensor[1] [-125.794]
-# t=122: tensor[1] [-130.898]
-# FINAL SCORE: tensor[1] [-131.813]
-
-# 'dev-other/1630-96099-0024/1630-96099-0024': [
-#   (-144.0885009765625, '<blank> <blank> <blank> TO <blank> W@@ <blank> IS@@ H <blank> <blank> TO <blank> P@@ <blank> AS@@ <blank> S <blank> <blank> <blank> ON <blank> <blank> TO <blank> <blank> LE@@ A@@ <blank> VE <blank> <blank> HER <blank> <blank> <blank> <blank> <blank> <blank> <blank> SHE <blank> W@@ OULD <blank> <blank> NOT <blank> <blank> <blank> CON@@ <blank> <blank> S@@ <blank> <blank> <blank> ENT <blank> <blank> <blank> <blank> <blank> <blank> TH@@ <blank> EN <blank> THEY <blank> <blank> B@@ O@@ T@@ H <blank> <blank> <blank> G@@ U@@ AR@@ <blank> D@@ ING <blank> <blank> TO <blank> THE <blank> CA@@ <blank> <blank> <blank> B <blank> <blank> <blank> <blank> AND <blank> <blank> <blank> <blank> D@@ RI@@ <blank> V@@ <blank> <blank> <blank> <blank> <blank> <blank> <blank> <blank> <blank> <blank> E@@ <blank> <blank> L <blank> <blank> <blank> <blank> <blank> <blank> <blank> <blank> <blank>'),
-# ],
