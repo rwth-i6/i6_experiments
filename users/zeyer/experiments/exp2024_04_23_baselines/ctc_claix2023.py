@@ -135,9 +135,9 @@ def py():
         (
             {"num_enc_layers": 12, "batch_size": 150_000, "vocab": "spm10k"},
             [
-                None,
-                {"cr_loss_scale": 0.1},
-                {"cr_loss_scale": 0.2},
+                None,  # 5.89
+                {"cr_loss_scale": 0.1},  # 5.91
+                {"cr_loss_scale": 0.2},  # 5.89
             ],
         ),
         # Baseline (n16, spm10k) has {"dev-clean": 2.26, "dev-other": 5.44, "test-clean": 2.5, "test-other": 5.62}.
