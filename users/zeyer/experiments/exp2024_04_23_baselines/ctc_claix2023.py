@@ -138,6 +138,9 @@ def py():
                 None,  # 5.89
                 {"cr_loss_scale": 0.1},  # 5.91
                 {"cr_loss_scale": 0.2},  # 5.89
+                {"cr_loss_scale": 0.2, "cr_loss_on_aux_probs": True},
+                {"cr_loss_scale": 0.2, "cr_loss_on_aux_probs": True, "aed_loss_scale": 0.5},
+                {"cr_loss_scale": 0.2, "cr_loss_on_aux_probs": True, "use_normalized_loss": False},
             ],
         ),
         # Baseline (n16, spm10k) has {"dev-clean": 2.26, "dev-other": 5.44, "test-clean": 2.5, "test-other": 5.62}.
@@ -153,6 +156,7 @@ def py():
                 {"cr_loss_scale": 0.1},  # 5.94
                 {"cr_loss_scale": 0.2},  # 5.96
                 {"cr_loss_scale": 0.2, "cr_loss_on_aux_probs": True},  # 5.93
+                {"cr_loss_scale": 0.2, "cr_loss_on_aux_probs": True, "aux_attention_decoder": None},
                 # {"cr_loss_scale": 0.5},  # 6.05
             ],
         ),
@@ -166,6 +170,12 @@ def py():
                 name = f"crLoss{cr_ctc['cr_loss_scale']}"
                 if cr_ctc.get("cr_loss_on_aux_probs"):
                     name += "_withAux"
+                if cr_ctc.get("aux_attention_decoder") is None:
+                    name += "_noAuxAed"
+                elif cr_ctc.get("aed_loss_scale", 1.0) != 1.0:
+                    name += f"_aedLoss{cr_ctc['aed_loss_scale']}"
+                if cr_ctc.get("use_normalized_loss") is False:
+                    name += "_noLossNorm"
                 name += "-"
             else:
                 name = ""
@@ -218,7 +228,11 @@ def py():
                     "__train_audio_preprocess": speed_pert_librosa_config,
                     "speed_pert_discrete_values": [0.7, 0.8, 0.9, 1.0, 1.1],
                     # purely used for training
-                    "aux_attention_decoder": rf.build_dict(TransformerDecoder, num_layers=6),
+                    "aux_attention_decoder": cr_ctc["aux_attention_decoder"]
+                    if use_cr_ctc and "aux_attention_decoder" in cr_ctc
+                    else opts["aux_attention_decoder"]
+                    if "aux_attention_decoder" in opts
+                    else rf.build_dict(TransformerDecoder, num_layers=6),
                     **(cr_ctc if use_cr_ctc else {}),
                     **({"use_fixed_ctc_grad": "v2", "aed_loss_bug_fix": True} if use_cr_ctc else {}),
                     "max_seq_length_default_target": None,
