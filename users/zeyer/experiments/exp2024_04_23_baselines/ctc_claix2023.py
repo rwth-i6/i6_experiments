@@ -128,7 +128,8 @@ def py():
             # env_updates={"PYTORCH_CUDA_ALLOC_CONF": "backend:cudaMallocAsync,expandable_segments:True"},
         )
 
-    recog_ext_with_lm()
+    recog_ext_with_lm(ctc_model_name="L16-D512-spm10k-auxAED-b150k")
+    recog_ext_with_lm(ctc_model_name="L16-D768-spm10k-auxAED-b100k")
 
     # Consistency regularization (CR) (crLoss).
     for opts, cr_ctc_variants in [
@@ -1712,7 +1713,7 @@ def py():
     # TODO ctc without aux
 
 
-def recog_ext_with_lm():
+def recog_ext_with_lm(*, ctc_model_name: str):
     from .ctc_recog_ext import ctc_recog_labelwise_prior_auto_scale, _get_lm_model, _lms, get_ctc_prior_probs
     from .ctc import _train_experiments, _ctc_model_def_blank_idx, model_recog
     from i6_experiments.users.zeyer.datasets.librispeech import get_librispeech_task_raw_v2, get_vocab_by_str
@@ -1724,7 +1725,6 @@ def recog_ext_with_lm():
     )
 
     prefix = "ctc"
-    ctc_model_name = "L16-D512-spm10k-auxAED-b150k"
     ctc_model = _train_experiments[ctc_model_name].get_last_fixed_epoch()
     vocab = "spm10k"
     task = get_librispeech_task_raw_v2(vocab=vocab)
