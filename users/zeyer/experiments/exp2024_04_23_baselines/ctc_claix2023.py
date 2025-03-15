@@ -74,7 +74,7 @@ def py():
 
     for num_layers, num_dims, batch_size in [
         (16, 512, 150_000),  # {"dev-clean": 2.39, "dev-other": 5.5, "test-clean": 2.5, "test-other": 5.67}
-        (16, 768, 100_000),
+        (16, 768, 100_000),  # {"dev-clean": 2.26, "dev-other": 5.09, "test-clean": 2.41, "test-other": 5.41}
         (16, 1024, 100_000),
         (20, 512, 150_000),
         (32, 512, 100_000),
